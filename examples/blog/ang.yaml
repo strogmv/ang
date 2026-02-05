@@ -1,0 +1,24 @@
+version: "1"
+name: "blog-example"
+description: "Comprehensive ANG example: Blog with auth, posts, comments"
+
+cue:
+  api: "./cue/api"
+  domain: "./cue/domain"
+  architecture: "./cue/architecture"
+  repo: "./cue/repo"
+  policies: "./cue/policies"
+
+output:
+  backend: "."
+  frontend: "./sdk"
+
+go:
+  module: "github.com/example/blog"
+  package: "internal"
+
+features:
+  auth: true
+  events: true
+  cache: false
+  scheduler: false

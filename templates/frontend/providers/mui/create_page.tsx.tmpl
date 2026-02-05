@@ -1,0 +1,25 @@
+import { Container, Paper, Typography, Box, IconButton } from '@mui/material';
+import { ArrowBack as ArrowBackIcon } from '@mui/icons-material';
+import { useNavigate } from 'react-router-dom';
+import { Create{{ .Name }}Form } from '../../components/forms/Create{{ .Name }}Form';
+
+export default function Create{{ .Name }}Page() {
+  const navigate = useNavigate();
+
+  return (
+    <Container maxWidth="md" sx={{"{{"}} mt: 4, mb: 4 {{"}}"}}>
+      <Box sx={{"{{"}} display: 'flex', alignItems: 'center', mb: 3 {{"}}"}}>
+        <IconButton onClick={() => navigate(-1)} sx={{"{{"}} mr: 2 {{"}}"}}>
+          <ArrowBackIcon />
+        </IconButton>
+        <Typography variant="h4" component="h1">
+          Создать {{ .Name }}
+        </Typography>
+      </Box>
+
+      <Paper sx={{"{{"}} p: 3 {{"}}"}}>
+        <Create{{ .Name }}Form />
+      </Paper>
+    </Container>
+  );
+}

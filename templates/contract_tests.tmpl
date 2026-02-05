@@ -1,0 +1,296 @@
+//go:build contract
+
+package tests
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"regexp"
+	"sync"
+	"math/rand"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/gorilla/websocket"
+)
+
+func contractBaseURL() string {
+	if v := os.Getenv("CONTRACT_BASE_URL"); v != "" {
+		return v
+	}
+	return "http://localhost:8080"
+}
+
+func contractWSURL() string {
+	if v := os.Getenv("CONTRACT_WS_URL"); v != "" {
+		return v
+	}
+	return "ws://localhost:8080"
+}
+
+func contractToken() string {
+	return os.Getenv("CONTRACT_TOKEN")
+}
+
+func contractRefreshToken() string {
+	return os.Getenv("CONTRACT_REFRESH_TOKEN")
+}
+
+func contractEmail() string {
+	return os.Getenv("CONTRACT_EMAIL")
+}
+
+func contractPassword() string {
+	return os.Getenv("CONTRACT_PASSWORD")
+}
+
+func fillPathParams(path string) string {
+	re := regexp.MustCompile(`\{[a-zA-Z0-9]+\}`)
+	return re.ReplaceAllString(path, "test")
+}
+
+func fillPathParamsRequired(t *testing.T, path string) string {
+	re := regexp.MustCompile(`\{([a-zA-Z0-9_]+)\}`)
+	missing := false
+	out := re.ReplaceAllStringFunc(path, func(match string) string {
+		name := strings.Trim(match, "{}")
+		envKey := "CONTRACT_PARAM_" + strings.ToUpper(name)
+		if v := os.Getenv(envKey); v != "" {
+			return v
+		}
+		envKey = "CONTRACT_" + strings.ToUpper(name)
+		if v := os.Getenv(envKey); v != "" {
+			return v
+		}
+		missing = true
+		return "test"
+	})
+	if missing {
+		t.Skip("path params not provided via CONTRACT_PARAM_*")
+	}
+	return out
+}
+
+type authState struct {
+	accessToken  string
+	refreshToken string
+	email        string
+	password     string
+	ready        bool
+}
+
+var authOnce sync.Once
+var authCtx authState
+
+func ensureAuth(t *testing.T) authState {
+	authOnce.Do(func() {
+		if token := contractToken(); token != "" {
+			authCtx.accessToken = token
+			authCtx.refreshToken = contractRefreshToken()
+			authCtx.email = contractEmail()
+			authCtx.password = contractPassword()
+			authCtx.ready = true
+			return
+		}
+		{{- if .Auth.RegisterPath }}
+		client := &http.Client{Timeout: 10 * time.Second}
+		baseURL := contractBaseURL()
+		email := fmt.Sprintf("test+%d@example.com", rand.New(rand.NewSource(time.Now().UnixNano())).Int())
+		password := "test1234"
+		body := map[string]any{
+			"email": email,
+			"password": password,
+			"companyname": "Test Company",
+		}
+		payload, _ := json.Marshal(body)
+		req, err := http.NewRequest("{{ .Auth.RegisterMethod }}", baseURL+fillPathParams("{{ .Auth.RegisterPath }}"), bytes.NewBuffer(payload))
+		if err != nil {
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			var out map[string]any
+			if err := json.NewDecoder(resp.Body).Decode(&out); err == nil {
+				if v, ok := out["accesstoken"].(string); ok {
+					authCtx.accessToken = v
+				}
+				if v, ok := out["refreshtoken"].(string); ok {
+					authCtx.refreshToken = v
+				}
+				if v, ok := out["accessToken"].(string); ok && authCtx.accessToken == "" {
+					authCtx.accessToken = v
+				}
+				if v, ok := out["refreshToken"].(string); ok && authCtx.refreshToken == "" {
+					authCtx.refreshToken = v
+				}
+			}
+			authCtx.email = email
+			authCtx.password = password
+			authCtx.ready = true
+			return
+		}
+		{{- end }}
+	})
+	if !authCtx.ready {
+		t.Skip("auth bootstrap not available")
+	}
+	return authCtx
+}
+
+func TestContractHTTPUnauthorized(t *testing.T) {
+	baseURL := contractBaseURL()
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	{{- range .Endpoints }}
+	{{- if and (HasAuth .Endpoint) (ne (ToLower .Endpoint.Method) "ws") }}
+	t.Run("{{ .Endpoint.RPC }}_unauthorized", func(t *testing.T) {
+		url := baseURL + fillPathParams("{{ .Endpoint.Path }}")
+		req, err := http.NewRequest("{{ .Endpoint.Method }}", url, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("expected 401, got %d", resp.StatusCode)
+		}
+	})
+	{{- end }}
+	{{- end }}
+}
+
+func TestContractHTTPValidation(t *testing.T) {
+	baseURL := contractBaseURL()
+	client := &http.Client{Timeout: 10 * time.Second}
+	token := contractToken()
+
+	{{- range .Endpoints }}
+	{{- if and (HasBody .) (HasRequired .) }}
+	t.Run("{{ .Endpoint.RPC }}_validation", func(t *testing.T) {
+		url := baseURL + fillPathParams("{{ .Endpoint.Path }}"){{ if .QueryParams }} + "{{ .QueryParams }}"{{ end }}
+		req, err := http.NewRequest("{{ .Endpoint.Method }}", url, bytes.NewBufferString("{}"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		{{- if HasAuth .Endpoint }}
+		if token == "" {
+			auth := ensureAuth(t)
+			token = auth.accessToken
+		}
+		if token == "" {
+			t.Skip("CONTRACT_TOKEN not set")
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		{{- end }}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("expected 400, got %d: %s", resp.StatusCode, string(body))
+		}
+	})
+	{{- end }}
+	{{- end }}
+}
+
+func TestContractHTTPPositive(t *testing.T) {
+	baseURL := contractBaseURL()
+	client := &http.Client{Timeout: 10 * time.Second}
+	token := contractToken()
+
+	{{- range .Endpoints }}
+	{{- if HasBody . }}
+	t.Run("{{ .Endpoint.RPC }}_positive", func(t *testing.T) {
+		url := baseURL + fillPathParamsRequired(t, "{{ .Endpoint.Path }}"){{ if .QueryParams }} + "{{ .QueryParams }}"{{ end }}
+		{{- if eq .Endpoint.RPC "RegisterUser" }}
+		email := fmt.Sprintf("user+%d@example.com", rand.New(rand.NewSource(time.Now().UnixNano())).Int())
+		payload := fmt.Sprintf(`{"companyname":"Test Company","email":"%s","password":"test1234"}`, email)
+		{{- else if eq .Endpoint.RPC "LoginUser" }}
+		auth := ensureAuth(t)
+		if auth.email == "" || auth.password == "" {
+			t.Skip("auth email/password not available")
+		}
+		payload := fmt.Sprintf(`{"email":"%s","password":"%s"}`, auth.email, auth.password)
+		{{- else if eq .Endpoint.RPC "RefreshToken" }}
+		auth := ensureAuth(t)
+		refresh := auth.refreshToken
+		if refresh == "" {
+			t.Skip("refresh token not available")
+		}
+		payload := fmt.Sprintf(`{"refreshtoken":"%s"}`, refresh)
+		{{- else }}
+		payload := {{ if .BodyJSON }}{{ .BodyJSON }}{{ else }}"{}"{{ end }}
+		{{- end }}
+		req, err := http.NewRequest("{{ .Endpoint.Method }}", url, bytes.NewBufferString(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		{{- if HasAuth .Endpoint }}
+		if token == "" {
+			auth := ensureAuth(t)
+			token = auth.accessToken
+		}
+		if token == "" {
+			t.Skip("CONTRACT_TOKEN not set")
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		{{- end }}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("expected 2xx, got %d: %s", resp.StatusCode, string(body))
+		}
+	})
+	{{- end }}
+	{{- end }}
+}
+
+func TestContractWebSocket(t *testing.T) {
+	baseURL := contractWSURL()
+	token := contractToken()
+
+	{{- range .Endpoints }}
+	{{- if eq (ToLower .Endpoint.Method) "ws" }}
+	t.Run("{{ .Endpoint.RPC }}_ws", func(t *testing.T) {
+		path := fillPathParams("{{ .Endpoint.Path }}")
+		url := baseURL + path
+		{{- if HasAuth .Endpoint }}
+		if token == "" {
+			t.Skip("CONTRACT_TOKEN not set")
+		}
+		url = url + "?token=" + token
+		{{- end }}
+		conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
+		if err != nil {
+			if resp != nil && resp.StatusCode == http.StatusUnauthorized {
+				t.Skip("ws unauthorized")
+			}
+			t.Fatalf("ws dial failed: %v", err)
+		}
+		conn.Close()
+	})
+	{{- end }}
+	{{- end }}
+}

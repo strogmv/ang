@@ -1,0 +1,15 @@
+version: "1"
+name: "minimal-example"
+description: "Minimal ANG example"
+
+cue:
+  api: "./cue/api"
+  architecture: "./cue/architecture"
+
+output:
+  backend: "."
+  frontend: "./sdk"
+
+go:
+  module: "github.com/example/minimal"
+  package: "internal"

@@ -1,0 +1,32 @@
+import { Box, Typography, Button, Container, Paper } from '@mui/material';
+import { Add as AddIcon } from '@mui/icons-material';
+import { useNavigate } from 'react-router-dom';
+import { {{ .Name }}Table } from '../../components/tables/{{ .Name }}Table';
+
+export default function {{ .Name }}ListPage() {
+  const navigate = useNavigate();
+
+  return (
+    <Container maxWidth="xl" sx={{"{{"}} mt: 4, mb: 4 {{"}}"}}>
+      <Box sx={{"{{"}} display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 {{"}}"}}>
+        <Typography variant="h4" component="h1">
+          {{ .Name }}
+        </Typography>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={() => navigate('create')}
+        >
+          Создать
+        </Button>
+      </Box>
+
+      <Paper sx={{"{{"}} p: 2 {{"}}"}}>
+        <{{ .Name }}Table
+          onView={(row) => navigate(`${row.id}`)}
+          onEdit={(row) => navigate(`${row.id}/edit`)}
+        />
+      </Paper>
+    </Container>
+  );
+}

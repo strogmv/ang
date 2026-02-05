@@ -1,0 +1,95 @@
+// Package errors implements Problem Details for HTTP APIs (RFC 9457).
+package errors
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+)
+
+// ProblemDetail implements RFC 9457 (Problem Details for HTTP APIs).
+type ProblemDetail struct {
+	// Type - A URI reference that identifies the problem type.
+	Type string `json:"type"`
+
+	// Title - A short, human-readable summary of the problem type.
+	Title string `json:"title"`
+
+	// Status - The HTTP status code.
+	Status int `json:"status"`
+
+	// Detail - A human-readable explanation specific to this occurrence.
+	Detail string `json:"detail,omitempty"`
+
+	// Instance - A URI reference that identifies the specific occurrence.
+	Instance string `json:"instance,omitempty"`
+
+	// --- Extensions ---
+	
+	// Code - Custom business error code.
+	Code int `json:"code,omitempty"`
+	
+	// Errors - Validation details (field -> message).
+	Errors map[string]string `json:"errors,omitempty"`
+}
+
+func (e *ProblemDetail) Error() string {
+	return fmt.Sprintf("error %d: %s (code=%d)", e.Status, e.Title, e.Code)
+}
+
+func New(status int, title, detail string) *ProblemDetail {
+	return &ProblemDetail{
+		Type:   "about:blank",
+		Title:  title,
+		Status: status,
+		Detail: detail,
+	}
+}
+
+func NewValidationError(detail string, errs map[string]string) *ProblemDetail {
+	return &ProblemDetail{
+		Type:   "validation-error",
+		Title:  "VALIDATION_FAILED",
+		Status: http.StatusBadRequest,
+		Detail: detail,
+		Errors: errs,
+		Code:   40010,
+	}
+}
+
+// Generated Error Constructors
+{{- range . }}
+// New{{ .Name }}
+{{- if .Source }}
+// Source: {{ .Source }}
+{{- end }}
+func New{{ .Name }}() *ProblemDetail {
+	return &ProblemDetail{
+		Type:   "business-error",
+		Title:  "{{ .Name }}",
+		Status: {{ .HTTPStatus }},
+		Detail: "{{ .Message }}",
+		Code:   {{ .Code }},
+	}
+}
+{{- end }}
+
+func WriteError(w http.ResponseWriter, r *http.Request, err error) {
+	var pd *ProblemDetail
+	
+	// Use errors.As to support wrapped errors.
+	if errors.As(err, &pd) {
+		if pd.Instance == "" {
+			pd.Instance = r.URL.Path
+		}
+	} else {
+		// Hide internal error details from the client.
+		pd = New(http.StatusInternalServerError, "Internal Server Error", "An unexpected error occurred.")
+		pd.Instance = r.URL.Path
+	}
+
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(pd.Status)
+	_ = json.NewEncoder(w).Encode(pd)
+}

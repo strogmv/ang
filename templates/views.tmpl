@@ -1,0 +1,83 @@
+package views
+
+import (
+	"reflect"
+	"strings"
+)
+
+var viewFields = map[string]map[string][]string{
+{{- range . }}
+	"{{ .Name }}": {
+		{{- range $role, $fields := .Roles }}
+		"{{ $role }}": {
+			{{- range $fields }}
+			"{{ . }}",
+			{{- end }}
+		},
+		{{- end }}
+	},
+{{- end }}
+}
+
+// ApplyView filters a value according to view name and role.
+func ApplyView(role, viewName string, v any) any {
+	roles, ok := viewFields[viewName]
+	if !ok {
+		return v
+	}
+	fields, ok := roles[role]
+	if !ok || len(fields) == 0 {
+		return v
+	}
+	return applyFields(v, fields)
+}
+
+func applyFields(v any, fields []string) any {
+	rv := reflect.ValueOf(v)
+	if !rv.IsValid() {
+		return v
+	}
+	for rv.Kind() == reflect.Pointer {
+		if rv.IsNil() {
+			return v
+		}
+		rv = rv.Elem()
+	}
+
+	switch rv.Kind() {
+	case reflect.Slice, reflect.Array:
+		out := make([]any, 0, rv.Len())
+		for i := 0; i < rv.Len(); i++ {
+			out = append(out, applyFields(rv.Index(i).Interface(), fields))
+		}
+		return out
+	case reflect.Struct:
+		allowed := make(map[string]bool, len(fields))
+		for _, f := range fields {
+			allowed[f] = true
+		}
+		result := map[string]any{}
+		rt := rv.Type()
+		for i := 0; i < rv.NumField(); i++ {
+			sf := rt.Field(i)
+			if sf.PkgPath != "" { // unexported
+				continue
+			}
+			name := sf.Tag.Get("json")
+			if name == "" || name == "-" {
+				name = strings.ToLower(sf.Name[:1]) + sf.Name[1:]
+			} else {
+				if idx := strings.IndexByte(name, ','); idx >= 0 {
+					name = name[:idx]
+				}
+			}
+			if !allowed[name] {
+				continue
+			}
+			result[name] = rv.Field(i).Interface()
+		}
+		return result
+	default:
+		return v
+	}
+}

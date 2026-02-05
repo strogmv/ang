@@ -1,0 +1,141 @@
+package scheduler
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	{{- if .HasPublish }}
+	"{{GoModule}}/internal/domain"
+	{{- end }}
+	"{{GoModule}}/internal/port"
+)
+
+type Schedule struct {
+	Name    string
+	Service string
+	Action  string
+	At      time.Time
+	Publish string
+	Every   time.Duration
+	Payload map[string]any
+}
+
+type Scheduler struct {
+	Publisher port.Publisher
+	Schedules []Schedule
+}
+
+func New(publisher port.Publisher, schedules []Schedule) *Scheduler {
+	return &Scheduler{Publisher: publisher, Schedules: schedules}
+}
+
+func (s *Scheduler) Start(ctx context.Context) {
+	for _, sc := range s.Schedules {
+		sc := sc
+		go func() {
+			if sc.Every > 0 {
+				if !sc.At.IsZero() {
+					sleep := time.Until(sc.At)
+					if sleep > 0 {
+						timer := time.NewTimer(sleep)
+						select {
+						case <-ctx.Done():
+							timer.Stop()
+							return
+						case <-timer.C:
+						}
+					}
+				}
+				ticker := time.NewTicker(sc.Every)
+				defer ticker.Stop()
+				for {
+				if s.Publisher != nil && sc.Publish != "" {
+					if err := publishEvent(s.Publisher, sc); err != nil {
+						fmt.Println("scheduler publish error:", err)
+					}
+				}
+					select {
+					case <-ctx.Done():
+						return
+					case <-ticker.C:
+					}
+				}
+			}
+			sleep := time.Until(sc.At)
+			if sleep > 0 {
+				timer := time.NewTimer(sleep)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return
+				case <-timer.C:
+				}
+			}
+			if s.Publisher != nil && sc.Publish != "" {
+				if err := publishEvent(s.Publisher, sc); err != nil {
+					fmt.Println("scheduler publish error:", err)
+				}
+			}
+		}()
+	}
+}
+
+var DefaultSchedules = []Schedule{
+{{- range .Schedules }}
+	{
+		Name: "{{ .Name }}",
+		Service: "{{ .Service }}",
+		Action: "{{ .Action }}",
+		At: mustParseTime("{{ .At }}"),
+		Publish: "{{ .Publish }}",
+		Every: mustParseDuration("{{ .Every }}"),
+		{{- if .Payload }}
+		Payload: map[string]any{
+			{{- range .Payload }}
+			"{{ .Name }}": {{ if eq .Type "string" }}{{ printf "%q" .Value }}{{ else if .Value }}{{ .Value }}{{ else }}nil{{ end }},
+			{{- end }}
+		},
+		{{- end }}
+	},
+{{- end }}
+}
+
+func mustParseTime(v string) time.Time {
+	t, err := time.Parse(time.RFC3339, v)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
+func mustParseDuration(v string) time.Duration {
+	if v == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return 0
+	}
+	return d
+}
+
+func publishEvent(publisher port.Publisher, sc Schedule) error {
+	if publisher == nil || sc.Publish == "" {
+		return nil
+	}
+	switch sc.Publish {
+	{{- range .Schedules }}
+	{{- if .Publish }}
+	case "{{ .Publish }}":
+		var ev domain.{{ ExportName .Publish }}
+		{{- range .Payload }}
+		ev.{{ .Name | ExportName }} = {{ if eq .Type "string" }}{{ printf "%q" .Value }}{{ else if .Value }}{{ .Value }}{{ else }}0{{ end }}
+		{{- end }}
+		return publisher.Publish{{ ExportName .Publish }}(context.Background(), ev)
+	{{- end }}
+	{{- end }}
+	default:
+		return nil
+	}
+}

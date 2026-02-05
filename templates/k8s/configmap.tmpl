@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Name | ToLower }}-config
+data:
+  ENV: "production"
+  HTTP_PORT: "8080"
+  {{ if .HasSQL }}DATABASE_URL: "postgres://user:pass@postgres-service:5432/db"{{ end }}
+  {{ if .HasMongo }}MONGO_URL: "mongodb://mongo-service:27017"{{ end }}
+  {{ if .HasCache }}REDIS_ADDR: "redis-service:6379"{{ end }}
+  {{ if .HasNats }}NATS_URL: "nats://nats-service:4222"{{ end }}

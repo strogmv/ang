@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Name | ToLower }}
+  labels:
+    app: {{ .Name | ToLower }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Name | ToLower }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Name | ToLower }}
+    spec:
+      containers:
+        - name: {{ .Name | ToLower }}
+          image: {{ .Name | ToLower }}:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: {{ .Name | ToLower }}-config
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10

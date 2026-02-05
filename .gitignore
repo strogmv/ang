@@ -1,0 +1,35 @@
+# Binaries
+ang_bin
+server_bin
+ang_new
+server
+
+# Logs
+*.log
+
+# Dependencies
+node_modules/
+vendor/
+
+# OS files
+.DS_Store
+*.swp
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Test artifacts
+tests/node_modules/.vite/vitest/**/results.json
+coverage/
+
+# AI tools
+.claude/
+.history/
+.gemini/
+
+# Generated (if needed to exclude)
+# internal/
+# sdk/

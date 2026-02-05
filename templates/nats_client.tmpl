@@ -1,0 +1,52 @@
+package nats
+
+import (
+	"context"
+	"encoding/json"
+	natspkg "github.com/nats-io/nats.go"
+	"{{GoModule}}/internal/domain"
+)
+
+type Client struct {
+	nc *natspkg.Conn
+}
+
+func NewClient(url string) (*Client, error) {
+	nc, err := natspkg.Connect(url)
+	if err != nil {
+		return nil, err
+	}
+	return &Client{nc: nc}, nil
+}
+
+func (c *Client) Close() {
+	c.nc.Close()
+}
+
+func (c *Client) Subscribe(subject string, handler func(data []byte) error) (*natspkg.Subscription, error) {
+	return c.nc.Subscribe(subject, func(msg *natspkg.Msg) {
+		_ = handler(msg.Data)
+	})
+}
+
+{{- range . }}
+{{- range .Publishes }}
+func (c *Client) Publish{{ . }}(ctx context.Context, event domain.{{ ExportName . }}) error {
+	data, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+	return c.nc.Publish("{{ . }}", data)
+}
+
+func (c *Client) Subscribe{{ . }}(handler func(context.Context, domain.{{ ExportName . }}) error) (*natspkg.Subscription, error) {
+	return c.nc.Subscribe("{{ . }}", func(msg *natspkg.Msg) {
+		var event domain.{{ ExportName . }}
+		if err := json.Unmarshal(msg.Data, &event); err != nil {
+			return
+		}
+		_ = handler(context.Background(), event)
+	})
+}
+{{- end }}
+{{- end }}

@@ -1,0 +1,250 @@
+// Package memory provides an in-memory implementation of the repository.
+package memory
+
+import (
+	"context"
+	"fmt"
+	{{- if .HasTime }}
+	"time"
+	{{- end }}
+	{{- if .HasOrderBy }}
+	"sort"
+	{{- end }}
+	"{{GoModule}}/internal/domain"
+	"sync"
+)
+
+type {{ ExportName .Entity }}RepositoryStub struct {
+	mu   sync.RWMutex
+	data map[string]*domain.{{ ExportName .Entity }}
+}
+
+func New{{ ExportName .Entity }}RepositoryStub() *{{ ExportName .Entity }}RepositoryStub {
+	return &{{ ExportName .Entity }}RepositoryStub{
+		data: make(map[string]*domain.{{ ExportName .Entity }}),
+	}
+}
+
+func (r *{{ ExportName .Entity }}RepositoryStub) Save(ctx context.Context, entity *domain.{{ ExportName .Entity }}) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if entity == nil {
+		return fmt.Errorf("entity is required")
+	}
+	id := fmt.Sprintf("%p", entity)
+	r.data[id] = entity
+	return nil
+}
+
+func (r *{{ ExportName .Entity }}RepositoryStub) FindByID(ctx context.Context, id string) (*domain.{{ ExportName .Entity }}, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	entity, ok := r.data[id]
+	if !ok {
+		return nil, fmt.Errorf("{{ .Entity | ToLower }} not found: %s", id)
+	}
+	return entity, nil
+}
+
+func (r *{{ ExportName .Entity }}RepositoryStub) Delete(ctx context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.data, id)
+	return nil
+}
+
+{{- $hasListAll := false }}
+{{- range .Finders }}{{ if eq .Name "ListAll" }}{{ $hasListAll = true }}{{ end }}{{ end }}
+{{- if not $hasListAll }}
+func (r *{{ ExportName .Entity }}RepositoryStub) ListAll(ctx context.Context, offset, limit int) ([]domain.{{ ExportName .Entity }}, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var items []domain.{{ ExportName .Entity }}
+	for _, item := range r.data {
+		if item != nil {
+			items = append(items, *item)
+		}
+	}
+	// Apply pagination
+	if offset >= len(items) {
+		return []domain.{{ ExportName .Entity }}{}, nil
+	}
+	end := offset + limit
+	if end > len(items) {
+		end = len(items)
+	}
+	return items[offset:end], nil
+}
+{{- end }}
+
+{{- range .Finders }}
+func (r *{{ ExportName $.Entity }}RepositoryStub) {{ .Name }}(ctx context.Context{{ if .ParamsSig }}, {{ .ParamsSig }}{{ end }}) ({{ .ReturnType }}, error) {
+	{{- if .IsCustomType }}
+	// Custom type - not supported in memory repository stub
+	return {{ .ReturnZero }}, nil
+	{{- else if eq .Action "delete" }}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var deleted int64
+	for id, item := range r.data {
+		if item == nil {
+			continue
+		}
+		match := true
+		{{- range $i, $w := .Where }}
+		{{- if eq $w.ParamType "time.Time" }}
+		t{{$i}}, err := time.Parse(time.RFC3339, item.{{ $w.Field | ExportName }})
+		if err != nil {
+			match = false
+		} else if {{- if eq $w.Op "<" }} !t{{$i}}.Before({{ $w.Param }}) {{- else if eq $w.Op ">" }} !t{{$i}}.After({{ $w.Param }}) {{- else }} !t{{$i}}.Equal({{ $w.Param }}) {{- end }} {
+			match = false
+		}
+		{{- else }}
+		{{- if eq $w.Op "<" }}
+		if item.{{ $w.Field | ExportName }} >= {{ $w.Param }} { match = false }
+		{{- else if eq $w.Op ">" }}
+		if item.{{ $w.Field | ExportName }} <= {{ $w.Param }} { match = false }
+		{{- else }}
+		if item.{{ $w.Field | ExportName }} != {{ $w.Param }} { match = false }
+		{{- end }}
+		{{- end }}
+		{{- end }}
+		if !match {
+			continue
+		}
+		delete(r.data, id)
+		deleted++
+	}
+	return deleted, nil
+	{{- else }}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	{{- if .ReturnSlice }}
+	var res {{ .ReturnType }}
+	for _, item := range r.data {
+		if item == nil {
+			continue
+		}
+		match := true
+		{{- range $i, $w := .Where }}
+		{{- if eq $w.ParamType "time.Time" }}
+		t{{$i}}, err := time.Parse(time.RFC3339, item.{{ $w.Field | ExportName }})
+		if err != nil {
+			match = false
+		} else if {{- if eq $w.Op "<" }} !t{{$i}}.Before({{ $w.Param }}) {{- else if eq $w.Op ">" }} !t{{$i}}.After({{ $w.Param }}) {{- else }} !t{{$i}}.Equal({{ $w.Param }}) {{- end }} {
+			match = false
+		}
+		{{- else }}
+		{{- if eq $w.Op "<" }}
+		if item.{{ $w.Field | ExportName }} >= {{ $w.Param }} { match = false }
+		{{- else if eq $w.Op ">" }}
+		if item.{{ $w.Field | ExportName }} <= {{ $w.Param }} { match = false }
+		{{- else }}
+		if item.{{ $w.Field | ExportName }} != {{ $w.Param }} { match = false }
+		{{- end }}
+		{{- end }}
+		{{- end }}
+		if !match {
+			continue
+		}
+		{{- if .SelectEntity }}
+		res = append(res, *item)
+		{{- else }}
+		res = append(res, item.{{ (index .SelectFields 0).Name | ExportName }})
+		{{- end }}
+	}
+	{{- if and .OrderByField .SelectEntity }}
+	if len(res) > 1 {
+		sort.Slice(res, func(i, j int) bool {
+			{{- if .OrderByDesc }}
+			return res[i].{{ .OrderByField }} > res[j].{{ .OrderByField }}
+			{{- else }}
+			return res[i].{{ .OrderByField }} < res[j].{{ .OrderByField }}
+			{{- end }}
+		})
+	}
+	{{- end }}
+	return res, nil
+	{{- else }}
+	{{- if and .OrderByField .SelectEntity }}
+	var matches []*domain.{{ ExportName $.Entity }}
+	for _, item := range r.data {
+		if item == nil {
+			continue
+		}
+		match := true
+		{{- range $i, $w := .Where }}
+		{{- if eq $w.ParamType "time.Time" }}
+		t{{$i}}, err := time.Parse(time.RFC3339, item.{{ $w.Field | ExportName }})
+		if err != nil {
+			match = false
+		} else if {{- if eq $w.Op "<" }} !t{{$i}}.Before({{ $w.Param }}) {{- else if eq $w.Op ">" }} !t{{$i}}.After({{ $w.Param }}) {{- else }} !t{{$i}}.Equal({{ $w.Param }}) {{- end }} {
+			match = false
+		}
+		{{- else }}
+		{{- if eq $w.Op "<" }}
+		if item.{{ $w.Field | ExportName }} >= {{ $w.Param }} { match = false }
+		{{- else if eq $w.Op ">" }}
+		if item.{{ $w.Field | ExportName }} <= {{ $w.Param }} { match = false }
+		{{- else }}
+		if item.{{ $w.Field | ExportName }} != {{ $w.Param }} { match = false }
+		{{- end }}
+		{{- end }}
+		{{- end }}
+		if !match {
+			continue
+		}
+		matches = append(matches, item)
+	}
+	if len(matches) == 0 {
+		return {{ .ReturnZero }}, nil
+	}
+	if len(matches) > 1 {
+		sort.Slice(matches, func(i, j int) bool {
+			{{- if .OrderByDesc }}
+			return matches[i].{{ .OrderByField }} > matches[j].{{ .OrderByField }}
+			{{- else }}
+			return matches[i].{{ .OrderByField }} < matches[j].{{ .OrderByField }}
+			{{- end }}
+		})
+	}
+	return matches[0], nil
+	{{- else }}
+	for _, item := range r.data {
+		if item == nil {
+			continue
+		}
+		match := true
+		{{- range $i, $w := .Where }}
+		{{- if eq $w.ParamType "time.Time" }}
+		t{{$i}}, err := time.Parse(time.RFC3339, item.{{ $w.Field | ExportName }})
+		if err != nil {
+			match = false
+		} else if {{- if eq $w.Op "<" }} !t{{$i}}.Before({{ $w.Param }}) {{- else if eq $w.Op ">" }} !t{{$i}}.After({{ $w.Param }}) {{- else }} !t{{$i}}.Equal({{ $w.Param }}) {{- end }} {
+			match = false
+		}
+		{{- else }}
+		{{- if eq $w.Op "<" }}
+		if item.{{ $w.Field | ExportName }} >= {{ $w.Param }} { match = false }
+		{{- else if eq $w.Op ">" }}
+		if item.{{ $w.Field | ExportName }} <= {{ $w.Param }} { match = false }
+		{{- else }}
+		if item.{{ $w.Field | ExportName }} != {{ $w.Param }} { match = false }
+		{{- end }}
+		{{- end }}
+		{{- end }}
+		if !match {
+			continue
+		}
+		{{- if .SelectEntity }}
+		return item, nil
+		{{- else }}
+		return item.{{ (index .SelectFields 0).Name | ExportName }}, nil
+		{{- end }}
+	}
+	return {{ .ReturnZero }}, nil
+	{{- end }}
+	{{- end }}
+	{{- end }}
+}
+{{- end }}

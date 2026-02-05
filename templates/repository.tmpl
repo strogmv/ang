@@ -1,0 +1,28 @@
+package port
+
+//go:generate go run go.uber.org/mock/mockgen@latest -source=$GOFILE -destination=mocks/mock_$GOFILE -package=mocks
+
+import (
+	"context"
+	{{- if .HasTime }}
+	"time"
+	{{- end }}
+	"{{GoModule}}/internal/domain"
+)
+
+// {{ ExportName .Entity }}Repository defines storage operations for {{ ExportName .Entity }}
+type {{ ExportName .Entity }}Repository interface {
+	Save(ctx context.Context, entity *domain.{{ ExportName .Entity }}) error
+	FindByID(ctx context.Context, id string) (*domain.{{ ExportName .Entity }}, error)
+	Delete(ctx context.Context, id string) error
+	{{- $hasListAll := false }}
+	{{- range .Finders }}{{ if eq .Name "ListAll" }}{{ $hasListAll = true }}{{ end }}{{ end }}
+	{{- if not $hasListAll }}
+	ListAll(ctx context.Context, offset, limit int) ([]domain.{{ ExportName .Entity }}, error)
+	{{- end }}
+
+	// Dynamic Finders
+	{{- range .Finders }}
+	{{ .Name }}(ctx context.Context{{ if .ParamsSig }}, {{ .ParamsSig }}{{ end }}) ({{ .ReturnType }}, error)
+	{{- end }}
+}

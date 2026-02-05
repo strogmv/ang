@@ -1,0 +1,71 @@
+// VERSION 2
+package config
+
+import (
+	"os"
+	{{- if or (HasType .Fields "int") (HasType .Fields "bool") }}
+	"strconv"
+	{{- end }}
+)
+
+type Config struct {
+	{{- range .Fields }}
+	{{ FieldName . }} {{ ConfigType . }}
+	{{- end }}
+}
+
+func Load() (*Config, error) {
+	cfg := &Config{
+		{{- range .Fields }}
+		{{- if eq (FieldName .) "JWTPublicKey" }}
+		JWTPublicKey: getEnvOrFile("JWT_PUBLIC_KEY", "public.pem"),
+		{{- else if eq (FieldName .) "JWTPrivateKey" }}
+		JWTPrivateKey: getEnvOrFile("JWT_PRIVATE_KEY", "private.pem"),
+		{{- else }}
+		{{ FieldName . }}: {{ ConfigLoadExpr . }},
+		{{- end }}
+		{{- end }}
+	}
+
+	return cfg, nil
+}
+
+func getEnvOrFile(key, filePath string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
+	}
+	data, err := os.ReadFile(filePath)
+	if err == nil {
+		return string(data)
+	}
+	return ""
+}
+
+func getEnv(key, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
+	}
+	return fallback
+}
+
+{{- if HasType .Fields "int" }}
+func getEnvInt(key string, fallback int) int {
+	if value, ok := os.LookupEnv(key); ok {
+		if v, err := strconv.Atoi(value); err == nil {
+			return v
+		}
+	}
+	return fallback
+}
+{{- end }}
+
+{{- if HasType .Fields "bool" }}
+func getEnvBool(key string, fallback bool) bool {
+	if value, ok := os.LookupEnv(key); ok {
+		if v, err := strconv.ParseBool(value); err == nil {
+			return v
+		}
+	}
+	return fallback
+}
+{{- end }}

@@ -1,0 +1,14 @@
+package port
+
+{{- if . }}
+import (
+	"context"
+	"{{GoModule}}/internal/domain"
+)
+{{- end }}
+
+type Publisher interface {
+{{- range . }}
+	Publish{{ . }}(ctx context.Context, event domain.{{ ExportName . }}) error
+{{- end }}
+}

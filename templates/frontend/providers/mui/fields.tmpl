@@ -1,0 +1,337 @@
+{{- /* MUI 7.x Field Templates */ -}}
+
+{{- define "field" -}}
+{{- if eq .UIType "text" }}{{ template "textField" . }}
+{{- else if eq .UIType "textarea" }}{{ template "textareaField" . }}
+{{- else if eq .UIType "number" }}{{ template "numberField" . }}
+{{- else if eq .UIType "currency" }}{{ template "currencyField" . }}
+{{- else if eq .UIType "email" }}{{ template "emailField" . }}
+{{- else if eq .UIType "password" }}{{ template "passwordField" . }}
+{{- else if eq .UIType "phone" }}{{ template "phoneField" . }}
+{{- else if eq .UIType "url" }}{{ template "urlField" . }}
+{{- else if eq .UIType "date" }}{{ template "dateField" . }}
+{{- else if eq .UIType "datetime" }}{{ template "datetimeField" . }}
+{{- else if eq .UIType "time" }}{{ template "timeField" . }}
+{{- else if eq .UIType "select" }}{{ template "selectField" . }}
+{{- else if eq .UIType "autocomplete" }}{{ template "autocompleteField" . }}
+{{- else if eq .UIType "checkbox" }}{{ template "checkboxField" . }}
+{{- else if eq .UIType "switch" }}{{ template "switchField" . }}
+{{- else if eq .UIType "file" }}{{ template "fileField" . }}
+{{- else }}{{ template "textField" . }}
+{{- end }}
+{{- end }}
+
+{{- define "textField" }}
+        <Controller
+          name="{{ .Name }}"
+          control={form.control}
+          render={({ field, fieldState }) => (
+            <TextField
+              {...field}
+              label="{{ .Label }}"
+              {{- if .Placeholder }}
+              placeholder="{{ .Placeholder }}"
+              {{- end }}
+              {{- if .HelperText }}
+              helperText={fieldState.error?.message || "{{ .HelperText }}"}
+              {{- else }}
+              helperText={fieldState.error?.message}
+              {{- end }}
+              error={!!fieldState.error}
+              fullWidth
+              {{- if .Disabled }}
+              disabled
+              {{- end }}
+            />
+          )}
+        />
+{{- end }}
+
+{{- define "textareaField" }}
+        <Controller
+          name="{{ .Name }}"
+          control={form.control}
+          render={({ field, fieldState }) => (
+            <TextField
+              {...field}
+              label="{{ .Label }}"
+              multiline
+              rows={{"{"}}{{ .Rows | default 4 }}{{"}"}}
+              {{- if .Placeholder }}
+              placeholder="{{ .Placeholder }}"
+              {{- end }}
+              helperText={fieldState.error?.message}
+              error={!!fieldState.error}
+              fullWidth
+            />
+          )}
+        />
+{{- end }}
+
+{{- define "numberField" }}
+        <Controller
+          name="{{ .Name }}"
+          control={form.control}
+          render={({ field, fieldState }) => (
+            <TextField
+              {...field}
+              type="number"
+              label="{{ .Label }}"
+              helperText={fieldState.error?.message}
+              error={!!fieldState.error}
+              fullWidth
+              onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : '')}
+            />
+          )}
+        />
+{{- end }}
+
+{{- define "currencyField" }}
+        <Controller
+          name="{{ .Name }}"
+          control={form.control}
+          render={({ field, fieldState }) => (
+            <TextField
+              {...field}
+              type="number"
+              label="{{ .Label }}"
+              slotProps={{"{{"}}
+                input: {
+                  startAdornment: <InputAdornment position="start">{{ .Currency | default "BYN" }}</InputAdornment>,
+                },
+              {{"}}"}}
+              helperText={fieldState.error?.message}
+              error={!!fieldState.error}
+              fullWidth
+              onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : '')}
+            />
+          )}
+        />
+{{- end }}
+
+{{- define "emailField" }}
+        <Controller
+          name="{{ .Name }}"
+          control={form.control}
+          render={({ field, fieldState }) => (
+            <TextField
+              {...field}
+              type="email"
+              label="{{ .Label }}"
+              placeholder="{{ .Placeholder | default "email@example.com" }}"
+              helperText={fieldState.error?.message}
+              error={!!fieldState.error}
+              fullWidth
+            />
+          )}
+        />
+{{- end }}
+
+{{- define "passwordField" }}
+        <Controller
+          name="{{ .Name }}"
+          control={form.control}
+          render={({ field, fieldState }) => (
+            <TextField
+              {...field}
+              type="password"
+              label="{{ .Label }}"
+              helperText={fieldState.error?.message}
+              error={!!fieldState.error}
+              fullWidth
+            />
+          )}
+        />
+{{- end }}
+
+{{- define "phoneField" }}
+        <Controller
+          name="{{ .Name }}"
+          control={form.control}
+          render={({ field, fieldState }) => (
+            <TextField
+              {...field}
+              type="tel"
+              label="{{ .Label }}"
+              placeholder="{{ .Placeholder | default "+375 (__) ___-__-__" }}"
+              helperText={fieldState.error?.message}
+              error={!!fieldState.error}
+              fullWidth
+            />
+          )}
+        />
+{{- end }}
+
+{{- define "urlField" }}
+        <Controller
+          name="{{ .Name }}"
+          control={form.control}
+          render={({ field, fieldState }) => (
+            <TextField
+              {...field}
+              type="url"
+              label="{{ .Label }}"
+              placeholder="{{ .Placeholder | default "https://" }}"
+              helperText={fieldState.error?.message}
+              error={!!fieldState.error}
+              fullWidth
+            />
+          )}
+        />
+{{- end }}
+
+{{- define "dateField" }}
+        <Controller
+          name="{{ .Name }}"
+          control={form.control}
+          render={({ field, fieldState }) => (
+            <DatePicker
+              {...field}
+              label="{{ .Label }}"
+              slotProps={{"{{"}}
+                textField: {
+                  fullWidth: true,
+                  error: !!fieldState.error,
+                  helperText: fieldState.error?.message,
+                },
+              {{"}}"}}
+            />
+          )}
+        />
+{{- end }}
+
+{{- define "datetimeField" }}
+        <Controller
+          name="{{ .Name }}"
+          control={form.control}
+          render={({ field, fieldState }) => (
+            <DateTimePicker
+              {...field}
+              label="{{ .Label }}"
+              slotProps={{"{{"}}
+                textField: {
+                  fullWidth: true,
+                  error: !!fieldState.error,
+                  helperText: fieldState.error?.message,
+                },
+              {{"}}"}}
+            />
+          )}
+        />
+{{- end }}
+
+{{- define "timeField" }}
+        <Controller
+          name="{{ .Name }}"
+          control={form.control}
+          render={({ field, fieldState }) => (
+            <TimePicker
+              {...field}
+              label="{{ .Label }}"
+              slotProps={{"{{"}}
+                textField: {
+                  fullWidth: true,
+                  error: !!fieldState.error,
+                  helperText: fieldState.error?.message,
+                },
+              {{"}}"}}
+            />
+          )}
+        />
+{{- end }}
+
+{{- define "selectField" }}
+        <Controller
+          name="{{ .Name }}"
+          control={form.control}
+          render={({ field, fieldState }) => (
+            <FormControl fullWidth error={!!fieldState.error}>
+              <InputLabel>{{ .Label }}</InputLabel>
+              <Select {...field} label="{{ .Label }}">
+                {{- range .Options }}
+                <MenuItem value="{{ . }}">{{ . }}</MenuItem>
+                {{- end }}
+              </Select>
+              {fieldState.error && <FormHelperText>{fieldState.error.message}</FormHelperText>}
+            </FormControl>
+          )}
+        />
+{{- end }}
+
+{{- define "autocompleteField" }}
+{{- if .Source }}
+        <Controller
+          name="{{ .Name }}"
+          control={form.control}
+          render={({ field, fieldState }) => (
+            <{{ .Source | PascalCase }}Autocomplete
+              value={field.value}
+              onChange={(_, value) => field.onChange(value)}
+              label="{{ .Label }}"
+              error={!!fieldState.error}
+              helperText={fieldState.error?.message}
+            />
+          )}
+        />
+{{- else }}
+        <Controller
+          name="{{ .Name }}"
+          control={form.control}
+          render={({ field, fieldState }) => (
+            <TextField
+              {...field}
+              label="{{ .Label }}"
+              {{- if .Placeholder }}
+              placeholder="{{ .Placeholder }}"
+              {{- end }}
+              helperText={fieldState.error?.message}
+              error={!!fieldState.error}
+              fullWidth
+            />
+          )}
+        />
+{{- end }}
+{{- end }}
+
+{{- define "checkboxField" }}
+        <Controller
+          name="{{ .Name }}"
+          control={form.control}
+          render={({ field }) => (
+            <FormControlLabel
+              control={<Checkbox {...field} checked={field.value} />}
+              label="{{ .Label }}"
+            />
+          )}
+        />
+{{- end }}
+
+{{- define "switchField" }}
+        <Controller
+          name="{{ .Name }}"
+          control={form.control}
+          render={({ field }) => (
+            <FormControlLabel
+              control={<Switch {...field} checked={field.value} />}
+              label="{{ .Label }}"
+            />
+          )}
+        />
+{{- end }}
+
+{{- define "fileField" }}
+        <Controller
+          name="{{ .Name }}"
+          control={form.control}
+          render={({ field, fieldState }) => (
+            <FileUpload
+              value={field.value}
+              onChange={field.onChange}
+              label="{{ .Label }}"
+              accept="{{ .Accept | default "*/*" }}"
+              error={!!fieldState.error}
+              helperText={fieldState.error?.message}
+            />
+          )}
+        />
+{{- end }}

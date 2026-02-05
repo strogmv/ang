@@ -1,0 +1,479 @@
+package service
+
+// ============================================================================ 
+// SECTION: Imports
+// PURPOSE: Import required packages for service implementation
+// IMPORTS:
+//   - context: Request context propagation
+//   - port: Interface definitions (repositories, services)
+//   - domain: Domain entities and value objects
+//   - errors: Custom error types with HTTP status codes
+// ============================================================================ 
+import (
+	{{- range .Imports }}
+	"{{ . }}"
+	{{- end }}
+)
+
+// Blank identifiers to suppress unused import warnings
+var (
+	_ = port.TxManager(nil)
+	_ = errors.New
+	_ = http.StatusOK
+	_ = time.Now
+	_ = uuid.UUID{}
+	_ domain.User
+	_ = helpers.CopyNonEmptyFields
+	_ = bcrypt.GenerateFromPassword
+	_ = auth.IssueAccessToken
+	_ = sort.Strings
+	_ = config.Config{}
+	_ = json.Marshal
+	_ = fmt.Printf
+	_ = strings.Split
+	_ = presence.Get
+)
+
+// ============================================================================ 
+// SECTION: Service Struct Definition
+// PURPOSE: {{ .Service.Name }}Impl implements port.{{ .Service.Name }} interface
+// PATTERN: Service Layer - orchestrates business logic using repositories
+// DEPENDENCIES:
+{{- range getRepoEntities .Service }}
+//   - {{ ExportName . }}Repo: CRUD operations for {{ ExportName . }} entity
+{{- end }}
+{{- if ServiceNeedsTx .Service }}
+//   - txManager: Database transaction manager for atomic operations
+{{- end }}
+{{- if ServiceHasPublishes .Service }}
+//   - publisher: Event publisher (NATS) for domain events
+{{- end }}
+{{- if .Service.RequiresS3 }}
+//   - storage: S3-compatible file storage
+{{- end }}
+// ============================================================================ 
+type {{ .Service.Name }}Impl struct {
+	{{- range getRepoEntities .Service }}
+	{{ ExportName . }}Repo port.{{ ExportName . }}Repository
+	{{- end }}
+	{{- range getServiceDeps .Service }}
+	{{ ExportName . }}Service port.{{ ExportName . }}
+	{{- end }}
+	{{- if ServiceNeedsTx .Service }}
+	txManager port.TxManager
+	{{- end }}
+	{{- if and .Auth.Service (eq .Auth.Service .Service.Name) }}
+	cfg          *config.Config
+	refreshStore port.RefreshTokenStore
+	{{- end }}
+
+	{{- if ServiceHasPublishes .Service }}
+	publisher port.Publisher
+	{{- end }}
+	{{- if ServiceHasIdempotency .Service }}
+	idempotency port.IdempotencyStore
+	{{- end }}
+	{{- if ServiceHasOutbox .Service }}
+	outbox port.OutboxRepository
+	{{- end }}
+	{{- if ne .Service.Name "Audit" }}
+	auditService port.Audit
+	{{- end }}
+	{{- if .Service.RequiresS3 }}
+	storage port.FileStorage
+	{{- end }}
+}
+
+// ============================================================================ 
+// SECTION: Constructor
+// PURPOSE: Create new {{ .Service.Name }}Impl with dependency injection
+// USAGE: Called from main.go during application bootstrap
+// ============================================================================ 
+func New{{ .Service.Name }}Impl(
+	{{- range getRepoEntities .Service }}
+	{{ ExportName . | lowerFirst }}Repo port.{{ ExportName . }}Repository,
+	{{- end }}
+	{{- range getServiceDeps .Service }}
+	{{ ExportName . | lowerFirst }}Service port.{{ ExportName . }},
+	{{- end }}
+	{{- if ServiceNeedsTx .Service }}
+	txManager port.TxManager,
+	{{- end }}
+	{{- if and .Auth.Service (eq .Auth.Service .Service.Name) }}
+	cfg *config.Config,
+	refreshStore port.RefreshTokenStore,
+	{{- end }}
+
+	{{- if ServiceHasPublishes .Service }}
+	publisher port.Publisher,
+	{{- end }}
+	{{- if ServiceHasIdempotency .Service }}
+	idempotency port.IdempotencyStore,
+	{{- end }}
+	{{- if ServiceHasOutbox .Service }}
+	outbox port.OutboxRepository,
+	{{- end }}
+	{{- if ne .Service.Name "Audit" }}
+	auditService port.Audit,
+	{{- end }}
+	{{- if .Service.RequiresS3 }}
+	storage port.FileStorage,
+	{{- end }}
+) *{{ .Service.Name }}Impl {
+	return &{{ .Service.Name }}Impl{
+		{{- range getRepoEntities .Service }}
+		{{ ExportName . }}Repo: {{ ExportName . | lowerFirst }}Repo,
+		{{- end }}
+		{{- range getServiceDeps .Service }}
+		{{ ExportName . }}Service: {{ ExportName . | lowerFirst }}Service,
+		{{- end }}
+		{{- if ServiceNeedsTx .Service }}
+		txManager: txManager,
+		{{- end }}
+		{{- if and .Auth.Service (eq .Auth.Service .Service.Name) }}
+		cfg:          cfg,
+		refreshStore: refreshStore,
+		{{- end }}
+
+		{{- if ServiceHasPublishes .Service }}
+		publisher: publisher,
+		{{- end }}
+		{{- if ServiceHasIdempotency .Service }}
+		idempotency: idempotency,
+		{{- end }}
+		{{- if ServiceHasOutbox .Service }}
+		outbox: outbox,
+		{{- end }}
+		{{- if ne .Service.Name "Audit" }}
+		auditService: auditService,
+		{{- end }}
+		{{- if .Service.RequiresS3 }}
+		storage: storage,
+		{{- end }}
+	}
+}
+
+// ============================================================================ 
+// SECTION: Flow Step Templates
+// PURPOSE: Generate code for each flow step action defined in CUE
+// ============================================================================ 
+{{- define "flow_steps" }}
+	{{- $method := .Method }}
+	{{- $svc := .Service }}
+	{{- $entities := .Entities }}
+	{{- $inTx := .InTx }}
+	{{- $scope := .Scope }}
+	{{- $ctxVar := "ctx" }}{{ if $inTx }}{{- $ctxVar = "txCtx" }}{{ end }}
+	{{- range .Steps }}
+		{{- if or (eq .Action "repo.Find") (eq .Action "repo.Get") }}
+	{{ Assign $scope .Args.output }} s.{{ ExportName .Args.source }}Repo.FindByID({{ $ctxVar }}, {{ .Args.input }})
+	if err != nil {
+		{{- if $inTx }}
+		return err
+		{{- else }}
+		return resp, err
+		{{- end }}
+	}
+	if {{ .Args.output }} == nil {
+		{{- if $inTx }}
+		return errors.New(http.StatusNotFound, "Not Found", "{{ or .Args.error (print .Args.output " not found") }}")
+		{{- else }}
+		return resp, errors.New(http.StatusNotFound, "Not Found", "{{ or .Args.error (print .Args.output " not found") }}")
+		{{- end }}
+	}
+		{{- else if eq .Action "repo.GetForUpdate" }}
+	{{ Assign $scope .Args.output }} s.{{ ExportName .Args.source }}Repo.GetByIDForUpdate({{ $ctxVar }}, {{ .Args.input }})
+	if err != nil {
+		{{- if $inTx }}
+		return err
+		{{- else }}
+		return resp, err
+		{{- end }}
+	}
+		{{- else if eq .Action "repo.List" }}
+	{{- $repoMethod := or .Args.method "FindAll" }}
+	{{ Assign $scope .Args.output }} s.{{ ExportName .Args.source }}Repo.{{ $repoMethod }}({{ $ctxVar }}{{ if .Args.input }}, {{ .Args.input }}{{ end }})
+	if err != nil {
+		{{- if $inTx }}
+		return err
+		{{- else }}
+		return resp, err
+		{{- end }}
+	}
+		{{- else if eq .Action "repo.Save" }}
+	if err = s.{{ ExportName .Args.source }}Repo.Save({{ $ctxVar }}, {{ pointerExpr .Args.input }}); err != nil {
+		{{- if $inTx }}
+		return err
+		{{- else }}
+		return resp, err
+		{{- end }}
+	}
+		{{- else if eq .Action "repo.Delete" }}
+	if err = s.{{ ExportName .Args.source }}Repo.Delete({{ $ctxVar }}, {{ .Args.input }}); err != nil {
+		{{- if $inTx }}
+		return err
+		{{- else }}
+		return resp, err
+		{{- end }}
+	}
+		{{- else if eq .Action "logic.Check" }}
+	if !({{ .Args.condition }}) {
+		{{- if $inTx }}
+		return errors.New(http.StatusBadRequest, "Validation Error", "{{ .Args.throw }}")
+		{{- else }}
+		return resp, errors.New(http.StatusBadRequest, "Validation Error", "{{ .Args.throw }}")
+		{{- end }}
+	}
+		{{- else if eq .Action "list.Append" }}
+	{{ .Args.to }} = append({{ .Args.to }}, {{ .Args.item }})
+		{{- else if eq .Action "logic.Call" }}
+	{{- $args := index .Args "args" }}
+	{{ if .Args.output }}{{ Assign $scope .Args.output }} {{ .Args.func }}({{ range $i, $a := $args }}{{ if $i }}, {{ end }}{{ $a }}{{ end }}){{ else }}err = {{ .Args.func }}({{ range $i, $a := $args }}{{ if $i }}, {{ end }}{{ $a }}{{ end }}){{ end }}
+	if err != nil {
+		{{- if $inTx }}
+		return err
+		{{- else }}
+		return resp, err
+		{{- end }}
+	}
+		{{- else if eq .Action "event.Publish" }}
+	{{- if $method.Outbox }}
+	// Outbox Pattern: Save event to DB first
+	{{ AssignSimple $scope "eventID" }} uuid.NewString()
+	{{ AssignSimple $scope "eventPayload" }} helpers.Marshal({{ .Args.payload }})
+	if err = s.outbox.SaveEvent({{ $ctxVar }}, eventID, "{{ .Args.name }}", []byte(eventPayload)); err != nil {
+		{{- if $inTx }}
+		return err
+		{{- else }}
+		return resp, err
+		{{- end }}
+	}
+	{{- end }}
+
+	deferredHooks = append(deferredHooks, func(hookCtx context.Context) error {
+		if s.publisher != nil {
+			{{- if eq .Args.name "FileUploaded" }}
+			_ = s.publisher.PublishFileUploaded(hookCtx, domain.FileUploaded{FileID: {{ .Args.fileID }}, URL: {{ .Args.url }}, Kind: {{ or .Args.kind "\"auto\"" }} })
+			{{- else }}
+			_ = s.publisher.Publish{{ ExportName .Args.name }}(hookCtx, {{ .Args.payload }})
+			{{- end }}
+			
+			{{- if $method.Outbox }}
+			// Mark as processed after successful publish
+			_ = s.outbox.MarkProcessed(hookCtx, eventID)
+			{{- end }}
+		}
+		return nil
+	})
+		{{- else if eq .Action "fsm.Transition" }}
+	if err = {{ .Args.entity }}.TransitionTo("{{ .Args.to }}"); err != nil {
+		{{- if $inTx }}
+		return err
+		{{- else }}
+		return resp, err
+		{{- end }}
+	}
+		{{- else if eq .Action "mapping.Assign" }}
+	{{ AssignSimple $scope .Args.to }} {{ .Args.value }}
+		{{- else if eq .Action "mapping.Map" }}
+		    {{- $input := or .Args.input .Args.from }}
+		    {{- $output := or .Args.output .Args.to }}
+		    {{- if and .Args.entity (hasPrefix $output "new") }}
+		    {{ Declare $scope $output }} domain.{{ ExportName .Args.entity }}
+		    {{- end }}
+		    {{- if $input }}
+		        {{- if eq $output "resp" }}
+		            {{- range $method.Output.Fields }}
+		            {{- if not .IsSecret }}
+		            resp.{{ ExportName .Name }} = {{ $input }}.{{ ExportName .Name }}
+		            {{- end }}
+		            {{- end }}
+		        {{- else if or (eq $output "resp.data") (eq $output "resp.Data") }}
+		            {{- if eq $input "list" }}
+		                {{- if stringsEqualFold $svc.Name "admin" }}
+		            // Direct assignment - types must match
+		            {{- range $method.Output.Fields }}{{ if eq (ExportName .Name) "Data" }}
+		            resp.Data = list
+		            if resp.Data == nil {
+		                resp.Data = {{ .Type }}{}
+		            }
+		            {{- end }}{{ end }}
+		                {{- else }}
+		            resp.Data = make([]port.{{ $method.Output.Name }}Data, 0)
+		            for _, item := range list {
+		                {{ Declare $scope "outItem" }} port.{{ $method.Output.Name }}Data
+		                {{- range (index $method.Output.Fields 0).ItemFields }}
+		                {{- if not .IsSecret }}
+		                outItem.{{ ExportName .Name }} = item.{{ ExportName .Name }}
+		                {{- end }}
+		                {{- end }}
+		                resp.Data = append(resp.Data, outItem)
+		            }
+		                {{- end }}
+		            {{- else if eq $input "item" }}
+		            resp.Data = *item
+		            {{- else }}
+		            resp.Data = {{ $input }}
+		            {{- end }}
+		        {{- else if .Args.entity }}
+		            {{- /* SMART MAPPING: Map fields with same names between source and entity */ -}}
+		            {{- if or (eq $output "item") (eq $output "*item") }}
+		                {{- if contains $input "Data" }}
+	// Copy fields from request data to item
+	helpers.CopyNonEmptyFields(&{{ $input }}, item)
+		                {{- else if contains $input "data" }}
+	helpers.CopyNonEmptyFields(&{{ $input }}, item)
+		                {{- end }}
+		            {{- else }}
+		                {{- $entFields := getEntityFields $entities .Args.entity }}
+		                {{- range $entFields }}
+		                    {{- if hasPrefix $input "req" }}
+		                        {{- if hasField $method.Input.Fields .Name }}
+		                            {{- if not (or (eq .Name "id") (or (eq .Name "createdat") (eq .Name "updatedat"))) }}
+		            {{ $output }}.{{ ExportName .Name }} = req.{{ ExportName .Name }}
+		                            {{- end }}
+		                        {{- end }}
+		                    {{- end }}
+		                {{- end }}
+		            {{- end }}
+		        {{- else if eq $output "item" }}
+		            {{- /* Map request data to existing item - for update operations */ -}}
+		            {{- if or (eq $input "req.Data") (eq $input "req.data") }}
+	helpers.CopyNonEmptyFields(&{{ $input }}, item)
+		            {{- end }}
+		        {{- end }}
+		    {{- end }}
+		{{- else if eq .Action "flow.If" }}
+	if {{ .Args.condition }} {
+		{{- template "flow_steps" (dict "Steps" (getThen .) "Method" $method "Service" $svc "Entities" $entities "InTx" $inTx "Logger" "l" "Scope" (CloneScope $scope))}}
+	} {{ if (getElse .) }} else {
+		{{- template "flow_steps" (dict "Steps" (getElse .) "Method" $method "Service" $svc "Entities" $entities "InTx" $inTx "Logger" "l" "Scope" (CloneScope $scope))}}
+	} {{ end }}
+		{{- else if eq .Action "flow.For" }}
+	for _, {{ AssignSimple $scope .Args.as }} range {{ .Args.each }} {
+		{{- template "flow_steps" (dict "Steps" (getSteps .) "Method" $method "Service" $svc "Entities" $entities "InTx" $inTx "Logger" "l" "Scope" (CloneScope $scope))}}
+	}
+		{{- else if eq .Action "tx.Block" }}
+	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+		{{- template "flow_steps" (dict "Steps" (getSteps .) "Method" $method "Service" $svc "Entities" $entities "InTx" true "Logger" "l" "Hooks" "deferredHooks" "Scope" (CloneScope $scope))}}
+		return nil
+	})
+	if err != nil {
+		return resp, err
+	}
+	// Execute hooks deferred during this transaction block
+	for _, hook := range deferredHooks {
+		if hookErr := hook(ctx); hookErr != nil {
+			l.Error("Post-commit hook failed", slog.Any("error", hookErr))
+		}
+	}
+	deferredHooks = nil // Clear after execution
+		{{- else if eq .Action "flow.Block" }}
+	{
+		{{- template "flow_steps" (dict "Steps" (getSteps .) "Method" $method "Service" $svc "Entities" $entities "InTx" $inTx "Logger" "l" "Scope" (CloneScope $scope))}}
+	}
+		{{- end }}
+	{{- end }}
+{{- end }}
+
+// ============================================================================ 
+// SECTION: Service Methods
+// ============================================================================ 
+
+{{- range .Service.Methods }}
+{{- $method := . }}
+{{- $event := EventForMethod $.Service . }}
+{{- if .Description }}
+// {{ .Name }} {{ .Description }}
+{{- end }}
+// METHOD: {{ .Name }}
+{{- if .Source }}
+// Source: {{ .Source }}
+{{- end }}
+// INPUT: {{ if $event }}domain.{{ ExportName $event }}{{ else }}port.{{ .Input.Name }}{{ end }}
+// OUTPUT: {{ if and .Output.Name (not $event) }}port.{{ .Output.Name }}{{ else }}error only{{ end }}
+func (s *{{ $.Service.Name }}Impl) {{ .Name }}(ctx context.Context, req {{ if $event }}domain.{{ ExportName $event }}{{ else }}port.{{ .Input.Name }}{{ end }}) (resp {{ if and .Output.Name (not $event) }}port.{{ .Output.Name }}, {{ end }}err error) {
+	// Scope tracking to prevent redeclaration errors
+	{{- $scope := InitScope }}
+	{{- $null := mapSet $scope "err" true }}
+	{{- $null = mapSet $scope "resp" true }}
+	{{- $null = mapSet $scope "ctx" true }}
+	{{- $null = mapSet $scope "req" true }}
+	{{- $null = mapSet $scope "s" true }}
+	{{- $null = mapSet $scope "l" true }}
+
+	// Deep Logging for AI Traceability & Debugging
+	l := logger.From(ctx).With(slog.String("service", "{{ $.Service.Name }}"), slog.String("method", "{{ .Name }}"))
+	l.Debug("Entering method", slog.Any("req", req))
+
+	{{- if .Input.Name }}
+	// Auto-validation of input DTO
+	if err = helpers.Validate(req); err != nil {
+		l.Warn("Validation failed", slog.Any("error", err))
+		return resp, errors.New(http.StatusBadRequest, "VALIDATION_FAILED", err.Error())
+	}
+	{{- end }}
+
+	{{- if .Flow }}
+	_ = errors.New
+	_ = http.StatusOK
+	var deferredHooks []func(context.Context) error
+	{{- end }}
+
+	{{- if .Idempotency }}
+	// Idempotency Check
+	dedupeKey := {{ if .DedupeKey }}fmt.Sprint({{ range $i, $key := Split .DedupeKey ", " }}{{ if $i }}, {{ end }}req.{{ ExportName $key }}{{ end }}){{ else }}helpers.GetDedupeKey(req){{ end }}
+	if dedupeKey != "" {
+		var found bool
+		var prevResp []byte
+		found, prevResp, err = s.idempotency.Check(ctx, "{{ $.Service.Name }}.{{ .Name }}:" + dedupeKey)
+		if err == nil && found {
+			l.Info("Idempotent hit", slog.String("key", dedupeKey))
+			{{- if and .Output.Name (not $event) }}
+			if json.Unmarshal(prevResp, &resp) == nil {
+				return resp, nil
+			}
+			{{- else }}
+			return resp, nil
+			{{- end }}
+		}
+	}
+
+	// Register idempotency saver
+	defer func() {
+		if err == nil && dedupeKey != "" {
+			{{- if and .Output.Name (not $event) }}
+			respBytes, _ := json.Marshal(resp)
+			_ = s.idempotency.Save(ctx, "{{ $.Service.Name }}.{{ .Name }}:" + dedupeKey, respBytes)
+			{{- else }}
+			_ = s.idempotency.Save(ctx, "{{ $.Service.Name }}.{{ .Name }}:" + dedupeKey, nil)
+			{{- end }}
+		}
+	}()
+	{{- end }}
+
+	{{- if .Flow }}
+	{{- template "flow_steps" (dict "Steps" .Flow "Method" $method "Service" $.Service "Entities" $.Entities "InTx" false "Logger" "l" "Hooks" "deferredHooks" "Scope" $scope) }}
+
+	// Execute post-commit hooks
+	for _, hook := range deferredHooks {
+		if hookErr := hook(ctx); hookErr != nil {
+			l.Error("Post-commit hook failed", slog.Any("error", hookErr))
+		}
+	}
+
+	l.Debug("Exiting method", slog.String("status", "success"))
+	return resp, nil
+	{{- else if and .Impl (eq .Impl.Lang "go") .Impl.Code }}
+{{ Indent (PrepareCodeBlock .Impl.Code) 1 }}
+	{{- else }}
+	{{- if and .Output.Name (not $event) }}
+	l.Debug("Exiting method (empty impl)", slog.String("status", "success"))
+	return resp, nil
+	{{- else }}
+	l.Debug("Exiting method (empty impl)", slog.String("status", "success"))
+	return nil, nil
+	{{- end }}
+	{{- end }}
+}
+{{- end }}
