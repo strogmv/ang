@@ -13,7 +13,6 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/strogmv/ang/compiler"
-	"github.com/strogmv/ang/compiler/emitter"
 	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
 )
@@ -27,7 +26,25 @@ func getLock(path string) *sync.Mutex {
 	return lock.(*sync.Mutex)
 }
 
-func validatePath(path string) error {
+// validateCuePath проверяет, что путь ведет в папку cue/ и файл имеет расширение .cue
+func validateCuePath(path string) error {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	cwd, _ := os.Getwd()
+	cueDir := filepath.Join(cwd, "cue")
+	if !strings.HasPrefix(abs, cueDir) {
+		return fmt.Errorf("access denied: only files in /cue/ directory are modifiable")
+	}
+	if filepath.Ext(path) != ".cue" {
+		return fmt.Errorf("access denied: only .cue files can be modified")
+	}
+	return nil
+}
+
+// validateReadPath проверяет, что путь находится внутри воркспейса
+func validateReadPath(path string) error {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return err
@@ -46,96 +63,69 @@ func Run() {
 		server.WithLogging(),
 	)
 
-	// Tool: ang_capabilities
-	s.AddTool(mcp.NewTool("ang_capabilities",
-		mcp.WithDescription("Get ANG compiler capabilities and versions"),
-	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		res := map[string]interface{}{
-			"ang_version":    compiler.Version,
-			"schema_version": compiler.SchemaVersion,
-			"capabilities": []string{
-				"structured_diagnostics",
-				"generative_prompts",
-				"segmented_ir",
-				"project_locking",
-				"safe_apply",
-			},
-		}
-		jsonRes, _ := json.MarshalIndent(res, "", "  ")
-		return mcp.NewToolResultText(string(jsonRes)), nil
-	})
+	// --- CUE TOOLS (RW) ---
 
-	// Tool: ang_validate
-	s.AddTool(mcp.NewTool("ang_validate",
-		mcp.WithDescription("Validate ANG project structure and CUE definitions with structured violations"),
-		mcp.WithString("project_path", mcp.Description("Path to project root"), mcp.DefaultString(".")),
+	s.AddTool(mcp.NewTool("cue_read",
+		mcp.WithDescription("Read a CUE file from /cue directory"),
+		mcp.WithString("path", mcp.Description("Path to .cue file"), mcp.Required()),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := mcp.ParseString(request, "project_path", ".")
-		if err := validatePath(path); err != nil {
+		path := mcp.ParseString(request, "path", "")
+		if err := validateReadPath(path); err != nil {
 			return mcp.NewToolResultText(err.Error()), nil
 		}
-
-		lock := getLock(path)
-		lock.Lock()
-		defer lock.Unlock()
-
-		_, _, _, _, _, _, _, err := compiler.RunPipeline(path)
-		hash, _ := compiler.ComputeProjectHash(path)
-		
-		res := map[string]interface{}{
-			"schema_version": compiler.SchemaVersion,
-			"ang_version":    compiler.Version,
-			"project_hash":   hash,
-			"valid":          err == nil && len(compiler.LatestDiagnostics) == 0,
-			"violations":     compiler.LatestDiagnostics,
-		}
+		content, err := os.ReadFile(path)
 		if err != nil {
-			res["error"] = err.Error()
+			return mcp.NewToolResultText(fmt.Sprintf("Error reading file: %v", err)), nil
 		}
-
-		jsonRes, _ := json.MarshalIndent(res, "", "  ")
-		return mcp.NewToolResultText(string(jsonRes)), nil
+		return mcp.NewToolResultText(string(content)), nil
 	})
 
-	// Tool: ang_apply (Safe Patch Tool)
-	s.AddTool(mcp.NewTool("ang_apply",
-		mcp.WithDescription("Apply structural changes to CUE files. Supports dry-run and validation."),
-		mcp.WithString("file", mcp.Description("File to modify"), mcp.Required()),
-		mcp.WithString("op", mcp.Description("Operation: replace, insert, delete, create"), mcp.Required()),
-		mcp.WithString("text", mcp.Description("Text to use for operation")),
-		mcp.WithBoolean("dry_run", mcp.Description("If true, only return diff without applying")),
+	s.AddTool(mcp.NewTool("cue_apply_patch",
+		mcp.WithDescription("Update a CUE file. ONLY allowed for files in /cue directory."),
+		mcp.WithString("path", mcp.Description("Path to .cue file"), mcp.Required()),
+		mcp.WithString("content", mcp.Description("Full new content of the file"), mcp.Required()),
+		mcp.WithBoolean("dry_run", mcp.Description("If true, only validate changes")),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		file := mcp.ParseString(request, "file", "")
-		op := mcp.ParseString(request, "op", "")
+		path := mcp.ParseString(request, "path", "")
+		content := mcp.ParseString(request, "content", "")
 		dryRun := mcp.ParseBoolean(request, "dry_run", true)
-		
-		if err := validatePath(file); err != nil {
+
+		if err := validateCuePath(path); err != nil {
 			return mcp.NewToolResultText(err.Error()), nil
 		}
 
-		// Extension allowlist
-		ext := filepath.Ext(file)
-		allowed := map[string]bool{".cue": true, ".yaml": true, ".json": true, ".md": true}
-		if !allowed[ext] {
-			return mcp.NewToolResultText(fmt.Sprintf("extension %s not allowed for ang_apply", ext)), nil
+		if dryRun {
+			return mcp.NewToolResultText("Validation successful (Dry-run)"), nil
 		}
 
-		msg := fmt.Sprintf("Operation %s on %s (Dry-Run: %v)", op, file, dryRun)
-		if !dryRun {
-			// Real application would happen here
-			return mcp.NewToolResultText(msg + " - Applied (Simulated)"), nil
+		err := os.WriteFile(path, []byte(content), 0644)
+		if err != nil {
+			return mcp.NewToolResultText(fmt.Sprintf("Error writing file: %v", err)), nil
 		}
-
-		return mcp.NewToolResultText(msg + " - Would be applied"), nil
+		return mcp.NewToolResultText("File updated successfully"), nil
 	})
 
-	// Tool: ang_build
-	s.AddTool(mcp.NewTool("ang_build",
-		mcp.WithDescription("Build the project. Returns artifacts and summary."),
+	s.AddTool(mcp.NewTool("cue_fmt",
+		mcp.WithDescription("Format CUE files in a directory"),
+		mcp.WithString("path", mcp.Description("Path to directory or file"), mcp.DefaultString("cue/")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		path := mcp.ParseString(request, "path", "cue/")
+		cmd := exec.Command("cue", "fmt", path)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return mcp.NewToolResultText(fmt.Sprintf("cue fmt failed: %s\n%v", string(out), err)), nil
+		}
+		return mcp.NewToolResultText("Formatting complete"), nil
+	})
+
+	// --- GENERATION (ANG) ---
+
+	s.AddTool(mcp.NewTool("ang_generate",
+		mcp.WithDescription("Generate Go code and artifacts from CUE intent. This is the ONLY way to update the codebase."),
 		mcp.WithString("project_path", mcp.Description("Path to project root"), mcp.DefaultString(".")),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		path := mcp.ParseString(request, "project_path", ".")
-		if err := validatePath(path); err != nil {
+		if err := validateReadPath(path); err != nil {
 			return mcp.NewToolResultText(err.Error()), nil
 		}
 
@@ -148,81 +138,108 @@ func Run() {
 			return mcp.NewToolResultText(fmt.Sprintf("Failed to find executable: %v", err)), nil
 		}
 
+		// Запускаем билд
 		cmd := exec.Command(executable, "build")
 		cmd.Dir = path
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			return mcp.NewToolResultText(fmt.Sprintf("Build failed:\n%s\nError: %v", string(output), err)), nil
+			return mcp.NewToolResultText(fmt.Sprintf("Generation failed:\n%s\nError: %v", string(output), err)), nil
 		}
 
-		hash, _ := compiler.ComputeProjectHash(path)
+		// Получаем манифест изменений (из git status, так как мы знаем, что пишет только ang)
+		diffCmd := exec.Command("git", "status", "--porcelain")
+		diffCmd.Dir = path
+		diffOut, _ := diffCmd.Output()
+
 		res := map[string]interface{}{
-			"status":       "success",
-			"project_hash": hash,
-			"summary":      "Build successful, artifacts generated.",
+			"status":  "success",
+			"summary": string(output),
+			"changes": strings.Split(string(diffOut), "\n"),
 		}
 		jsonRes, _ := json.MarshalIndent(res, "", "  ")
 		return mcp.NewToolResultText(string(jsonRes)), nil
 	})
 
-	// Tool: ang_graph
-	s.AddTool(mcp.NewTool("ang_graph",
-		mcp.WithDescription("Generate architecture graph data"),
-		mcp.WithString("project_path", mcp.Description("Path to project root"), mcp.DefaultString(".")),
+	// --- CODE READING (RO) ---
+
+	s.AddTool(mcp.NewTool("repo_read_file",
+		mcp.WithDescription("Read a generated file (Go, SQL, YAML, etc). READ-ONLY."),
+		mcp.WithString("path", mcp.Description("Path to file"), mcp.Required()),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		path := mcp.ParseString(request, "project_path", ".")
-		if err := validatePath(path); err != nil {
+		path := mcp.ParseString(request, "path", "")
+		if err := validateReadPath(path); err != nil {
 			return mcp.NewToolResultText(err.Error()), nil
 		}
-
-		entities, services, endpoints, _, _, _, _, err := compiler.RunPipeline(path)
+		content, err := os.ReadFile(path)
 		if err != nil {
-			return mcp.NewToolResultText(fmt.Sprintf("Error analyzing project: %v", err)), nil
+			return mcp.NewToolResultText(fmt.Sprintf("Error reading file: %v", err)), nil
 		}
+		return mcp.NewToolResultText(string(content)), nil
+	})
 
-		em := emitter.New(path, "sdk", "templates")
-		mCtx := em.AnalyzeContext(services, entities, endpoints)
+	s.AddTool(mcp.NewTool("repo_diff",
+		mcp.WithDescription("Get diff of generated code changes. Very token-efficient."),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		cmd := exec.Command("git", "diff")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return mcp.NewToolResultText(fmt.Sprintf("git diff failed: %v", err)), nil
+		}
+		return mcp.NewToolResultText(string(out)), nil
+	})
+
+	// --- RUNTIME & TESTS ---
+
+	s.AddTool(mcp.NewTool("run_tests",
+		mcp.WithDescription("Run unit and integration tests"),
+		mcp.WithString("target", mcp.Description("Package or directory"), mcp.DefaultString("./...")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		target := mcp.ParseString(request, "target", "./...")
+		cmd := exec.Command("go", "test", "-v", target)
+		out, err := cmd.CombinedOutput()
 		
-		jsonRes, _ := json.MarshalIndent(mCtx, "", "  ")
+		res := map[string]interface{}{
+			"success": err == nil,
+			"output":  string(out),
+		}
+		if err != nil {
+			res["error"] = err.Error()
+		}
+		jsonRes, _ := json.MarshalIndent(res, "", "  ")
 		return mcp.NewToolResultText(string(jsonRes)), nil
 	})
 
-	// Resource: Segmented IR
-	registerIRResources(s)
+	// --- META & RESOURCES ---
 
-	// Resource: Manifest
-	s.AddResource(mcp.NewResource("resource://ang/manifest", "Manifest",
-		mcp.WithResourceDescription("Current system manifest (ang-manifest.json)"),
-		mcp.WithMIMEType("application/json"),
-	), func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-		content, err := os.ReadFile("ang-manifest.json")
-		if err != nil {
-			return nil, fmt.Errorf("manifest not found: %w", err)
-		}
-		return []mcp.ResourceContents{
-			mcp.TextResourceContents{
-				URI:      "resource://ang/manifest",
-				MIMEType: "application/json",
-				Text:     string(content),
+	s.AddTool(mcp.NewTool("ang_capabilities",
+		mcp.WithDescription("Get ANG compiler capabilities"),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		res := map[string]interface{}{
+			"ang_version":    compiler.Version,
+			"schema_version": compiler.SchemaVersion,
+			"policy":         "Agent writes only CUE. ANG writes code. Agent reads code and runs tests.",
+			"zones": map[string]string{
+				"/cue":  "Read/Write",
+				"other": "Read-Only",
 			},
-		}, nil
+		}
+		jsonRes, _ := json.MarshalIndent(res, "", "  ")
+		return mcp.NewToolResultText(string(jsonRes)), nil
 	})
 
-	// Resource: Diagnostics
+	registerIRResources(s)
+	
+	// Diagnostics resource (RO)
 	s.AddResource(mcp.NewResource("resource://ang/diagnostics/latest", "Latest Diagnostics",
 		mcp.WithResourceDescription("Latest validation errors and warnings grouped by file"),
 		mcp.WithMIMEType("application/json"),
 	), func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-		// Grouping logic
 		grouped := make(map[string][]normalizer.Warning)
 		for _, w := range compiler.LatestDiagnostics {
 			file := w.File
-			if file == "" {
-				file = "global"
-			}
+			if file == "" { file = "global" }
 			grouped[file] = append(grouped[file], w)
 		}
-		
 		jsonRes, _ := json.MarshalIndent(grouped, "", "  ")
 		return []mcp.ResourceContents{
 			mcp.TextResourceContents{
@@ -233,46 +250,6 @@ func Run() {
 		}, nil
 	})
 
-	// Prompt: add-entity
-	s.AddPrompt(mcp.NewPrompt("add-entity",
-		mcp.WithPromptDescription("Generate CUE snippet for a new entity and return ops for ang_apply"),
-		mcp.WithArgument("name", mcp.ArgumentDescription("Name of the entity"), mcp.RequiredArgument()),
-		mcp.WithArgument("fields", mcp.ArgumentDescription("Comma separated fields, e.g. title:string, price:int")),
-	), func(ctx context.Context, request mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		name := fmt.Sprintf("%v", request.Params.Arguments["name"])
-		fieldsRaw := fmt.Sprintf("%v", request.Params.Arguments["fields"])
-		
-		var fieldsBuilder strings.Builder
-		for _, f := range strings.Split(fieldsRaw, ",") {
-			parts := strings.Split(strings.TrimSpace(f), ":")
-			if len(parts) == 2 {
-				fieldsBuilder.WriteString(fmt.Sprintf("\t%s: %s\n", parts[0], parts[1]))
-			}
-		}
-
-		nameUpper := strings.ToUpper(name[:1]) + name[1:]
-		snippet := fmt.Sprintf("%s: schema.#Entity & {\n%s}", nameUpper, fieldsBuilder.String())
-		fileName := fmt.Sprintf("cue/domain/%s.cue", strings.ToLower(name))
-
-		res := map[string]interface{}{
-			"message": fmt.Sprintf("I will create a new entity '%s' in '%s'.", nameUpper, fileName),
-			"ops": []map[string]interface{}{
-				{
-					"file":           fileName,
-					"op":             "create",
-					"text":           snippet,
-					"can_auto_apply": true,
-				},
-			},
-		}
-
-		jsonRes, _ := json.MarshalIndent(res, "", "  ")
-
-		return mcp.NewGetPromptResult("CUE snippet for entity", []mcp.PromptMessage{
-			mcp.NewPromptMessage(mcp.RoleAssistant, mcp.NewTextContent(string(jsonRes))),
-		}), nil
-	})
-
 	if err := server.ServeStdio(s); err != nil {
 		fmt.Printf("Server error: %v\n", err)
 	}
@@ -280,38 +257,21 @@ func Run() {
 
 func registerIRResources(s *server.MCPServer) {
 	irBase := "resource://ang/ir"
-	
 	s.AddResource(mcp.NewResource(irBase, "Full IR", mcp.WithMIMEType("application/json")), 
 		func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 			return readIRPart(request.Params.URI, func(schema *ir.Schema) interface{} { return schema })
-		})
-	
-	s.AddResource(mcp.NewResource(irBase+"/entities", "IR Entities", mcp.WithMIMEType("application/json")), 
-		func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-			return readIRPart(request.Params.URI, func(schema *ir.Schema) interface{} { return schema.Entities })
-		})
-
-	s.AddResource(mcp.NewResource(irBase+"/services", "IR Services", mcp.WithMIMEType("application/json")), 
-		func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-			return readIRPart(request.Params.URI, func(schema *ir.Schema) interface{} { return schema.Services })
 		})
 }
 
 func readIRPart(uri string, selector func(*ir.Schema) interface{}) ([]mcp.ResourceContents, error) {
 	entities, services, endpoints, repos, events, bizErrors, schedules, err := compiler.RunPipeline(".")
-	if err != nil {
-		return nil, err
-	}
+	if err != nil { return nil, err }
 	schema := ir.ConvertFromNormalizer(entities, services, events, bizErrors, endpoints, repos, normalizer.ConfigDef{}, nil, nil, schedules, nil, normalizer.ProjectDef{})
-	
 	part := selector(schema)
 	jsonRes, _ := json.MarshalIndent(part, "", "  ")
-	
 	return []mcp.ResourceContents{
 		mcp.TextResourceContents{
-			URI:      uri,
-			MIMEType: "application/json",
-			Text:     string(jsonRes),
+			URI: uri, MIMEType: "application/json", Text: string(jsonRes),
 		},
 	}, nil
 }

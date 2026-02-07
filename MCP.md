@@ -1,63 +1,41 @@
 # ANG Model Context Protocol (MCP) Server
 
-The ANG compiler includes a built-in MCP server that allows AI agents (like Cursor, Claude Desktop, or IDE plugins) to interact with the compiler directly using structured data.
+The ANG compiler includes a built-in MCP server that enforces a strict **Intent-First** development policy.
 
-## Features
+## Core Policy
 
-- **Structured Diagnostics**: `ang_validate` returns machine-readable violations with CUE paths and suggested fixes.
-- **Project Locking**: Thread-safe operations for multiple projects.
-- **Segmented IR**: Access specific parts of the system (Entities, Services) via `resource://ang/ir/...`.
-- **Generative Prompts**: Interactive templates for creating new entities and CRUD operations.
-- **Safe Apply**: `ang_apply` tool for applying changes with dry-run support and path validation.
+> **Agent writes only CUE. ANG writes code. Agent reads code and runs tests.**
 
-## Usage
-
-Start the MCP server using standard I/O:
-
-```bash
-ang mcp
-```
+### Repository Zones
+1. `/cue/**` — **Read/Write**. The agent is allowed to modify CUE intent files here.
+2. `/**` (Other) — **Read-Only**. Generated Go code, SQL, and manifests can only be read, never modified directly by the agent.
 
 ## Tools
 
-| Tool | Description |
-|------|-------------|
-| `ang_capabilities` | Returns compiler version and supported features. |
-| `ang_validate` | Validates CUE intent and returns structured violations. |
-| `ang_build` | Triggers full code generation. |
-| `ang_graph` | Returns architecture graph data (Mermaid context). |
-| `ang_apply` | Applies structural changes to CUE files (Dry-run by default). |
+### CUE Intent (Write)
+- `cue_read(path)`: Read CUE files from `/cue`.
+- `cue_apply_patch(path, content)`: Update CUE file content (restricted to `/cue`).
+- `cue_fmt(path)`: Format CUE files.
 
-## Resources
+### Generation (ANG)
+- `ang_generate()`: The **only** way to update the codebase. Runs `ang build` and returns a manifest of changed files.
 
-| URI | Description |
-|-----|-------------|
-| `resource://ang/manifest` | Current system manifest (JSON). |
-| `resource://ang/ir` | Full Intermediate Representation (JSON). |
-| `resource://ang/ir/entities` | Only Entity definitions from IR. |
-| `resource://ang/ir/services` | Only Service definitions from IR. |
-| `resource://ang/diagnostics/latest` | Latest validation errors grouped by file. |
+### Code Analysis (Read-Only)
+- `repo_read_file(path)`: Read generated code or artifacts.
+- `repo_diff()`: Get a git-powered diff of changes (token-efficient).
 
-## Walkthroughs
+### Runtime & Tests
+- `run_tests(target)`: Runs `go test` and returns structured results.
 
-### 1. Add Entity + CRUD End-to-End
-A typical workflow for an AI agent creating a new feature:
+## Why this policy?
+1. **Discipline**: Prevents "hallucinated" manual fixes in generated code. All changes must be made in CUE.
+2. **Token Efficiency**: Agents use `repo_diff` to see changes instead of re-reading entire files.
+3. **Safety**: Zero chance for an AI to break the generated implementation logic directly.
 
-1. **Prompt**: Use `add-entity(name="Order", fields="id:string,amount:int")` to get the CUE snippet and suggested file path.
-2. **Safe Apply**: Call `ang_apply(file="cue/domain/order.cue", op="create", text="...", dry_run=false)` to create the file.
-3. **Validate**: Call `ang_validate()` to ensure the project state is consistent.
-4. **Build**: Call `ang_build()` to generate Go code and SQL migrations.
+## Walkthrough: The Loop
 
-### 2. Fix Violations Loop
-How an agent handles architectural or syntax errors:
-
-1. **Validate**: Call `ang_validate()` and receive a violation like `ARCHITECTURE_VIOLATION` at `cue/api/posts.cue`.
-2. **Inspect Fix**: Check `suggested_fix` field in the violation object.
-3. **Apply Fix**: Use `ang_apply` with the suggested text and path.
-4. **Verify**: Run `ang_validate()` again to confirm the fix works.
-
-## Security
-
-- **Path Pinning**: All file operations are restricted to the current workspace.
-- **Extension Allowlist**: Only `.cue`, `.yaml`, `.json`, and `.md` files can be modified via `ang_apply`.
-- **Metadata**: All tool responses include `schema_version` and `project_hash` for consistency checks.
+1. **Modify**: Agent edits `cue/domain/user.cue` via `cue_apply_patch`.
+2. **Generate**: Agent calls `ang_generate()`.
+3. **Inspect**: Agent calls `repo_diff()` to see how Go code changed.
+4. **Verify**: Agent calls `run_tests()` to ensure the generated code works.
+5. **Iterate**: If tests fail, agent goes back to step 1 (editing CUE).
