@@ -164,6 +164,9 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 				mode = m
 			}
 			field.Metadata["encrypt"] = mode
+			if cs, found, _ := attr.Lookup(0, "client_side"); found && cs == "true" {
+				field.Metadata["client_side_encryption"] = true
+			}
 		}
 
 		if attr := val.Attribute("redact"); attr.Err() == nil {

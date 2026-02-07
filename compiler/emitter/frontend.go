@@ -419,6 +419,13 @@ func (e *Emitter) EmitFrontendSDK(entities []normalizer.Entity, services []norma
 			}
 		},
 		"TSType": tsType,
+		"TSFieldType": func(f normalizer.Field) string {
+			base := tsType(f.Type)
+			if f.Metadata != nil && f.Metadata["client_side_encryption"] == true {
+				return "Encrypted<" + base + ">"
+			}
+			return base
+		},
 		"ZodType": func(goType string) string {
 			if strings.HasPrefix(goType, "[]") {
 				elem := strings.TrimPrefix(goType, "[]")
