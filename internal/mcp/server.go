@@ -135,23 +135,40 @@ func Run() {
 	})
 
 	s.AddTool(mcp.NewTool("cue_apply_patch",
-		mcp.WithDescription("Update CUE intent (Semantic Merge)"),
+		mcp.WithDescription("Update CUE intent with atomic validation (syntax + architecture)"),
 		mcp.WithString("path", mcp.Description("CUE file path"), mcp.Required()),
 		mcp.WithString("content", mcp.Description("CUE patch content"), mcp.Required()),
-		mcp.WithString("selector", mcp.Description("Target node path, e.g. '#Impls.CreateTender'")),
+		mcp.WithString("selector", mcp.Description("Target node path")),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		path, content := mcp.ParseString(request, "path", ""), mcp.ParseString(request, "content", "")
 		selector := mcp.ParseString(request, "selector", "")
 		if !strings.HasPrefix(path, "cue/") { return mcp.NewToolResultText("Denied: only /cue directory is modifiable"), nil }
 		
-		if err := MergeCUEFiles(path, selector, content); err != nil {
-			return mcp.NewToolResultText(fmt.Sprintf("Merge failed: %v", err)), nil
+		// 1. Get Merged Content
+		newContent, err := GetMergedContent(path, selector, content)
+		if err != nil { return mcp.NewToolResultText(fmt.Sprintf("Merge error: %v", err)), nil }
+
+		// 2. Backup & Apply (Temporary)
+		orig, _ := os.ReadFile(path)
+		os.WriteFile(path, newContent, 0644)
+
+		// 3. Syntax Check (cue vet)
+		cmd := exec.Command("cue", "vet", path)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			os.WriteFile(path, orig, 0644) // Rollback
+			return mcp.NewToolResultText(fmt.Sprintf("Syntax validation FAILED: %s", string(out))), nil
 		}
-		
+
+		// 4. Architectural Check (ang validate)
+		if _, _, _, _, _, _, _, _, err := compiler.RunPipeline("."); err != nil {
+			os.WriteFile(path, orig, 0644) // Rollback
+			return mcp.NewToolResultText(fmt.Sprintf("Architecture validation FAILED: %v", err)), nil
+		}
+
 		sessionState.Lock()
 		sessionState.LastAction = "cue_apply_patch"
 		sessionState.Unlock()
-		return mcp.NewToolResultText("Intent merged successfully. Next: run_preset('build')"), nil
+		return mcp.NewToolResultText("Intent merged and validated successfully. Next: run_preset('build')"), nil
 	})
 
 	s.AddTool(mcp.NewTool("run_preset",

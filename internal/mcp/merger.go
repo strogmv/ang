@@ -11,14 +11,13 @@ import (
 	"cuelang.org/go/cue/parser"
 )
 
-const ReductionThreshold = 0.7 // Block if new file is < 70% of original size
+const ReductionThreshold = 0.7
 
-// MergeCUEFiles reads the original file, parses the patch, merges them at AST level, and writes back.
-func MergeCUEFiles(path string, selector string, patchContent string) error {
-	// 1. Parse Original
+// GetMergedContent returns the resulting CUE content after merging, but does NOT write to disk.
+func GetMergedContent(path string, selector string, patchContent string) ([]byte, error) {
 	origContent, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("read original: %w", err)
+		return nil, fmt.Errorf("read original: %w", err)
 	}
 
 	var origAST *ast.File
@@ -28,40 +27,44 @@ func MergeCUEFiles(path string, selector string, patchContent string) error {
 	} else {
 		origAST, err = parser.ParseFile(path, origContent, parser.ParseComments)
 		if err != nil {
-			return fmt.Errorf("parse original: %w", err)
+			return nil, fmt.Errorf("parse original: %w", err)
 		}
 		origLines = bytes.Count(origContent, []byte("\n"))
 	}
 
-	// 2. Parse Patch
 	patchAST, err := parser.ParseFile("patch.cue", patchContent, parser.ParseComments)
 	if err != nil {
-		return fmt.Errorf("parse patch: %w", err)
+		return nil, fmt.Errorf("parse patch: %w", err)
 	}
 
-	// 3. Selective or Global Merge
 	if selector != "" {
 		if err := mergeAtSelector(origAST, selector, patchAST.Decls); err != nil {
-			return err
+			return nil, err
 		}
 	} else {
 		mergeDecls(origAST, patchAST.Decls)
 	}
 
-	// 4. Format and Validate Size
 	res, err := format.Node(origAST)
 	if err != nil {
-		return fmt.Errorf("format result: %w", err)
+		return nil, fmt.Errorf("format result: %w", err)
 	}
 
 	newLines := bytes.Count(res, []byte("\n"))
-	
-	// Data Loss Guard: Check for critical reduction
 	if origLines > 10 && float64(newLines) < float64(origLines)*ReductionThreshold {
-		return fmt.Errorf("CRITICAL_REDUCTION_DETECTED: new file size (%d lines) is significantly smaller than original (%d lines). Patch rejected to prevent data loss", newLines, origLines)
+		return nil, fmt.Errorf("CRITICAL_REDUCTION_DETECTED: new file size (%d lines) is significantly smaller than original (%d lines)", newLines, origLines)
 	}
 
-	return os.WriteFile(path, res, 0644)
+	return res, nil
+}
+
+// MergeCUEFiles remains for backward compatibility or simple use cases
+func MergeCUEFiles(path string, selector string, patchContent string) error {
+	content, err := GetMergedContent(path, selector, patchContent)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, content, 0644)
 }
 
 func mergeAtSelector(orig *ast.File, selector string, patchDecls []ast.Decl) error {
