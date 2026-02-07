@@ -3,6 +3,7 @@ package mcp
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"cuelang.org/go/cue/ast"
 	"cuelang.org/go/cue/format"
@@ -10,7 +11,8 @@ import (
 )
 
 // MergeCUEFiles reads the original file, parses the patch, merges them at AST level, and writes back.
-func MergeCUEFiles(path string, patchContent string) error {
+// If selector is provided (e.g. "#Impls.CreateTender"), it merges the patch specifically into that node.
+func MergeCUEFiles(path string, selector string, patchContent string) error {
 	// 1. Parse Original
 	origContent, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
@@ -33,8 +35,14 @@ func MergeCUEFiles(path string, patchContent string) error {
 		return fmt.Errorf("parse patch: %w", err)
 	}
 
-	// 3. Recursive Merge
-	mergeDecls(origAST, patchAST.Decls)
+	// 3. Selective or Global Merge
+	if selector != "" {
+		if err := mergeAtSelector(origAST, selector, patchAST.Decls); err != nil {
+			return err
+		}
+	} else {
+		mergeDecls(origAST, patchAST.Decls)
+	}
 
 	// 4. Format and Save
 	res, err := format.Node(origAST)
@@ -45,18 +53,49 @@ func MergeCUEFiles(path string, patchContent string) error {
 	return os.WriteFile(path, res, 0644)
 }
 
+func mergeAtSelector(orig *ast.File, selector string, patchDecls []ast.Decl) error {
+	parts := strings.Split(selector, ".")
+	var currentDecls *[]ast.Decl = &orig.Decls
+
+	// Navigate to the parent of the last selector part
+	for i := 0; i < len(parts); i++ {
+		part := parts[i]
+		found := false
+		
+		for _, decl := range *currentDecls {
+			if f, ok := decl.(*ast.Field); ok && fmt.Sprint(f.Label) == part {
+				if i == len(parts)-1 {
+					// Last part - merge patch here
+					mergeField(f, &ast.Field{Value: &ast.StructLit{Elts: patchDecls}})
+					return nil
+				}
+				
+				// Not last part - go deeper
+				if s, ok := f.Value.(*ast.StructLit); ok {
+					currentDecls = &s.Elts
+					found = true
+					break
+				}
+				return fmt.Errorf("selector path %s is not a struct", strings.Join(parts[:i+1], "."))
+			}
+		}
+
+		if !found {
+			// Path not found - we could auto-create it, but for safety let's return error for now
+			return fmt.Errorf("selector path %s not found", strings.Join(parts[:i+1], "."))
+		}
+	}
+	return nil
+}
+
 func mergeDecls(orig *ast.File, patchDecls []ast.Decl) {
 	for _, patchDecl := range patchDecls {
 		found := false
-		
-		// We only merge Fields (x: y) or Structs
 		if pField, ok := patchDecl.(*ast.Field); ok {
 			pLabel := fmt.Sprint(pField.Label)
-			
 			for _, oDecl := range orig.Decls {
 				if oField, ok := oDecl.(*ast.Field); ok {
 					if fmt.Sprint(oField.Label) == pLabel {
-						// Found matching label!
 						mergeField(oField, pField)
 						found = true
 						break
@@ -64,9 +103,7 @@ func mergeDecls(orig *ast.File, patchDecls []ast.Decl) {
 				}
 			}
 		}
-
 		if !found {
-			// If not found, just append to declarations
 			orig.Decls = append(orig.Decls, patchDecl)
 		}
 	}
@@ -77,10 +114,8 @@ func mergeField(orig, patch *ast.Field) {
 	pStruct, pOk := patch.Value.(*ast.StructLit)
 
 	if oOk && pOk {
-		// Both are structs - recurse!
 		mergeStruct(oStruct, pStruct)
 	} else {
-		// One is not a struct - overwrite the value
 		orig.Value = patch.Value
 	}
 }

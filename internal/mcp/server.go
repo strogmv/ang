@@ -136,13 +136,15 @@ func Run() {
 
 	s.AddTool(mcp.NewTool("cue_apply_patch",
 		mcp.WithDescription("Update CUE intent (Semantic Merge)"),
-		mcp.WithString("path", mcp.Required()),
-		mcp.WithString("content", mcp.Required()),
+		mcp.WithString("path", mcp.Description("CUE file path"), mcp.Required()),
+		mcp.WithString("content", mcp.Description("CUE patch content"), mcp.Required()),
+		mcp.WithString("selector", mcp.Description("Target node path, e.g. '#Impls.CreateTender'")),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		path, content := mcp.ParseString(request, "path", ""), mcp.ParseString(request, "content", "")
+		selector := mcp.ParseString(request, "selector", "")
 		if !strings.HasPrefix(path, "cue/") { return mcp.NewToolResultText("Denied: only /cue directory is modifiable"), nil }
 		
-		if err := MergeCUEFiles(path, content); err != nil {
+		if err := MergeCUEFiles(path, selector, content); err != nil {
 			return mcp.NewToolResultText(fmt.Sprintf("Merge failed: %v", err)), nil
 		}
 		
