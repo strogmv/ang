@@ -425,11 +425,26 @@ CreateOrder: {
 | `S3_ENDPOINT` | http://localhost:9000 | S3/Minio endpoint |
 | `S3_BUCKET` | attachments | S3 bucket name |
 
-## AI & MCP Integration
+## AI & Agent Integration
 
-ANG is designed to be used with AI agents. It includes a built-in MCP server for deep integration with Cursor, Claude, and VS Code.
+ANG is built from the ground up to be **AI-Native**. It includes a sophisticated **MCP (Model Context Protocol)** server that allows agents (Cursor, Claude Code, Windsurf) to architect systems instead of just writing code.
 
-### Use with Claude Desktop
+### The Intent-First Policy (Mandatory for AI)
+
+To ensure system integrity and prevent hallucinations, all AI agents must follow this protocol:
+1. **Agent writes ONLY CUE**: All business logic and architecture must be defined in the `cue/` directory.
+2. **ANG generates ALL code**: Implementation in `internal/`, `api/`, and `sdk/` is managed by the compiler. **NEVER** modify these files manually.
+3. **Agent verifies via MCP**: Use `repo_diff` and `run_preset('unit')` to verify the generated implementation.
+
+### Agent Quickstart (For AI)
+
+If you are an AI agent, follow these steps to start:
+1. **Bootstrap**: Always call `ang_bootstrap` first to load workflows and policies.
+2. **Plan**: Call `ang_plan(goal="...")` to get a step-by-step architectural plan.
+3. **Navigate**: Use `ang_search` and `repo_read_symbol` to find relevant logic without reading large files.
+4. **Iterate**: Patch CUE -> `run_preset('build')` -> `repo_diff` -> `run_preset('unit')`.
+
+### Setup for Claude Desktop
 
 Add this to your `claude_desktop_config.json`:
 
@@ -437,21 +452,12 @@ Add this to your `claude_desktop_config.json`:
 {
   "mcpServers": {
     "ang": {
-      "command": "/path/to/ang",
+      "command": "ang",
       "args": ["mcp"],
       "env": {
-        "CWD": "/your/project/path"
+        "CWD": "/absolute/path/to/your/project"
       }
     }
   }
 }
 ```
-
-### AI Policy (Intent-First)
-
-When working with ANG, AI agents follow a strict policy:
-1. **Agents write CUE** (in `cue/` directory).
-2. **ANG generates code** (in `internal/`, `api/`, etc.).
-3. **Agents verify result** via tests and diffs.
-
-This ensures zero hallucinations in the business logic and perfect code quality.
