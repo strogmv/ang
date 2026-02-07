@@ -140,6 +140,15 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 			}
 		}
 
+		// Extract test hints
+		thVal := value.LookupPath(cue.ParsePath("testHints"))
+		if thVal.Exists() {
+			if method.Metadata == nil {
+				method.Metadata = make(map[string]any)
+			}
+			method.Metadata["testHints"] = true
+		}
+
 		inVal := value.LookupPath(cue.ParsePath("input"))
 		if !inVal.Exists() {
 			inVal = value.LookupPath(cue.ParsePath("in"))

@@ -262,16 +262,18 @@ func Run() {
 		mcp.WithResourceDescription("Analysis of CUE invariants coverage by generated tests"),
 		mcp.WithMIMEType("application/json"),
 	), func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-		entities, services, _, _, _, _, _, err := compiler.RunPipeline(".")
+		entities, services, endpoints, repos, events, bizErrors, schedules, err := compiler.RunPipeline(".")
 		if err != nil {
 			return nil, err
 		}
+
+		schema := ir.ConvertFromNormalizer(entities, services, events, bizErrors, endpoints, repos, normalizer.ConfigDef{}, nil, nil, schedules, nil, normalizer.ProjectDef{})
 
 		totalMethods := 0
 		coveredMethods := 0
 		var uncovered []string
 
-		for _, svc := range services {
+		for _, svc := range schema.Services {
 			for _, m := range svc.Methods {
 				totalMethods++
 				covered := false
@@ -295,7 +297,7 @@ func Run() {
 		}
 
 		res := map[string]interface{}{
-			"total_entities": len(entities),
+			"total_entities": len(schema.Entities),
 			"total_methods":  totalMethods,
 			"covered":        coveredMethods,
 			"percentage":     fmt.Sprintf("%.1f%%", percentage),

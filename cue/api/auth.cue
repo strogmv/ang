@@ -13,6 +13,9 @@ Register: schema.#Operation & {
 	service:   "auth"
 	description: "Register a new user account"
 	publishes: ["UserRegistered"]
+	testHints: {
+		happyPath: "Register a new user with valid data"
+	}
 
 	input: {
 		email:    string @validate("required,email")
