@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	Version       = "0.1.23"
+	Version       = "0.1.24"
 	SchemaVersion = "1"
 )
 
@@ -64,15 +64,15 @@ func RunPipelineWithOptions(basePath string, opts PipelineOptions) ([]normalizer
 
 	valDomain, _, err := LoadOptionalDomain(p, filepath.Join(basePath, "cue/domain"))
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, nil, fmt.Errorf(parser.FormatCUELocationError(err))
 	}
 	valArch, _, err := LoadOptionalDomain(p, filepath.Join(basePath, "cue/architecture"))
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, nil, fmt.Errorf(parser.FormatCUELocationError(err))
 	}
 	valAPI, _, err := LoadOptionalDomain(p, filepath.Join(basePath, "cue/api"))
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, nil, fmt.Errorf(parser.FormatCUELocationError(err))
 	}
 	valRepo, okRepo, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/repo"))
 	valEvents, _, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/events"))
