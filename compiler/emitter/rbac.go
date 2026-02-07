@@ -13,6 +13,12 @@ import (
 
 // EmitRBAC generates the RBAC logic based on roles and permissions.
 func (e *Emitter) EmitRBAC(rbac *normalizer.RBACDef) error {
+	if rbac == nil {
+		rbac = &normalizer.RBACDef{
+			Roles:       make(map[string][]string),
+			Permissions: make(map[string]string),
+		}
+	}
 	tmplPath := filepath.Join(e.TemplatesDir, "rbac.tmpl")
 	if _, err := os.Stat(tmplPath); err != nil {
 		tmplPath = "templates/rbac.tmpl"

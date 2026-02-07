@@ -11,6 +11,9 @@ import (
 
 // ExtractServices extracts service definitions.
 func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Service, error) {
+	if !val.Exists() || val.IncompleteKind() == cue.BottomKind {
+		return nil, nil
+	}
 	var services []Service
 
 	entityOwners := make(map[string]string)
@@ -164,15 +167,21 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 				if entName != "" && kind == "sql" {
 					if _, ok := entityOwners[entName]; !ok {
 						n.Warn(Warning{
-							Kind:    "architecture",
-							Message: fmt.Sprintf("Source '%s' in operation '%s' refers to unknown entity '%s'", sName, opName, entName),
-							Hint:    "Define the entity in cue/domain/ or check spelling",
+							Kind:     "architecture",
+							Code:     "UNKNOWN_ENTITY",
+							Severity: "error",
+							Message:  fmt.Sprintf("Source '%s' in operation '%s' refers to unknown entity '%s'", sName, opName, entName),
+							Hint:     "Define the entity in cue/domain/ or check spelling",
+							CUEPath:  sVal.Path().String(),
 						})
 					} else if isDTO[entName] {
 						n.Warn(Warning{
-							Kind:    "architecture",
-							Message: fmt.Sprintf("Source '%s' in operation '%s' refers to DTO-only entity '%s'", sName, opName, entName),
-							Hint:    "Repository access is not allowed for DTOs. Remove @dto(only=true) or use a real domain entity",
+							Kind:     "architecture",
+							Code:     "DTO_AS_REPO",
+							Severity: "error",
+							Message:  fmt.Sprintf("Source '%s' in operation '%s' refers to DTO-only entity '%s'", sName, opName, entName),
+							Hint:     "Repository access is not allowed for DTOs. Remove @dto(only=true) or use a real domain entity",
+							CUEPath:  sVal.Path().String(),
 						})
 					}
 				}
@@ -306,16 +315,19 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 			warnings := validateFlowSteps(opName, svcName, steps, entities)
 			for _, w := range warnings {
 				n.Warn(Warning{
-					Kind:    "flow",
-					Code:    w.Code,
-					Message: w.Message,
-					Op:      w.Op,
-					Step:    w.Step,
-					Action:  w.Action,
-					Hint:    w.Hint,
-					File:    w.File,
-					Line:    w.Line,
-					Column:  w.Column,
+					Kind:         "flow",
+					Code:         w.Code,
+					Severity:     w.Severity,
+					Message:      w.Message,
+					Op:           w.Op,
+					Step:         w.Step,
+					Action:       w.Action,
+					Hint:         w.Hint,
+					File:         w.File,
+					Line:         w.Line,
+					Column:       w.Column,
+					CUEPath:      w.CUEPath,
+					SuggestedFix: w.SuggestedFix,
 				})
 			}
 		}
@@ -463,11 +475,12 @@ func (n *Normalizer) rawParseFlowSteps(val cue.Value) ([]FlowStep, error) {
 			}
 		}
 		step := FlowStep{
-			Action: action,
-			Args:   make(map[string]any),
-			File:   file,
-			Line:   line,
-			Column: column,
+			Action:  action,
+			Args:    make(map[string]any),
+			File:    file,
+			Line:    line,
+			Column:  column,
+			CUEPath: stepVal.Path().String(),
 		}
 
 		// Iterate over ALL fields
@@ -651,15 +664,18 @@ func (n *Normalizer) autoCompleteFlowSteps(steps []FlowStep) []FlowStep {
 
 // validateFlowSteps checks flow steps for common mistakes and returns warnings
 type FlowWarning struct {
-	Op      string
-	Step    int
-	Action  string
-	Message string
-	Code    string
-	Hint    string
-	File    string
-	Line    int
-	Column  int
+	Op           string
+	Step         int
+	Action       string
+	Message      string
+	Code         string
+	Severity     string
+	Hint         string
+	File         string
+	Line         int
+	Column       int
+	CUEPath      string
+	SuggestedFix []Fix
 }
 
 func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities []Entity) []FlowWarning {
@@ -677,23 +693,28 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 		}
 	}
 
-	addWarn := func(step int, action, code, message, hint string, file string, line int, column int) {
+	var currentStep FlowStep
+	addWarn := func(step int, action, code, message, hint string, file string, line int, column int, fixes ...Fix) {
 		warnings = append(warnings, FlowWarning{
-			Op:      opName,
-			Step:    step,
-			Action:  action,
-			Message: message,
-			Code:    code,
-			Hint:    hint,
-			File:    file,
-			Line:    line,
-			Column:  column,
+			Op:           opName,
+			Step:         step,
+			Action:       action,
+			Message:      message,
+			Code:         code,
+			Severity:     "error",
+			Hint:         hint,
+			File:         file,
+			Line:         line,
+			Column:       column,
+			CUEPath:      currentStep.CUEPath,
+			SuggestedFix: fixes,
 		})
 	}
 
 	var validate func(steps []FlowStep, inTx bool, depth int)
 	validate = func(steps []FlowStep, inTx bool, depth int) {
 		for i, step := range steps {
+			currentStep = step
 			stepNum := i + 1
 
 			switch step.Action {
@@ -774,7 +795,10 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 				statusValues := map[string]bool{"draft": true, "active": true, "pending": true, "published": true, "closed": true, "approved": true, "rejected": true, "cancelled": true}
 				if value != "" && !strings.Contains(value, "\"") && !strings.Contains(value, ".") && !strings.Contains(value, "(") {
 					if statusValues[strings.ToLower(value)] {
-						addWarn(stepNum, step.Action, "NEEDS_QUOTES", fmt.Sprintf("mapping.Assign '%s' needs quotes: \"\\\"%s\\\"\"", value, value), "{action: \"mapping.Assign\", to: \"x.Status\", value: \"\\\""+value+"\\\"\"}", step.File, step.Line, step.Column)
+						addWarn(stepNum, step.Action, "NEEDS_QUOTES", fmt.Sprintf("mapping.Assign '%s' needs quotes: \"\\\"%s\\\"\"", value, value), "{action: \"mapping.Assign\", to: \"x.Status\", value: \"\\\""+value+"\\\"\"}", step.File, step.Line, step.Column, Fix{
+							Kind: "replace",
+							Text: "\"" + value + "\"",
+						})
 					}
 				}
 
@@ -1061,6 +1085,9 @@ func (n *Normalizer) parseService(name string, val cue.Value) (Service, error) {
 }
 
 func (n *Normalizer) ExtractEndpoints(val cue.Value) ([]Endpoint, error) {
+	if !val.Exists() || val.IncompleteKind() == cue.BottomKind {
+		return nil, nil
+	}
 	var endpoints []Endpoint
 
 	httpVal := val.LookupPath(cue.ParsePath("HTTP"))

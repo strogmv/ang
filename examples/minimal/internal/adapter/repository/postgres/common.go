@@ -1,0 +1,154 @@
+package postgres
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// txKey is the context key for transactions (avoids staticcheck SA1029)
+type txKey struct{}
+
+type queryExecutor interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+func getExecutor(ctx context.Context, pool *pgxpool.Pool) queryExecutor {
+	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
+		return tx
+	}
+	return pool
+}
+
+type TxManager struct {
+	pool *pgxpool.Pool
+}
+
+func NewTxManager(pool *pgxpool.Pool) *TxManager {
+	return &TxManager{pool: pool}
+}
+
+func (tm *TxManager) WithTx(ctx context.Context, fn func(ctx context.Context) error) error {
+	tx, err := tm.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	txCtx := context.WithValue(ctx, txKey{}, tx)
+	if err := fn(txCtx); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+func nullString(s string) sql.NullString {
+	if s == "" {
+		return sql.NullString{Valid: false}
+	}
+	return sql.NullString{String: s, Valid: true}
+}
+
+func nullInt(i int) sql.NullInt64 {
+	return sql.NullInt64{Int64: int64(i), Valid: true}
+}
+
+// nullTime is available for future use
+var _ = nullTime
+
+func nullTime(t any) sql.NullTime {
+	if t == nil {
+		return sql.NullTime{Valid: false}
+	}
+	switch v := t.(type) {
+	case time.Time:
+		return sql.NullTime{Time: v, Valid: true}
+	case *time.Time:
+		if v == nil {
+			return sql.NullTime{Valid: false}
+		}
+		return sql.NullTime{Time: *v, Valid: true}
+	case string:
+		if v == "" {
+			return sql.NullTime{Valid: false}
+		}
+		if parsed, ok := parseTimeFlexible(v); ok {
+			return sql.NullTime{Time: parsed, Valid: true}
+		}
+		return sql.NullTime{Valid: false}
+	}
+	return sql.NullTime{Valid: false}
+}
+
+func nullJSON(v any) sql.NullString {
+	if v == nil {
+		return sql.NullString{Valid: false}
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return sql.NullString{Valid: false}
+	}
+	return sql.NullString{String: string(b), Valid: true}
+}
+
+func unmarshalJSON(data string, target any) {
+	if data == "" || data == "null" {
+		return
+	}
+	_ = json.Unmarshal([]byte(data), target)
+}
+
+func parseTimeFlexible(value string) (time.Time, bool) {
+	if value == "" {
+		return time.Time{}, false
+	}
+	if t, err := time.Parse(time.RFC3339Nano, value); err == nil {
+		return t, true
+	}
+	if t, err := time.Parse(time.RFC3339, value); err == nil {
+		return t, true
+	}
+	if t, err := time.Parse("2006-01-02 15:04:05.999999999Z07", value); err == nil {
+		return t, true
+	}
+	if t, err := time.Parse("2006-01-02 15:04:05.999999Z07", value); err == nil {
+		return t, true
+	}
+	if t, err := time.Parse("2006-01-02 15:04:05Z07", value); err == nil {
+		return t, true
+	}
+	if t, err := time.Parse("2006-01-02 15:04:05.999999999Z07:00", value); err == nil {
+		return t, true
+	}
+	if t, err := time.Parse("2006-01-02 15:04:05.999999Z07:00", value); err == nil {
+		return t, true
+	}
+	if t, err := time.Parse("2006-01-02 15:04:05Z07:00", value); err == nil {
+		return t, true
+	}
+	if t, err := time.Parse("2006-01-02 15:04:05.999999999", value); err == nil {
+		return t, true
+	}
+	if t, err := time.Parse("2006-01-02 15:04:05.999999", value); err == nil {
+		return t, true
+	}
+	if t, err := time.Parse("2006-01-02 15:04:05", value); err == nil {
+		return t, true
+	}
+	return time.Time{}, false
+}
+
+func normalizeTimeString(value string) string {
+	if t, ok := parseTimeFlexible(value); ok {
+		return t.UTC().Format(time.RFC3339)
+	}
+	return value
+}

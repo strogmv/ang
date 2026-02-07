@@ -11,6 +11,9 @@ import (
 
 // ExtractEntities scans a CUE value and extracts struct definitions (starting with #).
 func (n *Normalizer) ExtractEntities(val cue.Value) ([]Entity, error) {
+	if !val.Exists() || val.IncompleteKind() == cue.BottomKind {
+		return nil, nil
+	}
 	var entities []Entity
 
 	iter, err := val.Fields(cue.All())

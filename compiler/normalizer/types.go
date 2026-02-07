@@ -140,6 +140,7 @@ type FlowStep struct {
 	File     string
 	Line     int
 	Column   int
+	CUEPath  string
 }
 
 type MethodImpl struct {

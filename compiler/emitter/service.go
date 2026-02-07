@@ -134,6 +134,10 @@ func (e *Emitter) EmitServiceImpl(services []normalizer.Service, entities []norm
 		sort.Strings(allImports)
 
 		var buf bytes.Buffer
+		a := auth
+		if a == nil {
+			a = &normalizer.AuthDef{}
+		}
 		data := struct {
 			Service  normalizer.Service
 			Entities []normalizer.Entity
@@ -142,7 +146,7 @@ func (e *Emitter) EmitServiceImpl(services []normalizer.Service, entities []norm
 		}{
 			Service:  svc,
 			Entities: entities,
-			Auth:     auth,
+			Auth:     a,
 			Imports:  allImports,
 		}
 		if err := t.Execute(&buf, data); err != nil {

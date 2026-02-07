@@ -13,6 +13,11 @@ import (
 
 // EmitAuthPackage генерирует пакет для работы с JWT
 func (e *Emitter) EmitAuthPackage(auth *normalizer.AuthDef) error {
+	if auth == nil {
+		auth = &normalizer.AuthDef{
+			Alg: "RS256",
+		}
+	}
 	tmplPath := filepath.Join(e.TemplatesDir, "auth_pkg.tmpl")
 	if _, err := os.Stat(tmplPath); err != nil {
 		tmplPath = "templates/auth_pkg.tmpl"

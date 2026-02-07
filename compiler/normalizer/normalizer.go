@@ -7,16 +7,24 @@ import (
 )
 
 type Warning struct {
-	Kind    string `json:"kind"`
-	Code    string `json:"code,omitempty"`
-	Message string `json:"message"`
-	Op      string `json:"op,omitempty"`
-	Step    int    `json:"step,omitempty"`
-	Action  string `json:"action,omitempty"`
-	File    string `json:"file,omitempty"`
-	Line    int    `json:"line,omitempty"`
-	Column  int    `json:"column,omitempty"`
-	Hint    string `json:"hint,omitempty"`
+	Kind         string `json:"kind"`
+	Code         string `json:"code,omitempty"`
+	Severity     string `json:"severity,omitempty"` // error, warn, info
+	Message      string `json:"message"`
+	Op           string `json:"op,omitempty"`
+	Step         int    `json:"step,omitempty"`
+	Action       string `json:"action,omitempty"`
+	File         string `json:"file,omitempty"`
+	Line         int    `json:"line,omitempty"`
+	Column       int    `json:"column,omitempty"`
+	CUEPath      string `json:"cue_path,omitempty"`
+	Hint         string `json:"hint,omitempty"`
+	SuggestedFix []Fix  `json:"suggested_fix,omitempty"`
+}
+
+type Fix struct {
+	Kind string `json:"kind"` // replace, insert, delete
+	Text string `json:"text"`
 }
 
 type Normalizer struct {
