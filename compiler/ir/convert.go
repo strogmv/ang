@@ -3,6 +3,7 @@
 package ir
 
 import (
+	"fmt"
 	"github.com/strogmv/ang/compiler/normalizer"
 )
 
@@ -102,8 +103,38 @@ func ConvertFromNormalizer(
 		})
 	}
 
+	schema.Graph = BuildDependencyGraph(schema)
+
 	return schema
 }
+
+func BuildDependencyGraph(s *Schema) *DependencyGraph {
+	g := &DependencyGraph{}
+	
+	// Add Nodes
+	for _, e := range s.Entities {
+		g.Nodes = append(g.Nodes, Node{ID: "cue://#" + e.Name, Kind: "entity", Name: e.Name})
+	}
+	for _, svc := range s.Services {
+		g.Nodes = append(g.Nodes, Node{ID: "svc://" + svc.Name, Kind: "service", Name: svc.Name})
+		for _, m := range svc.Methods {
+			mID := fmt.Sprintf("method://%s.%s", svc.Name, m.Name)
+			g.Nodes = append(g.Nodes, Node{ID: mID, Kind: "method", Name: m.Name})
+			g.Edges = append(g.Edges, Edge{From: "svc://" + svc.Name, To: mID, Type: "has"})
+			
+			// Links to entities
+			if m.Input != nil {
+				g.Edges = append(g.Edges, Edge{From: mID, To: "cue://#" + m.Input.Name, Type: "reads"})
+			}
+			if m.Output != nil {
+				g.Edges = append(g.Edges, Edge{From: mID, To: "cue://#" + m.Output.Name, Type: "writes"})
+			}
+		}
+	}
+
+	return g
+}
+
 
 func ConvertEntity(e normalizer.Entity) Entity {
 	entity := Entity{

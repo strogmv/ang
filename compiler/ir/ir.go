@@ -19,9 +19,30 @@ type Schema struct {
 	Schedules []Schedule
 	Views     []View
 
+	// Dependency Graph for Impact Analysis
+	Graph *DependencyGraph
+
 	// Metadata for transformers to store computed data
 	Metadata map[string]any
 }
+
+type DependencyGraph struct {
+	Nodes []Node `json:"nodes"`
+	Edges []Edge `json:"edges"`
+}
+
+type Node struct {
+	ID   string `json:"id"`   // e.g. "cue://#User", "go://internal/domain/user.go"
+	Kind string `json:"kind"` // cue_def, service, method, file, table, etc.
+	Name string `json:"name"`
+}
+
+type Edge struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	Type string `json:"type"` // generates, uses, calls, writes, reads
+}
+
 
 // Project contains project-level metadata.
 type Project struct {
