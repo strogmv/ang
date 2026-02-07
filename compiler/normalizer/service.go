@@ -539,16 +539,20 @@ func (n *Normalizer) rawParseFlowSteps(val cue.Value) ([]FlowStep, error) {
 		for _, label := range []string{"args", "params"} {
 			if _, ok := step.Args[label]; !ok && label != "params" {
 				v := stepVal.LookupPath(cue.ParsePath(label))
-				if v.Exists() && v.Kind() == cue.ListKind {
-					var p []string
-					l, _ := v.List()
-					for l.Next() {
-						s, _ := l.Value().String()
-						if s != "" {
-							p = append(p, s)
+				if v.Exists() {
+					if v.Kind() == cue.ListKind {
+						var p []string
+						l, _ := v.List()
+						for l.Next() {
+							s, _ := l.Value().String()
+							if s != "" {
+								p = append(p, s)
+							}
 						}
+						step.Args[label] = p
+					} else if s, err := v.String(); err == nil && s != "" {
+						step.Args[label] = []string{s}
 					}
-					step.Args[label] = p
 				}
 			}
 		}

@@ -35,7 +35,7 @@ Register: schema.#Operation & {
 		{action: "mapping.Map", output: "newUser", entity: "User"},
 		{action: "mapping.Assign", to: "newUser.Email", value: "req.Email"},
 		{action: "mapping.Assign", to: "newUser.Name", value: "req.Name"},
-		{action: "logic.Call", func: "hashPassword", args: "req.Password", output: "hash"},
+		{action: "logic.Call", func: "hashPassword", args: ["req.Password"], output: "hash"},
 		{action: "mapping.Assign", to: "newUser.PasswordHash", value: "hash"},
 		{action: "mapping.Assign", to: "newUser.Role", value: "\"reader\""},
 
