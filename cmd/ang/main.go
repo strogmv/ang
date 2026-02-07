@@ -191,7 +191,7 @@ func runValidate(args []string) {
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		projectPath = args[0]
 	}
-	_, _, _, _, _, _, _, err := compiler.RunPipeline(projectPath)
+	_, _, _, _, _, _, _, _, err := compiler.RunPipeline(projectPath)
 	if err != nil {
 		fmt.Printf("Validation FAILED: %v\n", err)
 		os.Exit(1)
@@ -364,7 +364,7 @@ func runLint(args []string) {
 
 	if *jsonOut {
 		var warnings []normalizer.Warning
-		entities, services, endpoints, repos, events, errors, schedules, err := compiler.RunPipelineWithOptions(projectPath, compiler.PipelineOptions{
+		entities, services, endpoints, repos, events, errors, schedules, scenarios, err := compiler.RunPipelineWithOptions(projectPath, compiler.PipelineOptions{
 			WarningSink: func(w normalizer.Warning) { warnings = append(warnings, w) },
 		})
 		_ = entities
@@ -374,6 +374,7 @@ func runLint(args []string) {
 		_ = events
 		_ = errors
 		_ = schedules
+		_ = scenarios
 
 		violations, lintErr := runCueLint(projectPath)
 
@@ -403,7 +404,7 @@ func runLint(args []string) {
 	}
 
 	fmt.Println("Linting intent...")
-	entities, services, endpoints, repos, events, errors, schedules, err := compiler.RunPipeline(projectPath)
+	entities, services, endpoints, repos, events, errors, schedules, scenarios, err := compiler.RunPipeline(projectPath)
 	if err != nil {
 		fmt.Printf("\n❌ Lint FAILED: %v\n", err)
 		os.Exit(1)
@@ -416,6 +417,7 @@ func runLint(args []string) {
 	_ = events
 	_ = errors
 	_ = schedules
+	_ = scenarios
 
 	violations, lintErr := runCueLint(projectPath)
 	if lintErr != nil {
@@ -439,7 +441,7 @@ func runTestCoverageCheck(testDir string, minCoverage float64, verbose bool, jso
 	}
 
 	// Load endpoints from CUE
-	_, _, endpoints, _, _, _, _, err := compiler.RunPipeline(".")
+	_, _, endpoints, _, _, _, _, _, err := compiler.RunPipeline(".")
 	if err != nil {
 		fmt.Printf("\n❌ Test coverage check FAILED: %v\n", err)
 		os.Exit(1)
@@ -539,11 +541,12 @@ func runBuild(args []string) {
 		projectPath = args[0]
 	}
 
-	entities, services, endpoints, repos, events, bizErrors, schedules, err := compiler.RunPipeline(projectPath)
+	entities, services, endpoints, repos, events, bizErrors, schedules, scenarios, err := compiler.RunPipeline(projectPath)
 	if err != nil {
 		fmt.Printf("Build FAILED during validation: %v\n", err)
 		os.Exit(1)
 	}
+	_ = scenarios
 
 	p := parser.New()
 	n := normalizer.New()
@@ -768,6 +771,7 @@ func runBuild(args []string) {
 		{"OpenAPI", func() error { return em.EmitOpenAPI(endpoints, services, bizErrors, projectDef) }},
 		{"AsyncAPI", func() error { return em.EmitAsyncAPI(events, projectDef) }},
 		{"Contract Tests", func() error { return em.EmitContractTests(endpoints, services) }},
+		{"E2E Behavioral Tests", func() error { return em.EmitE2ETests(scenarios) }},
 		{"Test Stubs", func() error {
 			if output.TestStubs {
 				report, err := checkTestCoverage(endpoints, "tests")
@@ -827,7 +831,7 @@ func runVet(args []string) {
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		projectPath = args[0]
 	}
-	entities, services, _, _, _, _, _, err := compiler.RunPipeline(projectPath)
+	entities, services, _, _, _, _, _, _, err := compiler.RunPipeline(projectPath)
 	if err != nil {
 		fmt.Printf("Vet FAILED (Parser error): %v\n", err)
 		os.Exit(1)
@@ -891,7 +895,7 @@ func runVet(args []string) {
 
 func runDraw(args []string) {
 	fmt.Println("Drawing architecture...")
-	entities, services, endpoints, _, _, _, _, err := compiler.RunPipeline(".")
+	entities, services, endpoints, _, _, _, _, _, err := compiler.RunPipeline(".")
 	if err != nil {
 		fmt.Printf("Draw FAILED (Parser error): %v\n", err)
 		os.Exit(1)
@@ -1374,4 +1378,3 @@ type lintError struct {
 func runVersion() {
 	fmt.Printf("ANG version %s (Schema v%s)\n", compiler.Version, compiler.SchemaVersion)
 }
-

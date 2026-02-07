@@ -350,3 +350,23 @@ import "github.com/strogmv/ang/cue/project"
 		salt:    string
 	}
 }
+
+// ============================================================================
+// BEHAVIORAL SCENARIOS (Stage 31)
+// ============================================================================
+
+#Scenario: {
+	description?: string
+	steps: [...#ScenarioStep]
+}
+
+#ScenarioStep: {
+	name: string
+	action: string // e.g. "Auth.Register", "Blog.CreatePost"
+	input: _
+	expect?: {
+		status?: int | *200
+		body?: _ // partial matching of response body
+	}
+	export?: [string]: string // map response fields to scenario variables
+}

@@ -336,6 +336,27 @@ type ProjectDef struct {
 	Version string
 }
 
+// ScenarioDef represents a behavioral E2E scenario.
+type ScenarioDef struct {
+	Name        string
+	Description string
+	Steps       []ScenarioStep
+	Source      string
+}
+
+type ScenarioStep struct {
+	Name   string
+	Action string
+	Input  map[string]any
+	Expect ScenarioExpect
+	Export map[string]string
+}
+
+type ScenarioExpect struct {
+	Status int
+	Body   map[string]any
+}
+
 type EmailTemplateDef struct {
 	Name    string
 	Subject string

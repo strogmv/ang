@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	Version       = "0.1.15"
+	Version       = "0.1.16"
 	SchemaVersion = "1"
 )
 
@@ -44,14 +44,13 @@ func ComputeProjectHash(path string) (string, error) {
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
-
 type PipelineOptions struct {
 	WarningSink func(normalizer.Warning)
 }
 
 var LatestDiagnostics []normalizer.Warning
 
-func RunPipeline(basePath string) ([]normalizer.Entity, []normalizer.Service, []normalizer.Endpoint, []normalizer.Repository, []normalizer.EventDef, []normalizer.ErrorDef, []normalizer.ScheduleDef, error) {
+func RunPipeline(basePath string) ([]normalizer.Entity, []normalizer.Service, []normalizer.Endpoint, []normalizer.Repository, []normalizer.EventDef, []normalizer.ErrorDef, []normalizer.ScheduleDef, []normalizer.ScenarioDef, error) {
 	return RunPipelineWithOptions(basePath, PipelineOptions{
 		WarningSink: func(w normalizer.Warning) {
 			LatestDiagnostics = append(LatestDiagnostics, w)
@@ -59,25 +58,23 @@ func RunPipeline(basePath string) ([]normalizer.Entity, []normalizer.Service, []
 	})
 }
 
-func RunPipelineWithOptions(basePath string, opts PipelineOptions) ([]normalizer.Entity, []normalizer.Service, []normalizer.Endpoint, []normalizer.Repository, []normalizer.EventDef, []normalizer.ErrorDef, []normalizer.ScheduleDef, error) {
+func RunPipelineWithOptions(basePath string, opts PipelineOptions) ([]normalizer.Entity, []normalizer.Service, []normalizer.Endpoint, []normalizer.Repository, []normalizer.EventDef, []normalizer.ErrorDef, []normalizer.ScheduleDef, []normalizer.ScenarioDef, error) {
 	LatestDiagnostics = nil // Reset for new run
 	p := parser.New()
+
 	valDomain, _, err := LoadOptionalDomain(p, filepath.Join(basePath, "cue/domain"))
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, err
-	}
-	valAPI, _, err := LoadOptionalDomain(p, filepath.Join(basePath, "cue/api"))
-	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 	valArch, _, err := LoadOptionalDomain(p, filepath.Join(basePath, "cue/architecture"))
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
-	valRepo, okRepo, err := LoadOptionalDomain(p, filepath.Join(basePath, "cue/repo"))
+	valAPI, _, err := LoadOptionalDomain(p, filepath.Join(basePath, "cue/api"))
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
+	valRepo, okRepo, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/repo"))
 	valEvents, _, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/events"))
 	valErrors, _, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/errors"))
 
@@ -90,19 +87,19 @@ func RunPipelineWithOptions(basePath string, opts PipelineOptions) ([]normalizer
 	}
 	entities, err := n.ExtractEntities(valDomain)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 	services, err := n.ExtractServices(valAPI, entities)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 	endpoints, err := n.ExtractEndpoints(valAPI)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 	repos, err := n.ExtractRepositories(valArch)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 
 	if okRepo && valRepo.Err() == nil {
@@ -162,10 +159,12 @@ func RunPipelineWithOptions(basePath string, opts PipelineOptions) ([]normalizer
 	}
 	schedules, err := n.ExtractSchedules(valAPI)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 
-	return entities, services, endpoints, repos, events, bizErrors, schedules, nil
+	scenarios, _ := n.ExtractScenarios(valAPI)
+
+	return entities, services, endpoints, repos, events, bizErrors, schedules, scenarios, nil
 }
 
 func LoadOptionalDomain(p *parser.Parser, path string) (cue.Value, bool, error) {
