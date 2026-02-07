@@ -30,6 +30,12 @@ export const PostTagSchema = z.object({
   fields: z.any(),
 });
 export type PostTag = z.infer<typeof PostTagSchema>;
+export const UserVaultSchema = z.object({
+  id: z.string(),
+  personalKey: z.string(),
+  bio: z.string().optional(),
+});
+export type UserVault = z.infer<typeof UserVaultSchema>;
 export const RegisterRequestSchema = z.object({
   email: z.string(),
   password: z.string().min(8),

@@ -34,6 +34,21 @@ export const apiClient = axios.create({
   },
 });
 
+/**
+ * Interface for Client-Side Encryption.
+ * If provided, SDK will use it to handle fields marked as Encrypted<T>.
+ */
+export interface CryptoProvider {
+  encrypt(data: any): Promise<string>;
+  decrypt(encrypted: string): Promise<any>;
+}
+
+let cryptoProvider: CryptoProvider | null = null;
+
+export const setCryptoProvider = (provider: CryptoProvider) => {
+  cryptoProvider = provider;
+};
+
 // Helper: Generate hex string
 const hex = (len: number) => {
   const arr = new Uint8Array(len / 2);
