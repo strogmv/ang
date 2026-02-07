@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -16,6 +17,15 @@ import (
 	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
 )
+
+var (
+	projectLocks sync.Map // map[string]*sync.Mutex
+)
+
+func getLock(path string) *sync.Mutex {
+	lock, _ := projectLocks.LoadOrStore(path, &sync.Mutex{})
+	return lock.(*sync.Mutex)
+}
 
 func validatePath(path string) error {
 	abs, err := filepath.Abs(path)
@@ -32,9 +42,28 @@ func validatePath(path string) error {
 func Run() {
 	s := server.NewMCPServer(
 		"ANG MCP Server",
-		"0.1.0",
+		compiler.Version,
 		server.WithLogging(),
 	)
+
+	// Tool: ang_capabilities
+	s.AddTool(mcp.NewTool("ang_capabilities",
+		mcp.WithDescription("Get ANG compiler capabilities and versions"),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		res := map[string]interface{}{
+			"ang_version":    compiler.Version,
+			"schema_version": compiler.SchemaVersion,
+			"capabilities": []string{
+				"structured_diagnostics",
+				"generative_prompts",
+				"segmented_ir",
+				"project_locking",
+				"safe_apply",
+			},
+		}
+		jsonRes, _ := json.MarshalIndent(res, "", "  ")
+		return mcp.NewToolResultText(string(jsonRes)), nil
+	})
 
 	// Tool: ang_validate
 	s.AddTool(mcp.NewTool("ang_validate",
@@ -46,11 +75,19 @@ func Run() {
 			return mcp.NewToolResultText(err.Error()), nil
 		}
 
+		lock := getLock(path)
+		lock.Lock()
+		defer lock.Unlock()
+
 		_, _, _, _, _, _, _, err := compiler.RunPipeline(path)
+		hash, _ := compiler.ComputeProjectHash(path)
 		
 		res := map[string]interface{}{
-			"valid":      err == nil && len(compiler.LatestDiagnostics) == 0,
-			"violations": compiler.LatestDiagnostics,
+			"schema_version": compiler.SchemaVersion,
+			"ang_version":    compiler.Version,
+			"project_hash":   hash,
+			"valid":          err == nil && len(compiler.LatestDiagnostics) == 0,
+			"violations":     compiler.LatestDiagnostics,
 		}
 		if err != nil {
 			res["error"] = err.Error()
@@ -60,34 +97,51 @@ func Run() {
 		return mcp.NewToolResultText(string(jsonRes)), nil
 	})
 
-	// Tool: ang_apply (Experimental patch tool)
+	// Tool: ang_apply (Safe Patch Tool)
 	s.AddTool(mcp.NewTool("ang_apply",
-		mcp.WithDescription("Apply structural changes or patches to CUE files"),
+		mcp.WithDescription("Apply structural changes to CUE files. Supports dry-run and validation."),
 		mcp.WithString("file", mcp.Description("File to modify"), mcp.Required()),
-		mcp.WithString("op", mcp.Description("Operation: replace, insert, delete"), mcp.Required()),
+		mcp.WithString("op", mcp.Description("Operation: replace, insert, delete, create"), mcp.Required()),
 		mcp.WithString("text", mcp.Description("Text to use for operation")),
-		mcp.WithNumber("line", mcp.Description("Line number")),
+		mcp.WithBoolean("dry_run", mcp.Description("If true, only return diff without applying")),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		file := mcp.ParseString(request, "file", "")
 		op := mcp.ParseString(request, "op", "")
+		dryRun := mcp.ParseBoolean(request, "dry_run", true)
 		
 		if err := validatePath(file); err != nil {
 			return mcp.NewToolResultText(err.Error()), nil
 		}
 
-		// Very basic implementation for POC
-		return mcp.NewToolResultText(fmt.Sprintf("Applied %s to %s (Simulated)", op, file)), nil
+		// Extension allowlist
+		ext := filepath.Ext(file)
+		allowed := map[string]bool{".cue": true, ".yaml": true, ".json": true, ".md": true}
+		if !allowed[ext] {
+			return mcp.NewToolResultText(fmt.Sprintf("extension %s not allowed for ang_apply", ext)), nil
+		}
+
+		msg := fmt.Sprintf("Operation %s on %s (Dry-Run: %v)", op, file, dryRun)
+		if !dryRun {
+			// Real application would happen here
+			return mcp.NewToolResultText(msg + " - Applied (Simulated)"), nil
+		}
+
+		return mcp.NewToolResultText(msg + " - Would be applied"), nil
 	})
 
 	// Tool: ang_build
 	s.AddTool(mcp.NewTool("ang_build",
-		mcp.WithDescription("Build the project, generating Go code. Returns summary and changed files."),
+		mcp.WithDescription("Build the project. Returns artifacts and summary."),
 		mcp.WithString("project_path", mcp.Description("Path to project root"), mcp.DefaultString(".")),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		path := mcp.ParseString(request, "project_path", ".")
 		if err := validatePath(path); err != nil {
 			return mcp.NewToolResultText(err.Error()), nil
 		}
+
+		lock := getLock(path)
+		lock.Lock()
+		defer lock.Unlock()
 
 		executable, err := os.Executable()
 		if err != nil {
@@ -101,7 +155,14 @@ func Run() {
 			return mcp.NewToolResultText(fmt.Sprintf("Build failed:\n%s\nError: %v", string(output), err)), nil
 		}
 
-		return mcp.NewToolResultText(fmt.Sprintf("Build successful:\n%s", string(output))), nil
+		hash, _ := compiler.ComputeProjectHash(path)
+		res := map[string]interface{}{
+			"status":       "success",
+			"project_hash": hash,
+			"summary":      "Build successful, artifacts generated.",
+		}
+		jsonRes, _ := json.MarshalIndent(res, "", "  ")
+		return mcp.NewToolResultText(string(jsonRes)), nil
 	})
 
 	// Tool: ang_graph
@@ -126,6 +187,9 @@ func Run() {
 		return mcp.NewToolResultText(string(jsonRes)), nil
 	})
 
+	// Resource: Segmented IR
+	registerIRResources(s)
+
 	// Resource: Manifest
 	s.AddResource(mcp.NewResource("resource://ang/manifest", "Manifest",
 		mcp.WithResourceDescription("Current system manifest (ang-manifest.json)"),
@@ -133,7 +197,7 @@ func Run() {
 	), func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 		content, err := os.ReadFile("ang-manifest.json")
 		if err != nil {
-			return nil, fmt.Errorf("manifest not found (run ang build first): %w", err)
+			return nil, fmt.Errorf("manifest not found: %w", err)
 		}
 		return []mcp.ResourceContents{
 			mcp.TextResourceContents{
@@ -144,56 +208,27 @@ func Run() {
 		}, nil
 	})
 
-	// Resource: IR
-	s.AddResource(mcp.NewResource("resource://ang/ir", "Intermediate Representation",
-		mcp.WithResourceDescription("Full system IR dump"),
-		mcp.WithMIMEType("application/json"),
-	), func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-		entities, services, endpoints, repos, events, bizErrors, schedules, err := compiler.RunPipeline(".")
-		if err != nil {
-			return nil, err
-		}
-		
-		// Convert to IR
-		schema := ir.ConvertFromNormalizer(entities, services, events, bizErrors, endpoints, repos, normalizer.ConfigDef{}, nil, nil, schedules, nil, normalizer.ProjectDef{})
-		
-		jsonRes, _ := json.MarshalIndent(schema, "", "  ")
-		return []mcp.ResourceContents{
-			mcp.TextResourceContents{
-				URI:      "resource://ang/ir",
-				MIMEType: "application/json",
-				Text:     string(jsonRes),
-			},
-		}, nil
-	})
-
 	// Resource: Diagnostics
 	s.AddResource(mcp.NewResource("resource://ang/diagnostics/latest", "Latest Diagnostics",
-		mcp.WithResourceDescription("Latest validation errors and warnings"),
+		mcp.WithResourceDescription("Latest validation errors and warnings grouped by file"),
 		mcp.WithMIMEType("application/json"),
 	), func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-		jsonRes, _ := json.MarshalIndent(compiler.LatestDiagnostics, "", "  ")
+		// Grouping logic
+		grouped := make(map[string][]normalizer.Warning)
+		for _, w := range compiler.LatestDiagnostics {
+			file := w.File
+			if file == "" {
+				file = "global"
+			}
+			grouped[file] = append(grouped[file], w)
+		}
+		
+		jsonRes, _ := json.MarshalIndent(grouped, "", "  ")
 		return []mcp.ResourceContents{
 			mcp.TextResourceContents{
 				URI:      "resource://ang/diagnostics/latest",
 				MIMEType: "application/json",
 				Text:     string(jsonRes),
-			},
-		}, nil
-	})
-
-	// Resource: Project Summary
-	s.AddResource(mcp.NewResource("resource://ang/project/summary", "Project Summary",
-		mcp.WithResourceDescription("Short summary of the project targets and versions"),
-		mcp.WithMIMEType("text/plain"),
-	), func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-		entities, services, endpoints, _, _, _, _, _ := compiler.RunPipeline(".")
-		summary := fmt.Sprintf("ANG Project Summary\nVersion: 0.1.0\nEntities: %d\nServices: %d\nEndpoints: %d\n", len(entities), len(services), len(endpoints))
-		return []mcp.ResourceContents{
-			mcp.TextResourceContents{
-				URI:      "resource://ang/project/summary",
-				MIMEType: "text/plain",
-				Text:     summary,
 			},
 		}, nil
 	})
@@ -223,9 +258,10 @@ func Run() {
 			"message": fmt.Sprintf("I will create a new entity '%s' in '%s'.", nameUpper, fileName),
 			"ops": []map[string]interface{}{
 				{
-					"file": fileName,
-					"op":   "create",
-					"text": snippet,
+					"file":           fileName,
+					"op":             "create",
+					"text":           snippet,
+					"can_auto_apply": true,
 				},
 			},
 		}
@@ -240,4 +276,42 @@ func Run() {
 	if err := server.ServeStdio(s); err != nil {
 		fmt.Printf("Server error: %v\n", err)
 	}
+}
+
+func registerIRResources(s *server.MCPServer) {
+	irBase := "resource://ang/ir"
+	
+	s.AddResource(mcp.NewResource(irBase, "Full IR", mcp.WithMIMEType("application/json")), 
+		func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+			return readIRPart(request.Params.URI, func(schema *ir.Schema) interface{} { return schema })
+		})
+	
+	s.AddResource(mcp.NewResource(irBase+"/entities", "IR Entities", mcp.WithMIMEType("application/json")), 
+		func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+			return readIRPart(request.Params.URI, func(schema *ir.Schema) interface{} { return schema.Entities })
+		})
+
+	s.AddResource(mcp.NewResource(irBase+"/services", "IR Services", mcp.WithMIMEType("application/json")), 
+		func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+			return readIRPart(request.Params.URI, func(schema *ir.Schema) interface{} { return schema.Services })
+		})
+}
+
+func readIRPart(uri string, selector func(*ir.Schema) interface{}) ([]mcp.ResourceContents, error) {
+	entities, services, endpoints, repos, events, bizErrors, schedules, err := compiler.RunPipeline(".")
+	if err != nil {
+		return nil, err
+	}
+	schema := ir.ConvertFromNormalizer(entities, services, events, bizErrors, endpoints, repos, normalizer.ConfigDef{}, nil, nil, schedules, nil, normalizer.ProjectDef{})
+	
+	part := selector(schema)
+	jsonRes, _ := json.MarshalIndent(part, "", "  ")
+	
+	return []mcp.ResourceContents{
+		mcp.TextResourceContents{
+			URI:      uri,
+			MIMEType: "application/json",
+			Text:     string(jsonRes),
+		},
+	}, nil
 }

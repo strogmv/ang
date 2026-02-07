@@ -19,12 +19,17 @@ type Warning struct {
 	Column       int    `json:"column,omitempty"`
 	CUEPath      string `json:"cue_path,omitempty"`
 	Hint         string `json:"hint,omitempty"`
+	DocsURL      string `json:"docs_url,omitempty"`
+	CanAutoApply bool   `json:"can_auto_apply"`
 	SuggestedFix []Fix  `json:"suggested_fix,omitempty"`
 }
 
 type Fix struct {
-	Kind string `json:"kind"` // replace, insert, delete
-	Text string `json:"text"`
+	Kind      string `json:"kind"` // replace, insert, delete, create
+	File      string `json:"file,omitempty"`
+	CUEPath   string `json:"cue_path,omitempty"`
+	Text      string `json:"text"`
+	Rationale string `json:"rationale,omitempty"`
 }
 
 type Normalizer struct {

@@ -1,7 +1,10 @@
 package compiler
 
 import (
+	"crypto/sha256"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -11,6 +14,36 @@ import (
 	"github.com/strogmv/ang/compiler/parser"
 	"github.com/strogmv/ang/compiler/transformers"
 )
+
+const (
+	Version       = "0.1.1"
+	SchemaVersion = "1"
+)
+
+func ComputeProjectHash(path string) (string, error) {
+	h := sha256.New()
+	err := filepath.Walk(filepath.Join(path, "cue"), func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && strings.HasSuffix(path, ".cue") {
+			f, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			if _, err := io.Copy(h, f); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
+}
+
 
 type PipelineOptions struct {
 	WarningSink func(normalizer.Warning)
