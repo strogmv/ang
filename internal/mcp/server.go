@@ -135,17 +135,21 @@ func Run() {
 	})
 
 	s.AddTool(mcp.NewTool("cue_apply_patch",
-		mcp.WithDescription("Update CUE intent. ONLY allowed way to modify the system."),
+		mcp.WithDescription("Update CUE intent (Semantic Merge)"),
 		mcp.WithString("path", mcp.Required()),
 		mcp.WithString("content", mcp.Required()),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		path, content := mcp.ParseString(request, "path", ""), mcp.ParseString(request, "content", "")
 		if !strings.HasPrefix(path, "cue/") { return mcp.NewToolResultText("Denied: only /cue directory is modifiable"), nil }
-		if err := os.WriteFile(path, []byte(content), 0644); err != nil { return mcp.NewToolResultText(err.Error()), nil }
+		
+		if err := MergeCUEFiles(path, content); err != nil {
+			return mcp.NewToolResultText(fmt.Sprintf("Merge failed: %v", err)), nil
+		}
+		
 		sessionState.Lock()
 		sessionState.LastAction = "cue_apply_patch"
 		sessionState.Unlock()
-		return mcp.NewToolResultText("Intent updated. Next: run_preset('build')"), nil
+		return mcp.NewToolResultText("Intent merged successfully. Next: run_preset('build')"), nil
 	})
 
 	s.AddTool(mcp.NewTool("run_preset",
