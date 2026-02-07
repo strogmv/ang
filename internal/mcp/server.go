@@ -140,13 +140,15 @@ func Run() {
 		mcp.WithString("path", mcp.Description("CUE file path"), mcp.Required()),
 		mcp.WithString("content", mcp.Description("CUE patch content"), mcp.Required()),
 		mcp.WithString("selector", mcp.Description("Target node path")),
+		mcp.WithBoolean("forced_merge", mcp.Description("If true, overwrites target nodes instead of deep merging")),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		path, content := mcp.ParseString(request, "path", ""), mcp.ParseString(request, "content", "")
 		selector := mcp.ParseString(request, "selector", "")
+		force := mcp.ParseBoolean(request, "forced_merge", false)
 		if !strings.HasPrefix(path, "cue/") { return mcp.NewToolResultText("Denied: only /cue directory is modifiable"), nil }
 		
 		// 1. Get Merged Content
-		newContent, err := GetMergedContent(path, selector, content)
+		newContent, err := GetMergedContent(path, selector, content, force)
 		if err != nil { return mcp.NewToolResultText(fmt.Sprintf("Merge error: %v", err)), nil }
 
 		// 2. Backup & Apply (Temporary)
