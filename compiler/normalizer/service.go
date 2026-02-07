@@ -109,6 +109,8 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 		allAttrs := append(attrs, fattrs...)
 		allAttrs = append(allAttrs, dattrs...)
 
+		method.Attributes = parseAttributes(value)
+
 		for _, attr := range allAttrs {
 			switch attr.Name() {
 			case "idempotent":
@@ -475,12 +477,13 @@ func (n *Normalizer) rawParseFlowSteps(val cue.Value) ([]FlowStep, error) {
 			}
 		}
 		step := FlowStep{
-			Action:  action,
-			Args:    make(map[string]any),
-			File:    file,
-			Line:    line,
-			Column:  column,
-			CUEPath: stepVal.Path().String(),
+			Action:     action,
+			Args:       make(map[string]any),
+			File:       file,
+			Line:       line,
+			Column:     column,
+			CUEPath:    stepVal.Path().String(),
+			Attributes: parseAttributes(stepVal),
 		}
 
 		// Iterate over ALL fields

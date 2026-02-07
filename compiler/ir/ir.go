@@ -189,23 +189,25 @@ type Method struct {
 	Outbox      bool
 	Impl        *Impl
 	Flow        []FlowStep
+	Attributes  []Attribute
 	Metadata    map[string]any
 	Source      string
 }
 
 // FlowStep represents a declarative step in a method's logic.
 type FlowStep struct {
-	Action    string
-	Condition string
-	Throw     string
-	Input     string
-	Output    string
-	Value     string
-	Params    []string
-	Args      map[string]any
-	Steps     []FlowStep
-	Then      []FlowStep
-	Else      []FlowStep
+	Action     string
+	Condition  string
+	Throw      string
+	Input      string
+	Output     string
+	Value      string
+	Params     []string
+	Args       map[string]any
+	Steps      []FlowStep
+	Then       []FlowStep
+	Else       []FlowStep
+	Attributes []Attribute
 }
 
 // Source describes where method data comes from.

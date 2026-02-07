@@ -128,19 +128,26 @@ type Method struct {
 	Outbox      bool
 	Impl        *MethodImpl
 	Flow        []FlowStep
+	Attributes  []Attribute
 	Metadata    map[string]any
 	Source      string
 }
 
 type FlowStep struct {
-	Action   string
-	Params   []string
-	Args     map[string]any
-	Metadata map[string]any
-	File     string
-	Line     int
-	Column   int
-	CUEPath  string
+	Action     string
+	Params     []string
+	Args       map[string]any
+	Metadata   map[string]any
+	Attributes []Attribute
+	File       string
+	Line       int
+	Column     int
+	CUEPath    string
+}
+
+type Attribute struct {
+	Name string
+	Args map[string]any
 }
 
 type MethodImpl struct {
