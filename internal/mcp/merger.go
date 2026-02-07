@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"strings"
@@ -10,8 +11,9 @@ import (
 	"cuelang.org/go/cue/parser"
 )
 
+const ReductionThreshold = 0.7 // Block if new file is < 70% of original size
+
 // MergeCUEFiles reads the original file, parses the patch, merges them at AST level, and writes back.
-// If selector is provided (e.g. "#Impls.CreateTender"), it merges the patch specifically into that node.
 func MergeCUEFiles(path string, selector string, patchContent string) error {
 	// 1. Parse Original
 	origContent, err := os.ReadFile(path)
@@ -20,6 +22,7 @@ func MergeCUEFiles(path string, selector string, patchContent string) error {
 	}
 
 	var origAST *ast.File
+	origLines := 0
 	if os.IsNotExist(err) {
 		origAST = &ast.File{}
 	} else {
@@ -27,6 +30,7 @@ func MergeCUEFiles(path string, selector string, patchContent string) error {
 		if err != nil {
 			return fmt.Errorf("parse original: %w", err)
 		}
+		origLines = bytes.Count(origContent, []byte("\n"))
 	}
 
 	// 2. Parse Patch
@@ -44,10 +48,17 @@ func MergeCUEFiles(path string, selector string, patchContent string) error {
 		mergeDecls(origAST, patchAST.Decls)
 	}
 
-	// 4. Format and Save
+	// 4. Format and Validate Size
 	res, err := format.Node(origAST)
 	if err != nil {
 		return fmt.Errorf("format result: %w", err)
+	}
+
+	newLines := bytes.Count(res, []byte("\n"))
+	
+	// Data Loss Guard: Check for critical reduction
+	if origLines > 10 && float64(newLines) < float64(origLines)*ReductionThreshold {
+		return fmt.Errorf("CRITICAL_REDUCTION_DETECTED: new file size (%d lines) is significantly smaller than original (%d lines). Patch rejected to prevent data loss", newLines, origLines)
 	}
 
 	return os.WriteFile(path, res, 0644)
@@ -57,20 +68,15 @@ func mergeAtSelector(orig *ast.File, selector string, patchDecls []ast.Decl) err
 	parts := strings.Split(selector, ".")
 	var currentDecls *[]ast.Decl = &orig.Decls
 
-	// Navigate to the parent of the last selector part
 	for i := 0; i < len(parts); i++ {
 		part := parts[i]
 		found := false
-		
 		for _, decl := range *currentDecls {
 			if f, ok := decl.(*ast.Field); ok && fmt.Sprint(f.Label) == part {
 				if i == len(parts)-1 {
-					// Last part - merge patch here
 					mergeField(f, &ast.Field{Value: &ast.StructLit{Elts: patchDecls}})
 					return nil
 				}
-				
-				// Not last part - go deeper
 				if s, ok := f.Value.(*ast.StructLit); ok {
 					currentDecls = &s.Elts
 					found = true
@@ -79,9 +85,7 @@ func mergeAtSelector(orig *ast.File, selector string, patchDecls []ast.Decl) err
 				return fmt.Errorf("selector path %s is not a struct", strings.Join(parts[:i+1], "."))
 			}
 		}
-
 		if !found {
-			// Path not found - we could auto-create it, but for safety let's return error for now
 			return fmt.Errorf("selector path %s not found", strings.Join(parts[:i+1], "."))
 		}
 	}
