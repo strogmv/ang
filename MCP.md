@@ -27,10 +27,14 @@ The ANG compiler includes a built-in MCP server that enforces a strict **Intent-
 ### Runtime & Tests
 - `run_tests(target)`: Runs `go test` and returns structured results.
 
-## Why this policy?
-1. **Discipline**: Prevents "hallucinated" manual fixes in generated code. All changes must be made in CUE.
-2. **Token Efficiency**: Agents use `repo_diff` to see changes instead of re-reading entire files.
-3. **Safety**: Zero chance for an AI to break the generated implementation logic directly.
+## Resources
+
+| URI | Description |
+|-----|-------------|
+| `resource://ang/ir` | Full Intermediate Representation (JSON). |
+| `resource://ang/ai_hints` | Patterns and rules for LLM context optimization. |
+| `resource://ang/transformers` | Catalog of available extensions (Tracing, Caching, Security). |
+| `resource://ang/diagnostics/latest` | Latest validation errors grouped by file. |
 
 ## Walkthrough: The Loop
 

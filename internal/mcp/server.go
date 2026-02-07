@@ -288,6 +288,43 @@ func Run() {
 		}, nil
 	})
 
+	// Resource: Transformers Catalog
+	s.AddResource(mcp.NewResource("resource://ang/transformers", "Transformers Catalog",
+		mcp.WithResourceDescription("List of available deterministic code transformers"),
+		mcp.WithMIMEType("application/json"),
+	), func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+		catalog := []map[string]interface{}{
+			{
+				"name":        "tracing",
+				"description": "Auto-injects OpenTelemetry spans into services and repositories.",
+				"activation":  "Enabled by default if TracingProvider is configured.",
+			},
+			{
+				"name":        "caching",
+				"description": "Redis/Memory caching decorator for service methods.",
+				"activation":  "Add 'cache: {ttl: \"5m\"}' to endpoint in HTTP block or @cache() attribute.",
+			},
+			{
+				"name":        "validation",
+				"description": "Injects go-validator tags based on @validate() attributes.",
+				"activation":  "Add @validate(\"rule\") to entity fields.",
+			},
+			{
+				"name":        "security",
+				"description": "Field-level encryption and logging redaction.",
+				"activation":  "Use @encrypt() or @redact() on sensitive fields.",
+			},
+		}
+		jsonRes, _ := json.MarshalIndent(catalog, "", "  ")
+		return []mcp.ResourceContents{
+			mcp.TextResourceContents{
+				URI:      "resource://ang/transformers",
+				MIMEType: "application/json",
+				Text:     string(jsonRes),
+			},
+		}, nil
+	})
+
 	if err := server.ServeStdio(s); err != nil {
 		fmt.Printf("Server error: %v\n", err)
 	}

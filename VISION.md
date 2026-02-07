@@ -16,8 +16,17 @@ In the age of AI, the bottleneck is not "writing code", but **"maintaining truth
 ### AI Agent (The Architect)
 - **Writes only CUE** in the `/cue` directory.
 - Reads `resource://ang/ai_hints` to understand patterns.
+- Activates **Deterministic Transformers** via declarative hooks (e.g., `@cache`, `@encrypt`).
 - Reacts to `ang_validate` structured errors.
 - **NEVER** touches generated code.
+
+## Deterministic Transformers
+ANG uses IR-level transformers to inject cross-cutting concerns safely:
+- **Tracing**: Automated OpenTelemetry spans for all services.
+- **Caching**: Smart decorators for hot paths.
+- **Security**: Field-level encryption and logging redaction.
+- **Compliance**: Security profiles (baseline, strict, pci) for automated guardrails.
+
 
 ### ANG Compiler (The Guardrail)
 - Validates architectural invariants (e.g., cross-service ownership).
