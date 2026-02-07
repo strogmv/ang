@@ -55,6 +55,8 @@ func main() {
 		runHash()
 	case "mcp":
 		mcp.Run()
+	case "version":
+		runVersion()
 	default:
 		fmt.Printf("Unknown command: %s\n", cmd)
 		printUsage()
@@ -1367,5 +1369,9 @@ type lintReport struct {
 }
 type lintError struct {
 	Message string `json:"message"`
+}
+
+func runVersion() {
+	fmt.Printf("ANG version %s (Schema v%s)\n", compiler.Version, compiler.SchemaVersion)
 }
 
