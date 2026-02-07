@@ -218,6 +218,13 @@ func Run() {
 			"ang_version":    compiler.Version,
 			"schema_version": compiler.SchemaVersion,
 			"policy":         "Agent writes only CUE. ANG writes code. Agent reads code and runs tests.",
+			"capabilities": []string{
+				"ai_hints",
+				"ai_patterns",
+				"structured_diagnostics",
+				"safe_apply",
+				"intent_only_rw",
+			},
 			"zones": map[string]string{
 				"/cue":  "Read/Write",
 				"other": "Read-Only",
@@ -244,6 +251,37 @@ func Run() {
 		return []mcp.ResourceContents{
 			mcp.TextResourceContents{
 				URI:      "resource://ang/diagnostics/latest",
+				MIMEType: "application/json",
+				Text:     string(jsonRes),
+			},
+		}, nil
+	})
+
+	// Resource: AI Hints
+	s.AddResource(mcp.NewResource("resource://ang/ai_hints", "AI Agent Hints",
+		mcp.WithResourceDescription("Context-optimized patterns and rules for AI agents"),
+		mcp.WithMIMEType("application/json"),
+	), func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+		hints := map[string]interface{}{
+			"core_rules": []string{
+				"All entities must define a unique ID field.",
+				"Use #Operation schema for all API endpoints.",
+				"Service-to-service calls must use 'uses' list in architecture.",
+			},
+			"patterns": map[string]string{
+				"repository_ops": "Use #Find, #Get, #List, #Save, #Delete standard actions.",
+				"fsm":            "Define states and transitions explicitly in entity schema.",
+				"logic_calls":    "Arguments for logic.Call must always be a list: [\"arg1\", \"arg2\"].",
+			},
+			"anti_patterns": []string{
+				"Do not use raw strings for status fields; use @fsm or enums.",
+				"Do not reference entities owned by other services directly.",
+			},
+		}
+		jsonRes, _ := json.MarshalIndent(hints, "", "  ")
+		return []mcp.ResourceContents{
+			mcp.TextResourceContents{
+				URI:      "resource://ang/ai_hints",
 				MIMEType: "application/json",
 				Text:     string(jsonRes),
 			},
