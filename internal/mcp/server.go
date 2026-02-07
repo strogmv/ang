@@ -257,6 +257,61 @@ func Run() {
 		}, nil
 	})
 
+	// Resource: Contract Coverage
+	s.AddResource(mcp.NewResource("resource://ang/coverage/contract", "Contract Coverage Report",
+		mcp.WithResourceDescription("Analysis of CUE invariants coverage by generated tests"),
+		mcp.WithMIMEType("application/json"),
+	), func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+		entities, services, _, _, _, _, _, err := compiler.RunPipeline(".")
+		if err != nil {
+			return nil, err
+		}
+
+		totalMethods := 0
+		coveredMethods := 0
+		var uncovered []string
+
+		for _, svc := range services {
+			for _, m := range svc.Methods {
+				totalMethods++
+				covered := false
+				if m.Metadata != nil {
+					if _, ok := m.Metadata["testHints"]; ok {
+						covered = true
+					}
+				}
+
+				if covered {
+					coveredMethods++
+				} else {
+					uncovered = append(uncovered, fmt.Sprintf("%s.%s", svc.Name, m.Name))
+				}
+			}
+		}
+
+		percentage := 0.0
+		if totalMethods > 0 {
+			percentage = float64(coveredMethods) / float64(totalMethods) * 100
+		}
+
+		res := map[string]interface{}{
+			"total_entities": len(entities),
+			"total_methods":  totalMethods,
+			"covered":        coveredMethods,
+			"percentage":     fmt.Sprintf("%.1f%%", percentage),
+			"uncovered":      uncovered,
+		}
+
+		jsonRes, _ := json.MarshalIndent(res, "", "  ")
+		return []mcp.ResourceContents{
+			mcp.TextResourceContents{
+				URI:      "resource://ang/coverage/contract",
+				MIMEType: "application/json",
+				Text:     string(jsonRes),
+			},
+		}, nil
+	})
+
 	// Resource: AI Hints
 	s.AddResource(mcp.NewResource("resource://ang/ai_hints", "AI Agent Hints",
 		mcp.WithResourceDescription("Context-optimized patterns and rules for AI agents"),

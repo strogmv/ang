@@ -23,16 +23,22 @@ In the age of AI, the bottleneck is not "writing code", but **"maintaining truth
 ## Deterministic Transformers
 ANG uses IR-level transformers to inject cross-cutting concerns safely:
 - **Tracing**: Automated OpenTelemetry spans for all services.
-- **Caching**: Smart decorators for hot paths.
-- **Security**: Field-level encryption and logging redaction.
-- **Compliance**: Security profiles (baseline, strict, pci) for automated guardrails.
+- **Observability**: Integrated profiling (pprof) and metrics.
+- **Security**: Field-level encryption (`@encrypt`) and redaction (`@redact`).
+- **Audit**: Comprehensive audit logs for regulated actions (`@audit`).
 
+## Compliance Profiles
+Architecture can be governed by profiles defined in CUE:
+- **dev**: Optimized for speed, loose security, full observability.
+- **prod**: Strict security, rate limiting, and monitoring.
+- **regulated**: Mandatory audit trails, PII redaction, and strict access controls (HIPAA/GDPR ready).
 
 ### ANG Compiler (The Guardrail)
 - Validates architectural invariants (e.g., cross-service ownership).
 - Generates 100% of the implementation code.
+- Measures **Contract Coverage** (how many CUE invariants are tested).
 - Provides machine-fixable diagnostics via MCP.
 - Enforces the "Agent writes only CUE" policy.
 
 ## The Goal: "3-Iteration Build"
-Any complex backend feature (e.g., "Add a multi-step Checkout with FSM and NATS events") should be successfully implemented from a single Natural Language prompt in **3 iterations or less** of the `CUE -> Validate -> Generate -> Test` loop.
+Any complex backend feature should be successfully implemented from a single Natural Language prompt in **3 iterations or less** of the `CUE -> Validate -> Generate -> Test` loop. Contract-level test coverage ensures that 100% of business invariants are verified.

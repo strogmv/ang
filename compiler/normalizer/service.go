@@ -129,6 +129,14 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 			case "outbox":
 				method.Outbox = true
 				svc.RequiresSQL = true
+			case "audit":
+				if method.Metadata == nil {
+					method.Metadata = make(map[string]any)
+				}
+				method.Metadata["audit"] = true
+				if event, found, _ := attr.Lookup(0, ""); found {
+					method.Metadata["audit_event"] = event
+				}
 			}
 		}
 

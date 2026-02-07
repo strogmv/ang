@@ -147,6 +147,12 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 
 		if attr := val.Attribute("pii"); attr.Err() == nil {
 			field.IsPII = true
+			if cls, found, _ := attr.Lookup(0, "classification"); found {
+				if field.Metadata == nil {
+					field.Metadata = make(map[string]any)
+				}
+				field.Metadata["pii_classification"] = cls
+			}
 		}
 
 		if attr := val.Attribute("encrypt"); attr.Err() == nil {

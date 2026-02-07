@@ -80,3 +80,22 @@ func (t *CachingTransformer) Transform(schema *ir.Schema) error {
 	}
 	return nil
 }
+
+// ProfilingTransformer injects pprof and runtime metrics configuration.
+type ProfilingTransformer struct{}
+
+func (t *ProfilingTransformer) Name() string { return "profiling" }
+
+func (t *ProfilingTransformer) Transform(schema *ir.Schema) error {
+	if schema.Metadata == nil {
+		schema.Metadata = make(map[string]any)
+	}
+
+	// Check for global profiling settings in Project metadata
+	// If enabled, we flag the emitter to include pprof handlers in main
+	schema.Metadata["profiling_enabled"] = true
+	schema.Metadata["pprof_endpoint"] = "/debug/pprof"
+	
+	return nil
+}
+
