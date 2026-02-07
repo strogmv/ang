@@ -282,6 +282,8 @@ import "github.com/strogmv/ang/cue/project"
 	half_open_max: int | *3      // запросов в Half-Open
 }
 
+#SecurityProfile: "baseline" | "strict" | "pci"
+
 #HTTP: {
 	// Default rate limit applied to all endpoints without explicit rate_limit
 	default_rate_limit?: #RateLimitDef
@@ -340,6 +342,7 @@ import "github.com/strogmv/ang/cue/project"
 
 #AppConfig: {
 	[string]: _
+	security_profile?: #SecurityProfile | *"baseline"
 	image_proxy?: {
 		enabled: bool
 		url:     string

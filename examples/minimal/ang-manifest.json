@@ -1,0 +1,29 @@
+{
+  "project": {
+    "Name": "",
+    "Version": "",
+    "Target": {
+      "Lang": "go",
+      "Framework": "chi",
+      "DB": "postgres",
+      "Cache": "",
+      "Queue": "",
+      "Storage": ""
+    }
+  },
+  "services": [
+    {
+      "name": "User",
+      "methods": [
+        "ListUsers"
+      ],
+      "publishes": null,
+      "subscribes": {},
+      "depends_on": [
+        "Postgres"
+      ]
+    }
+  ],
+  "events": null,
+  "entities": []
+}

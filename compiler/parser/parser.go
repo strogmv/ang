@@ -5,6 +5,7 @@ import (
 	"cuelang.org/go/cue/cuecontext"
 	"cuelang.org/go/cue/load"
 	"fmt"
+	"path/filepath"
 )
 
 // Parser loads and performs initial validation of CUE models.
@@ -18,10 +19,14 @@ func New() *Parser {
 	}
 }
 
-// LoadDomain loads definitions from cue/domain.
+// LoadDomain loads definitions from a specific path.
 func (p *Parser) LoadDomain(path string) (cue.Value, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return cue.Value{}, err
+	}
 	bis := load.Instances([]string{"."}, &load.Config{
-		Dir: path,
+		Dir: absPath,
 	})
 
 	if len(bis) == 0 {

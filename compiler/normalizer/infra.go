@@ -228,6 +228,9 @@ func (n *Normalizer) extractRBACFromPolicy(val cue.Value) (*RBACDef, error) {
 
 // ExtractRepositories extracts repository definitions.
 func (n *Normalizer) ExtractRepositories(val cue.Value) ([]Repository, error) {
+	if !val.Exists() || val.IncompleteKind() == cue.BottomKind {
+		return nil, nil
+	}
 	var repos []Repository
 	seen := make(map[string]bool)
 
@@ -294,6 +297,9 @@ func (n *Normalizer) ExtractRepositories(val cue.Value) ([]Repository, error) {
 
 // ExtractRepoFinders extracts finder definitions from cue/repo.
 func (n *Normalizer) ExtractRepoFinders(val cue.Value) (map[string][]RepositoryFinder, error) {
+	if !val.Exists() || val.IncompleteKind() == cue.BottomKind {
+		return nil, nil
+	}
 	reposVal := val.LookupPath(cue.ParsePath("Repositories"))
 	if !reposVal.Exists() {
 		return nil, nil
@@ -421,6 +427,9 @@ func (n *Normalizer) ExtractRepoFinders(val cue.Value) (map[string][]RepositoryF
 }
 
 func (n *Normalizer) ExtractSchedules(val cue.Value) ([]ScheduleDef, error) {
+	if !val.Exists() || val.IncompleteKind() == cue.BottomKind {
+		return nil, nil
+	}
 	var schedules []ScheduleDef
 
 	sVal := val.LookupPath(cue.ParsePath("Schedules"))

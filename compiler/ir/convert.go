@@ -400,6 +400,7 @@ func ConvertMethod(m normalizer.Method) Method {
 
 	// RECURSIVE FLOW CONVERSION
 	method.Flow = ConvertFlowSteps(m.Flow)
+	method.Attributes = ConvertAttributes(m.Attributes)
 
 	return method
 }
@@ -608,9 +609,28 @@ func ConvertFlowSteps(source []normalizer.FlowStep) []FlowStep {
 			}
 			args[k] = v
 		}
-		steps = append(steps, FlowStep{Action: step.Action, Params: step.Params, Args: args, Steps: doSteps, Then: thenSteps, Else: elseSteps})
+		steps = append(steps, FlowStep{
+			Action:     step.Action,
+			Params:     step.Params,
+			Args:       args,
+			Steps:      doSteps,
+			Then:       thenSteps,
+			Else:       elseSteps,
+			Attributes: ConvertAttributes(step.Attributes),
+		})
 	}
 	return steps
+}
+
+func ConvertAttributes(attrs []normalizer.Attribute) []Attribute {
+	var result []Attribute
+	for _, a := range attrs {
+		result = append(result, Attribute{
+			Name: a.Name,
+			Args: a.Args,
+		})
+	}
+	return result
 }
 
 func initializeSlice(s []string) []string {

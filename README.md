@@ -425,6 +425,33 @@ CreateOrder: {
 | `S3_ENDPOINT` | http://localhost:9000 | S3/Minio endpoint |
 | `S3_BUCKET` | attachments | S3 bucket name |
 
-## License
+## AI & MCP Integration
 
-MIT
+ANG is designed to be used with AI agents. It includes a built-in MCP server for deep integration with Cursor, Claude, and VS Code.
+
+### Use with Claude Desktop
+
+Add this to your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "ang": {
+      "command": "/path/to/ang",
+      "args": ["mcp"],
+      "env": {
+        "CWD": "/your/project/path"
+      }
+    }
+  }
+}
+```
+
+### AI Policy (Intent-First)
+
+When working with ANG, AI agents follow a strict policy:
+1. **Agents write CUE** (in `cue/` directory).
+2. **ANG generates code** (in `internal/`, `api/`, etc.).
+3. **Agents verify result** via tests and diffs.
+
+This ensures zero hallucinations in the business logic and perfect code quality.

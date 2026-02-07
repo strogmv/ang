@@ -1,0 +1,30 @@
+package http
+
+import (
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/strogmv/ang/internal/pkg/logger"
+	"net/http"
+	"time"
+)
+
+func LoggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+
+		log := logger.From(r.Context())
+		log.Info("HTTP Request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"request_id", middleware.GetReqID(r.Context()),
+		)
+
+		next.ServeHTTP(ww, r)
+
+		log.Info("HTTP Response",
+			"status", ww.Status(),
+			"duration", time.Since(start).String(),
+			"bytes", ww.BytesWritten(),
+		)
+	})
+}

@@ -13,11 +13,11 @@ import (
 	"strings"
 
 	"cuelang.org/go/cue"
+	"github.com/strogmv/ang/compiler"
 	"github.com/strogmv/ang/compiler/emitter"
-	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
 	"github.com/strogmv/ang/compiler/parser"
-	"github.com/strogmv/ang/compiler/transformers"
+	"github.com/strogmv/ang/internal/mcp"
 )
 
 const Version = "0.1.0"
@@ -34,7 +34,7 @@ func main() {
 	case "init":
 		runInit()
 	case "validate":
-		runValidate()
+		runValidate(os.Args[2:])
 	case "lint":
 		runLint(os.Args[2:])
 	case "build":
@@ -46,13 +46,15 @@ func main() {
 	case "contract-test":
 		runContractTest()
 	case "vet":
-		runVet()
+		runVet(os.Args[2:])
 	case "explain":
 		runExplain(os.Args[2:])
 	case "draw":
 		runDraw(os.Args[2:])
 	case "hash":
 		runHash()
+	case "mcp":
+		mcp.Run()
 	default:
 		fmt.Printf("Unknown command: %s\n", cmd)
 		printUsage()
@@ -181,9 +183,13 @@ language: {
 	fmt.Println("Project structure initialized successfully.")
 }
 
-func runValidate() {
+func runValidate(args []string) {
 	fmt.Println("Validating architecture...")
-	_, _, _, _, _, _, _, err := runPipeline()
+	projectPath := "."
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		projectPath = args[0]
+	}
+	_, _, _, _, _, _, _, err := compiler.RunPipeline(projectPath)
 	if err != nil {
 		fmt.Printf("Validation FAILED: %v\n", err)
 		os.Exit(1)
@@ -349,10 +355,15 @@ func runLint(args []string) {
 		return
 	}
 
+	projectPath := "."
+	if fs.NArg() > 0 {
+		projectPath = fs.Arg(0)
+	}
+
 	if *jsonOut {
 		var warnings []normalizer.Warning
-		entities, services, endpoints, repos, events, errors, schedules, err := runPipelineWithOptions(pipelineOptions{
-			warningSink: func(w normalizer.Warning) { warnings = append(warnings, w) },
+		entities, services, endpoints, repos, events, errors, schedules, err := compiler.RunPipelineWithOptions(projectPath, compiler.PipelineOptions{
+			WarningSink: func(w normalizer.Warning) { warnings = append(warnings, w) },
 		})
 		_ = entities
 		_ = services
@@ -362,7 +373,7 @@ func runLint(args []string) {
 		_ = errors
 		_ = schedules
 
-		violations, lintErr := runCueLint()
+		violations, lintErr := runCueLint(projectPath)
 
 		report := lintReport{
 			OK:       err == nil && lintErr == nil && len(violations) == 0,
@@ -390,7 +401,7 @@ func runLint(args []string) {
 	}
 
 	fmt.Println("Linting intent...")
-	entities, services, endpoints, repos, events, errors, schedules, err := runPipeline()
+	entities, services, endpoints, repos, events, errors, schedules, err := compiler.RunPipeline(projectPath)
 	if err != nil {
 		fmt.Printf("\n❌ Lint FAILED: %v\n", err)
 		os.Exit(1)
@@ -404,7 +415,7 @@ func runLint(args []string) {
 	_ = errors
 	_ = schedules
 
-	violations, lintErr := runCueLint()
+	violations, lintErr := runCueLint(projectPath)
 	if lintErr != nil {
 		fmt.Printf("\n❌ Lint FAILED: %v\n", lintErr)
 		os.Exit(1)
@@ -426,7 +437,7 @@ func runTestCoverageCheck(testDir string, minCoverage float64, verbose bool, jso
 	}
 
 	// Load endpoints from CUE
-	_, _, endpoints, _, _, _, _, err := runPipeline()
+	_, _, endpoints, _, _, _, _, err := compiler.RunPipeline(".")
 	if err != nil {
 		fmt.Printf("\n❌ Test coverage check FAILED: %v\n", err)
 		os.Exit(1)
@@ -483,10 +494,10 @@ func runTestCoverageCheck(testDir string, minCoverage float64, verbose bool, jso
 	}
 }
 
-func runCueLint() ([]lintError, error) {
+func runCueLint(projectPath string) ([]lintError, error) {
 	p := parser.New()
-	val, err := p.LoadDomain("./cue/lint")
-	if err != nil {
+	val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, "cue/lint"))
+	if err != nil || !ok {
 		return nil, err
 	}
 	if err := val.Validate(); err != nil {
@@ -514,15 +525,21 @@ func runCueLint() ([]lintError, error) {
 func runBuild(args []string) {
 	fmt.Println("Compiling intent to Go...")
 
-	entities, services, endpoints, repos, events, bizErrors, schedules, err := runPipeline()
-	if err != nil {
-		fmt.Printf("Build FAILED during validation: %v\n", err)
-		os.Exit(1)
-	}
-
 	output, err := parseOutputOptions(args)
 	if err != nil {
 		fmt.Printf("Build FAILED: %v\n", err)
+		os.Exit(1)
+	}
+
+	projectPath := "."
+	// If first argument is not a flag, use it as project path
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		projectPath = args[0]
+	}
+
+	entities, services, endpoints, repos, events, bizErrors, schedules, err := compiler.RunPipeline(projectPath)
+	if err != nil {
+		fmt.Printf("Build FAILED during validation: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -531,7 +548,7 @@ func runBuild(args []string) {
 
 	var cfgDef *normalizer.ConfigDef
 	var authDef *normalizer.AuthDef
-	if val, ok, err := loadOptionalDomain(p, "./cue/infra"); err != nil {
+	if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/infra"); err != nil {
 		fmt.Printf("Build FAILED during config load: %v\n", err)
 		os.Exit(1)
 	} else if ok {
@@ -548,7 +565,7 @@ func runBuild(args []string) {
 	}
 
 	var rbacDef *normalizer.RBACDef
-	if val, ok, err := loadOptionalDomain(p, "./cue/rbac"); err != nil {
+	if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/rbac"); err != nil {
 		fmt.Printf("Build FAILED during RBAC load: %v\n", err)
 		os.Exit(1)
 	} else if ok {
@@ -557,7 +574,7 @@ func runBuild(args []string) {
 			fmt.Printf("Build FAILED during RBAC parse: %v\n", err)
 			os.Exit(1)
 		}
-	} else if val, ok, err := loadOptionalDomain(p, "./cue/policies"); err != nil {
+	} else if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/policies"); err != nil {
 		fmt.Printf("Build FAILED during RBAC load: %v\n", err)
 		os.Exit(1)
 	} else if ok {
@@ -569,7 +586,7 @@ func runBuild(args []string) {
 	}
 
 	var views []normalizer.ViewDef
-	if val, ok, err := loadOptionalDomain(p, "./cue/views"); err != nil {
+	if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/views"); err != nil {
 		fmt.Printf("Build FAILED during views load: %v\n", err)
 		os.Exit(1)
 	} else if ok {
@@ -581,7 +598,7 @@ func runBuild(args []string) {
 	}
 
 	var projectDef *normalizer.ProjectDef
-	if val, ok, err := loadOptionalDomain(p, "./cue/project"); err != nil {
+	if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/project"); err != nil {
 		fmt.Printf("Build FAILED during project load: %v\n", err)
 		os.Exit(1)
 	} else if ok {
@@ -592,7 +609,7 @@ func runBuild(args []string) {
 		}
 	}
 
-	if val, ok, err := loadOptionalDomain(p, "./cue/schema"); err == nil && ok {
+	if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/schema"); err == nil && ok {
 		if err := n.LoadCodegenConfig(val); err != nil {
 			fmt.Printf("Warning: failed to load codegen config: %v\n", err)
 		}
@@ -648,7 +665,7 @@ func runBuild(args []string) {
 		cfgDefVal = *cfgDef
 	}
 
-	irSchema, err := convertAndTransform(
+	irSchema, err := compiler.ConvertAndTransform(
 		entities, services, events, bizErrors, endpoints, repos,
 		cfgDefVal, authDef, rbacDef, schedules, views, projectDefVal,
 	)
@@ -802,9 +819,13 @@ func runBuild(args []string) {
 	fmt.Println("\nBuild SUCCESSFUL. Application is ready in cmd/server/main.go")
 }
 
-func runVet() {
+func runVet(args []string) {
 	fmt.Println("Checking architectural invariants (ANG Law Enforcement)...")
-	entities, services, _, _, _, _, _, err := runPipeline()
+	projectPath := "."
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		projectPath = args[0]
+	}
+	entities, services, _, _, _, _, _, err := compiler.RunPipeline(projectPath)
 	if err != nil {
 		fmt.Printf("Vet FAILED (Parser error): %v\n", err)
 		os.Exit(1)
@@ -812,27 +833,27 @@ func runVet() {
 
 	fmt.Println("Running CUE Policy Checks...")
 	p := parser.New()
-	val, err := p.LoadDomain("./cue/policies")
-	if err != nil {
+	val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, "cue/policies"))
+	if err == nil && ok {
+		if err := val.Validate(); err != nil {
+			fmt.Printf("Policy Violation (Validate): %v\n", err)
+			os.Exit(1)
+		}
+
+		errVal := val.LookupPath(cue.ParsePath("validation_errors"))
+		if errVal.Exists() {
+			fmt.Println("Policy Violations Found:")
+			iter, _ := errVal.Fields()
+			for iter.Next() {
+				fmt.Printf("  - %s: %s\n", iter.Selector(), iter.Value())
+			}
+			os.Exit(1)
+		}
+		fmt.Println("CUE Policies Passed.")
+	} else if err != nil {
 		fmt.Printf("Policy Violation (Load): %v\n", err)
 		os.Exit(1)
 	}
-	if err := val.Validate(); err != nil {
-		fmt.Printf("Policy Violation (Validate): %v\n", err)
-		os.Exit(1)
-	}
-
-	errVal := val.LookupPath(cue.ParsePath("validation_errors"))
-	if errVal.Exists() {
-		fmt.Println("Policy Violations Found:")
-		iter, _ := errVal.Fields()
-		for iter.Next() {
-			fmt.Printf("  - %s: %s\n", iter.Selector(), iter.Value())
-		}
-		os.Exit(1)
-	}
-
-	fmt.Println("CUE Policies Passed.")
 
 	failed := false
 	for _, e := range entities {
@@ -868,7 +889,7 @@ func runVet() {
 
 func runDraw(args []string) {
 	fmt.Println("Drawing architecture...")
-	entities, services, endpoints, _, _, _, _, err := runPipeline()
+	entities, services, endpoints, _, _, _, _, err := compiler.RunPipeline(".")
 	if err != nil {
 		fmt.Printf("Draw FAILED (Parser error): %v\n", err)
 		os.Exit(1)
@@ -1337,17 +1358,7 @@ func pathParams(path string) []string {
 	return params
 }
 
-func loadOptionalDomain(p *parser.Parser, path string) (cue.Value, bool, error) {
-	matches, _ := filepath.Glob(filepath.Join(path, "*.cue"))
-	if len(matches) == 0 {
-		return cue.Value{}, false, nil
-	}
-	val, err := p.LoadDomain(path)
-	if err != nil {
-		return cue.Value{}, false, err
-	}
-	return val, true, nil
-}
+
 
 type lintReport struct {
 	OK       bool                 `json:"ok"`
@@ -1357,139 +1368,4 @@ type lintReport struct {
 type lintError struct {
 	Message string `json:"message"`
 }
-type pipelineOptions struct{ warningSink func(normalizer.Warning) }
 
-func runPipeline() ([]normalizer.Entity, []normalizer.Service, []normalizer.Endpoint, []normalizer.Repository, []normalizer.EventDef, []normalizer.ErrorDef, []normalizer.ScheduleDef, error) {
-	return runPipelineWithOptions(pipelineOptions{})
-}
-
-func runPipelineWithOptions(opts pipelineOptions) ([]normalizer.Entity, []normalizer.Service, []normalizer.Endpoint, []normalizer.Repository, []normalizer.EventDef, []normalizer.ErrorDef, []normalizer.ScheduleDef, error) {
-	p := parser.New()
-	valDomain, err := p.LoadDomain("./cue/domain")
-	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, err
-	}
-	valAPI, err := p.LoadDomain("./cue/api")
-	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, err
-	}
-	valArch, err := p.LoadDomain("./cue/architecture")
-	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, err
-	}
-	valRepo, okRepo, err := loadOptionalDomain(p, "./cue/repo")
-	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, err
-	}
-	valEvents, _ := p.LoadDomain("./cue/events")
-	valErrors, _ := p.LoadDomain("./cue/errors")
-
-	n := normalizer.New()
-	if opts.warningSink != nil {
-		n.WarningSink = opts.warningSink
-	}
-	entities, err := n.ExtractEntities(valDomain)
-	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, err
-	}
-	services, err := n.ExtractServices(valAPI, entities)
-	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, err
-	}
-	endpoints, err := n.ExtractEndpoints(valAPI)
-	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, err
-	}
-	repos, err := n.ExtractRepositories(valArch)
-	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, err
-	}
-
-	fmt.Printf("DEBUG main: okRepo=%v\n", okRepo)
-	if okRepo && valRepo.Err() == nil {
-		finderMap, _ := n.ExtractRepoFinders(valRepo)
-		fmt.Printf("DEBUG main: finderMap len=%d\n", len(finderMap))
-		if len(finderMap) > 0 {
-			entityFieldMap := make(map[string]map[string]string)
-			for _, e := range entities {
-				fieldMap := make(map[string]string)
-				for _, f := range e.Fields {
-					fieldMap[strings.ToLower(f.Name)] = f.Type
-				}
-				entityFieldMap[e.Name] = fieldMap
-			}
-			repoByEntity := make(map[string]int)
-			for i := range repos {
-				repoByEntity[repos[i].Entity] = i
-			}
-			for ent, finders := range finderMap {
-				fmt.Printf("DEBUG main: Processing finders for entity %s, count=%d\n", ent, len(finders))
-				for fi := range finders {
-					for wi := range finders[fi].Where {
-						w := finders[fi].Where[wi]
-						if (w.ParamType == "string" || w.ParamType == "") && entityFieldMap[ent] != nil {
-							if t, ok := entityFieldMap[ent][strings.ToLower(w.Field)]; ok {
-								finders[fi].Where[wi].ParamType = t
-							}
-						}
-					}
-				}
-				if idx, ok := repoByEntity[ent]; ok {
-					for _, f := range finders {
-						seen := false
-						for _, existing := range repos[idx].Finders {
-							if strings.EqualFold(existing.Name, f.Name) {
-								seen = true
-								fmt.Printf("DEBUG main: Finder %s.%s already exists, existing.ReturnType='%s' new.ReturnType='%s'\n", ent, f.Name, existing.ReturnType, f.ReturnType)
-								break
-							}
-						}
-						if !seen {
-							repos[idx].Finders = append(repos[idx].Finders, f)
-							fmt.Printf("DEBUG main: Added finder %s.%s ReturnType='%s' CustomSQL len=%d\n", ent, f.Name, f.ReturnType, len(f.CustomSQL))
-						}
-					}
-					continue
-				}
-				repos = append(repos, normalizer.Repository{Name: ent + "Repository", Entity: ent, Finders: finders})
-				repoByEntity[ent] = len(repos) - 1
-			}
-		}
-	}
-
-	var events []normalizer.EventDef
-	if valEvents.Err() == nil {
-		events, _ = n.ExtractEvents(valEvents)
-	}
-	var bizErrors []normalizer.ErrorDef
-	if valErrors.Err() == nil {
-		bizErrors, _ = n.ExtractErrors(valErrors)
-	}
-	schedules, err := n.ExtractSchedules(valAPI)
-	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, err
-	}
-
-	return entities, services, endpoints, repos, events, bizErrors, schedules, nil
-}
-
-func convertAndTransform(
-	entities []normalizer.Entity, services []normalizer.Service, events []normalizer.EventDef,
-	errors []normalizer.ErrorDef, endpoints []normalizer.Endpoint, repos []normalizer.Repository,
-	config normalizer.ConfigDef, auth *normalizer.AuthDef, rbac *normalizer.RBACDef,
-	schedules []normalizer.ScheduleDef, views []normalizer.ViewDef, project normalizer.ProjectDef,
-) (*ir.Schema, error) {
-	schema := ir.ConvertFromNormalizer(entities, services, events, errors, endpoints, repos, config, auth, rbac, schedules, views, project)
-
-	registry := transformers.DefaultRegistry()
-	if err := registry.Apply(schema); err != nil {
-		return nil, fmt.Errorf("transformer error: %w", err)
-	}
-
-	hooks := transformers.DefaultHookRegistry()
-	if err := hooks.Process(schema); err != nil {
-		return nil, fmt.Errorf("hook error: %w", err)
-	}
-
-	return schema, nil
-}

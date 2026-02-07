@@ -11,6 +11,9 @@ import (
 
 // ExtractEntities scans a CUE value and extracts struct definitions (starting with #).
 func (n *Normalizer) ExtractEntities(val cue.Value) ([]Entity, error) {
+	if !val.Exists() || val.IncompleteKind() == cue.BottomKind {
+		return nil, nil
+	}
 	var entities []Entity
 
 	iter, err := val.Fields(cue.All())
@@ -144,6 +147,30 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 
 		if attr := val.Attribute("pii"); attr.Err() == nil {
 			field.IsPII = true
+			if cls, found, _ := attr.Lookup(0, "classification"); found {
+				if field.Metadata == nil {
+					field.Metadata = make(map[string]any)
+				}
+				field.Metadata["pii_classification"] = cls
+			}
+		}
+
+		if attr := val.Attribute("encrypt"); attr.Err() == nil {
+			if field.Metadata == nil {
+				field.Metadata = make(map[string]any)
+			}
+			mode := "randomized"
+			if m, found, _ := attr.Lookup(0, "mode"); found {
+				mode = m
+			}
+			field.Metadata["encrypt"] = mode
+		}
+
+		if attr := val.Attribute("redact"); attr.Err() == nil {
+			if field.Metadata == nil {
+				field.Metadata = make(map[string]any)
+			}
+			field.Metadata["redact"] = true
 		}
 
 		if attr := val.Attribute("image"); attr.Err() == nil {
@@ -346,6 +373,22 @@ func (n *Normalizer) parseInlineFields(val cue.Value) ([]Field, error) {
 		}
 		if attr := fVal.Attribute("pii"); attr.Err() == nil {
 			field.IsPII = true
+		}
+		if attr := fVal.Attribute("encrypt"); attr.Err() == nil {
+			if field.Metadata == nil {
+				field.Metadata = make(map[string]any)
+			}
+			mode := "randomized"
+			if m, found, _ := attr.Lookup(0, "mode"); found {
+				mode = m
+			}
+			field.Metadata["encrypt"] = mode
+		}
+		if attr := fVal.Attribute("redact"); attr.Err() == nil {
+			if field.Metadata == nil {
+				field.Metadata = make(map[string]any)
+			}
+			field.Metadata["redact"] = true
 		}
 		fields = append(fields, field)
 	}

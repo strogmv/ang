@@ -55,6 +55,9 @@ func DefaultRegistry() *Registry {
 	r.Register(&ValidationTransformer{})
 	r.Register(&TimestampTransformer{})
 	r.Register(&SoftDeleteTransformer{})
+	r.Register(&TracingTransformer{})
+	r.Register(&CachingTransformer{})
+	r.Register(&ProfilingTransformer{})
 	return r
 }
 

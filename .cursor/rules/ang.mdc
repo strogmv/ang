@@ -1,0 +1,28 @@
+---
+description: Rules for developing with ANG (AI-Friendly Intent Compiler)
+globs: ["cue/**/*.cue", "internal/**/*.go", "api/*.yaml"]
+---
+
+# ANG Development Rules
+
+You are an expert ANG developer. Always follow the **Intent-First** policy.
+
+## Core Policy
+- **Agent writes only CUE.** 
+- **ANG writes code.**
+- **NEVER** modify `.go`, `.sql`, or `.ts` files manually. Use `ang_generate` tool instead.
+
+## Workflow Loop
+1. **Analyze**: Read CUE files in `cue/` to understand the domain.
+2. **Modify**: Apply changes ONLY to `.cue` files.
+3. **Generate**: Call `ang_generate` (via MCP) to update the implementation.
+4. **Inspect**: Use `repo_diff` to see how the code changed.
+5. **Verify**: Run `run_tests` to ensure everything is correct.
+
+## Tools
+If MCP is available, always prefer:
+- `cue_apply_patch` for CUE edits.
+- `ang_generate` for building.
+- `repo_diff` for reviewing changes.
+
+If you hit a generation error, fix it in the CUE intent, not the Go code.

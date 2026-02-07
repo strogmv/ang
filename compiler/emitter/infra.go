@@ -15,6 +15,9 @@ import (
 
 // EmitConfig generates typed configuration.
 func (e *Emitter) EmitConfig(config *normalizer.ConfigDef) error {
+	if config == nil {
+		config = &normalizer.ConfigDef{Fields: []normalizer.Field{}}
+	}
 	tmplPath := "templates/config.tmpl"
 	tmplContent, err := ReadTemplateByPath(tmplPath)
 	if err != nil {

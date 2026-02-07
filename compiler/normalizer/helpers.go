@@ -74,6 +74,26 @@ func isExportedName(s string) bool {
 	return unicode.IsUpper(r[0])
 }
 
+func parseAttributes(v cue.Value) []Attribute {
+	var result []Attribute
+	attrs := v.Attributes(cue.ValueAttr | cue.FieldAttr | cue.DeclAttr)
+	for _, attr := range attrs {
+		name := attr.Name()
+		args := make(map[string]any)
+		for i := 0; i < attr.NumArgs(); i++ {
+			k, val := attr.Arg(i)
+			if k == "" {
+				// For attributes like @owner(user), 'user' is an unkeyed arg
+				args["_"] = val
+			} else {
+				args[k] = val
+			}
+		}
+		result = append(result, Attribute{Name: name, Args: args})
+	}
+	return result
+}
+
 // parseSize converts size strings like "1mb", "512kb" to bytes.
 func parseSize(s string) int64 {
 	s = strings.ToLower(strings.TrimSpace(s))

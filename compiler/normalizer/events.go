@@ -8,6 +8,9 @@ import (
 
 // ExtractEvents extracts event definitions.
 func (n *Normalizer) ExtractEvents(val cue.Value) ([]EventDef, error) {
+	if !val.Exists() || val.IncompleteKind() == cue.BottomKind {
+		return nil, nil
+	}
 	var events []EventDef
 
 	iter, err := val.Fields(cue.All())
@@ -42,6 +45,9 @@ func (n *Normalizer) ExtractEvents(val cue.Value) ([]EventDef, error) {
 
 // ExtractErrors extracts error definitions.
 func (n *Normalizer) ExtractErrors(val cue.Value) ([]ErrorDef, error) {
+	if !val.Exists() || val.IncompleteKind() == cue.BottomKind {
+		return nil, nil
+	}
 	var errs []ErrorDef
 
 	errsVal := val.LookupPath(cue.ParsePath("#Errors"))
