@@ -13,7 +13,7 @@ import (
 
 const ReductionThreshold = 0.7
 
-// GetMergedContent returns the resulting CUE content after merging, but does NOT write to disk.
+// GetMergedContent returns the resulting CUE content after merging.
 func GetMergedContent(path string, selector string, patchContent string) ([]byte, error) {
 	origContent, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
@@ -51,14 +51,16 @@ func GetMergedContent(path string, selector string, patchContent string) ([]byte
 	}
 
 	newLines := bytes.Count(res, []byte("\n"))
-	if origLines > 10 && float64(newLines) < float64(origLines)*ReductionThreshold {
-		return nil, fmt.Errorf("CRITICAL_REDUCTION_DETECTED: new file size (%d lines) is significantly smaller than original (%d lines)", newLines, origLines)
+	
+	// Data Loss Guard: Fix. We compare FINAL state with ORIGINAL state.
+	// If original was large, and final became significantly smaller - block.
+	if origLines > 20 && float64(newLines) < float64(origLines)*ReductionThreshold {
+		return nil, fmt.Errorf("CRITICAL_REDUCTION_DETECTED: file reduced from %d to %d lines. Patch aborted for safety", origLines, newLines)
 	}
 
 	return res, nil
 }
 
-// MergeCUEFiles remains for backward compatibility or simple use cases
 func MergeCUEFiles(path string, selector string, patchContent string) error {
 	content, err := GetMergedContent(path, selector, patchContent)
 	if err != nil {
@@ -77,6 +79,7 @@ func mergeAtSelector(orig *ast.File, selector string, patchDecls []ast.Decl) err
 		for _, decl := range *currentDecls {
 			if f, ok := decl.(*ast.Field); ok && fmt.Sprint(f.Label) == part {
 				if i == len(parts)-1 {
+					// STRATEGY: Smart Merge into field
 					mergeField(f, &ast.Field{Value: &ast.StructLit{Elts: patchDecls}})
 					return nil
 				}
@@ -85,11 +88,25 @@ func mergeAtSelector(orig *ast.File, selector string, patchDecls []ast.Decl) err
 					found = true
 					break
 				}
-				return fmt.Errorf("selector path %s is not a struct", strings.Join(parts[:i+1], "."))
+				// If it's not a struct but we need to go deeper, we overwrite it with a struct
+				newStruct := &ast.StructLit{}
+				f.Value = newStruct
+				currentDecls = &newStruct.Elts
+				found = true
+				break
 			}
 		}
 		if !found {
-			return fmt.Errorf("selector path %s not found", strings.Join(parts[:i+1], "."))
+			// Path not found - create it! (Targeted creation)
+			newField := &ast.Field{Label: ast.NewIdent(part)}
+			*currentDecls = append(*currentDecls, newField)
+			if i == len(parts)-1 {
+				mergeField(newField, &ast.Field{Value: &ast.StructLit{Elts: patchDecls}})
+				return nil
+			}
+			newStruct := &ast.StructLit{}
+			newField.Value = newStruct
+			currentDecls = &newStruct.Elts
 		}
 	}
 	return nil
@@ -97,9 +114,9 @@ func mergeAtSelector(orig *ast.File, selector string, patchDecls []ast.Decl) err
 
 func mergeDecls(orig *ast.File, patchDecls []ast.Decl) {
 	for _, patchDecl := range patchDecls {
-		found := false
 		if pField, ok := patchDecl.(*ast.Field); ok {
 			pLabel := fmt.Sprint(pField.Label)
+			found := false
 			for _, oDecl := range orig.Decls {
 				if oField, ok := oDecl.(*ast.Field); ok {
 					if fmt.Sprint(oField.Label) == pLabel {
@@ -109,8 +126,11 @@ func mergeDecls(orig *ast.File, patchDecls []ast.Decl) {
 					}
 				}
 			}
-		}
-		if !found {
+			if !found {
+				orig.Decls = append(orig.Decls, patchDecl)
+			}
+		} else {
+			// e.g. Imports or Comments
 			orig.Decls = append(orig.Decls, patchDecl)
 		}
 	}
@@ -121,17 +141,20 @@ func mergeField(orig, patch *ast.Field) {
 	pStruct, pOk := patch.Value.(*ast.StructLit)
 
 	if oOk && pOk {
+		// Recursive merge for structs
 		mergeStruct(oStruct, pStruct)
 	} else {
+		// STRATEGY: OVERRIDE for scalars
+		// This prevents "conflicting values" in CUE, because we physically replace the AST node.
 		orig.Value = patch.Value
 	}
 }
 
 func mergeStruct(orig, patch *ast.StructLit) {
 	for _, pDecl := range patch.Elts {
-		found := false
 		if pField, ok := pDecl.(*ast.Field); ok {
 			pLabel := fmt.Sprint(pField.Label)
+			found := false
 			for _, oDecl := range orig.Elts {
 				if oField, ok := oDecl.(*ast.Field); ok {
 					if fmt.Sprint(oField.Label) == pLabel {
@@ -141,8 +164,10 @@ func mergeStruct(orig, patch *ast.StructLit) {
 					}
 				}
 			}
-		}
-		if !found {
+			if !found {
+				orig.Elts = append(orig.Elts, pDecl)
+			}
+		} else {
 			orig.Elts = append(orig.Elts, pDecl)
 		}
 	}

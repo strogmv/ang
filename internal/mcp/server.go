@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -152,11 +153,12 @@ func Run() {
 		orig, _ := os.ReadFile(path)
 		os.WriteFile(path, newContent, 0644)
 
-		// 3. Syntax Check (cue vet)
-		cmd := exec.Command("cue", "vet", path)
+		// 3. Syntax Check (cue vet on package)
+		dir := filepath.Dir(path)
+		cmd := exec.Command("cue", "vet", "./" + dir) // Run on the whole directory
 		if out, err := cmd.CombinedOutput(); err != nil {
 			os.WriteFile(path, orig, 0644) // Rollback
-			return mcp.NewToolResultText(fmt.Sprintf("Syntax validation FAILED: %s", string(out))), nil
+			return mcp.NewToolResultText(fmt.Sprintf("Syntax validation FAILED (context: %s):\n%s", dir, string(out))), nil
 		}
 
 		// 4. Architectural Check (ang validate)
