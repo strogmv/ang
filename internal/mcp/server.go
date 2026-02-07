@@ -209,6 +209,79 @@ func Run() {
 		return mcp.NewToolResultText(string(jsonRes)), nil
 	})
 
+	// --- MIGRATIONS (Stage 25) ---
+
+	s.AddTool(mcp.NewTool("ang_migrate_diff",
+		mcp.WithDescription("Calculate difference between CUE intent and current migrations"),
+		mcp.WithString("name", mcp.Description("Name of the new migration"), mcp.Required()),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		name := mcp.ParseString(request, "name", "")
+		
+		// 1. Run ang build to update schema.sql
+		buildCmd := exec.Command("os.Executable", "build") // We will use os.Executable() logic
+		if exe, err := os.Executable(); err == nil {
+			buildCmd = exec.Command(exe, "build")
+		}
+		_ = buildCmd.Run()
+
+		// 2. Run atlas migrate diff
+		// Note: Requires atlas installed on host
+		cmd := exec.Command("atlas", "migrate", "diff", name,
+			"--env", "local",
+			"--to", "file://db/schema/schema.sql",
+			"--dir", "file://db/migrations")
+		
+		out, err := cmd.CombinedOutput()
+		
+		res := map[string]interface{}{
+			"success": err == nil,
+			"output":  string(out),
+		}
+
+		if err == nil {
+			// Check for destructive changes in the latest file
+			files, _ := filepath.Glob("db/migrations/*.sql")
+			if len(files) > 0 {
+				latest := files[len(files)-1]
+				content, _ := os.ReadFile(latest)
+				if strings.Contains(string(content), "DROP ") {
+					res["warning"] = "Destructive change detected: " + latest
+					res["is_destructive"] = true
+				}
+				res["file"] = latest
+				res["plan"] = string(content)
+			}
+		} else {
+			res["error"] = err.Error()
+		}
+
+		jsonRes, _ := json.MarshalIndent(res, "", "  ")
+		return mcp.NewToolResultText(string(jsonRes)), nil
+	})
+
+	s.AddTool(mcp.NewTool("ang_migrate_apply",
+		mcp.WithDescription("Apply pending migrations to the database"),
+		mcp.WithBoolean("dry_run", mcp.Description("If true, only show what will be executed")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		dryRun := mcp.ParseBoolean(request, "dry_run", true)
+		
+		args := []string{"migrate", "apply", "--env", "local", "--dir", "file://db/migrations"}
+		if dryRun {
+			args = append(args, "--dry-run")
+		}
+
+		cmd := exec.Command("atlas", args...)
+		out, err := cmd.CombinedOutput()
+
+		res := map[string]interface{}{
+			"success": err == nil,
+			"output":  string(out),
+			"dry_run": dryRun,
+		}
+		jsonRes, _ := json.MarshalIndent(res, "", "  ")
+		return mcp.NewToolResultText(string(jsonRes)), nil
+	})
+
 	// --- META & RESOURCES ---
 
 	s.AddTool(mcp.NewTool("ang_capabilities",

@@ -23,6 +23,10 @@ import "github.com/strogmv/ang/cue/schema"
             description: "User email address"
             validate: "required,email"
         }
+        phoneNumber?: {
+            type: "string"
+            description: "User phone number"
+        }
         passwordHash: {
             type: "string"
             description: "Bcrypt password hash"
