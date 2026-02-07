@@ -269,8 +269,15 @@ cd tests && npm install && npm run test:e2e
 *   `ang draw` — Visualize architecture
 *   `ang api-diff` — Check API breaking changes
 *   `ang contract-test` — Run contract tests
+*   `ang_doctor` — AI-powered self-diagnosis and fix suggestions (MCP only)
 
 ## Features
+
+### AI-Native Intelligence
+
+*   **Behavioral Scenarios (Stage 31):** Define complex business flows in CUE to automatically generate Go-based E2E integration tests.
+*   **AI Healer (Stage 32):** The `ang_doctor` tool analyzes build logs and CUE intent to provide structured "diagnoses" and automated fix suggestions for common errors.
+*   **Client-Side Security SDK (Stage 33):** Support for Zero-Knowledge architecture via `@encrypt(client_side="true")`. ANG generates TypeScript code to encrypt sensitive data on the client before it ever touches the server.
 
 ### Backend Generation
 
