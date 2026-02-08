@@ -81,6 +81,7 @@ func printUsage() {
 	fmt.Println("  ang api-diff  Compare OpenAPI specs and recommend semver bump")
 	fmt.Println("  ang contract-test  Run generated HTTP/WS contract tests")
 	fmt.Println("  ang vet       Check architectural invariants and laws")
+	fmt.Println("  ang vet logic  Audit embedded Go snippets for syntax errors")
 	fmt.Println("  ang rbac actions  List all registered RBAC actions (service.method)")
 	fmt.Println("  ang rbac inspect  Audit RBAC policies for holes and errors")
 	fmt.Println("  ang events map    Visualize end-to-end event journey (Pub/Sub)")
@@ -830,6 +831,11 @@ func runBuild(args []string) {
 }
 
 func runVet(args []string) {
+	if len(args) > 0 && args[0] == "logic" {
+		runLogicVet()
+		return
+	}
+
 	fmt.Println("Checking architectural invariants (ANG Law Enforcement)...")
 	projectPath := "."
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -1485,65 +1491,173 @@ func runDB(args []string) {
 }
 
 func runEvents(args []string) {
+
 	if len(args) == 0 || args[0] != "map" {
+
 		fmt.Println("Usage: ang events map")
+
 		return
+
 	}
+
+
 
 	_, services, _, _, _, _, _, _, err := compiler.RunPipeline(".")
+
 	if err != nil {
+
 		fmt.Printf("Error: %v\n", err)
+
 		return
+
 	}
+
+
 
 	fmt.Println("Event Flow Map (Journey of data through NATS):")
+
 	fmt.Println("-----------------------------------------------")
 
+
+
 	type Publisher struct {
+
 		Service string
+
 		Method  string
+
 	}
+
 	publishers := make(map[string][]Publisher)
+
 	for _, s := range services {
+
 		for _, m := range s.Methods {
+
 			for _, p := range m.Publishes {
+
 				publishers[p] = append(publishers[p], Publisher{Service: s.Name, Method: m.Name})
+
 			}
+
 		}
+
 	}
+
+
 
 	type Subscriber struct {
+
 		Service string
+
 		Handler string
+
 	}
+
 	subscribers := make(map[string][]Subscriber)
+
 	for _, s := range services {
+
 		for evt, handler := range s.Subscribes {
+
 			subscribers[evt] = append(subscribers[evt], Subscriber{Service: s.Name, Handler: handler})
+
 		}
+
 	}
+
+
 
 	foundAny := false
+
 	for evt, pubs := range publishers {
+
 		foundAny = true
+
 		fmt.Printf("\n📢 Event: %s\n", evt)
+
 		fmt.Print("   Produced by:\n")
+
 		for _, p := range pubs {
+
 			fmt.Printf("     - %s.%s\n", p.Service, p.Method)
+
 		}
+
+
 
 		subs := subscribers[evt]
+
 		if len(subs) > 0 {
+
 			fmt.Print("   Consumed by:\n")
+
 			for _, s := range subs {
+
 				fmt.Printf("     - %s (Handler: %s)\n", s.Service, s.Handler)
+
 			}
+
 		} else {
+
 			fmt.Print("   ⚠️  No subscribers found.\n")
+
 		}
+
 	}
 
+
+
 	if !foundAny {
+
 		fmt.Println("No event publishers found in current architecture.")
+
 	}
+
+}
+
+
+
+func runLogicVet() {
+
+	fmt.Println("Auditing embedded Go logic in CUE files...")
+
+	_, _, _, _, _, _, _, _, _ = compiler.RunPipeline(".")
+
+	
+
+	found := false
+
+	for _, d := range compiler.LatestDiagnostics {
+
+		if d.Code == "GO_SYNTAX_ERROR" {
+
+			fmt.Printf("\n❌ Logic Error at %s:%d:%d\n", d.File, d.Line, d.Column)
+
+			fmt.Printf("   %s\n", d.Message)
+
+			if d.Hint != "" {
+
+				fmt.Printf("   💡 Hint: %s\n", d.Hint)
+
+			}
+
+			found = true
+
+		}
+
+	}
+
+
+
+	if !found {
+
+		fmt.Println("✅ All embedded logic blocks are syntactically valid.")
+
+	} else {
+
+		os.Exit(1)
+
+	}
+
 }

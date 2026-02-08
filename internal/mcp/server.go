@@ -10,11 +10,14 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"go/parser"
+	"go/token"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/strogmv/ang/compiler"
 	"github.com/strogmv/ang/compiler/normalizer"
+	parserpkg "github.com/strogmv/ang/compiler/parser"
 )
 
 var (
@@ -53,6 +56,99 @@ func Run() {
 		server.WithLogging(),
 	)
 
+	// --- LOGIC VALIDATOR (Stage 47) ---
+
+	s.AddTool(mcp.NewTool("ang_validate_logic",
+		mcp.WithDescription("Validate Go code snippet syntax before inserting into CUE"),
+		mcp.WithString("code", mcp.Description("Go code block"), mcp.Required()),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		code := mcp.ParseString(request, "code", "")
+		
+		// Wrap to make parsable
+		wrapped := fmt.Sprintf("package dummy\nfunc _() { \n// Variables injected by ANG context\nvar req, resp, ctx, s, err interface{}\n_ = req; _ = resp; _ = ctx; _ = s; _ = err;\n%s\n}", code)
+		
+		fset := token.NewFileSet()
+		_, err := parser.ParseFile(fset, "", wrapped, 0)
+		
+		report := &ANGReport{
+			Status: "Valid",
+			Summary: []string{"Go logic validation"},
+		}
+		
+		if err != nil {
+			report.Status = "Invalid"
+			report.Diagnostics = append(report.Diagnostics, normalizer.Warning{
+				Kind: "logic", Code: "GO_SYNTAX_ERROR", Message: err.Error(), Severity: "error",
+			})
+			report.Rationale = "Syntax error detected in embedded Go code."
+		} else {
+			report.Summary = append(report.Summary, "Syntax is correct.")
+		}
+
+		return mcp.NewToolResultText(report.ToJSON()), nil
+	})
+
+	// --- RBAC INSPECTOR (Stage 45) ---
+
+	s.AddTool(mcp.NewTool("ang_rbac_inspector",
+		mcp.WithDescription("Audit RBAC actions and policies. Identifies valid action names and security holes."),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		_, services, _, _, _, _, _, _, err := compiler.RunPipeline(".")
+		if err != nil { return mcp.NewToolResultText(err.Error()), nil }
+		
+		validActions := make(map[string]bool)
+		for _, s := range services {
+			for _, m := range s.Methods {
+				validActions[strings.ToLower(s.Name)+"."+strings.ToLower(m.Name)] = true
+			}
+		}
+
+		p := parserpkg.New()
+		n := normalizer.New()
+		var rbac *normalizer.RBACDef
+		if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/policies"); err == nil && ok {
+			rbac, _ = n.ExtractRBAC(val)
+		} else if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/rbac"); err == nil && ok {
+			rbac, _ = n.ExtractRBAC(val)
+		}
+
+		unprotected := []string{}
+		zombies := []string{}
+		protected := []string{}
+
+		if rbac != nil {
+			for action := range rbac.Permissions {
+				if validActions[action] {
+					protected = append(protected, action)
+				} else {
+					zombies = append(zombies, action)
+				}
+			}
+		}
+
+		for action := range validActions {
+			isFound := false
+			for _, p := range protected { if p == action { isFound = true; break } }
+			if !isFound { unprotected = append(unprotected, action) }
+		}
+
+		report := &ANGReport{
+			Status: "Audited",
+			Summary: []string{
+				fmt.Sprintf("Protected: %d", len(protected)),
+				fmt.Sprintf("Unprotected (Holes): %d", len(unprotected)),
+				fmt.Sprintf("Zombies (Errors): %d", len(zombies)),
+			},
+			Impacts: unprotected,
+			Artifacts: map[string]string{
+				"valid_actions": strings.Join(protected, "\n"),
+				"holes":         strings.Join(unprotected, "\n"),
+				"zombies":       strings.Join(zombies, "\n"),
+			},
+		}
+		return mcp.NewToolResultText(report.ToJSON()), nil
+	})
+
 	// --- DB SYNC (Stage 41) ---
 
 	s.AddTool(mcp.NewTool("ang_db_sync",
@@ -62,29 +158,7 @@ func Run() {
 		out, err := cmd.CombinedOutput()
 		status := "Success"
 		if err != nil { status = "Failed" }
-		report := &ANGReport{
-			Status: status,
-			Summary: []string{"Database synchronization results"},
-			Artifacts: map[string]string{"log": string(out)},
-			Rationale: "Ensures the physical database schema matches your CUE domain models.",
-		}
-		return mcp.NewToolResultText(report.ToJSON()), nil
-	})
-
-	// --- RBAC OBSERVABILITY (Stage 40) ---
-
-	s.AddTool(mcp.NewTool("ang_list_actions",
-		mcp.WithDescription("List all available RBAC actions in the system (service.method)"),
-	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		_, services, _, _, _, _, _, _, err := compiler.RunPipeline(".")
-		if err != nil { return mcp.NewToolResultText(err.Error()), nil }
-		var actions []string
-		for _, s := range services {
-			for _, m := range s.Methods {
-				actions = append(actions, fmt.Sprintf("%s.%s", strings.ToLower(s.Name), strings.ToLower(m.Name)))
-			}
-		}
-		report := &ANGReport{ Status: "Success", Impacts: actions }
+		report := &ANGReport{ Status: status, Summary: []string{"Database synchronization results"}, Artifacts: map[string]string{"log": string(out)} }
 		return mcp.NewToolResultText(report.ToJSON()), nil
 	})
 
@@ -146,7 +220,7 @@ func Run() {
 			"status": "Ready",
 			"ang_version": compiler.Version,
 			"workflows": map[string]interface{}{
-				"feature_add": []string{"ang_plan", "ang_search", "ang_list_actions", "cue_apply_patch", "run_preset('build')", "ang_db_sync"},
+				"feature_add": []string{"ang_plan", "ang_search", "ang_rbac_inspector", "ang_validate_logic", "cue_apply_patch", "run_preset('build')", "ang_db_sync"},
 				"bug_fix":     []string{"run_preset('unit')", "ang_explain_error", "ang_doctor", "cue_apply_patch", "run_preset('build')"},
 			},
 			"resources": []string{"resource://ang/logs/build", "resource://ang/policy"},
