@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -34,6 +35,7 @@ type ANGReport struct {
 	Status      string               `json:"status"`
 	Summary     []string             `json:"summary"`
 	Diagnostics []normalizer.Warning `json:"diagnostics,omitempty"`
+	Impacts     []string             `json:"impacts,omitempty"`
 	NextActions []string             `json:"next_actions,omitempty"`
 	Artifacts   map[string]string    `json:"artifacts,omitempty"`
 	Rationale   string               `json:"rationale,omitempty"`
@@ -51,6 +53,54 @@ func Run() {
 		server.WithLogging(),
 	)
 
+	// --- INTENT DEBUGGER (Stage 39) ---
+
+	s.AddTool(mcp.NewTool("ang_explain_error",
+		mcp.WithDescription("Map runtime error back to CUE intent and explain what went wrong"),
+		mcp.WithString("log", mcp.Description("Raw error log or JSON"), mcp.Required()),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		log := mcp.ParseString(request, "log", "")
+		
+		// Regex to find "intent": "file:line"
+		re := regexp.MustCompile(`"intent":\s*"([^"]+):(\d+)(?:\s*\(([^)]+)\))?"`)
+		matches := re.FindStringSubmatch(log)
+		
+		if len(matches) < 3 {
+			return mcp.NewToolResultText("No intent metadata found in log. Ensure you are using ProblemDetail responses."), nil
+		}
+
+		file, line := matches[1], matches[2]
+		cuePath := ""
+		if len(matches) > 3 { cuePath = matches[3] }
+
+		content, _ := os.ReadFile(file)
+		lines := strings.Split(string(content), "\n")
+		
+		snippet := ""
+		lineIdx := 0
+		fmt.Sscanf(line, "%d", &lineIdx)
+		if lineIdx > 0 && lineIdx <= len(lines) {
+			start := lineIdx - 3
+			if start < 0 { start = 0 }
+			end := lineIdx + 2
+			if end > len(lines) { end = len(lines) }
+			snippet = strings.Join(lines[start:end], "\n")
+		}
+
+		report := &ANGReport{
+			Status: "Debugging",
+			Summary: []string{fmt.Sprintf("Error mapped to %s:%s", file, line)},
+			Artifacts: map[string]string{
+				"cue_snippet": snippet,
+				"cue_path":    cuePath,
+			},
+			Rationale: "This CUE step generated the Go code that failed at runtime.",
+			NextActions: []string{"Examine the snippet", "Fix logic in " + file},
+		}
+
+		return mcp.NewToolResultText(report.ToJSON()), nil
+	})
+
 	// --- AI HEALER (Stage 32) ---
 
 	s.AddTool(mcp.NewTool("ang_doctor",
@@ -64,9 +114,7 @@ func Run() {
 			Summary: []string{"Healer analysis of ang-build.log"},
 		}
 
-		// Pattern matching for typical errors
 		if strings.Contains(log, "range can't iterate over") {
-			report.Summary = append(report.Summary, "Found common logic.Call list error.")
 			report.Diagnostics = append(report.Diagnostics, normalizer.Warning{
 				Kind: "template",
 				Code: "LIST_REQUIRED",
@@ -75,23 +123,11 @@ func Run() {
 				Hint: "Wrap the argument in brackets in your CUE file.",
 				CanAutoApply: true,
 			})
-			report.NextActions = append(report.NextActions, "cue_apply_patch with bracket fix", "run_preset('build')")
-			report.Rationale = "The Go template engine expects a slice for method arguments iteration."
-		}
-
-		if strings.Contains(log, "ARCHITECTURE WARNING") {
-			report.Summary = append(report.Summary, "Found ownership violation.")
-			report.Diagnostics = append(report.Diagnostics, normalizer.Warning{
-				Kind: "architecture",
-				Code: "OWNERSHIP_VIOLATION",
-				Message: "Service is accessing entity it doesn't own.",
-				Hint: "Add @owner() attribute or move the operation.",
-			})
 		}
 
 		if len(report.Diagnostics) == 0 {
 			report.Status = "Healthy"
-			report.Summary = append(report.Summary, "No obvious patterns found in logs. Check manual fixes.")
+			report.Summary = append(report.Summary, "No obvious patterns found in logs.")
 		}
 
 		return mcp.NewToolResultText(report.ToJSON()), nil
@@ -111,13 +147,9 @@ func Run() {
 			"policy":           "Agent writes only CUE. ANG writes code. Agent reads code and runs tests.",
 			"workflows": map[string]interface{}{
 				"feature_add": []string{"ang_plan", "ang_search", "cue_apply_patch", "run_preset('build')", "run_preset('unit')"},
-				"bug_fix":     []string{"run_preset('unit')", "ang_doctor", "cue_apply_patch", "run_preset('build')"},
+				"bug_fix":     []string{"run_preset('unit')", "ang_explain_error", "ang_doctor", "cue_apply_patch", "run_preset('build')"},
 			},
-			"resources": []string{
-				"resource://ang/logs/build",
-				"resource://ang/policy",
-				"resource://ang/readme_for_agents",
-			},
+			"resources": []string{"resource://ang/logs/build", "resource://ang/policy"},
 		}
 		jsonRes, _ := json.MarshalIndent(res, "", "  ")
 		return mcp.NewToolResultText(string(jsonRes)), nil
@@ -126,7 +158,7 @@ func Run() {
 	// --- ESSENTIAL TOOLS ---
 
 	s.AddTool(mcp.NewTool("ang_search",
-		mcp.WithDescription("Hybrid symbol search. Use this to find where logic is implemented."),
+		mcp.WithDescription("Hybrid symbol search."),
 		mcp.WithString("query", mcp.Required()),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		query := mcp.ParseString(request, "query", "")
@@ -136,47 +168,42 @@ func Run() {
 	})
 
 	s.AddTool(mcp.NewTool("cue_apply_patch",
-		mcp.WithDescription("Update CUE intent with atomic validation (syntax + architecture)"),
-		mcp.WithString("path", mcp.Description("CUE file path"), mcp.Required()),
-		mcp.WithString("content", mcp.Description("CUE patch content"), mcp.Required()),
+		mcp.WithDescription("Update CUE intent with atomic validation"),
+		mcp.WithString("path", mcp.Required()),
+		mcp.WithString("content", mcp.Required()),
 		mcp.WithString("selector", mcp.Description("Target node path")),
-		mcp.WithBoolean("forced_merge", mcp.Description("If true, overwrites target nodes instead of deep merging")),
+		mcp.WithBoolean("forced_merge", mcp.Description("Overwrite instead of deep merge")),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		path, content := mcp.ParseString(request, "path", ""), mcp.ParseString(request, "content", "")
 		selector := mcp.ParseString(request, "selector", "")
 		force := mcp.ParseBoolean(request, "forced_merge", false)
-		if !strings.HasPrefix(path, "cue/") { return mcp.NewToolResultText("Denied: only /cue directory is modifiable"), nil }
+		if !strings.HasPrefix(path, "cue/") { return mcp.NewToolResultText("Denied"), nil }
 		
-		// 1. Get Merged Content
 		newContent, err := GetMergedContent(path, selector, content, force)
 		if err != nil { return mcp.NewToolResultText(fmt.Sprintf("Merge error: %v", err)), nil }
 
-		// 2. Backup & Apply (Temporary)
 		orig, _ := os.ReadFile(path)
 		os.WriteFile(path, newContent, 0644)
 
-		// 3. Syntax Check (cue vet on package)
+		// Syntax Check
 		dir := filepath.Dir(path)
-		cmd := exec.Command("cue", "vet", "./" + dir) // Run on the whole directory
+		cmd := exec.Command("cue", "vet", "./" + dir)
 		if out, err := cmd.CombinedOutput(); err != nil {
-			os.WriteFile(path, orig, 0644) // Rollback
-			return mcp.NewToolResultText(fmt.Sprintf("Syntax validation FAILED (context: %s):\n%s", dir, string(out))), nil
+			os.WriteFile(path, orig, 0644)
+			return mcp.NewToolResultText(fmt.Sprintf("Syntax validation FAILED:\n%s", string(out))), nil
 		}
 
-		// 4. Architectural Check (ang validate)
+		// Architecture Check
 		if _, _, _, _, _, _, _, _, err := compiler.RunPipeline("."); err != nil {
-			os.WriteFile(path, orig, 0644) // Rollback
+			os.WriteFile(path, orig, 0644)
 			return mcp.NewToolResultText(fmt.Sprintf("Architecture validation FAILED: %v", err)), nil
 		}
 
-		sessionState.Lock()
-		sessionState.LastAction = "cue_apply_patch"
-		sessionState.Unlock()
-		return mcp.NewToolResultText("Intent merged and validated successfully. Next: run_preset('build')"), nil
+		return mcp.NewToolResultText("Intent merged and validated successfully."), nil
 	})
 
 	s.AddTool(mcp.NewTool("run_preset",
-		mcp.WithDescription("Run safe workflow commands: build, unit, lint"),
+		mcp.WithDescription("Run build, unit, lint"),
 		mcp.WithString("name", mcp.Required()),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		name := mcp.ParseString(request, "name", "")
@@ -193,26 +220,10 @@ func Run() {
 		f.Close()
 		status := "SUCCESS"
 		if err != nil { status = "FAILED" }
-		return mcp.NewToolResultText(fmt.Sprintf("Preset %s finished: %s. See resource://ang/logs/build", name, status)), nil
+		return mcp.NewToolResultText(fmt.Sprintf("Preset %s finished: %s.", name, status)), nil
 	})
-
-	registerResources(s)
 
 	if err := server.ServeStdio(s); err != nil {
 		fmt.Printf("Server error: %v\n", err)
 	}
-}
-
-func registerResources(s *server.MCPServer) {
-	s.AddResource(mcp.NewResource("resource://ang/logs/build", "Live Build Log", mcp.WithMIMEType("text/plain")),
-		func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-			content, _ := os.ReadFile("ang-build.log")
-			return []mcp.ResourceContents{mcp.TextResourceContents{URI: "resource://ang/logs/build", MIMEType: "text/plain", Text: string(content)}}, nil
-		})
-
-	s.AddResource(mcp.NewResource("resource://ang/policy", "AI Policy", mcp.WithMIMEType("text/plain")),
-		func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-			policy := "1. Agent writes ONLY CUE.\n2. ANG generates ALL code.\n3. NEVER touch .go files manually."
-			return []mcp.ResourceContents{mcp.TextResourceContents{URI: "resource://ang/policy", MIMEType: "text/plain", Text: policy}}, nil
-		})
 }

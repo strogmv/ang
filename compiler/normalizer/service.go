@@ -848,6 +848,21 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 				if step.Args["func"] == nil || step.Args["func"] == "" {
 					addWarn(stepNum, step.Action, "MISSING_FUNC", "logic.Call missing 'func'", "{action: \"logic.Call\", func: \"DoThing\", args: [\"a\", \"b\"]}", step.File, step.Line, step.Column)
 				}
+				// Normalize args to []string for templates
+				if args, ok := step.Args["args"]; ok {
+					switch v := args.(type) {
+					case string:
+						step.Args["args"] = []string{v}
+					case []any:
+						var ss []string
+						for _, x := range v {
+							ss = append(ss, fmt.Sprint(x))
+						}
+						step.Args["args"] = ss
+					}
+				} else {
+					step.Args["args"] = []string{}
+				}
 
 			case "list.Append":
 				if step.Args["to"] == nil || step.Args["to"] == "" {

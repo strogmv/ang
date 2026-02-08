@@ -169,9 +169,9 @@ func New{{ .Service.Name }}Impl(
 	{{ Assign $scope .Args.output }} s.{{ ExportName .Args.source }}Repo.FindByID({{ $ctxVar }}, {{ .Args.input }})
 	if err != nil {
 		{{- if $inTx }}
-		return err
+		return errors.WithIntent(err, "{{ .File }}:{{ .Line }} ({{ .CUEPath }})")
 		{{- else }}
-		return resp, err
+		return resp, errors.WithIntent(err, "{{ .File }}:{{ .Line }} ({{ .CUEPath }})")
 		{{- end }}
 	}
 	if {{ .Args.output }} == nil {
@@ -203,9 +203,9 @@ func New{{ .Service.Name }}Impl(
 		{{- else if eq .Action "repo.Save" }}
 	if err = s.{{ ExportName .Args.source }}Repo.Save({{ $ctxVar }}, {{ pointerExpr .Args.input }}); err != nil {
 		{{- if $inTx }}
-		return err
+		return errors.WithIntent(err, "{{ .File }}:{{ .Line }} ({{ .CUEPath }})")
 		{{- else }}
-		return resp, err
+		return resp, errors.WithIntent(err, "{{ .File }}:{{ .Line }} ({{ .CUEPath }})")
 		{{- end }}
 	}
 		{{- else if eq .Action "repo.Delete" }}
@@ -231,9 +231,9 @@ func New{{ .Service.Name }}Impl(
 	{{ if .Args.output }}{{ Assign $scope .Args.output }} {{ .Args.func }}({{ range $i, $a := $args }}{{ if $i }}, {{ end }}{{ $a }}{{ end }}){{ else }}err = {{ .Args.func }}({{ range $i, $a := $args }}{{ if $i }}, {{ end }}{{ $a }}{{ end }}){{ end }}
 	if err != nil {
 		{{- if $inTx }}
-		return err
+		return errors.WithIntent(err, "{{ .File }}:{{ .Line }} ({{ .CUEPath }})")
 		{{- else }}
-		return resp, err
+		return resp, errors.WithIntent(err, "{{ .File }}:{{ .Line }} ({{ .CUEPath }})")
 		{{- end }}
 	}
 		{{- else if eq .Action "event.Publish" }}
