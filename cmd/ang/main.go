@@ -51,6 +51,8 @@ func main() {
 		runExplain(os.Args[2:])
 	case "draw":
 		runDraw(os.Args[2:])
+	case "rbac":
+		runRBAC(os.Args[2:])
 	case "hash":
 		runHash()
 	case "mcp":
@@ -75,6 +77,7 @@ func printUsage() {
 	fmt.Println("  ang api-diff  Compare OpenAPI specs and recommend semver bump")
 	fmt.Println("  ang contract-test  Run generated HTTP/WS contract tests")
 	fmt.Println("  ang vet       Check architectural invariants and laws")
+	fmt.Println("  ang rbac actions  List all registered RBAC actions (service.method)")
 	fmt.Println("  ang explain   Explain a lint code with examples")
 	fmt.Println("  ang draw      Generate architecture diagrams (Mermaid)")
 	fmt.Println("  ang hash      Show current project hash (CUE + Templates)")
@@ -1376,5 +1379,49 @@ type lintError struct {
 }
 
 func runVersion() {
+
 	fmt.Printf("ANG version %s (Schema v%s)\n", compiler.Version, compiler.SchemaVersion)
+
+}
+
+
+
+func runRBAC(args []string) {
+
+	if len(args) == 0 || args[0] != "actions" {
+
+		fmt.Println("Usage: ang rbac actions")
+
+		return
+
+	}
+
+
+
+	_, services, _, _, _, _, _, _, err := compiler.RunPipeline(".")
+
+	if err != nil {
+
+		fmt.Printf("Error: %v\n", err)
+
+		return
+
+	}
+
+
+
+	fmt.Println("Registered RBAC Actions (Service.Method):")
+
+	fmt.Println("----------------------------------------")
+
+	for _, s := range services {
+
+		for _, m := range s.Methods {
+
+			fmt.Printf("%s.%s\n", strings.ToLower(s.Name), strings.ToLower(m.Name))
+
+		}
+
+	}
+
 }

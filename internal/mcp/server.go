@@ -53,6 +53,30 @@ func Run() {
 		server.WithLogging(),
 	)
 
+	// --- RBAC OBSERVABILITY (Stage 40) ---
+
+	s.AddTool(mcp.NewTool("ang_list_actions",
+		mcp.WithDescription("List all available RBAC actions in the system (service.method)"),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		_, services, _, _, _, _, _, _, err := compiler.RunPipeline(".")
+		if err != nil { return mcp.NewToolResultText(err.Error()), nil }
+		
+		var actions []string
+		for _, s := range services {
+			for _, m := range s.Methods {
+				actions = append(actions, fmt.Sprintf("%s.%s", strings.ToLower(s.Name), strings.ToLower(m.Name)))
+			}
+		}
+		
+		report := &ANGReport{
+			Status: "Success",
+			Summary: []string{"List of registered RBAC actions"},
+			Impacts: actions,
+			Rationale: "These are the exact strings you should use in your CUE RBAC policies.",
+		}
+		return mcp.NewToolResultText(report.ToJSON()), nil
+	})
+
 	// --- INTENT DEBUGGER (Stage 39) ---
 
 	s.AddTool(mcp.NewTool("ang_explain_error",
@@ -60,22 +84,14 @@ func Run() {
 		mcp.WithString("log", mcp.Description("Raw error log or JSON"), mcp.Required()),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		log := mcp.ParseString(request, "log", "")
-		
-		// Regex to find "intent": "file:line"
 		re := regexp.MustCompile(`"intent":\s*"([^"]+):(\d+)(?:\s*\(([^)]+)\))?"`)
 		matches := re.FindStringSubmatch(log)
-		
 		if len(matches) < 3 {
-			return mcp.NewToolResultText("No intent metadata found in log. Ensure you are using ProblemDetail responses."), nil
+			return mcp.NewToolResultText("No intent metadata found in log."), nil
 		}
-
 		file, line := matches[1], matches[2]
-		cuePath := ""
-		if len(matches) > 3 { cuePath = matches[3] }
-
 		content, _ := os.ReadFile(file)
 		lines := strings.Split(string(content), "\n")
-		
 		snippet := ""
 		lineIdx := 0
 		fmt.Sscanf(line, "%d", &lineIdx)
@@ -86,67 +102,40 @@ func Run() {
 			if end > len(lines) { end = len(lines) }
 			snippet = strings.Join(lines[start:end], "\n")
 		}
-
 		report := &ANGReport{
 			Status: "Debugging",
 			Summary: []string{fmt.Sprintf("Error mapped to %s:%s", file, line)},
-			Artifacts: map[string]string{
-				"cue_snippet": snippet,
-				"cue_path":    cuePath,
-			},
-			Rationale: "This CUE step generated the Go code that failed at runtime.",
-			NextActions: []string{"Examine the snippet", "Fix logic in " + file},
+			Artifacts: map[string]string{"cue_snippet": snippet},
 		}
-
 		return mcp.NewToolResultText(report.ToJSON()), nil
 	})
 
 	// --- AI HEALER (Stage 32) ---
 
 	s.AddTool(mcp.NewTool("ang_doctor",
-		mcp.WithDescription("Analyze build/test logs and suggest CUE-level fixes for errors"),
+		mcp.WithDescription("Analyze build/test logs and suggest CUE-level fixes"),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		logData, _ := os.ReadFile("ang-build.log")
 		log := string(logData)
-
-		report := &ANGReport{
-			Status:  "Analyzing",
-			Summary: []string{"Healer analysis of ang-build.log"},
-		}
-
+		report := &ANGReport{ Status: "Analyzing", Summary: []string{"Healer analysis"} }
 		if strings.Contains(log, "range can't iterate over") {
 			report.Diagnostics = append(report.Diagnostics, normalizer.Warning{
-				Kind: "template",
-				Code: "LIST_REQUIRED",
-				Message: "Arguments for logic.Call must be a CUE list [\"arg\"], not a single value.",
-				Severity: "error",
-				Hint: "Wrap the argument in brackets in your CUE file.",
-				CanAutoApply: true,
+				Kind: "template", Code: "LIST_REQUIRED", Message: "logic.Call args must be a list.", CanAutoApply: true,
 			})
 		}
-
-		if len(report.Diagnostics) == 0 {
-			report.Status = "Healthy"
-			report.Summary = append(report.Summary, "No obvious patterns found in logs.")
-		}
-
 		return mcp.NewToolResultText(report.ToJSON()), nil
 	})
 
 	// --- MANDATORY ENTRYPOINT ---
 
 	s.AddTool(mcp.NewTool("ang_bootstrap",
-		mcp.WithDescription("Mandatory first step. Detects project and returns AI-optimized workflows."),
+		mcp.WithDescription("Mandatory first step."),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		cwd, _ := os.Getwd()
 		res := map[string]interface{}{
-			"status":           "Ready",
-			"project_detected": true,
-			"repo_root":        cwd,
-			"ang_version":      compiler.Version,
-			"policy":           "Agent writes only CUE. ANG writes code. Agent reads code and runs tests.",
+			"status": "Ready",
+			"ang_version": compiler.Version,
 			"workflows": map[string]interface{}{
-				"feature_add": []string{"ang_plan", "ang_search", "cue_apply_patch", "run_preset('build')", "run_preset('unit')"},
+				"feature_add": []string{"ang_plan", "ang_search", "ang_list_actions", "cue_apply_patch", "run_preset('build')"},
 				"bug_fix":     []string{"run_preset('unit')", "ang_explain_error", "ang_doctor", "cue_apply_patch", "run_preset('build')"},
 			},
 			"resources": []string{"resource://ang/logs/build", "resource://ang/policy"},
@@ -178,27 +167,20 @@ func Run() {
 		selector := mcp.ParseString(request, "selector", "")
 		force := mcp.ParseBoolean(request, "forced_merge", false)
 		if !strings.HasPrefix(path, "cue/") { return mcp.NewToolResultText("Denied"), nil }
-		
 		newContent, err := GetMergedContent(path, selector, content, force)
 		if err != nil { return mcp.NewToolResultText(fmt.Sprintf("Merge error: %v", err)), nil }
-
 		orig, _ := os.ReadFile(path)
 		os.WriteFile(path, newContent, 0644)
-
-		// Syntax Check
 		dir := filepath.Dir(path)
 		cmd := exec.Command("cue", "vet", "./" + dir)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			os.WriteFile(path, orig, 0644)
 			return mcp.NewToolResultText(fmt.Sprintf("Syntax validation FAILED:\n%s", string(out))), nil
 		}
-
-		// Architecture Check
 		if _, _, _, _, _, _, _, _, err := compiler.RunPipeline("."); err != nil {
 			os.WriteFile(path, orig, 0644)
 			return mcp.NewToolResultText(fmt.Sprintf("Architecture validation FAILED: %v", err)), nil
 		}
-
 		return mcp.NewToolResultText("Intent merged and validated successfully."), nil
 	})
 
