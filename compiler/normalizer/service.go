@@ -2,6 +2,8 @@ package normalizer
 
 import (
 	"fmt"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -737,8 +739,9 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 
 	var validate func(steps []FlowStep, inTx bool, depth int)
 	validate = func(steps []FlowStep, inTx bool, depth int) {
-		for i, step := range steps {
-			currentStep = step
+		for i := range steps {
+			step := &steps[i]
+			currentStep = *step
 			stepNum := i + 1
 
 			switch step.Action {
@@ -814,6 +817,11 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					addWarn(stepNum, step.Action, "MISSING_VALUE", "mapping.Assign missing 'value'", "{action: \"mapping.Assign\", to: \"x.Field\", value: \"...\"}", step.File, step.Line, step.Column)
 				}
 				assignedFields[to] = true
+				
+				// NEW: Validate Go Syntax
+				if errStr := validateGoSnippet(value, step.File, step.Line, step.Column); errStr != "" {
+					addWarn(stepNum, step.Action, "GO_SYNTAX_ERROR", errStr, "Check your Go code syntax inside the CUE string.", step.File, step.Line, step.Column)
+				}
 
 				// Check for unquoted status strings
 				statusValues := map[string]bool{"draft": true, "active": true, "pending": true, "published": true, "closed": true, "approved": true, "rejected": true, "cancelled": true}
@@ -837,8 +845,13 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 				}
 
 			case "logic.Check":
-				if step.Args["condition"] == nil || step.Args["condition"] == "" {
+				cond, _ := step.Args["condition"].(string)
+				if cond == "" {
 					addWarn(stepNum, step.Action, "MISSING_CONDITION", "logic.Check missing 'condition'", "{action: \"logic.Check\", condition: \"x > 0\", throw: \"ERROR_CODE\"}", step.File, step.Line, step.Column)
+				} else {
+					if errStr := validateGoSnippet(cond, step.File, step.Line, step.Column); errStr != "" {
+						addWarn(stepNum, step.Action, "GO_SYNTAX_ERROR", errStr, "Check your Go code syntax inside the CUE string.", step.File, step.Line, step.Column)
+					}
 				}
 				if step.Args["throw"] == nil || step.Args["throw"] == "" {
 					addWarn(stepNum, step.Action, "MISSING_THROW", "logic.Check missing 'throw'", "{action: \"logic.Check\", condition: \"x > 0\", throw: \"ERROR_CODE\"}", step.File, step.Line, step.Column)
@@ -1478,4 +1491,22 @@ func addPaginationFields(method *Method) {
 			method.Input.Fields = append(method.Input.Fields, Field{Name: "limit", Type: "int", IsOptional: true})
 		}
 	}
+}
+
+func validateGoSnippet(code string, file string, line int, col int) string {
+	if code == "" || strings.Contains(code, "{{") {
+		return "" // Skip templates for now
+	}
+	// Wrap code in a function block
+	wrapped := fmt.Sprintf("package dummy\nfunc _() { _ = %s }", code)
+	if strings.Contains(code, ";") || strings.Contains(code, "for ") || strings.Contains(code, "if ") {
+		wrapped = fmt.Sprintf("package dummy\nfunc _() {\n%s\n}", code)
+	}
+
+	fset := token.NewFileSet()
+	_, err := parser.ParseFile(fset, "", wrapped, 0)
+	if err != nil {
+		return fmt.Sprintf("Invalid Go syntax: %v", err)
+	}
+	return ""
 }

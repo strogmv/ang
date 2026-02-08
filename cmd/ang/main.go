@@ -198,8 +198,31 @@ func runValidate(args []string) {
 		projectPath = args[0]
 	}
 	_, _, _, _, _, _, _, _, err := compiler.RunPipeline(projectPath)
+	
+	hasErrors := false
+	for _, d := range compiler.LatestDiagnostics {
+		severity := "WARN"
+		if d.Severity != "" {
+			severity = strings.ToUpper(d.Severity)
+		}
+		if severity == "ERROR" {
+			hasErrors = true
+		}
+		fmt.Fprintf(os.Stderr, "⚠️  %s: %s\n", severity, d.Message)
+		if d.File != "" {
+			fmt.Fprintf(os.Stderr, "   at %s:%d:%d\n", d.File, d.Line, d.Column)
+		}
+		if d.Hint != "" {
+			fmt.Fprintf(os.Stderr, "   💡 Hint: %s\n", d.Hint)
+		}
+	}
+
 	if err != nil {
 		fmt.Printf("Validation FAILED: %v\n", err)
+		os.Exit(1)
+	}
+	if hasErrors {
+		fmt.Println("Validation FAILED due to diagnostic errors.")
 		os.Exit(1)
 	}
 	fmt.Println("Validation SUCCESSFUL.")
