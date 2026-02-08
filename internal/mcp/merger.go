@@ -174,9 +174,7 @@ func declsToValue(decls []ast.Decl) ast.Expr {
 	
 	// If the patch is a single field or expression, extract its value
 	if len(decls) == 1 {
-		if f, ok := decls[0].(*ast.Field); ok {
-			// If it's a field like "x: 1", we often want just "1" if using a deep selector
-			// but here we follow CUE convention: patch is a set of declarations.
+		if _, ok := decls[0].(*ast.Field); ok {
 			return &ast.StructLit{Elts: decls}
 		}
 	}

@@ -55,6 +55,8 @@ func main() {
 		runDraw(os.Args[2:])
 	case "rbac":
 		runRBAC(os.Args[2:])
+	case "events":
+		runEvents(os.Args[2:])
 	case "hash":
 		runHash()
 	case "mcp":
@@ -81,6 +83,7 @@ func printUsage() {
 	fmt.Println("  ang contract-test  Run generated HTTP/WS contract tests")
 	fmt.Println("  ang vet       Check architectural invariants and laws")
 	fmt.Println("  ang rbac actions  List all registered RBAC actions (service.method)")
+	fmt.Println("  ang events map    Visualize end-to-end event journey (Pub/Sub)")
 	fmt.Println("  ang explain   Explain a lint code with examples")
 	fmt.Println("  ang draw      Generate architecture diagrams (Mermaid)")
 	fmt.Println("  ang hash      Show current project hash (CUE + Templates)")
@@ -1592,15 +1595,23 @@ func runDB(args []string) {
 
 
 
-	if err := cmd.Run(); err != nil {
+		if err := cmd.Run(); err != nil {
 
 
 
-		fmt.Printf("\nDB Sync FAILED: %v\n", err)
+			fmt.Printf("\nDB Sync FAILED: %v\n", err)
 
 
 
-		os.Exit(1)
+			os.Exit(1)
+
+
+
+		}
+
+
+
+		fmt.Println("\n✅ Database schema is now in sync with CUE.")
 
 
 
@@ -1608,11 +1619,415 @@ func runDB(args []string) {
 
 
 
-	fmt.Println("\n✅ Database schema is now in sync with CUE.")
+	
 
 
 
-}
+	func runEvents(args []string) {
+
+
+
+		if len(args) == 0 || args[0] != "map" {
+
+
+
+			fmt.Println("Usage: ang events map")
+
+
+
+			return
+
+
+
+		}
+
+
+
+	
+
+
+
+		_, services, _, _, _, _, _, _, err := compiler.RunPipeline(".")
+
+
+
+		if err != nil {
+
+
+
+			fmt.Printf("Error: %v\n", err)
+
+
+
+			return
+
+
+
+		}
+
+
+
+	
+
+
+
+		fmt.Println("Event Flow Map (Journey of data through NATS):")
+
+
+
+		fmt.Println("-----------------------------------------------")
+
+
+
+	
+
+
+
+		type Publisher struct {
+
+
+
+			Service string
+
+
+
+			Method  string
+
+
+
+		}
+
+
+
+		publishers := make(map[string][]Publisher)
+
+
+
+		for _, s := range services {
+
+
+
+			for _, m := range s.Methods {
+
+
+
+				for _, p := range m.Publishes {
+
+
+
+					publishers[p] = append(publishers[p], Publisher{Service: s.Name, Method: m.Name})
+
+
+
+				}
+
+
+
+			}
+
+
+
+		}
+
+
+
+	
+
+
+
+			type Subscriber struct {
+
+
+
+	
+
+
+
+				Service string
+
+
+
+	
+
+
+
+				Handler string
+
+
+
+	
+
+
+
+			}
+
+
+
+	
+
+
+
+			subscribers := make(map[string][]Subscriber)
+
+
+
+	
+
+
+
+			for _, s := range services {
+
+
+
+	
+
+
+
+				for evt, handler := range s.Subscribes {
+
+
+
+	
+
+
+
+					subscribers[evt] = append(subscribers[evt], Subscriber{Service: s.Name, Handler: handler})
+
+
+
+	
+
+
+
+				}
+
+
+
+	
+
+
+
+			}
+
+
+
+	
+
+
+
+		
+
+
+
+	
+
+
+
+			// 3. Print Journey
+
+
+
+	
+
+
+
+			foundAny := false
+
+
+
+	
+
+
+
+			for evt, pubs := range publishers {
+
+
+
+	
+
+
+
+				foundAny = true
+
+
+
+	
+
+
+
+				fmt.Printf("\n📢 Event: %s\n", evt)
+
+
+
+	
+
+
+
+				fmt.Print("   Produced by:\n")
+
+
+
+	
+
+
+
+				for _, p := range pubs {
+
+
+
+	
+
+
+
+					fmt.Printf("     - %s.%s\n", p.Service, p.Method)
+
+
+
+	
+
+
+
+				}
+
+
+
+	
+
+
+
+		
+
+
+
+	
+
+
+
+				subs := subscribers[evt]
+
+
+
+	
+
+
+
+				if len(subs) > 0 {
+
+
+
+	
+
+
+
+					fmt.Print("   Consumed by:\n")
+
+
+
+	
+
+
+
+					for _, s := range subs {
+
+
+
+	
+
+
+
+						fmt.Printf("     - %s (Handler: %s)\n", s.Service, s.Handler)
+
+
+
+	
+
+
+
+					}
+
+
+
+	
+
+
+
+				} else {
+
+
+
+	
+
+
+
+					fmt.Print("   ⚠️  No subscribers found.\n")
+
+
+
+	
+
+
+
+				}
+
+
+
+	
+
+
+
+			}
+
+
+
+	
+
+
+
+		
+
+
+
+	
+
+
+
+			if !foundAny {
+
+
+
+	
+
+
+
+				fmt.Println("No event publishers found in current architecture.")
+
+
+
+	
+
+
+
+			}
+
+
+
+	
+
+
+
+		}
+
+
+
+	
+
+
+
+		
+
+
+
+	
 
 
 

@@ -3,8 +3,8 @@ info:
   title: ANG API
   version: 0.1.0
   x-ang-version: 0.1.0
-  x-ang-input-hash: 12a2d15917a8359b50776637eaa499092103d9da09ac5563b4ace58288118ad9
-  x-ang-compiler-hash: 34e34d2704326e3ba340e2fe5d68517a122526347d96a856190d2b3b8a7ea91b
+  x-ang-input-hash: 089a9202fabb11c7cf7191670113776dfbc69fa4a09a27715a4c785fe0a7020b
+  x-ang-compiler-hash: 71f9df0db95acda017526a294c7e56f097350ae3fd01dc6aad2b1ce468ba6d57
 paths:
   /auth/register:
     post:

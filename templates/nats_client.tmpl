@@ -3,6 +3,7 @@ package nats
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	natspkg "github.com/nats-io/nats.go"
 	"{{GoModule}}/internal/domain"
 )
@@ -36,7 +37,18 @@ func (c *Client) Publish{{ . }}(ctx context.Context, event domain.{{ ExportName 
 	if err != nil {
 		return err
 	}
-	return c.nc.Publish("{{ . }}", data)
+	
+	msg := natspkg.NewMsg("{{ . }}")
+	msg.Data = data
+	
+	// Propagate Trace Context (Stage 43)
+	if tp, ok := ctx.Value("traceparent").(string); ok {
+		msg.Header.Set("traceparent", tp)
+	} else if tp := ctx.Value("trace_id"); tp != nil {
+		msg.Header.Set("trace_id", fmt.Sprint(tp))
+	}
+
+	return c.nc.PublishMsg(msg)
 }
 
 func (c *Client) Subscribe{{ . }}(handler func(context.Context, domain.{{ ExportName . }}) error) (*natspkg.Subscription, error) {
@@ -45,7 +57,14 @@ func (c *Client) Subscribe{{ . }}(handler func(context.Context, domain.{{ Export
 		if err := json.Unmarshal(msg.Data, &event); err != nil {
 			return
 		}
-		_ = handler(context.Background(), event)
+		
+		// Reconstruct context with trace data
+		ctx := context.Background()
+		if tp := msg.Header.Get("traceparent"); tp != "" {
+			ctx = context.WithValue(ctx, "traceparent", tp)
+		}
+		
+		_ = handler(ctx, event)
 	})
 }
 {{- end }}

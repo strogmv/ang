@@ -32,6 +32,9 @@ type ProblemDetail struct {
 
 	// Errors - Validation details (field -> message).
 	Errors map[string]string `json:"errors,omitempty"`
+
+	// Intent - CUE source location (file:line) for debugging.
+	Intent string `json:"intent,omitempty"`
 }
 
 func (e *ProblemDetail) Error() string {
@@ -55,6 +58,26 @@ func NewValidationError(detail string, errs map[string]string) *ProblemDetail {
 		Detail: detail,
 		Errors: errs,
 		Code:   40010,
+	}
+}
+
+// WithIntent wraps an error with CUE source location information.
+func WithIntent(err error, intent string) error {
+	if err == nil {
+		return nil
+	}
+	var pd *ProblemDetail
+	if errors.As(err, &pd) {
+		pd.Intent = intent
+		return pd
+	}
+	return &ProblemDetail{
+		Type:   "internal-error",
+		Title:  "INTERNAL_ERROR",
+		Status: http.StatusInternalServerError,
+		Detail: err.Error(),
+		Intent: intent,
+		Code:   50000,
 	}
 }
 
