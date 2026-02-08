@@ -53,6 +53,24 @@ func Run() {
 		server.WithLogging(),
 	)
 
+	// --- DB SYNC (Stage 41) ---
+
+	s.AddTool(mcp.NewTool("ang_db_sync",
+		mcp.WithDescription("Synchronize database schema with current CUE intent (requires DATABASE_URL)"),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		cmd := exec.Command("./ang_bin", "db", "sync")
+		out, err := cmd.CombinedOutput()
+		status := "Success"
+		if err != nil { status = "Failed" }
+		report := &ANGReport{
+			Status: status,
+			Summary: []string{"Database synchronization results"},
+			Artifacts: map[string]string{"log": string(out)},
+			Rationale: "Ensures the physical database schema matches your CUE domain models.",
+		}
+		return mcp.NewToolResultText(report.ToJSON()), nil
+	})
+
 	// --- RBAC OBSERVABILITY (Stage 40) ---
 
 	s.AddTool(mcp.NewTool("ang_list_actions",
@@ -60,20 +78,13 @@ func Run() {
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		_, services, _, _, _, _, _, _, err := compiler.RunPipeline(".")
 		if err != nil { return mcp.NewToolResultText(err.Error()), nil }
-		
 		var actions []string
 		for _, s := range services {
 			for _, m := range s.Methods {
 				actions = append(actions, fmt.Sprintf("%s.%s", strings.ToLower(s.Name), strings.ToLower(m.Name)))
 			}
 		}
-		
-		report := &ANGReport{
-			Status: "Success",
-			Summary: []string{"List of registered RBAC actions"},
-			Impacts: actions,
-			Rationale: "These are the exact strings you should use in your CUE RBAC policies.",
-		}
+		report := &ANGReport{ Status: "Success", Impacts: actions }
 		return mcp.NewToolResultText(report.ToJSON()), nil
 	})
 
@@ -110,7 +121,7 @@ func Run() {
 		return mcp.NewToolResultText(report.ToJSON()), nil
 	})
 
-	// --- AI HEALER (Stage 32) ---
+	// --- AI HEALER ---
 
 	s.AddTool(mcp.NewTool("ang_doctor",
 		mcp.WithDescription("Analyze build/test logs and suggest CUE-level fixes"),
@@ -135,7 +146,7 @@ func Run() {
 			"status": "Ready",
 			"ang_version": compiler.Version,
 			"workflows": map[string]interface{}{
-				"feature_add": []string{"ang_plan", "ang_search", "ang_list_actions", "cue_apply_patch", "run_preset('build')"},
+				"feature_add": []string{"ang_plan", "ang_search", "ang_list_actions", "cue_apply_patch", "run_preset('build')", "ang_db_sync"},
 				"bug_fix":     []string{"run_preset('unit')", "ang_explain_error", "ang_doctor", "cue_apply_patch", "run_preset('build')"},
 			},
 			"resources": []string{"resource://ang/logs/build", "resource://ang/policy"},

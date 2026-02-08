@@ -43,6 +43,8 @@ func main() {
 		runMigrate(os.Args[2:])
 	case "api-diff":
 		runAPIDiff(os.Args[2:])
+	case "db":
+		runDB(os.Args[2:])
 	case "contract-test":
 		runContractTest()
 	case "vet":
@@ -73,6 +75,7 @@ func printUsage() {
 	fmt.Println("  ang validate  Validate CUE models and architecture")
 	fmt.Println("  ang lint      Perform deep semantic linting of flows and logic")
 	fmt.Println("  ang build     Compile CUE intent into Go code and infra configs")
+	fmt.Println("  ang db sync   Synchronize DB schema with CUE (requires DATABASE_URL)")
 	fmt.Println("  ang migrate   Run migration diff/apply using Atlas")
 	fmt.Println("  ang api-diff  Compare OpenAPI specs and recommend semver bump")
 	fmt.Println("  ang contract-test  Run generated HTTP/WS contract tests")
@@ -1388,40 +1391,206 @@ func runVersion() {
 
 func runRBAC(args []string) {
 
+
+
 	if len(args) == 0 || args[0] != "actions" {
+
+
 
 		fmt.Println("Usage: ang rbac actions")
 
+
+
 		return
 
+
+
 	}
+
+
+
+
 
 
 
 	_, services, _, _, _, _, _, _, err := compiler.RunPipeline(".")
 
+
+
 	if err != nil {
+
+
 
 		fmt.Printf("Error: %v\n", err)
 
+
+
 		return
 
+
+
 	}
+
+
+
+
 
 
 
 	fmt.Println("Registered RBAC Actions (Service.Method):")
 
+
+
 	fmt.Println("----------------------------------------")
+
+
 
 	for _, s := range services {
 
+
+
 		for _, m := range s.Methods {
+
+
 
 			fmt.Printf("%s.%s\n", strings.ToLower(s.Name), strings.ToLower(m.Name))
 
+
+
 		}
+
+
 
 	}
 
+
+
 }
+
+
+
+
+
+
+
+func runDB(args []string) {
+
+
+
+	if len(args) == 0 || args[0] != "sync" {
+
+
+
+		fmt.Println("Usage: ang db sync")
+
+
+
+		return
+
+
+
+	}
+
+
+
+
+
+
+
+	dbURL := os.Getenv("DATABASE_URL")
+
+
+
+	if dbURL == "" {
+
+
+
+		dbURL = os.Getenv("DB_URL")
+
+
+
+	}
+
+
+
+	if dbURL == "" {
+
+
+
+		fmt.Println("Error: DATABASE_URL environment variable is not set.")
+
+
+
+		return
+
+
+
+	}
+
+
+
+
+
+
+
+	fmt.Println("Synchronizing database schema with CUE...")
+
+
+
+	cmd := exec.Command("atlas", "schema", "apply",
+
+
+
+		"--url", dbURL,
+
+
+
+		"--to", "file://db/schema/schema.sql",
+
+
+
+		"--dev-url", "docker://postgres/15/dev",
+
+
+
+		"--auto-approve",
+
+
+
+	)
+
+
+
+	cmd.Stdout = os.Stdout
+
+
+
+	cmd.Stderr = os.Stderr
+
+
+
+	if err := cmd.Run(); err != nil {
+
+
+
+		fmt.Printf("\nDB Sync FAILED: %v\n", err)
+
+
+
+		os.Exit(1)
+
+
+
+	}
+
+
+
+	fmt.Println("\n✅ Database schema is now in sync with CUE.")
+
+
+
+}
+
+
+
+
