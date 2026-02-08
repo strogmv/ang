@@ -96,6 +96,12 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 		entity.Metadata["dto"] = true
 	}
 
+	// If entity has a 'fields' field, iterate that instead
+	fieldsVal := val.LookupPath(cue.ParsePath("fields"))
+	if fieldsVal.Exists() && fieldsVal.Kind() == cue.StructKind {
+		val = fieldsVal
+	}
+
 	iter, err := val.Fields(cue.All())
 	if err != nil {
 		return entity, err
@@ -124,6 +130,7 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 			Default:     defVal,
 			DB:          parseDBTags(val),
 			ValidateTag: inferValidatorTags(fLabel, val),
+			Constraints: extractConstraints(val),
 			EnvVar:      parseEnvTag(val),
 			UI:          parseUIHints(val),
 			Source:      formatPos(val),
@@ -358,17 +365,19 @@ func (n *Normalizer) parseInlineFields(val cue.Value) ([]Field, error) {
 		if dVal.IsConcrete() && (dVal.IncompleteKind() != cue.StructKind && dVal.IncompleteKind() != cue.ListKind) {
 			defVal = fmt.Sprint(dVal)
 		}
-		field := Field{
-			Name:        fLabel,
-			IsOptional:  iter.IsOptional(),
-			Type:        n.detectType(fLabel, fVal),
-			Default:     defVal,
-			DB:          parseDBTags(fVal),
-			ValidateTag: inferValidatorTags(fLabel, fVal),
-			EnvVar:      parseEnvTag(fVal),
-			UI:          parseUIHints(fVal),
-			Source:      formatPos(fVal),
-		}
+					field := Field{
+						Name:        fLabel,
+						IsOptional:  iter.IsOptional(),
+						Type:        n.detectType(fLabel, fVal),
+						Default:     defVal,
+						DB:          parseDBTags(fVal),
+						ValidateTag: inferValidatorTags(fLabel, fVal),
+						Constraints: extractConstraints(fVal),
+						EnvVar:      parseEnvTag(fVal),
+						UI:          parseUIHints(fVal),
+						Source:      formatPos(fVal),
+					}
+		
 		if attr := fVal.Attribute("secret"); attr.Err() == nil {
 			field.IsSecret = true
 		} else if strings.Contains(strings.ToLower(fLabel), "password") {
@@ -531,4 +540,85 @@ func parseUIHints(v cue.Value) *UIHints {
 	}
 
 	return hints
+}
+
+func extractConstraints(v cue.Value) *Constraints {
+	c := &Constraints{}
+	hasAny := false
+
+	op, args := v.Expr()
+
+	// Recursively handle AND (e.g. >0 & <100)
+	if op == cue.AndOp {
+		for _, arg := range args {
+			sub := extractConstraints(arg)
+			if sub != nil {
+				if sub.Min != nil {
+					c.Min = sub.Min
+				}
+				if sub.Max != nil {
+					c.Max = sub.Max
+				}
+				if sub.MinLen != nil {
+					c.MinLen = sub.MinLen
+				}
+				if sub.MaxLen != nil {
+					c.MaxLen = sub.MaxLen
+				}
+				if sub.Regex != "" {
+					c.Regex = sub.Regex
+				}
+				if len(sub.Enum) > 0 {
+					c.Enum = sub.Enum
+				}
+				hasAny = true
+			}
+		}
+	}
+
+	switch op {
+	case cue.GreaterThanOp, cue.GreaterThanEqualOp:
+		val, _ := args[0].Float64()
+		c.Min = &val
+		hasAny = true
+	case cue.LessThanOp, cue.LessThanEqualOp:
+		val, _ := args[0].Float64()
+		c.Max = &val
+		hasAny = true
+	case cue.CallOp:
+		// Handle built-ins like strings.MinRunes(5)
+		name := fmt.Sprint(args[0])
+		if strings.Contains(name, "MinRunes") {
+			v, _ := args[1].Int64()
+			iv := int(v)
+			c.MinLen = &iv
+			hasAny = true
+		} else if strings.Contains(name, "MaxRunes") {
+			v, _ := args[1].Int64()
+			iv := int(v)
+			c.MaxLen = &iv
+			hasAny = true
+		}
+	case cue.OrOp:
+		// Handle enums: "a" | "b" | "c"
+		isEnum := true
+		var enum []string
+		for _, arg := range args {
+			if s, err := arg.String(); err == nil {
+				enum = append(enum, s)
+			} else {
+				isEnum = false
+				break
+			}
+		}
+		if isEnum && len(enum) > 0 {
+			c.Enum = enum
+			hasAny = true
+		}
+	}
+
+	if !hasAny {
+		return nil
+	}
+	return c
 }

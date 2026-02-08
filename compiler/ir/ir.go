@@ -93,13 +93,23 @@ type Field struct {
 	Default     any
 	IsSecret    bool
 	IsPII       bool
-	SkipDomain  bool   // Field is for DTO/UI only, skip in domain models
-	ValidateTag string // @validate tag content
-	EnvVar      string // @env tag content
+	SkipDomain  bool         // Field is for DTO/UI only, skip in domain models
+	ValidateTag string       // @validate tag content
+	Constraints *Constraints // Structured constraints from CUE
+	EnvVar      string       // @env tag content
 	Attributes  []Attribute
 	UI          FieldUI
 	Metadata    map[string]any
 	Source      string
+}
+
+type Constraints struct {
+	Min    *float64
+	Max    *float64
+	MinLen *int
+	MaxLen *int
+	Regex  string
+	Enum   []string
 }
 
 type FieldUI struct {

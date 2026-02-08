@@ -41,6 +41,7 @@ type Field struct {
 	FileMeta     *FileMeta
 	DB           DBMeta
 	ValidateTag  string
+	Constraints  *Constraints // Structured constraints from CUE
 	EnvVar       string
 	IsSecret     bool
 	IsPII        bool
@@ -50,6 +51,16 @@ type Field struct {
 	Metadata     map[string]any // Метаданные (sql_type, null_helper и т.д.)
 	UI           *UIHints       // UI подсказки для генерации фронтенда
 	Source       string
+}
+
+// Constraints stores structured validation data from CUE.
+type Constraints struct {
+	Min      *float64
+	Max      *float64
+	MinLen   *int
+	MaxLen   *int
+	Regex    string
+	Enum     []string
 }
 
 // UIHints описывает подсказки для генерации UI компонентов.

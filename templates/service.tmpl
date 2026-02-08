@@ -13,11 +13,57 @@ package port
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	{{- if or (HasEventMethods .) (HasDomainTypes .) }}
 	"{{GoModule}}/internal/domain"
 	{{- end }}
 )
+
+{{- define "validator" }}
+func (d *{{ .Name }}) Validate() error {
+	{{- range .Fields }}
+	{{- if .Constraints }}
+	{{- if .Constraints.Min }}
+	if d.{{ ExportName .Name }} < {{ .Constraints.Min }} {
+		return fmt.Errorf("field {{ JSONName .Name }} must be >= %v", {{ .Constraints.Min }})
+	}
+	{{- end }}
+	{{- if .Constraints.Max }}
+	if d.{{ ExportName .Name }} > {{ .Constraints.Max }} {
+		return fmt.Errorf("field {{ JSONName .Name }} must be <= %v", {{ .Constraints.Max }})
+	}
+	{{- end }}
+	{{- if .Constraints.MinLen }}
+	if len(d.{{ ExportName .Name }}) < {{ .Constraints.MinLen }} {
+		return fmt.Errorf("field {{ JSONName .Name }} length must be >= %v", {{ .Constraints.MinLen }})
+	}
+	{{- end }}
+	{{- if .Constraints.MaxLen }}
+	if len(d.{{ ExportName .Name }}) > {{ .Constraints.MaxLen }} {
+		return fmt.Errorf("field {{ JSONName .Name }} length must be <= %v", {{ .Constraints.MaxLen }})
+	}
+	{{- end }}
+	{{- if .Constraints.Enum }}
+	{
+		valid := false
+		allowed := []string{ {{- range $i, $v := .Constraints.Enum }}{{ if $i }}, {{ end }}"{{ $v }}"{{ end }} }
+		for _, v := range allowed {
+			if d.{{ ExportName .Name }} == v {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			return fmt.Errorf("field {{ JSONName .Name }} must be one of %v", allowed)
+		}
+	}
+	{{- end }}
+	{{- end }}
+	{{- end }}
+	return nil
+}
+{{- end }}
 
 {{- define "log_valuer" }}
 // LogValue implements slog.LogValuer interface.
@@ -75,6 +121,7 @@ type {{ .Input.Name }} struct {
 	{{- end }}
 }
 {{ template "log_valuer" .Input }}
+{{ template "validator" .Input }}
 {{- end }}
 {{- if and .Output.Name (not (EventForMethod $ .)) }}
 // {{ .Output.Name }}
@@ -91,6 +138,7 @@ type {{ .Output.Name }} struct {
 	{{- end }}
 }
 {{ template "log_valuer" .Output }}
+{{ template "validator" .Output }}
 {{- end }}
 {{- end }}
 
@@ -102,4 +150,5 @@ type {{ .Name }} struct {
 	{{- end }}
 }
 {{ template "log_valuer" . }}
+{{ template "validator" . }}
 {{- end }}

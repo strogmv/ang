@@ -189,6 +189,7 @@ func ConvertField(f normalizer.Field) Field {
 		IsPII:       f.IsPII,
 		SkipDomain:  f.SkipDomain,
 		ValidateTag: f.ValidateTag,
+		Constraints: convertConstraints(f.Constraints),
 		EnvVar:      f.EnvVar,
 		Metadata:    f.Metadata,
 		Source:      f.Source,
@@ -669,4 +670,18 @@ func initializeSlice(s []string) []string {
 		return []string{}
 	}
 	return s
+}
+
+func convertConstraints(c *normalizer.Constraints) *Constraints {
+	if c == nil {
+		return nil
+	}
+	return &Constraints{
+		Min:    c.Min,
+		Max:    c.Max,
+		MinLen: c.MinLen,
+		MaxLen: c.MaxLen,
+		Regex:  c.Regex,
+		Enum:   c.Enum,
+	}
 }

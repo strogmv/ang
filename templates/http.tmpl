@@ -154,6 +154,10 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 			errors.WriteError(w, r, errors.NewValidationError(err.Error(), nil))
 			return
 		}
+		if err := req.Validate(); err != nil {
+			errors.WriteError(w, r, errors.NewValidationError(err.Error(), nil))
+			return
+		}
 		{{- else }}
 		// No input required
 		{{- end }}

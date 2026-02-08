@@ -18,3 +18,46 @@ type {{ ExportName .Name }}DTO struct {
 	{{ ExportName .Name }} {{ DTOType .Type }} `json:"{{ JSONName .Name }}"`
 	{{- end }}
 }
+
+func (d *{{ ExportName .Name }}DTO) Validate() error {
+	{{- range .Fields }}
+	{{- if .Constraints }}
+	{{- if .Constraints.Min }}
+	if d.{{ ExportName .Name }} < {{ .Constraints.Min }} {
+		return fmt.Errorf("field {{ JSONName .Name }} must be >= %v", {{ .Constraints.Min }})
+	}
+	{{- end }}
+	{{- if .Constraints.Max }}
+	if d.{{ ExportName .Name }} > {{ .Constraints.Max }} {
+		return fmt.Errorf("field {{ JSONName .Name }} must be <= %v", {{ .Constraints.Max }})
+	}
+	{{- end }}
+	{{- if .Constraints.MinLen }}
+	if len(d.{{ ExportName .Name }}) < {{ .Constraints.MinLen }} {
+		return fmt.Errorf("field {{ JSONName .Name }} length must be >= %v", {{ .Constraints.MinLen }})
+	}
+	{{- end }}
+	{{- if .Constraints.MaxLen }}
+	if len(d.{{ ExportName .Name }}) > {{ .Constraints.MaxLen }} {
+		return fmt.Errorf("field {{ JSONName .Name }} length must be <= %v", {{ .Constraints.MaxLen }})
+	}
+	{{- end }}
+	{{- if .Constraints.Enum }}
+	{
+		valid := false
+		allowed := []string{ {{- range $i, $v := .Constraints.Enum }}{{ if $i }}, {{ end }}"{{ $v }}"{{ end }} }
+		for _, v := range allowed {
+			if d.{{ ExportName .Name }} == v {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			return fmt.Errorf("field {{ JSONName .Name }} must be one of %v", allowed)
+		}
+	}
+	{{- end }}
+	{{- end }}
+	{{- end }}
+	return nil
+}

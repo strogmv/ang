@@ -66,6 +66,9 @@ func (r *{{ ExportName .Name }}) Save(ctx context.Context, entity *domain.{{ Exp
 	if entity == nil {
 		return fmt.Errorf("entity is required")
 	}
+	if err := entity.Validate(); err != nil {
+		return fmt.Errorf("invalid entity: %w", err)
+	}
 	exec := getExecutor(ctx, r.DB)
 	_, err := exec.Exec(ctx, `
 		INSERT INTO {{ .Table }} ({{ .Columns }})
