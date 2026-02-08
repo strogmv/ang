@@ -1460,8 +1460,8 @@ func runRBAC(args []string) {
 }
 
 func runDB(args []string) {
-	if len(args) == 0 || args[0] != "sync" {
-		fmt.Println("Usage: ang db sync")
+	if len(args) == 0 {
+		fmt.Println("Usage: ang db <sync|status>")
 		return
 	}
 
@@ -1469,25 +1469,54 @@ func runDB(args []string) {
 	if dbURL == "" {
 		dbURL = os.Getenv("DB_URL")
 	}
-	if dbURL == "" {
-		fmt.Println("Error: DATABASE_URL environment variable is not set.")
-		return
-	}
 
-	fmt.Println("Synchronizing database schema with CUE...")
-	cmd := exec.Command("atlas", "schema", "apply",
-		"--url", dbURL,
-		"--to", "file://db/schema/schema.sql",
-		"--dev-url", "docker://postgres/15/dev",
-		"--auto-approve",
-	)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		fmt.Printf("\nDB Sync FAILED: %v\n", err)
-		os.Exit(1)
+	switch args[0] {
+	case "status":
+		if dbURL == "" {
+			fmt.Println("Error: DATABASE_URL is not set. Cannot check drift.")
+			return
+		}
+		fmt.Println("Checking database schema drift...")
+		// atlas schema diff --from $DB_URL --to file://db/schema/schema.sql --dev-url "docker://postgres/15/dev"
+		cmd := exec.Command("atlas", "schema", "diff",
+			"--from", dbURL,
+			"--to", "file://db/schema/schema.sql",
+			"--dev-url", "docker://postgres/15/dev",
+		)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			fmt.Printf("\n❌ DRIFT DETECTED:\n%s\n", string(out))
+			fmt.Println("💡 Hint: Run 'ang db sync' to apply these changes.")
+			os.Exit(1)
+		}
+		if len(strings.TrimSpace(string(out))) == 0 || strings.Contains(string(out), "Schemas are in sync") {
+			fmt.Println("✅ Database schema is in sync with CUE.")
+		} else {
+			fmt.Printf("\nPending changes:\n%s\n", string(out))
+		}
+
+	case "sync":
+		if dbURL == "" {
+			fmt.Println("Error: DATABASE_URL is not set.")
+			return
+		}
+		fmt.Println("Synchronizing database schema with CUE...")
+		cmd := exec.Command("atlas", "schema", "apply",
+			"--url", dbURL,
+			"--to", "file://db/schema/schema.sql",
+			"--dev-url", "docker://postgres/15/dev",
+			"--auto-approve",
+		)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			fmt.Printf("\nDB Sync FAILED: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("\n✅ Database schema is now in sync with CUE.")
+	default:
+		fmt.Printf("Unknown DB command: %s\n", args[0])
 	}
-	fmt.Println("\n✅ Database schema is now in sync with CUE.")
 }
 
 func runEvents(args []string) {

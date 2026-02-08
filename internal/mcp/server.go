@@ -56,18 +56,43 @@ func Run() {
 		server.WithLogging(),
 	)
 
-	// --- EVENT MAPPER (Stage 48) ---
+	// --- DB DRIFT DETECTOR (Stage 49) ---
+
+	s.AddTool(mcp.NewTool("ang_db_drift_detector",
+		mcp.WithDescription("Detect discrepancies between CUE domain models and physical database schema"),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		cmd := exec.Command("./ang_bin", "db", "status")
+		out, err := cmd.CombinedOutput()
+		
+		report := &ANGReport{
+			Status: "In Sync",
+			Summary: []string{"Checking database drift"},
+		}
+		
+		output := string(out)
+		if err != nil || strings.Contains(output, "DRIFT DETECTED") || (len(output) > 0 && !strings.Contains(output, "in sync")) {
+			report.Status = "Drift Detected"
+			report.Summary = append(report.Summary, "Database schema is out of sync with CUE.")
+			report.Artifacts = map[string]string{"sql_diff": output}
+			report.NextActions = append(report.NextActions, "Run ang_db_sync to apply changes")
+			report.Rationale = "Your CUE definitions changed, but the database still uses the old schema."
+		} else {
+			report.Summary = append(report.Summary, "Schema is healthy.")
+		}
+
+		return mcp.NewToolResultText(report.ToJSON()), nil
+	})
+
+	// --- EVENT MAPPER ---
 
 	s.AddTool(mcp.NewTool("ang_event_map",
 		mcp.WithDescription("Map event publishers and subscribers to visualize system-wide reactions"),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		_, services, _, _, _, _, _, _, err := compiler.RunPipeline(".")
 		if err != nil { return mcp.NewToolResultText(err.Error()), nil }
-		
 		publishers := make(map[string][]string)
 		subscribers := make(map[string][]string)
 		allEvents := make(map[string]bool)
-
 		for _, s := range services {
 			for _, m := range s.Methods {
 				for _, p := range m.Publishes {
@@ -80,62 +105,39 @@ func Run() {
 				allEvents[evt] = true
 			}
 		}
-
 		type EventFlow struct {
 			Event       string   `json:"event"`
 			ProducedBy  []string `json:"produced_by"`
 			ConsumedBy  []string `json:"consumed_by"`
 			IsDeadEnd   bool     `json:"is_dead_end"`
 		}
-		
 		var flows []EventFlow
-		deadEnds := 0
 		for evt := range allEvents {
-			flow := EventFlow{
+			flows = append(flows, EventFlow{
 				Event:      evt,
 				ProducedBy: publishers[evt],
 				ConsumedBy: subscribers[evt],
 				IsDeadEnd:  len(subscribers[evt]) == 0,
-			}
-			if flow.IsDeadEnd { deadEnds++ }
-			flows = append(flows, flow)
+			})
 		}
-
 		artifacts, _ := json.MarshalIndent(flows, "", "  ")
-		
-		report := &ANGReport{
-			Status: "Mapped",
-			Summary: []string{
-				fmt.Sprintf("Total unique events: %d", len(flows)),
-				fmt.Sprintf("Dead ends detected: %d", deadEnds),
-			},
-			Artifacts: map[string]string{"event_flows": string(artifacts)},
-			Rationale: "Visualizes the chain of reactions triggered by system events.",
-		}
-		
-		if deadEnds > 0 {
-			report.NextActions = append(report.NextActions, "Check dead-end events for missing subscribers")
-		}
-
-		return mcp.NewToolResultText(report.ToJSON()), nil
+		return mcp.NewToolResultText((&ANGReport{ Status: "Mapped", Artifacts: map[string]string{"event_flows": string(artifacts)} }).ToJSON()), nil
 	})
 
 	// --- LOGIC VALIDATOR ---
 
 	s.AddTool(mcp.NewTool("ang_validate_logic",
 		mcp.WithDescription("Validate Go code snippet syntax before inserting into CUE"),
-		mcp.WithString("code", mcp.Description("Go code block"), mcp.Required()),
+		mcp.WithString("code", mcp.Required()),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		code := mcp.ParseString(request, "code", "")
 		wrapped := fmt.Sprintf("package dummy\nfunc _() { \nvar req, resp, ctx, s, err interface{}\n_ = req; _ = resp; _ = ctx; _ = s; _ = err;\n%s\n}", code)
 		fset := token.NewFileSet()
 		_, err := parser.ParseFile(fset, "", wrapped, 0)
-		report := &ANGReport{ Status: "Valid", Summary: []string{"Go logic validation"} }
+		report := &ANGReport{ Status: "Valid" }
 		if err != nil {
 			report.Status = "Invalid"
-			report.Diagnostics = append(report.Diagnostics, normalizer.Warning{
-				Kind: "logic", Code: "GO_SYNTAX_ERROR", Message: err.Error(), Severity: "error",
-			})
+			report.Diagnostics = append(report.Diagnostics, normalizer.Warning{ Kind: "logic", Code: "GO_SYNTAX_ERROR", Message: err.Error(), Severity: "error" })
 		}
 		return mcp.NewToolResultText(report.ToJSON()), nil
 	})
@@ -242,7 +244,7 @@ func Run() {
 			"status": "Ready",
 			"ang_version": compiler.Version,
 			"workflows": map[string]interface{}{
-				"feature_add": []string{"ang_plan", "ang_search", "ang_rbac_inspector", "ang_event_map", "ang_validate_logic", "cue_apply_patch", "run_preset('build')", "ang_db_sync"},
+				"feature_add": []string{"ang_plan", "ang_search", "ang_rbac_inspector", "ang_event_map", "ang_db_drift_detector", "cue_apply_patch", "run_preset('build')", "ang_db_sync"},
 				"bug_fix":     []string{"run_preset('unit')", "ang_explain_error", "ang_doctor", "cue_apply_patch", "run_preset('build')"},
 			},
 			"resources": []string{"resource://ang/logs/build", "resource://ang/policy"},
