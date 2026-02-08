@@ -68,7 +68,7 @@ import "github.com/strogmv/ang/cue/project"
 // AI AGENTS: Use these definitions to understand valid flow step structures.
 // ============================================================================
 
-#FlowStep: #RepoStep | #CheckStep | #MapStep | #EventStep | #CustomStep | #StateStep | #MapActionStep | #IfStep | #ForStep | #BlockStep | #ListStep
+#FlowStep: #RepoStep | #CheckStep | #MapStep | #EventStep | #CustomStep | #StateStep | #MapActionStep | #IfStep | #ForStep | #WhileStep | #BlockStep | #ListStep
 
 // ----------------------------------------------------------------------------
 // LIST OPERATIONS
@@ -145,6 +145,14 @@ import "github.com/strogmv/ang/cue/project"
 	// Example: "item", "bid"
 	as: string
 	// Steps to execute for each element
+	do: [...#FlowStep]
+}
+
+#WhileStep: {
+	action: "flow.While"
+	// Go condition string
+	condition: string
+	// Steps to execute while true
 	do: [...#FlowStep]
 }
 

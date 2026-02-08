@@ -104,6 +104,11 @@ package schema
 	action: "flow.For", each: _items, as: _as, do: _do
 }
 
+#While: {
+	_condition: string, _do: [...#FlowStep]
+	action: "flow.While", condition: _condition, do: _do
+}
+
 #TransitionTo: {
 	_entity: string, _state: string
 	action: "fsm.Transition", entity: _entity, to: _state

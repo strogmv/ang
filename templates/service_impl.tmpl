@@ -353,6 +353,10 @@ func New{{ .Service.Name }}Impl(
 	for _, {{ AssignSimple $scope .Args.as }} range {{ .Args.each }} {
 		{{- template "flow_steps" (dict "Steps" (getSteps .) "Method" $method "Service" $svc "Entities" $entities "InTx" $inTx "Logger" "l" "Scope" (CloneScope $scope))}}
 	}
+		{{- else if eq .Action "flow.While" }}
+	for {{ .Args.condition }} {
+		{{- template "flow_steps" (dict "Steps" (getSteps .) "Method" $method "Service" $svc "Entities" $entities "InTx" $inTx "Logger" "l" "Scope" (CloneScope $scope))}}
+	}
 		{{- else if eq .Action "tx.Block" }}
 	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
 		{{- template "flow_steps" (dict "Steps" (getSteps .) "Method" $method "Service" $svc "Entities" $entities "InTx" true "Logger" "l" "Hooks" "deferredHooks" "Scope" (CloneScope $scope))}}
