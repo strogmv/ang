@@ -1514,9 +1514,9 @@ func runEvents(args []string) {
 
 
 
-	fmt.Println("Event Flow Map (Journey of data through NATS):")
+	fmt.Println("Event Flow Map (Event-Driven Architecture Audit):")
 
-	fmt.Println("-----------------------------------------------")
+	fmt.Println("--------------------------------------------------")
 
 
 
@@ -1528,9 +1528,25 @@ func runEvents(args []string) {
 
 	}
 
+	type Subscriber struct {
+
+		Service string
+
+		Handler string
+
+	}
+
+
+
 	publishers := make(map[string][]Publisher)
 
+	subscribers := make(map[string][]Subscriber)
+
+
+
 	for _, s := range services {
+
+		// 1. Collect Publishers from methods
 
 		for _, m := range s.Methods {
 
@@ -1542,21 +1558,7 @@ func runEvents(args []string) {
 
 		}
 
-	}
-
-
-
-	type Subscriber struct {
-
-		Service string
-
-		Handler string
-
-	}
-
-	subscribers := make(map[string][]Subscriber)
-
-	for _, s := range services {
+		// 2. Collect Subscribers from service definition
 
 		for evt, handler := range s.Subscribes {
 
@@ -1568,19 +1570,41 @@ func runEvents(args []string) {
 
 
 
+	// 3. Find unique event names
+
+	allEvents := make(map[string]bool)
+
+	for e := range publishers { allEvents[e] = true }
+
+	for e := range subscribers { allEvents[e] = true }
+
+
+
 	foundAny := false
 
-	for evt, pubs := range publishers {
+	for evt := range allEvents {
 
 		foundAny = true
 
 		fmt.Printf("\n📢 Event: %s\n", evt)
 
-		fmt.Print("   Produced by:\n")
+		
 
-		for _, p := range pubs {
+		pubs := publishers[evt]
 
-			fmt.Printf("     - %s.%s\n", p.Service, p.Method)
+		if len(pubs) > 0 {
+
+			fmt.Print("   Produced by:\n")
+
+			for _, p := range pubs {
+
+				fmt.Printf("     - %s.%s\n", p.Service, p.Method)
+
+			}
+
+		} else {
+
+			fmt.Print("   ⚠️  PRODUCER MISSING (External or manual)\n")
 
 		}
 
@@ -1600,7 +1624,7 @@ func runEvents(args []string) {
 
 		} else {
 
-			fmt.Print("   ⚠️  No subscribers found.\n")
+			fmt.Print("   ⚠️  DEAD END (No subscribers found)\n")
 
 		}
 
@@ -1610,11 +1634,13 @@ func runEvents(args []string) {
 
 	if !foundAny {
 
-		fmt.Println("No event publishers found in current architecture.")
+		fmt.Println("No event publishers or subscribers found in current architecture.")
 
 	}
 
 }
+
+
 
 
 
