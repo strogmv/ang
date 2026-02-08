@@ -12,15 +12,10 @@ func HumanizeName(name string) string {
 
 	normalized := ExportName(name)
 	words := splitPascalWords(normalized)
+	// Capitalize each word properly
 	for i, w := range words {
-		lower := strings.ToLower(w)
-		if acronym, ok := knownAcronyms[lower]; ok {
-			words[i] = acronym
-			continue
-		}
-		r := []rune(lower)
-		r[0] = unicode.ToUpper(r[0])
-		words[i] = string(r)
+		low := strings.ToLower(w)
+		words[i] = strings.ToUpper(low[:1]) + low[1:]
 	}
 
 	return strings.Join(words, " ")
