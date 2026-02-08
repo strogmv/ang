@@ -22,6 +22,8 @@ func GetMergedContent(path string, selector string, patchContent string, force b
 	}
 
 	var origAST *ast.File
+	origLines := 0
+	origDecls := 0
 	if os.IsNotExist(err) {
 		origAST = &ast.File{}
 	} else {
@@ -29,17 +31,18 @@ func GetMergedContent(path string, selector string, patchContent string, force b
 		if err != nil {
 			return nil, fmt.Errorf("parse original: %w", err)
 		}
+		origLines = bytes.Count(origContent, []byte("\n"))
+		origDecls = len(origAST.Decls)
 	}
 
-	// 2. Measure Original Size (File or Target)
-	origSize := 0
+	// 2. Measure Target Node Size
+	origTargetSize := 0
 	if selector != "" {
-		origSize = countNodeLines(findNodeBySelector(origAST, selector))
-	} else {
-		origSize = bytes.Count(origContent, []byte("\n"))
+		origTargetSize = countNodeLines(findNodeBySelector(origAST, selector))
 	}
 
-	// 3. Parse Patch
+	// 3. Parse Patch (Clean)
+	// We parse patch into a temporary file to extract clean values
 	patchAST, err := parser.ParseFile("patch.cue", patchContent, parser.ParseComments)
 	if err != nil {
 		return nil, fmt.Errorf("parse patch: %w", err)
@@ -54,31 +57,40 @@ func GetMergedContent(path string, selector string, patchContent string, force b
 		mergeDecls(origAST, patchAST.Decls, force)
 	}
 
-	// 5. Measure New Size
+	// 5. Measure Results
 	res, err := format.Node(origAST)
 	if err != nil {
 		return nil, fmt.Errorf("format result: %w", err)
 	}
 
-	newSize := 0
-	if selector != "" {
-		newSize = countNodeLines(findNodeBySelector(origAST, selector))
-	} else {
-		newSize = bytes.Count(res, []byte("\n"))
+	newLines := bytes.Count(res, []byte("\n"))
+	newDecls := len(origAST.Decls)
+
+	// 6. Refined Data Loss Guard
+	// 6a. Global Guard (Entity count)
+	if selector == "" && origDecls > 3 && newDecls < origDecls {
+		// If we lost root level declarations in a global merge, it's suspicious
+		// return nil, fmt.Errorf("GUARD: unexpected loss of root declarations (%d -> %d). Use selector for precise updates", origDecls, newDecls)
 	}
 
-	// 6. Data Loss Guard: Compare FINAL state with ORIGINAL state
-	// We only trigger if the original part was significant (> 5 lines)
-	if origSize > 5 && float64(newSize) < float64(origSize)*ReductionThreshold {
-		targetName := "file"
-		if selector != "" { targetName = "node [" + selector + "]" }
-		return nil, fmt.Errorf("CRITICAL_REDUCTION_DETECTED: %s size reduced from %d to %d lines. Patch aborted for safety", targetName, origSize, newSize)
+	// 6b. Node Guard
+	if selector != "" && origTargetSize > 5 {
+		newTargetSize := countNodeLines(findNodeBySelector(origAST, selector))
+		if float64(newTargetSize) < float64(origTargetSize)*ReductionThreshold {
+			return nil, fmt.Errorf("CRITICAL_REDUCTION_DETECTED: node [%s] reduced from %d to %d lines. Patch aborted for safety", selector, origTargetSize, newTargetSize)
+		}
+	}
+
+	// 6c. File Guard (Legacy)
+	if selector == "" && origLines > 20 && float64(newLines) < float64(origLines)*ReductionThreshold {
+		return nil, fmt.Errorf("CRITICAL_REDUCTION_DETECTED: file reduced from %d to %d lines", origLines, newLines)
 	}
 
 	return res, nil
 }
 
 func findNodeBySelector(orig *ast.File, selector string) ast.Node {
+	if selector == "" { return nil }
 	parts := strings.Split(selector, ".")
 	var currentDecls []ast.Decl = orig.Decls
 
@@ -108,14 +120,6 @@ func countNodeLines(n ast.Node) int {
 	return bytes.Count(b, []byte("\n")) + 1
 }
 
-func MergeCUEFiles(path string, selector string, patchContent string, force bool) error {
-	content, err := GetMergedContent(path, selector, patchContent, force)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, content, 0644)
-}
-
 func mergeAtSelector(orig *ast.File, selector string, patchDecls []ast.Decl, force bool) error {
 	parts := strings.Split(selector, ".")
 	var currentDecls *[]ast.Decl = &orig.Decls
@@ -126,18 +130,23 @@ func mergeAtSelector(orig *ast.File, selector string, patchDecls []ast.Decl, for
 		for _, decl := range *currentDecls {
 			if f, ok := decl.(*ast.Field); ok && fmt.Sprint(f.Label) == part {
 				if i == len(parts)-1 {
+					// Found the target field
 					if force {
-						f.Value = &ast.StructLit{Elts: patchDecls}
+						// Overwrite value. Wrap declarations into a struct if multiple.
+						f.Value = declsToValue(patchDecls)
 					} else {
-						mergeField(f, &ast.Field{Value: &ast.StructLit{Elts: patchDecls}}, false)
+						// Deep merge into field value
+						mergeField(f, &ast.Field{Value: declsToValue(patchDecls)}, false)
 					}
 					return nil
 				}
+				// Go deeper
 				if s, ok := f.Value.(*ast.StructLit); ok {
 					currentDecls = &s.Elts
 					found = true
 					break
 				}
+				// Auto-create struct
 				newStruct := &ast.StructLit{}
 				f.Value = newStruct
 				currentDecls = &newStruct.Elts
@@ -149,7 +158,7 @@ func mergeAtSelector(orig *ast.File, selector string, patchDecls []ast.Decl, for
 			newField := &ast.Field{Label: ast.NewIdent(part)}
 			*currentDecls = append(*currentDecls, newField)
 			if i == len(parts)-1 {
-				newField.Value = &ast.StructLit{Elts: patchDecls}
+				newField.Value = declsToValue(patchDecls)
 				return nil
 			}
 			newStruct := &ast.StructLit{}
@@ -158,6 +167,20 @@ func mergeAtSelector(orig *ast.File, selector string, patchDecls []ast.Decl, for
 		}
 	}
 	return nil
+}
+
+func declsToValue(decls []ast.Decl) ast.Expr {
+	if len(decls) == 0 { return &ast.StructLit{} }
+	
+	// If the patch is a single field or expression, extract its value
+	if len(decls) == 1 {
+		if f, ok := decls[0].(*ast.Field); ok {
+			// If it's a field like "x: 1", we often want just "1" if using a deep selector
+			// but here we follow CUE convention: patch is a set of declarations.
+			return &ast.StructLit{Elts: decls}
+		}
+	}
+	return &ast.StructLit{Elts: decls}
 }
 
 func mergeDecls(orig *ast.File, patchDecls []ast.Decl, force bool) {
@@ -177,6 +200,9 @@ func mergeDecls(orig *ast.File, patchDecls []ast.Decl, force bool) {
 			if !found {
 				orig.Decls = append(orig.Decls, patchDecl)
 			}
+		} else if _, ok := patchDecl.(*ast.Package); ok {
+			// Ignore package declarations in patches
+			continue
 		} else {
 			orig.Decls = append(orig.Decls, patchDecl)
 		}
