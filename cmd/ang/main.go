@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"cuelang.org/go/cue"
 	"github.com/strogmv/ang/compiler"
@@ -19,8 +20,6 @@ import (
 	"github.com/strogmv/ang/compiler/parser"
 	"github.com/strogmv/ang/internal/mcp"
 )
-
-const Version = "0.1.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -71,7 +70,7 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Printf("ANG — Architectural Normalized Generator v%s\n", Version)
+	fmt.Printf("ANG — Architectural Normalized Generator v%s\n", compiler.Version)
 	fmt.Println("\nUsage:")
 	fmt.Println("  ang init      Initialize a new ANG project structure")
 	fmt.Println("  ang validate  Validate CUE models and architecture")
@@ -83,38 +82,17 @@ func printUsage() {
 	fmt.Println("  ang contract-test  Run generated HTTP/WS contract tests")
 	fmt.Println("  ang vet       Check architectural invariants and laws")
 	fmt.Println("  ang rbac actions  List all registered RBAC actions (service.method)")
+	fmt.Println("  ang rbac inspect  Audit RBAC policies for holes and errors")
 	fmt.Println("  ang events map    Visualize end-to-end event journey (Pub/Sub)")
 	fmt.Println("  ang explain   Explain a lint code with examples")
 	fmt.Println("  ang draw      Generate architecture diagrams (Mermaid)")
 	fmt.Println("  ang hash      Show current project hash (CUE + Templates)")
-	fmt.Println("\nLint options:")
-	fmt.Println("  ang lint --json                    Emit structured JSON output")
-	fmt.Println("  ang lint --check-test-coverage     Check test coverage for API endpoints")
-	fmt.Println("  ang lint --check-test-coverage --generate-stubs")
-	fmt.Println("  ang lint --check-test-coverage --test-dir=tests --min-coverage=80 --verbose")
-	fmt.Println("\nExplain options:")
-	fmt.Println("  ang explain MISSING_ID")
-	fmt.Println("\nMigrate options:")
-	fmt.Println("  ang migrate diff <name>   Generate migration diff")
-	fmt.Println("  ang migrate apply         Apply migrations (DB_URL required)")
-	fmt.Println("\nAPI Diff options:")
-	fmt.Println("  ang api-diff -base api/openapi.base.yaml -current api/openapi.yaml")
-	fmt.Println("  ang api-diff -write-base  # overwrite base with current")
-	fmt.Println("\nBuild/Draw options:")
-	fmt.Println("  -backend   Backend output root (default: .)")
-	fmt.Println("  -frontend  Frontend SDK output dir (default: sdk)")
-	fmt.Println("  -frontend-app  Copy generated SDK into this app dir (targets <app>/<sdk>)")
-	fmt.Println("  -frontend-env  Write .env.example at this path (default: <frontend-app>/.env.example)")
-	fmt.Println("  -frontend-admin  Frontend admin output dir (optional)")
-	fmt.Println("  -frontend-admin-app  Copy generated admin into this app dir")
-	fmt.Println("  -test-stubs  Generate vitest stubs for all endpoints")
-	fmt.Println("  Positional args: [backend] [frontend] (override flags)")
 }
 
 func runHash() {
 	inputHash, _ := calculateHash([]string{"cue"})
 	compilerHash, _ := calculateHash([]string{"templates"})
-	fmt.Printf("ANG Version:  %s\n", Version)
+	fmt.Printf("ANG Version:  %s\n", compiler.Version)
 	fmt.Printf("Input Hash:   %s (cue/)\n", inputHash)
 	fmt.Printf("Compiler Hash: %s (templates/)\n", compilerHash)
 }
@@ -143,7 +121,6 @@ func calculateHash(dirs []string) (string, error) {
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
-// readGoModule reads the module path from go.mod in the current directory.
 func readGoModule() string {
 	data, err := os.ReadFile("go.mod")
 	if err != nil {
@@ -201,7 +178,7 @@ func runValidate(args []string) {
 		projectPath = args[0]
 	}
 	_, _, _, _, _, _, _, _, err := compiler.RunPipeline(projectPath)
-	
+
 	hasErrors := false
 	for _, d := range compiler.LatestDiagnostics {
 		severity := "WARN"
@@ -383,7 +360,6 @@ func runLint(args []string) {
 		os.Exit(1)
 	}
 
-	// Handle test coverage check
 	if *checkTestCov {
 		runTestCoverageCheck(*testDir, *minCoverage, *verbose, *jsonOut, *generateStubs)
 		return
@@ -396,17 +372,9 @@ func runLint(args []string) {
 
 	if *jsonOut {
 		var warnings []normalizer.Warning
-		entities, services, endpoints, repos, events, errors, schedules, scenarios, err := compiler.RunPipelineWithOptions(projectPath, compiler.PipelineOptions{
+		_, _, _, _, _, _, _, _, err := compiler.RunPipelineWithOptions(projectPath, compiler.PipelineOptions{
 			WarningSink: func(w normalizer.Warning) { warnings = append(warnings, w) },
 		})
-		_ = entities
-		_ = services
-		_ = endpoints
-		_ = repos
-		_ = events
-		_ = errors
-		_ = schedules
-		_ = scenarios
 
 		violations, lintErr := runCueLint(projectPath)
 
@@ -436,20 +404,11 @@ func runLint(args []string) {
 	}
 
 	fmt.Println("Linting intent...")
-	entities, services, endpoints, repos, events, errors, schedules, scenarios, err := compiler.RunPipeline(projectPath)
+	_, _, _, _, _, _, _, _, err := compiler.RunPipeline(projectPath)
 	if err != nil {
 		fmt.Printf("\n❌ Lint FAILED: %v\n", err)
 		os.Exit(1)
 	}
-
-	_ = entities
-	_ = services
-	_ = endpoints
-	_ = repos
-	_ = events
-	_ = errors
-	_ = schedules
-	_ = scenarios
 
 	violations, lintErr := runCueLint(projectPath)
 	if lintErr != nil {
@@ -472,14 +431,12 @@ func runTestCoverageCheck(testDir string, minCoverage float64, verbose bool, jso
 		fmt.Println("Checking test coverage...")
 	}
 
-	// Load endpoints from CUE
 	_, _, endpoints, _, _, _, _, _, err := compiler.RunPipeline(".")
 	if err != nil {
 		fmt.Printf("\n❌ Test coverage check FAILED: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Check test coverage
 	report, err := checkTestCoverage(endpoints, testDir)
 	if err != nil {
 		fmt.Printf("\n❌ Test coverage check FAILED: %v\n", err)
@@ -500,7 +457,7 @@ func runTestCoverageCheck(testDir string, minCoverage float64, verbose bool, jso
 	if generateStubs && len(report.MissingTests) > 0 {
 		fmt.Println("\nGenerating test stubs for missing endpoints...")
 		em := emitter.New(".", "sdk", "templates")
-		
+
 		var missing []normalizer.Endpoint
 		missingMap := make(map[string]bool)
 		for _, m := range report.MissingTests {
@@ -517,7 +474,6 @@ func runTestCoverageCheck(testDir string, minCoverage float64, verbose bool, jso
 		}
 	}
 
-	// Check minimum coverage requirement
 	if minCoverage > 0 && report.CoveragePercent < minCoverage {
 		fmt.Printf("\n❌ Test coverage %.1f%% is below minimum required %.1f%%\n", report.CoveragePercent, minCoverage)
 		os.Exit(1)
@@ -559,302 +515,318 @@ func runCueLint(projectPath string) ([]lintError, error) {
 }
 
 func runBuild(args []string) {
-	fmt.Println("Compiling intent to Go...")
-
-	output, err := parseOutputOptions(args)
-	if err != nil {
-		fmt.Printf("Build FAILED: %v\n", err)
-		os.Exit(1)
+	watch := false
+	for _, arg := range args {
+		if arg == "-w" || arg == "--watch" {
+			watch = true
+			break
+		}
 	}
 
 	projectPath := "."
-	// If first argument is not a flag, use it as project path
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		projectPath = args[0]
 	}
 
-	entities, services, endpoints, repos, events, bizErrors, schedules, scenarios, err := compiler.RunPipeline(projectPath)
-	if err != nil {
-		fmt.Printf("Build FAILED during validation: %v\n", err)
-		os.Exit(1)
-	}
-	_ = scenarios
+	buildTask := func() {
+		fmt.Println("Compiling intent to Go...")
 
-	p := parser.New()
-	n := normalizer.New()
-
-	var cfgDef *normalizer.ConfigDef
-	var authDef *normalizer.AuthDef
-	if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/infra"); err != nil {
-		fmt.Printf("Build FAILED during config load: %v\n", err)
-		os.Exit(1)
-	} else if ok {
-		cfgDef, err = n.ExtractConfig(val)
+		output, err := parseOutputOptions(args)
 		if err != nil {
-			fmt.Printf("Build FAILED during config parse: %v\n", err)
-			os.Exit(1)
+			fmt.Printf("Build FAILED: %v\n", err)
+			return
 		}
-		authDef, err = n.ExtractAuth(val)
+
+		entities, services, endpoints, repos, events, bizErrors, schedules, scenarios, err := compiler.RunPipeline(projectPath)
 		if err != nil {
-			fmt.Printf("Build FAILED during auth parse: %v\n", err)
-			os.Exit(1)
+			fmt.Printf("Build FAILED during validation: %v\n", err)
+			return
 		}
-	}
+		_ = scenarios
 
-	var rbacDef *normalizer.RBACDef
-	if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/rbac"); err != nil {
-		fmt.Printf("Build FAILED during RBAC load: %v\n", err)
-		os.Exit(1)
-	} else if ok {
-		rbacDef, err = n.ExtractRBAC(val)
-		if err != nil {
-			fmt.Printf("Build FAILED during RBAC parse: %v\n", err)
-			os.Exit(1)
-		}
-	} else if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/policies"); err != nil {
-		fmt.Printf("Build FAILED during RBAC load: %v\n", err)
-		os.Exit(1)
-	} else if ok {
-		rbacDef, err = n.ExtractRBAC(val)
-		if err != nil {
-			fmt.Printf("Build FAILED during RBAC parse: %v\n", err)
-			os.Exit(1)
-		}
-	}
+		p := parser.New()
+		n := normalizer.New()
 
-	var views []normalizer.ViewDef
-	if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/views"); err != nil {
-		fmt.Printf("Build FAILED during views load: %v\n", err)
-		os.Exit(1)
-	} else if ok {
-		views, err = n.ExtractViews(val)
-		if err != nil {
-			fmt.Printf("Build FAILED during views parse: %v\n", err)
-			os.Exit(1)
-		}
-	}
-
-	var projectDef *normalizer.ProjectDef
-	if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/project"); err != nil {
-		fmt.Printf("Build FAILED during project load: %v\n", err)
-		os.Exit(1)
-	} else if ok {
-		projectDef, err = n.ExtractProject(val)
-		if err != nil {
-			fmt.Printf("Build FAILED during project parse: %v\n", err)
-			os.Exit(1)
-		}
-	}
-
-	if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/schema"); err == nil && ok {
-		if err := n.LoadCodegenConfig(val); err != nil {
-			fmt.Printf("Warning: failed to load codegen config: %v\n", err)
-		}
-	}
-
-	inputHash, _ := calculateHash([]string{"cue"})
-	compilerHash, _ := calculateHash([]string{"templates"})
-
-	goModule := readGoModule()
-	if goModule == "" {
-		goModule = "github.com/strogmv/ang" // fallback for backwards compatibility
-	}
-
-	em := emitter.New(output.BackendDir, output.FrontendDir, "templates")
-	em.FrontendAdminDir = output.FrontendAdminDir
-	em.Version = Version
-	em.InputHash = inputHash
-	em.CompilerHash = compilerHash
-	em.GoModule = goModule
-
-	ctx := em.AnalyzeContext(services, entities, endpoints)
-
-	ctx.HasScheduler = len(schedules) > 0
-
-	ctx.InputHash = inputHash
-	ctx.CompilerHash = compilerHash
-	ctx.ANGVersion = Version
-	ctx.GoModule = goModule
-
-	if authDef != nil {
-		ctx.AuthService = authDef.Service
-		ctx.AuthRefreshStore = authDef.RefreshStore
-		if strings.EqualFold(authDef.RefreshStore, "redis") || strings.EqualFold(authDef.RefreshStore, "hybrid") {
-			ctx.HasCache = true
-		}
-		if strings.EqualFold(authDef.RefreshStore, "hybrid") {
-			ctx.HasSQL = true
-		}
-	}
-	for _, ev := range events {
-		ent := normalizer.Entity{Name: ev.Name, Fields: ev.Fields}
-		ctx.EventPayloads[ev.Name] = ent
-	}
-
-	// === IR Transformation Pipeline ===
-	// Convert normalizer types to universal IR and apply transformers
-	var projectDefVal normalizer.ProjectDef
-	if projectDef != nil {
-		projectDefVal = *projectDef
-	}
-	var cfgDefVal normalizer.ConfigDef
-	if cfgDef != nil {
-		cfgDefVal = *cfgDef
-	}
-
-	irSchema, err := compiler.ConvertAndTransform(
-		entities, services, events, bizErrors, endpoints, repos,
-		cfgDefVal, authDef, rbacDef, schedules, views, projectDefVal,
-	)
-	if err != nil {
-		fmt.Printf("Build FAILED during IR transformation: %v\n", err)
-		os.Exit(1)
-	}
-
-	// === Convert IR back to normalizer types for emitter ===
-	// The IR has been enriched by transformers (thumbnails, timestamps, etc.)
-	// Now we convert it back to normalizer types for existing templates
-	entities = emitter.IREntitiesToNormalizer(irSchema.Entities)
-	services = emitter.IRServicesToNormalizer(irSchema.Services)
-	endpoints = emitter.IREndpointsToNormalizer(irSchema.Endpoints)
-	repos = emitter.IRReposToNormalizer(irSchema.Repos)
-	events = emitter.IREventsToNormalizer(irSchema.Events)
-	bizErrors = emitter.IRErrorsToNormalizer(irSchema.Errors)
-	schedules = emitter.IRSchedulesToNormalizer(irSchema.Schedules)
-
-	if err := emitter.ValidateServiceDependencies(services); err != nil {
-		fmt.Printf("Build FAILED due to service dependency validation: %v\n", err)
-		os.Exit(1)
-	}
-
-	services = emitter.OrderServicesByDependencies(services)
-	ctx.Services = services
-	ctx.Entities = entities
-
-	// RE-ANALYZE WebSocket after IR enrichment to capture thumbnails, IDs etc.
-	for _, ep := range endpoints {
-		if strings.ToUpper(ep.Method) == "WS" {
-			ctx.WebSocketServices[ep.ServiceName] = true
-			if ctx.WSEventMap[ep.ServiceName] == nil {
-				ctx.WSEventMap[ep.ServiceName] = make(map[string]bool)
+		var cfgDef *normalizer.ConfigDef
+		var authDef *normalizer.AuthDef
+		if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/infra"); err != nil {
+			fmt.Printf("Build FAILED during config load: %v\n", err)
+			return
+		} else if ok {
+			cfgDef, err = n.ExtractConfig(val)
+			if err != nil {
+				fmt.Printf("Build FAILED during config parse: %v\n", err)
+				return
 			}
-			for _, msg := range ep.Messages {
-				if msg != "" {
-					ctx.WSEventMap[ep.ServiceName][msg] = true
-				}
-			}
-			if ctx.WSRoomField[ep.ServiceName] == "" {
-				param := ep.RoomParam
-				if param == "" {
-					param = firstPathParam(ep.Path)
-				}
-				if param != "" {
-					ctx.WSRoomField[ep.ServiceName] = emitter.ExportName(param)
-				}
+			authDef, err = n.ExtractAuth(val)
+			if err != nil {
+				fmt.Printf("Build FAILED during auth parse: %v\n", err)
+				return
 			}
 		}
-	}
 
-	// Check Build Strategy
-	projContent, _ := os.ReadFile("cue/project.cue")
-	isMicroservice := strings.Contains(string(projContent), `build_strategy: "microservices"`)
+		var rbacDef *normalizer.RBACDef
+		if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/rbac"); err != nil {
+			fmt.Printf("Build FAILED during RBAC load: %v\n", err)
+			return
+		} else if ok {
+			rbacDef, err = n.ExtractRBAC(val)
+			if err != nil {
+				fmt.Printf("Build FAILED during RBAC parse: %v\n", err)
+				return
+			}
+		} else if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/policies"); err != nil {
+			fmt.Printf("Build FAILED during RBAC load: %v\n", err)
+			return
+		} else if ok {
+			rbacDef, err = n.ExtractRBAC(val)
+			if err != nil {
+				fmt.Printf("Build FAILED during RBAC parse: %v\n", err)
+				return
+			}
+		}
 
-	steps := []struct {
-		name string
-		fn   func() error
-	}{
-		{"Config", func() error { return em.EmitConfig(cfgDef) }},
-		{"Logger", func() error { return em.EmitLogger() }},
-		{"RBAC", func() error { return em.EmitRBAC(rbacDef) }},
-		{"Domain Entities", func() error { return em.EmitDomain(irSchema.Entities) }},
-		{"DTOs", func() error { return em.EmitDTO(irSchema.Entities) }},
-		{"Service Ports", func() error { return em.EmitService(services) }},
-		{"HTTP Handlers", func() error { return em.EmitHTTP(endpoints, services, events, authDef) }},
-		{"Health Probes", func() error { return em.EmitHealth() }},
-		{"Repository Ports", func() error { return em.EmitRepository(repos, entities) }}, {"Transaction Port", func() error { return em.EmitTransactionPort() }},
-		{"Storage Port", func() error { return em.EmitStoragePort() }},
-		{"S3 Client", func() error { return em.EmitS3Client() }},
-		{"Postgres Repos", func() error { return em.EmitPostgresRepo(repos, entities) }},
-		{"Postgres Common", func() error { return em.EmitPostgresCommon() }},
-		{"Mongo Repos", func() error { return em.EmitMongoRepo(repos, entities) }},
-		{"Mongo Common", func() error { return em.EmitMongoCommon(entities) }},
-		{"SQL Schema", func() error { return em.EmitSQL(entities) }},
-		{"Infra Configs", func() error { return em.EmitInfraConfigs() }},
-		{"SQL Queries", func() error { return em.EmitSQLQueries(entities) }},
-		{"Mongo Schemas", func() error { return em.EmitMongoSchema(entities) }},
-		{"Repo Stubs", func() error { return em.EmitStubRepo(repos, entities) }},
-		{"Redis Client", func() error { return em.EmitRedisClient() }},
-		{"Auth Package", func() error { return em.EmitAuthPackage(authDef) }},
-		{"Refresh Store Port", func() error { return em.EmitRefreshTokenStorePort() }},
-		{"Refresh Store Memory", func() error { return em.EmitRefreshTokenStoreMemory() }},
-		{"Refresh Store Redis", func() error { return em.EmitRefreshTokenStoreRedis() }},
-		{"Refresh Store Postgres", func() error { return em.EmitRefreshTokenStorePostgres() }},
-		{"Refresh Store Hybrid", func() error { return em.EmitRefreshTokenStoreHybrid() }},
-		{"Mailer Port", func() error { return em.EmitMailerPort() }},
-		{"SMTP Client", func() error { return em.EmitMailerAdapter() }},
-		{"Events", func() error { return em.EmitEvents(events) }},
-		{"Scheduler", func() error { return em.EmitScheduler(schedules) }},
-		{"Publisher Interface", func() error { return em.EmitPublisherInterface(services, schedules) }},
-		{"NATS Adapter", func() error { return em.EmitNatsAdapter(services, schedules) }},
-		{"Metrics Middleware", func() error { return em.EmitMetrics() }},
-		{"Logging Middleware", func() error { return em.EmitLoggingMiddleware() }},
-		{"Errors", func() error { return em.EmitErrors(bizErrors) }},
-		{"Views", func() error { return em.EmitViews(views) }},
-		{"OpenAPI", func() error { return em.EmitOpenAPI(endpoints, services, bizErrors, projectDef) }},
-		{"AsyncAPI", func() error { return em.EmitAsyncAPI(events, projectDef) }},
-		{"Contract Tests", func() error { return em.EmitContractTests(endpoints, services) }},
-		{"E2E Behavioral Tests", func() error { return em.EmitE2ETests(scenarios) }},
-		{"Test Stubs", func() error {
-			if output.TestStubs {
-				report, err := checkTestCoverage(endpoints, "tests")
-				if err != nil {
-					return fmt.Errorf("check coverage: %w", err)
+		var views []normalizer.ViewDef
+		if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/views"); err != nil {
+			fmt.Printf("Build FAILED during views load: %v\n", err)
+			return
+		} else if ok {
+			views, err = n.ExtractViews(val)
+			if err != nil {
+				fmt.Printf("Build FAILED during views parse: %v\n", err)
+				return
+			}
+		}
+
+		var projectDef *normalizer.ProjectDef
+		if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/project"); err != nil {
+			fmt.Printf("Build FAILED during project load: %v\n", err)
+			return
+		} else if ok {
+			projectDef, err = n.ExtractProject(val)
+			if err != nil {
+				fmt.Printf("Build FAILED during project parse: %v\n", err)
+				return
+			}
+		}
+
+		if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/schema"); err == nil && ok {
+			if err := n.LoadCodegenConfig(val); err != nil {
+				fmt.Printf("Warning: failed to load codegen config: %v\n", err)
+			}
+		}
+
+		inputHash, _ := calculateHash([]string{"cue"})
+		compilerHash, _ := calculateHash([]string{"templates"})
+
+		goModule := readGoModule()
+		if goModule == "" {
+			goModule = "github.com/strogmv/ang"
+		}
+
+		em := emitter.New(output.BackendDir, output.FrontendDir, "templates")
+		em.FrontendAdminDir = output.FrontendAdminDir
+		em.Version = compiler.Version
+		em.InputHash = inputHash
+		em.CompilerHash = compilerHash
+		em.GoModule = goModule
+
+		ctx := em.AnalyzeContext(services, entities, endpoints)
+		ctx.HasScheduler = len(schedules) > 0
+		ctx.InputHash = inputHash
+		ctx.CompilerHash = compilerHash
+		ctx.ANGVersion = compiler.Version
+		ctx.GoModule = goModule
+
+		if authDef != nil {
+			ctx.AuthService = authDef.Service
+			ctx.AuthRefreshStore = authDef.RefreshStore
+			if strings.EqualFold(authDef.RefreshStore, "redis") || strings.EqualFold(authDef.RefreshStore, "hybrid") {
+				ctx.HasCache = true
+			}
+			if strings.EqualFold(authDef.RefreshStore, "hybrid") {
+				ctx.HasSQL = true
+			}
+		}
+		for _, ev := range events {
+			ent := normalizer.Entity{Name: ev.Name, Fields: ev.Fields}
+			ctx.EventPayloads[ev.Name] = ent
+		}
+
+		var projectDefVal normalizer.ProjectDef
+		if projectDef != nil {
+			projectDefVal = *projectDef
+		}
+		var cfgDefVal normalizer.ConfigDef
+		if cfgDef != nil {
+			cfgDefVal = *cfgDef
+		}
+
+		irSchema, err := compiler.ConvertAndTransform(
+			entities, services, events, bizErrors, endpoints, repos,
+			cfgDefVal, authDef, rbacDef, schedules, views, projectDefVal,
+		)
+		if err != nil {
+			fmt.Printf("Build FAILED during IR transformation: %v\n", err)
+			return
+		}
+
+		entities = emitter.IREntitiesToNormalizer(irSchema.Entities)
+		services = emitter.IRServicesToNormalizer(irSchema.Services)
+		endpoints = emitter.IREndpointsToNormalizer(irSchema.Endpoints)
+		repos = emitter.IRReposToNormalizer(irSchema.Repos)
+		events = emitter.IREventsToNormalizer(irSchema.Events)
+		bizErrors = emitter.IRErrorsToNormalizer(irSchema.Errors)
+		schedules = emitter.IRSchedulesToNormalizer(irSchema.Schedules)
+
+		if err := emitter.ValidateServiceDependencies(services); err != nil {
+			fmt.Printf("Build FAILED due to service dependency validation: %v\n", err)
+			return
+		}
+
+		services = emitter.OrderServicesByDependencies(services)
+		ctx.Services = services
+		ctx.Entities = entities
+
+		for _, ep := range endpoints {
+			if strings.ToUpper(ep.Method) == "WS" {
+				ctx.WebSocketServices[ep.ServiceName] = true
+				if ctx.WSEventMap[ep.ServiceName] == nil {
+					ctx.WSEventMap[ep.ServiceName] = make(map[string]bool)
 				}
-				var missing []normalizer.Endpoint
-				missingMap := make(map[string]bool)
-				for _, m := range report.MissingTests {
-					missingMap[m.Method+" "+m.Path] = true
-				}
-				for _, ep := range endpoints {
-					if missingMap[ep.Method+" "+ep.Path] {
-						missing = append(missing, ep)
+				for _, msg := range ep.Messages {
+					if msg != "" {
+						ctx.WSEventMap[ep.ServiceName][msg] = true
 					}
 				}
-				if len(missing) == 0 {
-					fmt.Println("No missing tests found. Skipping stub generation.")
-					return nil
+				if ctx.WSRoomField[ep.ServiceName] == "" {
+					param := ep.RoomParam
+					if param == "" {
+						param = firstPathParam(ep.Path)
+					}
+					if param != "" {
+						ctx.WSRoomField[ep.ServiceName] = emitter.ExportName(param)
+					}
 				}
-				return em.EmitTestStubs(missing, "NEW-endpoint-stubs.test.ts")
 			}
-			return nil
-		}},
-		{"Frontend SDK", func() error { return em.EmitFrontendSDK(entities, services, endpoints, events, bizErrors, rbacDef) }},
-		{"Frontend Components", func() error { return em.EmitFrontendComponents(services, endpoints, entities) }},
-		{"Frontend Admin", func() error { return em.EmitFrontendAdmin(entities, services) }},
-		{"Frontend SDK Copy", func() error { return copyFrontendSDK(output.FrontendDir, output.FrontendAppDir) }},
-		{"Frontend Admin Copy", func() error { return copyFrontendAdmin(output.FrontendAdminDir, output.FrontendAdminAppDir) }},
-		{"Frontend Env Example", func() error { return writeEnvExample(output) }},
-		{"Tracing", func() error { return em.EmitTracing() }},
-		{"System Manifest", func() error { return em.EmitManifest(irSchema) }},
-		{"Service Impls", func() error { return em.EmitServiceImpl(services, entities, authDef) }},
-		{"Cached Services", func() error { return em.EmitCachedService(services) }},
-		{"K8s Manifests", func() error { return em.EmitK8s(services, isMicroservice) }},
-		{"Server Main", func() error {
-			if isMicroservice {
-				return em.EmitMicroservices(services, ctx.WebSocketServices, authDef)
-			}
-			return em.EmitMain(ctx)
-		}},
-	}
-
-	for _, step := range steps {
-		if err := step.fn(); err != nil {
-			fmt.Printf("Error during %s: %v\n", step.name, err)
-			os.Exit(1)
 		}
+
+		projContent, _ := os.ReadFile("cue/project.cue")
+		isMicroservice := strings.Contains(string(projContent), `build_strategy: "microservices"`)
+
+		steps := []struct {
+			name string
+			fn   func() error
+		}{
+			{"Config", func() error { return em.EmitConfig(cfgDef) }},
+			{"Logger", func() error { return em.EmitLogger() }},
+			{"RBAC", func() error { return em.EmitRBAC(rbacDef) }},
+			{"Domain Entities", func() error { return em.EmitDomain(irSchema.Entities) }},
+			{"DTOs", func() error { return em.EmitDTO(irSchema.Entities) }},
+			{"Service Ports", func() error { return em.EmitService(services) }},
+			{"HTTP Handlers", func() error { return em.EmitHTTP(endpoints, services, events, authDef) }},
+			{"Health Probes", func() error { return em.EmitHealth() }},
+			{"Repository Ports", func() error { return em.EmitRepository(repos, entities) }}, {"Transaction Port", func() error { return em.EmitTransactionPort() }},
+			{"Storage Port", func() error { return em.EmitStoragePort() }},
+			{"S3 Client", func() error { return em.EmitS3Client() }},
+			{"Postgres Repos", func() error { return em.EmitPostgresRepo(repos, entities) }},
+			{"Postgres Common", func() error { return em.EmitPostgresCommon() }},
+			{"Mongo Repos", func() error { return em.EmitMongoRepo(repos, entities) }},
+			{"Mongo Common", func() error { return em.EmitMongoCommon(entities) }},
+			{"SQL Schema", func() error { return em.EmitSQL(entities) }},
+			{"Infra Configs", func() error { return em.EmitInfraConfigs() }},
+			{"SQL Queries", func() error { return em.EmitSQLQueries(entities) }},
+			{"Mongo Schemas", func() error { return em.EmitMongoSchema(entities) }},
+			{"Repo Stubs", func() error { return em.EmitStubRepo(repos, entities) }},
+			{"Redis Client", func() error { return em.EmitRedisClient() }},
+			{"Auth Package", func() error { return em.EmitAuthPackage(authDef) }},
+			{"Refresh Store Port", func() error { return em.EmitRefreshTokenStorePort() }},
+			{"Refresh Store Memory", func() error { return em.EmitRefreshTokenStoreMemory() }},
+			{"Refresh Store Redis", func() error { return em.EmitRefreshTokenStoreRedis() }},
+			{"Refresh Store Postgres", func() error { return em.EmitRefreshTokenStorePostgres() }},
+			{"Refresh Store Hybrid", func() error { return em.EmitRefreshTokenStoreHybrid() }},
+			{"Mailer Port", func() error { return em.EmitMailerPort() }},
+			{"SMTP Client", func() error { return em.EmitMailerAdapter() }},
+			{"Events", func() error { return em.EmitEvents(events) }},
+			{"Scheduler", func() error { return em.EmitScheduler(schedules) }},
+			{"Publisher Interface", func() error { return em.EmitPublisherInterface(services, schedules) }},
+			{"NATS Adapter", func() error { return em.EmitNatsAdapter(services, schedules) }},
+			{"Metrics Middleware", func() error { return em.EmitMetrics() }},
+			{"Logging Middleware", func() error { return em.EmitLoggingMiddleware() }},
+			{"Errors", func() error { return em.EmitErrors(bizErrors) }},
+			{"Views", func() error { return em.EmitViews(views) }},
+			{"OpenAPI", func() error { return em.EmitOpenAPI(endpoints, services, bizErrors, projectDef) }},
+			{"AsyncAPI", func() error { return em.EmitAsyncAPI(events, projectDef) }},
+			{"Contract Tests", func() error { return em.EmitContractTests(endpoints, services) }},
+			{"E2E Behavioral Tests", func() error { return em.EmitE2ETests(scenarios) }},
+			{"Test Stubs", func() error {
+				if output.TestStubs {
+					report, err := checkTestCoverage(endpoints, "tests")
+					if err != nil {
+						return fmt.Errorf("check coverage: %w", err)
+					}
+					var missing []normalizer.Endpoint
+					missingMap := make(map[string]bool)
+					for _, m := range report.MissingTests {
+						missingMap[m.Method+" "+m.Path] = true
+					}
+					for _, ep := range endpoints {
+						if missingMap[ep.Method+" "+ep.Path] {
+							missing = append(missing, ep)
+						}
+					}
+					if len(missing) == 0 {
+						fmt.Println("No missing tests found. Skipping stub generation.")
+						return nil
+					}
+					return em.EmitTestStubs(missing, "NEW-endpoint-stubs.test.ts")
+				}
+				return nil
+			}},
+			{"Frontend SDK", func() error { return em.EmitFrontendSDK(entities, services, endpoints, events, bizErrors, rbacDef) }},
+			{"Frontend Components", func() error { return em.EmitFrontendComponents(services, endpoints, entities) }},
+			{"Frontend Admin", func() error { return em.EmitFrontendAdmin(entities, services) }},
+			{"Frontend SDK Copy", func() error { return copyFrontendSDK(output.FrontendDir, output.FrontendAppDir) }},
+			{"Frontend Admin Copy", func() error { return copyFrontendAdmin(output.FrontendAdminDir, output.FrontendAdminAppDir) }},
+			{"Frontend Env Example", func() error { return writeEnvExample(output) }},
+			{"Tracing", func() error { return em.EmitTracing() }},
+			{"System Manifest", func() error { return em.EmitManifest(irSchema) }},
+			{"Service Impls", func() error { return em.EmitServiceImpl(services, entities, authDef) }},
+			{"Cached Services", func() error { return em.EmitCachedService(services) }},
+			{"K8s Manifests", func() error { return em.EmitK8s(services, isMicroservice) }},
+			{"Server Main", func() error {
+				if isMicroservice {
+					return em.EmitMicroservices(services, ctx.WebSocketServices, authDef)
+				}
+				return em.EmitMain(ctx)
+			}},
+		}
+
+		for _, step := range steps {
+			if err := step.fn(); err != nil {
+				fmt.Printf("Error during %s: %v\n", step.name, err)
+				return
+			}
+		}
+
+		fmt.Println("\nBuild SUCCESSFUL.")
 	}
 
-	fmt.Println("\nBuild SUCCESSFUL. Application is ready in cmd/server/main.go")
+	if watch {
+		fmt.Println("Live Mode: Watching for changes in cue/...")
+		lastHash, _ := compiler.ComputeProjectHash(projectPath)
+		buildTask()
+		for {
+			time.Sleep(1 * time.Second)
+			newHash, _ := compiler.ComputeProjectHash(projectPath)
+			if newHash != lastHash {
+				lastHash = newHash
+				buildTask()
+			}
+		}
+	} else {
+		buildTask()
+	}
 }
 
 func runVet(args []string) {
@@ -944,11 +916,8 @@ func runDraw(args []string) {
 	ctx := em.AnalyzeContext(services, entities, endpoints)
 
 	if err := em.EmitMermaid(ctx); err != nil {
-
 		fmt.Printf("Draw FAILED: %v\n", err)
-
 		os.Exit(1)
-
 	}
 	fmt.Println("Draw SUCCESSFUL.")
 }
@@ -1174,9 +1143,6 @@ func parseOpenAPI(path string) (apiDoc, error) {
 				}
 				continue
 			}
-			if section == "paths" && strings.HasPrefix(line, "components:") {
-				section = "components"
-			}
 			continue
 		}
 		if section == "components" && inSchemas {
@@ -1396,8 +1362,6 @@ func pathParams(path string) []string {
 	return params
 }
 
-
-
 type lintReport struct {
 	OK       bool                 `json:"ok"`
 	Warnings []normalizer.Warning `json:"warnings,omitempty"`
@@ -1408,627 +1372,178 @@ type lintError struct {
 }
 
 func runVersion() {
-
 	fmt.Printf("ANG version %s (Schema v%s)\n", compiler.Version, compiler.SchemaVersion)
-
 }
-
-
 
 func runRBAC(args []string) {
-
-
-
-	if len(args) == 0 || args[0] != "actions" {
-
-
-
-		fmt.Println("Usage: ang rbac actions")
-
-
-
+	if len(args) == 0 {
+		fmt.Println("Usage: ang rbac <actions|inspect>")
 		return
-
-
-
 	}
 
-
-
-
-
-
-
+	cmd := args[0]
 	_, services, _, _, _, _, _, _, err := compiler.RunPipeline(".")
-
-
-
 	if err != nil {
-
-
-
 		fmt.Printf("Error: %v\n", err)
-
-
-
 		return
-
-
-
 	}
 
-
-
-
-
-
-
-	fmt.Println("Registered RBAC Actions (Service.Method):")
-
-
-
-	fmt.Println("----------------------------------------")
-
-
-
+	validActions := make(map[string]bool)
 	for _, s := range services {
-
-
-
 		for _, m := range s.Methods {
+			validActions[strings.ToLower(s.Name)+"."+strings.ToLower(m.Name)] = true
+		}
+	}
 
-
-
-			fmt.Printf("%s.%s\n", strings.ToLower(s.Name), strings.ToLower(m.Name))
-
-
-
+	switch cmd {
+	case "actions":
+		fmt.Println("Registered RBAC Actions (Service.Method):")
+		fmt.Println("----------------------------------------")
+		for action := range validActions {
+			fmt.Println(action)
 		}
 
+	case "inspect":
+		fmt.Println("RBAC Security Audit:")
+		fmt.Println("--------------------")
 
+		p := parser.New()
+		n := normalizer.New()
+		var rbac *normalizer.RBACDef
+		if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/policies"); err == nil && ok {
+			rbac, _ = n.ExtractRBAC(val)
+		} else if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/rbac"); err == nil && ok {
+			rbac, _ = n.ExtractRBAC(val)
+		}
 
+		if rbac == nil {
+			fmt.Println("⚠️  No RBAC policies found in CUE (cue/policies or cue/rbac).")
+			return
+		}
+
+		protected := make(map[string]bool)
+		zombies := []string{}
+
+		for action := range rbac.Permissions {
+			if validActions[action] {
+				protected[action] = true
+			} else {
+				zombies = append(zombies, action)
+			}
+		}
+
+		fmt.Println("\n🔴 UNPROTECTED METHODS (Missing from policies.cue):")
+		for action := range validActions {
+			if !protected[action] {
+				fmt.Printf("   - %s\n", action)
+			}
+		}
+
+		if len(zombies) > 0 {
+			fmt.Println("\n💀 ZOMBIE POLICIES (References non-existent methods):")
+			for _, z := range zombies {
+				fmt.Printf("   - %s\n", z)
+			}
+		}
+
+		fmt.Printf("\n🟢 PROTECTED: %d methods\n", len(protected))
+
+	default:
+		fmt.Printf("Unknown RBAC command: %s\n", cmd)
 	}
-
-
-
 }
 
-
-
-
-
-
-
 func runDB(args []string) {
-
-
-
 	if len(args) == 0 || args[0] != "sync" {
-
-
-
 		fmt.Println("Usage: ang db sync")
-
-
-
 		return
-
-
-
 	}
-
-
-
-
-
-
 
 	dbURL := os.Getenv("DATABASE_URL")
-
-
-
 	if dbURL == "" {
-
-
-
 		dbURL = os.Getenv("DB_URL")
-
-
-
 	}
-
-
-
 	if dbURL == "" {
-
-
-
 		fmt.Println("Error: DATABASE_URL environment variable is not set.")
-
-
-
 		return
-
-
-
 	}
-
-
-
-
-
-
 
 	fmt.Println("Synchronizing database schema with CUE...")
-
-
-
 	cmd := exec.Command("atlas", "schema", "apply",
-
-
-
 		"--url", dbURL,
-
-
-
 		"--to", "file://db/schema/schema.sql",
-
-
-
 		"--dev-url", "docker://postgres/15/dev",
-
-
-
 		"--auto-approve",
-
-
-
 	)
-
-
-
 	cmd.Stdout = os.Stdout
-
-
-
 	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("\nDB Sync FAILED: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("\n✅ Database schema is now in sync with CUE.")
+}
 
-
-
-		if err := cmd.Run(); err != nil {
-
-
-
-			fmt.Printf("\nDB Sync FAILED: %v\n", err)
-
-
-
-			os.Exit(1)
-
-
-
-		}
-
-
-
-		fmt.Println("\n✅ Database schema is now in sync with CUE.")
-
-
-
+func runEvents(args []string) {
+	if len(args) == 0 || args[0] != "map" {
+		fmt.Println("Usage: ang events map")
+		return
 	}
 
+	_, services, _, _, _, _, _, _, err := compiler.RunPipeline(".")
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
 
+	fmt.Println("Event Flow Map (Journey of data through NATS):")
+	fmt.Println("-----------------------------------------------")
 
-	
+	type Publisher struct {
+		Service string
+		Method  string
+	}
+	publishers := make(map[string][]Publisher)
+	for _, s := range services {
+		for _, m := range s.Methods {
+			for _, p := range m.Publishes {
+				publishers[p] = append(publishers[p], Publisher{Service: s.Name, Method: m.Name})
+			}
+		}
+	}
 
+	type Subscriber struct {
+		Service string
+		Handler string
+	}
+	subscribers := make(map[string][]Subscriber)
+	for _, s := range services {
+		for evt, handler := range s.Subscribes {
+			subscribers[evt] = append(subscribers[evt], Subscriber{Service: s.Name, Handler: handler})
+		}
+	}
 
-
-	func runEvents(args []string) {
-
-
-
-		if len(args) == 0 || args[0] != "map" {
-
-
-
-			fmt.Println("Usage: ang events map")
-
-
-
-			return
-
-
-
+	foundAny := false
+	for evt, pubs := range publishers {
+		foundAny = true
+		fmt.Printf("\n📢 Event: %s\n", evt)
+		fmt.Print("   Produced by:\n")
+		for _, p := range pubs {
+			fmt.Printf("     - %s.%s\n", p.Service, p.Method)
 		}
 
-
-
-	
-
-
-
-		_, services, _, _, _, _, _, _, err := compiler.RunPipeline(".")
-
-
-
-		if err != nil {
-
-
-
-			fmt.Printf("Error: %v\n", err)
-
-
-
-			return
-
-
-
+		subs := subscribers[evt]
+		if len(subs) > 0 {
+			fmt.Print("   Consumed by:\n")
+			for _, s := range subs {
+				fmt.Printf("     - %s (Handler: %s)\n", s.Service, s.Handler)
+			}
+		} else {
+			fmt.Print("   ⚠️  No subscribers found.\n")
 		}
-
-
-
-	
-
-
-
-		fmt.Println("Event Flow Map (Journey of data through NATS):")
-
-
-
-		fmt.Println("-----------------------------------------------")
-
-
-
-	
-
-
-
-		type Publisher struct {
-
-
-
-			Service string
-
-
-
-			Method  string
-
-
-
-		}
-
-
-
-		publishers := make(map[string][]Publisher)
-
-
-
-		for _, s := range services {
-
-
-
-			for _, m := range s.Methods {
-
-
-
-				for _, p := range m.Publishes {
-
-
-
-					publishers[p] = append(publishers[p], Publisher{Service: s.Name, Method: m.Name})
-
-
-
-				}
-
-
-
-			}
-
-
-
-		}
-
-
-
-	
-
-
-
-			type Subscriber struct {
-
-
-
-	
-
-
-
-				Service string
-
-
-
-	
-
-
-
-				Handler string
-
-
-
-	
-
-
-
-			}
-
-
-
-	
-
-
-
-			subscribers := make(map[string][]Subscriber)
-
-
-
-	
-
-
-
-			for _, s := range services {
-
-
-
-	
-
-
-
-				for evt, handler := range s.Subscribes {
-
-
-
-	
-
-
-
-					subscribers[evt] = append(subscribers[evt], Subscriber{Service: s.Name, Handler: handler})
-
-
-
-	
-
-
-
-				}
-
-
-
-	
-
-
-
-			}
-
-
-
-	
-
-
-
-		
-
-
-
-	
-
-
-
-			// 3. Print Journey
-
-
-
-	
-
-
-
-			foundAny := false
-
-
-
-	
-
-
-
-			for evt, pubs := range publishers {
-
-
-
-	
-
-
-
-				foundAny = true
-
-
-
-	
-
-
-
-				fmt.Printf("\n📢 Event: %s\n", evt)
-
-
-
-	
-
-
-
-				fmt.Print("   Produced by:\n")
-
-
-
-	
-
-
-
-				for _, p := range pubs {
-
-
-
-	
-
-
-
-					fmt.Printf("     - %s.%s\n", p.Service, p.Method)
-
-
-
-	
-
-
-
-				}
-
-
-
-	
-
-
-
-		
-
-
-
-	
-
-
-
-				subs := subscribers[evt]
-
-
-
-	
-
-
-
-				if len(subs) > 0 {
-
-
-
-	
-
-
-
-					fmt.Print("   Consumed by:\n")
-
-
-
-	
-
-
-
-					for _, s := range subs {
-
-
-
-	
-
-
-
-						fmt.Printf("     - %s (Handler: %s)\n", s.Service, s.Handler)
-
-
-
-	
-
-
-
-					}
-
-
-
-	
-
-
-
-				} else {
-
-
-
-	
-
-
-
-					fmt.Print("   ⚠️  No subscribers found.\n")
-
-
-
-	
-
-
-
-				}
-
-
-
-	
-
-
-
-			}
-
-
-
-	
-
-
-
-		
-
-
-
-	
-
-
-
-			if !foundAny {
-
-
-
-	
-
-
-
-				fmt.Println("No event publishers found in current architecture.")
-
-
-
-	
-
-
-
-			}
-
-
-
-	
-
-
-
-		}
-
-
-
-	
-
-
-
-		
-
-
-
-	
-
-
-
-
+	}
+
+	if !foundAny {
+		fmt.Println("No event publishers found in current architecture.")
+	}
+}
