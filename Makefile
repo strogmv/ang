@@ -1,4 +1,4 @@
-.PHONY: build install test lint clean check all mcp-gen
+.PHONY: build install test lint clean check all mcp-gen release-smoke
 
 # Build the ang CLI
 build:
@@ -35,3 +35,8 @@ all: build test
 mcp-gen:
 	@echo "--- Generating MCP server ---"
 	./scripts/gen_mcp_server.sh
+
+# Run release smoke checks (Go+Python outputs)
+release-smoke:
+	@echo "--- Release Smoke ---"
+	./scripts/release-smoke.sh

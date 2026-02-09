@@ -91,3 +91,33 @@ jobs:
           python -m py_compile \
             examples/pdf-chart-python/app/main.py \
             examples/pdf-chart-python/app/services/report.py
+
+      - name: OpenAPI Compatibility Report
+        run: |
+          mkdir -p dist/release/reports
+          GO_OAS="dist/release/go-service/api/openapi.yaml"
+          PY_OAS="dist/release/python-service/api/openapi.yaml"
+          DIFF_FILE="dist/release/reports/openapi-go-vs-python.diff"
+          SUMMARY_FILE="dist/release/reports/openapi-go-vs-python.md"
+
+          GO_SHA="$(sha256sum "$GO_OAS" | awk '{print $1}')"
+          PY_SHA="$(sha256sum "$PY_OAS" | awk '{print $1}')"
+          if diff -u "$GO_OAS" "$PY_OAS" >"$DIFF_FILE"; then
+            STATUS="identical"
+          else
+            STATUS="different"
+          fi
+
+          cat >"$SUMMARY_FILE" <<EOF
+          # OpenAPI Compatibility Report
+          - Go sha256: \`$GO_SHA\`
+          - Python sha256: \`$PY_SHA\`
+          - Status: **$STATUS**
+          - Diff: \`$DIFF_FILE\`
+          EOF
+
+      - name: Upload Release Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-reports
+          path: dist/release/reports
