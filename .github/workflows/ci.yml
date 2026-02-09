@@ -73,6 +73,30 @@ jobs:
           python -m pip install -e dist/release/go-service/sdk/python
           python -c "from ang_sdk import AngClient; print('ok')"
 
+      - name: Python SDK Quality Gates (ruff, mypy, pytest)
+        run: |
+          python -m venv .venv-sdk-quality
+          . .venv-sdk-quality/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install -e dist/release/go-service/sdk/python
+          python -m pip install ruff==0.8.6 mypy==1.13.0 pytest==8.3.4
+
+          ruff check dist/release/go-service/sdk/python/ang_sdk
+          mypy --strict --ignore-missing-imports dist/release/go-service/sdk/python/ang_sdk
+
+          cat > /tmp/test_generated_sdk.py << 'EOF'
+          from ang_sdk import AngClient, AsyncAngClient, models
+          from ang_sdk.errors import ProblemDetails, AngAPIError
+
+          def test_sdk_import_surface() -> None:
+              assert AngClient is not None
+              assert AsyncAngClient is not None
+              assert ProblemDetails is not None
+              assert AngAPIError is not None
+              assert models is not None
+          EOF
+          pytest -q /tmp/test_generated_sdk.py
+
       - name: FastAPI Scaffold Smoke (py_compile)
         run: |
           test -f dist/release/python-service/app/main.py
@@ -99,7 +123,7 @@ jobs:
           . .venv-quality/bin/activate
           python -m pip install --upgrade pip
           python -m pip install -e dist/release/python-service/app
-          python -m pip install ruff mypy pytest
+          python -m pip install ruff==0.8.6 mypy==1.13.0 pytest==8.3.4
 
           ruff check dist/release/python-service/app
           mypy --strict --ignore-missing-imports dist/release/python-service/app
