@@ -18,9 +18,13 @@ import (
 func computeDomainImports(ent ir.Entity) []string {
 	imports := make(map[string]bool)
 	hasFileFields := false
+	hasConstraints := false
 	for _, f := range ent.Fields {
 		if f.Type.Kind == ir.KindTime {
 			imports["time"] = true
+		}
+		if f.Constraints != nil {
+			hasConstraints = true
 		}
 		// Check for file attributes
 		for _, attr := range f.Attributes {
@@ -36,7 +40,7 @@ func computeDomainImports(ent ir.Entity) []string {
 	}
 
 	// Add fmt if needed for FSM error messages or file previews
-	if ent.FSM != nil || hasFileFields {
+	if ent.FSM != nil || hasFileFields || hasConstraints {
 		imports["fmt"] = true
 	}
 
@@ -54,6 +58,9 @@ func computeDTOImports(ent ir.Entity) []string {
 	for _, f := range ent.Fields {
 		if f.Type.Kind == ir.KindTime {
 			imports["time"] = true
+		}
+		if f.Constraints != nil {
+			imports["fmt"] = true
 		}
 	}
 

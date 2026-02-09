@@ -15,5 +15,5 @@ type UserRepository interface {
 	ListAll(ctx context.Context, offset, limit int) ([]domain.User, error)
 
 	// Dynamic Finders
-	FindByEmail(ctx context.Context, email string) (*domain.User, error)
+	FindByEmail(ctx context.Context, email map[string]any) (*domain.User, error)
 }

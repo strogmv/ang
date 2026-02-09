@@ -63,7 +63,7 @@ export function UpdatePostForm({ onSuccess, onError, onCancel, defaultValues }: 
           render={({ field, fieldState }) => (
             <TextField
               {...field}
-              label="ID"
+              label="Id"
               helperText={fieldState.error?.message}
               error={!!fieldState.error}
               fullWidth

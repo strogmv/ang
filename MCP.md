@@ -43,3 +43,34 @@ The ANG compiler includes a built-in MCP server that enforces a strict **Intent-
 3. **Inspect**: Agent calls `repo_diff()` to see how Go code changed.
 4. **Verify**: Agent calls `run_tests()` to ensure the generated code works.
 5. **Iterate**: If tests fail, agent goes back to step 1 (editing CUE).
+## Response Format Compatibility
+
+ANG MCP now supports a unified tool response envelope (default on) and a compatibility mode.
+
+- Default behavior (`ANG_MCP_ENVELOPE` unset): MCP tools return unified JSON with `tool`, `status`, `active_profile`, and `payload`.
+- Compatibility mode: set `ANG_MCP_ENVELOPE=off` (also supports `0`, `false`, `no`) to return legacy/raw tool responses.
+
+Examples:
+
+```bash
+# Unified envelope (default)
+ang mcp
+
+# Legacy compatibility mode
+ANG_MCP_ENVELOPE=off ang mcp
+```
+
+## Health Check Tool
+
+Use `ang_mcp_health` for quick MCP diagnostics. It is bootstrap-exempt and returns:
+
+- current profile and effective limits,
+- envelope status,
+- runtime config path/error,
+- effective workflows,
+- bootstrap state and last action.
+
+## Envelope Versioning
+
+Unified MCP envelope now includes `schema_version` (default: `mcp-envelope/v1`).
+This lets MCP clients migrate safely between future response format versions.

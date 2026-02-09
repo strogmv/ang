@@ -1,4 +1,4 @@
-.PHONY: build install test lint clean check all
+.PHONY: build install test lint clean check all mcp-gen
 
 # Build the ang CLI
 build:
@@ -30,3 +30,8 @@ check: lint test
 # Build and test
 all: build test
 	@echo "--- Build SUCCESSFUL ---"
+
+# Generate MCP server from template
+mcp-gen:
+	@echo "--- Generating MCP server ---"
+	./scripts/gen_mcp_server.sh

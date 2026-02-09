@@ -15,11 +15,11 @@ type PostRepository interface {
 	ListAll(ctx context.Context, offset, limit int) ([]domain.Post, error)
 
 	// Dynamic Finders
-	FindBySlug(ctx context.Context, slug string) (*domain.Post, error)
-	ListPublished(ctx context.Context, status string) ([]domain.Post, error)
-	CountPublished(ctx context.Context, status string) (int64, error)
-	ListPublishedByTag(ctx context.Context, status string, id string) ([]domain.Post, error)
-	CountPublishedByTag(ctx context.Context, status string, id string) (int64, error)
+	FindBySlug(ctx context.Context, slug map[string]any) (*domain.Post, error)
+	ListPublished(ctx context.Context, status map[string]any) ([]domain.Post, error)
+	CountPublished(ctx context.Context, status map[string]any) (int64, error)
+	ListPublishedByTag(ctx context.Context, status map[string]any, id map[string]any) ([]domain.Post, error)
+	CountPublishedByTag(ctx context.Context, status map[string]any, id map[string]any) (int64, error)
 	ListByAuthor(ctx context.Context, authorID string) ([]domain.Post, error)
-	ListByAuthorAndStatus(ctx context.Context, authorID string, status string) ([]domain.Post, error)
+	ListByAuthorAndStatus(ctx context.Context, authorID string, status map[string]any) ([]domain.Post, error)
 }

@@ -6,7 +6,7 @@ import (
 )
 
 var (
-	// Слова, которые в Go должны быть в CAPS (Go Standard Initialisms)
+	// Words that should stay uppercased in Go identifiers.
 	goInitialisms = map[string]bool{
 		"ID":    true,
 		"API":   true,
@@ -28,18 +28,29 @@ var (
 		"S3":    true,
 		"JWT":   true,
 		"RPC":   true,
+		"AI":    true,
 	}
+
+	reAcronymBoundary = regexp.MustCompile(`([A-Z]+)([A-Z][a-z])`)
+	reCamelBoundary   = regexp.MustCompile(`([a-z0-9])([A-Z])`)
+	reToken           = regexp.MustCompile(`[A-Za-z0-9]+`)
 )
 
-// ToGoName преобразует строку в PascalCase с учетом Go Initialisms (userId -> UserID)
+// ToGoName converts a name to PascalCase with Go initialism normalization.
 func ToGoName(s string) string {
 	if s == "" {
 		return ""
 	}
-	
-	// Обработка специальных случаев
+
+	// Special cases.
 	if strings.ToLower(s) == "ids" {
 		return "IDs"
+	}
+	if strings.EqualFold(s, "apikey") {
+		return "APIKey"
+	}
+	if strings.EqualFold(s, "apikeys") {
+		return "APIKeys"
 	}
 
 	parts := splitName(s)
@@ -47,41 +58,47 @@ func ToGoName(s string) string {
 		upper := strings.ToUpper(p)
 		if goInitialisms[upper] {
 			parts[i] = upper
-		} else {
-			low := strings.ToLower(p)
-			parts[i] = strings.ToUpper(low[:1]) + low[1:]
+			continue
 		}
+		low := strings.ToLower(p)
+		parts[i] = strings.ToUpper(low[:1]) + low[1:]
 	}
 	return strings.Join(parts, "")
 }
 
-// ToJSONName преобразует строку в camelCase с Id (UserID -> userId)
+// ToJSONName converts a name to camelCase using frontend conventions (Id over ID).
 func ToJSONName(s string) string {
 	if s == "" {
 		return ""
 	}
-	
+
 	parts := splitName(s)
 	for i, p := range parts {
 		lower := strings.ToLower(p)
 		if i == 0 {
 			parts[i] = lower
-		} else {
-			// Frontend standard: use "Id" instead of "ID"
-			if lower == "id" {
-				parts[i] = "Id"
-			} else {
-				parts[i] = strings.ToUpper(lower[:1]) + lower[1:]
-			}
+			continue
 		}
+		if lower == "id" {
+			parts[i] = "Id"
+			continue
+		}
+		parts[i] = strings.ToUpper(lower[:1]) + lower[1:]
 	}
 	return strings.Join(parts, "")
 }
 
 func splitName(s string) []string {
-	// Разбиваем по границам слов: 
-	// 1. camelCase/PascalCase
-	// 2. Underscores/Numbers
-	re := regexp.MustCompile("([A-Z]+[a-z0-9]*|[a-z0-9]+)")
-	return re.FindAllString(s, -1)
+	if s == "" {
+		return nil
+	}
+	clean := strings.NewReplacer("_", " ", "-", " ", ".", " ", "/", " ").Replace(s)
+	clean = reAcronymBoundary.ReplaceAllString(clean, `${1} ${2}`)
+	clean = reCamelBoundary.ReplaceAllString(clean, `${1} ${2}`)
+
+	tokens := reToken.FindAllString(clean, -1)
+	if len(tokens) == 0 {
+		return []string{s}
+	}
+	return tokens
 }

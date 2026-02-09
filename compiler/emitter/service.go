@@ -29,6 +29,23 @@ func (e *Emitter) EmitService(services []normalizer.Service) error {
 		}
 		return false
 	}
+	funcMap["HasConstraints"] = func(svc normalizer.Service) bool {
+		for _, m := range svc.Methods {
+			for _, f := range m.Input.Fields {
+				if f.Constraints != nil {
+					return true
+				}
+			}
+			if m.Output.Name != "" {
+				for _, f := range m.Output.Fields {
+					if f.Constraints != nil {
+						return true
+					}
+				}
+			}
+		}
+		return false
+	}
 
 	t, err := template.New("service").Funcs(funcMap).Parse(string(tmplContent))
 	if err != nil {

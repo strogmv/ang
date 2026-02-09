@@ -66,7 +66,7 @@ func (r *PostRepositoryStub) ListAll(ctx context.Context, offset, limit int) ([]
 	}
 	return items[offset:end], nil
 }
-func (r *PostRepositoryStub) FindBySlug(ctx context.Context, slug string) (*domain.Post, error) {
+func (r *PostRepositoryStub) FindBySlug(ctx context.Context, slug map[string]any) (*domain.Post, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, item := range r.data {
@@ -84,7 +84,7 @@ func (r *PostRepositoryStub) FindBySlug(ctx context.Context, slug string) (*doma
 	}
 	return nil, nil
 }
-func (r *PostRepositoryStub) ListPublished(ctx context.Context, status string) ([]domain.Post, error) {
+func (r *PostRepositoryStub) ListPublished(ctx context.Context, status map[string]any) ([]domain.Post, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	var res []domain.Post
@@ -108,7 +108,7 @@ func (r *PostRepositoryStub) ListPublished(ctx context.Context, status string) (
 	}
 	return res, nil
 }
-func (r *PostRepositoryStub) CountPublished(ctx context.Context, status string) (int64, error) {
+func (r *PostRepositoryStub) CountPublished(ctx context.Context, status map[string]any) (int64, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, item := range r.data {
@@ -126,7 +126,7 @@ func (r *PostRepositoryStub) CountPublished(ctx context.Context, status string) 
 	}
 	return 0, nil
 }
-func (r *PostRepositoryStub) ListPublishedByTag(ctx context.Context, status string, id string) ([]domain.Post, error) {
+func (r *PostRepositoryStub) ListPublishedByTag(ctx context.Context, status map[string]any, id map[string]any) ([]domain.Post, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	var res []domain.Post
@@ -153,7 +153,7 @@ func (r *PostRepositoryStub) ListPublishedByTag(ctx context.Context, status stri
 	}
 	return res, nil
 }
-func (r *PostRepositoryStub) CountPublishedByTag(ctx context.Context, status string, id string) (int64, error) {
+func (r *PostRepositoryStub) CountPublishedByTag(ctx context.Context, status map[string]any, id map[string]any) (int64, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, item := range r.data {
@@ -198,7 +198,7 @@ func (r *PostRepositoryStub) ListByAuthor(ctx context.Context, authorID string) 
 	}
 	return res, nil
 }
-func (r *PostRepositoryStub) ListByAuthorAndStatus(ctx context.Context, authorID string, status string) ([]domain.Post, error) {
+func (r *PostRepositoryStub) ListByAuthorAndStatus(ctx context.Context, authorID string, status map[string]any) ([]domain.Post, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	var res []domain.Post

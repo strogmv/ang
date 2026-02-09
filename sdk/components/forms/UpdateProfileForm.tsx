@@ -78,7 +78,7 @@ export function UpdateProfileForm({ onSuccess, onError, onCancel, defaultValues 
             <TextField
               {...field}
               type="url"
-              label="Avatar URL"
+              label="Avatar Url"
               placeholder="https://"
               helperText={fieldState.error?.message}
               error={!!fieldState.error}

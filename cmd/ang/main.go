@@ -515,6 +515,28 @@ func runCueLint(projectPath string) ([]lintError, error) {
 	return violations, nil
 }
 
+func runOptionalMCPGeneration(projectPath string) error {
+	root := projectPath
+	if strings.TrimSpace(root) == "" {
+		root = "."
+	}
+	script := filepath.Join(root, "scripts", "gen_mcp_server.sh")
+	if _, err := os.Stat(script); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	cmd := exec.Command("bash", script)
+	cmd.Dir = root
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("mcp generation failed: %w", err)
+	}
+	return nil
+}
+
 func runBuild(args []string) {
 	watch := false
 	for _, arg := range args {
@@ -808,6 +830,11 @@ func runBuild(args []string) {
 				fmt.Printf("Error during %s: %v\n", step.name, err)
 				return
 			}
+		}
+
+		if err := runOptionalMCPGeneration(projectPath); err != nil {
+			fmt.Printf("Error during MCP Generation: %v\n", err)
+			return
 		}
 
 		fmt.Println("\nBuild SUCCESSFUL.")
@@ -1529,8 +1556,6 @@ func runEvents(args []string) {
 
 	}
 
-
-
 	_, services, _, _, _, _, _, _, err := compiler.RunPipeline(".")
 
 	if err != nil {
@@ -1541,37 +1566,25 @@ func runEvents(args []string) {
 
 	}
 
-
-
 	fmt.Println("Event Flow Map (Event-Driven Architecture Audit):")
 
 	fmt.Println("--------------------------------------------------")
 
-
-
 	type Publisher struct {
-
 		Service string
 
-		Method  string
-
+		Method string
 	}
 
 	type Subscriber struct {
-
 		Service string
 
 		Handler string
-
 	}
-
-
 
 	publishers := make(map[string][]Publisher)
 
 	subscribers := make(map[string][]Subscriber)
-
-
 
 	for _, s := range services {
 
@@ -1597,17 +1610,17 @@ func runEvents(args []string) {
 
 	}
 
-
-
 	// 3. Find unique event names
 
 	allEvents := make(map[string]bool)
 
-	for e := range publishers { allEvents[e] = true }
+	for e := range publishers {
+		allEvents[e] = true
+	}
 
-	for e := range subscribers { allEvents[e] = true }
-
-
+	for e := range subscribers {
+		allEvents[e] = true
+	}
 
 	foundAny := false
 
@@ -1616,8 +1629,6 @@ func runEvents(args []string) {
 		foundAny = true
 
 		fmt.Printf("\n📢 Event: %s\n", evt)
-
-		
 
 		pubs := publishers[evt]
 
@@ -1636,8 +1647,6 @@ func runEvents(args []string) {
 			fmt.Print("   ⚠️  PRODUCER MISSING (External or manual)\n")
 
 		}
-
-
 
 		subs := subscribers[evt]
 
@@ -1659,8 +1668,6 @@ func runEvents(args []string) {
 
 	}
 
-
-
 	if !foundAny {
 
 		fmt.Println("No event publishers or subscribers found in current architecture.")
@@ -1669,17 +1676,11 @@ func runEvents(args []string) {
 
 }
 
-
-
-
-
 func runLogicVet() {
 
 	fmt.Println("Auditing embedded Go logic in CUE files...")
 
 	_, _, _, _, _, _, _, _, _ = compiler.RunPipeline(".")
-
-	
 
 	found := false
 
@@ -1702,8 +1703,6 @@ func runLogicVet() {
 		}
 
 	}
-
-
 
 	if !found {
 

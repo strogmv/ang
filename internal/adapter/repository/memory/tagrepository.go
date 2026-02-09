@@ -47,7 +47,7 @@ func (r *TagRepositoryStub) Delete(ctx context.Context, id string) error {
 	delete(r.data, id)
 	return nil
 }
-func (r *TagRepositoryStub) FindBySlug(ctx context.Context, slug string) (*domain.Tag, error) {
+func (r *TagRepositoryStub) FindBySlug(ctx context.Context, slug map[string]any) (*domain.Tag, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, item := range r.data {
@@ -86,7 +86,7 @@ func (r *TagRepositoryStub) ListAll(ctx context.Context) ([]domain.Tag, error) {
 	}
 	return res, nil
 }
-func (r *TagRepositoryStub) ListByPost(ctx context.Context, id string) ([]domain.Tag, error) {
+func (r *TagRepositoryStub) ListByPost(ctx context.Context, id map[string]any) ([]domain.Tag, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	var res []domain.Tag

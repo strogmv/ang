@@ -468,3 +468,25 @@ Add this to your `claude_desktop_config.json`:
   }
 }
 ```
+
+## MCP Response Compatibility
+
+For MCP tool output, ANG supports two modes controlled by `ANG_MCP_ENVELOPE`:
+
+- Unified envelope mode (default): enabled when var is unset (or `1/true/on/yes`).
+- Legacy compatibility mode: set `ANG_MCP_ENVELOPE=off` (or `0/false/no`).
+
+```bash
+# default (unified envelope)
+ang mcp
+
+# compatibility (legacy/raw tool output)
+ANG_MCP_ENVELOPE=off ang mcp
+```
+
+## MCP Health Tool
+
+Run `ang_mcp_health` from MCP clients to inspect effective profile, limits, workflows,
+runtime config status, and envelope mode.
+
+Unified MCP envelope responses include `schema_version` (current default: `mcp-envelope/v1`).

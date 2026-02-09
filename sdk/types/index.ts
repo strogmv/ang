@@ -7,51 +7,77 @@
 export type Encrypted<T> = string & { __encrypted?: T };
 export interface User {
   /**  */
-  name: string;
+  id: any;
   /**  */
-  description: string;
+  email: any;
   /**  */
-  fields: any;
+  phoneNumber?: any;
+  /**  */
+  name: any;
+  /**  */
+  role: any;
+  /**  */
+  avatarUrl: any;
+  /**  */
+  createdAt: any;
+  /**  */
+  updatedAt: any;
 }
 export interface Post {
   /**  */
-  name: string;
+  id: any;
   /**  */
-  description: string;
+  authorId: any;
   /**  */
-  fields: any;
+  title: any;
+  /**  */
+  slug: any;
+  /**  */
+  content: any;
+  /**  */
+  excerpt: any;
+  /**  */
+  status: any;
+  /**  */
+  publishedAt: any;
+  /**  */
+  viewCount: any;
+  /**  */
+  createdAt: any;
+  /**  */
+  updatedAt: any;
 }
 export interface Comment {
   /**  */
-  name: string;
+  id: any;
   /**  */
-  description: string;
+  postId: any;
   /**  */
-  fields: any;
+  authorId: any;
+  /**  */
+  parentId: any;
+  /**  */
+  content: any;
+  /**  */
+  createdAt: any;
+  /**  */
+  updatedAt: any;
 }
 export interface Tag {
   /**  */
-  name: string;
+  id: any;
   /**  */
-  description: string;
+  name: any;
   /**  */
-  fields: any;
+  slug: any;
+  /**  */
+  description: any;
 }
 export interface PostTag {
   /**  */
-  name: string;
+  postId: any;
   /**  */
-  description: string;
-  /**  */
-  fields: any;
-}
-export interface UserVault {
-  /**  */
-  id: string;
-  /**  */
-  personalKey: Encrypted<string>;
-  /**  */
-  bio?: Encrypted<string>;
+  tagId: any;
 }
 export interface RegisterRequest {
   /**  */

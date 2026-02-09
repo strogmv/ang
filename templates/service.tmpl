@@ -13,8 +13,10 @@ package port
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
+	{{- if HasConstraints . }}
+	"fmt"
+	{{- end }}
 	{{- if or (HasEventMethods .) (HasDomainTypes .) }}
 	"{{GoModule}}/internal/domain"
 	{{- end }}

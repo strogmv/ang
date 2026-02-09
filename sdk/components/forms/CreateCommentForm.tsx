@@ -61,7 +61,7 @@ export function CreateCommentForm({ onSuccess, onError, onCancel }: CreateCommen
           render={({ field, fieldState }) => (
             <TextField
               {...field}
-              label="Post ID"
+              label="Post Id"
               helperText={fieldState.error?.message}
               error={!!fieldState.error}
               fullWidth

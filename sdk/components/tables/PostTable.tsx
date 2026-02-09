@@ -56,7 +56,7 @@ export function PostTable({ onView, onEdit, onDelete, tag }: PostTableProps) {
   const columns = useMemo<GridColDef[]>(() => [
     {
       field: 'id',
-      headerName: 'ID',
+      headerName: 'Id',
       width: 100,
       sortable: true,
     },
@@ -76,7 +76,7 @@ export function PostTable({ onView, onEdit, onDelete, tag }: PostTableProps) {
     },
     {
       field: 'authorId',
-      headerName: 'Author ID',
+      headerName: 'Author Id',
       minWidth: 120,
       flex: 1,
       sortable: true,
