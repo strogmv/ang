@@ -382,12 +382,14 @@ type FileMeta struct {
 
 // TargetDef describes the code generation target stack.
 type TargetDef struct {
+	Name      string // "go-core", "python-api"
 	Lang      string // "go", "python", "rust", "typescript"
 	Framework string // "chi", "echo", "fiber", "axum", "fastapi"
 	DB        string // "postgres", "mysql", "mongodb"
 	Cache     string // "redis", "memcached", "none"
 	Queue     string // "nats", "kafka", "rabbitmq"
 	Storage   string // "s3", "gcs", "minio"
+	OutputDir string // generated backend output root for this target
 }
 
 // TransformersConfig describes which transformers are enabled.

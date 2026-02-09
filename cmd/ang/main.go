@@ -623,21 +623,34 @@ func runBuild(args []string) {
 		}
 
 		var projectDef *normalizer.ProjectDef
-		var targetDef *normalizer.TargetDef
+		var targetDefs []normalizer.TargetDef
+		var projectVal cue.Value
 		if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/project"); err != nil {
 			fmt.Printf("Build FAILED during project load: %v\n", err)
 			return
 		} else if ok {
+			projectVal = val
 			projectDef, err = n.ExtractProject(val)
 			if err != nil {
 				fmt.Printf("Build FAILED during project parse: %v\n", err)
 				return
 			}
-			targetDef, err = n.ExtractTarget(val)
+			targetDefs, err = n.ExtractTargets(val)
 			if err != nil {
 				fmt.Printf("Build FAILED during target parse: %v\n", err)
 				return
 			}
+		}
+		if len(targetDefs) == 0 {
+			targetDefs = []normalizer.TargetDef{{
+				Name:      "default",
+				Lang:      "go",
+				Framework: "chi",
+				DB:        "postgres",
+				Cache:     "redis",
+				Queue:     "nats",
+				Storage:   "s3",
+			}}
 		}
 
 		if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/schema"); err == nil && ok {
@@ -654,35 +667,7 @@ func runBuild(args []string) {
 			goModule = "github.com/strogmv/ang"
 		}
 
-		em := emitter.New(output.BackendDir, output.FrontendDir, "templates")
-		em.FrontendAdminDir = output.FrontendAdminDir
-		em.Version = compiler.Version
-		em.InputHash = inputHash
-		em.CompilerHash = compilerHash
-		em.GoModule = goModule
 		pythonSDKEnabled := strings.TrimSpace(os.Getenv("ANG_PY_SDK")) == "1"
-
-		ctx := em.AnalyzeContext(services, entities, endpoints)
-		ctx.HasScheduler = len(schedules) > 0
-		ctx.InputHash = inputHash
-		ctx.CompilerHash = compilerHash
-		ctx.ANGVersion = compiler.Version
-		ctx.GoModule = goModule
-
-		if authDef != nil {
-			ctx.AuthService = authDef.Service
-			ctx.AuthRefreshStore = authDef.RefreshStore
-			if strings.EqualFold(authDef.RefreshStore, "redis") || strings.EqualFold(authDef.RefreshStore, "hybrid") {
-				ctx.HasCache = true
-			}
-			if strings.EqualFold(authDef.RefreshStore, "hybrid") {
-				ctx.HasSQL = true
-			}
-		}
-		for _, ev := range events {
-			ent := normalizer.Entity{Name: ev.Name, Fields: ev.Fields}
-			ctx.EventPayloads[ev.Name] = ent
-		}
 
 		var projectDefVal normalizer.ProjectDef
 		if projectDef != nil {
@@ -716,183 +701,232 @@ func runBuild(args []string) {
 		}
 
 		services = emitter.OrderServicesByDependencies(services)
-		ctx.Services = services
-		ctx.Entities = entities
+		isMicroservice := projectHasBuildStrategy(projectVal, "microservices")
 
-		for _, ep := range endpoints {
-			if strings.ToUpper(ep.Method) == "WS" {
-				ctx.WebSocketServices[ep.ServiceName] = true
-				if ctx.WSEventMap[ep.ServiceName] == nil {
-					ctx.WSEventMap[ep.ServiceName] = make(map[string]bool)
-				}
-				for _, msg := range ep.Messages {
-					if msg != "" {
-						ctx.WSEventMap[ep.ServiceName][msg] = true
-					}
-				}
-				if ctx.WSRoomField[ep.ServiceName] == "" {
-					param := ep.RoomParam
-					if param == "" {
-						param = firstPathParam(ep.Path)
-					}
-					if param != "" {
-						ctx.WSRoomField[ep.ServiceName] = emitter.ExportName(param)
-					}
-				}
+		selectedTargets := filterTargets(targetDefs, output.TargetSelector)
+		if len(selectedTargets) == 0 {
+			fmt.Printf("Build FAILED: no targets matched --target=%q\n", output.TargetSelector)
+			fmt.Println("Available targets:")
+			for _, td := range targetDefs {
+				fmt.Printf("  - %s (%s/%s/%s)\n", td.Name, td.Lang, td.Framework, td.DB)
 			}
+			return
 		}
 
-		projContent, _ := os.ReadFile("cue/project.cue")
-		isMicroservice := strings.Contains(string(projContent), `build_strategy: "microservices"`)
-		targetLang := "go"
-		targetFramework := "chi"
-		targetDB := "postgres"
-		if targetDef != nil {
-			if v := strings.TrimSpace(targetDef.Lang); v != "" {
-				targetLang = strings.ToLower(v)
-			}
-			if v := strings.TrimSpace(targetDef.Framework); v != "" {
-				targetFramework = strings.ToLower(v)
-			}
-			if v := strings.TrimSpace(targetDef.DB); v != "" {
-				targetDB = strings.ToLower(v)
-			}
-		}
-		isPythonFastAPI := targetLang == "python" && targetFramework == "fastapi" && targetDB == "postgres"
+		multiTarget := len(selectedTargets) > 1
+		for _, td := range selectedTargets {
+			backendDir := resolveBackendDirForTarget(output.BackendDir, td, multiTarget)
+			frontendDir := resolveFrontendDirForTarget(output.FrontendDir, backendDir, td, multiTarget)
+			fmt.Printf("Generating target %s (%s/%s/%s) -> %s\n", td.Name, td.Lang, td.Framework, td.DB, backendDir)
 
-		if isPythonFastAPI {
+			em := emitter.New(backendDir, frontendDir, "templates")
+			em.FrontendAdminDir = output.FrontendAdminDir
+			em.Version = compiler.Version
+			em.InputHash = inputHash
+			em.CompilerHash = compilerHash
+			em.GoModule = goModule
+
+			ctx := em.AnalyzeContext(services, entities, endpoints)
+			ctx.HasScheduler = len(schedules) > 0
+			ctx.InputHash = inputHash
+			ctx.CompilerHash = compilerHash
+			ctx.ANGVersion = compiler.Version
+			ctx.GoModule = goModule
+			ctx.Services = services
+			ctx.Entities = entities
+			if authDef != nil {
+				ctx.AuthService = authDef.Service
+				ctx.AuthRefreshStore = authDef.RefreshStore
+				if strings.EqualFold(authDef.RefreshStore, "redis") || strings.EqualFold(authDef.RefreshStore, "hybrid") {
+					ctx.HasCache = true
+				}
+				if strings.EqualFold(authDef.RefreshStore, "hybrid") {
+					ctx.HasSQL = true
+				}
+			}
+			for _, ev := range events {
+				ent := normalizer.Entity{Name: ev.Name, Fields: ev.Fields}
+				ctx.EventPayloads[ev.Name] = ent
+			}
+			for _, ep := range endpoints {
+				if strings.ToUpper(ep.Method) == "WS" {
+					ctx.WebSocketServices[ep.ServiceName] = true
+					if ctx.WSEventMap[ep.ServiceName] == nil {
+						ctx.WSEventMap[ep.ServiceName] = make(map[string]bool)
+					}
+					for _, msg := range ep.Messages {
+						if msg != "" {
+							ctx.WSEventMap[ep.ServiceName][msg] = true
+						}
+					}
+					if ctx.WSRoomField[ep.ServiceName] == "" {
+						param := ep.RoomParam
+						if param == "" {
+							param = firstPathParam(ep.Path)
+						}
+						if param != "" {
+							ctx.WSRoomField[ep.ServiceName] = emitter.ExportName(param)
+						}
+					}
+				}
+			}
+
+			targetLang := strings.ToLower(strings.TrimSpace(td.Lang))
+			if targetLang == "" {
+				targetLang = "go"
+			}
+			targetFramework := strings.ToLower(strings.TrimSpace(td.Framework))
+			if targetFramework == "" {
+				targetFramework = "chi"
+			}
+			targetDB := strings.ToLower(strings.TrimSpace(td.DB))
+			if targetDB == "" {
+				targetDB = "postgres"
+			}
+			isPythonFastAPI := targetLang == "python" && targetFramework == "fastapi" && targetDB == "postgres"
+
+			if isPythonFastAPI {
+				steps := []struct {
+					name string
+					fn   func() error
+				}{
+					{"OpenAPI", func() error { return em.EmitOpenAPI(endpoints, services, bizErrors, projectDef) }},
+					{"AsyncAPI", func() error { return em.EmitAsyncAPI(events, projectDef) }},
+					{"Python FastAPI Backend", func() error {
+						return em.EmitPythonFastAPIBackend(entities, rawServices, endpoints, repos, projectDef)
+					}},
+					{"Python SDK", func() error {
+						if !pythonSDKEnabled {
+							return nil
+						}
+						return em.EmitPythonSDK(endpoints, services, entities, projectDef)
+					}},
+					{"System Manifest", func() error { return em.EmitManifest(irSchema) }},
+				}
+
+				for _, step := range steps {
+					if err := step.fn(); err != nil {
+						fmt.Printf("Error during %s for target %s: %v\n", step.name, td.Name, err)
+						return
+					}
+				}
+				continue
+			}
+
+			targetOutput := output
+			targetOutput.BackendDir = backendDir
+			targetOutput.FrontendDir = frontendDir
+			if multiTarget && strings.TrimSpace(output.FrontendAppDir) != "" {
+				targetOutput.FrontendAppDir = filepath.Join(output.FrontendAppDir, safeTargetDirName(td.Name))
+			}
+			if multiTarget && strings.TrimSpace(output.FrontendAdminAppDir) != "" {
+				targetOutput.FrontendAdminAppDir = filepath.Join(output.FrontendAdminAppDir, safeTargetDirName(td.Name))
+			}
+			if multiTarget && strings.TrimSpace(output.FrontendEnvPath) != "" {
+				targetOutput.FrontendEnvPath = filepath.Join(output.FrontendEnvPath, safeTargetDirName(td.Name), ".env.example")
+			}
+
 			steps := []struct {
 				name string
 				fn   func() error
 			}{
+				{"Config", func() error { return em.EmitConfig(cfgDef) }},
+				{"Logger", func() error { return em.EmitLogger() }},
+				{"RBAC", func() error { return em.EmitRBAC(rbacDef) }},
+				{"Domain Entities", func() error { return em.EmitDomain(irSchema.Entities) }},
+				{"DTOs", func() error { return em.EmitDTO(irSchema.Entities) }},
+				{"Service Ports", func() error { return em.EmitService(services) }},
+				{"HTTP Handlers", func() error { return em.EmitHTTP(endpoints, services, events, authDef) }},
+				{"Health Probes", func() error { return em.EmitHealth() }},
+				{"Repository Ports", func() error { return em.EmitRepository(repos, entities) }}, {"Transaction Port", func() error { return em.EmitTransactionPort() }},
+				{"Storage Port", func() error { return em.EmitStoragePort() }},
+				{"S3 Client", func() error { return em.EmitS3Client() }},
+				{"Postgres Repos", func() error { return em.EmitPostgresRepo(repos, entities) }},
+				{"Postgres Common", func() error { return em.EmitPostgresCommon() }},
+				{"Mongo Repos", func() error { return em.EmitMongoRepo(repos, entities) }},
+				{"Mongo Common", func() error { return em.EmitMongoCommon(entities) }},
+				{"SQL Schema", func() error { return em.EmitSQL(entities) }},
+				{"Infra Configs", func() error { return em.EmitInfraConfigs() }},
+				{"SQL Queries", func() error { return em.EmitSQLQueries(entities) }},
+				{"Mongo Schemas", func() error { return em.EmitMongoSchema(entities) }},
+				{"Repo Stubs", func() error { return em.EmitStubRepo(repos, entities) }},
+				{"Redis Client", func() error { return em.EmitRedisClient() }},
+				{"Auth Package", func() error { return em.EmitAuthPackage(authDef) }},
+				{"Refresh Store Port", func() error { return em.EmitRefreshTokenStorePort() }},
+				{"Refresh Store Memory", func() error { return em.EmitRefreshTokenStoreMemory() }},
+				{"Refresh Store Redis", func() error { return em.EmitRefreshTokenStoreRedis() }},
+				{"Refresh Store Postgres", func() error { return em.EmitRefreshTokenStorePostgres() }},
+				{"Refresh Store Hybrid", func() error { return em.EmitRefreshTokenStoreHybrid() }},
+				{"Mailer Port", func() error { return em.EmitMailerPort() }},
+				{"SMTP Client", func() error { return em.EmitMailerAdapter() }},
+				{"Events", func() error { return em.EmitEvents(events) }},
+				{"Scheduler", func() error { return em.EmitScheduler(schedules) }},
+				{"Publisher Interface", func() error { return em.EmitPublisherInterface(services, schedules) }},
+				{"NATS Adapter", func() error { return em.EmitNatsAdapter(services, schedules) }},
+				{"Metrics Middleware", func() error { return em.EmitMetrics() }},
+				{"Logging Middleware", func() error { return em.EmitLoggingMiddleware() }},
+				{"Errors", func() error { return em.EmitErrors(bizErrors) }},
+				{"Views", func() error { return em.EmitViews(views) }},
 				{"OpenAPI", func() error { return em.EmitOpenAPI(endpoints, services, bizErrors, projectDef) }},
 				{"AsyncAPI", func() error { return em.EmitAsyncAPI(events, projectDef) }},
-				{"Python FastAPI Backend", func() error {
-					return em.EmitPythonFastAPIBackend(entities, rawServices, endpoints, repos, projectDef)
+				{"Contract Tests", func() error { return em.EmitContractTests(endpoints, services) }},
+				{"E2E Behavioral Tests", func() error { return em.EmitE2ETests(scenarios) }},
+				{"Test Stubs", func() error {
+					if targetOutput.TestStubs {
+						report, err := checkTestCoverage(endpoints, "tests")
+						if err != nil {
+							return fmt.Errorf("check coverage: %w", err)
+						}
+						var missing []normalizer.Endpoint
+						missingMap := make(map[string]bool)
+						for _, m := range report.MissingTests {
+							missingMap[m.Method+" "+m.Path] = true
+						}
+						for _, ep := range endpoints {
+							if missingMap[ep.Method+" "+ep.Path] {
+								missing = append(missing, ep)
+							}
+						}
+						if len(missing) == 0 {
+							fmt.Println("No missing tests found. Skipping stub generation.")
+							return nil
+						}
+						return em.EmitTestStubs(missing, "NEW-endpoint-stubs.test.ts")
+					}
+					return nil
 				}},
+				{"Frontend SDK", func() error { return em.EmitFrontendSDK(entities, services, endpoints, events, bizErrors, rbacDef) }},
 				{"Python SDK", func() error {
 					if !pythonSDKEnabled {
 						return nil
 					}
 					return em.EmitPythonSDK(endpoints, services, entities, projectDef)
 				}},
+				{"Frontend Components", func() error { return em.EmitFrontendComponents(services, endpoints, entities) }},
+				{"Frontend Admin", func() error { return em.EmitFrontendAdmin(entities, services) }},
+				{"Frontend SDK Copy", func() error { return copyFrontendSDK(targetOutput.FrontendDir, targetOutput.FrontendAppDir) }},
+				{"Frontend Admin Copy", func() error {
+					return copyFrontendAdmin(targetOutput.FrontendAdminDir, targetOutput.FrontendAdminAppDir)
+				}},
+				{"Frontend Env Example", func() error { return writeEnvExample(targetOutput) }},
+				{"Tracing", func() error { return em.EmitTracing() }},
 				{"System Manifest", func() error { return em.EmitManifest(irSchema) }},
+				{"Service Impls", func() error { return em.EmitServiceImpl(services, entities, authDef) }},
+				{"Cached Services", func() error { return em.EmitCachedService(services) }},
+				{"K8s Manifests", func() error { return em.EmitK8s(services, isMicroservice) }},
+				{"Server Main", func() error {
+					if isMicroservice {
+						return em.EmitMicroservices(services, ctx.WebSocketServices, authDef)
+					}
+					return em.EmitMain(ctx)
+				}},
 			}
 
 			for _, step := range steps {
 				if err := step.fn(); err != nil {
-					fmt.Printf("Error during %s: %v\n", step.name, err)
+					fmt.Printf("Error during %s for target %s: %v\n", step.name, td.Name, err)
 					return
 				}
-			}
-
-			if err := runOptionalMCPGeneration(projectPath); err != nil {
-				fmt.Printf("Error during MCP Generation: %v\n", err)
-				return
-			}
-
-			fmt.Println("\nBuild SUCCESSFUL.")
-			return
-		}
-
-		steps := []struct {
-			name string
-			fn   func() error
-		}{
-			{"Config", func() error { return em.EmitConfig(cfgDef) }},
-			{"Logger", func() error { return em.EmitLogger() }},
-			{"RBAC", func() error { return em.EmitRBAC(rbacDef) }},
-			{"Domain Entities", func() error { return em.EmitDomain(irSchema.Entities) }},
-			{"DTOs", func() error { return em.EmitDTO(irSchema.Entities) }},
-			{"Service Ports", func() error { return em.EmitService(services) }},
-			{"HTTP Handlers", func() error { return em.EmitHTTP(endpoints, services, events, authDef) }},
-			{"Health Probes", func() error { return em.EmitHealth() }},
-			{"Repository Ports", func() error { return em.EmitRepository(repos, entities) }}, {"Transaction Port", func() error { return em.EmitTransactionPort() }},
-			{"Storage Port", func() error { return em.EmitStoragePort() }},
-			{"S3 Client", func() error { return em.EmitS3Client() }},
-			{"Postgres Repos", func() error { return em.EmitPostgresRepo(repos, entities) }},
-			{"Postgres Common", func() error { return em.EmitPostgresCommon() }},
-			{"Mongo Repos", func() error { return em.EmitMongoRepo(repos, entities) }},
-			{"Mongo Common", func() error { return em.EmitMongoCommon(entities) }},
-			{"SQL Schema", func() error { return em.EmitSQL(entities) }},
-			{"Infra Configs", func() error { return em.EmitInfraConfigs() }},
-			{"SQL Queries", func() error { return em.EmitSQLQueries(entities) }},
-			{"Mongo Schemas", func() error { return em.EmitMongoSchema(entities) }},
-			{"Repo Stubs", func() error { return em.EmitStubRepo(repos, entities) }},
-			{"Redis Client", func() error { return em.EmitRedisClient() }},
-			{"Auth Package", func() error { return em.EmitAuthPackage(authDef) }},
-			{"Refresh Store Port", func() error { return em.EmitRefreshTokenStorePort() }},
-			{"Refresh Store Memory", func() error { return em.EmitRefreshTokenStoreMemory() }},
-			{"Refresh Store Redis", func() error { return em.EmitRefreshTokenStoreRedis() }},
-			{"Refresh Store Postgres", func() error { return em.EmitRefreshTokenStorePostgres() }},
-			{"Refresh Store Hybrid", func() error { return em.EmitRefreshTokenStoreHybrid() }},
-			{"Mailer Port", func() error { return em.EmitMailerPort() }},
-			{"SMTP Client", func() error { return em.EmitMailerAdapter() }},
-			{"Events", func() error { return em.EmitEvents(events) }},
-			{"Scheduler", func() error { return em.EmitScheduler(schedules) }},
-			{"Publisher Interface", func() error { return em.EmitPublisherInterface(services, schedules) }},
-			{"NATS Adapter", func() error { return em.EmitNatsAdapter(services, schedules) }},
-			{"Metrics Middleware", func() error { return em.EmitMetrics() }},
-			{"Logging Middleware", func() error { return em.EmitLoggingMiddleware() }},
-			{"Errors", func() error { return em.EmitErrors(bizErrors) }},
-			{"Views", func() error { return em.EmitViews(views) }},
-			{"OpenAPI", func() error { return em.EmitOpenAPI(endpoints, services, bizErrors, projectDef) }},
-			{"AsyncAPI", func() error { return em.EmitAsyncAPI(events, projectDef) }},
-			{"Contract Tests", func() error { return em.EmitContractTests(endpoints, services) }},
-			{"E2E Behavioral Tests", func() error { return em.EmitE2ETests(scenarios) }},
-			{"Test Stubs", func() error {
-				if output.TestStubs {
-					report, err := checkTestCoverage(endpoints, "tests")
-					if err != nil {
-						return fmt.Errorf("check coverage: %w", err)
-					}
-					var missing []normalizer.Endpoint
-					missingMap := make(map[string]bool)
-					for _, m := range report.MissingTests {
-						missingMap[m.Method+" "+m.Path] = true
-					}
-					for _, ep := range endpoints {
-						if missingMap[ep.Method+" "+ep.Path] {
-							missing = append(missing, ep)
-						}
-					}
-					if len(missing) == 0 {
-						fmt.Println("No missing tests found. Skipping stub generation.")
-						return nil
-					}
-					return em.EmitTestStubs(missing, "NEW-endpoint-stubs.test.ts")
-				}
-				return nil
-			}},
-			{"Frontend SDK", func() error { return em.EmitFrontendSDK(entities, services, endpoints, events, bizErrors, rbacDef) }},
-			{"Python SDK", func() error {
-				if !pythonSDKEnabled {
-					return nil
-				}
-				return em.EmitPythonSDK(endpoints, services, entities, projectDef)
-			}},
-			{"Frontend Components", func() error { return em.EmitFrontendComponents(services, endpoints, entities) }},
-			{"Frontend Admin", func() error { return em.EmitFrontendAdmin(entities, services) }},
-			{"Frontend SDK Copy", func() error { return copyFrontendSDK(output.FrontendDir, output.FrontendAppDir) }},
-			{"Frontend Admin Copy", func() error { return copyFrontendAdmin(output.FrontendAdminDir, output.FrontendAdminAppDir) }},
-			{"Frontend Env Example", func() error { return writeEnvExample(output) }},
-			{"Tracing", func() error { return em.EmitTracing() }},
-			{"System Manifest", func() error { return em.EmitManifest(irSchema) }},
-			{"Service Impls", func() error { return em.EmitServiceImpl(services, entities, authDef) }},
-			{"Cached Services", func() error { return em.EmitCachedService(services) }},
-			{"K8s Manifests", func() error { return em.EmitK8s(services, isMicroservice) }},
-			{"Server Main", func() error {
-				if isMicroservice {
-					return em.EmitMicroservices(services, ctx.WebSocketServices, authDef)
-				}
-				return em.EmitMain(ctx)
-			}},
-		}
-
-		for _, step := range steps {
-			if err := step.fn(); err != nil {
-				fmt.Printf("Error during %s: %v\n", step.name, err)
-				return
 			}
 		}
 
@@ -1027,6 +1061,7 @@ type OutputOptions struct {
 	FrontendAdminDir    string
 	FrontendAdminAppDir string
 	TestStubs           bool
+	TargetSelector      string
 }
 
 func parseOutputOptions(args []string) (OutputOptions, error) {
@@ -1039,6 +1074,7 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 	frontendAdminFlag := fs.String("frontend-admin", "", "frontend admin output dir")
 	frontendAdminAppFlag := fs.String("frontend-admin-app", "", "copy generated admin into this app dir")
 	testStubsFlag := fs.Bool("test-stubs", false, "generate vitest stubs for all endpoints")
+	targetFlag := fs.String("target", "", "build only selected target(s): name or lang/framework/db (comma-separated)")
 	if err := fs.Parse(args); err != nil {
 		return OutputOptions{}, err
 	}
@@ -1061,6 +1097,7 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 		FrontendAdminDir:    strings.TrimSpace(*frontendAdminFlag),
 		FrontendAdminAppDir: strings.TrimSpace(*frontendAdminAppFlag),
 		TestStubs:           *testStubsFlag,
+		TargetSelector:      strings.TrimSpace(*targetFlag),
 	}, nil
 }
 
@@ -1357,6 +1394,105 @@ func printAPIDiff(report apiDiffReport) {
 		}
 	}
 	fmt.Printf("Recommended semver bump: %s\n", report.Semver)
+}
+
+func projectHasBuildStrategy(projectVal cue.Value, expected string) bool {
+	if !projectVal.Exists() {
+		return false
+	}
+	check := func(path string) bool {
+		v := projectVal.LookupPath(cue.ParsePath(path))
+		if !v.Exists() {
+			return false
+		}
+		s, err := v.String()
+		if err != nil {
+			return false
+		}
+		return strings.EqualFold(strings.TrimSpace(s), strings.TrimSpace(expected))
+	}
+	return check("state.build_strategy") || check("#Project.build_strategy")
+}
+
+func filterTargets(targets []normalizer.TargetDef, selector string) []normalizer.TargetDef {
+	selector = strings.TrimSpace(selector)
+	if selector == "" {
+		return targets
+	}
+	parts := strings.Split(selector, ",")
+	var sels []string
+	for _, part := range parts {
+		part = strings.ToLower(strings.TrimSpace(part))
+		if part != "" {
+			sels = append(sels, part)
+		}
+	}
+	if len(sels) == 0 {
+		return targets
+	}
+	var out []normalizer.TargetDef
+	for _, td := range targets {
+		for _, sel := range sels {
+			if targetMatchesSelector(td, sel) {
+				out = append(out, td)
+				break
+			}
+		}
+	}
+	return out
+}
+
+func targetMatchesSelector(td normalizer.TargetDef, selector string) bool {
+	name := strings.ToLower(strings.TrimSpace(td.Name))
+	lang := strings.ToLower(strings.TrimSpace(td.Lang))
+	framework := strings.ToLower(strings.TrimSpace(td.Framework))
+	db := strings.ToLower(strings.TrimSpace(td.DB))
+	stack := strings.Trim(strings.Join([]string{lang, framework, db}, "/"), "/")
+	if selector == name || selector == stack {
+		return true
+	}
+	if selector == lang {
+		return true
+	}
+	return false
+}
+
+func resolveBackendDirForTarget(baseBackendDir string, td normalizer.TargetDef, multiTarget bool) string {
+	if v := strings.TrimSpace(td.OutputDir); v != "" {
+		return normalizeBackendDir(v)
+	}
+	if multiTarget {
+		return normalizeBackendDir(filepath.Join(baseBackendDir, safeTargetDirName(td.Name)))
+	}
+	return normalizeBackendDir(baseBackendDir)
+}
+
+func resolveFrontendDirForTarget(baseFrontendDir, backendDir string, td normalizer.TargetDef, multiTarget bool) string {
+	trimmed := strings.TrimSpace(baseFrontendDir)
+	if trimmed == "" {
+		trimmed = "sdk"
+	}
+	if multiTarget {
+		if filepath.IsAbs(trimmed) {
+			return filepath.Join(trimmed, safeTargetDirName(td.Name))
+		}
+		return filepath.Join(backendDir, trimmed)
+	}
+	return trimmed
+}
+
+func safeTargetDirName(name string) string {
+	v := strings.TrimSpace(strings.ToLower(name))
+	if v == "" {
+		return "target"
+	}
+	replacer := strings.NewReplacer("/", "-", "\\", "-", " ", "-", ":", "-", ".", "-")
+	v = replacer.Replace(v)
+	v = strings.Trim(v, "-")
+	if v == "" {
+		return "target"
+	}
+	return v
 }
 
 func copyFrontendSDK(srcDir, appDir string) error {

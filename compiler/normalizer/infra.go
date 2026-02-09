@@ -518,8 +518,12 @@ func (n *Normalizer) ExtractProject(val cue.Value) (*ProjectDef, error) {
 func (n *Normalizer) ExtractTarget(val cue.Value) (*TargetDef, error) {
 	targetVal := val.LookupPath(cue.ParsePath("#Target"))
 	if !targetVal.Exists() {
+		targetVal = val.LookupPath(cue.ParsePath("state.target"))
+	}
+	if !targetVal.Exists() {
 		// Return defaults
 		return &TargetDef{
+			Name:      "default",
 			Lang:      "go",
 			Framework: "chi",
 			DB:        "postgres",
@@ -529,14 +533,67 @@ func (n *Normalizer) ExtractTarget(val cue.Value) (*TargetDef, error) {
 		}, nil
 	}
 
-	return &TargetDef{
-		Lang:      getStringWithDefault(targetVal, "lang", "go"),
-		Framework: getStringWithDefault(targetVal, "framework", "chi"),
-		DB:        getStringWithDefault(targetVal, "db", "postgres"),
-		Cache:     getStringWithDefault(targetVal, "cache", "redis"),
-		Queue:     getStringWithDefault(targetVal, "queue", "nats"),
-		Storage:   getStringWithDefault(targetVal, "storage", "s3"),
-	}, nil
+	td := parseTargetDef(targetVal, "default")
+	return &td, nil
+}
+
+// ExtractTargets parses multi-target config from project.cue.
+// Supported locations:
+// - #Targets: [...]
+// - state.targets: [...]
+// Falls back to a single target from ExtractTarget.
+func (n *Normalizer) ExtractTargets(val cue.Value) ([]TargetDef, error) {
+	parseList := func(listVal cue.Value) ([]TargetDef, error) {
+		it, err := listVal.List()
+		if err != nil {
+			return nil, err
+		}
+		var out []TargetDef
+		idx := 1
+		for it.Next() {
+			td := parseTargetDef(it.Value(), fmt.Sprintf("target%d", idx))
+			out = append(out, td)
+			idx++
+		}
+		return out, nil
+	}
+
+	targetsVal := val.LookupPath(cue.ParsePath("#Targets"))
+	if !targetsVal.Exists() {
+		targetsVal = val.LookupPath(cue.ParsePath("state.targets"))
+	}
+
+	if targetsVal.Exists() {
+		targets, err := parseList(targetsVal)
+		if err != nil {
+			return nil, err
+		}
+		if len(targets) == 0 {
+			return targets, nil
+		}
+		seen := map[string]int{}
+		for i := range targets {
+			key := strings.ToLower(strings.TrimSpace(targets[i].Name))
+			if key == "" {
+				key = fmt.Sprintf("target%d", i+1)
+				targets[i].Name = key
+			}
+			seen[key]++
+			if seen[key] > 1 {
+				targets[i].Name = fmt.Sprintf("%s-%d", targets[i].Name, seen[key])
+			}
+		}
+		return targets, nil
+	}
+
+	td, err := n.ExtractTarget(val)
+	if err != nil {
+		return nil, err
+	}
+	if td == nil {
+		return nil, nil
+	}
+	return []TargetDef{*td}, nil
 }
 
 // ExtractTransformersConfig parses #Transformers from project.cue.
@@ -615,4 +672,25 @@ func getStringWithDefault(v cue.Value, path, def string) string {
 		return def
 	}
 	return strings.TrimSpace(s)
+}
+
+func parseTargetDef(targetVal cue.Value, defaultName string) TargetDef {
+	outputDir := getStringWithDefault(targetVal, "output_dir", "")
+	if strings.TrimSpace(outputDir) == "" {
+		outputDir = getStringWithDefault(targetVal, "outputDir", "")
+	}
+	name := getStringWithDefault(targetVal, "name", defaultName)
+	if strings.TrimSpace(name) == "" {
+		name = defaultName
+	}
+	return TargetDef{
+		Name:      strings.TrimSpace(name),
+		Lang:      getStringWithDefault(targetVal, "lang", "go"),
+		Framework: getStringWithDefault(targetVal, "framework", "chi"),
+		DB:        getStringWithDefault(targetVal, "db", "postgres"),
+		Cache:     getStringWithDefault(targetVal, "cache", "redis"),
+		Queue:     getStringWithDefault(targetVal, "queue", "nats"),
+		Storage:   getStringWithDefault(targetVal, "storage", "s3"),
+		OutputDir: strings.TrimSpace(outputDir),
+	}
 }
