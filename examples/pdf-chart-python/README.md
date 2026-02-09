@@ -5,8 +5,11 @@ ANG example where generation from CUE produces a Python/FastAPI service endpoint
 ## Generate
 
 ```bash
-go run ./cmd/ang build examples/pdf-chart-python --backend examples/pdf-chart-python --frontend examples/pdf-chart-python/sdk
+go run ./cmd/ang build examples/pdf-chart-python --target=python
 ```
+
+The source of truth is only `examples/pdf-chart-python/cue/*`.
+`ang build` reads that CUE and regenerates `examples/pdf-chart-python/app/*` and `examples/pdf-chart-python/api/*`.
 
 ## Run
 

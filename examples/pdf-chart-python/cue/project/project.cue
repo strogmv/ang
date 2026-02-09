@@ -6,11 +6,14 @@ package project
 }
 
 #Target: {
-  lang: "python"
-  framework: "fastapi"
-  db: "postgres"
+  name:       "python-pdf"
+  lang:       "python"
+  framework:  "fastapi"
+  db:         "postgres"
+  output_dir: "examples/pdf-chart-python"
 }
 
 state: {
   target: #Target
+  targets: [#Target]
 }

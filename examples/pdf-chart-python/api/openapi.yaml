@@ -3,8 +3,8 @@ info:
   title: PDF Chart Service API
   version: 0.1.0
   x-ang-version: 0.1.44
-  x-ang-input-hash: 8c4d8a9411951104a8928e866a84e08d52770306bde141b80280a367135b0398
-  x-ang-compiler-hash: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+  x-ang-input-hash: 0a81d4c0ee10f7b8123df2c0a182c83c24031b867870c56244122575c530b59c
+  x-ang-compiler-hash: af93e391f7d92ae94f6ae6c7ead873233a43d4f0f2666342a7013ec8436b5cfd
 paths:
   /reports/pdf:
     post:

@@ -554,7 +554,11 @@ func runBuild(args []string) {
 	buildTask := func() {
 		fmt.Println("Compiling intent to Go...")
 
-		output, err := parseOutputOptions(args)
+		parseArgs := args
+		if len(parseArgs) > 0 && !strings.HasPrefix(parseArgs[0], "-") {
+			parseArgs = parseArgs[1:]
+		}
+		output, err := parseOutputOptions(parseArgs)
 		if err != nil {
 			fmt.Printf("Build FAILED: %v\n", err)
 			return
@@ -573,7 +577,7 @@ func runBuild(args []string) {
 
 		var cfgDef *normalizer.ConfigDef
 		var authDef *normalizer.AuthDef
-		if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/infra"); err != nil {
+		if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, "cue/infra")); err != nil {
 			fmt.Printf("Build FAILED during config load: %v\n", err)
 			return
 		} else if ok {
@@ -590,7 +594,7 @@ func runBuild(args []string) {
 		}
 
 		var rbacDef *normalizer.RBACDef
-		if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/rbac"); err != nil {
+		if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, "cue/rbac")); err != nil {
 			fmt.Printf("Build FAILED during RBAC load: %v\n", err)
 			return
 		} else if ok {
@@ -599,7 +603,7 @@ func runBuild(args []string) {
 				fmt.Printf("Build FAILED during RBAC parse: %v\n", err)
 				return
 			}
-		} else if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/policies"); err != nil {
+		} else if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, "cue/policies")); err != nil {
 			fmt.Printf("Build FAILED during RBAC load: %v\n", err)
 			return
 		} else if ok {
@@ -611,7 +615,7 @@ func runBuild(args []string) {
 		}
 
 		var views []normalizer.ViewDef
-		if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/views"); err != nil {
+		if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, "cue/views")); err != nil {
 			fmt.Printf("Build FAILED during views load: %v\n", err)
 			return
 		} else if ok {
@@ -625,7 +629,7 @@ func runBuild(args []string) {
 		var projectDef *normalizer.ProjectDef
 		var targetDefs []normalizer.TargetDef
 		var projectVal cue.Value
-		if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/project"); err != nil {
+		if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, "cue/project")); err != nil {
 			fmt.Printf("Build FAILED during project load: %v\n", err)
 			return
 		} else if ok {
@@ -653,7 +657,7 @@ func runBuild(args []string) {
 			}}
 		}
 
-		if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/schema"); err == nil && ok {
+		if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, "cue/schema")); err == nil && ok {
 			if err := n.LoadCodegenConfig(val); err != nil {
 				fmt.Printf("Warning: failed to load codegen config: %v\n", err)
 			}
