@@ -23,7 +23,7 @@ func TestBuildPythonEndpointsUniqueNames(t *testing.T) {
 		{Method: "WS", Path: "/ws", RPC: "WsIgnored"},
 	}
 
-	got := buildPythonEndpoints(eps)
+	got := buildPythonEndpoints(eps, nil)
 	if len(got) != 2 {
 		t.Fatalf("expected 2 endpoints, got %d", len(got))
 	}
@@ -33,6 +33,35 @@ func TestBuildPythonEndpointsUniqueNames(t *testing.T) {
 	}
 	if got[1].MethodName != "find_user_post" {
 		t.Fatalf("unexpected second method name: %s", got[1].MethodName)
+	}
+}
+
+func TestBuildPythonEndpointsTypedFromServiceMethods(t *testing.T) {
+	services := []normalizer.Service{
+		{
+			Name: "Auth",
+			Methods: []normalizer.Method{
+				{
+					Name:   "Login",
+					Input:  normalizer.Entity{Name: "LoginRequest"},
+					Output: normalizer.Entity{Name: "AuthTokens"},
+				},
+			},
+		},
+	}
+	eps := []normalizer.Endpoint{
+		{Method: "POST", Path: "/auth/login", ServiceName: "Auth", RPC: "Login"},
+	}
+
+	got := buildPythonEndpoints(eps, buildPythonRPCSignatures(services))
+	if len(got) != 1 {
+		t.Fatalf("expected 1 endpoint, got %d", len(got))
+	}
+	if got[0].PayloadType != "models.LoginRequest" {
+		t.Fatalf("unexpected payload type: %s", got[0].PayloadType)
+	}
+	if got[0].ReturnType != "models.AuthTokens" {
+		t.Fatalf("unexpected return type: %s", got[0].ReturnType)
 	}
 }
 

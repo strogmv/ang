@@ -14,13 +14,15 @@ import (
 )
 
 type pythonEndpoint struct {
-	RPC        string
-	MethodName string
-	MethodBase string
-	Method     string
-	Path       string
-	PathParams []string
-	HasBody    bool
+	RPC         string
+	MethodName  string
+	MethodBase  string
+	Method      string
+	Path        string
+	PathParams  []string
+	HasBody     bool
+	PayloadType string
+	ReturnType  string
 }
 
 type pythonSDKData struct {
@@ -41,7 +43,7 @@ type pythonSDKModelField struct {
 }
 
 // EmitPythonSDK generates a minimal Python client SDK from normalized endpoints.
-func (e *Emitter) EmitPythonSDK(endpoints []normalizer.Endpoint, entities []normalizer.Entity, project *normalizer.ProjectDef) error {
+func (e *Emitter) EmitPythonSDK(endpoints []normalizer.Endpoint, services []normalizer.Service, entities []normalizer.Entity, project *normalizer.ProjectDef) error {
 	version := strings.TrimSpace(e.Version)
 	if project != nil {
 		if v := strings.TrimSpace(project.Version); v != "" {
@@ -54,7 +56,7 @@ func (e *Emitter) EmitPythonSDK(endpoints []normalizer.Endpoint, entities []norm
 
 	data := pythonSDKData{
 		Version:   version,
-		Endpoints: buildPythonEndpoints(endpoints),
+		Endpoints: buildPythonEndpoints(endpoints, buildPythonRPCSignatures(services)),
 		Models:    buildPythonSDKModels(entities),
 	}
 
@@ -119,6 +121,25 @@ func buildPythonSDKModels(entities []normalizer.Entity) []pythonSDKModel {
 	return out
 }
 
+type pythonRPCSignature struct {
+	InputModel  string
+	OutputModel string
+}
+
+func buildPythonRPCSignatures(services []normalizer.Service) map[string]pythonRPCSignature {
+	out := make(map[string]pythonRPCSignature, len(services))
+	for _, svc := range services {
+		for _, m := range svc.Methods {
+			key := strings.ToLower(strings.TrimSpace(svc.Name)) + ":" + strings.ToLower(strings.TrimSpace(m.Name))
+			out[key] = pythonRPCSignature{
+				InputModel:  ExportName(strings.TrimSpace(m.Input.Name)),
+				OutputModel: ExportName(strings.TrimSpace(m.Output.Name)),
+			}
+		}
+	}
+	return out
+}
+
 func pythonSDKFieldType(f normalizer.Field) string {
 	base := "Any"
 	switch strings.ToLower(strings.TrimSpace(f.Type)) {
@@ -148,7 +169,7 @@ func pythonSDKFieldType(f normalizer.Field) string {
 
 var pathParamRe = regexp.MustCompile(`\{([a-zA-Z0-9_]+)\}`)
 
-func buildPythonEndpoints(endpoints []normalizer.Endpoint) []pythonEndpoint {
+func buildPythonEndpoints(endpoints []normalizer.Endpoint, sigs map[string]pythonRPCSignature) []pythonEndpoint {
 	out := make([]pythonEndpoint, 0, len(endpoints))
 	for _, ep := range endpoints {
 		if strings.EqualFold(ep.Method, "WS") {
@@ -159,13 +180,25 @@ func buildPythonEndpoints(endpoints []normalizer.Endpoint) []pythonEndpoint {
 			continue
 		}
 		params := pathParamNames(ep.Path)
+		sigKey := strings.ToLower(strings.TrimSpace(ep.ServiceName)) + ":" + strings.ToLower(strings.TrimSpace(ep.RPC))
+		sig := sigs[sigKey]
+		payloadType := "dict[str, Any]"
+		if sig.InputModel != "" && sig.InputModel != "Any" {
+			payloadType = "models." + sig.InputModel
+		}
+		returnType := "Any"
+		if sig.OutputModel != "" && sig.OutputModel != "Any" {
+			returnType = "models." + sig.OutputModel
+		}
 		out = append(out, pythonEndpoint{
-			RPC:        ep.RPC,
-			MethodBase: toSnake(ep.RPC),
-			Method:     method,
-			Path:       ep.Path,
-			PathParams: params,
-			HasBody:    method != "GET" && method != "DELETE",
+			RPC:         ep.RPC,
+			MethodBase:  toSnake(ep.RPC),
+			Method:      method,
+			Path:        ep.Path,
+			PathParams:  params,
+			HasBody:     method != "GET" && method != "DELETE",
+			PayloadType: payloadType,
+			ReturnType:  returnType,
 		})
 	}
 

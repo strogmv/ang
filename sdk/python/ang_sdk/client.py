@@ -7,6 +7,7 @@ from typing import Any, Callable
 import httpx
 
 from .errors import AngAPIError, ProblemDetails
+from . import models
 
 
 class AngClient:
@@ -78,7 +79,7 @@ class AngClient:
         raise AngAPIError(response.status_code, response.reason_phrase or f"HTTP {response.status_code}", response_text=response.text)
 
 
-    def delete_comment(self, id: str) -> Any:
+    def delete_comment(self, id: str) -> models.DeleteCommentResponse | Any | None:
         response = self._client.request(
             "DELETE",
             f"/comments/{id}",
@@ -93,7 +94,7 @@ class AngClient:
         return response.text
 
 
-    def delete_post(self, id: str) -> Any:
+    def delete_post(self, id: str) -> models.DeletePostResponse | Any | None:
         response = self._client.request(
             "DELETE",
             f"/posts/{id}",
@@ -108,7 +109,7 @@ class AngClient:
         return response.text
 
 
-    def delete_tag(self, id: str) -> Any:
+    def delete_tag(self, id: str) -> models.DeleteTagResponse | Any | None:
         response = self._client.request(
             "DELETE",
             f"/tags/{id}",
@@ -123,7 +124,7 @@ class AngClient:
         return response.text
 
 
-    def get_profile(self) -> Any:
+    def get_profile(self) -> models.GetProfileResponse | Any | None:
         response = self._client.request(
             "GET",
             f"/auth/profile",
@@ -138,7 +139,7 @@ class AngClient:
         return response.text
 
 
-    def list_my_posts(self) -> Any:
+    def list_my_posts(self) -> models.ListMyPostsResponse | Any | None:
         response = self._client.request(
             "GET",
             f"/my/posts",
@@ -153,7 +154,7 @@ class AngClient:
         return response.text
 
 
-    def list_posts(self) -> Any:
+    def list_posts(self) -> models.ListPostsResponse | Any | None:
         response = self._client.request(
             "GET",
             f"/posts",
@@ -168,7 +169,7 @@ class AngClient:
         return response.text
 
 
-    def list_comments(self, postID: str) -> Any:
+    def list_comments(self, postID: str) -> models.ListCommentsResponse | Any | None:
         response = self._client.request(
             "GET",
             f"/posts/{postID}/comments",
@@ -183,7 +184,7 @@ class AngClient:
         return response.text
 
 
-    def get_post(self, slug: str) -> Any:
+    def get_post(self, slug: str) -> models.GetPostResponse | Any | None:
         response = self._client.request(
             "GET",
             f"/posts/{slug}",
@@ -198,7 +199,7 @@ class AngClient:
         return response.text
 
 
-    def list_tags(self) -> Any:
+    def list_tags(self) -> models.ListTagsResponse | Any | None:
         response = self._client.request(
             "GET",
             f"/tags",
@@ -213,7 +214,7 @@ class AngClient:
         return response.text
 
 
-    def login(self, payload: dict[str, Any] | None = None) -> Any:
+    def login(self, payload: models.LoginRequest | dict[str, Any] | None = None) -> models.LoginResponse | Any | None:
         response = self._client.request(
             "POST",
             f"/auth/login",
@@ -229,7 +230,7 @@ class AngClient:
         return response.text
 
 
-    def register(self, payload: dict[str, Any] | None = None) -> Any:
+    def register(self, payload: models.RegisterRequest | dict[str, Any] | None = None) -> models.RegisterResponse | Any | None:
         response = self._client.request(
             "POST",
             f"/auth/register",
@@ -245,7 +246,7 @@ class AngClient:
         return response.text
 
 
-    def create_post(self, payload: dict[str, Any] | None = None) -> Any:
+    def create_post(self, payload: models.CreatePostRequest | dict[str, Any] | None = None) -> models.CreatePostResponse | Any | None:
         response = self._client.request(
             "POST",
             f"/posts",
@@ -261,7 +262,7 @@ class AngClient:
         return response.text
 
 
-    def archive_post(self, id: str, payload: dict[str, Any] | None = None) -> Any:
+    def archive_post(self, id: str, payload: models.ArchivePostRequest | dict[str, Any] | None = None) -> models.ArchivePostResponse | Any | None:
         response = self._client.request(
             "POST",
             f"/posts/{id}/archive",
@@ -277,7 +278,7 @@ class AngClient:
         return response.text
 
 
-    def publish_post(self, id: str, payload: dict[str, Any] | None = None) -> Any:
+    def publish_post(self, id: str, payload: models.PublishPostRequest | dict[str, Any] | None = None) -> models.PublishPostResponse | Any | None:
         response = self._client.request(
             "POST",
             f"/posts/{id}/publish",
@@ -293,7 +294,7 @@ class AngClient:
         return response.text
 
 
-    def submit_post(self, id: str, payload: dict[str, Any] | None = None) -> Any:
+    def submit_post(self, id: str, payload: models.SubmitPostRequest | dict[str, Any] | None = None) -> models.SubmitPostResponse | Any | None:
         response = self._client.request(
             "POST",
             f"/posts/{id}/submit",
@@ -309,7 +310,7 @@ class AngClient:
         return response.text
 
 
-    def create_comment(self, postID: str, payload: dict[str, Any] | None = None) -> Any:
+    def create_comment(self, postID: str, payload: models.CreateCommentRequest | dict[str, Any] | None = None) -> models.CreateCommentResponse | Any | None:
         response = self._client.request(
             "POST",
             f"/posts/{postID}/comments",
@@ -325,7 +326,7 @@ class AngClient:
         return response.text
 
 
-    def create_tag(self, payload: dict[str, Any] | None = None) -> Any:
+    def create_tag(self, payload: models.CreateTagRequest | dict[str, Any] | None = None) -> models.CreateTagResponse | Any | None:
         response = self._client.request(
             "POST",
             f"/tags",
@@ -341,7 +342,7 @@ class AngClient:
         return response.text
 
 
-    def update_profile(self, payload: dict[str, Any] | None = None) -> Any:
+    def update_profile(self, payload: models.UpdateProfileRequest | dict[str, Any] | None = None) -> models.UpdateProfileResponse | Any | None:
         response = self._client.request(
             "PUT",
             f"/auth/profile",
@@ -357,7 +358,7 @@ class AngClient:
         return response.text
 
 
-    def update_comment(self, id: str, payload: dict[str, Any] | None = None) -> Any:
+    def update_comment(self, id: str, payload: models.UpdateCommentRequest | dict[str, Any] | None = None) -> models.UpdateCommentResponse | Any | None:
         response = self._client.request(
             "PUT",
             f"/comments/{id}",
@@ -373,7 +374,7 @@ class AngClient:
         return response.text
 
 
-    def update_post(self, id: str, payload: dict[str, Any] | None = None) -> Any:
+    def update_post(self, id: str, payload: models.UpdatePostRequest | dict[str, Any] | None = None) -> models.UpdatePostResponse | Any | None:
         response = self._client.request(
             "PUT",
             f"/posts/{id}",
@@ -389,7 +390,7 @@ class AngClient:
         return response.text
 
 
-    def update_tag(self, id: str, payload: dict[str, Any] | None = None) -> Any:
+    def update_tag(self, id: str, payload: models.UpdateTagRequest | dict[str, Any] | None = None) -> models.UpdateTagResponse | Any | None:
         response = self._client.request(
             "PUT",
             f"/tags/{id}",
@@ -474,7 +475,7 @@ class AsyncAngClient:
         raise AngAPIError(response.status_code, response.reason_phrase or f"HTTP {response.status_code}", response_text=response.text)
 
 
-    async def delete_comment(self, id: str) -> Any:
+    async def delete_comment(self, id: str) -> models.DeleteCommentResponse | Any | None:
         response = await self._client.request(
             "DELETE",
             f"/comments/{id}",
@@ -489,7 +490,7 @@ class AsyncAngClient:
         return response.text
 
 
-    async def delete_post(self, id: str) -> Any:
+    async def delete_post(self, id: str) -> models.DeletePostResponse | Any | None:
         response = await self._client.request(
             "DELETE",
             f"/posts/{id}",
@@ -504,7 +505,7 @@ class AsyncAngClient:
         return response.text
 
 
-    async def delete_tag(self, id: str) -> Any:
+    async def delete_tag(self, id: str) -> models.DeleteTagResponse | Any | None:
         response = await self._client.request(
             "DELETE",
             f"/tags/{id}",
@@ -519,7 +520,7 @@ class AsyncAngClient:
         return response.text
 
 
-    async def get_profile(self) -> Any:
+    async def get_profile(self) -> models.GetProfileResponse | Any | None:
         response = await self._client.request(
             "GET",
             f"/auth/profile",
@@ -534,7 +535,7 @@ class AsyncAngClient:
         return response.text
 
 
-    async def list_my_posts(self) -> Any:
+    async def list_my_posts(self) -> models.ListMyPostsResponse | Any | None:
         response = await self._client.request(
             "GET",
             f"/my/posts",
@@ -549,7 +550,7 @@ class AsyncAngClient:
         return response.text
 
 
-    async def list_posts(self) -> Any:
+    async def list_posts(self) -> models.ListPostsResponse | Any | None:
         response = await self._client.request(
             "GET",
             f"/posts",
@@ -564,7 +565,7 @@ class AsyncAngClient:
         return response.text
 
 
-    async def list_comments(self, postID: str) -> Any:
+    async def list_comments(self, postID: str) -> models.ListCommentsResponse | Any | None:
         response = await self._client.request(
             "GET",
             f"/posts/{postID}/comments",
@@ -579,7 +580,7 @@ class AsyncAngClient:
         return response.text
 
 
-    async def get_post(self, slug: str) -> Any:
+    async def get_post(self, slug: str) -> models.GetPostResponse | Any | None:
         response = await self._client.request(
             "GET",
             f"/posts/{slug}",
@@ -594,7 +595,7 @@ class AsyncAngClient:
         return response.text
 
 
-    async def list_tags(self) -> Any:
+    async def list_tags(self) -> models.ListTagsResponse | Any | None:
         response = await self._client.request(
             "GET",
             f"/tags",
@@ -609,7 +610,7 @@ class AsyncAngClient:
         return response.text
 
 
-    async def login(self, payload: dict[str, Any] | None = None) -> Any:
+    async def login(self, payload: models.LoginRequest | dict[str, Any] | None = None) -> models.LoginResponse | Any | None:
         response = await self._client.request(
             "POST",
             f"/auth/login",
@@ -625,7 +626,7 @@ class AsyncAngClient:
         return response.text
 
 
-    async def register(self, payload: dict[str, Any] | None = None) -> Any:
+    async def register(self, payload: models.RegisterRequest | dict[str, Any] | None = None) -> models.RegisterResponse | Any | None:
         response = await self._client.request(
             "POST",
             f"/auth/register",
@@ -641,7 +642,7 @@ class AsyncAngClient:
         return response.text
 
 
-    async def create_post(self, payload: dict[str, Any] | None = None) -> Any:
+    async def create_post(self, payload: models.CreatePostRequest | dict[str, Any] | None = None) -> models.CreatePostResponse | Any | None:
         response = await self._client.request(
             "POST",
             f"/posts",
@@ -657,7 +658,7 @@ class AsyncAngClient:
         return response.text
 
 
-    async def archive_post(self, id: str, payload: dict[str, Any] | None = None) -> Any:
+    async def archive_post(self, id: str, payload: models.ArchivePostRequest | dict[str, Any] | None = None) -> models.ArchivePostResponse | Any | None:
         response = await self._client.request(
             "POST",
             f"/posts/{id}/archive",
@@ -673,7 +674,7 @@ class AsyncAngClient:
         return response.text
 
 
-    async def publish_post(self, id: str, payload: dict[str, Any] | None = None) -> Any:
+    async def publish_post(self, id: str, payload: models.PublishPostRequest | dict[str, Any] | None = None) -> models.PublishPostResponse | Any | None:
         response = await self._client.request(
             "POST",
             f"/posts/{id}/publish",
@@ -689,7 +690,7 @@ class AsyncAngClient:
         return response.text
 
 
-    async def submit_post(self, id: str, payload: dict[str, Any] | None = None) -> Any:
+    async def submit_post(self, id: str, payload: models.SubmitPostRequest | dict[str, Any] | None = None) -> models.SubmitPostResponse | Any | None:
         response = await self._client.request(
             "POST",
             f"/posts/{id}/submit",
@@ -705,7 +706,7 @@ class AsyncAngClient:
         return response.text
 
 
-    async def create_comment(self, postID: str, payload: dict[str, Any] | None = None) -> Any:
+    async def create_comment(self, postID: str, payload: models.CreateCommentRequest | dict[str, Any] | None = None) -> models.CreateCommentResponse | Any | None:
         response = await self._client.request(
             "POST",
             f"/posts/{postID}/comments",
@@ -721,7 +722,7 @@ class AsyncAngClient:
         return response.text
 
 
-    async def create_tag(self, payload: dict[str, Any] | None = None) -> Any:
+    async def create_tag(self, payload: models.CreateTagRequest | dict[str, Any] | None = None) -> models.CreateTagResponse | Any | None:
         response = await self._client.request(
             "POST",
             f"/tags",
@@ -737,7 +738,7 @@ class AsyncAngClient:
         return response.text
 
 
-    async def update_profile(self, payload: dict[str, Any] | None = None) -> Any:
+    async def update_profile(self, payload: models.UpdateProfileRequest | dict[str, Any] | None = None) -> models.UpdateProfileResponse | Any | None:
         response = await self._client.request(
             "PUT",
             f"/auth/profile",
@@ -753,7 +754,7 @@ class AsyncAngClient:
         return response.text
 
 
-    async def update_comment(self, id: str, payload: dict[str, Any] | None = None) -> Any:
+    async def update_comment(self, id: str, payload: models.UpdateCommentRequest | dict[str, Any] | None = None) -> models.UpdateCommentResponse | Any | None:
         response = await self._client.request(
             "PUT",
             f"/comments/{id}",
@@ -769,7 +770,7 @@ class AsyncAngClient:
         return response.text
 
 
-    async def update_post(self, id: str, payload: dict[str, Any] | None = None) -> Any:
+    async def update_post(self, id: str, payload: models.UpdatePostRequest | dict[str, Any] | None = None) -> models.UpdatePostResponse | Any | None:
         response = await self._client.request(
             "PUT",
             f"/posts/{id}",
@@ -785,7 +786,7 @@ class AsyncAngClient:
         return response.text
 
 
-    async def update_tag(self, id: str, payload: dict[str, Any] | None = None) -> Any:
+    async def update_tag(self, id: str, payload: models.UpdateTagRequest | dict[str, Any] | None = None) -> models.UpdateTagResponse | Any | None:
         response = await self._client.request(
             "PUT",
             f"/tags/{id}",

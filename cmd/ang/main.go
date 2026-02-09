@@ -773,7 +773,7 @@ func runBuild(args []string) {
 					if !pythonSDKEnabled {
 						return nil
 					}
-					return em.EmitPythonSDK(endpoints, entities, projectDef)
+					return em.EmitPythonSDK(endpoints, services, entities, projectDef)
 				}},
 				{"System Manifest", func() error { return em.EmitManifest(irSchema) }},
 			}
@@ -868,7 +868,7 @@ func runBuild(args []string) {
 				if !pythonSDKEnabled {
 					return nil
 				}
-				return em.EmitPythonSDK(endpoints, entities, projectDef)
+				return em.EmitPythonSDK(endpoints, services, entities, projectDef)
 			}},
 			{"Frontend Components", func() error { return em.EmitFrontendComponents(services, endpoints, entities) }},
 			{"Frontend Admin", func() error { return em.EmitFrontendAdmin(entities, services) }},

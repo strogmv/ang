@@ -7,6 +7,7 @@ from typing import Any, Callable
 import httpx
 
 from .errors import AngAPIError, ProblemDetails
+from . import models
 
 
 class AngClient:
@@ -78,7 +79,7 @@ class AngClient:
         raise AngAPIError(response.status_code, response.reason_phrase or f"HTTP {response.status_code}", response_text=response.text)
 
 {{ range .Endpoints }}
-    def {{ .MethodName }}(self{{ if .PathParams }}, {{ JoinTypedParams .PathParams }}{{ end }}{{ if .HasBody }}, payload: dict[str, Any] | None = None{{ end }}) -> Any:
+    def {{ .MethodName }}(self{{ if .PathParams }}, {{ JoinTypedParams .PathParams }}{{ end }}{{ if .HasBody }}, payload: {{ .PayloadType }} | dict[str, Any] | None = None{{ end }}) -> {{ .ReturnType }} | Any | None:
         response = self._client.request(
             "{{ .Method }}",
             f"{{ PathWithFormat .Path }}",
@@ -163,7 +164,7 @@ class AsyncAngClient:
         raise AngAPIError(response.status_code, response.reason_phrase or f"HTTP {response.status_code}", response_text=response.text)
 
 {{ range .Endpoints }}
-    async def {{ .MethodName }}(self{{ if .PathParams }}, {{ JoinTypedParams .PathParams }}{{ end }}{{ if .HasBody }}, payload: dict[str, Any] | None = None{{ end }}) -> Any:
+    async def {{ .MethodName }}(self{{ if .PathParams }}, {{ JoinTypedParams .PathParams }}{{ end }}{{ if .HasBody }}, payload: {{ .PayloadType }} | dict[str, Any] | None = None{{ end }}) -> {{ .ReturnType }} | Any | None:
         response = await self._client.request(
             "{{ .Method }}",
             f"{{ PathWithFormat .Path }}",
