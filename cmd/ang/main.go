@@ -812,7 +812,7 @@ func runBuild(args []string) {
 				if !pythonSDKEnabled {
 					return nil
 				}
-				return em.EmitPythonSDK(endpoints)
+				return em.EmitPythonSDK(endpoints, projectDef)
 			}},
 			{"Frontend Components", func() error { return em.EmitFrontendComponents(services, endpoints, entities) }},
 			{"Frontend Admin", func() error { return em.EmitFrontendAdmin(entities, services) }},

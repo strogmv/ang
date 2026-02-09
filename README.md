@@ -271,6 +271,28 @@ cd tests && npm install && npm run test:e2e
 *   `ang contract-test` — Run contract tests
 *   `ang_doctor` — AI-powered self-diagnosis and fix suggestions (MCP only)
 
+## Release Demo: Python SDK Generation
+
+Show Python code generation in release demos with the Phase 1 flag:
+
+```bash
+ANG_PY_SDK=1 go run ./cmd/ang build
+```
+
+Expected generated files:
+
+- `sdk/python/pyproject.toml`
+- `sdk/python/README.md`
+- `sdk/python/ang_sdk/__init__.py`
+- `sdk/python/ang_sdk/client.py`
+
+Quick smoke:
+
+```bash
+python -m pip install -e sdk/python
+python -c "from ang_sdk import AngClient; print('ok')"
+```
+
 ## Features
 
 ### AI-Native Intelligence

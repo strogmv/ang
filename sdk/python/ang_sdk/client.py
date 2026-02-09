@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 
@@ -14,18 +14,34 @@ class AngClient:
         token: str | None = None,
         timeout: float = 10.0,
         client: httpx.Client | None = None,
+        token_provider: Callable[[], str | None] | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._token = token
+        self._token_provider = token_provider
         self._client = client or httpx.Client(base_url=self._base_url, timeout=timeout)
 
     def close(self) -> None:
         self._client.close()
 
+    def set_token(self, token: str | None) -> None:
+        self._token = token
+
+    def set_token_provider(self, provider: Callable[[], str | None] | None) -> None:
+        self._token_provider = provider
+
+    def _resolve_token(self) -> str | None:
+        if self._token_provider is not None:
+            value = self._token_provider()
+            if value:
+                return str(value)
+        return self._token
+
     def _headers(self) -> dict[str, str]:
         headers: dict[str, str] = {"Accept": "application/json"}
-        if self._token:
-            headers["Authorization"] = f"Bearer {self._token}"
+        token = self._resolve_token()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         return headers
 
 

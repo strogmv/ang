@@ -29,9 +29,19 @@ type pythonSDKData struct {
 }
 
 // EmitPythonSDK generates a minimal Python client SDK from normalized endpoints.
-func (e *Emitter) EmitPythonSDK(endpoints []normalizer.Endpoint) error {
+func (e *Emitter) EmitPythonSDK(endpoints []normalizer.Endpoint, project *normalizer.ProjectDef) error {
+	version := strings.TrimSpace(e.Version)
+	if project != nil {
+		if v := strings.TrimSpace(project.Version); v != "" {
+			version = v
+		}
+	}
+	if version == "" {
+		version = "0.1.0"
+	}
+
 	data := pythonSDKData{
-		Version:   e.Version,
+		Version:   version,
 		Endpoints: buildPythonEndpoints(endpoints),
 	}
 

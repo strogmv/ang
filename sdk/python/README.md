@@ -18,6 +18,13 @@ client = AngClient(base_url="http://localhost:8080", token="<jwt>")
 client.close()
 ```
 
+Token hooks:
+
+```python
+client.set_token("<new-jwt>")
+client.set_token_provider(lambda: "<jwt-from-store>")
+```
+
 ## Generated Methods
 - `delete_comment` -> `DELETE /comments/{id}`
 - `delete_post` -> `DELETE /posts/{id}`
