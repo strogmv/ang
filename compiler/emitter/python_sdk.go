@@ -274,9 +274,110 @@ func (e *Emitter) emitPythonTemplate(root, tmplPath string, data interface{}, fu
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("mkdir for %s: %w", outName, err)
 	}
-	if err := os.WriteFile(path, buf.Bytes(), mode); err != nil {
+	content := buf.Bytes()
+	if shouldPreservePythonCustomBlocks(outName) {
+		if prev, err := os.ReadFile(path); err == nil {
+			content = []byte(mergePythonCustomBlocks(string(content), string(prev)))
+		}
+	}
+	if err := os.WriteFile(path, content, mode); err != nil {
 		return fmt.Errorf("write python sdk file %s: %w", outName, err)
 	}
 	fmt.Printf("Generated Python SDK: %s\n", path)
 	return nil
+}
+
+func shouldPreservePythonCustomBlocks(outName string) bool {
+	normalized := filepath.ToSlash(strings.TrimSpace(outName))
+	return strings.HasPrefix(normalized, "services/") || strings.HasPrefix(normalized, "repositories/postgres/")
+}
+
+func mergePythonCustomBlocks(generated, existing string) string {
+	existingBlocks := extractPythonCustomBlocks(existing)
+	if len(existingBlocks) == 0 {
+		return generated
+	}
+	lines := strings.SplitAfter(generated, "\n")
+	var out strings.Builder
+
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		beginKey, isBegin := parseCustomMarkerLine(line, "BEGIN")
+		if !isBegin {
+			out.WriteString(line)
+			continue
+		}
+
+		out.WriteString(line)
+		j := i + 1
+		for ; j < len(lines); j++ {
+			endKey, isEnd := parseCustomMarkerLine(lines[j], "END")
+			if isEnd && endKey == beginKey {
+				break
+			}
+		}
+		if j >= len(lines) {
+			// Malformed block in generated content.
+			for k := i + 1; k < len(lines); k++ {
+				out.WriteString(lines[k])
+			}
+			break
+		}
+
+		if prevBody, ok := existingBlocks[beginKey]; ok {
+			out.WriteString(prevBody)
+		} else {
+			for k := i + 1; k < j; k++ {
+				out.WriteString(lines[k])
+			}
+		}
+		out.WriteString(lines[j])
+		i = j
+	}
+	return out.String()
+}
+
+func extractPythonCustomBlocks(content string) map[string]string {
+	lines := strings.SplitAfter(content, "\n")
+	out := map[string]string{}
+
+	for i := 0; i < len(lines); i++ {
+		key, isBegin := parseCustomMarkerLine(lines[i], "BEGIN")
+		if !isBegin {
+			continue
+		}
+		j := i + 1
+		for ; j < len(lines); j++ {
+			endKey, isEnd := parseCustomMarkerLine(lines[j], "END")
+			if isEnd && endKey == key {
+				break
+			}
+		}
+		if j >= len(lines) {
+			continue
+		}
+		var body strings.Builder
+		for k := i + 1; k < j; k++ {
+			body.WriteString(lines[k])
+		}
+		out[key] = body.String()
+		i = j
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func parseCustomMarkerLine(line, kind string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	prefix := "# ANG:" + kind + "_CUSTOM "
+	if !strings.HasPrefix(trimmed, prefix) {
+		return "", false
+	}
+	key := strings.TrimSpace(strings.TrimPrefix(trimmed, prefix))
+	if key == "" {
+		return "", false
+	}
+	return key, true
 }

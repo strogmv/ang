@@ -14,11 +14,13 @@ class {{ .ClassName }}:
 {{- if .Methods }}
 {{- range .Methods }}
     async def {{ .Name }}(self, *args: Any, **kwargs: Any) -> Any:
+        # ANG:BEGIN_CUSTOM {{ .CustomKey }}
 {{- if .Body }}
 {{ .Body }}
 {{- else }}
         raise NotImplementedError("Implement {{ $.ServiceName }}.{{ .Name }}")
 {{- end }}
+        # ANG:END_CUSTOM {{ .CustomKey }}
 {{- end }}
 {{- else }}
     pass

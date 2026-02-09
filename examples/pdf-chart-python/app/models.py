@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 
 class ReportPoint(BaseModel):
-    id: dict[str, Any]
-    x: dict[str, Any]
-    y: dict[str, Any]
+    id: str
+    x: str
+    y: str
 

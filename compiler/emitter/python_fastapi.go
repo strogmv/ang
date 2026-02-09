@@ -39,8 +39,9 @@ type pythonRouter struct {
 }
 
 type pythonServiceMethod struct {
-	Name string
-	Body string
+	Name      string
+	Body      string
+	CustomKey string
 }
 
 type pythonServiceStub struct {
@@ -53,7 +54,8 @@ type pythonServiceStub struct {
 }
 
 type pythonRepoFinder struct {
-	Name string
+	Name      string
+	CustomKey string
 }
 
 type pythonRepoStub struct {
@@ -344,7 +346,11 @@ func buildPythonRoutersAndServices(endpoints []normalizer.Endpoint, services []n
 			for _, imp := range impl.imports {
 				importSet[imp] = true
 			}
-			serviceMethods = append(serviceMethods, pythonServiceMethod{Name: handler, Body: impl.body})
+			serviceMethods = append(serviceMethods, pythonServiceMethod{
+				Name:      handler,
+				Body:      impl.body,
+				CustomKey: serviceName + "." + handler,
+			})
 		}
 
 		routers = append(routers, pythonRouter{
@@ -403,7 +409,10 @@ func buildPythonRepoStubs(repos []normalizer.Repository) []pythonRepoStub {
 			if name == "" {
 				continue
 			}
-			finders = append(finders, pythonRepoFinder{Name: name})
+			finders = append(finders, pythonRepoFinder{
+				Name:      name,
+				CustomKey: baseName + "Repository." + name,
+			})
 		}
 		sort.Slice(finders, func(i, j int) bool { return finders[i].Name < finders[j].Name })
 

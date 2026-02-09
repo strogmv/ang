@@ -12,7 +12,9 @@ class {{ .PGClassName }}({{ .PortClassName }}):
 {{- $repo := .RepoName }}
 {{- range .Finders }}
     async def {{ .Name }}(self, *args: Any, **kwargs: Any) -> Any:
+        # ANG:BEGIN_CUSTOM {{ .CustomKey }}
         raise NotImplementedError("Implement postgres finder {{ $repo }}.{{ .Name }}")
+        # ANG:END_CUSTOM {{ .CustomKey }}
 {{- end }}
 {{- else }}
     pass

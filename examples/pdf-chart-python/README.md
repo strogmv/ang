@@ -10,6 +10,8 @@ go run ./cmd/ang build examples/pdf-chart-python --target=python
 
 The source of truth is only `examples/pdf-chart-python/cue/*`.
 `ang build` reads that CUE and regenerates `examples/pdf-chart-python/app/*` and `examples/pdf-chart-python/api/*`.
+Heavy custom PDF logic is intentionally kept in `examples/pdf-chart-python/app/lib/pdf_chart.py`,
+while CUE `impl` only delegates to this helper.
 
 ## Run
 
