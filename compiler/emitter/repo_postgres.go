@@ -194,8 +194,20 @@ func (e *Emitter) EmitPostgresRepo(repos []normalizer.Repository, entities []nor
 				SelectEntity:     true,
 			}
 
-			// Always default SelectCols to all columns if we are selecting an entity
-			fo.SelectCols = strings.Join(selectCols, ", ")
+			// Smart Projection Logic (Stage 48)
+			if len(f.Select) > 0 {
+				var mapped []string
+				for _, s := range f.Select {
+					mapped = append(mapped, DBName(s))
+				}
+				fo.SelectCols = strings.Join(mapped, ", ")
+				if len(f.Select) < len(selectCols) {
+					fo.SelectEntity = false
+				}
+			} else {
+				// Default: List ALL columns explicitly (No SELECT *)
+				fo.SelectCols = strings.Join(selectCols, ", ")
+			}
 
 			// If explicit ReturnType is set, use it directly
 			if f.ReturnType != "" {
@@ -293,7 +305,7 @@ func (e *Emitter) EmitPostgresRepo(repos []normalizer.Repository, entities []nor
 				fo.SelectEntity = false
 				fo.SelectCols = strings.Join(f.Select, ", ")
 				if fo.SelectCols == "" {
-					fo.SelectCols = "*" // Fallback
+					fo.SelectCols = strings.Join(selectCols, ", ")
 				}
 
 				// Check if return type is a custom domain entity (e.g., *domain.TenderReportInfo or []domain.TenderBidHistoryItem)
