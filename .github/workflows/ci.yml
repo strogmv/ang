@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build ANG CLI
+        run: go build ./cmd/ang
+
+      - name: Run Compiler Tests
+        run: go test ./compiler/...
+
+      - name: Validate Intent
+        run: go run ./cmd/ang validate
+
+  python-sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Generate Python SDK
+        env:
+          ANG_PY_SDK: "1"
+        run: go run ./cmd/ang build
+
+      - name: Golden Check (sdk/python)
+        run: git diff --exit-code -- sdk/python
+
+      - name: Python SDK Smoke (install + import)
+        run: |
+          python -m venv .venv
+          . .venv/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install -e sdk/python
+          python -c "from ang_sdk import AngClient; print('ok')"
