@@ -58,3 +58,45 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e sdk/python
           python -c "from ang_sdk import AngClient; print('ok')"
+
+  python-fastapi:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build Python/FastAPI Target
+        run: |
+          cp cue/project/project.cue /tmp/project.cue.bak
+          trap 'cp /tmp/project.cue.bak cue/project/project.cue' EXIT
+          cat > cue/project/project.cue << 'EOF'
+          package project
+          
+          #Project: {
+            name: "CI Python FastAPI"
+            version: "0.1.0"
+          }
+          
+          #Target: {
+            lang: "python"
+            framework: "fastapi"
+            db: "postgres"
+          }
+          
+          state: {
+            target: #Target
+          }
+          EOF
+          go run ./cmd/ang build --backend /tmp/ang-py-fastapi-out --frontend /tmp/ang-py-fastapi-out/sdk
+
+      - name: FastAPI Scaffold Smoke
+        run: |
+          test -f /tmp/ang-py-fastapi-out/app/main.py
+          test -f /tmp/ang-py-fastapi-out/app/pyproject.toml
+          test -f /tmp/ang-py-fastapi-out/app/README.md
+          test -f /tmp/ang-py-fastapi-out/app/routers/auth.py

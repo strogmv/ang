@@ -101,6 +101,8 @@ func (e *Emitter) EmitPythonFastAPIBackend(
 	}{
 		{"templates/python/fastapi/main.py.tmpl", "main.py"},
 		{"templates/python/fastapi/models.py.tmpl", "models.py"},
+		{"templates/python/fastapi/pyproject.toml.tmpl", "pyproject.toml"},
+		{"templates/python/fastapi/README.md.tmpl", "README.md"},
 		{"templates/python/fastapi/routers_init.py.tmpl", filepath.Join("routers", "__init__.py")},
 		{"templates/python/fastapi/services_init.py.tmpl", filepath.Join("services", "__init__.py")},
 		{"templates/python/fastapi/repositories_init.py.tmpl", filepath.Join("repositories", "__init__.py")},
