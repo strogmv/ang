@@ -182,6 +182,7 @@ func buildPythonFastAPIData(
 }
 
 func buildPythonModels(entities []normalizer.Entity) []pythonModel {
+	entityNames := buildPythonEntityNameSet(entities)
 	out := make([]pythonModel, 0, len(entities))
 	for _, ent := range entities {
 		m := pythonModel{Name: ExportName(ent.Name)}
@@ -191,7 +192,7 @@ func buildPythonModels(entities []normalizer.Entity) []pythonModel {
 			}
 			m.Fields = append(m.Fields, pythonModelField{
 				Name:       f.Name,
-				Type:       pythonFieldType(f),
+				Type:       pythonFieldTypeWithEntities(f, entityNames),
 				IsOptional: f.IsOptional,
 			})
 		}
@@ -199,33 +200,6 @@ func buildPythonModels(entities []normalizer.Entity) []pythonModel {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
-}
-
-func pythonFieldType(f normalizer.Field) string {
-	base := "Any"
-	switch strings.ToLower(strings.TrimSpace(f.Type)) {
-	case "string", "text", "email", "url":
-		base = "str"
-	case "int", "int32", "int64", "uint", "uint32", "uint64":
-		base = "int"
-	case "float", "float32", "float64", "number", "decimal":
-		base = "float"
-	case "bool", "boolean":
-		base = "bool"
-	case "time", "datetime", "timestamp", "date":
-		base = "datetime"
-	case "json", "object", "map", "any":
-		base = "dict[str, Any]"
-	case "bytes", "binary":
-		base = "bytes"
-	}
-	if f.IsList {
-		base = "list[" + base + "]"
-	}
-	if f.IsOptional {
-		base += " | None"
-	}
-	return base
 }
 
 func buildPythonRoutersAndServices(endpoints []normalizer.Endpoint, services []normalizer.Service) ([]pythonRouter, []pythonServiceStub) {

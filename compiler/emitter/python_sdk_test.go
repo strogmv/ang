@@ -97,3 +97,55 @@ func TestBuildPythonSDKModels(t *testing.T) {
 		t.Fatalf("expected meta optional json, got %s", got[0].Fields[2].Type)
 	}
 }
+
+func TestBuildPythonSDKModels_AliasAndEntityRefs(t *testing.T) {
+	entities := []normalizer.Entity{
+		{
+			Name: "Team",
+			Fields: []normalizer.Field{
+				{Name: "id", Type: "domain.ID"},
+				{Name: "owner", Type: "domain.User"},
+				{Name: "members", Type: "[]domain.User"},
+				{Name: "meta", Type: "map[string]any"},
+			},
+		},
+		{
+			Name: "User",
+			Fields: []normalizer.Field{
+				{Name: "id", Type: "domain.ID"},
+				{Name: "email", Type: "domain.Email"},
+			},
+		},
+	}
+
+	got := buildPythonSDKModels(entities)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 models, got %d", len(got))
+	}
+
+	var team pythonSDKModel
+	for _, m := range got {
+		if m.Name == "Team" {
+			team = m
+			break
+		}
+	}
+	if team.Name == "" {
+		t.Fatalf("team model not found")
+	}
+	if len(team.Fields) != 4 {
+		t.Fatalf("expected 4 team fields, got %d", len(team.Fields))
+	}
+	if team.Fields[0].Type != "str" {
+		t.Fatalf("expected id as str, got %s", team.Fields[0].Type)
+	}
+	if team.Fields[1].Type != "User" {
+		t.Fatalf("expected owner as User, got %s", team.Fields[1].Type)
+	}
+	if team.Fields[2].Type != "list[User]" {
+		t.Fatalf("expected members as list[User], got %s", team.Fields[2].Type)
+	}
+	if team.Fields[3].Type != "dict[str, Any]" {
+		t.Fatalf("expected meta as dict[str, Any], got %s", team.Fields[3].Type)
+	}
+}

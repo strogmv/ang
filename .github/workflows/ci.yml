@@ -83,6 +83,26 @@ jobs:
             dist/release/python-service/app/routers/auth.py \
             dist/release/python-service/app/services/auth.py
 
+      - name: FastAPI Quality Gates (ruff, mypy, pytest)
+        run: |
+          python -m venv .venv-quality
+          . .venv-quality/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install -e dist/release/python-service/app
+          python -m pip install ruff mypy pytest
+
+          ruff check dist/release/python-service/app
+          mypy --strict --ignore-missing-imports dist/release/python-service/app
+
+          cat > /tmp/test_generated_fastapi_app.py << 'EOF'
+          from app.main import app
+
+          def test_app_import_and_title() -> None:
+              assert app is not None
+              assert isinstance(app.title, str)
+          EOF
+          pytest -q /tmp/test_generated_fastapi_app.py
+
       - name: PDF Example Smoke (from CUE)
         run: |
           go run ./cmd/ang build examples/pdf-chart-python --target=python

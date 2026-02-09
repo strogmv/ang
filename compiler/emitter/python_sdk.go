@@ -104,6 +104,7 @@ func (e *Emitter) EmitPythonSDK(endpoints []normalizer.Endpoint, services []norm
 }
 
 func buildPythonSDKModels(entities []normalizer.Entity) []pythonSDKModel {
+	entityNames := buildPythonEntityNameSet(entities)
 	out := make([]pythonSDKModel, 0, len(entities))
 	for _, ent := range entities {
 		model := pythonSDKModel{Name: ExportName(ent.Name)}
@@ -113,7 +114,7 @@ func buildPythonSDKModels(entities []normalizer.Entity) []pythonSDKModel {
 			}
 			model.Fields = append(model.Fields, pythonSDKModelField{
 				Name:       f.Name,
-				Type:       pythonSDKFieldType(f),
+				Type:       pythonFieldTypeWithEntities(f, entityNames),
 				IsOptional: f.IsOptional,
 			})
 		}
@@ -140,33 +141,6 @@ func buildPythonRPCSignatures(services []normalizer.Service) map[string]pythonRP
 		}
 	}
 	return out
-}
-
-func pythonSDKFieldType(f normalizer.Field) string {
-	base := "Any"
-	switch strings.ToLower(strings.TrimSpace(f.Type)) {
-	case "string", "text", "email", "url", "uuid":
-		base = "str"
-	case "int", "int32", "int64", "uint", "uint32", "uint64":
-		base = "int"
-	case "float", "float32", "float64", "number", "decimal":
-		base = "float"
-	case "bool", "boolean":
-		base = "bool"
-	case "time", "datetime", "timestamp", "date":
-		base = "datetime"
-	case "json", "object", "map", "any":
-		base = "dict[str, Any]"
-	case "bytes", "binary":
-		base = "bytes"
-	}
-	if f.IsList {
-		base = "list[" + base + "]"
-	}
-	if f.IsOptional {
-		base += " | None"
-	}
-	return base
 }
 
 var pathParamRe = regexp.MustCompile(`\{([a-zA-Z0-9_]+)\}`)
