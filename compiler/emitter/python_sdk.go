@@ -65,10 +65,10 @@ func (e *Emitter) EmitPythonSDK(endpoints []normalizer.Endpoint, project *normal
 		out      string
 		mode     os.FileMode
 	}{
-		{"templates/python-sdk/pyproject.toml.tmpl", "pyproject.toml", 0644},
-		{"templates/python-sdk/README.md.tmpl", "README.md", 0644},
-		{"templates/python-sdk/__init__.py.tmpl", "ang_sdk/__init__.py", 0644},
-		{"templates/python-sdk/client.py.tmpl", "ang_sdk/client.py", 0644},
+		{"templates/python/sdk/pyproject.toml.tmpl", "pyproject.toml", 0644},
+		{"templates/python/sdk/README.md.tmpl", "README.md", 0644},
+		{"templates/python/sdk/__init__.py.tmpl", "ang_sdk/__init__.py", 0644},
+		{"templates/python/sdk/client.py.tmpl", "ang_sdk/client.py", 0644},
 	}
 
 	targetRoot := filepath.Join(e.OutputDir, "sdk", "python")

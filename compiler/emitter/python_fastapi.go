@@ -99,12 +99,12 @@ func (e *Emitter) EmitPythonFastAPIBackend(
 		template string
 		out      string
 	}{
-		{"templates/python-fastapi/main.py.tmpl", "main.py"},
-		{"templates/python-fastapi/models.py.tmpl", "models.py"},
-		{"templates/python-fastapi/routers_init.py.tmpl", filepath.Join("routers", "__init__.py")},
-		{"templates/python-fastapi/services_init.py.tmpl", filepath.Join("services", "__init__.py")},
-		{"templates/python-fastapi/repositories_init.py.tmpl", filepath.Join("repositories", "__init__.py")},
-		{"templates/python-fastapi/repositories_postgres_init.py.tmpl", filepath.Join("repositories", "postgres", "__init__.py")},
+		{"templates/python/fastapi/main.py.tmpl", "main.py"},
+		{"templates/python/fastapi/models.py.tmpl", "models.py"},
+		{"templates/python/fastapi/routers_init.py.tmpl", filepath.Join("routers", "__init__.py")},
+		{"templates/python/fastapi/services_init.py.tmpl", filepath.Join("services", "__init__.py")},
+		{"templates/python/fastapi/repositories_init.py.tmpl", filepath.Join("repositories", "__init__.py")},
+		{"templates/python/fastapi/repositories_postgres_init.py.tmpl", filepath.Join("repositories", "postgres", "__init__.py")},
 	}
 	for _, f := range baseFiles {
 		if err := e.emitPythonTemplate(root, f.template, data, funcs, f.out, 0644); err != nil {
@@ -113,20 +113,20 @@ func (e *Emitter) EmitPythonFastAPIBackend(
 	}
 
 	for _, r := range data.Routers {
-		if err := e.emitPythonTemplate(root, "templates/python-fastapi/router.py.tmpl", r, funcs, filepath.Join("routers", r.ModuleName+".py"), 0644); err != nil {
+		if err := e.emitPythonTemplate(root, "templates/python/fastapi/router.py.tmpl", r, funcs, filepath.Join("routers", r.ModuleName+".py"), 0644); err != nil {
 			return err
 		}
 	}
 	for _, s := range data.ServiceStubs {
-		if err := e.emitPythonTemplate(root, "templates/python-fastapi/service.py.tmpl", s, funcs, filepath.Join("services", s.ModuleName+".py"), 0644); err != nil {
+		if err := e.emitPythonTemplate(root, "templates/python/fastapi/service.py.tmpl", s, funcs, filepath.Join("services", s.ModuleName+".py"), 0644); err != nil {
 			return err
 		}
 	}
 	for _, r := range data.RepoStubs {
-		if err := e.emitPythonTemplate(root, "templates/python-fastapi/repository_port.py.tmpl", r, funcs, filepath.Join("repositories", r.ModuleName+".py"), 0644); err != nil {
+		if err := e.emitPythonTemplate(root, "templates/python/fastapi/repository_port.py.tmpl", r, funcs, filepath.Join("repositories", r.ModuleName+".py"), 0644); err != nil {
 			return err
 		}
-		if err := e.emitPythonTemplate(root, "templates/python-fastapi/repository_postgres.py.tmpl", r, funcs, filepath.Join("repositories", "postgres", r.ModuleName+".py"), 0644); err != nil {
+		if err := e.emitPythonTemplate(root, "templates/python/fastapi/repository_postgres.py.tmpl", r, funcs, filepath.Join("repositories", "postgres", r.ModuleName+".py"), 0644); err != nil {
 			return err
 		}
 	}

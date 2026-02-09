@@ -13,14 +13,14 @@ import (
 )
 
 type Emitter struct {
-	OutputDir    string
-	FrontendDir  string
+	OutputDir        string
+	FrontendDir      string
 	FrontendAdminDir string
-	TemplatesDir string // Путь к папке с шаблонами
-	Version      string
-	InputHash    string
-	CompilerHash string
-	GoModule     string // Go module path for imports
+	TemplatesDir     string // Путь к папке с шаблонами
+	Version          string
+	InputHash        string
+	CompilerHash     string
+	GoModule         string // Go module path for imports
 }
 
 func New(outputDir, frontendDir, templatesDir string) *Emitter {
@@ -61,13 +61,31 @@ func ReadTemplateByPath(tmplPath string) ([]byte, error) {
 		name = strings.TrimPrefix(name, "templates\\")
 	}
 
-	// Try embedded FS first
-	content, err := templates.FS.ReadFile(name)
-	if err == nil {
-		return content, nil
+	candidates := []string{name}
+	if !strings.HasPrefix(name, "go/") && !strings.HasPrefix(name, "python/") {
+		candidates = append(candidates, filepath.ToSlash(filepath.Join("go", name)))
+		candidates = append(candidates, filepath.ToSlash(filepath.Join("python", name)))
 	}
 
-	// Fall back to disk
+	// Try embedded FS first
+	for _, candidate := range candidates {
+		content, err := templates.FS.ReadFile(candidate)
+		if err == nil {
+			return content, nil
+		}
+	}
+
+	// Fall back to disk using template path candidates.
+	root := "templates"
+	for _, candidate := range candidates {
+		path := filepath.Join(root, filepath.FromSlash(candidate))
+		content, err := os.ReadFile(path)
+		if err == nil {
+			return content, nil
+		}
+	}
+
+	// Final fallback for absolute/custom paths.
 	return os.ReadFile(tmplPath)
 }
 
@@ -200,7 +218,7 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 			} else if v, ok := f.Metadata["validate"].(string); ok {
 				tag = v
 			}
-			
+
 			if tag != "" {
 				if strings.HasPrefix(tag, "rule=") {
 					tag = strings.TrimPrefix(tag, "rule=")
@@ -228,7 +246,7 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 						ent := step.Args["source"]
 						if entName, ok := ent.(string); ok && entName != "" && !unique[entName] {
 							// Check ownership (stored in entities metadata or deduced)
-							// Note: We don't have easy access to EntityOwners here, so we skip enforcement 
+							// Note: We don't have easy access to EntityOwners here, so we skip enforcement
 							// in injection for now and rely on LINTER which already has the check.
 							// This is safer to avoid breaking legitimate cross-service READS in monolith mode.
 							unique[entName] = true
@@ -456,7 +474,7 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 		"EndpointType": func(ep normalizer.Endpoint) string {
 			method := strings.ToUpper(ep.Method)
 			path := ep.Path
-			
+
 			// Action pattern: /api/.../{id}/{action}
 			if method == "POST" && strings.HasSuffix(path, "}") == false {
 				parts := strings.Split(path, "/")
@@ -510,9 +528,9 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 				goMod + "/internal/pkg/errors":  true,
 				goMod + "/internal/pkg/helpers": true,
 				goMod + "/internal/port":        true,
-				"net/http":             true,
-				"github.com/google/uuid": true,
-				"time":                 true,
+				"net/http":                      true,
+				"github.com/google/uuid":        true,
+				"time":                          true,
 			}
 			for _, m := range s.Methods {
 				if m.Impl != nil {
@@ -624,26 +642,26 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 }
 
 type MainContext struct {
-	Services []normalizer.Service
-	Entities []normalizer.Entity
-	Endpoints []normalizer.Endpoint
-	HasCache bool
-	HasSQL   bool
-	HasMongo bool
-	HasNats  bool
-	HasS3    bool
+	Services          []normalizer.Service
+	Entities          []normalizer.Entity
+	Endpoints         []normalizer.Endpoint
+	HasCache          bool
+	HasSQL            bool
+	HasMongo          bool
+	HasNats           bool
+	HasS3             bool
 	WebSocketServices map[string]bool
-	HasScheduler bool
-	WSEventMap map[string]map[string]bool
-	EventPayloads map[string]normalizer.Entity
-	WSRoomField map[string]string
-	AuthService string
-	AuthRefreshStore string
-	InputHash string
-	CompilerHash string
-	ANGVersion string
-	EntityOwners map[string]string
-	GoModule string // Go module path for imports (e.g., "github.com/strog/dealingi-back")
+	HasScheduler      bool
+	WSEventMap        map[string]map[string]bool
+	EventPayloads     map[string]normalizer.Entity
+	WSRoomField       map[string]string
+	AuthService       string
+	AuthRefreshStore  string
+	InputHash         string
+	CompilerHash      string
+	ANGVersion        string
+	EntityOwners      map[string]string
+	GoModule          string // Go module path for imports (e.g., "github.com/strog/dealingi-back")
 }
 
 // AnalyzeContext checks which infrastructure dependencies are required.
