@@ -6,6 +6,8 @@ from typing import Any, Callable
 
 import httpx
 
+from .errors import AngAPIError, ProblemDetails
+
 
 class AngClient:
     def __init__(
@@ -43,8 +45,39 @@ class AngClient:
         if token:
             headers["Authorization"] = f"Bearer {token}"
         return headers
-{{ range .Endpoints }}
 
+    def _to_problem(self, response: httpx.Response) -> ProblemDetails | None:
+        content_type = response.headers.get("content-type", "")
+        if "application/json" not in content_type:
+            return None
+        try:
+            data = response.json()
+        except Exception:
+            return None
+        if not isinstance(data, dict):
+            return None
+
+        base_keys = {"type", "title", "status", "detail", "instance"}
+        problem = {
+            "type": data.get("type", "about:blank"),
+            "title": data.get("title", response.reason_phrase or "Error"),
+            "status": data.get("status", response.status_code),
+            "detail": data.get("detail"),
+            "instance": data.get("instance"),
+            "extensions": {k: v for k, v in data.items() if k not in base_keys},
+        }
+        return ProblemDetails(**problem)
+
+    def _raise_for_error(self, response: httpx.Response) -> None:
+        if response.status_code < 400:
+            return
+        problem = self._to_problem(response)
+        if problem is not None:
+            message = problem.detail or problem.title or f"HTTP {response.status_code}"
+            raise AngAPIError(response.status_code, message, problem=problem, response_text=response.text)
+        raise AngAPIError(response.status_code, response.reason_phrase or f"HTTP {response.status_code}", response_text=response.text)
+
+{{ range .Endpoints }}
     def {{ .MethodName }}(self{{ if .PathParams }}, {{ JoinTypedParams .PathParams }}{{ end }}{{ if .HasBody }}, payload: dict[str, Any] | None = None{{ end }}) -> Any:
         response = self._client.request(
             "{{ .Method }}",
@@ -52,8 +85,97 @@ class AngClient:
             headers=self._headers(),{{ if .HasBody }}
             json=payload,{{ end }}
         )
-        response.raise_for_status()
+        self._raise_for_error(response)
         if not response.content:
             return None
-        return response.json()
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
+
+{{ end }}
+class AsyncAngClient:
+    def __init__(
+        self,
+        base_url: str,
+        token: str | None = None,
+        timeout: float = 10.0,
+        client: httpx.AsyncClient | None = None,
+        token_provider: Callable[[], str | None] | None = None,
+    ) -> None:
+        self._base_url = base_url.rstrip("/")
+        self._token = token
+        self._token_provider = token_provider
+        self._client = client or httpx.AsyncClient(base_url=self._base_url, timeout=timeout)
+
+    async def close(self) -> None:
+        await self._client.aclose()
+
+    def set_token(self, token: str | None) -> None:
+        self._token = token
+
+    def set_token_provider(self, provider: Callable[[], str | None] | None) -> None:
+        self._token_provider = provider
+
+    def _resolve_token(self) -> str | None:
+        if self._token_provider is not None:
+            value = self._token_provider()
+            if value:
+                return str(value)
+        return self._token
+
+    def _headers(self) -> dict[str, str]:
+        headers: dict[str, str] = {"Accept": "application/json"}
+        token = self._resolve_token()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        return headers
+
+    def _to_problem(self, response: httpx.Response) -> ProblemDetails | None:
+        content_type = response.headers.get("content-type", "")
+        if "application/json" not in content_type:
+            return None
+        try:
+            data = response.json()
+        except Exception:
+            return None
+        if not isinstance(data, dict):
+            return None
+
+        base_keys = {"type", "title", "status", "detail", "instance"}
+        problem = {
+            "type": data.get("type", "about:blank"),
+            "title": data.get("title", response.reason_phrase or "Error"),
+            "status": data.get("status", response.status_code),
+            "detail": data.get("detail"),
+            "instance": data.get("instance"),
+            "extensions": {k: v for k, v in data.items() if k not in base_keys},
+        }
+        return ProblemDetails(**problem)
+
+    def _raise_for_error(self, response: httpx.Response) -> None:
+        if response.status_code < 400:
+            return
+        problem = self._to_problem(response)
+        if problem is not None:
+            message = problem.detail or problem.title or f"HTTP {response.status_code}"
+            raise AngAPIError(response.status_code, message, problem=problem, response_text=response.text)
+        raise AngAPIError(response.status_code, response.reason_phrase or f"HTTP {response.status_code}", response_text=response.text)
+
+{{ range .Endpoints }}
+    async def {{ .MethodName }}(self{{ if .PathParams }}, {{ JoinTypedParams .PathParams }}{{ end }}{{ if .HasBody }}, payload: dict[str, Any] | None = None{{ end }}) -> Any:
+        response = await self._client.request(
+            "{{ .Method }}",
+            f"{{ PathWithFormat .Path }}",
+            headers=self._headers(),{{ if .HasBody }}
+            json=payload,{{ end }}
+        )
+        self._raise_for_error(response)
+        if not response.content:
+            return None
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
+
 {{ end }}

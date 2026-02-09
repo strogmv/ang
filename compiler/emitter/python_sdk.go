@@ -26,10 +26,22 @@ type pythonEndpoint struct {
 type pythonSDKData struct {
 	Version   string
 	Endpoints []pythonEndpoint
+	Models    []pythonSDKModel
+}
+
+type pythonSDKModel struct {
+	Name   string
+	Fields []pythonSDKModelField
+}
+
+type pythonSDKModelField struct {
+	Name       string
+	Type       string
+	IsOptional bool
 }
 
 // EmitPythonSDK generates a minimal Python client SDK from normalized endpoints.
-func (e *Emitter) EmitPythonSDK(endpoints []normalizer.Endpoint, project *normalizer.ProjectDef) error {
+func (e *Emitter) EmitPythonSDK(endpoints []normalizer.Endpoint, entities []normalizer.Entity, project *normalizer.ProjectDef) error {
 	version := strings.TrimSpace(e.Version)
 	if project != nil {
 		if v := strings.TrimSpace(project.Version); v != "" {
@@ -43,6 +55,7 @@ func (e *Emitter) EmitPythonSDK(endpoints []normalizer.Endpoint, project *normal
 	data := pythonSDKData{
 		Version:   version,
 		Endpoints: buildPythonEndpoints(endpoints),
+		Models:    buildPythonSDKModels(entities),
 	}
 
 	funcs := e.getSharedFuncMap()
@@ -69,6 +82,8 @@ func (e *Emitter) EmitPythonSDK(endpoints []normalizer.Endpoint, project *normal
 		{"templates/python/sdk/README.md.tmpl", "README.md", 0644},
 		{"templates/python/sdk/__init__.py.tmpl", "ang_sdk/__init__.py", 0644},
 		{"templates/python/sdk/client.py.tmpl", "ang_sdk/client.py", 0644},
+		{"templates/python/sdk/models.py.tmpl", "ang_sdk/models.py", 0644},
+		{"templates/python/sdk/errors.py.tmpl", "ang_sdk/errors.py", 0644},
 	}
 
 	targetRoot := filepath.Join(e.OutputDir, "sdk", "python")
@@ -82,6 +97,53 @@ func (e *Emitter) EmitPythonSDK(endpoints []normalizer.Endpoint, project *normal
 		}
 	}
 	return nil
+}
+
+func buildPythonSDKModels(entities []normalizer.Entity) []pythonSDKModel {
+	out := make([]pythonSDKModel, 0, len(entities))
+	for _, ent := range entities {
+		model := pythonSDKModel{Name: ExportName(ent.Name)}
+		for _, f := range ent.Fields {
+			if f.SkipDomain {
+				continue
+			}
+			model.Fields = append(model.Fields, pythonSDKModelField{
+				Name:       f.Name,
+				Type:       pythonSDKFieldType(f),
+				IsOptional: f.IsOptional,
+			})
+		}
+		out = append(out, model)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+func pythonSDKFieldType(f normalizer.Field) string {
+	base := "Any"
+	switch strings.ToLower(strings.TrimSpace(f.Type)) {
+	case "string", "text", "email", "url", "uuid":
+		base = "str"
+	case "int", "int32", "int64", "uint", "uint32", "uint64":
+		base = "int"
+	case "float", "float32", "float64", "number", "decimal":
+		base = "float"
+	case "bool", "boolean":
+		base = "bool"
+	case "time", "datetime", "timestamp", "date":
+		base = "datetime"
+	case "json", "object", "map", "any":
+		base = "dict[str, Any]"
+	case "bytes", "binary":
+		base = "bytes"
+	}
+	if f.IsList {
+		base = "list[" + base + "]"
+	}
+	if f.IsOptional {
+		base += " | None"
+	}
+	return base
 }
 
 var pathParamRe = regexp.MustCompile(`\{([a-zA-Z0-9_]+)\}`)

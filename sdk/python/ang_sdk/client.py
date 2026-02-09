@@ -6,6 +6,8 @@ from typing import Any, Callable
 
 import httpx
 
+from .errors import AngAPIError, ProblemDetails
+
 
 class AngClient:
     def __init__(
@@ -44,6 +46,37 @@ class AngClient:
             headers["Authorization"] = f"Bearer {token}"
         return headers
 
+    def _to_problem(self, response: httpx.Response) -> ProblemDetails | None:
+        content_type = response.headers.get("content-type", "")
+        if "application/json" not in content_type:
+            return None
+        try:
+            data = response.json()
+        except Exception:
+            return None
+        if not isinstance(data, dict):
+            return None
+
+        base_keys = {"type", "title", "status", "detail", "instance"}
+        problem = {
+            "type": data.get("type", "about:blank"),
+            "title": data.get("title", response.reason_phrase or "Error"),
+            "status": data.get("status", response.status_code),
+            "detail": data.get("detail"),
+            "instance": data.get("instance"),
+            "extensions": {k: v for k, v in data.items() if k not in base_keys},
+        }
+        return ProblemDetails(**problem)
+
+    def _raise_for_error(self, response: httpx.Response) -> None:
+        if response.status_code < 400:
+            return
+        problem = self._to_problem(response)
+        if problem is not None:
+            message = problem.detail or problem.title or f"HTTP {response.status_code}"
+            raise AngAPIError(response.status_code, message, problem=problem, response_text=response.text)
+        raise AngAPIError(response.status_code, response.reason_phrase or f"HTTP {response.status_code}", response_text=response.text)
+
 
     def delete_comment(self, id: str) -> Any:
         response = self._client.request(
@@ -51,10 +84,13 @@ class AngClient:
             f"/comments/{id}",
             headers=self._headers(),
         )
-        response.raise_for_status()
+        self._raise_for_error(response)
         if not response.content:
             return None
-        return response.json()
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
 
 
     def delete_post(self, id: str) -> Any:
@@ -63,10 +99,13 @@ class AngClient:
             f"/posts/{id}",
             headers=self._headers(),
         )
-        response.raise_for_status()
+        self._raise_for_error(response)
         if not response.content:
             return None
-        return response.json()
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
 
 
     def delete_tag(self, id: str) -> Any:
@@ -75,10 +114,13 @@ class AngClient:
             f"/tags/{id}",
             headers=self._headers(),
         )
-        response.raise_for_status()
+        self._raise_for_error(response)
         if not response.content:
             return None
-        return response.json()
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
 
 
     def get_profile(self) -> Any:
@@ -87,10 +129,13 @@ class AngClient:
             f"/auth/profile",
             headers=self._headers(),
         )
-        response.raise_for_status()
+        self._raise_for_error(response)
         if not response.content:
             return None
-        return response.json()
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
 
 
     def list_my_posts(self) -> Any:
@@ -99,10 +144,13 @@ class AngClient:
             f"/my/posts",
             headers=self._headers(),
         )
-        response.raise_for_status()
+        self._raise_for_error(response)
         if not response.content:
             return None
-        return response.json()
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
 
 
     def list_posts(self) -> Any:
@@ -111,10 +159,13 @@ class AngClient:
             f"/posts",
             headers=self._headers(),
         )
-        response.raise_for_status()
+        self._raise_for_error(response)
         if not response.content:
             return None
-        return response.json()
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
 
 
     def list_comments(self, postID: str) -> Any:
@@ -123,10 +174,13 @@ class AngClient:
             f"/posts/{postID}/comments",
             headers=self._headers(),
         )
-        response.raise_for_status()
+        self._raise_for_error(response)
         if not response.content:
             return None
-        return response.json()
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
 
 
     def get_post(self, slug: str) -> Any:
@@ -135,10 +189,13 @@ class AngClient:
             f"/posts/{slug}",
             headers=self._headers(),
         )
-        response.raise_for_status()
+        self._raise_for_error(response)
         if not response.content:
             return None
-        return response.json()
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
 
 
     def list_tags(self) -> Any:
@@ -147,10 +204,13 @@ class AngClient:
             f"/tags",
             headers=self._headers(),
         )
-        response.raise_for_status()
+        self._raise_for_error(response)
         if not response.content:
             return None
-        return response.json()
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
 
 
     def login(self, payload: dict[str, Any] | None = None) -> Any:
@@ -160,10 +220,13 @@ class AngClient:
             headers=self._headers(),
             json=payload,
         )
-        response.raise_for_status()
+        self._raise_for_error(response)
         if not response.content:
             return None
-        return response.json()
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
 
 
     def register(self, payload: dict[str, Any] | None = None) -> Any:
@@ -173,10 +236,13 @@ class AngClient:
             headers=self._headers(),
             json=payload,
         )
-        response.raise_for_status()
+        self._raise_for_error(response)
         if not response.content:
             return None
-        return response.json()
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
 
 
     def create_post(self, payload: dict[str, Any] | None = None) -> Any:
@@ -186,10 +252,13 @@ class AngClient:
             headers=self._headers(),
             json=payload,
         )
-        response.raise_for_status()
+        self._raise_for_error(response)
         if not response.content:
             return None
-        return response.json()
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
 
 
     def archive_post(self, id: str, payload: dict[str, Any] | None = None) -> Any:
@@ -199,10 +268,13 @@ class AngClient:
             headers=self._headers(),
             json=payload,
         )
-        response.raise_for_status()
+        self._raise_for_error(response)
         if not response.content:
             return None
-        return response.json()
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
 
 
     def publish_post(self, id: str, payload: dict[str, Any] | None = None) -> Any:
@@ -212,10 +284,13 @@ class AngClient:
             headers=self._headers(),
             json=payload,
         )
-        response.raise_for_status()
+        self._raise_for_error(response)
         if not response.content:
             return None
-        return response.json()
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
 
 
     def submit_post(self, id: str, payload: dict[str, Any] | None = None) -> Any:
@@ -225,10 +300,13 @@ class AngClient:
             headers=self._headers(),
             json=payload,
         )
-        response.raise_for_status()
+        self._raise_for_error(response)
         if not response.content:
             return None
-        return response.json()
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
 
 
     def create_comment(self, postID: str, payload: dict[str, Any] | None = None) -> Any:
@@ -238,10 +316,13 @@ class AngClient:
             headers=self._headers(),
             json=payload,
         )
-        response.raise_for_status()
+        self._raise_for_error(response)
         if not response.content:
             return None
-        return response.json()
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
 
 
     def create_tag(self, payload: dict[str, Any] | None = None) -> Any:
@@ -251,10 +332,13 @@ class AngClient:
             headers=self._headers(),
             json=payload,
         )
-        response.raise_for_status()
+        self._raise_for_error(response)
         if not response.content:
             return None
-        return response.json()
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
 
 
     def update_profile(self, payload: dict[str, Any] | None = None) -> Any:
@@ -264,10 +348,13 @@ class AngClient:
             headers=self._headers(),
             json=payload,
         )
-        response.raise_for_status()
+        self._raise_for_error(response)
         if not response.content:
             return None
-        return response.json()
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
 
 
     def update_comment(self, id: str, payload: dict[str, Any] | None = None) -> Any:
@@ -277,10 +364,13 @@ class AngClient:
             headers=self._headers(),
             json=payload,
         )
-        response.raise_for_status()
+        self._raise_for_error(response)
         if not response.content:
             return None
-        return response.json()
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
 
 
     def update_post(self, id: str, payload: dict[str, Any] | None = None) -> Any:
@@ -290,10 +380,13 @@ class AngClient:
             headers=self._headers(),
             json=payload,
         )
-        response.raise_for_status()
+        self._raise_for_error(response)
         if not response.content:
             return None
-        return response.json()
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
 
 
     def update_tag(self, id: str, payload: dict[str, Any] | None = None) -> Any:
@@ -303,8 +396,408 @@ class AngClient:
             headers=self._headers(),
             json=payload,
         )
-        response.raise_for_status()
+        self._raise_for_error(response)
         if not response.content:
             return None
-        return response.json()
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
+
+
+class AsyncAngClient:
+    def __init__(
+        self,
+        base_url: str,
+        token: str | None = None,
+        timeout: float = 10.0,
+        client: httpx.AsyncClient | None = None,
+        token_provider: Callable[[], str | None] | None = None,
+    ) -> None:
+        self._base_url = base_url.rstrip("/")
+        self._token = token
+        self._token_provider = token_provider
+        self._client = client or httpx.AsyncClient(base_url=self._base_url, timeout=timeout)
+
+    async def close(self) -> None:
+        await self._client.aclose()
+
+    def set_token(self, token: str | None) -> None:
+        self._token = token
+
+    def set_token_provider(self, provider: Callable[[], str | None] | None) -> None:
+        self._token_provider = provider
+
+    def _resolve_token(self) -> str | None:
+        if self._token_provider is not None:
+            value = self._token_provider()
+            if value:
+                return str(value)
+        return self._token
+
+    def _headers(self) -> dict[str, str]:
+        headers: dict[str, str] = {"Accept": "application/json"}
+        token = self._resolve_token()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        return headers
+
+    def _to_problem(self, response: httpx.Response) -> ProblemDetails | None:
+        content_type = response.headers.get("content-type", "")
+        if "application/json" not in content_type:
+            return None
+        try:
+            data = response.json()
+        except Exception:
+            return None
+        if not isinstance(data, dict):
+            return None
+
+        base_keys = {"type", "title", "status", "detail", "instance"}
+        problem = {
+            "type": data.get("type", "about:blank"),
+            "title": data.get("title", response.reason_phrase or "Error"),
+            "status": data.get("status", response.status_code),
+            "detail": data.get("detail"),
+            "instance": data.get("instance"),
+            "extensions": {k: v for k, v in data.items() if k not in base_keys},
+        }
+        return ProblemDetails(**problem)
+
+    def _raise_for_error(self, response: httpx.Response) -> None:
+        if response.status_code < 400:
+            return
+        problem = self._to_problem(response)
+        if problem is not None:
+            message = problem.detail or problem.title or f"HTTP {response.status_code}"
+            raise AngAPIError(response.status_code, message, problem=problem, response_text=response.text)
+        raise AngAPIError(response.status_code, response.reason_phrase or f"HTTP {response.status_code}", response_text=response.text)
+
+
+    async def delete_comment(self, id: str) -> Any:
+        response = await self._client.request(
+            "DELETE",
+            f"/comments/{id}",
+            headers=self._headers(),
+        )
+        self._raise_for_error(response)
+        if not response.content:
+            return None
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
+
+
+    async def delete_post(self, id: str) -> Any:
+        response = await self._client.request(
+            "DELETE",
+            f"/posts/{id}",
+            headers=self._headers(),
+        )
+        self._raise_for_error(response)
+        if not response.content:
+            return None
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
+
+
+    async def delete_tag(self, id: str) -> Any:
+        response = await self._client.request(
+            "DELETE",
+            f"/tags/{id}",
+            headers=self._headers(),
+        )
+        self._raise_for_error(response)
+        if not response.content:
+            return None
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
+
+
+    async def get_profile(self) -> Any:
+        response = await self._client.request(
+            "GET",
+            f"/auth/profile",
+            headers=self._headers(),
+        )
+        self._raise_for_error(response)
+        if not response.content:
+            return None
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
+
+
+    async def list_my_posts(self) -> Any:
+        response = await self._client.request(
+            "GET",
+            f"/my/posts",
+            headers=self._headers(),
+        )
+        self._raise_for_error(response)
+        if not response.content:
+            return None
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
+
+
+    async def list_posts(self) -> Any:
+        response = await self._client.request(
+            "GET",
+            f"/posts",
+            headers=self._headers(),
+        )
+        self._raise_for_error(response)
+        if not response.content:
+            return None
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
+
+
+    async def list_comments(self, postID: str) -> Any:
+        response = await self._client.request(
+            "GET",
+            f"/posts/{postID}/comments",
+            headers=self._headers(),
+        )
+        self._raise_for_error(response)
+        if not response.content:
+            return None
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
+
+
+    async def get_post(self, slug: str) -> Any:
+        response = await self._client.request(
+            "GET",
+            f"/posts/{slug}",
+            headers=self._headers(),
+        )
+        self._raise_for_error(response)
+        if not response.content:
+            return None
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
+
+
+    async def list_tags(self) -> Any:
+        response = await self._client.request(
+            "GET",
+            f"/tags",
+            headers=self._headers(),
+        )
+        self._raise_for_error(response)
+        if not response.content:
+            return None
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
+
+
+    async def login(self, payload: dict[str, Any] | None = None) -> Any:
+        response = await self._client.request(
+            "POST",
+            f"/auth/login",
+            headers=self._headers(),
+            json=payload,
+        )
+        self._raise_for_error(response)
+        if not response.content:
+            return None
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
+
+
+    async def register(self, payload: dict[str, Any] | None = None) -> Any:
+        response = await self._client.request(
+            "POST",
+            f"/auth/register",
+            headers=self._headers(),
+            json=payload,
+        )
+        self._raise_for_error(response)
+        if not response.content:
+            return None
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
+
+
+    async def create_post(self, payload: dict[str, Any] | None = None) -> Any:
+        response = await self._client.request(
+            "POST",
+            f"/posts",
+            headers=self._headers(),
+            json=payload,
+        )
+        self._raise_for_error(response)
+        if not response.content:
+            return None
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
+
+
+    async def archive_post(self, id: str, payload: dict[str, Any] | None = None) -> Any:
+        response = await self._client.request(
+            "POST",
+            f"/posts/{id}/archive",
+            headers=self._headers(),
+            json=payload,
+        )
+        self._raise_for_error(response)
+        if not response.content:
+            return None
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
+
+
+    async def publish_post(self, id: str, payload: dict[str, Any] | None = None) -> Any:
+        response = await self._client.request(
+            "POST",
+            f"/posts/{id}/publish",
+            headers=self._headers(),
+            json=payload,
+        )
+        self._raise_for_error(response)
+        if not response.content:
+            return None
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
+
+
+    async def submit_post(self, id: str, payload: dict[str, Any] | None = None) -> Any:
+        response = await self._client.request(
+            "POST",
+            f"/posts/{id}/submit",
+            headers=self._headers(),
+            json=payload,
+        )
+        self._raise_for_error(response)
+        if not response.content:
+            return None
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
+
+
+    async def create_comment(self, postID: str, payload: dict[str, Any] | None = None) -> Any:
+        response = await self._client.request(
+            "POST",
+            f"/posts/{postID}/comments",
+            headers=self._headers(),
+            json=payload,
+        )
+        self._raise_for_error(response)
+        if not response.content:
+            return None
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
+
+
+    async def create_tag(self, payload: dict[str, Any] | None = None) -> Any:
+        response = await self._client.request(
+            "POST",
+            f"/tags",
+            headers=self._headers(),
+            json=payload,
+        )
+        self._raise_for_error(response)
+        if not response.content:
+            return None
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
+
+
+    async def update_profile(self, payload: dict[str, Any] | None = None) -> Any:
+        response = await self._client.request(
+            "PUT",
+            f"/auth/profile",
+            headers=self._headers(),
+            json=payload,
+        )
+        self._raise_for_error(response)
+        if not response.content:
+            return None
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
+
+
+    async def update_comment(self, id: str, payload: dict[str, Any] | None = None) -> Any:
+        response = await self._client.request(
+            "PUT",
+            f"/comments/{id}",
+            headers=self._headers(),
+            json=payload,
+        )
+        self._raise_for_error(response)
+        if not response.content:
+            return None
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
+
+
+    async def update_post(self, id: str, payload: dict[str, Any] | None = None) -> Any:
+        response = await self._client.request(
+            "PUT",
+            f"/posts/{id}",
+            headers=self._headers(),
+            json=payload,
+        )
+        self._raise_for_error(response)
+        if not response.content:
+            return None
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
+
+
+    async def update_tag(self, id: str, payload: dict[str, Any] | None = None) -> Any:
+        response = await self._client.request(
+            "PUT",
+            f"/tags/{id}",
+            headers=self._headers(),
+            json=payload,
+        )
+        self._raise_for_error(response)
+        if not response.content:
+            return None
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return response.text
+
 

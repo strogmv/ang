@@ -11,11 +11,13 @@ python -m pip install -e .
 ## Quick Start
 
 ```python
-from ang_sdk import AngClient
+from ang_sdk import AngClient, AsyncAngClient, models
 
 client = AngClient(base_url="http://localhost:8080", token="<jwt>")
 # result = client.some_method(...)
 client.close()
+
+user = models.User(id="u1", email="user@example.com")
 ```
 
 Token hooks:
@@ -23,6 +25,25 @@ Token hooks:
 ```python
 client.set_token("<new-jwt>")
 client.set_token_provider(lambda: "<jwt-from-store>")
+```
+
+Async client:
+
+```python
+async_client = AsyncAngClient(base_url="http://localhost:8080", token="<jwt>")
+# result = await async_client.some_method(...)
+await async_client.close()
+```
+
+Error handling (RFC 9457):
+
+```python
+from ang_sdk import AngAPIError
+
+try:
+    client.some_method()
+except AngAPIError as e:
+    print(e.status_code, e.problem)
 ```
 
 ## Generated Methods

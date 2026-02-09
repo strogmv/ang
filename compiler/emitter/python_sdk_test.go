@@ -35,3 +35,36 @@ func TestBuildPythonEndpointsUniqueNames(t *testing.T) {
 		t.Fatalf("unexpected second method name: %s", got[1].MethodName)
 	}
 }
+
+func TestBuildPythonSDKModels(t *testing.T) {
+	entities := []normalizer.Entity{
+		{
+			Name: "User",
+			Fields: []normalizer.Field{
+				{Name: "id", Type: "string"},
+				{Name: "roles", Type: "string", IsList: true},
+				{Name: "meta", Type: "json", IsOptional: true},
+			},
+		},
+	}
+
+	got := buildPythonSDKModels(entities)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 model, got %d", len(got))
+	}
+	if got[0].Name != "User" {
+		t.Fatalf("unexpected model name: %s", got[0].Name)
+	}
+	if len(got[0].Fields) != 3 {
+		t.Fatalf("expected 3 fields, got %d", len(got[0].Fields))
+	}
+	if got[0].Fields[0].Type != "str" {
+		t.Fatalf("expected id as str, got %s", got[0].Fields[0].Type)
+	}
+	if got[0].Fields[1].Type != "list[str]" {
+		t.Fatalf("expected roles as list[str], got %s", got[0].Fields[1].Type)
+	}
+	if got[0].Fields[2].Type != "dict[str, Any] | None" {
+		t.Fatalf("expected meta optional json, got %s", got[0].Fields[2].Type)
+	}
+}
