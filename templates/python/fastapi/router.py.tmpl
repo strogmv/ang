@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
+from app import models
 from app.services.{{ .ModuleName }} import {{ .ClassName }}, {{ .GetService }}
 
 router = APIRouter(tags=["{{ .ServiceName }}"])
@@ -15,6 +16,6 @@ router = APIRouter(tags=["{{ .ServiceName }}"])
 {{- else }}
 @router.{{ .Decorator }}("{{ .Path }}")
 {{- end }}
-async def {{ .HandlerName }}({{ .Signature }}) -> Any:
+async def {{ .HandlerName }}({{ .Signature }}) -> {{ .ReturnType }}:
     return {{ .CallExpr }}
 {{ end }}

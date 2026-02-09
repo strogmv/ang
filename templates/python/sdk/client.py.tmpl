@@ -85,7 +85,7 @@ class AngClient:
         raise AngAPIError(response.status_code, response.reason_phrase or f"HTTP {response.status_code}", response_text=response.text)
 
 {{ range .Endpoints }}
-    def {{ .MethodName }}(self{{ if .PathParams }}, {{ JoinTypedParams .PathParams }}{{ end }}{{ if .HasBody }}, payload: {{ .PayloadType }} | dict[str, Any] | None = None{{ end }}) -> {{ .ReturnType }} | Any | None:
+    def {{ .MethodName }}(self{{ if .PathParams }}, {{ JoinTypedParams .PathParams }}{{ end }}{{ if .HasBody }}, payload: {{ .PayloadAnnot }}{{ end }}) -> {{ .ReturnAnnot }}:
         response = self._client.request(
             "{{ .Method }}",
             f"{{ PathWithFormat .Path }}",
@@ -180,7 +180,7 @@ class AsyncAngClient:
         raise AngAPIError(response.status_code, response.reason_phrase or f"HTTP {response.status_code}", response_text=response.text)
 
 {{ range .Endpoints }}
-    async def {{ .MethodName }}(self{{ if .PathParams }}, {{ JoinTypedParams .PathParams }}{{ end }}{{ if .HasBody }}, payload: {{ .PayloadType }} | dict[str, Any] | None = None{{ end }}) -> {{ .ReturnType }} | Any | None:
+    async def {{ .MethodName }}(self{{ if .PathParams }}, {{ JoinTypedParams .PathParams }}{{ end }}{{ if .HasBody }}, payload: {{ .PayloadAnnot }}{{ end }}) -> {{ .ReturnAnnot }}:
         response = await self._client.request(
             "{{ .Method }}",
             f"{{ PathWithFormat .Path }}",

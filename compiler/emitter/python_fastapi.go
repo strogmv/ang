@@ -27,6 +27,7 @@ type pythonRoute struct {
 	Path        string
 	HandlerName string
 	Signature   string
+	ReturnType  string
 	CallExpr    string
 }
 
@@ -242,6 +243,7 @@ func buildPythonRoutersAndServices(endpoints []normalizer.Endpoint, services []n
 	}
 
 	group := map[string][]groupedEndpoint{}
+	sigs := buildPythonRPCSignatures(services)
 	for _, ep := range endpoints {
 		if strings.EqualFold(ep.Method, "WS") {
 			continue
@@ -317,7 +319,12 @@ func buildPythonRoutersAndServices(endpoints []normalizer.Endpoint, services []n
 				callArgs = append(callArgs, p)
 			}
 			if hasBody {
-				signatureParts = append(signatureParts, "payload: dict[str, Any]")
+				sigKey := strings.ToLower(strings.TrimSpace(serviceName)) + ":" + strings.ToLower(strings.TrimSpace(ep.rpc))
+				payloadType := "dict[str, Any]"
+				if sig := sigs[sigKey]; sig.InputModel != "" && sig.InputModel != "Any" {
+					payloadType = "models." + sig.InputModel
+				}
+				signatureParts = append(signatureParts, "payload: "+payloadType)
 				callArgs = append(callArgs, "payload")
 			}
 			signatureParts = append(signatureParts, fmt.Sprintf("svc: %s = Depends(%s)", className, getService))
@@ -333,12 +340,19 @@ func buildPythonRoutersAndServices(endpoints []normalizer.Endpoint, services []n
 				decorator = "api_route"
 			}
 
+			returnType := "Any"
+			sigKey := strings.ToLower(strings.TrimSpace(serviceName)) + ":" + strings.ToLower(strings.TrimSpace(ep.rpc))
+			if sig := sigs[sigKey]; sig.OutputModel != "" && sig.OutputModel != "Any" {
+				returnType = "models." + sig.OutputModel
+			}
+
 			routes = append(routes, pythonRoute{
 				Method:      ep.method,
 				Decorator:   decorator,
 				Path:        ep.path,
 				HandlerName: handler,
 				Signature:   strings.Join(signatureParts, ", "),
+				ReturnType:  returnType,
 				CallExpr:    callExpr,
 			})
 			implKey := strings.ToLower(strings.TrimSpace(serviceName)) + ":" + strings.ToLower(strings.TrimSpace(ep.rpc))

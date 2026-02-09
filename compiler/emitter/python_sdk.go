@@ -22,7 +22,9 @@ type pythonEndpoint struct {
 	PathParams       []string
 	HasBody          bool
 	PayloadType      string
+	PayloadAnnot     string
 	ReturnType       string
+	ReturnAnnot      string
 	PayloadModelName string
 	ReturnModelName  string
 }
@@ -159,15 +161,19 @@ func buildPythonEndpoints(endpoints []normalizer.Endpoint, sigs map[string]pytho
 		sigKey := strings.ToLower(strings.TrimSpace(ep.ServiceName)) + ":" + strings.ToLower(strings.TrimSpace(ep.RPC))
 		sig := sigs[sigKey]
 		payloadType := "dict[str, Any]"
+		payloadAnnot := "dict[str, Any] | None"
 		payloadModelName := ""
 		if sig.InputModel != "" && sig.InputModel != "Any" {
 			payloadType = "models." + sig.InputModel
+			payloadAnnot = payloadType + " | dict[str, Any] | None"
 			payloadModelName = sig.InputModel
 		}
 		returnType := "Any"
+		returnAnnot := "Any | None"
 		returnModelName := ""
 		if sig.OutputModel != "" && sig.OutputModel != "Any" {
 			returnType = "models." + sig.OutputModel
+			returnAnnot = returnType + " | None"
 			returnModelName = sig.OutputModel
 		}
 		out = append(out, pythonEndpoint{
@@ -178,7 +184,9 @@ func buildPythonEndpoints(endpoints []normalizer.Endpoint, sigs map[string]pytho
 			PathParams:       params,
 			HasBody:          method != "GET" && method != "DELETE",
 			PayloadType:      payloadType,
+			PayloadAnnot:     payloadAnnot,
 			ReturnType:       returnType,
+			ReturnAnnot:      returnAnnot,
 			PayloadModelName: payloadModelName,
 			ReturnModelName:  returnModelName,
 		})

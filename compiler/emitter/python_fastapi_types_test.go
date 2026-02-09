@@ -1,6 +1,9 @@
 package emitter
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/strogmv/ang/compiler/normalizer"
@@ -53,5 +56,51 @@ func TestBuildPythonModels_AliasAndEntityRefs(t *testing.T) {
 	}
 	if post.Fields[2].Type != "list[Tag]" {
 		t.Fatalf("expected tags as list[Tag], got %s", post.Fields[2].Type)
+	}
+}
+
+func TestEmitPythonFastAPIBackend_TypedRouterSignatures(t *testing.T) {
+	tmp := t.TempDir()
+	em := New(tmp, "", "templates")
+	em.Version = "0.1.0"
+
+	entities := []normalizer.Entity{
+		{Name: "LoginRequest", Fields: []normalizer.Field{{Name: "email", Type: "string"}}},
+		{Name: "AuthTokens", Fields: []normalizer.Field{{Name: "accessToken", Type: "string"}}},
+	}
+	services := []normalizer.Service{
+		{
+			Name: "Auth",
+			Methods: []normalizer.Method{
+				{
+					Name:   "Login",
+					Input:  normalizer.Entity{Name: "LoginRequest"},
+					Output: normalizer.Entity{Name: "AuthTokens"},
+				},
+			},
+		},
+	}
+	endpoints := []normalizer.Endpoint{
+		{Method: "POST", Path: "/auth/login", ServiceName: "Auth", RPC: "Login"},
+	}
+
+	if err := em.EmitPythonFastAPIBackend(entities, services, endpoints, nil, nil); err != nil {
+		t.Fatalf("emit python fastapi backend: %v", err)
+	}
+
+	routerPath := filepath.Join(tmp, "app", "routers", "auth.py")
+	data, err := os.ReadFile(routerPath)
+	if err != nil {
+		t.Fatalf("read router: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "from app import models") {
+		t.Fatalf("expected models import in router")
+	}
+	if !strings.Contains(text, "payload: models.LoginRequest") {
+		t.Fatalf("expected typed payload in router signature")
+	}
+	if !strings.Contains(text, "-> models.AuthTokens:") {
+		t.Fatalf("expected typed return in router signature")
 	}
 }
