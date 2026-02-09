@@ -22,12 +22,12 @@ jobs:
         run: go build ./cmd/ang
 
       - name: Run Compiler Tests
-        run: go test ./compiler/...
+        run: go test ./compiler/... ./cmd/ang
 
       - name: Validate Intent
         run: go run ./cmd/ang validate
 
-  python-sdk:
+  release-gates:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -43,60 +43,51 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Generate Python SDK
+      - name: Build Multi-Target (Go + Python)
         env:
           ANG_PY_SDK: "1"
         run: go run ./cmd/ang build
 
-      - name: Golden Check (sdk/python)
-        run: git diff --exit-code -- sdk/python
+      - name: Determinism Check (second build, same outputs)
+        env:
+          ANG_PY_SDK: "1"
+        run: |
+          rm -rf dist
+          go run ./cmd/ang build
+          find dist/release -type f -print0 | sort -z | xargs -0 sha256sum > /tmp/ang-release-hash-1.txt
+          go run ./cmd/ang build
+          find dist/release -type f -print0 | sort -z | xargs -0 sha256sum > /tmp/ang-release-hash-2.txt
+          diff -u /tmp/ang-release-hash-1.txt /tmp/ang-release-hash-2.txt
+
+      - name: Artifact Presence Smoke
+        run: |
+          test -f dist/release/go-service/cmd/server/main.go
+          test -f dist/release/python-service/app/main.py
+          test -f dist/release/go-service/sdk/python/pyproject.toml
 
       - name: Python SDK Smoke (install + import)
         run: |
           python -m venv .venv
           . .venv/bin/activate
           python -m pip install --upgrade pip
-          python -m pip install -e sdk/python
+          python -m pip install -e dist/release/go-service/sdk/python
           python -c "from ang_sdk import AngClient; print('ok')"
 
-  python-fastapi:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-
-      - name: Build Python/FastAPI Target
+      - name: FastAPI Scaffold Smoke (py_compile)
         run: |
-          cp cue/project/project.cue /tmp/project.cue.bak
-          trap 'cp /tmp/project.cue.bak cue/project/project.cue' EXIT
-          cat > cue/project/project.cue << 'EOF'
-          package project
-          
-          #Project: {
-            name: "CI Python FastAPI"
-            version: "0.1.0"
-          }
-          
-          #Target: {
-            lang: "python"
-            framework: "fastapi"
-            db: "postgres"
-          }
-          
-          state: {
-            target: #Target
-          }
-          EOF
-          go run ./cmd/ang build --backend /tmp/ang-py-fastapi-out --frontend /tmp/ang-py-fastapi-out/sdk
+          test -f dist/release/python-service/app/main.py
+          test -f dist/release/python-service/app/routers/auth.py
+          test -f dist/release/python-service/app/services/auth.py
+          python -m py_compile \
+            dist/release/python-service/app/main.py \
+            dist/release/python-service/app/routers/auth.py \
+            dist/release/python-service/app/services/auth.py
 
-      - name: FastAPI Scaffold Smoke
+      - name: PDF Example Smoke (from CUE)
         run: |
-          test -f /tmp/ang-py-fastapi-out/app/main.py
-          test -f /tmp/ang-py-fastapi-out/app/pyproject.toml
-          test -f /tmp/ang-py-fastapi-out/app/README.md
-          test -f /tmp/ang-py-fastapi-out/app/routers/auth.py
+          go run ./cmd/ang build examples/pdf-chart-python --target=python
+          test -f examples/pdf-chart-python/app/main.py
+          test -f examples/pdf-chart-python/app/services/report.py
+          python -m py_compile \
+            examples/pdf-chart-python/app/main.py \
+            examples/pdf-chart-python/app/services/report.py
