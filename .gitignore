@@ -33,3 +33,4 @@ coverage/
 # Generated (if needed to exclude)
 # internal/
 # sdk/
+.design_db/
