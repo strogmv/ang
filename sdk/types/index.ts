@@ -79,6 +79,14 @@ export interface PostTag {
   /**  */
   tagId: any;
 }
+export interface UserVault {
+  /**  */
+  id: string;
+  /**  */
+  personalKey: Encrypted<string>;
+  /**  */
+  bio?: Encrypted<string>;
+}
 export interface RegisterRequest {
   /**  */
   email: string;

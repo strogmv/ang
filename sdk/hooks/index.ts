@@ -131,9 +131,9 @@ export const useCreateTag = (options?: UseMutationOptions<Types.CreateTagRespons
       return api.createTag(variables);
     },
     onSettled: (_data: any, _error: Error | null, _variables: Types.CreateTagRequest) => {
-        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListPosts'] });
-        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListMyPosts'] });
         queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListComments'] });
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListMyPosts'] });
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListPosts'] });
         queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListTags'] });
     },
     ...options,
@@ -148,9 +148,9 @@ export const useUpdateTag = (options?: UseMutationOptions<Types.UpdateTagRespons
     },
     onSettled: (_data: any, _error: Error | null, _variables: Types.UpdateTagRequest) => {
         queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListComments'] });
-        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListTags'] });
-        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListPosts'] });
         queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListMyPosts'] });
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListPosts'] });
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListTags'] });
     },
     ...options,
   });
@@ -163,9 +163,9 @@ export const useDeleteTag = (options?: UseMutationOptions<Types.DeleteTagRespons
       return api.deleteTag(variables);
     },
     onSettled: (_data: any, _error: Error | null, _variables: Types.DeleteTagRequest) => {
-        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListPosts'] });
-        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListMyPosts'] });
         queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListComments'] });
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListMyPosts'] });
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListPosts'] });
         queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListTags'] });
     },
     ...options,
@@ -179,9 +179,9 @@ export const useCreatePost = (options?: UseMutationOptions<Types.CreatePostRespo
       return api.createPost(variables);
     },
     onSettled: (_data: any, _error: Error | null, _variables: Types.CreatePostRequest) => {
-        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListPosts'] });
-        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListMyPosts'] });
         queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListComments'] });
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListMyPosts'] });
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListPosts'] });
         queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListTags'] });
     },
     ...options,
@@ -339,10 +339,10 @@ export const useUpdatePost = (options?: UseMutationOptions<Types.UpdatePostRespo
         if (context?.queryKey) {
             queryClient.invalidateQueries({ queryKey: context.queryKey });
         }
-        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListTags'] });
-        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListPosts'] });
-        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListMyPosts'] });
         queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListComments'] });
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListMyPosts'] });
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListPosts'] });
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListTags'] });
     },
     ...options,
   });
@@ -355,9 +355,9 @@ export const useSubmitPost = (options?: UseMutationOptions<Types.SubmitPostRespo
       return api.submitPost(variables);
     },
     onSettled: (_data: any, _error: Error | null, _variables: Types.SubmitPostRequest) => {
-        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListPosts'] });
-        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListMyPosts'] });
         queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListComments'] });
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListMyPosts'] });
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListPosts'] });
         queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListTags'] });
     },
     ...options,
@@ -371,10 +371,10 @@ export const usePublishPost = (options?: UseMutationOptions<Types.PublishPostRes
       return api.publishPost(variables);
     },
     onSettled: (_data: any, _error: Error | null, _variables: Types.PublishPostRequest) => {
-        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListTags'] });
-        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListPosts'] });
-        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListMyPosts'] });
         queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListComments'] });
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListMyPosts'] });
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListPosts'] });
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListTags'] });
     },
     ...options,
   });
@@ -388,9 +388,9 @@ export const useArchivePost = (options?: UseMutationOptions<Types.ArchivePostRes
     },
     onSettled: (_data: any, _error: Error | null, _variables: Types.ArchivePostRequest) => {
         queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListComments'] });
-        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListTags'] });
-        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListPosts'] });
         queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListMyPosts'] });
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListPosts'] });
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListTags'] });
     },
     ...options,
   });
@@ -403,9 +403,9 @@ export const useDeletePost = (options?: UseMutationOptions<Types.DeletePostRespo
       return api.deletePost(variables);
     },
     onSettled: (_data: any, _error: Error | null, _variables: Types.DeletePostRequest) => {
-        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListPosts'] });
-        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListMyPosts'] });
         queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListComments'] });
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListMyPosts'] });
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListPosts'] });
         queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListTags'] });
     },
     ...options,
@@ -419,9 +419,9 @@ export const useCreateComment = (options?: UseMutationOptions<Types.CreateCommen
       return api.createComment(variables);
     },
     onSettled: (_data: any, _error: Error | null, _variables: Types.CreateCommentRequest) => {
-        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListPosts'] });
-        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListMyPosts'] });
         queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListComments'] });
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListMyPosts'] });
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListPosts'] });
         queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListTags'] });
     },
     ...options,
@@ -471,9 +471,9 @@ export const useUpdateComment = (options?: UseMutationOptions<Types.UpdateCommen
       return api.updateComment(variables);
     },
     onSettled: (_data: any, _error: Error | null, _variables: Types.UpdateCommentRequest) => {
-        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListPosts'] });
-        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListMyPosts'] });
         queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListComments'] });
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListMyPosts'] });
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListPosts'] });
         queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListTags'] });
     },
     ...options,
@@ -487,9 +487,9 @@ export const useDeleteComment = (options?: UseMutationOptions<Types.DeleteCommen
       return api.deleteComment(variables);
     },
     onSettled: (_data: any, _error: Error | null, _variables: Types.DeleteCommentRequest) => {
-        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListPosts'] });
-        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListMyPosts'] });
         queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListComments'] });
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListMyPosts'] });
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListPosts'] });
         queryClient.invalidateQueries({ queryKey: [...queryKeys.Blog.all, 'ListTags'] });
     },
     ...options,

@@ -11,6 +11,7 @@ import "github.com/strogmv/ang/cue/schema"
 // User entity - blog authors and readers
 #User: schema.#Entity & {
     name: "User"
+    owner: "auth"
     description: "Blog user account"
 
     fields: {
@@ -60,6 +61,7 @@ import "github.com/strogmv/ang/cue/schema"
 // Post entity - blog articles with state machine
 #Post: schema.#Entity & {
     name: "Post"
+    owner: "blog"
     description: "Blog post/article"
 
     fields: {
@@ -135,6 +137,7 @@ import "github.com/strogmv/ang/cue/schema"
 // Comment entity - user comments on posts
 #Comment: schema.#Entity & {
     name: "Comment"
+    owner: "blog"
     description: "Comment on a blog post"
 
     fields: {
@@ -177,6 +180,7 @@ import "github.com/strogmv/ang/cue/schema"
 // Tag entity - categorization for posts
 #Tag: schema.#Entity & {
     name: "Tag"
+    owner: "blog"
     description: "Post categorization tag"
 
     fields: {
@@ -205,6 +209,7 @@ import "github.com/strogmv/ang/cue/schema"
 // PostTag - many-to-many relationship
 #PostTag: schema.#Entity & {
     name: "PostTag"
+    owner: "blog"
     description: "Post-Tag relationship"
 
     fields: {

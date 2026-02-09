@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"cuelang.org/go/cue"
@@ -1282,6 +1283,7 @@ func (n *Normalizer) ExtractEndpoints(val cue.Value) ([]Endpoint, error) {
 				}
 			}
 		}
+		sort.Strings(ep.Invalidate)
 
 		msgsVal := epVal.LookupPath(cue.ParsePath("messages"))
 		if msgsVal.Exists() {

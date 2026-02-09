@@ -3,5 +3,6 @@ export * from './user';
 export * from './post';
 export * from './comment';
 export * from './tag';
+export * from './uservault';
 export * from './getpostresponsetagsitem';
 export * from '../auth-store';

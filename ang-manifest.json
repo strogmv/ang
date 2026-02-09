@@ -13,23 +13,6 @@
   },
   "services": [
     {
-      "name": "Auth",
-      "methods": [
-        "Register",
-        "Login",
-        "GetProfile",
-        "UpdateProfile"
-      ],
-      "publishes": [
-        "UserRegistered",
-        "UserLoggedIn"
-      ],
-      "subscribes": {},
-      "depends_on": [
-        "NATS"
-      ]
-    },
-    {
       "name": "Blog",
       "methods": [
         "CreateComment",
@@ -53,6 +36,23 @@
       "publishes": null,
       "subscribes": {},
       "depends_on": []
+    },
+    {
+      "name": "Auth",
+      "methods": [
+        "Register",
+        "Login",
+        "GetProfile",
+        "UpdateProfile"
+      ],
+      "publishes": [
+        "UserRegistered",
+        "UserLoggedIn"
+      ],
+      "subscribes": {},
+      "depends_on": [
+        "NATS"
+      ]
     }
   ],
   "events": null,
@@ -61,6 +61,7 @@
     "Post",
     "Comment",
     "Tag",
-    "PostTag"
+    "PostTag",
+    "UserVault"
   ]
 }

@@ -2,9 +2,9 @@ openapi: 3.0.3
 info:
   title: ANG API
   version: 0.1.0
-  x-ang-version: 0.1.43
-  x-ang-input-hash: 4d22593cd3717a05651c0fd9db8039904fb5f3fb88dad299216dd00bfcb3bbad
-  x-ang-compiler-hash: e5cd89423d770d4d34dfbc0dd5935877609cb707582c9912adb39a5cd27f7a6c
+  x-ang-version: 0.1.44
+  x-ang-input-hash: 9fad923bd84da41f91e7eb0536e3fd36dd2e90a2a0aa35367843acfaf697931b
+  x-ang-compiler-hash: 9a63cacc45edd67a77f1a002cd4d57844a2dce9914c1d5777eb76af325d670df
 paths:
   /auth/register:
     post:

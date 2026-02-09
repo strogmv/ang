@@ -106,6 +106,9 @@ func TestIRRoundTrip(t *testing.T) {
 			IsPII:       true,
 			SkipDomain:  true,
 			ValidateTag: "required,email",
+			Constraints: &normalizer.Constraints{
+				Regex: "^[^@]+@[^@]+$",
+			},
 			EnvVar:      "TEST_VAR",
 			Metadata:    map[string]any{"sql_type": "text"},
 			UI: &normalizer.UIHints{

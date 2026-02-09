@@ -116,6 +116,20 @@ func IRFieldToNormalizer(f ir.Field) normalizer.Field {
 		Metadata:    f.Metadata,
 		Source:      f.Source,
 	}
+	if f.Constraints != nil {
+		var enum []string
+		if f.Constraints.Enum != nil {
+			enum = append([]string{}, f.Constraints.Enum...)
+		}
+		field.Constraints = &normalizer.Constraints{
+			Min:    f.Constraints.Min,
+			Max:    f.Constraints.Max,
+			MinLen: f.Constraints.MinLen,
+			MaxLen: f.Constraints.MaxLen,
+			Regex:  f.Constraints.Regex,
+			Enum:   enum,
+		}
+	}
 
 	if f.UI.Type != "" || f.UI.Label != "" || f.UI.Order != 0 {
 		field.UI = &normalizer.UIHints{

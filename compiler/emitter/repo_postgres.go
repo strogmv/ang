@@ -13,6 +13,23 @@ import (
 	"github.com/strogmv/ang/compiler/normalizer"
 )
 
+type ScanVariable struct {
+	Name       string
+	GoPath     string
+	IsOptional bool
+	MappingFn  string
+	TmpVar     string
+	TmpType    string
+	Guard      string
+	AssignCode string
+}
+
+type ScanPlan struct {
+	Columns   []string
+	ColList   string
+	Variables []ScanVariable
+}
+
 // EmitPostgresRepo генерирует реализацию репозитория для Postgres
 func (e *Emitter) EmitPostgresRepo(repos []normalizer.Repository, entities []normalizer.Entity) error {
 	tmplPath := filepath.Join(e.TemplatesDir, "postgres_repo.tmpl")
@@ -34,74 +51,6 @@ func (e *Emitter) EmitPostgresRepo(repos []normalizer.Repository, entities []nor
 	funcMap["IsTimestampString"] = func(f normalizer.Field) bool {
 		return f.Type == "string" && strings.Contains(strings.ToUpper(f.DB.Type), "TIMESTAMP")
 	}
-	funcMap["NeedsScanVar"] = func(f normalizer.Field) bool {
-		return f.IsOptional || (f.Type == "string" && strings.Contains(strings.ToUpper(f.DB.Type), "TIMESTAMP"))
-	}
-	funcMap["ScanVarName"] = func(f normalizer.Field) string {
-		return strings.ToLower(f.Name) + "Val"
-	}
-	funcMap["ScanVarType"] = func(f normalizer.Field) string {
-		if f.IsOptional {
-			return funcMap["ScanType"].(func(normalizer.Field) string)(f)
-		}
-		if f.Type == "string" && strings.Contains(strings.ToUpper(f.DB.Type), "TIMESTAMP") {
-			return "string"
-		}
-		return funcMap["ScanType"].(func(normalizer.Field) string)(f)
-	}
-	funcMap["ScanType"] = func(f normalizer.Field) string {
-		switch f.Type {
-		case "string":
-			return "sql.NullString"
-		case "int", "int64":
-			return "sql.NullInt64"
-		case "float64":
-			return "sql.NullFloat64"
-		case "bool":
-			return "sql.NullBool"
-		case "time.Time":
-			return "sql.NullTime"
-		default:
-			return "sql.NullString"
-		}
-	}
-	funcMap["ScanArg"] = func(f normalizer.Field) string {
-		if f.IsOptional {
-			return "&" + strings.ToLower(f.Name) + "Val"
-		}
-		if f.Type == "string" && strings.Contains(strings.ToUpper(f.DB.Type), "TIMESTAMP") {
-			return "&" + strings.ToLower(f.Name) + "Val"
-		}
-		return "&entity." + ExportName(f.Name)
-	}
-	funcMap["ScanAssign"] = func(f normalizer.Field, varName string) string {
-		if strings.HasPrefix(f.Type, "map[") || f.Type == "any" || f.Type == "interface{}" {
-			return "unmarshalJSON(" + varName + ".String, &entity." + ExportName(f.Name) + ")"
-		}
-		switch f.Type {
-		case "string":
-			if strings.Contains(strings.ToUpper(f.DB.Type), "TIMESTAMP") {
-				if f.IsOptional {
-					return "entity." + ExportName(f.Name) + " = normalizeTimeString(" + varName + ".String)"
-				}
-				return "entity." + ExportName(f.Name) + " = normalizeTimeString(" + varName + ")"
-			}
-			return "entity." + ExportName(f.Name) + " = " + varName + ".String"
-		case "int":
-			return "entity." + ExportName(f.Name) + " = int(" + varName + ".Int64)"
-		case "int64":
-			return "entity." + ExportName(f.Name) + " = " + varName + ".Int64"
-		case "float64":
-			return "entity." + ExportName(f.Name) + " = " + varName + ".Float64"
-		case "bool":
-			return "entity." + ExportName(f.Name) + " = " + varName + ".Bool"
-		case "time.Time":
-			return "entity." + ExportName(f.Name) + " = " + varName + ".Time"
-		default:
-			return "entity." + ExportName(f.Name) + " = " + varName + ".String"
-		}
-	}
-
 	t, err := template.New("postgres_repo").Funcs(funcMap).Parse(string(tmplContent))
 	if err != nil {
 		return fmt.Errorf("parse template: %w", err)
@@ -122,13 +71,15 @@ func (e *Emitter) EmitPostgresRepo(repos []normalizer.Repository, entities []nor
 		var placeholders []string
 		var updateSets []string
 		var insertArgs []string
-		var selectCols []string
+		var allSelectCols []string
+		var dbFields []normalizer.Field
 		hasTime := false
 
 		for _, f := range ent.Fields {
 			if f.SkipDomain {
 				continue
 			}
+			dbFields = append(dbFields, f)
 			colName := DBName(f.Name)
 			cols = append(cols, colName)
 			placeholders = append(placeholders, fmt.Sprintf("$%d", len(cols)))
@@ -157,23 +108,31 @@ func (e *Emitter) EmitPostgresRepo(repos []normalizer.Repository, entities []nor
 			} else if f.Type == "time.Time" || f.Type == "*time.Time" || strings.Contains(strings.ToUpper(f.DB.Type), "TIMESTAMP") {
 				sCol = colName + "::text"
 			}
-			selectCols = append(selectCols, sCol)
+			allSelectCols = append(allSelectCols, sCol)
 		}
+
+		findByIDPlan := buildScanPlan(dbFields, "entity")
+		findByIDPlan.Columns = append([]string{}, allSelectCols...)
+		findByIDPlan.ColList = strings.Join(findByIDPlan.Columns, ", ")
+		listAllPlan := findByIDPlan
 
 		type finderOut struct {
 			normalizer.RepositoryFinder
 			ParamsSig          string
 			Args               string
+			ArgsSuffix         string
 			ReturnType         string
 			ReturnZero         string
 			ReturnSlice        bool
 			SelectCols         string
 			WhereClause        string
+			WhereSQL           string
 			OrderBySQL         string
 			SelectEntity       bool
 			SelectCustomEntity bool   // For custom domain types like TenderReportInfo
 			CustomEntityName   string // The entity name for custom types
 			SelectFields       []normalizer.Field
+			ScanPlan           ScanPlan
 		}
 
 		var finders []finderOut
@@ -196,17 +155,26 @@ func (e *Emitter) EmitPostgresRepo(repos []normalizer.Repository, entities []nor
 
 			// Smart Projection Logic (Stage 48)
 			if len(f.Select) > 0 {
-				var mapped []string
-				for _, s := range f.Select {
-					mapped = append(mapped, DBName(s))
+				selectedFields := selectFieldsInEntityOrder(ent.Fields, f.Select)
+				if len(selectedFields) > 0 {
+					fo.SelectFields = selectedFields
+					fo.ScanPlan = buildScanPlan(selectedFields, "entity")
+					fo.SelectCols = fo.ScanPlan.ColList
+				} else {
+					var mapped []string
+					for _, s := range f.Select {
+						mapped = append(mapped, DBName(s))
+					}
+					fo.SelectCols = strings.Join(mapped, ", ")
 				}
-				fo.SelectCols = strings.Join(mapped, ", ")
-				if len(f.Select) < len(selectCols) {
+				if len(f.Select) < len(dbFields) {
 					fo.SelectEntity = false
 				}
 			} else {
 				// Default: List ALL columns explicitly (No SELECT *)
-				fo.SelectCols = strings.Join(selectCols, ", ")
+				fo.SelectCols = strings.Join(allSelectCols, ", ")
+				fo.SelectFields = append([]normalizer.Field{}, dbFields...)
+				fo.ScanPlan = buildScanPlan(fo.SelectFields, "entity")
 			}
 
 			// If explicit ReturnType is set, use it directly
@@ -278,12 +246,18 @@ func (e *Emitter) EmitPostgresRepo(repos []normalizer.Repository, entities []nor
 			} else if f.Returns == "one" {
 				fo.ReturnType = "*domain." + repo.Entity
 				fo.ReturnZero = "nil"
-				fo.SelectFields = ent.Fields
+				if len(fo.SelectFields) == 0 {
+					fo.SelectFields = append([]normalizer.Field{}, dbFields...)
+					fo.ScanPlan = buildScanPlan(fo.SelectFields, "entity")
+				}
 			} else if f.Returns == "many" {
 				fo.ReturnType = "[]domain." + repo.Entity
 				fo.ReturnZero = "nil"
 				fo.ReturnSlice = true
-				fo.SelectFields = ent.Fields
+				if len(fo.SelectFields) == 0 {
+					fo.SelectFields = append([]normalizer.Field{}, dbFields...)
+					fo.ScanPlan = buildScanPlan(fo.SelectFields, "entity")
+				}
 			} else if f.Returns == "count" {
 				fo.ReturnType = "int64"
 				fo.ReturnZero = "0"
@@ -294,18 +268,20 @@ func (e *Emitter) EmitPostgresRepo(repos []normalizer.Repository, entities []nor
 				fo.ReturnType = "[]domain." + repo.Entity
 				fo.ReturnZero = "nil"
 				fo.ReturnSlice = true
-				fo.SelectFields = ent.Fields
+				fo.SelectFields = append([]normalizer.Field{}, dbFields...)
+				fo.ScanPlan = buildScanPlan(fo.SelectFields, "entity")
 			} else if f.Returns == repo.Entity || f.Returns == "*"+repo.Entity {
 				fo.ReturnType = "*domain." + repo.Entity
 				fo.ReturnZero = "nil"
-				fo.SelectFields = ent.Fields
+				fo.SelectFields = append([]normalizer.Field{}, dbFields...)
+				fo.ScanPlan = buildScanPlan(fo.SelectFields, "entity")
 			} else {
 				fo.ReturnType = f.Returns
 				fo.ReturnZero = "nil" // Default
 				fo.SelectEntity = false
 				fo.SelectCols = strings.Join(f.Select, ", ")
 				if fo.SelectCols == "" {
-					fo.SelectCols = strings.Join(selectCols, ", ")
+					fo.SelectCols = strings.Join(allSelectCols, ", ")
 				}
 
 				// Check if return type is a custom domain entity (e.g., *domain.TenderReportInfo or []domain.TenderBidHistoryItem)
@@ -346,6 +322,7 @@ func (e *Emitter) EmitPostgresRepo(repos []normalizer.Repository, entities []nor
 							fo.SelectFields = append(fo.SelectFields, field)
 						}
 					}
+					fo.ScanPlan = buildScanPlan(fo.SelectFields, "entity")
 				} else {
 					// Map select column names back to Field objects
 					for _, col := range f.Select {
@@ -365,6 +342,13 @@ func (e *Emitter) EmitPostgresRepo(repos []normalizer.Repository, entities []nor
 				}
 			}
 
+			if (fo.SelectEntity || fo.SelectCustomEntity) && len(fo.ScanPlan.Variables) == 0 && len(fo.SelectFields) > 0 {
+				fo.ScanPlan = buildScanPlan(fo.SelectFields, "entity")
+				if fo.SelectCols == "" {
+					fo.SelectCols = fo.ScanPlan.ColList
+				}
+			}
+
 			var params []string
 			var args []string
 			var wheres []string
@@ -380,7 +364,13 @@ func (e *Emitter) EmitPostgresRepo(repos []normalizer.Repository, entities []nor
 			}
 			fo.ParamsSig = strings.Join(params, ", ")
 			fo.Args = strings.Join(args, ", ")
+			if fo.Args != "" {
+				fo.ArgsSuffix = ", " + fo.Args
+			}
 			fo.WhereClause = strings.Join(wheres, " AND ")
+			if fo.WhereClause != "" {
+				fo.WhereSQL = " WHERE " + fo.WhereClause
+			}
 			fo.OrderBySQL = f.OrderBy
 
 			finders = append(finders, fo)
@@ -398,6 +388,8 @@ func (e *Emitter) EmitPostgresRepo(repos []normalizer.Repository, entities []nor
 			Fields        []normalizer.Field
 			Finders       []finderOut
 			HasTime       bool
+			FindByIDPlan  ScanPlan
+			ListAllPlan   ScanPlan
 		}{
 			Name:          repo.Name,
 			Entity:        repo.Entity,
@@ -406,10 +398,12 @@ func (e *Emitter) EmitPostgresRepo(repos []normalizer.Repository, entities []nor
 			Placeholders:  strings.Join(placeholders, ", "),
 			UpdateSet:     strings.Join(updateSets, ", "),
 			InsertArgs:    strings.Join(insertArgs, ", "),
-			SelectColumns: strings.Join(selectCols, ", "),
+			SelectColumns: strings.Join(allSelectCols, ", "),
 			Fields:        ent.Fields,
 			Finders:       finders,
 			HasTime:       hasTime,
+			FindByIDPlan:  findByIDPlan,
+			ListAllPlan:   listAllPlan,
 		}
 
 		var buf bytes.Buffer
@@ -432,6 +426,176 @@ func (e *Emitter) EmitPostgresRepo(repos []normalizer.Repository, entities []nor
 	}
 
 	return nil
+}
+
+func selectFieldsInEntityOrder(entityFields []normalizer.Field, selected []string) []normalizer.Field {
+	if len(selected) == 0 {
+		return nil
+	}
+	selectedSet := make(map[string]struct{}, len(selected))
+	for _, s := range selected {
+		selectedSet[strings.ToLower(strings.TrimSpace(s))] = struct{}{}
+		selectedSet[strings.ToLower(DBName(strings.TrimSpace(s)))] = struct{}{}
+	}
+	out := make([]normalizer.Field, 0, len(selected))
+	for _, f := range entityFields {
+		if f.SkipDomain {
+			continue
+		}
+		if _, ok := selectedSet[strings.ToLower(f.Name)]; ok {
+			out = append(out, f)
+			continue
+		}
+		if _, ok := selectedSet[strings.ToLower(DBName(f.Name))]; ok {
+			out = append(out, f)
+			continue
+		}
+	}
+	return out
+}
+
+func buildScanPlan(fields []normalizer.Field, target string) ScanPlan {
+	plan := ScanPlan{
+		Columns:   make([]string, 0, len(fields)),
+		Variables: make([]ScanVariable, 0, len(fields)),
+	}
+	for _, f := range fields {
+		if f.SkipDomain {
+			continue
+		}
+		plan.Columns = append(plan.Columns, scanSelectColumnExpr(f))
+		plan.Variables = append(plan.Variables, buildScanVariable(f, target))
+	}
+	plan.ColList = strings.Join(plan.Columns, ", ")
+	return plan
+}
+
+func scanSelectColumnExpr(f normalizer.Field) string {
+	colName := DBName(f.Name)
+	if f.Type == "string" && f.DB.Type != "TEXT" && f.DB.Type != "" {
+		return colName + "::text"
+	}
+	if f.Type == "time.Time" || f.Type == "*time.Time" || strings.Contains(strings.ToUpper(f.DB.Type), "TIMESTAMP") {
+		return colName + "::text"
+	}
+	return colName
+}
+
+func buildScanVariable(f normalizer.Field, target string) ScanVariable {
+	goPath := target + "." + ExportName(f.Name)
+	tmpVar := strings.ToLower(f.Name) + "Val"
+	sv := ScanVariable{
+		Name:       f.Name,
+		GoPath:     goPath,
+		IsOptional: f.IsOptional,
+		TmpVar:     tmpVar,
+	}
+
+	isJSON := strings.HasPrefix(f.Type, "map[") || f.Type == "any" || f.Type == "interface{}"
+	isTSString := f.Type == "string" && strings.Contains(strings.ToUpper(f.DB.Type), "TIMESTAMP")
+
+	if f.IsOptional {
+		sv.TmpType = scanNullType(f)
+		sv.Guard = tmpVar + ".Valid"
+	} else if isJSON {
+		sv.TmpType = "sql.NullString"
+		sv.Guard = tmpVar + ".Valid"
+	} else if isTSString {
+		sv.TmpType = "string"
+	} else {
+		sv.TmpType = scanBaseType(f)
+	}
+
+	if isJSON {
+		sv.MappingFn = "unmarshalJSON"
+		sv.AssignCode = fmt.Sprintf("unmarshalJSON(%s.String, &%s)", tmpVar, goPath)
+		return sv
+	}
+
+	switch f.Type {
+	case "string":
+		if isTSString {
+			sv.MappingFn = "normalizeTimeString"
+			sv.AssignCode = fmt.Sprintf("%s = normalizeTimeString(%s)", goPath, tmpVar)
+		} else if f.IsOptional {
+			sv.AssignCode = fmt.Sprintf("%s = %s.String", goPath, tmpVar)
+		} else {
+			sv.AssignCode = fmt.Sprintf("%s = %s", goPath, tmpVar)
+		}
+	case "int":
+		if f.IsOptional {
+			sv.AssignCode = fmt.Sprintf("%s = int(%s.Int64)", goPath, tmpVar)
+		} else {
+			sv.AssignCode = fmt.Sprintf("%s = %s", goPath, tmpVar)
+		}
+	case "int64":
+		if f.IsOptional {
+			sv.AssignCode = fmt.Sprintf("%s = %s.Int64", goPath, tmpVar)
+		} else {
+			sv.AssignCode = fmt.Sprintf("%s = %s", goPath, tmpVar)
+		}
+	case "float64":
+		if f.IsOptional {
+			sv.AssignCode = fmt.Sprintf("%s = %s.Float64", goPath, tmpVar)
+		} else {
+			sv.AssignCode = fmt.Sprintf("%s = %s", goPath, tmpVar)
+		}
+	case "bool":
+		if f.IsOptional {
+			sv.AssignCode = fmt.Sprintf("%s = %s.Bool", goPath, tmpVar)
+		} else {
+			sv.AssignCode = fmt.Sprintf("%s = %s", goPath, tmpVar)
+		}
+	case "time.Time":
+		if f.IsOptional {
+			sv.AssignCode = fmt.Sprintf("%s = %s.Time", goPath, tmpVar)
+		} else {
+			sv.AssignCode = fmt.Sprintf("%s = %s", goPath, tmpVar)
+		}
+	default:
+		if f.IsOptional {
+			sv.AssignCode = fmt.Sprintf("%s = %s.String", goPath, tmpVar)
+		} else {
+			sv.AssignCode = fmt.Sprintf("%s = %s", goPath, tmpVar)
+		}
+	}
+	return sv
+}
+
+func scanNullType(f normalizer.Field) string {
+	switch f.Type {
+	case "string":
+		return "sql.NullString"
+	case "int", "int64":
+		return "sql.NullInt64"
+	case "float64":
+		return "sql.NullFloat64"
+	case "bool":
+		return "sql.NullBool"
+	case "time.Time":
+		return "sql.NullTime"
+	default:
+		return "sql.NullString"
+	}
+}
+
+func scanBaseType(f normalizer.Field) string {
+	switch f.Type {
+	case "string":
+		return "string"
+	case "int":
+		return "int"
+	case "int64":
+		return "int64"
+	case "float64":
+		return "float64"
+	case "bool":
+		return "bool"
+	case "time.Time":
+		return "time.Time"
+	default:
+		return "string"
+	}
 }
 
 // EmitPostgresCommon generates shared utils for Postgres repos

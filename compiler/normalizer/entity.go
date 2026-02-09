@@ -57,21 +57,26 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 		Source:      formatPos(val),
 	}
 
-	// 1. Explicit owner via @owner attribute
+	// 1. Explicit owner via "owner" field
+	if owner, err := val.LookupPath(cue.ParsePath("owner")).String(); err == nil && owner != "" {
+		entity.Owner = owner
+	}
+
+	// 2. Explicit owner via @owner attribute
 	if attr := val.Attribute("owner"); attr.Err() == nil {
 		if s, found, _ := attr.Lookup(0, ""); found {
 			entity.Owner = s
 		}
 	}
 
-	// 2. Deduction from file name if owner is missing
+	// 3. Deduction from file name if owner is missing
 	if entity.Owner == "" {
 		if pos := val.Pos(); pos.IsValid() {
 			file := pos.Filename()
 			base := filepath.Base(file)
 			owner := strings.TrimSuffix(base, filepath.Ext(base))
 			// Special cases for common shared entities
-			if owner == "domain" || owner == "types" || owner == "common" {
+			if owner == "domain" || owner == "types" || owner == "common" || owner == "entities" {
 				entity.Owner = "" // Shared/Universal
 			} else {
 				entity.Owner = owner
@@ -79,14 +84,14 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 		}
 	}
 
-	// 3. Optional storage override via @storage attribute
+	// 4. Optional storage override via @storage attribute
 	if attr := val.Attribute("storage"); attr.Err() == nil {
 		if s, found, _ := attr.Lookup(0, ""); found && s != "" {
 			entity.Metadata["storage"] = s
 		}
 	}
 
-	// 4. Check for @dto(only="true") or _dto: true
+	// 5. Check for @dto(only="true") or _dto: true
 	if attr := val.Attribute("dto"); attr.Err() == nil {
 		if v, found, _ := attr.Lookup(0, "only"); found && v == "true" {
 			entity.Metadata["dto"] = true

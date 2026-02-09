@@ -81,6 +81,14 @@ type DomainTemplateData struct {
 	CompilerHash string
 }
 
+type ProjectionsTemplateData struct {
+	Projections  []DomainTemplateData
+	Imports      []string
+	ANGVersion   string
+	InputHash    string
+	CompilerHash string
+}
+
 // EmitDomain generates domain entity files using IR.
 func (e *Emitter) EmitDomain(entities []ir.Entity) error {
 	tmplPath := "templates/domain.tmpl"
@@ -121,6 +129,7 @@ func (e *Emitter) EmitDomain(entities []ir.Entity) error {
 		return fmt.Errorf("failed to create directory %s: %w", targetDir, err)
 	}
 
+	var projections []DomainTemplateData
 	for _, entity := range entities {
 		// Compute imports based on IR kinds
 		imports := computeDomainImports(entity)
@@ -131,6 +140,10 @@ func (e *Emitter) EmitDomain(entities []ir.Entity) error {
 			ANGVersion:   e.Version,
 			InputHash:    e.InputHash,
 			CompilerHash: e.CompilerHash,
+		}
+		if isProjectionEntity(entity) {
+			projections = append(projections, data)
+			continue
 		}
 
 		var buf bytes.Buffer
@@ -152,6 +165,79 @@ func (e *Emitter) EmitDomain(entities []ir.Entity) error {
 		fmt.Printf("Generated: %s\n", path)
 	}
 
+	if err := e.emitProjections(targetDir, projections); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func isProjectionEntity(entity ir.Entity) bool {
+	if v, ok := entity.Metadata["projection"].(bool); ok && v {
+		return true
+	}
+	return strings.HasSuffix(entity.Name, "_Proj")
+}
+
+func (e *Emitter) emitProjections(targetDir string, projections []DomainTemplateData) error {
+	path := filepath.Join(targetDir, "projections.go")
+	if len(projections) == 0 {
+		_ = os.Remove(path)
+		return nil
+	}
+
+	tmplPath := "templates/projections.tmpl"
+	tmplContent, err := ReadTemplateByPath(tmplPath)
+	if err != nil {
+		return fmt.Errorf("failed to read template %s: %w", tmplPath, err)
+	}
+
+	funcMap := e.getSharedFuncMap()
+	funcMap["GoType"] = IRTypeRefToGoType
+	funcMap["TrimDomain"] = func(s string) string { return strings.ReplaceAll(s, "domain.", "") }
+
+	t, err := template.New("projections").Funcs(funcMap).Parse(string(tmplContent))
+	if err != nil {
+		return fmt.Errorf("failed to parse projections template: %w", err)
+	}
+
+	importsSet := make(map[string]struct{})
+	for _, p := range projections {
+		for _, imp := range p.Imports {
+			if imp == "fmt" || imp == "log/slog" {
+				continue
+			}
+			importsSet[imp] = struct{}{}
+		}
+	}
+	imports := make([]string, 0, len(importsSet))
+	for imp := range importsSet {
+		imports = append(imports, imp)
+	}
+	sort.Strings(imports)
+
+	data := ProjectionsTemplateData{
+		Projections:  projections,
+		Imports:      imports,
+		ANGVersion:   e.Version,
+		InputHash:    e.InputHash,
+		CompilerHash: e.CompilerHash,
+	}
+
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, data); err != nil {
+		return fmt.Errorf("failed to execute projections template: %w", err)
+	}
+
+	formatted, err := format.Source(buf.Bytes())
+	if err != nil {
+		return fmt.Errorf("failed to format projections source: %w", err)
+	}
+
+	if err := os.WriteFile(path, formatted, 0644); err != nil {
+		return fmt.Errorf("failed to write projections file %s: %w", path, err)
+	}
+	fmt.Printf("Generated Projections: %s\n", path)
 	return nil
 }
 

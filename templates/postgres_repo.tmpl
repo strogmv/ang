@@ -91,22 +91,18 @@ func (r *{{ ExportName .Name }}) FindByID(ctx context.Context, id string) (*doma
 	}
 	exec := getExecutor(ctx, r.DB)
 	row := exec.QueryRow(ctx, `
-		SELECT {{ .SelectColumns }}
+		SELECT {{ .FindByIDPlan.ColList }}
 		FROM {{ .Table }}
 		WHERE id = $1
 		LIMIT 1
 	`, id)
 	var entity domain.{{ ExportName .Entity }}
-	{{- range .Fields }}
-	{{- if and (NeedsScanVar .) (not .SkipDomain) }}
-	var {{ ScanVarName . }} {{ ScanVarType . }}
-	{{- end }}
+	{{- range .FindByIDPlan.Variables }}
+	var {{ .TmpVar }} {{ .TmpType }}
 	{{- end }}
 	if err := row.Scan(
-		{{- range .Fields }}
-		{{- if not .SkipDomain }}
-		{{ ScanArg . }},
-		{{- end }}
+		{{- range .FindByIDPlan.Variables }}
+		&{{ .TmpVar }},
 		{{- end }}
 	); err != nil {
 		if err.Error() == "no rows in result set" {
@@ -114,15 +110,13 @@ func (r *{{ ExportName .Name }}) FindByID(ctx context.Context, id string) (*doma
 		}
 		return nil, fmt.Errorf("FindByID scan: %w", err)
 	}
-	{{- range .Fields }}
-	{{- if and (NeedsScanVar .) (not .SkipDomain) }}
-	{{- if .IsOptional }}
-	if {{ ScanVarName . }}.Valid {
-		{{ ScanAssign . (ScanVarName .) }}
+	{{- range .FindByIDPlan.Variables }}
+	{{- if .Guard }}
+	if {{ .Guard }} {
+		{{ .AssignCode }}
 	}
 	{{- else }}
-	{{ ScanAssign . (ScanVarName .) }}
-	{{- end }}
+	{{ .AssignCode }}
 	{{- end }}
 	{{- end }}
 	return &entity, nil
@@ -156,7 +150,7 @@ func (r *{{ ExportName .Name }}) ListAll(ctx context.Context, offset, limit int)
 	}
 	exec := getExecutor(ctx, r.DB)
 	rows, err := exec.Query(ctx, `
-		SELECT {{ .SelectColumns }}
+		SELECT {{ .ListAllPlan.ColList }}
 		FROM {{ .Table }}
 		ORDER BY id
 		LIMIT $1 OFFSET $2
@@ -168,29 +162,23 @@ func (r *{{ ExportName .Name }}) ListAll(ctx context.Context, offset, limit int)
 	var items []domain.{{ ExportName .Entity }}
 	for rows.Next() {
 		var entity domain.{{ ExportName .Entity }}
-		{{- range .Fields }}
-		{{- if and (NeedsScanVar .) (not .SkipDomain) }}
-		var {{ ScanVarName . }} {{ ScanVarType . }}
-		{{- end }}
+		{{- range .ListAllPlan.Variables }}
+		var {{ .TmpVar }} {{ .TmpType }}
 		{{- end }}
 		if err := rows.Scan(
-			{{- range .Fields }}
-			{{- if not .SkipDomain }}
-			{{ ScanArg . }},
-			{{- end }}
+			{{- range .ListAllPlan.Variables }}
+			&{{ .TmpVar }},
 			{{- end }}
 		); err != nil {
 			return nil, fmt.Errorf("ListAll scan: %w", err)
 		}
-		{{- range .Fields }}
-		{{- if and (NeedsScanVar .) (not .SkipDomain) }}
-		{{- if .IsOptional }}
-		if {{ ScanVarName . }}.Valid {
-			{{ ScanAssign . (ScanVarName .) }}
+		{{- range .ListAllPlan.Variables }}
+		{{- if .Guard }}
+		if {{ .Guard }} {
+			{{ .AssignCode }}
 		}
 		{{- else }}
-		{{ ScanAssign . (ScanVarName .) }}
-		{{- end }}
+		{{ .AssignCode }}
 		{{- end }}
 		{{- end }}
 		items = append(items, entity)
@@ -223,63 +211,29 @@ func (r *{{ ExportName $.Name }}) {{ .Name }}(ctx context.Context{{ if .ParamsSi
 	defer rows.Close()
 	var items {{ .ReturnType }}
 	for rows.Next() {
-		{{- if .SelectEntity }}
-		var entity domain.{{ ExportName $.Entity }}
-		{{- range $.Fields }}
-		{{- if and (NeedsScanVar .) (not .SkipDomain) }}
-		var {{ ScanVarName . }} {{ ScanVarType . }}
-		{{- end }}
+		{{- if or .SelectEntity .SelectCustomEntity }}
+		var entity {{- if .SelectCustomEntity }} domain.{{ ExportName .CustomEntityName }}{{- else }} domain.{{ ExportName $.Entity }}{{- end }}
+		{{- range .ScanPlan.Variables }}
+		var {{ .TmpVar }} {{ .TmpType }}
 		{{- end }}
 		if err := rows.Scan(
-			{{- range $.Fields }}
-			{{- if not .SkipDomain }}
-			{{ ScanArg . }},
-			{{- end }}
-		{{- end }}
-		); err != nil {
-			return {{ .ReturnZero }}, err
-		}
-		{{- range $.Fields }}
-		{{- if and (NeedsScanVar .) (not .SkipDomain) }}
-		{{- if .IsOptional }}
-		if {{ ScanVarName . }}.Valid {
-			{{ ScanAssign . (ScanVarName .) }}
-		}
-		{{- else }}
-		{{ ScanAssign . (ScanVarName .) }}
-		{{- end }}
-		{{- end }}
-		{{- end }}
-		items = append(items, entity)
-		{{- else if .SelectCustomEntity }}
-		var entity domain.{{ ExportName .CustomEntityName }}
-		{{- range .SelectFields }}
-		{{- if and (NeedsScanVar .) (not .SkipDomain) }}
-		var {{ ScanVarName . }} {{ ScanVarType . }}
-		{{- end }}
-		{{- end }}
-		if err := rows.Scan(
-			{{- range .SelectFields }}
-			{{- if not .SkipDomain }}
-			{{ ScanArg . }},
-			{{- end }}
+			{{- range .ScanPlan.Variables }}
+			&{{ .TmpVar }},
 			{{- end }}
 		); err != nil {
 			return {{ .ReturnZero }}, err
 		}
-		{{- range .SelectFields }}
-		{{- if and (NeedsScanVar .) (not .SkipDomain) }}
-		{{- if .IsOptional }}
-		if {{ ScanVarName . }}.Valid {
-			{{ ScanAssign . (ScanVarName .) }}
+		{{- range .ScanPlan.Variables }}
+		{{- if .Guard }}
+		if {{ .Guard }} {
+			{{ .AssignCode }}
 		}
 		{{- else }}
-		{{ ScanAssign . (ScanVarName .) }}
-		{{- end }}
+		{{ .AssignCode }}
 		{{- end }}
 		{{- end }}
 		items = append(items, entity)
-		{{- else if .SelectFields }}
+			{{- else if .SelectFields }}
 		var v {{ (index .SelectFields 0).Type }}
 		if err := rows.Scan(&v); err != nil {
 			return {{ .ReturnZero }}, err
@@ -295,18 +249,14 @@ func (r *{{ ExportName $.Name }}) {{ .Name }}(ctx context.Context{{ if .ParamsSi
 	return items, nil
 	{{- else }}
 	row := exec.QueryRow(ctx, `{{ .CustomSQL }}`{{ if .Args }}, {{ .Args }}{{ end }})
-	{{- if .SelectEntity }}
-	var entity domain.{{ ExportName $.Entity }}
-	{{- range $.Fields }}
-	{{- if and (NeedsScanVar .) (not .SkipDomain) }}
-	var {{ ScanVarName . }} {{ ScanVarType . }}
-	{{- end }}
+	{{- if or .SelectEntity .SelectCustomEntity }}
+	var entity {{- if .SelectCustomEntity }} domain.{{ ExportName .CustomEntityName }}{{- else }} domain.{{ ExportName $.Entity }}{{- end }}
+	{{- range .ScanPlan.Variables }}
+	var {{ .TmpVar }} {{ .TmpType }}
 	{{- end }}
 	if err := row.Scan(
-		{{- range $.Fields }}
-		{{- if not .SkipDomain }}
-		{{ ScanArg . }},
-		{{- end }}
+		{{- range .ScanPlan.Variables }}
+		&{{ .TmpVar }},
 		{{- end }}
 	); err != nil {
 		if err.Error() == "no rows in result set" {
@@ -314,46 +264,13 @@ func (r *{{ ExportName $.Name }}) {{ .Name }}(ctx context.Context{{ if .ParamsSi
 		}
 		return {{ .ReturnZero }}, fmt.Errorf("{{ .Name }} scan: %w", err)
 	}
-	{{- range $.Fields }}
-	{{- if and (NeedsScanVar .) (not .SkipDomain) }}
-	{{- if .IsOptional }}
-	if {{ ScanVarName . }}.Valid {
-		{{ ScanAssign . (ScanVarName .) }}
+	{{- range .ScanPlan.Variables }}
+	{{- if .Guard }}
+	if {{ .Guard }} {
+		{{ .AssignCode }}
 	}
 	{{- else }}
-	{{ ScanAssign . (ScanVarName .) }}
-	{{- end }}
-	{{- end }}
-	{{- end }}
-	return &entity, nil
-	{{- else if .SelectCustomEntity }}
-	var entity domain.{{ ExportName .CustomEntityName }}
-	{{- range .SelectFields }}
-	{{- if and (NeedsScanVar .) (not .SkipDomain) }}
-	var {{ ScanVarName . }} {{ ScanVarType . }}
-	{{- end }}
-	{{- end }}
-	if err := row.Scan(
-		{{- range .SelectFields }}
-		{{- if not .SkipDomain }}
-		{{ ScanArg . }},
-		{{- end }}
-		{{- end }}
-	); err != nil {
-		if err.Error() == "no rows in result set" {
-			return {{ .ReturnZero }}, nil
-		}
-		return {{ .ReturnZero }}, fmt.Errorf("{{ .Name }} scan: %w", err)
-	}
-	{{- range .SelectFields }}
-	{{- if and (NeedsScanVar .) (not .SkipDomain) }}
-	{{- if .IsOptional }}
-	if {{ ScanVarName . }}.Valid {
-		{{ ScanAssign . (ScanVarName .) }}
-	}
-	{{- else }}
-	{{ ScanAssign . (ScanVarName .) }}
-	{{- end }}
+	{{ .AssignCode }}
 	{{- end }}
 	{{- end }}
 	return &entity, nil
@@ -370,8 +287,9 @@ func (r *{{ ExportName $.Name }}) {{ .Name }}(ctx context.Context{{ if .ParamsSi
 	return {{ .ReturnZero }}, fmt.Errorf("{{ .Name }}: no scan fields defined")
 	{{- end }}
 	{{- end }}
-	{{- else if eq .Action "delete" }}
-	res, err := exec.Exec(ctx, `DELETE FROM {{ $.Table }}{{ if .WhereClause }} WHERE {{ .WhereClause }}{{ end }}`{{ if .Args }}, {{ .Args }}{{ end }})
+	{{- else }}
+	{{- if eq .Action "delete" }}
+	res, err := exec.Exec(ctx, `DELETE FROM {{ $.Table }}{{ .WhereSQL }}`{{ .ArgsSuffix }})
 	if err != nil {
 		return {{ .ReturnZero }}, err
 	}
@@ -393,35 +311,29 @@ func (r *{{ ExportName $.Name }}) {{ .Name }}(ctx context.Context{{ if .ParamsSi
 	defer rows.Close()
 	var items {{ .ReturnType }}
 	for rows.Next() {
-		{{- if .SelectEntity }}
-		var entity domain.{{ ExportName $.Entity }}
-		{{- range $.Fields }}
-		{{- if and (NeedsScanVar .) (not .SkipDomain) }}
-		var {{ ScanVarName . }} {{ ScanVarType . }}
-		{{- end }}
+		{{- if or .SelectEntity .SelectCustomEntity }}
+		var entity {{- if .SelectCustomEntity }} domain.{{ ExportName .CustomEntityName }}{{- else }} domain.{{ ExportName $.Entity }}{{- end }}
+		{{- range .ScanPlan.Variables }}
+		var {{ .TmpVar }} {{ .TmpType }}
 		{{- end }}
 		if err := rows.Scan(
-			{{- range $.Fields }}
-			{{- if not .SkipDomain }}
-			{{ ScanArg . }},
+			{{- range .ScanPlan.Variables }}
+			&{{ .TmpVar }},
 			{{- end }}
-		{{- end }}
 		); err != nil {
 			return {{ .ReturnZero }}, err
 		}
-		{{- range $.Fields }}
-		{{- if and (NeedsScanVar .) (not .SkipDomain) }}
-		{{- if .IsOptional }}
-		if {{ ScanVarName . }}.Valid {
-			{{ ScanAssign . (ScanVarName .) }}
+		{{- range .ScanPlan.Variables }}
+		{{- if .Guard }}
+		if {{ .Guard }} {
+			{{ .AssignCode }}
 		}
 		{{- else }}
-		{{ ScanAssign . (ScanVarName .) }}
-		{{- end }}
+		{{ .AssignCode }}
 		{{- end }}
 		{{- end }}
 		items = append(items, entity)
-		{{- else if .SelectFields }}
+			{{- else if .SelectFields }}
 		var v {{ (index .SelectFields 0).Type }}
 		if err := rows.Scan(&v); err != nil {
 			return {{ .ReturnZero }}, err
@@ -450,18 +362,14 @@ func (r *{{ ExportName $.Name }}) {{ .Name }}(ctx context.Context{{ if .ParamsSi
 		{{- end }}
 		LIMIT 1
 	`{{ if .Args }}, {{ .Args }}{{ end }})
-	{{- if .SelectEntity }}
-	var entity domain.{{ ExportName $.Entity }}
-	{{- range $.Fields }}
-	{{- if and (NeedsScanVar .) (not .SkipDomain) }}
-	var {{ ScanVarName . }} {{ ScanVarType . }}
-	{{- end }}
+	{{- if or .SelectEntity .SelectCustomEntity }}
+	var entity {{- if .SelectCustomEntity }} domain.{{ ExportName .CustomEntityName }}{{- else }} domain.{{ ExportName $.Entity }}{{- end }}
+	{{- range .ScanPlan.Variables }}
+	var {{ .TmpVar }} {{ .TmpType }}
 	{{- end }}
 	if err := row.Scan(
-		{{- range $.Fields }}
-		{{- if not .SkipDomain }}
-		{{ ScanArg . }},
-		{{- end }}
+		{{- range .ScanPlan.Variables }}
+		&{{ .TmpVar }},
 		{{- end }}
 	); err != nil {
 		if err.Error() == "no rows in result set" {
@@ -469,15 +377,13 @@ func (r *{{ ExportName $.Name }}) {{ .Name }}(ctx context.Context{{ if .ParamsSi
 		}
 		return {{ .ReturnZero }}, fmt.Errorf("{{ .Name }} scan: %w", err)
 	}
-	{{- range $.Fields }}
-	{{- if and (NeedsScanVar .) (not .SkipDomain) }}
-	{{- if .IsOptional }}
-	if {{ ScanVarName . }}.Valid {
-		{{ ScanAssign . (ScanVarName .) }}
+	{{- range .ScanPlan.Variables }}
+	{{- if .Guard }}
+	if {{ .Guard }} {
+		{{ .AssignCode }}
 	}
 	{{- else }}
-	{{ ScanAssign . (ScanVarName .) }}
-	{{- end }}
+	{{ .AssignCode }}
 	{{- end }}
 	{{- end }}
 	return &entity, nil
@@ -492,6 +398,7 @@ func (r *{{ ExportName $.Name }}) {{ .Name }}(ctx context.Context{{ if .ParamsSi
 	return v, nil
 	{{- else }}
 	return {{ .ReturnZero }}, fmt.Errorf("{{ .Name }}: no scan fields for single row")
+	{{- end }}
 	{{- end }}
 	{{- end }}
 }

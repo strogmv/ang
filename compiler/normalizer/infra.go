@@ -420,6 +420,7 @@ func (n *Normalizer) ExtractRepoFinders(val cue.Value) (map[string][]RepositoryF
 					return false
 				}(),
 				CustomSQL: strings.TrimSpace(getString(fv, "sql")),
+				Source:    formatPos(fv),
 			})
 		}
 	}

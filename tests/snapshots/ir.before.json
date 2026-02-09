@@ -1,0 +1,285 @@
+{
+  "entities": [
+    "Comment",
+    "Post",
+    "PostTag",
+    "Tag",
+    "User",
+    "UserVault"
+  ],
+  "services": [
+    {
+      "name": "Auth",
+      "methods": [
+        "GetProfile",
+        "Login",
+        "Register",
+        "UpdateProfile"
+      ],
+      "uses": [],
+      "publishes": [
+        "UserLoggedIn",
+        "UserRegistered"
+      ]
+    },
+    {
+      "name": "Blog",
+      "methods": [
+        "ArchivePost",
+        "CreateComment",
+        "CreatePost",
+        "CreateTag",
+        "DeleteComment",
+        "DeletePost",
+        "DeleteTag",
+        "GetPost",
+        "ListComments",
+        "ListMyPosts",
+        "ListPosts",
+        "ListTags",
+        "PublishPost",
+        "SubmitPost",
+        "UpdateComment",
+        "UpdatePost",
+        "UpdateTag"
+      ],
+      "uses": [],
+      "publishes": []
+    }
+  ],
+  "endpoints": [
+    {
+      "rpc": "GetProfile",
+      "method": "GET",
+      "path": "/auth/profile",
+      "service": "Auth",
+      "auth_type": "jwt"
+    },
+    {
+      "rpc": "Login",
+      "method": "POST",
+      "path": "/auth/login",
+      "service": "Auth"
+    },
+    {
+      "rpc": "Register",
+      "method": "POST",
+      "path": "/auth/register",
+      "service": "Auth"
+    },
+    {
+      "rpc": "UpdateProfile",
+      "method": "PUT",
+      "path": "/auth/profile",
+      "service": "Auth",
+      "auth_type": "jwt"
+    },
+    {
+      "rpc": "ArchivePost",
+      "method": "POST",
+      "path": "/posts/{id}/archive",
+      "service": "Blog",
+      "auth_type": "jwt",
+      "auth_roles": [
+        "admin",
+        "author"
+      ]
+    },
+    {
+      "rpc": "CreateComment",
+      "method": "POST",
+      "path": "/posts/{postID}/comments",
+      "service": "Blog",
+      "auth_type": "jwt"
+    },
+    {
+      "rpc": "CreatePost",
+      "method": "POST",
+      "path": "/posts",
+      "service": "Blog",
+      "auth_type": "jwt",
+      "auth_roles": [
+        "admin",
+        "author"
+      ]
+    },
+    {
+      "rpc": "CreateTag",
+      "method": "POST",
+      "path": "/tags",
+      "service": "Blog",
+      "auth_type": "jwt",
+      "auth_roles": [
+        "admin"
+      ]
+    },
+    {
+      "rpc": "DeleteComment",
+      "method": "DELETE",
+      "path": "/comments/{id}",
+      "service": "Blog",
+      "auth_type": "jwt"
+    },
+    {
+      "rpc": "DeletePost",
+      "method": "DELETE",
+      "path": "/posts/{id}",
+      "service": "Blog",
+      "auth_type": "jwt",
+      "auth_roles": [
+        "admin",
+        "author"
+      ]
+    },
+    {
+      "rpc": "DeleteTag",
+      "method": "DELETE",
+      "path": "/tags/{id}",
+      "service": "Blog",
+      "auth_type": "jwt",
+      "auth_roles": [
+        "admin"
+      ]
+    },
+    {
+      "rpc": "GetPost",
+      "method": "GET",
+      "path": "/posts/{slug}",
+      "service": "Blog",
+      "pagination_type": "offset"
+    },
+    {
+      "rpc": "ListComments",
+      "method": "GET",
+      "path": "/posts/{postID}/comments",
+      "service": "Blog",
+      "pagination_type": "offset"
+    },
+    {
+      "rpc": "ListMyPosts",
+      "method": "GET",
+      "path": "/my/posts",
+      "service": "Blog",
+      "auth_type": "jwt",
+      "auth_roles": [
+        "admin",
+        "author"
+      ],
+      "pagination_type": "offset"
+    },
+    {
+      "rpc": "ListPosts",
+      "method": "GET",
+      "path": "/posts",
+      "service": "Blog",
+      "pagination_type": "offset"
+    },
+    {
+      "rpc": "ListTags",
+      "method": "GET",
+      "path": "/tags",
+      "service": "Blog",
+      "pagination_type": "offset"
+    },
+    {
+      "rpc": "PublishPost",
+      "method": "POST",
+      "path": "/posts/{id}/publish",
+      "service": "Blog",
+      "auth_type": "jwt",
+      "auth_roles": [
+        "admin"
+      ]
+    },
+    {
+      "rpc": "SubmitPost",
+      "method": "POST",
+      "path": "/posts/{id}/submit",
+      "service": "Blog",
+      "auth_type": "jwt",
+      "auth_roles": [
+        "admin",
+        "author"
+      ]
+    },
+    {
+      "rpc": "UpdateComment",
+      "method": "PUT",
+      "path": "/comments/{id}",
+      "service": "Blog",
+      "auth_type": "jwt"
+    },
+    {
+      "rpc": "UpdatePost",
+      "method": "PUT",
+      "path": "/posts/{id}",
+      "service": "Blog",
+      "auth_type": "jwt",
+      "auth_roles": [
+        "admin",
+        "author"
+      ]
+    },
+    {
+      "rpc": "UpdateTag",
+      "method": "PUT",
+      "path": "/tags/{id}",
+      "service": "Blog",
+      "auth_type": "jwt",
+      "auth_roles": [
+        "admin"
+      ]
+    }
+  ],
+  "repos": [
+    {
+      "name": "CommentRepository",
+      "entity": "Comment",
+      "finders": [
+        "CountByPost",
+        "DeleteByParent",
+        "DeleteByPost",
+        "ListByPost"
+      ]
+    },
+    {
+      "name": "PostRepository",
+      "entity": "Post",
+      "finders": [
+        "CountPublished",
+        "CountPublishedByTag",
+        "FindBySlug",
+        "ListByAuthor",
+        "ListByAuthorAndStatus",
+        "ListPublished",
+        "ListPublishedByTag"
+      ]
+    },
+    {
+      "name": "PostTagRepository",
+      "entity": "PostTag",
+      "finders": [
+        "DeleteByPost",
+        "DeleteByTag"
+      ]
+    },
+    {
+      "name": "TagRepository",
+      "entity": "Tag",
+      "finders": [
+        "FindBySlug",
+        "ListAll",
+        "ListByPost"
+      ]
+    },
+    {
+      "name": "UserRepository",
+      "entity": "User",
+      "finders": [
+        "FindByEmail"
+      ]
+    }
+  ],
+  "events": [],
+  "errors": []
+}
