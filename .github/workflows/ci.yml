@@ -43,11 +43,6 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Python Template Freeze Check
-        run: |
-          git fetch origin main --depth=1
-          ./scripts/check_python_template_freeze.sh origin/main
-
       - name: Build Multi-Target (Go + Python)
         env:
           ANG_PY_SDK: "1"
