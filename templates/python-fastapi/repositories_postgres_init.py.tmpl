@@ -1,0 +1,9 @@
+{{- range .RepoStubs }}
+from .{{ .ModuleName }} import {{ .PGClassName }}
+{{- end }}
+
+__all__ = [
+{{- range .RepoStubs }}
+    "{{ .PGClassName }}",
+{{- end }}
+]

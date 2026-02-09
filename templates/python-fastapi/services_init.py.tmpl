@@ -1,0 +1,10 @@
+{{- range .ServiceStubs }}
+from .{{ .ModuleName }} import {{ .ClassName }}, {{ .GetService }}
+{{- end }}
+
+__all__ = [
+{{- range .ServiceStubs }}
+    "{{ .ClassName }}",
+    "{{ .GetService }}",
+{{- end }}
+]

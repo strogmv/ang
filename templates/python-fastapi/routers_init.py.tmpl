@@ -1,0 +1,9 @@
+{{- range .RouterModules }}
+from . import {{ . }}
+{{- end }}
+
+__all__ = [
+{{- range .RouterModules }}
+    "{{ . }}",
+{{- end }}
+]

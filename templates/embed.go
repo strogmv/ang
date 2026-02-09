@@ -9,4 +9,5 @@ import "embed"
 //go:embed frontend
 //go:embed k8s
 //go:embed python-sdk
+//go:embed python-fastapi
 var FS embed.FS

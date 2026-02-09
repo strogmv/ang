@@ -1,0 +1,9 @@
+{{- range .RepoStubs }}
+from .{{ .ModuleName }} import {{ .PortClassName }}
+{{- end }}
+
+__all__ = [
+{{- range .RepoStubs }}
+    "{{ .PortClassName }}",
+{{- end }}
+]

@@ -55,12 +55,12 @@ type Field struct {
 
 // Constraints stores structured validation data from CUE.
 type Constraints struct {
-	Min      *float64
-	Max      *float64
-	MinLen   *int
-	MaxLen   *int
-	Regex    string
-	Enum     []string
+	Min    *float64
+	Max    *float64
+	MinLen *int
+	MaxLen *int
+	Regex  string
+	Enum   []string
 }
 
 // UIHints описывает подсказки для генерации UI компонентов.
@@ -303,7 +303,7 @@ type RepositoryFinder struct {
 	Name       string
 	Action     string
 	Returns    string
-	ReturnType string   // Explicit return type like "*domain.TenderReportInfo" or "[]domain.PriceSnapshot"
+	ReturnType string // Explicit return type like "*domain.TenderReportInfo" or "[]domain.PriceSnapshot"
 	Select     []string
 	ScanFields []string // Field names to scan from SQL result (for custom entity types)
 	Where      []FinderWhere
@@ -382,8 +382,8 @@ type FileMeta struct {
 
 // TargetDef describes the code generation target stack.
 type TargetDef struct {
-	Lang      string // "go", "rust", "typescript"
-	Framework string // "chi", "echo", "fiber", "axum"
+	Lang      string // "go", "python", "rust", "typescript"
+	Framework string // "chi", "echo", "fiber", "axum", "fastapi"
 	DB        string // "postgres", "mysql", "mongodb"
 	Cache     string // "redis", "memcached", "none"
 	Queue     string // "nats", "kafka", "rabbitmq"

@@ -622,6 +622,7 @@ func runBuild(args []string) {
 		}
 
 		var projectDef *normalizer.ProjectDef
+		var targetDef *normalizer.TargetDef
 		if val, ok, err := compiler.LoadOptionalDomain(p, "./cue/project"); err != nil {
 			fmt.Printf("Build FAILED during project load: %v\n", err)
 			return
@@ -629,6 +630,11 @@ func runBuild(args []string) {
 			projectDef, err = n.ExtractProject(val)
 			if err != nil {
 				fmt.Printf("Build FAILED during project parse: %v\n", err)
+				return
+			}
+			targetDef, err = n.ExtractTarget(val)
+			if err != nil {
+				fmt.Printf("Build FAILED during target parse: %v\n", err)
 				return
 			}
 		}
@@ -737,6 +743,56 @@ func runBuild(args []string) {
 
 		projContent, _ := os.ReadFile("cue/project.cue")
 		isMicroservice := strings.Contains(string(projContent), `build_strategy: "microservices"`)
+		targetLang := "go"
+		targetFramework := "chi"
+		targetDB := "postgres"
+		if targetDef != nil {
+			if v := strings.TrimSpace(targetDef.Lang); v != "" {
+				targetLang = strings.ToLower(v)
+			}
+			if v := strings.TrimSpace(targetDef.Framework); v != "" {
+				targetFramework = strings.ToLower(v)
+			}
+			if v := strings.TrimSpace(targetDef.DB); v != "" {
+				targetDB = strings.ToLower(v)
+			}
+		}
+		isPythonFastAPI := targetLang == "python" && targetFramework == "fastapi" && targetDB == "postgres"
+
+		if isPythonFastAPI {
+			steps := []struct {
+				name string
+				fn   func() error
+			}{
+				{"OpenAPI", func() error { return em.EmitOpenAPI(endpoints, services, bizErrors, projectDef) }},
+				{"AsyncAPI", func() error { return em.EmitAsyncAPI(events, projectDef) }},
+				{"Python FastAPI Backend", func() error {
+					return em.EmitPythonFastAPIBackend(entities, endpoints, repos, projectDef)
+				}},
+				{"Python SDK", func() error {
+					if !pythonSDKEnabled {
+						return nil
+					}
+					return em.EmitPythonSDK(endpoints, projectDef)
+				}},
+				{"System Manifest", func() error { return em.EmitManifest(irSchema) }},
+			}
+
+			for _, step := range steps {
+				if err := step.fn(); err != nil {
+					fmt.Printf("Error during %s: %v\n", step.name, err)
+					return
+				}
+			}
+
+			if err := runOptionalMCPGeneration(projectPath); err != nil {
+				fmt.Printf("Error during MCP Generation: %v\n", err)
+				return
+			}
+
+			fmt.Println("\nBuild SUCCESSFUL.")
+			return
+		}
 
 		steps := []struct {
 			name string
