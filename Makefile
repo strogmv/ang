@@ -1,4 +1,4 @@
-.PHONY: build install test lint clean check all mcp-gen release-smoke
+.PHONY: build install test lint clean check all mcp-gen release-smoke template-freeze-check
 
 # Build the ang CLI
 build:
@@ -40,3 +40,7 @@ mcp-gen:
 release-smoke:
 	@echo "--- Release Smoke ---"
 	./scripts/release-smoke.sh
+
+template-freeze-check:
+	@echo "--- Python Template Freeze Check ---"
+	./scripts/check_python_template_freeze.sh
