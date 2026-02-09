@@ -83,6 +83,16 @@ jobs:
             dist/release/python-service/app/routers/auth.py \
             dist/release/python-service/app/services/auth.py
 
+      - name: FastAPI Contract Subset (runtime openapi parity)
+        run: |
+          python -m venv .venv-contract
+          . .venv-contract/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install -e dist/release/python-service/app
+          python ./scripts/python_contract_subset.py \
+            --app-dir dist/release/python-service/app \
+            --openapi dist/release/python-service/api/openapi.yaml
+
       - name: FastAPI Quality Gates (ruff, mypy, pytest)
         run: |
           python -m venv .venv-quality
@@ -111,6 +121,15 @@ jobs:
           python -m py_compile \
             examples/pdf-chart-python/app/main.py \
             examples/pdf-chart-python/app/services/report.py
+          python -m venv .venv-pdf-contract
+          . .venv-pdf-contract/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install -e examples/pdf-chart-python/app
+          python -m pip install matplotlib reportlab
+          python ./scripts/python_contract_subset.py \
+            --app-dir examples/pdf-chart-python/app \
+            --openapi examples/pdf-chart-python/api/openapi.yaml \
+            --pdf-endpoint /reports/pdf
 
       - name: OpenAPI Compatibility Report
         run: |
