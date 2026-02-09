@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 import httpx
+from pydantic import BaseModel
 
 from .errors import AngAPIError, ProblemDetails
 from . import models
@@ -47,6 +48,11 @@ class AngClient:
             headers["Authorization"] = f"Bearer {token}"
         return headers
 
+    def _payload_json(self, payload: Any) -> Any:
+        if isinstance(payload, BaseModel):
+            return payload.model_dump(by_alias=True, exclude_none=True)
+        return payload
+
     def _to_problem(self, response: httpx.Response) -> ProblemDetails | None:
         content_type = response.headers.get("content-type", "")
         if "application/json" not in content_type:
@@ -84,14 +90,19 @@ class AngClient:
             "{{ .Method }}",
             f"{{ PathWithFormat .Path }}",
             headers=self._headers(),{{ if .HasBody }}
-            json=payload,{{ end }}
+            json=self._payload_json(payload),{{ end }}
         )
         self._raise_for_error(response)
         if not response.content:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+{{- if .ReturnModelName }}
+            return models.{{ .ReturnModelName }}.model_validate(data)
+{{- else }}
+            return data
+{{- end }}
         return response.text
 
 {{ end }}
@@ -132,6 +143,11 @@ class AsyncAngClient:
             headers["Authorization"] = f"Bearer {token}"
         return headers
 
+    def _payload_json(self, payload: Any) -> Any:
+        if isinstance(payload, BaseModel):
+            return payload.model_dump(by_alias=True, exclude_none=True)
+        return payload
+
     def _to_problem(self, response: httpx.Response) -> ProblemDetails | None:
         content_type = response.headers.get("content-type", "")
         if "application/json" not in content_type:
@@ -169,14 +185,19 @@ class AsyncAngClient:
             "{{ .Method }}",
             f"{{ PathWithFormat .Path }}",
             headers=self._headers(),{{ if .HasBody }}
-            json=payload,{{ end }}
+            json=self._payload_json(payload),{{ end }}
         )
         self._raise_for_error(response)
         if not response.content:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+{{- if .ReturnModelName }}
+            return models.{{ .ReturnModelName }}.model_validate(data)
+{{- else }}
+            return data
+{{- end }}
         return response.text
 
 {{ end }}

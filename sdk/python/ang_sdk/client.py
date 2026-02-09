@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 import httpx
+from pydantic import BaseModel
 
 from .errors import AngAPIError, ProblemDetails
 from . import models
@@ -46,6 +47,11 @@ class AngClient:
         if token:
             headers["Authorization"] = f"Bearer {token}"
         return headers
+
+    def _payload_json(self, payload: Any) -> Any:
+        if isinstance(payload, BaseModel):
+            return payload.model_dump(by_alias=True, exclude_none=True)
+        return payload
 
     def _to_problem(self, response: httpx.Response) -> ProblemDetails | None:
         content_type = response.headers.get("content-type", "")
@@ -90,7 +96,8 @@ class AngClient:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.DeleteCommentResponse.model_validate(data)
         return response.text
 
 
@@ -105,7 +112,8 @@ class AngClient:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.DeletePostResponse.model_validate(data)
         return response.text
 
 
@@ -120,7 +128,8 @@ class AngClient:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.DeleteTagResponse.model_validate(data)
         return response.text
 
 
@@ -135,7 +144,8 @@ class AngClient:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.GetProfileResponse.model_validate(data)
         return response.text
 
 
@@ -150,7 +160,8 @@ class AngClient:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.ListMyPostsResponse.model_validate(data)
         return response.text
 
 
@@ -165,7 +176,8 @@ class AngClient:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.ListPostsResponse.model_validate(data)
         return response.text
 
 
@@ -180,7 +192,8 @@ class AngClient:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.ListCommentsResponse.model_validate(data)
         return response.text
 
 
@@ -195,7 +208,8 @@ class AngClient:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.GetPostResponse.model_validate(data)
         return response.text
 
 
@@ -210,7 +224,8 @@ class AngClient:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.ListTagsResponse.model_validate(data)
         return response.text
 
 
@@ -219,14 +234,15 @@ class AngClient:
             "POST",
             f"/auth/login",
             headers=self._headers(),
-            json=payload,
+            json=self._payload_json(payload),
         )
         self._raise_for_error(response)
         if not response.content:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.LoginResponse.model_validate(data)
         return response.text
 
 
@@ -235,14 +251,15 @@ class AngClient:
             "POST",
             f"/auth/register",
             headers=self._headers(),
-            json=payload,
+            json=self._payload_json(payload),
         )
         self._raise_for_error(response)
         if not response.content:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.RegisterResponse.model_validate(data)
         return response.text
 
 
@@ -251,14 +268,15 @@ class AngClient:
             "POST",
             f"/posts",
             headers=self._headers(),
-            json=payload,
+            json=self._payload_json(payload),
         )
         self._raise_for_error(response)
         if not response.content:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.CreatePostResponse.model_validate(data)
         return response.text
 
 
@@ -267,14 +285,15 @@ class AngClient:
             "POST",
             f"/posts/{id}/archive",
             headers=self._headers(),
-            json=payload,
+            json=self._payload_json(payload),
         )
         self._raise_for_error(response)
         if not response.content:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.ArchivePostResponse.model_validate(data)
         return response.text
 
 
@@ -283,14 +302,15 @@ class AngClient:
             "POST",
             f"/posts/{id}/publish",
             headers=self._headers(),
-            json=payload,
+            json=self._payload_json(payload),
         )
         self._raise_for_error(response)
         if not response.content:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.PublishPostResponse.model_validate(data)
         return response.text
 
 
@@ -299,14 +319,15 @@ class AngClient:
             "POST",
             f"/posts/{id}/submit",
             headers=self._headers(),
-            json=payload,
+            json=self._payload_json(payload),
         )
         self._raise_for_error(response)
         if not response.content:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.SubmitPostResponse.model_validate(data)
         return response.text
 
 
@@ -315,14 +336,15 @@ class AngClient:
             "POST",
             f"/posts/{postID}/comments",
             headers=self._headers(),
-            json=payload,
+            json=self._payload_json(payload),
         )
         self._raise_for_error(response)
         if not response.content:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.CreateCommentResponse.model_validate(data)
         return response.text
 
 
@@ -331,14 +353,15 @@ class AngClient:
             "POST",
             f"/tags",
             headers=self._headers(),
-            json=payload,
+            json=self._payload_json(payload),
         )
         self._raise_for_error(response)
         if not response.content:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.CreateTagResponse.model_validate(data)
         return response.text
 
 
@@ -347,14 +370,15 @@ class AngClient:
             "PUT",
             f"/auth/profile",
             headers=self._headers(),
-            json=payload,
+            json=self._payload_json(payload),
         )
         self._raise_for_error(response)
         if not response.content:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.UpdateProfileResponse.model_validate(data)
         return response.text
 
 
@@ -363,14 +387,15 @@ class AngClient:
             "PUT",
             f"/comments/{id}",
             headers=self._headers(),
-            json=payload,
+            json=self._payload_json(payload),
         )
         self._raise_for_error(response)
         if not response.content:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.UpdateCommentResponse.model_validate(data)
         return response.text
 
 
@@ -379,14 +404,15 @@ class AngClient:
             "PUT",
             f"/posts/{id}",
             headers=self._headers(),
-            json=payload,
+            json=self._payload_json(payload),
         )
         self._raise_for_error(response)
         if not response.content:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.UpdatePostResponse.model_validate(data)
         return response.text
 
 
@@ -395,14 +421,15 @@ class AngClient:
             "PUT",
             f"/tags/{id}",
             headers=self._headers(),
-            json=payload,
+            json=self._payload_json(payload),
         )
         self._raise_for_error(response)
         if not response.content:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.UpdateTagResponse.model_validate(data)
         return response.text
 
 
@@ -442,6 +469,11 @@ class AsyncAngClient:
         if token:
             headers["Authorization"] = f"Bearer {token}"
         return headers
+
+    def _payload_json(self, payload: Any) -> Any:
+        if isinstance(payload, BaseModel):
+            return payload.model_dump(by_alias=True, exclude_none=True)
+        return payload
 
     def _to_problem(self, response: httpx.Response) -> ProblemDetails | None:
         content_type = response.headers.get("content-type", "")
@@ -486,7 +518,8 @@ class AsyncAngClient:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.DeleteCommentResponse.model_validate(data)
         return response.text
 
 
@@ -501,7 +534,8 @@ class AsyncAngClient:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.DeletePostResponse.model_validate(data)
         return response.text
 
 
@@ -516,7 +550,8 @@ class AsyncAngClient:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.DeleteTagResponse.model_validate(data)
         return response.text
 
 
@@ -531,7 +566,8 @@ class AsyncAngClient:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.GetProfileResponse.model_validate(data)
         return response.text
 
 
@@ -546,7 +582,8 @@ class AsyncAngClient:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.ListMyPostsResponse.model_validate(data)
         return response.text
 
 
@@ -561,7 +598,8 @@ class AsyncAngClient:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.ListPostsResponse.model_validate(data)
         return response.text
 
 
@@ -576,7 +614,8 @@ class AsyncAngClient:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.ListCommentsResponse.model_validate(data)
         return response.text
 
 
@@ -591,7 +630,8 @@ class AsyncAngClient:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.GetPostResponse.model_validate(data)
         return response.text
 
 
@@ -606,7 +646,8 @@ class AsyncAngClient:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.ListTagsResponse.model_validate(data)
         return response.text
 
 
@@ -615,14 +656,15 @@ class AsyncAngClient:
             "POST",
             f"/auth/login",
             headers=self._headers(),
-            json=payload,
+            json=self._payload_json(payload),
         )
         self._raise_for_error(response)
         if not response.content:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.LoginResponse.model_validate(data)
         return response.text
 
 
@@ -631,14 +673,15 @@ class AsyncAngClient:
             "POST",
             f"/auth/register",
             headers=self._headers(),
-            json=payload,
+            json=self._payload_json(payload),
         )
         self._raise_for_error(response)
         if not response.content:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.RegisterResponse.model_validate(data)
         return response.text
 
 
@@ -647,14 +690,15 @@ class AsyncAngClient:
             "POST",
             f"/posts",
             headers=self._headers(),
-            json=payload,
+            json=self._payload_json(payload),
         )
         self._raise_for_error(response)
         if not response.content:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.CreatePostResponse.model_validate(data)
         return response.text
 
 
@@ -663,14 +707,15 @@ class AsyncAngClient:
             "POST",
             f"/posts/{id}/archive",
             headers=self._headers(),
-            json=payload,
+            json=self._payload_json(payload),
         )
         self._raise_for_error(response)
         if not response.content:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.ArchivePostResponse.model_validate(data)
         return response.text
 
 
@@ -679,14 +724,15 @@ class AsyncAngClient:
             "POST",
             f"/posts/{id}/publish",
             headers=self._headers(),
-            json=payload,
+            json=self._payload_json(payload),
         )
         self._raise_for_error(response)
         if not response.content:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.PublishPostResponse.model_validate(data)
         return response.text
 
 
@@ -695,14 +741,15 @@ class AsyncAngClient:
             "POST",
             f"/posts/{id}/submit",
             headers=self._headers(),
-            json=payload,
+            json=self._payload_json(payload),
         )
         self._raise_for_error(response)
         if not response.content:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.SubmitPostResponse.model_validate(data)
         return response.text
 
 
@@ -711,14 +758,15 @@ class AsyncAngClient:
             "POST",
             f"/posts/{postID}/comments",
             headers=self._headers(),
-            json=payload,
+            json=self._payload_json(payload),
         )
         self._raise_for_error(response)
         if not response.content:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.CreateCommentResponse.model_validate(data)
         return response.text
 
 
@@ -727,14 +775,15 @@ class AsyncAngClient:
             "POST",
             f"/tags",
             headers=self._headers(),
-            json=payload,
+            json=self._payload_json(payload),
         )
         self._raise_for_error(response)
         if not response.content:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.CreateTagResponse.model_validate(data)
         return response.text
 
 
@@ -743,14 +792,15 @@ class AsyncAngClient:
             "PUT",
             f"/auth/profile",
             headers=self._headers(),
-            json=payload,
+            json=self._payload_json(payload),
         )
         self._raise_for_error(response)
         if not response.content:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.UpdateProfileResponse.model_validate(data)
         return response.text
 
 
@@ -759,14 +809,15 @@ class AsyncAngClient:
             "PUT",
             f"/comments/{id}",
             headers=self._headers(),
-            json=payload,
+            json=self._payload_json(payload),
         )
         self._raise_for_error(response)
         if not response.content:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.UpdateCommentResponse.model_validate(data)
         return response.text
 
 
@@ -775,14 +826,15 @@ class AsyncAngClient:
             "PUT",
             f"/posts/{id}",
             headers=self._headers(),
-            json=payload,
+            json=self._payload_json(payload),
         )
         self._raise_for_error(response)
         if not response.content:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.UpdatePostResponse.model_validate(data)
         return response.text
 
 
@@ -791,14 +843,15 @@ class AsyncAngClient:
             "PUT",
             f"/tags/{id}",
             headers=self._headers(),
-            json=payload,
+            json=self._payload_json(payload),
         )
         self._raise_for_error(response)
         if not response.content:
             return None
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
-            return response.json()
+            data = response.json()
+            return models.UpdateTagResponse.model_validate(data)
         return response.text
 
 

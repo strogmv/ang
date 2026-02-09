@@ -14,15 +14,17 @@ import (
 )
 
 type pythonEndpoint struct {
-	RPC         string
-	MethodName  string
-	MethodBase  string
-	Method      string
-	Path        string
-	PathParams  []string
-	HasBody     bool
-	PayloadType string
-	ReturnType  string
+	RPC              string
+	MethodName       string
+	MethodBase       string
+	Method           string
+	Path             string
+	PathParams       []string
+	HasBody          bool
+	PayloadType      string
+	ReturnType       string
+	PayloadModelName string
+	ReturnModelName  string
 }
 
 type pythonSDKData struct {
@@ -183,22 +185,28 @@ func buildPythonEndpoints(endpoints []normalizer.Endpoint, sigs map[string]pytho
 		sigKey := strings.ToLower(strings.TrimSpace(ep.ServiceName)) + ":" + strings.ToLower(strings.TrimSpace(ep.RPC))
 		sig := sigs[sigKey]
 		payloadType := "dict[str, Any]"
+		payloadModelName := ""
 		if sig.InputModel != "" && sig.InputModel != "Any" {
 			payloadType = "models." + sig.InputModel
+			payloadModelName = sig.InputModel
 		}
 		returnType := "Any"
+		returnModelName := ""
 		if sig.OutputModel != "" && sig.OutputModel != "Any" {
 			returnType = "models." + sig.OutputModel
+			returnModelName = sig.OutputModel
 		}
 		out = append(out, pythonEndpoint{
-			RPC:         ep.RPC,
-			MethodBase:  toSnake(ep.RPC),
-			Method:      method,
-			Path:        ep.Path,
-			PathParams:  params,
-			HasBody:     method != "GET" && method != "DELETE",
-			PayloadType: payloadType,
-			ReturnType:  returnType,
+			RPC:              ep.RPC,
+			MethodBase:       toSnake(ep.RPC),
+			Method:           method,
+			Path:             ep.Path,
+			PathParams:       params,
+			HasBody:          method != "GET" && method != "DELETE",
+			PayloadType:      payloadType,
+			ReturnType:       returnType,
+			PayloadModelName: payloadModelName,
+			ReturnModelName:  returnModelName,
 		})
 	}
 
