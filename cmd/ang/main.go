@@ -653,6 +653,7 @@ func runBuild(args []string) {
 		em.InputHash = inputHash
 		em.CompilerHash = compilerHash
 		em.GoModule = goModule
+		pythonSDKEnabled := strings.TrimSpace(os.Getenv("ANG_PY_SDK")) == "1"
 
 		ctx := em.AnalyzeContext(services, entities, endpoints)
 		ctx.HasScheduler = len(schedules) > 0
@@ -807,6 +808,12 @@ func runBuild(args []string) {
 				return nil
 			}},
 			{"Frontend SDK", func() error { return em.EmitFrontendSDK(entities, services, endpoints, events, bizErrors, rbacDef) }},
+			{"Python SDK", func() error {
+				if !pythonSDKEnabled {
+					return nil
+				}
+				return em.EmitPythonSDK(endpoints)
+			}},
 			{"Frontend Components", func() error { return em.EmitFrontendComponents(services, endpoints, entities) }},
 			{"Frontend Admin", func() error { return em.EmitFrontendAdmin(entities, services) }},
 			{"Frontend SDK Copy", func() error { return copyFrontendSDK(output.FrontendDir, output.FrontendAppDir) }},
