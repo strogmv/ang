@@ -1,0 +1,88 @@
+openapi: 3.0.3
+info:
+  title: PDF Chart Service API
+  version: 0.1.0
+  x-ang-version: 0.1.44
+  x-ang-input-hash: 8c4d8a9411951104a8928e866a84e08d52770306bde141b80280a367135b0398
+  x-ang-compiler-hash: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+paths:
+  /reports/pdf:
+    post:
+      summary: GenerateReportPDF
+      operationId: GenerateReportPDF
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateReportPDFRequest'
+      responses:
+        '200':
+          description: OK
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateReportPDFResponse'
+        '401':
+          description: Unauthorized
+        '400':
+          description: Bad Request
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+components:
+  schemas:
+    ProblemDetail:
+      type: object
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        code:
+          type: integer
+        errors:
+          type: object
+    GenerateReportPDFRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        points:
+          type: array
+          items:
+            type: string
+      required:
+        - points
+    GenerateReportPDFResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+      required:
+        - ok
+    GenerateReportPDFRequestPointsItem:
+      type: object
+      properties:
+        x:
+          type: number
+          format: double
+        y:
+          type: number
+          format: double
+      required:
+        - x
+        - y
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

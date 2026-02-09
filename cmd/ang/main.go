@@ -566,6 +566,7 @@ func runBuild(args []string) {
 			return
 		}
 		_ = scenarios
+		rawServices := append([]normalizer.Service(nil), services...)
 
 		p := parser.New()
 		n := normalizer.New()
@@ -767,7 +768,7 @@ func runBuild(args []string) {
 				{"OpenAPI", func() error { return em.EmitOpenAPI(endpoints, services, bizErrors, projectDef) }},
 				{"AsyncAPI", func() error { return em.EmitAsyncAPI(events, projectDef) }},
 				{"Python FastAPI Backend", func() error {
-					return em.EmitPythonFastAPIBackend(entities, endpoints, repos, projectDef)
+					return em.EmitPythonFastAPIBackend(entities, rawServices, endpoints, repos, projectDef)
 				}},
 				{"Python SDK", func() error {
 					if !pythonSDKEnabled {

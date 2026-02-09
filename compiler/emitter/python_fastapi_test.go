@@ -13,7 +13,7 @@ func TestBuildPythonFastAPIData_RouterAndServiceStubs(t *testing.T) {
 		{Method: "WS", Path: "/ws", ServiceName: "Blog", RPC: "Ignored"},
 	}
 
-	data := buildPythonFastAPIData(nil, endpoints, nil, nil, "0.1.0")
+	data := buildPythonFastAPIData(nil, nil, endpoints, nil, nil, "0.1.0")
 	if len(data.Routers) != 1 {
 		t.Fatalf("expected 1 router, got %d", len(data.Routers))
 	}
@@ -32,5 +32,37 @@ func TestBuildPythonFastAPIData_RouterAndServiceStubs(t *testing.T) {
 	}
 	if len(data.ServiceStubs) != 1 || len(data.ServiceStubs[0].Methods) != 2 {
 		t.Fatalf("unexpected service stubs: %#v", data.ServiceStubs)
+	}
+}
+
+func TestBuildPythonFastAPIData_PythonImplInjected(t *testing.T) {
+	services := []normalizer.Service{
+		{
+			Name: "Report",
+			Methods: []normalizer.Method{
+				{
+					Name: "GeneratePdf",
+					Impl: &normalizer.MethodImpl{
+						Lang:    "python",
+						Code:    "return {'ok': True}",
+						Imports: []string{"from fastapi import Response"},
+					},
+				},
+			},
+		},
+	}
+	endpoints := []normalizer.Endpoint{
+		{Method: "POST", Path: "/reports/pdf", ServiceName: "Report", RPC: "GeneratePdf"},
+	}
+	data := buildPythonFastAPIData(nil, services, endpoints, nil, nil, "0.1.0")
+	if len(data.ServiceStubs) != 1 {
+		t.Fatalf("expected 1 service stub, got %d", len(data.ServiceStubs))
+	}
+	stub := data.ServiceStubs[0]
+	if len(stub.Imports) != 1 || stub.Imports[0] != "from fastapi import Response" {
+		t.Fatalf("unexpected imports: %#v", stub.Imports)
+	}
+	if len(stub.Methods) != 1 || stub.Methods[0].Body == "" {
+		t.Fatalf("expected injected python impl body, got %#v", stub.Methods)
 	}
 }

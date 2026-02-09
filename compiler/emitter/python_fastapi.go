@@ -40,6 +40,7 @@ type pythonRouter struct {
 
 type pythonServiceMethod struct {
 	Name string
+	Body string
 }
 
 type pythonServiceStub struct {
@@ -47,6 +48,7 @@ type pythonServiceStub struct {
 	ModuleName  string
 	ClassName   string
 	GetService  string
+	Imports     []string
 	Methods     []pythonServiceMethod
 }
 
@@ -75,11 +77,12 @@ type pythonFastAPIData struct {
 // EmitPythonFastAPIBackend generates a minimal FastAPI backend scaffold (M3 MVP).
 func (e *Emitter) EmitPythonFastAPIBackend(
 	entities []normalizer.Entity,
+	services []normalizer.Service,
 	endpoints []normalizer.Endpoint,
 	repos []normalizer.Repository,
 	project *normalizer.ProjectDef,
 ) error {
-	data := buildPythonFastAPIData(entities, endpoints, repos, project, e.Version)
+	data := buildPythonFastAPIData(entities, services, endpoints, repos, project, e.Version)
 	funcs := e.getSharedFuncMap()
 
 	root := filepath.Join(e.OutputDir, "app")
@@ -138,6 +141,7 @@ func (e *Emitter) EmitPythonFastAPIBackend(
 
 func buildPythonFastAPIData(
 	entities []normalizer.Entity,
+	services []normalizer.Service,
 	endpoints []normalizer.Endpoint,
 	repos []normalizer.Repository,
 	project *normalizer.ProjectDef,
@@ -158,7 +162,7 @@ func buildPythonFastAPIData(
 	}
 
 	models := buildPythonModels(entities)
-	routers, services := buildPythonRoutersAndServices(endpoints)
+	routers, serviceStubs := buildPythonRoutersAndServices(endpoints, services)
 	repoStubs := buildPythonRepoStubs(repos)
 
 	routerModules := make([]string, 0, len(routers))
@@ -171,7 +175,7 @@ func buildPythonFastAPIData(
 		Version:       version,
 		Models:        models,
 		Routers:       routers,
-		ServiceStubs:  services,
+		ServiceStubs:  serviceStubs,
 		RepoStubs:     repoStubs,
 		RouterModules: routerModules,
 	}
@@ -224,11 +228,41 @@ func pythonFieldType(f normalizer.Field) string {
 	return base
 }
 
-func buildPythonRoutersAndServices(endpoints []normalizer.Endpoint) ([]pythonRouter, []pythonServiceStub) {
+func buildPythonRoutersAndServices(endpoints []normalizer.Endpoint, services []normalizer.Service) ([]pythonRouter, []pythonServiceStub) {
 	type groupedEndpoint struct {
 		method string
 		path   string
 		rpc    string
+	}
+	type implSnippet struct {
+		body    string
+		imports []string
+	}
+	implMap := make(map[string]implSnippet, len(services))
+	for _, svc := range services {
+		for _, m := range svc.Methods {
+			if m.Impl == nil {
+				continue
+			}
+			if !strings.EqualFold(strings.TrimSpace(m.Impl.Lang), "python") {
+				continue
+			}
+			body := strings.TrimSpace(m.Impl.Code)
+			if body == "" {
+				continue
+			}
+			key := strings.ToLower(strings.TrimSpace(svc.Name)) + ":" + strings.ToLower(strings.TrimSpace(m.Name))
+			imports := make([]string, 0, len(m.Impl.Imports))
+			for _, imp := range m.Impl.Imports {
+				if s := strings.TrimSpace(imp); s != "" {
+					imports = append(imports, s)
+				}
+			}
+			implMap[key] = implSnippet{
+				body:    indentPythonBlock(body, 8),
+				imports: imports,
+			}
+		}
 	}
 
 	group := map[string][]groupedEndpoint{}
@@ -258,7 +292,7 @@ func buildPythonRoutersAndServices(endpoints []normalizer.Endpoint) ([]pythonRou
 	sort.Strings(serviceNames)
 
 	routers := make([]pythonRouter, 0, len(serviceNames))
-	services := make([]pythonServiceStub, 0, len(serviceNames))
+	serviceStubs := make([]pythonServiceStub, 0, len(serviceNames))
 	for _, serviceName := range serviceNames {
 		eps := group[serviceName]
 		sort.Slice(eps, func(i, j int) bool {
@@ -281,6 +315,7 @@ func buildPythonRoutersAndServices(endpoints []normalizer.Endpoint) ([]pythonRou
 		used := map[string]bool{}
 		routes := make([]pythonRoute, 0, len(eps))
 		serviceMethods := make([]pythonServiceMethod, 0, len(eps))
+		importSet := map[string]bool{}
 		for _, ep := range eps {
 			base := toSnake(ep.rpc)
 			if base == "" {
@@ -330,7 +365,12 @@ func buildPythonRoutersAndServices(endpoints []normalizer.Endpoint) ([]pythonRou
 				Signature:   strings.Join(signatureParts, ", "),
 				CallExpr:    callExpr,
 			})
-			serviceMethods = append(serviceMethods, pythonServiceMethod{Name: handler})
+			implKey := strings.ToLower(strings.TrimSpace(serviceName)) + ":" + strings.ToLower(strings.TrimSpace(ep.rpc))
+			impl := implMap[implKey]
+			for _, imp := range impl.imports {
+				importSet[imp] = true
+			}
+			serviceMethods = append(serviceMethods, pythonServiceMethod{Name: handler, Body: impl.body})
 		}
 
 		routers = append(routers, pythonRouter{
@@ -340,16 +380,35 @@ func buildPythonRoutersAndServices(endpoints []normalizer.Endpoint) ([]pythonRou
 			GetService:  getService,
 			Routes:      routes,
 		})
-		services = append(services, pythonServiceStub{
+		imports := make([]string, 0, len(importSet))
+		for imp := range importSet {
+			imports = append(imports, imp)
+		}
+		sort.Strings(imports)
+		serviceStubs = append(serviceStubs, pythonServiceStub{
 			ServiceName: serviceName,
 			ModuleName:  module,
 			ClassName:   className,
 			GetService:  getService,
+			Imports:     imports,
 			Methods:     serviceMethods,
 		})
 	}
 
-	return routers, services
+	return routers, serviceStubs
+}
+
+func indentPythonBlock(code string, spaces int) string {
+	indent := strings.Repeat(" ", spaces)
+	lines := strings.Split(code, "\n")
+	for i := range lines {
+		if strings.TrimSpace(lines[i]) == "" {
+			lines[i] = ""
+			continue
+		}
+		lines[i] = indent + lines[i]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func buildPythonRepoStubs(repos []normalizer.Repository) []pythonRepoStub {

@@ -33,6 +33,16 @@ func TestPythonFastAPISnapshot(t *testing.T) {
 		{Method: "GET", Path: "/users/{id}", ServiceName: "User", RPC: "GetUser"},
 		{Method: "POST", Path: "/users", ServiceName: "User", RPC: "GetUser"},
 	}
+	services := []normalizer.Service{
+		{
+			Name: "User",
+			Methods: []normalizer.Method{
+				{
+					Name: "GetUser",
+				},
+			},
+		},
+	}
 	repos := []normalizer.Repository{
 		{
 			Name:   "UserRepository",
@@ -47,7 +57,7 @@ func TestPythonFastAPISnapshot(t *testing.T) {
 		Version: "0.2.0",
 	}
 
-	if err := em.EmitPythonFastAPIBackend(entities, endpoints, repos, project); err != nil {
+	if err := em.EmitPythonFastAPIBackend(entities, services, endpoints, repos, project); err != nil {
 		t.Fatalf("emit python fastapi backend: %v", err)
 	}
 
@@ -144,4 +154,3 @@ func repoRootFrom(t *testing.T, start string) string {
 		dir = parent
 	}
 }
-

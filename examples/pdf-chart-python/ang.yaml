@@ -1,0 +1,12 @@
+version: "1"
+name: "pdf-chart-python"
+description: "Python/FastAPI example: generate PDF with chart"
+
+cue:
+  api: "./cue/api"
+  domain: "./cue/domain"
+  architecture: "./cue/architecture"
+
+output:
+  backend: "."
+  frontend: "./sdk"

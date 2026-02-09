@@ -3,14 +3,22 @@
 from __future__ import annotations
 
 from typing import Any
+{{- if .Imports }}
+{{ range .Imports }}
+{{ . }}
+{{- end }}
+{{- end }}
 
 
 class {{ .ClassName }}:
 {{- if .Methods }}
-{{- $service := .ServiceName }}
 {{- range .Methods }}
     async def {{ .Name }}(self, *args: Any, **kwargs: Any) -> Any:
-        raise NotImplementedError("Implement {{ $service }}.{{ .Name }}")
+{{- if .Body }}
+{{ .Body }}
+{{- else }}
+        raise NotImplementedError("Implement {{ $.ServiceName }}.{{ .Name }}")
+{{- end }}
 {{- end }}
 {{- else }}
     pass

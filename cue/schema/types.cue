@@ -31,9 +31,12 @@ import "github.com/strogmv/ang/cue/project"
 	}
 	impls?: {
 		go?: #CodeBlock & { lang: "go" }
+		python?: #CodeBlock & { lang: "python" }
 		rust?: #CodeBlock & { lang: "rust" }
 		ts?: #CodeBlock & { lang: "ts" }
 	}
+	// Explicit implementation block (used when a target-specific resolver is not available)
+	impl?: #CodeBlock
 	// Declarative logic flow
 	flow?: [...#FlowStep]
 
@@ -42,6 +45,9 @@ import "github.com/strogmv/ang/cue/project"
 
 	if project.state.target.lang == "go" {
 		_impl: impls.go
+	}
+	if project.state.target.lang == "python" {
+		_impl: impls.python
 	}
 	if project.state.target.lang == "rust" {
 		_impl: impls.rust

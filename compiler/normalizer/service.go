@@ -286,6 +286,9 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 		if !implVal.Exists() {
 			implVal = value.LookupPath(cue.ParsePath("_impl"))
 		}
+		if implVal.Exists() && implVal.IncompleteKind() == cue.BottomKind {
+			implVal = cue.Value{}
+		}
 		if !implVal.Exists() {
 			implVal = value.LookupPath(cue.ParsePath("impl"))
 		}
@@ -818,7 +821,7 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					addWarn(stepNum, step.Action, "MISSING_VALUE", "mapping.Assign missing 'value'", "{action: \"mapping.Assign\", to: \"x.Field\", value: \"...\"}", step.File, step.Line, step.Column)
 				}
 				assignedFields[to] = true
-				
+
 				// NEW: Validate Go Syntax
 				if errStr := validateGoSnippet(value, step.File, step.Line, step.Column); errStr != "" {
 					addWarn(stepNum, step.Action, "GO_SYNTAX_ERROR", errStr, "Check your Go code syntax inside the CUE string.", step.File, step.Line, step.Column)
@@ -1057,6 +1060,9 @@ func (n *Normalizer) parseService(name string, val cue.Value) (Service, error) {
 		}
 		if !implVal.Exists() {
 			implVal = methodVal.LookupPath(cue.ParsePath("_impl"))
+		}
+		if implVal.Exists() && implVal.IncompleteKind() == cue.BottomKind {
+			implVal = cue.Value{}
 		}
 		if !implVal.Exists() {
 			implVal = methodVal.LookupPath(cue.ParsePath("impl"))
