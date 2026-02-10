@@ -156,6 +156,13 @@ func (s *lspServer) handle(req lspRequest) error {
 							"includeText": true,
 						},
 					},
+					"completionProvider": map[string]any{
+						"triggerCharacters": []string{"\"", "."},
+					},
+					"codeActionProvider": true,
+					"executeCommandProvider": map[string]any{
+						"commands": []string{"ang.openDoctor", "ang.showFixHint"},
+					},
 				},
 			},
 		})
@@ -232,6 +239,59 @@ func (s *lspServer) handle(req lspRequest) error {
 		delete(s.lastDiagHash, p.TextDocument.URI)
 		s.mu.Unlock()
 		return nil
+	case "textDocument/completion":
+		var p struct {
+			TextDocument struct {
+				URI string `json:"uri"`
+			} `json:"textDocument"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		items := s.flowCompletionItems(p.TextDocument.URI)
+		return s.writeJSON(lspResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Result: map[string]any{
+				"isIncomplete": false,
+				"items":        items,
+			},
+		})
+	case "textDocument/codeAction":
+		var p struct {
+			TextDocument struct {
+				URI string `json:"uri"`
+			} `json:"textDocument"`
+			Context struct {
+				Diagnostics []struct {
+					Code    any    `json:"code"`
+					Message string `json:"message"`
+				} `json:"diagnostics"`
+			} `json:"context"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		actions := buildCodeActions(p.TextDocument.URI, p.Context.Diagnostics)
+		return s.writeJSON(lspResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Result:  actions,
+		})
+	case "workspace/executeCommand":
+		var p struct {
+			Command   string `json:"command"`
+			Arguments []any  `json:"arguments"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		msg := "ANG command acknowledged"
+		switch p.Command {
+		case "ang.openDoctor":
+			msg = "Run `ang doctor` in terminal to get concrete fix suggestions."
+		case "ang.showFixHint":
+			msg = "Review diagnostic hint and update CUE intent."
+		}
+		return s.writeJSON(lspResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Result:  map[string]any{"message": msg},
+		})
 	default:
 		if len(req.ID) > 0 {
 			return s.writeJSON(lspResponse{
@@ -245,6 +305,83 @@ func (s *lspServer) handle(req lspRequest) error {
 		}
 		return nil
 	}
+}
+
+func (s *lspServer) flowCompletionItems(uri string) []map[string]any {
+	if !strings.HasSuffix(strings.ToLower(uriToPath(uri)), ".cue") {
+		return []map[string]any{}
+	}
+	actions := []string{
+		"repo.Find", "repo.List", "repo.Save", "repo.Delete",
+		"mapping.Map", "mapping.Assign",
+		"logic.Check", "logic.Call",
+		"flow.If", "flow.For",
+		"tx.Block",
+		"fsm.Transition",
+		"event.Publish",
+		"cache.Get", "cache.Set",
+		"rateLimit.Check",
+		"storage.Upload",
+		"mailer.Send",
+	}
+	items := make([]map[string]any, 0, len(actions))
+	for _, a := range actions {
+		items = append(items, map[string]any{
+			"label":      a,
+			"kind":       14, // keyword
+			"detail":     "ANG flow action",
+			"insertText": a,
+		})
+	}
+	return items
+}
+
+func buildCodeActions(uri string, diagnostics []struct {
+	Code    any    `json:"code"`
+	Message string `json:"message"`
+}) []map[string]any {
+	actions := []map[string]any{}
+	seen := map[string]bool{}
+	for _, d := range diagnostics {
+		code := strings.TrimSpace(fmt.Sprintf("%v", d.Code))
+		if code == "" || code == "<nil>" {
+			code = "UNKNOWN"
+		}
+		if seen[code] {
+			continue
+		}
+		seen[code] = true
+		title := fmt.Sprintf("ANG: suggest fix for %s", code)
+		actions = append(actions, map[string]any{
+			"title": title,
+			"kind":  "quickfix",
+			"command": map[string]any{
+				"title":   title,
+				"command": "ang.openDoctor",
+				"arguments": []any{
+					map[string]any{
+						"uri":     uri,
+						"code":    code,
+						"message": d.Message,
+					},
+				},
+			},
+		})
+	}
+	if len(actions) == 0 {
+		actions = append(actions, map[string]any{
+			"title": "ANG: run doctor for this file",
+			"kind":  "quickfix",
+			"command": map[string]any{
+				"title":   "ANG: run doctor for this file",
+				"command": "ang.openDoctor",
+				"arguments": []any{
+					map[string]any{"uri": uri},
+				},
+			},
+		})
+	}
+	return actions
 }
 
 func (s *lspServer) publishAllDiagnostics() error {
