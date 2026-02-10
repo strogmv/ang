@@ -79,8 +79,10 @@ func registerCoreTools(addTool toolAdder, deps coreToolDeps) {
 	addTool("ang_status", mcp.NewTool("ang_status",
 		mcp.WithDescription("Project status in one call: build, tests, warnings, dirty files."),
 		mcp.WithBoolean("run_tests", mcp.Description("Run go test ./... for fresh unit status (default: false).")),
+		mcp.WithBoolean("run_go_build", mcp.Description("Run go build ./... to detect module-level compile errors (default: false).")),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		runTests := mcp.ParseBoolean(request, "run_tests", false)
+		runGoBuild := mcp.ParseBoolean(request, "run_go_build", false)
 
 		buildStatus := map[string]any{"status": "ok"}
 		if _, _, _, _, _, _, _, _, err := compiler.RunPipeline("."); err != nil {
@@ -92,6 +94,10 @@ func registerCoreTools(addTool toolAdder, deps coreToolDeps) {
 		if runTests {
 			testStatus = runCommandStatus([]string{"go", "test", "./..."})
 		}
+		goBuildStatus := map[string]any{"status": "skipped"}
+		if runGoBuild {
+			goBuildStatus = runCommandStatus([]string{"go", "build", "./..."})
+		}
 
 		dirtyFiles := gitDirtyFiles(200)
 		logWarnings := collectBuildWarnings("ang-build.log", 30)
@@ -100,6 +106,8 @@ func registerCoreTools(addTool toolAdder, deps coreToolDeps) {
 		if buildStatus["status"] == "failed" {
 			overall = "failed"
 		} else if s, _ := testStatus["status"].(string); s == "failed" {
+			overall = "failed"
+		} else if s, _ := goBuildStatus["status"].(string); s == "failed" {
 			overall = "failed"
 		} else if len(logWarnings) > 0 {
 			overall = "warn"
@@ -110,6 +118,7 @@ func registerCoreTools(addTool toolAdder, deps coreToolDeps) {
 			"profile":           deps.currentProfile(),
 			"build":             buildStatus,
 			"tests":             testStatus,
+			"go_build":          goBuildStatus,
 			"dirty_files":       dirtyFiles,
 			"dirty_files_count": len(dirtyFiles),
 			"warnings":          logWarnings,
@@ -121,16 +130,25 @@ func registerCoreTools(addTool toolAdder, deps coreToolDeps) {
 	addTool("ang_validate", mcp.NewTool("ang_validate",
 		mcp.WithDescription("Fast validation without full code generation: pipeline + diagnostics."),
 		mcp.WithString("project_path", mcp.Description("Project root path (default: current directory).")),
+		mcp.WithBoolean("run_go_build", mcp.Description("Run go build ./... after pipeline validation (default: false).")),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		projectPath := strings.TrimSpace(mcp.ParseString(request, "project_path", ""))
 		if projectPath == "" {
 			projectPath = "."
 		}
+		runGoBuild := mcp.ParseBoolean(request, "run_go_build", false)
 		_, _, _, _, _, _, _, _, err := compiler.RunPipeline(projectPath)
 		diags := append([]any(nil), warningsToAny(compiler.LatestDiagnostics)...)
 		status := "ok"
 		if err != nil {
 			status = "failed"
+		}
+		goBuildStatus := map[string]any{"status": "skipped"}
+		if runGoBuild {
+			goBuildStatus = runCommandStatus([]string{"go", "build", "./..."})
+			if s, _ := goBuildStatus["status"].(string); s == "failed" {
+				status = "failed"
+			}
 		}
 		resp := map[string]any{
 			"status":            status,
@@ -138,6 +156,7 @@ func registerCoreTools(addTool toolAdder, deps coreToolDeps) {
 			"error":             "",
 			"diagnostics_count": len(diags),
 			"diagnostics":       diags,
+			"go_build":          goBuildStatus,
 		}
 		if err != nil {
 			resp["error"] = err.Error()

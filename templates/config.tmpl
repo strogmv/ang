@@ -18,9 +18,9 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		{{- range .Fields }}
 		{{- if eq (FieldName .) "JWTPublicKey" }}
-		JWTPublicKey: getEnvOrFile("JWT_PUBLIC_KEY", "public.pem"),
+		JWTPublicKey: getEnvOrFileOrValue("JWT_PUBLIC_KEY", "public.pem", {{ ConfigDefault . }}),
 		{{- else if eq (FieldName .) "JWTPrivateKey" }}
-		JWTPrivateKey: getEnvOrFile("JWT_PRIVATE_KEY", "private.pem"),
+		JWTPrivateKey: getEnvOrFileOrValue("JWT_PRIVATE_KEY", "private.pem", {{ ConfigDefault . }}),
 		{{- else }}
 		{{ FieldName . }}: {{ ConfigLoadExpr . }},
 		{{- end }}
@@ -39,6 +39,17 @@ func getEnvOrFile(key, filePath string) string {
 		return string(data)
 	}
 	return ""
+}
+
+func getEnvOrFileOrValue(key, filePath, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
+	}
+	data, err := os.ReadFile(filePath)
+	if err == nil {
+		return string(data)
+	}
+	return fallback
 }
 
 func getEnv(key, fallback string) string {

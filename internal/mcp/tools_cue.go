@@ -288,16 +288,20 @@ func registerCUETools(addTool toolAdder) {
 			return mcp.NewToolResultText("Unknown preset"), nil
 		}
 		logFile := "ang-build.log"
-		f, _ := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-		cmd.Stdout, cmd.Stderr = f, f
-		err := cmd.Run()
-		f.Close()
+		out, err := cmd.CombinedOutput()
+		logText := string(out)
+		if strings.TrimSpace(logText) == "" {
+			if err != nil {
+				logText = fmt.Sprintf("preset %q failed with no output: %v\n", name, err)
+			} else {
+				logText = fmt.Sprintf("preset %q completed with no output\n", name)
+			}
+		}
+		_ = os.WriteFile(logFile, []byte(logText), 0o644)
 		status := "SUCCESS"
 		if err != nil {
 			status = "FAILED"
 		}
-		logData, _ := os.ReadFile(logFile)
-		logText := string(logData)
 		resp := map[string]any{
 			"status": status,
 			"preset": name,

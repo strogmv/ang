@@ -33,6 +33,7 @@ type State struct {
 
 type Response struct {
 	Status          string       `json:"status"`
+	Summary         []string     `json:"summary"`
 	Iteration       int          `json:"iteration"`
 	ErrorsFixed     int          `json:"errors_fixed"`
 	ErrorsRemaining int          `json:"errors_remaining"`
@@ -131,6 +132,7 @@ func (a *Analyzer) Analyze(log string) Response {
 
 	resp := Response{
 		Status:          "Analyzed",
+		Summary:         buildSummary(log, codes, fixed, remaining, suggestions),
 		Iteration:       next.Iteration,
 		ErrorsFixed:     fixed,
 		ErrorsRemaining: remaining,
@@ -145,6 +147,26 @@ func (a *Analyzer) Analyze(log string) Response {
 		resp.LegacyHint = "logic.Call args must be a list"
 	}
 	return resp
+}
+
+func buildSummary(log string, codes []string, fixed int, remaining int, suggestions []Suggestion) []string {
+	out := []string{}
+	if len(codes) == 0 {
+		if strings.TrimSpace(log) == "" {
+			return []string{"No build log input was provided."}
+		}
+		return []string{
+			"No structured ANG error codes detected in log.",
+			"Run `ang validate` to get structured diagnostics and error codes.",
+		}
+	}
+	out = append(out, fmt.Sprintf("Detected %d structured error code(s).", len(codes)))
+	out = append(out, fmt.Sprintf("Errors fixed since previous run: %d.", fixed))
+	out = append(out, fmt.Sprintf("Errors remaining: %d.", remaining))
+	if len(suggestions) > 0 {
+		out = append(out, "Top fix: "+suggestions[0].Fix)
+	}
+	return out
 }
 
 func (a *Analyzer) loadState() State {

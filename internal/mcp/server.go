@@ -681,6 +681,35 @@ func Run() {
 		}}, nil
 	})
 
+	s.AddResource(mcp.NewResource(
+		"resource://ang/readme_for_agents",
+		"ANG Agent README",
+		mcp.WithResourceDescription("Guidance for AI agents working in this repository."),
+		mcp.WithMIMEType("text/plain"),
+	), func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+		candidates := []string{
+			filepath.Join(projectRoot, "AGENTS.md"),
+			filepath.Join(projectRoot, "CLAUDE.md"),
+			filepath.Join(projectRoot, "README.md"),
+		}
+		var data []byte
+		for _, p := range candidates {
+			b, err := os.ReadFile(p)
+			if err == nil {
+				data = b
+				break
+			}
+		}
+		if len(data) == 0 {
+			data = []byte("No AGENTS.md/CLAUDE.md/README.md found in project root.")
+		}
+		return []mcp.ResourceContents{mcp.TextResourceContents{
+			URI:      "resource://ang/readme_for_agents",
+			MIMEType: "text/plain",
+			Text:     string(data),
+		}}, nil
+	})
+
 	s.AddResourceTemplate(mcp.NewResourceTemplate(
 		"resource://ang/cue/{path}",
 		"ANG CUE File",
