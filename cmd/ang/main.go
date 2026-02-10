@@ -49,6 +49,8 @@ func main() {
 		runRBAC(os.Args[2:])
 	case "events":
 		runEvents(os.Args[2:])
+	case "test":
+		runTest(os.Args[2:])
 	case "doctor":
 		runDoctor(os.Args[2:])
 	case "lsp":
@@ -77,6 +79,7 @@ func printUsage() {
 	fmt.Println("  ang migrate   Run migration diff/apply using Atlas")
 	fmt.Println("  ang api-diff  Compare OpenAPI specs and recommend semver bump")
 	fmt.Println("  ang contract-test  Run generated HTTP/WS contract tests")
+	fmt.Println("  ang test gen   Generate flow-derived test cases from CUE")
 	fmt.Println("  ang vet       Check architectural invariants and laws")
 	fmt.Println("  ang vet logic  Audit embedded Go snippets for syntax errors")
 	fmt.Println("  ang rbac actions  List all registered RBAC actions (service.method)")
