@@ -100,6 +100,48 @@ func registerCoreTools(addTool toolAdder, deps coreToolDeps) {
 		return mcp.NewToolResultText(string(b)), nil
 	})
 
+	addTool("ang_status", mcp.NewTool("ang_status",
+		mcp.WithDescription("Project status in one call: build, tests, warnings, dirty files."),
+		mcp.WithBoolean("run_tests", mcp.Description("Run go test ./... for fresh unit status (default: true).")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		runTests := mcp.ParseBoolean(request, "run_tests", true)
+
+		buildStatus := map[string]any{"status": "ok"}
+		if _, _, _, _, _, _, _, _, err := compiler.RunPipeline("."); err != nil {
+			buildStatus["status"] = "failed"
+			buildStatus["error"] = err.Error()
+		}
+
+		testStatus := map[string]any{"status": "skipped"}
+		if runTests {
+			testStatus = runCommandStatus([]string{"go", "test", "./..."})
+		}
+
+		dirtyFiles := gitDirtyFiles(200)
+		logWarnings := collectBuildWarnings("ang-build.log", 30)
+
+		overall := "ok"
+		if buildStatus["status"] == "failed" {
+			overall = "failed"
+		} else if s, _ := testStatus["status"].(string); s == "failed" {
+			overall = "failed"
+		} else if len(logWarnings) > 0 {
+			overall = "warn"
+		}
+
+		report := map[string]any{
+			"status":            overall,
+			"profile":           deps.currentProfile(),
+			"build":             buildStatus,
+			"tests":             testStatus,
+			"dirty_files":       dirtyFiles,
+			"dirty_files_count": len(dirtyFiles),
+			"warnings":          logWarnings,
+		}
+		b, _ := json.MarshalIndent(report, "", "  ")
+		return mcp.NewToolResultText(string(b)), nil
+	})
+
 	addTool("ang_snapshot", mcp.NewTool("ang_snapshot",
 		mcp.WithDescription("Compact project snapshot for low-token context handoff."),
 		mcp.WithNumber("max_status_lines", mcp.Description("Max git status lines (profile-based default/cap).")),
@@ -213,11 +255,17 @@ func registerCoreTools(addTool toolAdder, deps coreToolDeps) {
 	addTool("ang_search", mcp.NewTool("ang_search",
 		mcp.WithDescription("Hybrid symbol search with capped output."),
 		mcp.WithString("query", mcp.Required()),
+		mcp.WithString("scope", mcp.Description("Search scope: cue | generated | templates | all (default).")),
 		mcp.WithNumber("max_lines", mcp.Description("Max output lines (profile-based default/cap).")),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		query := strings.TrimSpace(mcp.ParseString(request, "query", ""))
 		if query == "" {
 			return mcp.NewToolResultText("query is required"), nil
+		}
+		scope := strings.ToLower(strings.TrimSpace(mcp.ParseString(request, "scope", "all")))
+		searchRoots, err := searchScopeRoots(scope)
+		if err != nil {
+			return mcp.NewToolResultText(err.Error()), nil
 		}
 		defaultLines, hardCap := deps.searchLimits()
 		maxLines := int(mcp.ParseFloat64(request, "max_lines", float64(defaultLines)))
@@ -228,7 +276,9 @@ func registerCoreTools(addTool toolAdder, deps coreToolDeps) {
 			maxLines = hardCap
 		}
 
-		cmd := exec.Command("rg", "-n", "-i", query, "cue/", "internal/")
+		rgArgs := []string{"-n", "-i", query}
+		rgArgs = append(rgArgs, searchRoots...)
+		cmd := exec.Command("rg", rgArgs...)
 		out, err := cmd.CombinedOutput()
 		if err != nil && len(out) == 0 {
 			return mcp.NewToolResultText(err.Error()), nil
@@ -246,6 +296,8 @@ func registerCoreTools(addTool toolAdder, deps coreToolDeps) {
 		}
 		report := map[string]any{
 			"query":         query,
+			"scope":         scope,
+			"roots":         searchRoots,
 			"profile":       deps.currentProfile(),
 			"total_matches": totalMatches,
 			"returned":      len(lines),
@@ -320,4 +372,84 @@ func registerCoreTools(addTool toolAdder, deps coreToolDeps) {
 		out, _ := json.MarshalIndent(report, "", "  ")
 		return mcp.NewToolResultText(string(out)), nil
 	})
+}
+
+func searchScopeRoots(scope string) ([]string, error) {
+	switch scope {
+	case "", "all":
+		return []string{"cue/", "internal/", "templates/", "sdk/", "api/"}, nil
+	case "cue":
+		return []string{"cue/"}, nil
+	case "generated":
+		return []string{"internal/", "sdk/", "api/"}, nil
+	case "templates":
+		return []string{"templates/"}, nil
+	default:
+		return nil, fmt.Errorf("invalid scope %q; allowed: cue | generated | templates | all", scope)
+	}
+}
+
+func runCommandStatus(cmdAndArgs []string) map[string]any {
+	if len(cmdAndArgs) == 0 {
+		return map[string]any{"status": "failed", "error": "empty command"}
+	}
+	cmd := exec.Command(cmdAndArgs[0], cmdAndArgs[1:]...)
+	out, err := cmd.CombinedOutput()
+	res := map[string]any{
+		"command": strings.Join(cmdAndArgs, " "),
+		"output":  tailLines(string(out), 30),
+	}
+	if err != nil {
+		res["status"] = "failed"
+		res["error"] = err.Error()
+		return res
+	}
+	res["status"] = "ok"
+	return res
+}
+
+func gitDirtyFiles(max int) []string {
+	if max <= 0 {
+		max = 200
+	}
+	cmd := exec.Command("git", "status", "--short")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return []string{}
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) == 1 && lines[0] == "" {
+		return []string{}
+	}
+	if len(lines) > max {
+		lines = lines[:max]
+	}
+	sort.Strings(lines)
+	return lines
+}
+
+func collectBuildWarnings(logPath string, max int) []string {
+	if max <= 0 {
+		max = 30
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		return []string{}
+	}
+	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+	out := []string{}
+	for _, line := range lines {
+		l := strings.TrimSpace(line)
+		if l == "" {
+			continue
+		}
+		low := strings.ToLower(l)
+		if strings.Contains(low, "warn") || strings.Contains(low, "warning") {
+			out = append(out, l)
+		}
+	}
+	if len(out) > max {
+		out = out[len(out)-max:]
+	}
+	return out
 }

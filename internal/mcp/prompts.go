@@ -27,10 +27,12 @@ func registerPrompts(s *server.MCPServer) {
 				"Goal:\n- entity: %s\n- fields: %s\n- owner: %s\n\n"+
 				"Execution plan (use MCP tools in order):\n"+
 				"1) Call ang_plan with goal: \"add entity %s with fields %s\".\n"+
-				"2) If plan has cue_apply_patch entries, apply them via cue_apply_patch.\n"+
-				"3) Run run_preset('build').\n"+
-				"4) If build fails, run ang_doctor and apply safe suggested patch(es), then run run_preset('build') again.\n"+
-				"5) Return concise summary: changed cue files, build status, and generated artifact impact.\n\n"+
+				"2) Prefer cue_set_field for each new field when target entity already exists.\n"+
+				"3) If structural edits are needed (new blocks/files), apply cue_apply_patch entries from plan.\n"+
+				"4) Run run_preset('build').\n"+
+				"5) If build fails, run ang_doctor and apply safe suggested patch(es), then run run_preset('build') again.\n"+
+				"6) Return concise summary: changed cue files, build status, and generated artifact impact.\n\n"+
+				"Field-level policy:\n- Use cue_set_field for single field add/update (predictable).\n- Use cue_apply_patch only for non-field structural changes.\n\n"+
 				"Rules:\n- Edit only cue/* for intent changes.\n- Do not hand-edit generated internal/* files.\n- Keep output deterministic and minimal.\n",
 			name, fields, owner, name, fields,
 		)
@@ -91,10 +93,11 @@ func registerPrompts(s *server.MCPServer) {
 				"1) Call ang_schema to confirm current entities/services/endpoints baseline.\n"+
 				"2) Read build log resource: resource://ang/logs/build.\n"+
 				"3) Run ang_doctor to extract structured error codes and suggestions.\n"+
-				"4) Apply minimal CUE patch(es) via cue_apply_patch.\n"+
+				"4) For field-level fixes, use cue_set_field. For structural fixes, use cue_apply_patch.\n"+
 				"5) Run run_preset('build').\n"+
-				"6) If still failing, iterate doctor -> patch -> build up to 3 times.\n"+
-				"7) Return final status with errors_fixed/errors_remaining and changed files.\n\n"+
+				"6) If patch made things worse, inspect cue_history and use cue_undo.\n"+
+				"7) If still failing, iterate doctor -> patch -> build up to 3 times.\n"+
+				"8) Return final status with errors_fixed/errors_remaining and changed files.\n\n"+
 				"Safety:\n- Prefer smallest valid patch.\n- Keep edits in cue/* only.\n- Preserve unrelated user changes.\n",
 			goal,
 		)
