@@ -2,15 +2,17 @@
 
 ## Goal
 
-Добавить прикладную логику оплаты и нотификаций.
+Add business logic for payments and notifications.
 
 ## Expected Action
 
-- Добавить flow steps в `ConfirmPayment`.
-- Добавить publish события (`OrderPaid`).
-- Добавить минимальный notifications service (email hook placeholder).
+1. `cue_apply_patch` updates `cue/architecture/services.cue`:
+   - flow for `CreateOrder`, `ConfirmPayment`, and `ShipOrder`.
+2. `run_preset('build')`.
+3. `run_preset('unit')`.
 
 ## Expected Result
 
-- `ang build` успешен.
-- Сценарий завершён в 3 итерации.
+- `ang build` is successful.
+- Unit suite passes: `34 tests passed`.
+- The scenario is completed in 3 iterations.

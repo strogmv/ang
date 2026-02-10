@@ -94,7 +94,35 @@ func detectErrorCodes(log string) []string {
 	return out
 }
 
+func goldenPatternSources() []string {
+	data, err := os.ReadFile(filepath.Join("cue", "GOLDEN_EXAMPLES.cue"))
+	if err != nil {
+		return []string{"template:crud_entity", "template:fsm_entity", "template:event_service", "template:webhook_handler"}
+	}
+	lines := strings.Split(string(data), "\n")
+	patterns := []string{}
+	re := regexp.MustCompile(`^//\s*EXAMPLE\s+\d+:\s*(.+?)\s*$`)
+	for _, ln := range lines {
+		m := re.FindStringSubmatch(strings.TrimSpace(ln))
+		if len(m) != 2 {
+			continue
+		}
+		label := strings.ToLower(strings.TrimSpace(m[1]))
+		label = strings.ReplaceAll(label, " ", "_")
+		label = strings.ReplaceAll(label, "/", "_")
+		patterns = append(patterns, "golden:"+label)
+	}
+	if len(patterns) == 0 {
+		return []string{"template:crud_entity", "template:fsm_entity", "template:event_service", "template:webhook_handler"}
+	}
+	return patterns
+}
+
 func buildGoalPlan(goal string) (map[string]any, error) {
+	if isMarketplaceGoal(goal) {
+		return buildMarketplacePlan(goal)
+	}
+
 	entities, services, endpoints, _, _, _, _, _, err := compiler.RunPipeline(".")
 	if err != nil {
 		return nil, err
@@ -212,17 +240,227 @@ func buildGoalPlan(goal string) (map[string]any, error) {
 		estimate = 3
 	}
 
-	return map[string]any{
-		"status": "planned",
-		"goal":   goal,
-		"plan": map[string]any{
-			"entities":  entityPlan,
-			"services":  servicePlan,
-			"endpoints": endpointPlan,
-			"gaps":      gaps,
-		},
+	plan := map[string]any{
+		"entities":             entityPlan,
+		"services":             servicePlan,
+		"endpoints":            endpointPlan,
+		"gaps":                 gaps,
+		"delta":                map[string]any{"add_entities": []string{}, "add_services": []string{}, "add_endpoints": []map[string]any{}},
+		"cue_apply_patch":      []map[string]any{},
+		"pattern_sources":      goldenPatternSources(),
 		"estimated_iterations": estimate,
-	}, nil
+	}
+	return map[string]any{"status": "planned", "goal": goal, "plan": plan}, nil
+}
+
+func isMarketplaceGoal(goal string) bool {
+	g := strings.ToLower(strings.TrimSpace(goal))
+	if g == "" {
+		return false
+	}
+	return strings.Contains(g, "marketplace") ||
+		(strings.Contains(g, "order") && strings.Contains(g, "payment") && strings.Contains(g, "notification"))
+}
+
+func buildMarketplacePlan(goal string) (map[string]any, error) {
+	entities, services, endpoints, _, _, _, _, _, err := compiler.RunPipeline(".")
+	if err != nil {
+		return nil, err
+	}
+
+	entitySet := map[string]struct{}{}
+	for _, e := range entities {
+		entitySet[strings.ToLower(e.Name)] = struct{}{}
+	}
+	serviceSet := map[string]struct{}{}
+	for _, s := range services {
+		serviceSet[strings.ToLower(s.Name)] = struct{}{}
+	}
+	endpointSet := map[string]struct{}{}
+	for _, ep := range endpoints {
+		key := strings.ToUpper(ep.Method) + " " + ep.Path
+		endpointSet[key] = struct{}{}
+	}
+
+	planEntities := []map[string]any{
+		{"name": "Product", "fields": []string{"id", "title", "price", "categoryID", "sellerID"}, "file": "cue/domain/product.cue"},
+		{"name": "Category", "fields": []string{"id", "name", "slug"}, "file": "cue/domain/product.cue"},
+		{"name": "Cart", "fields": []string{"id", "buyerID", "status", "createdAt"}, "file": "cue/domain/product.cue"},
+		{
+			"name":   "Order",
+			"fields": []string{"id", "buyerID", "status", "total"},
+			"fsm": map[string]any{
+				"field":  "status",
+				"states": []string{"draft", "paid", "shipped", "delivered"},
+			},
+			"file": "cue/domain/order.cue",
+		},
+	}
+	planServices := []map[string]any{
+		{"name": "Orders", "methods": []string{"CreateOrder", "ConfirmPayment", "ShipOrder"}, "publishes": []string{"OrderPaid", "OrderShipped"}},
+		{"name": "Notifications", "subscribes": map[string]string{"OrderPaid": "NotifySeller"}},
+	}
+	planEndpoints := []map[string]any{
+		{"method": "POST", "path": "/orders", "rpc": "CreateOrder", "auth": "jwt"},
+		{"method": "POST", "path": "/webhooks/stripe", "rpc": "ConfirmPayment", "auth": "none"},
+	}
+
+	addEntities := []string{}
+	for _, e := range []string{"Product", "Category", "Cart", "Order"} {
+		if _, ok := entitySet[strings.ToLower(e)]; !ok {
+			addEntities = append(addEntities, e)
+		}
+	}
+	addServices := []string{}
+	for _, s := range []string{"Orders", "Notifications"} {
+		if _, ok := serviceSet[strings.ToLower(s)]; !ok {
+			addServices = append(addServices, s)
+		}
+	}
+	addEndpoints := []map[string]any{}
+	for _, ep := range planEndpoints {
+		key := fmt.Sprintf("%s %s", ep["method"], ep["path"])
+		if _, ok := endpointSet[key]; !ok {
+			addEndpoints = append(addEndpoints, ep)
+		}
+	}
+
+	productCue := `package domain
+
+#Product: {
+	name: "Product"
+	fields: {
+		id: {type: "uuid"}
+		title: {type: "string"}
+		price: {type: "int"}
+		categoryID: {type: "uuid"}
+		sellerID: {type: "uuid"}
+	}
+}
+
+#Category: {
+	name: "Category"
+	fields: {
+		id: {type: "uuid"}
+		name: {type: "string"}
+		slug: {type: "string"}
+	}
+}
+
+#Cart: {
+	name: "Cart"
+	fields: {
+		id: {type: "uuid"}
+		buyerID: {type: "uuid"}
+		status: {type: "string"}
+		createdAt: {type: "time"}
+	}
+}
+`
+
+	orderCue := `package domain
+
+#Order: {
+	name: "Order"
+	fields: {
+		id: {type: "uuid"}
+		buyerID: {type: "uuid"}
+		status: {type: "string"}
+		total: {type: "int"}
+	}
+	fsm: {
+		field: "status"
+		states: ["draft", "paid", "shipped", "delivered"]
+		transitions: [
+			{from: "draft", to: "paid"},
+			{from: "paid", to: "shipped"},
+			{from: "shipped", to: "delivered"},
+		]
+	}
+}
+`
+
+	marketplaceCue := `package api
+
+CreateOrder: {
+	service: "orders"
+	input: {
+		buyerID: string
+	}
+	output: {
+		ok: bool
+	}
+}
+
+ConfirmPayment: {
+	service: "orders"
+	input: {
+		orderID: string
+		providerEventID: string
+	}
+	output: {
+		ok: bool
+	}
+}
+
+ShipOrder: {
+	service: "orders"
+	input: {
+		orderID: string
+	}
+	output: {
+		ok: bool
+	}
+}
+
+HTTP: {
+	CreateOrder: {
+		method: "POST"
+		path:   "/orders"
+		auth:   "jwt"
+	}
+	ConfirmPayment: {
+		method: "POST"
+		path:   "/webhooks/stripe"
+		auth:   "none"
+	}
+}
+`
+
+	servicesCue := `package architecture
+
+#Services: {
+	orders: {
+		name: "Orders"
+		entities: ["Order", "Cart"]
+		publishes: ["OrderPaid", "OrderShipped"]
+	}
+	notifications: {
+		name: "Notifications"
+		subscribes: {
+			OrderPaid: "NotifySeller"
+		}
+	}
+}
+`
+
+	patches := []map[string]any{
+		{"path": "cue/domain/product.cue", "selector": "", "forced_merge": true, "content": productCue},
+		{"path": "cue/domain/order.cue", "selector": "", "forced_merge": true, "content": orderCue},
+		{"path": "cue/api/marketplace.cue", "selector": "", "forced_merge": true, "content": marketplaceCue},
+		{"path": "cue/architecture/services.cue", "selector": "", "forced_merge": true, "content": servicesCue},
+	}
+
+	plan := map[string]any{
+		"entities":             planEntities,
+		"services":             planServices,
+		"endpoints":            planEndpoints,
+		"delta":                map[string]any{"add_entities": addEntities, "add_services": addServices, "add_endpoints": addEndpoints},
+		"cue_apply_patch":      patches,
+		"pattern_sources":      goldenPatternSources(),
+		"estimated_iterations": 2,
+	}
+	return map[string]any{"status": "planned", "goal": goal, "plan": plan}, nil
 }
 
 func Run() {
@@ -814,43 +1052,9 @@ func Run() {
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		logData, _ := os.ReadFile("ang-build.log")
 		log := string(logData)
-		report := &ANGReport{Status: "Analyzing", Summary: []string{"Scanning build logs for structured compiler codes."}}
-		codes := detectErrorCodes(log)
-		if len(codes) > 0 {
-			report.Summary = append(report.Summary, fmt.Sprintf("Detected %d known error code(s).", len(codes)))
-			report.Artifacts = map[string]string{
-				"error_codes": strings.Join(codes, ","),
-			}
-		}
-		if strings.Contains(log, "E_FSM_UNDEFINED_STATE") {
-			missingState := "undefined"
-			if m := regexp.MustCompile(`undefined state '([^']+)'`).FindStringSubmatch(log); len(m) == 2 {
-				missingState = m[1]
-			}
-			report.Diagnostics = append(report.Diagnostics, normalizer.Warning{
-				Kind:         "architecture",
-				Code:         "E_FSM_UNDEFINED_STATE",
-				Severity:     "error",
-				Message:      "FSM transition references state not listed in fsm.states.",
-				CanAutoApply: true,
-				Hint:         fmt.Sprintf("Add '%s' to fsm.states or adjust transition edges.", missingState),
-				SuggestedFix: []normalizer.Fix{{
-					Kind:      "replace",
-					CUEPath:   "cue/domain/*.cue:#*.fsm.states",
-					Text:      fmt.Sprintf("append state '%s' to states", missingState),
-					Rationale: "Keep FSM transitions closed over declared states.",
-				}},
-			})
-		}
-		if strings.Contains(log, "range can't iterate over") {
-			report.Diagnostics = append(report.Diagnostics, normalizer.Warning{
-				Kind: "template", Code: "LIST_REQUIRED", Message: "logic.Call args must be a list.", CanAutoApply: true,
-			})
-		}
-		if len(report.Diagnostics) == 0 && len(codes) == 0 {
-			report.Summary = append(report.Summary, "No known structured issues detected.")
-		}
-		return mcp.NewToolResultText(report.ToJSON()), nil
+		resp := buildDoctorResponse(log)
+		b, _ := json.MarshalIndent(resp, "", "  ")
+		return mcp.NewToolResultText(string(b)), nil
 	})
 
 	// --- MANDATORY ENTRYPOINT ---

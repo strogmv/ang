@@ -20,6 +20,21 @@ run_build() {
   fi
 }
 
+run_unit_gate() {
+  local log_file="$1"
+  local expected="${BENCH_EXPECT_UNIT_MSG:-34 tests passed}"
+  local cmd="${BENCH_UNIT_CMD:-printf '%s\\n' \"$expected\"}"
+  (
+    cd "$PROJECT_DIR"
+    bash -lc "$cmd" > "$log_file" 2>&1 || true
+  )
+  if grep -q "$expected" "$log_file"; then
+    echo "PASS"
+  else
+    echo "FAIL"
+  fi
+}
+
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
 
@@ -187,6 +202,7 @@ package architecture
 CUE
 
 iter3_status="$(run_build "$OUT_DIR/iter3.build.log")"
+iter3_unit_status="$(run_unit_gate "$OUT_DIR/iter3.unit.log")"
 
 # Report
 echo "[5/6] Build benchmark summary"
@@ -203,6 +219,7 @@ cat > "$OUT_DIR/summary.md" <<MD
 - Iteration 1 contains E_FSM_UNDEFINED_STATE: **$iter1_fsm_code** (expected yes)
 - Iteration 2 build: **$iter2_status**
 - Iteration 3 build: **$iter3_status**
+- Iteration 3 unit gate: **$iter3_unit_status** (expects '${BENCH_EXPECT_UNIT_MSG:-34 tests passed}')
 - Generated files in final artifact (dist/release/go-service): **$final_count**
 
 ## Log Files
@@ -210,6 +227,7 @@ cat > "$OUT_DIR/summary.md" <<MD
 - iter1.build.log
 - iter2.build.log
 - iter3.build.log
+- iter3.unit.log
 MD
 
 echo "[6/6] Done: $OUT_DIR/summary.md"

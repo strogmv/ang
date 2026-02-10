@@ -1,14 +1,15 @@
 # 3-Iteration Backend Prompt (Marketplace)
 
-Создай backend для маркетплейса: товары с категориями, корзина, заказы с состояниями `draft -> paid -> shipped -> delivered`, платежи через Stripe webhook, уведомления продавцу по email при новом заказе.
+Create a marketplace backend: products with categories, cart, orders with states `draft -> paid -> shipped -> delivered`, Stripe webhook payments, and seller email notifications on new orders.
 
 ## Success Criteria
 
-- Реализовано в 3 итерации или меньше.
-- После итерации 3: `ang build` успешен.
-- Сгенерирован полный backend артефакт (domain, transport, repos, OpenAPI, SDK).
+- Implemented in 3 iterations or less.
+- After iteration 3: `ang build` is successful.
+- After iteration 3: `run_preset('unit')` reports `34 tests passed`.
+- A full backend artifact is generated (domain, transport, repos, OpenAPI, SDK).
 
 ## Notes
 
-- Этот benchmark фиксирует воспроизводимый сценарий для демо и CI.
-- Исполнение: `make benchmark-3iter`.
+- This benchmark captures a reproducible scenario for demo and CI.
+- Run: `make benchmark-3iter`.
