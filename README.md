@@ -203,6 +203,38 @@ ANG/
     └── queries/            ← SQLC queries
 ```
 
+## Build Output Layout Contract
+
+`ang build` supports two explicit modes:
+
+- `--mode=in_place`: generate into the project root layout.
+- `--mode=release`: generate a standalone release tree (typically `dist/release/<target>`).
+
+In `in_place` mode for Go targets, backend output must be the project root (`backend=.`), not nested under `internal/<target>`.
+
+Expected in-place Go layout:
+
+```
+<project>/
+├── cmd/server/main.go
+├── internal/
+│   ├── adapter/{auth,cache,events,repository/{mongo,postgres,memory},storage}
+│   ├── config
+│   ├── domain
+│   ├── dto
+│   ├── pkg
+│   ├── port
+│   ├── scheduler
+│   ├── service
+│   └── transport/http
+├── sdk
+├── tests
+├── db/{migrations,schema,queries}
+├── api
+├── deploy
+└── scripts
+```
+
 ## Quick Start
 
 ### Prerequisites

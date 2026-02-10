@@ -28,7 +28,7 @@ type OutputOptions struct {
 
 func parseOutputOptions(args []string) (OutputOptions, error) {
 	fs := flag.NewFlagSet("build", flag.ContinueOnError)
-	backendDir := fs.String("backend-dir", "internal", "Directory for generated backend code")
+	backendDir := fs.String("backend-dir", ".", "Directory for generated backend code")
 	frontendDir := fs.String("frontend-dir", "sdk", "Directory for generated frontend SDK (relative to backend-dir if not absolute)")
 	frontendAppDir := fs.String("frontend-app-dir", "", "Directory to copy generated frontend SDK into app (optional)")
 	frontendAdminDir := fs.String("frontend-admin-dir", "", "Directory containing frontend admin source templates")
@@ -77,7 +77,7 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 func normalizeBackendDir(path string) string {
 	trimmed := strings.TrimSpace(path)
 	if trimmed == "" {
-		trimmed = "internal"
+		trimmed = "."
 	}
 	if filepath.IsAbs(trimmed) {
 		return filepath.Clean(trimmed)
@@ -153,7 +153,11 @@ func resolveBackendDirForTarget(mode string, baseBackendDir string, td normalize
 		}
 		return normalizeBackendDir(filepath.Join("dist/release", safeTargetDirName(td.Name)))
 	}
-	// in_place: CLI/backend-dir always wins to avoid ambiguous output behavior.
+	// in_place: Go target writes directly to backend dir (usually project root).
+	if strings.EqualFold(strings.TrimSpace(td.Lang), "go") {
+		return normalizeBackendDir(baseBackendDir)
+	}
+	// Non-Go in_place multi-targets are namespaced to avoid file collisions.
 	if multiTarget {
 		return normalizeBackendDir(filepath.Join(baseBackendDir, safeTargetDirName(td.Name)))
 	}

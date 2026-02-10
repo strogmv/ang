@@ -8,10 +8,26 @@ import (
 )
 
 func TestResolveBackendDirForTarget_InPlaceIgnoresOutputDir(t *testing.T) {
-	td := normalizer.TargetDef{Name: "go-service", OutputDir: "dist/release/go-service"}
+	td := normalizer.TargetDef{Name: "go-service", Lang: "go", OutputDir: "dist/release/go-service"}
 	got := resolveBackendDirForTarget("in_place", ".", td, false)
 	if got != "." {
 		t.Fatalf("expected '.', got %q", got)
+	}
+}
+
+func TestResolveBackendDirForTarget_InPlaceGoMultiTargetStaysRoot(t *testing.T) {
+	td := normalizer.TargetDef{Name: "go-service", Lang: "go"}
+	got := resolveBackendDirForTarget("in_place", ".", td, true)
+	if got != "." {
+		t.Fatalf("expected '.', got %q", got)
+	}
+}
+
+func TestResolveBackendDirForTarget_InPlaceNonGoMultiTargetIsNamespaced(t *testing.T) {
+	td := normalizer.TargetDef{Name: "python-service", Lang: "python"}
+	got := resolveBackendDirForTarget("in_place", ".", td, true)
+	if got != "python-service" {
+		t.Fatalf("expected 'python-service', got %q", got)
 	}
 }
 
