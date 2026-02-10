@@ -6,11 +6,12 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
+from app import models
 from app.services.report import ReportService, get_report_service
 
 router = APIRouter(tags=["Report"])
 
 @router.post("/reports/pdf")
-async def generate_report_pdf(payload: dict[str, Any], svc: ReportService = Depends(get_report_service)) -> Any:
+async def generate_report_pdf(payload: models.GenerateReportPdfRequest, svc: ReportService = Depends(get_report_service)) -> models.GenerateReportPdfResponse:
     return await svc.generate_report_pdf(payload)
 

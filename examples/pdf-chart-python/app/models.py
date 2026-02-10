@@ -10,6 +10,6 @@ from pydantic import BaseModel
 
 class ReportPoint(BaseModel):
     id: str
-    x: str
-    y: str
+    x: Any
+    y: Any
 
