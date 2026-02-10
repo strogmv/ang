@@ -82,6 +82,9 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 					arg = "nullTime(" + arg + ")"
 				} else if f.Type == "int" || f.Type == "int64" {
 					arg = "nullInt(" + arg + ")"
+				} else if strings.HasPrefix(f.Type, "[]") {
+					// pgx can encode/decode slices natively; keep value as-is.
+					arg = "entity." + ExportName(f.Name)
 				} else if strings.HasPrefix(f.Type, "map[") || f.Type == "any" || f.Type == "interface{}" {
 					arg = "nullJSON(" + arg + ")"
 				} else {
@@ -234,6 +237,7 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 			} else if f.Returns == "one" {
 				fo.ReturnType = "*domain." + repo.Entity
 				fo.ReturnZero = "nil"
+				fo.SelectEntity = true
 				if len(fo.SelectFields) == 0 {
 					fo.SelectFields = append([]normalizer.Field{}, dbFields...)
 					fo.ScanPlan = buildScanPlan(fo.SelectFields, "entity")
@@ -242,6 +246,7 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 				fo.ReturnType = "[]domain." + repo.Entity
 				fo.ReturnZero = "nil"
 				fo.ReturnSlice = true
+				fo.SelectEntity = true
 				if len(fo.SelectFields) == 0 {
 					fo.SelectFields = append([]normalizer.Field{}, dbFields...)
 					fo.ScanPlan = buildScanPlan(fo.SelectFields, "entity")
@@ -503,7 +508,12 @@ func buildScanVariable(f normalizer.Field, target string) planner.ScanVariable {
 
 	if f.IsOptional {
 		sv.TmpType = scanNullType(f)
-		sv.Guard = tmpVar + ".Valid"
+		if strings.HasPrefix(f.Type, "[]") {
+			// Arrays are scanned directly.
+			sv.Guard = ""
+		} else {
+			sv.Guard = tmpVar + ".Valid"
+		}
 	} else if isJSON {
 		sv.TmpType = "sql.NullString"
 		sv.Guard = tmpVar + ".Valid"
@@ -559,6 +569,8 @@ func buildScanVariable(f normalizer.Field, target string) planner.ScanVariable {
 		} else {
 			sv.AssignCode = fmt.Sprintf("%s = %s", goPath, tmpVar)
 		}
+	case "[]string":
+		sv.AssignCode = fmt.Sprintf("%s = %s", goPath, tmpVar)
 	default:
 		if f.IsOptional {
 			sv.AssignCode = fmt.Sprintf("%s = %s.String", goPath, tmpVar)
@@ -581,6 +593,8 @@ func scanNullType(f normalizer.Field) string {
 		return "sql.NullBool"
 	case "time.Time":
 		return "sql.NullTime"
+	case "[]string":
+		return "[]string"
 	default:
 		return "sql.NullString"
 	}
@@ -600,6 +614,8 @@ func scanBaseType(f normalizer.Field) string {
 		return "bool"
 	case "time.Time":
 		return "time.Time"
+	case "[]string":
+		return "[]string"
 	default:
 		return "string"
 	}
