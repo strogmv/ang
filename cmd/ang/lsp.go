@@ -1,0 +1,484 @@
+package main
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"net/url"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+
+	"github.com/strogmv/ang/compiler"
+	"github.com/strogmv/ang/compiler/normalizer"
+)
+
+type lspRequest struct {
+	JSONRPC string          `json:"jsonrpc,omitempty"`
+	ID      json.RawMessage `json:"id,omitempty"`
+	Method  string          `json:"method,omitempty"`
+	Params  json.RawMessage `json:"params,omitempty"`
+}
+
+type lspResponse struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id,omitempty"`
+	Result  any             `json:"result,omitempty"`
+	Error   *lspRespError   `json:"error,omitempty"`
+}
+
+type lspRespError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+type lspServer struct {
+	in            *bufio.Reader
+	out           io.Writer
+	workspaceRoot string
+	openDocs      map[string]string
+	lastPublished map[string]bool
+	shutdown      bool
+}
+
+func runLSP(args []string) {
+	fs := flag.NewFlagSet("lsp", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	stdio := fs.Bool("stdio", false, "run Language Server Protocol over stdio")
+	if err := fs.Parse(args); err != nil {
+		fmt.Printf("LSP FAILED: %v\n", err)
+		os.Exit(1)
+	}
+	if !*stdio {
+		fmt.Println("LSP FAILED: only --stdio mode is supported in MVP")
+		os.Exit(1)
+	}
+
+	s := &lspServer{
+		in:            bufio.NewReader(os.Stdin),
+		out:           os.Stdout,
+		workspaceRoot: ".",
+		openDocs:      map[string]string{},
+		lastPublished: map[string]bool{},
+	}
+	if err := s.serve(context.Background()); err != nil {
+		fmt.Printf("LSP FAILED: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func (s *lspServer) serve(ctx context.Context) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
+		req, err := s.readMessage()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+		if req.Method == "exit" {
+			if s.shutdown {
+				return nil
+			}
+			return errors.New("received exit before shutdown")
+		}
+		if err := s.handle(req); err != nil {
+			if len(req.ID) > 0 {
+				_ = s.writeJSON(lspResponse{
+					JSONRPC: "2.0",
+					ID:      req.ID,
+					Error: &lspRespError{
+						Code:    -32603,
+						Message: err.Error(),
+					},
+				})
+			}
+		}
+	}
+}
+
+func (s *lspServer) handle(req lspRequest) error {
+	switch req.Method {
+	case "initialize":
+		var p struct {
+			RootURI  string `json:"rootUri"`
+			RootPath string `json:"rootPath"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		root := strings.TrimSpace(uriToPath(p.RootURI))
+		if root == "" {
+			root = strings.TrimSpace(p.RootPath)
+		}
+		if root == "" {
+			root = "."
+		}
+		s.workspaceRoot = filepath.Clean(root)
+		return s.writeJSON(lspResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Result: map[string]any{
+				"serverInfo": map[string]any{
+					"name":    "ang-lsp",
+					"version": compiler.Version,
+				},
+				"capabilities": map[string]any{
+					"textDocumentSync": map[string]any{
+						"openClose": true,
+						"change":    1, // Full sync
+						"save": map[string]any{
+							"includeText": true,
+						},
+					},
+				},
+			},
+		})
+	case "initialized":
+		return nil
+	case "shutdown":
+		s.shutdown = true
+		return s.writeJSON(lspResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Result:  nil,
+		})
+	case "textDocument/didOpen":
+		var p struct {
+			TextDocument struct {
+				URI  string `json:"uri"`
+				Text string `json:"text"`
+			} `json:"textDocument"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		if p.TextDocument.URI != "" {
+			s.openDocs[p.TextDocument.URI] = p.TextDocument.Text
+		}
+		return s.publishAllDiagnostics()
+	case "textDocument/didChange":
+		var p struct {
+			TextDocument struct {
+				URI string `json:"uri"`
+			} `json:"textDocument"`
+			ContentChanges []struct {
+				Text string `json:"text"`
+			} `json:"contentChanges"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		if p.TextDocument.URI != "" && len(p.ContentChanges) > 0 {
+			s.openDocs[p.TextDocument.URI] = p.ContentChanges[len(p.ContentChanges)-1].Text
+		}
+		return s.publishAllDiagnostics()
+	case "textDocument/didSave":
+		var p struct {
+			TextDocument struct {
+				URI string `json:"uri"`
+			} `json:"textDocument"`
+			Text string `json:"text"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		if p.TextDocument.URI != "" && p.Text != "" {
+			s.openDocs[p.TextDocument.URI] = p.Text
+		}
+		return s.publishAllDiagnostics()
+	case "textDocument/didClose":
+		var p struct {
+			TextDocument struct {
+				URI string `json:"uri"`
+			} `json:"textDocument"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		delete(s.openDocs, p.TextDocument.URI)
+		_ = s.publishDiagnosticsForURI(p.TextDocument.URI, nil)
+		delete(s.lastPublished, p.TextDocument.URI)
+		return nil
+	default:
+		if len(req.ID) > 0 {
+			return s.writeJSON(lspResponse{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Error: &lspRespError{
+					Code:    -32601,
+					Message: "method not found",
+				},
+			})
+		}
+		return nil
+	}
+}
+
+func (s *lspServer) publishAllDiagnostics() error {
+	byURI, err := s.collectDiagnosticsByURI()
+	if err != nil {
+		return err
+	}
+	for uri, list := range byURI {
+		if err := s.publishDiagnosticsForURI(uri, list); err != nil {
+			return err
+		}
+	}
+	for uri := range s.lastPublished {
+		if _, ok := byURI[uri]; !ok {
+			if err := s.publishDiagnosticsForURI(uri, []map[string]any{}); err != nil {
+				return err
+			}
+			delete(s.lastPublished, uri)
+		}
+	}
+	for uri := range byURI {
+		s.lastPublished[uri] = true
+	}
+	return nil
+}
+
+func (s *lspServer) collectDiagnosticsByURI() (map[string][]map[string]any, error) {
+	tmpRoot, err := os.MkdirTemp("", "ang-lsp-*")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(tmpRoot)
+
+	projRoot := filepath.Join(tmpRoot, "proj")
+	if err := os.MkdirAll(projRoot, 0o755); err != nil {
+		return nil, err
+	}
+	if err := copyDir(filepath.Join(s.workspaceRoot, "cue"), filepath.Join(projRoot, "cue")); err != nil {
+		return nil, err
+	}
+	if err := copyDir(filepath.Join(s.workspaceRoot, "cue.mod"), filepath.Join(projRoot, "cue.mod")); err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+
+	for uri, text := range s.openDocs {
+		srcPath := uriToPath(uri)
+		if srcPath == "" {
+			continue
+		}
+		if !strings.HasPrefix(filepath.Clean(srcPath), filepath.Clean(s.workspaceRoot)) {
+			continue
+		}
+		rel, err := filepath.Rel(s.workspaceRoot, srcPath)
+		if err != nil {
+			continue
+		}
+		rel = filepath.Clean(rel)
+		if strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+			continue
+		}
+		dest := filepath.Join(projRoot, rel)
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(dest, []byte(text), 0o644); err != nil {
+			return nil, err
+		}
+	}
+
+	_, _, _, _, _, _, _, _, runErr := compiler.RunPipeline(projRoot)
+	diags := compiler.LatestDiagnostics
+	out := map[string][]map[string]any{}
+	for _, d := range diags {
+		if d.File == "" {
+			continue
+		}
+		uri := pathToURI(filepath.Join(s.workspaceRoot, d.File))
+		out[uri] = append(out[uri], toLSPDiagnostic(d))
+	}
+
+	if runErr != nil && len(diags) == 0 {
+		if uri, diag := fallbackDiagnosticFromError(runErr, s.workspaceRoot); uri != "" {
+			out[uri] = append(out[uri], diag)
+		}
+	}
+	return out, nil
+}
+
+func fallbackDiagnosticFromError(err error, workspaceRoot string) (string, map[string]any) {
+	msg := err.Error()
+	re := regexp.MustCompile(`(cue/[^:\s]+):(\d+):(\d+)`)
+	m := re.FindStringSubmatch(msg)
+	if len(m) == 4 {
+		line, _ := strconv.Atoi(m[2])
+		col, _ := strconv.Atoi(m[3])
+		uri := pathToURI(filepath.Join(workspaceRoot, m[1]))
+		return uri, map[string]any{
+			"range": map[string]any{
+				"start": map[string]int{"line": maxInt(line-1, 0), "character": maxInt(col-1, 0)},
+				"end":   map[string]int{"line": maxInt(line-1, 0), "character": maxInt(col, 1)},
+			},
+			"severity": 1,
+			"source":   "ang",
+			"message":  msg,
+		}
+	}
+	return "", map[string]any{}
+}
+
+func toLSPDiagnostic(d normalizer.Warning) map[string]any {
+	line := maxInt(d.Line-1, 0)
+	col := maxInt(d.Column-1, 0)
+	endCol := col + 1
+	severity := 2
+	switch strings.ToLower(strings.TrimSpace(d.Severity)) {
+	case "error":
+		severity = 1
+	case "info":
+		severity = 3
+	case "hint":
+		severity = 4
+	default:
+		severity = 2
+	}
+	msg := strings.TrimSpace(d.Message)
+	if d.Hint != "" {
+		msg += "\nHint: " + strings.TrimSpace(d.Hint)
+	}
+	diag := map[string]any{
+		"range": map[string]any{
+			"start": map[string]int{"line": line, "character": col},
+			"end":   map[string]int{"line": line, "character": endCol},
+		},
+		"severity": severity,
+		"source":   "ang",
+		"message":  msg,
+	}
+	if d.Code != "" {
+		diag["code"] = d.Code
+	}
+	return diag
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func (s *lspServer) publishDiagnosticsForURI(uri string, diagnostics []map[string]any) error {
+	if uri == "" {
+		return nil
+	}
+	return s.writeJSON(map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "textDocument/publishDiagnostics",
+		"params": map[string]any{
+			"uri":         uri,
+			"diagnostics": diagnostics,
+		},
+	})
+}
+
+func (s *lspServer) readMessage() (lspRequest, error) {
+	headers := map[string]string{}
+	for {
+		line, err := s.in.ReadString('\n')
+		if err != nil {
+			return lspRequest{}, err
+		}
+		line = strings.TrimRight(line, "\r\n")
+		if line == "" {
+			break
+		}
+		idx := strings.Index(line, ":")
+		if idx <= 0 {
+			continue
+		}
+		key := strings.ToLower(strings.TrimSpace(line[:idx]))
+		val := strings.TrimSpace(line[idx+1:])
+		headers[key] = val
+	}
+
+	clRaw := headers["content-length"]
+	if clRaw == "" {
+		return lspRequest{}, errors.New("missing Content-Length")
+	}
+	cl, err := strconv.Atoi(clRaw)
+	if err != nil || cl < 0 {
+		return lspRequest{}, errors.New("invalid Content-Length")
+	}
+	body := make([]byte, cl)
+	if _, err := io.ReadFull(s.in, body); err != nil {
+		return lspRequest{}, err
+	}
+
+	var req lspRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return lspRequest{}, err
+	}
+	return req, nil
+}
+
+func (s *lspServer) writeJSON(v any) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, "Content-Length: %d\r\n\r\n", len(b))
+	buf.Write(b)
+	_, err = s.out.Write(buf.Bytes())
+	return err
+}
+
+func pathToURI(path string) string {
+	abs, err := filepath.Abs(path)
+	if err == nil {
+		path = abs
+	}
+	path = filepath.ToSlash(path)
+	u := url.URL{Scheme: "file", Path: path}
+	return u.String()
+}
+
+func uriToPath(uri string) string {
+	if uri == "" {
+		return ""
+	}
+	u, err := url.Parse(uri)
+	if err != nil {
+		return ""
+	}
+	if u.Scheme != "file" {
+		return ""
+	}
+	return filepath.FromSlash(u.Path)
+}
+
+func copyDir(src, dst string) error {
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", src)
+	}
+	return filepath.WalkDir(src, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0o644)
+	})
+}
