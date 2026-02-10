@@ -159,6 +159,7 @@ func ConvertEntity(e normalizer.Entity) Entity {
 	if e.FSM != nil {
 		entity.FSM = &FSM{
 			Field:       e.FSM.Field,
+			States:      e.FSM.States,
 			Transitions: e.FSM.Transitions,
 		}
 	}

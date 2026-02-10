@@ -239,23 +239,7 @@ func runValidate(args []string) {
 	}
 	_, _, _, _, _, _, _, _, err := compiler.RunPipeline(projectPath)
 
-	hasErrors := false
-	for _, d := range compiler.LatestDiagnostics {
-		severity := "WARN"
-		if d.Severity != "" {
-			severity = strings.ToUpper(d.Severity)
-		}
-		if severity == "ERROR" {
-			hasErrors = true
-		}
-		fmt.Fprintf(os.Stderr, "⚠️  %s: %s\n", severity, d.Message)
-		if d.File != "" {
-			fmt.Fprintf(os.Stderr, "   at %s:%d:%d\n", d.File, d.Line, d.Column)
-		}
-		if d.Hint != "" {
-			fmt.Fprintf(os.Stderr, "   💡 Hint: %s\n", d.Hint)
-		}
-	}
+	hasErrors := emitDiagnostics(os.Stderr, compiler.LatestDiagnostics)
 
 	if err != nil {
 		printStageFailure("Validation FAILED", compiler.StageCUE, compiler.ErrCodeCUEPipeline, "run pipeline", err)
@@ -266,6 +250,31 @@ func runValidate(args []string) {
 		os.Exit(1)
 	}
 	fmt.Println("Validation SUCCESSFUL.")
+}
+
+func emitDiagnostics(w io.Writer, diagnostics []normalizer.Warning) bool {
+	hasErrors := false
+	for _, d := range diagnostics {
+		severity := "WARN"
+		if d.Severity != "" {
+			severity = strings.ToUpper(d.Severity)
+		}
+		if severity == "ERROR" {
+			hasErrors = true
+		}
+		if d.Code != "" {
+			fmt.Fprintf(w, "⚠️  %s [%s]: %s\n", severity, d.Code, d.Message)
+		} else {
+			fmt.Fprintf(w, "⚠️  %s: %s\n", severity, d.Message)
+		}
+		if d.File != "" {
+			fmt.Fprintf(w, "   at %s:%d:%d\n", d.File, d.Line, d.Column)
+		}
+		if d.Hint != "" {
+			fmt.Fprintf(w, "   💡 Hint: %s\n", d.Hint)
+		}
+	}
+	return hasErrors
 }
 
 func runMigrate(args []string) {
@@ -637,6 +646,10 @@ func runBuild(args []string) {
 		entities, services, endpoints, repos, events, bizErrors, schedules, scenarios, err := compiler.RunPipeline(projectPath)
 		if err != nil {
 			fail(compiler.StageCUE, compiler.ErrCodeCUEPipeline, "run pipeline", err)
+			return
+		}
+		if emitDiagnostics(os.Stderr, compiler.LatestDiagnostics) {
+			fmt.Println("Build FAILED due to diagnostic errors.")
 			return
 		}
 		_ = scenarios

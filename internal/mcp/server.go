@@ -52,6 +52,179 @@ func (r *ANGReport) ToJSON() string {
 	return string(b)
 }
 
+func sourceFile(source string) string {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return ""
+	}
+	if idx := strings.LastIndex(source, ":"); idx > 0 {
+		return source[:idx]
+	}
+	return source
+}
+
+func detectErrorCodes(log string) []string {
+	re := regexp.MustCompile(`\b(E_[A-Z0-9_]+|[A-Z]+_[A-Z0-9_]*_ERROR)\b`)
+	matches := re.FindAllString(log, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+
+	known := map[string]struct{}{
+		"E_FSM_UNDEFINED_STATE": {},
+	}
+	for _, c := range compiler.StableErrorCodes {
+		known[c] = struct{}{}
+	}
+
+	uniq := map[string]struct{}{}
+	for _, m := range matches {
+		if _, ok := known[m]; ok {
+			uniq[m] = struct{}{}
+		}
+	}
+	if len(uniq) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(uniq))
+	for c := range uniq {
+		out = append(out, c)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func buildGoalPlan(goal string) (map[string]any, error) {
+	entities, services, endpoints, _, _, _, _, _, err := compiler.RunPipeline(".")
+	if err != nil {
+		return nil, err
+	}
+
+	sort.Slice(entities, func(i, j int) bool { return entities[i].Name < entities[j].Name })
+	sort.Slice(services, func(i, j int) bool { return services[i].Name < services[j].Name })
+	sort.Slice(endpoints, func(i, j int) bool {
+		li := strings.ToUpper(endpoints[i].Method) + " " + endpoints[i].Path + " " + endpoints[i].RPC
+		lj := strings.ToUpper(endpoints[j].Method) + " " + endpoints[j].Path + " " + endpoints[j].RPC
+		return li < lj
+	})
+
+	entityPlan := make([]map[string]any, 0, len(entities))
+	for _, e := range entities {
+		fields := make([]string, 0, len(e.Fields))
+		for _, f := range e.Fields {
+			fields = append(fields, f.Name)
+		}
+		item := map[string]any{
+			"name":   e.Name,
+			"fields": fields,
+			"file":   sourceFile(e.Source),
+		}
+		if e.FSM != nil {
+			item["fsm"] = map[string]any{
+				"field":       e.FSM.Field,
+				"states":      append([]string(nil), e.FSM.States...),
+				"transitions": e.FSM.Transitions,
+			}
+		}
+		entityPlan = append(entityPlan, item)
+	}
+
+	servicePlan := make([]map[string]any, 0, len(services))
+	for _, s := range services {
+		methods := make([]string, 0, len(s.Methods))
+		for _, m := range s.Methods {
+			methods = append(methods, m.Name)
+		}
+		sort.Strings(methods)
+
+		item := map[string]any{
+			"name":       s.Name,
+			"methods":    methods,
+			"publishes":  append([]string(nil), s.Publishes...),
+			"subscribes": s.Subscribes,
+			"file":       sourceFile(s.Source),
+		}
+		servicePlan = append(servicePlan, item)
+	}
+
+	endpointPlan := make([]map[string]any, 0, len(endpoints))
+	for _, ep := range endpoints {
+		auth := "none"
+		if strings.TrimSpace(ep.AuthType) != "" {
+			auth = ep.AuthType
+		}
+		endpointPlan = append(endpointPlan, map[string]any{
+			"method":  strings.ToUpper(ep.Method),
+			"path":    ep.Path,
+			"rpc":     ep.RPC,
+			"service": ep.ServiceName,
+			"auth":    auth,
+			"file":    sourceFile(ep.Source),
+		})
+	}
+
+	gaps := []string{}
+	lowerGoal := strings.ToLower(strings.TrimSpace(goal))
+	hasStripe := strings.Contains(lowerGoal, "stripe")
+	hasWebhookGoal := strings.Contains(lowerGoal, "webhook")
+	hasEmailGoal := strings.Contains(lowerGoal, "email") || strings.Contains(lowerGoal, "notification")
+	hasOrderGoal := strings.Contains(lowerGoal, "order")
+	if hasStripe || hasWebhookGoal {
+		found := false
+		for _, ep := range endpoints {
+			p := strings.ToLower(ep.Path)
+			if strings.Contains(p, "webhook") || strings.Contains(p, "stripe") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			gaps = append(gaps, "No webhook endpoint found for payment provider integration.")
+		}
+	}
+	if hasEmailGoal {
+		found := false
+		for _, s := range services {
+			if strings.Contains(strings.ToLower(s.Name), "notif") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			gaps = append(gaps, "No notification-focused service detected.")
+		}
+	}
+	if hasOrderGoal {
+		found := false
+		for _, e := range entities {
+			if strings.EqualFold(e.Name, "Order") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			gaps = append(gaps, "Order entity is not present in current intent.")
+		}
+	}
+
+	estimate := 2
+	if len(gaps) > 0 {
+		estimate = 3
+	}
+
+	return map[string]any{
+		"status": "planned",
+		"goal":   goal,
+		"plan": map[string]any{
+			"entities":  entityPlan,
+			"services":  servicePlan,
+			"endpoints": endpointPlan,
+			"gaps":      gaps,
+		},
+		"estimated_iterations": estimate,
+	}, nil
+}
+
 func Run() {
 	s := server.NewMCPServer(
 		"ANG MCP Server",
@@ -615,16 +788,67 @@ func Run() {
 
 	// --- AI HEALER ---
 
+	addTool("ang_plan", mcp.NewTool("ang_plan",
+		mcp.WithDescription("Create a structured architecture plan from a natural-language goal and current CUE intent."),
+		mcp.WithString("goal", mcp.Required()),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		goal := strings.TrimSpace(mcp.ParseString(request, "goal", ""))
+		if goal == "" {
+			return mcp.NewToolResultText(`{"status":"invalid","message":"goal is required"}`), nil
+		}
+		plan, err := buildGoalPlan(goal)
+		if err != nil {
+			return mcp.NewToolResultText((&ANGReport{
+				Status:      "Failed",
+				Summary:     []string{"Unable to build plan from current intent."},
+				NextActions: []string{"Fix CUE validation errors and retry ang_plan"},
+				Artifacts:   map[string]string{"error": err.Error()},
+			}).ToJSON()), nil
+		}
+		b, _ := json.MarshalIndent(plan, "", "  ")
+		return mcp.NewToolResultText(string(b)), nil
+	})
+
 	addTool("ang_doctor", mcp.NewTool("ang_doctor",
 		mcp.WithDescription("Analyze build logs and suggest fixes."),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		logData, _ := os.ReadFile("ang-build.log")
 		log := string(logData)
-		report := &ANGReport{Status: "Analyzing"}
+		report := &ANGReport{Status: "Analyzing", Summary: []string{"Scanning build logs for structured compiler codes."}}
+		codes := detectErrorCodes(log)
+		if len(codes) > 0 {
+			report.Summary = append(report.Summary, fmt.Sprintf("Detected %d known error code(s).", len(codes)))
+			report.Artifacts = map[string]string{
+				"error_codes": strings.Join(codes, ","),
+			}
+		}
+		if strings.Contains(log, "E_FSM_UNDEFINED_STATE") {
+			missingState := "undefined"
+			if m := regexp.MustCompile(`undefined state '([^']+)'`).FindStringSubmatch(log); len(m) == 2 {
+				missingState = m[1]
+			}
+			report.Diagnostics = append(report.Diagnostics, normalizer.Warning{
+				Kind:         "architecture",
+				Code:         "E_FSM_UNDEFINED_STATE",
+				Severity:     "error",
+				Message:      "FSM transition references state not listed in fsm.states.",
+				CanAutoApply: true,
+				Hint:         fmt.Sprintf("Add '%s' to fsm.states or adjust transition edges.", missingState),
+				SuggestedFix: []normalizer.Fix{{
+					Kind:      "replace",
+					CUEPath:   "cue/domain/*.cue:#*.fsm.states",
+					Text:      fmt.Sprintf("append state '%s' to states", missingState),
+					Rationale: "Keep FSM transitions closed over declared states.",
+				}},
+			})
+		}
 		if strings.Contains(log, "range can't iterate over") {
 			report.Diagnostics = append(report.Diagnostics, normalizer.Warning{
 				Kind: "template", Code: "LIST_REQUIRED", Message: "logic.Call args must be a list.", CanAutoApply: true,
 			})
+		}
+		if len(report.Diagnostics) == 0 && len(codes) == 0 {
+			report.Summary = append(report.Summary, "No known structured issues detected.")
 		}
 		return mcp.NewToolResultText(report.ToJSON()), nil
 	})
@@ -813,7 +1037,7 @@ func Run() {
 		if path == "" || symbol == "" {
 			return mcp.NewToolResultText("path and symbol are required"), nil
 		}
-		if strings.Contains(path, "..") || strings.HasPrefix(path, "/") {
+		if err := validateReadPath(path); err != nil {
 			return mcp.NewToolResultText("invalid path"), nil
 		}
 		data, err := os.ReadFile(path)
@@ -869,7 +1093,7 @@ func Run() {
 		path, content := mcp.ParseString(request, "path", ""), mcp.ParseString(request, "content", "")
 		selector := mcp.ParseString(request, "selector", "")
 		force := mcp.ParseBoolean(request, "forced_merge", false)
-		if !strings.HasPrefix(path, "cue/") {
+		if err := validateCuePath(path); err != nil {
 			return mcp.NewToolResultText("Denied"), nil
 		}
 		newContent, err := GetMergedContent(path, selector, content, force)

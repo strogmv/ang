@@ -22,10 +22,10 @@ func TestEntityIntegrity_PartialSelectProducesErrorDiagnostic(t *testing.T) {
 	}
 	finders := []normalizer.RepositoryFinder{
 		{
-			Name:   "FindByEmail",
+			Name:    "FindByEmail",
 			Returns: "one",
-			Select: []string{"id"},
-			Source: "cue/repo/repositories.cue:12",
+			Select:  []string{"id"},
+			Source:  "cue/repo/repositories.cue:12",
 		},
 	}
 
@@ -96,3 +96,39 @@ func TestProjectionRules_DeterministicSynthesis(t *testing.T) {
 	}
 }
 
+func TestFSMIntegrity_UndefinedStateProducesErrorDiagnostic(t *testing.T) {
+	var got []normalizer.Warning
+	opts := PipelineOptions{
+		WarningSink: func(w normalizer.Warning) { got = append(got, w) },
+	}
+
+	emitFSMIntegrityDiagnostics([]normalizer.Entity{
+		{
+			Name:   "Order",
+			Source: "cue/domain/order.cue:10",
+			FSM: &normalizer.FSM{
+				States: []string{"draft", "shipped"},
+				Transitions: map[string][]string{
+					"draft": []string{"paid"},
+					"paid":  []string{"shipped"},
+				},
+			},
+		},
+	}, opts)
+
+	if len(got) == 0 {
+		t.Fatalf("expected diagnostics, got none")
+	}
+	found := false
+	for _, d := range got {
+		if d.Code == "E_FSM_UNDEFINED_STATE" {
+			found = true
+			if strings.ToUpper(d.Severity) != "ERROR" {
+				t.Fatalf("expected ERROR severity, got %s", d.Severity)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected E_FSM_UNDEFINED_STATE diagnostic")
+	}
+}

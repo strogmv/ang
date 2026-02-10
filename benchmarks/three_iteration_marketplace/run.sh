@@ -54,7 +54,6 @@ package domain
 			{from: "shipped", to: "delivered"},
 		]
 	}
-	__force_error__: _|_("E_FSM_UNDEFINED_STATE: paid missing from states")
 }
 CUE
 
@@ -81,8 +80,6 @@ ConfirmPayment: {
 		ok: bool
 	}
 }
-
-BROKEN@@
 CUE
 
 cat >> "$PROJECT_DIR/cue/api/http.cue" <<'CUE'
@@ -100,6 +97,10 @@ HTTP: {
 CUE
 
 iter1_status="$(run_build "$OUT_DIR/iter1.build.log")"
+iter1_fsm_code="no"
+if grep -q "E_FSM_UNDEFINED_STATE" "$OUT_DIR/iter1.build.log"; then
+  iter1_fsm_code="yes"
+fi
 
 # Iteration 2: fix FSM
 echo "[3/6] Iteration 2 patch (FSM fix)"
@@ -199,6 +200,7 @@ cat > "$OUT_DIR/summary.md" <<MD
 
 - Project: $PROJECT_DIR
 - Iteration 1 build: **$iter1_status** (expected FAIL)
+- Iteration 1 contains E_FSM_UNDEFINED_STATE: **$iter1_fsm_code** (expected yes)
 - Iteration 2 build: **$iter2_status**
 - Iteration 3 build: **$iter3_status**
 - Generated files in final artifact (dist/release/go-service): **$final_count**

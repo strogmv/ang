@@ -84,6 +84,7 @@ func IREntityToNormalizer(e ir.Entity) normalizer.Entity {
 	if e.FSM != nil {
 		entity.FSM = &normalizer.FSM{
 			Field:       e.FSM.Field,
+			States:      e.FSM.States,
 			Transitions: e.FSM.Transitions,
 		}
 	}

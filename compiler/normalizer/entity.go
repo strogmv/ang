@@ -49,6 +49,7 @@ func (n *Normalizer) ExtractEntities(val cue.Value) ([]Entity, error) {
 
 func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 	description, _ := val.LookupPath(cue.ParsePath("description")).String()
+	entityVal := val
 	entity := Entity{
 		Name:        name,
 		Description: description,
@@ -102,12 +103,13 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 	}
 
 	// If entity has a 'fields' field, iterate that instead
-	fieldsVal := val.LookupPath(cue.ParsePath("fields"))
+	fieldsContainer := entityVal
+	fieldsVal := entityVal.LookupPath(cue.ParsePath("fields"))
 	if fieldsVal.Exists() && fieldsVal.Kind() == cue.StructKind {
-		val = fieldsVal
+		fieldsContainer = fieldsVal
 	}
 
-	iter, err := val.Fields(cue.All())
+	iter, err := fieldsContainer.Fields(cue.All())
 	if err != nil {
 		return entity, err
 	}
@@ -230,9 +232,10 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 	}
 
 	// Parse FSM
-	fsmVal := val.LookupPath(cue.ParsePath("fsm"))
+	fsmVal := entityVal.LookupPath(cue.ParsePath("fsm"))
 	if fsmVal.Exists() {
 		fsm := &FSM{
+			States:      []string{},
 			Transitions: make(map[string][]string),
 		}
 
@@ -240,24 +243,68 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 			fsm.Field = strings.Trim(f, "")
 		}
 
+		statesVal := fsmVal.LookupPath(cue.ParsePath("states"))
+		if statesVal.Exists() {
+			list, _ := statesVal.List()
+			for list.Next() {
+				s, err := list.Value().String()
+				if err != nil {
+					continue
+				}
+				s = strings.TrimSpace(s)
+				if s == "" {
+					continue
+				}
+				fsm.States = append(fsm.States, s)
+			}
+		}
+
 		trVal := fsmVal.LookupPath(cue.ParsePath("transitions"))
 		if trVal.Exists() {
-			iter, _ := trVal.Fields()
-			for iter.Next() {
-				fromState := strings.Trim(iter.Selector().String(), "")
-				var toStates []string
-				list, _ := iter.Value().List()
+			switch trVal.IncompleteKind() {
+			case cue.ListKind:
+				list, _ := trVal.List()
 				for list.Next() {
-					s, _ := list.Value().String()
-					toStates = append(toStates, strings.Trim(s, ""))
+					tv := list.Value()
+					fromState, err := tv.LookupPath(cue.ParsePath("from")).String()
+					if err != nil {
+						continue
+					}
+					toState, err := tv.LookupPath(cue.ParsePath("to")).String()
+					if err != nil {
+						continue
+					}
+					fromState = strings.TrimSpace(fromState)
+					toState = strings.TrimSpace(toState)
+					if fromState == "" || toState == "" {
+						continue
+					}
+					fsm.Transitions[fromState] = append(fsm.Transitions[fromState], toState)
 				}
-				fsm.Transitions[fromState] = toStates
+			default:
+				iter, _ := trVal.Fields()
+				for iter.Next() {
+					fromState := strings.TrimSpace(iter.Selector().String())
+					var toStates []string
+					list, _ := iter.Value().List()
+					for list.Next() {
+						s, err := list.Value().String()
+						if err != nil {
+							continue
+						}
+						toStates = append(toStates, strings.TrimSpace(s))
+					}
+					if fromState == "" || len(toStates) == 0 {
+						continue
+					}
+					fsm.Transitions[fromState] = append(fsm.Transitions[fromState], toStates...)
+				}
 			}
 		}
 		entity.FSM = fsm
 	}
 
-	indexVal := val.LookupPath(cue.ParsePath("indexes"))
+	indexVal := entityVal.LookupPath(cue.ParsePath("indexes"))
 	if indexVal.Exists() {
 		iter, _ := indexVal.List()
 		for iter.Next() {
@@ -288,7 +335,7 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 		}
 	}
 
-	entity.UI = parseEntityUI(val)
+	entity.UI = parseEntityUI(entityVal)
 
 	return entity, nil
 }
@@ -370,19 +417,19 @@ func (n *Normalizer) parseInlineFields(val cue.Value) ([]Field, error) {
 		if dVal.IsConcrete() && (dVal.IncompleteKind() != cue.StructKind && dVal.IncompleteKind() != cue.ListKind) {
 			defVal = fmt.Sprint(dVal)
 		}
-					field := Field{
-						Name:        fLabel,
-						IsOptional:  iter.IsOptional(),
-						Type:        n.detectType(fLabel, fVal),
-						Default:     defVal,
-						DB:          parseDBTags(fVal),
-						ValidateTag: inferValidatorTags(fLabel, fVal),
-						Constraints: extractConstraints(fVal),
-						EnvVar:      parseEnvTag(fVal),
-						UI:          parseUIHints(fVal),
-						Source:      formatPos(fVal),
-					}
-		
+		field := Field{
+			Name:        fLabel,
+			IsOptional:  iter.IsOptional(),
+			Type:        n.detectType(fLabel, fVal),
+			Default:     defVal,
+			DB:          parseDBTags(fVal),
+			ValidateTag: inferValidatorTags(fLabel, fVal),
+			Constraints: extractConstraints(fVal),
+			EnvVar:      parseEnvTag(fVal),
+			UI:          parseUIHints(fVal),
+			Source:      formatPos(fVal),
+		}
+
 		if attr := fVal.Attribute("secret"); attr.Err() == nil {
 			field.IsSecret = true
 		} else if strings.Contains(strings.ToLower(fLabel), "password") {

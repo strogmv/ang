@@ -28,6 +28,7 @@ type CRUDDef struct {
 // FSM описывает конечный автомат.
 type FSM struct {
 	Field       string
+	States      []string
 	Transitions map[string][]string
 }
 
