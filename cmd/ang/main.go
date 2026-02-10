@@ -16,6 +16,7 @@ import (
 	"cuelang.org/go/cue"
 	"github.com/strogmv/ang/compiler"
 	"github.com/strogmv/ang/compiler/emitter"
+	"github.com/strogmv/ang/compiler/generator"
 	"github.com/strogmv/ang/compiler/normalizer"
 	"github.com/strogmv/ang/compiler/parser"
 	"github.com/strogmv/ang/internal/mcp"
@@ -574,30 +575,6 @@ func runBuild(args []string) {
 		fail := func(stage compiler.Stage, code, op string, err error) {
 			printStageFailure("Build FAILED", stage, code, op, err)
 		}
-		type targetStep struct {
-			name     string
-			requires []compiler.Capability
-			fn       func() error
-		}
-		runTargetSteps := func(td normalizer.TargetDef, caps compiler.CapabilitySet, steps []targetStep) error {
-			for _, step := range steps {
-				if !caps.HasAll(step.requires...) {
-					missing := caps.Missing(step.requires...)
-					if len(missing) > 0 {
-						missingNames := make([]string, 0, len(missing))
-						for _, c := range missing {
-							missingNames = append(missingNames, string(c))
-						}
-						fmt.Printf("Skipping %s for target %s: missing capabilities [%s]\n", step.name, td.Name, strings.Join(missingNames, ", "))
-					}
-					continue
-				}
-				if err := step.fn(); err != nil {
-					return fmt.Errorf("target=%s step=%s: %w", td.Name, step.name, err)
-				}
-			}
-			return nil
-		}
 
 		entities, services, endpoints, repos, events, bizErrors, schedules, scenarios, err := compiler.RunPipeline(projectPath)
 		if err != nil {
@@ -830,73 +807,75 @@ func runBuild(args []string) {
 			}
 
 			if caps.Has(compiler.CapabilityProfilePythonFastAPI) {
-				steps := []targetStep{
-					{"OpenAPI", []compiler.Capability{compiler.CapabilityHTTP}, func() error { return em.EmitOpenAPI(endpoints, services, bizErrors, projectDef) }},
-					{"AsyncAPI", []compiler.Capability{compiler.CapabilityEvents}, func() error { return em.EmitAsyncAPI(events, projectDef) }},
-					{"Python FastAPI Backend", []compiler.Capability{
+				steps := []generator.Step{
+					{Name: "OpenAPI", Requires: []compiler.Capability{compiler.CapabilityHTTP}, Run: func() error { return em.EmitOpenAPI(endpoints, services, bizErrors, projectDef) }},
+					{Name: "AsyncAPI", Requires: []compiler.Capability{compiler.CapabilityEvents}, Run: func() error { return em.EmitAsyncAPI(events, projectDef) }},
+					{Name: "Python FastAPI Backend", Requires: []compiler.Capability{
 						compiler.CapabilityProfilePythonFastAPI, compiler.CapabilityHTTP, compiler.CapabilitySQLRepo,
-					}, func() error {
+					}, Run: func() error {
 						return em.EmitPythonFastAPIBackend(entities, rawServices, endpoints, repos, projectDef)
 					}},
-					{"Python SDK", []compiler.Capability{compiler.CapabilityHTTP}, func() error {
+					{Name: "Python SDK", Requires: []compiler.Capability{compiler.CapabilityHTTP}, Run: func() error {
 						if !pythonSDKEnabled {
 							return nil
 						}
 						return em.EmitPythonSDK(endpoints, services, entities, projectDef)
 					}},
-					{"System Manifest", nil, func() error { return em.EmitManifest(irSchema) }},
+					{Name: "System Manifest", Run: func() error { return em.EmitManifest(irSchema) }},
 				}
-				if err := runTargetSteps(td, caps, steps); err != nil {
+				if err := generator.Execute(td, caps, steps, func(format string, args ...interface{}) {
+					fmt.Printf(format+"\n", args...)
+				}); err != nil {
 					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "run capability matrix steps", err)
 					return
 				}
 				continue
 			}
 
-			steps := []targetStep{
-				{"Config", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitConfig(cfgDef) }},
-				{"Logger", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitLogger() }},
-				{"RBAC", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitRBAC(rbacDef) }},
-				{"Domain Entities", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitDomain(irSchema.Entities) }},
-				{"DTOs", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitDTO(irSchema.Entities) }},
-				{"Service Ports", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitService(services) }},
-				{"HTTP Handlers", []compiler.Capability{compiler.CapabilityHTTP}, func() error { return em.EmitHTTP(endpoints, services, events, authDef) }},
-				{"Health Probes", []compiler.Capability{compiler.CapabilityHTTP}, func() error { return em.EmitHealth() }},
-				{"Repository Ports", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitRepository(repos, entities) }},
-				{"Transaction Port", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitTransactionPort() }},
-				{"Storage Port", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitStoragePort() }},
-				{"S3 Client", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitS3Client() }},
-				{"Postgres Repos", []compiler.Capability{compiler.CapabilitySQLRepo}, func() error { return em.EmitPostgresRepo(repos, entities) }},
-				{"Postgres Common", []compiler.Capability{compiler.CapabilitySQLRepo}, func() error { return em.EmitPostgresCommon() }},
-				{"Mongo Repos", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitMongoRepo(repos, entities) }},
-				{"Mongo Common", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitMongoCommon(entities) }},
-				{"SQL Schema", []compiler.Capability{compiler.CapabilitySQLRepo}, func() error { return em.EmitSQL(entities) }},
-				{"Infra Configs", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitInfraConfigs() }},
-				{"SQL Queries", []compiler.Capability{compiler.CapabilitySQLRepo}, func() error { return em.EmitSQLQueries(entities) }},
-				{"Mongo Schemas", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitMongoSchema(entities) }},
-				{"Repo Stubs", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitStubRepo(repos, entities) }},
-				{"Redis Client", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitRedisClient() }},
-				{"Auth Package", []compiler.Capability{compiler.CapabilityAuth}, func() error { return em.EmitAuthPackage(authDef) }},
-				{"Refresh Store Port", []compiler.Capability{compiler.CapabilityAuth}, func() error { return em.EmitRefreshTokenStorePort() }},
-				{"Refresh Store Memory", []compiler.Capability{compiler.CapabilityAuth}, func() error { return em.EmitRefreshTokenStoreMemory() }},
-				{"Refresh Store Redis", []compiler.Capability{compiler.CapabilityAuth}, func() error { return em.EmitRefreshTokenStoreRedis() }},
-				{"Refresh Store Postgres", []compiler.Capability{compiler.CapabilityAuth, compiler.CapabilitySQLRepo}, func() error { return em.EmitRefreshTokenStorePostgres() }},
-				{"Refresh Store Hybrid", []compiler.Capability{compiler.CapabilityAuth, compiler.CapabilitySQLRepo}, func() error { return em.EmitRefreshTokenStoreHybrid() }},
-				{"Mailer Port", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitMailerPort() }},
-				{"SMTP Client", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitMailerAdapter() }},
-				{"Events", []compiler.Capability{compiler.CapabilityEvents}, func() error { return em.EmitEvents(events) }},
-				{"Scheduler", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitScheduler(schedules) }},
-				{"Publisher Interface", []compiler.Capability{compiler.CapabilityEvents}, func() error { return em.EmitPublisherInterface(services, schedules) }},
-				{"NATS Adapter", []compiler.Capability{compiler.CapabilityEvents}, func() error { return em.EmitNatsAdapter(services, schedules) }},
-				{"Metrics Middleware", []compiler.Capability{compiler.CapabilityHTTP}, func() error { return em.EmitMetrics() }},
-				{"Logging Middleware", []compiler.Capability{compiler.CapabilityHTTP}, func() error { return em.EmitLoggingMiddleware() }},
-				{"Errors", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitErrors(bizErrors) }},
-				{"Views", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitViews(views) }},
-				{"OpenAPI", []compiler.Capability{compiler.CapabilityHTTP}, func() error { return em.EmitOpenAPI(endpoints, services, bizErrors, projectDef) }},
-				{"AsyncAPI", []compiler.Capability{compiler.CapabilityEvents}, func() error { return em.EmitAsyncAPI(events, projectDef) }},
-				{"Contract Tests", []compiler.Capability{compiler.CapabilityHTTP}, func() error { return em.EmitContractTests(endpoints, services) }},
-				{"E2E Behavioral Tests", []compiler.Capability{compiler.CapabilityHTTP}, func() error { return em.EmitE2ETests(scenarios) }},
-				{"Test Stubs", []compiler.Capability{compiler.CapabilityHTTP}, func() error {
+			steps := []generator.Step{
+				{Name: "Config", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return em.EmitConfig(cfgDef) }},
+				{Name: "Logger", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return em.EmitLogger() }},
+				{Name: "RBAC", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return em.EmitRBAC(rbacDef) }},
+				{Name: "Domain Entities", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return em.EmitDomain(irSchema.Entities) }},
+				{Name: "DTOs", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return em.EmitDTO(irSchema.Entities) }},
+				{Name: "Service Ports", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return em.EmitService(services) }},
+				{Name: "HTTP Handlers", Requires: []compiler.Capability{compiler.CapabilityHTTP}, Run: func() error { return em.EmitHTTP(endpoints, services, events, authDef) }},
+				{Name: "Health Probes", Requires: []compiler.Capability{compiler.CapabilityHTTP}, Run: func() error { return em.EmitHealth() }},
+				{Name: "Repository Ports", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return em.EmitRepository(repos, entities) }},
+				{Name: "Transaction Port", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return em.EmitTransactionPort() }},
+				{Name: "Storage Port", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return em.EmitStoragePort() }},
+				{Name: "S3 Client", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return em.EmitS3Client() }},
+				{Name: "Postgres Repos", Requires: []compiler.Capability{compiler.CapabilitySQLRepo}, Run: func() error { return em.EmitPostgresRepo(repos, entities) }},
+				{Name: "Postgres Common", Requires: []compiler.Capability{compiler.CapabilitySQLRepo}, Run: func() error { return em.EmitPostgresCommon() }},
+				{Name: "Mongo Repos", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return em.EmitMongoRepo(repos, entities) }},
+				{Name: "Mongo Common", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return em.EmitMongoCommon(entities) }},
+				{Name: "SQL Schema", Requires: []compiler.Capability{compiler.CapabilitySQLRepo}, Run: func() error { return em.EmitSQL(entities) }},
+				{Name: "Infra Configs", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return em.EmitInfraConfigs() }},
+				{Name: "SQL Queries", Requires: []compiler.Capability{compiler.CapabilitySQLRepo}, Run: func() error { return em.EmitSQLQueries(entities) }},
+				{Name: "Mongo Schemas", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return em.EmitMongoSchema(entities) }},
+				{Name: "Repo Stubs", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return em.EmitStubRepo(repos, entities) }},
+				{Name: "Redis Client", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return em.EmitRedisClient() }},
+				{Name: "Auth Package", Requires: []compiler.Capability{compiler.CapabilityAuth}, Run: func() error { return em.EmitAuthPackage(authDef) }},
+				{Name: "Refresh Store Port", Requires: []compiler.Capability{compiler.CapabilityAuth}, Run: func() error { return em.EmitRefreshTokenStorePort() }},
+				{Name: "Refresh Store Memory", Requires: []compiler.Capability{compiler.CapabilityAuth}, Run: func() error { return em.EmitRefreshTokenStoreMemory() }},
+				{Name: "Refresh Store Redis", Requires: []compiler.Capability{compiler.CapabilityAuth}, Run: func() error { return em.EmitRefreshTokenStoreRedis() }},
+				{Name: "Refresh Store Postgres", Requires: []compiler.Capability{compiler.CapabilityAuth, compiler.CapabilitySQLRepo}, Run: func() error { return em.EmitRefreshTokenStorePostgres() }},
+				{Name: "Refresh Store Hybrid", Requires: []compiler.Capability{compiler.CapabilityAuth, compiler.CapabilitySQLRepo}, Run: func() error { return em.EmitRefreshTokenStoreHybrid() }},
+				{Name: "Mailer Port", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return em.EmitMailerPort() }},
+				{Name: "SMTP Client", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return em.EmitMailerAdapter() }},
+				{Name: "Events", Requires: []compiler.Capability{compiler.CapabilityEvents}, Run: func() error { return em.EmitEvents(events) }},
+				{Name: "Scheduler", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return em.EmitScheduler(schedules) }},
+				{Name: "Publisher Interface", Requires: []compiler.Capability{compiler.CapabilityEvents}, Run: func() error { return em.EmitPublisherInterface(services, schedules) }},
+				{Name: "NATS Adapter", Requires: []compiler.Capability{compiler.CapabilityEvents}, Run: func() error { return em.EmitNatsAdapter(services, schedules) }},
+				{Name: "Metrics Middleware", Requires: []compiler.Capability{compiler.CapabilityHTTP}, Run: func() error { return em.EmitMetrics() }},
+				{Name: "Logging Middleware", Requires: []compiler.Capability{compiler.CapabilityHTTP}, Run: func() error { return em.EmitLoggingMiddleware() }},
+				{Name: "Errors", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return em.EmitErrors(bizErrors) }},
+				{Name: "Views", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return em.EmitViews(views) }},
+				{Name: "OpenAPI", Requires: []compiler.Capability{compiler.CapabilityHTTP}, Run: func() error { return em.EmitOpenAPI(endpoints, services, bizErrors, projectDef) }},
+				{Name: "AsyncAPI", Requires: []compiler.Capability{compiler.CapabilityEvents}, Run: func() error { return em.EmitAsyncAPI(events, projectDef) }},
+				{Name: "Contract Tests", Requires: []compiler.Capability{compiler.CapabilityHTTP}, Run: func() error { return em.EmitContractTests(endpoints, services) }},
+				{Name: "E2E Behavioral Tests", Requires: []compiler.Capability{compiler.CapabilityHTTP}, Run: func() error { return em.EmitE2ETests(scenarios) }},
+				{Name: "Test Stubs", Requires: []compiler.Capability{compiler.CapabilityHTTP}, Run: func() error {
 					if targetOutput.TestStubs {
 						report, err := checkTestCoverage(endpoints, "tests")
 						if err != nil {
@@ -920,33 +899,35 @@ func runBuild(args []string) {
 					}
 					return nil
 				}},
-				{"Frontend SDK", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitFrontendSDK(entities, services, endpoints, events, bizErrors, rbacDef) }},
-				{"Python SDK", []compiler.Capability{compiler.CapabilityHTTP}, func() error {
+				{Name: "Frontend SDK", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return em.EmitFrontendSDK(entities, services, endpoints, events, bizErrors, rbacDef) }},
+				{Name: "Python SDK", Requires: []compiler.Capability{compiler.CapabilityHTTP}, Run: func() error {
 					if !pythonSDKEnabled {
 						return nil
 					}
 					return em.EmitPythonSDK(endpoints, services, entities, projectDef)
 				}},
-				{"Frontend Components", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitFrontendComponents(services, endpoints, entities) }},
-				{"Frontend Admin", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitFrontendAdmin(entities, services) }},
-				{"Frontend SDK Copy", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return copyFrontendSDK(targetOutput.FrontendDir, targetOutput.FrontendAppDir) }},
-				{"Frontend Admin Copy", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error {
+				{Name: "Frontend Components", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return em.EmitFrontendComponents(services, endpoints, entities) }},
+				{Name: "Frontend Admin", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return em.EmitFrontendAdmin(entities, services) }},
+				{Name: "Frontend SDK Copy", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return copyFrontendSDK(targetOutput.FrontendDir, targetOutput.FrontendAppDir) }},
+				{Name: "Frontend Admin Copy", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error {
 					return copyFrontendAdmin(targetOutput.FrontendAdminDir, targetOutput.FrontendAdminAppDir)
 				}},
-				{"Frontend Env Example", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return writeEnvExample(targetOutput) }},
-				{"Tracing", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitTracing() }},
-				{"System Manifest", nil, func() error { return em.EmitManifest(irSchema) }},
-				{"Service Impls", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitServiceImpl(services, entities, authDef) }},
-				{"Cached Services", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitCachedService(services) }},
-				{"K8s Manifests", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitK8s(services, isMicroservice) }},
-				{"Server Main", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error {
+				{Name: "Frontend Env Example", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return writeEnvExample(targetOutput) }},
+				{Name: "Tracing", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return em.EmitTracing() }},
+				{Name: "System Manifest", Run: func() error { return em.EmitManifest(irSchema) }},
+				{Name: "Service Impls", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return em.EmitServiceImpl(services, entities, authDef) }},
+				{Name: "Cached Services", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return em.EmitCachedService(services) }},
+				{Name: "K8s Manifests", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error { return em.EmitK8s(services, isMicroservice) }},
+				{Name: "Server Main", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy}, Run: func() error {
 					if isMicroservice {
 						return em.EmitMicroservices(services, ctx.WebSocketServices, authDef)
 					}
 					return em.EmitMain(ctx)
 				}},
 			}
-			if err := runTargetSteps(td, caps, steps); err != nil {
+			if err := generator.Execute(td, caps, steps, func(format string, args ...interface{}) {
+				fmt.Printf(format+"\n", args...)
+			}); err != nil {
 				fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "run capability matrix steps", err)
 				return
 			}

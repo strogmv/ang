@@ -27,8 +27,47 @@ jobs:
       - name: Validate Intent
         run: go run ./cmd/ang validate
 
+  architecture-invariants:
+    runs-on: ubuntu-latest
+    needs: go
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Invariant Unit Tests (entity/projection/determinism)
+        run: go test ./compiler -run 'TestEntityIntegrity|TestProjectionRules'
+
+      - name: IR Compatibility Gate (migrations + golden contract)
+        run: go test ./compiler/ir/...
+
+      - name: Build Multi-Target (Go + Python)
+        env:
+          ANG_PY_SDK: "1"
+        run: go run ./cmd/ang build
+
+      - name: Deterministic Release Output (hash parity)
+        env:
+          ANG_PY_SDK: "1"
+        run: |
+          rm -rf dist
+          go run ./cmd/ang build
+          find dist/release -type f -print0 | sort -z | xargs -0 sha256sum > /tmp/ang-release-hash-1.txt
+          go run ./cmd/ang build
+          find dist/release -type f -print0 | sort -z | xargs -0 sha256sum > /tmp/ang-release-hash-2.txt
+          diff -u /tmp/ang-release-hash-1.txt /tmp/ang-release-hash-2.txt
+
+      - name: OpenAPI Parity (Go vs Python, fail-fast)
+        run: |
+          diff -u dist/release/go-service/api/openapi.yaml dist/release/python-service/api/openapi.yaml
+
   release-gates:
     runs-on: ubuntu-latest
+    needs: architecture-invariants
     steps:
       - name: Checkout
         uses: actions/checkout@v4

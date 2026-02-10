@@ -1,0 +1,49 @@
+{
+  "Project": {
+    "Name": "fixture-project",
+    "Version": "0.0.1"
+  },
+  "Entities": [
+    {
+      "Name": "User",
+      "Fields": [
+        {
+          "Name": "id",
+          "Type": {
+            "Kind": "string"
+          }
+        }
+      ]
+    }
+  ],
+  "Services": [
+    {
+      "Name": "Auth",
+      "Methods": [
+        {
+          "Name": "Login",
+          "Sources": [
+            {
+              "Name": "users",
+              "Kind": "sql",
+              "Entity": "User"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "Events": [
+    {
+      "Name": "UserLoggedIn"
+    }
+  ],
+  "Endpoints": [
+    {
+      "Method": "POST",
+      "Path": "/auth/login",
+      "Service": "Auth",
+      "RPC": "Login"
+    }
+  ]
+}

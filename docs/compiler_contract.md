@@ -15,6 +15,8 @@ Stage ownership is strict:
 - `EMITTERS`: filesystem generation only
 
 Target selection strategy is capability-based (`docs/capability_matrix.md`), not language-specific `if/else`.
+Generator modules orchestration: `docs/generator_modules.md`.
+Template planning contracts: `docs/planner_contract.md`.
 
 ## Error Shape
 

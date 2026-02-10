@@ -11,24 +11,8 @@ import (
 	"text/template"
 
 	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang/compiler/planner"
 )
-
-type ScanVariable struct {
-	Name       string
-	GoPath     string
-	IsOptional bool
-	MappingFn  string
-	TmpVar     string
-	TmpType    string
-	Guard      string
-	AssignCode string
-}
-
-type ScanPlan struct {
-	Columns   []string
-	ColList   string
-	Variables []ScanVariable
-}
 
 // EmitPostgresRepo генерирует реализацию репозитория для Postgres
 func (e *Emitter) EmitPostgresRepo(repos []normalizer.Repository, entities []normalizer.Entity) error {
@@ -132,7 +116,7 @@ func (e *Emitter) EmitPostgresRepo(repos []normalizer.Repository, entities []nor
 			SelectCustomEntity bool   // For custom domain types like TenderReportInfo
 			CustomEntityName   string // The entity name for custom types
 			SelectFields       []normalizer.Field
-			ScanPlan           ScanPlan
+			ScanPlan           planner.ScanPlan
 		}
 
 		var finders []finderOut
@@ -388,8 +372,8 @@ func (e *Emitter) EmitPostgresRepo(repos []normalizer.Repository, entities []nor
 			Fields        []normalizer.Field
 			Finders       []finderOut
 			HasTime       bool
-			FindByIDPlan  ScanPlan
-			ListAllPlan   ScanPlan
+			FindByIDPlan  planner.ScanPlan
+			ListAllPlan   planner.ScanPlan
 		}{
 			Name:          repo.Name,
 			Entity:        repo.Entity,
@@ -406,8 +390,27 @@ func (e *Emitter) EmitPostgresRepo(repos []normalizer.Repository, entities []nor
 			ListAllPlan:   listAllPlan,
 		}
 
+		renderPlan := planner.RenderPlan{
+			Name: "postgres_repo",
+			Data: map[string]any{
+				"Name":          data.Name,
+				"Entity":        data.Entity,
+				"Table":         data.Table,
+				"Columns":       data.Columns,
+				"Placeholders":  data.Placeholders,
+				"UpdateSet":     data.UpdateSet,
+				"InsertArgs":    data.InsertArgs,
+				"SelectColumns": data.SelectColumns,
+				"Fields":        data.Fields,
+				"Finders":       data.Finders,
+				"HasTime":       data.HasTime,
+				"FindByIDPlan":  data.FindByIDPlan,
+				"ListAllPlan":   data.ListAllPlan,
+			},
+		}
+
 		var buf bytes.Buffer
-		if err := t.Execute(&buf, data); err != nil {
+		if err := t.Execute(&buf, renderPlan.Data); err != nil {
 			return fmt.Errorf("execute template: %w", err)
 		}
 
@@ -454,10 +457,10 @@ func selectFieldsInEntityOrder(entityFields []normalizer.Field, selected []strin
 	return out
 }
 
-func buildScanPlan(fields []normalizer.Field, target string) ScanPlan {
-	plan := ScanPlan{
+func buildScanPlan(fields []normalizer.Field, target string) planner.ScanPlan {
+	plan := planner.ScanPlan{
 		Columns:   make([]string, 0, len(fields)),
-		Variables: make([]ScanVariable, 0, len(fields)),
+		Variables: make([]planner.ScanVariable, 0, len(fields)),
 	}
 	for _, f := range fields {
 		if f.SkipDomain {
@@ -481,10 +484,10 @@ func scanSelectColumnExpr(f normalizer.Field) string {
 	return colName
 }
 
-func buildScanVariable(f normalizer.Field, target string) ScanVariable {
+func buildScanVariable(f normalizer.Field, target string) planner.ScanVariable {
 	goPath := target + "." + ExportName(f.Name)
 	tmpVar := strings.ToLower(f.Name) + "Val"
-	sv := ScanVariable{
+	sv := planner.ScanVariable{
 		Name:       f.Name,
 		GoPath:     goPath,
 		IsOptional: f.IsOptional,
