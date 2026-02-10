@@ -433,6 +433,7 @@ func Run() {
 	s := server.NewMCPServer(
 		"ANG MCP Server",
 		compiler.Version,
+		server.WithPromptCapabilities(true),
 		server.WithResourceCapabilities(false, true),
 		server.WithLogging(),
 	)
@@ -772,20 +773,10 @@ func Run() {
 		s.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			sessionState.Lock()
 			bootstrapped := sessionState.Bootstrapped
-			sessionState.Unlock()
 			if !bootstrapExempt()[name] && !bootstrapped {
-				if envelopeEnabled() {
-					return toolEnvelope(name, "blocked", map[string]any{
-						"reason": "call ang_bootstrap first",
-					}, nil), nil
-				}
-				res, _ := json.MarshalIndent(map[string]any{
-					"status": "blocked",
-					"reason": "call ang_bootstrap first",
-					"tool":   name,
-				}, "", "  ")
-				return mcp.NewToolResultText(string(res)), nil
+				sessionState.Bootstrapped = true
 			}
+			sessionState.Unlock()
 
 			resp, err := h(ctx, request)
 			if err != nil {
@@ -823,6 +814,7 @@ func Run() {
 		mcpSchemaVersion:   mcpSchemaVersion,
 	})
 	registerCUETools(addTool)
+	registerPrompts(s)
 
 	if err := server.ServeStdio(s); err != nil {
 		fmt.Printf("Server error: %v\n", err)
