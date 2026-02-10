@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: {{PROJECT_NAME}}-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+    ports:
+      - "5439:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

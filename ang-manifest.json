@@ -11,57 +11,7 @@
       "Storage": ""
     }
   },
-  "services": [
-    {
-      "name": "Blog",
-      "methods": [
-        "CreateComment",
-        "CreatePost",
-        "GetPost",
-        "ListComments",
-        "ListPosts",
-        "ListMyPosts",
-        "ListTags",
-        "CreateTag",
-        "UpdateComment",
-        "DeleteComment",
-        "UpdatePost",
-        "SubmitPost",
-        "PublishPost",
-        "ArchivePost",
-        "DeletePost",
-        "UpdateTag",
-        "DeleteTag"
-      ],
-      "publishes": null,
-      "subscribes": {},
-      "depends_on": []
-    },
-    {
-      "name": "Auth",
-      "methods": [
-        "Register",
-        "Login",
-        "GetProfile",
-        "UpdateProfile"
-      ],
-      "publishes": [
-        "UserRegistered",
-        "UserLoggedIn"
-      ],
-      "subscribes": {},
-      "depends_on": [
-        "NATS"
-      ]
-    }
-  ],
+  "services": null,
   "events": null,
-  "entities": [
-    "User",
-    "Post",
-    "Comment",
-    "Tag",
-    "PostTag",
-    "UserVault"
-  ]
+  "entities": []
 }

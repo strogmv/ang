@@ -31,7 +31,7 @@ func main() {
 
 	switch cmd {
 	case "init":
-		runInit()
+		runInit(os.Args[2:])
 	case "validate":
 		runValidate(os.Args[2:])
 	case "lint":
@@ -72,7 +72,7 @@ func main() {
 func printUsage() {
 	fmt.Printf("ANG — Architectural Normalized Generator v%s\n", compiler.Version)
 	fmt.Println("\nUsage:")
-	fmt.Println("  ang init      Initialize a new ANG project structure")
+	fmt.Println("  ang init [dir] --template saas|ecommerce|marketplace [--lang go] [--db postgres]")
 	fmt.Println("  ang validate  Validate CUE models and architecture")
 	fmt.Println("  ang lint      Perform deep semantic linting of flows and logic")
 	fmt.Println("  ang build     Compile CUE intent into Go code and infra configs")
@@ -136,22 +136,81 @@ func readGoModule() string {
 	return ""
 }
 
-func runInit() {
-	fmt.Println("Initializing ANG project...")
-	dirs := []string{
-		"cue/domain",
-		"cue/api",
-		"cue/policies",
-		"cue/invariants",
-		"cue/architecture",
-		"cue/repo",
-		"cue/schema",
+func runInit(args []string) {
+	parseArgs := append([]string(nil), args...)
+	targetDir := "."
+	if len(parseArgs) > 0 && !strings.HasPrefix(parseArgs[0], "-") {
+		targetDir = parseArgs[0]
+		parseArgs = parseArgs[1:]
 	}
 
+	fs := flag.NewFlagSet("init", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	templateName := fs.String("template", "", "project template: saas|ecommerce|marketplace")
+	lang := fs.String("lang", "go", "target language")
+	db := fs.String("db", "postgres", "database backend")
+	module := fs.String("module", "", "CUE module path (defaults to github.com/example/<dir>)")
+	force := fs.Bool("force", false, "allow writing into a non-empty target directory")
+	if err := fs.Parse(parseArgs); err != nil {
+		fmt.Printf("Init FAILED: %v\n", err)
+		os.Exit(1)
+	}
+
+	if fs.NArg() > 0 {
+		targetDir = fs.Arg(0)
+	}
+	targetDir = filepath.Clean(targetDir)
+	projectName := filepath.Base(targetDir)
+	if projectName == "." || projectName == string(filepath.Separator) || strings.TrimSpace(projectName) == "" {
+		projectName = "ang-app"
+	}
+
+	if strings.TrimSpace(*templateName) == "" {
+		if err := initLegacyScaffold(targetDir); err != nil {
+			fmt.Printf("Init FAILED: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Project structure initialized successfully.")
+		return
+	}
+
+	modulePath := strings.TrimSpace(*module)
+	if modulePath == "" {
+		modulePath = "github.com/example/" + sanitizeProjectName(projectName)
+	}
+	opts := initTemplateOptions{
+		TemplateName: strings.ToLower(strings.TrimSpace(*templateName)),
+		TargetDir:    targetDir,
+		ProjectName:  projectName,
+		Lang:         strings.ToLower(strings.TrimSpace(*lang)),
+		DB:           strings.ToLower(strings.TrimSpace(*db)),
+		ModulePath:   modulePath,
+		Force:        *force,
+	}
+	if err := initFromTemplate(opts); err != nil {
+		fmt.Printf("Init FAILED: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Template %q initialized in %s\n", opts.TemplateName, targetDir)
+	fmt.Println("Next steps:")
+	fmt.Printf("  cd %s\n", targetDir)
+	fmt.Println("  docker compose up -d")
+	fmt.Println("  ang build")
+}
+
+func initLegacyScaffold(root string) error {
+	dirs := []string{
+		filepath.Join(root, "cue", "domain"),
+		filepath.Join(root, "cue", "api"),
+		filepath.Join(root, "cue", "policies"),
+		filepath.Join(root, "cue", "invariants"),
+		filepath.Join(root, "cue", "architecture"),
+		filepath.Join(root, "cue", "repo"),
+		filepath.Join(root, "cue", "schema"),
+	}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {
-			fmt.Printf("Error creating directory %s: %v\n", dir, err)
-			return
+			return fmt.Errorf("create directory %s: %w", dir, err)
 		}
 	}
 
@@ -160,16 +219,16 @@ language: {
 	version: "v0.9.0"
 }
 `
-	modFile := "cue.mod/module.cue"
-	if err := os.MkdirAll("cue.mod", 0755); err != nil {
-		fmt.Printf("Error creating cue.mod: %v\n", err)
-		return
+	modFile := filepath.Join(root, "cue.mod", "module.cue")
+	if err := os.MkdirAll(filepath.Dir(modFile), 0755); err != nil {
+		return fmt.Errorf("create cue.mod: %w", err)
 	}
 	if _, err := os.Stat(modFile); os.IsNotExist(err) {
-		os.WriteFile(modFile, []byte(moduleContent), 0644)
+		if err := os.WriteFile(modFile, []byte(moduleContent), 0644); err != nil {
+			return fmt.Errorf("write module file: %w", err)
+		}
 	}
-
-	fmt.Println("Project structure initialized successfully.")
+	return nil
 }
 
 func runValidate(args []string) {

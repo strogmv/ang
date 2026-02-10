@@ -32,37 +32,3 @@ func (c *Client) Subscribe(subject string, handler func(data []byte) error) (*na
 		_ = handler(msg.Data)
 	})
 }
-func (c *Client) PublishUserLoggedIn(ctx context.Context, event domain.UserLoggedIn) error {
-	data, err := json.Marshal(event)
-	if err != nil {
-		return err
-	}
-	return c.nc.Publish("UserLoggedIn", data)
-}
-
-func (c *Client) SubscribeUserLoggedIn(handler func(context.Context, domain.UserLoggedIn) error) (*natspkg.Subscription, error) {
-	return c.nc.Subscribe("UserLoggedIn", func(msg *natspkg.Msg) {
-		var event domain.UserLoggedIn
-		if err := json.Unmarshal(msg.Data, &event); err != nil {
-			return
-		}
-		_ = handler(context.Background(), event)
-	})
-}
-func (c *Client) PublishUserRegistered(ctx context.Context, event domain.UserRegistered) error {
-	data, err := json.Marshal(event)
-	if err != nil {
-		return err
-	}
-	return c.nc.Publish("UserRegistered", data)
-}
-
-func (c *Client) SubscribeUserRegistered(handler func(context.Context, domain.UserRegistered) error) (*natspkg.Subscription, error) {
-	return c.nc.Subscribe("UserRegistered", func(msg *natspkg.Msg) {
-		var event domain.UserRegistered
-		if err := json.Unmarshal(msg.Data, &event); err != nil {
-			return
-		}
-		_ = handler(context.Background(), event)
-	})
-}

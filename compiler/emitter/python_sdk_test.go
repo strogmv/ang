@@ -3,11 +3,13 @@ package emitter
 import (
 	"testing"
 
+	pyemitter "github.com/strogmv/ang/compiler/emitter/python"
+	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
 )
 
 func TestPathParamNames(t *testing.T) {
-	got := pathParamNames("/v1/users/{id}/orders/{order_id}/{id}")
+	got := pyemitter.PathParamNames("/v1/users/{id}/orders/{order_id}/{id}")
 	if len(got) != 2 {
 		t.Fatalf("expected 2 unique params, got %d", len(got))
 	}
@@ -23,7 +25,7 @@ func TestBuildPythonEndpointsUniqueNames(t *testing.T) {
 		{Method: "WS", Path: "/ws", RPC: "WsIgnored"},
 	}
 
-	got := buildPythonEndpoints(eps, nil)
+	got := pyemitter.BuildEndpoints(eps, nil)
 	if len(got) != 2 {
 		t.Fatalf("expected 2 endpoints, got %d", len(got))
 	}
@@ -37,23 +39,25 @@ func TestBuildPythonEndpointsUniqueNames(t *testing.T) {
 }
 
 func TestBuildPythonEndpointsTypedFromServiceMethods(t *testing.T) {
-	services := []normalizer.Service{
-		{
-			Name: "Auth",
-			Methods: []normalizer.Method{
-				{
-					Name:   "Login",
-					Input:  normalizer.Entity{Name: "LoginRequest"},
-					Output: normalizer.Entity{Name: "AuthTokens"},
+	schema := &ir.Schema{
+		Services: []ir.Service{
+			{
+				Name: "Auth",
+				Methods: []ir.Method{
+					{
+						Name:   "Login",
+						Input:  &ir.Entity{Name: "LoginRequest"},
+						Output: &ir.Entity{Name: "AuthTokens"},
+					},
 				},
 			},
 		},
-	}
-	eps := []normalizer.Endpoint{
-		{Method: "POST", Path: "/auth/login", ServiceName: "Auth", RPC: "Login"},
+		Endpoints: []ir.Endpoint{
+			{Method: "POST", Path: "/auth/login", Service: "Auth", RPC: "Login"},
+		},
 	}
 
-	got := buildPythonEndpoints(eps, buildPythonRPCSignatures(services))
+	got := pyemitter.BuildEndpointsFromIR(schema)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 endpoint, got %d", len(got))
 	}
@@ -77,7 +81,7 @@ func TestBuildPythonSDKModels(t *testing.T) {
 		},
 	}
 
-	got := buildPythonSDKModels(entities)
+	got := pyemitter.BuildSDKModels(entities)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 model, got %d", len(got))
 	}
@@ -118,12 +122,12 @@ func TestBuildPythonSDKModels_AliasAndEntityRefs(t *testing.T) {
 		},
 	}
 
-	got := buildPythonSDKModels(entities)
+	got := pyemitter.BuildSDKModels(entities)
 	if len(got) != 2 {
 		t.Fatalf("expected 2 models, got %d", len(got))
 	}
 
-	var team pythonSDKModel
+	var team pyemitter.SDKModel
 	for _, m := range got {
 		if m.Name == "Team" {
 			team = m

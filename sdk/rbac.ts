@@ -4,12 +4,6 @@ export type Role = keyof typeof Roles;
 export type Permission = keyof typeof Permissions;
 
 export const Roles = {
-  "admin": [
-  ],
-  "author": [
-  ],
-  "reader": [
-  ],
 } as const;
 
 export const Permissions = {

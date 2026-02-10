@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	pyemitter "github.com/strogmv/ang/compiler/emitter/python"
 	"github.com/strogmv/ang/compiler/normalizer"
 )
 
@@ -33,12 +34,12 @@ func TestBuildPythonModels_AliasAndEntityRefs(t *testing.T) {
 		},
 	}
 
-	models := buildPythonModels(entities)
+	models := pyemitter.BuildSDKModels(entities)
 	if len(models) != 3 {
 		t.Fatalf("expected 3 models, got %d", len(models))
 	}
 
-	var post pythonModel
+	var post pyemitter.SDKModel
 	for _, m := range models {
 		if m.Name == "Post" {
 			post = m

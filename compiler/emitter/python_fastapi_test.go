@@ -3,21 +3,25 @@ package emitter
 import (
 	"testing"
 
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang/compiler/ir"
+	"github.com/strogmv/ang/compiler/planner"
 )
 
-func TestBuildPythonFastAPIData_RouterAndServiceStubs(t *testing.T) {
-	endpoints := []normalizer.Endpoint{
-		{Method: "GET", Path: "/posts/{id}", ServiceName: "Blog", RPC: "GetPost"},
-		{Method: "POST", Path: "/posts", ServiceName: "Blog", RPC: "GetPost"},
-		{Method: "WS", Path: "/ws", ServiceName: "Blog", RPC: "Ignored"},
+func TestBuildFastAPIPlan_RouterAndServiceStubs(t *testing.T) {
+	schema := &ir.Schema{
+		Project: ir.Project{Name: "svc", Version: "0.1.0"},
+		Endpoints: []ir.Endpoint{
+			{Method: "GET", Path: "/posts/{id}", Service: "Blog", RPC: "GetPost"},
+			{Method: "POST", Path: "/posts", Service: "Blog", RPC: "GetPost"},
+			{Method: "WS", Path: "/ws", Service: "Blog", RPC: "Ignored"},
+		},
 	}
 
-	data := buildPythonFastAPIData(nil, nil, endpoints, nil, nil, "0.1.0")
-	if len(data.Routers) != 1 {
-		t.Fatalf("expected 1 router, got %d", len(data.Routers))
+	plan := planner.BuildFastAPIPlan(schema, "0.1.0")
+	if len(plan.Routers) != 1 {
+		t.Fatalf("expected 1 router, got %d", len(plan.Routers))
 	}
-	r := data.Routers[0]
+	r := plan.Routers[0]
 	if r.ModuleName != "blog" {
 		t.Fatalf("unexpected module name: %s", r.ModuleName)
 	}
@@ -30,35 +34,39 @@ func TestBuildPythonFastAPIData_RouterAndServiceStubs(t *testing.T) {
 	if r.Routes[1].HandlerName != "get_post_post" {
 		t.Fatalf("unexpected second handler: %s", r.Routes[1].HandlerName)
 	}
-	if len(data.ServiceStubs) != 1 || len(data.ServiceStubs[0].Methods) != 2 {
-		t.Fatalf("unexpected service stubs: %#v", data.ServiceStubs)
+	if len(plan.ServiceStubs) != 1 || len(plan.ServiceStubs[0].Methods) != 2 {
+		t.Fatalf("unexpected service stubs: %#v", plan.ServiceStubs)
 	}
 }
 
-func TestBuildPythonFastAPIData_PythonImplInjected(t *testing.T) {
-	services := []normalizer.Service{
-		{
-			Name: "Report",
-			Methods: []normalizer.Method{
-				{
-					Name: "GeneratePdf",
-					Impl: &normalizer.MethodImpl{
-						Lang:    "python",
-						Code:    "return {'ok': True}",
-						Imports: []string{"from fastapi import Response"},
+func TestBuildFastAPIPlan_PythonImplInjected(t *testing.T) {
+	schema := &ir.Schema{
+		Project: ir.Project{Name: "svc", Version: "0.1.0"},
+		Services: []ir.Service{
+			{
+				Name: "Report",
+				Methods: []ir.Method{
+					{
+						Name: "GeneratePdf",
+						Impl: &ir.Impl{
+							Lang:    "python",
+							Code:    "return {'ok': True}",
+							Imports: []string{"from fastapi import Response"},
+						},
 					},
 				},
 			},
 		},
+		Endpoints: []ir.Endpoint{
+			{Method: "POST", Path: "/reports/pdf", Service: "Report", RPC: "GeneratePdf"},
+		},
 	}
-	endpoints := []normalizer.Endpoint{
-		{Method: "POST", Path: "/reports/pdf", ServiceName: "Report", RPC: "GeneratePdf"},
+
+	plan := planner.BuildFastAPIPlan(schema, "0.1.0")
+	if len(plan.ServiceStubs) != 1 {
+		t.Fatalf("expected 1 service stub, got %d", len(plan.ServiceStubs))
 	}
-	data := buildPythonFastAPIData(nil, services, endpoints, nil, nil, "0.1.0")
-	if len(data.ServiceStubs) != 1 {
-		t.Fatalf("expected 1 service stub, got %d", len(data.ServiceStubs))
-	}
-	stub := data.ServiceStubs[0]
+	stub := plan.ServiceStubs[0]
 	if len(stub.Imports) != 1 || stub.Imports[0] != "from fastapi import Response" {
 		t.Fatalf("unexpected imports: %#v", stub.Imports)
 	}

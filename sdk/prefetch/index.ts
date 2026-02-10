@@ -2,36 +2,3 @@
 import type { QueryClient } from '@tanstack/react-query';
 import type { LoaderFunctionArgs } from 'react-router-dom';
 import * as Options from '../query-options';
-import type * as Types from '../types';
-export const prefetchPostsList = (queryClient: QueryClient, filters?: Types.ListPostsRequest) =>
-  queryClient.prefetchQuery(Options.postsOptions.list(filters));
-
-export const createPostsListLoader = (queryClient: QueryClient) =>
-  async ({ request }: LoaderFunctionArgs) => {
-    const url = new URL(request.url);
-    const filters = Object.fromEntries(url.searchParams) as Types.ListPostsRequest;
-    await prefetchPostsList(queryClient, filters);
-    return null;
-  };
-export const prefetchPostsDetail = (queryClient: QueryClient, slug: string) =>
-  queryClient.prefetchQuery(Options.postsOptions.detail(slug));
-
-export const createPostsDetailLoader = (queryClient: QueryClient) =>
-  async ({ params }: LoaderFunctionArgs) => {
-    const slug = params.slug;
-    if (!slug) {
-      throw new Error('Posts ID required');
-    }
-    await prefetchPostsDetail(queryClient, slug);
-    return null;
-  };
-export const prefetchTagsList = (queryClient: QueryClient, filters?: Types.ListTagsRequest) =>
-  queryClient.prefetchQuery(Options.tagsOptions.list(filters));
-
-export const createTagsListLoader = (queryClient: QueryClient) =>
-  async ({ request }: LoaderFunctionArgs) => {
-    const url = new URL(request.url);
-    const filters = Object.fromEntries(url.searchParams) as Types.ListTagsRequest;
-    await prefetchTagsList(queryClient, filters);
-    return null;
-  };

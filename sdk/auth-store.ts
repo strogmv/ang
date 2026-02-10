@@ -1,11 +1,10 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type * as Types from './types';
 
 interface AuthState {
   token: string | null;
-  user: Types.User | null;
-  setAuth: (token: string, user: Types.User) => void;
+  user: any | null;
+  setAuth: (token: string, user: any) => void;
   clearAuth: () => void;
   isAuthenticated: () => boolean;
 }
