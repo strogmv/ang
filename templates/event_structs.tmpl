@@ -3,7 +3,7 @@ package domain
 {{- range . }}
 type {{ ExportName .Name }} struct {
 {{- range .Fields }}
-	{{ .Name | ExportName }} {{ .Type }} `json:"{{ JSONName .Name }}"`
+	{{ .Name | ExportName }} {{ GoType .Type }} `json:"{{ JSONName .Name }}"`
 {{- end }}
 }
 {{- end }}

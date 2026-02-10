@@ -10,15 +10,17 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
 )
 
-func (e *Emitter) EmitService(services []normalizer.Service) error {
+func (e *Emitter) EmitService(services []ir.Service) error {
 	tmplPath := "templates/service.tmpl"
 	tmplContent, err := ReadTemplateByPath(tmplPath)
 	if err != nil {
 		return err
 	}
+	nServices := IRServicesToNormalizer(services)
 
 	funcMap := e.getSharedFuncMap()
 	funcMap["HasLogValue"] = func(fields []normalizer.Field) bool {
@@ -57,7 +59,7 @@ func (e *Emitter) EmitService(services []normalizer.Service) error {
 		return fmt.Errorf("mkdir: %w", err)
 	}
 
-	for _, svc := range services {
+	for _, svc := range nServices {
 		var buf bytes.Buffer
 		if err := t.Execute(&buf, svc); err != nil {
 			return err
@@ -79,12 +81,14 @@ func (e *Emitter) EmitService(services []normalizer.Service) error {
 	return nil
 }
 
-func (e *Emitter) EmitServiceImpl(services []normalizer.Service, entities []normalizer.Entity, auth *normalizer.AuthDef) error {
+func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, auth *normalizer.AuthDef) error {
 	tmplPath := "templates/service_impl.tmpl"
 	tmplContent, err := ReadTemplateByPath(tmplPath)
 	if err != nil {
 		return err
 	}
+	nServices := IRServicesToNormalizer(services)
+	nEntities := IREntitiesToNormalizer(entities)
 
 	t, err := template.New("service_impl").Funcs(e.getSharedFuncMap()).Parse(string(tmplContent))
 	if err != nil {
@@ -96,7 +100,7 @@ func (e *Emitter) EmitServiceImpl(services []normalizer.Service, entities []norm
 		return err
 	}
 
-	for _, svc := range services {
+	for _, svc := range nServices {
 		// Collect all imports for this service
 		importMap := make(map[string]bool)
 
@@ -162,7 +166,7 @@ func (e *Emitter) EmitServiceImpl(services []normalizer.Service, entities []norm
 			Imports  []string
 		}{
 			Service:  svc,
-			Entities: entities,
+			Entities: nEntities,
 			Auth:     a,
 			Imports:  allImports,
 		}
@@ -187,12 +191,13 @@ func (e *Emitter) EmitServiceImpl(services []normalizer.Service, entities []norm
 	return nil
 }
 
-func (e *Emitter) EmitCachedService(services []normalizer.Service) error {
+func (e *Emitter) EmitCachedService(services []ir.Service) error {
 	tmplPath := "templates/service_cached.tmpl"
 	tmplContent, err := ReadTemplateByPath(tmplPath)
 	if err != nil {
 		return err
 	}
+	nServices := IRServicesToNormalizer(services)
 
 	t, err := template.New("service_cached").Funcs(e.getSharedFuncMap()).Parse(string(tmplContent))
 	if err != nil {
@@ -200,7 +205,7 @@ func (e *Emitter) EmitCachedService(services []normalizer.Service) error {
 	}
 
 	targetDir := filepath.Join(e.OutputDir, "internal", "service")
-	for _, svc := range services {
+	for _, svc := range nServices {
 		var buf bytes.Buffer
 		if err := t.Execute(&buf, svc); err != nil {
 			return err

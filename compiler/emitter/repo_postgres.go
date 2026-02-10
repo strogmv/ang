@@ -10,12 +10,16 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
 	"github.com/strogmv/ang/compiler/planner"
 )
 
 // EmitPostgresRepo генерирует реализацию репозитория для Postgres
-func (e *Emitter) EmitPostgresRepo(repos []normalizer.Repository, entities []normalizer.Entity) error {
+func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) error {
+	reposNorm := IRReposToNormalizer(repos)
+	entitiesNorm := IREntitiesToNormalizer(entities)
+
 	tmplPath := filepath.Join(e.TemplatesDir, "postgres_repo.tmpl")
 	if _, err := os.Stat(tmplPath); err != nil {
 		tmplPath = "templates/postgres_repo.tmpl" // Fallback
@@ -27,7 +31,7 @@ func (e *Emitter) EmitPostgresRepo(repos []normalizer.Repository, entities []nor
 	}
 
 	entMap := make(map[string]normalizer.Entity)
-	for _, ent := range entities {
+	for _, ent := range entitiesNorm {
 		entMap[ent.Name] = ent
 	}
 
@@ -45,7 +49,7 @@ func (e *Emitter) EmitPostgresRepo(repos []normalizer.Repository, entities []nor
 		return fmt.Errorf("mkdir: %w", err)
 	}
 
-	for _, repo := range repos {
+	for _, repo := range reposNorm {
 		ent, ok := entMap[repo.Entity]
 		if !ok {
 			continue

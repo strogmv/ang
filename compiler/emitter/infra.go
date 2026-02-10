@@ -10,6 +10,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
 )
 
@@ -199,7 +200,7 @@ func (e *Emitter) EmitTracing() error {
 }
 
 // EmitErrors generates the error handling package.
-func (e *Emitter) EmitErrors(errors []normalizer.ErrorDef) error {
+func (e *Emitter) EmitErrors(errors []ir.Error) error {
 	targetDir := filepath.Join(e.OutputDir, "internal", "pkg", "errors")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
@@ -267,7 +268,7 @@ func (e *Emitter) EmitErrors(errors []normalizer.ErrorDef) error {
 }
 
 // EmitViews generates view definitions for field-level security.
-func (e *Emitter) EmitViews(views []normalizer.ViewDef) error {
+func (e *Emitter) EmitViews(views []ir.View) error {
 	if len(views) == 0 {
 		return nil
 	}
@@ -307,7 +308,7 @@ func (e *Emitter) EmitViews(views []normalizer.ViewDef) error {
 }
 
 // EmitScheduler generates a simple time-based scheduler.
-func (e *Emitter) EmitScheduler(schedules []normalizer.ScheduleDef) error {
+func (e *Emitter) EmitScheduler(schedules []ir.Schedule) error {
 	if len(schedules) == 0 {
 		return nil
 	}
@@ -343,6 +344,27 @@ func (e *Emitter) EmitScheduler(schedules []normalizer.ScheduleDef) error {
 	}
 	var out []scheduleOut
 	for _, s := range schedules {
+		payload := make([]normalizer.SchedulePayloadField, 0, len(s.Payload))
+		for _, p := range s.Payload {
+			value := ""
+			switch v := p.Default.(type) {
+			case string:
+				value = v
+			case bool:
+				if v {
+					value = "true"
+				} else {
+					value = "false"
+				}
+			case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+				value = fmt.Sprint(v)
+			}
+			payload = append(payload, normalizer.SchedulePayloadField{
+				Name:  p.Name,
+				Type:  IRTypeRefToGoType(p.Type),
+				Value: value,
+			})
+		}
 		out = append(out, scheduleOut{
 			Name:    s.Name,
 			Service: s.Service,
@@ -350,7 +372,7 @@ func (e *Emitter) EmitScheduler(schedules []normalizer.ScheduleDef) error {
 			At:      s.At,
 			Publish: s.Publish,
 			Every:   s.Every,
-			Payload: s.Payload,
+			Payload: payload,
 		})
 	}
 
@@ -619,7 +641,7 @@ type K8sContext struct {
 }
 
 // EmitK8s generates Kubernetes manifests.
-func (e *Emitter) EmitK8s(services []normalizer.Service, isMicroservice bool) error {
+func (e *Emitter) EmitK8s(services []ir.Service, isMicroservice bool) error {
 	targetDir := filepath.Join(e.OutputDir, "deploy", "k8s")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return err

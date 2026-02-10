@@ -8,6 +8,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
 	"github.com/strogmv/ang/templates"
 )
@@ -706,6 +707,203 @@ func (e *Emitter) AnalyzeContext(services []normalizer.Service, entities []norma
 	}
 	ctx.Services = OrderServicesByDependencies(ctx.Services)
 	return ctx
+}
+
+// AnalyzeContextFromIR computes runtime context from IR while preserving legacy MainContext shape.
+func (e *Emitter) AnalyzeContextFromIR(schema *ir.Schema) MainContext {
+	if schema == nil {
+		return e.AnalyzeContext(nil, nil, nil)
+	}
+	services := make([]normalizer.Service, 0, len(schema.Services))
+	for _, s := range schema.Services {
+		services = append(services, contextServiceFromIR(s))
+	}
+	entities := make([]normalizer.Entity, 0, len(schema.Entities))
+	for _, ent := range schema.Entities {
+		entities = append(entities, contextEntityFromIR(ent))
+	}
+	endpoints := make([]normalizer.Endpoint, 0, len(schema.Endpoints))
+	for _, ep := range schema.Endpoints {
+		n := normalizer.Endpoint{
+			Method:           ep.Method,
+			Path:             ep.Path,
+			ServiceName:      ep.Service,
+			RPC:              ep.RPC,
+			Description:      ep.Description,
+			Messages:         append([]string{}, ep.Messages...),
+			RoomParam:        ep.RoomParam,
+			CacheTTL:         ep.Cache,
+			CacheTags:        initializeSlice(ep.CacheTags),
+			Invalidate:       initializeSlice(ep.Invalidate),
+			OptimisticUpdate: ep.OptimisticUpdate,
+			Timeout:          ep.Timeout,
+			MaxBodySize:      ep.MaxBodySize,
+			Idempotency:      ep.Idempotent,
+			DedupeKey:        ep.DedupeKey,
+			Errors:           append([]string{}, ep.Errors...),
+			View:             ep.View,
+			Metadata:         ep.Metadata,
+			Source:           ep.Source,
+		}
+		if ep.Auth != nil {
+			n.AuthType = ep.Auth.Type
+			n.Permission = ep.Auth.Permission
+			n.AuthRoles = append([]string{}, ep.Auth.Roles...)
+			n.AuthCheck = ep.Auth.Check
+			n.AuthInject = append([]string{}, ep.Auth.Inject...)
+		}
+		if ep.RateLimit != nil {
+			n.RateLimit = &normalizer.RateLimitDef{
+				RPS:   ep.RateLimit.RPS,
+				Burst: ep.RateLimit.Burst,
+			}
+		}
+		if ep.CircuitBreaker != nil {
+			n.CircuitBreaker = &normalizer.CircuitBreakerDef{
+				Threshold:   ep.CircuitBreaker.Threshold,
+				Timeout:     ep.CircuitBreaker.Timeout,
+				HalfOpenMax: ep.CircuitBreaker.HalfOpenMax,
+			}
+		}
+		if ep.Pagination != nil {
+			n.Pagination = &normalizer.PaginationDef{
+				Type:         ep.Pagination.Type,
+				DefaultLimit: ep.Pagination.DefaultLimit,
+				MaxLimit:     ep.Pagination.MaxLimit,
+			}
+		}
+		if ep.SLO != nil {
+			n.SLO = normalizer.SLODef{
+				Latency: ep.SLO.Latency,
+				Success: ep.SLO.Success,
+			}
+		}
+		if ep.TestHints != nil {
+			n.TestHints = &normalizer.TestHints{
+				HappyPath:  ep.TestHints.HappyPath,
+				ErrorCases: initializeSlice(ep.TestHints.ErrorCases),
+			}
+		}
+		endpoints = append(endpoints, n)
+	}
+	return e.AnalyzeContext(services, entities, endpoints)
+}
+
+// EnrichContextFromIR fills runtime routing/event maps from IR.
+func (e *Emitter) EnrichContextFromIR(ctx *MainContext, schema *ir.Schema) {
+	if ctx == nil || schema == nil {
+		return
+	}
+	if ctx.EventPayloads == nil {
+		ctx.EventPayloads = make(map[string]normalizer.Entity)
+	}
+	if ctx.WebSocketServices == nil {
+		ctx.WebSocketServices = make(map[string]bool)
+	}
+	if ctx.WSEventMap == nil {
+		ctx.WSEventMap = make(map[string]map[string]bool)
+	}
+	if ctx.WSRoomField == nil {
+		ctx.WSRoomField = make(map[string]string)
+	}
+
+	for _, ev := range schema.Events {
+		fields := make([]normalizer.Field, 0, len(ev.Fields))
+		for _, f := range ev.Fields {
+			fields = append(fields, normalizer.Field{Name: f.Name})
+		}
+		ctx.EventPayloads[ev.Name] = normalizer.Entity{
+			Name:   ev.Name,
+			Fields: fields,
+		}
+	}
+	for _, ep := range schema.Endpoints {
+		if strings.ToUpper(ep.Method) != "WS" {
+			continue
+		}
+		ctx.WebSocketServices[ep.Service] = true
+		if ctx.WSEventMap[ep.Service] == nil {
+			ctx.WSEventMap[ep.Service] = make(map[string]bool)
+		}
+		for _, msg := range ep.Messages {
+			if msg != "" {
+				ctx.WSEventMap[ep.Service][msg] = true
+			}
+		}
+		if ctx.WSRoomField[ep.Service] != "" {
+			continue
+		}
+		param := ep.RoomParam
+		if param == "" {
+			param = firstPathParam(ep.Path)
+		}
+		if param != "" {
+			ctx.WSRoomField[ep.Service] = ExportName(param)
+		}
+	}
+}
+
+func contextServiceFromIR(s ir.Service) normalizer.Service {
+	out := normalizer.Service{
+		Name:          s.Name,
+		Publishes:     append([]string{}, s.Publishes...),
+		Subscribes:    s.Subscribes,
+		Uses:          append([]string{}, s.Uses...),
+		RequiresSQL:   s.RequiresSQL,
+		RequiresMongo: s.RequiresMongo,
+		RequiresRedis: s.RequiresRedis,
+		RequiresNats:  s.RequiresNats,
+		RequiresS3:    s.RequiresS3,
+	}
+	out.Methods = make([]normalizer.Method, 0, len(s.Methods))
+	for _, m := range s.Methods {
+		nm := normalizer.Method{
+			Name:        m.Name,
+			CacheTTL:    m.CacheTTL,
+			Publishes:   append([]string{}, m.Publishes...),
+			Idempotency: m.Idempotent,
+			Outbox:      m.Outbox,
+		}
+		if m.Impl != nil {
+			nm.Impl = &normalizer.MethodImpl{RequiresTx: m.Impl.RequiresTx}
+		}
+		nm.Flow = irFlowStepsToNormalizer(m.Flow)
+		if len(m.Sources) > 0 {
+			nm.Sources = make([]normalizer.Source, 0, len(m.Sources))
+			for _, src := range m.Sources {
+				nm.Sources = append(nm.Sources, normalizer.Source{Entity: src.Entity})
+			}
+		}
+		out.Methods = append(out.Methods, nm)
+	}
+	return out
+}
+
+func contextEntityFromIR(ent ir.Entity) normalizer.Entity {
+	fields := make([]normalizer.Field, 0, len(ent.Fields))
+	for _, f := range ent.Fields {
+		fields = append(fields, normalizer.Field{
+			Name: f.Name,
+			DB: normalizer.DBMeta{
+				Type: func() string {
+					for _, a := range f.Attributes {
+						if a.Name == "db" {
+							if t, ok := a.Args["type"].(string); ok {
+								return t
+							}
+						}
+					}
+					return ""
+				}(),
+			},
+		})
+	}
+	return normalizer.Entity{
+		Name:     ent.Name,
+		Owner:    ent.Owner,
+		Fields:   fields,
+		Metadata: ent.Metadata,
+	}
 }
 
 func OrderServicesByDependencies(services []normalizer.Service) []normalizer.Service {

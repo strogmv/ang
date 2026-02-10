@@ -14,15 +14,7 @@ type buildStepRegistryInput struct {
 	em               *emitter.Emitter
 	irSchema         *ir.Schema
 	ctx              emitter.MainContext
-	entities         []normalizer.Entity
-	services         []normalizer.Service
-	endpoints        []normalizer.Endpoint
-	repos            []normalizer.Repository
-	events           []normalizer.EventDef
-	bizErrors        []normalizer.ErrorDef
-	schedules        []normalizer.ScheduleDef
 	scenarios        []normalizer.ScenarioDef
-	views            []normalizer.ViewDef
 	cfgDef           *normalizer.ConfigDef
 	authDef          *normalizer.AuthDef
 	rbacDef          *normalizer.RBACDef
@@ -38,10 +30,6 @@ func buildStepRegistry(in buildStepRegistryInput) *generator.StepRegistry {
 	sharedsteps.Register(registry, sharedsteps.RegisterInput{
 		Em:               in.em,
 		IRSchema:         in.irSchema,
-		Endpoints:        in.endpoints,
-		Services:         in.services,
-		Events:           in.events,
-		BizErrors:        in.bizErrors,
 		ProjectDef:       in.projectDef,
 		PythonSDKEnabled: in.pythonSDKEnabled,
 	})
@@ -58,26 +46,19 @@ func buildStepRegistry(in buildStepRegistryInput) *generator.StepRegistry {
 		Em:               in.em,
 		IRSchema:         in.irSchema,
 		Ctx:              in.ctx,
-		Entities:         in.entities,
-		Services:         in.services,
-		Endpoints:        in.endpoints,
-		Repos:            in.repos,
-		Events:           in.events,
-		BizErrors:        in.bizErrors,
-		Schedules:        in.schedules,
 		Scenarios:        in.scenarios,
-		Views:            in.views,
 		CfgDef:           in.cfgDef,
 		AuthDef:          in.authDef,
 		RBACDef:          in.rbacDef,
 		IsMicroservice:   in.isMicroservice,
 		TestStubsEnabled: in.targetOutput.TestStubs,
 		ResolveMissingTestStubs: func() ([]normalizer.Endpoint, error) {
-			report, err := checkTestCoverage(in.endpoints, "tests")
+			endpoints := coverageEndpointsFromIR(in.irSchema.Endpoints)
+			report, err := checkTestCoverage(endpoints, "tests")
 			if err != nil {
 				return nil, err
 			}
-			return missingEndpointsFromCoverage(in.endpoints, report.MissingTests), nil
+			return missingEndpointsFromCoverage(endpoints, report.MissingTests), nil
 		},
 		CopyFrontendSDK: func() error {
 			return copyFrontendSDK(in.targetOutput.FrontendDir, in.targetOutput.FrontendAppDir)
@@ -91,6 +72,29 @@ func buildStepRegistry(in buildStepRegistryInput) *generator.StepRegistry {
 	})
 
 	return registry
+}
+
+func coverageEndpointsFromIR(endpoints []ir.Endpoint) []normalizer.Endpoint {
+	out := make([]normalizer.Endpoint, 0, len(endpoints))
+	for _, ep := range endpoints {
+		n := normalizer.Endpoint{
+			Method:      ep.Method,
+			Path:        ep.Path,
+			ServiceName: ep.Service,
+			RPC:         ep.RPC,
+		}
+		if ep.Auth != nil {
+			n.AuthType = ep.Auth.Type
+		}
+		if ep.TestHints != nil {
+			n.TestHints = &normalizer.TestHints{
+				HappyPath:  ep.TestHints.HappyPath,
+				ErrorCases: append([]string{}, ep.TestHints.ErrorCases...),
+			}
+		}
+		out = append(out, n)
+	}
+	return out
 }
 
 func missingEndpointsFromCoverage(endpoints []normalizer.Endpoint, missingTests []EndpointCoverage) []normalizer.Endpoint {

@@ -8,11 +8,14 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
 )
 
 // EmitSQL генерирует SQL схему
-func (e *Emitter) EmitSQL(entities []normalizer.Entity) error {
+func (e *Emitter) EmitSQL(entities []ir.Entity) error {
+	entitiesNorm := IREntitiesToNormalizer(entities)
+
 	tmplPath := filepath.Join(e.TemplatesDir, "schema_sql.tmpl")
 	if _, err := os.Stat(tmplPath); err != nil {
 		tmplPath = "templates/schema_sql.tmpl"
@@ -85,7 +88,7 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
 `)
 	fullSchema.WriteString("\n\n")
 
-	for _, entity := range entities {
+	for _, entity := range entitiesNorm {
 		isMongo := false
 		for _, f := range entity.Fields {
 			if strings.EqualFold(f.DB.Type, "ObjectId") {
@@ -133,10 +136,12 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
 }
 
 // EmitSQLQueries генерирует базовые CRUD запросы для SQLC (опционально)
-func (e *Emitter) EmitSQLQueries(entities []normalizer.Entity) error {
+func (e *Emitter) EmitSQLQueries(entities []ir.Entity) error {
+	entitiesNorm := IREntitiesToNormalizer(entities)
+
 	var buf bytes.Buffer
 
-	for _, entity := range entities {
+	for _, entity := range entitiesNorm {
 		isSQL := false
 		hasID := false
 		for _, f := range entity.Fields {

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
 )
 
@@ -96,7 +97,11 @@ type PropData struct {
 	Optional bool
 }
 
-func (e *Emitter) EmitFrontendComponents(services []normalizer.Service, endpoints []normalizer.Endpoint, entities []normalizer.Entity) error {
+func (e *Emitter) EmitFrontendComponents(services []ir.Service, endpoints []ir.Endpoint, entities []ir.Entity) error {
+	servicesNorm := IRServicesToNormalizer(services)
+	entitiesNorm := IREntitiesToNormalizer(entities)
+	_ = endpoints
+
 	targetDir := filepath.Join(e.FrontendDir, "components")
 	formsDir := filepath.Join(targetDir, "forms")
 	tablesDir := filepath.Join(targetDir, "tables")
@@ -121,7 +126,7 @@ func (e *Emitter) EmitFrontendComponents(services []normalizer.Service, endpoint
 	}
 
 	// Generate forms for Create/Update operations
-	for _, svc := range services {
+	for _, svc := range servicesNorm {
 		for _, m := range svc.Methods {
 			if !isFormOperation(m.Name) {
 				continue
@@ -140,13 +145,13 @@ func (e *Emitter) EmitFrontendComponents(services []normalizer.Service, endpoint
 	}
 
 	// Generate tables for List operations
-	for _, svc := range services {
+	for _, svc := range servicesNorm {
 		for _, m := range svc.Methods {
 			if !isListOperation(m.Name) {
 				continue
 			}
 
-			tableData := buildTableData(m, entities)
+			tableData := buildTableData(m, entitiesNorm)
 			if len(tableData.Columns) == 0 {
 				continue
 			}
@@ -166,7 +171,7 @@ func (e *Emitter) EmitFrontendComponents(services []normalizer.Service, endpoint
 		return err
 	}
 
-	return e.EmitCRUDPages(entities)
+	return e.EmitCRUDPages(entitiesNorm)
 }
 
 // EmitCRUDPages generates full pages (List, Create, Edit) for CRUD-enabled entities.

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
 )
 
@@ -53,7 +54,10 @@ tmplContent, err := ReadTemplateByPath(tmplPath)
 }
 
 // EmitRepository генерирует интерфейсы репозиториев
-func (e *Emitter) EmitRepository(repos []normalizer.Repository, entities []normalizer.Entity) error {
+func (e *Emitter) EmitRepository(repos []ir.Repository, entities []ir.Entity) error {
+	nRepos := IRReposToNormalizer(repos)
+	_ = entities
+
 	tmplPath := filepath.Join(e.TemplatesDir, "repository.tmpl")
 	if _, err := os.Stat(tmplPath); err != nil {
 		tmplPath = "templates/repository.tmpl" // Fallback
@@ -79,7 +83,7 @@ tmplContent, err := ReadTemplateByPath(tmplPath)
 		return fmt.Errorf("mkdir: %w", err)
 	}
 
-	for _, repo := range repos {
+	for _, repo := range nRepos {
 		fmt.Printf("DEBUG repo_port: Processing repo %s with %d finders\n", repo.Entity, len(repo.Finders))
 		for _, f := range repo.Finders {
 			fmt.Printf("DEBUG repo_port: Finder %s ReturnType='%s' Returns='%s' CustomSQL len=%d\n", f.Name, f.ReturnType, f.Returns, len(f.CustomSQL))

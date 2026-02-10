@@ -24,28 +24,13 @@ func (e *Emitter) EmitFromIR(schema *ir.Schema) error {
 		return fmt.Errorf("ir version migration: %w", err)
 	}
 
-	// Convert IR to normalizer types for templates
-	// This allows gradual migration - templates still work with old types
-	// but data comes from transformed IR
-	services := IRServicesToNormalizer(schema.Services)
-	endpoints := IREndpointsToNormalizer(schema.Endpoints)
-	repos := IRReposToNormalizer(schema.Repos)
-	events := IREventsToNormalizer(schema.Events)
-	errors := IRErrorsToNormalizer(schema.Errors)
-	schedules := IRSchedulesToNormalizer(schema.Schedules)
-
 	// Use existing emit methods with converted data
 	if err := e.EmitDomain(schema.Entities); err != nil {
 		return err
 	}
-	if err := e.EmitService(services); err != nil {
+	if err := e.EmitService(schema.Services); err != nil {
 		return err
 	}
-	_ = endpoints
-	_ = repos
-	_ = events
-	_ = errors
-	_ = schedules
 
 	return nil
 }

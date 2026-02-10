@@ -11,6 +11,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
 )
 
@@ -140,41 +141,47 @@ func isPathParamSegment(seg string) bool {
 }
 
 // EmitFrontendSDK generates the React SDK (TS, Zod, React Query).
-func (e *Emitter) EmitFrontendSDK(entities []normalizer.Entity, services []normalizer.Service, endpoints []normalizer.Endpoint, events []normalizer.EventDef, errors []normalizer.ErrorDef, rbac *normalizer.RBACDef) error {
+func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, endpoints []ir.Endpoint, events []ir.Event, errors []ir.Error, rbac *normalizer.RBACDef) error {
+	entitiesNorm := IREntitiesToNormalizer(entities)
+	servicesNorm := IRServicesToNormalizer(services)
+	endpointsNorm := IREndpointsToNormalizer(endpoints)
+	eventsNorm := IREventsToNormalizer(events)
+	errorsNorm := IRErrorsToNormalizer(errors)
+
 	// 1. Collect implicit DTOs from services
-	for _, svc := range services {
+	for _, svc := range servicesNorm {
 		for _, m := range svc.Methods {
 			// Add Input Entity if not exists
 			exists := false
-			for _, ent := range entities {
+			for _, ent := range entitiesNorm {
 				if ent.Name == m.Input.Name {
 					exists = true
 					break
 				}
 			}
 			if !exists && m.Input.Name != "" {
-				entities = append(entities, m.Input)
+				entitiesNorm = append(entitiesNorm, m.Input)
 			}
 
 			// Add Output Entity if not exists
 			exists = false
-			for _, ent := range entities {
+			for _, ent := range entitiesNorm {
 				if ent.Name == m.Output.Name {
 					exists = true
 					break
 				}
 			}
 			if !exists && m.Output.Name != "" {
-				entities = append(entities, m.Output)
+				entitiesNorm = append(entitiesNorm, m.Output)
 			}
 			for _, ent := range nestedEntitiesFromEntity(m.Input) {
-				if !entityExists(entities, ent.Name) {
-					entities = append(entities, ent)
+				if !entityExists(entitiesNorm, ent.Name) {
+					entitiesNorm = append(entitiesNorm, ent)
 				}
 			}
 			for _, ent := range nestedEntitiesFromEntity(m.Output) {
-				if !entityExists(entities, ent.Name) {
-					entities = append(entities, ent)
+				if !entityExists(entitiesNorm, ent.Name) {
+					entitiesNorm = append(entitiesNorm, ent)
 				}
 			}
 		}
@@ -200,14 +207,14 @@ func (e *Emitter) EmitFrontendSDK(entities []normalizer.Entity, services []norma
 		seenErrorNames[se.Name] = true
 	}
 
-	for _, e := range errors {
+	for _, e := range errorsNorm {
 		if !seenErrorNames[e.Name] {
 			uniqueErrors = append(uniqueErrors, e)
 			seenErrorNames[e.Name] = true
 		}
 	}
 
-	queryResources, queryKeysNeedsTypes, queryOptionsNeedsTypes := buildQueryResources(endpoints)
+	queryResources, queryKeysNeedsTypes, queryOptionsNeedsTypes := buildQueryResources(endpointsNorm)
 	queryOptionsByRPC := make(map[string]QueryResource)
 	queryOptionsKindByRPC := make(map[string]string)
 	for _, r := range queryResources {
@@ -226,10 +233,10 @@ func (e *Emitter) EmitFrontendSDK(entities []normalizer.Entity, services []norma
 	}
 
 	ctx := FrontendContext{
-		Entities:               entities,
-		Services:               services,
-		Endpoints:              endpoints,
-		Events:                 events,
+		Entities:               entitiesNorm,
+		Services:               servicesNorm,
+		Endpoints:              endpointsNorm,
+		Events:                 eventsNorm,
 		Errors:                 uniqueErrors,
 		RBAC:                   rbac,
 		QueryResources:         queryResources,
@@ -441,12 +448,12 @@ func (e *Emitter) EmitFrontendSDK(entities []normalizer.Entity, services []norma
 					return "z.array(z.boolean())"
 				case "time.Time":
 					return "z.array(z.coerce.date())"
-				default:
-					for _, ent := range entities {
-						if ent.Name == elem {
-							return fmt.Sprintf("z.array(z.lazy(() => %sSchema))", elem)
+					default:
+						for _, ent := range entitiesNorm {
+							if ent.Name == elem {
+								return fmt.Sprintf("z.array(z.lazy(() => %sSchema))", elem)
+							}
 						}
-					}
 					return "z.array(z.any())"
 				}
 			}
@@ -463,12 +470,12 @@ func (e *Emitter) EmitFrontendSDK(entities []normalizer.Entity, services []norma
 				return "z.string()"
 			case "time.Time":
 				return "z.coerce.date()"
-			default:
-				for _, ent := range entities {
-					if ent.Name == base {
-						return fmt.Sprintf("z.lazy(() => %sSchema)", base)
+				default:
+					for _, ent := range entitiesNorm {
+						if ent.Name == base {
+							return fmt.Sprintf("z.lazy(() => %sSchema)", base)
+						}
 					}
-				}
 				return "z.any()"
 			}
 		},
@@ -534,22 +541,22 @@ func (e *Emitter) EmitFrontendSDK(entities []normalizer.Entity, services []norma
 		"Replace": func(old, new, s string) string {
 			return strings.ReplaceAll(s, old, new)
 		},
-		"GetEntity": func(name string) *normalizer.Entity {
-			for _, e := range entities {
-				if strings.EqualFold(e.Name, name) {
-					return &e
+			"GetEntity": func(name string) *normalizer.Entity {
+				for _, e := range entitiesNorm {
+					if strings.EqualFold(e.Name, name) {
+						return &e
+					}
 				}
-			}
-			return nil
-		},
-		"HasEntity": func(name string) bool {
-			for _, e := range entities {
-				if strings.EqualFold(e.Name, name) {
-					return true
+				return nil
+			},
+			"HasEntity": func(name string) bool {
+				for _, e := range entitiesNorm {
+					if strings.EqualFold(e.Name, name) {
+						return true
+					}
 				}
-			}
-			return false
-		},
+				return false
+			},
 		"EntityHasID": func(entity normalizer.Entity) bool {
 			return entityIDField(entity) != nil
 		},
@@ -613,15 +620,15 @@ func (e *Emitter) EmitFrontendSDK(entities []normalizer.Entity, services []norma
 			if ep.OptimisticUpdate != "" {
 				return ep.OptimisticUpdate
 			}
-			rpc := ep.RPC
-			serviceName := ep.ServiceName
-			entity := strings.TrimPrefix(strings.TrimPrefix(rpc, "Update"), "Edit")
-			target := "Get" + entity
-			for _, otherEp := range endpoints {
-				if otherEp.ServiceName == serviceName && otherEp.RPC == target {
-					return target
+				rpc := ep.RPC
+				serviceName := ep.ServiceName
+				entity := strings.TrimPrefix(strings.TrimPrefix(rpc, "Update"), "Edit")
+				target := "Get" + entity
+				for _, otherEp := range endpointsNorm {
+					if otherEp.ServiceName == serviceName && otherEp.RPC == target {
+						return target
+					}
 				}
-			}
 			return ""
 		},
 		"GetEntityIDParam": func(rpc string) string {
@@ -651,13 +658,13 @@ func (e *Emitter) EmitFrontendSDK(entities []normalizer.Entity, services []norma
 			re := regexp.MustCompile(`{([a-zA-Z0-9]+)}`)
 			return re.ReplaceAllString(path, ":$1")
 		},
-		"ServiceEndpoints": func(serviceName string) []normalizer.Endpoint {
-			var out []normalizer.Endpoint
-			for _, ep := range endpoints {
-				if ep.ServiceName == serviceName {
-					out = append(out, ep)
+			"ServiceEndpoints": func(serviceName string) []normalizer.Endpoint {
+				var out []normalizer.Endpoint
+				for _, ep := range endpointsNorm {
+					if ep.ServiceName == serviceName {
+						out = append(out, ep)
+					}
 				}
-			}
 			return out
 		},
 	}
@@ -694,7 +701,7 @@ func (e *Emitter) EmitFrontendSDK(entities []normalizer.Entity, services []norma
 	}
 
 	// Generate individual entity stores
-	for _, ent := range entities {
+	for _, ent := range entitiesNorm {
 		if entityIDField(ent) != nil {
 			storeData := struct {
 				Entity normalizer.Entity
@@ -719,7 +726,7 @@ func (e *Emitter) EmitFrontendSDK(entities []normalizer.Entity, services []norma
 		}
 	}
 
-	if err := e.EmitSDKManifest(endpoints, queryResources); err != nil {
+	if err := e.EmitSDKManifest(endpointsNorm, queryResources); err != nil {
 		return err
 	}
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
 )
 
@@ -54,7 +55,9 @@ tmplContent, err := ReadTemplateByPath(tmplPath)
 }
 
 // EmitMongoSchema генерирует JSON Schema для Mongo валидации
-func (e *Emitter) EmitMongoSchema(entities []normalizer.Entity) error {
+func (e *Emitter) EmitMongoSchema(entities []ir.Entity) error {
+	entitiesNorm := IREntitiesToNormalizer(entities)
+
 	tmplContent := `{ 
   "bsonType": "object",
   "required": [
@@ -110,7 +113,7 @@ func (e *Emitter) EmitMongoSchema(entities []normalizer.Entity) error {
 		return fmt.Errorf("mkdir: %w", err)
 	}
 
-	for _, entity := range entities {
+	for _, entity := range entitiesNorm {
 		isMongo := false
 		for _, f := range entity.Fields {
 			if strings.EqualFold(f.DB.Type, "ObjectId") {
@@ -144,8 +147,53 @@ func (e *Emitter) EmitMongoSchema(entities []normalizer.Entity) error {
 	return nil
 }
 
+func collectPublishedEventsFromIR(services []ir.Service, schedules []ir.Schedule) []string {
+	uniqueEvents := make(map[string]bool)
+	var eventList []string
+
+	addEvent := func(evt string) {
+		if evt == "" || uniqueEvents[evt] {
+			return
+		}
+		uniqueEvents[evt] = true
+		eventList = append(eventList, evt)
+	}
+
+	var scanForEvents func([]ir.FlowStep)
+	scanForEvents = func(steps []ir.FlowStep) {
+		for _, step := range steps {
+			if step.Action == "event.Publish" || step.Action == "event.Broadcast" {
+				addEvent(fmt.Sprint(step.Args["name"]))
+			}
+			if len(step.Steps) > 0 {
+				scanForEvents(step.Steps)
+			}
+			if len(step.Then) > 0 {
+				scanForEvents(step.Then)
+			}
+			if len(step.Else) > 0 {
+				scanForEvents(step.Else)
+			}
+		}
+	}
+
+	for _, s := range services {
+		for _, evt := range s.Publishes {
+			addEvent(evt)
+		}
+		for _, m := range s.Methods {
+			scanForEvents(m.Flow)
+		}
+	}
+	for _, s := range schedules {
+		addEvent(s.Publish)
+	}
+	sort.Strings(eventList)
+	return eventList
+}
+
 // EmitPublisherInterface генерирует интерфейс для публикации
-func (e *Emitter) EmitPublisherInterface(services []normalizer.Service, schedules []normalizer.ScheduleDef) error {
+func (e *Emitter) EmitPublisherInterface(services []ir.Service, schedules []ir.Schedule) error {
 	tmplPath := filepath.Join(e.TemplatesDir, "publisher_interface.tmpl")
 	if _, err := os.Stat(tmplPath); err != nil {
 		tmplPath = "templates/publisher_interface.tmpl"
@@ -173,47 +221,7 @@ tmplContent, err := ReadTemplateByPath(tmplPath)
 		return fmt.Errorf("mkdir: %w", err)
 	}
 
-	uniqueEvents := make(map[string]bool)
-	var eventList []string
-
-	var scanForEvents func([]normalizer.FlowStep)
-	scanForEvents = func(steps []normalizer.FlowStep) {
-		for _, step := range steps {
-			if step.Action == "event.Publish" || step.Action == "event.Broadcast" {
-				evt := fmt.Sprint(step.Args["name"])
-				if evt != "" && !uniqueEvents[evt] {
-				
-uniqueEvents[evt] = true
-					eventList = append(eventList, evt)
-				}
-			}
-			if v, ok := step.Args["_do"].([]normalizer.FlowStep); ok { scanForEvents(v) }
-			if v, ok := step.Args["_then"].([]normalizer.FlowStep); ok { scanForEvents(v) }
-			if v, ok := step.Args["_else"].([]normalizer.FlowStep); ok { scanForEvents(v) }
-		}
-	}
-
-	for _, s := range services {
-		for _, evt := range s.Publishes {
-			if !uniqueEvents[evt] {
-			
-uniqueEvents[evt] = true
-				eventList = append(eventList, evt)
-			}
-		}
-		for _, m := range s.Methods {
-			scanForEvents(m.Flow)
-		}
-	}
-	for _, s := range schedules {
-		if s.Publish != "" && !uniqueEvents[s.Publish] {
-		
-uniqueEvents[s.Publish] = true
-			eventList = append(eventList, s.Publish)
-		}
-	}
-	// Sort for deterministic output
-	sort.Strings(eventList)
+	eventList := collectPublishedEventsFromIR(services, schedules)
 
 	var buf bytes.Buffer
 	if err := t.Execute(&buf, eventList); err != nil {
@@ -234,7 +242,7 @@ uniqueEvents[s.Publish] = true
 }
 
 // EmitNatsAdapter генерирует реализацию NATS клиента
-func (e *Emitter) EmitNatsAdapter(services []normalizer.Service, schedules []normalizer.ScheduleDef) error {
+func (e *Emitter) EmitNatsAdapter(services []ir.Service, schedules []ir.Schedule) error {
 	tmplPath := filepath.Join(e.TemplatesDir, "nats_client_v2.tmpl")
 	if _, err := os.Stat(tmplPath); err != nil {
 		tmplPath = "templates/nats_client_v2.tmpl"
@@ -262,47 +270,7 @@ tmplContent, err := ReadTemplateByPath(tmplPath)
 		return fmt.Errorf("mkdir: %w", err)
 	}
 
-	uniqueEvents := make(map[string]bool)
-	var eventList []string
-
-	var scanForEvents func([]normalizer.FlowStep)
-	scanForEvents = func(steps []normalizer.FlowStep) {
-		for _, step := range steps {
-			if step.Action == "event.Publish" || step.Action == "event.Broadcast" {
-				evt := fmt.Sprint(step.Args["name"])
-				if evt != "" && !uniqueEvents[evt] {
-				
-uniqueEvents[evt] = true
-					eventList = append(eventList, evt)
-				}
-			}
-			if v, ok := step.Args["_do"].([]normalizer.FlowStep); ok { scanForEvents(v) }
-			if v, ok := step.Args["_then"].([]normalizer.FlowStep); ok { scanForEvents(v) }
-			if v, ok := step.Args["_else"].([]normalizer.FlowStep); ok { scanForEvents(v) }
-		}
-	}
-
-	for _, s := range services {
-		for _, evt := range s.Publishes {
-			if !uniqueEvents[evt] {
-			
-uniqueEvents[evt] = true
-				eventList = append(eventList, evt)
-			}
-		}
-		for _, m := range s.Methods {
-			scanForEvents(m.Flow)
-		}
-	}
-	for _, s := range schedules {
-		if s.Publish != "" && !uniqueEvents[s.Publish] {
-		
-uniqueEvents[s.Publish] = true
-			eventList = append(eventList, s.Publish)
-		}
-	}
-	// Sort for deterministic output
-	sort.Strings(eventList)
+	eventList := collectPublishedEventsFromIR(services, schedules)
 
 	var buf bytes.Buffer
 	if err := t.Execute(&buf, eventList); err != nil {

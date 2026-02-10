@@ -9,6 +9,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
 )
 
@@ -52,13 +53,16 @@ type AdminNavData struct {
 }
 
 // EmitFrontendAdmin generates universal admin page and config.
-func (e *Emitter) EmitFrontendAdmin(entities []normalizer.Entity, services []normalizer.Service) error {
+func (e *Emitter) EmitFrontendAdmin(entities []ir.Entity, services []ir.Service) error {
+	entitiesNorm := IREntitiesToNormalizer(entities)
+	servicesNorm := IRServicesToNormalizer(services)
+
 	adminDir := strings.TrimSpace(e.FrontendAdminDir)
 	if adminDir == "" {
 		return nil
 	}
 
-	pages := collectAdminPages(entities, services)
+	pages := collectAdminPages(entitiesNorm, servicesNorm)
 	if len(pages) == 0 {
 		fmt.Printf("Warning: No admin pages collected.\n")
 		return nil

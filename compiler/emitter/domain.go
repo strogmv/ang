@@ -11,7 +11,6 @@ import (
 	"text/template"
 
 	"github.com/strogmv/ang/compiler/ir"
-	"github.com/strogmv/ang/compiler/normalizer"
 )
 
 // computeDomainImports determines required imports for domain entities.
@@ -242,14 +241,16 @@ func (e *Emitter) emitProjections(targetDir string, projections []DomainTemplate
 }
 
 // EmitEvents generates event structs.
-func (e *Emitter) EmitEvents(events []normalizer.EventDef) error {
+func (e *Emitter) EmitEvents(events []ir.Event) error {
 	tmplPath := "templates/event_structs.tmpl"
 	tmplContent, err := ReadTemplateByPath(tmplPath)
 	if err != nil {
 		return fmt.Errorf("read template: %w", err)
 	}
 
-	t, err := template.New("event_structs").Funcs(e.getSharedFuncMap()).Parse(string(tmplContent))
+	funcMap := e.getSharedFuncMap()
+	funcMap["GoType"] = IRTypeRefToGoType
+	t, err := template.New("event_structs").Funcs(funcMap).Parse(string(tmplContent))
 	if err != nil {
 		return fmt.Errorf("parse template: %w", err)
 	}

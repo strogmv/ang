@@ -10,14 +10,16 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
 )
 
 // EmitMicroservices generates separate binaries for each service.
-func (e *Emitter) EmitMicroservices(services []normalizer.Service, wsServices map[string]bool, auth *normalizer.AuthDef) error {
+func (e *Emitter) EmitMicroservices(services []ir.Service, wsServices map[string]bool, auth *normalizer.AuthDef) error {
 	for _, svc := range services {
+		svcNorm := IRServiceToNormalizer(svc)
 		ctx := MainContext{
-			Services: []normalizer.Service{svc},
+			Services: []normalizer.Service{svcNorm},
 			HasCache: svc.RequiresRedis,
 			HasSQL:   svc.RequiresSQL,
 			HasMongo: svc.RequiresMongo,

@@ -9,11 +9,15 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
 )
 
 // EmitMongoRepo generates repository implementations for MongoDB-backed entities.
-func (e *Emitter) EmitMongoRepo(repos []normalizer.Repository, entities []normalizer.Entity) error {
+func (e *Emitter) EmitMongoRepo(repos []ir.Repository, entities []ir.Entity) error {
+	reposNorm := IRReposToNormalizer(repos)
+	entitiesNorm := IREntitiesToNormalizer(entities)
+
 	tmplPath := filepath.Join(e.TemplatesDir, "mongo_repo.tmpl")
 	if _, err := os.Stat(tmplPath); err != nil {
 		tmplPath = "templates/mongo_repo.tmpl"
@@ -25,7 +29,7 @@ func (e *Emitter) EmitMongoRepo(repos []normalizer.Repository, entities []normal
 	}
 
 	entMap := make(map[string]normalizer.Entity)
-	for _, ent := range entities {
+	for _, ent := range entitiesNorm {
 		entMap[ent.Name] = ent
 	}
 
@@ -68,7 +72,7 @@ func (e *Emitter) EmitMongoRepo(repos []normalizer.Repository, entities []normal
 		IsCount      bool
 	}
 
-	for _, repo := range repos {
+	for _, repo := range reposNorm {
 		ent, ok := entMap[repo.Entity]
 		if !ok {
 			continue
@@ -176,9 +180,11 @@ func (e *Emitter) EmitMongoRepo(repos []normalizer.Repository, entities []normal
 }
 
 // EmitMongoCommon generates shared utilities for Mongo repositories.
-func (e *Emitter) EmitMongoCommon(entities []normalizer.Entity) error {
+func (e *Emitter) EmitMongoCommon(entities []ir.Entity) error {
+	entitiesNorm := IREntitiesToNormalizer(entities)
+
 	hasMongo := false
-	for _, ent := range entities {
+	for _, ent := range entitiesNorm {
 		if v, ok := ent.Metadata["storage"].(string); ok && v == "mongo" {
 			hasMongo = true
 			break

@@ -9,11 +9,15 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
 )
 
 // EmitStubRepo генерирует memory implementation
-func (e *Emitter) EmitStubRepo(repos []normalizer.Repository, entities []normalizer.Entity) error {
+func (e *Emitter) EmitStubRepo(repos []ir.Repository, entities []ir.Entity) error {
+	reposNorm := IRReposToNormalizer(repos)
+	entitiesNorm := IREntitiesToNormalizer(entities)
+
 	tmplPath := filepath.Join(e.TemplatesDir, "stub_repo.tmpl")
 	if _, err := os.Stat(tmplPath); err != nil {
 		tmplPath = "templates/stub_repo.tmpl"
@@ -42,11 +46,11 @@ func (e *Emitter) EmitStubRepo(repos []normalizer.Repository, entities []normali
 	}
 
 	entMap := make(map[string]normalizer.Entity)
-	for _, ent := range entities {
+	for _, ent := range entitiesNorm {
 		entMap[ent.Name] = ent
 	}
 
-	for _, repo := range repos {
+	for _, repo := range reposNorm {
 		ent, ok := entMap[repo.Entity]
 		if !ok {
 			continue

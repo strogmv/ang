@@ -11,27 +11,27 @@ import (
 type RegisterInput struct {
 	Em               *emitter.Emitter
 	IRSchema         *ir.Schema
-	Endpoints        []normalizer.Endpoint
-	Services         []normalizer.Service
-	Events           []normalizer.EventDef
-	BizErrors        []normalizer.ErrorDef
 	ProjectDef       *normalizer.ProjectDef
 	PythonSDKEnabled bool
 }
 
 func Register(registry *generator.StepRegistry, in RegisterInput) {
+	if in.IRSchema == nil {
+		in.IRSchema = &ir.Schema{}
+	}
+
 	registry.Register(generator.Step{
 		Name:     "OpenAPI",
 		Requires: []compiler.Capability{compiler.CapabilityHTTP},
 		Run: func() error {
-			return in.Em.EmitOpenAPI(in.Endpoints, in.Services, in.BizErrors, in.ProjectDef)
+			return in.Em.EmitOpenAPIFromIR(in.IRSchema, in.ProjectDef)
 		},
 	})
 	registry.Register(generator.Step{
 		Name:     "AsyncAPI",
 		Requires: []compiler.Capability{compiler.CapabilityEvents},
 		Run: func() error {
-			return in.Em.EmitAsyncAPI(in.Events, in.ProjectDef)
+			return in.Em.EmitAsyncAPIFromIR(in.IRSchema, in.ProjectDef)
 		},
 	})
 	registry.Register(generator.Step{

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
 )
 
@@ -91,7 +92,11 @@ func buildMiddlewareList(ep normalizer.Endpoint, includeCache, includeIdempotenc
 }
 
 // EmitHTTP generates HTTP routers.
-func (e *Emitter) EmitHTTP(endpoints []normalizer.Endpoint, services []normalizer.Service, events []normalizer.EventDef, auth *normalizer.AuthDef) error {
+func (e *Emitter) EmitHTTP(irEndpoints []ir.Endpoint, irServices []ir.Service, irEvents []ir.Event, auth *normalizer.AuthDef) error {
+	endpoints := IREndpointsToNormalizer(irEndpoints)
+	services := IRServicesToNormalizer(irServices)
+	events := IREventsToNormalizer(irEvents)
+
 	tmplPath := "templates/http.tmpl"
 	tmplContent, err := ReadTemplateByPath(tmplPath)
 	if err != nil {
@@ -320,11 +325,15 @@ func (e *Emitter) EmitHTTP(endpoints []normalizer.Endpoint, services []normalize
 	if err := e.EmitHTTPCommon(auth); err != nil {
 		return err
 	}
-	return e.EmitWebSocket(endpoints, services, events)
+	return e.EmitWebSocket(irEndpoints, irServices, irEvents)
 }
 
 // EmitWebSocket generates WebSocket routers.
-func (e *Emitter) EmitWebSocket(endpoints []normalizer.Endpoint, services []normalizer.Service, events []normalizer.EventDef) error {
+func (e *Emitter) EmitWebSocket(irEndpoints []ir.Endpoint, irServices []ir.Service, irEvents []ir.Event) error {
+	endpoints := IREndpointsToNormalizer(irEndpoints)
+	services := IRServicesToNormalizer(irServices)
+	events := IREventsToNormalizer(irEvents)
+
 	// First, emit the common WS infrastructure
 	if err := e.emitWSCommon(); err != nil {
 		return err
@@ -699,7 +708,11 @@ type OpenAPIContext struct {
 	CompilerHash string
 }
 
-func (e *Emitter) EmitOpenAPI(endpoints []normalizer.Endpoint, services []normalizer.Service, errors []normalizer.ErrorDef, project *normalizer.ProjectDef) error {
+func (e *Emitter) EmitOpenAPI(irEndpoints []ir.Endpoint, irServices []ir.Service, irErrors []ir.Error, project *normalizer.ProjectDef) error {
+	endpoints := IREndpointsToNormalizer(irEndpoints)
+	services := IRServicesToNormalizer(irServices)
+	errors := IRErrorsToNormalizer(irErrors)
+
 	tmplPath := "templates/openapi.tmpl"
 	tmplContent, err := ReadTemplateByPath(tmplPath)
 	if err != nil {
@@ -1002,7 +1015,9 @@ func (e *Emitter) EmitOpenAPI(endpoints []normalizer.Endpoint, services []normal
 }
 
 // EmitAsyncAPI generates the AsyncAPI specification for events.
-func (e *Emitter) EmitAsyncAPI(events []normalizer.EventDef, project *normalizer.ProjectDef) error {
+func (e *Emitter) EmitAsyncAPI(irEvents []ir.Event, project *normalizer.ProjectDef) error {
+	events := IREventsToNormalizer(irEvents)
+
 	tmplPath := "templates/asyncapi.tmpl"
 	tmplContent, err := ReadTemplateByPath(tmplPath)
 	if err != nil {

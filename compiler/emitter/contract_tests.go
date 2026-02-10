@@ -11,6 +11,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
 )
 
@@ -33,12 +34,14 @@ type authEndpoints struct {
 }
 
 // EmitContractTests generates HTTP/WS contract tests from CUE definitions.
-func (e *Emitter) EmitContractTests(endpoints []normalizer.Endpoint, services []normalizer.Service) error {
+func (e *Emitter) EmitContractTests(irEndpoints []ir.Endpoint, irServices []ir.Service) error {
 	tmplPath := "templates/contract_tests.tmpl"
 	tmplContent, err := ReadTemplateByPath(tmplPath)
 	if err != nil {
 		return fmt.Errorf("read template: %w", err)
 	}
+	endpoints := IREndpointsToNormalizer(irEndpoints)
+	services := IRServicesToNormalizer(irServices)
 
 	methodsByService := make(map[string]map[string]normalizer.Method)
 	for _, svc := range services {
