@@ -50,6 +50,7 @@ func registerPlanTools(addTool toolAdder) {
 		mcp.WithString("intent", mcp.Required()),
 		mcp.WithBoolean("auto_apply", mcp.Description("Apply generated CUE patches automatically (default true).")),
 		mcp.WithBoolean("run_build", mcp.Description("Run build after patch apply (default true).")),
+		mcp.WithBoolean("auto_undo_on_fail", mcp.Description("Rollback applied patches when apply/build fails (default true).")),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		intent := strings.TrimSpace(mcp.ParseString(request, "intent", ""))
 		if intent == "" {
@@ -57,6 +58,7 @@ func registerPlanTools(addTool toolAdder) {
 		}
 		autoApply := mcp.ParseBoolean(request, "auto_apply", true)
 		runBuild := mcp.ParseBoolean(request, "run_build", true)
+		autoUndoOnFail := mcp.ParseBoolean(request, "auto_undo_on_fail", true)
 
 		plan, err := buildGoalPlan(intent)
 		if err != nil {
@@ -74,6 +76,7 @@ func registerPlanTools(addTool toolAdder) {
 			"intent":            intent,
 			"auto_apply":        autoApply,
 			"run_build":         runBuild,
+			"auto_undo_on_fail": autoUndoOnFail,
 			"patches_available": len(patches),
 			"plan":              plan,
 		}
@@ -85,6 +88,7 @@ func registerPlanTools(addTool toolAdder) {
 
 		applied := make([]map[string]any, 0, len(patches))
 		failed := make([]map[string]any, 0)
+		backups := map[string][]byte{}
 		for _, p := range patches {
 			path, _ := p["path"].(string)
 			selector, _ := p["selector"].(string)
@@ -103,6 +107,9 @@ func registerPlanTools(addTool toolAdder) {
 			}
 
 			orig, _ := os.ReadFile(path)
+			if _, exists := backups[path]; !exists {
+				backups[path] = append([]byte(nil), orig...)
+			}
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				failed = append(failed, map[string]any{"path": path, "error": err.Error()})
 				continue
@@ -134,14 +141,17 @@ func registerPlanTools(addTool toolAdder) {
 		resp["patches_applied"] = len(applied)
 		resp["patches_failed"] = failed
 		resp["applied"] = applied
+		applyFailed := len(failed) > 0
 
+		buildFailed := false
 		if runBuild {
-			cmd := exec.Command("./ang_bin", "build")
+			cmd := exec.Command(resolveANGExecutable(), "build")
 			out, err := cmd.CombinedOutput()
 			buildLog := string(out)
 			buildStatus := "success"
 			if err != nil || strings.Contains(buildLog, "Build FAILED") {
 				buildStatus = "failed"
+				buildFailed = true
 			}
 			_ = os.WriteFile("ang-build.log", []byte(buildLog), 0o644)
 			resp["build_status"] = buildStatus
@@ -152,9 +162,32 @@ func registerPlanTools(addTool toolAdder) {
 			}
 		}
 
+		if autoUndoOnFail && (applyFailed || buildFailed) && len(backups) > 0 {
+			rollbackErrs := rollbackCueBackups(backups)
+			resp["rolled_back"] = len(rollbackErrs) == 0
+			resp["rollback_files"] = len(backups)
+			if len(rollbackErrs) > 0 {
+				resp["rollback_errors"] = rollbackErrs
+			}
+		}
+
 		b, _ := json.MarshalIndent(resp, "", "  ")
 		return mcp.NewToolResultText(string(b)), nil
 	})
+}
+
+func rollbackCueBackups(backups map[string][]byte) []string {
+	errs := []string{}
+	paths := make([]string, 0, len(backups))
+	for p := range backups {
+		paths = append(paths, p)
+	}
+	for _, p := range paths {
+		if err := os.WriteFile(p, backups[p], 0o644); err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", p, err))
+		}
+	}
+	return errs
 }
 
 func extractPlanPatches(plan map[string]any) []map[string]any {

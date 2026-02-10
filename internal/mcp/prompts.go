@@ -29,9 +29,11 @@ func registerPrompts(s *server.MCPServer) {
 				"1) Call ang_plan with goal: \"add entity %s with fields %s\".\n"+
 				"2) Prefer cue_set_field for each new field when target entity already exists.\n"+
 				"3) If structural edits are needed (new blocks/files), apply cue_apply_patch entries from plan.\n"+
-				"4) Run run_preset('build').\n"+
-				"5) If build fails, run ang_doctor and apply safe suggested patch(es), then run run_preset('build') again.\n"+
-				"6) Return concise summary: changed cue files, build status, and generated artifact impact.\n\n"+
+				"4) Run ang_validate for fast feedback before full build.\n"+
+				"5) Run run_preset('build').\n"+
+				"6) If build fails, run ang_doctor and apply safe suggested patch(es), then run run_preset('build') again.\n"+
+				"7) Run ang_model_diff to summarize model-level impact.\n"+
+				"8) Return concise summary: changed cue files, build status, and generated artifact impact.\n\n"+
 				"Field-level policy:\n- Use cue_set_field for single field add/update (predictable).\n- Use cue_apply_patch only for non-field structural changes.\n\n"+
 				"Rules:\n- Edit only cue/* for intent changes.\n- Do not hand-edit generated internal/* files.\n- Keep output deterministic and minimal.\n",
 			name, fields, owner, name, fields,
@@ -64,10 +66,11 @@ func registerPrompts(s *server.MCPServer) {
 				"Execution plan:\n"+
 				"1) Call ang_schema to capture current entities/services/endpoints.\n"+
 				"2) Call ang_plan with goal: \"add endpoint %s %s mapped to %s.%s\".\n"+
-				"3) Apply cue patches from plan (cue_apply_patch).\n"+
-				"4) Run run_preset('build').\n"+
-				"5) If failed: ang_doctor -> apply safe fix -> build again.\n"+
-				"6) Report endpoint presence in generated OpenAPI and any warnings.\n\n"+
+				"3) Prefer cue_add_endpoint for endpoint insertion.\n"+
+				"4) Apply remaining structural cue patches from plan (cue_apply_patch).\n"+
+				"5) Run ang_validate, then run_preset('build').\n"+
+				"6) If failed: ang_doctor -> apply safe fix -> build again.\n"+
+				"7) Report endpoint presence in generated OpenAPI and any warnings.\n\n"+
 				"Constraints:\n- Intent changes only in cue/api and cue/architecture as needed.\n- No direct edits in generated output folders.\n",
 			method, path, service, rpc, method, path, service, rpc,
 		)
@@ -91,13 +94,15 @@ func registerPrompts(s *server.MCPServer) {
 			"Fix bug workflow for ANG project.\nGoal: %s\n\n"+
 				"Execution plan:\n"+
 				"1) Call ang_schema to confirm current entities/services/endpoints baseline.\n"+
-				"2) Read build log resource: resource://ang/logs/build.\n"+
-				"3) Run ang_doctor to extract structured error codes and suggestions.\n"+
-				"4) For field-level fixes, use cue_set_field. For structural fixes, use cue_apply_patch.\n"+
-				"5) Run run_preset('build').\n"+
-				"6) If patch made things worse, inspect cue_history and use cue_undo.\n"+
-				"7) If still failing, iterate doctor -> patch -> build up to 3 times.\n"+
-				"8) Return final status with errors_fixed/errors_remaining and changed files.\n\n"+
+				"2) Run ang_validate for current structured diagnostics.\n"+
+				"3) Read build log resource: resource://ang/logs/build.\n"+
+				"4) Run ang_doctor to extract structured error codes and suggestions.\n"+
+				"5) For field-level fixes, use cue_set_field. For endpoint insertion, use cue_add_endpoint. For structural fixes, use cue_apply_patch.\n"+
+				"6) Run run_preset('build').\n"+
+				"7) If patch made things worse, inspect cue_history and use cue_undo.\n"+
+				"8) If still failing, iterate doctor -> patch -> build up to 3 times.\n"+
+				"9) Run ang_model_diff for model-level summary.\n"+
+				"10) Return final status with errors_fixed/errors_remaining and changed files.\n\n"+
 				"Safety:\n- Prefer smallest valid patch.\n- Keep edits in cue/* only.\n- Preserve unrelated user changes.\n",
 			goal,
 		)

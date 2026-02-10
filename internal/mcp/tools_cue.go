@@ -1,8 +1,10 @@
 package mcp
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -32,6 +34,19 @@ type cueHistoryEntry struct {
 	Meta      map[string]any `json:"meta,omitempty"`
 	Before    []byte         `json:"-"`
 	After     []byte         `json:"-"`
+}
+
+type cueHistoryDiskEntry struct {
+	ID        int64          `json:"id"`
+	Tool      string         `json:"tool"`
+	Path      string         `json:"path"`
+	Timestamp string         `json:"timestamp"`
+	Changed   bool           `json:"changed"`
+	BytesFrom int            `json:"bytes_before"`
+	BytesTo   int            `json:"bytes_after"`
+	Meta      map[string]any `json:"meta,omitempty"`
+	BeforeB64 string         `json:"before_b64"`
+	AfterB64  string         `json:"after_b64"`
 }
 
 var cueHistoryState = struct {
@@ -94,6 +109,7 @@ func registerCUETools(addTool toolAdder) {
 				"forced_merge": force,
 			})
 			resp["history_id"] = entry.ID
+			resp["generated_impact"] = collectGeneratedImpact()
 		}
 		b, _ := json.MarshalIndent(resp, "", "  ")
 		return mcp.NewToolResultText(string(b)), nil
@@ -179,6 +195,7 @@ func registerCUETools(addTool toolAdder) {
 				"overwrite": overwrite,
 			})
 			resp["history_id"] = entry.ID
+			resp["generated_impact"] = collectGeneratedImpact()
 		}
 		b, _ := json.MarshalIndent(resp, "", "  ")
 		return mcp.NewToolResultText(string(b)), nil
@@ -208,8 +225,10 @@ func registerCUETools(addTool toolAdder) {
 
 	addTool("cue_undo", mcp.NewTool("cue_undo",
 		mcp.WithDescription("Undo last successful CUE change from session history."),
+		mcp.WithNumber("id", mcp.Description("Optional history id to undo; default is latest entry.")),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		entry, ok := popCueHistory()
+		undoID := int64(mcp.ParseFloat64(request, "id", 0))
+		entry, ok := popCueHistory(undoID)
 		if !ok {
 			return mcp.NewToolResultText(`{"status":"empty","message":"No CUE changes to undo in this MCP session"}`), nil
 		}
@@ -262,7 +281,7 @@ func registerCUETools(addTool toolAdder) {
 		var cmd *exec.Cmd
 		switch name {
 		case "build":
-			cmd = exec.Command("./ang_bin", "build")
+			cmd = exec.Command(resolveANGExecutable(), "build")
 		case "unit":
 			cmd = exec.Command("go", "test", "-v", "./...")
 		default:
@@ -287,6 +306,88 @@ func registerCUETools(addTool toolAdder) {
 			resp["log_tail"] = tailLines(logText, 30)
 			resp["doctor"] = buildDoctorResponse(logText)
 		}
+		b, _ := json.MarshalIndent(resp, "", "  ")
+		return mcp.NewToolResultText(string(b)), nil
+	})
+
+	addTool("cue_add_endpoint", mcp.NewTool("cue_add_endpoint",
+		mcp.WithDescription("Atomically add HTTP endpoint to a CUE endpoint list."),
+		mcp.WithString("path", mcp.Required()),
+		mcp.WithString("method", mcp.Required()),
+		mcp.WithString("endpoint_path", mcp.Required()),
+		mcp.WithString("service", mcp.Required()),
+		mcp.WithString("rpc", mcp.Required()),
+		mcp.WithString("auth", mcp.Description("Auth mode, optional (e.g. jwt, none).")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		path := mcp.ParseString(request, "path", "")
+		method := strings.ToUpper(strings.TrimSpace(mcp.ParseString(request, "method", "")))
+		endpointPath := strings.TrimSpace(mcp.ParseString(request, "endpoint_path", ""))
+		service := strings.TrimSpace(mcp.ParseString(request, "service", ""))
+		rpc := strings.TrimSpace(mcp.ParseString(request, "rpc", ""))
+		auth := strings.TrimSpace(mcp.ParseString(request, "auth", ""))
+		if err := validateCuePath(path); err != nil {
+			return mcp.NewToolResultText("Denied"), nil
+		}
+		if method == "" || endpointPath == "" || service == "" || rpc == "" {
+			return mcp.NewToolResultText("method, endpoint_path, service, rpc are required"), nil
+		}
+		orig, err := os.ReadFile(path)
+		if err != nil {
+			return mcp.NewToolResultText(fmt.Sprintf("read error: %v", err)), nil
+		}
+		next, changed, err := applyAddEndpointPatch(orig, method, endpointPath, service, rpc, auth)
+		if err != nil {
+			return mcp.NewToolResultText(fmt.Sprintf("cue_add_endpoint error: %v", err)), nil
+		}
+		if !changed {
+			resp := map[string]any{
+				"status":        "ok",
+				"path":          path,
+				"method":        method,
+				"endpoint_path": endpointPath,
+				"service":       service,
+				"rpc":           rpc,
+				"changed":       false,
+			}
+			b, _ := json.MarshalIndent(resp, "", "  ")
+			return mcp.NewToolResultText(string(b)), nil
+		}
+		if err := os.WriteFile(path, next, 0o644); err != nil {
+			return mcp.NewToolResultText(fmt.Sprintf("write error: %v", err)), nil
+		}
+		dir := filepath.Dir(path)
+		cmd := exec.Command("cue", "vet", "./"+dir)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			_ = os.WriteFile(path, orig, 0o644)
+			return mcp.NewToolResultText(fmt.Sprintf("Syntax validation FAILED:\n%s", string(out))), nil
+		}
+		if _, _, _, _, _, _, _, _, err := compiler.RunPipeline("."); err != nil {
+			_ = os.WriteFile(path, orig, 0o644)
+			return mcp.NewToolResultText(fmt.Sprintf("Architecture validation FAILED: %v", err)), nil
+		}
+		diffText := unifiedDiff(orig, next)
+		resp := map[string]any{
+			"status":         "ok",
+			"path":           path,
+			"method":         method,
+			"endpoint_path":  endpointPath,
+			"service":        service,
+			"rpc":            rpc,
+			"auth":           auth,
+			"changed":        true,
+			"before_preview": previewText(string(orig), 1200),
+			"after_preview":  previewText(string(next), 1200),
+			"diff_unified":   previewText(diffText, 6000),
+		}
+		entry := recordCueHistory("cue_add_endpoint", path, orig, next, map[string]any{
+			"method":        method,
+			"endpoint_path": endpointPath,
+			"service":       service,
+			"rpc":           rpc,
+			"auth":          auth,
+		})
+		resp["history_id"] = entry.ID
+		resp["generated_impact"] = collectGeneratedImpact()
 		b, _ := json.MarshalIndent(resp, "", "  ")
 		return mcp.NewToolResultText(string(b)), nil
 	})
@@ -461,9 +562,122 @@ func buildCueField(fieldName, fieldType string, optional bool) (*ast.Field, erro
 	return nil, fmt.Errorf("failed to build field")
 }
 
+func applyAddEndpointPatch(src []byte, method, endpointPath, service, rpc, auth string) ([]byte, bool, error) {
+	f, err := parser.ParseFile("target.cue", src, parser.ParseComments)
+	if err != nil {
+		return nil, false, fmt.Errorf("parse file: %w", err)
+	}
+	endpoints := findOrCreateListField(f, "endpoints")
+	if endpoints == nil {
+		return nil, false, fmt.Errorf("unable to locate or create endpoints list")
+	}
+	list, ok := endpoints.Value.(*ast.ListLit)
+	if !ok {
+		return nil, false, fmt.Errorf("endpoints is not a list")
+	}
+	for _, elt := range list.Elts {
+		obj, ok := elt.(*ast.StructLit)
+		if !ok {
+			continue
+		}
+		if endpointStructMatches(obj, method, endpointPath, service, rpc) {
+			return src, false, nil
+		}
+	}
+
+	entry, err := parseEndpointEntry(method, endpointPath, service, rpc, auth)
+	if err != nil {
+		return nil, false, err
+	}
+	list.Elts = append(list.Elts, entry)
+	out, err := format.Node(f)
+	if err != nil {
+		return nil, false, fmt.Errorf("format result: %w", err)
+	}
+	return out, !bytes.Equal(src, out), nil
+}
+
+func findOrCreateListField(f *ast.File, fieldName string) *ast.Field {
+	for _, d := range f.Decls {
+		fd, ok := d.(*ast.Field)
+		if !ok {
+			continue
+		}
+		if cueLabelName(fd.Label) == fieldName {
+			return fd
+		}
+	}
+	newField := &ast.Field{
+		Label: ast.NewIdent(fieldName),
+		Value: &ast.ListLit{},
+	}
+	f.Decls = append(f.Decls, newField)
+	return newField
+}
+
+func parseEndpointEntry(method, endpointPath, service, rpc, auth string) (*ast.StructLit, error) {
+	buf := "package p\nx: [{\n" +
+		"  method: " + strconv.Quote(method) + "\n" +
+		"  path: " + strconv.Quote(endpointPath) + "\n" +
+		"  service: " + strconv.Quote(service) + "\n" +
+		"  rpc: " + strconv.Quote(rpc) + "\n"
+	if auth != "" {
+		buf += "  auth: " + strconv.Quote(auth) + "\n"
+	}
+	buf += "}]\n"
+	pf, err := parser.ParseFile("endpoint_snippet.cue", buf)
+	if err != nil {
+		return nil, fmt.Errorf("build endpoint snippet: %w", err)
+	}
+	for _, d := range pf.Decls {
+		fd, ok := d.(*ast.Field)
+		if !ok || cueLabelName(fd.Label) != "x" {
+			continue
+		}
+		lst, ok := fd.Value.(*ast.ListLit)
+		if !ok || len(lst.Elts) == 0 {
+			continue
+		}
+		st, ok := lst.Elts[0].(*ast.StructLit)
+		if ok {
+			return st, nil
+		}
+	}
+	return nil, fmt.Errorf("cannot build endpoint struct")
+}
+
+func endpointStructMatches(st *ast.StructLit, method, endpointPath, service, rpc string) bool {
+	var m, p, s, r string
+	for _, elt := range st.Elts {
+		fd, ok := elt.(*ast.Field)
+		if !ok {
+			continue
+		}
+		val := ""
+		if lit, ok := fd.Value.(*ast.BasicLit); ok {
+			val = strings.Trim(lit.Value, "\"`")
+		}
+		switch cueLabelName(fd.Label) {
+		case "method":
+			m = strings.ToUpper(val)
+		case "path":
+			p = val
+		case "service":
+			s = val
+		case "rpc":
+			r = val
+		}
+	}
+	return strings.ToUpper(method) == m && endpointPath == p && service == s && rpc == r
+}
+
 func recordCueHistory(tool, path string, before, after []byte, meta map[string]any) cueHistoryEntry {
 	cueHistoryState.Lock()
 	defer cueHistoryState.Unlock()
+	existing := readPersistentHistoryLocked()
+	if len(existing) > 0 {
+		cueHistoryState.NextID = existing[len(existing)-1].ID + 1
+	}
 	entry := cueHistoryEntry{
 		ID:        cueHistoryState.NextID,
 		Tool:      tool,
@@ -477,24 +691,28 @@ func recordCueHistory(tool, path string, before, after []byte, meta map[string]a
 		After:     append([]byte(nil), after...),
 	}
 	cueHistoryState.NextID++
-	cueHistoryState.Entries = append(cueHistoryState.Entries, entry)
-	if len(cueHistoryState.Entries) > cueHistoryMaxEntries {
-		cueHistoryState.Entries = cueHistoryState.Entries[len(cueHistoryState.Entries)-cueHistoryMaxEntries:]
+	existing = append(existing, entry)
+	if len(existing) > cueHistoryMaxEntries {
+		existing = existing[len(existing)-cueHistoryMaxEntries:]
 	}
+	cueHistoryState.Entries = existing
+	_ = writePersistentHistoryLocked(existing)
 	return entry
 }
 
 func listCueHistory(limit int) ([]map[string]any, int) {
 	cueHistoryState.Lock()
 	defer cueHistoryState.Unlock()
-	total := len(cueHistoryState.Entries)
+	entries := readPersistentHistoryLocked()
+	cueHistoryState.Entries = entries
+	total := len(entries)
 	start := total - limit
 	if start < 0 {
 		start = 0
 	}
 	out := make([]map[string]any, 0, total-start)
 	for i := total - 1; i >= start; i-- {
-		e := cueHistoryState.Entries[i]
+		e := entries[i]
 		out = append(out, map[string]any{
 			"id":           e.ID,
 			"tool":         e.Tool,
@@ -509,26 +727,186 @@ func listCueHistory(limit int) ([]map[string]any, int) {
 	return out, total
 }
 
-func popCueHistory() (cueHistoryEntry, bool) {
+func popCueHistory(targetID int64) (cueHistoryEntry, bool) {
 	cueHistoryState.Lock()
 	defer cueHistoryState.Unlock()
-	n := len(cueHistoryState.Entries)
+	entries := readPersistentHistoryLocked()
+	n := len(entries)
 	if n == 0 {
 		return cueHistoryEntry{}, false
 	}
-	last := cueHistoryState.Entries[n-1]
-	cueHistoryState.Entries = cueHistoryState.Entries[:n-1]
-	return last, true
+	idx := n - 1
+	if targetID > 0 {
+		idx = -1
+		for i := n - 1; i >= 0; i-- {
+			if entries[i].ID == targetID {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			return cueHistoryEntry{}, false
+		}
+	}
+	target := entries[idx]
+	entries = append(entries[:idx], entries[idx+1:]...)
+	cueHistoryState.Entries = entries
+	_ = writePersistentHistoryLocked(entries)
+	return target, true
 }
 
 func pushCueHistory(entry cueHistoryEntry) {
 	cueHistoryState.Lock()
 	defer cueHistoryState.Unlock()
-	cueHistoryState.Entries = append(cueHistoryState.Entries, entry)
+	entries := readPersistentHistoryLocked()
+	entries = append(entries, entry)
+	if len(entries) > cueHistoryMaxEntries {
+		entries = entries[len(entries)-cueHistoryMaxEntries:]
+	}
+	cueHistoryState.Entries = entries
+	_ = writePersistentHistoryLocked(entries)
 }
 
 func cueHistoryCount() int {
 	cueHistoryState.Lock()
 	defer cueHistoryState.Unlock()
-	return len(cueHistoryState.Entries)
+	entries := readPersistentHistoryLocked()
+	cueHistoryState.Entries = entries
+	return len(entries)
+}
+
+func persistentHistoryPath() string {
+	return filepath.Join(".ang", "history.jsonl")
+}
+
+func readPersistentHistoryLocked() []cueHistoryEntry {
+	f, err := os.Open(persistentHistoryPath())
+	if err != nil {
+		return []cueHistoryEntry{}
+	}
+	defer f.Close()
+	entries := []cueHistoryEntry{}
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" {
+			continue
+		}
+		var raw cueHistoryDiskEntry
+		if err := json.Unmarshal([]byte(line), &raw); err != nil {
+			continue
+		}
+		before, _ := base64.StdEncoding.DecodeString(raw.BeforeB64)
+		after, _ := base64.StdEncoding.DecodeString(raw.AfterB64)
+		entries = append(entries, cueHistoryEntry{
+			ID:        raw.ID,
+			Tool:      raw.Tool,
+			Path:      raw.Path,
+			Timestamp: raw.Timestamp,
+			Changed:   raw.Changed,
+			BytesFrom: raw.BytesFrom,
+			BytesTo:   raw.BytesTo,
+			Meta:      raw.Meta,
+			Before:    before,
+			After:     after,
+		})
+	}
+	return entries
+}
+
+func writePersistentHistoryLocked(entries []cueHistoryEntry) error {
+	if err := os.MkdirAll(".ang", 0o755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(persistentHistoryPath(), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	for _, e := range entries {
+		raw := cueHistoryDiskEntry{
+			ID:        e.ID,
+			Tool:      e.Tool,
+			Path:      e.Path,
+			Timestamp: e.Timestamp,
+			Changed:   e.Changed,
+			BytesFrom: e.BytesFrom,
+			BytesTo:   e.BytesTo,
+			Meta:      e.Meta,
+			BeforeB64: base64.StdEncoding.EncodeToString(e.Before),
+			AfterB64:  base64.StdEncoding.EncodeToString(e.After),
+		}
+		b, err := json.Marshal(raw)
+		if err != nil {
+			return err
+		}
+		if _, err := f.Write(append(b, '\n')); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func collectGeneratedImpact() map[string]any {
+	result := map[string]any{
+		"status":          "unknown",
+		"generated_roots": []string{"internal/", "sdk/", "api/"},
+	}
+
+	buildCmd := exec.Command(resolveANGExecutable(), "build")
+	buildOut, buildErr := buildCmd.CombinedOutput()
+	buildText := string(buildOut)
+	buildStatus := "success"
+	if buildErr != nil || strings.Contains(buildText, "Build FAILED") {
+		buildStatus = "failed"
+	}
+	result["build_status"] = buildStatus
+	result["build_log_excerpt"] = truncate(buildText, 4000)
+	if buildStatus == "failed" {
+		result["status"] = "build_failed"
+		result["doctor"] = buildDoctorResponse(buildText)
+		return result
+	}
+
+	numstatCmd := exec.Command("git", "diff", "--numstat", "--", "internal/", "sdk/", "api/")
+	numstatOut, numstatErr := numstatCmd.CombinedOutput()
+	if numstatErr != nil && len(numstatOut) == 0 {
+		result["status"] = "diff_error"
+		result["error"] = numstatErr.Error()
+		return result
+	}
+
+	entries := parseNumstat(string(numstatOut))
+	shortstatCmd := exec.Command("git", "diff", "--shortstat", "--", "internal/", "sdk/", "api/")
+	shortstatOut, _ := shortstatCmd.CombinedOutput()
+
+	result["status"] = "ok"
+	result["summary"] = strings.TrimSpace(string(shortstatOut))
+	result["changed_files"] = entries
+	result["changed_files_count"] = len(entries)
+	return result
+}
+
+func parseNumstat(s string) []map[string]any {
+	out := []map[string]any{}
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) < 3 {
+			continue
+		}
+		added, _ := strconv.Atoi(parts[0])
+		deleted, _ := strconv.Atoi(parts[1])
+		path := parts[2]
+		out = append(out, map[string]any{
+			"path":    path,
+			"added":   added,
+			"deleted": deleted,
+		})
+	}
+	return out
 }

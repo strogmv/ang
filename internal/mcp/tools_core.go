@@ -12,6 +12,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/strogmv/ang/compiler"
+	"github.com/strogmv/ang/compiler/normalizer"
 )
 
 type coreToolDeps struct {
@@ -29,31 +30,6 @@ type coreToolDeps struct {
 }
 
 func registerCoreTools(addTool toolAdder, deps coreToolDeps) {
-	addTool("ang_bootstrap", mcp.NewTool("ang_bootstrap",
-		mcp.WithDescription("Mandatory first step."),
-	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		sessionState.Lock()
-		sessionState.Bootstrapped = true
-		sessionState.Unlock()
-
-		res := map[string]any{
-			"status":              "Ready",
-			"ang_version":         compiler.Version,
-			"active_profile":      deps.currentProfile(),
-			"runtime_config_path": deps.runtimeConfigPath(),
-			"workflows": map[string]any{
-				"feature_add": deps.featureAddWorkflow(),
-				"bug_fix":     deps.bugFixWorkflow(),
-			},
-			"resources": []string{"resource://ang/logs/build", "resource://ang/policy"},
-		}
-		if errMsg := deps.runtimeConfigError(); errMsg != "" {
-			res["runtime_config_error"] = errMsg
-		}
-		jsonRes, _ := json.MarshalIndent(res, "", "  ")
-		return mcp.NewToolResultText(string(jsonRes)), nil
-	})
-
 	addTool("ang_mcp_health", mcp.NewTool("ang_mcp_health",
 		mcp.WithDescription("MCP health and effective limits/workflow diagnostics."),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -102,9 +78,9 @@ func registerCoreTools(addTool toolAdder, deps coreToolDeps) {
 
 	addTool("ang_status", mcp.NewTool("ang_status",
 		mcp.WithDescription("Project status in one call: build, tests, warnings, dirty files."),
-		mcp.WithBoolean("run_tests", mcp.Description("Run go test ./... for fresh unit status (default: true).")),
+		mcp.WithBoolean("run_tests", mcp.Description("Run go test ./... for fresh unit status (default: false).")),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		runTests := mcp.ParseBoolean(request, "run_tests", true)
+		runTests := mcp.ParseBoolean(request, "run_tests", false)
 
 		buildStatus := map[string]any{"status": "ok"}
 		if _, _, _, _, _, _, _, _, err := compiler.RunPipeline("."); err != nil {
@@ -139,6 +115,67 @@ func registerCoreTools(addTool toolAdder, deps coreToolDeps) {
 			"warnings":          logWarnings,
 		}
 		b, _ := json.MarshalIndent(report, "", "  ")
+		return mcp.NewToolResultText(string(b)), nil
+	})
+
+	addTool("ang_validate", mcp.NewTool("ang_validate",
+		mcp.WithDescription("Fast validation without full code generation: pipeline + diagnostics."),
+		mcp.WithString("project_path", mcp.Description("Project root path (default: current directory).")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		projectPath := strings.TrimSpace(mcp.ParseString(request, "project_path", ""))
+		if projectPath == "" {
+			projectPath = "."
+		}
+		_, _, _, _, _, _, _, _, err := compiler.RunPipeline(projectPath)
+		diags := append([]any(nil), warningsToAny(compiler.LatestDiagnostics)...)
+		status := "ok"
+		if err != nil {
+			status = "failed"
+		}
+		resp := map[string]any{
+			"status":            status,
+			"project_path":      projectPath,
+			"error":             "",
+			"diagnostics_count": len(diags),
+			"diagnostics":       diags,
+		}
+		if err != nil {
+			resp["error"] = err.Error()
+		}
+		b, _ := json.MarshalIndent(resp, "", "  ")
+		return mcp.NewToolResultText(string(b)), nil
+	})
+
+	addTool("ang_dry_run", mcp.NewTool("ang_dry_run",
+		mcp.WithDescription("Run `ang build --dry-run` and return preview output for AI-safe planning."),
+		mcp.WithString("project_path", mcp.Description("Project root path (default: current directory).")),
+		mcp.WithString("target", mcp.Description("Optional target name, same as --target.")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		projectPath := strings.TrimSpace(mcp.ParseString(request, "project_path", ""))
+		target := strings.TrimSpace(mcp.ParseString(request, "target", ""))
+		args := []string{"build"}
+		if projectPath != "" {
+			args = append(args, projectPath)
+		}
+		args = append(args, "--dry-run", "--log-format=json")
+		if target != "" {
+			args = append(args, "--target="+target)
+		}
+		cmd := exec.Command(resolveANGExecutable(), args...)
+		out, err := cmd.CombinedOutput()
+		text := string(out)
+		status := "success"
+		if err != nil || strings.Contains(text, "Build FAILED") {
+			status = "failed"
+		}
+		resp := map[string]any{
+			"status":         status,
+			"command":        strings.Join(append([]string{resolveANGExecutable()}, args...), " "),
+			"project_path":   projectPath,
+			"target":         target,
+			"output_excerpt": truncate(text, 10000),
+		}
+		b, _ := json.MarshalIndent(resp, "", "  ")
 		return mcp.NewToolResultText(string(b)), nil
 	})
 
@@ -188,67 +225,60 @@ func registerCoreTools(addTool toolAdder, deps coreToolDeps) {
 
 	addTool("ang_schema", mcp.NewTool("ang_schema",
 		mcp.WithDescription("Compact domain schema view: entities, services, endpoints."),
+		mcp.WithString("entity", mcp.Description("Optional entity-name filter.")),
+		mcp.WithString("service", mcp.Description("Optional service-name filter.")),
+		mcp.WithString("endpoint", mcp.Description("Optional endpoint filter by method/path/rpc substring.")),
+		mcp.WithBoolean("include_fields", mcp.Description("Include entity fields (default true).")),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		entities, services, endpoints, _, _, _, _, _, err := compiler.RunPipeline(".")
+		entityFilter := strings.TrimSpace(mcp.ParseString(request, "entity", ""))
+		serviceFilter := strings.TrimSpace(mcp.ParseString(request, "service", ""))
+		endpointFilter := strings.TrimSpace(mcp.ParseString(request, "endpoint", ""))
+		includeFields := mcp.ParseBoolean(request, "include_fields", true)
+
+		snap, err := buildModelSnapshot(".", includeFields)
 		if err != nil {
 			return mcp.NewToolResultText(err.Error()), nil
 		}
-
-		sort.Slice(entities, func(i, j int) bool {
-			return strings.ToLower(entities[i].Name) < strings.ToLower(entities[j].Name)
-		})
-		sort.Slice(services, func(i, j int) bool {
-			return strings.ToLower(services[i].Name) < strings.ToLower(services[j].Name)
-		})
-		sort.Slice(endpoints, func(i, j int) bool {
-			li := strings.ToUpper(endpoints[i].Method) + " " + endpoints[i].Path + " " + endpoints[i].RPC
-			lj := strings.ToUpper(endpoints[j].Method) + " " + endpoints[j].Path + " " + endpoints[j].RPC
-			return li < lj
-		})
-
-		entityOut := make([]map[string]any, 0, len(entities))
-		for _, e := range entities {
-			fields := make([]string, 0, len(e.Fields))
-			for _, f := range e.Fields {
-				fields = append(fields, f.Name)
-			}
-			sort.Strings(fields)
-			entityOut = append(entityOut, map[string]any{
-				"name":   e.Name,
-				"fields": fields,
-			})
-		}
-
-		serviceOut := make([]map[string]any, 0, len(services))
-		for _, s := range services {
-			methods := make([]string, 0, len(s.Methods))
-			for _, m := range s.Methods {
-				methods = append(methods, m.Name)
-			}
-			sort.Strings(methods)
-			serviceOut = append(serviceOut, map[string]any{
-				"name":    s.Name,
-				"methods": methods,
-			})
-		}
-
-		endpointOut := make([]map[string]string, 0, len(endpoints))
-		for _, ep := range endpoints {
-			endpointOut = append(endpointOut, map[string]string{
-				"method": strings.ToUpper(ep.Method),
-				"path":   ep.Path,
-				"rpc":    ep.RPC,
-			})
-		}
+		snap = filterModelSnapshot(snap, entityFilter, serviceFilter, endpointFilter)
 
 		res := map[string]any{
-			"status":    "ok",
-			"profile":   deps.currentProfile(),
-			"entities":  entityOut,
-			"services":  serviceOut,
-			"endpoints": endpointOut,
+			"status":          "ok",
+			"profile":         deps.currentProfile(),
+			"filters":         map[string]any{"entity": entityFilter, "service": serviceFilter, "endpoint": endpointFilter, "include_fields": includeFields},
+			"entities":        snap.Entities,
+			"services":        snap.Services,
+			"endpoints":       snap.Endpoints,
+			"entities_count":  len(snap.Entities),
+			"services_count":  len(snap.Services),
+			"endpoints_count": len(snap.Endpoints),
 		}
 		b, _ := json.MarshalIndent(res, "", "  ")
+		return mcp.NewToolResultText(string(b)), nil
+	})
+
+	addTool("ang_model_diff", mcp.NewTool("ang_model_diff",
+		mcp.WithDescription("Diff domain model (entities/services/endpoints) against git ref."),
+		mcp.WithString("base_ref", mcp.Description("Git ref to compare against (default HEAD).")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		baseRef := strings.TrimSpace(mcp.ParseString(request, "base_ref", "HEAD"))
+		if baseRef == "" {
+			baseRef = "HEAD"
+		}
+		baseSnap, err := buildModelSnapshotFromGitRef(baseRef, true)
+		if err != nil {
+			return mcp.NewToolResultText(fmt.Sprintf("ang_model_diff base snapshot failed: %v", err)), nil
+		}
+		currSnap, err := buildModelSnapshot(".", true)
+		if err != nil {
+			return mcp.NewToolResultText(fmt.Sprintf("ang_model_diff current snapshot failed: %v", err)), nil
+		}
+		diff := diffModelSnapshots(baseSnap, currSnap)
+		resp := map[string]any{
+			"status":   "ok",
+			"base_ref": baseRef,
+			"diff":     diff,
+		}
+		b, _ := json.MarshalIndent(resp, "", "  ")
 		return mcp.NewToolResultText(string(b)), nil
 	})
 
@@ -450,6 +480,29 @@ func collectBuildWarnings(logPath string, max int) []string {
 	}
 	if len(out) > max {
 		out = out[len(out)-max:]
+	}
+	return out
+}
+
+func warningsToAny(diags []normalizer.Warning) []any {
+	out := make([]any, 0, len(diags))
+	for _, d := range diags {
+		out = append(out, map[string]any{
+			"kind":           d.Kind,
+			"code":           d.Code,
+			"severity":       d.Severity,
+			"message":        d.Message,
+			"op":             d.Op,
+			"step":           d.Step,
+			"action":         d.Action,
+			"file":           d.File,
+			"line":           d.Line,
+			"column":         d.Column,
+			"cue_path":       d.CUEPath,
+			"hint":           d.Hint,
+			"docs_url":       d.DocsURL,
+			"can_auto_apply": d.CanAutoApply,
+		})
 	}
 	return out
 }
