@@ -580,7 +580,7 @@ func Run() {
 
 	featureAddWorkflow := func() []string {
 		base := []string{}
-		_ = json.Unmarshal([]byte(`[    "ang_plan",    "ang_snapshot",    "ang_search",    "repo_read_symbol",    "ang_rbac_inspector",    "ang_event_map",    "ang_db_drift_detector",    "cue_apply_patch",    "run_preset('build')",    "ang_db_sync"]`), &base)
+		_ = json.Unmarshal([]byte(`[    "ang_plan",    "ang_schema",    "ang_snapshot",    "ang_search",    "repo_read_symbol",    "ang_rbac_inspector",    "ang_event_map",    "ang_db_drift_detector",    "cue_apply_patch",    "run_preset('build')",    "ang_db_sync"]`), &base)
 		if ov := loadRuntimeOverrides(); ov != nil {
 			if wf, ok := ov.Workflows["feature_add"]; ok && len(wf) > 0 {
 				return wf

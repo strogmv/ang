@@ -144,6 +144,72 @@ func registerCoreTools(addTool toolAdder, deps coreToolDeps) {
 		return mcp.NewToolResultText(string(b)), nil
 	})
 
+	addTool("ang_schema", mcp.NewTool("ang_schema",
+		mcp.WithDescription("Compact domain schema view: entities, services, endpoints."),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		entities, services, endpoints, _, _, _, _, _, err := compiler.RunPipeline(".")
+		if err != nil {
+			return mcp.NewToolResultText(err.Error()), nil
+		}
+
+		sort.Slice(entities, func(i, j int) bool {
+			return strings.ToLower(entities[i].Name) < strings.ToLower(entities[j].Name)
+		})
+		sort.Slice(services, func(i, j int) bool {
+			return strings.ToLower(services[i].Name) < strings.ToLower(services[j].Name)
+		})
+		sort.Slice(endpoints, func(i, j int) bool {
+			li := strings.ToUpper(endpoints[i].Method) + " " + endpoints[i].Path + " " + endpoints[i].RPC
+			lj := strings.ToUpper(endpoints[j].Method) + " " + endpoints[j].Path + " " + endpoints[j].RPC
+			return li < lj
+		})
+
+		entityOut := make([]map[string]any, 0, len(entities))
+		for _, e := range entities {
+			fields := make([]string, 0, len(e.Fields))
+			for _, f := range e.Fields {
+				fields = append(fields, f.Name)
+			}
+			sort.Strings(fields)
+			entityOut = append(entityOut, map[string]any{
+				"name":   e.Name,
+				"fields": fields,
+			})
+		}
+
+		serviceOut := make([]map[string]any, 0, len(services))
+		for _, s := range services {
+			methods := make([]string, 0, len(s.Methods))
+			for _, m := range s.Methods {
+				methods = append(methods, m.Name)
+			}
+			sort.Strings(methods)
+			serviceOut = append(serviceOut, map[string]any{
+				"name":    s.Name,
+				"methods": methods,
+			})
+		}
+
+		endpointOut := make([]map[string]string, 0, len(endpoints))
+		for _, ep := range endpoints {
+			endpointOut = append(endpointOut, map[string]string{
+				"method": strings.ToUpper(ep.Method),
+				"path":   ep.Path,
+				"rpc":    ep.RPC,
+			})
+		}
+
+		res := map[string]any{
+			"status":    "ok",
+			"profile":   deps.currentProfile(),
+			"entities":  entityOut,
+			"services":  serviceOut,
+			"endpoints": endpointOut,
+		}
+		b, _ := json.MarshalIndent(res, "", "  ")
+		return mcp.NewToolResultText(string(b)), nil
+	})
+
 	addTool("ang_search", mcp.NewTool("ang_search",
 		mcp.WithDescription("Hybrid symbol search with capped output."),
 		mcp.WithString("query", mcp.Required()),

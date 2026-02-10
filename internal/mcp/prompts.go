@@ -60,11 +60,12 @@ func registerPrompts(s *server.MCPServer) {
 			"Add an endpoint to ANG intent.\n"+
 				"Target: %s %s -> %s.%s\n\n"+
 				"Execution plan:\n"+
-				"1) Call ang_plan with goal: \"add endpoint %s %s mapped to %s.%s\".\n"+
-				"2) Apply cue patches from plan (cue_apply_patch).\n"+
-				"3) Run run_preset('build').\n"+
-				"4) If failed: ang_doctor -> apply safe fix -> build again.\n"+
-				"5) Report endpoint presence in generated OpenAPI and any warnings.\n\n"+
+				"1) Call ang_schema to capture current entities/services/endpoints.\n"+
+				"2) Call ang_plan with goal: \"add endpoint %s %s mapped to %s.%s\".\n"+
+				"3) Apply cue patches from plan (cue_apply_patch).\n"+
+				"4) Run run_preset('build').\n"+
+				"5) If failed: ang_doctor -> apply safe fix -> build again.\n"+
+				"6) Report endpoint presence in generated OpenAPI and any warnings.\n\n"+
 				"Constraints:\n- Intent changes only in cue/api and cue/architecture as needed.\n- No direct edits in generated output folders.\n",
 			method, path, service, rpc, method, path, service, rpc,
 		)
@@ -87,12 +88,13 @@ func registerPrompts(s *server.MCPServer) {
 		text := fmt.Sprintf(
 			"Fix bug workflow for ANG project.\nGoal: %s\n\n"+
 				"Execution plan:\n"+
-				"1) Read build log resource: resource://ang/logs/build.\n"+
-				"2) Run ang_doctor to extract structured error codes and suggestions.\n"+
-				"3) Apply minimal CUE patch(es) via cue_apply_patch.\n"+
-				"4) Run run_preset('build').\n"+
-				"5) If still failing, iterate doctor -> patch -> build up to 3 times.\n"+
-				"6) Return final status with errors_fixed/errors_remaining and changed files.\n\n"+
+				"1) Call ang_schema to confirm current entities/services/endpoints baseline.\n"+
+				"2) Read build log resource: resource://ang/logs/build.\n"+
+				"3) Run ang_doctor to extract structured error codes and suggestions.\n"+
+				"4) Apply minimal CUE patch(es) via cue_apply_patch.\n"+
+				"5) Run run_preset('build').\n"+
+				"6) If still failing, iterate doctor -> patch -> build up to 3 times.\n"+
+				"7) Return final status with errors_fixed/errors_remaining and changed files.\n\n"+
 				"Safety:\n- Prefer smallest valid patch.\n- Keep edits in cue/* only.\n- Preserve unrelated user changes.\n",
 			goal,
 		)
