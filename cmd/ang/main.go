@@ -70,7 +70,7 @@ func printUsage() {
 	fmt.Println("  ang init [dir] --template saas|ecommerce|marketplace [--lang go] [--db postgres]")
 	fmt.Println("  ang validate  Validate CUE models and architecture")
 	fmt.Println("  ang lint      Perform deep semantic linting of flows and logic")
-	fmt.Println("  ang build     Compile CUE intent into Go code and infra configs")
+	fmt.Println("  ang build     Compile CUE intent into code and infra configs (--dry-run for preview)")
 	fmt.Println("  ang db sync   Synchronize DB schema with CUE (requires DATABASE_URL)")
 	fmt.Println("  ang migrate   Run migration diff/apply using Atlas")
 	fmt.Println("  ang api-diff  Compare OpenAPI specs and recommend semver bump")

@@ -20,6 +20,7 @@ type OutputOptions struct {
 	FrontendEnvPath     string
 	TestStubs           bool
 	TargetSelector      string
+	DryRun              bool
 }
 
 func parseOutputOptions(args []string) (OutputOptions, error) {
@@ -32,6 +33,7 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 	frontendEnvPath := fs.String("frontend-env-path", "", "Path to write frontend .env.example (defaults to <frontend-app-dir>/.env.example)")
 	testStubs := fs.Bool("test-stubs", false, "generate frontend test stubs")
 	targetSelector := fs.String("target", "", "Build only selected target(s): name, lang, or lang/framework/db stack; comma-separated supported")
+	dryRun := fs.Bool("dry-run", false, "preview generated file changes without writing to output directories")
 	if err := fs.Parse(args); err != nil {
 		return OutputOptions{}, err
 	}
@@ -45,6 +47,7 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 		FrontendEnvPath:     strings.TrimSpace(*frontendEnvPath),
 		TestStubs:           *testStubs,
 		TargetSelector:      strings.TrimSpace(*targetSelector),
+		DryRun:              *dryRun,
 	}
 	if opts.FrontendDir == "" {
 		opts.FrontendDir = "sdk"

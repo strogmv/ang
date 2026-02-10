@@ -40,6 +40,21 @@ func runBuild(args []string) {
 			printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterOptions, "parse output options", err)
 			return
 		}
+		var dryRunTmpRoot string
+		dryManifest := dryRunManifest{
+			Status: "dry_run",
+			Notes: []string{
+				"No output files were written to intended build directories.",
+			},
+		}
+		if output.DryRun {
+			dryRunTmpRoot, err = os.MkdirTemp("", "ang-dry-run-*")
+			if err != nil {
+				printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterOptions, "create dry-run temp dir", err)
+				return
+			}
+			defer os.RemoveAll(dryRunTmpRoot)
+		}
 
 		fail := func(stage compiler.Stage, code, op string, err error) {
 			printStageFailure("Build FAILED", stage, code, op, err)
@@ -195,8 +210,15 @@ func runBuild(args []string) {
 
 		multiTarget := len(selectedTargets) > 1
 		for _, td := range selectedTargets {
-			backendDir := resolveBackendDirForTarget(output.BackendDir, td, multiTarget)
-			frontendDir := resolveFrontendDirForTarget(output.FrontendDir, backendDir, td, multiTarget)
+			intendedBackendDir := resolveBackendDirForTarget(output.BackendDir, td, multiTarget)
+			intendedFrontendDir := resolveFrontendDirForTarget(output.FrontendDir, intendedBackendDir, td, multiTarget)
+			backendDir := intendedBackendDir
+			frontendDir := intendedFrontendDir
+			if output.DryRun {
+				safeName := safeTargetDirName(td.Name)
+				backendDir = filepath.Join(dryRunTmpRoot, "backend", safeName)
+				frontendDir = filepath.Join(dryRunTmpRoot, "frontend", safeName)
+			}
 			fmt.Printf("Generating target %s (%s/%s/%s) -> %s\n", td.Name, td.Lang, td.Framework, td.DB, backendDir)
 
 			em := emitter.New(backendDir, frontendDir, "templates")
@@ -233,13 +255,18 @@ func runBuild(args []string) {
 			targetOutput := output
 			targetOutput.BackendDir = backendDir
 			targetOutput.FrontendDir = frontendDir
-			if multiTarget && strings.TrimSpace(output.FrontendAppDir) != "" {
+			if output.DryRun {
+				targetOutput.FrontendAppDir = ""
+				targetOutput.FrontendAdminAppDir = ""
+				targetOutput.FrontendEnvPath = ""
+			}
+			if !output.DryRun && multiTarget && strings.TrimSpace(output.FrontendAppDir) != "" {
 				targetOutput.FrontendAppDir = filepath.Join(output.FrontendAppDir, safeTargetDirName(td.Name))
 			}
-			if multiTarget && strings.TrimSpace(output.FrontendAdminAppDir) != "" {
+			if !output.DryRun && multiTarget && strings.TrimSpace(output.FrontendAdminAppDir) != "" {
 				targetOutput.FrontendAdminAppDir = filepath.Join(output.FrontendAdminAppDir, safeTargetDirName(td.Name))
 			}
-			if multiTarget && strings.TrimSpace(output.FrontendEnvPath) != "" {
+			if !output.DryRun && multiTarget && strings.TrimSpace(output.FrontendEnvPath) != "" {
 				targetOutput.FrontendEnvPath = filepath.Join(output.FrontendEnvPath, safeTargetDirName(td.Name), ".env.example")
 			}
 
@@ -262,10 +289,42 @@ func runBuild(args []string) {
 				fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "run capability matrix steps", err)
 				return
 			}
+
+			if output.DryRun {
+				backendChanges, err := buildDryRunChanges(backendDir, intendedBackendDir)
+				if err != nil {
+					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "collect dry-run backend changes", err)
+					return
+				}
+				frontendChanges, err := buildDryRunChanges(frontendDir, intendedFrontendDir)
+				if err != nil {
+					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "collect dry-run frontend changes", err)
+					return
+				}
+				combined := append(backendChanges, frontendChanges...)
+				dryManifest.Targets = append(dryManifest.Targets, dryRunTargetManifest{
+					Target:   td.Name,
+					Lang:     td.Lang,
+					Backend:  filepath.ToSlash(filepath.Clean(intendedBackendDir)),
+					Frontend: filepath.ToSlash(filepath.Clean(intendedFrontendDir)),
+					Changes:  combined,
+				})
+			}
 		}
 
-		if err := runOptionalMCPGeneration(projectPath); err != nil {
-			printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterMCPGen, "run optional MCP generation", err)
+		if !output.DryRun {
+			if err := runOptionalMCPGeneration(projectPath); err != nil {
+				printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterMCPGen, "run optional MCP generation", err)
+				return
+			}
+		} else {
+			dryManifest.OptionalStepsSkipped = []string{"runOptionalMCPGeneration"}
+		}
+
+		if output.DryRun {
+			summarizeDryRunManifest(&dryManifest)
+			printDryRunManifest(dryManifest)
+			fmt.Println("\nBuild DRY-RUN SUCCESSFUL.")
 			return
 		}
 
