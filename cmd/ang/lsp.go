@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -13,8 +14,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/strogmv/ang/compiler"
 	"github.com/strogmv/ang/compiler/normalizer"
@@ -44,8 +48,16 @@ type lspServer struct {
 	out           io.Writer
 	workspaceRoot string
 	openDocs      map[string]string
-	lastPublished map[string]bool
+	lastDiagHash  map[string]string
 	shutdown      bool
+	debounce      time.Duration
+
+	mu               sync.Mutex
+	writeMu          sync.Mutex
+	analyzeMu        sync.Mutex
+	pendingTimer     *time.Timer
+	cacheFingerprint string
+	cacheByURI       map[string][]map[string]any
 }
 
 func runLSP(args []string) {
@@ -66,7 +78,8 @@ func runLSP(args []string) {
 		out:           os.Stdout,
 		workspaceRoot: ".",
 		openDocs:      map[string]string{},
-		lastPublished: map[string]bool{},
+		lastDiagHash:  map[string]string{},
+		debounce:      250 * time.Millisecond,
 	}
 	if err := s.serve(context.Background()); err != nil {
 		fmt.Printf("LSP FAILED: %v\n", err)
@@ -89,6 +102,7 @@ func (s *lspServer) serve(ctx context.Context) error {
 			return err
 		}
 		if req.Method == "exit" {
+			s.stopDebounce()
 			if s.shutdown {
 				return nil
 			}
@@ -125,6 +139,7 @@ func (s *lspServer) handle(req lspRequest) error {
 			root = "."
 		}
 		s.workspaceRoot = filepath.Clean(root)
+		s.invalidateCache()
 		return s.writeJSON(lspResponse{
 			JSONRPC: "2.0",
 			ID:      req.ID,
@@ -162,7 +177,10 @@ func (s *lspServer) handle(req lspRequest) error {
 		}
 		_ = json.Unmarshal(req.Params, &p)
 		if p.TextDocument.URI != "" {
+			s.mu.Lock()
 			s.openDocs[p.TextDocument.URI] = p.TextDocument.Text
+			s.mu.Unlock()
+			s.invalidateCache()
 		}
 		return s.publishAllDiagnostics()
 	case "textDocument/didChange":
@@ -176,9 +194,13 @@ func (s *lspServer) handle(req lspRequest) error {
 		}
 		_ = json.Unmarshal(req.Params, &p)
 		if p.TextDocument.URI != "" && len(p.ContentChanges) > 0 {
+			s.mu.Lock()
 			s.openDocs[p.TextDocument.URI] = p.ContentChanges[len(p.ContentChanges)-1].Text
+			s.mu.Unlock()
+			s.invalidateCache()
 		}
-		return s.publishAllDiagnostics()
+		s.scheduleDebouncedPublish()
+		return nil
 	case "textDocument/didSave":
 		var p struct {
 			TextDocument struct {
@@ -188,7 +210,10 @@ func (s *lspServer) handle(req lspRequest) error {
 		}
 		_ = json.Unmarshal(req.Params, &p)
 		if p.TextDocument.URI != "" && p.Text != "" {
+			s.mu.Lock()
 			s.openDocs[p.TextDocument.URI] = p.Text
+			s.mu.Unlock()
+			s.invalidateCache()
 		}
 		return s.publishAllDiagnostics()
 	case "textDocument/didClose":
@@ -198,9 +223,14 @@ func (s *lspServer) handle(req lspRequest) error {
 			} `json:"textDocument"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
+		s.mu.Lock()
 		delete(s.openDocs, p.TextDocument.URI)
+		s.mu.Unlock()
+		s.invalidateCache()
 		_ = s.publishDiagnosticsForURI(p.TextDocument.URI, nil)
-		delete(s.lastPublished, p.TextDocument.URI)
+		s.mu.Lock()
+		delete(s.lastDiagHash, p.TextDocument.URI)
+		s.mu.Unlock()
 		return nil
 	default:
 		if len(req.ID) > 0 {
@@ -218,30 +248,61 @@ func (s *lspServer) handle(req lspRequest) error {
 }
 
 func (s *lspServer) publishAllDiagnostics() error {
+	s.analyzeMu.Lock()
+	defer s.analyzeMu.Unlock()
+
 	byURI, err := s.collectDiagnosticsByURI()
 	if err != nil {
 		return err
 	}
+
+	s.mu.Lock()
+	prev := make(map[string]string, len(s.lastDiagHash))
+	for k, v := range s.lastDiagHash {
+		prev[k] = v
+	}
+	s.mu.Unlock()
+
 	for uri, list := range byURI {
+		hash := diagnosticsHash(list)
+		if prev[uri] == hash {
+			continue
+		}
 		if err := s.publishDiagnosticsForURI(uri, list); err != nil {
 			return err
 		}
+		prev[uri] = hash
 	}
-	for uri := range s.lastPublished {
+	for uri := range prev {
 		if _, ok := byURI[uri]; !ok {
 			if err := s.publishDiagnosticsForURI(uri, []map[string]any{}); err != nil {
 				return err
 			}
-			delete(s.lastPublished, uri)
+			delete(prev, uri)
 		}
 	}
-	for uri := range byURI {
-		s.lastPublished[uri] = true
-	}
+
+	s.mu.Lock()
+	s.lastDiagHash = prev
+	s.mu.Unlock()
 	return nil
 }
 
 func (s *lspServer) collectDiagnosticsByURI() (map[string][]map[string]any, error) {
+	s.mu.Lock()
+	docs := make(map[string]string, len(s.openDocs))
+	for k, v := range s.openDocs {
+		docs[k] = v
+	}
+	workspaceRoot := s.workspaceRoot
+	fingerprint := docsFingerprint(workspaceRoot, docs)
+	if fingerprint == s.cacheFingerprint && s.cacheByURI != nil {
+		cached := s.cacheByURI
+		s.mu.Unlock()
+		return cached, nil
+	}
+	s.mu.Unlock()
+
 	tmpRoot, err := os.MkdirTemp("", "ang-lsp-*")
 	if err != nil {
 		return nil, err
@@ -252,22 +313,22 @@ func (s *lspServer) collectDiagnosticsByURI() (map[string][]map[string]any, erro
 	if err := os.MkdirAll(projRoot, 0o755); err != nil {
 		return nil, err
 	}
-	if err := copyDir(filepath.Join(s.workspaceRoot, "cue"), filepath.Join(projRoot, "cue")); err != nil {
+	if err := copyDir(filepath.Join(workspaceRoot, "cue"), filepath.Join(projRoot, "cue")); err != nil {
 		return nil, err
 	}
-	if err := copyDir(filepath.Join(s.workspaceRoot, "cue.mod"), filepath.Join(projRoot, "cue.mod")); err != nil && !os.IsNotExist(err) {
+	if err := copyDir(filepath.Join(workspaceRoot, "cue.mod"), filepath.Join(projRoot, "cue.mod")); err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
 
-	for uri, text := range s.openDocs {
+	for uri, text := range docs {
 		srcPath := uriToPath(uri)
 		if srcPath == "" {
 			continue
 		}
-		if !strings.HasPrefix(filepath.Clean(srcPath), filepath.Clean(s.workspaceRoot)) {
+		if !strings.HasPrefix(filepath.Clean(srcPath), filepath.Clean(workspaceRoot)) {
 			continue
 		}
-		rel, err := filepath.Rel(s.workspaceRoot, srcPath)
+		rel, err := filepath.Rel(workspaceRoot, srcPath)
 		if err != nil {
 			continue
 		}
@@ -291,15 +352,19 @@ func (s *lspServer) collectDiagnosticsByURI() (map[string][]map[string]any, erro
 		if d.File == "" {
 			continue
 		}
-		uri := pathToURI(filepath.Join(s.workspaceRoot, d.File))
+		uri := pathToURI(filepath.Join(workspaceRoot, d.File))
 		out[uri] = append(out[uri], toLSPDiagnostic(d))
 	}
 
 	if runErr != nil && len(diags) == 0 {
-		if uri, diag := fallbackDiagnosticFromError(runErr, s.workspaceRoot); uri != "" {
+		if uri, diag := fallbackDiagnosticFromError(runErr, workspaceRoot); uri != "" {
 			out[uri] = append(out[uri], diag)
 		}
 	}
+	s.mu.Lock()
+	s.cacheFingerprint = fingerprint
+	s.cacheByURI = out
+	s.mu.Unlock()
 	return out, nil
 }
 
@@ -427,8 +492,58 @@ func (s *lspServer) writeJSON(v any) error {
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, "Content-Length: %d\r\n\r\n", len(b))
 	buf.Write(b)
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	_, err = s.out.Write(buf.Bytes())
 	return err
+}
+
+func (s *lspServer) scheduleDebouncedPublish() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.pendingTimer != nil {
+		s.pendingTimer.Stop()
+	}
+	s.pendingTimer = time.AfterFunc(s.debounce, func() {
+		_ = s.publishAllDiagnostics()
+	})
+}
+
+func (s *lspServer) stopDebounce() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.pendingTimer != nil {
+		s.pendingTimer.Stop()
+		s.pendingTimer = nil
+	}
+}
+
+func (s *lspServer) invalidateCache() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cacheFingerprint = ""
+	s.cacheByURI = nil
+}
+
+func docsFingerprint(workspaceRoot string, docs map[string]string) string {
+	keys := make([]string, 0, len(docs))
+	for k := range docs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	h := sha256.New()
+	_, _ = h.Write([]byte(filepath.Clean(workspaceRoot)))
+	for _, k := range keys {
+		_, _ = h.Write([]byte("\nURI:" + k + "\n"))
+		_, _ = h.Write([]byte(docs[k]))
+	}
+	return fmt.Sprintf("%x", h.Sum(nil))
+}
+
+func diagnosticsHash(diags []map[string]any) string {
+	b, _ := json.Marshal(diags)
+	sum := sha256.Sum256(b)
+	return fmt.Sprintf("%x", sum[:])
 }
 
 func pathToURI(path string) string {
