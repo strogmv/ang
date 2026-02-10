@@ -453,8 +453,14 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 	}
 
 	for _, svc := range serviceMap {
+		sort.Slice(svc.Methods, func(i, j int) bool {
+			return svc.Methods[i].Name < svc.Methods[j].Name
+		})
 		services = append(services, *svc)
 	}
+	sort.Slice(services, func(i, j int) bool {
+		return services[i].Name < services[j].Name
+	})
 
 	return services, nil
 }
