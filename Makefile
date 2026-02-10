@@ -1,4 +1,4 @@
-.PHONY: build install test lint clean check all mcp-gen release-smoke
+.PHONY: build install test lint clean check all mcp-gen release-smoke benchmark-3iter
 
 # Build the ang CLI
 build:
@@ -40,3 +40,8 @@ mcp-gen:
 release-smoke:
 	@echo "--- Release Smoke ---"
 	./scripts/release-smoke.sh
+
+# Run reproducible 3-iteration marketplace benchmark
+benchmark-3iter: build
+	@echo "--- 3-Iteration Backend Benchmark ---"
+	./benchmarks/three_iteration_marketplace/run.sh
