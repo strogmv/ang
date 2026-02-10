@@ -86,6 +86,7 @@ func printUsage() {
 	fmt.Println("  ang rbac inspect  Audit RBAC policies for holes and errors")
 	fmt.Println("  ang events map    Visualize end-to-end event journey (Pub/Sub)")
 	fmt.Println("  ang doctor    Analyze build log and suggest concrete CUE fixes")
+	fmt.Println("  ang mcp       Run ANG MCP server over stdio")
 	fmt.Println("  ang lsp --stdio  Run ANG language server (MVP diagnostics)")
 	fmt.Println("  ang explain   Explain a lint code with examples")
 	fmt.Println("  ang draw      Generate architecture diagrams (Mermaid)")
