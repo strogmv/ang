@@ -14,6 +14,8 @@ Stage ownership is strict:
 - `TRANSFORMERS`: IR mutation only
 - `EMITTERS`: filesystem generation only
 
+Target selection strategy is capability-based (`docs/capability_matrix.md`), not language-specific `if/else`.
+
 ## Error Shape
 
 Fatal errors should be typed as:

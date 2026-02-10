@@ -38,9 +38,10 @@ const (
 	ErrCodeHookProcess      = "HOOK_PROCESS_ERROR"
 
 	// Emitters stage
-	ErrCodeEmitterOptions = "EMITTER_OPTIONS_ERROR"
-	ErrCodeEmitterStep    = "EMITTER_STEP_ERROR"
-	ErrCodeEmitterMCPGen  = "EMITTER_MCP_GENERATION_ERROR"
+	ErrCodeEmitterOptions           = "EMITTER_OPTIONS_ERROR"
+	ErrCodeEmitterStep              = "EMITTER_STEP_ERROR"
+	ErrCodeEmitterMCPGen            = "EMITTER_MCP_GENERATION_ERROR"
+	ErrCodeEmitterCapabilityResolve = "EMITTER_CAPABILITY_RESOLVE_ERROR"
 )
 
 // StableErrorCodes is the canonical registry of compiler/CLI stage error codes.
@@ -78,4 +79,5 @@ var StableErrorCodes = []string{
 	ErrCodeEmitterOptions,
 	ErrCodeEmitterStep,
 	ErrCodeEmitterMCPGen,
+	ErrCodeEmitterCapabilityResolve,
 }

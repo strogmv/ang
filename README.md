@@ -41,6 +41,7 @@ CUE Files → Parser → Normalizer → IR → Transformers → Providers → Co
 ```
 
 Formal stage contract and failure model: `docs/compiler_contract.md`.
+Target capability matrix: `docs/capability_matrix.md`.
 
 ### Intermediate Representation (IR)
 

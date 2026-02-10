@@ -574,6 +574,30 @@ func runBuild(args []string) {
 		fail := func(stage compiler.Stage, code, op string, err error) {
 			printStageFailure("Build FAILED", stage, code, op, err)
 		}
+		type targetStep struct {
+			name     string
+			requires []compiler.Capability
+			fn       func() error
+		}
+		runTargetSteps := func(td normalizer.TargetDef, caps compiler.CapabilitySet, steps []targetStep) error {
+			for _, step := range steps {
+				if !caps.HasAll(step.requires...) {
+					missing := caps.Missing(step.requires...)
+					if len(missing) > 0 {
+						missingNames := make([]string, 0, len(missing))
+						for _, c := range missing {
+							missingNames = append(missingNames, string(c))
+						}
+						fmt.Printf("Skipping %s for target %s: missing capabilities [%s]\n", step.name, td.Name, strings.Join(missingNames, ", "))
+					}
+					continue
+				}
+				if err := step.fn(); err != nil {
+					return fmt.Errorf("target=%s step=%s: %w", td.Name, step.name, err)
+				}
+			}
+			return nil
+		}
 
 		entities, services, endpoints, repos, events, bizErrors, schedules, scenarios, err := compiler.RunPipeline(projectPath)
 		if err != nil {
@@ -786,46 +810,10 @@ func runBuild(args []string) {
 				}
 			}
 
-			targetLang := strings.ToLower(strings.TrimSpace(td.Lang))
-			if targetLang == "" {
-				targetLang = "go"
-			}
-			targetFramework := strings.ToLower(strings.TrimSpace(td.Framework))
-			if targetFramework == "" {
-				targetFramework = "chi"
-			}
-			targetDB := strings.ToLower(strings.TrimSpace(td.DB))
-			if targetDB == "" {
-				targetDB = "postgres"
-			}
-			isPythonFastAPI := targetLang == "python" && targetFramework == "fastapi" && targetDB == "postgres"
-
-			if isPythonFastAPI {
-				steps := []struct {
-					name string
-					fn   func() error
-				}{
-					{"OpenAPI", func() error { return em.EmitOpenAPI(endpoints, services, bizErrors, projectDef) }},
-					{"AsyncAPI", func() error { return em.EmitAsyncAPI(events, projectDef) }},
-					{"Python FastAPI Backend", func() error {
-						return em.EmitPythonFastAPIBackend(entities, rawServices, endpoints, repos, projectDef)
-					}},
-					{"Python SDK", func() error {
-						if !pythonSDKEnabled {
-							return nil
-						}
-						return em.EmitPythonSDK(endpoints, services, entities, projectDef)
-					}},
-					{"System Manifest", func() error { return em.EmitManifest(irSchema) }},
-				}
-
-				for _, step := range steps {
-					if err := step.fn(); err != nil {
-						fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, fmt.Sprintf("target=%s step=%s", td.Name, step.name), err)
-						return
-					}
-				}
-				continue
+			caps, err := compiler.ResolveTargetCapabilities(td)
+			if err != nil {
+				fail(compiler.StageEmitters, compiler.ErrCodeEmitterCapabilityResolve, fmt.Sprintf("resolve capabilities for target=%s", td.Name), err)
+				return
 			}
 
 			targetOutput := output
@@ -841,52 +829,74 @@ func runBuild(args []string) {
 				targetOutput.FrontendEnvPath = filepath.Join(output.FrontendEnvPath, safeTargetDirName(td.Name), ".env.example")
 			}
 
-			steps := []struct {
-				name string
-				fn   func() error
-			}{
-				{"Config", func() error { return em.EmitConfig(cfgDef) }},
-				{"Logger", func() error { return em.EmitLogger() }},
-				{"RBAC", func() error { return em.EmitRBAC(rbacDef) }},
-				{"Domain Entities", func() error { return em.EmitDomain(irSchema.Entities) }},
-				{"DTOs", func() error { return em.EmitDTO(irSchema.Entities) }},
-				{"Service Ports", func() error { return em.EmitService(services) }},
-				{"HTTP Handlers", func() error { return em.EmitHTTP(endpoints, services, events, authDef) }},
-				{"Health Probes", func() error { return em.EmitHealth() }},
-				{"Repository Ports", func() error { return em.EmitRepository(repos, entities) }}, {"Transaction Port", func() error { return em.EmitTransactionPort() }},
-				{"Storage Port", func() error { return em.EmitStoragePort() }},
-				{"S3 Client", func() error { return em.EmitS3Client() }},
-				{"Postgres Repos", func() error { return em.EmitPostgresRepo(repos, entities) }},
-				{"Postgres Common", func() error { return em.EmitPostgresCommon() }},
-				{"Mongo Repos", func() error { return em.EmitMongoRepo(repos, entities) }},
-				{"Mongo Common", func() error { return em.EmitMongoCommon(entities) }},
-				{"SQL Schema", func() error { return em.EmitSQL(entities) }},
-				{"Infra Configs", func() error { return em.EmitInfraConfigs() }},
-				{"SQL Queries", func() error { return em.EmitSQLQueries(entities) }},
-				{"Mongo Schemas", func() error { return em.EmitMongoSchema(entities) }},
-				{"Repo Stubs", func() error { return em.EmitStubRepo(repos, entities) }},
-				{"Redis Client", func() error { return em.EmitRedisClient() }},
-				{"Auth Package", func() error { return em.EmitAuthPackage(authDef) }},
-				{"Refresh Store Port", func() error { return em.EmitRefreshTokenStorePort() }},
-				{"Refresh Store Memory", func() error { return em.EmitRefreshTokenStoreMemory() }},
-				{"Refresh Store Redis", func() error { return em.EmitRefreshTokenStoreRedis() }},
-				{"Refresh Store Postgres", func() error { return em.EmitRefreshTokenStorePostgres() }},
-				{"Refresh Store Hybrid", func() error { return em.EmitRefreshTokenStoreHybrid() }},
-				{"Mailer Port", func() error { return em.EmitMailerPort() }},
-				{"SMTP Client", func() error { return em.EmitMailerAdapter() }},
-				{"Events", func() error { return em.EmitEvents(events) }},
-				{"Scheduler", func() error { return em.EmitScheduler(schedules) }},
-				{"Publisher Interface", func() error { return em.EmitPublisherInterface(services, schedules) }},
-				{"NATS Adapter", func() error { return em.EmitNatsAdapter(services, schedules) }},
-				{"Metrics Middleware", func() error { return em.EmitMetrics() }},
-				{"Logging Middleware", func() error { return em.EmitLoggingMiddleware() }},
-				{"Errors", func() error { return em.EmitErrors(bizErrors) }},
-				{"Views", func() error { return em.EmitViews(views) }},
-				{"OpenAPI", func() error { return em.EmitOpenAPI(endpoints, services, bizErrors, projectDef) }},
-				{"AsyncAPI", func() error { return em.EmitAsyncAPI(events, projectDef) }},
-				{"Contract Tests", func() error { return em.EmitContractTests(endpoints, services) }},
-				{"E2E Behavioral Tests", func() error { return em.EmitE2ETests(scenarios) }},
-				{"Test Stubs", func() error {
+			if caps.Has(compiler.CapabilityProfilePythonFastAPI) {
+				steps := []targetStep{
+					{"OpenAPI", []compiler.Capability{compiler.CapabilityHTTP}, func() error { return em.EmitOpenAPI(endpoints, services, bizErrors, projectDef) }},
+					{"AsyncAPI", []compiler.Capability{compiler.CapabilityEvents}, func() error { return em.EmitAsyncAPI(events, projectDef) }},
+					{"Python FastAPI Backend", []compiler.Capability{
+						compiler.CapabilityProfilePythonFastAPI, compiler.CapabilityHTTP, compiler.CapabilitySQLRepo,
+					}, func() error {
+						return em.EmitPythonFastAPIBackend(entities, rawServices, endpoints, repos, projectDef)
+					}},
+					{"Python SDK", []compiler.Capability{compiler.CapabilityHTTP}, func() error {
+						if !pythonSDKEnabled {
+							return nil
+						}
+						return em.EmitPythonSDK(endpoints, services, entities, projectDef)
+					}},
+					{"System Manifest", nil, func() error { return em.EmitManifest(irSchema) }},
+				}
+				if err := runTargetSteps(td, caps, steps); err != nil {
+					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "run capability matrix steps", err)
+					return
+				}
+				continue
+			}
+
+			steps := []targetStep{
+				{"Config", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitConfig(cfgDef) }},
+				{"Logger", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitLogger() }},
+				{"RBAC", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitRBAC(rbacDef) }},
+				{"Domain Entities", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitDomain(irSchema.Entities) }},
+				{"DTOs", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitDTO(irSchema.Entities) }},
+				{"Service Ports", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitService(services) }},
+				{"HTTP Handlers", []compiler.Capability{compiler.CapabilityHTTP}, func() error { return em.EmitHTTP(endpoints, services, events, authDef) }},
+				{"Health Probes", []compiler.Capability{compiler.CapabilityHTTP}, func() error { return em.EmitHealth() }},
+				{"Repository Ports", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitRepository(repos, entities) }},
+				{"Transaction Port", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitTransactionPort() }},
+				{"Storage Port", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitStoragePort() }},
+				{"S3 Client", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitS3Client() }},
+				{"Postgres Repos", []compiler.Capability{compiler.CapabilitySQLRepo}, func() error { return em.EmitPostgresRepo(repos, entities) }},
+				{"Postgres Common", []compiler.Capability{compiler.CapabilitySQLRepo}, func() error { return em.EmitPostgresCommon() }},
+				{"Mongo Repos", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitMongoRepo(repos, entities) }},
+				{"Mongo Common", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitMongoCommon(entities) }},
+				{"SQL Schema", []compiler.Capability{compiler.CapabilitySQLRepo}, func() error { return em.EmitSQL(entities) }},
+				{"Infra Configs", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitInfraConfigs() }},
+				{"SQL Queries", []compiler.Capability{compiler.CapabilitySQLRepo}, func() error { return em.EmitSQLQueries(entities) }},
+				{"Mongo Schemas", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitMongoSchema(entities) }},
+				{"Repo Stubs", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitStubRepo(repos, entities) }},
+				{"Redis Client", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitRedisClient() }},
+				{"Auth Package", []compiler.Capability{compiler.CapabilityAuth}, func() error { return em.EmitAuthPackage(authDef) }},
+				{"Refresh Store Port", []compiler.Capability{compiler.CapabilityAuth}, func() error { return em.EmitRefreshTokenStorePort() }},
+				{"Refresh Store Memory", []compiler.Capability{compiler.CapabilityAuth}, func() error { return em.EmitRefreshTokenStoreMemory() }},
+				{"Refresh Store Redis", []compiler.Capability{compiler.CapabilityAuth}, func() error { return em.EmitRefreshTokenStoreRedis() }},
+				{"Refresh Store Postgres", []compiler.Capability{compiler.CapabilityAuth, compiler.CapabilitySQLRepo}, func() error { return em.EmitRefreshTokenStorePostgres() }},
+				{"Refresh Store Hybrid", []compiler.Capability{compiler.CapabilityAuth, compiler.CapabilitySQLRepo}, func() error { return em.EmitRefreshTokenStoreHybrid() }},
+				{"Mailer Port", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitMailerPort() }},
+				{"SMTP Client", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitMailerAdapter() }},
+				{"Events", []compiler.Capability{compiler.CapabilityEvents}, func() error { return em.EmitEvents(events) }},
+				{"Scheduler", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitScheduler(schedules) }},
+				{"Publisher Interface", []compiler.Capability{compiler.CapabilityEvents}, func() error { return em.EmitPublisherInterface(services, schedules) }},
+				{"NATS Adapter", []compiler.Capability{compiler.CapabilityEvents}, func() error { return em.EmitNatsAdapter(services, schedules) }},
+				{"Metrics Middleware", []compiler.Capability{compiler.CapabilityHTTP}, func() error { return em.EmitMetrics() }},
+				{"Logging Middleware", []compiler.Capability{compiler.CapabilityHTTP}, func() error { return em.EmitLoggingMiddleware() }},
+				{"Errors", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitErrors(bizErrors) }},
+				{"Views", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitViews(views) }},
+				{"OpenAPI", []compiler.Capability{compiler.CapabilityHTTP}, func() error { return em.EmitOpenAPI(endpoints, services, bizErrors, projectDef) }},
+				{"AsyncAPI", []compiler.Capability{compiler.CapabilityEvents}, func() error { return em.EmitAsyncAPI(events, projectDef) }},
+				{"Contract Tests", []compiler.Capability{compiler.CapabilityHTTP}, func() error { return em.EmitContractTests(endpoints, services) }},
+				{"E2E Behavioral Tests", []compiler.Capability{compiler.CapabilityHTTP}, func() error { return em.EmitE2ETests(scenarios) }},
+				{"Test Stubs", []compiler.Capability{compiler.CapabilityHTTP}, func() error {
 					if targetOutput.TestStubs {
 						report, err := checkTestCoverage(endpoints, "tests")
 						if err != nil {
@@ -910,38 +920,35 @@ func runBuild(args []string) {
 					}
 					return nil
 				}},
-				{"Frontend SDK", func() error { return em.EmitFrontendSDK(entities, services, endpoints, events, bizErrors, rbacDef) }},
-				{"Python SDK", func() error {
+				{"Frontend SDK", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitFrontendSDK(entities, services, endpoints, events, bizErrors, rbacDef) }},
+				{"Python SDK", []compiler.Capability{compiler.CapabilityHTTP}, func() error {
 					if !pythonSDKEnabled {
 						return nil
 					}
 					return em.EmitPythonSDK(endpoints, services, entities, projectDef)
 				}},
-				{"Frontend Components", func() error { return em.EmitFrontendComponents(services, endpoints, entities) }},
-				{"Frontend Admin", func() error { return em.EmitFrontendAdmin(entities, services) }},
-				{"Frontend SDK Copy", func() error { return copyFrontendSDK(targetOutput.FrontendDir, targetOutput.FrontendAppDir) }},
-				{"Frontend Admin Copy", func() error {
+				{"Frontend Components", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitFrontendComponents(services, endpoints, entities) }},
+				{"Frontend Admin", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitFrontendAdmin(entities, services) }},
+				{"Frontend SDK Copy", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return copyFrontendSDK(targetOutput.FrontendDir, targetOutput.FrontendAppDir) }},
+				{"Frontend Admin Copy", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error {
 					return copyFrontendAdmin(targetOutput.FrontendAdminDir, targetOutput.FrontendAdminAppDir)
 				}},
-				{"Frontend Env Example", func() error { return writeEnvExample(targetOutput) }},
-				{"Tracing", func() error { return em.EmitTracing() }},
-				{"System Manifest", func() error { return em.EmitManifest(irSchema) }},
-				{"Service Impls", func() error { return em.EmitServiceImpl(services, entities, authDef) }},
-				{"Cached Services", func() error { return em.EmitCachedService(services) }},
-				{"K8s Manifests", func() error { return em.EmitK8s(services, isMicroservice) }},
-				{"Server Main", func() error {
+				{"Frontend Env Example", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return writeEnvExample(targetOutput) }},
+				{"Tracing", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitTracing() }},
+				{"System Manifest", nil, func() error { return em.EmitManifest(irSchema) }},
+				{"Service Impls", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitServiceImpl(services, entities, authDef) }},
+				{"Cached Services", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitCachedService(services) }},
+				{"K8s Manifests", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error { return em.EmitK8s(services, isMicroservice) }},
+				{"Server Main", []compiler.Capability{compiler.CapabilityProfileGoLegacy}, func() error {
 					if isMicroservice {
 						return em.EmitMicroservices(services, ctx.WebSocketServices, authDef)
 					}
 					return em.EmitMain(ctx)
 				}},
 			}
-
-			for _, step := range steps {
-				if err := step.fn(); err != nil {
-					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, fmt.Sprintf("target=%s step=%s", td.Name, step.name), err)
-					return
-				}
+			if err := runTargetSteps(td, caps, steps); err != nil {
+				fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "run capability matrix steps", err)
+				return
 			}
 		}
 
