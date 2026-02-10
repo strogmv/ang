@@ -53,6 +53,9 @@ func (r *HookRegistry) Register(h Hook) {
 func (r *HookRegistry) Process(schema *ir.Schema) error {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	if err := ir.MigrateToCurrent(schema); err != nil {
+		return fmt.Errorf("ir version migration: %w", err)
+	}
 
 	// Process entities
 	for i := range schema.Entities {

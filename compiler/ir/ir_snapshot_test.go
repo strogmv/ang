@@ -16,18 +16,19 @@ import (
 )
 
 type irSnapshot struct {
-	Entities  []string          `json:"entities"`
-	Services  []serviceSnapshot `json:"services"`
+	IRVersion string             `json:"ir_version"`
+	Entities  []string           `json:"entities"`
+	Services  []serviceSnapshot  `json:"services"`
 	Endpoints []endpointSnapshot `json:"endpoints"`
-	Repos     []repoSnapshot    `json:"repos"`
-	Events    []eventSnapshot   `json:"events"`
-	Errors    []errorSnapshot   `json:"errors"`
+	Repos     []repoSnapshot     `json:"repos"`
+	Events    []eventSnapshot    `json:"events"`
+	Errors    []errorSnapshot    `json:"errors"`
 }
 
 type serviceSnapshot struct {
-	Name     string   `json:"name"`
-	Methods  []string `json:"methods"`
-	Uses     []string `json:"uses"`
+	Name      string   `json:"name"`
+	Methods   []string `json:"methods"`
+	Uses      []string `json:"uses"`
 	Publishes []string `json:"publishes"`
 }
 
@@ -259,6 +260,7 @@ func buildIRSnapshots(t *testing.T) (irSnapshot, irSnapshot) {
 
 func snapshotSchema(schema *ir.Schema) irSnapshot {
 	out := irSnapshot{
+		IRVersion: schema.IRVersion,
 		Entities:  make([]string, 0),
 		Services:  make([]serviceSnapshot, 0),
 		Endpoints: make([]endpointSnapshot, 0),

@@ -40,6 +40,8 @@ ANG uses a plugin-based architecture that separates concerns and enables multi-l
 CUE Files → Parser → Normalizer → IR → Transformers → Providers → Code
 ```
 
+Formal stage contract and failure model: `docs/compiler_contract.md`.
+
 ### Intermediate Representation (IR)
 
 The IR is a language-agnostic data structure that represents your architecture:
@@ -61,6 +63,8 @@ type TypeRef struct {
     ItemType *TypeRef  // For collections
 }
 ```
+
+IR compatibility policy and version adapters: `docs/ir_versioning.md`.
 
 ### Transformers
 

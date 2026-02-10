@@ -24,6 +24,7 @@ func ConvertFromNormalizer(
 	project normalizer.ProjectDef,
 ) *Schema {
 	schema := &Schema{
+		IRVersion: IRVersionV1,
 		Project: Project{
 			Name:    project.Name,
 			Version: project.Version,
@@ -110,7 +111,7 @@ func ConvertFromNormalizer(
 
 func BuildDependencyGraph(s *Schema) *DependencyGraph {
 	g := &DependencyGraph{}
-	
+
 	// Add Nodes
 	for _, e := range s.Entities {
 		g.Nodes = append(g.Nodes, Node{ID: "cue://#" + e.Name, Kind: "entity", Name: e.Name})
@@ -121,7 +122,7 @@ func BuildDependencyGraph(s *Schema) *DependencyGraph {
 			mID := fmt.Sprintf("method://%s.%s", svc.Name, m.Name)
 			g.Nodes = append(g.Nodes, Node{ID: mID, Kind: "method", Name: m.Name})
 			g.Edges = append(g.Edges, Edge{From: "svc://" + svc.Name, To: mID, Type: "has"})
-			
+
 			// Links to entities
 			if m.Input != nil {
 				g.Edges = append(g.Edges, Edge{From: mID, To: "cue://#" + m.Input.Name, Type: "reads"})
@@ -134,7 +135,6 @@ func BuildDependencyGraph(s *Schema) *DependencyGraph {
 
 	return g
 }
-
 
 func ConvertEntity(e normalizer.Entity) Entity {
 	entity := Entity{

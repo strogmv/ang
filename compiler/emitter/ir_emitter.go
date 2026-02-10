@@ -3,6 +3,8 @@
 package emitter
 
 import (
+	"fmt"
+
 	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
 	"github.com/strogmv/ang/compiler/providers"
@@ -18,6 +20,10 @@ type IRContext struct {
 // EmitFromIR generates all code from the IR schema.
 // This is the main entry point for IR-based generation.
 func (e *Emitter) EmitFromIR(schema *ir.Schema) error {
+	if err := ir.MigrateToCurrent(schema); err != nil {
+		return fmt.Errorf("ir version migration: %w", err)
+	}
+
 	// Convert IR to normalizer types for templates
 	// This allows gradual migration - templates still work with old types
 	// but data comes from transformed IR

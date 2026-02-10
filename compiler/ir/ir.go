@@ -6,6 +6,8 @@ package ir
 // Schema is the root of the IR tree.
 // It contains everything needed to generate a complete application.
 type Schema struct {
+	IRVersion string `json:"ir_version"`
+
 	Project   Project
 	Entities  []Entity
 	Services  []Service
@@ -42,7 +44,6 @@ type Edge struct {
 	To   string `json:"to"`
 	Type string `json:"type"` // generates, uses, calls, writes, reads
 }
-
 
 // Project contains project-level metadata.
 type Project struct {

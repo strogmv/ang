@@ -4,6 +4,7 @@
 package transformers
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/strogmv/ang/compiler/ir"
@@ -40,6 +41,9 @@ func (r *Registry) Register(t Transformer) {
 
 // Apply runs all transformers on the schema in order.
 func (r *Registry) Apply(schema *ir.Schema) error {
+	if err := ir.MigrateToCurrent(schema); err != nil {
+		return fmt.Errorf("ir version migration: %w", err)
+	}
 	for _, t := range r.transformers {
 		if err := t.Transform(schema); err != nil {
 			return err

@@ -199,7 +199,7 @@ func runValidate(args []string) {
 	}
 
 	if err != nil {
-		fmt.Printf("Validation FAILED: %v\n", err)
+		printStageFailure("Validation FAILED", compiler.StageCUE, compiler.ErrCodeCUEPipeline, "run pipeline", err)
 		os.Exit(1)
 	}
 	if hasErrors {
@@ -384,10 +384,14 @@ func runLint(args []string) {
 			Warnings: warnings,
 		}
 		if err != nil {
-			report.Errors = append(report.Errors, lintError{Message: err.Error()})
+			report.Errors = append(report.Errors, lintError{
+				Message: formatStageFailure("Lint FAILED", compiler.StageCUE, compiler.ErrCodeCUEPipeline, "run pipeline", err),
+			})
 		}
 		if lintErr != nil {
-			report.Errors = append(report.Errors, lintError{Message: lintErr.Error()})
+			report.Errors = append(report.Errors, lintError{
+				Message: formatStageFailure("Lint FAILED", compiler.StageCUE, compiler.ErrCodeCUELintLoad, "load cue/lint", lintErr),
+			})
 		}
 		for _, v := range violations {
 			report.Errors = append(report.Errors, v)
@@ -407,13 +411,15 @@ func runLint(args []string) {
 	fmt.Println("Linting intent...")
 	_, _, _, _, _, _, _, _, err := compiler.RunPipeline(projectPath)
 	if err != nil {
-		fmt.Printf("\n❌ Lint FAILED: %v\n", err)
+		fmt.Println()
+		printStageFailure("❌ Lint FAILED", compiler.StageCUE, compiler.ErrCodeCUEPipeline, "run pipeline", err)
 		os.Exit(1)
 	}
 
 	violations, lintErr := runCueLint(projectPath)
 	if lintErr != nil {
-		fmt.Printf("\n❌ Lint FAILED: %v\n", lintErr)
+		fmt.Println()
+		printStageFailure("❌ Lint FAILED", compiler.StageCUE, compiler.ErrCodeCUELintLoad, "load cue/lint", lintErr)
 		os.Exit(1)
 	}
 	if len(violations) > 0 {
@@ -434,7 +440,8 @@ func runTestCoverageCheck(testDir string, minCoverage float64, verbose bool, jso
 
 	_, _, endpoints, _, _, _, _, _, err := compiler.RunPipeline(".")
 	if err != nil {
-		fmt.Printf("\n❌ Test coverage check FAILED: %v\n", err)
+		fmt.Println()
+		printStageFailure("❌ Test coverage check FAILED", compiler.StageCUE, compiler.ErrCodeCUETestCoveragePipeline, "run pipeline", err)
 		os.Exit(1)
 	}
 
@@ -560,13 +567,17 @@ func runBuild(args []string) {
 		}
 		output, err := parseOutputOptions(parseArgs)
 		if err != nil {
-			fmt.Printf("Build FAILED: %v\n", err)
+			printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterOptions, "parse output options", err)
 			return
+		}
+
+		fail := func(stage compiler.Stage, code, op string, err error) {
+			printStageFailure("Build FAILED", stage, code, op, err)
 		}
 
 		entities, services, endpoints, repos, events, bizErrors, schedules, scenarios, err := compiler.RunPipeline(projectPath)
 		if err != nil {
-			fmt.Printf("Build FAILED during validation: %v\n", err)
+			fail(compiler.StageCUE, compiler.ErrCodeCUEPipeline, "run pipeline", err)
 			return
 		}
 		_ = scenarios
@@ -578,50 +589,50 @@ func runBuild(args []string) {
 		var cfgDef *normalizer.ConfigDef
 		var authDef *normalizer.AuthDef
 		if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, "cue/infra")); err != nil {
-			fmt.Printf("Build FAILED during config load: %v\n", err)
+			fail(compiler.StageCUE, compiler.ErrCodeCUEInfraLoad, "load cue/infra", err)
 			return
 		} else if ok {
 			cfgDef, err = n.ExtractConfig(val)
 			if err != nil {
-				fmt.Printf("Build FAILED during config parse: %v\n", err)
+				fail(compiler.StageCUE, compiler.ErrCodeCUEInfraConfigParse, "extract config", err)
 				return
 			}
 			authDef, err = n.ExtractAuth(val)
 			if err != nil {
-				fmt.Printf("Build FAILED during auth parse: %v\n", err)
+				fail(compiler.StageCUE, compiler.ErrCodeCUEInfraAuthParse, "extract auth", err)
 				return
 			}
 		}
 
 		var rbacDef *normalizer.RBACDef
 		if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, "cue/rbac")); err != nil {
-			fmt.Printf("Build FAILED during RBAC load: %v\n", err)
+			fail(compiler.StageCUE, compiler.ErrCodeCUERBACLoad, "load cue/rbac", err)
 			return
 		} else if ok {
 			rbacDef, err = n.ExtractRBAC(val)
 			if err != nil {
-				fmt.Printf("Build FAILED during RBAC parse: %v\n", err)
+				fail(compiler.StageCUE, compiler.ErrCodeCUERBACParse, "extract rbac", err)
 				return
 			}
 		} else if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, "cue/policies")); err != nil {
-			fmt.Printf("Build FAILED during RBAC load: %v\n", err)
+			fail(compiler.StageCUE, compiler.ErrCodeCUEPoliciesLoad, "load cue/policies", err)
 			return
 		} else if ok {
 			rbacDef, err = n.ExtractRBAC(val)
 			if err != nil {
-				fmt.Printf("Build FAILED during RBAC parse: %v\n", err)
+				fail(compiler.StageCUE, compiler.ErrCodeCUEPoliciesParse, "extract policies as rbac", err)
 				return
 			}
 		}
 
 		var views []normalizer.ViewDef
 		if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, "cue/views")); err != nil {
-			fmt.Printf("Build FAILED during views load: %v\n", err)
+			fail(compiler.StageCUE, compiler.ErrCodeCUEViewsLoad, "load cue/views", err)
 			return
 		} else if ok {
 			views, err = n.ExtractViews(val)
 			if err != nil {
-				fmt.Printf("Build FAILED during views parse: %v\n", err)
+				fail(compiler.StageCUE, compiler.ErrCodeCUEViewsParse, "extract views", err)
 				return
 			}
 		}
@@ -630,18 +641,18 @@ func runBuild(args []string) {
 		var targetDefs []normalizer.TargetDef
 		var projectVal cue.Value
 		if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, "cue/project")); err != nil {
-			fmt.Printf("Build FAILED during project load: %v\n", err)
+			fail(compiler.StageCUE, compiler.ErrCodeCUEProjectLoad, "load cue/project", err)
 			return
 		} else if ok {
 			projectVal = val
 			projectDef, err = n.ExtractProject(val)
 			if err != nil {
-				fmt.Printf("Build FAILED during project parse: %v\n", err)
+				fail(compiler.StageCUE, compiler.ErrCodeCUEProjectParse, "extract project", err)
 				return
 			}
 			targetDefs, err = n.ExtractTargets(val)
 			if err != nil {
-				fmt.Printf("Build FAILED during target parse: %v\n", err)
+				fail(compiler.StageCUE, compiler.ErrCodeCUETargetsParse, "extract targets", err)
 				return
 			}
 		}
@@ -687,7 +698,7 @@ func runBuild(args []string) {
 			cfgDefVal, authDef, rbacDef, schedules, views, projectDefVal,
 		)
 		if err != nil {
-			fmt.Printf("Build FAILED during IR transformation: %v\n", err)
+			fail(compiler.StageIR, compiler.ErrCodeIRConvertTransform, "convert and transform", err)
 			return
 		}
 
@@ -700,7 +711,7 @@ func runBuild(args []string) {
 		schedules = emitter.IRSchedulesToNormalizer(irSchema.Schedules)
 
 		if err := emitter.ValidateServiceDependencies(services); err != nil {
-			fmt.Printf("Build FAILED due to service dependency validation: %v\n", err)
+			fail(compiler.StageIR, compiler.ErrCodeIRServiceDependencies, "validate service dependencies", err)
 			return
 		}
 
@@ -810,7 +821,7 @@ func runBuild(args []string) {
 
 				for _, step := range steps {
 					if err := step.fn(); err != nil {
-						fmt.Printf("Error during %s for target %s: %v\n", step.name, td.Name, err)
+						fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, fmt.Sprintf("target=%s step=%s", td.Name, step.name), err)
 						return
 					}
 				}
@@ -928,14 +939,14 @@ func runBuild(args []string) {
 
 			for _, step := range steps {
 				if err := step.fn(); err != nil {
-					fmt.Printf("Error during %s for target %s: %v\n", step.name, td.Name, err)
+					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, fmt.Sprintf("target=%s step=%s", td.Name, step.name), err)
 					return
 				}
 			}
 		}
 
 		if err := runOptionalMCPGeneration(projectPath); err != nil {
-			fmt.Printf("Error during MCP Generation: %v\n", err)
+			printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterMCPGen, "run optional MCP generation", err)
 			return
 		}
 
@@ -972,7 +983,7 @@ func runVet(args []string) {
 	}
 	entities, services, _, _, _, _, _, _, err := compiler.RunPipeline(projectPath)
 	if err != nil {
-		fmt.Printf("Vet FAILED (Parser error): %v\n", err)
+		printStageFailure("Vet FAILED", compiler.StageCUE, compiler.ErrCodeCUEPipeline, "run pipeline", err)
 		os.Exit(1)
 	}
 
@@ -981,7 +992,7 @@ func runVet(args []string) {
 	val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, "cue/policies"))
 	if err == nil && ok {
 		if err := val.Validate(); err != nil {
-			fmt.Printf("Policy Violation (Validate): %v\n", err)
+			printStageFailure("Policy Violation", compiler.StageCUE, compiler.ErrCodeCUEPolicyValidate, "validate cue/policies", err)
 			os.Exit(1)
 		}
 
@@ -996,7 +1007,7 @@ func runVet(args []string) {
 		}
 		fmt.Println("CUE Policies Passed.")
 	} else if err != nil {
-		fmt.Printf("Policy Violation (Load): %v\n", err)
+		printStageFailure("Policy Violation", compiler.StageCUE, compiler.ErrCodeCUEPolicyLoad, "load cue/policies", err)
 		os.Exit(1)
 	}
 
