@@ -63,37 +63,6 @@ func sourceFile(source string) string {
 	return source
 }
 
-func detectErrorCodes(log string) []string {
-	re := regexp.MustCompile(`\b(E_[A-Z0-9_]+|[A-Z]+_[A-Z0-9_]*_ERROR)\b`)
-	matches := re.FindAllString(log, -1)
-	if len(matches) == 0 {
-		return nil
-	}
-
-	known := map[string]struct{}{
-		"E_FSM_UNDEFINED_STATE": {},
-	}
-	for _, c := range compiler.StableErrorCodes {
-		known[c] = struct{}{}
-	}
-
-	uniq := map[string]struct{}{}
-	for _, m := range matches {
-		if _, ok := known[m]; ok {
-			uniq[m] = struct{}{}
-		}
-	}
-	if len(uniq) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(uniq))
-	for c := range uniq {
-		out = append(out, c)
-	}
-	sort.Strings(out)
-	return out
-}
-
 func goldenPatternSources() []string {
 	data, err := os.ReadFile(filepath.Join("cue", "GOLDEN_EXAMPLES.cue"))
 	if err != nil {

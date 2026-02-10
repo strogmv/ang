@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/strogmv/ang/compiler"
+	"github.com/strogmv/ang/compiler/doctor"
 )
 
 func TestBuildDoctorResponse_FSMAutoFixAndMetrics(t *testing.T) {
@@ -25,15 +26,23 @@ func TestBuildDoctorResponse_FSMAutoFixAndMetrics(t *testing.T) {
 	if got := intFromMap(resp1, "errors_remaining"); got != 1 {
 		t.Fatalf("errors_remaining#1 = %d, want 1", got)
 	}
-	auto, ok := resp1["auto_fixable"].([]doctorAutoFix)
+	auto, ok := resp1["auto_fixable"].([]any)
 	if !ok || len(auto) != 1 {
 		t.Fatalf("expected one auto_fixable item, got %#v", resp1["auto_fixable"])
 	}
-	if auto[0].Code != "E_FSM_UNDEFINED_STATE" {
-		t.Fatalf("unexpected code: %s", auto[0].Code)
+	item, ok := auto[0].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected auto_fixable item type: %#v", auto[0])
 	}
-	if auto[0].Patch["path"] != "cue/domain/order.cue" {
-		t.Fatalf("unexpected patch path: %#v", auto[0].Patch["path"])
+	if item["code"] != "E_FSM_UNDEFINED_STATE" {
+		t.Fatalf("unexpected code: %v", item["code"])
+	}
+	patch, ok := item["patch"].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected patch payload: %#v", item["patch"])
+	}
+	if patch["path"] != "cue/domain/order.cue" {
+		t.Fatalf("unexpected patch path: %#v", patch["path"])
 	}
 
 	log2 := "Build SUCCESSFUL."
@@ -52,26 +61,33 @@ func TestBuildDoctorResponse_FSMAutoFixAndMetrics(t *testing.T) {
 		t.Fatalf("state file not written: %v", err)
 	}
 
-	if got := intFromMap(resp1, "catalog_total"); got != len(buildSuggestionCatalog(log1)) {
+	if got := intFromMap(resp1, "catalog_total"); got != len(doctor.BuildSuggestionCatalog(log1)) {
 		t.Fatalf("catalog_total mismatch: %d", got)
 	}
 }
 
 func TestSuggestionForStableCode_ReturnsPatchTemplate(t *testing.T) {
-	s := suggestionForCode("CUE_DOMAIN_LOAD_ERROR", "CUE_DOMAIN_LOAD_ERROR")
-	if s.Code != "CUE_DOMAIN_LOAD_ERROR" {
-		t.Fatalf("unexpected code: %s", s.Code)
+	cat := doctor.BuildSuggestionCatalog("CUE_DOMAIN_LOAD_ERROR")
+	var found *doctor.Suggestion
+	for i := range cat {
+		if cat[i].Code == "CUE_DOMAIN_LOAD_ERROR" {
+			found = &cat[i]
+			break
+		}
 	}
-	if s.Patch == nil {
+	if found == nil {
+		t.Fatal("expected CUE_DOMAIN_LOAD_ERROR in catalog")
+	}
+	if found.Patch == nil {
 		t.Fatal("expected patch template for stable code")
 	}
-	if s.Patch["path"] == "" {
+	if found.Patch["path"] == "" {
 		t.Fatal("expected patch path")
 	}
 }
 
 func TestBuildSuggestionCatalog_CoversAllCodes(t *testing.T) {
-	cat := buildSuggestionCatalog("")
+	cat := doctor.BuildSuggestionCatalog("")
 	want := len(compiler.StableErrorCodes) + 1 // + E_FSM_UNDEFINED_STATE
 	if len(cat) != want {
 		t.Fatalf("catalog size = %d, want %d", len(cat), want)
@@ -84,6 +100,12 @@ func TestBuildSuggestionCatalog_CoversAllCodes(t *testing.T) {
 }
 
 func intFromMap(m map[string]any, key string) int {
-	v, _ := m[key].(int)
-	return v
+	switch v := m[key].(type) {
+	case int:
+		return v
+	case float64:
+		return int(v)
+	default:
+		return 0
+	}
 }

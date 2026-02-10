@@ -49,6 +49,8 @@ func main() {
 		runRBAC(os.Args[2:])
 	case "events":
 		runEvents(os.Args[2:])
+	case "doctor":
+		runDoctor(os.Args[2:])
 	case "hash":
 		runHash()
 	case "mcp":
@@ -78,6 +80,7 @@ func printUsage() {
 	fmt.Println("  ang rbac actions  List all registered RBAC actions (service.method)")
 	fmt.Println("  ang rbac inspect  Audit RBAC policies for holes and errors")
 	fmt.Println("  ang events map    Visualize end-to-end event journey (Pub/Sub)")
+	fmt.Println("  ang doctor    Analyze build log and suggest concrete CUE fixes")
 	fmt.Println("  ang explain   Explain a lint code with examples")
 	fmt.Println("  ang draw      Generate architecture diagrams (Mermaid)")
 	fmt.Println("  ang hash      Show current project hash (CUE + Templates)")
