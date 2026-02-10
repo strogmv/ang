@@ -31,3 +31,30 @@ func TestExecute_SkipsMissingCapabilities(t *testing.T) {
 		t.Fatalf("step should be skipped when capabilities are missing")
 	}
 }
+
+func TestStepRegistry_Execute(t *testing.T) {
+	td := normalizer.TargetDef{Name: "python"}
+	caps := compiler.CapabilitySet{
+		compiler.CapabilityHTTP:                 true,
+		compiler.CapabilityProfileGoLegacy:      false,
+		compiler.CapabilityProfilePythonFastAPI: true,
+	}
+
+	reg := NewStepRegistry()
+	called := false
+	reg.Register(Step{
+		Name:     "OpenAPI",
+		Requires: []compiler.Capability{compiler.CapabilityHTTP},
+		Run: func() error {
+			called = true
+			return nil
+		},
+	})
+
+	if err := reg.Execute(td, caps, func(string, ...interface{}) {}); err != nil {
+		t.Fatalf("registry execute: %v", err)
+	}
+	if !called {
+		t.Fatalf("expected registered step to run")
+	}
+}

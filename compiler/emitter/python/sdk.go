@@ -51,6 +51,29 @@ type rpcSignature struct {
 	OutputModel string
 }
 
+func EmitSDKFromIR(outputDir, fallbackVersion string, rt Runtime, schema *ir.Schema) error {
+	version := strings.TrimSpace(fallbackVersion)
+	if schema != nil {
+		if v := strings.TrimSpace(schema.Project.Version); v != "" {
+			version = v
+		}
+	}
+	if version == "" {
+		version = "0.1.0"
+	}
+	if schema == nil {
+		return fmt.Errorf("nil IR schema")
+	}
+
+	data := sdkData{
+		Version:   version,
+		Endpoints: BuildEndpointsFromIR(schema),
+		Models:    BuildSDKModelsFromIR(schema.Entities),
+	}
+
+	return emitSDKFiles(outputDir, rt, data)
+}
+
 func EmitSDK(outputDir, version string, rt Runtime, endpoints []normalizer.Endpoint, services []normalizer.Service, entities []normalizer.Entity) error {
 	data := sdkData{
 		Version:   version,
@@ -58,6 +81,10 @@ func EmitSDK(outputDir, version string, rt Runtime, endpoints []normalizer.Endpo
 		Models:    BuildSDKModels(entities),
 	}
 
+	return emitSDKFiles(outputDir, rt, data)
+}
+
+func emitSDKFiles(outputDir string, rt Runtime, data sdkData) error {
 	rt.Funcs["JoinParams"] = func(params []string) string {
 		return strings.Join(params, ", ")
 	}
@@ -98,12 +125,8 @@ func EmitSDK(outputDir, version string, rt Runtime, endpoints []normalizer.Endpo
 	return nil
 }
 
-func BuildSDKModels(entities []normalizer.Entity) []SDKModel {
-	irEntities := make([]ir.Entity, 0, len(entities))
-	for _, ent := range entities {
-		irEntities = append(irEntities, ir.ConvertEntity(ent))
-	}
-	modelPlans := planner.BuildModelPlans(irEntities)
+func BuildSDKModelsFromIR(entities []ir.Entity) []SDKModel {
+	modelPlans := planner.BuildModelPlans(entities)
 	out := make([]SDKModel, 0, len(modelPlans))
 	for _, m := range modelPlans {
 		model := SDKModel{Name: m.Name}
@@ -117,6 +140,14 @@ func BuildSDKModels(entities []normalizer.Entity) []SDKModel {
 		out = append(out, model)
 	}
 	return out
+}
+
+func BuildSDKModels(entities []normalizer.Entity) []SDKModel {
+	irEntities := make([]ir.Entity, 0, len(entities))
+	for _, ent := range entities {
+		irEntities = append(irEntities, ir.ConvertEntity(ent))
+	}
+	return BuildSDKModelsFromIR(irEntities)
 }
 
 func buildRPCSignatures(services []normalizer.Service) map[string]rpcSignature {
@@ -133,7 +164,40 @@ func buildRPCSignatures(services []normalizer.Service) map[string]rpcSignature {
 	return out
 }
 
+func buildRPCSignaturesFromIR(services []ir.Service) map[string]rpcSignature {
+	out := make(map[string]rpcSignature, len(services))
+	for _, svc := range services {
+		for _, m := range svc.Methods {
+			key := strings.ToLower(strings.TrimSpace(svc.Name)) + ":" + strings.ToLower(strings.TrimSpace(m.Name))
+			input := ""
+			output := ""
+			if m.Input != nil {
+				input = exportName(strings.TrimSpace(m.Input.Name))
+			}
+			if m.Output != nil {
+				output = exportName(strings.TrimSpace(m.Output.Name))
+			}
+			out[key] = rpcSignature{
+				InputModel:  input,
+				OutputModel: output,
+			}
+		}
+	}
+	return out
+}
+
 var pathParamRe = regexp.MustCompile(`\{([a-zA-Z0-9_]+)\}`)
+
+func BuildEndpointsFromIR(schema *ir.Schema) []Endpoint {
+	if schema == nil {
+		return nil
+	}
+	eps := make([]normalizer.Endpoint, 0, len(schema.Endpoints))
+	for _, ep := range schema.Endpoints {
+		eps = append(eps, irEndpointToNormalized(ep))
+	}
+	return BuildEndpoints(eps, buildRPCSignaturesFromIR(schema.Services))
+}
 
 func BuildEndpoints(endpoints []normalizer.Endpoint, sigs map[string]rpcSignature) []Endpoint {
 	out := make([]Endpoint, 0, len(endpoints))
@@ -209,6 +273,15 @@ func BuildEndpoints(endpoints []normalizer.Endpoint, sigs map[string]rpcSignatur
 	}
 
 	return out
+}
+
+func irEndpointToNormalized(ep ir.Endpoint) normalizer.Endpoint {
+	return normalizer.Endpoint{
+		Method:      ep.Method,
+		Path:        ep.Path,
+		ServiceName: ep.Service,
+		RPC:         ep.RPC,
+	}
 }
 
 func PathParamNames(path string) []string {

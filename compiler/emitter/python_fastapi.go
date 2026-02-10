@@ -142,7 +142,7 @@ func buildPythonFastAPIData(
 }
 
 func buildPythonModels(entities []normalizer.Entity) []pythonModel {
-	entityNames := buildPythonEntityNameSet(entities)
+	entityNames := pyemitter.BuildEntityNameSet(entities)
 	out := make([]pythonModel, 0, len(entities))
 	for _, ent := range entities {
 		m := pythonModel{Name: ExportName(ent.Name)}
@@ -152,7 +152,7 @@ func buildPythonModels(entities []normalizer.Entity) []pythonModel {
 			}
 			m.Fields = append(m.Fields, pythonModelField{
 				Name:       f.Name,
-				Type:       pythonFieldTypeWithEntities(f, entityNames),
+				Type:       pyemitter.FieldTypeWithEntities(f, entityNames),
 				IsOptional: f.IsOptional,
 			})
 		}

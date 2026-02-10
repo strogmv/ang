@@ -1,4 +1,4 @@
-package emitter
+package python
 
 import (
 	"strings"
@@ -6,10 +6,10 @@ import (
 	"github.com/strogmv/ang/compiler/normalizer"
 )
 
-func buildPythonEntityNameSet(entities []normalizer.Entity) map[string]struct{} {
+func BuildEntityNameSet(entities []normalizer.Entity) map[string]struct{} {
 	out := make(map[string]struct{}, len(entities))
 	for _, ent := range entities {
-		name := ExportName(strings.TrimSpace(ent.Name))
+		name := exportName(strings.TrimSpace(ent.Name))
 		if name != "" {
 			out[name] = struct{}{}
 		}
@@ -17,15 +17,15 @@ func buildPythonEntityNameSet(entities []normalizer.Entity) map[string]struct{} 
 	return out
 }
 
-func pythonFieldTypeWithEntities(f normalizer.Field, entityNames map[string]struct{}) string {
-	base := pythonTypeFromNormalized(f.Type, f.Name, entityNames)
+func FieldTypeWithEntities(f normalizer.Field, entityNames map[string]struct{}) string {
+	base := typeFromNormalized(f.Type, f.Name, entityNames)
 
 	if f.IsList && !strings.HasPrefix(base, "list[") {
 		itemType := f.ItemTypeName
 		if strings.TrimSpace(itemType) == "" {
 			itemType = f.Type
 		}
-		base = "list[" + pythonTypeFromNormalized(itemType, f.Name, entityNames) + "]"
+		base = "list[" + typeFromNormalized(itemType, f.Name, entityNames) + "]"
 	}
 	if f.IsOptional {
 		base += " | None"
@@ -33,7 +33,7 @@ func pythonFieldTypeWithEntities(f normalizer.Field, entityNames map[string]stru
 	return base
 }
 
-func pythonTypeFromNormalized(typeName, fieldName string, entityNames map[string]struct{}) string {
+func typeFromNormalized(typeName, fieldName string, entityNames map[string]struct{}) string {
 	t := strings.TrimSpace(typeName)
 	if t == "" {
 		return "Any"
@@ -45,17 +45,15 @@ func pythonTypeFromNormalized(typeName, fieldName string, entityNames map[string
 
 	if strings.HasPrefix(t, "[]") {
 		item := strings.TrimSpace(strings.TrimPrefix(t, "[]"))
-		return "list[" + pythonTypeFromNormalized(item, fieldName, entityNames) + "]"
+		return "list[" + typeFromNormalized(item, fieldName, entityNames) + "]"
 	}
 
-	// Normalizer often collapses scalar aliases into map[string]any.
-	// Prefer scalar types unless the field is likely a JSON/object payload.
 	switch t {
 	case "map[string]any", "map[string]interface{}", "map":
 		if isLikelyJSONObjectField(fieldName) {
 			return "dict[str, Any]"
 		}
-		if scalar := pythonScalarAliasType("", fieldName); scalar != "" {
+		if scalar := scalarAliasType("", fieldName); scalar != "" {
 			return scalar
 		}
 		return "str"
@@ -68,7 +66,7 @@ func pythonTypeFromNormalized(typeName, fieldName string, entityNames map[string
 			if valType == "" {
 				valType = "any"
 			}
-			return "dict[str, " + pythonTypeFromNormalized(valType, fieldName, entityNames) + "]"
+			return "dict[str, " + typeFromNormalized(valType, fieldName, entityNames) + "]"
 		}
 		return "dict[str, Any]"
 	}
@@ -93,38 +91,38 @@ func pythonTypeFromNormalized(typeName, fieldName string, entityNames map[string
 		if isLikelyJSONObjectField(fieldName) {
 			return "dict[str, Any]"
 		}
-		if scalar := pythonScalarAliasType("", fieldName); scalar != "" {
+		if scalar := scalarAliasType("", fieldName); scalar != "" {
 			return scalar
 		}
 		return "str"
 	}
 
 	if strings.HasPrefix(t, "domain.") {
-		name := ExportName(strings.TrimSpace(strings.TrimPrefix(t, "domain.")))
+		name := exportName(strings.TrimSpace(strings.TrimPrefix(t, "domain.")))
 		if _, ok := entityNames[name]; ok {
 			return name
 		}
-		if scalar := pythonScalarAliasType(name, fieldName); scalar != "" {
+		if scalar := scalarAliasType(name, fieldName); scalar != "" {
 			return scalar
 		}
 		return "Any"
 	}
 
-	name := ExportName(t)
+	name := exportName(t)
 	if _, ok := entityNames[name]; ok {
 		return name
 	}
 	if dot := strings.LastIndex(t, "."); dot >= 0 && dot < len(t)-1 {
-		last := ExportName(t[dot+1:])
+		last := exportName(t[dot+1:])
 		if _, ok := entityNames[last]; ok {
 			return last
 		}
-		if scalar := pythonScalarAliasType(last, fieldName); scalar != "" {
+		if scalar := scalarAliasType(last, fieldName); scalar != "" {
 			return scalar
 		}
 	}
 
-	if scalar := pythonScalarAliasType(name, fieldName); scalar != "" {
+	if scalar := scalarAliasType(name, fieldName); scalar != "" {
 		return scalar
 	}
 	if isLikelyJSONObjectField(fieldName) {
@@ -133,7 +131,7 @@ func pythonTypeFromNormalized(typeName, fieldName string, entityNames map[string
 	return "str"
 }
 
-func pythonScalarAliasType(typeOrAlias, fieldName string) string {
+func scalarAliasType(typeOrAlias, fieldName string) string {
 	v := strings.ToLower(strings.TrimSpace(typeOrAlias))
 	f := strings.ToLower(strings.TrimSpace(fieldName))
 

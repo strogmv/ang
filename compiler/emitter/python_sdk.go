@@ -62,6 +62,17 @@ func (e *Emitter) EmitPythonSDK(endpoints []normalizer.Endpoint, services []norm
 	return pyemitter.EmitSDK(e.OutputDir, version, rt, endpoints, services, entities)
 }
 
+func (e *Emitter) EmitPythonSDKFromIR(schema *ir.Schema, fallbackVersion string) error {
+	if err := ir.MigrateToCurrent(schema); err != nil {
+		return fmt.Errorf("migrate ir schema: %w", err)
+	}
+	rt := pyemitter.Runtime{
+		Funcs:        e.getSharedFuncMap(),
+		ReadTemplate: ReadTemplateByPath,
+	}
+	return pyemitter.EmitSDKFromIR(e.OutputDir, fallbackVersion, rt, schema)
+}
+
 func buildPythonSDKModels(entities []normalizer.Entity) []pythonSDKModel {
 	irEntities := make([]ir.Entity, 0, len(entities))
 	for _, ent := range entities {

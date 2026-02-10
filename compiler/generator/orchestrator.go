@@ -16,6 +16,32 @@ type Step struct {
 	Run      func() error
 }
 
+type StepRegistry struct {
+	steps []Step
+}
+
+func NewStepRegistry() *StepRegistry {
+	return &StepRegistry{steps: make([]Step, 0, 64)}
+}
+
+func (r *StepRegistry) Register(step Step) {
+	r.steps = append(r.steps, step)
+}
+
+func (r *StepRegistry) Steps() []Step {
+	out := make([]Step, len(r.steps))
+	copy(out, r.steps)
+	return out
+}
+
+func (r *StepRegistry) Execute(
+	td normalizer.TargetDef,
+	caps compiler.CapabilitySet,
+	logger func(string, ...interface{}),
+) error {
+	return Execute(td, caps, r.steps, logger)
+}
+
 // Execute runs steps through capability gating.
 // Missing capabilities skip the step with logger output.
 func Execute(
