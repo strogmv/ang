@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -26,6 +27,10 @@ func runValidate(args []string) {
 	}
 	if hasErrors {
 		fmt.Println("Validation FAILED due to diagnostic errors.")
+		os.Exit(1)
+	}
+	if msg, risky := detectReleaseRootModuleMismatch(projectPath); risky {
+		printStageFailure("Validation FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterOptions, "release output/module guard", errors.New(msg))
 		os.Exit(1)
 	}
 	fmt.Println("Validation SUCCESSFUL.")

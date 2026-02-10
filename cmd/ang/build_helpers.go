@@ -13,6 +13,7 @@ import (
 
 type OutputOptions struct {
 	BackendDir          string
+	BackendDirExplicit  bool
 	FrontendDir         string
 	FrontendAppDir      string
 	FrontendAdminDir    string
@@ -22,6 +23,7 @@ type OutputOptions struct {
 	TargetSelector      string
 	DryRun              bool
 	LogFormat           string
+	Mode                string
 }
 
 func parseOutputOptions(args []string) (OutputOptions, error) {
@@ -36,12 +38,19 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 	targetSelector := fs.String("target", "", "Build only selected target(s): name, lang, or lang/framework/db stack; comma-separated supported")
 	dryRun := fs.Bool("dry-run", false, "preview generated file changes without writing to output directories")
 	logFormat := fs.String("log-format", "text", "build log format: text|json")
+	mode := fs.String("mode", "", "Build output mode: in_place | release")
 	if err := fs.Parse(args); err != nil {
 		return OutputOptions{}, err
 	}
 
+	modeVal := strings.ToLower(strings.TrimSpace(*mode))
+	if modeVal != "" && modeVal != "in_place" && modeVal != "release" {
+		return OutputOptions{}, fmt.Errorf("invalid --mode %q (expected in_place|release)", modeVal)
+	}
+
 	opts := OutputOptions{
 		BackendDir:          normalizeBackendDir(*backendDir),
+		BackendDirExplicit:  flagPassed(args, "--backend-dir"),
 		FrontendDir:         strings.TrimSpace(*frontendDir),
 		FrontendAppDir:      strings.TrimSpace(*frontendAppDir),
 		FrontendAdminDir:    strings.TrimSpace(*frontendAdminDir),
@@ -51,6 +60,7 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 		TargetSelector:      strings.TrimSpace(*targetSelector),
 		DryRun:              *dryRun,
 		LogFormat:           strings.ToLower(strings.TrimSpace(*logFormat)),
+		Mode:                modeVal,
 	}
 	if opts.FrontendDir == "" {
 		opts.FrontendDir = "sdk"
@@ -136,14 +146,97 @@ func targetMatchesSelector(td normalizer.TargetDef, selector string) bool {
 	return false
 }
 
-func resolveBackendDirForTarget(baseBackendDir string, td normalizer.TargetDef, multiTarget bool) string {
-	if v := strings.TrimSpace(td.OutputDir); v != "" {
-		return normalizeBackendDir(v)
+func resolveBackendDirForTarget(mode string, baseBackendDir string, td normalizer.TargetDef, multiTarget bool) string {
+	if mode == "release" {
+		if v := strings.TrimSpace(td.OutputDir); v != "" {
+			return normalizeBackendDir(v)
+		}
+		return normalizeBackendDir(filepath.Join("dist/release", safeTargetDirName(td.Name)))
 	}
+	// in_place: CLI/backend-dir always wins to avoid ambiguous output behavior.
 	if multiTarget {
 		return normalizeBackendDir(filepath.Join(baseBackendDir, safeTargetDirName(td.Name)))
 	}
 	return normalizeBackendDir(baseBackendDir)
+}
+
+func resolveBuildMode(cliMode string, projectVal cue.Value, backendDirExplicit bool) string {
+	mode := strings.ToLower(strings.TrimSpace(cliMode))
+	if mode != "" {
+		return mode
+	}
+	if backendDirExplicit {
+		return "in_place"
+	}
+	check := func(path string) string {
+		v := projectVal.LookupPath(cue.ParsePath(path))
+		if !v.Exists() {
+			return ""
+		}
+		s, err := v.String()
+		if err != nil {
+			return ""
+		}
+		return strings.ToLower(strings.TrimSpace(s))
+	}
+	if m := check("build.mode"); m == "in_place" || m == "release" {
+		return m
+	}
+	if m := check("Build.Mode"); m == "in_place" || m == "release" {
+		return m
+	}
+	return "in_place"
+}
+
+func validateBuildMode(mode string, opts OutputOptions, targets []normalizer.TargetDef) error {
+	switch mode {
+	case "in_place":
+		return nil
+	case "release":
+		if opts.BackendDirExplicit {
+			return fmt.Errorf("invalid mixed mode: mode=release backend_dir=%q target=%q. Fix: remove --backend-dir or switch to --mode=in_place", opts.BackendDir, opts.TargetSelector)
+		}
+		hasSet := false
+		hasUnset := false
+		for _, td := range targets {
+			if strings.TrimSpace(td.OutputDir) == "" {
+				hasUnset = true
+			} else {
+				hasSet = true
+			}
+		}
+		if hasSet && hasUnset {
+			return fmt.Errorf("invalid mixed mode: mode=release has targets with and without output_dir. Fix: set output_dir for all targets or switch to mode=in_place")
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown build mode: %s", mode)
+	}
+}
+
+func flagPassed(args []string, flagName string) bool {
+	for i, a := range args {
+		if a == flagName {
+			return true
+		}
+		if strings.HasPrefix(a, flagName+"=") {
+			return true
+		}
+		// support "-backend-dir" typo not needed; keep strict.
+		if i+1 < len(args) && a == flagName {
+			return true
+		}
+	}
+	return false
+}
+
+func hasDeprecatedOutputDirConfig(targets []normalizer.TargetDef) bool {
+	for _, td := range targets {
+		if strings.TrimSpace(td.OutputDir) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func resolveFrontendDirForTarget(baseFrontendDir, backendDir string, td normalizer.TargetDef, multiTarget bool) string {

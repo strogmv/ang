@@ -129,7 +129,7 @@ func (n *Normalizer) detectType(fieldName string, v cue.Value) string {
 	// 1. Check if type is explicitly mapped in Codegen CUE
 	_, path := v.ReferencePath()
 	pathStr := path.String()
-	
+
 	if n.TypeMapping != nil {
 		if cfg, ok := n.TypeMapping[pathStr]; ok {
 			return cfg.GoType
@@ -195,6 +195,10 @@ func (n *Normalizer) detectType(fieldName string, v cue.Value) string {
 				}
 			}
 		}
+		// Handle scalar alias references and enum/string list aliases.
+		if anyElem.Exists() && anyElem.IncompleteKind() == cue.StringKind {
+			return "[]string"
+		}
 
 		strRep := fmt.Sprint(v)
 		if strings.Contains(strRep, "#") {
@@ -233,6 +237,10 @@ func (n *Normalizer) detectType(fieldName string, v cue.Value) string {
 		// HACK for Prototype:
 		// If the value prints as `[...string]`, use []string
 		if strings.Contains(strRep, "string") && strings.HasPrefix(strRep, "[") {
+			return "[]string"
+		}
+		// Enum-like unions of string literals (e.g. ["email"|"sms"]) should stay []string.
+		if strings.HasPrefix(strings.TrimSpace(strRep), "[") && strings.Contains(strRep, "\"") && strings.Contains(strRep, "|") {
 			return "[]string"
 		}
 

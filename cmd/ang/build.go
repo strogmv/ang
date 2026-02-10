@@ -229,6 +229,12 @@ func runBuild(args []string) {
 		irSchema.Services = emitter.OrderIRServicesByDependencies(irSchema.Services)
 
 		isMicroservice := projectHasBuildStrategy(projectVal, "microservices")
+		if output.Mode == "" {
+			if hasDeprecatedOutputDirConfig(targetDefs) {
+				fmt.Println("Warning: targets[].output_dir without explicit --mode/build.mode is deprecated.")
+				fmt.Println("Migration: set build.mode: \"release\" (keep output_dir) or build.mode: \"in_place\" and use --backend-dir.")
+			}
+		}
 
 		selectedTargets := filterTargets(targetDefs, output.TargetSelector)
 		if len(selectedTargets) == 0 {
@@ -239,11 +245,30 @@ func runBuild(args []string) {
 			}
 			return
 		}
+		effectiveMode := resolveBuildMode(output.Mode, projectVal, output.BackendDirExplicit)
+		if err := validateBuildMode(effectiveMode, output, selectedTargets); err != nil {
+			fail(compiler.StageEmitters, compiler.ErrCodeEmitterOptions, "validate output mode", err)
+			return
+		}
 
 		multiTarget := len(selectedTargets) > 1
+		type buildTargetSummary struct {
+			Name      string
+			Mode      string
+			Backend   string
+			SelfCheck string
+			Details   []runtimePackageDir
+		}
+		summaries := make([]buildTargetSummary, 0, len(selectedTargets))
 		for _, td := range selectedTargets {
-			intendedBackendDir := resolveBackendDirForTarget(output.BackendDir, td, multiTarget)
+			intendedBackendDir := resolveBackendDirForTarget(effectiveMode, output.BackendDir, td, multiTarget)
 			intendedFrontendDir := resolveFrontendDirForTarget(output.FrontendDir, intendedBackendDir, td, multiTarget)
+			if !filepath.IsAbs(intendedBackendDir) {
+				intendedBackendDir = filepath.Join(projectPath, intendedBackendDir)
+			}
+			if !filepath.IsAbs(intendedFrontendDir) {
+				intendedFrontendDir = filepath.Join(projectPath, intendedFrontendDir)
+			}
 			backendDir := intendedBackendDir
 			frontendDir := intendedFrontendDir
 			if output.DryRun {
@@ -340,6 +365,32 @@ func runBuild(args []string) {
 				})
 			}
 
+			if !output.DryRun && td.Lang == "go" && effectiveMode == "release" {
+				if err := ensureReleaseGoModule(backendDir, goModule); err != nil {
+					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "ensure release go.mod", err)
+					return
+				}
+			}
+
+			selfCheckStatus := "skipped"
+			var selfCheckDetails []runtimePackageDir
+			if !output.DryRun && strings.EqualFold(td.Lang, "go") {
+				checkRes, err := runGoRuntimeSelfCheck(projectPath, backendDir, effectiveMode)
+				if err != nil {
+					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "runtime source self-check", err)
+					return
+				}
+				selfCheckStatus = checkRes.Status
+				selfCheckDetails = checkRes.Resolved
+			}
+			summaries = append(summaries, buildTargetSummary{
+				Name:      td.Name,
+				Mode:      effectiveMode,
+				Backend:   filepath.ToSlash(filepath.Clean(backendDir)),
+				SelfCheck: selfCheckStatus,
+				Details:   selfCheckDetails,
+			})
+
 			if output.DryRun {
 				backendChanges, err := buildDryRunChanges(backendDir, intendedBackendDir)
 				if err != nil {
@@ -387,6 +438,13 @@ func runBuild(args []string) {
 		}
 
 		logText("\nBuild SUCCESSFUL.")
+		logText("Build Report:")
+		for _, s := range summaries {
+			logText("  - target=%s mode=%s backend=%s self-check=%s", s.Name, s.Mode, s.Backend, s.SelfCheck)
+			for _, d := range s.Details {
+				logText("      %s -> %s", d.Package, d.Dir)
+			}
+		}
 		if jsonLogs {
 			logEvent(buildEvent{
 				Timestamp: time.Now().UTC().Format(time.RFC3339Nano),

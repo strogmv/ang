@@ -45,6 +45,9 @@ func runDoctor(args []string) {
 	}
 
 	resp := doctor.NewAnalyzer(".").Analyze(logText)
+	if msg, risky := detectReleaseRootModuleMismatch("."); risky {
+		resp.Summary = append(resp.Summary, "Output guard: "+msg)
+	}
 	b, err := json.MarshalIndent(resp, "", "  ")
 	if err != nil {
 		fmt.Printf("Doctor FAILED: marshal response: %v\n", err)
