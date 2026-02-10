@@ -7,7 +7,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang/compiler/planner"
 )
 
 type pythonModelField struct {
@@ -70,10 +72,10 @@ type pythonRepoStub struct {
 type pythonFastAPIData struct {
 	ProjectName   string
 	Version       string
-	Models        []pythonModel
-	Routers       []pythonRouter
-	ServiceStubs  []pythonServiceStub
-	RepoStubs     []pythonRepoStub
+	Models        []planner.ModelPlan
+	Routers       []planner.ServicePlan
+	ServiceStubs  []planner.ServicePlan
+	RepoStubs     []planner.RepoPlan
 	RouterModules []string
 }
 
@@ -85,7 +87,35 @@ func (e *Emitter) EmitPythonFastAPIBackend(
 	repos []normalizer.Repository,
 	project *normalizer.ProjectDef,
 ) error {
-	data := buildPythonFastAPIData(entities, services, endpoints, repos, project, e.Version)
+	var projectDef normalizer.ProjectDef
+	if project != nil {
+		projectDef = *project
+	}
+	schema := ir.ConvertFromNormalizer(
+		entities, services, nil, nil, endpoints, repos,
+		normalizer.ConfigDef{}, nil, nil, nil, nil, projectDef,
+	)
+	return e.EmitPythonFastAPIBackendFromIR(schema, e.Version)
+}
+
+func (e *Emitter) EmitPythonFastAPIBackendFromIR(schema *ir.Schema, fallbackVersion string) error {
+	if err := ir.MigrateToCurrent(schema); err != nil {
+		return fmt.Errorf("migrate ir schema: %w", err)
+	}
+	plan := planner.BuildFastAPIPlan(schema, fallbackVersion)
+	return e.EmitPythonFastAPIBackendFromPlan(plan)
+}
+
+func (e *Emitter) EmitPythonFastAPIBackendFromPlan(plan planner.FastAPIPlan) error {
+	data := pythonFastAPIData{
+		ProjectName:   plan.ProjectName,
+		Version:       plan.Version,
+		Models:        plan.Models,
+		Routers:       plan.Routers,
+		ServiceStubs:  plan.ServiceStubs,
+		RepoStubs:     plan.RepoStubs,
+		RouterModules: plan.RouterModules,
+	}
 	funcs := e.getSharedFuncMap()
 
 	root := filepath.Join(e.OutputDir, "app")
@@ -150,37 +180,23 @@ func buildPythonFastAPIData(
 	project *normalizer.ProjectDef,
 	fallbackVersion string,
 ) pythonFastAPIData {
-	projectName := "ANG Service"
-	version := strings.TrimSpace(fallbackVersion)
+	var projectDef normalizer.ProjectDef
 	if project != nil {
-		if n := strings.TrimSpace(project.Name); n != "" {
-			projectName = n
-		}
-		if v := strings.TrimSpace(project.Version); v != "" {
-			version = v
-		}
+		projectDef = *project
 	}
-	if version == "" {
-		version = "0.1.0"
-	}
-
-	models := buildPythonModels(entities)
-	routers, serviceStubs := buildPythonRoutersAndServices(endpoints, services)
-	repoStubs := buildPythonRepoStubs(repos)
-
-	routerModules := make([]string, 0, len(routers))
-	for _, r := range routers {
-		routerModules = append(routerModules, r.ModuleName)
-	}
-
+	schema := ir.ConvertFromNormalizer(
+		entities, services, nil, nil, endpoints, repos,
+		normalizer.ConfigDef{}, nil, nil, nil, nil, projectDef,
+	)
+	plan := planner.BuildFastAPIPlan(schema, fallbackVersion)
 	return pythonFastAPIData{
-		ProjectName:   projectName,
-		Version:       version,
-		Models:        models,
-		Routers:       routers,
-		ServiceStubs:  serviceStubs,
-		RepoStubs:     repoStubs,
-		RouterModules: routerModules,
+		ProjectName:   plan.ProjectName,
+		Version:       plan.Version,
+		Models:        plan.Models,
+		Routers:       plan.Routers,
+		ServiceStubs:  plan.ServiceStubs,
+		RepoStubs:     plan.RepoStubs,
+		RouterModules: plan.RouterModules,
 	}
 }
 

@@ -582,7 +582,6 @@ func runBuild(args []string) {
 			return
 		}
 		_ = scenarios
-		rawServices := append([]normalizer.Service(nil), services...)
 
 		p := parser.New()
 		n := normalizer.New()
@@ -813,7 +812,7 @@ func runBuild(args []string) {
 					{Name: "Python FastAPI Backend", Requires: []compiler.Capability{
 						compiler.CapabilityProfilePythonFastAPI, compiler.CapabilityHTTP, compiler.CapabilitySQLRepo,
 					}, Run: func() error {
-						return em.EmitPythonFastAPIBackend(entities, rawServices, endpoints, repos, projectDef)
+						return em.EmitPythonFastAPIBackendFromIR(irSchema, compiler.Version)
 					}},
 					{Name: "Python SDK", Requires: []compiler.Capability{compiler.CapabilityHTTP}, Run: func() error {
 						if !pythonSDKEnabled {

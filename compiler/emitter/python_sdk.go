@@ -10,7 +10,9 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang/compiler/planner"
 )
 
 type pythonEndpoint struct {
@@ -106,23 +108,23 @@ func (e *Emitter) EmitPythonSDK(endpoints []normalizer.Endpoint, services []norm
 }
 
 func buildPythonSDKModels(entities []normalizer.Entity) []pythonSDKModel {
-	entityNames := buildPythonEntityNameSet(entities)
-	out := make([]pythonSDKModel, 0, len(entities))
+	irEntities := make([]ir.Entity, 0, len(entities))
 	for _, ent := range entities {
-		model := pythonSDKModel{Name: ExportName(ent.Name)}
-		for _, f := range ent.Fields {
-			if f.SkipDomain {
-				continue
-			}
+		irEntities = append(irEntities, ir.ConvertEntity(ent))
+	}
+	modelPlans := planner.BuildModelPlans(irEntities)
+	out := make([]pythonSDKModel, 0, len(modelPlans))
+	for _, m := range modelPlans {
+		model := pythonSDKModel{Name: m.Name}
+		for _, f := range m.Fields {
 			model.Fields = append(model.Fields, pythonSDKModelField{
 				Name:       f.Name,
-				Type:       pythonFieldTypeWithEntities(f, entityNames),
+				Type:       f.Type,
 				IsOptional: f.IsOptional,
 			})
 		}
 		out = append(out, model)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
 

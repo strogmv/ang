@@ -5,6 +5,7 @@ package ir
 import (
 	"fmt"
 	"github.com/strogmv/ang/compiler/normalizer"
+	"strings"
 )
 
 // ConvertFromNormalizer converts legacy normalizer types to new IR.
@@ -275,10 +276,10 @@ func ConvertField(f normalizer.Field) Field {
 
 func inferTypeRef(f normalizer.Field) TypeRef {
 	// Parse the Go type string and convert to TypeRef
-	goType := f.Type
+	goType := strings.TrimSpace(f.Type)
 
 	// Handle list types
-	if f.IsList {
+	if f.IsList || strings.HasPrefix(goType, "[]") {
 		itemType := goType
 		if len(goType) > 2 && goType[:2] == "[]" {
 			itemType = goType[2:]
