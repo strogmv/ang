@@ -3,6 +3,7 @@ package generator
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/strogmv/ang/compiler"
 	"github.com/strogmv/ang/compiler/normalizer"
@@ -14,6 +15,18 @@ type Step struct {
 	Name     string
 	Requires []compiler.Capability
 	Run      func() error
+}
+
+type StepEvent struct {
+	Stage          string                `json:"stage"`
+	Target         string                `json:"target"`
+	Step           string                `json:"step"`
+	Status         string                `json:"status"` // start|ok|skip|error
+	DurationMS     int64                 `json:"duration_ms,omitempty"`
+	MissingCaps    []compiler.Capability `json:"missing_caps,omitempty"`
+	FilesGenerated int                   `json:"files_generated,omitempty"`
+	Warnings       int                   `json:"warnings,omitempty"`
+	Error          string                `json:"error,omitempty"`
 }
 
 type StepRegistry struct {
@@ -38,8 +51,9 @@ func (r *StepRegistry) Execute(
 	td normalizer.TargetDef,
 	caps compiler.CapabilitySet,
 	logger func(string, ...interface{}),
+	eventLogger func(StepEvent),
 ) error {
-	return Execute(td, caps, r.steps, logger)
+	return Execute(td, caps, r.steps, logger, eventLogger)
 }
 
 // Execute runs steps through capability gating.
@@ -49,6 +63,7 @@ func Execute(
 	caps compiler.CapabilitySet,
 	steps []Step,
 	logger func(string, ...interface{}),
+	eventLogger func(StepEvent),
 ) error {
 	for _, step := range steps {
 		if !caps.HasAll(step.Requires...) {
@@ -60,10 +75,47 @@ func Execute(
 				}
 				logger("Skipping %s for target %s: missing capabilities [%s]", step.Name, td.Name, strings.Join(missingNames, ", "))
 			}
+			if eventLogger != nil {
+				eventLogger(StepEvent{
+					Stage:       "emitters",
+					Target:      td.Name,
+					Step:        step.Name,
+					Status:      "skip",
+					MissingCaps: missing,
+				})
+			}
 			continue
 		}
+		start := time.Now()
+		if eventLogger != nil {
+			eventLogger(StepEvent{
+				Stage:  "emitters",
+				Target: td.Name,
+				Step:   step.Name,
+				Status: "start",
+			})
+		}
 		if err := step.Run(); err != nil {
+			if eventLogger != nil {
+				eventLogger(StepEvent{
+					Stage:      "emitters",
+					Target:     td.Name,
+					Step:       step.Name,
+					Status:     "error",
+					DurationMS: time.Since(start).Milliseconds(),
+					Error:      err.Error(),
+				})
+			}
 			return fmt.Errorf("target=%s step=%s: %w", td.Name, step.Name, err)
+		}
+		if eventLogger != nil {
+			eventLogger(StepEvent{
+				Stage:      "emitters",
+				Target:     td.Name,
+				Step:       step.Name,
+				Status:     "ok",
+				DurationMS: time.Since(start).Milliseconds(),
+			})
 		}
 	}
 	return nil

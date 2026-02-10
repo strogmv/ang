@@ -10,6 +10,7 @@ import (
 	"cuelang.org/go/cue"
 	"github.com/strogmv/ang/compiler"
 	"github.com/strogmv/ang/compiler/emitter"
+	"github.com/strogmv/ang/compiler/generator"
 	"github.com/strogmv/ang/compiler/normalizer"
 	"github.com/strogmv/ang/compiler/parser"
 )
@@ -29,8 +30,6 @@ func runBuild(args []string) {
 	}
 
 	buildTask := func() {
-		fmt.Println("Compiling intent to Go...")
-
 		parseArgs := args
 		if len(parseArgs) > 0 && !strings.HasPrefix(parseArgs[0], "-") {
 			parseArgs = parseArgs[1:]
@@ -39,6 +38,31 @@ func runBuild(args []string) {
 		if err != nil {
 			printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterOptions, "parse output options", err)
 			return
+		}
+		jsonLogs := output.LogFormat == "json"
+		logText := func(format string, args ...any) {
+			if !jsonLogs {
+				fmt.Printf(format+"\n", args...)
+			}
+		}
+		logEvent := func(ev buildEvent) {
+			if jsonLogs {
+				emitBuildEvent(ev)
+			}
+		}
+		logStepEvent := func(ev generator.StepEvent) {
+			if jsonLogs {
+				emitBuildEvent(mapStepEvent(ev))
+			}
+		}
+		logText("Compiling intent to Go...")
+		if jsonLogs {
+			logEvent(buildEvent{
+				Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+				Stage:     "build",
+				Status:    "start",
+				Message:   "Build started",
+			})
 		}
 		var dryRunTmpRoot string
 		dryManifest := dryRunManifest{
@@ -57,6 +81,14 @@ func runBuild(args []string) {
 		}
 
 		fail := func(stage compiler.Stage, code, op string, err error) {
+			if jsonLogs {
+				logEvent(buildEvent{
+					Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+					Stage:     string(stage),
+					Status:    "error",
+					Error:     fmt.Sprintf("%s: %s: %v", code, op, err),
+				})
+			}
 			printStageFailure("Build FAILED", stage, code, op, err)
 		}
 
@@ -200,10 +232,10 @@ func runBuild(args []string) {
 
 		selectedTargets := filterTargets(targetDefs, output.TargetSelector)
 		if len(selectedTargets) == 0 {
-			fmt.Printf("Build FAILED: no targets matched --target=%q\n", output.TargetSelector)
-			fmt.Println("Available targets:")
+			logText("Build FAILED: no targets matched --target=%q", output.TargetSelector)
+			logText("Available targets:")
 			for _, td := range targetDefs {
-				fmt.Printf("  - %s (%s/%s/%s)\n", td.Name, td.Lang, td.Framework, td.DB)
+				logText("  - %s (%s/%s/%s)", td.Name, td.Lang, td.Framework, td.DB)
 			}
 			return
 		}
@@ -219,7 +251,16 @@ func runBuild(args []string) {
 				backendDir = filepath.Join(dryRunTmpRoot, "backend", safeName)
 				frontendDir = filepath.Join(dryRunTmpRoot, "frontend", safeName)
 			}
-			fmt.Printf("Generating target %s (%s/%s/%s) -> %s\n", td.Name, td.Lang, td.Framework, td.DB, backendDir)
+			logText("Generating target %s (%s/%s/%s) -> %s", td.Name, td.Lang, td.Framework, td.DB, backendDir)
+			if jsonLogs {
+				logEvent(buildEvent{
+					Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+					Stage:     "emitters",
+					Target:    td.Name,
+					Status:    "start",
+					Message:   "Target generation started",
+				})
+			}
 
 			em := emitter.New(backendDir, frontendDir, "templates")
 			em.FrontendAdminDir = output.FrontendAdminDir
@@ -284,10 +325,19 @@ func runBuild(args []string) {
 				isMicroservice:   isMicroservice,
 			})
 			if err := registry.Execute(td, caps, func(format string, args ...interface{}) {
-				fmt.Printf(format+"\n", args...)
-			}); err != nil {
+				logText(format, args...)
+			}, logStepEvent); err != nil {
 				fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "run capability matrix steps", err)
 				return
+			}
+			if jsonLogs {
+				logEvent(buildEvent{
+					Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+					Stage:     "emitters",
+					Target:    td.Name,
+					Status:    "ok",
+					Message:   "Target generation finished",
+				})
 			}
 
 			if output.DryRun {
@@ -324,11 +374,27 @@ func runBuild(args []string) {
 		if output.DryRun {
 			summarizeDryRunManifest(&dryManifest)
 			printDryRunManifest(dryManifest)
-			fmt.Println("\nBuild DRY-RUN SUCCESSFUL.")
+			logText("\nBuild DRY-RUN SUCCESSFUL.")
+			if jsonLogs {
+				logEvent(buildEvent{
+					Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+					Stage:     "build",
+					Status:    "ok",
+					Message:   "Dry-run build successful",
+				})
+			}
 			return
 		}
 
-		fmt.Println("\nBuild SUCCESSFUL.")
+		logText("\nBuild SUCCESSFUL.")
+		if jsonLogs {
+			logEvent(buildEvent{
+				Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+				Stage:     "build",
+				Status:    "ok",
+				Message:   "Build successful",
+			})
+		}
 	}
 
 	if watch {

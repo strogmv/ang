@@ -21,6 +21,7 @@ type OutputOptions struct {
 	TestStubs           bool
 	TargetSelector      string
 	DryRun              bool
+	LogFormat           string
 }
 
 func parseOutputOptions(args []string) (OutputOptions, error) {
@@ -34,6 +35,7 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 	testStubs := fs.Bool("test-stubs", false, "generate frontend test stubs")
 	targetSelector := fs.String("target", "", "Build only selected target(s): name, lang, or lang/framework/db stack; comma-separated supported")
 	dryRun := fs.Bool("dry-run", false, "preview generated file changes without writing to output directories")
+	logFormat := fs.String("log-format", "text", "build log format: text|json")
 	if err := fs.Parse(args); err != nil {
 		return OutputOptions{}, err
 	}
@@ -48,9 +50,16 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 		TestStubs:           *testStubs,
 		TargetSelector:      strings.TrimSpace(*targetSelector),
 		DryRun:              *dryRun,
+		LogFormat:           strings.ToLower(strings.TrimSpace(*logFormat)),
 	}
 	if opts.FrontendDir == "" {
 		opts.FrontendDir = "sdk"
+	}
+	if opts.LogFormat == "" {
+		opts.LogFormat = "text"
+	}
+	if opts.LogFormat != "text" && opts.LogFormat != "json" {
+		return OutputOptions{}, fmt.Errorf("invalid --log-format %q (expected text|json)", opts.LogFormat)
 	}
 	return opts, nil
 }

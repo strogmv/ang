@@ -23,7 +23,7 @@ func TestExecute_SkipsMissingCapabilities(t *testing.T) {
 				return nil
 			},
 		},
-	}, func(string, ...interface{}) {})
+	}, func(string, ...interface{}) {}, nil)
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestStepRegistry_Execute(t *testing.T) {
 		},
 	})
 
-	if err := reg.Execute(td, caps, func(string, ...interface{}) {}); err != nil {
+	if err := reg.Execute(td, caps, func(string, ...interface{}) {}, nil); err != nil {
 		t.Fatalf("registry execute: %v", err)
 	}
 	if !called {
