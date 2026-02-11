@@ -99,9 +99,17 @@ func runVet(args []string) {
 
 func runDraw(args []string) {
 	fmt.Println("Drawing architecture...")
-	entities, services, endpoints, _, _, _, _, _, err := compiler.RunPipeline(".")
+	entities, services, endpoints, repos, events, bizErrors, schedules, _, err := compiler.RunPipeline(".")
 	if err != nil {
 		fmt.Printf("Draw FAILED (Parser error): %v\n", err)
+		os.Exit(1)
+	}
+	irSchema, err := compiler.ConvertAndTransform(
+		entities, services, events, bizErrors, endpoints, repos,
+		normalizer.ConfigDef{}, nil, nil, schedules, nil, normalizer.ProjectDef{},
+	)
+	if err != nil {
+		fmt.Printf("Draw FAILED (IR convert): %v\n", err)
 		os.Exit(1)
 	}
 	output, err := parseOutputOptions(args)
@@ -111,7 +119,8 @@ func runDraw(args []string) {
 	}
 	em := emitter.New(output.BackendDir, output.FrontendDir, "templates")
 	em.FrontendAdminDir = output.FrontendAdminDir
-	ctx := em.AnalyzeContext(services, entities, endpoints)
+	ctx := em.AnalyzeContextFromIR(irSchema)
+	em.EnrichContextFromIR(&ctx, irSchema)
 	if err := em.EmitMermaid(ctx); err != nil {
 		fmt.Printf("Draw FAILED: %v\n", err)
 		os.Exit(1)

@@ -17,7 +17,21 @@ func runValidate(args []string) {
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		projectPath = args[0]
 	}
-	_, _, _, _, _, _, _, _, err := compiler.RunPipeline(projectPath)
+	entities, services, endpoints, repos, events, bizErrors, schedules, _, err := compiler.RunPipeline(projectPath)
+	if err == nil {
+		irSchema, convErr := compiler.ConvertAndTransform(
+			entities, services, events, bizErrors, endpoints, repos,
+			normalizer.ConfigDef{}, nil, nil, schedules, nil, normalizer.ProjectDef{},
+		)
+		if convErr != nil {
+			printStageFailure("Validation FAILED", compiler.StageIR, compiler.ErrCodeIRConvertTransform, "convert and transform", convErr)
+			os.Exit(1)
+		}
+		if semErr := compiler.ValidateIRSemantics(irSchema); semErr != nil {
+			printStageFailure("Validation FAILED", compiler.StageIR, compiler.ErrCodeIRSemanticValidate, "validate IR semantics", semErr)
+			os.Exit(1)
+		}
+	}
 
 	hasErrors := emitDiagnostics(os.Stderr, compiler.LatestDiagnostics)
 

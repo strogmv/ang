@@ -32,6 +32,7 @@ const (
 	ErrCodeIRConvertTransform    = "IR_CONVERT_TRANSFORM_ERROR"
 	ErrCodeIRServiceDependencies = "IR_SERVICE_DEPENDENCY_ERROR"
 	ErrCodeIRVersionMigration    = "IR_VERSION_MIGRATION_ERROR"
+	ErrCodeIRSemanticValidate    = "IR_SEMANTIC_VALIDATE_ERROR"
 
 	// Transformers stage
 	ErrCodeTransformerApply = "TRANSFORMER_APPLY_ERROR"
@@ -74,6 +75,7 @@ var StableErrorCodes = []string{
 	ErrCodeIRConvertTransform,
 	ErrCodeIRServiceDependencies,
 	ErrCodeIRVersionMigration,
+	ErrCodeIRSemanticValidate,
 	ErrCodeTransformerApply,
 	ErrCodeHookProcess,
 	ErrCodeEmitterOptions,

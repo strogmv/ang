@@ -649,25 +649,30 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 }
 
 type MainContext struct {
-	Services          []normalizer.Service
-	Entities          []normalizer.Entity
-	Endpoints         []normalizer.Endpoint
-	HasCache          bool
-	HasSQL            bool
-	HasMongo          bool
-	HasNats           bool
-	HasS3             bool
-	WebSocketServices map[string]bool
-	HasScheduler      bool
-	WSEventMap        map[string]map[string]bool
-	EventPayloads     map[string]normalizer.Entity
-	WSRoomField       map[string]string
-	AuthService       string
-	AuthRefreshStore  string
-	InputHash         string
-	CompilerHash      string
-	ANGVersion        string
-	EntityOwners      map[string]string
+	IRSchema           *ir.Schema
+	ServicesIR         []ir.Service
+	EntitiesIR         []ir.Entity
+	EndpointsIR        []ir.Endpoint
+	Services           []normalizer.Service
+	Entities           []normalizer.Entity
+	Endpoints          []normalizer.Endpoint
+	HasCache           bool
+	HasSQL             bool
+	HasMongo           bool
+	HasNats            bool
+	HasS3              bool
+	WebSocketServices  map[string]bool
+	HasScheduler       bool
+	WSEventMap         map[string]map[string]bool
+	EventPayloads      map[string]normalizer.Entity
+	EventPayloadsIR    map[string]ir.Entity
+	WSRoomField        map[string]string
+	AuthService        string
+	AuthRefreshStore   string
+	InputHash          string
+	CompilerHash       string
+	ANGVersion         string
+	EntityOwners       map[string]string
 	GoModule           string // Go module path for imports (e.g., "github.com/strog/dealingi-back")
 	NotificationMuting bool   // Enable notification muting decorator
 }
@@ -721,6 +726,47 @@ func (e *Emitter) AnalyzeContextFromIR(schema *ir.Schema) MainContext {
 	if schema == nil {
 		return e.AnalyzeContext(nil, nil, nil)
 	}
+	ctx := MainContext{
+		IRSchema:          schema,
+		ServicesIR:        append([]ir.Service{}, schema.Services...),
+		EntitiesIR:        append([]ir.Entity{}, schema.Entities...),
+		EndpointsIR:       append([]ir.Endpoint{}, schema.Endpoints...),
+		WebSocketServices: make(map[string]bool),
+		WSEventMap:        make(map[string]map[string]bool),
+		EventPayloads:     make(map[string]normalizer.Entity),
+		EventPayloadsIR:   make(map[string]ir.Entity),
+		WSRoomField:       make(map[string]string),
+		EntityOwners:      make(map[string]string),
+	}
+	for _, s := range schema.Services {
+		for _, m := range s.Methods {
+			if m.CacheTTL != "" {
+				ctx.HasCache = true
+			}
+		}
+		if len(s.Publishes) > 0 || len(s.Subscribes) > 0 || s.RequiresNats {
+			ctx.HasNats = true
+		}
+		if s.RequiresS3 {
+			ctx.HasS3 = true
+		}
+		if s.RequiresSQL {
+			ctx.HasSQL = true
+		}
+		if s.RequiresMongo {
+			ctx.HasMongo = true
+		}
+		if s.RequiresRedis {
+			ctx.HasCache = true
+		}
+	}
+	for _, ent := range schema.Entities {
+		ctx.EntityOwners[ent.Name] = ent.Owner
+		if v, ok := ent.Metadata["storage"].(string); ok && v == "mongo" {
+			ctx.HasMongo = true
+		}
+	}
+
 	services := make([]normalizer.Service, 0, len(schema.Services))
 	for _, s := range schema.Services {
 		services = append(services, contextServiceFromIR(s))
@@ -793,7 +839,10 @@ func (e *Emitter) AnalyzeContextFromIR(schema *ir.Schema) MainContext {
 		}
 		endpoints = append(endpoints, n)
 	}
-	return e.AnalyzeContext(services, entities, endpoints)
+	ctx.Services = OrderServicesByDependencies(services)
+	ctx.Entities = entities
+	ctx.Endpoints = endpoints
+	return ctx
 }
 
 // EnrichContextFromIR fills runtime routing/event maps from IR.
@@ -803,6 +852,9 @@ func (e *Emitter) EnrichContextFromIR(ctx *MainContext, schema *ir.Schema) {
 	}
 	if ctx.EventPayloads == nil {
 		ctx.EventPayloads = make(map[string]normalizer.Entity)
+	}
+	if ctx.EventPayloadsIR == nil {
+		ctx.EventPayloadsIR = make(map[string]ir.Entity)
 	}
 	if ctx.WebSocketServices == nil {
 		ctx.WebSocketServices = make(map[string]bool)
@@ -818,6 +870,10 @@ func (e *Emitter) EnrichContextFromIR(ctx *MainContext, schema *ir.Schema) {
 		fields := make([]normalizer.Field, 0, len(ev.Fields))
 		for _, f := range ev.Fields {
 			fields = append(fields, normalizer.Field{Name: f.Name})
+		}
+		ctx.EventPayloadsIR[ev.Name] = ir.Entity{
+			Name:   ev.Name,
+			Fields: append([]ir.Field{}, ev.Fields...),
 		}
 		ctx.EventPayloads[ev.Name] = normalizer.Entity{
 			Name:   ev.Name,

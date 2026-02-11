@@ -227,6 +227,10 @@ func runBuild(args []string) {
 			fail(compiler.StageIR, compiler.ErrCodeIRConvertTransform, "convert and transform", err)
 			return
 		}
+		if err := compiler.ValidateIRSemantics(irSchema); err != nil {
+			fail(compiler.StageIR, compiler.ErrCodeIRSemanticValidate, "validate IR semantics", err)
+			return
+		}
 
 		if err := emitter.ValidateIRServiceDependencies(irSchema.Services); err != nil {
 			fail(compiler.StageIR, compiler.ErrCodeIRServiceDependencies, "validate service dependencies", err)

@@ -772,7 +772,7 @@ func (e *Emitter) EmitMermaid(ctx MainContext) error {
 	buf.WriteString("\n")
 
 	// Services
-	for _, s := range ctx.Services {
+	for _, s := range ctx.ServicesIR {
 		sName := s.Name
 		buf.WriteString(fmt.Sprintf("  %s[%s]\n", sName, sName))
 
@@ -806,8 +806,8 @@ func (e *Emitter) EmitMermaid(ctx MainContext) error {
 		}
 
 		// Middlewares (Circuit Breakers)
-		for _, ep := range ctx.Endpoints {
-			if strings.EqualFold(ep.ServiceName, sName) && ep.CircuitBreaker != nil {
+		for _, ep := range ctx.EndpointsIR {
+			if strings.EqualFold(ep.Service, sName) && ep.CircuitBreaker != nil {
 				buf.WriteString(fmt.Sprintf("  %s -- CircuitBreaker: %s --> %s\n", sName, ep.RPC, sName))
 				buf.WriteString(fmt.Sprintf("  style %s stroke:#f00,stroke-width:4px\n", sName))
 			}
