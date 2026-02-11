@@ -55,6 +55,10 @@ func (e *Emitter) EmitStubRepo(repos []ir.Repository, entities []ir.Entity) erro
 		if !ok {
 			continue
 		}
+		// Skip DTO-only entities — they have no database table.
+		if dto, ok := ent.Metadata["dto"].(bool); ok && dto {
+			continue
+		}
 
 		type finderOut struct {
 			normalizer.RepositoryFinder

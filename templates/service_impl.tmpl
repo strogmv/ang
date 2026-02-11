@@ -39,7 +39,7 @@ var (
 // PURPOSE: {{ .Service.Name }}Impl implements port.{{ .Service.Name }} interface
 // PATTERN: Service Layer - orchestrates business logic using repositories
 // DEPENDENCIES:
-{{- range getRepoEntities .Service }}
+{{- range getRepoEntities .Service .Entities }}
 //   - {{ ExportName . }}Repo: CRUD operations for {{ ExportName . }} entity
 {{- end }}
 {{- if ServiceNeedsTx .Service }}
@@ -53,7 +53,7 @@ var (
 {{- end }}
 // ============================================================================ 
 type {{ .Service.Name }}Impl struct {
-	{{- range getRepoEntities .Service }}
+	{{- range getRepoEntities .Service .Entities }}
 	{{ ExportName . }}Repo port.{{ ExportName . }}Repository
 	{{- end }}
 	{{- range getServiceDeps .Service }}
@@ -90,7 +90,7 @@ type {{ .Service.Name }}Impl struct {
 // USAGE: Called from main.go during application bootstrap
 // ============================================================================ 
 func New{{ .Service.Name }}Impl(
-	{{- range getRepoEntities .Service }}
+	{{- range getRepoEntities .Service .Entities }}
 	{{ ExportName . | lowerFirst }}Repo port.{{ ExportName . }}Repository,
 	{{- end }}
 	{{- range getServiceDeps .Service }}
@@ -121,7 +121,7 @@ func New{{ .Service.Name }}Impl(
 	{{- end }}
 ) *{{ .Service.Name }}Impl {
 	return &{{ .Service.Name }}Impl{
-		{{- range getRepoEntities .Service }}
+		{{- range getRepoEntities .Service .Entities }}
 		{{ ExportName . }}Repo: {{ ExportName . | lowerFirst }}Repo,
 		{{- end }}
 		{{- range getServiceDeps .Service }}

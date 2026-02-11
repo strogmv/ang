@@ -55,6 +55,11 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 			continue
 		}
 
+		// Skip DTO-only entities — they have no database table.
+		if dto, ok := ent.Metadata["dto"].(bool); ok && dto {
+			continue
+		}
+
 		var cols []string
 		var placeholders []string
 		var updateSets []string
@@ -173,6 +178,10 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 				fo.ReturnType = f.ReturnType
 				fo.ReturnZero = "nil"
 				fo.SelectEntity = false
+				// Reset fields/plan from the Smart Projection block above;
+				// custom-return finders need their own field list.
+				fo.SelectFields = nil
+				fo.ScanPlan = planner.ScanPlan{}
 
 				// Parse return type to determine if slice and entity name
 				retType := f.ReturnType
@@ -533,7 +542,11 @@ func buildScanVariable(f normalizer.Field, target string) planner.ScanVariable {
 	case "string":
 		if isTSString {
 			sv.MappingFn = "normalizeTimeString"
-			sv.AssignCode = fmt.Sprintf("%s = normalizeTimeString(%s)", goPath, tmpVar)
+			if f.IsOptional {
+				sv.AssignCode = fmt.Sprintf("%s = normalizeTimeString(%s.String)", goPath, tmpVar)
+			} else {
+				sv.AssignCode = fmt.Sprintf("%s = normalizeTimeString(%s)", goPath, tmpVar)
+			}
 		} else if f.IsOptional {
 			sv.AssignCode = fmt.Sprintf("%s = %s.String", goPath, tmpVar)
 		} else {

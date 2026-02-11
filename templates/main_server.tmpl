@@ -53,7 +53,7 @@ import (
 	{{ end }}
 
 	{{ if or .HasCache (or (eq .AuthRefreshStore "redis") (eq .AuthRefreshStore "hybrid")) }}"{{.GoModule}}/internal/adapter/cache/redis"{{ end }}
-	{{ if HasRepoEntities .Services }}"{{.GoModule}}/internal/adapter/repository/postgres"{{ end }}
+	{{ if HasRepoEntities .Services .Entities }}"{{.GoModule}}/internal/adapter/repository/postgres"{{ end }}
 	{{ if HasMongoRepoEntities .Entities }}mongorepo "{{.GoModule}}/internal/adapter/repository/mongo"{{ end }}
 	{{ if .HasNats }}
 	"{{.GoModule}}/internal/adapter/events/nats"
@@ -265,7 +265,7 @@ func main() {
 	{{- end }}
 	{{- end }}
 
-	{{- if AnyServiceHasIdempotencyOrOutbox .Services }}
+	{{- if and .HasSQL (AnyServiceHasIdempotencyOrOutbox .Services) }}
 	// System repository for Outbox and Idempotency
 	repoSystem := postgres.NewSystemRepository(pgPool)
 	{{- end }}
@@ -290,7 +290,7 @@ func main() {
 		{{- if ne .Name "Audit" }}
 	// --- {{ .Name }} Service ---
 	svc{{ .Name }} := service.New{{ .Name }}Impl(
-		{{- range getRepoEntities . }}
+		{{- range getRepoEntities . $.Entities }}
 		repo{{ ExportName . }},
 		{{- end }}
 		{{- range getServiceDeps . }}
@@ -307,10 +307,18 @@ func main() {
 		natsClient,
 		{{- end }}
 		{{- if ServiceHasIdempotency . }}
+			{{- if $.HasSQL }}
 		repoSystem,
+			{{- else }}
+		nil,
+			{{- end }}
 		{{- end }}
 		{{- if ServiceHasOutbox . }}
+			{{- if $.HasSQL }}
 		repoSystem,
+			{{- else }}
+		nil,
+			{{- end }}
 		{{- end }}
 		svcAudit,
 		{{- if .RequiresS3 }}

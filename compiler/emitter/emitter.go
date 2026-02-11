@@ -237,7 +237,13 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 			}
 			return strings.ToLower(s[:1]) + s[1:]
 		},
-		"getRepoEntities": func(s normalizer.Service) []string {
+		"getRepoEntities": func(s normalizer.Service, entities []normalizer.Entity) []string {
+			dtoEntities := make(map[string]bool, len(entities))
+			for _, ent := range entities {
+				if dto, ok := ent.Metadata["dto"].(bool); ok && dto {
+					dtoEntities[ent.Name] = true
+				}
+			}
 			unique := make(map[string]bool)
 			var res []string
 			var scanSteps func([]normalizer.FlowStep)
@@ -245,7 +251,7 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 				for _, step := range steps {
 					if strings.HasPrefix(step.Action, "repo.") {
 						ent := step.Args["source"]
-						if entName, ok := ent.(string); ok && entName != "" && !unique[entName] {
+						if entName, ok := ent.(string); ok && entName != "" && !unique[entName] && !dtoEntities[entName] {
 							// Check ownership (stored in entities metadata or deduced)
 							// Note: We don't have easy access to EntityOwners here, so we skip enforcement
 							// in injection for now and rely on LINTER which already has the check.
@@ -267,7 +273,7 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 			}
 			for _, m := range s.Methods {
 				for _, src := range m.Sources {
-					if src.Entity != "" && !unique[src.Entity] {
+					if src.Entity != "" && !unique[src.Entity] && !dtoEntities[src.Entity] {
 						unique[src.Entity] = true
 						res = append(res, src.Entity)
 					}

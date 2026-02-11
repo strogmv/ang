@@ -98,13 +98,23 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		}
 		return false
 	}
-	appFuncs["HasRepoEntities"] = func(services []normalizer.Service) bool {
+	appFuncs["HasRepoEntities"] = func(services []normalizer.Service, entities []normalizer.Entity) bool {
+		dtoEntities := make(map[string]bool, len(entities))
+		mongoEntities := make(map[string]bool, len(entities))
+		for _, ent := range entities {
+			if dto, ok := ent.Metadata["dto"].(bool); ok && dto {
+				dtoEntities[ent.Name] = true
+			}
+			if storage, ok := ent.Metadata["storage"].(string); ok && strings.EqualFold(storage, "mongo") {
+				mongoEntities[ent.Name] = true
+			}
+		}
 		for _, svc := range services {
 			unique := make(map[string]bool)
 			var count int
 			for _, m := range svc.Methods {
 				for _, src := range m.Sources {
-					if src.Entity != "" && !unique[src.Entity] {
+					if src.Entity != "" && !unique[src.Entity] && !dtoEntities[src.Entity] && !mongoEntities[src.Entity] {
 						unique[src.Entity] = true
 						count++
 					}

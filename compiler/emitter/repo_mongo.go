@@ -77,6 +77,10 @@ func (e *Emitter) EmitMongoRepo(repos []ir.Repository, entities []ir.Entity) err
 		if !ok {
 			continue
 		}
+		// Skip DTO-only entities — they have no database table.
+		if dto, ok := ent.Metadata["dto"].(bool); ok && dto {
+			continue
+		}
 		if v, ok := ent.Metadata["storage"].(string); !ok || v != "mongo" {
 			continue
 		}
