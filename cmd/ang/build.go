@@ -108,26 +108,26 @@ func runBuild(args []string) {
 
 		var cfgDef *normalizer.ConfigDef
 		var authDef *normalizer.AuthDef
-		var notificationMutingDef *normalizer.NotificationMutingDef
+		var infraValues map[string]any
+		var infraContextPatch normalizer.InfraContextPatch
 		if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, "cue/infra")); err != nil {
 			fail(compiler.StageCUE, compiler.ErrCodeCUEInfraLoad, "load cue/infra", err)
 			return
 		} else if ok {
-			cfgDef, err = n.ExtractConfig(val)
+			infraRegistry := normalizer.NewInfraRegistry()
+			infraValues, err = infraRegistry.ExtractAll(n, val)
 			if err != nil {
-				fail(compiler.StageCUE, compiler.ErrCodeCUEInfraConfigParse, "extract config", err)
+				if infraErr, ok := err.(*normalizer.InfraExtractError); ok {
+					code, op, unwrapErr := infraErr.FailParams()
+					fail(compiler.StageCUE, code, op, unwrapErr)
+					return
+				}
+				fail(compiler.StageCUE, compiler.ErrCodeCUEInfraConfigParse, "extract infrastructure definitions", err)
 				return
 			}
-			authDef, err = n.ExtractAuth(val)
-			if err != nil {
-				fail(compiler.StageCUE, compiler.ErrCodeCUEInfraAuthParse, "extract auth", err)
-				return
-			}
-			notificationMutingDef, err = n.ExtractNotificationMuting(val)
-			if err != nil {
-				fail(compiler.StageCUE, compiler.ErrCodeCUEInfraConfigParse, "extract notification muting", err)
-				return
-			}
+			cfgDef = normalizer.InfraConfig(infraValues)
+			authDef = normalizer.InfraAuth(infraValues)
+			infraContextPatch = infraRegistry.BuildContextPatch(infraValues)
 		}
 
 		var rbacDef *normalizer.RBACDef
@@ -306,15 +306,17 @@ func runBuild(args []string) {
 			ctx.CompilerHash = compilerHash
 			ctx.ANGVersion = compiler.Version
 			ctx.GoModule = goModule
-			if authDef != nil {
-				ctx.AuthService = authDef.Service
-				ctx.AuthRefreshStore = authDef.RefreshStore
-				if strings.EqualFold(authDef.RefreshStore, "redis") || strings.EqualFold(authDef.RefreshStore, "hybrid") {
-					ctx.HasCache = true
-				}
-				if strings.EqualFold(authDef.RefreshStore, "hybrid") {
-					ctx.HasSQL = true
-				}
+			if infraContextPatch.AuthService != "" {
+				ctx.AuthService = infraContextPatch.AuthService
+			}
+			if infraContextPatch.AuthRefreshStore != "" {
+				ctx.AuthRefreshStore = infraContextPatch.AuthRefreshStore
+			}
+			if infraContextPatch.ForceHasCache {
+				ctx.HasCache = true
+			}
+			if infraContextPatch.ForceHasSQL {
+				ctx.HasSQL = true
 			}
 			em.EnrichContextFromIR(&ctx, irSchema)
 
@@ -342,23 +344,23 @@ func runBuild(args []string) {
 				targetOutput.FrontendEnvPath = filepath.Join(output.FrontendEnvPath, safeTargetDirName(td.Name), ".env.example")
 			}
 
-			if notificationMutingDef != nil {
+			if infraContextPatch.NotificationMuting {
 				ctx.NotificationMuting = true
 			}
 
 			registry := buildStepRegistry(buildStepRegistryInput{
-				em:                    em,
-				irSchema:              irSchema,
-				ctx:                   ctx,
-				scenarios:             scenarios,
-				cfgDef:                cfgDef,
-				authDef:               authDef,
-				rbacDef:               rbacDef,
-				notificationMutingDef: notificationMutingDef,
-				projectDef:            projectDef,
-				targetOutput:          targetOutput,
-				pythonSDKEnabled:      pythonSDKEnabled,
-				isMicroservice:        isMicroservice,
+				em:               em,
+				irSchema:         irSchema,
+				ctx:              ctx,
+				scenarios:        scenarios,
+				cfgDef:           cfgDef,
+				authDef:          authDef,
+				rbacDef:          rbacDef,
+				infraValues:      infraValues,
+				projectDef:       projectDef,
+				targetOutput:     targetOutput,
+				pythonSDKEnabled: pythonSDKEnabled,
+				isMicroservice:   isMicroservice,
 			})
 			if err := registry.Execute(td, caps, func(format string, args ...interface{}) {
 				logText(format, args...)

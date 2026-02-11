@@ -18,7 +18,7 @@ type RegisterInput struct {
 	CfgDef         *normalizer.ConfigDef
 	AuthDef        *normalizer.AuthDef
 	RBACDef        *normalizer.RBACDef
-	NotificationMutingDef *normalizer.NotificationMutingDef
+	InfraValues    map[string]any
 	IsMicroservice bool
 
 	TestStubsEnabled        bool
@@ -66,9 +66,7 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 	registry.Register(generator.Step{Name: "SQL Queries", Requires: goSQL, Run: func() error { return in.Em.EmitSQLQueriesFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "Mongo Schemas", Requires: goOnly, Run: func() error { return in.Em.EmitMongoSchemaFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "Repo Stubs", Requires: goOnly, Run: func() error { return in.Em.EmitStubRepoFromIR(in.IRSchema) }})
-	registry.Register(generator.Step{Name: "Notification Muting", Requires: goOnly, Run: func() error {
-		return in.Em.EmitNotificationMuting(in.NotificationMutingDef, in.IRSchema)
-	}})
+	registerInfraGoSteps(registry, in)
 	registry.Register(generator.Step{Name: "Redis Client", Requires: goOnly, Run: func() error { return in.Em.EmitRedisClient() }})
 	registry.Register(generator.Step{Name: "Auth Package", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilityAuth}, Run: func() error { return in.Em.EmitAuthPackage(in.AuthDef) }})
 	registry.Register(generator.Step{Name: "Refresh Store Port", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilityAuth}, Run: func() error { return in.Em.EmitRefreshTokenStorePort() }})

@@ -22,7 +22,12 @@ func (emitterStub) EmitPythonFastAPIBackendFromIR(schema *ir.Schema, fallbackVer
 
 func TestRegisterPythonSteps_Smoke(t *testing.T) {
 	reg := generator.NewStepRegistry()
-	Register(reg, RegisterInput{Em: emitterStub{}})
+	Register(reg, RegisterInput{
+		Em: emitterStub{},
+		InfraValues: map[string]any{
+			normalizer.InfraKeyAuth: &normalizer.AuthDef{},
+		},
+	})
 	steps := reg.Steps()
 	if len(steps) < 4 {
 		t.Fatalf("expected at least 4 python steps, got %d", len(steps))

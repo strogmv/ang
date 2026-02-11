@@ -15,11 +15,12 @@ type BuildEmitter interface {
 }
 
 type RegisterInput struct {
-	Em       BuildEmitter
-	IRSchema *ir.Schema
-	CfgDef   *normalizer.ConfigDef
-	AuthDef  *normalizer.AuthDef
-	RBACDef  *normalizer.RBACDef
+	Em          BuildEmitter
+	IRSchema    *ir.Schema
+	CfgDef      *normalizer.ConfigDef
+	AuthDef     *normalizer.AuthDef
+	RBACDef     *normalizer.RBACDef
+	InfraValues map[string]any
 }
 
 func Register(registry *generator.StepRegistry, in RegisterInput) {
@@ -37,16 +38,7 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 			return in.Em.EmitPythonRBAC(in.RBACDef)
 		},
 	})
-	registry.Register(generator.Step{
-		Name: "Python Auth Stores",
-		Requires: []compiler.Capability{
-			compiler.CapabilityProfilePythonFastAPI,
-			compiler.CapabilityAuth,
-		},
-		Run: func() error {
-			return in.Em.EmitPythonAuthStores(in.AuthDef)
-		},
-	})
+	registerInfraPythonSteps(registry, in)
 	registry.Register(generator.Step{
 		Name: "Python FastAPI Backend",
 		Requires: []compiler.Capability{
