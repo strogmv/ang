@@ -25,6 +25,17 @@ func getEnvOrFile(key, filePath string) string {
 	return ""
 }
 
+func getEnvOrFileOrValue(key, filePath, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
+	}
+	data, err := os.ReadFile(filePath)
+	if err == nil {
+		return string(data)
+	}
+	return fallback
+}
+
 func getEnv(key, fallback string) string {
 	if value, ok := os.LookupEnv(key); ok {
 		return value

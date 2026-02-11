@@ -539,6 +539,222 @@ func (e *Emitter) EmitHealth() error {
 	return nil
 }
 
+// EmitHelpers generates the helpers utility package.
+func (e *Emitter) EmitHelpers() error {
+	tmplPath := "templates/helpers.tmpl"
+	tmplContent, err := ReadTemplateByPath(tmplPath)
+	if err != nil {
+		return fmt.Errorf("read template: %w", err)
+	}
+
+	targetDir := filepath.Join(e.OutputDir, "internal", "pkg", "helpers")
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return fmt.Errorf("mkdir: %w", err)
+	}
+
+	formatted, err := format.Source(tmplContent)
+	if err != nil {
+		formatted = tmplContent
+	}
+
+	path := filepath.Join(targetDir, "helpers.go")
+	if err := os.WriteFile(path, formatted, 0644); err != nil {
+		return fmt.Errorf("write file: %w", err)
+	}
+	fmt.Printf("Generated Helpers: %s\n", path)
+	return nil
+}
+
+// EmitCircuitBreaker generates the circuit breaker package.
+func (e *Emitter) EmitCircuitBreaker() error {
+	tmplPath := "templates/circuitbreaker.tmpl"
+	tmplContent, err := ReadTemplateByPath(tmplPath)
+	if err != nil {
+		return fmt.Errorf("read template: %w", err)
+	}
+
+	targetDir := filepath.Join(e.OutputDir, "internal", "pkg", "circuitbreaker")
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return fmt.Errorf("mkdir: %w", err)
+	}
+
+	formatted, err := format.Source(tmplContent)
+	if err != nil {
+		formatted = tmplContent
+	}
+
+	path := filepath.Join(targetDir, "breaker.go")
+	if err := os.WriteFile(path, formatted, 0644); err != nil {
+		return fmt.Errorf("write file: %w", err)
+	}
+	fmt.Printf("Generated Circuit Breaker: %s\n", path)
+	return nil
+}
+
+// EmitPresence generates the presence store package.
+func (e *Emitter) EmitPresence() error {
+	tmplPath := "templates/presence.tmpl"
+	tmplContent, err := ReadTemplateByPath(tmplPath)
+	if err != nil {
+		return fmt.Errorf("read template: %w", err)
+	}
+
+	targetDir := filepath.Join(e.OutputDir, "internal", "pkg", "presence")
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return fmt.Errorf("mkdir: %w", err)
+	}
+
+	formatted, err := format.Source(tmplContent)
+	if err != nil {
+		formatted = tmplContent
+	}
+
+	path := filepath.Join(targetDir, "store.go")
+	if err := os.WriteFile(path, formatted, 0644); err != nil {
+		return fmt.Errorf("write file: %w", err)
+	}
+	fmt.Printf("Generated Presence: %s\n", path)
+	return nil
+}
+
+// EmitReportPDF generates the PDF report generator package.
+func (e *Emitter) EmitReportPDF() error {
+	tmplPath := "templates/report_pdf.tmpl"
+	tmplContent, err := ReadTemplateByPath(tmplPath)
+	if err != nil {
+		return fmt.Errorf("read template: %w", err)
+	}
+
+	t, err := template.New("report_pdf").Funcs(e.getSharedFuncMap()).Parse(string(tmplContent))
+	if err != nil {
+		return fmt.Errorf("parse template: %w", err)
+	}
+
+	targetDir := filepath.Join(e.OutputDir, "internal", "pkg", "report")
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return fmt.Errorf("mkdir: %w", err)
+	}
+
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, nil); err != nil {
+		return fmt.Errorf("execute template: %w", err)
+	}
+
+	formatted, err := format.Source(buf.Bytes())
+	if err != nil {
+		formatted = buf.Bytes()
+	}
+
+	path := filepath.Join(targetDir, "pdf.go")
+	if err := os.WriteFile(path, formatted, 0644); err != nil {
+		return fmt.Errorf("write file: %w", err)
+	}
+	fmt.Printf("Generated Report PDF: %s\n", path)
+	return nil
+}
+
+// EmitNotificationMuting generates the notification muting repository decorator.
+func (e *Emitter) EmitNotificationMuting(def *normalizer.NotificationMutingDef, schema *ir.Schema) error {
+	if def == nil || !def.Enabled {
+		return nil
+	}
+
+	tmplPath := "templates/notification_muting.tmpl"
+	tmplContent, err := ReadTemplateByPath(tmplPath)
+	if err != nil {
+		return fmt.Errorf("read template: %w", err)
+	}
+
+	// Find the Notification repository to get its finders
+	type finderDelegation struct {
+		Name       string
+		ParamsSig  string
+		ReturnType string
+		ArgNames   string
+	}
+
+	var extraFinders []finderDelegation
+	if schema != nil {
+		for _, repo := range schema.Repos {
+			if repo.Entity != "Notification" {
+				continue
+			}
+			for _, f := range repo.Finders {
+				fd := finderDelegation{Name: ExportName(f.Name)}
+
+				// Compute return type
+				if f.ReturnType != "" {
+					fd.ReturnType = f.ReturnType
+				} else if f.Action == "delete" {
+					fd.ReturnType = "int64"
+				} else if f.Returns == "one" {
+					fd.ReturnType = "*domain.Notification"
+				} else if f.Returns == "many" {
+					fd.ReturnType = "[]domain.Notification"
+				} else if f.Returns == "count" {
+					fd.ReturnType = "int64"
+				} else {
+					fd.ReturnType = "[]domain.Notification"
+				}
+
+				// Compute params and arg names
+				var params []string
+				var argNames []string
+				for _, w := range f.Where {
+					pType := w.ParamType
+					if pType == "time" || pType == "time.Time" {
+						pType = "time.Time"
+					}
+					params = append(params, fmt.Sprintf("%s %s", w.Param, pType))
+					argNames = append(argNames, w.Param)
+				}
+				fd.ParamsSig = strings.Join(params, ", ")
+				fd.ArgNames = strings.Join(argNames, ", ")
+
+				extraFinders = append(extraFinders, fd)
+			}
+			break
+		}
+	}
+
+	t, err := template.New("notification_muting").Funcs(template.FuncMap{
+		"GoModule":        func() string { return e.GoModule },
+		"MuteAllField":    func() string { return ExportName(def.MuteAllField) },
+		"MutedTypesField": func() string { return ExportName(def.MutedTypesField) },
+	}).Parse(string(tmplContent))
+	if err != nil {
+		return fmt.Errorf("parse template: %w", err)
+	}
+
+	targetDir := filepath.Join(e.OutputDir, "internal", "adapter")
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return fmt.Errorf("mkdir: %w", err)
+	}
+
+	data := struct {
+		ExtraFinders []finderDelegation
+	}{
+		ExtraFinders: extraFinders,
+	}
+
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, data); err != nil {
+		return fmt.Errorf("execute template: %w", err)
+	}
+
+	formatted, err := format.Source(buf.Bytes())
+	if err != nil {
+		formatted = buf.Bytes()
+	}
+
+	path := filepath.Join(targetDir, "notification_muting.go")
+	if err := os.WriteFile(path, formatted, 0644); err != nil {
+		return fmt.Errorf("write file: %w", err)
+	}
+	fmt.Printf("Generated Notification Muting Decorator: %s\n", path)
+	return nil
+}
+
 func writeExecutable(path string, content []byte) error {
 	if err := os.WriteFile(path, content, 0755); err != nil {
 		return err

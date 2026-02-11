@@ -393,6 +393,14 @@ type TargetDef struct {
 	OutputDir string // generated backend output root for this target
 }
 
+// NotificationMutingDef describes automatic notification muting via repository decorator.
+type NotificationMutingDef struct {
+	Enabled         bool
+	UserEntity      string
+	MuteAllField    string
+	MutedTypesField string
+}
+
 // TransformersConfig describes which transformers are enabled.
 type TransformersConfig struct {
 	Timestamps  bool

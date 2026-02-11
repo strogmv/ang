@@ -435,7 +435,6 @@ func Run() {
 		compiler.Version,
 		server.WithPromptCapabilities(true),
 		server.WithResourceCapabilities(false, true),
-		server.WithLogging(),
 	)
 
 	defaultProfile := strings.ToLower(strings.TrimSpace("eco"))
@@ -799,31 +798,33 @@ func Run() {
 	}
 
 	addTool := func(name string, tool mcp.Tool, h func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error)) {
-		s.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			sessionState.Lock()
-			bootstrapped := sessionState.Bootstrapped
-			if !bootstrapExempt()[name] && !bootstrapped {
-				sessionState.Bootstrapped = true
-			}
-			sessionState.Unlock()
-
-			resp, err := h(ctx, request)
-			if err != nil {
-				if envelopeEnabled() {
-					return toolEnvelope(name, "tool_error", map[string]any{
-						"message": err.Error(),
-					}, nil), nil
+		s.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, err error) {
+			return safeInvokeTool(name, envelopeEnabled(), toolEnvelope, func() (*mcp.CallToolResult, error) {
+				sessionState.Lock()
+				bootstrapped := sessionState.Bootstrapped
+				if !bootstrapExempt()[name] && !bootstrapped {
+					sessionState.Bootstrapped = true
 				}
-				return nil, err
-			}
+				sessionState.Unlock()
 
-			sessionState.Lock()
-			sessionState.LastAction = name
-			sessionState.Unlock()
-			if envelopeEnabled() {
-				return normalizeToolResult(name, resp), nil
-			}
-			return resp, nil
+				resp, err = h(ctx, request)
+				if err != nil {
+					if envelopeEnabled() {
+						return toolEnvelope(name, "tool_error", map[string]any{
+							"message": err.Error(),
+						}, nil), nil
+					}
+					return nil, err
+				}
+
+				sessionState.Lock()
+				sessionState.LastAction = name
+				sessionState.Unlock()
+				if envelopeEnabled() {
+					return normalizeToolResult(name, resp), nil
+				}
+				return resp, nil
+			})
 		})
 	}
 	registerDBTools(addTool)
@@ -846,6 +847,6 @@ func Run() {
 	registerPrompts(s)
 
 	if err := server.ServeStdio(s); err != nil {
-		fmt.Printf("Server error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
 	}
 }

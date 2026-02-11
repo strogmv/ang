@@ -83,6 +83,9 @@ import (
 	{{- if and .AuthService (eq .AuthRefreshStore "hybrid") }}
 	authhybrid "{{.GoModule}}/internal/adapter/auth/hybrid"
 	{{- end }}
+	{{- if .NotificationMuting }}
+	"{{.GoModule}}/internal/adapter"
+	{{- end }}
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
@@ -258,11 +261,25 @@ func main() {
 
 	// Repository instances - one per domain entity
 	{{- range AllRepoEntities .Entities }}
+	{{- if and $.NotificationMuting (eq . "Notification") }}
+	var repoNotification port.NotificationRepository
+	{{- if eq (EntityStorageByName $.Entities .) "mongo" }}
+	repoNotification = mongorepo.NewNotificationRepository(mongoClient, cfg.MongoDatabase)
+	{{- else }}
+	repoNotification = postgres.NewNotificationRepository(pgPool)
+	{{- end }}
+	{{- else }}
 	{{- if eq (EntityStorageByName $.Entities .) "mongo" }}
 	repo{{ ExportName . }} := mongorepo.New{{ ExportName . }}Repository(mongoClient, cfg.MongoDatabase)
 	{{- else }}
 	repo{{ ExportName . }} := postgres.New{{ ExportName . }}Repository(pgPool)
 	{{- end }}
+	{{- end }}
+	{{- end }}
+
+	{{- if .NotificationMuting }}
+	// Notification muting decorator — silently skips Save for muted types
+	repoNotification = adapter.NewMutingNotificationRepo(repoNotification, repoUser)
 	{{- end }}
 
 	{{- if and .HasSQL (AnyServiceHasIdempotencyOrOutbox .Services) }}

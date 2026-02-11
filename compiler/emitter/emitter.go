@@ -668,7 +668,8 @@ type MainContext struct {
 	CompilerHash      string
 	ANGVersion        string
 	EntityOwners      map[string]string
-	GoModule          string // Go module path for imports (e.g., "github.com/strog/dealingi-back")
+	GoModule           string // Go module path for imports (e.g., "github.com/strog/dealingi-back")
+	NotificationMuting bool   // Enable notification muting decorator
 }
 
 // AnalyzeContext checks which infrastructure dependencies are required.

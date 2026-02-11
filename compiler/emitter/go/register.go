@@ -18,6 +18,7 @@ type RegisterInput struct {
 	CfgDef         *normalizer.ConfigDef
 	AuthDef        *normalizer.AuthDef
 	RBACDef        *normalizer.RBACDef
+	NotificationMutingDef *normalizer.NotificationMutingDef
 	IsMicroservice bool
 
 	TestStubsEnabled        bool
@@ -40,6 +41,10 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 	registry.Register(generator.Step{Name: "Config", Requires: goOnly, Run: func() error { return in.Em.EmitConfig(in.CfgDef) }})
 	registry.Register(generator.Step{Name: "Logger", Requires: goOnly, Run: func() error { return in.Em.EmitLogger() }})
 	registry.Register(generator.Step{Name: "RBAC", Requires: goOnly, Run: func() error { return in.Em.EmitRBAC(in.RBACDef) }})
+	registry.Register(generator.Step{Name: "Helpers", Requires: goOnly, Run: func() error { return in.Em.EmitHelpers() }})
+	registry.Register(generator.Step{Name: "Circuit Breaker", Requires: goHTTP, Run: func() error { return in.Em.EmitCircuitBreaker() }})
+	registry.Register(generator.Step{Name: "Presence", Requires: goOnly, Run: func() error { return in.Em.EmitPresence() }})
+	registry.Register(generator.Step{Name: "Report PDF", Requires: goOnly, Run: func() error { return in.Em.EmitReportPDF() }})
 	registry.Register(generator.Step{Name: "Domain Entities", Requires: goOnly, Run: func() error { return in.Em.EmitDomain(in.IRSchema.Entities) }})
 	registry.Register(generator.Step{Name: "DTOs", Requires: goOnly, Run: func() error { return in.Em.EmitDTO(in.IRSchema.Entities) }})
 	registry.Register(generator.Step{Name: "Service Ports", Requires: goOnly, Run: func() error { return in.Em.EmitServiceFromIR(in.IRSchema) }})
@@ -61,6 +66,9 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 	registry.Register(generator.Step{Name: "SQL Queries", Requires: goSQL, Run: func() error { return in.Em.EmitSQLQueriesFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "Mongo Schemas", Requires: goOnly, Run: func() error { return in.Em.EmitMongoSchemaFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "Repo Stubs", Requires: goOnly, Run: func() error { return in.Em.EmitStubRepoFromIR(in.IRSchema) }})
+	registry.Register(generator.Step{Name: "Notification Muting", Requires: goOnly, Run: func() error {
+		return in.Em.EmitNotificationMuting(in.NotificationMutingDef, in.IRSchema)
+	}})
 	registry.Register(generator.Step{Name: "Redis Client", Requires: goOnly, Run: func() error { return in.Em.EmitRedisClient() }})
 	registry.Register(generator.Step{Name: "Auth Package", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilityAuth}, Run: func() error { return in.Em.EmitAuthPackage(in.AuthDef) }})
 	registry.Register(generator.Step{Name: "Refresh Store Port", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilityAuth}, Run: func() error { return in.Em.EmitRefreshTokenStorePort() }})

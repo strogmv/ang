@@ -11,17 +11,18 @@ import (
 )
 
 type buildStepRegistryInput struct {
-	em               *emitter.Emitter
-	irSchema         *ir.Schema
-	ctx              emitter.MainContext
-	scenarios        []normalizer.ScenarioDef
-	cfgDef           *normalizer.ConfigDef
-	authDef          *normalizer.AuthDef
-	rbacDef          *normalizer.RBACDef
-	projectDef       *normalizer.ProjectDef
-	targetOutput     OutputOptions
-	pythonSDKEnabled bool
-	isMicroservice   bool
+	em                    *emitter.Emitter
+	irSchema              *ir.Schema
+	ctx                   emitter.MainContext
+	scenarios             []normalizer.ScenarioDef
+	cfgDef                *normalizer.ConfigDef
+	authDef               *normalizer.AuthDef
+	rbacDef               *normalizer.RBACDef
+	notificationMutingDef *normalizer.NotificationMutingDef
+	projectDef            *normalizer.ProjectDef
+	targetOutput          OutputOptions
+	pythonSDKEnabled      bool
+	isMicroservice        bool
 }
 
 func buildStepRegistry(in buildStepRegistryInput) *generator.StepRegistry {
@@ -43,14 +44,15 @@ func buildStepRegistry(in buildStepRegistryInput) *generator.StepRegistry {
 	})
 
 	goemitter.Register(registry, goemitter.RegisterInput{
-		Em:               in.em,
-		IRSchema:         in.irSchema,
-		Ctx:              in.ctx,
-		Scenarios:        in.scenarios,
-		CfgDef:           in.cfgDef,
-		AuthDef:          in.authDef,
-		RBACDef:          in.rbacDef,
-		IsMicroservice:   in.isMicroservice,
+		Em:                    in.em,
+		IRSchema:              in.irSchema,
+		Ctx:                   in.ctx,
+		Scenarios:             in.scenarios,
+		CfgDef:                in.cfgDef,
+		AuthDef:               in.authDef,
+		RBACDef:               in.rbacDef,
+		NotificationMutingDef: in.notificationMutingDef,
+		IsMicroservice:        in.isMicroservice,
 		TestStubsEnabled: in.targetOutput.TestStubs,
 		ResolveMissingTestStubs: func() ([]normalizer.Endpoint, error) {
 			endpoints := coverageEndpointsFromIR(in.irSchema.Endpoints)

@@ -100,6 +100,49 @@ func NewBlogImpl(
 // ============================================================================ 
 // SECTION: Service Methods
 // ============================================================================
+// METHOD: ArchivePost
+// Source: cue/api/posts.cue:239
+// INPUT: port.ArchivePostRequest
+// OUTPUT: port.ArchivePostResponse
+func (s *BlogImpl) ArchivePost(ctx context.Context, req port.ArchivePostRequest) (resp port.ArchivePostResponse, err error) {
+	// Scope tracking to prevent redeclaration errors
+
+	// Deep Logging for AI Traceability & Debugging
+	l := logger.From(ctx).With(slog.String("service", "Blog"), slog.String("method", "ArchivePost"))
+	l.Debug("Entering method", slog.Any("req", req))
+	// Auto-validation of input DTO
+	if err = helpers.Validate(req); err != nil {
+		l.Warn("Validation failed", slog.Any("error", err))
+		return resp, errors.New(http.StatusBadRequest, "VALIDATION_FAILED", err.Error())
+	}
+	_ = errors.New
+	_ = http.StatusOK
+	var deferredHooks []func(context.Context) error
+	post, err := s.PostRepo.FindByID(ctx, req.ID)
+	if err != nil {
+		return resp, errors.WithIntent(err, ":0 ()")
+	}
+	if post == nil {
+		return resp, errors.New(http.StatusNotFound, "Not Found", "Post not found")
+	}
+	if err = post.TransitionTo("archived"); err != nil {
+		return resp, err
+	}
+	if err = s.PostRepo.Save(ctx, post); err != nil {
+		return resp, errors.WithIntent(err, ":0 ()")
+	}
+	resp.Ok = true
+
+	// Execute post-commit hooks
+	for _, hook := range deferredHooks {
+		if hookErr := hook(ctx); hookErr != nil {
+			l.Error("Post-commit hook failed", slog.Any("error", hookErr))
+		}
+	}
+
+	l.Debug("Exiting method", slog.String("status", "success"))
+	return resp, nil
+}
 // METHOD: CreateComment
 // Source: cue/api/comments.cue:12
 // INPUT: port.CreateCommentRequest
@@ -234,6 +277,231 @@ func (s *BlogImpl) CreatePost(ctx context.Context, req port.CreatePostRequest) (
 	l.Debug("Exiting method", slog.String("status", "success"))
 	return resp, nil
 }
+// METHOD: CreateTag
+// Source: cue/api/tags.cue:34
+// INPUT: port.CreateTagRequest
+// OUTPUT: port.CreateTagResponse
+func (s *BlogImpl) CreateTag(ctx context.Context, req port.CreateTagRequest) (resp port.CreateTagResponse, err error) {
+	// Scope tracking to prevent redeclaration errors
+
+	// Deep Logging for AI Traceability & Debugging
+	l := logger.From(ctx).With(slog.String("service", "Blog"), slog.String("method", "CreateTag"))
+	l.Debug("Entering method", slog.Any("req", req))
+	// Auto-validation of input DTO
+	if err = helpers.Validate(req); err != nil {
+		l.Warn("Validation failed", slog.Any("error", err))
+		return resp, errors.New(http.StatusBadRequest, "VALIDATION_FAILED", err.Error())
+	}
+	_ = errors.New
+	_ = http.StatusOK
+	var deferredHooks []func(context.Context) error
+	slug, err := slugify(req.Name)
+	if err != nil {
+		return resp, errors.WithIntent(err, ":0 ()")
+	}
+	existing, err := s.TagRepo.FindByID(ctx, slug)
+	if err != nil {
+		return resp, errors.WithIntent(err, ":0 ()")
+	}
+	if existing == nil {
+		return resp, errors.New(http.StatusNotFound, "Not Found", "existing not found")
+	}
+	if !(existing == nil) {
+		return resp, errors.New(http.StatusBadRequest, "Validation Error", "Tag already exists")
+	}
+		    var newTag domain.Tag
+	newTag.Name = req.Name
+	newTag.Slug = slug
+	newTag.Description = req.Description
+	newTag.ID = uuid.NewString()
+	newTag.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	if err = s.TagRepo.Save(ctx, &newTag); err != nil {
+		return resp, errors.WithIntent(err, ":0 ()")
+	}
+	resp.ID = newTag.ID
+	resp.Slug = newTag.Slug
+
+	// Execute post-commit hooks
+	for _, hook := range deferredHooks {
+		if hookErr := hook(ctx); hookErr != nil {
+			l.Error("Post-commit hook failed", slog.Any("error", hookErr))
+		}
+	}
+
+	l.Debug("Exiting method", slog.String("status", "success"))
+	return resp, nil
+}
+// METHOD: DeleteComment
+// Source: cue/api/comments.cue:98
+// INPUT: port.DeleteCommentRequest
+// OUTPUT: port.DeleteCommentResponse
+func (s *BlogImpl) DeleteComment(ctx context.Context, req port.DeleteCommentRequest) (resp port.DeleteCommentResponse, err error) {
+	// Scope tracking to prevent redeclaration errors
+
+	// Deep Logging for AI Traceability & Debugging
+	l := logger.From(ctx).With(slog.String("service", "Blog"), slog.String("method", "DeleteComment"))
+	l.Debug("Entering method", slog.Any("req", req))
+	// Auto-validation of input DTO
+	if err = helpers.Validate(req); err != nil {
+		l.Warn("Validation failed", slog.Any("error", err))
+		return resp, errors.New(http.StatusBadRequest, "VALIDATION_FAILED", err.Error())
+	}
+	_ = errors.New
+	_ = http.StatusOK
+	var deferredHooks []func(context.Context) error
+	comment, err := s.CommentRepo.FindByID(ctx, req.ID)
+	if err != nil {
+		return resp, errors.WithIntent(err, ":0 ()")
+	}
+	if comment == nil {
+		return resp, errors.New(http.StatusNotFound, "Not Found", "Comment not found")
+	}
+	if !(comment.UserID == req.UserId) {
+		return resp, errors.New(http.StatusBadRequest, "Validation Error", "Not authorized")
+	}
+	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+	if err = s.CommentRepo.Delete(txCtx, comment.ID); err != nil {
+		return err
+	}
+	if err = s.CommentRepo.Delete(txCtx, comment.ID); err != nil {
+		return err
+	}
+		return nil
+	})
+	if err != nil {
+		return resp, err
+	}
+	// Execute hooks deferred during this transaction block
+	for _, hook := range deferredHooks {
+		if hookErr := hook(ctx); hookErr != nil {
+			l.Error("Post-commit hook failed", slog.Any("error", hookErr))
+		}
+	}
+	deferredHooks = nil // Clear after execution
+	resp.Ok = true
+
+	// Execute post-commit hooks
+	for _, hook := range deferredHooks {
+		if hookErr := hook(ctx); hookErr != nil {
+			l.Error("Post-commit hook failed", slog.Any("error", hookErr))
+		}
+	}
+
+	l.Debug("Exiting method", slog.String("status", "success"))
+	return resp, nil
+}
+// METHOD: DeletePost
+// Source: cue/api/posts.cue:260
+// INPUT: port.DeletePostRequest
+// OUTPUT: port.DeletePostResponse
+func (s *BlogImpl) DeletePost(ctx context.Context, req port.DeletePostRequest) (resp port.DeletePostResponse, err error) {
+	// Scope tracking to prevent redeclaration errors
+
+	// Deep Logging for AI Traceability & Debugging
+	l := logger.From(ctx).With(slog.String("service", "Blog"), slog.String("method", "DeletePost"))
+	l.Debug("Entering method", slog.Any("req", req))
+	// Auto-validation of input DTO
+	if err = helpers.Validate(req); err != nil {
+		l.Warn("Validation failed", slog.Any("error", err))
+		return resp, errors.New(http.StatusBadRequest, "VALIDATION_FAILED", err.Error())
+	}
+	_ = errors.New
+	_ = http.StatusOK
+	var deferredHooks []func(context.Context) error
+	post, err := s.PostRepo.FindByID(ctx, req.ID)
+	if err != nil {
+		return resp, errors.WithIntent(err, ":0 ()")
+	}
+	if post == nil {
+		return resp, errors.New(http.StatusNotFound, "Not Found", "Post not found")
+	}
+	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+	if err = s.PostTagRepo.Delete(txCtx, post.ID); err != nil {
+		return err
+	}
+	if err = s.PostRepo.Delete(txCtx, post.ID); err != nil {
+		return err
+	}
+		return nil
+	})
+	if err != nil {
+		return resp, err
+	}
+	// Execute hooks deferred during this transaction block
+	for _, hook := range deferredHooks {
+		if hookErr := hook(ctx); hookErr != nil {
+			l.Error("Post-commit hook failed", slog.Any("error", hookErr))
+		}
+	}
+	deferredHooks = nil // Clear after execution
+	resp.Ok = true
+
+	// Execute post-commit hooks
+	for _, hook := range deferredHooks {
+		if hookErr := hook(ctx); hookErr != nil {
+			l.Error("Post-commit hook failed", slog.Any("error", hookErr))
+		}
+	}
+
+	l.Debug("Exiting method", slog.String("status", "success"))
+	return resp, nil
+}
+// METHOD: DeleteTag
+// Source: cue/api/tags.cue:102
+// INPUT: port.DeleteTagRequest
+// OUTPUT: port.DeleteTagResponse
+func (s *BlogImpl) DeleteTag(ctx context.Context, req port.DeleteTagRequest) (resp port.DeleteTagResponse, err error) {
+	// Scope tracking to prevent redeclaration errors
+
+	// Deep Logging for AI Traceability & Debugging
+	l := logger.From(ctx).With(slog.String("service", "Blog"), slog.String("method", "DeleteTag"))
+	l.Debug("Entering method", slog.Any("req", req))
+	// Auto-validation of input DTO
+	if err = helpers.Validate(req); err != nil {
+		l.Warn("Validation failed", slog.Any("error", err))
+		return resp, errors.New(http.StatusBadRequest, "VALIDATION_FAILED", err.Error())
+	}
+	_ = errors.New
+	_ = http.StatusOK
+	var deferredHooks []func(context.Context) error
+	tag, err := s.TagRepo.FindByID(ctx, req.ID)
+	if err != nil {
+		return resp, errors.WithIntent(err, ":0 ()")
+	}
+	if tag == nil {
+		return resp, errors.New(http.StatusNotFound, "Not Found", "Tag not found")
+	}
+	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+	if err = s.PostTagRepo.Delete(txCtx, tag.ID); err != nil {
+		return err
+	}
+	if err = s.TagRepo.Delete(txCtx, tag.ID); err != nil {
+		return err
+	}
+		return nil
+	})
+	if err != nil {
+		return resp, err
+	}
+	// Execute hooks deferred during this transaction block
+	for _, hook := range deferredHooks {
+		if hookErr := hook(ctx); hookErr != nil {
+			l.Error("Post-commit hook failed", slog.Any("error", hookErr))
+		}
+	}
+	deferredHooks = nil // Clear after execution
+	resp.Ok = true
+
+	// Execute post-commit hooks
+	for _, hook := range deferredHooks {
+		if hookErr := hook(ctx); hookErr != nil {
+			l.Error("Post-commit hook failed", slog.Any("error", hookErr))
+		}
+	}
+
+	l.Debug("Exiting method", slog.String("status", "success"))
+	return resp, nil
+}
 // METHOD: GetPost
 // Source: cue/api/posts.cue:65
 // INPUT: port.GetPostRequest
@@ -322,6 +590,47 @@ func (s *BlogImpl) ListComments(ctx context.Context, req port.ListCommentsReques
 	l.Debug("Exiting method", slog.String("status", "success"))
 	return resp, nil
 }
+// METHOD: ListMyPosts
+// Source: cue/api/posts.cue:136
+// INPUT: port.ListMyPostsRequest
+// OUTPUT: port.ListMyPostsResponse
+func (s *BlogImpl) ListMyPosts(ctx context.Context, req port.ListMyPostsRequest) (resp port.ListMyPostsResponse, err error) {
+	// Scope tracking to prevent redeclaration errors
+
+	// Deep Logging for AI Traceability & Debugging
+	l := logger.From(ctx).With(slog.String("service", "Blog"), slog.String("method", "ListMyPosts"))
+	l.Debug("Entering method", slog.Any("req", req))
+	// Auto-validation of input DTO
+	if err = helpers.Validate(req); err != nil {
+		l.Warn("Validation failed", slog.Any("error", err))
+		return resp, errors.New(http.StatusBadRequest, "VALIDATION_FAILED", err.Error())
+	}
+	_ = errors.New
+	_ = http.StatusOK
+	var deferredHooks []func(context.Context) error
+	if req.Status != "" {
+	posts, err := s.PostRepo.ListByAuthorAndStatus(ctx, req.UserId)
+	if err != nil {
+		return resp, err
+	}
+	}  else {
+	posts, err := s.PostRepo.ListByAuthor(ctx, req.UserId)
+	if err != nil {
+		return resp, err
+	}
+	} 
+	resp.Data = posts
+
+	// Execute post-commit hooks
+	for _, hook := range deferredHooks {
+		if hookErr := hook(ctx); hookErr != nil {
+			l.Error("Post-commit hook failed", slog.Any("error", hookErr))
+		}
+	}
+
+	l.Debug("Exiting method", slog.String("status", "success"))
+	return resp, nil
+}
 // METHOD: ListPosts
 // Source: cue/api/posts.cue:100
 // INPUT: port.ListPostsRequest
@@ -378,47 +687,6 @@ func (s *BlogImpl) ListPosts(ctx context.Context, req port.ListPostsRequest) (re
 	l.Debug("Exiting method", slog.String("status", "success"))
 	return resp, nil
 }
-// METHOD: ListMyPosts
-// Source: cue/api/posts.cue:136
-// INPUT: port.ListMyPostsRequest
-// OUTPUT: port.ListMyPostsResponse
-func (s *BlogImpl) ListMyPosts(ctx context.Context, req port.ListMyPostsRequest) (resp port.ListMyPostsResponse, err error) {
-	// Scope tracking to prevent redeclaration errors
-
-	// Deep Logging for AI Traceability & Debugging
-	l := logger.From(ctx).With(slog.String("service", "Blog"), slog.String("method", "ListMyPosts"))
-	l.Debug("Entering method", slog.Any("req", req))
-	// Auto-validation of input DTO
-	if err = helpers.Validate(req); err != nil {
-		l.Warn("Validation failed", slog.Any("error", err))
-		return resp, errors.New(http.StatusBadRequest, "VALIDATION_FAILED", err.Error())
-	}
-	_ = errors.New
-	_ = http.StatusOK
-	var deferredHooks []func(context.Context) error
-	if req.Status != "" {
-	posts, err := s.PostRepo.ListByAuthorAndStatus(ctx, req.UserId)
-	if err != nil {
-		return resp, err
-	}
-	}  else {
-	posts, err := s.PostRepo.ListByAuthor(ctx, req.UserId)
-	if err != nil {
-		return resp, err
-	}
-	} 
-	resp.Data = posts
-
-	// Execute post-commit hooks
-	for _, hook := range deferredHooks {
-		if hookErr := hook(ctx); hookErr != nil {
-			l.Error("Post-commit hook failed", slog.Any("error", hookErr))
-		}
-	}
-
-	l.Debug("Exiting method", slog.String("status", "success"))
-	return resp, nil
-}
 // METHOD: ListTags
 // Source: cue/api/tags.cue:12
 // INPUT: port.ListTagsRequest
@@ -453,172 +721,15 @@ func (s *BlogImpl) ListTags(ctx context.Context, req port.ListTagsRequest) (resp
 	l.Debug("Exiting method", slog.String("status", "success"))
 	return resp, nil
 }
-// METHOD: CreateTag
-// Source: cue/api/tags.cue:34
-// INPUT: port.CreateTagRequest
-// OUTPUT: port.CreateTagResponse
-func (s *BlogImpl) CreateTag(ctx context.Context, req port.CreateTagRequest) (resp port.CreateTagResponse, err error) {
+// METHOD: PublishPost
+// Source: cue/api/posts.cue:218
+// INPUT: port.PublishPostRequest
+// OUTPUT: port.PublishPostResponse
+func (s *BlogImpl) PublishPost(ctx context.Context, req port.PublishPostRequest) (resp port.PublishPostResponse, err error) {
 	// Scope tracking to prevent redeclaration errors
 
 	// Deep Logging for AI Traceability & Debugging
-	l := logger.From(ctx).With(slog.String("service", "Blog"), slog.String("method", "CreateTag"))
-	l.Debug("Entering method", slog.Any("req", req))
-	// Auto-validation of input DTO
-	if err = helpers.Validate(req); err != nil {
-		l.Warn("Validation failed", slog.Any("error", err))
-		return resp, errors.New(http.StatusBadRequest, "VALIDATION_FAILED", err.Error())
-	}
-	_ = errors.New
-	_ = http.StatusOK
-	var deferredHooks []func(context.Context) error
-	slug, err := slugify(req.Name)
-	if err != nil {
-		return resp, errors.WithIntent(err, ":0 ()")
-	}
-	existing, err := s.TagRepo.FindByID(ctx, slug)
-	if err != nil {
-		return resp, errors.WithIntent(err, ":0 ()")
-	}
-	if existing == nil {
-		return resp, errors.New(http.StatusNotFound, "Not Found", "existing not found")
-	}
-	if !(existing == nil) {
-		return resp, errors.New(http.StatusBadRequest, "Validation Error", "Tag already exists")
-	}
-		    var newTag domain.Tag
-	newTag.Name = req.Name
-	newTag.Slug = slug
-	newTag.Description = req.Description
-	newTag.ID = uuid.NewString()
-	newTag.CreatedAt = time.Now().UTC().Format(time.RFC3339)
-	if err = s.TagRepo.Save(ctx, &newTag); err != nil {
-		return resp, errors.WithIntent(err, ":0 ()")
-	}
-	resp.ID = newTag.ID
-	resp.Slug = newTag.Slug
-
-	// Execute post-commit hooks
-	for _, hook := range deferredHooks {
-		if hookErr := hook(ctx); hookErr != nil {
-			l.Error("Post-commit hook failed", slog.Any("error", hookErr))
-		}
-	}
-
-	l.Debug("Exiting method", slog.String("status", "success"))
-	return resp, nil
-}
-// METHOD: UpdateComment
-// Source: cue/api/comments.cue:71
-// INPUT: port.UpdateCommentRequest
-// OUTPUT: port.UpdateCommentResponse
-func (s *BlogImpl) UpdateComment(ctx context.Context, req port.UpdateCommentRequest) (resp port.UpdateCommentResponse, err error) {
-	// Scope tracking to prevent redeclaration errors
-
-	// Deep Logging for AI Traceability & Debugging
-	l := logger.From(ctx).With(slog.String("service", "Blog"), slog.String("method", "UpdateComment"))
-	l.Debug("Entering method", slog.Any("req", req))
-	// Auto-validation of input DTO
-	if err = helpers.Validate(req); err != nil {
-		l.Warn("Validation failed", slog.Any("error", err))
-		return resp, errors.New(http.StatusBadRequest, "VALIDATION_FAILED", err.Error())
-	}
-	_ = errors.New
-	_ = http.StatusOK
-	var deferredHooks []func(context.Context) error
-	comment, err := s.CommentRepo.FindByID(ctx, req.ID)
-	if err != nil {
-		return resp, errors.WithIntent(err, ":0 ()")
-	}
-	if comment == nil {
-		return resp, errors.New(http.StatusNotFound, "Not Found", "Comment not found")
-	}
-	if !(comment.UserID == req.UserId) {
-		return resp, errors.New(http.StatusBadRequest, "Validation Error", "Not authorized to update this comment")
-	}
-	comment.Content = req.Content
-	if err = s.CommentRepo.Save(ctx, comment); err != nil {
-		return resp, errors.WithIntent(err, ":0 ()")
-	}
-	resp.Ok = true
-
-	// Execute post-commit hooks
-	for _, hook := range deferredHooks {
-		if hookErr := hook(ctx); hookErr != nil {
-			l.Error("Post-commit hook failed", slog.Any("error", hookErr))
-		}
-	}
-
-	l.Debug("Exiting method", slog.String("status", "success"))
-	return resp, nil
-}
-// METHOD: DeleteComment
-// Source: cue/api/comments.cue:98
-// INPUT: port.DeleteCommentRequest
-// OUTPUT: port.DeleteCommentResponse
-func (s *BlogImpl) DeleteComment(ctx context.Context, req port.DeleteCommentRequest) (resp port.DeleteCommentResponse, err error) {
-	// Scope tracking to prevent redeclaration errors
-
-	// Deep Logging for AI Traceability & Debugging
-	l := logger.From(ctx).With(slog.String("service", "Blog"), slog.String("method", "DeleteComment"))
-	l.Debug("Entering method", slog.Any("req", req))
-	// Auto-validation of input DTO
-	if err = helpers.Validate(req); err != nil {
-		l.Warn("Validation failed", slog.Any("error", err))
-		return resp, errors.New(http.StatusBadRequest, "VALIDATION_FAILED", err.Error())
-	}
-	_ = errors.New
-	_ = http.StatusOK
-	var deferredHooks []func(context.Context) error
-	comment, err := s.CommentRepo.FindByID(ctx, req.ID)
-	if err != nil {
-		return resp, errors.WithIntent(err, ":0 ()")
-	}
-	if comment == nil {
-		return resp, errors.New(http.StatusNotFound, "Not Found", "Comment not found")
-	}
-	if !(comment.UserID == req.UserId) {
-		return resp, errors.New(http.StatusBadRequest, "Validation Error", "Not authorized")
-	}
-	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
-	if err = s.CommentRepo.Delete(txCtx, comment.ID); err != nil {
-		return err
-	}
-	if err = s.CommentRepo.Delete(txCtx, comment.ID); err != nil {
-		return err
-	}
-		return nil
-	})
-	if err != nil {
-		return resp, err
-	}
-	// Execute hooks deferred during this transaction block
-	for _, hook := range deferredHooks {
-		if hookErr := hook(ctx); hookErr != nil {
-			l.Error("Post-commit hook failed", slog.Any("error", hookErr))
-		}
-	}
-	deferredHooks = nil // Clear after execution
-	resp.Ok = true
-
-	// Execute post-commit hooks
-	for _, hook := range deferredHooks {
-		if hookErr := hook(ctx); hookErr != nil {
-			l.Error("Post-commit hook failed", slog.Any("error", hookErr))
-		}
-	}
-
-	l.Debug("Exiting method", slog.String("status", "success"))
-	return resp, nil
-}
-// METHOD: UpdatePost
-// Source: cue/api/posts.cue:167
-// INPUT: port.UpdatePostRequest
-// OUTPUT: port.UpdatePostResponse
-func (s *BlogImpl) UpdatePost(ctx context.Context, req port.UpdatePostRequest) (resp port.UpdatePostResponse, err error) {
-	// Scope tracking to prevent redeclaration errors
-
-	// Deep Logging for AI Traceability & Debugging
-	l := logger.From(ctx).With(slog.String("service", "Blog"), slog.String("method", "UpdatePost"))
+	l := logger.From(ctx).With(slog.String("service", "Blog"), slog.String("method", "PublishPost"))
 	l.Debug("Entering method", slog.Any("req", req))
 	// Auto-validation of input DTO
 	if err = helpers.Validate(req); err != nil {
@@ -635,12 +746,9 @@ func (s *BlogImpl) UpdatePost(ctx context.Context, req port.UpdatePostRequest) (
 	if post == nil {
 		return resp, errors.New(http.StatusNotFound, "Not Found", "Post not found")
 	}
-	if req.Title != "" {
-	post.Title = req.Title
-	} 
-	if req.Content != "" {
-	post.Content = req.Content
-	} 
+	if err = post.TransitionTo("published"); err != nil {
+		return resp, err
+	}
 	if err = s.PostRepo.Save(ctx, post); err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
 	}
@@ -699,15 +807,15 @@ func (s *BlogImpl) SubmitPost(ctx context.Context, req port.SubmitPostRequest) (
 	l.Debug("Exiting method", slog.String("status", "success"))
 	return resp, nil
 }
-// METHOD: PublishPost
-// Source: cue/api/posts.cue:218
-// INPUT: port.PublishPostRequest
-// OUTPUT: port.PublishPostResponse
-func (s *BlogImpl) PublishPost(ctx context.Context, req port.PublishPostRequest) (resp port.PublishPostResponse, err error) {
+// METHOD: UpdateComment
+// Source: cue/api/comments.cue:71
+// INPUT: port.UpdateCommentRequest
+// OUTPUT: port.UpdateCommentResponse
+func (s *BlogImpl) UpdateComment(ctx context.Context, req port.UpdateCommentRequest) (resp port.UpdateCommentResponse, err error) {
 	// Scope tracking to prevent redeclaration errors
 
 	// Deep Logging for AI Traceability & Debugging
-	l := logger.From(ctx).With(slog.String("service", "Blog"), slog.String("method", "PublishPost"))
+	l := logger.From(ctx).With(slog.String("service", "Blog"), slog.String("method", "UpdateComment"))
 	l.Debug("Entering method", slog.Any("req", req))
 	// Auto-validation of input DTO
 	if err = helpers.Validate(req); err != nil {
@@ -717,17 +825,18 @@ func (s *BlogImpl) PublishPost(ctx context.Context, req port.PublishPostRequest)
 	_ = errors.New
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
-	post, err := s.PostRepo.FindByID(ctx, req.ID)
+	comment, err := s.CommentRepo.FindByID(ctx, req.ID)
 	if err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
 	}
-	if post == nil {
-		return resp, errors.New(http.StatusNotFound, "Not Found", "Post not found")
+	if comment == nil {
+		return resp, errors.New(http.StatusNotFound, "Not Found", "Comment not found")
 	}
-	if err = post.TransitionTo("published"); err != nil {
-		return resp, err
+	if !(comment.UserID == req.UserId) {
+		return resp, errors.New(http.StatusBadRequest, "Validation Error", "Not authorized to update this comment")
 	}
-	if err = s.PostRepo.Save(ctx, post); err != nil {
+	comment.Content = req.Content
+	if err = s.CommentRepo.Save(ctx, comment); err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
 	}
 	resp.Ok = true
@@ -742,15 +851,15 @@ func (s *BlogImpl) PublishPost(ctx context.Context, req port.PublishPostRequest)
 	l.Debug("Exiting method", slog.String("status", "success"))
 	return resp, nil
 }
-// METHOD: ArchivePost
-// Source: cue/api/posts.cue:239
-// INPUT: port.ArchivePostRequest
-// OUTPUT: port.ArchivePostResponse
-func (s *BlogImpl) ArchivePost(ctx context.Context, req port.ArchivePostRequest) (resp port.ArchivePostResponse, err error) {
+// METHOD: UpdatePost
+// Source: cue/api/posts.cue:167
+// INPUT: port.UpdatePostRequest
+// OUTPUT: port.UpdatePostResponse
+func (s *BlogImpl) UpdatePost(ctx context.Context, req port.UpdatePostRequest) (resp port.UpdatePostResponse, err error) {
 	// Scope tracking to prevent redeclaration errors
 
 	// Deep Logging for AI Traceability & Debugging
-	l := logger.From(ctx).With(slog.String("service", "Blog"), slog.String("method", "ArchivePost"))
+	l := logger.From(ctx).With(slog.String("service", "Blog"), slog.String("method", "UpdatePost"))
 	l.Debug("Entering method", slog.Any("req", req))
 	// Auto-validation of input DTO
 	if err = helpers.Validate(req); err != nil {
@@ -767,68 +876,15 @@ func (s *BlogImpl) ArchivePost(ctx context.Context, req port.ArchivePostRequest)
 	if post == nil {
 		return resp, errors.New(http.StatusNotFound, "Not Found", "Post not found")
 	}
-	if err = post.TransitionTo("archived"); err != nil {
-		return resp, err
-	}
+	if req.Title != "" {
+	post.Title = req.Title
+	} 
+	if req.Content != "" {
+	post.Content = req.Content
+	} 
 	if err = s.PostRepo.Save(ctx, post); err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
 	}
-	resp.Ok = true
-
-	// Execute post-commit hooks
-	for _, hook := range deferredHooks {
-		if hookErr := hook(ctx); hookErr != nil {
-			l.Error("Post-commit hook failed", slog.Any("error", hookErr))
-		}
-	}
-
-	l.Debug("Exiting method", slog.String("status", "success"))
-	return resp, nil
-}
-// METHOD: DeletePost
-// Source: cue/api/posts.cue:260
-// INPUT: port.DeletePostRequest
-// OUTPUT: port.DeletePostResponse
-func (s *BlogImpl) DeletePost(ctx context.Context, req port.DeletePostRequest) (resp port.DeletePostResponse, err error) {
-	// Scope tracking to prevent redeclaration errors
-
-	// Deep Logging for AI Traceability & Debugging
-	l := logger.From(ctx).With(slog.String("service", "Blog"), slog.String("method", "DeletePost"))
-	l.Debug("Entering method", slog.Any("req", req))
-	// Auto-validation of input DTO
-	if err = helpers.Validate(req); err != nil {
-		l.Warn("Validation failed", slog.Any("error", err))
-		return resp, errors.New(http.StatusBadRequest, "VALIDATION_FAILED", err.Error())
-	}
-	_ = errors.New
-	_ = http.StatusOK
-	var deferredHooks []func(context.Context) error
-	post, err := s.PostRepo.FindByID(ctx, req.ID)
-	if err != nil {
-		return resp, errors.WithIntent(err, ":0 ()")
-	}
-	if post == nil {
-		return resp, errors.New(http.StatusNotFound, "Not Found", "Post not found")
-	}
-	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
-	if err = s.PostTagRepo.Delete(txCtx, post.ID); err != nil {
-		return err
-	}
-	if err = s.PostRepo.Delete(txCtx, post.ID); err != nil {
-		return err
-	}
-		return nil
-	})
-	if err != nil {
-		return resp, err
-	}
-	// Execute hooks deferred during this transaction block
-	for _, hook := range deferredHooks {
-		if hookErr := hook(ctx); hookErr != nil {
-			l.Error("Post-commit hook failed", slog.Any("error", hookErr))
-		}
-	}
-	deferredHooks = nil // Clear after execution
 	resp.Ok = true
 
 	// Execute post-commit hooks
@@ -880,62 +936,6 @@ func (s *BlogImpl) UpdateTag(ctx context.Context, req port.UpdateTagRequest) (re
 	if err = s.TagRepo.Save(ctx, tag); err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
 	}
-	resp.Ok = true
-
-	// Execute post-commit hooks
-	for _, hook := range deferredHooks {
-		if hookErr := hook(ctx); hookErr != nil {
-			l.Error("Post-commit hook failed", slog.Any("error", hookErr))
-		}
-	}
-
-	l.Debug("Exiting method", slog.String("status", "success"))
-	return resp, nil
-}
-// METHOD: DeleteTag
-// Source: cue/api/tags.cue:102
-// INPUT: port.DeleteTagRequest
-// OUTPUT: port.DeleteTagResponse
-func (s *BlogImpl) DeleteTag(ctx context.Context, req port.DeleteTagRequest) (resp port.DeleteTagResponse, err error) {
-	// Scope tracking to prevent redeclaration errors
-
-	// Deep Logging for AI Traceability & Debugging
-	l := logger.From(ctx).With(slog.String("service", "Blog"), slog.String("method", "DeleteTag"))
-	l.Debug("Entering method", slog.Any("req", req))
-	// Auto-validation of input DTO
-	if err = helpers.Validate(req); err != nil {
-		l.Warn("Validation failed", slog.Any("error", err))
-		return resp, errors.New(http.StatusBadRequest, "VALIDATION_FAILED", err.Error())
-	}
-	_ = errors.New
-	_ = http.StatusOK
-	var deferredHooks []func(context.Context) error
-	tag, err := s.TagRepo.FindByID(ctx, req.ID)
-	if err != nil {
-		return resp, errors.WithIntent(err, ":0 ()")
-	}
-	if tag == nil {
-		return resp, errors.New(http.StatusNotFound, "Not Found", "Tag not found")
-	}
-	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
-	if err = s.PostTagRepo.Delete(txCtx, tag.ID); err != nil {
-		return err
-	}
-	if err = s.TagRepo.Delete(txCtx, tag.ID); err != nil {
-		return err
-	}
-		return nil
-	})
-	if err != nil {
-		return resp, err
-	}
-	// Execute hooks deferred during this transaction block
-	for _, hook := range deferredHooks {
-		if hookErr := hook(ctx); hookErr != nil {
-			l.Error("Post-commit hook failed", slog.Any("error", hookErr))
-		}
-	}
-	deferredHooks = nil // Clear after execution
 	resp.Ok = true
 
 	// Execute post-commit hooks

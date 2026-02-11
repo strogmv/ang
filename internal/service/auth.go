@@ -89,15 +89,15 @@ func NewAuthImpl(
 // ============================================================================
 // SECTION: Service Methods
 // ============================================================================
-// METHOD: Register
-// Source: cue/api/auth.cue:12
-// INPUT: port.RegisterRequest
-// OUTPUT: port.RegisterResponse
-func (s *AuthImpl) Register(ctx context.Context, req port.RegisterRequest) (resp port.RegisterResponse, err error) {
+// METHOD: GetProfile
+// Source: cue/api/auth.cue:101
+// INPUT: port.GetProfileRequest
+// OUTPUT: port.GetProfileResponse
+func (s *AuthImpl) GetProfile(ctx context.Context, req port.GetProfileRequest) (resp port.GetProfileResponse, err error) {
 	// Scope tracking to prevent redeclaration errors
 
 	// Deep Logging for AI Traceability & Debugging
-	l := logger.From(ctx).With(slog.String("service", "Auth"), slog.String("method", "Register"))
+	l := logger.From(ctx).With(slog.String("service", "Auth"), slog.String("method", "GetProfile"))
 	l.Debug("Entering method", slog.Any("req", req))
 	// Auto-validation of input DTO
 	if err = helpers.Validate(req); err != nil {
@@ -107,40 +107,19 @@ func (s *AuthImpl) Register(ctx context.Context, req port.RegisterRequest) (resp
 	_ = errors.New
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
-	existing, err := s.UserRepo.FindByID(ctx, req.Email)
+	user, err := s.UserRepo.FindByID(ctx, req.UserId)
 	if err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
 	}
-	if existing == nil {
-		return resp, errors.New(http.StatusNotFound, "Not Found", "existing not found")
+	if user == nil {
+		return resp, errors.New(http.StatusNotFound, "Not Found", "User not found")
 	}
-	if !(existing == nil) {
-		return resp, errors.New(http.StatusBadRequest, "Validation Error", "Email already registered")
-	}
-	var newUser domain.User
-	newUser.Email = req.Email
-	newUser.Name = req.Name
-	hash, err := hashPassword(req.Password)
-	if err != nil {
-		return resp, errors.WithIntent(err, ":0 ()")
-	}
-	newUser.PasswordHash = hash
-	newUser.Role = "reader"
-	newUser.ID = uuid.NewString()
-	newUser.CreatedAt = time.Now().UTC().Format(time.RFC3339)
-	if err = s.UserRepo.Save(ctx, &newUser); err != nil {
-		return resp, errors.WithIntent(err, ":0 ()")
-	}
-
-	deferredHooks = append(deferredHooks, func(hookCtx context.Context) error {
-		if s.publisher != nil {
-			_ = s.publisher.PublishUserRegistered(hookCtx, domain.UserRegistered{UserID: newUser.ID, Email: newUser.Email})
-		}
-		return nil
-	})
-	resp.ID = newUser.ID
-	resp.Email = newUser.Email
-	resp.Name = newUser.Name
+	resp.ID = user.ID
+	resp.Email = user.Email
+	resp.Name = user.Name
+	resp.Role = user.Role
+	resp.AvatarURL = user.AvatarURL
+	resp.CreatedAt = user.CreatedAt
 
 	// Execute post-commit hooks
 	for _, hook := range deferredHooks {
@@ -214,15 +193,15 @@ func (s *AuthImpl) Login(ctx context.Context, req port.LoginRequest) (resp port.
 	return resp, nil
 }
 
-// METHOD: GetProfile
-// Source: cue/api/auth.cue:101
-// INPUT: port.GetProfileRequest
-// OUTPUT: port.GetProfileResponse
-func (s *AuthImpl) GetProfile(ctx context.Context, req port.GetProfileRequest) (resp port.GetProfileResponse, err error) {
+// METHOD: Register
+// Source: cue/api/auth.cue:12
+// INPUT: port.RegisterRequest
+// OUTPUT: port.RegisterResponse
+func (s *AuthImpl) Register(ctx context.Context, req port.RegisterRequest) (resp port.RegisterResponse, err error) {
 	// Scope tracking to prevent redeclaration errors
 
 	// Deep Logging for AI Traceability & Debugging
-	l := logger.From(ctx).With(slog.String("service", "Auth"), slog.String("method", "GetProfile"))
+	l := logger.From(ctx).With(slog.String("service", "Auth"), slog.String("method", "Register"))
 	l.Debug("Entering method", slog.Any("req", req))
 	// Auto-validation of input DTO
 	if err = helpers.Validate(req); err != nil {
@@ -232,19 +211,40 @@ func (s *AuthImpl) GetProfile(ctx context.Context, req port.GetProfileRequest) (
 	_ = errors.New
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
-	user, err := s.UserRepo.FindByID(ctx, req.UserId)
+	existing, err := s.UserRepo.FindByID(ctx, req.Email)
 	if err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
 	}
-	if user == nil {
-		return resp, errors.New(http.StatusNotFound, "Not Found", "User not found")
+	if existing == nil {
+		return resp, errors.New(http.StatusNotFound, "Not Found", "existing not found")
 	}
-	resp.ID = user.ID
-	resp.Email = user.Email
-	resp.Name = user.Name
-	resp.Role = user.Role
-	resp.AvatarURL = user.AvatarURL
-	resp.CreatedAt = user.CreatedAt
+	if !(existing == nil) {
+		return resp, errors.New(http.StatusBadRequest, "Validation Error", "Email already registered")
+	}
+	var newUser domain.User
+	newUser.Email = req.Email
+	newUser.Name = req.Name
+	hash, err := hashPassword(req.Password)
+	if err != nil {
+		return resp, errors.WithIntent(err, ":0 ()")
+	}
+	newUser.PasswordHash = hash
+	newUser.Role = "reader"
+	newUser.ID = uuid.NewString()
+	newUser.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	if err = s.UserRepo.Save(ctx, &newUser); err != nil {
+		return resp, errors.WithIntent(err, ":0 ()")
+	}
+
+	deferredHooks = append(deferredHooks, func(hookCtx context.Context) error {
+		if s.publisher != nil {
+			_ = s.publisher.PublishUserRegistered(hookCtx, domain.UserRegistered{UserID: newUser.ID, Email: newUser.Email})
+		}
+		return nil
+	})
+	resp.ID = newUser.ID
+	resp.Email = newUser.Email
+	resp.Name = newUser.Name
 
 	// Execute post-commit hooks
 	for _, hook := range deferredHooks {

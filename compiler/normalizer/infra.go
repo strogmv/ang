@@ -226,6 +226,39 @@ func (n *Normalizer) extractRBACFromPolicy(val cue.Value) (*RBACDef, error) {
 	return rbac, nil
 }
 
+// ExtractNotificationMuting parses #NotificationMuting from infra.
+func (n *Normalizer) ExtractNotificationMuting(val cue.Value) (*NotificationMutingDef, error) {
+	mutingVal := val.LookupPath(cue.ParsePath("#NotificationMuting"))
+	if !mutingVal.Exists() {
+		return nil, nil
+	}
+
+	enabled, _ := mutingVal.LookupPath(cue.ParsePath("enabled")).Bool()
+	if !enabled {
+		return nil, nil
+	}
+
+	userEntity := getString(mutingVal, "userEntity")
+	if userEntity == "" {
+		userEntity = "User"
+	}
+	muteAllField := getString(mutingVal, "muteAllField")
+	if muteAllField == "" {
+		muteAllField = "notificationMuteAll"
+	}
+	mutedTypesField := getString(mutingVal, "mutedTypesField")
+	if mutedTypesField == "" {
+		mutedTypesField = "notificationMutedTypes"
+	}
+
+	return &NotificationMutingDef{
+		Enabled:         true,
+		UserEntity:      userEntity,
+		MuteAllField:    muteAllField,
+		MutedTypesField: mutedTypesField,
+	}, nil
+}
+
 // ExtractRepositories extracts repository definitions.
 func (n *Normalizer) ExtractRepositories(val cue.Value) ([]Repository, error) {
 	if !val.Exists() || val.IncompleteKind() == cue.BottomKind {

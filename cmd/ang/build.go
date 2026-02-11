@@ -108,6 +108,7 @@ func runBuild(args []string) {
 
 		var cfgDef *normalizer.ConfigDef
 		var authDef *normalizer.AuthDef
+		var notificationMutingDef *normalizer.NotificationMutingDef
 		if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, "cue/infra")); err != nil {
 			fail(compiler.StageCUE, compiler.ErrCodeCUEInfraLoad, "load cue/infra", err)
 			return
@@ -120,6 +121,11 @@ func runBuild(args []string) {
 			authDef, err = n.ExtractAuth(val)
 			if err != nil {
 				fail(compiler.StageCUE, compiler.ErrCodeCUEInfraAuthParse, "extract auth", err)
+				return
+			}
+			notificationMutingDef, err = n.ExtractNotificationMuting(val)
+			if err != nil {
+				fail(compiler.StageCUE, compiler.ErrCodeCUEInfraConfigParse, "extract notification muting", err)
 				return
 			}
 		}
@@ -336,18 +342,23 @@ func runBuild(args []string) {
 				targetOutput.FrontendEnvPath = filepath.Join(output.FrontendEnvPath, safeTargetDirName(td.Name), ".env.example")
 			}
 
+			if notificationMutingDef != nil {
+				ctx.NotificationMuting = true
+			}
+
 			registry := buildStepRegistry(buildStepRegistryInput{
-				em:               em,
-				irSchema:         irSchema,
-				ctx:              ctx,
-				scenarios:        scenarios,
-				cfgDef:           cfgDef,
-				authDef:          authDef,
-				rbacDef:          rbacDef,
-				projectDef:       projectDef,
-				targetOutput:     targetOutput,
-				pythonSDKEnabled: pythonSDKEnabled,
-				isMicroservice:   isMicroservice,
+				em:                    em,
+				irSchema:              irSchema,
+				ctx:                   ctx,
+				scenarios:             scenarios,
+				cfgDef:                cfgDef,
+				authDef:               authDef,
+				rbacDef:               rbacDef,
+				notificationMutingDef: notificationMutingDef,
+				projectDef:            projectDef,
+				targetOutput:          targetOutput,
+				pythonSDKEnabled:      pythonSDKEnabled,
+				isMicroservice:        isMicroservice,
 			})
 			if err := registry.Execute(td, caps, func(format string, args ...interface{}) {
 				logText(format, args...)
