@@ -680,36 +680,13 @@ func (e *Emitter) EmitNotificationMuting(def *normalizer.NotificationMutingDef, 
 				continue
 			}
 			for _, f := range repo.Finders {
-				fd := finderDelegation{Name: ExportName(f.Name)}
-
-				// Compute return type
-				if f.ReturnType != "" {
-					fd.ReturnType = f.ReturnType
-				} else if f.Action == "delete" {
-					fd.ReturnType = "int64"
-				} else if f.Returns == "one" {
-					fd.ReturnType = "*domain.Notification"
-				} else if f.Returns == "many" {
-					fd.ReturnType = "[]domain.Notification"
-				} else if f.Returns == "count" {
-					fd.ReturnType = "int64"
-				} else {
-					fd.ReturnType = "[]domain.Notification"
+				sig := ComputeIRFinderSignature("Notification", f, "[]domain.Notification")
+				fd := finderDelegation{
+					Name:       sig.Name,
+					ParamsSig:  sig.ParamsSig,
+					ReturnType: sig.ReturnType,
+					ArgNames:   sig.ArgNames,
 				}
-
-				// Compute params and arg names
-				var params []string
-				var argNames []string
-				for _, w := range f.Where {
-					pType := w.ParamType
-					if pType == "time" || pType == "time.Time" {
-						pType = "time.Time"
-					}
-					params = append(params, fmt.Sprintf("%s %s", w.Param, pType))
-					argNames = append(argNames, w.Param)
-				}
-				fd.ParamsSig = strings.Join(params, ", ")
-				fd.ArgNames = strings.Join(argNames, ", ")
 
 				extraFinders = append(extraFinders, fd)
 			}

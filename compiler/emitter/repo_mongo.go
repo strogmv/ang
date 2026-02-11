@@ -91,39 +91,23 @@ func (e *Emitter) EmitMongoRepo(repos []ir.Repository, entities []ir.Entity) err
 				RepositoryFinder: f,
 				SelectEntity:     true,
 			}
+			sig := ComputeFinderSignature(repo.Entity, f, "")
+			fo.ReturnType = sig.ReturnType
+			fo.ReturnZero = sig.ReturnZero
+			fo.ReturnSlice = sig.ReturnSlice
+			fo.ParamsSig = sig.ParamsSig
 
-			if f.Action == "delete" {
-				fo.ReturnType = "int64"
-				fo.ReturnZero = "0"
+			switch {
+			case fo.ReturnType == "int64":
 				fo.SelectEntity = false
-			} else if f.Returns == "one" || f.Returns == repo.Entity || f.Returns == "*"+repo.Entity {
-				fo.ReturnType = "*domain." + repo.Entity
-				fo.ReturnZero = "nil"
+				fo.IsCount = (f.Returns == "count")
+			case fo.ReturnType == "*domain."+repo.Entity:
 				fo.SelectFields = ent.Fields
-			} else if f.Returns == "many" || f.Returns == "[]"+repo.Entity {
-				fo.ReturnType = "[]domain." + repo.Entity
-				fo.ReturnZero = "nil"
-				fo.ReturnSlice = true
+			case fo.ReturnType == "[]domain."+repo.Entity:
 				fo.SelectFields = ent.Fields
-			} else if f.Returns == "count" {
-				fo.ReturnType = "int64"
-				fo.ReturnZero = "0"
-				fo.SelectEntity = false
-				fo.IsCount = true
-			} else {
+			default:
 				return fmt.Errorf("mongo repo unsupported return type: %s (%s.%s)", f.Returns, repo.Name, f.Name)
 			}
-
-			// Signature
-			var params []string
-			for _, w := range f.Where {
-				pType := w.ParamType
-				if pType == "time" {
-					pType = "time.Time"
-				}
-				params = append(params, fmt.Sprintf("%s %s", w.Param, pType))
-			}
-			fo.ParamsSig = strings.Join(params, ", ")
 
 			// Order By
 			if f.OrderBy != "" {

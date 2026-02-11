@@ -82,61 +82,34 @@ func (e *Emitter) EmitStubRepo(repos []ir.Repository, entities []ir.Entity) erro
 				RepositoryFinder: f,
 				SelectEntity:     true,
 			}
+			sig := ComputeFinderSignature(repo.Entity, f, "")
+			fo.ReturnType = sig.ReturnType
+			fo.ReturnZero = sig.ReturnZero
+			fo.ReturnSlice = sig.ReturnSlice
+			fo.ParamsSig = sig.ParamsSig
+			hasTime = hasTime || sig.HasTime
 
 			// Check for explicit ReturnType first (custom types like *domain.TenderReportInfo)
 			if f.ReturnType != "" {
-				fo.ReturnType = f.ReturnType
-				fo.ReturnZero = "nil"
 				fo.SelectEntity = false
 				fo.IsCustomType = true // Custom types can't be handled in memory repos
-				if strings.HasPrefix(f.ReturnType, "[]") {
-					fo.ReturnSlice = true
-				}
 			} else if f.Action == "delete" {
-				fo.ReturnType = "int64"
-				fo.ReturnZero = "0"
 				fo.SelectEntity = false
 			} else if f.Returns == "one" {
-				fo.ReturnType = "*domain." + repo.Entity
-				fo.ReturnZero = "nil"
 				fo.SelectFields = ent.Fields
 			} else if f.Returns == "many" {
-				fo.ReturnType = "[]domain." + repo.Entity
-				fo.ReturnZero = "nil"
-				fo.ReturnSlice = true
 				fo.SelectFields = ent.Fields
 			} else if f.Returns == "count" {
-				fo.ReturnType = "int64"
-				fo.ReturnZero = "0"
 				fo.SelectEntity = false
 				fo.SelectFields = []normalizer.Field{{Name: "count", Type: "int64"}}
 			} else if f.Returns == "[]"+repo.Entity {
-				fo.ReturnType = "[]domain." + repo.Entity
-				fo.ReturnZero = "nil"
-				fo.ReturnSlice = true
 				fo.SelectFields = ent.Fields
 			} else if f.Returns == repo.Entity || f.Returns == "*"+repo.Entity {
-				fo.ReturnType = "*domain." + repo.Entity
-				fo.ReturnZero = "nil"
 				fo.SelectFields = ent.Fields
 			} else {
-				fo.ReturnType = f.Returns
-				fo.ReturnZero = "nil"
 				fo.SelectEntity = false
 				fo.IsCustomType = true // Custom types can't be handled in memory repos
 			}
-
-			// Signature
-			var params []string
-			for _, w := range f.Where {
-				pType := w.ParamType
-				if pType == "time" || pType == "time.Time" {
-					pType = "time.Time"
-					hasTime = true
-				}
-				params = append(params, fmt.Sprintf("%s %s", w.Param, pType))
-			}
-			fo.ParamsSig = strings.Join(params, ", ")
 
 			// Order By
 			if f.OrderBy != "" {

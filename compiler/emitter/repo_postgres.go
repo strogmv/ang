@@ -351,21 +351,14 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 				}
 			}
 
-			var params []string
-			var args []string
+			sig := ComputeFinderSignature(repo.Entity, f, "")
+			hasTime = hasTime || sig.HasTime
 			var wheres []string
-			for _, w := range f.Where {
-				pType := w.ParamType
-				if pType == "time" || pType == "time.Time" {
-					pType = "time.Time"
-					hasTime = true
-				}
-				params = append(params, fmt.Sprintf("%s %s", w.Param, pType))
-				args = append(args, w.Param)
-				wheres = append(wheres, fmt.Sprintf("%s %s $%s", strings.ToLower(w.Field), w.Op, fmt.Sprint(len(args))))
+			for idx, w := range f.Where {
+				wheres = append(wheres, fmt.Sprintf("%s %s $%d", strings.ToLower(w.Field), w.Op, idx+1))
 			}
-			fo.ParamsSig = strings.Join(params, ", ")
-			fo.Args = strings.Join(args, ", ")
+			fo.ParamsSig = sig.ParamsSig
+			fo.Args = sig.ArgsCSV
 			if fo.Args != "" {
 				fo.ArgsSuffix = ", " + fo.Args
 			}

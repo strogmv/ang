@@ -277,42 +277,10 @@ func (e *Emitter) EmitRepository(repos []ir.Repository, entities []ir.Entity) er
 		hasTime := false
 		for _, f := range repo.Finders {
 			fo := finderOut{RepositoryFinder: f}
-
-			// Debug: print ReturnType for finders that have it
-			if f.ReturnType != "" {
-				fmt.Printf("DEBUG: Finder %s.%s has ReturnType: %s\n", repo.Entity, f.Name, f.ReturnType)
-			}
-
-			// Compute return type - use explicit ReturnType if provided
-			if f.ReturnType != "" {
-				fo.ReturnType = f.ReturnType
-			} else if f.Action == "delete" {
-				fo.ReturnType = "int64"
-			} else if f.Returns == "one" {
-				fo.ReturnType = "*domain." + repo.Entity
-			} else if f.Returns == "many" {
-				fo.ReturnType = "[]domain." + repo.Entity
-			} else if f.Returns == "count" {
-				fo.ReturnType = "int64"
-			} else if f.Returns == "[]"+repo.Entity {
-				fo.ReturnType = "[]domain." + repo.Entity
-			} else if f.Returns == repo.Entity || f.Returns == "*"+repo.Entity {
-				fo.ReturnType = "*domain." + repo.Entity
-			} else {
-				fo.ReturnType = f.Returns
-			}
-
-			// Compute params signature
-			var params []string
-			for _, w := range f.Where {
-				pType := w.ParamType
-				if pType == "time" || pType == "time.Time" {
-					pType = "time.Time"
-					hasTime = true
-				}
-				params = append(params, fmt.Sprintf("%s %s", w.Param, pType))
-			}
-			fo.ParamsSig = strings.Join(params, ", ")
+			sig := ComputeFinderSignature(repo.Entity, f, "")
+			fo.ReturnType = sig.ReturnType
+			fo.ParamsSig = sig.ParamsSig
+			hasTime = hasTime || sig.HasTime
 
 			finders = append(finders, fo)
 		}
