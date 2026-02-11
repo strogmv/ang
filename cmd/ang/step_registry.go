@@ -2,12 +2,10 @@ package main
 
 import (
 	"github.com/strogmv/ang/compiler/emitter"
-	goemitter "github.com/strogmv/ang/compiler/emitter/go"
-	pyemitter "github.com/strogmv/ang/compiler/emitter/python"
-	sharedsteps "github.com/strogmv/ang/compiler/emitter/shared"
 	"github.com/strogmv/ang/compiler/generator"
 	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang/compiler/targets"
 )
 
 type buildStepRegistryInput struct {
@@ -27,35 +25,20 @@ type buildStepRegistryInput struct {
 
 func buildStepRegistry(in buildStepRegistryInput) *generator.StepRegistry {
 	registry := generator.NewStepRegistry()
-
-	sharedsteps.Register(registry, sharedsteps.RegisterInput{
-		Em:               in.em,
+	ctx := targets.BuildContext{
+		Emitter:          in.em,
 		IRSchema:         in.irSchema,
-		ProjectDef:       in.projectDef,
-		PythonSDKEnabled: in.pythonSDKEnabled,
-	})
-
-	pyemitter.Register(registry, pyemitter.RegisterInput{
-		Em:          in.em,
-		IRSchema:    in.irSchema,
-		CfgDef:      in.cfgDef,
-		AuthDef:     in.authDef,
-		RBACDef:     in.rbacDef,
-		InfraValues: in.infraValues,
-	})
-
-	goemitter.Register(registry, goemitter.RegisterInput{
-		Em:               in.em,
-		IRSchema:         in.irSchema,
-		Ctx:              in.ctx,
+		MainContext:      in.ctx,
 		Scenarios:        in.scenarios,
-		CfgDef:           in.cfgDef,
-		AuthDef:          in.authDef,
-		RBACDef:          in.rbacDef,
+		Config:           in.cfgDef,
+		Auth:             in.authDef,
+		RBAC:             in.rbacDef,
 		InfraValues:      in.infraValues,
+		Project:          in.projectDef,
+		PythonSDKEnabled: in.pythonSDKEnabled,
 		IsMicroservice:   in.isMicroservice,
 		TestStubsEnabled: in.targetOutput.TestStubs,
-		ResolveMissingTestStubs: func() ([]normalizer.Endpoint, error) {
+		ResolveMissingTests: func() ([]normalizer.Endpoint, error) {
 			endpoints := coverageEndpointsFromIR(in.irSchema.Endpoints)
 			report, err := checkTestCoverage(endpoints, "tests")
 			if err != nil {
@@ -69,10 +52,13 @@ func buildStepRegistry(in buildStepRegistryInput) *generator.StepRegistry {
 		CopyFrontendAdmin: func() error {
 			return copyFrontendAdmin(in.targetOutput.FrontendAdminDir, in.targetOutput.FrontendAdminAppDir)
 		},
-		WriteFrontendEnvExample: func() error {
+		WriteFrontendEnv: func() error {
 			return writeEnvExample(in.targetOutput)
 		},
-	})
+	}
+	for _, plugin := range targets.BuiltinPlugins() {
+		plugin.RegisterSteps(registry, ctx)
+	}
 
 	return registry
 }
