@@ -538,12 +538,30 @@ func (n *Normalizer) ExtractProject(val cue.Value) (*ProjectDef, error) {
 	}
 	name := strings.TrimSpace(getString(projectVal, "name"))
 	version := strings.TrimSpace(getString(projectVal, "version"))
-	if name == "" && version == "" {
+	var plugins []string
+	if pVal := projectVal.LookupPath(cue.ParsePath("plugins")); pVal.Exists() {
+		it, err := pVal.List()
+		if err == nil {
+			for it.Next() {
+				s, err := it.Value().String()
+				if err != nil {
+					continue
+				}
+				s = strings.TrimSpace(s)
+				if s == "" {
+					continue
+				}
+				plugins = append(plugins, s)
+			}
+		}
+	}
+	if name == "" && version == "" && len(plugins) == 0 {
 		return nil, nil
 	}
 	return &ProjectDef{
 		Name:    name,
 		Version: version,
+		Plugins: plugins,
 	}, nil
 }
 

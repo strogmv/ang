@@ -262,6 +262,7 @@ func runBuild(args []string) {
 			Name      string
 			Mode      string
 			Backend   string
+			Plugins   string
 			SelfCheck string
 			Details   []runtimePackageDir
 		}
@@ -348,7 +349,7 @@ func runBuild(args []string) {
 				ctx.NotificationMuting = true
 			}
 
-			registry := buildStepRegistry(buildStepRegistryInput{
+			registry, pluginNames, err := buildStepRegistry(buildStepRegistryInput{
 				em:               em,
 				irSchema:         irSchema,
 				ctx:              ctx,
@@ -362,6 +363,10 @@ func runBuild(args []string) {
 				pythonSDKEnabled: pythonSDKEnabled,
 				isMicroservice:   isMicroservice,
 			})
+			if err != nil {
+				fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "resolve target plugins", err)
+				return
+			}
 			if err := registry.Execute(td, caps, func(format string, args ...interface{}) {
 				logText(format, args...)
 			}, logStepEvent); err != nil {
@@ -400,6 +405,7 @@ func runBuild(args []string) {
 				Name:      td.Name,
 				Mode:      effectiveMode,
 				Backend:   filepath.ToSlash(filepath.Clean(backendDir)),
+				Plugins:   joinPluginNames(pluginNames),
 				SelfCheck: selfCheckStatus,
 				Details:   selfCheckDetails,
 			})
@@ -453,7 +459,7 @@ func runBuild(args []string) {
 		logText("\nBuild SUCCESSFUL.")
 		logText("Build Report:")
 		for _, s := range summaries {
-			logText("  - target=%s mode=%s backend=%s self-check=%s", s.Name, s.Mode, s.Backend, s.SelfCheck)
+			logText("  - target=%s mode=%s backend=%s plugins=%s self-check=%s", s.Name, s.Mode, s.Backend, s.Plugins, s.SelfCheck)
 			for _, d := range s.Details {
 				logText("      %s -> %s", d.Package, d.Dir)
 			}

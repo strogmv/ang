@@ -346,6 +346,7 @@ type SchedulePayloadField struct {
 type ProjectDef struct {
 	Name    string
 	Version string
+	Plugins []string
 }
 
 // ScenarioDef represents a behavioral E2E scenario.

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"strings"
+
 	"github.com/strogmv/ang/compiler/emitter"
 	"github.com/strogmv/ang/compiler/generator"
 	"github.com/strogmv/ang/compiler/ir"
@@ -23,7 +25,7 @@ type buildStepRegistryInput struct {
 	isMicroservice   bool
 }
 
-func buildStepRegistry(in buildStepRegistryInput) *generator.StepRegistry {
+func buildStepRegistry(in buildStepRegistryInput) (*generator.StepRegistry, []string, error) {
 	registry := generator.NewStepRegistry()
 	ctx := targets.BuildContext{
 		Emitter:          in.em,
@@ -56,11 +58,23 @@ func buildStepRegistry(in buildStepRegistryInput) *generator.StepRegistry {
 			return writeEnvExample(in.targetOutput)
 		},
 	}
-	for _, plugin := range targets.BuiltinPlugins() {
+	plugins, err := targets.ResolvePlugins(in.projectDef)
+	if err != nil {
+		return nil, nil, err
+	}
+	names := make([]string, 0, len(plugins))
+	for _, plugin := range plugins {
+		names = append(names, plugin.Name())
 		plugin.RegisterSteps(registry, ctx)
 	}
+	return registry, names, nil
+}
 
-	return registry
+func joinPluginNames(names []string) string {
+	if len(names) == 0 {
+		return "(none)"
+	}
+	return strings.Join(names, ",")
 }
 
 func coverageEndpointsFromIR(endpoints []ir.Endpoint) []normalizer.Endpoint {
