@@ -1,0 +1,58 @@
+{{ define "main_server_imports" }}
+import (
+	"context"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+	{{ if .HasNats }}"encoding/json"{{ end }}
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	{{ if .HasSQL }}"github.com/jackc/pgx/v5/pgxpool"{{ end }}
+	{{ if .HasMongo }}
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	{{ end }}
+
+	{{ if or .HasCache (or (eq .AuthRefreshStore "redis") (eq .AuthRefreshStore "hybrid")) }}"{{.GoModule}}/internal/adapter/cache/redis"{{ end }}
+	{{ if HasRepoEntitiesIR .ServicesIR .EntitiesIR }}"{{.GoModule}}/internal/adapter/repository/postgres"{{ end }}
+	{{ if HasMongoRepoEntitiesIR .EntitiesIR }}mongorepo "{{.GoModule}}/internal/adapter/repository/mongo"{{ end }}
+	{{ if .HasNats }}
+	"{{.GoModule}}/internal/adapter/events/nats"
+	"{{.GoModule}}/internal/domain"
+	{{ end }}
+	{{ if .HasS3 }}
+	"{{.GoModule}}/internal/adapter/storage/s3"
+	{{ end }}
+	"{{.GoModule}}/internal/config"
+	"{{.GoModule}}/internal/pkg/logger"
+	"{{.GoModule}}/internal/pkg/tracing"
+	{{ if .HasScheduler }}
+	"{{.GoModule}}/internal/scheduler"
+	{{ end }}
+	"{{.GoModule}}/internal/port"
+	"{{.GoModule}}/internal/service"
+	transport "{{.GoModule}}/internal/transport/http"
+	{{- if and .AuthService (eq .AuthRefreshStore "memory") }}
+	authstore "{{.GoModule}}/internal/adapter/auth/memory"
+	{{- end }}
+	{{- if and .AuthService (or (eq .AuthRefreshStore "redis") (eq .AuthRefreshStore "hybrid")) }}
+	authredis "{{.GoModule}}/internal/adapter/auth/redis"
+	{{- end }}
+	{{- if and .AuthService (or (eq .AuthRefreshStore "postgres") (eq .AuthRefreshStore "hybrid")) }}
+	authpg "{{.GoModule}}/internal/adapter/auth/postgres"
+	{{- end }}
+	{{- if and .AuthService (eq .AuthRefreshStore "hybrid") }}
+	authhybrid "{{.GoModule}}/internal/adapter/auth/hybrid"
+	{{- end }}
+	{{- if .NotificationMuting }}
+	"{{.GoModule}}/internal/adapter"
+	{{- end }}
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+)
+{{ end }}

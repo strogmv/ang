@@ -1,0 +1,46 @@
+{{ define "main_server_repositories" }}
+	{{- $needsRefreshStore := ne .AuthService "" }}
+	{{- if $needsRefreshStore }}
+	var refreshStore port.RefreshTokenStore
+	{{- if eq .AuthRefreshStore "memory" }}
+	refreshStore = authstore.NewMemoryStore()
+	{{- else if eq .AuthRefreshStore "redis" }}
+	refreshStore = authredis.NewStore(redisClient)
+	{{- else if eq .AuthRefreshStore "postgres" }}
+	refreshStore = authpg.NewStore(pgPool)
+	{{- else if eq .AuthRefreshStore "hybrid" }}
+	refreshStore = authhybrid.NewStore(authpg.NewStore(pgPool), authredis.NewStore(redisClient))
+	{{- else }}
+	refreshStore = authstore.NewMemoryStore()
+	{{- end }}
+	{{- end }}
+
+	{{- range AllRepoEntitiesIR .EntitiesIR }}
+	{{- if and $.NotificationMuting (eq . "Notification") }}
+	var repoNotification port.NotificationRepository
+	{{- if eq (EntityStorageByNameIR $.EntitiesIR .) "mongo" }}
+	repoNotification = mongorepo.NewNotificationRepository(mongoClient, cfg.MongoDatabase)
+	{{- else }}
+	repoNotification = postgres.NewNotificationRepository(pgPool)
+	{{- end }}
+	{{- else }}
+	{{- if eq (EntityStorageByNameIR $.EntitiesIR .) "mongo" }}
+	repo{{ ExportName . }} := mongorepo.New{{ ExportName . }}Repository(mongoClient, cfg.MongoDatabase)
+	{{- else }}
+	repo{{ ExportName . }} := postgres.New{{ ExportName . }}Repository(pgPool)
+	{{- end }}
+	{{- end }}
+	{{- end }}
+
+	{{- if .NotificationMuting }}
+	repoNotification = adapter.NewMutingNotificationRepo(repoNotification, repoUser)
+	{{- end }}
+
+	{{- if and .HasSQL (AnyServiceHasIdempotencyOrOutboxIR .ServicesIR) }}
+	repoSystem := postgres.NewSystemRepository(pgPool)
+	{{- end }}
+
+	{{- if HasTxServicesIR .ServicesIR }}
+	txManager := postgres.NewTxManager(pgPool)
+	{{- end }}
+{{ end }}

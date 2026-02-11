@@ -1,0 +1,26 @@
+{{ define "main_server_websockets" }}
+	{{- if .HasNats }}
+	if natsClient != nil {
+		{{- range $svcName, $events := .WSEventMap }}
+		{{- range $evtName, $evtFields := $events }}
+		{{- $roomField := RoomFieldForEventIR $.EndpointsIR $.ServicesIR $svcName $evtName }}
+		{{- $hasRoomField := HasEventFieldIR $.EventPayloads $evtName $roomField }}
+		if _, err := natsClient.Subscribe("{{ $evtName }}", func(data []byte) error {
+			var event domain.{{ ExportName $evtName }}
+			if err := json.Unmarshal(data, &event); err != nil {
+				return err
+			}
+			{{- if and $roomField $hasRoomField }}
+			transport.Broadcast{{ $evtName }}(event.{{ $roomField | ExportName }}, event)
+			{{- else }}
+			transport.Broadcast{{ $evtName }}("", event)
+			{{- end }}
+			return nil
+		}); err != nil {
+			log.Error("Failed to subscribe to {{ $evtName }}", "error", err)
+		}
+		{{- end }}
+		{{- end }}
+	}
+	{{- end }}
+{{ end }}

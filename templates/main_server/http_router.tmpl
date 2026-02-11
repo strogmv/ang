@@ -1,0 +1,18 @@
+{{ define "main_server_http_router" }}
+	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
+	r.Use(otelhttp.NewMiddleware("ang-service"))
+	r.Use(transport.MetricsMiddleware)
+	r.Use(transport.LoggingMiddleware)
+	r.Use(middleware.Recoverer)
+
+	corsMiddleware := cors.New(cors.Options{
+		AllowedOrigins:   []string{"*"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"*"},
+		ExposedHeaders:   []string{"Link", "X-Total-Count"},
+		AllowCredentials: false,
+		MaxAge:           300,
+	})
+	r.Use(corsMiddleware.Handler)
+{{ end }}

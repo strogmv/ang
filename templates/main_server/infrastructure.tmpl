@@ -1,0 +1,64 @@
+{{ define "main_server_infrastructure" }}
+	{{ if .HasSQL }}
+	pgPool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	if err != nil {
+		log.Error("Postgres init failed", "error", err)
+	} else {
+		log.Info("Postgres connected")
+		defer pgPool.Close()
+	}
+	{{ end }}
+
+	{{ if .HasMongo }}
+	mongoClient, err := mongo.Connect(ctx, options.Client().ApplyURI(cfg.MongoURL))
+	if err != nil {
+		log.Error("Mongo init failed", "error", err)
+	} else {
+		log.Info("Mongo connected")
+		defer func() {
+			if err := mongoClient.Disconnect(ctx); err != nil {
+				log.Error("Mongo disconnect failed", "error", err)
+			}
+		}()
+	}
+	{{ end }}
+
+	{{ if or .HasCache (or (eq .AuthRefreshStore "redis") (eq .AuthRefreshStore "hybrid")) }}
+	redisClient := redis.NewClient(cfg.RedisAddr)
+	log.Info("Redis initialized", "addr", cfg.RedisAddr)
+	transport.SetRedisClient(redisClient)
+	_ = redisClient
+	{{ end }}
+
+	{{ if .HasNats }}
+	natsClient, err := nats.NewClient(cfg.NatsURL)
+	if err != nil {
+		log.Error("NATS init failed", "error", err)
+	} else {
+		log.Info("NATS connected")
+		defer natsClient.Close()
+	}
+	{{ end }}
+
+	{{ if .HasS3 }}
+	s3Client, err := s3.New(ctx, cfg.AWSRegion, cfg.S3Bucket, cfg.S3Endpoint)
+	if err != nil {
+		log.Error("S3 init failed", "error", err)
+	} else {
+		log.Info("S3 initialized", "bucket", cfg.S3Bucket)
+	}
+	{{ end }}
+
+	{{ if not .HasSQL }}var pgPool *pgxpool.Pool{{ end }}
+	{{ if not .HasNats }}var natsClient *nats.Client{{ end }}
+	{{ if not (or .HasCache (or (eq .AuthRefreshStore "redis") (eq .AuthRefreshStore "hybrid"))) }}var redisClient *redis.Client{{ end }}
+
+	{{ if .HasScheduler }}
+	var publisher port.Publisher
+	if natsClient != nil {
+		publisher = natsClient
+	}
+	sched := scheduler.New(publisher, scheduler.DefaultSchedules)
+	sched.Start(ctx)
+	{{ end }}
+{{ end }}

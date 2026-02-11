@@ -14,16 +14,179 @@ import (
 	"github.com/strogmv/ang/compiler/normalizer"
 )
 
+type MainServerHeaderContext struct {
+	ServicesIR   []ir.Service
+	ANGVersion   string
+	InputHash    string
+	CompilerHash string
+}
+
+type MainServerImportsContext struct {
+	HasNats            bool
+	HasSQL             bool
+	HasMongo           bool
+	HasCache           bool
+	AuthRefreshStore   string
+	GoModule           string
+	HasS3              bool
+	HasScheduler       bool
+	AuthService        string
+	NotificationMuting bool
+	ServicesIR         []ir.Service
+	EntitiesIR         []ir.Entity
+}
+
+type MainServerInfrastructureContext struct {
+	HasSQL           bool
+	HasMongo         bool
+	HasCache         bool
+	AuthRefreshStore string
+	HasNats          bool
+	HasS3            bool
+	HasScheduler     bool
+}
+
+type MainServerRepositoriesContext struct {
+	AuthService        string
+	AuthRefreshStore   string
+	NotificationMuting bool
+	HasSQL             bool
+	ServicesIR         []ir.Service
+	EntitiesIR         []ir.Entity
+}
+
+type MainServerServicesContext struct {
+	ServicesIR         []ir.Service
+	EntitiesIR         []ir.Entity
+	AuthService        string
+	AuthRefreshStore   string
+	HasSQL             bool
+	NotificationMuting bool
+	WebSocketServices  map[string]bool
+}
+
+type MainServerHTTPRouterContext struct{}
+
+type MainServerWebSocketsContext struct {
+	HasNats       bool
+	WSEventMap    map[string]map[string]bool
+	EndpointsIR   []ir.Endpoint
+	ServicesIR    []ir.Service
+	EventPayloads map[string]ir.Entity
+}
+
+type MainServerGracefulShutdownContext struct {
+	WebSocketServices map[string]bool
+}
+
+type MainServerTemplateData struct {
+	Header           MainServerHeaderContext
+	Imports          MainServerImportsContext
+	Infrastructure   MainServerInfrastructureContext
+	Repositories     MainServerRepositoriesContext
+	Services         MainServerServicesContext
+	HTTPRouter       MainServerHTTPRouterContext
+	WebSockets       MainServerWebSocketsContext
+	GracefulShutdown MainServerGracefulShutdownContext
+}
+
+func buildMainServerTemplateData(ctx MainContext) MainServerTemplateData {
+	return MainServerTemplateData{
+		Header: MainServerHeaderContext{
+			ServicesIR:   ctx.ServicesIR,
+			ANGVersion:   ctx.ANGVersion,
+			InputHash:    ctx.InputHash,
+			CompilerHash: ctx.CompilerHash,
+		},
+		Imports: MainServerImportsContext{
+			HasNats:            ctx.HasNats,
+			HasSQL:             ctx.HasSQL,
+			HasMongo:           ctx.HasMongo,
+			HasCache:           ctx.HasCache,
+			AuthRefreshStore:   ctx.AuthRefreshStore,
+			GoModule:           ctx.GoModule,
+			HasS3:              ctx.HasS3,
+			HasScheduler:       ctx.HasScheduler,
+			AuthService:        ctx.AuthService,
+			NotificationMuting: ctx.NotificationMuting,
+			ServicesIR:         ctx.ServicesIR,
+			EntitiesIR:         ctx.EntitiesIR,
+		},
+		Infrastructure: MainServerInfrastructureContext{
+			HasSQL:           ctx.HasSQL,
+			HasMongo:         ctx.HasMongo,
+			HasCache:         ctx.HasCache,
+			AuthRefreshStore: ctx.AuthRefreshStore,
+			HasNats:          ctx.HasNats,
+			HasS3:            ctx.HasS3,
+			HasScheduler:     ctx.HasScheduler,
+		},
+		Repositories: MainServerRepositoriesContext{
+			AuthService:        ctx.AuthService,
+			AuthRefreshStore:   ctx.AuthRefreshStore,
+			NotificationMuting: ctx.NotificationMuting,
+			HasSQL:             ctx.HasSQL,
+			ServicesIR:         ctx.ServicesIR,
+			EntitiesIR:         ctx.EntitiesIR,
+		},
+		Services: MainServerServicesContext{
+			ServicesIR:         ctx.ServicesIR,
+			EntitiesIR:         ctx.EntitiesIR,
+			AuthService:        ctx.AuthService,
+			AuthRefreshStore:   ctx.AuthRefreshStore,
+			HasSQL:             ctx.HasSQL,
+			NotificationMuting: ctx.NotificationMuting,
+			WebSocketServices:  ctx.WebSocketServices,
+		},
+		HTTPRouter: MainServerHTTPRouterContext{},
+		WebSockets: MainServerWebSocketsContext{
+			HasNats:       ctx.HasNats,
+			WSEventMap:    ctx.WSEventMap,
+			EndpointsIR:   ctx.EndpointsIR,
+			ServicesIR:    ctx.ServicesIR,
+			EventPayloads: ctx.EventPayloadsIR,
+		},
+		GracefulShutdown: MainServerGracefulShutdownContext{
+			WebSocketServices: ctx.WebSocketServices,
+		},
+	}
+}
+
+func (e *Emitter) parseMainServerTemplate() (*template.Template, error) {
+	paths := []string{
+		"templates/main_server/root.tmpl",
+		"templates/main_server/imports.tmpl",
+		"templates/main_server/infrastructure.tmpl",
+		"templates/main_server/repositories.tmpl",
+		"templates/main_server/services.tmpl",
+		"templates/main_server/http_router.tmpl",
+		"templates/main_server/websockets.tmpl",
+		"templates/main_server/graceful_shutdown.tmpl",
+	}
+	t := template.New("main_server").Funcs(e.getAppFuncMap())
+	for _, p := range paths {
+		content, err := ReadTemplateByPath(p)
+		if err != nil {
+			return nil, fmt.Errorf("read template %s: %w", p, err)
+		}
+		if _, err := t.Parse(string(content)); err != nil {
+			return nil, fmt.Errorf("parse template %s: %w", p, err)
+		}
+	}
+	return t, nil
+}
+
 // EmitMicroservices generates separate binaries for each service.
 func (e *Emitter) EmitMicroservices(services []ir.Service, wsServices map[string]bool, auth *normalizer.AuthDef) error {
 	for _, svc := range services {
 		svcNorm := IRServiceToNormalizer(svc)
 		ctx := MainContext{
-			Services: []normalizer.Service{svcNorm},
-			HasCache: svc.RequiresRedis,
-			HasSQL:   svc.RequiresSQL,
-			HasMongo: svc.RequiresMongo,
-			HasNats:  svc.RequiresNats,
+			ServicesIR: []ir.Service{svc},
+			Services:   []normalizer.Service{svcNorm},
+			HasCache:   svc.RequiresRedis,
+			HasSQL:     svc.RequiresSQL,
+			HasMongo:   svc.RequiresMongo,
+			HasNats:    svc.RequiresNats,
 			WebSocketServices: map[string]bool{
 				svc.Name: wsServices[svc.Name],
 			},
@@ -54,6 +217,252 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 	appFuncs := e.getSharedFuncMap()
 
 	// Add app-specific functions
+	appFuncs["HasRepoEntitiesIR"] = func(services []ir.Service, entities []ir.Entity) bool {
+		dtoEntities := make(map[string]bool, len(entities))
+		mongoEntities := make(map[string]bool, len(entities))
+		for _, ent := range entities {
+			if dto, ok := ent.Metadata["dto"].(bool); ok && dto {
+				dtoEntities[ent.Name] = true
+			}
+			if storage, ok := ent.Metadata["storage"].(string); ok && strings.EqualFold(storage, "mongo") {
+				mongoEntities[ent.Name] = true
+			}
+		}
+		for _, svc := range services {
+			unique := make(map[string]bool)
+			var count int
+			for _, m := range svc.Methods {
+				for _, src := range m.Sources {
+					if src.Entity != "" && !unique[src.Entity] && !dtoEntities[src.Entity] && !mongoEntities[src.Entity] {
+						unique[src.Entity] = true
+						count++
+					}
+				}
+			}
+			if count > 0 {
+				return true
+			}
+		}
+		return false
+	}
+	appFuncs["EntityStorageByNameIR"] = func(entities []ir.Entity, name string) string {
+		for _, ent := range entities {
+			if ent.Name != name {
+				continue
+			}
+			if ent.Metadata != nil {
+				if v, ok := ent.Metadata["storage"].(string); ok && v != "" {
+					return v
+				}
+			}
+			return "sql"
+		}
+		return "sql"
+	}
+	appFuncs["HasMongoRepoEntitiesIR"] = func(entities []ir.Entity) bool {
+		for _, ent := range entities {
+			if v, ok := ent.Metadata["storage"].(string); ok && strings.EqualFold(v, "mongo") {
+				return true
+			}
+		}
+		return false
+	}
+	appFuncs["AllRepoEntitiesIR"] = func(entities []ir.Entity) []string {
+		var res []string
+		for _, ent := range entities {
+			if isDTO, ok := ent.Metadata["dto"].(bool); ok && isDTO {
+				continue
+			}
+			res = append(res, ent.Name)
+		}
+		sort.Strings(res)
+		return res
+	}
+	appFuncs["HasTxServicesIR"] = func(services []ir.Service) bool {
+		var hasTx func([]ir.FlowStep) bool
+		hasTx = func(steps []ir.FlowStep) bool {
+			for _, step := range steps {
+				if step.Action == "tx.Block" {
+					return true
+				}
+				if hasTx(step.Steps) || hasTx(step.Then) || hasTx(step.Else) {
+					return true
+				}
+			}
+			return false
+		}
+		for _, svc := range services {
+			for _, m := range svc.Methods {
+				if (m.Impl != nil && m.Impl.RequiresTx) || hasTx(m.Flow) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	appFuncs["AnyServiceHasIdempotencyOrOutboxIR"] = func(services []ir.Service) bool {
+		for _, svc := range services {
+			for _, m := range svc.Methods {
+				if m.Idempotent || m.Outbox {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	appFuncs["getServiceDepsIR"] = func(s ir.Service) []string {
+		if len(s.Uses) == 0 {
+			return nil
+		}
+		deps := append([]string{}, s.Uses...)
+		sort.Strings(deps)
+		return deps
+	}
+	appFuncs["ServiceNeedsTxIR"] = func(s ir.Service) bool {
+		var hasTx func([]ir.FlowStep) bool
+		hasTx = func(steps []ir.FlowStep) bool {
+			for _, step := range steps {
+				if step.Action == "tx.Block" {
+					return true
+				}
+				if hasTx(step.Steps) || hasTx(step.Then) || hasTx(step.Else) {
+					return true
+				}
+			}
+			return false
+		}
+		for _, m := range s.Methods {
+			if (m.Impl != nil && m.Impl.RequiresTx) || hasTx(m.Flow) {
+				return true
+			}
+		}
+		return false
+	}
+	appFuncs["ServiceHasPublishesIR"] = func(s ir.Service) bool {
+		var hasPublish func([]ir.FlowStep) bool
+		hasPublish = func(steps []ir.FlowStep) bool {
+			for _, step := range steps {
+				if step.Action == "event.Publish" {
+					return true
+				}
+				if hasPublish(step.Steps) || hasPublish(step.Then) || hasPublish(step.Else) {
+					return true
+				}
+			}
+			return false
+		}
+		for _, m := range s.Methods {
+			if len(m.Publishes) > 0 || hasPublish(m.Flow) {
+				return true
+			}
+		}
+		return false
+	}
+	appFuncs["ServiceHasIdempotencyIR"] = func(s ir.Service) bool {
+		for _, m := range s.Methods {
+			if m.Idempotent {
+				return true
+			}
+		}
+		return false
+	}
+	appFuncs["ServiceHasOutboxIR"] = func(s ir.Service) bool {
+		for _, m := range s.Methods {
+			if m.Outbox {
+				return true
+			}
+		}
+		return false
+	}
+	appFuncs["getRepoEntitiesIR"] = func(s ir.Service, entities []ir.Entity) []string {
+		dtoEntities := make(map[string]bool, len(entities))
+		for _, ent := range entities {
+			if dto, ok := ent.Metadata["dto"].(bool); ok && dto {
+				dtoEntities[ent.Name] = true
+			}
+		}
+		seen := make(map[string]bool)
+		var out []string
+		for _, m := range s.Methods {
+			for _, src := range m.Sources {
+				if src.Entity == "" || seen[src.Entity] || dtoEntities[src.Entity] {
+					continue
+				}
+				seen[src.Entity] = true
+				out = append(out, src.Entity)
+			}
+		}
+		sort.Strings(out)
+		return out
+	}
+	appFuncs["HasEventFieldIR"] = func(evtPayloads map[string]ir.Entity, evtName, fieldName string) bool {
+		if fieldName == "" {
+			return false
+		}
+		if entity, ok := evtPayloads[evtName]; ok {
+			for _, f := range entity.Fields {
+				if strings.EqualFold(f.Name, fieldName) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	appFuncs["RoomFieldForEventIR"] = func(endpoints []ir.Endpoint, services []ir.Service, serviceName, eventName string) string {
+		var methods map[string]ir.Method
+		for _, svc := range services {
+			if svc.Name != serviceName {
+				continue
+			}
+			methods = make(map[string]ir.Method)
+			for _, m := range svc.Methods {
+				methods[m.Name] = m
+			}
+			break
+		}
+		firstPathParam := func(path string) string {
+			start := strings.Index(path, "{")
+			if start == -1 {
+				return ""
+			}
+			end := strings.Index(path[start:], "}")
+			if end == -1 {
+				return ""
+			}
+			return path[start+1 : start+end]
+		}
+		for _, ep := range endpoints {
+			if strings.ToUpper(ep.Method) != "WS" || ep.Service != serviceName {
+				continue
+			}
+			found := false
+			for _, msg := range ep.Messages {
+				if msg == eventName {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
+			roomParam := ep.RoomParam
+			if roomParam == "" {
+				roomParam = firstPathParam(ep.Path)
+			}
+			if roomParam != "" {
+				return ExportName(roomParam)
+			}
+			if m, ok := methods[ep.RPC]; ok && m.Input != nil {
+				for _, f := range m.Input.Fields {
+					if strings.EqualFold(f.Name, "userId") {
+						return "UserID"
+					}
+				}
+			}
+		}
+		return ""
+	}
+
 	appFuncs["HasService"] = func(services []normalizer.Service, name string) bool {
 		for _, svc := range services {
 			if svc.Name == name {
@@ -253,15 +662,9 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 
 // EmitServiceMain generates main.go for a specific service.
 func (e *Emitter) EmitServiceMain(svcName string, ctx MainContext) error {
-	tmplPath := "templates/main_server.tmpl"
-	tmplContent, err := ReadTemplateByPath(tmplPath)
+	t, err := e.parseMainServerTemplate()
 	if err != nil {
-		return fmt.Errorf("read template: %w", err)
-	}
-
-	t, err := template.New("main_server").Funcs(e.getAppFuncMap()).Parse(string(tmplContent))
-	if err != nil {
-		return fmt.Errorf("parse template: %w", err)
+		return err
 	}
 
 	targetDir := filepath.Join(e.OutputDir, "cmd", "services", strings.ToLower(svcName))
@@ -270,7 +673,7 @@ func (e *Emitter) EmitServiceMain(svcName string, ctx MainContext) error {
 	}
 
 	var buf bytes.Buffer
-	if err := t.Execute(&buf, ctx); err != nil {
+	if err := t.ExecuteTemplate(&buf, "main_server_root", buildMainServerTemplateData(ctx)); err != nil {
 		return err
 	}
 	formatted, _ := format.Source(buf.Bytes())
@@ -282,15 +685,9 @@ func (e *Emitter) EmitServiceMain(svcName string, ctx MainContext) error {
 
 // EmitMain generates cmd/server/main.go (monolith).
 func (e *Emitter) EmitMain(ctx MainContext) error {
-	tmplPath := "templates/main_server.tmpl"
-	tmplContent, err := ReadTemplateByPath(tmplPath)
+	t, err := e.parseMainServerTemplate()
 	if err != nil {
-		return fmt.Errorf("read template: %w", err)
-	}
-
-	t, err := template.New("main_server").Funcs(e.getAppFuncMap()).Parse(string(tmplContent))
-	if err != nil {
-		return fmt.Errorf("parse template: %w", err)
+		return err
 	}
 
 	targetDir := filepath.Join(e.OutputDir, "cmd", "server")
@@ -299,7 +696,7 @@ func (e *Emitter) EmitMain(ctx MainContext) error {
 	}
 
 	var buf bytes.Buffer
-	if err := t.Execute(&buf, ctx); err != nil {
+	if err := t.ExecuteTemplate(&buf, "main_server_root", buildMainServerTemplateData(ctx)); err != nil {
 		return err
 	}
 	formatted, _ := format.Source(buf.Bytes())
