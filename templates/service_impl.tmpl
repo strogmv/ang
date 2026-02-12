@@ -82,7 +82,7 @@ type {{ .Service.Name }}Impl struct {
 	{{- if .Service.RequiresS3 }}
 	storage port.FileStorage
 	{{- end }}
-	{{- if or (stringsEqualFold .Service.Name "Notifications") (stringsEqualFold .Service.Name "Notification") }}
+	{{- if ServiceHasNotificationDispatch .Service }}
 	dispatcher port.NotificationDispatcher
 	{{- end }}
 }
@@ -122,7 +122,7 @@ func New{{ .Service.Name }}Impl(
 	{{- if .Service.RequiresS3 }}
 	storage port.FileStorage,
 	{{- end }}
-	{{- if or (stringsEqualFold .Service.Name "Notifications") (stringsEqualFold .Service.Name "Notification") }}
+	{{- if ServiceHasNotificationDispatch .Service }}
 	dispatcher port.NotificationDispatcher,
 	{{- end }}
 ) *{{ .Service.Name }}Impl {
@@ -156,7 +156,7 @@ func New{{ .Service.Name }}Impl(
 		{{- if .Service.RequiresS3 }}
 		storage: storage,
 		{{- end }}
-		{{- if or (stringsEqualFold .Service.Name "Notifications") (stringsEqualFold .Service.Name "Notification") }}
+		{{- if ServiceHasNotificationDispatch .Service }}
 		dispatcher: dispatcher,
 		{{- end }}
 	}
@@ -278,6 +278,21 @@ func New{{ .Service.Name }}Impl(
 		}
 		return nil
 	})
+		{{- else if eq .Action "notification.Dispatch" }}
+	if s.dispatcher == nil {
+		{{- if $inTx }}
+		return errors.New(http.StatusInternalServerError, "Internal Error", "notification dispatcher not configured")
+		{{- else }}
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "notification dispatcher not configured")
+		{{- end }}
+	}
+	if err = s.dispatcher.Dispatch({{ $ctxVar }}, {{ .Args.message }}); err != nil {
+		{{- if $inTx }}
+		return errors.WithIntent(err, "{{ .File }}:{{ .Line }} ({{ .CUEPath }})")
+		{{- else }}
+		return resp, errors.WithIntent(err, "{{ .File }}:{{ .Line }} ({{ .CUEPath }})")
+		{{- end }}
+	}
 		{{- else if eq .Action "fsm.Transition" }}
 	if err = {{ .Args.entity }}.TransitionTo("{{ .Args.to }}"); err != nil {
 		{{- if $inTx }}
@@ -388,6 +403,166 @@ func New{{ .Service.Name }}Impl(
 		{{- else if eq .Action "flow.Block" }}
 	{
 		{{- template "flow_steps" (dict "Steps" (getSteps .) "Method" $method "Service" $svc "Entities" $entities "InTx" $inTx "Logger" "l" "Scope" (CloneScope $scope))}}
+	}
+		{{- else if eq .Action "audit.Log" }}
+	if s.AuditLogRepo != nil {
+		_ = s.AuditLogRepo.Save({{ $ctxVar }}, &domain.AuditLog{
+			ID:        uuid.NewString(),
+			ActorID:   {{ .Args.actor }},
+			CompanyID: {{ .Args.company }},
+			Action:    "{{ .Args.event }}",
+			CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+		{{- else if eq .Action "auth.RequireRole" }}
+	{{- $authOutput := or .Args.output "currentUser" }}
+	{{ Assign $scope $authOutput }} s.UserRepo.FindByID({{ $ctxVar }}, {{ .Args.userID }})
+	if err != nil {
+		{{- if $inTx }}
+		return err
+		{{- else }}
+		return resp, err
+		{{- end }}
+	}
+	if {{ $authOutput }} == nil {
+		{{- if $inTx }}
+		return errors.New(http.StatusUnauthorized, "Unauthorized", "user not found")
+		{{- else }}
+		return resp, errors.New(http.StatusUnauthorized, "Unauthorized", "user not found")
+		{{- end }}
+	}
+	{
+		_role := strings.ToLower({{ $authOutput }}.Role)
+		_allowed := false
+		for _, _r := range []string{ {{ .Args.roles }} } {
+			if _r == _role { _allowed = true; break }
+		}
+		if !_allowed {
+			{{- if $inTx }}
+			return errors.New(http.StatusForbidden, "Forbidden", "insufficient role")
+			{{- else }}
+			return resp, errors.New(http.StatusForbidden, "Forbidden", "insufficient role")
+			{{- end }}
+		}
+		{{- if not (eq .Args.adminBypass false) }}
+		if {{ $authOutput }}.CompanyID != {{ .Args.companyID }} && _role != "admin" {
+			{{- if $inTx }}
+			return errors.New(http.StatusForbidden, "Forbidden", "company mismatch")
+			{{- else }}
+			return resp, errors.New(http.StatusForbidden, "Forbidden", "company mismatch")
+			{{- end }}
+		}
+		{{- end }}
+	}
+		{{- else if eq .Action "entity.PatchNonZero" }}
+	{{- range splitFields .Args.fields }}
+	if {{ $.Args.from }}.{{ . }} != "" {
+		{{ $.Args.target }}.{{ . }} = {{ $.Args.from }}.{{ . }}
+	}
+	{{- end }}
+	{{ .Args.target }}.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+		{{- else if eq .Action "list.Paginate" }}
+	{
+		_pOff := {{ .Args.offset }}
+		if _pOff < 0 { _pOff = 0 }
+		_pLim := {{ .Args.limit }}
+		if _pLim <= 0 { _pLim = {{ or .Args.defaultLimit "50" }} }
+		{{- if .Args.total }}
+		{{ AssignSimple $scope .Args.total }} len({{ .Args.input }})
+		{{- end }}
+		if _pOff > len({{ .Args.input }}) { _pOff = len({{ .Args.input }}) }
+		_pEnd := _pOff + _pLim
+		if _pEnd > len({{ .Args.input }}) { _pEnd = len({{ .Args.input }}) }
+		{{ AssignSimple $scope .Args.output }} {{ .Args.input }}[_pOff:_pEnd]
+	}
+		{{- else if eq .Action "str.Normalize" }}
+	{{- $mode := "lower" }}{{ if .Args.mode }}{{ $mode = .Args.mode }}{{ end }}
+	{{- if eq $mode "lower" }}
+	{{ AssignSimple $scope .Args.output }} strings.ToLower(strings.TrimSpace({{ .Args.input }}))
+	{{- else if eq $mode "upper" }}
+	{{ AssignSimple $scope .Args.output }} strings.ToUpper(strings.TrimSpace({{ .Args.input }}))
+	{{- else }}
+	{{ AssignSimple $scope .Args.output }} strings.TrimSpace({{ .Args.input }})
+	{{- end }}
+		{{- else if eq .Action "enum.Validate" }}
+	{
+		_ev := {{ .Args.value }}
+		_evOk := false
+		for _, _evA := range []string{ {{- range $i, $v := splitFields .Args.allowed }}{{- if $i }}, {{ end }}"{{ $v }}"{{ end -}} } {
+			if _evA == _ev { _evOk = true; break }
+		}
+		if !_evOk {
+			{{- if $inTx }}
+			return errors.New(http.StatusBadRequest, "Validation Error", "{{ .Args.throw }}")
+			{{- else }}
+			return resp, errors.New(http.StatusBadRequest, "Validation Error", "{{ .Args.throw }}")
+			{{- end }}
+		}
+	}
+		{{- else if eq .Action "list.Sort" }}
+	{{- $desc := true }}{{ if eq (printf "%v" .Args.desc) "false" }}{{ $desc = false }}{{ end }}
+	sort.SliceStable({{ .Args.items }}, func(i, j int) bool {
+		{{- if $desc }}
+		return {{ .Args.items }}[i].{{ .Args.by }} > {{ .Args.items }}[j].{{ .Args.by }}
+		{{- else }}
+		return {{ .Args.items }}[i].{{ .Args.by }} < {{ .Args.items }}[j].{{ .Args.by }}
+		{{- end }}
+	})
+		{{- else if eq .Action "list.Filter" }}
+	{{- $as := or .Args.as "item" }}
+	{
+		_src := {{ .Args.from }}
+		_flt := _src[:0:0]
+		for _, {{ $as }} := range _src {
+			if {{ .Args.condition }} {
+				_flt = append(_flt, {{ $as }})
+			}
+		}
+		{{ AssignSimple $scope .Args.output }} _flt
+	}
+		{{- else if eq .Action "time.Parse" }}
+	{{- $fmt := or .Args.format "time.RFC3339" }}
+	{{ Assign $scope .Args.output }} time.Parse({{ $fmt }}, {{ .Args.value }})
+	if err != nil {
+		{{- if $inTx }}
+		return errors.New(http.StatusBadRequest, "Bad Request", "invalid time format")
+		{{- else }}
+		return resp, errors.New(http.StatusBadRequest, "Bad Request", "invalid time format")
+		{{- end }}
+	}
+		{{- else if eq .Action "time.CheckExpiry" }}
+	{
+		_tce, _tceErr := time.Parse(time.RFC3339, {{ .Args.value }})
+		if _tceErr != nil {
+			{{- if $inTx }}
+			return errors.New(http.StatusBadRequest, "Bad Request", "invalid time format")
+			{{- else }}
+			return resp, errors.New(http.StatusBadRequest, "Bad Request", "invalid time format")
+			{{- end }}
+		}
+		{{- if eq (printf "%v" .Args.mustBe) "past" }}
+		if !time.Now().UTC().After(_tce) {
+			{{- if $inTx }}
+			return errors.New(http.StatusBadRequest, "Bad Request", "{{ .Args.throw }}")
+			{{- else }}
+			return resp, errors.New(http.StatusBadRequest, "Bad Request", "{{ .Args.throw }}")
+			{{- end }}
+		}
+		{{- else }}
+		if time.Now().UTC().After(_tce) {
+			{{- if $inTx }}
+			return errors.New(http.StatusBadRequest, "Bad Request", "{{ .Args.throw }}")
+			{{- else }}
+			return resp, errors.New(http.StatusBadRequest, "Bad Request", "{{ .Args.throw }}")
+			{{- end }}
+		}
+		{{- end }}
+	}
+		{{- else if eq .Action "map.Build" }}
+	{{- $as := or .Args.as "_mbItem" }}
+	{{ AssignSimple $scope .Args.output }} make(map[string]string)
+	for _, {{ $as }} := range {{ .Args.from }} {
+		{{ .Args.output }}[{{ .Args.key }}] = {{ .Args.value }}
 	}
 		{{- end }}
 	{{- end }}

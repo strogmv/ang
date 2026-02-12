@@ -39,7 +39,7 @@
 		{{- if .RequiresS3 }}
 		s3Client,
 		{{- end }}
-		{{- if and $.HasNotificationsService (or (stringsEqualFold .Name "Notifications") (stringsEqualFold .Name "Notification")) }}
+		{{- if ServiceHasNotificationDispatchIR . }}
 		notificationDispatcher,
 		{{- end }}
 	)

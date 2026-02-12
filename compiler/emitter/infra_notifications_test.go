@@ -81,6 +81,7 @@ func TestEmitNotificationDispatcherRuntime(t *testing.T) {
 	for _, want := range []string{
 		`package notifications`,
 		`"example.com/project/internal/port"`,
+		`func NewDispatcher(cfg *config.Config) *Dispatcher`,
 		`case "email":`,
 		`case "in_app":`,
 		`case "nats":`,

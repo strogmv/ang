@@ -75,7 +75,7 @@ func renderServiceImplTypeDecl(svc normalizer.Service, entities []normalizer.Ent
 			Type:  mustParseExpr("port.FileStorage"),
 		})
 	}
-	if svc.Name == "Notifications" {
+	if serviceImplHasNotificationDispatch(svc) {
 		fields = append(fields, &ast.Field{
 			Names: []*ast.Ident{ast.NewIdent("dispatcher")},
 			Type:  mustParseExpr("port.NotificationDispatcher"),
@@ -180,7 +180,7 @@ func renderServiceImplConstructorDecl(svc normalizer.Service, entities []normali
 		})
 		elts = append(elts, &ast.KeyValueExpr{Key: ast.NewIdent("storage"), Value: ast.NewIdent("storage")})
 	}
-	if svc.Name == "Notifications" {
+	if serviceImplHasNotificationDispatch(svc) {
 		params = append(params, &ast.Field{
 			Names: []*ast.Ident{ast.NewIdent("dispatcher")},
 			Type:  mustParseExpr("port.NotificationDispatcher"),
@@ -238,6 +238,20 @@ func serviceImplRepoEntities(s normalizer.Service, entities []normalizer.Entity)
 				if src, ok := step.Args["source"].(string); ok && src != "" && !unique[src] && !dtoEntities[src] {
 					unique[src] = true
 					res = append(res, src)
+				}
+			}
+			// audit.Log requires AuditLog repository
+			if step.Action == "audit.Log" {
+				if !unique["AuditLog"] && !dtoEntities["AuditLog"] {
+					unique["AuditLog"] = true
+					res = append(res, "AuditLog")
+				}
+			}
+			// auth.RequireRole requires User repository
+			if step.Action == "auth.RequireRole" {
+				if !unique["User"] && !dtoEntities["User"] {
+					unique["User"] = true
+					res = append(res, "User")
 				}
 			}
 			if v, ok := step.Args["_do"].([]normalizer.FlowStep); ok {
@@ -327,6 +341,33 @@ func serviceImplHasPublishes(s normalizer.Service) bool {
 	}
 	for _, m := range s.Methods {
 		if len(m.Publishes) > 0 || scanSteps(m.Flow) {
+			return true
+		}
+	}
+	return false
+}
+
+func serviceImplHasNotificationDispatch(s normalizer.Service) bool {
+	var scanSteps func([]normalizer.FlowStep) bool
+	scanSteps = func(steps []normalizer.FlowStep) bool {
+		for _, step := range steps {
+			if step.Action == "notification.Dispatch" {
+				return true
+			}
+			if v, ok := step.Args["_do"].([]normalizer.FlowStep); ok && scanSteps(v) {
+				return true
+			}
+			if v, ok := step.Args["_then"].([]normalizer.FlowStep); ok && scanSteps(v) {
+				return true
+			}
+			if v, ok := step.Args["_else"].([]normalizer.FlowStep); ok && scanSteps(v) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, m := range s.Methods {
+		if scanSteps(m.Flow) {
 			return true
 		}
 	}

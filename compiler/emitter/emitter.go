@@ -252,12 +252,22 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 					if strings.HasPrefix(step.Action, "repo.") {
 						ent := step.Args["source"]
 						if entName, ok := ent.(string); ok && entName != "" && !unique[entName] && !dtoEntities[entName] {
-							// Check ownership (stored in entities metadata or deduced)
-							// Note: We don't have easy access to EntityOwners here, so we skip enforcement
-							// in injection for now and rely on LINTER which already has the check.
-							// This is safer to avoid breaking legitimate cross-service READS in monolith mode.
 							unique[entName] = true
 							res = append(res, entName)
+						}
+					}
+					// audit.Log requires AuditLog repository
+					if step.Action == "audit.Log" {
+						if !unique["AuditLog"] && !dtoEntities["AuditLog"] {
+							unique["AuditLog"] = true
+							res = append(res, "AuditLog")
+						}
+					}
+					// auth.RequireRole requires User repository
+					if step.Action == "auth.RequireRole" {
+						if !unique["User"] && !dtoEntities["User"] {
+							unique["User"] = true
+							res = append(res, "User")
 						}
 					}
 					if v, ok := step.Args["_do"].([]normalizer.FlowStep); ok {
@@ -282,6 +292,21 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 			}
 			sort.Strings(res)
 			return res
+		},
+		"splitFields": func(s interface{}) []string {
+			str, ok := s.(string)
+			if !ok || str == "" {
+				return nil
+			}
+			parts := strings.Split(str, ",")
+			result := make([]string, 0, len(parts))
+			for _, p := range parts {
+				p = strings.TrimSpace(p)
+				if p != "" {
+					result = append(result, p)
+				}
+			}
+			return result
 		},
 		"getServiceDeps": func(s normalizer.Service) []string {
 			if len(s.Uses) == 0 {
@@ -387,6 +412,38 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 				if len(m.Publishes) > 0 {
 					return true
 				}
+				if scanSteps(m.Flow) {
+					return true
+				}
+			}
+			return false
+		},
+		"ServiceHasNotificationDispatch": func(s normalizer.Service) bool {
+			var scanSteps func([]normalizer.FlowStep) bool
+			scanSteps = func(steps []normalizer.FlowStep) bool {
+				for _, step := range steps {
+					if step.Action == "notification.Dispatch" {
+						return true
+					}
+					if v, ok := step.Args["_do"].([]normalizer.FlowStep); ok {
+						if scanSteps(v) {
+							return true
+						}
+					}
+					if v, ok := step.Args["_then"].([]normalizer.FlowStep); ok {
+						if scanSteps(v) {
+							return true
+						}
+					}
+					if v, ok := step.Args["_else"].([]normalizer.FlowStep); ok {
+						if scanSteps(v) {
+							return true
+						}
+					}
+				}
+				return false
+			}
+			for _, m := range s.Methods {
 				if scanSteps(m.Flow) {
 					return true
 				}
@@ -676,6 +733,7 @@ type MainContext struct {
 	GoModule                string // Go module path for imports (e.g., "github.com/strog/dealingi-back")
 	NotificationMuting      bool   // Enable notification muting decorator
 	HasNotificationsService bool
+	HasNotificationDispatch bool
 }
 
 // AnalyzeContext checks which infrastructure dependencies are required.
@@ -697,9 +755,30 @@ func (e *Emitter) AnalyzeContext(services []normalizer.Service, entities []norma
 		if s.Name == "Notifications" {
 			ctx.HasNotificationsService = true
 		}
+		var hasDispatch func([]normalizer.FlowStep) bool
+		hasDispatch = func(steps []normalizer.FlowStep) bool {
+			for _, step := range steps {
+				if step.Action == "notification.Dispatch" {
+					return true
+				}
+				if v, ok := step.Args["_do"].([]normalizer.FlowStep); ok && hasDispatch(v) {
+					return true
+				}
+				if v, ok := step.Args["_then"].([]normalizer.FlowStep); ok && hasDispatch(v) {
+					return true
+				}
+				if v, ok := step.Args["_else"].([]normalizer.FlowStep); ok && hasDispatch(v) {
+					return true
+				}
+			}
+			return false
+		}
 		for _, m := range s.Methods {
 			if m.CacheTTL != "" {
 				ctx.HasCache = true
+			}
+			if hasDispatch(m.Flow) {
+				ctx.HasNotificationDispatch = true
 			}
 		}
 		if len(s.Publishes) > 0 || len(s.Subscribes) > 0 {
@@ -746,9 +825,24 @@ func (e *Emitter) AnalyzeContextFromIR(schema *ir.Schema) MainContext {
 		if s.Name == "Notifications" {
 			ctx.HasNotificationsService = true
 		}
+		var hasDispatch func([]ir.FlowStep) bool
+		hasDispatch = func(steps []ir.FlowStep) bool {
+			for _, step := range steps {
+				if step.Action == "notification.Dispatch" {
+					return true
+				}
+				if hasDispatch(step.Steps) || hasDispatch(step.Then) || hasDispatch(step.Else) {
+					return true
+				}
+			}
+			return false
+		}
 		for _, m := range s.Methods {
 			if m.CacheTTL != "" {
 				ctx.HasCache = true
+			}
+			if hasDispatch(m.Flow) {
+				ctx.HasNotificationDispatch = true
 			}
 		}
 		if len(s.Publishes) > 0 || len(s.Subscribes) > 0 || s.RequiresNats {

@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"context"
+	"strings"
 
 	"{{ GoModule }}/internal/domain"
 	"{{ GoModule }}/internal/port"
@@ -24,18 +25,31 @@ func NewMutingNotificationRepo(inner port.NotificationRepository, userRepo port.
 func (r *MutingNotificationRepo) Save(ctx context.Context, entity *domain.Notification) error {
 	if entity != nil && entity.UserID != "" {
 		user, err := r.userRepo.FindByID(ctx, entity.UserID)
-		if err == nil && user != nil {
-			if user.{{ MuteAllField }} {
-				return nil
-			}
-			for _, t := range user.{{ MutedTypesField }} {
-				if t == entity.Type {
-					return nil
-				}
-			}
+		if err == nil && IsNotificationMuted(user, entity.Type) {
+			return nil
 		}
 	}
 	return r.inner.Save(ctx, entity)
+}
+
+// IsNotificationMuted checks whether notification type is muted for a user.
+func IsNotificationMuted(user *domain.User, notificationType string) bool {
+	if user == nil {
+		return false
+	}
+	if user.{{ MuteAllField }} {
+		return true
+	}
+	muteType := strings.TrimSpace(notificationType)
+	if muteType == "" {
+		return false
+	}
+	for _, t := range user.{{ MutedTypesField }} {
+		if strings.EqualFold(strings.TrimSpace(t), muteType) {
+			return true
+		}
+	}
+	return false
 }
 
 // FindByID delegates to the inner repository.

@@ -52,8 +52,8 @@
 	{{ if not .HasSQL }}var pgPool *pgxpool.Pool{{ end }}
 	{{ if not .HasNats }}var natsClient *nats.Client{{ end }}
 	{{ if not (or .HasCache (or (eq .AuthRefreshStore "redis") (eq .AuthRefreshStore "hybrid"))) }}var redisClient *redis.Client{{ end }}
-	{{ if .HasNotificationsService }}
-	notificationDispatcher := notifications.NewDispatcher()
+	{{ if or .HasNotificationsService .HasNotificationDispatch }}
+	notificationDispatcher := notifications.NewDispatcher(cfg)
 	{{ end }}
 
 	{{ if .HasScheduler }}

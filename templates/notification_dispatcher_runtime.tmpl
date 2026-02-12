@@ -2,9 +2,16 @@ package notifications
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
+	"os"
 	"strings"
 
+	"{{ GoModule }}/internal/adapter/mailer/smtp"
+	"{{ GoModule }}/internal/config"
+	"{{ GoModule }}/internal/pkg/emailtemplates"
 	"{{ GoModule }}/internal/port"
 )
 
@@ -13,16 +20,56 @@ type Dispatcher struct {
 {{- range .Channels }}
 	{{ .TypeName }}Sink port.Notification{{ .TypeName }}Sink
 {{- end }}
+	UserMuteChecker func(ctx context.Context, userID string, msg port.NotificationMessage) (bool, error)
+}
+
+type dispatchPolicy struct {
+	Event    string
+	Type     string
+	Audience string
+	Channels []string
+	Template string
+	MuteKey  string
+}
+
+var dispatchPolicies = []dispatchPolicy{
+{{- range .Policies }}
+	{
+		Event:    {{ printf "%q" .Event }},
+		Type:     {{ printf "%q" .Type }},
+		Audience: {{ printf "%q" .Audience }},
+		Channels: []string{
+			{{- range .Channels }}
+			{{ printf "%q" . }},
+			{{- end }}
+		},
+		Template: {{ printf "%q" .Template }},
+		MuteKey:  {{ printf "%q" .MuteKey }},
+	},
+{{- end }}
 }
 
 // NewDispatcher builds a runtime dispatcher with channel-specific sinks.
-func NewDispatcher() *Dispatcher {
-	return &Dispatcher{
-	}
+func NewDispatcher(cfg *config.Config) *Dispatcher {
+	d := &Dispatcher{}
+	{{- if .HasEmailChannel }}
+	d.EmailSink = newEmailSink(cfg)
+	{{- end }}
+	return d
 }
 
 // Dispatch delivers message to requested channels, or to default channels when omitted.
 func (d *Dispatcher) Dispatch(ctx context.Context, msg port.NotificationMessage) error {
+	msg = applyDispatchPolicy(msg)
+	if d.UserMuteChecker != nil && strings.TrimSpace(msg.UserID) != "" {
+		muted, err := d.UserMuteChecker(ctx, msg.UserID, msg)
+		if err != nil {
+			return fmt.Errorf("resolve notification mute: %w", err)
+		}
+		if muted {
+			return nil
+		}
+	}
 	channels := msg.Channels
 	if len(channels) == 0 {
 		channels = []string{
@@ -49,3 +96,147 @@ func (d *Dispatcher) Dispatch(ctx context.Context, msg port.NotificationMessage)
 	}
 	return nil
 }
+
+func applyDispatchPolicy(msg port.NotificationMessage) port.NotificationMessage {
+	for _, rule := range dispatchPolicies {
+		if strings.TrimSpace(rule.Event) != "" && !strings.EqualFold(strings.TrimSpace(rule.Event), strings.TrimSpace(msg.Event)) {
+			continue
+		}
+		if strings.TrimSpace(rule.Type) != "" && !strings.EqualFold(strings.TrimSpace(rule.Type), strings.TrimSpace(msg.Type)) {
+			continue
+		}
+		if strings.TrimSpace(rule.Audience) != "" && !strings.EqualFold(strings.TrimSpace(rule.Audience), strings.TrimSpace(msg.Audience)) {
+			continue
+		}
+		if strings.TrimSpace(msg.Type) == "" && strings.TrimSpace(rule.Type) != "" {
+			msg.Type = strings.TrimSpace(rule.Type)
+		}
+		if len(msg.Channels) == 0 && len(rule.Channels) > 0 {
+			msg.Channels = append([]string(nil), rule.Channels...)
+		}
+		if strings.TrimSpace(msg.Template) == "" && strings.TrimSpace(rule.Template) != "" {
+			msg.Template = strings.TrimSpace(rule.Template)
+		}
+		if strings.TrimSpace(msg.MuteKey) == "" && strings.TrimSpace(rule.MuteKey) != "" {
+			msg.MuteKey = strings.TrimSpace(rule.MuteKey)
+		}
+		return msg
+	}
+	return msg
+}
+
+{{- if .HasEmailChannel }}
+type emailSink struct {
+	mailer port.Mailer
+}
+
+func newEmailSink(cfg *config.Config) port.NotificationEmailSink {
+	mailer, err := resolveMailer(cfg)
+	if err != nil {
+		return nil
+	}
+	return &emailSink{mailer: mailer}
+}
+
+func (s *emailSink) Send(ctx context.Context, msg port.NotificationMessage) error {
+	if s == nil || s.mailer == nil {
+		return fmt.Errorf("email sink is not configured")
+	}
+	to := extractRecipient(msg)
+	if to == "" {
+		return fmt.Errorf("email recipient is required")
+	}
+	templateID := strings.TrimSpace(msg.Template)
+	if templateID == "" {
+		return fmt.Errorf("email template is required")
+	}
+	data := msg.Payload
+	if data == nil {
+		data = msg.Metadata
+	}
+	tpl, err := emailtemplates.Render(templateID, data)
+	if err != nil {
+		return err
+	}
+	return s.mailer.Send(ctx, port.EmailMessage{
+		To:      to,
+		Subject: tpl.Subject,
+		Text:    tpl.Text,
+		HTML:    tpl.HTML,
+	})
+}
+
+func resolveMailer(cfg *config.Config) (port.Mailer, error) {
+	if cfg == nil {
+		cfg = &config.Config{}
+	}
+	provider := strings.ToLower(strings.TrimSpace(firstNonEmpty(os.Getenv("EMAIL_PROVIDER"), "smtp")))
+	switch provider {
+	case "smtp":
+		if strings.TrimSpace(cfg.SMTPHost) == "" {
+			return nil, fmt.Errorf("smtp host not configured")
+		}
+		return smtp.New(cfg), nil
+	case "ses":
+		region := strings.TrimSpace(os.Getenv("SES_REGION"))
+		accessKey := strings.TrimSpace(os.Getenv("SES_ACCESS_KEY_ID"))
+		secretKey := strings.TrimSpace(os.Getenv("SES_SECRET_ACCESS_KEY"))
+		from := firstNonEmpty(strings.TrimSpace(os.Getenv("SES_FROM")), strings.TrimSpace(cfg.SMTPFrom))
+		if region == "" || accessKey == "" || secretKey == "" || from == "" {
+			return nil, fmt.Errorf("ses credentials are incomplete")
+		}
+		derived := *cfg
+		derived.SMTPHost = firstNonEmpty(strings.TrimSpace(os.Getenv("SMTP_HOST")), "email-smtp."+region+".amazonaws.com")
+		derived.SMTPPort = firstNonEmpty(strings.TrimSpace(os.Getenv("SMTP_PORT")), "587")
+		derived.SMTPUser = accessKey
+		derived.SMTPPass = deriveSESSMTPPassword(secretKey, region)
+		derived.SMTPFrom = from
+		return smtp.New(&derived), nil
+	default:
+		return nil, fmt.Errorf("unsupported email provider: %s", provider)
+	}
+}
+
+func extractRecipient(msg port.NotificationMessage) string {
+	if msg.Metadata != nil {
+		for _, key := range []string{"to", "email", "recipient"} {
+			if v, ok := msg.Metadata[key].(string); ok && strings.TrimSpace(v) != "" {
+				return strings.TrimSpace(v)
+			}
+		}
+	}
+	if payload, ok := msg.Payload.(map[string]any); ok {
+		for _, key := range []string{"to", "email", "recipient"} {
+			if v, ok := payload[key].(string); ok && strings.TrimSpace(v) != "" {
+				return strings.TrimSpace(v)
+			}
+		}
+	}
+	return ""
+}
+
+func deriveSESSMTPPassword(secret, region string) string {
+	kDate := hmacSHA256([]byte("AWS4"+secret), "11111111")
+	kRegion := hmacSHA256(kDate, region)
+	kService := hmacSHA256(kRegion, "ses")
+	kSigning := hmacSHA256(kService, "aws4_request")
+	signature := hmacSHA256(kSigning, "SendRawEmail")
+	raw := append([]byte{0x04}, signature...)
+	return base64.StdEncoding.EncodeToString(raw)
+}
+
+func hmacSHA256(key []byte, data string) []byte {
+	h := hmac.New(sha256.New, key)
+	_, _ = h.Write([]byte(data))
+	return h.Sum(nil)
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+{{- end }}

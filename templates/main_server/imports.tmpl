@@ -30,7 +30,7 @@ import (
 	{{ if .HasS3 }}
 	"{{.GoModule}}/internal/adapter/storage/s3"
 	{{ end }}
-	{{ if .HasNotificationsService }}
+	{{ if or .HasNotificationsService .HasNotificationDispatch }}
 	"{{.GoModule}}/internal/adapter/notifications"
 	{{ end }}
 	"{{.GoModule}}/internal/config"

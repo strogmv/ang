@@ -74,7 +74,7 @@ import "github.com/strogmv/ang/cue/project"
 // AI AGENTS: Use these definitions to understand valid flow step structures.
 // ============================================================================
 
-#FlowStep: #RepoStep | #CheckStep | #MapStep | #EventStep | #CustomStep | #StateStep | #MapActionStep | #IfStep | #ForStep | #WhileStep | #BlockStep | #ListStep
+#FlowStep: #RepoStep | #CheckStep | #MapStep | #EventStep | #CustomStep | #StateStep | #MapActionStep | #IfStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #AuditStep | #AuthStep | #PatchStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #TimeParseStep | #TimeCheckExpiryStep | #MapBuildStep
 
 // ----------------------------------------------------------------------------
 // LIST OPERATIONS
@@ -87,6 +87,76 @@ import "github.com/strogmv/ang/cue/project"
 	to: string
 	// Value to append (e.g., "newItem", "bid")
 	item: string
+}
+
+// ----------------------------------------------------------------------------
+// AUDIT LOGGING
+// ----------------------------------------------------------------------------
+
+#AuditStep: {
+	// audit.Log - Create audit trail entry
+	action: "audit.Log"
+	// Expression for actor user ID (e.g., "req.UserID")
+	actor: string
+	// Expression for company ID (e.g., "req.CompanyID")
+	company: string
+	// Event name string (e.g., "company.category.added")
+	event: string
+}
+
+// ----------------------------------------------------------------------------
+// AUTHORIZATION
+// ----------------------------------------------------------------------------
+
+#AuthStep: {
+	// auth.RequireRole - Role-based authorization guard
+	action: "auth.RequireRole"
+	// Expression for user ID to authorize (e.g., "req.UserID")
+	userID: string
+	// Expression for company ID to check (e.g., "req.CompanyID")
+	companyID: string
+	// Allowed roles as Go string literals (e.g., "\"owner\", \"admin\"")
+	roles: string
+	// Variable name for loaded user (default: "currentUser")
+	output?: string
+	// If true (default), admin can access any company
+	adminBypass?: bool | *true
+}
+
+// ----------------------------------------------------------------------------
+// PARTIAL UPDATE
+// ----------------------------------------------------------------------------
+
+#PatchStep: {
+	// entity.PatchNonZero - Apply non-zero field values (PATCH semantics)
+	action: "entity.PatchNonZero"
+	// Target variable to patch (e.g., "tender")
+	target: string
+	// Source variable with new values (e.g., "req")
+	from: string
+	// Comma-separated field names (e.g., "Title, Description, Status")
+	fields: string
+}
+
+// ----------------------------------------------------------------------------
+// PAGINATION
+// ----------------------------------------------------------------------------
+
+#PaginateStep: {
+	// list.Paginate - In-memory pagination with bounds checking
+	action: "list.Paginate"
+	// Source slice expression (e.g., "filtered")
+	input: string
+	// Offset expression (e.g., "req.Offset")
+	offset: string
+	// Limit expression (e.g., "req.Limit")
+	limit: string
+	// Default limit when <= 0 (default: 50)
+	defaultLimit?: int | *50
+	// Variable name for paginated result slice
+	output: string
+	// Optional: assign total count (e.g., "resp.Total")
+	total?: string
 }
 
 // ----------------------------------------------------------------------------
@@ -281,6 +351,117 @@ import "github.com/strogmv/ang/cue/project"
 	// Target state name
 	// Example: "published", "closed", "cancelled"
 	to: string
+}
+
+// ----------------------------------------------------------------------------
+// STRING OPERATIONS
+// ----------------------------------------------------------------------------
+
+#NormalizeStep: {
+	// str.Normalize - Normalize string (lower/upper/trim)
+	action: "str.Normalize"
+	// Go expression for input string (e.g., "req.Slug", "req.Email")
+	input: string
+	// Normalization mode: lower = ToLower+TrimSpace, upper = ToUpper+TrimSpace, trim = TrimSpace only
+	mode?: "lower" | "upper" | "trim" | *"lower"
+	// Variable name to store result (e.g., "slug", "email")
+	output: string
+}
+
+// ----------------------------------------------------------------------------
+// ENUM VALIDATION
+// ----------------------------------------------------------------------------
+
+#EnumValidateStep: {
+	// enum.Validate - Validate value against allowed set
+	action: "enum.Validate"
+	// Go expression for value to check (e.g., "role", "req.Status")
+	value: string
+	// Comma-separated allowed values (e.g., "owner, admin, employee")
+	allowed: string
+	// Error message when value is not in allowed set
+	throw: string
+}
+
+// ----------------------------------------------------------------------------
+// SORTING
+// ----------------------------------------------------------------------------
+
+#SortStep: {
+	// list.Sort - Sort a slice by field
+	action: "list.Sort"
+	// Slice expression (e.g., "items", "resp.Data")
+	items: string
+	// Field name to sort by (e.g., "CreatedAt", "Name")
+	by: string
+	// Sort descending (default true)
+	desc?: bool | *true
+}
+
+// ----------------------------------------------------------------------------
+// FILTERING
+// ----------------------------------------------------------------------------
+
+#FilterStep: {
+	// list.Filter - Filter a slice by condition
+	action: "list.Filter"
+	// Source slice expression (e.g., "items", "notifications")
+	from: string
+	// Loop variable name (default "item")
+	as?: string
+	// Go boolean expression for filter (e.g., "item.Status != \"deleted\"")
+	condition: string
+	// Variable name for filtered result (e.g., "filtered")
+	output: string
+}
+
+// ----------------------------------------------------------------------------
+// TIME PARSING
+// ----------------------------------------------------------------------------
+
+#TimeParseStep: {
+	// time.Parse - Parse time string into time.Time
+	action: "time.Parse"
+	// String expression to parse (e.g., "evt.ExpiresAt", "req.StartDate")
+	value: string
+	// Variable name for parsed time (e.g., "expiresAt", "startDate")
+	output: string
+	// Go time format constant (default "time.RFC3339")
+	format?: string
+}
+
+// ----------------------------------------------------------------------------
+// EXPIRY CHECK
+// ----------------------------------------------------------------------------
+
+#TimeCheckExpiryStep: {
+	// time.CheckExpiry - Parse time and check if it's in the future or past
+	action: "time.CheckExpiry"
+	// String expression to parse (e.g., "token.ExpiresAt")
+	value: string
+	// Error message when check fails
+	throw: string
+	// "future" = value must be in the future, "past" = value must be in the past
+	mustBe?: "future" | "past" | *"future"
+}
+
+// ----------------------------------------------------------------------------
+// MAP BUILDING
+// ----------------------------------------------------------------------------
+
+#MapBuildStep: {
+	// map.Build - Build a map[string]string from a slice
+	action: "map.Build"
+	// Source slice expression (e.g., "users", "categories")
+	from: string
+	// Loop variable name (default "item")
+	as?: string
+	// Go expression for map key (e.g., "item.ID", "item.Slug")
+	key: string
+	// Go expression for map value (e.g., "item.Name", "item")
+	value: string
+	// Variable name for result map (e.g., "userByID", "nameBySlug")
+	output: string
 }
 
 // --- HTTP & INFRA ---

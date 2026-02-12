@@ -50,6 +50,22 @@
 
 	{{- if .NotificationMuting }}
 	repoNotification = adapter.NewMutingNotificationRepo(repoNotification, repoUser)
+	{{- if or .HasNotificationsService .HasNotificationDispatch }}
+	notificationDispatcher.UserMuteChecker = func(ctx context.Context, userID string, msg port.NotificationMessage) (bool, error) {
+		user, err := repoUser.FindByID(ctx, userID)
+		if err != nil {
+			return false, err
+		}
+		if user == nil {
+			return false, nil
+		}
+		muteType := strings.TrimSpace(msg.MuteKey)
+		if muteType == "" {
+			muteType = strings.TrimSpace(msg.Type)
+		}
+		return adapter.IsNotificationMuted(user, muteType), nil
+	}
+	{{- end }}
 	{{- end }}
 
 	{{- if and .HasSQL (AnyServiceHasIdempotencyOrOutboxIR .ServicesIR) }}

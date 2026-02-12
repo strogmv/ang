@@ -114,9 +114,112 @@ package schema
 	action: "fsm.Transition", entity: _entity, to: _state
 }
 
-// ============================================================================ 
-// CRUD PATTERNS - Standard operations 
-// ============================================================================ 
+// ============================================================================
+// UNIVERSAL FLOW ACTIONS - Common cross-cutting concerns
+// ============================================================================
+
+#AuditLog: {
+	_actor:   string
+	_company: string
+	_event:   string
+	action: "audit.Log", actor: _actor, company: _company, event: _event
+}
+
+#RequireRole: {
+	_userID:       string
+	_companyID:    string
+	_roles:        string
+	_output?:      string
+	_adminBypass?: bool
+	action: "auth.RequireRole", userID: _userID, companyID: _companyID, roles: _roles
+	if _output != _|_ { output: _output }
+	if _adminBypass != _|_ { adminBypass: _adminBypass }
+}
+
+#PatchFields: {
+	_target: string
+	_from:   string
+	_fields: string
+	action: "entity.PatchNonZero", target: _target, from: _from, fields: _fields
+}
+
+#Paginate: {
+	_input:         string
+	_offset:        string
+	_limit:         string
+	_output:        string
+	_total?:        string
+	_defaultLimit?: int
+	action: "list.Paginate", input: _input, offset: _offset, limit: _limit, output: _output
+	if _total != _|_ { total: _total }
+	if _defaultLimit != _|_ { defaultLimit: _defaultLimit }
+}
+
+// ============================================================================
+// BATCH 2: STRING, ENUM, LIST, TIME, MAP HELPERS
+// ============================================================================
+
+#Normalize: {
+	_input:   string
+	_output:  string
+	_mode?:   "lower" | "upper" | "trim"
+	action: "str.Normalize", input: _input, output: _output
+	if _mode != _|_ { mode: _mode }
+}
+
+#ValidateEnum: {
+	_value:   string
+	_allowed: string
+	_throw:   string
+	action: "enum.Validate", value: _value, allowed: _allowed, throw: _throw
+}
+
+#SortBy: {
+	_items: string
+	_by:    string
+	_desc?: bool
+	action: "list.Sort", items: _items, by: _by
+	if _desc != _|_ { desc: _desc }
+}
+
+#Filter: {
+	_from:      string
+	_condition: string
+	_output:    string
+	_as?:       string
+	action: "list.Filter", from: _from, condition: _condition, output: _output
+	if _as != _|_ { as: _as }
+}
+
+#ParseTime: {
+	_value:   string
+	_output:  string
+	_format?: string
+	action: "time.Parse", value: _value, output: _output
+	if _format != _|_ { format: _format }
+}
+
+#CheckExpiry: {
+	_value:   string
+	_throw:   string
+	_mustBe?: "future" | "past"
+	action: "time.CheckExpiry", value: _value, throw: _throw
+	if _mustBe != _|_ { mustBe: _mustBe }
+}
+
+#BuildMap: {
+	_from:   string
+	_key:    string
+	_value:  string
+	_output: string
+	_as?:    string
+	action: "map.Build", from: _from, key: _key, value: _value, output: _output
+	if _as != _|_ { as: _as }
+}
+
+// ============================================================================
+// CRUD PATTERNS - Standard operations
+// ============================================================================
 
 #CRUDCreate: {
 	_entity:     string

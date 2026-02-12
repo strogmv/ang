@@ -854,6 +854,12 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					addWarn(stepNum, step.Action, "PAYLOAD_NOT_DOMAIN", fmt.Sprintf("event.Publish payload should use domain.%s{...}", name), "{action: \"event.Publish\", name: \""+name+"\", payload: \"domain."+name+"{...}\"}", step.File, step.Line, step.Column)
 				}
 
+			case "notification.Dispatch":
+				message, _ := step.Args["message"].(string)
+				if strings.TrimSpace(message) == "" {
+					addWarn(stepNum, step.Action, "MISSING_MESSAGE", "notification.Dispatch missing 'message'", "{action: \"notification.Dispatch\", message: \"port.NotificationMessage{...}\"}", step.File, step.Line, step.Column)
+				}
+
 			case "logic.Check":
 				cond, _ := step.Args["condition"].(string)
 				if cond == "" {
@@ -939,11 +945,154 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					addWarn(stepNum, step.Action, "MISSING_DO", "flow.For missing 'do'", "{action: \"flow.For\", each: \"items\", as: \"item\", do: [ ... ]}", step.File, step.Line, step.Column)
 				}
 
+			case "audit.Log":
+				if step.Args["actor"] == nil || step.Args["actor"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_ACTOR", "audit.Log missing 'actor'", "{action: \"audit.Log\", actor: \"req.UserID\", company: \"req.CompanyID\", event: \"entity.action\"}", step.File, step.Line, step.Column)
+				}
+				if step.Args["company"] == nil || step.Args["company"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_COMPANY", "audit.Log missing 'company'", "{action: \"audit.Log\", actor: \"req.UserID\", company: \"req.CompanyID\", event: \"entity.action\"}", step.File, step.Line, step.Column)
+				}
+				if step.Args["event"] == nil || step.Args["event"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_EVENT", "audit.Log missing 'event'", "{action: \"audit.Log\", actor: \"req.UserID\", company: \"req.CompanyID\", event: \"entity.action\"}", step.File, step.Line, step.Column)
+				}
+
+			case "auth.RequireRole":
+				if step.Args["userID"] == nil || step.Args["userID"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_USERID", "auth.RequireRole missing 'userID'", "{action: \"auth.RequireRole\", userID: \"req.UserID\", companyID: \"req.CompanyID\", roles: \"...\"}", step.File, step.Line, step.Column)
+				}
+				if step.Args["companyID"] == nil || step.Args["companyID"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_COMPANYID", "auth.RequireRole missing 'companyID'", "{action: \"auth.RequireRole\", userID: \"req.UserID\", companyID: \"req.CompanyID\", roles: \"...\"}", step.File, step.Line, step.Column)
+				}
+				if step.Args["roles"] == nil || step.Args["roles"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_ROLES", "auth.RequireRole missing 'roles'", "{action: \"auth.RequireRole\", userID: \"req.UserID\", companyID: \"req.CompanyID\", roles: \"...\"}", step.File, step.Line, step.Column)
+				}
+				// Register output variable
+				if authOutput, _ := step.Args["output"].(string); authOutput != "" {
+					declaredVars[authOutput] = true
+				} else {
+					declaredVars["currentUser"] = true
+				}
+
+			case "entity.PatchNonZero":
+				if step.Args["target"] == nil || step.Args["target"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_TARGET", "entity.PatchNonZero missing 'target'", "{action: \"entity.PatchNonZero\", target: \"entity\", from: \"req\", fields: \"Title, Description\"}", step.File, step.Line, step.Column)
+				}
+				if step.Args["from"] == nil || step.Args["from"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_FROM", "entity.PatchNonZero missing 'from'", "{action: \"entity.PatchNonZero\", target: \"entity\", from: \"req\", fields: \"Title, Description\"}", step.File, step.Line, step.Column)
+				}
+				if step.Args["fields"] == nil || step.Args["fields"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_FIELDS", "entity.PatchNonZero missing 'fields'", "{action: \"entity.PatchNonZero\", target: \"entity\", from: \"req\", fields: \"Title, Description\"}", step.File, step.Line, step.Column)
+				}
+
+			case "list.Paginate":
+				if step.Args["input"] == nil || step.Args["input"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_INPUT", "list.Paginate missing 'input'", "{action: \"list.Paginate\", input: \"items\", offset: \"req.Offset\", limit: \"req.Limit\", output: \"page\"}", step.File, step.Line, step.Column)
+				}
+				if step.Args["offset"] == nil || step.Args["offset"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_OFFSET", "list.Paginate missing 'offset'", "{action: \"list.Paginate\", input: \"items\", offset: \"req.Offset\", limit: \"req.Limit\", output: \"page\"}", step.File, step.Line, step.Column)
+				}
+				if step.Args["limit"] == nil || step.Args["limit"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_LIMIT", "list.Paginate missing 'limit'", "{action: \"list.Paginate\", input: \"items\", offset: \"req.Offset\", limit: \"req.Limit\", output: \"page\"}", step.File, step.Line, step.Column)
+				}
+				if step.Args["output"] == nil || step.Args["output"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_OUTPUT", "list.Paginate missing 'output'", "{action: \"list.Paginate\", input: \"items\", offset: \"req.Offset\", limit: \"req.Limit\", output: \"page\"}", step.File, step.Line, step.Column)
+				}
+				// Register output variable
+				if pOut, _ := step.Args["output"].(string); pOut != "" {
+					declaredVars[pOut] = true
+				}
+
+
+			case "str.Normalize":
+				if step.Args["input"] == nil || step.Args["input"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_INPUT", "str.Normalize missing 'input'", "{action: \"str.Normalize\", input: \"req.Email\", output: \"email\"}", step.File, step.Line, step.Column)
+				}
+				if step.Args["output"] == nil || step.Args["output"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_OUTPUT", "str.Normalize missing 'output'", "{action: \"str.Normalize\", input: \"req.Email\", output: \"email\"}", step.File, step.Line, step.Column)
+				}
+				if pOut, _ := step.Args["output"].(string); pOut != "" {
+					declaredVars[pOut] = true
+				}
+
+			case "enum.Validate":
+				if step.Args["value"] == nil || step.Args["value"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_VALUE", "enum.Validate missing 'value'", "{action: \"enum.Validate\", value: \"role\", allowed: \"owner, admin\", throw: \"invalid role\"}", step.File, step.Line, step.Column)
+				}
+				if step.Args["allowed"] == nil || step.Args["allowed"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_ALLOWED", "enum.Validate missing 'allowed'", "{action: \"enum.Validate\", value: \"role\", allowed: \"owner, admin\", throw: \"invalid role\"}", step.File, step.Line, step.Column)
+				}
+				if step.Args["throw"] == nil || step.Args["throw"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_THROW", "enum.Validate missing 'throw'", "{action: \"enum.Validate\", value: \"role\", allowed: \"owner, admin\", throw: \"invalid role\"}", step.File, step.Line, step.Column)
+				}
+
+			case "list.Sort":
+				if step.Args["items"] == nil || step.Args["items"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_ITEMS", "list.Sort missing 'items'", "{action: \"list.Sort\", items: \"items\", by: \"CreatedAt\"}", step.File, step.Line, step.Column)
+				}
+				if step.Args["by"] == nil || step.Args["by"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_BY", "list.Sort missing 'by'", "{action: \"list.Sort\", items: \"items\", by: \"CreatedAt\"}", step.File, step.Line, step.Column)
+				}
+
+			case "list.Filter":
+				if step.Args["from"] == nil || step.Args["from"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_FROM", "list.Filter missing 'from'", "{action: \"list.Filter\", from: \"items\", condition: \"item.Active\", output: \"filtered\"}", step.File, step.Line, step.Column)
+				}
+				if step.Args["condition"] == nil || step.Args["condition"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_CONDITION", "list.Filter missing 'condition'", "{action: \"list.Filter\", from: \"items\", condition: \"item.Active\", output: \"filtered\"}", step.File, step.Line, step.Column)
+				}
+				if step.Args["output"] == nil || step.Args["output"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_OUTPUT", "list.Filter missing 'output'", "{action: \"list.Filter\", from: \"items\", condition: \"item.Active\", output: \"filtered\"}", step.File, step.Line, step.Column)
+				}
+				if pOut, _ := step.Args["output"].(string); pOut != "" {
+					declaredVars[pOut] = true
+				}
+
+			case "time.Parse":
+				if step.Args["value"] == nil || step.Args["value"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_VALUE", "time.Parse missing 'value'", "{action: \"time.Parse\", value: \"req.StartDate\", output: \"startDate\"}", step.File, step.Line, step.Column)
+				}
+				if step.Args["output"] == nil || step.Args["output"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_OUTPUT", "time.Parse missing 'output'", "{action: \"time.Parse\", value: \"req.StartDate\", output: \"startDate\"}", step.File, step.Line, step.Column)
+				}
+				if pOut, _ := step.Args["output"].(string); pOut != "" {
+					declaredVars[pOut] = true
+				}
+
+			case "time.CheckExpiry":
+				if step.Args["value"] == nil || step.Args["value"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_VALUE", "time.CheckExpiry missing 'value'", "{action: \"time.CheckExpiry\", value: \"token.ExpiresAt\", throw: \"token expired\"}", step.File, step.Line, step.Column)
+				}
+				if step.Args["throw"] == nil || step.Args["throw"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_THROW", "time.CheckExpiry missing 'throw'", "{action: \"time.CheckExpiry\", value: \"token.ExpiresAt\", throw: \"token expired\"}", step.File, step.Line, step.Column)
+				}
+
+			case "map.Build":
+				if step.Args["from"] == nil || step.Args["from"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_FROM", "map.Build missing 'from'", "{action: \"map.Build\", from: \"users\", key: \"item.ID\", value: \"item.Name\", output: \"nameByID\"}", step.File, step.Line, step.Column)
+				}
+				if step.Args["key"] == nil || step.Args["key"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_KEY", "map.Build missing 'key'", "{action: \"map.Build\", from: \"users\", key: \"item.ID\", value: \"item.Name\", output: \"nameByID\"}", step.File, step.Line, step.Column)
+				}
+				if step.Args["value"] == nil || step.Args["value"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_VALUE", "map.Build missing 'value'", "{action: \"map.Build\", from: \"users\", key: \"item.ID\", value: \"item.Name\", output: \"nameByID\"}", step.File, step.Line, step.Column)
+				}
+				if step.Args["output"] == nil || step.Args["output"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_OUTPUT", "map.Build missing 'output'", "{action: \"map.Build\", from: \"users\", key: \"item.ID\", value: \"item.Name\", output: \"nameByID\"}", step.File, step.Line, step.Column)
+				}
+				if pOut, _ := step.Args["output"].(string); pOut != "" {
+					declaredVars[pOut] = true
+				}
+
 			default:
 				if step.Action != "" && !strings.HasPrefix(step.Action, "repo.") && !strings.HasPrefix(step.Action, "mapping.") &&
 					!strings.HasPrefix(step.Action, "logic.") && !strings.HasPrefix(step.Action, "event.") &&
 					!strings.HasPrefix(step.Action, "fsm.") && !strings.HasPrefix(step.Action, "flow.") &&
-					!strings.HasPrefix(step.Action, "tx.") && !strings.HasPrefix(step.Action, "list.") {
+					!strings.HasPrefix(step.Action, "tx.") && !strings.HasPrefix(step.Action, "list.") &&
+					!strings.HasPrefix(step.Action, "notification.") &&
+					!strings.HasPrefix(step.Action, "audit.") && !strings.HasPrefix(step.Action, "auth.") &&
+					!strings.HasPrefix(step.Action, "entity.") &&
+					!strings.HasPrefix(step.Action, "str.") && !strings.HasPrefix(step.Action, "enum.") &&
+					!strings.HasPrefix(step.Action, "time.") && !strings.HasPrefix(step.Action, "map.") {
 					addWarn(stepNum, step.Action, "UNKNOWN_ACTION", fmt.Sprintf("unknown action '%s'", step.Action), "{action: \"repo.Find\" | \"mapping.Assign\" | \"flow.If\" ...}", step.File, step.Line, step.Column)
 				}
 			}

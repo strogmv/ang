@@ -18,6 +18,15 @@ type notificationChannelTemplate struct {
 	TypeName string
 }
 
+type notificationPolicyTemplate struct {
+	Event    string
+	Type     string
+	Audience string
+	Channels []string
+	Template string
+	MuteKey  string
+}
+
 // EmitNotificationDispatchPorts generates NotificationDispatcher and channel sink interfaces.
 func (e *Emitter) EmitNotificationDispatchPorts(cfg *ir.NotificationsConfig) error {
 	channels, _, err := collectNotificationChannels(cfg)
@@ -72,6 +81,7 @@ func (e *Emitter) EmitNotificationDispatcherRuntime(cfg *ir.NotificationsConfig)
 	if err != nil {
 		return err
 	}
+	policies := collectNotificationPolicies(cfg)
 
 	tmplPath := filepath.Join(e.TemplatesDir, "notification_dispatcher_runtime.tmpl")
 	if _, err := os.Stat(tmplPath); err != nil {
@@ -98,9 +108,13 @@ func (e *Emitter) EmitNotificationDispatcherRuntime(cfg *ir.NotificationsConfig)
 	if err := t.Execute(&buf, struct {
 		Channels        []notificationChannelTemplate
 		DefaultChannels []string
+		HasEmailChannel bool
+		Policies        []notificationPolicyTemplate
 	}{
 		Channels:        channels,
 		DefaultChannels: defaultChannels,
+		HasEmailChannel: hasNotificationChannel(channels, "email"),
+		Policies:        policies,
 	}); err != nil {
 		return fmt.Errorf("execute template: %w", err)
 	}
@@ -116,6 +130,19 @@ func (e *Emitter) EmitNotificationDispatcherRuntime(cfg *ir.NotificationsConfig)
 	}
 	fmt.Printf("Generated Notification Dispatcher Runtime: %s\n", path)
 	return nil
+}
+
+func hasNotificationChannel(channels []notificationChannelTemplate, name string) bool {
+	needle := strings.TrimSpace(strings.ToLower(name))
+	if needle == "" {
+		return false
+	}
+	for _, ch := range channels {
+		if strings.EqualFold(strings.TrimSpace(ch.Name), needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func collectNotificationChannels(cfg *ir.NotificationsConfig) ([]notificationChannelTemplate, []string, error) {
@@ -196,4 +223,32 @@ func channelTypeName(name string) string {
 		return "Channel"
 	}
 	return b.String()
+}
+
+func collectNotificationPolicies(cfg *ir.NotificationsConfig) []notificationPolicyTemplate {
+	if cfg == nil || cfg.Policies == nil || !cfg.Policies.Enabled {
+		return nil
+	}
+	out := make([]notificationPolicyTemplate, 0, len(cfg.Policies.Rules))
+	for _, rule := range cfg.Policies.Rules {
+		if !rule.Enabled {
+			continue
+		}
+		channels := make([]string, 0, len(rule.Channels))
+		for _, ch := range rule.Channels {
+			ch = strings.TrimSpace(ch)
+			if ch != "" {
+				channels = append(channels, ch)
+			}
+		}
+		out = append(out, notificationPolicyTemplate{
+			Event:    strings.TrimSpace(rule.Event),
+			Type:     strings.TrimSpace(rule.Type),
+			Audience: strings.TrimSpace(rule.Audience),
+			Channels: channels,
+			Template: strings.TrimSpace(rule.Template),
+			MuteKey:  strings.TrimSpace(rule.MuteKey),
+		})
+	}
+	return out
 }

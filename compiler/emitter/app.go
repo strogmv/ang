@@ -32,6 +32,7 @@ type MainServerImportsContext struct {
 	AuthService             string
 	NotificationMuting      bool
 	HasNotificationsService bool
+	HasNotificationDispatch bool
 	ServicesIR              []ir.Service
 	EntitiesIR              []ir.Entity
 }
@@ -45,15 +46,18 @@ type MainServerInfrastructureContext struct {
 	HasS3                   bool
 	HasScheduler            bool
 	HasNotificationsService bool
+	HasNotificationDispatch bool
 }
 
 type MainServerRepositoriesContext struct {
-	AuthService        string
-	AuthRefreshStore   string
-	NotificationMuting bool
-	HasSQL             bool
-	ServicesIR         []ir.Service
-	EntitiesIR         []ir.Entity
+	AuthService             string
+	AuthRefreshStore        string
+	NotificationMuting      bool
+	HasNotificationsService bool
+	HasNotificationDispatch bool
+	HasSQL                  bool
+	ServicesIR              []ir.Service
+	EntitiesIR              []ir.Entity
 }
 
 type MainServerServicesContext struct {
@@ -64,6 +68,7 @@ type MainServerServicesContext struct {
 	HasSQL                  bool
 	NotificationMuting      bool
 	HasNotificationsService bool
+	HasNotificationDispatch bool
 	WebSocketServices       map[string]bool
 }
 
@@ -112,6 +117,7 @@ func buildMainServerTemplateData(ctx MainContext) MainServerTemplateData {
 			AuthService:             ctx.AuthService,
 			NotificationMuting:      ctx.NotificationMuting,
 			HasNotificationsService: ctx.HasNotificationsService,
+			HasNotificationDispatch: ctx.HasNotificationDispatch,
 			ServicesIR:              ctx.ServicesIR,
 			EntitiesIR:              ctx.EntitiesIR,
 		},
@@ -124,14 +130,17 @@ func buildMainServerTemplateData(ctx MainContext) MainServerTemplateData {
 			HasS3:                   ctx.HasS3,
 			HasScheduler:            ctx.HasScheduler,
 			HasNotificationsService: ctx.HasNotificationsService,
+			HasNotificationDispatch: ctx.HasNotificationDispatch,
 		},
 		Repositories: MainServerRepositoriesContext{
-			AuthService:        ctx.AuthService,
-			AuthRefreshStore:   ctx.AuthRefreshStore,
-			NotificationMuting: ctx.NotificationMuting,
-			HasSQL:             ctx.HasSQL,
-			ServicesIR:         ctx.ServicesIR,
-			EntitiesIR:         ctx.EntitiesIR,
+			AuthService:             ctx.AuthService,
+			AuthRefreshStore:        ctx.AuthRefreshStore,
+			NotificationMuting:      ctx.NotificationMuting,
+			HasNotificationsService: ctx.HasNotificationsService,
+			HasNotificationDispatch: ctx.HasNotificationDispatch,
+			HasSQL:                  ctx.HasSQL,
+			ServicesIR:              ctx.ServicesIR,
+			EntitiesIR:              ctx.EntitiesIR,
 		},
 		Services: MainServerServicesContext{
 			ServicesIR:              ctx.ServicesIR,
@@ -141,6 +150,7 @@ func buildMainServerTemplateData(ctx MainContext) MainServerTemplateData {
 			HasSQL:                  ctx.HasSQL,
 			NotificationMuting:      ctx.NotificationMuting,
 			HasNotificationsService: ctx.HasNotificationsService,
+			HasNotificationDispatch: ctx.HasNotificationDispatch,
 			WebSocketServices:       ctx.WebSocketServices,
 		},
 		HTTPRouter: MainServerHTTPRouterContext{},
@@ -367,6 +377,48 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		for _, m := range s.Methods {
 			if len(m.Publishes) > 0 || hasPublish(m.Flow) {
 				return true
+			}
+		}
+		return false
+	}
+	appFuncs["ServiceHasNotificationDispatchIR"] = func(s ir.Service) bool {
+		var hasDispatch func([]ir.FlowStep) bool
+		hasDispatch = func(steps []ir.FlowStep) bool {
+			for _, step := range steps {
+				if step.Action == "notification.Dispatch" {
+					return true
+				}
+				if hasDispatch(step.Steps) || hasDispatch(step.Then) || hasDispatch(step.Else) {
+					return true
+				}
+			}
+			return false
+		}
+		for _, m := range s.Methods {
+			if hasDispatch(m.Flow) {
+				return true
+			}
+		}
+		return false
+	}
+	appFuncs["AnyServiceHasNotificationDispatchIR"] = func(services []ir.Service) bool {
+		var hasDispatch func([]ir.FlowStep) bool
+		hasDispatch = func(steps []ir.FlowStep) bool {
+			for _, step := range steps {
+				if step.Action == "notification.Dispatch" {
+					return true
+				}
+				if hasDispatch(step.Steps) || hasDispatch(step.Then) || hasDispatch(step.Else) {
+					return true
+				}
+			}
+			return false
+		}
+		for _, svc := range services {
+			for _, m := range svc.Methods {
+				if hasDispatch(m.Flow) {
+					return true
+				}
 			}
 		}
 		return false
