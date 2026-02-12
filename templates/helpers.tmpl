@@ -136,6 +136,14 @@ func CopyNonEmptyFields(src, dst interface{}) {
 	}
 }
 
+// IsZero reports whether value is a Go zero value.
+func IsZero(v interface{}) bool {
+	if v == nil {
+		return true
+	}
+	return reflect.ValueOf(v).IsZero()
+}
+
 var validate = validator.New()
 
 // Validate checks a struct for validation tags.

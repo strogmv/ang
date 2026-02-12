@@ -35,6 +35,18 @@ package schema
 	if _input != _|_ { input: _input }
 }
 
+#Upsert: {
+	_entity:   string
+	_find:     string
+	_input:    string
+	_var:      string
+	_ifNew?:   [...#FlowStep]
+	_ifExists?: [...#FlowStep]
+	action: "repo.Upsert", source: _entity, find: _find, input: _input, output: _var
+	if _ifNew != _|_ { ifNew: _ifNew }
+	if _ifExists != _|_ { ifExists: _ifExists }
+}
+
 #NewEntity: {
 	_entity: string, _var: string
 	action: "mapping.Map", output: _var, entity: _entity
@@ -99,6 +111,14 @@ package schema
 	if _else != _|_ { "else": _else }
 }
 
+#Switch: {
+	_value:    string
+	_cases:    [string]: [...#FlowStep]
+	_default?: [...#FlowStep]
+	action: "flow.Switch", value: _value, cases: _cases
+	if _default != _|_ { default: _default }
+}
+
 #ForEach: {
 	_items: string, _as: string, _do: [...#FlowStep]
 	action: "flow.For", each: _items, as: _as, do: _do
@@ -136,11 +156,40 @@ package schema
 	if _adminBypass != _|_ { adminBypass: _adminBypass }
 }
 
+#CheckRole: {
+	_user:      string
+	_roles:     string
+	_companyID?: string
+	action: "auth.CheckRole", user: _user, roles: _roles
+	if _companyID != _|_ { companyID: _companyID }
+}
+
 #PatchFields: {
 	_target: string
 	_from:   string
 	_fields: string
 	action: "entity.PatchNonZero", target: _target, from: _from, fields: _fields
+}
+
+#CopyNonEmpty: {
+	_from:    string
+	_to:      string
+	_fields?: string
+	action: "field.CopyNonEmpty", from: _from, to: _to
+	if _fields != _|_ { fields: _fields }
+}
+
+#PatchValidated: {
+	_target: string
+	_from:   string
+	_fields: [string]: {
+		normalize?: "trim" | "lower" | "upper"
+		format?:    "email" | "phone"
+		unique?:    string
+	}
+	_source?: string
+	action: "entity.PatchValidated", target: _target, from: _from, fields: _fields
+	if _source != _|_ { source: _source }
 }
 
 #Paginate: {
@@ -188,6 +237,16 @@ package schema
 	_output:    string
 	_as?:       string
 	action: "list.Filter", from: _from, condition: _condition, output: _output
+	if _as != _|_ { as: _as }
+}
+
+#Enrich: {
+	_items:        string
+	_lookupSource: string
+	_lookupInput:  string
+	_set:          string
+	_as?:          string
+	action: "list.Enrich", items: _items, lookupSource: _lookupSource, lookupInput: _lookupInput, set: _set
 	if _as != _|_ { as: _as }
 }
 

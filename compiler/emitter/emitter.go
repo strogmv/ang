@@ -270,7 +270,35 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 							res = append(res, "User")
 						}
 					}
+					// entity.PatchValidated may require repository for unique checks
+					if step.Action == "entity.PatchValidated" {
+						hasUnique := false
+						if fields, ok := step.Args["fields"].(map[string]map[string]string); ok {
+							for _, cfg := range fields {
+								if strings.TrimSpace(cfg["unique"]) != "" {
+									hasUnique = true
+									break
+								}
+							}
+						}
+						if hasUnique {
+							repoEntity := ""
+							if src, ok := step.Args["source"].(string); ok {
+								repoEntity = strings.TrimSpace(src)
+							}
+							if repoEntity != "" && !unique[repoEntity] && !dtoEntities[repoEntity] {
+								unique[repoEntity] = true
+								res = append(res, repoEntity)
+							}
+						}
+					}
 					if v, ok := step.Args["_do"].([]normalizer.FlowStep); ok {
+						scanSteps(v)
+					}
+					if v, ok := step.Args["_ifNew"].([]normalizer.FlowStep); ok {
+						scanSteps(v)
+					}
+					if v, ok := step.Args["_ifExists"].([]normalizer.FlowStep); ok {
 						scanSteps(v)
 					}
 					if v, ok := step.Args["_then"].([]normalizer.FlowStep); ok {
@@ -278,6 +306,14 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 					}
 					if v, ok := step.Args["_else"].([]normalizer.FlowStep); ok {
 						scanSteps(v)
+					}
+					if v, ok := step.Args["_default"].([]normalizer.FlowStep); ok {
+						scanSteps(v)
+					}
+					if cases, ok := step.Args["_cases"].(map[string][]normalizer.FlowStep); ok {
+						for _, branch := range cases {
+							scanSteps(branch)
+						}
 					}
 				}
 			}
@@ -290,6 +326,85 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 				}
 				scanSteps(m.Flow)
 			}
+			sort.Strings(res)
+			return res
+		},
+		"getFlowRepoEntities": func(steps []normalizer.FlowStep) []string {
+			unique := make(map[string]bool)
+			var res []string
+			var scanSteps func([]normalizer.FlowStep)
+			scanSteps = func(steps []normalizer.FlowStep) {
+				for _, step := range steps {
+					if strings.HasPrefix(step.Action, "repo.") {
+						if entName, ok := step.Args["source"].(string); ok && entName != "" && !unique[entName] {
+							unique[entName] = true
+							res = append(res, entName)
+						}
+					}
+					// list.Enrich performs repo lookup via lookupSource
+					if step.Action == "list.Enrich" {
+						if entName, ok := step.Args["lookupSource"].(string); ok && entName != "" && !unique[entName] {
+							unique[entName] = true
+							res = append(res, entName)
+						}
+					}
+					// audit.Log requires AuditLog repository
+					if step.Action == "audit.Log" && !unique["AuditLog"] {
+						unique["AuditLog"] = true
+						res = append(res, "AuditLog")
+					}
+					// auth.RequireRole requires User repository
+					if step.Action == "auth.RequireRole" && !unique["User"] {
+						unique["User"] = true
+						res = append(res, "User")
+					}
+					if step.Action == "entity.PatchValidated" {
+						hasUnique := false
+						if fields, ok := step.Args["fields"].(map[string]map[string]string); ok {
+							for _, cfg := range fields {
+								if strings.TrimSpace(cfg["unique"]) != "" {
+									hasUnique = true
+									break
+								}
+							}
+						}
+						if hasUnique {
+							repoEntity := ""
+							if src, ok := step.Args["source"].(string); ok {
+								repoEntity = strings.TrimSpace(src)
+							}
+							if repoEntity != "" && !unique[repoEntity] {
+								unique[repoEntity] = true
+								res = append(res, repoEntity)
+							}
+						}
+					}
+					if v, ok := step.Args["_do"].([]normalizer.FlowStep); ok {
+						scanSteps(v)
+					}
+					if v, ok := step.Args["_ifNew"].([]normalizer.FlowStep); ok {
+						scanSteps(v)
+					}
+					if v, ok := step.Args["_ifExists"].([]normalizer.FlowStep); ok {
+						scanSteps(v)
+					}
+					if v, ok := step.Args["_then"].([]normalizer.FlowStep); ok {
+						scanSteps(v)
+					}
+					if v, ok := step.Args["_else"].([]normalizer.FlowStep); ok {
+						scanSteps(v)
+					}
+					if v, ok := step.Args["_default"].([]normalizer.FlowStep); ok {
+						scanSteps(v)
+					}
+					if cases, ok := step.Args["_cases"].(map[string][]normalizer.FlowStep); ok {
+						for _, branch := range cases {
+							scanSteps(branch)
+						}
+					}
+				}
+			}
+			scanSteps(steps)
 			sort.Strings(res)
 			return res
 		},
@@ -328,6 +443,16 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 							return true
 						}
 					}
+					if v, ok := step.Args["_ifNew"].([]normalizer.FlowStep); ok {
+						if scanSteps(v) {
+							return true
+						}
+					}
+					if v, ok := step.Args["_ifExists"].([]normalizer.FlowStep); ok {
+						if scanSteps(v) {
+							return true
+						}
+					}
 					if v, ok := step.Args["_then"].([]normalizer.FlowStep); ok {
 						if scanSteps(v) {
 							return true
@@ -336,6 +461,18 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 					if v, ok := step.Args["_else"].([]normalizer.FlowStep); ok {
 						if scanSteps(v) {
 							return true
+						}
+					}
+					if v, ok := step.Args["_default"].([]normalizer.FlowStep); ok {
+						if scanSteps(v) {
+							return true
+						}
+					}
+					if cases, ok := step.Args["_cases"].(map[string][]normalizer.FlowStep); ok {
+						for _, branch := range cases {
+							if scanSteps(branch) {
+								return true
+							}
 						}
 					}
 				}
@@ -395,6 +532,16 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 							return true
 						}
 					}
+					if v, ok := step.Args["_ifNew"].([]normalizer.FlowStep); ok {
+						if scanSteps(v) {
+							return true
+						}
+					}
+					if v, ok := step.Args["_ifExists"].([]normalizer.FlowStep); ok {
+						if scanSteps(v) {
+							return true
+						}
+					}
 					if v, ok := step.Args["_then"].([]normalizer.FlowStep); ok {
 						if scanSteps(v) {
 							return true
@@ -403,6 +550,18 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 					if v, ok := step.Args["_else"].([]normalizer.FlowStep); ok {
 						if scanSteps(v) {
 							return true
+						}
+					}
+					if v, ok := step.Args["_default"].([]normalizer.FlowStep); ok {
+						if scanSteps(v) {
+							return true
+						}
+					}
+					if cases, ok := step.Args["_cases"].(map[string][]normalizer.FlowStep); ok {
+						for _, branch := range cases {
+							if scanSteps(branch) {
+								return true
+							}
 						}
 					}
 				}
@@ -430,6 +589,16 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 							return true
 						}
 					}
+					if v, ok := step.Args["_ifNew"].([]normalizer.FlowStep); ok {
+						if scanSteps(v) {
+							return true
+						}
+					}
+					if v, ok := step.Args["_ifExists"].([]normalizer.FlowStep); ok {
+						if scanSteps(v) {
+							return true
+						}
+					}
 					if v, ok := step.Args["_then"].([]normalizer.FlowStep); ok {
 						if scanSteps(v) {
 							return true
@@ -438,6 +607,18 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 					if v, ok := step.Args["_else"].([]normalizer.FlowStep); ok {
 						if scanSteps(v) {
 							return true
+						}
+					}
+					if v, ok := step.Args["_default"].([]normalizer.FlowStep); ok {
+						if scanSteps(v) {
+							return true
+						}
+					}
+					if cases, ok := step.Args["_cases"].(map[string][]normalizer.FlowStep); ok {
+						for _, branch := range cases {
+							if scanSteps(branch) {
+								return true
+							}
 						}
 					}
 				}
@@ -528,6 +709,65 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 				return v
 			}
 			return nil
+		},
+		"getIfNew": func(step normalizer.FlowStep) []normalizer.FlowStep {
+			if v, ok := step.Args["_ifNew"].([]normalizer.FlowStep); ok {
+				return v
+			}
+			return nil
+		},
+		"getIfExists": func(step normalizer.FlowStep) []normalizer.FlowStep {
+			if v, ok := step.Args["_ifExists"].([]normalizer.FlowStep); ok {
+				return v
+			}
+			return nil
+		},
+		"getCases": func(step normalizer.FlowStep) map[string][]normalizer.FlowStep {
+			if v, ok := step.Args["_cases"].(map[string][]normalizer.FlowStep); ok {
+				return v
+			}
+			return nil
+		},
+		"getCaseKeys": func(step normalizer.FlowStep) []string {
+			cases, ok := step.Args["_cases"].(map[string][]normalizer.FlowStep)
+			if !ok || len(cases) == 0 {
+				return nil
+			}
+			keys := make([]string, 0, len(cases))
+			for k := range cases {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			return keys
+		},
+		"getDefault": func(step normalizer.FlowStep) []normalizer.FlowStep {
+			if v, ok := step.Args["_default"].([]normalizer.FlowStep); ok {
+				return v
+			}
+			return nil
+		},
+		"getPatchValidatedFieldKeys": func(step normalizer.FlowStep) []string {
+			fields, ok := step.Args["fields"].(map[string]map[string]string)
+			if !ok || len(fields) == 0 {
+				return nil
+			}
+			keys := make([]string, 0, len(fields))
+			for k := range fields {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			return keys
+		},
+		"getPatchValidatedRule": func(step normalizer.FlowStep, field, rule string) string {
+			fields, ok := step.Args["fields"].(map[string]map[string]string)
+			if !ok {
+				return ""
+			}
+			cfg, ok := fields[field]
+			if !ok {
+				return ""
+			}
+			return strings.TrimSpace(cfg[rule])
 		},
 		"pointerExpr": func(input string) string {
 			if strings.HasPrefix(input, "new") {
@@ -769,6 +1009,16 @@ func (e *Emitter) AnalyzeContext(services []normalizer.Service, entities []norma
 				}
 				if v, ok := step.Args["_else"].([]normalizer.FlowStep); ok && hasDispatch(v) {
 					return true
+				}
+				if v, ok := step.Args["_default"].([]normalizer.FlowStep); ok && hasDispatch(v) {
+					return true
+				}
+				if cases, ok := step.Args["_cases"].(map[string][]normalizer.FlowStep); ok {
+					for _, branch := range cases {
+						if hasDispatch(branch) {
+							return true
+						}
+					}
 				}
 			}
 			return false

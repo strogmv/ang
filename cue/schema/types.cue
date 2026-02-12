@@ -74,7 +74,7 @@ import "github.com/strogmv/ang/cue/project"
 // AI AGENTS: Use these definitions to understand valid flow step structures.
 // ============================================================================
 
-#FlowStep: #RepoStep | #CheckStep | #MapStep | #EventStep | #CustomStep | #StateStep | #MapActionStep | #IfStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #AuditStep | #AuthStep | #PatchStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #TimeParseStep | #TimeCheckExpiryStep | #MapBuildStep
+#FlowStep: #RepoStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #CustomStep | #StateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #AuditStep | #AuthStep | #CheckRoleStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #EnrichStep | #TimeParseStep | #TimeCheckExpiryStep | #MapBuildStep
 
 // ----------------------------------------------------------------------------
 // LIST OPERATIONS
@@ -123,6 +123,18 @@ import "github.com/strogmv/ang/cue/project"
 	adminBypass?: bool | *true
 }
 
+#CheckRoleStep: {
+	// auth.CheckRole - Role-based guard for already loaded user variable
+	action: "auth.CheckRole"
+	// Expression of already loaded user variable (e.g., "currentUser", "user")
+	user: string
+	// Allowed roles as Go string literals (e.g., "\"owner\", \"admin\"")
+	roles: string
+	// Optional company scope expression (e.g., "req.CompanyID")
+	// When provided: user.CompanyID must match, admin is allowed to bypass
+	companyID?: string
+}
+
 // ----------------------------------------------------------------------------
 // PARTIAL UPDATE
 // ----------------------------------------------------------------------------
@@ -136,6 +148,37 @@ import "github.com/strogmv/ang/cue/project"
 	from: string
 	// Comma-separated field names (e.g., "Title, Description, Status")
 	fields: string
+}
+
+#CopyNonEmptyStep: {
+	// field.CopyNonEmpty - Type-aware copy of non-zero fields from request/model to target
+	action: "field.CopyNonEmpty"
+	// Source variable (e.g., "req")
+	from: string
+	// Target variable (e.g., "existing", "item")
+	to: string
+	// Optional comma-separated field names. If omitted, helper copies all non-zero fields.
+	fields?: string
+}
+
+#PatchValidatedStep: {
+	// entity.PatchValidated - Patch with per-field normalization/validation/uniqueness checks
+	action: "entity.PatchValidated"
+	// Target variable (e.g., "company")
+	target: string
+	// Source variable with patch payload (e.g., "req")
+	from: string
+	// Optional repository entity for uniqueness checks (e.g., "Company")
+	source?: string
+	// Per-field rules
+	fields: [string]: {
+		// Optional normalization mode
+		normalize?: "trim" | "lower" | "upper"
+		// Optional format validation
+		format?: "email" | "phone"
+		// Optional repository method name for uniqueness check (e.g., "FindByTaxID")
+		unique?: string
+	}
 }
 
 // ----------------------------------------------------------------------------
@@ -197,6 +240,16 @@ import "github.com/strogmv/ang/cue/project"
 	method?: string
 }
 
+#UpsertStep: {
+	action: "repo.Upsert"
+	source: string
+	find:   string
+	input:  string
+	output: string
+	ifNew?: [...#FlowStep]
+	ifExists?: [...#FlowStep]
+}
+
 // ----------------------------------------------------------------------------
 // CONTROL FLOW
 // ----------------------------------------------------------------------------
@@ -210,6 +263,16 @@ import "github.com/strogmv/ang/cue/project"
 	then: [...#FlowStep]
 	// Optional steps when condition is false
 	else?: [...#FlowStep]
+}
+
+#SwitchStep: {
+	action: "flow.Switch"
+	// Go expression yielding branch selector value (e.g., "req.Role", "tender.Status")
+	value: string
+	// Branches keyed by selector literal values (e.g., owner, admin, draft)
+	cases: [string]: [...#FlowStep]
+	// Optional fallback branch
+	default?: [...#FlowStep]
 }
 
 #ForStep: {
@@ -413,6 +476,26 @@ import "github.com/strogmv/ang/cue/project"
 	condition: string
 	// Variable name for filtered result (e.g., "filtered")
 	output: string
+}
+
+// ----------------------------------------------------------------------------
+// LIST ENRICH
+// ----------------------------------------------------------------------------
+
+#EnrichStep: {
+	// list.Enrich - Enrich each list item using related entity lookup
+	action: "list.Enrich"
+	// Source slice expression (e.g., "reviews", "items")
+	items: string
+	// Loop variable name (default "item")
+	as?: string
+	// Related entity for repository lookup (e.g., "Company")
+	lookupSource: string
+	// Go expression for lookup ID (e.g., "item.AuthorCompanyID")
+	lookupInput: string
+	// Mapping pairs "TargetField=LookupField" separated by commas
+	// Example: "AuthorName=Name,AuthorLogo=Logo"
+	set: string
 }
 
 // ----------------------------------------------------------------------------

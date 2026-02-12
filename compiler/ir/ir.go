@@ -294,8 +294,12 @@ type FlowStep struct {
 	Params     []string
 	Args       map[string]any
 	Steps      []FlowStep
+	IfNew      []FlowStep
+	IfExists   []FlowStep
 	Then       []FlowStep
 	Else       []FlowStep
+	Cases      map[string][]FlowStep
+	Default    []FlowStep
 	Attributes []Attribute
 }
 

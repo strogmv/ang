@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"cuelang.org/go/cue"
@@ -521,11 +522,45 @@ func (n *Normalizer) rawParseFlowSteps(val cue.Value) ([]FlowStep, error) {
 			label := it.Selector().String()
 
 			// Skip recursion fields and internal definitions
-			if label == "action" || label == "then" || label == "else" || label == "do" || strings.HasPrefix(label, "#") {
+			if label == "action" || label == "then" || label == "else" || label == "do" || label == "ifNew" || label == "ifExists" || label == "cases" || label == "default" || strings.HasPrefix(label, "#") {
 				continue
 			}
 
 			v := it.Value()
+			if action == "entity.PatchValidated" && label == "fields" && v.IncompleteKind() == cue.StructKind {
+				fieldsMap := make(map[string]map[string]string)
+				fit, _ := v.Fields(cue.All())
+				for fit.Next() {
+					fieldName := strings.Trim(fit.Selector().String(), "\"")
+					fieldRules := make(map[string]string)
+					fieldVal := fit.Value()
+					if fieldVal.IncompleteKind() != cue.StructKind {
+						continue
+					}
+					rit, _ := fieldVal.Fields(cue.All())
+					for rit.Next() {
+						ruleName := strings.Trim(rit.Selector().String(), "\"")
+						ruleVal := rit.Value()
+						switch ruleVal.Kind() {
+						case cue.StringKind:
+							if s, err := ruleVal.String(); err == nil {
+								fieldRules[ruleName] = s
+							}
+						case cue.BoolKind:
+							if b, err := ruleVal.Bool(); err == nil {
+								fieldRules[ruleName] = strconv.FormatBool(b)
+							}
+						}
+					}
+					if len(fieldRules) > 0 {
+						fieldsMap[fieldName] = fieldRules
+					}
+				}
+				if len(fieldsMap) > 0 {
+					step.Args["fields"] = fieldsMap
+				}
+				continue
+			}
 			if !v.IsConcrete() && v.Kind() != cue.ListKind {
 				continue
 			}
@@ -605,6 +640,38 @@ func (n *Normalizer) rawParseFlowSteps(val cue.Value) ([]FlowStep, error) {
 				step.Args["_do"] = sub
 			}
 		}
+		if v := stepVal.LookupPath(cue.ParsePath("cases")); v.Exists() && v.IncompleteKind() == cue.StructKind {
+			casesMap := make(map[string][]FlowStep)
+			cit, _ := v.Fields(cue.All())
+			for cit.Next() {
+				caseLabel := strings.Trim(cit.Selector().String(), "\"")
+				caseVal := cit.Value()
+				if !caseVal.Exists() || caseVal.Kind() != cue.ListKind {
+					continue
+				}
+				if sub, err := n.parseFlowSteps(caseVal); err == nil {
+					casesMap[caseLabel] = sub
+				}
+			}
+			if len(casesMap) > 0 {
+				step.Args["_cases"] = casesMap
+			}
+		}
+		if v := stepVal.LookupPath(cue.ParsePath("default")); v.Exists() && v.Kind() == cue.ListKind {
+			if sub, err := n.parseFlowSteps(v); err == nil {
+				step.Args["_default"] = sub
+			}
+		}
+		if v := stepVal.LookupPath(cue.ParsePath("ifNew")); v.Exists() && v.Kind() == cue.ListKind {
+			if sub, err := n.parseFlowSteps(v); err == nil {
+				step.Args["_ifNew"] = sub
+			}
+		}
+		if v := stepVal.LookupPath(cue.ParsePath("ifExists")); v.Exists() && v.Kind() == cue.ListKind {
+			if sub, err := n.parseFlowSteps(v); err == nil {
+				step.Args["_ifExists"] = sub
+			}
+		}
 
 		steps = append(steps, step)
 	}
@@ -635,6 +702,22 @@ func (n *Normalizer) autoCompleteFlowSteps(steps []FlowStep) []FlowStep {
 			case "tx.Block", "flow.Block":
 				if v, ok := s.Args["_do"].([]FlowStep); ok {
 					scan(v)
+				}
+			case "repo.Upsert":
+				if v, ok := s.Args["_ifNew"].([]FlowStep); ok {
+					scan(v)
+				}
+				if v, ok := s.Args["_ifExists"].([]FlowStep); ok {
+					scan(v)
+				}
+			case "flow.Switch":
+				if v, ok := s.Args["_default"].([]FlowStep); ok {
+					scan(v)
+				}
+				if cases, ok := s.Args["_cases"].(map[string][]FlowStep); ok {
+					for _, branch := range cases {
+						scan(branch)
+					}
 				}
 			case "flow.If":
 				if v, ok := s.Args["_then"].([]FlowStep); ok {
@@ -683,11 +766,27 @@ func (n *Normalizer) autoCompleteFlowSteps(steps []FlowStep) []FlowStep {
 			if v, ok := s.Args["_do"].([]FlowStep); ok {
 				s.Args["_do"] = inject(v)
 			}
+			if v, ok := s.Args["_ifNew"].([]FlowStep); ok {
+				s.Args["_ifNew"] = inject(v)
+			}
+			if v, ok := s.Args["_ifExists"].([]FlowStep); ok {
+				s.Args["_ifExists"] = inject(v)
+			}
 			if v, ok := s.Args["_then"].([]FlowStep); ok {
 				s.Args["_then"] = inject(v)
 			}
 			if v, ok := s.Args["_else"].([]FlowStep); ok {
 				s.Args["_else"] = inject(v)
+			}
+			if v, ok := s.Args["_default"].([]FlowStep); ok {
+				s.Args["_default"] = inject(v)
+			}
+			if cases, ok := s.Args["_cases"].(map[string][]FlowStep); ok {
+				nextCases := make(map[string][]FlowStep, len(cases))
+				for key, branch := range cases {
+					nextCases[key] = inject(branch)
+				}
+				s.Args["_cases"] = nextCases
 			}
 
 			result = append(result, s)
@@ -755,7 +854,7 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 			stepNum := i + 1
 
 			switch step.Action {
-			case "repo.Find", "repo.Get", "repo.GetForUpdate", "repo.Save", "repo.Delete", "repo.List":
+			case "repo.Find", "repo.Get", "repo.GetForUpdate", "repo.Save", "repo.Delete", "repo.List", "repo.Upsert":
 				source, _ := step.Args["source"].(string)
 				if source != "" {
 					owner, ok := entityOwners[source]
@@ -787,7 +886,7 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 				}
 
 				// Standard checks ...
-				if strings.HasPrefix(step.Action, "repo.Find") || strings.HasPrefix(step.Action, "repo.Get") {
+				if strings.HasPrefix(step.Action, "repo.Find") || strings.HasPrefix(step.Action, "repo.Get") || step.Action == "repo.Upsert" {
 					output, _ := step.Args["output"].(string)
 					if output != "" {
 						declaredVars[output] = true
@@ -801,6 +900,31 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 				}
 				if step.Action == "repo.GetForUpdate" && !inTx {
 					addWarn(stepNum, step.Action, "TX_REQUIRED", "repo.GetForUpdate outside tx.Block", "{action: \"tx.Block\", do: [ ... ]}", step.File, step.Line, step.Column)
+				}
+				if step.Action == "repo.Upsert" {
+					if step.Args["source"] == nil || step.Args["source"] == "" {
+						addWarn(stepNum, step.Action, "MISSING_SOURCE", "repo.Upsert missing 'source'", "{action: \"repo.Upsert\", source: \"Entity\", find: \"FindBy...\", input: \"...\", output: \"item\"}", step.File, step.Line, step.Column)
+					}
+					if step.Args["find"] == nil || step.Args["find"] == "" {
+						addWarn(stepNum, step.Action, "MISSING_FIND", "repo.Upsert missing 'find'", "{action: \"repo.Upsert\", source: \"Entity\", find: \"FindBy...\", input: \"...\", output: \"item\"}", step.File, step.Line, step.Column)
+					}
+					if step.Args["input"] == nil || step.Args["input"] == "" {
+						addWarn(stepNum, step.Action, "MISSING_INPUT", "repo.Upsert missing 'input'", "{action: \"repo.Upsert\", source: \"Entity\", find: \"FindBy...\", input: \"...\", output: \"item\"}", step.File, step.Line, step.Column)
+					}
+					if step.Args["output"] == nil || step.Args["output"] == "" {
+						addWarn(stepNum, step.Action, "MISSING_OUTPUT", "repo.Upsert missing 'output'", "{action: \"repo.Upsert\", source: \"Entity\", find: \"FindBy...\", input: \"...\", output: \"item\"}", step.File, step.Line, step.Column)
+					}
+					_, hasIfNew := step.Args["_ifNew"].([]FlowStep)
+					_, hasIfExists := step.Args["_ifExists"].([]FlowStep)
+					if !hasIfNew && !hasIfExists {
+						addWarn(stepNum, step.Action, "MISSING_BRANCHES", "repo.Upsert requires at least one branch: ifNew or ifExists", "{action: \"repo.Upsert\", ..., ifNew: [ ... ]}", step.File, step.Line, step.Column)
+					}
+					if subSteps, ok := step.Args["_ifNew"].([]FlowStep); ok {
+						validate(subSteps, inTx, depth+1)
+					}
+					if subSteps, ok := step.Args["_ifExists"].([]FlowStep); ok {
+						validate(subSteps, inTx, depth+1)
+					}
 				}
 
 			case "mapping.Map":
@@ -932,6 +1056,22 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					validate(subSteps, inTx, depth+1)
 				}
 
+			case "flow.Switch":
+				if step.Args["value"] == nil || step.Args["value"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_VALUE", "flow.Switch missing 'value'", "{action: \"flow.Switch\", value: \"req.Role\", cases: {owner: [ ... ]}}", step.File, step.Line, step.Column)
+				}
+				cases, ok := step.Args["_cases"].(map[string][]FlowStep)
+				if !ok || len(cases) == 0 {
+					addWarn(stepNum, step.Action, "MISSING_CASES", "flow.Switch requires at least one case", "{action: \"flow.Switch\", value: \"req.Role\", cases: {owner: [ ... ]}}", step.File, step.Line, step.Column)
+				} else {
+					for _, subSteps := range cases {
+						validate(subSteps, inTx, depth+1)
+					}
+				}
+				if subSteps, ok := step.Args["_default"].([]FlowStep); ok {
+					validate(subSteps, inTx, depth+1)
+				}
+
 			case "flow.For":
 				if step.Args["each"] == nil || step.Args["each"] == "" {
 					addWarn(stepNum, step.Action, "MISSING_EACH", "flow.For missing 'each'", "{action: \"flow.For\", each: \"items\", as: \"item\", do: [ ... ]}", step.File, step.Line, step.Column)
@@ -973,6 +1113,14 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					declaredVars["currentUser"] = true
 				}
 
+			case "auth.CheckRole":
+				if step.Args["user"] == nil || step.Args["user"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_USER", "auth.CheckRole missing 'user'", "{action: \"auth.CheckRole\", user: \"currentUser\", roles: \"...\"}", step.File, step.Line, step.Column)
+				}
+				if step.Args["roles"] == nil || step.Args["roles"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_ROLES", "auth.CheckRole missing 'roles'", "{action: \"auth.CheckRole\", user: \"currentUser\", roles: \"...\"}", step.File, step.Line, step.Column)
+				}
+
 			case "entity.PatchNonZero":
 				if step.Args["target"] == nil || step.Args["target"] == "" {
 					addWarn(stepNum, step.Action, "MISSING_TARGET", "entity.PatchNonZero missing 'target'", "{action: \"entity.PatchNonZero\", target: \"entity\", from: \"req\", fields: \"Title, Description\"}", step.File, step.Line, step.Column)
@@ -982,6 +1130,49 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 				}
 				if step.Args["fields"] == nil || step.Args["fields"] == "" {
 					addWarn(stepNum, step.Action, "MISSING_FIELDS", "entity.PatchNonZero missing 'fields'", "{action: \"entity.PatchNonZero\", target: \"entity\", from: \"req\", fields: \"Title, Description\"}", step.File, step.Line, step.Column)
+				}
+
+			case "entity.PatchValidated":
+				if step.Args["target"] == nil || step.Args["target"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_TARGET", "entity.PatchValidated missing 'target'", "{action: \"entity.PatchValidated\", target: \"company\", from: \"req\", fields: { Email: { normalize: \"lower\", format: \"email\" } }}", step.File, step.Line, step.Column)
+				}
+				if step.Args["from"] == nil || step.Args["from"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_FROM", "entity.PatchValidated missing 'from'", "{action: \"entity.PatchValidated\", target: \"company\", from: \"req\", fields: { Email: { normalize: \"lower\", format: \"email\" } }}", step.File, step.Line, step.Column)
+				}
+				fields, ok := step.Args["fields"].(map[string]map[string]string)
+				if !ok || len(fields) == 0 {
+					addWarn(stepNum, step.Action, "MISSING_FIELDS", "entity.PatchValidated requires non-empty 'fields' map", "{action: \"entity.PatchValidated\", fields: { Email: { normalize: \"lower\" } }}", step.File, step.Line, step.Column)
+					break
+				}
+				for fieldName, rules := range fields {
+					if strings.TrimSpace(fieldName) == "" {
+						addWarn(stepNum, step.Action, "INVALID_FIELD_NAME", "entity.PatchValidated contains empty field name", "{action: \"entity.PatchValidated\", fields: { Email: { ... } }}", step.File, step.Line, step.Column)
+						continue
+					}
+					if normalize := strings.TrimSpace(rules["normalize"]); normalize != "" &&
+						normalize != "trim" && normalize != "lower" && normalize != "upper" {
+						addWarn(stepNum, step.Action, "INVALID_NORMALIZE", fmt.Sprintf("entity.PatchValidated invalid normalize '%s' for field '%s'", normalize, fieldName), "{ normalize: \"trim\" | \"lower\" | \"upper\" }", step.File, step.Line, step.Column)
+					}
+					if formatRule := strings.TrimSpace(rules["format"]); formatRule != "" &&
+						formatRule != "email" && formatRule != "phone" {
+						addWarn(stepNum, step.Action, "INVALID_FORMAT", fmt.Sprintf("entity.PatchValidated invalid format '%s' for field '%s'", formatRule, fieldName), "{ format: \"email\" | \"phone\" }", step.File, step.Line, step.Column)
+					}
+					if uniqueMethod := strings.TrimSpace(rules["unique"]); uniqueMethod != "" {
+						if !strings.HasPrefix(uniqueMethod, "FindBy") {
+							addWarn(stepNum, step.Action, "INVALID_UNIQUE_METHOD", fmt.Sprintf("entity.PatchValidated unique method '%s' should start with FindBy", uniqueMethod), "{ unique: \"FindByTaxID\" }", step.File, step.Line, step.Column)
+						}
+						if step.Args["source"] == nil || step.Args["source"] == "" {
+							addWarn(stepNum, step.Action, "MISSING_SOURCE", "entity.PatchValidated with unique checks requires explicit 'source' repository entity", "{action: \"entity.PatchValidated\", source: \"Company\", ...}", step.File, step.Line, step.Column)
+						}
+					}
+				}
+
+			case "field.CopyNonEmpty":
+				if step.Args["from"] == nil || step.Args["from"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_FROM", "field.CopyNonEmpty missing 'from'", "{action: \"field.CopyNonEmpty\", from: \"req\", to: \"existing\"}", step.File, step.Line, step.Column)
+				}
+				if step.Args["to"] == nil || step.Args["to"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_TO", "field.CopyNonEmpty missing 'to'", "{action: \"field.CopyNonEmpty\", from: \"req\", to: \"existing\"}", step.File, step.Line, step.Column)
 				}
 
 			case "list.Paginate":
@@ -1001,7 +1192,6 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 				if pOut, _ := step.Args["output"].(string); pOut != "" {
 					declaredVars[pOut] = true
 				}
-
 
 			case "str.Normalize":
 				if step.Args["input"] == nil || step.Args["input"] == "" {
@@ -1047,6 +1237,46 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					declaredVars[pOut] = true
 				}
 
+			case "list.Enrich":
+				if step.Args["items"] == nil || step.Args["items"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_ITEMS", "list.Enrich missing 'items'", "{action: \"list.Enrich\", items: \"items\", lookupSource: \"Company\", lookupInput: \"item.CompanyID\", set: \"Name=Name\"}", step.File, step.Line, step.Column)
+				}
+				if step.Args["lookupSource"] == nil || step.Args["lookupSource"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_LOOKUP_SOURCE", "list.Enrich missing 'lookupSource'", "{action: \"list.Enrich\", items: \"items\", lookupSource: \"Company\", lookupInput: \"item.CompanyID\", set: \"Name=Name\"}", step.File, step.Line, step.Column)
+				}
+				lookupSource, _ := step.Args["lookupSource"].(string)
+				if lookupSource != "" {
+					owner, ok := entityOwners[lookupSource]
+					if !ok {
+						addWarn(stepNum, step.Action, "UNKNOWN_ENTITY", fmt.Sprintf("Entity '%s' is not defined in any domain CUE file", lookupSource), "Define the entity in cue/domain/ or check spelling", step.File, step.Line, step.Column)
+					} else if isDTO[lookupSource] {
+						addWarn(stepNum, step.Action, "DTO_AS_REPO", fmt.Sprintf("Entity '%s' is a DTO-only entity and cannot be accessed via repository", lookupSource), "Remove @dto(only=true) or use a real domain entity", step.File, step.Line, step.Column)
+					}
+					isShared := strings.EqualFold(lookupSource, "Company") || strings.EqualFold(lookupSource, "APIKey")
+					ownerMatch := strings.EqualFold(owner, svcName) ||
+						strings.EqualFold(owner+"s", svcName) ||
+						strings.EqualFold(svcName+"s", owner)
+					if ok && owner != "" && !isShared && !ownerMatch && !strings.EqualFold(svcName, "admin") && !strings.EqualFold(svcName, "audit") {
+						addWarn(stepNum, step.Action, "ARCHITECTURE_VIOLATION", fmt.Sprintf("Service '%s' is not allowed to directly access entity '%s' (owned by '%s')", svcName, lookupSource, owner), fmt.Sprintf("Use events or call %sService", strings.Title(owner)), step.File, step.Line, step.Column)
+					}
+				}
+				if step.Args["lookupInput"] == nil || step.Args["lookupInput"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_LOOKUP_INPUT", "list.Enrich missing 'lookupInput'", "{action: \"list.Enrich\", items: \"items\", lookupSource: \"Company\", lookupInput: \"item.CompanyID\", set: \"Name=Name\"}", step.File, step.Line, step.Column)
+				}
+				setRaw, _ := step.Args["set"].(string)
+				if strings.TrimSpace(setRaw) == "" {
+					addWarn(stepNum, step.Action, "MISSING_SET", "list.Enrich missing 'set'", "{action: \"list.Enrich\", items: \"items\", lookupSource: \"Company\", lookupInput: \"item.CompanyID\", set: \"Name=Name\"}", step.File, step.Line, step.Column)
+					break
+				}
+				pairs := strings.Split(setRaw, ",")
+				for _, pair := range pairs {
+					kv := strings.Split(strings.TrimSpace(pair), "=")
+					if len(kv) != 2 || strings.TrimSpace(kv[0]) == "" || strings.TrimSpace(kv[1]) == "" || kv[0] != strings.TrimSpace(kv[0]) || kv[1] != strings.TrimSpace(kv[1]) {
+						addWarn(stepNum, step.Action, "INVALID_SET_FORMAT", "list.Enrich 'set' must be comma-separated TargetField=LookupField pairs without spaces around '='", "{action: \"list.Enrich\", ..., set: \"AuthorName=Name,AuthorLogo=Logo\"}", step.File, step.Line, step.Column)
+						break
+					}
+				}
+
 			case "time.Parse":
 				if step.Args["value"] == nil || step.Args["value"] == "" {
 					addWarn(stepNum, step.Action, "MISSING_VALUE", "time.Parse missing 'value'", "{action: \"time.Parse\", value: \"req.StartDate\", output: \"startDate\"}", step.File, step.Line, step.Column)
@@ -1090,7 +1320,7 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					!strings.HasPrefix(step.Action, "tx.") && !strings.HasPrefix(step.Action, "list.") &&
 					!strings.HasPrefix(step.Action, "notification.") &&
 					!strings.HasPrefix(step.Action, "audit.") && !strings.HasPrefix(step.Action, "auth.") &&
-					!strings.HasPrefix(step.Action, "entity.") &&
+					!strings.HasPrefix(step.Action, "entity.") && !strings.HasPrefix(step.Action, "field.") &&
 					!strings.HasPrefix(step.Action, "str.") && !strings.HasPrefix(step.Action, "enum.") &&
 					!strings.HasPrefix(step.Action, "time.") && !strings.HasPrefix(step.Action, "map.") {
 					addWarn(stepNum, step.Action, "UNKNOWN_ACTION", fmt.Sprintf("unknown action '%s'", step.Action), "{action: \"repo.Find\" | \"mapping.Assign\" | \"flow.If\" ...}", step.File, step.Line, step.Column)

@@ -373,15 +373,31 @@ func irFlowStepsToNormalizer(irSteps []ir.FlowStep) []normalizer.FlowStep {
 		for k, v := range step.Args {
 			args[k] = v
 		}
-		// Convert nested steps back to _do, _then, _else
+		// Convert nested steps back to _do, _ifNew, _ifExists, _then, _else, _cases, _default
 		if len(step.Steps) > 0 {
 			args["_do"] = irFlowStepsToNormalizer(step.Steps)
+		}
+		if len(step.IfNew) > 0 {
+			args["_ifNew"] = irFlowStepsToNormalizer(step.IfNew)
+		}
+		if len(step.IfExists) > 0 {
+			args["_ifExists"] = irFlowStepsToNormalizer(step.IfExists)
 		}
 		if len(step.Then) > 0 {
 			args["_then"] = irFlowStepsToNormalizer(step.Then)
 		}
 		if len(step.Else) > 0 {
 			args["_else"] = irFlowStepsToNormalizer(step.Else)
+		}
+		if len(step.Default) > 0 {
+			args["_default"] = irFlowStepsToNormalizer(step.Default)
+		}
+		if len(step.Cases) > 0 {
+			cases := make(map[string][]normalizer.FlowStep, len(step.Cases))
+			for label, branch := range step.Cases {
+				cases[label] = irFlowStepsToNormalizer(branch)
+			}
+			args["_cases"] = cases
 		}
 		result = append(result, normalizer.FlowStep{
 			Action: step.Action,

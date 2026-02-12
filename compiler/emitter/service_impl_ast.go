@@ -240,6 +240,12 @@ func serviceImplRepoEntities(s normalizer.Service, entities []normalizer.Entity)
 					res = append(res, src)
 				}
 			}
+			if step.Action == "list.Enrich" {
+				if src, ok := step.Args["lookupSource"].(string); ok && src != "" && !unique[src] && !dtoEntities[src] {
+					unique[src] = true
+					res = append(res, src)
+				}
+			}
 			// audit.Log requires AuditLog repository
 			if step.Action == "audit.Log" {
 				if !unique["AuditLog"] && !dtoEntities["AuditLog"] {
@@ -254,7 +260,35 @@ func serviceImplRepoEntities(s normalizer.Service, entities []normalizer.Entity)
 					res = append(res, "User")
 				}
 			}
+			// entity.PatchValidated may require repository for unique checks
+			if step.Action == "entity.PatchValidated" {
+				hasUnique := false
+				if fields, ok := step.Args["fields"].(map[string]map[string]string); ok {
+					for _, cfg := range fields {
+						if strings.TrimSpace(cfg["unique"]) != "" {
+							hasUnique = true
+							break
+						}
+					}
+				}
+				if hasUnique {
+					repoEntity := ""
+					if src, ok := step.Args["source"].(string); ok {
+						repoEntity = strings.TrimSpace(src)
+					}
+					if repoEntity != "" && !unique[repoEntity] && !dtoEntities[repoEntity] {
+						unique[repoEntity] = true
+						res = append(res, repoEntity)
+					}
+				}
+			}
 			if v, ok := step.Args["_do"].([]normalizer.FlowStep); ok {
+				scanSteps(v)
+			}
+			if v, ok := step.Args["_ifNew"].([]normalizer.FlowStep); ok {
+				scanSteps(v)
+			}
+			if v, ok := step.Args["_ifExists"].([]normalizer.FlowStep); ok {
 				scanSteps(v)
 			}
 			if v, ok := step.Args["_then"].([]normalizer.FlowStep); ok {
@@ -262,6 +296,14 @@ func serviceImplRepoEntities(s normalizer.Service, entities []normalizer.Entity)
 			}
 			if v, ok := step.Args["_else"].([]normalizer.FlowStep); ok {
 				scanSteps(v)
+			}
+			if v, ok := step.Args["_default"].([]normalizer.FlowStep); ok {
+				scanSteps(v)
+			}
+			if cases, ok := step.Args["_cases"].(map[string][]normalizer.FlowStep); ok {
+				for _, branch := range cases {
+					scanSteps(branch)
+				}
 			}
 		}
 	}
@@ -300,11 +342,27 @@ func serviceImplNeedsTx(s normalizer.Service) bool {
 			if v, ok := step.Args["_do"].([]normalizer.FlowStep); ok && scanSteps(v) {
 				return true
 			}
+			if v, ok := step.Args["_ifNew"].([]normalizer.FlowStep); ok && scanSteps(v) {
+				return true
+			}
+			if v, ok := step.Args["_ifExists"].([]normalizer.FlowStep); ok && scanSteps(v) {
+				return true
+			}
 			if v, ok := step.Args["_then"].([]normalizer.FlowStep); ok && scanSteps(v) {
 				return true
 			}
 			if v, ok := step.Args["_else"].([]normalizer.FlowStep); ok && scanSteps(v) {
 				return true
+			}
+			if v, ok := step.Args["_default"].([]normalizer.FlowStep); ok && scanSteps(v) {
+				return true
+			}
+			if cases, ok := step.Args["_cases"].(map[string][]normalizer.FlowStep); ok {
+				for _, branch := range cases {
+					if scanSteps(branch) {
+						return true
+					}
+				}
 			}
 		}
 		return false
@@ -330,11 +388,27 @@ func serviceImplHasPublishes(s normalizer.Service) bool {
 			if v, ok := step.Args["_do"].([]normalizer.FlowStep); ok && scanSteps(v) {
 				return true
 			}
+			if v, ok := step.Args["_ifNew"].([]normalizer.FlowStep); ok && scanSteps(v) {
+				return true
+			}
+			if v, ok := step.Args["_ifExists"].([]normalizer.FlowStep); ok && scanSteps(v) {
+				return true
+			}
 			if v, ok := step.Args["_then"].([]normalizer.FlowStep); ok && scanSteps(v) {
 				return true
 			}
 			if v, ok := step.Args["_else"].([]normalizer.FlowStep); ok && scanSteps(v) {
 				return true
+			}
+			if v, ok := step.Args["_default"].([]normalizer.FlowStep); ok && scanSteps(v) {
+				return true
+			}
+			if cases, ok := step.Args["_cases"].(map[string][]normalizer.FlowStep); ok {
+				for _, branch := range cases {
+					if scanSteps(branch) {
+						return true
+					}
+				}
 			}
 		}
 		return false
@@ -357,11 +431,27 @@ func serviceImplHasNotificationDispatch(s normalizer.Service) bool {
 			if v, ok := step.Args["_do"].([]normalizer.FlowStep); ok && scanSteps(v) {
 				return true
 			}
+			if v, ok := step.Args["_ifNew"].([]normalizer.FlowStep); ok && scanSteps(v) {
+				return true
+			}
+			if v, ok := step.Args["_ifExists"].([]normalizer.FlowStep); ok && scanSteps(v) {
+				return true
+			}
 			if v, ok := step.Args["_then"].([]normalizer.FlowStep); ok && scanSteps(v) {
 				return true
 			}
 			if v, ok := step.Args["_else"].([]normalizer.FlowStep); ok && scanSteps(v) {
 				return true
+			}
+			if v, ok := step.Args["_default"].([]normalizer.FlowStep); ok && scanSteps(v) {
+				return true
+			}
+			if cases, ok := step.Args["_cases"].(map[string][]normalizer.FlowStep); ok {
+				for _, branch := range cases {
+					if scanSteps(branch) {
+						return true
+					}
+				}
 			}
 		}
 		return false

@@ -308,8 +308,13 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 				if step.Action == "tx.Block" {
 					return true
 				}
-				if hasTx(step.Steps) || hasTx(step.Then) || hasTx(step.Else) {
+				if hasTx(step.Steps) || hasTx(step.IfNew) || hasTx(step.IfExists) || hasTx(step.Then) || hasTx(step.Else) || hasTx(step.Default) {
 					return true
+				}
+				for _, branch := range step.Cases {
+					if hasTx(branch) {
+						return true
+					}
 				}
 			}
 			return false
@@ -348,8 +353,13 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 				if step.Action == "tx.Block" {
 					return true
 				}
-				if hasTx(step.Steps) || hasTx(step.Then) || hasTx(step.Else) {
+				if hasTx(step.Steps) || hasTx(step.IfNew) || hasTx(step.IfExists) || hasTx(step.Then) || hasTx(step.Else) || hasTx(step.Default) {
 					return true
+				}
+				for _, branch := range step.Cases {
+					if hasTx(branch) {
+						return true
+					}
 				}
 			}
 			return false
@@ -368,8 +378,13 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 				if step.Action == "event.Publish" {
 					return true
 				}
-				if hasPublish(step.Steps) || hasPublish(step.Then) || hasPublish(step.Else) {
+				if hasPublish(step.Steps) || hasPublish(step.IfNew) || hasPublish(step.IfExists) || hasPublish(step.Then) || hasPublish(step.Else) || hasPublish(step.Default) {
 					return true
+				}
+				for _, branch := range step.Cases {
+					if hasPublish(branch) {
+						return true
+					}
 				}
 			}
 			return false
@@ -388,8 +403,13 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 				if step.Action == "notification.Dispatch" {
 					return true
 				}
-				if hasDispatch(step.Steps) || hasDispatch(step.Then) || hasDispatch(step.Else) {
+				if hasDispatch(step.Steps) || hasDispatch(step.IfNew) || hasDispatch(step.IfExists) || hasDispatch(step.Then) || hasDispatch(step.Else) || hasDispatch(step.Default) {
 					return true
+				}
+				for _, branch := range step.Cases {
+					if hasDispatch(branch) {
+						return true
+					}
 				}
 			}
 			return false
@@ -408,8 +428,13 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 				if step.Action == "notification.Dispatch" {
 					return true
 				}
-				if hasDispatch(step.Steps) || hasDispatch(step.Then) || hasDispatch(step.Else) {
+				if hasDispatch(step.Steps) || hasDispatch(step.IfNew) || hasDispatch(step.IfExists) || hasDispatch(step.Then) || hasDispatch(step.Else) || hasDispatch(step.Default) {
 					return true
+				}
+				for _, branch := range step.Cases {
+					if hasDispatch(branch) {
+						return true
+					}
 				}
 			}
 			return false
@@ -458,9 +483,42 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 						out = append(out, src)
 					}
 				}
+				if step.Action == "list.Enrich" {
+					if src, ok := step.Args["lookupSource"].(string); ok && src != "" && !seen[src] && !dtoEntities[src] {
+						seen[src] = true
+						out = append(out, src)
+					}
+				}
+				if step.Action == "entity.PatchValidated" {
+					hasUnique := false
+					if fields, ok := step.Args["fields"].(map[string]map[string]string); ok {
+						for _, cfg := range fields {
+							if strings.TrimSpace(cfg["unique"]) != "" {
+								hasUnique = true
+								break
+							}
+						}
+					}
+					if hasUnique {
+						repoEntity := ""
+						if src, ok := step.Args["source"].(string); ok {
+							repoEntity = strings.TrimSpace(src)
+						}
+						if repoEntity != "" && !seen[repoEntity] && !dtoEntities[repoEntity] {
+							seen[repoEntity] = true
+							out = append(out, repoEntity)
+						}
+					}
+				}
 				scanSteps(step.Steps)
+				scanSteps(step.IfNew)
+				scanSteps(step.IfExists)
 				scanSteps(step.Then)
 				scanSteps(step.Else)
+				scanSteps(step.Default)
+				for _, branch := range step.Cases {
+					scanSteps(branch)
+				}
 			}
 		}
 
@@ -570,6 +628,16 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 					}
 					if v, ok := step.Args["_else"].([]normalizer.FlowStep); ok && hasTx(v) {
 						return true
+					}
+					if v, ok := step.Args["_default"].([]normalizer.FlowStep); ok && hasTx(v) {
+						return true
+					}
+					if cases, ok := step.Args["_cases"].(map[string][]normalizer.FlowStep); ok {
+						for _, branch := range cases {
+							if hasTx(branch) {
+								return true
+							}
+						}
 					}
 				}
 				return false

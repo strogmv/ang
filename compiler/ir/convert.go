@@ -621,7 +621,8 @@ func ConvertFlowSteps(source []normalizer.FlowStep) []FlowStep {
 	var steps []FlowStep
 	for _, step := range source {
 		args := make(map[string]any)
-		var thenSteps, elseSteps, doSteps []FlowStep
+		var thenSteps, elseSteps, doSteps, ifNewSteps, ifExistsSteps, defaultSteps []FlowStep
+		var caseSteps map[string][]FlowStep
 		for k, v := range step.Args {
 			if k == "_then" {
 				if nested, ok := v.([]normalizer.FlowStep); ok {
@@ -641,6 +642,33 @@ func ConvertFlowSteps(source []normalizer.FlowStep) []FlowStep {
 				}
 				continue
 			}
+			if k == "_ifNew" {
+				if nested, ok := v.([]normalizer.FlowStep); ok {
+					ifNewSteps = ConvertFlowSteps(nested)
+				}
+				continue
+			}
+			if k == "_ifExists" {
+				if nested, ok := v.([]normalizer.FlowStep); ok {
+					ifExistsSteps = ConvertFlowSteps(nested)
+				}
+				continue
+			}
+			if k == "_default" {
+				if nested, ok := v.([]normalizer.FlowStep); ok {
+					defaultSteps = ConvertFlowSteps(nested)
+				}
+				continue
+			}
+			if k == "_cases" {
+				if nested, ok := v.(map[string][]normalizer.FlowStep); ok {
+					caseSteps = make(map[string][]FlowStep, len(nested))
+					for label, branch := range nested {
+						caseSteps[label] = ConvertFlowSteps(branch)
+					}
+				}
+				continue
+			}
 			args[k] = v
 		}
 		steps = append(steps, FlowStep{
@@ -648,8 +676,12 @@ func ConvertFlowSteps(source []normalizer.FlowStep) []FlowStep {
 			Params:     step.Params,
 			Args:       args,
 			Steps:      doSteps,
+			IfNew:      ifNewSteps,
+			IfExists:   ifExistsSteps,
 			Then:       thenSteps,
 			Else:       elseSteps,
+			Cases:      caseSteps,
+			Default:    defaultSteps,
 			Attributes: ConvertAttributes(step.Attributes),
 		})
 	}

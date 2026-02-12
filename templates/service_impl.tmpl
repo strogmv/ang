@@ -213,6 +213,20 @@ func New{{ .Service.Name }}Impl(
 		return resp, err
 		{{- end }}
 	}
+		{{- else if eq .Action "repo.Upsert" }}
+	{{ Assign $scope .Args.output }} s.{{ ExportName .Args.source }}Repo.{{ .Args.find }}({{ $ctxVar }}, {{ .Args.input }})
+	if err != nil {
+		{{- if $inTx }}
+		return errors.WithIntent(err, "{{ .File }}:{{ .Line }}")
+		{{- else }}
+		return resp, errors.WithIntent(err, "{{ .File }}:{{ .Line }}")
+		{{- end }}
+	}
+	if {{ .Args.output }} == nil {
+		{{- template "flow_steps" (dict "Steps" (getIfNew .) "Method" $method "Service" $svc "Entities" $entities "InTx" $inTx "Logger" "l" "Scope" (CloneScope $scope)) }}
+	} else {
+		{{- template "flow_steps" (dict "Steps" (getIfExists .) "Method" $method "Service" $svc "Entities" $entities "InTx" $inTx "Logger" "l" "Scope" (CloneScope $scope)) }}
+	}
 		{{- else if eq .Action "repo.Save" }}
 	if err = s.{{ ExportName .Args.source }}Repo.Save({{ $ctxVar }}, {{ pointerExpr .Args.input }}); err != nil {
 		{{- if $inTx }}
@@ -377,6 +391,25 @@ func New{{ .Service.Name }}Impl(
 	} {{ if (getElse .) }} else {
 		{{- template "flow_steps" (dict "Steps" (getElse .) "Method" $method "Service" $svc "Entities" $entities "InTx" $inTx "Logger" "l" "Scope" (CloneScope $scope))}}
 	} {{ end }}
+		{{- else if eq .Action "flow.Switch" }}
+	{{- $switchCases := getCases . }}
+	{{- $switchCaseKeys := getCaseKeys . }}
+	{
+		_swVal := {{ .Args.value }}
+		{{- if gt (len $switchCaseKeys) 0 }}
+		{{- range $idx, $case := $switchCaseKeys }}
+		{{- if eq $idx 0 }}if{{ else }} else if{{ end }} _swVal == "{{ $case }}" {
+			{{- template "flow_steps" (dict "Steps" (index $switchCases $case) "Method" $method "Service" $svc "Entities" $entities "InTx" $inTx "Logger" "l" "Scope" (CloneScope $scope))}}
+		}
+		{{- end }}
+		{{- if getDefault . }} else {
+			{{- template "flow_steps" (dict "Steps" (getDefault .) "Method" $method "Service" $svc "Entities" $entities "InTx" $inTx "Logger" "l" "Scope" (CloneScope $scope))}}
+		}
+		{{- end }}
+		{{- else if getDefault . }}
+		{{- template "flow_steps" (dict "Steps" (getDefault .) "Method" $method "Service" $svc "Entities" $entities "InTx" $inTx "Logger" "l" "Scope" (CloneScope $scope))}}
+		{{- end }}
+	}
 		{{- else if eq .Action "flow.For" }}
 	for _, {{ AssignSimple $scope .Args.as }} range {{ .Args.each }} {
 		{{- template "flow_steps" (dict "Steps" (getSteps .) "Method" $method "Service" $svc "Entities" $entities "InTx" $inTx "Logger" "l" "Scope" (CloneScope $scope))}}
@@ -461,20 +494,111 @@ func New{{ .Service.Name }}Impl(
 	}
 	{{- end }}
 	{{ .Args.target }}.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-		{{- else if eq .Action "list.Paginate" }}
-	{
-		_pOff := {{ .Args.offset }}
-		if _pOff < 0 { _pOff = 0 }
-		_pLim := {{ .Args.limit }}
-		if _pLim <= 0 { _pLim = {{ or .Args.defaultLimit "50" }} }
-		{{- if .Args.total }}
-		{{ AssignSimple $scope .Args.total }} len({{ .Args.input }})
+		{{- else if eq .Action "entity.PatchValidated" }}
+	{{- $pvFields := getPatchValidatedFieldKeys . }}
+	{{- range $field := $pvFields }}
+	if !helpers.IsZero({{ $.Args.from }}.{{ $field }}) {
+		{{- $normalize := getPatchValidatedRule $ $field "normalize" }}
+		{{- $format := getPatchValidatedRule $ $field "format" }}
+		{{- $unique := getPatchValidatedRule $ $field "unique" }}
+		{{- if or $normalize $format $unique }}
+		_pvVal := fmt.Sprint({{ $.Args.from }}.{{ $field }})
+		{{- if eq $normalize "trim" }}
+		_pvVal = strings.TrimSpace(_pvVal)
+		{{- else if eq $normalize "lower" }}
+		_pvVal = strings.ToLower(strings.TrimSpace(_pvVal))
+		{{- else if eq $normalize "upper" }}
+		_pvVal = strings.ToUpper(strings.TrimSpace(_pvVal))
 		{{- end }}
-		if _pOff > len({{ .Args.input }}) { _pOff = len({{ .Args.input }}) }
-		_pEnd := _pOff + _pLim
-		if _pEnd > len({{ .Args.input }}) { _pEnd = len({{ .Args.input }}) }
-		{{ AssignSimple $scope .Args.output }} {{ .Args.input }}[_pOff:_pEnd]
+		{{- if eq $format "email" }}
+		if !strings.Contains(_pvVal, "@") || !strings.Contains(strings.SplitN(_pvVal, "@", 2)[1], ".") {
+			{{- if $inTx }}
+			return errors.New(http.StatusBadRequest, "Bad Request", "invalid {{ ToLower $field }} format")
+			{{- else }}
+			return resp, errors.New(http.StatusBadRequest, "Bad Request", "invalid {{ ToLower $field }} format")
+			{{- end }}
+		}
+		{{- else if eq $format "phone" }}
+		_pvPhone := strings.NewReplacer(" ", "", "-", "", "(", "", ")", "").Replace(_pvVal)
+		if strings.HasPrefix(_pvPhone, "+") {
+			_pvPhone = strings.TrimPrefix(_pvPhone, "+")
+		}
+		if _pvPhone == "" || strings.Trim(_pvPhone, "0123456789") != "" {
+			{{- if $inTx }}
+			return errors.New(http.StatusBadRequest, "Bad Request", "invalid {{ ToLower $field }} format")
+			{{- else }}
+			return resp, errors.New(http.StatusBadRequest, "Bad Request", "invalid {{ ToLower $field }} format")
+			{{- end }}
+		}
+		{{- end }}
+		{{- if $unique }}
+		{{- if $.Args.source }}
+		_pvExisting, _ := s.{{ ExportName $.Args.source }}Repo.{{ $unique }}({{ $ctxVar }}, _pvVal)
+		if _pvExisting != nil && helpers.GetID(_pvExisting) != helpers.GetID({{ $.Args.target }}) {
+			{{- if $inTx }}
+			return errors.New(http.StatusConflict, "Conflict", "{{ ToLower $field }} already exists")
+			{{- else }}
+			return resp, errors.New(http.StatusConflict, "Conflict", "{{ ToLower $field }} already exists")
+			{{- end }}
+		}
+		{{- else }}
+		{{- if $inTx }}
+		return errors.New(http.StatusInternalServerError, "Internal Error", "entity.PatchValidated unique check requires source")
+		{{- else }}
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "entity.PatchValidated unique check requires source")
+		{{- end }}
+		{{- end }}
+		{{- end }}
+		{{ $.Args.target }}.{{ $field }} = _pvVal
+		{{- else }}
+		{{ $.Args.target }}.{{ $field }} = {{ $.Args.from }}.{{ $field }}
+		{{- end }}
 	}
+	{{- end }}
+	{{ .Args.target }}.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+		{{- else if eq .Action "field.CopyNonEmpty" }}
+	helpers.CopyNonEmptyFields(&{{ .Args.from }}, {{ pointerExpr .Args.to }})
+	{{ .Args.to }}.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+		{{- else if eq .Action "auth.CheckRole" }}
+	{
+		_role := strings.ToLower({{ .Args.user }}.Role)
+		_allowed := false
+		for _, _r := range []string{ {{ .Args.roles }} } {
+			if _r == _role { _allowed = true; break }
+		}
+		if !_allowed {
+			{{- if $inTx }}
+			return errors.New(http.StatusForbidden, "Forbidden", "insufficient role")
+			{{- else }}
+			return resp, errors.New(http.StatusForbidden, "Forbidden", "insufficient role")
+			{{- end }}
+		}
+		{{- if .Args.companyID }}
+		if {{ .Args.user }}.CompanyID != {{ .Args.companyID }} && _role != "admin" {
+			{{- if $inTx }}
+			return errors.New(http.StatusForbidden, "Forbidden", "company mismatch")
+			{{- else }}
+			return resp, errors.New(http.StatusForbidden, "Forbidden", "company mismatch")
+			{{- end }}
+		}
+		{{- end }}
+	}
+		{{- else if eq .Action "list.Paginate" }}
+	{{- $pgKey := replace .Args.output "." "_" }}
+	{{- $pgOff := printf "_pOff_%s" $pgKey }}
+	{{- $pgLim := printf "_pLim_%s" $pgKey }}
+	{{- $pgEnd := printf "_pEnd_%s" $pgKey }}
+	{{ AssignSimple $scope $pgOff }} {{ .Args.offset }}
+	if {{ $pgOff }} < 0 { {{ $pgOff }} = 0 }
+	{{ AssignSimple $scope $pgLim }} {{ .Args.limit }}
+	if {{ $pgLim }} <= 0 { {{ $pgLim }} = {{ or .Args.defaultLimit "50" }} }
+	{{- if .Args.total }}
+	{{ AssignSimple $scope .Args.total }} len({{ .Args.input }})
+	{{- end }}
+	if {{ $pgOff }} > len({{ .Args.input }}) { {{ $pgOff }} = len({{ .Args.input }}) }
+	{{ AssignSimple $scope $pgEnd }} {{ $pgOff }} + {{ $pgLim }}
+	if {{ $pgEnd }} > len({{ .Args.input }}) { {{ $pgEnd }} = len({{ .Args.input }}) }
+	{{ AssignSimple $scope .Args.output }} {{ .Args.input }}[{{ $pgOff }}:{{ $pgEnd }}]
 		{{- else if eq .Action "str.Normalize" }}
 	{{- $mode := "lower" }}{{ if .Args.mode }}{{ $mode = .Args.mode }}{{ end }}
 	{{- if eq $mode "lower" }}
@@ -510,15 +634,26 @@ func New{{ .Service.Name }}Impl(
 	})
 		{{- else if eq .Action "list.Filter" }}
 	{{- $as := or .Args.as "item" }}
-	{
-		_src := {{ .Args.from }}
-		_flt := _src[:0:0]
-		for _, {{ $as }} := range _src {
-			if {{ .Args.condition }} {
-				_flt = append(_flt, {{ $as }})
-			}
+	{{- $fltKey := replace .Args.output "." "_" }}
+	{{- $fltSrc := printf "_src_%s" $fltKey }}
+	{{ AssignSimple $scope $fltSrc }} {{ .Args.from }}
+	{{ AssignSimple $scope .Args.output }} {{ $fltSrc }}[:0:0]
+	for _, {{ $as }} := range {{ $fltSrc }} {
+		if {{ .Args.condition }} {
+			{{ .Args.output }} = append({{ .Args.output }}, {{ $as }})
 		}
-		{{ AssignSimple $scope .Args.output }} _flt
+	}
+		{{- else if eq .Action "list.Enrich" }}
+	{{- $as := or .Args.as "item" }}
+	for _eidx := range {{ .Args.items }} {
+		{{ $as }} := &{{ .Args.items }}[_eidx]
+		_elookup, _ := s.{{ ExportName .Args.lookupSource }}Repo.FindByID({{ $ctxVar }}, {{ .Args.lookupInput }})
+		if _elookup != nil {
+			{{- range $pair := splitFields .Args.set }}
+			{{- $parts := Split $pair "=" }}
+			{{ $as }}.{{ index $parts 0 }} = _elookup.{{ index $parts 1 }}
+			{{- end }}
+		}
 	}
 		{{- else if eq .Action "time.Parse" }}
 	{{- $fmt := or .Args.format "time.RFC3339" }}
@@ -610,6 +745,11 @@ func (s *{{ $.Service.Name }}Impl) {{ .Name }}(ctx context.Context, req {{ if $e
 	_ = errors.New
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
+	{{- range getFlowRepoEntities .Flow }}
+	if s.{{ ExportName . }}Repo == nil {
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "{{ . }} repository not configured")
+	}
+	{{- end }}
 	{{- end }}
 
 	{{- if .Idempotency }}
