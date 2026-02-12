@@ -19,6 +19,7 @@ type RegisterInput struct {
 	AuthDef        *normalizer.AuthDef
 	RBACDef        *normalizer.RBACDef
 	InfraValues    map[string]any
+	EmailTemplates []normalizer.EmailTemplateDef
 	IsMicroservice bool
 
 	TestStubsEnabled        bool
@@ -74,6 +75,10 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 	registry.Register(generator.Step{Name: "Refresh Store Redis", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilityAuth}, Run: func() error { return in.Em.EmitRefreshTokenStoreRedis() }})
 	registry.Register(generator.Step{Name: "Refresh Store Postgres", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilityAuth, compiler.CapabilitySQLRepo}, Run: func() error { return in.Em.EmitRefreshTokenStorePostgres() }})
 	registry.Register(generator.Step{Name: "Refresh Store Hybrid", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilityAuth, compiler.CapabilitySQLRepo}, Run: func() error { return in.Em.EmitRefreshTokenStoreHybrid() }})
+	registry.Register(generator.Step{Name: "Notification Dispatch Ports", Requires: goOnly, Run: func() error { return in.Em.EmitNotificationDispatchPortsFromIR(in.IRSchema) }})
+	registry.Register(generator.Step{Name: "Notification Dispatcher Runtime", Requires: goOnly, Run: func() error { return in.Em.EmitNotificationDispatcherRuntimeFromIR(in.IRSchema) }})
+	registry.Register(generator.Step{Name: "Template Renderer", Requires: goOnly, Run: func() error { return in.Em.EmitTemplateRenderer() }})
+	registry.Register(generator.Step{Name: "Email Templates", Requires: goOnly, Run: func() error { return in.Em.EmitEmailTemplates(in.EmailTemplates) }})
 	registry.Register(generator.Step{Name: "Mailer Port", Requires: goOnly, Run: func() error { return in.Em.EmitMailerPort() }})
 	registry.Register(generator.Step{Name: "SMTP Client", Requires: goOnly, Run: func() error { return in.Em.EmitMailerAdapter() }})
 	registry.Register(generator.Step{Name: "Events", Requires: goEvents, Run: func() error { return in.Em.EmitEventsFromIR(in.IRSchema) }})

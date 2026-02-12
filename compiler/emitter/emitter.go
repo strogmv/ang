@@ -649,32 +649,33 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 }
 
 type MainContext struct {
-	IRSchema           *ir.Schema
-	ServicesIR         []ir.Service
-	EntitiesIR         []ir.Entity
-	EndpointsIR        []ir.Endpoint
-	Services           []normalizer.Service
-	Entities           []normalizer.Entity
-	Endpoints          []normalizer.Endpoint
-	HasCache           bool
-	HasSQL             bool
-	HasMongo           bool
-	HasNats            bool
-	HasS3              bool
-	WebSocketServices  map[string]bool
-	HasScheduler       bool
-	WSEventMap         map[string]map[string]bool
-	EventPayloads      map[string]normalizer.Entity
-	EventPayloadsIR    map[string]ir.Entity
-	WSRoomField        map[string]string
-	AuthService        string
-	AuthRefreshStore   string
-	InputHash          string
-	CompilerHash       string
-	ANGVersion         string
-	EntityOwners       map[string]string
-	GoModule           string // Go module path for imports (e.g., "github.com/strog/dealingi-back")
-	NotificationMuting bool   // Enable notification muting decorator
+	IRSchema                *ir.Schema
+	ServicesIR              []ir.Service
+	EntitiesIR              []ir.Entity
+	EndpointsIR             []ir.Endpoint
+	Services                []normalizer.Service
+	Entities                []normalizer.Entity
+	Endpoints               []normalizer.Endpoint
+	HasCache                bool
+	HasSQL                  bool
+	HasMongo                bool
+	HasNats                 bool
+	HasS3                   bool
+	WebSocketServices       map[string]bool
+	HasScheduler            bool
+	WSEventMap              map[string]map[string]bool
+	EventPayloads           map[string]normalizer.Entity
+	EventPayloadsIR         map[string]ir.Entity
+	WSRoomField             map[string]string
+	AuthService             string
+	AuthRefreshStore        string
+	InputHash               string
+	CompilerHash            string
+	ANGVersion              string
+	EntityOwners            map[string]string
+	GoModule                string // Go module path for imports (e.g., "github.com/strog/dealingi-back")
+	NotificationMuting      bool   // Enable notification muting decorator
+	HasNotificationsService bool
 }
 
 // AnalyzeContext checks which infrastructure dependencies are required.
@@ -693,6 +694,9 @@ func (e *Emitter) AnalyzeContext(services []normalizer.Service, entities []norma
 		ctx.EntityOwners[ent.Name] = ent.Owner
 	}
 	for _, s := range services {
+		if s.Name == "Notifications" {
+			ctx.HasNotificationsService = true
+		}
 		for _, m := range s.Methods {
 			if m.CacheTTL != "" {
 				ctx.HasCache = true
@@ -739,6 +743,9 @@ func (e *Emitter) AnalyzeContextFromIR(schema *ir.Schema) MainContext {
 		EntityOwners:      make(map[string]string),
 	}
 	for _, s := range schema.Services {
+		if s.Name == "Notifications" {
+			ctx.HasNotificationsService = true
+		}
 		for _, m := range s.Methods {
 			if m.CacheTTL != "" {
 				ctx.HasCache = true

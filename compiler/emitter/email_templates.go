@@ -25,6 +25,9 @@ func (e *Emitter) EmitEmailTemplates(templates []normalizer.EmailTemplateDef) er
 		"Quote": func(s string) string {
 			return strconv.Quote(s)
 		},
+		"GoModule": func() string {
+			return e.GoModule
+		},
 	}
 	t, err := template.New("email_templates").Funcs(funcMap).Parse(string(tmplContent))
 	if err != nil {

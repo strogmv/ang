@@ -1,0 +1,51 @@
+package notifications
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"{{ GoModule }}/internal/port"
+)
+
+// Dispatcher routes notification messages to configured channel sinks.
+type Dispatcher struct {
+{{- range .Channels }}
+	{{ .TypeName }}Sink port.Notification{{ .TypeName }}Sink
+{{- end }}
+}
+
+// NewDispatcher builds a runtime dispatcher with channel-specific sinks.
+func NewDispatcher() *Dispatcher {
+	return &Dispatcher{
+	}
+}
+
+// Dispatch delivers message to requested channels, or to default channels when omitted.
+func (d *Dispatcher) Dispatch(ctx context.Context, msg port.NotificationMessage) error {
+	channels := msg.Channels
+	if len(channels) == 0 {
+		channels = []string{
+		{{- range .DefaultChannels }}
+			"{{ . }}",
+		{{- end }}
+		}
+	}
+	for _, channel := range channels {
+		channel = strings.TrimSpace(channel)
+		switch channel {
+		{{- range .Channels }}
+		case "{{ .Name }}":
+			if d.{{ .TypeName }}Sink == nil {
+				return fmt.Errorf("notification sink %q is not configured", channel)
+			}
+			if err := d.{{ .TypeName }}Sink.Send(ctx, msg); err != nil {
+				return fmt.Errorf("send via %s: %w", channel, err)
+			}
+		{{- end }}
+		default:
+			return fmt.Errorf("notification channel %q is not supported", channel)
+		}
+	}
+	return nil
+}

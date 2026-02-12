@@ -108,6 +108,8 @@ func runBuild(args []string) {
 
 		var cfgDef *normalizer.ConfigDef
 		var authDef *normalizer.AuthDef
+		var emailTemplates []normalizer.EmailTemplateDef
+		var templatesCatalog []normalizer.TemplateDef
 		var infraValues map[string]any
 		var infraContextPatch normalizer.InfraContextPatch
 		if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, "cue/infra")); err != nil {
@@ -128,6 +130,34 @@ func runBuild(args []string) {
 			cfgDef = normalizer.InfraConfig(infraValues)
 			authDef = normalizer.InfraAuth(infraValues)
 			infraContextPatch = infraRegistry.BuildContextPatch(infraValues)
+			templatesCatalog, err = n.ExtractTemplates(val)
+			if err != nil {
+				fail(compiler.StageCUE, compiler.ErrCodeCUEInfraConfigParse, "extract templates", err)
+				return
+			}
+			templatesCatalog, err = resolveTemplates(projectPath, templatesCatalog)
+			if err != nil {
+				fail(compiler.StageCUE, compiler.ErrCodeCUEInfraConfigParse, "resolve templates", err)
+				return
+			}
+			if len(templatesCatalog) > 0 {
+				emailTemplates, err = templatesToEmail(templatesCatalog)
+				if err != nil {
+					fail(compiler.StageCUE, compiler.ErrCodeCUEInfraConfigParse, "map templates to email templates", err)
+					return
+				}
+			} else {
+				emailTemplates, err = n.ExtractEmailTemplates(val)
+				if err != nil {
+					fail(compiler.StageCUE, compiler.ErrCodeCUEInfraConfigParse, "extract email templates", err)
+					return
+				}
+				emailTemplates, err = resolveEmailTemplates(projectPath, emailTemplates)
+				if err != nil {
+					fail(compiler.StageCUE, compiler.ErrCodeCUEInfraConfigParse, "resolve email templates", err)
+					return
+				}
+			}
 		}
 
 		var rbacDef *normalizer.RBACDef
@@ -227,6 +257,12 @@ func runBuild(args []string) {
 			fail(compiler.StageIR, compiler.ErrCodeIRConvertTransform, "convert and transform", err)
 			return
 		}
+		compiler.AttachNotificationInfra(
+			irSchema,
+			normalizer.InfraNotificationChannels(infraValues),
+			normalizer.InfraNotificationPolicies(infraValues),
+		)
+		compiler.AttachTemplates(irSchema, templatesCatalog)
 		if err := compiler.ValidateIRSemantics(irSchema); err != nil {
 			fail(compiler.StageIR, compiler.ErrCodeIRSemanticValidate, "validate IR semantics", err)
 			return
@@ -362,6 +398,7 @@ func runBuild(args []string) {
 				authDef:          authDef,
 				rbacDef:          rbacDef,
 				infraValues:      infraValues,
+				emailTemplates:   emailTemplates,
 				projectDef:       projectDef,
 				targetOutput:     targetOutput,
 				pythonSDKEnabled: pythonSDKEnabled,

@@ -20,12 +20,69 @@ type Schema struct {
 	RBAC      *RBAC
 	Schedules []Schedule
 	Views     []View
+	Templates []Template `json:"templates,omitempty"`
+	// Notifications stores declarative notification routing configuration
+	// normalized from cue/infra blocks.
+	Notifications *NotificationsConfig `json:"notifications,omitempty"`
 
 	// Dependency Graph for Impact Analysis
 	Graph *DependencyGraph
 
 	// Metadata for transformers to store computed data
 	Metadata map[string]any
+}
+
+// NotificationsConfig describes multi-channel routing and policy rules.
+type NotificationsConfig struct {
+	Channels *NotificationChannels `json:"channels,omitempty"`
+	Policies *NotificationPolicies `json:"policies,omitempty"`
+}
+
+type NotificationChannels struct {
+	Enabled         bool                               `json:"enabled"`
+	DefaultChannels []string                           `json:"default_channels,omitempty"`
+	Channels        map[string]NotificationChannelSpec `json:"channels,omitempty"`
+}
+
+type NotificationChannelSpec struct {
+	Enabled    bool   `json:"enabled"`
+	Driver     string `json:"driver,omitempty"`
+	Topic      string `json:"topic,omitempty"`
+	Subject    string `json:"subject,omitempty"`
+	Template   string `json:"template,omitempty"`
+	DSNEnv     string `json:"dsn_env,omitempty"`
+	BrokersEnv string `json:"brokers_env,omitempty"`
+}
+
+type NotificationPolicies struct {
+	Enabled bool                     `json:"enabled"`
+	Rules   []NotificationPolicyRule `json:"rules,omitempty"`
+}
+
+type NotificationPolicyRule struct {
+	Enabled  bool     `json:"enabled"`
+	Event    string   `json:"event,omitempty"`
+	Type     string   `json:"type,omitempty"`
+	Audience string   `json:"audience,omitempty"`
+	Channels []string `json:"channels,omitempty"`
+	Template string   `json:"template,omitempty"`
+	MuteKey  string   `json:"mute_key,omitempty"`
+}
+
+// Template is a channel-agnostic template catalog item.
+type Template struct {
+	ID           string   `json:"id"`
+	Kind         string   `json:"kind,omitempty"`
+	Channel      string   `json:"channel,omitempty"`
+	Locale       string   `json:"locale,omitempty"`
+	Version      string   `json:"version,omitempty"`
+	Engine       string   `json:"engine,omitempty"`
+	Subject      string   `json:"subject,omitempty"`
+	Text         string   `json:"text,omitempty"`
+	HTML         string   `json:"html,omitempty"`
+	Body         string   `json:"body,omitempty"`
+	RequiredVars []string `json:"required_vars,omitempty"`
+	OptionalVars []string `json:"optional_vars,omitempty"`
 }
 
 type DependencyGraph struct {

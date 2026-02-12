@@ -83,6 +83,7 @@ func (e *Emitter) EmitStubRepo(repos []ir.Repository, entities []ir.Entity) erro
 				SelectEntity:     true,
 			}
 			sig := ComputeFinderSignature(repo.Entity, f, "")
+			fo.Name = sig.Name
 			fo.ReturnType = sig.ReturnType
 			fo.ReturnZero = sig.ReturnZero
 			fo.ReturnSlice = sig.ReturnSlice

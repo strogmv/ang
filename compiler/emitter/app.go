@@ -3,7 +3,6 @@ package emitter
 import (
 	"bytes"
 	"fmt"
-	"go/format"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,28 +21,30 @@ type MainServerHeaderContext struct {
 }
 
 type MainServerImportsContext struct {
-	HasNats            bool
-	HasSQL             bool
-	HasMongo           bool
-	HasCache           bool
-	AuthRefreshStore   string
-	GoModule           string
-	HasS3              bool
-	HasScheduler       bool
-	AuthService        string
-	NotificationMuting bool
-	ServicesIR         []ir.Service
-	EntitiesIR         []ir.Entity
+	HasNats                 bool
+	HasSQL                  bool
+	HasMongo                bool
+	HasCache                bool
+	AuthRefreshStore        string
+	GoModule                string
+	HasS3                   bool
+	HasScheduler            bool
+	AuthService             string
+	NotificationMuting      bool
+	HasNotificationsService bool
+	ServicesIR              []ir.Service
+	EntitiesIR              []ir.Entity
 }
 
 type MainServerInfrastructureContext struct {
-	HasSQL           bool
-	HasMongo         bool
-	HasCache         bool
-	AuthRefreshStore string
-	HasNats          bool
-	HasS3            bool
-	HasScheduler     bool
+	HasSQL                  bool
+	HasMongo                bool
+	HasCache                bool
+	AuthRefreshStore        string
+	HasNats                 bool
+	HasS3                   bool
+	HasScheduler            bool
+	HasNotificationsService bool
 }
 
 type MainServerRepositoriesContext struct {
@@ -56,13 +57,14 @@ type MainServerRepositoriesContext struct {
 }
 
 type MainServerServicesContext struct {
-	ServicesIR         []ir.Service
-	EntitiesIR         []ir.Entity
-	AuthService        string
-	AuthRefreshStore   string
-	HasSQL             bool
-	NotificationMuting bool
-	WebSocketServices  map[string]bool
+	ServicesIR              []ir.Service
+	EntitiesIR              []ir.Entity
+	AuthService             string
+	AuthRefreshStore        string
+	HasSQL                  bool
+	NotificationMuting      bool
+	HasNotificationsService bool
+	WebSocketServices       map[string]bool
 }
 
 type MainServerHTTPRouterContext struct{}
@@ -99,27 +101,29 @@ func buildMainServerTemplateData(ctx MainContext) MainServerTemplateData {
 			CompilerHash: ctx.CompilerHash,
 		},
 		Imports: MainServerImportsContext{
-			HasNats:            ctx.HasNats,
-			HasSQL:             ctx.HasSQL,
-			HasMongo:           ctx.HasMongo,
-			HasCache:           ctx.HasCache,
-			AuthRefreshStore:   ctx.AuthRefreshStore,
-			GoModule:           ctx.GoModule,
-			HasS3:              ctx.HasS3,
-			HasScheduler:       ctx.HasScheduler,
-			AuthService:        ctx.AuthService,
-			NotificationMuting: ctx.NotificationMuting,
-			ServicesIR:         ctx.ServicesIR,
-			EntitiesIR:         ctx.EntitiesIR,
+			HasNats:                 ctx.HasNats,
+			HasSQL:                  ctx.HasSQL,
+			HasMongo:                ctx.HasMongo,
+			HasCache:                ctx.HasCache,
+			AuthRefreshStore:        ctx.AuthRefreshStore,
+			GoModule:                ctx.GoModule,
+			HasS3:                   ctx.HasS3,
+			HasScheduler:            ctx.HasScheduler,
+			AuthService:             ctx.AuthService,
+			NotificationMuting:      ctx.NotificationMuting,
+			HasNotificationsService: ctx.HasNotificationsService,
+			ServicesIR:              ctx.ServicesIR,
+			EntitiesIR:              ctx.EntitiesIR,
 		},
 		Infrastructure: MainServerInfrastructureContext{
-			HasSQL:           ctx.HasSQL,
-			HasMongo:         ctx.HasMongo,
-			HasCache:         ctx.HasCache,
-			AuthRefreshStore: ctx.AuthRefreshStore,
-			HasNats:          ctx.HasNats,
-			HasS3:            ctx.HasS3,
-			HasScheduler:     ctx.HasScheduler,
+			HasSQL:                  ctx.HasSQL,
+			HasMongo:                ctx.HasMongo,
+			HasCache:                ctx.HasCache,
+			AuthRefreshStore:        ctx.AuthRefreshStore,
+			HasNats:                 ctx.HasNats,
+			HasS3:                   ctx.HasS3,
+			HasScheduler:            ctx.HasScheduler,
+			HasNotificationsService: ctx.HasNotificationsService,
 		},
 		Repositories: MainServerRepositoriesContext{
 			AuthService:        ctx.AuthService,
@@ -130,13 +134,14 @@ func buildMainServerTemplateData(ctx MainContext) MainServerTemplateData {
 			EntitiesIR:         ctx.EntitiesIR,
 		},
 		Services: MainServerServicesContext{
-			ServicesIR:         ctx.ServicesIR,
-			EntitiesIR:         ctx.EntitiesIR,
-			AuthService:        ctx.AuthService,
-			AuthRefreshStore:   ctx.AuthRefreshStore,
-			HasSQL:             ctx.HasSQL,
-			NotificationMuting: ctx.NotificationMuting,
-			WebSocketServices:  ctx.WebSocketServices,
+			ServicesIR:              ctx.ServicesIR,
+			EntitiesIR:              ctx.EntitiesIR,
+			AuthService:             ctx.AuthService,
+			AuthRefreshStore:        ctx.AuthRefreshStore,
+			HasSQL:                  ctx.HasSQL,
+			NotificationMuting:      ctx.NotificationMuting,
+			HasNotificationsService: ctx.HasNotificationsService,
+			WebSocketServices:       ctx.WebSocketServices,
 		},
 		HTTPRouter: MainServerHTTPRouterContext{},
 		WebSockets: MainServerWebSocketsContext{
@@ -278,6 +283,14 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		sort.Strings(res)
 		return res
 	}
+	appFuncs["HasEntityByNameIR"] = func(entities []ir.Entity, name string) bool {
+		for _, ent := range entities {
+			if strings.EqualFold(ent.Name, name) {
+				return true
+			}
+		}
+		return false
+	}
 	appFuncs["HasTxServicesIR"] = func(services []ir.Service) bool {
 		var hasTx func([]ir.FlowStep) bool
 		hasTx = func(steps []ir.FlowStep) bool {
@@ -383,6 +396,22 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		}
 		seen := make(map[string]bool)
 		var out []string
+
+		var scanSteps func([]ir.FlowStep)
+		scanSteps = func(steps []ir.FlowStep) {
+			for _, step := range steps {
+				if strings.HasPrefix(step.Action, "repo.") {
+					if src, ok := step.Args["source"].(string); ok && src != "" && !seen[src] && !dtoEntities[src] {
+						seen[src] = true
+						out = append(out, src)
+					}
+				}
+				scanSteps(step.Steps)
+				scanSteps(step.Then)
+				scanSteps(step.Else)
+			}
+		}
+
 		for _, m := range s.Methods {
 			for _, src := range m.Sources {
 				if src.Entity == "" || seen[src.Entity] || dtoEntities[src.Entity] {
@@ -391,7 +420,9 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 				seen[src.Entity] = true
 				out = append(out, src.Entity)
 			}
+			scanSteps(m.Flow)
 		}
+
 		sort.Strings(out)
 		return out
 	}
@@ -676,9 +707,9 @@ func (e *Emitter) EmitServiceMain(svcName string, ctx MainContext) error {
 	if err := t.ExecuteTemplate(&buf, "main_server_root", buildMainServerTemplateData(ctx)); err != nil {
 		return err
 	}
-	formatted, _ := format.Source(buf.Bytes())
-	if formatted == nil {
-		formatted = buf.Bytes()
+	formatted, err := formatGoStrict(buf.Bytes(), "cmd/services/"+strings.ToLower(svcName)+"/main.go")
+	if err != nil {
+		return err
 	}
 	return os.WriteFile(filepath.Join(targetDir, "main.go"), formatted, 0644)
 }
@@ -699,9 +730,9 @@ func (e *Emitter) EmitMain(ctx MainContext) error {
 	if err := t.ExecuteTemplate(&buf, "main_server_root", buildMainServerTemplateData(ctx)); err != nil {
 		return err
 	}
-	formatted, _ := format.Source(buf.Bytes())
-	if formatted == nil {
-		formatted = buf.Bytes()
+	formatted, err := formatGoStrict(buf.Bytes(), "cmd/server/main.go")
+	if err != nil {
+		return err
 	}
 	return os.WriteFile(filepath.Join(targetDir, "main.go"), formatted, 0644)
 }

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"database/sql"
 	"fmt"
-	"go/format"
 	"os"
 	"path/filepath"
 	"strings"
@@ -352,6 +351,7 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 			}
 
 			sig := ComputeFinderSignature(repo.Entity, f, "")
+			fo.Name = sig.Name
 			hasTime = hasTime || sig.HasTime
 			var wheres []string
 			for idx, w := range f.Where {
@@ -425,10 +425,9 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 			return fmt.Errorf("execute template: %w", err)
 		}
 
-		formatted, err := format.Source(buf.Bytes())
+		formatted, err := formatGoStrict(buf.Bytes(), "internal/adapter/repository/postgres/"+strings.ToLower(repo.Name)+".go")
 		if err != nil {
-			fmt.Printf("Formatting failed for %s postgres repo. Writing raw.\n", repo.Name)
-			formatted = buf.Bytes()
+			return err
 		}
 
 		filename := fmt.Sprintf("%s.go", strings.ToLower(repo.Name))
@@ -654,9 +653,9 @@ func (e *Emitter) EmitPostgresCommon() error {
 		return fmt.Errorf("execute template: %w", err)
 	}
 
-	formatted, err := format.Source(buf.Bytes())
+	formatted, err := formatGoStrict(buf.Bytes(), "internal/adapter/repository/postgres/common.go")
 	if err != nil {
-		formatted = buf.Bytes()
+		return err
 	}
 
 	path := filepath.Join(targetDir, "common.go")

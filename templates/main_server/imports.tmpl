@@ -6,6 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	{{ if and .AuthService (HasEntityByNameIR .EntitiesIR "User") }}"strings"{{ end }}
 	{{ if .HasNats }}"encoding/json"{{ end }}
 
 	"github.com/go-chi/chi/v5"
@@ -28,6 +29,9 @@ import (
 	{{ end }}
 	{{ if .HasS3 }}
 	"{{.GoModule}}/internal/adapter/storage/s3"
+	{{ end }}
+	{{ if .HasNotificationsService }}
+	"{{.GoModule}}/internal/adapter/notifications"
 	{{ end }}
 	"{{.GoModule}}/internal/config"
 	"{{.GoModule}}/internal/pkg/logger"

@@ -371,10 +371,32 @@ type ScenarioExpect struct {
 }
 
 type EmailTemplateDef struct {
-	Name    string
-	Subject string
-	Text    string
-	HTML    string
+	Name     string
+	Subject  string
+	Text     string
+	HTML     string
+	TextFile string
+	HTMLFile string
+}
+
+// TemplateDef describes universal channel-agnostic template catalog item.
+type TemplateDef struct {
+	ID           string
+	Kind         string
+	Channel      string
+	Locale       string
+	Version      string
+	Engine       string
+	Subject      string
+	Text         string
+	HTML         string
+	Body         string
+	SubjectFile  string
+	TextFile     string
+	HTMLFile     string
+	BodyFile     string
+	RequiredVars []string
+	OptionalVars []string
 }
 
 type FileMeta struct {
@@ -400,6 +422,41 @@ type NotificationMutingDef struct {
 	UserEntity      string
 	MuteAllField    string
 	MutedTypesField string
+}
+
+// NotificationChannelConfig describes one delivery channel backend (email/in_app/nats/kafka).
+type NotificationChannelConfig struct {
+	Enabled    bool
+	Driver     string
+	Topic      string
+	Subject    string
+	Template   string
+	DSNEnv     string
+	BrokersEnv string
+}
+
+// NotificationChannelsDef describes multi-channel notification routing settings.
+type NotificationChannelsDef struct {
+	Enabled         bool
+	DefaultChannels []string
+	Channels        map[string]NotificationChannelConfig
+}
+
+// NotificationPolicyRule describes one routing rule from domain event to channels/templates.
+type NotificationPolicyRule struct {
+	Enabled  bool
+	Event    string
+	Type     string
+	Audience string
+	Channels []string
+	Template string
+	MuteKey  string
+}
+
+// NotificationPoliciesDef describes policy-based notification routing configuration.
+type NotificationPoliciesDef struct {
+	Enabled bool
+	Rules   []NotificationPolicyRule
 }
 
 // TransformersConfig describes which transformers are enabled.

@@ -8,5 +8,6 @@ import "embed"
 //go:embed *.tmpl
 //go:embed frontend
 //go:embed k8s
+//go:embed main_server
 //go:embed python
 var FS embed.FS

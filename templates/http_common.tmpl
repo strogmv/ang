@@ -51,6 +51,7 @@ var (
 	authRSAPublicKey *rsa.PublicKey
 	authECDSAPublicKey *ecdsa.PublicKey
 	authHMACSecret []byte
+	verifiedUserChecker func(ctx context.Context, userID string) (bool, error)
 )
 
 func SetAuthConfigFromConfig(cfg *config.Config) error {
@@ -101,6 +102,10 @@ func SetAuthConfigFromConfig(cfg *config.Config) error {
 		return errors.New(http.StatusInternalServerError, "Auth config error", "unsupported JWT algorithm")
 	}
 	return nil
+}
+
+func SetVerifiedUserChecker(checker func(ctx context.Context, userID string) (bool, error)) {
+	verifiedUserChecker = checker
 }
 
 func decodeJSONRequest(r *http.Request, out interface{}) error {
@@ -165,6 +170,17 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			CompanyID: getStringClaim(claims, authCompanyClaim),
 			Roles:     getStringSliceClaim(claims, authRolesClaim),
 			Perms:     getStringSliceClaim(claims, authPermsClaim),
+		}
+		if verifiedUserChecker != nil {
+			ok, err := verifiedUserChecker(r.Context(), ac.UserID)
+			if err != nil {
+				errors.WriteError(w, r, errors.New(http.StatusInternalServerError, "Internal Server Error", "verification check failed"))
+				return
+			}
+			if !ok {
+				errors.WriteError(w, r, errors.New(http.StatusForbidden, "EMAIL_NOT_VERIFIED", "email is not verified"))
+				return
+			}
 		}
 		ctx := context.WithValue(r.Context(), authContextKey{}, ac)
 		next.ServeHTTP(w, r.WithContext(ctx))

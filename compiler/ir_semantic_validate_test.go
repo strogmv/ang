@@ -132,3 +132,187 @@ func TestValidateIRSemantics_FailsOnServiceCycle(t *testing.T) {
 		t.Fatalf("expected cycle error, got: %v", err)
 	}
 }
+
+func TestValidateIRSemantics_FailsOnUnknownNotificationTemplate(t *testing.T) {
+	t.Parallel()
+
+	schema := &ir.Schema{
+		Templates: []ir.Template{
+			{ID: "known_email"},
+		},
+		Notifications: &ir.NotificationsConfig{
+			Channels: &ir.NotificationChannels{
+				Channels: map[string]ir.NotificationChannelSpec{
+					"email": {Enabled: true, Template: "missing_template"},
+				},
+			},
+		},
+	}
+	err := ValidateIRSemantics(schema)
+	if err == nil || !strings.Contains(err.Error(), "unknown template") {
+		t.Fatalf("expected unknown template error, got: %v", err)
+	}
+}
+
+func TestValidateIRSemantics_OKWithKnownNotificationTemplates(t *testing.T) {
+	t.Parallel()
+
+	schema := &ir.Schema{
+		Templates: []ir.Template{
+			{ID: "known_email", Channel: "email", Subject: "s", Text: "t"},
+			{ID: "known_in_app", Channel: "in_app", Body: "b"},
+		},
+		Notifications: &ir.NotificationsConfig{
+			Channels: &ir.NotificationChannels{
+				Channels: map[string]ir.NotificationChannelSpec{
+					"email": {Enabled: true, Template: "known_email"},
+				},
+			},
+			Policies: &ir.NotificationPolicies{
+				Rules: []ir.NotificationPolicyRule{
+					{Enabled: true, Template: "known_in_app"},
+				},
+			},
+		},
+	}
+	if err := ValidateIRSemantics(schema); err != nil {
+		t.Fatalf("expected valid schema, got error: %v", err)
+	}
+}
+
+func TestValidateIRSemantics_FailsOnNotificationTemplateChannelMismatch_ChannelSpec(t *testing.T) {
+	t.Parallel()
+
+	schema := &ir.Schema{
+		Templates: []ir.Template{
+			{ID: "email_tpl", Channel: "email"},
+		},
+		Notifications: &ir.NotificationsConfig{
+			Channels: &ir.NotificationChannels{
+				Channels: map[string]ir.NotificationChannelSpec{
+					"in_app": {Enabled: true, Template: "email_tpl"},
+				},
+			},
+		},
+	}
+	err := ValidateIRSemantics(schema)
+	if err == nil || !strings.Contains(err.Error(), "incompatible channel") {
+		t.Fatalf("expected incompatible channel error, got: %v", err)
+	}
+}
+
+func TestValidateIRSemantics_FailsOnNotificationTemplateChannelMismatch_PolicyRule(t *testing.T) {
+	t.Parallel()
+
+	schema := &ir.Schema{
+		Templates: []ir.Template{
+			{ID: "email_tpl", Channel: "email"},
+		},
+		Notifications: &ir.NotificationsConfig{
+			Policies: &ir.NotificationPolicies{
+				Rules: []ir.NotificationPolicyRule{
+					{Enabled: true, Channels: []string{"nats"}, Template: "email_tpl"},
+				},
+			},
+		},
+	}
+	err := ValidateIRSemantics(schema)
+	if err == nil || !strings.Contains(err.Error(), "incompatible channel") {
+		t.Fatalf("expected incompatible channel error, got: %v", err)
+	}
+}
+
+func TestValidateIRSemantics_FailsOnTemplateCatalogRules(t *testing.T) {
+	t.Parallel()
+
+	schema := &ir.Schema{
+		Templates: []ir.Template{
+			{ID: "email_bad_engine", Channel: "email", Engine: "json", Subject: "s", Body: "b"},
+			{ID: "email_no_subject", Channel: "email", Engine: "go_template", Text: "hello"},
+			{ID: "dup", Channel: "in_app", Engine: "plain", Body: "x"},
+			{ID: "dup", Channel: "in_app", Engine: "plain", Body: "y"},
+			{ID: "unsupported_engine", Channel: "nats", Engine: "liquid", Body: "{}"},
+		},
+	}
+
+	err := ValidateIRSemantics(schema)
+	if err == nil {
+		t.Fatalf("expected validation errors, got nil")
+	}
+	msg := err.Error()
+	for _, want := range []string{
+		"incompatible with channel",
+		"requires non-empty subject",
+		"is duplicated",
+		"unsupported engine",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("expected error containing %q, got: %v", want, err)
+		}
+	}
+}
+
+func TestValidateIRSemantics_OKTemplateCatalogRules(t *testing.T) {
+	t.Parallel()
+
+	schema := &ir.Schema{
+		Templates: []ir.Template{
+			{ID: "email_ok", Channel: "email", Engine: "go_template", Subject: "s", Text: "t"},
+			{ID: "in_app_ok", Channel: "in_app", Engine: "plain", Body: "b"},
+			{ID: "nats_ok", Channel: "nats", Engine: "json", Body: `{"ok":true}`},
+		},
+	}
+	if err := ValidateIRSemantics(schema); err != nil {
+		t.Fatalf("expected valid template catalog, got: %v", err)
+	}
+}
+
+func TestValidateIRSemantics_FailsOnTemplateRequiredVarsRules(t *testing.T) {
+	t.Parallel()
+
+	schema := &ir.Schema{
+		Templates: []ir.Template{
+			{ID: "dup_var", Channel: "email", Engine: "go_template", Subject: "ok", Text: "{{.temporary_token}}", RequiredVars: []string{"temporary_token", "temporary_token"}},
+			{ID: "invalid_var", Channel: "email", Engine: "go_template", Subject: "ok", Text: "{{.temporary_token}}", RequiredVars: []string{"temporary-token"}},
+			{ID: "missing_usage", Channel: "email", Engine: "go_template", Subject: "ok", Text: "hello", RequiredVars: []string{"temporary_token"}},
+			{ID: "overlap", Channel: "email", Engine: "go_template", Subject: "ok", Text: "{{.temporary_token}}", RequiredVars: []string{"temporary_token"}, OptionalVars: []string{"temporary_token"}},
+		},
+	}
+
+	err := ValidateIRSemantics(schema)
+	if err == nil {
+		t.Fatalf("expected validation errors, got nil")
+	}
+	msg := err.Error()
+	for _, want := range []string{
+		"duplicate requiredVars",
+		"invalid requiredVars name",
+		"does not reference",
+		"both requiredVars and optionalVars",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("expected error containing %q, got: %v", want, err)
+		}
+	}
+}
+
+func TestValidateIRSemantics_OKTemplateRequiredVarsRules(t *testing.T) {
+	t.Parallel()
+
+	schema := &ir.Schema{
+		Templates: []ir.Template{
+			{
+				ID:           "ok",
+				Channel:      "email",
+				Engine:       "go_template",
+				Subject:      "Token {{.temporary_token}}",
+				Text:         "TTL {{.ttl_minutes}}",
+				RequiredVars: []string{"temporary_token", "ttl_minutes"},
+				OptionalVars: []string{"company_name"},
+			},
+		},
+	}
+	if err := ValidateIRSemantics(schema); err != nil {
+		t.Fatalf("expected valid required vars contract, got: %v", err)
+	}
+}

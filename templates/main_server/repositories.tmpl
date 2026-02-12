@@ -32,6 +32,22 @@
 	{{- end }}
 	{{- end }}
 
+	{{- if and .AuthService (HasEntityByNameIR .EntitiesIR "User") }}
+	transport.SetVerifiedUserChecker(func(ctx context.Context, userID string) (bool, error) {
+		if strings.TrimSpace(userID) == "" {
+			return false, nil
+		}
+		u, err := repoUser.FindByID(ctx, userID)
+		if err != nil {
+			return false, err
+		}
+		if u == nil {
+			return false, nil
+		}
+		return strings.EqualFold(strings.TrimSpace(u.Status), "active"), nil
+	})
+	{{- end }}
+
 	{{- if .NotificationMuting }}
 	repoNotification = adapter.NewMutingNotificationRepo(repoNotification, repoUser)
 	{{- end }}

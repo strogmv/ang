@@ -82,6 +82,9 @@ type {{ .Service.Name }}Impl struct {
 	{{- if .Service.RequiresS3 }}
 	storage port.FileStorage
 	{{- end }}
+	{{- if or (stringsEqualFold .Service.Name "Notifications") (stringsEqualFold .Service.Name "Notification") }}
+	dispatcher port.NotificationDispatcher
+	{{- end }}
 }
 
 // ============================================================================ 
@@ -119,6 +122,9 @@ func New{{ .Service.Name }}Impl(
 	{{- if .Service.RequiresS3 }}
 	storage port.FileStorage,
 	{{- end }}
+	{{- if or (stringsEqualFold .Service.Name "Notifications") (stringsEqualFold .Service.Name "Notification") }}
+	dispatcher port.NotificationDispatcher,
+	{{- end }}
 ) *{{ .Service.Name }}Impl {
 	return &{{ .Service.Name }}Impl{
 		{{- range getRepoEntities .Service .Entities }}
@@ -150,6 +156,9 @@ func New{{ .Service.Name }}Impl(
 		{{- if .Service.RequiresS3 }}
 		storage: storage,
 		{{- end }}
+		{{- if or (stringsEqualFold .Service.Name "Notifications") (stringsEqualFold .Service.Name "Notification") }}
+		dispatcher: dispatcher,
+		{{- end }}
 	}
 }
 
@@ -166,7 +175,8 @@ func New{{ .Service.Name }}Impl(
 	{{- $ctxVar := "ctx" }}{{ if $inTx }}{{- $ctxVar = "txCtx" }}{{ end }}
 	{{- range .Steps }}
 		{{- if or (eq .Action "repo.Find") (eq .Action "repo.Get") }}
-	{{ Assign $scope .Args.output }} s.{{ ExportName .Args.source }}Repo.FindByID({{ $ctxVar }}, {{ .Args.input }})
+	{{- $repoMethod := or .Args.method "FindByID" }}
+	{{ Assign $scope .Args.output }} s.{{ ExportName .Args.source }}Repo.{{ $repoMethod }}({{ $ctxVar }}{{ if .Args.input }}, {{ .Args.input }}{{ end }})
 	if err != nil {
 		{{- if $inTx }}
 		return errors.WithIntent(err, "{{ .File }}:{{ .Line }} ({{ .CUEPath }})")
@@ -174,6 +184,8 @@ func New{{ .Service.Name }}Impl(
 		return resp, errors.WithIntent(err, "{{ .File }}:{{ .Line }} ({{ .CUEPath }})")
 		{{- end }}
 	}
+	{{- $checkNil := or .Args.error (and (or (hasPrefix $repoMethod "Get") (hasPrefix $repoMethod "Find")) (not (hasPrefix $repoMethod "Count"))) }}
+	{{- if $checkNil }}
 	if {{ .Args.output }} == nil {
 		{{- if $inTx }}
 		return errors.New(http.StatusNotFound, "Not Found", "{{ or .Args.error (print .Args.output " not found") }}")
@@ -181,6 +193,7 @@ func New{{ .Service.Name }}Impl(
 		return resp, errors.New(http.StatusNotFound, "Not Found", "{{ or .Args.error (print .Args.output " not found") }}")
 		{{- end }}
 	}
+	{{- end }}
 		{{- else if eq .Action "repo.GetForUpdate" }}
 	{{ Assign $scope .Args.output }} s.{{ ExportName .Args.source }}Repo.GetByIDForUpdate({{ $ctxVar }}, {{ .Args.input }})
 	if err != nil {

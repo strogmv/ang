@@ -19,6 +19,7 @@ type buildStepRegistryInput struct {
 	authDef          *normalizer.AuthDef
 	rbacDef          *normalizer.RBACDef
 	infraValues      map[string]any
+	emailTemplates   []normalizer.EmailTemplateDef
 	projectDef       *normalizer.ProjectDef
 	targetOutput     OutputOptions
 	pythonSDKEnabled bool
@@ -36,6 +37,7 @@ func buildStepRegistry(in buildStepRegistryInput) (*generator.StepRegistry, []st
 		Auth:             in.authDef,
 		RBAC:             in.rbacDef,
 		InfraValues:      in.infraValues,
+		EmailTemplates:   in.emailTemplates,
 		Project:          in.projectDef,
 		PythonSDKEnabled: in.pythonSDKEnabled,
 		IsMicroservice:   in.isMicroservice,

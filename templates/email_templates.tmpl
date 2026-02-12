@@ -1,9 +1,8 @@
 package emailtemplates
 
 import (
-	"bytes"
 	"fmt"
-	"text/template"
+	"{{ GoModule }}/internal/pkg/templaterender"
 )
 
 type Template struct {
@@ -27,32 +26,17 @@ func Render(name string, data any) (Template, error) {
 	if !ok {
 		return Template{}, fmt.Errorf("unknown email template: %s", name)
 	}
-	subject, err := renderString(tpl.Subject, data)
+	subject, err := templaterender.RenderString(tpl.Subject, data)
 	if err != nil {
 		return Template{}, err
 	}
-	text, err := renderString(tpl.Text, data)
+	text, err := templaterender.RenderString(tpl.Text, data)
 	if err != nil {
 		return Template{}, err
 	}
-	html, err := renderString(tpl.HTML, data)
+	html, err := templaterender.RenderString(tpl.HTML, data)
 	if err != nil {
 		return Template{}, err
 	}
 	return Template{Subject: subject, Text: text, HTML: html}, nil
-}
-
-func renderString(tpl string, data any) (string, error) {
-	if tpl == "" {
-		return "", nil
-	}
-	t, err := template.New("email").Option("missingkey=zero").Parse(tpl)
-	if err != nil {
-		return "", err
-	}
-	var buf bytes.Buffer
-	if err := t.Execute(&buf, data); err != nil {
-		return "", err
-	}
-	return buf.String(), nil
 }

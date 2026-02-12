@@ -3,7 +3,6 @@ package emitter
 import (
 	"bytes"
 	"fmt"
-	"go/format"
 	"os"
 	"path/filepath"
 	"strings"
@@ -92,6 +91,7 @@ func (e *Emitter) EmitMongoRepo(repos []ir.Repository, entities []ir.Entity) err
 				SelectEntity:     true,
 			}
 			sig := ComputeFinderSignature(repo.Entity, f, "")
+			fo.Name = sig.Name
 			fo.ReturnType = sig.ReturnType
 			fo.ReturnZero = sig.ReturnZero
 			fo.ReturnSlice = sig.ReturnSlice
@@ -151,10 +151,9 @@ func (e *Emitter) EmitMongoRepo(repos []ir.Repository, entities []ir.Entity) err
 			return fmt.Errorf("execute template: %w", err)
 		}
 
-		formatted, err := format.Source(buf.Bytes())
+		formatted, err := formatGoStrict(buf.Bytes(), "internal/adapter/repository/mongo/"+strings.ToLower(repo.Name)+".go")
 		if err != nil {
-			fmt.Printf("Formatting failed for %s mongo repo. Writing raw.\n", repo.Name)
-			formatted = buf.Bytes()
+			return err
 		}
 
 		filename := fmt.Sprintf("%s.go", strings.ToLower(repo.Name))
@@ -207,10 +206,9 @@ func (e *Emitter) EmitMongoCommon(entities []ir.Entity) error {
 		return fmt.Errorf("execute template: %w", err)
 	}
 
-	formatted, err := format.Source(buf.Bytes())
+	formatted, err := formatGoStrict(buf.Bytes(), "internal/adapter/repository/mongo/helpers.go")
 	if err != nil {
-		fmt.Printf("Formatting failed for mongo helpers. Writing raw.\n")
-		formatted = buf.Bytes()
+		return err
 	}
 
 	path := filepath.Join(targetDir, "helpers.go")

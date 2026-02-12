@@ -3,7 +3,6 @@ package emitter
 import (
 	"bytes"
 	"fmt"
-	"go/format"
 	"os"
 	"path/filepath"
 	"sort"
@@ -48,6 +47,15 @@ func (e *Emitter) EmitService(services []ir.Service) error {
 		}
 		return false
 	}
+	funcMap["ServiceInterfaceDecl"] = func(svc normalizer.Service) (string, error) {
+		return renderServiceInterfaceDecl(svc)
+	}
+	funcMap["ServiceImplTypeDecl"] = func(svc normalizer.Service, entities []normalizer.Entity, auth *normalizer.AuthDef) (string, error) {
+		return renderServiceImplTypeDecl(svc, entities, auth)
+	}
+	funcMap["ServiceImplConstructorDecl"] = func(svc normalizer.Service, entities []normalizer.Entity, auth *normalizer.AuthDef) (string, error) {
+		return renderServiceImplConstructorDecl(svc, entities, auth)
+	}
 
 	t, err := template.New("service").Funcs(funcMap).Parse(string(tmplContent))
 	if err != nil {
@@ -65,9 +73,9 @@ func (e *Emitter) EmitService(services []ir.Service) error {
 			return err
 		}
 
-		formatted, err := format.Source(buf.Bytes())
+		formatted, err := formatGoStrict(buf.Bytes(), "internal/port/"+strings.ToLower(svc.Name)+".go")
 		if err != nil {
-			formatted = buf.Bytes()
+			return err
 		}
 
 		filename := strings.ToLower(svc.Name) + ".go"
@@ -90,7 +98,17 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 	nServices := IRServicesToNormalizer(services)
 	nEntities := IREntitiesToNormalizer(entities)
 
-	t, err := template.New("service_impl").Funcs(e.getSharedFuncMap()).Parse(string(tmplContent))
+	funcMapImpl := e.getSharedFuncMap()
+	funcMapImpl["ServiceImplTypeDecl"] = func(svc normalizer.Service, entities []normalizer.Entity, auth *normalizer.AuthDef) (string, error) {
+		return renderServiceImplTypeDecl(svc, entities, auth)
+	}
+	funcMapImpl["ServiceImplConstructorDecl"] = func(svc normalizer.Service, entities []normalizer.Entity, auth *normalizer.AuthDef) (string, error) {
+		return renderServiceImplConstructorDecl(svc, entities, auth)
+	}
+	funcMapImpl["ServiceImplMethodSignature"] = func(serviceName string, m normalizer.Method) (string, error) {
+		return renderServiceImplMethodSignature(serviceName, m)
+	}
+	t, err := template.New("service_impl").Funcs(funcMapImpl).Parse(string(tmplContent))
 	if err != nil {
 		return err
 	}
@@ -174,10 +192,9 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 			return fmt.Errorf("execute template for %s: %w", svc.Name, err)
 		}
 
-		formatted, err := format.Source(buf.Bytes())
+		formatted, err := formatGoStrict(buf.Bytes(), "internal/service/"+strings.ToLower(svc.Name)+".go")
 		if err != nil {
-			fmt.Printf("Formatting failed for %s service impl. Writing raw. Error: %v\n", svc.Name, err)
-			formatted = buf.Bytes()
+			return err
 		}
 
 		filename := strings.ToLower(svc.Name) + ".go"
@@ -211,9 +228,9 @@ func (e *Emitter) EmitCachedService(services []ir.Service) error {
 			return err
 		}
 
-		formatted, err := format.Source(buf.Bytes())
+		formatted, err := formatGoStrict(buf.Bytes(), "internal/service/"+strings.ToLower(svc.Name)+"_cached.go")
 		if err != nil {
-			formatted = buf.Bytes()
+			return err
 		}
 
 		filename := strings.ToLower(svc.Name) + "_cached.go"

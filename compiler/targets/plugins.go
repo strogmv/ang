@@ -22,6 +22,7 @@ type BuildContext struct {
 	Auth                *normalizer.AuthDef
 	RBAC                *normalizer.RBACDef
 	InfraValues         map[string]any
+	EmailTemplates      []normalizer.EmailTemplateDef
 	Project             *normalizer.ProjectDef
 	PythonSDKEnabled    bool
 	IsMicroservice      bool

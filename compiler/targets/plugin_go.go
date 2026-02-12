@@ -26,6 +26,7 @@ func (GoPlugin) RegisterSteps(registry *generator.StepRegistry, ctx BuildContext
 		AuthDef:                 ctx.Auth,
 		RBACDef:                 ctx.RBAC,
 		InfraValues:             ctx.InfraValues,
+		EmailTemplates:          ctx.EmailTemplates,
 		IsMicroservice:          ctx.IsMicroservice,
 		TestStubsEnabled:        ctx.TestStubsEnabled,
 		ResolveMissingTestStubs: ctx.ResolveMissingTests,

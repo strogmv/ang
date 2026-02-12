@@ -89,22 +89,7 @@ func (e {{ .Name }}) LogValue() slog.Value {
 {{- else }}
 // {{ .Name }} defines the service interface.
 {{- end }}
-type {{ .Name }} interface {
-{{- range .Methods }}
-	{{- $event := EventForMethod $ . }}
-	{{- if .Description }}
-	// {{ .Name }} {{ .Description }}
-	{{- end }}
-	{{- if .Source }}
-	// Source: {{ .Source }}
-	{{- end }}
-	{{- if $event }}
-	{{ .Name }}(ctx context.Context, req domain.{{ ExportName $event }}) error
-	{{- else }}
-	{{ .Name }}(ctx context.Context, req {{ .Input.Name }}) ({{ if .Output.Name }}{{ .Output.Name }}, {{ end }}error)
-	{{- end }}
-{{- end }}
-}
+{{ ServiceInterfaceDecl . }}
 
 // Request/Response DTOs
 {{- range .Methods }}

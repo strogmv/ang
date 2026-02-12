@@ -1,6 +1,6 @@
 package service
 
-// ============================================================================ 
+// ============================================================================
 // SECTION: Imports
 // PURPOSE: Import required packages for service implementation
 // IMPORTS:
@@ -8,7 +8,7 @@ package service
 //   - port: Interface definitions (repositories, services)
 //   - domain: Domain entities and value objects
 //   - errors: Custom error types with HTTP status codes
-// ============================================================================ 
+// ============================================================================
 import (
 	"context"
 	"encoding/json"
@@ -49,7 +49,7 @@ var (
 	_ = presence.Get
 )
 
-// ============================================================================ 
+// ============================================================================
 // SECTION: Service Struct Definition
 // PURPOSE: BlogImpl implements port.Blog interface
 // PATTERN: Service Layer - orchestrates business logic using repositories
@@ -59,21 +59,22 @@ var (
 //   - PostTagRepo: CRUD operations for PostTag entity
 //   - TagRepo: CRUD operations for Tag entity
 //   - txManager: Database transaction manager for atomic operations
-// ============================================================================ 
+//
+// ============================================================================
 type BlogImpl struct {
-	CommentRepo port.CommentRepository
-	PostRepo port.PostRepository
-	PostTagRepo port.PostTagRepository
-	TagRepo port.TagRepository
-	txManager port.TxManager
+	CommentRepo  port.CommentRepository
+	PostRepo     port.PostRepository
+	PostTagRepo  port.PostTagRepository
+	TagRepo      port.TagRepository
+	txManager    port.TxManager
 	auditService port.Audit
 }
 
-// ============================================================================ 
+// ============================================================================
 // SECTION: Constructor
 // PURPOSE: Create new BlogImpl with dependency injection
 // USAGE: Called from main.go during application bootstrap
-// ============================================================================ 
+// ============================================================================
 func NewBlogImpl(
 	commentRepo port.CommentRepository,
 	postRepo port.PostRepository,
@@ -83,21 +84,21 @@ func NewBlogImpl(
 	auditService port.Audit,
 ) *BlogImpl {
 	return &BlogImpl{
-		CommentRepo: commentRepo,
-		PostRepo: postRepo,
-		PostTagRepo: postTagRepo,
-		TagRepo: tagRepo,
-		txManager: txManager,
+		CommentRepo:  commentRepo,
+		PostRepo:     postRepo,
+		PostTagRepo:  postTagRepo,
+		TagRepo:      tagRepo,
+		txManager:    txManager,
 		auditService: auditService,
 	}
 }
 
-// ============================================================================ 
+// ============================================================================
 // SECTION: Flow Step Templates
 // PURPOSE: Generate code for each flow step action defined in CUE
 // ============================================================================
 
-// ============================================================================ 
+// ============================================================================
 // SECTION: Service Methods
 // ============================================================================
 // METHOD: ArchivePost
@@ -143,6 +144,7 @@ func (s *BlogImpl) ArchivePost(ctx context.Context, req port.ArchivePostRequest)
 	l.Debug("Exiting method", slog.String("status", "success"))
 	return resp, nil
 }
+
 // METHOD: CreateComment
 // Source: cue/api/comments.cue:12
 // INPUT: port.CreateCommentRequest
@@ -168,7 +170,7 @@ func (s *BlogImpl) CreateComment(ctx context.Context, req port.CreateCommentRequ
 	if post == nil {
 		return resp, errors.New(http.StatusNotFound, "Not Found", "Post not found")
 	}
-		    var newComment domain.Comment
+	var newComment domain.Comment
 	newComment.PostID = req.PostID
 	newComment.UserID = req.UserId
 	newComment.Content = req.Content
@@ -189,6 +191,7 @@ func (s *BlogImpl) CreateComment(ctx context.Context, req port.CreateCommentRequ
 	l.Debug("Exiting method", slog.String("status", "success"))
 	return resp, nil
 }
+
 // METHOD: CreatePost
 // Source: cue/api/posts.cue:12
 // INPUT: port.CreatePostRequest
@@ -211,7 +214,7 @@ func (s *BlogImpl) CreatePost(ctx context.Context, req port.CreatePostRequest) (
 	if err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
 	}
-	existing, err := s.PostRepo.FindByID(ctx, slug)
+	existing, err := s.PostRepo.FindBySlug(ctx, slug)
 	if err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
 	}
@@ -219,39 +222,39 @@ func (s *BlogImpl) CreatePost(ctx context.Context, req port.CreatePostRequest) (
 		return resp, errors.New(http.StatusNotFound, "Not Found", "existing not found")
 	}
 	if existing != nil {
-	slug, err = appendRandom(slug)
-	if err != nil {
-		return resp, errors.WithIntent(err, ":0 ()")
+		slug, err = appendRandom(slug)
+		if err != nil {
+			return resp, errors.WithIntent(err, ":0 ()")
+		}
 	}
-	} 
 	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
-		    var newPost domain.Post
-	newPost.Title = req.Title
-	newPost.Content = req.Content
-	newPost.Slug = slug
-	newPost.AuthorID = req.UserId
-	newPost.Status = "draft"
-	newPost.ID = uuid.NewString()
-	newPost.CreatedAt = time.Now().UTC().Format(time.RFC3339)
-	if err = s.PostRepo.Save(txCtx, &newPost); err != nil {
-		return errors.WithIntent(err, ":0 ()")
-	}
-	for _, tagName := range req.Tags {
-	tag, err := s.TagRepo.FindByID(txCtx, tagName)
-	if err != nil {
-		return errors.WithIntent(err, ":0 ()")
-	}
-	if tag == nil {
-		return errors.New(http.StatusNotFound, "Not Found", "tag not found")
-	}
-	if tag != nil {
-	assoc.PostID = newPost.ID
-	assoc.TagID = tag.ID
-	if err = s.PostTagRepo.Save(txCtx, assoc); err != nil {
-		return errors.WithIntent(err, ":0 ()")
-	}
-	} 
-	}
+		var newPost domain.Post
+		newPost.Title = req.Title
+		newPost.Content = req.Content
+		newPost.Slug = slug
+		newPost.AuthorID = req.UserId
+		newPost.Status = "draft"
+		newPost.ID = uuid.NewString()
+		newPost.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+		if err = s.PostRepo.Save(txCtx, &newPost); err != nil {
+			return errors.WithIntent(err, ":0 ()")
+		}
+		for _, tagName := range req.Tags {
+			tag, err := s.TagRepo.FindBySlug(txCtx, tagName)
+			if err != nil {
+				return errors.WithIntent(err, ":0 ()")
+			}
+			if tag == nil {
+				return errors.New(http.StatusNotFound, "Not Found", "tag not found")
+			}
+			if tag != nil {
+				assoc.PostID = newPost.ID
+				assoc.TagID = tag.ID
+				if err = s.PostTagRepo.Save(txCtx, assoc); err != nil {
+					return errors.WithIntent(err, ":0 ()")
+				}
+			}
+		}
 		return nil
 	})
 	if err != nil {
@@ -277,6 +280,7 @@ func (s *BlogImpl) CreatePost(ctx context.Context, req port.CreatePostRequest) (
 	l.Debug("Exiting method", slog.String("status", "success"))
 	return resp, nil
 }
+
 // METHOD: CreateTag
 // Source: cue/api/tags.cue:34
 // INPUT: port.CreateTagRequest
@@ -299,7 +303,7 @@ func (s *BlogImpl) CreateTag(ctx context.Context, req port.CreateTagRequest) (re
 	if err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
 	}
-	existing, err := s.TagRepo.FindByID(ctx, slug)
+	existing, err := s.TagRepo.FindBySlug(ctx, slug)
 	if err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
 	}
@@ -309,7 +313,7 @@ func (s *BlogImpl) CreateTag(ctx context.Context, req port.CreateTagRequest) (re
 	if !(existing == nil) {
 		return resp, errors.New(http.StatusBadRequest, "Validation Error", "Tag already exists")
 	}
-		    var newTag domain.Tag
+	var newTag domain.Tag
 	newTag.Name = req.Name
 	newTag.Slug = slug
 	newTag.Description = req.Description
@@ -331,6 +335,7 @@ func (s *BlogImpl) CreateTag(ctx context.Context, req port.CreateTagRequest) (re
 	l.Debug("Exiting method", slog.String("status", "success"))
 	return resp, nil
 }
+
 // METHOD: DeleteComment
 // Source: cue/api/comments.cue:98
 // INPUT: port.DeleteCommentRequest
@@ -360,12 +365,12 @@ func (s *BlogImpl) DeleteComment(ctx context.Context, req port.DeleteCommentRequ
 		return resp, errors.New(http.StatusBadRequest, "Validation Error", "Not authorized")
 	}
 	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
-	if err = s.CommentRepo.Delete(txCtx, comment.ID); err != nil {
-		return err
-	}
-	if err = s.CommentRepo.Delete(txCtx, comment.ID); err != nil {
-		return err
-	}
+		if err = s.CommentRepo.Delete(txCtx, comment.ID); err != nil {
+			return err
+		}
+		if err = s.CommentRepo.Delete(txCtx, comment.ID); err != nil {
+			return err
+		}
 		return nil
 	})
 	if err != nil {
@@ -390,6 +395,7 @@ func (s *BlogImpl) DeleteComment(ctx context.Context, req port.DeleteCommentRequ
 	l.Debug("Exiting method", slog.String("status", "success"))
 	return resp, nil
 }
+
 // METHOD: DeletePost
 // Source: cue/api/posts.cue:260
 // INPUT: port.DeletePostRequest
@@ -416,12 +422,12 @@ func (s *BlogImpl) DeletePost(ctx context.Context, req port.DeletePostRequest) (
 		return resp, errors.New(http.StatusNotFound, "Not Found", "Post not found")
 	}
 	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
-	if err = s.PostTagRepo.Delete(txCtx, post.ID); err != nil {
-		return err
-	}
-	if err = s.PostRepo.Delete(txCtx, post.ID); err != nil {
-		return err
-	}
+		if err = s.PostTagRepo.Delete(txCtx, post.ID); err != nil {
+			return err
+		}
+		if err = s.PostRepo.Delete(txCtx, post.ID); err != nil {
+			return err
+		}
 		return nil
 	})
 	if err != nil {
@@ -446,6 +452,7 @@ func (s *BlogImpl) DeletePost(ctx context.Context, req port.DeletePostRequest) (
 	l.Debug("Exiting method", slog.String("status", "success"))
 	return resp, nil
 }
+
 // METHOD: DeleteTag
 // Source: cue/api/tags.cue:102
 // INPUT: port.DeleteTagRequest
@@ -472,12 +479,12 @@ func (s *BlogImpl) DeleteTag(ctx context.Context, req port.DeleteTagRequest) (re
 		return resp, errors.New(http.StatusNotFound, "Not Found", "Tag not found")
 	}
 	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
-	if err = s.PostTagRepo.Delete(txCtx, tag.ID); err != nil {
-		return err
-	}
-	if err = s.TagRepo.Delete(txCtx, tag.ID); err != nil {
-		return err
-	}
+		if err = s.PostTagRepo.Delete(txCtx, tag.ID); err != nil {
+			return err
+		}
+		if err = s.TagRepo.Delete(txCtx, tag.ID); err != nil {
+			return err
+		}
 		return nil
 	})
 	if err != nil {
@@ -502,6 +509,7 @@ func (s *BlogImpl) DeleteTag(ctx context.Context, req port.DeleteTagRequest) (re
 	l.Debug("Exiting method", slog.String("status", "success"))
 	return resp, nil
 }
+
 // METHOD: GetPost
 // Source: cue/api/posts.cue:65
 // INPUT: port.GetPostRequest
@@ -520,7 +528,7 @@ func (s *BlogImpl) GetPost(ctx context.Context, req port.GetPostRequest) (resp p
 	_ = errors.New
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
-	post, err := s.PostRepo.FindByID(ctx, req.Slug)
+	post, err := s.PostRepo.FindBySlug(ctx, req.Slug)
 	if err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
 	}
@@ -548,6 +556,7 @@ func (s *BlogImpl) GetPost(ctx context.Context, req port.GetPostRequest) (resp p
 	l.Debug("Exiting method", slog.String("status", "success"))
 	return resp, nil
 }
+
 // METHOD: ListComments
 // Source: cue/api/comments.cue:41
 // INPUT: port.ListCommentsRequest
@@ -570,12 +579,9 @@ func (s *BlogImpl) ListComments(ctx context.Context, req port.ListCommentsReques
 	if err != nil {
 		return resp, err
 	}
-	totalCount, err := s.CommentRepo.FindByID(ctx, req.PostID)
+	totalCount, err := s.CommentRepo.CountByPost(ctx, req.PostID)
 	if err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
-	}
-	if totalCount == nil {
-		return resp, errors.New(http.StatusNotFound, "Not Found", "totalCount not found")
 	}
 	resp.Data = comments
 	resp.Total = totalCount
@@ -590,6 +596,7 @@ func (s *BlogImpl) ListComments(ctx context.Context, req port.ListCommentsReques
 	l.Debug("Exiting method", slog.String("status", "success"))
 	return resp, nil
 }
+
 // METHOD: ListMyPosts
 // Source: cue/api/posts.cue:136
 // INPUT: port.ListMyPostsRequest
@@ -609,16 +616,16 @@ func (s *BlogImpl) ListMyPosts(ctx context.Context, req port.ListMyPostsRequest)
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
 	if req.Status != "" {
-	posts, err := s.PostRepo.ListByAuthorAndStatus(ctx, req.UserId)
-	if err != nil {
-		return resp, err
+		posts, err := s.PostRepo.ListByAuthorAndStatus(ctx, req.UserId)
+		if err != nil {
+			return resp, err
+		}
+	} else {
+		posts, err := s.PostRepo.ListByAuthor(ctx, req.UserId)
+		if err != nil {
+			return resp, err
+		}
 	}
-	}  else {
-	posts, err := s.PostRepo.ListByAuthor(ctx, req.UserId)
-	if err != nil {
-		return resp, err
-	}
-	} 
 	resp.Data = posts
 
 	// Execute post-commit hooks
@@ -631,6 +638,7 @@ func (s *BlogImpl) ListMyPosts(ctx context.Context, req port.ListMyPostsRequest)
 	l.Debug("Exiting method", slog.String("status", "success"))
 	return resp, nil
 }
+
 // METHOD: ListPosts
 // Source: cue/api/posts.cue:100
 // INPUT: port.ListPostsRequest
@@ -650,30 +658,24 @@ func (s *BlogImpl) ListPosts(ctx context.Context, req port.ListPostsRequest) (re
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
 	if req.Tag != "" {
-	posts, err := s.PostRepo.ListPublishedByTag(ctx, req.Tag)
-	if err != nil {
-		return resp, err
+		posts, err := s.PostRepo.ListPublishedByTag(ctx, req.Tag)
+		if err != nil {
+			return resp, err
+		}
+		totalCount, err := s.PostRepo.CountPublishedByTag(ctx, req.Tag)
+		if err != nil {
+			return resp, errors.WithIntent(err, ":0 ()")
+		}
+	} else {
+		posts, err := s.PostRepo.ListPublished(ctx)
+		if err != nil {
+			return resp, err
+		}
+		totalCount, err := s.PostRepo.CountPublished(ctx)
+		if err != nil {
+			return resp, errors.WithIntent(err, ":0 ()")
+		}
 	}
-	totalCount, err := s.PostRepo.FindByID(ctx, req.Tag)
-	if err != nil {
-		return resp, errors.WithIntent(err, ":0 ()")
-	}
-	if totalCount == nil {
-		return resp, errors.New(http.StatusNotFound, "Not Found", "totalCount not found")
-	}
-	}  else {
-	posts, err := s.PostRepo.ListPublished(ctx)
-	if err != nil {
-		return resp, err
-	}
-	totalCount, err := s.PostRepo.FindByID(ctx, <no value>)
-	if err != nil {
-		return resp, errors.WithIntent(err, ":0 ()")
-	}
-	if totalCount == nil {
-		return resp, errors.New(http.StatusNotFound, "Not Found", "totalCount not found")
-	}
-	} 
 	resp.Data = posts
 	resp.Total = totalCount
 
@@ -687,6 +689,7 @@ func (s *BlogImpl) ListPosts(ctx context.Context, req port.ListPostsRequest) (re
 	l.Debug("Exiting method", slog.String("status", "success"))
 	return resp, nil
 }
+
 // METHOD: ListTags
 // Source: cue/api/tags.cue:12
 // INPUT: port.ListTagsRequest
@@ -721,6 +724,7 @@ func (s *BlogImpl) ListTags(ctx context.Context, req port.ListTagsRequest) (resp
 	l.Debug("Exiting method", slog.String("status", "success"))
 	return resp, nil
 }
+
 // METHOD: PublishPost
 // Source: cue/api/posts.cue:218
 // INPUT: port.PublishPostRequest
@@ -764,6 +768,7 @@ func (s *BlogImpl) PublishPost(ctx context.Context, req port.PublishPostRequest)
 	l.Debug("Exiting method", slog.String("status", "success"))
 	return resp, nil
 }
+
 // METHOD: SubmitPost
 // Source: cue/api/posts.cue:197
 // INPUT: port.SubmitPostRequest
@@ -807,6 +812,7 @@ func (s *BlogImpl) SubmitPost(ctx context.Context, req port.SubmitPostRequest) (
 	l.Debug("Exiting method", slog.String("status", "success"))
 	return resp, nil
 }
+
 // METHOD: UpdateComment
 // Source: cue/api/comments.cue:71
 // INPUT: port.UpdateCommentRequest
@@ -851,6 +857,7 @@ func (s *BlogImpl) UpdateComment(ctx context.Context, req port.UpdateCommentRequ
 	l.Debug("Exiting method", slog.String("status", "success"))
 	return resp, nil
 }
+
 // METHOD: UpdatePost
 // Source: cue/api/posts.cue:167
 // INPUT: port.UpdatePostRequest
@@ -877,11 +884,11 @@ func (s *BlogImpl) UpdatePost(ctx context.Context, req port.UpdatePostRequest) (
 		return resp, errors.New(http.StatusNotFound, "Not Found", "Post not found")
 	}
 	if req.Title != "" {
-	post.Title = req.Title
-	} 
+		post.Title = req.Title
+	}
 	if req.Content != "" {
-	post.Content = req.Content
-	} 
+		post.Content = req.Content
+	}
 	if err = s.PostRepo.Save(ctx, post); err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
 	}
@@ -897,6 +904,7 @@ func (s *BlogImpl) UpdatePost(ctx context.Context, req port.UpdatePostRequest) (
 	l.Debug("Exiting method", slog.String("status", "success"))
 	return resp, nil
 }
+
 // METHOD: UpdateTag
 // Source: cue/api/tags.cue:70
 // INPUT: port.UpdateTagRequest
@@ -923,16 +931,16 @@ func (s *BlogImpl) UpdateTag(ctx context.Context, req port.UpdateTagRequest) (re
 		return resp, errors.New(http.StatusNotFound, "Not Found", "Tag not found")
 	}
 	if req.Name != "" {
-	tag.Name = req.Name
-	slug, err := slugify(req.Name)
-	if err != nil {
-		return resp, errors.WithIntent(err, ":0 ()")
+		tag.Name = req.Name
+		slug, err := slugify(req.Name)
+		if err != nil {
+			return resp, errors.WithIntent(err, ":0 ()")
+		}
+		tag.Slug = slug
 	}
-	tag.Slug = slug
-	} 
 	if req.Description != "" {
-	tag.Description = req.Description
-	} 
+		tag.Description = req.Description
+	}
 	if err = s.TagRepo.Save(ctx, tag); err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
 	}

@@ -150,7 +150,7 @@ func (s *AuthImpl) Login(ctx context.Context, req port.LoginRequest) (resp port.
 	_ = errors.New
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
-	user, err := s.UserRepo.FindByID(ctx, req.Email)
+	user, err := s.UserRepo.FindByEmail(ctx, req.Email)
 	if err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
 	}
@@ -211,7 +211,7 @@ func (s *AuthImpl) Register(ctx context.Context, req port.RegisterRequest) (resp
 	_ = errors.New
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
-	existing, err := s.UserRepo.FindByID(ctx, req.Email)
+	existing, err := s.UserRepo.FindByEmail(ctx, req.Email)
 	if err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
 	}

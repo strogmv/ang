@@ -414,6 +414,11 @@
       "type": "map[string]interface {}"
     },
     {
+      "name": "Notifications",
+      "type": "*ir.NotificationsConfig",
+      "tag": "notifications,omitempty"
+    },
+    {
       "name": "Project",
       "type": "ir.Project"
     },
@@ -432,6 +437,11 @@
     {
       "name": "Services",
       "type": "[]ir.Service"
+    },
+    {
+      "name": "Templates",
+      "type": "[]ir.Template",
+      "tag": "templates,omitempty"
     },
     {
       "name": "Views",

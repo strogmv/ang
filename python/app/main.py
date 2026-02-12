@@ -6,6 +6,6 @@ from app.routers import (
     blog,
 )
 
-app = FastAPI(title="ANG Service", version="0.1.51")
+app = FastAPI(title="ANG Service", version="0.1.55")
 app.include_router(auth.router)
 app.include_router(blog.router)

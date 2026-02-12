@@ -10,9 +10,11 @@ import (
 )
 
 const (
-	InfraKeyConfig             = "config"
-	InfraKeyAuth               = "auth"
-	InfraKeyNotificationMuting = "notification_muting"
+	InfraKeyConfig               = "config"
+	InfraKeyAuth                 = "auth"
+	InfraKeyNotificationMuting   = "notification_muting"
+	InfraKeyNotificationChannels = "notification_channels"
+	InfraKeyNotificationPolicies = "notification_policies"
 
 	infraErrCodeConfigParse = "CUE_INFRA_CONFIG_PARSE_ERROR"
 	infraErrCodeAuthParse   = "CUE_INFRA_AUTH_PARSE_ERROR"
@@ -187,6 +189,16 @@ func InfraNotificationMuting(values map[string]any) *NotificationMutingDef {
 	return def
 }
 
+func InfraNotificationChannels(values map[string]any) *NotificationChannelsDef {
+	def, _ := values[InfraKeyNotificationChannels].(*NotificationChannelsDef)
+	return def
+}
+
+func InfraNotificationPolicies(values map[string]any) *NotificationPoliciesDef {
+	def, _ := values[InfraKeyNotificationPolicies].(*NotificationPoliciesDef)
+	return def
+}
+
 func init() {
 	Register(InfraKeyConfig, InfraDef{
 		CUEPath:   "#AppConfig",
@@ -251,6 +263,28 @@ func init() {
 				Name:     "Notification Muting",
 				Requires: []string{"profile_go_legacy"},
 			},
+		},
+	})
+
+	Register(InfraKeyNotificationChannels, InfraDef{
+		CUEPath:   "#NotificationChannels",
+		Type:      reflect.TypeOf(NotificationChannelsDef{}),
+		Template:  "notification_channels",
+		ErrorCode: infraErrCodeConfigParse,
+		ErrorOp:   "extract notification channels",
+		Extractor: func(n *Normalizer, v cue.Value) (any, error) {
+			return n.ExtractNotificationChannels(v)
+		},
+	})
+
+	Register(InfraKeyNotificationPolicies, InfraDef{
+		CUEPath:   "#NotificationPolicies",
+		Type:      reflect.TypeOf(NotificationPoliciesDef{}),
+		Template:  "notification_policies",
+		ErrorCode: infraErrCodeConfigParse,
+		ErrorOp:   "extract notification policies",
+		Extractor: func(n *Normalizer, v cue.Value) (any, error) {
+			return n.ExtractNotificationPolicies(v)
 		},
 	})
 }

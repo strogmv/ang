@@ -132,3 +132,17 @@ func (e *Emitter) EmitAsyncAPIFromIR(schema *ir.Schema, project *normalizer.Proj
 func (e *Emitter) EmitViewsFromIR(schema *ir.Schema) error {
 	return e.EmitViews(schema.Views)
 }
+
+func (e *Emitter) EmitNotificationDispatchPortsFromIR(schema *ir.Schema) error {
+	if schema == nil {
+		return nil
+	}
+	return e.EmitNotificationDispatchPorts(schema.Notifications)
+}
+
+func (e *Emitter) EmitNotificationDispatcherRuntimeFromIR(schema *ir.Schema) error {
+	if schema == nil {
+		return nil
+	}
+	return e.EmitNotificationDispatcherRuntime(schema.Notifications)
+}
