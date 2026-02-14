@@ -19,6 +19,7 @@ func (e *Emitter) EmitConfig(config *normalizer.ConfigDef) error {
 	if config == nil {
 		config = &normalizer.ConfigDef{Fields: []normalizer.Field{}}
 	}
+	config = ensureRuntimeConfigFields(config)
 	tmplPath := "templates/config.tmpl"
 	tmplContent, err := ReadTemplateByPath(tmplPath)
 	if err != nil {
@@ -125,6 +126,46 @@ func (e *Emitter) EmitConfig(config *normalizer.ConfigDef) error {
 	}
 	fmt.Printf("Generated Config: %s\n", path)
 	return nil
+}
+
+func ensureRuntimeConfigFields(config *normalizer.ConfigDef) *normalizer.ConfigDef {
+	if config == nil {
+		config = &normalizer.ConfigDef{}
+	}
+	add := func(name, typ, env, def string) {
+		for _, f := range config.Fields {
+			if strings.EqualFold(f.Name, name) {
+				return
+			}
+		}
+		config.Fields = append(config.Fields, normalizer.Field{
+			Name:    name,
+			Type:    typ,
+			EnvVar:  env,
+			Default: def,
+		})
+	}
+
+	// JWT defaults required by auth/http templates.
+	add("JWTAlg", "string", "JWT_ALG", "HS256")
+	add("JWTIssuer", "string", "JWT_ISSUER", "ang")
+	add("JWTAudience", "string", "JWT_AUDIENCE", "ang-api")
+	add("JWTAccessTTL", "string", "JWT_ACCESS_TTL", "15m")
+	add("JWTRefreshTTL", "string", "JWT_REFRESH_TTL", "168h")
+	add("JWTPublicKey", "string", "JWT_PUBLIC_KEY", "")
+	add("JWTPrivateKey", "string", "JWT_PRIVATE_KEY", "secret-key-for-tests")
+
+	// SMTP defaults required by mailer/notification templates.
+	add("SMTPHost", "string", "SMTP_HOST", "")
+	add("SMTPPort", "string", "SMTP_PORT", "587")
+	add("SMTPUser", "string", "SMTP_USER", "")
+	add("SMTPPass", "string", "SMTP_PASS", "")
+	add("SMTPFrom", "string", "SMTP_FROM", "")
+
+	sort.Slice(config.Fields, func(i, j int) bool {
+		return strings.ToLower(config.Fields[i].Name) < strings.ToLower(config.Fields[j].Name)
+	})
+	return config
 }
 
 // EmitLogger generates the logging package.

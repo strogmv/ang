@@ -72,6 +72,9 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 				continue
 			}
 			dbFields = append(dbFields, f)
+			if f.Type == "time.Time" || f.Type == "*time.Time" {
+				hasTime = true
+			}
 			colName := DBName(f.Name)
 			cols = append(cols, colName)
 			placeholders = append(placeholders, fmt.Sprintf("$%d", len(cols)))

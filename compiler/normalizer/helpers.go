@@ -126,6 +126,19 @@ func parseSize(s string) int64 {
 
 // detectType tries to infer the Go type from a CUE value.
 func (n *Normalizer) detectType(fieldName string, v cue.Value) string {
+	// Field definitions are usually structs with a nested `type` property.
+	// Resolve declared type first to avoid degrading everything to map[string]any.
+	if v.IncompleteKind() == cue.StructKind {
+		typeVal := v.LookupPath(cue.ParsePath("type"))
+		if typeVal.Exists() {
+			if s, err := typeVal.String(); err == nil {
+				if mapped := mapDeclaredCueTypeToGo(strings.TrimSpace(s)); mapped != "" {
+					return mapped
+				}
+			}
+		}
+	}
+
 	// 1. Check if type is explicitly mapped in Codegen CUE
 	_, path := v.ReferencePath()
 	pathStr := path.String()
@@ -249,5 +262,51 @@ func (n *Normalizer) detectType(fieldName string, v cue.Value) string {
 		return "map[string]any"
 	default:
 		return "any"
+	}
+}
+
+func mapDeclaredCueTypeToGo(raw string) string {
+	t := strings.Trim(strings.TrimSpace(raw), "\"")
+	if t == "" {
+		return ""
+	}
+	for strings.HasPrefix(t, "*") {
+		t = strings.TrimPrefix(t, "*")
+	}
+	t = strings.TrimSpace(t)
+	if t == "" {
+		return ""
+	}
+
+	// CUE unions of string literals are enums in practice.
+	if strings.Contains(t, "|") {
+		return "string"
+	}
+	if strings.HasPrefix(t, "[]") {
+		if item := mapDeclaredCueTypeToGo(strings.TrimPrefix(t, "[]")); item != "" {
+			return "[]" + strings.TrimPrefix(item, "[]")
+		}
+		return "[]any"
+	}
+
+	switch strings.ToLower(t) {
+	case "string", "email", "url", "phone", "password", "uuid":
+		return "string"
+	case "int", "int32":
+		return "int"
+	case "int64":
+		return "int64"
+	case "float", "float32", "float64", "number":
+		return "float64"
+	case "bool", "boolean":
+		return "bool"
+	case "time", "time.time", "datetime":
+		return "time.Time"
+	case "json", "object", "map":
+		return "map[string]any"
+	case "money":
+		return "int64"
+	default:
+		return ""
 	}
 }

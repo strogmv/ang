@@ -4,12 +4,10 @@ package memory
 import (
 	"context"
 	"fmt"
-	{{- if .HasTime }}
-	"time"
-	{{- end }}
 	{{- if .HasOrderBy }}
 	"sort"
 	{{- end }}
+	"reflect"
 	"{{GoModule}}/internal/domain"
 	"sync"
 )
@@ -92,22 +90,7 @@ func (r *{{ ExportName $.Entity }}RepositoryStub) {{ .Name }}(ctx context.Contex
 		}
 		match := true
 		{{- range $i, $w := .Where }}
-		{{- if eq $w.ParamType "time.Time" }}
-		t{{$i}}, err := time.Parse(time.RFC3339, item.{{ $w.Field | ExportName }})
-		if err != nil {
-			match = false
-		} else if {{- if eq $w.Op "<" }} !t{{$i}}.Before({{ $w.Param }}) {{- else if eq $w.Op ">" }} !t{{$i}}.After({{ $w.Param }}) {{- else }} !t{{$i}}.Equal({{ $w.Param }}) {{- end }} {
-			match = false
-		}
-		{{- else }}
-		{{- if eq $w.Op "<" }}
-		if item.{{ $w.Field | ExportName }} >= {{ $w.Param }} { match = false }
-		{{- else if eq $w.Op ">" }}
-		if item.{{ $w.Field | ExportName }} <= {{ $w.Param }} { match = false }
-		{{- else }}
-		if item.{{ $w.Field | ExportName }} != {{ $w.Param }} { match = false }
-		{{- end }}
-		{{- end }}
+		if !matchesOp{{ ExportName $.Entity }}(item.{{ $w.Field | ExportName }}, {{ $w.Param }}, "{{ $w.Op }}") { match = false }
 		{{- end }}
 		if !match {
 			continue
@@ -119,6 +102,23 @@ func (r *{{ ExportName $.Entity }}RepositoryStub) {{ .Name }}(ctx context.Contex
 	{{- else }}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	{{- if eq .Returns "count" }}
+	var cnt int64
+	for _, item := range r.data {
+		if item == nil {
+			continue
+		}
+		match := true
+		{{- range $i, $w := .Where }}
+		if !matchesOp{{ ExportName $.Entity }}(item.{{ $w.Field | ExportName }}, {{ $w.Param }}, "{{ $w.Op }}") { match = false }
+		{{- end }}
+		if !match {
+			continue
+		}
+		cnt++
+	}
+	return cnt, nil
+	{{- else }}
 	{{- if .ReturnSlice }}
 	var res {{ .ReturnType }}
 	for _, item := range r.data {
@@ -127,22 +127,7 @@ func (r *{{ ExportName $.Entity }}RepositoryStub) {{ .Name }}(ctx context.Contex
 		}
 		match := true
 		{{- range $i, $w := .Where }}
-		{{- if eq $w.ParamType "time.Time" }}
-		t{{$i}}, err := time.Parse(time.RFC3339, item.{{ $w.Field | ExportName }})
-		if err != nil {
-			match = false
-		} else if {{- if eq $w.Op "<" }} !t{{$i}}.Before({{ $w.Param }}) {{- else if eq $w.Op ">" }} !t{{$i}}.After({{ $w.Param }}) {{- else }} !t{{$i}}.Equal({{ $w.Param }}) {{- end }} {
-			match = false
-		}
-		{{- else }}
-		{{- if eq $w.Op "<" }}
-		if item.{{ $w.Field | ExportName }} >= {{ $w.Param }} { match = false }
-		{{- else if eq $w.Op ">" }}
-		if item.{{ $w.Field | ExportName }} <= {{ $w.Param }} { match = false }
-		{{- else }}
-		if item.{{ $w.Field | ExportName }} != {{ $w.Param }} { match = false }
-		{{- end }}
-		{{- end }}
+		if !matchesOp{{ ExportName $.Entity }}(item.{{ $w.Field | ExportName }}, {{ $w.Param }}, "{{ $w.Op }}") { match = false }
 		{{- end }}
 		if !match {
 			continue
@@ -157,9 +142,9 @@ func (r *{{ ExportName $.Entity }}RepositoryStub) {{ .Name }}(ctx context.Contex
 	if len(res) > 1 {
 		sort.Slice(res, func(i, j int) bool {
 			{{- if .OrderByDesc }}
-			return res[i].{{ .OrderByField }} > res[j].{{ .OrderByField }}
+			return compareGreater{{ ExportName $.Entity }}(res[i].{{ .OrderByField }}, res[j].{{ .OrderByField }})
 			{{- else }}
-			return res[i].{{ .OrderByField }} < res[j].{{ .OrderByField }}
+			return compareLess{{ ExportName $.Entity }}(res[i].{{ .OrderByField }}, res[j].{{ .OrderByField }})
 			{{- end }}
 		})
 	}
@@ -174,22 +159,7 @@ func (r *{{ ExportName $.Entity }}RepositoryStub) {{ .Name }}(ctx context.Contex
 		}
 		match := true
 		{{- range $i, $w := .Where }}
-		{{- if eq $w.ParamType "time.Time" }}
-		t{{$i}}, err := time.Parse(time.RFC3339, item.{{ $w.Field | ExportName }})
-		if err != nil {
-			match = false
-		} else if {{- if eq $w.Op "<" }} !t{{$i}}.Before({{ $w.Param }}) {{- else if eq $w.Op ">" }} !t{{$i}}.After({{ $w.Param }}) {{- else }} !t{{$i}}.Equal({{ $w.Param }}) {{- end }} {
-			match = false
-		}
-		{{- else }}
-		{{- if eq $w.Op "<" }}
-		if item.{{ $w.Field | ExportName }} >= {{ $w.Param }} { match = false }
-		{{- else if eq $w.Op ">" }}
-		if item.{{ $w.Field | ExportName }} <= {{ $w.Param }} { match = false }
-		{{- else }}
-		if item.{{ $w.Field | ExportName }} != {{ $w.Param }} { match = false }
-		{{- end }}
-		{{- end }}
+		if !matchesOp{{ ExportName $.Entity }}(item.{{ $w.Field | ExportName }}, {{ $w.Param }}, "{{ $w.Op }}") { match = false }
 		{{- end }}
 		if !match {
 			continue
@@ -202,9 +172,9 @@ func (r *{{ ExportName $.Entity }}RepositoryStub) {{ .Name }}(ctx context.Contex
 	if len(matches) > 1 {
 		sort.Slice(matches, func(i, j int) bool {
 			{{- if .OrderByDesc }}
-			return matches[i].{{ .OrderByField }} > matches[j].{{ .OrderByField }}
+			return compareGreater{{ ExportName $.Entity }}(matches[i].{{ .OrderByField }}, matches[j].{{ .OrderByField }})
 			{{- else }}
-			return matches[i].{{ .OrderByField }} < matches[j].{{ .OrderByField }}
+			return compareLess{{ ExportName $.Entity }}(matches[i].{{ .OrderByField }}, matches[j].{{ .OrderByField }})
 			{{- end }}
 		})
 	}
@@ -216,22 +186,7 @@ func (r *{{ ExportName $.Entity }}RepositoryStub) {{ .Name }}(ctx context.Contex
 		}
 		match := true
 		{{- range $i, $w := .Where }}
-		{{- if eq $w.ParamType "time.Time" }}
-		t{{$i}}, err := time.Parse(time.RFC3339, item.{{ $w.Field | ExportName }})
-		if err != nil {
-			match = false
-		} else if {{- if eq $w.Op "<" }} !t{{$i}}.Before({{ $w.Param }}) {{- else if eq $w.Op ">" }} !t{{$i}}.After({{ $w.Param }}) {{- else }} !t{{$i}}.Equal({{ $w.Param }}) {{- end }} {
-			match = false
-		}
-		{{- else }}
-		{{- if eq $w.Op "<" }}
-		if item.{{ $w.Field | ExportName }} >= {{ $w.Param }} { match = false }
-		{{- else if eq $w.Op ">" }}
-		if item.{{ $w.Field | ExportName }} <= {{ $w.Param }} { match = false }
-		{{- else }}
-		if item.{{ $w.Field | ExportName }} != {{ $w.Param }} { match = false }
-		{{- end }}
-		{{- end }}
+		if !matchesOp{{ ExportName $.Entity }}(item.{{ $w.Field | ExportName }}, {{ $w.Param }}, "{{ $w.Op }}") { match = false }
 		{{- end }}
 		if !match {
 			continue
@@ -246,5 +201,73 @@ func (r *{{ ExportName $.Entity }}RepositoryStub) {{ .Name }}(ctx context.Contex
 	{{- end }}
 	{{- end }}
 	{{- end }}
+	{{- end }}
 }
 {{- end }}
+
+func matchesOp{{ ExportName .Entity }}(left, right any, op string) bool {
+	switch op {
+	case "!=", "<>":
+		return !valueEquals{{ ExportName .Entity }}(left, right)
+	case "<":
+		return compareLess{{ ExportName .Entity }}(left, right)
+	case ">":
+		return compareGreater{{ ExportName .Entity }}(left, right)
+	case "<=":
+		return compareLess{{ ExportName .Entity }}(left, right) || valueEquals{{ ExportName .Entity }}(left, right)
+	case ">=":
+		return compareGreater{{ ExportName .Entity }}(left, right) || valueEquals{{ ExportName .Entity }}(left, right)
+	case "IN", "in":
+		return valueEquals{{ ExportName .Entity }}(left, right)
+	default:
+		return valueEquals{{ ExportName .Entity }}(left, right)
+	}
+}
+
+func valueEquals{{ ExportName .Entity }}(left, right any) bool {
+	return reflect.DeepEqual(left, right)
+}
+
+func compareLess{{ ExportName .Entity }}(left, right any) bool {
+	switch l := left.(type) {
+	case int:
+		if r, ok := right.(int); ok {
+			return l < r
+		}
+	case int64:
+		if r, ok := right.(int64); ok {
+			return l < r
+		}
+	case float64:
+		if r, ok := right.(float64); ok {
+			return l < r
+		}
+	case string:
+		if r, ok := right.(string); ok {
+			return l < r
+		}
+	}
+	return fmt.Sprint(left) < fmt.Sprint(right)
+}
+
+func compareGreater{{ ExportName .Entity }}(left, right any) bool {
+	switch l := left.(type) {
+	case int:
+		if r, ok := right.(int); ok {
+			return l > r
+		}
+	case int64:
+		if r, ok := right.(int64); ok {
+			return l > r
+		}
+	case float64:
+		if r, ok := right.(float64); ok {
+			return l > r
+		}
+	case string:
+		if r, ok := right.(string); ok {
+			return l > r
+		}
+	}
+	return fmt.Sprint(left) > fmt.Sprint(right)
+}
