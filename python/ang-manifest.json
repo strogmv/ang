@@ -55,7 +55,52 @@
       "depends_on": []
     }
   ],
-  "events": null,
+  "events": [
+    {
+      "name": "UserRegistered",
+      "fields": [
+        "userID",
+        "email"
+      ]
+    },
+    {
+      "name": "UserLoggedIn",
+      "fields": [
+        "userID"
+      ]
+    },
+    {
+      "name": "PostCreated",
+      "fields": [
+        "postID",
+        "authorID",
+        "title"
+      ]
+    },
+    {
+      "name": "PostPublished",
+      "fields": [
+        "postID",
+        "authorID",
+        "title",
+        "slug"
+      ]
+    },
+    {
+      "name": "PostUpdated",
+      "fields": [
+        "postID"
+      ]
+    },
+    {
+      "name": "CommentCreated",
+      "fields": [
+        "commentID",
+        "postID",
+        "authorID"
+      ]
+    }
+  ],
   "entities": [
     "User",
     "Post",

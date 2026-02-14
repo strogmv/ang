@@ -139,3 +139,107 @@ export const deleteComment = (params: Types.DeleteCommentRequest = {} as Types.D
     validateResponse('DeleteCommentResponseSchema', r.data, 'DeleteComment')
   );
 };
+
+export const endpointMeta: Record<string, {
+  method: string;
+  path: string;
+  idempotent?: boolean;
+  timeout?: string;
+  authRoles?: string[];
+  cacheTTL?: string;
+}> = {
+  register: {
+    method: 'POST',
+    path: '/auth/register',
+  },
+  login: {
+    method: 'POST',
+    path: '/auth/login',
+  },
+  getProfile: {
+    method: 'GET',
+    path: '/auth/profile',
+  },
+  updateProfile: {
+    method: 'PUT',
+    path: '/auth/profile',
+  },
+  listTags: {
+    method: 'GET',
+    path: '/tags',
+  },
+  createTag: {
+    method: 'POST',
+    path: '/tags',
+    authRoles: ['admin'],
+  },
+  updateTag: {
+    method: 'PUT',
+    path: '/tags/{id}',
+    authRoles: ['admin'],
+  },
+  deleteTag: {
+    method: 'DELETE',
+    path: '/tags/{id}',
+    authRoles: ['admin'],
+  },
+  createPost: {
+    method: 'POST',
+    path: '/posts',
+    authRoles: ['author', 'admin'],
+  },
+  getPost: {
+    method: 'GET',
+    path: '/posts/{slug}',
+  },
+  listPosts: {
+    method: 'GET',
+    path: '/posts',
+  },
+  listMyPosts: {
+    method: 'GET',
+    path: '/my/posts',
+    authRoles: ['author', 'admin'],
+  },
+  updatePost: {
+    method: 'PUT',
+    path: '/posts/{id}',
+    authRoles: ['author', 'admin'],
+  },
+  submitPost: {
+    method: 'POST',
+    path: '/posts/{id}/submit',
+    authRoles: ['author', 'admin'],
+  },
+  publishPost: {
+    method: 'POST',
+    path: '/posts/{id}/publish',
+    authRoles: ['admin'],
+  },
+  archivePost: {
+    method: 'POST',
+    path: '/posts/{id}/archive',
+    authRoles: ['author', 'admin'],
+  },
+  deletePost: {
+    method: 'DELETE',
+    path: '/posts/{id}',
+    authRoles: ['author', 'admin'],
+  },
+  createComment: {
+    method: 'POST',
+    path: '/posts/{postID}/comments',
+  },
+  listComments: {
+    method: 'GET',
+    path: '/posts/{postID}/comments',
+  },
+  updateComment: {
+    method: 'PUT',
+    path: '/comments/{id}',
+  },
+  deleteComment: {
+    method: 'DELETE',
+    path: '/comments/{id}',
+  },
+};

@@ -3,6 +3,12 @@ import { useAuthStore } from './auth-store';
 import type * as Types from './types';
 
 export type EventMap = {
+  UserRegistered: Types.UserRegistered;
+  UserLoggedIn: Types.UserLoggedIn;
+  PostCreated: Types.PostCreated;
+  PostPublished: Types.PostPublished;
+  PostUpdated: Types.PostUpdated;
+  CommentCreated: Types.CommentCreated;
 };
 
 export type WSMessage = {

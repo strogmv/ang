@@ -8,7 +8,14 @@ package schema
 
 #UIType: "text" | "textarea" | "number" | "date" | "datetime" | "time" |
          "select" | "autocomplete" | "checkbox" | "switch" | "radio" |
-         "file" | "image" | "currency" | "phone" | "email" | "url" | "password"
+         "file" | "image" | "currency" | "phone" | "email" | "url" | "password" | "custom"
+
+#UIImportance: "high" | "normal" | "low"
+#UIInputKind:  "sensitive" | "email" | "phone" | "money" | "search" | "none"
+#UIIntent:     "danger" | "warning" | "success" | "info" | "neutral"
+#UIDensity:    "compact" | "normal" | "spacious"
+#UILabelMode:  "static" | "floating" | "hidden"
+#UISurface:    "paper" | "flat" | "raised"
 
 #UIHints: {
 	// Display
@@ -16,19 +23,28 @@ package schema
 	label?:       string
 	placeholder?: string
 	helperText?:  string
+	importance?:  #UIImportance
+	inputKind?:   #UIInputKind
+	intent?:      #UIIntent
+	density?:     #UIDensity
+	labelMode?:   #UILabelMode
+	surface?:     #UISurface
 
 	// Layout
-	order?:    int
-	hidden?:   bool
-	disabled?: bool
+	order?:     int
+	hidden?:    bool
+	disabled?:  bool
 	fullWidth?: bool | *true
+	columns?:   int
+	section?:   string
 
 	// Type-specific
-	rows?:     int      // textarea
-	min?:      number   // number/currency
-	max?:      number   // number/currency
-	step?:     number   // number
+	rows?:      int      // textarea
+	min?:       number   // number/currency
+	max?:       number   // number/currency
+	step?:      number   // number
 	currency?: string   // currency (default: "BYN")
+	component?: string   // type=custom component name
 
 	// Select/Autocomplete
 	source?:   string      // entity name for async options (e.g., "categories")

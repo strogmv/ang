@@ -678,6 +678,10 @@ func (n *Normalizer) ExtractProject(val cue.Value) (*ProjectDef, error) {
 	}
 	name := strings.TrimSpace(getString(projectVal, "name"))
 	version := strings.TrimSpace(getString(projectVal, "version"))
+	uiProvider := strings.TrimSpace(getString(projectVal, "ui_provider"))
+	if uiProvider == "" {
+		uiProvider = strings.TrimSpace(getString(projectVal, "ui.provider"))
+	}
 	var plugins []string
 	if pVal := projectVal.LookupPath(cue.ParsePath("plugins")); pVal.Exists() {
 		it, err := pVal.List()
@@ -695,13 +699,14 @@ func (n *Normalizer) ExtractProject(val cue.Value) (*ProjectDef, error) {
 			}
 		}
 	}
-	if name == "" && version == "" && len(plugins) == 0 {
+	if name == "" && version == "" && len(plugins) == 0 && uiProvider == "" {
 		return nil, nil
 	}
 	return &ProjectDef{
-		Name:    name,
-		Version: version,
-		Plugins: plugins,
+		Name:       name,
+		Version:    version,
+		Plugins:    plugins,
+		UIProvider: uiProvider,
 	}, nil
 }
 

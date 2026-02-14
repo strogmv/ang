@@ -349,3 +349,9 @@ package schema
 		#SetResponse & { _field: "Ok", _value: "true" }
 	]
 }
+
+#Query: {
+	_entity: string, _method: string, _input?: string, _var: string
+	action: "repo.Query", source: _entity, method: _method, output: _var
+	if _input != _|_ { input: _input }
+}

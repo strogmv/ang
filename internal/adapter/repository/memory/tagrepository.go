@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/strogmv/ang/internal/domain"
+	"reflect"
 	"sort"
 	"sync"
 )
@@ -47,7 +48,7 @@ func (r *TagRepositoryStub) Delete(ctx context.Context, id string) error {
 	delete(r.data, id)
 	return nil
 }
-func (r *TagRepositoryStub) FindBySlug(ctx context.Context, slug map[string]any) (*domain.Tag, error) {
+func (r *TagRepositoryStub) FindBySlug(ctx context.Context, slug string) (*domain.Tag, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, item := range r.data {
@@ -55,7 +56,7 @@ func (r *TagRepositoryStub) FindBySlug(ctx context.Context, slug map[string]any)
 			continue
 		}
 		match := true
-		if item.Slug != slug {
+		if !matchesOpTag(item.Slug, slug, "=") {
 			match = false
 		}
 		if !match {
@@ -81,12 +82,12 @@ func (r *TagRepositoryStub) ListAll(ctx context.Context) ([]domain.Tag, error) {
 	}
 	if len(res) > 1 {
 		sort.Slice(res, func(i, j int) bool {
-			return res[i].Name < res[j].Name
+			return compareLessTag(res[i].Name, res[j].Name)
 		})
 	}
 	return res, nil
 }
-func (r *TagRepositoryStub) ListByPost(ctx context.Context, id map[string]any) ([]domain.Tag, error) {
+func (r *TagRepositoryStub) ListByPost(ctx context.Context, id string) ([]domain.Tag, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	var res []domain.Tag
@@ -95,7 +96,7 @@ func (r *TagRepositoryStub) ListByPost(ctx context.Context, id map[string]any) (
 			continue
 		}
 		match := true
-		if item.ID != id {
+		if !matchesOpTag(item.ID, id, "IN") {
 			match = false
 		}
 		if !match {
@@ -104,4 +105,71 @@ func (r *TagRepositoryStub) ListByPost(ctx context.Context, id map[string]any) (
 		res = append(res, *item)
 	}
 	return res, nil
+}
+
+func matchesOpTag(left, right any, op string) bool {
+	switch op {
+	case "!=", "<>":
+		return !valueEqualsTag(left, right)
+	case "<":
+		return compareLessTag(left, right)
+	case ">":
+		return compareGreaterTag(left, right)
+	case "<=":
+		return compareLessTag(left, right) || valueEqualsTag(left, right)
+	case ">=":
+		return compareGreaterTag(left, right) || valueEqualsTag(left, right)
+	case "IN", "in":
+		return valueEqualsTag(left, right)
+	default:
+		return valueEqualsTag(left, right)
+	}
+}
+
+func valueEqualsTag(left, right any) bool {
+	return reflect.DeepEqual(left, right)
+}
+
+func compareLessTag(left, right any) bool {
+	switch l := left.(type) {
+	case int:
+		if r, ok := right.(int); ok {
+			return l < r
+		}
+	case int64:
+		if r, ok := right.(int64); ok {
+			return l < r
+		}
+	case float64:
+		if r, ok := right.(float64); ok {
+			return l < r
+		}
+	case string:
+		if r, ok := right.(string); ok {
+			return l < r
+		}
+	}
+	return fmt.Sprint(left) < fmt.Sprint(right)
+}
+
+func compareGreaterTag(left, right any) bool {
+	switch l := left.(type) {
+	case int:
+		if r, ok := right.(int); ok {
+			return l > r
+		}
+	case int64:
+		if r, ok := right.(int64); ok {
+			return l > r
+		}
+	case float64:
+		if r, ok := right.(float64); ok {
+			return l > r
+		}
+	case string:
+		if r, ok := right.(string); ok {
+			return l > r
+		}
+	}
+	return fmt.Sprint(left) > fmt.Sprint(right)
 }

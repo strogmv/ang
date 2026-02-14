@@ -107,6 +107,9 @@ func (s *AuthImpl) GetProfile(ctx context.Context, req port.GetProfileRequest) (
 	_ = errors.New
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
+	if s.UserRepo == nil {
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "User repository not configured")
+	}
 	user, err := s.UserRepo.FindByID(ctx, req.UserId)
 	if err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
@@ -150,6 +153,9 @@ func (s *AuthImpl) Login(ctx context.Context, req port.LoginRequest) (resp port.
 	_ = errors.New
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
+	if s.UserRepo == nil {
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "User repository not configured")
+	}
 	user, err := s.UserRepo.FindByEmail(ctx, req.Email)
 	if err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
@@ -211,6 +217,9 @@ func (s *AuthImpl) Register(ctx context.Context, req port.RegisterRequest) (resp
 	_ = errors.New
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
+	if s.UserRepo == nil {
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "User repository not configured")
+	}
 	existing, err := s.UserRepo.FindByEmail(ctx, req.Email)
 	if err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
@@ -275,6 +284,9 @@ func (s *AuthImpl) UpdateProfile(ctx context.Context, req port.UpdateProfileRequ
 	_ = errors.New
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
+	if s.UserRepo == nil {
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "User repository not configured")
+	}
 	user, err := s.UserRepo.FindByID(ctx, req.UserId)
 	if err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")

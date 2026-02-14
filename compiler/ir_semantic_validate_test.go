@@ -296,6 +296,80 @@ func TestValidateIRSemantics_FailsOnTemplateRequiredVarsRules(t *testing.T) {
 	}
 }
 
+func TestValidateIRSemantics_FailsOnUIHintRules(t *testing.T) {
+	t.Parallel()
+
+	schema := &ir.Schema{
+		Entities: []ir.Entity{
+			{
+				Name: "User",
+				Fields: []ir.Field{
+					{
+						Name:     "theme",
+						Type:     ir.TypeRef{Kind: ir.KindString},
+						Optional: true,
+						UI: ir.FieldUI{
+							Type:       "super-custom",
+							Importance: "urgent",
+							InputKind:  "secret_sauce",
+							Intent:     "critical",
+							Density:    "ultra",
+							LabelMode:  "labeless",
+							Surface:    "glass",
+						},
+					},
+					{
+						Name:     "avatar",
+						Type:     ir.TypeRef{Kind: ir.KindString},
+						Optional: true,
+						UI: ir.FieldUI{
+							Type: "custom",
+						},
+					},
+					{
+						Name:     "role",
+						Type:     ir.TypeRef{Kind: ir.KindString},
+						Optional: true,
+						UI: ir.FieldUI{
+							Type: "select",
+						},
+					},
+					{
+						Name:     "secret",
+						Type:     ir.TypeRef{Kind: ir.KindString},
+						Optional: false,
+						UI: ir.FieldUI{
+							Type:   "text",
+							Hidden: true,
+						},
+					},
+				},
+			},
+		},
+	}
+	err := ValidateIRSemantics(schema)
+	if err == nil {
+		t.Fatalf("expected ui hint validation errors, got nil")
+	}
+	msg := err.Error()
+	for _, want := range []string{
+		"[E_UI_UNKNOWN_TYPE]",
+		"[E_UI_CUSTOM_COMPONENT_REQUIRED]",
+		"[E_UI_SELECT_SOURCE_OR_OPTIONS_REQUIRED]",
+		"[E_UI_HIDDEN_REQUIRED_CONFLICT]",
+		"[E_UI_IMPORTANCE_INVALID]",
+		"[E_UI_INPUT_KIND_INVALID]",
+		"[E_UI_INTENT_INVALID]",
+		"[E_UI_DENSITY_INVALID]",
+		"[E_UI_LABEL_MODE_INVALID]",
+		"[E_UI_SURFACE_INVALID]",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("expected error containing %q, got: %v", want, err)
+		}
+	}
+}
+
 func TestValidateIRSemantics_OKTemplateRequiredVarsRules(t *testing.T) {
 	t.Parallel()
 

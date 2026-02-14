@@ -307,6 +307,7 @@ func runBuild(args []string) {
 			Details   []runtimePackageDir
 		}
 		summaries := make([]buildTargetSummary, 0, len(selectedTargets))
+		frontendTypecheckDirs := make([]string, 0, len(selectedTargets))
 		for _, td := range selectedTargets {
 			intendedBackendDir := resolveBackendDirForTarget(effectiveMode, output.BackendDir, td, multiTarget)
 			intendedFrontendDir := resolveFrontendDirForTarget(output.FrontendDir, intendedBackendDir, td, multiTarget)
@@ -322,6 +323,8 @@ func runBuild(args []string) {
 				safeName := safeTargetDirName(td.Name)
 				backendDir = filepath.Join(dryRunTmpRoot, "backend", safeName)
 				frontendDir = filepath.Join(dryRunTmpRoot, "frontend", safeName)
+			} else {
+				frontendTypecheckDirs = append(frontendTypecheckDirs, intendedFrontendDir)
 			}
 			logText("Generating target %s (%s/%s/%s) -> %s", td.Name, td.Lang, td.Framework, td.DB, backendDir)
 			if jsonLogs {
@@ -336,6 +339,9 @@ func runBuild(args []string) {
 
 			em := emitter.New(backendDir, frontendDir, "templates")
 			em.FrontendAdminDir = output.FrontendAdminDir
+			if projectDef != nil && strings.TrimSpace(projectDef.UIProvider) != "" {
+				em.UIProviderPath = strings.TrimSpace(projectDef.UIProvider)
+			}
 			em.Version = compiler.Version
 			em.InputHash = inputHash
 			em.CompilerHash = compilerHash
@@ -476,6 +482,10 @@ func runBuild(args []string) {
 		if !output.DryRun {
 			if err := runOptionalMCPGeneration(projectPath); err != nil {
 				printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterMCPGen, "run optional MCP generation", err)
+				return
+			}
+			if err := runFrontendTypecheckGate(frontendTypecheckDirs); err != nil {
+				printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterStep, "frontend typecheck gate", err)
 				return
 			}
 		} else {

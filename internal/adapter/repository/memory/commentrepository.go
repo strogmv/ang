@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/strogmv/ang/internal/domain"
+	"reflect"
 	"sort"
 	"sync"
 )
@@ -75,7 +76,7 @@ func (r *CommentRepositoryStub) ListByPost(ctx context.Context, postID string) (
 			continue
 		}
 		match := true
-		if item.PostID != postID {
+		if !matchesOpComment(item.PostID, postID, "=") {
 			match = false
 		}
 		if !match {
@@ -85,7 +86,7 @@ func (r *CommentRepositoryStub) ListByPost(ctx context.Context, postID string) (
 	}
 	if len(res) > 1 {
 		sort.Slice(res, func(i, j int) bool {
-			return res[i].CreatedAt < res[j].CreatedAt
+			return compareLessComment(res[i].CreatedAt, res[j].CreatedAt)
 		})
 	}
 	return res, nil
@@ -93,20 +94,21 @@ func (r *CommentRepositoryStub) ListByPost(ctx context.Context, postID string) (
 func (r *CommentRepositoryStub) CountByPost(ctx context.Context, postID string) (int64, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	var cnt int64
 	for _, item := range r.data {
 		if item == nil {
 			continue
 		}
 		match := true
-		if item.PostID != postID {
+		if !matchesOpComment(item.PostID, postID, "=") {
 			match = false
 		}
 		if !match {
 			continue
 		}
-		return item.Count, nil
+		cnt++
 	}
-	return 0, nil
+	return cnt, nil
 }
 func (r *CommentRepositoryStub) DeleteByParent(ctx context.Context, parentID string) (int64, error) {
 	r.mu.Lock()
@@ -117,7 +119,7 @@ func (r *CommentRepositoryStub) DeleteByParent(ctx context.Context, parentID str
 			continue
 		}
 		match := true
-		if item.ParentID != parentID {
+		if !matchesOpComment(item.ParentID, parentID, "=") {
 			match = false
 		}
 		if !match {
@@ -137,7 +139,7 @@ func (r *CommentRepositoryStub) DeleteByPost(ctx context.Context, postID string)
 			continue
 		}
 		match := true
-		if item.PostID != postID {
+		if !matchesOpComment(item.PostID, postID, "=") {
 			match = false
 		}
 		if !match {
@@ -147,4 +149,71 @@ func (r *CommentRepositoryStub) DeleteByPost(ctx context.Context, postID string)
 		deleted++
 	}
 	return deleted, nil
+}
+
+func matchesOpComment(left, right any, op string) bool {
+	switch op {
+	case "!=", "<>":
+		return !valueEqualsComment(left, right)
+	case "<":
+		return compareLessComment(left, right)
+	case ">":
+		return compareGreaterComment(left, right)
+	case "<=":
+		return compareLessComment(left, right) || valueEqualsComment(left, right)
+	case ">=":
+		return compareGreaterComment(left, right) || valueEqualsComment(left, right)
+	case "IN", "in":
+		return valueEqualsComment(left, right)
+	default:
+		return valueEqualsComment(left, right)
+	}
+}
+
+func valueEqualsComment(left, right any) bool {
+	return reflect.DeepEqual(left, right)
+}
+
+func compareLessComment(left, right any) bool {
+	switch l := left.(type) {
+	case int:
+		if r, ok := right.(int); ok {
+			return l < r
+		}
+	case int64:
+		if r, ok := right.(int64); ok {
+			return l < r
+		}
+	case float64:
+		if r, ok := right.(float64); ok {
+			return l < r
+		}
+	case string:
+		if r, ok := right.(string); ok {
+			return l < r
+		}
+	}
+	return fmt.Sprint(left) < fmt.Sprint(right)
+}
+
+func compareGreaterComment(left, right any) bool {
+	switch l := left.(type) {
+	case int:
+		if r, ok := right.(int); ok {
+			return l > r
+		}
+	case int64:
+		if r, ok := right.(int64); ok {
+			return l > r
+		}
+	case float64:
+		if r, ok := right.(float64); ok {
+			return l > r
+		}
+	case string:
+		if r, ok := right.(string); ok {
+			return l > r
+		}
+	}
+	return fmt.Sprint(left) > fmt.Sprint(right)
 }

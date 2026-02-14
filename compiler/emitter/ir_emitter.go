@@ -123,9 +123,18 @@ func IRFieldToNormalizer(f ir.Field) normalizer.Field {
 		}
 	}
 
-	if f.UI.Type != "" || f.UI.Label != "" || f.UI.Order != 0 {
+	if f.UI.Type != "" || f.UI.Label != "" || f.UI.Order != 0 || f.UI.Component != "" || f.UI.Section != "" || f.UI.Columns != 0 || f.UI.Importance != "" || f.UI.InputKind != "" || f.UI.Intent != "" || f.UI.Density != "" || f.UI.LabelMode != "" || f.UI.Surface != "" {
 		field.UI = &normalizer.UIHints{
 			Type:        f.UI.Type,
+			Importance:  f.UI.Importance,
+			InputKind:   f.UI.InputKind,
+			Intent:      f.UI.Intent,
+			Density:     f.UI.Density,
+			LabelMode:   f.UI.LabelMode,
+			Surface:     f.UI.Surface,
+			Component:   f.UI.Component,
+			Section:     f.UI.Section,
+			Columns:     f.UI.Columns,
 			Label:       f.UI.Label,
 			Placeholder: f.UI.Placeholder,
 			HelperText:  f.UI.HelperText,

@@ -854,7 +854,7 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 			stepNum := i + 1
 
 			switch step.Action {
-			case "repo.Find", "repo.Get", "repo.GetForUpdate", "repo.Save", "repo.Delete", "repo.List", "repo.Upsert":
+			case "repo.Find", "repo.Get", "repo.GetForUpdate", "repo.Save", "repo.Delete", "repo.List", "repo.Query", "repo.Upsert":
 				source, _ := step.Args["source"].(string)
 				if source != "" {
 					owner, ok := entityOwners[source]
@@ -892,10 +892,15 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 						declaredVars[output] = true
 					}
 				}
-				if step.Action == "repo.List" {
+				if step.Action == "repo.List" || step.Action == "repo.Query" {
 					output, _ := step.Args["output"].(string)
 					if output != "" {
 						declaredVars[output] = true
+					}
+				}
+				if step.Action == "repo.Query" {
+					if step.Args["method"] == nil || step.Args["method"] == "" {
+						addWarn(stepNum, step.Action, "MISSING_METHOD", "repo.Query missing 'method'", "{action: \"repo.Query\", source: \"Entity\", method: \"ListBy...\", input: \"...\", output: \"items\"}", step.File, step.Line, step.Column)
 					}
 				}
 				if step.Action == "repo.GetForUpdate" && !inTx {

@@ -673,6 +673,7 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		tmpl string
 		out  string
 	}{
+		{"index", "index.ts"},
 		{"api-client", "api-client.ts"},
 		{"endpoints", "endpoints.ts"},
 		{"websocket", "websocket.ts"},
@@ -717,6 +718,8 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		tmplPath string
 		out      string
 	}{
+		{"templates/frontend/package.json.tmpl", "package.json"},
+		{"templates/frontend/README.md.tmpl", "README.md"},
 		{"templates/frontend/install-sdk.sh.tmpl", "install-sdk.sh"},
 	}
 

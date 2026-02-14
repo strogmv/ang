@@ -1,5 +1,6 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from './auth-store';
+import { endpointMeta } from './endpoints';
 import { ErrorCode, ProblemDetail } from './types';
 import * as Schemas from './schemas';
 
@@ -67,6 +68,18 @@ const hex = (len: number) => {
   return Array.from(arr, (byte) => byte.toString(16).padStart(2, '0')).join('');
 };
 
+const findEndpointMeta = (url: string | undefined) => {
+  if (!url) return undefined;
+  const pathOnly = url.split('?')[0] || url;
+  for (const meta of Object.values(endpointMeta)) {
+    const pattern = meta.path.replace(/\{[^}]+\}/g, '[^/]+');
+    if (new RegExp(`^${pattern}$`).test(pathOnly)) {
+      return meta;
+    }
+  }
+  return undefined;
+};
+
 // 1. JWT & Trace Context Interceptor
 apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = useAuthStore.getState().token;
@@ -84,6 +97,14 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   
   // Attach traceId to config for logging in response interceptor
   (config as any).meta = { traceId };
+
+  // Auto-Idempotency for contract-driven endpoints.
+  const meta = findEndpointMeta(config.url);
+  if (meta?.idempotent && config.method?.toUpperCase() !== 'GET') {
+    if (!config.headers.get('Idempotency-Key')) {
+      config.headers.set('Idempotency-Key', hex(32));
+    }
+  }
 
   return config;
 });

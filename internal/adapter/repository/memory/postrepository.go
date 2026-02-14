@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/strogmv/ang/internal/domain"
+	"reflect"
 	"sort"
 	"sync"
 )
@@ -66,7 +67,7 @@ func (r *PostRepositoryStub) ListAll(ctx context.Context, offset, limit int) ([]
 	}
 	return items[offset:end], nil
 }
-func (r *PostRepositoryStub) FindBySlug(ctx context.Context, slug map[string]any) (*domain.Post, error) {
+func (r *PostRepositoryStub) FindBySlug(ctx context.Context, slug string) (*domain.Post, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, item := range r.data {
@@ -74,7 +75,7 @@ func (r *PostRepositoryStub) FindBySlug(ctx context.Context, slug map[string]any
 			continue
 		}
 		match := true
-		if item.Slug != slug {
+		if !matchesOpPost(item.Slug, slug, "=") {
 			match = false
 		}
 		if !match {
@@ -84,7 +85,7 @@ func (r *PostRepositoryStub) FindBySlug(ctx context.Context, slug map[string]any
 	}
 	return nil, nil
 }
-func (r *PostRepositoryStub) ListPublished(ctx context.Context, status map[string]any) ([]domain.Post, error) {
+func (r *PostRepositoryStub) ListPublished(ctx context.Context, status string) ([]domain.Post, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	var res []domain.Post
@@ -93,7 +94,7 @@ func (r *PostRepositoryStub) ListPublished(ctx context.Context, status map[strin
 			continue
 		}
 		match := true
-		if item.Status != status {
+		if !matchesOpPost(item.Status, status, "=") {
 			match = false
 		}
 		if !match {
@@ -103,30 +104,31 @@ func (r *PostRepositoryStub) ListPublished(ctx context.Context, status map[strin
 	}
 	if len(res) > 1 {
 		sort.Slice(res, func(i, j int) bool {
-			return res[i].PublishedAt > res[j].PublishedAt
+			return compareGreaterPost(res[i].PublishedAt, res[j].PublishedAt)
 		})
 	}
 	return res, nil
 }
-func (r *PostRepositoryStub) CountPublished(ctx context.Context, status map[string]any) (int64, error) {
+func (r *PostRepositoryStub) CountPublished(ctx context.Context, status string) (int64, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	var cnt int64
 	for _, item := range r.data {
 		if item == nil {
 			continue
 		}
 		match := true
-		if item.Status != status {
+		if !matchesOpPost(item.Status, status, "=") {
 			match = false
 		}
 		if !match {
 			continue
 		}
-		return item.Count, nil
+		cnt++
 	}
-	return 0, nil
+	return cnt, nil
 }
-func (r *PostRepositoryStub) ListPublishedByTag(ctx context.Context, status map[string]any, id map[string]any) ([]domain.Post, error) {
+func (r *PostRepositoryStub) ListPublishedByTag(ctx context.Context, status string, id string) ([]domain.Post, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	var res []domain.Post
@@ -135,10 +137,10 @@ func (r *PostRepositoryStub) ListPublishedByTag(ctx context.Context, status map[
 			continue
 		}
 		match := true
-		if item.Status != status {
+		if !matchesOpPost(item.Status, status, "=") {
 			match = false
 		}
-		if item.ID != id {
+		if !matchesOpPost(item.ID, id, "IN") {
 			match = false
 		}
 		if !match {
@@ -148,31 +150,32 @@ func (r *PostRepositoryStub) ListPublishedByTag(ctx context.Context, status map[
 	}
 	if len(res) > 1 {
 		sort.Slice(res, func(i, j int) bool {
-			return res[i].PublishedAt > res[j].PublishedAt
+			return compareGreaterPost(res[i].PublishedAt, res[j].PublishedAt)
 		})
 	}
 	return res, nil
 }
-func (r *PostRepositoryStub) CountPublishedByTag(ctx context.Context, status map[string]any, id map[string]any) (int64, error) {
+func (r *PostRepositoryStub) CountPublishedByTag(ctx context.Context, status string, id string) (int64, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	var cnt int64
 	for _, item := range r.data {
 		if item == nil {
 			continue
 		}
 		match := true
-		if item.Status != status {
+		if !matchesOpPost(item.Status, status, "=") {
 			match = false
 		}
-		if item.ID != id {
+		if !matchesOpPost(item.ID, id, "IN") {
 			match = false
 		}
 		if !match {
 			continue
 		}
-		return item.Count, nil
+		cnt++
 	}
-	return 0, nil
+	return cnt, nil
 }
 func (r *PostRepositoryStub) ListByAuthor(ctx context.Context, authorID string) ([]domain.Post, error) {
 	r.mu.RLock()
@@ -183,7 +186,7 @@ func (r *PostRepositoryStub) ListByAuthor(ctx context.Context, authorID string) 
 			continue
 		}
 		match := true
-		if item.AuthorID != authorID {
+		if !matchesOpPost(item.AuthorID, authorID, "=") {
 			match = false
 		}
 		if !match {
@@ -193,12 +196,12 @@ func (r *PostRepositoryStub) ListByAuthor(ctx context.Context, authorID string) 
 	}
 	if len(res) > 1 {
 		sort.Slice(res, func(i, j int) bool {
-			return res[i].CreatedAt > res[j].CreatedAt
+			return compareGreaterPost(res[i].CreatedAt, res[j].CreatedAt)
 		})
 	}
 	return res, nil
 }
-func (r *PostRepositoryStub) ListByAuthorAndStatus(ctx context.Context, authorID string, status map[string]any) ([]domain.Post, error) {
+func (r *PostRepositoryStub) ListByAuthorAndStatus(ctx context.Context, authorID string, status string) ([]domain.Post, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	var res []domain.Post
@@ -207,10 +210,10 @@ func (r *PostRepositoryStub) ListByAuthorAndStatus(ctx context.Context, authorID
 			continue
 		}
 		match := true
-		if item.AuthorID != authorID {
+		if !matchesOpPost(item.AuthorID, authorID, "=") {
 			match = false
 		}
-		if item.Status != status {
+		if !matchesOpPost(item.Status, status, "=") {
 			match = false
 		}
 		if !match {
@@ -220,8 +223,75 @@ func (r *PostRepositoryStub) ListByAuthorAndStatus(ctx context.Context, authorID
 	}
 	if len(res) > 1 {
 		sort.Slice(res, func(i, j int) bool {
-			return res[i].CreatedAt > res[j].CreatedAt
+			return compareGreaterPost(res[i].CreatedAt, res[j].CreatedAt)
 		})
 	}
 	return res, nil
+}
+
+func matchesOpPost(left, right any, op string) bool {
+	switch op {
+	case "!=", "<>":
+		return !valueEqualsPost(left, right)
+	case "<":
+		return compareLessPost(left, right)
+	case ">":
+		return compareGreaterPost(left, right)
+	case "<=":
+		return compareLessPost(left, right) || valueEqualsPost(left, right)
+	case ">=":
+		return compareGreaterPost(left, right) || valueEqualsPost(left, right)
+	case "IN", "in":
+		return valueEqualsPost(left, right)
+	default:
+		return valueEqualsPost(left, right)
+	}
+}
+
+func valueEqualsPost(left, right any) bool {
+	return reflect.DeepEqual(left, right)
+}
+
+func compareLessPost(left, right any) bool {
+	switch l := left.(type) {
+	case int:
+		if r, ok := right.(int); ok {
+			return l < r
+		}
+	case int64:
+		if r, ok := right.(int64); ok {
+			return l < r
+		}
+	case float64:
+		if r, ok := right.(float64); ok {
+			return l < r
+		}
+	case string:
+		if r, ok := right.(string); ok {
+			return l < r
+		}
+	}
+	return fmt.Sprint(left) < fmt.Sprint(right)
+}
+
+func compareGreaterPost(left, right any) bool {
+	switch l := left.(type) {
+	case int:
+		if r, ok := right.(int); ok {
+			return l > r
+		}
+	case int64:
+		if r, ok := right.(int64); ok {
+			return l > r
+		}
+	case float64:
+		if r, ok := right.(float64); ok {
+			return l > r
+		}
+	case string:
+		if r, ok := right.(string); ok {
+			return l > r
+		}
+	}
+	return fmt.Sprint(left) > fmt.Sprint(right)
 }

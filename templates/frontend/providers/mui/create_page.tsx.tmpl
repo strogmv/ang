@@ -1,7 +1,7 @@
 import { Container, Paper, Typography, Box, IconButton } from '@mui/material';
 import { ArrowBack as ArrowBackIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { Create{{ .Name }}Form } from '../../components/forms/Create{{ .Name }}Form';
+import { FormRenderer } from '../../components/forms';
 
 export default function Create{{ .Name }}Page() {
   const navigate = useNavigate();
@@ -18,7 +18,7 @@ export default function Create{{ .Name }}Page() {
       </Box>
 
       <Paper sx={{"{{"}} p: 3 {{"}}"}}>
-        <Create{{ .Name }}Form />
+        <FormRenderer formName="Create{{ .Name }}" />
       </Paper>
     </Container>
   );

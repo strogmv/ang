@@ -67,6 +67,15 @@ type Constraints struct {
 // UIHints описывает подсказки для генерации UI компонентов.
 type UIHints struct {
 	Type        string   // text, textarea, number, date, datetime, select, autocomplete, checkbox, switch, file, currency, email, password, phone, url
+	Importance  string   // semantic importance: high, normal, low
+	InputKind   string   // semantic input kind: sensitive, email, phone, money, etc
+	Intent      string   // semantic intent: danger, success, warning, info, neutral
+	Density     string   // semantic density: compact, normal, spacious
+	LabelMode   string   // semantic label mode: static, floating, hidden
+	Surface     string   // semantic surface: paper, flat, raised
+	Component   string   // Custom component name for type="custom"
+	Section     string   // Logical section/group name
+	Columns     int      // Layout columns span hint
 	Label       string   // Метка поля
 	Placeholder string   // Плейсхолдер
 	HelperText  string   // Подсказка под полем
@@ -344,9 +353,10 @@ type SchedulePayloadField struct {
 }
 
 type ProjectDef struct {
-	Name    string
-	Version string
-	Plugins []string
+	Name       string
+	Version    string
+	Plugins    []string
+	UIProvider string
 }
 
 // ScenarioDef represents a behavioral E2E scenario.

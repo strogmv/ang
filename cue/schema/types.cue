@@ -216,7 +216,8 @@ import "github.com/strogmv/ang/cue/project"
 	// repo.Save   - Persist entity (create or update)
 	// repo.Delete - Remove entity by ID
 	// repo.List   - List entities with optional filter
-	action: "repo.Save" | "repo.Find" | "repo.Delete" | "repo.List" | "repo.Get" | "repo.GetForUpdate"
+	// repo.Query  - Query entities via explicit repository method (recommended for filtered lists)
+	action: "repo.Save" | "repo.Find" | "repo.Delete" | "repo.List" | "repo.Query" | "repo.Get" | "repo.GetForUpdate"
 
 	// Entity name from domain (e.g., "Tender", "User", "Company")
 	// RECOMMENDED: PascalCase (e.g., "User", "APIKey", "TenderInvite")

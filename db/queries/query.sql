@@ -1,12 +1,3 @@
--- name: CreateUser :one
-INSERT INTO users (id, email, phonenumber, passwordhash, name, role, avatarurl, createdat, updatedat) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *;
-
--- name: GetUser :one
-SELECT * FROM users WHERE id = $1 LIMIT 1;
-
--- name: ListUser :many
-SELECT * FROM users ORDER BY id LIMIT $1 OFFSET $2;
-
 -- name: CreatePost :one
 INSERT INTO posts (id, authorid, title, slug, content, excerpt, status, publishedat, viewcount, createdat, updatedat) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *;
 

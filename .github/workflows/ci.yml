@@ -18,6 +18,14 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install TypeScript
+        run: npm install -g typescript
+
       - name: Build ANG CLI
         run: go build ./cmd/ang
 
@@ -48,11 +56,13 @@ jobs:
       - name: Build Multi-Target (Go + Python)
         env:
           ANG_PY_SDK: "1"
+          ANG_FRONTEND_TSC: "1"
         run: go run ./cmd/ang build
 
       - name: Deterministic Release Output (hash parity)
         env:
           ANG_PY_SDK: "1"
+          ANG_FRONTEND_TSC: "1"
         run: |
           rm -rf dist
           go run ./cmd/ang build
@@ -77,6 +87,14 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install TypeScript
+        run: npm install -g typescript
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -85,11 +103,13 @@ jobs:
       - name: Build Multi-Target (Go + Python)
         env:
           ANG_PY_SDK: "1"
+          ANG_FRONTEND_TSC: "1"
         run: go run ./cmd/ang build
 
       - name: Determinism Check (second build, same outputs)
         env:
           ANG_PY_SDK: "1"
+          ANG_FRONTEND_TSC: "1"
         run: |
           rm -rf dist
           go run ./cmd/ang build
@@ -178,7 +198,7 @@ jobs:
 
       - name: PDF Example Smoke (from CUE)
         run: |
-          go run ./cmd/ang build examples/pdf-chart-python --target=python
+          ANG_FRONTEND_TSC=1 go run ./cmd/ang build examples/pdf-chart-python --target=python
           test -f examples/pdf-chart-python/app/main.py
           test -f examples/pdf-chart-python/app/services/report.py
           python -m py_compile \

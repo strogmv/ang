@@ -119,6 +119,9 @@ func (s *BlogImpl) ArchivePost(ctx context.Context, req port.ArchivePostRequest)
 	_ = errors.New
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
+	if s.PostRepo == nil {
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "Post repository not configured")
+	}
 	post, err := s.PostRepo.FindByID(ctx, req.ID)
 	if err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
@@ -163,6 +166,12 @@ func (s *BlogImpl) CreateComment(ctx context.Context, req port.CreateCommentRequ
 	_ = errors.New
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
+	if s.CommentRepo == nil {
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "Comment repository not configured")
+	}
+	if s.PostRepo == nil {
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "Post repository not configured")
+	}
 	post, err := s.PostRepo.FindByID(ctx, req.PostID)
 	if err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
@@ -210,6 +219,15 @@ func (s *BlogImpl) CreatePost(ctx context.Context, req port.CreatePostRequest) (
 	_ = errors.New
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
+	if s.PostRepo == nil {
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "Post repository not configured")
+	}
+	if s.PostTagRepo == nil {
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "PostTag repository not configured")
+	}
+	if s.TagRepo == nil {
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "Tag repository not configured")
+	}
 	slug, err := slugify(req.Title)
 	if err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
@@ -299,6 +317,9 @@ func (s *BlogImpl) CreateTag(ctx context.Context, req port.CreateTagRequest) (re
 	_ = errors.New
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
+	if s.TagRepo == nil {
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "Tag repository not configured")
+	}
 	slug, err := slugify(req.Name)
 	if err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
@@ -354,6 +375,9 @@ func (s *BlogImpl) DeleteComment(ctx context.Context, req port.DeleteCommentRequ
 	_ = errors.New
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
+	if s.CommentRepo == nil {
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "Comment repository not configured")
+	}
 	comment, err := s.CommentRepo.FindByID(ctx, req.ID)
 	if err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
@@ -414,6 +438,12 @@ func (s *BlogImpl) DeletePost(ctx context.Context, req port.DeletePostRequest) (
 	_ = errors.New
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
+	if s.PostRepo == nil {
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "Post repository not configured")
+	}
+	if s.PostTagRepo == nil {
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "PostTag repository not configured")
+	}
 	post, err := s.PostRepo.FindByID(ctx, req.ID)
 	if err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
@@ -471,6 +501,12 @@ func (s *BlogImpl) DeleteTag(ctx context.Context, req port.DeleteTagRequest) (re
 	_ = errors.New
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
+	if s.PostTagRepo == nil {
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "PostTag repository not configured")
+	}
+	if s.TagRepo == nil {
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "Tag repository not configured")
+	}
 	tag, err := s.TagRepo.FindByID(ctx, req.ID)
 	if err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
@@ -528,6 +564,12 @@ func (s *BlogImpl) GetPost(ctx context.Context, req port.GetPostRequest) (resp p
 	_ = errors.New
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
+	if s.PostRepo == nil {
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "Post repository not configured")
+	}
+	if s.TagRepo == nil {
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "Tag repository not configured")
+	}
 	post, err := s.PostRepo.FindBySlug(ctx, req.Slug)
 	if err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
@@ -575,6 +617,9 @@ func (s *BlogImpl) ListComments(ctx context.Context, req port.ListCommentsReques
 	_ = errors.New
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
+	if s.CommentRepo == nil {
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "Comment repository not configured")
+	}
 	comments, err := s.CommentRepo.ListByPost(ctx, req.PostID)
 	if err != nil {
 		return resp, err
@@ -615,6 +660,9 @@ func (s *BlogImpl) ListMyPosts(ctx context.Context, req port.ListMyPostsRequest)
 	_ = errors.New
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
+	if s.PostRepo == nil {
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "Post repository not configured")
+	}
 	if req.Status != "" {
 		posts, err := s.PostRepo.ListByAuthorAndStatus(ctx, req.UserId)
 		if err != nil {
@@ -657,6 +705,9 @@ func (s *BlogImpl) ListPosts(ctx context.Context, req port.ListPostsRequest) (re
 	_ = errors.New
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
+	if s.PostRepo == nil {
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "Post repository not configured")
+	}
 	if req.Tag != "" {
 		posts, err := s.PostRepo.ListPublishedByTag(ctx, req.Tag)
 		if err != nil {
@@ -708,6 +759,9 @@ func (s *BlogImpl) ListTags(ctx context.Context, req port.ListTagsRequest) (resp
 	_ = errors.New
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
+	if s.TagRepo == nil {
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "Tag repository not configured")
+	}
 	tags, err := s.TagRepo.ListAll(ctx)
 	if err != nil {
 		return resp, err
@@ -743,6 +797,9 @@ func (s *BlogImpl) PublishPost(ctx context.Context, req port.PublishPostRequest)
 	_ = errors.New
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
+	if s.PostRepo == nil {
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "Post repository not configured")
+	}
 	post, err := s.PostRepo.FindByID(ctx, req.ID)
 	if err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
@@ -787,6 +844,9 @@ func (s *BlogImpl) SubmitPost(ctx context.Context, req port.SubmitPostRequest) (
 	_ = errors.New
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
+	if s.PostRepo == nil {
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "Post repository not configured")
+	}
 	post, err := s.PostRepo.FindByID(ctx, req.ID)
 	if err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
@@ -831,6 +891,9 @@ func (s *BlogImpl) UpdateComment(ctx context.Context, req port.UpdateCommentRequ
 	_ = errors.New
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
+	if s.CommentRepo == nil {
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "Comment repository not configured")
+	}
 	comment, err := s.CommentRepo.FindByID(ctx, req.ID)
 	if err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
@@ -876,6 +939,9 @@ func (s *BlogImpl) UpdatePost(ctx context.Context, req port.UpdatePostRequest) (
 	_ = errors.New
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
+	if s.PostRepo == nil {
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "Post repository not configured")
+	}
 	post, err := s.PostRepo.FindByID(ctx, req.ID)
 	if err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")
@@ -923,6 +989,9 @@ func (s *BlogImpl) UpdateTag(ctx context.Context, req port.UpdateTagRequest) (re
 	_ = errors.New
 	_ = http.StatusOK
 	var deferredHooks []func(context.Context) error
+	if s.TagRepo == nil {
+		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "Tag repository not configured")
+	}
 	tag, err := s.TagRepo.FindByID(ctx, req.ID)
 	if err != nil {
 		return resp, errors.WithIntent(err, ":0 ()")

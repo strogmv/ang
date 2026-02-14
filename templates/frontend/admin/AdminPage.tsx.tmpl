@@ -3,6 +3,7 @@ import { Suspense, useState } from 'react';
 import { useParams } from 'react-router';
 import { Box, Button, Dialog, DialogContent, DialogTitle, Stack, Typography, CircularProgress } from '@mui/material';
 import { useQueryClient } from '@tanstack/react-query';
+import { FormRenderer } from '@sdk/components/forms';
 import { adminEntitiesMap, AdminEntityConfig } from './adminConfig';
 
 function EntityNotFound({ entity }: { entity: string }) {
@@ -41,13 +42,13 @@ function AdminEntityPage({ config }: { config: AdminEntityConfig }) {
     queryClient.invalidateQueries({ queryKey: config.listQueryKey });
   };
 
-  const { TableComponent, CreateFormComponent, UpdateFormComponent } = config;
+  const { TableComponent } = config;
 
   return (
     <Box p={3}>
       <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between" mb={3}>
         <Typography variant="h4">{config.title}</Typography>
-        {CreateFormComponent && (
+        {config.createFormName && (
           <Button variant="contained" onClick={() => setCreateOpen(true)}>
             Создать
           </Button>
@@ -56,42 +57,40 @@ function AdminEntityPage({ config }: { config: AdminEntityConfig }) {
 
       <Suspense fallback={<LoadingFallback />}>
         <TableComponent
-          onEdit={UpdateFormComponent ? (row: any) => setEditRow(row) : undefined}
+          onEdit={config.updateFormName ? (row: any) => setEditRow(row) : undefined}
         />
       </Suspense>
 
-      {CreateFormComponent && (
+      {config.createFormName && (
         <Dialog open={createOpen} onClose={() => setCreateOpen(false)} fullWidth maxWidth="md">
           <DialogTitle>Создать {config.title}</DialogTitle>
           <DialogContent>
-            <Suspense fallback={<LoadingFallback />}>
-              <CreateFormComponent
-                onSuccess={() => {
-                  setCreateOpen(false);
-                  invalidateList();
-                }}
-                onCancel={() => setCreateOpen(false)}
-              />
-            </Suspense>
+            <FormRenderer
+              formName={config.createFormName as any}
+              onSuccess={() => {
+                setCreateOpen(false);
+                invalidateList();
+              }}
+              onCancel={() => setCreateOpen(false)}
+            />
           </DialogContent>
         </Dialog>
       )}
 
-      {UpdateFormComponent && (
+      {config.updateFormName && (
         <Dialog open={!!editRow} onClose={() => setEditRow(null)} fullWidth maxWidth="md">
           <DialogTitle>Редактировать {config.title}</DialogTitle>
           <DialogContent>
             {editRow && (
-              <Suspense fallback={<LoadingFallback />}>
-                <UpdateFormComponent
-                  defaultValues={config.updateIdField ? { ...editRow, [config.updateIdField]: editRow.id } : editRow}
-                  onSuccess={() => {
-                    setEditRow(null);
-                    invalidateList();
-                  }}
-                  onCancel={() => setEditRow(null)}
-                />
-              </Suspense>
+              <FormRenderer
+                formName={config.updateFormName as any}
+                defaultValues={config.updateIdField ? { ...editRow, [config.updateIdField]: editRow.id } : editRow}
+                onSuccess={() => {
+                  setEditRow(null);
+                  invalidateList();
+                }}
+                onCancel={() => setEditRow(null)}
+              />
             )}
           </DialogContent>
         </Dialog>

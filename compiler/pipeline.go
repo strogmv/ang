@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	Version       = "0.1.60"
+	Version       = "0.1.65"
 	SchemaVersion = "1"
 )
 
@@ -85,6 +85,13 @@ func RunPipelineWithOptions(basePath string, opts PipelineOptions) ([]normalizer
 	valRepo, okRepo, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/repo"))
 	valEvents, _, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/events"))
 	valErrors, _, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/errors"))
+
+	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/domain"), opts)
+	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/architecture"), opts)
+	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/api"), opts)
+	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/repo"), opts)
+	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/events"), opts)
+	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/errors"), opts)
 
 	n := normalizer.New()
 	n.WarningSink = func(w normalizer.Warning) {
@@ -178,6 +185,10 @@ func RunPipelineWithOptions(basePath string, opts PipelineOptions) ([]normalizer
 	var events []normalizer.EventDef
 	if valEvents.Err() == nil {
 		events, _ = n.ExtractEvents(valEvents)
+	}
+	if len(events) == 0 {
+		archEvents, _ := n.ExtractEventsFromArch(valArch)
+		events = append(events, archEvents...)
 	}
 	var bizErrors []normalizer.ErrorDef
 	if valErrors.Err() == nil {
@@ -526,6 +537,30 @@ func recordPipelineDiagnostic(diag normalizer.Warning, opts PipelineOptions) {
 		return
 	}
 	LatestDiagnostics = append(LatestDiagnostics, diag)
+}
+
+func emitFileSizeDiagnostics(path string, opts PipelineOptions) {
+	const lineLimit = 300
+	matches, _ := filepath.Glob(filepath.Join(path, "*.cue"))
+	for _, filePath := range matches {
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			continue
+		}
+		lineCount := strings.Count(string(content), "\n") + 1
+		if lineCount > lineLimit {
+			diag := normalizer.Warning{
+				Kind:     "file-size",
+				Code:     "LARGE_CUE_FILE",
+				Severity: "warn",
+				Message:  fmt.Sprintf("CUE file has %d lines (recommended limit: %d)", lineCount, lineLimit),
+				File:     filePath,
+				Line:     1,
+				Hint:     "Split into multiple files in the same directory (CUE merges files with same package automatically)",
+			}
+			recordPipelineDiagnostic(diag, opts)
+		}
+	}
 }
 
 func LoadOptionalDomain(p *parser.Parser, path string) (cue.Value, bool, error) {

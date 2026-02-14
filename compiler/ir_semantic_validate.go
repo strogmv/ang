@@ -12,6 +12,8 @@ import (
 )
 
 var templateVarPathRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$`)
+var uiComponentNameRE = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*$`)
+var uiImportPathRE = regexp.MustCompile(`^(@?[A-Za-z0-9._-]+)(/[A-Za-z0-9._@-]+)*$`)
 
 // ValidateIRSemantics performs fail-fast semantic validation on IR before emitters run.
 func ValidateIRSemantics(schema *ir.Schema) error {
@@ -33,6 +35,7 @@ func ValidateIRSemantics(schema *ir.Schema) error {
 	for _, ent := range schema.Entities {
 		for _, f := range ent.Fields {
 			validateTypeRef(&errs, entityByName, fmt.Sprintf("entity %s field %s", ent.Name, f.Name), f.Type)
+			validateFieldUISemantics(&errs, fmt.Sprintf("entity %s field %s", ent.Name, f.Name), f)
 		}
 	}
 
@@ -42,11 +45,13 @@ func ValidateIRSemantics(schema *ir.Schema) error {
 			if m.Input != nil {
 				for _, f := range m.Input.Fields {
 					validateTypeRef(&errs, entityByName, fmt.Sprintf("service %s method %s input field %s", svc.Name, m.Name, f.Name), f.Type)
+					validateFieldUISemantics(&errs, fmt.Sprintf("service %s method %s input field %s", svc.Name, m.Name, f.Name), f)
 				}
 			}
 			if m.Output != nil {
 				for _, f := range m.Output.Fields {
 					validateTypeRef(&errs, entityByName, fmt.Sprintf("service %s method %s output field %s", svc.Name, m.Name, f.Name), f.Type)
+					validateFieldUISemantics(&errs, fmt.Sprintf("service %s method %s output field %s", svc.Name, m.Name, f.Name), f)
 				}
 			}
 			for _, src := range m.Sources {
@@ -414,6 +419,141 @@ func normalizeFinderFieldKey(s string) string {
 	s = strings.ReplaceAll(s, "_", "")
 	s = strings.ReplaceAll(s, "-", "")
 	return s
+}
+
+func validateFieldUISemantics(errs *[]string, where string, field ir.Field) {
+	uiType := strings.TrimSpace(strings.ToLower(field.UI.Type))
+	if uiType != "" && !isSupportedUIType(uiType) {
+		*errs = append(*errs, fmt.Sprintf("[E_UI_UNKNOWN_TYPE] %s uses unknown ui.type %q", where, field.UI.Type))
+	}
+
+	component := strings.TrimSpace(field.UI.Component)
+	source := strings.TrimSpace(field.UI.Source)
+	if uiType == "custom" && component == "" {
+		*errs = append(*errs, fmt.Sprintf("[E_UI_CUSTOM_COMPONENT_REQUIRED] %s uses ui.type=custom but ui.component is empty", where))
+	}
+	if component != "" && !uiComponentNameRE.MatchString(component) {
+		*errs = append(*errs, fmt.Sprintf("[E_UI_INVALID_COMPONENT] %s has invalid ui.component %q", where, component))
+	}
+	// Source path validation is strict only for custom fields.
+	if uiType == "custom" && source != "" && !uiImportPathRE.MatchString(source) {
+		*errs = append(*errs, fmt.Sprintf("[E_UI_INVALID_SOURCE] %s has invalid ui.source %q", where, source))
+	}
+	if uiType == "select" && len(field.UI.Options) == 0 && source == "" {
+		*errs = append(*errs, fmt.Sprintf("[E_UI_SELECT_SOURCE_OR_OPTIONS_REQUIRED] %s uses ui.type=select but neither ui.options nor ui.source is set", where))
+	}
+	if field.UI.Hidden && fieldIsRequired(field) {
+		*errs = append(*errs, fmt.Sprintf("[E_UI_HIDDEN_REQUIRED_CONFLICT] %s is hidden but required", where))
+	}
+	if field.UI.Columns < 0 {
+		*errs = append(*errs, fmt.Sprintf("[E_UI_COLUMNS_INVALID] %s has negative ui.columns=%d", where, field.UI.Columns))
+	}
+	importance := strings.TrimSpace(strings.ToLower(field.UI.Importance))
+	if importance != "" && !isSupportedUIImportance(importance) {
+		*errs = append(*errs, fmt.Sprintf("[E_UI_IMPORTANCE_INVALID] %s has unsupported ui.importance %q", where, field.UI.Importance))
+	}
+	inputKind := strings.TrimSpace(strings.ToLower(field.UI.InputKind))
+	if inputKind != "" && !isSupportedUIInputKind(inputKind) {
+		*errs = append(*errs, fmt.Sprintf("[E_UI_INPUT_KIND_INVALID] %s has unsupported ui.inputKind %q", where, field.UI.InputKind))
+	}
+	intent := strings.TrimSpace(strings.ToLower(field.UI.Intent))
+	if intent != "" && !isSupportedUIIntent(intent) {
+		*errs = append(*errs, fmt.Sprintf("[E_UI_INTENT_INVALID] %s has unsupported ui.intent %q", where, field.UI.Intent))
+	}
+	density := strings.TrimSpace(strings.ToLower(field.UI.Density))
+	if density != "" && !isSupportedUIDensity(density) {
+		*errs = append(*errs, fmt.Sprintf("[E_UI_DENSITY_INVALID] %s has unsupported ui.density %q", where, field.UI.Density))
+	}
+	labelMode := strings.TrimSpace(strings.ToLower(field.UI.LabelMode))
+	if labelMode != "" && !isSupportedUILabelMode(labelMode) {
+		*errs = append(*errs, fmt.Sprintf("[E_UI_LABEL_MODE_INVALID] %s has unsupported ui.labelMode %q", where, field.UI.LabelMode))
+	}
+	surface := strings.TrimSpace(strings.ToLower(field.UI.Surface))
+	if surface != "" && !isSupportedUISurface(surface) {
+		*errs = append(*errs, fmt.Sprintf("[E_UI_SURFACE_INVALID] %s has unsupported ui.surface %q", where, field.UI.Surface))
+	}
+}
+
+func isSupportedUIType(v string) bool {
+	switch strings.TrimSpace(strings.ToLower(v)) {
+	case "text", "textarea", "number", "currency", "email", "password", "phone", "url",
+		"date", "datetime", "time", "select", "autocomplete", "checkbox", "switch",
+		"file", "image", "custom":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSupportedUIImportance(v string) bool {
+	switch strings.TrimSpace(strings.ToLower(v)) {
+	case "high", "normal", "low":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSupportedUIInputKind(v string) bool {
+	switch strings.TrimSpace(strings.ToLower(v)) {
+	case "sensitive", "email", "phone", "money", "search", "none":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSupportedUIIntent(v string) bool {
+	switch strings.TrimSpace(strings.ToLower(v)) {
+	case "danger", "warning", "success", "info", "neutral":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSupportedUIDensity(v string) bool {
+	switch strings.TrimSpace(strings.ToLower(v)) {
+	case "compact", "normal", "spacious":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSupportedUILabelMode(v string) bool {
+	switch strings.TrimSpace(strings.ToLower(v)) {
+	case "static", "floating", "hidden":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSupportedUISurface(v string) bool {
+	switch strings.TrimSpace(strings.ToLower(v)) {
+	case "paper", "flat", "raised":
+		return true
+	default:
+		return false
+	}
+}
+
+func fieldIsRequired(field ir.Field) bool {
+	if !field.Optional {
+		return true
+	}
+	tag := strings.TrimSpace(field.ValidateTag)
+	if tag == "" {
+		return false
+	}
+	parts := strings.Split(tag, ",")
+	for _, part := range parts {
+		if strings.EqualFold(strings.TrimSpace(part), "required") {
+			return true
+		}
+	}
+	return false
 }
 
 func validateTypeRef(errs *[]string, entities map[string]ir.Entity, where string, ref ir.TypeRef) {

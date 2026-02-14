@@ -2,16 +2,18 @@ package notifications
 
 import (
 	"context"
+	"fmt"
+	"strings"
+{{- if .HasEmailChannel }}
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
-	"fmt"
 	"os"
-	"strings"
 
 	"{{ GoModule }}/internal/adapter/mailer/smtp"
 	"{{ GoModule }}/internal/config"
 	"{{ GoModule }}/internal/pkg/emailtemplates"
+{{- end }}
 	"{{ GoModule }}/internal/port"
 )
 
@@ -50,13 +52,18 @@ var dispatchPolicies = []dispatchPolicy{
 }
 
 // NewDispatcher builds a runtime dispatcher with channel-specific sinks.
+{{- if .HasEmailChannel }}
 func NewDispatcher(cfg *config.Config) *Dispatcher {
 	d := &Dispatcher{}
-	{{- if .HasEmailChannel }}
 	d.EmailSink = newEmailSink(cfg)
-	{{- end }}
 	return d
 }
+{{- else }}
+func NewDispatcher() *Dispatcher {
+	d := &Dispatcher{}
+	return d
+}
+{{- end }}
 
 // Dispatch delivers message to requested channels, or to default channels when omitted.
 func (d *Dispatcher) Dispatch(ctx context.Context, msg port.NotificationMessage) error {

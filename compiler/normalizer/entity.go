@@ -530,6 +530,35 @@ func parseUIHints(v cue.Value) *UIHints {
 	if val, found, _ := attr.Lookup(0, "type"); found {
 		hints.Type = val
 	}
+	if val, found, _ := attr.Lookup(0, "importance"); found {
+		hints.Importance = val
+	}
+	if val, found, _ := attr.Lookup(0, "inputKind"); found {
+		hints.InputKind = val
+	}
+	if val, found, _ := attr.Lookup(0, "intent"); found {
+		hints.Intent = val
+	}
+	if val, found, _ := attr.Lookup(0, "density"); found {
+		hints.Density = val
+	}
+	if val, found, _ := attr.Lookup(0, "labelMode"); found {
+		hints.LabelMode = val
+	}
+	if val, found, _ := attr.Lookup(0, "surface"); found {
+		hints.Surface = val
+	}
+	if val, found, _ := attr.Lookup(0, "component"); found {
+		hints.Component = val
+	}
+	if val, found, _ := attr.Lookup(0, "section"); found {
+		hints.Section = val
+	}
+	if val, found, _ := attr.Lookup(0, "columns"); found {
+		if n, err := strconv.Atoi(val); err == nil {
+			hints.Columns = n
+		}
+	}
 	if val, found, _ := attr.Lookup(0, "label"); found {
 		hints.Label = val
 	}

@@ -12,6 +12,7 @@ Quick reference for all Flow DSL actions in ANG.
 | `repo.Save` | Persist entity (upsert) | `source`, `input` | - |
 | `repo.Delete` | Remove entity by ID | `source`, `input` | - |
 | `repo.List` | List entities | `source`, `output` | `method`, `input` |
+| `repo.Query` | Query entities via explicit finder (recommended for filtered lists) | `source`, `method`, `output` | `input` |
 
 ```cue
 // Find by ID with error handling
@@ -22,6 +23,8 @@ Quick reference for all Flow DSL actions in ANG.
 
 // List with custom method
 {action: "repo.List", source: "Order", method: "ListByUser", input: "req.UserID", output: "orders"}
+
+{action: "repo.Query", source: "Product", method: "SearchByCompanyFilters", input: "req.CompanyID, req.Query, req.CategoryID, req.MinPrice, req.MaxPrice, req.Offset, req.Limit", output: "items"}
 ```
 
 ## Mapping & Assignment

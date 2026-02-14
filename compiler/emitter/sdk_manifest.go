@@ -12,9 +12,19 @@ import (
 )
 
 type SDKManifest struct {
-	Endpoints    []string `json:"endpoints"`
-	QueryKeys    []string `json:"query_keys"`
-	QueryOptions []string `json:"query_options"`
+	Endpoints    []SDKManifestEndpoint `json:"endpoints"`
+	QueryKeys    []string              `json:"query_keys"`
+	QueryOptions []string              `json:"query_options"`
+}
+
+type SDKManifestEndpoint struct {
+	Name       string   `json:"name"`
+	Method     string   `json:"method"`
+	Path       string   `json:"path"`
+	Idempotent bool     `json:"idempotent,omitempty"`
+	Timeout    string   `json:"timeout,omitempty"`
+	AuthRoles  []string `json:"authRoles,omitempty"`
+	CacheTTL   string   `json:"cacheTTL,omitempty"`
 }
 
 func (e *Emitter) EmitSDKManifest(endpoints []normalizer.Endpoint, queryResources []QueryResource) error {
@@ -26,7 +36,7 @@ func (e *Emitter) EmitSDKManifest(endpoints []normalizer.Endpoint, queryResource
 	}
 
 	manifest := SDKManifest{
-		Endpoints:    make([]string, 0),
+		Endpoints:    make([]SDKManifestEndpoint, 0),
 		QueryKeys:    make([]string, 0),
 		QueryOptions: make([]string, 0),
 	}
@@ -36,7 +46,17 @@ func (e *Emitter) EmitSDKManifest(endpoints []normalizer.Endpoint, queryResource
 			continue
 		}
 		name := lowerFirst(ep.RPC)
-		entry := fmt.Sprintf("%s %s %s", name, strings.ToUpper(ep.Method), ep.Path)
+		entry := SDKManifestEndpoint{
+			Name:       name,
+			Method:     strings.ToUpper(ep.Method),
+			Path:       ep.Path,
+			Idempotent: ep.Idempotency,
+			Timeout:    ep.Timeout,
+			CacheTTL:   ep.CacheTTL,
+		}
+		if len(ep.AuthRoles) > 0 {
+			entry.AuthRoles = ep.AuthRoles
+		}
 		manifest.Endpoints = append(manifest.Endpoints, entry)
 	}
 
@@ -65,7 +85,15 @@ func (e *Emitter) EmitSDKManifest(endpoints []normalizer.Endpoint, queryResource
 		}
 	}
 
-	sort.Strings(manifest.Endpoints)
+	sort.Slice(manifest.Endpoints, func(i, j int) bool {
+		if manifest.Endpoints[i].Name != manifest.Endpoints[j].Name {
+			return manifest.Endpoints[i].Name < manifest.Endpoints[j].Name
+		}
+		if manifest.Endpoints[i].Method != manifest.Endpoints[j].Method {
+			return manifest.Endpoints[i].Method < manifest.Endpoints[j].Method
+		}
+		return manifest.Endpoints[i].Path < manifest.Endpoints[j].Path
+	})
 	sort.Strings(manifest.QueryKeys)
 	sort.Strings(manifest.QueryOptions)
 

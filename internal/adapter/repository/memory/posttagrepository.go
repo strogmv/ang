@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/strogmv/ang/internal/domain"
+	"reflect"
 	"sync"
 )
 
@@ -74,7 +75,7 @@ func (r *PostTagRepositoryStub) DeleteByPost(ctx context.Context, postID string)
 			continue
 		}
 		match := true
-		if item.PostID != postID {
+		if !matchesOpPostTag(item.PostID, postID, "=") {
 			match = false
 		}
 		if !match {
@@ -94,7 +95,7 @@ func (r *PostTagRepositoryStub) DeleteByTag(ctx context.Context, tagID string) (
 			continue
 		}
 		match := true
-		if item.TagID != tagID {
+		if !matchesOpPostTag(item.TagID, tagID, "=") {
 			match = false
 		}
 		if !match {
@@ -104,4 +105,71 @@ func (r *PostTagRepositoryStub) DeleteByTag(ctx context.Context, tagID string) (
 		deleted++
 	}
 	return deleted, nil
+}
+
+func matchesOpPostTag(left, right any, op string) bool {
+	switch op {
+	case "!=", "<>":
+		return !valueEqualsPostTag(left, right)
+	case "<":
+		return compareLessPostTag(left, right)
+	case ">":
+		return compareGreaterPostTag(left, right)
+	case "<=":
+		return compareLessPostTag(left, right) || valueEqualsPostTag(left, right)
+	case ">=":
+		return compareGreaterPostTag(left, right) || valueEqualsPostTag(left, right)
+	case "IN", "in":
+		return valueEqualsPostTag(left, right)
+	default:
+		return valueEqualsPostTag(left, right)
+	}
+}
+
+func valueEqualsPostTag(left, right any) bool {
+	return reflect.DeepEqual(left, right)
+}
+
+func compareLessPostTag(left, right any) bool {
+	switch l := left.(type) {
+	case int:
+		if r, ok := right.(int); ok {
+			return l < r
+		}
+	case int64:
+		if r, ok := right.(int64); ok {
+			return l < r
+		}
+	case float64:
+		if r, ok := right.(float64); ok {
+			return l < r
+		}
+	case string:
+		if r, ok := right.(string); ok {
+			return l < r
+		}
+	}
+	return fmt.Sprint(left) < fmt.Sprint(right)
+}
+
+func compareGreaterPostTag(left, right any) bool {
+	switch l := left.(type) {
+	case int:
+		if r, ok := right.(int); ok {
+			return l > r
+		}
+	case int64:
+		if r, ok := right.(int64); ok {
+			return l > r
+		}
+	case float64:
+		if r, ok := right.(float64); ok {
+			return l > r
+		}
+	case string:
+		if r, ok := right.(string); ok {
+			return l > r
+		}
+	}
+	return fmt.Sprint(left) > fmt.Sprint(right)
 }

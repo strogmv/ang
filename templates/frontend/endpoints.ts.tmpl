@@ -40,3 +40,33 @@ export const {{ LowerFirst .RPC }} = (params: Types.{{ .RPC }}Request = {} as Ty
 
 {{- end }}
 {{- end }}
+
+export const endpointMeta: Record<string, {
+  method: string;
+  path: string;
+  idempotent?: boolean;
+  timeout?: string;
+  authRoles?: string[];
+  cacheTTL?: string;
+}> = {
+{{- range .Endpoints }}
+{{- if ne .Method "WS" }}
+  {{ LowerFirst .RPC }}: {
+    method: '{{ .Method }}',
+    path: '{{ .Path }}',
+    {{- if .Idempotency }}
+    idempotent: true,
+    {{- end }}
+    {{- if .Timeout }}
+    timeout: '{{ .Timeout }}',
+    {{- end }}
+    {{- if .AuthRoles }}
+    authRoles: [{{- range $i, $r := .AuthRoles }}{{ if $i }}, {{ end }}'{{ $r }}'{{- end }}],
+    {{- end }}
+    {{- if .CacheTTL }}
+    cacheTTL: '{{ .CacheTTL }}',
+    {{- end }}
+  },
+{{- end }}
+{{- end }}
+};

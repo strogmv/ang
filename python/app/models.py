@@ -13,22 +13,22 @@ class Comment(BaseModel):
     postID: str
     authorID: str
     parentID: str
-    content: Any
-    createdAt: Any
+    content: str
+    createdAt: datetime
     updatedAt: datetime
 
 
 class Post(BaseModel):
     id: str
     authorID: str
-    title: Any
+    title: str
     slug: str
-    content: Any
-    excerpt: Any
-    status: Any
-    publishedAt: Any
+    content: str
+    excerpt: str
+    status: str
+    publishedAt: datetime
     viewCount: int
-    createdAt: Any
+    createdAt: datetime
     updatedAt: datetime
 
 
@@ -39,21 +39,16 @@ class PostTag(BaseModel):
 
 class Tag(BaseModel):
     id: str
-    name: Any
+    name: str
     slug: str
-    description: Any
+    description: str
 
 
 class User(BaseModel):
-    id: str
     email: str
-    phoneNumber: str | None = None
     passwordHash: Any
     name: Any
-    role: Any
     avatarURL: str
-    createdAt: Any
-    updatedAt: datetime
 
 
 class UserVault(BaseModel):

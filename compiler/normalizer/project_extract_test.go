@@ -14,6 +14,7 @@ func TestExtractProject_ParsesPlugins(t *testing.T) {
 			name: "demo"
 			version: "0.1.0"
 			plugins: ["shared", "go_legacy"]
+			ui_provider: "@/shared/ui/legacy-skin"
 		}
 	`)
 	if err := val.Err(); err != nil {
@@ -33,5 +34,8 @@ func TestExtractProject_ParsesPlugins(t *testing.T) {
 	}
 	if project.Plugins[0] != "shared" || project.Plugins[1] != "go_legacy" {
 		t.Fatalf("unexpected plugins: %+v", project.Plugins)
+	}
+	if project.UIProvider != "@/shared/ui/legacy-skin" {
+		t.Fatalf("unexpected ui provider: %q", project.UIProvider)
 	}
 }

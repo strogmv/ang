@@ -18,21 +18,33 @@ type Emitter struct {
 	FrontendDir      string
 	FrontendAdminDir string
 	TemplatesDir     string // Путь к папке с шаблонами
+	UIProviderPath   string
 	Version          string
 	InputHash        string
 	CompilerHash     string
 	GoModule         string // Go module path for imports
 }
 
+const DefaultUIProviderPath = "@/components/ui/forms"
+
 func New(outputDir, frontendDir, templatesDir string) *Emitter {
 	if templatesDir == "" {
 		templatesDir = "templates"
 	}
 	return &Emitter{
-		OutputDir:    outputDir,
-		FrontendDir:  frontendDir,
-		TemplatesDir: templatesDir,
+		OutputDir:      outputDir,
+		FrontendDir:    frontendDir,
+		TemplatesDir:   templatesDir,
+		UIProviderPath: DefaultUIProviderPath,
 	}
+}
+
+func (e *Emitter) resolvedUIProviderPath() string {
+	p := strings.TrimSpace(e.UIProviderPath)
+	if p == "" {
+		return DefaultUIProviderPath
+	}
+	return p
 }
 
 // ReadTemplate reads a template file from embedded FS or disk.

@@ -9,7 +9,7 @@ type TagRepository interface {
 	Save(ctx context.Context, entity *domain.Tag) error
 	FindByID(ctx context.Context, id string) (*domain.Tag, error)
 	Delete(ctx context.Context, id string) error
-	FindBySlug(ctx context.Context, slug map[string]any) (*domain.Tag, error)
+	FindBySlug(ctx context.Context, slug string) (*domain.Tag, error)
 	ListAll(ctx context.Context) ([]domain.Tag, error)
-	ListByPost(ctx context.Context, id map[string]any) ([]domain.Tag, error)
+	ListByPost(ctx context.Context, id string) ([]domain.Tag, error)
 }

@@ -1,7 +1,7 @@
 import { Container, Paper, Typography, Box, IconButton } from '@mui/material';
 import { ArrowBack as ArrowBackIcon } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Update{{ .Name }}Form } from '../../components/forms/Update{{ .Name }}Form';
+import { FormRenderer } from '../../components/forms';
 
 export default function Edit{{ .Name }}Page() {
   const navigate = useNavigate();
@@ -19,7 +19,7 @@ export default function Edit{{ .Name }}Page() {
       </Box>
 
       <Paper sx={{"{{"}} p: 3 {{"}}"}}>
-        <Update{{ .Name }}Form id={id} />
+        <FormRenderer formName="Update{{ .Name }}" defaultValues={id ? { id } : undefined} />
       </Paper>
     </Container>
   );

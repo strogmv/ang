@@ -7,77 +7,67 @@
 export type Encrypted<T> = string & { __encrypted?: T };
 export interface User {
   /**  */
-  id: any;
-  /**  */
   email: any;
-  /**  */
-  phoneNumber?: any;
   /**  */
   name: any;
   /**  */
-  role: any;
-  /**  */
   avatarUrl: any;
-  /**  */
-  createdAt: any;
-  /**  */
-  updatedAt: any;
 }
 export interface Post {
   /**  */
-  id: any;
+  id: string;
   /**  */
-  authorId: any;
+  authorId: string;
   /**  */
-  title: any;
+  title: string;
   /**  */
-  slug: any;
+  slug: string;
   /**  */
-  content: any;
+  content: string;
   /**  */
-  excerpt: any;
+  excerpt: string;
   /**  */
-  status: any;
+  status: string;
   /**  */
-  publishedAt: any;
+  publishedAt: string;
   /**  */
-  viewCount: any;
+  viewCount: number;
   /**  */
-  createdAt: any;
+  createdAt: string;
   /**  */
-  updatedAt: any;
+  updatedAt: string;
 }
 export interface Comment {
   /**  */
-  id: any;
+  id: string;
   /**  */
-  postId: any;
+  postId: string;
   /**  */
-  authorId: any;
+  authorId: string;
   /**  */
-  parentId: any;
+  parentId: string;
   /**  */
-  content: any;
+  content: string;
   /**  */
-  createdAt: any;
+  createdAt: string;
   /**  */
-  updatedAt: any;
+  updatedAt: string;
 }
 export interface Tag {
   /**  */
-  id: any;
+  id: string;
   /**  */
-  name: any;
+  name: string;
   /**  */
-  slug: any;
+  slug: string;
   /**  */
-  description: any;
+  description: string;
 }
 export interface PostTag {
   /**  */
-  postId: any;
+  postId: string;
   /**  */
-  tagId: any;
+  tagId: string;
 }
 export interface UserVault {
   /**  */
@@ -391,6 +381,46 @@ export interface UpdateTagResponse {
 }
 
 // Events
+export interface UserRegistered {
+  /**  */
+  userId: any;
+  /**  */
+  email: string;
+}
+export interface UserLoggedIn {
+  /**  */
+  userId: any;
+}
+export interface PostCreated {
+  /**  */
+  postId: any;
+  /**  */
+  authorId: any;
+  /**  */
+  title: string;
+}
+export interface PostPublished {
+  /**  */
+  postId: any;
+  /**  */
+  authorId: any;
+  /**  */
+  title: string;
+  /**  */
+  slug: string;
+}
+export interface PostUpdated {
+  /**  */
+  postId: any;
+}
+export interface CommentCreated {
+  /**  */
+  commentId: any;
+  /**  */
+  postId: any;
+  /**  */
+  authorId: any;
+}
 
 /**
  * Error codes registry for the entire system.

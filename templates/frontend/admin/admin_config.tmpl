@@ -8,8 +8,8 @@ export interface AdminEntityConfig {
   listQueryKey: [string, string];
   useListQuery: () => any;
   TableComponent: ComponentType<any>;
-  CreateFormComponent?: ComponentType<any>;
-  UpdateFormComponent?: ComponentType<any>;
+  createFormName?: string;
+  updateFormName?: string;
   useDeleteMutation?: () => any;
   deleteIdField?: string;
   updateIdField?: string; // Maps row.id to this field name for update form
@@ -18,12 +18,6 @@ export interface AdminEntityConfig {
 // Lazy load components
 {{- range .Entities }}
 const {{ .TableComponent }} = lazy(() => import('@sdk/components/tables').then(m => ({ default: m.{{ .TableComponent }} })));
-{{- if .HasCreate }}
-const {{ .CreateFormComponent }} = lazy(() => import('@sdk/components/forms').then(m => ({ default: m.{{ .CreateFormComponent }} })));
-{{- end }}
-{{- if .HasUpdate }}
-const {{ .UpdateFormComponent }} = lazy(() => import('@sdk/components/forms').then(m => ({ default: m.{{ .UpdateFormComponent }} })));
-{{- end }}
 {{- end }}
 
 // Import hooks
@@ -44,10 +38,10 @@ export const adminEntities: AdminEntityConfig[] = [
     useListQuery: use{{ .ListRPC }},
     TableComponent: {{ .TableComponent }},
 {{- if .HasCreate }}
-    CreateFormComponent: {{ .CreateFormComponent }},
+    createFormName: '{{ .CreateFormComponent }}',
 {{- end }}
 {{- if .HasUpdate }}
-    UpdateFormComponent: {{ .UpdateFormComponent }},
+    updateFormName: '{{ .UpdateFormComponent }}',
 {{- if .UpdateIDField }}
     updateIdField: '{{ .UpdateIDField }}',
 {{- end }}

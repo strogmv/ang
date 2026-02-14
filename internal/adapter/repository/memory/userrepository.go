@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/strogmv/ang/internal/domain"
+	"reflect"
 	"sync"
 )
 
@@ -73,7 +74,7 @@ func (r *UserRepositoryStub) FindByEmail(ctx context.Context, email map[string]a
 			continue
 		}
 		match := true
-		if item.Email != email {
+		if !matchesOpUser(item.Email, email, "=") {
 			match = false
 		}
 		if !match {
@@ -82,4 +83,71 @@ func (r *UserRepositoryStub) FindByEmail(ctx context.Context, email map[string]a
 		return item, nil
 	}
 	return nil, nil
+}
+
+func matchesOpUser(left, right any, op string) bool {
+	switch op {
+	case "!=", "<>":
+		return !valueEqualsUser(left, right)
+	case "<":
+		return compareLessUser(left, right)
+	case ">":
+		return compareGreaterUser(left, right)
+	case "<=":
+		return compareLessUser(left, right) || valueEqualsUser(left, right)
+	case ">=":
+		return compareGreaterUser(left, right) || valueEqualsUser(left, right)
+	case "IN", "in":
+		return valueEqualsUser(left, right)
+	default:
+		return valueEqualsUser(left, right)
+	}
+}
+
+func valueEqualsUser(left, right any) bool {
+	return reflect.DeepEqual(left, right)
+}
+
+func compareLessUser(left, right any) bool {
+	switch l := left.(type) {
+	case int:
+		if r, ok := right.(int); ok {
+			return l < r
+		}
+	case int64:
+		if r, ok := right.(int64); ok {
+			return l < r
+		}
+	case float64:
+		if r, ok := right.(float64); ok {
+			return l < r
+		}
+	case string:
+		if r, ok := right.(string); ok {
+			return l < r
+		}
+	}
+	return fmt.Sprint(left) < fmt.Sprint(right)
+}
+
+func compareGreaterUser(left, right any) bool {
+	switch l := left.(type) {
+	case int:
+		if r, ok := right.(int); ok {
+			return l > r
+		}
+	case int64:
+		if r, ok := right.(int64); ok {
+			return l > r
+		}
+	case float64:
+		if r, ok := right.(float64); ok {
+			return l > r
+		}
+	case string:
+		if r, ok := right.(string); ok {
+			return l > r
+		}
+	}
+	return fmt.Sprint(left) > fmt.Sprint(right)
 }

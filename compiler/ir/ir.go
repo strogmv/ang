@@ -172,6 +172,15 @@ type Constraints struct {
 
 type FieldUI struct {
 	Type        string
+	Importance  string
+	InputKind   string
+	Intent      string
+	Density     string
+	LabelMode   string
+	Surface     string
+	Component   string
+	Section     string
+	Columns     int
 	Label       string
 	Placeholder string
 	HelperText  string

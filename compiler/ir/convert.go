@@ -200,6 +200,15 @@ func ConvertField(f normalizer.Field) Field {
 	if f.UI != nil {
 		field.UI = FieldUI{
 			Type:        f.UI.Type,
+			Importance:  f.UI.Importance,
+			InputKind:   f.UI.InputKind,
+			Intent:      f.UI.Intent,
+			Density:     f.UI.Density,
+			LabelMode:   f.UI.LabelMode,
+			Surface:     f.UI.Surface,
+			Component:   f.UI.Component,
+			Section:     f.UI.Section,
+			Columns:     f.UI.Columns,
 			Label:       f.UI.Label,
 			Placeholder: f.UI.Placeholder,
 			HelperText:  f.UI.HelperText,
