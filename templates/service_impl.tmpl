@@ -1,27 +1,9 @@
 package service
 
 import (
-        {{- range .Imports }}
-        "{{ . }}"
-        {{- end }}
-)
-
-var (
-        _ = port.TxManager(nil)
-        _ = errors.New
-        _ = http.StatusOK
-        _ = time.Now
-        _ = uuid.UUID{}
-        _ domain.User
-        _ = helpers.CopyNonEmptyFields
-        _ = bcrypt.GenerateFromPassword
-        _ = auth.IssueAccessToken
-        _ = sort.Strings
-        _ = config.Config{}
-        _ = json.Marshal
-        _ = fmt.Printf
-        _ = strings.Split
-        _ = presence.Get
+        "context"
+        "github.com/strog/dealingi-back/internal/port"
+        "github.com/strog/dealingi-back/internal/domain"
 )
 
 type {{ .Service.Name }}Impl struct {
@@ -33,26 +15,6 @@ type {{ .Service.Name }}Impl struct {
         {{- end }}
         {{- if ServiceNeedsTx .Service }}
         txManager port.TxManager
-        {{- end }}
-        {{- if and .Auth .Auth.Service (eq .Auth.Service .Service.Name) }}
-        cfg          *config.Config
-        refreshStore port.RefreshTokenStore
-        {{- end }}
-
-        {{- if ServiceHasPublishes .Service }}
-        publisher port.Publisher
-        {{- end }}
-        {{- if ServiceHasIdempotency .Service }}
-        idempotency port.IdempotencyStore
-        {{- end }}
-        {{- if ServiceHasOutbox .Service }}
-        outbox port.OutboxRepository
-        {{- end }}
-        {{- if .Service.RequiresS3 }}
-        storage port.FileStorage
-        {{- end }}
-        {{- if ServiceHasNotificationDispatch .Service }}
-        dispatcher port.NotificationDispatcher
         {{- end }}
 }
 
@@ -66,26 +28,6 @@ func New{{ .Service.Name }}Impl(
         {{- if ServiceNeedsTx .Service }}
         txManager port.TxManager,
         {{- end }}
-        {{- if and .Auth .Auth.Service (eq .Auth.Service .Service.Name) }}
-        cfg *config.Config,
-        refreshStore port.RefreshTokenStore,
-        {{- end }}
-
-        {{- if ServiceHasPublishes .Service }}
-        publisher port.Publisher,
-        {{- end }}
-        {{- if ServiceHasIdempotency .Service }}
-        idempotency port.IdempotencyStore,
-        {{- end }}
-        {{- if ServiceHasOutbox .Service }}
-        outbox port.OutboxRepository,
-        {{- end }}
-        {{- if .Service.RequiresS3 }}
-        storage port.FileStorage,
-        {{- end }}
-        {{- if ServiceHasNotificationDispatch .Service }}
-        dispatcher port.NotificationDispatcher,
-        {{- end }}
 ) *{{ .Service.Name }}Impl {
         return &{{ .Service.Name }}Impl{
                 {{- range getRepoEntities .Service .Entities }}
@@ -96,26 +38,6 @@ func New{{ .Service.Name }}Impl(
                 {{- end }}
                 {{- if ServiceNeedsTx .Service }}
                 txManager: txManager,
-                {{- end }}
-                {{- if and .Auth .Auth.Service (eq .Auth.Service .Service.Name) }}
-                cfg:          cfg,
-                refreshStore: refreshStore,
-                {{- end }}
-
-                {{- if ServiceHasPublishes .Service }}
-                publisher: publisher,
-                {{- end }}
-                {{- if ServiceHasIdempotency .Service }}
-                idempotency: idempotency,
-                {{- end }}
-                {{- if ServiceHasOutbox .Service }}
-                outbox: outbox,
-                {{- end }}
-                {{- if .Service.RequiresS3 }}
-                storage: storage,
-                {{- end }}
-                {{- if ServiceHasNotificationDispatch .Service }}
-                dispatcher: dispatcher,
                 {{- end }}
         }
 }
@@ -132,38 +54,34 @@ func New{{ .Service.Name }}Impl(
         {{- $repoMethod := or .Args.method "FindByID" }}
         {{ Assign $scope .Args.output }} s.{{ ExportName .Args.source }}Repo.{{ $repoMethod }}({{ $ctxVar }}{{ if .Args.input }}, {{ .Args.input }}{{ end }})
         _ = {{ .Args.output }}
-        if err != nil {
-                return {{ if not $inTx }}resp, {{ end }}err
-        }
+        if err != nil { return {{ if not $inTx }}resp, {{ end }}err }
                 {{- else if or (eq .Action "repo.List") (eq .Action "repo.Query") }}
-        {{- $repoMethod := or .Args.method "FindAll" }}
-        {{ Assign $scope .Args.output }} s.{{ ExportName .Args.source }}Repo.{{ $repoMethod }}({{ $ctxVar }}{{ if .Args.input }}, {{ .Args.input }}{{ end }})
+        {{ Assign $scope .Args.output }} s.{{ ExportName .Args.source }}Repo.FindAll({{ $ctxVar }}{{ if .Args.input }}, {{ .Args.input }}{{ end }})
         _ = {{ .Args.output }}
-        if err != nil {
-                return {{ if not $inTx }}resp, {{ end }}err
-        }
+        if err != nil { return {{ if not $inTx }}resp, {{ end }}err }
                 {{- else if eq .Action "repo.Save" }}
-        if err = s.{{ ExportName .Args.source }}Repo.Save({{ $ctxVar }}, {{ pointerExpr .Args.input }}); err != nil {
+        if err = s.{{ ExportName .Args.source }}Repo.Save({{ $ctxVar }}, {{ .Args.input }}); err != nil {
                 return {{ if not $inTx }}resp, {{ end }}err
         }
                 {{- else if eq .Action "mapping.Map" }}
                     {{- $input := or .Args.input .Args.from }}
                     {{- $output := or .Args.output .Args.to }}
-                    {{- if $input }}
-                        {{- if or (eq $output "resp.Data") (eq $output "resp.data") }}
-                            {{- if eq $input "item" }}
-                            {{ $output }} = *item
-                            {{- else }}
-                            {{ $output }} = {{ $input }}
-                            {{- end }}
+                    {{- if .Args.entity }}
+                        {{ Declare $scope $output }} domain.{{ ExportName .Args.entity }}
+                        {{- if eq $output "newItem" }}
+                        
+                        
                         {{- end }}
+                    {{- end }}
+                    {{- if or (eq $output "resp.Data") (eq $output "resp.data") }}
+                        resp.Data = {{ $input }}
                     {{- end }}
                 {{- end }}
         {{- end }}
 {{- end }}
 
 {{- range .Service.Methods }}
-func (s *{{ $.Service.Name }}Impl) {{ .Name }}(ctx context.Context, req port.{{ .Input.Name }}) (resp {{ if .Output.Name }}port.{{ .Output.Name }}, {{ end }}err error) {
+func (s *{{ $.Service.Name }}Impl) {{ .Name }}(ctx context.Context, req port.{{ .Input.Name }}) (resp port.{{ .Output.Name }}, err error) {
         {{- $scope := InitScope }}
         {{- $null := mapSet $scope "err" true }}
         {{- $null = mapSet $scope "resp" true }}

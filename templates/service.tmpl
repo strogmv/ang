@@ -3,13 +3,17 @@ package port
 import (
         "context"
         "log/slog"
-        {{- if HasConstraints .Service }}
         "fmt"
-        {{- end }}
         {{- if or (HasEventMethods .Service) (HasDomainTypes .Service) }}
         "{{ .GoModule }}/internal/domain"
         {{- end }}
 )
+
+{{- define "validator" }}
+func (d *{{ .Name }}) Validate() error {
+        return nil
+}
+{{- end }}
 
 {{ ServiceInterfaceDecl .Service }}
 
@@ -21,6 +25,7 @@ type {{ .Input.Name }} struct {
         {{ .Name | ExportName }} {{ .Type }} `json:"{{ JSONName .Name }}"`
         {{- end }}
 }
+{{ template "validator" .Input }}
 {{- end }}
 {{- if and .Output.Name (not (EventForMethod $.Service .)) }}
 type {{ .Output.Name }} struct {
@@ -28,6 +33,7 @@ type {{ .Output.Name }} struct {
         {{ .Name | ExportName }} {{ .Type }} `json:"{{ JSONName .Name }}"`
         {{- end }}
 }
+{{ template "validator" .Output }}
 {{- end }}
 {{- end }}
 
@@ -37,4 +43,5 @@ type {{ .Name }} struct {
         {{ .Name | ExportName }} {{ .Type }} `json:"{{ JSONName .Name }}"`
         {{- end }}
 }
+{{ template "validator" . }}
 {{- end }}
