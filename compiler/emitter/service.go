@@ -117,6 +117,7 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 		return err
 	}
 	nServices := IRServicesToNormalizer(services)
+	nEntities := IREntitiesToNormalizer(entities)
 
 	funcMapImpl := e.getSharedFuncMap()
 	funcMapImpl["ServiceImplTypeDecl"] = func(svc normalizer.Service, entities []normalizer.Entity, auth *normalizer.AuthDef) (string, error) {
@@ -128,6 +129,7 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 	funcMapImpl["ServiceImplMethodSignature"] = func(serviceName string, m normalizer.Method) (string, error) {
 		return renderServiceImplMethodSignature(serviceName, m)
 	}
+	funcMapImpl["CleanImplCode"] = cleanImplCode
 	t, err := template.New("service_impl").Funcs(funcMapImpl).Parse(string(tmplContent))
 	if err != nil {
 		return err
@@ -214,6 +216,9 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 
 		if err := t.Execute(&buf, TemplateContext{
 			Service:   &svc,
+			Entities:  nEntities,
+			Auth:      a,
+			Imports:   allImports,
 			GoModule:  e.GoModule,
 			Overrides: overrides,
 		}); err != nil {
@@ -234,6 +239,41 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 	}
 
 	return nil
+}
+
+func cleanImplCode(code, outputName string) string {
+	cleaned := strings.TrimLeft(code, "\n")
+	out := strings.TrimSpace(outputName)
+	if cleaned == "" {
+		return cleaned
+	}
+
+	lines := strings.Split(cleaned, "\n")
+	filtered := make([]string, 0, len(lines))
+	removedRespDecl := false
+	respDecl := ""
+	if out != "" {
+		respDecl = "var resp port." + out
+	}
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if respDecl != "" && !removedRespDecl && trimmed == respDecl {
+			removedRespDecl = true
+			continue
+		}
+		if trimmed == "var err error" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "err := ") {
+			line = strings.Replace(line, "err :=", "err =", 1)
+		}
+		if out != "" && strings.HasPrefix(trimmed, "resp := port.") {
+			line = strings.Replace(line, "resp :=", "resp =", 1)
+		}
+		line = strings.ReplaceAll(line, "l.", "slog.")
+		filtered = append(filtered, line)
+	}
+	return strings.Join(filtered, "\n")
 }
 
 func (e *Emitter) EmitCachedService(services []ir.Service) error {

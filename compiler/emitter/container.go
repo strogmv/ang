@@ -1,7 +1,6 @@
 package emitter
 
 import (
-	"fmt"
 	"path/filepath"
 )
 
