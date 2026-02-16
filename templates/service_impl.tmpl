@@ -1,811 +1,179 @@
 package service
 
-// ============================================================================ 
-// SECTION: Imports
-// PURPOSE: Import required packages for service implementation
-// IMPORTS:
-//   - context: Request context propagation
-//   - port: Interface definitions (repositories, services)
-//   - domain: Domain entities and value objects
-//   - errors: Custom error types with HTTP status codes
-// ============================================================================ 
 import (
-	{{- range .Imports }}
-	"{{ . }}"
-	{{- end }}
+        {{- range .Imports }}
+        "{{ . }}"
+        {{- end }}
 )
 
-// Blank identifiers to suppress unused import warnings
 var (
-	_ = port.TxManager(nil)
-	_ = errors.New
-	_ = http.StatusOK
-	_ = time.Now
-	_ = uuid.UUID{}
-	_ domain.User
-	_ = helpers.CopyNonEmptyFields
-	_ = bcrypt.GenerateFromPassword
-	_ = auth.IssueAccessToken
-	_ = sort.Strings
-	_ = config.Config{}
-	_ = json.Marshal
-	_ = fmt.Printf
-	_ = strings.Split
-	_ = presence.Get
+        _ = port.TxManager(nil)
+        _ = errors.New
+        _ = http.StatusOK
+        _ = time.Now
+        _ = uuid.UUID{}
+        _ domain.User
+        _ = helpers.CopyNonEmptyFields
+        _ = bcrypt.GenerateFromPassword
+        _ = auth.IssueAccessToken
+        _ = sort.Strings
+        _ = config.Config{}
+        _ = json.Marshal
+        _ = fmt.Printf
+        _ = strings.Split
+        _ = presence.Get
 )
 
-// ============================================================================ 
-// SECTION: Service Struct Definition
-// PURPOSE: {{ .Service.Name }}Impl implements port.{{ .Service.Name }} interface
-// PATTERN: Service Layer - orchestrates business logic using repositories
-// DEPENDENCIES:
-{{- range getRepoEntities .Service .Entities }}
-//   - {{ ExportName . }}Repo: CRUD operations for {{ ExportName . }} entity
-{{- end }}
-{{- if ServiceNeedsTx .Service }}
-//   - txManager: Database transaction manager for atomic operations
-{{- end }}
-{{- if ServiceHasPublishes .Service }}
-//   - publisher: Event publisher (NATS) for domain events
-{{- end }}
-{{- if .Service.RequiresS3 }}
-//   - storage: S3-compatible file storage
-{{- end }}
-// ============================================================================ 
 type {{ .Service.Name }}Impl struct {
-	{{- range getRepoEntities .Service .Entities }}
-	{{ ExportName . }}Repo port.{{ ExportName . }}Repository
-	{{- end }}
-	{{- range getServiceDeps .Service }}
-	{{ ExportName . }}Service port.{{ ExportName . }}
-	{{- end }}
-	{{- if ServiceNeedsTx .Service }}
-	txManager port.TxManager
-	{{- end }}
-	{{- if and .Auth.Service (eq .Auth.Service .Service.Name) }}
-	cfg          *config.Config
-	refreshStore port.RefreshTokenStore
-	{{- end }}
+        {{- range getRepoEntities .Service .Entities }}
+        {{ ExportName . }}Repo port.{{ ExportName . }}Repository
+        {{- end }}
+        {{- range getServiceDeps .Service }}
+        {{ ExportName . }}Service port.{{ ExportName . }}
+        {{- end }}
+        {{- if ServiceNeedsTx .Service }}
+        txManager port.TxManager
+        {{- end }}
+        {{- if and .Auth .Auth.Service (eq .Auth.Service .Service.Name) }}
+        cfg          *config.Config
+        refreshStore port.RefreshTokenStore
+        {{- end }}
 
-	{{- if ServiceHasPublishes .Service }}
-	publisher port.Publisher
-	{{- end }}
-	{{- if ServiceHasIdempotency .Service }}
-	idempotency port.IdempotencyStore
-	{{- end }}
-	{{- if ServiceHasOutbox .Service }}
-	outbox port.OutboxRepository
-	{{- end }}
-	{{- if ne .Service.Name "Audit" }}
-	auditService port.Audit
-	{{- end }}
-	{{- if .Service.RequiresS3 }}
-	storage port.FileStorage
-	{{- end }}
-	{{- if ServiceHasNotificationDispatch .Service }}
-	dispatcher port.NotificationDispatcher
-	{{- end }}
+        {{- if ServiceHasPublishes .Service }}
+        publisher port.Publisher
+        {{- end }}
+        {{- if ServiceHasIdempotency .Service }}
+        idempotency port.IdempotencyStore
+        {{- end }}
+        {{- if ServiceHasOutbox .Service }}
+        outbox port.OutboxRepository
+        {{- end }}
+        {{- if .Service.RequiresS3 }}
+        storage port.FileStorage
+        {{- end }}
+        {{- if ServiceHasNotificationDispatch .Service }}
+        dispatcher port.NotificationDispatcher
+        {{- end }}
 }
 
-// ============================================================================ 
-// SECTION: Constructor
-// PURPOSE: Create new {{ .Service.Name }}Impl with dependency injection
-// USAGE: Called from main.go during application bootstrap
-// ============================================================================ 
 func New{{ .Service.Name }}Impl(
-	{{- range getRepoEntities .Service .Entities }}
-	{{ ExportName . | lowerFirst }}Repo port.{{ ExportName . }}Repository,
-	{{- end }}
-	{{- range getServiceDeps .Service }}
-	{{ ExportName . | lowerFirst }}Service port.{{ ExportName . }},
-	{{- end }}
-	{{- if ServiceNeedsTx .Service }}
-	txManager port.TxManager,
-	{{- end }}
-	{{- if and .Auth.Service (eq .Auth.Service .Service.Name) }}
-	cfg *config.Config,
-	refreshStore port.RefreshTokenStore,
-	{{- end }}
+        {{- range getRepoEntities .Service .Entities }}
+        {{ ExportName . | lowerFirst }}Repo port.{{ ExportName . }}Repository,
+        {{- end }}
+        {{- range getServiceDeps .Service }}
+        {{ ExportName . | lowerFirst }}Service port.{{ ExportName . }},
+        {{- end }}
+        {{- if ServiceNeedsTx .Service }}
+        txManager port.TxManager,
+        {{- end }}
+        {{- if and .Auth .Auth.Service (eq .Auth.Service .Service.Name) }}
+        cfg *config.Config,
+        refreshStore port.RefreshTokenStore,
+        {{- end }}
 
-	{{- if ServiceHasPublishes .Service }}
-	publisher port.Publisher,
-	{{- end }}
-	{{- if ServiceHasIdempotency .Service }}
-	idempotency port.IdempotencyStore,
-	{{- end }}
-	{{- if ServiceHasOutbox .Service }}
-	outbox port.OutboxRepository,
-	{{- end }}
-	{{- if ne .Service.Name "Audit" }}
-	auditService port.Audit,
-	{{- end }}
-	{{- if .Service.RequiresS3 }}
-	storage port.FileStorage,
-	{{- end }}
-	{{- if ServiceHasNotificationDispatch .Service }}
-	dispatcher port.NotificationDispatcher,
-	{{- end }}
+        {{- if ServiceHasPublishes .Service }}
+        publisher port.Publisher,
+        {{- end }}
+        {{- if ServiceHasIdempotency .Service }}
+        idempotency port.IdempotencyStore,
+        {{- end }}
+        {{- if ServiceHasOutbox .Service }}
+        outbox port.OutboxRepository,
+        {{- end }}
+        {{- if .Service.RequiresS3 }}
+        storage port.FileStorage,
+        {{- end }}
+        {{- if ServiceHasNotificationDispatch .Service }}
+        dispatcher port.NotificationDispatcher,
+        {{- end }}
 ) *{{ .Service.Name }}Impl {
-	return &{{ .Service.Name }}Impl{
-		{{- range getRepoEntities .Service .Entities }}
-		{{ ExportName . }}Repo: {{ ExportName . | lowerFirst }}Repo,
-		{{- end }}
-		{{- range getServiceDeps .Service }}
-		{{ ExportName . }}Service: {{ ExportName . | lowerFirst }}Service,
-		{{- end }}
-		{{- if ServiceNeedsTx .Service }}
-		txManager: txManager,
-		{{- end }}
-		{{- if and .Auth.Service (eq .Auth.Service .Service.Name) }}
-		cfg:          cfg,
-		refreshStore: refreshStore,
-		{{- end }}
+        return &{{ .Service.Name }}Impl{
+                {{- range getRepoEntities .Service .Entities }}
+                {{ ExportName . }}Repo: {{ ExportName . | lowerFirst }}Repo,
+                {{- end }}
+                {{- range getServiceDeps .Service }}
+                {{ ExportName . }}Service: {{ ExportName . | lowerFirst }}Service,
+                {{- end }}
+                {{- if ServiceNeedsTx .Service }}
+                txManager: txManager,
+                {{- end }}
+                {{- if and .Auth .Auth.Service (eq .Auth.Service .Service.Name) }}
+                cfg:          cfg,
+                refreshStore: refreshStore,
+                {{- end }}
 
-		{{- if ServiceHasPublishes .Service }}
-		publisher: publisher,
-		{{- end }}
-		{{- if ServiceHasIdempotency .Service }}
-		idempotency: idempotency,
-		{{- end }}
-		{{- if ServiceHasOutbox .Service }}
-		outbox: outbox,
-		{{- end }}
-		{{- if ne .Service.Name "Audit" }}
-		auditService: auditService,
-		{{- end }}
-		{{- if .Service.RequiresS3 }}
-		storage: storage,
-		{{- end }}
-		{{- if ServiceHasNotificationDispatch .Service }}
-		dispatcher: dispatcher,
-		{{- end }}
-	}
+                {{- if ServiceHasPublishes .Service }}
+                publisher: publisher,
+                {{- end }}
+                {{- if ServiceHasIdempotency .Service }}
+                idempotency: idempotency,
+                {{- end }}
+                {{- if ServiceHasOutbox .Service }}
+                outbox: outbox,
+                {{- end }}
+                {{- if .Service.RequiresS3 }}
+                storage: storage,
+                {{- end }}
+                {{- if ServiceHasNotificationDispatch .Service }}
+                dispatcher: dispatcher,
+                {{- end }}
+        }
 }
 
-// ============================================================================ 
-// SECTION: Flow Step Templates
-// PURPOSE: Generate code for each flow step action defined in CUE
-// ============================================================================ 
 {{- define "flow_steps" }}
-	{{- $method := .Method }}
-	{{- $svc := .Service }}
-	{{- $entities := .Entities }}
-	{{- $inTx := .InTx }}
-	{{- $scope := .Scope }}
-	{{- $ctxVar := "ctx" }}{{ if $inTx }}{{- $ctxVar = "txCtx" }}{{ end }}
-	{{- range .Steps }}
-		{{- if or (eq .Action "repo.Find") (eq .Action "repo.Get") }}
-	{{- $repoMethod := or .Args.method "FindByID" }}
-	{{ Assign $scope .Args.output }} s.{{ ExportName .Args.source }}Repo.{{ $repoMethod }}({{ $ctxVar }}{{ if .Args.input }}, {{ .Args.input }}{{ end }})
-	if err != nil {
-		{{- if $inTx }}
-		return errors.WithIntent(err, "{{ .File }}:{{ .Line }} ({{ .CUEPath }})")
-		{{- else }}
-		return resp, errors.WithIntent(err, "{{ .File }}:{{ .Line }} ({{ .CUEPath }})")
-		{{- end }}
-	}
-	{{- $checkNil := or .Args.error (and (or (hasPrefix $repoMethod "Get") (hasPrefix $repoMethod "Find")) (not (hasPrefix $repoMethod "Count"))) }}
-	{{- if $checkNil }}
-	if {{ .Args.output }} == nil {
-		{{- if $inTx }}
-		return errors.New(http.StatusNotFound, "Not Found", "{{ or .Args.error (print .Args.output " not found") }}")
-		{{- else }}
-		return resp, errors.New(http.StatusNotFound, "Not Found", "{{ or .Args.error (print .Args.output " not found") }}")
-		{{- end }}
-	}
-	{{- end }}
-		{{- else if eq .Action "repo.GetForUpdate" }}
-	{{ Assign $scope .Args.output }} s.{{ ExportName .Args.source }}Repo.GetByIDForUpdate({{ $ctxVar }}, {{ .Args.input }})
-	if err != nil {
-		{{- if $inTx }}
-		return err
-		{{- else }}
-		return resp, err
-		{{- end }}
-	}
-		{{- else if or (eq .Action "repo.List") (eq .Action "repo.Query") }}
-	{{- $repoMethod := or .Args.method "FindAll" }}
-	{{ Assign $scope .Args.output }} s.{{ ExportName .Args.source }}Repo.{{ $repoMethod }}({{ $ctxVar }}{{ if .Args.input }}, {{ .Args.input }}{{ end }})
-	if err != nil {
-		{{- if $inTx }}
-		return err
-		{{- else }}
-		return resp, err
-		{{- end }}
-	}
-		{{- else if eq .Action "repo.Upsert" }}
-	{{ Assign $scope .Args.output }} s.{{ ExportName .Args.source }}Repo.{{ .Args.find }}({{ $ctxVar }}, {{ .Args.input }})
-	if err != nil {
-		{{- if $inTx }}
-		return errors.WithIntent(err, "{{ .File }}:{{ .Line }}")
-		{{- else }}
-		return resp, errors.WithIntent(err, "{{ .File }}:{{ .Line }}")
-		{{- end }}
-	}
-	if {{ .Args.output }} == nil {
-		{{- template "flow_steps" (dict "Steps" (getIfNew .) "Method" $method "Service" $svc "Entities" $entities "InTx" $inTx "Logger" "l" "Scope" (CloneScope $scope)) }}
-	} else {
-		{{- template "flow_steps" (dict "Steps" (getIfExists .) "Method" $method "Service" $svc "Entities" $entities "InTx" $inTx "Logger" "l" "Scope" (CloneScope $scope)) }}
-	}
-		{{- else if eq .Action "repo.Save" }}
-	if err = s.{{ ExportName .Args.source }}Repo.Save({{ $ctxVar }}, {{ pointerExpr .Args.input }}); err != nil {
-		{{- if $inTx }}
-		return errors.WithIntent(err, "{{ .File }}:{{ .Line }} ({{ .CUEPath }})")
-		{{- else }}
-		return resp, errors.WithIntent(err, "{{ .File }}:{{ .Line }} ({{ .CUEPath }})")
-		{{- end }}
-	}
-		{{- else if eq .Action "repo.Delete" }}
-	if err = s.{{ ExportName .Args.source }}Repo.Delete({{ $ctxVar }}, {{ .Args.input }}); err != nil {
-		{{- if $inTx }}
-		return err
-		{{- else }}
-		return resp, err
-		{{- end }}
-	}
-		{{- else if eq .Action "logic.Check" }}
-	if !({{ .Args.condition }}) {
-		{{- if $inTx }}
-		return errors.New(http.StatusBadRequest, "Validation Error", "{{ .Args.throw }}")
-		{{- else }}
-		return resp, errors.New(http.StatusBadRequest, "Validation Error", "{{ .Args.throw }}")
-		{{- end }}
-	}
-		{{- else if eq .Action "list.Append" }}
-	{{ .Args.to }} = append({{ .Args.to }}, {{ .Args.item }})
-		{{- else if eq .Action "logic.Call" }}
-	{{- $args := index .Args "args" }}
-	{{ if .Args.output }}{{ Assign $scope .Args.output }} {{ .Args.func }}({{ range $i, $a := $args }}{{ if $i }}, {{ end }}{{ $a }}{{ end }}){{ else }}err = {{ .Args.func }}({{ range $i, $a := $args }}{{ if $i }}, {{ end }}{{ $a }}{{ end }}){{ end }}
-	if err != nil {
-		{{- if $inTx }}
-		return errors.WithIntent(err, "{{ .File }}:{{ .Line }} ({{ .CUEPath }})")
-		{{- else }}
-		return resp, errors.WithIntent(err, "{{ .File }}:{{ .Line }} ({{ .CUEPath }})")
-		{{- end }}
-	}
-		{{- else if eq .Action "event.Publish" }}
-	{{- if $method.Outbox }}
-	// Outbox Pattern: Save event to DB first
-	{{ AssignSimple $scope "eventID" }} uuid.NewString()
-	{{ AssignSimple $scope "eventPayload" }} helpers.Marshal({{ .Args.payload }})
-	if err = s.outbox.SaveEvent({{ $ctxVar }}, eventID, "{{ .Args.name }}", []byte(eventPayload)); err != nil {
-		{{- if $inTx }}
-		return err
-		{{- else }}
-		return resp, err
-		{{- end }}
-	}
-	{{- end }}
-
-	deferredHooks = append(deferredHooks, func(hookCtx context.Context) error {
-		if s.publisher != nil {
-			{{- if eq .Args.name "FileUploaded" }}
-			_ = s.publisher.PublishFileUploaded(hookCtx, domain.FileUploaded{FileID: {{ .Args.fileID }}, URL: {{ .Args.url }}, Kind: {{ or .Args.kind "\"auto\"" }} })
-			{{- else }}
-			_ = s.publisher.Publish{{ ExportName .Args.name }}(hookCtx, {{ .Args.payload }})
-			{{- end }}
-			
-			{{- if $method.Outbox }}
-			// Mark as processed after successful publish
-			_ = s.outbox.MarkProcessed(hookCtx, eventID)
-			{{- end }}
-		}
-		return nil
-	})
-		{{- else if eq .Action "notification.Dispatch" }}
-	if s.dispatcher == nil {
-		{{- if $inTx }}
-		return errors.New(http.StatusInternalServerError, "Internal Error", "notification dispatcher not configured")
-		{{- else }}
-		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "notification dispatcher not configured")
-		{{- end }}
-	}
-	if err = s.dispatcher.Dispatch({{ $ctxVar }}, {{ .Args.message }}); err != nil {
-		{{- if $inTx }}
-		return errors.WithIntent(err, "{{ .File }}:{{ .Line }} ({{ .CUEPath }})")
-		{{- else }}
-		return resp, errors.WithIntent(err, "{{ .File }}:{{ .Line }} ({{ .CUEPath }})")
-		{{- end }}
-	}
-		{{- else if eq .Action "fsm.Transition" }}
-	if err = {{ .Args.entity }}.TransitionTo("{{ .Args.to }}"); err != nil {
-		{{- if $inTx }}
-		return err
-		{{- else }}
-		return resp, err
-		{{- end }}
-	}
-		{{- else if eq .Action "mapping.Assign" }}
-	{{ AssignSimple $scope .Args.to }} {{ .Args.value }}
-		{{- else if eq .Action "mapping.Map" }}
-		    {{- $input := or .Args.input .Args.from }}
-		    {{- $output := or .Args.output .Args.to }}
-		    {{- if and .Args.entity (hasPrefix $output "new") }}
-		    {{ Declare $scope $output }} domain.{{ ExportName .Args.entity }}
-		    {{- end }}
-		    {{- if $input }}
-		        {{- if eq $output "resp" }}
-		            {{- range $method.Output.Fields }}
-		            {{- if not .IsSecret }}
-		            resp.{{ ExportName .Name }} = {{ $input }}.{{ ExportName .Name }}
-		            {{- end }}
-		            {{- end }}
-		        {{- else if or (eq $output "resp.data") (eq $output "resp.Data") }}
-		            {{- if eq $input "list" }}
-		                {{- if stringsEqualFold $svc.Name "admin" }}
-		            // Direct assignment - types must match
-		            {{- range $method.Output.Fields }}{{ if eq (ExportName .Name) "Data" }}
-		            resp.Data = list
-		            if resp.Data == nil {
-		                resp.Data = {{ .Type }}{}
-		            }
-		            {{- end }}{{ end }}
-		                {{- else }}
-		            resp.Data = make([]port.{{ $method.Output.Name }}Data, 0)
-		            for _, item := range list {
-		                {{ Declare $scope "outItem" }} port.{{ $method.Output.Name }}Data
-		                {{- range (index $method.Output.Fields 0).ItemFields }}
-		                {{- if not .IsSecret }}
-		                outItem.{{ ExportName .Name }} = item.{{ ExportName .Name }}
-		                {{- end }}
-		                {{- end }}
-		                resp.Data = append(resp.Data, outItem)
-		            }
-		                {{- end }}
-		            {{- else if eq $input "item" }}
-		            resp.Data = *item
-		            {{- else }}
-		            resp.Data = {{ $input }}
-		            {{- end }}
-		        {{- else if .Args.entity }}
-		            {{- /* SMART MAPPING: Map fields with same names between source and entity */ -}}
-		            {{- if or (eq $output "item") (eq $output "*item") }}
-		                {{- if contains $input "Data" }}
-	// Copy fields from request data to item
-	helpers.CopyNonEmptyFields(&{{ $input }}, item)
-		                {{- else if contains $input "data" }}
-	helpers.CopyNonEmptyFields(&{{ $input }}, item)
-		                {{- end }}
-		            {{- else }}
-		                {{- $entFields := getEntityFields $entities .Args.entity }}
-		                {{- range $entFields }}
-		                    {{- if hasPrefix $input "req" }}
-		                        {{- if hasField $method.Input.Fields .Name }}
-		                            {{- if not (or (eq .Name "id") (or (eq .Name "createdat") (eq .Name "updatedat"))) }}
-		            {{ $output }}.{{ ExportName .Name }} = req.{{ ExportName .Name }}
-		                            {{- end }}
-		                        {{- end }}
-		                    {{- end }}
-		                {{- end }}
-		            {{- end }}
-		        {{- else if eq $output "item" }}
-		            {{- /* Map request data to existing item - for update operations */ -}}
-		            {{- if or (eq $input "req.Data") (eq $input "req.data") }}
-	helpers.CopyNonEmptyFields(&{{ $input }}, item)
-		            {{- end }}
-		        {{- end }}
-		    {{- end }}
-		{{- else if eq .Action "flow.If" }}
-	if {{ .Args.condition }} {
-		{{- template "flow_steps" (dict "Steps" (getThen .) "Method" $method "Service" $svc "Entities" $entities "InTx" $inTx "Logger" "l" "Scope" (CloneScope $scope))}}
-	} {{ if (getElse .) }} else {
-		{{- template "flow_steps" (dict "Steps" (getElse .) "Method" $method "Service" $svc "Entities" $entities "InTx" $inTx "Logger" "l" "Scope" (CloneScope $scope))}}
-	} {{ end }}
-		{{- else if eq .Action "flow.Switch" }}
-	{{- $switchCases := getCases . }}
-	{{- $switchCaseKeys := getCaseKeys . }}
-	{
-		_swVal := {{ .Args.value }}
-		{{- if gt (len $switchCaseKeys) 0 }}
-		{{- range $idx, $case := $switchCaseKeys }}
-		{{- if eq $idx 0 }}if{{ else }} else if{{ end }} _swVal == "{{ $case }}" {
-			{{- template "flow_steps" (dict "Steps" (index $switchCases $case) "Method" $method "Service" $svc "Entities" $entities "InTx" $inTx "Logger" "l" "Scope" (CloneScope $scope))}}
-		}
-		{{- end }}
-		{{- if getDefault . }} else {
-			{{- template "flow_steps" (dict "Steps" (getDefault .) "Method" $method "Service" $svc "Entities" $entities "InTx" $inTx "Logger" "l" "Scope" (CloneScope $scope))}}
-		}
-		{{- end }}
-		{{- else if getDefault . }}
-		{{- template "flow_steps" (dict "Steps" (getDefault .) "Method" $method "Service" $svc "Entities" $entities "InTx" $inTx "Logger" "l" "Scope" (CloneScope $scope))}}
-		{{- end }}
-	}
-		{{- else if eq .Action "flow.For" }}
-	for _, {{ AssignSimple $scope .Args.as }} range {{ .Args.each }} {
-		{{- template "flow_steps" (dict "Steps" (getSteps .) "Method" $method "Service" $svc "Entities" $entities "InTx" $inTx "Logger" "l" "Scope" (CloneScope $scope))}}
-	}
-		{{- else if eq .Action "flow.While" }}
-	for {{ .Args.condition }} {
-		{{- template "flow_steps" (dict "Steps" (getSteps .) "Method" $method "Service" $svc "Entities" $entities "InTx" $inTx "Logger" "l" "Scope" (CloneScope $scope))}}
-	}
-		{{- else if eq .Action "tx.Block" }}
-	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
-		{{- template "flow_steps" (dict "Steps" (getSteps .) "Method" $method "Service" $svc "Entities" $entities "InTx" true "Logger" "l" "Hooks" "deferredHooks" "Scope" (CloneScope $scope))}}
-		return nil
-	})
-	if err != nil {
-		return resp, err
-	}
-	// Execute hooks deferred during this transaction block
-	for _, hook := range deferredHooks {
-		if hookErr := hook(ctx); hookErr != nil {
-			l.Error("Post-commit hook failed", slog.Any("error", hookErr))
-		}
-	}
-	deferredHooks = nil // Clear after execution
-		{{- else if eq .Action "flow.Block" }}
-	{
-		{{- template "flow_steps" (dict "Steps" (getSteps .) "Method" $method "Service" $svc "Entities" $entities "InTx" $inTx "Logger" "l" "Scope" (CloneScope $scope))}}
-	}
-		{{- else if eq .Action "audit.Log" }}
-	if s.AuditLogRepo != nil {
-		_ = s.AuditLogRepo.Save({{ $ctxVar }}, &domain.AuditLog{
-			ID:        uuid.NewString(),
-			ActorID:   {{ .Args.actor }},
-			CompanyID: {{ .Args.company }},
-			Action:    "{{ .Args.event }}",
-			CreatedAt: time.Now().UTC().Format(time.RFC3339),
-		})
-	}
-		{{- else if eq .Action "auth.RequireRole" }}
-	{{- $authOutput := or .Args.output "currentUser" }}
-	{{ Assign $scope $authOutput }} s.UserRepo.FindByID({{ $ctxVar }}, {{ .Args.userID }})
-	if err != nil {
-		{{- if $inTx }}
-		return err
-		{{- else }}
-		return resp, err
-		{{- end }}
-	}
-	if {{ $authOutput }} == nil {
-		{{- if $inTx }}
-		return errors.New(http.StatusUnauthorized, "Unauthorized", "user not found")
-		{{- else }}
-		return resp, errors.New(http.StatusUnauthorized, "Unauthorized", "user not found")
-		{{- end }}
-	}
-	{
-		_role := strings.ToLower({{ $authOutput }}.Role)
-		_allowed := false
-		for _, _r := range []string{ {{ .Args.roles }} } {
-			if _r == _role { _allowed = true; break }
-		}
-		if !_allowed {
-			{{- if $inTx }}
-			return errors.New(http.StatusForbidden, "Forbidden", "insufficient role")
-			{{- else }}
-			return resp, errors.New(http.StatusForbidden, "Forbidden", "insufficient role")
-			{{- end }}
-		}
-		{{- if not (eq .Args.adminBypass false) }}
-		if {{ $authOutput }}.CompanyID != {{ .Args.companyID }} && _role != "admin" {
-			{{- if $inTx }}
-			return errors.New(http.StatusForbidden, "Forbidden", "company mismatch")
-			{{- else }}
-			return resp, errors.New(http.StatusForbidden, "Forbidden", "company mismatch")
-			{{- end }}
-		}
-		{{- end }}
-	}
-		{{- else if eq .Action "entity.PatchNonZero" }}
-	{{- range splitFields .Args.fields }}
-	if {{ $.Args.from }}.{{ . }} != "" {
-		{{ $.Args.target }}.{{ . }} = {{ $.Args.from }}.{{ . }}
-	}
-	{{- end }}
-	{{ .Args.target }}.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-		{{- else if eq .Action "entity.PatchValidated" }}
-	{{- $pvFields := getPatchValidatedFieldKeys . }}
-	{{- range $field := $pvFields }}
-	if !helpers.IsZero({{ $.Args.from }}.{{ $field }}) {
-		{{- $normalize := getPatchValidatedRule $ $field "normalize" }}
-		{{- $format := getPatchValidatedRule $ $field "format" }}
-		{{- $unique := getPatchValidatedRule $ $field "unique" }}
-		{{- if or $normalize $format $unique }}
-		_pvVal := fmt.Sprint({{ $.Args.from }}.{{ $field }})
-		{{- if eq $normalize "trim" }}
-		_pvVal = strings.TrimSpace(_pvVal)
-		{{- else if eq $normalize "lower" }}
-		_pvVal = strings.ToLower(strings.TrimSpace(_pvVal))
-		{{- else if eq $normalize "upper" }}
-		_pvVal = strings.ToUpper(strings.TrimSpace(_pvVal))
-		{{- end }}
-		{{- if eq $format "email" }}
-		if !strings.Contains(_pvVal, "@") || !strings.Contains(strings.SplitN(_pvVal, "@", 2)[1], ".") {
-			{{- if $inTx }}
-			return errors.New(http.StatusBadRequest, "Bad Request", "invalid {{ ToLower $field }} format")
-			{{- else }}
-			return resp, errors.New(http.StatusBadRequest, "Bad Request", "invalid {{ ToLower $field }} format")
-			{{- end }}
-		}
-		{{- else if eq $format "phone" }}
-		_pvPhone := strings.NewReplacer(" ", "", "-", "", "(", "", ")", "").Replace(_pvVal)
-		if strings.HasPrefix(_pvPhone, "+") {
-			_pvPhone = strings.TrimPrefix(_pvPhone, "+")
-		}
-		if _pvPhone == "" || strings.Trim(_pvPhone, "0123456789") != "" {
-			{{- if $inTx }}
-			return errors.New(http.StatusBadRequest, "Bad Request", "invalid {{ ToLower $field }} format")
-			{{- else }}
-			return resp, errors.New(http.StatusBadRequest, "Bad Request", "invalid {{ ToLower $field }} format")
-			{{- end }}
-		}
-		{{- end }}
-		{{- if $unique }}
-		{{- if $.Args.source }}
-		_pvExisting, _ := s.{{ ExportName $.Args.source }}Repo.{{ $unique }}({{ $ctxVar }}, _pvVal)
-		if _pvExisting != nil && helpers.GetID(_pvExisting) != helpers.GetID({{ $.Args.target }}) {
-			{{- if $inTx }}
-			return errors.New(http.StatusConflict, "Conflict", "{{ ToLower $field }} already exists")
-			{{- else }}
-			return resp, errors.New(http.StatusConflict, "Conflict", "{{ ToLower $field }} already exists")
-			{{- end }}
-		}
-		{{- else }}
-		{{- if $inTx }}
-		return errors.New(http.StatusInternalServerError, "Internal Error", "entity.PatchValidated unique check requires source")
-		{{- else }}
-		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "entity.PatchValidated unique check requires source")
-		{{- end }}
-		{{- end }}
-		{{- end }}
-		{{ $.Args.target }}.{{ $field }} = _pvVal
-		{{- else }}
-		{{ $.Args.target }}.{{ $field }} = {{ $.Args.from }}.{{ $field }}
-		{{- end }}
-	}
-	{{- end }}
-	{{ .Args.target }}.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-		{{- else if eq .Action "field.CopyNonEmpty" }}
-	helpers.CopyNonEmptyFields(&{{ .Args.from }}, {{ pointerExpr .Args.to }})
-	{{ .Args.to }}.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-		{{- else if eq .Action "auth.CheckRole" }}
-	{
-		_role := strings.ToLower({{ .Args.user }}.Role)
-		_allowed := false
-		for _, _r := range []string{ {{ .Args.roles }} } {
-			if _r == _role { _allowed = true; break }
-		}
-		if !_allowed {
-			{{- if $inTx }}
-			return errors.New(http.StatusForbidden, "Forbidden", "insufficient role")
-			{{- else }}
-			return resp, errors.New(http.StatusForbidden, "Forbidden", "insufficient role")
-			{{- end }}
-		}
-		{{- if .Args.companyID }}
-		if {{ .Args.user }}.CompanyID != {{ .Args.companyID }} && _role != "admin" {
-			{{- if $inTx }}
-			return errors.New(http.StatusForbidden, "Forbidden", "company mismatch")
-			{{- else }}
-			return resp, errors.New(http.StatusForbidden, "Forbidden", "company mismatch")
-			{{- end }}
-		}
-		{{- end }}
-	}
-		{{- else if eq .Action "list.Paginate" }}
-	{{- $pgKey := replace .Args.output "." "_" }}
-	{{- $pgOff := printf "_pOff_%s" $pgKey }}
-	{{- $pgLim := printf "_pLim_%s" $pgKey }}
-	{{- $pgEnd := printf "_pEnd_%s" $pgKey }}
-	{{ AssignSimple $scope $pgOff }} {{ .Args.offset }}
-	if {{ $pgOff }} < 0 { {{ $pgOff }} = 0 }
-	{{ AssignSimple $scope $pgLim }} {{ .Args.limit }}
-	if {{ $pgLim }} <= 0 { {{ $pgLim }} = {{ or .Args.defaultLimit "50" }} }
-	{{- if .Args.total }}
-	{{ AssignSimple $scope .Args.total }} len({{ .Args.input }})
-	{{- end }}
-	if {{ $pgOff }} > len({{ .Args.input }}) { {{ $pgOff }} = len({{ .Args.input }}) }
-	{{ AssignSimple $scope $pgEnd }} {{ $pgOff }} + {{ $pgLim }}
-	if {{ $pgEnd }} > len({{ .Args.input }}) { {{ $pgEnd }} = len({{ .Args.input }}) }
-	{{ AssignSimple $scope .Args.output }} {{ .Args.input }}[{{ $pgOff }}:{{ $pgEnd }}]
-		{{- else if eq .Action "str.Normalize" }}
-	{{- $mode := "lower" }}{{ if .Args.mode }}{{ $mode = .Args.mode }}{{ end }}
-	{{- if eq $mode "lower" }}
-	{{ AssignSimple $scope .Args.output }} strings.ToLower(strings.TrimSpace({{ .Args.input }}))
-	{{- else if eq $mode "upper" }}
-	{{ AssignSimple $scope .Args.output }} strings.ToUpper(strings.TrimSpace({{ .Args.input }}))
-	{{- else }}
-	{{ AssignSimple $scope .Args.output }} strings.TrimSpace({{ .Args.input }})
-	{{- end }}
-		{{- else if eq .Action "enum.Validate" }}
-	{
-		_ev := {{ .Args.value }}
-		_evOk := false
-		for _, _evA := range []string{ {{- range $i, $v := splitFields .Args.allowed }}{{- if $i }}, {{ end }}"{{ $v }}"{{ end -}} } {
-			if _evA == _ev { _evOk = true; break }
-		}
-		if !_evOk {
-			{{- if $inTx }}
-			return errors.New(http.StatusBadRequest, "Validation Error", "{{ .Args.throw }}")
-			{{- else }}
-			return resp, errors.New(http.StatusBadRequest, "Validation Error", "{{ .Args.throw }}")
-			{{- end }}
-		}
-	}
-		{{- else if eq .Action "list.Sort" }}
-	{{- $desc := true }}{{ if eq (printf "%v" .Args.desc) "false" }}{{ $desc = false }}{{ end }}
-	sort.SliceStable({{ .Args.items }}, func(i, j int) bool {
-		{{- if $desc }}
-		return {{ .Args.items }}[i].{{ .Args.by }} > {{ .Args.items }}[j].{{ .Args.by }}
-		{{- else }}
-		return {{ .Args.items }}[i].{{ .Args.by }} < {{ .Args.items }}[j].{{ .Args.by }}
-		{{- end }}
-	})
-		{{- else if eq .Action "list.Filter" }}
-	{{- $as := or .Args.as "item" }}
-	{{- $fltKey := replace .Args.output "." "_" }}
-	{{- $fltSrc := printf "_src_%s" $fltKey }}
-	{{ AssignSimple $scope $fltSrc }} {{ .Args.from }}
-	{{ AssignSimple $scope .Args.output }} {{ $fltSrc }}[:0:0]
-	for _, {{ $as }} := range {{ $fltSrc }} {
-		if {{ .Args.condition }} {
-			{{ .Args.output }} = append({{ .Args.output }}, {{ $as }})
-		}
-	}
-		{{- else if eq .Action "list.Enrich" }}
-	{{- $as := or .Args.as "item" }}
-	for _eidx := range {{ .Args.items }} {
-		{{ $as }} := &{{ .Args.items }}[_eidx]
-		_elookup, _ := s.{{ ExportName .Args.lookupSource }}Repo.FindByID({{ $ctxVar }}, {{ .Args.lookupInput }})
-		if _elookup != nil {
-			{{- range $pair := splitFields .Args.set }}
-			{{- $parts := Split $pair "=" }}
-			{{ $as }}.{{ index $parts 0 }} = _elookup.{{ index $parts 1 }}
-			{{- end }}
-		}
-	}
-		{{- else if eq .Action "time.Parse" }}
-	{{- $fmt := or .Args.format "time.RFC3339" }}
-	{{ Assign $scope .Args.output }} time.Parse({{ $fmt }}, {{ .Args.value }})
-	if err != nil {
-		{{- if $inTx }}
-		return errors.New(http.StatusBadRequest, "Bad Request", "invalid time format")
-		{{- else }}
-		return resp, errors.New(http.StatusBadRequest, "Bad Request", "invalid time format")
-		{{- end }}
-	}
-		{{- else if eq .Action "time.CheckExpiry" }}
-	{
-		_tce, _tceErr := time.Parse(time.RFC3339, {{ .Args.value }})
-		if _tceErr != nil {
-			{{- if $inTx }}
-			return errors.New(http.StatusBadRequest, "Bad Request", "invalid time format")
-			{{- else }}
-			return resp, errors.New(http.StatusBadRequest, "Bad Request", "invalid time format")
-			{{- end }}
-		}
-		{{- if eq (printf "%v" .Args.mustBe) "past" }}
-		if !time.Now().UTC().After(_tce) {
-			{{- if $inTx }}
-			return errors.New(http.StatusBadRequest, "Bad Request", "{{ .Args.throw }}")
-			{{- else }}
-			return resp, errors.New(http.StatusBadRequest, "Bad Request", "{{ .Args.throw }}")
-			{{- end }}
-		}
-		{{- else }}
-		if time.Now().UTC().After(_tce) {
-			{{- if $inTx }}
-			return errors.New(http.StatusBadRequest, "Bad Request", "{{ .Args.throw }}")
-			{{- else }}
-			return resp, errors.New(http.StatusBadRequest, "Bad Request", "{{ .Args.throw }}")
-			{{- end }}
-		}
-		{{- end }}
-	}
-		{{- else if eq .Action "map.Build" }}
-	{{- $as := or .Args.as "_mbItem" }}
-	{{ AssignSimple $scope .Args.output }} make(map[string]string)
-	for _, {{ $as }} := range {{ .Args.from }} {
-		{{ .Args.output }}[{{ .Args.key }}] = {{ .Args.value }}
-	}
-		{{- end }}
-	{{- end }}
+        {{- $method := .Method }}
+        {{- $svc := .Service }}
+        {{- $entities := .Entities }}
+        {{- $inTx := .InTx }}
+        {{- $scope := .Scope }}
+        {{- $ctxVar := "ctx" }}{{ if $inTx }}{{- $ctxVar = "txCtx" }}{{ end }}
+        {{- range .Steps }}
+                {{- if or (eq .Action "repo.Find") (eq .Action "repo.Get") }}
+        {{- $repoMethod := or .Args.method "FindByID" }}
+        {{ Assign $scope .Args.output }} s.{{ ExportName .Args.source }}Repo.{{ $repoMethod }}({{ $ctxVar }}{{ if .Args.input }}, {{ .Args.input }}{{ end }})
+        _ = {{ .Args.output }}
+        if err != nil {
+                return {{ if not $inTx }}resp, {{ end }}err
+        }
+                {{- else if or (eq .Action "repo.List") (eq .Action "repo.Query") }}
+        {{- $repoMethod := or .Args.method "FindAll" }}
+        {{ Assign $scope .Args.output }} s.{{ ExportName .Args.source }}Repo.{{ $repoMethod }}({{ $ctxVar }}{{ if .Args.input }}, {{ .Args.input }}{{ end }})
+        _ = {{ .Args.output }}
+        if err != nil {
+                return {{ if not $inTx }}resp, {{ end }}err
+        }
+                {{- else if eq .Action "repo.Save" }}
+        if err = s.{{ ExportName .Args.source }}Repo.Save({{ $ctxVar }}, {{ pointerExpr .Args.input }}); err != nil {
+                return {{ if not $inTx }}resp, {{ end }}err
+        }
+                {{- else if eq .Action "mapping.Map" }}
+                    {{- $input := or .Args.input .Args.from }}
+                    {{- $output := or .Args.output .Args.to }}
+                    {{- if $input }}
+                        {{- if or (eq $output "resp.Data") (eq $output "resp.data") }}
+                            {{- if eq $input "item" }}
+                            {{ $output }} = *item
+                            {{- else }}
+                            {{ $output }} = {{ $input }}
+                            {{- end }}
+                        {{- end }}
+                    {{- end }}
+                {{- end }}
+        {{- end }}
 {{- end }}
-
-// ============================================================================ 
-// SECTION: Service Methods
-// ============================================================================ 
 
 {{- range .Service.Methods }}
-{{- $method := . }}
-{{- $event := EventForMethod $.Service . }}
-{{- if .Description }}
-// {{ .Name }} {{ .Description }}
-{{- end }}
-// METHOD: {{ .Name }}
-{{- if .Source }}
-// Source: {{ .Source }}
-{{- end }}
-// INPUT: {{ if $event }}domain.{{ ExportName $event }}{{ else }}port.{{ .Input.Name }}{{ end }}
-// OUTPUT: {{ if and .Output.Name (not $event) }}port.{{ .Output.Name }}{{ else }}error only{{ end }}
-func (s *{{ $.Service.Name }}Impl) {{ .Name }}(ctx context.Context, req {{ if $event }}domain.{{ ExportName $event }}{{ else }}port.{{ .Input.Name }}{{ end }}) (resp {{ if and .Output.Name (not $event) }}port.{{ .Output.Name }}, {{ end }}err error) {
-	// Scope tracking to prevent redeclaration errors
-	{{- $scope := InitScope }}
-	{{- $null := mapSet $scope "err" true }}
-	{{- $null = mapSet $scope "resp" true }}
-	{{- $null = mapSet $scope "ctx" true }}
-	{{- $null = mapSet $scope "req" true }}
-	{{- $null = mapSet $scope "s" true }}
-	{{- $null = mapSet $scope "l" true }}
-
-	// Deep Logging for AI Traceability & Debugging
-	l := logger.From(ctx).With(slog.String("service", "{{ $.Service.Name }}"), slog.String("method", "{{ .Name }}"))
-	l.Debug("Entering method", slog.Any("req", req))
-
-	{{- if .Input.Name }}
-	// Auto-validation of input DTO
-	if err = helpers.Validate(req); err != nil {
-		l.Warn("Validation failed", slog.Any("error", err))
-		return resp, errors.New(http.StatusBadRequest, "VALIDATION_FAILED", err.Error())
-	}
-	{{- end }}
-
-	{{- if .Flow }}
-	_ = errors.New
-	_ = http.StatusOK
-	var deferredHooks []func(context.Context) error
-	{{- range getFlowRepoEntities .Flow }}
-	if s.{{ ExportName . }}Repo == nil {
-		return resp, errors.New(http.StatusInternalServerError, "Internal Error", "{{ . }} repository not configured")
-	}
-	{{- end }}
-	{{- end }}
-
-	{{- if .Idempotency }}
-	// Idempotency Check
-	dedupeKey := {{ if .DedupeKey }}fmt.Sprint({{ range $i, $key := Split .DedupeKey ", " }}{{ if $i }}, {{ end }}req.{{ ExportName $key }}{{ end }}){{ else }}helpers.GetDedupeKey(req){{ end }}
-	if dedupeKey != "" {
-		var found bool
-		var prevResp []byte
-		found, prevResp, err = s.idempotency.Check(ctx, "{{ $.Service.Name }}.{{ .Name }}:" + dedupeKey)
-		if err == nil && found {
-			l.Info("Idempotent hit", slog.String("key", dedupeKey))
-			{{- if and .Output.Name (not $event) }}
-			if json.Unmarshal(prevResp, &resp) == nil {
-				return resp, nil
-			}
-			{{- else }}
-			return resp, nil
-			{{- end }}
-		}
-	}
-
-	// Register idempotency saver
-	defer func() {
-		if err == nil && dedupeKey != "" {
-			{{- if and .Output.Name (not $event) }}
-			respBytes, _ := json.Marshal(resp)
-			_ = s.idempotency.Save(ctx, "{{ $.Service.Name }}.{{ .Name }}:" + dedupeKey, respBytes)
-			{{- else }}
-			_ = s.idempotency.Save(ctx, "{{ $.Service.Name }}.{{ .Name }}:" + dedupeKey, nil)
-			{{- end }}
-		}
-	}()
-	{{- end }}
-
-	{{- if .Flow }}
-	{{- template "flow_steps" (dict "Steps" .Flow "Method" $method "Service" $.Service "Entities" $.Entities "InTx" false "Logger" "l" "Hooks" "deferredHooks" "Scope" $scope) }}
-
-	// Execute post-commit hooks
-	for _, hook := range deferredHooks {
-		if hookErr := hook(ctx); hookErr != nil {
-			l.Error("Post-commit hook failed", slog.Any("error", hookErr))
-		}
-	}
-
-	l.Debug("Exiting method", slog.String("status", "success"))
-	return resp, nil
-	{{- else if and .Impl (eq .Impl.Lang "go") .Impl.Code }}
-{{ Indent (PrepareCodeBlock .Impl.Code) 1 }}
-	{{- else }}
-	{{- if and .Output.Name (not $event) }}
-	l.Debug("Exiting method (empty impl)", slog.String("status", "success"))
-	return resp, nil
-	{{- else }}
-	l.Debug("Exiting method (empty impl)", slog.String("status", "success"))
-	return nil, nil
-	{{- end }}
-	{{- end }}
+func (s *{{ $.Service.Name }}Impl) {{ .Name }}(ctx context.Context, req port.{{ .Input.Name }}) (resp {{ if .Output.Name }}port.{{ .Output.Name }}, {{ end }}err error) {
+        {{- $scope := InitScope }}
+        {{- $null := mapSet $scope "err" true }}
+        {{- $null = mapSet $scope "resp" true }}
+        {{- $null = mapSet $scope "ctx" true }}
+        {{- $null = mapSet $scope "req" true }}
+        {{- $null = mapSet $scope "s" true }}
+        
+        {{- if .Flow }}
+        {{- template "flow_steps" (dict "Steps" .Flow "Method" . "Service" $.Service "Entities" $.Entities "InTx" false "Scope" $scope) }}
+        {{- end }}
+        return resp, nil
 }
 {{- end }}

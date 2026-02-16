@@ -13,6 +13,19 @@ import (
 	"github.com/strogmv/ang/templates"
 )
 
+
+// TemplateContext - единая структура данных для всех Go-шаблонов
+type TemplateContext struct {
+	Service    *normalizer.Service
+	Entities   []normalizer.Entity
+	Entity     *normalizer.Entity
+	Auth       *normalizer.AuthDef
+	Imports    []string
+	Metadata   map[string]interface{}
+	Overrides  map[string]bool
+	GoModule   string
+}
+
 type Emitter struct {
 	OutputDir        string
 	FrontendDir      string

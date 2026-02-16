@@ -69,7 +69,7 @@ func (e *Emitter) EmitService(services []ir.Service) error {
 
 	for _, svc := range nServices {
 		var buf bytes.Buffer
-		if err := t.Execute(&buf, svc); err != nil {
+		if err := t.Execute(&buf, TemplateContext{Service: &svc, GoModule: e.GoModule}); err != nil {
 			return err
 		}
 
@@ -224,7 +224,7 @@ func (e *Emitter) EmitCachedService(services []ir.Service) error {
 	targetDir := filepath.Join(e.OutputDir, "internal", "service")
 	for _, svc := range nServices {
 		var buf bytes.Buffer
-		if err := t.Execute(&buf, svc); err != nil {
+		if err := t.Execute(&buf, TemplateContext{Service: &svc, GoModule: e.GoModule}); err != nil {
 			return err
 		}
 
