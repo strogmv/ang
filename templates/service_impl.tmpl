@@ -4,6 +4,7 @@ import (
         "context"
         "github.com/strog/dealingi-back/internal/port"
         "github.com/strog/dealingi-back/internal/domain"
+        "github.com/strog/dealingi-back/internal/pkg/tracing"
 )
 
 type {{ .Service.Name }}Impl struct {
@@ -50,35 +51,34 @@ func New{{ .Service.Name }}Impl(
         {{- $scope := .Scope }}
         {{- $ctxVar := "ctx" }}{{ if $inTx }}{{- $ctxVar = "txCtx" }}{{ end }}
         {{- range .Steps }}
-                {{- if or (eq .Action "repo.Find") (eq .Action "repo.Get") }}
-        {{- $repoMethod := or .Args.method "FindByID" }}
-        {{ SafeAssign $scope .Args.output }}
-	_ = {{ .Args.output }} s.{{ ExportName .Args.source }}Repo.{{ $repoMethod }}({{ $ctxVar }}{{ if .Args.input }}, {{ .Args.input }}{{ end }})
-        _ = {{ .Args.output }}
-        if err != nil { return {{ if not $inTx }}resp, {{ end }}err }
-                {{- else if or (eq .Action "repo.List") (eq .Action "repo.Query") }}
-        {{ SafeAssign $scope .Args.output }}
-	_ = {{ .Args.output }} s.{{ ExportName .Args.source }}Repo.FindAll({{ $ctxVar }}{{ if .Args.input }}, {{ .Args.input }}{{ end }})
-        _ = {{ .Args.output }}
-        if err != nil { return {{ if not $inTx }}resp, {{ end }}err }
-                {{- else if eq .Action "repo.Save" }}
-        if err = s.{{ ExportName .Args.source }}Repo.Save({{ $ctxVar }}, {{ .Args.input }}); err != nil {
-                return {{ if not $inTx }}resp, {{ end }}err
-        }
-                {{- else if eq .Action "mapping.Map" }}
-                    {{- $input := or .Args.input .Args.from }}
-                    {{- $output := or .Args.output .Args.to }}
-                    {{- if .Args.entity }}
-                        {{ Declare $scope $output }} domain.{{ ExportName .Args.entity }}
-                        {{- if eq $output "newItem" }}
-                        
-                        
-                        {{- end }}
-                    {{- end }}
-                    {{- if or (eq $output "resp.Data") (eq $output "resp.data") }}
-                        resp.Data = {{ $input }}
-                    {{- end }}
+        {
+            ctx, span := tracing.StartSpan(ctx, "Step: {{ .Action }}")
+            _ = ctx
+            {{- if or (eq .Action "repo.Find") (eq .Action "repo.Get") }}
+            {{- $repoMethod := or .Args.method "FindByID" }}
+            {{ SafeAssign $scope .Args.output }} s.{{ ExportName .Args.source }}Repo.{{ $repoMethod }}({{ $ctxVar }}{{ if .Args.input }}, {{ .Args.input }}{{ end }})
+            _ = {{ .Args.output }}
+            if err != nil { span.End(); return {{ if not $inTx }}resp, {{ end }}err }
+            {{- else if or (eq .Action "repo.List") (eq .Action "repo.Query") }}
+            {{ SafeAssign $scope .Args.output }} s.{{ ExportName .Args.source }}Repo.FindAll({{ $ctxVar }}{{ if .Args.input }}, {{ .Args.input }}{{ end }})
+            _ = {{ .Args.output }}
+            if err != nil { span.End(); return {{ if not $inTx }}resp, {{ end }}err }
+            {{- else if eq .Action "repo.Save" }}
+            if err = s.{{ ExportName .Args.source }}Repo.Save({{ $ctxVar }}, {{ .Args.input }}); err != nil {
+                span.End(); return {{ if not $inTx }}resp, {{ end }}err
+            }
+            {{- else if eq .Action "mapping.Map" }}
+                {{- $input := or .Args.input .Args.from }}
+                {{- $output := or .Args.output .Args.to }}
+                {{- if .Args.entity }}
+                    {{ Declare $scope $output }} domain.{{ ExportName .Args.entity }}
                 {{- end }}
+                {{- if or (eq $output "resp.Data") (eq $output "resp.data") }}
+                    resp.Data = {{ $input }}
+                {{- end }}
+            {{- end }}
+            span.End()
+        }
         {{- end }}
 {{- end }}
 
