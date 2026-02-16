@@ -86,6 +86,18 @@ func (e *Emitter) ReadTemplate(name string) ([]byte, error) {
 // ReadTemplateByPath reads a template using the emitter's templates directory.
 // This is a compatibility wrapper for existing code.
 func ReadTemplateByPath(tmplPath string) ([]byte, error) {
+	// 🚀 QUICK WIN: Dynamic template loading for faster development
+	if customDir := os.Getenv("ANG_TEMPLATES_DIR"); customDir != "" {
+		// Try relative name first
+		name := tmplPath
+		if strings.HasPrefix(name, "templates/") {
+			name = strings.TrimPrefix(name, "templates/")
+		}
+		fullPath := filepath.Join(customDir, name)
+		if data, err := os.ReadFile(fullPath); err == nil {
+			return data, nil
+		}
+	}
 	// Extract relative path from full path
 	// e.g., "templates/domain.tmpl" -> "domain.tmpl"
 	// e.g., "templates/frontend/providers/mui/form.tmpl" -> "frontend/providers/mui/form.tmpl"
