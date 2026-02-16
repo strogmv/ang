@@ -18,6 +18,47 @@ import (
 
 const serviceImplTemplatePath = "templates/service_impl.tmpl"
 
+func hasMethodImplementation(m normalizer.Method, overrides map[string]bool) bool {
+	if len(m.Flow) > 0 {
+		return true
+	}
+	if m.Impl != nil && strings.TrimSpace(m.Impl.Code) != "" {
+		return true
+	}
+	return overrides[m.Name]
+}
+
+func (e *Emitter) addMissingImpl(service, method, source string) {
+	if service == "" || method == "" {
+		return
+	}
+	if e.missingImplIndex == nil {
+		e.missingImplIndex = make(map[string]struct{})
+	}
+	key := service + "." + method
+	if source != "" {
+		key += "|" + source
+	}
+	if _, exists := e.missingImplIndex[key]; exists {
+		return
+	}
+	e.missingImplIndex[key] = struct{}{}
+	e.MissingImpls = append(e.MissingImpls, MissingImpl{
+		Service: service,
+		Method:  method,
+		Source:  source,
+	})
+}
+
+func (e *Emitter) auditMissingImplementations(svc normalizer.Service, overrides map[string]bool) {
+	for _, m := range svc.Methods {
+		if hasMethodImplementation(m, overrides) {
+			continue
+		}
+		e.addMissingImpl(svc.Name, m.Name, m.Source)
+	}
+}
+
 func (e *Emitter) EmitService(services []ir.Service) error {
 	tmplPath := "templates/service.tmpl"
 	tmplContent, err := ReadTemplateByPath(tmplPath)
@@ -75,18 +116,7 @@ func (e *Emitter) EmitService(services []ir.Service) error {
 	for _, svc := range nServices {
 		var buf bytes.Buffer
 		overrides := e.getManualMethods(svc.Name)
-		// Implementation Audit
-		for _, m := range svc.Methods {
-			hasFlow := len(m.Flow) > 0
-			hasManual := overrides[m.Name]
-			if !hasFlow && !hasManual {
-				e.MissingImpls = append(e.MissingImpls, MissingImpl{
-					Service: svc.Name,
-					Method:  m.Name,
-					Source:  m.Source,
-				})
-			}
-		}
+		e.auditMissingImplementations(svc, overrides)
 
 		if err := t.Execute(&buf, TemplateContext{
 			Service:   &svc,
@@ -203,18 +233,7 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 		}
 
 		overrides := e.getManualMethods(svc.Name)
-		// Implementation Audit
-		for _, m := range svc.Methods {
-			hasFlow := len(m.Flow) > 0
-			hasManual := overrides[m.Name]
-			if !hasFlow && !hasManual {
-				e.MissingImpls = append(e.MissingImpls, MissingImpl{
-					Service: svc.Name,
-					Method:  m.Name,
-					Source:  m.Source,
-				})
-			}
-		}
+		e.auditMissingImplementations(svc, overrides)
 
 		if err := t.Execute(&buf, TemplateContext{
 			Service:   &svc,
@@ -295,18 +314,7 @@ func (e *Emitter) EmitCachedService(services []ir.Service) error {
 	for _, svc := range nServices {
 		var buf bytes.Buffer
 		overrides := e.getManualMethods(svc.Name)
-		// Implementation Audit
-		for _, m := range svc.Methods {
-			hasFlow := len(m.Flow) > 0
-			hasManual := overrides[m.Name]
-			if !hasFlow && !hasManual {
-				e.MissingImpls = append(e.MissingImpls, MissingImpl{
-					Service: svc.Name,
-					Method:  m.Name,
-					Source:  m.Source,
-				})
-			}
-		}
+		e.auditMissingImplementations(svc, overrides)
 
 		if err := t.Execute(&buf, TemplateContext{
 			Service:   &svc,

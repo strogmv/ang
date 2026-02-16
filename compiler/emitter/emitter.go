@@ -45,6 +45,7 @@ type Emitter struct {
 	CompilerHash     string
 	GoModule         string // Go module path for imports
 	MissingImpls     []MissingImpl
+	missingImplIndex map[string]struct{}
 }
 
 const DefaultUIProviderPath = "@/components/ui/forms"

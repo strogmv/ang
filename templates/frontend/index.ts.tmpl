@@ -3,6 +3,7 @@
 export * from './api-client';
 export * from './auth-store';
 export * from './endpoints';
+export * from './error-normalizer';
 export * from './forms';
 export * from './hooks';
 export * from './prefetch';
@@ -16,4 +17,3 @@ export * from './schemas';
 export * from './stores';
 export * from './types';
 export * from './websocket';
-

@@ -2,6 +2,7 @@ package normalizer
 
 import (
 	"fmt"
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
@@ -325,6 +326,9 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 					}
 				}
 				method.Impl = impl
+				for _, diag := range validateNamedReturnImplCode(svcName, opName, method, codeVal) {
+					n.Warn(diag)
+				}
 			}
 		}
 
@@ -1489,6 +1493,9 @@ func (n *Normalizer) parseService(name string, val cue.Value) (Service, error) {
 					}
 				}
 				method.Impl = impl
+				for _, diag := range validateNamedReturnImplCode(name, methodName, method, codeVal) {
+					n.Warn(diag)
+				}
 			}
 		}
 
@@ -1917,6 +1924,118 @@ func addPaginationFields(method *Method) {
 	}
 }
 
+func validateNamedReturnImplCode(serviceName, methodName string, method Method, codeVal cue.Value) []Warning {
+	if method.Impl == nil || strings.TrimSpace(method.Impl.Code) == "" {
+		return nil
+	}
+
+	wrapped := "package lint\nfunc _() (resp any, err error) {\n" + method.Impl.Code + "\n}\n"
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "", wrapped, parser.AllErrors)
+	if err != nil || f == nil || len(f.Decls) == 0 {
+		return nil
+	}
+
+	decl, ok := f.Decls[0].(*ast.FuncDecl)
+	if !ok || decl.Body == nil {
+		return nil
+	}
+
+	pos := codeVal.Pos()
+	warnFile := ""
+	warnLine := 0
+	warnCol := 0
+	if pos.IsValid() {
+		warnFile = pos.Filename()
+		warnLine = pos.Line()
+		warnCol = pos.Column()
+	}
+
+	type violation struct {
+		code string
+		msg  string
+		hint string
+	}
+
+	var out []Warning
+	emit := func(v violation) {
+		out = append(out, Warning{
+			Kind:     "impl",
+			Code:     v.code,
+			Severity: "error",
+			Message:  fmt.Sprintf("%s.%s: %s", serviceName, methodName, v.msg),
+			Hint:     v.hint,
+			File:     warnFile,
+			Line:     warnLine,
+			Column:   warnCol,
+			CUEPath:  codeVal.Path().String(),
+		})
+	}
+
+	ast.Inspect(decl.Body, func(node ast.Node) bool {
+		switch n := node.(type) {
+		case *ast.GenDecl:
+			if n.Tok != token.VAR {
+				return true
+			}
+			for _, spec := range n.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				for _, name := range vs.Names {
+					switch name.Name {
+					case "resp":
+						if method.Output.Name != "" {
+							emit(violation{
+								code: "IMPL_NAMED_RETURN_RESP_VAR",
+								msg:  "do not redeclare 'resp' in impls.go.code when method uses named return",
+								hint: "Use assignment 'resp = ...' instead of 'var resp ...'",
+							})
+						}
+					case "err":
+						if ident, ok := vs.Type.(*ast.Ident); ok && ident.Name == "error" {
+							emit(violation{
+								code: "IMPL_NAMED_RETURN_ERR_VAR",
+								msg:  "do not redeclare 'err' as local variable in impls.go.code when method uses named return",
+								hint: "Use assignment 'err = ...' instead of 'var err error'",
+							})
+						}
+					}
+				}
+			}
+		case *ast.AssignStmt:
+			if n.Tok != token.DEFINE {
+				return true
+			}
+			for _, lhs := range n.Lhs {
+				id, ok := lhs.(*ast.Ident)
+				if !ok {
+					continue
+				}
+				switch id.Name {
+				case "resp":
+					if method.Output.Name != "" {
+						emit(violation{
+							code: "IMPL_NAMED_RETURN_RESP_SHORT_DECL",
+							msg:  "do not use 'resp :=' in impls.go.code when method uses named return",
+							hint: "Use assignment 'resp = ...' instead of short declaration",
+						})
+					}
+				case "err":
+					emit(violation{
+						code: "IMPL_NAMED_RETURN_ERR_SHORT_DECL",
+						msg:  "do not use 'err :=' in impls.go.code when method uses named return",
+						hint: "Use assignment 'err = ...' instead of short declaration",
+					})
+				}
+			}
+		}
+		return true
+	})
+
+	return out
+}
 func validateGoSnippet(code string, file string, line int, col int) string {
 	if code == "" || strings.Contains(code, "{{") {
 		return "" // Skip templates for now

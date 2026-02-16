@@ -678,6 +678,7 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 	}{
 		{"index", "index.ts"},
 		{"api-client", "api-client.ts"},
+		{"error-normalizer", "error-normalizer.ts"},
 		{"endpoints", "endpoints.ts"},
 		{"websocket", "websocket.ts"},
 		{"auth-store", "auth-store.ts"},

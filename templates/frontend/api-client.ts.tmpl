@@ -2,6 +2,7 @@ import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from './auth-store';
 import { endpointMeta } from './endpoints';
 import { ErrorCode, ProblemDetail } from './types';
+import { isProblemDetailLike, normalizeApiError } from './error-normalizer';
 import * as Schemas from './schemas';
 
 const getBaseUrl = () => {
@@ -118,21 +119,14 @@ apiClient.interceptors.response.use(
       console.error(`[TraceID: ${traceId}] API Error:`, error.message);
     }
 
-    if (error.response && error.response.data && typeof error.response.data === 'object') {
-      // Cast to ProblemDetail if structure matches
-      const problem = error.response.data as ProblemDetail;
-      
-      // Inject TraceID into the problem object for UI display
-      (problem as any).traceId = traceId;
-      
-      return Promise.reject(problem);
-    }
-    return Promise.reject({
-      title: 'Network Error',
-      detail: error.message,
-      status: 0,
-      traceId
-    } as ProblemDetail);
+    const problem = normalizeApiError({
+      data: error.response?.data,
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      errorMessage: error.message,
+      traceId,
+    });
+    return Promise.reject(problem);
   }
 );
 
@@ -148,9 +142,7 @@ export const validateResponse = <T>(schemaName: string, data: T, context: string
 };
 
 export const isProblemDetail = (err: unknown): err is ProblemDetail => {
-  if (!err || typeof err !== 'object') return false;
-  const maybe = err as ProblemDetail;
-  return typeof maybe.title === 'string' && typeof maybe.status === 'number' && typeof maybe.detail === 'string';
+  return isProblemDetailLike(err);
 };
 
 export const hasErrorCode = (err: unknown, codes: ErrorCode | ErrorCode[]): boolean => {
