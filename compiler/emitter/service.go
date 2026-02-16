@@ -16,6 +16,8 @@ import (
 	"github.com/strogmv/ang/compiler/normalizer"
 )
 
+const serviceImplTemplatePath = "templates/service_impl.tmpl"
+
 func (e *Emitter) EmitService(services []ir.Service) error {
 	tmplPath := "templates/service.tmpl"
 	tmplContent, err := ReadTemplateByPath(tmplPath)
@@ -111,7 +113,7 @@ func (e *Emitter) EmitService(services []ir.Service) error {
 }
 
 func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, auth *normalizer.AuthDef) error {
-	tmplPath := "templates/service_impl.tmpl"
+	tmplPath := serviceImplTemplatePath
 	tmplContent, err := ReadTemplateByPath(tmplPath)
 	if err != nil {
 		return err
