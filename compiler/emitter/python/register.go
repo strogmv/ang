@@ -2,24 +2,24 @@ package python
 
 import (
 	"github.com/strogmv/ang/compiler"
+	"github.com/strogmv/ang/compiler/emitter/contracts"
 	"github.com/strogmv/ang/compiler/generator"
 	"github.com/strogmv/ang/compiler/ir"
-	"github.com/strogmv/ang/compiler/normalizer"
 )
 
 type BuildEmitter interface {
-	EmitPythonConfig(cfg *normalizer.ConfigDef) error
-	EmitPythonRBAC(rbac *normalizer.RBACDef) error
-	EmitPythonAuthStores(auth *normalizer.AuthDef) error
+	EmitPythonConfig(cfg *contracts.ConfigDef) error
+	EmitPythonRBAC(rbac *contracts.RBACDef) error
+	EmitPythonAuthStores(auth *contracts.AuthDef) error
 	EmitPythonFastAPIBackendFromIR(schema *ir.Schema, fallbackVersion string) error
 }
 
 type RegisterInput struct {
 	Em          BuildEmitter
 	IRSchema    *ir.Schema
-	CfgDef      *normalizer.ConfigDef
-	AuthDef     *normalizer.AuthDef
-	RBACDef     *normalizer.RBACDef
+	CfgDef      *contracts.ConfigDef
+	AuthDef     *contracts.AuthDef
+	RBACDef     *contracts.RBACDef
 	InfraValues map[string]any
 }
 

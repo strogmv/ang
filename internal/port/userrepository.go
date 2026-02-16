@@ -9,6 +9,6 @@ type UserRepository interface {
 	Save(ctx context.Context, entity *domain.User) error
 	FindByID(ctx context.Context, id string) (*domain.User, error)
 	Delete(ctx context.Context, id string) error
-	FindByEmail(ctx context.Context, email map[string]any) (*domain.User, error)
+	FindByEmail(ctx context.Context, email string) (*domain.User, error)
 	ListAll(ctx context.Context, offset int, limit int) ([]domain.User, error)
 }

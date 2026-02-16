@@ -4,22 +4,22 @@ import (
 	"testing"
 
 	"github.com/strogmv/ang/compiler"
+	"github.com/strogmv/ang/compiler/emitter/contracts"
 	"github.com/strogmv/ang/compiler/generator"
-	"github.com/strogmv/ang/compiler/normalizer"
 )
 
 func TestInfraGoStepRunnerRegistryContainsNotificationMuting(t *testing.T) {
 	t.Parallel()
 
-	def, ok := infraGoStepDefs[normalizer.InfraKeyNotificationMuting]
+	def, ok := infraGoStepDefs[contracts.InfraKeyNotificationMuting]
 	if !ok {
-		t.Fatalf("expected runner for key %q", normalizer.InfraKeyNotificationMuting)
+		t.Fatalf("expected runner for key %q", contracts.InfraKeyNotificationMuting)
 	}
 	if def.Runner == nil {
-		t.Fatalf("expected non-nil runner for key %q", normalizer.InfraKeyNotificationMuting)
+		t.Fatalf("expected non-nil runner for key %q", contracts.InfraKeyNotificationMuting)
 	}
-	steps := normalizer.NewInfraRegistry().StepsForValues(normalizer.InfraLanguageGo, map[string]any{
-		normalizer.InfraKeyNotificationMuting: &normalizer.NotificationMutingDef{Enabled: true},
+	steps := contracts.InfraStepsForValuesGo(map[string]any{
+		contracts.InfraKeyNotificationMuting: &contracts.NotificationMute{Enabled: true},
 	})
 	if len(steps) != 1 {
 		t.Fatalf("expected one infra step from registry, got %d", len(steps))
@@ -47,7 +47,7 @@ func TestRegisterInfraGoStepsUsesLocalManifest(t *testing.T) {
 	reg := generator.NewStepRegistry()
 	registerInfraGoSteps(reg, RegisterInput{
 		InfraValues: map[string]any{
-			normalizer.InfraKeyNotificationMuting: &normalizer.NotificationMutingDef{Enabled: true},
+			contracts.InfraKeyNotificationMuting: &contracts.NotificationMute{Enabled: true},
 		},
 	})
 	steps := reg.Steps()

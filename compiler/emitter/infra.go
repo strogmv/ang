@@ -147,6 +147,17 @@ func ensureRuntimeConfigFields(config *normalizer.ConfigDef) *normalizer.ConfigD
 	}
 
 	// JWT defaults required by auth/http templates.
+	add("HTTPPort", "string", "HTTP_PORT", "8080")
+	add("DatabaseURL", "string", "DATABASE_URL", "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable")
+	add("RedisAddr", "string", "REDIS_ADDR", "localhost:6379")
+	add("NatsURL", "string", "NATS_URL", "nats://localhost:4222")
+	add("MongoURL", "string", "MONGO_URL", "mongodb://localhost:27017")
+	add("MongoDatabase", "string", "MONGO_DATABASE", "app")
+	add("AWSRegion", "string", "AWS_REGION", "us-east-1")
+	add("S3Bucket", "string", "S3_BUCKET", "")
+	add("S3Endpoint", "string", "S3_ENDPOINT", "")
+
+	// JWT defaults required by auth/http templates.
 	add("JWTAlg", "string", "JWT_ALG", "HS256")
 	add("JWTIssuer", "string", "JWT_ISSUER", "ang")
 	add("JWTAudience", "string", "JWT_AUDIENCE", "ang-api")

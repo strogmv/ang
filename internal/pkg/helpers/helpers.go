@@ -103,6 +103,39 @@ func Unmarshal(data []byte, v interface{}) error {
 	return json.Unmarshal(data, v)
 }
 
+// Assign copies src into dst pointer.
+// If types are directly assignable/convertible, it uses reflection.
+// Otherwise falls back to JSON roundtrip for structurally compatible payloads.
+func Assign(dst interface{}, src interface{}) error {
+	if dst == nil {
+		return fmt.Errorf("helpers.Assign: dst is nil")
+	}
+	dv := reflect.ValueOf(dst)
+	if dv.Kind() != reflect.Ptr || dv.IsNil() {
+		return fmt.Errorf("helpers.Assign: dst must be non-nil pointer")
+	}
+	if src == nil {
+		dv.Elem().Set(reflect.Zero(dv.Elem().Type()))
+		return nil
+	}
+
+	sv := reflect.ValueOf(src)
+	if sv.Type().AssignableTo(dv.Elem().Type()) {
+		dv.Elem().Set(sv)
+		return nil
+	}
+	if sv.Type().ConvertibleTo(dv.Elem().Type()) {
+		dv.Elem().Set(sv.Convert(dv.Elem().Type()))
+		return nil
+	}
+
+	b, err := json.Marshal(src)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, dst)
+}
+
 // CopyNonEmptyFields copies non-zero fields from src to dst using reflection.
 func CopyNonEmptyFields(src, dst interface{}) {
 	srcVal := reflect.ValueOf(src)

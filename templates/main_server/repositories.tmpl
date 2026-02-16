@@ -1,8 +1,9 @@
 {{ define "main_server_repositories" }}
+	{{- $needsPG := or .HasSQL (gt (len (AllUsedRepoEntitiesIR .ServicesIR .EntitiesIR)) 0) }}
 	runtimeContainer, err := bootstrap.NewRuntimeContainer(
 		ctx,
 		cfg,
-		{{- if or .HasSQL (HasRepoEntitiesIR .ServicesIR .EntitiesIR) }}
+		{{- if $needsPG }}
 		pgPool,
 		{{- end }}
 		{{- if .HasMongo }}

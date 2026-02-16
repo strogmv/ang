@@ -39,7 +39,7 @@ CreatePost: schema.#Operation & {
 			{action: "mapping.Assign", to: "newPost.Title", value: "req.Title"},
 			{action: "mapping.Assign", to: "newPost.Content", value: "req.Content"},
 			{action: "mapping.Assign", to: "newPost.Slug", value: "slug"},
-			{action: "mapping.Assign", to: "newPost.AuthorID", value: "req.UserId"},
+			{action: "mapping.Assign", to: "newPost.AuthorID", value: "req.UserID"},
 			{action: "mapping.Assign", to: "newPost.Status", value: "\"draft\""},
 
 			{action: "repo.Save", source: "Post", input: "newPost"},
@@ -120,15 +120,16 @@ ListPosts: schema.#Operation & {
 
 	flow: [
 		{action: "flow.If", condition: "req.Tag != \"\"", then: [
-			{action: "repo.List", source: "Post", method: "ListPublishedByTag", input: "req.Tag", output: "posts"},
-			{action: "repo.Find", source: "Post", method: "CountPublishedByTag", input: "req.Tag", output: "totalCount"},
+			{action: "repo.List", source: "Post", method: "ListPublishedByTag", input: "\"published\", req.Tag", output: "posts"},
+			{action: "repo.Find", source: "Post", method: "CountPublishedByTag", input: "\"published\", req.Tag", output: "totalCount"},
+			{action: "mapping.Assign", to: "resp.Data", value: "posts"},
+			{action: "mapping.Assign", to: "resp.Total", value: "totalCount"},
 		], else: [
-			{action: "repo.List", source: "Post", method: "ListPublished", output: "posts"},
-			{action: "repo.Find", source: "Post", method: "CountPublished", output: "totalCount"},
+			{action: "repo.List", source: "Post", method: "ListPublished", input: "\"published\"", output: "posts"},
+			{action: "repo.Find", source: "Post", method: "CountPublished", input: "\"published\"", output: "totalCount"},
+			{action: "mapping.Assign", to: "resp.Data", value: "posts"},
+			{action: "mapping.Assign", to: "resp.Total", value: "totalCount"},
 		]},
-
-		{action: "mapping.Assign", to: "resp.Data", value: "posts"},
-		{action: "mapping.Assign", to: "resp.Total", value: "totalCount"},
 	]
 }
 
@@ -155,11 +156,12 @@ ListMyPosts: schema.#Operation & {
 
 	flow: [
 		{action: "flow.If", condition: "req.Status != \"\"", then: [
-			{action: "repo.List", source: "Post", method: "ListByAuthorAndStatus", input: "req.UserId", output: "posts"},
+			{action: "repo.List", source: "Post", method: "ListByAuthorAndStatus", input: "req.UserID, req.Status", output: "posts"},
+			{action: "mapping.Assign", to: "resp.Data", value: "posts"},
 		], else: [
-			{action: "repo.List", source: "Post", method: "ListByAuthor", input: "req.UserId", output: "posts"},
+			{action: "repo.List", source: "Post", method: "ListByAuthor", input: "req.UserID", output: "posts"},
+			{action: "mapping.Assign", to: "resp.Data", value: "posts"},
 		]},
-		{action: "mapping.Assign", to: "resp.Data", value: "posts"},
 	]
 }
 

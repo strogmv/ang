@@ -91,7 +91,7 @@ func IRTypeRefToDTOType(t ir.TypeRef) string {
 	case ir.KindBool:
 		return "bool"
 	case ir.KindTime:
-		return "string" // DTO uses string for time (ISO format)
+		return "time.Time"
 	case ir.KindUUID:
 		return "string"
 	case ir.KindJSON:

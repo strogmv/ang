@@ -45,10 +45,14 @@ class Tag(BaseModel):
 
 
 class User(BaseModel):
+    id: str
     email: str
-    passwordHash: Any
-    name: Any
+    passwordHash: str
+    name: str
+    role: str
     avatarURL: str
+    createdAt: datetime
+    updatedAt: datetime
 
 
 class UserVault(BaseModel):

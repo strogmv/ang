@@ -3,15 +3,15 @@ package sharedsteps
 import (
 	"github.com/strogmv/ang/compiler"
 	"github.com/strogmv/ang/compiler/emitter"
+	"github.com/strogmv/ang/compiler/emitter/contracts"
 	"github.com/strogmv/ang/compiler/generator"
 	"github.com/strogmv/ang/compiler/ir"
-	"github.com/strogmv/ang/compiler/normalizer"
 )
 
 type RegisterInput struct {
 	Em               *emitter.Emitter
 	IRSchema         *ir.Schema
-	ProjectDef       *normalizer.ProjectDef
+	ProjectDef       *contracts.ProjectDef
 	PythonSDKEnabled bool
 }
 

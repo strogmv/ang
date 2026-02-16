@@ -29,7 +29,7 @@ CreateComment: schema.#Operation & {
 		// Create comment
 		{action: "mapping.Map", output: "newComment", entity: "Comment"},
 		{action: "mapping.Assign", to: "newComment.PostID", value: "req.PostID"},
-		{action: "mapping.Assign", to: "newComment.UserID", value: "req.UserId"},
+		{action: "mapping.Assign", to: "newComment.AuthorID", value: "req.UserID"},
 		{action: "mapping.Assign", to: "newComment.Content", value: "req.Content"},
 
 		{action: "repo.Save", source: "Comment", input: "newComment"},
@@ -86,7 +86,7 @@ UpdateComment: schema.#Operation & {
 		{action: "repo.Find", source: "Comment", input: "req.ID", output: "comment", error: "Comment not found"},
 
 		// Check ownership
-		{action: "logic.Check", condition: "comment.UserID == req.UserId", throw: "Not authorized to update this comment"},
+		{action: "logic.Check", condition: "comment.AuthorID == req.UserID", throw: "Not authorized to update this comment"},
 
 		{action: "mapping.Assign", to: "comment.Content", value: "req.Content"},
 		{action: "repo.Save", source: "Comment", input: "comment"},
@@ -112,7 +112,7 @@ DeleteComment: schema.#Operation & {
 		{action: "repo.Find", source: "Comment", input: "req.ID", output: "comment", error: "Comment not found"},
 
 		// Check ownership or admin
-		{action: "logic.Check", condition: "comment.UserID == req.UserId", throw: "Not authorized"},
+		{action: "logic.Check", condition: "comment.AuthorID == req.UserID", throw: "Not authorized"},
 
 		// Delete comment and its sub-comments (recursive delete simulation)
 		{action: "tx.Block", do: [

@@ -7,8 +7,10 @@ import (
 )
 
 const (
-	// IRVersionV1 is the current canonical IR schema version.
+	// IRVersionV1 is the legacy canonical IR schema version.
 	IRVersionV1 = "1"
+	// IRVersionV2 is the current canonical IR schema version.
+	IRVersionV2 = "2"
 )
 
 // MigrateToCurrent upgrades schema in-place to the current IR version.
@@ -21,18 +23,28 @@ func MigrateToCurrent(schema *Schema) error {
 	switch strings.TrimSpace(schema.IRVersion) {
 	case "", "0":
 		migrateV0ToV1(schema)
+		migrateV1ToV2(schema)
 		return nil
 	case IRVersionV1:
-		normalizeV1Invariants(schema)
+		migrateV1ToV2(schema)
+		return nil
+	case IRVersionV2:
+		normalizeV2Invariants(schema)
 		return nil
 	default:
-		return fmt.Errorf("unsupported ir_version %q (current=%s)", schema.IRVersion, IRVersionV1)
+		return fmt.Errorf("unsupported ir_version %q (current=%s)", schema.IRVersion, IRVersionV2)
 	}
 }
 
 func migrateV0ToV1(schema *Schema) {
 	schema.IRVersion = IRVersionV1
 	normalizeV1Invariants(schema)
+}
+
+func migrateV1ToV2(schema *Schema) {
+	normalizeV1Invariants(schema)
+	schema.IRVersion = IRVersionV2
+	normalizeV2Invariants(schema)
 }
 
 func normalizeV1Invariants(schema *Schema) {
@@ -58,6 +70,10 @@ func normalizeV1Invariants(schema *Schema) {
 	for i := range schema.Endpoints {
 		ensureMap(&schema.Endpoints[i].Metadata)
 	}
+}
+
+func normalizeV2Invariants(schema *Schema) {
+	normalizeV1Invariants(schema)
 }
 
 func ensureMap(dst *map[string]any) {

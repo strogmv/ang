@@ -2,11 +2,21 @@ package emitter
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/strogmv/ang/compiler/normalizer"
 )
+
+var reFlowSelectorID = regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9]*)Id\b`)
+
+func normalizeFlowExpr(s string) string {
+	if s == "" {
+		return s
+	}
+	return reFlowSelectorID.ReplaceAllString(s, ".$1ID")
+}
 
 // flowRenderable reports whether all actions inside steps are supported by RenderFlow.
 func flowRenderable(steps []normalizer.FlowStep) bool {
@@ -76,6 +86,14 @@ type flowRenderState struct {
 	declared map[string]bool
 }
 
+func cloneFlowState(st *flowRenderState) *flowRenderState {
+	cp := &flowRenderState{declared: make(map[string]bool, len(st.declared))}
+	for k, v := range st.declared {
+		cp.declared[k] = v
+	}
+	return cp
+}
+
 func renderFlow(steps []normalizer.FlowStep) string {
 	st := &flowRenderState{
 		declared: map[string]bool{
@@ -99,7 +117,7 @@ func renderOneFlowStep(st *flowRenderState, step normalizer.FlowStep, indent int
 	arg := func(name string) string {
 		if v, ok := step.Args[name]; ok {
 			if s, ok := v.(string); ok {
-				return strings.TrimSpace(s)
+				return normalizeFlowExpr(strings.TrimSpace(s))
 			}
 		}
 		return ""
@@ -173,6 +191,9 @@ func renderOneFlowStep(st *flowRenderState, step normalizer.FlowStep, indent int
 		if input != "" {
 			call += ", " + input
 		}
+		if step.Action == "repo.Delete" && strings.HasPrefix(method, "DeleteBy") {
+			return fmt.Sprintf("%sif _, err := s.%sRepo.%s(%s); err != nil {\n%s\treturn resp, err\n%s}\n", pad, ExportName(source), method, call, pad, pad)
+		}
 		return fmt.Sprintf("%sif err := s.%sRepo.%s(%s); err != nil {\n%s\treturn resp, err\n%s}\n", pad, ExportName(source), method, call, pad, pad)
 
 	case "mapping.Assign":
@@ -190,12 +211,11 @@ func renderOneFlowStep(st *flowRenderState, step normalizer.FlowStep, indent int
 				declare = strings.EqualFold(strings.TrimSpace(x), "true")
 			}
 		}
-		op := "="
 		if declare && !st.declared[to] {
-			op = ":="
 			st.declared[to] = true
+			return fmt.Sprintf("%s%s := %s\n", pad, to, val)
 		}
-		return fmt.Sprintf("%s%s %s %s\n", pad, to, op, val)
+		return fmt.Sprintf("%sif err := helpers.Assign(&%s, %s); err != nil {\n%s\treturn resp, err\n%s}\n", pad, to, val, pad, pad)
 
 	case "flow.If":
 		cond := arg("condition")
@@ -206,11 +226,11 @@ func renderOneFlowStep(st *flowRenderState, step normalizer.FlowStep, indent int
 		elseSteps := child("_else")
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%sif %s {\n", pad, cond))
-		b.WriteString(renderFlowSteps(st, thenSteps, indent+1))
+		b.WriteString(renderFlowSteps(cloneFlowState(st), thenSteps, indent+1))
 		b.WriteString(fmt.Sprintf("%s}", pad))
 		if len(elseSteps) > 0 {
 			b.WriteString(" else {\n")
-			b.WriteString(renderFlowSteps(st, elseSteps, indent+1))
+			b.WriteString(renderFlowSteps(cloneFlowState(st), elseSteps, indent+1))
 			b.WriteString(fmt.Sprintf("%s}", pad))
 		}
 		b.WriteString("\n")

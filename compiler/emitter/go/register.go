@@ -5,25 +5,25 @@ import (
 
 	"github.com/strogmv/ang/compiler"
 	"github.com/strogmv/ang/compiler/emitter"
+	"github.com/strogmv/ang/compiler/emitter/contracts"
 	"github.com/strogmv/ang/compiler/generator"
 	"github.com/strogmv/ang/compiler/ir"
-	"github.com/strogmv/ang/compiler/normalizer"
 )
 
 type RegisterInput struct {
 	Em             *emitter.Emitter
 	IRSchema       *ir.Schema
 	Ctx            emitter.MainContext
-	Scenarios      []normalizer.ScenarioDef
-	CfgDef         *normalizer.ConfigDef
-	AuthDef        *normalizer.AuthDef
-	RBACDef        *normalizer.RBACDef
+	Scenarios      []contracts.ScenarioDef
+	CfgDef         *contracts.ConfigDef
+	AuthDef        *contracts.AuthDef
+	RBACDef        *contracts.RBACDef
 	InfraValues    map[string]any
-	EmailTemplates []normalizer.EmailTemplateDef
+	EmailTemplates []contracts.EmailTemplateDef
 	IsMicroservice bool
 
 	TestStubsEnabled        bool
-	ResolveMissingTestStubs func() ([]normalizer.Endpoint, error)
+	ResolveMissingTestStubs func() ([]contracts.EndpointDef, error)
 	CopyFrontendSDK         func() error
 	CopyFrontendAdmin       func() error
 	WriteFrontendEnvExample func() error

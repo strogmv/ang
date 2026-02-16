@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"cuelang.org/go/cue"
+	"github.com/strogmv/ang/compiler/flowsem"
 )
 
 // ExtractServices extracts service definitions.
@@ -827,6 +828,7 @@ type FlowWarning struct {
 
 func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities []Entity) []FlowWarning {
 	var warnings []FlowWarning
+	seenWarnings := make(map[string]struct{})
 	declaredVars := make(map[string]bool)
 	assignedFields := make(map[string]bool)
 	newEntities := make(map[string]string)
@@ -841,8 +843,16 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 	}
 
 	var currentStep FlowStep
+	appendWarn := func(w FlowWarning) {
+		key := fmt.Sprintf("%s|%s|%s|%d|%d|%d", w.Code, w.Action, w.File, w.Line, w.Column, w.Step)
+		if _, ok := seenWarnings[key]; ok {
+			return
+		}
+		seenWarnings[key] = struct{}{}
+		warnings = append(warnings, w)
+	}
 	addWarn := func(step int, action, code, message, hint string, file string, line int, column int, fixes ...Fix) {
-		warnings = append(warnings, FlowWarning{
+		appendWarn(FlowWarning{
 			Op:           opName,
 			Step:         step,
 			Action:       action,
@@ -855,6 +865,28 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 			Column:       column,
 			CUEPath:      currentStep.CUEPath,
 			SuggestedFix: fixes,
+		})
+	}
+
+	semanticSteps := toFlowSemSteps(steps)
+	semanticIssues := flowsem.Validate(semanticSteps)
+	for _, issue := range semanticIssues {
+		sev := issue.Severity
+		if sev == "" {
+			sev = "error"
+		}
+		appendWarn(FlowWarning{
+			Op:       opName,
+			Step:     issue.Step,
+			Action:   issue.Action,
+			Message:  issue.Message,
+			Code:     issue.Code,
+			Severity: sev,
+			Hint:     issue.Hint,
+			File:     issue.File,
+			Line:     issue.Line,
+			Column:   issue.Column,
+			CUEPath:  issue.CUEPath,
 		})
 	}
 
@@ -988,30 +1020,19 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 			case "event.Publish":
 				name, _ := step.Args["name"].(string)
 				payload, _ := step.Args["payload"].(string)
-				if name == "" {
-					addWarn(stepNum, step.Action, "MISSING_NAME", "event.Publish missing 'name'", "{action: \"event.Publish\", name: \"EventName\", payload: \"domain.EventName{...}\"}", step.File, step.Line, step.Column)
-				}
 				if payload != "" && !strings.HasPrefix(payload, "domain.") {
 					addWarn(stepNum, step.Action, "PAYLOAD_NOT_DOMAIN", fmt.Sprintf("event.Publish payload should use domain.%s{...}", name), "{action: \"event.Publish\", name: \""+name+"\", payload: \"domain."+name+"{...}\"}", step.File, step.Line, step.Column)
 				}
 
 			case "notification.Dispatch":
-				message, _ := step.Args["message"].(string)
-				if strings.TrimSpace(message) == "" {
-					addWarn(stepNum, step.Action, "MISSING_MESSAGE", "notification.Dispatch missing 'message'", "{action: \"notification.Dispatch\", message: \"port.NotificationMessage{...}\"}", step.File, step.Line, step.Column)
-				}
+				// validated by flow semantics engine
 
 			case "logic.Check":
 				cond, _ := step.Args["condition"].(string)
-				if cond == "" {
-					addWarn(stepNum, step.Action, "MISSING_CONDITION", "logic.Check missing 'condition'", "{action: \"logic.Check\", condition: \"x > 0\", throw: \"ERROR_CODE\"}", step.File, step.Line, step.Column)
-				} else {
+				if cond != "" {
 					if errStr := validateGoSnippet(cond, step.File, step.Line, step.Column); errStr != "" {
 						addWarn(stepNum, step.Action, "GO_SYNTAX_ERROR", errStr, "Check your Go code syntax inside the CUE string.", step.File, step.Line, step.Column)
 					}
-				}
-				if step.Args["throw"] == nil || step.Args["throw"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_THROW", "logic.Check missing 'throw'", "{action: \"logic.Check\", condition: \"x > 0\", throw: \"ERROR_CODE\"}", step.File, step.Line, step.Column)
 				}
 
 			case "logic.Call":
@@ -1035,52 +1056,27 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 				}
 
 			case "list.Append":
-				if step.Args["to"] == nil || step.Args["to"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_TO", "list.Append missing 'to'", "{action: \"list.Append\", to: \"resp.Items\", item: \"x\"}", step.File, step.Line, step.Column)
-				}
-				if step.Args["item"] == nil || step.Args["item"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_ITEM", "list.Append missing 'item'", "{action: \"list.Append\", to: \"resp.Items\", item: \"x\"}", step.File, step.Line, step.Column)
-				}
+				// validated by flow semantics engine
 
 			case "fsm.Transition":
-				if step.Args["entity"] == nil || step.Args["entity"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_ENTITY", "fsm.Transition missing 'entity'", "{action: \"fsm.Transition\", entity: \"order\", to: \"confirmed\"}", step.File, step.Line, step.Column)
-				}
-				if step.Args["to"] == nil || step.Args["to"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_TO", "fsm.Transition missing 'to'", "{action: \"fsm.Transition\", entity: \"order\", to: \"confirmed\"}", step.File, step.Line, step.Column)
-				}
+				// validated by flow semantics engine
 
 			case "tx.Block", "flow.Block":
 				if subSteps, ok := step.Args["_do"].([]FlowStep); ok {
-					if len(subSteps) == 0 {
-						addWarn(stepNum, step.Action, "EMPTY_DO", fmt.Sprintf("%s has empty 'do'", step.Action), "{action: \""+step.Action+"\", do: [ ... ]}", step.File, step.Line, step.Column)
-					}
 					validate(subSteps, step.Action == "tx.Block", depth+1)
-				} else {
-					addWarn(stepNum, step.Action, "MISSING_DO", fmt.Sprintf("%s missing 'do'", step.Action), "{action: \""+step.Action+"\", do: [ ... ]}", step.File, step.Line, step.Column)
 				}
 
 			case "flow.If":
-				if step.Args["condition"] == nil || step.Args["condition"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_CONDITION", "flow.If missing 'condition'", "{action: \"flow.If\", condition: \"x == y\", then: [ ... ]}", step.File, step.Line, step.Column)
-				}
 				if subSteps, ok := step.Args["_then"].([]FlowStep); ok {
 					validate(subSteps, inTx, depth+1)
-				} else {
-					addWarn(stepNum, step.Action, "MISSING_THEN", "flow.If missing 'then'", "{action: \"flow.If\", condition: \"x == y\", then: [ ... ]}", step.File, step.Line, step.Column)
 				}
 				if subSteps, ok := step.Args["_else"].([]FlowStep); ok {
 					validate(subSteps, inTx, depth+1)
 				}
 
 			case "flow.Switch":
-				if step.Args["value"] == nil || step.Args["value"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_VALUE", "flow.Switch missing 'value'", "{action: \"flow.Switch\", value: \"req.Role\", cases: {owner: [ ... ]}}", step.File, step.Line, step.Column)
-				}
 				cases, ok := step.Args["_cases"].(map[string][]FlowStep)
-				if !ok || len(cases) == 0 {
-					addWarn(stepNum, step.Action, "MISSING_CASES", "flow.Switch requires at least one case", "{action: \"flow.Switch\", value: \"req.Role\", cases: {owner: [ ... ]}}", step.File, step.Line, step.Column)
-				} else {
+				if ok {
 					for _, subSteps := range cases {
 						validate(subSteps, inTx, depth+1)
 					}
@@ -1090,39 +1086,14 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 				}
 
 			case "flow.For":
-				if step.Args["each"] == nil || step.Args["each"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_EACH", "flow.For missing 'each'", "{action: \"flow.For\", each: \"items\", as: \"item\", do: [ ... ]}", step.File, step.Line, step.Column)
-				}
-				if step.Args["as"] == nil || step.Args["as"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_AS", "flow.For missing 'as'", "{action: \"flow.For\", each: \"items\", as: \"item\", do: [ ... ]}", step.File, step.Line, step.Column)
-				}
 				if subSteps, ok := step.Args["_do"].([]FlowStep); ok {
 					validate(subSteps, inTx, depth+1)
-				} else {
-					addWarn(stepNum, step.Action, "MISSING_DO", "flow.For missing 'do'", "{action: \"flow.For\", each: \"items\", as: \"item\", do: [ ... ]}", step.File, step.Line, step.Column)
 				}
 
 			case "audit.Log":
-				if step.Args["actor"] == nil || step.Args["actor"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_ACTOR", "audit.Log missing 'actor'", "{action: \"audit.Log\", actor: \"req.UserID\", company: \"req.CompanyID\", event: \"entity.action\"}", step.File, step.Line, step.Column)
-				}
-				if step.Args["company"] == nil || step.Args["company"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_COMPANY", "audit.Log missing 'company'", "{action: \"audit.Log\", actor: \"req.UserID\", company: \"req.CompanyID\", event: \"entity.action\"}", step.File, step.Line, step.Column)
-				}
-				if step.Args["event"] == nil || step.Args["event"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_EVENT", "audit.Log missing 'event'", "{action: \"audit.Log\", actor: \"req.UserID\", company: \"req.CompanyID\", event: \"entity.action\"}", step.File, step.Line, step.Column)
-				}
+				// validated by flow semantics engine
 
 			case "auth.RequireRole":
-				if step.Args["userID"] == nil || step.Args["userID"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_USERID", "auth.RequireRole missing 'userID'", "{action: \"auth.RequireRole\", userID: \"req.UserID\", companyID: \"req.CompanyID\", roles: \"...\"}", step.File, step.Line, step.Column)
-				}
-				if step.Args["companyID"] == nil || step.Args["companyID"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_COMPANYID", "auth.RequireRole missing 'companyID'", "{action: \"auth.RequireRole\", userID: \"req.UserID\", companyID: \"req.CompanyID\", roles: \"...\"}", step.File, step.Line, step.Column)
-				}
-				if step.Args["roles"] == nil || step.Args["roles"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_ROLES", "auth.RequireRole missing 'roles'", "{action: \"auth.RequireRole\", userID: \"req.UserID\", companyID: \"req.CompanyID\", roles: \"...\"}", step.File, step.Line, step.Column)
-				}
 				// Register output variable
 				if authOutput, _ := step.Args["output"].(string); authOutput != "" {
 					declaredVars[authOutput] = true
@@ -1131,53 +1102,18 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 				}
 
 			case "auth.CheckRole":
-				if step.Args["user"] == nil || step.Args["user"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_USER", "auth.CheckRole missing 'user'", "{action: \"auth.CheckRole\", user: \"currentUser\", roles: \"...\"}", step.File, step.Line, step.Column)
-				}
-				if step.Args["roles"] == nil || step.Args["roles"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_ROLES", "auth.CheckRole missing 'roles'", "{action: \"auth.CheckRole\", user: \"currentUser\", roles: \"...\"}", step.File, step.Line, step.Column)
-				}
+				// validated by flow semantics engine
 
 			case "entity.PatchNonZero":
-				if step.Args["target"] == nil || step.Args["target"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_TARGET", "entity.PatchNonZero missing 'target'", "{action: \"entity.PatchNonZero\", target: \"entity\", from: \"req\", fields: \"Title, Description\"}", step.File, step.Line, step.Column)
-				}
-				if step.Args["from"] == nil || step.Args["from"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_FROM", "entity.PatchNonZero missing 'from'", "{action: \"entity.PatchNonZero\", target: \"entity\", from: \"req\", fields: \"Title, Description\"}", step.File, step.Line, step.Column)
-				}
-				if step.Args["fields"] == nil || step.Args["fields"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_FIELDS", "entity.PatchNonZero missing 'fields'", "{action: \"entity.PatchNonZero\", target: \"entity\", from: \"req\", fields: \"Title, Description\"}", step.File, step.Line, step.Column)
-				}
+				// validated by flow semantics engine
 
 			case "entity.PatchValidated":
-				if step.Args["target"] == nil || step.Args["target"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_TARGET", "entity.PatchValidated missing 'target'", "{action: \"entity.PatchValidated\", target: \"company\", from: \"req\", fields: { Email: { normalize: \"lower\", format: \"email\" } }}", step.File, step.Line, step.Column)
-				}
-				if step.Args["from"] == nil || step.Args["from"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_FROM", "entity.PatchValidated missing 'from'", "{action: \"entity.PatchValidated\", target: \"company\", from: \"req\", fields: { Email: { normalize: \"lower\", format: \"email\" } }}", step.File, step.Line, step.Column)
-				}
 				fields, ok := step.Args["fields"].(map[string]map[string]string)
 				if !ok || len(fields) == 0 {
-					addWarn(stepNum, step.Action, "MISSING_FIELDS", "entity.PatchValidated requires non-empty 'fields' map", "{action: \"entity.PatchValidated\", fields: { Email: { normalize: \"lower\" } }}", step.File, step.Line, step.Column)
 					break
 				}
-				for fieldName, rules := range fields {
-					if strings.TrimSpace(fieldName) == "" {
-						addWarn(stepNum, step.Action, "INVALID_FIELD_NAME", "entity.PatchValidated contains empty field name", "{action: \"entity.PatchValidated\", fields: { Email: { ... } }}", step.File, step.Line, step.Column)
-						continue
-					}
-					if normalize := strings.TrimSpace(rules["normalize"]); normalize != "" &&
-						normalize != "trim" && normalize != "lower" && normalize != "upper" {
-						addWarn(stepNum, step.Action, "INVALID_NORMALIZE", fmt.Sprintf("entity.PatchValidated invalid normalize '%s' for field '%s'", normalize, fieldName), "{ normalize: \"trim\" | \"lower\" | \"upper\" }", step.File, step.Line, step.Column)
-					}
-					if formatRule := strings.TrimSpace(rules["format"]); formatRule != "" &&
-						formatRule != "email" && formatRule != "phone" {
-						addWarn(stepNum, step.Action, "INVALID_FORMAT", fmt.Sprintf("entity.PatchValidated invalid format '%s' for field '%s'", formatRule, fieldName), "{ format: \"email\" | \"phone\" }", step.File, step.Line, step.Column)
-					}
+				for _, rules := range fields {
 					if uniqueMethod := strings.TrimSpace(rules["unique"]); uniqueMethod != "" {
-						if !strings.HasPrefix(uniqueMethod, "FindBy") {
-							addWarn(stepNum, step.Action, "INVALID_UNIQUE_METHOD", fmt.Sprintf("entity.PatchValidated unique method '%s' should start with FindBy", uniqueMethod), "{ unique: \"FindByTaxID\" }", step.File, step.Line, step.Column)
-						}
 						if step.Args["source"] == nil || step.Args["source"] == "" {
 							addWarn(stepNum, step.Action, "MISSING_SOURCE", "entity.PatchValidated with unique checks requires explicit 'source' repository entity", "{action: \"entity.PatchValidated\", source: \"Company\", ...}", step.File, step.Line, step.Column)
 						}
@@ -1185,74 +1121,22 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 				}
 
 			case "field.CopyNonEmpty":
-				if step.Args["from"] == nil || step.Args["from"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_FROM", "field.CopyNonEmpty missing 'from'", "{action: \"field.CopyNonEmpty\", from: \"req\", to: \"existing\"}", step.File, step.Line, step.Column)
-				}
-				if step.Args["to"] == nil || step.Args["to"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_TO", "field.CopyNonEmpty missing 'to'", "{action: \"field.CopyNonEmpty\", from: \"req\", to: \"existing\"}", step.File, step.Line, step.Column)
-				}
+				// validated by flow semantics engine
 
 			case "list.Paginate":
-				if step.Args["input"] == nil || step.Args["input"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_INPUT", "list.Paginate missing 'input'", "{action: \"list.Paginate\", input: \"items\", offset: \"req.Offset\", limit: \"req.Limit\", output: \"page\"}", step.File, step.Line, step.Column)
-				}
-				if step.Args["offset"] == nil || step.Args["offset"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_OFFSET", "list.Paginate missing 'offset'", "{action: \"list.Paginate\", input: \"items\", offset: \"req.Offset\", limit: \"req.Limit\", output: \"page\"}", step.File, step.Line, step.Column)
-				}
-				if step.Args["limit"] == nil || step.Args["limit"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_LIMIT", "list.Paginate missing 'limit'", "{action: \"list.Paginate\", input: \"items\", offset: \"req.Offset\", limit: \"req.Limit\", output: \"page\"}", step.File, step.Line, step.Column)
-				}
-				if step.Args["output"] == nil || step.Args["output"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_OUTPUT", "list.Paginate missing 'output'", "{action: \"list.Paginate\", input: \"items\", offset: \"req.Offset\", limit: \"req.Limit\", output: \"page\"}", step.File, step.Line, step.Column)
-				}
-				// Register output variable
-				if pOut, _ := step.Args["output"].(string); pOut != "" {
-					declaredVars[pOut] = true
-				}
+				// validated by flow semantics engine
 
 			case "str.Normalize":
-				if step.Args["input"] == nil || step.Args["input"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_INPUT", "str.Normalize missing 'input'", "{action: \"str.Normalize\", input: \"req.Email\", output: \"email\"}", step.File, step.Line, step.Column)
-				}
-				if step.Args["output"] == nil || step.Args["output"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_OUTPUT", "str.Normalize missing 'output'", "{action: \"str.Normalize\", input: \"req.Email\", output: \"email\"}", step.File, step.Line, step.Column)
-				}
-				if pOut, _ := step.Args["output"].(string); pOut != "" {
-					declaredVars[pOut] = true
-				}
+				// validated by flow semantics engine
 
 			case "enum.Validate":
-				if step.Args["value"] == nil || step.Args["value"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_VALUE", "enum.Validate missing 'value'", "{action: \"enum.Validate\", value: \"role\", allowed: \"owner, admin\", throw: \"invalid role\"}", step.File, step.Line, step.Column)
-				}
-				if step.Args["allowed"] == nil || step.Args["allowed"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_ALLOWED", "enum.Validate missing 'allowed'", "{action: \"enum.Validate\", value: \"role\", allowed: \"owner, admin\", throw: \"invalid role\"}", step.File, step.Line, step.Column)
-				}
-				if step.Args["throw"] == nil || step.Args["throw"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_THROW", "enum.Validate missing 'throw'", "{action: \"enum.Validate\", value: \"role\", allowed: \"owner, admin\", throw: \"invalid role\"}", step.File, step.Line, step.Column)
-				}
+				// validated by flow semantics engine
 
 			case "list.Sort":
-				if step.Args["items"] == nil || step.Args["items"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_ITEMS", "list.Sort missing 'items'", "{action: \"list.Sort\", items: \"items\", by: \"CreatedAt\"}", step.File, step.Line, step.Column)
-				}
-				if step.Args["by"] == nil || step.Args["by"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_BY", "list.Sort missing 'by'", "{action: \"list.Sort\", items: \"items\", by: \"CreatedAt\"}", step.File, step.Line, step.Column)
-				}
+				// validated by flow semantics engine
 
 			case "list.Filter":
-				if step.Args["from"] == nil || step.Args["from"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_FROM", "list.Filter missing 'from'", "{action: \"list.Filter\", from: \"items\", condition: \"item.Active\", output: \"filtered\"}", step.File, step.Line, step.Column)
-				}
-				if step.Args["condition"] == nil || step.Args["condition"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_CONDITION", "list.Filter missing 'condition'", "{action: \"list.Filter\", from: \"items\", condition: \"item.Active\", output: \"filtered\"}", step.File, step.Line, step.Column)
-				}
-				if step.Args["output"] == nil || step.Args["output"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_OUTPUT", "list.Filter missing 'output'", "{action: \"list.Filter\", from: \"items\", condition: \"item.Active\", output: \"filtered\"}", step.File, step.Line, step.Column)
-				}
-				if pOut, _ := step.Args["output"].(string); pOut != "" {
-					declaredVars[pOut] = true
-				}
+				// validated by flow semantics engine
 
 			case "list.Enrich":
 				if step.Args["items"] == nil || step.Args["items"] == "" {
@@ -1277,58 +1161,16 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 						addWarn(stepNum, step.Action, "ARCHITECTURE_VIOLATION", fmt.Sprintf("Service '%s' is not allowed to directly access entity '%s' (owned by '%s')", svcName, lookupSource, owner), fmt.Sprintf("Use events or call %sService", strings.Title(owner)), step.File, step.Line, step.Column)
 					}
 				}
-				if step.Args["lookupInput"] == nil || step.Args["lookupInput"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_LOOKUP_INPUT", "list.Enrich missing 'lookupInput'", "{action: \"list.Enrich\", items: \"items\", lookupSource: \"Company\", lookupInput: \"item.CompanyID\", set: \"Name=Name\"}", step.File, step.Line, step.Column)
-				}
-				setRaw, _ := step.Args["set"].(string)
-				if strings.TrimSpace(setRaw) == "" {
-					addWarn(stepNum, step.Action, "MISSING_SET", "list.Enrich missing 'set'", "{action: \"list.Enrich\", items: \"items\", lookupSource: \"Company\", lookupInput: \"item.CompanyID\", set: \"Name=Name\"}", step.File, step.Line, step.Column)
-					break
-				}
-				pairs := strings.Split(setRaw, ",")
-				for _, pair := range pairs {
-					kv := strings.Split(strings.TrimSpace(pair), "=")
-					if len(kv) != 2 || strings.TrimSpace(kv[0]) == "" || strings.TrimSpace(kv[1]) == "" || kv[0] != strings.TrimSpace(kv[0]) || kv[1] != strings.TrimSpace(kv[1]) {
-						addWarn(stepNum, step.Action, "INVALID_SET_FORMAT", "list.Enrich 'set' must be comma-separated TargetField=LookupField pairs without spaces around '='", "{action: \"list.Enrich\", ..., set: \"AuthorName=Name,AuthorLogo=Logo\"}", step.File, step.Line, step.Column)
-						break
-					}
-				}
+				// required args / set format validated by flow semantics engine
 
 			case "time.Parse":
-				if step.Args["value"] == nil || step.Args["value"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_VALUE", "time.Parse missing 'value'", "{action: \"time.Parse\", value: \"req.StartDate\", output: \"startDate\"}", step.File, step.Line, step.Column)
-				}
-				if step.Args["output"] == nil || step.Args["output"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_OUTPUT", "time.Parse missing 'output'", "{action: \"time.Parse\", value: \"req.StartDate\", output: \"startDate\"}", step.File, step.Line, step.Column)
-				}
-				if pOut, _ := step.Args["output"].(string); pOut != "" {
-					declaredVars[pOut] = true
-				}
+				// validated by flow semantics engine
 
 			case "time.CheckExpiry":
-				if step.Args["value"] == nil || step.Args["value"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_VALUE", "time.CheckExpiry missing 'value'", "{action: \"time.CheckExpiry\", value: \"token.ExpiresAt\", throw: \"token expired\"}", step.File, step.Line, step.Column)
-				}
-				if step.Args["throw"] == nil || step.Args["throw"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_THROW", "time.CheckExpiry missing 'throw'", "{action: \"time.CheckExpiry\", value: \"token.ExpiresAt\", throw: \"token expired\"}", step.File, step.Line, step.Column)
-				}
+				// validated by flow semantics engine
 
 			case "map.Build":
-				if step.Args["from"] == nil || step.Args["from"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_FROM", "map.Build missing 'from'", "{action: \"map.Build\", from: \"users\", key: \"item.ID\", value: \"item.Name\", output: \"nameByID\"}", step.File, step.Line, step.Column)
-				}
-				if step.Args["key"] == nil || step.Args["key"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_KEY", "map.Build missing 'key'", "{action: \"map.Build\", from: \"users\", key: \"item.ID\", value: \"item.Name\", output: \"nameByID\"}", step.File, step.Line, step.Column)
-				}
-				if step.Args["value"] == nil || step.Args["value"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_VALUE", "map.Build missing 'value'", "{action: \"map.Build\", from: \"users\", key: \"item.ID\", value: \"item.Name\", output: \"nameByID\"}", step.File, step.Line, step.Column)
-				}
-				if step.Args["output"] == nil || step.Args["output"] == "" {
-					addWarn(stepNum, step.Action, "MISSING_OUTPUT", "map.Build missing 'output'", "{action: \"map.Build\", from: \"users\", key: \"item.ID\", value: \"item.Name\", output: \"nameByID\"}", step.File, step.Line, step.Column)
-				}
-				if pOut, _ := step.Args["output"].(string); pOut != "" {
-					declaredVars[pOut] = true
-				}
+				// validated by flow semantics engine
 
 			default:
 				if step.Action != "" && !strings.HasPrefix(step.Action, "repo.") && !strings.HasPrefix(step.Action, "mapping.") &&
@@ -1348,6 +1190,50 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 
 	validate(steps, false, 0)
 	return warnings
+}
+
+func toFlowSemSteps(steps []FlowStep) []flowsem.Step {
+	out := make([]flowsem.Step, 0, len(steps))
+	for _, step := range steps {
+		children := map[string][]flowsem.Step{}
+		if v, ok := step.Args["_do"].([]FlowStep); ok && len(v) > 0 {
+			children["_do"] = toFlowSemSteps(v)
+		}
+		if v, ok := step.Args["_ifNew"].([]FlowStep); ok && len(v) > 0 {
+			children["_ifNew"] = toFlowSemSteps(v)
+		}
+		if v, ok := step.Args["_ifExists"].([]FlowStep); ok && len(v) > 0 {
+			children["_ifExists"] = toFlowSemSteps(v)
+		}
+		if v, ok := step.Args["_then"].([]FlowStep); ok && len(v) > 0 {
+			children["_then"] = toFlowSemSteps(v)
+		}
+		if v, ok := step.Args["_else"].([]FlowStep); ok && len(v) > 0 {
+			children["_else"] = toFlowSemSteps(v)
+		}
+		if v, ok := step.Args["_default"].([]FlowStep); ok && len(v) > 0 {
+			children["_default"] = toFlowSemSteps(v)
+		}
+		if cases, ok := step.Args["_cases"].(map[string][]FlowStep); ok && len(cases) > 0 {
+			var merged []flowsem.Step
+			for _, branch := range cases {
+				merged = append(merged, toFlowSemSteps(branch)...)
+			}
+			if len(merged) > 0 {
+				children["_cases"] = merged
+			}
+		}
+		out = append(out, flowsem.Step{
+			Action:   step.Action,
+			Args:     step.Args,
+			Children: children,
+			File:     step.File,
+			Line:     step.Line,
+			Column:   step.Column,
+			CUEPath:  step.CUEPath,
+		})
+	}
+	return out
 }
 
 func (n *Normalizer) parseService(name string, val cue.Value) (Service, error) {

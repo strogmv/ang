@@ -2,8 +2,8 @@ package python
 
 import (
 	"github.com/strogmv/ang/compiler"
+	"github.com/strogmv/ang/compiler/emitter/contracts"
 	"github.com/strogmv/ang/compiler/generator"
-	"github.com/strogmv/ang/compiler/normalizer"
 )
 
 type infraPythonStepRunner func(RegisterInput) error
@@ -24,7 +24,7 @@ func registerInfraPythonStepRunner(key string, runner infraPythonStepRunner) {
 }
 
 func registerInfraPythonSteps(registry *generator.StepRegistry, in RegisterInput) {
-	steps := normalizer.NewInfraRegistry().StepsForValues(normalizer.InfraLanguagePython, in.InfraValues)
+	steps := contracts.InfraStepsForValuesPython(in.InfraValues)
 	for _, step := range steps {
 		keyCopy := step.Key
 		registry.Register(generator.Step{
@@ -54,7 +54,7 @@ func runInfraPythonStep(key string, in RegisterInput) error {
 }
 
 func init() {
-	registerInfraPythonStepRunner(normalizer.InfraKeyAuth, func(in RegisterInput) error {
+	registerInfraPythonStepRunner(contracts.InfraKeyAuth, func(in RegisterInput) error {
 		return in.Em.EmitPythonAuthStores(in.AuthDef)
 	})
 }

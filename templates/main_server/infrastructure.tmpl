@@ -25,7 +25,8 @@
 	{{ end }}
 
 	{{ if or .HasCache (or (eq .AuthRefreshStore "redis") (eq .AuthRefreshStore "hybrid")) }}
-	redisClient := redis.NewClient(cfg.RedisAddr)
+	var redisClient *redisv9.Client
+	redisClient = cacheRedis.NewClient(cfg.RedisAddr)
 	log.Info("Redis initialized", "addr", cfg.RedisAddr)
 	transport.SetRedisClient(redisClient)
 	_ = redisClient
@@ -52,7 +53,7 @@
 
 	{{ if not $needsPG }}var pgPool *pgxpool.Pool{{ end }}
 	{{ if not .HasNats }}var natsClient *nats.Client{{ end }}
-	{{ if not (or .HasCache (or (eq .AuthRefreshStore "redis") (eq .AuthRefreshStore "hybrid"))) }}var redisClient *redis.Client{{ end }}
+	{{ if not (or .HasCache (or (eq .AuthRefreshStore "redis") (eq .AuthRefreshStore "hybrid"))) }}var redisClient *redisv9.Client{{ end }}
 	{{ if or .HasNotificationsService .HasNotificationDispatch }}
 	notificationDispatcher := notifications.NewDispatcher(cfg)
 	{{ end }}

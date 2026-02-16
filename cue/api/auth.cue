@@ -116,7 +116,7 @@ GetProfile: schema.#Operation & {
 	}
 
 	flow: [
-		{action: "repo.Find", source: "User", input: "req.UserId", output: "user", error: "User not found"},
+		{action: "repo.Find", source: "User", input: "req.UserID", output: "user", error: "User not found"},
 		{action: "mapping.Assign", to: "resp.ID", value: "user.ID"},
 		{action: "mapping.Assign", to: "resp.Email", value: "user.Email"},
 		{action: "mapping.Assign", to: "resp.Name", value: "user.Name"},
@@ -142,7 +142,7 @@ UpdateProfile: schema.#Operation & {
 	}
 
 	flow: [
-		{action: "repo.Find", source: "User", input: "req.UserId", output: "user", error: "User not found"},
+		{action: "repo.Find", source: "User", input: "req.UserID", output: "user", error: "User not found"},
 		{action: "flow.If", condition: "req.Name != \"\"", then: [
 			{action: "mapping.Assign", to: "user.Name", value: "req.Name"},
 		]},

@@ -7,11 +7,19 @@
 export type Encrypted<T> = string & { __encrypted?: T };
 export interface User {
   /**  */
-  email: any;
+  ID: string;
   /**  */
-  name: any;
+  email: string;
   /**  */
-  avatarUrl: any;
+  name: string;
+  /**  */
+  role: string;
+  /**  */
+  avatarUrl: string;
+  /**  */
+  createdAt: string;
+  /**  */
+  updatedAt: string;
 }
 export interface Post {
   /**  */

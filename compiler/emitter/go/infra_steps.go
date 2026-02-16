@@ -2,8 +2,8 @@ package goemitter
 
 import (
 	"github.com/strogmv/ang/compiler"
+	"github.com/strogmv/ang/compiler/emitter/contracts"
 	"github.com/strogmv/ang/compiler/generator"
-	"github.com/strogmv/ang/compiler/normalizer"
 )
 
 type infraGoStepRunner func(RegisterInput) error
@@ -32,7 +32,7 @@ func runInfraGoStep(key string, in RegisterInput) error {
 }
 
 func registerInfraGoSteps(registry *generator.StepRegistry, in RegisterInput) {
-	steps := normalizer.NewInfraRegistry().StepsForValues(normalizer.InfraLanguageGo, in.InfraValues)
+	steps := contracts.InfraStepsForValuesGo(in.InfraValues)
 	for _, step := range steps {
 		keyCopy := step.Key
 		reqs := toCapabilities(step.Requires)
@@ -55,7 +55,7 @@ func toCapabilities(requires []string) []compiler.Capability {
 }
 
 func init() {
-	registerInfraGoStepRunner(normalizer.InfraKeyNotificationMuting, func(in RegisterInput) error {
-		return in.Em.EmitNotificationMuting(normalizer.InfraNotificationMuting(in.InfraValues), in.IRSchema)
+	registerInfraGoStepRunner(contracts.InfraKeyNotificationMuting, func(in RegisterInput) error {
+		return in.Em.EmitNotificationMuting(contracts.InfraNotificationMuting(in.InfraValues), in.IRSchema)
 	})
 }

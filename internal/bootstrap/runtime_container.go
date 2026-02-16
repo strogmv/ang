@@ -3,6 +3,8 @@ package bootstrap
 import (
 	"context"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/strogmv/ang/internal/adapter/repository/postgres"
 	"github.com/strogmv/ang/internal/config"
 	"github.com/strogmv/ang/internal/port"
 	"github.com/strogmv/ang/internal/service"
@@ -16,6 +18,7 @@ type RuntimeContainer struct {
 func NewRuntimeContainer(
 	ctx context.Context,
 	cfg *config.Config,
+	pgPool *pgxpool.Pool,
 	publisher port.Publisher,
 ) (*RuntimeContainer, error) {
 	_ = ctx
@@ -25,15 +28,10 @@ func NewRuntimeContainer(
 	repoPostTag := postgres.NewPostTagRepository(pgPool)
 	repoTag := postgres.NewTagRepository(pgPool)
 	repoUser := postgres.NewUserRepository(pgPool)
-	repoUserVault := postgres.NewUserVaultRepository(pgPool)
 	txManager := postgres.NewTxManager(pgPool)
-
-	svcAudit := service.NewAuditImpl(repoAuditLog)
-	c.SvcAudit = svcAudit
 	c.SvcAuth = service.NewAuthImpl(
 		repoUser,
 		publisher,
-		svcAudit,
 	)
 	c.SvcBlog = service.NewBlogImpl(
 		repoComment,
@@ -41,7 +39,6 @@ func NewRuntimeContainer(
 		repoPostTag,
 		repoTag,
 		txManager,
-		svcAudit,
 	)
 
 	return c, nil

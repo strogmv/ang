@@ -1,15 +1,11 @@
 package e2e
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 {{ range .Scenarios }}
@@ -23,10 +19,10 @@ func TestScenario_{{ .Name }}(t *testing.T) {
 		// Prepare input with variable substitution
 		inputRaw, _ := json.Marshal({{ .Input | printf "%#v" }})
 		input := string(inputRaw)
+		_ = input
 		// TODO: Implement actual variable substitution in compiler
 
-		fmt.Printf("Executing action: {{ .Action }}
-")
+		fmt.Printf("Executing action: {{ .Action }}\n")
 		// TODO: Call actual handler or HTTP client
 		
 		// Expect status: {{ .Expect.Status }}

@@ -9,9 +9,20 @@ package domain
 import "github.com/strogmv/ang/cue/schema"
 
 // User entity - blog authors and readers
-#User: fields: {
-	{
+#User: schema.#Entity & {
+	name:        "User"
+	owner:       "auth"
+	description: "Blog user/account"
+
+	fields: {
+		id: {
+			type:        "uuid"
+			description: "Unique identifier"
+		}
 		email: {
+			type:        "string"
+			description: "User email"
+			validate:    "required,email"
 			ui: {
 				type:       "email"
 				importance: "high"
@@ -22,6 +33,9 @@ import "github.com/strogmv/ang/cue/schema"
 			}
 		}
 		passwordHash: {
+			type:        "string"
+			description: "Password hash"
+			validate:    "required"
 			ui: {
 				type:       "password"
 				importance: "high"
@@ -32,6 +46,9 @@ import "github.com/strogmv/ang/cue/schema"
 			}
 		}
 		name: {
+			type:        "string"
+			description: "Display name"
+			validate:    "required,min=2,max=120"
 			ui: {
 				type:      "text"
 				density:   "spacious"
@@ -39,13 +56,29 @@ import "github.com/strogmv/ang/cue/schema"
 				surface:   "paper"
 			}
 		}
+		role: {
+			type:        "string"
+			description: "User role"
+			default:     "\"reader\""
+		}
 		avatarURL: {
+			type:        "string"
+			description: "Avatar URL"
+			optional:    true
 			ui: {
 				type:      "url"
 				density:   "spacious"
 				labelMode: "static"
 				surface:   "flat"
 			}
+		}
+		createdAt: {
+			type:        "time"
+			description: "Creation timestamp"
+		}
+		updatedAt: {
+			type:        "time"
+			description: "Last update timestamp"
 		}
 	}
 }

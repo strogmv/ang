@@ -4,14 +4,14 @@ import (
 	"testing"
 
 	"github.com/strogmv/ang/compiler"
+	"github.com/strogmv/ang/compiler/emitter/contracts"
 	"github.com/strogmv/ang/compiler/generator"
-	"github.com/strogmv/ang/compiler/normalizer"
 )
 
 func TestInfraPythonStepsContainAuthStores(t *testing.T) {
 	t.Parallel()
 
-	def, ok := infraPythonStepDefs[normalizer.InfraKeyAuth]
+	def, ok := infraPythonStepDefs[contracts.InfraKeyAuth]
 	if !ok {
 		t.Fatalf("expected auth runner in python infra runners")
 	}
@@ -19,8 +19,8 @@ func TestInfraPythonStepsContainAuthStores(t *testing.T) {
 		t.Fatalf("expected non-nil auth runner")
 	}
 
-	steps := normalizer.NewInfraRegistry().StepsForValues(normalizer.InfraLanguagePython, map[string]any{
-		normalizer.InfraKeyAuth: &normalizer.AuthDef{},
+	steps := contracts.InfraStepsForValuesPython(map[string]any{
+		contracts.InfraKeyAuth: &contracts.AuthDef{},
 	})
 	if len(steps) != 1 {
 		t.Fatalf("expected one infra step from registry, got %d", len(steps))
@@ -40,7 +40,7 @@ func TestRegisterInfraPythonStepsUsesLocalManifest(t *testing.T) {
 	reg := generator.NewStepRegistry()
 	registerInfraPythonSteps(reg, RegisterInput{
 		InfraValues: map[string]any{
-			normalizer.InfraKeyAuth: &normalizer.AuthDef{},
+			contracts.InfraKeyAuth: &contracts.AuthDef{},
 		},
 	})
 	steps := reg.Steps()

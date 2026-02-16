@@ -66,7 +66,7 @@ func (r *UserRepositoryStub) ListAll(ctx context.Context, offset, limit int) ([]
 	}
 	return items[offset:end], nil
 }
-func (r *UserRepositoryStub) FindByEmail(ctx context.Context, email map[string]any) (*domain.User, error) {
+func (r *UserRepositoryStub) FindByEmail(ctx context.Context, email string) (*domain.User, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, item := range r.data {

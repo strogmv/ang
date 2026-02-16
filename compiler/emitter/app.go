@@ -771,6 +771,59 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		sort.Strings(res)
 		return res
 	}
+	appFuncs["AllUsedRepoEntitiesIR"] = func(services []ir.Service, entities []ir.Entity) []string {
+		dtoEntities := make(map[string]bool, len(entities))
+		for _, ent := range entities {
+			if dto, ok := ent.Metadata["dto"].(bool); ok && dto {
+				dtoEntities[ent.Name] = true
+			}
+		}
+
+		seen := make(map[string]bool)
+		var out []string
+
+		var scanSteps func([]ir.FlowStep)
+		scanSteps = func(steps []ir.FlowStep) {
+			for _, step := range steps {
+				if strings.HasPrefix(step.Action, "repo.") {
+					if src, ok := step.Args["source"].(string); ok && src != "" && !seen[src] && !dtoEntities[src] {
+						seen[src] = true
+						out = append(out, src)
+					}
+				}
+				if step.Action == "list.Enrich" {
+					if src, ok := step.Args["lookupSource"].(string); ok && src != "" && !seen[src] && !dtoEntities[src] {
+						seen[src] = true
+						out = append(out, src)
+					}
+				}
+				scanSteps(step.Steps)
+				scanSteps(step.IfNew)
+				scanSteps(step.IfExists)
+				scanSteps(step.Then)
+				scanSteps(step.Else)
+				scanSteps(step.Default)
+				for _, branch := range step.Cases {
+					scanSteps(branch)
+				}
+			}
+		}
+
+		for _, svc := range services {
+			for _, m := range svc.Methods {
+				for _, src := range m.Sources {
+					if src.Entity == "" || seen[src.Entity] || dtoEntities[src.Entity] {
+						continue
+					}
+					seen[src.Entity] = true
+					out = append(out, src.Entity)
+				}
+				scanSteps(m.Flow)
+			}
+		}
+		sort.Strings(out)
+		return out
+	}
 	appFuncs["UniqueRepoEntities"] = func(services []normalizer.Service) []string {
 		seen := make(map[string]bool)
 		var res []string

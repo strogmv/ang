@@ -8,12 +8,17 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"text/template"
 
 	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
+)
+
+var (
+	reSelectorID = regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9]*)Id\b`)
 )
 
 const serviceImplTemplatePath = "templates/service_impl.tmpl"
@@ -293,6 +298,9 @@ func cleanImplCode(code, outputName string) string {
 		if out != "" && strings.HasPrefix(trimmed, "resp := port.") {
 			line = strings.Replace(line, "resp :=", "resp =", 1)
 		}
+		// Generic selector normalization for common Go initialisms.
+		// Example: req.UserId -> req.UserID, item.CompanyId -> item.CompanyID.
+		line = reSelectorID.ReplaceAllString(line, ".$1ID")
 		line = strings.ReplaceAll(line, "l.", "slog.")
 		filtered = append(filtered, line)
 	}

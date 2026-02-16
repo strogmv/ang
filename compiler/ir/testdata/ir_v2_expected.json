@@ -1,0 +1,177 @@
+{
+  "ir_version": "2",
+  "Project": {
+    "Name": "fixture-project",
+    "Version": "0.0.1",
+    "Target": {
+      "Lang": "",
+      "Framework": "",
+      "DB": "",
+      "Cache": "",
+      "Queue": "",
+      "Storage": ""
+    }
+  },
+  "Entities": [
+    {
+      "Name": "User",
+      "Description": "",
+      "Owner": "",
+      "Fields": [
+        {
+          "Name": "id",
+          "Type": {
+            "Kind": "string",
+            "Name": "",
+            "ItemType": null,
+            "KeyType": null,
+            "InlineFields": null
+          },
+          "Optional": false,
+          "Default": null,
+          "IsSecret": false,
+          "IsPII": false,
+          "SkipDomain": false,
+          "ValidateTag": "",
+          "Constraints": null,
+          "EnvVar": "",
+          "Attributes": null,
+          "UI": {
+            "Type": "",
+            "Importance": "",
+            "InputKind": "",
+            "Intent": "",
+            "Density": "",
+            "LabelMode": "",
+            "Surface": "",
+            "Component": "",
+            "Section": "",
+            "Columns": 0,
+            "Label": "",
+            "Placeholder": "",
+            "HelperText": "",
+            "Order": 0,
+            "Hidden": false,
+            "Disabled": false,
+            "FullWidth": false,
+            "Rows": 0,
+            "Min": null,
+            "Max": null,
+            "Step": null,
+            "Currency": "",
+            "Source": "",
+            "Options": null,
+            "Multiple": false,
+            "Accept": "",
+            "MaxSize": 0
+          },
+          "Metadata": {},
+          "Source": ""
+        }
+      ],
+      "FSM": null,
+      "Indexes": null,
+      "UI": {
+        "CRUD": null
+      },
+      "Metadata": {},
+      "Source": ""
+    }
+  ],
+  "Services": [
+    {
+      "Name": "Auth",
+      "Description": "",
+      "Methods": [
+        {
+          "Name": "Login",
+          "Description": "",
+          "Input": null,
+          "Output": null,
+          "Sources": [
+            {
+              "Name": "users",
+              "Kind": "sql",
+              "Entity": "User",
+              "Collection": "",
+              "Query": null,
+              "Metadata": {}
+            }
+          ],
+          "CacheTTL": "",
+          "CacheTags": null,
+          "Throws": null,
+          "Publishes": null,
+          "Broadcasts": null,
+          "Pagination": null,
+          "Idempotent": false,
+          "DedupeKey": "",
+          "Outbox": false,
+          "Impl": null,
+          "Flow": null,
+          "Attributes": null,
+          "Metadata": {},
+          "Source": ""
+        }
+      ],
+      "Publishes": null,
+      "Subscribes": null,
+      "Uses": null,
+      "Metadata": {},
+      "Source": "",
+      "RequiresSQL": false,
+      "RequiresMongo": false,
+      "RequiresRedis": false,
+      "RequiresNats": false,
+      "RequiresS3": false
+    }
+  ],
+  "Events": [
+    {
+      "Name": "UserLoggedIn",
+      "Fields": null,
+      "Metadata": {},
+      "Source": ""
+    }
+  ],
+  "Errors": null,
+  "Endpoints": [
+    {
+      "Method": "POST",
+      "Path": "/auth/login",
+      "Service": "Auth",
+      "RPC": "Login",
+      "Description": "",
+      "Messages": null,
+      "RoomParam": "",
+      "Auth": null,
+      "Cache": "",
+      "CacheTags": null,
+      "Invalidate": null,
+      "OptimisticUpdate": "",
+      "RateLimit": null,
+      "CircuitBreaker": null,
+      "Timeout": "",
+      "MaxBodySize": 0,
+      "Idempotent": false,
+      "DedupeKey": "",
+      "Errors": null,
+      "Pagination": null,
+      "View": "",
+      "SLO": null,
+      "TestHints": null,
+      "Metadata": {},
+      "Source": ""
+    }
+  ],
+  "Repos": null,
+  "Config": {
+    "Fields": null
+  },
+  "Auth": null,
+  "RBAC": null,
+  "Schedules": null,
+  "Views": null,
+  "Graph": null,
+  "Metadata": {}
+}

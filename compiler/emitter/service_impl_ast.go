@@ -63,12 +63,6 @@ func renderServiceImplTypeDecl(svc normalizer.Service, entities []normalizer.Ent
 			Type:  mustParseExpr("port.OutboxRepository"),
 		})
 	}
-	if svc.Name != "Audit" {
-		fields = append(fields, &ast.Field{
-			Names: []*ast.Ident{ast.NewIdent("auditService")},
-			Type:  mustParseExpr("port.Audit"),
-		})
-	}
 	if svc.RequiresS3 {
 		fields = append(fields, &ast.Field{
 			Names: []*ast.Ident{ast.NewIdent("storage")},
@@ -165,13 +159,6 @@ func renderServiceImplConstructorDecl(svc normalizer.Service, entities []normali
 			Type:  mustParseExpr("port.OutboxRepository"),
 		})
 		elts = append(elts, &ast.KeyValueExpr{Key: ast.NewIdent("outbox"), Value: ast.NewIdent("outbox")})
-	}
-	if svc.Name != "Audit" {
-		params = append(params, &ast.Field{
-			Names: []*ast.Ident{ast.NewIdent("auditService")},
-			Type:  mustParseExpr("port.Audit"),
-		})
-		elts = append(elts, &ast.KeyValueExpr{Key: ast.NewIdent("auditService"), Value: ast.NewIdent("auditService")})
 	}
 	if svc.RequiresS3 {
 		params = append(params, &ast.Field{

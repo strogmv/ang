@@ -15,13 +15,13 @@ func TestMigrateToCurrent_RejectsUnknownVersion(t *testing.T) {
 	}
 }
 
-func TestMigrateV0ToV1_Fixture(t *testing.T) {
+func TestMigrateV0ToCurrent_Fixture(t *testing.T) {
 	input := mustReadSchemaFixture(t, "ir_v0.json")
 	if err := MigrateToCurrent(input); err != nil {
 		t.Fatalf("migrate legacy schema: %v", err)
 	}
 
-	expected := mustReadSchemaFixture(t, "ir_v1_expected.json")
+	expected := mustReadSchemaFixture(t, "ir_v2_expected.json")
 	if !reflect.DeepEqual(expected, input) {
 		gotJSON, _ := json.MarshalIndent(input, "", "  ")
 		wantJSON, _ := json.MarshalIndent(expected, "", "  ")
@@ -35,7 +35,7 @@ func TestToCanonicalJSON_NormalizesVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("canonical json: %v", err)
 	}
-	expectedBytes, err := os.ReadFile(filepath.Join("testdata", "ir_v1_expected.json"))
+	expectedBytes, err := os.ReadFile(filepath.Join("testdata", "ir_v2_expected.json"))
 	if err != nil {
 		t.Fatalf("read expected fixture: %v", err)
 	}
@@ -49,6 +49,37 @@ func TestToCanonicalJSON_NormalizesVersion(t *testing.T) {
 	}
 	if !reflect.DeepEqual(expectedAny, gotAny) {
 		t.Fatalf("canonical output differs from expected fixture")
+	}
+}
+
+func TestMigrateV1ToCurrent_Fixture(t *testing.T) {
+	input := mustReadSchemaFixture(t, "ir_v1_expected.json")
+	if err := MigrateToCurrent(input); err != nil {
+		t.Fatalf("migrate v1 schema: %v", err)
+	}
+	if got := input.IRVersion; got != IRVersionV2 {
+		t.Fatalf("expected ir_version=%s, got %s", IRVersionV2, got)
+	}
+}
+
+func TestMigrateToCurrent_Idempotent(t *testing.T) {
+	input := mustReadSchemaFixture(t, "ir_v2_expected.json")
+	if err := MigrateToCurrent(input); err != nil {
+		t.Fatalf("first migrate: %v", err)
+	}
+	first, err := json.Marshal(input)
+	if err != nil {
+		t.Fatalf("marshal first: %v", err)
+	}
+	if err := MigrateToCurrent(input); err != nil {
+		t.Fatalf("second migrate: %v", err)
+	}
+	second, err := json.Marshal(input)
+	if err != nil {
+		t.Fatalf("marshal second: %v", err)
+	}
+	if !reflect.DeepEqual(first, second) {
+		t.Fatalf("expected migration to be idempotent")
 	}
 }
 

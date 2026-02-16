@@ -26,7 +26,7 @@ func ConvertFromNormalizer(
 	project normalizer.ProjectDef,
 ) *Schema {
 	schema := &Schema{
-		IRVersion: IRVersionV1,
+		IRVersion: IRVersionV2,
 		Project: Project{
 			Name:    project.Name,
 			Version: project.Version,

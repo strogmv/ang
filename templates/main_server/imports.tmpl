@@ -1,4 +1,5 @@
 {{ define "main_server_imports" }}
+{{- $needsPG := or .HasSQL (gt (len (AllUsedRepoEntitiesIR .ServicesIR .EntitiesIR)) 0) }}
 import (
 	"context"
 	"net/http"
@@ -14,13 +15,14 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	{{ if or .HasSQL (HasRepoEntitiesIR .ServicesIR .EntitiesIR) }}"github.com/jackc/pgx/v5/pgxpool"{{ end }}
+	{{ if $needsPG }}"github.com/jackc/pgx/v5/pgxpool"{{ end }}
+	redisv9 "github.com/redis/go-redis/v9"
 	{{ if .HasMongo }}
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	{{ end }}
 
-	{{ if or .HasCache (or (eq .AuthRefreshStore "redis") (eq .AuthRefreshStore "hybrid")) }}"{{.GoModule}}/internal/adapter/cache/redis"{{ end }}
+	{{ if or .HasCache (or (eq .AuthRefreshStore "redis") (eq .AuthRefreshStore "hybrid")) }}cacheRedis "{{.GoModule}}/internal/adapter/cache/redis"{{ end }}
 	{{ if .HasNats }}
 	"{{.GoModule}}/internal/adapter/events/nats"
 	"{{.GoModule}}/internal/domain"

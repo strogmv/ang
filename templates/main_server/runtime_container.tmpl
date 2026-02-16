@@ -3,7 +3,8 @@ package bootstrap
 
 import (
 	"context"
-	{{- $needsPG := or .HasSQL (HasRepoEntitiesIR .ServicesIR .EntitiesIR) }}
+	{{- $repoEntities := AllUsedRepoEntitiesIR .ServicesIR .EntitiesIR }}
+	{{- $needsPG := or .HasSQL (gt (len $repoEntities) 0) }}
 	{{- if $needsPG }}
 	"github.com/jackc/pgx/v5/pgxpool"
 	{{- end }}
@@ -88,7 +89,7 @@ func NewRuntimeContainer(
 	{{- end }}
 	{{- end }}
 
-	{{- range AllRepoEntitiesIR .EntitiesIR }}
+	{{- range $repoEntities }}
 	{{- if and $.NotificationMuting (eq . "Notification") }}
 	var repoNotification port.NotificationRepository
 	{{- if eq (EntityStorageByNameIR $.EntitiesIR .) "mongo" }}
@@ -115,12 +116,6 @@ func NewRuntimeContainer(
 
 	{{- if and $needsPG (HasTxServicesIR .ServicesIR) }}
 	txManager := postgres.NewTxManager(pgPool)
-	{{- end }}
-
-	var svcAudit port.Audit
-	{{- if and (HasServiceByNameIR .ServicesIR "Audit") (HasEntityByNameIR .EntitiesIR "AuditLog") }}
-	svcAudit = service.NewAuditImpl(repoAuditLog)
-	c.SvcAudit = svcAudit
 	{{- end }}
 
 	{{- range .ServicesIR }}
@@ -156,7 +151,6 @@ func NewRuntimeContainer(
 		nil,
 			{{- end }}
 		{{- end }}
-		svcAudit,
 		{{- if .RequiresS3 }}
 		s3Client,
 		{{- end }}

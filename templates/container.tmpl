@@ -3,53 +3,16 @@ package app
 import (
 	"context"
 
-	"{{GoModule}}/internal/adapter/repository/postgres"
-	"{{GoModule}}/internal/port"
-	"{{GoModule}}/internal/service"
 	"{{GoModule}}/internal/config"
-	"github.com/jmoiron/sqlx"
 )
 
 type Container struct {
 	Config *config.Config
-	DB     *sqlx.DB
-
-	{{range .Entities}}
-	Repo{{.Name}} port.{{.Name}}Repository
-	{{- end}}
-
-	{{range .Services}}
-	Svc{{.Name}} port.{{.Name}}
-	{{- end}}
 }
 
-func NewContainer(ctx context.Context, cfg *config.Config, db *sqlx.DB, extra ...any) (*Container, error) {
-	c := &Container{
-		Config: cfg,
-		DB:     db,
-	}
-
-	{{range .Entities}}
-	c.Repo{{.Name}} = postgres.New{{.Name}}Repository(db)
-	{{- end}}
-
-	var svcAudit port.Audit
-	{{range .Services}}{{if eq .Name "Audit"}}
-	svcAudit = service.NewAuditImpl(
-		{{range $entity := $.Entities}}c.Repo{{$entity.Name}}, {{end}}
-	)
-	c.SvcAudit = svcAudit
-	{{end}}{{end}}
-
-	{{range .Services}}
-	{{if ne .Name "Audit"}}
-	c.Svc{{.Name}} = service.New{{.Name}}Impl(
-		{{range $entity := $.Entities}}c.Repo{{$entity.Name}}, {{end}}
-		svcAudit,
-		extra...,
-	)
-	{{end}}
-	{{- end}}
-
-	return c, nil
+func NewContainer(ctx context.Context, cfg *config.Config, db any, extra ...any) (*Container, error) {
+	_ = ctx
+	_ = db
+	_ = extra
+	return &Container{Config: cfg}, nil
 }
