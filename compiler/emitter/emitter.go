@@ -121,6 +121,11 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 		"InputHash":    func() string { return e.InputHash },
 		"CompilerHash": func() string { return e.CompilerHash },
 		"GoModule":     func() string { return e.GoModule },
+			"SafeAssign": func(scope map[string]bool, name string) string {
+				scope[name] = true
+				return name + ", err := "
+			},
+
 		"Title":        ToTitle,
 		"ExportName":   ExportName,
 		"JSONName":     JSONName,

@@ -52,11 +52,13 @@ func New{{ .Service.Name }}Impl(
         {{- range .Steps }}
                 {{- if or (eq .Action "repo.Find") (eq .Action "repo.Get") }}
         {{- $repoMethod := or .Args.method "FindByID" }}
-        {{ Assign $scope .Args.output }} s.{{ ExportName .Args.source }}Repo.{{ $repoMethod }}({{ $ctxVar }}{{ if .Args.input }}, {{ .Args.input }}{{ end }})
+        {{ SafeAssign $scope .Args.output }}
+	_ = {{ .Args.output }} s.{{ ExportName .Args.source }}Repo.{{ $repoMethod }}({{ $ctxVar }}{{ if .Args.input }}, {{ .Args.input }}{{ end }})
         _ = {{ .Args.output }}
         if err != nil { return {{ if not $inTx }}resp, {{ end }}err }
                 {{- else if or (eq .Action "repo.List") (eq .Action "repo.Query") }}
-        {{ Assign $scope .Args.output }} s.{{ ExportName .Args.source }}Repo.FindAll({{ $ctxVar }}{{ if .Args.input }}, {{ .Args.input }}{{ end }})
+        {{ SafeAssign $scope .Args.output }}
+	_ = {{ .Args.output }} s.{{ ExportName .Args.source }}Repo.FindAll({{ $ctxVar }}{{ if .Args.input }}, {{ .Args.input }}{{ end }})
         _ = {{ .Args.output }}
         if err != nil { return {{ if not $inTx }}resp, {{ end }}err }
                 {{- else if eq .Action "repo.Save" }}
