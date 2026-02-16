@@ -1,0 +1,43 @@
+package port
+
+import (
+	"context"
+	"{{ .GoModule }}/internal/domain"
+)
+
+type {{ ExportName .Entity }}RepositoryMock struct {
+	FindByIDFunc func(ctx context.Context, id string) (*domain.{{ ExportName .Entity }}, error)
+	SaveFunc     func(ctx context.Context, item *domain.{{ ExportName .Entity }}) error
+	DeleteFunc   func(ctx context.Context, id string) error
+{{- range .Finders }}
+	{{ .Name }}Func func(ctx context.Context) ({{ or .ReturnType "any" }}, error)
+{{- end }}
+}
+
+func (m *{{ ExportName .Entity }}RepositoryMock) FindByID(ctx context.Context, id string) (*domain.{{ ExportName .Entity }}, error) {
+	if m.FindByIDFunc != nil { return m.FindByIDFunc(ctx, id) }
+	return nil, nil
+}
+
+func (m *{{ ExportName .Entity }}RepositoryMock) Save(ctx context.Context, item *domain.{{ ExportName .Entity }}) error {
+	if m.SaveFunc != nil { return m.SaveFunc(ctx, item) }
+	return nil
+}
+
+func (m *{{ ExportName .Entity }}RepositoryMock) Delete(ctx context.Context, id string) error {
+	if m.DeleteFunc != nil { return m.DeleteFunc(ctx, id) }
+	return nil
+}
+
+{{- range .Finders }}
+func (m *{{ ExportName $.Entity }}RepositoryMock) {{ .Name }}(ctx context.Context) ({{ or .ReturnType "any" }}, error) {
+	if m.{{ .Name }}Func != nil {
+		return m.{{ .Name }}Func(ctx)
+	}
+	return {{ if .ReturnType }}{{ ZeroValue .ReturnType }}{{ else }}nil{{ end }}, nil
+}
+{{- end }}
+
+func New{{ ExportName .Entity }}RepositoryMock() *{{ ExportName .Entity }}RepositoryMock {
+	return &{{ ExportName .Entity }}RepositoryMock{}
+}
