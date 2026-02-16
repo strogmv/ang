@@ -7,6 +7,7 @@
 package dto
 
 import (
+	"{{ GoModule }}/internal/domain"
 {{- range .Imports }}
 	"{{ . }}"
 {{- end }}
@@ -14,14 +15,46 @@ import (
 
 // {{ ExportName .Name }}DTO represents the data transfer object.
 type {{ ExportName .Name }}DTO struct {
-	{{- range .Fields }}
+{{- range .Fields }}
 	{{ ExportName .Name }} {{ DTOType .Type }} `json:"{{ JSONName .Name }}"`
-	{{- end }}
+{{- end }}
+}
+
+// ToDomain converts DTO to domain entity.
+func (d *{{ ExportName .Name }}DTO) ToDomain() *domain.{{ ExportName .Name }} {
+	if d == nil {
+		return nil
+	}
+	return &domain.{{ ExportName .Name }}{
+{{- range .Fields }}
+		{{ ExportName .Name }}: d.{{ ExportName .Name }},
+{{- end }}
+	}
+}
+
+// FromDomain converts domain entity to DTO.
+func (d *{{ ExportName .Name }}DTO) FromDomain(e *domain.{{ ExportName .Name }}) {
+	if e == nil {
+		return
+	}
+{{- range .Fields }}
+	d.{{ ExportName .Name }} = e.{{ ExportName .Name }}
+{{- end }}
+}
+
+// ToDTO helper for quick conversion.
+func To{{ ExportName .Name }}DTO(e *domain.{{ ExportName .Name }}) *{{ ExportName .Name }}DTO {
+	if e == nil {
+		return nil
+	}
+	d := &{{ ExportName .Name }}DTO{}
+	d.FromDomain(e)
+	return d
 }
 
 func (d *{{ ExportName .Name }}DTO) Validate() error {
-	{{- range .Fields }}
-	{{- if .Constraints }}
+{{- range .Fields }}
+{{- if .Constraints }}
 	{{- if .Constraints.Min }}
 	if d.{{ ExportName .Name }} < {{ .Constraints.Min }} {
 		return fmt.Errorf("field {{ JSONName .Name }} must be >= %v", {{ .Constraints.Min }})
@@ -42,22 +75,7 @@ func (d *{{ ExportName .Name }}DTO) Validate() error {
 		return fmt.Errorf("field {{ JSONName .Name }} length must be <= %v", {{ .Constraints.MaxLen }})
 	}
 	{{- end }}
-	{{- if .Constraints.Enum }}
-	{
-		valid := false
-		allowed := []string{ {{- range $i, $v := .Constraints.Enum }}{{ if $i }}, {{ end }}"{{ $v }}"{{ end }} }
-		for _, v := range allowed {
-			if d.{{ ExportName .Name }} == v {
-				valid = true
-				break
-			}
-		}
-		if !valid {
-			return fmt.Errorf("field {{ JSONName .Name }} must be one of %v", allowed)
-		}
-	}
-	{{- end }}
-	{{- end }}
-	{{- end }}
+{{- end }}
+{{- end }}
 	return nil
 }
