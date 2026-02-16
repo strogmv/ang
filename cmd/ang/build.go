@@ -346,6 +346,7 @@ func runBuild(args []string) {
 			em.InputHash = inputHash
 			em.CompilerHash = compilerHash
 			em.GoModule = goModule
+			em.IRSchema = irSchema
 
 			ctx := em.AnalyzeContextFromIR(irSchema)
 			ctx.HasScheduler = len(irSchema.Schedules) > 0

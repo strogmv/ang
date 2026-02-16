@@ -602,14 +602,18 @@ func ConvertAndTransform(
 func validateFlowIntegrity(services []normalizer.Service) error {
 	for _, svc := range services {
 		for _, m := range svc.Methods {
-			if len(m.Flow) == 0 { continue }
+			if len(m.Flow) == 0 {
+				continue
+			}
 			declared := make(map[string]string)
 			used := make(map[string]bool)
 			for _, s := range m.Flow {
 				for _, arg := range []string{"input", "value", "condition", "payload", "actor", "company"} {
 					if val, ok := s.Args[arg].(string); ok {
 						for name := range declared {
-							if strings.Contains(val, name) { used[name] = true }
+							if strings.Contains(val, name) {
+								used[name] = true
+							}
 						}
 					}
 				}

@@ -1,13 +1,14 @@
 package parser
 
 import (
-	"cuelang.org/go/cue"
-	"cuelang.org/go/cue/cuecontext"
-	"cuelang.org/go/cue/load"
-	"cuelang.org/go/cue/errors"
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"cuelang.org/go/cue"
+	"cuelang.org/go/cue/cuecontext"
+	"cuelang.org/go/cue/errors"
+	"cuelang.org/go/cue/load"
 )
 
 // Parser loads and performs initial validation of CUE models.
@@ -29,10 +30,10 @@ func FormatCUELocationError(err error) string {
 
 	var msg strings.Builder
 	errs := errors.Errors(err)
-	
+
 	for _, e := range errs {
 		msg.WriteString(fmt.Sprintf("❌ CUE Error: %v\n", e))
-		
+
 		// Extract positions
 		positions := errors.Positions(e)
 		if len(positions) > 1 {
@@ -43,7 +44,7 @@ func FormatCUELocationError(err error) string {
 			msg.WriteString("   💡 Suggestion: These values are incompatible. Check if one should be optional (?) or remove the duplicate definition.\n")
 		}
 	}
-	
+
 	if msg.Len() == 0 {
 		return err.Error()
 	}

@@ -34,6 +34,7 @@ type MissingImpl struct {
 }
 
 type Emitter struct {
+	IRSchema         *ir.Schema
 	OutputDir        string
 	FrontendDir      string
 	FrontendAdminDir string
@@ -1496,4 +1497,20 @@ func WriteFileIfChanged(filename string, data []byte, perm os.FileMode) error {
 		return err
 	}
 	return os.WriteFile(filename, data, perm)
+}
+
+func (e *Emitter) RenderTemplate(name, text string, data interface{}) (string, error) {
+	tmpl, err := template.New(name).Funcs(e.getSharedFuncMap()).Parse(text)
+	if err != nil {
+		return "", err
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
+func (e *Emitter) FormatGo(src []byte) ([]byte, error) {
+	return src, nil
 }

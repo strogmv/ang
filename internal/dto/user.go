@@ -6,8 +6,6 @@
 
 package dto
 
-import ()
-
 // UserDTO represents the data transfer object.
 type UserDTO struct {
 	Email        any `json:"email"`

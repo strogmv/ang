@@ -1,11 +1,11 @@
 package emitter
 
 import (
+	"bytes"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"bytes"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -73,18 +73,18 @@ func (e *Emitter) EmitService(services []ir.Service) error {
 	for _, svc := range nServices {
 		var buf bytes.Buffer
 		overrides := e.getManualMethods(svc.Name)
-				// Implementation Audit
-				for _, m := range svc.Methods {
-					hasFlow := len(m.Flow) > 0
-					hasManual := overrides[m.Name]
-					if !hasFlow && !hasManual {
-						e.MissingImpls = append(e.MissingImpls, MissingImpl{
-							Service: svc.Name,
-							Method:  m.Name,
-							Source:  m.Source,
-						})
-					}
-				}
+		// Implementation Audit
+		for _, m := range svc.Methods {
+			hasFlow := len(m.Flow) > 0
+			hasManual := overrides[m.Name]
+			if !hasFlow && !hasManual {
+				e.MissingImpls = append(e.MissingImpls, MissingImpl{
+					Service: svc.Name,
+					Method:  m.Name,
+					Source:  m.Source,
+				})
+			}
+		}
 
 		if err := t.Execute(&buf, TemplateContext{
 			Service:   &svc,
@@ -197,20 +197,20 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 		if a == nil {
 			a = &normalizer.AuthDef{}
 		}
-		
-			overrides := e.getManualMethods(svc.Name)
-				// Implementation Audit
-				for _, m := range svc.Methods {
-					hasFlow := len(m.Flow) > 0
-					hasManual := overrides[m.Name]
-					if !hasFlow && !hasManual {
-						e.MissingImpls = append(e.MissingImpls, MissingImpl{
-							Service: svc.Name,
-							Method:  m.Name,
-							Source:  m.Source,
-						})
-					}
-				}
+
+		overrides := e.getManualMethods(svc.Name)
+		// Implementation Audit
+		for _, m := range svc.Methods {
+			hasFlow := len(m.Flow) > 0
+			hasManual := overrides[m.Name]
+			if !hasFlow && !hasManual {
+				e.MissingImpls = append(e.MissingImpls, MissingImpl{
+					Service: svc.Name,
+					Method:  m.Name,
+					Source:  m.Source,
+				})
+			}
+		}
 
 		if err := t.Execute(&buf, TemplateContext{
 			Service:   &svc,
@@ -253,18 +253,18 @@ func (e *Emitter) EmitCachedService(services []ir.Service) error {
 	for _, svc := range nServices {
 		var buf bytes.Buffer
 		overrides := e.getManualMethods(svc.Name)
-				// Implementation Audit
-				for _, m := range svc.Methods {
-					hasFlow := len(m.Flow) > 0
-					hasManual := overrides[m.Name]
-					if !hasFlow && !hasManual {
-						e.MissingImpls = append(e.MissingImpls, MissingImpl{
-							Service: svc.Name,
-							Method:  m.Name,
-							Source:  m.Source,
-						})
-					}
-				}
+		// Implementation Audit
+		for _, m := range svc.Methods {
+			hasFlow := len(m.Flow) > 0
+			hasManual := overrides[m.Name]
+			if !hasFlow && !hasManual {
+				e.MissingImpls = append(e.MissingImpls, MissingImpl{
+					Service: svc.Name,
+					Method:  m.Name,
+					Source:  m.Source,
+				})
+			}
+		}
 
 		if err := t.Execute(&buf, TemplateContext{
 			Service:   &svc,
@@ -293,7 +293,7 @@ func (e *Emitter) EmitCachedService(services []ir.Service) error {
 func (e *Emitter) getManualMethods(serviceName string) map[string]bool {
 	overrides := make(map[string]bool)
 	manualFile := filepath.Join(e.OutputDir, "internal/service", strings.ToLower(serviceName)+".manual.go")
-	
+
 	if _, err := os.Stat(manualFile); os.IsNotExist(err) {
 		return overrides
 	}

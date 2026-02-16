@@ -90,7 +90,9 @@ func GetMergedContent(path string, selector string, patchContent string, force b
 }
 
 func findNodeBySelector(orig *ast.File, selector string) ast.Node {
-	if selector == "" { return nil }
+	if selector == "" {
+		return nil
+	}
 	parts := strings.Split(selector, ".")
 	var currentDecls []ast.Decl = orig.Decls
 
@@ -108,15 +110,21 @@ func findNodeBySelector(orig *ast.File, selector string) ast.Node {
 				}
 			}
 		}
-		if !found { return nil }
+		if !found {
+			return nil
+		}
 	}
 	return nil
 }
 
 func countNodeLines(n ast.Node) int {
-	if n == nil { return 0 }
+	if n == nil {
+		return 0
+	}
 	b, err := format.Node(n)
-	if err != nil { return 0 }
+	if err != nil {
+		return 0
+	}
 	return bytes.Count(b, []byte("\n")) + 1
 }
 
@@ -170,8 +178,10 @@ func mergeAtSelector(orig *ast.File, selector string, patchDecls []ast.Decl, for
 }
 
 func declsToValue(decls []ast.Decl) ast.Expr {
-	if len(decls) == 0 { return &ast.StructLit{} }
-	
+	if len(decls) == 0 {
+		return &ast.StructLit{}
+	}
+
 	// If the patch is a single field or expression, extract its value
 	if len(decls) == 1 {
 		if _, ok := decls[0].(*ast.Field); ok {

@@ -6,10 +6,6 @@
 
 package dto
 
-import (
-	"time"
-)
-
 // PostDTO represents the data transfer object.
 type PostDTO struct {
 	ID          string `json:"id"`

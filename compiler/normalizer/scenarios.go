@@ -68,7 +68,7 @@ func (n *Normalizer) parseScenario(name string, val cue.Value) (ScenarioDef, err
 			if expVal.Exists() {
 				status, _ := expVal.LookupPath(cue.ParsePath("status")).Int64()
 				step.Expect.Status = int(status)
-				
+
 				bodyVal := expVal.LookupPath(cue.ParsePath("body"))
 				if bodyVal.Exists() {
 					temp, _ := bodyVal.MarshalJSON()

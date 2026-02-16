@@ -12,28 +12,28 @@ import (
 func TestIRRoundTrip(t *testing.T) {
 	t.Run("Endpoint", func(t *testing.T) {
 		original := normalizer.Endpoint{
-			Method:      "POST",
-			Path:        "/api/test",
-			ServiceName: "TestService",
-			RPC:         "DoSomething",
-			Description: "Test endpoint",
-			Messages:    []string{"Msg1", "Msg2"},
-			RoomParam:   "roomID",
-			AuthType:    "jwt",
-			Permission:  "create_tender",
-			AuthRoles:   []string{"admin", "user"},
-			AuthCheck:   "req.ID == user.ID",
-			AuthInject:  []string{"userID", "companyID"},
-			CacheTTL:    "5m",
-			CacheTags:   []string{"tag1"},
-			Invalidate:  []string{"RPC1"},
+			Method:           "POST",
+			Path:             "/api/test",
+			ServiceName:      "TestService",
+			RPC:              "DoSomething",
+			Description:      "Test endpoint",
+			Messages:         []string{"Msg1", "Msg2"},
+			RoomParam:        "roomID",
+			AuthType:         "jwt",
+			Permission:       "create_tender",
+			AuthRoles:        []string{"admin", "user"},
+			AuthCheck:        "req.ID == user.ID",
+			AuthInject:       []string{"userID", "companyID"},
+			CacheTTL:         "5m",
+			CacheTags:        []string{"tag1"},
+			Invalidate:       []string{"RPC1"},
 			OptimisticUpdate: "GetRelated",
-			Timeout:     "30s",
-			MaxBodySize: 1024 * 1024,
-			Idempotency: true,
-			DedupeKey:   "X-Dedupe-ID",
-			Errors:      []string{"NOT_FOUND", "FORBIDDEN"},
-			View:        "public",
+			Timeout:          "30s",
+			MaxBodySize:      1024 * 1024,
+			Idempotency:      true,
+			DedupeKey:        "X-Dedupe-ID",
+			Errors:           []string{"NOT_FOUND", "FORBIDDEN"},
+			View:             "public",
 			Pagination: &normalizer.PaginationDef{
 				Type:         "offset",
 				DefaultLimit: 20,
@@ -87,8 +87,12 @@ func TestIRRoundTrip(t *testing.T) {
 		irEntity := ir.ConvertEntity(original)
 		result := emitter.IREntityToNormalizer(irEntity)
 
-		if result.Indexes == nil { result.Indexes = []normalizer.IndexDef{} }
-		if result.Fields == nil { result.Fields = []normalizer.Field{} }
+		if result.Indexes == nil {
+			result.Indexes = []normalizer.IndexDef{}
+		}
+		if result.Fields == nil {
+			result.Fields = []normalizer.Field{}
+		}
 
 		if !reflect.DeepEqual(original, result) {
 			t.Error("Round-trip failed for Entity")
@@ -109,8 +113,8 @@ func TestIRRoundTrip(t *testing.T) {
 			Constraints: &normalizer.Constraints{
 				Regex: "^[^@]+@[^@]+$",
 			},
-			EnvVar:      "TEST_VAR",
-			Metadata:    map[string]any{"sql_type": "text"},
+			EnvVar:   "TEST_VAR",
+			Metadata: map[string]any{"sql_type": "text"},
 			UI: &normalizer.UIHints{
 				Type:        "email",
 				Label:       "Email",
@@ -153,18 +157,18 @@ func TestIRRoundTrip(t *testing.T) {
 
 	t.Run("Service", func(t *testing.T) {
 		original := normalizer.Service{
-			Name:        "TestService",
-			Description: "Test description",
-			Publishes:   []string{"Event1"},
-			Subscribes:  map[string]string{"Event2": "HandleEvent2"},
-			Uses:        []string{"Chat"},
-			Metadata:    map[string]any{"key": "val"},
+			Name:          "TestService",
+			Description:   "Test description",
+			Publishes:     []string{"Event1"},
+			Subscribes:    map[string]string{"Event2": "HandleEvent2"},
+			Uses:          []string{"Chat"},
+			Metadata:      map[string]any{"key": "val"},
 			RequiresSQL:   true,
 			RequiresMongo: true,
 			RequiresRedis: true,
 			RequiresNats:  true,
 			RequiresS3:    true,
-			Source:      "test.cue",
+			Source:        "test.cue",
 			Methods: []normalizer.Method{
 				{
 					Name:        "TestMethod",
@@ -185,16 +189,16 @@ func TestIRRoundTrip(t *testing.T) {
 					Metadata: map[string]any{"m": "v"},
 					Source:   "test.cue",
 					Input: normalizer.Entity{
-						Name:        "Input",
-						Metadata:    make(map[string]any),
-						Fields:      []normalizer.Field{},
-						Indexes:     []normalizer.IndexDef{},
+						Name:     "Input",
+						Metadata: make(map[string]any),
+						Fields:   []normalizer.Field{},
+						Indexes:  []normalizer.IndexDef{},
 					},
 					Output: normalizer.Entity{
-						Name:        "Output",
-						Metadata:    make(map[string]any),
-						Fields:      []normalizer.Field{},
-						Indexes:     []normalizer.IndexDef{},
+						Name:     "Output",
+						Metadata: make(map[string]any),
+						Fields:   []normalizer.Field{},
+						Indexes:  []normalizer.IndexDef{},
 					},
 					Sources: []normalizer.Source{},
 					Flow:    []normalizer.FlowStep{},
@@ -215,12 +219,24 @@ func TestIRRoundTrip(t *testing.T) {
 			m1 := original.Methods[i]
 			m2 := result.Methods[i]
 
-			if m2.Input.Indexes == nil { m2.Input.Indexes = []normalizer.IndexDef{} }
-			if m2.Output.Indexes == nil { m2.Output.Indexes = []normalizer.IndexDef{} }
-			if m2.Input.Fields == nil { m2.Input.Fields = []normalizer.Field{} }
-			if m2.Output.Fields == nil { m2.Output.Fields = []normalizer.Field{} }
-			if m2.Sources == nil { m2.Sources = []normalizer.Source{} }
-			if m2.Flow == nil { m2.Flow = []normalizer.FlowStep{} }
+			if m2.Input.Indexes == nil {
+				m2.Input.Indexes = []normalizer.IndexDef{}
+			}
+			if m2.Output.Indexes == nil {
+				m2.Output.Indexes = []normalizer.IndexDef{}
+			}
+			if m2.Input.Fields == nil {
+				m2.Input.Fields = []normalizer.Field{}
+			}
+			if m2.Output.Fields == nil {
+				m2.Output.Fields = []normalizer.Field{}
+			}
+			if m2.Sources == nil {
+				m2.Sources = []normalizer.Source{}
+			}
+			if m2.Flow == nil {
+				m2.Flow = []normalizer.FlowStep{}
+			}
 
 			m1.Pagination = nil
 			m2.Pagination = nil
@@ -254,7 +270,9 @@ func TestIRRoundTrip(t *testing.T) {
 		result := emitter.IREventsToNormalizer([]ir.Event{irEvent})[0]
 
 		for i := range result.Fields {
-			if result.Fields[i].Metadata == nil { result.Fields[i].Metadata = make(map[string]any) }
+			if result.Fields[i].Metadata == nil {
+				result.Fields[i].Metadata = make(map[string]any)
+			}
 		}
 
 		if !reflect.DeepEqual(original, result) {
@@ -320,7 +338,9 @@ func TestIRRoundTrip(t *testing.T) {
 			t.Fatal("Finder count mismatch")
 		}
 		for i := range original.Finders {
-			if result.Finders[i].Where == nil { result.Finders[i].Where = []normalizer.FinderWhere{} }
+			if result.Finders[i].Where == nil {
+				result.Finders[i].Where = []normalizer.FinderWhere{}
+			}
 		}
 
 		if !reflect.DeepEqual(original, result) {

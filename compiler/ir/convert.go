@@ -4,8 +4,9 @@ package ir
 
 import (
 	"fmt"
-	"github.com/strogmv/ang/compiler/normalizer"
 	"strings"
+
+	"github.com/strogmv/ang/compiler/normalizer"
 )
 
 // ConvertFromNormalizer converts legacy normalizer types to new IR.

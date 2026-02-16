@@ -13,6 +13,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"net/http"
+	"sort"
+	"strings"
+	"time"
+
 	"github.com/google/uuid"
 	"github.com/strogmv/ang/internal/config"
 	"github.com/strogmv/ang/internal/domain"
@@ -23,11 +29,6 @@ import (
 	"github.com/strogmv/ang/internal/pkg/presence"
 	"github.com/strogmv/ang/internal/port"
 	"golang.org/x/crypto/bcrypt"
-	"log/slog"
-	"net/http"
-	"sort"
-	"strings"
-	"time"
 )
 
 // Blank identifiers to suppress unused import warnings

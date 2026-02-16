@@ -6,10 +6,6 @@
 
 package dto
 
-import (
-	"time"
-)
-
 // CommentDTO represents the data transfer object.
 type CommentDTO struct {
 	ID        string `json:"id"`

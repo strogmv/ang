@@ -80,4 +80,3 @@ func TestApplySetFieldPatch_EntityNotFound(t *testing.T) {
 		t.Fatal("expected entity not found error")
 	}
 }
-

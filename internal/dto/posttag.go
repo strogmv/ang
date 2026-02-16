@@ -6,8 +6,6 @@
 
 package dto
 
-import ()
-
 // PostTagDTO represents the data transfer object.
 type PostTagDTO struct {
 	PostID string `json:"postId"`

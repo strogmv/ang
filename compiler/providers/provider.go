@@ -40,13 +40,13 @@ type TypeMap struct {
 
 // TypeInfo describes a type in the target language.
 type TypeInfo struct {
-	Type       string   // e.g., "string", "time.Time"
-	Package    string   // e.g., "time" (import path)
-	SQLType    string   // e.g., "TEXT", "TIMESTAMPTZ"
-	NullHelper string   // e.g., "sql.NullString"
-	ZeroValue  string   // e.g., `""`, "0", "nil"
-	TSType     string   // TypeScript equivalent
-	ZodType    string   // Zod schema type
+	Type       string // e.g., "string", "time.Time"
+	Package    string // e.g., "time" (import path)
+	SQLType    string // e.g., "TEXT", "TIMESTAMPTZ"
+	NullHelper string // e.g., "sql.NullString"
+	ZeroValue  string // e.g., `""`, "0", "nil"
+	TSType     string // TypeScript equivalent
+	ZodType    string // Zod schema type
 }
 
 // Registry holds all registered providers.
@@ -111,11 +111,11 @@ func LoadFromDir(path string) (Provider, error) {
 
 // DirProvider is a provider loaded from a directory.
 type DirProvider struct {
-	path     string
-	name     string
-	typeMap  TypeMap
-	funcMap  template.FuncMap
-	target   ir.Target
+	path    string
+	name    string
+	typeMap TypeMap
+	funcMap template.FuncMap
+	target  ir.Target
 }
 
 func (p *DirProvider) Name() string { return p.name }

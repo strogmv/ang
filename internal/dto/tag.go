@@ -6,8 +6,6 @@
 
 package dto
 
-import ()
-
 // TagDTO represents the data transfer object.
 type TagDTO struct {
 	ID          string `json:"id"`

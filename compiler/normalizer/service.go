@@ -1625,28 +1625,32 @@ func (n *Normalizer) ExtractEndpoints(val cue.Value) ([]Endpoint, error) {
 			View:        getString(epVal, "view"),
 			Source:      formatPos(epVal),
 		}
-				// Intelligent RBAC: extract from @rbac attributes
-				for _, attr := range opInfo.value.Attributes(cue.ValueAttr) {
-					if attr.Name() == "rbac" {
-						val := attr.Contents()
-						// Упрощенный парсинг rule=... или role=...
-						parts := strings.Split(val, ",")
-						for _, p := range parts {
-							kv := strings.SplitN(strings.TrimSpace(p), "=", 2)
-							if len(kv) == 2 {
-								k := kv[0]
-								v := strings.Trim(kv[1], "\"")
-								if k == "role" {
-									ep.AuthRoles = append(ep.AuthRoles, v)
-									if ep.AuthType == "" { ep.AuthType = "jwt" }
-								} else if k == "permission" {
-									ep.Permission = v
-									if ep.AuthType == "" { ep.AuthType = "jwt" }
-								}
+		// Intelligent RBAC: extract from @rbac attributes
+		for _, attr := range opInfo.value.Attributes(cue.ValueAttr) {
+			if attr.Name() == "rbac" {
+				val := attr.Contents()
+				// Упрощенный парсинг rule=... или role=...
+				parts := strings.Split(val, ",")
+				for _, p := range parts {
+					kv := strings.SplitN(strings.TrimSpace(p), "=", 2)
+					if len(kv) == 2 {
+						k := kv[0]
+						v := strings.Trim(kv[1], "\"")
+						if k == "role" {
+							ep.AuthRoles = append(ep.AuthRoles, v)
+							if ep.AuthType == "" {
+								ep.AuthType = "jwt"
+							}
+						} else if k == "permission" {
+							ep.Permission = v
+							if ep.AuthType == "" {
+								ep.AuthType = "jwt"
 							}
 						}
 					}
 				}
+			}
+		}
 
 		// Extract testHints from operation or HTTP definition
 		hintsVal := opInfo.value.LookupPath(cue.ParsePath("testHints"))

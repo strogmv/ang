@@ -6,8 +6,6 @@
 
 package dto
 
-import ()
-
 // UserVaultDTO represents the data transfer object.
 type UserVaultDTO struct {
 	ID          string `json:"id"`

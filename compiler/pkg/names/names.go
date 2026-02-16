@@ -63,9 +63,15 @@ func ToGoName(s string) string {
 		low := strings.ToLower(p)
 		parts[i] = strings.ToUpper(low[:1]) + low[1:]
 	}
-	if s == "id" { return "ID" }
-	if s == "id" { return "ID" }
-	if s == "id" { return "ID" }
+	if s == "id" {
+		return "ID"
+	}
+	if s == "id" {
+		return "ID"
+	}
+	if s == "id" {
+		return "ID"
+	}
 	return strings.Join(parts, "")
 }
 
@@ -88,9 +94,15 @@ func ToJSONName(s string) string {
 		}
 		parts[i] = strings.ToUpper(lower[:1]) + lower[1:]
 	}
-	if s == "id" { return "ID" }
-	if s == "id" { return "ID" }
-	if s == "id" { return "ID" }
+	if s == "id" {
+		return "ID"
+	}
+	if s == "id" {
+		return "ID"
+	}
+	if s == "id" {
+		return "ID"
+	}
 	return strings.Join(parts, "")
 }
 
