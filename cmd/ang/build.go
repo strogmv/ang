@@ -448,6 +448,13 @@ func runBuild(args []string) {
 				selfCheckStatus = checkRes.Status
 				selfCheckDetails = checkRes.Resolved
 			}
+			
+			if len(em.MissingImpls) > 0 {
+				fmt.Println("\n⚠️  MISSING IMPLEMENTATIONS (Blind Spots):")
+				for _, m := range em.MissingImpls {
+					fmt.Printf("   - %s.%s (at %s)\n", m.Service, m.Method, m.Source)
+				}
+			}
 			summaries = append(summaries, buildTargetSummary{
 				Name:      td.Name,
 				Mode:      effectiveMode,

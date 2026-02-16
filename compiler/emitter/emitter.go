@@ -24,6 +24,14 @@ type TemplateContext struct {
 	Metadata   map[string]interface{}
 	Overrides  map[string]bool
 	GoModule   string
+	MissingImpls []MissingImpl
+}
+
+
+type MissingImpl struct {
+	Service string
+	Method  string
+	Source  string
 }
 
 type Emitter struct {
@@ -36,6 +44,7 @@ type Emitter struct {
 	InputHash        string
 	CompilerHash     string
 	GoModule         string // Go module path for imports
+	MissingImpls     []MissingImpl
 }
 
 const DefaultUIProviderPath = "@/components/ui/forms"

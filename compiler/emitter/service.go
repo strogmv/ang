@@ -73,6 +73,19 @@ func (e *Emitter) EmitService(services []ir.Service) error {
 	for _, svc := range nServices {
 		var buf bytes.Buffer
 		overrides := e.getManualMethods(svc.Name)
+				// Implementation Audit
+				for _, m := range svc.Methods {
+					hasFlow := len(m.Flow) > 0
+					hasManual := overrides[m.Name]
+					if !hasFlow && !hasManual {
+						e.MissingImpls = append(e.MissingImpls, MissingImpl{
+							Service: svc.Name,
+							Method:  m.Name,
+							Source:  m.Source,
+						})
+					}
+				}
+
 		if err := t.Execute(&buf, TemplateContext{
 			Service:   &svc,
 			GoModule:  e.GoModule,
@@ -186,6 +199,19 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 		}
 		
 			overrides := e.getManualMethods(svc.Name)
+				// Implementation Audit
+				for _, m := range svc.Methods {
+					hasFlow := len(m.Flow) > 0
+					hasManual := overrides[m.Name]
+					if !hasFlow && !hasManual {
+						e.MissingImpls = append(e.MissingImpls, MissingImpl{
+							Service: svc.Name,
+							Method:  m.Name,
+							Source:  m.Source,
+						})
+					}
+				}
+
 		if err := t.Execute(&buf, TemplateContext{
 			Service:   &svc,
 			GoModule:  e.GoModule,
@@ -227,6 +253,19 @@ func (e *Emitter) EmitCachedService(services []ir.Service) error {
 	for _, svc := range nServices {
 		var buf bytes.Buffer
 		overrides := e.getManualMethods(svc.Name)
+				// Implementation Audit
+				for _, m := range svc.Methods {
+					hasFlow := len(m.Flow) > 0
+					hasManual := overrides[m.Name]
+					if !hasFlow && !hasManual {
+						e.MissingImpls = append(e.MissingImpls, MissingImpl{
+							Service: svc.Name,
+							Method:  m.Name,
+							Source:  m.Source,
+						})
+					}
+				}
+
 		if err := t.Execute(&buf, TemplateContext{
 			Service:   &svc,
 			GoModule:  e.GoModule,
