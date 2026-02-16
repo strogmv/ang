@@ -128,7 +128,7 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
 	}
 
 	path := filepath.Join(targetDir, "schema.sql")
-	if err := os.WriteFile(path, fullSchema.Bytes(), 0644); err != nil {
+	if err := WriteFileIfChanged(path, fullSchema.Bytes(), 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated SQL Schema: %s\n", path)
@@ -190,7 +190,7 @@ func (e *Emitter) EmitSQLQueries(entities []ir.Entity) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("create directory: %w", err)
 	}
-	if err := os.WriteFile(path, buf.Bytes(), 0644); err != nil {
+	if err := WriteFileIfChanged(path, buf.Bytes(), 0644); err != nil {
 		return err
 	}
 	fmt.Printf("Generated SQL Queries: %s\n", path)

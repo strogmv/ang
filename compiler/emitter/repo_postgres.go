@@ -435,7 +435,7 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 
 		filename := fmt.Sprintf("%s.go", strings.ToLower(repo.Name))
 		path := filepath.Join(targetDir, filename)
-		if err := os.WriteFile(path, formatted, 0644); err != nil {
+		if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 			return fmt.Errorf("write file: %w", err)
 		}
 		fmt.Printf("Generated Postgres Repo: %s\n", path)
@@ -662,7 +662,7 @@ func (e *Emitter) EmitPostgresCommon() error {
 	}
 
 	path := filepath.Join(targetDir, "common.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Postgres Common: %s\n", path)

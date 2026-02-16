@@ -22,8 +22,8 @@ func (e *Emitter) EmitAuthPackage(auth *normalizer.AuthDef) error {
 	if _, err := os.Stat(tmplPath); err != nil {
 		tmplPath = "templates/auth_pkg.tmpl"
 	}
-	
-tmplContent, err := ReadTemplateByPath(tmplPath)
+
+	tmplContent, err := ReadTemplateByPath(tmplPath)
 	if err != nil {
 		return fmt.Errorf("read template: %w", err)
 	}
@@ -51,7 +51,7 @@ tmplContent, err := ReadTemplateByPath(tmplPath)
 	}
 
 	path := filepath.Join(targetDir, "auth.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Auth Package: %s\n", path)
@@ -64,8 +64,8 @@ func (e *Emitter) EmitRefreshTokenStorePort() error {
 	if _, err := os.Stat(tmplPath); err != nil {
 		tmplPath = "templates/refresh_store.tmpl"
 	}
-	
-tmplContent, err := ReadTemplateByPath(tmplPath)
+
+	tmplContent, err := ReadTemplateByPath(tmplPath)
 	if err != nil {
 		return fmt.Errorf("read template: %w", err)
 	}
@@ -91,7 +91,7 @@ tmplContent, err := ReadTemplateByPath(tmplPath)
 	}
 
 	path := filepath.Join(targetDir, "refreshstore.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Refresh Store Port: %s\n", path)
@@ -104,8 +104,8 @@ func (e *Emitter) EmitRefreshTokenStoreMemory() error {
 	if _, err := os.Stat(tmplPath); err != nil {
 		tmplPath = "templates/refresh_store_memory.tmpl"
 	}
-	
-tmplContent, err := ReadTemplateByPath(tmplPath)
+
+	tmplContent, err := ReadTemplateByPath(tmplPath)
 	if err != nil {
 		return fmt.Errorf("read template: %w", err)
 	}
@@ -131,7 +131,7 @@ tmplContent, err := ReadTemplateByPath(tmplPath)
 	}
 
 	path := filepath.Join(targetDir, "store.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Memory Refresh Store: %s\n", path)
@@ -144,8 +144,8 @@ func (e *Emitter) EmitRefreshTokenStoreRedis() error {
 	if _, err := os.Stat(tmplPath); err != nil {
 		tmplPath = "templates/refresh_store_redis.tmpl"
 	}
-	
-tmplContent, err := ReadTemplateByPath(tmplPath)
+
+	tmplContent, err := ReadTemplateByPath(tmplPath)
 	if err != nil {
 		return fmt.Errorf("read template: %w", err)
 	}
@@ -171,7 +171,7 @@ tmplContent, err := ReadTemplateByPath(tmplPath)
 	}
 
 	path := filepath.Join(targetDir, "store.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Redis Refresh Store: %s\n", path)
@@ -184,8 +184,8 @@ func (e *Emitter) EmitRefreshTokenStorePostgres() error {
 	if _, err := os.Stat(tmplPath); err != nil {
 		tmplPath = "templates/refresh_store_postgres.tmpl"
 	}
-	
-tmplContent, err := ReadTemplateByPath(tmplPath)
+
+	tmplContent, err := ReadTemplateByPath(tmplPath)
 	if err != nil {
 		return fmt.Errorf("read template: %w", err)
 	}
@@ -211,7 +211,7 @@ tmplContent, err := ReadTemplateByPath(tmplPath)
 	}
 
 	path := filepath.Join(targetDir, "store.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Postgres Refresh Store: %s\n", path)
@@ -224,8 +224,8 @@ func (e *Emitter) EmitRefreshTokenStoreHybrid() error {
 	if _, err := os.Stat(tmplPath); err != nil {
 		tmplPath = "templates/refresh_store_hybrid.tmpl"
 	}
-	
-tmplContent, err := ReadTemplateByPath(tmplPath)
+
+	tmplContent, err := ReadTemplateByPath(tmplPath)
 	if err != nil {
 		return fmt.Errorf("read template: %w", err)
 	}
@@ -251,7 +251,7 @@ tmplContent, err := ReadTemplateByPath(tmplPath)
 	}
 
 	path := filepath.Join(targetDir, "store.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Hybrid Refresh Store: %s\n", path)

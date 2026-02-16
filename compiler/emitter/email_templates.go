@@ -51,7 +51,7 @@ func (e *Emitter) EmitEmailTemplates(templates []normalizer.EmailTemplateDef) er
 	}
 
 	path := filepath.Join(targetDir, "templates.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	return nil

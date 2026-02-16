@@ -154,7 +154,7 @@ func (e *Emitter) EmitStubRepo(repos []ir.Repository, entities []ir.Entity) erro
 
 		filename := fmt.Sprintf("%s.go", strings.ToLower(repo.Name))
 		path := filepath.Join(targetDir, filename)
-		if err := os.WriteFile(path, formatted, 0644); err != nil {
+		if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 			return fmt.Errorf("write file: %w", err)
 		}
 		fmt.Printf("Generated Repo Stub: %s\n", path)

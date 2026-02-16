@@ -38,7 +38,7 @@ func (e *Emitter) EmitTemplateRenderer() error {
 	}
 
 	path := filepath.Join(targetDir, "render.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Template Renderer: %s\n", path)

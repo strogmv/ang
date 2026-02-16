@@ -15,8 +15,8 @@ func (e *Emitter) EmitMailerPort() error {
 	if _, err := os.Stat(tmplPath); err != nil {
 		tmplPath = "templates/mailer_port.tmpl"
 	}
-	
-tmplContent, err := ReadTemplateByPath(tmplPath)
+
+	tmplContent, err := ReadTemplateByPath(tmplPath)
 	if err != nil {
 		return fmt.Errorf("read template: %w", err)
 	}
@@ -42,7 +42,7 @@ tmplContent, err := ReadTemplateByPath(tmplPath)
 	}
 
 	path := filepath.Join(targetDir, "mailer.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Mailer Port: %s\n", path)
@@ -55,8 +55,8 @@ func (e *Emitter) EmitMailerAdapter() error {
 	if _, err := os.Stat(tmplPath); err != nil {
 		tmplPath = "templates/smtp_client.tmpl"
 	}
-	
-tmplContent, err := ReadTemplateByPath(tmplPath)
+
+	tmplContent, err := ReadTemplateByPath(tmplPath)
 	if err != nil {
 		return fmt.Errorf("read template: %w", err)
 	}
@@ -84,7 +84,7 @@ tmplContent, err := ReadTemplateByPath(tmplPath)
 	}
 
 	path := filepath.Join(targetDir, "client.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated SMTP Mailer Adapter: %s\n", path)

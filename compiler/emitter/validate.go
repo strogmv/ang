@@ -1,8 +1,8 @@
 package emitter
 
 import (
-	"strings"
 	"strconv"
+	"strings"
 )
 
 type validationRules struct {

@@ -125,4 +125,3 @@ func ValidateIRServiceDependencies(services []ir.Service) error {
 	}
 	return nil
 }
-

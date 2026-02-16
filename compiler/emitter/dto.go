@@ -67,7 +67,7 @@ func (e *Emitter) EmitDTO(entities []ir.Entity) error {
 		filename := strings.ToLower(entity.Name) + ".go"
 		path := filepath.Join(targetDir, filename)
 
-		if err := os.WriteFile(path, formatted, 0644); err != nil {
+		if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 			return fmt.Errorf("failed to write file %s: %w", path, err)
 		}
 		fmt.Printf("Generated DTO: %s\n", path)

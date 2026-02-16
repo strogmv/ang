@@ -132,7 +132,7 @@ func writeJSONSnapshot(t *testing.T, path string, snapshot map[string]string) {
 	if err != nil {
 		t.Fatalf("marshal snapshot: %v", err)
 	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := WriteFileIfChanged(path, data, 0644); err != nil {
 		t.Fatalf("write snapshot: %v", err)
 	}
 }

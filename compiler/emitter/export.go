@@ -23,7 +23,9 @@ func DBName(name string) string {
 
 func ToTitle(s string) string {
 
-	if s == "" { return "" }
+	if s == "" {
+		return ""
+	}
 
 	r := []rune(s)
 
@@ -32,8 +34,6 @@ func ToTitle(s string) string {
 	return string(r)
 
 }
-
-
 
 func ToSnakeCase(s string) string {
 

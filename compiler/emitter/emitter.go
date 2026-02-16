@@ -1,6 +1,7 @@
 package emitter
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,20 +14,18 @@ import (
 	"github.com/strogmv/ang/templates"
 )
 
-
 // TemplateContext - единая структура данных для всех Go-шаблонов
 type TemplateContext struct {
-	Service    *normalizer.Service
-	Entities   []normalizer.Entity
-	Entity     *normalizer.Entity
-	Auth       *normalizer.AuthDef
-	Imports    []string
-	Metadata   map[string]interface{}
-	Overrides  map[string]bool
-	GoModule   string
+	Service      *normalizer.Service
+	Entities     []normalizer.Entity
+	Entity       *normalizer.Entity
+	Auth         *normalizer.AuthDef
+	Imports      []string
+	Metadata     map[string]interface{}
+	Overrides    map[string]bool
+	GoModule     string
 	MissingImpls []MissingImpl
 }
-
 
 type MissingImpl struct {
 	Service string
@@ -142,21 +141,21 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 		"InputHash":    func() string { return e.InputHash },
 		"CompilerHash": func() string { return e.CompilerHash },
 		"GoModule":     func() string { return e.GoModule },
-			"SafeAssign": func(scope map[string]bool, name string) string {
-				scope[name] = true
-				return name + ", err := "
-			},
+		"SafeAssign": func(scope map[string]bool, name string) string {
+			scope[name] = true
+			return name + ", err := "
+		},
 
-		"Title":        ToTitle,
-		"ExportName":   ExportName,
-		"JSONName":     JSONName,
-		"DBName":       DBName,
-		"ToLower":      strings.ToLower,
-		"contains":     strings.Contains,
-		"hasPrefix":    strings.HasPrefix,
-		"hasSuffix":    strings.HasSuffix,
-		"replace":      strings.ReplaceAll,
-		"Split":        strings.Split,
+		"Title":      ToTitle,
+		"ExportName": ExportName,
+		"JSONName":   JSONName,
+		"DBName":     DBName,
+		"ToLower":    strings.ToLower,
+		"contains":   strings.Contains,
+		"hasPrefix":  strings.HasPrefix,
+		"hasSuffix":  strings.HasSuffix,
+		"replace":    strings.ReplaceAll,
+		"Split":      strings.Split,
 		"dict": func(values ...interface{}) (map[string]interface{}, error) {
 			if len(values)%2 != 0 {
 				return nil, fmt.Errorf("invalid dict call")
@@ -1487,4 +1486,14 @@ func ValidateServiceDependencies(services []normalizer.Service) error {
 		return fmt.Errorf("cycle detected among services: %s", strings.Join(cycle, ", "))
 	}
 	return nil
+}
+func WriteFileIfChanged(filename string, data []byte, perm os.FileMode) error {
+	existing, err := os.ReadFile(filename)
+	if err == nil && bytes.Equal(existing, data) {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(filename), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(filename, data, perm)
 }

@@ -158,7 +158,7 @@ func (e *Emitter) EmitMongoRepo(repos []ir.Repository, entities []ir.Entity) err
 
 		filename := fmt.Sprintf("%s.go", strings.ToLower(repo.Name))
 		path := filepath.Join(targetDir, filename)
-		if err := os.WriteFile(path, formatted, 0644); err != nil {
+		if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 			return fmt.Errorf("write file: %w", err)
 		}
 		fmt.Printf("Generated Mongo Repo: %s\n", path)
@@ -212,7 +212,7 @@ func (e *Emitter) EmitMongoCommon(entities []ir.Entity) error {
 	}
 
 	path := filepath.Join(targetDir, "helpers.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Mongo Helpers: %s\n", path)

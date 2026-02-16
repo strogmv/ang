@@ -68,7 +68,7 @@ func (e *Emitter) EmitNotificationDispatchPorts(cfg *ir.NotificationsConfig) err
 	}
 
 	path := filepath.Join(targetDir, "notification_dispatcher.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Notification Dispatch Ports: %s\n", path)
@@ -125,7 +125,7 @@ func (e *Emitter) EmitNotificationDispatcherRuntime(cfg *ir.NotificationsConfig)
 	}
 
 	path := filepath.Join(targetDir, "dispatcher.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Notification Dispatcher Runtime: %s\n", path)

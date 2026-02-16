@@ -20,8 +20,8 @@ func (e *Emitter) EmitRedisClient() error {
 	if _, err := os.Stat(tmplPath); err != nil {
 		tmplPath = "templates/redis_client.tmpl"
 	}
-	
-tmplContent, err := ReadTemplateByPath(tmplPath)
+
+	tmplContent, err := ReadTemplateByPath(tmplPath)
 	if err != nil {
 		return fmt.Errorf("read template: %w", err)
 	}
@@ -47,7 +47,7 @@ tmplContent, err := ReadTemplateByPath(tmplPath)
 	}
 
 	path := filepath.Join(targetDir, "client.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Redis Client: %s\n", path)
@@ -138,7 +138,7 @@ func (e *Emitter) EmitMongoSchema(entities []ir.Entity) error {
 
 		filename := fmt.Sprintf("%s.json", strings.ToLower(entity.Name))
 		path := filepath.Join(targetDir, filename)
-		if err := os.WriteFile(path, []byte(jsonStr), 0644); err != nil {
+		if err := WriteFileIfChanged(path, []byte(jsonStr), 0644); err != nil {
 			return fmt.Errorf("write file: %w", err)
 		}
 		fmt.Printf("Generated Mongo Schema: %s\n", path)
@@ -198,8 +198,8 @@ func (e *Emitter) EmitPublisherInterface(services []ir.Service, schedules []ir.S
 	if _, err := os.Stat(tmplPath); err != nil {
 		tmplPath = "templates/publisher_interface.tmpl"
 	}
-	
-tmplContent, err := ReadTemplateByPath(tmplPath)
+
+	tmplContent, err := ReadTemplateByPath(tmplPath)
 	if err != nil {
 		return fmt.Errorf("read template: %w", err)
 	}
@@ -234,7 +234,7 @@ tmplContent, err := ReadTemplateByPath(tmplPath)
 	}
 
 	path := filepath.Join(targetDir, "publisher.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Publisher Interface: %s\n", path)
@@ -247,8 +247,8 @@ func (e *Emitter) EmitNatsAdapter(services []ir.Service, schedules []ir.Schedule
 	if _, err := os.Stat(tmplPath); err != nil {
 		tmplPath = "templates/nats_client_v2.tmpl"
 	}
-	
-tmplContent, err := ReadTemplateByPath(tmplPath)
+
+	tmplContent, err := ReadTemplateByPath(tmplPath)
 	if err != nil {
 		return fmt.Errorf("read template: %w", err)
 	}
@@ -283,7 +283,7 @@ tmplContent, err := ReadTemplateByPath(tmplPath)
 	}
 
 	path := filepath.Join(targetDir, "client.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated NATS Adapter: %s\n", path)

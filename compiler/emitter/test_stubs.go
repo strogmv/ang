@@ -43,7 +43,7 @@ func (e *Emitter) EmitTestStubs(endpoints []normalizer.Endpoint, filename string
 		filename = "endpoint-stubs.test.ts"
 	}
 	path := filepath.Join(targetDir, filename)
-	if err := os.WriteFile(path, buf.Bytes(), 0644); err != nil {
+	if err := WriteFileIfChanged(path, buf.Bytes(), 0644); err != nil {
 		return fmt.Errorf("write test stubs file: %w", err)
 	}
 

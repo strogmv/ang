@@ -316,7 +316,7 @@ func (e *Emitter) EmitHTTP(irEndpoints []ir.Endpoint, irServices []ir.Service, i
 
 		filename := fmt.Sprintf("%s.go", strings.ToLower(group.Name))
 		path := filepath.Join(targetDir, filename)
-		if err := os.WriteFile(path, formatted, 0644); err != nil {
+		if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 			return fmt.Errorf("write file: %w", err)
 		}
 		fmt.Printf("Generated HTTP: %s\n", path)
@@ -496,7 +496,7 @@ func (e *Emitter) EmitWebSocket(irEndpoints []ir.Endpoint, irServices []ir.Servi
 
 		filename := fmt.Sprintf("ws_%s.go", strings.ToLower(group.Name))
 		path := filepath.Join(targetDir, filename)
-		if err := os.WriteFile(path, formatted, 0644); err != nil {
+		if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 			return fmt.Errorf("write file: %w", err)
 		}
 		fmt.Printf("Generated WebSocket: %s\n", path)
@@ -570,7 +570,7 @@ func (e *Emitter) emitWSCommon() error {
 	}
 
 	path := filepath.Join(targetDir, "ws_common.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated WebSocket Common: %s\n", path)
@@ -613,7 +613,7 @@ func (e *Emitter) EmitHTTPCommon(auth *normalizer.AuthDef) error {
 	}
 
 	path := filepath.Join(targetDir, "common.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated HTTP Common: %s\n", path)
@@ -649,7 +649,7 @@ func (e *Emitter) EmitMetrics() error {
 	}
 
 	path := filepath.Join(targetDir, "metrics.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Metrics Middleware: %s\n", path)
@@ -683,7 +683,7 @@ func (e *Emitter) EmitLoggingMiddleware() error {
 	}
 
 	path := filepath.Join(targetDir, "logging.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Logging Middleware: %s\n", path)
@@ -1007,7 +1007,7 @@ func (e *Emitter) EmitOpenAPI(irEndpoints []ir.Endpoint, irServices []ir.Service
 	}
 
 	path := filepath.Join(targetDir, "openapi.yaml")
-	if err := os.WriteFile(path, buf.Bytes(), 0644); err != nil {
+	if err := WriteFileIfChanged(path, buf.Bytes(), 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated OpenAPI Spec: %s\n", path)
@@ -1079,7 +1079,7 @@ func (e *Emitter) EmitAsyncAPI(irEvents []ir.Event, project *normalizer.ProjectD
 	}
 
 	path := filepath.Join(targetDir, "asyncapi.yaml")
-	if err := os.WriteFile(path, buf.Bytes(), 0644); err != nil {
+	if err := WriteFileIfChanged(path, buf.Bytes(), 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated AsyncAPI Spec: %s\n", path)

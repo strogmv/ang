@@ -136,7 +136,7 @@ func collectAdminPages(entities []normalizer.Entity, services []normalizer.Servi
 	for _, svc := range services {
 		for i := range svc.Methods {
 			m := &svc.Methods[i]
-			
+
 			// 1. Identify primary List (e.g. ListTenders)
 			if strings.HasPrefix(m.Name, "List") {
 				res := strings.TrimPrefix(m.Name, "List")
@@ -247,7 +247,7 @@ func (e *Emitter) emitAdminConfig(data AdminConfigData) error {
 
 	path := filepath.Join(e.FrontendAdminDir, "adminConfig.ts")
 	fmt.Printf("Generated Admin Config: %s\n", path)
-	return os.WriteFile(path, buf.Bytes(), 0644)
+	return WriteFileIfChanged(path, buf.Bytes(), 0644)
 }
 
 func (e *Emitter) emitUniversalAdminPage() error {
@@ -259,47 +259,63 @@ func (e *Emitter) emitUniversalAdminPage() error {
 
 	path := filepath.Join(e.FrontendAdminDir, "AdminPage.tsx")
 	fmt.Printf("Generated Admin Page: %s\n", path)
-	return os.WriteFile(path, tmplContent, 0644)
+	return WriteFileIfChanged(path, tmplContent, 0644)
 }
 
 func (e *Emitter) emitAdminRoutes(data AdminRoutesData) error {
 	tmplPath := "templates/frontend/admin/admin_routes.tmpl"
 	tmplContent, err := ReadTemplateByPath(tmplPath)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	t, err := template.New("admin_routes").Parse(string(tmplContent))
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	var buf bytes.Buffer
-	if err := t.Execute(&buf, data); err != nil { return err }
+	if err := t.Execute(&buf, data); err != nil {
+		return err
+	}
 
 	path := filepath.Join(e.FrontendAdminDir, "routes.tsx")
 	fmt.Printf("Generated Admin Routes: %s\n", path)
-	return os.WriteFile(path, buf.Bytes(), 0644)
+	return WriteFileIfChanged(path, buf.Bytes(), 0644)
 }
 
 func (e *Emitter) emitAdminNavigation(data AdminNavData) error {
 	tmplPath := "templates/frontend/admin/admin_navigation.tmpl"
 	tmplContent, err := ReadTemplateByPath(tmplPath)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	t, err := template.New("admin_navigation").Parse(string(tmplContent))
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	var buf bytes.Buffer
-	if err := t.Execute(&buf, data); err != nil { return err }
+	if err := t.Execute(&buf, data); err != nil {
+		return err
+	}
 
 	path := filepath.Join(e.FrontendAdminDir, "navigation.ts")
 	fmt.Printf("Generated Admin Navigation: %s\n", path)
-	return os.WriteFile(path, buf.Bytes(), 0644)
+	return WriteFileIfChanged(path, buf.Bytes(), 0644)
 }
 
 func toKebabCase(name string) string {
-	if name == "" { return "" }
+	if name == "" {
+		return ""
+	}
 	var result strings.Builder
 	for i, r := range name {
 		if r >= 'A' && r <= 'Z' {
-			if i > 0 { result.WriteRune('-') }
+			if i > 0 {
+				result.WriteRune('-')
+			}
 			result.WriteRune(r + 32)
 			continue
 		}
@@ -311,24 +327,36 @@ func toKebabCase(name string) string {
 func findIDField(fields []normalizer.Field) string {
 	for _, f := range fields {
 		lower := strings.ToLower(f.Name)
-		if lower == "id" || strings.HasSuffix(lower, "id") { return f.Name }
+		if lower == "id" || strings.HasSuffix(lower, "id") {
+			return f.Name
+		}
 	}
 	return ""
 }
 
 func isDeletionBlockedResource(name string) bool {
 	switch strings.ToLower(name) {
-	case "company", "user": return true
-	default: return false
+	case "company", "user":
+		return true
+	default:
+		return false
 	}
 }
 
 func hasPrefix(name string, prefixes []string) bool {
-	for _, p := range prefixes { if strings.HasPrefix(name, p) { return true } }
+	for _, p := range prefixes {
+		if strings.HasPrefix(name, p) {
+			return true
+		}
+	}
 	return false
 }
 
 func stripPrefix(name string, prefixes []string) string {
-	for _, p := range prefixes { if strings.HasPrefix(name, p) { return strings.TrimPrefix(name, p) } }
+	for _, p := range prefixes {
+		if strings.HasPrefix(name, p) {
+			return strings.TrimPrefix(name, p)
+		}
+	}
 	return ""
 }

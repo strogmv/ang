@@ -448,7 +448,7 @@ func runBuild(args []string) {
 				selfCheckStatus = checkRes.Status
 				selfCheckDetails = checkRes.Resolved
 			}
-			
+
 			if len(em.MissingImpls) > 0 {
 				fmt.Println("\n⚠️  MISSING IMPLEMENTATIONS (Blind Spots):")
 				for _, m := range em.MissingImpls {

@@ -3,7 +3,6 @@ package emitter
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -103,7 +102,7 @@ func (e *Emitter) EmitSDKManifest(endpoints []normalizer.Endpoint, queryResource
 	}
 
 	path := filepath.Join(e.FrontendDir, "sdk-manifest.json")
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := WriteFileIfChanged(path, data, 0644); err != nil {
 		return fmt.Errorf("failed to write SDK manifest: %w", err)
 	}
 

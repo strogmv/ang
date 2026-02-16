@@ -3,7 +3,6 @@ package emitter
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/strogmv/ang/compiler/ir"
@@ -11,10 +10,10 @@ import (
 
 // SystemManifest represents the compact architectural map of the system.
 type SystemManifest struct {
-	Project    ir.Project       `json:"project"`
-	Services   []ServiceSummary `json:"services"`
-	Events     []EventSummary   `json:"events"`
-	Entities   []string         `json:"entities"`
+	Project  ir.Project       `json:"project"`
+	Services []ServiceSummary `json:"services"`
+	Events   []EventSummary   `json:"events"`
+	Entities []string         `json:"entities"`
 }
 
 type ServiceSummary struct {
@@ -54,11 +53,21 @@ func (e *Emitter) EmitManifest(schema *ir.Schema) error {
 			sSummary.Methods = append(sSummary.Methods, m.Name)
 		}
 
-		if svc.RequiresSQL { sSummary.DependsOn = append(sSummary.DependsOn, "Postgres") }
-		if svc.RequiresMongo { sSummary.DependsOn = append(sSummary.DependsOn, "MongoDB") }
-		if svc.RequiresRedis { sSummary.DependsOn = append(sSummary.DependsOn, "Redis") }
-		if svc.RequiresNats { sSummary.DependsOn = append(sSummary.DependsOn, "NATS") }
-		if svc.RequiresS3 { sSummary.DependsOn = append(sSummary.DependsOn, "S3") }
+		if svc.RequiresSQL {
+			sSummary.DependsOn = append(sSummary.DependsOn, "Postgres")
+		}
+		if svc.RequiresMongo {
+			sSummary.DependsOn = append(sSummary.DependsOn, "MongoDB")
+		}
+		if svc.RequiresRedis {
+			sSummary.DependsOn = append(sSummary.DependsOn, "Redis")
+		}
+		if svc.RequiresNats {
+			sSummary.DependsOn = append(sSummary.DependsOn, "NATS")
+		}
+		if svc.RequiresS3 {
+			sSummary.DependsOn = append(sSummary.DependsOn, "S3")
+		}
 
 		manifest.Services = append(manifest.Services, sSummary)
 	}
@@ -80,7 +89,7 @@ func (e *Emitter) EmitManifest(schema *ir.Schema) error {
 	}
 
 	path := filepath.Join(e.OutputDir, "ang-manifest.json")
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := WriteFileIfChanged(path, data, 0644); err != nil {
 		return fmt.Errorf("failed to write manifest: %w", err)
 	}
 

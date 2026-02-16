@@ -52,8 +52,6 @@ func (e *Emitter) EmitContractTests(irEndpoints []ir.Endpoint, irServices []ir.S
 		methodsByService[svc.Name] = methods
 	}
 
-	
-	
 	pathParams := func(path string) map[string]struct{} {
 		re := regexp.MustCompile(`\{([a-zA-Z0-9_]+)\}`)
 		out := make(map[string]struct{})
@@ -294,7 +292,7 @@ func (e *Emitter) EmitContractTests(irEndpoints []ir.Endpoint, irServices []ir.S
 	}
 
 	path := filepath.Join(targetDir, "contract_test.go")
-	if err := os.WriteFile(path, buf.Bytes(), 0644); err != nil {
+	if err := WriteFileIfChanged(path, buf.Bytes(), 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Contract Tests: %s\n", path)

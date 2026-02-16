@@ -3,7 +3,6 @@ package emitter
 import (
 	"bytes"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"text/template"
@@ -44,7 +43,7 @@ func (e *Emitter) EmitRepoMocks(repos []ir.Repository) error {
 	}
 
 	targetDir := filepath.Join(e.OutputDir, "internal", "port")
-	
+
 	for _, repo := range reposNorm {
 		var buf bytes.Buffer
 		data := struct {
@@ -68,7 +67,7 @@ func (e *Emitter) EmitRepoMocks(repos []ir.Repository) error {
 
 		filename := "mock_" + strings.ToLower(repo.Entity) + "_test.go"
 		path := filepath.Join(targetDir, filename)
-		if err := os.WriteFile(path, formatted, 0644); err != nil {
+		if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 			return err
 		}
 		fmt.Printf("Generated Repo Mock: %s\n", path)

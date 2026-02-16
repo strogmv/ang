@@ -121,7 +121,7 @@ func (e *Emitter) EmitConfig(config *normalizer.ConfigDef) error {
 	}
 
 	path := filepath.Join(targetDir, "config.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Config: %s\n", path)
@@ -197,7 +197,7 @@ func (e *Emitter) EmitLogger() error {
 	}
 
 	path := filepath.Join(targetDir, "logger.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Logger: %s\n", path)
@@ -233,7 +233,7 @@ func (e *Emitter) EmitTracing() error {
 	}
 
 	path := filepath.Join(targetDir, "tracing.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Tracing: %s\n", path)
@@ -270,7 +270,7 @@ func (e *Emitter) EmitErrors(errors []ir.Error) error {
 	}
 
 	path := filepath.Join(targetDir, "errors.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Errors: %s\n", path)
@@ -300,7 +300,7 @@ func (e *Emitter) EmitErrors(errors []ir.Error) error {
 	}
 
 	pathCodes := filepath.Join(targetDir, "codes.go")
-	if err := os.WriteFile(pathCodes, formattedCodes, 0644); err != nil {
+	if err := WriteFileIfChanged(pathCodes, formattedCodes, 0644); err != nil {
 		return fmt.Errorf("write codes file: %w", err)
 	}
 	fmt.Printf("Generated Error Codes: %s\n", pathCodes)
@@ -341,7 +341,7 @@ func (e *Emitter) EmitViews(views []ir.View) error {
 	}
 
 	path := filepath.Join(targetDir, "views.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Views: %s\n", path)
@@ -442,7 +442,7 @@ func (e *Emitter) EmitScheduler(schedules []ir.Schedule) error {
 	}
 
 	path := filepath.Join(targetDir, "scheduler.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Scheduler: %s\n", path)
@@ -460,7 +460,7 @@ func (e *Emitter) EmitInfraConfigs() error {
   }
 }
 `
-	if err := os.WriteFile(filepath.Join(e.OutputDir, "atlas.hcl"), []byte(atlasContent), 0644); err != nil {
+	if err := WriteFileIfChanged(filepath.Join(e.OutputDir, "atlas.hcl"), []byte(atlasContent), 0644); err != nil {
 		return err
 	}
 	fmt.Printf("Generated Atlas Config: atlas.hcl\n")
@@ -477,7 +477,7 @@ sql:
         out: "internal/adapter/repository/sql/db"
         sql_package: "pgx/v5"
 `
-	if err := os.WriteFile(filepath.Join(e.OutputDir, "sqlc.yaml"), []byte(sqlcContent), 0644); err != nil {
+	if err := WriteFileIfChanged(filepath.Join(e.OutputDir, "sqlc.yaml"), []byte(sqlcContent), 0644); err != nil {
 		return err
 	}
 	fmt.Printf("Generated SQLC Config: sqlc.yaml\n")
@@ -573,7 +573,7 @@ func (e *Emitter) EmitHealth() error {
 	}
 
 	path := filepath.Join(targetDir, "health.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Health Probes: %s\n", path)
@@ -599,7 +599,7 @@ func (e *Emitter) EmitHelpers() error {
 	}
 
 	path := filepath.Join(targetDir, "helpers.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Helpers: %s\n", path)
@@ -625,7 +625,7 @@ func (e *Emitter) EmitCircuitBreaker() error {
 	}
 
 	path := filepath.Join(targetDir, "breaker.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Circuit Breaker: %s\n", path)
@@ -651,7 +651,7 @@ func (e *Emitter) EmitPresence() error {
 	}
 
 	path := filepath.Join(targetDir, "store.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Presence: %s\n", path)
@@ -687,7 +687,7 @@ func (e *Emitter) EmitReportPDF() error {
 	}
 
 	path := filepath.Join(targetDir, "pdf.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Report PDF: %s\n", path)
@@ -766,7 +766,7 @@ func (e *Emitter) EmitNotificationMuting(def *normalizer.NotificationMutingDef, 
 	}
 
 	path := filepath.Join(targetDir, "notification_muting.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Notification Muting Decorator: %s\n", path)
@@ -774,7 +774,7 @@ func (e *Emitter) EmitNotificationMuting(def *normalizer.NotificationMutingDef, 
 }
 
 func writeExecutable(path string, content []byte) error {
-	if err := os.WriteFile(path, content, 0755); err != nil {
+	if err := WriteFileIfChanged(path, content, 0755); err != nil {
 		return err
 	}
 	fmt.Printf("Generated Script: %s\n", path)
@@ -858,7 +858,7 @@ func (e *Emitter) EmitMermaid(ctx MainContext) error {
 	buf.WriteString("```\n")
 
 	path := filepath.Join(e.OutputDir, "ARCHITECTURE.md")
-	if err := os.WriteFile(path, buf.Bytes(), 0644); err != nil {
+	if err := WriteFileIfChanged(path, buf.Bytes(), 0644); err != nil {
 		return err
 	}
 	fmt.Printf("Generated Architecture Map: %s\n", path)
@@ -945,7 +945,7 @@ func (e *Emitter) emitK8sFiles(baseDir string, ctx K8sContext) error {
 		// Save as <service-name>-<kind>.yaml
 		filename := fmt.Sprintf("%s-%s.yaml", strings.ToLower(ctx.Name), file)
 		path := filepath.Join(baseDir, filename)
-		if err := os.WriteFile(path, buf.Bytes(), 0644); err != nil {
+		if err := WriteFileIfChanged(path, buf.Bytes(), 0644); err != nil {
 			return err
 		}
 		fmt.Printf("Generated K8s Manifest: %s\n", path)

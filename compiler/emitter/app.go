@@ -831,7 +831,7 @@ func (e *Emitter) EmitServiceMain(svcName string, ctx MainContext) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(targetDir, "main.go"), formatted, 0644)
+	return WriteFileIfChanged(filepath.Join(targetDir, "main.go"), formatted, 0644)
 }
 
 // EmitMain generates cmd/server/main.go (monolith).
@@ -854,5 +854,5 @@ func (e *Emitter) EmitMain(ctx MainContext) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(targetDir, "main.go"), formatted, 0644)
+	return WriteFileIfChanged(filepath.Join(targetDir, "main.go"), formatted, 0644)
 }

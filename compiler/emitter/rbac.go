@@ -23,8 +23,8 @@ func (e *Emitter) EmitRBAC(rbac *normalizer.RBACDef) error {
 	if _, err := os.Stat(tmplPath); err != nil {
 		tmplPath = "templates/rbac.tmpl"
 	}
-	
-tmplContent, err := ReadTemplateByPath(tmplPath)
+
+	tmplContent, err := ReadTemplateByPath(tmplPath)
 	if err != nil {
 		return fmt.Errorf("read template: %w", err)
 	}
@@ -50,7 +50,7 @@ tmplContent, err := ReadTemplateByPath(tmplPath)
 	}
 
 	path := filepath.Join(targetDir, "rbac.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated RBAC: %s\n", path)

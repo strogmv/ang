@@ -46,4 +46,3 @@ func TestEmitBaseUIFormsProxyLayer_SkipsWhenCustomProvider(t *testing.T) {
 		t.Fatalf("expected no generated proxy layer for custom provider, path=%s err=%v", path, err)
 	}
 }
-

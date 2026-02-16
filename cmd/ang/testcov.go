@@ -14,11 +14,11 @@ import (
 
 // TestCoverageReport represents the test coverage analysis result.
 type TestCoverageReport struct {
-	TotalEndpoints    int                `json:"totalEndpoints"`
-	TestedEndpoints   int                `json:"testedEndpoints"`
-	CoveragePercent   float64            `json:"coveragePercent"`
-	MissingTests      []EndpointCoverage `json:"missingTests"`
-	TestedBy          map[string][]string `json:"testedBy,omitempty"`
+	TotalEndpoints  int                 `json:"totalEndpoints"`
+	TestedEndpoints int                 `json:"testedEndpoints"`
+	CoveragePercent float64             `json:"coveragePercent"`
+	MissingTests    []EndpointCoverage  `json:"missingTests"`
+	TestedBy        map[string][]string `json:"testedBy,omitempty"`
 }
 
 // EndpointCoverage represents a single endpoint's test coverage.

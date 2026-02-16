@@ -2,6 +2,7 @@ package emitter
 
 import (
 	"fmt"
+
 	"golang.org/x/tools/imports"
 )
 

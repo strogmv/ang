@@ -448,12 +448,12 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 					return "z.array(z.boolean())"
 				case "time.Time":
 					return "z.array(z.coerce.date())"
-					default:
-						for _, ent := range entitiesNorm {
-							if ent.Name == elem {
-								return fmt.Sprintf("z.array(z.lazy(() => %sSchema))", elem)
-							}
+				default:
+					for _, ent := range entitiesNorm {
+						if ent.Name == elem {
+							return fmt.Sprintf("z.array(z.lazy(() => %sSchema))", elem)
 						}
+					}
 					return "z.array(z.any())"
 				}
 			}
@@ -470,12 +470,12 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 				return "z.string()"
 			case "time.Time":
 				return "z.coerce.date()"
-				default:
-					for _, ent := range entitiesNorm {
-						if ent.Name == base {
-							return fmt.Sprintf("z.lazy(() => %sSchema)", base)
-						}
+			default:
+				for _, ent := range entitiesNorm {
+					if ent.Name == base {
+						return fmt.Sprintf("z.lazy(() => %sSchema)", base)
 					}
+				}
 				return "z.any()"
 			}
 		},
@@ -544,22 +544,22 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		"Replace": func(old, new, s string) string {
 			return strings.ReplaceAll(s, old, new)
 		},
-			"GetEntity": func(name string) *normalizer.Entity {
-				for _, e := range entitiesNorm {
-					if strings.EqualFold(e.Name, name) {
-						return &e
-					}
+		"GetEntity": func(name string) *normalizer.Entity {
+			for _, e := range entitiesNorm {
+				if strings.EqualFold(e.Name, name) {
+					return &e
 				}
-				return nil
-			},
-			"HasEntity": func(name string) bool {
-				for _, e := range entitiesNorm {
-					if strings.EqualFold(e.Name, name) {
-						return true
-					}
+			}
+			return nil
+		},
+		"HasEntity": func(name string) bool {
+			for _, e := range entitiesNorm {
+				if strings.EqualFold(e.Name, name) {
+					return true
 				}
-				return false
-			},
+			}
+			return false
+		},
 		"EntityHasID": func(entity normalizer.Entity) bool {
 			return entityIDField(entity) != nil
 		},
@@ -623,15 +623,15 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 			if ep.OptimisticUpdate != "" {
 				return ep.OptimisticUpdate
 			}
-				rpc := ep.RPC
-				serviceName := ep.ServiceName
-				entity := strings.TrimPrefix(strings.TrimPrefix(rpc, "Update"), "Edit")
-				target := "Get" + entity
-				for _, otherEp := range endpointsNorm {
-					if otherEp.ServiceName == serviceName && otherEp.RPC == target {
-						return target
-					}
+			rpc := ep.RPC
+			serviceName := ep.ServiceName
+			entity := strings.TrimPrefix(strings.TrimPrefix(rpc, "Update"), "Edit")
+			target := "Get" + entity
+			for _, otherEp := range endpointsNorm {
+				if otherEp.ServiceName == serviceName && otherEp.RPC == target {
+					return target
 				}
+			}
 			return ""
 		},
 		"GetEntityIDParam": func(rpc string) string {
@@ -661,13 +661,13 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 			re := regexp.MustCompile(`{([a-zA-Z0-9]+)}`)
 			return re.ReplaceAllString(path, ":$1")
 		},
-			"ServiceEndpoints": func(serviceName string) []normalizer.Endpoint {
-				var out []normalizer.Endpoint
-				for _, ep := range endpointsNorm {
-					if ep.ServiceName == serviceName {
-						out = append(out, ep)
-					}
+		"ServiceEndpoints": func(serviceName string) []normalizer.Endpoint {
+			var out []normalizer.Endpoint
+			for _, ep := range endpointsNorm {
+				if ep.ServiceName == serviceName {
+					out = append(out, ep)
 				}
+			}
 			return out
 		},
 	}
@@ -793,7 +793,7 @@ func (e *Emitter) emitFrontendTemplate(tmplPath string, data interface{}, funcs 
 	if strings.HasSuffix(outName, ".sh") {
 		mode = 0755
 	}
-	if err := os.WriteFile(path, buf.Bytes(), mode); err != nil {
+	if err := WriteFileIfChanged(path, buf.Bytes(), mode); err != nil {
 		return err
 	}
 

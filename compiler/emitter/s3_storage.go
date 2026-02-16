@@ -38,7 +38,7 @@ func (e *Emitter) EmitStoragePort() error {
 	}
 
 	path := filepath.Join(targetDir, "storage.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Storage Port: %s\n", path)
@@ -74,7 +74,7 @@ func (e *Emitter) EmitS3Client() error {
 	}
 
 	path := filepath.Join(targetDir, "client.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated S3 Client: %s\n", path)

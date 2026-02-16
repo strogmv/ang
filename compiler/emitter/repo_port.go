@@ -44,7 +44,7 @@ func (e *Emitter) EmitTransactionPort() error {
 	}
 
 	path := filepath.Join(targetDir, "tx.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Transaction Port: %s\n", path)
@@ -75,7 +75,7 @@ type IdempotencyStore interface {
 		return err
 	}
 	path := filepath.Join(targetDir, "idempotency.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Idempotency Port: %s\n", path)
@@ -115,7 +115,7 @@ type OutboxRepository interface {
 		return err
 	}
 	path := filepath.Join(targetDir, "outbox.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Outbox Port: %s\n", path)
@@ -220,7 +220,7 @@ var _ port.OutboxRepository = (*SystemRepository)(nil)
 	}
 
 	path := filepath.Join(targetDir, "systemrepository.go")
-	if err := os.WriteFile(path, goFmt, 0644); err != nil {
+	if err := WriteFileIfChanged(path, goFmt, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated System Repository: %s\n", path)
@@ -244,7 +244,7 @@ func (e *Emitter) EmitRepository(repos []ir.Repository, entities []ir.Entity) er
 		}
 		filename := fmt.Sprintf("%s.go", strings.ToLower(repo.Name))
 		path := filepath.Join(targetDir, filename)
-		if err := os.WriteFile(path, rendered, 0644); err != nil {
+		if err := WriteFileIfChanged(path, rendered, 0644); err != nil {
 			return fmt.Errorf("write file: %w", err)
 		}
 		fmt.Printf("Generated Repository: %s\n", path)
