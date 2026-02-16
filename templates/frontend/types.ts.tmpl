@@ -35,7 +35,7 @@ export interface {{ .Name }} {
  */
 export enum ErrorCode {
 {{- range .Errors }}
-  {{ .Name }} = {{ .Code }},
+  {{ .Name }} = "{{ .Name }}",
 {{- end }}
 }
 
@@ -48,7 +48,8 @@ export interface ProblemDetail {
   status: number;
   detail: string;
   instance?: string;
-  code: ErrorCode;
+  code: number;
+  message_code: ErrorCode;
   traceId?: string;
   invalidFields?: Record<string, string>;
 }

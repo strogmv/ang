@@ -29,6 +29,7 @@ type ProblemDetail struct {
 	
 	// Code - Custom business error code.
 	Code int `json:"code,omitempty"`
+	MessageCode string `json:"message_code,omitempty"`
 	
 	// Errors - Validation details (field -> message).
 	Errors map[string]string `json:"errors,omitempty"`
@@ -38,7 +39,7 @@ type ProblemDetail struct {
 }
 
 func (e *ProblemDetail) Error() string {
-	return fmt.Sprintf("error %d: %s (code=%d)", e.Status, e.Title, e.Code)
+	return fmt.Sprintf("error %d: %s (code=%d, message_code=%s)", e.Status, e.Title, e.Code, e.MessageCode)
 }
 
 func New(status int, title, detail string) *ProblemDetail {
@@ -58,6 +59,7 @@ func NewValidationError(detail string, errs map[string]string) *ProblemDetail {
 		Detail: detail,
 		Errors: errs,
 		Code:   40010,
+		MessageCode: "VALIDATION_FAILED",
 	}
 }
 
@@ -78,6 +80,7 @@ func WithIntent(err error, intent string) error {
 		Detail: err.Error(),
 		Intent: intent,
 		Code:   50000,
+		MessageCode: "INTERNAL_ERROR",
 	}
 }
 
@@ -94,6 +97,7 @@ func New{{ .Name }}() *ProblemDetail {
 		Status: {{ .HTTPStatus }},
 		Detail: "{{ .Message }}",
 		Code:   {{ .Code }},
+		MessageCode: "{{ .Name }}",
 	}
 }
 {{- end }}
