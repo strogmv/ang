@@ -1,101 +1,59 @@
 package service
 
 import (
-        "context"
-        "github.com/strog/dealingi-back/internal/port"
-        "github.com/strog/dealingi-back/internal/domain"
-        "github.com/strog/dealingi-back/internal/pkg/tracing"
+	"context"
+	"github.com/strog/dealingi-back/internal/port"
 )
 
 type {{ .Service.Name }}Impl struct {
-        {{- range getRepoEntities .Service .Entities }}
-        {{ ExportName . }}Repo port.{{ ExportName . }}Repository
-        {{- end }}
-        {{- range getServiceDeps .Service }}
-        {{ ExportName . }}Service port.{{ ExportName . }}
-        {{- end }}
-        {{- if ServiceNeedsTx .Service }}
-        txManager port.TxManager
-        {{- end }}
+	{{- range getRepoEntities .Service .Entities }}
+	{{ ExportName . }}Repo port.{{ ExportName . }}Repository
+	{{- end }}
+	{{- range getServiceDeps .Service }}
+	{{ ExportName . }}Service port.{{ ExportName . }}
+	{{- end }}
+	{{- if ServiceNeedsTx .Service }}
+	txManager port.TxManager
+	{{- end }}
+	auditService port.Audit
 }
 
 func New{{ .Service.Name }}Impl(
-        {{- range getRepoEntities .Service .Entities }}
-        {{ ExportName . | lowerFirst }}Repo port.{{ ExportName . }}Repository,
-        {{- end }}
-        {{- range getServiceDeps .Service }}
-        {{ ExportName . | lowerFirst }}Service port.{{ ExportName . }},
-        {{- end }}
-        {{- if ServiceNeedsTx .Service }}
-        txManager port.TxManager,
-        {{- end }}
+	{{- range getRepoEntities .Service .Entities }}
+	{{ ExportName . | lowerFirst }}Repo port.{{ ExportName . }}Repository,
+	{{- end }}
+	{{- range getServiceDeps .Service }}
+	{{ ExportName . | lowerFirst }}Service port.{{ ExportName . }},
+	{{- end }}
+	{{- if ServiceNeedsTx .Service }}
+	txManager port.TxManager,
+	{{- end }}
+	extra ...any,
 ) *{{ .Service.Name }}Impl {
-        return &{{ .Service.Name }}Impl{
-                {{- range getRepoEntities .Service .Entities }}
-                {{ ExportName . }}Repo: {{ ExportName . | lowerFirst }}Repo,
-                {{- end }}
-                {{- range getServiceDeps .Service }}
-                {{ ExportName . }}Service: {{ ExportName . | lowerFirst }}Service,
-                {{- end }}
-                {{- if ServiceNeedsTx .Service }}
-                txManager: txManager,
-                {{- end }}
-        }
+	var auditSvc port.Audit
+	for _, arg := range extra {
+		if a, ok := arg.(port.Audit); ok {
+			auditSvc = a
+		}
+	}
+	return &{{ .Service.Name }}Impl{
+		{{- range getRepoEntities .Service .Entities }}
+		{{ ExportName . }}Repo: {{ ExportName . | lowerFirst }}Repo,
+		{{- end }}
+		{{- range getServiceDeps .Service }}
+		{{ ExportName . }}Service: {{ ExportName . | lowerFirst }}Service,
+		{{- end }}
+		{{- if ServiceNeedsTx .Service }}
+		txManager: txManager,
+		{{- end }}
+		auditService: auditSvc,
+	}
 }
-
-{{- define "flow_steps" }}
-        {{- $method := .Method }}
-        {{- $svc := .Service }}
-        {{- $entities := .Entities }}
-        {{- $inTx := .InTx }}
-        {{- $scope := .Scope }}
-        {{- $ctxVar := "ctx" }}{{ if $inTx }}{{- $ctxVar = "txCtx" }}{{ end }}
-        {{- range .Steps }}
-        {
-            ctx, span := tracing.StartSpan(ctx, "Step: {{ .Action }}")
-            _ = ctx
-            {{- if or (eq .Action "repo.Find") (eq .Action "repo.Get") }}
-            {{- $repoMethod := or .Args.method "FindByID" }}
-            {{ SafeAssign $scope .Args.output }} s.{{ ExportName .Args.source }}Repo.{{ $repoMethod }}({{ $ctxVar }}{{ if .Args.input }}, {{ .Args.input }}{{ end }})
-            _ = {{ .Args.output }}
-            if err != nil { span.End(); return {{ if not $inTx }}resp, {{ end }}err }
-            {{- else if or (eq .Action "repo.List") (eq .Action "repo.Query") }}
-            {{ SafeAssign $scope .Args.output }} s.{{ ExportName .Args.source }}Repo.FindAll({{ $ctxVar }}{{ if .Args.input }}, {{ .Args.input }}{{ end }})
-            _ = {{ .Args.output }}
-            if err != nil { span.End(); return {{ if not $inTx }}resp, {{ end }}err }
-            {{- else if eq .Action "repo.Save" }}
-            if err = s.{{ ExportName .Args.source }}Repo.Save({{ $ctxVar }}, {{ .Args.input }}); err != nil {
-                span.End(); return {{ if not $inTx }}resp, {{ end }}err
-            }
-            {{- else if eq .Action "mapping.Map" }}
-                {{- $input := or .Args.input .Args.from }}
-                {{- $output := or .Args.output .Args.to }}
-                {{- if .Args.entity }}
-                    {{ Declare $scope $output }} domain.{{ ExportName .Args.entity }}
-                {{- end }}
-                {{- if or (eq $output "resp.Data") (eq $output "resp.data") }}
-                    resp.Data = {{ $input }}
-                {{- end }}
-            {{- end }}
-            span.End()
-        }
-        {{- end }}
-{{- end }}
 
 {{- range .Service.Methods }}
 {{ if not (mapHas $.Overrides .Name) }}
 func (s *{{ $.Service.Name }}Impl) {{ .Name }}(ctx context.Context, req port.{{ .Input.Name }}) (resp port.{{ .Output.Name }}, err error) {
-        {{- $scope := InitScope }}
-        {{- $null := mapSet $scope "err" true }}
-        {{- $null = mapSet $scope "resp" true }}
-        {{- $null = mapSet $scope "ctx" true }}
-        {{- $null = mapSet $scope "req" true }}
-        {{- $null = mapSet $scope "s" true }}
-        
-        {{- if .Flow }}
-        {{- template "flow_steps" (dict "Steps" .Flow "Method" . "Service" $.Service "Entities" $.Entities "InTx" false "Scope" $scope) }}
-        {{- end }}
-        return resp, nil
+	return resp, nil
 }
 {{- end }}
 {{- end }}

@@ -1,82 +1,25 @@
-// VERSION 2
 package config
 
 import (
-	"os"
-	{{- if or (HasType .Fields "int") (HasType .Fields "bool") }}
-	"strconv"
-	{{- end }}
+	"fmt"
+	"github.com/ilyakaznacheev/cleanenv"
 )
 
 type Config struct {
 	{{- range .Fields }}
-	{{ FieldName . }} {{ ConfigType . }}
+	{{ FieldName . }} {{ ConfigType . }} `env:"{{ .EnvVar }}"{{ if ne .Default "" }} env-default:{{ ConfigDefault . }}{{ else if not .IsOptional }} env-required:"true"{{ end }}`
 	{{- end }}
 }
 
 func Load() (*Config, error) {
-	cfg := &Config{
-		{{- range .Fields }}
-		{{- if eq (FieldName .) "JWTPublicKey" }}
-		JWTPublicKey: getEnvOrFileOrValue("JWT_PUBLIC_KEY", "public.pem", {{ ConfigDefault . }}),
-		{{- else if eq (FieldName .) "JWTPrivateKey" }}
-		JWTPrivateKey: getEnvOrFileOrValue("JWT_PRIVATE_KEY", "private.pem", {{ ConfigDefault . }}),
-		{{- else }}
-		{{ FieldName . }}: {{ ConfigLoadExpr . }},
-		{{- end }}
-		{{- end }}
+	var cfg Config
+	
+	// ReadConfig reads from ENV and optionally from a file if needed.
+	// We use ReadEnv to focus strictly on Environment Variables as per current project architecture.
+	err := cleanenv.ReadEnv(&cfg)
+	if err != nil {
+		return nil, fmt.Errorf("config error: %w", err)
 	}
 
-	return cfg, nil
+	return &cfg, nil
 }
-
-func getEnvOrFile(key, filePath string) string {
-	if value, ok := os.LookupEnv(key); ok {
-		return value
-	}
-	data, err := os.ReadFile(filePath)
-	if err == nil {
-		return string(data)
-	}
-	return ""
-}
-
-func getEnvOrFileOrValue(key, filePath, fallback string) string {
-	if value, ok := os.LookupEnv(key); ok {
-		return value
-	}
-	data, err := os.ReadFile(filePath)
-	if err == nil {
-		return string(data)
-	}
-	return fallback
-}
-
-func getEnv(key, fallback string) string {
-	if value, ok := os.LookupEnv(key); ok {
-		return value
-	}
-	return fallback
-}
-
-{{- if HasType .Fields "int" }}
-func getEnvInt(key string, fallback int) int {
-	if value, ok := os.LookupEnv(key); ok {
-		if v, err := strconv.Atoi(value); err == nil {
-			return v
-		}
-	}
-	return fallback
-}
-{{- end }}
-
-{{- if HasType .Fields "bool" }}
-func getEnvBool(key string, fallback bool) bool {
-	if value, ok := os.LookupEnv(key); ok {
-		if v, err := strconv.ParseBool(value); err == nil {
-			return v
-		}
-	}
-	return fallback
-}
-{{- end }}
