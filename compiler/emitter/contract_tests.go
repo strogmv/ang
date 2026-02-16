@@ -52,54 +52,8 @@ func (e *Emitter) EmitContractTests(irEndpoints []ir.Endpoint, irServices []ir.S
 		methodsByService[svc.Name] = methods
 	}
 
-	type validationRules struct {
-		Required bool
-		Email    bool
-		URL      bool
-		Min      *float64
-		Gte      *float64
-	}
-	parseValidateTag := func(tag string) validationRules {
-		var rules validationRules
-		parts := strings.Split(tag, ",")
-		for _, raw := range parts {
-			part := strings.TrimSpace(raw)
-			if part == "" {
-				continue
-			}
-			switch part {
-			case "required":
-				rules.Required = true
-				continue
-			case "email":
-				rules.Email = true
-				continue
-			case "url":
-				rules.URL = true
-				continue
-			}
-			kv := strings.SplitN(part, "=", 2)
-			if len(kv) != 2 {
-				continue
-			}
-			key := strings.TrimSpace(kv[0])
-			val := strings.TrimSpace(kv[1])
-			if val == "" {
-				continue
-			}
-			num, err := strconv.ParseFloat(val, 64)
-			if err != nil {
-				continue
-			}
-			switch key {
-			case "min":
-				rules.Min = &num
-			case "gte":
-				rules.Gte = &num
-			}
-		}
-		return rules
-	}
+	
+	
 	pathParams := func(path string) map[string]struct{} {
 		re := regexp.MustCompile(`\{([a-zA-Z0-9_]+)\}`)
 		out := make(map[string]struct{})

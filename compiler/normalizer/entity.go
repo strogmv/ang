@@ -469,11 +469,15 @@ func parseEnvTag(v cue.Value) string {
 }
 
 func inferValidatorTags(name string, v cue.Value) string {
-	// 1. Explicit tag
-	attr := v.Attribute("validate")
-	if attr.Err() == nil {
-		val := attr.Contents()
-		return strings.Trim(val, "")
+	// 1. Explicit tag (@validate)
+	attrs := v.Attributes(cue.ValueAttr)
+	for _, attr := range attrs {
+		if attr.Name() == "validate" {
+			val := attr.Contents()
+			val = strings.TrimPrefix(val, "rule=")
+			val = strings.Trim(val, "\"")
+			return val
+		}
 	}
 
 	// 2. Heuristic (Auto-Discovery)

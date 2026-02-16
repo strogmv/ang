@@ -527,6 +527,9 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 					parts = append(parts, ".max("+formatNumber(*maxVal)+")")
 				}
 			}
+			if f.IsOptional && !rules.Required {
+				parts = append(parts, ".optional()")
+			}
 			return strings.Join(parts, "")
 		},
 		"PathParams": func(path string) string {
