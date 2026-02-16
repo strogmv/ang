@@ -83,6 +83,7 @@ func New{{ .Service.Name }}Impl(
 {{- end }}
 
 {{- range .Service.Methods }}
+{{ if not (mapHas $.Overrides .Name) }}
 func (s *{{ $.Service.Name }}Impl) {{ .Name }}(ctx context.Context, req port.{{ .Input.Name }}) (resp port.{{ .Output.Name }}, err error) {
         {{- $scope := InitScope }}
         {{- $null := mapSet $scope "err" true }}
@@ -96,4 +97,5 @@ func (s *{{ $.Service.Name }}Impl) {{ .Name }}(ctx context.Context, req port.{{ 
         {{- end }}
         return resp, nil
 }
+{{- end }}
 {{- end }}

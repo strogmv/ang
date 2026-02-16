@@ -1,6 +1,9 @@
 package emitter
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"bytes"
 	"fmt"
 	"os"
@@ -69,7 +72,12 @@ func (e *Emitter) EmitService(services []ir.Service) error {
 
 	for _, svc := range nServices {
 		var buf bytes.Buffer
-		if err := t.Execute(&buf, TemplateContext{Service: &svc, GoModule: e.GoModule}); err != nil {
+		overrides := e.getManualMethods(svc.Name)
+		if err := t.Execute(&buf, TemplateContext{
+			Service:   &svc,
+			GoModule:  e.GoModule,
+			Overrides: overrides,
+		}); err != nil {
 			return err
 		}
 
@@ -96,7 +104,6 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 		return err
 	}
 	nServices := IRServicesToNormalizer(services)
-	nEntities := IREntitiesToNormalizer(entities)
 
 	funcMapImpl := e.getSharedFuncMap()
 	funcMapImpl["ServiceImplTypeDecl"] = func(svc normalizer.Service, entities []normalizer.Entity, auth *normalizer.AuthDef) (string, error) {
@@ -177,18 +184,13 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 		if a == nil {
 			a = &normalizer.AuthDef{}
 		}
-		data := struct {
-			Service  normalizer.Service
-			Entities []normalizer.Entity
-			Auth     *normalizer.AuthDef
-			Imports  []string
-		}{
-			Service:  svc,
-			Entities: nEntities,
-			Auth:     a,
-			Imports:  allImports,
-		}
-		if err := t.Execute(&buf, data); err != nil {
+		
+			overrides := e.getManualMethods(svc.Name)
+		if err := t.Execute(&buf, TemplateContext{
+			Service:   &svc,
+			GoModule:  e.GoModule,
+			Overrides: overrides,
+		}); err != nil {
 			return fmt.Errorf("execute template for %s: %w", svc.Name, err)
 		}
 
@@ -224,7 +226,12 @@ func (e *Emitter) EmitCachedService(services []ir.Service) error {
 	targetDir := filepath.Join(e.OutputDir, "internal", "service")
 	for _, svc := range nServices {
 		var buf bytes.Buffer
-		if err := t.Execute(&buf, TemplateContext{Service: &svc, GoModule: e.GoModule}); err != nil {
+		overrides := e.getManualMethods(svc.Name)
+		if err := t.Execute(&buf, TemplateContext{
+			Service:   &svc,
+			GoModule:  e.GoModule,
+			Overrides: overrides,
+		}); err != nil {
 			return err
 		}
 
@@ -242,4 +249,29 @@ func (e *Emitter) EmitCachedService(services []ir.Service) error {
 	}
 
 	return nil
+}
+
+func (e *Emitter) getManualMethods(serviceName string) map[string]bool {
+	overrides := make(map[string]bool)
+	manualFile := filepath.Join(e.OutputDir, "internal/service", strings.ToLower(serviceName)+".manual.go")
+	
+	if _, err := os.Stat(manualFile); os.IsNotExist(err) {
+		return overrides
+	}
+
+	fset := token.NewFileSet()
+	node, err := parser.ParseFile(fset, manualFile, nil, 0)
+	if err != nil {
+		return overrides
+	}
+
+	for _, decl := range node.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok {
+			if fn.Recv != nil && len(fn.Recv.List) > 0 {
+				// Ищем методы вида (s *ServiceNameImpl) MethodName
+				overrides[fn.Name.Name] = true
+			}
+		}
+	}
+	return overrides
 }
