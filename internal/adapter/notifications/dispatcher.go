@@ -3,9 +3,8 @@ package notifications
 import (
 	"context"
 	"fmt"
-	"strings"
-
 	"github.com/strogmv/ang/internal/port"
+	"strings"
 )
 
 // Dispatcher routes notification messages to configured channel sinks.

@@ -4,11 +4,10 @@ package memory
 import (
 	"context"
 	"fmt"
+	"github.com/strogmv/ang/internal/domain"
 	"reflect"
 	"sort"
 	"sync"
-
-	"github.com/strogmv/ang/internal/domain"
 )
 
 type CommentRepositoryStub struct {

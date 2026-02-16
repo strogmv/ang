@@ -3,7 +3,6 @@ package nats
 import (
 	"context"
 	"encoding/json"
-
 	natspkg "github.com/nats-io/nats.go"
 	"github.com/strogmv/ang/internal/domain"
 )

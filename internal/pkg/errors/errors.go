@@ -28,7 +28,8 @@ type ProblemDetail struct {
 	// --- Extensions ---
 
 	// Code - Custom business error code.
-	Code int `json:"code,omitempty"`
+	Code        int    `json:"code,omitempty"`
+	MessageCode string `json:"message_code,omitempty"`
 
 	// Errors - Validation details (field -> message).
 	Errors map[string]string `json:"errors,omitempty"`
@@ -38,7 +39,7 @@ type ProblemDetail struct {
 }
 
 func (e *ProblemDetail) Error() string {
-	return fmt.Sprintf("error %d: %s (code=%d)", e.Status, e.Title, e.Code)
+	return fmt.Sprintf("error %d: %s (code=%d, message_code=%s)", e.Status, e.Title, e.Code, e.MessageCode)
 }
 
 func New(status int, title, detail string) *ProblemDetail {
@@ -52,12 +53,13 @@ func New(status int, title, detail string) *ProblemDetail {
 
 func NewValidationError(detail string, errs map[string]string) *ProblemDetail {
 	return &ProblemDetail{
-		Type:   "validation-error",
-		Title:  "VALIDATION_FAILED",
-		Status: http.StatusBadRequest,
-		Detail: detail,
-		Errors: errs,
-		Code:   40010,
+		Type:        "validation-error",
+		Title:       "VALIDATION_FAILED",
+		Status:      http.StatusBadRequest,
+		Detail:      detail,
+		Errors:      errs,
+		Code:        40010,
+		MessageCode: "VALIDATION_FAILED",
 	}
 }
 
@@ -72,12 +74,13 @@ func WithIntent(err error, intent string) error {
 		return pd
 	}
 	return &ProblemDetail{
-		Type:   "internal-error",
-		Title:  "INTERNAL_ERROR",
-		Status: http.StatusInternalServerError,
-		Detail: err.Error(),
-		Intent: intent,
-		Code:   50000,
+		Type:        "internal-error",
+		Title:       "INTERNAL_ERROR",
+		Status:      http.StatusInternalServerError,
+		Detail:      err.Error(),
+		Intent:      intent,
+		Code:        50000,
+		MessageCode: "INTERNAL_ERROR",
 	}
 }
 

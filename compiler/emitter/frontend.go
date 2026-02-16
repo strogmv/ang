@@ -140,6 +140,49 @@ func isPathParamSegment(seg string) bool {
 	return strings.HasPrefix(seg, "{") && strings.HasSuffix(seg, "}")
 }
 
+func mutationInvalidateStoresForEndpoint(ep normalizer.Endpoint, entities []normalizer.Entity) []string {
+	method := strings.ToUpper(strings.TrimSpace(ep.Method))
+	if method == "" || method == "GET" || method == "WS" {
+		return nil
+	}
+
+	verbs := []string{"Create", "Delete", "Update", "Patch", "Remove"}
+	rpc := strings.TrimSpace(ep.RPC)
+	if rpc == "" {
+		return nil
+	}
+
+	stem := ""
+	for _, verb := range verbs {
+		if idx := strings.Index(rpc, verb); idx >= 0 {
+			stem = strings.TrimSpace(rpc[idx+len(verb):])
+			break
+		}
+	}
+	if stem == "" {
+		return nil
+	}
+
+	seen := make(map[string]struct{})
+	var keys []string
+	for _, ent := range entities {
+		name := strings.TrimSpace(ent.Name)
+		if name == "" {
+			continue
+		}
+		if strings.HasPrefix(strings.ToLower(stem), strings.ToLower(name)) {
+			key := strings.ToLower(name)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 // EmitFrontendSDK generates the React SDK (TS, Zod, React Query).
 func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, endpoints []ir.Endpoint, events []ir.Event, errors []ir.Error, rbac *normalizer.RBACDef) error {
 	entitiesNorm := IREntitiesToNormalizer(entities)
@@ -670,6 +713,9 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 			}
 			return out
 		},
+		"MutationInvalidateStores": func(ep normalizer.Endpoint) []string {
+			return mutationInvalidateStoresForEndpoint(ep, entitiesNorm)
+		},
 	}
 
 	files := []struct {
@@ -683,6 +729,7 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		{"websocket", "websocket.ts"},
 		{"auth-store", "auth-store.ts"},
 		{"stores", "stores/index.ts"},
+		{"store-invalidation", "stores/invalidation.ts"},
 		{"providers", "providers.tsx"},
 		{"rbac", "rbac.ts"},
 		{"types", "types/index.ts"},

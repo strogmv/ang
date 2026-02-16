@@ -15,7 +15,7 @@ export interface User {
 }
 export interface Post {
   /**  */
-  id: string;
+  ID: string;
   /**  */
   authorId: string;
   /**  */
@@ -39,7 +39,7 @@ export interface Post {
 }
 export interface Comment {
   /**  */
-  id: string;
+  ID: string;
   /**  */
   postId: string;
   /**  */
@@ -55,7 +55,7 @@ export interface Comment {
 }
 export interface Tag {
   /**  */
-  id: string;
+  ID: string;
   /**  */
   name: string;
   /**  */
@@ -71,7 +71,7 @@ export interface PostTag {
 }
 export interface UserVault {
   /**  */
-  id: string;
+  ID: string;
   /**  */
   personalKey: Encrypted<string>;
   /**  */
@@ -83,7 +83,7 @@ export interface GetProfileRequest {
 }
 export interface GetProfileResponse {
   /**  */
-  id: string;
+  ID: string;
   /**  */
   email: string;
   /**  */
@@ -111,7 +111,7 @@ export interface RegisterRequest {
 }
 export interface RegisterResponse {
   /**  */
-  id: string;
+  ID: string;
   /**  */
   email: string;
   /**  */
@@ -131,7 +131,7 @@ export interface UpdateProfileResponse {
 }
 export interface ArchivePostRequest {
   /**  */
-  id: string;
+  ID: string;
 }
 export interface ArchivePostResponse {
   /**  */
@@ -147,7 +147,7 @@ export interface CreateCommentRequest {
 }
 export interface CreateCommentResponse {
   /**  */
-  id: string;
+  ID: string;
 }
 export interface CreatePostRequest {
   /**  */
@@ -161,7 +161,7 @@ export interface CreatePostRequest {
 }
 export interface CreatePostResponse {
   /**  */
-  id: string;
+  ID: string;
   /**  */
   slug: string;
 }
@@ -173,13 +173,13 @@ export interface CreateTagRequest {
 }
 export interface CreateTagResponse {
   /**  */
-  id: string;
+  ID: string;
   /**  */
   slug: string;
 }
 export interface DeleteCommentRequest {
   /**  */
-  id: string;
+  ID: string;
   /**  */
   userId: string;
 }
@@ -189,7 +189,7 @@ export interface DeleteCommentResponse {
 }
 export interface DeletePostRequest {
   /**  */
-  id: string;
+  ID: string;
 }
 export interface DeletePostResponse {
   /**  */
@@ -197,7 +197,7 @@ export interface DeletePostResponse {
 }
 export interface DeleteTagRequest {
   /**  */
-  id: string;
+  ID: string;
 }
 export interface DeleteTagResponse {
   /**  */
@@ -213,7 +213,7 @@ export interface GetPostRequest {
 }
 export interface GetPostResponse {
   /**  */
-  id: string;
+  ID: string;
   /**  */
   title: string;
   /**  */
@@ -227,7 +227,7 @@ export interface GetPostResponse {
 }
 export interface GetPostResponseTagsItem {
   /**  */
-  id: string;
+  ID: string;
   /**  */
   name: string;
   /**  */
@@ -249,7 +249,7 @@ export interface ListCommentsResponse {
 }
 export interface ListCommentsResponseData {
   /**  */
-  id: string;
+  ID: string;
   /**  */
   content: string;
   /**  */
@@ -273,7 +273,7 @@ export interface ListMyPostsResponse {
 }
 export interface ListMyPostsResponseData {
   /**  */
-  id: string;
+  ID: string;
   /**  */
   title: string;
   /**  */
@@ -297,7 +297,7 @@ export interface ListPostsResponse {
 }
 export interface ListPostsResponseData {
   /**  */
-  id: string;
+  ID: string;
   /**  */
   title: string;
   /**  */
@@ -319,7 +319,7 @@ export interface ListTagsResponse {
 }
 export interface ListTagsResponseData {
   /**  */
-  id: string;
+  ID: string;
   /**  */
   name: string;
   /**  */
@@ -329,7 +329,7 @@ export interface ListTagsResponseData {
 }
 export interface PublishPostRequest {
   /**  */
-  id: string;
+  ID: string;
 }
 export interface PublishPostResponse {
   /**  */
@@ -337,7 +337,7 @@ export interface PublishPostResponse {
 }
 export interface SubmitPostRequest {
   /**  */
-  id: string;
+  ID: string;
 }
 export interface SubmitPostResponse {
   /**  */
@@ -345,7 +345,7 @@ export interface SubmitPostResponse {
 }
 export interface UpdateCommentRequest {
   /**  */
-  id: string;
+  ID: string;
   /**  */
   content: string;
   /**  */
@@ -357,7 +357,7 @@ export interface UpdateCommentResponse {
 }
 export interface UpdatePostRequest {
   /**  */
-  id: string;
+  ID: string;
   /**  */
   title?: string;
   /**  */
@@ -369,7 +369,7 @@ export interface UpdatePostResponse {
 }
 export interface UpdateTagRequest {
   /**  */
-  id: string;
+  ID: string;
   /**  */
   name?: string;
   /**  */
@@ -427,13 +427,13 @@ export interface CommentCreated {
  * Values match the 'code' field in ProblemDetail.
  */
 export enum ErrorCode {
-  VALIDATION_FAILED = 40010,
-  UNAUTHORIZED = 40100,
-  FORBIDDEN = 40300,
-  NOT_FOUND = 40400,
-  CONFLICT = 40900,
-  RATE_LIMIT_EXCEEDED = 42900,
-  INTERNAL_ERROR = 50000,
+  VALIDATION_FAILED = "VALIDATION_FAILED",
+  UNAUTHORIZED = "UNAUTHORIZED",
+  FORBIDDEN = "FORBIDDEN",
+  NOT_FOUND = "NOT_FOUND",
+  CONFLICT = "CONFLICT",
+  RATE_LIMIT_EXCEEDED = "RATE_LIMIT_EXCEEDED",
+  INTERNAL_ERROR = "INTERNAL_ERROR",
 }
 
 /**
@@ -445,7 +445,8 @@ export interface ProblemDetail {
   status: number;
   detail: string;
   instance?: string;
-  code: ErrorCode;
+  code: number;
+  message_code: ErrorCode;
   traceId?: string;
   invalidFields?: Record<string, string>;
 }

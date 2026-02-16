@@ -162,6 +162,8 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 		return renderServiceImplMethodSignature(serviceName, m)
 	}
 	funcMapImpl["CleanImplCode"] = cleanImplCode
+	funcMapImpl["FlowRenderable"] = flowRenderable
+	funcMapImpl["RenderFlow"] = renderFlow
 	t, err := template.New("service_impl").Funcs(funcMapImpl).Parse(string(tmplContent))
 	if err != nil {
 		return err

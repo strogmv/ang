@@ -7,7 +7,7 @@ export const UpdatePostFormSchema: FormSchema<UpdatePostRequest> = {
   layout: { type: 'grid', columns: 12 },
   fields: [
   {
-    name: "id",
+    name: "ID",
     label: "Id",
     type: "text",
     required: true,

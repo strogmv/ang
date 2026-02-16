@@ -1,52 +1,8 @@
 {{ define "main_server_services" }}
-	svcAudit := service.NewAuditImpl(repoAuditLog)
-
 	{{- range .ServicesIR }}
-		{{- $svc := . }}
-		{{- if ne .Name "Audit" }}
-	svc{{ .Name }} := service.New{{ .Name }}Impl(
-		{{- range getRepoEntitiesIR . $.EntitiesIR }}
-		repo{{ ExportName . }},
-		{{- end }}
-		{{- range getServiceDepsIR . }}
-		svc{{ ExportName . }},
-		{{- end }}
-		{{- if ServiceNeedsTxIR . }}
-		txManager,
-		{{- end }}
-		{{- if and $.AuthService (eq $.AuthService .Name) }}
-		cfg,
-		refreshStore,
-		{{- end }}
-		{{- if ServiceHasPublishesIR . }}
-		natsClient,
-		{{- end }}
-		{{- if ServiceHasIdempotencyIR . }}
-			{{- if $.HasSQL }}
-		repoSystem,
-			{{- else }}
-		nil,
-			{{- end }}
-		{{- end }}
-		{{- if ServiceHasOutboxIR . }}
-			{{- if $.HasSQL }}
-		repoSystem,
-			{{- else }}
-		nil,
-			{{- end }}
-		{{- end }}
-		svcAudit,
-		{{- if .RequiresS3 }}
-		s3Client,
-		{{- end }}
-		{{- if ServiceHasNotificationDispatchIR . }}
-		notificationDispatcher,
-		{{- end }}
-	)
-		{{- end }}
-
-	{{ if $svc.Subscribes }}
+	{{ if .Subscribes }}
 	if natsClient != nil {
+	{{- $svc := . }}
 	{{- range $evtName := sortedKeys $svc.Subscribes }}
 	{{- $method := mapGet $svc.Subscribes $evtName }}
 		if _, err := natsClient.Subscribe("{{ $evtName }}", func(data []byte) error {
@@ -54,7 +10,7 @@
 			if err := json.Unmarshal(data, &event); err != nil {
 				return err
 			}
-			if _, err := svc{{ $svc.Name }}.{{ $method }}(context.Background(), event); err != nil {
+			if _, err := runtimeContainer.Svc{{ $svc.Name }}.{{ $method }}(context.Background(), event); err != nil {
 				return err
 			}
 			return nil
@@ -65,9 +21,9 @@
 	}
 	{{ end }}
 
-	transport.Register{{ .Name }}Routes(r, svc{{ .Name }})
+	transport.Register{{ .Name }}Routes(r, runtimeContainer.Svc{{ .Name }})
 	{{- if index $.WebSocketServices .Name }}
-	transport.Register{{ .Name }}WSRoutes(r, svc{{ .Name }})
+	transport.Register{{ .Name }}WSRoutes(r, runtimeContainer.Svc{{ .Name }})
 	{{- end }}
-{{- end }}
+	{{- end }}
 {{ end }}

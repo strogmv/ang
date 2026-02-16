@@ -2,7 +2,6 @@ package port
 
 import (
 	"context"
-
 	"github.com/strogmv/ang/internal/domain"
 )
 

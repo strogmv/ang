@@ -326,7 +326,8 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 					}
 				}
 				method.Impl = impl
-				for _, diag := range validateNamedReturnImplCode(svcName, opName, method, codeVal) {
+				bypass, _ := implVal.LookupPath(cue.ParsePath("flowFirstBypass")).Bool()
+				for _, diag := range validateNamedReturnImplCode(svcName, opName, method, codeVal, bypass) {
 					n.Warn(diag)
 				}
 			}
@@ -359,6 +360,13 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 					CUEPath:      w.CUEPath,
 					SuggestedFix: w.SuggestedFix,
 				})
+			}
+		}
+		if implVal.Exists() {
+			codeVal := implVal.LookupPath(cue.ParsePath("code"))
+			bypass, _ := implVal.LookupPath(cue.ParsePath("flowFirstBypass")).Bool()
+			for _, diag := range validateFlowFirstImplCode(svcName, opName, method, codeVal, bypass) {
+				n.Warn(diag)
 			}
 		}
 
@@ -1493,7 +1501,8 @@ func (n *Normalizer) parseService(name string, val cue.Value) (Service, error) {
 					}
 				}
 				method.Impl = impl
-				for _, diag := range validateNamedReturnImplCode(name, methodName, method, codeVal) {
+				bypass, _ := implVal.LookupPath(cue.ParsePath("flowFirstBypass")).Bool()
+				for _, diag := range validateNamedReturnImplCode(name, methodName, method, codeVal, bypass) {
 					n.Warn(diag)
 				}
 			}
@@ -1506,6 +1515,13 @@ func (n *Normalizer) parseService(name string, val cue.Value) (Service, error) {
 				return svc, err
 			}
 			method.Flow = steps
+		}
+		if implVal.Exists() {
+			codeVal := implVal.LookupPath(cue.ParsePath("code"))
+			bypass, _ := implVal.LookupPath(cue.ParsePath("flowFirstBypass")).Bool()
+			for _, diag := range validateFlowFirstImplCode(name, methodName, method, codeVal, bypass) {
+				n.Warn(diag)
+			}
 		}
 
 		svc.Methods = append(svc.Methods, method)
@@ -1924,7 +1940,10 @@ func addPaginationFields(method *Method) {
 	}
 }
 
-func validateNamedReturnImplCode(serviceName, methodName string, method Method, codeVal cue.Value) []Warning {
+func validateNamedReturnImplCode(serviceName, methodName string, method Method, codeVal cue.Value, bypass bool) []Warning {
+	if bypass {
+		return nil
+	}
 	if method.Impl == nil || strings.TrimSpace(method.Impl.Code) == "" {
 		return nil
 	}
@@ -2036,6 +2055,65 @@ func validateNamedReturnImplCode(serviceName, methodName string, method Method, 
 
 	return out
 }
+
+func isFlowFirstCandidate(methodName string) bool {
+	name := strings.ToLower(strings.TrimSpace(methodName))
+	prefixes := []string{
+		"create",
+		"get",
+		"list",
+		"update",
+		"patch",
+		"delete",
+		"remove",
+	}
+	for _, p := range prefixes {
+		if strings.HasPrefix(name, p) {
+			return true
+		}
+	}
+	return false
+}
+
+func validateFlowFirstImplCode(serviceName, methodName string, method Method, codeVal cue.Value, bypass bool) []Warning {
+	if bypass {
+		return nil
+	}
+	if method.Impl == nil || strings.TrimSpace(method.Impl.Code) == "" {
+		return nil
+	}
+	if len(method.Flow) > 0 {
+		return nil
+	}
+	if !isFlowFirstCandidate(methodName) {
+		return nil
+	}
+
+	pos := codeVal.Pos()
+	warnFile := ""
+	warnLine := 0
+	warnCol := 0
+	if pos.IsValid() {
+		warnFile = pos.Filename()
+		warnLine = pos.Line()
+		warnCol = pos.Column()
+	}
+
+	return []Warning{
+		{
+			Kind:     "flow",
+			Code:     "FLOW_FIRST_IMPL_REQUIRED",
+			Severity: "error",
+			Message:  fmt.Sprintf("%s.%s: CRUD/listing methods must use flow DSL instead of impls.go.code", serviceName, methodName),
+			Hint:     "Move method logic into 'flow'. For exceptional complex cases set impls.go.flowFirstBypass: true with clear rationale.",
+			File:     warnFile,
+			Line:     warnLine,
+			Column:   warnCol,
+			CUEPath:  codeVal.Path().String(),
+		},
+	}
+}
+
 func validateGoSnippet(code string, file string, line int, col int) string {
 	if code == "" || strings.Contains(code, "{{") {
 		return "" // Skip templates for now

@@ -7,7 +7,7 @@ export const SubmitPostFormSchema: FormSchema<SubmitPostRequest> = {
   layout: { type: 'grid', columns: 12 },
   fields: [
   {
-    name: "id",
+    name: "ID",
     label: "Id",
     type: "text",
     required: true,

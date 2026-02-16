@@ -55,9 +55,10 @@ export function CommentTable({ onView, onEdit, onDelete, postId }: CommentTableP
 
   const columns = useMemo<GridColDef[]>(() => [
     {
-      field: 'id',
+      field: 'ID',
       headerName: 'Id',
-      width: 100,
+      minWidth: 120,
+      flex: 1,
       sortable: true,
     },
     {

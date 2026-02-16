@@ -1,5 +1,6 @@
 {{ define "main_server_infrastructure" }}
-	{{ if .HasSQL }}
+	{{- $needsPG := or .HasSQL (HasRepoEntitiesIR .ServicesIR .EntitiesIR) }}
+	{{ if $needsPG }}
 	pgPool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
 		log.Error("Postgres init failed", "error", err)
@@ -49,7 +50,7 @@
 	}
 	{{ end }}
 
-	{{ if not .HasSQL }}var pgPool *pgxpool.Pool{{ end }}
+	{{ if not $needsPG }}var pgPool *pgxpool.Pool{{ end }}
 	{{ if not .HasNats }}var natsClient *nats.Client{{ end }}
 	{{ if not (or .HasCache (or (eq .AuthRefreshStore "redis") (eq .AuthRefreshStore "hybrid"))) }}var redisClient *redis.Client{{ end }}
 	{{ if or .HasNotificationsService .HasNotificationDispatch }}

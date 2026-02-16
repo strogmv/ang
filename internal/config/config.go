@@ -1,69 +1,34 @@
-// VERSION 2
 package config
 
 import (
-	"os"
+	"fmt"
+	"github.com/ilyakaznacheev/cleanenv"
 )
 
 type Config struct {
-	JWTAccessTTL  string
-	JWTAlg        string
-	JWTAudience   string
-	JWTIssuer     string
-	JWTPrivateKey string
-	JWTPublicKey  string
-	JWTRefreshTTL string
-	SMTPFrom      string
-	SMTPHost      string
-	SMTPPass      string
-	SMTPPort      string
-	SMTPUser      string
+	JWTAccessTTL  string `env:"JWT_ACCESS_TTL" env-default:"15m"`
+	JWTAlg        string `env:"JWT_ALG" env-default:"HS256"`
+	JWTAudience   string `env:"JWT_AUDIENCE" env-default:"ang-api"`
+	JWTIssuer     string `env:"JWT_ISSUER" env-default:"ang"`
+	JWTPrivateKey string `env:"JWT_PRIVATE_KEY" env-default:"secret-key-for-tests"`
+	JWTPublicKey  string `env:"JWT_PUBLIC_KEY" env-required:"true"`
+	JWTRefreshTTL string `env:"JWT_REFRESH_TTL" env-default:"168h"`
+	SMTPFrom      string `env:"SMTP_FROM" env-required:"true"`
+	SMTPHost      string `env:"SMTP_HOST" env-required:"true"`
+	SMTPPass      string `env:"SMTP_PASS" env-required:"true"`
+	SMTPPort      string `env:"SMTP_PORT" env-default:"587"`
+	SMTPUser      string `env:"SMTP_USER" env-required:"true"`
 }
 
 func Load() (*Config, error) {
-	cfg := &Config{
-		JWTAccessTTL:  getEnv("JWT_ACCESS_TTL", "15m"),
-		JWTAlg:        getEnv("JWT_ALG", "HS256"),
-		JWTAudience:   getEnv("JWT_AUDIENCE", "ang-api"),
-		JWTIssuer:     getEnv("JWT_ISSUER", "ang"),
-		JWTPrivateKey: getEnvOrFileOrValue("JWT_PRIVATE_KEY", "private.pem", "secret-key-for-tests"),
-		JWTPublicKey:  getEnvOrFileOrValue("JWT_PUBLIC_KEY", "public.pem", ""),
-		JWTRefreshTTL: getEnv("JWT_REFRESH_TTL", "168h"),
-		SMTPFrom:      getEnv("SMTP_FROM", ""),
-		SMTPHost:      getEnv("SMTP_HOST", ""),
-		SMTPPass:      getEnv("SMTP_PASS", ""),
-		SMTPPort:      getEnv("SMTP_PORT", "587"),
-		SMTPUser:      getEnv("SMTP_USER", ""),
+	var cfg Config
+
+	// ReadConfig reads from ENV and optionally from a file if needed.
+	// We use ReadEnv to focus strictly on Environment Variables as per current project architecture.
+	err := cleanenv.ReadEnv(&cfg)
+	if err != nil {
+		return nil, fmt.Errorf("config error: %w", err)
 	}
 
-	return cfg, nil
-}
-
-func getEnvOrFile(key, filePath string) string {
-	if value, ok := os.LookupEnv(key); ok {
-		return value
-	}
-	data, err := os.ReadFile(filePath)
-	if err == nil {
-		return string(data)
-	}
-	return ""
-}
-
-func getEnvOrFileOrValue(key, filePath, fallback string) string {
-	if value, ok := os.LookupEnv(key); ok {
-		return value
-	}
-	data, err := os.ReadFile(filePath)
-	if err == nil {
-		return string(data)
-	}
-	return fallback
-}
-
-func getEnv(key, fallback string) string {
-	if value, ok := os.LookupEnv(key); ok {
-		return value
-	}
-	return fallback
+	return &cfg, nil
 }

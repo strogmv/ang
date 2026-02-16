@@ -15,6 +15,14 @@ import (
 {{ ServiceImplMethodSignature $.Service.Name . }} {
 	{{- if and .Impl .Impl.Code }}
 {{ Indent (CleanImplCode .Impl.Code .Output.Name) 1 }}
+	{{- else if .Flow }}
+		{{- if FlowRenderable .Flow }}
+{{ Indent (RenderFlow .Flow) 1 }}
+	return resp, nil
+		{{- else }}
+	// FLOW_NOT_IMPLEMENTED: unsupported flow actions in this method, fallback stub.
+	return resp, nil
+		{{- end }}
 	{{- else }}
 	return resp, nil
 	{{- end }}

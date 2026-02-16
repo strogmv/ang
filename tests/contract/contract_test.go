@@ -4,14 +4,19 @@ package tests
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"regexp"
-	"strings"
 	"sync"
+	"math/rand"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 func contractBaseURL() string {
@@ -334,7 +339,7 @@ func TestContractHTTPValidation(t *testing.T) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	token := contractToken()
 	t.Run("Register_validation", func(t *testing.T) {
-		url := baseURL + fillPathParams("/auth/register") + "?email=test&password=test&name=test"
+		url := baseURL + fillPathParams("/auth/register") + "?email=user@example.com&password=test&name=test"
 		req, err := http.NewRequest("POST", url, bytes.NewBufferString("{}"))
 		if err != nil {
 			t.Fatal(err)
@@ -351,7 +356,7 @@ func TestContractHTTPValidation(t *testing.T) {
 		}
 	})
 	t.Run("Login_validation", func(t *testing.T) {
-		url := baseURL + fillPathParams("/auth/login") + "?email=test&password=test"
+		url := baseURL + fillPathParams("/auth/login") + "?email=user@example.com&password=test"
 		req, err := http.NewRequest("POST", url, bytes.NewBufferString("{}"))
 		if err != nil {
 			t.Fatal(err)
@@ -474,8 +479,8 @@ func TestContractHTTPPositive(t *testing.T) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	token := contractToken()
 	t.Run("Register_positive", func(t *testing.T) {
-		url := baseURL + fillPathParamsRequired(t, "/auth/register") + "?email=test&password=test&name=test"
-		payload := "{\"email\":\"test\",\"name\":\"test\",\"password\":\"test1234\"}"
+		url := baseURL + fillPathParamsRequired(t, "/auth/register") + "?email=user@example.com&password=test&name=test"
+		payload := "{\"email\":\"user@example.com\",\"name\":\"test\",\"password\":\"test1234\"}"
 		req, err := http.NewRequest("POST", url, bytes.NewBufferString(payload))
 		if err != nil {
 			t.Fatal(err)
@@ -492,8 +497,8 @@ func TestContractHTTPPositive(t *testing.T) {
 		}
 	})
 	t.Run("Login_positive", func(t *testing.T) {
-		url := baseURL + fillPathParamsRequired(t, "/auth/login") + "?email=test&password=test"
-		payload := "{\"email\":\"test\",\"password\":\"test1234\"}"
+		url := baseURL + fillPathParamsRequired(t, "/auth/login") + "?email=user@example.com&password=test"
+		payload := "{\"email\":\"user@example.com\",\"password\":\"test1234\"}"
 		req, err := http.NewRequest("POST", url, bytes.NewBufferString(payload))
 		if err != nil {
 			t.Fatal(err)

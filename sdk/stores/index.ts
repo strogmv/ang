@@ -4,4 +4,5 @@ export * from './comment';
 export * from './tag';
 export * from './uservault';
 export * from './getpostresponsetagsitem';
+export * from './invalidation';
 export * from '../auth-store';

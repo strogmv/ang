@@ -47,6 +47,8 @@ type MainServerInfrastructureContext struct {
 	HasScheduler            bool
 	HasNotificationsService bool
 	HasNotificationDispatch bool
+	ServicesIR              []ir.Service
+	EntitiesIR              []ir.Entity
 }
 
 type MainServerRepositoriesContext struct {
@@ -56,6 +58,24 @@ type MainServerRepositoriesContext struct {
 	HasNotificationsService bool
 	HasNotificationDispatch bool
 	HasSQL                  bool
+	HasMongo                bool
+	HasCache                bool
+	HasS3                   bool
+	ServicesIR              []ir.Service
+	EntitiesIR              []ir.Entity
+}
+
+type MainServerRuntimeContainerContext struct {
+	AuthService             string
+	AuthRefreshStore        string
+	NotificationMuting      bool
+	HasNotificationsService bool
+	HasNotificationDispatch bool
+	HasSQL                  bool
+	HasMongo                bool
+	HasCache                bool
+	HasS3                   bool
+	GoModule                string
 	ServicesIR              []ir.Service
 	EntitiesIR              []ir.Entity
 }
@@ -91,6 +111,7 @@ type MainServerTemplateData struct {
 	Imports          MainServerImportsContext
 	Infrastructure   MainServerInfrastructureContext
 	Repositories     MainServerRepositoriesContext
+	RuntimeContainer MainServerRuntimeContainerContext
 	Services         MainServerServicesContext
 	HTTPRouter       MainServerHTTPRouterContext
 	WebSockets       MainServerWebSocketsContext
@@ -131,6 +152,8 @@ func buildMainServerTemplateData(ctx MainContext) MainServerTemplateData {
 			HasScheduler:            ctx.HasScheduler,
 			HasNotificationsService: ctx.HasNotificationsService,
 			HasNotificationDispatch: ctx.HasNotificationDispatch,
+			ServicesIR:              ctx.ServicesIR,
+			EntitiesIR:              ctx.EntitiesIR,
 		},
 		Repositories: MainServerRepositoriesContext{
 			AuthService:             ctx.AuthService,
@@ -139,6 +162,23 @@ func buildMainServerTemplateData(ctx MainContext) MainServerTemplateData {
 			HasNotificationsService: ctx.HasNotificationsService,
 			HasNotificationDispatch: ctx.HasNotificationDispatch,
 			HasSQL:                  ctx.HasSQL,
+			HasMongo:                ctx.HasMongo,
+			HasCache:                ctx.HasCache,
+			HasS3:                   ctx.HasS3,
+			ServicesIR:              ctx.ServicesIR,
+			EntitiesIR:              ctx.EntitiesIR,
+		},
+		RuntimeContainer: MainServerRuntimeContainerContext{
+			AuthService:             ctx.AuthService,
+			AuthRefreshStore:        ctx.AuthRefreshStore,
+			NotificationMuting:      ctx.NotificationMuting,
+			HasNotificationsService: ctx.HasNotificationsService,
+			HasNotificationDispatch: ctx.HasNotificationDispatch,
+			HasSQL:                  ctx.HasSQL,
+			HasMongo:                ctx.HasMongo,
+			HasCache:                ctx.HasCache,
+			HasS3:                   ctx.HasS3,
+			GoModule:                ctx.GoModule,
 			ServicesIR:              ctx.ServicesIR,
 			EntitiesIR:              ctx.EntitiesIR,
 		},
@@ -177,6 +217,7 @@ func (e *Emitter) parseMainServerTemplate() (*template.Template, error) {
 		"templates/main_server/http_router.tmpl",
 		"templates/main_server/websockets.tmpl",
 		"templates/main_server/graceful_shutdown.tmpl",
+		"templates/main_server/runtime_container.tmpl",
 	}
 	t := template.New("main_server").Funcs(e.getAppFuncMap())
 	for _, p := range paths {
@@ -296,6 +337,14 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 	appFuncs["HasEntityByNameIR"] = func(entities []ir.Entity, name string) bool {
 		for _, ent := range entities {
 			if strings.EqualFold(ent.Name, name) {
+				return true
+			}
+		}
+		return false
+	}
+	appFuncs["HasServiceByNameIR"] = func(services []ir.Service, name string) bool {
+		for _, svc := range services {
+			if strings.EqualFold(svc.Name, name) {
 				return true
 			}
 		}
@@ -840,6 +889,9 @@ func (e *Emitter) EmitMain(ctx MainContext) error {
 	if err != nil {
 		return err
 	}
+	if err := e.EmitRuntimeContainer(ctx); err != nil {
+		return err
+	}
 
 	targetDir := filepath.Join(e.OutputDir, "cmd", "server")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
@@ -855,4 +907,27 @@ func (e *Emitter) EmitMain(ctx MainContext) error {
 		return err
 	}
 	return WriteFileIfChanged(filepath.Join(targetDir, "main.go"), formatted, 0644)
+}
+
+func (e *Emitter) EmitRuntimeContainer(ctx MainContext) error {
+	t, err := e.parseMainServerTemplate()
+	if err != nil {
+		return err
+	}
+
+	targetDir := filepath.Join(e.OutputDir, "internal", "bootstrap")
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return fmt.Errorf("create directory: %w", err)
+	}
+
+	data := buildMainServerTemplateData(ctx)
+	var buf bytes.Buffer
+	if err := t.ExecuteTemplate(&buf, "main_server_runtime_container", data.RuntimeContainer); err != nil {
+		return err
+	}
+	formatted, err := formatGoStrict(buf.Bytes(), "internal/bootstrap/runtime_container.go")
+	if err != nil {
+		return err
+	}
+	return WriteFileIfChanged(filepath.Join(targetDir, "runtime_container.go"), formatted, 0644)
 }

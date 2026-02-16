@@ -1,43 +1,35 @@
 {{ define "main_server_repositories" }}
-	{{- $needsRefreshStore := ne .AuthService "" }}
-	{{- if $needsRefreshStore }}
-	var refreshStore port.RefreshTokenStore
-	{{- if eq .AuthRefreshStore "memory" }}
-	refreshStore = authstore.NewMemoryStore()
-	{{- else if eq .AuthRefreshStore "redis" }}
-	refreshStore = authredis.NewStore(redisClient)
-	{{- else if eq .AuthRefreshStore "postgres" }}
-	refreshStore = authpg.NewStore(pgPool)
-	{{- else if eq .AuthRefreshStore "hybrid" }}
-	refreshStore = authhybrid.NewStore(authpg.NewStore(pgPool), authredis.NewStore(redisClient))
-	{{- else }}
-	refreshStore = authstore.NewMemoryStore()
-	{{- end }}
-	{{- end }}
-
-	{{- range AllRepoEntitiesIR .EntitiesIR }}
-	{{- if and $.NotificationMuting (eq . "Notification") }}
-	var repoNotification port.NotificationRepository
-	{{- if eq (EntityStorageByNameIR $.EntitiesIR .) "mongo" }}
-	repoNotification = mongorepo.NewNotificationRepository(mongoClient, cfg.MongoDatabase)
-	{{- else }}
-	repoNotification = postgres.NewNotificationRepository(pgPool)
-	{{- end }}
-	{{- else }}
-	{{- if eq (EntityStorageByNameIR $.EntitiesIR .) "mongo" }}
-	repo{{ ExportName . }} := mongorepo.New{{ ExportName . }}Repository(mongoClient, cfg.MongoDatabase)
-	{{- else }}
-	repo{{ ExportName . }} := postgres.New{{ ExportName . }}Repository(pgPool)
-	{{- end }}
-	{{- end }}
-	{{- end }}
+	runtimeContainer, err := bootstrap.NewRuntimeContainer(
+		ctx,
+		cfg,
+		{{- if or .HasSQL (HasRepoEntitiesIR .ServicesIR .EntitiesIR) }}
+		pgPool,
+		{{- end }}
+		{{- if .HasMongo }}
+		mongoClient,
+		{{- end }}
+		{{- if or .HasCache (or (eq .AuthRefreshStore "redis") (eq .AuthRefreshStore "hybrid")) }}
+		redisClient,
+		{{- end }}
+		natsClient,
+		{{- if .HasS3 }}
+		s3Client,
+		{{- end }}
+		{{- if or .HasNotificationsService .HasNotificationDispatch }}
+		notificationDispatcher,
+		{{- end }}
+	)
+	if err != nil {
+		log.Error("Failed to build runtime container", "error", err)
+		os.Exit(1)
+	}
 
 	{{- if and .AuthService (HasEntityByNameIR .EntitiesIR "User") }}
 	transport.SetVerifiedUserChecker(func(ctx context.Context, userID string) (bool, error) {
 		if strings.TrimSpace(userID) == "" {
 			return false, nil
 		}
-		u, err := repoUser.FindByID(ctx, userID)
+		u, err := runtimeContainer.RepoUser.FindByID(ctx, userID)
 		if err != nil {
 			return false, err
 		}
@@ -48,11 +40,9 @@
 	})
 	{{- end }}
 
-	{{- if .NotificationMuting }}
-	repoNotification = adapter.NewMutingNotificationRepo(repoNotification, repoUser)
-	{{- if or .HasNotificationsService .HasNotificationDispatch }}
+	{{- if and .NotificationMuting (or .HasNotificationsService .HasNotificationDispatch) (HasEntityByNameIR .EntitiesIR "User") }}
 	notificationDispatcher.UserMuteChecker = func(ctx context.Context, userID string, msg port.NotificationMessage) (bool, error) {
-		user, err := repoUser.FindByID(ctx, userID)
+		user, err := runtimeContainer.RepoUser.FindByID(ctx, userID)
 		if err != nil {
 			return false, err
 		}
@@ -65,14 +55,5 @@
 		}
 		return adapter.IsNotificationMuted(user, muteType), nil
 	}
-	{{- end }}
-	{{- end }}
-
-	{{- if and .HasSQL (AnyServiceHasIdempotencyOrOutboxIR .ServicesIR) }}
-	repoSystem := postgres.NewSystemRepository(pgPool)
-	{{- end }}
-
-	{{- if HasTxServicesIR .ServicesIR }}
-	txManager := postgres.NewTxManager(pgPool)
 	{{- end }}
 {{ end }}

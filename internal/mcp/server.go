@@ -827,10 +827,16 @@ func Run() {
 			})
 		})
 	}
-	registerDBTools(addTool)
-	registerAnalysisTools(addTool)
-	registerPlanTools(addTool)
-	registerCoreTools(addTool, coreToolDeps{
+
+	toolCatalog := map[string]mcp.Tool{}
+	addToolWithCatalog := func(name string, tool mcp.Tool, h func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error)) {
+		toolCatalog[name] = tool
+		addTool(name, tool, h)
+	}
+	registerDBTools(addToolWithCatalog)
+	registerAnalysisTools(addToolWithCatalog)
+	registerPlanTools(addToolWithCatalog)
+	registerCoreTools(addToolWithCatalog, coreToolDeps{
 		currentProfile:     currentProfile,
 		runtimeConfigPath:  runtimeConfigPath,
 		runtimeConfigError: runtimeConfigError,
@@ -843,7 +849,33 @@ func Run() {
 		snapshotLimits:     snapshotLimits,
 		mcpSchemaVersion:   mcpSchemaVersion,
 	})
-	registerCUETools(addTool)
+	registerCUETools(addToolWithCatalog)
+	registerListTools := func(name string) {
+		addToolWithCatalog(name, mcp.NewTool(name,
+			mcp.WithDescription("List all registered MCP tools with descriptions."),
+		), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			type toolItem struct {
+				Name        string `json:"name"`
+				Description string `json:"description,omitempty"`
+			}
+			tools := make([]toolItem, 0, len(toolCatalog))
+			for name, def := range toolCatalog {
+				tools = append(tools, toolItem{
+					Name:        name,
+					Description: strings.TrimSpace(def.Description),
+				})
+			}
+			sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
+			out := map[string]any{
+				"count": len(tools),
+				"tools": tools,
+			}
+			b, _ := json.MarshalIndent(out, "", "  ")
+			return mcp.NewToolResultText(string(b)), nil
+		})
+	}
+	registerListTools("list_tools")
+	registerListTools("ang_list_tools")
 	registerPrompts(s)
 
 	if err := server.ServeStdio(s); err != nil {

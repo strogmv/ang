@@ -63,6 +63,7 @@ import "github.com/strogmv/ang/cue/project"
 #CodeBlock: {
 	lang: string
 	tx?: bool
+	flowFirstBypass?: bool
 	code: string
 	imports?: [...string] | string
 }

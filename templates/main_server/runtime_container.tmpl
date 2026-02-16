@@ -1,0 +1,176 @@
+{{ define "main_server_runtime_container" }}
+package bootstrap
+
+import (
+	"context"
+	{{- $needsPG := or .HasSQL (HasRepoEntitiesIR .ServicesIR .EntitiesIR) }}
+	{{- if $needsPG }}
+	"github.com/jackc/pgx/v5/pgxpool"
+	{{- end }}
+	{{- if .HasMongo }}
+	"go.mongodb.org/mongo-driver/mongo"
+	{{- end }}
+	{{- if or .HasCache (or (eq .AuthRefreshStore "redis") (eq .AuthRefreshStore "hybrid")) }}
+	"github.com/redis/go-redis/v9"
+	{{- end }}
+
+	{{- if and .AuthService (eq .AuthRefreshStore "memory") }}
+	authstore "{{.GoModule}}/internal/adapter/auth/memory"
+	{{- end }}
+	{{- if and .AuthService (or (eq .AuthRefreshStore "redis") (eq .AuthRefreshStore "hybrid")) }}
+	authredis "{{.GoModule}}/internal/adapter/auth/redis"
+	{{- end }}
+	{{- if and .AuthService (or (eq .AuthRefreshStore "postgres") (eq .AuthRefreshStore "hybrid")) }}
+	authpg "{{.GoModule}}/internal/adapter/auth/postgres"
+	{{- end }}
+	{{- if and .AuthService (eq .AuthRefreshStore "hybrid") }}
+	authhybrid "{{.GoModule}}/internal/adapter/auth/hybrid"
+	{{- end }}
+	{{- if .NotificationMuting }}
+	"{{.GoModule}}/internal/adapter"
+	{{- end }}
+	{{- if $needsPG }}
+	"{{.GoModule}}/internal/adapter/repository/postgres"
+	{{- end }}
+	{{- if HasMongoRepoEntitiesIR .EntitiesIR }}
+	mongorepo "{{.GoModule}}/internal/adapter/repository/mongo"
+	{{- end }}
+	"{{.GoModule}}/internal/config"
+	"{{.GoModule}}/internal/port"
+	"{{.GoModule}}/internal/service"
+)
+
+type RuntimeContainer struct {
+	{{- if and .AuthService (HasEntityByNameIR .EntitiesIR "User") }}
+	RepoUser port.UserRepository
+	{{- end }}
+	{{- range .ServicesIR }}
+	Svc{{ .Name }} port.{{ .Name }}
+	{{- end }}
+}
+
+func NewRuntimeContainer(
+	ctx context.Context,
+	cfg *config.Config,
+	{{- if $needsPG }}
+	pgPool *pgxpool.Pool,
+	{{- end }}
+	{{- if .HasMongo }}
+	mongoClient *mongo.Client,
+	{{- end }}
+	{{- if or .HasCache (or (eq .AuthRefreshStore "redis") (eq .AuthRefreshStore "hybrid")) }}
+	redisClient *redis.Client,
+	{{- end }}
+	publisher port.Publisher,
+	{{- if .HasS3 }}
+	s3Client port.FileStorage,
+	{{- end }}
+	{{- if or .HasNotificationsService .HasNotificationDispatch }}
+	notificationDispatcher port.NotificationDispatcher,
+	{{- end }}
+) (*RuntimeContainer, error) {
+	_ = ctx
+	c := &RuntimeContainer{}
+
+	{{- $needsRefreshStore := ne .AuthService "" }}
+	{{- if $needsRefreshStore }}
+	var refreshStore port.RefreshTokenStore
+	{{- if eq .AuthRefreshStore "memory" }}
+	refreshStore = authstore.NewMemoryStore()
+	{{- else if eq .AuthRefreshStore "redis" }}
+	refreshStore = authredis.NewStore(redisClient)
+	{{- else if eq .AuthRefreshStore "postgres" }}
+	refreshStore = authpg.NewStore(pgPool)
+	{{- else if eq .AuthRefreshStore "hybrid" }}
+	refreshStore = authhybrid.NewStore(authpg.NewStore(pgPool), authredis.NewStore(redisClient))
+	{{- else }}
+	refreshStore = authstore.NewMemoryStore()
+	{{- end }}
+	{{- end }}
+
+	{{- range AllRepoEntitiesIR .EntitiesIR }}
+	{{- if and $.NotificationMuting (eq . "Notification") }}
+	var repoNotification port.NotificationRepository
+	{{- if eq (EntityStorageByNameIR $.EntitiesIR .) "mongo" }}
+	repoNotification = mongorepo.NewNotificationRepository(mongoClient, cfg.MongoDatabase)
+	{{- else }}
+	repoNotification = postgres.NewNotificationRepository(pgPool)
+	{{- end }}
+	{{- else }}
+	{{- if eq (EntityStorageByNameIR $.EntitiesIR .) "mongo" }}
+	repo{{ ExportName . }} := mongorepo.New{{ ExportName . }}Repository(mongoClient, cfg.MongoDatabase)
+	{{- else }}
+	repo{{ ExportName . }} := postgres.New{{ ExportName . }}Repository(pgPool)
+	{{- end }}
+	{{- end }}
+	{{- end }}
+
+	{{- if and .NotificationMuting (HasEntityByNameIR .EntitiesIR "User") }}
+	repoNotification = adapter.NewMutingNotificationRepo(repoNotification, repoUser)
+	{{- end }}
+
+	{{- if and $needsPG (AnyServiceHasIdempotencyOrOutboxIR .ServicesIR) }}
+	repoSystem := postgres.NewSystemRepository(pgPool)
+	{{- end }}
+
+	{{- if and $needsPG (HasTxServicesIR .ServicesIR) }}
+	txManager := postgres.NewTxManager(pgPool)
+	{{- end }}
+
+	var svcAudit port.Audit
+	{{- if and (HasServiceByNameIR .ServicesIR "Audit") (HasEntityByNameIR .EntitiesIR "AuditLog") }}
+	svcAudit = service.NewAuditImpl(repoAuditLog)
+	c.SvcAudit = svcAudit
+	{{- end }}
+
+	{{- range .ServicesIR }}
+	{{- if ne .Name "Audit" }}
+	c.Svc{{ .Name }} = service.New{{ .Name }}Impl(
+		{{- range getRepoEntitiesIR . $.EntitiesIR }}
+		repo{{ ExportName . }},
+		{{- end }}
+		{{- range getServiceDepsIR . }}
+		c.Svc{{ ExportName . }},
+		{{- end }}
+		{{- if ServiceNeedsTxIR . }}
+		txManager,
+		{{- end }}
+		{{- if and $.AuthService (eq $.AuthService .Name) }}
+		cfg,
+		refreshStore,
+		{{- end }}
+		{{- if ServiceHasPublishesIR . }}
+		publisher,
+		{{- end }}
+		{{- if ServiceHasIdempotencyIR . }}
+			{{- if $needsPG }}
+		repoSystem,
+			{{- else }}
+		nil,
+			{{- end }}
+		{{- end }}
+		{{- if ServiceHasOutboxIR . }}
+			{{- if $needsPG }}
+		repoSystem,
+			{{- else }}
+		nil,
+			{{- end }}
+		{{- end }}
+		svcAudit,
+		{{- if .RequiresS3 }}
+		s3Client,
+		{{- end }}
+		{{- if ServiceHasNotificationDispatchIR . }}
+		notificationDispatcher,
+		{{- end }}
+	)
+	{{- end }}
+	{{- end }}
+
+	{{- if and .AuthService (HasEntityByNameIR .EntitiesIR "User") }}
+	c.RepoUser = repoUser
+	{{- end }}
+
+	return c, nil
+}
+{{ end }}

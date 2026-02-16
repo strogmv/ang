@@ -4,10 +4,9 @@ package memory
 import (
 	"context"
 	"fmt"
+	"github.com/strogmv/ang/internal/domain"
 	"reflect"
 	"sync"
-
-	"github.com/strogmv/ang/internal/domain"
 )
 
 type PostTagRepositoryStub struct {
