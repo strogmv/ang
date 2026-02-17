@@ -106,6 +106,50 @@ return resp, err
 	}
 }
 
+func TestExtractServices_ImplNamedReturnLint_AllowsMultiVarShortDecl(t *testing.T) {
+	// `x, err := foo()` is valid Go — `:=` is required for the new variable `x`.
+	// The linter should NOT flag this even though `err` is a named return.
+	ctx := cuecontext.New()
+	val := ctx.CompileString(`
+Login: {
+	service: "auth"
+	output: {
+		ok: bool
+	}
+	impls: go: {
+		code: """
+att, err := s.Repo.FindByID(ctx, req.ID)
+if err != nil { return resp, err }
+p, err := s.OtherRepo.Get(ctx, att.ID)
+if err != nil { return resp, err }
+_, err = doSomething()
+return resp, nil
+"""
+	}
+}
+`)
+	if err := val.Err(); err != nil {
+		t.Fatalf("compile CUE: %v", err)
+	}
+
+	n := New()
+	var warnings []Warning
+	n.WarningSink = func(w Warning) {
+		warnings = append(warnings, w)
+	}
+
+	_, err := n.ExtractServices(val, nil)
+	if err != nil {
+		t.Fatalf("ExtractServices failed: %v", err)
+	}
+
+	for _, w := range warnings {
+		if w.Code == "IMPL_NAMED_RETURN_ERR_SHORT_DECL" {
+			t.Fatalf("should NOT flag multi-var short decl like 'att, err :=', got: %+v", w)
+		}
+	}
+}
+
 func TestExtractServices_ImplNamedReturnLint_NotBypassedByFlowFirstBypass(t *testing.T) {
 	ctx := cuecontext.New()
 	val := ctx.CompileString(`

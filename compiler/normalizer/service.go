@@ -1956,29 +1956,49 @@ func validateNamedReturnImplCode(serviceName, methodName string, method Method, 
 			if n.Tok != token.DEFINE {
 				return true
 			}
+			// Count how many LHS identifiers are named-return shadows vs truly new.
+			// In Go, `x, err := foo()` is valid when x is new — `:=` is required.
+			// Only flag when `err` (or `resp`) is the SOLE LHS variable,
+			// meaning the developer should use `=` instead of `:=`.
+			hasErr := false
+			hasResp := false
+			hasOther := false
+			var errIdent, respIdent *ast.Ident
 			for _, lhs := range n.Lhs {
 				id, ok := lhs.(*ast.Ident)
 				if !ok {
+					hasOther = true
 					continue
 				}
 				switch id.Name {
-				case "resp":
-					if method.Output.Name != "" {
-						emit(violation{
-							code: "IMPL_NAMED_RETURN_RESP_SHORT_DECL",
-							msg:  "do not use 'resp :=' in impls.go.code when method uses named return",
-							hint: "Use assignment 'resp = ...' instead of short declaration",
-							pos:  id.Pos(),
-						})
-					}
 				case "err":
-					emit(violation{
-						code: "IMPL_NAMED_RETURN_ERR_SHORT_DECL",
-						msg:  "do not use 'err :=' in impls.go.code when method uses named return",
-						hint: "Use assignment 'err = ...' instead of short declaration",
-						pos:  id.Pos(),
-					})
+					hasErr = true
+					errIdent = id
+				case "resp":
+					hasResp = true
+					respIdent = id
+				case "_":
+					// blank identifier doesn't count as a new variable
+				default:
+					hasOther = true
 				}
+			}
+			// Only flag if no other new variables require `:=`
+			if hasErr && !hasOther && errIdent != nil {
+				emit(violation{
+					code: "IMPL_NAMED_RETURN_ERR_SHORT_DECL",
+					msg:  "do not use 'err :=' in impls.go.code when method uses named return",
+					hint: "Use assignment 'err = ...' instead of short declaration",
+					pos:  errIdent.Pos(),
+				})
+			}
+			if hasResp && !hasOther && method.Output.Name != "" && respIdent != nil {
+				emit(violation{
+					code: "IMPL_NAMED_RETURN_RESP_SHORT_DECL",
+					msg:  "do not use 'resp :=' in impls.go.code when method uses named return",
+					hint: "Use assignment 'resp = ...' instead of short declaration",
+					pos:  respIdent.Pos(),
+				})
 			}
 		}
 		return true
