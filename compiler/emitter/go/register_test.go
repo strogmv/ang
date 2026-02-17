@@ -10,6 +10,9 @@ import (
 func TestRegisterGoSteps_Smoke(t *testing.T) {
 	reg := generator.NewStepRegistry()
 	Register(reg, RegisterInput{})
+	if err := reg.Err(); err != nil {
+		t.Fatalf("registry should be valid and deterministic, got error: %v", err)
+	}
 	steps := reg.Steps()
 	if len(steps) < 10 {
 		t.Fatalf("expected many go steps, got %d", len(steps))
@@ -20,6 +23,16 @@ func TestRegisterGoSteps_Smoke(t *testing.T) {
 	}
 	if !hasCapability(mainStep.Requires, compiler.CapabilityProfileGoLegacy) {
 		t.Fatalf("Server Main must require profile_go_legacy capability")
+	}
+
+	serviceImplSteps := 0
+	for _, step := range steps {
+		if step.ArtifactKey == "go:service_impl" {
+			serviceImplSteps++
+		}
+	}
+	if serviceImplSteps != 1 {
+		t.Fatalf("expected exactly one active service impl emitter path, got %d", serviceImplSteps)
 	}
 }
 

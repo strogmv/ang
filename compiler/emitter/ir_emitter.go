@@ -4,6 +4,7 @@ package emitter
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
@@ -41,6 +42,7 @@ func IREntitiesToNormalizer(irEntities []ir.Entity) []normalizer.Entity {
 	for _, e := range irEntities {
 		result = append(result, IREntityToNormalizer(e))
 	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 	return result
 }
 
@@ -285,8 +287,11 @@ func IRTypeRefToGoType(t ir.TypeRef) string {
 func IRServicesToNormalizer(irServices []ir.Service) []normalizer.Service {
 	result := make([]normalizer.Service, 0, len(irServices))
 	for _, s := range irServices {
-		result = append(result, IRServiceToNormalizer(s))
+		svc := IRServiceToNormalizer(s)
+		sort.Slice(svc.Methods, func(i, j int) bool { return svc.Methods[i].Name < svc.Methods[j].Name })
+		result = append(result, svc)
 	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 	return result
 }
 
@@ -499,6 +504,18 @@ func IREndpointsToNormalizer(irEndpoints []ir.Endpoint) []normalizer.Endpoint {
 
 		result = append(result, endpoint)
 	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].ServiceName != result[j].ServiceName {
+			return result[i].ServiceName < result[j].ServiceName
+		}
+		if result[i].Path != result[j].Path {
+			return result[i].Path < result[j].Path
+		}
+		if result[i].Method != result[j].Method {
+			return result[i].Method < result[j].Method
+		}
+		return result[i].RPC < result[j].RPC
+	})
 	return result
 }
 
@@ -538,9 +555,11 @@ func IRReposToNormalizer(irRepos []ir.Repository) []normalizer.Repository {
 
 			repo.Finders = append(repo.Finders, finder)
 		}
+		sort.Slice(repo.Finders, func(i, j int) bool { return repo.Finders[i].Name < repo.Finders[j].Name })
 
 		result = append(result, repo)
 	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 	return result
 }
 
@@ -555,6 +574,7 @@ func IREventsToNormalizer(irEvents []ir.Event) []normalizer.EventDef {
 			Source:   ev.Source,
 		})
 	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 	return result
 }
 

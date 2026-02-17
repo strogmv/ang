@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"sort"
 
 	"github.com/strogmv/ang/compiler/ir"
 )
@@ -39,6 +40,7 @@ func (e *Emitter) EmitManifest(schema *ir.Schema) error {
 	for _, ent := range schema.Entities {
 		manifest.Entities = append(manifest.Entities, ent.Name)
 	}
+	sort.Strings(manifest.Entities)
 
 	for _, svc := range schema.Services {
 		sSummary := ServiceSummary{
@@ -52,6 +54,9 @@ func (e *Emitter) EmitManifest(schema *ir.Schema) error {
 		for _, m := range svc.Methods {
 			sSummary.Methods = append(sSummary.Methods, m.Name)
 		}
+		sort.Strings(sSummary.Methods)
+		sort.Strings(sSummary.Publishes)
+		sort.Strings(sSummary.DependsOn)
 
 		if svc.RequiresSQL {
 			sSummary.DependsOn = append(sSummary.DependsOn, "Postgres")
@@ -71,6 +76,7 @@ func (e *Emitter) EmitManifest(schema *ir.Schema) error {
 
 		manifest.Services = append(manifest.Services, sSummary)
 	}
+	sort.Slice(manifest.Services, func(i, j int) bool { return manifest.Services[i].Name < manifest.Services[j].Name })
 
 	for _, ev := range schema.Events {
 		eSummary := EventSummary{
@@ -80,8 +86,10 @@ func (e *Emitter) EmitManifest(schema *ir.Schema) error {
 		for _, f := range ev.Fields {
 			eSummary.Fields = append(eSummary.Fields, f.Name)
 		}
+		sort.Strings(eSummary.Fields)
 		manifest.Events = append(manifest.Events, eSummary)
 	}
+	sort.Slice(manifest.Events, func(i, j int) bool { return manifest.Events[i].Name < manifest.Events[j].Name })
 
 	data, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {

@@ -1,4 +1,4 @@
-.PHONY: build install test lint clean check all mcp-gen release-smoke benchmark-3iter
+.PHONY: build install test lint clean check all mcp-gen release-smoke benchmark-3iter determinism-plan-apply
 
 # Build the ang CLI
 build:
@@ -45,3 +45,8 @@ release-smoke:
 benchmark-3iter: build
 	@echo "--- 3-Iteration Backend Benchmark ---"
 	./benchmarks/three_iteration_marketplace/run.sh
+
+# Verify deterministic output across plan/apply phases (release mode)
+determinism-plan-apply:
+	@echo "--- Determinism Plan/Apply ---"
+	bash ./scripts/ci_determinism_plan_apply.sh

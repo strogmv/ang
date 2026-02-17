@@ -71,6 +71,13 @@ jobs:
           find dist/release -type f -print0 | sort -z | xargs -0 sha256sum > /tmp/ang-release-hash-2.txt
           diff -u /tmp/ang-release-hash-1.txt /tmp/ang-release-hash-2.txt
 
+      - name: Deterministic Build Phases (plan/apply)
+        env:
+          ANG_PY_SDK: "1"
+          ANG_FRONTEND_TSC: "1"
+        run: |
+          bash ./scripts/ci_determinism_plan_apply.sh
+
       - name: OpenAPI Parity (Go vs Python, fail-fast)
         run: |
           diff -u dist/release/go-service/api/openapi.yaml dist/release/python-service/api/openapi.yaml

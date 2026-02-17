@@ -276,7 +276,13 @@ func (e *Emitter) EmitHTTP(irEndpoints []ir.Endpoint, irServices []ir.Service, i
 		}
 	}
 
-	for _, group := range groups {
+	groupNames := make([]string, 0, len(groups))
+	for name := range groups {
+		groupNames = append(groupNames, name)
+	}
+	sort.Strings(groupNames)
+	for _, groupName := range groupNames {
+		group := groups[groupName]
 		var buf bytes.Buffer
 
 		hasBroadcastInGroup := false
@@ -484,7 +490,13 @@ func (e *Emitter) EmitWebSocket(irEndpoints []ir.Endpoint, irServices []ir.Servi
 		})
 	}
 
-	for _, group := range groups {
+	wsGroupNames := make([]string, 0, len(groups))
+	for name := range groups {
+		wsGroupNames = append(wsGroupNames, name)
+	}
+	sort.Strings(wsGroupNames)
+	for _, groupName := range wsGroupNames {
+		group := groups[groupName]
 		var buf bytes.Buffer
 		if err := t.Execute(&buf, group); err != nil {
 			return fmt.Errorf("execute template: %w", err)
