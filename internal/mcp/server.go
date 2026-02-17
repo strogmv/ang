@@ -757,46 +757,6 @@ func Run() {
 		return mcp.NewToolResultText(string(b))
 	}
 
-	normalizeToolResult := func(name string, resp *mcp.CallToolResult) *mcp.CallToolResult {
-		if resp == nil {
-			return toolEnvelope(name, "ok", map[string]any{}, nil)
-		}
-		if resp.StructuredContent != nil {
-			return toolEnvelope(name, "ok", resp.StructuredContent, nil)
-		}
-
-		var text string
-		for _, c := range resp.Content {
-			tc, ok := c.(mcp.TextContent)
-			if ok {
-				text = tc.Text
-				break
-			}
-		}
-		if text == "" {
-			st := "ok"
-			if resp.IsError {
-				st = "tool_error"
-			}
-			return toolEnvelope(name, st, map[string]any{"note": "non-text MCP content"}, nil)
-		}
-
-		var parsed any
-		if json.Unmarshal([]byte(text), &parsed) == nil {
-			st := "ok"
-			if resp.IsError {
-				st = "tool_error"
-			}
-			return toolEnvelope(name, st, parsed, nil)
-		}
-
-		st := "ok"
-		if resp.IsError {
-			st = "tool_error"
-		}
-		return toolEnvelope(name, st, map[string]any{"message": text}, nil)
-	}
-
 	addTool := func(name string, tool mcp.Tool, h func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error)) {
 		s.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (resp *mcp.CallToolResult, err error) {
 			return safeInvokeTool(name, envelopeEnabled(), toolEnvelope, func() (*mcp.CallToolResult, error) {
@@ -821,7 +781,7 @@ func Run() {
 				sessionState.LastAction = name
 				sessionState.Unlock()
 				if envelopeEnabled() {
-					return normalizeToolResult(name, resp), nil
+					return normalizeToolResultEnvelope(name, resp, toolEnvelope), nil
 				}
 				return resp, nil
 			})
