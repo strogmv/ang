@@ -298,16 +298,24 @@ cd tests && npm install && npm run test:e2e
 
 ## CLI Usage
 
-*   `ang init` — Initialize project
-*   `ang validate` — Validate CUE architecture
-*   `ang build` — Generate code
-*   `ang migrate diff <name>` — Create migration
-*   `ang migrate apply` — Apply migrations
-*   `ang vet` — Lint generated code
-*   `ang draw` — Visualize architecture
-*   `ang api-diff` — Check API breaking changes
-*   `ang contract-test` — Run contract tests
-*   `ang_doctor` — AI-powered self-diagnosis and fix suggestions (MCP only)
+*   `ang init [dir] --template saas|ecommerce|marketplace` — Bootstrap a project from template
+*   `ang validate` — Validate CUE models and architecture
+*   `ang lint` — Deep semantic linting for flow and embedded logic
+*   `ang build` — Compile CUE intent into code/infra (`--mode`, `--phase=all|plan|apply`, `--out-plan`, `--plan-file`)
+*   `ang db sync` — Sync DB schema with current CUE intent
+*   `ang migrate diff <name>` / `ang migrate apply` — Atlas migration workflow
+*   `ang api-diff` — Compare OpenAPI snapshots and suggest semver bump
+*   `ang contract-test` — Run generated HTTP/WS contract tests
+*   `ang test gen` — Generate flow-derived test scenarios
+*   `ang vet` / `ang vet logic` — Audit architecture invariants and embedded Go snippets
+*   `ang rbac actions` / `ang rbac inspect` — RBAC action map and policy audit
+*   `ang events map` — Publisher/subscriber event map
+*   `ang doctor` — Analyze build failures and suggest concrete fixes
+*   `ang draw` — Generate architecture diagrams
+*   `ang explain <CODE>` — Explain lint/build diagnostic codes
+*   `ang hash` — Print CUE/templates hash for deterministic traceability
+*   `ang mcp` — Run MCP server over stdio
+*   `ang lsp --stdio` — Run ANG language server (MVP diagnostics)
 
 ## Release Demo: Python SDK Generation
 
@@ -333,33 +341,51 @@ python -c "from ang_sdk import AngClient; print('ok')"
 
 ## Features
 
-### AI-Native Intelligence
+### Compiler Reliability and Determinism
 
-*   **Behavioral Scenarios (Stage 31):** Define complex business flows in CUE to automatically generate Go-based E2E integration tests.
-*   **AI Healer (Stage 32):** The `ang_doctor` tool analyzes build logs and CUE intent to provide structured "diagnoses" and automated fix suggestions for common errors.
-*   **Client-Side Security SDK (Stage 33):** Support for Zero-Knowledge architecture via `@encrypt(client_side="true")`. ANG generates TypeScript code to encrypt sensitive data on the client before it ever touches the server.
+*   **Two-phase build:** `plan` and `apply` phases for predictable generation and dry-run friendly workflows.
+*   **Deterministic generation:** stable hashes (`ang hash`), stable template paths, and fixed pipeline contracts.
+*   **Single active service emitter path:** guarded by tests to prevent diverging service-impl generation routes.
+*   **Flow-first governance:** build diagnostics enforce migration from raw impls to Flow DSL; bypass requires explicit `flowFirstBypassReason`.
+*   **Early diagnostics:** compile-time semantic checks for CUE/IR/policy consistency before Go generation.
 
-### Backend Generation
+### Flow DSL and Backend Generation
 
-*   **Declarative Logic Flow:** Business logic is described as a chain of abstract actions. Supports nested control structures like `flow.If`, `flow.For`, and `tx.Block`, enabling complex orchestration without manual Go boilerplate.
-*   **State Machine (FSM):** Entities define strict state transition rules. ANG automatically generates `CanTransitionTo` and `TransitionTo` methods, ensuring process integrity.
-*   **Domain:** Entities, ports, repositories, stubs, adapters. Standardized `ID` naming convention (e.g., `UserID`, `CompanyID`) automatically enforced by the compiler.
-*   **Documentation:** Automatic propagation of `description` from CUE to Go comments for `godoc` support.
-*   **HTTP:** Handlers, routing, validation, RFC 9457 errors. Conditional imports to prevent unused package errors.
-*   **Auth:** JWT with automated key loading from `.pem` files or ENV.
-*   **RBAC:** Role/permission matrix with generated checks.
-*   **Events:** Typed domain events, publisher interfaces, NATS adapter.
-*   **Scheduler:** Autonomous cron-like tasks with configurable intervals.
-*   **Observability:** Tracing, metrics, structured logging.
-*   **Specs:** OpenAPI & AsyncAPI from CUE.
+*   **Declarative flow engine:** logic expressed through actions (mapping/repo/list/auth/logic/tx/notification) with nested control flow.
+*   **Repository + transport generation:** ports, adapters (postgres/mongo/memory), HTTP/WS handlers, and service impls.
+*   **Policy-aware middleware wiring:** endpoint contracts (auth/idempotency/timeout/cache/rate limits) compiled into runtime middleware.
+*   **Domain consistency:** standardized ID naming (`UserID`, `CompanyID`, etc.), DTO/domain generation, RFC 9457 error stack.
+*   **Infra scaffolding:** config/logger/tracing/metrics/circuit-breaker/presence/scheduler, plus OpenAPI and AsyncAPI generation.
 
-### Frontend SDK (TypeScript)
+### Policy-as-Code Runtime Safety Rails
 
-*   **API Client:** Axios with standardized naming, trace context, and RFC 9457 errors.
-*   **Strict Typing:** Zero-error TypeScript generation with support for TanStack Query v5.
-*   **WebSocket:** Typed events with dynamic MSW v2 mocking support based on CUE definitions.
-*   **React Query:** Modern hooks with automatic invalidation and optimistic updates.
-*   **MSW Mocks:** Dynamically generated handlers for both HTTP and WebSocket streams.
+*   **Idempotency:** idempotency keys storage + middleware integration from endpoint policy.
+*   **Outbox pattern:** generated outbox ports/schema for reliable event delivery flows.
+*   **Auth + RBAC policies:** generated checks and inspection tools (`ang rbac actions|inspect`).
+*   **Timeouts and resilience:** generated timeout middleware and circuit breaker primitives.
+*   **Contract validation:** policy parity checks and build-time policy normalization.
+
+### Notifications and Templates
+
+*   **Channel-aware dispatcher:** generated notification dispatcher runtime with pluggable channel sinks.
+*   **Notification muting:** generated muting decorator and policy-based filtering before delivery.
+*   **Template catalog from CUE:** universal `#Templates` support with channel/engine fields.
+*   **Build-time template safety:** validates `requiredVars`/`optionalVars` names, duplicates, overlaps, and usage in `go_template` content.
+*   **Email runtime support:** generated template rendering package and mailer port/adapters.
+
+### Contract-Driven SDK (TypeScript)
+
+*   **Typed API client + normalized errors:** generated `error-normalizer` with unified backend error handling.
+*   **Endpoint metadata export:** `endpointMeta` includes method/path and contract fields (idempotency, timeout, auth roles, cache).
+*   **Auto-idempotency in client:** request interceptor auto-injects `Idempotency-Key` on idempotent non-GET endpoints.
+*   **Auto-invalidation:** generated invalidation map for stores/hooks after mutations.
+*   **Full SDK bundle:** endpoints, hooks, queries, stores, schemas, mocks, websocket helpers, and route helpers.
+
+### AI-Native Tooling
+
+*   **MCP server (`ang mcp`):** intent-first operations for AI agents with envelope compatibility modes.
+*   **Doctor and explain tools:** build-log diagnosis and diagnostic-code explanation.
+*   **Flow references for agents:** `cue/GOLDEN_EXAMPLES.cue`, Flow DSL schema/helpers, and strict CUE-first workflow policy.
 
 ## Validation Pipeline
 
