@@ -151,6 +151,7 @@
       "OptimisticUpdate": "",
       "RateLimit": null,
       "CircuitBreaker": null,
+      "Retry": null,
       "Timeout": "",
       "MaxBodySize": 0,
       "Idempotent": false,

@@ -48,6 +48,13 @@ func TestIRRoundTrip(t *testing.T) {
 				Timeout:     "1m",
 				HalfOpenMax: 3,
 			},
+			RetryPolicy: &normalizer.RetryPolicyDef{
+				Enabled:            true,
+				MaxAttempts:        3,
+				BaseDelayMS:        100,
+				RetryOnStatuses:    []int{429, 500},
+				RetryNetworkErrors: true,
+			},
 			SLO: normalizer.SLODef{
 				Latency: "200ms",
 				Success: "99.9%",

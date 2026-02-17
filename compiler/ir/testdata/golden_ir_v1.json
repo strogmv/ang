@@ -73,6 +73,10 @@
       "type": "*ir.RateLimit"
     },
     {
+      "name": "Retry",
+      "type": "*ir.RetryPolicy"
+    },
+    {
       "name": "RoomParam",
       "type": "string"
     },
