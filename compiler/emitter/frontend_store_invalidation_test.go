@@ -160,6 +160,8 @@ func TestEmitFrontendSDK_EndpointMetaPolicyParity(t *testing.T) {
 		"timeout: '30s'",
 		"authRoles: ['owner', 'admin']",
 		"cacheTTL: '24h'",
+		"retryStrategy: {",
+		"maxAttempts: 3",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("expected %q in endpointMeta, got:\n%s", expected, text)

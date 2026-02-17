@@ -225,6 +225,7 @@ type Endpoint struct {
 	OptimisticUpdate string
 	RateLimit        *RateLimitDef
 	CircuitBreaker   *CircuitBreakerDef
+	RetryPolicy      *RetryPolicyDef
 	Timeout          string // Request timeout (e.g. "5s", "30s")
 	MaxBodySize      int64  // Request body size limit in bytes
 	Idempotency      bool
@@ -258,6 +259,14 @@ type CircuitBreakerDef struct {
 	Threshold   int    // количество ошибок до открытия
 	Timeout     string // "30s" — время в состоянии Open
 	HalfOpenMax int    // макс запросов в Half-Open
+}
+
+type RetryPolicyDef struct {
+	Enabled            bool
+	MaxAttempts        int
+	BaseDelayMS        int
+	RetryOnStatuses    []int
+	RetryNetworkErrors bool
 }
 
 type SLODef struct {

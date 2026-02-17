@@ -1766,6 +1766,42 @@ func (n *Normalizer) ExtractEndpoints(val cue.Value) ([]Endpoint, error) {
 			ep.CircuitBreaker = cb
 		}
 
+		retryVal := epVal.LookupPath(cue.ParsePath("retry"))
+		if retryVal.Exists() {
+			rp := &RetryPolicyDef{
+				Enabled:            true,
+				MaxAttempts:        3,
+				BaseDelayMS:        200,
+				RetryOnStatuses:    []int{429, 502, 503, 504},
+				RetryNetworkErrors: true,
+			}
+			if v, err := retryVal.LookupPath(cue.ParsePath("enabled")).Bool(); err == nil {
+				rp.Enabled = v
+			}
+			if v, err := retryVal.LookupPath(cue.ParsePath("max_attempts")).Int64(); err == nil {
+				rp.MaxAttempts = int(v)
+			}
+			if v, err := retryVal.LookupPath(cue.ParsePath("base_delay_ms")).Int64(); err == nil {
+				rp.BaseDelayMS = int(v)
+			}
+			if v, err := retryVal.LookupPath(cue.ParsePath("retry_network_errors")).Bool(); err == nil {
+				rp.RetryNetworkErrors = v
+			}
+			if statuses := retryVal.LookupPath(cue.ParsePath("retry_on_statuses")); statuses.Exists() && statuses.Kind() == cue.ListKind {
+				var parsed []int
+				it, _ := statuses.List()
+				for it.Next() {
+					if iv, err := it.Value().Int64(); err == nil {
+						parsed = append(parsed, int(iv))
+					}
+				}
+				if len(parsed) > 0 {
+					rp.RetryOnStatuses = parsed
+				}
+			}
+			ep.RetryPolicy = rp
+		}
+
 		msgVal := epVal.LookupPath(cue.ParsePath("messages"))
 		if msgVal.Exists() {
 			switch msgVal.IncompleteKind() {

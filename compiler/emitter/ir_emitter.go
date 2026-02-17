@@ -465,6 +465,15 @@ func IREndpointsToNormalizer(irEndpoints []ir.Endpoint) []normalizer.Endpoint {
 				HalfOpenMax: ep.CircuitBreaker.HalfOpenMax,
 			}
 		}
+		if ep.Retry != nil {
+			endpoint.RetryPolicy = &normalizer.RetryPolicyDef{
+				Enabled:            ep.Retry.Enabled,
+				MaxAttempts:        ep.Retry.MaxAttempts,
+				BaseDelayMS:        ep.Retry.BaseDelayMS,
+				RetryOnStatuses:    initializeIntSlice(ep.Retry.RetryOnStatuses),
+				RetryNetworkErrors: ep.Retry.RetryNetworkErrors,
+			}
+		}
 
 		if ep.Pagination != nil {
 			endpoint.Pagination = &normalizer.PaginationDef{
@@ -608,6 +617,13 @@ func getBoolArg(args map[string]any, key string) bool {
 func initializeSlice(s []string) []string {
 	if s == nil {
 		return []string{}
+	}
+	return s
+}
+
+func initializeIntSlice(s []int) []int {
+	if s == nil {
+		return []int{}
 	}
 	return s
 }

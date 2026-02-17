@@ -17,7 +17,17 @@ type EndpointPolicy struct {
 	MaxBodySize    int64
 	RateLimit      *normalizer.RateLimitDef
 	CircuitBreaker *normalizer.CircuitBreakerDef
+	Retry          RetryPolicy
 	Validation     ValidationPolicy
+}
+
+// RetryPolicy controls generated SDK retries.
+type RetryPolicy struct {
+	Enabled            bool
+	MaxAttempts        int
+	BaseDelayMS        int
+	RetryOnStatuses    []int
+	RetryNetworkErrors bool
 }
 
 // ValidationPolicy carries endpoint-level validation contract.
@@ -46,6 +56,7 @@ func FromEndpoint(ep normalizer.Endpoint) EndpointPolicy {
 		cb := *ep.CircuitBreaker
 		p.CircuitBreaker = &cb
 	}
+	p.Retry = retryPolicy(ep)
 	p.Validation.RequiredHeaders = append(p.Validation.RequiredHeaders, requiredHeaders(ep)...)
 	return p
 }
@@ -58,6 +69,42 @@ func requiredHeaders(ep normalizer.Endpoint) []string {
 	method := strings.ToUpper(ep.Method)
 	if ep.Idempotency && method != "GET" && method != "WS" {
 		out = append(out, "Idempotency-Key")
+	}
+	return out
+}
+
+func retryPolicy(ep normalizer.Endpoint) RetryPolicy {
+	if ep.RetryPolicy != nil {
+		rp := RetryPolicy{
+			Enabled:            ep.RetryPolicy.Enabled,
+			MaxAttempts:        ep.RetryPolicy.MaxAttempts,
+			BaseDelayMS:        ep.RetryPolicy.BaseDelayMS,
+			RetryOnStatuses:    append([]int{}, ep.RetryPolicy.RetryOnStatuses...),
+			RetryNetworkErrors: ep.RetryPolicy.RetryNetworkErrors,
+		}
+		if rp.Enabled && rp.MaxAttempts <= 0 {
+			rp.MaxAttempts = 1
+		}
+		if rp.Enabled && rp.BaseDelayMS < 0 {
+			rp.BaseDelayMS = 0
+		}
+		return rp
+	}
+	method := strings.ToUpper(ep.Method)
+	isSafeMethod := method == "GET" || method == "HEAD"
+	retryable := ep.Idempotency || isSafeMethod
+	if !retryable {
+		return RetryPolicy{}
+	}
+	out := RetryPolicy{
+		Enabled:            true,
+		MaxAttempts:        3,
+		BaseDelayMS:        200,
+		RetryNetworkErrors: true,
+		RetryOnStatuses:    []int{429, 502, 503, 504},
+	}
+	if isSafeMethod && !ep.Idempotency {
+		out.MaxAttempts = 2
 	}
 	return out
 }

@@ -66,6 +66,12 @@ export const endpointMeta: Record<string, {
   authRoles?: string[];
   cacheTTL?: string;
   requiredHeaders?: string[];
+  retryStrategy?: {
+    maxAttempts: number;
+    baseDelayMs: number;
+    retryOnStatuses: number[];
+    retryNetworkErrors: boolean;
+  };
   invalidateStores?: string[];
 }> = {
 {{- range .Endpoints }}
@@ -88,6 +94,14 @@ export const endpointMeta: Record<string, {
     {{- end }}
     {{- if $policy.Validation.RequiredHeaders }}
     requiredHeaders: [{{- range $i, $h := $policy.Validation.RequiredHeaders }}{{ if $i }}, {{ end }}'{{ $h }}'{{- end }}],
+    {{- end }}
+    {{- if $policy.Retry.Enabled }}
+    retryStrategy: {
+      maxAttempts: {{ $policy.Retry.MaxAttempts }},
+      baseDelayMs: {{ $policy.Retry.BaseDelayMS }},
+      retryOnStatuses: [{{- range $i, $s := $policy.Retry.RetryOnStatuses }}{{ if $i }}, {{ end }}{{ $s }}{{- end }}],
+      retryNetworkErrors: {{ $policy.Retry.RetryNetworkErrors }},
+    },
     {{- end }}
     {{- $stores := MutationInvalidateStores . }}
     {{- if gt (len $stores) 0 }}

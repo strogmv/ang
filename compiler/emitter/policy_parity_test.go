@@ -67,6 +67,9 @@ func TestPolicyParity_BackendMiddlewareAndSDKMeta(t *testing.T) {
 		"authRoles: ['owner', 'admin']",
 		"cacheTTL: '24h'",
 		"requiredHeaders: ['Authorization', 'Idempotency-Key']",
+		"retryStrategy: {",
+		"maxAttempts: 3",
+		"retryOnStatuses: [429, 502, 503, 504]",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("sdk endpointMeta missing %q", expected)

@@ -370,6 +370,7 @@ type Endpoint struct {
 	OptimisticUpdate string
 	RateLimit        *RateLimit
 	CircuitBreaker   *CircuitBreaker
+	Retry            *RetryPolicy
 	Timeout          string // Request timeout (e.g. "5s", "30s")
 	MaxBodySize      int64  // Request body size limit in bytes
 	Idempotent       bool
@@ -407,6 +408,14 @@ type CircuitBreaker struct {
 	Threshold   int    // количество ошибок до открытия
 	Timeout     string // "30s" — время в состоянии Open
 	HalfOpenMax int    // макс запросов в Half-Open
+}
+
+type RetryPolicy struct {
+	Enabled            bool
+	MaxAttempts        int
+	BaseDelayMS        int
+	RetryOnStatuses    []int
+	RetryNetworkErrors bool
 }
 
 // SLO describes service level objectives.

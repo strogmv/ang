@@ -68,4 +68,10 @@ func TestEmitFrontendSDK_GeneratesErrorNormalizerModule(t *testing.T) {
 	if !strings.Contains(clientText, "normalizeApiError({") {
 		t.Fatalf("expected api-client.ts to use normalizeApiError")
 	}
+	if !strings.Contains(clientText, "const shouldRetry = (error: AxiosError)") {
+		t.Fatalf("expected api-client.ts to include typed retry strategy helper")
+	}
+	if !strings.Contains(clientText, "return apiClient.request(cfg);") {
+		t.Fatalf("expected api-client.ts to retry failed request based on endpoint metadata")
+	}
 }

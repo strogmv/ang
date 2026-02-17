@@ -1221,6 +1221,15 @@ func (e *Emitter) AnalyzeContextFromIR(schema *ir.Schema) MainContext {
 				HalfOpenMax: ep.CircuitBreaker.HalfOpenMax,
 			}
 		}
+		if ep.Retry != nil {
+			n.RetryPolicy = &normalizer.RetryPolicyDef{
+				Enabled:            ep.Retry.Enabled,
+				MaxAttempts:        ep.Retry.MaxAttempts,
+				BaseDelayMS:        ep.Retry.BaseDelayMS,
+				RetryOnStatuses:    initializeIntSlice(ep.Retry.RetryOnStatuses),
+				RetryNetworkErrors: ep.Retry.RetryNetworkErrors,
+			}
+		}
 		if ep.Pagination != nil {
 			n.Pagination = &normalizer.PaginationDef{
 				Type:         ep.Pagination.Type,

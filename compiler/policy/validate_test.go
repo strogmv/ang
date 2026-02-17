@@ -44,3 +44,21 @@ func TestValidateEndpoint_InvalidTimeout(t *testing.T) {
 		t.Fatalf("expected timeout validation error, got: %v", err)
 	}
 }
+
+func TestValidateEndpoint_InvalidRetryStatusCode(t *testing.T) {
+	t.Parallel()
+
+	ep := normalizer.Endpoint{
+		Method: "POST",
+		RetryPolicy: &normalizer.RetryPolicyDef{
+			Enabled:         true,
+			MaxAttempts:     2,
+			BaseDelayMS:     100,
+			RetryOnStatuses: []int{42},
+		},
+	}
+	err := ValidateEndpoint(ep)
+	if err == nil || !strings.Contains(err.Error(), "retry.retry_on_statuses") {
+		t.Fatalf("expected retry status validation error, got: %v", err)
+	}
+}

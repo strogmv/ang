@@ -32,5 +32,18 @@ func ValidateEndpoint(ep normalizer.Endpoint) error {
 			return fmt.Errorf("rate_limit values cannot be negative")
 		}
 	}
+	if ep.RetryPolicy != nil {
+		if ep.RetryPolicy.MaxAttempts < 0 {
+			return fmt.Errorf("retry.max_attempts cannot be negative")
+		}
+		if ep.RetryPolicy.BaseDelayMS < 0 {
+			return fmt.Errorf("retry.base_delay_ms cannot be negative")
+		}
+		for _, code := range ep.RetryPolicy.RetryOnStatuses {
+			if code < 100 || code > 599 {
+				return fmt.Errorf("retry.retry_on_statuses contains invalid HTTP code %d", code)
+			}
+		}
+	}
 	return nil
 }

@@ -562,6 +562,14 @@ import "github.com/strogmv/ang/cue/project"
 	half_open_max: int | *3      // запросов в Half-Open
 }
 
+#RetryPolicy: {
+	enabled?:              bool | *true
+	max_attempts?:         int | *3
+	base_delay_ms?:        int | *200
+	retry_on_statuses?:    [...int]
+	retry_network_errors?: bool | *true
+}
+
 #SecurityProfile: "baseline" | "strict" | "pci"
 
 #HTTP: {
@@ -588,6 +596,7 @@ import "github.com/strogmv/ang/cue/project"
 		optimistic_update?: string // GET RPC method to update optimistically
 		rate_limit?:      #RateLimitDef
 		circuit_breaker?: #CircuitBreaker
+		retry?:           #RetryPolicy
 		timeout?:         string // Request timeout (e.g. "5s", "30s", "1m")
 		max_body_size?:   string // Max request body size (e.g. "10mb", "100kb")
 		idempotency?: bool

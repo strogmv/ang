@@ -508,6 +508,15 @@ func ConvertEndpoint(ep normalizer.Endpoint) Endpoint {
 			HalfOpenMax: ep.CircuitBreaker.HalfOpenMax,
 		}
 	}
+	if ep.RetryPolicy != nil {
+		endpoint.Retry = &RetryPolicy{
+			Enabled:            ep.RetryPolicy.Enabled,
+			MaxAttempts:        ep.RetryPolicy.MaxAttempts,
+			BaseDelayMS:        ep.RetryPolicy.BaseDelayMS,
+			RetryOnStatuses:    initializeIntSlice(ep.RetryPolicy.RetryOnStatuses),
+			RetryNetworkErrors: ep.RetryPolicy.RetryNetworkErrors,
+		}
+	}
 
 	// Convert pagination
 	if ep.Pagination != nil {
@@ -712,6 +721,13 @@ func ConvertAttributes(attrs []normalizer.Attribute) []Attribute {
 func initializeSlice(s []string) []string {
 	if s == nil {
 		return []string{}
+	}
+	return s
+}
+
+func initializeIntSlice(s []int) []int {
+	if s == nil {
+		return []int{}
 	}
 	return s
 }

@@ -47,4 +47,32 @@ func TestFromEndpoint(t *testing.T) {
 	if len(p.Validation.RequiredHeaders) != 2 || p.Validation.RequiredHeaders[0] != "Authorization" || p.Validation.RequiredHeaders[1] != "Idempotency-Key" {
 		t.Fatalf("unexpected required headers: %+v", p.Validation.RequiredHeaders)
 	}
+	if !p.Retry.Enabled || p.Retry.MaxAttempts != 3 {
+		t.Fatalf("unexpected retry policy: %+v", p.Retry)
+	}
+}
+
+func TestFromEndpoint_UsesRetryOverride(t *testing.T) {
+	t.Parallel()
+
+	ep := normalizer.Endpoint{
+		Method: "POST",
+		RetryPolicy: &normalizer.RetryPolicyDef{
+			Enabled:            true,
+			MaxAttempts:        5,
+			BaseDelayMS:        50,
+			RetryOnStatuses:    []int{409, 429},
+			RetryNetworkErrors: false,
+		},
+	}
+	p := FromEndpoint(ep)
+	if !p.Retry.Enabled || p.Retry.MaxAttempts != 5 || p.Retry.BaseDelayMS != 50 {
+		t.Fatalf("unexpected retry override: %+v", p.Retry)
+	}
+	if len(p.Retry.RetryOnStatuses) != 2 || p.Retry.RetryOnStatuses[0] != 409 {
+		t.Fatalf("unexpected retry statuses: %+v", p.Retry.RetryOnStatuses)
+	}
+	if p.Retry.RetryNetworkErrors {
+		t.Fatalf("expected retry network errors false, got true")
+	}
 }
