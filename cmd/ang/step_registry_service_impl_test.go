@@ -55,3 +55,54 @@ func TestBuildStepRegistry_HasSingleServiceImplEmitterStep(t *testing.T) {
 	}
 }
 
+func TestBuildStepRegistry_ServiceImplStepPresenceMatchesGoPlugin(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		project       *normalizer.ProjectDef
+		expectedSteps int
+	}{
+		{
+			name: "go plugin enabled via default set",
+			project: &normalizer.ProjectDef{
+				Plugins: []string{"shared", "go_legacy"},
+			},
+			expectedSteps: 1,
+		},
+		{
+			name: "go plugin disabled",
+			project: &normalizer.ProjectDef{
+				Plugins: []string{"shared", "python_fastapi"},
+			},
+			expectedSteps: 0,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			reg, _, err := buildStepRegistry(buildStepRegistryInput{
+				em:           &emitter.Emitter{},
+				irSchema:     &ir.Schema{},
+				projectDef:   tc.project,
+				targetOutput: OutputOptions{},
+			})
+			if err != nil {
+				t.Fatalf("buildStepRegistry failed: %v", err)
+			}
+
+			serviceImplSteps := 0
+			for _, step := range reg.Steps() {
+				if step.Name == "Service Impls" {
+					serviceImplSteps++
+				}
+			}
+			if serviceImplSteps != tc.expectedSteps {
+				t.Fatalf("expected %d \"Service Impls\" steps, got %d", tc.expectedSteps, serviceImplSteps)
+			}
+		})
+	}
+}
