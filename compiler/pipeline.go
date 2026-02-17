@@ -14,11 +14,12 @@ import (
 	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
 	"github.com/strogmv/ang/compiler/parser"
+	planpkg "github.com/strogmv/ang/compiler/plan"
 	"github.com/strogmv/ang/compiler/transformers"
 )
 
 const (
-	Version       = "0.1.82"
+	Version       = "0.1.84"
 	SchemaVersion = "1"
 )
 
@@ -50,7 +51,74 @@ type PipelineOptions struct {
 	WarningSink func(normalizer.Warning)
 }
 
+type RunPhase string
+
+const (
+	PhaseAll   RunPhase = "all"
+	PhasePlan  RunPhase = "plan"
+	PhaseApply RunPhase = "apply"
+)
+
+type RunOptions struct {
+	Phase       RunPhase
+	PlanFile    string
+	JSON        bool
+	OutPlan     string
+	WarningSink func(normalizer.Warning)
+}
+
 var LatestDiagnostics []normalizer.Warning
+
+func RunWithOptions(basePath string, opts RunOptions) (*planpkg.BuildPlan, error) {
+	phase := opts.Phase
+	if phase == "" {
+		phase = PhaseAll
+	}
+
+	var currentPlan *planpkg.BuildPlan
+	var err error
+	switch phase {
+	case PhasePlan:
+		currentPlan, err = BuildPlan(basePath, opts)
+		if err != nil {
+			return nil, err
+		}
+		if opts.OutPlan != "" {
+			if err := planpkg.WritePlan(opts.OutPlan, currentPlan); err != nil {
+				return nil, err
+			}
+		}
+		return currentPlan, nil
+	case PhaseApply:
+		if opts.PlanFile == "" {
+			return nil, fmt.Errorf("--plan-file is required for apply phase")
+		}
+		currentPlan, err = planpkg.ReadPlan(opts.PlanFile)
+		if err != nil {
+			return nil, err
+		}
+		if err := ApplyPlan(basePath, currentPlan); err != nil {
+			return nil, err
+		}
+		return currentPlan, nil
+	case PhaseAll:
+		currentPlan, err = BuildPlan(basePath, opts)
+		if err != nil {
+			return nil, err
+		}
+		if opts.OutPlan != "" {
+			if err := planpkg.WritePlan(opts.OutPlan, currentPlan); err != nil {
+				return nil, err
+			}
+		}
+		if err := ApplyPlan(basePath, currentPlan); err != nil {
+			return nil, err
+		}
+		return currentPlan, nil
+	default:
+		return nil, fmt.Errorf("unknown run phase: %s", phase)
+	}
+}
 
 func RunPipeline(basePath string) ([]normalizer.Entity, []normalizer.Service, []normalizer.Endpoint, []normalizer.Repository, []normalizer.EventDef, []normalizer.ErrorDef, []normalizer.ScheduleDef, []normalizer.ScenarioDef, error) {
 	return RunPipelineWithOptions(basePath, PipelineOptions{

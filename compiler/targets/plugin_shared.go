@@ -17,6 +17,17 @@ func (SharedPlugin) Capabilities() []compiler.Capability {
 	}
 }
 
+func (p SharedPlugin) Descriptor() PluginDescriptor {
+	return PluginDescriptor{
+		SDKVersion:   PluginSDKV2,
+		Capabilities: p.Capabilities(),
+		Compatibility: PluginCompatibility{
+			MinANGVersion:           "0.1.0",
+			SupportedSchemaVersions: []string{compiler.SchemaVersion},
+		},
+	}
+}
+
 func (SharedPlugin) RegisterSteps(registry *generator.StepRegistry, ctx BuildContext) {
 	sharedsteps.Register(registry, sharedsteps.RegisterInput{
 		Em:               ctx.Emitter,

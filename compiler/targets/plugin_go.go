@@ -16,6 +16,17 @@ func (GoPlugin) Capabilities() []compiler.Capability {
 	}
 }
 
+func (p GoPlugin) Descriptor() PluginDescriptor {
+	return PluginDescriptor{
+		SDKVersion:   PluginSDKV2,
+		Capabilities: p.Capabilities(),
+		Compatibility: PluginCompatibility{
+			MinANGVersion:           "0.1.0",
+			SupportedSchemaVersions: []string{compiler.SchemaVersion},
+		},
+	}
+}
+
 func (GoPlugin) RegisterSteps(registry *generator.StepRegistry, ctx BuildContext) {
 	goemitter.Register(registry, goemitter.RegisterInput{
 		Em:                      ctx.Emitter,

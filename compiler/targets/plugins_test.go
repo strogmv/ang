@@ -1,8 +1,10 @@
 package targets
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/strogmv/ang/compiler"
 	"github.com/strogmv/ang/compiler/generator"
 	"github.com/strogmv/ang/compiler/normalizer"
 )
@@ -80,5 +82,66 @@ func TestResolvePlugins_UnknownPlugin(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatalf("expected error for unknown plugin")
+	}
+}
+
+type legacyTestPlugin struct{}
+
+func (legacyTestPlugin) Name() string { return "legacy_test" }
+func (legacyTestPlugin) Capabilities() []compiler.Capability {
+	return []compiler.Capability{compiler.CapabilityHTTP}
+}
+func (legacyTestPlugin) RegisterSteps(registry *generator.StepRegistry, ctx BuildContext) {}
+
+type incompatibleTestPlugin struct{}
+
+func (incompatibleTestPlugin) Name() string { return "incompat_test" }
+func (incompatibleTestPlugin) Capabilities() []compiler.Capability {
+	return []compiler.Capability{compiler.CapabilityHTTP}
+}
+func (incompatibleTestPlugin) RegisterSteps(registry *generator.StepRegistry, ctx BuildContext) {}
+func (p incompatibleTestPlugin) Descriptor() PluginDescriptor {
+	return PluginDescriptor{
+		SDKVersion:   PluginSDKV2,
+		Capabilities: p.Capabilities(),
+		Compatibility: PluginCompatibility{
+			MinANGVersion:           "9.0.0",
+			SupportedSchemaVersions: []string{compiler.SchemaVersion},
+		},
+	}
+}
+
+func TestValidatePluginContract_RequiresV2Descriptor(t *testing.T) {
+	t.Parallel()
+
+	err := validatePluginContract(legacyTestPlugin{})
+	if err == nil || !strings.Contains(err.Error(), "legacy SDK") {
+		t.Fatalf("expected legacy SDK error, got: %v", err)
+	}
+}
+
+func TestValidatePluginContract_CompatibilityMatrix(t *testing.T) {
+	t.Parallel()
+
+	err := validatePluginContract(incompatibleTestPlugin{})
+	if err == nil || !strings.Contains(err.Error(), "incompatible with ANG") {
+		t.Fatalf("expected compatibility error, got: %v", err)
+	}
+}
+
+func TestBuiltinPlugins_ExposeV2Descriptor(t *testing.T) {
+	t.Parallel()
+
+	for _, plugin := range BuiltinPlugins() {
+		desc, err := descriptorForPlugin(plugin)
+		if err != nil {
+			t.Fatalf("descriptor for %s: %v", plugin.Name(), err)
+		}
+		if desc.SDKVersion != PluginSDKV2 {
+			t.Fatalf("plugin %s has SDK %q", plugin.Name(), desc.SDKVersion)
+		}
+		if len(desc.Capabilities) == 0 {
+			t.Fatalf("plugin %s has empty capabilities", plugin.Name())
+		}
 	}
 }

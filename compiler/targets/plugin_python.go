@@ -16,6 +16,17 @@ func (PythonPlugin) Capabilities() []compiler.Capability {
 	}
 }
 
+func (p PythonPlugin) Descriptor() PluginDescriptor {
+	return PluginDescriptor{
+		SDKVersion:   PluginSDKV2,
+		Capabilities: p.Capabilities(),
+		Compatibility: PluginCompatibility{
+			MinANGVersion:           "0.1.0",
+			SupportedSchemaVersions: []string{compiler.SchemaVersion},
+		},
+	}
+}
+
 func (PythonPlugin) RegisterSteps(registry *generator.StepRegistry, ctx BuildContext) {
 	pyemitter.Register(registry, pyemitter.RegisterInput{
 		Em:          ctx.Emitter,
