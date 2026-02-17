@@ -69,6 +69,9 @@ func buildStepRegistry(in buildStepRegistryInput) (*generator.StepRegistry, []st
 		names = append(names, plugin.Name())
 		plugin.RegisterSteps(registry, ctx)
 	}
+	if err := registry.Err(); err != nil {
+		return nil, nil, err
+	}
 	return registry, names, nil
 }
 

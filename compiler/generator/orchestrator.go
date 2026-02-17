@@ -30,14 +30,33 @@ type StepEvent struct {
 }
 
 type StepRegistry struct {
-	steps []Step
+	steps     []Step
+	stepNames map[string]struct{}
+	regErr    error
 }
 
 func NewStepRegistry() *StepRegistry {
-	return &StepRegistry{steps: make([]Step, 0, 64)}
+	return &StepRegistry{
+		steps:     make([]Step, 0, 64),
+		stepNames: make(map[string]struct{}, 64),
+	}
 }
 
 func (r *StepRegistry) Register(step Step) {
+	name := strings.TrimSpace(step.Name)
+	if name == "" {
+		if r.regErr == nil {
+			r.regErr = fmt.Errorf("register step: empty name")
+		}
+		return
+	}
+	if _, exists := r.stepNames[name]; exists {
+		if r.regErr == nil {
+			r.regErr = fmt.Errorf("register step %q: duplicate step name (single active emitter path required)", name)
+		}
+		return
+	}
+	r.stepNames[name] = struct{}{}
 	r.steps = append(r.steps, step)
 }
 
@@ -47,12 +66,19 @@ func (r *StepRegistry) Steps() []Step {
 	return out
 }
 
+func (r *StepRegistry) Err() error {
+	return r.regErr
+}
+
 func (r *StepRegistry) Execute(
 	td normalizer.TargetDef,
 	caps compiler.CapabilitySet,
 	logger func(string, ...interface{}),
 	eventLogger func(StepEvent),
 ) error {
+	if r.regErr != nil {
+		return r.regErr
+	}
 	return Execute(td, caps, r.steps, logger, eventLogger)
 }
 

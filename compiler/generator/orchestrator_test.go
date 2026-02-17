@@ -1,6 +1,7 @@
 package generator
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/strogmv/ang/compiler"
@@ -29,6 +30,21 @@ func TestExecute_SkipsMissingCapabilities(t *testing.T) {
 	}
 	if called {
 		t.Fatalf("step should be skipped when capabilities are missing")
+	}
+}
+
+func TestStepRegistry_DuplicateStepNameFailsFast(t *testing.T) {
+	t.Parallel()
+
+	reg := NewStepRegistry()
+	reg.Register(Step{Name: "Service Impls", Run: func() error { return nil }})
+	reg.Register(Step{Name: "Service Impls", Run: func() error { return nil }})
+
+	if err := reg.Err(); err == nil || !strings.Contains(err.Error(), "duplicate step name") {
+		t.Fatalf("expected duplicate step name error, got: %v", err)
+	}
+	if got := len(reg.Steps()); got != 1 {
+		t.Fatalf("expected duplicate step to be ignored, got %d steps", got)
 	}
 }
 
