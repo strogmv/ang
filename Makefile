@@ -1,4 +1,4 @@
-.PHONY: build install test lint clean check all mcp-gen release-smoke benchmark-3iter determinism-plan-apply
+.PHONY: build install test lint clean check all mcp-gen release-smoke benchmark-3iter determinism-plan-apply determinism-matrix
 
 # Build the ang CLI
 build:
@@ -50,3 +50,8 @@ benchmark-3iter: build
 determinism-plan-apply:
 	@echo "--- Determinism Plan/Apply ---"
 	bash ./scripts/ci_determinism_plan_apply.sh
+
+# Cross-platform-friendly determinism check for phases plan/apply/all
+determinism-matrix:
+	@echo "--- Determinism Matrix (plan/apply/all) ---"
+	go run ./scripts/determinism_ci
