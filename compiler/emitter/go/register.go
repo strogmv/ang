@@ -46,11 +46,11 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 	registry.Register(generator.Step{Name: "Circuit Breaker", Requires: goHTTP, Run: func() error { return in.Em.EmitCircuitBreaker() }})
 	registry.Register(generator.Step{Name: "Presence", Requires: goOnly, Run: func() error { return in.Em.EmitPresence() }})
 	registry.Register(generator.Step{Name: "Report PDF", Requires: goOnly, Run: func() error { return in.Em.EmitReportPDF() }})
-	registry.Register(generator.Step{Name: "DI Container", Requires: nil, Run: func() error { return in.Em.EmitContainer() }})
+	registry.Register(generator.Step{Name: "DI Container", ArtifactKey: "go:di_container", Requires: nil, Run: func() error { return in.Em.EmitContainer() }})
 	registry.Register(generator.Step{Name: "Domain Entities", Requires: goOnly, Run: func() error { return in.Em.EmitDomain(in.IRSchema.Entities) }})
 	registry.Register(generator.Step{Name: "DTOs", Requires: goOnly, Run: func() error { return in.Em.EmitDTO(in.IRSchema.Entities) }})
 	registry.Register(generator.Step{Name: "Service Ports", Requires: goOnly, Run: func() error { return in.Em.EmitServiceFromIR(in.IRSchema) }})
-	registry.Register(generator.Step{Name: "HTTP Handlers", Requires: goHTTP, Run: func() error { return in.Em.EmitHTTPFromIR(in.IRSchema, in.AuthDef) }})
+	registry.Register(generator.Step{Name: "HTTP Handlers", ArtifactKey: "go:http_handlers", Requires: goHTTP, Run: func() error { return in.Em.EmitHTTPFromIR(in.IRSchema, in.AuthDef) }})
 	registry.Register(generator.Step{Name: "Health Probes", Requires: goHTTP, Run: func() error { return in.Em.EmitHealth() }})
 	registry.Register(generator.Step{Name: "Repository Ports", Requires: goOnly, Run: func() error { return in.Em.EmitRepositoryFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "Transaction Port", Requires: goOnly, Run: func() error { return in.Em.EmitTransactionPort() }})
@@ -111,7 +111,7 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 		}
 		return in.Em.EmitTestStubs(missing, "NEW-endpoint-stubs.test.ts")
 	}})
-	registry.Register(generator.Step{Name: "Frontend SDK", Requires: goOnly, Run: func() error {
+	registry.Register(generator.Step{Name: "Frontend SDK", ArtifactKey: "go:frontend_sdk", Requires: goOnly, Run: func() error {
 		return in.Em.EmitFrontendSDKFromIR(in.IRSchema, in.RBACDef)
 	}})
 	registry.Register(generator.Step{Name: "Frontend Components", Requires: goOnly, Run: func() error { return in.Em.EmitFrontendComponentsFromIR(in.IRSchema) }})
@@ -138,7 +138,7 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 	registry.Register(generator.Step{Name: "Service Impls", ArtifactKey: "go:service_impl", Requires: goOnly, Run: func() error { return in.Em.EmitServiceImplFromIR(in.IRSchema, in.AuthDef) }})
 	registry.Register(generator.Step{Name: "Cached Services", Requires: goOnly, Run: func() error { return in.Em.EmitCachedServiceFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "K8s Manifests", Requires: goOnly, Run: func() error { return in.Em.EmitK8sFromIR(in.IRSchema, in.IsMicroservice) }})
-	registry.Register(generator.Step{Name: "Server Main", Requires: goOnly, Run: func() error {
+	registry.Register(generator.Step{Name: "Server Main", ArtifactKey: "go:server_main", Requires: goOnly, Run: func() error {
 		if in.IsMicroservice {
 			return in.Em.EmitMicroservicesFromIR(in.IRSchema, in.Ctx.WebSocketServices, in.AuthDef)
 		}

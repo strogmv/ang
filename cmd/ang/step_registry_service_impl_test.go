@@ -106,3 +106,45 @@ func TestBuildStepRegistry_ServiceImplStepPresenceMatchesGoPlugin(t *testing.T) 
 		})
 	}
 }
+
+func TestBuildStepRegistry_CriticalArtifactKeysAreUnique(t *testing.T) {
+	t.Parallel()
+
+	reg, _, err := buildStepRegistry(buildStepRegistryInput{
+		em:           &emitter.Emitter{},
+		irSchema:     &ir.Schema{},
+		projectDef:   &normalizer.ProjectDef{Plugins: []string{"shared", "go_legacy"}},
+		targetOutput: OutputOptions{},
+	})
+	if err != nil {
+		t.Fatalf("buildStepRegistry failed: %v", err)
+	}
+
+	seen := make(map[string]string)
+	required := map[string]bool{
+		"go:di_container":  false,
+		"go:http_handlers": false,
+		"go:frontend_sdk":  false,
+		"go:service_impl":  false,
+		"go:server_main":   false,
+	}
+
+	for _, step := range reg.Steps() {
+		if step.ArtifactKey == "" {
+			continue
+		}
+		if prev, exists := seen[step.ArtifactKey]; exists {
+			t.Fatalf("duplicate artifact key %q: %q and %q", step.ArtifactKey, prev, step.Name)
+		}
+		seen[step.ArtifactKey] = step.Name
+		if _, ok := required[step.ArtifactKey]; ok {
+			required[step.ArtifactKey] = true
+		}
+	}
+
+	for key, found := range required {
+		if !found {
+			t.Fatalf("expected artifact key %q to be present", key)
+		}
+	}
+}
