@@ -135,7 +135,7 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 		return in.WriteFrontendEnvExample()
 	}})
 	registry.Register(generator.Step{Name: "Tracing", Requires: goOnly, Run: func() error { return in.Em.EmitTracing() }})
-	registry.Register(generator.Step{Name: "Service Impls", Requires: goOnly, Run: func() error { return in.Em.EmitServiceImplFromIR(in.IRSchema, in.AuthDef) }})
+	registry.Register(generator.Step{Name: "Service Impls", ArtifactKey: "go:service_impl", Requires: goOnly, Run: func() error { return in.Em.EmitServiceImplFromIR(in.IRSchema, in.AuthDef) }})
 	registry.Register(generator.Step{Name: "Cached Services", Requires: goOnly, Run: func() error { return in.Em.EmitCachedServiceFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "K8s Manifests", Requires: goOnly, Run: func() error { return in.Em.EmitK8sFromIR(in.IRSchema, in.IsMicroservice) }})
 	registry.Register(generator.Step{Name: "Server Main", Requires: goOnly, Run: func() error {

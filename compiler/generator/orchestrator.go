@@ -12,9 +12,10 @@ import (
 // Step is an independent generator module unit.
 // It declares required capabilities and a pure execution function.
 type Step struct {
-	Name     string
-	Requires []compiler.Capability
-	Run      func() error
+	Name        string
+	ArtifactKey string
+	Requires    []compiler.Capability
+	Run         func() error
 }
 
 type StepEvent struct {
@@ -30,15 +31,17 @@ type StepEvent struct {
 }
 
 type StepRegistry struct {
-	steps     []Step
-	stepNames map[string]struct{}
-	regErr    error
+	steps        []Step
+	stepNames    map[string]struct{}
+	artifactKeys map[string]string
+	regErr       error
 }
 
 func NewStepRegistry() *StepRegistry {
 	return &StepRegistry{
-		steps:     make([]Step, 0, 64),
-		stepNames: make(map[string]struct{}, 64),
+		steps:        make([]Step, 0, 64),
+		stepNames:    make(map[string]struct{}, 64),
+		artifactKeys: make(map[string]string, 64),
 	}
 }
 
@@ -55,6 +58,16 @@ func (r *StepRegistry) Register(step Step) {
 			r.regErr = fmt.Errorf("register step %q: duplicate step name (single active emitter path required)", name)
 		}
 		return
+	}
+	artifactKey := strings.TrimSpace(step.ArtifactKey)
+	if artifactKey != "" {
+		if existingStep, exists := r.artifactKeys[artifactKey]; exists {
+			if r.regErr == nil {
+				r.regErr = fmt.Errorf("register step %q: duplicate artifact key %q already used by step %q", name, artifactKey, existingStep)
+			}
+			return
+		}
+		r.artifactKeys[artifactKey] = name
 	}
 	r.stepNames[name] = struct{}{}
 	r.steps = append(r.steps, step)

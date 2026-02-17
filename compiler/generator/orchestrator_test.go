@@ -48,6 +48,21 @@ func TestStepRegistry_DuplicateStepNameFailsFast(t *testing.T) {
 	}
 }
 
+func TestStepRegistry_DuplicateArtifactKeyFailsFast(t *testing.T) {
+	t.Parallel()
+
+	reg := NewStepRegistry()
+	reg.Register(Step{Name: "Service Impls", ArtifactKey: "go:service_impl", Run: func() error { return nil }})
+	reg.Register(Step{Name: "Service Implementations Alt", ArtifactKey: "go:service_impl", Run: func() error { return nil }})
+
+	if err := reg.Err(); err == nil || !strings.Contains(err.Error(), "duplicate artifact key") {
+		t.Fatalf("expected duplicate artifact key error, got: %v", err)
+	}
+	if got := len(reg.Steps()); got != 1 {
+		t.Fatalf("expected duplicate artifact key step to be ignored, got %d steps", got)
+	}
+}
+
 func TestStepRegistry_Execute(t *testing.T) {
 	td := normalizer.TargetDef{Name: "python"}
 	caps := compiler.CapabilitySet{
