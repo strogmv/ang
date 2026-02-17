@@ -3,6 +3,7 @@ package doctor
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/strogmv/ang/compiler"
@@ -62,5 +63,32 @@ func TestBuildSuggestionCatalog_CoversAllCodes(t *testing.T) {
 		if s.Code == "" || s.Fix == "" || s.Patch == nil {
 			t.Fatalf("invalid catalog item: %#v", s)
 		}
+	}
+}
+
+func TestAnalyze_IRMigrationHint(t *testing.T) {
+	tmp := t.TempDir()
+	analyzer := NewAnalyzer(tmp)
+
+	log := "Build FAILED: [IR:IR_VERSION_MIGRATION_ERROR] migrate ir schema: unsupported ir_version \"99\""
+	resp := analyzer.Analyze(log)
+	if len(resp.Summary) == 0 {
+		t.Fatalf("expected non-empty summary")
+	}
+	joined := strings.Join(resp.Summary, "\n")
+	if !strings.Contains(joined, "IR migration hint:") {
+		t.Fatalf("expected IR migration hint in summary, got: %s", joined)
+	}
+	found := false
+	for _, s := range resp.Suggestions {
+		if s.Code == compiler.ErrCodeIRVersionMigration {
+			found = true
+			if !strings.Contains(s.Fix, "legacy IR is migrated automatically") {
+				t.Fatalf("unexpected suggestion fix: %s", s.Fix)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected suggestion for %s", compiler.ErrCodeIRVersionMigration)
 	}
 }

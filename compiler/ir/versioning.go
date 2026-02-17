@@ -13,26 +13,89 @@ const (
 	IRVersionV2 = "2"
 )
 
+type migrationStep struct {
+	From  string
+	To    string
+	Apply func(*Schema)
+}
+
+var migrationRegistry = []migrationStep{
+	{From: "0", To: IRVersionV1, Apply: migrateV0ToV1},
+	{From: IRVersionV1, To: IRVersionV2, Apply: migrateV1ToV2},
+}
+
+// CurrentVersion returns the canonical IR version produced by the compiler.
+func CurrentVersion() string {
+	return IRVersionV2
+}
+
+// RegisteredMigrations returns available migration edges.
+func RegisteredMigrations() []string {
+	out := make([]string, 0, len(migrationRegistry))
+	for _, step := range migrationRegistry {
+		out = append(out, step.From+"->"+step.To)
+	}
+	return out
+}
+
 // MigrateToCurrent upgrades schema in-place to the current IR version.
 // Empty version is treated as legacy v0.
 func MigrateToCurrent(schema *Schema) error {
+	return MigrateToVersion(schema, CurrentVersion())
+}
+
+// MigrateToVersion upgrades schema in-place to a target IR version.
+func MigrateToVersion(schema *Schema, targetVersion string) error {
 	if schema == nil {
 		return fmt.Errorf("nil schema")
 	}
+	target := normalizeVersion(targetVersion)
+	if target != CurrentVersion() {
+		return fmt.Errorf("unsupported target ir_version %q (current=%s)", targetVersion, CurrentVersion())
+	}
+	current := normalizeVersion(schema.IRVersion)
 
-	switch strings.TrimSpace(schema.IRVersion) {
-	case "", "0":
-		migrateV0ToV1(schema)
-		migrateV1ToV2(schema)
-		return nil
+	switch current {
+	case "0", IRVersionV1, IRVersionV2:
+	default:
+		return fmt.Errorf("unsupported ir_version %q (current=%s)", schema.IRVersion, CurrentVersion())
+	}
+
+	for current != target {
+		step, ok := nextMigrationStep(current)
+		if !ok {
+			return fmt.Errorf("no migration path from ir_version %q to %q", current, target)
+		}
+		step.Apply(schema)
+		current = normalizeVersion(schema.IRVersion)
+	}
+
+	switch target {
 	case IRVersionV1:
-		migrateV1ToV2(schema)
-		return nil
+		normalizeV1Invariants(schema)
 	case IRVersionV2:
 		normalizeV2Invariants(schema)
-		return nil
 	default:
-		return fmt.Errorf("unsupported ir_version %q (current=%s)", schema.IRVersion, IRVersionV2)
+		return fmt.Errorf("unsupported target ir_version %q (current=%s)", target, CurrentVersion())
+	}
+	return nil
+}
+
+func nextMigrationStep(from string) (migrationStep, bool) {
+	for _, step := range migrationRegistry {
+		if step.From == from {
+			return step, true
+		}
+	}
+	return migrationStep{}, false
+}
+
+func normalizeVersion(raw string) string {
+	switch strings.TrimSpace(raw) {
+	case "", "0":
+		return "0"
+	default:
+		return strings.TrimSpace(raw)
 	}
 }
 

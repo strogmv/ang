@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -80,6 +81,28 @@ func TestMigrateToCurrent_Idempotent(t *testing.T) {
 	}
 	if !reflect.DeepEqual(first, second) {
 		t.Fatalf("expected migration to be idempotent")
+	}
+}
+
+func TestRegisteredMigrations_ContainsV1ToV2(t *testing.T) {
+	t.Parallel()
+
+	edges := RegisteredMigrations()
+	joined := strings.Join(edges, ",")
+	if !strings.Contains(joined, "1->2") {
+		t.Fatalf("expected migration edge 1->2, got %v", edges)
+	}
+}
+
+func TestMigrateToVersion_V1ToV2(t *testing.T) {
+	t.Parallel()
+
+	input := mustReadSchemaFixture(t, "ir_v1_expected.json")
+	if err := MigrateToVersion(input, IRVersionV2); err != nil {
+		t.Fatalf("MigrateToVersion failed: %v", err)
+	}
+	if input.IRVersion != IRVersionV2 {
+		t.Fatalf("ir_version=%s, want %s", input.IRVersion, IRVersionV2)
 	}
 }
 

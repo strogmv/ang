@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/strogmv/ang/compiler"
+	"github.com/strogmv/ang/compiler/ir"
 )
 
 type AutoFix struct {
@@ -165,6 +166,13 @@ func buildSummary(log string, codes []string, fixed int, remaining int, suggesti
 	out = append(out, fmt.Sprintf("Errors remaining: %d.", remaining))
 	if len(suggestions) > 0 {
 		out = append(out, "Top fix: "+suggestions[0].Fix)
+	}
+	for _, code := range codes {
+		if code == compiler.ErrCodeIRVersionMigration {
+			out = append(out, fmt.Sprintf("IR migration hint: ANG auto-migrates legacy IR via %s.", strings.Join(ir.RegisteredMigrations(), ", ")))
+			out = append(out, fmt.Sprintf("Expected canonical IR version: %s.", ir.CurrentVersion()))
+			break
+		}
 	}
 	return out
 }
@@ -377,6 +385,13 @@ func suggestionForCode(code, log string) Suggestion {
 		return Suggestion{
 			Code:         code,
 			Fix:          "Inspect failing emitter step and fix upstream CUE intent causing invalid generation context.",
+			CanAutoApply: false,
+			Patch:        defaultPatchTemplate(compiler.ErrCodeCUEProjectLoad),
+		}
+	case compiler.ErrCodeIRVersionMigration:
+		return Suggestion{
+			Code:         code,
+			Fix:          fmt.Sprintf("Regenerate canonical IR (v%s) from CUE; legacy IR is migrated automatically through %s.", ir.CurrentVersion(), strings.Join(ir.RegisteredMigrations(), ", ")),
 			CanAutoApply: false,
 			Patch:        defaultPatchTemplate(compiler.ErrCodeCUEProjectLoad),
 		}
