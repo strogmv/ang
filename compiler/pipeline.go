@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	Version       = "0.1.86"
+	Version       = "0.1.87"
 	SchemaVersion = "1"
 )
 
@@ -669,6 +669,9 @@ func ConvertAndTransform(
 	hooks := transformers.DefaultHookRegistry()
 	if err := hooks.Process(schema); err != nil {
 		return nil, WrapContractError(StageTransformers, ErrCodeHookProcess, "process hooks", err)
+	}
+	if err := ir.ValidateABIV2(schema); err != nil {
+		return nil, WrapContractError(StageIR, ErrCodeIRVersionMigration, "validate ir abi v2", err)
 	}
 
 	return schema, nil

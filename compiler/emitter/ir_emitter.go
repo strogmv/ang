@@ -24,6 +24,9 @@ func (e *Emitter) EmitFromIR(schema *ir.Schema) error {
 	if err := ir.MigrateToCurrent(schema); err != nil {
 		return fmt.Errorf("ir version migration: %w", err)
 	}
+	if err := ir.ValidateABIV2(schema); err != nil {
+		return fmt.Errorf("ir abi validation: %w", err)
+	}
 
 	// Use existing emit methods with converted data
 	if err := e.EmitDomain(schema.Entities); err != nil {
