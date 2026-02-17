@@ -24,6 +24,11 @@ type OutputOptions struct {
 	DryRun              bool
 	LogFormat           string
 	Mode                string
+	Phase               string
+	PlanFile            string
+	OutPlan             string
+	PlanJSON            bool
+	RunTests            bool
 }
 
 func parseOutputOptions(args []string) (OutputOptions, error) {
@@ -39,6 +44,11 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 	dryRun := fs.Bool("dry-run", false, "preview generated file changes without writing to output directories")
 	logFormat := fs.String("log-format", "text", "build log format: text|json")
 	mode := fs.String("mode", "", "Build output mode: in_place | release")
+	phase := fs.String("phase", "all", "Build phase: all|plan|apply")
+	planFile := fs.String("plan-file", "", "Path to build plan file (for --phase=apply)")
+	outPlan := fs.String("out-plan", "", "Path to write generated build plan (for --phase=plan|all)")
+	planJSON := fs.Bool("json", false, "Print build plan as JSON (for --phase=plan|apply)")
+	runTests := fs.Bool("run-tests", false, "Run go test ./... for generated Go targets after successful build")
 	if err := fs.Parse(args); err != nil {
 		return OutputOptions{}, err
 	}
@@ -46,6 +56,13 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 	modeVal := strings.ToLower(strings.TrimSpace(*mode))
 	if modeVal != "" && modeVal != "in_place" && modeVal != "release" {
 		return OutputOptions{}, fmt.Errorf("invalid --mode %q (expected in_place|release)", modeVal)
+	}
+	phaseVal := strings.ToLower(strings.TrimSpace(*phase))
+	if phaseVal == "" {
+		phaseVal = "all"
+	}
+	if phaseVal != "all" && phaseVal != "plan" && phaseVal != "apply" {
+		return OutputOptions{}, fmt.Errorf("invalid --phase %q (expected all|plan|apply)", phaseVal)
 	}
 
 	opts := OutputOptions{
@@ -61,6 +78,11 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 		DryRun:              *dryRun,
 		LogFormat:           strings.ToLower(strings.TrimSpace(*logFormat)),
 		Mode:                modeVal,
+		Phase:               phaseVal,
+		PlanFile:            strings.TrimSpace(*planFile),
+		OutPlan:             strings.TrimSpace(*outPlan),
+		PlanJSON:            *planJSON,
+		RunTests:            *runTests,
 	}
 	if opts.FrontendDir == "" {
 		opts.FrontendDir = "sdk"

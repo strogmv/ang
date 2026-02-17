@@ -80,3 +80,13 @@ func TestParseOutputOptions_BackendDirExplicit(t *testing.T) {
 		t.Fatal("expected BackendDirExplicit=true")
 	}
 }
+
+func TestParseOutputOptions_RunTestsFlag(t *testing.T) {
+	opts, err := parseOutputOptions([]string{"--run-tests"})
+	if err != nil {
+		t.Fatalf("parseOutputOptions: %v", err)
+	}
+	if !opts.RunTests {
+		t.Fatal("expected RunTests=true")
+	}
+}

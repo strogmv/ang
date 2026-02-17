@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -37,6 +38,38 @@ func runBuild(args []string) {
 		output, err := parseOutputOptions(parseArgs)
 		if err != nil {
 			printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterOptions, "parse output options", err)
+			return
+		}
+		if output.Phase == "plan" || output.Phase == "apply" {
+			phase := compiler.PhaseAll
+			switch output.Phase {
+			case "plan":
+				phase = compiler.PhasePlan
+			case "apply":
+				phase = compiler.PhaseApply
+			}
+			p, err := compiler.RunWithOptions(projectPath, compiler.RunOptions{
+				Phase:    phase,
+				PlanFile: output.PlanFile,
+				OutPlan:  output.OutPlan,
+			})
+			if err != nil {
+				printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterOptions, "phase execution", err)
+				return
+			}
+			if output.PlanJSON {
+				data, err := json.MarshalIndent(p, "", "  ")
+				if err != nil {
+					printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterOptions, "marshal plan", err)
+					return
+				}
+				fmt.Println(string(data))
+			} else {
+				fmt.Printf("Plan status: %s\n", p.Status)
+				if output.OutPlan != "" {
+					fmt.Printf("Plan written: %s\n", output.OutPlan)
+				}
+			}
 			return
 		}
 		jsonLogs := output.LogFormat == "json"
@@ -300,6 +333,7 @@ func runBuild(args []string) {
 		multiTarget := len(selectedTargets) > 1
 		type buildTargetSummary struct {
 			Name      string
+			Lang      string
 			Mode      string
 			Backend   string
 			Plugins   string
@@ -458,6 +492,7 @@ func runBuild(args []string) {
 			}
 			summaries = append(summaries, buildTargetSummary{
 				Name:      td.Name,
+				Lang:      td.Lang,
 				Mode:      effectiveMode,
 				Backend:   filepath.ToSlash(filepath.Clean(backendDir)),
 				Plugins:   joinPluginNames(pluginNames),
@@ -495,6 +530,18 @@ func runBuild(args []string) {
 			if err := runFrontendTypecheckGate(frontendTypecheckDirs); err != nil {
 				printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterStep, "frontend typecheck gate", err)
 				return
+			}
+			if output.RunTests {
+				goBackends := make([]string, 0, len(summaries))
+				for _, s := range summaries {
+					if strings.EqualFold(strings.TrimSpace(s.Lang), "go") {
+						goBackends = append(goBackends, s.Backend)
+					}
+				}
+				if err := runGeneratedGoTests(goBackends); err != nil {
+					printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterStep, "post-build go tests", err)
+					return
+				}
 			}
 		} else {
 			dryManifest.OptionalStepsSkipped = []string{"runOptionalMCPGeneration"}

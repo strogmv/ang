@@ -74,7 +74,7 @@ func printUsage() {
 	fmt.Println("  ang init [dir] --template saas|ecommerce|marketplace [--lang go] [--db postgres]")
 	fmt.Println("  ang validate  Validate CUE models and architecture")
 	fmt.Println("  ang lint      Perform deep semantic linting of flows and logic")
-	fmt.Println("  ang build     Compile CUE intent into code and infra configs (--mode=in_place|release, --backend-dir, --dry-run, --log-format=json)")
+	fmt.Println("  ang build     Compile CUE intent into code and infra configs (--mode=in_place|release, --backend-dir, --dry-run, --run-tests, --log-format=json, --phase=all|plan|apply, --out-plan, --plan-file)")
 	fmt.Println("                Examples:")
 	fmt.Println("                  ang build --mode=in_place --backend-dir .")
 	fmt.Println("                  ang build --mode=release")

@@ -60,6 +60,7 @@ GetTender: {
 	input: {}
 	impls: go: {
 		flowFirstBypass: true
+		flowFirstBypassReason: "complex external SDK orchestration"
 		code: """
 return nil, nil
 """
@@ -82,9 +83,52 @@ return nil, nil
 	}
 
 	for _, w := range warnings {
-		if w.Code == "FLOW_FIRST_IMPL_REQUIRED" {
-			t.Fatalf("unexpected FLOW_FIRST_IMPL_REQUIRED warning with bypass: %+v", w)
+		if w.Code == "FLOW_FIRST_IMPL_REQUIRED" || w.Code == "FLOW_FIRST_BYPASS_REASON_REQUIRED" {
+			t.Fatalf("unexpected flow-first warning with bypass reason: %+v", w)
 		}
+	}
+}
+
+func TestExtractServices_FlowFirstLint_BypassRequiresReason(t *testing.T) {
+	ctx := cuecontext.New()
+	val := ctx.CompileString(`
+GetTender: {
+	service: "tender"
+	input: {}
+	impls: go: {
+		flowFirstBypass: true
+		code: """
+return nil, nil
+"""
+	}
+}
+`)
+	if err := val.Err(); err != nil {
+		t.Fatalf("compile CUE: %v", err)
+	}
+
+	n := New()
+	var warnings []Warning
+	n.WarningSink = func(w Warning) {
+		warnings = append(warnings, w)
+	}
+
+	_, err := n.ExtractServices(val, nil)
+	if err != nil {
+		t.Fatalf("ExtractServices failed: %v", err)
+	}
+
+	found := false
+	for _, w := range warnings {
+		if w.Code == "FLOW_FIRST_BYPASS_REASON_REQUIRED" {
+			found = true
+			if strings.ToLower(w.Severity) != "error" {
+				t.Fatalf("expected error severity, got %s", w.Severity)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected FLOW_FIRST_BYPASS_REASON_REQUIRED warning, got %+v", warnings)
 	}
 }
 

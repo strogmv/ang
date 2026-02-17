@@ -366,7 +366,9 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 		if implVal.Exists() {
 			codeVal := implVal.LookupPath(cue.ParsePath("code"))
 			bypass, _ := implVal.LookupPath(cue.ParsePath("flowFirstBypass")).Bool()
-			for _, diag := range validateFlowFirstImplCode(svcName, opName, method, codeVal, bypass) {
+			bypassReasonVal := implVal.LookupPath(cue.ParsePath("flowFirstBypassReason"))
+			bypassReason := getString(implVal, "flowFirstBypassReason")
+			for _, diag := range validateFlowFirstImplCode(svcName, opName, method, codeVal, bypassReasonVal, bypass, bypassReason) {
 				n.Warn(diag)
 			}
 		}
@@ -1405,7 +1407,9 @@ func (n *Normalizer) parseService(name string, val cue.Value) (Service, error) {
 		if implVal.Exists() {
 			codeVal := implVal.LookupPath(cue.ParsePath("code"))
 			bypass, _ := implVal.LookupPath(cue.ParsePath("flowFirstBypass")).Bool()
-			for _, diag := range validateFlowFirstImplCode(name, methodName, method, codeVal, bypass) {
+			bypassReasonVal := implVal.LookupPath(cue.ParsePath("flowFirstBypassReason"))
+			bypassReason := getString(implVal, "flowFirstBypassReason")
+			for _, diag := range validateFlowFirstImplCode(name, methodName, method, codeVal, bypassReasonVal, bypass, bypassReason) {
 				n.Warn(diag)
 			}
 		}
@@ -1997,10 +2001,7 @@ func isFlowFirstCandidate(methodName string) bool {
 	return false
 }
 
-func validateFlowFirstImplCode(serviceName, methodName string, method Method, codeVal cue.Value, bypass bool) []Warning {
-	if bypass {
-		return nil
-	}
+func validateFlowFirstImplCode(serviceName, methodName string, method Method, codeVal cue.Value, bypassReasonVal cue.Value, bypass bool, bypassReason string) []Warning {
 	if method.Impl == nil || strings.TrimSpace(method.Impl.Code) == "" {
 		return nil
 	}
@@ -2009,6 +2010,38 @@ func validateFlowFirstImplCode(serviceName, methodName string, method Method, co
 	}
 	if !isFlowFirstCandidate(methodName) {
 		return nil
+	}
+	if bypass {
+		if strings.TrimSpace(bypassReason) != "" {
+			return nil
+		}
+
+		pos := bypassReasonVal.Pos()
+		warnFile := ""
+		warnLine := 0
+		warnCol := 0
+		if pos.IsValid() {
+			warnFile = pos.Filename()
+			warnLine = pos.Line()
+			warnCol = pos.Column()
+		}
+		path := bypassReasonVal.Path().String()
+		if strings.TrimSpace(path) == "" {
+			path = "impls.go.flowFirstBypassReason"
+		}
+		return []Warning{
+			{
+				Kind:     "flow",
+				Code:     "FLOW_FIRST_BYPASS_REASON_REQUIRED",
+				Severity: "error",
+				Message:  fmt.Sprintf("%s.%s: flowFirstBypass=true requires non-empty flowFirstBypassReason", serviceName, methodName),
+				Hint:     "Set impls.go.flowFirstBypassReason with concrete rationale (e.g. external SDK orchestration, complex branching not expressible in flow yet).",
+				File:     warnFile,
+				Line:     warnLine,
+				Column:   warnCol,
+				CUEPath:  path,
+			},
+		}
 	}
 
 	pos := codeVal.Pos()
