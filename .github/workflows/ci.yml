@@ -72,6 +72,9 @@ jobs:
       - name: IR Compatibility Gate (migrations + golden contract)
         run: go test ./compiler/ir/...
 
+      - name: Policy Parity Gate (backend ↔ OpenAPI ↔ SDK)
+        run: go test ./compiler/emitter -run TestPolicyParity_BackendMiddlewareAndSDKMeta
+
       - name: Build Multi-Target (Go + Python)
         env:
           ANG_PY_SDK: "1"

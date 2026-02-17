@@ -24,12 +24,17 @@ func TestPolicyParity_BackendMiddlewareAndSDKMeta(t *testing.T) {
 		Timeout:     "30s",
 		Idempotency: true,
 		MaxBodySize: 1024,
+		RateLimit: &normalizer.RateLimitDef{
+			RPS:   25,
+			Burst: 50,
+		},
 	}
 	mw := buildMiddlewareList(epNorm, true, true)
 	for _, expected := range []string{
 		"AuthMiddleware",
 		`RequireRoles([]string{"owner", "admin"})`,
 		`CacheMiddleware("24h")`,
+		"RateLimitMiddleware(25, 50)",
 		`TimeoutMiddleware("30s")`,
 		"IdempotencyMiddleware()",
 	} {
@@ -39,7 +44,7 @@ func TestPolicyParity_BackendMiddlewareAndSDKMeta(t *testing.T) {
 	}
 
 	tmp := t.TempDir()
-	em := New("", tmp, "templates")
+	em := New(tmp, tmp, "templates")
 	em.Version = "0.1.0"
 	entities := []ir.Entity{{Name: "Company", Fields: []ir.Field{{Name: "ID", Type: ir.TypeRef{Kind: ir.KindString}}}}}
 	services := []ir.Service{{Name: "Company", Methods: []ir.Method{{Name: "UpdateCompany", Input: &ir.Entity{Name: "UpdateCompanyRequest"}, Output: &ir.Entity{Name: "UpdateCompanyResponse"}}}}}
@@ -51,8 +56,35 @@ func TestPolicyParity_BackendMiddlewareAndSDKMeta(t *testing.T) {
 		Idempotent: true,
 		Timeout:    "30s",
 		Cache:      "24h",
+		RateLimit: &ir.RateLimit{
+			RPS:   25,
+			Burst: 50,
+		},
 		Auth:       &ir.EndpointAuth{Type: "jwt", Roles: []string{"owner", "admin"}},
 	}}
+	if err := em.EmitOpenAPI(endpoints, services, nil, nil); err != nil {
+		t.Fatalf("emit openapi: %v", err)
+	}
+	openapiData, err := os.ReadFile(filepath.Join(tmp, "api", "openapi.yaml"))
+	if err != nil {
+		t.Fatalf("read openapi.yaml: %v", err)
+	}
+	openapiText := string(openapiData)
+	for _, expected := range []string{
+		"x-idempotency: true",
+		"x-timeout: 30s",
+		"x-cache-ttl: 24h",
+		"x-auth-roles:",
+		"- owner",
+		"- admin",
+		"x-rate-limit:",
+		"rps: 25",
+		"burst: 50",
+	} {
+		if !strings.Contains(openapiText, expected) {
+			t.Fatalf("openapi policy metadata missing %q", expected)
+		}
+	}
 	if err := em.EmitFrontendSDK(entities, services, endpoints, nil, nil, nil); err != nil {
 		t.Fatalf("emit frontend sdk: %v", err)
 	}
@@ -66,6 +98,9 @@ func TestPolicyParity_BackendMiddlewareAndSDKMeta(t *testing.T) {
 		"timeout: '30s'",
 		"authRoles: ['owner', 'admin']",
 		"cacheTTL: '24h'",
+		"rateLimit: {",
+		"rps: 25",
+		"burst: 50",
 		"requiredHeaders: ['Authorization', 'Idempotency-Key']",
 		"retryStrategy: {",
 		"maxAttempts: 3",

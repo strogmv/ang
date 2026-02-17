@@ -1,0 +1,561 @@
+{
+  "Endpoint": [
+    {
+      "name": "Auth",
+      "type": "*ir.EndpointAuth"
+    },
+    {
+      "name": "Cache",
+      "type": "string"
+    },
+    {
+      "name": "CacheTags",
+      "type": "[]string"
+    },
+    {
+      "name": "CircuitBreaker",
+      "type": "*ir.CircuitBreaker"
+    },
+    {
+      "name": "DedupeKey",
+      "type": "string"
+    },
+    {
+      "name": "Description",
+      "type": "string"
+    },
+    {
+      "name": "Errors",
+      "type": "[]string"
+    },
+    {
+      "name": "Idempotent",
+      "type": "bool"
+    },
+    {
+      "name": "Invalidate",
+      "type": "[]string"
+    },
+    {
+      "name": "MaxBodySize",
+      "type": "int64"
+    },
+    {
+      "name": "Messages",
+      "type": "[]string"
+    },
+    {
+      "name": "Metadata",
+      "type": "map[string]interface {}"
+    },
+    {
+      "name": "Method",
+      "type": "string"
+    },
+    {
+      "name": "OptimisticUpdate",
+      "type": "string"
+    },
+    {
+      "name": "Pagination",
+      "type": "*ir.Pagination"
+    },
+    {
+      "name": "Path",
+      "type": "string"
+    },
+    {
+      "name": "RPC",
+      "type": "string"
+    },
+    {
+      "name": "RateLimit",
+      "type": "*ir.RateLimit"
+    },
+    {
+      "name": "Retry",
+      "type": "*ir.RetryPolicy"
+    },
+    {
+      "name": "RoomParam",
+      "type": "string"
+    },
+    {
+      "name": "SLO",
+      "type": "*ir.SLO"
+    },
+    {
+      "name": "Service",
+      "type": "string"
+    },
+    {
+      "name": "Source",
+      "type": "string"
+    },
+    {
+      "name": "TestHints",
+      "type": "*ir.TestHints"
+    },
+    {
+      "name": "Timeout",
+      "type": "string"
+    },
+    {
+      "name": "View",
+      "type": "string"
+    }
+  ],
+  "Entity": [
+    {
+      "name": "Description",
+      "type": "string"
+    },
+    {
+      "name": "FSM",
+      "type": "*ir.FSM"
+    },
+    {
+      "name": "Fields",
+      "type": "[]ir.Field"
+    },
+    {
+      "name": "Indexes",
+      "type": "[]ir.Index"
+    },
+    {
+      "name": "Metadata",
+      "type": "map[string]interface {}"
+    },
+    {
+      "name": "Name",
+      "type": "string"
+    },
+    {
+      "name": "Owner",
+      "type": "string"
+    },
+    {
+      "name": "Source",
+      "type": "string"
+    },
+    {
+      "name": "UI",
+      "type": "ir.EntityUI"
+    }
+  ],
+  "Event": [
+    {
+      "name": "Fields",
+      "type": "[]ir.Field"
+    },
+    {
+      "name": "Metadata",
+      "type": "map[string]interface {}"
+    },
+    {
+      "name": "Name",
+      "type": "string"
+    },
+    {
+      "name": "Source",
+      "type": "string"
+    }
+  ],
+  "Field": [
+    {
+      "name": "Attributes",
+      "type": "[]ir.Attribute"
+    },
+    {
+      "name": "Constraints",
+      "type": "*ir.Constraints"
+    },
+    {
+      "name": "Default",
+      "type": "interface {}"
+    },
+    {
+      "name": "EnvVar",
+      "type": "string"
+    },
+    {
+      "name": "IsPII",
+      "type": "bool"
+    },
+    {
+      "name": "IsSecret",
+      "type": "bool"
+    },
+    {
+      "name": "Metadata",
+      "type": "map[string]interface {}"
+    },
+    {
+      "name": "Name",
+      "type": "string"
+    },
+    {
+      "name": "Optional",
+      "type": "bool"
+    },
+    {
+      "name": "SkipDomain",
+      "type": "bool"
+    },
+    {
+      "name": "Source",
+      "type": "string"
+    },
+    {
+      "name": "Type",
+      "type": "ir.TypeRef"
+    },
+    {
+      "name": "UI",
+      "type": "ir.FieldUI"
+    },
+    {
+      "name": "ValidateTag",
+      "type": "string"
+    }
+  ],
+  "Finder": [
+    {
+      "name": "Action",
+      "type": "string"
+    },
+    {
+      "name": "CustomSQL",
+      "type": "string"
+    },
+    {
+      "name": "ForUpdate",
+      "type": "bool"
+    },
+    {
+      "name": "Limit",
+      "type": "int"
+    },
+    {
+      "name": "Name",
+      "type": "string"
+    },
+    {
+      "name": "OrderBy",
+      "type": "string"
+    },
+    {
+      "name": "ReturnType",
+      "type": "string"
+    },
+    {
+      "name": "Returns",
+      "type": "string"
+    },
+    {
+      "name": "ScanFields",
+      "type": "[]string"
+    },
+    {
+      "name": "Select",
+      "type": "[]string"
+    },
+    {
+      "name": "Source",
+      "type": "string"
+    },
+    {
+      "name": "Where",
+      "type": "[]ir.WhereClause"
+    }
+  ],
+  "Method": [
+    {
+      "name": "Attributes",
+      "type": "[]ir.Attribute"
+    },
+    {
+      "name": "Broadcasts",
+      "type": "[]string"
+    },
+    {
+      "name": "CacheTTL",
+      "type": "string"
+    },
+    {
+      "name": "CacheTags",
+      "type": "[]string"
+    },
+    {
+      "name": "DedupeKey",
+      "type": "string"
+    },
+    {
+      "name": "Description",
+      "type": "string"
+    },
+    {
+      "name": "Flow",
+      "type": "[]ir.FlowStep"
+    },
+    {
+      "name": "Idempotent",
+      "type": "bool"
+    },
+    {
+      "name": "Impl",
+      "type": "*ir.Impl"
+    },
+    {
+      "name": "Input",
+      "type": "*ir.Entity"
+    },
+    {
+      "name": "Metadata",
+      "type": "map[string]interface {}"
+    },
+    {
+      "name": "Name",
+      "type": "string"
+    },
+    {
+      "name": "Outbox",
+      "type": "bool"
+    },
+    {
+      "name": "Output",
+      "type": "*ir.Entity"
+    },
+    {
+      "name": "Pagination",
+      "type": "*ir.Pagination"
+    },
+    {
+      "name": "Publishes",
+      "type": "[]string"
+    },
+    {
+      "name": "Source",
+      "type": "string"
+    },
+    {
+      "name": "Sources",
+      "type": "[]ir.Source"
+    },
+    {
+      "name": "Throws",
+      "type": "[]string"
+    }
+  ],
+  "Project": [
+    {
+      "name": "Name",
+      "type": "string"
+    },
+    {
+      "name": "Target",
+      "type": "ir.Target"
+    },
+    {
+      "name": "Version",
+      "type": "string"
+    }
+  ],
+  "Repository": [
+    {
+      "name": "Entity",
+      "type": "string"
+    },
+    {
+      "name": "Finders",
+      "type": "[]ir.Finder"
+    },
+    {
+      "name": "Name",
+      "type": "string"
+    },
+    {
+      "name": "Source",
+      "type": "string"
+    }
+  ],
+  "Schema": [
+    {
+      "name": "Auth",
+      "type": "*ir.Auth"
+    },
+    {
+      "name": "Config",
+      "type": "ir.Config"
+    },
+    {
+      "name": "Endpoints",
+      "type": "[]ir.Endpoint"
+    },
+    {
+      "name": "Entities",
+      "type": "[]ir.Entity"
+    },
+    {
+      "name": "Errors",
+      "type": "[]ir.Error"
+    },
+    {
+      "name": "Events",
+      "type": "[]ir.Event"
+    },
+    {
+      "name": "Graph",
+      "type": "*ir.DependencyGraph"
+    },
+    {
+      "name": "IRVersion",
+      "type": "string",
+      "tag": "ir_version"
+    },
+    {
+      "name": "Metadata",
+      "type": "map[string]interface {}"
+    },
+    {
+      "name": "Notifications",
+      "type": "*ir.NotificationsConfig",
+      "tag": "notifications,omitempty"
+    },
+    {
+      "name": "Project",
+      "type": "ir.Project"
+    },
+    {
+      "name": "RBAC",
+      "type": "*ir.RBAC"
+    },
+    {
+      "name": "Repos",
+      "type": "[]ir.Repository"
+    },
+    {
+      "name": "Schedules",
+      "type": "[]ir.Schedule"
+    },
+    {
+      "name": "Services",
+      "type": "[]ir.Service"
+    },
+    {
+      "name": "Templates",
+      "type": "[]ir.Template",
+      "tag": "templates,omitempty"
+    },
+    {
+      "name": "Views",
+      "type": "[]ir.View"
+    }
+  ],
+  "Service": [
+    {
+      "name": "Description",
+      "type": "string"
+    },
+    {
+      "name": "Metadata",
+      "type": "map[string]interface {}"
+    },
+    {
+      "name": "Methods",
+      "type": "[]ir.Method"
+    },
+    {
+      "name": "Name",
+      "type": "string"
+    },
+    {
+      "name": "Publishes",
+      "type": "[]string"
+    },
+    {
+      "name": "RequiresMongo",
+      "type": "bool"
+    },
+    {
+      "name": "RequiresNats",
+      "type": "bool"
+    },
+    {
+      "name": "RequiresRedis",
+      "type": "bool"
+    },
+    {
+      "name": "RequiresS3",
+      "type": "bool"
+    },
+    {
+      "name": "RequiresSQL",
+      "type": "bool"
+    },
+    {
+      "name": "Source",
+      "type": "string"
+    },
+    {
+      "name": "Subscribes",
+      "type": "map[string]string"
+    },
+    {
+      "name": "Uses",
+      "type": "[]string"
+    }
+  ],
+  "Source": [
+    {
+      "name": "Collection",
+      "type": "string"
+    },
+    {
+      "name": "Entity",
+      "type": "string"
+    },
+    {
+      "name": "Kind",
+      "type": "string"
+    },
+    {
+      "name": "Metadata",
+      "type": "map[string]interface {}"
+    },
+    {
+      "name": "Name",
+      "type": "string"
+    },
+    {
+      "name": "Query",
+      "type": "map[string]string"
+    }
+  ],
+  "Target": [
+    {
+      "name": "Cache",
+      "type": "string"
+    },
+    {
+      "name": "DB",
+      "type": "string"
+    },
+    {
+      "name": "Framework",
+      "type": "string"
+    },
+    {
+      "name": "Lang",
+      "type": "string"
+    },
+    {
+      "name": "Queue",
+      "type": "string"
+    },
+    {
+      "name": "Storage",
+      "type": "string"
+    }
+  ]
+}

@@ -16,9 +16,18 @@ type contractField struct {
 }
 
 func TestSchemaContractGoldenV1(t *testing.T) {
-	contract := buildIRContract()
+	assertSchemaContractGolden(t, "golden_ir_v1.json")
+}
 
-	path := filepath.Join("testdata", "golden_ir_v1.json")
+func TestSchemaContractGoldenCurrent(t *testing.T) {
+	assertSchemaContractGolden(t, "golden_ir_v2.json")
+}
+
+func assertSchemaContractGolden(t *testing.T, filename string) {
+	t.Helper()
+
+	contract := buildIRContract()
+	path := filepath.Join("testdata", filename)
 	if os.Getenv("UPDATE_IR_CONTRACT") == "1" {
 		data, err := json.MarshalIndent(contract, "", "  ")
 		if err != nil {

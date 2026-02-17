@@ -93,8 +93,17 @@ paths:
         rps: {{ .Endpoint.RateLimit.RPS }}
         burst: {{ .Endpoint.RateLimit.Burst }}
       {{- end }}
+      {{- if .Endpoint.Timeout }}
+      x-timeout: {{ .Endpoint.Timeout }}
+      {{- end }}
       {{- if .Endpoint.Idempotency }}
       x-idempotency: true
+      {{- end }}
+      {{- if .Endpoint.AuthRoles }}
+      x-auth-roles:
+        {{- range .Endpoint.AuthRoles }}
+        - {{ . }}
+        {{- end }}
       {{- end }}
       responses:
         '200':
