@@ -56,7 +56,7 @@ func main() {
 	case "lsp":
 		runLSP(os.Args[2:])
 	case "hash":
-		runHash()
+		runHash(os.Args[2:])
 	case "mcp":
 		mcp.Run()
 	case "version":
@@ -94,10 +94,38 @@ func printUsage() {
 	fmt.Println("  ang lsp --stdio  Run ANG language server (MVP diagnostics)")
 	fmt.Println("  ang explain   Explain a lint code with examples")
 	fmt.Println("  ang draw      Generate architecture diagrams (Mermaid)")
-	fmt.Println("  ang hash      Show current project hash (CUE + Templates)")
+	fmt.Println("  ang hash      Show current project hash (CUE + Templates, or --artifacts)")
 }
 
-func runHash() {
+func runHash(args []string) {
+	fs := flag.NewFlagSet("hash", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	artifacts := fs.Bool("artifacts", false, "print artifact hash manifest from .ang/cache/manifest.json")
+	if err := fs.Parse(args); err != nil {
+		fmt.Printf("Hash FAILED: %v\n", err)
+		os.Exit(1)
+	}
+	if *artifacts {
+		m, err := readArtifactHashManifest(".")
+		if err != nil {
+			fmt.Printf("Hash FAILED: read artifact manifest: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Schema Version:   %s\n", m.SchemaVersion)
+		fmt.Printf("Compiler Version: %s\n", m.CompilerVersion)
+		fmt.Printf("IR Version:       %s\n", m.IRVersion)
+		if strings.TrimSpace(m.InputHash) != "" {
+			fmt.Printf("Input Hash:       %s\n", m.InputHash)
+		}
+		if strings.TrimSpace(m.TemplateHash) != "" {
+			fmt.Printf("Template Hash:    %s\n", m.TemplateHash)
+		}
+		fmt.Printf("Artifacts:        %d\n", len(m.Artifacts))
+		for _, a := range m.Artifacts {
+			fmt.Printf("%s  %s\n", a.Hash, a.Path)
+		}
+		return
+	}
 	inputHash, _ := calculateHash([]string{"cue"})
 	compilerHash, _ := calculateHash([]string{"templates"})
 	fmt.Printf("ANG Version:  %s\n", compiler.Version)

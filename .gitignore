@@ -34,3 +34,5 @@ coverage/
 # internal/
 # sdk/
 .design_db/
+dist/
+.ang/cache/

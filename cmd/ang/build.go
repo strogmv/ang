@@ -336,6 +336,7 @@ func runBuild(args []string) {
 			Lang      string
 			Mode      string
 			Backend   string
+			Frontend  string
 			Plugins   string
 			SelfCheck string
 			Details   []runtimePackageDir
@@ -495,6 +496,7 @@ func runBuild(args []string) {
 				Lang:      td.Lang,
 				Mode:      effectiveMode,
 				Backend:   filepath.ToSlash(filepath.Clean(backendDir)),
+				Frontend:  filepath.ToSlash(filepath.Clean(frontendDir)),
 				Plugins:   joinPluginNames(pluginNames),
 				SelfCheck: selfCheckStatus,
 				Details:   selfCheckDetails,
@@ -523,6 +525,19 @@ func runBuild(args []string) {
 		}
 
 		if !output.DryRun {
+			manifestTargets := make([]artifactManifestTarget, 0, len(summaries))
+			for _, s := range summaries {
+				manifestTargets = append(manifestTargets, artifactManifestTarget{
+					Mode:     s.Mode,
+					Backend:  s.Backend,
+					Frontend: s.Frontend,
+				})
+			}
+			if err := writeArtifactHashManifest(projectPath, manifestTargets, irSchema.IRVersion, inputHash, compilerHash); err != nil {
+				printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterStep, "write artifact hash manifest", err)
+				return
+			}
+
 			if err := runOptionalMCPGeneration(projectPath); err != nil {
 				printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterMCPGen, "run optional MCP generation", err)
 				return
