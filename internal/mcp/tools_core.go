@@ -301,6 +301,36 @@ func registerCoreTools(addTool toolAdder, deps coreToolDeps) {
 		return mcp.NewToolResultText(string(b)), nil
 	})
 
+	addTool("ang_diff_architecture", mcp.NewTool("ang_diff_architecture",
+		mcp.WithDescription("Architecture-focused diff with breaking/non-breaking classification and impact map."),
+		mcp.WithString("base_ref", mcp.Description("Git ref to compare against (default HEAD).")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		baseRef := strings.TrimSpace(mcp.ParseString(request, "base_ref", "HEAD"))
+		if baseRef == "" {
+			baseRef = "HEAD"
+		}
+		baseSnap, err := buildModelSnapshotFromGitRef(baseRef, true)
+		if err != nil {
+			return mcp.NewToolResultText(fmt.Sprintf("ang_diff_architecture base snapshot failed: %v", err)), nil
+		}
+		currSnap, err := buildModelSnapshot(".", true)
+		if err != nil {
+			return mcp.NewToolResultText(fmt.Sprintf("ang_diff_architecture current snapshot failed: %v", err)), nil
+		}
+		diff := diffModelSnapshots(baseSnap, currSnap)
+		assessment := assessArchitectureDiff(diff)
+		resp := map[string]any{
+			"status":       "ok",
+			"base_ref":     baseRef,
+			"diff":         diff,
+			"assessment":   assessment,
+			"risk_flags":   assessment["risk_flags"],
+			"next_actions": assessment["next_actions"],
+		}
+		b, _ := json.MarshalIndent(resp, "", "  ")
+		return mcp.NewToolResultText(string(b)), nil
+	})
+
 	addTool("ang_search", mcp.NewTool("ang_search",
 		mcp.WithDescription("Hybrid symbol search with capped output."),
 		mcp.WithString("query", mcp.Required()),
@@ -524,4 +554,92 @@ func warningsToAny(diags []normalizer.Warning) []any {
 		})
 	}
 	return out
+}
+
+func assessArchitectureDiff(diff map[string]any) map[string]any {
+	entities := nestedMapAny(diff, "entities")
+	services := nestedMapAny(diff, "services")
+	endpoints := nestedMapAny(diff, "endpoints")
+
+	entityRemoved := listCount(entities["removed"])
+	fieldRemoved := listCount(entities["fields_removed"])
+	serviceRemoved := listCount(services["removed"])
+	methodRemoved := listCount(services["methods_removed"])
+	endpointRemoved := listCount(endpoints["removed"])
+
+	endpointAdded := listCount(endpoints["added"])
+	entityAdded := listCount(entities["added"])
+	fieldAdded := listCount(entities["fields_added"])
+	serviceAdded := listCount(services["added"])
+	methodAdded := listCount(services["methods_added"])
+
+	breaking := entityRemoved + fieldRemoved + serviceRemoved + methodRemoved + endpointRemoved
+	nonBreaking := endpointAdded + entityAdded + fieldAdded + serviceAdded + methodAdded
+
+	riskFlags := []string{}
+	if breaking > 0 {
+		riskFlags = append(riskFlags, "breaking_changes_detected")
+	}
+	if endpointRemoved > 0 || methodRemoved > 0 {
+		riskFlags = append(riskFlags, "api_contract_breaking")
+	}
+	if fieldRemoved > 0 {
+		riskFlags = append(riskFlags, "schema_breaking")
+	}
+	if len(riskFlags) == 0 {
+		riskFlags = append(riskFlags, "low_risk")
+	}
+
+	nextActions := []string{
+		"Run ang_validate and go test to verify behavioral parity.",
+	}
+	if breaking > 0 {
+		nextActions = append(nextActions,
+			"Prepare compatibility/migration notes for removed entities/fields/endpoints.",
+			"Consider deprecation window or versioned API endpoints before apply.",
+		)
+	} else if nonBreaking > 0 {
+		nextActions = append(nextActions, "Proceed with apply; monitor generated artifacts diff.")
+	}
+
+	impactMap := map[string]any{
+		"domain":   map[string]int{"entities_added": entityAdded, "entities_removed": entityRemoved, "fields_added": fieldAdded, "fields_removed": fieldRemoved},
+		"services": map[string]int{"services_added": serviceAdded, "services_removed": serviceRemoved, "methods_added": methodAdded, "methods_removed": methodRemoved},
+		"api":      map[string]int{"endpoints_added": endpointAdded, "endpoints_removed": endpointRemoved},
+	}
+
+	return map[string]any{
+		"breaking_changes":     breaking,
+		"non_breaking_changes": nonBreaking,
+		"risk_flags":           riskFlags,
+		"impact_map":           impactMap,
+		"next_actions":         nextActions,
+	}
+}
+
+func nestedMapAny(root map[string]any, key string) map[string]any {
+	v, ok := root[key]
+	if !ok {
+		return map[string]any{}
+	}
+	out, ok := v.(map[string]any)
+	if !ok {
+		return map[string]any{}
+	}
+	return out
+}
+
+func listCount(v any) int {
+	switch vv := v.(type) {
+	case []string:
+		return len(vv)
+	case []map[string]string:
+		return len(vv)
+	case []map[string]any:
+		return len(vv)
+	case []any:
+		return len(vv)
+	default:
+		return 0
+	}
 }

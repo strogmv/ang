@@ -579,7 +579,7 @@ func Run() {
 
 	featureAddWorkflow := func() []string {
 		base := []string{}
-		_ = json.Unmarshal([]byte(`[    "ang_plan",    "ang_schema",    "ang_validate",    "ang_snapshot",    "ang_search",    "repo_read_symbol",    "ang_rbac_inspector",    "ang_event_map",    "ang_db_drift_detector",    "cue_set_field",    "cue_add_endpoint",    "cue_apply_patch",    "cue_history",    "run_preset('build')",    "ang_model_diff",    "ang_db_sync"]`), &base)
+		_ = json.Unmarshal([]byte(`[    "ang_plan",    "ang_diff_architecture",    "ang_schema",    "ang_validate",    "ang_snapshot",    "ang_search",    "repo_read_symbol",    "ang_rbac_inspector",    "ang_event_map",    "ang_db_drift_detector",    "cue_set_field",    "cue_add_endpoint",    "cue_apply_patch",    "cue_history",    "run_preset('build')",    "ang_model_diff",    "ang_db_sync"]`), &base)
 		if ov := loadRuntimeOverrides(); ov != nil {
 			if wf, ok := ov.Workflows["feature_add"]; ok && len(wf) > 0 {
 				return wf
@@ -590,7 +590,7 @@ func Run() {
 
 	bugFixWorkflow := func() []string {
 		base := []string{}
-		_ = json.Unmarshal([]byte(`[    "ang_schema",    "ang_validate",    "ang_snapshot",    "run_preset('unit')",    "ang_explain_error",    "ang_doctor",    "cue_set_field",    "cue_add_endpoint",    "cue_apply_patch",    "cue_history",    "cue_undo",    "run_preset('build')",    "ang_model_diff"]`), &base)
+		_ = json.Unmarshal([]byte(`[    "ang_schema",    "ang_diff_architecture",    "ang_validate",    "ang_snapshot",    "run_preset('unit')",    "ang_explain_error",    "ang_doctor",    "cue_set_field",    "cue_add_endpoint",    "cue_apply_patch",    "cue_history",    "cue_undo",    "run_preset('build')",    "ang_model_diff"]`), &base)
 		if ov := loadRuntimeOverrides(); ov != nil {
 			if wf, ok := ov.Workflows["bug_fix"]; ok && len(wf) > 0 {
 				return wf
