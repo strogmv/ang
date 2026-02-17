@@ -171,3 +171,57 @@ func TestEmitFrontendSDK_EndpointMetaPolicyParity(t *testing.T) {
 		}
 	}
 }
+
+func TestEmitFrontendSDK_InvalidateTargetsCarryScopeForDetailRPC(t *testing.T) {
+	t.Parallel()
+
+	tmp := t.TempDir()
+	em := New("", tmp, "templates")
+	em.Version = "0.1.0"
+
+	entities := []ir.Entity{
+		{
+			Name: "Tender",
+			Fields: []ir.Field{
+				{Name: "ID", Type: ir.TypeRef{Kind: ir.KindString}},
+			},
+		},
+	}
+	services := []ir.Service{
+		{
+			Name: "Tender",
+			Methods: []ir.Method{
+				{Name: "GetTender", Input: &ir.Entity{Name: "GetTenderRequest"}, Output: &ir.Entity{Name: "GetTenderResponse"}},
+				{Name: "UpdateTender", Input: &ir.Entity{Name: "UpdateTenderRequest"}, Output: &ir.Entity{Name: "UpdateTenderResponse"}},
+			},
+		},
+	}
+	endpoints := []ir.Endpoint{
+		{
+			Method:  "GET",
+			Path:    "/api/tenders/{tenderId}",
+			Service: "Tender",
+			RPC:     "GetTender",
+		},
+		{
+			Method:     "PATCH",
+			Path:       "/api/tenders/{tenderId}",
+			Service:    "Tender",
+			RPC:        "UpdateTender",
+			Invalidate: []string{"GetTender"},
+		},
+	}
+
+	if err := em.EmitFrontendSDK(entities, services, endpoints, nil, nil, nil); err != nil {
+		t.Fatalf("emit frontend sdk: %v", err)
+	}
+
+	endpointsData, err := os.ReadFile(filepath.Join(tmp, "endpoints.ts"))
+	if err != nil {
+		t.Fatalf("read endpoints.ts: %v", err)
+	}
+	text := string(endpointsData)
+	if !strings.Contains(text, "scopeParam: 'tenderId'") || !strings.Contains(text, "mode: 'detail'") {
+		t.Fatalf("expected scoped detail invalidation target in endpointMeta, got:\n%s", text)
+	}
+}
