@@ -13,6 +13,7 @@ import (
 
 	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang/compiler/policy"
 )
 
 type FrontendContext struct {
@@ -715,6 +716,9 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		},
 		"MutationInvalidateStores": func(ep normalizer.Endpoint) []string {
 			return mutationInvalidateStoresForEndpoint(ep, entitiesNorm)
+		},
+		"EndpointPolicy": func(ep normalizer.Endpoint) policy.EndpointPolicy {
+			return policy.FromEndpoint(ep)
 		},
 	}
 

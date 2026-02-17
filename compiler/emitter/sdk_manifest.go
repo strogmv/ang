@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang/compiler/policy"
 )
 
 type SDKManifest struct {
@@ -45,16 +46,17 @@ func (e *Emitter) EmitSDKManifest(endpoints []normalizer.Endpoint, queryResource
 			continue
 		}
 		name := lowerFirst(ep.RPC)
+		p := policy.FromEndpoint(ep)
 		entry := SDKManifestEndpoint{
 			Name:       name,
 			Method:     strings.ToUpper(ep.Method),
 			Path:       ep.Path,
-			Idempotent: ep.Idempotency,
-			Timeout:    ep.Timeout,
-			CacheTTL:   ep.CacheTTL,
+			Idempotent: p.Idempotency,
+			Timeout:    p.Timeout,
+			CacheTTL:   p.CacheTTL,
 		}
-		if len(ep.AuthRoles) > 0 {
-			entry.AuthRoles = ep.AuthRoles
+		if len(p.AuthRoles) > 0 {
+			entry.AuthRoles = p.AuthRoles
 		}
 		manifest.Endpoints = append(manifest.Endpoints, entry)
 	}

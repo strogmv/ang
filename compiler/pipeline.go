@@ -15,6 +15,7 @@ import (
 	"github.com/strogmv/ang/compiler/normalizer"
 	"github.com/strogmv/ang/compiler/parser"
 	planpkg "github.com/strogmv/ang/compiler/plan"
+	"github.com/strogmv/ang/compiler/policy"
 	"github.com/strogmv/ang/compiler/transformers"
 )
 
@@ -180,6 +181,12 @@ func RunPipelineWithOptions(basePath string, opts PipelineOptions) ([]normalizer
 	endpoints, err := n.ExtractEndpoints(valAPI)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(StageCUE, ErrCodeCUEEndpointNormalize, "extract endpoints", err)
+	}
+	for _, ep := range endpoints {
+		if err := policy.ValidateEndpoint(ep); err != nil {
+			msg := fmt.Errorf("endpoint %s %s (%s): %w", ep.Method, ep.Path, ep.Source, err)
+			return nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(StageCUE, ErrCodeCUEEndpointNormalize, "validate endpoint policy", msg)
+		}
 	}
 	repos, err := n.ExtractRepositories(valArch)
 	if err != nil {

@@ -65,24 +65,29 @@ export const endpointMeta: Record<string, {
   timeout?: string;
   authRoles?: string[];
   cacheTTL?: string;
+  requiredHeaders?: string[];
   invalidateStores?: string[];
 }> = {
 {{- range .Endpoints }}
 {{- if ne .Method "WS" }}
+  {{- $policy := EndpointPolicy . }}
   {{ LowerFirst .RPC }}: {
     method: '{{ .Method }}',
     path: '{{ .Path }}',
-    {{- if .Idempotency }}
+    {{- if $policy.Idempotency }}
     idempotent: true,
     {{- end }}
-    {{- if .Timeout }}
-    timeout: '{{ .Timeout }}',
+    {{- if $policy.Timeout }}
+    timeout: '{{ $policy.Timeout }}',
     {{- end }}
-    {{- if .AuthRoles }}
-    authRoles: [{{- range $i, $r := .AuthRoles }}{{ if $i }}, {{ end }}'{{ $r }}'{{- end }}],
+    {{- if $policy.AuthRoles }}
+    authRoles: [{{- range $i, $r := $policy.AuthRoles }}{{ if $i }}, {{ end }}'{{ $r }}'{{- end }}],
     {{- end }}
-    {{- if .CacheTTL }}
-    cacheTTL: '{{ .CacheTTL }}',
+    {{- if $policy.CacheTTL }}
+    cacheTTL: '{{ $policy.CacheTTL }}',
+    {{- end }}
+    {{- if $policy.Validation.RequiredHeaders }}
+    requiredHeaders: [{{- range $i, $h := $policy.Validation.RequiredHeaders }}{{ if $i }}, {{ end }}'{{ $h }}'{{- end }}],
     {{- end }}
     {{- $stores := MutationInvalidateStores . }}
     {{- if gt (len $stores) 0 }}

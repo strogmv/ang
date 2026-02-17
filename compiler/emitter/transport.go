@@ -13,6 +13,7 @@ import (
 
 	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang/compiler/policy"
 )
 
 type HttpEndpointView struct {
@@ -60,32 +61,33 @@ func buildRequireRoles(roles []string) string {
 }
 
 func buildMiddlewareList(ep normalizer.Endpoint, includeCache, includeIdempotency bool) string {
+	p := policy.FromEndpoint(ep)
 	var parts []string
-	if ep.MaxBodySize > 0 {
-		parts = append(parts, fmt.Sprintf("MaxBodySizeMiddleware(%d)", ep.MaxBodySize))
+	if p.MaxBodySize > 0 {
+		parts = append(parts, fmt.Sprintf("MaxBodySizeMiddleware(%d)", p.MaxBodySize))
 	}
-	if ep.AuthType != "" {
+	if p.AuthType != "" {
 		parts = append(parts, "AuthMiddleware")
-		if len(ep.AuthRoles) > 0 {
-			parts = append(parts, buildRequireRoles(ep.AuthRoles))
+		if len(p.AuthRoles) > 0 {
+			parts = append(parts, buildRequireRoles(p.AuthRoles))
 		}
-		if ep.Permission != "" {
-			parts = append(parts, fmt.Sprintf("RequirePermission(%q)", ep.Permission))
+		if p.Permission != "" {
+			parts = append(parts, fmt.Sprintf("RequirePermission(%q)", p.Permission))
 		}
 	}
-	if includeCache && ep.CacheTTL != "" {
-		parts = append(parts, fmt.Sprintf("CacheMiddleware(%q)", ep.CacheTTL))
+	if includeCache && p.CacheTTL != "" {
+		parts = append(parts, fmt.Sprintf("CacheMiddleware(%q)", p.CacheTTL))
 	}
-	if ep.RateLimit != nil {
-		parts = append(parts, fmt.Sprintf("RateLimitMiddleware(%d, %d)", ep.RateLimit.RPS, ep.RateLimit.Burst))
+	if p.RateLimit != nil {
+		parts = append(parts, fmt.Sprintf("RateLimitMiddleware(%d, %d)", p.RateLimit.RPS, p.RateLimit.Burst))
 	}
-	if ep.CircuitBreaker != nil {
-		parts = append(parts, fmt.Sprintf("CircuitBreakerMiddleware(%d, %q, %d)", ep.CircuitBreaker.Threshold, ep.CircuitBreaker.Timeout, ep.CircuitBreaker.HalfOpenMax))
+	if p.CircuitBreaker != nil {
+		parts = append(parts, fmt.Sprintf("CircuitBreakerMiddleware(%d, %q, %d)", p.CircuitBreaker.Threshold, p.CircuitBreaker.Timeout, p.CircuitBreaker.HalfOpenMax))
 	}
-	if ep.Timeout != "" {
-		parts = append(parts, fmt.Sprintf("TimeoutMiddleware(%q)", ep.Timeout))
+	if p.Timeout != "" {
+		parts = append(parts, fmt.Sprintf("TimeoutMiddleware(%q)", p.Timeout))
 	}
-	if includeIdempotency && ep.Idempotency {
+	if includeIdempotency && p.Idempotency {
 		parts = append(parts, "IdempotencyMiddleware()")
 	}
 	return strings.Join(parts, ", ")
