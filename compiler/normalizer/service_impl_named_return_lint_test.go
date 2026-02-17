@@ -105,3 +105,53 @@ return resp, err
 		}
 	}
 }
+
+func TestExtractServices_ImplNamedReturnLint_NotBypassedByFlowFirstBypass(t *testing.T) {
+	ctx := cuecontext.New()
+	val := ctx.CompileString(`
+GetTender: {
+	service: "tender"
+	output: {
+		ok: bool
+	}
+	impls: go: {
+		flowFirstBypass: true
+		flowFirstBypassReason: "complex orchestration"
+		code: """
+var err error
+err := fmt.Errorf("boom")
+return resp, err
+"""
+		imports: ["fmt"]
+	}
+}
+`)
+	if err := val.Err(); err != nil {
+		t.Fatalf("compile CUE: %v", err)
+	}
+
+	n := New()
+	var warnings []Warning
+	n.WarningSink = func(w Warning) {
+		warnings = append(warnings, w)
+	}
+
+	_, err := n.ExtractServices(val, nil)
+	if err != nil {
+		t.Fatalf("ExtractServices failed: %v", err)
+	}
+
+	foundVar := false
+	foundShort := false
+	for _, w := range warnings {
+		if w.Code == "IMPL_NAMED_RETURN_ERR_VAR" {
+			foundVar = true
+		}
+		if w.Code == "IMPL_NAMED_RETURN_ERR_SHORT_DECL" {
+			foundShort = true
+		}
+	}
+	if !foundVar || !foundShort {
+		t.Fatalf("expected named-return lint even with flowFirstBypass, got %+v", warnings)
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -327,8 +328,10 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 					}
 				}
 				method.Impl = impl
-				bypass, _ := implVal.LookupPath(cue.ParsePath("flowFirstBypass")).Bool()
-				for _, diag := range validateNamedReturnImplCode(svcName, opName, method, codeVal, bypass) {
+				for _, diag := range validateNamedReturnImplCode(svcName, opName, method, codeVal) {
+					n.Warn(diag)
+				}
+				for _, diag := range validateImplAntiPatterns(svcName, opName, method, codeVal) {
 					n.Warn(diag)
 				}
 			}
@@ -1389,8 +1392,10 @@ func (n *Normalizer) parseService(name string, val cue.Value) (Service, error) {
 					}
 				}
 				method.Impl = impl
-				bypass, _ := implVal.LookupPath(cue.ParsePath("flowFirstBypass")).Bool()
-				for _, diag := range validateNamedReturnImplCode(name, methodName, method, codeVal, bypass) {
+				for _, diag := range validateNamedReturnImplCode(name, methodName, method, codeVal) {
+					n.Warn(diag)
+				}
+				for _, diag := range validateImplAntiPatterns(name, methodName, method, codeVal) {
 					n.Warn(diag)
 				}
 			}
@@ -1866,10 +1871,7 @@ func addPaginationFields(method *Method) {
 	}
 }
 
-func validateNamedReturnImplCode(serviceName, methodName string, method Method, codeVal cue.Value, bypass bool) []Warning {
-	if bypass {
-		return nil
-	}
+func validateNamedReturnImplCode(serviceName, methodName string, method Method, codeVal cue.Value) []Warning {
 	if method.Impl == nil || strings.TrimSpace(method.Impl.Code) == "" {
 		return nil
 	}
@@ -1886,24 +1888,23 @@ func validateNamedReturnImplCode(serviceName, methodName string, method Method, 
 		return nil
 	}
 
-	pos := codeVal.Pos()
-	warnFile := ""
-	warnLine := 0
-	warnCol := 0
-	if pos.IsValid() {
-		warnFile = pos.Filename()
-		warnLine = pos.Line()
-		warnCol = pos.Column()
-	}
+	warnFile, warnLine, warnCol := cuePosition(codeVal)
 
 	type violation struct {
 		code string
 		msg  string
 		hint string
+		pos  token.Pos
 	}
 
 	var out []Warning
 	emit := func(v violation) {
+		line := warnLine
+		col := warnCol
+		if nodeLine, nodeCol, ok := wrappedNodePosition(fset, v.pos); ok {
+			line = wrappedToCueLine(warnLine, nodeLine)
+			col = nodeCol
+		}
 		out = append(out, Warning{
 			Kind:     "impl",
 			Code:     v.code,
@@ -1911,8 +1912,8 @@ func validateNamedReturnImplCode(serviceName, methodName string, method Method, 
 			Message:  fmt.Sprintf("%s.%s: %s", serviceName, methodName, v.msg),
 			Hint:     v.hint,
 			File:     warnFile,
-			Line:     warnLine,
-			Column:   warnCol,
+			Line:     line,
+			Column:   col,
 			CUEPath:  codeVal.Path().String(),
 		})
 	}
@@ -1936,6 +1937,7 @@ func validateNamedReturnImplCode(serviceName, methodName string, method Method, 
 								code: "IMPL_NAMED_RETURN_RESP_VAR",
 								msg:  "do not redeclare 'resp' in impls.go.code when method uses named return",
 								hint: "Use assignment 'resp = ...' instead of 'var resp ...'",
+								pos:  name.Pos(),
 							})
 						}
 					case "err":
@@ -1944,6 +1946,7 @@ func validateNamedReturnImplCode(serviceName, methodName string, method Method, 
 								code: "IMPL_NAMED_RETURN_ERR_VAR",
 								msg:  "do not redeclare 'err' as local variable in impls.go.code when method uses named return",
 								hint: "Use assignment 'err = ...' instead of 'var err error'",
+								pos:  name.Pos(),
 							})
 						}
 					}
@@ -1965,6 +1968,7 @@ func validateNamedReturnImplCode(serviceName, methodName string, method Method, 
 							code: "IMPL_NAMED_RETURN_RESP_SHORT_DECL",
 							msg:  "do not use 'resp :=' in impls.go.code when method uses named return",
 							hint: "Use assignment 'resp = ...' instead of short declaration",
+							pos:  id.Pos(),
 						})
 					}
 				case "err":
@@ -1972,6 +1976,7 @@ func validateNamedReturnImplCode(serviceName, methodName string, method Method, 
 						code: "IMPL_NAMED_RETURN_ERR_SHORT_DECL",
 						msg:  "do not use 'err :=' in impls.go.code when method uses named return",
 						hint: "Use assignment 'err = ...' instead of short declaration",
+						pos:  id.Pos(),
 					})
 				}
 			}
@@ -1980,6 +1985,100 @@ func validateNamedReturnImplCode(serviceName, methodName string, method Method, 
 	})
 
 	return out
+}
+
+func validateImplAntiPatterns(serviceName, methodName string, method Method, codeVal cue.Value) []Warning {
+	if method.Impl == nil || strings.TrimSpace(method.Impl.Code) == "" {
+		return nil
+	}
+
+	file, baseLine, baseCol := cuePosition(codeVal)
+	lines := strings.Split(method.Impl.Code, "\n")
+	var out []Warning
+	appendWarning := func(code, message, hint string, lineOffset int, col int) {
+		line := baseLine
+		if lineOffset > 0 {
+			line += lineOffset
+		}
+		if line <= 0 {
+			line = baseLine
+		}
+		if col <= 0 {
+			col = baseCol
+		}
+		out = append(out, Warning{
+			Kind:     "impl",
+			Code:     code,
+			Severity: "error",
+			Message:  fmt.Sprintf("%s.%s: %s", serviceName, methodName, message),
+			Hint:     hint,
+			File:     file,
+			Line:     line,
+			Column:   col,
+			CUEPath:  codeVal.Path().String(),
+		})
+	}
+
+	legacyLoggerRE := regexp.MustCompile(`\bl\.[A-Za-z_][A-Za-z0-9_]*`)
+	for i, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		if idx := strings.Index(line, "http://"); idx >= 0 || strings.Index(line, "https://") >= 0 {
+			if idx < 0 {
+				idx = strings.Index(line, "https://")
+			}
+			appendWarning(
+				"IMPL_HARDCODED_URL_LITERAL",
+				"do not hardcode external URLs in impls.go.code",
+				"Move URL to cue/infra config or template variables and inject via service logic.",
+				i,
+				baseCol+idx,
+			)
+		}
+		if loc := legacyLoggerRE.FindStringIndex(line); len(loc) == 2 {
+			appendWarning(
+				"IMPL_LEGACY_LOGGER_ALIAS",
+				"legacy logger alias 'l.' is not allowed in impls.go.code",
+				"Use slog.* directly (or injected logger variable) instead of legacy alias 'l'.",
+				i,
+				baseCol+loc[0],
+			)
+		}
+	}
+	return out
+}
+
+func cuePosition(v cue.Value) (file string, line int, col int) {
+	pos := v.Pos()
+	if pos.IsValid() {
+		return pos.Filename(), pos.Line(), pos.Column()
+	}
+	return "", 0, 0
+}
+
+func wrappedNodePosition(fset *token.FileSet, pos token.Pos) (line int, col int, ok bool) {
+	if !pos.IsValid() {
+		return 0, 0, false
+	}
+	p := fset.Position(pos)
+	if p.Line <= 0 {
+		return 0, 0, false
+	}
+	return p.Line, p.Column, true
+}
+
+func wrappedToCueLine(cueBaseLine int, wrappedLine int) int {
+	// Wrapped body is:
+	// 1: package lint
+	// 2: func _() ...
+	// 3+: original impl code
+	// so wrapped line 3 maps to cueBaseLine.
+	if wrappedLine <= 3 {
+		return cueBaseLine
+	}
+	return cueBaseLine + (wrappedLine - 3)
 }
 
 func isFlowFirstCandidate(methodName string) bool {
