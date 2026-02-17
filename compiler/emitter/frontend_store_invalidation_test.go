@@ -78,6 +78,9 @@ func TestEmitFrontendSDK_GeneratesStoreAutoInvalidation(t *testing.T) {
 	if !strings.Contains(string(invalidationData), "markStoresListStale") {
 		t.Fatalf("expected markStoresListStale in invalidation module")
 	}
+	if !strings.Contains(string(invalidationData), "markInvalidateTargets") {
+		t.Fatalf("expected markInvalidateTargets in invalidation module")
+	}
 
 	storeData, err := os.ReadFile(filepath.Join(tmp, "stores", "tender.ts"))
 	if err != nil {
@@ -96,14 +99,14 @@ func TestEmitFrontendSDK_GeneratesStoreAutoInvalidation(t *testing.T) {
 		t.Fatalf("read endpoints.ts: %v", err)
 	}
 	endpointsText := string(endpointsData)
-	if !strings.Contains(endpointsText, "import { markStoresListStale } from './stores/invalidation';") {
-		t.Fatalf("expected endpoints.ts to import markStoresListStale")
+	if !strings.Contains(endpointsText, "import { markInvalidateTargets } from './stores/invalidation';") {
+		t.Fatalf("expected endpoints.ts to import markInvalidateTargets")
 	}
-	if !strings.Contains(endpointsText, "invalidateStores: ['tender']") {
-		t.Fatalf("expected create endpoint metadata to include tender invalidation")
+	if !strings.Contains(endpointsText, "invalidateTargets: [") || !strings.Contains(endpointsText, "{ store: 'tender', mode: 'list' }") {
+		t.Fatalf("expected create endpoint metadata to include tender invalidate target")
 	}
-	if !strings.Contains(endpointsText, "markStoresListStale(storesToInvalidate)") {
-		t.Fatalf("expected mutation endpoint to call markStoresListStale")
+	if !strings.Contains(endpointsText, "markInvalidateTargets(invalidateTargets, params)") {
+		t.Fatalf("expected mutation endpoint to call markInvalidateTargets")
 	}
 }
 

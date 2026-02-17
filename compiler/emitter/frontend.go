@@ -141,47 +141,133 @@ func isPathParamSegment(seg string) bool {
 	return strings.HasPrefix(seg, "{") && strings.HasSuffix(seg, "}")
 }
 
-func mutationInvalidateStoresForEndpoint(ep normalizer.Endpoint, entities []normalizer.Entity) []string {
+type frontendInvalidateTarget struct {
+	Store      string
+	ScopeParam string
+	Mode       string
+}
+
+func inferStoreFromName(name string, entities []normalizer.Entity) string {
+	n := strings.TrimSpace(name)
+	if n == "" {
+		return ""
+	}
+	for _, prefix := range []string{"Create", "Delete", "Update", "Patch", "Remove", "List", "Get"} {
+		if strings.HasPrefix(n, prefix) {
+			n = strings.TrimSpace(strings.TrimPrefix(n, prefix))
+			break
+		}
+	}
+	for _, ent := range entities {
+		if strings.HasPrefix(strings.ToLower(n), strings.ToLower(ent.Name)) {
+			return strings.ToLower(ent.Name)
+		}
+	}
+	return ""
+}
+
+func inferStoreFromPath(path string) string {
+	segs := pathSegments(path)
+	for _, seg := range segs {
+		if isPathParamSegment(seg) {
+			continue
+		}
+		if seg == "" {
+			continue
+		}
+		key := strings.TrimSpace(seg)
+		if strings.HasSuffix(key, "s") && len(key) > 1 {
+			key = key[:len(key)-1]
+		}
+		return strings.ToLower(key)
+	}
+	return ""
+}
+
+func firstPathParamName(path string) string {
+	for _, seg := range pathSegments(path) {
+		if isPathParamSegment(seg) {
+			return strings.TrimSuffix(strings.TrimPrefix(seg, "{"), "}")
+		}
+	}
+	return ""
+}
+
+func endpointMode(ep normalizer.Endpoint) string {
+	if strings.ToUpper(ep.Method) != "GET" {
+		return "list"
+	}
+	if firstPathParamName(ep.Path) != "" {
+		return "detail"
+	}
+	return "list"
+}
+
+func mutationInvalidateTargetsForEndpoint(ep normalizer.Endpoint, all []normalizer.Endpoint, entities []normalizer.Entity) []frontendInvalidateTarget {
 	method := strings.ToUpper(strings.TrimSpace(ep.Method))
 	if method == "" || method == "GET" || method == "WS" {
 		return nil
 	}
 
-	verbs := []string{"Create", "Delete", "Update", "Patch", "Remove"}
-	rpc := strings.TrimSpace(ep.RPC)
-	if rpc == "" {
-		return nil
-	}
-
-	stem := ""
-	for _, verb := range verbs {
-		if idx := strings.Index(rpc, verb); idx >= 0 {
-			stem = strings.TrimSpace(rpc[idx+len(verb):])
-			break
-		}
-	}
-	if stem == "" {
-		return nil
-	}
-
 	seen := make(map[string]struct{})
-	var keys []string
-	for _, ent := range entities {
-		name := strings.TrimSpace(ent.Name)
-		if name == "" {
+	var out []frontendInvalidateTarget
+	add := func(t frontendInvalidateTarget) {
+		if t.Store == "" {
+			return
+		}
+		key := t.Store + "|" + t.ScopeParam + "|" + t.Mode
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, t)
+	}
+
+	for _, rpc := range ep.Invalidate {
+		rpc = strings.TrimSpace(rpc)
+		if rpc == "" {
 			continue
 		}
-		if strings.HasPrefix(strings.ToLower(stem), strings.ToLower(name)) {
-			key := strings.ToLower(name)
-			if _, ok := seen[key]; ok {
+		found := false
+		for _, target := range all {
+			if target.RPC != rpc {
 				continue
 			}
-			seen[key] = struct{}{}
-			keys = append(keys, key)
+			store := inferStoreFromName(target.RPC, entities)
+			if store == "" {
+				store = inferStoreFromPath(target.Path)
+			}
+			add(frontendInvalidateTarget{
+				Store:      store,
+				ScopeParam: firstPathParamName(target.Path),
+				Mode:       endpointMode(target),
+			})
+			found = true
+		}
+		if !found {
+			add(frontendInvalidateTarget{
+				Store: inferStoreFromName(rpc, entities),
+				Mode:  "list",
+			})
 		}
 	}
-	sort.Strings(keys)
-	return keys
+
+	store := inferStoreFromName(ep.RPC, entities)
+	if store == "" {
+		store = inferStoreFromPath(ep.Path)
+	}
+	add(frontendInvalidateTarget{Store: store, Mode: "list"})
+
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Store != out[j].Store {
+			return out[i].Store < out[j].Store
+		}
+		if out[i].ScopeParam != out[j].ScopeParam {
+			return out[i].ScopeParam < out[j].ScopeParam
+		}
+		return out[i].Mode < out[j].Mode
+	})
+	return out
 }
 
 // EmitFrontendSDK generates the React SDK (TS, Zod, React Query).
@@ -714,8 +800,8 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 			}
 			return out
 		},
-		"MutationInvalidateStores": func(ep normalizer.Endpoint) []string {
-			return mutationInvalidateStoresForEndpoint(ep, entitiesNorm)
+		"MutationInvalidateTargets": func(ep normalizer.Endpoint) []frontendInvalidateTarget {
+			return mutationInvalidateTargetsForEndpoint(ep, endpointsNorm, entitiesNorm)
 		},
 		"EndpointPolicy": func(ep normalizer.Endpoint) policy.EndpointPolicy {
 			return policy.FromEndpoint(ep)
