@@ -7,6 +7,9 @@ import (
 	{{- if .HasOrderBy }}
 	"sort"
 	{{- end }}
+	{{- if .HasTime }}
+	"time"
+	{{- end }}
 	"reflect"
 	"{{GoModule}}/internal/domain"
 	"sync"

@@ -26,6 +26,7 @@ import (
 	"{{GoModule}}/internal/pkg/circuitbreaker"
 	"{{GoModule}}/internal/pkg/errors"
 	"{{GoModule}}/internal/pkg/rbac"
+	"{{GoModule}}/internal/pkg/reqctx"
 )
 
 var validate = validator.New()
@@ -139,6 +140,17 @@ func decodeJSONRequest(r *http.Request, out interface{}) error {
 		}
 	}
 	return json.Unmarshal(body, out)
+}
+
+// TestHeadersMiddleware reads test-only request headers and injects them into the context.
+// In production environments these headers are never sent, so this middleware is a no-op.
+func TestHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("x-test-skip-auto-verify") == "true" {
+			r = r.WithContext(reqctx.WithSkipAutoVerify(r.Context()))
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func AuthMiddleware(next http.Handler) http.Handler {

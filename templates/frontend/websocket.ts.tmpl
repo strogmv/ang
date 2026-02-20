@@ -36,12 +36,15 @@ export class WebSocketClient<T = WSMessage> {
     if (this.connectPromise) return this.connectPromise;
 
     this.connectPromise = new Promise((resolve) => {
-      const activeToken = this.token || useAuthStore.getState().token;
-      const wsUrl = activeToken ? `${this.url}?token=${activeToken}` : this.url;
-
-      this.ws = new WebSocket(wsUrl);
+      // Token is sent as the first WS message after handshake — never in the URL.
+      // URL-based tokens appear in server access logs, browser history, and Referer headers.
+      this.ws = new WebSocket(this.url);
 
       this.ws.onopen = () => {
+        const activeToken = this.token || useAuthStore.getState().token;
+        if (activeToken) {
+          this.ws!.send(JSON.stringify({ type: 'auth', token: activeToken }));
+        }
         console.log('WS Connected');
         this.reconnectAttempts = 0;
         this.connectPromise = null;

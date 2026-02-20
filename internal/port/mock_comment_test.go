@@ -10,10 +10,10 @@ type CommentRepositoryMock struct {
 	FindByIDFunc       func(ctx context.Context, id string) (*domain.Comment, error)
 	SaveFunc           func(ctx context.Context, item *domain.Comment) error
 	DeleteFunc         func(ctx context.Context, id string) error
-	ListByPostFunc     func(ctx context.Context) (any, error)
 	CountByPostFunc    func(ctx context.Context) (any, error)
 	DeleteByParentFunc func(ctx context.Context) (any, error)
 	DeleteByPostFunc   func(ctx context.Context) (any, error)
+	ListByPostFunc     func(ctx context.Context) (any, error)
 }
 
 func (m *CommentRepositoryMock) FindByID(ctx context.Context, id string) (*domain.Comment, error) {
@@ -36,12 +36,6 @@ func (m *CommentRepositoryMock) Delete(ctx context.Context, id string) error {
 	}
 	return nil
 }
-func (m *CommentRepositoryMock) ListByPost(ctx context.Context) (any, error) {
-	if m.ListByPostFunc != nil {
-		return m.ListByPostFunc(ctx)
-	}
-	return nil, nil
-}
 func (m *CommentRepositoryMock) CountByPost(ctx context.Context) (any, error) {
 	if m.CountByPostFunc != nil {
 		return m.CountByPostFunc(ctx)
@@ -57,6 +51,12 @@ func (m *CommentRepositoryMock) DeleteByParent(ctx context.Context) (any, error)
 func (m *CommentRepositoryMock) DeleteByPost(ctx context.Context) (any, error) {
 	if m.DeleteByPostFunc != nil {
 		return m.DeleteByPostFunc(ctx)
+	}
+	return nil, nil
+}
+func (m *CommentRepositoryMock) ListByPost(ctx context.Context) (any, error) {
+	if m.ListByPostFunc != nil {
+		return m.ListByPostFunc(ctx)
 	}
 	return nil, nil
 }

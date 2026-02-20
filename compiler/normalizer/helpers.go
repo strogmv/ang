@@ -34,6 +34,21 @@ func getString(v cue.Value, path string) string {
 	return strings.TrimSpace(s)
 }
 
+// rpcEntityBase strips common verb prefixes from an RPC name to get the bare entity name.
+// E.g. "AdminCreateAPIKey" → "APIKey", "ListTenders" → "Tenders".
+func rpcEntityBase(rpc string) string {
+	for _, prefix := range []string{
+		"AdminCreate", "AdminUpdate", "AdminDelete", "AdminPatch", "AdminRemove",
+		"AdminList", "AdminGet", "AdminSet",
+		"Create", "Update", "Delete", "Patch", "Remove", "List", "Get", "Set",
+	} {
+		if strings.HasPrefix(rpc, prefix) {
+			return rpc[len(prefix):]
+		}
+	}
+	return rpc
+}
+
 func cleanName(s string) string {
 	s = strings.TrimSuffix(s, "?")
 	s = strings.TrimSuffix(s, "!")
@@ -163,6 +178,12 @@ func (n *Normalizer) detectType(fieldName string, v cue.Value) string {
 		_, path := v.ReferencePath()
 		if len(path.Selectors()) > 0 {
 			last := path.Selectors()[len(path.Selectors())-1].String()
+			if len(path.Selectors()) >= 1 {
+				pkg := path.Selectors()[0].String()
+				if pkg == "time" && (last == "Time" || strings.EqualFold(last, "time")) {
+					return "time.Time"
+				}
+			}
 			if strings.HasPrefix(last, "#") {
 				return "domain." + exportName(strings.TrimPrefix(last, "#"))
 			}

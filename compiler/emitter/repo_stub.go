@@ -88,6 +88,13 @@ func (e *Emitter) EmitStubRepo(repos []ir.Repository, entities []ir.Entity) erro
 			fo.ReturnZero = sig.ReturnZero
 			fo.ReturnSlice = sig.ReturnSlice
 			fo.ParamsSig = sig.ParamsSig
+			// add pagination params to signature if finder implies pagination
+			if f.Limit > 0 || strings.Contains(strings.ToLower(f.Name), "paginate") {
+				if fo.ParamsSig != "" {
+					fo.ParamsSig += ", "
+				}
+				fo.ParamsSig += "limit int, offset int"
+			}
 			hasTime = hasTime || sig.HasTime
 
 			// Check for explicit ReturnType first (custom types like *domain.TenderReportInfo)

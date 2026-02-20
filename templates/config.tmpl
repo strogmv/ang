@@ -7,7 +7,7 @@ import (
 
 type Config struct {
 	{{- range .Fields }}
-	{{ FieldName . }} {{ ConfigType . }} `env:"{{ .EnvVar }}"{{ if ne .Default "" }} env-default:{{ ConfigDefault . }}{{ else if not .IsOptional }} env-required:"true"{{ end }}`
+	{{ FieldName . }} {{ ConfigType . }} `env:"{{ .EnvVar }}"{{ if ne .Default "" }} env-default:"{{ ConfigDefault . }}"{{ else if not .IsOptional }} env-required:"true"{{ end }}`
 	{{- end }}
 }
 

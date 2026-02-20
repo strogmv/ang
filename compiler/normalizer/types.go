@@ -330,6 +330,7 @@ type RepositoryFinder struct {
 	Limit      int
 	ForUpdate  bool
 	CustomSQL  string // New field for hand-written complex SQL
+	SumField   string // field to use in SUM() when Returns == "sum"
 	Source     string
 }
 

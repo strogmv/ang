@@ -11,6 +11,7 @@ package http
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -166,4 +167,58 @@ func (c *wsClient) readPump() {
 			break
 		}
 	}
+}
+
+// wsReadAuthToken reads the first client message after upgrade and expects an auth frame:
+//
+//	{ "type": "auth", "token": "<jwt>" }
+//
+// Returns the userID and companyID extracted from the validated JWT.
+// Closes the connection and returns an error if the frame is missing or the token is invalid.
+// This keeps JWT tokens out of the URL (access logs, browser history, Referer headers).
+func wsReadAuthToken(conn *websocket.Conn) (userID string, companyID string, err error) {
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_, msg, err := conn.ReadMessage()
+	if err != nil {
+		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(4001, "auth frame required"))
+		conn.Close()
+		return "", "", fmt.Errorf("ws auth: read: %w", err)
+	}
+	conn.SetReadDeadline(time.Time{}) // reset deadline after successful read
+
+	var frame struct {
+		Type  string `json:"type"`
+		Token string `json:"token"`
+	}
+	if json.Unmarshal(msg, &frame) != nil || frame.Type != "auth" || frame.Token == "" {
+		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(4001, "auth frame required"))
+		conn.Close()
+		return "", "", fmt.Errorf("ws auth: invalid auth frame")
+	}
+
+	claims, err := parseAndVerifyJWT(frame.Token)
+	if err != nil {
+		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(4001, "invalid token"))
+		conn.Close()
+		return "", "", fmt.Errorf("ws auth: %w", err)
+	}
+
+	return getStringClaim(claims, authUserClaim), getStringClaim(claims, authCompanyClaim), nil
+}
+
+// wsReadAuthTokenOrQuery first checks for a JWT in the ?token= query parameter.
+// If present, it validates that token directly (no auth frame needed).
+// Otherwise it falls back to wsReadAuthToken (JSON auth frame protocol).
+// This supports both browser SDK clients (auth frame) and test/tool clients (?token=).
+func wsReadAuthTokenOrQuery(conn *websocket.Conn, r *http.Request) (userID string, companyID string, err error) {
+	if raw := r.URL.Query().Get("token"); raw != "" {
+		claims, clErr := parseAndVerifyJWT(raw)
+		if clErr != nil {
+			conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(4001, "invalid token"))
+			conn.Close()
+			return "", "", fmt.Errorf("ws auth: %w", clErr)
+		}
+		return getStringClaim(claims, authUserClaim), getStringClaim(claims, authCompanyClaim), nil
+	}
+	return wsReadAuthToken(conn)
 }

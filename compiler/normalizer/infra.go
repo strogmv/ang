@@ -565,6 +565,8 @@ func (n *Normalizer) ExtractRepoFinders(val cue.Value) (map[string][]RepositoryF
 			if returnType != "" {
 				fmt.Printf("DEBUG infra: Entity=%s Name=%s ReturnType=%s\n", entity, name, returnType)
 			}
+
+			sumField := strings.TrimSpace(getString(fv, "sum_field"))
 			result[entity] = append(result[entity], RepositoryFinder{
 				Name:       name,
 				Action:     action,
@@ -593,6 +595,7 @@ func (n *Normalizer) ExtractRepoFinders(val cue.Value) (map[string][]RepositoryF
 					return false
 				}(),
 				CustomSQL: strings.TrimSpace(getString(fv, "sql")),
+				SumField:  sumField,
 				Source:    formatPos(fv),
 			})
 		}

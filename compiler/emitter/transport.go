@@ -61,12 +61,18 @@ func buildRequireRoles(roles []string) string {
 }
 
 func buildMiddlewareList(ep normalizer.Endpoint, includeCache, includeIdempotency bool) string {
+	return buildMiddlewareListFull(ep, includeCache, includeIdempotency, false)
+}
+
+// buildMiddlewareListFull builds the middleware chain. When skipAuth is true, AuthMiddleware
+// is omitted — used for WebSocket routes where auth happens post-upgrade via the auth frame.
+func buildMiddlewareListFull(ep normalizer.Endpoint, includeCache, includeIdempotency, skipAuth bool) string {
 	p := policy.FromEndpoint(ep)
 	var parts []string
 	if p.MaxBodySize > 0 {
 		parts = append(parts, fmt.Sprintf("MaxBodySizeMiddleware(%d)", p.MaxBodySize))
 	}
-	if p.AuthType != "" {
+	if p.AuthType != "" && !skipAuth {
 		parts = append(parts, "AuthMiddleware")
 		if len(p.AuthRoles) > 0 {
 			parts = append(parts, buildRequireRoles(p.AuthRoles))
@@ -385,7 +391,8 @@ func (e *Emitter) EmitWebSocket(irEndpoints []ir.Endpoint, irServices []ir.Servi
 			return buildMiddlewareList(ep, false, false)
 		},
 		"WSMiddlewareList": func(ep WsEndpointView) string {
-			return buildMiddlewareList(ep.Endpoint, false, false)
+			// Auth is excluded: WS auth happens post-upgrade via first message frame (wsReadAuthToken).
+			return buildMiddlewareListFull(ep.Endpoint, false, false, true)
 		},
 		"ParamForField": func(path, field string) string {
 			normalizedField := strings.ToLower(strings.ReplaceAll(field, "_", ""))

@@ -11,6 +11,9 @@ type Client struct {
 	nc *natspkg.Conn
 }
 
+// keep context import when events are present
+var _ = context.Background
+
 func NewClient(url string) (*Client, error) {
 	nc, err := natspkg.Connect(url)
 	if err != nil {

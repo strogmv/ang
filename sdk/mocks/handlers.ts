@@ -2,13 +2,6 @@
 import { http, HttpResponse, ws } from 'msw';
 
 export const handlers = [
-  http.post('*//auth/register', () => {
-    return HttpResponse.json({
-        id: "gen-id-123",
-        email: "user@example.com",
-        name: "sample text",
-    });
-  }),
   http.post('*//auth/login', () => {
     return HttpResponse.json({
         accessToken: "sample text",
@@ -31,31 +24,74 @@ export const handlers = [
         ok: true,
     });
   }),
-  http.get('*//tags', () => {
+  http.post('*//auth/register', () => {
+    return HttpResponse.json({
+        id: "gen-id-123",
+        email: "user@example.com",
+        name: "sample text",
+    });
+  }),
+  http.delete('*//comments/:id', () => {
+    return HttpResponse.json({
+        ok: true,
+    });
+  }),
+  http.put('*//comments/:id', () => {
+    return HttpResponse.json({
+        ok: true,
+    });
+  }),
+  http.get('*//my/posts', () => {
     return HttpResponse.json({
         data: [],
     });
   }),
-  http.post('*//tags', () => {
+  http.get('*//posts', () => {
     return HttpResponse.json({
-        id: "gen-id-123",
-        slug: "sample text",
-    });
-  }),
-  http.put('*//tags/:id', () => {
-    return HttpResponse.json({
-        ok: true,
-    });
-  }),
-  http.delete('*//tags/:id', () => {
-    return HttpResponse.json({
-        ok: true,
+        data: [],
+        total: 42,
     });
   }),
   http.post('*//posts', () => {
     return HttpResponse.json({
         id: "gen-id-123",
         slug: "sample text",
+    });
+  }),
+  http.delete('*//posts/:id', () => {
+    return HttpResponse.json({
+        ok: true,
+    });
+  }),
+  http.put('*//posts/:id', () => {
+    return HttpResponse.json({
+        ok: true,
+    });
+  }),
+  http.post('*//posts/:id/archive', () => {
+    return HttpResponse.json({
+        ok: true,
+    });
+  }),
+  http.post('*//posts/:id/publish', () => {
+    return HttpResponse.json({
+        ok: true,
+    });
+  }),
+  http.post('*//posts/:id/submit', () => {
+    return HttpResponse.json({
+        ok: true,
+    });
+  }),
+  http.get('*//posts/:postID/comments', () => {
+    return HttpResponse.json({
+        data: [],
+        total: 42,
+    });
+  }),
+  http.post('*//posts/:postID/comments', () => {
+    return HttpResponse.json({
+        id: "gen-id-123",
     });
   }),
   http.get('*//posts/:slug', () => {
@@ -68,59 +104,23 @@ export const handlers = [
         tags: [],
     });
   }),
-  http.get('*//posts', () => {
-    return HttpResponse.json({
-        data: [],
-        total: 42,
-    });
-  }),
-  http.get('*//my/posts', () => {
+  http.get('*//tags', () => {
     return HttpResponse.json({
         data: [],
     });
   }),
-  http.put('*//posts/:id', () => {
-    return HttpResponse.json({
-        ok: true,
-    });
-  }),
-  http.post('*//posts/:id/submit', () => {
-    return HttpResponse.json({
-        ok: true,
-    });
-  }),
-  http.post('*//posts/:id/publish', () => {
-    return HttpResponse.json({
-        ok: true,
-    });
-  }),
-  http.post('*//posts/:id/archive', () => {
-    return HttpResponse.json({
-        ok: true,
-    });
-  }),
-  http.delete('*//posts/:id', () => {
-    return HttpResponse.json({
-        ok: true,
-    });
-  }),
-  http.post('*//posts/:postID/comments', () => {
+  http.post('*//tags', () => {
     return HttpResponse.json({
         id: "gen-id-123",
+        slug: "sample text",
     });
   }),
-  http.get('*//posts/:postID/comments', () => {
-    return HttpResponse.json({
-        data: [],
-        total: 42,
-    });
-  }),
-  http.put('*//comments/:id', () => {
+  http.delete('*//tags/:id', () => {
     return HttpResponse.json({
         ok: true,
     });
   }),
-  http.delete('*//comments/:id', () => {
+  http.put('*//tags/:id', () => {
     return HttpResponse.json({
         ok: true,
     });

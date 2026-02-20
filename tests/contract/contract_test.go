@@ -137,38 +137,8 @@ func TestContractHTTPUnauthorized(t *testing.T) {
 			t.Fatalf("expected 401, got %d", resp.StatusCode)
 		}
 	})
-	t.Run("CreateTag_unauthorized", func(t *testing.T) {
-		url := baseURL + fillPathParams("/tags")
-		req, err := http.NewRequest("POST", url, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusUnauthorized {
-			t.Fatalf("expected 401, got %d", resp.StatusCode)
-		}
-	})
-	t.Run("UpdateTag_unauthorized", func(t *testing.T) {
-		url := baseURL + fillPathParams("/tags/{id}")
-		req, err := http.NewRequest("PUT", url, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusUnauthorized {
-			t.Fatalf("expected 401, got %d", resp.StatusCode)
-		}
-	})
-	t.Run("DeleteTag_unauthorized", func(t *testing.T) {
-		url := baseURL + fillPathParams("/tags/{id}")
+	t.Run("DeleteComment_unauthorized", func(t *testing.T) {
+		url := baseURL + fillPathParams("/comments/{id}")
 		req, err := http.NewRequest("DELETE", url, nil)
 		if err != nil {
 			t.Fatal(err)
@@ -182,9 +152,9 @@ func TestContractHTTPUnauthorized(t *testing.T) {
 			t.Fatalf("expected 401, got %d", resp.StatusCode)
 		}
 	})
-	t.Run("CreatePost_unauthorized", func(t *testing.T) {
-		url := baseURL + fillPathParams("/posts")
-		req, err := http.NewRequest("POST", url, nil)
+	t.Run("UpdateComment_unauthorized", func(t *testing.T) {
+		url := baseURL + fillPathParams("/comments/{id}")
+		req, err := http.NewRequest("PUT", url, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -212,53 +182,8 @@ func TestContractHTTPUnauthorized(t *testing.T) {
 			t.Fatalf("expected 401, got %d", resp.StatusCode)
 		}
 	})
-	t.Run("UpdatePost_unauthorized", func(t *testing.T) {
-		url := baseURL + fillPathParams("/posts/{id}")
-		req, err := http.NewRequest("PUT", url, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusUnauthorized {
-			t.Fatalf("expected 401, got %d", resp.StatusCode)
-		}
-	})
-	t.Run("SubmitPost_unauthorized", func(t *testing.T) {
-		url := baseURL + fillPathParams("/posts/{id}/submit")
-		req, err := http.NewRequest("POST", url, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusUnauthorized {
-			t.Fatalf("expected 401, got %d", resp.StatusCode)
-		}
-	})
-	t.Run("PublishPost_unauthorized", func(t *testing.T) {
-		url := baseURL + fillPathParams("/posts/{id}/publish")
-		req, err := http.NewRequest("POST", url, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusUnauthorized {
-			t.Fatalf("expected 401, got %d", resp.StatusCode)
-		}
-	})
-	t.Run("ArchivePost_unauthorized", func(t *testing.T) {
-		url := baseURL + fillPathParams("/posts/{id}/archive")
+	t.Run("CreatePost_unauthorized", func(t *testing.T) {
+		url := baseURL + fillPathParams("/posts")
 		req, err := http.NewRequest("POST", url, nil)
 		if err != nil {
 			t.Fatal(err)
@@ -287,6 +212,66 @@ func TestContractHTTPUnauthorized(t *testing.T) {
 			t.Fatalf("expected 401, got %d", resp.StatusCode)
 		}
 	})
+	t.Run("UpdatePost_unauthorized", func(t *testing.T) {
+		url := baseURL + fillPathParams("/posts/{id}")
+		req, err := http.NewRequest("PUT", url, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("expected 401, got %d", resp.StatusCode)
+		}
+	})
+	t.Run("ArchivePost_unauthorized", func(t *testing.T) {
+		url := baseURL + fillPathParams("/posts/{id}/archive")
+		req, err := http.NewRequest("POST", url, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("expected 401, got %d", resp.StatusCode)
+		}
+	})
+	t.Run("PublishPost_unauthorized", func(t *testing.T) {
+		url := baseURL + fillPathParams("/posts/{id}/publish")
+		req, err := http.NewRequest("POST", url, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("expected 401, got %d", resp.StatusCode)
+		}
+	})
+	t.Run("SubmitPost_unauthorized", func(t *testing.T) {
+		url := baseURL + fillPathParams("/posts/{id}/submit")
+		req, err := http.NewRequest("POST", url, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("expected 401, got %d", resp.StatusCode)
+		}
+	})
 	t.Run("CreateComment_unauthorized", func(t *testing.T) {
 		url := baseURL + fillPathParams("/posts/{postID}/comments")
 		req, err := http.NewRequest("POST", url, nil)
@@ -302,9 +287,9 @@ func TestContractHTTPUnauthorized(t *testing.T) {
 			t.Fatalf("expected 401, got %d", resp.StatusCode)
 		}
 	})
-	t.Run("UpdateComment_unauthorized", func(t *testing.T) {
-		url := baseURL + fillPathParams("/comments/{id}")
-		req, err := http.NewRequest("PUT", url, nil)
+	t.Run("CreateTag_unauthorized", func(t *testing.T) {
+		url := baseURL + fillPathParams("/tags")
+		req, err := http.NewRequest("POST", url, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -317,9 +302,24 @@ func TestContractHTTPUnauthorized(t *testing.T) {
 			t.Fatalf("expected 401, got %d", resp.StatusCode)
 		}
 	})
-	t.Run("DeleteComment_unauthorized", func(t *testing.T) {
-		url := baseURL + fillPathParams("/comments/{id}")
+	t.Run("DeleteTag_unauthorized", func(t *testing.T) {
+		url := baseURL + fillPathParams("/tags/{id}")
 		req, err := http.NewRequest("DELETE", url, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("expected 401, got %d", resp.StatusCode)
+		}
+	})
+	t.Run("UpdateTag_unauthorized", func(t *testing.T) {
+		url := baseURL + fillPathParams("/tags/{id}")
+		req, err := http.NewRequest("PUT", url, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -338,23 +338,6 @@ func TestContractHTTPValidation(t *testing.T) {
 	baseURL := contractBaseURL()
 	client := &http.Client{Timeout: 10 * time.Second}
 	token := contractToken()
-	t.Run("Register_validation", func(t *testing.T) {
-		url := baseURL + fillPathParams("/auth/register") + "?email=user@example.com&password=test&name=test"
-		req, err := http.NewRequest("POST", url, bytes.NewBufferString("{}"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := client.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusBadRequest {
-			body, _ := io.ReadAll(resp.Body)
-			t.Fatalf("expected 400, got %d: %s", resp.StatusCode, string(body))
-		}
-	})
 	t.Run("Login_validation", func(t *testing.T) {
 		url := baseURL + fillPathParams("/auth/login") + "?email=user@example.com&password=test"
 		req, err := http.NewRequest("POST", url, bytes.NewBufferString("{}"))
@@ -372,9 +355,26 @@ func TestContractHTTPValidation(t *testing.T) {
 			t.Fatalf("expected 400, got %d: %s", resp.StatusCode, string(body))
 		}
 	})
-	t.Run("CreateTag_validation", func(t *testing.T) {
-		url := baseURL + fillPathParams("/tags") + "?name=test"
+	t.Run("Register_validation", func(t *testing.T) {
+		url := baseURL + fillPathParams("/auth/register") + "?email=user@example.com&password=test&name=test"
 		req, err := http.NewRequest("POST", url, bytes.NewBufferString("{}"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("expected 400, got %d: %s", resp.StatusCode, string(body))
+		}
+	})
+	t.Run("UpdateComment_validation", func(t *testing.T) {
+		url := baseURL + fillPathParams("/comments/{id}") + "?content=test"
+		req, err := http.NewRequest("PUT", url, bytes.NewBufferString("{}"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -447,9 +447,9 @@ func TestContractHTTPValidation(t *testing.T) {
 			t.Fatalf("expected 400, got %d: %s", resp.StatusCode, string(body))
 		}
 	})
-	t.Run("UpdateComment_validation", func(t *testing.T) {
-		url := baseURL + fillPathParams("/comments/{id}") + "?content=test"
-		req, err := http.NewRequest("PUT", url, bytes.NewBufferString("{}"))
+	t.Run("CreateTag_validation", func(t *testing.T) {
+		url := baseURL + fillPathParams("/tags") + "?name=test"
+		req, err := http.NewRequest("POST", url, bytes.NewBufferString("{}"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -478,24 +478,6 @@ func TestContractHTTPPositive(t *testing.T) {
 	baseURL := contractBaseURL()
 	client := &http.Client{Timeout: 10 * time.Second}
 	token := contractToken()
-	t.Run("Register_positive", func(t *testing.T) {
-		url := baseURL + fillPathParamsRequired(t, "/auth/register") + "?email=user@example.com&password=test&name=test"
-		payload := "{\"email\":\"user@example.com\",\"name\":\"test\",\"password\":\"test1234\"}"
-		req, err := http.NewRequest("POST", url, bytes.NewBufferString(payload))
-		if err != nil {
-			t.Fatal(err)
-		}
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := client.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			body, _ := io.ReadAll(resp.Body)
-			t.Fatalf("expected 2xx, got %d: %s", resp.StatusCode, string(body))
-		}
-	})
 	t.Run("Login_positive", func(t *testing.T) {
 		url := baseURL + fillPathParamsRequired(t, "/auth/login") + "?email=user@example.com&password=test"
 		payload := "{\"email\":\"user@example.com\",\"password\":\"test1234\"}"
@@ -540,22 +522,14 @@ func TestContractHTTPPositive(t *testing.T) {
 			t.Fatalf("expected 2xx, got %d: %s", resp.StatusCode, string(body))
 		}
 	})
-	t.Run("CreateTag_positive", func(t *testing.T) {
-		url := baseURL + fillPathParamsRequired(t, "/tags") + "?name=test"
-		payload := "\"test\""
+	t.Run("Register_positive", func(t *testing.T) {
+		url := baseURL + fillPathParamsRequired(t, "/auth/register") + "?email=user@example.com&password=test&name=test"
+		payload := "{\"email\":\"user@example.com\",\"name\":\"test\",\"password\":\"test1234\"}"
 		req, err := http.NewRequest("POST", url, bytes.NewBufferString(payload))
 		if err != nil {
 			t.Fatal(err)
 		}
 		req.Header.Set("Content-Type", "application/json")
-		if token == "" {
-			auth := ensureAuth(t)
-			token = auth.accessToken
-		}
-		if token == "" {
-			t.Skip("CONTRACT_TOKEN not set")
-		}
-		req.Header.Set("Authorization", "Bearer "+token)
 		resp, err := client.Do(req)
 		if err != nil {
 			t.Fatal(err)
@@ -566,10 +540,10 @@ func TestContractHTTPPositive(t *testing.T) {
 			t.Fatalf("expected 2xx, got %d: %s", resp.StatusCode, string(body))
 		}
 	})
-	t.Run("UpdateTag_positive", func(t *testing.T) {
-		url := baseURL + fillPathParamsRequired(t, "/tags/{id}")
+	t.Run("DeleteComment_positive", func(t *testing.T) {
+		url := baseURL + fillPathParamsRequired(t, "/comments/{id}")
 		payload := "{}"
-		req, err := http.NewRequest("PUT", url, bytes.NewBufferString(payload))
+		req, err := http.NewRequest("DELETE", url, bytes.NewBufferString(payload))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -592,10 +566,10 @@ func TestContractHTTPPositive(t *testing.T) {
 			t.Fatalf("expected 2xx, got %d: %s", resp.StatusCode, string(body))
 		}
 	})
-	t.Run("DeleteTag_positive", func(t *testing.T) {
-		url := baseURL + fillPathParamsRequired(t, "/tags/{id}")
-		payload := "{}"
-		req, err := http.NewRequest("DELETE", url, bytes.NewBufferString(payload))
+	t.Run("UpdateComment_positive", func(t *testing.T) {
+		url := baseURL + fillPathParamsRequired(t, "/comments/{id}") + "?content=test"
+		payload := "\"test\""
+		req, err := http.NewRequest("PUT", url, bytes.NewBufferString(payload))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -644,6 +618,32 @@ func TestContractHTTPPositive(t *testing.T) {
 			t.Fatalf("expected 2xx, got %d: %s", resp.StatusCode, string(body))
 		}
 	})
+	t.Run("DeletePost_positive", func(t *testing.T) {
+		url := baseURL + fillPathParamsRequired(t, "/posts/{id}")
+		payload := "{}"
+		req, err := http.NewRequest("DELETE", url, bytes.NewBufferString(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if token == "" {
+			auth := ensureAuth(t)
+			token = auth.accessToken
+		}
+		if token == "" {
+			t.Skip("CONTRACT_TOKEN not set")
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("expected 2xx, got %d: %s", resp.StatusCode, string(body))
+		}
+	})
 	t.Run("UpdatePost_positive", func(t *testing.T) {
 		url := baseURL + fillPathParamsRequired(t, "/posts/{id}")
 		payload := "{}"
@@ -670,8 +670,8 @@ func TestContractHTTPPositive(t *testing.T) {
 			t.Fatalf("expected 2xx, got %d: %s", resp.StatusCode, string(body))
 		}
 	})
-	t.Run("SubmitPost_positive", func(t *testing.T) {
-		url := baseURL + fillPathParamsRequired(t, "/posts/{id}/submit")
+	t.Run("ArchivePost_positive", func(t *testing.T) {
+		url := baseURL + fillPathParamsRequired(t, "/posts/{id}/archive")
 		payload := "{}"
 		req, err := http.NewRequest("POST", url, bytes.NewBufferString(payload))
 		if err != nil {
@@ -722,36 +722,10 @@ func TestContractHTTPPositive(t *testing.T) {
 			t.Fatalf("expected 2xx, got %d: %s", resp.StatusCode, string(body))
 		}
 	})
-	t.Run("ArchivePost_positive", func(t *testing.T) {
-		url := baseURL + fillPathParamsRequired(t, "/posts/{id}/archive")
+	t.Run("SubmitPost_positive", func(t *testing.T) {
+		url := baseURL + fillPathParamsRequired(t, "/posts/{id}/submit")
 		payload := "{}"
 		req, err := http.NewRequest("POST", url, bytes.NewBufferString(payload))
-		if err != nil {
-			t.Fatal(err)
-		}
-		req.Header.Set("Content-Type", "application/json")
-		if token == "" {
-			auth := ensureAuth(t)
-			token = auth.accessToken
-		}
-		if token == "" {
-			t.Skip("CONTRACT_TOKEN not set")
-		}
-		req.Header.Set("Authorization", "Bearer "+token)
-		resp, err := client.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			body, _ := io.ReadAll(resp.Body)
-			t.Fatalf("expected 2xx, got %d: %s", resp.StatusCode, string(body))
-		}
-	})
-	t.Run("DeletePost_positive", func(t *testing.T) {
-		url := baseURL + fillPathParamsRequired(t, "/posts/{id}")
-		payload := "{}"
-		req, err := http.NewRequest("DELETE", url, bytes.NewBufferString(payload))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -800,10 +774,10 @@ func TestContractHTTPPositive(t *testing.T) {
 			t.Fatalf("expected 2xx, got %d: %s", resp.StatusCode, string(body))
 		}
 	})
-	t.Run("UpdateComment_positive", func(t *testing.T) {
-		url := baseURL + fillPathParamsRequired(t, "/comments/{id}") + "?content=test"
+	t.Run("CreateTag_positive", func(t *testing.T) {
+		url := baseURL + fillPathParamsRequired(t, "/tags") + "?name=test"
 		payload := "\"test\""
-		req, err := http.NewRequest("PUT", url, bytes.NewBufferString(payload))
+		req, err := http.NewRequest("POST", url, bytes.NewBufferString(payload))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -826,10 +800,36 @@ func TestContractHTTPPositive(t *testing.T) {
 			t.Fatalf("expected 2xx, got %d: %s", resp.StatusCode, string(body))
 		}
 	})
-	t.Run("DeleteComment_positive", func(t *testing.T) {
-		url := baseURL + fillPathParamsRequired(t, "/comments/{id}")
+	t.Run("DeleteTag_positive", func(t *testing.T) {
+		url := baseURL + fillPathParamsRequired(t, "/tags/{id}")
 		payload := "{}"
 		req, err := http.NewRequest("DELETE", url, bytes.NewBufferString(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if token == "" {
+			auth := ensureAuth(t)
+			token = auth.accessToken
+		}
+		if token == "" {
+			t.Skip("CONTRACT_TOKEN not set")
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("expected 2xx, got %d: %s", resp.StatusCode, string(body))
+		}
+	})
+	t.Run("UpdateTag_positive", func(t *testing.T) {
+		url := baseURL + fillPathParamsRequired(t, "/tags/{id}")
+		payload := "{}"
+		req, err := http.NewRequest("PUT", url, bytes.NewBufferString(payload))
 		if err != nil {
 			t.Fatal(err)
 		}

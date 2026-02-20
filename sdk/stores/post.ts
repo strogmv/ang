@@ -11,12 +11,15 @@ export interface PostStore {
   items: Record<string, Types.Post>;
   list: Types.Post[];
   listStale: boolean;
+  detailStale: Record<string, boolean>;
   listVersion: number;
   setAll: (items: Types.Post[]) => void;
   upsert: (item: Types.Post) => void;
   remove: (id: PostId) => void;
   markListStale: () => void;
+  markDetailStale: (id: PostId) => void;
   clearListStale: () => void;
+  clearDetailStale: (id: PostId) => void;
   clear: () => void;
 }
 
@@ -24,13 +27,14 @@ export const usePostStore = create<PostStore>()((set) => ({
   items: {},
   list: [],
   listStale: false,
+  detailStale: {},
   listVersion: 0,
   setAll: (items) => {
     const index: Record<string, Types.Post> = {};
     for (const item of items) {
       index[postIdKey(item)] = item;
     }
-    set((state) => ({ items: index, list: items, listStale: false, listVersion: state.listVersion + 1 }));
+    set((state) => ({ items: index, list: items, listStale: false, detailStale: {}, listVersion: state.listVersion + 1 }));
   },
   upsert: (item) =>
     set((state) => {
@@ -40,7 +44,8 @@ export const usePostStore = create<PostStore>()((set) => ({
       const list = exists
         ? state.list.map((entry) => (postIdKey(entry) === key ? item : entry))
         : [item, ...state.list];
-      return { items, list, listStale: false, listVersion: state.listVersion + 1 };
+      const detailStale = { ...state.detailStale, [key]: false };
+      return { items, list, listStale: false, detailStale, listVersion: state.listVersion + 1 };
     }),
   remove: (id) =>
     set((state) => {
@@ -51,17 +56,42 @@ export const usePostStore = create<PostStore>()((set) => ({
       const items = { ...state.items };
       delete items[key];
       const list = state.list.filter((entry) => postIdKey(entry) !== key);
-      return { items, list, listStale: false, listVersion: state.listVersion + 1 };
+      const detailStale = { ...state.detailStale };
+      delete detailStale[key];
+      return { items, list, listStale: false, detailStale, listVersion: state.listVersion + 1 };
     }),
   markListStale: () =>
     set((state) => {
       if (state.listStale) return state;
       return { listStale: true, listVersion: state.listVersion + 1 };
     }),
+  markDetailStale: (id) =>
+    set((state) => {
+      const key = String(id);
+      if (state.detailStale[key]) return state;
+      return { detailStale: { ...state.detailStale, [key]: true }, listVersion: state.listVersion + 1 };
+    }),
   clearListStale: () => set({ listStale: false }),
-  clear: () => set((state) => ({ items: {}, list: [], listStale: false, listVersion: state.listVersion + 1 })),
+  clearDetailStale: (id) =>
+    set((state) => {
+      const key = String(id);
+      if (!state.detailStale[key]) return state;
+      const next = { ...state.detailStale };
+      delete next[key];
+      return { detailStale: next };
+    }),
+  clear: () => set((state) => ({ items: {}, list: [], listStale: false, detailStale: {}, listVersion: state.listVersion + 1 })),
 }));
 
-registerStoreInvalidator('post', () => {
-  usePostStore.getState().markListStale();
+registerStoreInvalidator('post', (target, params) => {
+  const state = usePostStore.getState();
+  if (target?.mode === 'detail' && target.scopeParam && params && typeof params === 'object') {
+    const obj = params as Record<string, unknown>;
+    const raw = obj[target.scopeParam];
+    if (raw !== undefined && raw !== null && raw !== '') {
+      state.markDetailStale(raw as PostId);
+      return;
+    }
+  }
+  state.markListStale();
 });

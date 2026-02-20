@@ -132,16 +132,36 @@ func handler{{ .RPC }}WS(svc port.{{ $.Name }}) http.HandlerFunc {
 			return
 		}
 
+		// Auth happens post-upgrade: client sends { type: "auth", token: "<jwt>" } as first message.
+		// This keeps JWT out of the URL (access logs, browser history, Referer headers).
+		{{- $needsUserID := false }}
+		{{- if .RoomParam }}
+		{{- $roomParam := ParamForField .Path .RoomParam }}
+		{{- if and (not $roomParam) (stringsEqualFold .RoomParam "userId") }}
+		{{- $needsUserID = true }}
+		{{- end }}
+		{{- else if HasInputField .Input "userId" }}
+		{{- $needsUserID = true }}
+		{{- end }}
+		{{- if $needsUserID }}
+		wsUserID, _, wsAuthErr := wsReadAuthTokenOrQuery(conn, r)
+		{{- else }}
+		_, _, wsAuthErr := wsReadAuthTokenOrQuery(conn, r)
+		{{- end }}
+		if wsAuthErr != nil {
+			return
+		}
+
 		roomID := ""
 		{{- if .RoomParam }}
 		{{- $roomParam := ParamForField .Path .RoomParam }}
 		{{- if $roomParam }}
 		roomID = chi.URLParam(r, "{{ $roomParam }}")
 		{{- else if stringsEqualFold .RoomParam "userId" }}
-		roomID = CurrentUserID(r)
+		roomID = wsUserID
 		{{- end }}
 		{{- else if HasInputField .Input "userId" }}
-		roomID = CurrentUserID(r)
+		roomID = wsUserID
 		{{- end }}
 
 		client := &wsClient{hub: {{ $.Name | ToLower }}Hub, conn: conn, send: make(chan []byte, 256), room: roomID}

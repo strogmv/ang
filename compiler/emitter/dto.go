@@ -31,6 +31,42 @@ func (e *Emitter) EmitDTO(entities []ir.Entity) error {
 	funcMap["GoType"] = IRTypeRefToGoType
 	funcMap["TrimDomain"] = func(s string) string { return strings.ReplaceAll(s, "domain.", "") }
 	funcMap["DTOType"] = IRTypeRefToDTOType
+	funcMap["IsEntity"] = func(t ir.TypeRef) bool { return t.Kind == ir.KindEntity }
+	funcMap["IsListEntity"] = func(t ir.TypeRef) bool {
+		return t.Kind == ir.KindList && t.ItemType != nil && t.ItemType.Kind == ir.KindEntity
+	}
+	funcMap["DTOElemType"] = func(t ir.TypeRef) string {
+		if t.Kind == ir.KindList && t.ItemType != nil {
+			return IRTypeRefToDTOType(*t.ItemType)
+		}
+		return IRTypeRefToDTOType(t)
+	}
+	funcMap["EntityName"] = func(t ir.TypeRef) string {
+		if t.Kind == ir.KindEntity {
+			return t.Name
+		}
+		if t.Kind == ir.KindList && t.ItemType != nil && t.ItemType.Kind == ir.KindEntity {
+			return t.ItemType.Name
+		}
+		return ""
+	}
+	funcMap["HasImport"] = func(imps []string, target string) bool {
+		for _, imp := range imps {
+			if imp == target {
+				return true
+			}
+		}
+		return false
+	}
+	funcMap["DTOConverter"] = func(t ir.TypeRef) string {
+		return strings.TrimSuffix(IRTypeRefToDTOType(t), "DTO")
+	}
+	funcMap["DTOListConverter"] = func(t ir.TypeRef) string {
+		if t.Kind == ir.KindList && t.ItemType != nil {
+			return strings.TrimSuffix(IRTypeRefToDTOType(*t.ItemType), "DTO")
+		}
+		return strings.TrimSuffix(IRTypeRefToDTOType(t), "DTO")
+	}
 
 	t, err := template.New("dto").Funcs(funcMap).Parse(string(tmplContent))
 	if err != nil {
@@ -48,8 +84,21 @@ func (e *Emitter) EmitDTO(entities []ir.Entity) error {
 			continue
 		}
 
+		// Drop fields marked SkipDomain (e.g., ui helper blocks)
+		filtered := entity
+		filtered.Fields = nil
+		for _, f := range entity.Fields {
+			if f.SkipDomain {
+				continue
+			}
+			filtered.Fields = append(filtered.Fields, f)
+		}
+		if len(filtered.Fields) == 0 {
+			continue
+		}
+
 		data := DTOTemplateData{
-			Entity:     entity,
+			Entity:     filtered,
 			Imports:    computeDTOImports(entity),
 			ANGVersion: e.Version,
 		}

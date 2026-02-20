@@ -14,22 +14,22 @@ export const queryKeys = {
   },
   Blog: {
     all: ['Blog'] as const,
-    ListTags: (params: Types.ListTagsRequest = {} as Types.ListTagsRequest) => {
-      return [...queryKeys.Blog.all, 'ListTags', params] as const;
+    ListMyPosts: (params: Types.ListMyPostsRequest = {} as Types.ListMyPostsRequest) => {
+      return [...queryKeys.Blog.all, 'ListMyPosts', params] as const;
+    },
+    ListPosts: (params: Types.ListPostsRequest = {} as Types.ListPostsRequest) => {
+      return [...queryKeys.Blog.all, 'ListPosts', params] as const;
+    },
+    ListComments: (params: Types.ListCommentsRequest = {} as Types.ListCommentsRequest) => {
+      const {postID, ...queryParams } = params as any;
+      return [...queryKeys.Blog.all, 'ListComments', {postID, ...queryParams }] as const;
     },
     GetPost: (params: Types.GetPostRequest = {} as Types.GetPostRequest) => {
       const {slug, ...queryParams } = params as any;
       return [...queryKeys.Blog.all, 'GetPost', {slug, ...queryParams }] as const;
     },
-    ListPosts: (params: Types.ListPostsRequest = {} as Types.ListPostsRequest) => {
-      return [...queryKeys.Blog.all, 'ListPosts', params] as const;
-    },
-    ListMyPosts: (params: Types.ListMyPostsRequest = {} as Types.ListMyPostsRequest) => {
-      return [...queryKeys.Blog.all, 'ListMyPosts', params] as const;
-    },
-    ListComments: (params: Types.ListCommentsRequest = {} as Types.ListCommentsRequest) => {
-      const {postID, ...queryParams } = params as any;
-      return [...queryKeys.Blog.all, 'ListComments', {postID, ...queryParams }] as const;
+    ListTags: (params: Types.ListTagsRequest = {} as Types.ListTagsRequest) => {
+      return [...queryKeys.Blog.all, 'ListTags', params] as const;
     },
   },
 } as const;

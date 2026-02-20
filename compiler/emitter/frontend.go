@@ -657,9 +657,6 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 					parts = append(parts, ".max("+formatNumber(*maxVal)+")")
 				}
 			}
-			if f.IsOptional && !rules.Required {
-				parts = append(parts, ".optional()")
-			}
 			return strings.Join(parts, "")
 		},
 		"PathParams": func(path string) string {
@@ -806,6 +803,18 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		"EndpointPolicy": func(ep normalizer.Endpoint) policy.EndpointPolicy {
 			return policy.FromEndpoint(ep)
 		},
+		"QueryResourceKeyForRPC": func(rpc string) string {
+			if res, ok := queryOptionsByRPC[rpc]; ok {
+				return res.Key
+			}
+			return ""
+		},
+		"QueryResourceKindForRPC": func(rpc string) string {
+			return queryOptionsKindByRPC[rpc]
+		},
+		"IsAuthLoginRPC": func(rpc string) bool {
+			return rpc == "LoginUser" || rpc == "RegisterUser"
+		},
 	}
 
 	files := []struct {
@@ -839,19 +848,6 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 	for _, f := range files {
 		if err := e.emitFrontendFile(f.tmpl, ctx, funcMap, f.out); err != nil {
 			return err
-		}
-	}
-
-	// Generate individual entity stores
-	for _, ent := range entitiesNorm {
-		if entityIDField(ent) != nil {
-			storeData := struct {
-				Entity normalizer.Entity
-			}{Entity: ent}
-			outPath := filepath.Join("stores", strings.ToLower(ent.Name)+".ts")
-			if err := e.emitFrontendTemplate("templates/frontend/store-item.ts.tmpl", storeData, funcMap, outPath); err != nil {
-				return err
-			}
 		}
 	}
 

@@ -21,8 +21,8 @@
         "UpdateProfile"
       ],
       "publishes": [
-        "UserRegistered",
-        "UserLoggedIn"
+        "UserLoggedIn",
+        "UserRegistered"
       ],
       "subscribes": {},
       "depends_on": [
@@ -57,33 +57,28 @@
   ],
   "events": [
     {
-      "name": "UserRegistered",
+      "name": "CommentCreated",
       "fields": [
-        "userID",
-        "email"
-      ]
-    },
-    {
-      "name": "UserLoggedIn",
-      "fields": [
-        "userID"
+        "authorID",
+        "commentID",
+        "postID"
       ]
     },
     {
       "name": "PostCreated",
       "fields": [
-        "postID",
         "authorID",
+        "postID",
         "title"
       ]
     },
     {
       "name": "PostPublished",
       "fields": [
-        "postID",
         "authorID",
-        "title",
-        "slug"
+        "postID",
+        "slug",
+        "title"
       ]
     },
     {
@@ -93,20 +88,25 @@
       ]
     },
     {
-      "name": "CommentCreated",
+      "name": "UserLoggedIn",
       "fields": [
-        "commentID",
-        "postID",
-        "authorID"
+        "userID"
+      ]
+    },
+    {
+      "name": "UserRegistered",
+      "fields": [
+        "email",
+        "userID"
       ]
     }
   ],
   "entities": [
-    "User",
-    "Post",
     "Comment",
-    "Tag",
+    "Post",
     "PostTag",
+    "Tag",
+    "User",
     "UserVault"
   ]
 }

@@ -304,6 +304,9 @@ func (r *{{ ExportName $.Name }}) {{ .Name }}(ctx context.Context{{ if .ParamsSi
 		{{- if .OrderBySQL }}
 		ORDER BY {{ .OrderBySQL }}
 		{{- end }}
+		{{- if .HasPagination }}
+		LIMIT ${{ .LimitPlaceholder }} OFFSET ${{ .OffsetPlaceholder }}
+		{{- end }}
 	`{{ if .Args }}, {{ .Args }}{{ end }})
 	if err != nil {
 		return {{ .ReturnZero }}, err

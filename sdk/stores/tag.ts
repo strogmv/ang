@@ -11,12 +11,15 @@ export interface TagStore {
   items: Record<string, Types.Tag>;
   list: Types.Tag[];
   listStale: boolean;
+  detailStale: Record<string, boolean>;
   listVersion: number;
   setAll: (items: Types.Tag[]) => void;
   upsert: (item: Types.Tag) => void;
   remove: (id: TagId) => void;
   markListStale: () => void;
+  markDetailStale: (id: TagId) => void;
   clearListStale: () => void;
+  clearDetailStale: (id: TagId) => void;
   clear: () => void;
 }
 
@@ -24,13 +27,14 @@ export const useTagStore = create<TagStore>()((set) => ({
   items: {},
   list: [],
   listStale: false,
+  detailStale: {},
   listVersion: 0,
   setAll: (items) => {
     const index: Record<string, Types.Tag> = {};
     for (const item of items) {
       index[tagIdKey(item)] = item;
     }
-    set((state) => ({ items: index, list: items, listStale: false, listVersion: state.listVersion + 1 }));
+    set((state) => ({ items: index, list: items, listStale: false, detailStale: {}, listVersion: state.listVersion + 1 }));
   },
   upsert: (item) =>
     set((state) => {
@@ -40,7 +44,8 @@ export const useTagStore = create<TagStore>()((set) => ({
       const list = exists
         ? state.list.map((entry) => (tagIdKey(entry) === key ? item : entry))
         : [item, ...state.list];
-      return { items, list, listStale: false, listVersion: state.listVersion + 1 };
+      const detailStale = { ...state.detailStale, [key]: false };
+      return { items, list, listStale: false, detailStale, listVersion: state.listVersion + 1 };
     }),
   remove: (id) =>
     set((state) => {
@@ -51,17 +56,42 @@ export const useTagStore = create<TagStore>()((set) => ({
       const items = { ...state.items };
       delete items[key];
       const list = state.list.filter((entry) => tagIdKey(entry) !== key);
-      return { items, list, listStale: false, listVersion: state.listVersion + 1 };
+      const detailStale = { ...state.detailStale };
+      delete detailStale[key];
+      return { items, list, listStale: false, detailStale, listVersion: state.listVersion + 1 };
     }),
   markListStale: () =>
     set((state) => {
       if (state.listStale) return state;
       return { listStale: true, listVersion: state.listVersion + 1 };
     }),
+  markDetailStale: (id) =>
+    set((state) => {
+      const key = String(id);
+      if (state.detailStale[key]) return state;
+      return { detailStale: { ...state.detailStale, [key]: true }, listVersion: state.listVersion + 1 };
+    }),
   clearListStale: () => set({ listStale: false }),
-  clear: () => set((state) => ({ items: {}, list: [], listStale: false, listVersion: state.listVersion + 1 })),
+  clearDetailStale: (id) =>
+    set((state) => {
+      const key = String(id);
+      if (!state.detailStale[key]) return state;
+      const next = { ...state.detailStale };
+      delete next[key];
+      return { detailStale: next };
+    }),
+  clear: () => set((state) => ({ items: {}, list: [], listStale: false, detailStale: {}, listVersion: state.listVersion + 1 })),
 }));
 
-registerStoreInvalidator('tag', () => {
-  useTagStore.getState().markListStale();
+registerStoreInvalidator('tag', (target, params) => {
+  const state = useTagStore.getState();
+  if (target?.mode === 'detail' && target.scopeParam && params && typeof params === 'object') {
+    const obj = params as Record<string, unknown>;
+    const raw = obj[target.scopeParam];
+    if (raw !== undefined && raw !== null && raw !== '') {
+      state.markDetailStale(raw as TagId);
+      return;
+    }
+  }
+  state.markListStale();
 });

@@ -51,11 +51,11 @@ func (e *Emitter) EmitConfig(config *normalizer.ConfigDef) error {
 				case "bool":
 					return "false"
 				default:
-					return "\"\""
+					return ""
 				}
 			}
 			if f.Type == "string" {
-				return fmt.Sprintf("%q", strings.Trim(f.Default, "\""))
+				return strings.Trim(f.Default, "\"")
 			}
 			return f.Default
 		},
@@ -165,6 +165,9 @@ func ensureRuntimeConfigFields(config *normalizer.ConfigDef) *normalizer.ConfigD
 	add("JWTRefreshTTL", "string", "JWT_REFRESH_TTL", "168h")
 	add("JWTPublicKey", "string", "JWT_PUBLIC_KEY", "")
 	add("JWTPrivateKey", "string", "JWT_PRIVATE_KEY", "secret-key-for-tests")
+
+	// Dev mode flag — disables email verification gate in dev/test environments.
+	add("DevMode", "bool", "DEV_MODE", "false")
 
 	// SMTP defaults required by mailer/notification templates.
 	add("SMTPHost", "string", "SMTP_HOST", "")
@@ -726,6 +729,7 @@ func (e *Emitter) EmitNotificationMuting(def *normalizer.NotificationMutingDef, 
 	}
 
 	var extraFinders []finderDelegation
+	includeTime := false
 	if schema != nil {
 		for _, repo := range schema.Repos {
 			if repo.Entity != "Notification" {
@@ -738,6 +742,9 @@ func (e *Emitter) EmitNotificationMuting(def *normalizer.NotificationMutingDef, 
 					ParamsSig:  sig.ParamsSig,
 					ReturnType: sig.ReturnType,
 					ArgNames:   sig.ArgNames,
+				}
+				if strings.Contains(sig.ParamsSig, "time.Time") || strings.Contains(sig.ReturnType, "time.Time") {
+					includeTime = true
 				}
 
 				extraFinders = append(extraFinders, fd)
@@ -762,8 +769,10 @@ func (e *Emitter) EmitNotificationMuting(def *normalizer.NotificationMutingDef, 
 
 	data := struct {
 		ExtraFinders []finderDelegation
+		IncludeTime  bool
 	}{
 		ExtraFinders: extraFinders,
+		IncludeTime:  includeTime,
 	}
 
 	var buf bytes.Buffer

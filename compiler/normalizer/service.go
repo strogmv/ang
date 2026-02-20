@@ -1611,15 +1611,22 @@ func (n *Normalizer) ExtractEndpoints(val cue.Value) ([]Endpoint, error) {
 			ep.OptimisticUpdate = v
 		}
 
-		// Smart Defaults: Auto-invalidate lists on mutations
+		// Smart Defaults: Auto-invalidate related list on mutations.
+		// Only invalidate the list endpoint(s) whose entity matches this mutation's entity.
 		if ep.Method != "GET" && ep.Method != "WS" && len(ep.Invalidate) == 0 {
-			// Find all GET endpoints in the same service that look like lists
+			mutationEntity := strings.ToLower(rpcEntityBase(ep.RPC))
+			svc := getString(opInfo.value, "service")
 			for _, other := range ops {
-				if getString(other.value, "service") == getString(opInfo.value, "service") {
-					// If it starts with List or AdminList, it's a candidate
-					if strings.HasPrefix(other.name, "List") || strings.HasPrefix(other.name, "AdminList") {
-						ep.Invalidate = append(ep.Invalidate, other.name)
-					}
+				if getString(other.value, "service") != svc {
+					continue
+				}
+				if !strings.HasPrefix(other.name, "List") && !strings.HasPrefix(other.name, "AdminList") {
+					continue
+				}
+				listEntity := strings.ToLower(rpcEntityBase(other.name))
+				if mutationEntity != "" && listEntity != "" &&
+					strings.HasPrefix(listEntity, mutationEntity) {
+					ep.Invalidate = append(ep.Invalidate, other.name)
 				}
 			}
 		}

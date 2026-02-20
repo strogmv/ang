@@ -46,6 +46,14 @@ func (e *Emitter) EmitMongoRepo(repos []ir.Repository, entities []ir.Entity) err
 		}
 		return expr
 	}
+	funcMap["HasTime"] = func(fields []normalizer.Field) bool {
+		for _, f := range fields {
+			if strings.EqualFold(f.Type, "time.Time") {
+				return true
+			}
+		}
+		return false
+	}
 
 	t, err := template.New("mongo_repo").Funcs(funcMap).Parse(string(tmplContent))
 	if err != nil {

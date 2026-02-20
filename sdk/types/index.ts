@@ -5,17 +5,17 @@
  * Data is encrypted before sending and decrypted after receiving.
  */
 export type Encrypted<T> = string & { __encrypted?: T };
-export interface User {
+export interface Comment {
   /**  */
   ID: string;
   /**  */
-  email: string;
+  postId: string;
   /**  */
-  name: string;
+  authorId: string;
   /**  */
-  role: string;
+  parentId: string;
   /**  */
-  avatarUrl: string;
+  content: string;
   /**  */
   createdAt: string;
   /**  */
@@ -45,21 +45,11 @@ export interface Post {
   /**  */
   updatedAt: string;
 }
-export interface Comment {
-  /**  */
-  ID: string;
+export interface PostTag {
   /**  */
   postId: string;
   /**  */
-  authorId: string;
-  /**  */
-  parentId: string;
-  /**  */
-  content: string;
-  /**  */
-  createdAt: string;
-  /**  */
-  updatedAt: string;
+  tagId: string;
 }
 export interface Tag {
   /**  */
@@ -71,11 +61,21 @@ export interface Tag {
   /**  */
   description: string;
 }
-export interface PostTag {
+export interface User {
   /**  */
-  postId: string;
+  ID: string;
   /**  */
-  tagId: string;
+  email: string;
+  /**  */
+  name: string;
+  /**  */
+  role: string;
+  /**  */
+  avatarUrl: string;
+  /**  */
+  createdAt: string;
+  /**  */
+  updatedAt: string;
 }
 export interface UserVault {
   /**  */
@@ -389,15 +389,13 @@ export interface UpdateTagResponse {
 }
 
 // Events
-export interface UserRegistered {
+export interface CommentCreated {
   /**  */
-  userId: any;
+  commentId: any;
   /**  */
-  email: string;
-}
-export interface UserLoggedIn {
+  postId: any;
   /**  */
-  userId: any;
+  authorId: any;
 }
 export interface PostCreated {
   /**  */
@@ -421,13 +419,15 @@ export interface PostUpdated {
   /**  */
   postId: any;
 }
-export interface CommentCreated {
+export interface UserLoggedIn {
   /**  */
-  commentId: any;
+  userId: any;
+}
+export interface UserRegistered {
   /**  */
-  postId: any;
+  userId: any;
   /**  */
-  authorId: any;
+  email: string;
 }
 
 /**

@@ -142,6 +142,12 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 			UI:          parseUIHints(val),
 			Source:      formatPos(val),
 		}
+		// Align TIMESTAMP/TIMESTAMPTZ columns with time.Time when detection fell back to string.
+		if strings.EqualFold(field.Type, "string") && field.DB.Type != "" {
+			if t := strings.ToUpper(field.DB.Type); strings.Contains(t, "TIMESTAMP") {
+				field.Type = "time.Time"
+			}
+		}
 
 		// Field level SkipDomain logic
 		if fLabel == "ui" {
@@ -155,8 +161,13 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 
 		if attr := val.Attribute("secret"); attr.Err() == nil {
 			field.IsSecret = true
-		} else if strings.Contains(strings.ToLower(fLabel), "password") || strings.Contains(strings.ToLower(fLabel), "token") {
-			field.IsSecret = true
+		} else if !strings.HasSuffix(name, "Request") && !strings.HasSuffix(name, "Response") {
+			// Auto-detect secrets by field name only for domain entities,
+			// not for operation input/output (Request/Response) where fields
+			// like "password", "accessToken", "refreshToken" are part of the API contract.
+			if strings.Contains(strings.ToLower(fLabel), "password") || strings.Contains(strings.ToLower(fLabel), "token") {
+				field.IsSecret = true
+			}
 		}
 
 		if attr := val.Attribute("pii"); attr.Err() == nil {
@@ -432,9 +443,10 @@ func (n *Normalizer) parseInlineFields(val cue.Value) ([]Field, error) {
 
 		if attr := fVal.Attribute("secret"); attr.Err() == nil {
 			field.IsSecret = true
-		} else if strings.Contains(strings.ToLower(fLabel), "password") {
-			field.IsSecret = true
 		}
+		// Note: no auto-detect by field name here; parseInlineFields is used
+		// for nested data fields inside operations where password/token fields
+		// are part of the API contract. Use @secret explicitly if needed.
 		if attr := fVal.Attribute("pii"); attr.Err() == nil {
 			field.IsPII = true
 		}

@@ -81,6 +81,26 @@ const findEndpointMeta = (url: string | undefined) => {
   return undefined;
 };
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const isNetworkError = (error: AxiosError) => !error.response;
+
+const shouldRetry = (error: AxiosError) => {
+  const cfg: any = error.config || {};
+  const meta = cfg?.meta || {};
+  const endpoint = meta.endpointMeta;
+  const strategy = endpoint?.retryStrategy;
+  if (!strategy) return false;
+  const attempt = Number(meta.retryAttempt || 0);
+  if (attempt >= Number(strategy.maxAttempts || 0)) return false;
+
+  if (isNetworkError(error)) {
+    return Boolean(strategy.retryNetworkErrors);
+  }
+  const status = error.response?.status;
+  return typeof status === 'number' && Array.isArray(strategy.retryOnStatuses) && strategy.retryOnStatuses.includes(status);
+};
+
 // 1. JWT & Trace Context Interceptor
 apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = useAuthStore.getState().token;
@@ -96,11 +116,12 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   
   config.headers.set('traceparent', traceparent);
   
-  // Attach traceId to config for logging in response interceptor
-  (config as any).meta = { traceId };
+  const meta = findEndpointMeta(config.url);
+  // Attach trace + contract metadata for response/retry interceptor.
+  const attempt = Number((config as any)?.meta?.retryAttempt || 0);
+  (config as any).meta = { traceId, endpointMeta: meta, retryAttempt: attempt };
 
   // Auto-Idempotency for contract-driven endpoints.
-  const meta = findEndpointMeta(config.url);
   if (meta?.idempotent && config.method?.toUpperCase() !== 'GET') {
     if (!config.headers.get('Idempotency-Key')) {
       config.headers.set('Idempotency-Key', hex(32));
@@ -112,7 +133,22 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
 
 apiClient.interceptors.response.use(
   (response: any) => response,
-  (error: AxiosError) => {
+  async (error: AxiosError) => {
+    if (shouldRetry(error) && error.config) {
+      const cfg: any = error.config;
+      const currentAttempt = Number(cfg?.meta?.retryAttempt || 0);
+      const strategy = cfg?.meta?.endpointMeta?.retryStrategy;
+      const delay = Math.max(0, Number(strategy?.baseDelayMs || 0)) * Math.pow(2, currentAttempt);
+      cfg.meta = {
+        ...(cfg.meta || {}),
+        retryAttempt: currentAttempt + 1,
+      };
+      if (delay > 0) {
+        await sleep(delay);
+      }
+      return apiClient.request(cfg);
+    }
+
     const traceId = (error.config as any)?.meta?.traceId;
     
     if (traceId) {

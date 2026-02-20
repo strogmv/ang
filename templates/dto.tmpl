@@ -27,7 +27,29 @@ func (d *{{ ExportName .Name }}DTO) ToDomain() *domain.{{ ExportName .Name }} {
 	}
 	return &domain.{{ ExportName .Name }}{
 {{- range .Fields }}
+{{- if IsEntity .Type }}
+		{{ ExportName .Name }}: func() domain.{{ EntityName .Type }} {
+			if v := d.{{ ExportName .Name }}.ToDomain(); v != nil {
+				return *v
+			}
+			return domain.{{ EntityName .Type }}{}
+		}(),
+{{- else if IsListEntity .Type }}
+		{{ ExportName .Name }}: func(items []{{ DTOElemType .Type }}) []domain.{{ EntityName .Type }} {
+			if len(items) == 0 {
+				return nil
+			}
+			out := make([]domain.{{ EntityName .Type }}, 0, len(items))
+			for _, it := range items {
+				if v := it.ToDomain(); v != nil {
+					out = append(out, *v)
+				}
+			}
+			return out
+		}(d.{{ ExportName .Name }}),
+{{- else }}
 		{{ ExportName .Name }}: d.{{ ExportName .Name }},
+{{- end }}
 {{- end }}
 	}
 }
@@ -38,7 +60,26 @@ func (d *{{ ExportName .Name }}DTO) FromDomain(e *domain.{{ ExportName .Name }})
 		return
 	}
 {{- range .Fields }}
+{{- if IsEntity .Type }}
+	{{- $conv := DTOConverter .Type }}
+	{{- if ne (EntityName .Type) "" }}{{ $conv = EntityName .Type }}{{ end }}
+	if v := To{{ $conv }}DTO(&e.{{ ExportName .Name }}); v != nil {
+		d.{{ ExportName .Name }} = *v
+	}
+{{- else if IsListEntity .Type }}
+	if len(e.{{ ExportName .Name }}) > 0 {
+		d.{{ ExportName .Name }} = make([]{{ DTOElemType .Type }}, 0, len(e.{{ ExportName .Name }}))
+		for _, it := range e.{{ ExportName .Name }} {
+			{{- $conv := DTOListConverter .Type }}
+			{{- if ne (EntityName .Type) "" }}{{ $conv = EntityName .Type }}{{ end }}
+			if v := To{{ $conv }}DTO(&it); v != nil {
+				d.{{ ExportName .Name }} = append(d.{{ ExportName .Name }}, *v)
+			}
+		}
+	}
+{{- else }}
 	d.{{ ExportName .Name }} = e.{{ ExportName .Name }}
+{{- end }}
 {{- end }}
 }
 
@@ -53,6 +94,9 @@ func To{{ ExportName .Name }}DTO(e *domain.{{ ExportName .Name }}) *{{ ExportNam
 }
 
 func (d *{{ ExportName .Name }}DTO) Validate() error {
+{{- if HasImport .Imports "fmt" }}
+	_ = fmt.Errorf
+{{- end }}
 {{- range .Fields }}
 {{- if .Constraints }}
 	{{- if .Constraints.Min }}

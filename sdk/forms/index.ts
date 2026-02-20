@@ -2,12 +2,6 @@
 import { useForm, UseFormProps } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as Schemas from '../schemas';
-export const useRegisterForm = (props?: UseFormProps<Schemas.RegisterRequest>) => {
-  return useForm<Schemas.RegisterRequest>({
-    resolver: zodResolver(Schemas.RegisterRequestSchema),
-    ...props,
-  });
-};
 export const useLoginForm = (props?: UseFormProps<Schemas.LoginRequest>) => {
   return useForm<Schemas.LoginRequest>({
     resolver: zodResolver(Schemas.LoginRequestSchema),
@@ -20,63 +14,15 @@ export const useUpdateProfileForm = (props?: UseFormProps<Schemas.UpdateProfileR
     ...props,
   });
 };
-export const useCreateTagForm = (props?: UseFormProps<Schemas.CreateTagRequest>) => {
-  return useForm<Schemas.CreateTagRequest>({
-    resolver: zodResolver(Schemas.CreateTagRequestSchema),
+export const useRegisterForm = (props?: UseFormProps<Schemas.RegisterRequest>) => {
+  return useForm<Schemas.RegisterRequest>({
+    resolver: zodResolver(Schemas.RegisterRequestSchema),
     ...props,
   });
 };
-export const useUpdateTagForm = (props?: UseFormProps<Schemas.UpdateTagRequest>) => {
-  return useForm<Schemas.UpdateTagRequest>({
-    resolver: zodResolver(Schemas.UpdateTagRequestSchema),
-    ...props,
-  });
-};
-export const useDeleteTagForm = (props?: UseFormProps<Schemas.DeleteTagRequest>) => {
-  return useForm<Schemas.DeleteTagRequest>({
-    resolver: zodResolver(Schemas.DeleteTagRequestSchema),
-    ...props,
-  });
-};
-export const useCreatePostForm = (props?: UseFormProps<Schemas.CreatePostRequest>) => {
-  return useForm<Schemas.CreatePostRequest>({
-    resolver: zodResolver(Schemas.CreatePostRequestSchema),
-    ...props,
-  });
-};
-export const useUpdatePostForm = (props?: UseFormProps<Schemas.UpdatePostRequest>) => {
-  return useForm<Schemas.UpdatePostRequest>({
-    resolver: zodResolver(Schemas.UpdatePostRequestSchema),
-    ...props,
-  });
-};
-export const useSubmitPostForm = (props?: UseFormProps<Schemas.SubmitPostRequest>) => {
-  return useForm<Schemas.SubmitPostRequest>({
-    resolver: zodResolver(Schemas.SubmitPostRequestSchema),
-    ...props,
-  });
-};
-export const usePublishPostForm = (props?: UseFormProps<Schemas.PublishPostRequest>) => {
-  return useForm<Schemas.PublishPostRequest>({
-    resolver: zodResolver(Schemas.PublishPostRequestSchema),
-    ...props,
-  });
-};
-export const useArchivePostForm = (props?: UseFormProps<Schemas.ArchivePostRequest>) => {
-  return useForm<Schemas.ArchivePostRequest>({
-    resolver: zodResolver(Schemas.ArchivePostRequestSchema),
-    ...props,
-  });
-};
-export const useDeletePostForm = (props?: UseFormProps<Schemas.DeletePostRequest>) => {
-  return useForm<Schemas.DeletePostRequest>({
-    resolver: zodResolver(Schemas.DeletePostRequestSchema),
-    ...props,
-  });
-};
-export const useCreateCommentForm = (props?: UseFormProps<Schemas.CreateCommentRequest>) => {
-  return useForm<Schemas.CreateCommentRequest>({
-    resolver: zodResolver(Schemas.CreateCommentRequestSchema),
+export const useDeleteCommentForm = (props?: UseFormProps<Schemas.DeleteCommentRequest>) => {
+  return useForm<Schemas.DeleteCommentRequest>({
+    resolver: zodResolver(Schemas.DeleteCommentRequestSchema),
     ...props,
   });
 };
@@ -86,9 +32,63 @@ export const useUpdateCommentForm = (props?: UseFormProps<Schemas.UpdateCommentR
     ...props,
   });
 };
-export const useDeleteCommentForm = (props?: UseFormProps<Schemas.DeleteCommentRequest>) => {
-  return useForm<Schemas.DeleteCommentRequest>({
-    resolver: zodResolver(Schemas.DeleteCommentRequestSchema),
+export const useCreatePostForm = (props?: UseFormProps<Schemas.CreatePostRequest>) => {
+  return useForm<Schemas.CreatePostRequest>({
+    resolver: zodResolver(Schemas.CreatePostRequestSchema),
+    ...props,
+  });
+};
+export const useDeletePostForm = (props?: UseFormProps<Schemas.DeletePostRequest>) => {
+  return useForm<Schemas.DeletePostRequest>({
+    resolver: zodResolver(Schemas.DeletePostRequestSchema),
+    ...props,
+  });
+};
+export const useUpdatePostForm = (props?: UseFormProps<Schemas.UpdatePostRequest>) => {
+  return useForm<Schemas.UpdatePostRequest>({
+    resolver: zodResolver(Schemas.UpdatePostRequestSchema),
+    ...props,
+  });
+};
+export const useArchivePostForm = (props?: UseFormProps<Schemas.ArchivePostRequest>) => {
+  return useForm<Schemas.ArchivePostRequest>({
+    resolver: zodResolver(Schemas.ArchivePostRequestSchema),
+    ...props,
+  });
+};
+export const usePublishPostForm = (props?: UseFormProps<Schemas.PublishPostRequest>) => {
+  return useForm<Schemas.PublishPostRequest>({
+    resolver: zodResolver(Schemas.PublishPostRequestSchema),
+    ...props,
+  });
+};
+export const useSubmitPostForm = (props?: UseFormProps<Schemas.SubmitPostRequest>) => {
+  return useForm<Schemas.SubmitPostRequest>({
+    resolver: zodResolver(Schemas.SubmitPostRequestSchema),
+    ...props,
+  });
+};
+export const useCreateCommentForm = (props?: UseFormProps<Schemas.CreateCommentRequest>) => {
+  return useForm<Schemas.CreateCommentRequest>({
+    resolver: zodResolver(Schemas.CreateCommentRequestSchema),
+    ...props,
+  });
+};
+export const useCreateTagForm = (props?: UseFormProps<Schemas.CreateTagRequest>) => {
+  return useForm<Schemas.CreateTagRequest>({
+    resolver: zodResolver(Schemas.CreateTagRequestSchema),
+    ...props,
+  });
+};
+export const useDeleteTagForm = (props?: UseFormProps<Schemas.DeleteTagRequest>) => {
+  return useForm<Schemas.DeleteTagRequest>({
+    resolver: zodResolver(Schemas.DeleteTagRequestSchema),
+    ...props,
+  });
+};
+export const useUpdateTagForm = (props?: UseFormProps<Schemas.UpdateTagRequest>) => {
+  return useForm<Schemas.UpdateTagRequest>({
+    resolver: zodResolver(Schemas.UpdateTagRequestSchema),
     ...props,
   });
 };

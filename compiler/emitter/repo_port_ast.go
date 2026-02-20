@@ -59,6 +59,11 @@ func (e *Emitter) renderRepositoryPortAST(repo normalizer.Repository) ([]byte, e
 			}
 			params = append(params, methodParam{name: paramName, typ: goType})
 		}
+		// Inject pagination params when finder defines Limit (for List-style finders)
+		if f.Limit > 0 || strings.Contains(strings.ToLower(f.Name), "paginate") {
+			params = append(params, methodParam{name: "limit", typ: "int"})
+			params = append(params, methodParam{name: "offset", typ: "int"})
+		}
 		methods = append(methods, buildMethodField(ExportName(f.Name), params, []string{sig.ReturnType, "error"}))
 	}
 

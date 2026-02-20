@@ -59,7 +59,16 @@ func computeDTOImports(ent ir.Entity) []string {
 			imports["time"] = true
 		}
 		if f.Constraints != nil {
-			imports["fmt"] = true
+			hasConstraint := false
+			if f.Constraints.Min != nil || f.Constraints.Max != nil || f.Constraints.MinLen != nil || f.Constraints.MaxLen != nil {
+				hasConstraint = true
+			}
+			if f.Constraints.Regex != "" || len(f.Constraints.Enum) > 0 {
+				hasConstraint = true
+			}
+			if hasConstraint {
+				imports["fmt"] = true
+			}
 		}
 	}
 

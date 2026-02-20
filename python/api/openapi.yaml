@@ -2,35 +2,10 @@ openapi: 3.0.3
 info:
   title: ANG API
   version: 0.1.0
-  x-ang-version: 0.1.82
-  x-ang-input-hash: c512a5349e78b6ec2b981dae1900e24fdecd5fb628dcf797d5030b1fee38380f
-  x-ang-compiler-hash: c3fb900bcf4a303db1bd1e04238e5eaf59531dcb088354b4221baf991436313c
+  x-ang-version: 0.1.94
+  x-ang-input-hash: 4fa1317f67183096ec3725c403afcea8cb7683b885101240f821ee8f6cfef998
+  x-ang-compiler-hash: 69ae3e663ffdf36c126d325756d4cdc925427a9b8e8e770481a1d50dfec04044
 paths:
-  /auth/register:
-    post:
-      summary: Register
-      operationId: Register
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RegisterRequest'
-      responses:
-        '200':
-          description: OK
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RegisterResponse'
-        '401':
-          description: Unauthorized
-        '400':
-          description: Bad Request
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetail'
   /auth/login:
     post:
       summary: Login
@@ -110,53 +85,23 @@ paths:
                 $ref: '#/components/schemas/ProblemDetail'
       security:
         - bearerAuth: []
-  /tags:
-    get:
-      summary: ListTags
-      operationId: ListTags
-      parameters:
-        - in: query
-          name: limit
-          schema:
-            type: integer
-            maximum: 100
-            default: 20
-        - in: query
-          name: offset
-          schema:
-            type: integer
-      responses:
-        '200':
-          description: OK
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ListTagsResponse'
-        '401':
-          description: Unauthorized
-        '400':
-          description: Bad Request
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetail'
-  /tags:
+  /auth/register:
     post:
-      summary: CreateTag
-      operationId: CreateTag
+      summary: Register
+      operationId: Register
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateTagRequest'
+              $ref: '#/components/schemas/RegisterRequest'
       responses:
         '200':
           description: OK
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateTagResponse'
+              $ref: '#/components/schemas/RegisterResponse'
         '401':
           description: Unauthorized
         '400':
@@ -165,52 +110,23 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetail'
-      security:
-        - bearerAuth: []
-  /tags/{id}:
-    put:
-      summary: UpdateTag
-      operationId: UpdateTag
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdateTagRequest'
-      responses:
-        '200':
-          description: OK
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdateTagResponse'
-        '401':
-          description: Unauthorized
-        '400':
-          description: Bad Request
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetail'
-      security:
-        - bearerAuth: []
-  /tags/{id}:
+  /comments/{id}:
     delete:
-      summary: DeleteTag
-      operationId: DeleteTag
+      summary: DeleteComment
+      operationId: DeleteComment
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/DeleteTagRequest'
+              $ref: '#/components/schemas/DeleteCommentRequest'
       responses:
         '200':
           description: OK
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/DeleteTagResponse'
+              $ref: '#/components/schemas/DeleteCommentResponse'
         '401':
           description: Unauthorized
         '400':
@@ -221,23 +137,23 @@ paths:
                 $ref: '#/components/schemas/ProblemDetail'
       security:
         - bearerAuth: []
-  /posts:
-    post:
-      summary: CreatePost
-      operationId: CreatePost
+  /comments/{id}:
+    put:
+      summary: UpdateComment
+      operationId: UpdateComment
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreatePostRequest'
+              $ref: '#/components/schemas/UpdateCommentRequest'
       responses:
         '200':
           description: OK
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreatePostResponse'
+              $ref: '#/components/schemas/UpdateCommentResponse'
         '401':
           description: Unauthorized
         '400':
@@ -248,14 +164,18 @@ paths:
                 $ref: '#/components/schemas/ProblemDetail'
       security:
         - bearerAuth: []
-  /posts/{slug}:
+  /my/posts:
     get:
-      summary: GetPost
-      operationId: GetPost
+      summary: ListMyPosts
+      operationId: ListMyPosts
       parameters:
         - in: query
-          name: slug
+          name: userid
           required: true
+          schema:
+            type: string
+        - in: query
+          name: status
           schema:
             type: string
         - in: query
@@ -268,13 +188,16 @@ paths:
           name: offset
           schema:
             type: integer
+      x-auth-roles:
+        - author
+        - admin
       responses:
         '200':
           description: OK
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GetPostResponse'
+              $ref: '#/components/schemas/ListMyPostsResponse'
         '401':
           description: Unauthorized
         '400':
@@ -283,6 +206,8 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetail'
+      security:
+        - bearerAuth: []
   /posts:
     get:
       summary: ListPosts
@@ -317,145 +242,26 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetail'
-  /my/posts:
-    get:
-      summary: ListMyPosts
-      operationId: ListMyPosts
-      parameters:
-        - in: query
-          name: userid
-          required: true
-          schema:
-            type: string
-        - in: query
-          name: status
-          schema:
-            type: string
-        - in: query
-          name: limit
-          schema:
-            type: integer
-            maximum: 100
-            default: 20
-        - in: query
-          name: offset
-          schema:
-            type: integer
-      responses:
-        '200':
-          description: OK
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ListMyPostsResponse'
-        '401':
-          description: Unauthorized
-        '400':
-          description: Bad Request
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetail'
-      security:
-        - bearerAuth: []
-  /posts/{id}:
-    put:
-      summary: UpdatePost
-      operationId: UpdatePost
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdatePostRequest'
-      responses:
-        '200':
-          description: OK
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdatePostResponse'
-        '401':
-          description: Unauthorized
-        '400':
-          description: Bad Request
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetail'
-      security:
-        - bearerAuth: []
-  /posts/{id}/submit:
+  /posts:
     post:
-      summary: SubmitPost
-      operationId: SubmitPost
+      summary: CreatePost
+      operationId: CreatePost
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SubmitPostRequest'
+              $ref: '#/components/schemas/CreatePostRequest'
+      x-auth-roles:
+        - author
+        - admin
       responses:
         '200':
           description: OK
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SubmitPostResponse'
-        '401':
-          description: Unauthorized
-        '400':
-          description: Bad Request
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetail'
-      security:
-        - bearerAuth: []
-  /posts/{id}/publish:
-    post:
-      summary: PublishPost
-      operationId: PublishPost
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PublishPostRequest'
-      responses:
-        '200':
-          description: OK
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PublishPostResponse'
-        '401':
-          description: Unauthorized
-        '400':
-          description: Bad Request
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetail'
-      security:
-        - bearerAuth: []
-  /posts/{id}/archive:
-    post:
-      summary: ArchivePost
-      operationId: ArchivePost
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ArchivePostRequest'
-      responses:
-        '200':
-          description: OK
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ArchivePostResponse'
+              $ref: '#/components/schemas/CreatePostResponse'
         '401':
           description: Unauthorized
         '400':
@@ -476,6 +282,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/DeletePostRequest'
+      x-auth-roles:
+        - author
+        - admin
       responses:
         '200':
           description: OK
@@ -493,23 +302,115 @@ paths:
                 $ref: '#/components/schemas/ProblemDetail'
       security:
         - bearerAuth: []
-  /posts/{postID}/comments:
-    post:
-      summary: CreateComment
-      operationId: CreateComment
+  /posts/{id}:
+    put:
+      summary: UpdatePost
+      operationId: UpdatePost
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateCommentRequest'
+              $ref: '#/components/schemas/UpdatePostRequest'
+      x-auth-roles:
+        - author
+        - admin
       responses:
         '200':
           description: OK
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateCommentResponse'
+              $ref: '#/components/schemas/UpdatePostResponse'
+        '401':
+          description: Unauthorized
+        '400':
+          description: Bad Request
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+      security:
+        - bearerAuth: []
+  /posts/{id}/archive:
+    post:
+      summary: ArchivePost
+      operationId: ArchivePost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArchivePostRequest'
+      x-auth-roles:
+        - author
+        - admin
+      responses:
+        '200':
+          description: OK
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArchivePostResponse'
+        '401':
+          description: Unauthorized
+        '400':
+          description: Bad Request
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+      security:
+        - bearerAuth: []
+  /posts/{id}/publish:
+    post:
+      summary: PublishPost
+      operationId: PublishPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublishPostRequest'
+      x-auth-roles:
+        - admin
+      responses:
+        '200':
+          description: OK
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublishPostResponse'
+        '401':
+          description: Unauthorized
+        '400':
+          description: Bad Request
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+      security:
+        - bearerAuth: []
+  /posts/{id}/submit:
+    post:
+      summary: SubmitPost
+      operationId: SubmitPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitPostRequest'
+      x-auth-roles:
+        - author
+        - admin
+      responses:
+        '200':
+          description: OK
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitPostResponse'
         '401':
           description: Unauthorized
         '400':
@@ -555,23 +456,23 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetail'
-  /comments/{id}:
-    put:
-      summary: UpdateComment
-      operationId: UpdateComment
+  /posts/{postID}/comments:
+    post:
+      summary: CreateComment
+      operationId: CreateComment
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UpdateCommentRequest'
+              $ref: '#/components/schemas/CreateCommentRequest'
       responses:
         '200':
           description: OK
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UpdateCommentResponse'
+              $ref: '#/components/schemas/CreateCommentResponse'
         '401':
           description: Unauthorized
         '400':
@@ -582,23 +483,148 @@ paths:
                 $ref: '#/components/schemas/ProblemDetail'
       security:
         - bearerAuth: []
-  /comments/{id}:
-    delete:
-      summary: DeleteComment
-      operationId: DeleteComment
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/DeleteCommentRequest'
+  /posts/{slug}:
+    get:
+      summary: GetPost
+      operationId: GetPost
+      parameters:
+        - in: query
+          name: slug
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            maximum: 100
+            default: 20
+        - in: query
+          name: offset
+          schema:
+            type: integer
       responses:
         '200':
           description: OK
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/DeleteCommentResponse'
+              $ref: '#/components/schemas/GetPostResponse'
+        '401':
+          description: Unauthorized
+        '400':
+          description: Bad Request
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+  /tags:
+    get:
+      summary: ListTags
+      operationId: ListTags
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            maximum: 100
+            default: 20
+        - in: query
+          name: offset
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: OK
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListTagsResponse'
+        '401':
+          description: Unauthorized
+        '400':
+          description: Bad Request
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+  /tags:
+    post:
+      summary: CreateTag
+      operationId: CreateTag
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTagRequest'
+      x-auth-roles:
+        - admin
+      responses:
+        '200':
+          description: OK
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTagResponse'
+        '401':
+          description: Unauthorized
+        '400':
+          description: Bad Request
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+      security:
+        - bearerAuth: []
+  /tags/{id}:
+    delete:
+      summary: DeleteTag
+      operationId: DeleteTag
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteTagRequest'
+      x-auth-roles:
+        - admin
+      responses:
+        '200':
+          description: OK
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteTagResponse'
+        '401':
+          description: Unauthorized
+        '400':
+          description: Bad Request
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+      security:
+        - bearerAuth: []
+  /tags/{id}:
+    put:
+      summary: UpdateTag
+      operationId: UpdateTag
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTagRequest'
+      x-auth-roles:
+        - admin
+      responses:
+        '200':
+          description: OK
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTagResponse'
         '401':
           description: Unauthorized
         '400':

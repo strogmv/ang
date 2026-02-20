@@ -3,6 +3,9 @@ package adapter
 import (
 	"context"
 	"strings"
+	{{- if .IncludeTime }}
+	"time"
+	{{- end }}
 
 	"{{ GoModule }}/internal/domain"
 	"{{ GoModule }}/internal/port"

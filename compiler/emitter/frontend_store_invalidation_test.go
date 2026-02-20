@@ -60,10 +60,11 @@ func TestEmitFrontendSDK_GeneratesStoreAutoInvalidation(t *testing.T) {
 			RPC:     "ListTenders",
 		},
 		{
-			Method:  "POST",
-			Path:    "/api/tenders",
-			Service: "Tender",
-			RPC:     "CreateTender",
+			Method:     "POST",
+			Path:       "/api/tenders",
+			Service:    "Tender",
+			RPC:        "CreateTender",
+			Invalidate: []string{"ListTenders"},
 		},
 	}
 
@@ -71,42 +72,38 @@ func TestEmitFrontendSDK_GeneratesStoreAutoInvalidation(t *testing.T) {
 		t.Fatalf("emit frontend sdk: %v", err)
 	}
 
+	// stores/invalidation.ts should be an empty stub — TanStack Query owns cache invalidation.
 	invalidationData, err := os.ReadFile(filepath.Join(tmp, "stores", "invalidation.ts"))
 	if err != nil {
 		t.Fatalf("read stores/invalidation.ts: %v", err)
 	}
-	if !strings.Contains(string(invalidationData), "markStoresListStale") {
-		t.Fatalf("expected markStoresListStale in invalidation module")
-	}
-	if !strings.Contains(string(invalidationData), "markInvalidateTargets") {
-		t.Fatalf("expected markInvalidateTargets in invalidation module")
+	if strings.Contains(string(invalidationData), "markStoresListStale") {
+		t.Fatalf("stores/invalidation.ts must not export markStoresListStale (Zustand invalidation removed)")
 	}
 
-	storeData, err := os.ReadFile(filepath.Join(tmp, "stores", "tender.ts"))
-	if err != nil {
-		t.Fatalf("read stores/tender.ts: %v", err)
-	}
-	storeText := string(storeData)
-	if !strings.Contains(storeText, "listStale: boolean;") || !strings.Contains(storeText, "markListStale: () => void;") {
-		t.Fatalf("expected stale metadata and markListStale in tender store")
-	}
-	if !strings.Contains(storeText, "registerStoreInvalidator('tender'") {
-		t.Fatalf("expected tender store to register invalidator")
+	// No entity store files should be generated (Zustand stores removed).
+	if _, err := os.Stat(filepath.Join(tmp, "stores", "tender.ts")); !os.IsNotExist(err) {
+		t.Fatalf("stores/tender.ts must not be generated (entity stores removed)")
 	}
 
+	// endpoints.ts should NOT reference the old Zustand invalidation helpers.
 	endpointsData, err := os.ReadFile(filepath.Join(tmp, "endpoints.ts"))
 	if err != nil {
 		t.Fatalf("read endpoints.ts: %v", err)
 	}
 	endpointsText := string(endpointsData)
-	if !strings.Contains(endpointsText, "import { markInvalidateTargets } from './stores/invalidation';") {
-		t.Fatalf("expected endpoints.ts to import markInvalidateTargets")
+	if strings.Contains(endpointsText, "markInvalidateTargets") {
+		t.Fatalf("endpoints.ts must not call markInvalidateTargets (Zustand invalidation removed)")
 	}
-	if !strings.Contains(endpointsText, "invalidateTargets: [") || !strings.Contains(endpointsText, "{ store: 'tender', mode: 'list' }") {
-		t.Fatalf("expected create endpoint metadata to include tender invalidate target")
+
+	// hooks/index.ts should contain TanStack Query invalidation for CreateTender → ListTenders.
+	hooksData, err := os.ReadFile(filepath.Join(tmp, "hooks", "index.ts"))
+	if err != nil {
+		t.Fatalf("read hooks/index.ts: %v", err)
 	}
-	if !strings.Contains(endpointsText, "markInvalidateTargets(invalidateTargets, params)") {
-		t.Fatalf("expected mutation endpoint to call markInvalidateTargets")
+	hooksText := string(hooksData)
+	if !strings.Contains(hooksText, "invalidateQueries") {
+		t.Fatalf("hooks/index.ts should contain invalidateQueries for CreateTender mutation")
 	}
 }
 

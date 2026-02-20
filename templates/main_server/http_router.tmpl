@@ -4,6 +4,7 @@
 	r.Use(otelhttp.NewMiddleware("ang-service"))
 	r.Use(transport.MetricsMiddleware)
 	r.Use(transport.LoggingMiddleware)
+	r.Use(transport.TestHeadersMiddleware)
 	r.Use(middleware.Recoverer)
 
 	corsMiddleware := cors.New(cors.Options{

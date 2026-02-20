@@ -38,6 +38,9 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 	funcMap["IsTimestampString"] = func(f normalizer.Field) bool {
 		return f.Type == "string" && strings.Contains(strings.ToUpper(f.DB.Type), "TIMESTAMP")
 	}
+	funcMap["IsTime"] = func(f normalizer.Field) bool {
+		return f.Type == "time.Time" || f.Type == "*time.Time"
+	}
 	t, err := template.New("postgres_repo").Funcs(funcMap).Parse(string(tmplContent))
 	if err != nil {
 		return fmt.Errorf("parse template: %w", err)
@@ -100,12 +103,9 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 			}
 			insertArgs = append(insertArgs, arg)
 
-			sCol := colName
-			if f.Type == "string" && f.DB.Type != "TEXT" && f.DB.Type != "" {
-				sCol = colName + "::text"
-			} else if f.Type == "time.Time" || f.Type == "*time.Time" || strings.Contains(strings.ToUpper(f.DB.Type), "TIMESTAMP") {
-				sCol = colName + "::text"
-			}
+			// Only cast to ::text for non-text string fields (e.g. UUID).
+			// time.Time / *time.Time: no cast — pgx v5 handles timestamps natively.
+			sCol := scanSelectColumnExpr(f)
 			allSelectCols = append(allSelectCols, sCol)
 		}
 
@@ -131,6 +131,9 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 			CustomEntityName   string // The entity name for custom types
 			SelectFields       []normalizer.Field
 			ScanPlan           planner.ScanPlan
+			HasPagination      bool
+			LimitPlaceholder   int
+			OffsetPlaceholder  int
 		}
 
 		var finders []finderOut
@@ -268,6 +271,16 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 				fo.SelectEntity = false
 				fo.SelectCols = "COUNT(*)"
 				fo.SelectFields = []normalizer.Field{{Name: "count", Type: "int64"}}
+			} else if f.Returns == "sum" {
+				fo.ReturnType = "int64"
+				fo.ReturnZero = "0"
+				fo.SelectEntity = false
+				field := strings.TrimSpace(f.SumField)
+				if field == "" {
+					field = "id"
+				}
+				fo.SelectCols = fmt.Sprintf("COALESCE(SUM(%s), 0)", DBName(field))
+				fo.SelectFields = []normalizer.Field{{Name: "sum", Type: "int64"}}
 			} else if f.Returns == "[]"+repo.Entity {
 				fo.ReturnType = "[]domain." + repo.Entity
 				fo.ReturnZero = "nil"
@@ -363,6 +376,21 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 			fo.ParamsSig = sig.ParamsSig
 			fo.Args = sig.ArgsCSV
 			if fo.Args != "" {
+				fo.ArgsSuffix = ", " + fo.Args
+			}
+			if f.Limit > 0 || strings.Contains(strings.ToLower(f.Name), "paginate") {
+				fmt.Printf("DEBUG repo_pg pagination: entity=%s finder=%s limit=%d argsBefore=%q\n", repo.Entity, f.Name, f.Limit, fo.Args)
+				fo.HasPagination = true
+				fo.LimitPlaceholder = len(f.Where) + 1
+				fo.OffsetPlaceholder = len(f.Where) + 2
+				if fo.ParamsSig != "" {
+					fo.ParamsSig += ", "
+				}
+				fo.ParamsSig += "limit int, offset int"
+				if fo.Args != "" {
+					fo.Args += ", "
+				}
+				fo.Args += "limit, offset"
 				fo.ArgsSuffix = ", " + fo.Args
 			}
 			fo.WhereClause = strings.Join(wheres, " AND ")
@@ -488,10 +516,9 @@ func buildScanPlan(fields []normalizer.Field, target string) planner.ScanPlan {
 
 func scanSelectColumnExpr(f normalizer.Field) string {
 	colName := DBName(f.Name)
+	// Cast non-text string fields (e.g. UUID) to text so pgx scans them as Go strings.
+	// time.Time / *time.Time: no cast — pgx v5 handles native timestamp → time.Time natively.
 	if f.Type == "string" && f.DB.Type != "TEXT" && f.DB.Type != "" {
-		return colName + "::text"
-	}
-	if f.Type == "time.Time" || f.Type == "*time.Time" || strings.Contains(strings.ToUpper(f.DB.Type), "TIMESTAMP") {
 		return colName + "::text"
 	}
 	return colName

@@ -67,30 +67,6 @@ func (r *CommentRepositoryStub) ListAll(ctx context.Context, offset, limit int) 
 	}
 	return items[offset:end], nil
 }
-func (r *CommentRepositoryStub) ListByPost(ctx context.Context, postID string) ([]domain.Comment, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	var res []domain.Comment
-	for _, item := range r.data {
-		if item == nil {
-			continue
-		}
-		match := true
-		if !matchesOpComment(item.PostID, postID, "=") {
-			match = false
-		}
-		if !match {
-			continue
-		}
-		res = append(res, *item)
-	}
-	if len(res) > 1 {
-		sort.Slice(res, func(i, j int) bool {
-			return compareLessComment(res[i].CreatedAt, res[j].CreatedAt)
-		})
-	}
-	return res, nil
-}
 func (r *CommentRepositoryStub) CountByPost(ctx context.Context, postID string) (int64, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -149,6 +125,30 @@ func (r *CommentRepositoryStub) DeleteByPost(ctx context.Context, postID string)
 		deleted++
 	}
 	return deleted, nil
+}
+func (r *CommentRepositoryStub) ListByPost(ctx context.Context, postID string) ([]domain.Comment, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var res []domain.Comment
+	for _, item := range r.data {
+		if item == nil {
+			continue
+		}
+		match := true
+		if !matchesOpComment(item.PostID, postID, "=") {
+			match = false
+		}
+		if !match {
+			continue
+		}
+		res = append(res, *item)
+	}
+	if len(res) > 1 {
+		sort.Slice(res, func(i, j int) bool {
+			return compareLessComment(res[i].CreatedAt, res[j].CreatedAt)
+		})
+	}
+	return res, nil
 }
 
 func matchesOpComment(left, right any, op string) bool {

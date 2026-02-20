@@ -22,6 +22,11 @@ var (
 		Name: "http_requests_total",
 		Help: "Total number of HTTP requests.",
 	}, []string{"path", "method", "status"})
+
+	dependencyFailures = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "dependency_failures_total",
+		Help: "Count of failed dependency checks (startup/runtime).",
+	}, []string{"dependency", "stage"})
 )
 
 // MetricsMiddleware records RED metrics
@@ -43,4 +48,9 @@ func MetricsMiddleware(next http.Handler) http.Handler {
 		httpDuration.WithLabelValues(path, r.Method, status).Observe(time.Since(start).Seconds())
 		httpRequests.WithLabelValues(path, r.Method, status).Inc()
 	})
+}
+
+// ReportDependencyFailure increments the counter for a failed dependency check.
+func ReportDependencyFailure(dependency, stage string) {
+	dependencyFailures.WithLabelValues(dependency, stage).Inc()
 }

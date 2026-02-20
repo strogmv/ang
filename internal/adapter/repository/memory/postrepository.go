@@ -67,48 +67,6 @@ func (r *PostRepositoryStub) ListAll(ctx context.Context, offset, limit int) ([]
 	}
 	return items[offset:end], nil
 }
-func (r *PostRepositoryStub) FindBySlug(ctx context.Context, slug string) (*domain.Post, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	for _, item := range r.data {
-		if item == nil {
-			continue
-		}
-		match := true
-		if !matchesOpPost(item.Slug, slug, "=") {
-			match = false
-		}
-		if !match {
-			continue
-		}
-		return item, nil
-	}
-	return nil, nil
-}
-func (r *PostRepositoryStub) ListPublished(ctx context.Context, status string) ([]domain.Post, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	var res []domain.Post
-	for _, item := range r.data {
-		if item == nil {
-			continue
-		}
-		match := true
-		if !matchesOpPost(item.Status, status, "=") {
-			match = false
-		}
-		if !match {
-			continue
-		}
-		res = append(res, *item)
-	}
-	if len(res) > 1 {
-		sort.Slice(res, func(i, j int) bool {
-			return compareGreaterPost(res[i].PublishedAt, res[j].PublishedAt)
-		})
-	}
-	return res, nil
-}
 func (r *PostRepositoryStub) CountPublished(ctx context.Context, status string) (int64, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -127,33 +85,6 @@ func (r *PostRepositoryStub) CountPublished(ctx context.Context, status string) 
 		cnt++
 	}
 	return cnt, nil
-}
-func (r *PostRepositoryStub) ListPublishedByTag(ctx context.Context, status string, id string) ([]domain.Post, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	var res []domain.Post
-	for _, item := range r.data {
-		if item == nil {
-			continue
-		}
-		match := true
-		if !matchesOpPost(item.Status, status, "=") {
-			match = false
-		}
-		if !matchesOpPost(item.ID, id, "IN") {
-			match = false
-		}
-		if !match {
-			continue
-		}
-		res = append(res, *item)
-	}
-	if len(res) > 1 {
-		sort.Slice(res, func(i, j int) bool {
-			return compareGreaterPost(res[i].PublishedAt, res[j].PublishedAt)
-		})
-	}
-	return res, nil
 }
 func (r *PostRepositoryStub) CountPublishedByTag(ctx context.Context, status string, id string) (int64, error) {
 	r.mu.RLock()
@@ -176,6 +107,24 @@ func (r *PostRepositoryStub) CountPublishedByTag(ctx context.Context, status str
 		cnt++
 	}
 	return cnt, nil
+}
+func (r *PostRepositoryStub) FindBySlug(ctx context.Context, slug string) (*domain.Post, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, item := range r.data {
+		if item == nil {
+			continue
+		}
+		match := true
+		if !matchesOpPost(item.Slug, slug, "=") {
+			match = false
+		}
+		if !match {
+			continue
+		}
+		return item, nil
+	}
+	return nil, nil
 }
 func (r *PostRepositoryStub) ListByAuthor(ctx context.Context, authorID string) ([]domain.Post, error) {
 	r.mu.RLock()
@@ -224,6 +173,57 @@ func (r *PostRepositoryStub) ListByAuthorAndStatus(ctx context.Context, authorID
 	if len(res) > 1 {
 		sort.Slice(res, func(i, j int) bool {
 			return compareGreaterPost(res[i].CreatedAt, res[j].CreatedAt)
+		})
+	}
+	return res, nil
+}
+func (r *PostRepositoryStub) ListPublished(ctx context.Context, status string) ([]domain.Post, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var res []domain.Post
+	for _, item := range r.data {
+		if item == nil {
+			continue
+		}
+		match := true
+		if !matchesOpPost(item.Status, status, "=") {
+			match = false
+		}
+		if !match {
+			continue
+		}
+		res = append(res, *item)
+	}
+	if len(res) > 1 {
+		sort.Slice(res, func(i, j int) bool {
+			return compareGreaterPost(res[i].PublishedAt, res[j].PublishedAt)
+		})
+	}
+	return res, nil
+}
+func (r *PostRepositoryStub) ListPublishedByTag(ctx context.Context, status string, id string) ([]domain.Post, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var res []domain.Post
+	for _, item := range r.data {
+		if item == nil {
+			continue
+		}
+		match := true
+		if !matchesOpPost(item.Status, status, "=") {
+			match = false
+		}
+		if !matchesOpPost(item.ID, id, "IN") {
+			match = false
+		}
+		if !match {
+			continue
+		}
+		res = append(res, *item)
+	}
+	if len(res) > 1 {
+		sort.Slice(res, func(i, j int) bool {
+			return compareGreaterPost(res[i].PublishedAt, res[j].PublishedAt)
 		})
 	}
 	return res, nil

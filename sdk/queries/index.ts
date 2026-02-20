@@ -11,48 +11,22 @@ export const getProfileQueryOptions = (params: Types.GetProfileRequest = {} as T
     },
   });
 };
-export const listTagsQueryOptions = (params: Types.ListTagsRequest = {} as Types.ListTagsRequest) => {
+export const listMyPostsQueryOptions = (params: Types.ListMyPostsRequest = {} as Types.ListMyPostsRequest) => {
   return queryOptions({
-    queryKey: queryKeys.tags.list(params),
+    queryKey: ['Blog', 'ListMyPosts', params],
     queryFn: async () => {
-      return api.listTags(params);
+      return api.listMyPosts(params);
     },
   });
 };
-export const listTagsInfiniteQueryOptions = (params: Types.ListTagsRequest = {} as Types.ListTagsRequest) => {
+export const listMyPostsInfiniteQueryOptions = (params: Types.ListMyPostsRequest = {} as Types.ListMyPostsRequest) => {
   return infiniteQueryOptions({
-    queryKey: queryKeys.tags.list(params),
+    queryKey: ['Blog', 'ListMyPosts', params],
     queryFn: async ({ pageParam }: { pageParam: any }) => {
       const p = { ...(params as any) };
       p.offset = pageParam;
       p.limit = p.limit ?? 20;
-      return api.listTags(p);
-    },
-    initialPageParam: 0,
-    getNextPageParam: (lastPage: any, allPages: any[]) => {
-      if (!lastPage.data || lastPage.data.length < (params.limit ?? 20)) {
-        return undefined;
-      }
-      return allPages.length * (params.limit ?? 20);
-    },
-  });
-};
-export const getPostQueryOptions = (params: Types.GetPostRequest = {} as Types.GetPostRequest) => {
-  return queryOptions({
-    queryKey: queryKeys.posts.detail(params.slug),
-    queryFn: async () => {
-      return api.getPost(params);
-    },
-  });
-};
-export const getPostInfiniteQueryOptions = (params: Types.GetPostRequest = {} as Types.GetPostRequest) => {
-  return infiniteQueryOptions({
-    queryKey: queryKeys.posts.detail(params.slug),
-    queryFn: async ({ pageParam }: { pageParam: any }) => {
-      const p = { ...(params as any) };
-      p.offset = pageParam;
-      p.limit = p.limit ?? 20;
-      return api.getPost(p);
+      return api.listMyPosts(p);
     },
     initialPageParam: 0,
     getNextPageParam: (lastPage: any, allPages: any[]) => {
@@ -89,32 +63,6 @@ export const listPostsInfiniteQueryOptions = (params: Types.ListPostsRequest = {
     },
   });
 };
-export const listMyPostsQueryOptions = (params: Types.ListMyPostsRequest = {} as Types.ListMyPostsRequest) => {
-  return queryOptions({
-    queryKey: ['Blog', 'ListMyPosts', params],
-    queryFn: async () => {
-      return api.listMyPosts(params);
-    },
-  });
-};
-export const listMyPostsInfiniteQueryOptions = (params: Types.ListMyPostsRequest = {} as Types.ListMyPostsRequest) => {
-  return infiniteQueryOptions({
-    queryKey: ['Blog', 'ListMyPosts', params],
-    queryFn: async ({ pageParam }: { pageParam: any }) => {
-      const p = { ...(params as any) };
-      p.offset = pageParam;
-      p.limit = p.limit ?? 20;
-      return api.listMyPosts(p);
-    },
-    initialPageParam: 0,
-    getNextPageParam: (lastPage: any, allPages: any[]) => {
-      if (!lastPage.data || lastPage.data.length < (params.limit ?? 20)) {
-        return undefined;
-      }
-      return allPages.length * (params.limit ?? 20);
-    },
-  });
-};
 export const listCommentsQueryOptions = (params: Types.ListCommentsRequest = {} as Types.ListCommentsRequest) => {
   return queryOptions({
     queryKey: ['Blog', 'ListComments', params],
@@ -131,6 +79,58 @@ export const listCommentsInfiniteQueryOptions = (params: Types.ListCommentsReque
       p.offset = pageParam;
       p.limit = p.limit ?? 20;
       return api.listComments(p);
+    },
+    initialPageParam: 0,
+    getNextPageParam: (lastPage: any, allPages: any[]) => {
+      if (!lastPage.data || lastPage.data.length < (params.limit ?? 20)) {
+        return undefined;
+      }
+      return allPages.length * (params.limit ?? 20);
+    },
+  });
+};
+export const getPostQueryOptions = (params: Types.GetPostRequest = {} as Types.GetPostRequest) => {
+  return queryOptions({
+    queryKey: queryKeys.posts.detail(params.slug),
+    queryFn: async () => {
+      return api.getPost(params);
+    },
+  });
+};
+export const getPostInfiniteQueryOptions = (params: Types.GetPostRequest = {} as Types.GetPostRequest) => {
+  return infiniteQueryOptions({
+    queryKey: queryKeys.posts.detail(params.slug),
+    queryFn: async ({ pageParam }: { pageParam: any }) => {
+      const p = { ...(params as any) };
+      p.offset = pageParam;
+      p.limit = p.limit ?? 20;
+      return api.getPost(p);
+    },
+    initialPageParam: 0,
+    getNextPageParam: (lastPage: any, allPages: any[]) => {
+      if (!lastPage.data || lastPage.data.length < (params.limit ?? 20)) {
+        return undefined;
+      }
+      return allPages.length * (params.limit ?? 20);
+    },
+  });
+};
+export const listTagsQueryOptions = (params: Types.ListTagsRequest = {} as Types.ListTagsRequest) => {
+  return queryOptions({
+    queryKey: queryKeys.tags.list(params),
+    queryFn: async () => {
+      return api.listTags(params);
+    },
+  });
+};
+export const listTagsInfiniteQueryOptions = (params: Types.ListTagsRequest = {} as Types.ListTagsRequest) => {
+  return infiniteQueryOptions({
+    queryKey: queryKeys.tags.list(params),
+    queryFn: async ({ pageParam }: { pageParam: any }) => {
+      const p = { ...(params as any) };
+      p.offset = pageParam;
+      p.limit = p.limit ?? 20;
+      return api.listTags(p);
     },
     initialPageParam: 0,
     getNextPageParam: (lastPage: any, allPages: any[]) => {

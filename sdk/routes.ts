@@ -9,15 +9,6 @@ export interface RouteMeta {
 
 export const createRouteDefinitions = (queryClient: QueryClient) => [
   {
-    path: '/auth/register',
-    method: 'POST',
-    rpc: 'Register',
-    meta: {
-      title: 'Register',
-      breadcrumb: 'Register'
-    } as RouteMeta
-  },
-  {
     path: '/auth/login',
     method: 'POST',
     rpc: 'Login',
@@ -48,6 +39,144 @@ export const createRouteDefinitions = (queryClient: QueryClient) => [
     } as RouteMeta
   },
   {
+    path: '/auth/register',
+    method: 'POST',
+    rpc: 'Register',
+    meta: {
+      title: 'Register',
+      breadcrumb: 'Register'
+    } as RouteMeta
+  },
+  {
+    path: '/comments/:id',
+    method: 'DELETE',
+    rpc: 'DeleteComment',
+    meta: {
+      title: 'DeleteComment',
+      breadcrumb: 'DeleteComment'
+    } as RouteMeta
+  },
+  {
+    path: '/comments/:id',
+    method: 'PUT',
+    rpc: 'UpdateComment',
+    meta: {
+      title: 'UpdateComment',
+      breadcrumb: 'UpdateComment'
+    } as RouteMeta
+  },
+  {
+    path: '/my/posts',
+    method: 'GET',
+    rpc: 'ListMyPosts',
+    loader: async ({ params }: { params: any }) => {
+      await queryClient.ensureQueryData(Queries.listMyPostsQueryOptions());
+    },
+    meta: {
+      title: 'ListMyPosts',
+      breadcrumb: 'ListMyPosts'
+    } as RouteMeta
+  },
+  {
+    path: '/posts',
+    method: 'GET',
+    rpc: 'ListPosts',
+    loader: async ({ params }: { params: any }) => {
+      await queryClient.ensureQueryData(Queries.listPostsQueryOptions());
+    },
+    meta: {
+      title: 'ListPosts',
+      breadcrumb: 'ListPosts'
+    } as RouteMeta
+  },
+  {
+    path: '/posts',
+    method: 'POST',
+    rpc: 'CreatePost',
+    meta: {
+      title: 'CreatePost',
+      breadcrumb: 'CreatePost'
+    } as RouteMeta
+  },
+  {
+    path: '/posts/:id',
+    method: 'DELETE',
+    rpc: 'DeletePost',
+    meta: {
+      title: 'DeletePost',
+      breadcrumb: 'DeletePost'
+    } as RouteMeta
+  },
+  {
+    path: '/posts/:id',
+    method: 'PUT',
+    rpc: 'UpdatePost',
+    meta: {
+      title: 'UpdatePost',
+      breadcrumb: 'UpdatePost'
+    } as RouteMeta
+  },
+  {
+    path: '/posts/:id/archive',
+    method: 'POST',
+    rpc: 'ArchivePost',
+    meta: {
+      title: 'ArchivePost',
+      breadcrumb: 'ArchivePost'
+    } as RouteMeta
+  },
+  {
+    path: '/posts/:id/publish',
+    method: 'POST',
+    rpc: 'PublishPost',
+    meta: {
+      title: 'PublishPost',
+      breadcrumb: 'PublishPost'
+    } as RouteMeta
+  },
+  {
+    path: '/posts/:id/submit',
+    method: 'POST',
+    rpc: 'SubmitPost',
+    meta: {
+      title: 'SubmitPost',
+      breadcrumb: 'SubmitPost'
+    } as RouteMeta
+  },
+  {
+    path: '/posts/:postID/comments',
+    method: 'GET',
+    rpc: 'ListComments',
+    loader: async ({ params }: { params: any }) => {
+      await queryClient.ensureQueryData(Queries.listCommentsQueryOptions(params.postID));
+    },
+    meta: {
+      title: 'ListComments',
+      breadcrumb: 'ListComments'
+    } as RouteMeta
+  },
+  {
+    path: '/posts/:postID/comments',
+    method: 'POST',
+    rpc: 'CreateComment',
+    meta: {
+      title: 'CreateComment',
+      breadcrumb: 'CreateComment'
+    } as RouteMeta
+  },
+  {
+    path: '/posts/:slug',
+    method: 'GET',
+    rpc: 'GetPost',
+    loader: async ({ params }: { params: any }) => {
+      await queryClient.ensureQueryData(Queries.getPostQueryOptions(params.slug));
+    },
+    meta: {
+      title: 'GetPost',
+      breadcrumb: 'GetPost'
+    } as RouteMeta
+  },
+  {
     path: '/tags',
     method: 'GET',
     rpc: 'ListTags',
@@ -70,15 +199,6 @@ export const createRouteDefinitions = (queryClient: QueryClient) => [
   },
   {
     path: '/tags/:id',
-    method: 'PUT',
-    rpc: 'UpdateTag',
-    meta: {
-      title: 'UpdateTag',
-      breadcrumb: 'UpdateTag'
-    } as RouteMeta
-  },
-  {
-    path: '/tags/:id',
     method: 'DELETE',
     rpc: 'DeleteTag',
     meta: {
@@ -87,156 +207,36 @@ export const createRouteDefinitions = (queryClient: QueryClient) => [
     } as RouteMeta
   },
   {
-    path: '/posts',
-    method: 'POST',
-    rpc: 'CreatePost',
-    meta: {
-      title: 'CreatePost',
-      breadcrumb: 'CreatePost'
-    } as RouteMeta
-  },
-  {
-    path: '/posts/:slug',
-    method: 'GET',
-    rpc: 'GetPost',
-    loader: async ({ params }: { params: any }) => {
-      await queryClient.ensureQueryData(Queries.getPostQueryOptions(params.slug));
-    },
-    meta: {
-      title: 'GetPost',
-      breadcrumb: 'GetPost'
-    } as RouteMeta
-  },
-  {
-    path: '/posts',
-    method: 'GET',
-    rpc: 'ListPosts',
-    loader: async ({ params }: { params: any }) => {
-      await queryClient.ensureQueryData(Queries.listPostsQueryOptions());
-    },
-    meta: {
-      title: 'ListPosts',
-      breadcrumb: 'ListPosts'
-    } as RouteMeta
-  },
-  {
-    path: '/my/posts',
-    method: 'GET',
-    rpc: 'ListMyPosts',
-    loader: async ({ params }: { params: any }) => {
-      await queryClient.ensureQueryData(Queries.listMyPostsQueryOptions());
-    },
-    meta: {
-      title: 'ListMyPosts',
-      breadcrumb: 'ListMyPosts'
-    } as RouteMeta
-  },
-  {
-    path: '/posts/:id',
+    path: '/tags/:id',
     method: 'PUT',
-    rpc: 'UpdatePost',
+    rpc: 'UpdateTag',
     meta: {
-      title: 'UpdatePost',
-      breadcrumb: 'UpdatePost'
-    } as RouteMeta
-  },
-  {
-    path: '/posts/:id/submit',
-    method: 'POST',
-    rpc: 'SubmitPost',
-    meta: {
-      title: 'SubmitPost',
-      breadcrumb: 'SubmitPost'
-    } as RouteMeta
-  },
-  {
-    path: '/posts/:id/publish',
-    method: 'POST',
-    rpc: 'PublishPost',
-    meta: {
-      title: 'PublishPost',
-      breadcrumb: 'PublishPost'
-    } as RouteMeta
-  },
-  {
-    path: '/posts/:id/archive',
-    method: 'POST',
-    rpc: 'ArchivePost',
-    meta: {
-      title: 'ArchivePost',
-      breadcrumb: 'ArchivePost'
-    } as RouteMeta
-  },
-  {
-    path: '/posts/:id',
-    method: 'DELETE',
-    rpc: 'DeletePost',
-    meta: {
-      title: 'DeletePost',
-      breadcrumb: 'DeletePost'
-    } as RouteMeta
-  },
-  {
-    path: '/posts/:postID/comments',
-    method: 'POST',
-    rpc: 'CreateComment',
-    meta: {
-      title: 'CreateComment',
-      breadcrumb: 'CreateComment'
-    } as RouteMeta
-  },
-  {
-    path: '/posts/:postID/comments',
-    method: 'GET',
-    rpc: 'ListComments',
-    loader: async ({ params }: { params: any }) => {
-      await queryClient.ensureQueryData(Queries.listCommentsQueryOptions(params.postID));
-    },
-    meta: {
-      title: 'ListComments',
-      breadcrumb: 'ListComments'
-    } as RouteMeta
-  },
-  {
-    path: '/comments/:id',
-    method: 'PUT',
-    rpc: 'UpdateComment',
-    meta: {
-      title: 'UpdateComment',
-      breadcrumb: 'UpdateComment'
-    } as RouteMeta
-  },
-  {
-    path: '/comments/:id',
-    method: 'DELETE',
-    rpc: 'DeleteComment',
-    meta: {
-      title: 'DeleteComment',
-      breadcrumb: 'DeleteComment'
+      title: 'UpdateTag',
+      breadcrumb: 'UpdateTag'
     } as RouteMeta
   },
 ];
 
 export const Routes = {
-  Register: () => `/auth/register`,
   Login: () => `/auth/login`,
   GetProfile: () => `/auth/profile`,
   UpdateProfile: () => `/auth/profile`,
+  Register: () => `/auth/register`,
+  DeleteComment: (id: string) => `/comments/${id}`,
+  UpdateComment: (id: string) => `/comments/${id}`,
+  ListMyPosts: () => `/my/posts`,
+  ListPosts: () => `/posts`,
+  CreatePost: () => `/posts`,
+  DeletePost: (id: string) => `/posts/${id}`,
+  UpdatePost: (id: string) => `/posts/${id}`,
+  ArchivePost: (id: string) => `/posts/${id}/archive`,
+  PublishPost: (id: string) => `/posts/${id}/publish`,
+  SubmitPost: (id: string) => `/posts/${id}/submit`,
+  ListComments: (postID: string) => `/posts/${postID}/comments`,
+  CreateComment: (postID: string) => `/posts/${postID}/comments`,
+  GetPost: (slug: string) => `/posts/${slug}`,
   ListTags: () => `/tags`,
   CreateTag: () => `/tags`,
-  UpdateTag: (id: string) => `/tags/${id}`,
   DeleteTag: (id: string) => `/tags/${id}`,
-  CreatePost: () => `/posts`,
-  GetPost: (slug: string) => `/posts/${slug}`,
-  ListPosts: () => `/posts`,
-  ListMyPosts: () => `/my/posts`,
-  UpdatePost: (id: string) => `/posts/${id}`,
-  SubmitPost: (id: string) => `/posts/${id}/submit`,
-  PublishPost: (id: string) => `/posts/${id}/publish`,
-  ArchivePost: (id: string) => `/posts/${id}/archive`,
-  DeletePost: (id: string) => `/posts/${id}`,
-  CreateComment: (postID: string) => `/posts/${postID}/comments`,
-  ListComments: (postID: string) => `/posts/${postID}/comments`,
-  UpdateComment: (id: string) => `/comments/${id}`,
-  DeleteComment: (id: string) => `/comments/${id}`,
+  UpdateTag: (id: string) => `/tags/${id}`,
 };

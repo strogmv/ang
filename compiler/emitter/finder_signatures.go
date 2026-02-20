@@ -97,6 +97,8 @@ func resolveFinderReturnType(entity string, finder normalizer.RepositoryFinder, 
 		return "[]domain." + entity, "nil", true
 	case "count":
 		return "int64", "0", false
+	case "sum":
+		return "int64", "0", false
 	case "":
 		if fallbackReturnType != "" {
 			return fallbackReturnType, "nil", strings.HasPrefix(fallbackReturnType, "[]")

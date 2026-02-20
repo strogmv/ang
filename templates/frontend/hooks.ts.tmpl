@@ -6,8 +6,9 @@ import * as LegacyQueries from '../queries';
 import * as api from '../endpoints';
 import { wsClient, useWebsocketSubscription, useAutoInvalidation } from './websocket-hooks';
 import { queryKeys } from '../query-keys';
+import { useAuthStore } from '../auth-store';
 // @ts-ignore
-import { useEffect } from 'react';
+import { useEffect, useRef, useLayoutEffect } from 'react';
 
 export { wsClient, useWebsocketSubscription, useAutoInvalidation };
 
@@ -103,17 +104,21 @@ export const useInfinite{{ .RPC }}Suspense = (params?: Types.{{ .RPC }}Request, 
 {{- $params := PathParams .Path }}
 {{- $args := PathArgs .Path }}
 export const use{{ .RPC }}Raw = ({{- if ne $params "" }}{{ $params }}, {{ end }}onMessage: (data: any) => void) => {
+  // Ref-pattern: stable subscription, always calls the latest callback.
+  const onMessageRef = useRef(onMessage);
+  useLayoutEffect(() => { onMessageRef.current = onMessage; });
+
   useEffect(() => {
     {{- if ne $params "" }}
     const wsUrl = ((import.meta as any).env?.VITE_API_URL || 'http://localhost:8080').replace(/^http/, 'ws') + `{{ PathTemplate .Path }}`;
     const client = new WebSocketClient(wsUrl);
-    const unsubscribe = client.subscribe(onMessage);
+    const unsubscribe = client.subscribe((data: any) => onMessageRef.current(data));
     return () => {
       unsubscribe();
       client.close();
     };
     {{- else }}
-    const unsubscribe = wsClient.subscribe(onMessage);
+    const unsubscribe = wsClient.subscribe((data: any) => onMessageRef.current(data));
     return () => unsubscribe();
     {{- end }}
   }, [{{ $args }}]);
@@ -136,7 +141,8 @@ export const use{{ .RPC }} = (options?: UseMutationOptions<Types.{{ .RPC }}Respo
         
         {{- if $isList }}
         // List Update
-        const queryKey = queryKeys.{{ .ServiceName }}.{{ $relatedRPC }}(); // Invalidate all lists of this type
+        {{- $resourceKey := QueryResourceKeyForRPC $relatedRPC }}
+        const queryKey = {{- if $resourceKey }}queryKeys.{{ $resourceKey }}.list(){{- else }}queryKeys.{{ .ServiceName }}.{{ $relatedRPC }}(){{- end }}; // Invalidate all lists of this type
         await queryClient.cancelQueries({ queryKey });
         const previousData = queryClient.getQueryData(queryKey);
 
@@ -159,7 +165,8 @@ export const use{{ .RPC }} = (options?: UseMutationOptions<Types.{{ .RPC }}Respo
         // Detail Update
         if (!id) return; 
         const rpcParams = { id } as any; 
-        const queryKey = queryKeys.{{ .ServiceName }}.{{ $relatedRPC }}(rpcParams);
+        {{- $resourceKey := QueryResourceKeyForRPC $relatedRPC }}
+        const queryKey = {{- if $resourceKey }}queryKeys.{{ $resourceKey }}.detail(rpcParams){{- else }}queryKeys.{{ .ServiceName }}.{{ $relatedRPC }}(rpcParams){{- end }};
 
         await queryClient.cancelQueries({ queryKey });
         const previousData = queryClient.getQueryData(queryKey);
@@ -180,7 +187,13 @@ export const use{{ .RPC }} = (options?: UseMutationOptions<Types.{{ .RPC }}Respo
         }
         {{- $serviceName := .ServiceName }}
         {{- range .Invalidate }}
+        {{- $resourceKey := QueryResourceKeyForRPC . }}
+        {{- $kind := QueryResourceKindForRPC . }}
+        {{- if and $resourceKey (eq $kind "list") }}
+        queryClient.invalidateQueries({ queryKey: queryKeys.{{ $resourceKey }}.list() });
+        {{- else }}
         queryClient.invalidateQueries({ queryKey: [...queryKeys.{{ $serviceName }}.all, '{{ . }}'] });
+        {{- end }}
         {{- end }}
     },
     ...options,
@@ -188,18 +201,34 @@ export const use{{ .RPC }} = (options?: UseMutationOptions<Types.{{ .RPC }}Respo
 };
 {{- else }}
 export const use{{ .RPC }} = (options?: UseMutationOptions<Types.{{ .RPC }}Response, Error, Types.{{ .RPC }}Request, any>) => {
+  {{- if .Invalidate }}
   const queryClient = useQueryClient();
+  {{- end }}
 
   return useMutation({
     mutationFn: async (variables: Types.{{ .RPC }}Request) => {
       return api.{{ LowerFirst .RPC }}(variables);
     },
+    {{- if IsAuthLoginRPC .RPC }}
+    onSuccess: (data: Types.{{ .RPC }}Response) => {
+      const store = useAuthStore.getState();
+      store.setAuth((data as any).accessToken, store.user, (data as any).refreshToken ?? undefined);
+    },
+    {{- end }}
+    {{- if .Invalidate }}
     onSettled: (_data: any, _error: Error | null, _variables: Types.{{ .RPC }}Request) => {
         {{- $serviceName := .ServiceName }}
         {{- range .Invalidate }}
+        {{- $resourceKey := QueryResourceKeyForRPC . }}
+        {{- $kind := QueryResourceKindForRPC . }}
+        {{- if and $resourceKey (eq $kind "list") }}
+        queryClient.invalidateQueries({ queryKey: queryKeys.{{ $resourceKey }}.list() });
+        {{- else }}
         queryClient.invalidateQueries({ queryKey: [...queryKeys.{{ $serviceName }}.all, '{{ . }}'] });
         {{- end }}
+        {{- end }}
     },
+    {{- end }}
     ...options,
   });
 };
