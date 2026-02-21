@@ -37,6 +37,8 @@ import "github.com/strogmv/ang/cue/project"
 	}
 	// Explicit implementation block (used when a target-specific resolver is not available)
 	impl?: #CodeBlock
+	// Typed implementation steps (platform-agnostic)
+	impl_steps?: [...#ImplStep]
 	// Declarative logic flow
 	flow?: [...#FlowStep]
 
@@ -76,6 +78,34 @@ import "github.com/strogmv/ang/cue/project"
 // ============================================================================
 
 #FlowStep: #RepoStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #CustomStep | #StateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #AuditStep | #AuthStep | #CheckRoleStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #EnrichStep | #TimeParseStep | #TimeCheckExpiryStep | #MapBuildStep
+
+// ============================================================================
+// IMPL STEPS (typed business logic inside impl)
+// ============================================================================
+
+#ImplStep: #ImplLoadStep | #ImplAssertStep | #ImplCallStep | #ImplEmitStep
+
+#ImplLoadStep: {
+	load: string        // e.g. "repo.Tender" or "repo.User"
+	by: string | { [string]: string } // lookup criteria: "req.TenderID" or {id: "req.TenderID"}
+	into: string        // variable name to bind (e.g. "tender")
+}
+
+#ImplAssertStep: {
+	assert: string      // boolean expression, e.g. "tender.Status == 'active'"
+	error:  string      // error code/identifier, e.g. "ErrTenderNotActive"
+}
+
+#ImplCallStep: {
+	call: string        // e.g. "repo.Bid.Create" or "service.Notification.Send"
+	with?: string | { [string]: _ } // arguments map or expression
+	into?: string       // optional variable to store result
+}
+
+#ImplEmitStep: {
+	emit: string        // event name, e.g. "BidPlaced"
+	payload?: string | { [string]: _ } // payload expression or struct literal
+}
 
 // ----------------------------------------------------------------------------
 // LIST OPERATIONS
