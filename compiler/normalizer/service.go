@@ -23,6 +23,14 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 	}
 	var services []Service
 
+	// Index repositories for impl_steps validation
+	n.RepoNames = make(map[string]struct{})
+	for _, e := range entities {
+		n.RepoNames[e.Name+"Repository"] = struct{}{}
+	}
+	// Index events for impl_steps validation
+	n.EventNames = make(map[string]struct{})
+
 	entityOwners := make(map[string]string)
 	isDTO := make(map[string]bool)
 	for _, e := range entities {
@@ -334,6 +342,15 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 				for _, diag := range validateImplAntiPatterns(svcName, opName, method, codeVal) {
 					n.Warn(diag)
 				}
+			}
+
+			// Typed impl steps
+			if stepsVal := implVal.LookupPath(cue.ParsePath("impl_steps")); stepsVal.Exists() {
+				steps, err := n.parseImplSteps(stepsVal)
+				if err != nil {
+					return nil, fmt.Errorf("parse impl_steps for %s.%s: %w", svcName, opName, err)
+				}
+				method.ImplSteps = steps
 			}
 		}
 

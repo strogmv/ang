@@ -37,6 +37,8 @@ type Normalizer struct {
 	WarningSink func(Warning)
 	Scopes      []ScopeDef
 	scopeIndex  map[string][]string
+	RepoNames   map[string]struct{}
+	EventNames  map[string]struct{}
 }
 
 type TypeConfig struct {

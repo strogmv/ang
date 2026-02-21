@@ -149,6 +149,7 @@ type Method struct {
 	Outbox      bool
 	Impl        *MethodImpl
 	Flow        []FlowStep
+	ImplSteps   []ImplStep
 	Attributes  []Attribute
 	Metadata    map[string]any
 	Source      string
@@ -176,6 +177,24 @@ type MethodImpl struct {
 	Code       string
 	Imports    []string
 	RequiresTx bool
+}
+
+// ImplStep is a typed instruction inside impl_steps DSL.
+type ImplStep struct {
+	Kind         string            // load, assert, call, emit
+	LoadTarget   string            // load
+	LoadBy       map[string]string // load
+	LoadInto     string            // load
+	AssertExpr   string            // assert
+	AssertError  string            // assert
+	CallTarget   string            // call
+	CallArgsExpr string            // call (raw expression string)
+	CallArgsMap  map[string]any    // call (structured)
+	CallInto     string            // call
+	EmitEvent    string            // emit
+	EmitPayload  map[string]any    // emit
+	EmitExpr     string            // emit
+	Source       string
 }
 
 type Source struct {
