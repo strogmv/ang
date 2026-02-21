@@ -169,7 +169,9 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 	funcMapImpl["CleanImplCode"] = cleanImplCode
 	funcMapImpl["FlowRenderable"] = flowRenderable
 	funcMapImpl["RenderFlow"] = renderFlow
-	funcMapImpl["RenderImplSteps"] = renderImplSteps
+	funcMapImpl["RenderImplSteps"] = func(svc normalizer.Service, steps []normalizer.ImplStep, serviceName, methodName string) string {
+		return renderImplSteps(svc, steps, serviceName, methodName)
+	}
 	t, err := template.New("service_impl").Funcs(funcMapImpl).Parse(string(tmplContent))
 	if err != nil {
 		return err
