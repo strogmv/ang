@@ -169,6 +169,7 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 	funcMapImpl["CleanImplCode"] = cleanImplCode
 	funcMapImpl["FlowRenderable"] = flowRenderable
 	funcMapImpl["RenderFlow"] = renderFlow
+	funcMapImpl["RenderImplSteps"] = renderImplSteps
 	t, err := template.New("service_impl").Funcs(funcMapImpl).Parse(string(tmplContent))
 	if err != nil {
 		return err
@@ -190,6 +191,7 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 			"fmt",
 			"log/slog",
 			"net/http",
+			"os",
 			"sort",
 			"strings",
 			"time",
