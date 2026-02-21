@@ -452,11 +452,39 @@ func ConvertMethod(m normalizer.Method) Method {
 		}
 	}
 
+	// Convert impl_steps
+	if len(m.ImplSteps) > 0 {
+		method.ImplSteps = convertImplSteps(m.ImplSteps)
+	} else {
+		method.ImplSteps = []ImplStep{}
+	}
+
 	// RECURSIVE FLOW CONVERSION
 	method.Flow = ConvertFlowSteps(m.Flow)
 	method.Attributes = ConvertAttributes(m.Attributes)
 
 	return method
+}
+
+func convertImplSteps(steps []normalizer.ImplStep) []ImplStep {
+	result := make([]ImplStep, 0, len(steps))
+	for _, s := range steps {
+		result = append(result, ImplStep{
+			Kind:        s.Kind,
+			LoadTarget:  s.LoadTarget,
+			LoadBy:      s.LoadBy,
+			LoadInto:    s.LoadInto,
+			AssertExpr:  s.AssertExpr,
+			AssertError: s.AssertError,
+			CallTarget:  s.CallTarget,
+			CallArgs:    s.CallArgsMap,
+			CallInto:    s.CallInto,
+			EmitEvent:   s.EmitEvent,
+			EmitPayload: s.EmitPayload,
+			Source:      s.Source,
+		})
+	}
+	return result
 }
 
 func ConvertEvent(e normalizer.EventDef) Event {

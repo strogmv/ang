@@ -287,6 +287,7 @@ type Method struct {
 	DedupeKey   string
 	Outbox      bool
 	Impl        *Impl
+	ImplSteps   []ImplStep
 	Flow        []FlowStep
 	Attributes  []Attribute
 	Metadata    map[string]any
@@ -336,6 +337,22 @@ type Impl struct {
 	Code       string
 	Imports    []string
 	RequiresTx bool
+}
+
+// ImplStep represents typed implementation step from impl_steps DSL.
+type ImplStep struct {
+	Kind        string            `json:"kind"`
+	LoadTarget  string            `json:"load_target,omitempty"`
+	LoadBy      map[string]string `json:"load_by,omitempty"`
+	LoadInto    string            `json:"load_into,omitempty"`
+	AssertExpr  string            `json:"assert_expr,omitempty"`
+	AssertError string            `json:"assert_error,omitempty"`
+	CallTarget  string            `json:"call_target,omitempty"`
+	CallArgs    map[string]any    `json:"call_args,omitempty"`
+	CallInto    string            `json:"call_into,omitempty"`
+	EmitEvent   string            `json:"emit_event,omitempty"`
+	EmitPayload map[string]any    `json:"emit_payload,omitempty"`
+	Source      string            `json:"source,omitempty"`
 }
 
 // Event represents a domain event.

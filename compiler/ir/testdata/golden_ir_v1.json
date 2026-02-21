@@ -312,6 +312,10 @@
       "type": "*ir.Impl"
     },
     {
+      "name": "ImplSteps",
+      "type": "[]ir.ImplStep"
+    },
+    {
       "name": "Input",
       "type": "*ir.Entity"
     },

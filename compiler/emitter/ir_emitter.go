@@ -377,9 +377,36 @@ func IRMethodToNormalizer(m ir.Method) normalizer.Method {
 		}
 	}
 
+	if len(m.ImplSteps) > 0 {
+		method.ImplSteps = irImplStepsToNormalizer(m.ImplSteps)
+	} else {
+		method.ImplSteps = []normalizer.ImplStep{}
+	}
+
 	method.Flow = irFlowStepsToNormalizer(m.Flow)
 
 	return method
+}
+
+func irImplStepsToNormalizer(irSteps []ir.ImplStep) []normalizer.ImplStep {
+	var result []normalizer.ImplStep
+	for _, s := range irSteps {
+		result = append(result, normalizer.ImplStep{
+			Kind:        s.Kind,
+			LoadTarget:  s.LoadTarget,
+			LoadBy:      s.LoadBy,
+			LoadInto:    s.LoadInto,
+			AssertExpr:  s.AssertExpr,
+			AssertError: s.AssertError,
+			CallTarget:  s.CallTarget,
+			CallArgsMap: s.CallArgs,
+			CallInto:    s.CallInto,
+			EmitEvent:   s.EmitEvent,
+			EmitPayload: s.EmitPayload,
+			Source:      s.Source,
+		})
+	}
+	return result
 }
 
 // irFlowStepsToNormalizer recursively converts IR flow steps to normalizer flow steps

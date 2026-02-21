@@ -245,6 +245,12 @@ func TestIRRoundTrip(t *testing.T) {
 			if m2.Flow == nil {
 				m2.Flow = []normalizer.FlowStep{}
 			}
+			if m1.ImplSteps == nil {
+				m1.ImplSteps = []normalizer.ImplStep{}
+			}
+			if m2.ImplSteps == nil {
+				m2.ImplSteps = []normalizer.ImplStep{}
+			}
 
 			m1.Pagination = nil
 			m2.Pagination = nil
