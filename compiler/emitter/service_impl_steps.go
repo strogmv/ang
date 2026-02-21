@@ -163,16 +163,9 @@ func renderImplSteps(svc normalizer.Service, steps []normalizer.ImplStep, servic
 			typeName := exportName(st.EmitEvent)
 			b.WriteString(fmt.Sprintf("if s.publisher != nil {\n\tvar evt domain.%s\n", typeName))
 			if len(st.EmitPayload) > 0 {
-				b.WriteString("\tif payloadBytes, _ := json.Marshal(map[string]any{")
-				first := true
 				for k, v := range st.EmitPayload {
-					if !first {
-						b.WriteString(",")
-					}
-					first = false
-					b.WriteString(fmt.Sprintf("%q: %s", k, valStringLiteral(v)))
+					b.WriteString(fmt.Sprintf("\tevt.%s = %s\n", exportName(k), valExpr(v)))
 				}
-				b.WriteString("}); json.Unmarshal(payloadBytes, &evt) == nil { /*payload mapped*/ }\n")
 			}
 			b.WriteString(fmt.Sprintf("\t_ = s.publisher.Publish%s(ctx, evt)\n}\n", typeName))
 		default:
@@ -212,14 +205,14 @@ func exportName(s string) string {
 	return b.String()
 }
 
-// valStringLiteral renders an interface{} payload value into a Go literal string best-effort.
-func valStringLiteral(v any) string {
+// valExpr renders payload value as Go expression; strings are treated as raw expressions.
+func valExpr(v any) string {
 	switch t := v.(type) {
 	case string:
-		return fmt.Sprintf("%q", t)
+		return t
 	case int, int64, float64, bool:
 		return fmt.Sprintf("%v", t)
 	default:
-		return fmt.Sprintf("%q", fmt.Sprintf("%v", t))
+		return fmt.Sprintf("%v", t)
 	}
 }
