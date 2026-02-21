@@ -14,10 +14,16 @@ ANG is not a framework, not an ORM, and not a low-code platform. It is a compile
 ANG is designed from the ground up to work seamlessly with AI coding agents:
 
 - **Declarative DSL:** CUE-based Flow DSL is structured and predictable — perfect for LLMs to generate
+- **Impl Steps (experimental):** Typed `impl_steps` (load/assert/call/emit) can be generated into service code without raw strings
 - **Golden Examples:** Reference patterns in `cue/GOLDEN_EXAMPLES.cue` teach AI the correct idioms
 - **Self-Documenting Schema:** Type definitions include descriptions that AI can read and understand
 - **Deterministic Output:** Same input always produces same output — AI can verify its work
 - **Validation at Compile Time:** Errors caught early, before runtime — AI gets immediate feedback
+
+### What’s new (0.1.100)
+- **impl_steps → Go emitter:** load/assert/call/emit steps now render into service implementations (opt-in via `impl_steps` in CUE).
+- **Scope middleware:** `auth.scope` in CUE attaches `RequireScopeMiddleware` automatically to routes.
+- **Enum-driven consts:** CUE disjunctions generate Go/OpenAPI enums and DB CHECK constraints.
 
 ## Core Mandates
 
