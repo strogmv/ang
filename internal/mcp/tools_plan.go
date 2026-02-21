@@ -140,7 +140,7 @@ func registerPlanTools(addTool toolAdder) {
 				failed = append(failed, map[string]any{"path": path, "error": fmt.Sprintf("cue vet failed: %s", string(out))})
 				continue
 			}
-			if _, _, _, _, _, _, _, _, err := compiler.RunPipeline("."); err != nil {
+			if _, _, _, _, _, _, _, _, _, err := compiler.RunPipeline("."); err != nil {
 				_ = os.WriteFile(path, orig, 0o644)
 				failed = append(failed, map[string]any{"path": path, "error": fmt.Sprintf("pipeline failed: %v", err)})
 				continue

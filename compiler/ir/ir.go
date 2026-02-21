@@ -14,6 +14,7 @@ type Schema struct {
 	Events    []Event
 	Errors    []Error
 	Endpoints []Endpoint
+	Scopes    []Scope
 	Repos     []Repository
 	Config    Config
 	Auth      *Auth
@@ -364,6 +365,7 @@ type Endpoint struct {
 	Messages         []string
 	RoomParam        string
 	Auth             *EndpointAuth
+	RequiredScopes   []string `json:"required_scopes,omitempty"`
 	Cache            string
 	CacheTags        []string
 	Invalidate       []string
@@ -396,6 +398,13 @@ type EndpointAuth struct {
 	Roles      []string
 	Check      string   // Custom auth check expression
 	Inject     []string // Fields to inject from token
+}
+
+// Scope represents an API scope entry defined in CUE registry.
+type Scope struct {
+	Name   string   `json:"name"`
+	Values []string `json:"values"`
+	Source string   `json:"source,omitempty"`
 }
 
 // RateLimit describes rate limiting.

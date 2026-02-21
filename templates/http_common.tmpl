@@ -2,8 +2,8 @@ package http
 
 import (
 	"context"
-	"crypto/ecdsa"
 	"crypto"
+	"crypto/ecdsa"
 	"crypto/hmac"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -38,20 +38,22 @@ type authContext struct {
 	CompanyID string
 	Roles     []string
 	Perms     []string
+	Scopes    []string
 }
 
 var (
-	authAlg       = "RS256"
-	authIssuer    = ""
-	authAudience  = ""
-	authUserClaim = "sub"
+	authAlg          = "RS256"
+	authIssuer       = ""
+	authAudience     = ""
+	authUserClaim    = "sub"
 	authCompanyClaim = "cid"
-	authRolesClaim = "roles"
-	authPermsClaim = "perms"
+	authRolesClaim   = "roles"
+	authPermsClaim   = "perms"
+	authScopesClaim  = "scopes"
 
-	authRSAPublicKey *rsa.PublicKey
-	authECDSAPublicKey *ecdsa.PublicKey
-	authHMACSecret []byte
+	authRSAPublicKey    *rsa.PublicKey
+	authECDSAPublicKey  *ecdsa.PublicKey
+	authHMACSecret      []byte
 	verifiedUserChecker func(ctx context.Context, userID string) (bool, error)
 )
 
@@ -70,6 +72,7 @@ func SetAuthConfigFromConfig(cfg *config.Config) error {
 	authCompanyClaim = "{{ .CompanyIDClaim }}"
 	authRolesClaim = "{{ .RolesClaim }}"
 	authPermsClaim = "{{ .PermissionsClaim }}"
+	authScopesClaim = "scopes"
 
 	switch authAlg {
 	case "RS256":
@@ -182,6 +185,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			CompanyID: getStringClaim(claims, authCompanyClaim),
 			Roles:     getStringSliceClaim(claims, authRolesClaim),
 			Perms:     getStringSliceClaim(claims, authPermsClaim),
+			Scopes:    getStringSliceClaim(claims, authScopesClaim),
 		}
 		if verifiedUserChecker != nil {
 			ok, err := verifiedUserChecker(r.Context(), ac.UserID)
@@ -223,6 +227,13 @@ func CurrentRoles(r *http.Request) []string {
 func CurrentPermissions(r *http.Request) []string {
 	if ac, ok := r.Context().Value(authContextKey{}).(authContext); ok {
 		return ac.Perms
+	}
+	return nil
+}
+
+func CurrentScopes(r *http.Request) []string {
+	if ac, ok := r.Context().Value(authContextKey{}).(authContext); ok {
+		return ac.Scopes
 	}
 	return nil
 }
@@ -276,6 +287,23 @@ func RequireRoles(roles []string) func(http.Handler) http.Handler {
 				}
 			}
 			errors.WriteError(w, r, errors.New(http.StatusForbidden, "Forbidden", "Insufficient role"))
+		})
+	}
+}
+
+func RequireScopeMiddleware(scopes []string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			current := CurrentScopes(r)
+			for _, required := range scopes {
+				for _, s := range current {
+					if s == required {
+						next.ServeHTTP(w, r)
+						return
+					}
+				}
+			}
+			errors.WriteError(w, r, errors.New(http.StatusForbidden, "Forbidden", "Insufficient scope: "+strings.Join(scopes, " or ")+" required"))
 		})
 	}
 }
@@ -507,8 +535,8 @@ type rateState struct {
 }
 
 var (
-	rateMu   sync.Mutex
-	rateByIP = map[string]*rateState{}
+	rateMu      sync.Mutex
+	rateByIP    = map[string]*rateState{}
 	redisClient *redis.Client
 )
 

@@ -440,6 +440,7 @@ func IREndpointsToNormalizer(irEndpoints []ir.Endpoint) []normalizer.Endpoint {
 			CacheTTL:         ep.Cache,
 			CacheTags:        initializeSlice(ep.CacheTags),
 			Invalidate:       initializeSlice(ep.Invalidate),
+			RequiredScopes:   initializeSlice(ep.RequiredScopes),
 			OptimisticUpdate: ep.OptimisticUpdate,
 			Timeout:          ep.Timeout,
 			MaxBodySize:      ep.MaxBodySize,

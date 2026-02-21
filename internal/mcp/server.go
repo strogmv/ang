@@ -87,7 +87,7 @@ func buildGoalPlan(goal string) (map[string]any, error) {
 		return buildMarketplacePlan(goal)
 	}
 
-	entities, services, endpoints, _, _, _, _, _, err := compiler.RunPipeline(".")
+	entities, services, endpoints, _, _, _, _, _, _, err := compiler.RunPipeline(".")
 	if err != nil {
 		return nil, err
 	}
@@ -227,7 +227,7 @@ func isMarketplaceGoal(goal string) bool {
 }
 
 func buildMarketplacePlan(goal string) (map[string]any, error) {
-	entities, services, endpoints, _, _, _, _, _, err := compiler.RunPipeline(".")
+	entities, services, endpoints, _, _, _, _, _, _, err := compiler.RunPipeline(".")
 	if err != nil {
 		return nil, err
 	}

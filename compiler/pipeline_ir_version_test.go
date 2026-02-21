@@ -11,7 +11,7 @@ func TestConvertAndTransform_UsesCurrentIRVersion(t *testing.T) {
 	t.Parallel()
 
 	schema, err := ConvertAndTransform(
-		nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil,
 		normalizer.ConfigDef{},
 		nil, nil,
 		nil, nil,
@@ -44,7 +44,7 @@ func TestConvertAndTransform_RejectsNonABIServiceMetadata(t *testing.T) {
 	}
 
 	_, err := ConvertAndTransform(
-		nil, services, nil, nil, nil, nil,
+		nil, services, nil, nil, nil, nil, nil,
 		normalizer.ConfigDef{},
 		nil, nil,
 		nil, nil,

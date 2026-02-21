@@ -50,12 +50,12 @@ MissingMethod: {
 		t.Fatalf("write cue/api/api.cue: %v", err)
 	}
 
-	entities, services, endpoints, repos, events, bizErrors, schedules, _, err := compiler.RunPipeline(basePath)
+	entities, services, endpoints, repos, events, bizErrors, schedules, _, scopes, err := compiler.RunPipeline(basePath)
 	if err != nil {
 		t.Fatalf("RunPipeline failed: %v", err)
 	}
 	schema, err := compiler.ConvertAndTransform(
-		entities, services, events, bizErrors, endpoints, repos,
+		entities, services, events, bizErrors, endpoints, scopes, repos,
 		normalizer.ConfigDef{}, nil, nil, schedules, nil, normalizer.ProjectDef{},
 	)
 	if err != nil {

@@ -885,6 +885,7 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 				goMod + "/internal/pkg/helpers": true,
 				goMod + "/internal/port":        true,
 				"net/http":                      true,
+				"os":                            true,
 				"github.com/google/uuid":        true,
 				"time":                          true,
 			}

@@ -17,7 +17,7 @@ type modelSnapshot struct {
 }
 
 func buildModelSnapshot(projectPath string, includeFields bool) (modelSnapshot, error) {
-	entities, services, endpoints, _, _, _, _, _, err := compiler.RunPipeline(projectPath)
+	entities, services, endpoints, _, _, _, _, _, _, err := compiler.RunPipeline(projectPath)
 	if err != nil {
 		return modelSnapshot{}, err
 	}

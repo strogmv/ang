@@ -2,6 +2,7 @@ import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from './auth-store';
 import { endpointMeta } from './endpoints';
 import { ErrorCode, ProblemDetail } from './types';
+import * as Types from './types';
 import { isProblemDetailLike, normalizeApiError } from './error-normalizer';
 import * as Schemas from './schemas';
 
@@ -83,6 +84,41 @@ const findEndpointMeta = (url: string | undefined) => {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const REFRESH_ENDPOINT = '/api/auth/refresh';
+const isRefreshRequest = (config?: InternalAxiosRequestConfig) => {
+  const url = config?.url;
+  if (!url) return false;
+  return url.endsWith(REFRESH_ENDPOINT) || url.includes(`${REFRESH_ENDPOINT}?`);
+};
+
+let refreshPromise: Promise<void> | null = null;
+
+const refreshAuthToken = async () => {
+  const store = useAuthStore.getState();
+  const storedRefresh = store.refreshToken;
+  if (!storedRefresh) {
+    store.clearAuth();
+    throw new Error('Missing refresh token');
+  }
+
+  if (!refreshPromise) {
+    refreshPromise = apiClient
+      .post<Types.RefreshTokenResponse>(`/api/auth/refresh`, { refreshToken: storedRefresh })
+      .then((response) => {
+        const data = validateResponse('RefreshTokenResponseSchema', response.data, 'RefreshToken');
+        store.setAuth(data.accessToken, store.user, data.refreshToken);
+      })
+      .catch((err) => {
+        store.clearAuth();
+        throw err;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
+};
+
 const isNetworkError = (error: AxiosError) => !error.response;
 
 const shouldRetry = (error: AxiosError) => {
@@ -134,6 +170,20 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
 apiClient.interceptors.response.use(
   (response: any) => response,
   async (error: AxiosError) => {
+    const cfg = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
+    if (error.response?.status === 401 && cfg && !cfg._retry && !isRefreshRequest(cfg)) {
+      cfg._retry = true;
+      try {
+        await refreshAuthToken();
+        const newToken = useAuthStore.getState().token;
+        if (newToken && cfg.headers) {
+          cfg.headers.Authorization = `Bearer ${newToken}`;
+        }
+        return apiClient.request(cfg);
+      } catch (refreshErr) {
+        return Promise.reject(refreshErr);
+      }
+    }
     if (shouldRetry(error) && error.config) {
       const cfg: any = error.config;
       const currentAttempt = Number(cfg?.meta?.retryAttempt || 0);

@@ -20,7 +20,7 @@ func registerAnalysisTools(addTool toolAdder) {
 	addTool("ang_event_map", mcp.NewTool("ang_event_map",
 		mcp.WithDescription("Map event publishers and subscribers to visualize system-wide reactions"),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		_, services, _, _, _, _, _, _, err := compiler.RunPipeline(".")
+		_, services, _, _, _, _, _, _, _, err := compiler.RunPipeline(".")
 		if err != nil {
 			return mcp.NewToolResultText(err.Error()), nil
 		}
@@ -77,7 +77,7 @@ func registerAnalysisTools(addTool toolAdder) {
 	addTool("ang_rbac_inspector", mcp.NewTool("ang_rbac_inspector",
 		mcp.WithDescription("Audit RBAC actions and policies."),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		_, services, _, _, _, _, _, _, err := compiler.RunPipeline(".")
+		_, services, _, _, _, _, _, _, _, err := compiler.RunPipeline(".")
 		if err != nil {
 			return mcp.NewToolResultText(err.Error()), nil
 		}

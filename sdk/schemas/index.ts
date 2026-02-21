@@ -50,7 +50,7 @@ export type User = z.infer<typeof UserSchema>;
 export const UserVaultSchema = z.object({
   ID: z.string(),
   personalKey: z.string(),
-  bio: z.string().optional().optional(),
+  bio: z.string().optional(),
 });
 export type UserVault = z.infer<typeof UserVaultSchema>;
 export const GetProfileRequestSchema = z.object({
@@ -62,7 +62,7 @@ export const GetProfileResponseSchema = z.object({
   email: z.string().email(),
   name: z.string(),
   role: z.string(),
-  avatarUrl: z.string().url().optional().optional(),
+  avatarUrl: z.string().url().optional(),
   createdAt: z.string(),
 });
 export type GetProfileResponse = z.infer<typeof GetProfileResponseSchema>;
@@ -91,8 +91,8 @@ export const RegisterResponseSchema = z.object({
 export type RegisterResponse = z.infer<typeof RegisterResponseSchema>;
 export const UpdateProfileRequestSchema = z.object({
   userId: z.string(),
-  name: z.string().min(2).max(100).optional().optional(),
-  avatarUrl: z.string().url().optional().optional(),
+  name: z.string().min(2).max(100).optional(),
+  avatarUrl: z.string().url().optional(),
 });
 export type UpdateProfileRequest = z.infer<typeof UpdateProfileRequestSchema>;
 export const UpdateProfileResponseSchema = z.object({
@@ -121,7 +121,7 @@ export const CreatePostRequestSchema = z.object({
   title: z.string().min(5).max(200),
   content: z.string(),
   userId: z.string(),
-  tags: z.array(z.string()).optional().optional(),
+  tags: z.array(z.string()).optional(),
 });
 export type CreatePostRequest = z.infer<typeof CreatePostRequestSchema>;
 export const CreatePostResponseSchema = z.object({
@@ -131,7 +131,7 @@ export const CreatePostResponseSchema = z.object({
 export type CreatePostResponse = z.infer<typeof CreatePostResponseSchema>;
 export const CreateTagRequestSchema = z.object({
   name: z.string().min(2).max(50),
-  description: z.string().optional().optional(),
+  description: z.string().optional(),
 });
 export type CreateTagRequest = z.infer<typeof CreateTagRequestSchema>;
 export const CreateTagResponseSchema = z.object({
@@ -166,8 +166,8 @@ export const DeleteTagResponseSchema = z.object({
 export type DeleteTagResponse = z.infer<typeof DeleteTagResponseSchema>;
 export const GetPostRequestSchema = z.object({
   slug: z.string(),
-  limit: z.number().optional().optional(),
-  offset: z.number().optional().optional(),
+  limit: z.number().optional(),
+  offset: z.number().optional(),
 });
 export type GetPostRequest = z.infer<typeof GetPostRequestSchema>;
 export const GetPostResponseSchema = z.object({
@@ -205,7 +205,7 @@ export const ListCommentsResponseDataSchema = z.object({
 export type ListCommentsResponseData = z.infer<typeof ListCommentsResponseDataSchema>;
 export const ListMyPostsRequestSchema = z.object({
   userId: z.string(),
-  status: z.string().optional().optional(),
+  status: z.string().optional(),
   limit: z.number(),
   offset: z.number(),
 });
@@ -222,7 +222,7 @@ export const ListMyPostsResponseDataSchema = z.object({
 });
 export type ListMyPostsResponseData = z.infer<typeof ListMyPostsResponseDataSchema>;
 export const ListPostsRequestSchema = z.object({
-  tag: z.string().optional().optional(),
+  tag: z.string().optional(),
   limit: z.number(),
   offset: z.number(),
 });
@@ -241,8 +241,8 @@ export const ListPostsResponseDataSchema = z.object({
 });
 export type ListPostsResponseData = z.infer<typeof ListPostsResponseDataSchema>;
 export const ListTagsRequestSchema = z.object({
-  limit: z.number().optional().optional(),
-  offset: z.number().optional().optional(),
+  limit: z.number().optional(),
+  offset: z.number().optional(),
 });
 export type ListTagsRequest = z.infer<typeof ListTagsRequestSchema>;
 export const ListTagsResponseSchema = z.object({
@@ -253,7 +253,7 @@ export const ListTagsResponseDataSchema = z.object({
   ID: z.string(),
   name: z.string(),
   slug: z.string(),
-  description: z.string().optional().optional(),
+  description: z.string().optional(),
 });
 export type ListTagsResponseData = z.infer<typeof ListTagsResponseDataSchema>;
 export const PublishPostRequestSchema = z.object({
@@ -284,8 +284,8 @@ export const UpdateCommentResponseSchema = z.object({
 export type UpdateCommentResponse = z.infer<typeof UpdateCommentResponseSchema>;
 export const UpdatePostRequestSchema = z.object({
   ID: z.string(),
-  title: z.string().min(5).max(200).optional().optional(),
-  content: z.string().optional().optional(),
+  title: z.string().min(5).max(200).optional(),
+  content: z.string().optional(),
 });
 export type UpdatePostRequest = z.infer<typeof UpdatePostRequestSchema>;
 export const UpdatePostResponseSchema = z.object({
@@ -294,8 +294,8 @@ export const UpdatePostResponseSchema = z.object({
 export type UpdatePostResponse = z.infer<typeof UpdatePostResponseSchema>;
 export const UpdateTagRequestSchema = z.object({
   ID: z.string(),
-  name: z.string().min(2).max(50).optional().optional(),
-  description: z.string().optional().optional(),
+  name: z.string().min(2).max(50).optional(),
+  description: z.string().optional(),
 });
 export type UpdateTagRequest = z.infer<typeof UpdateTagRequestSchema>;
 export const UpdateTagResponseSchema = z.object({

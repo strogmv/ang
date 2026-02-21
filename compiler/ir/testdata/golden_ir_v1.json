@@ -73,6 +73,11 @@
       "type": "*ir.RateLimit"
     },
     {
+      "name": "RequiredScopes",
+      "type": "[]string",
+      "tag": "required_scopes,omitempty"
+    },
+    {
       "name": "Retry",
       "type": "*ir.RetryPolicy"
     },
@@ -437,6 +442,10 @@
     {
       "name": "Schedules",
       "type": "[]ir.Schedule"
+    },
+    {
+      "name": "Scopes",
+      "type": "[]ir.Scope"
     },
     {
       "name": "Services",

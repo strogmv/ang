@@ -60,6 +60,14 @@ func buildRequireRoles(roles []string) string {
 	return fmt.Sprintf("RequireRoles([]string{%s})", strings.Join(quoted, ", "))
 }
 
+func buildRequireScopes(scopes []string) string {
+	quoted := make([]string, 0, len(scopes))
+	for _, s := range scopes {
+		quoted = append(quoted, fmt.Sprintf("%q", s))
+	}
+	return fmt.Sprintf("RequireScopeMiddleware([]string{%s})", strings.Join(quoted, ", "))
+}
+
 func buildMiddlewareList(ep normalizer.Endpoint, includeCache, includeIdempotency bool) string {
 	return buildMiddlewareListFull(ep, includeCache, includeIdempotency, false)
 }
@@ -80,6 +88,9 @@ func buildMiddlewareListFull(ep normalizer.Endpoint, includeCache, includeIdempo
 		if p.Permission != "" {
 			parts = append(parts, fmt.Sprintf("RequirePermission(%q)", p.Permission))
 		}
+	}
+	if len(ep.RequiredScopes) > 0 {
+		parts = append(parts, buildRequireScopes(ep.RequiredScopes))
 	}
 	if includeCache && p.CacheTTL != "" {
 		parts = append(parts, fmt.Sprintf("CacheMiddleware(%q)", p.CacheTTL))

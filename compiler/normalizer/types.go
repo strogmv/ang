@@ -229,6 +229,7 @@ type Endpoint struct {
 	Timeout          string // Request timeout (e.g. "5s", "30s")
 	MaxBodySize      int64  // Request body size limit in bytes
 	Idempotency      bool
+	RequiredScopes   []string
 	DedupeKey        string
 	Errors           []string
 	Pagination       *PaginationDef
@@ -237,6 +238,13 @@ type Endpoint struct {
 	TestHints        *TestHints
 	Metadata         map[string]any
 	Source           string
+}
+
+// ScopeDef represents a scope entry from CUE registry.
+type ScopeDef struct {
+	Name   string
+	Values []string
+	Source string
 }
 
 type TestHints struct {

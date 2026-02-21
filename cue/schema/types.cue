@@ -600,13 +600,14 @@ import "github.com/strogmv/ang/cue/project"
 		timeout?:         string // Request timeout (e.g. "5s", "30s", "1m")
 		max_body_size?:   string // Max request body size (e.g. "10mb", "100kb")
 		idempotency?: bool
-		auth?: {
-			type:    "jwt"
-			action?: string
-			check?:  string
-			roles?: [...string]
-			inject?: [...string] | string
-		}
+                auth?: {
+                        type:    "jwt"
+                        action?: string
+                        check?:  string
+                        roles?: [...string]
+                        inject?: [...string] | string
+                        scope?:  string | [...string]
+                }
 	}
 }
 

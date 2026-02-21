@@ -125,7 +125,7 @@ func runBuild(args []string) {
 			printStageFailure("Build FAILED", stage, code, op, err)
 		}
 
-		entities, services, endpoints, repos, events, bizErrors, schedules, scenarios, err := compiler.RunPipeline(projectPath)
+		entities, services, endpoints, repos, events, bizErrors, schedules, scenarios, scopes, err := compiler.RunPipeline(projectPath)
 		if err != nil {
 			fail(compiler.StageCUE, compiler.ErrCodeCUEPipeline, "run pipeline", err)
 			return
@@ -283,7 +283,7 @@ func runBuild(args []string) {
 		}
 
 		irSchema, err := compiler.ConvertAndTransform(
-			entities, services, events, bizErrors, endpoints, repos,
+			entities, services, events, bizErrors, endpoints, scopes, repos,
 			cfgDefVal, authDef, rbacDef, schedules, views, projectDefVal,
 		)
 		if err != nil {

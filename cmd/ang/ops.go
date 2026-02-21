@@ -35,7 +35,7 @@ func runVet(args []string) {
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		projectPath = args[0]
 	}
-	entities, services, _, _, _, _, _, _, err := compiler.RunPipeline(projectPath)
+	entities, services, _, _, _, _, _, _, _, err := compiler.RunPipeline(projectPath)
 	if err != nil {
 		printStageFailure("Vet FAILED", compiler.StageCUE, compiler.ErrCodeCUEPipeline, "run pipeline", err)
 		os.Exit(1)
@@ -99,13 +99,13 @@ func runVet(args []string) {
 
 func runDraw(args []string) {
 	fmt.Println("Drawing architecture...")
-	entities, services, endpoints, repos, events, bizErrors, schedules, _, err := compiler.RunPipeline(".")
+	entities, services, endpoints, repos, events, bizErrors, schedules, _, scopes, err := compiler.RunPipeline(".")
 	if err != nil {
 		fmt.Printf("Draw FAILED (Parser error): %v\n", err)
 		os.Exit(1)
 	}
 	irSchema, err := compiler.ConvertAndTransform(
-		entities, services, events, bizErrors, endpoints, repos,
+		entities, services, events, bizErrors, endpoints, scopes, repos,
 		normalizer.ConfigDef{}, nil, nil, schedules, nil, normalizer.ProjectDef{},
 	)
 	if err != nil {
@@ -139,7 +139,7 @@ func runRBAC(args []string) {
 	}
 
 	cmd := args[0]
-	_, services, _, _, _, _, _, _, err := compiler.RunPipeline(".")
+	_, services, _, _, _, _, _, _, _, err := compiler.RunPipeline(".")
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
@@ -275,7 +275,7 @@ func runEvents(args []string) {
 		return
 	}
 
-	_, services, _, _, _, _, _, _, err := compiler.RunPipeline(".")
+	_, services, _, _, _, _, _, _, _, err := compiler.RunPipeline(".")
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
@@ -348,7 +348,7 @@ func runEvents(args []string) {
 
 func runLogicVet() {
 	fmt.Println("Auditing embedded Go logic in CUE files...")
-	_, _, _, _, _, _, _, _, _ = compiler.RunPipeline(".")
+	_, _, _, _, _, _, _, _, _, _ = compiler.RunPipeline(".")
 	found := false
 	for _, d := range compiler.LatestDiagnostics {
 		if d.Code == "GO_SYNTAX_ERROR" {

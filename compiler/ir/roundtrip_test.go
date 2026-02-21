@@ -55,6 +55,7 @@ func TestIRRoundTrip(t *testing.T) {
 				RetryOnStatuses:    []int{429, 500},
 				RetryNetworkErrors: true,
 			},
+			RequiredScopes: []string{"tender:create"},
 			SLO: normalizer.SLODef{
 				Latency: "200ms",
 				Success: "99.9%",

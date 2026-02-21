@@ -237,12 +237,12 @@ func buildIRSnapshots(t *testing.T) (irSnapshot, irSnapshot) {
 	}
 
 	schemaBefore := ir.ConvertFromNormalizer(
-		entities, services, events, bizErrors, endpoints, repos,
+		entities, services, events, bizErrors, endpoints, nil, repos,
 		cfgDefVal, authDef, rbacDef, schedules, views, projectDefVal,
 	)
 
 	schemaAfter := ir.ConvertFromNormalizer(
-		entities, services, events, bizErrors, endpoints, repos,
+		entities, services, events, bizErrors, endpoints, nil, repos,
 		cfgDefVal, authDef, rbacDef, schedules, views, projectDefVal,
 	)
 

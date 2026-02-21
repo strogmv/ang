@@ -73,7 +73,7 @@ func runTestGen(args []string) {
 		os.Exit(1)
 	}
 
-	_, services, endpoints, _, _, _, _, _, err := compiler.RunPipeline(projectPath)
+	_, services, endpoints, _, _, _, _, _, _, err := compiler.RunPipeline(projectPath)
 	if err != nil {
 		printStageFailure("Test generation FAILED", compiler.StageCUE, compiler.ErrCodeCUEPipeline, "run pipeline", err)
 		os.Exit(1)

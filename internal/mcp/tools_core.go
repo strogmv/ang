@@ -85,7 +85,7 @@ func registerCoreTools(addTool toolAdder, deps coreToolDeps) {
 		runGoBuild := mcp.ParseBoolean(request, "run_go_build", false)
 
 		buildStatus := map[string]any{"status": "ok"}
-		if _, _, _, _, _, _, _, _, err := compiler.RunPipeline("."); err != nil {
+		if _, _, _, _, _, _, _, _, _, err := compiler.RunPipeline("."); err != nil {
 			buildStatus["status"] = "failed"
 			buildStatus["error"] = err.Error()
 		}
@@ -137,7 +137,7 @@ func registerCoreTools(addTool toolAdder, deps coreToolDeps) {
 			projectPath = "."
 		}
 		runGoBuild := mcp.ParseBoolean(request, "run_go_build", false)
-		_, _, _, _, _, _, _, _, err := compiler.RunPipeline(projectPath)
+		_, _, _, _, _, _, _, _, _, err := compiler.RunPipeline(projectPath)
 		diags := append([]any(nil), warningsToAny(compiler.LatestDiagnostics)...)
 		status := "ok"
 		if err != nil {

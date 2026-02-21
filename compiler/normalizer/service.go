@@ -1697,6 +1697,25 @@ func (n *Normalizer) ExtractEndpoints(val cue.Value) ([]Endpoint, error) {
 			}
 		}
 
+		// Read auth.scope or auth.scopes — required API key scopes for this endpoint
+		scopeVal := epVal.LookupPath(cue.ParsePath("auth.scope"))
+		if scopeVal.Exists() {
+			switch scopeVal.IncompleteKind() {
+			case cue.ListKind:
+				list, _ := scopeVal.List()
+				for list.Next() {
+					s, _ := list.Value().String()
+					if strings.TrimSpace(s) != "" {
+						ep.RequiredScopes = append(ep.RequiredScopes, strings.TrimSpace(s))
+					}
+				}
+			default:
+				if s, err := scopeVal.String(); err == nil && strings.TrimSpace(s) != "" {
+					ep.RequiredScopes = append(ep.RequiredScopes, strings.TrimSpace(s))
+				}
+			}
+		}
+
 		injectVal := epVal.LookupPath(cue.ParsePath("auth.inject"))
 		if injectVal.Exists() {
 			switch injectVal.IncompleteKind() {

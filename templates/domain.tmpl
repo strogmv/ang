@@ -93,15 +93,13 @@ func (e *{{ ExportName .Name }}) LogValue() slog.Value {
 }
 
 {{- range .Fields }}
-{{- if or (eq .Name "status") (hasSuffix .Name "Status") }}
+{{- if and .Constraints .Constraints.Enum }}
 const (
-	{{ ExportName $.Name }}StatusApproved = "approved"
-	{{ ExportName $.Name }}StatusPending = "pending"
-	{{ ExportName $.Name }}StatusRejected = "rejected"
-	{{ ExportName $.Name }}StatusFromInvite = "from_invite"
-	{{ ExportName $.Name }}StatusInProgress = "in_progress"
-	{{ ExportName $.Name }}StatusLive = "live"
-	{{ ExportName $.Name }}StatusClosed = "closed"
+	{{- $entityName := $.Name }}
+	{{- $fieldName := .Name }}
+	{{- range .Constraints.Enum }}
+	{{ EnumConstName $entityName $fieldName . }} = "{{ . }}"
+	{{- end }}
 )
 {{- end }}
 {{- end }}

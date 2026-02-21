@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	Version       = "0.1.98"
+	Version       = "0.1.100"
 	SchemaVersion = "1"
 )
 
@@ -121,7 +121,7 @@ func RunWithOptions(basePath string, opts RunOptions) (*planpkg.BuildPlan, error
 	}
 }
 
-func RunPipeline(basePath string) ([]normalizer.Entity, []normalizer.Service, []normalizer.Endpoint, []normalizer.Repository, []normalizer.EventDef, []normalizer.ErrorDef, []normalizer.ScheduleDef, []normalizer.ScenarioDef, error) {
+func RunPipeline(basePath string) ([]normalizer.Entity, []normalizer.Service, []normalizer.Endpoint, []normalizer.Repository, []normalizer.EventDef, []normalizer.ErrorDef, []normalizer.ScheduleDef, []normalizer.ScenarioDef, []normalizer.ScopeDef, error) {
 	return RunPipelineWithOptions(basePath, PipelineOptions{
 		WarningSink: func(w normalizer.Warning) {
 			LatestDiagnostics = append(LatestDiagnostics, w)
@@ -129,25 +129,25 @@ func RunPipeline(basePath string) ([]normalizer.Entity, []normalizer.Service, []
 	})
 }
 
-func RunPipelineWithOptions(basePath string, opts PipelineOptions) ([]normalizer.Entity, []normalizer.Service, []normalizer.Endpoint, []normalizer.Repository, []normalizer.EventDef, []normalizer.ErrorDef, []normalizer.ScheduleDef, []normalizer.ScenarioDef, error) {
+func RunPipelineWithOptions(basePath string, opts PipelineOptions) ([]normalizer.Entity, []normalizer.Service, []normalizer.Endpoint, []normalizer.Repository, []normalizer.EventDef, []normalizer.ErrorDef, []normalizer.ScheduleDef, []normalizer.ScenarioDef, []normalizer.ScopeDef, error) {
 	LatestDiagnostics = nil // Reset for new run
 	p := parser.New()
 
 	valDomain, _, err := LoadOptionalDomain(p, filepath.Join(basePath, "cue/domain"))
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(
+		return nil, nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(
 			StageCUE, ErrCodeCUEDomainLoad, "load cue/domain", fmt.Errorf("%s", parser.FormatCUELocationError(err)),
 		)
 	}
 	valArch, _, err := LoadOptionalDomain(p, filepath.Join(basePath, "cue/architecture"))
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(
+		return nil, nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(
 			StageCUE, ErrCodeCUEArchLoad, "load cue/architecture", fmt.Errorf("%s", parser.FormatCUELocationError(err)),
 		)
 	}
 	valAPI, _, err := LoadOptionalDomain(p, filepath.Join(basePath, "cue/api"))
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(
+		return nil, nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(
 			StageCUE, ErrCodeCUEAPILoad, "load cue/api", fmt.Errorf("%s", parser.FormatCUELocationError(err)),
 		)
 	}
@@ -171,26 +171,26 @@ func RunPipelineWithOptions(basePath string, opts PipelineOptions) ([]normalizer
 	}
 	entities, err := n.ExtractEntities(valDomain)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(StageCUE, ErrCodeCUEEntityNormalize, "extract entities", err)
+		return nil, nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(StageCUE, ErrCodeCUEEntityNormalize, "extract entities", err)
 	}
 	emitFSMIntegrityDiagnostics(entities, opts)
 	services, err := n.ExtractServices(valAPI, entities)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(StageCUE, ErrCodeCUEServiceNormalize, "extract services", err)
+		return nil, nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(StageCUE, ErrCodeCUEServiceNormalize, "extract services", err)
 	}
 	endpoints, err := n.ExtractEndpoints(valAPI)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(StageCUE, ErrCodeCUEEndpointNormalize, "extract endpoints", err)
+		return nil, nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(StageCUE, ErrCodeCUEEndpointNormalize, "extract endpoints", err)
 	}
 	for _, ep := range endpoints {
 		if err := policy.ValidateEndpoint(ep); err != nil {
 			msg := fmt.Errorf("endpoint %s %s (%s): %w", ep.Method, ep.Path, ep.Source, err)
-			return nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(StageCUE, ErrCodeCUEEndpointNormalize, "validate endpoint policy", msg)
+			return nil, nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(StageCUE, ErrCodeCUEEndpointNormalize, "validate endpoint policy", msg)
 		}
 	}
 	repos, err := n.ExtractRepositories(valArch)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(StageCUE, ErrCodeCUERepoNormalize, "extract repositories", err)
+		return nil, nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(StageCUE, ErrCodeCUERepoNormalize, "extract repositories", err)
 	}
 
 	if okRepo && valRepo.Err() == nil {
@@ -271,12 +271,15 @@ func RunPipelineWithOptions(basePath string, opts PipelineOptions) ([]normalizer
 	}
 	schedules, err := n.ExtractSchedules(valAPI)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(StageCUE, ErrCodeCUEScheduleNormalize, "extract schedules", err)
+		return nil, nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(StageCUE, ErrCodeCUEScheduleNormalize, "extract schedules", err)
 	}
 
 	scenarios, _ := n.ExtractScenarios(valAPI)
 
-	return entities, services, endpoints, repos, events, bizErrors, schedules, scenarios, nil
+	// Scopes registry (optional)
+	scopes, _ := n.ExtractScopes(valDomain)
+
+	return entities, services, endpoints, repos, events, bizErrors, schedules, scenarios, scopes, nil
 }
 
 func emitSelectProjectionDiagnostics(
@@ -652,11 +655,11 @@ func LoadOptionalDomain(p *parser.Parser, path string) (cue.Value, bool, error) 
 
 func ConvertAndTransform(
 	entities []normalizer.Entity, services []normalizer.Service, events []normalizer.EventDef,
-	errors []normalizer.ErrorDef, endpoints []normalizer.Endpoint, repos []normalizer.Repository,
+	errors []normalizer.ErrorDef, endpoints []normalizer.Endpoint, scopes []normalizer.ScopeDef, repos []normalizer.Repository,
 	config normalizer.ConfigDef, auth *normalizer.AuthDef, rbac *normalizer.RBACDef,
 	schedules []normalizer.ScheduleDef, views []normalizer.ViewDef, project normalizer.ProjectDef,
 ) (*ir.Schema, error) {
-	schema := ir.ConvertFromNormalizer(entities, services, events, errors, endpoints, repos, config, auth, rbac, schedules, views, project)
+	schema := ir.ConvertFromNormalizer(entities, services, events, errors, endpoints, scopes, repos, config, auth, rbac, schedules, views, project)
 	if err := ir.MigrateToCurrent(schema); err != nil {
 		return nil, WrapContractError(StageIR, ErrCodeIRVersionMigration, "migrate ir schema", err)
 	}

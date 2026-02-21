@@ -33,10 +33,8 @@ func computeDomainImports(ent ir.Entity) []string {
 		}
 	}
 
-	// Add log/slog for LogValuer interface (only if fields exist)
-	if len(ent.Fields) > 0 {
-		imports["log/slog"] = true
-	}
+	// Add log/slog for LogValuer interface (always required since template always renders LogValue())
+	imports["log/slog"] = true
 
 	// Add fmt if needed for FSM error messages or file previews
 	if ent.FSM != nil || hasFileFields || hasConstraints {
@@ -108,6 +106,26 @@ func (e *Emitter) EmitDomain(entities []ir.Entity) error {
 	funcMap := e.getSharedFuncMap()
 	funcMap["GoType"] = IRTypeRefToGoType
 	funcMap["TrimDomain"] = func(s string) string { return strings.ReplaceAll(s, "domain.", "") }
+	// EnumConstName generates Go const name from entity, field, and enum value.
+	// Example: entity="Tender", field="status", value="draft" → "TenderStatusDraft"
+	// Example: entity="APIKey", field="scope", value="tender:create" → "APIKeyScopeTenderCreate"
+	funcMap["EnumConstName"] = func(entityName, fieldName, value string) string {
+		// Split value by separators into parts
+		parts := strings.FieldsFunc(value, func(r rune) bool {
+			return r == ':' || r == '-' || r == '_' || r == '/'
+		})
+		valuePart := ""
+		for _, p := range parts {
+			if len(p) > 0 {
+				valuePart += strings.ToUpper(p[:1]) + strings.ToLower(p[1:])
+			}
+		}
+		// Field name: "status" → "Status", "paymentStatus" → "PaymentStatus"
+		fieldPart := strings.ToUpper(fieldName[:1]) + fieldName[1:]
+		// Entity name: "tender" → "Tender"
+		entityPart := strings.ToUpper(entityName[:1]) + entityName[1:]
+		return entityPart + fieldPart + valuePart
+	}
 	funcMap["HasTime"] = func(fields []ir.Field) bool {
 		for _, f := range fields {
 			if f.Type.Kind == ir.KindTime {

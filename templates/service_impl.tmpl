@@ -18,13 +18,19 @@ import (
 	{{- else if .Flow }}
 		{{- if FlowRenderable .Flow }}
 {{ Indent (RenderFlow .Flow) 1 }}
-	return resp, nil
+return resp, nil
 		{{- else }}
 	// FLOW_NOT_IMPLEMENTED: unsupported flow actions in this method, fallback stub.
-	return resp, nil
+	if os.Getenv("APP_ENV") != "production" {
+		panic("{{ $.Service.Name }}.{{ .Name }}: flow not implemented; set flowFirstBypass or implement flow")
+	}
+	return resp, errors.New(http.StatusInternalServerError, "Not Implemented", "{{ $.Service.Name }}.{{ .Name }} not implemented")
 		{{- end }}
 	{{- else }}
-	return resp, nil
+	if os.Getenv("APP_ENV") != "production" {
+		panic("{{ $.Service.Name }}.{{ .Name }}: no flow or impl; set flowFirstBypass or implement")
+	}
+	return resp, errors.New(http.StatusInternalServerError, "Not Implemented", "{{ $.Service.Name }}.{{ .Name }} not implemented")
 	{{- end }}
 }
 {{- end }}

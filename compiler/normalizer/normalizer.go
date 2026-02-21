@@ -35,6 +35,8 @@ type Fix struct {
 type Normalizer struct {
 	TypeMapping map[string]TypeConfig
 	WarningSink func(Warning)
+	Scopes      []ScopeDef
+	scopeIndex  map[string][]string
 }
 
 type TypeConfig struct {
@@ -58,6 +60,8 @@ func New() *Normalizer {
 			}
 			fmt.Fprintf(os.Stderr, "⚠️  %s WARNING: %s\n", label, w.Message)
 		},
+		Scopes:     nil,
+		scopeIndex: make(map[string][]string),
 	}
 }
 

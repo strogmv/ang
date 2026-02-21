@@ -22,7 +22,7 @@ func (e *Emitter) EmitPythonFastAPIBackend(
 		projectDef = *project
 	}
 	schema := ir.ConvertFromNormalizer(
-		entities, services, nil, nil, endpoints, repos,
+		entities, services, nil, nil, endpoints, nil, repos,
 		normalizer.ConfigDef{}, nil, nil, nil, nil, projectDef,
 	)
 	return e.EmitPythonFastAPIBackendFromIR(schema, e.Version)

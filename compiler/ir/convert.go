@@ -17,6 +17,7 @@ func ConvertFromNormalizer(
 	events []normalizer.EventDef,
 	errors []normalizer.ErrorDef,
 	endpoints []normalizer.Endpoint,
+	scopes []normalizer.ScopeDef,
 	repos []normalizer.Repository,
 	config normalizer.ConfigDef,
 	auth *normalizer.AuthDef,
@@ -68,6 +69,15 @@ func ConvertFromNormalizer(
 	// Convert endpoints
 	for _, ep := range endpoints {
 		schema.Endpoints = append(schema.Endpoints, ConvertEndpoint(ep))
+	}
+
+	// Convert scopes registry
+	for _, sc := range scopes {
+		schema.Scopes = append(schema.Scopes, Scope{
+			Name:   sc.Name,
+			Values: sc.Values,
+			Source: sc.Source,
+		})
 	}
 
 	// Convert repositories
@@ -470,6 +480,7 @@ func ConvertEndpoint(ep normalizer.Endpoint) Endpoint {
 		Cache:            ep.CacheTTL,
 		CacheTags:        initializeSlice(ep.CacheTags),
 		Invalidate:       initializeSlice(ep.Invalidate),
+		RequiredScopes:   initializeSlice(ep.RequiredScopes),
 		OptimisticUpdate: ep.OptimisticUpdate,
 		Timeout:          ep.Timeout,
 		MaxBodySize:      ep.MaxBodySize,

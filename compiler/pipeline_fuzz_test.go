@@ -69,7 +69,7 @@ func runPipelineCaptureWarnings(t *testing.T, basePath string) (pipelineSnapshot
 	t.Helper()
 
 	var warnings []normalizer.Warning
-	entities, services, endpoints, repos, events, bizErrors, schedules, scenarios, err := RunPipelineWithOptions(basePath, PipelineOptions{
+	entities, services, endpoints, repos, events, bizErrors, schedules, scenarios, _, err := RunPipelineWithOptions(basePath, PipelineOptions{
 		WarningSink: func(w normalizer.Warning) {
 			warnings = append(warnings, w)
 		},

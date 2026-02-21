@@ -17,10 +17,10 @@ func runValidate(args []string) {
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		projectPath = args[0]
 	}
-	entities, services, endpoints, repos, events, bizErrors, schedules, _, err := compiler.RunPipeline(projectPath)
+	entities, services, endpoints, repos, events, bizErrors, schedules, _, scopes, err := compiler.RunPipeline(projectPath)
 	if err == nil {
 		irSchema, convErr := compiler.ConvertAndTransform(
-			entities, services, events, bizErrors, endpoints, repos,
+			entities, services, events, bizErrors, endpoints, scopes, repos,
 			normalizer.ConfigDef{}, nil, nil, schedules, nil, normalizer.ProjectDef{},
 		)
 		if convErr != nil {

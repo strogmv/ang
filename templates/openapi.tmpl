@@ -172,6 +172,12 @@ components:
             format: {{ OpenAPIFormat (OpenAPIItemsType .Type) }}
             {{- end }}
           {{- end }}
+          {{- if and .Constraints .Constraints.Enum }}
+          enum:
+            {{- range .Constraints.Enum }}
+            - {{ . }}
+            {{- end }}
+          {{- end }}
           {{- range OpenAPIRules . }}
           {{ . }}
           {{- end }}

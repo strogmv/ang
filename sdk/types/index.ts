@@ -106,14 +106,22 @@ export interface GetProfileResponse {
 export interface LoginRequest {
   /**  */
   email: string;
+  /**  */
+  password: string;
 }
 export interface LoginResponse {
+  /**  */
+  accessToken: string;
+  /**  */
+  refreshToken: string;
   /**  */
   user: any;
 }
 export interface RegisterRequest {
   /**  */
   email: string;
+  /**  */
+  password: string;
   /**  */
   name: string;
 }

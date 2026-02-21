@@ -35,4 +35,6 @@ coverage/
 # sdk/
 .design_db/
 dist/
+!dist/release/
+!dist/release/**
 .ang/cache/
