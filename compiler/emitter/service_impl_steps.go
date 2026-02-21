@@ -59,6 +59,24 @@ func renderImplSteps(steps []normalizer.ImplStep, serviceName, methodName string
 				perms := valString(st.CallArgsMap, "perms", "nil")
 				b.WriteString(fmt.Sprintf("%s, err := auth.IssueAccessToken(s.cfg, %s, %s, %s, %s)\n", into, uid, cid, roles, perms))
 				b.WriteString("if err != nil { return resp, err }\n")
+			case "auth.checkpassword":
+				hash := valString(st.CallArgsMap, "hash", "\"\"")
+				pass := valString(st.CallArgsMap, "password", "\"\"")
+				b.WriteString(fmt.Sprintf("if err := bcrypt.CompareHashAndPassword([]byte(%s), []byte(%s)); err != nil {\n", hash, pass))
+				b.WriteString("\treturn resp, errors.New(http.StatusUnauthorized, \"Unauthorized\", \"invalid credentials\")\n}\n")
+			case "auth.issuetokens":
+				uid := valString(st.CallArgsMap, "userID", "\"\"")
+				cid := valString(st.CallArgsMap, "companyID", "\"\"")
+				roles := valString(st.CallArgsMap, "roles", "nil")
+				perms := valString(st.CallArgsMap, "perms", "nil")
+				b.WriteString(fmt.Sprintf("access, err := auth.IssueAccessToken(s.cfg, %s, %s, %s, %s)\n", uid, cid, roles, perms))
+				b.WriteString("if err != nil { return resp, err }\n")
+				b.WriteString(fmt.Sprintf("refresh, err := auth.IssueRefreshToken(s.cfg, %s)\n", uid))
+				b.WriteString("if err != nil { return resp, err }\n")
+				b.WriteString("exp := time.Now().Add(24 * time.Hour)\n")
+				b.WriteString("if d, err := time.ParseDuration(s.cfg.JWTRefreshTTL); err == nil && d > 0 { exp = time.Now().Add(d) }\n")
+				b.WriteString("if s.refreshStore != nil { _ = s.refreshStore.Save(ctx, refresh, " + uid + ", exp) }\n")
+				b.WriteString(fmt.Sprintf("%s := struct{Access, Refresh string}{Access: access, Refresh: refresh}\n", into))
 			case "auth.rotaterefreshtoken":
 				token := valString(st.CallArgsMap, "refreshToken", "req.RefreshToken")
 				uid := valString(st.CallArgsMap, "userID", "\"\"")
@@ -67,6 +85,9 @@ func renderImplSteps(steps []normalizer.ImplStep, serviceName, methodName string
 				b.WriteString(fmt.Sprintf("%s, err := auth.IssueRefreshToken(s.cfg, %s)\n", into, uid))
 				b.WriteString("if err != nil { return resp, err }\n")
 				b.WriteString(fmt.Sprintf("if err = s.refreshStore.Rotate(ctx, %s, %s, %s, exp); err != nil { return resp, err }\n", token, into, uid))
+			case "auth.verifyemail":
+				uid := valString(st.CallArgsMap, "userID", "\"\"")
+				b.WriteString(fmt.Sprintf("if s.UserRepo != nil { _ = s.UserRepo.MarkEmailVerified(ctx, %s) }\n", uid))
 			case "mapping.assign":
 				expr := st.CallArgsExpr
 				if expr == "" {
@@ -78,6 +99,16 @@ func renderImplSteps(steps []normalizer.ImplStep, serviceName, methodName string
 						b.WriteString("\n")
 					}
 				}
+			case "audit.log":
+				actor := valString(st.CallArgsMap, "actor", "\"\"")
+				company := valString(st.CallArgsMap, "company", "\"\"")
+				action := valString(st.CallArgsMap, "action", "\"\"")
+				b.WriteString("if s.AuditLogRepo != nil {\n")
+				b.WriteString(fmt.Sprintf("\taudit := &domain.AuditLog{ID: uuid.NewString(), ActorID: %s, CompanyID: %s, Action: %s, CreatedAt: time.Now().UTC()}\n", actor, company, action))
+				b.WriteString("\t_ = s.AuditLogRepo.Save(ctx, audit)\n}\n")
+			case "auth.logout":
+				token := valString(st.CallArgsMap, "refreshToken", "req.RefreshToken")
+				b.WriteString("if s.refreshStore != nil { _ = s.refreshStore.Delete(ctx, " + token + ") }\n")
 			default:
 				b.WriteString(fmt.Sprintf("// TODO impl_steps call %s not supported yet\n", st.CallTarget))
 				b.WriteString("if os.Getenv(\"APP_ENV\") != \"production\" { panic(\"impl_steps call not supported\") }\n")
