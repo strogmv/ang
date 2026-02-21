@@ -132,6 +132,15 @@ func renderImplSteps(steps []normalizer.ImplStep, serviceName, methodName string
 						case "delete":
 							arg := valString(st.CallArgsMap, "id", "\"\"")
 							b.WriteString(fmt.Sprintf("if err := %s.Delete(ctx, %s); err != nil { return resp, err }\n", repoVar, arg))
+						case "listall", "list":
+							limit := valString(st.CallArgsMap, "limit", "100")
+							offset := valString(st.CallArgsMap, "offset", "0")
+							b.WriteString(fmt.Sprintf("%s, err := %s.ListAll(ctx, %s, %s)\n", into, repoVar, offset, limit))
+							b.WriteString("if err != nil { return resp, err }\n")
+						case "count":
+							arg := valString(st.CallArgsMap, "filter", "nil")
+							b.WriteString(fmt.Sprintf("%s, err := %s.Count(ctx, %s)\n", into, repoVar, arg))
+							b.WriteString("if err != nil { return resp, err }\n")
 						default:
 							b.WriteString(fmt.Sprintf("// TODO impl_steps repo.%s not supported yet\n", method))
 							b.WriteString("if os.Getenv(\"APP_ENV\") != \"production\" { panic(\"impl_steps repo call not supported\") }\n")
