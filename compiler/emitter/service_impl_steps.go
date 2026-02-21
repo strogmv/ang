@@ -9,9 +9,10 @@ import (
 
 // renderImplSteps renders a minimal Go implementation for the experimental impl_steps DSL.
 // Supported kinds: load/assert/call/emit (limited handling). Unknown steps panic in non-prod to surface gaps.
-func renderImplSteps(steps []normalizer.ImplStep, serviceName, methodName string) string {
+func renderImplSteps(svc normalizer.Service, steps []normalizer.ImplStep, serviceName, methodName string) string {
 	var b strings.Builder
 	b.WriteString("// generated from impl_steps\n")
+	hasPublisher := serviceImplHasPublishes(svc)
 	for _, st := range steps {
 		switch st.Kind {
 		case "load":
@@ -154,11 +155,26 @@ func renderImplSteps(steps []normalizer.ImplStep, serviceName, methodName string
 				}
 			}
 		case "emit":
-			b.WriteString(fmt.Sprintf("// emit %s not wired yet\n", st.EmitEvent))
-			if st.EmitExpr != "" {
-				b.WriteString("// payload: " + st.EmitExpr + "\n")
+			if !hasPublisher {
+				b.WriteString(fmt.Sprintf("// emit %s skipped: publisher not configured for this service\n", st.EmitEvent))
+				b.WriteString("if os.Getenv(\"APP_ENV\") != \"production\" { panic(\"impl_steps emit requires publisher\") }\n")
+				break
 			}
-			b.WriteString("if os.Getenv(\"APP_ENV\") != \"production\" { panic(\"impl_steps emit not supported\") }\n")
+			typeName := exportName(st.EmitEvent)
+			b.WriteString(fmt.Sprintf("if s.publisher != nil {\n\tvar evt domain.%s\n", typeName))
+			if len(st.EmitPayload) > 0 {
+				b.WriteString("\tif payloadBytes, _ := json.Marshal(map[string]any{")
+				first := true
+				for k, v := range st.EmitPayload {
+					if !first {
+						b.WriteString(",")
+					}
+					first = false
+					b.WriteString(fmt.Sprintf("%q: %s", k, valStringLiteral(v)))
+				}
+				b.WriteString("}); json.Unmarshal(payloadBytes, &evt) == nil { /*payload mapped*/ }\n")
+			}
+			b.WriteString(fmt.Sprintf("\t_ = s.publisher.Publish%s(ctx, evt)\n}\n", typeName))
 		default:
 			b.WriteString("// unknown impl_step kind\n")
 		}
@@ -194,4 +210,16 @@ func exportName(s string) string {
 		b.WriteString(p[1:])
 	}
 	return b.String()
+}
+
+// valStringLiteral renders an interface{} payload value into a Go literal string best-effort.
+func valStringLiteral(v any) string {
+	switch t := v.(type) {
+	case string:
+		return fmt.Sprintf("%q", t)
+	case int, int64, float64, bool:
+		return fmt.Sprintf("%v", t)
+	default:
+		return fmt.Sprintf("%q", fmt.Sprintf("%v", t))
+	}
 }
