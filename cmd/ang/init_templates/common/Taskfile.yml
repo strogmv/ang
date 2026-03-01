@@ -1,8 +1,19 @@
 version: "3"
 
 tasks:
+  bootstrap:
+    desc: Install missing local dependencies where possible
+    cmds:
+      - bash scripts/bootstrap.sh
+
+  deps:
+    desc: Run preflight checks
+    cmds:
+      - bash scripts/preflight.sh
+
   up:
     desc: Run full local bootstrap
+    deps: [deps]
     cmds:
       - ang up
 
@@ -18,6 +29,7 @@ tasks:
 
   build:
     desc: Generate code from CUE intent
+    deps: [deps]
     cmds:
       - ang build
 
@@ -32,9 +44,9 @@ tasks:
       - ang lint
 
   doctor:
-    desc: Preflight local startup checks
+    desc: Preflight + doctor checks with actionable fixes
     cmds:
-      - bash scripts/preflight.sh
+      - bash scripts/doctor.sh
 
   smoke:
     desc: Check local health endpoints

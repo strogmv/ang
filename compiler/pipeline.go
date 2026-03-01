@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	Version       = "0.1.111"
+	Version       = "0.1.112"
 	SchemaVersion = "1"
 )
 
