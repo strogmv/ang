@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ang up "$@"
+bash scripts/preflight.sh
+ang up --skip-doctor "$@"

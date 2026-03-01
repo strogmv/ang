@@ -1,4 +1,4 @@
-package emitter
+package compiler
 
 import (
 	"fmt"
@@ -8,6 +8,8 @@ import (
 	"github.com/strogmv/ang/compiler/ir"
 )
 
+// OrderIRServicesByDependencies returns services in topological order by Uses dependencies.
+// Unknown dependencies are ignored here and should be validated separately.
 func OrderIRServicesByDependencies(services []ir.Service) []ir.Service {
 	if len(services) == 0 {
 		return services
@@ -68,6 +70,8 @@ func OrderIRServicesByDependencies(services []ir.Service) []ir.Service {
 	return result
 }
 
+// ValidateIRServiceDependencies validates that all Uses references exist and
+// that the dependency graph has no cycles.
 func ValidateIRServiceDependencies(services []ir.Service) error {
 	if len(services) == 0 {
 		return nil

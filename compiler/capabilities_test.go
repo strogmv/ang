@@ -51,3 +51,25 @@ func TestResolveTargetCapabilities_PythonFastAPI(t *testing.T) {
 		t.Fatalf("python fastapi profile should not claim ws capability by default")
 	}
 }
+
+func TestResolveTargetCapabilities_GoGRPC(t *testing.T) {
+	caps, err := ResolveTargetCapabilities(normalizer.TargetDef{
+		Lang:      "go",
+		Framework: "grpc",
+		DB:        "postgres",
+		Queue:     "nats",
+	})
+	if err != nil {
+		t.Fatalf("resolve go grpc caps: %v", err)
+	}
+	if !caps.HasAll(
+		CapabilityProfileGoLegacy,
+		CapabilityGRPC,
+		CapabilitySQLRepo,
+		CapabilityWS,
+		CapabilityEvents,
+		CapabilityAuth,
+	) {
+		t.Fatalf("missing expected go grpc capabilities")
+	}
+}

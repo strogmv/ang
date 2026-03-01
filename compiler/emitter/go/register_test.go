@@ -34,6 +34,25 @@ func TestRegisterGoSteps_Smoke(t *testing.T) {
 	if serviceImplSteps != 1 {
 		t.Fatalf("expected exactly one active service impl emitter path, got %d", serviceImplSteps)
 	}
+
+	grpcProtoStep := findStep(steps, "gRPC Proto")
+	if grpcProtoStep == nil {
+		t.Fatalf("gRPC Proto step not found")
+	}
+	if !hasCapability(grpcProtoStep.Requires, compiler.CapabilityGRPC) {
+		t.Fatalf("gRPC Proto must require grpc capability")
+	}
+	if !hasCapability(grpcProtoStep.Requires, compiler.CapabilityProfileGoLegacy) {
+		t.Fatalf("gRPC Proto must require profile_go_legacy capability")
+	}
+
+	grpcTransportStep := findStep(steps, "gRPC Transport")
+	if grpcTransportStep == nil {
+		t.Fatalf("gRPC Transport step not found")
+	}
+	if !hasCapability(grpcTransportStep.Requires, compiler.CapabilityGRPC) {
+		t.Fatalf("gRPC Transport must require grpc capability")
+	}
 }
 
 func findStep(steps []generator.Step, name string) *generator.Step {

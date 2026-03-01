@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"cuelang.org/go/cue"
-	"github.com/strogmv/ang/compiler/flowsem"
 )
 
 // ExtractServices extracts service definitions.
@@ -1087,28 +1086,6 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 		})
 	}
 
-	semanticSteps := toFlowSemSteps(steps)
-	semanticIssues := flowsem.Validate(semanticSteps)
-	for _, issue := range semanticIssues {
-		sev := issue.Severity
-		if sev == "" {
-			sev = "error"
-		}
-		appendWarn(FlowWarning{
-			Op:       opName,
-			Step:     issue.Step,
-			Action:   issue.Action,
-			Message:  issue.Message,
-			Code:     issue.Code,
-			Severity: sev,
-			Hint:     issue.Hint,
-			File:     issue.File,
-			Line:     issue.Line,
-			Column:   issue.Column,
-			CUEPath:  issue.CUEPath,
-		})
-	}
-
 	var validate func(steps []FlowStep, inTx bool, depth int)
 	validate = func(steps []FlowStep, inTx bool, depth int) {
 		for i := range steps {
@@ -1532,71 +1509,6 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 
 	validate(steps, false, 0)
 	return warnings
-}
-
-func toFlowSemSteps(steps []FlowStep) []flowsem.Step {
-	out := make([]flowsem.Step, 0, len(steps))
-	for _, step := range steps {
-		children := map[string][]flowsem.Step{}
-		if v, ok := step.Args["_do"].([]FlowStep); ok && len(v) > 0 {
-			children["_do"] = toFlowSemSteps(v)
-		}
-		if v, ok := step.Args["_ifNew"].([]FlowStep); ok && len(v) > 0 {
-			children["_ifNew"] = toFlowSemSteps(v)
-		}
-		if v, ok := step.Args["_ifExists"].([]FlowStep); ok && len(v) > 0 {
-			children["_ifExists"] = toFlowSemSteps(v)
-		}
-		if v, ok := step.Args["_then"].([]FlowStep); ok && len(v) > 0 {
-			children["_then"] = toFlowSemSteps(v)
-		}
-		if v, ok := step.Args["_else"].([]FlowStep); ok && len(v) > 0 {
-			children["_else"] = toFlowSemSteps(v)
-		}
-		if v, ok := step.Args["_default"].([]FlowStep); ok && len(v) > 0 {
-			children["_default"] = toFlowSemSteps(v)
-		}
-		if v, ok := step.Args["_catch"].([]FlowStep); ok && len(v) > 0 {
-			children["_catch"] = toFlowSemSteps(v)
-		}
-		if v, ok := step.Args["_fallback"].([]FlowStep); ok && len(v) > 0 {
-			children["_fallback"] = toFlowSemSteps(v)
-		}
-		if v, ok := step.Args["_onTimeout"].([]FlowStep); ok && len(v) > 0 {
-			children["_onTimeout"] = toFlowSemSteps(v)
-		}
-		if v, ok := step.Args["_onMissing"].([]FlowStep); ok && len(v) > 0 {
-			children["_onMissing"] = toFlowSemSteps(v)
-		}
-		if cases, ok := step.Args["_cases"].(map[string][]FlowStep); ok && len(cases) > 0 {
-			var merged []flowsem.Step
-			for _, branch := range cases {
-				merged = append(merged, toFlowSemSteps(branch)...)
-			}
-			if len(merged) > 0 {
-				children["_cases"] = merged
-			}
-		}
-		if branches, ok := step.Args["_branches"].(map[string][]FlowStep); ok && len(branches) > 0 {
-			var merged []flowsem.Step
-			for _, branch := range branches {
-				merged = append(merged, toFlowSemSteps(branch)...)
-			}
-			if len(merged) > 0 {
-				children["_branches"] = merged
-			}
-		}
-		out = append(out, flowsem.Step{
-			Action:   step.Action,
-			Args:     step.Args,
-			Children: children,
-			File:     step.File,
-			Line:     step.Line,
-			Column:   step.Column,
-			CUEPath:  step.CUEPath,
-		})
-	}
-	return out
 }
 
 func (n *Normalizer) parseService(name string, val cue.Value) (Service, error) {

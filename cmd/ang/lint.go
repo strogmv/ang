@@ -53,7 +53,7 @@ func runLint(args []string) {
 
 	if *jsonOut {
 		var warnings []normalizer.Warning
-		_, _, _, _, _, _, _, _, _, err := compiler.RunPipelineWithOptions(projectPath, compiler.PipelineOptions{
+		_, err := compiler.RunSemanticPhasesWithOptions(projectPath, compiler.PipelineOptions{
 			WarningSink: func(w normalizer.Warning) { warnings = append(warnings, w) },
 		})
 
@@ -89,7 +89,7 @@ func runLint(args []string) {
 	}
 
 	fmt.Println("Linting intent...")
-	_, _, _, _, _, _, _, _, _, err := compiler.RunPipeline(projectPath)
+	_, err := compiler.RunSemanticPhases(projectPath)
 	if err != nil {
 		fmt.Println()
 		printStageFailure("❌ Lint FAILED", compiler.StageCUE, compiler.ErrCodeCUEPipeline, "run pipeline", err)
@@ -118,12 +118,13 @@ func runTestCoverageCheck(testDir string, minCoverage float64, verbose bool, jso
 		fmt.Println("Checking test coverage...")
 	}
 
-	_, _, endpoints, _, _, _, _, _, _, err := compiler.RunPipeline(".")
+	semantic, err := compiler.RunSemanticPhases(".")
 	if err != nil {
 		fmt.Println()
 		printStageFailure("❌ Test coverage check FAILED", compiler.StageCUE, compiler.ErrCodeCUETestCoveragePipeline, "run pipeline", err)
 		os.Exit(1)
 	}
+	endpoints := semantic.Endpoints
 
 	report, err := checkTestCoverage(endpoints, testDir)
 	if err != nil {

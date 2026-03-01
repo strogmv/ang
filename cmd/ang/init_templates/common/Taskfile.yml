@@ -34,7 +34,7 @@ tasks:
   doctor:
     desc: Preflight local startup checks
     cmds:
-      - ang doctor start
+      - bash scripts/preflight.sh
 
   smoke:
     desc: Check local health endpoints

@@ -125,17 +125,6 @@ func runBuild(args []string) {
 			printStageFailure("Build FAILED", stage, code, op, err)
 		}
 
-		entities, services, endpoints, repos, events, bizErrors, schedules, scenarios, scopes, err := compiler.RunPipeline(projectPath)
-		if err != nil {
-			fail(compiler.StageCUE, compiler.ErrCodeCUEPipeline, "run pipeline", err)
-			return
-		}
-		if emitDiagnostics(os.Stderr, compiler.LatestDiagnostics) {
-			fmt.Println("Build FAILED due to diagnostic errors.")
-			return
-		}
-		_ = scenarios
-
 		p := parser.New()
 		n := normalizer.New()
 
@@ -282,30 +271,30 @@ func runBuild(args []string) {
 			cfgDefVal = *cfgDef
 		}
 
-		irSchema, err := compiler.ConvertAndTransform(
-			entities, services, events, bizErrors, endpoints, scopes, repos,
-			cfgDefVal, authDef, rbacDef, schedules, views, projectDefVal,
-		)
+		compiled, err := compiler.CompileForEmit(projectPath, compiler.PipelineOptions{}, compiler.CompileForEmitOptions{
+			Config:      cfgDefVal,
+			Auth:        authDef,
+			RBAC:        rbacDef,
+			Views:       views,
+			Project:     projectDefVal,
+			InfraValues: infraValues,
+			Templates:   templatesCatalog,
+		})
 		if err != nil {
-			fail(compiler.StageIR, compiler.ErrCodeIRConvertTransform, "convert and transform", err)
+			if ce, ok := err.(*compiler.ContractError); ok {
+				fail(ce.Stage, ce.Code, ce.Op, ce.Err)
+				return
+			}
+			fail(compiler.StageCUE, compiler.ErrCodeCUEPipeline, "compile for emit", err)
 			return
 		}
-		compiler.AttachNotificationInfra(
-			irSchema,
-			normalizer.InfraNotificationChannels(infraValues),
-			normalizer.InfraNotificationPolicies(infraValues),
-		)
-		compiler.AttachTemplates(irSchema, templatesCatalog)
-		if err := compiler.ValidateIRSemantics(irSchema); err != nil {
-			fail(compiler.StageIR, compiler.ErrCodeIRSemanticValidate, "validate IR semantics", err)
+		if emitDiagnostics(os.Stderr, compiler.LatestDiagnostics) {
+			fmt.Println("Build FAILED due to diagnostic errors.")
 			return
 		}
 
-		if err := emitter.ValidateIRServiceDependencies(irSchema.Services); err != nil {
-			fail(compiler.StageIR, compiler.ErrCodeIRServiceDependencies, "validate service dependencies", err)
-			return
-		}
-		irSchema.Services = emitter.OrderIRServicesByDependencies(irSchema.Services)
+		irSchema := compiled.IR
+		scenarios := compiled.Normalized.Scenarios
 
 		isMicroservice := projectHasBuildStrategy(projectVal, "microservices")
 		if output.Mode == "" {
@@ -601,6 +590,9 @@ func runBuild(args []string) {
 				logText("      %s -> %s", d.Package, d.Dir)
 			}
 		}
+		if suggestDoctor, hint := buildDoctorHint(projectPath); suggestDoctor {
+			logText("%s", hint)
+		}
 		if jsonLogs {
 			logEvent(buildEvent{
 				Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
@@ -626,4 +618,29 @@ func runBuild(args []string) {
 	} else {
 		buildTask()
 	}
+}
+
+func buildDoctorHint(projectPath string) (bool, string) {
+	checks, err := collectStartupChecks(projectPath, true)
+	if err != nil {
+		return false, ""
+	}
+	needsDoctor := false
+	for _, c := range checks {
+		if c.Status != startupFail {
+			continue
+		}
+		if strings.HasPrefix(c.Name, "tool:") || c.Name == "config-env" || c.Name == ".env.example" {
+			needsDoctor = true
+			break
+		}
+	}
+	if !needsDoctor {
+		return false, ""
+	}
+	preflightPath := filepath.Join(projectPath, "scripts", "preflight.sh")
+	if _, err := os.Stat(preflightPath); err == nil {
+		return true, "Hint: run `make doctor` (or `bash scripts/preflight.sh`) before first start to verify dependencies and .env."
+	}
+	return true, "Hint: run `ang doctor start` before first start to verify dependencies and .env."
 }

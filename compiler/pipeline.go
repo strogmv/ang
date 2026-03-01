@@ -1,26 +1,25 @@
 package compiler
 
 import (
-    "crypto/sha256"
-    "fmt"
-    "io"
-    "os"
-    "path/filepath"
-    "sort"
-    "strconv"
-    "strings"
+	"crypto/sha256"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 
 	"cuelang.org/go/cue"
 	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
 	"github.com/strogmv/ang/compiler/parser"
 	planpkg "github.com/strogmv/ang/compiler/plan"
-	"github.com/strogmv/ang/compiler/policy"
 	"github.com/strogmv/ang/compiler/transformers"
 )
 
 const (
-	Version       = "0.1.107"
+	Version       = "0.1.109"
 	SchemaVersion = "1"
 )
 
@@ -130,160 +129,12 @@ func RunPipeline(basePath string) ([]normalizer.Entity, []normalizer.Service, []
 }
 
 func RunPipelineWithOptions(basePath string, opts PipelineOptions) ([]normalizer.Entity, []normalizer.Service, []normalizer.Endpoint, []normalizer.Repository, []normalizer.EventDef, []normalizer.ErrorDef, []normalizer.ScheduleDef, []normalizer.ScenarioDef, []normalizer.ScopeDef, error) {
-	LatestDiagnostics = nil // Reset for new run
-	p := parser.New()
-
-	valDomain, _, err := LoadOptionalDomain(p, filepath.Join(basePath, "cue/domain"))
+	normalized, err := RunSemanticPhasesWithOptions(basePath, opts)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(
-			StageCUE, ErrCodeCUEDomainLoad, "load cue/domain", fmt.Errorf("%s", parser.FormatCUELocationError(err)),
-		)
-	}
-	valArch, _, err := LoadOptionalDomain(p, filepath.Join(basePath, "cue/architecture"))
-	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(
-			StageCUE, ErrCodeCUEArchLoad, "load cue/architecture", fmt.Errorf("%s", parser.FormatCUELocationError(err)),
-		)
-	}
-	valAPI, _, err := LoadOptionalDomain(p, filepath.Join(basePath, "cue/api"))
-	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(
-			StageCUE, ErrCodeCUEAPILoad, "load cue/api", fmt.Errorf("%s", parser.FormatCUELocationError(err)),
-		)
-	}
-	valRepo, okRepo, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/repo"))
-	valEvents, _, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/events"))
-	valErrors, _, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/errors"))
-
-	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/domain"), opts)
-	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/architecture"), opts)
-	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/api"), opts)
-	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/repo"), opts)
-	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/events"), opts)
-	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/errors"), opts)
-
-	n := normalizer.New()
-	n.WarningSink = func(w normalizer.Warning) {
-		LatestDiagnostics = append(LatestDiagnostics, w)
-		if opts.WarningSink != nil {
-			opts.WarningSink(w)
-		}
-	}
-	entities, err := n.ExtractEntities(valDomain)
-	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(StageCUE, ErrCodeCUEEntityNormalize, "extract entities", err)
-	}
-	emitFSMIntegrityDiagnostics(entities, opts)
-	services, err := n.ExtractServices(valAPI, entities)
-	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(StageCUE, ErrCodeCUEServiceNormalize, "extract services", err)
-	}
-	endpoints, err := n.ExtractEndpoints(valAPI)
-	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(StageCUE, ErrCodeCUEEndpointNormalize, "extract endpoints", err)
-	}
-	for _, ep := range endpoints {
-		if err := policy.ValidateEndpoint(ep); err != nil {
-			msg := fmt.Errorf("endpoint %s %s (%s): %w", ep.Method, ep.Path, ep.Source, err)
-			return nil, nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(StageCUE, ErrCodeCUEEndpointNormalize, "validate endpoint policy", msg)
-		}
-	}
-	repos, err := n.ExtractRepositories(valArch)
-	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(StageCUE, ErrCodeCUERepoNormalize, "extract repositories", err)
+		return nil, nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 
-	if okRepo && valRepo.Err() == nil {
-		finderMap, _ := n.ExtractRepoFinders(valRepo)
-		if len(finderMap) > 0 {
-			entityFieldMap := make(map[string]map[string]string)
-			entityByName := make(map[string]normalizer.Entity)
-			for _, e := range entities {
-				fieldMap := make(map[string]string)
-				for _, f := range e.Fields {
-					fieldMap[strings.ToLower(f.Name)] = f.Type
-				}
-				entityFieldMap[e.Name] = fieldMap
-				entityByName[e.Name] = e
-			}
-			projNameByKey := make(map[string]string)
-			repoByEntity := make(map[string]int)
-			for i := range repos {
-				repoByEntity[repos[i].Entity] = i
-			}
-			for ent, finders := range finderMap {
-				finders, projections := synthesizeImplicitProjections(ent, finders, entityByName, projNameByKey)
-				for _, p := range projections {
-					if _, ok := entityByName[p.Name]; ok {
-						continue
-					}
-					entityByName[p.Name] = p
-					entities = append(entities, p)
-					fieldMap := make(map[string]string)
-					for _, f := range p.Fields {
-						fieldMap[strings.ToLower(f.Name)] = f.Type
-					}
-					entityFieldMap[p.Name] = fieldMap
-				}
-				emitSelectProjectionDiagnostics(ent, finders, entityFieldMap, opts)
-				for fi := range finders {
-					for wi := range finders[fi].Where {
-						w := finders[fi].Where[wi]
-						if (w.ParamType == "string" || w.ParamType == "") && entityFieldMap[ent] != nil {
-							if t, ok := entityFieldMap[ent][strings.ToLower(w.Field)]; ok {
-								finders[fi].Where[wi].ParamType = t
-							}
-						}
-					}
-				}
-				if idx, ok := repoByEntity[ent]; ok {
-					for _, f := range finders {
-						seen := false
-						for _, existing := range repos[idx].Finders {
-							if strings.EqualFold(existing.Name, f.Name) {
-								seen = true
-								break
-							}
-						}
-						if !seen {
-							repos[idx].Finders = append(repos[idx].Finders, f)
-						}
-					}
-					continue
-				}
-				repos = append(repos, normalizer.Repository{Name: ent + "Repository", Entity: ent, Finders: finders})
-				repoByEntity[ent] = len(repos) - 1
-			}
-		}
-	}
-
-	var events []normalizer.EventDef
-	if valEvents.Err() == nil {
-		events, _ = n.ExtractEvents(valEvents)
-	}
-	if len(events) == 0 {
-		archEvents, _ := n.ExtractEventsFromArch(valArch)
-		events = append(events, archEvents...)
-	}
-	var bizErrors []normalizer.ErrorDef
-	if valErrors.Err() == nil {
-		bizErrors, _ = n.ExtractErrors(valErrors)
-	}
-	schedules, err := n.ExtractSchedules(valAPI)
-	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, nil, nil, WrapContractError(StageCUE, ErrCodeCUEScheduleNormalize, "extract schedules", err)
-	}
-
-	scenarios, _ := n.ExtractScenarios(valAPI)
-
-	// Scopes registry (optional)
-	scopes, _ := n.ExtractScopes(valDomain)
-
-	broadcastOnly, planned := loadEventAnnotations(basePath)
-
-	emitEventUsageDiagnostics(services, events, schedules, broadcastOnly, planned, opts)
-
-	return entities, services, endpoints, repos, events, bizErrors, schedules, scenarios, scopes, nil
+	return normalized.Entities, normalized.Services, normalized.Endpoints, normalized.Repos, normalized.Events, normalized.Errors, normalized.Schedules, normalized.Scenarios, normalized.Scopes, nil
 }
 
 // emitEventUsageDiagnostics surfaces dead/unused events as warnings (non-fatal).

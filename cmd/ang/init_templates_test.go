@@ -66,6 +66,7 @@ func TestInitFromTemplateIncludesDevBootstrapArtifacts(t *testing.T) {
 		filepath.Join(target, "scripts", "dev-down.sh"),
 		filepath.Join(target, "scripts", "dev-smoke.sh"),
 		filepath.Join(target, "scripts", "dev-reset.sh"),
+		filepath.Join(target, "scripts", "preflight.sh"),
 	}
 	for _, p := range requiredScripts {
 		if _, err := os.Stat(p); err != nil {
@@ -92,7 +93,7 @@ func TestInitFromTemplateIncludesDevBootstrapArtifacts(t *testing.T) {
 		t.Fatalf("read %s: %v", makefilePath, err)
 	}
 	makefile := string(makefileData)
-	for _, expected := range []string{"up:", "ang up", "doctor:", "ang doctor start", "smoke:", "dev-smoke.sh"} {
+	for _, expected := range []string{"up:", "ang up", "doctor:", "scripts/preflight.sh", "smoke:", "dev-smoke.sh"} {
 		if !strings.Contains(makefile, expected) {
 			t.Fatalf("Makefile missing %q:\n%s", expected, makefile)
 		}

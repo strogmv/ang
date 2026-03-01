@@ -36,6 +36,7 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 
 	goOnly := []compiler.Capability{compiler.CapabilityProfileGoLegacy}
 	goHTTP := []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilityHTTP}
+	goGRPC := []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilityGRPC}
 	goSQL := []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilitySQLRepo}
 	goEvents := []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilityEvents}
 
@@ -51,6 +52,8 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 	registry.Register(generator.Step{Name: "DTOs", Requires: goOnly, Run: func() error { return in.Em.EmitDTO(in.IRSchema.Entities) }})
 	registry.Register(generator.Step{Name: "Service Ports", Requires: goOnly, Run: func() error { return in.Em.EmitServiceFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "HTTP Handlers", ArtifactKey: "go:http_handlers", Requires: goHTTP, Run: func() error { return in.Em.EmitHTTPFromIR(in.IRSchema, in.AuthDef) }})
+	registry.Register(generator.Step{Name: "gRPC Proto", ArtifactKey: "go:grpc_proto", Requires: goGRPC, Run: func() error { return in.Em.EmitGRPCProtoFromIR(in.IRSchema) }})
+	registry.Register(generator.Step{Name: "gRPC Transport", ArtifactKey: "go:grpc_transport", Requires: goGRPC, Run: func() error { return in.Em.EmitGRPCTransportFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "Health Probes", Requires: goHTTP, Run: func() error { return in.Em.EmitHealth() }})
 	registry.Register(generator.Step{Name: "Repository Ports", Requires: goOnly, Run: func() error { return in.Em.EmitRepositoryFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "Transaction Port", Requires: goOnly, Run: func() error { return in.Em.EmitTransactionPort() }})

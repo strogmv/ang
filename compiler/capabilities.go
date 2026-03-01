@@ -12,6 +12,7 @@ type Capability string
 
 const (
 	CapabilityHTTP    Capability = "http"
+	CapabilityGRPC    Capability = "grpc"
 	CapabilitySQLRepo Capability = "sql_repo"
 	CapabilityWS      Capability = "ws"
 	CapabilityEvents  Capability = "events"
@@ -68,8 +69,11 @@ func ResolveTargetCapabilities(td normalizer.TargetDef) (CapabilitySet, error) {
 	queue := strings.ToLower(strings.TrimSpace(td.Queue))
 
 	switch framework {
-	case "chi", "echo", "fiber", "gin", "fastapi", "axum", "actix", "express", "fastify":
+	case "chi", "echo", "fiber", "gin", "fastapi", "axum", "actix", "express", "fastify", "grpc":
 		caps[CapabilityHTTP] = true
+	}
+	if framework == "grpc" {
+		caps[CapabilityGRPC] = true
 	}
 
 	switch db {

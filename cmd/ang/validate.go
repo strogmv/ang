@@ -17,28 +17,17 @@ func runValidate(args []string) {
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		projectPath = args[0]
 	}
-	entities, services, endpoints, repos, events, bizErrors, schedules, _, scopes, err := compiler.RunPipeline(projectPath)
-	if err == nil {
-		irSchema, convErr := compiler.ConvertAndTransform(
-			entities, services, events, bizErrors, endpoints, scopes, repos,
-			normalizer.ConfigDef{}, nil, nil, schedules, nil, normalizer.ProjectDef{},
-		)
-		if convErr != nil {
-			printStageFailure("Validation FAILED", compiler.StageIR, compiler.ErrCodeIRConvertTransform, "convert and transform", convErr)
-			os.Exit(1)
+	_, err := compiler.CompileForEmit(projectPath, compiler.PipelineOptions{}, compiler.CompileForEmitOptions{})
+	if err != nil {
+		if ce, ok := err.(*compiler.ContractError); ok {
+			printStageFailure("Validation FAILED", ce.Stage, ce.Code, ce.Op, ce.Err)
+		} else {
+			printStageFailure("Validation FAILED", compiler.StageCUE, compiler.ErrCodeCUEPipeline, "compile for emit", err)
 		}
-		if semErr := compiler.ValidateIRSemantics(irSchema); semErr != nil {
-			printStageFailure("Validation FAILED", compiler.StageIR, compiler.ErrCodeIRSemanticValidate, "validate IR semantics", semErr)
-			os.Exit(1)
-		}
+		os.Exit(1)
 	}
 
 	hasErrors := emitDiagnostics(os.Stderr, compiler.LatestDiagnostics)
-
-	if err != nil {
-		printStageFailure("Validation FAILED", compiler.StageCUE, compiler.ErrCodeCUEPipeline, "run pipeline", err)
-		os.Exit(1)
-	}
 	if hasErrors {
 		fmt.Println("Validation FAILED due to diagnostic errors.")
 		os.Exit(1)

@@ -5,6 +5,7 @@ import (
 
 	"cuelang.org/go/cue"
 	"cuelang.org/go/cue/cuecontext"
+	"github.com/strogmv/ang/compiler/flowsem"
 )
 
 func TestParseFlowSteps_NewResilienceChildren(t *testing.T) {
@@ -66,23 +67,23 @@ steps: [
 func TestValidateFlowSteps_NewResilienceActions(t *testing.T) {
 	t.Parallel()
 
-	steps := []FlowStep{
+	steps := []flowsem.Step{
 		{Action: "flow.Timeout", Args: map[string]any{}},
 		{Action: "flow.Try", Args: map[string]any{}},
 		{Action: "flow.SuggestNext", Args: map[string]any{}},
 	}
-	warnings := validateFlowSteps("Build", "Sandbox", steps, nil)
+	issues := flowsem.Validate(steps)
 
 	wantCodes := map[string]bool{
 		"MISSING_DURATION": true,
 		"MISSING_DO":       true,
 		"MISSING_OPTIONS":  true,
 	}
-	for _, w := range warnings {
-		delete(wantCodes, w.Code)
+	for _, issue := range issues {
+		delete(wantCodes, issue.Code)
 	}
 	for code := range wantCodes {
-		t.Fatalf("expected warning code %s in %+v", code, warnings)
+		t.Fatalf("expected warning code %s in %+v", code, issues)
 	}
 }
 

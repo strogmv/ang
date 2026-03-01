@@ -18,6 +18,14 @@ func (e *Emitter) EmitHTTPFromIR(schema *ir.Schema, auth *normalizer.AuthDef) er
 	)
 }
 
+func (e *Emitter) EmitGRPCProtoFromIR(schema *ir.Schema) error {
+	return e.EmitGRPCProto(schema)
+}
+
+func (e *Emitter) EmitGRPCTransportFromIR(schema *ir.Schema) error {
+	return e.EmitGRPCTransport(schema)
+}
+
 func (e *Emitter) EmitRepositoryFromIR(schema *ir.Schema) error {
 	return e.EmitRepository(schema.Repos, schema.Entities)
 }

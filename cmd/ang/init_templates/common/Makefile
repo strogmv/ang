@@ -22,7 +22,7 @@ smoke:
 	bash scripts/dev-smoke.sh
 
 doctor:
-	ang doctor start
+	bash scripts/preflight.sh
 
 reset:
 	bash scripts/dev-reset.sh

@@ -73,7 +73,7 @@ func runTestGen(args []string) {
 		os.Exit(1)
 	}
 
-	_, services, endpoints, _, _, _, _, _, _, err := compiler.RunPipeline(projectPath)
+	semantic, err := compiler.RunSemanticPhases(projectPath)
 	if err != nil {
 		printStageFailure("Test generation FAILED", compiler.StageCUE, compiler.ErrCodeCUEPipeline, "run pipeline", err)
 		os.Exit(1)
@@ -82,6 +82,8 @@ func runTestGen(args []string) {
 		fmt.Println("Test generation FAILED due to diagnostic errors.")
 		os.Exit(1)
 	}
+	services := semantic.Services
+	endpoints := semantic.Endpoints
 
 	endpointByRPC := make(map[string]normalizer.Endpoint)
 	for _, ep := range endpoints {

@@ -35,7 +35,7 @@ func BuildPlan(basePath string, opts RunOptions) (*planpkg.BuildPlan, error) {
 	plan.Preconditions.WorkspaceHash = workspaceHash
 	plan.Preconditions.GoVersion = runtime.Version()
 
-	_, _, _, _, _, _, _, _, _, err := RunPipelineWithOptions(basePath, PipelineOptions{
+	_, err := RunSemanticPhasesWithOptions(basePath, PipelineOptions{
 		WarningSink: opts.WarningSink,
 	})
 	for _, w := range LatestDiagnostics {

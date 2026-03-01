@@ -242,8 +242,8 @@ func runInit(args []string) {
 	fmt.Printf("Template %q initialized in %s\n", opts.TemplateName, targetDir)
 	fmt.Println("Next steps:")
 	fmt.Printf("  cd %s\n", targetDir)
-	fmt.Println("  docker compose up -d")
-	fmt.Println("  ang build")
+	fmt.Println("  make doctor   # or: ang doctor start")
+	fmt.Println("  ang up")
 }
 
 func initLegacyScaffold(root, modulePath, lang, db string) error {

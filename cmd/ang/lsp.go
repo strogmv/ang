@@ -482,7 +482,7 @@ func (s *lspServer) collectDiagnosticsByURI() (map[string][]map[string]any, erro
 		}
 	}
 
-	_, _, _, _, _, _, _, _, _, runErr := compiler.RunPipeline(projRoot)
+	_, runErr := compiler.RunSemanticPhases(projRoot)
 	diags := compiler.LatestDiagnostics
 	out := map[string][]map[string]any{}
 	for _, d := range diags {

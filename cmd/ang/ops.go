@@ -35,11 +35,13 @@ func runVet(args []string) {
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		projectPath = args[0]
 	}
-	entities, services, _, _, _, _, _, _, _, err := compiler.RunPipeline(projectPath)
+	semantic, err := compiler.RunSemanticPhases(projectPath)
 	if err != nil {
 		printStageFailure("Vet FAILED", compiler.StageCUE, compiler.ErrCodeCUEPipeline, "run pipeline", err)
 		os.Exit(1)
 	}
+	entities := semantic.Entities
+	services := semantic.Services
 
 	fmt.Println("Running CUE Policy Checks...")
 	p := parser.New()
@@ -99,19 +101,12 @@ func runVet(args []string) {
 
 func runDraw(args []string) {
 	fmt.Println("Drawing architecture...")
-	entities, services, endpoints, repos, events, bizErrors, schedules, _, scopes, err := compiler.RunPipeline(".")
+	compiled, err := compiler.CompileForEmit(".", compiler.PipelineOptions{}, compiler.CompileForEmitOptions{})
 	if err != nil {
-		fmt.Printf("Draw FAILED (Parser error): %v\n", err)
+		fmt.Printf("Draw FAILED (compile for emit): %v\n", err)
 		os.Exit(1)
 	}
-	irSchema, err := compiler.ConvertAndTransform(
-		entities, services, events, bizErrors, endpoints, scopes, repos,
-		normalizer.ConfigDef{}, nil, nil, schedules, nil, normalizer.ProjectDef{},
-	)
-	if err != nil {
-		fmt.Printf("Draw FAILED (IR convert): %v\n", err)
-		os.Exit(1)
-	}
+	irSchema := compiled.IR
 	output, err := parseOutputOptions(args)
 	if err != nil {
 		fmt.Printf("Draw FAILED: %v\n", err)
@@ -139,11 +134,12 @@ func runRBAC(args []string) {
 	}
 
 	cmd := args[0]
-	_, services, _, _, _, _, _, _, _, err := compiler.RunPipeline(".")
+	semantic, err := compiler.RunSemanticPhases(".")
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}
+	services := semantic.Services
 
 	validActions := make(map[string]bool)
 	for _, s := range services {
@@ -275,11 +271,12 @@ func runEvents(args []string) {
 		return
 	}
 
-	_, services, _, _, _, _, _, _, _, err := compiler.RunPipeline(".")
+	semantic, err := compiler.RunSemanticPhases(".")
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}
+	services := semantic.Services
 
 	fmt.Println("Event Flow Map (Event-Driven Architecture Audit):")
 	fmt.Println("--------------------------------------------------")
@@ -348,7 +345,7 @@ func runEvents(args []string) {
 
 func runLogicVet() {
 	fmt.Println("Auditing embedded Go logic in CUE files...")
-	_, _, _, _, _, _, _, _, _, _ = compiler.RunPipeline(".")
+	_, _ = compiler.RunSemanticPhases(".")
 	found := false
 	for _, d := range compiler.LatestDiagnostics {
 		if d.Code == "GO_SYNTAX_ERROR" {
