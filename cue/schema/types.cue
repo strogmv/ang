@@ -77,7 +77,7 @@ import "github.com/strogmv/ang/cue/project"
 // AI AGENTS: Use these definitions to understand valid flow step structures.
 // ============================================================================
 
-#FlowStep: #RepoStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #CustomStep | #StateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #AuditStep | #AuthStep | #CheckRoleStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #EnrichStep | #TimeParseStep | #TimeCheckExpiryStep | #MapBuildStep
+#FlowStep: #RepoStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #CustomStep | #StateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #AuditStep | #AuthStep | #CheckRoleStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #EnrichStep | #TimeParseStep | #TimeCheckExpiryStep | #MapBuildStep | #ExecRunStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #StorageUploadStep | #StorageGetURLStep | #HTTPCallStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #JSONParseStep | #JSONMarshalStep | #ParallelStep
 
 // ============================================================================
 // IMPL STEPS (typed business logic inside impl)
@@ -689,4 +689,197 @@ import "github.com/strogmv/ang/cue/project"
 		body?: _ // partial matching of response body
 	}
 	export?: [string]: string // map response fields to scenario variables
+}
+
+// ============================================================================
+// STAGE 2: INFRASTRUCTURE ACTIONS (cache.*, mail.*, storage.*)
+// ============================================================================
+
+#CacheGetStep: {
+	action: "cache.Get"
+	// Redis key expression (e.g., "\"session:\" + req.Token")
+	key: string
+	// Variable name to receive cached value as string
+	output: string
+	// If true, missing key is not an error (default true)
+	optional?: bool | *true
+}
+
+#CacheSetStep: {
+	action: "cache.Set"
+	// Redis key expression
+	key: string
+	// Value expression to cache (will be stored as string)
+	value: string
+	// TTL expression (e.g., "24*time.Hour", "time.Hour")
+	ttl?: string
+}
+
+#CacheDelStep: {
+	action: "cache.Del"
+	// Redis key expression
+	key: string
+}
+
+#MailSendStep: {
+	action: "mail.Send"
+	// Recipient email expression (e.g., "user.Email", "req.Email")
+	to: string
+	// Subject expression (e.g., "\"Welcome to Sendbox\"")
+	subject: string
+	// Body text or template expression
+	body: string
+	// Optional HTML body
+	html?: string
+}
+
+#StorageUploadStep: {
+	action: "storage.Upload"
+	// Object key/path (e.g., "\"avatars/\" + user.ID + \".jpg\"")
+	key: string
+	// Data expression (bytes or string)
+	data: string
+	// Content type (e.g., "\"image/jpeg\"")
+	contentType?: string
+	// Variable name to receive public URL
+	output?: string
+}
+
+#StorageGetURLStep: {
+	action: "storage.GetURL"
+	// Object key expression
+	key: string
+	// Variable name for URL string
+	output: string
+}
+
+// ============================================================================
+// STAGE 3: NEW CAPABILITIES
+// ============================================================================
+
+#HTTPCallStep: {
+	action: "http.Call"
+	method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH"
+	url: string
+	body?: string
+	headers?: [string]: string
+	output?: string
+	statusVar?: string
+	failOnError?: bool | *true
+}
+
+#RandCodeStep: {
+	action: "rand.Code"
+	// Length of numeric code (default 6)
+	length?: int | *6
+	// Variable name to receive the code string
+	output: string
+}
+
+#RandTokenStep: {
+	action: "rand.Token"
+	// Length in bytes (default 32, produces 64-char hex)
+	bytes?: int | *32
+	// Variable name to receive hex token
+	output: string
+}
+
+#StrFormatStep: {
+	action: "str.Format"
+	// Format string as Go expression (e.g., "\"Hello, %s! Code: %d\"")
+	template: string
+	// Arguments list as Go expressions
+	args: [...string]
+	// Variable name for result
+	output: string
+}
+
+#JSONParseStep: {
+	action: "json.Parse"
+	// JSON string expression to parse
+	input: string
+	// Type to unmarshal into as Go type expression (e.g., "map[string]interface{}")
+	into: string
+	// Variable name for result
+	output: string
+}
+
+#JSONMarshalStep: {
+	action: "json.Marshal"
+	// Value expression to marshal
+	input: string
+	// Variable name for result JSON string
+	output: string
+}
+
+#ParallelStep: {
+	action: "parallel.Run"
+	// Named parallel branches, each is a list of flow steps
+	branches: [string]: [...#FlowStep]
+}
+
+// ============================================================================
+// SYSTEM / OS OPERATIONS (exec.*, fs.*)
+// ============================================================================
+
+#ExecRunStep: {
+	// exec.Run - Execute external command and capture combined stdout+stderr.
+	// Generated Go: _execCmd := exec.CommandContext(ctx, cmd, args...); out, err := cmd.CombinedOutput()
+	action: "exec.Run"
+	// Command to execute as a Go expression (e.g. "os.Getenv(\"ANG_BIN\")")
+	cmd: string
+	// Arguments list. Each element is a Go expression.
+	// Use escaped quotes for string literals: "\"build\"", "\"--flag\"".
+	// Use bare identifiers for variables: "workDir", "req.ID".
+	args?: [...string]
+	// Optional: pipe this expression as stdin (e.g. "req.CueContent")
+	stdin?: string
+	// Variable name to receive combined output as string (e.g. "buildOutput")
+	output?: string
+	// Variable name to receive exit code as int (e.g. "exitCode")
+	exitCodeVar?: string
+	// If false, non-zero exit code is captured instead of throwing (default: true)
+	failOnError?: bool | *true
+	// Error message thrown on non-zero exit code; only used when failOnError: true
+	throw?: string
+}
+
+#FSTempDirStep: {
+	// fs.TempDir - Create a temporary directory.
+	// Generated Go: dir, err := os.MkdirTemp("", pattern)
+	action: "fs.TempDir"
+	// Variable name to receive the temp dir path (e.g. "workDir")
+	output: string
+	// Optional glob pattern (e.g. "\"sendbox-*\""). Defaults to "\"ang-tmp-*\""
+	pattern?: string
+}
+
+#FSWriteFileStep: {
+	// fs.WriteFile - Write string content to a file, creating parent dirs.
+	// Generated Go: os.MkdirAll(dir); os.WriteFile(path, []byte(data), 0644)
+	action: "fs.WriteFile"
+	// File path expression (e.g. "filepath.Join(workDir, \"cue\", \"main.cue\")")
+	path: string
+	// Content expression (e.g. "req.CueContent")
+	data: string
+}
+
+#FSReadFileStep: {
+	// fs.ReadFile - Read file contents into a string variable.
+	// Generated Go: b, err := os.ReadFile(path); output = string(b)
+	action: "fs.ReadFile"
+	// File path expression (e.g. "filepath.Join(workDir, \"api\", \"openapi.yaml\")")
+	path: string
+	// Variable name to receive file contents as string
+	output: string
+	// If true, skip error when file does not exist (output = "")
+	optional?: bool
+}
+
+#FSRemoveStep: {
+	// fs.Remove - Remove a file or directory (recursive).
+	// Generated Go: os.RemoveAll(path)
+	action: "fs.Remove"
+	// Path expression to remove
+	path: string
 }

@@ -272,8 +272,28 @@ func (e *Emitter) EmitNatsAdapter(services []ir.Service, schedules []ir.Schedule
 
 	eventList := collectPublishedEventsFromIR(services, schedules)
 
+	type natsTemplateData struct {
+		Events               []string
+		Workers              int
+		PublishRetryAttempts int
+		PublishRetryDelayMS  int
+	}
+	workers := e.NatsWorkers
+	if workers <= 0 {
+		workers = 20
+	}
+	publishRetryAttempts := e.NatsPublishRetryAttempts
+	if publishRetryAttempts <= 0 {
+		publishRetryAttempts = 3
+	}
+	publishRetryDelayMS := e.NatsPublishRetryDelayMS
+	if publishRetryDelayMS <= 0 {
+		publishRetryDelayMS = 100
+	}
+
 	var buf bytes.Buffer
-	if err := t.Execute(&buf, eventList); err != nil {
+	if err := t.Execute(&buf, natsTemplateData{Events: eventList, Workers: workers,
+		PublishRetryAttempts: publishRetryAttempts, PublishRetryDelayMS: publishRetryDelayMS}); err != nil {
 		return fmt.Errorf("execute template: %w", err)
 	}
 

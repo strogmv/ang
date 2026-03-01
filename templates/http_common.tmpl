@@ -15,10 +15,14 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"math/rand"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/redis/go-redis/v9"
@@ -681,6 +685,107 @@ func CircuitBreakerMiddleware(threshold int, timeout string, halfOpenMax int) fu
 			} else {
 				breaker.RecordSuccess()
 			}
+		})
+	}
+}
+
+// ConcurrencyMiddleware limits simultaneous in-flight requests via a buffered-channel semaphore.
+// When the limit is reached new requests get 503 Service Unavailable immediately (no queuing).
+// This is true backpressure: fast fail instead of queuing → prevents latency cascade.
+func ConcurrencyMiddleware(n int) func(http.Handler) http.Handler {
+	sem := make(chan struct{}, n)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+				next.ServeHTTP(w, r)
+			default:
+				concurrencyShed.WithLabelValues(r.URL.Path).Inc()
+				errors.WriteError(w, r, errors.New(http.StatusServiceUnavailable,
+					"Service Unavailable", "Server is at capacity, please retry later"))
+			}
+		})
+	}
+}
+
+// SingleflightMiddleware collapses identical in-flight GET requests into one handler call.
+// All waiting callers get the same response — reduces load on DB/cache by orders of magnitude.
+// Each call to SingleflightMiddleware() creates an independent group (one per route).
+func SingleflightMiddleware() func(http.Handler) http.Handler {
+	var group singleflight.Group
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				next.ServeHTTP(w, r)
+				return
+			}
+			type captured struct {
+				status  int
+				body    []byte
+				headers http.Header
+			}
+			v, _, _ := group.Do(r.URL.RequestURI(), func() (any, error) {
+				rec := httptest.NewRecorder()
+				next.ServeHTTP(rec, r)
+				res := rec.Result()
+				body, _ := io.ReadAll(res.Body)
+				return &captured{status: res.StatusCode, body: body, headers: res.Header}, nil
+			})
+			res := v.(*captured)
+			for k, vs := range res.headers {
+				for _, hv := range vs {
+					w.Header().Add(k, hv)
+				}
+			}
+			w.WriteHeader(res.status)
+			_, _ = w.Write(res.body)
+		})
+	}
+}
+
+// RetryMiddleware retries safe methods (GET/HEAD) on transient errors with exponential backoff + jitter.
+// Uses httptest.ResponseRecorder to buffer the response so it can be replayed on retry.
+func RetryMiddleware(maxAttempts, baseDelayMS int, retryStatuses []int) func(http.Handler) http.Handler {
+	isRetryable := func(code int) bool {
+		for _, s := range retryStatuses {
+			if s == code {
+				return true
+			}
+		}
+		return false
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				next.ServeHTTP(w, r)
+				return
+			}
+			delay := time.Duration(baseDelayMS) * time.Millisecond
+			var lastStatus int
+			var lastBody []byte
+			var lastHeaders http.Header
+			for attempt := 0; attempt < maxAttempts; attempt++ {
+				rec := httptest.NewRecorder()
+				next.ServeHTTP(rec, r)
+				res := rec.Result()
+				lastStatus = res.StatusCode
+				lastBody, _ = io.ReadAll(res.Body)
+				lastHeaders = res.Header
+				if !isRetryable(lastStatus) || attempt == maxAttempts-1 {
+					break
+				}
+				jitter := time.Duration(rand.Intn(50)) * time.Millisecond
+				time.Sleep(delay + jitter)
+				delay *= 2
+			}
+			for k, vs := range lastHeaders {
+				for _, hv := range vs {
+					w.Header().Add(k, hv)
+				}
+			}
+			w.WriteHeader(lastStatus)
+			_, _ = w.Write(lastBody)
 		})
 	}
 }

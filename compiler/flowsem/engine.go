@@ -1,6 +1,9 @@
 package flowsem
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 type Step struct {
 	Action   string
@@ -41,7 +44,19 @@ var specs = map[string]Spec{
 		RequiredArgs: []string{"name"},
 	},
 	"notification.Dispatch": {
-		RequiredArgs: []string{"message"},
+		// "event" is the canonical arg; "message" accepted for backwards compat
+		CustomConstraints: func(step Step) *Issue {
+			_, hasEvent := step.Args["event"]
+			_, hasMessage := step.Args["message"]
+			if !hasEvent && !hasMessage {
+				return &Issue{
+					Code:    "MISSING_EVENT",
+					Message: "notification.Dispatch requires 'event' (or 'message') arg",
+					Hint:    "{action: \"notification.Dispatch\", event: \"user.registered\", userID: \"user.ID\"}",
+				}
+			}
+			return nil
+		},
 	},
 	"repo.GetForUpdate": {
 		RequiresTx: true,
@@ -83,6 +98,74 @@ var specs = map[string]Spec{
 	"flow.For": {
 		RequiredArgs:     []string{"each", "as"},
 		RequiredChildren: []string{"_do"},
+	},
+	"flow.Checkpoint": {
+		RequiredArgs: []string{"name"},
+	},
+	"flow.Resume": {
+		RequiredArgs:     []string{"name"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"flow.Validate": {
+		RequiredArgs: []string{"condition"},
+	},
+	"flow.Try": {
+		RequiredChildren: []string{"_do"},
+	},
+	"flow.Catch": {
+		RequiredChildren: []string{"_do"},
+	},
+	"flow.Retry": {
+		RequiredChildren: []string{"_do"},
+	},
+	"flow.Fallback": {
+		RequiredChildren: []string{"_do", "_fallback"},
+	},
+	"flow.Timeout": {
+		RequiredArgs:      []string{"duration"},
+		RequiredChildren:  []string{"_do"},
+		CustomConstraints: nil,
+	},
+	"flow.SuggestNext": {
+		DeclaresFromArgs: []string{"output"},
+		CustomConstraints: func(step Step) *Issue {
+			opts, ok := step.Args["options"]
+			if !ok {
+				return &Issue{
+					Code:    "MISSING_OPTIONS",
+					Message: "flow.SuggestNext requires non-empty 'options'",
+					Hint:    "{action: \"flow.SuggestNext\", options: [\"retry\", \"open editor\"]}",
+				}
+			}
+			switch x := opts.(type) {
+			case []string:
+				if len(x) == 0 {
+					return &Issue{
+						Code:    "MISSING_OPTIONS",
+						Message: "flow.SuggestNext requires non-empty 'options'",
+						Hint:    "{action: \"flow.SuggestNext\", options: [\"retry\", \"open editor\"]}",
+					}
+				}
+			case string:
+				if strings.TrimSpace(x) == "" {
+					return &Issue{
+						Code:    "MISSING_OPTIONS",
+						Message: "flow.SuggestNext requires non-empty 'options'",
+						Hint:    "{action: \"flow.SuggestNext\", options: [\"retry\", \"open editor\"]}",
+					}
+				}
+			default:
+				return &Issue{
+					Code:    "MISSING_OPTIONS",
+					Message: "flow.SuggestNext requires 'options' as string or []string",
+					Hint:    "{action: \"flow.SuggestNext\", options: [\"retry\", \"open editor\"]}",
+				}
+			}
+			return nil
+		},
+	},
+	"flow.ExplainError": {
+		DeclaresFromArgs: []string{"output"},
 	},
 	"flow.Block": {
 		RequiredChildren: []string{"_do"},
@@ -212,6 +295,168 @@ var specs = map[string]Spec{
 	"enum.Validate": {
 		RequiredArgs: []string{"value", "allowed", "throw"},
 	},
+	// OS / system operations
+	"exec.Run": {
+		RequiredArgs:     []string{"cmd"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"fs.TempDir": {
+		RequiredArgs:     []string{"output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"fs.WriteFile": {
+		RequiredArgs: []string{"path", "data"},
+	},
+	"fs.ReadFile": {
+		RequiredArgs:     []string{"path", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"fs.Remove": {
+		RequiredArgs: []string{"path"},
+	},
+	// Stage 2: Infrastructure actions
+	"cache.Get": {
+		RequiredArgs:     []string{"key", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"cache.Set": {
+		RequiredArgs: []string{"key", "value"},
+	},
+	"cache.Del": {
+		RequiredArgs: []string{"key"},
+	},
+	"mail.Send": {
+		RequiredArgs: []string{"to", "subject", "body"},
+	},
+	"storage.Upload": {
+		RequiredArgs: []string{"key", "data"},
+	},
+	"storage.GetURL": {
+		RequiredArgs:     []string{"key", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	// Stage 3: New capabilities
+	"http.Call": {
+		RequiredArgs: []string{"method", "url"},
+		CustomConstraints: func(step Step) *Issue {
+			if attempts, ok := intArg(step.Args, "attempts"); ok && attempts <= 0 {
+				return &Issue{
+					Code:    "INVALID_ATTEMPTS",
+					Message: "http.Call attempts must be > 0",
+					Hint:    "{action: \"http.Call\", method: \"GET\", url: \"...\", attempts: 2}",
+				}
+			}
+			if retries, ok := intArg(step.Args, "retries"); ok && retries < 0 {
+				return &Issue{
+					Code:    "INVALID_RETRIES",
+					Message: "http.Call retries must be >= 0",
+					Hint:    "{action: \"http.Call\", method: \"GET\", url: \"...\", retries: 1}",
+				}
+			}
+			if backoff, ok := intArg(step.Args, "backoffMs"); ok && backoff < 0 {
+				return &Issue{
+					Code:    "INVALID_BACKOFF",
+					Message: "http.Call backoffMs must be >= 0",
+					Hint:    "{action: \"http.Call\", method: \"GET\", url: \"...\", backoffMs: 150}",
+				}
+			}
+			if timeoutMS, ok := intArg(step.Args, "timeoutMs"); ok && timeoutMS <= 0 {
+				return &Issue{
+					Code:    "INVALID_TIMEOUT_MS",
+					Message: "http.Call timeoutMs must be > 0",
+					Hint:    "{action: \"http.Call\", method: \"GET\", url: \"...\", timeoutMs: 5000}",
+				}
+			}
+			return nil
+		},
+	},
+	"rand.Code": {
+		RequiredArgs:     []string{"output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"rand.Token": {
+		RequiredArgs:     []string{"output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"str.Format": {
+		RequiredArgs:     []string{"template", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"json.Parse": {
+		RequiredArgs:     []string{"input", "into", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"json.Marshal": {
+		RequiredArgs:     []string{"input", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"parallel.Run": {
+		CustomConstraints: func(step Step) *Issue {
+			if len(step.Children["_branches"]) == 0 {
+				return &Issue{
+					Code:    "MISSING_BRANCHES",
+					Message: "parallel.Run requires at least one branch",
+					Hint:    "{action: \"parallel.Run\", branches: {fetchUser: [ ... ], fetchOrg: [ ... ]}}",
+				}
+			}
+			if maxConc, ok := intArg(step.Args, "maxConcurrency"); ok && maxConc <= 0 {
+				return &Issue{
+					Code:    "INVALID_MAX_CONCURRENCY",
+					Message: "parallel.Run maxConcurrency must be > 0",
+					Hint:    "{action: \"parallel.Run\", maxConcurrency: 8, branches: {...}}",
+				}
+			}
+			if maxPar, ok := intArg(step.Args, "maxParallel"); ok && maxPar <= 0 {
+				return &Issue{
+					Code:    "INVALID_MAX_PARALLEL",
+					Message: "parallel.Run maxParallel must be > 0",
+					Hint:    "{action: \"parallel.Run\", maxParallel: 8, branches: {...}}",
+				}
+			}
+			return nil
+		},
+	},
+	"pdf.Render": {
+		RequiredArgs:     []string{"template", "data", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	// Webhook / queue
+	"webhook.Send": {
+		RequiredArgs: []string{"url", "payload"},
+	},
+	"queue.Enqueue": {
+		RequiredArgs: []string{"subject", "payload"},
+		CustomConstraints: func(step Step) *Issue {
+			if timeoutMS, ok := intArg(step.Args, "timeoutMs"); ok && timeoutMS <= 0 {
+				return &Issue{
+					Code:    "INVALID_TIMEOUT_MS",
+					Message: "queue.Enqueue timeoutMs must be > 0",
+					Hint:    "{action: \"queue.Enqueue\", subject: \"events\", payload: req, timeoutMs: 3000}",
+				}
+			}
+			return nil
+		},
+	},
+	// notify.Dispatch — short alias for notification.Dispatch
+	"notify.Dispatch": {
+		CustomConstraints: func(step Step) *Issue {
+			_, hasEvent := step.Args["event"]
+			_, hasMessage := step.Args["message"]
+			if !hasEvent && !hasMessage {
+				return &Issue{
+					Code:    "MISSING_EVENT",
+					Message: "notify.Dispatch requires 'event' arg",
+					Hint:    "{action: \"notify.Dispatch\", event: \"user.registered\", userID: \"user.ID\"}",
+				}
+			}
+			return nil
+		},
+	},
+	// storage.Download
+	"storage.Download": {
+		RequiredArgs:     []string{"key", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
 }
 
 func Validate(steps []Step) []Issue {
@@ -293,6 +538,36 @@ func hasNonEmptyString(args map[string]any, key string) bool {
 	return ok && strings.TrimSpace(s) != ""
 }
 
+func intArg(args map[string]any, key string) (int, bool) {
+	if args == nil {
+		return 0, false
+	}
+	v, ok := args[key]
+	if !ok {
+		return 0, false
+	}
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case float64:
+		return int(n), true
+	case string:
+		s := strings.TrimSpace(n)
+		if s == "" {
+			return 0, false
+		}
+		p, err := strconv.Atoi(s)
+		if err != nil {
+			return 0, false
+		}
+		return p, true
+	default:
+		return 0, false
+	}
+}
+
 func isKnownPrefix(action string) bool {
 	if action == "" {
 		return true
@@ -301,6 +576,10 @@ func isKnownPrefix(action string) bool {
 		"repo.", "mapping.", "logic.", "event.", "fsm.", "flow.", "tx.",
 		"list.", "notification.", "audit.", "auth.", "entity.", "field.",
 		"str.", "enum.", "time.", "map.",
+		"exec.", "fs.",
+		"cache.", "mail.", "storage.",
+		"http.", "rand.", "json.", "parallel.",
+		"pdf.",
 	}
 	for _, p := range prefixes {
 		if strings.HasPrefix(action, p) {

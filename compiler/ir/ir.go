@@ -392,6 +392,8 @@ type Endpoint struct {
 	Retry            *RetryPolicy
 	Timeout          string // Request timeout (e.g. "5s", "30s")
 	MaxBodySize      int64  // Request body size limit in bytes
+	MaxConcurrent    int    // max simultaneous in-flight requests; 0 = unlimited
+	Coalesce         bool   // deduplicate identical in-flight GET requests via singleflight
 	Idempotent       bool
 	DedupeKey        string
 	Errors           []string

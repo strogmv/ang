@@ -133,11 +133,49 @@ func main() {
 	// --- PostgreSQL Database Connection ---
 	// ROLE: Primary data store for all domain entities
 	// USED BY: All repository implementations (postgres/*.go)
-	pgPool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	pgPool, err := func() (*pgxpool.Pool, error) {
+		poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)
+		if err != nil {
+			return nil, err
+		}
+
+		pgMaxConns := cfg.PGMaxConns
+		if pgMaxConns <= 0 {
+			pgMaxConns = 25
+		}
+		pgMinConns := cfg.PGMinConns
+		if pgMinConns < 0 {
+			pgMinConns = 0
+		}
+		if pgMinConns > pgMaxConns {
+			pgMinConns = pgMaxConns
+		}
+
+		pgMaxConnLifetime := time.Hour
+		if d, err := time.ParseDuration(cfg.PGMaxConnLifetime); err == nil && d > 0 {
+			pgMaxConnLifetime = d
+		}
+		pgMaxConnIdleTime := 30 * time.Minute
+		if d, err := time.ParseDuration(cfg.PGMaxConnIdleTime); err == nil && d > 0 {
+			pgMaxConnIdleTime = d
+		}
+
+		poolCfg.MaxConns = int32(pgMaxConns)
+		poolCfg.MinConns = int32(pgMinConns)
+		poolCfg.MaxConnLifetime = pgMaxConnLifetime
+		poolCfg.MaxConnIdleTime = pgMaxConnIdleTime
+		return pgxpool.NewWithConfig(ctx, poolCfg)
+	}()
 	if err != nil {
 		log.Error("Postgres init failed", "error", err)
 	} else {
-		log.Info("Postgres connected")
+		log.Info(
+			"Postgres connected",
+			"max_conns", cfg.PGMaxConns,
+			"min_conns", cfg.PGMinConns,
+			"max_conn_lifetime", cfg.PGMaxConnLifetime,
+			"max_conn_idle_time", cfg.PGMaxConnIdleTime,
+		)
 		defer pgPool.Close()
 	}
 	{{ end }}

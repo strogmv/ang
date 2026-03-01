@@ -88,16 +88,19 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 
 			arg := "entity." + ExportName(f.Name)
 			if f.IsOptional {
-				if f.Type == "time.Time" || f.Type == "*time.Time" {
+				switch {
+				case f.Type == "time.Time" || f.Type == "*time.Time":
 					arg = "nullTime(" + arg + ")"
-				} else if f.Type == "int" || f.Type == "int64" {
+				case f.Type == "int" || f.Type == "int64":
 					arg = "nullInt(" + arg + ")"
-				} else if strings.HasPrefix(f.Type, "[]") {
+				case f.Type == "float64" || f.Type == "*float64":
+					arg = "nullFloat64(" + arg + ")"
+				case strings.HasPrefix(f.Type, "[]"):
 					// pgx can encode/decode slices natively; keep value as-is.
 					arg = "entity." + ExportName(f.Name)
-				} else if strings.HasPrefix(f.Type, "map[") || f.Type == "any" || f.Type == "interface{}" {
+				case strings.HasPrefix(f.Type, "map[") || f.Type == "any" || f.Type == "interface{}":
 					arg = "nullJSON(" + arg + ")"
-				} else {
+				default:
 					arg = "nullString(" + arg + ")"
 				}
 			}

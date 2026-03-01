@@ -17,6 +17,10 @@
       "type": "*ir.CircuitBreaker"
     },
     {
+      "name": "Coalesce",
+      "type": "bool"
+    },
+    {
       "name": "DedupeKey",
       "type": "string"
     },
@@ -39,6 +43,10 @@
     {
       "name": "MaxBodySize",
       "type": "int64"
+    },
+    {
+      "name": "MaxConcurrent",
+      "type": "int"
     },
     {
       "name": "Messages",

@@ -248,6 +248,8 @@ type Endpoint struct {
 	Timeout          string // Request timeout (e.g. "5s", "30s")
 	MaxBodySize      int64  // Request body size limit in bytes
 	Idempotency      bool
+	MaxConcurrent    int  // max simultaneous in-flight requests; 0 = unlimited
+	Coalesce         bool // deduplicate identical in-flight GET requests via singleflight
 	RequiredScopes   []string
 	DedupeKey        string
 	Errors           []string
@@ -453,14 +455,18 @@ type FileMeta struct {
 
 // TargetDef describes the code generation target stack.
 type TargetDef struct {
-	Name      string // "go-core", "python-api"
-	Lang      string // "go", "python", "rust", "typescript"
-	Framework string // "chi", "echo", "fiber", "axum", "fastapi"
-	DB        string // "postgres", "mysql", "mongodb"
-	Cache     string // "redis", "memcached", "none"
-	Queue     string // "nats", "kafka", "rabbitmq"
-	Storage   string // "s3", "gcs", "minio"
-	OutputDir string // generated backend output root for this target
+	Name           string // "go-core", "python-api"
+	Lang           string // "go", "python", "rust", "typescript"
+	Framework      string // "chi", "echo", "fiber", "axum", "fastapi"
+	DB             string // "postgres", "mysql", "mongodb"
+	Cache          string // "redis", "memcached", "none"
+	Queue          string // "nats", "kafka", "rabbitmq"
+	Storage        string // "s3", "gcs", "minio"
+	OutputDir      string // generated backend output root for this target
+	FrontendAppDir string // optional: copy generated SDK into this frontend directory
+	NatsWorkers              int // max concurrent NATS handlers per subscriber; 0 = default (20)
+	NatsPublishRetryAttempts int // retry attempts on publish failure; default 3
+	NatsPublishRetryDelayMS  int // initial backoff in ms; doubles each attempt; default 100
 }
 
 // NotificationMutingDef describes automatic notification muting via repository decorator.

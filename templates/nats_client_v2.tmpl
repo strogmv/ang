@@ -2,16 +2,22 @@ package nats
 
 import (
 	"context"
+{{- if .Events }}
 	"encoding/json"
+	"fmt"
+	"time"
+{{- end }}
 	natspkg "github.com/nats-io/nats.go"
+{{- if .Events }}
 	"{{GoModule}}/internal/domain"
+{{- end }}
 )
 
 type Client struct {
 	nc *natspkg.Conn
 }
 
-// keep context import when events are present
+// keep context import
 var _ = context.Background
 
 func NewClient(url string) (*Client, error) {
@@ -36,22 +42,57 @@ func (c *Client) Subscribe(subject string, handler func(data []byte) error) (*na
 	})
 }
 
-{{- range . }}
+// Enqueue publishes a raw payload to the given subject (implements port.QueuePublisher).
+func (c *Client) Enqueue(ctx context.Context, subject string, payload []byte) error {
+	return c.nc.Publish(subject, payload)
+}
+
+{{- range .Events }}
 func (c *Client) Publish{{ . }}(ctx context.Context, event domain.{{ ExportName . }}) error {
 	data, err := json.Marshal(event)
 	if err != nil {
 		return err
 	}
-	return c.nc.Publish("{{ . }}", data)
+	delay := time.Duration({{ $.PublishRetryDelayMS }}) * time.Millisecond
+	var lastErr error
+	for attempt := 0; attempt < {{ $.PublishRetryAttempts }}; attempt++ {
+		if lastErr = c.nc.Publish("{{ . }}", data); lastErr == nil {
+			return nil
+		}
+		if attempt < {{ $.PublishRetryAttempts }}-1 {
+			time.Sleep(delay)
+			delay *= 2
+		}
+	}
+	fmt.Printf("NATS: publish failed after %d attempts [{{ . }}]: %v\n", {{ $.PublishRetryAttempts }}, lastErr)
+	return lastErr
 }
 
+// Subscribe{{ . }} processes messages concurrently using a worker pool of {{ $.Workers }} goroutines.
+// The NATS callback returns immediately (non-blocking) — true backpressure via channel semaphore.
+// When the pool is full the message is shed (dropped) rather than queued to prevent cascade delays.
 func (c *Client) Subscribe{{ . }}(handler func(context.Context, domain.{{ ExportName . }}) error) (*natspkg.Subscription, error) {
+	sem := make(chan struct{}, {{ $.Workers }})
 	return c.nc.Subscribe("{{ . }}", func(msg *natspkg.Msg) {
-		var event domain.{{ ExportName . }}
-		if err := json.Unmarshal(msg.Data, &event); err != nil {
+		select {
+		case sem <- struct{}{}:
+		default:
+			fmt.Printf("NATS [{{ . }}]: worker pool full (%d), shedding message\n", {{ $.Workers }})
 			return
 		}
-		_ = handler(context.Background(), event)
+		go func() {
+			defer func() { <-sem }()
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Printf("NATS handler panic recovered [{{ . }}]: %v\n", r)
+				}
+			}()
+			var event domain.{{ ExportName . }}
+			if err := json.Unmarshal(msg.Data, &event); err != nil {
+				return
+			}
+			_ = handler(context.Background(), event)
+		}()
 	})
 }
 {{- end }}

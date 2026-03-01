@@ -30,6 +30,8 @@ func TestIRRoundTrip(t *testing.T) {
 			OptimisticUpdate: "GetRelated",
 			Timeout:          "30s",
 			MaxBodySize:      1024 * 1024,
+			MaxConcurrent:    8,
+			Coalesce:         true,
 			Idempotency:      true,
 			DedupeKey:        "X-Dedupe-ID",
 			Errors:           []string{"NOT_FOUND", "FORBIDDEN"},

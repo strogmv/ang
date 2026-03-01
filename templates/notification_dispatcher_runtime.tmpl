@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"os"
 
+	"{{ GoModule }}/internal/adapter/mailer/noop"
 	"{{ GoModule }}/internal/adapter/mailer/smtp"
 	"{{ GoModule }}/internal/config"
 	"{{ GoModule }}/internal/pkg/emailtemplates"
@@ -177,11 +178,16 @@ func resolveMailer(cfg *config.Config) (port.Mailer, error) {
 	if cfg == nil {
 		cfg = &config.Config{}
 	}
-	provider := strings.ToLower(strings.TrimSpace(firstNonEmpty(os.Getenv("EMAIL_PROVIDER"), "smtp")))
+	provider := strings.ToLower(strings.TrimSpace(firstNonEmpty(os.Getenv("EMAIL_PROVIDER"), cfg.EmailProvider, "noop")))
 	switch provider {
+	case "", "none", "noop", "disabled":
+		return noop.New(), nil
 	case "smtp":
 		if strings.TrimSpace(cfg.SMTPHost) == "" {
 			return nil, fmt.Errorf("smtp host not configured")
+		}
+		if strings.TrimSpace(cfg.SMTPFrom) == "" && strings.TrimSpace(cfg.SMTPUser) == "" {
+			return nil, fmt.Errorf("smtp sender not configured (set SMTP_FROM or SMTP_USER)")
 		}
 		return smtp.New(cfg), nil
 	case "ses":

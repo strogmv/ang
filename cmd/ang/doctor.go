@@ -12,6 +12,11 @@ import (
 )
 
 func runDoctor(args []string) {
+	if len(args) > 0 && strings.EqualFold(strings.TrimSpace(args[0]), "start") {
+		runDoctorStart(args[1:])
+		return
+	}
+
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	logFile := fs.String("log-file", "ang-build.log", "path to build log file")

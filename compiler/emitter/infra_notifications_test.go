@@ -82,6 +82,7 @@ func TestEmitNotificationDispatcherRuntime(t *testing.T) {
 		`package notifications`,
 		`"example.com/project/internal/port"`,
 		`func NewDispatcher(cfg *config.Config) *Dispatcher`,
+		`case "", "none", "noop", "disabled":`,
 		`case "email":`,
 		`case "in_app":`,
 		`case "nats":`,

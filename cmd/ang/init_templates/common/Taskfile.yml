@@ -1,0 +1,47 @@
+version: "3"
+
+tasks:
+  up:
+    desc: Run full local bootstrap
+    cmds:
+      - ang up
+
+  dev:
+    desc: Start local dependencies only
+    cmds:
+      - bash scripts/dev-up.sh
+
+  down:
+    desc: Stop local dependencies
+    cmds:
+      - bash scripts/dev-down.sh
+
+  build:
+    desc: Generate code from CUE intent
+    cmds:
+      - ang build
+
+  validate:
+    desc: Validate CUE intent
+    cmds:
+      - ang validate
+
+  lint:
+    desc: Run semantic flow lint checks
+    cmds:
+      - ang lint
+
+  doctor:
+    desc: Preflight local startup checks
+    cmds:
+      - ang doctor start
+
+  smoke:
+    desc: Check local health endpoints
+    cmds:
+      - bash scripts/dev-smoke.sh
+
+  reset:
+    desc: Drop local runtime state
+    cmds:
+      - bash scripts/dev-reset.sh

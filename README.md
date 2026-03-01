@@ -308,6 +308,7 @@ cd tests && npm install && npm run test:e2e
 *   `ang validate` — Validate CUE models and architecture
 *   `ang lint` — Deep semantic linting for flow and embedded logic
 *   `ang build` — Compile CUE intent into code/infra (`--mode`, `--phase=all|plan|apply`, `--out-plan`, `--plan-file`)
+*   `ang up` — One-command local bootstrap (`doctor start` + compose + build + smoke)
 *   `ang db sync` — Sync DB schema with current CUE intent
 *   `ang migrate diff <name>` / `ang migrate apply` — Atlas migration workflow
 *   `ang api-diff` — Compare OpenAPI snapshots and suggest semver bump
@@ -317,6 +318,9 @@ cd tests && npm install && npm run test:e2e
 *   `ang rbac actions` / `ang rbac inspect` — RBAC action map and policy audit
 *   `ang events map` — Publisher/subscriber event map
 *   `ang doctor` — Analyze build failures and suggest concrete fixes
+*   `ang doctor start` — Preflight local startup checks (tools/env/compose/ports)
+*   `ang smoke` — Check `/health` and `/health/ready`
+*   `ang config doctor` — Validate `.env`/process env against generated `internal/config/config.go`
 *   `ang draw` — Generate architecture diagrams
 *   `ang explain <CODE>` — Explain lint/build diagnostic codes
 *   `ang hash` — Print CUE/templates hash for deterministic traceability
@@ -519,8 +523,9 @@ CreateOrder: {
 | `DATABASE_URL` | postgres://user:password@localhost:5432/app | PostgreSQL |
 | `REDIS_ADDR` | localhost:6379 | Redis |
 | `NATS_URL` | nats://localhost:4222 | NATS |
-| `JWT_PRIVATE_KEY` | — | RSA private key (PEM) |
-| `JWT_PUBLIC_KEY` | — | RSA public key (PEM) |
+| `JWT_PRIVATE_KEY` | — | JWT secret/private key (required for HS256) |
+| `JWT_PUBLIC_KEY` | — | JWT public key (required for RS256/ES256) |
+| `EMAIL_PROVIDER` | noop | Email provider: `noop` \| `smtp` \| `ses` |
 | `S3_ENDPOINT` | http://localhost:9000 | S3/Minio endpoint |
 | `S3_BUCKET` | attachments | S3 bucket name |
 

@@ -512,6 +512,8 @@ func ConvertEndpoint(ep normalizer.Endpoint) Endpoint {
 		OptimisticUpdate: ep.OptimisticUpdate,
 		Timeout:          ep.Timeout,
 		MaxBodySize:      ep.MaxBodySize,
+		MaxConcurrent:    ep.MaxConcurrent,
+		Coalesce:         ep.Coalesce,
 		Idempotent:       ep.Idempotency,
 		DedupeKey:        ep.DedupeKey,
 		Errors:           ep.Errors,

@@ -297,7 +297,8 @@ func copyFrontendSDK(srcDir, appDir string) error {
 	if strings.TrimSpace(appDir) == "" {
 		return nil
 	}
-	targetDir := filepath.Join(appDir, filepath.Base(srcDir))
+	// Copy files directly into appDir (caller specifies the exact target directory).
+	targetDir := appDir
 	if err := os.RemoveAll(targetDir); err != nil {
 		return fmt.Errorf("cleanup sdk target: %w", err)
 	}

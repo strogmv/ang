@@ -1,14 +1,14 @@
 package compiler
 
 import (
-	"crypto/sha256"
-	"fmt"
-	"io"
-	"os"
-	"path/filepath"
-	"sort"
-	"strconv"
-	"strings"
+    "crypto/sha256"
+    "fmt"
+    "io"
+    "os"
+    "path/filepath"
+    "sort"
+    "strconv"
+    "strings"
 
 	"cuelang.org/go/cue"
 	"github.com/strogmv/ang/compiler/ir"
@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	Version       = "0.1.100"
+	Version       = "0.1.107"
 	SchemaVersion = "1"
 )
 
@@ -279,7 +279,139 @@ func RunPipelineWithOptions(basePath string, opts PipelineOptions) ([]normalizer
 	// Scopes registry (optional)
 	scopes, _ := n.ExtractScopes(valDomain)
 
+	broadcastOnly, planned := loadEventAnnotations(basePath)
+
+	emitEventUsageDiagnostics(services, events, schedules, broadcastOnly, planned, opts)
+
 	return entities, services, endpoints, repos, events, bizErrors, schedules, scenarios, scopes, nil
+}
+
+// emitEventUsageDiagnostics surfaces dead/unused events as warnings (non-fatal).
+// - dead event: defined but never published or subscribed
+// - orphan publish: published but nobody subscribes
+// - missing publisher: subscribed but no publisher exists
+func emitEventUsageDiagnostics(services []normalizer.Service, events []normalizer.EventDef, schedules []normalizer.ScheduleDef, broadcastOnly map[string]struct{}, planned map[string]struct{}, opts PipelineOptions) {
+	defined := make(map[string]struct{})
+	for _, e := range events {
+		defined[e.Name] = struct{}{}
+	}
+
+	published := make(map[string]struct{})
+	subscribed := make(map[string]struct{})
+
+	for _, s := range services {
+		for _, evt := range s.Publishes {
+			published[evt] = struct{}{}
+		}
+		for evt := range s.Subscribes {
+			subscribed[evt] = struct{}{}
+		}
+		for _, m := range s.Methods {
+			for _, evt := range m.Publishes {
+				published[evt] = struct{}{}
+			}
+		}
+	}
+	for _, sch := range schedules {
+		if sch.Publish != "" {
+			published[sch.Publish] = struct{}{}
+		}
+	}
+
+	for name := range defined {
+		if _, okPub := published[name]; okPub {
+			continue
+		}
+		if _, okSub := subscribed[name]; okSub {
+			continue
+		}
+		if _, ok := planned[name]; ok {
+			continue
+		}
+		recordPipelineDiagnostic(normalizer.Warning{
+			Kind:     "dead-event",
+			Code:     "DEAD_EVENT",
+			Severity: "warn",
+			Message:  fmt.Sprintf("Event %s is defined but never published or subscribed", name),
+		}, opts)
+	}
+
+	for name := range published {
+		if _, ok := subscribed[name]; ok {
+			continue
+		}
+		if _, ok := broadcastOnly[name]; ok {
+			continue
+		}
+		recordPipelineDiagnostic(normalizer.Warning{
+			Kind:     "orphan-publish",
+			Code:     "ORPHAN_PUBLISH",
+			Severity: "warn",
+			Message:  fmt.Sprintf("Event %s is published but has no subscribers", name),
+		}, opts)
+	}
+
+	for name := range subscribed {
+		if _, ok := published[name]; ok {
+			continue
+		}
+		recordPipelineDiagnostic(normalizer.Warning{
+			Kind:     "missing-publisher",
+			Code:     "MISSING_PUBLISH",
+			Severity: "warn",
+			Message:  fmt.Sprintf("Event %s is subscribed but never published", name),
+		}, opts)
+	}
+}
+
+// loadEventAnnotations reads cue/events/annotations.cue (optional) and returns
+// two sets: broadcastOnly and planned.
+func loadEventAnnotations(basePath string) (map[string]struct{}, map[string]struct{}) {
+	broadcastOnly := make(map[string]struct{})
+	planned := make(map[string]struct{})
+
+	path := filepath.Join(basePath, "cue", "events_meta", "annotations.cue")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return broadcastOnly, planned
+	}
+
+	// very small ad-hoc parser for the two maps; avoid pulling CUE parser here
+	var current string
+	for _, raw := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(raw)
+		if strings.HasPrefix(line, "//") || line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "BroadcastOnly:") {
+			current = "broadcast"
+			continue
+		}
+		if strings.HasPrefix(line, "Planned:") {
+			current = "planned"
+			continue
+		}
+		if strings.HasSuffix(line, "{") || strings.HasSuffix(line, "}") {
+			continue
+		}
+		name := strings.TrimSpace(line)
+		name = strings.TrimSuffix(name, "true")
+		name = strings.TrimSuffix(name, ":")
+		name = strings.TrimSpace(strings.TrimSuffix(name, ":"))
+		name = strings.TrimSpace(strings.TrimSuffix(name, ":"))
+		name = strings.TrimSpace(strings.TrimSuffix(name, ":"))
+		name = strings.TrimSuffix(name, "=")
+		name = strings.TrimSpace(strings.TrimSuffix(name, ""))
+		if name == "" {
+			continue
+		}
+		if current == "broadcast" {
+			broadcastOnly[name] = struct{}{}
+		} else if current == "planned" {
+			planned[name] = struct{}{}
+		}
+	}
+	return broadcastOnly, planned
 }
 
 func emitSelectProjectionDiagnostics(

@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-//go:embed init_templates/**
+//go:embed init_templates/** init_templates/common/.env.example
 var initTemplatesFS embed.FS
 
 type initTemplateOptions struct {
@@ -45,6 +45,7 @@ func initFromTemplate(opts initTemplateOptions) error {
 		"FRAMEWORK":    defaultFrameworkForLang(opts.Lang),
 		"DB":           opts.DB,
 		"TEMPLATE":     opts.TemplateName,
+		"GO_VERSION":   detectRootGoVersion("go.mod"),
 	}
 
 	if err := writeEmbeddedTree("init_templates/common", opts.TargetDir, vars); err != nil {
@@ -53,6 +54,9 @@ func initFromTemplate(opts initTemplateOptions) error {
 	templateRoot := filepath.ToSlash(filepath.Join("init_templates", "templates", opts.TemplateName))
 	if err := writeEmbeddedTree(templateRoot, opts.TargetDir, vars); err != nil {
 		return fmt.Errorf("write %s template files: %w", opts.TemplateName, err)
+	}
+	if err := ensureInitGoMod(opts.TargetDir, opts.ModulePath); err != nil {
+		return err
 	}
 
 	return nil
@@ -147,4 +151,22 @@ func defaultFrameworkForLang(lang string) string {
 	default:
 		return "chi"
 	}
+}
+
+func ensureInitGoMod(targetDir, modulePath string) error {
+	goModPath := filepath.Join(targetDir, "go.mod")
+	if _, err := os.Stat(goModPath); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("check go.mod: %w", err)
+	}
+	mod := strings.TrimSpace(modulePath)
+	if mod == "" {
+		mod = "github.com/example/" + sanitizeProjectName(filepath.Base(targetDir))
+	}
+	content := fmt.Sprintf("module %s\n\ngo %s\n", mod, detectRootGoVersion("go.mod"))
+	if err := os.WriteFile(goModPath, []byte(content), 0o644); err != nil {
+		return fmt.Errorf("write go.mod: %w", err)
+	}
+	return nil
 }

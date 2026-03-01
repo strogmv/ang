@@ -184,7 +184,7 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 
 	for _, svc := range nServices {
 		// Collect all imports for this service
-		importMap := make(map[string]bool)
+		importMap := make(map[string]string) // path → alias (empty = no alias)
 
 		// Base imports that every service needs
 		baseImports := []string{
@@ -209,7 +209,7 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 			e.GoModule + "/internal/port",
 		}
 		for _, imp := range baseImports {
-			importMap[imp] = true
+			importMap[imp] = ""
 		}
 
 		// Add imports from methods
@@ -225,15 +225,69 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 						imp = "github.com/google/uuid"
 					}
 					if imp != "" {
-						importMap[imp] = true
+						importMap[imp] = ""
 					}
 				}
 			}
+			// Scan flow steps for actions that need extra imports
+			var scanFlowImports func(steps []normalizer.FlowStep)
+			scanFlowImports = func(steps []normalizer.FlowStep) {
+				for _, step := range steps {
+					switch step.Action {
+					case "exec.Run":
+						importMap["os/exec"] = ""
+					case "fs.WriteFile":
+						importMap["path/filepath"] = ""
+					case "cache.Get", "cache.Set", "cache.Del":
+						importMap["github.com/redis/go-redis/v9"] = ""
+					case "http.Call":
+						importMap["net/http"] = ""
+						importMap["io"] = ""
+					case "rand.Code":
+						importMap["crypto/rand"] = "cryptorand"
+						importMap["encoding/binary"] = ""
+					case "rand.Token":
+						importMap["crypto/rand"] = "cryptorand"
+						importMap["encoding/hex"] = ""
+					case "parallel.Run":
+						importMap["sync"] = ""
+					case "pdf.Render":
+						importMap[e.GoModule+"/internal/pkg/report"] = ""
+					case "webhook.Send":
+						importMap["bytes"] = ""
+					case "storage.Upload":
+						importMap["bytes"] = ""
+					case "storage.Download":
+						importMap["io"] = ""
+					}
+					// Recurse into child steps
+					for _, childKey := range []string{"_do", "_then", "_else", "_ifNew", "_ifExists", "_default", "_catch", "_fallback", "_onTimeout", "_onMissing"} {
+						if sub, ok := step.Args[childKey].([]normalizer.FlowStep); ok {
+							scanFlowImports(sub)
+						}
+					}
+					if cases, ok := step.Args["_cases"].(map[string][]normalizer.FlowStep); ok {
+						for _, branch := range cases {
+							scanFlowImports(branch)
+						}
+					}
+					if branches, ok := step.Args["_branches"].(map[string][]normalizer.FlowStep); ok {
+						for _, branch := range branches {
+							scanFlowImports(branch)
+						}
+					}
+				}
+			}
+			scanFlowImports(m.Flow)
 		}
 
 		var allImports []string
-		for imp := range importMap {
-			allImports = append(allImports, imp)
+		for path, alias := range importMap {
+			if alias == "" {
+				allImports = append(allImports, fmt.Sprintf("%q", path))
+			} else {
+				allImports = append(allImports, fmt.Sprintf("%s %q", alias, path))
+			}
 		}
 		sort.Strings(allImports)
 

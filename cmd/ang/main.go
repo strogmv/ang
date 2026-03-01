@@ -31,6 +31,8 @@ func main() {
 		runLint(os.Args[2:])
 	case "build":
 		runBuild(os.Args[2:])
+	case "up":
+		runUp(os.Args[2:])
 	case "migrate":
 		runMigrate(os.Args[2:])
 	case "api-diff":
@@ -53,6 +55,10 @@ func main() {
 		runTest(os.Args[2:])
 	case "doctor":
 		runDoctor(os.Args[2:])
+	case "smoke":
+		runSmoke(os.Args[2:])
+	case "config":
+		runConfig(os.Args[2:])
 	case "lsp":
 		runLSP(os.Args[2:])
 	case "hash":
@@ -71,10 +77,11 @@ func main() {
 func printUsage() {
 	fmt.Printf("ANG — Architectural Normalized Generator v%s\n", compiler.Version)
 	fmt.Println("\nUsage:")
-	fmt.Println("  ang init [dir] --template saas|ecommerce|marketplace [--lang go] [--db postgres]")
+	fmt.Println("  ang init [dir] [--template saas|ecommerce|marketplace] [--lang go] [--db postgres]")
 	fmt.Println("  ang validate  Validate CUE models and architecture")
 	fmt.Println("  ang lint      Perform deep semantic linting of flows and logic")
 	fmt.Println("  ang build     Compile CUE intent into code and infra configs (--mode=in_place|release, --backend-dir, --dry-run, --run-tests, --log-format=json, --phase=all|plan|apply, --out-plan, --plan-file)")
+	fmt.Println("  ang up        Local one-command bootstrap (doctor start + compose up + build + smoke)")
 	fmt.Println("                Examples:")
 	fmt.Println("                  ang build --mode=in_place --backend-dir .")
 	fmt.Println("                  ang build --mode=release")
@@ -90,6 +97,9 @@ func printUsage() {
 	fmt.Println("  ang rbac inspect  Audit RBAC policies for holes and errors")
 	fmt.Println("  ang events map    Visualize end-to-end event journey (Pub/Sub)")
 	fmt.Println("  ang doctor    Analyze build log and suggest concrete CUE fixes")
+	fmt.Println("  ang doctor start  Preflight local startup checks (tools/env/compose/ports)")
+	fmt.Println("  ang smoke     Check /health and /health/ready endpoints")
+	fmt.Println("  ang config doctor  Validate runtime env against generated config schema")
 	fmt.Println("  ang mcp       Run ANG MCP server over stdio")
 	fmt.Println("  ang lsp --stdio  Run ANG language server (MVP diagnostics)")
 	fmt.Println("  ang explain   Explain a lint code with examples")
@@ -199,20 +209,23 @@ func runInit(args []string) {
 	if projectName == "." || projectName == string(filepath.Separator) || strings.TrimSpace(projectName) == "" {
 		projectName = "ang-app"
 	}
-
-	if strings.TrimSpace(*templateName) == "" {
-		if err := initLegacyScaffold(targetDir); err != nil {
-			fmt.Printf("Init FAILED: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Println("Project structure initialized successfully.")
-		return
-	}
-
 	modulePath := strings.TrimSpace(*module)
 	if modulePath == "" {
 		modulePath = "github.com/example/" + sanitizeProjectName(projectName)
 	}
+
+	if strings.TrimSpace(*templateName) == "" {
+		if err := initLegacyScaffold(targetDir, modulePath, *lang, *db); err != nil {
+			fmt.Printf("Init FAILED: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Minimal project scaffold initialized successfully.")
+		fmt.Println("Next steps:")
+		fmt.Printf("  cd %s\n", targetDir)
+		fmt.Println("  ang build")
+		return
+	}
+
 	opts := initTemplateOptions{
 		TemplateName: strings.ToLower(strings.TrimSpace(*templateName)),
 		TargetDir:    targetDir,
@@ -233,7 +246,20 @@ func runInit(args []string) {
 	fmt.Println("  ang build")
 }
 
-func initLegacyScaffold(root string) error {
+func initLegacyScaffold(root, modulePath, lang, db string) error {
+	if strings.TrimSpace(modulePath) == "" {
+		modulePath = "github.com/example/" + sanitizeProjectName(filepath.Base(root))
+	}
+	lang = strings.ToLower(strings.TrimSpace(lang))
+	if lang == "" {
+		lang = "go"
+	}
+	db = strings.ToLower(strings.TrimSpace(db))
+	if db == "" {
+		db = "postgres"
+	}
+	framework := defaultFrameworkForLang(lang)
+
 	dirs := []string{
 		filepath.Join(root, "cue", "domain"),
 		filepath.Join(root, "cue", "api"),
@@ -242,6 +268,7 @@ func initLegacyScaffold(root string) error {
 		filepath.Join(root, "cue", "architecture"),
 		filepath.Join(root, "cue", "repo"),
 		filepath.Join(root, "cue", "schema"),
+		filepath.Join(root, "cue", "project"),
 	}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {
@@ -249,18 +276,151 @@ func initLegacyScaffold(root string) error {
 		}
 	}
 
-	moduleContent := `module: "github.com/strogmv/ang"
+	moduleContent := fmt.Sprintf(`module: %q
 language: {
 	version: "v0.9.0"
 }
+`, modulePath)
+	projectContent := fmt.Sprintf(`package project
+
+state: {
+	target: {
+		lang:      %q
+		framework: %q
+		db:        %q
+	}
+
+	targets: [{
+		name:       %q
+		lang:       %q
+		framework:  %q
+		db:         %q
+		output_dir: "dist/release/%s-service"
+	}]
+}
+`, lang, framework, db, lang, lang, framework, db, lang)
+	domainContent := `package domain
+
+#HealthSnapshot: {
+	name: "HealthSnapshot"
+	fields: {
+		status:    {type: "string"}
+		checkedAt: {type: "time"}
+	}
+}
 `
+	archContent := `package architecture
+
+#Services: {
+	system: {
+		name:        "System"
+		description: "Minimal bootstrap service"
+		entities:    []
+	}
+}
+`
+	httpContent := `package api
+
+HTTP: {
+	Health: {
+		method: "GET"
+		path:   "/health"
+	}
+}
+`
+	opsContent := `package api
+
+Health: {
+	service: "system"
+	output: {
+		status: string
+	}
+	impl_steps: [
+		{
+			action: "mapping.Assign"
+			to:     "resp.Status"
+			value:  "\"ok\""
+		},
+	]
+}
+`
+	repoContent := `package repo
+
+Repositories: {}
+`
+	rbacContent := `package policies
+
+#RBAC: {
+	roles: {
+		admin: ["health.read"]
+	}
+	permissions: {
+		"health.read": "Read service health"
+	}
+}
+`
+	taskfileContent := `version: "3"
+
+tasks:
+  up:
+    cmds:
+      - ang up
+
+  build:
+    cmds:
+      - ang build
+
+  validate:
+    cmds:
+      - ang validate
+
+  lint:
+    cmds:
+      - ang lint
+
+  doctor:
+    cmds:
+      - ang doctor start
+`
+	goModContent := fmt.Sprintf("module %s\n\ngo %s\n", modulePath, detectRootGoVersion("go.mod"))
+	goWorkContent := fmt.Sprintf("go %s\n\nuse .\n", detectRootGoVersion("go.mod"))
+
 	modFile := filepath.Join(root, "cue.mod", "module.cue")
 	if err := os.MkdirAll(filepath.Dir(modFile), 0755); err != nil {
 		return fmt.Errorf("create cue.mod: %w", err)
 	}
-	if _, err := os.Stat(modFile); os.IsNotExist(err) {
-		if err := os.WriteFile(modFile, []byte(moduleContent), 0644); err != nil {
-			return fmt.Errorf("write module file: %w", err)
+
+	writeIfMissing := func(path string, content string) error {
+		if _, err := os.Stat(path); err == nil {
+			return nil
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("check file %s: %w", path, err)
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			return fmt.Errorf("create dir for %s: %w", path, err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			return fmt.Errorf("write file %s: %w", path, err)
+		}
+		return nil
+	}
+
+	files := map[string]string{
+		modFile:                                                    moduleContent,
+		filepath.Join(root, "go.mod"):                              goModContent,
+		filepath.Join(root, "go.work"):                             goWorkContent,
+		filepath.Join(root, "Taskfile.yml"):                        taskfileContent,
+		filepath.Join(root, "cue", "project", "project.cue"):       projectContent,
+		filepath.Join(root, "cue", "domain", "entities.cue"):       domainContent,
+		filepath.Join(root, "cue", "architecture", "services.cue"): archContent,
+		filepath.Join(root, "cue", "api", "http.cue"):              httpContent,
+		filepath.Join(root, "cue", "api", "operations.cue"):        opsContent,
+		filepath.Join(root, "cue", "repo", "repositories.cue"):     repoContent,
+		filepath.Join(root, "cue", "policies", "rbac.cue"):         rbacContent,
+	}
+	for path, content := range files {
+		if err := writeIfMissing(path, content); err != nil {
+			return err
 		}
 	}
 	return nil

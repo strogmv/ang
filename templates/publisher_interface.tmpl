@@ -1,14 +1,19 @@
 package port
 
-{{- if . }}
 import (
 	"context"
+{{- if . }}
 	"{{GoModule}}/internal/domain"
-)
 {{- end }}
+)
 
 type Publisher interface {
 {{- range . }}
 	Publish{{ . }}(ctx context.Context, event domain.{{ ExportName . }}) error
 {{- end }}
+}
+
+// QueuePublisher sends arbitrary messages to a named subject/queue.
+type QueuePublisher interface {
+	Enqueue(ctx context.Context, subject string, payload []byte) error
 }

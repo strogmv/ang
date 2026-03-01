@@ -6,6 +6,11 @@
 		{{- $roomField := RoomFieldForEventIR $.EndpointsIR $.ServicesIR $svcName $evtName }}
 		{{- $hasRoomField := HasEventFieldIR $.EventPayloads $evtName $roomField }}
 		if _, err := natsClient.Subscribe("{{ $evtName }}", func(data []byte) error {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Error("NATS WS handler panic recovered", "event", "{{ $evtName }}", "panic", r)
+				}
+			}()
 			var event domain.{{ ExportName $evtName }}
 			if err := json.Unmarshal(data, &event); err != nil {
 				return err

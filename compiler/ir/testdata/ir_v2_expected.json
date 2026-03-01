@@ -155,6 +155,8 @@
       "Retry": null,
       "Timeout": "",
       "MaxBodySize": 0,
+      "MaxConcurrent": 0,
+      "Coalesce": false,
       "Idempotent": false,
       "DedupeKey": "",
       "Errors": null,

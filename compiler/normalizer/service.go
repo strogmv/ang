@@ -28,8 +28,10 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 	for _, e := range entities {
 		n.RepoNames[e.Name+"Repository"] = struct{}{}
 	}
-	// Index events for impl_steps validation
-	n.EventNames = make(map[string]struct{})
+	// EventNames may already be filled in ExtractEvents; ensure map exists
+	if n.EventNames == nil {
+		n.EventNames = make(map[string]struct{})
+	}
 
 	entityOwners := make(map[string]string)
 	isDTO := make(map[string]bool)
@@ -507,7 +509,9 @@ func (n *Normalizer) parseFlowSteps(val cue.Value) ([]FlowStep, error) {
 	if err != nil {
 		return nil, err
 	}
-	return n.autoCompleteFlowSteps(steps), nil
+	steps = n.autoCompleteFlowSteps(steps)
+	steps = n.applyFlowPerformanceDefaults(steps)
+	return steps, nil
 }
 
 // rawParseFlowSteps parses flow steps without auto-completion
@@ -606,6 +610,27 @@ func (n *Normalizer) rawParseFlowSteps(val cue.Value) ([]FlowStep, error) {
 					step.Args[label] = s
 					if strings.HasPrefix(label, "_") {
 						step.Args[strings.TrimPrefix(label, "_")] = s
+					}
+				}
+			case cue.IntKind:
+				if i, err := v.Int64(); err == nil {
+					step.Args[label] = int(i)
+					if strings.HasPrefix(label, "_") {
+						step.Args[strings.TrimPrefix(label, "_")] = int(i)
+					}
+				}
+			case cue.FloatKind, cue.NumberKind:
+				if f, err := v.Float64(); err == nil {
+					if f == float64(int64(f)) {
+						step.Args[label] = int(f)
+						if strings.HasPrefix(label, "_") {
+							step.Args[strings.TrimPrefix(label, "_")] = int(f)
+						}
+					} else {
+						step.Args[label] = f
+						if strings.HasPrefix(label, "_") {
+							step.Args[strings.TrimPrefix(label, "_")] = f
+						}
 					}
 				}
 			case cue.BoolKind:
@@ -707,6 +732,44 @@ func (n *Normalizer) rawParseFlowSteps(val cue.Value) ([]FlowStep, error) {
 				step.Args["_ifExists"] = sub
 			}
 		}
+		if v := stepVal.LookupPath(cue.ParsePath("catch")); v.Exists() && v.Kind() == cue.ListKind {
+			if sub, err := n.parseFlowSteps(v); err == nil {
+				step.Args["_catch"] = sub
+			}
+		}
+		if v := stepVal.LookupPath(cue.ParsePath("fallback")); v.Exists() && v.Kind() == cue.ListKind {
+			if sub, err := n.parseFlowSteps(v); err == nil {
+				step.Args["_fallback"] = sub
+			}
+		}
+		if v := stepVal.LookupPath(cue.ParsePath("onTimeout")); v.Exists() && v.Kind() == cue.ListKind {
+			if sub, err := n.parseFlowSteps(v); err == nil {
+				step.Args["_onTimeout"] = sub
+			}
+		}
+		if v := stepVal.LookupPath(cue.ParsePath("onMissing")); v.Exists() && v.Kind() == cue.ListKind {
+			if sub, err := n.parseFlowSteps(v); err == nil {
+				step.Args["_onMissing"] = sub
+			}
+		}
+		// parallel.Run branches parsing
+		if v := stepVal.LookupPath(cue.ParsePath("branches")); v.Exists() && v.IncompleteKind() == cue.StructKind {
+			branchesMap := make(map[string][]FlowStep)
+			bit, _ := v.Fields(cue.All())
+			for bit.Next() {
+				branchLabel := strings.Trim(bit.Selector().String(), "\"")
+				branchVal := bit.Value()
+				if !branchVal.Exists() || branchVal.Kind() != cue.ListKind {
+					continue
+				}
+				if sub, err := n.parseFlowSteps(branchVal); err == nil {
+					branchesMap[branchLabel] = sub
+				}
+			}
+			if len(branchesMap) > 0 {
+				step.Args["_branches"] = branchesMap
+			}
+		}
 
 		steps = append(steps, step)
 	}
@@ -765,6 +828,27 @@ func (n *Normalizer) autoCompleteFlowSteps(steps []FlowStep) []FlowStep {
 				if v, ok := s.Args["_do"].([]FlowStep); ok {
 					scan(v)
 				}
+			case "flow.Try", "flow.Catch", "flow.Retry", "flow.Timeout":
+				if v, ok := s.Args["_do"].([]FlowStep); ok {
+					scan(v)
+				}
+				if v, ok := s.Args["_catch"].([]FlowStep); ok {
+					scan(v)
+				}
+				if v, ok := s.Args["_onTimeout"].([]FlowStep); ok {
+					scan(v)
+				}
+			case "flow.Fallback":
+				if v, ok := s.Args["_do"].([]FlowStep); ok {
+					scan(v)
+				}
+				if v, ok := s.Args["_fallback"].([]FlowStep); ok {
+					scan(v)
+				}
+			case "flow.Resume":
+				if v, ok := s.Args["_onMissing"].([]FlowStep); ok {
+					scan(v)
+				}
 			}
 		}
 	}
@@ -816,6 +900,18 @@ func (n *Normalizer) autoCompleteFlowSteps(steps []FlowStep) []FlowStep {
 			if v, ok := s.Args["_default"].([]FlowStep); ok {
 				s.Args["_default"] = inject(v)
 			}
+			if v, ok := s.Args["_catch"].([]FlowStep); ok {
+				s.Args["_catch"] = inject(v)
+			}
+			if v, ok := s.Args["_fallback"].([]FlowStep); ok {
+				s.Args["_fallback"] = inject(v)
+			}
+			if v, ok := s.Args["_onTimeout"].([]FlowStep); ok {
+				s.Args["_onTimeout"] = inject(v)
+			}
+			if v, ok := s.Args["_onMissing"].([]FlowStep); ok {
+				s.Args["_onMissing"] = inject(v)
+			}
 			if cases, ok := s.Args["_cases"].(map[string][]FlowStep); ok {
 				nextCases := make(map[string][]FlowStep, len(cases))
 				for key, branch := range cases {
@@ -830,6 +926,107 @@ func (n *Normalizer) autoCompleteFlowSteps(steps []FlowStep) []FlowStep {
 	}
 
 	return inject(steps)
+}
+
+func flowStepIntArg(args map[string]any, key string) (int, bool) {
+	if args == nil {
+		return 0, false
+	}
+	v, ok := args[key]
+	if !ok {
+		return 0, false
+	}
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case float64:
+		return int(n), true
+	case string:
+		s := strings.TrimSpace(n)
+		if s == "" {
+			return 0, false
+		}
+		p, err := strconv.Atoi(s)
+		if err != nil {
+			return 0, false
+		}
+		return p, true
+	default:
+		return 0, false
+	}
+}
+
+// applyFlowPerformanceDefaults injects safe runtime defaults so generated code
+// behaves predictably under load even when flow steps omit tuning knobs.
+func (n *Normalizer) applyFlowPerformanceDefaults(steps []FlowStep) []FlowStep {
+	var apply func([]FlowStep) []FlowStep
+	apply = func(items []FlowStep) []FlowStep {
+		out := make([]FlowStep, 0, len(items))
+		for _, s := range items {
+			if s.Args == nil {
+				s.Args = map[string]any{}
+			}
+
+			switch s.Action {
+			case "http.Call":
+				if _, ok := s.Args["attempts"]; !ok {
+					if retries, okRetries := flowStepIntArg(s.Args, "retries"); okRetries && retries >= 0 {
+						s.Args["attempts"] = retries + 1
+					} else {
+						s.Args["attempts"] = 2
+					}
+				}
+				if _, ok := s.Args["backoffMs"]; !ok {
+					s.Args["backoffMs"] = 150
+				}
+				if _, hasTimeout := s.Args["timeout"]; !hasTimeout {
+					if _, hasTimeoutMS := s.Args["timeoutMs"]; !hasTimeoutMS {
+						s.Args["timeout"] = "5*time.Second"
+					}
+				}
+
+			case "parallel.Run":
+				if _, hasMaxConcurrency := s.Args["maxConcurrency"]; !hasMaxConcurrency {
+					if _, hasMaxParallel := s.Args["maxParallel"]; !hasMaxParallel {
+						s.Args["maxConcurrency"] = 8
+					}
+				}
+
+			case "queue.Enqueue":
+				if _, hasTimeout := s.Args["timeout"]; !hasTimeout {
+					if _, hasTimeoutMS := s.Args["timeoutMs"]; !hasTimeoutMS {
+						s.Args["timeout"] = "3*time.Second"
+					}
+				}
+			}
+
+			for _, key := range []string{"_do", "_ifNew", "_ifExists", "_then", "_else", "_default", "_catch", "_fallback", "_onTimeout", "_onMissing"} {
+				if nested, ok := s.Args[key].([]FlowStep); ok {
+					s.Args[key] = apply(nested)
+				}
+			}
+			if cases, ok := s.Args["_cases"].(map[string][]FlowStep); ok {
+				next := make(map[string][]FlowStep, len(cases))
+				for name, branch := range cases {
+					next[name] = apply(branch)
+				}
+				s.Args["_cases"] = next
+			}
+			if branches, ok := s.Args["_branches"].(map[string][]FlowStep); ok {
+				next := make(map[string][]FlowStep, len(branches))
+				for name, branch := range branches {
+					next[name] = apply(branch)
+				}
+				s.Args["_branches"] = next
+			}
+
+			out = append(out, s)
+		}
+		return out
+	}
+	return apply(steps)
 }
 
 // validateFlowSteps checks flow steps for common mistakes and returns warnings
@@ -1112,6 +1309,43 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					validate(subSteps, inTx, depth+1)
 				}
 
+			case "flow.Try", "flow.Retry", "flow.Timeout":
+				if subSteps, ok := step.Args["_do"].([]FlowStep); ok {
+					validate(subSteps, inTx, depth+1)
+				}
+				if subSteps, ok := step.Args["_catch"].([]FlowStep); ok {
+					validate(subSteps, inTx, depth+1)
+				}
+				if subSteps, ok := step.Args["_onTimeout"].([]FlowStep); ok {
+					validate(subSteps, inTx, depth+1)
+				}
+
+			case "flow.Catch":
+				if subSteps, ok := step.Args["_do"].([]FlowStep); ok {
+					validate(subSteps, inTx, depth+1)
+				}
+
+			case "flow.Fallback":
+				if subSteps, ok := step.Args["_do"].([]FlowStep); ok {
+					validate(subSteps, inTx, depth+1)
+				}
+				if subSteps, ok := step.Args["_fallback"].([]FlowStep); ok {
+					validate(subSteps, inTx, depth+1)
+				}
+
+			case "flow.Resume":
+				if output, _ := step.Args["output"].(string); output != "" {
+					declaredVars[output] = true
+				}
+				if subSteps, ok := step.Args["_onMissing"].([]FlowStep); ok {
+					validate(subSteps, inTx, depth+1)
+				}
+
+			case "flow.SuggestNext", "flow.ExplainError":
+				if output, _ := step.Args["output"].(string); output != "" {
+					declaredVars[output] = true
+				}
+
 			case "audit.Log":
 				// validated by flow semantics engine
 
@@ -1194,6 +1428,87 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 			case "map.Build":
 				// validated by flow semantics engine
 
+			case "exec.Run":
+				if step.Args["cmd"] == nil || step.Args["cmd"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_CMD", "exec.Run missing 'cmd'", "{action: \"exec.Run\", cmd: \"/usr/bin/ang\", args: [\"build\"], output: \"result\"}", step.File, step.Line, step.Column)
+				}
+				if output, _ := step.Args["output"].(string); output != "" {
+					declaredVars[output] = true
+				}
+
+			case "fs.TempDir":
+				if output, _ := step.Args["output"].(string); output == "" {
+					addWarn(stepNum, step.Action, "MISSING_OUTPUT", "fs.TempDir missing 'output'", "{action: \"fs.TempDir\", output: \"workDir\", pattern: \"sendbox-*\"}", step.File, step.Line, step.Column)
+				} else {
+					declaredVars[output] = true
+				}
+
+			case "fs.WriteFile":
+				if step.Args["path"] == nil || step.Args["path"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_PATH", "fs.WriteFile missing 'path'", "{action: \"fs.WriteFile\", path: \"filePath\", data: \"req.Content\"}", step.File, step.Line, step.Column)
+				}
+				if step.Args["data"] == nil || step.Args["data"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_DATA", "fs.WriteFile missing 'data'", "{action: \"fs.WriteFile\", path: \"filePath\", data: \"req.Content\"}", step.File, step.Line, step.Column)
+				}
+
+			case "fs.ReadFile":
+				if step.Args["path"] == nil || step.Args["path"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_PATH", "fs.ReadFile missing 'path'", "{action: \"fs.ReadFile\", path: \"filePath\", output: \"contents\"}", step.File, step.Line, step.Column)
+				}
+				if output, _ := step.Args["output"].(string); output == "" {
+					addWarn(stepNum, step.Action, "MISSING_OUTPUT", "fs.ReadFile missing 'output'", "{action: \"fs.ReadFile\", path: \"filePath\", output: \"contents\"}", step.File, step.Line, step.Column)
+				} else {
+					declaredVars[output] = true
+				}
+
+			case "fs.Remove":
+				if step.Args["path"] == nil || step.Args["path"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_PATH", "fs.Remove missing 'path'", "{action: \"fs.Remove\", path: \"workDir\"}", step.File, step.Line, step.Column)
+				}
+
+			case "cache.Get", "cache.Set", "cache.Del":
+				if output, _ := step.Args["output"].(string); output != "" {
+					declaredVars[output] = true
+				}
+
+			case "mail.Send":
+				// validated by flow semantics engine
+
+			case "storage.Upload", "storage.GetURL":
+				if output, _ := step.Args["output"].(string); output != "" {
+					declaredVars[output] = true
+				}
+
+			case "http.Call":
+				if output, _ := step.Args["output"].(string); output != "" {
+					declaredVars[output] = true
+				}
+				if statusVar, _ := step.Args["statusVar"].(string); statusVar != "" {
+					declaredVars[statusVar] = true
+				}
+
+			case "rand.Code", "rand.Token":
+				if output, _ := step.Args["output"].(string); output != "" {
+					declaredVars[output] = true
+				}
+
+			case "str.Format":
+				if output, _ := step.Args["output"].(string); output != "" {
+					declaredVars[output] = true
+				}
+
+			case "json.Parse", "json.Marshal":
+				if output, _ := step.Args["output"].(string); output != "" {
+					declaredVars[output] = true
+				}
+
+			case "parallel.Run":
+				if branches, ok := step.Args["_branches"].(map[string][]FlowStep); ok {
+					for _, branchSteps := range branches {
+						validate(branchSteps, inTx, depth+1)
+					}
+				}
+
 			default:
 				if step.Action != "" && !strings.HasPrefix(step.Action, "repo.") && !strings.HasPrefix(step.Action, "mapping.") &&
 					!strings.HasPrefix(step.Action, "logic.") && !strings.HasPrefix(step.Action, "event.") &&
@@ -1203,7 +1518,12 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					!strings.HasPrefix(step.Action, "audit.") && !strings.HasPrefix(step.Action, "auth.") &&
 					!strings.HasPrefix(step.Action, "entity.") && !strings.HasPrefix(step.Action, "field.") &&
 					!strings.HasPrefix(step.Action, "str.") && !strings.HasPrefix(step.Action, "enum.") &&
-					!strings.HasPrefix(step.Action, "time.") && !strings.HasPrefix(step.Action, "map.") {
+					!strings.HasPrefix(step.Action, "time.") && !strings.HasPrefix(step.Action, "map.") &&
+					!strings.HasPrefix(step.Action, "exec.") && !strings.HasPrefix(step.Action, "fs.") &&
+					!strings.HasPrefix(step.Action, "cache.") && !strings.HasPrefix(step.Action, "mail.") &&
+					!strings.HasPrefix(step.Action, "storage.") && !strings.HasPrefix(step.Action, "http.") &&
+					!strings.HasPrefix(step.Action, "rand.") && !strings.HasPrefix(step.Action, "json.") &&
+					!strings.HasPrefix(step.Action, "parallel.") {
 					addWarn(stepNum, step.Action, "UNKNOWN_ACTION", fmt.Sprintf("unknown action '%s'", step.Action), "{action: \"repo.Find\" | \"mapping.Assign\" | \"flow.If\" ...}", step.File, step.Line, step.Column)
 				}
 			}
@@ -1236,6 +1556,18 @@ func toFlowSemSteps(steps []FlowStep) []flowsem.Step {
 		if v, ok := step.Args["_default"].([]FlowStep); ok && len(v) > 0 {
 			children["_default"] = toFlowSemSteps(v)
 		}
+		if v, ok := step.Args["_catch"].([]FlowStep); ok && len(v) > 0 {
+			children["_catch"] = toFlowSemSteps(v)
+		}
+		if v, ok := step.Args["_fallback"].([]FlowStep); ok && len(v) > 0 {
+			children["_fallback"] = toFlowSemSteps(v)
+		}
+		if v, ok := step.Args["_onTimeout"].([]FlowStep); ok && len(v) > 0 {
+			children["_onTimeout"] = toFlowSemSteps(v)
+		}
+		if v, ok := step.Args["_onMissing"].([]FlowStep); ok && len(v) > 0 {
+			children["_onMissing"] = toFlowSemSteps(v)
+		}
 		if cases, ok := step.Args["_cases"].(map[string][]FlowStep); ok && len(cases) > 0 {
 			var merged []flowsem.Step
 			for _, branch := range cases {
@@ -1243,6 +1575,15 @@ func toFlowSemSteps(steps []FlowStep) []flowsem.Step {
 			}
 			if len(merged) > 0 {
 				children["_cases"] = merged
+			}
+		}
+		if branches, ok := step.Args["_branches"].(map[string][]FlowStep); ok && len(branches) > 0 {
+			var merged []flowsem.Step
+			for _, branch := range branches {
+				merged = append(merged, toFlowSemSteps(branch)...)
+			}
+			if len(merged) > 0 {
+				children["_branches"] = merged
 			}
 		}
 		out = append(out, flowsem.Step{
@@ -1783,6 +2124,16 @@ func (n *Normalizer) ExtractEndpoints(val cue.Value) ([]Endpoint, error) {
 		// Apply default rate limit if endpoint doesn't have explicit one
 		if ep.RateLimit == nil && defaultRateLimit != nil {
 			ep.RateLimit = defaultRateLimit
+		}
+
+		// Parse max_concurrent (backpressure via semaphore)
+		if v, err := epVal.LookupPath(cue.ParsePath("max_concurrent")).Int64(); err == nil && v > 0 {
+			ep.MaxConcurrent = int(v)
+		}
+
+		// Parse coalesce (singleflight deduplication for GET requests)
+		if v, _ := epVal.LookupPath(cue.ParsePath("coalesce")).Bool(); v {
+			ep.Coalesce = true
 		}
 
 		// Parse timeout

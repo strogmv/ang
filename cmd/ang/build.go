@@ -373,6 +373,18 @@ func runBuild(args []string) {
 			}
 
 			em := emitter.New(backendDir, frontendDir, "templates")
+			em.NatsWorkers = td.NatsWorkers
+			if em.NatsWorkers <= 0 {
+				em.NatsWorkers = 20
+			}
+			em.NatsPublishRetryAttempts = td.NatsPublishRetryAttempts
+			if em.NatsPublishRetryAttempts <= 0 {
+				em.NatsPublishRetryAttempts = 3
+			}
+			em.NatsPublishRetryDelayMS = td.NatsPublishRetryDelayMS
+			if em.NatsPublishRetryDelayMS <= 0 {
+				em.NatsPublishRetryDelayMS = 100
+			}
 			em.FrontendAdminDir = output.FrontendAdminDir
 			if projectDef != nil && strings.TrimSpace(projectDef.UIProvider) != "" {
 				em.UIProviderPath = strings.TrimSpace(projectDef.UIProvider)
@@ -412,13 +424,17 @@ func runBuild(args []string) {
 			targetOutput := output
 			targetOutput.BackendDir = backendDir
 			targetOutput.FrontendDir = frontendDir
+			// CUE target.frontend_app_dir is used as default when CLI flag is not set.
+			if strings.TrimSpace(targetOutput.FrontendAppDir) == "" && strings.TrimSpace(td.FrontendAppDir) != "" {
+				targetOutput.FrontendAppDir = td.FrontendAppDir
+			}
 			if output.DryRun {
 				targetOutput.FrontendAppDir = ""
 				targetOutput.FrontendAdminAppDir = ""
 				targetOutput.FrontendEnvPath = ""
 			}
-			if !output.DryRun && multiTarget && strings.TrimSpace(output.FrontendAppDir) != "" {
-				targetOutput.FrontendAppDir = filepath.Join(output.FrontendAppDir, safeTargetDirName(td.Name))
+			if !output.DryRun && multiTarget && strings.TrimSpace(targetOutput.FrontendAppDir) != "" {
+				targetOutput.FrontendAppDir = filepath.Join(targetOutput.FrontendAppDir, safeTargetDirName(td.Name))
 			}
 			if !output.DryRun && multiTarget && strings.TrimSpace(output.FrontendAdminAppDir) != "" {
 				targetOutput.FrontendAdminAppDir = filepath.Join(output.FrontendAdminAppDir, safeTargetDirName(td.Name))

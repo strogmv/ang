@@ -63,16 +63,34 @@ func renderServiceImplTypeDecl(svc normalizer.Service, entities []normalizer.Ent
 			Type:  mustParseExpr("port.OutboxRepository"),
 		})
 	}
-	if svc.RequiresS3 {
+	if svc.RequiresS3 || serviceImplHasStorageActions(svc) {
 		fields = append(fields, &ast.Field{
 			Names: []*ast.Ident{ast.NewIdent("storage")},
 			Type:  mustParseExpr("port.FileStorage"),
 		})
 	}
-	if serviceImplHasNotificationDispatch(svc) {
+	if serviceImplHasNotificationDispatch(svc) || serviceImplHasFlowAction(svc, "notify.Dispatch") {
 		fields = append(fields, &ast.Field{
 			Names: []*ast.Ident{ast.NewIdent("dispatcher")},
 			Type:  mustParseExpr("port.NotificationDispatcher"),
+		})
+	}
+	if serviceImplHasCacheActions(svc) {
+		fields = append(fields, &ast.Field{
+			Names: []*ast.Ident{ast.NewIdent("cache")},
+			Type:  mustParseExpr("*redis.Client"),
+		})
+	}
+	if serviceImplHasMailSend(svc) {
+		fields = append(fields, &ast.Field{
+			Names: []*ast.Ident{ast.NewIdent("mailer")},
+			Type:  mustParseExpr("port.Mailer"),
+		})
+	}
+	if serviceImplHasQueueEnqueue(svc) {
+		fields = append(fields, &ast.Field{
+			Names: []*ast.Ident{ast.NewIdent("queuePublisher")},
+			Type:  mustParseExpr("port.QueuePublisher"),
 		})
 	}
 
@@ -160,19 +178,40 @@ func renderServiceImplConstructorDecl(svc normalizer.Service, entities []normali
 		})
 		elts = append(elts, &ast.KeyValueExpr{Key: ast.NewIdent("outbox"), Value: ast.NewIdent("outbox")})
 	}
-	if svc.RequiresS3 {
+	if svc.RequiresS3 || serviceImplHasStorageActions(svc) {
 		params = append(params, &ast.Field{
 			Names: []*ast.Ident{ast.NewIdent("storage")},
 			Type:  mustParseExpr("port.FileStorage"),
 		})
 		elts = append(elts, &ast.KeyValueExpr{Key: ast.NewIdent("storage"), Value: ast.NewIdent("storage")})
 	}
-	if serviceImplHasNotificationDispatch(svc) {
+	if serviceImplHasNotificationDispatch(svc) || serviceImplHasFlowAction(svc, "notify.Dispatch") {
 		params = append(params, &ast.Field{
 			Names: []*ast.Ident{ast.NewIdent("dispatcher")},
 			Type:  mustParseExpr("port.NotificationDispatcher"),
 		})
 		elts = append(elts, &ast.KeyValueExpr{Key: ast.NewIdent("dispatcher"), Value: ast.NewIdent("dispatcher")})
+	}
+	if serviceImplHasCacheActions(svc) {
+		params = append(params, &ast.Field{
+			Names: []*ast.Ident{ast.NewIdent("cache")},
+			Type:  mustParseExpr("*redis.Client"),
+		})
+		elts = append(elts, &ast.KeyValueExpr{Key: ast.NewIdent("cache"), Value: ast.NewIdent("cache")})
+	}
+	if serviceImplHasMailSend(svc) {
+		params = append(params, &ast.Field{
+			Names: []*ast.Ident{ast.NewIdent("mailer")},
+			Type:  mustParseExpr("port.Mailer"),
+		})
+		elts = append(elts, &ast.KeyValueExpr{Key: ast.NewIdent("mailer"), Value: ast.NewIdent("mailer")})
+	}
+	if serviceImplHasQueueEnqueue(svc) {
+		params = append(params, &ast.Field{
+			Names: []*ast.Ident{ast.NewIdent("queuePublisher")},
+			Type:  mustParseExpr("port.QueuePublisher"),
+		})
+		elts = append(elts, &ast.KeyValueExpr{Key: ast.NewIdent("queuePublisher"), Value: ast.NewIdent("queuePublisher")})
 	}
 
 	fd := &ast.FuncDecl{
@@ -474,4 +513,62 @@ func lowerFirst(s string) string {
 		return ""
 	}
 	return strings.ToLower(s[:1]) + s[1:]
+}
+
+// serviceImplHasFlowAction returns true if any method flow contains the given action (recursive).
+func serviceImplHasFlowAction(s normalizer.Service, action string) bool {
+	var scanSteps func([]normalizer.FlowStep) bool
+	scanSteps = func(steps []normalizer.FlowStep) bool {
+		for _, step := range steps {
+			if step.Action == action {
+				return true
+			}
+			for _, childKey := range []string{"_do", "_then", "_else", "_ifNew", "_ifExists", "_default"} {
+				if v, ok := step.Args[childKey].([]normalizer.FlowStep); ok && scanSteps(v) {
+					return true
+				}
+			}
+			if cases, ok := step.Args["_cases"].(map[string][]normalizer.FlowStep); ok {
+				for _, branch := range cases {
+					if scanSteps(branch) {
+						return true
+					}
+				}
+			}
+			if branches, ok := step.Args["_branches"].(map[string][]normalizer.FlowStep); ok {
+				for _, branch := range branches {
+					if scanSteps(branch) {
+						return true
+					}
+				}
+			}
+		}
+		return false
+	}
+	for _, m := range s.Methods {
+		if scanSteps(m.Flow) {
+			return true
+		}
+	}
+	return false
+}
+
+func serviceImplHasCacheActions(s normalizer.Service) bool {
+	return serviceImplHasFlowAction(s, "cache.Get") ||
+		serviceImplHasFlowAction(s, "cache.Set") ||
+		serviceImplHasFlowAction(s, "cache.Del")
+}
+
+func serviceImplHasStorageActions(s normalizer.Service) bool {
+	return serviceImplHasFlowAction(s, "storage.Upload") ||
+		serviceImplHasFlowAction(s, "storage.Download") ||
+		serviceImplHasFlowAction(s, "storage.GetURL")
+}
+
+func serviceImplHasMailSend(s normalizer.Service) bool {
+	return serviceImplHasFlowAction(s, "mail.Send")
+}
+
+func serviceImplHasQueueEnqueue(s normalizer.Service) bool {
+	return serviceImplHasFlowAction(s, "queue.Enqueue")
 }

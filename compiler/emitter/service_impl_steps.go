@@ -10,6 +10,9 @@ import (
 // renderImplSteps renders a minimal Go implementation for the experimental impl_steps DSL.
 // Supported kinds: load/assert/call/emit (limited handling). Unknown steps panic in non-prod to surface gaps.
 func renderImplSteps(svc normalizer.Service, steps []normalizer.ImplStep, serviceName, methodName string) string {
+	if len(steps) == 0 {
+		return "// FLOW_NOT_IMPLEMENTED: empty impl_steps\nif os.Getenv(\"APP_ENV\") != \"production\" { panic(\"" + serviceName + "." + methodName + ": impl_steps not implemented\") }\nreturn resp, errors.New(http.StatusInternalServerError, \"Not Implemented\", \"" + serviceName + "." + methodName + " not implemented\")\n"
+	}
 	var b strings.Builder
 	b.WriteString("// generated from impl_steps\n")
 	hasPublisher := serviceImplHasPublishes(svc)

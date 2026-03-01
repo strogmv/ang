@@ -53,17 +53,22 @@ func (c *Client) Publish{{ . }}(ctx context.Context, event domain.{{ ExportName 
 
 func (c *Client) Subscribe{{ . }}(handler func(context.Context, domain.{{ ExportName . }}) error) (*natspkg.Subscription, error) {
 	return c.nc.Subscribe("{{ . }}", func(msg *natspkg.Msg) {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("NATS handler panic recovered [{{ . }}]: %v\n", r)
+			}
+		}()
 		var event domain.{{ ExportName . }}
 		if err := json.Unmarshal(msg.Data, &event); err != nil {
 			return
 		}
-		
+
 		// Reconstruct context with trace data
 		ctx := context.Background()
 		if tp := msg.Header.Get("traceparent"); tp != "" {
 			ctx = context.WithValue(ctx, "traceparent", tp)
 		}
-		
+
 		_ = handler(ctx, event)
 	})
 }

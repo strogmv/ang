@@ -33,11 +33,12 @@ func (n *Normalizer) ExtractEvents(val cue.Value) ([]EventDef, error) {
 			return nil, err
 		}
 
-		events = append(events, EventDef{
+		evt := EventDef{
 			Name:   ent.Name,
 			Fields: ent.Fields,
 			Source: formatPos(value),
-		})
+		}
+		events = append(events, evt)
 	}
 
 	return events, nil

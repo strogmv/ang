@@ -6,6 +6,11 @@
 	{{- range $evtName := sortedKeys $svc.Subscribes }}
 	{{- $method := mapGet $svc.Subscribes $evtName }}
 		if _, err := natsClient.Subscribe("{{ $evtName }}", func(data []byte) error {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Error("NATS handler panic recovered", "event", "{{ $evtName }}", "panic", r)
+				}
+			}()
 			var event port.{{ $method }}Request
 			if err := json.Unmarshal(data, &event); err != nil {
 				return err

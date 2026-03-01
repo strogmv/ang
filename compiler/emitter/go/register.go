@@ -84,6 +84,7 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 	registry.Register(generator.Step{Name: "Email Templates", Requires: goOnly, Run: func() error { return in.Em.EmitEmailTemplates(in.EmailTemplates) }})
 	registry.Register(generator.Step{Name: "Mailer Port", Requires: goOnly, Run: func() error { return in.Em.EmitMailerPort() }})
 	registry.Register(generator.Step{Name: "SMTP Client", Requires: goOnly, Run: func() error { return in.Em.EmitMailerAdapter() }})
+	registry.Register(generator.Step{Name: "Noop Mailer Client", Requires: goOnly, Run: func() error { return in.Em.EmitNoopMailerAdapter() }})
 	registry.Register(generator.Step{Name: "Events", Requires: goEvents, Run: func() error { return in.Em.EmitEventsFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "Scheduler", Requires: goOnly, Run: func() error { return in.Em.EmitSchedulerFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "Publisher Interface", Requires: goEvents, Run: func() error { return in.Em.EmitPublisherInterfaceFromIR(in.IRSchema) }})

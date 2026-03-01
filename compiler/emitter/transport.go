@@ -68,6 +68,15 @@ func buildRequireScopes(scopes []string) string {
 	return fmt.Sprintf("RequireScopeMiddleware([]string{%s})", strings.Join(quoted, ", "))
 }
 
+// formatIntSlice formats a []int as a Go int-slice literal, e.g. []int{429, 502, 503, 504}.
+func formatIntSlice(ints []int) string {
+	strs := make([]string, len(ints))
+	for i, v := range ints {
+		strs[i] = strconv.Itoa(v)
+	}
+	return "[]int{" + strings.Join(strs, ", ") + "}"
+}
+
 func buildMiddlewareList(ep normalizer.Endpoint, includeCache, includeIdempotency bool) string {
 	return buildMiddlewareListFull(ep, includeCache, includeIdempotency, false)
 }
@@ -98,10 +107,23 @@ func buildMiddlewareListFull(ep normalizer.Endpoint, includeCache, includeIdempo
 	if p.RateLimit != nil {
 		parts = append(parts, fmt.Sprintf("RateLimitMiddleware(%d, %d)", p.RateLimit.RPS, p.RateLimit.Burst))
 	}
+	if ep.Coalesce {
+		parts = append(parts, "SingleflightMiddleware()")
+	}
+	if ep.MaxConcurrent > 0 {
+		parts = append(parts, fmt.Sprintf("ConcurrencyMiddleware(%d)", ep.MaxConcurrent))
+	}
 	if p.CircuitBreaker != nil {
 		parts = append(parts, fmt.Sprintf("CircuitBreakerMiddleware(%d, %q, %d)", p.CircuitBreaker.Threshold, p.CircuitBreaker.Timeout, p.CircuitBreaker.HalfOpenMax))
 	}
-	if p.Timeout != "" {
+	if ep.RetryPolicy != nil && ep.RetryPolicy.Enabled {
+		parts = append(parts, fmt.Sprintf("RetryMiddleware(%d, %d, %s)",
+			ep.RetryPolicy.MaxAttempts, ep.RetryPolicy.BaseDelayMS,
+			formatIntSlice(ep.RetryPolicy.RetryOnStatuses)))
+	}
+	// TimeoutMiddleware must not be applied to WebSocket endpoints: http.TimeoutHandler
+	// wraps the ResponseWriter and removes the http.Hijacker interface required for WS upgrade.
+	if p.Timeout != "" && !strings.EqualFold(ep.Method, "WS") {
 		parts = append(parts, fmt.Sprintf("TimeoutMiddleware(%q)", p.Timeout))
 	}
 	if includeIdempotency && p.Idempotency {

@@ -1,6 +1,7 @@
 package normalizer
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -149,7 +150,7 @@ func (n *Normalizer) ExtractRBAC(val cue.Value) (*RBACDef, error) {
 	if permsVal.Exists() {
 		pit, _ := permsVal.Fields()
 		for pit.Next() {
-			permName := strings.TrimSpace(pit.Selector().String())
+			permName := strings.TrimSpace(strings.Trim(pit.Selector().String(), "\""))
 			desc, _ := pit.Value().String()
 			rbac.Permissions[permName] = strings.TrimSpace(desc)
 		}
@@ -715,9 +716,10 @@ func (n *Normalizer) ExtractProject(val cue.Value) (*ProjectDef, error) {
 
 // ExtractTarget parses #Target from project.cue.
 func (n *Normalizer) ExtractTarget(val cue.Value) (*TargetDef, error) {
-	targetVal := val.LookupPath(cue.ParsePath("#Target"))
+	// Prefer concrete state.target value over the abstract #Target definition.
+	targetVal := val.LookupPath(cue.ParsePath("state.target"))
 	if !targetVal.Exists() {
-		targetVal = val.LookupPath(cue.ParsePath("state.target"))
+		targetVal = val.LookupPath(cue.ParsePath("#Target"))
 	}
 	if !targetVal.Exists() {
 		// Return defaults
@@ -757,9 +759,10 @@ func (n *Normalizer) ExtractTargets(val cue.Value) ([]TargetDef, error) {
 		return out, nil
 	}
 
-	targetsVal := val.LookupPath(cue.ParsePath("#Targets"))
+	// Prefer concrete state.targets over the abstract #Targets definition.
+	targetsVal := val.LookupPath(cue.ParsePath("state.targets"))
 	if !targetsVal.Exists() {
-		targetsVal = val.LookupPath(cue.ParsePath("state.targets"))
+		targetsVal = val.LookupPath(cue.ParsePath("#Targets"))
 	}
 
 	if targetsVal.Exists() {
@@ -862,34 +865,82 @@ func (n *Normalizer) ExtractTransformersConfig(val cue.Value) (*TransformersConf
 }
 
 func getStringWithDefault(v cue.Value, path, def string) string {
+	// Regular lookup works for required fields in definitions.
 	res := v.LookupPath(cue.ParsePath(path))
-	if !res.Exists() {
-		return def
+	if res.Exists() {
+		if s, err := res.String(); err == nil {
+			return strings.TrimSpace(s)
+		}
 	}
-	s, err := res.String()
+	return def
+}
+
+// getOptionalStringField reads a string field that may be declared as optional (?) in
+// a CUE definition. The CUE Go API's LookupPath skips optional fields in
+// definition-constrained values; we use JSON export as fallback.
+func getOptionalStringField(v cue.Value, path string) string {
+	// First try the regular path (works if the value is not definition-constrained).
+	res := v.LookupPath(cue.ParsePath(path))
+	if res.Exists() {
+		if s, err := res.String(); err == nil {
+			return strings.TrimSpace(s)
+		}
+	}
+	// Fallback: export to JSON and unmarshal (handles optional fields in definitions).
+	data, err := v.MarshalJSON()
 	if err != nil {
-		return def
+		return ""
 	}
-	return strings.TrimSpace(s)
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		return ""
+	}
+	if val, ok := m[path]; ok {
+		if s, ok := val.(string); ok {
+			return strings.TrimSpace(s)
+		}
+	}
+	return ""
 }
 
 func parseTargetDef(targetVal cue.Value, defaultName string) TargetDef {
-	outputDir := getStringWithDefault(targetVal, "output_dir", "")
+	outputDir := getOptionalStringField(targetVal, "output_dir")
 	if strings.TrimSpace(outputDir) == "" {
 		outputDir = getStringWithDefault(targetVal, "outputDir", "")
+	}
+	frontendAppDir := getOptionalStringField(targetVal, "frontend_app_dir")
+	if strings.TrimSpace(frontendAppDir) == "" {
+		frontendAppDir = getOptionalStringField(targetVal, "frontendAppDir")
 	}
 	name := getStringWithDefault(targetVal, "name", defaultName)
 	if strings.TrimSpace(name) == "" {
 		name = defaultName
 	}
+	var natsWorkers int
+	if v, err := targetVal.LookupPath(cue.ParsePath("nats_workers")).Int64(); err == nil && v > 0 {
+		natsWorkers = int(v)
+	}
+	var natsPublishRetryAttempts int
+	if v, err := targetVal.LookupPath(cue.ParsePath("nats_publish_retry_attempts")).Int64(); err == nil && v > 0 {
+		natsPublishRetryAttempts = int(v)
+	}
+	var natsPublishRetryDelayMS int
+	if v, err := targetVal.LookupPath(cue.ParsePath("nats_publish_retry_delay_ms")).Int64(); err == nil && v > 0 {
+		natsPublishRetryDelayMS = int(v)
+	}
+
 	return TargetDef{
-		Name:      strings.TrimSpace(name),
-		Lang:      getStringWithDefault(targetVal, "lang", "go"),
-		Framework: getStringWithDefault(targetVal, "framework", "chi"),
-		DB:        getStringWithDefault(targetVal, "db", "postgres"),
-		Cache:     getStringWithDefault(targetVal, "cache", "redis"),
-		Queue:     getStringWithDefault(targetVal, "queue", "nats"),
-		Storage:   getStringWithDefault(targetVal, "storage", "s3"),
-		OutputDir: strings.TrimSpace(outputDir),
+		Name:                     strings.TrimSpace(name),
+		Lang:                     getStringWithDefault(targetVal, "lang", "go"),
+		Framework:                getStringWithDefault(targetVal, "framework", "chi"),
+		DB:                       getStringWithDefault(targetVal, "db", "postgres"),
+		Cache:                    getStringWithDefault(targetVal, "cache", "redis"),
+		Queue:                    getStringWithDefault(targetVal, "queue", "nats"),
+		Storage:                  getStringWithDefault(targetVal, "storage", "s3"),
+		OutputDir:                strings.TrimSpace(outputDir),
+		FrontendAppDir:           strings.TrimSpace(frontendAppDir),
+		NatsWorkers:              natsWorkers,
+		NatsPublishRetryAttempts: natsPublishRetryAttempts,
+		NatsPublishRetryDelayMS:  natsPublishRetryDelayMS,
 	}
 }
