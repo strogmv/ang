@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -89,6 +90,9 @@ func runGoRuntimeSelfCheck(projectRoot, backendDir, mode string) (runtimeSelfChe
 func goListDir(workDir, pkg string) (string, error) {
 	cmd := exec.Command("go", "list", "-f", "{{.Dir}}", pkg)
 	cmd.Dir = workDir
+	// Isolate self-check from parent go.work files to avoid false mismatches
+	// in release-mode builds generated under nested dist/ directories.
+	cmd.Env = append(os.Environ(), "GOWORK=off")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))

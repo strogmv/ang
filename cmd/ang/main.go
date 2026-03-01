@@ -63,6 +63,8 @@ func main() {
 		runLSP(os.Args[2:])
 	case "hash":
 		runHash(os.Args[2:])
+	case "tips":
+		runTips(os.Args[2:])
 	case "mcp":
 		mcp.Run()
 	case "version":
@@ -99,6 +101,7 @@ func printUsage() {
 	fmt.Println("  ang doctor    Analyze build log and suggest concrete CUE fixes")
 	fmt.Println("  ang doctor start  Preflight local startup checks (tools/env/compose/ports)")
 	fmt.Println("  ang smoke     Check /health and /health/ready endpoints")
+	fmt.Println("  ang tips      Beginner-friendly quick commands and recovery hints")
 	fmt.Println("  ang config doctor  Validate runtime env against generated config schema")
 	fmt.Println("  ang mcp       Run ANG MCP server over stdio")
 	fmt.Println("  ang lsp --stdio  Run ANG language server (MVP diagnostics)")
@@ -196,8 +199,9 @@ func runInit(args []string) {
 	db := fs.String("db", "postgres", "database backend")
 	module := fs.String("module", "", "CUE module path (defaults to github.com/example/<dir>)")
 	force := fs.Bool("force", false, "allow writing into a non-empty target directory")
+	fun := fs.Bool("fun", false, "show fun onboarding banner after scaffold generation")
 	if err := fs.Parse(parseArgs); err != nil {
-		fmt.Printf("Init FAILED: %v\n", err)
+		printCommandFailure("Init", err.Error(), "run `ang init --help`")
 		os.Exit(1)
 	}
 
@@ -216,13 +220,11 @@ func runInit(args []string) {
 
 	if strings.TrimSpace(*templateName) == "" {
 		if err := initLegacyScaffold(targetDir, modulePath, *lang, *db); err != nil {
-			fmt.Printf("Init FAILED: %v\n", err)
+			printCommandFailure("Init", err.Error(), "retry in an empty directory or use `--force`")
 			os.Exit(1)
 		}
 		fmt.Println("Minimal project scaffold initialized successfully.")
-		fmt.Println("Next steps:")
-		fmt.Printf("  cd %s\n", targetDir)
-		fmt.Println("  ang build")
+		printInitOnboarding(projectName, targetDir, false, isFunEnabled(*fun))
 		return
 	}
 
@@ -236,14 +238,11 @@ func runInit(args []string) {
 		Force:        *force,
 	}
 	if err := initFromTemplate(opts); err != nil {
-		fmt.Printf("Init FAILED: %v\n", err)
+		printCommandFailure("Init", err.Error(), "retry in an empty directory or use `--force`")
 		os.Exit(1)
 	}
 	fmt.Printf("Template %q initialized in %s\n", opts.TemplateName, targetDir)
-	fmt.Println("Next steps:")
-	fmt.Printf("  cd %s\n", targetDir)
-	fmt.Println("  make doctor   # or: ang doctor start")
-	fmt.Println("  ang up")
+	printInitOnboarding(projectName, targetDir, true, isFunEnabled(*fun))
 }
 
 func initLegacyScaffold(root, modulePath, lang, db string) error {

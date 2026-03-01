@@ -90,6 +90,55 @@ type Config struct {
 	}
 }
 
+func TestCollectConfigStartupChecksAutoBootstrapsEnv(t *testing.T) {
+	root := t.TempDir()
+	cfgPath := filepath.Join(root, "internal", "config", "config.go")
+	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	src := `package config
+
+type Config struct {
+	DatabaseURL string ` + "`env:\"DATABASE_URL\" env-required:\"true\"`" + `
+}
+`
+	if err := os.WriteFile(cfgPath, []byte(src), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".env.example"), []byte("DATABASE_URL=postgres://app:app@localhost:5432/app?sslmode=disable\nJWT_PRIVATE_KEY=secret-key\n"), 0o644); err != nil {
+		t.Fatalf("write .env.example: %v", err)
+	}
+
+	checks, err := collectConfigStartupChecks(root)
+	if err != nil {
+		t.Fatalf("collectConfigStartupChecks: %v", err)
+	}
+
+	bootstrap := startupCheckByName(checks, ".env.bootstrap")
+	if bootstrap == nil {
+		t.Fatalf("expected .env.bootstrap check in %#v", checks)
+	}
+	if bootstrap.Status != startupOK {
+		t.Fatalf("expected .env.bootstrap ok, got %s (%s)", bootstrap.Status, bootstrap.Detail)
+	}
+
+	cfg := startupCheckByName(checks, "config-env")
+	if cfg == nil {
+		t.Fatalf("missing config-env check in %#v", checks)
+	}
+	if cfg.Status != startupOK {
+		t.Fatalf("expected config-env ok, got %s (%s)", cfg.Status, cfg.Detail)
+	}
+
+	envData, err := os.ReadFile(filepath.Join(root, ".env"))
+	if err != nil {
+		t.Fatalf("read .env: %v", err)
+	}
+	if !strings.Contains(string(envData), "DATABASE_URL=postgres://app:app@localhost:5432/app?sslmode=disable") {
+		t.Fatalf(".env missing DATABASE_URL autofill:\n%s", string(envData))
+	}
+}
+
 func TestCollectConfigStartupChecksWarnWhenSchemaMissing(t *testing.T) {
 	root := t.TempDir()
 

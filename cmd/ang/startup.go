@@ -38,13 +38,13 @@ func runDoctorStart(args []string) {
 		if err == flag.ErrHelp {
 			return
 		}
-		fmt.Printf("Doctor start FAILED: %v\n", err)
+		printCommandFailure("Doctor start", err.Error(), "run `ang doctor start --help`")
 		os.Exit(1)
 	}
 
 	checks, err := collectStartupChecks(*projectPath, !*skipConfig)
 	if err != nil {
-		fmt.Printf("Doctor start FAILED: %v\n", err)
+		printCommandFailure("Doctor start", err.Error(), "")
 		os.Exit(1)
 	}
 
@@ -71,11 +71,12 @@ func runUp(args []string) {
 	skipBuild := fs.Bool("skip-build", false, "skip ang build")
 	skipSmoke := fs.Bool("skip-smoke", false, "skip health smoke check")
 	detach := fs.Bool("detach", true, "run docker compose up in detached mode")
+	fun := fs.Bool("fun", false, "show launch banner and celebratory ready marker")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return
 		}
-		fmt.Printf("Up FAILED: %v\n", err)
+		printCommandFailure("Up", err.Error(), "run `ang up --help`")
 		os.Exit(1)
 	}
 
@@ -83,28 +84,37 @@ func runUp(args []string) {
 	if root == "" {
 		root = "."
 	}
+	funMode := isFunEnabled(*fun)
+	if funMode {
+		printFunRocket()
+	}
+	progress := newUpProgress(4)
 
+	progress.step("Preflight checks")
 	if !*skipDoctor {
 		// Preflight is intentionally first: it surfaces missing env/tools before build noise.
 		checks, err := collectStartupChecks(root, true)
 		if err != nil {
-			fmt.Printf("Up FAILED: %v\n", err)
+			printCommandFailure("Up", err.Error(), "run `ang doctor start`")
 			os.Exit(1)
 		}
 		hasFail := printStartupChecks(checks)
 		if hasFail && *doctorStrict {
-			fmt.Println("Up FAILED: preflight checks failed")
+			printCommandFailure("Up", "preflight checks failed", "run `ang doctor start --strict=false` to inspect all checks")
 			os.Exit(1)
 		}
+	} else {
+		fmt.Println("     skipped (--skip-doctor)")
 	}
 
+	progress.step("Dependencies (docker compose)")
 	if !*skipCompose {
 		composePath := filepath.Join(root, strings.TrimSpace(*composeFile))
 		if _, err := os.Stat(composePath); err == nil {
 			// Detect compose command dynamically to support both modern plugin and legacy binary.
 			composeCmd, err := detectComposeCommand()
 			if err != nil {
-				fmt.Printf("Up FAILED: %v\n", err)
+				printCommandFailure("Up", err.Error(), "install Docker Compose or pass `--skip-compose`")
 				os.Exit(1)
 			}
 			cmdArgs := append([]string{}, composeCmd[1:]...)
@@ -114,34 +124,43 @@ func runUp(args []string) {
 			}
 			fmt.Printf("==> Running: %s %s\n", composeCmd[0], strings.Join(cmdArgs, " "))
 			if err := runCommand(root, composeCmd[0], cmdArgs...); err != nil {
-				fmt.Printf("Up FAILED: compose up: %v\n", err)
+				printCommandFailure("Up", fmt.Sprintf("compose up: %v", err), "run `docker compose logs` and retry")
 				os.Exit(1)
 			}
 		} else if !os.IsNotExist(err) {
-			fmt.Printf("Up FAILED: stat compose file: %v\n", err)
+			printCommandFailure("Up", fmt.Sprintf("stat compose file: %v", err), "")
 			os.Exit(1)
 		} else {
 			fmt.Printf("==> Skipping compose: %s not found\n", composePath)
 		}
+	} else {
+		fmt.Println("     skipped (--skip-compose)")
 	}
 
+	progress.step("Code generation (ang build)")
 	if !*skipBuild {
 		fmt.Println("==> Running: ang build")
 		if err := runSelf(root, "build"); err != nil {
-			fmt.Printf("Up FAILED: build: %v\n", err)
+			printCommandFailure("Up", fmt.Sprintf("build: %v", err), "run `ang build` directly to inspect emitter errors")
 			os.Exit(1)
 		}
+	} else {
+		fmt.Println("     skipped (--skip-build)")
 	}
 
+	progress.step("Readiness smoke")
 	if !*skipSmoke {
 		fmt.Println("==> Running: ang smoke")
 		if err := runSelf(root, "smoke"); err != nil {
-			fmt.Printf("Up FAILED: smoke: %v\n", err)
+			printCommandFailure("Up", fmt.Sprintf("smoke: %v", err), "check server logs, then run `ang smoke --base-url http://localhost:8080`")
 			os.Exit(1)
 		}
+	} else {
+		fmt.Println("     skipped (--skip-smoke)")
 	}
 
-	fmt.Println("Up SUCCESSFUL")
+	fmt.Println("READY: local bootstrap completed.")
+	fmt.Println("Tip: run `ang tips` for quick next commands.")
 }
 
 func runSmoke(args []string) {
@@ -288,6 +307,17 @@ func collectConfigStartupChecks(projectPath string) ([]startupCheck, error) {
 	}
 
 	envPath := filepath.Join(projectPath, ".env")
+	autofixDetails, err := bootstrapEnvFromExample(projectPath)
+	if err != nil {
+		return nil, err
+	}
+	if len(autofixDetails) > 0 {
+		checks = append(checks, startupCheck{
+			Name:   ".env.bootstrap",
+			Status: startupOK,
+			Detail: strings.Join(autofixDetails, "; "),
+		})
+	}
 	envValues, _, err := readEnvFile(envPath)
 	if err != nil {
 		return nil, err
@@ -343,6 +373,79 @@ func collectConfigStartupChecks(projectPath string) ([]startupCheck, error) {
 	}
 
 	return checks, nil
+}
+
+func bootstrapEnvFromExample(projectPath string) ([]string, error) {
+	examplePath := filepath.Join(projectPath, ".env.example")
+	exampleValues, exampleFound, err := readEnvFile(examplePath)
+	if err != nil {
+		return nil, err
+	}
+	if !exampleFound {
+		return nil, nil
+	}
+
+	envPath := filepath.Join(projectPath, ".env")
+	envValues, envFound, err := readEnvFile(envPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var actions []string
+	if !envFound {
+		raw, err := os.ReadFile(examplePath)
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", examplePath, err)
+		}
+		if err := os.WriteFile(envPath, raw, 0o644); err != nil {
+			return nil, fmt.Errorf("write %s: %w", envPath, err)
+		}
+		actions = append(actions, "created .env from .env.example")
+		envValues, _, err = readEnvFile(envPath)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	keys := make([]string, 0, len(exampleValues))
+	for key := range exampleValues {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	var lines []string
+	for _, key := range keys {
+		exampleVal := strings.TrimSpace(exampleValues[key])
+		if exampleVal == "" {
+			continue
+		}
+		if strings.TrimSpace(envValues[key]) != "" {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("%s=%s", key, exampleValues[key]))
+		actions = append(actions, fmt.Sprintf("filled %s from .env.example", key))
+		envValues[key] = exampleValues[key]
+	}
+	if len(lines) == 0 {
+		return actions, nil
+	}
+
+	f, err := os.OpenFile(envPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", envPath, err)
+	}
+	defer f.Close()
+	if stat, err := f.Stat(); err == nil && stat.Size() > 0 {
+		if _, err := f.WriteString("\n"); err != nil {
+			return nil, fmt.Errorf("append newline to %s: %w", envPath, err)
+		}
+	}
+	for _, line := range lines {
+		if _, err := f.WriteString(line + "\n"); err != nil {
+			return nil, fmt.Errorf("append %s to %s: %w", line, envPath, err)
+		}
+	}
+	return actions, nil
 }
 
 func checkTool(name string, required bool) startupCheck {
@@ -447,4 +550,18 @@ func resolveHTTPPort(projectPath string) string {
 		}
 	}
 	return "8080"
+}
+
+type upProgress struct {
+	total int
+	stepN int
+}
+
+func newUpProgress(total int) *upProgress {
+	return &upProgress{total: total}
+}
+
+func (p *upProgress) step(label string) {
+	p.stepN++
+	fmt.Printf("[%d/%d] %s\n", p.stepN, p.total, label)
 }
