@@ -194,3 +194,135 @@ func TestValidate_PerformanceArgs(t *testing.T) {
 		t.Fatalf("expected %s issue in %+v", code, issues)
 	}
 }
+
+func TestValidate_RequiredArgTypeMismatch(t *testing.T) {
+	t.Parallel()
+	issues := Validate([]Step{{
+		Action: "logic.Check",
+		Args: map[string]any{
+			"condition": true,
+			"throw":     "bad",
+		},
+	}})
+	found := false
+	for _, it := range issues {
+		if it.Code == "INVALID_CONDITION_TYPE" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected INVALID_CONDITION_TYPE issue, got %+v", issues)
+	}
+}
+
+func TestValidate_OptionalArgTypeMismatch(t *testing.T) {
+	t.Parallel()
+	issues := Validate([]Step{
+		{
+			Action: "http.Call",
+			Args: map[string]any{
+				"method":      "GET",
+				"url":         "https://api.test",
+				"attempts":    "2",
+				"failOnError": "yes",
+			},
+		},
+		{
+			Action: "cache.Get",
+			Args: map[string]any{
+				"key":      "k",
+				"output":   "v",
+				"optional": "true",
+			},
+		},
+		{
+			Action: "list.Sort",
+			Args: map[string]any{
+				"items": "items",
+				"by":    "Name",
+				"order": true,
+			},
+		},
+		{
+			Action: "str.Normalize",
+			Args: map[string]any{
+				"input":  "req.Name",
+				"output": "name",
+				"mode":   false,
+			},
+		},
+	})
+	want := map[string]bool{
+		"INVALID_ATTEMPTS_TYPE":    true,
+		"INVALID_FAILONERROR_TYPE": true,
+		"INVALID_OPTIONAL_TYPE":    true,
+		"INVALID_ORDER_TYPE":       true,
+		"INVALID_MODE_TYPE":        true,
+	}
+	for _, it := range issues {
+		delete(want, it.Code)
+	}
+	for code := range want {
+		t.Fatalf("expected %s issue in %+v", code, issues)
+	}
+}
+
+func TestValidate_OptionalArgValueMismatch(t *testing.T) {
+	t.Parallel()
+	issues := Validate([]Step{
+		{
+			Action: "list.Sort",
+			Args: map[string]any{
+				"items": "items",
+				"by":    "Name",
+				"order": "descending",
+			},
+		},
+		{
+			Action: "str.Normalize",
+			Args: map[string]any{
+				"input":  "req.Name",
+				"output": "name",
+				"mode":   "snake",
+			},
+		},
+	})
+	want := map[string]bool{
+		"INVALID_ORDER": true,
+		"INVALID_MODE":  true,
+	}
+	for _, it := range issues {
+		delete(want, it.Code)
+	}
+	for code := range want {
+		t.Fatalf("expected %s issue in %+v", code, issues)
+	}
+}
+
+func TestValidate_OptionalArgDynamicExpressionAllowed(t *testing.T) {
+	t.Parallel()
+	issues := Validate([]Step{
+		{
+			Action: "list.Sort",
+			Args: map[string]any{
+				"items": "items",
+				"by":    "Name",
+				"order": "req.SortOrder",
+			},
+		},
+		{
+			Action: "str.Normalize",
+			Args: map[string]any{
+				"input":  "req.Name",
+				"output": "name",
+				"mode":   "req.NormalizeMode",
+			},
+		},
+	})
+	for _, it := range issues {
+		if it.Code == "INVALID_ORDER" || it.Code == "INVALID_MODE" {
+			t.Fatalf("did not expect enum literal issue for dynamic expression, got %+v", issues)
+		}
+	}
+}

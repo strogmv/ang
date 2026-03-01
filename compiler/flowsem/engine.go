@@ -1,6 +1,7 @@
 package flowsem
 
 import (
+	"math"
 	"strconv"
 	"strings"
 )
@@ -32,9 +33,21 @@ type Spec struct {
 	RequiredArgs      []string
 	RequiredChildren  []string
 	DeclaresFromArgs  []string
+	OptionalArgKinds  map[string]ArgKind
 	RequiresTx        bool
 	CustomConstraints func(step Step) *Issue
 }
+
+type ArgKind string
+
+const (
+	ArgKindString            ArgKind = "string"
+	ArgKindInt               ArgKind = "int"
+	ArgKindBool              ArgKind = "bool"
+	ArgKindStringMap         ArgKind = "map[string]string"
+	ArgKindFieldsRuleMap     ArgKind = "map[string]map[string]string"
+	ArgKindStringOrStringArr ArgKind = "string|[]string"
+)
 
 var specs = map[string]Spec{
 	"logic.Check": {
@@ -111,12 +124,21 @@ var specs = map[string]Spec{
 	},
 	"flow.Try": {
 		RequiredChildren: []string{"_do"},
+		OptionalArgKinds: map[string]ArgKind{
+			"retries":   ArgKindInt,
+			"backoffMs": ArgKindInt,
+		},
 	},
 	"flow.Catch": {
 		RequiredChildren: []string{"_do"},
 	},
 	"flow.Retry": {
 		RequiredChildren: []string{"_do"},
+		OptionalArgKinds: map[string]ArgKind{
+			"attempts":  ArgKindInt,
+			"retries":   ArgKindInt,
+			"backoffMs": ArgKindInt,
+		},
 	},
 	"flow.Fallback": {
 		RequiredChildren: []string{"_do", "_fallback"},
@@ -179,6 +201,28 @@ var specs = map[string]Spec{
 	},
 	"list.Sort": {
 		RequiredArgs: []string{"items", "by"},
+		OptionalArgKinds: map[string]ArgKind{
+			"order": ArgKindString,
+		},
+		CustomConstraints: func(step Step) *Issue {
+			raw, ok := nonEmptyString(step.Args["order"])
+			if !ok {
+				return nil
+			}
+			order, isStatic := staticWordLiteral(raw)
+			if !isStatic {
+				// Dynamic CUE/Go expression (for example req.SortOrder) is allowed.
+				return nil
+			}
+			if order != "asc" && order != "desc" {
+				return &Issue{
+					Code:    "INVALID_ORDER",
+					Message: "list.Sort order must be asc or desc when literal value is used",
+					Hint:    "{action: \"list.Sort\", items: \"items\", by: \"CreatedAt\", order: \"desc\"}",
+				}
+			}
+			return nil
+		},
 	},
 	"list.Append": {
 		RequiredArgs: []string{"to", "item"},
@@ -211,10 +255,35 @@ var specs = map[string]Spec{
 	"list.Paginate": {
 		RequiredArgs:     []string{"input", "offset", "limit", "output"},
 		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"defaultLimit": ArgKindInt,
+		},
 	},
 	"str.Normalize": {
 		RequiredArgs:     []string{"input", "output"},
 		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"mode": ArgKindString,
+		},
+		CustomConstraints: func(step Step) *Issue {
+			raw, ok := nonEmptyString(step.Args["mode"])
+			if !ok {
+				return nil
+			}
+			mode, isStatic := staticWordLiteral(raw)
+			if !isStatic {
+				// Dynamic CUE/Go expression (for example req.NormalizeMode) is allowed.
+				return nil
+			}
+			if mode != "trim" && mode != "lower" && mode != "upper" {
+				return &Issue{
+					Code:    "INVALID_MODE",
+					Message: "str.Normalize mode must be trim, lower, or upper when literal value is used",
+					Hint:    "{action: \"str.Normalize\", input: \"req.Name\", output: \"name\", mode: \"lower\"}",
+				}
+			}
+			return nil
+		},
 	},
 	"time.CheckExpiry": {
 		RequiredArgs: []string{"value", "throw"},
@@ -244,6 +313,9 @@ var specs = map[string]Spec{
 	},
 	"entity.PatchValidated": {
 		RequiredArgs: []string{"target", "from"},
+		OptionalArgKinds: map[string]ArgKind{
+			"fields": ArgKindFieldsRuleMap,
+		},
 		CustomConstraints: func(step Step) *Issue {
 			fields, ok := step.Args["fields"].(map[string]map[string]string)
 			if !ok || len(fields) == 0 {
@@ -318,6 +390,9 @@ var specs = map[string]Spec{
 	"cache.Get": {
 		RequiredArgs:     []string{"key", "output"},
 		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"optional": ArgKindBool,
+		},
 	},
 	"cache.Set": {
 		RequiredArgs: []string{"key", "value"},
@@ -338,6 +413,14 @@ var specs = map[string]Spec{
 	// Stage 3: New capabilities
 	"http.Call": {
 		RequiredArgs: []string{"method", "url"},
+		OptionalArgKinds: map[string]ArgKind{
+			"attempts":    ArgKindInt,
+			"retries":     ArgKindInt,
+			"backoffMs":   ArgKindInt,
+			"timeoutMs":   ArgKindInt,
+			"failOnError": ArgKindBool,
+			"headers":     ArgKindStringMap,
+		},
 		CustomConstraints: func(step Step) *Issue {
 			if attempts, ok := intArg(step.Args, "attempts"); ok && attempts <= 0 {
 				return &Issue{
@@ -391,6 +474,10 @@ var specs = map[string]Spec{
 		DeclaresFromArgs: []string{"output"},
 	},
 	"parallel.Run": {
+		OptionalArgKinds: map[string]ArgKind{
+			"maxConcurrency": ArgKindInt,
+			"maxParallel":    ArgKindInt,
+		},
 		CustomConstraints: func(step Step) *Issue {
 			if len(step.Children["_branches"]) == 0 {
 				return &Issue{
@@ -426,6 +513,9 @@ var specs = map[string]Spec{
 	},
 	"queue.Enqueue": {
 		RequiredArgs: []string{"subject", "payload"},
+		OptionalArgKinds: map[string]ArgKind{
+			"timeoutMs": ArgKindInt,
+		},
 		CustomConstraints: func(step Step) *Issue {
 			if timeoutMS, ok := intArg(step.Args, "timeoutMs"); ok && timeoutMS <= 0 {
 				return &Issue{
@@ -472,13 +562,31 @@ func Validate(steps []Step) []Issue {
 				}
 			} else {
 				for _, arg := range spec.RequiredArgs {
-					if !hasNonEmptyString(step.Args, arg) {
+					v, present := step.Args[arg]
+					if !present {
 						out = append(out, issue(step, i+1, "MISSING_"+strings.ToUpper(arg), step.Action+" missing '"+arg+"'", "See action contract in flow semantics"))
+						continue
+					}
+					if _, ok := nonEmptyString(v); !ok {
+						if _, isString := v.(string); isString {
+							out = append(out, issue(step, i+1, "MISSING_"+strings.ToUpper(arg), step.Action+" missing '"+arg+"'", "See action contract in flow semantics"))
+						} else {
+							out = append(out, issue(step, i+1, "INVALID_"+strings.ToUpper(arg)+"_TYPE", step.Action+" arg '"+arg+"' must be string expression", "Pass a CUE string expression"))
+						}
 					}
 				}
 				for _, child := range spec.RequiredChildren {
 					if len(step.Children[child]) == 0 {
 						out = append(out, issue(step, i+1, "MISSING_"+strings.ToUpper(strings.TrimPrefix(child, "_")), step.Action+" missing '"+strings.TrimPrefix(child, "_")+"'", "See action contract in flow semantics"))
+					}
+				}
+				for argName, kind := range spec.OptionalArgKinds {
+					v, present := step.Args[argName]
+					if !present {
+						continue
+					}
+					if !argMatchesKind(v, kind) {
+						out = append(out, issue(step, i+1, "INVALID_"+strings.ToUpper(argName)+"_TYPE", step.Action+" arg '"+argName+"' must be "+string(kind), "Fix arg type in CUE step"))
 					}
 				}
 				if spec.RequiresTx && !inTx {
@@ -499,6 +607,8 @@ func Validate(steps []Step) []Issue {
 					}
 				}
 			}
+			// Transaction context propagates down the subtree; tx-only actions are validated
+			// against this propagated state, not global method position.
 			nextTx := inTx || step.Action == "tx.Block"
 			for _, children := range step.Children {
 				if len(children) > 0 {
@@ -526,16 +636,54 @@ func issue(step Step, idx int, code, message, hint string) Issue {
 	}
 }
 
-func hasNonEmptyString(args map[string]any, key string) bool {
-	if args == nil {
-		return false
-	}
-	v, ok := args[key]
-	if !ok {
-		return false
-	}
+func nonEmptyString(v any) (string, bool) {
 	s, ok := v.(string)
-	return ok && strings.TrimSpace(s) != ""
+	if !ok {
+		return "", false
+	}
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", false
+	}
+	return s, true
+}
+
+func argMatchesKind(v any, kind ArgKind) bool {
+	switch kind {
+	case ArgKindString:
+		_, ok := nonEmptyString(v)
+		return ok
+	case ArgKindInt:
+		return isIntLike(v)
+	case ArgKindBool:
+		_, ok := v.(bool)
+		return ok
+	case ArgKindStringMap:
+		m, ok := v.(map[string]string)
+		return ok && m != nil
+	case ArgKindFieldsRuleMap:
+		m, ok := v.(map[string]map[string]string)
+		return ok && m != nil
+	case ArgKindStringOrStringArr:
+		if _, ok := nonEmptyString(v); ok {
+			return true
+		}
+		arr, ok := v.([]string)
+		return ok && len(arr) > 0
+	default:
+		return true
+	}
+}
+
+func isIntLike(v any) bool {
+	switch n := v.(type) {
+	case int, int64:
+		return true
+	case float64:
+		return n == math.Trunc(n)
+	default:
+		return false
+	}
 }
 
 func intArg(args map[string]any, key string) (int, bool) {
@@ -552,26 +700,51 @@ func intArg(args map[string]any, key string) (int, bool) {
 	case int64:
 		return int(n), true
 	case float64:
+		if n != math.Trunc(n) {
+			return 0, false
+		}
 		return int(n), true
-	case string:
-		s := strings.TrimSpace(n)
-		if s == "" {
-			return 0, false
-		}
-		p, err := strconv.Atoi(s)
-		if err != nil {
-			return 0, false
-		}
-		return p, true
 	default:
 		return 0, false
 	}
+}
+
+func staticWordLiteral(raw string) (string, bool) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return "", false
+	}
+	if unquoted, err := strconv.Unquote(s); err == nil {
+		s = strings.TrimSpace(unquoted)
+	}
+	if !isWordToken(s) {
+		return "", false
+	}
+	return strings.ToLower(s), true
+}
+
+func isWordToken(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if (r < 'a' || r > 'z') &&
+			(r < 'A' || r > 'Z') &&
+			(r < '0' || r > '9') &&
+			r != '_' &&
+			r != '-' {
+			return false
+		}
+	}
+	return true
 }
 
 func isKnownPrefix(action string) bool {
 	if action == "" {
 		return true
 	}
+	// Prefix allow-list keeps diagnostics useful: unknown actions with known families
+	// are handled by emitter-specific validation, while truly foreign actions fail here.
 	prefixes := []string{
 		"repo.", "mapping.", "logic.", "event.", "fsm.", "flow.", "tx.",
 		"list.", "notification.", "audit.", "auth.", "entity.", "field.",

@@ -34,8 +34,9 @@ func TestRenderFlow_ListSort(t *testing.T) {
 		{Action: "list.Sort", Args: map[string]any{"items": "items", "by": "Name"}},
 	}
 	code := renderFlow(steps)
-	if !strings.Contains(code, `sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })`) {
-		t.Fatalf("expected static asc sort\n\n%s", code)
+	if !strings.Contains(code, `sort.Slice(items, func(i int, j int) bool`) ||
+		!strings.Contains(code, `return items[i].Name < items[j].Name`) {
+		t.Fatalf("expected static asc sort comparator\n\n%s", code)
 	}
 
 	// static desc
@@ -43,8 +44,9 @@ func TestRenderFlow_ListSort(t *testing.T) {
 		{Action: "list.Sort", Args: map[string]any{"items": "items", "by": "CreatedAt", "order": "desc"}},
 	}
 	code2 := renderFlow(steps2)
-	if !strings.Contains(code2, `sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt > items[j].CreatedAt })`) {
-		t.Fatalf("expected static desc sort\n\n%s", code2)
+	if !strings.Contains(code2, `sort.Slice(items, func(i int, j int) bool`) ||
+		!strings.Contains(code2, `return items[i].CreatedAt > items[j].CreatedAt`) {
+		t.Fatalf("expected static desc sort comparator\n\n%s", code2)
 	}
 
 	// dynamic order from request
@@ -53,7 +55,7 @@ func TestRenderFlow_ListSort(t *testing.T) {
 	}
 	code3 := renderFlow(steps3)
 	mustContain3 := []string{
-		`sort.Slice(items, func(i, j int) bool {`,
+		`sort.Slice(items, func(i int, j int) bool`,
 		`strings.ToLower(req.SortOrder) == "desc"`,
 		`items[i].Name > items[j].Name`,
 		`items[i].Name < items[j].Name`,
@@ -62,6 +64,53 @@ func TestRenderFlow_ListSort(t *testing.T) {
 		if !strings.Contains(code3, part) {
 			t.Fatalf("expected dynamic sort to contain %q\n\n%s", part, code3)
 		}
+	}
+}
+
+func TestRenderFlow_FlowSwitch(t *testing.T) {
+	steps := []normalizer.FlowStep{
+		{Action: "flow.Switch", Args: map[string]any{
+			"value": "req.Role",
+			"_cases": map[string][]normalizer.FlowStep{
+				"owner": {
+					{Action: "flow.SuggestNext", Args: map[string]any{"options": []string{"approve"}}},
+				},
+				"guest": {
+					{Action: "flow.SuggestNext", Args: map[string]any{"options": []string{"view"}}},
+				},
+			},
+			"_default": []normalizer.FlowStep{
+				{Action: "flow.SuggestNext", Args: map[string]any{"options": []string{"retry"}}},
+			},
+		}},
+	}
+
+	code := renderFlow(steps)
+	mustContain := []string{
+		"switch req.Role {",
+		`case "guest":`,
+		`case "owner":`,
+		"default:",
+		`slog.Info("flow.suggest_next", "options", []string{"retry"})`,
+	}
+	for _, part := range mustContain {
+		if !strings.Contains(code, part) {
+			t.Fatalf("expected generated code to contain %q\n\n%s", part, code)
+		}
+	}
+}
+
+func TestRenderFlow_FlowBlock(t *testing.T) {
+	steps := []normalizer.FlowStep{
+		{Action: "flow.Block", Args: map[string]any{
+			"_do": []normalizer.FlowStep{
+				{Action: "flow.SuggestNext", Args: map[string]any{"options": []string{"inside"}}},
+			},
+		}},
+	}
+	code := renderFlow(steps)
+	if !strings.Contains(code, `slog.Info("flow.suggest_next", "options", []string{"inside"})`) {
+		t.Fatalf("expected flow.Block body to render\n\n%s", code)
 	}
 }
 
@@ -90,6 +139,17 @@ func TestRenderFlow_ListMyTendersLike(t *testing.T) {
 		if !strings.Contains(code, part) {
 			t.Fatalf("expected generated flow code to contain %q\n\n%s", part, code)
 		}
+	}
+}
+
+func TestRenderFlow_StrNormalizeUpper(t *testing.T) {
+	steps := []normalizer.FlowStep{
+		{Action: "str.Normalize", Args: map[string]any{"input": "req.Status", "mode": "upper", "output": "status"}},
+	}
+
+	code := renderFlow(steps)
+	if !strings.Contains(code, "status := strings.ToUpper(strings.TrimSpace(req.Status))") {
+		t.Fatalf("expected upper normalize in generated code\n\n%s", code)
 	}
 }
 

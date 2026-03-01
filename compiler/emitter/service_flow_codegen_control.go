@@ -8,7 +8,7 @@ import (
 	"github.com/strogmv/ang/compiler/normalizer"
 )
 
-func renderFlowStepControlLegacy(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) string {
+func renderFlowStepControlLegacyDeprecatedMonolith(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) string {
 	pad := strings.Repeat("\t", indent)
 	switch step.Action {
 	case "flow.If":

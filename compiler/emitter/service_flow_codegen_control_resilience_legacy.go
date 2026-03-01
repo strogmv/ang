@@ -1,0 +1,183 @@
+package emitter
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/strogmv/ang/compiler/normalizer"
+)
+
+func renderFlowTryLegacy(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, child func(string) []normalizer.FlowStep) string {
+	pad := strings.Repeat("\t", indent)
+	doSteps := child("_do")
+	catchSteps := child("_catch")
+	if len(doSteps) == 0 {
+		return ""
+	}
+	retries := flowIntArg(step.Args, "retries", 0)
+	backoffMs := flowIntArg(step.Args, "backoffMs", 0)
+
+	newVars := collectFlowBranchNewVars(st, indent, doSteps, catchSteps)
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("%s{\n", pad))
+	newVarNames := make([]string, 0, len(newVars))
+	for n := range newVars {
+		newVarNames = append(newVarNames, n)
+	}
+	sort.Strings(newVarNames)
+	for _, varName := range newVarNames {
+		v := newVars[varName]
+		b.WriteString(fmt.Sprintf("%s\tvar %s %s\n", pad, varName, v.typ))
+		st.declared[varName] = true
+		st.pointers[varName] = v.isPtr
+		st.types[varName] = v.typ
+	}
+
+	tryRunV, tryErrV, tryMaxV, tryBackoffV := "_tryRun"+sfx, "_tryErr"+sfx, "_tryMax"+sfx, "_tryBackoff"+sfx
+	b.WriteString(fmt.Sprintf("%s\t%s := %d\n", pad, tryMaxV, retries))
+	b.WriteString(fmt.Sprintf("%s\tif %s < 0 { %s = 0 }\n", pad, tryMaxV, tryMaxV))
+	b.WriteString(fmt.Sprintf("%s\t%s := %d\n", pad, tryBackoffV, backoffMs))
+	b.WriteString(fmt.Sprintf("%s\t%s := func() error {\n", pad, tryRunV))
+	tryState := cloneFlowState(st)
+	tryState.returnErrOnly = true
+	b.WriteString(renderFlowSteps(tryState, doSteps, indent+2))
+	b.WriteString(fmt.Sprintf("%s\t\treturn nil\n", pad))
+	b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+	b.WriteString(fmt.Sprintf("%s\tvar %s error\n", pad, tryErrV))
+	b.WriteString(fmt.Sprintf("%s\tfor _tryAttempt := 0; _tryAttempt <= %s; _tryAttempt++ {\n", pad, tryMaxV))
+	b.WriteString(fmt.Sprintf("%s\t\t%s = %s()\n", pad, tryErrV, tryRunV))
+	b.WriteString(fmt.Sprintf("%s\t\tif %s == nil {\n", pad, tryErrV))
+	b.WriteString(fmt.Sprintf("%s\t\t\tbreak\n", pad))
+	b.WriteString(fmt.Sprintf("%s\t\t}\n", pad))
+	b.WriteString(fmt.Sprintf("%s\t\tif _tryAttempt < %s && %s > 0 {\n", pad, tryMaxV, tryBackoffV))
+	b.WriteString(fmt.Sprintf("%s\t\t\ttime.Sleep(time.Duration(%s) * time.Millisecond)\n", pad, tryBackoffV))
+	b.WriteString(fmt.Sprintf("%s\t\t}\n", pad))
+	b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+	b.WriteString(fmt.Sprintf("%s\tif %s != nil {\n", pad, tryErrV))
+	b.WriteString(fmt.Sprintf("%s\t\t_flowLastError = %s\n", pad, tryErrV))
+	if len(catchSteps) > 0 {
+		b.WriteString(renderFlowSteps(cloneFlowState(st), catchSteps, indent+2))
+	} else {
+		b.WriteString(errReturn(st, pad+"\t\t", tryErrV))
+	}
+	b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+	b.WriteString(fmt.Sprintf("%s}\n", pad))
+	return b.String()
+}
+
+func renderFlowRetryLegacy(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, child func(string) []normalizer.FlowStep) string {
+	pad := strings.Repeat("\t", indent)
+	doSteps := child("_do")
+	catchSteps := child("_catch")
+	if len(doSteps) == 0 {
+		return ""
+	}
+	attempts := flowIntArg(step.Args, "attempts", -1)
+	if attempts < 0 {
+		retries := flowIntArg(step.Args, "retries", -1)
+		if retries >= 0 {
+			attempts = retries + 1
+		} else {
+			attempts = 3
+		}
+	}
+	if attempts <= 0 {
+		attempts = 1
+	}
+	backoffMs := flowIntArg(step.Args, "backoffMs", 0)
+
+	runV, errV, attemptsV, backoffV := "_retryRun"+sfx, "_retryErr"+sfx, "_retryAttempts"+sfx, "_retryBackoff"+sfx
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("%s{\n", pad))
+	b.WriteString(fmt.Sprintf("%s\t%s := %d\n", pad, attemptsV, attempts))
+	b.WriteString(fmt.Sprintf("%s\t%s := %d\n", pad, backoffV, backoffMs))
+	b.WriteString(fmt.Sprintf("%s\t%s := func() error {\n", pad, runV))
+	retryState := cloneFlowState(st)
+	retryState.returnErrOnly = true
+	b.WriteString(renderFlowSteps(retryState, doSteps, indent+2))
+	b.WriteString(fmt.Sprintf("%s\t\treturn nil\n", pad))
+	b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+	b.WriteString(fmt.Sprintf("%s\tvar %s error\n", pad, errV))
+	b.WriteString(fmt.Sprintf("%s\tfor _tryAttempt := 0; _tryAttempt < %s; _tryAttempt++ {\n", pad, attemptsV))
+	b.WriteString(fmt.Sprintf("%s\t\t%s = %s()\n", pad, errV, runV))
+	b.WriteString(fmt.Sprintf("%s\t\tif %s == nil {\n", pad, errV))
+	b.WriteString(fmt.Sprintf("%s\t\t\tbreak\n", pad))
+	b.WriteString(fmt.Sprintf("%s\t\t}\n", pad))
+	b.WriteString(fmt.Sprintf("%s\t\tif _tryAttempt+1 < %s && %s > 0 {\n", pad, attemptsV, backoffV))
+	b.WriteString(fmt.Sprintf("%s\t\t\ttime.Sleep(time.Duration(%s) * time.Millisecond)\n", pad, backoffV))
+	b.WriteString(fmt.Sprintf("%s\t\t}\n", pad))
+	b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+	b.WriteString(fmt.Sprintf("%s\tif %s != nil {\n", pad, errV))
+	b.WriteString(fmt.Sprintf("%s\t\t_flowLastError = %s\n", pad, errV))
+	if len(catchSteps) > 0 {
+		b.WriteString(renderFlowSteps(cloneFlowState(st), catchSteps, indent+2))
+	} else {
+		b.WriteString(errReturn(st, pad+"\t\t", errV))
+	}
+	b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+	b.WriteString(fmt.Sprintf("%s}\n", pad))
+	return b.String()
+}
+
+func renderFlowFallbackLegacy(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, child func(string) []normalizer.FlowStep) string {
+	pad := strings.Repeat("\t", indent)
+	mainSteps := child("_do")
+	fallbackSteps := child("_fallback")
+	if len(mainSteps) == 0 || len(fallbackSteps) == 0 {
+		return ""
+	}
+	runV, errV := "_fbRun"+sfx, "_fbErr"+sfx
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("%s{\n", pad))
+	b.WriteString(fmt.Sprintf("%s\t%s := func() error {\n", pad, runV))
+	fbState := cloneFlowState(st)
+	fbState.returnErrOnly = true
+	b.WriteString(renderFlowSteps(fbState, mainSteps, indent+2))
+	b.WriteString(fmt.Sprintf("%s\t\treturn nil\n", pad))
+	b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+	b.WriteString(fmt.Sprintf("%s\t%s := %s()\n", pad, errV, runV))
+	b.WriteString(fmt.Sprintf("%s\tif %s != nil {\n", pad, errV))
+	b.WriteString(fmt.Sprintf("%s\t\t_flowLastError = %s\n", pad, errV))
+	b.WriteString(renderFlowSteps(cloneFlowState(st), fallbackSteps, indent+2))
+	b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+	b.WriteString(fmt.Sprintf("%s}\n", pad))
+	return b.String()
+}
+
+func renderFlowTimeoutLegacy(st *flowRenderState, _ normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) string {
+	pad := strings.Repeat("\t", indent)
+	duration := arg("duration")
+	doSteps := child("_do")
+	onTimeout := child("_onTimeout")
+	if duration == "" || len(doSteps) == 0 {
+		return ""
+	}
+	toCtxV, toCancelV, toRunV, toErrV := "_toCtx"+sfx, "_toCancel"+sfx, "_toRun"+sfx, "_toErr"+sfx
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("%s{\n", pad))
+	b.WriteString(fmt.Sprintf("%s\t%s, %s := context.WithTimeout(ctx, %s)\n", pad, toCtxV, toCancelV, duration))
+	b.WriteString(fmt.Sprintf("%s\tdefer %s()\n", pad, toCancelV))
+	b.WriteString(fmt.Sprintf("%s\t%s := func(ctx context.Context) error {\n", pad, toRunV))
+	toState := cloneFlowState(st)
+	toState.returnErrOnly = true
+	b.WriteString(renderFlowSteps(toState, doSteps, indent+2))
+	b.WriteString(fmt.Sprintf("%s\t\treturn nil\n", pad))
+	b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+	b.WriteString(fmt.Sprintf("%s\t%s := %s(%s)\n", pad, toErrV, toRunV, toCtxV))
+	b.WriteString(fmt.Sprintf("%s\tif %s != nil {\n", pad, toErrV))
+	b.WriteString(fmt.Sprintf("%s\t\t_flowLastError = %s\n", pad, toErrV))
+	b.WriteString(fmt.Sprintf("%s\t\tif %s.Err() == context.DeadlineExceeded {\n", pad, toCtxV))
+	if len(onTimeout) > 0 {
+		b.WriteString(renderFlowSteps(cloneFlowState(st), onTimeout, indent+3))
+	} else {
+		b.WriteString(errReturn(st, pad+"\t\t\t", "errors.New(http.StatusGatewayTimeout, \"TIMEOUT\", \"flow step timed out\")"))
+	}
+	b.WriteString(fmt.Sprintf("%s\t\t} else {\n", pad))
+	b.WriteString(errReturn(st, pad+"\t\t\t", toErrV))
+	b.WriteString(fmt.Sprintf("%s\t\t}\n", pad))
+	b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+	b.WriteString(fmt.Sprintf("%s}\n", pad))
+	return b.String()
+}

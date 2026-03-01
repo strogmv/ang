@@ -2,6 +2,8 @@ package emitter
 
 import (
 	"fmt"
+	"go/ast"
+	"go/token"
 	"sort"
 	"strings"
 
@@ -12,236 +14,593 @@ func renderFlowStepControlFlow(st *flowRenderState, step normalizer.FlowStep, in
 	pad := strings.Repeat("\t", indent)
 	switch step.Action {
 	case "flow.If":
-		cond := arg("condition")
-		if cond == "" {
-			return "", true
+		if out, ok := renderFlowIfAST(st, indent, arg, child); ok {
+			return out, true
 		}
-		thenSteps := child("_then")
-		elseSteps := child("_else")
-		var b strings.Builder
-		b.WriteString(fmt.Sprintf("%sif %s {\n", pad, cond))
-		b.WriteString(renderFlowSteps(cloneFlowState(st), thenSteps, indent+1))
-		b.WriteString(fmt.Sprintf("%s}", pad))
-		if len(elseSteps) > 0 {
-			b.WriteString(" else {\n")
-			b.WriteString(renderFlowSteps(cloneFlowState(st), elseSteps, indent+1))
-			b.WriteString(fmt.Sprintf("%s}", pad))
-		}
-		b.WriteString("\n")
-		return b.String(), true
+		return renderFlowIfLegacy(st, pad, indent, arg, child), true
 
 	case "flow.For":
-		each := arg("each")
-		as := arg("as")
-		if each == "" {
-			return "", true
+		if out, ok := renderFlowForAST(st, indent, arg, child); ok {
+			return out, true
 		}
-		if as == "" {
-			as = "item"
-		}
-		var b strings.Builder
-		b.WriteString(fmt.Sprintf("%sfor _, %s := range %s {\n", pad, as, each))
-		b.WriteString(renderFlowSteps(cloneFlowState(st), child("_do"), indent+1))
-		b.WriteString(fmt.Sprintf("%s}\n", pad))
-		return b.String(), true
+		return renderFlowForLegacy(st, pad, indent, arg, child), true
 
 	case "flow.Block", "tx.Block":
-		return renderFlowSteps(st, child("_do"), indent), true
+		if out, ok := renderFlowBlockAST(st, indent, child); ok {
+			return out, true
+		}
+		return renderFlowBlockLegacy(st, indent, child), true
 
 	case "flow.Switch":
-		value := arg("value")
-		if value == "" {
-			return "", true
+		if out, ok := renderFlowSwitchAST(st, step, indent, arg, child); ok {
+			return out, true
 		}
-		cases, _ := step.Args["_cases"].(map[string][]normalizer.FlowStep)
-		defaultSteps := child("_default")
-		keys := make([]string, 0, len(cases))
-		for k := range cases {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		var b strings.Builder
-		b.WriteString(fmt.Sprintf("%sswitch %s {\n", pad, value))
-		for _, k := range keys {
-			b.WriteString(fmt.Sprintf("%scase %q:\n", pad, k))
-			b.WriteString(renderFlowSteps(cloneFlowState(st), cases[k], indent+1))
-		}
-		if len(defaultSteps) > 0 {
-			b.WriteString(fmt.Sprintf("%sdefault:\n", pad))
-			b.WriteString(renderFlowSteps(cloneFlowState(st), defaultSteps, indent+1))
-		}
-		b.WriteString(fmt.Sprintf("%s}\n", pad))
-		return b.String(), true
+		return renderFlowSwitchLegacy(st, step, pad, indent, arg, child), true
 
 	case "flow.While":
-		cond := arg("condition")
-		if cond == "" {
-			return "", true
+		if out, ok := renderFlowWhileAST(st, indent, arg, child); ok {
+			return out, true
 		}
-		var b strings.Builder
-		b.WriteString(fmt.Sprintf("%sfor %s {\n", pad, cond))
-		b.WriteString(renderFlowSteps(cloneFlowState(st), child("_do"), indent+1))
-		b.WriteString(fmt.Sprintf("%s}\n", pad))
-		return b.String(), true
+		return renderFlowWhileLegacy(st, pad, indent, arg, child), true
 
 	case "flow.Checkpoint":
-		name := arg("name")
-		if name == "" {
-			return "", true
+		if out, ok := renderFlowCheckpointAST(indent, arg); ok {
+			return out, true
 		}
-		data := arg("data")
-		if data == "" {
-			data = "map[string]any{\"resp\": resp}"
-		}
-		keyLit := fmt.Sprintf("%q", name)
-		var b strings.Builder
-		b.WriteString(fmt.Sprintf("%sif _flowCheckpoints == nil {\n", pad))
-		b.WriteString(fmt.Sprintf("%s\t_flowCheckpoints = make(map[string]any)\n", pad))
-		b.WriteString(fmt.Sprintf("%s}\n", pad))
-		b.WriteString(fmt.Sprintf("%s_flowCheckpoints[%s] = %s\n", pad, keyLit, data))
-		return b.String(), true
+		return renderFlowCheckpointLegacy(pad, arg), true
 
 	case "flow.Resume":
-		name := arg("name")
-		if name == "" {
-			return "", true
+		if out, ok := renderFlowResumeAST(st, indent, sfx, arg, child); ok {
+			return out, true
 		}
-		output := arg("output")
-		onMissing := child("_onMissing")
-		keyLit := fmt.Sprintf("%q", name)
-		ckptValV, ckptOKV := "_ckptVal"+sfx, "_ckptOK"+sfx
-		var b strings.Builder
-		b.WriteString(fmt.Sprintf("%svar %s any\n", pad, ckptValV))
-		b.WriteString(fmt.Sprintf("%s%s := false\n", pad, ckptOKV))
-		b.WriteString(fmt.Sprintf("%sif _flowCheckpoints != nil {\n", pad))
-		b.WriteString(fmt.Sprintf("%s\t%s, %s = _flowCheckpoints[%s]\n", pad, ckptValV, ckptOKV, keyLit))
-		b.WriteString(fmt.Sprintf("%s}\n", pad))
-		b.WriteString(fmt.Sprintf("%sif !%s {\n", pad, ckptOKV))
-		if len(onMissing) > 0 {
-			b.WriteString(renderFlowSteps(cloneFlowState(st), onMissing, indent+1))
-		} else {
-			b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("errors.New(http.StatusNotFound, \"CHECKPOINT_NOT_FOUND\", \"checkpoint %s not found\")", name)))
-		}
-		b.WriteString(fmt.Sprintf("%s}\n", pad))
-		if output != "" {
-			assign := ":="
-			if st.declared[output] {
-				assign = "="
-			}
-			st.declared[output] = true
-			st.pointers[output] = false
-			st.types[output] = "any"
-			b.WriteString(fmt.Sprintf("%s%s %s %s\n", pad, output, assign, ckptValV))
-		}
-		return b.String(), true
+		return renderFlowResumeLegacy(st, pad, indent, sfx, arg, child), true
 
 	case "flow.Validate":
-		cond := arg("condition")
-		if cond == "" {
-			return "", true
+		if out, ok := renderFlowValidateAST(st, indent, arg); ok {
+			return out, true
 		}
-		message := arg("message")
-		if message == "" {
-			message = arg("throw")
-		}
-		if message == "" {
-			message = "validation failed"
-		}
-		if hint := arg("hint"); hint != "" {
-			message = message + " (hint: " + hint + ")"
-		}
-		code := arg("code")
-		if code == "" {
-			code = "VALIDATION_FAILED"
-		}
-		status := arg("status")
-		if status == "" {
-			status = "http.StatusBadRequest"
-		}
-		var b strings.Builder
-		b.WriteString(fmt.Sprintf("%sif !(%s) {\n", pad, cond))
-		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("errors.New(%s, %q, %q)", status, code, message)))
-		b.WriteString(fmt.Sprintf("%s}\n", pad))
-		return b.String(), true
+		return renderFlowValidateLegacy(st, pad, arg), true
 
 	case "flow.Catch":
-		catchSteps := child("_do")
-		if len(catchSteps) == 0 {
-			return "", true
+		if out, ok := renderFlowCatchAST(st, indent, child); ok {
+			return out, true
 		}
-		var b strings.Builder
-		b.WriteString(fmt.Sprintf("%sif _flowLastError != nil {\n", pad))
-		b.WriteString(renderFlowSteps(cloneFlowState(st), catchSteps, indent+1))
-		b.WriteString(fmt.Sprintf("%s\t_flowLastError = nil\n", pad))
-		b.WriteString(fmt.Sprintf("%s}\n", pad))
-		return b.String(), true
+		return renderFlowCatchLegacy(st, pad, indent, child), true
 
 	case "flow.SuggestNext":
-		output := arg("output")
-		var options []string
-		if v, ok := step.Args["options"]; ok {
-			switch x := v.(type) {
-			case []string:
-				options = append(options, x...)
-			case string:
-				if strings.TrimSpace(x) != "" {
-					options = []string{x}
-				}
-			}
+		if out, ok := renderFlowSuggestNextAST(st, step, indent, arg); ok {
+			return out, true
 		}
-		if len(options) == 0 {
-			return "", true
-		}
-		quoted := make([]string, 0, len(options))
-		for _, opt := range options {
-			quoted = append(quoted, fmt.Sprintf("%q", opt))
-		}
-		listExpr := "[]string{" + strings.Join(quoted, ", ") + "}"
-		if output != "" {
-			assign := ":="
-			if st.declared[output] {
-				assign = "="
-			}
-			st.declared[output] = true
-			st.pointers[output] = false
-			st.types[output] = "[]string"
-			return fmt.Sprintf("%s%s %s %s\n", pad, output, assign, listExpr), true
-		}
-		return fmt.Sprintf("%sslog.Info(\"flow.suggest_next\", \"options\", %s)\n", pad, listExpr), true
+		return renderFlowSuggestNextLegacy(st, step, pad, arg), true
 
 	case "flow.ExplainError":
-		errExpr := arg("error")
-		if errExpr == "" {
-			errExpr = "_flowLastError"
+		if out, ok := renderFlowExplainErrorAST(st, indent, sfx, arg); ok {
+			return out, true
 		}
-		output := arg("output")
-		message := arg("message")
-		hint := arg("hint")
-		expMsgV := "_expMsg" + sfx
-		var b strings.Builder
-		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, errExpr))
-		b.WriteString(fmt.Sprintf("%s\t%s := fmt.Sprintf(\"flow error: %%v\", %s)\n", pad, expMsgV, errExpr))
-		if message != "" {
-			b.WriteString(fmt.Sprintf("%s\t%s = %q + \": \" + %s\n", pad, expMsgV, message, expMsgV))
-		}
-		if hint != "" {
-			b.WriteString(fmt.Sprintf("%s\t%s = %s + %q\n", pad, expMsgV, expMsgV, " | hint: "+hint))
-		}
-		if output != "" {
-			assign := ":="
-			if st.declared[output] {
-				assign = "="
-			}
-			st.declared[output] = true
-			st.pointers[output] = false
-			st.types[output] = "string"
-			b.WriteString(fmt.Sprintf("%s\t%s %s %s\n", pad, output, assign, expMsgV))
-		} else {
-			b.WriteString(fmt.Sprintf("%s\tslog.Warn(\"flow.explain_error\", \"message\", %s)\n", pad, expMsgV))
-		}
-		b.WriteString(fmt.Sprintf("%s}\n", pad))
-		return b.String(), true
+		return renderFlowExplainErrorLegacy(st, pad, sfx, arg), true
 	}
 
 	return "", false
+}
+
+func renderFlowIfAST(st *flowRenderState, indent int, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
+	cond := arg("condition")
+	if cond == "" {
+		return "", true
+	}
+	condExpr, err := parseFlowExprSafe(cond)
+	if err != nil {
+		return "", false
+	}
+	thenBody, err := parseFlowStmtList(renderFlowSteps(cloneFlowState(st), child("_then"), 1))
+	if err != nil {
+		return "", false
+	}
+	stmt := &ast.IfStmt{
+		Cond: condExpr,
+		Body: &ast.BlockStmt{List: thenBody},
+	}
+	elseSteps := child("_else")
+	if len(elseSteps) > 0 {
+		elseBody, parseErr := parseFlowStmtList(renderFlowSteps(cloneFlowState(st), elseSteps, 1))
+		if parseErr != nil {
+			return "", false
+		}
+		stmt.Else = &ast.BlockStmt{List: elseBody}
+	}
+	return renderFlowASTStmts([]ast.Stmt{stmt}, indent), true
+}
+
+func renderFlowBlockAST(st *flowRenderState, indent int, child func(string) []normalizer.FlowStep) (string, bool) {
+	body, err := parseFlowStmtList(renderFlowSteps(st, child("_do"), 1))
+	if err != nil {
+		return "", false
+	}
+	return renderFlowASTStmts(body, indent), true
+}
+
+func renderFlowForAST(st *flowRenderState, indent int, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
+	each := arg("each")
+	as := arg("as")
+	if each == "" {
+		return "", true
+	}
+	if as == "" {
+		as = "item"
+	}
+	eachExpr, err := parseFlowExprSafe(each)
+	if err != nil {
+		return "", false
+	}
+	asExpr, err := parseFlowExprSafe(as)
+	if err != nil {
+		return "", false
+	}
+	asIdent, ok := asExpr.(*ast.Ident)
+	if !ok {
+		return "", false
+	}
+	body, err := parseFlowStmtList(renderFlowSteps(cloneFlowState(st), child("_do"), 1))
+	if err != nil {
+		return "", false
+	}
+	stmt := &ast.RangeStmt{
+		Key:   ast.NewIdent("_"),
+		Value: asIdent,
+		Tok:   token.DEFINE,
+		X:     eachExpr,
+		Body:  &ast.BlockStmt{List: body},
+	}
+	return renderFlowASTStmts([]ast.Stmt{stmt}, indent), true
+}
+
+func renderFlowSwitchAST(st *flowRenderState, step normalizer.FlowStep, indent int, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
+	value := arg("value")
+	if value == "" {
+		return "", true
+	}
+	valueExpr, err := parseFlowExprSafe(value)
+	if err != nil {
+		return "", false
+	}
+	cases, keys := flowSwitchCases(step)
+	clauses := make([]ast.Stmt, 0, len(keys)+1)
+	for _, k := range keys {
+		body, parseErr := parseFlowStmtList(renderFlowSteps(cloneFlowState(st), cases[k], 1))
+		if parseErr != nil {
+			return "", false
+		}
+		clauses = append(clauses, &ast.CaseClause{
+			List: []ast.Expr{
+				&ast.BasicLit{Kind: token.STRING, Value: fmt.Sprintf("%q", k)},
+			},
+			Body: body,
+		})
+	}
+	defaultSteps := child("_default")
+	if len(defaultSteps) > 0 {
+		body, parseErr := parseFlowStmtList(renderFlowSteps(cloneFlowState(st), defaultSteps, 1))
+		if parseErr != nil {
+			return "", false
+		}
+		clauses = append(clauses, &ast.CaseClause{Body: body})
+	}
+	stmt := &ast.SwitchStmt{
+		Tag:  valueExpr,
+		Body: &ast.BlockStmt{List: clauses},
+	}
+	return renderFlowASTStmts([]ast.Stmt{stmt}, indent), true
+}
+
+func renderFlowWhileAST(st *flowRenderState, indent int, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
+	cond := arg("condition")
+	if cond == "" {
+		return "", true
+	}
+	condExpr, err := parseFlowExprSafe(cond)
+	if err != nil {
+		return "", false
+	}
+	body, err := parseFlowStmtList(renderFlowSteps(cloneFlowState(st), child("_do"), 1))
+	if err != nil {
+		return "", false
+	}
+	stmt := &ast.ForStmt{
+		Cond: condExpr,
+		Body: &ast.BlockStmt{List: body},
+	}
+	return renderFlowASTStmts([]ast.Stmt{stmt}, indent), true
+}
+
+func renderFlowCheckpointAST(indent int, arg func(string) string) (string, bool) {
+	name := arg("name")
+	if name == "" {
+		return "", true
+	}
+	data := arg("data")
+	if data == "" {
+		data = "map[string]any{\"resp\": resp}"
+	}
+	dataExpr, err := parseFlowExprSafe(data)
+	if err != nil {
+		return "", false
+	}
+	keyExpr := &ast.BasicLit{Kind: token.STRING, Value: fmt.Sprintf("%q", name)}
+	stmts := []ast.Stmt{
+		&ast.IfStmt{
+			Cond: &ast.BinaryExpr{
+				X:  ast.NewIdent("_flowCheckpoints"),
+				Op: token.EQL,
+				Y:  ast.NewIdent("nil"),
+			},
+			Body: &ast.BlockStmt{
+				List: []ast.Stmt{
+					&ast.AssignStmt{
+						Lhs: []ast.Expr{ast.NewIdent("_flowCheckpoints")},
+						Tok: token.ASSIGN,
+						Rhs: []ast.Expr{
+							&ast.CallExpr{
+								Fun: ast.NewIdent("make"),
+								Args: []ast.Expr{
+									&ast.MapType{Key: ast.NewIdent("string"), Value: ast.NewIdent("any")},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		&ast.AssignStmt{
+			Lhs: []ast.Expr{
+				&ast.IndexExpr{
+					X:     ast.NewIdent("_flowCheckpoints"),
+					Index: keyExpr,
+				},
+			},
+			Tok: token.ASSIGN,
+			Rhs: []ast.Expr{dataExpr},
+		},
+	}
+	return renderFlowASTStmts(stmts, indent), true
+}
+
+func renderFlowResumeAST(st *flowRenderState, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
+	name := arg("name")
+	if name == "" {
+		return "", true
+	}
+	output := arg("output")
+	onMissing := child("_onMissing")
+	ckptValV, ckptOKV := "_ckptVal"+sfx, "_ckptOK"+sfx
+	keyExpr := &ast.BasicLit{Kind: token.STRING, Value: fmt.Sprintf("%q", name)}
+
+	stmts := []ast.Stmt{
+		&ast.DeclStmt{
+			Decl: &ast.GenDecl{
+				Tok: token.VAR,
+				Specs: []ast.Spec{
+					&ast.ValueSpec{
+						Names: []*ast.Ident{ast.NewIdent(ckptValV)},
+						Type:  ast.NewIdent("any"),
+					},
+				},
+			},
+		},
+		&ast.AssignStmt{
+			Lhs: []ast.Expr{ast.NewIdent(ckptOKV)},
+			Tok: token.DEFINE,
+			Rhs: []ast.Expr{ast.NewIdent("false")},
+		},
+		&ast.IfStmt{
+			Cond: &ast.BinaryExpr{
+				X:  ast.NewIdent("_flowCheckpoints"),
+				Op: token.NEQ,
+				Y:  ast.NewIdent("nil"),
+			},
+			Body: &ast.BlockStmt{
+				List: []ast.Stmt{
+					&ast.AssignStmt{
+						Lhs: []ast.Expr{ast.NewIdent(ckptValV), ast.NewIdent(ckptOKV)},
+						Tok: token.ASSIGN,
+						Rhs: []ast.Expr{
+							&ast.IndexExpr{
+								X:     ast.NewIdent("_flowCheckpoints"),
+								Index: keyExpr,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	missingBody := []ast.Stmt{}
+	if len(onMissing) > 0 {
+		parsed, err := parseFlowStmtList(renderFlowSteps(cloneFlowState(st), onMissing, 1))
+		if err != nil {
+			return "", false
+		}
+		missingBody = append(missingBody, parsed...)
+	} else {
+		parsed, err := parseFlowStmtList(errReturn(st, "", fmt.Sprintf("errors.New(http.StatusNotFound, \"CHECKPOINT_NOT_FOUND\", \"checkpoint %s not found\")", name)))
+		if err != nil {
+			return "", false
+		}
+		missingBody = append(missingBody, parsed...)
+	}
+	stmts = append(stmts, &ast.IfStmt{
+		Cond: &ast.UnaryExpr{
+			Op: token.NOT,
+			X:  ast.NewIdent(ckptOKV),
+		},
+		Body: &ast.BlockStmt{List: missingBody},
+	})
+
+	if output != "" {
+		outExpr, err := parseFlowExprSafe(output)
+		if err != nil {
+			return "", false
+		}
+		assignTok := token.ASSIGN
+		if !st.declared[output] {
+			if _, ok := outExpr.(*ast.Ident); !ok {
+				return "", false
+			}
+			assignTok = token.DEFINE
+		}
+		st.declared[output] = true
+		st.pointers[output] = false
+		st.types[output] = "any"
+		stmts = append(stmts, &ast.AssignStmt{
+			Lhs: []ast.Expr{outExpr},
+			Tok: assignTok,
+			Rhs: []ast.Expr{ast.NewIdent(ckptValV)},
+		})
+	}
+
+	return renderFlowASTStmts(stmts, indent), true
+}
+
+func renderFlowCatchAST(st *flowRenderState, indent int, child func(string) []normalizer.FlowStep) (string, bool) {
+	catchSteps := child("_do")
+	if len(catchSteps) == 0 {
+		return "", true
+	}
+	catchBody, err := parseFlowStmtList(renderFlowSteps(cloneFlowState(st), catchSteps, 1))
+	if err != nil {
+		return "", false
+	}
+	catchBody = append(catchBody, &ast.AssignStmt{
+		Lhs: []ast.Expr{ast.NewIdent("_flowLastError")},
+		Tok: token.ASSIGN,
+		Rhs: []ast.Expr{ast.NewIdent("nil")},
+	})
+	stmt := &ast.IfStmt{
+		Cond: &ast.BinaryExpr{
+			X:  ast.NewIdent("_flowLastError"),
+			Op: token.NEQ,
+			Y:  ast.NewIdent("nil"),
+		},
+		Body: &ast.BlockStmt{List: catchBody},
+	}
+	return renderFlowASTStmts([]ast.Stmt{stmt}, indent), true
+}
+
+func renderFlowSuggestNextAST(st *flowRenderState, step normalizer.FlowStep, indent int, arg func(string) string) (string, bool) {
+	output := arg("output")
+	options := flowSuggestNextOptions(step)
+	if len(options) == 0 {
+		return "", true
+	}
+	elts := make([]ast.Expr, 0, len(options))
+	for _, opt := range options {
+		elts = append(elts, &ast.BasicLit{Kind: token.STRING, Value: fmt.Sprintf("%q", opt)})
+	}
+	listExpr := &ast.CompositeLit{
+		Type: &ast.ArrayType{Elt: ast.NewIdent("string")},
+		Elts: elts,
+	}
+	if output != "" {
+		outExpr, err := parseFlowExprSafe(output)
+		if err != nil {
+			return "", false
+		}
+		assignTok := token.ASSIGN
+		if !st.declared[output] {
+			if _, ok := outExpr.(*ast.Ident); !ok {
+				return "", false
+			}
+			assignTok = token.DEFINE
+		}
+		st.declared[output] = true
+		st.pointers[output] = false
+		st.types[output] = "[]string"
+		stmt := &ast.AssignStmt{
+			Lhs: []ast.Expr{outExpr},
+			Tok: assignTok,
+			Rhs: []ast.Expr{listExpr},
+		}
+		return renderFlowASTStmts([]ast.Stmt{stmt}, indent), true
+	}
+	stmt := &ast.ExprStmt{
+		X: &ast.CallExpr{
+			Fun: &ast.SelectorExpr{X: ast.NewIdent("slog"), Sel: ast.NewIdent("Info")},
+			Args: []ast.Expr{
+				&ast.BasicLit{Kind: token.STRING, Value: `"flow.suggest_next"`},
+				&ast.BasicLit{Kind: token.STRING, Value: `"options"`},
+				listExpr,
+			},
+		},
+	}
+	return renderFlowASTStmts([]ast.Stmt{stmt}, indent), true
+}
+
+func flowSuggestNextOptions(step normalizer.FlowStep) []string {
+	var options []string
+	v, ok := step.Args["options"]
+	if !ok {
+		return options
+	}
+	switch x := v.(type) {
+	case []string:
+		options = append(options, x...)
+	case string:
+		if strings.TrimSpace(x) != "" {
+			options = []string{x}
+		}
+	}
+	return options
+}
+
+func flowSwitchCases(step normalizer.FlowStep) (map[string][]normalizer.FlowStep, []string) {
+	cases, _ := step.Args["_cases"].(map[string][]normalizer.FlowStep)
+	keys := make([]string, 0, len(cases))
+	for k := range cases {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return cases, keys
+}
+
+func renderFlowValidateAST(st *flowRenderState, indent int, arg func(string) string) (string, bool) {
+	cond := arg("condition")
+	if cond == "" {
+		return "", true
+	}
+	condExpr, err := parseFlowExprSafe(cond)
+	if err != nil {
+		return "", false
+	}
+	message := arg("message")
+	if message == "" {
+		message = arg("throw")
+	}
+	if message == "" {
+		message = "validation failed"
+	}
+	if hint := arg("hint"); hint != "" {
+		message = message + " (hint: " + hint + ")"
+	}
+	code := arg("code")
+	if code == "" {
+		code = "VALIDATION_FAILED"
+	}
+	status := arg("status")
+	if status == "" {
+		status = "http.StatusBadRequest"
+	}
+	body, parseErr := parseFlowStmtList(errReturn(st, "", fmt.Sprintf("errors.New(%s, %q, %q)", status, code, message)))
+	if parseErr != nil {
+		return "", false
+	}
+	stmt := &ast.IfStmt{
+		Cond: &ast.UnaryExpr{
+			Op: token.NOT,
+			X:  condExpr,
+		},
+		Body: &ast.BlockStmt{List: body},
+	}
+	return renderFlowASTStmts([]ast.Stmt{stmt}, indent), true
+}
+
+func renderFlowExplainErrorAST(st *flowRenderState, indent int, sfx string, arg func(string) string) (string, bool) {
+	errExprRaw := arg("error")
+	if errExprRaw == "" {
+		errExprRaw = "_flowLastError"
+	}
+	errExpr, err := parseFlowExprSafe(errExprRaw)
+	if err != nil {
+		return "", false
+	}
+	output := arg("output")
+	message := arg("message")
+	hint := arg("hint")
+	expMsgV := "_expMsg" + sfx
+
+	ifBody := []ast.Stmt{
+		&ast.AssignStmt{
+			Lhs: []ast.Expr{ast.NewIdent(expMsgV)},
+			Tok: token.DEFINE,
+			Rhs: []ast.Expr{
+				&ast.CallExpr{
+					Fun: &ast.SelectorExpr{X: ast.NewIdent("fmt"), Sel: ast.NewIdent("Sprintf")},
+					Args: []ast.Expr{
+						&ast.BasicLit{Kind: token.STRING, Value: `"flow error: %v"`},
+						errExpr,
+					},
+				},
+			},
+		},
+	}
+	if message != "" {
+		ifBody = append(ifBody, &ast.AssignStmt{
+			Lhs: []ast.Expr{ast.NewIdent(expMsgV)},
+			Tok: token.ASSIGN,
+			Rhs: []ast.Expr{
+				&ast.BinaryExpr{
+					X: &ast.BinaryExpr{
+						X:  &ast.BasicLit{Kind: token.STRING, Value: fmt.Sprintf("%q", message)},
+						Op: token.ADD,
+						Y:  &ast.BasicLit{Kind: token.STRING, Value: `": "`},
+					},
+					Op: token.ADD,
+					Y:  ast.NewIdent(expMsgV),
+				},
+			},
+		})
+	}
+	if hint != "" {
+		ifBody = append(ifBody, &ast.AssignStmt{
+			Lhs: []ast.Expr{ast.NewIdent(expMsgV)},
+			Tok: token.ASSIGN,
+			Rhs: []ast.Expr{
+				&ast.BinaryExpr{
+					X:  ast.NewIdent(expMsgV),
+					Op: token.ADD,
+					Y:  &ast.BasicLit{Kind: token.STRING, Value: fmt.Sprintf("%q", " | hint: "+hint)},
+				},
+			},
+		})
+	}
+	if output != "" {
+		outExpr, parseErr := parseFlowExprSafe(output)
+		if parseErr != nil {
+			return "", false
+		}
+		assignTok := token.ASSIGN
+		if !st.declared[output] {
+			if _, ok := outExpr.(*ast.Ident); !ok {
+				return "", false
+			}
+			assignTok = token.DEFINE
+		}
+		st.declared[output] = true
+		st.pointers[output] = false
+		st.types[output] = "string"
+		ifBody = append(ifBody, &ast.AssignStmt{
+			Lhs: []ast.Expr{outExpr},
+			Tok: assignTok,
+			Rhs: []ast.Expr{ast.NewIdent(expMsgV)},
+		})
+	} else {
+		ifBody = append(ifBody, &ast.ExprStmt{
+			X: &ast.CallExpr{
+				Fun: &ast.SelectorExpr{X: ast.NewIdent("slog"), Sel: ast.NewIdent("Warn")},
+				Args: []ast.Expr{
+					&ast.BasicLit{Kind: token.STRING, Value: `"flow.explain_error"`},
+					&ast.BasicLit{Kind: token.STRING, Value: `"message"`},
+					ast.NewIdent(expMsgV),
+				},
+			},
+		})
+	}
+	stmt := &ast.IfStmt{
+		Cond: &ast.BinaryExpr{
+			X:  errExpr,
+			Op: token.NEQ,
+			Y:  ast.NewIdent("nil"),
+		},
+		Body: &ast.BlockStmt{List: ifBody},
+	}
+	return renderFlowASTStmts([]ast.Stmt{stmt}, indent), true
 }
