@@ -9,6 +9,24 @@
 
 ANG is not a framework, not an ORM, and not a low-code platform. It is a compiler that accepts declarative architectural intent (CUE) and generates normalized Go backend scaffolds, leaving business algorithms to the developer.
 
+## Documentation Map
+
+User and AI-facing guides:
+
+- `docs/README.md`
+- `docs/getting-started.md`
+- `docs/commands.md`
+- `docs/config.md`
+- `docs/troubleshooting.md`
+- `docs/ai-playbook.md`
+
+Compiler internals:
+
+- `docs/architecture.md`
+- `docs/flow-semantics.md`
+- `docs/compiler_contract.md`
+- `docs/ir_versioning.md`
+
 ## Why AI-Friendly?
 
 ANG is designed from the ground up to work seamlessly with AI coding agents:

@@ -85,6 +85,7 @@ func runUp(args []string) {
 	}
 
 	if !*skipDoctor {
+		// Preflight is intentionally first: it surfaces missing env/tools before build noise.
 		checks, err := collectStartupChecks(root, true)
 		if err != nil {
 			fmt.Printf("Up FAILED: %v\n", err)
@@ -100,6 +101,7 @@ func runUp(args []string) {
 	if !*skipCompose {
 		composePath := filepath.Join(root, strings.TrimSpace(*composeFile))
 		if _, err := os.Stat(composePath); err == nil {
+			// Detect compose command dynamically to support both modern plugin and legacy binary.
 			composeCmd, err := detectComposeCommand()
 			if err != nil {
 				fmt.Printf("Up FAILED: %v\n", err)
@@ -243,6 +245,7 @@ func collectStartupChecks(projectPath string, checkConfig bool) ([]startupCheck,
 	port := resolveHTTPPort(root)
 	if strings.TrimSpace(port) != "" {
 		addr := ":" + port
+		// Port conflict is a warning (not failure): an already running local server is valid.
 		ln, err := net.Listen("tcp", addr)
 		if err != nil {
 			add(startupCheck{

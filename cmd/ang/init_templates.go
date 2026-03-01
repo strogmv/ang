@@ -10,6 +10,8 @@ import (
 	"strings"
 )
 
+// .env.example is listed explicitly because go:embed wildcard does not include dotfiles.
+//
 //go:embed init_templates/** init_templates/common/.env.example
 var initTemplatesFS embed.FS
 
@@ -156,6 +158,7 @@ func defaultFrameworkForLang(lang string) string {
 func ensureInitGoMod(targetDir, modulePath string) error {
 	goModPath := filepath.Join(targetDir, "go.mod")
 	if _, err := os.Stat(goModPath); err == nil {
+		// Respect existing module to avoid rewriting user-managed module metadata.
 		return nil
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("check go.mod: %w", err)

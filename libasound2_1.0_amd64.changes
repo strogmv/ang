@@ -1,0 +1,26 @@
+Format: 1.8
+Date: Tue, 24 Feb 2026 14:29:13 +0100
+Source: libasound2
+Binary: libasound2
+Built-For-Profiles: noudeb
+Architecture: all
+Version: 1.0
+Distribution: unstable
+Urgency: low
+Maintainer: Equivs Dummy Package Generator <strog@strog-win-pc>
+Changed-By: Equivs Dummy Package Generator <strog@strog-win-pc>
+Description:
+ libasound2 - Dummy package to satisfy DaVinci Resolve installer
+Changes:
+ libasound2 (1.0) unstable; urgency=low
+ .
+   * First version
+Checksums-Sha1:
+ 63a96c71e984a9af4e8e64362bd81a6efbeff925 2036 libasound2_1.0_all.deb
+ c5216ab078e96d1d0c140395c46cad178ec0dc9c 6375 libasound2_1.0_amd64.buildinfo
+Checksums-Sha256:
+ 15564b8b9f5b2d1cbc313fdb03532cecdda155cb3f2fd0098226b9059d735e7a 2036 libasound2_1.0_all.deb
+ 8227c93966aae0b94b22272a887bb67d373c1c0a7b96bf48bb3df47f19f81a62 6375 libasound2_1.0_amd64.buildinfo
+Files:
+ e2ef3b5ee549e79546056139bafdfe9b 2036 misc optional libasound2_1.0_all.deb
+ 8556745dee7ccecea1e8c6e5e8064fbd 6375 misc optional libasound2_1.0_amd64.buildinfo
