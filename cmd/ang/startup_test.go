@@ -2,11 +2,13 @@ package main
 
 import (
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -176,6 +178,32 @@ func TestResolveHTTPPortPriority(t *testing.T) {
 	}
 	if got := resolveHTTPPort(root); got != "8080" {
 		t.Fatalf("expected default 8080, got %q", got)
+	}
+}
+
+func TestSuggestPortConflictFindsAlternative(t *testing.T) {
+	ln, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+	addr := ln.Addr().String()
+	parts := strings.Split(addr, ":")
+	busyPort := parts[len(parts)-1]
+	if _, err := strconv.Atoi(busyPort); err != nil {
+		t.Fatalf("invalid busy port %q from addr %q", busyPort, addr)
+	}
+
+	t.Setenv("HTTP_PORT", busyPort)
+	used, alt := suggestPortConflict(t.TempDir())
+	if used != busyPort {
+		t.Fatalf("expected used port %s, got %s", busyPort, used)
+	}
+	if alt == "" {
+		t.Fatalf("expected alternative port for busy port %s", busyPort)
+	}
+	if alt == busyPort {
+		t.Fatalf("expected different alternative port, got same %s", alt)
 	}
 }
 

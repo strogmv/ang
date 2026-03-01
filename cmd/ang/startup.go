@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -87,6 +88,9 @@ func runUp(args []string) {
 	funMode := isFunEnabled(*fun)
 	if funMode {
 		printFunRocket()
+	}
+	if usedPort, altPort := suggestPortConflict(root); usedPort != "" && altPort != "" {
+		fmt.Printf("Port hint: HTTP_PORT=%s is busy. Try HTTP_PORT=%s (for smoke: `ang smoke --base-url http://localhost:%s`).\n", usedPort, altPort, altPort)
 	}
 	progress := newUpProgress(4)
 
@@ -267,11 +271,15 @@ func collectStartupChecks(projectPath string, checkConfig bool) ([]startupCheck,
 		// Port conflict is a warning (not failure): an already running local server is valid.
 		ln, err := net.Listen("tcp", addr)
 		if err != nil {
+			hint := "if your server is already running this is fine; otherwise stop conflicting process"
+			if alt := findFreePortNear(port); alt != "" {
+				hint = fmt.Sprintf("%s; or set HTTP_PORT=%s and retry", hint, alt)
+			}
 			add(startupCheck{
 				Name:   "http-port",
 				Status: startupWarn,
 				Detail: fmt.Sprintf("port %s is already in use", port),
-				Hint:   "if your server is already running this is fine; otherwise stop conflicting process",
+				Hint:   hint,
 			})
 		} else {
 			_ = ln.Close()
@@ -550,6 +558,43 @@ func resolveHTTPPort(projectPath string) string {
 		}
 	}
 	return "8080"
+}
+
+func suggestPortConflict(projectPath string) (usedPort, suggestedPort string) {
+	port := resolveHTTPPort(projectPath)
+	if strings.TrimSpace(port) == "" {
+		return "", ""
+	}
+	ln, err := net.Listen("tcp", ":"+port)
+	if err == nil {
+		_ = ln.Close()
+		return "", ""
+	}
+	alt := findFreePortNear(port)
+	if alt == "" {
+		return port, ""
+	}
+	return port, alt
+}
+
+func findFreePortNear(port string) string {
+	base := strings.TrimSpace(port)
+	if base == "" {
+		base = "8080"
+	}
+	start := 8080
+	if parsed, err := strconv.Atoi(base); err == nil && parsed > 0 {
+		start = parsed + 1
+	}
+	for p := start; p < start+100; p++ {
+		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", p))
+		if err != nil {
+			continue
+		}
+		_ = ln.Close()
+		return fmt.Sprintf("%d", p)
+	}
+	return ""
 }
 
 type upProgress struct {
