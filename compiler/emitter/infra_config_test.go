@@ -103,3 +103,22 @@ func TestEmitConfig_WritesBackendEnvExample(t *testing.T) {
 		t.Fatalf(".env.example missing JWT_PUBLIC_KEY key: %s", content)
 	}
 }
+
+func TestEnsureRuntimeConfigFields_DatabaseURLMatchesComposeDefaults(t *testing.T) {
+	t.Parallel()
+
+	cfg := ensureRuntimeConfigFields(&normalizer.ConfigDef{})
+	fields := map[string]normalizer.Field{}
+	for _, f := range cfg.Fields {
+		fields[f.Name] = f
+	}
+
+	got, ok := fields["DatabaseURL"]
+	if !ok {
+		t.Fatalf("expected DatabaseURL field to be injected")
+	}
+	want := "postgres://app:app@localhost:5439/app?sslmode=disable"
+	if got.Default != want {
+		t.Fatalf("unexpected DatabaseURL default: got %q want %q", got.Default, want)
+	}
+}

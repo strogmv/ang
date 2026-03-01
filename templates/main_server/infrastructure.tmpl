@@ -1,5 +1,5 @@
 {{ define "main_server_infrastructure" }}
-	{{- $needsPG := or .HasSQL (HasRepoEntitiesIR .ServicesIR .EntitiesIR) }}
+	{{- $needsPG := or .HasSQL (gt (len (AllUsedRepoEntitiesIR .ServicesIR .EntitiesIR)) 0) }}
 	{{ if $needsPG }}
 	pgPool, err := func() (*pgxpool.Pool, error) {
 		poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)
@@ -32,10 +32,20 @@
 		poolCfg.MinConns = int32(pgMinConns)
 		poolCfg.MaxConnLifetime = pgMaxConnLifetime
 		poolCfg.MaxConnIdleTime = pgMaxConnIdleTime
-		return pgxpool.NewWithConfig(ctx, poolCfg)
+
+		pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
+		if err != nil {
+			return nil, err
+		}
+		if err := pool.Ping(ctx); err != nil {
+			pool.Close()
+			return nil, err
+		}
+		return pool, nil
 	}()
 	if err != nil {
 		log.Error("Postgres init failed", "error", err)
+		os.Exit(1)
 	} else {
 		log.Info(
 			"Postgres connected",

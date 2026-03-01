@@ -180,7 +180,7 @@ func ensureRuntimeConfigFields(config *normalizer.ConfigDef) *normalizer.ConfigD
 
 	// JWT defaults required by auth/http templates.
 	add("HTTPPort", "string", "HTTP_PORT", "8080", false)
-	add("DatabaseURL", "string", "DATABASE_URL", "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable", false)
+	add("DatabaseURL", "string", "DATABASE_URL", "postgres://app:app@localhost:5439/app?sslmode=disable", false)
 	add("PGMaxConns", "int", "PG_MAX_CONNS", "25", false)
 	add("PGMinConns", "int", "PG_MIN_CONNS", "5", false)
 	add("PGMaxConnLifetime", "string", "PG_MAX_CONN_LIFETIME", "1h", false)
