@@ -19,6 +19,8 @@ func renderFlowStepControlLegacyDeprecated(st *flowRenderState, step normalizer.
 	case "exec.Run", "fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove":
 		return ""
 	default:
-		return renderFlowStepControlLegacyDeprecatedMonolith(st, step, indent, sfx, arg, child)
+		// Deprecated fallback is intentionally no-op for unknown actions:
+		// supported actions are validated and routed by dedicated modules.
+		return ""
 	}
 }
