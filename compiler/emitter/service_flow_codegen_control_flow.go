@@ -78,6 +78,24 @@ func renderFlowStepControlFlow(st *flowRenderState, step normalizer.FlowStep, in
 			return out, true
 		}
 		return renderFlowExplainErrorLegacy(st, pad, sfx, arg), true
+
+	case "flow.Parallel":
+		return renderFlowParallel(st, step, indent, sfx, arg, child), true
+
+	case "flow.Join":
+		return renderFlowJoin(st, step, indent, sfx, arg, child), true
+
+	case "flow.Race":
+		return renderFlowRace(st, step, indent, sfx, arg, child), true
+
+	case "flow.Delay":
+		return renderFlowDelay(st, step, indent, sfx, arg, child), true
+
+	case "flow.Schedule":
+		return renderFlowSchedule(st, step, indent, sfx, arg, child), true
+
+	case "flow.Cron":
+		return renderFlowCron(st, step, indent, sfx, arg, child), true
 	}
 
 	return "", false

@@ -60,6 +60,7 @@ func flowActionSupported(action string) bool {
 		"event.Publish", "logic.Call",
 		"exec.Run",
 		"fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove",
+		"archive.ZipDir",
 		"audit.Log",
 		"auth.RequireRole", "auth.CheckRole",
 		"entity.PatchNonZero", "entity.PatchValidated", "field.CopyNonEmpty",
@@ -70,7 +71,7 @@ func flowActionSupported(action string) bool {
 		"notification.Dispatch", "notify.Dispatch",
 		"cache.Get", "cache.Set", "cache.Del",
 		"mail.Send",
-		"storage.Upload", "storage.Download", "storage.GetURL",
+		"storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List",
 		"http.Call",
 		"rand.Code", "rand.Token",
 		"str.Format",
@@ -78,7 +79,10 @@ func flowActionSupported(action string) bool {
 		"parallel.Run",
 		"pdf.Render",
 		"webhook.Send",
-		"queue.Enqueue":
+		"queue.Enqueue",
+		"session.Get",
+		"flow.Parallel", "flow.Join", "flow.Race",
+		"flow.Delay", "flow.Schedule", "flow.Cron":
 		return true
 	default:
 		return false
@@ -117,6 +121,9 @@ func flowChildSteps(step normalizer.FlowStep) [][]normalizer.FlowStep {
 	if v, ok := step.Args["_onMissing"].([]normalizer.FlowStep); ok && len(v) > 0 {
 		out = append(out, v)
 	}
+	if v, ok := step.Args["_onMismatch"].([]normalizer.FlowStep); ok && len(v) > 0 {
+		out = append(out, v)
+	}
 	if cases, ok := step.Args["_cases"].(map[string][]normalizer.FlowStep); ok {
 		keys := make([]string, 0, len(cases))
 		for k := range cases {
@@ -153,6 +160,8 @@ type flowRenderState struct {
 	goroutineMode bool              // if true, errors set _pErr/_mu instead of returning
 	stepN         *int              // shared monotonic counter; unique suffix for internal temp vars
 	returnErrOnly bool              // if true, errReturn emits `return err` for inner error closures
+	concurrMode   string            // "parallel" | "join" | "race" for flow.Parallel/Join/Race goroutines
+	concurrVarPfx string            // e.g. "_fp_0" / "_fj_0" / "_fr_0"
 }
 
 func cloneFlowState(st *flowRenderState) *flowRenderState {
@@ -163,6 +172,8 @@ func cloneFlowState(st *flowRenderState) *flowRenderState {
 		goroutineMode: st.goroutineMode,
 		stepN:         st.stepN, // share counter across all clones
 		returnErrOnly: st.returnErrOnly,
+		concurrMode:   st.concurrMode,
+		concurrVarPfx: st.concurrVarPfx,
 	}
 	for k, v := range st.declared {
 		cp.declared[k] = v
@@ -234,6 +245,18 @@ func renderFlowSteps(st *flowRenderState, steps []normalizer.FlowStep, indent in
 // errReturn generates the appropriate error-return code depending on context.
 // In goroutine mode, errors are captured via mutex rather than returning from the outer func.
 func errReturn(st *flowRenderState, pad, errExpr string) string {
+	switch st.concurrMode {
+	case "parallel":
+		pfx := st.concurrVarPfx
+		return fmt.Sprintf("%s%sMu.Lock()\nif %sErr == nil { %sErr = %s; %sCancel() }\n%s%sMu.Unlock()\n%sreturn\n",
+			pad, pfx, pfx, pfx, errExpr, pfx, pad, pfx, pad)
+	case "join":
+		pfx := st.concurrVarPfx
+		return fmt.Sprintf("%s%sMu.Lock()\n%s%sErrs = append(%sErrs, %s)\n%s%sMu.Unlock()\n%sreturn\n",
+			pad, pfx, pad, pfx, pfx, errExpr, pad, pfx, pad)
+	case "race":
+		return fmt.Sprintf("%sreturn\n", pad)
+	}
 	if st.goroutineMode {
 		return fmt.Sprintf("%s_mu.Lock()\nif _pErr == nil { _pErr = %s; _pCancel() }\n%s_mu.Unlock()\n%sreturn\n", pad, errExpr, pad, pad)
 	}
@@ -267,14 +290,16 @@ func renderOneFlowStep(st *flowRenderState, step normalizer.FlowStep, indent int
 	}
 
 	switch step.Action {
-	case "flow.If", "flow.For", "flow.Block", "tx.Block", "list.Filter", "list.Paginate", "list.Append", "list.Sort", "str.Normalize", "mapping.Map", "event.Publish", "logic.Call", "exec.Run", "fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove", "flow.Switch", "flow.While", "flow.Checkpoint", "flow.Resume", "flow.Validate", "flow.Try", "flow.Catch", "flow.Retry", "flow.Fallback", "flow.Timeout", "flow.SuggestNext", "flow.ExplainError":
+	case "flow.If", "flow.For", "flow.Block", "tx.Block", "list.Filter", "list.Paginate", "list.Append", "list.Sort", "str.Normalize", "mapping.Map", "event.Publish", "logic.Call", "exec.Run", "fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove", "archive.ZipDir", "session.Get", "flow.Switch", "flow.While", "flow.Checkpoint", "flow.Resume", "flow.Validate", "flow.Try", "flow.Catch", "flow.Retry", "flow.Fallback", "flow.Timeout", "flow.SuggestNext", "flow.ExplainError",
+		"flow.Parallel", "flow.Join", "flow.Race",
+		"flow.Delay", "flow.Schedule", "flow.Cron":
 		return renderFlowStepControl(st, step, indent, sfx, arg, child)
 
 	// -------------------------------------------------------------------------
 	// STAGE 2: Infrastructure actions
 	// -------------------------------------------------------------------------
 
-	case "cache.Get", "cache.Set", "cache.Del", "mail.Send", "storage.Upload", "storage.Download", "storage.GetURL", "http.Call", "rand.Code", "rand.Token", "json.Parse", "json.Marshal", "parallel.Run", "pdf.Render", "webhook.Send", "queue.Enqueue":
+	case "cache.Get", "cache.Set", "cache.Del", "mail.Send", "storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List", "http.Call", "rand.Code", "rand.Token", "json.Parse", "json.Marshal", "parallel.Run", "pdf.Render", "webhook.Send", "queue.Enqueue":
 		return renderFlowStepInfra(st, step, indent, sfx, arg, child)
 
 	default:

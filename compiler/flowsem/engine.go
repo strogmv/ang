@@ -386,6 +386,14 @@ var specs = map[string]Spec{
 	"fs.Remove": {
 		RequiredArgs: []string{"path"},
 	},
+	"archive.ZipDir": {
+		RequiredArgs:     []string{"path", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"session.Get": {
+		RequiredArgs:     []string{"output"},
+		DeclaresFromArgs: []string{"output"},
+	},
 	// Stage 2: Infrastructure actions
 	"cache.Get": {
 		RequiredArgs:     []string{"key", "output"},
@@ -503,6 +511,62 @@ var specs = map[string]Spec{
 			return nil
 		},
 	},
+	"flow.Parallel": {
+		CustomConstraints: func(step Step) *Issue {
+			if len(step.Children["_branches"]) == 0 {
+				return &Issue{
+					Code:    "MISSING_BRANCHES",
+					Message: "flow.Parallel requires branches",
+					Hint:    `{action: "flow.Parallel", branches: {loadUser: [...], loadOrg: [...]}}`,
+				}
+			}
+			return nil
+		},
+	},
+	"flow.Join": {
+		CustomConstraints: func(step Step) *Issue {
+			if len(step.Children["_branches"]) == 0 {
+				return &Issue{
+					Code:    "MISSING_BRANCHES",
+					Message: "flow.Join requires branches",
+					Hint:    `{action: "flow.Join", branches: {sendMail: [...], logEvent: [...]}}`,
+				}
+			}
+			return nil
+		},
+	},
+	"flow.Race": {
+		CustomConstraints: func(step Step) *Issue {
+			if len(step.Children["_branches"]) < 2 {
+				return &Issue{
+					Code:    "TOO_FEW_BRANCHES",
+					Message: "flow.Race requires at least 2 branches",
+					Hint:    `{action: "flow.Race", branches: {fromCache: [...], fromDB: [...]}}`,
+				}
+			}
+			return nil
+		},
+	},
+	"flow.Delay": {
+		RequiredArgs: []string{"duration"},
+	},
+	"flow.Schedule": {
+		RequiredArgs: []string{"at"},
+	},
+	"flow.Cron": {
+		RequiredArgs: []string{"window"},
+		CustomConstraints: func(step Step) *Issue {
+			w, _ := step.Args["window"].(string)
+			if strings.TrimSpace(w) == "" {
+				return &Issue{
+					Code:    "INVALID_WINDOW",
+					Message: "flow.Cron requires a non-empty window",
+					Hint:    `{action: "flow.Cron", window: "Mon-Fri 09:00-17:00", onMismatch: [...]}`,
+				}
+			}
+			return nil
+		},
+	},
 	"pdf.Render": {
 		RequiredArgs:     []string{"template", "data", "output"},
 		DeclaresFromArgs: []string{"output"},
@@ -545,6 +609,13 @@ var specs = map[string]Spec{
 	// storage.Download
 	"storage.Download": {
 		RequiredArgs:     []string{"key", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"storage.Delete": {
+		RequiredArgs: []string{"key"},
+	},
+	"storage.List": {
+		RequiredArgs:     []string{"prefix", "output"},
 		DeclaresFromArgs: []string{"output"},
 	},
 }

@@ -363,6 +363,9 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 				return nil, err
 			}
 			method.Flow = steps
+			if flowUsesObjectStorage(steps) {
+				svc.RequiresS3 = true
+			}
 
 			// Validate flow steps and report warnings
 			warnings := validateFlowSteps(opName, svcName, steps, entities)
@@ -1001,7 +1004,7 @@ func (n *Normalizer) applyFlowPerformanceDefaults(steps []FlowStep) []FlowStep {
 				}
 			}
 
-			for _, key := range []string{"_do", "_ifNew", "_ifExists", "_then", "_else", "_default", "_catch", "_fallback", "_onTimeout", "_onMissing"} {
+			for _, key := range []string{"_do", "_ifNew", "_ifExists", "_then", "_else", "_default", "_catch", "_fallback", "_onTimeout", "_onMissing", "_onMismatch"} {
 				if nested, ok := s.Args[key].([]FlowStep); ok {
 					s.Args[key] = apply(nested)
 				}
@@ -1026,6 +1029,35 @@ func (n *Normalizer) applyFlowPerformanceDefaults(steps []FlowStep) []FlowStep {
 		return out
 	}
 	return apply(steps)
+}
+
+func flowUsesObjectStorage(steps []FlowStep) bool {
+	for _, step := range steps {
+		switch step.Action {
+		case "storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List":
+			return true
+		}
+		for _, key := range []string{"_do", "_ifNew", "_ifExists", "_then", "_else", "_default", "_catch", "_fallback", "_onTimeout", "_onMissing", "_onMismatch"} {
+			if nested, ok := step.Args[key].([]FlowStep); ok && flowUsesObjectStorage(nested) {
+				return true
+			}
+		}
+		if cases, ok := step.Args["_cases"].(map[string][]FlowStep); ok {
+			for _, nested := range cases {
+				if flowUsesObjectStorage(nested) {
+					return true
+				}
+			}
+		}
+		if branches, ok := step.Args["_branches"].(map[string][]FlowStep); ok {
+			for _, nested := range branches {
+				if flowUsesObjectStorage(nested) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // validateFlowSteps checks flow steps for common mistakes and returns warnings
@@ -1451,7 +1483,7 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 			case "mail.Send":
 				// validated by flow semantics engine
 
-			case "storage.Upload", "storage.GetURL":
+			case "storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List":
 				if output, _ := step.Args["output"].(string); output != "" {
 					declaredVars[output] = true
 				}
@@ -1500,7 +1532,9 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					!strings.HasPrefix(step.Action, "cache.") && !strings.HasPrefix(step.Action, "mail.") &&
 					!strings.HasPrefix(step.Action, "storage.") && !strings.HasPrefix(step.Action, "http.") &&
 					!strings.HasPrefix(step.Action, "rand.") && !strings.HasPrefix(step.Action, "json.") &&
-					!strings.HasPrefix(step.Action, "parallel.") {
+					!strings.HasPrefix(step.Action, "parallel.") &&
+					!strings.HasPrefix(step.Action, "archive.") &&
+					!strings.HasPrefix(step.Action, "session.") {
 					addWarn(stepNum, step.Action, "UNKNOWN_ACTION", fmt.Sprintf("unknown action '%s'", step.Action), "{action: \"repo.Find\" | \"mapping.Assign\" | \"flow.If\" ...}", step.File, step.Line, step.Column)
 				}
 			}
@@ -1678,6 +1712,9 @@ func (n *Normalizer) parseService(name string, val cue.Value) (Service, error) {
 				return svc, err
 			}
 			method.Flow = steps
+			if flowUsesObjectStorage(steps) {
+				svc.RequiresS3 = true
+			}
 		}
 		if implVal.Exists() {
 			codeVal := implVal.LookupPath(cue.ParsePath("code"))
@@ -1742,6 +1779,12 @@ func (n *Normalizer) ExtractEndpoints(val cue.Value) ([]Endpoint, error) {
 		}
 		if v, err := defaultRLVal.LookupPath(cue.ParsePath("burst")).Int64(); err == nil {
 			defaultRateLimit.Burst = int(v)
+		}
+		if v, err := defaultRLVal.LookupPath(cue.ParsePath("window")).String(); err == nil {
+			defaultRateLimit.Window = v
+		}
+		if v, err := defaultRLVal.LookupPath(cue.ParsePath("limit")).Int64(); err == nil {
+			defaultRateLimit.WindowLimit = int(v)
 		}
 	}
 
@@ -2028,7 +2071,13 @@ func (n *Normalizer) ExtractEndpoints(val cue.Value) ([]Endpoint, error) {
 			if v, err := rlVal.LookupPath(cue.ParsePath("burst")).Int64(); err == nil {
 				rl.Burst = int(v)
 			}
-			if rl.RPS > 0 || rl.Burst > 0 {
+			if v, err := rlVal.LookupPath(cue.ParsePath("window")).String(); err == nil {
+				rl.Window = v
+			}
+			if v, err := rlVal.LookupPath(cue.ParsePath("limit")).Int64(); err == nil {
+				rl.WindowLimit = int(v)
+			}
+			if rl.RPS > 0 || rl.Burst > 0 || rl.WindowLimit > 0 {
 				ep.RateLimit = rl
 			}
 		}

@@ -251,6 +251,13 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 						importMap["encoding/hex"] = ""
 					case "parallel.Run":
 						importMap["sync"] = ""
+					case "flow.Parallel", "flow.Join":
+						importMap["sync"] = ""
+						importMap["context"] = ""
+					case "flow.Race":
+						importMap["sync"] = ""
+						importMap["context"] = ""
+						importMap["fmt"] = ""
 					case "pdf.Render":
 						importMap[e.GoModule+"/internal/pkg/report"] = ""
 					case "webhook.Send":
@@ -259,9 +266,16 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 						importMap["bytes"] = ""
 					case "storage.Download":
 						importMap["io"] = ""
+					case "archive.ZipDir":
+						importMap["archive/zip"] = ""
+						importMap["bytes"] = ""
+						importMap["io"] = ""
+						importMap["path/filepath"] = ""
+					case "session.Get":
+						importMap[e.GoModule+"/internal/pkg/reqctx"] = ""
 					}
 					// Recurse into child steps
-					for _, childKey := range []string{"_do", "_then", "_else", "_ifNew", "_ifExists", "_default", "_catch", "_fallback", "_onTimeout", "_onMissing"} {
+					for _, childKey := range []string{"_do", "_then", "_else", "_ifNew", "_ifExists", "_default", "_catch", "_fallback", "_onTimeout", "_onMissing", "_onMismatch"} {
 						if sub, ok := step.Args[childKey].([]normalizer.FlowStep); ok {
 							scanFlowImports(sub)
 						}

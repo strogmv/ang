@@ -77,7 +77,7 @@ import "github.com/strogmv/ang/cue/project"
 // AI AGENTS: Use these definitions to understand valid flow step structures.
 // ============================================================================
 
-#FlowStep: #RepoStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #CustomStep | #StateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #AuditStep | #AuthStep | #CheckRoleStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #EnrichStep | #TimeParseStep | #TimeCheckExpiryStep | #MapBuildStep | #ExecRunStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #StorageUploadStep | #StorageGetURLStep | #HTTPCallStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #JSONParseStep | #JSONMarshalStep | #ParallelStep
+#FlowStep: #RepoStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #CustomStep | #StateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #AuditStep | #AuthStep | #CheckRoleStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #EnrichStep | #TimeParseStep | #TimeCheckExpiryStep | #MapBuildStep | #ExecRunStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #StorageUploadStep | #StorageGetURLStep | #HTTPCallStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #JSONParseStep | #JSONMarshalStep | #ParallelStep | #FlowParallelStep | #FlowJoinStep | #FlowRaceStep | #FlowDelayStep | #FlowScheduleStep | #FlowCronStep
 
 // ============================================================================
 // IMPL STEPS (typed business logic inside impl)
@@ -582,8 +582,10 @@ import "github.com/strogmv/ang/cue/project"
 // --- HTTP & INFRA ---
 
 #RateLimitDef: {
-	rps:   int
-	burst: int
+	rps?:    int
+	burst?:  int
+	window?: string // duration, e.g. "1h", "30m" — enables fixed-window quota
+	limit?:  int    // max requests per window (requires window)
 }
 
 #CircuitBreaker: {
@@ -816,6 +818,51 @@ import "github.com/strogmv/ang/cue/project"
 	action: "parallel.Run"
 	// Named parallel branches, each is a list of flow steps
 	branches: [string]: [...#FlowStep]
+}
+
+// flow.Parallel - concurrent fan-out, ALL branches must succeed (fail-fast)
+// First error cancels all remaining branches and is returned immediately.
+#FlowParallelStep: {
+	action: "flow.Parallel"
+	branches: [string]: [...#FlowStep]
+}
+
+// flow.Join - concurrent fan-out, wait ALL branches (lenient, no fail-fast)
+// All branches run to completion; if any fail, the first error is returned at the end.
+#FlowJoinStep: {
+	action: "flow.Join"
+	branches: [string]: [...#FlowStep]
+}
+
+// flow.Race - concurrent race, FIRST branch to succeed wins, others cancelled
+// If all branches fail, an error is returned.
+#FlowRaceStep: {
+	action: "flow.Race"
+	branches: [string]: [...#FlowStep]
+}
+
+// flow.Delay - context-aware pause (interrupted by ctx cancel)
+#FlowDelayStep: {
+	action: "flow.Delay"
+	// Go duration expression, e.g. "2*time.Second", "time.Minute"
+	duration: string
+}
+
+// flow.Schedule - block until absolute time.Time arrives (context-aware)
+#FlowScheduleStep: {
+	action: "flow.Schedule"
+	// Go expression evaluating to time.Time, e.g. "auction.StartsAt", "req.ScheduledAt"
+	at: string
+}
+
+// flow.Cron - time-window gate: only proceed if current time matches window
+// window formats: "Mon-Fri 09:00-17:00" | "Mon-Fri" | "09:00-17:00" | "Mon,Wed,Fri 09:00-17:00"
+// Weekday names: Mon Tue Wed Thu Fri Sat Sun. End hour is exclusive.
+#FlowCronStep: {
+	action:   "flow.Cron"
+	window:   string
+	timezone?: string // IANA tz name, default "UTC". E.g. "Europe/Moscow", "America/New_York"
+	onMismatch?: [...#FlowStep]
 }
 
 // ============================================================================
