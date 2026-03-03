@@ -69,6 +69,14 @@ func main() {
 		runHash(os.Args[2:])
 	case "tips":
 		runTips(os.Args[2:])
+	case "actions":
+		runActions(os.Args[2:])
+	case "patch":
+		runPatch(os.Args[2:])
+	case "fmt":
+		runFmt(os.Args[2:])
+	case "fix":
+		runFix(os.Args[2:])
 	case "mcp":
 		mcp.Run()
 	case "version":
@@ -108,10 +116,14 @@ func printUsage() {
 	fmt.Println("  ang doctor start  Preflight local startup checks (tools/env/compose/ports)")
 	fmt.Println("  ang smoke     Check /health and /health/ready endpoints")
 	fmt.Println("  ang tips      Beginner-friendly quick commands and recovery hints")
+	fmt.Println("  ang actions   Print machine-readable flow action catalog (--json|--cue)")
+	fmt.Println("  ang patch     Patch-first workflow: lint/plan/apply for structured CUE edits")
+	fmt.Println("  ang fmt       Canonical format for CUE + flow alias normalization")
+	fmt.Println("  ang fix       Rewrite deprecated flow aliases to canonical names")
 	fmt.Println("  ang config doctor  Validate runtime env against generated config schema")
 	fmt.Println("  ang mcp       Run ANG MCP server over stdio")
 	fmt.Println("  ang lsp --stdio  Run ANG language server (MVP diagnostics)")
-	fmt.Println("  ang explain   Explain a lint code with examples")
+	fmt.Println("  ang explain   Explain CODE or error-json with fix hints (--json)")
 	fmt.Println("  ang draw      Generate architecture diagrams (Mermaid)")
 	fmt.Println("  ang hash      Show current project hash (CUE + Templates, or --artifacts)")
 }
