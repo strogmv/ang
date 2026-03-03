@@ -20,10 +20,11 @@ func registerAnalysisTools(addTool toolAdder) {
 	addTool("ang_event_map", mcp.NewTool("ang_event_map",
 		mcp.WithDescription("Map event publishers and subscribers to visualize system-wide reactions"),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		_, services, _, _, _, _, _, _, _, err := compiler.RunPipeline(".")
+		semantic, err := compiler.RunSemanticPhases(".")
 		if err != nil {
 			return mcp.NewToolResultText(err.Error()), nil
 		}
+		services := semantic.Services
 		publishers := make(map[string][]string)
 		subscribers := make(map[string][]string)
 		allEvents := make(map[string]bool)
@@ -77,10 +78,11 @@ func registerAnalysisTools(addTool toolAdder) {
 	addTool("ang_rbac_inspector", mcp.NewTool("ang_rbac_inspector",
 		mcp.WithDescription("Audit RBAC actions and policies."),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		_, services, _, _, _, _, _, _, _, err := compiler.RunPipeline(".")
+		semantic, err := compiler.RunSemanticPhases(".")
 		if err != nil {
 			return mcp.NewToolResultText(err.Error()), nil
 		}
+		services := semantic.Services
 		validActions := make(map[string]bool)
 		for _, s := range services {
 			for _, m := range s.Methods {

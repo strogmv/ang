@@ -407,9 +407,26 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		return false
 	}
 	appFuncs["AnyServiceHasIdempotencyOrOutboxIR"] = func(services []ir.Service) bool {
+		var hasOutboxAction func([]ir.FlowStep) bool
+		hasOutboxAction = func(steps []ir.FlowStep) bool {
+			for _, step := range steps {
+				if step.Action == "event.Outbox" {
+					return true
+				}
+				if hasOutboxAction(step.Steps) || hasOutboxAction(step.IfNew) || hasOutboxAction(step.IfExists) || hasOutboxAction(step.Then) || hasOutboxAction(step.Else) || hasOutboxAction(step.Default) {
+					return true
+				}
+				for _, branch := range step.Cases {
+					if hasOutboxAction(branch) {
+						return true
+					}
+				}
+			}
+			return false
+		}
 		for _, svc := range services {
 			for _, m := range svc.Methods {
-				if m.Idempotent || m.Outbox {
+				if m.Idempotent || m.Outbox || hasOutboxAction(m.Flow) {
 					return true
 				}
 			}
@@ -570,8 +587,25 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		return false
 	}
 	appFuncs["ServiceHasOutboxIR"] = func(s ir.Service) bool {
+		var hasOutboxAction func([]ir.FlowStep) bool
+		hasOutboxAction = func(steps []ir.FlowStep) bool {
+			for _, step := range steps {
+				if step.Action == "event.Outbox" {
+					return true
+				}
+				if hasOutboxAction(step.Steps) || hasOutboxAction(step.IfNew) || hasOutboxAction(step.IfExists) || hasOutboxAction(step.Then) || hasOutboxAction(step.Else) || hasOutboxAction(step.Default) {
+					return true
+				}
+				for _, branch := range step.Cases {
+					if hasOutboxAction(branch) {
+						return true
+					}
+				}
+			}
+			return false
+		}
 		for _, m := range s.Methods {
-			if m.Outbox {
+			if m.Outbox || hasOutboxAction(m.Flow) {
 				return true
 			}
 		}

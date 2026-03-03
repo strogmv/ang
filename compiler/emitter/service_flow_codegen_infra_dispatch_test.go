@@ -54,6 +54,13 @@ func TestRenderFlowStepInfra_DispatchHandlesKnownActions(t *testing.T) {
 		{name: "pdf_render", step: normalizer.FlowStep{Action: "pdf.Render", Args: map[string]any{"template": `"t"`, "data": "req.ReportData", "output": "pdfBytes"}}},
 		{name: "webhook_send", step: normalizer.FlowStep{Action: "webhook.Send", Args: map[string]any{"url": `"https://hook.example"`, "payload": "req.Payload", "event": `"evt"`}}},
 		{name: "queue_enqueue", step: normalizer.FlowStep{Action: "queue.Enqueue", Args: map[string]any{"subject": `"events.test"`, "payload": "req.Payload", "timeout": "2*time.Second"}}},
+		{name: "webhook_verify", step: normalizer.FlowStep{Action: "webhook.VerifySignature", Args: map[string]any{"payload": "req.Body", "signature": "req.Signature", "output": "sigOK"}}},
+		{name: "webhook_ack", step: normalizer.FlowStep{Action: "webhook.Ack", Args: map[string]any{"status": 202, "body": `"accepted"`}}},
+		{name: "queue_dequeue", step: normalizer.FlowStep{Action: "queue.Dequeue", Args: map[string]any{"subject": `"events.test"`, "output": "msg", "ackToken": "msgID", "timeout": "2*time.Second", "attempts": 3, "backoffMs": 50, "jitterMs": 10}}},
+		{name: "queue_ack", step: normalizer.FlowStep{Action: "queue.Ack", Args: map[string]any{"subject": `"events.test"`, "messageID": "msgID"}}},
+		{name: "queue_nack", step: normalizer.FlowStep{Action: "queue.Nack", Args: map[string]any{"subject": `"events.test"`, "messageID": "msgID", "reason": `"decode failed"`}}},
+		{name: "dlq_publish", step: normalizer.FlowStep{Action: "dlq.Publish", Args: map[string]any{"subject": `"events.test"`, "payload": "msg", "reason": `"decode failed"`}}},
+		{name: "event_outbox", step: normalizer.FlowStep{Action: "event.Outbox", Args: map[string]any{"name": `"ProjectCreated"`, "payload": "domain.ProjectCreated{ID: req.ID}"}}},
 	}
 
 	for _, tc := range cases {

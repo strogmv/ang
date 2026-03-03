@@ -85,7 +85,7 @@ func registerCUETools(addTool toolAdder) {
 			os.WriteFile(path, orig, 0o644)
 			return mcp.NewToolResultText(fmt.Sprintf("Syntax validation FAILED:\n%s", string(out))), nil
 		}
-		if _, _, _, _, _, _, _, _, _, err := compiler.RunPipeline("."); err != nil {
+		if _, err := compiler.RunSemanticPhases("."); err != nil {
 			os.WriteFile(path, orig, 0o644)
 			return mcp.NewToolResultText(fmt.Sprintf("Architecture validation FAILED: %v", err)), nil
 		}
@@ -167,7 +167,7 @@ func registerCUETools(addTool toolAdder) {
 			_ = os.WriteFile(path, orig, 0o644)
 			return mcp.NewToolResultText(fmt.Sprintf("Syntax validation FAILED:\n%s", string(out))), nil
 		}
-		if _, _, _, _, _, _, _, _, _, err := compiler.RunPipeline("."); err != nil {
+		if _, err := compiler.RunSemanticPhases("."); err != nil {
 			_ = os.WriteFile(path, orig, 0o644)
 			return mcp.NewToolResultText(fmt.Sprintf("Architecture validation FAILED: %v", err)), nil
 		}
@@ -252,7 +252,7 @@ func registerCUETools(addTool toolAdder) {
 			pushCueHistory(entry)
 			return mcp.NewToolResultText(fmt.Sprintf("Undo validation FAILED:\n%s", string(out))), nil
 		}
-		if _, _, _, _, _, _, _, _, _, err := compiler.RunPipeline("."); err != nil {
+		if _, err := compiler.RunSemanticPhases("."); err != nil {
 			_ = os.WriteFile(entry.Path, current, 0o644)
 			pushCueHistory(entry)
 			return mcp.NewToolResultText(fmt.Sprintf("Undo architecture validation FAILED: %v", err)), nil
@@ -365,7 +365,7 @@ func registerCUETools(addTool toolAdder) {
 			_ = os.WriteFile(path, orig, 0o644)
 			return mcp.NewToolResultText(fmt.Sprintf("Syntax validation FAILED:\n%s", string(out))), nil
 		}
-		if _, _, _, _, _, _, _, _, _, err := compiler.RunPipeline("."); err != nil {
+		if _, err := compiler.RunSemanticPhases("."); err != nil {
 			_ = os.WriteFile(path, orig, 0o644)
 			return mcp.NewToolResultText(fmt.Sprintf("Architecture validation FAILED: %v", err)), nil
 		}

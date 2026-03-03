@@ -87,10 +87,13 @@ func buildGoalPlan(goal string) (map[string]any, error) {
 		return buildMarketplacePlan(goal)
 	}
 
-	entities, services, endpoints, _, _, _, _, _, _, err := compiler.RunPipeline(".")
+	semantic, err := compiler.RunSemanticPhases(".")
 	if err != nil {
 		return nil, err
 	}
+	entities := semantic.Entities
+	services := semantic.Services
+	endpoints := semantic.Endpoints
 
 	sort.Slice(entities, func(i, j int) bool { return entities[i].Name < entities[j].Name })
 	sort.Slice(services, func(i, j int) bool { return services[i].Name < services[j].Name })
@@ -227,10 +230,13 @@ func isMarketplaceGoal(goal string) bool {
 }
 
 func buildMarketplacePlan(goal string) (map[string]any, error) {
-	entities, services, endpoints, _, _, _, _, _, _, err := compiler.RunPipeline(".")
+	semantic, err := compiler.RunSemanticPhases(".")
 	if err != nil {
 		return nil, err
 	}
+	entities := semantic.Entities
+	services := semantic.Services
+	endpoints := semantic.Endpoints
 
 	entitySet := map[string]struct{}{}
 	for _, e := range entities {

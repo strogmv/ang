@@ -77,7 +77,7 @@ import "github.com/strogmv/ang/cue/project"
 // AI AGENTS: Use these definitions to understand valid flow step structures.
 // ============================================================================
 
-#FlowStep: #RepoStep | #DbStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #CustomStep | #StateStep | #ExplicitStateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #AuditStep | #AuthStep | #CheckRoleStep | #RBACCheckPermissionStep | #JWTSignStep | #JWTVerifyStep | #OAuth2TokenStep | #OAuth2RefreshStep | #EncryptStep | #DecryptStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #ListMapStep | #ListReduceStep | #ListGroupByStep | #ListDistinctStep | #ListChunkStep | #BatchRunStep | #EnrichStep | #TimeParseStep | #TimeCheckExpiryStep | #MapBuildStep | #ExecRunStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #StorageUploadStep | #StorageGetURLStep | #HTTPCallStep | #HTTPRequestStep | #HTTPRetryPolicyStep | #HTTPPaginateStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #JSONParseStep | #JSONMarshalStep | #ParallelStep | #FlowParallelStep | #FlowJoinStep | #FlowRaceStep | #FlowDelayStep | #FlowScheduleStep | #FlowCronStep | #SecretGetStep | #ConfigGetStep | #EventWaitStep | #EventSubscribeStep | #EventMatchStep | #FlowSagaStep | #FlowCompensateStep | #FlowRollbackStep | #FlowTagStep | #FlowCheckpointStep | #FlowResumeStep | #FlowValidateStep | #FlowTryStep | #FlowRetryStep | #FlowFallbackStep | #FlowTimeoutStep | #FlowSuggestNextStep | #FlowExplainErrorStep | #IdemDeriveKeyStep | #IdemCheckStep | #IdemSaveResultStep | #DedupeOnceStep | #RateLimitCheckStep | #ConcurrencyLimitStep | #CircuitCheckStep | #CircuitRecordSuccessStep | #CircuitRecordFailureStep | #BulkheadAcquireStep
+#FlowStep: #RepoStep | #DbStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #EventOutboxStep | #CustomStep | #StateStep | #ExplicitStateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #AuditStep | #AuthStep | #CheckRoleStep | #RBACCheckPermissionStep | #JWTSignStep | #JWTVerifyStep | #OAuth2TokenStep | #OAuth2RefreshStep | #EncryptStep | #DecryptStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #ListMapStep | #ListReduceStep | #ListGroupByStep | #ListDistinctStep | #ListChunkStep | #BatchRunStep | #EnrichStep | #TimeParseStep | #TimeCheckExpiryStep | #MapBuildStep | #ExecRunStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #StorageUploadStep | #StorageGetURLStep | #WebhookSendStep | #WebhookVerifySignatureStep | #WebhookAckStep | #QueueEnqueueStep | #QueueDequeueStep | #QueueAckStep | #QueueNackStep | #DLQPublishStep | #HTTPCallStep | #HTTPRequestStep | #HTTPRetryPolicyStep | #HTTPPaginateStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #JSONParseStep | #JSONMarshalStep | #ParallelStep | #FlowParallelStep | #FlowJoinStep | #FlowRaceStep | #FlowDelayStep | #FlowScheduleStep | #FlowCronStep | #SecretGetStep | #ConfigGetStep | #EventWaitStep | #EventSubscribeStep | #EventMatchStep | #FlowSagaStep | #FlowCompensateStep | #FlowRollbackStep | #FlowTagStep | #FlowCheckpointStep | #FlowResumeStep | #FlowValidateStep | #FlowTryStep | #FlowRetryStep | #FlowFallbackStep | #FlowTimeoutStep | #FlowSuggestNextStep | #FlowExplainErrorStep | #IdemDeriveKeyStep | #IdemCheckStep | #IdemSaveResultStep | #DedupeOnceStep | #RateLimitCheckStep | #ConcurrencyLimitStep | #CircuitCheckStep | #CircuitRecordSuccessStep | #CircuitRecordFailureStep | #BulkheadAcquireStep
 
 #FlowCheckpointStep: {
 	// flow.Checkpoint - Save current flow state for potential resumption
@@ -664,6 +664,17 @@ import "github.com/strogmv/ang/cue/project"
 	kind?: string
 }
 
+#EventOutboxStep: {
+	// event.Outbox - Persist event to outbox table in current tx for reliable delivery
+	action: "event.Outbox"
+	// Event topic/name (usually domain event name)
+	name: string
+	// Payload expression to serialize
+	payload: string
+	// Optional explicit event id (default generated in runtime)
+	id?: string
+}
+
 #EventWaitStep: {
 	// event.Wait - Block execution until a specific event arrives
 	action: "event.Wait"
@@ -1116,6 +1127,81 @@ import "github.com/strogmv/ang/cue/project"
 	key: string
 	// Variable name for URL string
 	output: string
+}
+
+#WebhookSendStep: {
+	// webhook.Send - Send JSON payload to external webhook URL
+	action: "webhook.Send"
+	url: string
+	payload: string
+	event?: string
+	retries?: int | *3
+}
+
+#WebhookVerifySignatureStep: {
+	// webhook.VerifySignature - Verify incoming webhook signature (HMAC SHA-256)
+	action: "webhook.VerifySignature"
+	payload: string
+	signature: string
+	secret?: string
+	algorithm?: string | *"sha256"
+	// strict=true => mismatch returns error, strict=false => only fills output when provided
+	strict?: bool | *true
+	output?: string
+	throw?:  string
+}
+
+#WebhookAckStep: {
+	// webhook.Ack - Marker step for transport-level webhook acknowledgement
+	action: "webhook.Ack"
+	status?: int | *200
+	body?:   string | *"\"ok\""
+}
+
+#QueueEnqueueStep: {
+	// queue.Enqueue - Publish payload to queue/topic
+	action: "queue.Enqueue"
+	subject: string
+	payload: string
+	timeout?: string
+	timeoutMs?: int
+}
+
+#QueueDequeueStep: {
+	// queue.Dequeue - Receive payload from queue/topic
+	action: "queue.Dequeue"
+	subject: string
+	output: string
+	ackToken?: string
+	attempts?: int
+	retries?:  int
+	backoffMs?: int
+	jitterMs?: int
+	timeout?: string
+	timeoutMs?: int
+}
+
+#QueueAckStep: {
+	// queue.Ack - Acknowledge consumed message
+	action: "queue.Ack"
+	subject: string
+	messageID: string
+}
+
+#QueueNackStep: {
+	// queue.Nack - Negative acknowledge for failed processing
+	action: "queue.Nack"
+	subject: string
+	messageID: string
+	reason?: string
+}
+
+#DLQPublishStep: {
+	// dlq.Publish - Send payload to dead-letter stream/topic
+	action: "dlq.Publish"
+	subject: string
+	payload: string
+	reason?: string
 }
 
 // ============================================================================

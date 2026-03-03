@@ -356,6 +356,13 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 						importMap[e.GoModule+"/internal/pkg/report"] = ""
 					case "webhook.Send":
 						importMap["bytes"] = ""
+					case "webhook.VerifySignature":
+						importMap["crypto/hmac"] = ""
+						importMap["crypto/sha256"] = ""
+						importMap["encoding/hex"] = ""
+					case "queue.Dequeue":
+						importMap["crypto/rand"] = "cryptorand"
+						importMap["math/big"] = ""
 					case "storage.Upload":
 						importMap["bytes"] = ""
 					case "storage.Download":

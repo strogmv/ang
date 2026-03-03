@@ -21,6 +21,34 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 		return fmt.Sprintf("%sif s.publisher != nil {\n%s\t_ = s.publisher.Broadcast%s(ctx, %s)\n%s}\n",
 			pad, pad, ExportName(name), payload, pad), true
 
+	case "event.Outbox":
+		name := arg("name")
+		payload := arg("payload")
+		if name == "" || payload == "" {
+			return "", true
+		}
+		payload = normalizePayloadExpr(payload)
+		idExpr := arg("id")
+		if idExpr == "" {
+			idExpr = "uuid.NewString()"
+		}
+
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s{\n", pad))
+		b.WriteString(fmt.Sprintf("%s\tif s.outbox == nil {\n", pad))
+		b.WriteString(errReturn(st, pad+"\t\t", `errors.New(http.StatusInternalServerError, "OUTBOX_NOT_CONFIGURED", "event.Outbox requires outbox repository wiring")`))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t_obPayload, _obMarshalErr := json.Marshal(%s)\n", pad, payload))
+		b.WriteString(fmt.Sprintf("%s\tif _obMarshalErr != nil {\n", pad))
+		b.WriteString(errReturn(st, pad+"\t\t", "fmt.Errorf(\"event.Outbox: marshal: %w\", _obMarshalErr)"))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t_obID := %s\n", pad, idExpr))
+		b.WriteString(fmt.Sprintf("%s\tif _obErr := s.outbox.SaveEvent(ctx, _obID, %s, _obPayload); _obErr != nil {\n", pad, name))
+		b.WriteString(errReturn(st, pad+"\t\t", "fmt.Errorf(\"event.Outbox: %w\", _obErr)"))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
+
 	case "event.Wait":
 		name := arg("name")
 		timeout := arg("timeout")

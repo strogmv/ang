@@ -88,7 +88,7 @@ func renderServiceImplTypeDecl(svc normalizer.Service, entities []normalizer.Ent
 			Type:  mustParseExpr("port.Mailer"),
 		})
 	}
-	if serviceImplHasQueueEnqueue(svc) {
+	if serviceImplHasQueueDeliveryActions(svc) {
 		fields = append(fields, &ast.Field{
 			Names: []*ast.Ident{ast.NewIdent("queuePublisher")},
 			Type:  mustParseExpr("port.QueuePublisher"),
@@ -214,7 +214,7 @@ func renderServiceImplConstructorDecl(svc normalizer.Service, entities []normali
 		})
 		elts = append(elts, &ast.KeyValueExpr{Key: ast.NewIdent("mailer"), Value: ast.NewIdent("mailer")})
 	}
-	if serviceImplHasQueueEnqueue(svc) {
+	if serviceImplHasQueueDeliveryActions(svc) {
 		params = append(params, &ast.Field{
 			Names: []*ast.Ident{ast.NewIdent("queuePublisher")},
 			Type:  mustParseExpr("port.QueuePublisher"),
@@ -521,7 +521,7 @@ func serviceImplHasOutbox(s normalizer.Service) bool {
 			return true
 		}
 	}
-	return false
+	return serviceImplHasFlowAction(s, "event.Outbox")
 }
 
 func lowerFirst(s string) string {
@@ -539,7 +539,7 @@ func serviceImplHasFlowAction(s normalizer.Service, action string) bool {
 			if step.Action == action {
 				return true
 			}
-			for _, childKey := range []string{"_do", "_then", "_else", "_ifNew", "_ifExists", "_default"} {
+			for _, childKey := range []string{"_do", "_then", "_else", "_ifNew", "_ifExists", "_default", "_catch", "_fallback", "_onTimeout", "_onMissing", "_onMismatch"} {
 				if v, ok := step.Args[childKey].([]normalizer.FlowStep); ok && scanSteps(v) {
 					return true
 				}
@@ -587,8 +587,8 @@ func serviceImplHasMailSend(s normalizer.Service) bool {
 	return serviceImplHasFlowAction(s, "mail.Send")
 }
 
-func serviceImplHasQueueEnqueue(s normalizer.Service) bool {
-	return serviceImplHasFlowAction(s, "queue.Enqueue")
+func serviceImplHasQueueDeliveryActions(s normalizer.Service) bool {
+	return serviceImplHasFlowActionWithPrefix(s, "queue.") || serviceImplHasFlowAction(s, "dlq.Publish")
 }
 
 func serviceImplHasStateActions(s normalizer.Service) bool {
@@ -615,7 +615,7 @@ func serviceImplHasFlowActionWithPrefix(s normalizer.Service, prefix string) boo
 			if strings.HasPrefix(step.Action, prefix) {
 				return true
 			}
-			for _, childKey := range []string{"_do", "_then", "_else", "_ifNew", "_ifExists", "_default"} {
+			for _, childKey := range []string{"_do", "_then", "_else", "_ifNew", "_ifExists", "_default", "_catch", "_fallback", "_onTimeout", "_onMissing", "_onMismatch"} {
 				if v, ok := step.Args[childKey].([]normalizer.FlowStep); ok && scanSteps(v) {
 					return true
 				}

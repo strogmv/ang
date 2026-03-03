@@ -1,0 +1,34 @@
+package reqctx
+
+import "context"
+
+type contextKey int
+
+const (
+	skipAutoVerifyKey contextKey = iota
+	sessionIDKey
+)
+
+// WithSkipAutoVerify returns a new context with the skip-auto-verify flag set.
+// Used by TestHeadersMiddleware to bypass JWT verification in tests.
+func WithSkipAutoVerify(ctx context.Context) context.Context {
+	return context.WithValue(ctx, skipAutoVerifyKey, true)
+}
+
+// SkipAutoVerify reports whether the context has skip-auto-verify set.
+func SkipAutoVerify(ctx context.Context) bool {
+	v, _ := ctx.Value(skipAutoVerifyKey).(bool)
+	return v
+}
+
+// WithSessionID stores an anonymous session ID in the context.
+func WithSessionID(ctx context.Context, sessionID string) context.Context {
+	return context.WithValue(ctx, sessionIDKey, sessionID)
+}
+
+// SessionID retrieves the anonymous session ID from the context.
+// Returns an empty string if no session ID is set.
+func SessionID(ctx context.Context) string {
+	v, _ := ctx.Value(sessionIDKey).(string)
+	return v
+}

@@ -179,6 +179,91 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
 
+	case "webhook.VerifySignature":
+		payload := arg("payload")
+		signature := arg("signature")
+		if payload == "" || signature == "" {
+			return "", true
+		}
+		algorithm := arg("algorithm")
+		if algorithm == "" {
+			algorithm = `"sha256"`
+		}
+		secretExpr := arg("secret")
+		if secretExpr == "" {
+			secretExpr = `os.Getenv("WEBHOOK_SECRET")`
+		}
+		throwExpr := arg("throw")
+		if throwExpr == "" {
+			throwExpr = `"invalid webhook signature"`
+		}
+		output := arg("output")
+		strict := true
+		if v, ok := step.Args["strict"].(bool); ok {
+			strict = v
+		}
+
+		assign := ":="
+		if output != "" {
+			if st.declared[output] {
+				assign = "="
+			}
+			st.declared[output] = true
+			st.pointers[output] = false
+			st.types[output] = "bool"
+		}
+
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s{\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t_whAlg := strings.ToLower(strings.TrimSpace(%s))\n", pad, algorithm))
+		b.WriteString(fmt.Sprintf("%s\tif _whAlg == \"\" { _whAlg = \"sha256\" }\n", pad))
+		b.WriteString(fmt.Sprintf("%s\tif _whAlg != \"sha256\" {\n", pad))
+		b.WriteString(errReturn(st, pad+"\t\t", "fmt.Errorf(\"webhook.VerifySignature: unsupported algorithm %q\", _whAlg)"))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t_whSecret := %s\n", pad, secretExpr))
+		b.WriteString(fmt.Sprintf("%s\tif strings.TrimSpace(_whSecret) == \"\" {\n", pad))
+		b.WriteString(errReturn(st, pad+"\t\t", `errors.New(http.StatusInternalServerError, "WEBHOOK_SECRET_MISSING", "webhook.VerifySignature requires secret or WEBHOOK_SECRET env")`))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\tvar _whBody []byte\n", pad))
+		b.WriteString(fmt.Sprintf("%s\tswitch _v := any(%s).(type) {\n", pad, payload))
+		b.WriteString(fmt.Sprintf("%s\tcase []byte:\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t_whBody = _v\n", pad))
+		b.WriteString(fmt.Sprintf("%s\tcase string:\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t_whBody = []byte(_v)\n", pad))
+		b.WriteString(fmt.Sprintf("%s\tdefault:\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t_whBodyJSON, _whBodyErr := json.Marshal(%s)\n", pad, payload))
+		b.WriteString(fmt.Sprintf("%s\t\tif _whBodyErr != nil {\n", pad))
+		b.WriteString(errReturn(st, pad+"\t\t\t", "fmt.Errorf(\"webhook.VerifySignature: marshal payload: %w\", _whBodyErr)"))
+		b.WriteString(fmt.Sprintf("%s\t\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t_whBody = _whBodyJSON\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t_whProvided := strings.TrimSpace(%s)\n", pad, signature))
+		b.WriteString(fmt.Sprintf("%s\t_whProvided = strings.TrimPrefix(_whProvided, _whAlg+\"=\")\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t_whMac := hmac.New(sha256.New, []byte(_whSecret))\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t_, _ = _whMac.Write(_whBody)\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t_whExpected := hex.EncodeToString(_whMac.Sum(nil))\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t_whValid := hmac.Equal([]byte(strings.ToLower(_whExpected)), []byte(strings.ToLower(_whProvided)))\n", pad))
+		if output != "" {
+			b.WriteString(fmt.Sprintf("%s\t%s %s _whValid\n", pad, output, assign))
+		}
+		if strict {
+			b.WriteString(fmt.Sprintf("%s\tif !_whValid {\n", pad))
+			b.WriteString(errReturn(st, pad+"\t\t", "errors.New(http.StatusUnauthorized, \"INVALID_WEBHOOK_SIGNATURE\", fmt.Sprint("+throwExpr+"))"))
+			b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		}
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
+
+	case "webhook.Ack":
+		status := flowIntArg(step.Args, "status", 200)
+		body := arg("body")
+		if body == "" {
+			body = `"ok"`
+		}
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s// webhook.Ack marker: transport should acknowledge with status=%d body=%s\n", pad, status, body))
+		return b.String(), true
+
 	case "queue.Enqueue":
 		subject := arg("subject")
 		payload := arg("payload")
@@ -205,6 +290,147 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
 		b.WriteString(fmt.Sprintf("%s\tif _qErr := s.queuePublisher.Enqueue(%s, %s, _qPayload); _qErr != nil {\n", pad, queueCtxVar, subject))
 		b.WriteString(errReturn(st, pad+"\t\t", "fmt.Errorf(\"queue.Enqueue: %w\", _qErr)"))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
+
+	case "queue.Dequeue":
+		subject := arg("subject")
+		output := arg("output")
+		if subject == "" || output == "" {
+			return "", true
+		}
+		timeout := arg("timeout")
+		if timeout == "" {
+			if timeoutMS := flowIntArg(step.Args, "timeoutMs", 0); timeoutMS > 0 {
+				timeout = fmt.Sprintf("time.Duration(%d) * time.Millisecond", timeoutMS)
+			} else {
+				timeout = "3*time.Second"
+			}
+		}
+		ackToken := arg("ackToken")
+		attempts := flowIntArg(step.Args, "attempts", 0)
+		if attempts <= 0 {
+			if retries := flowIntArg(step.Args, "retries", -1); retries >= 0 {
+				attempts = retries + 1
+			} else {
+				attempts = 2
+			}
+		}
+		backoffMS := flowIntArg(step.Args, "backoffMs", 150)
+		if backoffMS < 0 {
+			backoffMS = 0
+		}
+		jitterMS := flowIntArg(step.Args, "jitterMs", 50)
+		if jitterMS < 0 {
+			jitterMS = 0
+		}
+
+		outAssign := ":="
+		if st.declared[output] {
+			outAssign = "="
+		}
+		st.declared[output] = true
+		st.pointers[output] = false
+		st.types[output] = "[]byte"
+
+		ackAssign := ":="
+		if ackToken != "" {
+			if st.declared[ackToken] {
+				ackAssign = "="
+			}
+			st.declared[ackToken] = true
+			st.pointers[ackToken] = false
+			st.types[ackToken] = "string"
+		}
+
+		queueCtxVar := "_qdCtx" + sfx
+		queueCancelVar := "_qdCancel" + sfx
+		msgIDVar := "_qdMsgID" + sfx
+		msgVar := "_qdMsg" + sfx
+		errVar := "_qdErr" + sfx
+		lastErrVar := "_qdLastErr" + sfx
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s{\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t_qdBackoff := time.Duration(%d) * time.Millisecond\n", pad, backoffMS))
+		b.WriteString(fmt.Sprintf("%s\t_qdJitter := time.Duration(%d) * time.Millisecond\n", pad, jitterMS))
+		b.WriteString(fmt.Sprintf("%s\tvar %s error\n", pad, lastErrVar))
+		b.WriteString(fmt.Sprintf("%s\tfor _qdTry := 0; _qdTry < %d; _qdTry++ {\n", pad, attempts))
+		b.WriteString(fmt.Sprintf("%s\t\t%s, %s := context.WithTimeout(ctx, %s)\n", pad, queueCtxVar, queueCancelVar, timeout))
+		b.WriteString(fmt.Sprintf("%s\t\t%s, %s, %s := s.queuePublisher.Dequeue(%s, %s)\n", pad, msgIDVar, msgVar, errVar, queueCtxVar, subject))
+		b.WriteString(fmt.Sprintf("%s\t\t%s()\n", pad, queueCancelVar))
+		b.WriteString(fmt.Sprintf("%s\t\tif %s == nil {\n", pad, errVar))
+		b.WriteString(fmt.Sprintf("%s\t\t\t%s %s %s\n", pad, output, outAssign, msgVar))
+		if ackToken != "" {
+			b.WriteString(fmt.Sprintf("%s\t\t\t%s %s %s\n", pad, ackToken, ackAssign, msgIDVar))
+		}
+		b.WriteString(fmt.Sprintf("%s\t\t\t%s = nil\n", pad, lastErrVar))
+		b.WriteString(fmt.Sprintf("%s\t\t\tbreak\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t%s = %s\n", pad, lastErrVar, errVar))
+		b.WriteString(fmt.Sprintf("%s\t\tif _qdTry < %d-1 {\n", pad, attempts))
+		b.WriteString(fmt.Sprintf("%s\t\t\t_qdSleep := _qdBackoff\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t\tif _qdJitter > 0 {\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t\t\t_qdJitterN, _qdJitterErr := cryptorand.Int(cryptorand.Reader, big.NewInt(int64(_qdJitter)))\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t\t\tif _qdJitterErr == nil {\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t\t\t\t_qdSleep += time.Duration(_qdJitterN.Int64())\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t\t\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t\ttime.Sleep(_qdSleep)\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\tif %s != nil {\n", pad, lastErrVar))
+		b.WriteString(errReturn(st, pad+"\t\t", fmt.Sprintf("fmt.Errorf(\"queue.Dequeue: %%w\", %s)", lastErrVar)))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
+
+	case "queue.Ack":
+		subject := arg("subject")
+		messageID := arg("messageID")
+		if subject == "" || messageID == "" {
+			return "", true
+		}
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%sif _qAckErr := s.queuePublisher.Ack(ctx, %s, %s); _qAckErr != nil {\n", pad, subject, messageID))
+		b.WriteString(errReturn(st, pad+"\t", "fmt.Errorf(\"queue.Ack: %w\", _qAckErr)"))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
+
+	case "queue.Nack":
+		subject := arg("subject")
+		messageID := arg("messageID")
+		if subject == "" || messageID == "" {
+			return "", true
+		}
+		reason := arg("reason")
+		if reason == "" {
+			reason = `"nack"`
+		}
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%sif _qNackErr := s.queuePublisher.Nack(ctx, %s, %s, fmt.Sprint(%s)); _qNackErr != nil {\n", pad, subject, messageID, reason))
+		b.WriteString(errReturn(st, pad+"\t", "fmt.Errorf(\"queue.Nack: %w\", _qNackErr)"))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
+
+	case "dlq.Publish":
+		subject := arg("subject")
+		payload := arg("payload")
+		if subject == "" || payload == "" {
+			return "", true
+		}
+		reason := arg("reason")
+		if reason == "" {
+			reason = `"unspecified"`
+		}
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s{\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t_dlqPayload, _dlqMarshalErr := json.Marshal(%s)\n", pad, payload))
+		b.WriteString(fmt.Sprintf("%s\tif _dlqMarshalErr != nil {\n", pad))
+		b.WriteString(errReturn(st, pad+"\t\t", "fmt.Errorf(\"dlq.Publish: marshal: %w\", _dlqMarshalErr)"))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\tif _dlqErr := s.queuePublisher.PublishDLQ(ctx, %s, _dlqPayload, fmt.Sprint(%s)); _dlqErr != nil {\n", pad, subject, reason))
+		b.WriteString(errReturn(st, pad+"\t\t", "fmt.Errorf(\"dlq.Publish: %w\", _dlqErr)"))
 		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true

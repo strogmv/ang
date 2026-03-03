@@ -532,3 +532,61 @@ func TestValidate_NewSecurityActionsRequiredArgs(t *testing.T) {
 		t.Fatalf("expected %s issue in %+v", code, issues)
 	}
 }
+
+func TestValidate_MessagingAsyncActionsKnown(t *testing.T) {
+	t.Parallel()
+
+	steps := []Step{
+		{Action: "webhook.VerifySignature", Args: map[string]any{"payload": "req.Body", "signature": "req.Signature", "output": "sigOK", "strict": false}},
+		{Action: "webhook.Ack", Args: map[string]any{"status": 202, "body": `"accepted"`}},
+		{Action: "queue.Enqueue", Args: map[string]any{"subject": "events.core", "payload": "req", "timeoutMs": 1000}},
+		{Action: "queue.Dequeue", Args: map[string]any{"subject": "events.core", "output": "msg", "ackToken": "msgID", "timeoutMs": 1000, "attempts": 3, "backoffMs": 100, "jitterMs": 50}},
+		{Action: "queue.Ack", Args: map[string]any{"subject": "events.core", "messageID": "msgID"}},
+		{Action: "queue.Nack", Args: map[string]any{"subject": "events.core", "messageID": "msgID", "reason": `"decode failed"`}},
+		{Action: "dlq.Publish", Args: map[string]any{"subject": "events.core", "payload": "msg", "reason": `"decode failed"`}},
+		{
+			Action: "tx.Block",
+			Children: map[string][]Step{
+				"_do": {{
+					Action: "event.Outbox",
+					Args:   map[string]any{"name": "ProjectCreated", "payload": "domain.ProjectCreated{ID: req.ID}"},
+				}},
+			},
+		},
+	}
+
+	issues := Validate(steps)
+	for _, it := range issues {
+		if it.Code == "UNKNOWN_ACTION" {
+			t.Fatalf("unexpected UNKNOWN_ACTION for %s", it.Action)
+		}
+	}
+}
+
+func TestValidate_MessagingAsyncActionConstraints(t *testing.T) {
+	t.Parallel()
+
+	issues := Validate([]Step{
+		{Action: "queue.Dequeue", Args: map[string]any{"subject": "events.core", "output": "msg", "timeoutMs": 0}},
+		{Action: "queue.Dequeue", Args: map[string]any{"subject": "events.core", "output": "msg", "attempts": 0}},
+		{Action: "queue.Dequeue", Args: map[string]any{"subject": "events.core", "output": "msg", "retries": -1}},
+		{Action: "queue.Dequeue", Args: map[string]any{"subject": "events.core", "output": "msg", "backoffMs": -1}},
+		{Action: "queue.Dequeue", Args: map[string]any{"subject": "events.core", "output": "msg", "jitterMs": -1}},
+		{Action: "event.Outbox", Args: map[string]any{"name": "ProjectCreated", "payload": "req"}},
+	})
+
+	want := map[string]bool{
+		"INVALID_TIMEOUT_MS": true,
+		"INVALID_ATTEMPTS":   true,
+		"INVALID_RETRIES":    true,
+		"INVALID_BACKOFF":    true,
+		"INVALID_JITTER":     true,
+		"TX_REQUIRED":        true,
+	}
+	for _, it := range issues {
+		delete(want, it.Code)
+	}
+	for code := range want {
+		t.Fatalf("expected %s issue in %+v", code, issues)
+	}
+}

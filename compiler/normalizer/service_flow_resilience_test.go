@@ -101,6 +101,7 @@ steps: [
 		}
 	},
 	{ action: "queue.Enqueue", subject: "events.core", payload: "req" },
+	{ action: "queue.Dequeue", subject: "events.core", output: "msg" },
 ]
 `)
 	if err := val.Err(); err != nil {
@@ -128,6 +129,18 @@ steps: [
 	if got, _ := steps[2].Args["timeout"].(string); got != "3*time.Second" {
 		t.Fatalf("expected queue.Enqueue timeout default, got %#v", steps[2].Args["timeout"])
 	}
+	if got, _ := steps[3].Args["timeout"].(string); got != "3*time.Second" {
+		t.Fatalf("expected queue.Dequeue timeout default, got %#v", steps[3].Args["timeout"])
+	}
+	if got, _ := steps[3].Args["attempts"].(int); got != 2 {
+		t.Fatalf("expected queue.Dequeue attempts default=2, got %#v", steps[3].Args["attempts"])
+	}
+	if got, _ := steps[3].Args["backoffMs"].(int); got != 150 {
+		t.Fatalf("expected queue.Dequeue backoffMs default=150, got %#v", steps[3].Args["backoffMs"])
+	}
+	if got, _ := steps[3].Args["jitterMs"].(int); got != 50 {
+		t.Fatalf("expected queue.Dequeue jitterMs default=50, got %#v", steps[3].Args["jitterMs"])
+	}
 }
 
 func TestParseFlowSteps_NumericArgsParsed(t *testing.T) {
@@ -144,14 +157,23 @@ steps: [
 		backoffMs: 25
 		timeoutMs: 1200
 	},
-	{
-		action: "parallel.Run"
-		maxConcurrency: 3
-		branches: {
-			a: [{action: "logic.Check", condition: "true", throw: "ok"}]
-		}
-	},
-]
+		{
+			action: "parallel.Run"
+			maxConcurrency: 3
+			branches: {
+				a: [{action: "logic.Check", condition: "true", throw: "ok"}]
+			}
+		},
+		{
+			action: "queue.Dequeue"
+			subject: "events.core"
+			output: "msg"
+			attempts: 4
+			backoffMs: 25
+			jitterMs: 10
+			timeoutMs: 900
+		},
+	]
 `)
 	if err := val.Err(); err != nil {
 		t.Fatalf("compile cue: %v", err)
@@ -174,5 +196,17 @@ steps: [
 	}
 	if got, _ := steps[1].Args["maxConcurrency"].(int); got != 3 {
 		t.Fatalf("expected maxConcurrency=3, got %#v", steps[1].Args["maxConcurrency"])
+	}
+	if got, _ := steps[2].Args["timeoutMs"].(int); got != 900 {
+		t.Fatalf("expected queue.Dequeue timeoutMs=900, got %#v", steps[2].Args["timeoutMs"])
+	}
+	if got, _ := steps[2].Args["attempts"].(int); got != 4 {
+		t.Fatalf("expected queue.Dequeue attempts=4, got %#v", steps[2].Args["attempts"])
+	}
+	if got, _ := steps[2].Args["backoffMs"].(int); got != 25 {
+		t.Fatalf("expected queue.Dequeue backoffMs=25, got %#v", steps[2].Args["backoffMs"])
+	}
+	if got, _ := steps[2].Args["jitterMs"].(int); got != 10 {
+		t.Fatalf("expected queue.Dequeue jitterMs=10, got %#v", steps[2].Args["jitterMs"])
 	}
 }

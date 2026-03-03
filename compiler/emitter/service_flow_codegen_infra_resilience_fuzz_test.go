@@ -53,6 +53,12 @@ func FuzzRenderFlow_InfraResilience_NoPanic(f *testing.F) {
 				},
 			}},
 			{Action: "queue.Enqueue", Args: map[string]any{"subject": subjectExpr, "payload": "req", "timeoutMs": 1200}},
+			{Action: "queue.Dequeue", Args: map[string]any{"subject": subjectExpr, "output": "msg", "ackToken": "msgID", "timeoutMs": 1200}},
+			{Action: "queue.Ack", Args: map[string]any{"subject": subjectExpr, "messageID": "msgID"}},
+			{Action: "queue.Nack", Args: map[string]any{"subject": subjectExpr, "messageID": "msgID", "reason": `"decode failed"`}},
+			{Action: "dlq.Publish", Args: map[string]any{"subject": subjectExpr, "payload": "msg", "reason": `"decode failed"`}},
+			{Action: "webhook.VerifySignature", Args: map[string]any{"payload": "req", "signature": `"sha256=deadbeef"`, "output": "sigOK", "strict": false}},
+			{Action: "event.Outbox", Args: map[string]any{"name": `"BuildCompleted"`, "payload": "req"}},
 			{Action: "flow.Timeout", Args: map[string]any{
 				"duration": "2*time.Second",
 				"_do": []normalizer.FlowStep{
@@ -100,6 +106,12 @@ func FuzzRenderFlow_InfraResilience_SyntaxForSafeInputs(f *testing.F) {
 				},
 			}},
 			{Action: "queue.Enqueue", Args: map[string]any{"subject": subjectExpr, "payload": "req", "timeoutMs": 1000}},
+			{Action: "queue.Dequeue", Args: map[string]any{"subject": subjectExpr, "output": "msg", "ackToken": "msgID", "timeoutMs": 1000}},
+			{Action: "queue.Ack", Args: map[string]any{"subject": subjectExpr, "messageID": "msgID"}},
+			{Action: "queue.Nack", Args: map[string]any{"subject": subjectExpr, "messageID": "msgID", "reason": `"decode failed"`}},
+			{Action: "dlq.Publish", Args: map[string]any{"subject": subjectExpr, "payload": "msg", "reason": `"decode failed"`}},
+			{Action: "webhook.VerifySignature", Args: map[string]any{"payload": "req", "signature": `"sha256=deadbeef"`, "output": "sigOK", "strict": false}},
+			{Action: "event.Outbox", Args: map[string]any{"name": `"BuildCompleted"`, "payload": "req"}},
 			{Action: "flow.Retry", Args: map[string]any{
 				"attempts":  2,
 				"backoffMs": 5,

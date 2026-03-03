@@ -494,6 +494,36 @@ func TestRenderFlow_PerformanceProfileOverrides(t *testing.T) {
 	}
 }
 
+func TestRenderFlow_MessagingAsyncActions(t *testing.T) {
+	steps := []normalizer.FlowStep{
+		{Action: "webhook.VerifySignature", Args: map[string]any{"payload": "req.Body", "signature": "req.Signature", "output": "sigOK"}},
+		{Action: "webhook.Ack", Args: map[string]any{"status": 202, "body": `"accepted"`}},
+		{Action: "queue.Dequeue", Args: map[string]any{"subject": `"events.core"`, "output": "msg", "ackToken": "msgID", "timeoutMs": 1200, "attempts": 3, "backoffMs": 25, "jitterMs": 10}},
+		{Action: "queue.Ack", Args: map[string]any{"subject": `"events.core"`, "messageID": "msgID"}},
+		{Action: "queue.Nack", Args: map[string]any{"subject": `"events.core"`, "messageID": "msgID", "reason": `"decode failed"`}},
+		{Action: "dlq.Publish", Args: map[string]any{"subject": `"events.core"`, "payload": "msg", "reason": `"decode failed"`}},
+		{Action: "event.Outbox", Args: map[string]any{"name": `"ProjectCreated"`, "payload": "domain.ProjectCreated{ID: req.ID}"}},
+	}
+
+	code := renderFlow(steps)
+	mustContain := []string{
+		"_whMac := hmac.New(sha256.New",
+		"webhook.Ack marker: transport should acknowledge",
+		"s.queuePublisher.Dequeue(",
+		"for _qdTry := 0; _qdTry < 3; _qdTry++",
+		"cryptorand.Int(cryptorand.Reader, big.NewInt(",
+		"s.queuePublisher.Ack(ctx",
+		"s.queuePublisher.Nack(ctx",
+		"s.queuePublisher.PublishDLQ(ctx",
+		"s.outbox.SaveEvent(ctx",
+	}
+	for _, part := range mustContain {
+		if !strings.Contains(code, part) {
+			t.Fatalf("expected generated code to contain %q\n\n%s", part, code)
+		}
+	}
+}
+
 func TestRenderFlow_NewDataTransformActions(t *testing.T) {
 	steps := []normalizer.FlowStep{
 		{Action: "regex.Match", Args: map[string]any{"input": "req.Email", "pattern": `"^[^@]+@[^@]+$"`, "output": "emailOK"}},

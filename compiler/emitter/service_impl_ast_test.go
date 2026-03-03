@@ -21,6 +21,10 @@ func TestRenderServiceImplASTSkeleton(t *testing.T) {
 					{Entity: "Order"},
 				},
 				Idempotency: true,
+				Flow: []normalizer.FlowStep{
+					{Action: "event.Outbox", Args: map[string]any{"name": `"OrderCreated"`, "payload": "req"}},
+					{Action: "queue.Dequeue", Args: map[string]any{"subject": `"orders"`, "output": "msg"}},
+				},
 			},
 		},
 		Uses: []string{"Audit"},
@@ -46,6 +50,12 @@ func TestRenderServiceImplASTSkeleton(t *testing.T) {
 	}
 	if !strings.Contains(src, "idempotency port.IdempotencyStore") {
 		t.Fatalf("expected idempotency dependency in constructor, got:\n%s", src)
+	}
+	if !strings.Contains(src, "outbox port.OutboxRepository") {
+		t.Fatalf("expected outbox dependency in constructor, got:\n%s", src)
+	}
+	if !strings.Contains(src, "queuePublisher port.QueuePublisher") {
+		t.Fatalf("expected queuePublisher dependency in constructor, got:\n%s", src)
 	}
 
 	if _, err := parser.ParseFile(token.NewFileSet(), "orders_impl.go", src, parser.AllErrors); err != nil {

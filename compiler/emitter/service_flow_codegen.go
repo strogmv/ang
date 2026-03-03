@@ -93,7 +93,10 @@ func flowActionSupported(action string) bool {
 		"parallel.Run",
 		"pdf.Render",
 		"webhook.Send",
-		"queue.Enqueue",
+		"webhook.VerifySignature", "webhook.Ack",
+		"queue.Enqueue", "queue.Dequeue", "queue.Ack", "queue.Nack",
+		"dlq.Publish",
+		"event.Outbox",
 		"session.Get",
 		"flow.Parallel", "flow.Join", "flow.Race",
 		"flow.Delay", "flow.Schedule", "flow.Cron",
@@ -328,7 +331,7 @@ func renderOneFlowStep(st *flowRenderState, step normalizer.FlowStep, indent int
 	// STAGE 2: Infrastructure actions
 	// -------------------------------------------------------------------------
 
-	case "cache.Get", "cache.Set", "cache.Del", "mail.Send", "storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List", "http.Call", "http.Request", "http.RetryPolicy", "http.Paginate", "rand.Code", "rand.Token", "json.Parse", "json.Marshal", "regex.Match", "regex.Replace", "base64.Encode", "base64.Decode", "url.Parse", "url.Build", "query.Encode", "query.Decode", "hash.Sum", "hash.HMAC", "uuid.New", "ulid.New", "math.Op", "jsonpath.Get", "jsonpath.Set", "jwt.Sign", "jwt.Verify", "oauth2.Token", "oauth2.Refresh", "crypto.Encrypt", "crypto.Decrypt", "parallel.Run", "pdf.Render", "webhook.Send", "queue.Enqueue", "secret.Get", "config.Get",
+	case "cache.Get", "cache.Set", "cache.Del", "mail.Send", "storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List", "http.Call", "http.Request", "http.RetryPolicy", "http.Paginate", "rand.Code", "rand.Token", "json.Parse", "json.Marshal", "regex.Match", "regex.Replace", "base64.Encode", "base64.Decode", "url.Parse", "url.Build", "query.Encode", "query.Decode", "hash.Sum", "hash.HMAC", "uuid.New", "ulid.New", "math.Op", "jsonpath.Get", "jsonpath.Set", "jwt.Sign", "jwt.Verify", "oauth2.Token", "oauth2.Refresh", "crypto.Encrypt", "crypto.Decrypt", "parallel.Run", "pdf.Render", "webhook.Send", "webhook.VerifySignature", "webhook.Ack", "queue.Enqueue", "queue.Dequeue", "queue.Ack", "queue.Nack", "dlq.Publish", "event.Outbox", "secret.Get", "config.Get",
 		"event.Wait", "event.Subscribe", "event.Match", "event.Broadcast",
 		"state.Get", "state.Set", "state.Delete",
 		"idem.DeriveKey", "idem.Check", "idem.SaveResult",

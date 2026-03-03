@@ -1023,10 +1023,25 @@ func (n *Normalizer) applyFlowPerformanceDefaults(steps []FlowStep) []FlowStep {
 					}
 				}
 
-			case "queue.Enqueue":
+			case "queue.Enqueue", "queue.Dequeue":
 				if _, hasTimeout := s.Args["timeout"]; !hasTimeout {
 					if _, hasTimeoutMS := s.Args["timeoutMs"]; !hasTimeoutMS {
 						s.Args["timeout"] = "3*time.Second"
+					}
+				}
+				if s.Action == "queue.Dequeue" {
+					if _, hasAttempts := s.Args["attempts"]; !hasAttempts {
+						if retries, okRetries := flowStepIntArg(s.Args, "retries"); okRetries && retries >= 0 {
+							s.Args["attempts"] = retries + 1
+						} else {
+							s.Args["attempts"] = 2
+						}
+					}
+					if _, hasBackoff := s.Args["backoffMs"]; !hasBackoff {
+						s.Args["backoffMs"] = 150
+					}
+					if _, hasJitter := s.Args["jitterMs"]; !hasJitter {
+						s.Args["jitterMs"] = 50
 					}
 				}
 			}
@@ -1565,6 +1580,25 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					declaredVars[output] = true
 				}
 
+			case "queue.Enqueue", "queue.Ack", "queue.Nack", "dlq.Publish", "event.Outbox", "webhook.Ack":
+				// validated by flow semantics engine
+
+			case "queue.Dequeue":
+				if output, _ := step.Args["output"].(string); output != "" {
+					declaredVars[output] = true
+				}
+				if ackToken, _ := step.Args["ackToken"].(string); ackToken != "" {
+					declaredVars[ackToken] = true
+				}
+
+			case "webhook.Send":
+				// validated by flow semantics engine
+
+			case "webhook.VerifySignature":
+				if output, _ := step.Args["output"].(string); output != "" {
+					declaredVars[output] = true
+				}
+
 			case "http.Call", "http.Request", "http.RetryPolicy":
 				if output, _ := step.Args["output"].(string); output != "" {
 					declaredVars[output] = true
@@ -1652,6 +1686,7 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					!strings.HasPrefix(step.Action, "exec.") && !strings.HasPrefix(step.Action, "fs.") &&
 					!strings.HasPrefix(step.Action, "cache.") && !strings.HasPrefix(step.Action, "mail.") &&
 					!strings.HasPrefix(step.Action, "storage.") && !strings.HasPrefix(step.Action, "http.") &&
+					!strings.HasPrefix(step.Action, "webhook.") && !strings.HasPrefix(step.Action, "queue.") &&
 					!strings.HasPrefix(step.Action, "rand.") && !strings.HasPrefix(step.Action, "json.") &&
 					!strings.HasPrefix(step.Action, "regex.") && !strings.HasPrefix(step.Action, "base64.") &&
 					!strings.HasPrefix(step.Action, "url.") && !strings.HasPrefix(step.Action, "query.") &&
@@ -1673,6 +1708,7 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					!strings.HasPrefix(step.Action, "circuit.") &&
 					!strings.HasPrefix(step.Action, "bulkhead.") &&
 					!strings.HasPrefix(step.Action, "state.") &&
+					!strings.HasPrefix(step.Action, "dlq.") &&
 					!strings.HasPrefix(step.Action, "db.") {
 					addWarn(stepNum, step.Action, "UNKNOWN_ACTION", fmt.Sprintf("unknown action '%s'", step.Action), "{action: \"repo.Find\" | \"mapping.Assign\" | \"flow.If\" ...}", step.File, step.Line, step.Column)
 				}

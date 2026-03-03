@@ -143,6 +143,56 @@ package schema
 	action: "event.Publish", name: _event, payload: _payload
 }
 
+#Outbox: {
+	_event: string, _payload: string, _id?: string
+	action: "event.Outbox", name: _event, payload: _payload
+	if _id != _|_ { id: _id }
+}
+
+#WebhookVerify: {
+	_payload: string, _signature: string, _out?: string, _secret?: string, _strict?: bool
+	action: "webhook.VerifySignature", payload: _payload, signature: _signature
+	if _out != _|_ { output: _out }
+	if _secret != _|_ { secret: _secret }
+	if _strict != _|_ { strict: _strict }
+}
+
+#QueueEnqueue: {
+	_subject: string, _payload: string, _timeout?: string, _timeoutMs?: int
+	action: "queue.Enqueue", subject: _subject, payload: _payload
+	if _timeout != _|_ { timeout: _timeout }
+	if _timeoutMs != _|_ { timeoutMs: _timeoutMs }
+}
+
+#QueueDequeue: {
+	_subject: string, _out: string, _ackToken?: string, _timeout?: string, _timeoutMs?: int, _attempts?: int, _retries?: int, _backoffMs?: int, _jitterMs?: int
+	action: "queue.Dequeue", subject: _subject, output: _out
+	if _ackToken != _|_ { ackToken: _ackToken }
+	if _timeout != _|_ { timeout: _timeout }
+	if _timeoutMs != _|_ { timeoutMs: _timeoutMs }
+	if _attempts != _|_ { attempts: _attempts }
+	if _retries != _|_ { retries: _retries }
+	if _backoffMs != _|_ { backoffMs: _backoffMs }
+	if _jitterMs != _|_ { jitterMs: _jitterMs }
+}
+
+#QueueAck: {
+	_subject: string, _messageID: string
+	action: "queue.Ack", subject: _subject, messageID: _messageID
+}
+
+#QueueNack: {
+	_subject: string, _messageID: string, _reason?: string
+	action: "queue.Nack", subject: _subject, messageID: _messageID
+	if _reason != _|_ { reason: _reason }
+}
+
+#DLQPublish: {
+	_subject: string, _payload: string, _reason?: string
+	action: "dlq.Publish", subject: _subject, payload: _payload
+	if _reason != _|_ { reason: _reason }
+}
+
 #When: {
 	_if: string, _then: [...#FlowStep], _else?: [...#FlowStep]
 	action: "flow.If", condition: _if, then: _then

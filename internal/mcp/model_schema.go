@@ -17,10 +17,13 @@ type modelSnapshot struct {
 }
 
 func buildModelSnapshot(projectPath string, includeFields bool) (modelSnapshot, error) {
-	entities, services, endpoints, _, _, _, _, _, _, err := compiler.RunPipeline(projectPath)
+	semantic, err := compiler.RunSemanticPhases(projectPath)
 	if err != nil {
 		return modelSnapshot{}, err
 	}
+	entities := semantic.Entities
+	services := semantic.Services
+	endpoints := semantic.Endpoints
 
 	sort.Slice(entities, func(i, j int) bool {
 		return strings.ToLower(entities[i].Name) < strings.ToLower(entities[j].Name)

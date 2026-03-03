@@ -1,0 +1,111 @@
+{
+  "project": {
+    "Name": "",
+    "Version": "",
+    "Target": {
+      "Lang": "go",
+      "Framework": "chi",
+      "DB": "postgres",
+      "Cache": "",
+      "Queue": "",
+      "Storage": ""
+    }
+  },
+  "services": [
+    {
+      "name": "Auth",
+      "methods": [
+        "GetProfile",
+        "Login",
+        "Register",
+        "UpdateProfile"
+      ],
+      "publishes": [
+        "UserLoggedIn",
+        "UserRegistered"
+      ],
+      "subscribes": {},
+      "depends_on": [
+        "NATS"
+      ]
+    },
+    {
+      "name": "Blog",
+      "methods": [
+        "ArchivePost",
+        "CreateComment",
+        "CreatePost",
+        "CreateTag",
+        "DeleteComment",
+        "DeletePost",
+        "DeleteTag",
+        "GetPost",
+        "ListComments",
+        "ListMyPosts",
+        "ListPosts",
+        "ListTags",
+        "PublishPost",
+        "SubmitPost",
+        "UpdateComment",
+        "UpdatePost",
+        "UpdateTag"
+      ],
+      "publishes": null,
+      "subscribes": {},
+      "depends_on": []
+    }
+  ],
+  "events": [
+    {
+      "name": "CommentCreated",
+      "fields": [
+        "authorID",
+        "commentID",
+        "postID"
+      ]
+    },
+    {
+      "name": "PostCreated",
+      "fields": [
+        "authorID",
+        "postID",
+        "title"
+      ]
+    },
+    {
+      "name": "PostPublished",
+      "fields": [
+        "authorID",
+        "postID",
+        "slug",
+        "title"
+      ]
+    },
+    {
+      "name": "PostUpdated",
+      "fields": [
+        "postID"
+      ]
+    },
+    {
+      "name": "UserLoggedIn",
+      "fields": [
+        "userID"
+      ]
+    },
+    {
+      "name": "UserRegistered",
+      "fields": [
+        "email",
+        "userID"
+      ]
+    }
+  ],
+  "entities": [
+    "Comment",
+    "Post",
+    "PostTag",
+    "Tag",
+    "User"
+  ]
+}

@@ -34,21 +34,21 @@ type MissingImpl struct {
 }
 
 type Emitter struct {
-	IRSchema         *ir.Schema
-	OutputDir        string
-	FrontendDir      string
-	FrontendAdminDir string
-	TemplatesDir     string // Путь к папке с шаблонами
-	UIProviderPath   string
-	Version          string
-	InputHash        string
-	CompilerHash     string
-	GoModule         string // Go module path for imports
-	NatsWorkers              int // max concurrent NATS handlers per subscriber (from target.nats_workers)
-	NatsPublishRetryAttempts int // retry attempts on publish failure (from target.nats_publish_retry_attempts)
-	NatsPublishRetryDelayMS  int // initial backoff ms for publish retry (from target.nats_publish_retry_delay_ms)
-	MissingImpls     []MissingImpl
-	missingImplIndex map[string]struct{}
+	IRSchema                 *ir.Schema
+	OutputDir                string
+	FrontendDir              string
+	FrontendAdminDir         string
+	TemplatesDir             string // Путь к папке с шаблонами
+	UIProviderPath           string
+	Version                  string
+	InputHash                string
+	CompilerHash             string
+	GoModule                 string // Go module path for imports
+	NatsWorkers              int    // max concurrent NATS handlers per subscriber (from target.nats_workers)
+	NatsPublishRetryAttempts int    // retry attempts on publish failure (from target.nats_publish_retry_attempts)
+	NatsPublishRetryDelayMS  int    // initial backoff ms for publish retry (from target.nats_publish_retry_delay_ms)
+	MissingImpls             []MissingImpl
+	missingImplIndex         map[string]struct{}
 }
 
 const DefaultUIProviderPath = "@/components/ui/forms"
@@ -544,8 +544,39 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 			return false
 		},
 		"ServiceHasOutbox": func(s normalizer.Service) bool {
+			var hasOutboxStep func([]normalizer.FlowStep) bool
+			hasOutboxStep = func(steps []normalizer.FlowStep) bool {
+				for _, step := range steps {
+					if step.Action == "event.Outbox" {
+						return true
+					}
+					for _, childKey := range []string{"_do", "_ifNew", "_ifExists", "_then", "_else", "_default", "_catch", "_fallback", "_onTimeout", "_onMissing", "_onMismatch"} {
+						if v, ok := step.Args[childKey].([]normalizer.FlowStep); ok && hasOutboxStep(v) {
+							return true
+						}
+					}
+					if cases, ok := step.Args["_cases"].(map[string][]normalizer.FlowStep); ok {
+						for _, branch := range cases {
+							if hasOutboxStep(branch) {
+								return true
+							}
+						}
+					}
+					if branches, ok := step.Args["_branches"].(map[string][]normalizer.FlowStep); ok {
+						for _, branch := range branches {
+							if hasOutboxStep(branch) {
+								return true
+							}
+						}
+					}
+				}
+				return false
+			}
 			for _, m := range s.Methods {
 				if m.Outbox {
+					return true
+				}
+				if hasOutboxStep(m.Flow) {
 					return true
 				}
 			}
@@ -560,9 +591,37 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 			return false
 		},
 		"AnyServiceHasIdempotencyOrOutbox": func(services []normalizer.Service) bool {
+			var hasOutboxStep func([]normalizer.FlowStep) bool
+			hasOutboxStep = func(steps []normalizer.FlowStep) bool {
+				for _, step := range steps {
+					if step.Action == "event.Outbox" {
+						return true
+					}
+					for _, childKey := range []string{"_do", "_ifNew", "_ifExists", "_then", "_else", "_default", "_catch", "_fallback", "_onTimeout", "_onMissing", "_onMismatch"} {
+						if v, ok := step.Args[childKey].([]normalizer.FlowStep); ok && hasOutboxStep(v) {
+							return true
+						}
+					}
+					if cases, ok := step.Args["_cases"].(map[string][]normalizer.FlowStep); ok {
+						for _, branch := range cases {
+							if hasOutboxStep(branch) {
+								return true
+							}
+						}
+					}
+					if branches, ok := step.Args["_branches"].(map[string][]normalizer.FlowStep); ok {
+						for _, branch := range branches {
+							if hasOutboxStep(branch) {
+								return true
+							}
+						}
+					}
+				}
+				return false
+			}
 			for _, s := range services {
 				for _, m := range s.Methods {
-					if m.Idempotency || m.Outbox {
+					if m.Idempotency || m.Outbox || hasOutboxStep(m.Flow) {
 						return true
 					}
 				}

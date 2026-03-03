@@ -32,7 +32,7 @@ func (c *Client) IsConnected() bool {
 	return c.nc != nil && c.nc.Status() == natspkg.CONNECTED
 }
 
-func (c *Client) Subscribe(subject string, handler func(data []byte) error) (*natspkg.Subscription, error) {
+func (c *Client) SubscribeRaw(subject string, handler func(data []byte) error) (*natspkg.Subscription, error) {
 	return c.nc.Subscribe(subject, func(msg *natspkg.Msg) {
 		_ = handler(msg.Data)
 	})
@@ -60,6 +60,11 @@ func (c *Client) PublishUserLoggedIn(ctx context.Context, event domain.UserLogge
 	}
 	fmt.Printf("NATS: publish failed after %d attempts [UserLoggedIn]: %v\n", 3, lastErr)
 	return lastErr
+}
+
+// BroadcastUserLoggedIn delegates to PublishUserLoggedIn — NATS subjects are already broadcast channels.
+func (c *Client) BroadcastUserLoggedIn(ctx context.Context, event domain.UserLoggedIn) error {
+	return c.PublishUserLoggedIn(ctx, event)
 }
 
 // SubscribeUserLoggedIn processes messages concurrently using a worker pool of 20 goroutines.
@@ -109,6 +114,11 @@ func (c *Client) PublishUserRegistered(ctx context.Context, event domain.UserReg
 	return lastErr
 }
 
+// BroadcastUserRegistered delegates to PublishUserRegistered — NATS subjects are already broadcast channels.
+func (c *Client) BroadcastUserRegistered(ctx context.Context, event domain.UserRegistered) error {
+	return c.PublishUserRegistered(ctx, event)
+}
+
 // SubscribeUserRegistered processes messages concurrently using a worker pool of 20 goroutines.
 // The NATS callback returns immediately (non-blocking) — true backpressure via channel semaphore.
 // When the pool is full the message is shed (dropped) rather than queued to prevent cascade delays.
@@ -135,4 +145,40 @@ func (c *Client) SubscribeUserRegistered(handler func(context.Context, domain.Us
 			_ = handler(context.Background(), event)
 		}()
 	})
+}
+
+// Wait blocks until an event with matching name/correlation arrives or ctx is cancelled.
+func (c *Client) Wait(ctx context.Context, name string, match string) (any, error) {
+	ch := make(chan any, 1)
+	sub, err := c.nc.Subscribe(name, func(msg *natspkg.Msg) {
+		var payload any
+		if jErr := json.Unmarshal(msg.Data, &payload); jErr == nil {
+			select {
+			case ch <- payload:
+			default:
+			}
+		}
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer sub.Unsubscribe()
+	select {
+	case v := <-ch:
+		return v, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// Subscribe registers an async handler for events with matching name/correlation.
+func (c *Client) Subscribe(ctx context.Context, name string, match string, handler func(context.Context, any)) error {
+	_, err := c.nc.Subscribe(name, func(msg *natspkg.Msg) {
+		var payload any
+		if jErr := json.Unmarshal(msg.Data, &payload); jErr != nil {
+			return
+		}
+		go handler(ctx, payload)
+	})
+	return err
 }

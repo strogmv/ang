@@ -2,10 +2,10 @@ package nats
 
 import (
 	"context"
-{{- if .Events }}
 	"encoding/json"
-	"fmt"
 	"time"
+{{- if .Events }}
+	"fmt"
 {{- end }}
 	natspkg "github.com/nats-io/nats.go"
 {{- if .Events }}
@@ -45,6 +45,52 @@ func (c *Client) SubscribeRaw(subject string, handler func(data []byte) error) (
 // Enqueue publishes a raw payload to the given subject (implements port.QueuePublisher).
 func (c *Client) Enqueue(ctx context.Context, subject string, payload []byte) error {
 	return c.nc.Publish(subject, payload)
+}
+
+// Dequeue waits for the next message from subject and returns message id + payload.
+func (c *Client) Dequeue(ctx context.Context, subject string, timeout time.Duration) (string, []byte, error) {
+	if timeout <= 0 {
+		timeout = 3 * time.Second
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	sub, err := c.nc.SubscribeSync(subject)
+	if err != nil {
+		return "", nil, err
+	}
+	defer sub.Unsubscribe()
+	msg, err := sub.NextMsgWithContext(waitCtx)
+	if err != nil {
+		return "", nil, err
+	}
+	msgID := msg.Header.Get("Nats-Msg-Id")
+	if msgID == "" {
+		msgID = msg.Reply
+	}
+	return msgID, msg.Data, nil
+}
+
+// Ack is a no-op for NATS core subscriptions.
+func (c *Client) Ack(ctx context.Context, subject string, messageID string) error {
+	return nil
+}
+
+// Nack is a no-op for NATS core subscriptions (no server-side nack in this adapter).
+func (c *Client) Nack(ctx context.Context, subject string, messageID string, reason string) error {
+	return nil
+}
+
+// PublishDLQ publishes failed payload to '<subject>.DLQ'.
+func (c *Client) PublishDLQ(ctx context.Context, subject string, payload []byte, reason string) error {
+	msg := natspkg.NewMsg(subject + ".DLQ")
+	msg.Data = payload
+	if reason != "" {
+		if msg.Header == nil {
+			msg.Header = natspkg.Header{}
+		}
+		msg.Header.Set("X-DLQ-Reason", reason)
+	}
+	return c.nc.PublishMsg(msg)
 }
 
 {{- range .Events }}

@@ -1014,9 +1014,30 @@ var specs = map[string]Spec{
 		RequiredArgs:     []string{"template", "data", "output"},
 		DeclaresFromArgs: []string{"output"},
 	},
-	// Webhook / queue
+	// Webhook / queue / async delivery
 	"webhook.Send": {
 		RequiredArgs: []string{"url", "payload"},
+		OptionalArgKinds: map[string]ArgKind{
+			"retries": ArgKindInt,
+			"event":   ArgKindString,
+		},
+	},
+	"webhook.VerifySignature": {
+		RequiredArgs:     []string{"payload", "signature"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"secret":    ArgKindString,
+			"algorithm": ArgKindString,
+			"throw":     ArgKindString,
+			"output":    ArgKindString,
+			"strict":    ArgKindBool,
+		},
+	},
+	"webhook.Ack": {
+		OptionalArgKinds: map[string]ArgKind{
+			"status": ArgKindInt,
+			"body":   ArgKindString,
+		},
 	},
 	"queue.Enqueue": {
 		RequiredArgs: []string{"subject", "payload"},
@@ -1033,6 +1054,78 @@ var specs = map[string]Spec{
 			}
 			return nil
 		},
+	},
+	"queue.Dequeue": {
+		RequiredArgs:     []string{"subject", "output"},
+		DeclaresFromArgs: []string{"output", "ackToken"},
+		OptionalArgKinds: map[string]ArgKind{
+			"ackToken":  ArgKindString,
+			"attempts":  ArgKindInt,
+			"retries":   ArgKindInt,
+			"backoffMs": ArgKindInt,
+			"jitterMs":  ArgKindInt,
+			"timeoutMs": ArgKindInt,
+		},
+		CustomConstraints: func(step Step) *Issue {
+			if timeoutMS, ok := intArg(step.Args, "timeoutMs"); ok && timeoutMS <= 0 {
+				return &Issue{
+					Code:    "INVALID_TIMEOUT_MS",
+					Message: "queue.Dequeue timeoutMs must be > 0",
+					Hint:    "{action: \"queue.Dequeue\", subject: \"events\", output: \"msg\", timeoutMs: 3000}",
+				}
+			}
+			if attempts, ok := intArg(step.Args, "attempts"); ok && attempts <= 0 {
+				return &Issue{
+					Code:    "INVALID_ATTEMPTS",
+					Message: "queue.Dequeue attempts must be > 0",
+					Hint:    "{action: \"queue.Dequeue\", subject: \"events\", output: \"msg\", attempts: 3}",
+				}
+			}
+			if retries, ok := intArg(step.Args, "retries"); ok && retries < 0 {
+				return &Issue{
+					Code:    "INVALID_RETRIES",
+					Message: "queue.Dequeue retries must be >= 0",
+					Hint:    "{action: \"queue.Dequeue\", subject: \"events\", output: \"msg\", retries: 2}",
+				}
+			}
+			if backoff, ok := intArg(step.Args, "backoffMs"); ok && backoff < 0 {
+				return &Issue{
+					Code:    "INVALID_BACKOFF",
+					Message: "queue.Dequeue backoffMs must be >= 0",
+					Hint:    "{action: \"queue.Dequeue\", subject: \"events\", output: \"msg\", backoffMs: 150}",
+				}
+			}
+			if jitter, ok := intArg(step.Args, "jitterMs"); ok && jitter < 0 {
+				return &Issue{
+					Code:    "INVALID_JITTER",
+					Message: "queue.Dequeue jitterMs must be >= 0",
+					Hint:    "{action: \"queue.Dequeue\", subject: \"events\", output: \"msg\", jitterMs: 50}",
+				}
+			}
+			return nil
+		},
+	},
+	"queue.Ack": {
+		RequiredArgs: []string{"subject", "messageID"},
+	},
+	"queue.Nack": {
+		RequiredArgs: []string{"subject", "messageID"},
+		OptionalArgKinds: map[string]ArgKind{
+			"reason": ArgKindString,
+		},
+	},
+	"dlq.Publish": {
+		RequiredArgs: []string{"subject", "payload"},
+		OptionalArgKinds: map[string]ArgKind{
+			"reason": ArgKindString,
+		},
+	},
+	"event.Outbox": {
+		RequiredArgs: []string{"name", "payload"},
+		OptionalArgKinds: map[string]ArgKind{
+			"id": ArgKindString,
+		},
+		RequiresTx: true,
 	},
 	// notify.Dispatch — short alias for notification.Dispatch
 	"notify.Dispatch": {
@@ -1347,6 +1440,7 @@ func isKnownPrefix(action string) bool {
 		"str.", "enum.", "time.", "map.",
 		"exec.", "fs.",
 		"cache.", "mail.", "storage.",
+		"webhook.", "queue.", "dlq.",
 		"http.", "rand.", "json.", "regex.", "base64.", "url.", "query.", "hash.", "uuid.", "ulid.", "math.", "jsonpath.", "batch.", "parallel.",
 		"jwt.", "oauth2.", "crypto.",
 		"pdf.",
