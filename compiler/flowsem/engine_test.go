@@ -356,3 +356,131 @@ func TestValidate_StorageListRequiresOutput(t *testing.T) {
 		t.Fatalf("expected MISSING_OUTPUT issue, got %+v", issues)
 	}
 }
+
+func TestValidate_NewDataTransformActionsKnown(t *testing.T) {
+	t.Parallel()
+	steps := []Step{
+		{Action: "regex.Match", Args: map[string]any{"input": "req.Email", "pattern": `"^[^@]+@[^@]+$"`, "output": "ok"}},
+		{Action: "regex.Replace", Args: map[string]any{"input": "req.Name", "pattern": `"\\s+"`, "repl": `"-"`, "output": "slug"}},
+		{Action: "base64.Encode", Args: map[string]any{"input": "req.Payload", "output": "b64"}},
+		{Action: "base64.Decode", Args: map[string]any{"input": "req.Encoded", "output": "raw"}},
+		{Action: "url.Parse", Args: map[string]any{"input": "req.URL", "output": "u"}},
+		{Action: "url.Build", Args: map[string]any{"base": `"https://api.test"`, "output": "u"}},
+		{Action: "query.Encode", Args: map[string]any{"input": "req.QueryMap", "output": "rawQuery"}},
+		{Action: "query.Decode", Args: map[string]any{"input": "req.RawQuery", "output": "vals"}},
+		{Action: "hash.Sum", Args: map[string]any{"algorithm": `"sha256"`, "input": "req.Payload", "output": "digest"}},
+		{Action: "hash.HMAC", Args: map[string]any{"algorithm": `"sha256"`, "key": "req.Secret", "input": "req.Payload", "output": "sig"}},
+		{Action: "uuid.New", Args: map[string]any{"output": "id"}},
+		{Action: "ulid.New", Args: map[string]any{"output": "ulid"}},
+		{Action: "math.Op", Args: map[string]any{"op": `"min"`, "a": "x", "b": "y", "output": "m"}},
+		{Action: "jsonpath.Get", Args: map[string]any{"input": "req.Payload", "path": `"$.user.email"`, "output": "email"}},
+		{Action: "jsonpath.Set", Args: map[string]any{"input": "req.Payload", "path": `"$.user.role"`, "value": `"admin"`, "output": "patched"}},
+	}
+
+	issues := Validate(steps)
+	for _, it := range issues {
+		if it.Code == "UNKNOWN_ACTION" {
+			t.Fatalf("unexpected UNKNOWN_ACTION for %s", it.Action)
+		}
+	}
+}
+
+func TestValidate_MathOpRequiredArgsByOp(t *testing.T) {
+	t.Parallel()
+	issues := Validate([]Step{{Action: "math.Op", Args: map[string]any{"op": `"clamp"`, "value": "x", "max": "10", "output": "y"}}})
+	found := false
+	for _, it := range issues {
+		if it.Code == "MISSING_MIN" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected MISSING_MIN issue, got %+v", issues)
+	}
+}
+
+func TestValidate_CollectionsPrimitivesKnown(t *testing.T) {
+	t.Parallel()
+	issues := Validate([]Step{
+		{Action: "list.Map", Args: map[string]any{"from": "items", "expr": "item.ID", "output": "ids", "as": "item"}},
+		{Action: "list.Reduce", Args: map[string]any{"from": "amounts", "expr": "sum + item", "output": "sum", "as": "item"}},
+		{Action: "list.GroupBy", Args: map[string]any{"from": "items", "key": "item.Status", "output": "byStatus", "as": "item"}},
+		{Action: "list.Distinct", Args: map[string]any{"from": "items", "key": "item.ID", "output": "unique", "as": "item"}},
+		{Action: "list.Chunk", Args: map[string]any{"from": "items", "size": 100, "output": "batches"}},
+		{
+			Action: "batch.Run",
+			Args:   map[string]any{"from": "items", "size": 50, "as": "batch"},
+			Children: map[string][]Step{
+				"_do": {{Action: "logic.Check", Args: map[string]any{"condition": "true", "throw": "nope"}}},
+			},
+		},
+	})
+	for _, it := range issues {
+		if it.Code == "UNKNOWN_ACTION" {
+			t.Fatalf("unexpected UNKNOWN_ACTION for %s", it.Action)
+		}
+	}
+}
+
+func TestValidate_ListChunkSizeRules(t *testing.T) {
+	t.Parallel()
+
+	issuesMissing := Validate([]Step{{Action: "list.Chunk", Args: map[string]any{"from": "items", "output": "batches"}}})
+	foundMissing := false
+	for _, it := range issuesMissing {
+		if it.Code == "MISSING_SIZE" {
+			foundMissing = true
+			break
+		}
+	}
+	if !foundMissing {
+		t.Fatalf("expected MISSING_SIZE issue, got %+v", issuesMissing)
+	}
+
+	issuesInvalid := Validate([]Step{{Action: "list.Chunk", Args: map[string]any{"from": "items", "size": 0, "output": "batches"}}})
+	foundInvalid := false
+	for _, it := range issuesInvalid {
+		if it.Code == "INVALID_SIZE" {
+			foundInvalid = true
+			break
+		}
+	}
+	if !foundInvalid {
+		t.Fatalf("expected INVALID_SIZE issue, got %+v", issuesInvalid)
+	}
+}
+
+func TestValidate_BatchRunRequiresDoAndValidSize(t *testing.T) {
+	t.Parallel()
+
+	issuesMissingDo := Validate([]Step{{Action: "batch.Run", Args: map[string]any{"from": "items", "size": 10}}})
+	foundMissingDo := false
+	for _, it := range issuesMissingDo {
+		if it.Code == "MISSING_DO" {
+			foundMissingDo = true
+			break
+		}
+	}
+	if !foundMissingDo {
+		t.Fatalf("expected MISSING_DO issue, got %+v", issuesMissingDo)
+	}
+
+	issuesInvalidSize := Validate([]Step{{
+		Action: "batch.Run",
+		Args:   map[string]any{"from": "items", "size": 0},
+		Children: map[string][]Step{
+			"_do": {{Action: "logic.Check", Args: map[string]any{"condition": "true", "throw": "x"}}},
+		},
+	}})
+	foundInvalidSize := false
+	for _, it := range issuesInvalidSize {
+		if it.Code == "INVALID_SIZE" {
+			foundInvalidSize = true
+			break
+		}
+	}
+	if !foundInvalidSize {
+		t.Fatalf("expected INVALID_SIZE issue, got %+v", issuesInvalidSize)
+	}
+}

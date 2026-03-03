@@ -67,6 +67,46 @@ func TestRenderFlow_ListSort(t *testing.T) {
 	}
 }
 
+func TestRenderFlow_CollectionsPrimitives(t *testing.T) {
+	steps := []normalizer.FlowStep{
+		{Action: "list.Map", Args: map[string]any{"from": "items", "as": "item", "expr": "item.ID", "output": "ids"}},
+		{Action: "list.Reduce", Args: map[string]any{"from": "items", "as": "item", "initial": "0", "expr": "total + item.Price", "output": "total"}},
+		{Action: "list.GroupBy", Args: map[string]any{"from": "items", "as": "item", "key": "item.Status", "output": "byStatus"}},
+		{Action: "list.Distinct", Args: map[string]any{"from": "items", "as": "item", "key": "item.ID", "output": "uniqueItems"}},
+		{Action: "list.Chunk", Args: map[string]any{"from": "items", "size": 100, "output": "batches"}},
+		{Action: "batch.Run", Args: map[string]any{
+			"from": "items",
+			"size": 50,
+			"as":   "batch",
+			"_do": []normalizer.FlowStep{
+				{Action: "flow.SuggestNext", Args: map[string]any{"options": []string{"next"}}},
+			},
+		}},
+	}
+
+	code := renderFlow(steps)
+	mustContain := []string{
+		"ids := make([]any, 0, len(items))",
+		"ids = append(ids, item.ID)",
+		"total := 0",
+		"total = total + item.Price",
+		"byStatus := make(map[string][]any)",
+		"byStatus[_groupKey_",
+		"uniqueItems := items[:0:0]",
+		"_seen_",
+		"batches := make([][]any, 0)",
+		"_chunkSize_",
+		"for _batchStart_",
+		"batch := items[_batchStart_",
+		`slog.Info("flow.suggest_next", "options", []string{"next"})`,
+	}
+	for _, part := range mustContain {
+		if !strings.Contains(code, part) {
+			t.Fatalf("expected generated code to contain %q\n\n%s", part, code)
+		}
+	}
+}
+
 func TestRenderFlow_FlowSwitch(t *testing.T) {
 	steps := []normalizer.FlowStep{
 		{Action: "flow.Switch", Args: map[string]any{
@@ -282,6 +322,43 @@ func TestRenderFlow_StorageUploadSupportsStringAndBytes(t *testing.T) {
 	}
 }
 
+func TestRenderFlow_StorageDownloadChecksReadError(t *testing.T) {
+	steps := []normalizer.FlowStep{
+		{Action: "storage.Download", Args: map[string]any{"key": `"files/a.txt"`, "output": "payload"}},
+	}
+	code := renderFlow(steps)
+	mustContain := []string{
+		"io.ReadAll(",
+		"_sDlReadErr",
+		"if _sDlReadErr",
+	}
+	for _, part := range mustContain {
+		if !strings.Contains(code, part) {
+			t.Fatalf("expected generated code to contain %q\n\n%s", part, code)
+		}
+	}
+}
+
+func TestRenderFlow_StorageDeleteSupported(t *testing.T) {
+	steps := []normalizer.FlowStep{
+		{Action: "storage.Delete", Args: map[string]any{"key": `"files/a.txt"`}},
+	}
+	code := renderFlow(steps)
+	if !strings.Contains(code, "s.storage.Delete(ctx") {
+		t.Fatalf("expected generated code to call storage.Delete\n\n%s", code)
+	}
+}
+
+func TestRenderFlow_StorageListSupported(t *testing.T) {
+	steps := []normalizer.FlowStep{
+		{Action: "storage.List", Args: map[string]any{"prefix": `"files/"`, "output": "keys"}},
+	}
+	code := renderFlow(steps)
+	if !strings.Contains(code, "s.storage.List(ctx") {
+		t.Fatalf("expected generated code to call storage.List\n\n%s", code)
+	}
+}
+
 func TestRenderFlow_NewResilienceActions(t *testing.T) {
 	steps := []normalizer.FlowStep{
 		{Action: "flow.Checkpoint", Args: map[string]any{"name": "before", "data": "req"}},
@@ -409,6 +486,46 @@ func TestRenderFlow_PerformanceProfileOverrides(t *testing.T) {
 		"_pSem := make(chan struct{}, 3)",
 		"context.WithTimeout(ctx, time.Duration(1200) * time.Millisecond)",
 		"s.queuePublisher.Enqueue(_qCtx_",
+	}
+	for _, part := range mustContain {
+		if !strings.Contains(code, part) {
+			t.Fatalf("expected generated code to contain %q\n\n%s", part, code)
+		}
+	}
+}
+
+func TestRenderFlow_NewDataTransformActions(t *testing.T) {
+	steps := []normalizer.FlowStep{
+		{Action: "regex.Match", Args: map[string]any{"input": "req.Email", "pattern": `"^[^@]+@[^@]+$"`, "output": "emailOK"}},
+		{Action: "regex.Replace", Args: map[string]any{"input": "req.Name", "pattern": `"\\s+"`, "repl": `"-"`, "output": "slug"}},
+		{Action: "base64.Encode", Args: map[string]any{"input": "req.Payload", "output": "b64"}},
+		{Action: "base64.Decode", Args: map[string]any{"input": "req.Encoded", "output": "raw"}},
+		{Action: "url.Parse", Args: map[string]any{"input": "req.URL", "output": "parsedURL"}},
+		{Action: "url.Build", Args: map[string]any{"base": `"https://api.test"`, "path": `"/v1/items"`, "query": map[string]string{"q": "req.Query"}, "output": "builtURL"}},
+		{Action: "query.Encode", Args: map[string]any{"input": "req.QueryMap", "output": "rawQuery"}},
+		{Action: "query.Decode", Args: map[string]any{"input": "req.RawQuery", "output": "queryVals"}},
+		{Action: "hash.Sum", Args: map[string]any{"algorithm": `"sha256"`, "input": "req.Payload", "output": "digest"}},
+		{Action: "hash.HMAC", Args: map[string]any{"algorithm": `"sha256"`, "key": "req.Secret", "input": "req.Payload", "output": "signature"}},
+		{Action: "uuid.New", Args: map[string]any{"output": "id"}},
+		{Action: "ulid.New", Args: map[string]any{"output": "ulid"}},
+		{Action: "math.Op", Args: map[string]any{"op": `"round"`, "value": "req.Amount", "precision": 2, "output": "rounded"}},
+		{Action: "jsonpath.Get", Args: map[string]any{"input": "req.Payload", "path": `"$.user.email"`, "output": "email"}},
+		{Action: "jsonpath.Set", Args: map[string]any{"input": "req.Payload", "path": `"$.user.role"`, "value": `"admin"`, "output": "patched"}},
+	}
+
+	code := renderFlow(steps)
+	mustContain := []string{
+		"regexp.Compile",
+		"base64.StdEncoding.EncodeToString",
+		"url.Parse(",
+		"url.ParseQuery",
+		"sha256.Sum256",
+		"hmac.New",
+		"uuid.NewString()",
+		"base32.NewEncoding",
+		"math.Round",
+		"strings.TrimPrefix(_jpPath",
+		"jsonpath.Set: input must be map[string]any",
 	}
 	for _, part := range mustContain {
 		if !strings.Contains(code, part) {

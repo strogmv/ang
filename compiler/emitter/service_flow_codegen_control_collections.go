@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"strconv"
 	"strings"
 
 	"github.com/strogmv/ang/compiler/normalizer"
 )
 
-func renderFlowStepControlCollections(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, _ func(string) []normalizer.FlowStep) (string, bool) {
+func renderFlowStepControlCollections(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
 	pad := strings.Repeat("\t", indent)
 	switch step.Action {
 	case "list.Filter":
@@ -31,6 +32,24 @@ func renderFlowStepControlCollections(st *flowRenderState, step normalizer.FlowS
 			return "", true
 		}
 		return fmt.Sprintf("%s%s = append(%s, %s)\n", pad, to, to, item), true
+
+	case "list.Map":
+		return renderListMapLegacy(st, step, pad, arg), true
+
+	case "list.Reduce":
+		return renderListReduceLegacy(st, step, pad, sfx, arg), true
+
+	case "list.GroupBy":
+		return renderListGroupByLegacy(st, step, pad, sfx, arg), true
+
+	case "list.Distinct":
+		return renderListDistinctLegacy(st, step, pad, sfx, arg), true
+
+	case "list.Chunk":
+		return renderListChunkLegacy(st, step, pad, sfx, arg), true
+
+	case "batch.Run":
+		return renderBatchRunLegacy(st, step, pad, indent, sfx, arg, child), true
 
 	case "list.Sort":
 		if out, ok := renderListSortAST(step, indent, arg); ok {
@@ -257,6 +276,250 @@ func renderListFilterAST(st *flowRenderState, step normalizer.FlowStep, indent i
 		},
 	}
 	return renderFlowASTStmts([]ast.Stmt{initOut, rangeStmt}, indent), true
+}
+
+func flowStepExprOrInt(step normalizer.FlowStep, key string, arg func(string) string) string {
+	if s := arg(key); s != "" {
+		return s
+	}
+	v, ok := step.Args[key]
+	if !ok {
+		return ""
+	}
+	switch n := v.(type) {
+	case int:
+		return strconv.Itoa(n)
+	case int64:
+		return strconv.FormatInt(n, 10)
+	case float64:
+		return strconv.Itoa(int(n))
+	case string:
+		s := strings.TrimSpace(n)
+		if s == "" {
+			return ""
+		}
+		return s
+	default:
+		return ""
+	}
+}
+
+func renderListMapLegacy(st *flowRenderState, step normalizer.FlowStep, pad string, arg func(string) string) string {
+	from := arg("from")
+	as := arg("as")
+	expr := arg("expr")
+	out := arg("output")
+	if from == "" || expr == "" || out == "" {
+		return ""
+	}
+	if as == "" {
+		as = "item"
+	}
+
+	var b strings.Builder
+	if st.declared[out] {
+		b.WriteString(fmt.Sprintf("%s%s = %s[:0]\n", pad, out, out))
+	} else {
+		b.WriteString(fmt.Sprintf("%s%s := make([]any, 0, len(%s))\n", pad, out, from))
+		st.declared[out] = true
+	}
+	st.pointers[out] = false
+	st.types[out] = "[]any"
+	b.WriteString(fmt.Sprintf("%sfor _, %s := range %s {\n", pad, as, from))
+	b.WriteString(fmt.Sprintf("%s\t%s = append(%s, %s)\n", pad, out, out, expr))
+	b.WriteString(fmt.Sprintf("%s}\n", pad))
+	return b.String()
+}
+
+func renderListReduceLegacy(st *flowRenderState, step normalizer.FlowStep, pad, sfx string, arg func(string) string) string {
+	from := arg("from")
+	as := arg("as")
+	expr := arg("expr")
+	out := arg("output")
+	if from == "" || expr == "" || out == "" {
+		return ""
+	}
+	if as == "" {
+		as = "item"
+	}
+	initial := arg("initial")
+	if initial == "" {
+		initial = arg("init")
+	}
+	if initial == "" {
+		initial = arg("seed")
+	}
+	assign := ":="
+	if st.declared[out] {
+		assign = "="
+	}
+	st.declared[out] = true
+	st.pointers[out] = false
+
+	var b strings.Builder
+	if initial != "" {
+		b.WriteString(fmt.Sprintf("%s%s %s %s\n", pad, out, assign, initial))
+		b.WriteString(fmt.Sprintf("%sfor _, %s := range %s {\n", pad, as, from))
+		b.WriteString(fmt.Sprintf("%s\t%s = %s\n", pad, out, expr))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String()
+	}
+
+	itemsVar := "_reduceItems" + sfx
+	b.WriteString(fmt.Sprintf("%s%s := %s\n", pad, itemsVar, from))
+	b.WriteString(fmt.Sprintf("%sif len(%s) == 0 {\n", pad, itemsVar))
+	b.WriteString(errReturn(st, pad+"\t", `errors.New(http.StatusBadRequest, "EMPTY_REDUCE_INPUT", "list.Reduce requires non-empty input when initial is not set")`))
+	b.WriteString(fmt.Sprintf("%s}\n", pad))
+	b.WriteString(fmt.Sprintf("%s%s %s %s[0]\n", pad, out, assign, itemsVar))
+	b.WriteString(fmt.Sprintf("%sfor _, %s := range %s[1:] {\n", pad, as, itemsVar))
+	b.WriteString(fmt.Sprintf("%s\t%s = %s\n", pad, out, expr))
+	b.WriteString(fmt.Sprintf("%s}\n", pad))
+	return b.String()
+}
+
+func renderListGroupByLegacy(st *flowRenderState, step normalizer.FlowStep, pad, sfx string, arg func(string) string) string {
+	from := arg("from")
+	as := arg("as")
+	keyExpr := arg("key")
+	out := arg("output")
+	if from == "" || keyExpr == "" || out == "" {
+		return ""
+	}
+	if as == "" {
+		as = "item"
+	}
+	assign := ":="
+	if st.declared[out] {
+		assign = "="
+	}
+	st.declared[out] = true
+	st.pointers[out] = false
+	st.types[out] = "map[string][]any"
+
+	keyVar := "_groupKey" + sfx
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("%s%s %s make(map[string][]any)\n", pad, out, assign))
+	b.WriteString(fmt.Sprintf("%sfor _, %s := range %s {\n", pad, as, from))
+	b.WriteString(fmt.Sprintf("%s\t%s := fmt.Sprint(%s)\n", pad, keyVar, keyExpr))
+	b.WriteString(fmt.Sprintf("%s\t%s[%s] = append(%s[%s], %s)\n", pad, out, keyVar, out, keyVar, as))
+	b.WriteString(fmt.Sprintf("%s}\n", pad))
+	return b.String()
+}
+
+func renderListDistinctLegacy(st *flowRenderState, step normalizer.FlowStep, pad, sfx string, arg func(string) string) string {
+	from := arg("from")
+	as := arg("as")
+	out := arg("output")
+	keyExpr := arg("key")
+	if from == "" || out == "" {
+		return ""
+	}
+	if as == "" {
+		as = "item"
+	}
+	if keyExpr == "" {
+		keyExpr = as
+	}
+	assign := ":="
+	if st.declared[out] {
+		assign = "="
+	}
+	st.declared[out] = true
+
+	seenVar := "_seen" + sfx
+	keyVar := "_distinctKey" + sfx
+	var b strings.Builder
+	if assign == ":=" {
+		b.WriteString(fmt.Sprintf("%s%s %s %s[:0:0]\n", pad, out, assign, from))
+	} else {
+		b.WriteString(fmt.Sprintf("%s%s = %s[:0]\n", pad, out, out))
+	}
+	b.WriteString(fmt.Sprintf("%s%s := map[string]bool{}\n", pad, seenVar))
+	b.WriteString(fmt.Sprintf("%sfor _, %s := range %s {\n", pad, as, from))
+	b.WriteString(fmt.Sprintf("%s\t%s := fmt.Sprint(%s)\n", pad, keyVar, keyExpr))
+	b.WriteString(fmt.Sprintf("%s\tif !%s[%s] {\n", pad, seenVar, keyVar))
+	b.WriteString(fmt.Sprintf("%s\t\t%s[%s] = true\n", pad, seenVar, keyVar))
+	b.WriteString(fmt.Sprintf("%s\t\t%s = append(%s, %s)\n", pad, out, out, as))
+	b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+	b.WriteString(fmt.Sprintf("%s}\n", pad))
+	return b.String()
+}
+
+func renderListChunkLegacy(st *flowRenderState, step normalizer.FlowStep, pad, sfx string, arg func(string) string) string {
+	from := arg("from")
+	out := arg("output")
+	sizeExpr := flowStepExprOrInt(step, "size", arg)
+	if from == "" || out == "" || sizeExpr == "" {
+		return ""
+	}
+	assign := ":="
+	if st.declared[out] {
+		assign = "="
+	}
+	st.declared[out] = true
+	st.pointers[out] = false
+	st.types[out] = "[][]any"
+
+	sizeVar := "_chunkSize" + sfx
+	startVar := "_chunkStart" + sfx
+	endVar := "_chunkEnd" + sfx
+	itemVar := "_chunkItem" + sfx
+	chunkVar := "_chunk" + sfx
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("%s%s := %s\n", pad, sizeVar, sizeExpr))
+	b.WriteString(fmt.Sprintf("%sif %s <= 0 {\n", pad, sizeVar))
+	b.WriteString(errReturn(st, pad+"\t", `errors.New(http.StatusBadRequest, "INVALID_SIZE", "list.Chunk size must be > 0")`))
+	b.WriteString(fmt.Sprintf("%s}\n", pad))
+	b.WriteString(fmt.Sprintf("%s%s %s make([][]any, 0)\n", pad, out, assign))
+	b.WriteString(fmt.Sprintf("%sfor %s := 0; %s < len(%s); %s += %s {\n", pad, startVar, startVar, from, startVar, sizeVar))
+	b.WriteString(fmt.Sprintf("%s\t%s := %s + %s\n", pad, endVar, startVar, sizeVar))
+	b.WriteString(fmt.Sprintf("%s\tif %s > len(%s) {\n", pad, endVar, from))
+	b.WriteString(fmt.Sprintf("%s\t\t%s = len(%s)\n", pad, endVar, from))
+	b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+	b.WriteString(fmt.Sprintf("%s\t%s := make([]any, 0, %s-%s)\n", pad, chunkVar, endVar, startVar))
+	b.WriteString(fmt.Sprintf("%s\tfor _, %s := range %s[%s:%s] {\n", pad, itemVar, from, startVar, endVar))
+	b.WriteString(fmt.Sprintf("%s\t\t%s = append(%s, %s)\n", pad, chunkVar, chunkVar, itemVar))
+	b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+	b.WriteString(fmt.Sprintf("%s\t%s = append(%s, %s)\n", pad, out, out, chunkVar))
+	b.WriteString(fmt.Sprintf("%s}\n", pad))
+	return b.String()
+}
+
+func renderBatchRunLegacy(st *flowRenderState, step normalizer.FlowStep, pad string, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) string {
+	from := arg("from")
+	if from == "" {
+		return ""
+	}
+	as := arg("as")
+	if as == "" {
+		as = "batch"
+	}
+	sizeExpr := flowStepExprOrInt(step, "size", arg)
+	if sizeExpr == "" {
+		sizeExpr = "100"
+	}
+	doSteps := child("_do")
+	if len(doSteps) == 0 {
+		return ""
+	}
+
+	sizeVar := "_batchSize" + sfx
+	startVar := "_batchStart" + sfx
+	endVar := "_batchEnd" + sfx
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("%s%s := %s\n", pad, sizeVar, sizeExpr))
+	b.WriteString(fmt.Sprintf("%sif %s <= 0 {\n", pad, sizeVar))
+	b.WriteString(errReturn(st, pad+"\t", `errors.New(http.StatusBadRequest, "INVALID_SIZE", "batch.Run size must be > 0")`))
+	b.WriteString(fmt.Sprintf("%s}\n", pad))
+	b.WriteString(fmt.Sprintf("%sfor %s := 0; %s < len(%s); %s += %s {\n", pad, startVar, startVar, from, startVar, sizeVar))
+	b.WriteString(fmt.Sprintf("%s\t%s := %s + %s\n", pad, endVar, startVar, sizeVar))
+	b.WriteString(fmt.Sprintf("%s\tif %s > len(%s) {\n", pad, endVar, from))
+	b.WriteString(fmt.Sprintf("%s\t\t%s = len(%s)\n", pad, endVar, from))
+	b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+	b.WriteString(fmt.Sprintf("%s\t%s := %s[%s:%s]\n", pad, as, from, startVar, endVar))
+	b.WriteString(renderFlowSteps(cloneFlowState(st), doSteps, indent+1))
+	b.WriteString(fmt.Sprintf("%s}\n", pad))
+	return b.String()
 }
 
 func renderListPaginateAST(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string) (string, bool) {

@@ -77,7 +77,7 @@ import "github.com/strogmv/ang/cue/project"
 // AI AGENTS: Use these definitions to understand valid flow step structures.
 // ============================================================================
 
-#FlowStep: #RepoStep | #DbStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #CustomStep | #StateStep | #ExplicitStateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #AuditStep | #AuthStep | #CheckRoleStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #EnrichStep | #TimeParseStep | #TimeCheckExpiryStep | #MapBuildStep | #ExecRunStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #StorageUploadStep | #StorageGetURLStep | #HTTPCallStep | #HTTPRequestStep | #HTTPRetryPolicyStep | #HTTPPaginateStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #JSONParseStep | #JSONMarshalStep | #ParallelStep | #FlowParallelStep | #FlowJoinStep | #FlowRaceStep | #FlowDelayStep | #FlowScheduleStep | #FlowCronStep | #SecretGetStep | #ConfigGetStep | #EventWaitStep | #EventSubscribeStep | #EventMatchStep | #FlowSagaStep | #FlowCompensateStep | #FlowRollbackStep | #FlowTagStep | #FlowCheckpointStep | #FlowResumeStep | #FlowValidateStep | #FlowTryStep | #FlowRetryStep | #FlowFallbackStep | #FlowTimeoutStep | #FlowSuggestNextStep | #FlowExplainErrorStep | #IdemDeriveKeyStep | #IdemCheckStep | #IdemSaveResultStep | #DedupeOnceStep | #RateLimitCheckStep | #ConcurrencyLimitStep | #CircuitCheckStep | #CircuitRecordSuccessStep | #CircuitRecordFailureStep | #BulkheadAcquireStep
+#FlowStep: #RepoStep | #DbStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #CustomStep | #StateStep | #ExplicitStateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #AuditStep | #AuthStep | #CheckRoleStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #ListMapStep | #ListReduceStep | #ListGroupByStep | #ListDistinctStep | #ListChunkStep | #BatchRunStep | #EnrichStep | #TimeParseStep | #TimeCheckExpiryStep | #MapBuildStep | #ExecRunStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #StorageUploadStep | #StorageGetURLStep | #HTTPCallStep | #HTTPRequestStep | #HTTPRetryPolicyStep | #HTTPPaginateStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #JSONParseStep | #JSONMarshalStep | #ParallelStep | #FlowParallelStep | #FlowJoinStep | #FlowRaceStep | #FlowDelayStep | #FlowScheduleStep | #FlowCronStep | #SecretGetStep | #ConfigGetStep | #EventWaitStep | #EventSubscribeStep | #EventMatchStep | #FlowSagaStep | #FlowCompensateStep | #FlowRollbackStep | #FlowTagStep | #FlowCheckpointStep | #FlowResumeStep | #FlowValidateStep | #FlowTryStep | #FlowRetryStep | #FlowFallbackStep | #FlowTimeoutStep | #FlowSuggestNextStep | #FlowExplainErrorStep | #IdemDeriveKeyStep | #IdemCheckStep | #IdemSaveResultStep | #DedupeOnceStep | #RateLimitCheckStep | #ConcurrencyLimitStep | #CircuitCheckStep | #CircuitRecordSuccessStep | #CircuitRecordFailureStep | #BulkheadAcquireStep
 
 #FlowCheckpointStep: {
 	// flow.Checkpoint - Save current flow state for potential resumption
@@ -688,6 +688,88 @@ import "github.com/strogmv/ang/cue/project"
 	condition: string
 	// Variable name for filtered result (e.g., "filtered")
 	output: string
+}
+
+// ----------------------------------------------------------------------------
+// LIST MAP / REDUCE / GROUP / DISTINCT / CHUNK
+// ----------------------------------------------------------------------------
+
+#ListMapStep: {
+	// list.Map - Transform list items into a new list
+	action: "list.Map"
+	// Source slice expression (e.g., "items")
+	from: string
+	// Loop variable name (default "item")
+	as?: string
+	// Go expression to append into output (e.g., "item.ID")
+	expr: string
+	// Variable name for transformed output
+	output: string
+}
+
+#ListReduceStep: {
+	// list.Reduce - Fold a list into a single accumulator value
+	action: "list.Reduce"
+	// Source slice expression (e.g., "items")
+	from: string
+	// Loop variable name (default "item")
+	as?: string
+	// Accumulator expression (e.g., "total + item.Price")
+	expr: string
+	// Optional initial accumulator expression
+	initial?: string
+	// Variable name for accumulator result
+	output: string
+}
+
+#ListGroupByStep: {
+	// list.GroupBy - Group list items by key into map[string][]any
+	action: "list.GroupBy"
+	// Source slice expression
+	from: string
+	// Loop variable name (default "item")
+	as?: string
+	// Key expression (e.g., "item.Status")
+	key: string
+	// Variable name for grouped result map
+	output: string
+}
+
+#ListDistinctStep: {
+	// list.Distinct - Deduplicate list items by key (or full item)
+	action: "list.Distinct"
+	// Source slice expression
+	from: string
+	// Loop variable name (default "item")
+	as?: string
+	// Optional key expression (e.g., "item.ID")
+	key?: string
+	// Variable name for distinct result list
+	output: string
+}
+
+#ListChunkStep: {
+	// list.Chunk - Split list into chunks of fixed size
+	action: "list.Chunk"
+	// Source slice expression
+	from: string
+	// Chunk size (int literal or expression string)
+	size: int | string
+	// Variable name for chunked output ([][]any)
+	output: string
+}
+
+#BatchRunStep: {
+	// batch.Run - Execute nested flow for each batch chunk
+	action: "batch.Run"
+	// Source slice expression
+	from: string
+	// Optional chunk size (int literal or expression string)
+	size?: int | string
+	// Batch variable name inside do (default "batch")
+	as?: string
+	// Nested steps executed for each batch
+	do: [...#FlowStep]
 }
 
 // ----------------------------------------------------------------------------

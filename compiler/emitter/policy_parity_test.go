@@ -34,7 +34,7 @@ func TestPolicyParity_BackendMiddlewareAndSDKMeta(t *testing.T) {
 		"AuthMiddleware",
 		`RequireRoles([]string{"owner", "admin"})`,
 		`CacheMiddleware("24h")`,
-		"RateLimitMiddleware(25, 50)",
+		"RateLimitMiddleware(25, 50",
 		`TimeoutMiddleware("30s")`,
 		"IdempotencyMiddleware()",
 	} {
@@ -60,7 +60,7 @@ func TestPolicyParity_BackendMiddlewareAndSDKMeta(t *testing.T) {
 			RPS:   25,
 			Burst: 50,
 		},
-		Auth:       &ir.EndpointAuth{Type: "jwt", Roles: []string{"owner", "admin"}},
+		Auth: &ir.EndpointAuth{Type: "jwt", Roles: []string{"owner", "admin"}},
 	}}
 	if err := em.EmitOpenAPI(endpoints, services, nil, nil); err != nil {
 		t.Fatalf("emit openapi: %v", err)

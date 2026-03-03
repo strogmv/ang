@@ -35,6 +35,44 @@ package schema
 	if _input != _|_ { input: _input }
 }
 
+#ListMap: {
+	_from: string, _expr: string, _out: string, _as?: string
+	action: "list.Map", from: _from, expr: _expr, output: _out
+	if _as != _|_ { as: _as }
+}
+
+#ListReduce: {
+	_from: string, _expr: string, _out: string, _as?: string, _initial?: string
+	action: "list.Reduce", from: _from, expr: _expr, output: _out
+	if _as != _|_ { as: _as }
+	if _initial != _|_ { initial: _initial }
+}
+
+#ListGroupBy: {
+	_from: string, _key: string, _out: string, _as?: string
+	action: "list.GroupBy", from: _from, key: _key, output: _out
+	if _as != _|_ { as: _as }
+}
+
+#ListDistinct: {
+	_from: string, _out: string, _as?: string, _key?: string
+	action: "list.Distinct", from: _from, output: _out
+	if _as != _|_ { as: _as }
+	if _key != _|_ { key: _key }
+}
+
+#ListChunk: {
+	_from: string, _size: int | string, _out: string
+	action: "list.Chunk", from: _from, size: _size, output: _out
+}
+
+#BatchRun: {
+	_from: string, _do: [...#FlowStep], _size?: int | string, _as?: string
+	action: "batch.Run", from: _from, do: _do
+	if _size != _|_ { size: _size }
+	if _as != _|_ { as: _as }
+}
+
 #Upsert: {
 	_entity:   string
 	_find:     string

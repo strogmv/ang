@@ -55,6 +55,8 @@ func flowActionSupported(action string) bool {
 		"flow.Checkpoint", "flow.Resume", "flow.Validate", "flow.Try", "flow.Catch",
 		"flow.Retry", "flow.Fallback", "flow.Timeout", "flow.SuggestNext", "flow.ExplainError",
 		"list.Filter", "list.Paginate", "list.Append", "list.Sort",
+		"list.Map", "list.Reduce", "list.GroupBy", "list.Distinct", "list.Chunk",
+		"batch.Run",
 		"list.Enrich",
 		"str.Normalize",
 		"event.Publish", "logic.Call",
@@ -77,6 +79,14 @@ func flowActionSupported(action string) bool {
 		"rand.Code", "rand.Token",
 		"str.Format",
 		"json.Parse", "json.Marshal",
+		"regex.Match", "regex.Replace",
+		"base64.Encode", "base64.Decode",
+		"url.Parse", "url.Build",
+		"query.Encode", "query.Decode",
+		"hash.Sum", "hash.HMAC",
+		"uuid.New", "ulid.New",
+		"math.Op",
+		"jsonpath.Get", "jsonpath.Set",
 		"parallel.Run",
 		"pdf.Render",
 		"webhook.Send",
@@ -305,7 +315,7 @@ func renderOneFlowStep(st *flowRenderState, step normalizer.FlowStep, indent int
 	}
 
 	switch step.Action {
-	case "flow.If", "flow.For", "flow.Block", "tx.Block", "list.Filter", "list.Paginate", "list.Append", "list.Sort", "str.Normalize", "mapping.Map", "event.Publish", "logic.Call", "exec.Run", "fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove", "archive.ZipDir", "session.Get", "flow.Switch", "flow.While", "flow.Checkpoint", "flow.Resume", "flow.Validate", "flow.Try", "flow.Catch", "flow.Retry", "flow.Fallback", "flow.Timeout", "flow.SuggestNext", "flow.ExplainError",
+	case "flow.If", "flow.For", "flow.Block", "tx.Block", "list.Filter", "list.Paginate", "list.Append", "list.Sort", "list.Map", "list.Reduce", "list.GroupBy", "list.Distinct", "list.Chunk", "batch.Run", "str.Normalize", "mapping.Map", "event.Publish", "logic.Call", "exec.Run", "fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove", "archive.ZipDir", "session.Get", "flow.Switch", "flow.While", "flow.Checkpoint", "flow.Resume", "flow.Validate", "flow.Try", "flow.Catch", "flow.Retry", "flow.Fallback", "flow.Timeout", "flow.SuggestNext", "flow.ExplainError",
 		"flow.Parallel", "flow.Join", "flow.Race",
 		"flow.Delay", "flow.Schedule", "flow.Cron",
 		"flow.Saga", "flow.Compensate", "flow.Rollback", "flow.Tag":
@@ -315,7 +325,7 @@ func renderOneFlowStep(st *flowRenderState, step normalizer.FlowStep, indent int
 	// STAGE 2: Infrastructure actions
 	// -------------------------------------------------------------------------
 
-	case "cache.Get", "cache.Set", "cache.Del", "mail.Send", "storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List", "http.Call", "http.Request", "http.RetryPolicy", "http.Paginate", "rand.Code", "rand.Token", "json.Parse", "json.Marshal", "parallel.Run", "pdf.Render", "webhook.Send", "queue.Enqueue", "secret.Get", "config.Get",
+	case "cache.Get", "cache.Set", "cache.Del", "mail.Send", "storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List", "http.Call", "http.Request", "http.RetryPolicy", "http.Paginate", "rand.Code", "rand.Token", "json.Parse", "json.Marshal", "regex.Match", "regex.Replace", "base64.Encode", "base64.Decode", "url.Parse", "url.Build", "query.Encode", "query.Decode", "hash.Sum", "hash.HMAC", "uuid.New", "ulid.New", "math.Op", "jsonpath.Get", "jsonpath.Set", "parallel.Run", "pdf.Render", "webhook.Send", "queue.Enqueue", "secret.Get", "config.Get",
 		"event.Wait", "event.Subscribe", "event.Match", "event.Broadcast",
 		"state.Get", "state.Set", "state.Delete",
 		"idem.DeriveKey", "idem.Check", "idem.SaveResult",

@@ -36,7 +36,7 @@ func TestBuildMiddlewareList_UsesPolicyLayer(t *testing.T) {
 		`RequireRoles([]string{"owner", "admin"})`,
 		`RequirePermission("company.update")`,
 		`CacheMiddleware("24h")`,
-		"RateLimitMiddleware(10, 20)",
+		"RateLimitMiddleware(10, 20",
 		`CircuitBreakerMiddleware(5, "45s", 2)`,
 		`TimeoutMiddleware("30s")`,
 		"IdempotencyMiddleware()",

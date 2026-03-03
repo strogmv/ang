@@ -853,6 +853,10 @@ func (n *Normalizer) autoCompleteFlowSteps(steps []FlowStep) []FlowStep {
 				if v, ok := s.Args["_do"].([]FlowStep); ok {
 					scan(v)
 				}
+			case "batch.Run":
+				if v, ok := s.Args["_do"].([]FlowStep); ok {
+					scan(v)
+				}
 			case "flow.Try", "flow.Catch", "flow.Retry", "flow.Timeout":
 				if v, ok := s.Args["_do"].([]FlowStep); ok {
 					scan(v)
@@ -1360,6 +1364,11 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					validate(subSteps, inTx, depth+1)
 				}
 
+			case "batch.Run":
+				if subSteps, ok := step.Args["_do"].([]FlowStep); ok {
+					validate(subSteps, inTx, depth+1)
+				}
+
 			case "flow.Try", "flow.Retry", "flow.Timeout":
 				if subSteps, ok := step.Args["_do"].([]FlowStep); ok {
 					validate(subSteps, inTx, depth+1)
@@ -1461,6 +1470,11 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 			case "list.Filter":
 				// validated by flow semantics engine
 
+			case "list.Map", "list.Reduce", "list.GroupBy", "list.Distinct", "list.Chunk":
+				if output, _ := step.Args["output"].(string); output != "" {
+					declaredVars[output] = true
+				}
+
 			case "list.Enrich":
 				if step.Args["items"] == nil || step.Args["items"] == "" {
 					addWarn(stepNum, step.Action, "MISSING_ITEMS", "list.Enrich missing 'items'", "{action: \"list.Enrich\", items: \"items\", lookupSource: \"Company\", lookupInput: \"item.CompanyID\", set: \"Name=Name\"}", step.File, step.Line, step.Column)
@@ -1559,17 +1573,17 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					declaredVars[output] = true
 				}
 
-			case "rand.Code", "rand.Token":
-				if output, _ := step.Args["output"].(string); output != "" {
-					declaredVars[output] = true
-				}
-
-			case "str.Format":
-				if output, _ := step.Args["output"].(string); output != "" {
-					declaredVars[output] = true
-				}
-
-			case "json.Parse", "json.Marshal":
+			case "rand.Code", "rand.Token",
+				"uuid.New", "ulid.New",
+				"regex.Match", "regex.Replace",
+				"base64.Encode", "base64.Decode",
+				"url.Parse", "url.Build",
+				"query.Encode", "query.Decode",
+				"hash.Sum", "hash.HMAC",
+				"str.Format",
+				"json.Parse", "json.Marshal",
+				"math.Op",
+				"jsonpath.Get", "jsonpath.Set":
 				if output, _ := step.Args["output"].(string); output != "" {
 					declaredVars[output] = true
 				}
@@ -1631,6 +1645,12 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					!strings.HasPrefix(step.Action, "cache.") && !strings.HasPrefix(step.Action, "mail.") &&
 					!strings.HasPrefix(step.Action, "storage.") && !strings.HasPrefix(step.Action, "http.") &&
 					!strings.HasPrefix(step.Action, "rand.") && !strings.HasPrefix(step.Action, "json.") &&
+					!strings.HasPrefix(step.Action, "regex.") && !strings.HasPrefix(step.Action, "base64.") &&
+					!strings.HasPrefix(step.Action, "url.") && !strings.HasPrefix(step.Action, "query.") &&
+					!strings.HasPrefix(step.Action, "hash.") && !strings.HasPrefix(step.Action, "uuid.") &&
+					!strings.HasPrefix(step.Action, "ulid.") && !strings.HasPrefix(step.Action, "math.") &&
+					!strings.HasPrefix(step.Action, "jsonpath.") &&
+					!strings.HasPrefix(step.Action, "batch.") &&
 					!strings.HasPrefix(step.Action, "parallel.") &&
 					!strings.HasPrefix(step.Action, "archive.") &&
 					!strings.HasPrefix(step.Action, "session.") &&
