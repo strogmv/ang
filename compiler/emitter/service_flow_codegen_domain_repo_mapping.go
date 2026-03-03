@@ -223,6 +223,197 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 		b.WriteString(fmt.Sprintf("%s}\n", innerPad))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
+
+	// -------------------------------------------------------------------------
+	// db.* — explicit DB primitives (aliases and new methods)
+	// -------------------------------------------------------------------------
+
+	case "db.Get", "db.List":
+		// Aliases for repo.Get / repo.List
+		source := arg("source")
+		if source == "" {
+			return "", true
+		}
+		method := arg("method")
+		input := arg("input")
+		output := arg("output")
+		isList := step.Action == "db.List"
+		if method == "" {
+			if isList {
+				method = "ListAll"
+			} else {
+				method = "FindByID"
+			}
+		}
+		call := "ctx"
+		if input != "" {
+			call += ", " + input
+		}
+		if output != "" {
+			assign := ":="
+			if st.declared[output] {
+				assign = "="
+			}
+			st.declared[output] = true
+			st.pointers[output] = !isList
+			if isList {
+				st.types[output] = "[]domain." + ExportName(source)
+			} else {
+				st.types[output] = "*domain." + ExportName(source)
+			}
+			var b strings.Builder
+			b.WriteString(fmt.Sprintf("%s%s %s s.%sRepo.%s(%s)\n", pad, output+", err", assign, ExportName(source), method, call))
+			b.WriteString(fmt.Sprintf("%sif err != nil {\n", pad))
+			b.WriteString(errReturn(st, pad+"\t", "err"))
+			b.WriteString(fmt.Sprintf("%s}\n", pad))
+			if errMsg := arg("error"); errMsg != "" && !isList {
+				b.WriteString(fmt.Sprintf("%sif %s == nil {\n", pad, output))
+				b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("errors.New(http.StatusNotFound, \"Not Found\", %q)", errMsg)))
+				b.WriteString(fmt.Sprintf("%s}\n", pad))
+			}
+			return b.String(), true
+		}
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%sif _, err := s.%sRepo.%s(%s); err != nil {\n", pad, ExportName(source), method, call))
+		b.WriteString(errReturn(st, pad+"\t", "err"))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
+
+	case "db.Query":
+		// Alias for repo.Query
+		source := arg("source")
+		method := arg("method")
+		input := arg("input")
+		output := arg("output")
+		errMsg := arg("error")
+		if source == "" || method == "" {
+			return "", true
+		}
+		var b strings.Builder
+		inputArg := ""
+		if input != "" {
+			inputArg = ", " + input
+		}
+		if output == "" {
+			b.WriteString(fmt.Sprintf("%sif _, _qrErr := s.%sRepo.%s(ctx%s); _qrErr != nil {\n", pad, ExportName(source), ExportName(method), inputArg))
+			b.WriteString(errReturn(st, pad+"\t", "_qrErr"))
+			b.WriteString(fmt.Sprintf("%s}\n", pad))
+			return b.String(), true
+		}
+		assign := ":="
+		if st.declared[output] {
+			assign = "="
+		}
+		st.declared[output] = true
+		st.pointers[output] = true
+		b.WriteString(fmt.Sprintf("%s%s %s s.%sRepo.%s(ctx%s)\n", pad, output+", err", assign, ExportName(source), ExportName(method), inputArg))
+		b.WriteString(fmt.Sprintf("%sif err != nil {\n", pad))
+		if errMsg != "" {
+			b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("errors.New(http.StatusNotFound, \"NOT_FOUND\", %q)", errMsg)))
+		} else {
+			b.WriteString(errReturn(st, pad+"\t", "err"))
+		}
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		if errMsg != "" {
+			b.WriteString(fmt.Sprintf("%sif %s == nil {\n", pad, output))
+			b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("errors.New(http.StatusNotFound, \"NOT_FOUND\", %q)", errMsg)))
+			b.WriteString(fmt.Sprintf("%s}\n", pad))
+		}
+		return b.String(), true
+
+	case "db.Insert":
+		// Pure INSERT — error on duplicate PK
+		source := arg("source")
+		input := arg("input")
+		if source == "" || input == "" {
+			return "", true
+		}
+		inputArg := input
+		if !strings.HasPrefix(input, "&") && !st.pointers[input] {
+			inputArg = "&" + input
+		}
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%sif err := s.%sRepo.Insert(ctx, %s); err != nil {\n", pad, ExportName(source), inputArg))
+		b.WriteString(errReturn(st, pad+"\t", "err"))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
+
+	case "db.Update":
+		// UPDATE only — error if 0 rows affected
+		source := arg("source")
+		input := arg("input")
+		if source == "" || input == "" {
+			return "", true
+		}
+		inputArg := input
+		if !strings.HasPrefix(input, "&") && !st.pointers[input] {
+			inputArg = "&" + input
+		}
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%sif err := s.%sRepo.Update(ctx, %s); err != nil {\n", pad, ExportName(source), inputArg))
+		b.WriteString(errReturn(st, pad+"\t", "err"))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
+
+	case "db.Upsert":
+		// Simple alias for Save (no find+branch)
+		source := arg("source")
+		input := arg("input")
+		if source == "" || input == "" {
+			return "", true
+		}
+		inputArg := input
+		if !strings.HasPrefix(input, "&") && !st.pointers[input] {
+			inputArg = "&" + input
+		}
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%sif err := s.%sRepo.Save(ctx, %s); err != nil {\n", pad, ExportName(source), inputArg))
+		b.WriteString(errReturn(st, pad+"\t", "err"))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
+
+	case "db.Delete":
+		// Alias for repo.Delete
+		source := arg("source")
+		input := arg("input")
+		if source == "" || input == "" {
+			return "", true
+		}
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%sif err := s.%sRepo.Delete(ctx, %s); err != nil {\n", pad, ExportName(source), input))
+		b.WriteString(errReturn(st, pad+"\t", "err"))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
+
+	case "db.Lock", "db.SelectForUpdate":
+		// SELECT FOR UPDATE — must be inside tx.Block
+		source := arg("source")
+		input := arg("input")
+		output := arg("output")
+		if source == "" || input == "" {
+			return "", true
+		}
+		if output == "" {
+			output = strings.ToLower(source[:1]) + source[1:]
+		}
+		assign := ":="
+		if st.declared[output] {
+			assign = "="
+		}
+		st.declared[output] = true
+		st.pointers[output] = true
+		st.types[output] = "*domain." + ExportName(source)
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s%s %s s.%sRepo.LockByID(ctx, %s)\n", pad, output+", err", assign, ExportName(source), input))
+		b.WriteString(fmt.Sprintf("%sif err != nil {\n", pad))
+		b.WriteString(errReturn(st, pad+"\t", "err"))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		if errMsg := arg("error"); errMsg != "" {
+			b.WriteString(fmt.Sprintf("%sif %s == nil {\n", pad, output))
+			b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("errors.New(http.StatusNotFound, \"Not Found\", %q)", errMsg)))
+			b.WriteString(fmt.Sprintf("%s}\n", pad))
+		}
+		return b.String(), true
 	}
 
 	return "", false

@@ -50,6 +50,7 @@ func (e *Emitter) EmitStubRepo(repos []ir.Repository, entities []ir.Entity) erro
 		entMap[ent.Name] = ent
 	}
 
+	keep := make(map[string]struct{})
 	for _, repo := range reposNorm {
 		ent, ok := entMap[repo.Entity]
 		if !ok {
@@ -161,10 +162,24 @@ func (e *Emitter) EmitStubRepo(repos []ir.Repository, entities []ir.Entity) erro
 
 		filename := fmt.Sprintf("%s.go", strings.ToLower(repo.Name))
 		path := filepath.Join(targetDir, filename)
+		keep[filename] = struct{}{}
 		if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 			return fmt.Errorf("write file: %w", err)
 		}
 		fmt.Printf("Generated Repo Stub: %s\n", path)
+	}
+
+	if err := pruneGeneratedFiles(
+		targetDir,
+		keep,
+		func(name string) bool {
+			return strings.HasSuffix(name, "repository.go")
+		},
+		func(path string) bool {
+			return fileContainsAny(path, "Package memory provides an in-memory implementation of the repository.")
+		},
+	); err != nil {
+		return fmt.Errorf("prune stale memory repos: %w", err)
 	}
 	return nil
 }

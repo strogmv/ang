@@ -136,6 +136,99 @@ func (r *{{ ExportName .Name }}) Delete(ctx context.Context, id string) error {
 	return err
 }
 
+// ============================================================================
+// METHOD: Insert
+// PURPOSE: Pure INSERT — returns error on duplicate primary key
+// SQL: INSERT INTO {{ .Table }} ({{ .Columns }}) VALUES ({{ .Placeholders }})
+// ============================================================================
+func (r *{{ ExportName .Name }}) Insert(ctx context.Context, entity *domain.{{ ExportName .Entity }}) error {
+	if r.DB == nil {
+		return fmt.Errorf("db not configured")
+	}
+	if entity == nil {
+		return fmt.Errorf("entity is required")
+	}
+	if err := entity.Validate(); err != nil {
+		return fmt.Errorf("invalid entity: %w", err)
+	}
+	exec := getExecutor(ctx, r.DB)
+	_, err := exec.Exec(ctx, `
+		INSERT INTO {{ .Table }} ({{ .Columns }})
+		VALUES ({{ .Placeholders }})
+	`, {{ .InsertArgs }})
+	return err
+}
+
+// ============================================================================
+// METHOD: Update
+// PURPOSE: UPDATE only — returns error if entity does not exist (0 rows affected)
+// SQL: UPDATE {{ .Table }} SET {{ .UpdateOnlySet }} WHERE id = ${{ .UpdateOnlyWherePos }}
+// ============================================================================
+func (r *{{ ExportName .Name }}) Update(ctx context.Context, entity *domain.{{ ExportName .Entity }}) error {
+	if r.DB == nil {
+		return fmt.Errorf("db not configured")
+	}
+	if entity == nil {
+		return fmt.Errorf("entity is required")
+	}
+	exec := getExecutor(ctx, r.DB)
+	tag, err := exec.Exec(ctx, `
+		UPDATE {{ .Table }}
+		SET {{ .UpdateOnlySet }}
+		WHERE id = ${{ .UpdateOnlyWherePos }}
+	`, {{ .UpdateOnlyArgs }})
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("{{ .Entity | ToLower }} not found")
+	}
+	return nil
+}
+
+// ============================================================================
+// METHOD: LockByID
+// PURPOSE: SELECT FOR UPDATE — acquires row-level lock; must be called inside a transaction
+// SQL: SELECT {{ .FindByIDPlan.ColList }} FROM {{ .Table }} WHERE id = $1 LIMIT 1 FOR UPDATE
+// ============================================================================
+func (r *{{ ExportName .Name }}) LockByID(ctx context.Context, id string) (*domain.{{ ExportName .Entity }}, error) {
+	if r.DB == nil {
+		return nil, fmt.Errorf("db not configured")
+	}
+	exec := getExecutor(ctx, r.DB)
+	row := exec.QueryRow(ctx, `
+		SELECT {{ .FindByIDPlan.ColList }}
+		FROM {{ .Table }}
+		WHERE id = $1
+		LIMIT 1
+		FOR UPDATE
+	`, id)
+	var entity domain.{{ ExportName .Entity }}
+	{{- range .FindByIDPlan.Variables }}
+	var {{ .TmpVar }} {{ .TmpType }}
+	{{- end }}
+	if err := row.Scan(
+		{{- range .FindByIDPlan.Variables }}
+		&{{ .TmpVar }},
+		{{- end }}
+	); err != nil {
+		if err.Error() == "no rows in result set" {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("LockByID scan: %w", err)
+	}
+	{{- range .FindByIDPlan.Variables }}
+	{{- if .Guard }}
+	if {{ .Guard }} {
+		{{ .AssignCode }}
+	}
+	{{- else }}
+	{{ .AssignCode }}
+	{{- end }}
+	{{- end }}
+	return &entity, nil
+}
+
 {{- $hasListAll := false }}
 {{- range .Finders }}{{ if eq .Name "ListAll" }}{{ $hasListAll = true }}{{ end }}{{ end }}
 {{- if not $hasListAll }}

@@ -661,6 +661,29 @@ func (n *Normalizer) rawParseFlowSteps(val cue.Value) ([]FlowStep, error) {
 						step.Args[strings.TrimPrefix(label, "_")] = p
 					}
 				}
+			case cue.StructKind:
+				// Decode string-valued structs as map[string]string (e.g. headers, query).
+				// Structs with non-string values are skipped (handled separately or unsupported).
+				m := make(map[string]string)
+				allStrings := true
+				sit, _ := v.Fields(cue.All())
+				for sit.Next() {
+					sv := sit.Value()
+					if sv.Kind() == cue.StringKind {
+						if s, err := sv.String(); err == nil {
+							m[strings.Trim(sit.Selector().String(), "\"")] = s
+						}
+					} else {
+						allStrings = false
+						break
+					}
+				}
+				if allStrings && len(m) > 0 {
+					step.Args[label] = m
+					if strings.HasPrefix(label, "_") {
+						step.Args[strings.TrimPrefix(label, "_")] = m
+					}
+				}
 			}
 		}
 
@@ -1125,8 +1148,10 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 			currentStep = *step
 			stepNum := i + 1
 
+			// fmt.Printf("DEBUG: checking action: '%s'\n", step.Action)
 			switch step.Action {
-			case "repo.Find", "repo.Get", "repo.GetForUpdate", "repo.Save", "repo.Delete", "repo.List", "repo.Query", "repo.Upsert":
+			case "repo.Find", "repo.Get", "repo.GetForUpdate", "repo.Save", "repo.Delete", "repo.List", "repo.Query", "repo.Upsert",
+				"db.Get", "db.List", "db.Query", "db.Insert", "db.Update", "db.Upsert", "db.Delete", "db.Lock", "db.SelectForUpdate":
 				source, _ := step.Args["source"].(string)
 				if source != "" {
 					owner, ok := entityOwners[source]
@@ -1158,25 +1183,26 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 				}
 
 				// Standard checks ...
-				if strings.HasPrefix(step.Action, "repo.Find") || strings.HasPrefix(step.Action, "repo.Get") || step.Action == "repo.Upsert" {
+				if strings.HasPrefix(step.Action, "repo.Find") || strings.HasPrefix(step.Action, "repo.Get") || step.Action == "repo.Upsert" ||
+					step.Action == "db.Get" || step.Action == "db.Lock" || step.Action == "db.SelectForUpdate" || step.Action == "db.Upsert" {
 					output, _ := step.Args["output"].(string)
 					if output != "" {
 						declaredVars[output] = true
 					}
 				}
-				if step.Action == "repo.List" || step.Action == "repo.Query" {
+				if step.Action == "repo.List" || step.Action == "repo.Query" || step.Action == "db.List" || step.Action == "db.Query" {
 					output, _ := step.Args["output"].(string)
 					if output != "" {
 						declaredVars[output] = true
 					}
 				}
-				if step.Action == "repo.Query" {
+				if step.Action == "repo.Query" || step.Action == "db.Query" {
 					if step.Args["method"] == nil || step.Args["method"] == "" {
-						addWarn(stepNum, step.Action, "MISSING_METHOD", "repo.Query missing 'method'", "{action: \"repo.Query\", source: \"Entity\", method: \"ListBy...\", input: \"...\", output: \"items\"}", step.File, step.Line, step.Column)
+						addWarn(stepNum, step.Action, "MISSING_METHOD", step.Action+" missing 'method'", fmt.Sprintf("{action: \"%s\", source: \"Entity\", method: \"ListBy...\", input: \"...\", output: \"items\"}", step.Action), step.File, step.Line, step.Column)
 					}
 				}
-				if step.Action == "repo.GetForUpdate" && !inTx {
-					addWarn(stepNum, step.Action, "TX_REQUIRED", "repo.GetForUpdate outside tx.Block", "{action: \"tx.Block\", do: [ ... ]}", step.File, step.Line, step.Column)
+				if (step.Action == "repo.GetForUpdate" || step.Action == "db.Lock" || step.Action == "db.SelectForUpdate") && !inTx {
+					addWarn(stepNum, step.Action, "TX_REQUIRED", step.Action+" outside tx.Block", "{action: \"tx.Block\", do: [ ... ]}", step.File, step.Line, step.Column)
 				}
 				if step.Action == "repo.Upsert" {
 					if step.Args["source"] == nil || step.Args["source"] == "" {
@@ -1251,6 +1277,22 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 				if payload != "" && !strings.HasPrefix(payload, "domain.") {
 					addWarn(stepNum, step.Action, "PAYLOAD_NOT_DOMAIN", fmt.Sprintf("event.Publish payload should use domain.%s{...}", name), "{action: \"event.Publish\", name: \""+name+"\", payload: \"domain."+name+"{...}\"}", step.File, step.Line, step.Column)
 				}
+
+			case "event.Broadcast":
+				// validated by flow semantics engine
+
+			case "event.Wait":
+				if output, _ := step.Args["output"].(string); output != "" {
+					declaredVars[output] = true
+				}
+
+			case "event.Subscribe":
+				if subSteps, ok := step.Args["_do"].([]FlowStep); ok {
+					validate(subSteps, inTx, depth+1)
+				}
+
+			case "event.Match":
+				// validated by flow semantics engine
 
 			case "notification.Dispatch":
 				// validated by flow semantics engine
@@ -1349,6 +1391,22 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 				if subSteps, ok := step.Args["_onMissing"].([]FlowStep); ok {
 					validate(subSteps, inTx, depth+1)
 				}
+
+			case "flow.Saga":
+				if subSteps, ok := step.Args["_do"].([]FlowStep); ok {
+					validate(subSteps, inTx, depth+1)
+				}
+
+			case "flow.Compensate":
+				if subSteps, ok := step.Args["_do"].([]FlowStep); ok {
+					validate(subSteps, inTx, depth+1)
+				}
+
+			case "flow.Rollback":
+				// validated by flow semantics engine
+
+			case "flow.Tag":
+				// validated by flow semantics engine
 
 			case "flow.SuggestNext", "flow.ExplainError":
 				if output, _ := step.Args["output"].(string); output != "" {
@@ -1488,12 +1546,17 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					declaredVars[output] = true
 				}
 
-			case "http.Call":
+			case "http.Call", "http.Request", "http.RetryPolicy":
 				if output, _ := step.Args["output"].(string); output != "" {
 					declaredVars[output] = true
 				}
 				if statusVar, _ := step.Args["statusVar"].(string); statusVar != "" {
 					declaredVars[statusVar] = true
+				}
+
+			case "http.Paginate":
+				if output, _ := step.Args["output"].(string); output != "" {
+					declaredVars[output] = true
 				}
 
 			case "rand.Code", "rand.Token":
@@ -1518,6 +1581,42 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					}
 				}
 
+			case "state.Get":
+				if output, _ := step.Args["output"].(string); output != "" {
+					declaredVars[output] = true
+				}
+
+			case "state.Set", "state.Delete":
+				// validated by flow semantics engine
+
+			case "idem.DeriveKey":
+				if output, _ := step.Args["output"].(string); output != "" {
+					declaredVars[output] = true
+				}
+
+			case "idem.Check", "idem.SaveResult":
+				// validated by flow semantics engine
+
+			case "dedupe.Once":
+				if doSteps, ok := step.Args["_do"].([]FlowStep); ok {
+					validate(doSteps, inTx, depth+1)
+				}
+
+			case "ratelimit.Check", "concurrency.Limit",
+				"circuit.Check", "circuit.RecordSuccess", "circuit.RecordFailure",
+				"bulkhead.Acquire":
+				// validated by flow semantics engine
+
+			case "secret.Get", "config.Get":
+				if step.Args["key"] == nil || step.Args["key"] == "" {
+					addWarn(stepNum, step.Action, "MISSING_KEY", fmt.Sprintf("%s missing 'key'", step.Action), fmt.Sprintf("{action: \"%s\", key: \"KEY_NAME\", output: \"val\"}", step.Action), step.File, step.Line, step.Column)
+				}
+				if output, _ := step.Args["output"].(string); output == "" {
+					addWarn(stepNum, step.Action, "MISSING_OUTPUT", fmt.Sprintf("%s missing 'output'", step.Action), fmt.Sprintf("{action: \"%s\", key: \"KEY_NAME\", output: \"val\"}", step.Action), step.File, step.Line, step.Column)
+				} else {
+					declaredVars[output] = true
+				}
+
 			default:
 				if step.Action != "" && !strings.HasPrefix(step.Action, "repo.") && !strings.HasPrefix(step.Action, "mapping.") &&
 					!strings.HasPrefix(step.Action, "logic.") && !strings.HasPrefix(step.Action, "event.") &&
@@ -1534,7 +1633,15 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					!strings.HasPrefix(step.Action, "rand.") && !strings.HasPrefix(step.Action, "json.") &&
 					!strings.HasPrefix(step.Action, "parallel.") &&
 					!strings.HasPrefix(step.Action, "archive.") &&
-					!strings.HasPrefix(step.Action, "session.") {
+					!strings.HasPrefix(step.Action, "session.") &&
+					!strings.HasPrefix(step.Action, "idem.") &&
+					!strings.HasPrefix(step.Action, "dedupe.") &&
+					!strings.HasPrefix(step.Action, "ratelimit.") &&
+					!strings.HasPrefix(step.Action, "concurrency.") &&
+					!strings.HasPrefix(step.Action, "circuit.") &&
+					!strings.HasPrefix(step.Action, "bulkhead.") &&
+					!strings.HasPrefix(step.Action, "state.") &&
+					!strings.HasPrefix(step.Action, "db.") {
 					addWarn(stepNum, step.Action, "UNKNOWN_ACTION", fmt.Sprintf("unknown action '%s'", step.Action), "{action: \"repo.Find\" | \"mapping.Assign\" | \"flow.If\" ...}", step.File, step.Line, step.Column)
 				}
 			}

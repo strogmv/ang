@@ -326,3 +326,33 @@ func TestValidate_OptionalArgDynamicExpressionAllowed(t *testing.T) {
 		}
 	}
 }
+
+func TestValidate_StorageDeleteRequiresKey(t *testing.T) {
+	t.Parallel()
+	issues := Validate([]Step{{Action: "storage.Delete"}})
+	found := false
+	for _, it := range issues {
+		if it.Code == "MISSING_KEY" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected MISSING_KEY issue, got %+v", issues)
+	}
+}
+
+func TestValidate_StorageListRequiresOutput(t *testing.T) {
+	t.Parallel()
+	issues := Validate([]Step{{Action: "storage.List", Args: map[string]any{"prefix": `"projects/p1/"`}}})
+	found := false
+	for _, it := range issues {
+		if it.Code == "MISSING_OUTPUT" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected MISSING_OUTPUT issue, got %+v", issues)
+	}
+}

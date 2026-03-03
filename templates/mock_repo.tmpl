@@ -9,6 +9,9 @@ type {{ ExportName .Entity }}RepositoryMock struct {
 	FindByIDFunc func(ctx context.Context, id string) (*domain.{{ ExportName .Entity }}, error)
 	SaveFunc     func(ctx context.Context, item *domain.{{ ExportName .Entity }}) error
 	DeleteFunc   func(ctx context.Context, id string) error
+	InsertFunc   func(ctx context.Context, item *domain.{{ ExportName .Entity }}) error
+	UpdateFunc   func(ctx context.Context, item *domain.{{ ExportName .Entity }}) error
+	LockByIDFunc func(ctx context.Context, id string) (*domain.{{ ExportName .Entity }}, error)
 {{- range .Finders }}
 	{{ .Name }}Func func(ctx context.Context) ({{ or .ReturnType "any" }}, error)
 {{- end }}
@@ -27,6 +30,21 @@ func (m *{{ ExportName .Entity }}RepositoryMock) Save(ctx context.Context, item 
 func (m *{{ ExportName .Entity }}RepositoryMock) Delete(ctx context.Context, id string) error {
 	if m.DeleteFunc != nil { return m.DeleteFunc(ctx, id) }
 	return nil
+}
+
+func (m *{{ ExportName .Entity }}RepositoryMock) Insert(ctx context.Context, item *domain.{{ ExportName .Entity }}) error {
+	if m.InsertFunc != nil { return m.InsertFunc(ctx, item) }
+	return nil
+}
+
+func (m *{{ ExportName .Entity }}RepositoryMock) Update(ctx context.Context, item *domain.{{ ExportName .Entity }}) error {
+	if m.UpdateFunc != nil { return m.UpdateFunc(ctx, item) }
+	return nil
+}
+
+func (m *{{ ExportName .Entity }}RepositoryMock) LockByID(ctx context.Context, id string) (*domain.{{ ExportName .Entity }}, error) {
+	if m.LockByIDFunc != nil { return m.LockByIDFunc(ctx, id) }
+	return nil, nil
 }
 
 {{- range .Finders }}

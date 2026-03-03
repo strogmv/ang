@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/format"
 	"go/token"
+	"os"
 	"sort"
 	"strings"
 
@@ -93,6 +94,12 @@ func renderServiceImplTypeDecl(svc normalizer.Service, entities []normalizer.Ent
 			Type:  mustParseExpr("port.QueuePublisher"),
 		})
 	}
+	if serviceImplHasStateActions(svc) {
+		fields = append(fields, &ast.Field{
+			Names: []*ast.Ident{ast.NewIdent("stateStore")},
+			Type:  mustParseExpr("port.StateStore"),
+		})
+	}
 
 	gen := &ast.GenDecl{
 		Tok: token.TYPE,
@@ -110,6 +117,7 @@ func renderServiceImplTypeDecl(svc normalizer.Service, entities []normalizer.Ent
 	if err := format.Node(&buf, token.NewFileSet(), gen); err != nil {
 		return "", fmt.Errorf("format service impl type %s: %w", svc.Name, err)
 	}
+	fmt.Fprintf(os.Stderr, "DEBUG: generated struct for %s:\n%s\n", svc.Name, buf.String())
 	return buf.String(), nil
 }
 
@@ -213,6 +221,13 @@ func renderServiceImplConstructorDecl(svc normalizer.Service, entities []normali
 		})
 		elts = append(elts, &ast.KeyValueExpr{Key: ast.NewIdent("queuePublisher"), Value: ast.NewIdent("queuePublisher")})
 	}
+	if serviceImplHasStateActions(svc) {
+		params = append(params, &ast.Field{
+			Names: []*ast.Ident{ast.NewIdent("stateStore")},
+			Type:  mustParseExpr("port.StateStore"),
+		})
+		elts = append(elts, &ast.KeyValueExpr{Key: ast.NewIdent("stateStore"), Value: ast.NewIdent("stateStore")})
+	}
 
 	fd := &ast.FuncDecl{
 		Name: ast.NewIdent("New" + svc.Name + "Impl"),
@@ -243,6 +258,7 @@ func renderServiceImplConstructorDecl(svc normalizer.Service, entities []normali
 	if err := format.Node(&buf, token.NewFileSet(), fd); err != nil {
 		return "", fmt.Errorf("format service impl constructor %s: %w", svc.Name, err)
 	}
+	fmt.Fprintf(os.Stderr, "DEBUG: generated constructor for %s:\n%s\n", svc.Name, buf.String())
 	return buf.String(), nil
 }
 
@@ -408,7 +424,7 @@ func serviceImplHasPublishes(s normalizer.Service) bool {
 	var scanSteps func([]normalizer.FlowStep) bool
 	scanSteps = func(steps []normalizer.FlowStep) bool {
 		for _, step := range steps {
-			if step.Action == "event.Publish" {
+			if step.Action == "event.Publish" || step.Action == "event.Broadcast" || step.Action == "event.Wait" || step.Action == "event.Subscribe" {
 				return true
 			}
 			if v, ok := step.Args["_do"].([]normalizer.FlowStep); ok && scanSteps(v) {
@@ -562,7 +578,9 @@ func serviceImplHasCacheActions(s normalizer.Service) bool {
 func serviceImplHasStorageActions(s normalizer.Service) bool {
 	return serviceImplHasFlowAction(s, "storage.Upload") ||
 		serviceImplHasFlowAction(s, "storage.Download") ||
-		serviceImplHasFlowAction(s, "storage.GetURL")
+		serviceImplHasFlowAction(s, "storage.GetURL") ||
+		serviceImplHasFlowAction(s, "storage.Delete") ||
+		serviceImplHasFlowAction(s, "storage.List")
 }
 
 func serviceImplHasMailSend(s normalizer.Service) bool {
@@ -571,4 +589,58 @@ func serviceImplHasMailSend(s normalizer.Service) bool {
 
 func serviceImplHasQueueEnqueue(s normalizer.Service) bool {
 	return serviceImplHasFlowAction(s, "queue.Enqueue")
+}
+
+func serviceImplHasStateActions(s normalizer.Service) bool {
+	if serviceImplHasFlowAction(s, "state.Get") ||
+		serviceImplHasFlowAction(s, "state.Set") ||
+		serviceImplHasFlowAction(s, "state.Delete") {
+		return true
+	}
+	// Reliability primitives all use stateStore internally
+	for _, prefix := range []string{"idem.", "dedupe.", "ratelimit.", "concurrency.", "circuit.", "bulkhead."} {
+		if serviceImplHasFlowActionWithPrefix(s, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// serviceImplHasFlowActionWithPrefix returns true if any method flow contains an action
+// that starts with the given prefix (recursive).
+func serviceImplHasFlowActionWithPrefix(s normalizer.Service, prefix string) bool {
+	var scanSteps func([]normalizer.FlowStep) bool
+	scanSteps = func(steps []normalizer.FlowStep) bool {
+		for _, step := range steps {
+			if strings.HasPrefix(step.Action, prefix) {
+				return true
+			}
+			for _, childKey := range []string{"_do", "_then", "_else", "_ifNew", "_ifExists", "_default"} {
+				if v, ok := step.Args[childKey].([]normalizer.FlowStep); ok && scanSteps(v) {
+					return true
+				}
+			}
+			if cases, ok := step.Args["_cases"].(map[string][]normalizer.FlowStep); ok {
+				for _, branch := range cases {
+					if scanSteps(branch) {
+						return true
+					}
+				}
+			}
+			if branches, ok := step.Args["_branches"].(map[string][]normalizer.FlowStep); ok {
+				for _, branch := range branches {
+					if scanSteps(branch) {
+						return true
+					}
+				}
+			}
+		}
+		return false
+	}
+	for _, m := range s.Methods {
+		if scanSteps(m.Flow) {
+			return true
+		}
+	}
+	return false
 }

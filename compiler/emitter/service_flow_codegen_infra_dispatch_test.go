@@ -21,6 +21,8 @@ func TestRenderFlowStepInfra_DispatchHandlesKnownActions(t *testing.T) {
 		{name: "storage_upload", step: normalizer.FlowStep{Action: "storage.Upload", Args: map[string]any{"key": `"path/file"`, "data": "req.Payload", "output": "url"}}},
 		{name: "storage_download", step: normalizer.FlowStep{Action: "storage.Download", Args: map[string]any{"key": `"path/file"`, "output": "blob"}}},
 		{name: "storage_geturl", step: normalizer.FlowStep{Action: "storage.GetURL", Args: map[string]any{"key": `"path/file"`, "output": "publicURL"}}},
+		{name: "storage_delete", step: normalizer.FlowStep{Action: "storage.Delete", Args: map[string]any{"key": `"path/file"`}}},
+		{name: "storage_list", step: normalizer.FlowStep{Action: "storage.List", Args: map[string]any{"prefix": `"path/"`, "output": "keys"}}},
 		{name: "http_call", step: normalizer.FlowStep{Action: "http.Call", Args: map[string]any{"method": "POST", "url": `"https://example.com"`, "body": `"{}"`, "output": "httpBody", "statusVar": "httpStatus"}}},
 		{name: "rand_code", step: normalizer.FlowStep{Action: "rand.Code", Args: map[string]any{"output": "otp", "length": 6}}},
 		{name: "rand_token", step: normalizer.FlowStep{Action: "rand.Token", Args: map[string]any{"output": "token", "bytes": 16}}},

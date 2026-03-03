@@ -9,7 +9,22 @@ func renderFlowStepInfra(st *flowRenderState, step normalizer.FlowStep, indent i
 	if out, ok := renderFlowStepInfraHTTPAndSerialization(st, step, indent, sfx, arg, child); ok {
 		return out
 	}
+	if out, ok := renderFlowStepInfraHTTPAdvanced(st, step, indent, sfx, arg, child); ok {
+		return out
+	}
 	if out, ok := renderFlowStepInfraConcurrencyAndDelivery(st, step, indent, sfx, arg, child); ok {
+		return out
+	}
+	if out, ok := renderFlowStepEventOrchestration(st, step, indent, sfx, arg, child); ok {
+		return out
+	}
+	if out, ok := renderFlowStepSecretConfig(st, step, indent, sfx, arg, child); ok {
+		return out
+	}
+	if out, ok := renderFlowStepState(st, step, indent, sfx, arg, child); ok {
+		return out
+	}
+	if out, ok := renderFlowStepInfraReliability(st, step, indent, sfx, arg, child); ok {
 		return out
 	}
 	return renderFlowStepInfraLegacy(st, step, indent, sfx, arg, child)

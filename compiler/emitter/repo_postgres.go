@@ -51,6 +51,7 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 		return fmt.Errorf("mkdir: %w", err)
 	}
 
+	keep := make(map[string]struct{})
 	for _, repo := range reposNorm {
 		ent, ok := entMap[repo.Entity]
 		if !ok {
@@ -69,6 +70,8 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 		var allSelectCols []string
 		var dbFields []normalizer.Field
 		hasTime := false
+		var updateOnlySets []string
+		var updateOnlyArgsList []string
 
 		for _, f := range ent.Fields {
 			if f.SkipDomain {
@@ -106,11 +109,21 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 			}
 			insertArgs = append(insertArgs, arg)
 
+			// Build UPDATE-only set list (non-id fields with positional $N)
+			if colName != "id" {
+				pos := len(updateOnlySets) + 1
+				updateOnlySets = append(updateOnlySets, fmt.Sprintf("%s = $%d", colName, pos))
+				updateOnlyArgsList = append(updateOnlyArgsList, arg)
+			}
+
 			// Only cast to ::text for non-text string fields (e.g. UUID).
 			// time.Time / *time.Time: no cast — pgx v5 handles timestamps natively.
 			sCol := scanSelectColumnExpr(f)
 			allSelectCols = append(allSelectCols, sCol)
 		}
+		// id goes last as the WHERE parameter for Update
+		updateOnlyWherePos := len(updateOnlySets) + 1
+		updateOnlyArgsList = append(updateOnlyArgsList, "entity.ID")
 
 		findByIDPlan := buildScanPlan(dbFields, "entity")
 		findByIDPlan.Columns = append([]string{}, allSelectCols...)
@@ -406,51 +419,60 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 		}
 
 		data := struct {
-			Name          string
-			Entity        string
-			Table         string
-			Columns       string
-			Placeholders  string
-			UpdateSet     string
-			InsertArgs    string
-			SelectColumns string
-			Fields        []normalizer.Field
-			Finders       []finderOut
-			HasTime       bool
-			FindByIDPlan  planner.ScanPlan
-			ListAllPlan   planner.ScanPlan
+			Name                string
+			Entity              string
+			Table               string
+			Columns             string
+			Placeholders        string
+			UpdateSet           string
+			InsertArgs          string
+			SelectColumns       string
+			Fields              []normalizer.Field
+			Finders             []finderOut
+			HasTime             bool
+			FindByIDPlan        planner.ScanPlan
+			ListAllPlan         planner.ScanPlan
+			UpdateOnlySet       string
+			UpdateOnlyArgs      string
+			UpdateOnlyWherePos  int
 		}{
-			Name:          repo.Name,
-			Entity:        repo.Entity,
-			Table:         strings.ToLower(repo.Entity) + "s",
-			Columns:       strings.Join(cols, ", "),
-			Placeholders:  strings.Join(placeholders, ", "),
-			UpdateSet:     strings.Join(updateSets, ", "),
-			InsertArgs:    strings.Join(insertArgs, ", "),
-			SelectColumns: strings.Join(allSelectCols, ", "),
-			Fields:        ent.Fields,
-			Finders:       finders,
-			HasTime:       hasTime,
-			FindByIDPlan:  findByIDPlan,
-			ListAllPlan:   listAllPlan,
+			Name:               repo.Name,
+			Entity:             repo.Entity,
+			Table:              strings.ToLower(repo.Entity) + "s",
+			Columns:            strings.Join(cols, ", "),
+			Placeholders:       strings.Join(placeholders, ", "),
+			UpdateSet:          strings.Join(updateSets, ", "),
+			InsertArgs:         strings.Join(insertArgs, ", "),
+			SelectColumns:      strings.Join(allSelectCols, ", "),
+			Fields:             ent.Fields,
+			Finders:            finders,
+			HasTime:            hasTime,
+			FindByIDPlan:       findByIDPlan,
+			ListAllPlan:        listAllPlan,
+			UpdateOnlySet:      strings.Join(updateOnlySets, ", "),
+			UpdateOnlyArgs:     strings.Join(updateOnlyArgsList, ", "),
+			UpdateOnlyWherePos: updateOnlyWherePos,
 		}
 
 		renderPlan := planner.RenderPlan{
 			Name: "postgres_repo",
 			Data: map[string]any{
-				"Name":          data.Name,
-				"Entity":        data.Entity,
-				"Table":         data.Table,
-				"Columns":       data.Columns,
-				"Placeholders":  data.Placeholders,
-				"UpdateSet":     data.UpdateSet,
-				"InsertArgs":    data.InsertArgs,
-				"SelectColumns": data.SelectColumns,
-				"Fields":        data.Fields,
-				"Finders":       data.Finders,
-				"HasTime":       data.HasTime,
-				"FindByIDPlan":  data.FindByIDPlan,
-				"ListAllPlan":   data.ListAllPlan,
+				"Name":               data.Name,
+				"Entity":             data.Entity,
+				"Table":              data.Table,
+				"Columns":            data.Columns,
+				"Placeholders":       data.Placeholders,
+				"UpdateSet":          data.UpdateSet,
+				"InsertArgs":         data.InsertArgs,
+				"SelectColumns":      data.SelectColumns,
+				"Fields":             data.Fields,
+				"Finders":            data.Finders,
+				"HasTime":            data.HasTime,
+				"FindByIDPlan":       data.FindByIDPlan,
+				"ListAllPlan":        data.ListAllPlan,
+				"UpdateOnlySet":      data.UpdateOnlySet,
+				"UpdateOnlyArgs":     data.UpdateOnlyArgs,
+				"UpdateOnlyWherePos": data.UpdateOnlyWherePos,
 			},
 		}
 
@@ -466,10 +488,24 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 
 		filename := fmt.Sprintf("%s.go", strings.ToLower(repo.Name))
 		path := filepath.Join(targetDir, filename)
+		keep[filename] = struct{}{}
 		if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 			return fmt.Errorf("write file: %w", err)
 		}
 		fmt.Printf("Generated Postgres Repo: %s\n", path)
+	}
+
+	if err := pruneGeneratedFiles(
+		targetDir,
+		keep,
+		func(name string) bool {
+			return strings.HasSuffix(name, "repository.go") && name != "systemrepository.go"
+		},
+		func(path string) bool {
+			return fileContainsAny(path, "AUTO-GENERATED by ANG", "Template: postgres_repo.tmpl")
+		},
+	); err != nil {
+		return fmt.Errorf("prune stale postgres repos: %w", err)
 	}
 
 	return nil

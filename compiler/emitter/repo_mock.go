@@ -43,6 +43,7 @@ func (e *Emitter) EmitRepoMocks(repos []ir.Repository) error {
 	}
 
 	targetDir := filepath.Join(e.OutputDir, "internal", "port")
+	keep := make(map[string]struct{})
 
 	for _, repo := range reposNorm {
 		var buf bytes.Buffer
@@ -67,10 +68,24 @@ func (e *Emitter) EmitRepoMocks(repos []ir.Repository) error {
 
 		filename := "mock_" + strings.ToLower(repo.Entity) + "_test.go"
 		path := filepath.Join(targetDir, filename)
+		keep[filename] = struct{}{}
 		if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 			return err
 		}
 		fmt.Printf("Generated Repo Mock: %s\n", path)
+	}
+
+	if err := pruneGeneratedFiles(
+		targetDir,
+		keep,
+		func(name string) bool {
+			return strings.HasPrefix(name, "mock_") && strings.HasSuffix(name, "_test.go")
+		},
+		func(path string) bool {
+			return fileContainsAny(path, "RepositoryMock struct", "New", "package port")
+		},
+	); err != nil {
+		return fmt.Errorf("prune stale repository mocks: %w", err)
 	}
 
 	return nil

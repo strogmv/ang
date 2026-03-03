@@ -47,6 +47,7 @@ const (
 	ArgKindStringMap         ArgKind = "map[string]string"
 	ArgKindFieldsRuleMap     ArgKind = "map[string]map[string]string"
 	ArgKindStringOrStringArr ArgKind = "string|[]string"
+	ArgKindStringList        ArgKind = "[]string"
 )
 
 var specs = map[string]Spec{
@@ -55,6 +56,27 @@ var specs = map[string]Spec{
 	},
 	"event.Publish": {
 		RequiredArgs: []string{"name"},
+	},
+	"event.Broadcast": {
+		RequiredArgs: []string{"name"},
+	},
+	"event.Wait": {
+		RequiredArgs:     []string{"name"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"timeout": ArgKindString,
+			"match":   ArgKindString,
+		},
+	},
+	"event.Subscribe": {
+		RequiredArgs:     []string{"name", "match"},
+		RequiredChildren: []string{"_do"},
+	},
+	"event.Match": {
+		RequiredArgs: []string{"event", "match"},
+		OptionalArgKinds: map[string]ArgKind{
+			"throw": ArgKindString,
+		},
 	},
 	"notification.Dispatch": {
 		// "event" is the canonical arg; "message" accepted for backwards compat
@@ -76,6 +98,191 @@ var specs = map[string]Spec{
 	},
 	"repo.Query": {
 		RequiredArgs: []string{"method"},
+	},
+	"http.Request": {
+		RequiredArgs: []string{"method", "url"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"auth":      ArgKindString,
+			"timeout":   ArgKindString,
+			"into":      ArgKindString,
+			"statusVar": ArgKindString,
+			"output":    ArgKindString,
+			"headers":   ArgKindStringMap,
+			"query":     ArgKindStringMap,
+		},
+	},
+	"http.RetryPolicy": {
+		RequiredArgs: []string{"method", "url"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"auth":      ArgKindString,
+			"timeout":   ArgKindString,
+			"statusVar": ArgKindString,
+			"output":    ArgKindString,
+			"headers":   ArgKindStringMap,
+			"query":     ArgKindStringMap,
+		},
+	},
+	"http.Paginate": {
+		RequiredArgs: []string{"url", "into", "as", "cursor_expr"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"auth":         ArgKindString,
+			"method":       ArgKindString,
+			"cursor_param": ArgKindString,
+			"items_expr":   ArgKindString,
+			"output_type":  ArgKindString,
+			"headers":      ArgKindStringMap,
+		},
+	},
+	"db.Get": {},
+	"db.List": {},
+	"db.Query": {
+		RequiredArgs: []string{"method"},
+	},
+	"db.Insert": {
+		RequiredArgs: []string{"source", "input"},
+	},
+	"db.Update": {
+		RequiredArgs: []string{"source", "input"},
+	},
+	"db.Upsert": {
+		RequiredArgs: []string{"source", "input"},
+	},
+	"db.Delete": {},
+	"db.Lock": {
+		RequiresTx: true,
+	},
+	"db.SelectForUpdate": {
+		RequiresTx: true,
+	},
+	"state.Get": {
+		RequiredArgs:     []string{"key", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"default": ArgKindString,
+		},
+	},
+	"state.Set": {
+		RequiredArgs: []string{"key", "value"},
+		OptionalArgKinds: map[string]ArgKind{
+			"ttl": ArgKindString,
+		},
+	},
+	"state.Delete": {
+		RequiredArgs: []string{"key"},
+	},
+	// Idempotency & Deduplication
+	"idem.DeriveKey": {
+		RequiredArgs:     []string{"output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"prefix": ArgKindString,
+			"output": ArgKindString,
+			"from":   ArgKindStringList,
+		},
+		CustomConstraints: func(step Step) *Issue {
+			v, ok := step.Args["from"]
+			if !ok {
+				return &Issue{Code: "MISSING_FROM", Message: "idem.DeriveKey missing 'from'", Hint: "{action: \"idem.DeriveKey\", from: [\"req.UserID\", \"req.OrderID\"], output: \"idemKey\"}"}
+			}
+			switch arr := v.(type) {
+			case []string:
+				if len(arr) == 0 {
+					return &Issue{Code: "EMPTY_FROM", Message: "idem.DeriveKey 'from' list is empty", Hint: "Provide at least one expression"}
+				}
+			case []any:
+				if len(arr) == 0 {
+					return &Issue{Code: "EMPTY_FROM", Message: "idem.DeriveKey 'from' list is empty", Hint: "Provide at least one expression"}
+				}
+			default:
+				return &Issue{Code: "INVALID_FROM_TYPE", Message: "idem.DeriveKey 'from' must be a list of expressions", Hint: "{from: [\"req.UserID\", \"req.OrderID\"]}"}
+			}
+			return nil
+		},
+	},
+	"idem.Check": {
+		RequiredArgs: []string{"key"},
+	},
+	"idem.SaveResult": {
+		RequiredArgs: []string{"key"},
+		OptionalArgKinds: map[string]ArgKind{
+			"ttl": ArgKindString,
+		},
+	},
+	"dedupe.Once": {
+		RequiredArgs:     []string{"key"},
+		RequiredChildren: []string{"_do"},
+		OptionalArgKinds: map[string]ArgKind{
+			"ttl": ArgKindString,
+		},
+	},
+	// Rate limiting & Concurrency
+	"ratelimit.Check": {
+		RequiredArgs: []string{"key"},
+		OptionalArgKinds: map[string]ArgKind{
+			"throw": ArgKindString,
+			"rps":   ArgKindInt,
+		},
+		CustomConstraints: func(step Step) *Issue {
+			if _, ok := step.Args["rps"]; !ok {
+				return &Issue{Code: "MISSING_RPS", Message: "ratelimit.Check missing 'rps'", Hint: "{action: \"ratelimit.Check\", key: \"req.UserID\", rps: 10}"}
+			}
+			if !isIntLike(step.Args["rps"]) {
+				return &Issue{Code: "INVALID_RPS_TYPE", Message: "ratelimit.Check 'rps' must be an integer", Hint: "{rps: 10}"}
+			}
+			return nil
+		},
+	},
+	"concurrency.Limit": {
+		RequiredArgs: []string{"key"},
+		OptionalArgKinds: map[string]ArgKind{
+			"throw": ArgKindString,
+			"max":   ArgKindInt,
+		},
+		CustomConstraints: func(step Step) *Issue {
+			if _, ok := step.Args["max"]; !ok {
+				return &Issue{Code: "MISSING_MAX", Message: "concurrency.Limit missing 'max'", Hint: "{action: \"concurrency.Limit\", key: \"\\\"slow-op\\\"\", max: 5}"}
+			}
+			if !isIntLike(step.Args["max"]) {
+				return &Issue{Code: "INVALID_MAX_TYPE", Message: "concurrency.Limit 'max' must be an integer", Hint: "{max: 5}"}
+			}
+			return nil
+		},
+	},
+	// Circuit breaker & Bulkhead
+	"circuit.Check": {
+		RequiredArgs: []string{"name"},
+		OptionalArgKinds: map[string]ArgKind{
+			"throw": ArgKindString,
+		},
+	},
+	"circuit.RecordSuccess": {
+		RequiredArgs: []string{"name"},
+	},
+	"circuit.RecordFailure": {
+		RequiredArgs: []string{"name"},
+		OptionalArgKinds: map[string]ArgKind{
+			"threshold": ArgKindInt,
+			"openTTL":   ArgKindString,
+		},
+	},
+	"bulkhead.Acquire": {
+		RequiredArgs: []string{"name"},
+		OptionalArgKinds: map[string]ArgKind{
+			"throw": ArgKindString,
+			"max":   ArgKindInt,
+		},
+		CustomConstraints: func(step Step) *Issue {
+			if _, ok := step.Args["max"]; !ok {
+				return &Issue{Code: "MISSING_MAX", Message: "bulkhead.Acquire missing 'max'", Hint: "{action: \"bulkhead.Acquire\", name: \"\\\"db-pool\\\"\", max: 20}"}
+			}
+			if !isIntLike(step.Args["max"]) {
+				return &Issue{Code: "INVALID_MAX_TYPE", Message: "bulkhead.Acquire 'max' must be an integer", Hint: "{max: 20}"}
+			}
+			return nil
+		},
 	},
 	"repo.Upsert": {
 		RequiredArgs:     []string{"source", "find", "input", "output"},
@@ -567,6 +774,23 @@ var specs = map[string]Spec{
 			return nil
 		},
 	},
+	"flow.Tag": {
+		RequiredArgs: []string{"name"},
+		OptionalArgKinds: map[string]ArgKind{
+			"value": ArgKindString,
+		},
+	},
+	"flow.Saga": {
+		RequiredChildren: []string{"_do"},
+	},
+	"flow.Compensate": {
+		RequiredChildren: []string{"_do"},
+	},
+	"flow.Rollback": {
+		OptionalArgKinds: map[string]ArgKind{
+			"error": ArgKindString,
+		},
+	},
 	"pdf.Render": {
 		RequiredArgs:     []string{"template", "data", "output"},
 		DeclaresFromArgs: []string{"output"},
@@ -617,6 +841,20 @@ var specs = map[string]Spec{
 	"storage.List": {
 		RequiredArgs:     []string{"prefix", "output"},
 		DeclaresFromArgs: []string{"output"},
+	},
+	"secret.Get": {
+		RequiredArgs:     []string{"key", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"default": ArgKindString,
+		},
+	},
+	"config.Get": {
+		RequiredArgs:     []string{"key", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"default": ArgKindString,
+		},
 	},
 }
 
@@ -741,6 +979,15 @@ func argMatchesKind(v any, kind ArgKind) bool {
 		}
 		arr, ok := v.([]string)
 		return ok && len(arr) > 0
+	case ArgKindStringList:
+		switch arr := v.(type) {
+		case []string:
+			return len(arr) > 0
+		case []any:
+			return len(arr) > 0
+		default:
+			return false
+		}
 	default:
 		return true
 	}

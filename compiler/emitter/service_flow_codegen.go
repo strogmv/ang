@@ -58,6 +58,7 @@ func flowActionSupported(action string) bool {
 		"list.Enrich",
 		"str.Normalize",
 		"event.Publish", "logic.Call",
+		"event.Wait", "event.Subscribe", "event.Match",
 		"exec.Run",
 		"fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove",
 		"archive.ZipDir",
@@ -72,7 +73,7 @@ func flowActionSupported(action string) bool {
 		"cache.Get", "cache.Set", "cache.Del",
 		"mail.Send",
 		"storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List",
-		"http.Call",
+		"http.Call", "http.Request", "http.RetryPolicy", "http.Paginate",
 		"rand.Code", "rand.Token",
 		"str.Format",
 		"json.Parse", "json.Marshal",
@@ -82,7 +83,19 @@ func flowActionSupported(action string) bool {
 		"queue.Enqueue",
 		"session.Get",
 		"flow.Parallel", "flow.Join", "flow.Race",
-		"flow.Delay", "flow.Schedule", "flow.Cron":
+		"flow.Delay", "flow.Schedule", "flow.Cron",
+		"flow.Saga", "flow.Compensate", "flow.Rollback", "flow.Tag",
+		"state.Get", "state.Set", "state.Delete",
+		"idem.DeriveKey", "idem.Check", "idem.SaveResult",
+		"dedupe.Once",
+		"ratelimit.Check",
+		"concurrency.Limit",
+		"circuit.Check", "circuit.RecordSuccess", "circuit.RecordFailure",
+		"bulkhead.Acquire",
+		"db.Get", "db.List", "db.Query",
+		"db.Insert", "db.Update", "db.Upsert", "db.Delete",
+		"db.Lock", "db.SelectForUpdate",
+		"secret.Get", "config.Get":
 		return true
 	default:
 		return false
@@ -162,6 +175,7 @@ type flowRenderState struct {
 	returnErrOnly bool              // if true, errReturn emits `return err` for inner error closures
 	concurrMode   string            // "parallel" | "join" | "race" for flow.Parallel/Join/Race goroutines
 	concurrVarPfx string            // e.g. "_fp_0" / "_fj_0" / "_fr_0"
+	sagaCompVar   string            // variable name for compensation slice
 }
 
 func cloneFlowState(st *flowRenderState) *flowRenderState {
@@ -174,6 +188,7 @@ func cloneFlowState(st *flowRenderState) *flowRenderState {
 		returnErrOnly: st.returnErrOnly,
 		concurrMode:   st.concurrMode,
 		concurrVarPfx: st.concurrVarPfx,
+		sagaCompVar:   st.sagaCompVar,
 	}
 	for k, v := range st.declared {
 		cp.declared[k] = v
@@ -292,14 +307,23 @@ func renderOneFlowStep(st *flowRenderState, step normalizer.FlowStep, indent int
 	switch step.Action {
 	case "flow.If", "flow.For", "flow.Block", "tx.Block", "list.Filter", "list.Paginate", "list.Append", "list.Sort", "str.Normalize", "mapping.Map", "event.Publish", "logic.Call", "exec.Run", "fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove", "archive.ZipDir", "session.Get", "flow.Switch", "flow.While", "flow.Checkpoint", "flow.Resume", "flow.Validate", "flow.Try", "flow.Catch", "flow.Retry", "flow.Fallback", "flow.Timeout", "flow.SuggestNext", "flow.ExplainError",
 		"flow.Parallel", "flow.Join", "flow.Race",
-		"flow.Delay", "flow.Schedule", "flow.Cron":
+		"flow.Delay", "flow.Schedule", "flow.Cron",
+		"flow.Saga", "flow.Compensate", "flow.Rollback", "flow.Tag":
 		return renderFlowStepControl(st, step, indent, sfx, arg, child)
 
 	// -------------------------------------------------------------------------
 	// STAGE 2: Infrastructure actions
 	// -------------------------------------------------------------------------
 
-	case "cache.Get", "cache.Set", "cache.Del", "mail.Send", "storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List", "http.Call", "rand.Code", "rand.Token", "json.Parse", "json.Marshal", "parallel.Run", "pdf.Render", "webhook.Send", "queue.Enqueue":
+	case "cache.Get", "cache.Set", "cache.Del", "mail.Send", "storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List", "http.Call", "http.Request", "http.RetryPolicy", "http.Paginate", "rand.Code", "rand.Token", "json.Parse", "json.Marshal", "parallel.Run", "pdf.Render", "webhook.Send", "queue.Enqueue", "secret.Get", "config.Get",
+		"event.Wait", "event.Subscribe", "event.Match", "event.Broadcast",
+		"state.Get", "state.Set", "state.Delete",
+		"idem.DeriveKey", "idem.Check", "idem.SaveResult",
+		"dedupe.Once",
+		"ratelimit.Check",
+		"concurrency.Limit",
+		"circuit.Check", "circuit.RecordSuccess", "circuit.RecordFailure",
+		"bulkhead.Acquire":
 		return renderFlowStepInfra(st, step, indent, sfx, arg, child)
 
 	default:

@@ -77,7 +77,135 @@ import "github.com/strogmv/ang/cue/project"
 // AI AGENTS: Use these definitions to understand valid flow step structures.
 // ============================================================================
 
-#FlowStep: #RepoStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #CustomStep | #StateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #AuditStep | #AuthStep | #CheckRoleStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #EnrichStep | #TimeParseStep | #TimeCheckExpiryStep | #MapBuildStep | #ExecRunStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #StorageUploadStep | #StorageGetURLStep | #HTTPCallStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #JSONParseStep | #JSONMarshalStep | #ParallelStep | #FlowParallelStep | #FlowJoinStep | #FlowRaceStep | #FlowDelayStep | #FlowScheduleStep | #FlowCronStep
+#FlowStep: #RepoStep | #DbStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #CustomStep | #StateStep | #ExplicitStateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #AuditStep | #AuthStep | #CheckRoleStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #EnrichStep | #TimeParseStep | #TimeCheckExpiryStep | #MapBuildStep | #ExecRunStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #StorageUploadStep | #StorageGetURLStep | #HTTPCallStep | #HTTPRequestStep | #HTTPRetryPolicyStep | #HTTPPaginateStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #JSONParseStep | #JSONMarshalStep | #ParallelStep | #FlowParallelStep | #FlowJoinStep | #FlowRaceStep | #FlowDelayStep | #FlowScheduleStep | #FlowCronStep | #SecretGetStep | #ConfigGetStep | #EventWaitStep | #EventSubscribeStep | #EventMatchStep | #FlowSagaStep | #FlowCompensateStep | #FlowRollbackStep | #FlowTagStep | #FlowCheckpointStep | #FlowResumeStep | #FlowValidateStep | #FlowTryStep | #FlowRetryStep | #FlowFallbackStep | #FlowTimeoutStep | #FlowSuggestNextStep | #FlowExplainErrorStep | #IdemDeriveKeyStep | #IdemCheckStep | #IdemSaveResultStep | #DedupeOnceStep | #RateLimitCheckStep | #ConcurrencyLimitStep | #CircuitCheckStep | #CircuitRecordSuccessStep | #CircuitRecordFailureStep | #BulkheadAcquireStep
+
+#FlowCheckpointStep: {
+	// flow.Checkpoint - Save current flow state for potential resumption
+	action: "flow.Checkpoint"
+	// Unique name for this checkpoint
+	name: string
+	// Expression for data to save (default: "req")
+	data?: string
+}
+
+#FlowResumeStep: {
+	// flow.Resume - Restore state from a previously saved checkpoint
+	action: "flow.Resume"
+	// Checkpoint name to restore from
+	name: string
+	// Variable name to store restored data
+	output: string
+	// Steps to execute if checkpoint is missing
+	onMissing?: [...#FlowStep]
+}
+
+#FlowValidateStep: {
+	// flow.Validate - Perform semantic validation, returns error if condition is false
+	action: "flow.Validate"
+	// Go boolean expression
+	condition: string
+	// Custom error message
+	throw?: string
+	// Optional hint for the user/AI
+	hint?: string
+}
+
+#FlowTryStep: {
+	// flow.Try - Execute steps with error handling and optional retries
+	action: "flow.Try"
+	do: [...#FlowStep]
+	catch?: [...#FlowStep]
+	retries?:   int
+	backoffMs?: int
+}
+
+#FlowRetryStep: {
+	// flow.Retry - Simple retry block for transient operations
+	action: "flow.Retry"
+	attempts: int
+	backoffMs?: int
+	do: [...#FlowStep]
+}
+
+#FlowFallbackStep: {
+	// flow.Fallback - Try primary path, execute fallback if it fails
+	action: "flow.Fallback"
+	do: [...#FlowStep]
+	fallback: [...#FlowStep]
+}
+
+#FlowTimeoutStep: {
+	// flow.Timeout - Limit execution time for a block of steps
+	action: "flow.Timeout"
+	// Duration expression (e.g. "2*time.Second")
+	duration: string
+	do: [...#FlowStep]
+	// Steps to run if timeout occurs
+	onTimeout?: [...#FlowStep]
+}
+
+#FlowSuggestNextStep: {
+	// flow.SuggestNext - Provide user-facing options for next steps (AI-friendly)
+	action: "flow.SuggestNext"
+	options: [...string]
+	output: string
+}
+
+#FlowExplainErrorStep: {
+	// flow.ExplainError - Generate natural language explanation for an error (AI-friendly)
+	action: "flow.ExplainError"
+	error?: string
+	output: string
+	hint?:  string
+}
+
+#FlowTagStep: {
+	// flow.Tag - Add execution metadata/tags for observability (tracing, logs)
+	action: "flow.Tag"
+	// Tag name/key (e.g. "order_id", "priority")
+	name: string
+	// Optional tag value expression (e.g. "req.ID", "\"high\"")
+	value?: string
+}
+
+#ExplicitStateStep: {
+	// state.Get - Retrieve a value from explicit state storage (KV store)
+	action: "state.Get"
+	// Key to lookup
+	key: string
+	// Variable name to store the result
+	output: string
+	// Optional default value if key not found
+	"default"?: string
+} | {
+	// state.Set - Store a value in explicit state storage
+	action: "state.Set"
+	// Key to store under
+	key: string
+	// Value expression to store
+	value: string
+	// Optional TTL expression (e.g. "24*time.Hour")
+	ttl?: string
+} | {
+	// state.Delete - Remove a value from explicit state storage
+	action: "state.Delete"
+	// Key to remove
+	key: string
+}
+
+// ----------------------------------------------------------------------------
+// STATE MACHINE
+// ----------------------------------------------------------------------------
+
+#StateStep: {
+	action: "fsm.Transition"
+	// Variable holding entity with FSM state
+	// Example: "tender", "order"
+	entity: string
+	// Target state name
+	// Example: "published", "closed", "cancelled"
+	to: string
+}
 
 // ============================================================================
 // IMPL STEPS (typed business logic inside impl)
@@ -272,6 +400,23 @@ import "github.com/strogmv/ang/cue/project"
 	method?: string
 }
 
+#DbStep: {
+	// db.* - Explicit Database Primitives
+	action: "db.Get" | "db.List" | "db.Query" | "db.Insert" | "db.Update" | "db.Upsert" | "db.Delete" | "db.Lock" | "db.SelectForUpdate"
+
+	// Entity name from domain (e.g., "Tender", "User", "Company")
+	source: string
+
+	// Expression for input (ID for Get/Lock/Delete, entity variable for Insert/Update/Upsert)
+	input: string
+
+	// Variable name to store result (required for Get/List/Lock/SelectForUpdate)
+	output?: string
+
+	// Method name for db.Query (e.g., "FindByStatus")
+	method?: string
+}
+
 #UpsertStep: {
 	action: "repo.Upsert"
 	source: string
@@ -416,6 +561,41 @@ import "github.com/strogmv/ang/cue/project"
 	fileID?: string
 	url?: string
 	kind?: string
+}
+
+#EventWaitStep: {
+	// event.Wait - Block execution until a specific event arrives
+	action: "event.Wait"
+	// Event name to wait for
+	name: string
+	// Optional timeout duration (e.g. "5*time.Minute")
+	timeout?: string
+	// Optional correlation mapping (e.g. "OrderID=req.ID")
+	match?: string
+	// Variable name to store received event payload
+	output?: string
+}
+
+#EventSubscribeStep: {
+	// event.Subscribe - Define an async handler for events within a flow
+	action: "event.Subscribe"
+	// Event name to subscribe to
+	name: string
+	// Correlation ID mapping
+	match: string
+	// Steps to execute when event arrives
+	do: [...#FlowStep]
+}
+
+#EventMatchStep: {
+	// event.Match - Validate correlation criteria for a received event
+	action: "event.Match"
+	// Variable holding received event
+	event: string
+	// Correlation criteria (e.g. "ID=req.OrderID")
+	match: string
+	// Error to throw if not matched (default: 400 Bad Request)
+	throw?: string
 }
 
 // ----------------------------------------------------------------------------
@@ -759,6 +939,26 @@ import "github.com/strogmv/ang/cue/project"
 // STAGE 3: NEW CAPABILITIES
 // ============================================================================
 
+#SecretGetStep: {
+	action: "secret.Get"
+	// Secret key name (e.g. "STRIPE_SECRET_KEY")
+	key: string
+	// Variable name to store the secret value
+	output: string
+	// Optional default value if secret is not set (not recommended for actual secrets)
+	default?: string
+}
+
+#ConfigGetStep: {
+	action: "config.Get"
+	// Config key name (e.g. "MAX_ITEMS")
+	key: string
+	// Variable name to store the config value
+	output: string
+	// Optional default value if config is not set
+	default?: string
+}
+
 #HTTPCallStep: {
 	action: "http.Call"
 	method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH"
@@ -768,6 +968,83 @@ import "github.com/strogmv/ang/cue/project"
 	output?: string
 	statusVar?: string
 	failOnError?: bool | *true
+}
+
+#HTTPRequestStep: {
+	// http.Request - Enriched HTTP call with auth, query params, and typed JSON decode.
+	action: "http.Request"
+	method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH"
+	// URL expression (Go expr, e.g. "\"https://api.example.com/items\"" or req.URL)
+	url: string
+	// Request body expression (passed to strings.NewReader)
+	body?: string
+	// Static/dynamic request headers (value is a Go expression)
+	headers?: [string]: string
+	// URL query parameters (value is a Go expression)
+	query?: [string]: string
+	// Auth: "bearer:TOKEN_EXPR" or "basic:USER_EXPR:PASS_EXPR"
+	auth?: string
+	// Per-request timeout duration expression (default "10*time.Second")
+	timeout?: string
+	// Go type name for JSON unmarshal of response body (e.g. "domain.Item")
+	into?: string
+	// Variable name for result (string body when no 'into', typed struct when 'into' set)
+	output?: string
+	// Variable name to store HTTP status code
+	statusVar?: string
+	// Return error on 4xx/5xx responses (default true)
+	failOnError?: bool | *true
+}
+
+#HTTPRetryPolicyStep: {
+	// http.RetryPolicy - HTTP call with status-code-aware retry logic.
+	action: "http.RetryPolicy"
+	method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH"
+	// URL expression
+	url: string
+	body?: string
+	headers?: [string]: string
+	query?: [string]: string
+	auth?: string
+	// Per-attempt timeout (default "10*time.Second")
+	timeout?: string
+	// Maximum number of attempts (default 3)
+	attempts?: int | *3
+	// Backoff between retries in ms (default 500)
+	backoffMs?: int | *500
+	// HTTP status codes that trigger a retry (default [429, 503])
+	retryOn?: [...int] | *[429, 503]
+	output?: string
+	statusVar?: string
+	failOnError?: bool | *true
+}
+
+#HTTPPaginateStep: {
+	// http.Paginate - Cursor-based pagination loop over an external API.
+	// Calls the URL repeatedly, advancing the cursor each time, until cursor is empty.
+	action: "http.Paginate"
+	// Base URL expression (cursor added as a query param each iteration)
+	url: string
+	// HTTP method (default "GET")
+	method?: string | *"GET"
+	// Go type for each page response (e.g. "PagedResponse" or "struct{Items []any; NextCursor string}")
+	into: string
+	// Variable name for each page in scope (used in cursor_expr and items_expr)
+	as: string
+	// Go expression to extract next cursor from page var (empty string = stop)
+	cursor_expr: string
+	// Go expression for items slice to accumulate from each page (e.g. "page.Items")
+	items_expr?: string
+	// Query parameter name for cursor (default "cursor")
+	cursor_param?: string | *"cursor"
+	// Variable name for the accumulated items slice
+	output?: string
+	// Go type for the accumulated output slice (default "[]any")
+	output_type?: string | *"[]any"
+	// Safety limit on page iterations (default 100)
+	max_pages?: int | *100
+	headers?: [string]: string
+	auth?: string
 }
 
 #RandCodeStep: {
@@ -865,6 +1142,27 @@ import "github.com/strogmv/ang/cue/project"
 	onMismatch?: [...#FlowStep]
 }
 
+// flow.Saga - Define a saga block that tracks compensations for completed steps.
+// If any step within 'do' fails, the compensation chain is executed in reverse order.
+#FlowSagaStep: {
+	action: "flow.Saga"
+	do: [...#FlowStep]
+}
+
+// flow.Compensate - Register a compensating action for the preceding step.
+// This action is only executed if a subsequent step in the same saga fails.
+#FlowCompensateStep: {
+	action: "flow.Compensate"
+	do: [...#FlowStep]
+}
+
+// flow.Rollback - Manually trigger a rollback of the current saga or transaction.
+#FlowRollbackStep: {
+	action: "flow.Rollback"
+	// Optional error to return
+	error?: string
+}
+
 // ============================================================================
 // SYSTEM / OS OPERATIONS (exec.*, fs.*)
 // ============================================================================
@@ -929,4 +1227,112 @@ import "github.com/strogmv/ang/cue/project"
 	action: "fs.Remove"
 	// Path expression to remove
 	path: string
+}
+
+// ============================================================================
+// RELIABILITY PRIMITIVES (idem.*, dedupe.*, ratelimit.*, concurrency.*, circuit.*, bulkhead.*)
+// ============================================================================
+
+#IdemDeriveKeyStep: {
+	// idem.DeriveKey - Compute a stable idempotency key from a set of expressions.
+	// Generated Go: sha256(fmt.Sprintf("%v|%v|...", expr1, expr2, ...))[:16]
+	action: "idem.DeriveKey"
+	// Go expressions to hash together (e.g. ["req.UserID", "req.OrderID"])
+	from: [...string]
+	// Variable name to store the derived key (e.g. "idemKey")
+	output: string
+	// Optional string prefix for the key (default: "idem:")
+	prefix?: string
+}
+
+#IdemCheckStep: {
+	// idem.Check - Return a cached response if the idempotency key was already processed.
+	// If key is found in stateStore, unmarshals stored bytes into resp and returns early.
+	action: "idem.Check"
+	// Key expression (e.g. "idemKey")
+	key: string
+}
+
+#IdemSaveResultStep: {
+	// idem.SaveResult - Persist the current response under the idempotency key.
+	action: "idem.SaveResult"
+	// Key expression (e.g. "idemKey")
+	key: string
+	// TTL as a Go duration expression (default: "24 * time.Hour")
+	ttl?: string
+}
+
+#DedupeOnceStep: {
+	// dedupe.Once - Execute child steps only once per key+TTL window.
+	// If key exists in stateStore, the block is skipped entirely.
+	action: "dedupe.Once"
+	// Key expression (e.g. "\"notify:\"+req.UserID")
+	key: string
+	// TTL as a Go duration expression (default: "24 * time.Hour")
+	ttl?: string
+	// Steps to execute on first call only
+	do: [...#FlowStep]
+}
+
+#RateLimitCheckStep: {
+	// ratelimit.Check - Per-key per-second token counter. Returns 429 when limit exceeded.
+	action: "ratelimit.Check"
+	// Key expression used for bucketing (e.g. "req.UserID", "\"global\"")
+	key: string
+	// Requests per second allowed (e.g. 10)
+	rps: int
+	// Optional error message (default: "rate limit exceeded")
+	throw?: string
+}
+
+#ConcurrencyLimitStep: {
+	// concurrency.Limit - State-store semaphore. Returns 503 when pool is full.
+	// Automatically releases slot on function return via defer.
+	action: "concurrency.Limit"
+	// Key expression to namespace the semaphore (e.g. "\"process\"", "req.TenantID")
+	key: string
+	// Maximum concurrent executions
+	max: int
+	// Optional error message (default: "concurrency limit exceeded")
+	throw?: string
+}
+
+#CircuitCheckStep: {
+	// circuit.Check - Returns 503 if the named circuit is open.
+	// Pair with circuit.RecordSuccess / circuit.RecordFailure around the external call.
+	action: "circuit.Check"
+	// Circuit name string literal (e.g. "\"payment-svc\"")
+	name: string
+	// Optional error message (default: "circuit breaker open: <name>")
+	throw?: string
+}
+
+#CircuitRecordSuccessStep: {
+	// circuit.RecordSuccess - Reset failure counter and close the circuit.
+	action: "circuit.RecordSuccess"
+	// Circuit name string literal (e.g. "\"payment-svc\"")
+	name: string
+}
+
+#CircuitRecordFailureStep: {
+	// circuit.RecordFailure - Increment failure counter; open circuit at threshold.
+	action: "circuit.RecordFailure"
+	// Circuit name string literal (e.g. "\"payment-svc\"")
+	name: string
+	// Number of failures before the circuit opens (default: 5)
+	threshold?: int
+	// Duration the circuit stays open (Go duration expr, default: "60 * time.Second")
+	openTTL?: string
+}
+
+#BulkheadAcquireStep: {
+	// bulkhead.Acquire - Named resource pool. Returns 503 when pool is full.
+	// Automatically releases slot on function return via defer.
+	action: "bulkhead.Acquire"
+	// Pool name string literal (e.g. "\"db-pool\"", "\"payment-api\"")
+	name: string
+	// Maximum pool size
+	max: int
+	// Optional error message (default: "bulkhead full: <name>")
+	throw?: string
 }

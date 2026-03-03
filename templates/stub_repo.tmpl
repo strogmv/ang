@@ -54,6 +54,42 @@ func (r *{{ ExportName .Entity }}RepositoryStub) Delete(ctx context.Context, id 
 	return nil
 }
 
+func (r *{{ ExportName .Entity }}RepositoryStub) Insert(ctx context.Context, entity *domain.{{ ExportName .Entity }}) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if entity == nil {
+		return fmt.Errorf("entity is required")
+	}
+	if _, exists := r.data[entity.ID]; exists {
+		return fmt.Errorf("{{ .Entity | ToLower }} already exists: %s", entity.ID)
+	}
+	r.data[entity.ID] = entity
+	return nil
+}
+
+func (r *{{ ExportName .Entity }}RepositoryStub) Update(ctx context.Context, entity *domain.{{ ExportName .Entity }}) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if entity == nil {
+		return fmt.Errorf("entity is required")
+	}
+	if _, exists := r.data[entity.ID]; !exists {
+		return fmt.Errorf("{{ .Entity | ToLower }} not found: %s", entity.ID)
+	}
+	r.data[entity.ID] = entity
+	return nil
+}
+
+func (r *{{ ExportName .Entity }}RepositoryStub) LockByID(ctx context.Context, id string) (*domain.{{ ExportName .Entity }}, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	entity, ok := r.data[id]
+	if !ok {
+		return nil, nil
+	}
+	return entity, nil
+}
+
 {{- $hasListAll := false }}
 {{- range .Finders }}{{ if eq .Name "ListAll" }}{{ $hasListAll = true }}{{ end }}{{ end }}
 {{- if not $hasListAll }}

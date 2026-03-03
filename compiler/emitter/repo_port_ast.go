@@ -39,6 +39,18 @@ func (e *Emitter) renderRepositoryPortAST(repo normalizer.Repository) ([]byte, e
 		[]methodParam{{name: "ctx", typ: "context.Context"}, {name: "id", typ: "string"}},
 		[]string{"error"},
 	))
+	methods = append(methods, buildMethodField("Insert",
+		[]methodParam{{name: "ctx", typ: "context.Context"}, {name: "entity", typ: "*domain." + entityName}},
+		[]string{"error"},
+	))
+	methods = append(methods, buildMethodField("Update",
+		[]methodParam{{name: "ctx", typ: "context.Context"}, {name: "entity", typ: "*domain." + entityName}},
+		[]string{"error"},
+	))
+	methods = append(methods, buildMethodField("LockByID",
+		[]methodParam{{name: "ctx", typ: "context.Context"}, {name: "id", typ: "string"}},
+		[]string{"*domain." + entityName, "error"},
+	))
 
 	for _, f := range repo.Finders {
 		sig := ComputeFinderSignature(repo.Entity, f, "")

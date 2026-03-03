@@ -243,6 +243,55 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 					case "http.Call":
 						importMap["net/http"] = ""
 						importMap["io"] = ""
+					case "http.Request":
+						importMap["net/http"] = ""
+						importMap["io"] = ""
+						importMap["context"] = ""
+						importMap["encoding/json"] = ""
+						importMap["strings"] = ""
+					case "http.RetryPolicy":
+						importMap["net/http"] = ""
+						importMap["io"] = ""
+						importMap["context"] = ""
+						importMap["strings"] = ""
+						importMap["time"] = ""
+					case "http.Paginate":
+						importMap["net/http"] = ""
+						importMap["io"] = ""
+						importMap["net/url"] = ""
+						importMap["encoding/json"] = ""
+					case "idem.DeriveKey":
+						importMap["crypto/sha256"] = ""
+						importMap["encoding/hex"] = ""
+						importMap["fmt"] = ""
+					case "idem.Check", "idem.SaveResult":
+						importMap["encoding/json"] = ""
+						importMap["fmt"] = ""
+					case "dedupe.Once":
+						importMap["fmt"] = ""
+					case "ratelimit.Check":
+						importMap["encoding/json"] = ""
+						importMap["fmt"] = ""
+						importMap["time"] = ""
+						importMap["net/http"] = ""
+					case "concurrency.Limit":
+						importMap["encoding/json"] = ""
+						importMap["fmt"] = ""
+						importMap["time"] = ""
+						importMap["net/http"] = ""
+					case "circuit.Check":
+						importMap["fmt"] = ""
+						importMap["net/http"] = ""
+					case "circuit.RecordSuccess":
+						// no extra imports
+					case "circuit.RecordFailure":
+						importMap["encoding/json"] = ""
+						importMap["time"] = ""
+					case "bulkhead.Acquire":
+						importMap["encoding/json"] = ""
+						importMap["fmt"] = ""
+						importMap["time"] = ""
+						importMap["net/http"] = ""
 					case "rand.Code":
 						importMap["crypto/rand"] = "cryptorand"
 						importMap["encoding/binary"] = ""
@@ -314,6 +363,13 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 		overrides := e.getManualMethods(svc.Name)
 		e.auditMissingImplementations(svc, overrides)
 
+		for _, m := range svc.Methods {
+			if len(m.Flow) > 0 {
+				flowCode := renderFlow(m.Flow)
+				fmt.Fprintf(os.Stderr, "DEBUG: generated flow for %s.%s:\n%s\n", svc.Name, m.Name, flowCode)
+			}
+		}
+
 		if err := t.Execute(&buf, TemplateContext{
 			Service:   &svc,
 			Entities:  nEntities,
@@ -325,6 +381,7 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 			return fmt.Errorf("execute template for %s: %w", svc.Name, err)
 		}
 
+		_ = os.WriteFile("/home/strog/.gemini/tmp/ang/debug_"+strings.ToLower(svc.Name)+".go", buf.Bytes(), 0644)
 		formatted, err := formatGoStrict(buf.Bytes(), "internal/service/"+strings.ToLower(svc.Name)+".go")
 		if err != nil {
 			return err
