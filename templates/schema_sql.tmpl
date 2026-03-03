@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS {{ .Name | ToLower }}s (
 {{- range $i, $f := .Fields }}
 {{- if not $f.SkipDomain }}
 {{- if not $first }},{{ end }}
-    "{{ $f.Name | DBName }}" {{ SQLType $f }}{{ if $f.Default }} DEFAULT {{ SQLDefault $f.Default }}{{ end }}{{ if $f.DB.PrimaryKey }} PRIMARY KEY{{ end }}{{ if $f.DB.Unique }} UNIQUE{{ end }}{{ if not $f.IsOptional }} NOT NULL{{ end }}{{ if and $f.Constraints $f.Constraints.Enum }} CHECK ({{ $f.Name | ToLower }} IN ({{- $firstEnum := true -}}{{- range $v := $f.Constraints.Enum }}{{ if not $firstEnum }}, {{ end }}'{{ $v }}'{{- $firstEnum = false -}}{{- end }})){{ end }}
+    "{{ $f.Name | DBName }}" {{ SQLType $f }}{{ if $f.Default }} DEFAULT {{ SQLDefault $f.Default }}{{ end }}{{ if or $f.DB.PrimaryKey (eq ($f.Name | ToLower) "id") }} PRIMARY KEY{{ end }}{{ if $f.DB.Unique }} UNIQUE{{ end }}{{ if not $f.IsOptional }} NOT NULL{{ end }}{{ if and $f.Constraints $f.Constraints.Enum }} CHECK ({{ $f.Name | ToLower }} IN ({{- $firstEnum := true -}}{{- range $v := $f.Constraints.Enum }}{{ if not $firstEnum }}, {{ end }}'{{ $v }}'{{- $firstEnum = false -}}{{- end }})){{ end }}
 {{- $first = false }}
 {{- end }}
 {{- end }}

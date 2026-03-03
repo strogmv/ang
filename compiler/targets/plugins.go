@@ -21,6 +21,7 @@ type BuildContext struct {
 	Scenarios           []normalizer.ScenarioDef
 	Config              *normalizer.ConfigDef
 	Auth                *normalizer.AuthDef
+	Session             *normalizer.SessionDef
 	RBAC                *normalizer.RBACDef
 	InfraValues         map[string]any
 	EmailTemplates      []normalizer.EmailTemplateDef

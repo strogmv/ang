@@ -100,7 +100,7 @@ var specs = map[string]Spec{
 		RequiredArgs: []string{"method"},
 	},
 	"http.Request": {
-		RequiredArgs: []string{"method", "url"},
+		RequiredArgs:     []string{"method", "url"},
 		DeclaresFromArgs: []string{"output"},
 		OptionalArgKinds: map[string]ArgKind{
 			"auth":      ArgKindString,
@@ -113,7 +113,7 @@ var specs = map[string]Spec{
 		},
 	},
 	"http.RetryPolicy": {
-		RequiredArgs: []string{"method", "url"},
+		RequiredArgs:     []string{"method", "url"},
 		DeclaresFromArgs: []string{"output"},
 		OptionalArgKinds: map[string]ArgKind{
 			"auth":      ArgKindString,
@@ -125,7 +125,7 @@ var specs = map[string]Spec{
 		},
 	},
 	"http.Paginate": {
-		RequiredArgs: []string{"url", "into", "as", "cursor_expr"},
+		RequiredArgs:     []string{"url", "into", "as", "cursor_expr"},
 		DeclaresFromArgs: []string{"output"},
 		OptionalArgKinds: map[string]ArgKind{
 			"auth":         ArgKindString,
@@ -136,7 +136,7 @@ var specs = map[string]Spec{
 			"headers":      ArgKindStringMap,
 		},
 	},
-	"db.Get": {},
+	"db.Get":  {},
 	"db.List": {},
 	"db.Query": {
 		RequiredArgs: []string{"method"},
@@ -434,6 +434,92 @@ var specs = map[string]Spec{
 	"list.Append": {
 		RequiredArgs: []string{"to", "item"},
 	},
+	"list.Map": {
+		RequiredArgs:     []string{"from", "expr", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"as": ArgKindString,
+		},
+	},
+	"list.Reduce": {
+		RequiredArgs:     []string{"from", "expr", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"as": ArgKindString,
+		},
+	},
+	"list.GroupBy": {
+		RequiredArgs:     []string{"from", "key", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"as": ArgKindString,
+		},
+	},
+	"list.Distinct": {
+		RequiredArgs:     []string{"from", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"as":  ArgKindString,
+			"key": ArgKindString,
+		},
+	},
+	"list.Chunk": {
+		RequiredArgs:     []string{"from", "output"},
+		DeclaresFromArgs: []string{"output"},
+		CustomConstraints: func(step Step) *Issue {
+			sizeVal, ok := step.Args["size"]
+			if !ok {
+				return &Issue{Code: "MISSING_SIZE", Message: "list.Chunk missing 'size'", Hint: "{action: \"list.Chunk\", from: \"items\", size: 100, output: \"batches\"}"}
+			}
+			switch v := sizeVal.(type) {
+			case string:
+				if strings.TrimSpace(v) == "" {
+					return &Issue{Code: "MISSING_SIZE", Message: "list.Chunk missing 'size'", Hint: "{action: \"list.Chunk\", from: \"items\", size: 100, output: \"batches\"}"}
+				}
+			case int, int64:
+				if n, ok := intArg(step.Args, "size"); ok && n <= 0 {
+					return &Issue{Code: "INVALID_SIZE", Message: "list.Chunk 'size' must be > 0", Hint: "{action: \"list.Chunk\", from: \"items\", size: 100, output: \"batches\"}"}
+				}
+			case float64:
+				if !isIntLike(v) || v <= 0 {
+					return &Issue{Code: "INVALID_SIZE", Message: "list.Chunk 'size' must be a positive integer", Hint: "{action: \"list.Chunk\", from: \"items\", size: 100, output: \"batches\"}"}
+				}
+			default:
+				return &Issue{Code: "INVALID_SIZE_TYPE", Message: "list.Chunk 'size' must be int or expression string", Hint: "{action: \"list.Chunk\", from: \"items\", size: 100, output: \"batches\"}"}
+			}
+			return nil
+		},
+	},
+	"batch.Run": {
+		RequiredArgs:     []string{"from"},
+		RequiredChildren: []string{"_do"},
+		OptionalArgKinds: map[string]ArgKind{
+			"as": ArgKindString,
+		},
+		CustomConstraints: func(step Step) *Issue {
+			sizeVal, ok := step.Args["size"]
+			if !ok {
+				return nil
+			}
+			switch v := sizeVal.(type) {
+			case string:
+				if strings.TrimSpace(v) == "" {
+					return &Issue{Code: "MISSING_SIZE", Message: "batch.Run has empty 'size'", Hint: "{action: \"batch.Run\", from: \"items\", size: 100, as: \"batch\", do: [...]}"}
+				}
+			case int, int64:
+				if n, ok := intArg(step.Args, "size"); ok && n <= 0 {
+					return &Issue{Code: "INVALID_SIZE", Message: "batch.Run 'size' must be > 0", Hint: "{action: \"batch.Run\", from: \"items\", size: 100, as: \"batch\", do: [...]}"}
+				}
+			case float64:
+				if !isIntLike(v) || v <= 0 {
+					return &Issue{Code: "INVALID_SIZE", Message: "batch.Run 'size' must be a positive integer", Hint: "{action: \"batch.Run\", from: \"items\", size: 100, as: \"batch\", do: [...]}"}
+				}
+			default:
+				return &Issue{Code: "INVALID_SIZE_TYPE", Message: "batch.Run 'size' must be int or expression string", Hint: "{action: \"batch.Run\", from: \"items\", size: 100, as: \"batch\", do: [...]}"}
+			}
+			return nil
+		},
+	},
 	"list.Enrich": {
 		RequiredArgs: []string{"items", "lookupSource", "lookupInput", "set"},
 		CustomConstraints: func(step Step) *Issue {
@@ -514,6 +600,16 @@ var specs = map[string]Spec{
 	},
 	"auth.CheckRole": {
 		RequiredArgs: []string{"user", "roles"},
+	},
+	"rbac.CheckPermission": {
+		RequiredArgs: []string{"user", "permission"},
+		OptionalArgKinds: map[string]ArgKind{
+			"throw":  ArgKindString,
+			"code":   ArgKindString,
+			"status": ArgKindString,
+			"output": ArgKindString,
+		},
+		DeclaresFromArgs: []string{"output"},
 	},
 	"entity.PatchNonZero": {
 		RequiredArgs: []string{"target", "from", "fields"},
@@ -688,6 +784,129 @@ var specs = map[string]Spec{
 		RequiredArgs:     []string{"input", "output"},
 		DeclaresFromArgs: []string{"output"},
 	},
+	"regex.Match": {
+		RequiredArgs:     []string{"input", "pattern", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"regex.Replace": {
+		RequiredArgs:     []string{"input", "pattern", "repl", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"base64.Encode": {
+		RequiredArgs:     []string{"input", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"base64.Decode": {
+		RequiredArgs:     []string{"input", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"url.Parse": {
+		RequiredArgs:     []string{"input", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"url.Build": {
+		RequiredArgs:     []string{"base", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"path":  ArgKindString,
+			"query": ArgKindStringMap,
+		},
+	},
+	"query.Encode": {
+		RequiredArgs:     []string{"input", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"query.Decode": {
+		RequiredArgs:     []string{"input", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"hash.Sum": {
+		RequiredArgs:     []string{"input", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"algorithm": ArgKindString,
+			"algo":      ArgKindString,
+		},
+	},
+	"hash.HMAC": {
+		RequiredArgs:     []string{"input", "key", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"algorithm": ArgKindString,
+			"algo":      ArgKindString,
+		},
+	},
+	"uuid.New": {
+		RequiredArgs:     []string{"output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"ulid.New": {
+		RequiredArgs:     []string{"output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"math.Op": {
+		RequiredArgs:     []string{"op", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"precision": ArgKindInt,
+		},
+		CustomConstraints: func(step Step) *Issue {
+			opRaw, ok := step.Args["op"].(string)
+			if !ok || strings.TrimSpace(opRaw) == "" {
+				return &Issue{
+					Code:    "MISSING_OP",
+					Message: "math.Op missing 'op'",
+					Hint:    "Use {action: \"math.Op\", op: \"min\", a: \"x\", b: \"y\", output: \"z\"}",
+				}
+			}
+			op, isLiteral := staticWordLiteral(opRaw)
+			if !isLiteral {
+				return nil
+			}
+			require := func(name, hint string) *Issue {
+				v, ok := step.Args[name]
+				if !ok {
+					return &Issue{Code: "MISSING_" + strings.ToUpper(name), Message: "math.Op missing '" + name + "'", Hint: hint}
+				}
+				if _, ok := nonEmptyString(v); !ok {
+					return &Issue{Code: "MISSING_" + strings.ToUpper(name), Message: "math.Op missing '" + name + "'", Hint: hint}
+				}
+				return nil
+			}
+			switch op {
+			case "min", "max":
+				if is := require("a", "Provide both 'a' and 'b'"); is != nil {
+					return is
+				}
+				if is := require("b", "Provide both 'a' and 'b'"); is != nil {
+					return is
+				}
+			case "clamp":
+				if is := require("value", "Provide value/min/max"); is != nil {
+					return is
+				}
+				if is := require("min", "Provide value/min/max"); is != nil {
+					return is
+				}
+				if is := require("max", "Provide value/min/max"); is != nil {
+					return is
+				}
+			case "round":
+				if is := require("value", "Provide value for round"); is != nil {
+					return is
+				}
+			}
+			return nil
+		},
+	},
+	"jsonpath.Get": {
+		RequiredArgs:     []string{"input", "path", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"jsonpath.Set": {
+		RequiredArgs:     []string{"input", "path", "value", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
 	"parallel.Run": {
 		OptionalArgKinds: map[string]ArgKind{
 			"maxConcurrency": ArgKindInt,
@@ -854,6 +1073,64 @@ var specs = map[string]Spec{
 		DeclaresFromArgs: []string{"output"},
 		OptionalArgKinds: map[string]ArgKind{
 			"default": ArgKindString,
+		},
+	},
+	"jwt.Sign": {
+		RequiredArgs:     []string{"claims", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"secret": ArgKindString,
+			"alg":    ArgKindString,
+			"ttl":    ArgKindString,
+		},
+	},
+	"jwt.Verify": {
+		RequiredArgs:     []string{"token", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"secret": ArgKindString,
+		},
+	},
+	"oauth2.Token": {
+		RequiredArgs:     []string{"tokenURL", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"clientID":     ArgKindString,
+			"clientSecret": ArgKindString,
+			"scope":        ArgKindString,
+			"audience":     ArgKindString,
+			"grantType":    ArgKindString,
+			"username":     ArgKindString,
+			"password":     ArgKindString,
+			"code":         ArgKindString,
+			"redirectURI":  ArgKindString,
+			"refreshToken": ArgKindString,
+		},
+	},
+	"oauth2.Refresh": {
+		RequiredArgs:     []string{"tokenURL", "refreshToken", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"clientID":     ArgKindString,
+			"clientSecret": ArgKindString,
+			"scope":        ArgKindString,
+			"audience":     ArgKindString,
+		},
+	},
+	"crypto.Encrypt": {
+		RequiredArgs:     []string{"input", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"key": ArgKindString,
+			"aad": ArgKindString,
+		},
+	},
+	"crypto.Decrypt": {
+		RequiredArgs:     []string{"input", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"key": ArgKindString,
+			"aad": ArgKindString,
 		},
 	},
 }
@@ -1066,10 +1343,12 @@ func isKnownPrefix(action string) bool {
 	prefixes := []string{
 		"repo.", "mapping.", "logic.", "event.", "fsm.", "flow.", "tx.",
 		"list.", "notification.", "audit.", "auth.", "entity.", "field.",
+		"rbac.",
 		"str.", "enum.", "time.", "map.",
 		"exec.", "fs.",
 		"cache.", "mail.", "storage.",
-		"http.", "rand.", "json.", "parallel.",
+		"http.", "rand.", "json.", "regex.", "base64.", "url.", "query.", "hash.", "uuid.", "ulid.", "math.", "jsonpath.", "batch.", "parallel.",
+		"jwt.", "oauth2.", "crypto.",
 		"pdf.",
 	}
 	for _, p := range prefixes {

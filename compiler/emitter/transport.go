@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+	"time"
 
 	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
@@ -105,7 +106,9 @@ func buildMiddlewareListFull(ep normalizer.Endpoint, includeCache, includeIdempo
 		parts = append(parts, fmt.Sprintf("CacheMiddleware(%q)", p.CacheTTL))
 	}
 	if p.RateLimit != nil {
-		parts = append(parts, fmt.Sprintf("RateLimitMiddleware(%d, %d)", p.RateLimit.RPS, p.RateLimit.Burst))
+		windowSecs := rateLimitWindowSeconds(p.RateLimit.Window)
+		parts = append(parts, fmt.Sprintf("RateLimitMiddleware(%d, %d, %d, %d)",
+			p.RateLimit.RPS, p.RateLimit.Burst, windowSecs, p.RateLimit.WindowLimit))
 	}
 	if ep.Coalesce {
 		parts = append(parts, "SingleflightMiddleware()")
@@ -1138,4 +1141,17 @@ func (e *Emitter) EmitAsyncAPI(irEvents []ir.Event, project *normalizer.ProjectD
 	}
 	fmt.Printf("Generated AsyncAPI Spec: %s\n", path)
 	return nil
+}
+
+// rateLimitWindowSeconds converts a duration string (e.g. "1h", "30m") to seconds.
+// Returns 0 if the string is empty or invalid.
+func rateLimitWindowSeconds(window string) int {
+	if window == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(window)
+	if err != nil || d <= 0 {
+		return 0
+	}
+	return int(d.Seconds())
 }

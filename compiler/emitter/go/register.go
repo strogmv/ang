@@ -17,6 +17,7 @@ type RegisterInput struct {
 	Scenarios      []contracts.ScenarioDef
 	CfgDef         *contracts.ConfigDef
 	AuthDef        *contracts.AuthDef
+	SessionDef     *contracts.SessionDef
 	RBACDef        *contracts.RBACDef
 	InfraValues    map[string]any
 	EmailTemplates []contracts.EmailTemplateDef
@@ -44,6 +45,8 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 	registry.Register(generator.Step{Name: "Logger", Requires: goOnly, Run: func() error { return in.Em.EmitLogger() }})
 	registry.Register(generator.Step{Name: "RBAC", Requires: goOnly, Run: func() error { return in.Em.EmitRBAC(in.RBACDef) }})
 	registry.Register(generator.Step{Name: "Helpers", Requires: goOnly, Run: func() error { return in.Em.EmitHelpers() }})
+	registry.Register(generator.Step{Name: "ReqCtx", Requires: goOnly, Run: func() error { return in.Em.EmitReqCtx() }})
+	registry.Register(generator.Step{Name: "Session Middleware", Requires: goHTTP, Run: func() error { return in.Em.EmitSessionMiddleware(in.SessionDef) }})
 	registry.Register(generator.Step{Name: "Circuit Breaker", Requires: goHTTP, Run: func() error { return in.Em.EmitCircuitBreaker() }})
 	registry.Register(generator.Step{Name: "Presence", Requires: goOnly, Run: func() error { return in.Em.EmitPresence() }})
 	registry.Register(generator.Step{Name: "Report PDF", Requires: goOnly, Run: func() error { return in.Em.EmitReportPDF() }})
@@ -58,6 +61,7 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 	registry.Register(generator.Step{Name: "Repository Ports", Requires: goOnly, Run: func() error { return in.Em.EmitRepositoryFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "Transaction Port", Requires: goOnly, Run: func() error { return in.Em.EmitTransactionPort() }})
 	registry.Register(generator.Step{Name: "Idempotency Port", Requires: goOnly, Run: func() error { return in.Em.EmitIdempotencyPort() }})
+	registry.Register(generator.Step{Name: "State Store Port", Requires: goOnly, Run: func() error { return in.Em.EmitStateStorePort() }})
 	registry.Register(generator.Step{Name: "Outbox Port", Requires: goOnly, Run: func() error { return in.Em.EmitOutboxPort() }})
 	registry.Register(generator.Step{Name: "System Repository", Requires: goSQL, Run: func() error { return in.Em.EmitSystemRepository() }})
 	registry.Register(generator.Step{Name: "Storage Port", Requires: goOnly, Run: func() error { return in.Em.EmitStoragePort() }})

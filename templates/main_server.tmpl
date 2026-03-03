@@ -407,7 +407,7 @@ func main() {
 	{{- range $evtName := sortedKeys $svc.Subscribes }}
 	{{- $method := mapGet $svc.Subscribes $evtName }}
 		// EVENT: {{ $evtName }} -> {{ $svc.Name }}.{{ $method }}()
-		if _, err := natsClient.Subscribe("{{ $evtName }}", func(data []byte) error {
+		if _, err := natsClient.SubscribeRaw("{{ $evtName }}", func(data []byte) error {
 			var event port.{{ $method }}Request
 			if err := json.Unmarshal(data, &event); err != nil {
 				return err
@@ -449,7 +449,7 @@ func main() {
 		{{- else }}
 		// ROOM: Global broadcast (all connected clients)
 		{{- end }}
-		if _, err := natsClient.Subscribe("{{ $evtName }}", func(data []byte) error {
+		if _, err := natsClient.SubscribeRaw("{{ $evtName }}", func(data []byte) error {
 			var event domain.{{ ExportName $evtName }}
 			if err := json.Unmarshal(data, &event); err != nil {
 				return err

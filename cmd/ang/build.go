@@ -130,6 +130,7 @@ func runBuild(args []string) {
 
 		var cfgDef *normalizer.ConfigDef
 		var authDef *normalizer.AuthDef
+		var sessionDef *normalizer.SessionDef
 		var emailTemplates []normalizer.EmailTemplateDef
 		var templatesCatalog []normalizer.TemplateDef
 		var infraValues map[string]any
@@ -152,6 +153,11 @@ func runBuild(args []string) {
 			cfgDef = normalizer.InfraConfig(infraValues)
 			authDef = normalizer.InfraAuth(infraValues)
 			infraContextPatch = infraRegistry.BuildContextPatch(infraValues)
+			sessionDef, err = n.ExtractSession(val)
+			if err != nil {
+				fail(compiler.StageCUE, compiler.ErrCodeCUEInfraConfigParse, "extract session definition", err)
+				return
+			}
 			templatesCatalog, err = n.ExtractTemplates(val)
 			if err != nil {
 				fail(compiler.StageCUE, compiler.ErrCodeCUEInfraConfigParse, "extract templates", err)
@@ -402,6 +408,10 @@ func runBuild(args []string) {
 			if infraContextPatch.ForceHasSQL {
 				ctx.HasSQL = true
 			}
+			if sessionDef != nil {
+				ctx.HasSession = true
+				ctx.SessionCookieName = sessionDef.CookieName
+			}
 			em.EnrichContextFromIR(&ctx, irSchema)
 
 			caps, err := compiler.ResolveTargetCapabilities(td)
@@ -443,6 +453,7 @@ func runBuild(args []string) {
 				scenarios:        scenarios,
 				cfgDef:           cfgDef,
 				authDef:          authDef,
+				sessionDef:       sessionDef,
 				rbacDef:          rbacDef,
 				infraValues:      infraValues,
 				emailTemplates:   emailTemplates,

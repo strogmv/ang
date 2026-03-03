@@ -657,6 +657,75 @@ func (e *Emitter) EmitHelpers() error {
 	return nil
 }
 
+// EmitReqCtx generates the reqctx context-key package used by HTTP middleware.
+func (e *Emitter) EmitReqCtx() error {
+	tmplPath := "templates/reqctx.tmpl"
+	tmplContent, err := ReadTemplateByPath(tmplPath)
+	if err != nil {
+		return fmt.Errorf("read template: %w", err)
+	}
+
+	targetDir := filepath.Join(e.OutputDir, "internal", "pkg", "reqctx")
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return fmt.Errorf("mkdir: %w", err)
+	}
+
+	formatted, err := format.Source(tmplContent)
+	if err != nil {
+		formatted = tmplContent
+	}
+
+	path := filepath.Join(targetDir, "reqctx.go")
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
+		return fmt.Errorf("write file: %w", err)
+	}
+	fmt.Printf("Generated ReqCtx: %s\n", path)
+	return nil
+}
+
+// EmitSessionMiddleware generates the anonymous cookie-session middleware.
+// It is a no-op when session is nil (no #Session config in project).
+func (e *Emitter) EmitSessionMiddleware(session *normalizer.SessionDef) error {
+	if session == nil {
+		return nil
+	}
+	tmplPath := "templates/session_middleware.tmpl"
+	tmplContent, err := ReadTemplateByPath(tmplPath)
+	if err != nil {
+		return fmt.Errorf("read template: %w", err)
+	}
+
+	funcMap := template.FuncMap{
+		"GoModule": func() string { return e.GoModule },
+	}
+	t, err := template.New("session_middleware").Funcs(funcMap).Parse(string(tmplContent))
+	if err != nil {
+		return fmt.Errorf("parse template: %w", err)
+	}
+
+	targetDir := filepath.Join(e.OutputDir, "internal", "transport", "http")
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return fmt.Errorf("mkdir: %w", err)
+	}
+
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, session); err != nil {
+		return fmt.Errorf("execute template: %w", err)
+	}
+
+	formatted, err := format.Source(buf.Bytes())
+	if err != nil {
+		formatted = buf.Bytes()
+	}
+
+	path := filepath.Join(targetDir, "session_middleware.go")
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
+		return fmt.Errorf("write file: %w", err)
+	}
+	fmt.Printf("Generated Session Middleware: %s\n", path)
+	return nil
+}
+
 // EmitCircuitBreaker generates the circuit breaker package.
 func (e *Emitter) EmitCircuitBreaker() error {
 	tmplPath := "templates/circuitbreaker.tmpl"

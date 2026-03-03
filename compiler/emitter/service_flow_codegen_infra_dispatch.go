@@ -9,6 +9,12 @@ func renderFlowStepInfra(st *flowRenderState, step normalizer.FlowStep, indent i
 	if out, ok := renderFlowStepInfraHTTPAndSerialization(st, step, indent, sfx, arg, child); ok {
 		return out
 	}
+	if out, ok := renderFlowStepInfraDataTransform(st, step, indent, sfx, arg, child); ok {
+		return out
+	}
+	if out, ok := renderFlowStepInfraSecurity(st, step, indent, sfx, arg, child); ok {
+		return out
+	}
 	if out, ok := renderFlowStepInfraHTTPAdvanced(st, step, indent, sfx, arg, child); ok {
 		return out
 	}

@@ -219,6 +219,50 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
 
+	case "rbac.CheckPermission":
+		user := arg("user")
+		permission := arg("permission")
+		if user == "" || permission == "" {
+			return "", true
+		}
+		output := arg("output")
+		throwMsg := arg("throw")
+		shouldThrow := true
+		if throwMsg == "" {
+			if output != "" {
+				shouldThrow = false
+			} else {
+				throwMsg = `"Insufficient permission"`
+			}
+		}
+		code := arg("code")
+		if code == "" {
+			code = `"FORBIDDEN"`
+		}
+		status := arg("status")
+		if status == "" {
+			status = "http.StatusForbidden"
+		}
+		permOK := "_permOK" + sfx
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s%s := rbac.CheckPermission(%s.Role, %s)\n", pad, permOK, user, permission))
+		if output != "" {
+			assign := ":="
+			if st.declared[output] {
+				assign = "="
+			}
+			st.declared[output] = true
+			st.pointers[output] = false
+			st.types[output] = "bool"
+			b.WriteString(fmt.Sprintf("%s%s %s %s\n", pad, output, assign, permOK))
+		}
+		if shouldThrow {
+			b.WriteString(fmt.Sprintf("%sif !%s {\n", pad, permOK))
+			b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("errors.New(%s, %s, %s)", status, code, throwMsg)))
+			b.WriteString(fmt.Sprintf("%s}\n", pad))
+		}
+		return b.String(), true
+
 	case "entity.PatchNonZero":
 		target := arg("target")
 		from := arg("from")

@@ -26,6 +26,9 @@ CreatePost: schema.#Operation & {
 	}
 
 	flow: [
+		{action: "flow.Tag", name: "\"action\"", value: "\"create_post\""},
+		{action: "flow.Tag", name: "\"user_id\"", value: "req.UserId"},
+
 		// Generate slug and check availability
 		{action: "logic.Call", func: "slugify", args: "req.Title", output: "slug"},
 		{action: "repo.Find", source: "Post", method: "FindBySlug", input: "slug", output: "existing"},
@@ -228,9 +231,17 @@ PublishPost: schema.#Operation & {
 	}
 
 	flow: [
-		{action: "repo.Find", source: "Post", input: "req.ID", output: "post", error: "Post not found"},
-		{action: "fsm.Transition", entity: "post", to: "published"},
-		{action: "repo.Save", source: "Post", input: "post"},
+		{action: "flow.Tag", name: "\"action\"", value: "\"publish_post\""},
+		{action: "flow.Tag", name: "\"post_id\"", value: "req.ID"},
+
+		{action: "flow.Saga", do: [
+			{action: "repo.Find", source: "Post", input: "req.ID", output: "post", error: "Post not found"},
+			{action: "flow.Compensate", do: [
+				{action: "flow.Tag", name: "\"rollback\"", value: "\"publish_failed\""},
+			]},
+			{action: "fsm.Transition", entity: "post", to: "published"},
+			{action: "repo.Save", source: "Post", input: "post"},
+		]},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }

@@ -96,9 +96,26 @@ func renderFlowStepControlFlow(st *flowRenderState, step normalizer.FlowStep, in
 
 	case "flow.Cron":
 		return renderFlowCron(st, step, indent, sfx, arg, child), true
+
+	case "flow.Tag":
+		return renderFlowTag(st, step, indent, sfx, arg, child), true
 	}
 
 	return "", false
+}
+
+func renderFlowTag(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) string {
+	pad := strings.Repeat("\t", indent)
+	name := arg("name")
+	value := arg("value")
+	if name == "" {
+		return ""
+	}
+
+	if value != "" {
+		return fmt.Sprintf("%sslog.Info(\"flow.tag\", \"name\", %s, \"value\", %s)\n", pad, name, value)
+	}
+	return fmt.Sprintf("%sslog.Info(\"flow.tag\", \"name\", %s)\n", pad, name)
 }
 
 func renderFlowIfAST(st *flowRenderState, indent int, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {

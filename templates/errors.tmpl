@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 )
 
@@ -110,8 +111,25 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 		if pd.Instance == "" {
 			pd.Instance = r.URL.Path
 		}
+		if pd.Status >= http.StatusInternalServerError {
+			slog.Error("Application error response",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"status", pd.Status,
+				"title", pd.Title,
+				"detail", pd.Detail,
+				"code", pd.Code,
+				"message_code", pd.MessageCode,
+				"intent", pd.Intent,
+			)
+		}
 	} else {
-		// Hide internal error details from the client.
+		// Hide internal error details from the client, but keep full details in server logs.
+		slog.Error("Unhandled application error",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"error", err,
+		)
 		pd = New(http.StatusInternalServerError, "Internal Server Error", "An unexpected error occurred.")
 		pd.Instance = r.URL.Path
 	}

@@ -7,6 +7,7 @@ import "github.com/strogmv/ang/compiler/normalizer"
 type (
 	ConfigDef        = normalizer.ConfigDef
 	AuthDef          = normalizer.AuthDef
+	SessionDef       = normalizer.SessionDef
 	RBACDef          = normalizer.RBACDef
 	ScenarioDef      = normalizer.ScenarioDef
 	EndpointDef      = normalizer.Endpoint

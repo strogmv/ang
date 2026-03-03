@@ -298,6 +298,51 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 					case "rand.Token":
 						importMap["crypto/rand"] = "cryptorand"
 						importMap["encoding/hex"] = ""
+					case "regex.Match", "regex.Replace":
+						importMap["regexp"] = ""
+					case "base64.Encode", "base64.Decode":
+						importMap["encoding/base64"] = ""
+					case "url.Parse", "url.Build", "query.Encode", "query.Decode":
+						importMap["net/url"] = ""
+					case "hash.Sum":
+						importMap["crypto/sha1"] = ""
+						importMap["crypto/sha256"] = ""
+						importMap["crypto/md5"] = ""
+						importMap["encoding/hex"] = ""
+						importMap["strings"] = ""
+					case "hash.HMAC":
+						importMap["crypto/hmac"] = ""
+						importMap["crypto/sha1"] = ""
+						importMap["crypto/sha256"] = ""
+						importMap["crypto/md5"] = ""
+						importMap["encoding/hex"] = ""
+						importMap["hash"] = ""
+						importMap["strings"] = ""
+					case "ulid.New":
+						importMap["encoding/base32"] = ""
+						importMap["crypto/rand"] = "cryptorand"
+						importMap["time"] = ""
+					case "math.Op":
+						importMap["math"] = ""
+						importMap["strings"] = ""
+					case "jsonpath.Get", "jsonpath.Set":
+						importMap["strconv"] = ""
+						importMap["strings"] = ""
+					case "jwt.Sign", "jwt.Verify":
+						importMap["crypto/hmac"] = ""
+						importMap["crypto/sha256"] = ""
+						importMap["encoding/base64"] = ""
+					case "oauth2.Token", "oauth2.Refresh":
+						importMap["io"] = ""
+						importMap["net/url"] = ""
+					case "crypto.Encrypt", "crypto.Decrypt":
+						importMap["crypto/aes"] = ""
+						importMap["crypto/cipher"] = ""
+						importMap["crypto/sha256"] = ""
+						importMap["crypto/rand"] = "cryptorand"
+						importMap["encoding/base64"] = ""
+					case "rbac.CheckPermission":
+						importMap[e.GoModule+"/internal/pkg/rbac"] = ""
 					case "parallel.Run":
 						importMap["sync"] = ""
 					case "flow.Parallel", "flow.Join":

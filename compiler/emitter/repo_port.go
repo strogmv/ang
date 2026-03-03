@@ -82,6 +82,42 @@ type IdempotencyStore interface {
 	return nil
 }
 
+// EmitStateStorePort generates port.StateStore interface.
+func (e *Emitter) EmitStateStorePort() error {
+	targetDir := filepath.Join(e.OutputDir, "internal", "port")
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return fmt.Errorf("mkdir: %w", err)
+	}
+
+	src := []byte(`package port
+
+import (
+	"context"
+	"time"
+)
+
+// StateStore provides generic key-value storage for workflow and application state.
+type StateStore interface {
+	// Get retrieves a value by key. Returns nil if not found.
+	Get(ctx context.Context, key string) ([]byte, error)
+	// Set stores a value with optional TTL.
+	Set(ctx context.Context, key string, value []byte, ttl time.Duration) error
+	// Delete removes a value by key.
+	Delete(ctx context.Context, key string) error
+}
+`)
+	formatted, err := formatGoStrict(src, "internal/port/statestore.go")
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(targetDir, "statestore.go")
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
+		return fmt.Errorf("write file: %w", err)
+	}
+	fmt.Printf("Generated State Store Port: %s\n", path)
+	return nil
+}
+
 // EmitOutboxPort генерирует интерфейс OutboxRepository
 func (e *Emitter) EmitOutboxPort() error {
 	targetDir := filepath.Join(e.OutputDir, "internal", "port")
@@ -209,9 +245,44 @@ func (r *SystemRepository) MarkProcessed(ctx context.Context, id string) error {
 	return err
 }
 
+// ---------- StateStore ----------
+
+func (r *SystemRepository) Get(ctx context.Context, key string) ([]byte, error) {
+	exec := getExecutor(ctx, r.DB)
+	var data []byte
+	err := exec.QueryRow(ctx, "SELECT value FROM kv_store WHERE key = $1", key).Scan(&data)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return data, nil
+}
+
+func (r *SystemRepository) Set(ctx context.Context, key string, value []byte, ttl time.Duration) error {
+	exec := getExecutor(ctx, r.DB)
+	var expiresAt *time.Time
+	if ttl > 0 {
+		t := time.Now().Add(ttl)
+		expiresAt = &t
+	}
+	_, err := exec.Exec(ctx,
+		"INSERT INTO kv_store (key, value, expires_at) VALUES ($1, $2, $3) ON CONFLICT (key) DO UPDATE SET value = $2, expires_at = $3",
+		key, value, expiresAt)
+	return err
+}
+
+func (r *SystemRepository) Delete(ctx context.Context, key string) error {
+	exec := getExecutor(ctx, r.DB)
+	_, err := exec.Exec(ctx, "DELETE FROM kv_store WHERE key = $1", key)
+	return err
+}
+
 // Compile-time interface checks.
 var _ port.IdempotencyStore = (*SystemRepository)(nil)
 var _ port.OutboxRepository = (*SystemRepository)(nil)
+var _ port.StateStore = (*SystemRepository)(nil)
 `)
 
 	goFmt, err := formatGoStrict(src, "internal/adapter/repository/postgres/systemrepository.go")
@@ -237,6 +308,7 @@ func (e *Emitter) EmitRepository(repos []ir.Repository, entities []ir.Entity) er
 		return fmt.Errorf("mkdir: %w", err)
 	}
 
+	keep := make(map[string]struct{})
 	for _, repo := range nRepos {
 		rendered, err := e.renderRepositoryPortAST(repo)
 		if err != nil {
@@ -244,10 +316,24 @@ func (e *Emitter) EmitRepository(repos []ir.Repository, entities []ir.Entity) er
 		}
 		filename := fmt.Sprintf("%s.go", strings.ToLower(repo.Name))
 		path := filepath.Join(targetDir, filename)
+		keep[filename] = struct{}{}
 		if err := WriteFileIfChanged(path, rendered, 0644); err != nil {
 			return fmt.Errorf("write file: %w", err)
 		}
 		fmt.Printf("Generated Repository: %s\n", path)
+	}
+
+	if err := pruneGeneratedFiles(
+		targetDir,
+		keep,
+		func(name string) bool {
+			return strings.HasSuffix(name, "repository.go")
+		},
+		func(path string) bool {
+			return fileContainsAny(path, "defines storage operations for")
+		},
+	); err != nil {
+		return fmt.Errorf("prune stale repository ports: %w", err)
 	}
 	return nil
 }

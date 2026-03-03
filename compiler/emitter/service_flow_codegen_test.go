@@ -533,3 +533,35 @@ func TestRenderFlow_NewDataTransformActions(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderFlow_NewSecurityActions(t *testing.T) {
+	steps := []normalizer.FlowStep{
+		{Action: "jwt.Sign", Args: map[string]any{"claims": "map[string]any{\"sub\": req.UserID}", "secret": `"super-secret"`, "ttl": `"1h"`, "output": "token"}},
+		{Action: "jwt.Verify", Args: map[string]any{"token": "token", "secret": `"super-secret"`, "output": "claims"}},
+		{Action: "oauth2.Token", Args: map[string]any{"tokenURL": `"https://oauth.example/token"`, "clientID": `"cid"`, "clientSecret": `"csec"`, "scope": `"profile email"`, "output": "oauthToken"}},
+		{Action: "oauth2.Refresh", Args: map[string]any{"tokenURL": `"https://oauth.example/token"`, "refreshToken": `"r1"`, "clientID": `"cid"`, "clientSecret": `"csec"`, "output": "oauthRefreshed"}},
+		{Action: "crypto.Encrypt", Args: map[string]any{"input": "req.Payload", "key": `"enc-key"`, "output": "cipher"}},
+		{Action: "crypto.Decrypt", Args: map[string]any{"input": "cipher", "key": `"enc-key"`, "output": "plain"}},
+		{Action: "rbac.CheckPermission", Args: map[string]any{"user": "currentUser", "permission": `"project.create"`}},
+	}
+
+	code := renderFlow(steps)
+	mustContain := []string{
+		"strings.ToUpper(strings.TrimSpace(",
+		"base64.RawURLEncoding",
+		"hmac.New(sha256.New",
+		"strings.Split(token, \".\")",
+		"url.Values{}",
+		"http.NewRequestWithContext(ctx, http.MethodPost",
+		"io.ReadAll(",
+		"aes.NewCipher(",
+		"cipher.NewGCM(",
+		"base64.RawStdEncoding.EncodeToString",
+		"rbac.CheckPermission(currentUser.Role,",
+	}
+	for _, part := range mustContain {
+		if !strings.Contains(code, part) {
+			t.Fatalf("expected generated code to contain %q\n\n%s", part, code)
+		}
+	}
+}

@@ -1,5 +1,6 @@
 {{ define "main_server_repositories" }}
 	{{- $needsPG := or .HasSQL (gt (len (AllUsedRepoEntitiesIR .ServicesIR .EntitiesIR)) 0) }}
+	{{- $needsS3 := or .HasS3 (AnyServiceHasStorageIR .ServicesIR) }}
 	runtimeContainer, err := bootstrap.NewRuntimeContainer(
 		ctx,
 		cfg,
@@ -12,8 +13,8 @@
 		{{- if or .HasCache (or (eq .AuthRefreshStore "redis") (eq .AuthRefreshStore "hybrid")) }}
 		redisClient,
 		{{- end }}
-		natsClient,
-		{{- if .HasS3 }}
+		publisher,
+		{{- if $needsS3 }}
 		s3Client,
 		{{- end }}
 		{{- if or .HasNotificationsService .HasNotificationDispatch }}

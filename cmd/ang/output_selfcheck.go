@@ -93,9 +93,40 @@ func goListDir(workDir, pkg string) (string, error) {
 	// Isolate self-check from parent go.work files to avoid false mismatches
 	// in release-mode builds generated under nested dist/ directories.
 	cmd.Env = append(os.Environ(), "GOWORK=off")
-	out, err := cmd.CombinedOutput()
+	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
+		msg := strings.TrimSpace(string(out))
+		if ee, ok := err.(*exec.ExitError); ok {
+			stderr := strings.TrimSpace(string(ee.Stderr))
+			if stderr != "" {
+				if msg != "" {
+					msg = msg + "\n" + stderr
+				} else {
+					msg = stderr
+				}
+			}
+		}
+		return "", fmt.Errorf("%v: %s", err, msg)
 	}
-	return strings.TrimSpace(string(out)), nil
+	dir, err := parseGoListDirOutput(out)
+	if err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+func parseGoListDirOutput(out []byte) (string, error) {
+	text := strings.ReplaceAll(string(out), "\r\n", "\n")
+	lines := strings.Split(text, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "go: ") {
+			continue
+		}
+		return line, nil
+	}
+	return "", fmt.Errorf("go list returned empty package dir")
 }

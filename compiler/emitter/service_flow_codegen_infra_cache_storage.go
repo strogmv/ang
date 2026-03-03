@@ -158,13 +158,51 @@ func renderFlowStepInfraCacheMailStorage(st *flowRenderState, step normalizer.Fl
 		b.WriteString(errReturn(st, pad+"\t", sDlErrV))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		b.WriteString(fmt.Sprintf("%sdefer %s.Close()\n", pad, sDlRCV))
-		b.WriteString(fmt.Sprintf("%s%s, _ := io.ReadAll(%s)\n", pad, sDlBytesV, sDlRCV))
+		sDlReadErrV := "_sDlReadErr" + sfx
+		b.WriteString(fmt.Sprintf("%s%s, %s := io.ReadAll(%s)\n", pad, sDlBytesV, sDlReadErrV, sDlRCV))
+		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, sDlReadErrV))
+		b.WriteString(errReturn(st, pad+"\t", sDlReadErrV))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		if assign == ":=" {
 			b.WriteString(fmt.Sprintf("%s%s := %s\n", pad, output, sDlBytesV))
 		} else {
 			b.WriteString(fmt.Sprintf("%s%s = %s\n", pad, output, sDlBytesV))
 		}
 		st.types[output] = "[]byte"
+		return b.String(), true
+
+	case "storage.Delete":
+		key := arg("key")
+		if key == "" {
+			return "", true
+		}
+		var b strings.Builder
+		sDelErrV := "_sDelErr" + sfx
+		b.WriteString(fmt.Sprintf("%sif %s := s.storage.Delete(ctx, %s); %s != nil {\n", pad, sDelErrV, key, sDelErrV))
+		b.WriteString(errReturn(st, pad+"\t", sDelErrV))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
+
+	case "storage.List":
+		prefix := arg("prefix")
+		output := arg("output")
+		if prefix == "" || output == "" {
+			return "", true
+		}
+		assign := ":="
+		if st.declared[output] {
+			assign = "="
+		}
+		st.declared[output] = true
+		st.pointers[output] = false
+		st.types[output] = "[]string"
+		var b strings.Builder
+		sListV, sErrV := "_sList"+sfx, "_sErr"+sfx
+		b.WriteString(fmt.Sprintf("%s%s, %s := s.storage.List(ctx, %s)\n", pad, sListV, sErrV, prefix))
+		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, sErrV))
+		b.WriteString(errReturn(st, pad+"\t", sErrV))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s %s %s\n", pad, output, assign, sListV))
 		return b.String(), true
 
 	case "storage.GetURL":

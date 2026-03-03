@@ -1,0 +1,40 @@
+package http
+
+import (
+	"net/http"
+	"time"
+
+	"github.com/google/uuid"
+	"{{GoModule}}/internal/pkg/reqctx"
+)
+
+const sessionCookieName = "{{.CookieName}}"
+
+var sessionCookieTTL = {{.TTLSeconds}} * time.Second
+
+// SessionMiddleware reads the anonymous session cookie.
+// If the cookie is absent or empty a new UUID session ID is generated and
+// the cookie is set on the response. The session ID is stored in the request
+// context via reqctx.WithSessionID so that service-layer flow steps can
+// retrieve it with {action: "session.Get"}.
+func SessionMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sessionID := ""
+		if c, err := r.Cookie(sessionCookieName); err == nil && c.Value != "" {
+			sessionID = c.Value
+		}
+		if sessionID == "" {
+			sessionID = uuid.NewString()
+			http.SetCookie(w, &http.Cookie{
+				Name:     sessionCookieName,
+				Value:    sessionID,
+				Path:     "/",
+				MaxAge:   int(sessionCookieTTL.Seconds()),
+				HttpOnly: true,
+				SameSite: http.SameSiteLaxMode,
+			})
+		}
+		r = r.WithContext(reqctx.WithSessionID(r.Context(), sessionID))
+		next.ServeHTTP(w, r)
+	})
+}

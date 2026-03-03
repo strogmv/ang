@@ -16,6 +16,7 @@ import (
 	"io"
 	"math/big"
 	"math/rand"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -533,66 +534,126 @@ func CacheMiddleware(ttl string) func(http.Handler) http.Handler {
 	}
 }
 
+// realClientIP extracts the real client IP honoring reverse-proxy headers.
+func realClientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if i := strings.Index(xff, ","); i != -1 {
+			return strings.TrimSpace(xff[:i])
+		}
+		return strings.TrimSpace(xff)
+	}
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return strings.TrimSpace(xri)
+	}
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return ip
+}
+
 type rateState struct {
 	windowStart time.Time
 	count       int
 }
 
+type windowState struct {
+	mu      sync.Mutex
+	count   int
+	resetAt time.Time
+}
+
 var (
-	rateMu      sync.Mutex
-	rateByIP    = map[string]*rateState{}
-	redisClient *redis.Client
+	rateMu       sync.Mutex
+	rateByIP     = map[string]*rateState{}
+	windowByKey  sync.Map
+	redisClient  *redis.Client
 )
 
 func SetRedisClient(c *redis.Client) {
 	redisClient = c
 }
 
-func RateLimitMiddleware(rps, burst int) func(http.Handler) http.Handler {
+// RateLimitMiddleware enforces per-IP rate limiting at two levels:
+//   - rps/burst : per-second token-bucket (Redis when available, in-memory fallback)
+//   - windowSecs/windowLimit : fixed-window quota (e.g. 10 builds/hour)
+//     windowLimit=0 disables the window check.
+func RateLimitMiddleware(rps, burst, windowSecs, windowLimit int) func(http.Handler) http.Handler {
 	max := rps
 	if burst > max {
 		max = burst
 	}
-	if max <= 0 {
-		return func(next http.Handler) http.Handler { return next }
-	}
-
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ip := r.RemoteAddr
+			ip := realClientIP(r)
 			now := time.Now()
-			if redisClient != nil {
-				key := "rate:" + ip
-				ctx := context.Background()
-				count, err := redisClient.Incr(ctx, key).Result()
-				if err == nil {
-					_ = redisClient.Expire(ctx, key, time.Second).Err()
-					if int(count) > max {
+
+			// ---- per-second RPS check ----
+			if max > 0 {
+				if redisClient != nil {
+					key := fmt.Sprintf("rate:rps:%d:%s", max, ip)
+					ctx := context.Background()
+					count, err := redisClient.Incr(ctx, key).Result()
+					if err == nil {
+						_ = redisClient.Expire(ctx, key, time.Second).Err()
+						if int(count) > max {
+							errors.WriteError(w, r, errors.New(http.StatusTooManyRequests, "Too Many Requests", "Rate limit exceeded"))
+							return
+						}
+					}
+				} else {
+					rateMu.Lock()
+					state, ok := rateByIP[ip]
+					if !ok {
+						state = &rateState{windowStart: now}
+						rateByIP[ip] = state
+					}
+					if now.Sub(state.windowStart) >= time.Second {
+						state.windowStart = now
+						state.count = 0
+					}
+					state.count++
+					over := state.count > max
+					rateMu.Unlock()
+					if over {
 						errors.WriteError(w, r, errors.New(http.StatusTooManyRequests, "Too Many Requests", "Rate limit exceeded"))
 						return
 					}
-					next.ServeHTTP(w, r)
-					return
 				}
 			}
 
-			rateMu.Lock()
-			state, ok := rateByIP[ip]
-			if !ok {
-				state = &rateState{windowStart: now}
-				rateByIP[ip] = state
-			}
-			if now.Sub(state.windowStart) >= time.Second {
-				state.windowStart = now
-				state.count = 0
-			}
-			state.count++
-			over := state.count > max
-			rateMu.Unlock()
-
-			if over {
-				errors.WriteError(w, r, errors.New(http.StatusTooManyRequests, "Too Many Requests", "Rate limit exceeded"))
-				return
+			// ---- fixed-window quota check (e.g. hourly build limit) ----
+			if windowSecs > 0 && windowLimit > 0 {
+				windowDur := time.Duration(windowSecs) * time.Second
+				wkey := fmt.Sprintf("rate:win:%d:%s", windowSecs, ip)
+				if redisClient != nil {
+					ctx := context.Background()
+					count, err := redisClient.Incr(ctx, wkey).Result()
+					if err == nil {
+						if count == 1 {
+							_ = redisClient.Expire(ctx, wkey, windowDur).Err()
+						}
+						if int(count) > windowLimit {
+							errors.WriteError(w, r, errors.New(http.StatusTooManyRequests, "Too Many Requests", "Rate limit exceeded"))
+							return
+						}
+					}
+				} else {
+					v, _ := windowByKey.LoadOrStore(wkey, &windowState{resetAt: now.Add(windowDur)})
+					ws := v.(*windowState)
+					ws.mu.Lock()
+					if now.After(ws.resetAt) {
+						ws.count = 0
+						ws.resetAt = now.Add(windowDur)
+					}
+					ws.count++
+					over := ws.count > windowLimit
+					ws.mu.Unlock()
+					if over {
+						errors.WriteError(w, r, errors.New(http.StatusTooManyRequests, "Too Many Requests", "Rate limit exceeded"))
+						return
+					}
+				}
 			}
 
 			next.ServeHTTP(w, r)

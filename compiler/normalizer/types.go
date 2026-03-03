@@ -280,8 +280,10 @@ type PaginationDef struct {
 }
 
 type RateLimitDef struct {
-	RPS   int
-	Burst int
+	RPS         int
+	Burst       int
+	Window      string // duration string, e.g. "1h"
+	WindowLimit int    // max requests per window (0 = disabled)
 }
 
 type CircuitBreakerDef struct {
@@ -331,6 +333,12 @@ type AuthDef struct {
 	RefreshRefreshField string
 	LogoutOp            string
 	LogoutTokenField    string
+}
+
+// SessionDef describes anonymous cookie-session configuration.
+type SessionDef struct {
+	CookieName string // e.g. "sendbox_session"
+	TTLSeconds int    // cookie max-age in seconds; default 365 days
 }
 
 // RBACDef описывает матрицу доступа.

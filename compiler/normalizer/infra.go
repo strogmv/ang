@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"cuelang.org/go/cue"
 )
@@ -118,6 +119,39 @@ func (n *Normalizer) ExtractAuth(val cue.Value) (*AuthDef, error) {
 		RefreshRefreshField: strings.TrimSpace(refreshRefresh),
 		LogoutOp:            strings.TrimSpace(logoutOp),
 		LogoutTokenField:    strings.TrimSpace(logoutTokenField),
+	}, nil
+}
+
+// ExtractSession parses #Session definition from infra.
+// CUE shape:
+//
+//	#Session: {
+//	    cookieName: "sendbox_session"   // default "session_id"
+//	    ttl:        "8760h"             // optional, default 365 days
+//	}
+func (n *Normalizer) ExtractSession(val cue.Value) (*SessionDef, error) {
+	sessVal := val.LookupPath(cue.ParsePath("#Session"))
+	if !sessVal.Exists() {
+		return nil, nil
+	}
+
+	cookieName, _ := sessVal.LookupPath(cue.ParsePath("cookieName")).String()
+	cookieName = strings.TrimSpace(cookieName)
+	if cookieName == "" {
+		cookieName = "session_id"
+	}
+
+	ttlSeconds := 365 * 24 * 3600 // default 1 year
+	if ttlStr, err := sessVal.LookupPath(cue.ParsePath("ttl")).String(); err == nil {
+		ttlStr = strings.TrimSpace(ttlStr)
+		if d, err := time.ParseDuration(ttlStr); err == nil && d > 0 {
+			ttlSeconds = int(d.Seconds())
+		}
+	}
+
+	return &SessionDef{
+		CookieName: cookieName,
+		TTLSeconds: ttlSeconds,
 	}, nil
 }
 
@@ -425,15 +459,19 @@ func (n *Normalizer) ExtractRepositories(val cue.Value) ([]Repository, error) {
 		})
 	}
 
-	// 1. Extract from Services.owns
+	// 1. Extract from Services.{owns,entities}
+	// `owns` is legacy, `entities` is the current architecture key.
 	servicesVal := val.LookupPath(cue.ParsePath("Services"))
 	if servicesVal.Exists() {
 		iter, _ := servicesVal.Fields()
 		for iter.Next() {
 			svcVal := iter.Value()
-			ownsVal := svcVal.LookupPath(cue.ParsePath("owns"))
-			if ownsVal.Exists() {
-				list, _ := ownsVal.List()
+			for _, field := range []string{"owns", "entities"} {
+				entitiesVal := svcVal.LookupPath(cue.ParsePath(field))
+				if !entitiesVal.Exists() {
+					continue
+				}
+				list, _ := entitiesVal.List()
 				for list.Next() {
 					ent, _ := list.Value().String()
 					addRepo(ent)

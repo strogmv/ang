@@ -1022,6 +1022,8 @@ type MainContext struct {
 	WSRoomField             map[string]string
 	AuthService             string
 	AuthRefreshStore        string
+	HasSession              bool
+	SessionCookieName       string
 	InputHash               string
 	CompilerHash            string
 	ANGVersion              string

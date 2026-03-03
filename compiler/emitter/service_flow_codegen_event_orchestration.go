@@ -45,18 +45,18 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 		b.WriteString(fmt.Sprintf("%s{\n", pad))
 		b.WriteString(fmt.Sprintf("%s\t_waitCtx, _waitCancel := context.WithTimeout(ctx, %s)\n", pad, timeout))
 		b.WriteString(fmt.Sprintf("%s\tdefer _waitCancel()\n", pad))
-		
+
 		waitCall := fmt.Sprintf("s.publisher.Wait(_waitCtx, %q, %q)", name, match)
-		
+
 		b.WriteString(fmt.Sprintf("%s\t_evt, _waitErr := %s\n", pad, waitCall))
 		b.WriteString(fmt.Sprintf("%s\tif _waitErr != nil {\n", pad))
-		b.WriteString(errReturn(st, pad+"\t\t", "fmt.Errorf(\"event.Wait(%s): %w\", _waitErr)"))
+		b.WriteString(errReturn(st, pad+"\t\t", fmt.Sprintf("fmt.Errorf(\"event.Wait(%%s): %%w\", %q, _waitErr)", name)))
 		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
-		
+
 		if output != "" {
 			b.WriteString(fmt.Sprintf("%s\t%s = _evt\n", pad, output))
 		}
-		
+
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
 
@@ -72,12 +72,12 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 		b.WriteString(fmt.Sprintf("%s// event.Subscribe: %s\n", pad, name))
 		b.WriteString(fmt.Sprintf("%sif s.publisher != nil {\n", pad))
 		b.WriteString(fmt.Sprintf("%s\ts.publisher.Subscribe(ctx, %q, %q, func(ctx context.Context, evt any) {\n", pad, name, match))
-		
+
 		subState := cloneFlowState(st)
 		subState.goroutineMode = true
 		subState.declared["evt"] = true
 		subState.types["evt"] = "any"
-		
+
 		b.WriteString(renderFlowSteps(subState, doSteps, indent+2))
 		b.WriteString(fmt.Sprintf("%s\t})\n", pad))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))

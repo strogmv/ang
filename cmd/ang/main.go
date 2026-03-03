@@ -35,6 +35,8 @@ func main() {
 		runUp(os.Args[2:])
 	case "first-run":
 		runFirstRun(os.Args[2:])
+	case "status":
+		runStatus(os.Args[2:])
 	case "migrate":
 		runMigrate(os.Args[2:])
 	case "api-diff":
@@ -87,6 +89,7 @@ func printUsage() {
 	fmt.Println("  ang build     Compile CUE intent into code and infra configs (--mode=in_place|release, --backend-dir, --dry-run, --run-tests, --log-format=json, --phase=all|plan|apply, --out-plan, --plan-file)")
 	fmt.Println("  ang up        Local one-command bootstrap (doctor start + compose up + build + smoke)")
 	fmt.Println("  ang first-run Guided first launch (env bootstrap + infra/build + smoke)")
+	fmt.Println("  ang status    Show local runtime/dev status (checks + health + compose)")
 	fmt.Println("                Examples:")
 	fmt.Println("                  ang build --mode=in_place --backend-dir .")
 	fmt.Println("                  ang build --mode=release")

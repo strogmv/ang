@@ -184,5 +184,46 @@ func Validate(s interface{}) error {
 	return validate.Struct(s)
 }
 
+// MatchEvent checks if the event matches the correlation criteria (e.g. "OrderID=req.ID").
+func MatchEvent(evt any, match string) bool {
+	if match == "" {
+		return true
+	}
+	if evt == nil {
+		return false
+	}
+
+	// Simple implementation: parse "key=value" and check if evt.key == value
+	parts := strings.Split(match, "=")
+	if len(parts) != 2 {
+		return true
+	}
+
+	key := strings.TrimSpace(parts[0])
+	val := strings.Trim(strings.TrimSpace(parts[1]), "\"")
+
+	rv := reflect.ValueOf(evt)
+	for rv.Kind() == reflect.Ptr {
+		if rv.IsNil() {
+			return false
+		}
+		rv = rv.Elem()
+	}
+	if rv.Kind() != reflect.Struct {
+		return false
+	}
+
+	f := rv.FieldByName(key)
+	if !f.IsValid() {
+		// Try lowercase
+		f = rv.FieldByName(strings.Title(key))
+		if !f.IsValid() {
+			return false
+		}
+	}
+
+	return fmt.Sprint(f.Interface()) == val
+}
+
 // _ is a compile guard to ensure strings is used.
 var _ = strings.ToLower

@@ -5,7 +5,7 @@
 		{{- range $evtName, $evtFields := $events }}
 		{{- $roomField := RoomFieldForEventIR $.EndpointsIR $.ServicesIR $svcName $evtName }}
 		{{- $hasRoomField := HasEventFieldIR $.EventPayloads $evtName $roomField }}
-		if _, err := natsClient.Subscribe("{{ $evtName }}", func(data []byte) error {
+		if _, err := natsClient.SubscribeRaw("{{ $evtName }}", func(data []byte) error {
 			defer func() {
 				if r := recover(); r != nil {
 					log.Error("NATS WS handler panic recovered", "event", "{{ $evtName }}", "panic", r)

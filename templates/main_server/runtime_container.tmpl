@@ -5,6 +5,7 @@ import (
 	"context"
 	{{- $repoEntities := AllUsedRepoEntitiesIR .ServicesIR .EntitiesIR }}
 	{{- $needsPG := or .HasSQL (gt (len $repoEntities) 0) }}
+	{{- $needsS3 := or .HasS3 (AnyServiceHasStorageIR .ServicesIR) }}
 	{{- if $needsPG }}
 	"github.com/jackc/pgx/v5/pgxpool"
 	{{- end }}
@@ -63,7 +64,7 @@ func NewRuntimeContainer(
 	redisClient *redis.Client,
 	{{- end }}
 	publisher port.Publisher,
-	{{- if .HasS3 }}
+	{{- if $needsS3 }}
 	s3Client port.FileStorage,
 	{{- end }}
 	{{- if or .HasNotificationsService .HasNotificationDispatch }}
@@ -110,7 +111,7 @@ func NewRuntimeContainer(
 	repoNotification = adapter.NewMutingNotificationRepo(repoNotification, repoUser)
 	{{- end }}
 
-	{{- if and $needsPG (AnyServiceHasIdempotencyOrOutboxIR .ServicesIR) }}
+	{{- if and $needsPG (or (AnyServiceHasIdempotencyOrOutboxIR .ServicesIR) (AnyServiceHasStateActionsIR .ServicesIR)) }}
 	repoSystem := postgres.NewSystemRepository(pgPool)
 	{{- end }}
 
@@ -150,11 +151,18 @@ func NewRuntimeContainer(
 		nil,
 			{{- end }}
 		{{- end }}
-		{{- if .RequiresS3 }}
+		{{- if or .RequiresS3 (ServiceHasStorageIR .) }}
 		s3Client,
 		{{- end }}
 		{{- if ServiceHasNotificationDispatchIR . }}
 		notificationDispatcher,
+		{{- end }}
+		{{- if ServiceHasStateActionsIR . }}
+			{{- if $needsPG }}
+		repoSystem,
+			{{- else }}
+		nil,
+			{{- end }}
 		{{- end }}
 	)
 	{{- end }}

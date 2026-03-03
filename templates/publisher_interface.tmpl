@@ -10,7 +10,12 @@ import (
 type Publisher interface {
 {{- range . }}
 	Publish{{ . }}(ctx context.Context, event domain.{{ ExportName . }}) error
+	Broadcast{{ . }}(ctx context.Context, event domain.{{ ExportName . }}) error
 {{- end }}
+	// Wait blocks until an event with matching correlation arrives or timeout occurs.
+	Wait(ctx context.Context, name string, match string) (any, error)
+	// Subscribe registers an async handler for events with matching correlation.
+	Subscribe(ctx context.Context, name string, match string, handler func(context.Context, any)) error
 }
 
 // QueuePublisher sends arbitrary messages to a named subject/queue.

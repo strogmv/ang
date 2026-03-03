@@ -1,5 +1,6 @@
 {{ define "main_server_imports" }}
 {{- $needsPG := or .HasSQL (gt (len (AllUsedRepoEntitiesIR .ServicesIR .EntitiesIR)) 0) }}
+{{- $needsS3 := or .HasS3 (AnyServiceHasStorageIR .ServicesIR) }}
 import (
 	"context"
 	"net/http"
@@ -27,7 +28,7 @@ import (
 	"{{.GoModule}}/internal/adapter/events/nats"
 	"{{.GoModule}}/internal/domain"
 	{{ end }}
-	{{ if .HasS3 }}
+	{{ if $needsS3 }}
 	"{{.GoModule}}/internal/adapter/storage/s3"
 	{{ end }}
 	{{ if or .HasNotificationsService .HasNotificationDispatch }}

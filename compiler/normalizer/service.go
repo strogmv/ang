@@ -1436,6 +1436,11 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 			case "auth.CheckRole":
 				// validated by flow semantics engine
 
+			case "rbac.CheckPermission":
+				if output, _ := step.Args["output"].(string); output != "" {
+					declaredVars[output] = true
+				}
+
 			case "entity.PatchNonZero":
 				// validated by flow semantics engine
 
@@ -1583,7 +1588,10 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 				"str.Format",
 				"json.Parse", "json.Marshal",
 				"math.Op",
-				"jsonpath.Get", "jsonpath.Set":
+				"jsonpath.Get", "jsonpath.Set",
+				"jwt.Sign", "jwt.Verify",
+				"oauth2.Token", "oauth2.Refresh",
+				"crypto.Encrypt", "crypto.Decrypt":
 				if output, _ := step.Args["output"].(string); output != "" {
 					declaredVars[output] = true
 				}
@@ -1650,6 +1658,10 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					!strings.HasPrefix(step.Action, "hash.") && !strings.HasPrefix(step.Action, "uuid.") &&
 					!strings.HasPrefix(step.Action, "ulid.") && !strings.HasPrefix(step.Action, "math.") &&
 					!strings.HasPrefix(step.Action, "jsonpath.") &&
+					!strings.HasPrefix(step.Action, "jwt.") &&
+					!strings.HasPrefix(step.Action, "oauth2.") &&
+					!strings.HasPrefix(step.Action, "crypto.") &&
+					!strings.HasPrefix(step.Action, "rbac.") &&
 					!strings.HasPrefix(step.Action, "batch.") &&
 					!strings.HasPrefix(step.Action, "parallel.") &&
 					!strings.HasPrefix(step.Action, "archive.") &&

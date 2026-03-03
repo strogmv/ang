@@ -1,5 +1,6 @@
 {{ define "main_server_infrastructure" }}
 	{{- $needsPG := or .HasSQL (gt (len (AllUsedRepoEntitiesIR .ServicesIR .EntitiesIR)) 0) }}
+	{{- $needsS3 := or .HasS3 (AnyServiceHasStorageIR .ServicesIR) }}
 	{{ if $needsPG }}
 	pgPool, err := func() (*pgxpool.Pool, error) {
 		poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)
@@ -90,7 +91,7 @@
 	}
 	{{ end }}
 
-	{{ if .HasS3 }}
+	{{ if $needsS3 }}
 	s3Client, err := s3.New(ctx, cfg.AWSRegion, cfg.S3Bucket, cfg.S3Endpoint)
 	if err != nil {
 		log.Error("S3 init failed", "error", err)
@@ -102,15 +103,15 @@
 	{{ if not $needsPG }}var pgPool *pgxpool.Pool{{ end }}
 	{{ if not .HasNats }}var natsClient *nats.Client{{ end }}
 	{{ if not (or .HasCache (or (eq .AuthRefreshStore "redis") (eq .AuthRefreshStore "hybrid"))) }}var redisClient *redisv9.Client{{ end }}
+	var publisher port.Publisher
+	if natsClient != nil {
+		publisher = natsClient
+	}
 	{{ if or .HasNotificationsService .HasNotificationDispatch }}
 	notificationDispatcher := notifications.NewDispatcher(cfg)
 	{{ end }}
 
 	{{ if .HasScheduler }}
-	var publisher port.Publisher
-	if natsClient != nil {
-		publisher = natsClient
-	}
 	sched := scheduler.New(publisher, scheduler.DefaultSchedules)
 	sched.Start(ctx)
 	{{ end }}

@@ -17,6 +17,7 @@ type buildStepRegistryInput struct {
 	scenarios        []normalizer.ScenarioDef
 	cfgDef           *normalizer.ConfigDef
 	authDef          *normalizer.AuthDef
+	sessionDef       *normalizer.SessionDef
 	rbacDef          *normalizer.RBACDef
 	infraValues      map[string]any
 	emailTemplates   []normalizer.EmailTemplateDef
@@ -35,6 +36,7 @@ func buildStepRegistry(in buildStepRegistryInput) (*generator.StepRegistry, []st
 		Scenarios:        in.scenarios,
 		Config:           in.cfgDef,
 		Auth:             in.authDef,
+		Session:          in.sessionDef,
 		RBAC:             in.rbacDef,
 		InfraValues:      in.infraValues,
 		EmailTemplates:   in.emailTemplates,

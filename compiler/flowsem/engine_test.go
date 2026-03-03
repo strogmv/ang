@@ -484,3 +484,51 @@ func TestValidate_BatchRunRequiresDoAndValidSize(t *testing.T) {
 		t.Fatalf("expected INVALID_SIZE issue, got %+v", issuesInvalidSize)
 	}
 }
+
+func TestValidate_NewSecurityActionsKnown(t *testing.T) {
+	t.Parallel()
+	steps := []Step{
+		{Action: "jwt.Sign", Args: map[string]any{"claims": "map[string]any{\"sub\": req.UserID}", "output": "token"}},
+		{Action: "jwt.Verify", Args: map[string]any{"token": "req.Token", "output": "claims"}},
+		{Action: "oauth2.Token", Args: map[string]any{"tokenURL": `"https://oauth.example/token"`, "output": "tok"}},
+		{Action: "oauth2.Refresh", Args: map[string]any{"tokenURL": `"https://oauth.example/token"`, "refreshToken": "req.RefreshToken", "output": "tok"}},
+		{Action: "crypto.Encrypt", Args: map[string]any{"input": "req.Payload", "output": "cipher"}},
+		{Action: "crypto.Decrypt", Args: map[string]any{"input": "req.Cipher", "output": "plain"}},
+		{Action: "rbac.CheckPermission", Args: map[string]any{"user": "currentUser", "permission": `"project.create"`}},
+	}
+
+	issues := Validate(steps)
+	for _, it := range issues {
+		if it.Code == "UNKNOWN_ACTION" {
+			t.Fatalf("unexpected UNKNOWN_ACTION for %s", it.Action)
+		}
+	}
+}
+
+func TestValidate_NewSecurityActionsRequiredArgs(t *testing.T) {
+	t.Parallel()
+	issues := Validate([]Step{
+		{Action: "jwt.Sign", Args: map[string]any{"output": "token"}},
+		{Action: "jwt.Verify", Args: map[string]any{"output": "claims"}},
+		{Action: "oauth2.Token", Args: map[string]any{"output": "tok"}},
+		{Action: "oauth2.Refresh", Args: map[string]any{"tokenURL": `"https://oauth.example/token"`, "output": "tok"}},
+		{Action: "crypto.Encrypt", Args: map[string]any{"output": "cipher"}},
+		{Action: "crypto.Decrypt", Args: map[string]any{"output": "plain"}},
+		{Action: "rbac.CheckPermission", Args: map[string]any{"user": "currentUser"}},
+	})
+
+	want := map[string]bool{
+		"MISSING_CLAIMS":       true,
+		"MISSING_TOKEN":        true,
+		"MISSING_TOKENURL":     true,
+		"MISSING_REFRESHTOKEN": true,
+		"MISSING_INPUT":        true,
+		"MISSING_PERMISSION":   true,
+	}
+	for _, it := range issues {
+		delete(want, it.Code)
+	}
+	for code := range want {
+		t.Fatalf("expected %s issue in %+v", code, issues)
+	}
+}

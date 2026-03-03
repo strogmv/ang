@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/strogmv/ang/compiler"
 )
 
 type startupCheck struct {
@@ -72,6 +74,8 @@ func runUp(args []string) {
 	skipBuild := fs.Bool("skip-build", false, "skip ang build")
 	skipSmoke := fs.Bool("skip-smoke", false, "skip health smoke check")
 	detach := fs.Bool("detach", true, "run docker compose up in detached mode")
+	watch := fs.Bool("watch", false, "watch cue/ changes and auto-run validate/build/smoke loop")
+	watchInterval := fs.Duration("watch-interval", 2*time.Second, "poll interval for --watch mode")
 	fun := fs.Bool("fun", false, "show launch banner and celebratory ready marker")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
@@ -165,6 +169,9 @@ func runUp(args []string) {
 
 	fmt.Println("READY: local bootstrap completed.")
 	fmt.Println("Tip: run `ang tips` for quick next commands.")
+	if *watch {
+		runUpWatchLoop(root, *skipSmoke, *watchInterval)
+	}
 }
 
 func runSmoke(args []string) {
@@ -595,6 +602,47 @@ func findFreePortNear(port string) string {
 		return fmt.Sprintf("%d", p)
 	}
 	return ""
+}
+
+func runUpWatchLoop(projectPath string, skipSmoke bool, interval time.Duration) {
+	if interval <= 0 {
+		interval = 2 * time.Second
+	}
+	lastHash, err := compiler.ComputeProjectHash(projectPath)
+	if err != nil {
+		fmt.Printf("Watch mode: unable to compute initial cue hash (%v). Continuing with best effort.\n", err)
+		lastHash = ""
+	}
+	fmt.Printf("Watch mode: polling cue/ every %s. Press Ctrl+C to stop.\n", interval)
+	for {
+		time.Sleep(interval)
+		nextHash, err := compiler.ComputeProjectHash(projectPath)
+		if err != nil {
+			fmt.Printf("Watch mode: hash error: %v\n", err)
+			continue
+		}
+		if nextHash == lastHash {
+			continue
+		}
+		lastHash = nextHash
+
+		fmt.Println("Watch mode: change detected. Running validate -> build -> smoke ...")
+		if err := runSelf(projectPath, "validate"); err != nil {
+			printCommandFailure("Watch", fmt.Sprintf("validate: %v", err), "fix CUE errors and save again")
+			continue
+		}
+		if err := runSelf(projectPath, "build"); err != nil {
+			printCommandFailure("Watch", fmt.Sprintf("build: %v", err), "fix generation/runtime issues and save again")
+			continue
+		}
+		if !skipSmoke {
+			if err := runSelf(projectPath, "smoke"); err != nil {
+				printCommandFailure("Watch", fmt.Sprintf("smoke: %v", err), "check server health and retry")
+				continue
+			}
+		}
+		fmt.Println("Watch mode: cycle OK.")
+	}
 }
 
 type upProgress struct {

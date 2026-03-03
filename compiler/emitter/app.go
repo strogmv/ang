@@ -92,7 +92,9 @@ type MainServerServicesContext struct {
 	WebSocketServices       map[string]bool
 }
 
-type MainServerHTTPRouterContext struct{}
+type MainServerHTTPRouterContext struct {
+	HasSession bool
+}
 
 type MainServerWebSocketsContext struct {
 	HasNats       bool
@@ -193,7 +195,9 @@ func buildMainServerTemplateData(ctx MainContext) MainServerTemplateData {
 			HasNotificationDispatch: ctx.HasNotificationDispatch,
 			WebSocketServices:       ctx.WebSocketServices,
 		},
-		HTTPRouter: MainServerHTTPRouterContext{},
+		HTTPRouter: MainServerHTTPRouterContext{
+			HasSession: ctx.HasSession,
+		},
 		WebSockets: MainServerWebSocketsContext{
 			HasNats:       ctx.HasNats,
 			WSEventMap:    ctx.WSEventMap,
@@ -470,6 +474,41 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		}
 		return false
 	}
+	appFuncs["ServiceHasStorageIR"] = func(s ir.Service) bool {
+		var hasStorage func([]ir.FlowStep) bool
+		hasStorage = func(steps []ir.FlowStep) bool {
+			for _, step := range steps {
+				switch step.Action {
+				case "storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List":
+					return true
+				}
+				if hasStorage(step.Steps) || hasStorage(step.IfNew) || hasStorage(step.IfExists) || hasStorage(step.Then) || hasStorage(step.Else) || hasStorage(step.Default) {
+					return true
+				}
+				for _, branch := range step.Cases {
+					if hasStorage(branch) {
+						return true
+					}
+				}
+			}
+			return false
+		}
+		for _, m := range s.Methods {
+			if hasStorage(m.Flow) {
+				return true
+			}
+		}
+		return false
+	}
+	appFuncs["AnyServiceHasStorageIR"] = func(services []ir.Service) bool {
+		hasStorage := appFuncs["ServiceHasStorageIR"].(func(ir.Service) bool)
+		for _, svc := range services {
+			if hasStorage(svc) {
+				return true
+			}
+		}
+		return false
+	}
 	appFuncs["ServiceHasNotificationDispatchIR"] = func(s ir.Service) bool {
 		var hasDispatch func([]ir.FlowStep) bool
 		hasDispatch = func(steps []ir.FlowStep) bool {
@@ -533,6 +572,41 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 	appFuncs["ServiceHasOutboxIR"] = func(s ir.Service) bool {
 		for _, m := range s.Methods {
 			if m.Outbox {
+				return true
+			}
+		}
+		return false
+	}
+	appFuncs["ServiceHasStateActionsIR"] = func(s ir.Service) bool {
+		var hasState func([]ir.FlowStep) bool
+		hasState = func(steps []ir.FlowStep) bool {
+			for _, step := range steps {
+				switch step.Action {
+				case "state.Get", "state.Set", "state.Delete":
+					return true
+				}
+				if hasState(step.Steps) || hasState(step.IfNew) || hasState(step.IfExists) || hasState(step.Then) || hasState(step.Else) || hasState(step.Default) {
+					return true
+				}
+				for _, branch := range step.Cases {
+					if hasState(branch) {
+						return true
+					}
+				}
+			}
+			return false
+		}
+		for _, m := range s.Methods {
+			if hasState(m.Flow) {
+				return true
+			}
+		}
+		return false
+	}
+	appFuncs["AnyServiceHasStateActionsIR"] = func(services []ir.Service) bool {
+		hasState := appFuncs["ServiceHasStateActionsIR"].(func(ir.Service) bool)
+		for _, svc := range services {
+			if hasState(svc) {
 				return true
 			}
 		}

@@ -77,7 +77,7 @@ import "github.com/strogmv/ang/cue/project"
 // AI AGENTS: Use these definitions to understand valid flow step structures.
 // ============================================================================
 
-#FlowStep: #RepoStep | #DbStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #CustomStep | #StateStep | #ExplicitStateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #AuditStep | #AuthStep | #CheckRoleStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #ListMapStep | #ListReduceStep | #ListGroupByStep | #ListDistinctStep | #ListChunkStep | #BatchRunStep | #EnrichStep | #TimeParseStep | #TimeCheckExpiryStep | #MapBuildStep | #ExecRunStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #StorageUploadStep | #StorageGetURLStep | #HTTPCallStep | #HTTPRequestStep | #HTTPRetryPolicyStep | #HTTPPaginateStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #JSONParseStep | #JSONMarshalStep | #ParallelStep | #FlowParallelStep | #FlowJoinStep | #FlowRaceStep | #FlowDelayStep | #FlowScheduleStep | #FlowCronStep | #SecretGetStep | #ConfigGetStep | #EventWaitStep | #EventSubscribeStep | #EventMatchStep | #FlowSagaStep | #FlowCompensateStep | #FlowRollbackStep | #FlowTagStep | #FlowCheckpointStep | #FlowResumeStep | #FlowValidateStep | #FlowTryStep | #FlowRetryStep | #FlowFallbackStep | #FlowTimeoutStep | #FlowSuggestNextStep | #FlowExplainErrorStep | #IdemDeriveKeyStep | #IdemCheckStep | #IdemSaveResultStep | #DedupeOnceStep | #RateLimitCheckStep | #ConcurrencyLimitStep | #CircuitCheckStep | #CircuitRecordSuccessStep | #CircuitRecordFailureStep | #BulkheadAcquireStep
+#FlowStep: #RepoStep | #DbStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #CustomStep | #StateStep | #ExplicitStateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #AuditStep | #AuthStep | #CheckRoleStep | #RBACCheckPermissionStep | #JWTSignStep | #JWTVerifyStep | #OAuth2TokenStep | #OAuth2RefreshStep | #EncryptStep | #DecryptStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #ListMapStep | #ListReduceStep | #ListGroupByStep | #ListDistinctStep | #ListChunkStep | #BatchRunStep | #EnrichStep | #TimeParseStep | #TimeCheckExpiryStep | #MapBuildStep | #ExecRunStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #StorageUploadStep | #StorageGetURLStep | #HTTPCallStep | #HTTPRequestStep | #HTTPRetryPolicyStep | #HTTPPaginateStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #JSONParseStep | #JSONMarshalStep | #ParallelStep | #FlowParallelStep | #FlowJoinStep | #FlowRaceStep | #FlowDelayStep | #FlowScheduleStep | #FlowCronStep | #SecretGetStep | #ConfigGetStep | #EventWaitStep | #EventSubscribeStep | #EventMatchStep | #FlowSagaStep | #FlowCompensateStep | #FlowRollbackStep | #FlowTagStep | #FlowCheckpointStep | #FlowResumeStep | #FlowValidateStep | #FlowTryStep | #FlowRetryStep | #FlowFallbackStep | #FlowTimeoutStep | #FlowSuggestNextStep | #FlowExplainErrorStep | #IdemDeriveKeyStep | #IdemCheckStep | #IdemSaveResultStep | #DedupeOnceStep | #RateLimitCheckStep | #ConcurrencyLimitStep | #CircuitCheckStep | #CircuitRecordSuccessStep | #CircuitRecordFailureStep | #BulkheadAcquireStep
 
 #FlowCheckpointStep: {
 	// flow.Checkpoint - Save current flow state for potential resumption
@@ -292,6 +292,107 @@ import "github.com/strogmv/ang/cue/project"
 	// Optional company scope expression (e.g., "req.CompanyID")
 	// When provided: user.CompanyID must match, admin is allowed to bypass
 	companyID?: string
+}
+
+#RBACCheckPermissionStep: {
+	// rbac.CheckPermission - Permission/scope check (beyond role name checks)
+	action: "rbac.CheckPermission"
+	// Expression of loaded user variable (e.g., "currentUser")
+	user: string
+	// Permission expression (e.g., "\"project.create\"" or "req.Permission")
+	permission: string
+	// Optional output bool variable for check result
+	output?: string
+	// Optional error message when permission is denied
+	throw?: string
+	// Optional error code (default FORBIDDEN)
+	code?: string
+	// Optional HTTP status expression (default http.StatusForbidden)
+	status?: string
+}
+
+#JWTSignStep: {
+	// jwt.Sign - Sign claims into JWT token (currently HS256)
+	action: "jwt.Sign"
+	// Claims expression (must evaluate to map[string]any)
+	claims: string
+	// Optional secret expression. If omitted, runtime uses JWT_PRIVATE_KEY/JWT_PUBLIC_KEY env.
+	secret?: string
+	// Optional algorithm expression (default HS256)
+	alg?: string
+	// Optional token TTL duration expression (e.g. "\"15m\"")
+	ttl?: string
+	// Output token variable
+	output: string
+}
+
+#JWTVerifyStep: {
+	// jwt.Verify - Verify JWT signature and decode claims
+	action: "jwt.Verify"
+	// Token expression
+	token: string
+	// Optional secret expression. If omitted, runtime uses JWT_PRIVATE_KEY/JWT_PUBLIC_KEY env.
+	secret?: string
+	// Output claims variable (map[string]any)
+	output: string
+}
+
+#OAuth2TokenStep: {
+	// oauth2.Token - Fetch access token from OAuth2 provider
+	action: "oauth2.Token"
+	// Token endpoint URL
+	tokenURL: string
+	clientID?: string
+	clientSecret?: string
+	scope?: string
+	audience?: string
+	grantType?: string
+	username?: string
+	password?: string
+	code?: string
+	redirectURI?: string
+	refreshToken?: string
+	// Output token response map
+	output: string
+}
+
+#OAuth2RefreshStep: {
+	// oauth2.Refresh - Refresh access token via refresh token
+	action: "oauth2.Refresh"
+	tokenURL: string
+	refreshToken: string
+	clientID?: string
+	clientSecret?: string
+	scope?: string
+	audience?: string
+	// Output token response map
+	output: string
+}
+
+#EncryptStep: {
+	// crypto.Encrypt - Encrypt plaintext (AES-GCM with derived key)
+	action: "crypto.Encrypt"
+	// Plaintext expression
+	input: string
+	// Optional encryption key expression (fallback APP_ENCRYPTION_KEY env)
+	key?: string
+	// Optional additional authenticated data (AAD)
+	aad?: string
+	// Output ciphertext (base64 string)
+	output: string
+}
+
+#DecryptStep: {
+	// crypto.Decrypt - Decrypt ciphertext produced by crypto.Encrypt
+	action: "crypto.Decrypt"
+	// Ciphertext expression (base64 string)
+	input: string
+	// Optional encryption key expression (fallback APP_ENCRYPTION_KEY env)
+	key?: string
+	// Optional additional authenticated data (AAD)
+	aad?: string
+	// Output plaintext string
+	output: string
 }
 
 // ----------------------------------------------------------------------------

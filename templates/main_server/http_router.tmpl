@@ -16,4 +16,7 @@
 		MaxAge:           300,
 	})
 	r.Use(corsMiddleware.Handler)
+	{{- if .HasSession }}
+	r.Use(transport.SessionMiddleware)
+	{{- end }}
 {{ end }}

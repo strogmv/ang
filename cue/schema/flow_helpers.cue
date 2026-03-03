@@ -202,6 +202,101 @@ package schema
 	if _companyID != _|_ { companyID: _companyID }
 }
 
+#CheckPermission: {
+	_user:       string
+	_permission: string
+	_output?:    string
+	_throw?:     string
+	_code?:      string
+	_status?:    string
+	action: "rbac.CheckPermission", user: _user, permission: _permission
+	if _output != _|_ { output: _output }
+	if _throw != _|_ { throw: _throw }
+	if _code != _|_ { code: _code }
+	if _status != _|_ { status: _status }
+}
+
+#JWTSign: {
+	_claims: string
+	_out:    string
+	_secret?: string
+	_alg?:    string
+	_ttl?:    string
+	action: "jwt.Sign", claims: _claims, output: _out
+	if _secret != _|_ { secret: _secret }
+	if _alg != _|_ { alg: _alg }
+	if _ttl != _|_ { ttl: _ttl }
+}
+
+#JWTVerify: {
+	_token: string
+	_out:   string
+	_secret?: string
+	action: "jwt.Verify", token: _token, output: _out
+	if _secret != _|_ { secret: _secret }
+}
+
+#OAuth2Token: {
+	_url: string
+	_out: string
+	_clientID?:     string
+	_clientSecret?: string
+	_scope?:        string
+	_audience?:     string
+	_grantType?:    string
+	_username?:     string
+	_password?:     string
+	_code?:         string
+	_redirectURI?:  string
+	_refreshToken?: string
+	action: "oauth2.Token", tokenURL: _url, output: _out
+	if _clientID != _|_ { clientID: _clientID }
+	if _clientSecret != _|_ { clientSecret: _clientSecret }
+	if _scope != _|_ { scope: _scope }
+	if _audience != _|_ { audience: _audience }
+	if _grantType != _|_ { grantType: _grantType }
+	if _username != _|_ { username: _username }
+	if _password != _|_ { password: _password }
+	if _code != _|_ { code: _code }
+	if _redirectURI != _|_ { redirectURI: _redirectURI }
+	if _refreshToken != _|_ { refreshToken: _refreshToken }
+}
+
+#OAuth2Refresh: {
+	_url:          string
+	_refreshToken: string
+	_out:          string
+	_clientID?:     string
+	_clientSecret?: string
+	_scope?:        string
+	_audience?:     string
+	action: "oauth2.Refresh", tokenURL: _url, refreshToken: _refreshToken, output: _out
+	if _clientID != _|_ { clientID: _clientID }
+	if _clientSecret != _|_ { clientSecret: _clientSecret }
+	if _scope != _|_ { scope: _scope }
+	if _audience != _|_ { audience: _audience }
+}
+
+#Encrypt: {
+	_input: string
+	_out:   string
+	_key?:  string
+	_aad?:  string
+	action: "crypto.Encrypt", input: _input, output: _out
+	if _key != _|_ { key: _key }
+	if _aad != _|_ { aad: _aad }
+}
+
+#Decrypt: {
+	_input: string
+	_out:   string
+	_key?:  string
+	_aad?:  string
+	action: "crypto.Decrypt", input: _input, output: _out
+	if _key != _|_ { key: _key }
+	if _aad != _|_ { aad: _aad }
+}
+
 #PatchFields: {
 	_target: string
 	_from:   string

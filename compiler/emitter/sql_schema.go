@@ -37,23 +37,7 @@ func (e *Emitter) EmitSQL(entities []ir.Entity) error {
 		return val
 	}
 	funcMap["SQLType"] = func(f normalizer.Field) string {
-		if f.DB.Type != "" {
-			return f.DB.Type
-		}
-		switch f.Type {
-		case "string":
-			return "TEXT"
-		case "int", "int64":
-			return "BIGINT"
-		case "bool":
-			return "BOOLEAN"
-		case "time.Time", "*time.Time":
-			return "TIMESTAMPTZ"
-		case "uuid":
-			return "UUID"
-		default:
-			return "TEXT"
-		}
+		return inferSQLType(f)
 	}
 
 	t, err := template.New("schema_sql").Funcs(funcMap).Parse(string(tmplContent))
@@ -85,10 +69,20 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     expires_at TIMESTAMPTZ
 );
+
+CREATE TABLE IF NOT EXISTS kv_store (
+    key TEXT PRIMARY KEY,
+    value BYTEA,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_kv_store_expires ON kv_store (expires_at) WHERE expires_at IS NOT NULL;
 `)
 	fullSchema.WriteString("\n\n")
 
 	for _, entity := range entitiesNorm {
+		entity = ensurePrimaryKey(entity)
+
 		isMongo := false
 		for _, f := range entity.Fields {
 			if strings.EqualFold(f.DB.Type, "ObjectId") {
@@ -133,6 +127,59 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
 	}
 	fmt.Printf("Generated SQL Schema: %s\n", path)
 	return nil
+}
+
+func ensurePrimaryKey(entity normalizer.Entity) normalizer.Entity {
+	hasPrimary := false
+	for _, f := range entity.Fields {
+		if f.DB.PrimaryKey {
+			hasPrimary = true
+			break
+		}
+	}
+	if hasPrimary {
+		return entity
+	}
+	for i := range entity.Fields {
+		if strings.EqualFold(entity.Fields[i].Name, "id") {
+			entity.Fields[i].DB.PrimaryKey = true
+			return entity
+		}
+	}
+	return entity
+}
+
+func inferSQLType(f normalizer.Field) string {
+	if dbType := strings.TrimSpace(strings.ToUpper(f.DB.Type)); dbType != "" && !isFallbackTextDBType(dbType, f.Type) {
+		return dbType
+	}
+
+	switch strings.TrimSpace(f.Type) {
+	case "int", "int64":
+		return "BIGINT"
+	case "float32", "float64":
+		return "DOUBLE PRECISION"
+	case "bool":
+		return "BOOLEAN"
+	case "time.Time", "*time.Time":
+		return "TIMESTAMPTZ"
+	case "uuid":
+		return "UUID"
+	default:
+		return "TEXT"
+	}
+}
+
+func isFallbackTextDBType(dbType, fieldType string) bool {
+	if dbType != "TEXT" {
+		return false
+	}
+	switch strings.TrimSpace(fieldType) {
+	case "int", "int64", "float32", "float64", "bool", "time.Time", "*time.Time", "uuid":
+		return true
+	default:
+		return false
+	}
 }
 
 // EmitSQLQueries генерирует базовые CRUD запросы для SQLC (опционально)

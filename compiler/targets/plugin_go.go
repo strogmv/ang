@@ -35,6 +35,7 @@ func (GoPlugin) RegisterSteps(registry *generator.StepRegistry, ctx BuildContext
 		Scenarios:               ctx.Scenarios,
 		CfgDef:                  ctx.Config,
 		AuthDef:                 ctx.Auth,
+		SessionDef:              ctx.Session,
 		RBACDef:                 ctx.RBAC,
 		InfraValues:             ctx.InfraValues,
 		EmailTemplates:          ctx.EmailTemplates,
