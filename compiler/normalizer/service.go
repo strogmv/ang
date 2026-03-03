@@ -853,6 +853,10 @@ func (n *Normalizer) autoCompleteFlowSteps(steps []FlowStep) []FlowStep {
 				if v, ok := s.Args["_do"].([]FlowStep); ok {
 					scan(v)
 				}
+			case "concurrency.Run", "bulkhead.Run", "circuit.Breaker", "trace.Span", "slo.Budget":
+				if v, ok := s.Args["_do"].([]FlowStep); ok {
+					scan(v)
+				}
 			case "batch.Run":
 				if v, ok := s.Args["_do"].([]FlowStep); ok {
 					scan(v)
@@ -1645,12 +1649,12 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 			case "state.Set", "state.Delete":
 				// validated by flow semantics engine
 
-			case "idem.DeriveKey":
+			case "idem.DeriveKey", "idempotency.DeriveKey":
 				if output, _ := step.Args["output"].(string); output != "" {
 					declaredVars[output] = true
 				}
 
-			case "idem.Check", "idem.SaveResult":
+			case "idem.Check", "idem.SaveResult", "idempotency.Check", "idempotency.SaveResult":
 				// validated by flow semantics engine
 
 			case "dedupe.Once":
@@ -1660,7 +1664,13 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 
 			case "ratelimit.Check", "concurrency.Limit",
 				"circuit.Check", "circuit.RecordSuccess", "circuit.RecordFailure",
-				"bulkhead.Acquire":
+				"bulkhead.Acquire", "ratelimit.Limit", "log.Emit", "metric.Emit":
+				// validated by flow semantics engine
+
+			case "concurrency.Run", "bulkhead.Run", "circuit.Breaker", "trace.Span", "slo.Budget":
+				if doSteps, ok := step.Args["_do"].([]FlowStep); ok {
+					validate(doSteps, inTx, depth+1)
+				}
 				// validated by flow semantics engine
 
 			case "secret.Get", "config.Get":
@@ -1702,11 +1712,16 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					!strings.HasPrefix(step.Action, "archive.") &&
 					!strings.HasPrefix(step.Action, "session.") &&
 					!strings.HasPrefix(step.Action, "idem.") &&
+					!strings.HasPrefix(step.Action, "idempotency.") &&
 					!strings.HasPrefix(step.Action, "dedupe.") &&
 					!strings.HasPrefix(step.Action, "ratelimit.") &&
 					!strings.HasPrefix(step.Action, "concurrency.") &&
 					!strings.HasPrefix(step.Action, "circuit.") &&
 					!strings.HasPrefix(step.Action, "bulkhead.") &&
+					!strings.HasPrefix(step.Action, "log.") &&
+					!strings.HasPrefix(step.Action, "metric.") &&
+					!strings.HasPrefix(step.Action, "trace.") &&
+					!strings.HasPrefix(step.Action, "slo.") &&
 					!strings.HasPrefix(step.Action, "state.") &&
 					!strings.HasPrefix(step.Action, "dlq.") &&
 					!strings.HasPrefix(step.Action, "db.") {

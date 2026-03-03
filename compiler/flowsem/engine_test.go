@@ -533,6 +533,110 @@ func TestValidate_NewSecurityActionsRequiredArgs(t *testing.T) {
 	}
 }
 
+func TestValidate_ReliabilityAndObservabilityActionsKnown(t *testing.T) {
+	t.Parallel()
+	steps := []Step{
+		{Action: "idempotency.DeriveKey", Args: map[string]any{"from": []string{"req.UserID", "req.OrderID"}, "output": "idemKey"}},
+		{Action: "idempotency.Check", Args: map[string]any{"key": "idemKey"}},
+		{Action: "idempotency.SaveResult", Args: map[string]any{"key": "idemKey", "ttl": "24*time.Hour"}},
+		{Action: "ratelimit.Limit", Args: map[string]any{"key": "req.UserID", "rps": 20}},
+		{
+			Action: "concurrency.Run",
+			Args:   map[string]any{"key": `"build"`, "max": 8},
+			Children: map[string][]Step{
+				"_do": {{Action: "logic.Check", Args: map[string]any{"condition": "true", "throw": "ok"}}},
+			},
+		},
+		{
+			Action: "circuit.Breaker",
+			Args:   map[string]any{"name": `"external-api"`, "threshold": 3, "openTTL": "30*time.Second"},
+			Children: map[string][]Step{
+				"_do": {{Action: "http.Call", Args: map[string]any{"method": "GET", "url": `"https://api.test"`, "output": "body"}}},
+			},
+		},
+		{
+			Action: "bulkhead.Run",
+			Args:   map[string]any{"name": `"s3-upload"`, "max": 16},
+			Children: map[string][]Step{
+				"_do": {{Action: "logic.Check", Args: map[string]any{"condition": "true", "throw": "ok"}}},
+			},
+		},
+		{Action: "log.Emit", Args: map[string]any{"level": `"info"`, "message": `"project created"`}},
+		{Action: "metric.Emit", Args: map[string]any{"name": `"project.created"`, "kind": `"counter"`, "value": "1"}},
+		{
+			Action: "trace.Span",
+			Args:   map[string]any{"name": `"BuildProject"`},
+			Children: map[string][]Step{
+				"_do": {{Action: "logic.Check", Args: map[string]any{"condition": "true", "throw": "ok"}}},
+			},
+		},
+		{
+			Action: "slo.Budget",
+			Args:   map[string]any{"name": `"build-flow"`, "duration": "2*time.Second"},
+			Children: map[string][]Step{
+				"_do": {{Action: "logic.Check", Args: map[string]any{"condition": "true", "throw": "ok"}}},
+			},
+		},
+	}
+
+	issues := Validate(steps)
+	for _, it := range issues {
+		if it.Code == "UNKNOWN_ACTION" {
+			t.Fatalf("unexpected UNKNOWN_ACTION for %s", it.Action)
+		}
+	}
+}
+
+func TestValidate_ReliabilityAndObservabilityConstraints(t *testing.T) {
+	t.Parallel()
+	issues := Validate([]Step{
+		{Action: "ratelimit.Limit", Args: map[string]any{"key": "req.UserID"}},
+		{
+			Action: "concurrency.Run",
+			Args:   map[string]any{"key": `"build"`},
+			Children: map[string][]Step{
+				"_do": {{Action: "logic.Check", Args: map[string]any{"condition": "true", "throw": "ok"}}},
+			},
+		},
+		{
+			Action: "circuit.Breaker",
+			Args:   map[string]any{"name": `"external-api"`},
+		},
+		{
+			Action: "bulkhead.Run",
+			Args:   map[string]any{"name": `"s3-upload"`},
+			Children: map[string][]Step{
+				"_do": {{Action: "logic.Check", Args: map[string]any{"condition": "true", "throw": "ok"}}},
+			},
+		},
+		{Action: "log.Emit", Args: map[string]any{"level": `"info"`}},
+		{
+			Action: "trace.Span",
+			Args:   map[string]any{"name": `"BuildProject"`},
+		},
+		{
+			Action: "slo.Budget",
+			Children: map[string][]Step{
+				"_do": {{Action: "logic.Check", Args: map[string]any{"condition": "true", "throw": "ok"}}},
+			},
+		},
+	})
+
+	want := map[string]bool{
+		"MISSING_RPS":      true,
+		"MISSING_MAX":      true,
+		"MISSING_DO":       true,
+		"MISSING_MESSAGE":  true,
+		"MISSING_DURATION": true,
+	}
+	for _, it := range issues {
+		delete(want, it.Code)
+	}
+	for code := range want {
+		t.Fatalf("expected %s issue in %+v", code, issues)
+	}
+}
+
 func TestValidate_MessagingAsyncActionsKnown(t *testing.T) {
 	t.Parallel()
 

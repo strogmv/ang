@@ -61,6 +61,17 @@ func TestRenderFlowStepInfra_DispatchHandlesKnownActions(t *testing.T) {
 		{name: "queue_nack", step: normalizer.FlowStep{Action: "queue.Nack", Args: map[string]any{"subject": `"events.test"`, "messageID": "msgID", "reason": `"decode failed"`}}},
 		{name: "dlq_publish", step: normalizer.FlowStep{Action: "dlq.Publish", Args: map[string]any{"subject": `"events.test"`, "payload": "msg", "reason": `"decode failed"`}}},
 		{name: "event_outbox", step: normalizer.FlowStep{Action: "event.Outbox", Args: map[string]any{"name": `"ProjectCreated"`, "payload": "domain.ProjectCreated{ID: req.ID}"}}},
+		{name: "idempotency_derive", step: normalizer.FlowStep{Action: "idempotency.DeriveKey", Args: map[string]any{"from": []string{"req.UserID", "req.OrderID"}, "output": "idemKey"}}},
+		{name: "idempotency_check", step: normalizer.FlowStep{Action: "idempotency.Check", Args: map[string]any{"key": "idemKey"}}},
+		{name: "idempotency_save", step: normalizer.FlowStep{Action: "idempotency.SaveResult", Args: map[string]any{"key": "idemKey", "ttl": "24*time.Hour"}}},
+		{name: "ratelimit_limit", step: normalizer.FlowStep{Action: "ratelimit.Limit", Args: map[string]any{"key": "req.UserID", "rps": 20}}},
+		{name: "concurrency_run", step: normalizer.FlowStep{Action: "concurrency.Run", Args: map[string]any{"key": `"build"`, "max": 8, "_do": []normalizer.FlowStep{{Action: "logic.Check", Args: map[string]any{"condition": "true", "throw": "ok"}}}}}},
+		{name: "circuit_breaker", step: normalizer.FlowStep{Action: "circuit.Breaker", Args: map[string]any{"name": `"external-api"`, "threshold": 3, "openTTL": "30*time.Second", "_do": []normalizer.FlowStep{{Action: "http.Call", Args: map[string]any{"method": "GET", "url": `"https://api.test"`, "output": "body"}}}}}},
+		{name: "bulkhead_run", step: normalizer.FlowStep{Action: "bulkhead.Run", Args: map[string]any{"name": `"s3-upload"`, "max": 12, "_do": []normalizer.FlowStep{{Action: "logic.Check", Args: map[string]any{"condition": "true", "throw": "ok"}}}}}},
+		{name: "log_emit", step: normalizer.FlowStep{Action: "log.Emit", Args: map[string]any{"level": `"info"`, "message": `"created project"`}}},
+		{name: "metric_emit", step: normalizer.FlowStep{Action: "metric.Emit", Args: map[string]any{"name": `"project.created"`, "kind": `"counter"`, "value": "1"}}},
+		{name: "trace_span", step: normalizer.FlowStep{Action: "trace.Span", Args: map[string]any{"name": `"BuildProject"`, "_do": []normalizer.FlowStep{{Action: "logic.Check", Args: map[string]any{"condition": "true", "throw": "ok"}}}}}},
+		{name: "slo_budget", step: normalizer.FlowStep{Action: "slo.Budget", Args: map[string]any{"name": `"build"`, "duration": "2*time.Second", "_do": []normalizer.FlowStep{{Action: "logic.Check", Args: map[string]any{"condition": "true", "throw": "ok"}}}}}},
 	}
 
 	for _, tc := range cases {

@@ -103,11 +103,13 @@ func flowActionSupported(action string) bool {
 		"flow.Saga", "flow.Compensate", "flow.Rollback", "flow.Tag",
 		"state.Get", "state.Set", "state.Delete",
 		"idem.DeriveKey", "idem.Check", "idem.SaveResult",
+		"idempotency.DeriveKey", "idempotency.Check", "idempotency.SaveResult",
 		"dedupe.Once",
-		"ratelimit.Check",
-		"concurrency.Limit",
-		"circuit.Check", "circuit.RecordSuccess", "circuit.RecordFailure",
-		"bulkhead.Acquire",
+		"ratelimit.Check", "ratelimit.Limit",
+		"concurrency.Limit", "concurrency.Run",
+		"circuit.Check", "circuit.RecordSuccess", "circuit.RecordFailure", "circuit.Breaker",
+		"bulkhead.Acquire", "bulkhead.Run",
+		"log.Emit", "metric.Emit", "trace.Span", "slo.Budget",
 		"db.Get", "db.List", "db.Query",
 		"db.Insert", "db.Update", "db.Upsert", "db.Delete",
 		"db.Lock", "db.SelectForUpdate",
@@ -327,19 +329,21 @@ func renderOneFlowStep(st *flowRenderState, step normalizer.FlowStep, indent int
 		"flow.Saga", "flow.Compensate", "flow.Rollback", "flow.Tag":
 		return renderFlowStepControl(st, step, indent, sfx, arg, child)
 
-	// -------------------------------------------------------------------------
-	// STAGE 2: Infrastructure actions
-	// -------------------------------------------------------------------------
+		// -------------------------------------------------------------------------
+		// STAGE 2: Infrastructure actions
+		// -------------------------------------------------------------------------
 
 	case "cache.Get", "cache.Set", "cache.Del", "mail.Send", "storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List", "http.Call", "http.Request", "http.RetryPolicy", "http.Paginate", "rand.Code", "rand.Token", "json.Parse", "json.Marshal", "regex.Match", "regex.Replace", "base64.Encode", "base64.Decode", "url.Parse", "url.Build", "query.Encode", "query.Decode", "hash.Sum", "hash.HMAC", "uuid.New", "ulid.New", "math.Op", "jsonpath.Get", "jsonpath.Set", "jwt.Sign", "jwt.Verify", "oauth2.Token", "oauth2.Refresh", "crypto.Encrypt", "crypto.Decrypt", "parallel.Run", "pdf.Render", "webhook.Send", "webhook.VerifySignature", "webhook.Ack", "queue.Enqueue", "queue.Dequeue", "queue.Ack", "queue.Nack", "dlq.Publish", "event.Outbox", "secret.Get", "config.Get",
 		"event.Wait", "event.Subscribe", "event.Match", "event.Broadcast",
 		"state.Get", "state.Set", "state.Delete",
 		"idem.DeriveKey", "idem.Check", "idem.SaveResult",
+		"idempotency.DeriveKey", "idempotency.Check", "idempotency.SaveResult",
 		"dedupe.Once",
-		"ratelimit.Check",
-		"concurrency.Limit",
-		"circuit.Check", "circuit.RecordSuccess", "circuit.RecordFailure",
-		"bulkhead.Acquire":
+		"ratelimit.Check", "ratelimit.Limit",
+		"concurrency.Limit", "concurrency.Run",
+		"circuit.Check", "circuit.RecordSuccess", "circuit.RecordFailure", "circuit.Breaker",
+		"bulkhead.Acquire", "bulkhead.Run",
+		"log.Emit", "metric.Emit", "trace.Span", "slo.Budget":
 		return renderFlowStepInfra(st, step, indent, sfx, arg, child)
 
 	default:

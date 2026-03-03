@@ -210,3 +210,76 @@ steps: [
 		t.Fatalf("expected queue.Dequeue jitterMs=10, got %#v", steps[2].Args["jitterMs"])
 	}
 }
+
+func TestParseFlowSteps_ReliabilityAndObservabilityWrappers(t *testing.T) {
+	t.Parallel()
+
+	ctx := cuecontext.New()
+	val := ctx.CompileString(`
+steps: [
+	{
+		action: "concurrency.Run"
+		key: "\"build\""
+		max: 8
+		do: [{action: "logic.Check", condition: "true", throw: "ok"}]
+	},
+	{
+		action: "circuit.Breaker"
+		name: "\"external-api\""
+		threshold: 3
+		openTTL: "30*time.Second"
+		do: [{action: "logic.Check", condition: "true", throw: "ok"}]
+	},
+	{
+		action: "bulkhead.Run"
+		name: "\"s3-upload\""
+		max: 12
+		do: [{action: "logic.Check", condition: "true", throw: "ok"}]
+	},
+	{
+		action: "trace.Span"
+		name: "\"BuildProject\""
+		attrs: {
+			project_id: "req.ID"
+		}
+		do: [{action: "logic.Check", condition: "true", throw: "ok"}]
+	},
+	{
+		action: "slo.Budget"
+		name: "\"build\""
+		duration: "2*time.Second"
+		do: [{action: "logic.Check", condition: "true", throw: "ok"}]
+	},
+	{ action: "log.Emit", level: "\"info\"", message: "\"created\"" },
+	{ action: "metric.Emit", name: "\"project.created\"", kind: "\"counter\"", value: "1" },
+	{ action: "idempotency.DeriveKey", from: ["req.UserID", "req.OrderID"], output: "idemKey" },
+	{ action: "idempotency.Check", key: "idemKey" },
+	{ action: "idempotency.SaveResult", key: "idemKey", ttl: "24*time.Hour" },
+	{ action: "ratelimit.Limit", key: "req.UserID", rps: 20 },
+]
+`)
+	if err := val.Err(); err != nil {
+		t.Fatalf("compile cue: %v", err)
+	}
+
+	listVal := val.LookupPath(cue.ParsePath("steps"))
+	n := New()
+	steps, err := n.parseFlowSteps(listVal)
+	if err != nil {
+		t.Fatalf("parseFlowSteps failed: %v", err)
+	}
+	if len(steps) != 11 {
+		t.Fatalf("expected 11 steps, got %d", len(steps))
+	}
+	for i := 0; i < 5; i++ {
+		if _, ok := steps[i].Args["_do"].([]FlowStep); !ok {
+			t.Fatalf("expected step[%d]=%s to parse do child", i, steps[i].Action)
+		}
+	}
+	if got, _ := steps[1].Args["threshold"].(int); got != 3 {
+		t.Fatalf("expected circuit.Breaker threshold=3, got %#v", steps[1].Args["threshold"])
+	}
+	if got, _ := steps[10].Args["rps"].(int); got != 20 {
+		t.Fatalf("expected ratelimit.Limit rps=20, got %#v", steps[10].Args["rps"])
+	}
+}

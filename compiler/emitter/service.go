@@ -260,21 +260,21 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 						importMap["io"] = ""
 						importMap["net/url"] = ""
 						importMap["encoding/json"] = ""
-					case "idem.DeriveKey":
+					case "idem.DeriveKey", "idempotency.DeriveKey":
 						importMap["crypto/sha256"] = ""
 						importMap["encoding/hex"] = ""
 						importMap["fmt"] = ""
-					case "idem.Check", "idem.SaveResult":
+					case "idem.Check", "idem.SaveResult", "idempotency.Check", "idempotency.SaveResult":
 						importMap["encoding/json"] = ""
 						importMap["fmt"] = ""
 					case "dedupe.Once":
 						importMap["fmt"] = ""
-					case "ratelimit.Check":
+					case "ratelimit.Check", "ratelimit.Limit":
 						importMap["encoding/json"] = ""
 						importMap["fmt"] = ""
 						importMap["time"] = ""
 						importMap["net/http"] = ""
-					case "concurrency.Limit":
+					case "concurrency.Limit", "concurrency.Run":
 						importMap["encoding/json"] = ""
 						importMap["fmt"] = ""
 						importMap["time"] = ""
@@ -284,14 +284,26 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 						importMap["net/http"] = ""
 					case "circuit.RecordSuccess":
 						// no extra imports
-					case "circuit.RecordFailure":
+					case "circuit.RecordFailure", "circuit.Breaker":
 						importMap["encoding/json"] = ""
 						importMap["time"] = ""
-					case "bulkhead.Acquire":
+						importMap["fmt"] = ""
+						importMap["net/http"] = ""
+					case "bulkhead.Acquire", "bulkhead.Run":
 						importMap["encoding/json"] = ""
 						importMap["fmt"] = ""
 						importMap["time"] = ""
 						importMap["net/http"] = ""
+					case "log.Emit", "metric.Emit":
+						importMap["log/slog"] = ""
+					case "trace.Span":
+						importMap["go.opentelemetry.io/otel"] = ""
+						importMap["go.opentelemetry.io/otel/attribute"] = ""
+						importMap["fmt"] = ""
+					case "slo.Budget":
+						importMap["context"] = ""
+						importMap["time"] = ""
+						importMap["log/slog"] = ""
 					case "rand.Code":
 						importMap["crypto/rand"] = "cryptorand"
 						importMap["encoding/binary"] = ""

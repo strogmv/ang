@@ -77,7 +77,7 @@ import "github.com/strogmv/ang/cue/project"
 // AI AGENTS: Use these definitions to understand valid flow step structures.
 // ============================================================================
 
-#FlowStep: #RepoStep | #DbStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #EventOutboxStep | #CustomStep | #StateStep | #ExplicitStateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #AuditStep | #AuthStep | #CheckRoleStep | #RBACCheckPermissionStep | #JWTSignStep | #JWTVerifyStep | #OAuth2TokenStep | #OAuth2RefreshStep | #EncryptStep | #DecryptStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #ListMapStep | #ListReduceStep | #ListGroupByStep | #ListDistinctStep | #ListChunkStep | #BatchRunStep | #EnrichStep | #TimeParseStep | #TimeCheckExpiryStep | #MapBuildStep | #ExecRunStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #StorageUploadStep | #StorageGetURLStep | #WebhookSendStep | #WebhookVerifySignatureStep | #WebhookAckStep | #QueueEnqueueStep | #QueueDequeueStep | #QueueAckStep | #QueueNackStep | #DLQPublishStep | #HTTPCallStep | #HTTPRequestStep | #HTTPRetryPolicyStep | #HTTPPaginateStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #JSONParseStep | #JSONMarshalStep | #ParallelStep | #FlowParallelStep | #FlowJoinStep | #FlowRaceStep | #FlowDelayStep | #FlowScheduleStep | #FlowCronStep | #SecretGetStep | #ConfigGetStep | #EventWaitStep | #EventSubscribeStep | #EventMatchStep | #FlowSagaStep | #FlowCompensateStep | #FlowRollbackStep | #FlowTagStep | #FlowCheckpointStep | #FlowResumeStep | #FlowValidateStep | #FlowTryStep | #FlowRetryStep | #FlowFallbackStep | #FlowTimeoutStep | #FlowSuggestNextStep | #FlowExplainErrorStep | #IdemDeriveKeyStep | #IdemCheckStep | #IdemSaveResultStep | #DedupeOnceStep | #RateLimitCheckStep | #ConcurrencyLimitStep | #CircuitCheckStep | #CircuitRecordSuccessStep | #CircuitRecordFailureStep | #BulkheadAcquireStep
+#FlowStep: #RepoStep | #DbStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #EventOutboxStep | #CustomStep | #StateStep | #ExplicitStateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #AuditStep | #AuthStep | #CheckRoleStep | #RBACCheckPermissionStep | #JWTSignStep | #JWTVerifyStep | #OAuth2TokenStep | #OAuth2RefreshStep | #EncryptStep | #DecryptStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #ListMapStep | #ListReduceStep | #ListGroupByStep | #ListDistinctStep | #ListChunkStep | #BatchRunStep | #EnrichStep | #TimeParseStep | #TimeCheckExpiryStep | #MapBuildStep | #ExecRunStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #StorageUploadStep | #StorageGetURLStep | #WebhookSendStep | #WebhookVerifySignatureStep | #WebhookAckStep | #QueueEnqueueStep | #QueueDequeueStep | #QueueAckStep | #QueueNackStep | #DLQPublishStep | #HTTPCallStep | #HTTPRequestStep | #HTTPRetryPolicyStep | #HTTPPaginateStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #JSONParseStep | #JSONMarshalStep | #ParallelStep | #FlowParallelStep | #FlowJoinStep | #FlowRaceStep | #FlowDelayStep | #FlowScheduleStep | #FlowCronStep | #SecretGetStep | #ConfigGetStep | #EventWaitStep | #EventSubscribeStep | #EventMatchStep | #FlowSagaStep | #FlowCompensateStep | #FlowRollbackStep | #FlowTagStep | #FlowCheckpointStep | #FlowResumeStep | #FlowValidateStep | #FlowTryStep | #FlowRetryStep | #FlowFallbackStep | #FlowTimeoutStep | #FlowSuggestNextStep | #FlowExplainErrorStep | #IdemDeriveKeyStep | #IdemCheckStep | #IdemSaveResultStep | #IdempotencyDeriveKeyStep | #IdempotencyCheckStep | #IdempotencySaveResultStep | #DedupeOnceStep | #RateLimitCheckStep | #RateLimitLimitStep | #ConcurrencyLimitStep | #ConcurrencyRunStep | #CircuitCheckStep | #CircuitRecordSuccessStep | #CircuitRecordFailureStep | #CircuitBreakerStep | #BulkheadAcquireStep | #BulkheadRunStep | #LogEmitStep | #MetricEmitStep | #TraceSpanStep | #SLOBudgetStep
 
 #FlowCheckpointStep: {
 	// flow.Checkpoint - Save current flow state for potential resumption
@@ -1604,4 +1604,95 @@ import "github.com/strogmv/ang/cue/project"
 	max: int
 	// Optional error message (default: "bulkhead full: <name>")
 	throw?: string
+}
+
+#IdempotencyDeriveKeyStep: {
+	// idempotency.DeriveKey - Alias for idem.DeriveKey with explicit naming.
+	action: "idempotency.DeriveKey"
+	from: [...string]
+	output: string
+	prefix?: string
+}
+
+#IdempotencyCheckStep: {
+	// idempotency.Check - Alias for idem.Check.
+	action: "idempotency.Check"
+	key: string
+}
+
+#IdempotencySaveResultStep: {
+	// idempotency.SaveResult - Alias for idem.SaveResult.
+	action: "idempotency.SaveResult"
+	key: string
+	ttl?: string
+}
+
+#RateLimitLimitStep: {
+	// ratelimit.Limit - Alias for ratelimit.Check.
+	action: "ratelimit.Limit"
+	key: string
+	rps: int
+	throw?: string
+}
+
+#ConcurrencyRunStep: {
+	// concurrency.Run - Acquire concurrency slot and run child steps.
+	action: "concurrency.Run"
+	key: string
+	max: int
+	throw?: string
+	do: [...#FlowStep]
+}
+
+#CircuitBreakerStep: {
+	// circuit.Breaker - Open-check gate plus success/failure recording around child steps.
+	action: "circuit.Breaker"
+	name: string
+	threshold?: int
+	openTTL?: string
+	throw?: string
+	do: [...#FlowStep]
+}
+
+#BulkheadRunStep: {
+	// bulkhead.Run - Acquire bulkhead slot and run child steps.
+	action: "bulkhead.Run"
+	name: string
+	max: int
+	throw?: string
+	do: [...#FlowStep]
+}
+
+#LogEmitStep: {
+	// log.Emit - Structured log entry from flow.
+	action: "log.Emit"
+	message: string
+	level?: "debug" | "info" | "warn" | "error" | string
+	fields?: [string]: string
+}
+
+#MetricEmitStep: {
+	// metric.Emit - Structured metric event from flow.
+	// Current runtime emits this as structured log for portability.
+	action: "metric.Emit"
+	name: string
+	kind?: "counter" | "gauge" | "histogram" | string
+	value?: string
+	labels?: [string]: string
+}
+
+#TraceSpanStep: {
+	// trace.Span - Start trace span around child steps.
+	action: "trace.Span"
+	name: string
+	attrs?: [string]: string
+	do: [...#FlowStep]
+}
+
+#SLOBudgetStep: {
+	// slo.Budget - Apply deadline budget for child steps and warn on overrun.
+	action: "slo.Budget"
+	name?: string
+	duration: string
+	do: [...#FlowStep]
 }

@@ -2,6 +2,7 @@ package emitter
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/strogmv/ang/compiler/normalizer"
@@ -17,7 +18,7 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 	// ── idem.DeriveKey ────────────────────────────────────────────────────────
 	// Computes a deterministic idempotency key from a list of expressions.
 	// Args: from (list of expr strings), output (var name), prefix? (string prefix)
-	case "idem.DeriveKey":
+	case "idem.DeriveKey", "idempotency.DeriveKey":
 		output := arg("output")
 		if output == "" {
 			output = "idemKey"
@@ -63,10 +64,10 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 		b.WriteString(fmt.Sprintf("%s%s := %s + hex.EncodeToString(%s.Sum(nil))[:16]\n", pad, output, prefix, hasherVar))
 		return b.String(), true
 
-	// ── idem.Check ────────────────────────────────────────────────────────────
-	// Reads stateStore for given key; if found, unmarshals into resp and returns early.
-	// Args: key (expr)
-	case "idem.Check":
+		// ── idem.Check ────────────────────────────────────────────────────────────
+		// Reads stateStore for given key; if found, unmarshals into resp and returns early.
+		// Args: key (expr)
+	case "idem.Check", "idempotency.Check":
 		key := arg("key")
 		if key == "" {
 			return "", true
@@ -88,10 +89,10 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
 
-	// ── idem.SaveResult ───────────────────────────────────────────────────────
-	// Marshals current resp and stores it under the idempotency key.
-	// Args: key (expr), ttl? (duration string like "24*time.Hour")
-	case "idem.SaveResult":
+		// ── idem.SaveResult ───────────────────────────────────────────────────────
+		// Marshals current resp and stores it under the idempotency key.
+		// Args: key (expr), ttl? (duration string like "24*time.Hour")
+	case "idem.SaveResult", "idempotency.SaveResult":
 		key := arg("key")
 		if key == "" {
 			return "", true
@@ -148,10 +149,10 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
 
-	// ── ratelimit.Check ───────────────────────────────────────────────────────
-	// Per-key per-second token counter. Throws 429 if limit exceeded.
-	// Args: key (expr), rps (int), throw? (string message)
-	case "ratelimit.Check":
+		// ── ratelimit.Check ───────────────────────────────────────────────────────
+		// Per-key per-second token counter. Throws 429 if limit exceeded.
+		// Args: key (expr), rps (int), throw? (string message)
+	case "ratelimit.Check", "ratelimit.Limit":
 		key := arg("key")
 		rps := flowIntArg(step.Args, "rps", 0)
 		if key == "" || rps <= 0 {
@@ -187,9 +188,9 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 		b.WriteString(fmt.Sprintf("%ss.stateStore.Set(ctx, %s, %s, 2*time.Second) //nolint:errcheck\n", pad, rlKeyVar, rlDataVar))
 		return b.String(), true
 
-	// ── concurrency.Limit ─────────────────────────────────────────────────────
-	// State-store semaphore. Increments counter; defers decrement. Throws 503 when full.
-	// Args: key (expr string), max (int), throw? (string message)
+		// ── concurrency.Limit ─────────────────────────────────────────────────────
+		// State-store semaphore. Increments counter; defers decrement. Throws 503 when full.
+		// Args: key (expr string), max (int), throw? (string message)
 	case "concurrency.Limit":
 		key := arg("key")
 		maxVal := flowIntArg(step.Args, "max", 0)
@@ -243,6 +244,31 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 		b.WriteString(fmt.Sprintf("%s}()\n", pad))
 		return b.String(), true
 
+	// ── concurrency.Run ───────────────────────────────────────────────────────
+	// Composite wrapper: acquire concurrency slot then execute child steps.
+	case "concurrency.Run":
+		limitStep := normalizer.FlowStep{
+			Action: "concurrency.Limit",
+			Args:   step.Args,
+		}
+		limitArg := func(name string) string {
+			if v, ok := limitStep.Args[name].(string); ok {
+				return normalizeFlowExpr(strings.TrimSpace(v))
+			}
+			return ""
+		}
+		limitChild := func(name string) []normalizer.FlowStep { return nil }
+		limitCode, ok := renderFlowStepInfraReliability(st, limitStep, indent, sfx+"_run", limitArg, limitChild)
+		if !ok {
+			return "", false
+		}
+		var b strings.Builder
+		b.WriteString(limitCode)
+		if doSteps := child("_do"); len(doSteps) > 0 {
+			b.WriteString(renderFlowSteps(st, doSteps, indent))
+		}
+		return b.String(), true
+
 	// ── circuit.Check ─────────────────────────────────────────────────────────
 	// Reads the circuit-open flag; returns 503 if circuit is open.
 	// Args: name (string literal for circuit name), throw? (string message)
@@ -286,9 +312,9 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 		b.WriteString(fmt.Sprintf("%ss.stateStore.Delete(ctx, \"circuit:open:\"+%s) //nolint:errcheck\n", pad, name))
 		return b.String(), true
 
-	// ── circuit.RecordFailure ─────────────────────────────────────────────────
-	// Increments failure counter; opens circuit when threshold is reached.
-	// Args: name (string literal), threshold? (int, default 5), openTTL? (duration, default 60s)
+		// ── circuit.RecordFailure ─────────────────────────────────────────────────
+		// Increments failure counter; opens circuit when threshold is reached.
+		// Args: name (string literal), threshold? (int, default 5), openTTL? (duration, default 60s)
 	case "circuit.RecordFailure":
 		name := arg("name")
 		if name == "" {
@@ -319,6 +345,67 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 		b.WriteString(fmt.Sprintf("%sif %s >= %d {\n", pad, cfCountVar, threshold))
 		b.WriteString(fmt.Sprintf("%s\ts.stateStore.Set(ctx, \"circuit:open:\"+%s, []byte(\"1\"), %s) //nolint:errcheck\n", pad, name, openTTL))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
+
+	// ── circuit.Breaker ───────────────────────────────────────────────────────
+	// Composite wrapper: check-open gate + auto record success/failure around child block.
+	case "circuit.Breaker":
+		name := arg("name")
+		if name == "" {
+			return "", true
+		}
+		throwMsg := arg("throw")
+		if throwMsg == "" {
+			throwMsg = "circuit breaker open: " + strings.Trim(name, "\"")
+		}
+		threshold := flowIntArg(step.Args, "threshold", 5)
+		openTTL := arg("openTTL")
+		if openTTL == "" {
+			openTTL = "60 * time.Second"
+		}
+
+		cbOpenKeyVar := "_cbOpenKey" + sfx
+		cbOpenRawVar := "_cbOpenRaw" + sfx
+		cbOpenErrVar := "_cbOpenErr" + sfx
+		cbFailKeyVar := "_cbFailKey" + sfx
+		cbFailRawVar := "_cbFailRaw" + sfx
+		cbFailCountVar := "_cbFailCount" + sfx
+		cbFailDataVar := "_cbFailData" + sfx
+
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s// circuit.Breaker\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s := \"circuit:open:\" + %s\n", pad, cbOpenKeyVar, name))
+		b.WriteString(fmt.Sprintf("%s%s, %s := s.stateStore.Get(ctx, %s)\n", pad, cbOpenRawVar, cbOpenErrVar, cbOpenKeyVar))
+		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, cbOpenErrVar))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"circuit.Breaker check: %%w\", %s)", cbOpenErrVar)))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, cbOpenRawVar))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("errors.New(http.StatusServiceUnavailable, \"Service Unavailable\", %q)", throwMsg)))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+
+		b.WriteString(fmt.Sprintf("%sdefer func() {\n", pad))
+		b.WriteString(fmt.Sprintf("%s\tif err != nil {\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t%s := \"circuit:count:\" + %s\n", pad, cbFailKeyVar, name))
+		b.WriteString(fmt.Sprintf("%s\t\t%s, _ := s.stateStore.Get(ctx, %s)\n", pad, cbFailRawVar, cbFailKeyVar))
+		b.WriteString(fmt.Sprintf("%s\t\tvar %s int\n", pad, cbFailCountVar))
+		b.WriteString(fmt.Sprintf("%s\t\tif %s != nil {\n", pad, cbFailRawVar))
+		b.WriteString(fmt.Sprintf("%s\t\t\tjson.Unmarshal(%s, &%s) //nolint:errcheck\n", pad, cbFailRawVar, cbFailCountVar))
+		b.WriteString(fmt.Sprintf("%s\t\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t%s++\n", pad, cbFailCountVar))
+		b.WriteString(fmt.Sprintf("%s\t\t%s, _ := json.Marshal(%s)\n", pad, cbFailDataVar, cbFailCountVar))
+		b.WriteString(fmt.Sprintf("%s\t\ts.stateStore.Set(ctx, %s, %s, 5*time.Minute) //nolint:errcheck\n", pad, cbFailKeyVar, cbFailDataVar))
+		b.WriteString(fmt.Sprintf("%s\t\tif %s >= %d {\n", pad, cbFailCountVar, threshold))
+		b.WriteString(fmt.Sprintf("%s\t\t\ts.stateStore.Set(ctx, \"circuit:open:\"+%s, []byte(\"1\"), %s) //nolint:errcheck\n", pad, name, openTTL))
+		b.WriteString(fmt.Sprintf("%s\t\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\treturn\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\ts.stateStore.Delete(ctx, \"circuit:count:\"+%s) //nolint:errcheck\n", pad, name))
+		b.WriteString(fmt.Sprintf("%s\ts.stateStore.Delete(ctx, \"circuit:open:\"+%s) //nolint:errcheck\n", pad, name))
+		b.WriteString(fmt.Sprintf("%s}()\n", pad))
+
+		if doSteps := child("_do"); len(doSteps) > 0 {
+			b.WriteString(renderFlowSteps(st, doSteps, indent))
+		}
 		return b.String(), true
 
 	// ── bulkhead.Acquire ──────────────────────────────────────────────────────
@@ -376,7 +463,176 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 		b.WriteString(fmt.Sprintf("%s\ts.stateStore.Set(ctx, %s, _bhDecData%s, 5*time.Minute) //nolint:errcheck\n", pad, bhKeyVar, sfx))
 		b.WriteString(fmt.Sprintf("%s}()\n", pad))
 		return b.String(), true
+
+	// ── bulkhead.Run ──────────────────────────────────────────────────────────
+	// Composite wrapper: acquire bulkhead slot then execute child steps.
+	case "bulkhead.Run":
+		acquireStep := normalizer.FlowStep{
+			Action: "bulkhead.Acquire",
+			Args:   step.Args,
+		}
+		acquireArg := func(name string) string {
+			if v, ok := acquireStep.Args[name].(string); ok {
+				return normalizeFlowExpr(strings.TrimSpace(v))
+			}
+			return ""
+		}
+		acquireChild := func(name string) []normalizer.FlowStep { return nil }
+		acquireCode, ok := renderFlowStepInfraReliability(st, acquireStep, indent, sfx+"_run", acquireArg, acquireChild)
+		if !ok {
+			return "", false
+		}
+		var b strings.Builder
+		b.WriteString(acquireCode)
+		if doSteps := child("_do"); len(doSteps) > 0 {
+			b.WriteString(renderFlowSteps(st, doSteps, indent))
+		}
+		return b.String(), true
+
+	// ── log.Emit ──────────────────────────────────────────────────────────────
+	case "log.Emit":
+		message := arg("message")
+		if message == "" {
+			message = `"flow log"`
+		}
+		level := strings.Trim(strings.ToLower(strings.TrimSpace(arg("level"))), "\"")
+		if level == "" {
+			level = "info"
+		}
+		fields := flowMapStringArg(step.Args["fields"])
+
+		args := []string{message}
+		if len(fields) > 0 {
+			keys := flowSortedKeys(fields)
+			for _, k := range keys {
+				args = append(args, fmt.Sprintf("%q, %s", k, fields[k]))
+			}
+		}
+		fn := "Info"
+		switch level {
+		case "debug":
+			fn = "Debug"
+		case "warn", "warning":
+			fn = "Warn"
+		case "error":
+			fn = "Error"
+		}
+		return fmt.Sprintf("%sslog.%s(%s)\n", pad, fn, strings.Join(args, ", ")), true
+
+	// ── metric.Emit ───────────────────────────────────────────────────────────
+	// Current implementation emits structured metric events via slog.
+	case "metric.Emit":
+		name := arg("name")
+		if name == "" {
+			return "", true
+		}
+		kind := arg("kind")
+		if kind == "" {
+			kind = `"counter"`
+		}
+		value := arg("value")
+		if value == "" {
+			value = "1"
+		}
+		labels := flowMapStringArg(step.Args["labels"])
+		labelsExpr := "map[string]any{}"
+		if len(labels) > 0 {
+			keys := flowSortedKeys(labels)
+			pairs := make([]string, 0, len(keys))
+			for _, k := range keys {
+				pairs = append(pairs, fmt.Sprintf("%q: %s", k, labels[k]))
+			}
+			labelsExpr = "map[string]any{" + strings.Join(pairs, ", ") + "}"
+		}
+		return fmt.Sprintf("%sslog.Info(\"metric.emit\", \"name\", %s, \"kind\", %s, \"value\", %s, \"labels\", %s)\n", pad, name, kind, value, labelsExpr), true
+
+	// ── trace.Span ────────────────────────────────────────────────────────────
+	// Starts a span for the child block and attaches optional attributes.
+	case "trace.Span":
+		name := arg("name")
+		if name == "" {
+			return "", true
+		}
+		spanCtxVar := "_traceCtx" + sfx
+		spanVar := "_traceSpan" + sfx
+		attrs := flowMapStringArg(step.Args["attrs"])
+
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s%s, %s := otel.Tracer(\"ang.flow\").Start(ctx, %s)\n", pad, spanCtxVar, spanVar, name))
+		b.WriteString(fmt.Sprintf("%s_ = %s\n", pad, spanCtxVar))
+		if len(attrs) > 0 {
+			keys := flowSortedKeys(attrs)
+			for _, k := range keys {
+				b.WriteString(fmt.Sprintf("%s%s.SetAttributes(attribute.String(%q, fmt.Sprint(%s)))\n", pad, spanVar, k, attrs[k]))
+			}
+		}
+		b.WriteString(fmt.Sprintf("%sdefer %s.End()\n", pad, spanVar))
+		if doSteps := child("_do"); len(doSteps) > 0 {
+			b.WriteString(renderFlowSteps(st, doSteps, indent))
+		}
+		return b.String(), true
+
+	// ── slo.Budget ────────────────────────────────────────────────────────────
+	// Applies a latency budget context to child steps and logs budget overrun.
+	case "slo.Budget":
+		duration := arg("duration")
+		if duration == "" {
+			return "", true
+		}
+		name := arg("name")
+		if name == "" {
+			name = `"flow"`
+		}
+		startVar := "_sloStart" + sfx
+		ctxVar := "_sloCtx" + sfx
+		cancelVar := "_sloCancel" + sfx
+		limitVar := "_sloLimit" + sfx
+		prevCtxVar := "_sloPrevCtx" + sfx
+		elapsedVar := "_sloElapsed" + sfx
+
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s%s := time.Now()\n", pad, startVar))
+		b.WriteString(fmt.Sprintf("%s%s := %s\n", pad, limitVar, duration))
+		b.WriteString(fmt.Sprintf("%s%s := ctx\n", pad, prevCtxVar))
+		b.WriteString(fmt.Sprintf("%s%s, %s := context.WithTimeout(ctx, %s)\n", pad, ctxVar, cancelVar, limitVar))
+		b.WriteString(fmt.Sprintf("%sctx = %s\n", pad, ctxVar))
+		if doSteps := child("_do"); len(doSteps) > 0 {
+			b.WriteString(renderFlowSteps(st, doSteps, indent))
+		}
+		b.WriteString(fmt.Sprintf("%s%s()\n", pad, cancelVar))
+		b.WriteString(fmt.Sprintf("%sctx = %s\n", pad, prevCtxVar))
+		b.WriteString(fmt.Sprintf("%s%s := time.Since(%s)\n", pad, elapsedVar, startVar))
+		b.WriteString(fmt.Sprintf("%sif %s > %s {\n", pad, elapsedVar, limitVar))
+		b.WriteString(fmt.Sprintf("%s\tslog.Warn(\"slo.budget.exceeded\", \"name\", %s, \"elapsed_ms\", %s.Milliseconds(), \"budget_ms\", %s.Milliseconds())\n", pad, name, elapsedVar, limitVar))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
 	}
 
 	return "", false
+}
+
+func flowMapStringArg(raw any) map[string]string {
+	out := map[string]string{}
+	m, ok := raw.(map[string]string)
+	if !ok {
+		return out
+	}
+	for k, v := range m {
+		key := strings.TrimSpace(k)
+		val := normalizeFlowExpr(strings.TrimSpace(v))
+		if key == "" || val == "" {
+			continue
+		}
+		out[key] = val
+	}
+	return out
+}
+
+func flowSortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }

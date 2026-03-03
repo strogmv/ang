@@ -538,3 +538,73 @@ package schema
 	action: "repo.Query", source: _entity, method: _method, output: _var
 	if _input != _|_ { input: _input }
 }
+
+#IdempotencyDeriveKey: {
+	_from: [...string], _out: string, _prefix?: string
+	action: "idempotency.DeriveKey", from: _from, output: _out
+	if _prefix != _|_ { prefix: _prefix }
+}
+
+#IdempotencyCheck: {
+	_key: string
+	action: "idempotency.Check", key: _key
+}
+
+#IdempotencySaveResult: {
+	_key: string, _ttl?: string
+	action: "idempotency.SaveResult", key: _key
+	if _ttl != _|_ { ttl: _ttl }
+}
+
+#RateLimit: {
+	_key: string, _rps: int, _throw?: string
+	action: "ratelimit.Limit", key: _key, rps: _rps
+	if _throw != _|_ { throw: _throw }
+}
+
+#ConcurrencyRun: {
+	_key: string, _max: int, _do: [...#FlowStep], _throw?: string
+	action: "concurrency.Run", key: _key, max: _max, do: _do
+	if _throw != _|_ { throw: _throw }
+}
+
+#CircuitBreaker: {
+	_name: string, _do: [...#FlowStep], _threshold?: int, _openTTL?: string, _throw?: string
+	action: "circuit.Breaker", name: _name, do: _do
+	if _threshold != _|_ { threshold: _threshold }
+	if _openTTL != _|_ { openTTL: _openTTL }
+	if _throw != _|_ { throw: _throw }
+}
+
+#BulkheadRun: {
+	_name: string, _max: int, _do: [...#FlowStep], _throw?: string
+	action: "bulkhead.Run", name: _name, max: _max, do: _do
+	if _throw != _|_ { throw: _throw }
+}
+
+#LogEmit: {
+	_message: string, _level?: string, _fields?: [string]: string
+	action: "log.Emit", message: _message
+	if _level != _|_ { level: _level }
+	if _fields != _|_ { fields: _fields }
+}
+
+#MetricEmit: {
+	_name: string, _kind?: string, _value?: string, _labels?: [string]: string
+	action: "metric.Emit", name: _name
+	if _kind != _|_ { kind: _kind }
+	if _value != _|_ { value: _value }
+	if _labels != _|_ { labels: _labels }
+}
+
+#TraceSpan: {
+	_name: string, _do: [...#FlowStep], _attrs?: [string]: string
+	action: "trace.Span", name: _name, do: _do
+	if _attrs != _|_ { attrs: _attrs }
+}
+
+#SLOBudget: {
+	_duration: string, _do: [...#FlowStep], _name?: string
+	action: "slo.Budget", duration: _duration, do: _do
+	if _name != _|_ { name: _name }
+}

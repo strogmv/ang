@@ -524,6 +524,69 @@ func TestRenderFlow_MessagingAsyncActions(t *testing.T) {
 	}
 }
 
+func TestRenderFlow_ReliabilityAndObservabilityActions(t *testing.T) {
+	steps := []normalizer.FlowStep{
+		{Action: "idempotency.DeriveKey", Args: map[string]any{"from": []string{"req.UserID", "req.OrderID"}, "output": "idemKey"}},
+		{Action: "idempotency.Check", Args: map[string]any{"key": "idemKey"}},
+		{Action: "idempotency.SaveResult", Args: map[string]any{"key": "idemKey", "ttl": "24*time.Hour"}},
+		{Action: "ratelimit.Limit", Args: map[string]any{"key": "req.UserID", "rps": 20}},
+		{Action: "concurrency.Run", Args: map[string]any{
+			"key": `"build"`, "max": 8,
+			"_do": []normalizer.FlowStep{
+				{Action: "logic.Check", Args: map[string]any{"condition": "true", "throw": "ok"}},
+			},
+		}},
+		{Action: "circuit.Breaker", Args: map[string]any{
+			"name": `"external-api"`, "threshold": 3, "openTTL": "30*time.Second",
+			"_do": []normalizer.FlowStep{
+				{Action: "http.Call", Args: map[string]any{"method": "GET", "url": `"https://api.test"`, "output": "body"}},
+			},
+		}},
+		{Action: "bulkhead.Run", Args: map[string]any{
+			"name": `"s3-upload"`, "max": 12,
+			"_do": []normalizer.FlowStep{
+				{Action: "logic.Check", Args: map[string]any{"condition": "true", "throw": "ok"}},
+			},
+		}},
+		{Action: "log.Emit", Args: map[string]any{"level": `"warn"`, "message": `"project slow"`, "fields": map[string]string{"project_id": "req.ID"}}},
+		{Action: "metric.Emit", Args: map[string]any{"name": `"project.created"`, "kind": `"counter"`, "value": "1", "labels": map[string]string{"service": `"sandbox"`}}},
+		{Action: "trace.Span", Args: map[string]any{
+			"name":  `"BuildProject"`,
+			"attrs": map[string]string{"project_id": "req.ID"},
+			"_do": []normalizer.FlowStep{
+				{Action: "logic.Check", Args: map[string]any{"condition": "true", "throw": "ok"}},
+			},
+		}},
+		{Action: "slo.Budget", Args: map[string]any{
+			"name": `"build"`, "duration": "2*time.Second",
+			"_do": []normalizer.FlowStep{
+				{Action: "logic.Check", Args: map[string]any{"condition": "true", "throw": "ok"}},
+			},
+		}},
+	}
+
+	code := renderFlow(steps)
+	mustContain := []string{
+		"// idem.DeriveKey",
+		"// ratelimit.Check",
+		"// concurrency.Limit",
+		"// circuit.Breaker",
+		"defer func() {",
+		"// bulkhead.Acquire",
+		"slog.Warn(",
+		"slog.Info(\"metric.emit\"",
+		`otel.Tracer("ang.flow").Start(ctx, "BuildProject")`,
+		"attribute.String(",
+		"context.WithTimeout(ctx, _sloLimit",
+		`slog.Warn("slo.budget.exceeded"`,
+	}
+	for _, part := range mustContain {
+		if !strings.Contains(code, part) {
+			t.Fatalf("expected generated code to contain %q\n\n%s", part, code)
+		}
+	}
+}
+
 func TestRenderFlow_NewDataTransformActions(t *testing.T) {
 	steps := []normalizer.FlowStep{
 		{Action: "regex.Match", Args: map[string]any{"input": "req.Email", "pattern": `"^[^@]+@[^@]+$"`, "output": "emailOK"}},

@@ -211,6 +211,43 @@ var specs = map[string]Spec{
 			"ttl": ArgKindString,
 		},
 	},
+	"idempotency.DeriveKey": {
+		RequiredArgs:     []string{"output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"prefix": ArgKindString,
+			"output": ArgKindString,
+			"from":   ArgKindStringList,
+		},
+		CustomConstraints: func(step Step) *Issue {
+			v, ok := step.Args["from"]
+			if !ok {
+				return &Issue{Code: "MISSING_FROM", Message: "idempotency.DeriveKey missing 'from'", Hint: "{action: \"idempotency.DeriveKey\", from: [\"req.UserID\", \"req.OrderID\"], output: \"idemKey\"}"}
+			}
+			switch arr := v.(type) {
+			case []string:
+				if len(arr) == 0 {
+					return &Issue{Code: "EMPTY_FROM", Message: "idempotency.DeriveKey 'from' list is empty", Hint: "Provide at least one expression"}
+				}
+			case []any:
+				if len(arr) == 0 {
+					return &Issue{Code: "EMPTY_FROM", Message: "idempotency.DeriveKey 'from' list is empty", Hint: "Provide at least one expression"}
+				}
+			default:
+				return &Issue{Code: "INVALID_FROM_TYPE", Message: "idempotency.DeriveKey 'from' must be a list of expressions", Hint: "{from: [\"req.UserID\", \"req.OrderID\"]}"}
+			}
+			return nil
+		},
+	},
+	"idempotency.Check": {
+		RequiredArgs: []string{"key"},
+	},
+	"idempotency.SaveResult": {
+		RequiredArgs: []string{"key"},
+		OptionalArgKinds: map[string]ArgKind{
+			"ttl": ArgKindString,
+		},
+	},
 	"dedupe.Once": {
 		RequiredArgs:     []string{"key"},
 		RequiredChildren: []string{"_do"},
@@ -235,6 +272,22 @@ var specs = map[string]Spec{
 			return nil
 		},
 	},
+	"ratelimit.Limit": {
+		RequiredArgs: []string{"key"},
+		OptionalArgKinds: map[string]ArgKind{
+			"throw": ArgKindString,
+			"rps":   ArgKindInt,
+		},
+		CustomConstraints: func(step Step) *Issue {
+			if _, ok := step.Args["rps"]; !ok {
+				return &Issue{Code: "MISSING_RPS", Message: "ratelimit.Limit missing 'rps'", Hint: "{action: \"ratelimit.Limit\", key: \"req.UserID\", rps: 10}"}
+			}
+			if !isIntLike(step.Args["rps"]) {
+				return &Issue{Code: "INVALID_RPS_TYPE", Message: "ratelimit.Limit 'rps' must be an integer", Hint: "{rps: 10}"}
+			}
+			return nil
+		},
+	},
 	"concurrency.Limit": {
 		RequiredArgs: []string{"key"},
 		OptionalArgKinds: map[string]ArgKind{
@@ -247,6 +300,23 @@ var specs = map[string]Spec{
 			}
 			if !isIntLike(step.Args["max"]) {
 				return &Issue{Code: "INVALID_MAX_TYPE", Message: "concurrency.Limit 'max' must be an integer", Hint: "{max: 5}"}
+			}
+			return nil
+		},
+	},
+	"concurrency.Run": {
+		RequiredArgs:     []string{"key"},
+		RequiredChildren: []string{"_do"},
+		OptionalArgKinds: map[string]ArgKind{
+			"throw": ArgKindString,
+			"max":   ArgKindInt,
+		},
+		CustomConstraints: func(step Step) *Issue {
+			if _, ok := step.Args["max"]; !ok {
+				return &Issue{Code: "MISSING_MAX", Message: "concurrency.Run missing 'max'", Hint: "{action: \"concurrency.Run\", key: \"\\\"slow-op\\\"\", max: 5, do: [...]}"}
+			}
+			if !isIntLike(step.Args["max"]) {
+				return &Issue{Code: "INVALID_MAX_TYPE", Message: "concurrency.Run 'max' must be an integer", Hint: "{max: 5}"}
 			}
 			return nil
 		},
@@ -268,6 +338,15 @@ var specs = map[string]Spec{
 			"openTTL":   ArgKindString,
 		},
 	},
+	"circuit.Breaker": {
+		RequiredArgs:     []string{"name"},
+		RequiredChildren: []string{"_do"},
+		OptionalArgKinds: map[string]ArgKind{
+			"throw":     ArgKindString,
+			"threshold": ArgKindInt,
+			"openTTL":   ArgKindString,
+		},
+	},
 	"bulkhead.Acquire": {
 		RequiredArgs: []string{"name"},
 		OptionalArgKinds: map[string]ArgKind{
@@ -282,6 +361,52 @@ var specs = map[string]Spec{
 				return &Issue{Code: "INVALID_MAX_TYPE", Message: "bulkhead.Acquire 'max' must be an integer", Hint: "{max: 20}"}
 			}
 			return nil
+		},
+	},
+	"bulkhead.Run": {
+		RequiredArgs:     []string{"name"},
+		RequiredChildren: []string{"_do"},
+		OptionalArgKinds: map[string]ArgKind{
+			"throw": ArgKindString,
+			"max":   ArgKindInt,
+		},
+		CustomConstraints: func(step Step) *Issue {
+			if _, ok := step.Args["max"]; !ok {
+				return &Issue{Code: "MISSING_MAX", Message: "bulkhead.Run missing 'max'", Hint: "{action: \"bulkhead.Run\", name: \"\\\"db-pool\\\"\", max: 20, do: [...]}"}
+			}
+			if !isIntLike(step.Args["max"]) {
+				return &Issue{Code: "INVALID_MAX_TYPE", Message: "bulkhead.Run 'max' must be an integer", Hint: "{max: 20}"}
+			}
+			return nil
+		},
+	},
+	"log.Emit": {
+		RequiredArgs: []string{"message"},
+		OptionalArgKinds: map[string]ArgKind{
+			"level":  ArgKindString,
+			"fields": ArgKindStringMap,
+		},
+	},
+	"metric.Emit": {
+		RequiredArgs: []string{"name"},
+		OptionalArgKinds: map[string]ArgKind{
+			"kind":   ArgKindString,
+			"value":  ArgKindString,
+			"labels": ArgKindStringMap,
+		},
+	},
+	"trace.Span": {
+		RequiredArgs:     []string{"name"},
+		RequiredChildren: []string{"_do"},
+		OptionalArgKinds: map[string]ArgKind{
+			"attrs": ArgKindStringMap,
+		},
+	},
+	"slo.Budget": {
+		RequiredArgs:     []string{"duration"},
+		RequiredChildren: []string{"_do"},
+		OptionalArgKinds: map[string]ArgKind{
+			"name": ArgKindString,
 		},
 	},
 	"repo.Upsert": {
@@ -1443,6 +1568,8 @@ func isKnownPrefix(action string) bool {
 		"webhook.", "queue.", "dlq.",
 		"http.", "rand.", "json.", "regex.", "base64.", "url.", "query.", "hash.", "uuid.", "ulid.", "math.", "jsonpath.", "batch.", "parallel.",
 		"jwt.", "oauth2.", "crypto.",
+		"idem.", "idempotency.", "dedupe.", "ratelimit.", "concurrency.", "circuit.", "bulkhead.",
+		"log.", "metric.", "trace.", "slo.",
 		"pdf.",
 	}
 	for _, p := range prefixes {
