@@ -1643,6 +1643,54 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					declaredVars[output] = true
 				}
 
+			case "flow.Call":
+				opRaw, _ := step.Args["op"].(string)
+				opRaw = strings.TrimSpace(opRaw)
+				if opRaw == "" {
+					addWarn(stepNum, step.Action, "MISSING_OP", "flow.Call missing 'op'", "{action: \"flow.Call\", op: \"ValidateTenderForBid\", args: {tenderID: \"req.TenderID\"}}", step.File, step.Line, step.Column)
+					break
+				}
+
+				targetService := ""
+				targetMethod := opRaw
+				if strings.Contains(opRaw, ".") {
+					parts := strings.SplitN(opRaw, ".", 2)
+					targetService = strings.TrimSpace(parts[0])
+					targetMethod = strings.TrimSpace(parts[1])
+				}
+				if targetMethod == "" {
+					addWarn(stepNum, step.Action, "INVALID_OP", "flow.Call op must be MethodName or ServiceName.MethodName", "{action: \"flow.Call\", op: \"Tender.ValidateTenderForBid\"}", step.File, step.Line, step.Column)
+				}
+				if targetService != "" {
+					dep := strings.ToLower(normalizeServiceName(targetService))
+					if _, ok := allowedDeps[dep]; !ok {
+						addWarn(stepNum, step.Action, "MISSING_SERVICE_DEP", fmt.Sprintf("flow.Call targets '%s' but service '%s' does not declare it in uses", targetService, svcName), "Add service name to operation uses: uses: [\""+targetService+"\"]", step.File, step.Line, step.Column)
+					}
+				}
+
+				if argsRaw, ok := step.Args["args"]; ok {
+					switch v := argsRaw.(type) {
+					case map[string]string:
+						for key, expr := range v {
+							if errStr := validateSafeCallArgExpr(expr); errStr != "" {
+								addWarn(stepNum, step.Action, "UNSAFE_CALL_ARG_EXPR", fmt.Sprintf("flow.Call args.%s: %s", key, errStr), "Use only refs/literals (or safe struct literals without calls) in flow.Call args.", step.File, step.Line, step.Column)
+							}
+						}
+					case map[string]any:
+						for key, raw := range v {
+							expr := fmt.Sprint(raw)
+							if errStr := validateSafeCallArgExpr(expr); errStr != "" {
+								addWarn(stepNum, step.Action, "UNSAFE_CALL_ARG_EXPR", fmt.Sprintf("flow.Call args.%s: %s", key, errStr), "Use only refs/literals (or safe struct literals without calls) in flow.Call args.", step.File, step.Line, step.Column)
+							}
+						}
+					default:
+						addWarn(stepNum, step.Action, "INVALID_ARGS_TYPE", "flow.Call args must be map[string]string", "{action: \"flow.Call\", op: \"ValidateTenderForBid\", args: {tenderID: \"req.TenderID\"}}", step.File, step.Line, step.Column)
+					}
+				}
+				if output, _ := step.Args["output"].(string); output != "" {
+					declaredVars[output] = true
+				}
+
 			case "list.Append":
 				// validated by flow semantics engine
 

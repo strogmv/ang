@@ -168,7 +168,9 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 	}
 	funcMapImpl["CleanImplCode"] = cleanImplCode
 	funcMapImpl["FlowRenderable"] = flowRenderable
-	funcMapImpl["RenderFlow"] = renderFlow
+	funcMapImpl["RenderFlow"] = func(serviceName string, steps []normalizer.FlowStep) string {
+		return renderFlowForService(serviceName, steps)
+	}
 	funcMapImpl["RenderImplSteps"] = func(svc normalizer.Service, steps []normalizer.ImplStep, serviceName, methodName string) string {
 		return renderImplSteps(svc, steps, serviceName, methodName)
 	}

@@ -70,6 +70,34 @@ var specs = map[string]Spec{
 			"ignoreErr": ArgKindBool,
 		},
 	},
+	"flow.Call": {
+		RequiredArgs:     []string{"op"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"args":      ArgKindStringMap,
+			"output":    ArgKindString,
+			"ignoreErr": ArgKindBool,
+		},
+		CustomConstraints: func(step Step) *Issue {
+			raw, ok := nonEmptyString(step.Args["op"])
+			if !ok {
+				return &Issue{
+					Code:    "MISSING_OP",
+					Message: "flow.Call requires non-empty 'op'",
+					Hint:    "{action: \"flow.Call\", op: \"Tender.ValidateTenderForBid\", args: {tenderID: \"req.TenderID\"}}",
+				}
+			}
+			op := strings.TrimSpace(raw)
+			if strings.Contains(op, "..") || strings.HasPrefix(op, ".") || strings.HasSuffix(op, ".") {
+				return &Issue{
+					Code:    "INVALID_OP",
+					Message: "flow.Call 'op' must be MethodName or Service.Method",
+					Hint:    "{action: \"flow.Call\", op: \"ValidateTenderForBid\"}",
+				}
+			}
+			return nil
+		},
+	},
 	"event.Broadcast": {
 		RequiredArgs: []string{"name"},
 	},

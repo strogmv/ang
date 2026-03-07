@@ -43,6 +43,9 @@ func renderFlowStepControlFlow(st *flowRenderState, step normalizer.FlowStep, in
 		}
 		return renderFlowWhileLegacy(st, pad, indent, arg, child), true
 
+	case "flow.Call":
+		return renderFlowCall(st, pad, step, arg), true
+
 	case "flow.Checkpoint":
 		if out, ok := renderFlowCheckpointAST(indent, arg); ok {
 			return out, true
@@ -125,6 +128,96 @@ func renderFlowTag(st *flowRenderState, step normalizer.FlowStep, indent int, sf
 		return fmt.Sprintf("%sslog.Info(\"flow.tag\", \"name\", %s, \"value\", %s)\n", pad, name, value)
 	}
 	return fmt.Sprintf("%sslog.Info(\"flow.tag\", \"name\", %s)\n", pad, name)
+}
+
+func renderFlowCall(st *flowRenderState, pad string, step normalizer.FlowStep, arg func(string) string) string {
+	opRaw := strings.TrimSpace(arg("op"))
+	if opRaw == "" {
+		return ""
+	}
+	output := strings.TrimSpace(arg("output"))
+	ignoreErr, _ := step.Args["ignoreErr"].(bool)
+
+	serviceName := ""
+	methodName := opRaw
+	if parts := strings.SplitN(opRaw, ".", 2); len(parts) == 2 {
+		serviceName = strings.TrimSpace(parts[0])
+		methodName = strings.TrimSpace(parts[1])
+	}
+	if methodName == "" {
+		return ""
+	}
+	methodExport := ExportName(methodName)
+
+	reqExpr := fmt.Sprintf("port.%sRequest{}", methodExport)
+	argMap := map[string]string{}
+	switch raw := step.Args["args"].(type) {
+	case map[string]string:
+		argMap = raw
+	case map[string]any:
+		for k, v := range raw {
+			argMap[k] = fmt.Sprint(v)
+		}
+	}
+	if len(argMap) > 0 {
+		keys := make([]string, 0, len(argMap))
+		for k := range argMap {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		fields := make([]string, 0, len(keys))
+		for _, k := range keys {
+			expr := normalizeFlowExpr(strings.TrimSpace(argMap[k]))
+			if expr == "" {
+				continue
+			}
+			fields = append(fields, fmt.Sprintf("%s: %s", ExportName(k), expr))
+		}
+		if len(fields) > 0 {
+			reqExpr = fmt.Sprintf("port.%sRequest{%s}", methodExport, strings.Join(fields, ", "))
+		}
+	}
+
+	callStr := fmt.Sprintf("s.%s(ctx, %s)", methodExport, reqExpr)
+	if strings.TrimSpace(serviceName) != "" && !strings.EqualFold(strings.TrimSpace(serviceName), strings.TrimSpace(st.serviceName)) {
+		callStr = fmt.Sprintf("s.%sService.%s(ctx, %s)", ExportName(serviceName), methodExport, reqExpr)
+	}
+
+	if ignoreErr {
+		if output != "" {
+			assign := ":="
+			if st.declared[output] {
+				assign = "="
+			}
+			st.declared[output] = true
+			st.pointers[output] = false
+			st.types[output] = "port." + methodExport + "Response"
+			return fmt.Sprintf("%s%s %s %s\n", pad, output+", _", assign, callStr)
+		}
+		return fmt.Sprintf("%s_, _ = %s\n", pad, callStr)
+	}
+
+	if output != "" {
+		assign := ":="
+		if st.declared[output] {
+			assign = "="
+		}
+		st.declared[output] = true
+		st.pointers[output] = false
+		st.types[output] = "port." + methodExport + "Response"
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s%s %s %s\n", pad, output+", err", assign, callStr))
+		b.WriteString(fmt.Sprintf("%sif err != nil {\n", pad))
+		b.WriteString(errReturn(st, pad+"\t", "err"))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String()
+	}
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("%sif _, err := %s; err != nil {\n", pad, callStr))
+	b.WriteString(errReturn(st, pad+"\t", "err"))
+	b.WriteString(fmt.Sprintf("%s}\n", pad))
+	return b.String()
 }
 
 func renderFlowIfAST(st *flowRenderState, indent int, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {

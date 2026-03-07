@@ -67,6 +67,43 @@ func TestRenderFlow_ListSort(t *testing.T) {
 	}
 }
 
+func TestRenderFlow_FlowCall(t *testing.T) {
+	steps := []normalizer.FlowStep{
+		{Action: "flow.Call", Args: map[string]any{
+			"op": "ValidateTenderForBid",
+			"args": map[string]string{
+				"tenderID":  "req.TenderID",
+				"companyID": "req.CompanyID",
+			},
+			"output": "validated",
+		}},
+	}
+	code := renderFlow(steps)
+	mustContain := []string{
+		"validated, err := s.ValidateTenderForBid(ctx, port.ValidateTenderForBidRequest{CompanyID: req.CompanyID, TenderID: req.TenderID})",
+		"if err != nil {",
+	}
+	for _, part := range mustContain {
+		if !strings.Contains(code, part) {
+			t.Fatalf("expected flow.Call generation to contain %q\n\n%s", part, code)
+		}
+	}
+}
+
+func TestRenderFlow_FlowCallExternalServiceIgnoreErr(t *testing.T) {
+	steps := []normalizer.FlowStep{
+		{Action: "flow.Call", Args: map[string]any{
+			"op":        "Tender.ValidateTenderForBid",
+			"ignoreErr": true,
+			"output":    "validated",
+		}},
+	}
+	code := renderFlow(steps)
+	if !strings.Contains(code, "validated, _ := s.TenderService.ValidateTenderForBid(ctx, port.ValidateTenderForBidRequest{})") {
+		t.Fatalf("expected external flow.Call ignoreErr form\n\n%s", code)
+	}
+}
+
 func TestRenderFlow_CollectionsPrimitives(t *testing.T) {
 	steps := []normalizer.FlowStep{
 		{Action: "list.Map", Args: map[string]any{"from": "items", "as": "item", "expr": "item.ID", "output": "ids"}},

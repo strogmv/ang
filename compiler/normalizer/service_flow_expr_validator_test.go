@@ -261,6 +261,43 @@ func TestValidateFlowSteps_LogicCheckRejectsFunctionCall(t *testing.T) {
 	}
 }
 
+func TestValidateFlowSteps_FlowCallArgsReportExpressionSyntax(t *testing.T) {
+	t.Parallel()
+
+	steps := []FlowStep{{
+		Action: "flow.Call",
+		Args: map[string]any{
+			"op": "Tender.ValidateTenderForBid",
+			"args": map[string]any{
+				"tenderID":  "req.TenderID",
+				"companyID": "uuid.NewString()",
+			},
+			"output": "validated",
+		},
+	}}
+
+	warnings := validateFlowSteps("PlaceBid", "bids", steps, nil, []string{"Tender"}, nil, "strict", nil)
+	if !hasWarningWithText(warnings, "UNSAFE_CALL_ARG_EXPR", "flow.Call args.companyID:") {
+		t.Fatalf("expected UNSAFE_CALL_ARG_EXPR for flow.Call args, got: %+v", warnings)
+	}
+}
+
+func TestValidateFlowSteps_FlowCallRequiresDeclaredDependency(t *testing.T) {
+	t.Parallel()
+
+	steps := []FlowStep{{
+		Action: "flow.Call",
+		Args: map[string]any{
+			"op": "Tender.ValidateTenderForBid",
+		},
+	}}
+
+	warnings := validateFlowSteps("PlaceBid", "bids", steps, nil, nil, nil, "strict", nil)
+	if !hasWarningWithText(warnings, "MISSING_SERVICE_DEP", "flow.Call targets 'Tender'") {
+		t.Fatalf("expected MISSING_SERVICE_DEP for flow.Call dependency, got: %+v", warnings)
+	}
+}
+
 func hasWarningWithText(warnings []FlowWarning, code string, contains string) bool {
 	for _, w := range warnings {
 		if w.Code == code && strings.Contains(w.Message, contains) {

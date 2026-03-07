@@ -168,11 +168,29 @@ func TestValidate_DeterministicFlowActionsKnown(t *testing.T) {
 		{Action: "flow.RecordEvent", Args: map[string]any{"name": `"project.created"`, "payload": "req", "output": "evt"}},
 		{Action: "flow.History.Get", Args: map[string]any{"output": "hist"}},
 		{Action: "flow.Replay", Args: map[string]any{"history": "hist", "output": "replayed"}},
+		{Action: "flow.Call", Args: map[string]any{"op": "Tender.GetTender", "args": map[string]string{"id": "req.ID"}, "output": "tenderResp"}},
 	})
 	for _, it := range issues {
 		if it.Code == "UNKNOWN_ACTION" {
 			t.Fatalf("unexpected UNKNOWN_ACTION for %s", it.Action)
 		}
+	}
+}
+
+func TestValidate_FlowCallRequiresOp(t *testing.T) {
+	t.Parallel()
+	issues := Validate([]Step{
+		{Action: "flow.Call", Args: map[string]any{}},
+	})
+	found := false
+	for _, it := range issues {
+		if it.Code == "MISSING_OP" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected MISSING_OP issue, got %+v", issues)
 	}
 }
 

@@ -51,7 +51,7 @@ func flowActionSupported(action string) bool {
 		"repo.Find", "repo.Get", "repo.GetForUpdate", "repo.List", "repo.Save", "repo.Delete",
 		"repo.Query", "repo.Upsert",
 		"mapping.Assign", "mapping.Map",
-		"flow.If", "flow.For", "flow.Block", "flow.Switch", "flow.While", "tx.Block",
+		"flow.If", "flow.For", "flow.Block", "flow.Switch", "flow.While", "flow.Call", "tx.Block",
 		"flow.Checkpoint", "flow.Resume", "flow.Validate", "flow.Try", "flow.Catch",
 		"flow.RecordEvent", "flow.Replay", "flow.History.Get",
 		"flow.Retry", "flow.Fallback", "flow.Timeout", "flow.SuggestNext", "flow.ExplainError",
@@ -61,7 +61,7 @@ func flowActionSupported(action string) bool {
 		"list.Enrich",
 		"str.Normalize",
 		"event.Publish", "logic.Call", "service.Call",
-		"event.Wait", "event.Subscribe", "event.Match",
+		"event.Wait", "event.Subscribe", "event.Match", "event.Broadcast",
 		"exec.Run",
 		"fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove",
 		"archive.ZipDir",
@@ -197,6 +197,7 @@ type flowRenderState struct {
 	concurrMode   string            // "parallel" | "join" | "race" for flow.Parallel/Join/Race goroutines
 	concurrVarPfx string            // e.g. "_fp_0" / "_fj_0" / "_fr_0"
 	sagaCompVar   string            // variable name for compensation slice
+	serviceName   string            // current service name for flow.Call self-call resolution
 }
 
 func cloneFlowState(st *flowRenderState) *flowRenderState {
@@ -210,6 +211,7 @@ func cloneFlowState(st *flowRenderState) *flowRenderState {
 		concurrMode:   st.concurrMode,
 		concurrVarPfx: st.concurrVarPfx,
 		sagaCompVar:   st.sagaCompVar,
+		serviceName:   st.serviceName,
 	}
 	for k, v := range st.declared {
 		cp.declared[k] = v
@@ -224,12 +226,17 @@ func cloneFlowState(st *flowRenderState) *flowRenderState {
 }
 
 func renderFlow(steps []normalizer.FlowStep) string {
+	return renderFlowForService("", steps)
+}
+
+func renderFlowForService(serviceName string, steps []normalizer.FlowStep) string {
 	n := 0
 	st := &flowRenderState{
-		declared: map[string]bool{"resp": true, "err": true},
-		pointers: map[string]bool{},
-		types:    map[string]string{},
-		stepN:    &n,
+		declared:    map[string]bool{"resp": true, "err": true},
+		pointers:    map[string]bool{},
+		types:       map[string]string{},
+		stepN:       &n,
+		serviceName: strings.TrimSpace(serviceName),
 	}
 	var b strings.Builder
 	if flowHasAction(steps, "flow.Checkpoint", "flow.Resume") {
@@ -336,7 +343,7 @@ func renderOneFlowStep(st *flowRenderState, step normalizer.FlowStep, indent int
 	}
 
 	switch step.Action {
-	case "flow.If", "flow.For", "flow.Block", "tx.Block", "list.Filter", "list.Paginate", "list.Append", "list.Sort", "list.Map", "list.Reduce", "list.GroupBy", "list.Distinct", "list.Chunk", "batch.Run", "str.Normalize", "mapping.Map", "event.Publish", "logic.Call", "service.Call", "exec.Run", "fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove", "archive.ZipDir", "session.Get", "flow.Switch", "flow.While", "flow.Checkpoint", "flow.Resume", "flow.RecordEvent", "flow.Replay", "flow.History.Get", "flow.Validate", "flow.Try", "flow.Catch", "flow.Retry", "flow.Fallback", "flow.Timeout", "flow.SuggestNext", "flow.ExplainError",
+	case "flow.If", "flow.For", "flow.Block", "tx.Block", "list.Filter", "list.Paginate", "list.Append", "list.Sort", "list.Map", "list.Reduce", "list.GroupBy", "list.Distinct", "list.Chunk", "batch.Run", "str.Normalize", "mapping.Map", "event.Publish", "logic.Call", "service.Call", "flow.Call", "exec.Run", "fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove", "archive.ZipDir", "session.Get", "flow.Switch", "flow.While", "flow.Checkpoint", "flow.Resume", "flow.RecordEvent", "flow.Replay", "flow.History.Get", "flow.Validate", "flow.Try", "flow.Catch", "flow.Retry", "flow.Fallback", "flow.Timeout", "flow.SuggestNext", "flow.ExplainError",
 		"flow.Parallel", "flow.Join", "flow.Race",
 		"flow.Delay", "flow.Schedule", "flow.Cron",
 		"flow.Saga", "flow.Compensate", "flow.Rollback", "flow.Tag":
