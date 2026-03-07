@@ -2,16 +2,26 @@ package normalizer
 
 // Entity представляет доменную сущность.
 type Entity struct {
-	Name        string
-	Description string
-	Owner       string
-	Fields      []Field
+	Name           string
+	Description    string
+	Owner          string
+	BoundedContext string
+	AggregateRoot  bool
+	Owns           []string
+	ReadModel      *ReadModelDef
+	Fields         []Field
 
 	FSM      *FSM
 	Indexes  []IndexDef
 	UI       *EntityUIDef
 	Metadata map[string]any // Универсальное хранилище для плагинов
 	Source   string
+}
+
+// ReadModelDef describes ACL read-model contract for cross-context analytics.
+type ReadModelDef struct {
+	SourceContext string
+	RefreshOn     []string
 }
 
 type EntityUIDef struct {
@@ -209,10 +219,12 @@ type Source struct {
 
 // EventDef описывает событие системы.
 type EventDef struct {
-	Name     string
-	Fields   []Field
-	Metadata map[string]any
-	Source   string
+	Name      string
+	Owner     string
+	Consumers []string
+	Fields    []Field
+	Metadata  map[string]any
+	Source    string
 }
 
 // ErrorDef описывает бизнес-ошибку.
@@ -345,6 +357,16 @@ type SessionDef struct {
 type RBACDef struct {
 	Roles       map[string][]string
 	Permissions map[string]string
+}
+
+// PolicyDef describes typed authorization policy constraints.
+type PolicyDef struct {
+	Name               string
+	Description        string
+	Roles              []string
+	SameCompany        bool
+	AllowAdminOverride bool
+	Source             string
 }
 
 // Repository описывает интерфейс доступа к данным.

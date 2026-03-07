@@ -2,6 +2,8 @@ package emitter
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -10,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"text/template"
 
@@ -22,6 +25,11 @@ var (
 )
 
 const serviceImplTemplatePath = "templates/service_impl.tmpl"
+
+const (
+	serviceImplScaffoldTemplatePath = "templates/service_impl_scaffold.tmpl"
+	serviceImplMethodTemplatePath   = "templates/service_impl_method.tmpl"
+)
 
 func hasMethodImplementation(m normalizer.Method, overrides map[string]bool) bool {
 	if len(m.Flow) > 0 {
@@ -148,8 +156,11 @@ func (e *Emitter) EmitService(services []ir.Service) error {
 }
 
 func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, auth *normalizer.AuthDef) error {
-	tmplPath := serviceImplTemplatePath
-	tmplContent, err := ReadTemplateByPath(tmplPath)
+	scaffoldTmplContent, err := ReadTemplateByPath(serviceImplScaffoldTemplatePath)
+	if err != nil {
+		return err
+	}
+	methodTmplContent, err := ReadTemplateByPath(serviceImplMethodTemplatePath)
 	if err != nil {
 		return err
 	}
@@ -174,7 +185,11 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 	funcMapImpl["RenderImplSteps"] = func(svc normalizer.Service, steps []normalizer.ImplStep, serviceName, methodName string) string {
 		return renderImplSteps(svc, steps, serviceName, methodName)
 	}
-	t, err := template.New("service_impl").Funcs(funcMapImpl).Parse(string(tmplContent))
+	scaffoldT, err := template.New("service_impl_scaffold").Funcs(funcMapImpl).Parse(string(scaffoldTmplContent))
+	if err != nil {
+		return err
+	}
+	methodT, err := template.New("service_impl_method").Funcs(funcMapImpl).Parse(string(methodTmplContent))
 	if err != nil {
 		return err
 	}
@@ -423,7 +438,6 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 		}
 		sort.Strings(allImports)
 
-		var buf bytes.Buffer
 		a := auth
 		if a == nil {
 			a = &normalizer.AuthDef{}
@@ -432,32 +446,214 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 		overrides := e.getManualMethods(svc.Name)
 		e.auditMissingImplementations(svc, overrides)
 
-		if err := t.Execute(&buf, TemplateContext{
-			Service:   &svc,
-			Entities:  nEntities,
-			Auth:      a,
-			Imports:   allImports,
-			GoModule:  e.GoModule,
-			Overrides: overrides,
-		}); err != nil {
-			return fmt.Errorf("execute template for %s: %w", svc.Name, err)
+		serviceLower := strings.ToLower(svc.Name)
+		legacyMonolith := filepath.Join(targetDir, serviceLower+".go")
+		_ = os.Remove(legacyMonolith)
+
+		scaffoldFile := serviceLower + "_impl.gen.go"
+		keep := map[string]struct{}{
+			scaffoldFile: {},
 		}
 
-		_ = os.WriteFile("/home/strog/.gemini/tmp/ang/debug_"+strings.ToLower(svc.Name)+".go", buf.Bytes(), 0644)
-		formatted, err := formatGoStrict(buf.Bytes(), "internal/service/"+strings.ToLower(svc.Name)+".go")
+		serviceSources := collectServiceImplSources(svc)
+		serviceHeader := e.renderGeneratedHeader(serviceSources)
+
+		var scaffoldBuf bytes.Buffer
+		if err := scaffoldT.Execute(&scaffoldBuf, TemplateContext{
+			Service:          &svc,
+			Entities:         nEntities,
+			Auth:             a,
+			Imports:          allImports,
+			GoModule:         e.GoModule,
+			Overrides:        overrides,
+			ProvenanceHeader: serviceHeader,
+		}); err != nil {
+			return fmt.Errorf("execute scaffold template for %s: %w", svc.Name, err)
+		}
+
+		scaffoldUnit := "internal/service/" + scaffoldFile
+		scaffoldFormatted, err := formatGoStrict(scaffoldBuf.Bytes(), scaffoldUnit)
 		if err != nil {
 			return err
 		}
-
-		filename := strings.ToLower(svc.Name) + ".go"
-		path := filepath.Join(targetDir, filename)
-		if err := os.WriteFile(path, formatted, 0644); err != nil {
+		scaffoldPath := filepath.Join(targetDir, scaffoldFile)
+		if err := os.WriteFile(scaffoldPath, scaffoldFormatted, 0644); err != nil {
 			return err
 		}
-		fmt.Printf("Generated Service Impl: %s\n", path)
+		fmt.Printf("Generated Service Impl Scaffold: %s\n", scaffoldPath)
+
+		for _, m := range svc.Methods {
+			if overrides[m.Name] {
+				continue
+			}
+			methodFile := serviceLower + "__" + ToSnakeCase(m.Name) + ".gen.go"
+			keep[methodFile] = struct{}{}
+
+			method := m
+			methodSources := []string{method.Source}
+			if strings.TrimSpace(method.Source) == "" {
+				methodSources = serviceSources
+			}
+			methodHeader := e.renderGeneratedHeader(methodSources)
+
+			var methodBuf bytes.Buffer
+			if err := methodT.Execute(&methodBuf, TemplateContext{
+				Service:          &svc,
+				Method:           &method,
+				Entities:         nEntities,
+				Auth:             a,
+				Imports:          allImports,
+				GoModule:         e.GoModule,
+				Overrides:        overrides,
+				ProvenanceHeader: methodHeader,
+			}); err != nil {
+				return fmt.Errorf("execute method template for %s.%s: %w", svc.Name, m.Name, err)
+			}
+
+			methodUnit := "internal/service/" + methodFile
+			methodFormatted, err := formatGoStrict(methodBuf.Bytes(), methodUnit)
+			if err != nil {
+				return err
+			}
+			methodPath := filepath.Join(targetDir, methodFile)
+			if err := os.WriteFile(methodPath, methodFormatted, 0644); err != nil {
+				return err
+			}
+			fmt.Printf("Generated Service Impl Method: %s\n", methodPath)
+		}
+
+		if err := pruneGeneratedFiles(
+			targetDir,
+			keep,
+			func(name string) bool {
+				if name == scaffoldFile {
+					return true
+				}
+				return strings.HasPrefix(name, serviceLower+"__") && strings.HasSuffix(name, ".gen.go")
+			},
+			func(path string) bool {
+				return fileContainsAny(path, "Code generated by ANG", "DO NOT EDIT")
+			},
+		); err != nil {
+			return err
+		}
 	}
 
 	return nil
+}
+
+type provenanceSource struct {
+	Path string
+	SHA  string
+}
+
+func collectServiceImplSources(svc normalizer.Service) []string {
+	out := make([]string, 0, len(svc.Methods)+1)
+	out = append(out, svc.Source)
+	for _, m := range svc.Methods {
+		out = append(out, m.Source)
+	}
+	return out
+}
+
+func sourceRefToFile(source string) string {
+	s := strings.TrimSpace(source)
+	if s == "" {
+		return ""
+	}
+	last := strings.LastIndex(s, ":")
+	if last <= 0 || last+1 >= len(s) {
+		return filepath.Clean(s)
+	}
+	if _, err := strconv.Atoi(s[last+1:]); err != nil {
+		return filepath.Clean(s)
+	}
+	return filepath.Clean(s[:last])
+}
+
+func (e *Emitter) resolveSourcePath(file string) string {
+	if file == "" {
+		return ""
+	}
+	if filepath.IsAbs(file) {
+		return filepath.Clean(file)
+	}
+	candidates := []string{
+		filepath.Join(e.OutputDir, file),
+		file,
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			return filepath.Clean(c)
+		}
+	}
+	return filepath.Clean(file)
+}
+
+func (e *Emitter) displaySourcePath(path string) string {
+	if path == "" {
+		return "<unknown>"
+	}
+	if rel, err := filepath.Rel(e.OutputDir, path); err == nil && rel != "" && !strings.HasPrefix(rel, "..") {
+		return filepath.ToSlash(rel)
+	}
+	return filepath.ToSlash(path)
+}
+
+func (e *Emitter) hashSourceFile(path string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "unknown"
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])[:8]
+}
+
+func (e *Emitter) renderGeneratedHeader(sourceRefs []string) string {
+	seen := make(map[string]struct{})
+	items := make([]provenanceSource, 0, len(sourceRefs))
+
+	for _, ref := range sourceRefs {
+		file := sourceRefToFile(ref)
+		if file == "" {
+			continue
+		}
+		resolved := e.resolveSourcePath(file)
+		display := e.displaySourcePath(resolved)
+		if _, ok := seen[display]; ok {
+			continue
+		}
+		seen[display] = struct{}{}
+		items = append(items, provenanceSource{
+			Path: display,
+			SHA:  e.hashSourceFile(resolved),
+		})
+	}
+
+	sort.Slice(items, func(i, j int) bool { return items[i].Path < items[j].Path })
+
+	version := strings.TrimSpace(e.Version)
+	if version == "" {
+		version = "dev"
+	}
+
+	var b strings.Builder
+	b.WriteString("// Code generated by ANG v")
+	b.WriteString(version)
+	b.WriteString(" from:\n")
+	if len(items) == 0 {
+		b.WriteString("//   <unknown source>\n")
+	} else {
+		for _, it := range items {
+			b.WriteString("//   ")
+			b.WriteString(it.Path)
+			b.WriteString(" (sha: ")
+			b.WriteString(it.SHA)
+			b.WriteString(")\n")
+		}
+	}
+	b.WriteString("// DO NOT EDIT.\n\n")
+	return b.String()
 }
 
 func cleanImplCode(code, outputName string) string {

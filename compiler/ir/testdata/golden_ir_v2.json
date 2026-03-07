@@ -120,6 +120,14 @@
   ],
   "Entity": [
     {
+      "name": "AggregateRoot",
+      "type": "bool"
+    },
+    {
+      "name": "BoundedContext",
+      "type": "string"
+    },
+    {
       "name": "Description",
       "type": "string"
     },
@@ -148,6 +156,14 @@
       "type": "string"
     },
     {
+      "name": "Owns",
+      "type": "[]string"
+    },
+    {
+      "name": "ReadModel",
+      "type": "*ir.ReadModel"
+    },
+    {
       "name": "Source",
       "type": "string"
     },
@@ -158,6 +174,10 @@
   ],
   "Event": [
     {
+      "name": "Consumers",
+      "type": "[]string"
+    },
+    {
       "name": "Fields",
       "type": "[]ir.Field"
     },
@@ -167,6 +187,10 @@
     },
     {
       "name": "Name",
+      "type": "string"
+    },
+    {
+      "name": "Owner",
       "type": "string"
     },
     {

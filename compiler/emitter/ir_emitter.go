@@ -52,12 +52,21 @@ func IREntitiesToNormalizer(irEntities []ir.Entity) []normalizer.Entity {
 // IREntityToNormalizer converts a single IR entity.
 func IREntityToNormalizer(e ir.Entity) normalizer.Entity {
 	entity := normalizer.Entity{
-		Name:        e.Name,
-		Description: e.Description,
-		Owner:       e.Owner,
-		Fields:      IRFieldsToNormalizer(e.Fields),
-		Metadata:    e.Metadata,
-		Source:      e.Source,
+		Name:           e.Name,
+		Description:    e.Description,
+		Owner:          e.Owner,
+		BoundedContext: e.BoundedContext,
+		AggregateRoot:  e.AggregateRoot,
+		Owns:           append([]string(nil), e.Owns...),
+		Fields:         IRFieldsToNormalizer(e.Fields),
+		Metadata:       e.Metadata,
+		Source:         e.Source,
+	}
+	if e.ReadModel != nil {
+		entity.ReadModel = &normalizer.ReadModelDef{
+			SourceContext: e.ReadModel.SourceContext,
+			RefreshOn:     append([]string(nil), e.ReadModel.RefreshOn...),
+		}
 	}
 
 	if e.UI.CRUD != nil {
@@ -601,10 +610,12 @@ func IREventsToNormalizer(irEvents []ir.Event) []normalizer.EventDef {
 	result := make([]normalizer.EventDef, 0, len(irEvents))
 	for _, ev := range irEvents {
 		result = append(result, normalizer.EventDef{
-			Name:     ev.Name,
-			Fields:   IRFieldsToNormalizer(ev.Fields),
-			Metadata: ev.Metadata,
-			Source:   ev.Source,
+			Name:      ev.Name,
+			Owner:     ev.Owner,
+			Consumers: append([]string(nil), ev.Consumers...),
+			Fields:    IRFieldsToNormalizer(ev.Fields),
+			Metadata:  ev.Metadata,
+			Source:    ev.Source,
 		})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })

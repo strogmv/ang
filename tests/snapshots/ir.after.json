@@ -45,7 +45,12 @@
         "UpdateTag"
       ],
       "uses": [],
-      "publishes": []
+      "publishes": [
+        "CommentCreated",
+        "PostCreated",
+        "PostPublished",
+        "PostUpdated"
+      ]
     }
   ],
   "endpoints": [

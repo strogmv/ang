@@ -155,7 +155,13 @@ func runHash(args []string) {
 		}
 		fmt.Printf("Schema Version:   %s\n", m.SchemaVersion)
 		fmt.Printf("Compiler Version: %s\n", m.CompilerVersion)
+		if strings.TrimSpace(m.CompilerFingerprint) != "" {
+			fmt.Printf("Compiler Fingerprint: %s\n", m.CompilerFingerprint)
+		}
 		fmt.Printf("IR Version:       %s\n", m.IRVersion)
+		if strings.TrimSpace(m.IRCanonicalVersion) != "" {
+			fmt.Printf("IR Canonical:     %s\n", m.IRCanonicalVersion)
+		}
 		if strings.TrimSpace(m.InputHash) != "" {
 			fmt.Printf("Input Hash:       %s\n", m.InputHash)
 		}
@@ -169,10 +175,12 @@ func runHash(args []string) {
 		return
 	}
 	inputHash, _ := calculateHash([]string{"cue"})
-	compilerHash, _ := calculateHash([]string{"templates"})
+	templateHash, _ := calculateHash([]string{"templates"})
+	compilerFingerprint := compiler.BuildFingerprint()
 	fmt.Printf("ANG Version:  %s\n", compiler.Version)
 	fmt.Printf("Input Hash:   %s (cue/)\n", inputHash)
-	fmt.Printf("Compiler Hash: %s (templates/)\n", compilerHash)
+	fmt.Printf("Template Hash: %s (templates/)\n", templateHash)
+	fmt.Printf("Compiler Fingerprint: %s (binary + IR ABI)\n", compilerFingerprint)
 }
 
 func calculateHash(dirs []string) (string, error) {

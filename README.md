@@ -570,9 +570,13 @@ These keys are used by control and orchestration actions:
 - `_onMismatch`
 - `_branches`
 
-### Full Supported `action` List
+### Cataloged `action` Contracts
 
-Canonical compiler-supported actions (source of truth: `compiler/emitter/service_flow_codegen.go`):
+Cataloged flow action contracts (source of truth: flowsem specs + emitter dispatch).
+
+Important: this list is a contract catalog, not a production-readiness grade. For execution-proven patterns, use `cue/GOLDEN_EXAMPLES.cue` and emitter tests in `compiler/emitter/*flow_codegen*test.go`.
+
+Catalog:
 
 ```text
 archive.ZipDir
@@ -744,6 +748,7 @@ webhook.VerifySignature
 Notes:
 - `notification.Dispatch` and `notify.Dispatch` are both accepted for compatibility.
 - `idem.*` and `idempotency.*` are both accepted aliases.
+- Edge orchestration examples are documented in `cue/GOLDEN_EXAMPLES.cue` (Examples 26-30): `flow.Race`, `flow.Saga`, `flow.Compensate`, `approval.Wait`, `fsm.Transition`.
 
 ### Flow Helper Macros (`cue/schema/flow_helpers.cue`)
 
@@ -905,3 +910,38 @@ Run `ang_mcp_health` from MCP clients to inspect effective profile, limits, work
 runtime config status, and envelope mode.
 
 Unified MCP envelope responses include `schema_version` (current default: `mcp-envelope/v1`).
+
+## Flow Migration Notes (0.1.115)
+
+ANG now supports a safer flow-first migration pattern for complex endpoints, with strict architecture checks preserved.
+
+- `flow` is preferred over raw `impls.go` where possible.
+- `repo.Query` is validated against architecture boundaries.
+- Cross-context direct repository access can be rejected during `ang validate`.
+
+Recommended order for cross-context reads:
+
+1. Use an ACL read model owned by the caller bounded context.
+2. Use `logic.Call` to an explicit service/port method when boundary crossing is intentional.
+3. Use `shared_arch` overrides only as a temporary escape hatch.
+
+Operational note:
+
+- Run `ang build` to completion before `go build`/`go test`.
+- Running generation and Go build in parallel can produce transient compile errors on partially regenerated files.
+
+### Generated Merge Strategy
+
+For generated artifact paths, ANG ships `.gitattributes` with `merge=ang-generated`.
+
+Configure the merge driver once per clone:
+
+```bash
+./scripts/setup-generated-merge-driver.sh
+```
+
+Behavior:
+
+- merge conflicts in generated files resolve to current branch content;
+- then a best-effort `ang build` is executed by the driver;
+- CI additionally enforces clean generated state via `ang build` + git tree check.

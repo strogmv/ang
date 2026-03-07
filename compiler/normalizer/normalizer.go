@@ -41,6 +41,7 @@ type Normalizer struct {
 	WarningSink func(Warning)
 	Scopes      []ScopeDef
 	scopeIndex  map[string][]string
+	Policies    map[string]PolicyDef
 	RepoNames   map[string]struct{}
 	EventNames  map[string]struct{}
 
@@ -71,6 +72,7 @@ func New() *Normalizer {
 		},
 		Scopes:                 nil,
 		scopeIndex:             make(map[string][]string),
+		Policies:               make(map[string]PolicyDef),
 		ArchitectureMode:       "strict",
 		ArchitectureAllowCross: make(map[string]map[string]struct{}),
 	}

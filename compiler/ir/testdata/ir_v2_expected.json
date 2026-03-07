@@ -17,6 +17,10 @@
       "Name": "User",
       "Description": "",
       "Owner": "",
+      "BoundedContext": "",
+      "AggregateRoot": false,
+      "Owns": null,
+      "ReadModel": null,
       "Fields": [
         {
           "Name": "id",
@@ -130,6 +134,8 @@
   "Events": [
     {
       "Name": "UserLoggedIn",
+      "Owner": "",
+      "Consumers": null,
       "Fields": null,
       "Metadata": {},
       "Source": ""

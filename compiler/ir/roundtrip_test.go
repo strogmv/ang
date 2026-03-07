@@ -83,13 +83,20 @@ func TestIRRoundTrip(t *testing.T) {
 
 	t.Run("Entity", func(t *testing.T) {
 		original := normalizer.Entity{
-			Name:        "TestEntity",
-			Description: "Test entity desc",
-			Owner:       "TestService",
-			Fields:      []normalizer.Field{},
-			Metadata:    map[string]any{"e": "v"},
-			Indexes:     []normalizer.IndexDef{},
-			Source:      "test.cue",
+			Name:           "TestEntity",
+			Description:    "Test entity desc",
+			Owner:          "TestService",
+			BoundedContext: "test",
+			AggregateRoot:  true,
+			Owns:           []string{"OwnedA"},
+			ReadModel: &normalizer.ReadModelDef{
+				SourceContext: "source",
+				RefreshOn:     []string{"EventA"},
+			},
+			Fields:   []normalizer.Field{},
+			Metadata: map[string]any{"e": "v"},
+			Indexes:  []normalizer.IndexDef{},
+			Source:   "test.cue",
 		}
 
 		assertAllFieldsSet(t, original)
@@ -272,7 +279,9 @@ func TestIRRoundTrip(t *testing.T) {
 
 	t.Run("Event", func(t *testing.T) {
 		original := normalizer.EventDef{
-			Name: "TestEvent",
+			Name:      "TestEvent",
+			Owner:     "test",
+			Consumers: []string{"notifications"},
 			Fields: []normalizer.Field{
 				{Name: "f1", Type: "string", Metadata: make(map[string]any)},
 			},
@@ -380,7 +389,7 @@ func assertAllFieldsSet(t *testing.T, v interface{}) {
 		field := val.Field(i)
 		fieldName := typ.Field(i).Name
 
-		if fieldName == "ItemFields" || fieldName == "ItemTypeName" || fieldName == "Impl" || fieldName == "FSM" || fieldName == "UI" || fieldName == "Indexes" || fieldName == "CRUD" {
+		if fieldName == "ItemFields" || fieldName == "ItemTypeName" || fieldName == "Impl" || fieldName == "FSM" || fieldName == "UI" || fieldName == "Indexes" || fieldName == "CRUD" || fieldName == "BoundedContext" {
 			continue
 		}
 

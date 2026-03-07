@@ -17,12 +17,14 @@ type ParsePhaseOutput struct {
 	Domain      cue.Value
 	Arch        cue.Value
 	API         cue.Value
+	Policy      cue.Value
 	Repo        cue.Value
 	Events      cue.Value
 	Errors      cue.Value
 	Project     cue.Value
 	Projections cue.Value
 
+	HasPolicy      bool
 	HasRepo        bool
 	HasProject     bool
 	HasProjections bool
@@ -76,8 +78,10 @@ func runSemanticPhases(basePath string, opts PipelineOptions) (NormalizePhaseOut
 		Services: normalized.Services,
 	}, opts)
 
-	broadcastOnly, planned := loadEventAnnotations(basePath)
+	broadcastOnly, planned, compatAllowBreaking := loadEventAnnotations(basePath)
 	emitEventUsageDiagnostics(normalized.Services, normalized.Events, normalized.Schedules, broadcastOnly, planned, opts)
+	emitEventContractDiagnostics(basePath, normalized.Services, normalized.Events, compatAllowBreaking, opts)
+	emitReadModelDiagnostics(normalized.Entities, normalized.Events, opts)
 
 	return normalized, nil
 }
@@ -104,6 +108,13 @@ func runParsePhase(basePath string, opts PipelineOptions) (ParsePhaseOutput, err
 			StageCUE, ErrCodeCUEAPILoad, "load cue/api", fmt.Errorf("%s", parser.FormatCUELocationError(err)),
 		)
 	}
+	valPolicy, okPolicy, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/policy"))
+	if !okPolicy {
+		if legacyPolicy, legacyOK, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/policies")); legacyOK {
+			valPolicy = legacyPolicy
+			okPolicy = true
+		}
+	}
 	valRepo, okRepo, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/repo"))
 	valEvents, _, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/events"))
 	valErrors, _, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/errors"))
@@ -113,6 +124,8 @@ func runParsePhase(basePath string, opts PipelineOptions) (ParsePhaseOutput, err
 	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/domain"), opts)
 	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/architecture"), opts)
 	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/api"), opts)
+	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/policy"), opts)
+	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/policies"), opts)
 	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/repo"), opts)
 	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/events"), opts)
 	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/errors"), opts)
@@ -122,11 +135,13 @@ func runParsePhase(basePath string, opts PipelineOptions) (ParsePhaseOutput, err
 	out.Domain = valDomain
 	out.Arch = valArch
 	out.API = valAPI
+	out.Policy = valPolicy
 	out.Repo = valRepo
 	out.Events = valEvents
 	out.Errors = valErrors
 	out.Project = valProject
 	out.Projections = valProjections
+	out.HasPolicy = okPolicy
 	out.HasRepo = okRepo
 	out.HasProject = okProject
 	out.HasProjections = okProjections
@@ -199,6 +214,14 @@ func runNormalizePhase(parsed ParsePhaseOutput, opts PipelineOptions) (Normalize
 	}
 
 	emitFSMIntegrityDiagnostics(entities, opts)
+	n.Policies = map[string]normalizer.PolicyDef{}
+	if parsed.HasPolicy && parsed.Policy.Err() == nil {
+		policies, err := n.ExtractPolicies(parsed.Policy)
+		if err != nil {
+			return out, WrapContractError(StageCUE, ErrCodeCUEPoliciesParse, "extract policies", err)
+		}
+		n.Policies = policies
+	}
 	services, err := n.ExtractServices(parsed.API, entities)
 	if err != nil {
 		return out, WrapContractError(StageCUE, ErrCodeCUEServiceNormalize, "extract services", err)

@@ -7,12 +7,16 @@
 package architecture
 
 #Services: {
-    auth: {
-        name: "Auth"
-        description: "Authentication and authorization"
-        entities: ["User"]
-        publishes: ["UserRegistered", "UserLoggedIn"]
-    }
+	    auth: {
+	        name: "Auth"
+	        description: "Authentication and authorization"
+	        entities: ["User"]
+	        publishes: ["UserRegistered", "UserLoggedIn"]
+	        subscribes: {
+	            UserRegistered: "OnUserRegisteredAudit"
+	            UserLoggedIn:   "OnUserLoggedInAudit"
+	        }
+	    }
 
     blog: {
         name: "Blog"
@@ -33,23 +37,26 @@ package architecture
 
 // Event definitions
 #Events: {
-    UserRegistered: {
-        description: "Fired when a new user registers"
-        payload: {
-            userID: "uuid"
+	    UserRegistered: {
+	        owner: "auth"
+	        description: "Fired when a new user registers"
+	        payload: {
+	            userID: "uuid"
             email: "string"
         }
     }
 
-    UserLoggedIn: {
-        description: "Fired on successful login"
+	    UserLoggedIn: {
+	        owner: "auth"
+	        description: "Fired on successful login"
         payload: {
             userID: "uuid"
         }
     }
 
-    PostCreated: {
-        description: "Fired when a new post is created"
+	    PostCreated: {
+	        owner: "blog"
+	        description: "Fired when a new post is created"
         payload: {
             postID: "uuid"
             authorID: "uuid"
@@ -57,8 +64,9 @@ package architecture
         }
     }
 
-    PostPublished: {
-        description: "Fired when a post is published"
+	    PostPublished: {
+	        owner: "blog"
+	        description: "Fired when a post is published"
         payload: {
             postID: "uuid"
             authorID: "uuid"
@@ -67,15 +75,17 @@ package architecture
         }
     }
 
-    PostUpdated: {
-        description: "Fired when a post is updated"
+	    PostUpdated: {
+	        owner: "blog"
+	        description: "Fired when a post is updated"
         payload: {
             postID: "uuid"
         }
     }
 
-    CommentCreated: {
-        description: "Fired when a comment is added"
+	    CommentCreated: {
+	        owner: "blog"
+	        description: "Fired when a comment is added"
         payload: {
             commentID: "uuid"
             postID: "uuid"

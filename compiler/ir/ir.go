@@ -122,15 +122,24 @@ type Target struct {
 
 // Entity represents a domain entity (aggregate, value object, etc.)
 type Entity struct {
-	Name        string
-	Description string
-	Owner       string // Service name that owns this entity
-	Fields      []Field
-	FSM         *FSM
-	Indexes     []Index
-	UI          EntityUI
-	Metadata    map[string]any
-	Source      string
+	Name           string
+	Description    string
+	Owner          string // Service name that owns this entity
+	BoundedContext string
+	AggregateRoot  bool
+	Owns           []string
+	ReadModel      *ReadModel
+	Fields         []Field
+	FSM            *FSM
+	Indexes        []Index
+	UI             EntityUI
+	Metadata       map[string]any
+	Source         string
+}
+
+type ReadModel struct {
+	SourceContext string
+	RefreshOn     []string
 }
 
 type EntityUI struct {
@@ -357,10 +366,12 @@ type ImplStep struct {
 
 // Event represents a domain event.
 type Event struct {
-	Name     string
-	Fields   []Field
-	Metadata map[string]any
-	Source   string
+	Name      string
+	Owner     string
+	Consumers []string
+	Fields    []Field
+	Metadata  map[string]any
+	Source    string
 }
 
 // Error represents a business error.

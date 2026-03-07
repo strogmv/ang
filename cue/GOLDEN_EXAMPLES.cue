@@ -594,3 +594,263 @@ UpdateOrderWithAudit: schema.#Operation & {
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
+
+// ============================================================================
+// EXAMPLE 21: repo.Query with Multiple Args
+// ============================================================================
+// Pattern: Custom repo method via repo.Query + post-processing expression
+// NOTE: For repo.Query prefer args: [...] when method requires multiple params.
+
+GetStorageStats: schema.#Operation & {
+	service: "attachments"
+	input: {
+		companyID: string
+		ownerID:   string
+	}
+	output: {
+		sizeMB: float
+	}
+	flow: [
+		{action: "repo.Query", source: "Attachment", method: "SumByCompanyAndOwner", args: ["req.CompanyID", "req.OwnerID"], output: "stats"},
+		{action: "math.Expr", expr: "float64(stats.TotalSize) / 1024 / 1024", output: "sizeMB"},
+		{action: "mapping.Assign", to: "resp.SizeMB", value: "sizeMB"},
+	]
+}
+
+// ============================================================================
+// EXAMPLE 22: event.Publish with RFC3339 Time
+// ============================================================================
+// Pattern: Prepare RFC3339 string first, then publish via payloadMap.
+// NOTE: Prefer payloadMap over raw payload string.
+
+PublishBidEvent: schema.#Operation & {
+	service:   "bids"
+	publishes: ["BidPlaced"]
+	input: {
+		bidID: string
+	}
+	output: {
+		ok: bool
+	}
+	flow: [
+		{action: "repo.Find", source: "Bid", input: "req.BidID", output: "bid", error: "Bid not found"},
+		{action: "logic.Call", func: "formatRFC3339", args: ["bid.CreatedAt"], output: "createdAt"},
+		{action: "event.Publish", name: "BidPlaced", payloadMap: {
+			BidID:     "bid.ID"
+			CreatedAt: "createdAt"
+		}},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ============================================================================
+// EXAMPLE 23: logic.Call for Cross-Service Operation
+// ============================================================================
+// Pattern: Call another service/helper and validate the returned value.
+
+CrossServiceCall: schema.#Operation & {
+	service: "tender"
+	input: {
+		companyID: string
+	}
+	output: {
+		ok: bool
+	}
+	flow: [
+		{action: "logic.Call", func: "s.companyService.GetCompany", args: ["ctx", "req.CompanyID"], output: "company"},
+		{action: "logic.Check", condition: "company != nil", throw: "Company not found"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ============================================================================
+// EXAMPLE 24: time.Parse -> Temp Var -> mapping.Assign
+// ============================================================================
+// Pattern: Parse into temp variable first, then assign to entity field.
+// NOTE: Keep parse output in temp var (e.g. _parsedTime) before assignment.
+
+ParseAndAssign: schema.#Operation & {
+	service: "tender"
+	input: {
+		tenderID: string
+		startsAt: string
+	}
+	output: {
+		ok: bool
+	}
+	flow: [
+		{action: "repo.Find", source: "Tender", input: "req.TenderID", output: "tender", error: "Tender not found"},
+		{action: "time.Parse", value: "req.StartsAt", output: "_parsedTime"},
+		{action: "mapping.Assign", to: "tender.StartsAt", value: "_parsedTime"},
+		{action: "repo.Save", source: "Tender", input: "tender"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ============================================================================
+// EXAMPLE 25: tx.Block + event.Outbox
+// ============================================================================
+// Pattern: Atomic DB save + outbox event in one transaction.
+
+AtomicSaveAndPublish: schema.#Operation & {
+	service: "orders"
+	input: {
+		orderID: string
+	}
+	output: {
+		ok: bool
+	}
+	flow: [
+		{action: "repo.Find", source: "Order", input: "req.OrderID", output: "order", error: "Order not found"},
+		{action: "tx.Block", do: [
+			{action: "repo.Save", source: "Order", input: "order"},
+			{action: "event.Outbox", name: "OrderCreated", payload: "domain.OrderCreated{OrderID: order.ID}"},
+		]},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ============================================================================
+// EXAMPLE 26: flow.Race (First-Wins)
+// ============================================================================
+// Pattern: Competing branches; first successful branch wins and cancels others.
+
+GetPriceFastPath: schema.#Operation & {
+	service: "pricing"
+	input: {
+		companyID: string
+		itemID:    string
+	}
+	output: {
+		source: string
+		price:  float
+	}
+	flow: [
+		{action: "flow.Race", branches: {
+			cache: [
+				{action: "repo.Query", source: "PriceCache", method: "GetByCompanyAndItem", args: ["req.CompanyID", "req.ItemID"], output: "cached"},
+				{action: "logic.Check", condition: "cached != nil", throw: "cache miss"},
+				{action: "mapping.Assign", to: "resp.Source", value: "\"cache\""},
+				{action: "mapping.Assign", to: "resp.Price", value: "cached.Price"},
+			],
+			database: [
+				{action: "repo.Query", source: "Price", method: "GetByCompanyAndItem", args: ["req.CompanyID", "req.ItemID"], output: "live"},
+				{action: "logic.Check", condition: "live != nil", throw: "db miss"},
+				{action: "mapping.Assign", to: "resp.Source", value: "\"db\""},
+				{action: "mapping.Assign", to: "resp.Price", value: "live.Price"},
+			],
+		}},
+	]
+}
+
+// ============================================================================
+// EXAMPLE 27: flow.Saga + flow.Compensate + flow.Rollback
+// ============================================================================
+// Pattern: Register compensation handlers and rollback explicitly on guard.
+
+CreateOrderSaga: schema.#Operation & {
+	service: "orders"
+	input: {
+		userID:        string
+		forceRollback: bool
+	}
+	output: {
+		ok: bool
+	}
+	flow: [
+		{action: "mapping.Map", output: "newOrder", entity: "Order"},
+		{action: "mapping.Assign", to: "newOrder.UserID", value: "req.UserID"},
+		{action: "mapping.Assign", to: "newOrder.Status", value: "\"draft\""},
+		{action: "flow.Saga", do: [
+			{action: "repo.Save", source: "Order", input: "newOrder"},
+			{action: "flow.Compensate", do: [
+				{action: "repo.Delete", source: "Order", input: "newOrder.ID"},
+			]},
+			{action: "flow.If", condition: "req.ForceRollback", then: [
+				{action: "flow.Rollback", error: "fmt.Errorf(\"forced rollback\")"},
+			]},
+		]},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ============================================================================
+// EXAMPLE 28: approval.Wait with timeout fallback branch
+// ============================================================================
+// Pattern: Request approval, wait with timeout mode, then gate by decision.
+
+WaitForApprovalWithFallback: schema.#Operation & {
+	service: "approval"
+	input: {
+		userID: string
+	}
+	output: {
+		ok:       bool
+		decision: string
+		status:   string
+	}
+	flow: [
+		{action: "approval.Request", approvalKey: "\"order:approve\"", title: "\"Order approval\"", requestedBy: "req.UserID", approvers: ["manager@company.com"], policy: "\"any\"", payload: "req", approvalId: "approvalID", status: "approvalStatus"},
+		{action: "approval.Wait", approvalId: "approvalID", timeout: "2 * time.Minute", onTimeout: "\"fallback\"", decision: "decision", status: "approvalStatus", onTimeout: [
+			{action: "notify.Send", channel: "\"email\"", to: "\"ops@company.com\"", text: "\"Approval timeout: fallback executed\""},
+		]},
+		{action: "logic.Check", condition: "decision == \"approved\"", throw: "approval rejected or timed out"},
+		{action: "mapping.Assign", to: "resp.Decision", value: "decision"},
+		{action: "mapping.Assign", to: "resp.Status", value: "approvalStatus"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ============================================================================
+// EXAMPLE 29: fsm.Transition + persist
+// ============================================================================
+// Pattern: Transition domain state and persist in repository.
+
+ConfirmOrderFSM: schema.#Operation & {
+	service: "orders"
+	input: {
+		orderID: string
+	}
+	output: {
+		ok: bool
+	}
+	flow: [
+		{action: "repo.Find", source: "Order", input: "req.OrderID", output: "order", error: "Order not found"},
+		{action: "fsm.Transition", entity: "order", to: "confirmed"},
+		{action: "repo.Save", source: "Order", input: "order"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ============================================================================
+// EXAMPLE 30: Combined orchestration (Race + Approval gate)
+// ============================================================================
+// Pattern: Fast-path data fetch + explicit approval gate before side effect.
+
+ApproveFastPricedOrder: schema.#Operation & {
+	service: "orders"
+	input: {
+		companyID: string
+		itemID:    string
+		userID:    string
+	}
+	output: {
+		ok: bool
+	}
+	flow: [
+		{action: "flow.Race", branches: {
+			cache: [
+				{action: "repo.Query", source: "PriceCache", method: "GetByCompanyAndItem", args: ["req.CompanyID", "req.ItemID"], output: "p"},
+				{action: "logic.Check", condition: "p != nil", throw: "cache miss"},
+			],
+			database: [
+				{action: "repo.Query", source: "Price", method: "GetByCompanyAndItem", args: ["req.CompanyID", "req.ItemID"], output: "p"},
+				{action: "logic.Check", condition: "p != nil", throw: "db miss"},
+			],
+		}},
+		{action: "approval.Request", approvalKey: "\"order:price-check\"", title: "\"Approve priced order\"", requestedBy: "req.UserID", approvers: ["manager@company.com"], policy: "\"any\"", payload: "p", approvalId: "approvalID"},
+		{action: "approval.Wait", approvalId: "approvalID", decision: "decision", status: "approvalStatus"},
+		{action: "logic.Check", condition: "decision == \"approved\"", throw: "order was not approved"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}

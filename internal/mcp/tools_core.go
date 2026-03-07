@@ -13,6 +13,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/strogmv/ang/compiler"
 	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang/internal/explain"
 )
 
 type coreToolDeps struct {
@@ -128,17 +129,19 @@ func registerCoreTools(addTool toolAdder, deps coreToolDeps) {
 	})
 
 	addTool("ang_validate", mcp.NewTool("ang_validate",
-		mcp.WithDescription("Fast validation without full code generation: pipeline + diagnostics."),
+		mcp.WithDescription("Fast validation without full code generation: pipeline + diagnostics + optional auto-explain."),
 		mcp.WithString("project_path", mcp.Description("Project root path (default: current directory).")),
 		mcp.WithBoolean("run_go_build", mcp.Description("Run go build ./... after pipeline validation (default: false).")),
+		mcp.WithBoolean("auto_explain", mcp.Description("Auto-enrich each diagnostic with explain data (default: true).")),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		projectPath := strings.TrimSpace(mcp.ParseString(request, "project_path", ""))
 		if projectPath == "" {
 			projectPath = "."
 		}
 		runGoBuild := mcp.ParseBoolean(request, "run_go_build", false)
+		autoExplain := mcp.ParseBoolean(request, "auto_explain", true)
 		_, err := compiler.RunSemanticPhases(projectPath)
-		diags := append([]any(nil), warningsToAny(compiler.LatestDiagnostics)...)
+		diags := append([]any(nil), warningsToAny(compiler.LatestDiagnostics, autoExplain)...)
 		status := "ok"
 		if err != nil {
 			status = "failed"
@@ -157,6 +160,7 @@ func registerCoreTools(addTool toolAdder, deps coreToolDeps) {
 			"diagnostics_count": len(diags),
 			"diagnostics":       diags,
 			"go_build":          goBuildStatus,
+			"auto_explain":      autoExplain,
 		}
 		if err != nil {
 			resp["error"] = err.Error()
@@ -533,10 +537,10 @@ func collectBuildWarnings(logPath string, max int) []string {
 	return out
 }
 
-func warningsToAny(diags []normalizer.Warning) []any {
+func warningsToAny(diags []normalizer.Warning, autoExplain bool) []any {
 	out := make([]any, 0, len(diags))
 	for _, d := range diags {
-		out = append(out, map[string]any{
+		item := map[string]any{
 			"kind":           d.Kind,
 			"code":           d.Code,
 			"severity":       d.Severity,
@@ -551,7 +555,41 @@ func warningsToAny(diags []normalizer.Warning) []any {
 			"hint":           d.Hint,
 			"docs_url":       d.DocsURL,
 			"can_auto_apply": d.CanAutoApply,
-		})
+		}
+
+		if autoExplain {
+			path := d.CUEPath
+			if strings.TrimSpace(path) == "" {
+				path = d.Path
+			}
+			ex := explain.ExplainFromInput(explain.Input{
+				Code:    d.Code,
+				Message: d.Message,
+				Path:    path,
+				Action:  d.Action,
+				Hint:    d.Hint,
+				File:    d.File,
+				Line:    d.Line,
+				Column:  d.Column,
+			})
+			if strings.TrimSpace(ex.Fix) != "" {
+				item["fix"] = ex.Fix
+			}
+			if strings.TrimSpace(ex.Hint) != "" && strings.TrimSpace(d.Hint) == "" {
+				item["hint"] = ex.Hint
+			}
+			if strings.TrimSpace(ex.DocAnchor) != "" {
+				item["doc_anchor"] = ex.DocAnchor
+			}
+			if strings.TrimSpace(ex.ActionRef) != "" {
+				item["action_ref"] = ex.ActionRef
+			}
+			if strings.TrimSpace(ex.SchemaRef) != "" {
+				item["schema_ref"] = ex.SchemaRef
+			}
+		}
+
+		out = append(out, item)
 	}
 	return out
 }

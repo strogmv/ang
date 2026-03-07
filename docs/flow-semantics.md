@@ -137,3 +137,20 @@ When adding or changing actions:
 2. `go test ./compiler/emitter -count=1`
 3. `go test ./compiler/... -count=1`
 4. end-to-end `ang build` smoke in generated project
+
+## Architecture Boundary Rules in Flow
+
+`repo.Query` and other repository-bound steps are architecture-checked.
+
+If a service method in bounded context `A` calls a repository for entity owned by bounded context `B`, validation may fail with `ARCHITECTURE_VIOLATION`.
+
+Preferred fixes:
+
+1. Introduce an ACL read model in context `A` and query that model.
+2. Replace direct `repo.Query` with `logic.Call` to a declared service/port boundary.
+3. Keep `shared_arch` overrides as a short-term migration tool, not a default architecture mode.
+
+Practical migration tip:
+
+- During large flow migrations, first make `ang validate` green, then run `ang build`, then run `go build`/`go test` sequentially.
+- Avoid parallel generate/build in CI scripts to prevent reading half-regenerated files.

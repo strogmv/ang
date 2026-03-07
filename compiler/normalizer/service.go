@@ -971,17 +971,27 @@ func (n *Normalizer) autoCompleteFlowSteps(steps []FlowStep) []FlowStep {
 				if newEntities[input] {
 					// Inject ID if missing
 					if !assigned[input+".ID"] {
+						idVar := "_" + input + "AutoID"
+						result = append(result, FlowStep{
+							Action: "uuid.New",
+							Args:   map[string]any{"output": idVar, "generated": "true"},
+						})
 						result = append(result, FlowStep{
 							Action: "mapping.Assign",
-							Args:   map[string]any{"to": input + ".ID", "value": "uuid.NewString()", "generated": "true"},
+							Args:   map[string]any{"to": input + ".ID", "value": idVar, "generated": "true"},
 						})
 						assigned[input+".ID"] = true
 					}
 					// Inject CreatedAt if missing
 					if !assigned[input+".CreatedAt"] {
+						createdAtVar := "_" + input + "AutoCreatedAt"
+						result = append(result, FlowStep{
+							Action: "time.Now",
+							Args:   map[string]any{"output": createdAtVar, "format": "time.RFC3339", "generated": "true"},
+						})
 						result = append(result, FlowStep{
 							Action: "mapping.Assign",
-							Args:   map[string]any{"to": input + ".CreatedAt", "value": "time.Now().UTC().Format(time.RFC3339)", "generated": "true"},
+							Args:   map[string]any{"to": input + ".CreatedAt", "value": createdAtVar, "generated": "true"},
 						})
 						assigned[input+".CreatedAt"] = true
 					}

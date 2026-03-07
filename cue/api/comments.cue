@@ -12,6 +12,7 @@ import "github.com/strogmv/ang/cue/schema"
 CreateComment: schema.#Operation & {
 	service:   "blog"
 	description: "Post a comment on a blog post"
+	publishes: ["CommentCreated"]
 
 	input: {
 		postID:   string @validate("required,uuid")
@@ -32,8 +33,13 @@ CreateComment: schema.#Operation & {
 		{action: "mapping.Assign", to: "newComment.AuthorID", value: "req.UserID"},
 		{action: "mapping.Assign", to: "newComment.Content", value: "req.Content"},
 
-		{action: "repo.Save", source: "Comment", input: "newComment"},
-		{action: "mapping.Assign", to: "resp.ID", value: "newComment.ID"},
+			{action: "repo.Save", source: "Comment", input: "newComment"},
+			{action: "event.Publish", name: "CommentCreated", payloadMap: {
+				CommentID: "newComment.ID"
+				PostID:    "newComment.PostID"
+				AuthorID:  "newComment.AuthorID"
+			}},
+			{action: "mapping.Assign", to: "resp.ID", value: "newComment.ID"},
 	]
 }
 

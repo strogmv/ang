@@ -150,12 +150,21 @@ func BuildDependencyGraph(s *Schema) *DependencyGraph {
 
 func ConvertEntity(e normalizer.Entity) Entity {
 	entity := Entity{
-		Name:        e.Name,
-		Description: e.Description,
-		Owner:       e.Owner,
-		Fields:      ConvertFields(e.Fields),
-		Metadata:    e.Metadata,
-		Source:      e.Source,
+		Name:           e.Name,
+		Description:    e.Description,
+		Owner:          e.Owner,
+		BoundedContext: e.BoundedContext,
+		AggregateRoot:  e.AggregateRoot,
+		Owns:           append([]string(nil), e.Owns...),
+		Fields:         ConvertFields(e.Fields),
+		Metadata:       e.Metadata,
+		Source:         e.Source,
+	}
+	if e.ReadModel != nil {
+		entity.ReadModel = &ReadModel{
+			SourceContext: e.ReadModel.SourceContext,
+			RefreshOn:     append([]string(nil), e.ReadModel.RefreshOn...),
+		}
 	}
 
 	if e.UI != nil && e.UI.CRUD != nil {
@@ -489,10 +498,12 @@ func convertImplSteps(steps []normalizer.ImplStep) []ImplStep {
 
 func ConvertEvent(e normalizer.EventDef) Event {
 	return Event{
-		Name:     e.Name,
-		Fields:   ConvertFields(e.Fields),
-		Metadata: e.Metadata,
-		Source:   e.Source,
+		Name:      e.Name,
+		Owner:     e.Owner,
+		Consumers: append([]string(nil), e.Consumers...),
+		Fields:    ConvertFields(e.Fields),
+		Metadata:  e.Metadata,
+		Source:    e.Source,
 	}
 }
 

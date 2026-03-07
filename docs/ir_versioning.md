@@ -4,7 +4,7 @@
 
 ## Current Version
 
-- Current version: `1`
+- Current version: `2`
 - Field: `ir.Schema.IRVersion` (`json:"ir_version"`)
 
 ## Compatibility Rules
@@ -19,16 +19,16 @@
 
 Behavior:
 
-- Empty version (`""`) is treated as legacy `v0` and migrated to `v1`.
+- Empty version (`""`) is treated as legacy `v0` and migrated forward to current.
 - Unknown version returns an explicit error.
 
 ## Compatibility Tests
 
-- Fixture migration: `compiler/ir/testdata/ir_v0.json` -> `compiler/ir/testdata/ir_v1_expected.json`
-- Golden contract: `compiler/ir/testdata/golden_ir_v1.json`
-  - guarded by `TestSchemaContractGoldenV1`
+- Fixture migration: `compiler/ir/testdata/ir_v0.json` -> `compiler/ir/testdata/ir_v2_expected.json`
+- Golden contract: `compiler/ir/testdata/golden_ir_v2.json`
+  - guarded by `TestSchemaContractGoldenCurrent`
   - if IR structs change intentionally, update migration/version and refresh golden with:
-    - `UPDATE_IR_CONTRACT=1 go test ./compiler/ir -run TestSchemaContractGoldenV1`
+    - `UPDATE_IR_CONTRACT=1 go test ./compiler/ir -run TestSchemaContractGoldenCurrent`
 
 ## Enforcement Points
 
@@ -37,3 +37,15 @@ Behavior:
 - `emitter.EmitFromIR` calls migration before generation.
 
 This guarantees no hidden schema drift between stages.
+
+## Artifact Manifest Compatibility
+
+`ang build` writes `.ang/cache/manifest.json` with compatibility keys:
+
+- `schemaVersion` (`artifact-manifest/v2`)
+- `compilerVersion`
+- `compilerFingerprint` (derived from current ANG binary build info + IR ABI version)
+- `irCanonicalVersion` (`ir.CurrentVersion()`)
+
+Manifest consumers (CLI/MCP determinism checks) must treat incompatible manifests as stale and require a fresh `ang build`.
+This removes manual cache invalidation workflows such as deleting `.ang/cache/manifest.json` after compiler/emitter changes.

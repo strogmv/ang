@@ -1,0 +1,8 @@
+# ANG-generated artifacts: keep merge conflict noise low.
+dist/** merge=ang-generated linguist-generated=true
+api/** merge=ang-generated linguist-generated=true
+sdk/** merge=ang-generated linguist-generated=true
+db/schema/** merge=ang-generated linguist-generated=true
+db/queries/** merge=ang-generated linguist-generated=true
+go/** merge=ang-generated linguist-generated=true
+benchmarks/**/output/** merge=ang-generated linguist-generated=true

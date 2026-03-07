@@ -16,15 +16,17 @@ import (
 
 // TemplateContext - единая структура данных для всех Go-шаблонов
 type TemplateContext struct {
-	Service      *normalizer.Service
-	Entities     []normalizer.Entity
-	Entity       *normalizer.Entity
-	Auth         *normalizer.AuthDef
-	Imports      []string
-	Metadata     map[string]interface{}
-	Overrides    map[string]bool
-	GoModule     string
-	MissingImpls []MissingImpl
+	Service          *normalizer.Service
+	Method           *normalizer.Method
+	Entities         []normalizer.Entity
+	Entity           *normalizer.Entity
+	Auth             *normalizer.AuthDef
+	Imports          []string
+	Metadata         map[string]interface{}
+	Overrides        map[string]bool
+	GoModule         string
+	ProvenanceHeader string
+	MissingImpls     []MissingImpl
 }
 
 type MissingImpl struct {

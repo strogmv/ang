@@ -13,6 +13,10 @@ Register: schema.#Operation & {
 	service:   "auth"
 	description: "Register a new user account"
 	publishes: ["UserRegistered"]
+	subscribes: {
+		UserRegistered: "OnUserRegisteredAudit"
+		UserLoggedIn:   "OnUserLoggedInAudit"
+	}
 	testHints: {
 		happyPath: "Register a new user with valid data"
 	}
@@ -44,7 +48,10 @@ Register: schema.#Operation & {
 
 		// Save and respond
 		{action: "repo.Save", source: "User", input: "newUser"},
-		{action: "event.Publish", name: "UserRegistered", payload: "domain.UserRegistered{UserID: newUser.ID, Email: newUser.Email}"},
+			{action: "event.Publish", name: "UserRegistered", payloadMap: {
+				UserID: "newUser.ID"
+				Email:  "newUser.Email"
+			}},
 
 		{action: "mapping.Assign", to: "resp.ID", value: "newUser.ID"},
 		{action: "mapping.Assign", to: "resp.Email", value: "newUser.Email"},
@@ -86,7 +93,9 @@ Login: schema.#Operation & {
 		{action: "logic.Call", func: "generateTokens", args: "user", output: "tokens"},
 
 		// Publish event and respond
-		{action: "event.Publish", name: "UserLoggedIn", payload: "domain.UserLoggedIn{UserID: user.ID}"},
+			{action: "event.Publish", name: "UserLoggedIn", payloadMap: {
+				UserID: "user.ID"
+			}},
 
 		{action: "mapping.Assign", to: "resp.AccessToken", value: "tokens.AccessToken"},
 		{action: "mapping.Assign", to: "resp.RefreshToken", value: "tokens.RefreshToken"},

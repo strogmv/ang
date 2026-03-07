@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,9 +13,12 @@ import (
 	"strings"
 
 	"github.com/strogmv/ang/compiler"
+	"github.com/strogmv/ang/compiler/ir"
 )
 
-const artifactManifestSchemaVersion = "artifact-manifest/v1"
+const artifactManifestSchemaVersion = "artifact-manifest/v2"
+
+var errArtifactManifestIncompatible = errors.New("artifact manifest is incompatible with current compiler/runtime")
 
 type artifactHashRecord struct {
 	Path string `json:"path"`
@@ -22,12 +26,14 @@ type artifactHashRecord struct {
 }
 
 type artifactHashManifest struct {
-	SchemaVersion   string               `json:"schemaVersion"`
-	CompilerVersion string               `json:"compilerVersion"`
-	IRVersion       string               `json:"irVersion"`
-	InputHash       string               `json:"inputHash,omitempty"`
-	TemplateHash    string               `json:"templateHash,omitempty"`
-	Artifacts       []artifactHashRecord `json:"artifacts"`
+	SchemaVersion       string               `json:"schemaVersion"`
+	CompilerVersion     string               `json:"compilerVersion"`
+	CompilerFingerprint string               `json:"compilerFingerprint,omitempty"`
+	IRVersion           string               `json:"irVersion"`
+	IRCanonicalVersion  string               `json:"irCanonicalVersion,omitempty"`
+	InputHash           string               `json:"inputHash,omitempty"`
+	TemplateHash        string               `json:"templateHash,omitempty"`
+	Artifacts           []artifactHashRecord `json:"artifacts"`
 }
 
 type artifactManifestTarget struct {
@@ -36,8 +42,8 @@ type artifactManifestTarget struct {
 	Frontend string
 }
 
-func writeArtifactHashManifest(projectRoot string, targets []artifactManifestTarget, irVersion, inputHash, templateHash string) error {
-	manifest, err := buildArtifactHashManifest(projectRoot, targets, irVersion, inputHash, templateHash)
+func writeArtifactHashManifest(projectRoot string, targets []artifactManifestTarget, irVersion, inputHash, templateHash, compilerFingerprint string) error {
+	manifest, err := buildArtifactHashManifest(projectRoot, targets, irVersion, inputHash, templateHash, compilerFingerprint)
 	if err != nil {
 		return err
 	}
@@ -56,7 +62,7 @@ func writeArtifactHashManifest(projectRoot string, targets []artifactManifestTar
 	return nil
 }
 
-func buildArtifactHashManifest(projectRoot string, targets []artifactManifestTarget, irVersion, inputHash, templateHash string) (artifactHashManifest, error) {
+func buildArtifactHashManifest(projectRoot string, targets []artifactManifestTarget, irVersion, inputHash, templateHash, compilerFingerprint string) (artifactHashManifest, error) {
 	rootAbs, err := filepath.Abs(projectRoot)
 	if err != nil {
 		return artifactHashManifest{}, fmt.Errorf("abs project root: %w", err)
@@ -128,12 +134,14 @@ func buildArtifactHashManifest(projectRoot string, targets []artifactManifestTar
 		})
 	}
 	return artifactHashManifest{
-		SchemaVersion:   artifactManifestSchemaVersion,
-		CompilerVersion: compiler.Version,
-		IRVersion:       strings.TrimSpace(irVersion),
-		InputHash:       strings.TrimSpace(inputHash),
-		TemplateHash:    strings.TrimSpace(templateHash),
-		Artifacts:       records,
+		SchemaVersion:       artifactManifestSchemaVersion,
+		CompilerVersion:     compiler.Version,
+		CompilerFingerprint: strings.TrimSpace(compilerFingerprint),
+		IRVersion:           strings.TrimSpace(irVersion),
+		IRCanonicalVersion:  ir.CurrentVersion(),
+		InputHash:           strings.TrimSpace(inputHash),
+		TemplateHash:        strings.TrimSpace(templateHash),
+		Artifacts:           records,
 	}, nil
 }
 
@@ -226,5 +234,26 @@ func readArtifactHashManifest(projectRoot string) (artifactHashManifest, error) 
 	if err := json.Unmarshal(data, &m); err != nil {
 		return artifactHashManifest{}, err
 	}
+	if ok, reason := isArtifactManifestCompatible(m); !ok {
+		return artifactHashManifest{}, fmt.Errorf("%w: %s", errArtifactManifestIncompatible, reason)
+	}
 	return m, nil
+}
+
+func isArtifactManifestCompatible(m artifactHashManifest) (bool, string) {
+	if strings.TrimSpace(m.SchemaVersion) != artifactManifestSchemaVersion {
+		return false, fmt.Sprintf("schemaVersion=%q expected=%q", m.SchemaVersion, artifactManifestSchemaVersion)
+	}
+	if strings.TrimSpace(m.CompilerVersion) != strings.TrimSpace(compiler.Version) {
+		return false, fmt.Sprintf("compilerVersion=%q expected=%q", m.CompilerVersion, compiler.Version)
+	}
+	wantCompilerFP := strings.TrimSpace(compiler.BuildFingerprint())
+	if strings.TrimSpace(m.CompilerFingerprint) != wantCompilerFP {
+		return false, "compiler fingerprint mismatch; rebuild with current ANG binary"
+	}
+	wantIR := strings.TrimSpace(ir.CurrentVersion())
+	if strings.TrimSpace(m.IRCanonicalVersion) != wantIR {
+		return false, fmt.Sprintf("irCanonicalVersion=%q expected=%q", m.IRCanonicalVersion, wantIR)
+	}
+	return true, ""
 }

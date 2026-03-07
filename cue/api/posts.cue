@@ -12,6 +12,13 @@ import "github.com/strogmv/ang/cue/schema"
 CreatePost: schema.#Operation & {
 	service:   "blog"
 	description: "Create a new blog post in draft status"
+	publishes: ["PostCreated"]
+	subscribes: {
+		PostCreated:   "OnPostCreatedProjection"
+		PostUpdated:   "OnPostUpdatedProjection"
+		PostPublished: "OnPostPublishedProjection"
+		CommentCreated:"OnCommentCreatedProjection"
+	}
 
 	input: {
 		title:   string @validate("required,min=5,max=200")
@@ -42,7 +49,12 @@ CreatePost: schema.#Operation & {
 			{action: "mapping.Assign", to: "newPost.AuthorID", value: "req.UserID"},
 			{action: "mapping.Assign", to: "newPost.Status", value: "\"draft\""},
 
-			{action: "repo.Save", source: "Post", input: "newPost"},
+				{action: "repo.Save", source: "Post", input: "newPost"},
+				{action: "event.Publish", name: "PostCreated", payloadMap: {
+					PostID:   "newPost.ID"
+					AuthorID: "newPost.AuthorID"
+					Title:    "newPost.Title"
+				}},
 
 			// Handle tags
 			{action: "flow.For", each: "req.Tags", as: "tagName", do: [
@@ -169,6 +181,7 @@ ListMyPosts: schema.#Operation & {
 UpdatePost: schema.#Operation & {
 	service:   "blog"
 	description: "Update an existing post"
+	publishes: ["PostUpdated"]
 
 	input: {
 		id:       string @validate("required,uuid")
@@ -190,8 +203,11 @@ UpdatePost: schema.#Operation & {
 			{action: "mapping.Assign", to: "post.Content", value: "req.Content"},
 		]},
 
-		{action: "repo.Save", source: "Post", input: "post"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+			{action: "repo.Save", source: "Post", input: "post"},
+			{action: "event.Publish", name: "PostUpdated", payloadMap: {
+				PostID: "post.ID"
+			}},
+			{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
@@ -220,6 +236,7 @@ SubmitPost: schema.#Operation & {
 PublishPost: schema.#Operation & {
 	service:   "blog"
 	description: "Approve and publish a post"
+	publishes: ["PostPublished"]
 
 	input: {
 		id: string @validate("required,uuid")
@@ -231,54 +248,14 @@ PublishPost: schema.#Operation & {
 
 	flow: [
 		{action: "repo.Find", source: "Post", input: "req.ID", output: "post", error: "Post not found"},
-		{action: "fsm.Transition", entity: "post", to: "published"},
-		{action: "repo.Save", source: "Post", input: "post"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// Archive post
-ArchivePost: schema.#Operation & {
-	service:   "blog"
-	description: "Archive a published post"
-
-	input: {
-		id: string @validate("required,uuid")
-	}
-
-	output: {
-		ok: bool
-	}
-
-	flow: [
-		{action: "repo.Find", source: "Post", input: "req.ID", output: "post", error: "Post not found"},
-		{action: "fsm.Transition", entity: "post", to: "archived"},
-		{action: "repo.Save", source: "Post", input: "post"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// Delete post
-DeletePost: schema.#Operation & {
-	service:   "blog"
-	description: "Delete a post and its associations"
-
-	input: {
-		id: string @validate("required,uuid")
-	}
-
-	output: {
-		ok: bool
-	}
-
-	flow: [
-		{action: "repo.Find", source: "Post", input: "req.ID", output: "post", error: "Post not found"},
-
-		{action: "tx.Block", do: [
-			{action: "repo.Delete", source: "PostTag", method: "DeleteByPost", input: "post.ID"},
-			{action: "repo.Delete", source: "Post", input: "post.ID"},
-		]},
-
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+			{action: "fsm.Transition", entity: "post", to: "published"},
+			{action: "repo.Save", source: "Post", input: "post"},
+			{action: "event.Publish", name: "PostPublished", payloadMap: {
+				PostID:   "post.ID"
+				AuthorID: "post.AuthorID"
+				Title:    "post.Title"
+				Slug:     "post.Slug"
+			}},
+			{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }

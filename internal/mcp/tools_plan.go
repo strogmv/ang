@@ -12,6 +12,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/strogmv/ang/compiler"
+	"github.com/strogmv/ang/compiler/ir"
 )
 
 func registerPlanTools(addTool toolAdder) {
@@ -244,7 +245,12 @@ type artifactHashRecord struct {
 }
 
 type artifactHashManifest struct {
-	Artifacts []artifactHashRecord `json:"artifacts"`
+	SchemaVersion       string               `json:"schemaVersion"`
+	CompilerVersion     string               `json:"compilerVersion"`
+	CompilerFingerprint string               `json:"compilerFingerprint,omitempty"`
+	IRVersion           string               `json:"irVersion"`
+	IRCanonicalVersion  string               `json:"irCanonicalVersion,omitempty"`
+	Artifacts           []artifactHashRecord `json:"artifacts"`
 }
 
 func verifyPlanDeterminism(plan map[string]any) (map[string]any, error) {
@@ -261,7 +267,7 @@ func verifyPlanDeterminism(plan map[string]any) (map[string]any, error) {
 		"baseline_manifest_found": baselineErr == nil,
 	}
 	if baselineErr != nil {
-		resp["drift_reasons"] = []string{"baseline manifest missing: run ang build once before determinism verification"}
+		resp["drift_reasons"] = []string{fmt.Sprintf("baseline manifest unavailable: %v", baselineErr)}
 	}
 
 	if len(patches) == 0 {
@@ -376,8 +382,29 @@ func readArtifactHashes(projectRoot string) ([]artifactHashRecord, error) {
 	if err := json.Unmarshal(data, &m); err != nil {
 		return nil, err
 	}
+	if err := validateDeterminismManifestCompatibility(m); err != nil {
+		return nil, err
+	}
 	sort.Slice(m.Artifacts, func(i, j int) bool { return m.Artifacts[i].Path < m.Artifacts[j].Path })
 	return m.Artifacts, nil
+}
+
+func validateDeterminismManifestCompatibility(m artifactHashManifest) error {
+	if strings.TrimSpace(m.SchemaVersion) != "artifact-manifest/v2" {
+		return fmt.Errorf("baseline manifest schema mismatch: got=%q want=%q", m.SchemaVersion, "artifact-manifest/v2")
+	}
+	if strings.TrimSpace(m.CompilerVersion) != strings.TrimSpace(compiler.Version) {
+		return fmt.Errorf("baseline manifest compiler mismatch: got=%q want=%q", m.CompilerVersion, compiler.Version)
+	}
+	wantFingerprint := strings.TrimSpace(compiler.BuildFingerprint())
+	if strings.TrimSpace(m.CompilerFingerprint) != wantFingerprint {
+		return fmt.Errorf("baseline manifest compiler fingerprint mismatch; run `ang build` with current binary")
+	}
+	wantIR := strings.TrimSpace(ir.CurrentVersion())
+	if strings.TrimSpace(m.IRCanonicalVersion) != wantIR {
+		return fmt.Errorf("baseline manifest IR canonical mismatch: got=%q want=%q", m.IRCanonicalVersion, wantIR)
+	}
+	return nil
 }
 
 func assessDeterminismRiskFlags(patches []map[string]any) []string {

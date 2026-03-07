@@ -85,6 +85,89 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 		}
 	}
 
+	// Bounded context source of truth:
+	// 1) @bounded_context("tender")
+	// 2) bounded_context: "tender"
+	// 3) inferred from owner/file as fallback
+	for _, attr := range val.Attributes(cue.ValueAttr | cue.FieldAttr | cue.DeclAttr) {
+		if attr.Name() != "bounded_context" && attr.Name() != "boundedContext" {
+			continue
+		}
+		if s, found, _ := attr.Lookup(0, ""); found {
+			entity.BoundedContext = strings.TrimSpace(strings.ToLower(s))
+			break
+		}
+	}
+	if entity.BoundedContext == "" {
+		if bc, err := val.LookupPath(cue.ParsePath("bounded_context")).String(); err == nil {
+			entity.BoundedContext = strings.TrimSpace(strings.ToLower(bc))
+		}
+	}
+	if entity.BoundedContext == "" {
+		if bc, err := val.LookupPath(cue.ParsePath("boundedContext")).String(); err == nil {
+			entity.BoundedContext = strings.TrimSpace(strings.ToLower(bc))
+		}
+	}
+	if entity.BoundedContext == "" {
+		entity.BoundedContext = inferBoundedContext(entity.Owner)
+	}
+
+	// Aggregate ownership metadata:
+	// 1) root: true
+	// 2) owns: ["ChildEntityA", "ChildEntityB"]
+	// 3) @aggregate(root=true, owns="A,B")
+	if b, err := val.LookupPath(cue.ParsePath("root")).Bool(); err == nil {
+		entity.AggregateRoot = b
+	}
+	if ownsVal := val.LookupPath(cue.ParsePath("owns")); ownsVal.Exists() {
+		switch ownsVal.IncompleteKind() {
+		case cue.ListKind:
+			list, _ := ownsVal.List()
+			for list.Next() {
+				if s, err := list.Value().String(); err == nil {
+					s = strings.TrimSpace(s)
+					if s != "" {
+						entity.Owns = append(entity.Owns, s)
+					}
+				}
+			}
+		default:
+			if s, err := ownsVal.String(); err == nil {
+				s = strings.TrimSpace(s)
+				if s != "" {
+					entity.Owns = append(entity.Owns, s)
+				}
+			}
+		}
+	}
+	if attr := val.Attribute("aggregate"); attr.Err() == nil {
+		if v, found, _ := attr.Lookup(0, "root"); found {
+			if b, err := strconv.ParseBool(v); err == nil {
+				entity.AggregateRoot = b
+			}
+		}
+		if v, found, _ := attr.Lookup(0, "owns"); found {
+			for _, part := range strings.Split(v, ",") {
+				part = strings.TrimSpace(part)
+				if part != "" {
+					entity.Owns = append(entity.Owns, part)
+				}
+			}
+		}
+	}
+	if len(entity.Owns) > 0 {
+		seenOwns := make(map[string]struct{}, len(entity.Owns))
+		dedup := make([]string, 0, len(entity.Owns))
+		for _, owned := range entity.Owns {
+			if _, ok := seenOwns[owned]; ok {
+				continue
+			}
+			seenOwns[owned] = struct{}{}
+			dedup = append(dedup, owned)
+		}
+		entity.Owns = dedup
+	}
+
 	// 4. Optional storage override via @storage attribute
 	if attr := val.Attribute("storage"); attr.Err() == nil {
 		if s, found, _ := attr.Lookup(0, ""); found && s != "" {
@@ -100,6 +183,12 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 	}
 	if b, err := val.LookupPath(cue.ParsePath("_dto")).Bool(); err == nil && b {
 		entity.Metadata["dto"] = true
+	}
+
+	// 6. Read-model contract for ACL analytics projections.
+	if rm := parseReadModelDef(val); rm != nil {
+		entity.ReadModel = rm
+		entity.Metadata["read_model"] = true
 	}
 
 	// If entity has a 'fields' field, iterate that instead
@@ -118,7 +207,7 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 		fLabel := iter.Selector().String()
 		fLabel = cleanName(fLabel)
 
-		if fLabel == "fsm" || fLabel == "indexes" || fLabel == "methods" || fLabel == "owner" {
+		if fLabel == "fsm" || fLabel == "indexes" || fLabel == "methods" || fLabel == "owner" || fLabel == "root" || fLabel == "owns" || fLabel == "bounded_context" || fLabel == "boundedContext" || fLabel == "read_model" || fLabel == "readModel" || fLabel == "refreshOn" {
 			continue
 		}
 
@@ -349,6 +438,75 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 	entity.UI = parseEntityUI(entityVal)
 
 	return entity, nil
+}
+
+func inferBoundedContext(owner string) string {
+	owner = strings.TrimSpace(strings.ToLower(owner))
+	if owner == "" {
+		return ""
+	}
+	for _, sep := range []string{"_", "-", "."} {
+		if i := strings.Index(owner, sep); i > 0 {
+			return owner[:i]
+		}
+	}
+	return owner
+}
+
+func parseReadModelDef(val cue.Value) *ReadModelDef {
+	var src string
+	var refreshOn []string
+	enabled := false
+
+	parseBlock := func(v cue.Value) {
+		if !v.Exists() {
+			return
+		}
+		enabled = true
+		if s, err := v.LookupPath(cue.ParsePath("source_context")).String(); err == nil && strings.TrimSpace(s) != "" {
+			src = strings.TrimSpace(strings.ToLower(s))
+		}
+		if s, err := v.LookupPath(cue.ParsePath("sourceContext")).String(); err == nil && strings.TrimSpace(s) != "" {
+			src = strings.TrimSpace(strings.ToLower(s))
+		}
+		if list := parseStringList(v.LookupPath(cue.ParsePath("refreshOn"))); len(list) > 0 {
+			refreshOn = list
+		}
+	}
+
+	parseBlock(val.LookupPath(cue.ParsePath("read_model")))
+	parseBlock(val.LookupPath(cue.ParsePath("readModel")))
+
+	if attr := val.Attribute("read_model"); attr.Err() == nil {
+		enabled = true
+		if s, found, _ := attr.Lookup(0, "source_context"); found && strings.TrimSpace(s) != "" {
+			src = strings.TrimSpace(strings.ToLower(s))
+		}
+		if s, found, _ := attr.Lookup(0, "sourceContext"); found && strings.TrimSpace(s) != "" {
+			src = strings.TrimSpace(strings.ToLower(s))
+		}
+		if s, found, _ := attr.Lookup(0, "refresh_on"); found && strings.TrimSpace(s) != "" {
+			parts := strings.Split(s, ",")
+			out := make([]string, 0, len(parts))
+			for _, part := range parts {
+				part = strings.TrimSpace(part)
+				if part != "" {
+					out = append(out, part)
+				}
+			}
+			if len(out) > 0 {
+				refreshOn = out
+			}
+		}
+	}
+
+	if !enabled {
+		return nil
+	}
+	return &ReadModelDef{
+		SourceContext: src,
+		RefreshOn:     refreshOn,
+	}
 }
 
 func parseEntityUI(val cue.Value) *EntityUIDef {

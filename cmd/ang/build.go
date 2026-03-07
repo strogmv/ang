@@ -260,7 +260,8 @@ func runBuild(args []string) {
 		}
 
 		inputHash, _ := calculateHash([]string{"cue"})
-		compilerHash, _ := calculateHash([]string{"templates"})
+		templateHash, _ := calculateHash([]string{"templates"})
+		compilerFingerprint := compiler.BuildFingerprint()
 
 		goModule := readGoModuleAt(projectPath)
 		if goModule == "" {
@@ -387,14 +388,14 @@ func runBuild(args []string) {
 			}
 			em.Version = compiler.Version
 			em.InputHash = inputHash
-			em.CompilerHash = compilerHash
+			em.CompilerHash = compilerFingerprint
 			em.GoModule = goModule
 			em.IRSchema = irSchema
 
 			ctx := em.AnalyzeContextFromIR(irSchema)
 			ctx.HasScheduler = len(irSchema.Schedules) > 0
 			ctx.InputHash = inputHash
-			ctx.CompilerHash = compilerHash
+			ctx.CompilerHash = compilerFingerprint
 			ctx.ANGVersion = compiler.Version
 			ctx.GoModule = goModule
 			if infraContextPatch.AuthService != "" {
@@ -550,7 +551,7 @@ func runBuild(args []string) {
 					Frontend: s.Frontend,
 				})
 			}
-			if err := writeArtifactHashManifest(projectPath, manifestTargets, irSchema.IRVersion, inputHash, compilerHash); err != nil {
+			if err := writeArtifactHashManifest(projectPath, manifestTargets, irSchema.IRVersion, inputHash, templateHash, compilerFingerprint); err != nil {
 				printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterStep, "write artifact hash manifest", err)
 				return
 			}

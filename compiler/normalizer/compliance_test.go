@@ -77,3 +77,53 @@ func TestExtractServices_Audit(t *testing.T) {
 		t.Errorf("expected audit event user.login, got %v", m.Metadata["audit_event"])
 	}
 }
+
+func TestExtractEntities_BoundedContextAttribute(t *testing.T) {
+	ctx := cuecontext.New()
+	val := ctx.CompileString(`
+		#TenderCategory: {
+			id: string
+		} @bounded_context("tender")
+	`)
+
+	n := New()
+	entities, err := n.ExtractEntities(val)
+	if err != nil {
+		t.Fatalf("ExtractEntities failed: %v", err)
+	}
+	if len(entities) != 1 {
+		t.Fatalf("Expected 1 entity, got %d", len(entities))
+	}
+	if entities[0].BoundedContext != "tender" {
+		t.Fatalf("expected bounded context 'tender', got %q", entities[0].BoundedContext)
+	}
+}
+
+func TestExtractEntities_AggregateOwnership(t *testing.T) {
+	ctx := cuecontext.New()
+	val := ctx.CompileString(`
+		#Tender: {
+			id: string
+			root: true
+			owns: ["TenderCategory", "TenderInvite"]
+		} @bounded_context("tender")
+	`)
+
+	n := New()
+	entities, err := n.ExtractEntities(val)
+	if err != nil {
+		t.Fatalf("ExtractEntities failed: %v", err)
+	}
+	if len(entities) != 1 {
+		t.Fatalf("Expected 1 entity, got %d", len(entities))
+	}
+	if !entities[0].AggregateRoot {
+		t.Fatalf("expected AggregateRoot=true")
+	}
+	if len(entities[0].Owns) != 2 {
+		t.Fatalf("expected 2 owned entities, got %d", len(entities[0].Owns))
+	}
+	if entities[0].Owns[0] != "TenderCategory" || entities[0].Owns[1] != "TenderInvite" {
+		t.Fatalf("unexpected owns list: %#v", entities[0].Owns)
+	}
+}

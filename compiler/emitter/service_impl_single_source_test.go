@@ -21,11 +21,25 @@ func TestServiceImplTemplateSingleSource(t *testing.T) {
 	if serviceImplTemplatePath != "templates/service_impl.tmpl" {
 		t.Fatalf("unexpected service impl template path: %q", serviceImplTemplatePath)
 	}
+	if serviceImplScaffoldTemplatePath != "templates/service_impl_scaffold.tmpl" {
+		t.Fatalf("unexpected service impl scaffold template path: %q", serviceImplScaffoldTemplatePath)
+	}
+	if serviceImplMethodTemplatePath != "templates/service_impl_method.tmpl" {
+		t.Fatalf("unexpected service impl method template path: %q", serviceImplMethodTemplatePath)
+	}
 
 	root := repoRootFromCaller(t)
 	primary := filepath.Join(root, serviceImplTemplatePath)
 	if _, err := os.Stat(primary); err != nil {
 		t.Fatalf("primary service_impl template missing: %s (%v)", primary, err)
+	}
+	scaffold := filepath.Join(root, serviceImplScaffoldTemplatePath)
+	if _, err := os.Stat(scaffold); err != nil {
+		t.Fatalf("service_impl_scaffold template missing: %s (%v)", scaffold, err)
+	}
+	method := filepath.Join(root, serviceImplMethodTemplatePath)
+	if _, err := os.Stat(method); err != nil {
+		t.Fatalf("service_impl_method template missing: %s (%v)", method, err)
 	}
 
 	alternatives := []string{

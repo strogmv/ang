@@ -12,6 +12,123 @@ func renderFlowStepPolicy(st *flowRenderState, step normalizer.FlowStep, indent 
 	pad := strings.Repeat("\t", indent)
 
 	switch step.Action {
+	case "policy.Check":
+		policyName := arg("policy")
+		userExpr := arg("user")
+		if policyName == "" || userExpr == "" {
+			return "", true
+		}
+
+		output := arg("output")
+		statusExpr := arg("status")
+		if statusExpr == "" {
+			statusExpr = "http.StatusForbidden"
+		}
+		codeExpr := arg("code")
+		if codeExpr == "" {
+			codeExpr = `"FORBIDDEN"`
+		}
+		throwExpr := arg("throw")
+		companyExpr := arg("companyID")
+
+		isResolved := false
+		if v, ok := step.Args["_policyResolved"].(bool); ok {
+			isResolved = v
+		}
+		roles := []string{}
+		if v, ok := step.Args["_policyRoles"].([]string); ok {
+			roles = append(roles, v...)
+		} else if raw, ok := step.Args["_policyRoles"].([]any); ok {
+			for _, item := range raw {
+				s := strings.TrimSpace(fmt.Sprint(item))
+				if s != "" {
+					roles = append(roles, s)
+				}
+			}
+		}
+		sameCompany := false
+		if v, ok := step.Args["_policySameCompany"].(bool); ok {
+			sameCompany = v
+		}
+		allowAdminOverride := true
+		if v, ok := step.Args["_policyAllowAdminOverride"].(bool); ok {
+			allowAdminOverride = v
+		}
+
+		allowedVar := "_policyAllowed" + sfx
+		codeVar := "_policyCode" + sfx
+		msgVar := "_policyMsg" + sfx
+
+		var b strings.Builder
+		if output != "" && !st.declared[output] {
+			b.WriteString(fmt.Sprintf("%svar %s bool\n", pad, output))
+			st.declared[output] = true
+			st.pointers[output] = false
+			st.types[output] = "bool"
+		}
+		b.WriteString(fmt.Sprintf("%s%s := true\n", pad, allowedVar))
+
+		if !isResolved {
+			b.WriteString(fmt.Sprintf("%s%s = false\n", pad, allowedVar))
+		}
+
+		if len(roles) > 0 {
+			b.WriteString(fmt.Sprintf("%sif %s {\n", pad, allowedVar))
+			b.WriteString(fmt.Sprintf("%s\t_policyRoleAllowed := false\n", pad))
+			quotedRoles := make([]string, 0, len(roles))
+			for _, r := range roles {
+				quotedRoles = append(quotedRoles, fmt.Sprintf("%q", r))
+			}
+			b.WriteString(fmt.Sprintf("%s\tfor _, _policyRole := range []string{%s} {\n", pad, strings.Join(quotedRoles, ", ")))
+			b.WriteString(fmt.Sprintf("%s\t\tif strings.EqualFold(strings.TrimSpace(fmt.Sprint(%s.Role)), _policyRole) {\n", pad, userExpr))
+			b.WriteString(fmt.Sprintf("%s\t\t\t_policyRoleAllowed = true\n", pad))
+			b.WriteString(fmt.Sprintf("%s\t\t\tbreak\n", pad))
+			b.WriteString(fmt.Sprintf("%s\t\t}\n", pad))
+			b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+			b.WriteString(fmt.Sprintf("%s\tif !_policyRoleAllowed { %s = false }\n", pad, allowedVar))
+			b.WriteString(fmt.Sprintf("%s}\n", pad))
+		}
+
+		if sameCompany {
+			b.WriteString(fmt.Sprintf("%sif %s {\n", pad, allowedVar))
+			if companyExpr == "" {
+				b.WriteString(fmt.Sprintf("%s\t%s = false\n", pad, allowedVar))
+			} else {
+				b.WriteString(fmt.Sprintf("%s\t_policyUserCompany := strings.TrimSpace(fmt.Sprint(%s.CompanyID))\n", pad, userExpr))
+				b.WriteString(fmt.Sprintf("%s\t_policyReqCompany := strings.TrimSpace(fmt.Sprint(%s))\n", pad, companyExpr))
+				b.WriteString(fmt.Sprintf("%s\tif _policyReqCompany == \"\" {\n", pad))
+				b.WriteString(fmt.Sprintf("%s\t\t%s = false\n", pad, allowedVar))
+				b.WriteString(fmt.Sprintf("%s\t} else if _policyUserCompany != _policyReqCompany {\n", pad))
+				if allowAdminOverride {
+					b.WriteString(fmt.Sprintf("%s\t\tif !strings.EqualFold(strings.TrimSpace(fmt.Sprint(%s.Role)), \"admin\") {\n", pad, userExpr))
+					b.WriteString(fmt.Sprintf("%s\t\t\t%s = false\n", pad, allowedVar))
+					b.WriteString(fmt.Sprintf("%s\t\t}\n", pad))
+				} else {
+					b.WriteString(fmt.Sprintf("%s\t\t%s = false\n", pad, allowedVar))
+				}
+				b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+			}
+			b.WriteString(fmt.Sprintf("%s}\n", pad))
+		}
+
+		if output != "" {
+			b.WriteString(fmt.Sprintf("%s%s = %s\n", pad, output, allowedVar))
+		}
+
+		b.WriteString(fmt.Sprintf("%sif !%s {\n", pad, allowedVar))
+		b.WriteString(fmt.Sprintf("%s\t%s := strings.TrimSpace(fmt.Sprint(%s))\n", pad, codeVar, codeExpr))
+		b.WriteString(fmt.Sprintf("%s\tif %s == \"\" { %s = \"FORBIDDEN\" }\n", pad, codeVar, codeVar))
+		if throwExpr != "" {
+			b.WriteString(fmt.Sprintf("%s\t%s := strings.TrimSpace(fmt.Sprint(%s))\n", pad, msgVar, throwExpr))
+		} else {
+			b.WriteString(fmt.Sprintf("%s\t%s := \"\"\n", pad, msgVar))
+		}
+		b.WriteString(fmt.Sprintf("%s\tif %s == \"\" { %s = \"policy denied: \" + strings.TrimSpace(fmt.Sprint(%s)) }\n", pad, msgVar, msgVar, policyName))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("errors.New(%s, %s, %s)", statusExpr, codeVar, msgVar)))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+
+		return b.String(), true
+
 	case "policy.Evaluate", "policy.Require", "policy.Decide":
 		policyKey := arg("policyKey")
 		if policyKey == "" {

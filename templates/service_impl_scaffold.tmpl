@@ -1,0 +1,12 @@
+{{- if .ProvenanceHeader }}{{ .ProvenanceHeader }}{{- end }}
+package service
+
+import (
+{{- range .Imports }}
+	{{ . }}
+{{- end }}
+)
+
+{{ ServiceImplTypeDecl .Service .Entities .Auth }}
+
+{{ ServiceImplConstructorDecl .Service .Entities .Auth }}

@@ -81,6 +81,12 @@ jobs:
           ANG_FRONTEND_TSC: "1"
         run: go run ./cmd/ang build
 
+      - name: Generated Artifacts Are Committed
+        run: |
+          git diff --exit-code
+          git diff --cached --exit-code
+          test -z "$(git ls-files --others --exclude-standard)"
+
       - name: Deterministic Release Output (hash parity)
         env:
           ANG_PY_SDK: "1"

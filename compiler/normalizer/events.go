@@ -27,16 +27,30 @@ func (n *Normalizer) ExtractEvents(val cue.Value) ([]EventDef, error) {
 		}
 
 		cleanName := strings.TrimPrefix(label, "#")
+		if isEventMetaDefinition(cleanName) {
+			continue
+		}
 
 		ent, err := n.parseEntity(cleanName, value)
 		if err != nil {
 			return nil, err
 		}
 
+		fields := make([]Field, 0, len(ent.Fields))
+		for _, f := range ent.Fields {
+			name := strings.TrimSpace(strings.ToLower(f.Name))
+			if name == "owner" || name == "consumers" {
+				continue
+			}
+			fields = append(fields, f)
+		}
+
 		evt := EventDef{
-			Name:   ent.Name,
-			Fields: ent.Fields,
-			Source: formatPos(value),
+			Name:      ent.Name,
+			Owner:     strings.TrimSpace(ent.Owner),
+			Consumers: parseStringList(value.LookupPath(cue.ParsePath("consumers"))),
+			Fields:    fields,
+			Source:    formatPos(value),
 		}
 		events = append(events, evt)
 	}
@@ -65,6 +79,9 @@ func (n *Normalizer) ExtractEventsFromArch(val cue.Value) ([]EventDef, error) {
 	for iter.Next() {
 		name := iter.Selector().String()
 		name = cleanName(name)
+		if isEventMetaDefinition(name) {
+			continue
+		}
 		v := iter.Value()
 
 		payloadVal := v.LookupPath(cue.ParsePath("payload"))
@@ -85,13 +102,24 @@ func (n *Normalizer) ExtractEventsFromArch(val cue.Value) ([]EventDef, error) {
 		}
 
 		events = append(events, EventDef{
-			Name:   name,
-			Fields: fields,
-			Source: formatPos(v),
+			Name:      name,
+			Owner:     strings.TrimSpace(getString(v, "owner")),
+			Consumers: parseStringList(v.LookupPath(cue.ParsePath("consumers"))),
+			Fields:    fields,
+			Source:    formatPos(v),
 		})
 	}
 
 	return events, nil
+}
+
+func isEventMetaDefinition(name string) bool {
+	switch strings.TrimSpace(strings.ToLower(name)) {
+	case "eventannotations", "eventsmeta", "eventmeta":
+		return true
+	default:
+		return false
+	}
 }
 
 // ExtractErrors extracts error definitions.
