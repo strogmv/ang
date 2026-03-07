@@ -95,6 +95,42 @@ func (r *{{ ExportName .Name }}) Delete(ctx context.Context, id string) error {
 	return err
 }
 
+{{- if .HasID }}
+func (r *{{ ExportName .Name }}) Insert(ctx context.Context, entity *domain.{{ ExportName .Entity }}) error {
+	if r.collection == nil {
+		return fmt.Errorf("mongo not configured")
+	}
+	if entity == nil {
+		return fmt.Errorf("entity is required")
+	}
+	doc := {{ JSONName .Entity }}ToDoc(entity)
+	_, err := r.collection.InsertOne(ctx, doc)
+	return err
+}
+
+func (r *{{ ExportName .Name }}) Update(ctx context.Context, entity *domain.{{ ExportName .Entity }}) error {
+	if r.collection == nil {
+		return fmt.Errorf("mongo not configured")
+	}
+	if entity == nil {
+		return fmt.Errorf("entity is required")
+	}
+	doc := {{ JSONName .Entity }}ToDoc(entity)
+	res, err := r.collection.ReplaceOne(ctx, bson.M{"_id": entity.ID}, doc)
+	if err != nil {
+		return err
+	}
+	if res.MatchedCount == 0 {
+		return fmt.Errorf("{{ .Entity | ToLower }} not found: %s", entity.ID)
+	}
+	return nil
+}
+
+func (r *{{ ExportName .Name }}) LockByID(ctx context.Context, id string) (*domain.{{ ExportName .Entity }}, error) {
+	return r.FindByID(ctx, id)
+}
+{{- end }}
+
 {{- $hasListAll := false }}
 {{- range .Finders }}{{ if eq .Name "ListAll" }}{{ $hasListAll = true }}{{ end }}{{ end }}
 {{- if not $hasListAll }}

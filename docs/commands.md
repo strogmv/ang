@@ -61,6 +61,71 @@ ang build --phase plan --out-plan .ang/build.plan.json --json
 ang build --phase apply --plan-file .ang/build.plan.json
 ```
 
+## Import & Extraction
+
+### `ang import java`
+
+Import Java/OpenAPI/SQL/proto/bytecode evidence into normalized contract-layer CUE.
+
+```bash
+ang import java [path] [--report] [--report-out report.json] [--diff] [--update] [--out-dir cue/import] [--java-parser auto|regex|treesitter|antlr]
+```
+
+Common flags:
+
+- `--out-dir`: output directory for generated contract CUE files
+- `--report`: print JSON import report to stdout
+- `--report-out`: write report JSON to a file
+- `--diff`: show file-level diff against current output directory
+- `--update`: write generated files to disk
+- `--incremental`: process only changed files from git working tree
+- `--java-parser`: Java parser backend (`auto|regex|treesitter|antlr`)
+  - `auto` currently resolves to `treesitter`.
+  - default is `auto`.
+- `--profile`: `layered|hexagonal|legacy_monolith|microservice`
+- `--verify`: run verification checks
+- `--verify-openapi`: explicit OpenAPI snapshot path for parity check
+- `--contract-test-cmd`: command for runtime contract tests
+
+Examples:
+
+```bash
+ang import java /path/to/project --report
+ang import java /path/to/project --diff --update --report-out import-report.json
+ang import java /path/to/project --verify --verify-openapi src/main/resources/openapi.yml --contract-test-cmd "mvn -q test"
+```
+
+### `ang import openapi`
+
+Import OpenAPI as first-class contract source and generate canonical API/domain CUE.
+
+```bash
+ang import openapi path/to/openapi.yml [--report] [--diff] [--update]
+```
+
+Common flags:
+
+- `--out-api-dir`: target API directory (`cue/api` by default)
+- `--out-domain-file`: target domain entities file (`cue/domain/entities.cue` by default)
+- `--group-by-owner`: split operations into `operations_<owner>.cue`
+- `--report`, `--report-out`, `--diff`, `--update`
+
+### `ang extract`
+
+Extract normalized facts JSON from source code/spec/schema inputs.
+
+```bash
+ang extract [path] [--from auto|go|java|proto|grpc|bytecode|openapi|sql] [--java-parser auto|regex|treesitter|antlr] [--out facts.json]
+```
+
+Examples:
+
+```bash
+ang extract /path/to/project --from java
+ang extract /path/to/project --from proto --out facts-proto.json
+ang extract /path/to/project --from bytecode --out facts-bytecode.json
+```
+
 ## Startup Diagnostics
 
 ### `ang doctor`
@@ -172,9 +237,34 @@ Publisher/subscriber map for domain events.
 
 ## Tooling
 
-### `ang explain <CODE>`
+### `ang explain <CODE|error-json|path-to-json>`
 
-Explain lint/diagnostic codes with examples.
+Explain diagnostics in AI-friendly structured form.
+
+```bash
+ang explain MISSING_OUTPUT
+ang explain --json MISSING_OUTPUT
+ang explain build-errors.json --json
+ang lint --json | ang explain - --json
+```
+
+Output schema (`--json`):
+- `schema` (`ang/explain/v2`)
+- `items[].code`
+- `items[].path`
+- `items[].expected`
+- `items[].found`
+- `items[].hint`
+- `items[].doc_anchor`
+
+### `ang actions`
+
+Machine-readable flow action catalog (source-of-truth from `flowsem`).
+
+```bash
+ang actions --json
+ang actions --cue
+```
 
 ### `ang draw`
 

@@ -340,7 +340,8 @@ cd tests && npm install && npm run test:e2e
 *   `ang smoke` — Check `/health` and `/health/ready`
 *   `ang config doctor` — Validate `.env`/process env against generated `internal/config/config.go`
 *   `ang draw` — Generate architecture diagrams
-*   `ang explain <CODE>` — Explain lint/build diagnostic codes
+*   `ang actions --json|--cue` — Print machine-readable flow action catalog
+*   `ang explain <CODE|error-json|path-to-json> [--json]` — Explain lint/build diagnostics with expected/found/hint/doc anchor
 *   `ang hash` — Print CUE/templates hash for deterministic traceability
 *   `ang mcp` — Run MCP server over stdio
 *   `ang lsp --stdio` — Run ANG language server (MVP diagnostics)
@@ -532,6 +533,305 @@ CreateOrder: {
     ]
 }
 ```
+
+## Flow DSL: Complete Catalog
+
+This section is the in-README reference for Flow DSL elements in ANG.
+
+### Flow Step Shape
+
+Every flow step has the shape:
+
+```cue
+{
+    action: "<namespace.Action>"
+    // action-specific args...
+}
+```
+
+Main flow containers:
+- `flow: [...#FlowStep]` in operation definitions
+- `impl_steps: [...#ImplStep]` for typed impl mode (`load/assert/call/emit`)
+
+### Structural/Nested Keys
+
+These keys are used by control and orchestration actions:
+- `_do`
+- `_then`
+- `_else`
+- `_ifNew`
+- `_ifExists`
+- `_cases`
+- `_default`
+- `_catch`
+- `_fallback`
+- `_onTimeout`
+- `_onMissing`
+- `_onMismatch`
+- `_branches`
+
+### Full Supported `action` List
+
+Canonical compiler-supported actions (source of truth: `compiler/emitter/service_flow_codegen.go`):
+
+```text
+archive.ZipDir
+approval.Decide
+approval.Request
+approval.Wait
+audit.Log
+auth.CheckRole
+auth.RequireRole
+base64.Decode
+base64.Encode
+batch.Run
+bulkhead.Acquire
+bulkhead.Run
+cache.Del
+cache.Get
+cache.Set
+circuit.Breaker
+circuit.Check
+circuit.RecordFailure
+circuit.RecordSuccess
+concurrency.Limit
+concurrency.Run
+config.Get
+crypto.Decrypt
+crypto.Encrypt
+db.Delete
+db.Get
+db.Insert
+db.List
+db.Lock
+db.Query
+db.SelectForUpdate
+db.Update
+db.Upsert
+dedupe.Once
+dlq.Publish
+entity.PatchNonZero
+entity.PatchValidated
+enum.Validate
+event.Match
+event.Outbox
+event.Publish
+event.Subscribe
+event.Wait
+exec.Run
+field.CopyNonEmpty
+flow.Block
+flow.Catch
+flow.Checkpoint
+flow.Compensate
+flow.Cron
+flow.Delay
+flow.ExplainError
+flow.Fallback
+flow.For
+flow.If
+flow.Join
+flow.Parallel
+flow.Race
+flow.Resume
+flow.Retry
+flow.Rollback
+flow.Saga
+flow.Schedule
+flow.SuggestNext
+flow.Switch
+flow.Tag
+flow.Timeout
+flow.Try
+flow.Validate
+flow.While
+fs.ReadFile
+fs.Remove
+fs.TempDir
+fs.WriteFile
+fsm.Transition
+hash.HMAC
+hash.Sum
+http.Call
+http.Paginate
+http.Request
+http.RetryPolicy
+idem.Check
+idem.DeriveKey
+idem.SaveResult
+idempotency.Check
+idempotency.DeriveKey
+idempotency.SaveResult
+json.Marshal
+json.Parse
+jsonpath.Get
+jsonpath.Set
+jwt.Sign
+jwt.Verify
+list.Append
+list.Chunk
+list.Distinct
+list.Enrich
+list.Filter
+list.GroupBy
+list.Map
+list.Paginate
+list.Reduce
+list.Sort
+log.Emit
+logic.Call
+logic.Check
+mail.Send
+map.Build
+mapping.Assign
+mapping.Map
+math.Op
+metric.Emit
+notification.Dispatch
+notify.Dispatch
+notify.Send
+oauth2.Refresh
+oauth2.Token
+parallel.Run
+pdf.Render
+queue.Ack
+queue.Dequeue
+queue.Enqueue
+queue.Nack
+query.Decode
+query.Encode
+rand.Code
+rand.Token
+ratelimit.Check
+ratelimit.Limit
+rbac.CheckPermission
+regex.Match
+regex.Replace
+repo.Delete
+repo.Find
+repo.Get
+repo.GetForUpdate
+repo.List
+repo.Query
+repo.Save
+repo.Upsert
+secret.Get
+session.Get
+slo.Budget
+state.Delete
+state.Get
+state.Set
+storage.Delete
+storage.Download
+storage.GetURL
+storage.List
+storage.Upload
+str.Format
+str.Normalize
+time.CheckExpiry
+time.Parse
+trace.Span
+tx.Block
+ulid.New
+url.Build
+url.Parse
+uuid.New
+webhook.Ack
+webhook.Send
+webhook.VerifySignature
+```
+
+Notes:
+- `notification.Dispatch` and `notify.Dispatch` are both accepted for compatibility.
+- `idem.*` and `idempotency.*` are both accepted aliases.
+
+### Flow Helper Macros (`cue/schema/flow_helpers.cue`)
+
+Shorthand helpers (generate regular `action` steps):
+
+```text
+#FindByID
+#GetByID
+#Save
+#Delete
+#List
+#ListMap
+#ListReduce
+#ListGroupBy
+#ListDistinct
+#ListChunk
+#BatchRun
+#Upsert
+#NewEntity
+#Set
+#SetID
+#SetNow
+#SetResponse
+#Copy
+#Require
+#RequireStatus
+#RequireOwner
+#InTransaction
+#Publish
+#Outbox
+#WebhookVerify
+#QueueEnqueue
+#QueueDequeue
+#QueueAck
+#QueueNack
+#DLQPublish
+#NotifySend
+#ApprovalRequest
+#ApprovalWait
+#ApprovalDecide
+#When
+#Switch
+#ForEach
+#While
+#TransitionTo
+#AuditLog
+#RequireRole
+#CheckRole
+#CheckPermission
+#JWTSign
+#JWTVerify
+#OAuth2Token
+#OAuth2Refresh
+#Encrypt
+#Decrypt
+#PatchFields
+#CopyNonEmpty
+#PatchValidated
+#Paginate
+#Normalize
+#ValidateEnum
+#SortBy
+#Filter
+#Enrich
+#ParseTime
+#CheckExpiry
+#BuildMap
+#CRUDCreate
+#CRUDUpdate
+#CRUDDelete
+#Query
+#IdempotencyDeriveKey
+#IdempotencyCheck
+#IdempotencySaveResult
+#RateLimit
+#ConcurrencyRun
+#CircuitBreaker
+#BulkheadRun
+#LogEmit
+#MetricEmit
+#TraceSpan
+#SLOBudget
+```
+
+For semantic rules and validation behavior, see:
+- `docs/flow-semantics.md`
+- `cue/schema/types.cue`
+- `compiler/flowsem/engine.go`
 
 ## Environment Variables
 

@@ -6,7 +6,6 @@ import (
 	"go/ast"
 	"go/format"
 	"go/token"
-	"os"
 	"sort"
 	"strings"
 
@@ -70,7 +69,7 @@ func renderServiceImplTypeDecl(svc normalizer.Service, entities []normalizer.Ent
 			Type:  mustParseExpr("port.FileStorage"),
 		})
 	}
-	if serviceImplHasNotificationDispatch(svc) || serviceImplHasFlowAction(svc, "notify.Dispatch") {
+	if serviceImplHasNotificationDispatch(svc) {
 		fields = append(fields, &ast.Field{
 			Names: []*ast.Ident{ast.NewIdent("dispatcher")},
 			Type:  mustParseExpr("port.NotificationDispatcher"),
@@ -100,6 +99,12 @@ func renderServiceImplTypeDecl(svc normalizer.Service, entities []normalizer.Ent
 			Type:  mustParseExpr("port.StateStore"),
 		})
 	}
+	if serviceImplHasPolicyActions(svc) {
+		fields = append(fields, &ast.Field{
+			Names: []*ast.Ident{ast.NewIdent("policyEngine")},
+			Type:  mustParseExpr("port.PolicyEngine"),
+		})
+	}
 
 	gen := &ast.GenDecl{
 		Tok: token.TYPE,
@@ -117,7 +122,6 @@ func renderServiceImplTypeDecl(svc normalizer.Service, entities []normalizer.Ent
 	if err := format.Node(&buf, token.NewFileSet(), gen); err != nil {
 		return "", fmt.Errorf("format service impl type %s: %w", svc.Name, err)
 	}
-	fmt.Fprintf(os.Stderr, "DEBUG: generated struct for %s:\n%s\n", svc.Name, buf.String())
 	return buf.String(), nil
 }
 
@@ -193,7 +197,7 @@ func renderServiceImplConstructorDecl(svc normalizer.Service, entities []normali
 		})
 		elts = append(elts, &ast.KeyValueExpr{Key: ast.NewIdent("storage"), Value: ast.NewIdent("storage")})
 	}
-	if serviceImplHasNotificationDispatch(svc) || serviceImplHasFlowAction(svc, "notify.Dispatch") {
+	if serviceImplHasNotificationDispatch(svc) {
 		params = append(params, &ast.Field{
 			Names: []*ast.Ident{ast.NewIdent("dispatcher")},
 			Type:  mustParseExpr("port.NotificationDispatcher"),
@@ -228,6 +232,13 @@ func renderServiceImplConstructorDecl(svc normalizer.Service, entities []normali
 		})
 		elts = append(elts, &ast.KeyValueExpr{Key: ast.NewIdent("stateStore"), Value: ast.NewIdent("stateStore")})
 	}
+	if serviceImplHasPolicyActions(svc) {
+		params = append(params, &ast.Field{
+			Names: []*ast.Ident{ast.NewIdent("policyEngine")},
+			Type:  mustParseExpr("port.PolicyEngine"),
+		})
+		elts = append(elts, &ast.KeyValueExpr{Key: ast.NewIdent("policyEngine"), Value: ast.NewIdent("policyEngine")})
+	}
 
 	fd := &ast.FuncDecl{
 		Name: ast.NewIdent("New" + svc.Name + "Impl"),
@@ -258,7 +269,6 @@ func renderServiceImplConstructorDecl(svc normalizer.Service, entities []normali
 	if err := format.Node(&buf, token.NewFileSet(), fd); err != nil {
 		return "", fmt.Errorf("format service impl constructor %s: %w", svc.Name, err)
 	}
-	fmt.Fprintf(os.Stderr, "DEBUG: generated constructor for %s:\n%s\n", svc.Name, buf.String())
 	return buf.String(), nil
 }
 
@@ -467,26 +477,13 @@ func serviceImplHasNotificationDispatch(s normalizer.Service) bool {
 	var scanSteps func([]normalizer.FlowStep) bool
 	scanSteps = func(steps []normalizer.FlowStep) bool {
 		for _, step := range steps {
-			if step.Action == "notification.Dispatch" {
+			if step.Action == "notification.Dispatch" || step.Action == "notify.Dispatch" || step.Action == "notify.Send" {
 				return true
 			}
-			if v, ok := step.Args["_do"].([]normalizer.FlowStep); ok && scanSteps(v) {
-				return true
-			}
-			if v, ok := step.Args["_ifNew"].([]normalizer.FlowStep); ok && scanSteps(v) {
-				return true
-			}
-			if v, ok := step.Args["_ifExists"].([]normalizer.FlowStep); ok && scanSteps(v) {
-				return true
-			}
-			if v, ok := step.Args["_then"].([]normalizer.FlowStep); ok && scanSteps(v) {
-				return true
-			}
-			if v, ok := step.Args["_else"].([]normalizer.FlowStep); ok && scanSteps(v) {
-				return true
-			}
-			if v, ok := step.Args["_default"].([]normalizer.FlowStep); ok && scanSteps(v) {
-				return true
+			for _, childKey := range []string{"_do", "_ifNew", "_ifExists", "_then", "_else", "_default", "_catch", "_fallback", "_onTimeout", "_onMissing", "_onMismatch"} {
+				if v, ok := step.Args[childKey].([]normalizer.FlowStep); ok && scanSteps(v) {
+					return true
+				}
 			}
 			if cases, ok := step.Args["_cases"].(map[string][]normalizer.FlowStep); ok {
 				for _, branch := range cases {
@@ -598,12 +595,16 @@ func serviceImplHasStateActions(s normalizer.Service) bool {
 		return true
 	}
 	// Reliability primitives all use stateStore internally
-	for _, prefix := range []string{"idem.", "idempotency.", "dedupe.", "ratelimit.", "concurrency.", "circuit.", "bulkhead."} {
+	for _, prefix := range []string{"idem.", "idempotency.", "dedupe.", "ratelimit.", "concurrency.", "circuit.", "bulkhead.", "approval."} {
 		if serviceImplHasFlowActionWithPrefix(s, prefix) {
 			return true
 		}
 	}
 	return false
+}
+
+func serviceImplHasPolicyActions(s normalizer.Service) bool {
+	return serviceImplHasFlowActionWithPrefix(s, "policy.")
 }
 
 // serviceImplHasFlowActionWithPrefix returns true if any method flow contains an action

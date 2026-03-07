@@ -162,6 +162,40 @@ func TestValidate_FlowSuggestNextRequiresOptions(t *testing.T) {
 	}
 }
 
+func TestValidate_DeterministicFlowActionsKnown(t *testing.T) {
+	t.Parallel()
+	issues := Validate([]Step{
+		{Action: "flow.RecordEvent", Args: map[string]any{"name": `"project.created"`, "payload": "req", "output": "evt"}},
+		{Action: "flow.History.Get", Args: map[string]any{"output": "hist"}},
+		{Action: "flow.Replay", Args: map[string]any{"history": "hist", "output": "replayed"}},
+	})
+	for _, it := range issues {
+		if it.Code == "UNKNOWN_ACTION" {
+			t.Fatalf("unexpected UNKNOWN_ACTION for %s", it.Action)
+		}
+	}
+}
+
+func TestValidate_DeterministicFlowRequiredArgs(t *testing.T) {
+	t.Parallel()
+	issues := Validate([]Step{
+		{Action: "flow.RecordEvent", Args: map[string]any{}},
+		{Action: "flow.History.Get", Args: map[string]any{}},
+		{Action: "flow.Replay", Args: map[string]any{}},
+	})
+	want := map[string]bool{
+		"MISSING_NAME":    true,
+		"MISSING_OUTPUT":  true,
+		"MISSING_HISTORY": true,
+	}
+	for _, it := range issues {
+		delete(want, it.Code)
+	}
+	for code := range want {
+		t.Fatalf("expected %s issue, got %+v", code, issues)
+	}
+}
+
 func TestValidate_PerformanceArgs(t *testing.T) {
 	t.Parallel()
 	issues := Validate([]Step{
@@ -628,6 +662,150 @@ func TestValidate_ReliabilityAndObservabilityConstraints(t *testing.T) {
 		"MISSING_DO":       true,
 		"MISSING_MESSAGE":  true,
 		"MISSING_DURATION": true,
+	}
+	for _, it := range issues {
+		delete(want, it.Code)
+	}
+	for code := range want {
+		t.Fatalf("expected %s issue in %+v", code, issues)
+	}
+}
+
+func TestValidate_ApprovalAndNotifyActionsKnown(t *testing.T) {
+	t.Parallel()
+	steps := []Step{
+		{
+			Action: "approval.Request",
+			Args: map[string]any{
+				"approvalKey": "req.OrderID",
+				"title":       `"Refund approval"`,
+				"requestedBy": "req.UserID",
+				"approvers":   []string{"finance@company.com"},
+				"policy":      `"any"`,
+				"payload":     "req",
+				"approvalId":  "approvalID",
+				"status":      "approvalStatus",
+			},
+		},
+		{
+			Action: "approval.Wait",
+			Args: map[string]any{
+				"approvalId": "approvalID",
+				"timeout":    "5*time.Minute",
+				"onTimeout":  `"fallback"`,
+				"decision":   "decision",
+				"status":     "status",
+				"decidedBy":  "decidedBy",
+				"decidedAt":  "decidedAt",
+				"reason":     "reason",
+			},
+			Children: map[string][]Step{
+				"_onTimeout": {{Action: "flow.SuggestNext", Args: map[string]any{"options": []string{"retry"}}}},
+			},
+		},
+		{Action: "approval.Decide", Args: map[string]any{"approvalId": "approvalID", "decision": `"approved"`, "actor": "req.UserID", "status": "approvalStatus"}},
+		{Action: "notify.Send", Args: map[string]any{"channel": `"email"`, "to": "req.Email", "text": `"Build completed"`}},
+		{
+			Action: "policy.Evaluate",
+			Args: map[string]any{
+				"policyKey": "req.PolicyKey",
+				"subject":   "req.UserID",
+				"resource":  "req.ProjectID",
+				"operation": `"project.create"`,
+				"tenant":    "req.TenantID",
+				"attrs":     "req.Attrs",
+				"context":   "req",
+				"decision":  "policyDecision",
+				"reason":    "policyReason",
+				"effects":   "policyEffects",
+				"output":    "policyResult",
+			},
+		},
+		{
+			Action: "policy.Require",
+			Args: map[string]any{
+				"policyKey": "req.PolicyKey",
+				"subject":   "req.UserID",
+				"resource":  "req.ProjectID",
+				"operation": `"project.create"`,
+				"tenant":    "req.TenantID",
+				"throw":     `"policy denied"`,
+				"code":      `"POLICY_DENIED"`,
+				"status":    "http.StatusForbidden",
+				"decision":  "requireDecision",
+			},
+		},
+		{
+			Action: "policy.Decide",
+			Args: map[string]any{
+				"policyKey": "req.PolicyKey",
+				"output":    "finalDecision",
+				"decision":  "finalDecisionName",
+			},
+		},
+	}
+
+	issues := Validate(steps)
+	for _, it := range issues {
+		if it.Code == "UNKNOWN_ACTION" {
+			t.Fatalf("unexpected UNKNOWN_ACTION for %s", it.Action)
+		}
+	}
+}
+
+func TestValidate_ApprovalAndNotifyConstraints(t *testing.T) {
+	t.Parallel()
+	issues := Validate([]Step{
+		{
+			Action: "approval.Request",
+			Args: map[string]any{
+				"approvalKey": "req.OrderID",
+				"title":       `"Refund approval"`,
+				"requestedBy": "req.UserID",
+				"approvers":   []string{},
+				"policy":      `"any"`,
+				"payload":     "req",
+			},
+		},
+		{
+			Action: "approval.Request",
+			Args: map[string]any{
+				"approvalKey": "req.OrderID",
+				"title":       `"Refund approval"`,
+				"requestedBy": "req.UserID",
+				"approvers":   []string{"manager@acme.io"},
+				"policy":      `"invalid"`,
+				"payload":     "req",
+			},
+		},
+		{
+			Action: "approval.Wait",
+			Args: map[string]any{
+				"approvalId": "approvalID",
+				"onTimeout":  `"later"`,
+			},
+		},
+		{
+			Action: "approval.Decide",
+			Args: map[string]any{
+				"approvalId": "approvalID",
+				"decision":   `"maybe"`,
+				"actor":      "req.UserID",
+			},
+		},
+		{Action: "notify.Send", Args: map[string]any{"channel": `"email"`, "to": "req.Email"}},
+		{Action: "policy.Evaluate", Args: map[string]any{"policyKey": "req.PolicyKey"}},
+		{Action: "policy.Decide", Args: map[string]any{"policyKey": "req.PolicyKey"}},
+	})
+
+	want := map[string]bool{
+		"MISSING_APPROVERS":     true,
+		"INVALID_POLICY":        true,
+		"INVALID_ON_TIMEOUT":    true,
+		"INVALID_DECISION":      true,
+		"MISSING_CONTENT":       true,
+		"MISSING_POLICY_OUTPUT": true,
+		"MISSING_OUTPUT":        true,
 	}
 	for _, it := range issues {
 		delete(want, it.Code)

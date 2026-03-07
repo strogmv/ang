@@ -178,6 +178,36 @@ func renderFlowStepInfraSecurity(st *flowRenderState, step normalizer.FlowStep, 
 		b.WriteString(fmt.Sprintf("%s%s %s %s\n", pad, output, assign, claimsV))
 		return b.String(), true
 
+	case "crypto.Hash":
+		input := arg("input")
+		output := arg("output")
+		if input == "" || output == "" {
+			return "", true
+		}
+		algo := arg("algo")
+		assign := ":="
+		if st.declared[output] {
+			assign = "="
+		}
+		st.declared[output] = true
+		st.pointers[output] = false
+		st.types[output] = "string"
+		var b strings.Builder
+		if algo == "bcrypt" {
+			hashV := "_bcHash" + sfx
+			hashErrV := "_bcHashErr" + sfx
+			b.WriteString(fmt.Sprintf("%s%s, %s := bcrypt.GenerateFromPassword([]byte(%s), 12)\n", pad, hashV, hashErrV, input))
+			b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, hashErrV))
+			b.WriteString(errReturn(st, pad+"\t", "fmt.Errorf(\"crypto.Hash bcrypt: %w\", "+hashErrV+")"))
+			b.WriteString(fmt.Sprintf("%s}\n", pad))
+			b.WriteString(fmt.Sprintf("%s%s %s string(%s)\n", pad, output, assign, hashV))
+		} else {
+			// default: sha256 hex
+			b.WriteString(fmt.Sprintf("%s_sha256Sum%s := sha256.Sum256([]byte(%s))\n", pad, sfx, input))
+			b.WriteString(fmt.Sprintf("%s%s %s hex.EncodeToString(_sha256Sum%s[:])\n", pad, output, assign, sfx))
+		}
+		return b.String(), true
+
 	case "oauth2.Token":
 		return renderOAuthTokenLike(st, step, pad, sfx, arg, "oauth2.Token", false), true
 	case "oauth2.Refresh":

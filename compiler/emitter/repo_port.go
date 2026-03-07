@@ -118,6 +118,52 @@ type StateStore interface {
 	return nil
 }
 
+// EmitPolicyPort generates port.PolicyEngine interface and policy decision contracts.
+func (e *Emitter) EmitPolicyPort() error {
+	targetDir := filepath.Join(e.OutputDir, "internal", "port")
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return fmt.Errorf("mkdir: %w", err)
+	}
+
+	src := []byte(`package port
+
+import "context"
+
+// PolicyInput is the canonical payload used by policy.Evaluate/Require/Decide flow actions.
+type PolicyInput struct {
+	PolicyKey string
+	Subject   string
+	Resource  string
+	Operation string
+	Tenant    string
+	Attrs     any
+	Context   any
+}
+
+// PolicyDecision describes resolved policy verdict and optional side effects.
+type PolicyDecision struct {
+	Decision string
+	Reason   string
+	Effects  map[string]any
+}
+
+// PolicyEngine evaluates policy inputs into deterministic decisions.
+type PolicyEngine interface {
+	Evaluate(ctx context.Context, input PolicyInput) (PolicyDecision, error)
+}
+`)
+	formatted, err := formatGoStrict(src, "internal/port/policy.go")
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(targetDir, "policy.go")
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
+		return fmt.Errorf("write file: %w", err)
+	}
+	fmt.Printf("Generated Policy Port: %s\n", path)
+	return nil
+}
+
 // EmitOutboxPort генерирует интерфейс OutboxRepository
 func (e *Emitter) EmitOutboxPort() error {
 	targetDir := filepath.Join(e.OutputDir, "internal", "port")
@@ -301,7 +347,18 @@ var _ port.StateStore = (*SystemRepository)(nil)
 // EmitRepository генерирует интерфейсы репозиториев
 func (e *Emitter) EmitRepository(repos []ir.Repository, entities []ir.Entity) error {
 	nRepos := IRReposToNormalizer(repos)
-	_ = entities
+	nEntities := IREntitiesToNormalizer(entities)
+
+	// Build entity-name → hasID map
+	entityHasID := make(map[string]bool)
+	for _, ent := range nEntities {
+		for _, f := range ent.Fields {
+			if strings.ToLower(f.Name) == "id" {
+				entityHasID[ent.Name] = true
+				break
+			}
+		}
+	}
 
 	targetDir := filepath.Join(e.OutputDir, "internal", "port")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
@@ -310,7 +367,7 @@ func (e *Emitter) EmitRepository(repos []ir.Repository, entities []ir.Entity) er
 
 	keep := make(map[string]struct{})
 	for _, repo := range nRepos {
-		rendered, err := e.renderRepositoryPortAST(repo)
+		rendered, err := e.renderRepositoryPortAST(repo, entityHasID[repo.Entity])
 		if err != nil {
 			return fmt.Errorf("render repository %s: %w", repo.Name, err)
 		}

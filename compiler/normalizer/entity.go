@@ -118,7 +118,7 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 		fLabel := iter.Selector().String()
 		fLabel = cleanName(fLabel)
 
-		if fLabel == "fsm" || fLabel == "indexes" || fLabel == "methods" {
+		if fLabel == "fsm" || fLabel == "indexes" || fLabel == "methods" || fLabel == "owner" {
 			continue
 		}
 

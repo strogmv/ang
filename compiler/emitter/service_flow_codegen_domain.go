@@ -500,6 +500,36 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		if input != "" {
 			inputArg = ", " + input
 		}
+		// multi-arg fallback: args: ["req.TenderID", "req.CompanyID"]
+		if inputArg == "" {
+			if v, ok := step.Args["args"]; ok {
+				switch x := v.(type) {
+				case []string:
+					if len(x) > 0 {
+						inputArg = ", " + strings.Join(x, ", ")
+					}
+				case []interface{}:
+					var parts []string
+					for _, item := range x {
+						if s, ok := item.(string); ok && s != "" {
+							parts = append(parts, normalizeFlowExpr(strings.TrimSpace(s)))
+						}
+					}
+					if len(parts) > 0 {
+						inputArg = ", " + strings.Join(parts, ", ")
+					}
+				case string:
+					if x != "" {
+						inputArg = ", " + x
+					}
+				}
+			}
+		}
+		// list:true → output is a slice, not a pointer
+		isList := false
+		if b2, ok := step.Args["list"].(bool); ok && b2 {
+			isList = true
+		}
 		if output == "" {
 			b.WriteString(fmt.Sprintf("%sif _, _qrErr := s.%sRepo.%s(ctx%s); _qrErr != nil {\n", pad, ExportName(source), ExportName(method), inputArg))
 			b.WriteString(errReturn(st, pad+"\t", "_qrErr"))
@@ -511,7 +541,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 			assign = "="
 		}
 		st.declared[output] = true
-		st.pointers[output] = true
+		st.pointers[output] = !isList
 		b.WriteString(fmt.Sprintf("%s%s %s s.%sRepo.%s(ctx%s)\n", pad, output+", err", assign, ExportName(source), ExportName(method), inputArg))
 		b.WriteString(fmt.Sprintf("%sif err != nil {\n", pad))
 		if errMsg != "" {
@@ -520,12 +550,35 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 			b.WriteString(errReturn(st, pad+"\t", "err"))
 		}
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
-		if errMsg != "" {
+		if errMsg != "" && !isList {
 			b.WriteString(fmt.Sprintf("%sif %s == nil {\n", pad, output))
 			b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("errors.New(http.StatusNotFound, \"NOT_FOUND\", %q)", errMsg)))
 			b.WriteString(fmt.Sprintf("%s}\n", pad))
 		}
 		return b.String(), true
+
+	case "math.Expr":
+		expr := arg("expr")
+		output := arg("output")
+		if expr == "" || output == "" {
+			return "", true
+		}
+		declare := false
+		if v, ok := step.Args["declare"]; ok {
+			switch x := v.(type) {
+			case bool:
+				declare = x
+			case string:
+				declare = strings.EqualFold(strings.TrimSpace(x), "true")
+			}
+		}
+		assign := "="
+		if declare && !st.declared[output] {
+			assign = ":="
+			st.declared[output] = true
+			st.pointers[output] = false
+		}
+		return fmt.Sprintf("%s%s %s %s\n", pad, output, assign, expr), true
 
 	case "repo.Upsert":
 		source := arg("source")

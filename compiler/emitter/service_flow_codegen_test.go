@@ -45,7 +45,7 @@ func TestRenderFlow_ListSort(t *testing.T) {
 	}
 	code2 := renderFlow(steps2)
 	if !strings.Contains(code2, `sort.Slice(items, func(i int, j int) bool`) ||
-		!strings.Contains(code2, `return items[i].CreatedAt > items[j].CreatedAt`) {
+		!strings.Contains(code2, `return items[j].CreatedAt.Before(items[i].CreatedAt)`) {
 		t.Fatalf("expected static desc sort comparator\n\n%s", code2)
 	}
 
@@ -423,6 +423,38 @@ func TestRenderFlow_NewResilienceActions(t *testing.T) {
 		"context.WithTimeout(ctx, 2*time.Second)",
 		`slog.Info("flow.suggest_next", "options", []string{"continue", "stop"})`,
 		"lastExplain := _expMsg_",
+	}
+	for _, part := range mustContain {
+		if !strings.Contains(code, part) {
+			t.Fatalf("expected generated code to contain %q\n\n%s", part, code)
+		}
+	}
+}
+
+func TestRenderFlow_DeterministicHistoryActions(t *testing.T) {
+	steps := []normalizer.FlowStep{
+		{Action: "flow.RecordEvent", Args: map[string]any{"name": `"project.created"`, "payload": "req", "output": "evt"}},
+		{Action: "flow.History.Get", Args: map[string]any{"output": "history"}},
+		{Action: "flow.Replay", Args: map[string]any{
+			"history": "history",
+			"output":  "replayed",
+			"_do": []normalizer.FlowStep{
+				{Action: "flow.RecordEvent", Args: map[string]any{"name": `"should_not_append"`}},
+			},
+		}},
+	}
+
+	code := renderFlow(steps)
+	mustContain := []string{
+		"var _flowHistory []map[string]any",
+		"var _flowReplayMode bool",
+		`map[string]any{"seq": len(_flowHistory) + 1, "name": "project.created", "payload": req}`,
+		"_flowHistory = append(_flowHistory, _flowEvt_",
+		"_flowHistOut_",
+		"_flowReplayItems_",
+		"if !_flowReplayMode {",
+		"_flowReplayMode = true",
+		"_flowReplayMode = _flowReplayPrev_",
 	}
 	for _, part := range mustContain {
 		if !strings.Contains(code, part) {

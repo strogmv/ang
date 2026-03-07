@@ -55,6 +55,15 @@ func renderFlowStepControlFlow(st *flowRenderState, step normalizer.FlowStep, in
 		}
 		return renderFlowResumeLegacy(st, pad, indent, sfx, arg, child), true
 
+	case "flow.RecordEvent":
+		return renderFlowRecordEvent(st, indent, sfx, arg), true
+
+	case "flow.History.Get":
+		return renderFlowHistoryGet(st, indent, sfx, arg), true
+
+	case "flow.Replay":
+		return renderFlowReplay(st, indent, sfx, arg, child), true
+
 	case "flow.Validate":
 		if out, ok := renderFlowValidateAST(st, indent, arg); ok {
 			return out, true

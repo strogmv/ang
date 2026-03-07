@@ -136,6 +136,7 @@ func (r *{{ ExportName .Name }}) Delete(ctx context.Context, id string) error {
 	return err
 }
 
+{{- if .HasID }}
 // ============================================================================
 // METHOD: Insert
 // PURPOSE: Pure INSERT — returns error on duplicate primary key
@@ -185,6 +186,8 @@ func (r *{{ ExportName .Name }}) Update(ctx context.Context, entity *domain.{{ E
 	}
 	return nil
 }
+
+{{- end }}
 
 // ============================================================================
 // METHOD: LockByID

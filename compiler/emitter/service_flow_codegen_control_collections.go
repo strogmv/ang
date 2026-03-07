@@ -86,8 +86,16 @@ func renderListSortAST(step normalizer.FlowStep, indent int, arg func(string) st
 	if err != nil {
 		return "", false
 	}
-	ascCmp := &ast.BinaryExpr{X: leftExpr, Op: token.LSS, Y: rightExpr}
-	descCmp := &ast.BinaryExpr{X: leftExpr, Op: token.GTR, Y: rightExpr}
+	// For time.Time fields (suffix At/Time/Date), use .Before()/.After() instead of < />
+	isTimeSuffix := strings.HasSuffix(by, "At") || strings.HasSuffix(by, "Time") || strings.HasSuffix(by, "Date")
+	var ascCmp, descCmp ast.Expr
+	if isTimeSuffix {
+		ascCmp = &ast.CallExpr{Fun: &ast.SelectorExpr{X: leftExpr, Sel: ast.NewIdent("Before")}, Args: []ast.Expr{rightExpr}}
+		descCmp = &ast.CallExpr{Fun: &ast.SelectorExpr{X: rightExpr, Sel: ast.NewIdent("Before")}, Args: []ast.Expr{leftExpr}}
+	} else {
+		ascCmp = &ast.BinaryExpr{X: leftExpr, Op: token.LSS, Y: rightExpr}
+		descCmp = &ast.BinaryExpr{X: leftExpr, Op: token.GTR, Y: rightExpr}
+	}
 
 	orderLower := strings.ToLower(order)
 	isDynamic := order != "" && orderLower != "asc" && orderLower != "desc"

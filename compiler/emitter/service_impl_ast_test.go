@@ -24,6 +24,9 @@ func TestRenderServiceImplASTSkeleton(t *testing.T) {
 				Flow: []normalizer.FlowStep{
 					{Action: "event.Outbox", Args: map[string]any{"name": `"OrderCreated"`, "payload": "req"}},
 					{Action: "queue.Dequeue", Args: map[string]any{"subject": `"orders"`, "output": "msg"}},
+					{Action: "notify.Send", Args: map[string]any{"channel": `"email"`, "to": "req.Email", "text": `"hi"`}},
+					{Action: "approval.Wait", Args: map[string]any{"approvalId": "req.ApprovalID"}},
+					{Action: "policy.Require", Args: map[string]any{"policyKey": `"order.create"`, "subject": "req.UserID"}},
 				},
 			},
 		},
@@ -56,6 +59,15 @@ func TestRenderServiceImplASTSkeleton(t *testing.T) {
 	}
 	if !strings.Contains(src, "queuePublisher port.QueuePublisher") {
 		t.Fatalf("expected queuePublisher dependency in constructor, got:\n%s", src)
+	}
+	if !strings.Contains(src, "dispatcher port.NotificationDispatcher") {
+		t.Fatalf("expected notification dispatcher dependency in constructor, got:\n%s", src)
+	}
+	if !strings.Contains(src, "stateStore port.StateStore") {
+		t.Fatalf("expected stateStore dependency in constructor, got:\n%s", src)
+	}
+	if !strings.Contains(src, "policyEngine port.PolicyEngine") {
+		t.Fatalf("expected policyEngine dependency in constructor, got:\n%s", src)
 	}
 
 	if _, err := parser.ParseFile(token.NewFileSet(), "orders_impl.go", src, parser.AllErrors); err != nil {

@@ -65,6 +65,21 @@ func (r *MutingNotificationRepo) Delete(ctx context.Context, id string) error {
 	return r.inner.Delete(ctx, id)
 }
 
+// Insert delegates to the inner repository.
+func (r *MutingNotificationRepo) Insert(ctx context.Context, entity *domain.Notification) error {
+	return r.inner.Insert(ctx, entity)
+}
+
+// Update delegates to the inner repository.
+func (r *MutingNotificationRepo) Update(ctx context.Context, entity *domain.Notification) error {
+	return r.inner.Update(ctx, entity)
+}
+
+// LockByID delegates to the inner repository.
+func (r *MutingNotificationRepo) LockByID(ctx context.Context, id string) (*domain.Notification, error) {
+	return r.inner.LockByID(ctx, id)
+}
+
 // ListAll delegates to the inner repository.
 func (r *MutingNotificationRepo) ListAll(ctx context.Context, offset, limit int) ([]domain.Notification, error) {
 	return r.inner.ListAll(ctx, offset, limit)

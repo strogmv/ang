@@ -54,6 +54,7 @@ func (r *{{ ExportName .Entity }}RepositoryStub) Delete(ctx context.Context, id 
 	return nil
 }
 
+{{- if .HasID }}
 func (r *{{ ExportName .Entity }}RepositoryStub) Insert(ctx context.Context, entity *domain.{{ ExportName .Entity }}) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -80,6 +81,8 @@ func (r *{{ ExportName .Entity }}RepositoryStub) Update(ctx context.Context, ent
 	return nil
 }
 
+
+{{- end }}
 func (r *{{ ExportName .Entity }}RepositoryStub) LockByID(ctx context.Context, id string) (*domain.{{ ExportName .Entity }}, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

@@ -79,6 +79,48 @@ For domain-level reusable patterns see:
 
 - [Universal Flow Actions](./universal-flow-actions.md)
 
+## repo.Query — Custom Repository Methods
+
+`repo.Query` calls arbitrary named repository methods with single or multiple arguments.
+
+### Single-arg form
+```cue
+{ action: "repo.Query", source: "Application", method: "GetByCode",
+  input: "req.Code", output: "app", error: "Not Found" }
+```
+
+### Multi-arg form (added v0.1.113)
+```cue
+{ action: "repo.Query", source: "Application", method: "GetByTenderAndCompany",
+  args: ["req.TenderID", "req.CompanyID"], output: "app", error: "Not Found" }
+```
+- `args: [...]` — joined as comma-separated args after `ctx`
+- `list: true` — marks output as slice (`[]domain.X`), skips nil check
+
+Emits: `output, err := s.SourceRepo.Method(ctx, arg1, arg2, ...)`
+
+## crypto.Hash — String Hashing
+
+```cue
+{ action: "crypto.Hash", input: "req.Password", output: "hashed" }               // SHA-256 hex
+{ action: "crypto.Hash", algo: "bcrypt", input: "req.Password", output: "hashed" }  // bcrypt cost=12
+```
+
+- Default algo: `sha256` — emits `sha256.Sum256` + `hex.EncodeToString`
+- `bcrypt` — emits `bcrypt.GenerateFromPassword([]byte(input), 12)`
+- `output` type: `string`
+
+## math.Expr — Verbatim Arithmetic
+
+```cue
+{ action: "math.Expr", expr: "req.Price * 0.9", output: "discounted", declare: true }
+{ action: "math.Expr", expr: "total / float64(count)", output: "avg" }
+```
+
+- `declare: true` → `output := expr` (declares new variable)
+- Without declare → `output = expr` (assigns to existing variable)
+- `expr` is emitted verbatim as Go code — use standard Go arithmetic operators
+
 ## Authoring Rules (Recommended)
 
 1. Always specify required args explicitly, even if obvious.

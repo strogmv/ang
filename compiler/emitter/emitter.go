@@ -1115,7 +1115,7 @@ func (e *Emitter) AnalyzeContext(services []normalizer.Service, entities []norma
 		var hasDispatch func([]normalizer.FlowStep) bool
 		hasDispatch = func(steps []normalizer.FlowStep) bool {
 			for _, step := range steps {
-				if step.Action == "notification.Dispatch" {
+				if step.Action == "notification.Dispatch" || step.Action == "notify.Dispatch" || step.Action == "notify.Send" {
 					return true
 				}
 				if v, ok := step.Args["_do"].([]normalizer.FlowStep); ok && hasDispatch(v) {
@@ -1195,7 +1195,7 @@ func (e *Emitter) AnalyzeContextFromIR(schema *ir.Schema) MainContext {
 		var hasDispatch func([]ir.FlowStep) bool
 		hasDispatch = func(steps []ir.FlowStep) bool {
 			for _, step := range steps {
-				if step.Action == "notification.Dispatch" {
+				if step.Action == "notification.Dispatch" || step.Action == "notify.Dispatch" || step.Action == "notify.Send" {
 					return true
 				}
 				if hasDispatch(step.Steps) || hasDispatch(step.Then) || hasDispatch(step.Else) {

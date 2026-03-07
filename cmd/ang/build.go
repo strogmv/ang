@@ -114,6 +114,7 @@ func runBuild(args []string) {
 		}
 
 		fail := func(stage compiler.Stage, code, op string, err error) {
+			printBootstrapGuidanceIfNeeded(projectPath, stage, code, err)
 			if jsonLogs {
 				logEvent(buildEvent{
 					Timestamp: time.Now().UTC().Format(time.RFC3339Nano),

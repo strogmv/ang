@@ -34,7 +34,12 @@ steps: [
 			action: "flow.Resume"
 			name: "after-build"
 			onMissing: [{action: "flow.SuggestNext", options: ["create checkpoint"]}]
-		}
+		},
+		{
+			action: "flow.Replay"
+			history: "req.History"
+			onMismatch: [{action: "flow.SuggestNext", options: ["refresh input"]}]
+		},
 ]
 `)
 	if err := val.Err(); err != nil {
@@ -47,8 +52,8 @@ steps: [
 	if err != nil {
 		t.Fatalf("parseFlowSteps failed: %v", err)
 	}
-	if len(steps) != 4 {
-		t.Fatalf("expected 4 steps, got %d", len(steps))
+	if len(steps) != 5 {
+		t.Fatalf("expected 5 steps, got %d", len(steps))
 	}
 	if _, ok := steps[0].Args["_catch"].([]FlowStep); !ok {
 		t.Fatalf("expected flow.Try to parse catch child")
@@ -62,6 +67,9 @@ steps: [
 	if _, ok := steps[3].Args["_onMissing"].([]FlowStep); !ok {
 		t.Fatalf("expected flow.Resume to parse onMissing child")
 	}
+	if _, ok := steps[4].Args["_onMismatch"].([]FlowStep); !ok {
+		t.Fatalf("expected flow.Replay to parse onMismatch child")
+	}
 }
 
 func TestValidateFlowSteps_NewResilienceActions(t *testing.T) {
@@ -71,6 +79,8 @@ func TestValidateFlowSteps_NewResilienceActions(t *testing.T) {
 		{Action: "flow.Timeout", Args: map[string]any{}},
 		{Action: "flow.Try", Args: map[string]any{}},
 		{Action: "flow.SuggestNext", Args: map[string]any{}},
+		{Action: "flow.History.Get", Args: map[string]any{}},
+		{Action: "flow.Replay", Args: map[string]any{}},
 	}
 	issues := flowsem.Validate(steps)
 
@@ -78,6 +88,8 @@ func TestValidateFlowSteps_NewResilienceActions(t *testing.T) {
 		"MISSING_DURATION": true,
 		"MISSING_DO":       true,
 		"MISSING_OPTIONS":  true,
+		"MISSING_OUTPUT":   true,
+		"MISSING_HISTORY":  true,
 	}
 	for _, issue := range issues {
 		delete(wantCodes, issue.Code)

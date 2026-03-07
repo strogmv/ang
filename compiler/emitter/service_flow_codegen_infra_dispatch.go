@@ -24,6 +24,9 @@ func renderFlowStepInfra(st *flowRenderState, step normalizer.FlowStep, indent i
 	if out, ok := renderFlowStepEventOrchestration(st, step, indent, sfx, arg, child); ok {
 		return out
 	}
+	if out, ok := renderFlowStepPolicy(st, step, indent, sfx, arg, child); ok {
+		return out
+	}
 	if out, ok := renderFlowStepSecretConfig(st, step, indent, sfx, arg, child); ok {
 		return out
 	}

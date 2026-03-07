@@ -36,7 +36,7 @@ func TestRenderRepositoryPortAST_GeneratesValidGo(t *testing.T) {
 		},
 	}
 
-	src, err := em.renderRepositoryPortAST(repo)
+	src, err := em.renderRepositoryPortAST(repo, true)
 	if err != nil {
 		t.Fatalf("renderRepositoryPortAST failed: %v", err)
 	}

@@ -154,6 +154,22 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 		if input != "" {
 			inputArg = ", " + input
 		}
+		// Multi-arg support: args: ["req.TenderID", "req.CompanyID"]
+		if inputArg == "" {
+			if v, ok := step.Args["args"]; ok {
+				switch x := v.(type) {
+				case []string:
+					if len(x) > 0 {
+						inputArg = ", " + strings.Join(x, ", ")
+					}
+				}
+			}
+		}
+		// list:true → output is a slice, not a pointer
+		isList := false
+		if b2, ok := step.Args["list"].(bool); ok && b2 {
+			isList = true
+		}
 		if output == "" {
 			b.WriteString(fmt.Sprintf("%sif _, _qrErr := s.%sRepo.%s(ctx%s); _qrErr != nil {\n", pad, ExportName(source), ExportName(method), inputArg))
 			b.WriteString(errReturn(st, pad+"\t", "_qrErr"))
@@ -165,7 +181,7 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 			assign = "="
 		}
 		st.declared[output] = true
-		st.pointers[output] = true
+		st.pointers[output] = !isList
 		b.WriteString(fmt.Sprintf("%s%s %s s.%sRepo.%s(ctx%s)\n", pad, output+", err", assign, ExportName(source), ExportName(method), inputArg))
 		b.WriteString(fmt.Sprintf("%sif err != nil {\n", pad))
 		if errMsg != "" {
@@ -174,7 +190,7 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 			b.WriteString(errReturn(st, pad+"\t", "err"))
 		}
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
-		if errMsg != "" {
+		if errMsg != "" && !isList {
 			b.WriteString(fmt.Sprintf("%sif %s == nil {\n", pad, output))
 			b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("errors.New(http.StatusNotFound, \"NOT_FOUND\", %q)", errMsg)))
 			b.WriteString(fmt.Sprintf("%s}\n", pad))

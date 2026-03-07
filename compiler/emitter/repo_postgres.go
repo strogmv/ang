@@ -72,8 +72,12 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 		hasTime := false
 		var updateOnlySets []string
 		var updateOnlyArgsList []string
+		hasIDField := false
 
 		for _, f := range ent.Fields {
+			if strings.ToLower(f.Name) == "id" {
+				hasIDField = true
+			}
 			if f.SkipDomain {
 				continue
 			}
@@ -395,7 +399,6 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 				fo.ArgsSuffix = ", " + fo.Args
 			}
 			if f.Limit > 0 || strings.Contains(strings.ToLower(f.Name), "paginate") {
-				fmt.Printf("DEBUG repo_pg pagination: entity=%s finder=%s limit=%d argsBefore=%q\n", repo.Entity, f.Name, f.Limit, fo.Args)
 				fo.HasPagination = true
 				fo.LimitPlaceholder = len(f.Where) + 1
 				fo.OffsetPlaceholder = len(f.Where) + 2
@@ -430,6 +433,7 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 			Fields              []normalizer.Field
 			Finders             []finderOut
 			HasTime             bool
+			HasID               bool
 			FindByIDPlan        planner.ScanPlan
 			ListAllPlan         planner.ScanPlan
 			UpdateOnlySet       string
@@ -447,6 +451,7 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 			Fields:             ent.Fields,
 			Finders:            finders,
 			HasTime:            hasTime,
+			HasID:              hasIDField,
 			FindByIDPlan:       findByIDPlan,
 			ListAllPlan:        listAllPlan,
 			UpdateOnlySet:      strings.Join(updateOnlySets, ", "),
@@ -468,6 +473,7 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 				"Fields":             data.Fields,
 				"Finders":            data.Finders,
 				"HasTime":            data.HasTime,
+				"HasID":              data.HasID,
 				"FindByIDPlan":       data.FindByIDPlan,
 				"ListAllPlan":        data.ListAllPlan,
 				"UpdateOnlySet":      data.UpdateOnlySet,

@@ -225,7 +225,10 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 						imp = "github.com/google/uuid"
 					}
 					if imp != "" {
-						importMap[imp] = ""
+						// Don't overwrite a non-empty alias (e.g. cryptorand for crypto/rand)
+						if cur, ok := importMap[imp]; !ok || cur == "" {
+							importMap[imp] = ""
+						}
 					}
 				}
 			}
@@ -426,13 +429,6 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 
 		overrides := e.getManualMethods(svc.Name)
 		e.auditMissingImplementations(svc, overrides)
-
-		for _, m := range svc.Methods {
-			if len(m.Flow) > 0 {
-				flowCode := renderFlow(m.Flow)
-				fmt.Fprintf(os.Stderr, "DEBUG: generated flow for %s.%s:\n%s\n", svc.Name, m.Name, flowCode)
-			}
-		}
 
 		if err := t.Execute(&buf, TemplateContext{
 			Service:   &svc,

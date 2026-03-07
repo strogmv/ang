@@ -69,6 +69,8 @@ func main() {
 		runHash(os.Args[2:])
 	case "tips":
 		runTips(os.Args[2:])
+	case "ops":
+		runOps(os.Args[2:])
 	case "actions":
 		runActions(os.Args[2:])
 	case "patch":
@@ -77,6 +79,10 @@ func main() {
 		runFmt(os.Args[2:])
 	case "fix":
 		runFix(os.Args[2:])
+	case "extract":
+		runExtract(os.Args[2:])
+	case "import":
+		runImport(os.Args[2:])
 	case "mcp":
 		mcp.Run()
 	case "version":
@@ -116,10 +122,15 @@ func printUsage() {
 	fmt.Println("  ang doctor start  Preflight local startup checks (tools/env/compose/ports)")
 	fmt.Println("  ang smoke     Check /health and /health/ready endpoints")
 	fmt.Println("  ang tips      Beginner-friendly quick commands and recovery hints")
+	fmt.Println("  ang ops schema  Machine-readable #Operation schema for AI (--json|--cue)")
+	fmt.Println("  ang ops vet     Semantic validation of ops CUE files (--json)")
 	fmt.Println("  ang actions   Print machine-readable flow action catalog (--json|--cue)")
 	fmt.Println("  ang patch     Patch-first workflow: lint/plan/apply for structured CUE edits")
 	fmt.Println("  ang fmt       Canonical format for CUE + flow alias normalization")
 	fmt.Println("  ang fix       Rewrite deprecated flow aliases to canonical names")
+	fmt.Println("  ang extract   Extract facts from Go/Java/OpenAPI/SQL for AI migration (--from=go|java|openapi|sql|auto, --out)")
+	fmt.Println("  ang import java  Normalize Java sources into import IR and generate contract-layer CUE (--report --diff --update)")
+	fmt.Println("  ang import openapi  Import OpenAPI spec into cue/api/http.cue + operations_*.cue + cue/domain/entities.cue (--report --diff --update)")
 	fmt.Println("  ang config doctor  Validate runtime env against generated config schema")
 	fmt.Println("  ang mcp       Run ANG MCP server over stdio")
 	fmt.Println("  ang lsp --stdio  Run ANG language server (MVP diagnostics)")

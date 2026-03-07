@@ -530,7 +530,7 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		var hasDispatch func([]ir.FlowStep) bool
 		hasDispatch = func(steps []ir.FlowStep) bool {
 			for _, step := range steps {
-				if step.Action == "notification.Dispatch" {
+				if step.Action == "notification.Dispatch" || step.Action == "notify.Dispatch" || step.Action == "notify.Send" {
 					return true
 				}
 				if hasDispatch(step.Steps) || hasDispatch(step.IfNew) || hasDispatch(step.IfExists) || hasDispatch(step.Then) || hasDispatch(step.Else) || hasDispatch(step.Default) {
@@ -555,7 +555,7 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		var hasDispatch func([]ir.FlowStep) bool
 		hasDispatch = func(steps []ir.FlowStep) bool {
 			for _, step := range steps {
-				if step.Action == "notification.Dispatch" {
+				if step.Action == "notification.Dispatch" || step.Action == "notify.Dispatch" || step.Action == "notify.Send" {
 					return true
 				}
 				if hasDispatch(step.Steps) || hasDispatch(step.IfNew) || hasDispatch(step.IfExists) || hasDispatch(step.Then) || hasDispatch(step.Else) || hasDispatch(step.Default) {
@@ -619,6 +619,11 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 				case "state.Get", "state.Set", "state.Delete":
 					return true
 				}
+				for _, prefix := range []string{"idem.", "idempotency.", "dedupe.", "ratelimit.", "concurrency.", "circuit.", "bulkhead.", "approval."} {
+					if strings.HasPrefix(step.Action, prefix) {
+						return true
+					}
+				}
 				if hasState(step.Steps) || hasState(step.IfNew) || hasState(step.IfExists) || hasState(step.Then) || hasState(step.Else) || hasState(step.Default) {
 					return true
 				}
@@ -641,6 +646,40 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		hasState := appFuncs["ServiceHasStateActionsIR"].(func(ir.Service) bool)
 		for _, svc := range services {
 			if hasState(svc) {
+				return true
+			}
+		}
+		return false
+	}
+	appFuncs["ServiceHasPolicyActionsIR"] = func(s ir.Service) bool {
+		var hasPolicy func([]ir.FlowStep) bool
+		hasPolicy = func(steps []ir.FlowStep) bool {
+			for _, step := range steps {
+				if strings.HasPrefix(step.Action, "policy.") {
+					return true
+				}
+				if hasPolicy(step.Steps) || hasPolicy(step.IfNew) || hasPolicy(step.IfExists) || hasPolicy(step.Then) || hasPolicy(step.Else) || hasPolicy(step.Default) {
+					return true
+				}
+				for _, branch := range step.Cases {
+					if hasPolicy(branch) {
+						return true
+					}
+				}
+			}
+			return false
+		}
+		for _, m := range s.Methods {
+			if hasPolicy(m.Flow) {
+				return true
+			}
+		}
+		return false
+	}
+	appFuncs["AnyServiceHasPolicyActionsIR"] = func(services []ir.Service) bool {
+		hasPolicy := appFuncs["ServiceHasPolicyActionsIR"].(func(ir.Service) bool)
+		for _, svc := range services {
+			if hasPolicy(svc) {
 				return true
 			}
 		}

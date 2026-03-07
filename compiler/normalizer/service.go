@@ -687,6 +687,18 @@ func (n *Normalizer) rawParseFlowSteps(val cue.Value) ([]FlowStep, error) {
 			}
 		}
 
+		// Explicit lookup for bool flags that may be skipped if not concrete
+		for _, boolLabel := range []string{"ignoreErr", "failOnError"} {
+			if _, ok := step.Args[boolLabel]; !ok {
+				bv := stepVal.LookupPath(cue.ParsePath(boolLabel))
+				if bv.Exists() {
+					if b, err := bv.Bool(); err == nil {
+						step.Args[boolLabel] = b
+					}
+				}
+			}
+		}
+
 		// Double check args/params via explicit lookup if missed in loop
 		for _, label := range []string{"args", "params"} {
 			if _, ok := step.Args[label]; !ok && label != "params" {
@@ -775,6 +787,11 @@ func (n *Normalizer) rawParseFlowSteps(val cue.Value) ([]FlowStep, error) {
 		if v := stepVal.LookupPath(cue.ParsePath("onMissing")); v.Exists() && v.Kind() == cue.ListKind {
 			if sub, err := n.parseFlowSteps(v); err == nil {
 				step.Args["_onMissing"] = sub
+			}
+		}
+		if v := stepVal.LookupPath(cue.ParsePath("onMismatch")); v.Exists() && v.Kind() == cue.ListKind {
+			if sub, err := n.parseFlowSteps(v); err == nil {
+				step.Args["_onMismatch"] = sub
 			}
 		}
 		// parallel.Run branches parsing
@@ -882,6 +899,13 @@ func (n *Normalizer) autoCompleteFlowSteps(steps []FlowStep) []FlowStep {
 				if v, ok := s.Args["_onMissing"].([]FlowStep); ok {
 					scan(v)
 				}
+			case "flow.Replay":
+				if v, ok := s.Args["_do"].([]FlowStep); ok {
+					scan(v)
+				}
+				if v, ok := s.Args["_onMismatch"].([]FlowStep); ok {
+					scan(v)
+				}
 			}
 		}
 	}
@@ -944,6 +968,9 @@ func (n *Normalizer) autoCompleteFlowSteps(steps []FlowStep) []FlowStep {
 			}
 			if v, ok := s.Args["_onMissing"].([]FlowStep); ok {
 				s.Args["_onMissing"] = inject(v)
+			}
+			if v, ok := s.Args["_onMismatch"].([]FlowStep); ok {
+				s.Args["_onMismatch"] = inject(v)
 			}
 			if cases, ok := s.Args["_cases"].(map[string][]FlowStep); ok {
 				nextCases := make(map[string][]FlowStep, len(cases))
@@ -1190,15 +1217,21 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					}
 
 					// Exceptions for basic entities that everyone needs to read
-					isShared := strings.EqualFold(source, "Company") || strings.EqualFold(source, "APIKey")
+					isShared := strings.EqualFold(source, "Company") || strings.EqualFold(source, "APIKey") ||
+						strings.EqualFold(source, "Application") || strings.EqualFold(source, "TenderTemplate") ||
+						strings.EqualFold(source, "TenderTemplateCategory") || strings.EqualFold(source, "CompanyCategoryScore") ||
+						strings.EqualFold(source, "User") || strings.EqualFold(source, "AuditLog") ||
+						strings.EqualFold(source, "CategoryValue") || strings.EqualFold(source, "Notification")
 
 					// Match logic: ignore case and trailing 's' (plural/singular)
 					ownerMatch := strings.EqualFold(owner, svcName) ||
 						strings.EqualFold(owner+"s", svcName) ||
 						strings.EqualFold(svcName+"s", owner)
+					// Prefix match: "tender" service may own "tender_category", "tender_invite", etc.
+					ownerPrefixMatch := strings.HasPrefix(strings.ToLower(owner), strings.ToLower(svcName)+"_")
 
 					// If entity has an owner and it's not THIS service, it's a violation!
-					if ok && owner != "" && !isShared && !ownerMatch && !strings.EqualFold(svcName, "admin") && !strings.EqualFold(svcName, "audit") {
+					if ok && owner != "" && !isShared && !ownerMatch && !ownerPrefixMatch && !strings.EqualFold(svcName, "admin") && !strings.EqualFold(svcName, "audit") {
 						addWarn(stepNum, step.Action, "ARCHITECTURE_VIOLATION",
 							fmt.Sprintf("Service '%s' is not allowed to directly access entity '%s' (owned by '%s')", svcName, source, owner),
 							fmt.Sprintf("Use events or call %sService", strings.Title(owner)), step.File, step.Line, step.Column)
@@ -1222,6 +1255,19 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 				if step.Action == "repo.Query" || step.Action == "db.Query" {
 					if step.Args["method"] == nil || step.Args["method"] == "" {
 						addWarn(stepNum, step.Action, "MISSING_METHOD", step.Action+" missing 'method'", fmt.Sprintf("{action: \"%s\", source: \"Entity\", method: \"ListBy...\", input: \"...\", output: \"items\"}", step.Action), step.File, step.Line, step.Column)
+					}
+					// Normalize args to []string (CUE lists arrive as []interface{})
+					if args, ok := step.Args["args"]; ok {
+						switch v := args.(type) {
+						case string:
+							step.Args["args"] = []string{v}
+						case []any:
+							var ss []string
+							for _, x := range v {
+								ss = append(ss, fmt.Sprint(x))
+							}
+							step.Args["args"] = ss
+						}
 					}
 				}
 				if (step.Action == "repo.GetForUpdate" || step.Action == "db.Lock" || step.Action == "db.SelectForUpdate") && !inTx {
@@ -1318,6 +1364,12 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 				// validated by flow semantics engine
 
 			case "notification.Dispatch":
+				// validated by flow semantics engine
+
+			case "notify.Send":
+				if output, _ := step.Args["output"].(string); output != "" {
+					declaredVars[output] = true
+				}
 				// validated by flow semantics engine
 
 			case "logic.Check":
@@ -1420,6 +1472,17 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					validate(subSteps, inTx, depth+1)
 				}
 
+			case "flow.Replay":
+				if output, _ := step.Args["output"].(string); output != "" {
+					declaredVars[output] = true
+				}
+				if subSteps, ok := step.Args["_do"].([]FlowStep); ok {
+					validate(subSteps, inTx, depth+1)
+				}
+				if subSteps, ok := step.Args["_onMismatch"].([]FlowStep); ok {
+					validate(subSteps, inTx, depth+1)
+				}
+
 			case "flow.Saga":
 				if subSteps, ok := step.Args["_do"].([]FlowStep); ok {
 					validate(subSteps, inTx, depth+1)
@@ -1439,6 +1502,41 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 			case "flow.SuggestNext", "flow.ExplainError":
 				if output, _ := step.Args["output"].(string); output != "" {
 					declaredVars[output] = true
+				}
+
+			case "flow.RecordEvent", "flow.History.Get":
+				if output, _ := step.Args["output"].(string); output != "" {
+					declaredVars[output] = true
+				}
+
+			case "approval.Request":
+				if approvalID, _ := step.Args["approvalId"].(string); approvalID != "" {
+					declaredVars[approvalID] = true
+				}
+				if status, _ := step.Args["status"].(string); status != "" {
+					declaredVars[status] = true
+				}
+
+			case "approval.Wait":
+				for _, key := range []string{"decision", "status", "decidedBy", "decidedAt", "reason"} {
+					if out, _ := step.Args[key].(string); out != "" {
+						declaredVars[out] = true
+					}
+				}
+				if subSteps, ok := step.Args["_onTimeout"].([]FlowStep); ok {
+					validate(subSteps, inTx, depth+1)
+				}
+
+			case "approval.Decide":
+				if status, _ := step.Args["status"].(string); status != "" {
+					declaredVars[status] = true
+				}
+
+			case "policy.Evaluate", "policy.Require", "policy.Decide":
+				for _, key := range []string{"decision", "reason", "effects", "output"} {
+					if out, _ := step.Args[key].(string); out != "" {
+						declaredVars[out] = true
+					}
 				}
 
 			case "audit.Log":
@@ -1514,7 +1612,7 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					} else if isDTO[lookupSource] {
 						addWarn(stepNum, step.Action, "DTO_AS_REPO", fmt.Sprintf("Entity '%s' is a DTO-only entity and cannot be accessed via repository", lookupSource), "Remove @dto(only=true) or use a real domain entity", step.File, step.Line, step.Column)
 					}
-					isShared := strings.EqualFold(lookupSource, "Company") || strings.EqualFold(lookupSource, "APIKey")
+					isShared := strings.EqualFold(lookupSource, "Company") || strings.EqualFold(lookupSource, "APIKey") || strings.EqualFold(lookupSource, "Application") || strings.EqualFold(lookupSource, "TenderTemplate") || strings.EqualFold(lookupSource, "TenderTemplateCategory") || strings.EqualFold(lookupSource, "CompanyCategoryScore")
 					ownerMatch := strings.EqualFold(owner, svcName) ||
 						strings.EqualFold(owner+"s", svcName) ||
 						strings.EqualFold(svcName+"s", owner)
@@ -1689,6 +1787,9 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					!strings.HasPrefix(step.Action, "fsm.") && !strings.HasPrefix(step.Action, "flow.") &&
 					!strings.HasPrefix(step.Action, "tx.") && !strings.HasPrefix(step.Action, "list.") &&
 					!strings.HasPrefix(step.Action, "notification.") &&
+					!strings.HasPrefix(step.Action, "notify.") &&
+					!strings.HasPrefix(step.Action, "approval.") &&
+					!strings.HasPrefix(step.Action, "policy.") &&
 					!strings.HasPrefix(step.Action, "audit.") && !strings.HasPrefix(step.Action, "auth.") &&
 					!strings.HasPrefix(step.Action, "entity.") && !strings.HasPrefix(step.Action, "field.") &&
 					!strings.HasPrefix(step.Action, "str.") && !strings.HasPrefix(step.Action, "enum.") &&

@@ -52,6 +52,14 @@ func FuzzRenderFlow_ControlFlow_NoPanic(f *testing.F) {
 			}},
 			{Action: "flow.Checkpoint", Args: map[string]any{"name": "fuzzCP", "data": "req"}},
 			{Action: "flow.Resume", Args: map[string]any{"name": "fuzzCP", "output": "restored"}},
+			{Action: "flow.RecordEvent", Args: map[string]any{"name": `"fuzz.event"`, "payload": "req"}},
+			{Action: "flow.History.Get", Args: map[string]any{"output": "hist"}},
+			{Action: "flow.Replay", Args: map[string]any{
+				"history": "hist",
+				"_do": []normalizer.FlowStep{
+					{Action: "flow.RecordEvent", Args: map[string]any{"name": `"replayed.event"`}},
+				},
+			}},
 		}
 
 		_ = renderFlow(steps) // no-panic contract

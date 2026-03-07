@@ -93,6 +93,188 @@ var specs = map[string]Spec{
 			return nil
 		},
 	},
+	"notify.Send": {
+		RequiredArgs: []string{"channel", "to"},
+		OptionalArgKinds: map[string]ArgKind{
+			"template": ArgKindString,
+			"text":     ArgKindString,
+			"subject":  ArgKindString,
+			"html":     ArgKindString,
+			"data":     ArgKindString,
+			"output":   ArgKindString,
+		},
+		DeclaresFromArgs: []string{"output"},
+		CustomConstraints: func(step Step) *Issue {
+			_, hasTemplate := nonEmptyString(step.Args["template"])
+			_, hasText := nonEmptyString(step.Args["text"])
+			if !hasTemplate && !hasText {
+				return &Issue{
+					Code:    "MISSING_CONTENT",
+					Message: "notify.Send requires either 'template' or 'text'",
+					Hint:    "{action: \"notify.Send\", channel: \"email\", to: \"req.Email\", text: \"Build completed\"}",
+				}
+			}
+			return nil
+		},
+	},
+	"approval.Request": {
+		RequiredArgs: []string{"approvalKey", "title", "requestedBy", "approvers", "policy", "payload"},
+		OptionalArgKinds: map[string]ArgKind{
+			"description": ArgKindString,
+			"deadline":    ArgKindString,
+			"ttl":         ArgKindString,
+			"approvalId":  ArgKindString,
+			"status":      ArgKindString,
+		},
+		DeclaresFromArgs: []string{"approvalId", "status"},
+		CustomConstraints: func(step Step) *Issue {
+			switch v := step.Args["approvers"].(type) {
+			case string:
+				if strings.TrimSpace(v) == "" {
+					return &Issue{Code: "MISSING_APPROVERS", Message: "approval.Request requires non-empty approvers", Hint: "{approvers: [\"manager@company.com\"]}"}
+				}
+			case []string:
+				if len(v) == 0 {
+					return &Issue{Code: "MISSING_APPROVERS", Message: "approval.Request requires non-empty approvers", Hint: "{approvers: [\"manager@company.com\"]}"}
+				}
+			case []any:
+				if len(v) == 0 {
+					return &Issue{Code: "MISSING_APPROVERS", Message: "approval.Request requires non-empty approvers", Hint: "{approvers: [\"manager@company.com\"]}"}
+				}
+			default:
+				return &Issue{Code: "INVALID_APPROVERS_TYPE", Message: "approval.Request approvers must be string or []string", Hint: "{approvers: [\"manager@company.com\"]}"}
+			}
+			policyRaw, _ := nonEmptyString(step.Args["policy"])
+			policy, isStatic := staticWordLiteral(policyRaw)
+			if isStatic {
+				switch policy {
+				case "any", "all", "quorum":
+				default:
+					return &Issue{Code: "INVALID_POLICY", Message: "approval.Request policy must be any|all|quorum when literal value is used", Hint: "{policy: \"any\"}"}
+				}
+			}
+			return nil
+		},
+	},
+	"approval.Wait": {
+		RequiredArgs: []string{"approvalId"},
+		OptionalArgKinds: map[string]ArgKind{
+			"timeout":   ArgKindString,
+			"onTimeout": ArgKindString,
+			"decision":  ArgKindString,
+			"status":    ArgKindString,
+			"decidedBy": ArgKindString,
+			"decidedAt": ArgKindString,
+			"reason":    ArgKindString,
+		},
+		DeclaresFromArgs: []string{"decision", "status", "decidedBy", "decidedAt", "reason"},
+		CustomConstraints: func(step Step) *Issue {
+			raw, ok := nonEmptyString(step.Args["onTimeout"])
+			if !ok {
+				return nil
+			}
+			mode, isStatic := staticWordLiteral(raw)
+			if !isStatic {
+				return nil
+			}
+			if mode != "reject" && mode != "auto-approve" && mode != "fallback" {
+				return &Issue{
+					Code:    "INVALID_ON_TIMEOUT",
+					Message: "approval.Wait onTimeout must be reject|auto-approve|fallback when literal value is used",
+					Hint:    "{action: \"approval.Wait\", approvalId: \"approvalID\", onTimeout: \"fallback\", onTimeout: [ ... ]}",
+				}
+			}
+			return nil
+		},
+	},
+	"approval.Decide": {
+		RequiredArgs: []string{"approvalId", "decision", "actor"},
+		OptionalArgKinds: map[string]ArgKind{
+			"reason": ArgKindString,
+			"status": ArgKindString,
+		},
+		DeclaresFromArgs: []string{"status"},
+		CustomConstraints: func(step Step) *Issue {
+			raw, ok := nonEmptyString(step.Args["decision"])
+			if !ok {
+				return nil
+			}
+			decision, isStatic := staticWordLiteral(raw)
+			if !isStatic {
+				return nil
+			}
+			if decision != "approved" && decision != "rejected" && decision != "timed_out" {
+				return &Issue{
+					Code:    "INVALID_DECISION",
+					Message: "approval.Decide decision must be approved|rejected|timed_out when literal value is used",
+					Hint:    "{action: \"approval.Decide\", approvalId: \"id\", decision: \"approved\", actor: \"req.UserID\"}",
+				}
+			}
+			return nil
+		},
+	},
+	"policy.Evaluate": {
+		RequiredArgs: []string{"policyKey"},
+		OptionalArgKinds: map[string]ArgKind{
+			"subject":   ArgKindString,
+			"resource":  ArgKindString,
+			"operation": ArgKindString,
+			"tenant":    ArgKindString,
+			"attrs":     ArgKindString,
+			"context":   ArgKindString,
+			"decision":  ArgKindString,
+			"reason":    ArgKindString,
+			"effects":   ArgKindString,
+			"output":    ArgKindString,
+		},
+		DeclaresFromArgs: []string{"decision", "reason", "effects", "output"},
+		CustomConstraints: func(step Step) *Issue {
+			for _, key := range []string{"decision", "reason", "effects", "output"} {
+				if v, ok := nonEmptyString(step.Args[key]); ok && strings.TrimSpace(v) != "" {
+					return nil
+				}
+			}
+			return &Issue{
+				Code:    "MISSING_POLICY_OUTPUT",
+				Message: "policy.Evaluate should declare at least one output: decision/reason/effects/output",
+				Hint:    "{action: \"policy.Evaluate\", policyKey: \"project.create\", decision: \"decision\"}",
+			}
+		},
+	},
+	"policy.Require": {
+		RequiredArgs: []string{"policyKey"},
+		OptionalArgKinds: map[string]ArgKind{
+			"subject":   ArgKindString,
+			"resource":  ArgKindString,
+			"operation": ArgKindString,
+			"tenant":    ArgKindString,
+			"attrs":     ArgKindString,
+			"context":   ArgKindString,
+			"throw":     ArgKindString,
+			"code":      ArgKindString,
+			"status":    ArgKindString,
+			"decision":  ArgKindString,
+			"reason":    ArgKindString,
+			"effects":   ArgKindString,
+			"output":    ArgKindString,
+		},
+		DeclaresFromArgs: []string{"decision", "reason", "effects", "output"},
+	},
+	"policy.Decide": {
+		RequiredArgs: []string{"policyKey", "output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"subject":   ArgKindString,
+			"resource":  ArgKindString,
+			"operation": ArgKindString,
+			"tenant":    ArgKindString,
+			"attrs":     ArgKindString,
+			"context":   ArgKindString,
+			"decision":  ArgKindString,
+			"reason":    ArgKindString,
+			"effects":   ArgKindString,
+		},
+		DeclaresFromArgs: []string{"decision", "reason", "effects", "output"},
+	},
 	"repo.GetForUpdate": {
 		RequiresTx: true,
 	},
@@ -449,6 +631,18 @@ var specs = map[string]Spec{
 	},
 	"flow.Resume": {
 		RequiredArgs:     []string{"name"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"flow.RecordEvent": {
+		RequiredArgs:     []string{"name"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"flow.Replay": {
+		RequiredArgs:     []string{"history"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"flow.History.Get": {
+		RequiredArgs:     []string{"output"},
 		DeclaresFromArgs: []string{"output"},
 	},
 	"flow.Validate": {
@@ -1560,7 +1754,7 @@ func isKnownPrefix(action string) bool {
 	// are handled by emitter-specific validation, while truly foreign actions fail here.
 	prefixes := []string{
 		"repo.", "mapping.", "logic.", "event.", "fsm.", "flow.", "tx.",
-		"list.", "notification.", "audit.", "auth.", "entity.", "field.",
+		"list.", "notification.", "notify.", "approval.", "policy.", "audit.", "auth.", "entity.", "field.",
 		"rbac.",
 		"str.", "enum.", "time.", "map.",
 		"exec.", "fs.",

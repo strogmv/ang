@@ -53,6 +53,7 @@ func flowActionSupported(action string) bool {
 		"mapping.Assign", "mapping.Map",
 		"flow.If", "flow.For", "flow.Block", "flow.Switch", "flow.While", "tx.Block",
 		"flow.Checkpoint", "flow.Resume", "flow.Validate", "flow.Try", "flow.Catch",
+		"flow.RecordEvent", "flow.Replay", "flow.History.Get",
 		"flow.Retry", "flow.Fallback", "flow.Timeout", "flow.SuggestNext", "flow.ExplainError",
 		"list.Filter", "list.Paginate", "list.Append", "list.Sort",
 		"list.Map", "list.Reduce", "list.GroupBy", "list.Distinct", "list.Chunk",
@@ -71,7 +72,7 @@ func flowActionSupported(action string) bool {
 		"time.Parse", "time.CheckExpiry",
 		"map.Build",
 		"fsm.Transition",
-		"notification.Dispatch", "notify.Dispatch",
+		"notification.Dispatch", "notify.Dispatch", "notify.Send",
 		"cache.Get", "cache.Set", "cache.Del",
 		"mail.Send",
 		"storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List",
@@ -85,11 +86,11 @@ func flowActionSupported(action string) bool {
 		"query.Encode", "query.Decode",
 		"hash.Sum", "hash.HMAC",
 		"uuid.New", "ulid.New",
-		"math.Op",
+		"math.Op", "math.Expr",
 		"jsonpath.Get", "jsonpath.Set",
 		"jwt.Sign", "jwt.Verify",
 		"oauth2.Token", "oauth2.Refresh",
-		"crypto.Encrypt", "crypto.Decrypt",
+		"crypto.Encrypt", "crypto.Decrypt", "crypto.Hash",
 		"parallel.Run",
 		"pdf.Render",
 		"webhook.Send",
@@ -97,6 +98,8 @@ func flowActionSupported(action string) bool {
 		"queue.Enqueue", "queue.Dequeue", "queue.Ack", "queue.Nack",
 		"dlq.Publish",
 		"event.Outbox",
+		"approval.Request", "approval.Wait", "approval.Decide",
+		"policy.Evaluate", "policy.Require", "policy.Decide",
 		"session.Get",
 		"flow.Parallel", "flow.Join", "flow.Race",
 		"flow.Delay", "flow.Schedule", "flow.Cron",
@@ -241,6 +244,16 @@ func renderFlow(steps []normalizer.FlowStep) string {
 		st.types["_flowLastError"] = "error"
 		b.WriteString("var _flowLastError error\n")
 	}
+	if flowHasAction(steps, "flow.RecordEvent", "flow.Replay", "flow.History.Get") {
+		st.declared["_flowHistory"] = true
+		st.pointers["_flowHistory"] = false
+		st.types["_flowHistory"] = "[]map[string]any"
+		st.declared["_flowReplayMode"] = true
+		st.pointers["_flowReplayMode"] = false
+		st.types["_flowReplayMode"] = "bool"
+		b.WriteString("var _flowHistory []map[string]any\n")
+		b.WriteString("var _flowReplayMode bool\n")
+	}
 	b.WriteString(renderFlowSteps(st, steps, 0))
 	return b.String()
 }
@@ -323,7 +336,7 @@ func renderOneFlowStep(st *flowRenderState, step normalizer.FlowStep, indent int
 	}
 
 	switch step.Action {
-	case "flow.If", "flow.For", "flow.Block", "tx.Block", "list.Filter", "list.Paginate", "list.Append", "list.Sort", "list.Map", "list.Reduce", "list.GroupBy", "list.Distinct", "list.Chunk", "batch.Run", "str.Normalize", "mapping.Map", "event.Publish", "logic.Call", "exec.Run", "fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove", "archive.ZipDir", "session.Get", "flow.Switch", "flow.While", "flow.Checkpoint", "flow.Resume", "flow.Validate", "flow.Try", "flow.Catch", "flow.Retry", "flow.Fallback", "flow.Timeout", "flow.SuggestNext", "flow.ExplainError",
+	case "flow.If", "flow.For", "flow.Block", "tx.Block", "list.Filter", "list.Paginate", "list.Append", "list.Sort", "list.Map", "list.Reduce", "list.GroupBy", "list.Distinct", "list.Chunk", "batch.Run", "str.Normalize", "mapping.Map", "event.Publish", "logic.Call", "exec.Run", "fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove", "archive.ZipDir", "session.Get", "flow.Switch", "flow.While", "flow.Checkpoint", "flow.Resume", "flow.RecordEvent", "flow.Replay", "flow.History.Get", "flow.Validate", "flow.Try", "flow.Catch", "flow.Retry", "flow.Fallback", "flow.Timeout", "flow.SuggestNext", "flow.ExplainError",
 		"flow.Parallel", "flow.Join", "flow.Race",
 		"flow.Delay", "flow.Schedule", "flow.Cron",
 		"flow.Saga", "flow.Compensate", "flow.Rollback", "flow.Tag":
@@ -333,8 +346,10 @@ func renderOneFlowStep(st *flowRenderState, step normalizer.FlowStep, indent int
 		// STAGE 2: Infrastructure actions
 		// -------------------------------------------------------------------------
 
-	case "cache.Get", "cache.Set", "cache.Del", "mail.Send", "storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List", "http.Call", "http.Request", "http.RetryPolicy", "http.Paginate", "rand.Code", "rand.Token", "json.Parse", "json.Marshal", "regex.Match", "regex.Replace", "base64.Encode", "base64.Decode", "url.Parse", "url.Build", "query.Encode", "query.Decode", "hash.Sum", "hash.HMAC", "uuid.New", "ulid.New", "math.Op", "jsonpath.Get", "jsonpath.Set", "jwt.Sign", "jwt.Verify", "oauth2.Token", "oauth2.Refresh", "crypto.Encrypt", "crypto.Decrypt", "parallel.Run", "pdf.Render", "webhook.Send", "webhook.VerifySignature", "webhook.Ack", "queue.Enqueue", "queue.Dequeue", "queue.Ack", "queue.Nack", "dlq.Publish", "event.Outbox", "secret.Get", "config.Get",
+	case "cache.Get", "cache.Set", "cache.Del", "mail.Send", "storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List", "http.Call", "http.Request", "http.RetryPolicy", "http.Paginate", "rand.Code", "rand.Token", "json.Parse", "json.Marshal", "regex.Match", "regex.Replace", "base64.Encode", "base64.Decode", "url.Parse", "url.Build", "query.Encode", "query.Decode", "hash.Sum", "hash.HMAC", "uuid.New", "ulid.New", "math.Op", "jsonpath.Get", "jsonpath.Set", "jwt.Sign", "jwt.Verify", "oauth2.Token", "oauth2.Refresh", "crypto.Encrypt", "crypto.Decrypt", "crypto.Hash", "parallel.Run", "pdf.Render", "webhook.Send", "webhook.VerifySignature", "webhook.Ack", "queue.Enqueue", "queue.Dequeue", "queue.Ack", "queue.Nack", "dlq.Publish", "event.Outbox", "secret.Get", "config.Get",
 		"event.Wait", "event.Subscribe", "event.Match", "event.Broadcast",
+		"notify.Send", "approval.Request", "approval.Wait", "approval.Decide",
+		"policy.Evaluate", "policy.Require", "policy.Decide",
 		"state.Get", "state.Set", "state.Delete",
 		"idem.DeriveKey", "idem.Check", "idem.SaveResult",
 		"idempotency.DeriveKey", "idempotency.Check", "idempotency.SaveResult",

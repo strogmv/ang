@@ -5,7 +5,11 @@ This folder is organized so both humans and AI agents can find the right entry p
 ## Start Here
 
 - [Getting Started](./getting-started.md): first run, bootstrap flow, and generated project layout.
+- [Project Understanding Guide](./project-understanding.md): architecture map and recommended reading order before writing docs.
 - [Commands](./commands.md): CLI reference with practical examples.
+- [Import Report](./import-report.md): JSON report schema and triage workflow for `ang import java`.
+- [Java -> CUE E2E](./java-to-cue-e2e.md): practical migration flow from Java sources to CUE contracts.
+- [Java Parsing Improvements](./java-parsing-improvements.md): roadmap for higher-fidelity Java -> IR -> CUE extraction.
 - [Config](./config.md): `.env` contract, precedence, and validation workflow.
 - [Troubleshooting](./troubleshooting.md): common failures and fast recovery paths.
 - [AI Playbook](./ai-playbook.md): MCP-first workflow and safe edit rules for coding agents.

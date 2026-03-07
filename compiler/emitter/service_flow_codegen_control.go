@@ -235,6 +235,7 @@ func renderFlowStepControlLegacyDeprecatedMonolith(st *flowRenderState, step nor
 	case "logic.Call":
 		func_ := arg("func")
 		output := arg("output")
+		ignoreErr, _ := step.Args["ignoreErr"].(bool)
 		if func_ == "" {
 			return ""
 		}
@@ -249,6 +250,9 @@ func renderFlowStepControlLegacyDeprecatedMonolith(st *flowRenderState, step nor
 			}
 		}
 		callStr := func_ + "(" + strings.Join(callArgs, ", ") + ")"
+		if ignoreErr {
+			return fmt.Sprintf("%s_, _ = %s\n", pad, callStr)
+		}
 		if output != "" {
 			assign := ":="
 			if st.declared[output] {

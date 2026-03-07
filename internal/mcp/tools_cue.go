@@ -558,7 +558,7 @@ func buildCueField(fieldName, fieldType string, optional bool) (*ast.Field, erro
 	for _, decl := range sf.Decls {
 		if f, ok := decl.(*ast.Field); ok {
 			if optional {
-				f.Optional = token.Blank.Pos()
+				f.Constraint = token.OPTION
 			}
 			return f, nil
 		}

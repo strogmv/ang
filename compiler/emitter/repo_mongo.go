@@ -141,18 +141,28 @@ func (e *Emitter) EmitMongoRepo(repos []ir.Repository, entities []ir.Entity) err
 			finders = append(finders, fo)
 		}
 
+		hasIDField := false
+		for _, f := range ent.Fields {
+			if strings.ToLower(f.Name) == "id" {
+				hasIDField = true
+				break
+			}
+		}
+
 		data := struct {
 			Name       string
 			Entity     string
 			Collection string
 			Fields     []normalizer.Field
 			Finders    []finderOut
+			HasID      bool
 		}{
 			Name:       repo.Name,
 			Entity:     repo.Entity,
 			Collection: strings.ToLower(repo.Entity) + "s",
 			Fields:     ent.Fields,
 			Finders:    finders,
+			HasID:      hasIDField,
 		}
 
 		var buf bytes.Buffer

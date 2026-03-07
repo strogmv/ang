@@ -7,21 +7,25 @@ import (
 )
 
 type Warning struct {
-	Kind         string `json:"kind"`
-	Code         string `json:"code,omitempty"`
-	Severity     string `json:"severity,omitempty"` // error, warn, info
-	Message      string `json:"message"`
-	Op           string `json:"op,omitempty"`
-	Step         int    `json:"step,omitempty"`
-	Action       string `json:"action,omitempty"`
-	File         string `json:"file,omitempty"`
-	Line         int    `json:"line,omitempty"`
-	Column       int    `json:"column,omitempty"`
-	CUEPath      string `json:"cue_path,omitempty"`
-	Hint         string `json:"hint,omitempty"`
-	DocsURL      string `json:"docs_url,omitempty"`
-	CanAutoApply bool   `json:"can_auto_apply"`
-	SuggestedFix []Fix  `json:"suggested_fix,omitempty"`
+	Kind         string   `json:"kind"`
+	Code         string   `json:"code,omitempty"`
+	Severity     string   `json:"severity,omitempty"` // error, warn, info
+	Message      string   `json:"message"`
+	Op           string   `json:"op,omitempty"`
+	Step         int      `json:"step,omitempty"`
+	Action       string   `json:"action,omitempty"`
+	File         string   `json:"file,omitempty"`
+	Line         int      `json:"line,omitempty"`
+	Column       int      `json:"column,omitempty"`
+	CUEPath      string   `json:"cue_path,omitempty"`
+	// Path is the human-readable source location (file:flow[N]) for AI output.
+	Path         string   `json:"path,omitempty"`
+	Hint         string   `json:"hint,omitempty"`
+	// Allowed is the list of permitted values when a constraint is violated.
+	Allowed      []string `json:"allowed,omitempty"`
+	DocsURL      string   `json:"docs_url,omitempty"`
+	CanAutoApply bool     `json:"can_auto_apply"`
+	SuggestedFix []Fix    `json:"suggested_fix,omitempty"`
 }
 
 type Fix struct {

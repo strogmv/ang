@@ -77,7 +77,7 @@ import "github.com/strogmv/ang/cue/project"
 // AI AGENTS: Use these definitions to understand valid flow step structures.
 // ============================================================================
 
-#FlowStep: #RepoStep | #DbStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #EventOutboxStep | #CustomStep | #StateStep | #ExplicitStateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #AuditStep | #AuthStep | #CheckRoleStep | #RBACCheckPermissionStep | #JWTSignStep | #JWTVerifyStep | #OAuth2TokenStep | #OAuth2RefreshStep | #EncryptStep | #DecryptStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #ListMapStep | #ListReduceStep | #ListGroupByStep | #ListDistinctStep | #ListChunkStep | #BatchRunStep | #EnrichStep | #TimeParseStep | #TimeCheckExpiryStep | #MapBuildStep | #ExecRunStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #StorageUploadStep | #StorageGetURLStep | #WebhookSendStep | #WebhookVerifySignatureStep | #WebhookAckStep | #QueueEnqueueStep | #QueueDequeueStep | #QueueAckStep | #QueueNackStep | #DLQPublishStep | #HTTPCallStep | #HTTPRequestStep | #HTTPRetryPolicyStep | #HTTPPaginateStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #JSONParseStep | #JSONMarshalStep | #ParallelStep | #FlowParallelStep | #FlowJoinStep | #FlowRaceStep | #FlowDelayStep | #FlowScheduleStep | #FlowCronStep | #SecretGetStep | #ConfigGetStep | #EventWaitStep | #EventSubscribeStep | #EventMatchStep | #FlowSagaStep | #FlowCompensateStep | #FlowRollbackStep | #FlowTagStep | #FlowCheckpointStep | #FlowResumeStep | #FlowValidateStep | #FlowTryStep | #FlowRetryStep | #FlowFallbackStep | #FlowTimeoutStep | #FlowSuggestNextStep | #FlowExplainErrorStep | #IdemDeriveKeyStep | #IdemCheckStep | #IdemSaveResultStep | #IdempotencyDeriveKeyStep | #IdempotencyCheckStep | #IdempotencySaveResultStep | #DedupeOnceStep | #RateLimitCheckStep | #RateLimitLimitStep | #ConcurrencyLimitStep | #ConcurrencyRunStep | #CircuitCheckStep | #CircuitRecordSuccessStep | #CircuitRecordFailureStep | #CircuitBreakerStep | #BulkheadAcquireStep | #BulkheadRunStep | #LogEmitStep | #MetricEmitStep | #TraceSpanStep | #SLOBudgetStep
+#FlowStep: #RepoStep | #DbStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #EventOutboxStep | #CustomStep | #StateStep | #ExplicitStateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #AuditStep | #AuthStep | #CheckRoleStep | #RBACCheckPermissionStep | #PolicyEvaluateStep | #PolicyRequireStep | #PolicyDecideStep | #JWTSignStep | #JWTVerifyStep | #OAuth2TokenStep | #OAuth2RefreshStep | #EncryptStep | #DecryptStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #ListMapStep | #ListReduceStep | #ListGroupByStep | #ListDistinctStep | #ListChunkStep | #BatchRunStep | #EnrichStep | #TimeParseStep | #TimeCheckExpiryStep | #MapBuildStep | #ExecRunStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #NotifySendStep | #ApprovalRequestStep | #ApprovalWaitStep | #ApprovalDecideStep | #StorageUploadStep | #StorageGetURLStep | #WebhookSendStep | #WebhookVerifySignatureStep | #WebhookAckStep | #QueueEnqueueStep | #QueueDequeueStep | #QueueAckStep | #QueueNackStep | #DLQPublishStep | #HTTPCallStep | #HTTPRequestStep | #HTTPRetryPolicyStep | #HTTPPaginateStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #JSONParseStep | #JSONMarshalStep | #ParallelStep | #FlowParallelStep | #FlowJoinStep | #FlowRaceStep | #FlowDelayStep | #FlowScheduleStep | #FlowCronStep | #SecretGetStep | #ConfigGetStep | #EventWaitStep | #EventSubscribeStep | #EventMatchStep | #FlowSagaStep | #FlowCompensateStep | #FlowRollbackStep | #FlowTagStep | #FlowCheckpointStep | #FlowResumeStep | #FlowRecordEventStep | #FlowReplayStep | #FlowHistoryGetStep | #FlowValidateStep | #FlowTryStep | #FlowRetryStep | #FlowFallbackStep | #FlowTimeoutStep | #FlowSuggestNextStep | #FlowExplainErrorStep | #IdemDeriveKeyStep | #IdemCheckStep | #IdemSaveResultStep | #IdempotencyDeriveKeyStep | #IdempotencyCheckStep | #IdempotencySaveResultStep | #DedupeOnceStep | #RateLimitCheckStep | #RateLimitLimitStep | #ConcurrencyLimitStep | #ConcurrencyRunStep | #CircuitCheckStep | #CircuitRecordSuccessStep | #CircuitRecordFailureStep | #CircuitBreakerStep | #BulkheadAcquireStep | #BulkheadRunStep | #LogEmitStep | #MetricEmitStep | #TraceSpanStep | #SLOBudgetStep
 
 #FlowCheckpointStep: {
 	// flow.Checkpoint - Save current flow state for potential resumption
@@ -97,6 +97,41 @@ import "github.com/strogmv/ang/cue/project"
 	output: string
 	// Steps to execute if checkpoint is missing
 	onMissing?: [...#FlowStep]
+}
+
+#FlowRecordEventStep: {
+	// flow.RecordEvent - append structured event to deterministic in-flow history
+	action: "flow.RecordEvent"
+	// Event name/key (for replay/debug/audit)
+	name: string
+	// Optional payload expression
+	payload?: string
+	// Optional variable for recorded event object
+	output?: string
+}
+
+#FlowReplayStep: {
+	// flow.Replay - load pre-recorded history and optionally execute steps in replay mode
+	action: "flow.Replay"
+	// Expression returning []map[string]any or []any
+	history: string
+	// Optional output variable for loaded history
+	output?: string
+	// Optional steps to execute while replay mode is enabled
+	do?: [...#FlowStep]
+	// Optional fallback when history shape is invalid
+	onMismatch?: [...#FlowStep]
+}
+
+#FlowHistoryGetStep: {
+	// flow.History.Get - read current in-flow execution history
+	action: "flow.History.Get"
+	// Optional filter by event name expression
+	name?: string
+	// Optional limit expression/int; keeps last N items
+	limit?: int | string
+	// Output variable for []map[string]any history records
+	output: string
 }
 
 #FlowValidateStep: {
@@ -309,6 +344,57 @@ import "github.com/strogmv/ang/cue/project"
 	code?: string
 	// Optional HTTP status expression (default http.StatusForbidden)
 	status?: string
+}
+
+#PolicyEvaluateStep: {
+	// policy.Evaluate - evaluate policy and return decision context without enforcing.
+	action: "policy.Evaluate"
+	policyKey: string
+	subject?: string
+	resource?: string
+	operation?: string
+	tenant?: string
+	attrs?: string
+	context?: string
+	decision?: string
+	reason?: string
+	effects?: string
+	output?: string
+}
+
+#PolicyRequireStep: {
+	// policy.Require - evaluate policy and fail request when decision is deny.
+	action: "policy.Require"
+	policyKey: string
+	subject?: string
+	resource?: string
+	operation?: string
+	tenant?: string
+	attrs?: string
+	context?: string
+	throw?: string
+	code?: string
+	status?: string
+	decision?: string
+	reason?: string
+	effects?: string
+	output?: string
+}
+
+#PolicyDecideStep: {
+	// policy.Decide - evaluate and return full decision object for orchestration/UI.
+	action: "policy.Decide"
+	policyKey: string
+	subject?: string
+	resource?: string
+	operation?: string
+	tenant?: string
+	attrs?: string
+	context?: string
+	decision?: string
+	reason?: string
+	effects?: string
+	output: string
 }
 
 #JWTSignStep: {
@@ -1107,6 +1193,67 @@ import "github.com/strogmv/ang/cue/project"
 	body: string
 	// Optional HTML body
 	html?: string
+}
+
+#NotifySendStep: {
+	// notify.Send - Multi-channel notification dispatch through runtime dispatcher
+	action: "notify.Send"
+	// Channel expression (e.g. "\"email\"", "\"slack\"")
+	channel: string
+	// Recipient expression (email/user/slack ID)
+	to: string
+	// Template ID expression (optional, but either template or text is required)
+	template?: string
+	// Plain text message expression (optional, but either template or text is required)
+	text?: string
+	// Optional subject expression (used by email channel)
+	subject?: string
+	// Optional HTML expression (used by email channel)
+	html?: string
+	// Optional payload/data expression for templating
+	data?: string
+	// Optional output variable (message id marker)
+	output?: string
+}
+
+#ApprovalRequestStep: {
+	// approval.Request - Create (idempotent) approval task
+	action: "approval.Request"
+	approvalKey: string
+	title: string
+	description?: string
+	requestedBy: string
+	approvers: string | [...string]
+	policy: string
+	payload: string
+	deadline?: string
+	ttl?:      string
+	approvalId?: string
+	status?:     string
+}
+
+#ApprovalWaitStep: {
+	// approval.Wait - Durable wait for manual decision
+	action: "approval.Wait"
+	approvalId: string
+	timeout?: string
+	// Timeout mode ("reject" | "auto-approve" | "fallback") or fallback steps
+	onTimeout?: string | [...#FlowStep]
+	decision?:  string
+	status?:    string
+	decidedBy?: string
+	decidedAt?: string
+	reason?:    string
+}
+
+#ApprovalDecideStep: {
+	// approval.Decide - Apply decision for existing approval task
+	action: "approval.Decide"
+	approvalId: string
+	decision:   string
+	actor:      string
+	reason?: string
+	status?: string
 }
 
 #StorageUploadStep: {

@@ -135,18 +135,28 @@ func (e *Emitter) EmitStubRepo(repos []ir.Repository, entities []ir.Entity) erro
 			finders = append(finders, fo)
 		}
 
+		hasIDField := false
+		for _, f := range ent.Fields {
+			if strings.ToLower(f.Name) == "id" {
+				hasIDField = true
+				break
+			}
+		}
+
 		data := struct {
 			Name       string
 			Entity     string
 			Finders    []finderOut
 			HasTime    bool
 			HasOrderBy bool
+			HasID      bool
 		}{
 			Name:       repo.Name,
 			Entity:     repo.Entity,
 			Finders:    finders,
 			HasTime:    hasTime,
 			HasOrderBy: hasOrderBy,
+			HasID:      hasIDField,
 		}
 
 		var buf bytes.Buffer

@@ -6,6 +6,8 @@ server
 
 # Logs
 *.log
+.env
+.env.*
 
 # Dependencies
 node_modules/

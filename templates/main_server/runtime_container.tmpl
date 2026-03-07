@@ -6,6 +6,7 @@ import (
 	{{- $repoEntities := AllUsedRepoEntitiesIR .ServicesIR .EntitiesIR }}
 	{{- $needsPG := or .HasSQL (gt (len $repoEntities) 0) }}
 	{{- $needsS3 := or .HasS3 (AnyServiceHasStorageIR .ServicesIR) }}
+	{{- $needsPolicy := AnyServiceHasPolicyActionsIR .ServicesIR }}
 	{{- if $needsPG }}
 	"github.com/jackc/pgx/v5/pgxpool"
 	{{- end }}
@@ -36,6 +37,9 @@ import (
 	{{- end }}
 	{{- if HasMongoRepoEntitiesIR .EntitiesIR }}
 	mongorepo "{{.GoModule}}/internal/adapter/repository/mongo"
+	{{- end }}
+	{{- if $needsPolicy }}
+	"{{.GoModule}}/internal/pkg/policy"
 	{{- end }}
 	"{{.GoModule}}/internal/config"
 	"{{.GoModule}}/internal/port"
@@ -118,6 +122,9 @@ func NewRuntimeContainer(
 	{{- if and $needsPG (HasTxServicesIR .ServicesIR) }}
 	txManager := postgres.NewTxManager(pgPool)
 	{{- end }}
+	{{- if $needsPolicy }}
+	policyEngine := policy.NewEngine()
+	{{- end }}
 
 	{{- range .ServicesIR }}
 	c.Svc{{ .Name }} = service.New{{ .Name }}Impl(
@@ -163,6 +170,9 @@ func NewRuntimeContainer(
 			{{- else }}
 		nil,
 			{{- end }}
+		{{- end }}
+		{{- if ServiceHasPolicyActionsIR . }}
+		policyEngine,
 		{{- end }}
 	)
 	{{- end }}

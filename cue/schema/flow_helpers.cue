@@ -193,10 +193,80 @@ package schema
 	if _reason != _|_ { reason: _reason }
 }
 
+#NotifySend: {
+	_channel: string, _to: string, _template?: string, _text?: string, _subject?: string, _html?: string, _data?: string, _out?: string
+	action: "notify.Send", channel: _channel, to: _to
+	if _template != _|_ { template: _template }
+	if _text != _|_ { text: _text }
+	if _subject != _|_ { subject: _subject }
+	if _html != _|_ { html: _html }
+	if _data != _|_ { data: _data }
+	if _out != _|_ { output: _out }
+}
+
+#ApprovalRequest: {
+	_key: string, _title: string, _requestedBy: string, _approvers: string | [...string], _policy: string, _payload: string, _description?: string, _deadline?: string, _ttl?: string, _approvalId?: string, _status?: string
+	action: "approval.Request", approvalKey: _key, title: _title, requestedBy: _requestedBy, approvers: _approvers, policy: _policy, payload: _payload
+	if _description != _|_ { description: _description }
+	if _deadline != _|_ { deadline: _deadline }
+	if _ttl != _|_ { ttl: _ttl }
+	if _approvalId != _|_ { approvalId: _approvalId }
+	if _status != _|_ { status: _status }
+}
+
+#ApprovalWait: {
+	_approvalId: string, _timeout?: string, _onTimeoutMode?: string, _onTimeout?: [...#FlowStep], _decision?: string, _status?: string, _decidedBy?: string, _decidedAt?: string, _reason?: string
+	action: "approval.Wait", approvalId: _approvalId
+	if _timeout != _|_ { timeout: _timeout }
+	if _onTimeoutMode != _|_ { onTimeout: _onTimeoutMode }
+	if _onTimeout != _|_ { onTimeout: _onTimeout }
+	if _decision != _|_ { decision: _decision }
+	if _status != _|_ { status: _status }
+	if _decidedBy != _|_ { decidedBy: _decidedBy }
+	if _decidedAt != _|_ { decidedAt: _decidedAt }
+	if _reason != _|_ { reason: _reason }
+}
+
+#ApprovalDecide: {
+	_approvalId: string, _decision: string, _actor: string, _reason?: string, _status?: string
+	action: "approval.Decide", approvalId: _approvalId, decision: _decision, actor: _actor
+	if _reason != _|_ { reason: _reason }
+	if _status != _|_ { status: _status }
+}
+
 #When: {
 	_if: string, _then: [...#FlowStep], _else?: [...#FlowStep]
 	action: "flow.If", condition: _if, then: _then
 	if _else != _|_ { "else": _else }
+}
+
+#FlowRecordEvent: {
+	_name: string
+	_payload?: string
+	_out?: string
+	action: "flow.RecordEvent", name: _name
+	if _payload != _|_ { payload: _payload }
+	if _out != _|_ { output: _out }
+}
+
+#FlowReplay: {
+	_history: string
+	_do?: [...#FlowStep]
+	_onMismatch?: [...#FlowStep]
+	_out?: string
+	action: "flow.Replay", history: _history
+	if _do != _|_ { do: _do }
+	if _onMismatch != _|_ { onMismatch: _onMismatch }
+	if _out != _|_ { output: _out }
+}
+
+#FlowHistoryGet: {
+	_out: string
+	_name?: string
+	_limit?: int | string
+	action: "flow.History.Get", output: _out
+	if _name != _|_ { name: _name }
+	if _limit != _|_ { limit: _limit }
 }
 
 #Switch: {
@@ -264,6 +334,85 @@ package schema
 	if _throw != _|_ { throw: _throw }
 	if _code != _|_ { code: _code }
 	if _status != _|_ { status: _status }
+}
+
+#PolicyEvaluate: {
+	_key: string
+	_decision?: string
+	_reason?:   string
+	_effects?:  string
+	_output?:   string
+	_subject?:   string
+	_resource?:  string
+	_operation?: string
+	_tenant?:    string
+	_attrs?:     string
+	_context?:   string
+	action: "policy.Evaluate", policyKey: _key
+	if _decision != _|_ { decision: _decision }
+	if _reason != _|_ { reason: _reason }
+	if _effects != _|_ { effects: _effects }
+	if _output != _|_ { output: _output }
+	if _subject != _|_ { subject: _subject }
+	if _resource != _|_ { resource: _resource }
+	if _operation != _|_ { operation: _operation }
+	if _tenant != _|_ { tenant: _tenant }
+	if _attrs != _|_ { attrs: _attrs }
+	if _context != _|_ { context: _context }
+}
+
+#PolicyRequire: {
+	_key: string
+	_throw?: string
+	_code?:  string
+	_status?: string
+	_decision?: string
+	_reason?:   string
+	_effects?:  string
+	_output?:   string
+	_subject?:   string
+	_resource?:  string
+	_operation?: string
+	_tenant?:    string
+	_attrs?:     string
+	_context?:   string
+	action: "policy.Require", policyKey: _key
+	if _throw != _|_ { throw: _throw }
+	if _code != _|_ { code: _code }
+	if _status != _|_ { status: _status }
+	if _decision != _|_ { decision: _decision }
+	if _reason != _|_ { reason: _reason }
+	if _effects != _|_ { effects: _effects }
+	if _output != _|_ { output: _output }
+	if _subject != _|_ { subject: _subject }
+	if _resource != _|_ { resource: _resource }
+	if _operation != _|_ { operation: _operation }
+	if _tenant != _|_ { tenant: _tenant }
+	if _attrs != _|_ { attrs: _attrs }
+	if _context != _|_ { context: _context }
+}
+
+#PolicyDecide: {
+	_key: string, _out: string
+	_decision?: string
+	_reason?:   string
+	_effects?:  string
+	_subject?:   string
+	_resource?:  string
+	_operation?: string
+	_tenant?:    string
+	_attrs?:     string
+	_context?:   string
+	action: "policy.Decide", policyKey: _key, output: _out
+	if _decision != _|_ { decision: _decision }
+	if _reason != _|_ { reason: _reason }
+	if _effects != _|_ { effects: _effects }
+	if _subject != _|_ { subject: _subject }
+	if _resource != _|_ { resource: _resource }
+	if _operation != _|_ { operation: _operation }
+	if _tenant != _|_ { tenant: _tenant }
+	if _attrs != _|_ { attrs: _attrs }
+	if _context != _|_ { context: _context }
 }
 
 #JWTSign: {

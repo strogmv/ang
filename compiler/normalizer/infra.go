@@ -602,7 +602,6 @@ func (n *Normalizer) ExtractRepoFinders(val cue.Value) (map[string][]RepositoryF
 			}
 			returnType, _ := fv.LookupPath(cue.ParsePath("return_type")).String()
 			if returnType != "" {
-				fmt.Printf("DEBUG infra: Entity=%s Name=%s ReturnType=%s\n", entity, name, returnType)
 			}
 
 			sumField := strings.TrimSpace(getString(fv, "sum_field"))

@@ -316,6 +316,9 @@ func toFlowSemSteps(steps []normalizer.FlowStep) []flowsem.Step {
 		if v, ok := step.Args["_onMissing"].([]normalizer.FlowStep); ok && len(v) > 0 {
 			children["_onMissing"] = toFlowSemSteps(v)
 		}
+		if v, ok := step.Args["_onMismatch"].([]normalizer.FlowStep); ok && len(v) > 0 {
+			children["_onMismatch"] = toFlowSemSteps(v)
+		}
 		if cases, ok := step.Args["_cases"].(map[string][]normalizer.FlowStep); ok && len(cases) > 0 {
 			var merged []flowsem.Step
 			for _, branch := range cases {
