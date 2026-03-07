@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strings"
 
@@ -15,6 +16,16 @@ import (
 )
 
 func main() {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Fprintf(os.Stderr, "\n[ANG CRASHED] Unexpected error: %v\n", r)
+			fmt.Fprintf(os.Stderr, "Stack trace:\n%s\n", debug.Stack())
+			fmt.Fprintln(os.Stderr, "Please report: https://github.com/strogmv/ang/issues")
+			fmt.Fprintln(os.Stderr, "Include your CUE files and this error message.")
+			os.Exit(2)
+		}
+	}()
+
 	if len(os.Args) < 2 {
 		printUsage()
 		return
