@@ -70,6 +70,30 @@ import "github.com/strogmv/ang/cue/project"
 	imports?: [...string] | string
 }
 
+// Typed authorization policy registry (place in cue/policy/*.cue).
+#Policy: {
+	description?: string
+	roles?: [...string]
+	sameCompany?: bool | *false
+	allowAdminOverride?: bool | *true
+}
+
+#Policies: [string]: #Policy
+
+// Read-model contract for cross-context analytics (ACL projection).
+// Define read models in cue/projections and access them from flow via repo.*.
+#ReadModel: {
+	owner:           string
+	bounded_context: string
+	read_model: {
+		// source bounded context that owns the original write model
+		source_context: string
+		// events that refresh this projection
+		refreshOn: [...string]
+	}
+	...
+}
+
 // ============================================================================
 // FLOW DSL DEFINITIONS
 // ============================================================================
@@ -77,7 +101,7 @@ import "github.com/strogmv/ang/cue/project"
 // AI AGENTS: Use these definitions to understand valid flow step structures.
 // ============================================================================
 
-#FlowStep: #RepoStep | #DbStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #EventOutboxStep | #CustomStep | #ServiceCallStep | #StateStep | #ExplicitStateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #AuditStep | #AuthStep | #CheckRoleStep | #RBACCheckPermissionStep | #PolicyEvaluateStep | #PolicyRequireStep | #PolicyDecideStep | #JWTSignStep | #JWTVerifyStep | #OAuth2TokenStep | #OAuth2RefreshStep | #EncryptStep | #DecryptStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #ListMapStep | #ListReduceStep | #ListGroupByStep | #ListDistinctStep | #ListChunkStep | #BatchRunStep | #EnrichStep | #TimeParseStep | #TimeCheckExpiryStep | #MapBuildStep | #ExecRunStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #NotifySendStep | #ApprovalRequestStep | #ApprovalWaitStep | #ApprovalDecideStep | #StorageUploadStep | #StorageGetURLStep | #WebhookSendStep | #WebhookVerifySignatureStep | #WebhookAckStep | #QueueEnqueueStep | #QueueDequeueStep | #QueueAckStep | #QueueNackStep | #DLQPublishStep | #HTTPCallStep | #HTTPRequestStep | #HTTPRetryPolicyStep | #HTTPPaginateStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #JSONParseStep | #JSONMarshalStep | #ParallelStep | #FlowParallelStep | #FlowJoinStep | #FlowRaceStep | #FlowDelayStep | #FlowScheduleStep | #FlowCronStep | #SecretGetStep | #ConfigGetStep | #EventWaitStep | #EventSubscribeStep | #EventMatchStep | #FlowSagaStep | #FlowCompensateStep | #FlowRollbackStep | #FlowTagStep | #FlowCheckpointStep | #FlowResumeStep | #FlowRecordEventStep | #FlowReplayStep | #FlowHistoryGetStep | #FlowValidateStep | #FlowTryStep | #FlowRetryStep | #FlowFallbackStep | #FlowTimeoutStep | #FlowSuggestNextStep | #FlowExplainErrorStep | #IdemDeriveKeyStep | #IdemCheckStep | #IdemSaveResultStep | #IdempotencyDeriveKeyStep | #IdempotencyCheckStep | #IdempotencySaveResultStep | #DedupeOnceStep | #RateLimitCheckStep | #RateLimitLimitStep | #ConcurrencyLimitStep | #ConcurrencyRunStep | #CircuitCheckStep | #CircuitRecordSuccessStep | #CircuitRecordFailureStep | #CircuitBreakerStep | #BulkheadAcquireStep | #BulkheadRunStep | #LogEmitStep | #MetricEmitStep | #TraceSpanStep | #SLOBudgetStep
+#FlowStep: #RepoStep | #DbStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #EventOutboxStep | #CustomStep | #ServiceCallStep | #StateStep | #ExplicitStateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #AuditStep | #AuthStep | #CheckRoleStep | #RBACCheckPermissionStep | #PolicyCheckStep | #PolicyEvaluateStep | #PolicyRequireStep | #PolicyDecideStep | #JWTSignStep | #JWTVerifyStep | #OAuth2TokenStep | #OAuth2RefreshStep | #EncryptStep | #DecryptStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #ListMapStep | #ListReduceStep | #ListGroupByStep | #ListDistinctStep | #ListChunkStep | #BatchRunStep | #EnrichStep | #TimeNowStep | #TimeParseStep | #TimeCheckExpiryStep | #MapBuildStep | #ExecRunStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #NotifySendStep | #ApprovalRequestStep | #ApprovalWaitStep | #ApprovalDecideStep | #StorageUploadStep | #StorageGetURLStep | #WebhookSendStep | #WebhookVerifySignatureStep | #WebhookAckStep | #QueueEnqueueStep | #QueueDequeueStep | #QueueAckStep | #QueueNackStep | #DLQPublishStep | #HTTPCallStep | #HTTPRequestStep | #HTTPRetryPolicyStep | #HTTPPaginateStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #JSONParseStep | #JSONMarshalStep | #ParallelStep | #FlowParallelStep | #FlowJoinStep | #FlowRaceStep | #FlowDelayStep | #FlowScheduleStep | #FlowCronStep | #SecretGetStep | #ConfigGetStep | #EventWaitStep | #EventSubscribeStep | #EventMatchStep | #FlowSagaStep | #FlowCompensateStep | #FlowRollbackStep | #FlowTagStep | #FlowCheckpointStep | #FlowResumeStep | #FlowRecordEventStep | #FlowReplayStep | #FlowHistoryGetStep | #FlowValidateStep | #FlowTryStep | #FlowRetryStep | #FlowFallbackStep | #FlowTimeoutStep | #FlowSuggestNextStep | #FlowExplainErrorStep | #IdemDeriveKeyStep | #IdemCheckStep | #IdemSaveResultStep | #IdempotencyDeriveKeyStep | #IdempotencyCheckStep | #IdempotencySaveResultStep | #DedupeOnceStep | #RateLimitCheckStep | #RateLimitLimitStep | #ConcurrencyLimitStep | #ConcurrencyRunStep | #CircuitCheckStep | #CircuitRecordSuccessStep | #CircuitRecordFailureStep | #CircuitBreakerStep | #BulkheadAcquireStep | #BulkheadRunStep | #LogEmitStep | #MetricEmitStep | #TraceSpanStep | #SLOBudgetStep
 
 #FlowCheckpointStep: {
 	// flow.Checkpoint - Save current flow state for potential resumption
@@ -346,6 +370,25 @@ import "github.com/strogmv/ang/cue/project"
 	status?: string
 }
 
+#PolicyCheckStep: {
+	// policy.Check - enforce typed policy from cue/policy registry.
+	action: "policy.Check"
+	// Policy key from #Policies map (e.g. "CompanyAdminOnly").
+	policy: string
+	// Expression of loaded user variable (e.g., "currentUser")
+	user: string
+	// Optional company scope expression (required for sameCompany=true policies)
+	companyID?: string
+	// Optional output bool variable with check result
+	output?: string
+	// Optional error message when denied
+	throw?: string
+	// Optional error code (default FORBIDDEN)
+	code?: string
+	// Optional HTTP status expression (default http.StatusForbidden)
+	status?: string
+}
+
 #PolicyEvaluateStep: {
 	// policy.Evaluate - evaluate policy and return decision context without enforcing.
 	action: "policy.Evaluate"
@@ -570,6 +613,7 @@ import "github.com/strogmv/ang/cue/project"
 	source: string
 
 	// Expression for input (ID for Find/Get/Delete, entity variable for Save)
+	// SAFE expression subset in strict validator (no function calls)
 	// Examples: "req.ID", "key.CompanyID", "newTender", "existing"
 	input: string
 
@@ -675,6 +719,7 @@ import "github.com/strogmv/ang/cue/project"
 #CheckStep: {
 	action: "logic.Check"
 	// Go boolean expression - step fails if FALSE
+	// SAFE subset only: refs/literals with boolean comparisons (no function calls)
 	// Example: "company.ActiveTendersCount < company.MaxTendersLimit"
 	// Example: "existing.Status == \"draft\""
 	condition: string
@@ -695,14 +740,16 @@ import "github.com/strogmv/ang/cue/project"
 	// Target field or variable
 	// Examples: "newTender.ID", "resp.TenderID", "company.ActiveTendersCount"
 	to: string
-	// Go expression for the value
+	// SAFE value expression only (no function calls/operators)
 	// Examples:
-	//   "uuid.NewString()"                              - Generate UUID
-	//   "time.Now().UTC().Format(time.RFC3339)"         - Current timestamp
 	//   "req.Title"                                     - Copy from request
-	//   "company.ActiveTendersCount + 1"               - Increment
+	//   "item.Owner.ID"                                 - Dot-path
 	//   "\"draft\""                                     - String literal (escape quotes!)
 	//   "true"                                          - Boolean literal
+	// For generated values use typed actions:
+	//   {action: "uuid.New", output: "..."}
+	//   {action: "time.Now", output: "..."}
+	//   {action: "rand.Token", output: "..."}
 	value: string
 	// Set to "true" to declare new variable (var x = value)
 	// Use when creating new local variables, not when assigning to fields
@@ -740,10 +787,12 @@ import "github.com/strogmv/ang/cue/project"
 	// Event name - must be declared in publishes: or broadcasts:
 	// RECOMMENDED: PascalCase (e.g., "TenderCreatedByAI", "BidPlaced")
 	name: string
-	// Go expression constructing event payload
-	// Example: "domain.TenderCreatedByAI{TenderID: newTender.ID, CompanyID: company.ID}"
-	// RECOMMENDED: Start with "domain." for type safety
+	// LEGACY raw payload expression (discouraged; validated as unsafe in strict flow checks)
 	payload?: string
+	// Typed payload mapping (preferred):
+	// ANG generates domain.<Event>{Field: Expr, ...}
+	// Values must be safe refs/literals (no function calls).
+	payloadMap?: [string]: string
 	// For FileUploaded events specifically:
 	fileID?: string
 	url?: string
@@ -806,6 +855,7 @@ import "github.com/strogmv/ang/cue/project"
 	// Example: "validateInput", "pkg.ProcessData"
 	func: string
 	// Arguments as single string or array
+	// SAFE expression subset in strict validator (no function calls)
 	// Example: "ctx, req" or ["ctx", "req", "options"]
 	args?: string | [...string]
 	// Variable to store result (if function returns value)
@@ -819,6 +869,7 @@ import "github.com/strogmv/ang/cue/project"
 	// Target service method (operation name)
 	method: string
 	// Arguments as single expression or array of expressions.
+	// SAFE expression subset in strict validator (no function calls).
 	// If ctx is omitted, emitter prepends ctx automatically.
 	args?: string | [...string]
 	// Variable to store result
@@ -1008,6 +1059,15 @@ import "github.com/strogmv/ang/cue/project"
 // ----------------------------------------------------------------------------
 // TIME PARSING
 // ----------------------------------------------------------------------------
+
+#TimeNowStep: {
+	// time.Now - assign current UTC time into output target
+	action: "time.Now"
+	// Target field or variable
+	output: string
+	// Optional string format (for string targets), e.g. "time.RFC3339"
+	format?: string
+}
 
 #TimeParseStep: {
 	// time.Parse - Parse time string into time.Time

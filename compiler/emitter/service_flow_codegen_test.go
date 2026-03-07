@@ -632,7 +632,10 @@ func TestRenderFlow_NewDataTransformActions(t *testing.T) {
 		{Action: "hash.Sum", Args: map[string]any{"algorithm": `"sha256"`, "input": "req.Payload", "output": "digest"}},
 		{Action: "hash.HMAC", Args: map[string]any{"algorithm": `"sha256"`, "key": "req.Secret", "input": "req.Payload", "output": "signature"}},
 		{Action: "uuid.New", Args: map[string]any{"output": "id"}},
+		{Action: "uuid.New", Args: map[string]any{"output": "resp.ID"}},
 		{Action: "ulid.New", Args: map[string]any{"output": "ulid"}},
+		{Action: "time.Now", Args: map[string]any{"output": "createdAt"}},
+		{Action: "time.Now", Args: map[string]any{"output": "resp.CreatedAt"}},
 		{Action: "math.Op", Args: map[string]any{"op": `"round"`, "value": "req.Amount", "precision": 2, "output": "rounded"}},
 		{Action: "jsonpath.Get", Args: map[string]any{"input": "req.Payload", "path": `"$.user.email"`, "output": "email"}},
 		{Action: "jsonpath.Set", Args: map[string]any{"input": "req.Payload", "path": `"$.user.role"`, "value": `"admin"`, "output": "patched"}},
@@ -647,7 +650,10 @@ func TestRenderFlow_NewDataTransformActions(t *testing.T) {
 		"sha256.Sum256",
 		"hmac.New",
 		"uuid.NewString()",
+		"helpers.Assign(&resp.ID, uuid.NewString())",
 		"base32.NewEncoding",
+		"createdAt := time.Now().UTC()",
+		"helpers.Assign(&resp.CreatedAt, time.Now().UTC())",
 		"math.Round",
 		"strings.TrimPrefix(_jpPath",
 		"jsonpath.Set: input must be map[string]any",
@@ -683,6 +689,32 @@ func TestRenderFlow_NewSecurityActions(t *testing.T) {
 		"cipher.NewGCM(",
 		"base64.RawStdEncoding.EncodeToString",
 		"rbac.CheckPermission(currentUser.Role,",
+	}
+	for _, part := range mustContain {
+		if !strings.Contains(code, part) {
+			t.Fatalf("expected generated code to contain %q\n\n%s", part, code)
+		}
+	}
+}
+
+func TestRenderFlow_EventPublishPayloadMap(t *testing.T) {
+	steps := []normalizer.FlowStep{
+		{
+			Action: "event.Publish",
+			Args: map[string]any{
+				"name": "TenderClosed",
+				"payloadMap": map[string]any{
+					"TenderID": "req.TenderID",
+					"Status":   "\"closed\"",
+				},
+			},
+		},
+	}
+
+	code := renderFlow(steps)
+	mustContain := []string{
+		"s.publisher.PublishTenderClosed",
+		`domain.TenderClosed{Status: "closed", TenderID: req.TenderID}`,
 	}
 	for _, part := range mustContain {
 		if !strings.Contains(code, part) {

@@ -223,12 +223,10 @@ func renderFlowStepControlLegacyDeprecatedMonolith(st *flowRenderState, step nor
 
 	case "event.Publish":
 		name := arg("name")
-		payload := arg("payload")
+		payload := renderEventPayloadExpr(step, name, arg)
 		if name == "" || payload == "" {
 			return ""
 		}
-		// time.Time domain fields assigned to string event fields need .Format(time.RFC3339)
-		payload = normalizePayloadExpr(payload)
 		return fmt.Sprintf("%sif s.publisher != nil {\n%s\t_ = s.publisher.Publish%s(ctx, %s)\n%s}\n",
 			pad, pad, ExportName(name), payload, pad)
 

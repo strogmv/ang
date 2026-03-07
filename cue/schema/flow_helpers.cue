@@ -97,12 +97,12 @@ package schema
 
 #SetID: {
 	_field: string
-	action: "mapping.Assign", to: _field, value: "uuid.NewString()"
+	action: "uuid.New", output: _field
 }
 
 #SetNow: {
 	_field: string
-	action: "mapping.Assign", to: _field, value: "time.Now().UTC().Format(time.RFC3339)"
+	action: "time.Now", output: _field
 }
 
 #SetResponse: {
@@ -330,6 +330,22 @@ package schema
 	_code?:      string
 	_status?:    string
 	action: "rbac.CheckPermission", user: _user, permission: _permission
+	if _output != _|_ { output: _output }
+	if _throw != _|_ { throw: _throw }
+	if _code != _|_ { code: _code }
+	if _status != _|_ { status: _status }
+}
+
+#PolicyCheck: {
+	_policy: string
+	_user:   string
+	_companyID?: string
+	_output?:    string
+	_throw?:     string
+	_code?:      string
+	_status?:    string
+	action: "policy.Check", policy: _policy, user: _user
+	if _companyID != _|_ { companyID: _companyID }
 	if _output != _|_ { output: _output }
 	if _throw != _|_ { throw: _throw }
 	if _code != _|_ { code: _code }

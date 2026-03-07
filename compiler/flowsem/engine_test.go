@@ -405,6 +405,7 @@ func TestValidate_NewDataTransformActionsKnown(t *testing.T) {
 		{Action: "hash.Sum", Args: map[string]any{"algorithm": `"sha256"`, "input": "req.Payload", "output": "digest"}},
 		{Action: "hash.HMAC", Args: map[string]any{"algorithm": `"sha256"`, "key": "req.Secret", "input": "req.Payload", "output": "sig"}},
 		{Action: "uuid.New", Args: map[string]any{"output": "id"}},
+		{Action: "time.Now", Args: map[string]any{"output": "nowTs"}},
 		{Action: "ulid.New", Args: map[string]any{"output": "ulid"}},
 		{Action: "math.Op", Args: map[string]any{"op": `"min"`, "a": "x", "b": "y", "output": "m"}},
 		{Action: "jsonpath.Get", Args: map[string]any{"input": "req.Payload", "path": `"$.user.email"`, "output": "email"}},

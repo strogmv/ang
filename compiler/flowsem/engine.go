@@ -56,6 +56,10 @@ var specs = map[string]Spec{
 	},
 	"event.Publish": {
 		RequiredArgs: []string{"name"},
+		OptionalArgKinds: map[string]ArgKind{
+			"payload":    ArgKindString,
+			"payloadMap": ArgKindStringMap,
+		},
 	},
 	"service.Call": {
 		RequiredArgs:     []string{"service", "method"},
@@ -250,6 +254,17 @@ var specs = map[string]Spec{
 			}
 		},
 	},
+	"policy.Check": {
+		RequiredArgs: []string{"policy", "user"},
+		OptionalArgKinds: map[string]ArgKind{
+			"companyID": ArgKindString,
+			"output":    ArgKindString,
+			"throw":     ArgKindString,
+			"code":      ArgKindString,
+			"status":    ArgKindString,
+		},
+		DeclaresFromArgs: []string{"output"},
+	},
 	"policy.Require": {
 		RequiredArgs: []string{"policyKey"},
 		OptionalArgKinds: map[string]ArgKind{
@@ -289,6 +304,10 @@ var specs = map[string]Spec{
 	},
 	"repo.Query": {
 		RequiredArgs: []string{"method"},
+		OptionalArgKinds: map[string]ArgKind{
+			"input": ArgKindString,
+			"args":  ArgKindStringOrStringArr,
+		},
 	},
 	"http.Request": {
 		RequiredArgs:     []string{"method", "url"},
@@ -908,6 +927,13 @@ var specs = map[string]Spec{
 	},
 	"time.CheckExpiry": {
 		RequiredArgs: []string{"value", "throw"},
+	},
+	"time.Now": {
+		RequiredArgs:     []string{"output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"format": ArgKindString,
+		},
 	},
 	"time.Parse": {
 		RequiredArgs:     []string{"value", "output"},

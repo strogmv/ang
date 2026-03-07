@@ -92,15 +92,10 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 				length = int(n)
 			}
 		}
-		assign := ":="
-		if st.declared[output] {
-			assign = "="
-		}
-		st.declared[output] = true
-		st.pointers[output] = false
 		modBase := "_codeBase" + sfx
 		codeNVar := "_codeN" + sfx
 		codeBufVar := "_codeBuf" + sfx
+		outV := "_codeOut" + sfx
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%s%s := 1\n", pad, modBase))
 		b.WriteString(fmt.Sprintf("%sfor _i := 0; _i < %d; _i++ { %s *= 10 }\n", pad, length, modBase))
@@ -109,7 +104,8 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		b.WriteString(errReturn(st, pad+"\t", "fmt.Errorf(\"rand.Code: %w\", _cErr)"))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		b.WriteString(fmt.Sprintf("%s%s := int(binary.BigEndian.Uint64(%s) %% uint64(%s))\n", pad, codeNVar, codeBufVar, modBase))
-		b.WriteString(fmt.Sprintf("%s%s %s fmt.Sprintf(\"%%0%dd\", %s)\n", pad, output, assign, length, codeNVar))
+		b.WriteString(fmt.Sprintf("%s%s := fmt.Sprintf(\"%%0%dd\", %s)\n", pad, outV, length, codeNVar))
+		b.WriteString(renderFlowAssignTarget(st, pad, output, outV, "string"))
 		return b.String(), true
 
 	case "rand.Token":
@@ -128,20 +124,16 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 				nbytes = int(n)
 			}
 		}
-		assign := ":="
-		if st.declared[output] {
-			assign = "="
-		}
-		st.declared[output] = true
-		st.pointers[output] = false
 		rbv, rerrv := "_rb"+sfx, "_rbErr"+sfx
+		outV := "_tokenOut" + sfx
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%s%s := make([]byte, %d)\n", pad, rbv, nbytes))
 		b.WriteString(fmt.Sprintf("%s_, %s := cryptorand.Read(%s)\n", pad, rerrv, rbv))
 		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, rerrv))
 		b.WriteString(errReturn(st, pad+"\t", "fmt.Errorf(\"rand.Token: %w\", "+rerrv+")"))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
-		b.WriteString(fmt.Sprintf("%s%s %s hex.EncodeToString(%s)\n", pad, output, assign, rbv))
+		b.WriteString(fmt.Sprintf("%s%s := hex.EncodeToString(%s)\n", pad, outV, rbv))
+		b.WriteString(renderFlowAssignTarget(st, pad, output, outV, "string"))
 		return b.String(), true
 
 	case "str.Format":

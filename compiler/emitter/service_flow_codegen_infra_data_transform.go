@@ -292,30 +292,17 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		if output == "" {
 			return "", true
 		}
-		assign := ":="
-		if st.declared[output] {
-			assign = "="
-		}
-		st.declared[output] = true
-		st.pointers[output] = false
-		st.types[output] = "string"
-		return fmt.Sprintf("%s%s %s uuid.NewString()\n", pad, output, assign), true
+		return renderFlowAssignTarget(st, pad, output, "uuid.NewString()", "string"), true
 
 	case "ulid.New":
 		output := arg("output")
 		if output == "" {
 			return "", true
 		}
-		assign := ":="
-		if st.declared[output] {
-			assign = "="
-		}
-		st.declared[output] = true
-		st.pointers[output] = false
-		st.types[output] = "string"
 		rawV := "_ulidRaw" + sfx
 		msV := "_ulidMs" + sfx
 		encV := "_ulidEnc" + sfx
+		outV := "_ulidOut" + sfx
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%s%s := make([]byte, 16)\n", pad, rawV))
 		b.WriteString(fmt.Sprintf("%s%s := uint64(time.Now().UTC().UnixMilli())\n", pad, msV))
@@ -329,8 +316,20 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		b.WriteString(errReturn(st, pad+"\t", "fmt.Errorf(\"ulid.New: %w\", _ulidErr)"))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		b.WriteString(fmt.Sprintf("%s%s := base32.NewEncoding(\"0123456789ABCDEFGHJKMNPQRSTVWXYZ\").WithPadding(base32.NoPadding)\n", pad, encV))
-		b.WriteString(fmt.Sprintf("%s%s %s %s.EncodeToString(%s)\n", pad, output, assign, encV, rawV))
+		b.WriteString(fmt.Sprintf("%s%s := %s.EncodeToString(%s)\n", pad, outV, encV, rawV))
+		b.WriteString(renderFlowAssignTarget(st, pad, output, outV, "string"))
 		return b.String(), true
+
+	case "time.Now":
+		output := arg("output")
+		if output == "" {
+			return "", true
+		}
+		format := arg("format")
+		if format != "" {
+			return renderFlowAssignTarget(st, pad, output, "time.Now().UTC().Format("+format+")", "string"), true
+		}
+		return renderFlowAssignTarget(st, pad, output, "time.Now().UTC()", "time.Time"), true
 
 	case "math.Op":
 		op := arg("op")

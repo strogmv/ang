@@ -368,7 +368,7 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 			}
 
 			// Validate flow steps and report warnings
-			warnings := validateFlowSteps(opName, svcName, steps, entities, svc.Uses, n.ArchitectureMode, n.ArchitectureAllowCross)
+			warnings := validateFlowSteps(opName, svcName, steps, entities, svc.Uses, n.Policies, n.ArchitectureMode, n.ArchitectureAllowCross)
 			for _, w := range warnings {
 				n.Warn(Warning{
 					Kind:         "flow",
@@ -513,7 +513,57 @@ func (n *Normalizer) parseFlowSteps(val cue.Value) ([]FlowStep, error) {
 	}
 	steps = n.autoCompleteFlowSteps(steps)
 	steps = n.applyFlowPerformanceDefaults(steps)
+	steps = n.resolvePolicyChecks(steps)
 	return steps, nil
+}
+
+func (n *Normalizer) resolvePolicyChecks(steps []FlowStep) []FlowStep {
+	if len(steps) == 0 {
+		return steps
+	}
+
+	rewriteList := func(in []FlowStep) []FlowStep { return n.resolvePolicyChecks(in) }
+	childKeys := []string{"_do", "_ifNew", "_ifExists", "_then", "_else", "_default", "_catch", "_fallback", "_onTimeout", "_onMissing", "_onMismatch"}
+
+	for i := range steps {
+		step := &steps[i]
+
+		if step.Action == "policy.Check" {
+			policyRaw, _ := step.Args["policy"].(string)
+			policyName := strings.TrimSpace(policyRaw)
+			if u, err := strconv.Unquote(policyName); err == nil {
+				policyName = strings.TrimSpace(u)
+			}
+			if p, ok := n.Policies[policyName]; ok {
+				step.Args["policy"] = strconv.Quote(policyName)
+				step.Args["_policyResolved"] = true
+				step.Args["_policyRoles"] = append([]string{}, p.Roles...)
+				step.Args["_policySameCompany"] = p.SameCompany
+				step.Args["_policyAllowAdminOverride"] = p.AllowAdminOverride
+			}
+		}
+
+		for _, key := range childKeys {
+			if child, ok := step.Args[key].([]FlowStep); ok {
+				step.Args[key] = rewriteList(child)
+			}
+		}
+		if cases, ok := step.Args["_cases"].(map[string][]FlowStep); ok {
+			updated := make(map[string][]FlowStep, len(cases))
+			for k, branch := range cases {
+				updated[k] = rewriteList(branch)
+			}
+			step.Args["_cases"] = updated
+		}
+		if branches, ok := step.Args["_branches"].(map[string][]FlowStep); ok {
+			updated := make(map[string][]FlowStep, len(branches))
+			for k, branch := range branches {
+				updated[k] = rewriteList(branch)
+			}
+			step.Args["_branches"] = updated
+		}
+	}
+	return steps
 }
 
 // rawParseFlowSteps parses flow steps without auto-completion
@@ -1149,7 +1199,7 @@ type FlowWarning struct {
 	SuggestedFix []Fix
 }
 
-func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities []Entity, svcUses []string, architectureMode string, allowCrossService map[string]map[string]struct{}) []FlowWarning {
+func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities []Entity, svcUses []string, policies map[string]PolicyDef, architectureMode string, allowCrossService map[string]map[string]struct{}) []FlowWarning {
 	var warnings []FlowWarning
 	seenWarnings := make(map[string]struct{})
 	declaredVars := make(map[string]bool)
@@ -1157,13 +1207,53 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 	newEntities := make(map[string]string)
 
 	entityOwners := make(map[string]string)
+	entityContexts := make(map[string]string)
+	aggregateOwnedByContext := make(map[string]map[string]struct{})
 	isDTO := make(map[string]bool)
+	isSharedArch := make(map[string]bool)
 	for _, e := range entities {
 		entityOwners[e.Name] = e.Owner
+		ctx := strings.TrimSpace(strings.ToLower(e.BoundedContext))
+		if ctx == "" {
+			ctx = inferBoundedContext(e.Owner)
+		}
+		entityContexts[e.Name] = ctx
 		if dto, ok := e.Metadata["dto"].(bool); ok && dto {
 			isDTO[e.Name] = true
 		}
+		if shared, ok := e.Metadata["shared_arch"].(bool); ok && shared {
+			isSharedArch[e.Name] = true
+		}
 	}
+	for _, e := range entities {
+		if !e.AggregateRoot {
+			continue
+		}
+		rootCtx := strings.TrimSpace(strings.ToLower(e.BoundedContext))
+		if rootCtx == "" {
+			rootCtx = entityContexts[e.Name]
+		}
+		if rootCtx == "" {
+			rootCtx = inferBoundedContext(e.Owner)
+		}
+		if rootCtx == "" {
+			continue
+		}
+		ownedSet := aggregateOwnedByContext[rootCtx]
+		if ownedSet == nil {
+			ownedSet = make(map[string]struct{})
+			aggregateOwnedByContext[rootCtx] = ownedSet
+		}
+		ownedSet[e.Name] = struct{}{}
+		for _, owned := range e.Owns {
+			owned = strings.TrimSpace(owned)
+			if owned == "" {
+				continue
+			}
+			ownedSet[owned] = struct{}{}
+		}
+	}
+	serviceContext := inferBoundedContext(svcName)
 
 	var currentStep FlowStep
 	appendWarn := func(w FlowWarning) {
@@ -1227,6 +1317,43 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 		allowedDeps[strings.ToLower(normalizeServiceName(dep))] = struct{}{}
 	}
 
+	isBoundaryViolation := func(entityName string) (bool, string, string) {
+		owner, ok := entityOwners[entityName]
+		if !ok {
+			return false, "", ""
+		}
+		if strings.EqualFold(svcName, "admin") || strings.EqualFold(svcName, "audit") {
+			return false, "", ""
+		}
+		if isSharedArch[entityName] {
+			return false, "", ""
+		}
+		if serviceContext != "" {
+			if ownedSet, ok := aggregateOwnedByContext[serviceContext]; ok {
+				if _, allowed := ownedSet[entityName]; allowed {
+					return false, "", ""
+				}
+			}
+		}
+
+		entityCtx := entityContexts[entityName]
+		if entityCtx != "" && serviceContext != "" {
+			if strings.EqualFold(entityCtx, serviceContext) {
+				return false, "", ""
+			}
+			return true, fmt.Sprintf("bounded_context='%s'", entityCtx), entityCtx
+		}
+
+		ownerMatch := strings.EqualFold(owner, svcName) ||
+			strings.EqualFold(owner+"s", svcName) ||
+			strings.EqualFold(svcName+"s", owner)
+		ownerPrefixMatch := strings.HasPrefix(strings.ToLower(owner), strings.ToLower(svcName)+"_")
+		if owner != "" && !ownerMatch && !ownerPrefixMatch {
+			return true, fmt.Sprintf("owned by '%s'", owner), owner
+		}
+		return false, "", ""
+	}
+
 	var validate func(steps []FlowStep, inTx bool, depth int)
 	validate = func(steps []FlowStep, inTx bool, depth int) {
 		for i := range steps {
@@ -1240,7 +1367,7 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 				"db.Get", "db.List", "db.Query", "db.Insert", "db.Update", "db.Upsert", "db.Delete", "db.Lock", "db.SelectForUpdate":
 				source, _ := step.Args["source"].(string)
 				if source != "" {
-					owner, ok := entityOwners[source]
+					_, ok := entityOwners[source]
 
 					if !ok {
 						addWarn(stepNum, step.Action, "UNKNOWN_ENTITY",
@@ -1252,26 +1379,25 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 							"Remove @dto(only=true) or use a real domain entity", step.File, step.Line, step.Column)
 					}
 
-					// Exceptions for basic entities that everyone needs to read
-					isShared := strings.EqualFold(source, "Company") || strings.EqualFold(source, "APIKey") ||
-						strings.EqualFold(source, "Application") || strings.EqualFold(source, "TenderTemplate") ||
-						strings.EqualFold(source, "TenderTemplateCategory") || strings.EqualFold(source, "CompanyCategoryScore") ||
-						strings.EqualFold(source, "User") || strings.EqualFold(source, "AuditLog") ||
-						strings.EqualFold(source, "CategoryValue") || strings.EqualFold(source, "Notification")
-
-					// Match logic: ignore case and trailing 's' (plural/singular)
-					ownerMatch := strings.EqualFold(owner, svcName) ||
-						strings.EqualFold(owner+"s", svcName) ||
-						strings.EqualFold(svcName+"s", owner)
-					// Prefix match: "tender" service may own "tender_category", "tender_invite", etc.
-					ownerPrefixMatch := strings.HasPrefix(strings.ToLower(owner), strings.ToLower(svcName)+"_")
-
-					// If entity has an owner and it's not THIS service, it's a violation!
-					if ok && owner != "" && !isShared && !ownerMatch && !ownerPrefixMatch && !strings.EqualFold(svcName, "admin") && !strings.EqualFold(svcName, "audit") {
+					if violation, reason, targetService := isBoundaryViolation(source); ok && violation {
+						filePath := filepath.ToSlash(strings.TrimSpace(step.File))
+						if strings.Contains(filePath, "/cue/schema/") || strings.HasPrefix(filePath, "cue/schema/") {
+							// Flow helper templates in cue/schema are generic and not tied to a real BC.
+							// Skip architecture boundary enforcement for template source locations.
+							continue
+						}
 						if !isCrossServiceAllowed(allowCrossService, svcName, source) {
+							hintTarget := strings.TrimSpace(targetService)
+							if hintTarget == "" {
+								hintTarget = "target"
+							}
+							targetCtx := strings.TrimSpace(serviceContext)
+							if targetCtx == "" {
+								targetCtx = strings.TrimSpace(strings.ToLower(normalizeServiceName(svcName)))
+							}
 							addWarnWithSeverity(stepNum, step.Action, "ARCHITECTURE_VIOLATION", archSeverity,
-								fmt.Sprintf("Service '%s' is not allowed to directly access entity '%s' (owned by '%s')", svcName, source, owner),
-								fmt.Sprintf("Use events or call %sService", strings.Title(owner)), step.File, step.Line, step.Column)
+								fmt.Sprintf("Service '%s' is not allowed to directly access entity '%s' (%s)", svcName, source, reason),
+								fmt.Sprintf("Define a #ReadModel in '%s' bounded context with read_model.source_context='%s' and read_model.refreshOn=[...events], then read that model", targetCtx, hintTarget), step.File, step.Line, step.Column)
 						}
 					}
 				}
@@ -1294,6 +1420,11 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					if step.Args["method"] == nil || step.Args["method"] == "" {
 						addWarn(stepNum, step.Action, "MISSING_METHOD", step.Action+" missing 'method'", fmt.Sprintf("{action: \"%s\", source: \"Entity\", method: \"ListBy...\", input: \"...\", output: \"items\"}", step.Action), step.File, step.Line, step.Column)
 					}
+					if input, _ := step.Args["input"].(string); strings.TrimSpace(input) != "" {
+						if errStr := validateSafeCallArgExpr(input); errStr != "" {
+							addWarn(stepNum, step.Action, "UNSAFE_QUERY_ARG_EXPR", step.Action+" input: "+errStr, "Use only refs/literals (or safe struct literals without calls) in query inputs.", step.File, step.Line, step.Column)
+						}
+					}
 					// Normalize args to []string (CUE lists arrive as []interface{})
 					if args, ok := step.Args["args"]; ok {
 						switch v := args.(type) {
@@ -1305,6 +1436,13 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 								ss = append(ss, fmt.Sprint(x))
 							}
 							step.Args["args"] = ss
+						}
+					}
+					if args, ok := step.Args["args"].([]string); ok {
+						for idx, arg := range args {
+							if errStr := validateSafeCallArgExpr(arg); errStr != "" {
+								addWarn(stepNum, step.Action, "UNSAFE_QUERY_ARG_EXPR", fmt.Sprintf("%s args[%d]: %s", step.Action, idx, errStr), "Use only refs/literals (or safe struct literals without calls) in query args.", step.File, step.Line, step.Column)
+							}
 						}
 					}
 				}
@@ -1362,9 +1500,15 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 				}
 				assignedFields[to] = true
 
-				// NEW: Validate Go Syntax
-				if errStr := validateGoSnippet(value, step.File, step.Line, step.Column); errStr != "" {
-					addWarn(stepNum, step.Action, "GO_SYNTAX_ERROR", errStr, "Check your Go code syntax inside the CUE string.", step.File, step.Line, step.Column)
+				// Validate mapping.Assign value as a Go expression
+				if errStr := validateValueExpr(value); errStr != "" {
+					addWarn(stepNum, step.Action, "GO_SYNTAX_ERROR", errStr, "Check your Go expression syntax inside the CUE string.", step.File, step.Line, step.Column)
+				}
+				// Enforce safe subset for mapping.Assign:
+				// only literals and dot-path style references are allowed.
+				// Function calls and other complex expressions must use typed actions.
+				if errStr := validateMappingAssignSafeValue(value); errStr != "" {
+					addWarn(stepNum, step.Action, "MAPPING_ASSIGN_UNSAFE_EXPR", errStr, "Use safe references/literals in mapping.Assign, and move function calls to typed actions (uuid.New, time.Now, rand.Token, ...).", step.File, step.Line, step.Column)
 				}
 
 				// Check for unquoted status strings
@@ -1381,8 +1525,22 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 			case "event.Publish":
 				name, _ := step.Args["name"].(string)
 				payload, _ := step.Args["payload"].(string)
-				if payload != "" && !strings.HasPrefix(payload, "domain.") {
-					addWarn(stepNum, step.Action, "PAYLOAD_NOT_DOMAIN", fmt.Sprintf("event.Publish payload should use domain.%s{...}", name), "{action: \"event.Publish\", name: \""+name+"\", payload: \"domain."+name+"{...}\"}", step.File, step.Line, step.Column)
+				payloadMap := flowStringMap(step.Args["payloadMap"])
+				if payload != "" {
+					addWarn(stepNum, step.Action, "EVENT_PUBLISH_RAW_PAYLOAD_FORBIDDEN", "event.Publish raw 'payload' is not allowed; use payloadMap", "{action: \"event.Publish\", name: \""+name+"\", payloadMap: { TenderID: \"req.TenderID\" }}", step.File, step.Line, step.Column)
+				}
+				if len(payloadMap) == 0 && payload == "" {
+					addWarn(stepNum, step.Action, "MISSING_PAYLOAD_MAP", "event.Publish requires payloadMap", "{action: \"event.Publish\", name: \""+name+"\", payloadMap: { ... }}", step.File, step.Line, step.Column)
+				}
+				for field, expr := range payloadMap {
+					field = strings.TrimSpace(field)
+					if field == "" {
+						addWarn(stepNum, step.Action, "INVALID_PAYLOAD_FIELD", "event.Publish payloadMap contains empty field name", "{action: \"event.Publish\", payloadMap: { Field: \"req.Value\" }}", step.File, step.Line, step.Column)
+						continue
+					}
+					if errStr := validateSafeCallArgExpr(expr); errStr != "" {
+						addWarn(stepNum, step.Action, "UNSAFE_EVENT_PAYLOAD_EXPR", fmt.Sprintf("event.Publish payloadMap[%q]: %s", field, errStr), "Use only refs/literals (or safe struct literals without calls) in payloadMap values.", step.File, step.Line, step.Column)
+					}
 				}
 
 			case "event.Broadcast":
@@ -1413,8 +1571,8 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 			case "logic.Check":
 				cond, _ := step.Args["condition"].(string)
 				if cond != "" {
-					if errStr := validateGoSnippet(cond, step.File, step.Line, step.Column); errStr != "" {
-						addWarn(stepNum, step.Action, "GO_SYNTAX_ERROR", errStr, "Check your Go code syntax inside the CUE string.", step.File, step.Line, step.Column)
+					if errStr := validateSafeConditionExpr(cond); errStr != "" {
+						addWarn(stepNum, step.Action, "UNSAFE_CONDITION_EXPR", "logic.Check condition: "+errStr, "Use safe boolean refs/comparisons only; avoid calls and Go-specific constructs.", step.File, step.Line, step.Column)
 					}
 				}
 
@@ -1436,6 +1594,13 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					}
 				} else {
 					step.Args["args"] = []string{}
+				}
+				if args, ok := step.Args["args"].([]string); ok {
+					for idx, arg := range args {
+						if errStr := validateSafeCallArgExpr(arg); errStr != "" {
+							addWarn(stepNum, step.Action, "UNSAFE_CALL_ARG_EXPR", fmt.Sprintf("logic.Call args[%d]: %s", idx, errStr), "Use only refs/literals (or safe struct literals without calls) in call args.", step.File, step.Line, step.Column)
+						}
+					}
 				}
 
 			case "service.Call":
@@ -1466,6 +1631,13 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					}
 				} else {
 					step.Args["args"] = []string{}
+				}
+				if args, ok := step.Args["args"].([]string); ok {
+					for idx, arg := range args {
+						if errStr := validateSafeCallArgExpr(arg); errStr != "" {
+							addWarn(stepNum, step.Action, "UNSAFE_CALL_ARG_EXPR", fmt.Sprintf("service.Call args[%d]: %s", idx, errStr), "Use only refs/literals (or safe struct literals without calls) in call args.", step.File, step.Line, step.Column)
+						}
+					}
 				}
 				if output, _ := step.Args["output"].(string); output != "" {
 					declaredVars[output] = true
@@ -1603,6 +1775,35 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					declaredVars[status] = true
 				}
 
+			case "policy.Check":
+				if output, _ := step.Args["output"].(string); output != "" {
+					declaredVars[output] = true
+				}
+				policyName, _ := step.Args["policy"].(string)
+				policyName = strings.TrimSpace(policyName)
+				if u, err := strconv.Unquote(policyName); err == nil {
+					policyName = strings.TrimSpace(u)
+				}
+				if policyName == "" {
+					addWarn(stepNum, step.Action, "MISSING_POLICY", "policy.Check missing 'policy'", "{action: \"policy.Check\", policy: \"CompanyAdminOnly\", user: \"currentUser\", companyID: \"req.CompanyID\"}", step.File, step.Line, step.Column)
+					break
+				}
+				if len(policies) == 0 {
+					addWarn(stepNum, step.Action, "POLICY_REGISTRY_EMPTY", "policy.Check used but #Policies registry is empty (expected cue/policy/*.cue)", "Define #Policies map with typed policies and reload build", step.File, step.Line, step.Column)
+					break
+				}
+				p, ok := policies[policyName]
+				if !ok {
+					addWarn(stepNum, step.Action, "UNKNOWN_POLICY", fmt.Sprintf("policy '%s' is not defined in #Policies", policyName), "Allowed: "+strings.Join(sortedPolicyNames(policies), ", "), step.File, step.Line, step.Column)
+					break
+				}
+				if p.SameCompany {
+					companyExpr, _ := step.Args["companyID"].(string)
+					if strings.TrimSpace(companyExpr) == "" {
+						addWarn(stepNum, step.Action, "MISSING_COMPANY_ID", fmt.Sprintf("policy '%s' requires companyID (sameCompany=true)", policyName), "{action: \"policy.Check\", policy: \""+policyName+"\", user: \"currentUser\", companyID: \"req.CompanyID\"}", step.File, step.Line, step.Column)
+					}
+				}
+
 			case "policy.Evaluate", "policy.Require", "policy.Decide":
 				for _, key := range []string{"decision", "reason", "effects", "output"} {
 					if out, _ := step.Args[key].(string); out != "" {
@@ -1677,19 +1878,19 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 				}
 				lookupSource, _ := step.Args["lookupSource"].(string)
 				if lookupSource != "" {
-					owner, ok := entityOwners[lookupSource]
+					_, ok := entityOwners[lookupSource]
 					if !ok {
 						addWarn(stepNum, step.Action, "UNKNOWN_ENTITY", fmt.Sprintf("Entity '%s' is not defined in any domain CUE file", lookupSource), "Define the entity in cue/domain/ or check spelling", step.File, step.Line, step.Column)
 					} else if isDTO[lookupSource] {
 						addWarn(stepNum, step.Action, "DTO_AS_REPO", fmt.Sprintf("Entity '%s' is a DTO-only entity and cannot be accessed via repository", lookupSource), "Remove @dto(only=true) or use a real domain entity", step.File, step.Line, step.Column)
 					}
-					isShared := strings.EqualFold(lookupSource, "Company") || strings.EqualFold(lookupSource, "APIKey") || strings.EqualFold(lookupSource, "Application") || strings.EqualFold(lookupSource, "TenderTemplate") || strings.EqualFold(lookupSource, "TenderTemplateCategory") || strings.EqualFold(lookupSource, "CompanyCategoryScore")
-					ownerMatch := strings.EqualFold(owner, svcName) ||
-						strings.EqualFold(owner+"s", svcName) ||
-						strings.EqualFold(svcName+"s", owner)
-					if ok && owner != "" && !isShared && !ownerMatch && !strings.EqualFold(svcName, "admin") && !strings.EqualFold(svcName, "audit") {
+					if violation, reason, targetService := isBoundaryViolation(lookupSource); ok && violation {
 						if !isCrossServiceAllowed(allowCrossService, svcName, lookupSource) {
-							addWarnWithSeverity(stepNum, step.Action, "ARCHITECTURE_VIOLATION", archSeverity, fmt.Sprintf("Service '%s' is not allowed to directly access entity '%s' (owned by '%s')", svcName, lookupSource, owner), fmt.Sprintf("Use events or call %sService", strings.Title(owner)), step.File, step.Line, step.Column)
+							hintTarget := strings.TrimSpace(targetService)
+							if hintTarget == "" {
+								hintTarget = "target"
+							}
+							addWarnWithSeverity(stepNum, step.Action, "ARCHITECTURE_VIOLATION", archSeverity, fmt.Sprintf("Service '%s' is not allowed to directly access entity '%s' (%s)", svcName, lookupSource, reason), fmt.Sprintf("Use events or call %sService", strings.Title(hintTarget)), step.File, step.Line, step.Column)
 						}
 					}
 				}
@@ -2907,6 +3108,239 @@ func validateFlowFirstImplCode(serviceName, methodName string, method Method, co
 	}
 }
 
+func validateValueExpr(value string) string {
+	if value == "" || strings.Contains(value, "{{") {
+		return ""
+	}
+	if _, err := parser.ParseExpr(value); err != nil {
+		return fmt.Sprintf("Invalid Go expression %q: %v", value, err)
+	}
+	return ""
+}
+
+func validateMappingAssignSafeValue(value string) string {
+	if value == "" || strings.Contains(value, "{{") {
+		return ""
+	}
+	expr, err := parser.ParseExpr(value)
+	if err != nil {
+		return ""
+	}
+	if isSafeMappingAssignExpr(expr) {
+		return ""
+	}
+	return fmt.Sprintf("Unsafe mapping.Assign value %q: only dot-path refs (req.UserID, item.Name), identifiers, and literals are allowed", value)
+}
+
+func validateSafeConditionExpr(value string) string {
+	if value == "" || strings.Contains(value, "{{") {
+		return ""
+	}
+	expr, err := parser.ParseExpr(value)
+	if err != nil {
+		return fmt.Sprintf("Invalid condition expression %q: %v", value, err)
+	}
+	if isSafeConditionExpr(expr) {
+		return ""
+	}
+	return fmt.Sprintf("Unsafe condition expression %q: only refs/literals and boolean comparisons (==, !=, <, <=, >, >=, &&, ||, !) are allowed", value)
+}
+
+func isSafeConditionExpr(expr ast.Expr) bool {
+	switch x := expr.(type) {
+	case *ast.ParenExpr:
+		return isSafeConditionExpr(x.X)
+	case *ast.BinaryExpr:
+		switch x.Op {
+		case token.LAND, token.LOR:
+			return isSafeConditionExpr(x.X) && isSafeConditionExpr(x.Y)
+		case token.EQL, token.NEQ, token.LSS, token.LEQ, token.GTR, token.GEQ:
+			return isSafeConditionValueExpr(x.X) && isSafeConditionValueExpr(x.Y)
+		default:
+			return false
+		}
+	case *ast.UnaryExpr:
+		if x.Op != token.NOT {
+			return false
+		}
+		return isSafeConditionExpr(x.X)
+	default:
+		return isSafeConditionValueExpr(expr)
+	}
+}
+
+func isSafeConditionValueExpr(expr ast.Expr) bool {
+	if id, ok := expr.(*ast.Ident); ok {
+		switch id.Name {
+		case "true", "false", "nil":
+			return true
+		}
+	}
+	return isSafeMappingAssignExpr(expr)
+}
+
+func validateSafeCallArgExpr(value string) string {
+	if value == "" || strings.Contains(value, "{{") {
+		return ""
+	}
+	expr, err := parser.ParseExpr(value)
+	if err != nil {
+		return fmt.Sprintf("Invalid argument expression %q: %v", value, err)
+	}
+	if isSafeCallArgExpr(expr) {
+		return ""
+	}
+	return fmt.Sprintf("Unsafe argument expression %q: function calls and imperative Go constructs are not allowed", value)
+}
+
+func isSafeCallArgExpr(expr ast.Expr) bool {
+	switch x := expr.(type) {
+	case *ast.ParenExpr:
+		return isSafeCallArgExpr(x.X)
+	case *ast.CallExpr:
+		return false
+	case *ast.CompositeLit:
+		if x.Type == nil || !isSafeCallArgExpr(x.Type) {
+			return false
+		}
+		for _, elt := range x.Elts {
+			switch kv := elt.(type) {
+			case *ast.KeyValueExpr:
+				if !isSafeCallArgExpr(kv.Key) || !isSafeCallArgExpr(kv.Value) {
+					return false
+				}
+			case ast.Expr:
+				if !isSafeCallArgExpr(kv) {
+					return false
+				}
+			default:
+				return false
+			}
+		}
+		return true
+	case *ast.ArrayType:
+		if x.Len != nil && !isSafeCallArgExpr(x.Len) {
+			return false
+		}
+		return x.Elt != nil && isSafeCallArgExpr(x.Elt)
+	case *ast.MapType:
+		return x.Key != nil && x.Value != nil && isSafeCallArgExpr(x.Key) && isSafeCallArgExpr(x.Value)
+	case *ast.StructType:
+		if x.Fields == nil {
+			return true
+		}
+		for _, f := range x.Fields.List {
+			if f.Type == nil || !isSafeCallArgExpr(f.Type) {
+				return false
+			}
+		}
+		return true
+	case *ast.UnaryExpr:
+		switch x.Op {
+		case token.AND, token.MUL, token.ADD, token.SUB, token.NOT:
+			return isSafeCallArgExpr(x.X)
+		default:
+			return false
+		}
+	case *ast.BinaryExpr:
+		return false
+	default:
+		return isSafeMappingAssignExpr(expr)
+	}
+}
+
+func isSafeMappingAssignExpr(expr ast.Expr) bool {
+	switch x := expr.(type) {
+	case *ast.ParenExpr:
+		return isSafeMappingAssignExpr(x.X)
+	case *ast.Ident:
+		return strings.TrimSpace(x.Name) != ""
+	case *ast.BasicLit:
+		switch x.Kind {
+		case token.STRING, token.INT, token.FLOAT, token.CHAR:
+			return true
+		default:
+			return false
+		}
+	case *ast.SelectorExpr:
+		return isSafeMappingAssignRef(x.X) && x.Sel != nil && strings.TrimSpace(x.Sel.Name) != ""
+	case *ast.IndexExpr:
+		return isSafeMappingAssignRef(x.X) && isSafeMappingAssignIndex(x.Index)
+	case *ast.IndexListExpr:
+		if !isSafeMappingAssignRef(x.X) || len(x.Indices) == 0 {
+			return false
+		}
+		for _, idx := range x.Indices {
+			if !isSafeMappingAssignIndex(idx) {
+				return false
+			}
+		}
+		return true
+	case *ast.UnaryExpr:
+		return (x.Op == token.SUB || x.Op == token.ADD || x.Op == token.NOT) && isSafeMappingAssignExpr(x.X)
+	default:
+		return false
+	}
+}
+
+func flowStringMap(v any) map[string]string {
+	if v == nil {
+		return nil
+	}
+	switch raw := v.(type) {
+	case map[string]string:
+		out := make(map[string]string, len(raw))
+		for k, val := range raw {
+			out[k] = val
+		}
+		return out
+	case map[string]any:
+		out := make(map[string]string, len(raw))
+		for k, val := range raw {
+			if s, ok := val.(string); ok {
+				out[k] = s
+				continue
+			}
+			out[k] = fmt.Sprint(val)
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func isSafeMappingAssignRef(expr ast.Expr) bool {
+	switch x := expr.(type) {
+	case *ast.ParenExpr:
+		return isSafeMappingAssignRef(x.X)
+	case *ast.Ident:
+		return strings.TrimSpace(x.Name) != ""
+	case *ast.SelectorExpr:
+		return isSafeMappingAssignRef(x.X) && x.Sel != nil && strings.TrimSpace(x.Sel.Name) != ""
+	case *ast.IndexExpr:
+		return isSafeMappingAssignRef(x.X) && isSafeMappingAssignIndex(x.Index)
+	default:
+		return false
+	}
+}
+
+func isSafeMappingAssignIndex(expr ast.Expr) bool {
+	switch x := expr.(type) {
+	case *ast.Ident:
+		return strings.TrimSpace(x.Name) != ""
+	case *ast.BasicLit:
+		return x.Kind == token.INT || x.Kind == token.STRING || x.Kind == token.CHAR
+	case *ast.SelectorExpr:
+		return isSafeMappingAssignRef(x)
+	case *ast.IndexExpr:
+		return isSafeMappingAssignRef(x)
+	case *ast.ParenExpr:
+		return isSafeMappingAssignIndex(x.X)
+	default:
+		return false
+	}
+}
+
 func validateGoSnippet(code string, file string, line int, col int) string {
 	if code == "" || strings.Contains(code, "{{") {
 		return "" // Skip templates for now
@@ -2940,4 +3374,22 @@ func isCrossServiceAllowed(allow map[string]map[string]struct{}, serviceName, en
 	}
 	_, ok = entities[entityKey]
 	return ok
+}
+
+func isSharedArchitectureEntity(entityName string) bool {
+	switch {
+	case strings.EqualFold(entityName, "Company"),
+		strings.EqualFold(entityName, "APIKey"),
+		strings.EqualFold(entityName, "Application"),
+		strings.EqualFold(entityName, "TenderTemplate"),
+		strings.EqualFold(entityName, "TenderTemplateCategory"),
+		strings.EqualFold(entityName, "CompanyCategoryScore"),
+		strings.EqualFold(entityName, "User"),
+		strings.EqualFold(entityName, "AuditLog"),
+		strings.EqualFold(entityName, "CategoryValue"),
+		strings.EqualFold(entityName, "Notification"):
+		return true
+	default:
+		return false
+	}
 }

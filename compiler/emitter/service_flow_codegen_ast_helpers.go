@@ -87,3 +87,34 @@ func flowIntArg(args map[string]any, key string, def int) int {
 func flowIntLit(n int) ast.Expr {
 	return &ast.BasicLit{Kind: token.INT, Value: strconv.Itoa(n)}
 }
+
+func flowIsAssignableTarget(target string) bool {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return false
+	}
+	return strings.Contains(target, ".") || strings.Contains(target, "[")
+}
+
+func renderFlowAssignTarget(st *flowRenderState, pad, target, expr, typ string) string {
+	if strings.TrimSpace(target) == "" || strings.TrimSpace(expr) == "" {
+		return ""
+	}
+	if flowIsAssignableTarget(target) {
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%sif err := helpers.Assign(&%s, %s); err != nil {\n", pad, target, expr))
+		b.WriteString(errReturn(st, pad+"\t", "err"))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String()
+	}
+	assign := ":="
+	if st.declared[target] {
+		assign = "="
+	}
+	st.declared[target] = true
+	st.pointers[target] = false
+	if strings.TrimSpace(typ) != "" {
+		st.types[target] = typ
+	}
+	return fmt.Sprintf("%s%s %s %s\n", pad, target, assign, expr)
+}
