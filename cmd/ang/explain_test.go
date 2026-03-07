@@ -89,3 +89,101 @@ func TestExplainInferredFlowMissing(t *testing.T) {
 		t.Fatalf("expected doc anchor")
 	}
 }
+
+func TestExplain_CUEFieldNotAllowedPattern(t *testing.T) {
+	t.Parallel()
+	item := explainFromInput(explainInput{
+		Code:    "UNKNOWN_ERROR",
+		Message: `field "soruce" not allowed`,
+	})
+	if item.Title != "Typo in flow step field name" {
+		t.Fatalf("unexpected title: %s", item.Title)
+	}
+	if item.Fix == "" || item.DocAnchor == "" {
+		t.Fatalf("expected actionable fix and doc anchor")
+	}
+}
+
+func TestExplain_CUECannotUnifyRepoGetPattern(t *testing.T) {
+	t.Parallel()
+	item := explainFromInput(explainInput{
+		Code:    "UNKNOWN_ERROR",
+		Message: "cannot unify struct with #RepoGetStep",
+	})
+	if item.Title != "Wrong repo step structure" {
+		t.Fatalf("unexpected title: %s", item.Title)
+	}
+	if item.ActionRef != "repo.Get" {
+		t.Fatalf("unexpected action ref: %s", item.ActionRef)
+	}
+}
+
+func TestExplain_CUEConflictingValuesStringPattern(t *testing.T) {
+	t.Parallel()
+	item := explainFromInput(explainInput{
+		Code:    "UNKNOWN_ERROR",
+		Message: "conflicting values int and string",
+	})
+	if item.Title != "Wrong value type in flow step" {
+		t.Fatalf("unexpected title: %s", item.Title)
+	}
+	if item.Fix == "" {
+		t.Fatalf("expected fix")
+	}
+}
+
+func TestExplain_CUEDoesNotExistPattern(t *testing.T) {
+	t.Parallel()
+	item := explainFromInput(explainInput{
+		Code:    "UNKNOWN_ERROR",
+		Message: "reference req.CompanyID does not exist",
+	})
+	if item.Title != "Reference to undefined variable" {
+		t.Fatalf("unexpected title: %s", item.Title)
+	}
+	if item.Fix == "" {
+		t.Fatalf("expected fix")
+	}
+}
+
+func TestExplain_CUEInvalidInterpolationPattern(t *testing.T) {
+	t.Parallel()
+	item := explainFromInput(explainInput{
+		Code:    "UNKNOWN_ERROR",
+		Message: "invalid interpolation: reference _field not found",
+	})
+	if item.Title != "Invalid CUE interpolation" {
+		t.Fatalf("unexpected title: %s", item.Title)
+	}
+	if item.Fix == "" || item.DocAnchor == "" {
+		t.Fatalf("expected actionable fix and doc anchor")
+	}
+}
+
+func TestExplain_CUEIncompleteValuePattern(t *testing.T) {
+	t.Parallel()
+	item := explainFromInput(explainInput{
+		Code:    "UNKNOWN_ERROR",
+		Message: "incomplete value string:",
+	})
+	if item.Title != "Incomplete CUE value" {
+		t.Fatalf("unexpected title: %s", item.Title)
+	}
+	if item.Fix == "" {
+		t.Fatalf("expected fix")
+	}
+}
+
+func TestExplain_CUEListLengthMismatchPattern(t *testing.T) {
+	t.Parallel()
+	item := explainFromInput(explainInput{
+		Code:    "UNKNOWN_ERROR",
+		Message: "incompatible list lengths: 2 and 3",
+	})
+	if item.Title != "List length mismatch" {
+		t.Fatalf("unexpected title: %s", item.Title)
+	}
+	if item.Fix == "" {
+		t.Fatalf("expected fix")
+	}
+}

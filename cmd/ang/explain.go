@@ -62,6 +62,7 @@ type explainEnvelope struct {
 }
 
 var contractErrRe = regexp.MustCompile(`\[(?P<stage>[A-Z_]+):(?P<code>[A-Z0-9_]+)\]\s*(?P<rest>.*)`)
+var quotedWordRe = regexp.MustCompile(`["']([^"']+)["']`)
 
 func runExplain(args []string) {
 	jsonOut := false
@@ -357,6 +358,9 @@ func buildFound(in explainInput) []string {
 }
 
 func inferKnowledge(code string, in explainInput) explainKnowledge {
+	if k, ok := parseCUEErrorMessage(in.Message); ok {
+		return k
+	}
 	if field, ok := missingFieldFromCode(code); ok {
 		return explainKnowledge{
 			Title:       "Missing required field",
@@ -408,6 +412,106 @@ func inferKnowledge(code string, in explainInput) explainKnowledge {
 			DocAnchor:   "docs/flow-semantics.md",
 		}
 	}
+}
+
+func parseCUEErrorMessage(msg string) (explainKnowledge, bool) {
+	m := strings.TrimSpace(msg)
+	if m == "" {
+		return explainKnowledge{}, false
+	}
+	lm := strings.ToLower(m)
+
+	switch {
+	case strings.Contains(lm, "field") && strings.Contains(lm, "not allowed"):
+		field := extractQuotedWord(m)
+		desc := "Field is not part of the action schema."
+		fix := "Remove/rename the field. Run `ang actions --json` to view valid fields for this action."
+		if field != "" {
+			desc = fmt.Sprintf("Field %q is not part of the action schema.", field)
+			fix = fmt.Sprintf("Remove or rename field %q. Run `ang actions --json` to see valid fields for this action.", field)
+		}
+		return explainKnowledge{
+			Title:       "Typo in flow step field name",
+			Description: desc,
+			Fix:         fix,
+			Hint:        "Common typos: soruce→source, ouput→output, conidtion→condition",
+			DocAnchor:   "docs/flow-semantics.md#validation-model",
+			Expected:    []string{"only action-supported fields are present"},
+		}, true
+
+	case strings.Contains(lm, "cannot unify") && strings.Contains(m, "#RepoGetStep"):
+		return explainKnowledge{
+			Title:       "Wrong repo step structure",
+			Description: "CUE cannot unify the provided step with #RepoGetStep contract.",
+			Fix:         "Use: {action: \"repo.Get\", source: \"EntityName\", input: \"req.ID\", output: \"entity\"}",
+			ActionRef:   "repo.Get",
+			Hint:        "Check step shape and required fields for repo.Get.",
+			DocAnchor:   "docs/flow-semantics.md#validation-model",
+			Expected:    []string{"repo.Get with source/input/output"},
+		}, true
+
+	case strings.Contains(lm, "conflicting values") && strings.Contains(lm, "string"):
+		return explainKnowledge{
+			Title:       "Wrong value type in flow step",
+			Description: "CUE detected conflicting values where string type was expected.",
+			Fix:         "Check field type in `ang actions --json`. String fields need proper quoting: value: \"\\\"literal\\\"\" or value: \"req.Field\".",
+			Hint:        "Do not pass non-string values into string-typed action arguments.",
+			DocAnchor:   "docs/flow-semantics.md#validation-model",
+			Expected:    []string{"value type matches action field type"},
+		}, true
+
+	case strings.Contains(lm, "does not exist"):
+		return explainKnowledge{
+			Title:       "Reference to undefined variable",
+			Description: "Expression references a variable that was never declared in flow scope.",
+			Fix:         "Declare variable before use (e.g. add repo.Find/repo.Get/mapping.Map step earlier in flow).",
+			Hint:        "Flow variables must be produced by previous steps (output/declarations).",
+			DocAnchor:   "docs/flow-semantics.md#validation-model",
+			Expected:    []string{"referenced variables are declared before use"},
+		}, true
+
+	case strings.Contains(lm, "invalid interpolation"):
+		return explainKnowledge{
+			Title:       "Invalid CUE interpolation",
+			Description: "String interpolation references invalid/missing symbol or has malformed syntax.",
+			Fix:         "Check interpolation placeholders and available scope. Ensure each \\(expr) references a declared symbol and valid path.",
+			Hint:        "Example: \"resp.\\(_field)\" requires _field to exist in current CUE struct scope.",
+			DocAnchor:   "docs/flow-semantics.md#validation-model",
+			Expected:    []string{"all interpolation placeholders resolve to valid symbols"},
+		}, true
+
+	case strings.Contains(lm, "incomplete value"):
+		return explainKnowledge{
+			Title:       "Incomplete CUE value",
+			Description: "CUE value is not fully concrete where compiler expects a final value.",
+			Fix:         "Provide a concrete value for required fields (or defaults) at this location. Remove unresolved disjunctions/placeholders.",
+			Hint:        "Run `ang validate` and fill missing required fields in the referenced operation/entity.",
+			DocAnchor:   "docs/flow-semantics.md#validation-model",
+			Expected:    []string{"required fields resolved to concrete values"},
+		}, true
+
+	case strings.Contains(lm, "incompatible list lengths"),
+		strings.Contains(lm, "list length mismatch"),
+		strings.Contains(lm, "mismatched list lengths"):
+		return explainKnowledge{
+			Title:       "List length mismatch",
+			Description: "CUE detected conflicting list constraints/values with different lengths.",
+			Fix:         "Align list lengths across merged values, or avoid position-based unification by using keyed maps where possible.",
+			Hint:        "Check overlays/patches that redefine the same list with different element counts.",
+			DocAnchor:   "docs/flow-semantics.md#validation-model",
+			Expected:    []string{"unified list constraints have compatible lengths"},
+		}, true
+	}
+
+	return explainKnowledge{}, false
+}
+
+func extractQuotedWord(msg string) string {
+	match := quotedWordRe.FindStringSubmatch(msg)
+	if len(match) < 2 {
+		return ""
+	}
+	return strings.TrimSpace(match[1])
 }
 
 func missingFieldFromCode(code string) (string, bool) {
