@@ -223,7 +223,7 @@ func renderFlowStepControlLegacyDeprecatedMonolith(st *flowRenderState, step nor
 
 	case "event.Publish":
 		name := arg("name")
-		payload := renderEventPayloadExpr(step, name, arg)
+		payload := renderEventPayloadExpr(st, step, name, arg)
 		if name == "" || payload == "" {
 			return ""
 		}

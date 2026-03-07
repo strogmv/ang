@@ -63,7 +63,7 @@ func TestValidateFlowSteps_MappingAssignRejectsFunctionCall(t *testing.T) {
 		Action: "mapping.Assign",
 		Args: map[string]any{
 			"to":    "resp.ID",
-			"value": "uuid.NewString()",
+			"value": "strings.TrimSpace(req.Name)",
 		},
 	}}
 

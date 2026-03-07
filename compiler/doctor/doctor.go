@@ -64,12 +64,16 @@ func NewAnalyzer(projectRoot string) *Analyzer {
 func DetectErrorCodes(log string) []string {
 	re := regexp.MustCompile(`\b(E_[A-Z0-9_]+|[A-Z]+_[A-Z0-9_]*_ERROR)\b`)
 	matches := re.FindAllString(log, -1)
-	if len(matches) == 0 {
-		return nil
-	}
 
 	known := map[string]struct{}{
-		"E_FSM_UNDEFINED_STATE": {},
+		"E_FSM_UNDEFINED_STATE":   {},
+		"MISSING_ID":              {},
+		"MISSING_CREATED_AT":      {},
+		"UNKNOWN_ACTION":          {},
+		"E_FLOW_UNKNOWN_ACTION":   {},
+		"E_FLOW_TOO_LARGE":        {},
+		"W_FLOW_OUTBOX_PREFERRED": {},
+		"GO_UNDEFINED_SELECTOR":   {},
 	}
 	for _, c := range compiler.StableErrorCodes {
 		known[c] = struct{}{}
@@ -80,6 +84,14 @@ func DetectErrorCodes(log string) []string {
 		if _, ok := known[m]; ok {
 			uniq[m] = struct{}{}
 		}
+	}
+	for extra := range known {
+		if strings.Contains(log, extra) {
+			uniq[extra] = struct{}{}
+		}
+	}
+	if strings.Contains(log, "undefined: req.") {
+		uniq["GO_UNDEFINED_SELECTOR"] = struct{}{}
 	}
 	if len(uniq) == 0 {
 		return nil
@@ -312,6 +324,66 @@ func defaultPatchTemplate(code string) map[string]any {
 
 func suggestionForCode(code, log string) Suggestion {
 	switch code {
+	case "MISSING_ID":
+		return Suggestion{
+			Code:         code,
+			Fix:          "Add mapping.Assign before repo.Save: {action: \"mapping.Assign\", to: \"<entityVar>.ID\", value: \"uuid.NewString()\"}.",
+			CanAutoApply: true,
+			Patch: map[string]any{
+				"op":    "insert_before_repo_save",
+				"field": "ID",
+				"value": "uuid.NewString()",
+			},
+		}
+	case "MISSING_CREATED_AT":
+		return Suggestion{
+			Code:         code,
+			Fix:          "Add mapping.Assign before repo.Save: {action: \"mapping.Assign\", to: \"<entityVar>.CreatedAt\", value: \"time.Now().UTC().Format(time.RFC3339)\"}.",
+			CanAutoApply: true,
+			Patch: map[string]any{
+				"op":    "insert_before_repo_save",
+				"field": "CreatedAt",
+				"value": "time.Now().UTC().Format(time.RFC3339)",
+			},
+		}
+	case "UNKNOWN_ACTION", "E_FLOW_UNKNOWN_ACTION":
+		return Suggestion{
+			Code:         code,
+			Fix:          "Fix typo in action name. Run `ang actions --json` and replace with canonical action (doctor --fix can auto-correct obvious typos with Levenshtein<=2).",
+			CanAutoApply: true,
+			Patch: map[string]any{
+				"op": "rename_unknown_action",
+			},
+		}
+	case "E_FLOW_TOO_LARGE":
+		return Suggestion{
+			Code:         code,
+			Fix:          "Split large flow into sub-operations and call them via flow.Call. Suggested scaffold:\n1) Extract validation block to <Service>.Validate...\n2) Extract persistence block to <Service>.Persist...\n3) Keep orchestration op with flow.Call steps only.",
+			CanAutoApply: false,
+			Patch: map[string]any{
+				"op": "split_flow_scaffold",
+			},
+		}
+	case "W_FLOW_OUTBOX_PREFERRED":
+		return Suggestion{
+			Code:         code,
+			Fix:          "Replace event.Publish with event.Outbox when flow writes DB state in same operation.",
+			CanAutoApply: true,
+			Patch: map[string]any{
+				"op":   "replace_action",
+				"from": "event.Publish",
+				"to":   "event.Outbox",
+			},
+		}
+	case "GO_UNDEFINED_SELECTOR":
+		return Suggestion{
+			Code:         code,
+			Fix:          "Go selector mismatch in generated code (e.g. req.TenderId vs req.TenderID). Align field names to ANG canonical CamelCase/ID style in CUE expressions.",
+			CanAutoApply: false,
+			Patch: map[string]any{
+				"op": "suggest_selector_fix",
+			},
+		}
 	case "E_FSM_UNDEFINED_STATE":
 		path, _, entity, state := parseFSMLocation(log)
 		return Suggestion{

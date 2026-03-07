@@ -525,21 +525,19 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 
 	case "event.Broadcast":
 		name := arg("name")
-		payload := arg("payload")
+		payload := renderEventPayloadExpr(st, step, name, arg)
 		if name == "" || payload == "" {
 			return "", true
 		}
-		payload = normalizePayloadExpr(payload)
 		return fmt.Sprintf("%sif s.publisher != nil {\n%s\t_ = s.publisher.Broadcast%s(ctx, %s)\n%s}\n",
 			pad, pad, ExportName(name), payload, pad), true
 
 	case "event.Outbox":
 		name := arg("name")
-		payload := arg("payload")
+		payload := renderEventPayloadExpr(st, step, name, arg)
 		if name == "" || payload == "" {
 			return "", true
 		}
-		payload = normalizePayloadExpr(payload)
 		idExpr := arg("id")
 		if idExpr == "" {
 			idExpr = "uuid.NewString()"

@@ -8,6 +8,9 @@ import (
 )
 
 {{- if and .Method (not (mapHas .Overrides .Method.Name)) }}
+{{- if .Method.Source }}
+// Generated from: {{ .Method.Source }}
+{{- end }}
 {{ ServiceImplMethodSignature .Service.Name .Method }} {
 	{{- if and .Method.Impl .Method.Impl.Code }}
 {{ Indent (CleanImplCode .Method.Impl.Code .Method.Output.Name) 1 }}

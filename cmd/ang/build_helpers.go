@@ -29,6 +29,7 @@ type OutputOptions struct {
 	OutPlan             string
 	PlanJSON            bool
 	RunTests            bool
+	SkipGoVerify        bool
 }
 
 func parseOutputOptions(args []string) (OutputOptions, error) {
@@ -49,6 +50,7 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 	outPlan := fs.String("out-plan", "", "Path to write generated build plan (for --phase=plan|all)")
 	planJSON := fs.Bool("json", false, "Print build plan as JSON (for --phase=plan|apply)")
 	runTests := fs.Bool("run-tests", false, "Run go test ./... for generated Go targets after successful build")
+	skipGoVerify := fs.Bool("skip-go-verify", false, "Skip post-build go verify (go build ./internal/...)")
 	if err := fs.Parse(args); err != nil {
 		return OutputOptions{}, err
 	}
@@ -83,6 +85,7 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 		OutPlan:             strings.TrimSpace(*outPlan),
 		PlanJSON:            *planJSON,
 		RunTests:            *runTests,
+		SkipGoVerify:        *skipGoVerify,
 	}
 	if opts.FrontendDir == "" {
 		opts.FrontendDir = "sdk"

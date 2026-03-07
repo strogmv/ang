@@ -109,7 +109,7 @@ func (e *Emitter) EmitFrontendAdminFromIR(schema *ir.Schema) error {
 }
 
 func (e *Emitter) EmitServiceImplFromIR(schema *ir.Schema, auth *normalizer.AuthDef) error {
-	return e.EmitServiceImpl(schema.Services, schema.Entities, auth)
+	return e.EmitServiceImpl(schema.Services, schema.Entities, schema.Events, auth)
 }
 
 func (e *Emitter) EmitCachedServiceFromIR(schema *ir.Schema) error {

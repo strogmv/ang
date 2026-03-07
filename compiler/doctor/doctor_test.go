@@ -92,3 +92,24 @@ func TestAnalyze_IRMigrationHint(t *testing.T) {
 		t.Fatalf("expected suggestion for %s", compiler.ErrCodeIRVersionMigration)
 	}
 }
+
+func TestDetectErrorCodes_CustomAndGoUndefined(t *testing.T) {
+	log := `
+⚠️  ERROR [MISSING_ID]: missing id
+   at cue/api/orders.cue:10:2
+⚠️  ERROR [W_FLOW_OUTBOX_PREFERRED]: prefer outbox
+   at cue/api/orders.cue:20:2
+# github.com/acme/app/internal/service
+internal/service/orders.go:15: undefined: req.TenderId
+`
+	got := DetectErrorCodes(log)
+	set := map[string]bool{}
+	for _, c := range got {
+		set[c] = true
+	}
+	for _, want := range []string{"MISSING_ID", "W_FLOW_OUTBOX_PREFERRED", "GO_UNDEFINED_SELECTOR"} {
+		if !set[want] {
+			t.Fatalf("expected code %s in %+v", want, got)
+		}
+	}
+}

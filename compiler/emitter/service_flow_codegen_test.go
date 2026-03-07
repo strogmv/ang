@@ -673,6 +673,7 @@ func TestRenderFlow_NewDataTransformActions(t *testing.T) {
 		{Action: "ulid.New", Args: map[string]any{"output": "ulid"}},
 		{Action: "time.Now", Args: map[string]any{"output": "createdAt"}},
 		{Action: "time.Now", Args: map[string]any{"output": "resp.CreatedAt"}},
+		{Action: "time.Format", Args: map[string]any{"input": "createdAt", "output": "createdAtRFC3339", "format": "time.RFC3339"}},
 		{Action: "math.Op", Args: map[string]any{"op": `"round"`, "value": "req.Amount", "precision": 2, "output": "rounded"}},
 		{Action: "jsonpath.Get", Args: map[string]any{"input": "req.Payload", "path": `"$.user.email"`, "output": "email"}},
 		{Action: "jsonpath.Set", Args: map[string]any{"input": "req.Payload", "path": `"$.user.role"`, "value": `"admin"`, "output": "patched"}},
@@ -691,6 +692,7 @@ func TestRenderFlow_NewDataTransformActions(t *testing.T) {
 		"base32.NewEncoding",
 		"createdAt := time.Now().UTC()",
 		"helpers.Assign(&resp.CreatedAt, time.Now().UTC())",
+		"createdAtRFC3339 := createdAt.Format(time.RFC3339)",
 		"math.Round",
 		"strings.TrimPrefix(_jpPath",
 		"jsonpath.Set: input must be map[string]any",
@@ -752,6 +754,111 @@ func TestRenderFlow_EventPublishPayloadMap(t *testing.T) {
 	mustContain := []string{
 		"s.publisher.PublishTenderClosed",
 		`domain.TenderClosed{Status: "closed", TenderID: req.TenderID}`,
+	}
+	for _, part := range mustContain {
+		if !strings.Contains(code, part) {
+			t.Fatalf("expected generated code to contain %q\n\n%s", part, code)
+		}
+	}
+}
+
+func TestRenderFlow_EventPublishPayloadMapTypeCoercion(t *testing.T) {
+	steps := []normalizer.FlowStep{
+		{
+			Action: "repo.Find",
+			Args: map[string]any{
+				"source": "Bid",
+				"input":  "req.BidID",
+				"output": "bid",
+			},
+		},
+		{
+			Action: "event.Publish",
+			Args: map[string]any{
+				"name": "BidPlaced",
+				"payloadMap": map[string]any{
+					"CreatedAt": "bid.CreatedAt",
+					"Amount":    "bid.Amount",
+				},
+			},
+		},
+	}
+	entities := []normalizer.Entity{
+		{
+			Name: "Bid",
+			Fields: []normalizer.Field{
+				{Name: "CreatedAt", Type: "time.Time"},
+				{Name: "Amount", Type: "float64"},
+			},
+		},
+	}
+	events := []normalizer.EventDef{
+		{
+			Name: "BidPlaced",
+			Fields: []normalizer.Field{
+				{Name: "CreatedAt", Type: "string"},
+				{Name: "Amount", Type: "string"},
+			},
+		},
+	}
+
+	code := renderFlowForServiceWithSchema("Tender", steps, entities, events)
+	mustContain := []string{
+		"s.publisher.PublishBidPlaced",
+		"CreatedAt: bid.CreatedAt.Format(time.RFC3339)",
+		"Amount: fmt.Sprint(bid.Amount)",
+	}
+	for _, part := range mustContain {
+		if !strings.Contains(code, part) {
+			t.Fatalf("expected generated code to contain %q\n\n%s", part, code)
+		}
+	}
+}
+
+func TestRenderFlow_EventPublish_EmptyPayloadMapStillPublishes(t *testing.T) {
+	steps := []normalizer.FlowStep{
+		{
+			Action: "event.Publish",
+			Args: map[string]any{
+				"name":       "Heartbeat",
+				"payloadMap": map[string]any{},
+			},
+		},
+	}
+
+	code := renderFlow(steps)
+	mustContain := []string{
+		"s.publisher.PublishHeartbeat",
+		"domain.Heartbeat{}",
+	}
+	for _, part := range mustContain {
+		if !strings.Contains(code, part) {
+			t.Fatalf("expected generated code to contain %q\n\n%s", part, code)
+		}
+	}
+}
+
+func TestRenderFlow_EventPublish_NoPayloadStillPublishesEmptyStruct(t *testing.T) {
+	steps := []normalizer.FlowStep{
+		{
+			Action: "event.Publish",
+			Args: map[string]any{
+				"name": "Heartbeat",
+			},
+		},
+		{
+			Action: "event.Broadcast",
+			Args: map[string]any{
+				"name": "Heartbeat",
+			},
+		},
+	}
+
+	code := renderFlow(steps)
+	mustContain := []string{
+		"s.publisher.PublishHeartbeat",
+		"s.publisher.BroadcastHeartbeat",
+		"domain.Heartbeat{}",
 	}
 	for _, part := range mustContain {
 		if !strings.Contains(code, part) {

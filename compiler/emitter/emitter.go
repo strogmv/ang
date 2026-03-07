@@ -1575,7 +1575,7 @@ func WriteFileIfChanged(filename string, data []byte, perm os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(filename), 0755); err != nil {
 		return err
 	}
-	return os.WriteFile(filename, data, perm)
+	return writeFileAtomic(filename, data, perm)
 }
 
 func (e *Emitter) RenderTemplate(name, text string, data interface{}) (string, error) {

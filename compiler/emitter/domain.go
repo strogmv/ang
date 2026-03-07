@@ -187,7 +187,7 @@ func (e *Emitter) EmitDomain(entities []ir.Entity) error {
 		path := filepath.Join(targetDir, filename)
 		keep[filename] = struct{}{}
 
-		if err := os.WriteFile(path, formatted, 0644); err != nil {
+		if err := writeFileAtomic(path, formatted, 0644); err != nil {
 			return fmt.Errorf("failed to write file %s: %w", path, err)
 		}
 		fmt.Printf("Generated: %s\n", path)
@@ -277,7 +277,7 @@ func (e *Emitter) emitProjections(targetDir string, projections []DomainTemplate
 		return fmt.Errorf("failed to format projections source: %w", err)
 	}
 
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := writeFileAtomic(path, formatted, 0644); err != nil {
 		return fmt.Errorf("failed to write projections file %s: %w", path, err)
 	}
 	fmt.Printf("Generated Projections: %s\n", path)
@@ -315,7 +315,7 @@ func (e *Emitter) EmitEvents(events []ir.Event) error {
 	}
 
 	path := filepath.Join(targetDir, "events.go")
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
+	if err := writeFileAtomic(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	fmt.Printf("Generated Events: %s\n", path)

@@ -1923,3 +1923,17 @@ RefTimeNow: schema.#Operation & {
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2003: time.Format
+// ----------------------------------------------------------------------------
+RefTimeFormat: schema.#Operation & {
+	service: "reference"
+	input: { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "time.Now", output: "now"},
+		{action: "time.Format", input: "now", output: "nowRFC3339", format: "time.RFC3339"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}

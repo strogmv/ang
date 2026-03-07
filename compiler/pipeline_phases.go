@@ -46,6 +46,7 @@ type NormalizePhaseOutput struct {
 // FlowSemPhaseInput is the explicit contract accepted by the flow semantics phase.
 type FlowSemPhaseInput struct {
 	Services []normalizer.Service
+	Events   []normalizer.EventDef
 }
 
 // RunSemanticPhases runs parse -> normalize -> flowsem and returns typed semantic output.
@@ -76,6 +77,7 @@ func runSemanticPhases(basePath string, opts PipelineOptions) (NormalizePhaseOut
 
 	runFlowSemPhase(FlowSemPhaseInput{
 		Services: normalized.Services,
+		Events:   normalized.Events,
 	}, opts)
 
 	broadcastOnly, planned, compatAllowBreaking := loadEventAnnotations(basePath)
@@ -338,12 +340,15 @@ func runNormalizePhase(parsed ParsePhaseOutput, opts PipelineOptions) (Normalize
 }
 
 func runFlowSemPhase(in FlowSemPhaseInput, opts PipelineOptions) {
+	flowSemOpts := flowsem.ValidateOptions{
+		Events: toFlowSemEvents(in.Events),
+	}
 	for _, svc := range in.Services {
 		for _, m := range svc.Methods {
 			if len(m.Flow) == 0 {
 				continue
 			}
-			issues := flowsem.Validate(toFlowSemSteps(m.Flow))
+			issues := flowsem.ValidateWithOptions(toFlowSemSteps(m.Flow), flowSemOpts)
 			for _, issue := range issues {
 				sev := issue.Severity
 				if sev == "" {
@@ -366,6 +371,21 @@ func runFlowSemPhase(in FlowSemPhaseInput, opts PipelineOptions) {
 			}
 		}
 	}
+}
+
+func toFlowSemEvents(events []normalizer.EventDef) []flowsem.EventDef {
+	out := make([]flowsem.EventDef, 0, len(events))
+	for _, evt := range events {
+		fields := make([]flowsem.EventField, 0, len(evt.Fields))
+		for _, f := range evt.Fields {
+			fields = append(fields, flowsem.EventField{Name: f.Name})
+		}
+		out = append(out, flowsem.EventDef{
+			Name:   evt.Name,
+			Fields: fields,
+		})
+	}
+	return out
 }
 
 func toFlowSemSteps(steps []normalizer.FlowStep) []flowsem.Step {

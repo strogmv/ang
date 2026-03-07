@@ -268,6 +268,91 @@ func TestValidate_RequiredArgTypeMismatch(t *testing.T) {
 	}
 }
 
+func TestValidate_InvalidGoExprInRawArgs(t *testing.T) {
+	t.Parallel()
+	issues := Validate([]Step{
+		{
+			Action: "mapping.Assign",
+			Args: map[string]any{
+				"to":    "resp.ID",
+				"value": "req..UserID",
+			},
+		},
+		{
+			Action: "math.Expr",
+			Args: map[string]any{
+				"expr":   "req.Price *",
+				"output": "price",
+			},
+		},
+		{
+			Action: "logic.Check",
+			Args: map[string]any{
+				"condition": "req.CompanyID ==",
+				"throw":     "invalid",
+			},
+		},
+		{
+			Action: "logic.Call",
+			Args: map[string]any{
+				"func": "s.AuthService..Login",
+			},
+		},
+	})
+
+	count := 0
+	for _, it := range issues {
+		if it.Code == "INVALID_GO_EXPR" {
+			count++
+		}
+	}
+	if count != 4 {
+		t.Fatalf("expected 4 INVALID_GO_EXPR issues, got %d: %+v", count, issues)
+	}
+}
+
+func TestValidate_MappingAssignSafeValueWhitelist(t *testing.T) {
+	t.Parallel()
+	issues := Validate([]Step{
+		{Action: "mapping.Assign", Args: map[string]any{"to": "resp.UserID", "value": "req.UserID"}},
+		{Action: "mapping.Assign", Args: map[string]any{"to": "resp.Status", "value": "\"draft\""}},
+		{Action: "mapping.Assign", Args: map[string]any{"to": "resp.Count", "value": "42"}},
+		{Action: "mapping.Assign", Args: map[string]any{"to": "resp.Enabled", "value": "true"}},
+		{Action: "mapping.Assign", Args: map[string]any{"to": "resp.ID", "value": "uuid.NewString()"}},
+		{Action: "mapping.Assign", Args: map[string]any{"to": "resp.Now", "value": "time.Now().UTC()"}},
+		{Action: "mapping.Assign", Args: map[string]any{"to": "resp.NowRFC3339", "value": "time.Now().UTC().Format(time.RFC3339)"}},
+	})
+
+	for _, it := range issues {
+		if it.Code == "INVALID_GO_EXPR" || it.Code == "RAW_GO_EXPR_IN_ASSIGN" {
+			t.Fatalf("did not expect mapping.Assign expression issue, got %+v", issues)
+		}
+	}
+}
+
+func TestValidate_MappingAssignRawGoExprWarning(t *testing.T) {
+	t.Parallel()
+	issues := Validate([]Step{
+		{
+			Action: "mapping.Assign",
+			Args: map[string]any{
+				"to":    "resp.Name",
+				"value": "strings.TrimSpace(req.Name)",
+			},
+		},
+	})
+
+	for _, it := range issues {
+		if it.Code == "RAW_GO_EXPR_IN_ASSIGN" {
+			if it.Severity != "warn" {
+				t.Fatalf("expected warn severity, got %q", it.Severity)
+			}
+			return
+		}
+	}
+	t.Fatalf("expected RAW_GO_EXPR_IN_ASSIGN issue, got %+v", issues)
+}
+
 func TestValidate_OptionalArgTypeMismatch(t *testing.T) {
 	t.Parallel()
 	issues := Validate([]Step{
@@ -892,6 +977,119 @@ func TestValidate_MessagingAsyncActionConstraints(t *testing.T) {
 	}
 }
 
+func TestValidate_EventPublishUnknownEvent(t *testing.T) {
+	t.Parallel()
+
+	issues := ValidateWithOptions([]Step{{
+		Action: "event.Publish",
+		Args: map[string]any{
+			"name":       "TenderReportReady",
+			"payloadMap": map[string]any{"TenderID": "req.TenderID"},
+		},
+	}}, ValidateOptions{
+		Events: []EventDef{
+			{Name: "BidPlaced", Fields: []EventField{{Name: "BidID"}}},
+		},
+	})
+
+	found := false
+	for _, it := range issues {
+		if it.Code == "UNKNOWN_EVENT" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected UNKNOWN_EVENT, got %+v", issues)
+	}
+}
+
+func TestValidate_EventPublishPayloadMapAgainstSchema(t *testing.T) {
+	t.Parallel()
+
+	issues := ValidateWithOptions([]Step{{
+		Action: "event.Publish",
+		Args: map[string]any{
+			"name": "BidPlaced",
+			"payloadMap": map[string]any{
+				"BidID":      "bid.ID",
+				"NotAField":  "bid.Price",
+				"CreatedAt":  "bid.CreatedAt",
+				"CompanyID":  "bid.CompanyID",
+				"TenderID":   "bid.TenderID",
+				"SupplierID": "bid.SupplierID",
+			},
+		},
+	}}, ValidateOptions{
+		Events: []EventDef{
+			{
+				Name: "BidPlaced",
+				Fields: []EventField{
+					{Name: "BidID"},
+					{Name: "CreatedAt"},
+					{Name: "CompanyID"},
+					{Name: "TenderID"},
+					{Name: "SupplierID"},
+				},
+			},
+		},
+	})
+
+	found := false
+	for _, it := range issues {
+		if it.Code == "PAYLOAD_FIELD_NOT_IN_EVENT" && it.Action == "event.Publish" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected PAYLOAD_FIELD_NOT_IN_EVENT for event.Publish, got %+v", issues)
+	}
+}
+
+func TestValidate_EventOutboxAndBroadcastPayloadMapAgainstSchema(t *testing.T) {
+	t.Parallel()
+
+	issues := ValidateWithOptions([]Step{
+		{
+			Action: "event.Outbox",
+			Args: map[string]any{
+				"name":       "OrderCreated",
+				"payload":    "order",
+				"payloadMap": map[string]any{"OrderID": "order.ID", "Unknown": "order.Status"},
+			},
+		},
+		{
+			Action: "event.Broadcast",
+			Args: map[string]any{
+				"name":       "OrderCreated",
+				"payloadMap": map[string]any{"OrderID": "order.ID", "AnotherUnknown": "order.Status"},
+			},
+		},
+	}, ValidateOptions{
+		Events: []EventDef{
+			{Name: "OrderCreated", Fields: []EventField{{Name: "OrderID"}}},
+		},
+	})
+
+	foundOutbox := false
+	foundBroadcast := false
+	for _, it := range issues {
+		if it.Code != "PAYLOAD_FIELD_NOT_IN_EVENT" {
+			continue
+		}
+		if it.Action == "event.Outbox" {
+			foundOutbox = true
+		}
+		if it.Action == "event.Broadcast" {
+			foundBroadcast = true
+		}
+	}
+	if !foundOutbox || !foundBroadcast {
+		t.Fatalf("expected PAYLOAD_FIELD_NOT_IN_EVENT for outbox+broadcast, got %+v", issues)
+	}
+}
+
 func TestValidateServiceCallKnown(t *testing.T) {
 	t.Parallel()
 	issues := Validate([]Step{{
@@ -906,5 +1104,27 @@ func TestValidateServiceCallKnown(t *testing.T) {
 		if it.Code == "UNKNOWN_ACTION" {
 			t.Fatalf("unexpected UNKNOWN_ACTION for %s", it.Action)
 		}
+	}
+}
+
+func TestValidate_TimeFormatKnownAndConstraints(t *testing.T) {
+	t.Parallel()
+
+	issues := Validate([]Step{
+		{Action: "time.Format", Args: map[string]any{"input": "item.CreatedAt", "output": "createdAtStr", "format": "time.RFC3339"}},
+		{Action: "time.Format", Args: map[string]any{"input": "item.CreatedAt"}},
+	})
+
+	foundMissingOutput := false
+	for _, it := range issues {
+		if it.Code == "MISSING_OUTPUT" {
+			foundMissingOutput = true
+		}
+		if it.Code == "UNKNOWN_ACTION" {
+			t.Fatalf("unexpected UNKNOWN_ACTION for %s", it.Action)
+		}
+	}
+	if !foundMissingOutput {
+		t.Fatalf("expected MISSING_OUTPUT for invalid time.Format step, got %+v", issues)
 	}
 }

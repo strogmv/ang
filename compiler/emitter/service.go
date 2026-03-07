@@ -146,7 +146,7 @@ func (e *Emitter) EmitService(services []ir.Service) error {
 
 		filename := strings.ToLower(svc.Name) + ".go"
 		path := filepath.Join(targetDir, filename)
-		if err := os.WriteFile(path, formatted, 0644); err != nil {
+		if err := writeFileAtomic(path, formatted, 0644); err != nil {
 			return err
 		}
 		fmt.Printf("Generated Service Port: %s\n", path)
@@ -155,7 +155,7 @@ func (e *Emitter) EmitService(services []ir.Service) error {
 	return nil
 }
 
-func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, auth *normalizer.AuthDef) error {
+func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, events []ir.Event, auth *normalizer.AuthDef) error {
 	scaffoldTmplContent, err := ReadTemplateByPath(serviceImplScaffoldTemplatePath)
 	if err != nil {
 		return err
@@ -166,6 +166,7 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 	}
 	nServices := IRServicesToNormalizer(services)
 	nEntities := IREntitiesToNormalizer(entities)
+	nEvents := IREventsToNormalizer(events)
 
 	funcMapImpl := e.getSharedFuncMap()
 	funcMapImpl["ServiceImplTypeDecl"] = func(svc normalizer.Service, entities []normalizer.Entity, auth *normalizer.AuthDef) (string, error) {
@@ -180,7 +181,7 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 	funcMapImpl["CleanImplCode"] = cleanImplCode
 	funcMapImpl["FlowRenderable"] = flowRenderable
 	funcMapImpl["RenderFlow"] = func(serviceName string, steps []normalizer.FlowStep) string {
-		return renderFlowForService(serviceName, steps)
+		return renderFlowForServiceWithSchema(serviceName, steps, nEntities, nEvents)
 	}
 	funcMapImpl["RenderImplSteps"] = func(svc normalizer.Service, steps []normalizer.ImplStep, serviceName, methodName string) string {
 		return renderImplSteps(svc, steps, serviceName, methodName)
@@ -477,7 +478,7 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 			return err
 		}
 		scaffoldPath := filepath.Join(targetDir, scaffoldFile)
-		if err := os.WriteFile(scaffoldPath, scaffoldFormatted, 0644); err != nil {
+		if err := writeFileAtomic(scaffoldPath, scaffoldFormatted, 0644); err != nil {
 			return err
 		}
 		fmt.Printf("Generated Service Impl Scaffold: %s\n", scaffoldPath)
@@ -516,7 +517,7 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, a
 				return err
 			}
 			methodPath := filepath.Join(targetDir, methodFile)
-			if err := os.WriteFile(methodPath, methodFormatted, 0644); err != nil {
+			if err := writeFileAtomic(methodPath, methodFormatted, 0644); err != nil {
 				return err
 			}
 			fmt.Printf("Generated Service Impl Method: %s\n", methodPath)
@@ -728,7 +729,7 @@ func (e *Emitter) EmitCachedService(services []ir.Service) error {
 
 		filename := strings.ToLower(svc.Name) + "_cached.go"
 		path := filepath.Join(targetDir, filename)
-		if err := os.WriteFile(path, formatted, 0644); err != nil {
+		if err := writeFileAtomic(path, formatted, 0644); err != nil {
 			return err
 		}
 		fmt.Printf("Generated Cached Service: %s\n", path)

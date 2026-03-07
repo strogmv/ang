@@ -2,6 +2,7 @@ package emitter
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -69,7 +70,7 @@ func flowActionSupported(action string) bool {
 		"auth.RequireRole", "auth.CheckRole", "rbac.CheckPermission",
 		"entity.PatchNonZero", "entity.PatchValidated", "field.CopyNonEmpty",
 		"enum.Validate",
-		"time.Now", "time.Parse", "time.CheckExpiry",
+		"time.Now", "time.Parse", "time.Format", "time.CheckExpiry",
 		"map.Build",
 		"fsm.Transition",
 		"notification.Dispatch", "notify.Dispatch", "notify.Send",
@@ -189,29 +190,33 @@ type flowRenderState struct {
 	declared map[string]bool
 	// pointers tracks whether a declared variable is a pointer type (from repo.Find/Get)
 	// vs a value type (from mapping.Assign declare). Used to decide whether to pass &var to repo.Save.
-	pointers      map[string]bool
-	types         map[string]string // varName → Go type (e.g. "*domain.User", "[]domain.Order")
-	goroutineMode bool              // if true, errors set _pErr/_mu instead of returning
-	stepN         *int              // shared monotonic counter; unique suffix for internal temp vars
-	returnErrOnly bool              // if true, errReturn emits `return err` for inner error closures
-	concurrMode   string            // "parallel" | "join" | "race" for flow.Parallel/Join/Race goroutines
-	concurrVarPfx string            // e.g. "_fp_0" / "_fj_0" / "_fr_0"
-	sagaCompVar   string            // variable name for compensation slice
-	serviceName   string            // current service name for flow.Call self-call resolution
+	pointers         map[string]bool
+	types            map[string]string // varName → Go type (e.g. "*domain.User", "[]domain.Order")
+	goroutineMode    bool              // if true, errors set _pErr/_mu instead of returning
+	stepN            *int              // shared monotonic counter; unique suffix for internal temp vars
+	returnErrOnly    bool              // if true, errReturn emits `return err` for inner error closures
+	concurrMode      string            // "parallel" | "join" | "race" for flow.Parallel/Join/Race goroutines
+	concurrVarPfx    string            // e.g. "_fp_0" / "_fj_0" / "_fr_0"
+	sagaCompVar      string            // variable name for compensation slice
+	serviceName      string            // current service name for flow.Call self-call resolution
+	eventDefsByName  map[string]normalizer.EventDef
+	entityDefsByName map[string]normalizer.Entity
 }
 
 func cloneFlowState(st *flowRenderState) *flowRenderState {
 	cp := &flowRenderState{
-		declared:      make(map[string]bool, len(st.declared)),
-		pointers:      make(map[string]bool, len(st.pointers)),
-		types:         make(map[string]string, len(st.types)),
-		goroutineMode: st.goroutineMode,
-		stepN:         st.stepN, // share counter across all clones
-		returnErrOnly: st.returnErrOnly,
-		concurrMode:   st.concurrMode,
-		concurrVarPfx: st.concurrVarPfx,
-		sagaCompVar:   st.sagaCompVar,
-		serviceName:   st.serviceName,
+		declared:         make(map[string]bool, len(st.declared)),
+		pointers:         make(map[string]bool, len(st.pointers)),
+		types:            make(map[string]string, len(st.types)),
+		goroutineMode:    st.goroutineMode,
+		stepN:            st.stepN, // share counter across all clones
+		returnErrOnly:    st.returnErrOnly,
+		concurrMode:      st.concurrMode,
+		concurrVarPfx:    st.concurrVarPfx,
+		sagaCompVar:      st.sagaCompVar,
+		serviceName:      st.serviceName,
+		eventDefsByName:  st.eventDefsByName,
+		entityDefsByName: st.entityDefsByName,
 	}
 	for k, v := range st.declared {
 		cp.declared[k] = v
@@ -226,17 +231,23 @@ func cloneFlowState(st *flowRenderState) *flowRenderState {
 }
 
 func renderFlow(steps []normalizer.FlowStep) string {
-	return renderFlowForService("", steps)
+	return renderFlowForServiceWithSchema("", steps, nil, nil)
 }
 
 func renderFlowForService(serviceName string, steps []normalizer.FlowStep) string {
+	return renderFlowForServiceWithSchema(serviceName, steps, nil, nil)
+}
+
+func renderFlowForServiceWithSchema(serviceName string, steps []normalizer.FlowStep, entities []normalizer.Entity, events []normalizer.EventDef) string {
 	n := 0
 	st := &flowRenderState{
-		declared:    map[string]bool{"resp": true, "err": true},
-		pointers:    map[string]bool{},
-		types:       map[string]string{},
-		stepN:       &n,
-		serviceName: strings.TrimSpace(serviceName),
+		declared:         map[string]bool{"resp": true, "err": true},
+		pointers:         map[string]bool{},
+		types:            map[string]string{},
+		stepN:            &n,
+		serviceName:      strings.TrimSpace(serviceName),
+		eventDefsByName:  flowEventDefsByName(events),
+		entityDefsByName: flowEntityDefsByName(entities),
 	}
 	var b strings.Builder
 	if flowHasAction(steps, "flow.Checkpoint", "flow.Resume") {
@@ -265,6 +276,36 @@ func renderFlowForService(serviceName string, steps []normalizer.FlowStep) strin
 	return b.String()
 }
 
+func flowEventDefsByName(events []normalizer.EventDef) map[string]normalizer.EventDef {
+	if len(events) == 0 {
+		return nil
+	}
+	out := make(map[string]normalizer.EventDef, len(events))
+	for _, evt := range events {
+		name := strings.TrimSpace(evt.Name)
+		if name == "" {
+			continue
+		}
+		out[name] = evt
+	}
+	return out
+}
+
+func flowEntityDefsByName(entities []normalizer.Entity) map[string]normalizer.Entity {
+	if len(entities) == 0 {
+		return nil
+	}
+	out := make(map[string]normalizer.Entity, len(entities))
+	for _, ent := range entities {
+		name := strings.TrimSpace(ent.Name)
+		if name == "" {
+			continue
+		}
+		out[name] = ent
+	}
+	return out
+}
+
 func flowHasAction(steps []normalizer.FlowStep, actions ...string) bool {
 	need := make(map[string]struct{}, len(actions))
 	for _, a := range actions {
@@ -290,9 +331,28 @@ func flowHasAction(steps []normalizer.FlowStep, actions ...string) bool {
 func renderFlowSteps(st *flowRenderState, steps []normalizer.FlowStep, indent int) string {
 	var b strings.Builder
 	for _, step := range steps {
+		if trace := flowStepTraceComment(step, *st.stepN+1, indent); trace != "" {
+			b.WriteString(trace)
+		}
 		b.WriteString(renderOneFlowStep(st, step, indent))
 	}
 	return b.String()
+}
+
+func flowStepTraceComment(step normalizer.FlowStep, stepIdx int, indent int) string {
+	file := strings.TrimSpace(step.File)
+	if file == "" && strings.TrimSpace(step.CUEPath) != "" {
+		file = strings.TrimSpace(step.CUEPath)
+	}
+	if file == "" {
+		return ""
+	}
+	ref := filepath.ToSlash(filepath.Clean(file))
+	if step.Line > 0 {
+		ref = fmt.Sprintf("%s:%d", ref, step.Line)
+	}
+	pad := strings.Repeat("\t", indent)
+	return fmt.Sprintf("%s// Generated from: %s (flow step %d)\n", pad, ref, stepIdx)
 }
 
 // errReturn generates the appropriate error-return code depending on context.
@@ -353,7 +413,7 @@ func renderOneFlowStep(st *flowRenderState, step normalizer.FlowStep, indent int
 		// STAGE 2: Infrastructure actions
 		// -------------------------------------------------------------------------
 
-	case "cache.Get", "cache.Set", "cache.Del", "mail.Send", "storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List", "http.Call", "http.Request", "http.RetryPolicy", "http.Paginate", "rand.Code", "rand.Token", "json.Parse", "json.Marshal", "regex.Match", "regex.Replace", "base64.Encode", "base64.Decode", "url.Parse", "url.Build", "query.Encode", "query.Decode", "hash.Sum", "hash.HMAC", "uuid.New", "ulid.New", "time.Now", "math.Op", "jsonpath.Get", "jsonpath.Set", "jwt.Sign", "jwt.Verify", "oauth2.Token", "oauth2.Refresh", "crypto.Encrypt", "crypto.Decrypt", "crypto.Hash", "parallel.Run", "pdf.Render", "webhook.Send", "webhook.VerifySignature", "webhook.Ack", "queue.Enqueue", "queue.Dequeue", "queue.Ack", "queue.Nack", "dlq.Publish", "event.Outbox", "secret.Get", "config.Get",
+	case "cache.Get", "cache.Set", "cache.Del", "mail.Send", "storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List", "http.Call", "http.Request", "http.RetryPolicy", "http.Paginate", "rand.Code", "rand.Token", "json.Parse", "json.Marshal", "regex.Match", "regex.Replace", "base64.Encode", "base64.Decode", "url.Parse", "url.Build", "query.Encode", "query.Decode", "hash.Sum", "hash.HMAC", "uuid.New", "ulid.New", "time.Now", "time.Format", "math.Op", "jsonpath.Get", "jsonpath.Set", "jwt.Sign", "jwt.Verify", "oauth2.Token", "oauth2.Refresh", "crypto.Encrypt", "crypto.Decrypt", "crypto.Hash", "parallel.Run", "pdf.Render", "webhook.Send", "webhook.VerifySignature", "webhook.Ack", "queue.Enqueue", "queue.Dequeue", "queue.Ack", "queue.Nack", "dlq.Publish", "event.Outbox", "secret.Get", "config.Get",
 		"event.Wait", "event.Subscribe", "event.Match", "event.Broadcast",
 		"notify.Send", "approval.Request", "approval.Wait", "approval.Decide",
 		"policy.Check", "policy.Evaluate", "policy.Require", "policy.Decide",

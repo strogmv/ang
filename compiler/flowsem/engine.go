@@ -1,6 +1,9 @@
 package flowsem
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"math"
 	"strconv"
 	"strings"
@@ -14,6 +17,22 @@ type Step struct {
 	Line     int
 	Column   int
 	CUEPath  string
+}
+
+// EventField describes one field from normalized event schema.
+type EventField struct {
+	Name string
+}
+
+// EventDef describes event schema available for flow validation.
+type EventDef struct {
+	Name   string
+	Fields []EventField
+}
+
+// ValidateOptions provides optional semantic context to flow validator.
+type ValidateOptions struct {
+	Events []EventDef
 }
 
 type Issue struct {
@@ -53,6 +72,37 @@ const (
 var specs = map[string]Spec{
 	"logic.Check": {
 		RequiredArgs: []string{"condition", "throw"},
+		CustomConstraints: func(step Step) *Issue {
+			return validateGoExprArg(step, "condition")
+		},
+	},
+	"logic.Call": {
+		RequiredArgs: []string{"func"},
+		OptionalArgKinds: map[string]ArgKind{
+			"args":      ArgKindStringOrStringArr,
+			"output":    ArgKindString,
+			"ignoreErr": ArgKindBool,
+		},
+		DeclaresFromArgs: []string{"output"},
+		CustomConstraints: func(step Step) *Issue {
+			return validateGoExprArg(step, "func")
+		},
+	},
+	"mapping.Assign": {
+		RequiredArgs: []string{"to", "value"},
+		CustomConstraints: func(step Step) *Issue {
+			if issue := validateGoExprArg(step, "value"); issue != nil {
+				return issue
+			}
+			return validateMappingAssignValue(step)
+		},
+	},
+	"math.Expr": {
+		RequiredArgs:     []string{"expr", "output"},
+		DeclaresFromArgs: []string{"output"},
+		CustomConstraints: func(step Step) *Issue {
+			return validateGoExprArg(step, "expr")
+		},
 	},
 	"event.Publish": {
 		RequiredArgs: []string{"name"},
@@ -967,6 +1017,13 @@ var specs = map[string]Spec{
 		RequiredArgs:     []string{"value", "output"},
 		DeclaresFromArgs: []string{"output"},
 	},
+	"time.Format": {
+		RequiredArgs:     []string{"input", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"format": ArgKindString,
+		},
+	},
 	"map.Build": {
 		RequiredArgs:     []string{"from", "key", "value", "output"},
 		DeclaresFromArgs: []string{"output"},
@@ -1611,7 +1668,12 @@ var specs = map[string]Spec{
 }
 
 func Validate(steps []Step) []Issue {
+	return ValidateWithOptions(steps, ValidateOptions{})
+}
+
+func ValidateWithOptions(steps []Step, opts ValidateOptions) []Issue {
 	var out []Issue
+	eventsByName := indexEventsByName(opts.Events)
 	var walk func(items []Step, inTx bool)
 	walk = func(items []Step, inTx bool) {
 		for i := range items {
@@ -1668,6 +1730,9 @@ func Validate(steps []Step) []Issue {
 					}
 				}
 			}
+			if eventIssues := validateEventStep(step, i+1, eventsByName); len(eventIssues) > 0 {
+				out = append(out, eventIssues...)
+			}
 			// Transaction context propagates down the subtree; tx-only actions are validated
 			// against this propagated state, not global method position.
 			nextTx := inTx || step.Action == "tx.Block"
@@ -1680,6 +1745,132 @@ func Validate(steps []Step) []Issue {
 	}
 	walk(steps, false)
 	return out
+}
+
+func indexEventsByName(events []EventDef) map[string]EventDef {
+	if len(events) == 0 {
+		return nil
+	}
+	idx := make(map[string]EventDef, len(events))
+	for _, evt := range events {
+		name := strings.TrimSpace(evt.Name)
+		if name == "" {
+			continue
+		}
+		idx[name] = evt
+	}
+	return idx
+}
+
+func validateEventStep(step Step, idx int, eventsByName map[string]EventDef) []Issue {
+	if len(eventsByName) == 0 {
+		return nil
+	}
+	switch step.Action {
+	case "event.Publish", "event.Outbox", "event.Broadcast":
+	default:
+		return nil
+	}
+
+	eventName, ok := staticEventName(step.Args["name"])
+	if !ok {
+		// dynamic event name expression cannot be validated statically
+		return nil
+	}
+
+	def, exists := eventsByName[eventName]
+	if !exists {
+		return []Issue{issue(step, idx, "UNKNOWN_EVENT", "event "+strconv.Quote(eventName)+" not defined in cue/events/", "Define event in cue/events or fix event.Publish name")}
+	}
+
+	payloadMap := stepPayloadMap(step.Args["payloadMap"])
+	if len(payloadMap) == 0 {
+		return nil
+	}
+
+	allowed := make(map[string]struct{}, len(def.Fields))
+	fieldNames := make([]string, 0, len(def.Fields))
+	for _, f := range def.Fields {
+		name := strings.TrimSpace(f.Name)
+		if name == "" {
+			continue
+		}
+		allowed[canonicalFieldName(name)] = struct{}{}
+		fieldNames = append(fieldNames, name)
+	}
+	if len(allowed) == 0 {
+		return []Issue{issue(step, idx, "PAYLOAD_FIELD_NOT_IN_EVENT", "event "+strconv.Quote(eventName)+" has no fields, but payloadMap is provided", "Remove payloadMap or define fields in event schema")}
+	}
+
+	var out []Issue
+	for field := range payloadMap {
+		key := strings.TrimSpace(field)
+		if key == "" {
+			continue
+		}
+		if _, ok := allowed[canonicalFieldName(key)]; ok {
+			continue
+		}
+		hint := "Available fields: " + strings.Join(fieldNames, ", ")
+		out = append(out, issue(step, idx, "PAYLOAD_FIELD_NOT_IN_EVENT", "event "+strconv.Quote(eventName)+": field "+strconv.Quote(key)+" does not exist in event schema", hint))
+	}
+	return out
+}
+
+func canonicalFieldName(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	s = strings.ReplaceAll(s, "_", "")
+	s = strings.ReplaceAll(s, "-", "")
+	return strings.ToLower(s)
+}
+
+func staticEventName(v any) (string, bool) {
+	raw, ok := nonEmptyString(v)
+	if !ok {
+		return "", false
+	}
+	if s, err := strconv.Unquote(raw); err == nil {
+		raw = strings.TrimSpace(s)
+	}
+	if raw == "" {
+		return "", false
+	}
+	for _, r := range raw {
+		if (r >= 'a' && r <= 'z') ||
+			(r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') ||
+			r == '_' || r == '-' {
+			continue
+		}
+		return "", false
+	}
+	return raw, true
+}
+
+func stepPayloadMap(v any) map[string]string {
+	switch raw := v.(type) {
+	case map[string]string:
+		out := make(map[string]string, len(raw))
+		for k, val := range raw {
+			out[k] = val
+		}
+		return out
+	case map[string]any:
+		out := make(map[string]string, len(raw))
+		for k, val := range raw {
+			if s, ok := val.(string); ok {
+				out[k] = s
+				continue
+			}
+			out[k] = ""
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 func issue(step Step, idx int, code, message, hint string) Issue {
@@ -1835,4 +2026,117 @@ func isKnownPrefix(action string) bool {
 		}
 	}
 	return false
+}
+
+func validateGoExprArg(step Step, argName string) *Issue {
+	expr, ok := nonEmptyString(step.Args[argName])
+	if !ok {
+		return nil
+	}
+	if _, err := parser.ParseExpr(expr); err != nil {
+		return &Issue{
+			Code:    "INVALID_GO_EXPR",
+			Message: step.Action + " arg '" + argName + "' has invalid Go expression " + strconv.Quote(expr) + ": " + err.Error(),
+			Hint:    "Fix Go syntax in this flow expression",
+		}
+	}
+	return nil
+}
+
+func validateMappingAssignValue(step Step) *Issue {
+	value, ok := nonEmptyString(step.Args["value"])
+	if !ok {
+		return nil
+	}
+	if isSafeMappingAssignValue(value) {
+		return nil
+	}
+	return &Issue{
+		Code:     "RAW_GO_EXPR_IN_ASSIGN",
+		Severity: "warn",
+		Message:  "mapping.Assign value " + strconv.Quote(value) + " contains raw Go code",
+		Hint:     "Use dot-paths/literals or typed actions (uuid.New, time.Now, rand.Token) for complex expressions",
+	}
+}
+
+func isSafeMappingAssignValue(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return true
+	}
+	switch value {
+	case "uuid.NewString()", "time.Now().UTC()", "time.Now().UTC().Format(time.RFC3339)":
+		return true
+	}
+	expr, err := parser.ParseExpr(value)
+	if err != nil {
+		return false
+	}
+	if isDotPathOrIdentExpr(expr) || isLiteralExpr(expr) {
+		return true
+	}
+	return false
+}
+
+func isDotPathOrIdentExpr(expr ast.Expr) bool {
+	switch x := expr.(type) {
+	case *ast.ParenExpr:
+		return isDotPathOrIdentExpr(x.X)
+	case *ast.Ident:
+		return strings.TrimSpace(x.Name) != ""
+	case *ast.SelectorExpr:
+		return isDotPathOrIdentExpr(x.X) && x.Sel != nil && strings.TrimSpace(x.Sel.Name) != ""
+	case *ast.IndexExpr:
+		return isDotPathOrIdentExpr(x.X) && isSafeDotPathIndex(x.Index)
+	case *ast.IndexListExpr:
+		if !isDotPathOrIdentExpr(x.X) || len(x.Indices) == 0 {
+			return false
+		}
+		for _, idx := range x.Indices {
+			if !isSafeDotPathIndex(idx) {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
+}
+
+func isSafeDotPathIndex(expr ast.Expr) bool {
+	switch x := expr.(type) {
+	case *ast.ParenExpr:
+		return isSafeDotPathIndex(x.X)
+	case *ast.BasicLit:
+		return x.Kind == token.INT || x.Kind == token.STRING || x.Kind == token.CHAR
+	case *ast.Ident:
+		return strings.TrimSpace(x.Name) != ""
+	case *ast.SelectorExpr:
+		return isDotPathOrIdentExpr(x)
+	default:
+		return false
+	}
+}
+
+func isLiteralExpr(expr ast.Expr) bool {
+	switch x := expr.(type) {
+	case *ast.ParenExpr:
+		return isLiteralExpr(x.X)
+	case *ast.BasicLit:
+		switch x.Kind {
+		case token.STRING, token.INT, token.FLOAT, token.CHAR:
+			return true
+		default:
+			return false
+		}
+	case *ast.Ident:
+		switch strings.TrimSpace(x.Name) {
+		case "true", "false", "nil":
+			return true
+		default:
+			return false
+		}
+	default:
+		return false
+	}
 }

@@ -564,13 +564,19 @@ func runBuild(args []string) {
 				printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterStep, "frontend typecheck gate", err)
 				return
 			}
-			if output.RunTests {
-				goBackends := make([]string, 0, len(summaries))
-				for _, s := range summaries {
-					if strings.EqualFold(strings.TrimSpace(s.Lang), "go") {
-						goBackends = append(goBackends, s.Backend)
-					}
+			goBackends := make([]string, 0, len(summaries))
+			for _, s := range summaries {
+				if strings.EqualFold(strings.TrimSpace(s.Lang), "go") {
+					goBackends = append(goBackends, s.Backend)
 				}
+			}
+			if !output.SkipGoVerify {
+				if err := runGeneratedGoVerify(goBackends); err != nil {
+					printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterStep, "post-build go verify", err)
+					return
+				}
+			}
+			if output.RunTests {
 				if err := runGeneratedGoTests(goBackends); err != nil {
 					printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterStep, "post-build go tests", err)
 					return

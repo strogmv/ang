@@ -331,6 +331,18 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		}
 		return renderFlowAssignTarget(st, pad, output, "time.Now().UTC()", "time.Time"), true
 
+	case "time.Format":
+		input := arg("input")
+		output := arg("output")
+		if input == "" || output == "" {
+			return "", true
+		}
+		format := arg("format")
+		if format == "" {
+			format = "time.RFC3339"
+		}
+		return renderFlowAssignTarget(st, pad, output, input+".Format("+format+")", "string"), true
+
 	case "math.Op":
 		op := arg("op")
 		output := arg("output")
