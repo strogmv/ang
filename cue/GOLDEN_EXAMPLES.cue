@@ -854,3 +854,51 @@ ApproveFastPricedOrder: schema.#Operation & {
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
+
+// ============================================================================
+// EXAMPLE 31: crypto.Hash (SHA-256 and bcrypt)
+// ============================================================================
+// Pattern: deterministic hash (SHA-256) for lookup + bcrypt for password storage.
+
+CreateCredentials: schema.#Operation & {
+	service: "auth"
+	input: {
+		email:    string
+		password: string
+	}
+	output: {
+		ok: bool
+	}
+	flow: [
+		{action: "crypto.Hash", input: "req.Email", output: "emailHash"},
+		{action: "crypto.Hash", algo: "bcrypt", input: "req.Password", output: "passwordHash"},
+		{action: "mapping.Map", output: "creds", entity: "UserVault"},
+		{action: "mapping.Assign", to: "creds.EmailHash", value: "emailHash"},
+		{action: "mapping.Assign", to: "creds.PasswordHash", value: "passwordHash"},
+		{action: "repo.Save", source: "UserVault", input: "creds"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ============================================================================
+// EXAMPLE 32: math.Expr (declare + reuse)
+// ============================================================================
+// Pattern: compute intermediate arithmetic values with declare=true and reuse in response.
+
+CalculateTenderEconomics: schema.#Operation & {
+	service: "analytics"
+	input: {
+		startPrice: int
+		finalPrice: int
+	}
+	output: {
+		savingsAmount: int
+		savingsPct:    float
+	}
+	flow: [
+		{action: "math.Expr", expr: "req.StartPrice - req.FinalPrice", output: "savings", declare: true},
+		{action: "math.Expr", expr: "(float64(savings) / float64(req.StartPrice)) * 100", output: "pct", declare: true},
+		{action: "mapping.Assign", to: "resp.SavingsAmount", value: "savings"},
+		{action: "mapping.Assign", to: "resp.SavingsPct", value: "pct"},
+	]
+}

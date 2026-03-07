@@ -98,6 +98,16 @@ func parseCUEErrorMessage(msg string) (knowledge, bool) {
 			Expected:    []string{"repo.Get with source/input/output"},
 		}, true
 
+	case strings.Contains(lm, "cannot unify"):
+		return knowledge{
+			Title:       "CUE unification conflict",
+			Description: "CUE cannot unify provided value with the expected contract at this location.",
+			Fix:         "Align step shape/types with the target schema. Start by checking action contract via `ang actions --json` and ensure required fields are present with correct types.",
+			Hint:        "This usually means field type/shape mismatch (e.g. list vs scalar, wrong field name, or missing required fields).",
+			DocAnchor:   "docs/flow-semantics.md#validation-model",
+			Expected:    []string{"step/value unifies with expected schema"},
+		}, true
+
 	case strings.Contains(lm, "conflicting values") && strings.Contains(lm, "string"):
 		return knowledge{
 			Title:       "Wrong value type in flow step",

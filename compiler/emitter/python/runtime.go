@@ -40,10 +40,41 @@ func (r Runtime) RenderTemplate(root, tmplPath string, data any, outName string,
 			content = []byte(MergeCustomBlocks(string(content), string(prev)))
 		}
 	}
-	if err := os.WriteFile(path, content, mode); err != nil {
+	if err := writeFileAtomic(path, content, mode); err != nil {
 		return fmt.Errorf("write python file %s: %w", outName, err)
 	}
 	fmt.Printf("Generated Python SDK: %s\n", path)
+	return nil
+}
+
+func writeFileAtomic(path string, content []byte, mode os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".ang-py-*")
+	if err != nil {
+		return fmt.Errorf("create temp file for %s: %w", path, err)
+	}
+	tmpName := tmp.Name()
+	ok := false
+	defer func() {
+		if !ok {
+			_ = os.Remove(tmpName)
+		}
+	}()
+	if _, err := tmp.Write(content); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("write temp file for %s: %w", path, err)
+	}
+	if err := tmp.Chmod(mode); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("chmod temp file for %s: %w", path, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp file for %s: %w", path, err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return fmt.Errorf("rename temp file to %s: %w", path, err)
+	}
+	ok = true
 	return nil
 }
 
