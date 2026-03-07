@@ -15,6 +15,10 @@ func TestExtractProject_ParsesPlugins(t *testing.T) {
 			version: "0.1.0"
 			plugins: ["shared", "go_legacy"]
 			ui_provider: "@/shared/ui/legacy-skin"
+			architecture: {
+				mode: "relaxed"
+				allow_cross_service: [{service: "bids", entity: "Tender"}]
+			}
 		}
 	`)
 	if err := val.Err(); err != nil {
@@ -37,5 +41,14 @@ func TestExtractProject_ParsesPlugins(t *testing.T) {
 	}
 	if project.UIProvider != "@/shared/ui/legacy-skin" {
 		t.Fatalf("unexpected ui provider: %q", project.UIProvider)
+	}
+	if project.ArchitectureMode != "relaxed" {
+		t.Fatalf("unexpected architecture mode: %q", project.ArchitectureMode)
+	}
+	if len(project.AllowCrossService) != 1 {
+		t.Fatalf("expected 1 cross-service rule, got %d", len(project.AllowCrossService))
+	}
+	if project.AllowCrossService[0].Service != "bids" || project.AllowCrossService[0].Entity != "Tender" {
+		t.Fatalf("unexpected cross-service rule: %+v", project.AllowCrossService[0])
 	}
 }

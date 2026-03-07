@@ -723,6 +723,11 @@ func (n *Normalizer) ExtractProject(val cue.Value) (*ProjectDef, error) {
 	if uiProvider == "" {
 		uiProvider = strings.TrimSpace(getString(projectVal, "ui.provider"))
 	}
+	rawArchitectureMode := strings.TrimSpace(getString(projectVal, "architecture.mode"))
+	if rawArchitectureMode == "" {
+		rawArchitectureMode = strings.TrimSpace(getString(projectVal, "architecture_mode"))
+	}
+
 	var plugins []string
 	if pVal := projectVal.LookupPath(cue.ParsePath("plugins")); pVal.Exists() {
 		it, err := pVal.List()
@@ -740,14 +745,42 @@ func (n *Normalizer) ExtractProject(val cue.Value) (*ProjectDef, error) {
 			}
 		}
 	}
-	if name == "" && version == "" && len(plugins) == 0 && uiProvider == "" {
+
+	var allowCross []CrossServiceRule
+	if allowVal := projectVal.LookupPath(cue.ParsePath("architecture.allow_cross_service")); allowVal.Exists() {
+		it, err := allowVal.List()
+		if err == nil {
+			for it.Next() {
+				v := it.Value()
+				service := strings.TrimSpace(getString(v, "service"))
+				entity := strings.TrimSpace(getString(v, "entity"))
+				if service == "" || entity == "" {
+					continue
+				}
+				allowCross = append(allowCross, CrossServiceRule{
+					Service: service,
+					Entity:  entity,
+				})
+			}
+		}
+	}
+
+	if name == "" && version == "" && len(plugins) == 0 && uiProvider == "" && rawArchitectureMode == "" && len(allowCross) == 0 {
 		return nil, nil
 	}
+
+	architectureMode := rawArchitectureMode
+	if architectureMode == "" {
+		architectureMode = "strict"
+	}
+
 	return &ProjectDef{
-		Name:       name,
-		Version:    version,
-		Plugins:    plugins,
-		UIProvider: uiProvider,
+		Name:              name,
+		Version:           version,
+		Plugins:           plugins,
+		UIProvider:        uiProvider,
+		ArchitectureMode:  architectureMode,
+		AllowCrossService: allowCross,
 	}, nil
 }
 

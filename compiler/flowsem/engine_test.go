@@ -872,3 +872,20 @@ func TestValidate_MessagingAsyncActionConstraints(t *testing.T) {
 		t.Fatalf("expected %s issue in %+v", code, issues)
 	}
 }
+
+func TestValidateServiceCallKnown(t *testing.T) {
+	t.Parallel()
+	issues := Validate([]Step{{
+		Action: "service.Call",
+		Args: map[string]any{
+			"service": "Tender",
+			"method":  "GetByID",
+			"args":    []string{"ctx", "req.TenderID"},
+		},
+	}})
+	for _, it := range issues {
+		if it.Code == "UNKNOWN_ACTION" {
+			t.Fatalf("unexpected UNKNOWN_ACTION for %s", it.Action)
+		}
+	}
+}

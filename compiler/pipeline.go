@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	Version       = "0.1.114"
+	Version       = "0.1.116"
 	SchemaVersion = "1"
 )
 
@@ -48,7 +48,9 @@ func ComputeProjectHash(path string) (string, error) {
 }
 
 type PipelineOptions struct {
-	WarningSink func(normalizer.Warning)
+	WarningSink       func(normalizer.Warning)
+	ArchitectureMode  string
+	AllowCrossService map[string]map[string]struct{}
 }
 
 type RunPhase string

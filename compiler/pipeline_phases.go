@@ -14,14 +14,18 @@ import (
 
 // ParsePhaseOutput is the explicit contract produced by the parse phase.
 type ParsePhaseOutput struct {
-	Domain cue.Value
-	Arch   cue.Value
-	API    cue.Value
-	Repo   cue.Value
-	Events cue.Value
-	Errors cue.Value
+	Domain      cue.Value
+	Arch        cue.Value
+	API         cue.Value
+	Repo        cue.Value
+	Events      cue.Value
+	Errors      cue.Value
+	Project     cue.Value
+	Projections cue.Value
 
-	HasRepo bool
+	HasRepo        bool
+	HasProject     bool
+	HasProjections bool
 }
 
 // NormalizePhaseOutput is the explicit contract produced by the normalize phase.
@@ -103,6 +107,8 @@ func runParsePhase(basePath string, opts PipelineOptions) (ParsePhaseOutput, err
 	valRepo, okRepo, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/repo"))
 	valEvents, _, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/events"))
 	valErrors, _, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/errors"))
+	valProject, okProject, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/project"))
+	valProjections, okProjections, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/projections"))
 
 	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/domain"), opts)
 	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/architecture"), opts)
@@ -110,6 +116,8 @@ func runParsePhase(basePath string, opts PipelineOptions) (ParsePhaseOutput, err
 	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/repo"), opts)
 	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/events"), opts)
 	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/errors"), opts)
+	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/project"), opts)
+	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/projections"), opts)
 
 	out.Domain = valDomain
 	out.Arch = valArch
@@ -117,7 +125,11 @@ func runParsePhase(basePath string, opts PipelineOptions) (ParsePhaseOutput, err
 	out.Repo = valRepo
 	out.Events = valEvents
 	out.Errors = valErrors
+	out.Project = valProject
+	out.Projections = valProjections
 	out.HasRepo = okRepo
+	out.HasProject = okProject
+	out.HasProjections = okProjections
 	return out, nil
 }
 
@@ -131,10 +143,61 @@ func runNormalizePhase(parsed ParsePhaseOutput, opts PipelineOptions) (Normalize
 			opts.WarningSink(w)
 		}
 	}
+
+	archMode := strings.TrimSpace(opts.ArchitectureMode)
+	allowCross := opts.AllowCrossService
+	if parsed.HasProject && parsed.Project.Err() == nil {
+		projectDef, err := n.ExtractProject(parsed.Project)
+		if err != nil {
+			return out, WrapContractError(StageCUE, ErrCodeCUEProjectParse, "extract project", err)
+		}
+		if projectDef != nil {
+			if archMode == "" {
+				archMode = strings.TrimSpace(projectDef.ArchitectureMode)
+			}
+			if len(allowCross) == 0 {
+				allowCross = buildArchitectureAllowCrossMap(projectDef.AllowCrossService)
+			}
+		}
+	}
+	if archMode == "" {
+		archMode = "strict"
+	}
+	n.ArchitectureMode = archMode
+	if len(allowCross) > 0 {
+		n.ArchitectureAllowCross = allowCross
+	}
+
 	entities, err := n.ExtractEntities(parsed.Domain)
 	if err != nil {
 		return out, WrapContractError(StageCUE, ErrCodeCUEEntityNormalize, "extract entities", err)
 	}
+	if parsed.HasProjections && parsed.Projections.Err() == nil {
+		projectionEntities, err := n.ExtractEntities(parsed.Projections)
+		if err != nil {
+			return out, WrapContractError(StageCUE, ErrCodeCUEEntityNormalize, "extract projections", err)
+		}
+		if len(projectionEntities) > 0 {
+			seenEntities := make(map[string]struct{}, len(entities))
+			for _, e := range entities {
+				seenEntities[e.Name] = struct{}{}
+			}
+			for _, pe := range projectionEntities {
+				if _, exists := seenEntities[pe.Name]; exists {
+					continue
+				}
+				if pe.Metadata == nil {
+					pe.Metadata = make(map[string]any)
+				}
+				if _, ok := pe.Metadata["projection"]; !ok {
+					pe.Metadata["projection"] = true
+				}
+				entities = append(entities, pe)
+				seenEntities[pe.Name] = struct{}{}
+			}
+		}
+	}
+
 	emitFSMIntegrityDiagnostics(entities, opts)
 	services, err := n.ExtractServices(parsed.API, entities)
 	if err != nil {
@@ -346,6 +409,30 @@ func toFlowSemSteps(steps []normalizer.FlowStep) []flowsem.Step {
 			Column:   step.Column,
 			CUEPath:  step.CUEPath,
 		})
+	}
+	return out
+}
+
+func buildArchitectureAllowCrossMap(rules []normalizer.CrossServiceRule) map[string]map[string]struct{} {
+	if len(rules) == 0 {
+		return nil
+	}
+	out := make(map[string]map[string]struct{})
+	for _, rule := range rules {
+		service := strings.TrimSpace(rule.Service)
+		entity := strings.TrimSpace(rule.Entity)
+		if service == "" || entity == "" {
+			continue
+		}
+		service = strings.ToLower(service)
+		entity = strings.ToLower(entity)
+		if out[service] == nil {
+			out[service] = make(map[string]struct{})
+		}
+		out[service][entity] = struct{}{}
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

@@ -60,7 +60,7 @@ func flowActionSupported(action string) bool {
 		"batch.Run",
 		"list.Enrich",
 		"str.Normalize",
-		"event.Publish", "logic.Call",
+		"event.Publish", "logic.Call", "service.Call",
 		"event.Wait", "event.Subscribe", "event.Match",
 		"exec.Run",
 		"fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove",
@@ -336,7 +336,7 @@ func renderOneFlowStep(st *flowRenderState, step normalizer.FlowStep, indent int
 	}
 
 	switch step.Action {
-	case "flow.If", "flow.For", "flow.Block", "tx.Block", "list.Filter", "list.Paginate", "list.Append", "list.Sort", "list.Map", "list.Reduce", "list.GroupBy", "list.Distinct", "list.Chunk", "batch.Run", "str.Normalize", "mapping.Map", "event.Publish", "logic.Call", "exec.Run", "fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove", "archive.ZipDir", "session.Get", "flow.Switch", "flow.While", "flow.Checkpoint", "flow.Resume", "flow.RecordEvent", "flow.Replay", "flow.History.Get", "flow.Validate", "flow.Try", "flow.Catch", "flow.Retry", "flow.Fallback", "flow.Timeout", "flow.SuggestNext", "flow.ExplainError",
+	case "flow.If", "flow.For", "flow.Block", "tx.Block", "list.Filter", "list.Paginate", "list.Append", "list.Sort", "list.Map", "list.Reduce", "list.GroupBy", "list.Distinct", "list.Chunk", "batch.Run", "str.Normalize", "mapping.Map", "event.Publish", "logic.Call", "service.Call", "exec.Run", "fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove", "archive.ZipDir", "session.Get", "flow.Switch", "flow.While", "flow.Checkpoint", "flow.Resume", "flow.RecordEvent", "flow.Replay", "flow.History.Get", "flow.Validate", "flow.Try", "flow.Catch", "flow.Retry", "flow.Fallback", "flow.Timeout", "flow.SuggestNext", "flow.ExplainError",
 		"flow.Parallel", "flow.Join", "flow.Race",
 		"flow.Delay", "flow.Schedule", "flow.Cron",
 		"flow.Saga", "flow.Compensate", "flow.Rollback", "flow.Tag":

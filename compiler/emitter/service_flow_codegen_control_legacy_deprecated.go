@@ -14,7 +14,7 @@ func renderFlowStepControlLegacyDeprecated(st *flowRenderState, step normalizer.
 		return ""
 	case "list.Filter", "list.Paginate", "list.Append", "list.Sort", "str.Normalize":
 		return ""
-	case "mapping.Map", "event.Publish", "logic.Call":
+	case "mapping.Map", "event.Publish", "logic.Call", "service.Call":
 		return ""
 	case "exec.Run", "fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove":
 		return ""

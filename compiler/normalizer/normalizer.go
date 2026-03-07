@@ -7,20 +7,20 @@ import (
 )
 
 type Warning struct {
-	Kind         string   `json:"kind"`
-	Code         string   `json:"code,omitempty"`
-	Severity     string   `json:"severity,omitempty"` // error, warn, info
-	Message      string   `json:"message"`
-	Op           string   `json:"op,omitempty"`
-	Step         int      `json:"step,omitempty"`
-	Action       string   `json:"action,omitempty"`
-	File         string   `json:"file,omitempty"`
-	Line         int      `json:"line,omitempty"`
-	Column       int      `json:"column,omitempty"`
-	CUEPath      string   `json:"cue_path,omitempty"`
+	Kind     string `json:"kind"`
+	Code     string `json:"code,omitempty"`
+	Severity string `json:"severity,omitempty"` // error, warn, info
+	Message  string `json:"message"`
+	Op       string `json:"op,omitempty"`
+	Step     int    `json:"step,omitempty"`
+	Action   string `json:"action,omitempty"`
+	File     string `json:"file,omitempty"`
+	Line     int    `json:"line,omitempty"`
+	Column   int    `json:"column,omitempty"`
+	CUEPath  string `json:"cue_path,omitempty"`
 	// Path is the human-readable source location (file:flow[N]) for AI output.
-	Path         string   `json:"path,omitempty"`
-	Hint         string   `json:"hint,omitempty"`
+	Path string `json:"path,omitempty"`
+	Hint string `json:"hint,omitempty"`
 	// Allowed is the list of permitted values when a constraint is violated.
 	Allowed      []string `json:"allowed,omitempty"`
 	DocsURL      string   `json:"docs_url,omitempty"`
@@ -43,6 +43,9 @@ type Normalizer struct {
 	scopeIndex  map[string][]string
 	RepoNames   map[string]struct{}
 	EventNames  map[string]struct{}
+
+	ArchitectureMode       string
+	ArchitectureAllowCross map[string]map[string]struct{}
 }
 
 type TypeConfig struct {
@@ -66,8 +69,10 @@ func New() *Normalizer {
 			}
 			fmt.Fprintf(os.Stderr, "⚠️  %s WARNING: %s\n", label, w.Message)
 		},
-		Scopes:     nil,
-		scopeIndex: make(map[string][]string),
+		Scopes:                 nil,
+		scopeIndex:             make(map[string][]string),
+		ArchitectureMode:       "strict",
+		ArchitectureAllowCross: make(map[string]map[string]struct{}),
 	}
 }
 

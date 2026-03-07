@@ -199,8 +199,12 @@ func calculateHash(dirs []string) (string, error) {
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
-func readGoModule() string {
-	data, err := os.ReadFile("go.mod")
+func readGoModuleAt(projectPath string) string {
+	base := strings.TrimSpace(projectPath)
+	if base == "" {
+		base = "."
+	}
+	data, err := os.ReadFile(filepath.Join(base, "go.mod"))
 	if err != nil {
 		return ""
 	}
@@ -211,6 +215,10 @@ func readGoModule() string {
 		}
 	}
 	return ""
+}
+
+func readGoModule() string {
+	return readGoModuleAt(".")
 }
 
 func runInit(args []string) {

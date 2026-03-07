@@ -57,6 +57,15 @@ var specs = map[string]Spec{
 	"event.Publish": {
 		RequiredArgs: []string{"name"},
 	},
+	"service.Call": {
+		RequiredArgs:     []string{"service", "method"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"args":      ArgKindStringOrStringArr,
+			"output":    ArgKindString,
+			"ignoreErr": ArgKindBool,
+		},
+	},
 	"event.Broadcast": {
 		RequiredArgs: []string{"name"},
 	},
@@ -1753,7 +1762,7 @@ func isKnownPrefix(action string) bool {
 	// Prefix allow-list keeps diagnostics useful: unknown actions with known families
 	// are handled by emitter-specific validation, while truly foreign actions fail here.
 	prefixes := []string{
-		"repo.", "mapping.", "logic.", "event.", "fsm.", "flow.", "tx.",
+		"repo.", "mapping.", "logic.", "service.", "event.", "fsm.", "flow.", "tx.",
 		"list.", "notification.", "notify.", "approval.", "policy.", "audit.", "auth.", "entity.", "field.",
 		"rbac.",
 		"str.", "enum.", "time.", "map.",

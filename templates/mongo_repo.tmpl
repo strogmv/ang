@@ -95,7 +95,6 @@ func (r *{{ ExportName .Name }}) Delete(ctx context.Context, id string) error {
 	return err
 }
 
-{{- if .HasID }}
 func (r *{{ ExportName .Name }}) Insert(ctx context.Context, entity *domain.{{ ExportName .Entity }}) error {
 	if r.collection == nil {
 		return fmt.Errorf("mongo not configured")
@@ -129,7 +128,6 @@ func (r *{{ ExportName .Name }}) Update(ctx context.Context, entity *domain.{{ E
 func (r *{{ ExportName .Name }}) LockByID(ctx context.Context, id string) (*domain.{{ ExportName .Entity }}, error) {
 	return r.FindByID(ctx, id)
 }
-{{- end }}
 
 {{- $hasListAll := false }}
 {{- range .Finders }}{{ if eq .Name "ListAll" }}{{ $hasListAll = true }}{{ end }}{{ end }}

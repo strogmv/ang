@@ -262,7 +262,7 @@ func runBuild(args []string) {
 		inputHash, _ := calculateHash([]string{"cue"})
 		compilerHash, _ := calculateHash([]string{"templates"})
 
-		goModule := readGoModule()
+		goModule := readGoModuleAt(projectPath)
 		if goModule == "" {
 			goModule = "github.com/strogmv/ang"
 		}

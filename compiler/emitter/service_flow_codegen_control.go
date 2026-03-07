@@ -273,6 +273,50 @@ func renderFlowStepControlLegacyDeprecatedMonolith(st *flowRenderState, step nor
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String()
 
+	case "service.Call":
+		serviceName := strings.TrimSpace(arg("service"))
+		methodName := strings.TrimSpace(arg("method"))
+		output := arg("output")
+		ignoreErr, _ := step.Args["ignoreErr"].(bool)
+		if serviceName == "" || methodName == "" {
+			return ""
+		}
+		var callArgs []string
+		if v, ok := step.Args["args"]; ok {
+			switch x := v.(type) {
+			case []string:
+				callArgs = append(callArgs, x...)
+			case string:
+				callArgs = append(callArgs, x)
+			}
+		}
+		if len(callArgs) == 0 || strings.TrimSpace(callArgs[0]) != "ctx" {
+			callArgs = append([]string{"ctx"}, callArgs...)
+		}
+		callStr := fmt.Sprintf("s.%sService.%s(%s)", ExportName(serviceName), ExportName(methodName), strings.Join(callArgs, ", "))
+		if ignoreErr {
+			return fmt.Sprintf("%s_, _ = %s\n", pad, callStr)
+		}
+		if output != "" {
+			assign := ":="
+			if st.declared[output] {
+				assign = "="
+			}
+			st.declared[output] = true
+			st.pointers[output] = false
+			var b strings.Builder
+			b.WriteString(fmt.Sprintf("%s%s %s %s\n", pad, output+", err", assign, callStr))
+			b.WriteString(fmt.Sprintf("%sif err != nil {\n", pad))
+			b.WriteString(errReturn(st, pad+"\t", "err"))
+			b.WriteString(fmt.Sprintf("%s}\n", pad))
+			return b.String()
+		}
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%sif _, err := %s; err != nil {\n", pad, callStr))
+		b.WriteString(errReturn(st, pad+"\t", "err"))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String()
+
 	case "exec.Run":
 		cmd := arg("cmd")
 		output := arg("output")

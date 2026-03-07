@@ -368,7 +368,7 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 			}
 
 			// Validate flow steps and report warnings
-			warnings := validateFlowSteps(opName, svcName, steps, entities)
+			warnings := validateFlowSteps(opName, svcName, steps, entities, svc.Uses, n.ArchitectureMode, n.ArchitectureAllowCross)
 			for _, w := range warnings {
 				n.Warn(Warning{
 					Kind:         "flow",
@@ -1149,7 +1149,7 @@ type FlowWarning struct {
 	SuggestedFix []Fix
 }
 
-func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities []Entity) []FlowWarning {
+func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities []Entity, svcUses []string, architectureMode string, allowCrossService map[string]map[string]struct{}) []FlowWarning {
 	var warnings []FlowWarning
 	seenWarnings := make(map[string]struct{})
 	declaredVars := make(map[string]bool)
@@ -1189,6 +1189,42 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 			CUEPath:      currentStep.CUEPath,
 			SuggestedFix: fixes,
 		})
+	}
+
+	addWarnWithSeverity := func(step int, action, code, severity, message, hint string, file string, line int, column int, fixes ...Fix) {
+		sev := strings.TrimSpace(strings.ToLower(severity))
+		if sev == "" {
+			sev = "error"
+		}
+		appendWarn(FlowWarning{
+			Op:           opName,
+			Step:         step,
+			Action:       action,
+			Message:      message,
+			Code:         code,
+			Severity:     sev,
+			Hint:         hint,
+			File:         file,
+			Line:         line,
+			Column:       column,
+			CUEPath:      currentStep.CUEPath,
+			SuggestedFix: fixes,
+		})
+	}
+
+	archSeverity := "error"
+	if strings.EqualFold(strings.TrimSpace(architectureMode), "relaxed") {
+		archSeverity = "warn"
+	}
+
+	allowedDeps := map[string]struct{}{}
+	allowedDeps[strings.ToLower(normalizeServiceName(svcName))] = struct{}{}
+	for _, dep := range svcUses {
+		dep = strings.TrimSpace(dep)
+		if dep == "" {
+			continue
+		}
+		allowedDeps[strings.ToLower(normalizeServiceName(dep))] = struct{}{}
 	}
 
 	var validate func(steps []FlowStep, inTx bool, depth int)
@@ -1232,9 +1268,11 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 
 					// If entity has an owner and it's not THIS service, it's a violation!
 					if ok && owner != "" && !isShared && !ownerMatch && !ownerPrefixMatch && !strings.EqualFold(svcName, "admin") && !strings.EqualFold(svcName, "audit") {
-						addWarn(stepNum, step.Action, "ARCHITECTURE_VIOLATION",
-							fmt.Sprintf("Service '%s' is not allowed to directly access entity '%s' (owned by '%s')", svcName, source, owner),
-							fmt.Sprintf("Use events or call %sService", strings.Title(owner)), step.File, step.Line, step.Column)
+						if !isCrossServiceAllowed(allowCrossService, svcName, source) {
+							addWarnWithSeverity(stepNum, step.Action, "ARCHITECTURE_VIOLATION", archSeverity,
+								fmt.Sprintf("Service '%s' is not allowed to directly access entity '%s' (owned by '%s')", svcName, source, owner),
+								fmt.Sprintf("Use events or call %sService", strings.Title(owner)), step.File, step.Line, step.Column)
+						}
 					}
 				}
 
@@ -1398,6 +1436,39 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 					}
 				} else {
 					step.Args["args"] = []string{}
+				}
+
+			case "service.Call":
+				serviceTarget, _ := step.Args["service"].(string)
+				methodTarget, _ := step.Args["method"].(string)
+				if strings.TrimSpace(serviceTarget) == "" {
+					addWarn(stepNum, step.Action, "MISSING_SERVICE", "service.Call missing 'service'", "{action: \"service.Call\", service: \"Tender\", method: \"GetTender\", args: [\"ctx\", \"req\"]}", step.File, step.Line, step.Column)
+				}
+				if strings.TrimSpace(methodTarget) == "" {
+					addWarn(stepNum, step.Action, "MISSING_METHOD", "service.Call missing 'method'", "{action: \"service.Call\", service: \"Tender\", method: \"GetTender\", args: [\"ctx\", \"req\"]}", step.File, step.Line, step.Column)
+				}
+				dep := strings.ToLower(normalizeServiceName(serviceTarget))
+				if dep != "" {
+					if _, ok := allowedDeps[dep]; !ok {
+						addWarn(stepNum, step.Action, "MISSING_SERVICE_DEP", fmt.Sprintf("service.Call targets '%s' but service '%s' does not declare it in uses", serviceTarget, svcName), "Add service name to operation uses: uses: [\""+serviceTarget+"\"]", step.File, step.Line, step.Column)
+					}
+				}
+				if args, ok := step.Args["args"]; ok {
+					switch v := args.(type) {
+					case string:
+						step.Args["args"] = []string{v}
+					case []any:
+						var ss []string
+						for _, x := range v {
+							ss = append(ss, fmt.Sprint(x))
+						}
+						step.Args["args"] = ss
+					}
+				} else {
+					step.Args["args"] = []string{}
+				}
+				if output, _ := step.Args["output"].(string); output != "" {
+					declaredVars[output] = true
 				}
 
 			case "list.Append":
@@ -1617,7 +1688,9 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 						strings.EqualFold(owner+"s", svcName) ||
 						strings.EqualFold(svcName+"s", owner)
 					if ok && owner != "" && !isShared && !ownerMatch && !strings.EqualFold(svcName, "admin") && !strings.EqualFold(svcName, "audit") {
-						addWarn(stepNum, step.Action, "ARCHITECTURE_VIOLATION", fmt.Sprintf("Service '%s' is not allowed to directly access entity '%s' (owned by '%s')", svcName, lookupSource, owner), fmt.Sprintf("Use events or call %sService", strings.Title(owner)), step.File, step.Line, step.Column)
+						if !isCrossServiceAllowed(allowCrossService, svcName, lookupSource) {
+							addWarnWithSeverity(stepNum, step.Action, "ARCHITECTURE_VIOLATION", archSeverity, fmt.Sprintf("Service '%s' is not allowed to directly access entity '%s' (owned by '%s')", svcName, lookupSource, owner), fmt.Sprintf("Use events or call %sService", strings.Title(owner)), step.File, step.Line, step.Column)
+						}
 					}
 				}
 				// required args / set format validated by flow semantics engine
@@ -2850,4 +2923,21 @@ func validateGoSnippet(code string, file string, line int, col int) string {
 		return fmt.Sprintf("Invalid Go syntax: %v", err)
 	}
 	return ""
+}
+
+func isCrossServiceAllowed(allow map[string]map[string]struct{}, serviceName, entityName string) bool {
+	if len(allow) == 0 {
+		return false
+	}
+	serviceKey := strings.ToLower(normalizeServiceName(strings.TrimSpace(serviceName)))
+	entityKey := strings.ToLower(strings.TrimSpace(entityName))
+	if serviceKey == "" || entityKey == "" {
+		return false
+	}
+	entities, ok := allow[serviceKey]
+	if !ok {
+		return false
+	}
+	_, ok = entities[entityKey]
+	return ok
 }
