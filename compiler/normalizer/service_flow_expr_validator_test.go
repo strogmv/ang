@@ -546,6 +546,77 @@ func TestValidateFlowSteps_ListEnrichMissingRequiredFields(t *testing.T) {
 	}
 }
 
+func TestValidateFlowSteps_FlowIfMissingConditionAndThen(t *testing.T) {
+	t.Parallel()
+
+	steps := []FlowStep{{Action: "flow.If", Args: map[string]any{}}}
+	warnings := validateFlowSteps("IfOp", "tender", steps, nil, nil, nil, "strict", nil)
+	if !hasWarningWithText(warnings, "MISSING_CONDITION", "flow.If missing 'condition'") {
+		t.Fatalf("expected MISSING_CONDITION, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_THEN", "flow.If requires non-empty 'then' block") {
+		t.Fatalf("expected MISSING_THEN, got: %+v", warnings)
+	}
+}
+
+func TestValidateFlowSteps_FlowForMissingEachAsDo(t *testing.T) {
+	t.Parallel()
+
+	steps := []FlowStep{{Action: "flow.For", Args: map[string]any{}}}
+	warnings := validateFlowSteps("ForOp", "tender", steps, nil, nil, nil, "strict", nil)
+	if !hasWarningWithText(warnings, "MISSING_EACH", "flow.For missing 'each'") {
+		t.Fatalf("expected MISSING_EACH, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_AS", "flow.For missing 'as'") {
+		t.Fatalf("expected MISSING_AS, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_DO", "flow.For requires non-empty 'do' block") {
+		t.Fatalf("expected MISSING_DO for flow.For, got: %+v", warnings)
+	}
+}
+
+func TestValidateFlowSteps_FlowWhileMissingConditionAndDo(t *testing.T) {
+	t.Parallel()
+
+	steps := []FlowStep{{Action: "flow.While", Args: map[string]any{}}}
+	warnings := validateFlowSteps("WhileOp", "tender", steps, nil, nil, nil, "strict", nil)
+	if !hasWarningWithText(warnings, "MISSING_CONDITION", "flow.While missing 'condition'") {
+		t.Fatalf("expected MISSING_CONDITION, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_DO", "flow.While requires non-empty 'do' block") {
+		t.Fatalf("expected MISSING_DO for flow.While, got: %+v", warnings)
+	}
+}
+
+func TestValidateFlowSteps_FlowSwitchMissingValueAndCases(t *testing.T) {
+	t.Parallel()
+
+	steps := []FlowStep{{Action: "flow.Switch", Args: map[string]any{}}}
+	warnings := validateFlowSteps("SwitchOp", "tender", steps, nil, nil, nil, "strict", nil)
+	if !hasWarningWithText(warnings, "MISSING_VALUE", "flow.Switch missing 'value'") {
+		t.Fatalf("expected MISSING_VALUE, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_CASES", "flow.Switch requires at least one case") {
+		t.Fatalf("expected MISSING_CASES, got: %+v", warnings)
+	}
+}
+
+func TestValidateFlowSteps_BlocksMissingDo(t *testing.T) {
+	t.Parallel()
+
+	steps := []FlowStep{
+		{Action: "tx.Block", Args: map[string]any{}},
+		{Action: "flow.Block", Args: map[string]any{}},
+	}
+	warnings := validateFlowSteps("BlockOp", "tender", steps, nil, nil, nil, "strict", nil)
+	if !hasWarningWithText(warnings, "MISSING_DO", "tx.Block requires non-empty 'do' block") {
+		t.Fatalf("expected MISSING_DO for tx.Block, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_DO", "flow.Block requires non-empty 'do' block") {
+		t.Fatalf("expected MISSING_DO for flow.Block, got: %+v", warnings)
+	}
+}
+
 func hasWarningWithText(warnings []FlowWarning, code string, contains string) bool {
 	for _, w := range warnings {
 		if w.Code == code && strings.Contains(w.Message, contains) {

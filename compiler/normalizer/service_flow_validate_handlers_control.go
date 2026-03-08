@@ -25,14 +25,23 @@ func handleFlowControlAndInfra(
 ) bool {
 	switch step.Action {
 	case "tx.Block", "flow.Block":
-		if subSteps, ok := step.Args["_do"].([]FlowStep); ok {
-			validate(subSteps, step.Action == "tx.Block", depth+1)
+		subSteps, ok := step.Args["_do"].([]FlowStep)
+		if !ok || len(subSteps) == 0 {
+			addWarn(stepNum, step.Action, "MISSING_DO", step.Action+" requires non-empty 'do' block", "{action: \""+step.Action+"\", do: [ ... ]}", step.File, step.Line, step.Column)
+			return true
 		}
+		validate(subSteps, step.Action == "tx.Block", depth+1)
 		return true
 
 	case "flow.If":
-		if subSteps, ok := step.Args["_then"].([]FlowStep); ok {
+		cond, _ := step.Args["condition"].(string)
+		if strings.TrimSpace(cond) == "" {
+			addWarn(stepNum, step.Action, "MISSING_CONDITION", "flow.If missing 'condition'", "{action: \"flow.If\", condition: \"req.Enabled\", then: [ ... ]}", step.File, step.Line, step.Column)
+		}
+		if subSteps, ok := step.Args["_then"].([]FlowStep); ok && len(subSteps) > 0 {
 			validate(subSteps, inTx, depth+1)
+		} else {
+			addWarn(stepNum, step.Action, "MISSING_THEN", "flow.If requires non-empty 'then' block", "{action: \"flow.If\", condition: \"req.Enabled\", then: [ ... ]}", step.File, step.Line, step.Column)
 		}
 		if subSteps, ok := step.Args["_else"].([]FlowStep); ok {
 			validate(subSteps, inTx, depth+1)
@@ -40,11 +49,17 @@ func handleFlowControlAndInfra(
 		return true
 
 	case "flow.Switch":
+		value, _ := step.Args["value"].(string)
+		if strings.TrimSpace(value) == "" {
+			addWarn(stepNum, step.Action, "MISSING_VALUE", "flow.Switch missing 'value'", "{action: \"flow.Switch\", value: \"req.Status\", cases: {active: [ ... ]}}", step.File, step.Line, step.Column)
+		}
 		cases, ok := step.Args["_cases"].(map[string][]FlowStep)
-		if ok {
+		if ok && len(cases) > 0 {
 			for _, subSteps := range cases {
 				validate(subSteps, inTx, depth+1)
 			}
+		} else {
+			addWarn(stepNum, step.Action, "MISSING_CASES", "flow.Switch requires at least one case", "{action: \"flow.Switch\", value: \"req.Status\", cases: {active: [ ... ]}}", step.File, step.Line, step.Column)
 		}
 		if subSteps, ok := step.Args["_default"].([]FlowStep); ok {
 			validate(subSteps, inTx, depth+1)
@@ -52,9 +67,35 @@ func handleFlowControlAndInfra(
 		return true
 
 	case "flow.For", "batch.Run":
-		if subSteps, ok := step.Args["_do"].([]FlowStep); ok {
-			validate(subSteps, inTx, depth+1)
+		if step.Action == "flow.For" {
+			each, _ := step.Args["each"].(string)
+			if strings.TrimSpace(each) == "" {
+				addWarn(stepNum, step.Action, "MISSING_EACH", "flow.For missing 'each'", "{action: \"flow.For\", each: \"items\", as: \"item\", do: [ ... ]}", step.File, step.Line, step.Column)
+			}
+			as, _ := step.Args["as"].(string)
+			if strings.TrimSpace(as) == "" {
+				addWarn(stepNum, step.Action, "MISSING_AS", "flow.For missing 'as'", "{action: \"flow.For\", each: \"items\", as: \"item\", do: [ ... ]}", step.File, step.Line, step.Column)
+			}
 		}
+		subSteps, ok := step.Args["_do"].([]FlowStep)
+		if !ok || len(subSteps) == 0 {
+			addWarn(stepNum, step.Action, "MISSING_DO", step.Action+" requires non-empty 'do' block", "{action: \""+step.Action+"\", do: [ ... ]}", step.File, step.Line, step.Column)
+			return true
+		}
+		validate(subSteps, inTx, depth+1)
+		return true
+
+	case "flow.While":
+		cond, _ := step.Args["condition"].(string)
+		if strings.TrimSpace(cond) == "" {
+			addWarn(stepNum, step.Action, "MISSING_CONDITION", "flow.While missing 'condition'", "{action: \"flow.While\", condition: \"i < 10\", do: [ ... ]}", step.File, step.Line, step.Column)
+		}
+		subSteps, ok := step.Args["_do"].([]FlowStep)
+		if !ok || len(subSteps) == 0 {
+			addWarn(stepNum, step.Action, "MISSING_DO", "flow.While requires non-empty 'do' block", "{action: \"flow.While\", condition: \"i < 10\", do: [ ... ]}", step.File, step.Line, step.Column)
+			return true
+		}
+		validate(subSteps, inTx, depth+1)
 		return true
 
 	case "flow.Try", "flow.Retry", "flow.Timeout":
