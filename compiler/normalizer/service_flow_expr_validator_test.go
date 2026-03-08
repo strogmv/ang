@@ -466,6 +466,86 @@ func TestValidateFlowSteps_TimeParseMissingRequiredFields(t *testing.T) {
 	}
 }
 
+func TestValidateFlowSteps_ListAppendMissingRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	steps := []FlowStep{{Action: "list.Append", Args: map[string]any{}}}
+	warnings := validateFlowSteps("Append", "tender", steps, nil, nil, nil, "strict", nil)
+	if !hasWarningWithText(warnings, "MISSING_TO", "list.Append missing 'to'") {
+		t.Fatalf("expected MISSING_TO, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_ITEM", "list.Append missing 'item'") {
+		t.Fatalf("expected MISSING_ITEM, got: %+v", warnings)
+	}
+}
+
+func TestValidateFlowSteps_ListSortMissingRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	steps := []FlowStep{{Action: "list.Sort", Args: map[string]any{}}}
+	warnings := validateFlowSteps("Sort", "tender", steps, nil, nil, nil, "strict", nil)
+	if !hasWarningWithText(warnings, "MISSING_ITEMS", "list.Sort missing 'items'") {
+		t.Fatalf("expected MISSING_ITEMS, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_BY", "list.Sort missing 'by'") {
+		t.Fatalf("expected MISSING_BY, got: %+v", warnings)
+	}
+}
+
+func TestValidateFlowSteps_ListFilterMissingRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	steps := []FlowStep{{Action: "list.Filter", Args: map[string]any{}}}
+	warnings := validateFlowSteps("Filter", "tender", steps, nil, nil, nil, "strict", nil)
+	if !hasWarningWithText(warnings, "MISSING_FROM", "list.Filter missing 'from'") {
+		t.Fatalf("expected MISSING_FROM, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_CONDITION", "list.Filter missing 'condition'") {
+		t.Fatalf("expected MISSING_CONDITION, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_OUTPUT", "list.Filter missing 'output'") {
+		t.Fatalf("expected MISSING_OUTPUT, got: %+v", warnings)
+	}
+}
+
+func TestValidateFlowSteps_ListPaginateMissingRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	steps := []FlowStep{{Action: "list.Paginate", Args: map[string]any{}}}
+	warnings := validateFlowSteps("Paginate", "tender", steps, nil, nil, nil, "strict", nil)
+	if !hasWarningWithText(warnings, "MISSING_INPUT", "list.Paginate missing 'input'") {
+		t.Fatalf("expected MISSING_INPUT, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_OFFSET", "list.Paginate missing 'offset'") {
+		t.Fatalf("expected MISSING_OFFSET, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_LIMIT", "list.Paginate missing 'limit'") {
+		t.Fatalf("expected MISSING_LIMIT, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_OUTPUT", "list.Paginate missing 'output'") {
+		t.Fatalf("expected MISSING_OUTPUT, got: %+v", warnings)
+	}
+}
+
+func TestValidateFlowSteps_ListEnrichMissingRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	steps := []FlowStep{{Action: "list.Enrich", Args: map[string]any{}}}
+	warnings := validateFlowSteps("Enrich", "tender", steps, nil, nil, nil, "strict", nil)
+	if !hasWarningWithText(warnings, "MISSING_ITEMS", "list.Enrich missing 'items'") {
+		t.Fatalf("expected MISSING_ITEMS, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_LOOKUP_SOURCE", "list.Enrich missing 'lookupSource'") {
+		t.Fatalf("expected MISSING_LOOKUP_SOURCE, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_LOOKUP_INPUT", "list.Enrich missing 'lookupInput'") {
+		t.Fatalf("expected MISSING_LOOKUP_INPUT, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_SET", "list.Enrich missing 'set'") {
+		t.Fatalf("expected MISSING_SET, got: %+v", warnings)
+	}
+}
+
 func hasWarningWithText(warnings []FlowWarning, code string, contains string) bool {
 	for _, w := range warnings {
 		if w.Code == code && strings.Contains(w.Message, contains) {

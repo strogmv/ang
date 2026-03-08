@@ -415,7 +415,16 @@ func handleFlowDataAndCalls(
 		}
 		return true
 
-	case "list.Append", "fsm.Transition":
+	case "list.Append":
+		if step.Args["to"] == nil || step.Args["to"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_TO", "list.Append missing 'to'", "{action: \"list.Append\", to: \"resp.Items\", item: \"item\"}", step.File, step.Line, step.Column)
+		}
+		if step.Args["item"] == nil || step.Args["item"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_ITEM", "list.Append missing 'item'", "{action: \"list.Append\", to: \"resp.Items\", item: \"item\"}", step.File, step.Line, step.Column)
+		}
+		return true
+
+	case "fsm.Transition":
 		return true
 
 	case "math.Expr":

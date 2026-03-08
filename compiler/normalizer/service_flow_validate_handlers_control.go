@@ -221,7 +221,47 @@ func handleFlowControlAndInfra(
 		}
 		return true
 
-	case "field.CopyNonEmpty", "list.Paginate", "str.Normalize", "enum.Validate", "list.Sort", "list.Filter", "time.CheckExpiry", "map.Build", "time.Now", "time.Format", "mail.Send", "queue.Enqueue", "queue.Ack", "queue.Nack", "dlq.Publish", "event.Outbox", "webhook.Ack", "webhook.Send", "state.Set", "state.Delete", "idem.Check", "idem.SaveResult", "idempotency.Check", "idempotency.SaveResult", "ratelimit.Check", "concurrency.Limit", "circuit.Check", "circuit.RecordSuccess", "circuit.RecordFailure", "bulkhead.Acquire", "ratelimit.Limit", "log.Emit", "metric.Emit":
+	case "field.CopyNonEmpty", "str.Normalize", "enum.Validate", "time.CheckExpiry", "map.Build", "time.Now", "time.Format", "mail.Send", "queue.Enqueue", "queue.Ack", "queue.Nack", "dlq.Publish", "event.Outbox", "webhook.Ack", "webhook.Send", "state.Set", "state.Delete", "idem.Check", "idem.SaveResult", "idempotency.Check", "idempotency.SaveResult", "ratelimit.Check", "concurrency.Limit", "circuit.Check", "circuit.RecordSuccess", "circuit.RecordFailure", "bulkhead.Acquire", "ratelimit.Limit", "log.Emit", "metric.Emit":
+		return true
+
+	case "list.Filter":
+		if step.Args["from"] == nil || step.Args["from"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_FROM", "list.Filter missing 'from'", "{action: \"list.Filter\", from: \"items\", condition: \"item.Active\", output: \"filtered\"}", step.File, step.Line, step.Column)
+		}
+		if step.Args["condition"] == nil || step.Args["condition"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_CONDITION", "list.Filter missing 'condition'", "{action: \"list.Filter\", from: \"items\", condition: \"item.Active\", output: \"filtered\"}", step.File, step.Line, step.Column)
+		}
+		if output, _ := step.Args["output"].(string); strings.TrimSpace(output) == "" {
+			addWarn(stepNum, step.Action, "MISSING_OUTPUT", "list.Filter missing 'output'", "{action: \"list.Filter\", from: \"items\", condition: \"item.Active\", output: \"filtered\"}", step.File, step.Line, step.Column)
+		} else {
+			declaredVars[output] = true
+		}
+		return true
+
+	case "list.Sort":
+		if step.Args["items"] == nil || step.Args["items"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_ITEMS", "list.Sort missing 'items'", "{action: \"list.Sort\", items: \"items\", by: \"CreatedAt\", order: \"desc\"}", step.File, step.Line, step.Column)
+		}
+		if step.Args["by"] == nil || step.Args["by"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_BY", "list.Sort missing 'by'", "{action: \"list.Sort\", items: \"items\", by: \"CreatedAt\", order: \"desc\"}", step.File, step.Line, step.Column)
+		}
+		return true
+
+	case "list.Paginate":
+		if step.Args["input"] == nil || step.Args["input"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_INPUT", "list.Paginate missing 'input'", "{action: \"list.Paginate\", input: \"items\", offset: \"req.Offset\", limit: \"req.Limit\", output: \"page\"}", step.File, step.Line, step.Column)
+		}
+		if step.Args["offset"] == nil || step.Args["offset"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_OFFSET", "list.Paginate missing 'offset'", "{action: \"list.Paginate\", input: \"items\", offset: \"req.Offset\", limit: \"req.Limit\", output: \"page\"}", step.File, step.Line, step.Column)
+		}
+		if step.Args["limit"] == nil || step.Args["limit"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_LIMIT", "list.Paginate missing 'limit'", "{action: \"list.Paginate\", input: \"items\", offset: \"req.Offset\", limit: \"req.Limit\", output: \"page\"}", step.File, step.Line, step.Column)
+		}
+		if output, _ := step.Args["output"].(string); strings.TrimSpace(output) == "" {
+			addWarn(stepNum, step.Action, "MISSING_OUTPUT", "list.Paginate missing 'output'", "{action: \"list.Paginate\", input: \"items\", offset: \"req.Offset\", limit: \"req.Limit\", output: \"page\"}", step.File, step.Line, step.Column)
+		} else {
+			declaredVars[output] = true
+		}
 		return true
 
 	case "time.Parse":
@@ -249,6 +289,12 @@ func handleFlowControlAndInfra(
 		}
 		if step.Args["lookupSource"] == nil || step.Args["lookupSource"] == "" {
 			addWarn(stepNum, step.Action, "MISSING_LOOKUP_SOURCE", "list.Enrich missing 'lookupSource'", "{action: \"list.Enrich\", items: \"items\", lookupSource: \"Company\", lookupInput: \"item.CompanyID\", set: \"Name=Name\"}", step.File, step.Line, step.Column)
+		}
+		if step.Args["lookupInput"] == nil || step.Args["lookupInput"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_LOOKUP_INPUT", "list.Enrich missing 'lookupInput'", "{action: \"list.Enrich\", items: \"items\", lookupSource: \"Company\", lookupInput: \"item.CompanyID\", set: \"Name=Name\"}", step.File, step.Line, step.Column)
+		}
+		if step.Args["set"] == nil || step.Args["set"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_SET", "list.Enrich missing 'set'", "{action: \"list.Enrich\", items: \"items\", lookupSource: \"Company\", lookupInput: \"item.CompanyID\", set: \"Name=Name\"}", step.File, step.Line, step.Column)
 		}
 		lookupSource, _ := step.Args["lookupSource"].(string)
 		if lookupSource != "" {
