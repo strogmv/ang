@@ -280,7 +280,7 @@ func TestValidateFlowSteps_RepoGetRequiresErrorGuard(t *testing.T) {
 	}
 }
 
-func TestValidateFlowSteps_RepoFindWithoutErrorWarns(t *testing.T) {
+func TestValidateFlowSteps_RepoFindWithoutErrorFails(t *testing.T) {
 	t.Parallel()
 
 	entities := []Entity{{Name: "Tender", Owner: "tender", BoundedContext: "tender"}}
@@ -298,13 +298,13 @@ func TestValidateFlowSteps_RepoFindWithoutErrorWarns(t *testing.T) {
 	for _, w := range warnings {
 		if w.Code == "REPO_FIND_WITHOUT_ERROR" {
 			found = true
-			if w.Severity != "warn" {
-				t.Fatalf("expected warn severity for REPO_FIND_WITHOUT_ERROR, got %q", w.Severity)
+			if w.Severity != "error" {
+				t.Fatalf("expected error severity for REPO_FIND_WITHOUT_ERROR, got %q", w.Severity)
 			}
 		}
 	}
 	if !found {
-		t.Fatalf("expected REPO_FIND_WITHOUT_ERROR warning, got: %+v", warnings)
+		t.Fatalf("expected REPO_FIND_WITHOUT_ERROR, got: %+v", warnings)
 	}
 }
 
