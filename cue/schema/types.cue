@@ -107,7 +107,7 @@ import "github.com/strogmv/ang/cue/project"
 // AI AGENTS: Use these definitions to understand valid flow step structures.
 // ============================================================================
 
-#FlowStep: #RepoStep | #DbStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #EventOutboxStep | #CustomStep | #ServiceCallStep | #FlowCallStep | #StateStep | #ExplicitStateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #ListLenStep | #ListNewStep | #AuditStep | #AuthStep | #CheckRoleStep | #RBACCheckPermissionStep | #PolicyCheckStep | #PolicyEvaluateStep | #PolicyRequireStep | #PolicyDecideStep | #JWTSignStep | #JWTVerifyStep | #OAuth2TokenStep | #OAuth2RefreshStep | #EncryptStep | #DecryptStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #ListMapStep | #ListReduceStep | #ListGroupByStep | #ListDistinctStep | #ListChunkStep | #BatchRunStep | #EnrichStep | #TimeNowStep | #TimeParseStep | #TimeFormatStep | #TimeCheckExpiryStep | #MapBuildStep | #MapNewStep | #ExecRunStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #NotifySendStep | #ApprovalRequestStep | #ApprovalWaitStep | #ApprovalDecideStep | #StorageUploadStep | #StorageGetURLStep | #WebhookSendStep | #WebhookVerifySignatureStep | #WebhookAckStep | #QueueEnqueueStep | #QueueDequeueStep | #QueueAckStep | #QueueNackStep | #DLQPublishStep | #HTTPCallStep | #HTTPRequestStep | #HTTPRetryPolicyStep | #HTTPPaginateStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #StrConcatStep | #CastToStringStep | #NumBinaryStep | #JSONParseStep | #JSONMarshalStep | #ParallelStep | #FlowParallelStep | #FlowJoinStep | #FlowRaceStep | #FlowDelayStep | #FlowScheduleStep | #FlowCronStep | #SecretGetStep | #ConfigGetStep | #EventWaitStep | #EventSubscribeStep | #EventMatchStep | #FlowSagaStep | #FlowCompensateStep | #FlowRollbackStep | #FlowTagStep | #FlowCheckpointStep | #FlowResumeStep | #FlowRecordEventStep | #FlowReplayStep | #FlowHistoryGetStep | #FlowValidateStep | #FlowTryStep | #FlowRetryStep | #FlowFallbackStep | #FlowTimeoutStep | #FlowSuggestNextStep | #FlowExplainErrorStep | #IdemDeriveKeyStep | #IdemCheckStep | #IdemSaveResultStep | #IdempotencyDeriveKeyStep | #IdempotencyCheckStep | #IdempotencySaveResultStep | #DedupeOnceStep | #RateLimitCheckStep | #RateLimitLimitStep | #ConcurrencyLimitStep | #ConcurrencyRunStep | #CircuitCheckStep | #CircuitRecordSuccessStep | #CircuitRecordFailureStep | #CircuitBreakerStep | #BulkheadAcquireStep | #BulkheadRunStep | #LogEmitStep | #MetricEmitStep | #TraceSpanStep | #SLOBudgetStep
+#FlowStep: #RepoStep | #DbStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #EventOutboxStep | #CustomStep | #ServiceCallStep | #FlowCallStep | #StateStep | #ExplicitStateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #ListLenStep | #ListNewStep | #AuditStep | #AuthStep | #CheckRoleStep | #RBACCheckPermissionStep | #PolicyCheckStep | #PolicyEvaluateStep | #PolicyRequireStep | #PolicyDecideStep | #JWTSignStep | #JWTVerifyStep | #OAuth2TokenStep | #OAuth2RefreshStep | #EncryptStep | #DecryptStep | #HashStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #ListMapStep | #ListReduceStep | #ListGroupByStep | #ListDistinctStep | #ListChunkStep | #BatchRunStep | #EnrichStep | #TimeNowStep | #TimeParseStep | #TimeFormatStep | #TimeCheckExpiryStep | #MapBuildStep | #MapNewStep | #ExecRunStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #ArchiveZipDirStep | #SessionGetStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #NotifySendStep | #NotifyDispatchStep | #ApprovalRequestStep | #ApprovalWaitStep | #ApprovalDecideStep | #StorageUploadStep | #StorageDownloadStep | #StorageDeleteStep | #StorageListStep | #StorageGetURLStep | #WebhookSendStep | #WebhookVerifySignatureStep | #WebhookAckStep | #QueueEnqueueStep | #QueueDequeueStep | #QueueAckStep | #QueueNackStep | #DLQPublishStep | #HTTPCallStep | #HTTPRequestStep | #HTTPRetryPolicyStep | #HTTPPaginateStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #StrConcatStep | #CastToStringStep | #NumBinaryStep | #RegexMatchStep | #RegexReplaceStep | #Base64EncodeStep | #Base64DecodeStep | #URLParseStep | #URLBuildStep | #QueryEncodeStep | #QueryDecodeStep | #HashSumStep | #HashHMACStep | #UUIDNewStep | #ULIDNewStep | #JSONParseStep | #JSONMarshalStep | #JSONPathGetStep | #JSONPathSetStep | #ParallelStep | #FlowParallelStep | #FlowJoinStep | #FlowRaceStep | #FlowDelayStep | #FlowScheduleStep | #FlowCronStep | #SecretGetStep | #ConfigGetStep | #EventWaitStep | #EventSubscribeStep | #EventMatchStep | #FlowSagaStep | #FlowCompensateStep | #FlowRollbackStep | #FlowTagStep | #FlowCheckpointStep | #FlowResumeStep | #FlowRecordEventStep | #FlowReplayStep | #FlowHistoryGetStep | #FlowValidateStep | #FlowTryStep | #FlowCatchStep | #FlowRetryStep | #FlowFallbackStep | #FlowTimeoutStep | #FlowSuggestNextStep | #FlowExplainErrorStep | #IdemDeriveKeyStep | #IdemCheckStep | #IdemSaveResultStep | #IdempotencyDeriveKeyStep | #IdempotencyCheckStep | #IdempotencySaveResultStep | #DedupeOnceStep | #RateLimitCheckStep | #RateLimitLimitStep | #ConcurrencyLimitStep | #ConcurrencyRunStep | #CircuitCheckStep | #CircuitRecordSuccessStep | #CircuitRecordFailureStep | #CircuitBreakerStep | #BulkheadAcquireStep | #BulkheadRunStep | #LogEmitStep | #MetricEmitStep | #TraceSpanStep | #SLOBudgetStep
 
 #FlowCheckpointStep: {
 	// flow.Checkpoint - Save current flow state for potential resumption
@@ -182,6 +182,12 @@ import "github.com/strogmv/ang/cue/project"
 	catch?: [...#FlowStep]
 	retries?:   int
 	backoffMs?: int
+}
+
+#FlowCatchStep: {
+	// flow.Catch - Execute handler steps when _flowLastError is set
+	action: "flow.Catch"
+	do: [...#FlowStep]
 }
 
 #FlowRetryStep: {
@@ -542,6 +548,14 @@ import "github.com/strogmv/ang/cue/project"
 	// Optional additional authenticated data (AAD)
 	aad?: string
 	// Output plaintext string
+	output: string
+}
+
+#HashStep: {
+	// crypto.Hash - hash input (sha256 default, bcrypt when algo == "bcrypt")
+	action: "crypto.Hash"
+	input: string
+	algo?: string
 	output: string
 }
 
@@ -1344,6 +1358,18 @@ import "github.com/strogmv/ang/cue/project"
 	output?: string
 }
 
+#NotifyDispatchStep: {
+	// notification.Dispatch / notify.Dispatch - dispatch domain notification event
+	action: "notification.Dispatch" | "notify.Dispatch"
+	event?: string
+	message?: string
+	type?: string
+	userID?: string
+	entityID?: string
+	payload?: string
+	template?: string
+}
+
 #ApprovalRequestStep: {
 	// approval.Request - Create (idempotent) approval task
 	action: "approval.Request"
@@ -1394,6 +1420,28 @@ import "github.com/strogmv/ang/cue/project"
 	contentType?: string
 	// Variable name to receive public URL
 	output?: string
+}
+
+#StorageDownloadStep: {
+	action: "storage.Download"
+	// Object key expression to download
+	key: string
+	// Variable name for downloaded []byte payload
+	output: string
+}
+
+#StorageDeleteStep: {
+	action: "storage.Delete"
+	// Object key expression to delete
+	key: string
+}
+
+#StorageListStep: {
+	action: "storage.List"
+	// Prefix expression to list by
+	prefix: string
+	// Variable name for []string keys
+	output: string
 }
 
 #StorageGetURLStep: {
@@ -1644,6 +1692,92 @@ import "github.com/strogmv/ang/cue/project"
 	output: string
 }
 
+#RegexMatchStep: {
+	action: "regex.Match"
+	input:  string
+	pattern: string
+	output: string
+}
+
+#RegexReplaceStep: {
+	action: "regex.Replace"
+	input:  string
+	pattern: string
+	repl:   string
+	output: string
+}
+
+#Base64EncodeStep: {
+	action: "base64.Encode"
+	input:  string
+	output: string
+}
+
+#Base64DecodeStep: {
+	action: "base64.Decode"
+	input:  string
+	output: string
+}
+
+#URLParseStep: {
+	action: "url.Parse"
+	input:  string
+	output: string
+}
+
+#URLBuildStep: {
+	action: "url.Build"
+	base:   string
+	path?:  string
+	query?: [string]: string
+	output: string
+}
+
+#QueryEncodeStep: {
+	action: "query.Encode"
+	// Source map/url.Values expression
+	input: string
+	// Variable name for encoded query string
+	output: string
+}
+
+#QueryDecodeStep: {
+	action: "query.Decode"
+	// Raw query string expression
+	input: string
+	// Variable name for decoded url.Values
+	output: string
+}
+
+#HashSumStep: {
+	action: "hash.Sum"
+	input:  string
+	algorithm?: string
+	algo?: string
+	output: string
+}
+
+#HashHMACStep: {
+	action: "hash.HMAC"
+	input:  string
+	key:    string
+	algorithm?: string
+	algo?: string
+	output: string
+}
+
+#UUIDNewStep: {
+	action: "uuid.New"
+	// Variable or field path to receive generated UUID string
+	output: string
+}
+
+#ULIDNewStep: {
+	action: "ulid.New"
+	// Variable or field path to receive generated ULID string
+	output: string
+}
+
 #JSONParseStep: {
 	action: "json.Parse"
 	// JSON string expression to parse
@@ -1659,6 +1793,21 @@ import "github.com/strogmv/ang/cue/project"
 	// Value expression to marshal
 	input: string
 	// Variable name for result JSON string
+	output: string
+}
+
+#JSONPathGetStep: {
+	action: "jsonpath.Get"
+	input: string
+	path: string
+	output: string
+}
+
+#JSONPathSetStep: {
+	action: "jsonpath.Set"
+	input: string
+	path: string
+	value: string
 	output: string
 }
 
@@ -1798,6 +1947,19 @@ import "github.com/strogmv/ang/cue/project"
 	action: "fs.Remove"
 	// Path expression to remove
 	path: string
+}
+
+#ArchiveZipDirStep: {
+	// archive.ZipDir - Zip local directory into []byte payload
+	action: "archive.ZipDir"
+	path: string
+	output: string
+}
+
+#SessionGetStep: {
+	// session.Get - Read session id from request context
+	action: "session.Get"
+	output: string
 }
 
 // ============================================================================
