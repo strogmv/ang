@@ -34,6 +34,35 @@ func handleFlowDataAndCalls(
 	switch step.Action {
 	case "repo.Find", "repo.Get", "repo.GetForUpdate", "repo.Save", "repo.Delete", "repo.List", "repo.Query", "repo.Upsert",
 		"db.Get", "db.List", "db.Query", "db.Insert", "db.Update", "db.Upsert", "db.Delete", "db.Lock", "db.SelectForUpdate":
+		if strings.HasPrefix(step.Action, "repo.") {
+			if step.Args["source"] == nil || step.Args["source"] == "" {
+				addWarn(stepNum, step.Action, "MISSING_SOURCE", step.Action+" missing 'source'", "{action: \""+step.Action+"\", source: \"Entity\", ...}", step.File, step.Line, step.Column)
+			}
+		}
+		switch step.Action {
+		case "repo.Find", "repo.Get", "repo.GetForUpdate":
+			if step.Args["input"] == nil || step.Args["input"] == "" {
+				addWarn(stepNum, step.Action, "MISSING_INPUT", step.Action+" missing 'input'", "{action: \""+step.Action+"\", source: \"Entity\", input: \"req.ID\", output: \"item\"}", step.File, step.Line, step.Column)
+			}
+			if step.Args["output"] == nil || step.Args["output"] == "" {
+				addWarn(stepNum, step.Action, "MISSING_OUTPUT", step.Action+" missing 'output'", "{action: \""+step.Action+"\", source: \"Entity\", input: \"req.ID\", output: \"item\"}", step.File, step.Line, step.Column)
+			}
+		case "repo.Save", "repo.Delete":
+			if step.Args["input"] == nil || step.Args["input"] == "" {
+				addWarn(stepNum, step.Action, "MISSING_INPUT", step.Action+" missing 'input'", "{action: \""+step.Action+"\", source: \"Entity\", input: \"item\"}", step.File, step.Line, step.Column)
+			}
+		case "repo.List":
+			if step.Args["output"] == nil || step.Args["output"] == "" {
+				addWarn(stepNum, step.Action, "MISSING_OUTPUT", step.Action+" missing 'output'", "{action: \"repo.List\", source: \"Entity\", output: \"items\"}", step.File, step.Line, step.Column)
+			}
+		case "repo.Query":
+			if step.Args["method"] == nil || step.Args["method"] == "" {
+				addWarn(stepNum, step.Action, "MISSING_METHOD", step.Action+" missing 'method'", "{action: \"repo.Query\", source: \"Entity\", method: \"ListBy...\", output: \"items\"}", step.File, step.Line, step.Column)
+			}
+			if step.Args["output"] == nil || step.Args["output"] == "" {
+				addWarn(stepNum, step.Action, "MISSING_OUTPUT", step.Action+" missing 'output'", "{action: \"repo.Query\", source: \"Entity\", method: \"ListBy...\", output: \"items\"}", step.File, step.Line, step.Column)
+			}
+		}
 		source, _ := step.Args["source"].(string)
 		if source != "" {
 			_, ok := entityOwners[source]
@@ -97,9 +126,6 @@ func handleFlowDataAndCalls(
 			}
 		}
 		if step.Action == "repo.Query" || step.Action == "db.Query" {
-			if step.Args["method"] == nil || step.Args["method"] == "" {
-				addWarn(stepNum, step.Action, "MISSING_METHOD", step.Action+" missing 'method'", fmt.Sprintf("{action: \"%s\", source: \"Entity\", method: \"ListBy...\", input: \"...\", output: \"items\"}", step.Action), step.File, step.Line, step.Column)
-			}
 			if input, _ := step.Args["input"].(string); strings.TrimSpace(input) != "" {
 				if errStr := validateSafeCallArgExpr(input); errStr != "" {
 					addWarn(stepNum, step.Action, "UNSAFE_QUERY_ARG_EXPR", step.Action+" input: "+errStr, "Use only refs/literals (or safe struct literals without calls) in query inputs.", step.File, step.Line, step.Column)
@@ -244,6 +270,13 @@ func handleFlowDataAndCalls(
 
 	case "logic.Check":
 		cond, _ := step.Args["condition"].(string)
+		if strings.TrimSpace(cond) == "" {
+			addWarn(stepNum, step.Action, "MISSING_CONDITION", "logic.Check missing 'condition'", "{action: \"logic.Check\", condition: \"req.ID != \\\"\\\"\", throw: \"invalid input\"}", step.File, step.Line, step.Column)
+		}
+		throwMsg, _ := step.Args["throw"].(string)
+		if strings.TrimSpace(throwMsg) == "" {
+			addWarn(stepNum, step.Action, "MISSING_THROW", "logic.Check missing 'throw'", "{action: \"logic.Check\", condition: \"ok\", throw: \"validation failed\"}", step.File, step.Line, step.Column)
+		}
 		if cond != "" {
 			if errStr := validateSafeConditionExpr(cond); errStr != "" {
 				addWarn(stepNum, step.Action, "UNSAFE_CONDITION_EXPR", "logic.Check condition: "+errStr, "Use safe boolean refs/comparisons only; avoid calls and Go-specific constructs.", step.File, step.Line, step.Column)
@@ -383,6 +416,17 @@ func handleFlowDataAndCalls(
 		return true
 
 	case "list.Append", "fsm.Transition":
+		return true
+
+	case "math.Expr":
+		if step.Args["expr"] == nil || step.Args["expr"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_EXPR", "math.Expr missing 'expr'", "{action: \"math.Expr\", expr: \"req.Price*0.9\", output: \"discounted\"}", step.File, step.Line, step.Column)
+		}
+		if output, _ := step.Args["output"].(string); strings.TrimSpace(output) == "" {
+			addWarn(stepNum, step.Action, "MISSING_OUTPUT", "math.Expr missing 'output'", "{action: \"math.Expr\", expr: \"req.Price*0.9\", output: \"discounted\"}", step.File, step.Line, step.Column)
+		} else {
+			declaredVars[output] = true
+		}
 		return true
 	}
 

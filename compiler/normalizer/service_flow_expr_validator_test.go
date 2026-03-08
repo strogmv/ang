@@ -383,6 +383,89 @@ func TestValidateFlowSteps_FlowCallRequiresDeclaredDependency(t *testing.T) {
 	}
 }
 
+func TestValidateFlowSteps_RepoFindMissingRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	entities := []Entity{{Name: "Tender", Owner: "tender", BoundedContext: "tender"}}
+	steps := []FlowStep{{
+		Action: "repo.Find",
+		Args: map[string]any{
+			"source": "Tender",
+		},
+	}}
+	warnings := validateFlowSteps("GetTender", "tender", steps, entities, nil, nil, "strict", nil)
+	if !hasWarningWithText(warnings, "MISSING_INPUT", "repo.Find missing 'input'") {
+		t.Fatalf("expected MISSING_INPUT for repo.Find, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_OUTPUT", "repo.Find missing 'output'") {
+		t.Fatalf("expected MISSING_OUTPUT for repo.Find, got: %+v", warnings)
+	}
+}
+
+func TestValidateFlowSteps_RepoSaveMissingInput(t *testing.T) {
+	t.Parallel()
+
+	entities := []Entity{{Name: "Tender", Owner: "tender", BoundedContext: "tender"}}
+	steps := []FlowStep{{
+		Action: "repo.Save",
+		Args: map[string]any{
+			"source": "Tender",
+		},
+	}}
+	warnings := validateFlowSteps("SaveTender", "tender", steps, entities, nil, nil, "strict", nil)
+	if !hasWarningWithText(warnings, "MISSING_INPUT", "repo.Save missing 'input'") {
+		t.Fatalf("expected MISSING_INPUT for repo.Save, got: %+v", warnings)
+	}
+}
+
+func TestValidateFlowSteps_LogicCheckMissingRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	steps := []FlowStep{{
+		Action: "logic.Check",
+		Args:   map[string]any{},
+	}}
+	warnings := validateFlowSteps("Check", "tender", steps, nil, nil, nil, "strict", nil)
+	if !hasWarningWithText(warnings, "MISSING_CONDITION", "logic.Check missing 'condition'") {
+		t.Fatalf("expected MISSING_CONDITION, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_THROW", "logic.Check missing 'throw'") {
+		t.Fatalf("expected MISSING_THROW, got: %+v", warnings)
+	}
+}
+
+func TestValidateFlowSteps_MathExprMissingRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	steps := []FlowStep{{
+		Action: "math.Expr",
+		Args:   map[string]any{},
+	}}
+	warnings := validateFlowSteps("Calc", "tender", steps, nil, nil, nil, "strict", nil)
+	if !hasWarningWithText(warnings, "MISSING_EXPR", "math.Expr missing 'expr'") {
+		t.Fatalf("expected MISSING_EXPR, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_OUTPUT", "math.Expr missing 'output'") {
+		t.Fatalf("expected MISSING_OUTPUT, got: %+v", warnings)
+	}
+}
+
+func TestValidateFlowSteps_TimeParseMissingRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	steps := []FlowStep{{
+		Action: "time.Parse",
+		Args:   map[string]any{},
+	}}
+	warnings := validateFlowSteps("Parse", "tender", steps, nil, nil, nil, "strict", nil)
+	if !hasWarningWithText(warnings, "MISSING_VALUE", "time.Parse missing 'value'") {
+		t.Fatalf("expected MISSING_VALUE, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_OUTPUT", "time.Parse missing 'output'") {
+		t.Fatalf("expected MISSING_OUTPUT, got: %+v", warnings)
+	}
+}
+
 func hasWarningWithText(warnings []FlowWarning, code string, contains string) bool {
 	for _, w := range warnings {
 		if w.Code == code && strings.Contains(w.Message, contains) {
