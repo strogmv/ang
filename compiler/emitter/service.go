@@ -180,8 +180,21 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 	}
 	funcMapImpl["CleanImplCode"] = cleanImplCode
 	funcMapImpl["FlowRenderable"] = flowRenderable
-	funcMapImpl["RenderFlow"] = func(serviceName string, steps []normalizer.FlowStep) string {
-		return renderFlowForServiceWithSchema(serviceName, steps, nEntities, nEvents)
+	funcMapImpl["RenderFlow"] = func(args ...any) string {
+		if len(args) < 2 {
+			return ""
+		}
+		serviceName, _ := args[0].(string)
+		methodName := ""
+		var steps []normalizer.FlowStep
+		switch len(args) {
+		case 2:
+			steps, _ = args[1].([]normalizer.FlowStep)
+		default:
+			methodName, _ = args[1].(string)
+			steps, _ = args[2].([]normalizer.FlowStep)
+		}
+		return renderFlowForServiceWithSchemaAndSink(serviceName, methodName, steps, nEntities, nEvents, e.WarningSink)
 	}
 	funcMapImpl["RenderImplSteps"] = func(svc normalizer.Service, steps []normalizer.ImplStep, serviceName, methodName string) string {
 		return renderImplSteps(svc, steps, serviceName, methodName)

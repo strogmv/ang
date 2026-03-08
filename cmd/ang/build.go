@@ -300,6 +300,7 @@ func runBuild(args []string) {
 			fmt.Println("Build FAILED due to diagnostic errors.")
 			return
 		}
+		postEmitDiagStart := len(compiler.LatestDiagnostics)
 
 		irSchema := compiled.IR
 		scenarios := compiled.Normalized.Scenarios
@@ -391,6 +392,9 @@ func runBuild(args []string) {
 			em.CompilerHash = compilerFingerprint
 			em.GoModule = goModule
 			em.IRSchema = irSchema
+			em.WarningSink = func(w normalizer.Warning) {
+				compiler.LatestDiagnostics = append(compiler.LatestDiagnostics, w)
+			}
 
 			ctx := em.AnalyzeContextFromIR(irSchema)
 			ctx.HasScheduler = len(irSchema.Schedules) > 0
@@ -540,6 +544,12 @@ func runBuild(args []string) {
 					Changes:  combined,
 				})
 			}
+		}
+
+		newEmitterDiagnostics := compiler.LatestDiagnostics[postEmitDiagStart:]
+		if emitDiagnostics(os.Stderr, newEmitterDiagnostics) {
+			fmt.Println("Build FAILED due to diagnostic errors.")
+			return
 		}
 
 		if !output.DryRun {

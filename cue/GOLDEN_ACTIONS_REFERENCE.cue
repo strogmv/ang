@@ -2022,3 +2022,32 @@ RefNumOps: schema.#Operation & {
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2010: flow.While
+// ----------------------------------------------------------------------------
+RefFlowWhile: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "mapping.Assign", to: "i", declare: true, value: "0"},
+		{action: "flow.While", condition: "i < 1", do: [
+			{action: "mapping.Assign", to: "i", value: "i + 1"},
+		]},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2011: repo.Get
+// ----------------------------------------------------------------------------
+RefRepoGet: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "repo.Get", source: "Tender", input: "req.ID", output: "item"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "item != nil"},
+	]
+}

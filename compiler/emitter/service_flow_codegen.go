@@ -2,6 +2,7 @@ package emitter
 
 import (
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -201,6 +202,8 @@ type flowRenderState struct {
 	concurrVarPfx    string            // e.g. "_fp_0" / "_fj_0" / "_fr_0"
 	sagaCompVar      string            // variable name for compensation slice
 	serviceName      string            // current service name for flow.Call self-call resolution
+	opName           string            // Service.Method for diagnostics
+	warningSink      func(normalizer.Warning)
 	eventDefsByName  map[string]normalizer.EventDef
 	entityDefsByName map[string]normalizer.Entity
 }
@@ -217,6 +220,8 @@ func cloneFlowState(st *flowRenderState) *flowRenderState {
 		concurrVarPfx:    st.concurrVarPfx,
 		sagaCompVar:      st.sagaCompVar,
 		serviceName:      st.serviceName,
+		opName:           st.opName,
+		warningSink:      st.warningSink,
 		eventDefsByName:  st.eventDefsByName,
 		entityDefsByName: st.entityDefsByName,
 	}
@@ -233,21 +238,33 @@ func cloneFlowState(st *flowRenderState) *flowRenderState {
 }
 
 func renderFlow(steps []normalizer.FlowStep) string {
-	return renderFlowForServiceWithSchema("", steps, nil, nil)
+	return renderFlowForServiceWithSchemaAndSink("", "", steps, nil, nil, nil)
 }
 
 func renderFlowForService(serviceName string, steps []normalizer.FlowStep) string {
-	return renderFlowForServiceWithSchema(serviceName, steps, nil, nil)
+	return renderFlowForServiceWithSchemaAndSink(serviceName, "", steps, nil, nil, nil)
 }
 
 func renderFlowForServiceWithSchema(serviceName string, steps []normalizer.FlowStep, entities []normalizer.Entity, events []normalizer.EventDef) string {
+	return renderFlowForServiceWithSchemaAndSink(serviceName, "", steps, entities, events, nil)
+}
+
+func renderFlowForServiceWithSchemaAndSink(serviceName, methodName string, steps []normalizer.FlowStep, entities []normalizer.Entity, events []normalizer.EventDef, warningSink func(normalizer.Warning)) string {
 	n := 0
+	svcName := strings.TrimSpace(serviceName)
+	mName := strings.TrimSpace(methodName)
+	opName := svcName
+	if opName != "" && mName != "" {
+		opName = opName + "." + mName
+	}
 	st := &flowRenderState{
 		declared:         map[string]bool{"resp": true, "err": true},
 		pointers:         map[string]bool{},
 		types:            map[string]string{},
 		stepN:            &n,
-		serviceName:      strings.TrimSpace(serviceName),
+		serviceName:      svcName,
+		opName:           opName,
+		warningSink:      warningSink,
 		eventDefsByName:  flowEventDefsByName(events),
 		entityDefsByName: flowEntityDefsByName(entities),
 	}
@@ -276,6 +293,15 @@ func renderFlowForServiceWithSchema(serviceName string, steps []normalizer.FlowS
 	}
 	b.WriteString(renderFlowSteps(st, steps, 0))
 	return b.String()
+}
+
+func isSafetyCriticalNoCodegenAction(action string) bool {
+	switch strings.TrimSpace(action) {
+	case "auth.RequireRole", "logic.Check", "repo.Get", "repo.Find", "repo.Save":
+		return true
+	default:
+		return false
+	}
 }
 
 func flowEventDefsByName(events []normalizer.EventDef) map[string]normalizer.EventDef {
@@ -332,11 +358,46 @@ func flowHasAction(steps []normalizer.FlowStep, actions ...string) bool {
 
 func renderFlowSteps(st *flowRenderState, steps []normalizer.FlowStep, indent int) string {
 	var b strings.Builder
-	for _, step := range steps {
+	for i, step := range steps {
 		if trace := flowStepTraceComment(step, *st.stepN+1, indent); trace != "" {
 			b.WriteString(trace)
 		}
-		b.WriteString(renderOneFlowStep(st, step, indent))
+		code := renderOneFlowStep(st, step, indent)
+		if code == "" && flowActionSupported(step.Action) {
+			severity := "warn"
+			codeName := "FLOW_STEP_NO_CODEGEN"
+			if isSafetyCriticalNoCodegenAction(step.Action) {
+				severity = "error"
+				codeName = "FLOW_STEP_NO_CODEGEN_CRITICAL"
+			}
+			if st.warningSink != nil {
+				st.warningSink(normalizer.Warning{
+					Kind:     "flow",
+					Code:     codeName,
+					Severity: severity,
+					Message:  fmt.Sprintf("step %d (%s) produced no code; check required fields", i+1, step.Action),
+					Op:       st.opName,
+					Step:     i + 1,
+					Action:   step.Action,
+					File:     step.File,
+					Line:     step.Line,
+					Column:   step.Column,
+					CUEPath:  step.CUEPath,
+					Hint:     "Verify required step fields in cue/schema/types.cue and flow docs",
+				})
+			}
+			slog.Warn("flow.step.no_codegen",
+				"step", i+1,
+				"action", step.Action,
+				"file", step.File,
+				"line", step.Line,
+				"severity", severity,
+				"hint", "missing required flow fields",
+			)
+			pad := strings.Repeat("\t", indent)
+			b.WriteString(fmt.Sprintf("%s// WARNING: step %d (%s) produced no code; check required fields\n", pad, i+1, step.Action))
+		}
+		b.WriteString(code)
 	}
 	return b.String()
 }

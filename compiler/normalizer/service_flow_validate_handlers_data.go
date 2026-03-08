@@ -425,6 +425,12 @@ func handleFlowDataAndCalls(
 		return true
 
 	case "fsm.Transition":
+		if step.Args["entity"] == nil || step.Args["entity"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_ENTITY", "fsm.Transition missing 'entity'", "{action: \"fsm.Transition\", entity: \"award\", to: \"approved\"}", step.File, step.Line, step.Column)
+		}
+		if step.Args["to"] == nil || step.Args["to"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_TO", "fsm.Transition missing 'to'", "{action: \"fsm.Transition\", entity: \"award\", to: \"approved\"}", step.File, step.Line, step.Column)
+		}
 		return true
 
 	case "math.Expr":

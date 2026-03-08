@@ -880,3 +880,328 @@ func TestRenderFlow_LogicCheckStatus403(t *testing.T) {
 		t.Fatalf("expected StatusForbidden for logic.Check with status=403, got:\n%s", code)
 	}
 }
+
+func TestRenderFlow_LogicCheckDefaultStatus400(t *testing.T) {
+	steps := []normalizer.FlowStep{
+		{Action: "logic.Check", Args: map[string]any{
+			"condition": "req.CompanyID != \"\"",
+			"throw":     "companyId is required",
+		}},
+	}
+	code := renderFlow(steps)
+	if !strings.Contains(code, "http.StatusBadRequest") {
+		t.Fatalf("expected StatusBadRequest for logic.Check without status field, got:\n%s", code)
+	}
+	if !strings.Contains(code, "Validation Error") {
+		t.Fatalf("expected message 'Validation Error' for logic.Check without status field, got:\n%s", code)
+	}
+}
+
+func TestRenderFlow_LogicCheckStatus404(t *testing.T) {
+	steps := []normalizer.FlowStep{
+		{Action: "logic.Check", Args: map[string]any{
+			"condition": "item != nil",
+			"throw":     "not found",
+			"status":    "404",
+		}},
+	}
+	code := renderFlow(steps)
+	if !strings.Contains(code, "http.StatusNotFound") {
+		t.Fatalf("expected StatusNotFound for logic.Check with status=404, got:\n%s", code)
+	}
+	if !strings.Contains(code, "Not Found") {
+		t.Fatalf("expected message 'Not Found' for logic.Check with status=404, got:\n%s", code)
+	}
+}
+
+func TestRenderFlow_LogicCheckStatus409(t *testing.T) {
+	steps := []normalizer.FlowStep{
+		{Action: "logic.Check", Args: map[string]any{
+			"condition": "currentVersion == req.Version",
+			"throw":     "version conflict",
+			"status":    "409",
+		}},
+	}
+	code := renderFlow(steps)
+	if !strings.Contains(code, "http.StatusConflict") {
+		t.Fatalf("expected StatusConflict for logic.Check with status=409, got:\n%s", code)
+	}
+	if !strings.Contains(code, "Conflict") {
+		t.Fatalf("expected message 'Conflict' for logic.Check with status=409, got:\n%s", code)
+	}
+}
+
+func TestRenderFlow_LogicCheckStatus401(t *testing.T) {
+	steps := []normalizer.FlowStep{
+		{Action: "logic.Check", Args: map[string]any{
+			"condition": "token != \"\"",
+			"throw":     "missing token",
+			"status":    "401",
+		}},
+	}
+	code := renderFlow(steps)
+	if !strings.Contains(code, "http.StatusUnauthorized") {
+		t.Fatalf("expected StatusUnauthorized for logic.Check with status=401, got:\n%s", code)
+	}
+	if !strings.Contains(code, "Unauthorized") {
+		t.Fatalf("expected message 'Unauthorized' for logic.Check with status=401, got:\n%s", code)
+	}
+}
+
+func TestRenderFlow_LogicCheckStatusForbiddenWord(t *testing.T) {
+	steps := []normalizer.FlowStep{
+		{Action: "logic.Check", Args: map[string]any{
+			"condition": "actorRole == \"admin\"",
+			"throw":     "admin only",
+			"status":    "forbidden",
+		}},
+	}
+	code := renderFlow(steps)
+	if !strings.Contains(code, "http.StatusForbidden") {
+		t.Fatalf("expected StatusForbidden for logic.Check with status='forbidden', got:\n%s", code)
+	}
+}
+
+func TestRenderFlow_LogicCheckNoInterceptInRepoMapping(t *testing.T) {
+	step := normalizer.FlowStep{
+		Action: "logic.Check",
+		Args: map[string]any{
+			"condition": "req.CompanyID != \"\"",
+			"throw":     "companyId is required",
+			"status":    "403",
+		},
+	}
+	st := newDomainDispatchState()
+	out, ok := renderFlowStepDomainRepoMapping(st, step, 1, "_x", domainDispatchArg(step), domainDispatchChild(step))
+	if ok {
+		t.Fatalf("expected repo/mapping dispatcher to return ok=false for logic.Check, got handled output:\n%s", out)
+	}
+	if strings.TrimSpace(out) != "" {
+		t.Fatalf("expected empty output when logic.Check is passed to repo/mapping dispatcher, got:\n%s", out)
+	}
+}
+
+func TestRenderFlow_LogicCheck_Default400(t *testing.T) {
+	t.Parallel()
+
+	steps := []normalizer.FlowStep{
+		{Action: "logic.Check", Args: map[string]any{
+			"condition": "req.CompanyID != \"\"",
+			"throw":     "companyId is required",
+		}},
+	}
+
+	code := renderFlow(steps)
+	if !strings.Contains(code, "http.StatusBadRequest") {
+		t.Fatalf("expected StatusBadRequest for logic.Check default status, got:\n%s", code)
+	}
+}
+
+func TestRenderFlow_LogicCheck_Status404(t *testing.T) {
+	t.Parallel()
+
+	steps := []normalizer.FlowStep{
+		{Action: "logic.Check", Args: map[string]any{
+			"condition": "item != nil",
+			"throw":     "not found",
+			"status":    "404",
+		}},
+	}
+
+	code := renderFlow(steps)
+	if !strings.Contains(code, "http.StatusNotFound") {
+		t.Fatalf("expected StatusNotFound for logic.Check status=404, got:\n%s", code)
+	}
+}
+
+func TestRenderFlow_LogicCheck_Status409(t *testing.T) {
+	t.Parallel()
+
+	steps := []normalizer.FlowStep{
+		{Action: "logic.Check", Args: map[string]any{
+			"condition": "currentVersion == req.Version",
+			"throw":     "version conflict",
+			"status":    "409",
+		}},
+	}
+
+	code := renderFlow(steps)
+	if !strings.Contains(code, "http.StatusConflict") {
+		t.Fatalf("expected StatusConflict for logic.Check status=409, got:\n%s", code)
+	}
+}
+
+func TestRenderFlow_LogicCheck_Status401(t *testing.T) {
+	t.Parallel()
+
+	steps := []normalizer.FlowStep{
+		{Action: "logic.Check", Args: map[string]any{
+			"condition": "token != \"\"",
+			"throw":     "missing token",
+			"status":    "401",
+		}},
+	}
+
+	code := renderFlow(steps)
+	if !strings.Contains(code, "http.StatusUnauthorized") {
+		t.Fatalf("expected StatusUnauthorized for logic.Check status=401, got:\n%s", code)
+	}
+}
+
+func TestRenderFlow_LogicCheck_NoInterceptInRepoMapping(t *testing.T) {
+	t.Parallel()
+
+	step := normalizer.FlowStep{
+		Action: "logic.Check",
+		Args: map[string]any{
+			"condition": "req.CompanyID != \"\"",
+			"throw":     "companyId is required",
+		},
+	}
+	st := newDomainDispatchState()
+
+	out, ok := renderFlowStepDomainRepoMapping(st, step, 1, "_x", domainDispatchArg(step), domainDispatchChild(step))
+	if ok {
+		t.Fatalf("expected repo/mapping dispatcher to ignore logic.Check, got handled output:\n%s", out)
+	}
+	if strings.TrimSpace(out) != "" {
+		t.Fatalf("expected empty output when logic.Check is passed to repo/mapping dispatcher, got:\n%s", out)
+	}
+}
+
+func TestRenderOneFlowStep_DispatchChainOrder(t *testing.T) {
+	t.Parallel()
+
+	st := newDomainDispatchState()
+	steps := []normalizer.FlowStep{
+		{Action: "logic.Check", Args: map[string]any{
+			"condition": "req.CompanyID != \"\"",
+			"throw":     "companyId is required",
+		}},
+		{Action: "flow.If", Args: map[string]any{
+			"condition": "req.Offset > 0",
+			"_then": []normalizer.FlowStep{
+				{Action: "mapping.Assign", Args: map[string]any{"to": "resp.Offset", "value": "req.Offset"}},
+			},
+		}},
+		{Action: "queue.Enqueue", Args: map[string]any{
+			"subject": `"events.test"`,
+			"payload": "req",
+		}},
+	}
+
+	codeA := renderOneFlowStep(st, steps[0], 1)
+	codeB := renderOneFlowStep(st, steps[1], 1)
+	codeC := renderOneFlowStep(st, steps[2], 1)
+
+	if !strings.Contains(codeA, "http.StatusBadRequest") {
+		t.Fatalf("expected domain dispatcher to handle logic.Check first, got:\n%s", codeA)
+	}
+	if !strings.Contains(codeB, "if req.Offset > 0") {
+		t.Fatalf("expected control dispatcher to handle flow.If, got:\n%s", codeB)
+	}
+	if !strings.Contains(codeC, "s.queuePublisher.Enqueue(") {
+		t.Fatalf("expected infra dispatcher to handle queue.Enqueue, got:\n%s", codeC)
+	}
+}
+
+func TestRenderFlow_NoCodegenCriticalActionEmitsErrorDiagnostic(t *testing.T) {
+	t.Parallel()
+
+	var diags []normalizer.Warning
+	steps := []normalizer.FlowStep{
+		{
+			Action:  "logic.Check",
+			Args:    map[string]any{"throw": "forbidden"},
+			File:    "cue/api/auth_api.cue",
+			Line:    42,
+			Column:  3,
+			CUEPath: "Auth.LoginUser.flow[2]",
+		},
+	}
+
+	_ = renderFlowForServiceWithSchemaAndSink("Auth", "LoginUser", steps, nil, nil, func(w normalizer.Warning) {
+		diags = append(diags, w)
+	})
+
+	if len(diags) != 1 {
+		t.Fatalf("expected exactly 1 diagnostic, got %d", len(diags))
+	}
+	if diags[0].Code != "FLOW_STEP_NO_CODEGEN_CRITICAL" {
+		t.Fatalf("expected FLOW_STEP_NO_CODEGEN_CRITICAL, got %q", diags[0].Code)
+	}
+	if strings.ToLower(diags[0].Severity) != "error" {
+		t.Fatalf("expected severity=error, got %q", diags[0].Severity)
+	}
+	if diags[0].Op != "Auth.LoginUser" {
+		t.Fatalf("expected op Auth.LoginUser, got %q", diags[0].Op)
+	}
+}
+
+func TestRenderFlow_NoCodegenNonCriticalActionEmitsWarnDiagnostic(t *testing.T) {
+	t.Parallel()
+
+	var diags []normalizer.Warning
+	steps := []normalizer.FlowStep{
+		{
+			Action:  "cache.Set",
+			Args:    map[string]any{"ttl": "60"},
+			File:    "cue/api/auth_api.cue",
+			Line:    43,
+			Column:  3,
+			CUEPath: "Auth.LoginUser.flow[3]",
+		},
+	}
+
+	_ = renderFlowForServiceWithSchemaAndSink("Auth", "LoginUser", steps, nil, nil, func(w normalizer.Warning) {
+		diags = append(diags, w)
+	})
+
+	if len(diags) != 1 {
+		t.Fatalf("expected exactly 1 diagnostic, got %d", len(diags))
+	}
+	if diags[0].Code != "FLOW_STEP_NO_CODEGEN" {
+		t.Fatalf("expected FLOW_STEP_NO_CODEGEN, got %q", diags[0].Code)
+	}
+	if strings.ToLower(diags[0].Severity) != "warn" {
+		t.Fatalf("expected severity=warn, got %q", diags[0].Severity)
+	}
+}
+
+func newDomainDispatchState() *flowRenderState {
+	n := 0
+	return &flowRenderState{
+		declared: map[string]bool{"resp": true, "err": true},
+		pointers: map[string]bool{},
+		types:    map[string]string{},
+		stepN:    &n,
+	}
+}
+
+func domainDispatchArg(step normalizer.FlowStep) func(string) string {
+	return func(name string) string {
+		v, ok := step.Args[name]
+		if !ok {
+			return ""
+		}
+		s, ok := v.(string)
+		if !ok {
+			return ""
+		}
+		return normalizeFlowExpr(strings.TrimSpace(s))
+	}
+}
+
+func domainDispatchChild(step normalizer.FlowStep) func(string) []normalizer.FlowStep {
+	return func(name string) []normalizer.FlowStep {
+		v, ok := step.Args[name]
+		if !ok {
+			return nil
+		}
+		steps, ok := v.([]normalizer.FlowStep)
+		if !ok {
+			return nil
+		}
+		return steps
+	}
+}

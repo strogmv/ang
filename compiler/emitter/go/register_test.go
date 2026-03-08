@@ -55,6 +55,79 @@ func TestRegisterGoSteps_Smoke(t *testing.T) {
 	}
 }
 
+func TestRegisterGoSteps_SkipFrontendSkipsFrontendSteps(t *testing.T) {
+	reg := generator.NewStepRegistry()
+	Register(reg, RegisterInput{SkipFrontend: true})
+
+	for _, name := range []string{
+		"Frontend SDK",
+		"Frontend Components",
+		"Frontend Admin",
+		"Frontend SDK Copy",
+		"Frontend Admin Copy",
+		"Frontend Env Example",
+	} {
+		step := findStep(reg.Steps(), name)
+		if step == nil {
+			t.Fatalf("%s step not found", name)
+		}
+		panicked, err := runStep(step)
+		if panicked {
+			t.Fatalf("%s must be skipped when SkipFrontend=true", name)
+		}
+		if err != nil {
+			t.Fatalf("%s returned error when skipped: %v", name, err)
+		}
+	}
+}
+
+func TestRegisterGoSteps_FrontendSDKRunsWithoutSkip(t *testing.T) {
+	reg := generator.NewStepRegistry()
+	Register(reg, RegisterInput{})
+
+	step := findStep(reg.Steps(), "Frontend SDK")
+	if step == nil {
+		t.Fatal("Frontend SDK step not found")
+	}
+	panicked, _ := runStep(step)
+	if !panicked {
+		t.Fatal("expected Frontend SDK step to execute emitter when SkipFrontend=false")
+	}
+}
+
+func TestRegisterGoSteps_SkipContractTestsSkipsContractSteps(t *testing.T) {
+	reg := generator.NewStepRegistry()
+	Register(reg, RegisterInput{SkipContractTests: true})
+
+	for _, name := range []string{"Contract Tests", "E2E Behavioral Tests"} {
+		step := findStep(reg.Steps(), name)
+		if step == nil {
+			t.Fatalf("%s step not found", name)
+		}
+		panicked, err := runStep(step)
+		if panicked {
+			t.Fatalf("%s must be skipped when SkipContractTests=true", name)
+		}
+		if err != nil {
+			t.Fatalf("%s returned error when skipped: %v", name, err)
+		}
+	}
+}
+
+func TestRegisterGoSteps_ContractTestsRunWithoutSkip(t *testing.T) {
+	reg := generator.NewStepRegistry()
+	Register(reg, RegisterInput{})
+
+	step := findStep(reg.Steps(), "Contract Tests")
+	if step == nil {
+		t.Fatal("Contract Tests step not found")
+	}
+	panicked, _ := runStep(step)
+	if !panicked {
+		t.Fatal("expected Contract Tests step to execute emitter when SkipContractTests=false")
+	}
+}
+
 func findStep(steps []generator.Step, name string) *generator.Step {
 	for i := range steps {
 		if steps[i].Name == name {
@@ -71,4 +144,14 @@ func hasCapability(caps []compiler.Capability, cap compiler.Capability) bool {
 		}
 	}
 	return false
+}
+
+func runStep(step *generator.Step) (panicked bool, err error) {
+	defer func() {
+		if recover() != nil {
+			panicked = true
+		}
+	}()
+	err = step.Run()
+	return panicked, err
 }

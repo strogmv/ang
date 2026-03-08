@@ -90,3 +90,23 @@ func TestParseOutputOptions_RunTestsFlag(t *testing.T) {
 		t.Fatal("expected RunTests=true")
 	}
 }
+
+func TestParseOutputOptions_SkipFrontendFlag(t *testing.T) {
+	opts, err := parseOutputOptions([]string{"--skip-frontend"})
+	if err != nil {
+		t.Fatalf("parseOutputOptions: %v", err)
+	}
+	if !opts.SkipFrontend {
+		t.Fatal("expected SkipFrontend=true")
+	}
+}
+
+func TestParseOutputOptions_SkipContractTestsFlag(t *testing.T) {
+	opts, err := parseOutputOptions([]string{"--skip-contract-tests"})
+	if err != nil {
+		t.Fatalf("parseOutputOptions: %v", err)
+	}
+	if !opts.SkipContractTests {
+		t.Fatal("expected SkipContractTests=true")
+	}
+}

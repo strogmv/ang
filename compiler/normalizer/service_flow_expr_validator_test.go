@@ -617,6 +617,184 @@ func TestValidateFlowSteps_BlocksMissingDo(t *testing.T) {
 	}
 }
 
+func TestValidateFlowSteps_DomainActionsMissingRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	steps := []FlowStep{
+		{Action: "audit.Log", Args: map[string]any{}},
+		{Action: "auth.RequireRole", Args: map[string]any{}},
+		{Action: "auth.CheckRole", Args: map[string]any{}},
+		{Action: "rbac.CheckPermission", Args: map[string]any{}},
+		{Action: "entity.PatchNonZero", Args: map[string]any{}},
+		{Action: "entity.PatchValidated", Args: map[string]any{}},
+		{Action: "enum.Validate", Args: map[string]any{}},
+		{Action: "fsm.Transition", Args: map[string]any{}},
+	}
+
+	warnings := validateFlowSteps("DomainActions", "tender", steps, nil, nil, nil, "strict", nil)
+
+	if !hasWarningWithText(warnings, "MISSING_ACTOR", "audit.Log missing 'actor'") {
+		t.Fatalf("expected MISSING_ACTOR for audit.Log, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_COMPANY", "audit.Log missing 'company'") {
+		t.Fatalf("expected MISSING_COMPANY for audit.Log, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_EVENT", "audit.Log missing 'event'") {
+		t.Fatalf("expected MISSING_EVENT for audit.Log, got: %+v", warnings)
+	}
+
+	if !hasWarningWithText(warnings, "MISSING_USER_ID", "auth.RequireRole missing 'userID'") {
+		t.Fatalf("expected MISSING_USER_ID for auth.RequireRole, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_COMPANY_ID", "auth.RequireRole missing 'companyID'") {
+		t.Fatalf("expected MISSING_COMPANY_ID for auth.RequireRole, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_ROLES", "auth.RequireRole missing 'roles'") {
+		t.Fatalf("expected MISSING_ROLES for auth.RequireRole, got: %+v", warnings)
+	}
+
+	if !hasWarningWithText(warnings, "MISSING_USER", "auth.CheckRole missing 'user'") {
+		t.Fatalf("expected MISSING_USER for auth.CheckRole, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_ROLES", "auth.CheckRole missing 'roles'") {
+		t.Fatalf("expected MISSING_ROLES for auth.CheckRole, got: %+v", warnings)
+	}
+
+	if !hasWarningWithText(warnings, "MISSING_USER", "rbac.CheckPermission missing 'user'") {
+		t.Fatalf("expected MISSING_USER for rbac.CheckPermission, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_PERMISSION", "rbac.CheckPermission missing 'permission'") {
+		t.Fatalf("expected MISSING_PERMISSION for rbac.CheckPermission, got: %+v", warnings)
+	}
+
+	if !hasWarningWithText(warnings, "MISSING_TARGET", "entity.PatchNonZero missing 'target'") {
+		t.Fatalf("expected MISSING_TARGET for entity.PatchNonZero, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_FROM", "entity.PatchNonZero missing 'from'") {
+		t.Fatalf("expected MISSING_FROM for entity.PatchNonZero, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_FIELDS", "entity.PatchNonZero missing 'fields'") {
+		t.Fatalf("expected MISSING_FIELDS for entity.PatchNonZero, got: %+v", warnings)
+	}
+
+	if !hasWarningWithText(warnings, "MISSING_TARGET", "entity.PatchValidated missing 'target'") {
+		t.Fatalf("expected MISSING_TARGET for entity.PatchValidated, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_FROM", "entity.PatchValidated missing 'from'") {
+		t.Fatalf("expected MISSING_FROM for entity.PatchValidated, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_FIELDS", "entity.PatchValidated missing 'fields'") {
+		t.Fatalf("expected MISSING_FIELDS for entity.PatchValidated, got: %+v", warnings)
+	}
+
+	if !hasWarningWithText(warnings, "MISSING_VALUE", "enum.Validate missing 'value'") {
+		t.Fatalf("expected MISSING_VALUE for enum.Validate, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_ALLOWED", "enum.Validate missing 'allowed'") {
+		t.Fatalf("expected MISSING_ALLOWED for enum.Validate, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_THROW", "enum.Validate missing 'throw'") {
+		t.Fatalf("expected MISSING_THROW for enum.Validate, got: %+v", warnings)
+	}
+
+	if !hasWarningWithText(warnings, "MISSING_ENTITY", "fsm.Transition missing 'entity'") {
+		t.Fatalf("expected MISSING_ENTITY for fsm.Transition, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_TO", "fsm.Transition missing 'to'") {
+		t.Fatalf("expected MISSING_TO for fsm.Transition, got: %+v", warnings)
+	}
+}
+
+func TestValidateFlowSteps_RepoUpsertMissingRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	entities := []Entity{{Name: "Tender", Owner: "tender", BoundedContext: "tender"}}
+	steps := []FlowStep{{Action: "repo.Upsert", Args: map[string]any{}}}
+
+	warnings := validateFlowSteps("Upsert", "tender", steps, entities, nil, nil, "strict", nil)
+
+	if !hasWarningWithText(warnings, "MISSING_SOURCE", "repo.Upsert missing 'source'") {
+		t.Fatalf("expected MISSING_SOURCE, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_FIND", "repo.Upsert missing 'find'") {
+		t.Fatalf("expected MISSING_FIND, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_INPUT", "repo.Upsert missing 'input'") {
+		t.Fatalf("expected MISSING_INPUT, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_OUTPUT", "repo.Upsert missing 'output'") {
+		t.Fatalf("expected MISSING_OUTPUT, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_BRANCHES", "repo.Upsert requires at least one branch") {
+		t.Fatalf("expected MISSING_BRANCHES, got: %+v", warnings)
+	}
+}
+
+func TestValidateFlowSteps_InfrastructureActionsMissingRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	steps := []FlowStep{
+		{Action: "cache.Get", Args: map[string]any{}},
+		{Action: "cache.Set", Args: map[string]any{}},
+		{Action: "jwt.Sign", Args: map[string]any{}},
+		{Action: "jwt.Verify", Args: map[string]any{}},
+		{Action: "storage.Upload", Args: map[string]any{}},
+		{Action: "crypto.Hash", Args: map[string]any{}},
+		{Action: "http.Call", Args: map[string]any{}},
+	}
+
+	warnings := validateFlowSteps("Infra", "tender", steps, nil, nil, nil, "strict", nil)
+
+	if !hasWarningWithText(warnings, "MISSING_KEY", "cache.Get missing 'key'") {
+		t.Fatalf("expected MISSING_KEY for cache.Get, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_OUTPUT", "cache.Get missing 'output'") {
+		t.Fatalf("expected MISSING_OUTPUT for cache.Get, got: %+v", warnings)
+	}
+
+	if !hasWarningWithText(warnings, "MISSING_KEY", "cache.Set missing 'key'") {
+		t.Fatalf("expected MISSING_KEY for cache.Set, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_VALUE", "cache.Set missing 'value'") {
+		t.Fatalf("expected MISSING_VALUE for cache.Set, got: %+v", warnings)
+	}
+
+	if !hasWarningWithText(warnings, "MISSING_CLAIMS", "jwt.Sign missing 'claims'") {
+		t.Fatalf("expected MISSING_CLAIMS for jwt.Sign, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_OUTPUT", "jwt.Sign missing 'output'") {
+		t.Fatalf("expected MISSING_OUTPUT for jwt.Sign, got: %+v", warnings)
+	}
+
+	if !hasWarningWithText(warnings, "MISSING_TOKEN", "jwt.Verify missing 'token'") {
+		t.Fatalf("expected MISSING_TOKEN for jwt.Verify, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_OUTPUT", "jwt.Verify missing 'output'") {
+		t.Fatalf("expected MISSING_OUTPUT for jwt.Verify, got: %+v", warnings)
+	}
+
+	if !hasWarningWithText(warnings, "MISSING_KEY", "storage.Upload missing 'key'") {
+		t.Fatalf("expected MISSING_KEY for storage.Upload, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_DATA", "storage.Upload missing 'data'") {
+		t.Fatalf("expected MISSING_DATA for storage.Upload, got: %+v", warnings)
+	}
+
+	if !hasWarningWithText(warnings, "MISSING_INPUT", "crypto.Hash missing 'input'") {
+		t.Fatalf("expected MISSING_INPUT for crypto.Hash, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_OUTPUT", "crypto.Hash missing 'output'") {
+		t.Fatalf("expected MISSING_OUTPUT for crypto.Hash, got: %+v", warnings)
+	}
+
+	if !hasWarningWithText(warnings, "MISSING_METHOD", "http.Call missing 'method'") {
+		t.Fatalf("expected MISSING_METHOD for http.Call, got: %+v", warnings)
+	}
+	if !hasWarningWithText(warnings, "MISSING_URL", "http.Call missing 'url'") {
+		t.Fatalf("expected MISSING_URL for http.Call, got: %+v", warnings)
+	}
+}
+
 func hasWarningWithText(warnings []FlowWarning, code string, contains string) bool {
 	for _, w := range warnings {
 		if w.Code == code && strings.Contains(w.Message, contains) {

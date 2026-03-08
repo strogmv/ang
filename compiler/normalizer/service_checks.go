@@ -630,23 +630,3 @@ func isCrossServiceAllowed(allow map[string]map[string]struct{}, serviceName, en
 	_, ok = entities[entityKey]
 	return ok
 }
-
-func isSharedArchitectureEntity(entityName string) bool {
-	switch {
-	case strings.EqualFold(entityName, "Company"),
-		strings.EqualFold(entityName, "APIKey"),
-		strings.EqualFold(entityName, "Application"),
-		strings.EqualFold(entityName, "TenderTemplate"),
-		strings.EqualFold(entityName, "TenderTemplateCategory"),
-		strings.EqualFold(entityName, "CompanyCategoryScore"),
-		strings.EqualFold(entityName, "Counterparty"),
-		strings.EqualFold(entityName, "SearchDocument"),
-		strings.EqualFold(entityName, "User"),
-		strings.EqualFold(entityName, "AuditLog"),
-		strings.EqualFold(entityName, "CategoryValue"),
-		strings.EqualFold(entityName, "Notification"):
-		return true
-	default:
-		return false
-	}
-}

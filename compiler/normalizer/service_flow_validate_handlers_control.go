@@ -23,6 +23,24 @@ func handleFlowControlAndInfra(
 	isBoundaryViolation flowBoundaryViolationFn,
 	validate flowValidateNestedFn,
 ) bool {
+	hasNonEmptyListArg := func(v any) bool {
+		switch vv := v.(type) {
+		case []string:
+			return len(vv) > 0
+		case []any:
+			return len(vv) > 0
+		case string:
+			return strings.TrimSpace(vv) != ""
+		default:
+			return false
+		}
+	}
+
+	getStringArg := func(key string) string {
+		s, _ := step.Args[key].(string)
+		return strings.TrimSpace(s)
+	}
+
 	switch step.Action {
 	case "tx.Block", "flow.Block":
 		subSteps, ok := step.Args["_do"].([]FlowStep)
@@ -226,9 +244,27 @@ func handleFlowControlAndInfra(
 		return true
 
 	case "audit.Log":
+		if getStringArg("actor") == "" {
+			addWarn(stepNum, step.Action, "MISSING_ACTOR", "audit.Log missing 'actor'", "{action: \"audit.Log\", actor: \"req.UserID\", company: \"req.CompanyID\", event: \"tender.created\"}", step.File, step.Line, step.Column)
+		}
+		if getStringArg("company") == "" {
+			addWarn(stepNum, step.Action, "MISSING_COMPANY", "audit.Log missing 'company'", "{action: \"audit.Log\", actor: \"req.UserID\", company: \"req.CompanyID\", event: \"tender.created\"}", step.File, step.Line, step.Column)
+		}
+		if getStringArg("event") == "" {
+			addWarn(stepNum, step.Action, "MISSING_EVENT", "audit.Log missing 'event'", "{action: \"audit.Log\", actor: \"req.UserID\", company: \"req.CompanyID\", event: \"tender.created\"}", step.File, step.Line, step.Column)
+		}
 		return true
 
 	case "auth.RequireRole":
+		if getStringArg("userID") == "" {
+			addWarn(stepNum, step.Action, "MISSING_USER_ID", "auth.RequireRole missing 'userID'", "{action: \"auth.RequireRole\", userID: \"req.UserID\", companyID: \"req.CompanyID\", roles: [\"owner\",\"admin\"]}", step.File, step.Line, step.Column)
+		}
+		if getStringArg("companyID") == "" {
+			addWarn(stepNum, step.Action, "MISSING_COMPANY_ID", "auth.RequireRole missing 'companyID'", "{action: \"auth.RequireRole\", userID: \"req.UserID\", companyID: \"req.CompanyID\", roles: [\"owner\",\"admin\"]}", step.File, step.Line, step.Column)
+		}
+		if !hasNonEmptyListArg(step.Args["roles"]) {
+			addWarn(stepNum, step.Action, "MISSING_ROLES", "auth.RequireRole missing 'roles'", "{action: \"auth.RequireRole\", userID: \"req.UserID\", companyID: \"req.CompanyID\", roles: [\"owner\",\"admin\"]}", step.File, step.Line, step.Column)
+		}
 		if authOutput, _ := step.Args["output"].(string); authOutput != "" {
 			declaredVars[authOutput] = true
 		} else {
@@ -237,23 +273,59 @@ func handleFlowControlAndInfra(
 		return true
 
 	case "auth.CheckRole":
+		if getStringArg("user") == "" {
+			addWarn(stepNum, step.Action, "MISSING_USER", "auth.CheckRole missing 'user'", "{action: \"auth.CheckRole\", user: \"currentUser\", roles: [\"owner\",\"admin\"]}", step.File, step.Line, step.Column)
+		}
+		if !hasNonEmptyListArg(step.Args["roles"]) {
+			addWarn(stepNum, step.Action, "MISSING_ROLES", "auth.CheckRole missing 'roles'", "{action: \"auth.CheckRole\", user: \"currentUser\", roles: [\"owner\",\"admin\"]}", step.File, step.Line, step.Column)
+		}
 		return true
 
 	case "rbac.CheckPermission":
+		if getStringArg("user") == "" {
+			addWarn(stepNum, step.Action, "MISSING_USER", "rbac.CheckPermission missing 'user'", "{action: \"rbac.CheckPermission\", user: \"currentUser\", permission: \"tender:create\", output: \"allowed\"}", step.File, step.Line, step.Column)
+		}
+		if getStringArg("permission") == "" {
+			addWarn(stepNum, step.Action, "MISSING_PERMISSION", "rbac.CheckPermission missing 'permission'", "{action: \"rbac.CheckPermission\", user: \"currentUser\", permission: \"tender:create\", output: \"allowed\"}", step.File, step.Line, step.Column)
+		}
 		if output, _ := step.Args["output"].(string); output != "" {
 			declaredVars[output] = true
 		}
 		return true
 
 	case "entity.PatchNonZero":
+		if getStringArg("target") == "" {
+			addWarn(stepNum, step.Action, "MISSING_TARGET", "entity.PatchNonZero missing 'target'", "{action: \"entity.PatchNonZero\", target: \"item\", from: \"req\", fields: [\"Title\",\"Description\"]}", step.File, step.Line, step.Column)
+		}
+		if getStringArg("from") == "" {
+			addWarn(stepNum, step.Action, "MISSING_FROM", "entity.PatchNonZero missing 'from'", "{action: \"entity.PatchNonZero\", target: \"item\", from: \"req\", fields: [\"Title\",\"Description\"]}", step.File, step.Line, step.Column)
+		}
+		if !hasNonEmptyListArg(step.Args["fields"]) {
+			addWarn(stepNum, step.Action, "MISSING_FIELDS", "entity.PatchNonZero missing 'fields'", "{action: \"entity.PatchNonZero\", target: \"item\", from: \"req\", fields: [\"Title\",\"Description\"]}", step.File, step.Line, step.Column)
+		}
 		return true
 
 	case "entity.PatchValidated":
-		fields, ok := step.Args["fields"].(map[string]map[string]string)
-		if !ok || len(fields) == 0 {
+		if getStringArg("target") == "" {
+			addWarn(stepNum, step.Action, "MISSING_TARGET", "entity.PatchValidated missing 'target'", "{action: \"entity.PatchValidated\", target: \"item\", from: \"req\", fields: {Title: {required: \"true\"}}}", step.File, step.Line, step.Column)
+		}
+		if getStringArg("from") == "" {
+			addWarn(stepNum, step.Action, "MISSING_FROM", "entity.PatchValidated missing 'from'", "{action: \"entity.PatchValidated\", target: \"item\", from: \"req\", fields: {Title: {required: \"true\"}}}", step.File, step.Line, step.Column)
+		}
+		if step.Args["fields"] == nil {
+			addWarn(stepNum, step.Action, "MISSING_FIELDS", "entity.PatchValidated missing 'fields'", "{action: \"entity.PatchValidated\", target: \"item\", from: \"req\", fields: {Title: {required: \"true\"}}}", step.File, step.Line, step.Column)
 			return true
 		}
-		for _, rules := range fields {
+		fields, ok := step.Args["fields"].(map[string]map[string]string)
+		if !ok || len(fields) == 0 {
+			addWarn(stepNum, step.Action, "MISSING_FIELDS", "entity.PatchValidated requires non-empty 'fields' map", "{action: \"entity.PatchValidated\", target: \"item\", from: \"req\", fields: {Title: {required: \"true\"}}}", step.File, step.Line, step.Column)
+			return true
+		}
+		for fieldName, rules := range fields {
+			if strings.TrimSpace(fieldName) == "" || len(rules) == 0 {
+				addWarn(stepNum, step.Action, "INVALID_FIELDS", "entity.PatchValidated has invalid field rules in 'fields'", "Provide map[fieldName]map[rule]value with non-empty field names and rule sets", step.File, step.Line, step.Column)
+				continue
+			}
 			if uniqueMethod := strings.TrimSpace(rules["unique"]); uniqueMethod != "" {
 				if step.Args["source"] == nil || step.Args["source"] == "" {
 					addWarn(stepNum, step.Action, "MISSING_SOURCE", "entity.PatchValidated with unique checks requires explicit 'source' repository entity", "{action: \"entity.PatchValidated\", source: \"Company\", ...}", step.File, step.Line, step.Column)
@@ -262,7 +334,19 @@ func handleFlowControlAndInfra(
 		}
 		return true
 
-	case "field.CopyNonEmpty", "str.Normalize", "enum.Validate", "time.CheckExpiry", "map.Build", "time.Now", "time.Format", "mail.Send", "queue.Enqueue", "queue.Ack", "queue.Nack", "dlq.Publish", "event.Outbox", "webhook.Ack", "webhook.Send", "state.Set", "state.Delete", "idem.Check", "idem.SaveResult", "idempotency.Check", "idempotency.SaveResult", "ratelimit.Check", "concurrency.Limit", "circuit.Check", "circuit.RecordSuccess", "circuit.RecordFailure", "bulkhead.Acquire", "ratelimit.Limit", "log.Emit", "metric.Emit":
+	case "enum.Validate":
+		if getStringArg("value") == "" {
+			addWarn(stepNum, step.Action, "MISSING_VALUE", "enum.Validate missing 'value'", "{action: \"enum.Validate\", value: \"req.Status\", allowed: [\"draft\",\"active\"], throw: \"invalid status\"}", step.File, step.Line, step.Column)
+		}
+		if !hasNonEmptyListArg(step.Args["allowed"]) {
+			addWarn(stepNum, step.Action, "MISSING_ALLOWED", "enum.Validate missing 'allowed'", "{action: \"enum.Validate\", value: \"req.Status\", allowed: [\"draft\",\"active\"], throw: \"invalid status\"}", step.File, step.Line, step.Column)
+		}
+		if getStringArg("throw") == "" {
+			addWarn(stepNum, step.Action, "MISSING_THROW", "enum.Validate missing 'throw'", "{action: \"enum.Validate\", value: \"req.Status\", allowed: [\"draft\",\"active\"], throw: \"invalid status\"}", step.File, step.Line, step.Column)
+		}
+		return true
+
+	case "field.CopyNonEmpty", "str.Normalize", "time.CheckExpiry", "map.Build", "time.Now", "time.Format", "mail.Send", "queue.Enqueue", "queue.Ack", "queue.Nack", "dlq.Publish", "event.Outbox", "webhook.Ack", "webhook.Send", "state.Set", "state.Delete", "idem.Check", "idem.SaveResult", "idempotency.Check", "idempotency.SaveResult", "ratelimit.Check", "concurrency.Limit", "circuit.Check", "circuit.RecordSuccess", "circuit.RecordFailure", "bulkhead.Acquire", "ratelimit.Limit", "log.Emit", "metric.Emit":
 		return true
 
 	case "list.Filter":
@@ -400,8 +484,42 @@ func handleFlowControlAndInfra(
 		}
 		return true
 
-	case "cache.Get", "cache.Set", "cache.Del", "storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List":
+	case "cache.Get":
+		if step.Args["key"] == nil || step.Args["key"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_KEY", "cache.Get missing 'key'", "{action: \"cache.Get\", key: \"cacheKey\", output: \"cached\"}", step.File, step.Line, step.Column)
+		}
+		if output, _ := step.Args["output"].(string); strings.TrimSpace(output) == "" {
+			addWarn(stepNum, step.Action, "MISSING_OUTPUT", "cache.Get missing 'output'", "{action: \"cache.Get\", key: \"cacheKey\", output: \"cached\"}", step.File, step.Line, step.Column)
+		} else {
+			declaredVars[output] = true
+		}
+		return true
+
+	case "cache.Set":
+		if step.Args["key"] == nil || step.Args["key"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_KEY", "cache.Set missing 'key'", "{action: \"cache.Set\", key: \"cacheKey\", value: \"payload\", ttl: \"5m\"}", step.File, step.Line, step.Column)
+		}
+		if step.Args["value"] == nil || step.Args["value"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_VALUE", "cache.Set missing 'value'", "{action: \"cache.Set\", key: \"cacheKey\", value: \"payload\", ttl: \"5m\"}", step.File, step.Line, step.Column)
+		}
+		return true
+
+	case "cache.Del", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List":
 		if output, _ := step.Args["output"].(string); output != "" {
+			declaredVars[output] = true
+		}
+		return true
+
+	case "storage.Upload":
+		if step.Args["key"] == nil || step.Args["key"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_KEY", "storage.Upload missing 'key'", "{action: \"storage.Upload\", key: \"attachments/file.bin\", data: \"req.Content\", output: \"url\"}", step.File, step.Line, step.Column)
+		}
+		dataArg, _ := step.Args["data"].(string)
+		inputArg, _ := step.Args["input"].(string)
+		if strings.TrimSpace(dataArg) == "" && strings.TrimSpace(inputArg) == "" {
+			addWarn(stepNum, step.Action, "MISSING_DATA", "storage.Upload missing 'data' (or legacy 'input')", "{action: \"storage.Upload\", key: \"attachments/file.bin\", data: \"req.Content\", output: \"url\"}", step.File, step.Line, step.Column)
+		}
+		if output, _ := step.Args["output"].(string); strings.TrimSpace(output) != "" {
 			declaredVars[output] = true
 		}
 		return true
@@ -421,7 +539,22 @@ func handleFlowControlAndInfra(
 		}
 		return true
 
-	case "http.Call", "http.Request", "http.RetryPolicy":
+	case "http.Call":
+		if step.Args["method"] == nil || step.Args["method"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_METHOD", "http.Call missing 'method'", "{action: \"http.Call\", method: \"GET\", url: \"https://api.example.com\", output: \"body\"}", step.File, step.Line, step.Column)
+		}
+		if step.Args["url"] == nil || step.Args["url"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_URL", "http.Call missing 'url'", "{action: \"http.Call\", method: \"GET\", url: \"https://api.example.com\", output: \"body\"}", step.File, step.Line, step.Column)
+		}
+		if output, _ := step.Args["output"].(string); output != "" {
+			declaredVars[output] = true
+		}
+		if statusVar, _ := step.Args["statusVar"].(string); statusVar != "" {
+			declaredVars[statusVar] = true
+		}
+		return true
+
+	case "http.Request", "http.RetryPolicy":
 		if output, _ := step.Args["output"].(string); output != "" {
 			declaredVars[output] = true
 		}
@@ -432,6 +565,39 @@ func handleFlowControlAndInfra(
 
 	case "http.Paginate":
 		if output, _ := step.Args["output"].(string); output != "" {
+			declaredVars[output] = true
+		}
+		return true
+
+	case "jwt.Sign":
+		if step.Args["claims"] == nil || step.Args["claims"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_CLAIMS", "jwt.Sign missing 'claims'", "{action: \"jwt.Sign\", claims: \"map[string]any{\\\"sub\\\": req.UserID}\", output: \"token\"}", step.File, step.Line, step.Column)
+		}
+		if output, _ := step.Args["output"].(string); strings.TrimSpace(output) == "" {
+			addWarn(stepNum, step.Action, "MISSING_OUTPUT", "jwt.Sign missing 'output'", "{action: \"jwt.Sign\", claims: \"map[string]any{\\\"sub\\\": req.UserID}\", output: \"token\"}", step.File, step.Line, step.Column)
+		} else {
+			declaredVars[output] = true
+		}
+		return true
+
+	case "jwt.Verify":
+		if step.Args["token"] == nil || step.Args["token"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_TOKEN", "jwt.Verify missing 'token'", "{action: \"jwt.Verify\", token: \"req.Token\", output: \"claims\"}", step.File, step.Line, step.Column)
+		}
+		if output, _ := step.Args["output"].(string); strings.TrimSpace(output) == "" {
+			addWarn(stepNum, step.Action, "MISSING_OUTPUT", "jwt.Verify missing 'output'", "{action: \"jwt.Verify\", token: \"req.Token\", output: \"claims\"}", step.File, step.Line, step.Column)
+		} else {
+			declaredVars[output] = true
+		}
+		return true
+
+	case "crypto.Hash":
+		if step.Args["input"] == nil || step.Args["input"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_INPUT", "crypto.Hash missing 'input'", "{action: \"crypto.Hash\", input: \"req.Password\", output: \"hash\"}", step.File, step.Line, step.Column)
+		}
+		if output, _ := step.Args["output"].(string); strings.TrimSpace(output) == "" {
+			addWarn(stepNum, step.Action, "MISSING_OUTPUT", "crypto.Hash missing 'output'", "{action: \"crypto.Hash\", input: \"req.Password\", output: \"hash\"}", step.File, step.Line, step.Column)
+		} else {
 			declaredVars[output] = true
 		}
 		return true
@@ -449,7 +615,6 @@ func handleFlowControlAndInfra(
 		"math.Op",
 		"num.Add", "num.Sub", "num.Mul", "num.Div",
 		"jsonpath.Get", "jsonpath.Set",
-		"jwt.Sign", "jwt.Verify",
 		"oauth2.Token", "oauth2.Refresh",
 		"crypto.Encrypt", "crypto.Decrypt":
 		if output, _ := step.Args["output"].(string); output != "" {
