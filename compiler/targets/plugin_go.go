@@ -40,6 +40,8 @@ func (GoPlugin) RegisterSteps(registry *generator.StepRegistry, ctx BuildContext
 		InfraValues:             ctx.InfraValues,
 		EmailTemplates:          ctx.EmailTemplates,
 		IsMicroservice:          ctx.IsMicroservice,
+		SkipFrontend:            ctx.SkipFrontend,
+		SkipContractTests:       ctx.SkipContractTests,
 		TestStubsEnabled:        ctx.TestStubsEnabled,
 		ResolveMissingTestStubs: ctx.ResolveMissingTests,
 		CopyFrontendSDK:         ctx.CopyFrontendSDK,

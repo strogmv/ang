@@ -28,6 +28,8 @@ type BuildContext struct {
 	Project             *normalizer.ProjectDef
 	PythonSDKEnabled    bool
 	IsMicroservice      bool
+	SkipFrontend        bool
+	SkipContractTests   bool
 	TestStubsEnabled    bool
 	ResolveMissingTests func() ([]normalizer.Endpoint, error)
 	CopyFrontendSDK     func() error

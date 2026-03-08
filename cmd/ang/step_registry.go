@@ -30,20 +30,22 @@ type buildStepRegistryInput struct {
 func buildStepRegistry(in buildStepRegistryInput) (*generator.StepRegistry, []string, error) {
 	registry := generator.NewStepRegistry()
 	ctx := targets.BuildContext{
-		Emitter:          in.em,
-		IRSchema:         in.irSchema,
-		MainContext:      in.ctx,
-		Scenarios:        in.scenarios,
-		Config:           in.cfgDef,
-		Auth:             in.authDef,
-		Session:          in.sessionDef,
-		RBAC:             in.rbacDef,
-		InfraValues:      in.infraValues,
-		EmailTemplates:   in.emailTemplates,
-		Project:          in.projectDef,
-		PythonSDKEnabled: in.pythonSDKEnabled,
-		IsMicroservice:   in.isMicroservice,
-		TestStubsEnabled: in.targetOutput.TestStubs,
+		Emitter:           in.em,
+		IRSchema:          in.irSchema,
+		MainContext:       in.ctx,
+		Scenarios:         in.scenarios,
+		Config:            in.cfgDef,
+		Auth:              in.authDef,
+		Session:           in.sessionDef,
+		RBAC:              in.rbacDef,
+		InfraValues:       in.infraValues,
+		EmailTemplates:    in.emailTemplates,
+		Project:           in.projectDef,
+		PythonSDKEnabled:  in.pythonSDKEnabled,
+		IsMicroservice:    in.isMicroservice,
+		SkipFrontend:      in.targetOutput.SkipFrontend,
+		SkipContractTests: in.targetOutput.SkipContractTests,
+		TestStubsEnabled:  in.targetOutput.TestStubs,
 		ResolveMissingTests: func() ([]normalizer.Endpoint, error) {
 			endpoints := coverageEndpointsFromIR(in.irSchema.Endpoints)
 			report, err := checkTestCoverage(endpoints, "tests")

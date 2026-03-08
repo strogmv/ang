@@ -19,6 +19,8 @@ type OutputOptions struct {
 	FrontendAdminDir    string
 	FrontendAdminAppDir string
 	FrontendEnvPath     string
+	SkipFrontend        bool
+	SkipContractTests   bool
 	TestStubs           bool
 	TargetSelector      string
 	DryRun              bool
@@ -40,6 +42,8 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 	frontendAdminDir := fs.String("frontend-admin-dir", "", "Directory containing frontend admin source templates")
 	frontendAdminAppDir := fs.String("frontend-admin-app-dir", "", "Directory to copy generated frontend admin app into (optional)")
 	frontendEnvPath := fs.String("frontend-env-path", "", "Path to write frontend .env.example (defaults to <frontend-app-dir>/.env.example)")
+	skipFrontend := fs.Bool("skip-frontend", false, "Skip frontend SDK/admin generation and copy steps")
+	skipContractTests := fs.Bool("skip-contract-tests", false, "Skip generation of contract and e2e behavioral tests")
 	testStubs := fs.Bool("test-stubs", false, "generate frontend test stubs")
 	targetSelector := fs.String("target", "", "Build only selected target(s): name, lang, or lang/framework/db stack; comma-separated supported")
 	dryRun := fs.Bool("dry-run", false, "preview generated file changes without writing to output directories")
@@ -75,6 +79,8 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 		FrontendAdminDir:    strings.TrimSpace(*frontendAdminDir),
 		FrontendAdminAppDir: strings.TrimSpace(*frontendAdminAppDir),
 		FrontendEnvPath:     strings.TrimSpace(*frontendEnvPath),
+		SkipFrontend:        *skipFrontend,
+		SkipContractTests:   *skipContractTests,
 		TestStubs:           *testStubs,
 		TargetSelector:      strings.TrimSpace(*targetSelector),
 		DryRun:              *dryRun,

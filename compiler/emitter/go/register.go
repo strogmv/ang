@@ -23,6 +23,9 @@ type RegisterInput struct {
 	EmailTemplates []contracts.EmailTemplateDef
 	IsMicroservice bool
 
+	SkipFrontend      bool
+	SkipContractTests bool
+
 	TestStubsEnabled        bool
 	ResolveMissingTestStubs func() ([]contracts.EndpointDef, error)
 	CopyFrontendSDK         func() error
@@ -101,8 +104,18 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 	registry.Register(generator.Step{Name: "Logging Middleware", Requires: goHTTP, Run: func() error { return in.Em.EmitLoggingMiddleware() }})
 	registry.Register(generator.Step{Name: "Errors", Requires: goOnly, Run: func() error { return in.Em.EmitErrorsFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "Views", Requires: goOnly, Run: func() error { return in.Em.EmitViewsFromIR(in.IRSchema) }})
-	registry.Register(generator.Step{Name: "Contract Tests", Requires: goHTTP, Run: func() error { return in.Em.EmitContractTestsFromIR(in.IRSchema) }})
-	registry.Register(generator.Step{Name: "E2E Behavioral Tests", Requires: goHTTP, Run: func() error { return in.Em.EmitE2ETests(in.Scenarios) }})
+	registry.Register(generator.Step{Name: "Contract Tests", Requires: goHTTP, Run: func() error {
+		if in.SkipContractTests {
+			return nil
+		}
+		return in.Em.EmitContractTestsFromIR(in.IRSchema)
+	}})
+	registry.Register(generator.Step{Name: "E2E Behavioral Tests", Requires: goHTTP, Run: func() error {
+		if in.SkipContractTests {
+			return nil
+		}
+		return in.Em.EmitE2ETests(in.Scenarios)
+	}})
 	registry.Register(generator.Step{Name: "Test Stubs", Requires: goHTTP, Run: func() error {
 		if !in.TestStubsEnabled {
 			return nil
@@ -121,23 +134,45 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 		return in.Em.EmitTestStubs(missing, "NEW-endpoint-stubs.test.ts")
 	}})
 	registry.Register(generator.Step{Name: "Frontend SDK", ArtifactKey: "go:frontend_sdk", Requires: goOnly, Run: func() error {
+		if in.SkipFrontend {
+			return nil
+		}
 		return in.Em.EmitFrontendSDKFromIR(in.IRSchema, in.RBACDef)
 	}})
-	registry.Register(generator.Step{Name: "Frontend Components", Requires: goOnly, Run: func() error { return in.Em.EmitFrontendComponentsFromIR(in.IRSchema) }})
-	registry.Register(generator.Step{Name: "Frontend Admin", Requires: goOnly, Run: func() error { return in.Em.EmitFrontendAdminFromIR(in.IRSchema) }})
+	registry.Register(generator.Step{Name: "Frontend Components", Requires: goOnly, Run: func() error {
+		if in.SkipFrontend {
+			return nil
+		}
+		return in.Em.EmitFrontendComponentsFromIR(in.IRSchema)
+	}})
+	registry.Register(generator.Step{Name: "Frontend Admin", Requires: goOnly, Run: func() error {
+		if in.SkipFrontend {
+			return nil
+		}
+		return in.Em.EmitFrontendAdminFromIR(in.IRSchema)
+	}})
 	registry.Register(generator.Step{Name: "Frontend SDK Copy", Requires: goOnly, Run: func() error {
+		if in.SkipFrontend {
+			return nil
+		}
 		if in.CopyFrontendSDK == nil {
 			return nil
 		}
 		return in.CopyFrontendSDK()
 	}})
 	registry.Register(generator.Step{Name: "Frontend Admin Copy", Requires: goOnly, Run: func() error {
+		if in.SkipFrontend {
+			return nil
+		}
 		if in.CopyFrontendAdmin == nil {
 			return nil
 		}
 		return in.CopyFrontendAdmin()
 	}})
 	registry.Register(generator.Step{Name: "Frontend Env Example", Requires: goOnly, Run: func() error {
+		if in.SkipFrontend {
+			return nil
+		}
 		if in.WriteFrontendEnvExample == nil {
 			return nil
 		}
