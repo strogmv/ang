@@ -116,7 +116,7 @@ func handleFlowDataAndCalls(
 			output, _ := step.Args["output"].(string)
 			errMsg, _ := step.Args["error"].(string)
 			if strings.TrimSpace(output) != "" && strings.TrimSpace(errMsg) == "" {
-				addWarn(stepNum, step.Action, "REPO_FIND_WITHOUT_ERROR", "repo.Find with output requires 'error' to guard not-found nil result", `{action: "repo.Find", source: "Entity", input: "req.ID", output: "item", error: "Not found"}`, step.File, step.Line, step.Column)
+				addWarnWithSeverity(stepNum, step.Action, "REPO_FIND_WITHOUT_ERROR", "warn", "repo.Find without 'error' returns nil when not found; add explicit nil-check", `{action: "flow.If", condition: "item != nil", then: [ ... ]}`, step.File, step.Line, step.Column)
 			}
 		}
 		if step.Action == "repo.List" || step.Action == "repo.Query" || step.Action == "db.List" || step.Action == "db.Query" {

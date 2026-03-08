@@ -194,5 +194,9 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 	}
 
 	validate(steps, false, 0)
+	validateFlowVariableScope(steps, func(stepNum int, step FlowStep, code, message, hint string) {
+		currentStep = step
+		addWarn(stepNum, step.Action, code, message, hint, step.File, step.Line, step.Column)
+	})
 	return warnings
 }

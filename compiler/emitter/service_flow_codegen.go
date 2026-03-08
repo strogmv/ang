@@ -386,14 +386,16 @@ func renderFlowSteps(st *flowRenderState, steps []normalizer.FlowStep, indent in
 					Hint:     "Verify required step fields in cue/schema/types.cue and flow docs",
 				})
 			}
-			slog.Warn("flow.step.no_codegen",
-				"step", i+1,
-				"action", step.Action,
-				"file", step.File,
-				"line", step.Line,
-				"severity", severity,
-				"hint", "missing required flow fields",
-			)
+			if st.warningSink == nil {
+				slog.Warn("flow.step.no_codegen",
+					"step", i+1,
+					"action", step.Action,
+					"file", step.File,
+					"line", step.Line,
+					"severity", severity,
+					"hint", "missing required flow fields",
+				)
+			}
 			pad := strings.Repeat("\t", indent)
 			b.WriteString(fmt.Sprintf("%s// WARNING: step %d (%s) produced no code; check required fields\n", pad, i+1, step.Action))
 		}

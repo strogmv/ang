@@ -39,7 +39,7 @@ func TestValidate_RepoGetRequiresErrorGuard(t *testing.T) {
 	}
 }
 
-func TestValidate_RepoFindWithoutErrorFails(t *testing.T) {
+func TestValidate_RepoFindWithoutErrorWarns(t *testing.T) {
 	t.Parallel()
 	issues := Validate([]Step{{
 		Action: "repo.Find",
@@ -52,8 +52,8 @@ func TestValidate_RepoFindWithoutErrorFails(t *testing.T) {
 	found := false
 	for _, it := range issues {
 		if it.Code == "REPO_FIND_WITHOUT_ERROR" {
-			if it.Severity != "error" {
-				t.Fatalf("expected error severity for REPO_FIND_WITHOUT_ERROR, got %q", it.Severity)
+			if it.Severity != "warn" {
+				t.Fatalf("expected warn severity for REPO_FIND_WITHOUT_ERROR, got %q", it.Severity)
 			}
 			found = true
 			break

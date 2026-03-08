@@ -188,10 +188,58 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 	// 6a. Shared architecture flag: @shared_arch or shared_arch: true in CUE.
 	//     Marks entity as cross-service accessible (no ARCHITECTURE_VIOLATION).
 	//     Set @shared_arch on the entity definition in cue/domain/*.cue.
-	if attr := val.Attribute("shared_arch"); attr.Err() == nil {
-		entity.Metadata["shared_arch"] = true
+	sharedArch := false
+	for _, attr := range val.Attributes(cue.ValueAttr | cue.FieldAttr | cue.DeclAttr) {
+		if attr.Name() != "shared_arch" {
+			continue
+		}
+		sharedArch = true
+		if reason, found, _ := attr.Lookup(0, "reason"); found {
+			reason = strings.TrimSpace(reason)
+			if reason != "" {
+				entity.Metadata["shared_arch_reason"] = reason
+			}
+		}
+		if ticket, found, _ := attr.Lookup(0, "ticket"); found {
+			ticket = strings.TrimSpace(ticket)
+			if ticket != "" {
+				entity.Metadata["shared_arch_ticket"] = ticket
+			}
+		}
 	}
 	if b, err := val.LookupPath(cue.ParsePath("shared_arch")).Bool(); err == nil && b {
+		sharedArch = true
+	}
+	if sharedVal := val.LookupPath(cue.ParsePath("shared_arch")); sharedVal.Exists() && sharedVal.IncompleteKind() == cue.StructKind {
+		if b, err := sharedVal.LookupPath(cue.ParsePath("enabled")).Bool(); err == nil && b {
+			sharedArch = true
+		}
+		if reason, err := sharedVal.LookupPath(cue.ParsePath("reason")).String(); err == nil {
+			reason = strings.TrimSpace(reason)
+			if reason != "" {
+				entity.Metadata["shared_arch_reason"] = reason
+			}
+		}
+		if ticket, err := sharedVal.LookupPath(cue.ParsePath("ticket")).String(); err == nil {
+			ticket = strings.TrimSpace(ticket)
+			if ticket != "" {
+				entity.Metadata["shared_arch_ticket"] = ticket
+			}
+		}
+	}
+	if reason, err := val.LookupPath(cue.ParsePath("shared_arch_reason")).String(); err == nil {
+		reason = strings.TrimSpace(reason)
+		if reason != "" {
+			entity.Metadata["shared_arch_reason"] = reason
+		}
+	}
+	if ticket, err := val.LookupPath(cue.ParsePath("shared_arch_ticket")).String(); err == nil {
+		ticket = strings.TrimSpace(ticket)
+		if ticket != "" {
+			entity.Metadata["shared_arch_ticket"] = ticket
+		}
+	}
+	if sharedArch {
 		entity.Metadata["shared_arch"] = true
 	}
 

@@ -150,6 +150,21 @@ Preferred fixes:
 2. Replace direct `repo.Query` with `logic.Call` to a declared service/port boundary.
 3. Keep `shared_arch` overrides as a short-term migration tool, not a default architecture mode.
 
+### shared_arch Audit Rules
+
+`@shared_arch()` is now audited by `ang validate`:
+
+1. `SHARED_ARCH_REASON_REQUIRED` (error):
+   - Every shared entity must include explicit rationale:
+   - `@shared_arch(reason="cross-context ...", ticket="ARCH-123")`
+   - or `shared_arch_reason: "..."`.
+2. `SHARED_ARCH_AUDIT` (warn):
+   - Every shared entity is reported with reason + actual usage contexts.
+3. `SHARED_ARCH_UNDERUSED` (warn):
+   - Shared entity used by fewer than 2 bounded contexts is flagged as likely unnecessary.
+
+This prevents `@shared_arch()` from being used as a silent bypass to suppress architecture violations.
+
 Practical migration tip:
 
 - During large flow migrations, first make `ang validate` green, then run `ang build`, then run `go build`/`go test` sequentially.

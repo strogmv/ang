@@ -127,3 +127,30 @@ func TestExtractEntities_AggregateOwnership(t *testing.T) {
 		t.Fatalf("unexpected owns list: %#v", entities[0].Owns)
 	}
 }
+
+func TestExtractEntities_SharedArchMetadata(t *testing.T) {
+	ctx := cuecontext.New()
+	val := ctx.CompileString(`
+		#Company: {
+			id: string
+		} @shared_arch(reason="cross-context lookups", ticket="ARCH-123")
+	`)
+
+	n := New()
+	entities, err := n.ExtractEntities(val)
+	if err != nil {
+		t.Fatalf("ExtractEntities failed: %v", err)
+	}
+	if len(entities) != 1 {
+		t.Fatalf("Expected 1 entity, got %d", len(entities))
+	}
+	if shared, _ := entities[0].Metadata["shared_arch"].(bool); !shared {
+		t.Fatalf("expected shared_arch=true in metadata")
+	}
+	if got := entities[0].Metadata["shared_arch_reason"]; got != "cross-context lookups" {
+		t.Fatalf("expected shared_arch_reason, got %#v", got)
+	}
+	if got := entities[0].Metadata["shared_arch_ticket"]; got != "ARCH-123" {
+		t.Fatalf("expected shared_arch_ticket, got %#v", got)
+	}
+}

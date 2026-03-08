@@ -280,7 +280,7 @@ func TestValidateFlowSteps_RepoGetRequiresErrorGuard(t *testing.T) {
 	}
 }
 
-func TestValidateFlowSteps_RepoFindWithoutErrorFails(t *testing.T) {
+func TestValidateFlowSteps_RepoFindWithoutErrorWarns(t *testing.T) {
 	t.Parallel()
 
 	entities := []Entity{{Name: "Tender", Owner: "tender", BoundedContext: "tender"}}
@@ -298,8 +298,8 @@ func TestValidateFlowSteps_RepoFindWithoutErrorFails(t *testing.T) {
 	for _, w := range warnings {
 		if w.Code == "REPO_FIND_WITHOUT_ERROR" {
 			found = true
-			if w.Severity != "error" {
-				t.Fatalf("expected error severity for REPO_FIND_WITHOUT_ERROR, got %q", w.Severity)
+			if w.Severity != "warn" {
+				t.Fatalf("expected warn severity for REPO_FIND_WITHOUT_ERROR, got %q", w.Severity)
 			}
 		}
 	}
@@ -792,6 +792,154 @@ func TestValidateFlowSteps_InfrastructureActionsMissingRequiredFields(t *testing
 	}
 	if !hasWarningWithText(warnings, "MISSING_URL", "http.Call missing 'url'") {
 		t.Fatalf("expected MISSING_URL for http.Call, got: %+v", warnings)
+	}
+}
+
+func TestValidateFlowSteps_VarFromIfBranchCannotEscape(t *testing.T) {
+	t.Parallel()
+
+	steps := []FlowStep{
+		{
+			Action: "flow.If",
+			Args: map[string]any{
+				"condition": "req.IsAdmin",
+				"_then": []FlowStep{
+					{
+						Action: "repo.Find",
+						Args: map[string]any{
+							"source": "Policy",
+							"input":  "req.PolicyID",
+							"output": "policy",
+							"error":  "Not found",
+						},
+					},
+				},
+			},
+		},
+		{
+			Action: "mapping.Assign",
+			Args: map[string]any{
+				"to":    "resp.Name",
+				"value": "policy.Name",
+			},
+		},
+	}
+
+	warnings := validateFlowSteps("IfScope", "tender", steps, nil, nil, nil, "strict", nil)
+	if !hasWarningWithText(warnings, "UNDECLARED_FLOW_VAR", "undefined flow variable 'policy'") {
+		t.Fatalf("expected UNDECLARED_FLOW_VAR for policy leak from flow.If branch, got: %+v", warnings)
+	}
+}
+
+func TestValidateFlowSteps_ForAliasCannotEscapeLoop(t *testing.T) {
+	t.Parallel()
+
+	steps := []FlowStep{
+		{
+			Action: "flow.For",
+			Args: map[string]any{
+				"each": "items",
+				"as":   "item",
+				"_do": []FlowStep{
+					{
+						Action: "mapping.Assign",
+						Args: map[string]any{
+							"to":    "resp.LastName",
+							"value": "item.Name",
+						},
+					},
+				},
+			},
+		},
+		{
+			Action: "mapping.Assign",
+			Args: map[string]any{
+				"to":    "resp.Name",
+				"value": "item.Name",
+			},
+		},
+	}
+
+	warnings := validateFlowSteps("ForScope", "tender", steps, nil, nil, nil, "strict", nil)
+	if !hasWarningWithText(warnings, "UNDECLARED_FLOW_VAR", "undefined flow variable 'item'") {
+		t.Fatalf("expected UNDECLARED_FLOW_VAR for loop alias leak, got: %+v", warnings)
+	}
+}
+
+func TestValidateFlowSteps_OuterVarVisibleInsideIfBranch(t *testing.T) {
+	t.Parallel()
+
+	steps := []FlowStep{
+		{
+			Action: "repo.Find",
+			Args: map[string]any{
+				"source": "Policy",
+				"input":  "req.PolicyID",
+				"output": "policy",
+				"error":  "Not found",
+			},
+		},
+		{
+			Action: "flow.If",
+			Args: map[string]any{
+				"condition": "req.IsAdmin",
+				"_then": []FlowStep{
+					{
+						Action: "mapping.Assign",
+						Args: map[string]any{
+							"to":    "resp.Name",
+							"value": "policy.Name",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	warnings := validateFlowSteps("IfScopePositive", "tender", steps, nil, nil, nil, "strict", nil)
+	for _, w := range warnings {
+		if w.Code == "UNDECLARED_FLOW_VAR" {
+			t.Fatalf("did not expect UNDECLARED_FLOW_VAR, got: %+v", warnings)
+		}
+	}
+}
+
+func TestValidateFlowSteps_AuditLogUndeclaredVars(t *testing.T) {
+	t.Parallel()
+
+	steps := []FlowStep{
+		{
+			Action: "audit.Log",
+			Args: map[string]any{
+				"actor":   "actorCtx.UserID",
+				"company": "tenant.CompanyID",
+				"event":   "\"TenderUpdated\"",
+			},
+		},
+	}
+
+	warnings := validateFlowSteps("AuditScope", "tender", steps, nil, nil, nil, "strict", nil)
+	if !hasWarningWithText(warnings, "UNDECLARED_FLOW_VAR", "undefined flow variable 'actorCtx'") {
+		t.Fatalf("expected UNDECLARED_FLOW_VAR for actorCtx in audit.Log, got: %+v", warnings)
+	}
+}
+
+func TestValidateFlowSteps_QueueEnqueueUndeclaredPayload(t *testing.T) {
+	t.Parallel()
+
+	steps := []FlowStep{
+		{
+			Action: "queue.Enqueue",
+			Args: map[string]any{
+				"subject": "\"events.tender\"",
+				"payload": "queuedPayload",
+			},
+		},
+	}
+
+	warnings := validateFlowSteps("QueueScope", "tender", steps, nil, nil, nil, "strict", nil)
+	if !hasWarningWithText(warnings, "UNDECLARED_FLOW_VAR", "undefined flow variable 'queuedPayload'") {
+		t.Fatalf("expected UNDECLARED_FLOW_VAR for queue.Enqueue payload, got: %+v", warnings)
 	}
 }
 

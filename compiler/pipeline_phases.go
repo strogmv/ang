@@ -84,6 +84,7 @@ func runSemanticPhases(basePath string, opts PipelineOptions) (NormalizePhaseOut
 	emitEventUsageDiagnostics(normalized.Services, normalized.Events, normalized.Schedules, broadcastOnly, planned, opts)
 	emitEventContractDiagnostics(basePath, normalized.Services, normalized.Events, compatAllowBreaking, opts)
 	emitReadModelDiagnostics(normalized.Entities, normalized.Events, opts)
+	emitSharedArchDiagnostics(normalized.Entities, normalized.Services, opts)
 
 	return normalized, nil
 }

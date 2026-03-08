@@ -16,9 +16,9 @@ var specsCoreBase = map[string]Spec{
 			}
 			return &Issue{
 				Code:     "REPO_FIND_WITHOUT_ERROR",
-				Severity: "error",
-				Message:  "repo.Find with output requires 'error' to guard not-found nil result",
-				Hint:     `Use {action: "repo.Find", ..., error: "Not found"}`,
+				Severity: "warn",
+				Message:  "repo.Find without 'error' returns nil when not found; add explicit nil-check",
+				Hint:     `Either add error: "Not found" or guard with flow.If/logic.Check before dereference`,
 			}
 		},
 	},
