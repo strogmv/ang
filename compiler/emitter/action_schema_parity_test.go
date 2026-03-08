@@ -18,11 +18,7 @@ var (
 
 // These actions are supported in emitter/flowsem but still intentionally schema-loose.
 // Keep this list explicit so any NEW mismatch fails immediately.
-var schemaParityAllowlist = map[string]struct{}{
-	"math.Expr":  {},
-	"math.Op":    {},
-	"pdf.Render": {},
-}
+var schemaParityAllowlist = map[string]struct{}{}
 
 func TestFlowActionSupportedSchemaParity(t *testing.T) {
 	t.Parallel()

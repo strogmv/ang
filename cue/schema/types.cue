@@ -107,7 +107,7 @@ import "github.com/strogmv/ang/cue/project"
 // AI AGENTS: Use these definitions to understand valid flow step structures.
 // ============================================================================
 
-#FlowStep: #RepoStep | #DbStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #EventOutboxStep | #CustomStep | #ServiceCallStep | #FlowCallStep | #StateStep | #ExplicitStateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #ListLenStep | #ListNewStep | #AuditStep | #AuthStep | #CheckRoleStep | #RBACCheckPermissionStep | #PolicyCheckStep | #PolicyEvaluateStep | #PolicyRequireStep | #PolicyDecideStep | #JWTSignStep | #JWTVerifyStep | #OAuth2TokenStep | #OAuth2RefreshStep | #EncryptStep | #DecryptStep | #HashStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #ListMapStep | #ListReduceStep | #ListGroupByStep | #ListDistinctStep | #ListChunkStep | #BatchRunStep | #EnrichStep | #TimeNowStep | #TimeParseStep | #TimeFormatStep | #TimeCheckExpiryStep | #MapBuildStep | #MapNewStep | #ExecRunStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #ArchiveZipDirStep | #SessionGetStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #NotifySendStep | #NotifyDispatchStep | #ApprovalRequestStep | #ApprovalWaitStep | #ApprovalDecideStep | #StorageUploadStep | #StorageDownloadStep | #StorageDeleteStep | #StorageListStep | #StorageGetURLStep | #WebhookSendStep | #WebhookVerifySignatureStep | #WebhookAckStep | #QueueEnqueueStep | #QueueDequeueStep | #QueueAckStep | #QueueNackStep | #DLQPublishStep | #HTTPCallStep | #HTTPRequestStep | #HTTPRetryPolicyStep | #HTTPPaginateStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #StrConcatStep | #CastToStringStep | #NumBinaryStep | #RegexMatchStep | #RegexReplaceStep | #Base64EncodeStep | #Base64DecodeStep | #URLParseStep | #URLBuildStep | #QueryEncodeStep | #QueryDecodeStep | #HashSumStep | #HashHMACStep | #UUIDNewStep | #ULIDNewStep | #JSONParseStep | #JSONMarshalStep | #JSONPathGetStep | #JSONPathSetStep | #ParallelStep | #FlowParallelStep | #FlowJoinStep | #FlowRaceStep | #FlowDelayStep | #FlowScheduleStep | #FlowCronStep | #SecretGetStep | #ConfigGetStep | #EventWaitStep | #EventSubscribeStep | #EventMatchStep | #FlowSagaStep | #FlowCompensateStep | #FlowRollbackStep | #FlowTagStep | #FlowCheckpointStep | #FlowResumeStep | #FlowRecordEventStep | #FlowReplayStep | #FlowHistoryGetStep | #FlowValidateStep | #FlowTryStep | #FlowCatchStep | #FlowRetryStep | #FlowFallbackStep | #FlowTimeoutStep | #FlowSuggestNextStep | #FlowExplainErrorStep | #IdemDeriveKeyStep | #IdemCheckStep | #IdemSaveResultStep | #IdempotencyDeriveKeyStep | #IdempotencyCheckStep | #IdempotencySaveResultStep | #DedupeOnceStep | #RateLimitCheckStep | #RateLimitLimitStep | #ConcurrencyLimitStep | #ConcurrencyRunStep | #CircuitCheckStep | #CircuitRecordSuccessStep | #CircuitRecordFailureStep | #CircuitBreakerStep | #BulkheadAcquireStep | #BulkheadRunStep | #LogEmitStep | #MetricEmitStep | #TraceSpanStep | #SLOBudgetStep
+#FlowStep: #RepoStep | #DbStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #EventOutboxStep | #CustomStep | #ServiceCallStep | #FlowCallStep | #StateStep | #ExplicitStateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #ListLenStep | #ListNewStep | #AuditStep | #AuthStep | #CheckRoleStep | #RBACCheckPermissionStep | #PolicyCheckStep | #PolicyEvaluateStep | #PolicyRequireStep | #PolicyDecideStep | #JWTSignStep | #JWTVerifyStep | #OAuth2TokenStep | #OAuth2RefreshStep | #EncryptStep | #DecryptStep | #HashStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #ListMapStep | #ListReduceStep | #ListGroupByStep | #ListDistinctStep | #ListChunkStep | #BatchRunStep | #EnrichStep | #TimeNowStep | #TimeParseStep | #TimeFormatStep | #TimeCheckExpiryStep | #MapBuildStep | #MapNewStep | #ExecRunStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #ArchiveZipDirStep | #SessionGetStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #NotifySendStep | #NotifyDispatchStep | #ApprovalRequestStep | #ApprovalWaitStep | #ApprovalDecideStep | #StorageUploadStep | #StorageDownloadStep | #StorageDeleteStep | #StorageListStep | #StorageGetURLStep | #WebhookSendStep | #WebhookVerifySignatureStep | #WebhookAckStep | #QueueEnqueueStep | #QueueDequeueStep | #QueueAckStep | #QueueNackStep | #DLQPublishStep | #HTTPCallStep | #HTTPRequestStep | #HTTPRetryPolicyStep | #HTTPPaginateStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #StrConcatStep | #CastToStringStep | #NumBinaryStep | #MathExprStep | #MathOpStep | #RegexMatchStep | #RegexReplaceStep | #Base64EncodeStep | #Base64DecodeStep | #URLParseStep | #URLBuildStep | #QueryEncodeStep | #QueryDecodeStep | #HashSumStep | #HashHMACStep | #UUIDNewStep | #ULIDNewStep | #JSONParseStep | #JSONMarshalStep | #JSONPathGetStep | #JSONPathSetStep | #ParallelStep | #PDFRenderStep | #FlowParallelStep | #FlowJoinStep | #FlowRaceStep | #FlowDelayStep | #FlowScheduleStep | #FlowCronStep | #SecretGetStep | #ConfigGetStep | #EventWaitStep | #EventSubscribeStep | #EventMatchStep | #FlowSagaStep | #FlowCompensateStep | #FlowRollbackStep | #FlowTagStep | #FlowCheckpointStep | #FlowResumeStep | #FlowRecordEventStep | #FlowReplayStep | #FlowHistoryGetStep | #FlowValidateStep | #FlowTryStep | #FlowCatchStep | #FlowRetryStep | #FlowFallbackStep | #FlowTimeoutStep | #FlowSuggestNextStep | #FlowExplainErrorStep | #IdemDeriveKeyStep | #IdemCheckStep | #IdemSaveResultStep | #IdempotencyDeriveKeyStep | #IdempotencyCheckStep | #IdempotencySaveResultStep | #DedupeOnceStep | #RateLimitCheckStep | #RateLimitLimitStep | #ConcurrencyLimitStep | #ConcurrencyRunStep | #CircuitCheckStep | #CircuitRecordSuccessStep | #CircuitRecordFailureStep | #CircuitBreakerStep | #BulkheadAcquireStep | #BulkheadRunStep | #LogEmitStep | #MetricEmitStep | #TraceSpanStep | #SLOBudgetStep
 
 #FlowCheckpointStep: {
 	// flow.Checkpoint - Save current flow state for potential resumption
@@ -1692,6 +1692,25 @@ import "github.com/strogmv/ang/cue/project"
 	output: string
 }
 
+#MathExprStep: {
+	action: "math.Expr"
+	expr: string
+	output: string
+	declare?: bool | string
+}
+
+#MathOpStep: {
+	action: "math.Op"
+	op: string
+	output: string
+	a?: string
+	b?: string
+	value?: string
+	min?: string
+	max?: string
+	precision?: int
+}
+
 #RegexMatchStep: {
 	action: "regex.Match"
 	input:  string
@@ -1815,6 +1834,13 @@ import "github.com/strogmv/ang/cue/project"
 	action: "parallel.Run"
 	// Named parallel branches, each is a list of flow steps
 	branches: [string]: [...#FlowStep]
+}
+
+#PDFRenderStep: {
+	action: "pdf.Render"
+	template: string
+	data: string
+	output: string
 }
 
 // flow.Parallel - concurrent fan-out, ALL branches must succeed (fail-fast)
