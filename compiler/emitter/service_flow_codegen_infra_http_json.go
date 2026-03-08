@@ -165,6 +165,74 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		}
 		return fmt.Sprintf("%s%s %s fmt.Sprintf(%s)\n", pad, output, assign, callArgs), true
 
+	case "str.Concat":
+		output := arg("output")
+		if output == "" {
+			return "", true
+		}
+		sep := arg("sep")
+		var parts []string
+		if v, ok := step.Args["parts"]; ok {
+			switch x := v.(type) {
+			case []string:
+				parts = x
+			case []interface{}:
+				for _, it := range x {
+					if s, ok := it.(string); ok && strings.TrimSpace(s) != "" {
+						parts = append(parts, s)
+					}
+				}
+			case string:
+				if strings.TrimSpace(x) != "" {
+					parts = []string{x}
+				}
+			}
+		}
+		assign := ":="
+		if st.declared[output] {
+			assign = "="
+		}
+		st.declared[output] = true
+		st.pointers[output] = false
+		st.types[output] = "string"
+		if len(parts) == 0 {
+			return fmt.Sprintf("%s%s %s \"\"\n", pad, output, assign), true
+		}
+		if sep == "" {
+			concat := make([]string, 0, len(parts))
+			for _, p := range parts {
+				concat = append(concat, fmt.Sprintf("fmt.Sprint(%s)", p))
+			}
+			return fmt.Sprintf("%s%s %s %s\n", pad, output, assign, strings.Join(concat, " + ")), true
+		}
+		tmp := "_concatParts" + sfx
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s%s := []string{}\n", pad, tmp))
+		for _, p := range parts {
+			b.WriteString(fmt.Sprintf("%s%s = append(%s, fmt.Sprint(%s))\n", pad, tmp, tmp, p))
+		}
+		b.WriteString(fmt.Sprintf("%s%s %s strings.Join(%s, %s)\n", pad, output, assign, tmp, sep))
+		return b.String(), true
+
+	case "cast.ToString":
+		input := arg("input")
+		output := arg("output")
+		if input == "" || output == "" {
+			return "", true
+		}
+		format := arg("format")
+		assign := ":="
+		if st.declared[output] {
+			assign = "="
+		}
+		st.declared[output] = true
+		st.pointers[output] = false
+		st.types[output] = "string"
+		if format != "" {
+			return fmt.Sprintf("%s%s %s fmt.Sprintf(%s, %s)\n", pad, output, assign, format, input), true
+		}
+		return fmt.Sprintf("%s%s %s fmt.Sprint(%s)\n", pad, output, assign, input), true
+
 	case "json.Parse":
 		input := arg("input")
 		into := arg("into")

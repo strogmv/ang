@@ -185,6 +185,18 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 		entity.Metadata["dto"] = true
 	}
 
+	// 6a. Shared architecture flag: @shared_arch, shared_arch: true, or hardcoded list.
+	//     Marks entity as cross-service accessible (no ARCHITECTURE_VIOLATION).
+	if attr := val.Attribute("shared_arch"); attr.Err() == nil {
+		entity.Metadata["shared_arch"] = true
+	}
+	if b, err := val.LookupPath(cue.ParsePath("shared_arch")).Bool(); err == nil && b {
+		entity.Metadata["shared_arch"] = true
+	}
+	if isSharedArchitectureEntity(name) {
+		entity.Metadata["shared_arch"] = true
+	}
+
 	// 6. Read-model contract for ACL analytics projections.
 	if rm := parseReadModelDef(val); rm != nil {
 		entity.ReadModel = rm

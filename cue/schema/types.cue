@@ -107,7 +107,7 @@ import "github.com/strogmv/ang/cue/project"
 // AI AGENTS: Use these definitions to understand valid flow step structures.
 // ============================================================================
 
-#FlowStep: #RepoStep | #DbStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #EventOutboxStep | #CustomStep | #ServiceCallStep | #FlowCallStep | #StateStep | #ExplicitStateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #AuditStep | #AuthStep | #CheckRoleStep | #RBACCheckPermissionStep | #PolicyCheckStep | #PolicyEvaluateStep | #PolicyRequireStep | #PolicyDecideStep | #JWTSignStep | #JWTVerifyStep | #OAuth2TokenStep | #OAuth2RefreshStep | #EncryptStep | #DecryptStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #ListMapStep | #ListReduceStep | #ListGroupByStep | #ListDistinctStep | #ListChunkStep | #BatchRunStep | #EnrichStep | #TimeNowStep | #TimeParseStep | #TimeFormatStep | #TimeCheckExpiryStep | #MapBuildStep | #ExecRunStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #NotifySendStep | #ApprovalRequestStep | #ApprovalWaitStep | #ApprovalDecideStep | #StorageUploadStep | #StorageGetURLStep | #WebhookSendStep | #WebhookVerifySignatureStep | #WebhookAckStep | #QueueEnqueueStep | #QueueDequeueStep | #QueueAckStep | #QueueNackStep | #DLQPublishStep | #HTTPCallStep | #HTTPRequestStep | #HTTPRetryPolicyStep | #HTTPPaginateStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #JSONParseStep | #JSONMarshalStep | #ParallelStep | #FlowParallelStep | #FlowJoinStep | #FlowRaceStep | #FlowDelayStep | #FlowScheduleStep | #FlowCronStep | #SecretGetStep | #ConfigGetStep | #EventWaitStep | #EventSubscribeStep | #EventMatchStep | #FlowSagaStep | #FlowCompensateStep | #FlowRollbackStep | #FlowTagStep | #FlowCheckpointStep | #FlowResumeStep | #FlowRecordEventStep | #FlowReplayStep | #FlowHistoryGetStep | #FlowValidateStep | #FlowTryStep | #FlowRetryStep | #FlowFallbackStep | #FlowTimeoutStep | #FlowSuggestNextStep | #FlowExplainErrorStep | #IdemDeriveKeyStep | #IdemCheckStep | #IdemSaveResultStep | #IdempotencyDeriveKeyStep | #IdempotencyCheckStep | #IdempotencySaveResultStep | #DedupeOnceStep | #RateLimitCheckStep | #RateLimitLimitStep | #ConcurrencyLimitStep | #ConcurrencyRunStep | #CircuitCheckStep | #CircuitRecordSuccessStep | #CircuitRecordFailureStep | #CircuitBreakerStep | #BulkheadAcquireStep | #BulkheadRunStep | #LogEmitStep | #MetricEmitStep | #TraceSpanStep | #SLOBudgetStep
+#FlowStep: #RepoStep | #DbStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #EventOutboxStep | #CustomStep | #ServiceCallStep | #FlowCallStep | #StateStep | #ExplicitStateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #ListLenStep | #ListNewStep | #AuditStep | #AuthStep | #CheckRoleStep | #RBACCheckPermissionStep | #PolicyCheckStep | #PolicyEvaluateStep | #PolicyRequireStep | #PolicyDecideStep | #JWTSignStep | #JWTVerifyStep | #OAuth2TokenStep | #OAuth2RefreshStep | #EncryptStep | #DecryptStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #ListMapStep | #ListReduceStep | #ListGroupByStep | #ListDistinctStep | #ListChunkStep | #BatchRunStep | #EnrichStep | #TimeNowStep | #TimeParseStep | #TimeFormatStep | #TimeCheckExpiryStep | #MapBuildStep | #MapNewStep | #ExecRunStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #NotifySendStep | #ApprovalRequestStep | #ApprovalWaitStep | #ApprovalDecideStep | #StorageUploadStep | #StorageGetURLStep | #WebhookSendStep | #WebhookVerifySignatureStep | #WebhookAckStep | #QueueEnqueueStep | #QueueDequeueStep | #QueueAckStep | #QueueNackStep | #DLQPublishStep | #HTTPCallStep | #HTTPRequestStep | #HTTPRetryPolicyStep | #HTTPPaginateStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #StrConcatStep | #CastToStringStep | #NumBinaryStep | #JSONParseStep | #JSONMarshalStep | #ParallelStep | #FlowParallelStep | #FlowJoinStep | #FlowRaceStep | #FlowDelayStep | #FlowScheduleStep | #FlowCronStep | #SecretGetStep | #ConfigGetStep | #EventWaitStep | #EventSubscribeStep | #EventMatchStep | #FlowSagaStep | #FlowCompensateStep | #FlowRollbackStep | #FlowTagStep | #FlowCheckpointStep | #FlowResumeStep | #FlowRecordEventStep | #FlowReplayStep | #FlowHistoryGetStep | #FlowValidateStep | #FlowTryStep | #FlowRetryStep | #FlowFallbackStep | #FlowTimeoutStep | #FlowSuggestNextStep | #FlowExplainErrorStep | #IdemDeriveKeyStep | #IdemCheckStep | #IdemSaveResultStep | #IdempotencyDeriveKeyStep | #IdempotencyCheckStep | #IdempotencySaveResultStep | #DedupeOnceStep | #RateLimitCheckStep | #RateLimitLimitStep | #ConcurrencyLimitStep | #ConcurrencyRunStep | #CircuitCheckStep | #CircuitRecordSuccessStep | #CircuitRecordFailureStep | #CircuitBreakerStep | #BulkheadAcquireStep | #BulkheadRunStep | #LogEmitStep | #MetricEmitStep | #TraceSpanStep | #SLOBudgetStep
 
 #FlowCheckpointStep: {
 	// flow.Checkpoint - Save current flow state for potential resumption
@@ -311,6 +311,21 @@ import "github.com/strogmv/ang/cue/project"
 	to: string
 	// Value to append (e.g., "newItem", "bid")
 	item: string
+}
+
+#ListLenStep: {
+	// list.Len - Compute len(input) into output
+	action: "list.Len"
+	input:  string
+	output: string
+}
+
+#ListNewStep: {
+	// list.New - Initialize empty slice with explicit type
+	action: "list.New"
+	output: string
+	type:   string
+	cap?:   int | string
 }
 
 // ----------------------------------------------------------------------------
@@ -1145,6 +1160,13 @@ import "github.com/strogmv/ang/cue/project"
 	output: string
 }
 
+#MapNewStep: {
+	// map.New - Initialize empty map with explicit type
+	action: "map.New"
+	output: string
+	type:   string
+}
+
 // --- HTTP & INFRA ---
 
 #RateLimitDef: {
@@ -1592,6 +1614,33 @@ import "github.com/strogmv/ang/cue/project"
 	// Arguments list as Go expressions
 	args: [...string]
 	// Variable name for result
+	output: string
+}
+
+#StrConcatStep: {
+	action: "str.Concat"
+	// Parts to concatenate (Go expressions)
+	parts: string | [...string]
+	// Optional separator between parts
+	sep?: string | *""
+	// Variable name for result
+	output: string
+}
+
+#CastToStringStep: {
+	action: "cast.ToString"
+	// Source expression
+	input: string
+	// Optional printf-style format, e.g. "%d"
+	format?: string
+	// Variable name for result
+	output: string
+}
+
+#NumBinaryStep: {
+	action: "num.Add" | "num.Sub" | "num.Mul" | "num.Div"
+	a: string
+	b: string
 	output: string
 }
 

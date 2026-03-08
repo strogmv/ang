@@ -11,21 +11,6 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 	pad := strings.Repeat("\t", indent)
 
 	switch step.Action {
-	case "logic.Check":
-		cond := arg("condition")
-		throw := arg("throw")
-		if cond == "" {
-			return "", true
-		}
-		if throw == "" {
-			throw = "validation failed"
-		}
-		var b strings.Builder
-		b.WriteString(fmt.Sprintf("%sif !(%s) {\n", pad, cond))
-		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("errors.New(http.StatusBadRequest, \"Validation Error\", %q)", throw)))
-		b.WriteString(fmt.Sprintf("%s}\n", pad))
-		return b.String(), true
-
 	case "repo.Get", "repo.Find", "repo.GetForUpdate", "repo.List":
 		source := arg("source")
 		if source == "" {

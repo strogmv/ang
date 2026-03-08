@@ -639,6 +639,8 @@ func isSharedArchitectureEntity(entityName string) bool {
 		strings.EqualFold(entityName, "TenderTemplate"),
 		strings.EqualFold(entityName, "TenderTemplateCategory"),
 		strings.EqualFold(entityName, "CompanyCategoryScore"),
+		strings.EqualFold(entityName, "Counterparty"),
+		strings.EqualFold(entityName, "SearchDocument"),
 		strings.EqualFold(entityName, "User"),
 		strings.EqualFold(entityName, "AuditLog"),
 		strings.EqualFold(entityName, "CategoryValue"),

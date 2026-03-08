@@ -225,5 +225,15 @@ func MatchEvent(evt any, match string) bool {
 	return fmt.Sprint(f.Interface()) == val
 }
 
+// IsOneOf reports whether v is equal to one of the allowed values.
+func IsOneOf(v string, allowed []string) bool {
+	for _, a := range allowed {
+		if v == a {
+			return true
+		}
+	}
+	return false
+}
+
 // _ is a compile guard to ensure strings is used.
 var _ = strings.ToLower

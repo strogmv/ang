@@ -977,6 +977,21 @@ var specs = map[string]Spec{
 			"defaultLimit": ArgKindInt,
 		},
 	},
+	"list.Len": {
+		RequiredArgs:     []string{"input", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"list.New": {
+		RequiredArgs:     []string{"output", "type"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"cap": ArgKindString,
+		},
+	},
+	"map.New": {
+		RequiredArgs:     []string{"output", "type"},
+		DeclaresFromArgs: []string{"output"},
+	},
 	"str.Normalize": {
 		RequiredArgs:     []string{"input", "output"},
 		DeclaresFromArgs: []string{"output"},
@@ -1213,6 +1228,37 @@ var specs = map[string]Spec{
 	},
 	"str.Format": {
 		RequiredArgs:     []string{"template", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"str.Concat": {
+		RequiredArgs:     []string{"parts", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"parts": ArgKindStringOrStringArr,
+			"sep":   ArgKindString,
+		},
+	},
+	"cast.ToString": {
+		RequiredArgs:     []string{"input", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"format": ArgKindString,
+		},
+	},
+	"num.Add": {
+		RequiredArgs:     []string{"a", "b", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"num.Sub": {
+		RequiredArgs:     []string{"a", "b", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"num.Mul": {
+		RequiredArgs:     []string{"a", "b", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"num.Div": {
+		RequiredArgs:     []string{"a", "b", "output"},
 		DeclaresFromArgs: []string{"output"},
 	},
 	"json.Parse": {

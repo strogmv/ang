@@ -24,7 +24,10 @@
         "UserLoggedIn",
         "UserRegistered"
       ],
-      "subscribes": {},
+      "subscribes": {
+        "UserLoggedIn": "OnUserLoggedInAudit",
+        "UserRegistered": "OnUserRegisteredAudit"
+      },
       "depends_on": [
         "NATS"
       ]
@@ -50,9 +53,21 @@
         "UpdatePost",
         "UpdateTag"
       ],
-      "publishes": null,
-      "subscribes": {},
-      "depends_on": []
+      "publishes": [
+        "CommentCreated",
+        "PostCreated",
+        "PostPublished",
+        "PostUpdated"
+      ],
+      "subscribes": {
+        "CommentCreated": "OnCommentCreatedProjection",
+        "PostCreated": "OnPostCreatedProjection",
+        "PostPublished": "OnPostPublishedProjection",
+        "PostUpdated": "OnPostUpdatedProjection"
+      },
+      "depends_on": [
+        "NATS"
+      ]
     }
   ],
   "events": [

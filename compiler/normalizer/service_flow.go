@@ -252,6 +252,25 @@ func (n *Normalizer) rawParseFlowSteps(val cue.Value) ([]FlowStep, error) {
 				}
 			}
 		}
+		// Explicit lookup for string fields that may be skipped if disjunction prevents IsConcrete()
+		// Use Unify with a concrete empty string to force resolution, then check via JSON marshal
+		for _, strLabel := range []string{"status", "method", "error", "algo"} {
+			if _, ok := step.Args[strLabel]; !ok {
+				sv := stepVal.LookupPath(cue.ParsePath(strLabel))
+				if sv.Exists() && sv.IncompleteKind() == cue.StringKind {
+					// Try getting concrete value; for disjunctions this may require default() resolution
+					if s, err := sv.String(); err == nil && s != "" {
+						step.Args[strLabel] = s
+					} else {
+						// Try via default value (for disjunction members)
+						dv, _ := sv.Default()
+						if ds, err := dv.String(); err == nil && ds != "" {
+							step.Args[strLabel] = ds
+						}
+					}
+				}
+			}
+		}
 
 		// Double check args/params via explicit lookup if missed in loop
 		for _, label := range []string{"args", "params"} {
@@ -1421,6 +1440,11 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 			case "list.Filter":
 				// validated by flow semantics engine
 
+			case "list.Len", "list.New", "map.New":
+				if output, _ := step.Args["output"].(string); output != "" {
+					declaredVars[output] = true
+				}
+
 			case "list.Map", "list.Reduce", "list.GroupBy", "list.Distinct", "list.Chunk":
 				if output, _ := step.Args["output"].(string); output != "" {
 					declaredVars[output] = true
@@ -1459,7 +1483,7 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 			case "time.CheckExpiry":
 				// validated by flow semantics engine
 
-			case "map.Build":
+			case "map.Build", "time.Now", "time.Format":
 				// validated by flow semantics engine
 
 			case "exec.Run":
@@ -1552,9 +1576,11 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 				"url.Parse", "url.Build",
 				"query.Encode", "query.Decode",
 				"hash.Sum", "hash.HMAC",
-				"str.Format",
+				"str.Format", "str.Concat",
+				"cast.ToString",
 				"json.Parse", "json.Marshal",
 				"math.Op",
+				"num.Add", "num.Sub", "num.Mul", "num.Div",
 				"jsonpath.Get", "jsonpath.Set",
 				"jwt.Sign", "jwt.Verify",
 				"oauth2.Token", "oauth2.Refresh",

@@ -25,9 +25,27 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		if throw == "" {
 			throw = "validation failed"
 		}
+		httpStatus := "http.StatusBadRequest"
+		statusLabel := "Validation Error"
+		if s := strings.TrimSpace(arg("status")); s != "" {
+			switch s {
+			case "403", "forbidden":
+				httpStatus = "http.StatusForbidden"
+				statusLabel = "Forbidden"
+			case "404", "not_found":
+				httpStatus = "http.StatusNotFound"
+				statusLabel = "Not Found"
+			case "409", "conflict":
+				httpStatus = "http.StatusConflict"
+				statusLabel = "Conflict"
+			case "401", "unauthorized":
+				httpStatus = "http.StatusUnauthorized"
+				statusLabel = "Unauthorized"
+			}
+		}
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%sif !(%s) {\n", pad, cond))
-		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("errors.New(http.StatusBadRequest, \"Validation Error\", %q)", throw)))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("errors.New(%s, %q, %q)", httpStatus, statusLabel, throw)))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
 
@@ -373,6 +391,34 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("errors.New(http.StatusBadRequest, \"INVALID_VALUE\", %q)", throw)))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
+
+	case "list.Len":
+		input := arg("input")
+		output := arg("output")
+		if input == "" || output == "" {
+			return "", true
+		}
+		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("len(%s)", input), "int"), true
+
+	case "list.New":
+		output := arg("output")
+		typ := arg("type")
+		if output == "" || typ == "" {
+			return "", true
+		}
+		capExpr := arg("cap")
+		if strings.TrimSpace(capExpr) != "" {
+			return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("make(%s, 0, %s)", typ, capExpr), typ), true
+		}
+		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("make(%s, 0)", typ), typ), true
+
+	case "map.New":
+		output := arg("output")
+		typ := arg("type")
+		if output == "" || typ == "" {
+			return "", true
+		}
+		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("make(%s)", typ), typ), true
 
 	case "list.Enrich":
 		items := arg("items")

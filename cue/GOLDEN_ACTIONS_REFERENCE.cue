@@ -1937,3 +1937,88 @@ RefTimeFormat: schema.#Operation & {
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2004: list.Len
+// ----------------------------------------------------------------------------
+RefListLen: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "list.New", output: "items", type: "[]string"},
+		{action: "list.Len", input: "items", output: "count"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2005: list.New
+// ----------------------------------------------------------------------------
+RefListNew: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "list.New", output: "items", type: "[]string"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2006: map.New
+// ----------------------------------------------------------------------------
+RefMapNew: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "map.New", output: "bag", type: "map[string]string"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2007: str.Concat
+// ----------------------------------------------------------------------------
+RefStrConcat: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "str.Concat", parts: ["\"id=\"", "req.ID"], output: "line"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2008: cast.ToString
+// ----------------------------------------------------------------------------
+RefCastToString: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "cast.ToString", input: "req.ID", output: "s"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2009: num.Add/num.Sub/num.Mul/num.Div
+// ----------------------------------------------------------------------------
+RefNumOps: schema.#Operation & {
+	service: "reference"
+	input: {
+		a: int
+		b: int
+	}
+	output: { ok: bool }
+	flow: [
+		{action: "num.Add", a: "req.A", b: "req.B", output: "sum"},
+		{action: "num.Sub", a: "req.A", b: "req.B", output: "diff"},
+		{action: "num.Mul", a: "req.A", b: "req.B", output: "prod"},
+		{action: "num.Div", a: "req.A", b: "req.B", output: "ratio"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}

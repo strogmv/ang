@@ -866,3 +866,17 @@ func TestRenderFlow_EventPublish_NoPayloadStillPublishesEmptyStruct(t *testing.T
 		}
 	}
 }
+
+func TestRenderFlow_LogicCheckStatus403(t *testing.T) {
+	steps := []normalizer.FlowStep{
+		{Action: "logic.Check", Args: map[string]any{
+			"condition": "targetRole != \"owner\" || actorRole == \"admin\"",
+			"throw":     "cannot change owner role",
+			"status":    "403",
+		}},
+	}
+	code := renderFlow(steps)
+	if !strings.Contains(code, "http.StatusForbidden") {
+		t.Fatalf("expected StatusForbidden for logic.Check with status=403, got:\n%s", code)
+	}
+}

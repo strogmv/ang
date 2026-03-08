@@ -39,6 +39,7 @@ func NewRuntimeContainer(
 		repoPostTag,
 		repoTag,
 		txManager,
+		publisher,
 	)
 
 	return c, nil

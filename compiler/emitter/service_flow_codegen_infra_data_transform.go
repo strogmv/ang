@@ -388,6 +388,38 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
 
+	case "num.Add", "num.Sub", "num.Mul", "num.Div":
+		a := arg("a")
+		bExpr := arg("b")
+		output := arg("output")
+		if a == "" || bExpr == "" || output == "" {
+			return "", true
+		}
+		assign := ":="
+		if st.declared[output] {
+			assign = "="
+		}
+		st.declared[output] = true
+		st.pointers[output] = false
+		st.types[output] = "float64"
+		switch step.Action {
+		case "num.Add":
+			return fmt.Sprintf("%s%s %s float64(%s) + float64(%s)\n", pad, output, assign, a, bExpr), true
+		case "num.Sub":
+			return fmt.Sprintf("%s%s %s float64(%s) - float64(%s)\n", pad, output, assign, a, bExpr), true
+		case "num.Mul":
+			return fmt.Sprintf("%s%s %s float64(%s) * float64(%s)\n", pad, output, assign, a, bExpr), true
+		default: // num.Div
+			den := "_numDivDen" + sfx
+			var out strings.Builder
+			out.WriteString(fmt.Sprintf("%s%s := float64(%s)\n", pad, den, bExpr))
+			out.WriteString(fmt.Sprintf("%sif %s == 0 {\n", pad, den))
+			out.WriteString(errReturn(st, pad+"\t", "fmt.Errorf(\"num.Div: division by zero\")"))
+			out.WriteString(fmt.Sprintf("%s}\n", pad))
+			out.WriteString(fmt.Sprintf("%s%s %s float64(%s) / %s\n", pad, output, assign, a, den))
+			return out.String(), true
+		}
+
 	case "jsonpath.Get":
 		input := arg("input")
 		pathExpr := arg("path")
