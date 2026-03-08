@@ -17,6 +17,71 @@ func TestValidate_RepoGetForUpdateRequiresTx(t *testing.T) {
 	}
 }
 
+func TestValidate_RepoGetRequiresErrorGuard(t *testing.T) {
+	t.Parallel()
+	issues := Validate([]Step{{
+		Action: "repo.Get",
+		Args: map[string]any{
+			"source": "Tender",
+			"input":  "req.ID",
+			"output": "tender",
+		},
+	}})
+	found := false
+	for _, it := range issues {
+		if it.Code == "REPO_GET_MISSING_ERROR" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected REPO_GET_MISSING_ERROR issue, got %+v", issues)
+	}
+}
+
+func TestValidate_RepoFindWithoutErrorWarns(t *testing.T) {
+	t.Parallel()
+	issues := Validate([]Step{{
+		Action: "repo.Find",
+		Args: map[string]any{
+			"source": "Tender",
+			"input":  "req.ID",
+			"output": "tender",
+		},
+	}})
+	found := false
+	for _, it := range issues {
+		if it.Code == "REPO_FIND_WITHOUT_ERROR" {
+			if it.Severity != "warn" {
+				t.Fatalf("expected warn severity for REPO_FIND_WITHOUT_ERROR, got %q", it.Severity)
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected REPO_FIND_WITHOUT_ERROR warning, got %+v", issues)
+	}
+}
+
+func TestValidate_RepoGetWithErrorPassesGuardCheck(t *testing.T) {
+	t.Parallel()
+	issues := Validate([]Step{{
+		Action: "repo.Get",
+		Args: map[string]any{
+			"source": "Tender",
+			"input":  "req.ID",
+			"output": "tender",
+			"error":  "Not found",
+		},
+	}})
+	for _, it := range issues {
+		if it.Code == "REPO_GET_MISSING_ERROR" {
+			t.Fatalf("did not expect REPO_GET_MISSING_ERROR when error is provided: %+v", issues)
+		}
+	}
+}
+
 func TestValidate_UpsertRequiresBranch(t *testing.T) {
 	t.Parallel()
 	issues := Validate([]Step{{

@@ -184,6 +184,35 @@ func TestValidateFlowSteps_LogicCallArgsReportExpressionSyntax(t *testing.T) {
 	}
 }
 
+func TestValidateFlowSteps_LogicCallWarnsOnBareFmtErrorf(t *testing.T) {
+	t.Parallel()
+
+	steps := []FlowStep{{
+		Action: "logic.Call",
+		Args: map[string]any{
+			"func": "fmt.Errorf(\"tender not found\")",
+		},
+	}}
+
+	warnings := validateFlowSteps("CreateItem", "tender", steps, nil, nil, nil, "strict", nil)
+	found := false
+	for _, w := range warnings {
+		if w.Code != "LAMBDA_BARE_ERROR" {
+			continue
+		}
+		found = true
+		if w.Severity != "warn" {
+			t.Fatalf("expected LAMBDA_BARE_ERROR severity=warn, got %q", w.Severity)
+		}
+		if !strings.Contains(w.Message, "fmt.Errorf") {
+			t.Fatalf("expected fmt.Errorf hint in warning message, got: %s", w.Message)
+		}
+	}
+	if !found {
+		t.Fatalf("expected LAMBDA_BARE_ERROR warning, got: %+v", warnings)
+	}
+}
+
 func TestValidateFlowSteps_ServiceCallArgsReportExpressionSyntax(t *testing.T) {
 	t.Parallel()
 
@@ -220,6 +249,62 @@ func TestValidateFlowSteps_RepoQueryInputReportsExpressionSyntax(t *testing.T) {
 	warnings := validateFlowSteps("GetApplication", "application", steps, entities, nil, nil, "strict", nil)
 	if !hasWarningWithText(warnings, "UNSAFE_QUERY_ARG_EXPR", "repo.Query input:") {
 		t.Fatalf("expected UNSAFE_QUERY_ARG_EXPR for repo.Query input, got: %+v", warnings)
+	}
+}
+
+func TestValidateFlowSteps_RepoGetRequiresErrorGuard(t *testing.T) {
+	t.Parallel()
+
+	entities := []Entity{{Name: "Tender", Owner: "tender", BoundedContext: "tender"}}
+	steps := []FlowStep{{
+		Action: "repo.Get",
+		Args: map[string]any{
+			"source": "Tender",
+			"input":  "req.ID",
+			"output": "tender",
+		},
+	}}
+
+	warnings := validateFlowSteps("GetTender", "tender", steps, entities, nil, nil, "strict", nil)
+	found := false
+	for _, w := range warnings {
+		if w.Code == "REPO_GET_MISSING_ERROR" {
+			found = true
+			if w.Severity != "error" {
+				t.Fatalf("expected error severity for REPO_GET_MISSING_ERROR, got %q", w.Severity)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected REPO_GET_MISSING_ERROR, got: %+v", warnings)
+	}
+}
+
+func TestValidateFlowSteps_RepoFindWithoutErrorWarns(t *testing.T) {
+	t.Parallel()
+
+	entities := []Entity{{Name: "Tender", Owner: "tender", BoundedContext: "tender"}}
+	steps := []FlowStep{{
+		Action: "repo.Find",
+		Args: map[string]any{
+			"source": "Tender",
+			"input":  "req.ID",
+			"output": "tender",
+		},
+	}}
+
+	warnings := validateFlowSteps("FindTender", "tender", steps, entities, nil, nil, "strict", nil)
+	found := false
+	for _, w := range warnings {
+		if w.Code == "REPO_FIND_WITHOUT_ERROR" {
+			found = true
+			if w.Severity != "warn" {
+				t.Fatalf("expected warn severity for REPO_FIND_WITHOUT_ERROR, got %q", w.Severity)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected REPO_FIND_WITHOUT_ERROR warning, got: %+v", warnings)
 	}
 }
 
