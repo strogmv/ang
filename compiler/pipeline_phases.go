@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -93,7 +94,7 @@ func runParsePhase(basePath string, opts PipelineOptions) (ParsePhaseOutput, err
 	out := ParsePhaseOutput{}
 	p := parser.New()
 
-	valDomain, _, err := LoadOptionalDomain(p, filepath.Join(basePath, "cue/domain"))
+	valDomain, okDomain, err := LoadOptionalDomain(p, filepath.Join(basePath, "cue/domain"))
 	if err != nil {
 		return out, WrapContractError(
 			StageCUE, ErrCodeCUEDomainLoad, "load cue/domain", fmt.Errorf("%s", parser.FormatCUELocationError(err)),
@@ -105,11 +106,33 @@ func runParsePhase(basePath string, opts PipelineOptions) (ParsePhaseOutput, err
 			StageCUE, ErrCodeCUEArchLoad, "load cue/architecture", fmt.Errorf("%s", parser.FormatCUELocationError(err)),
 		)
 	}
-	valAPI, _, err := LoadOptionalDomain(p, filepath.Join(basePath, "cue/api"))
+	valAPI, okAPI, err := LoadOptionalDomain(p, filepath.Join(basePath, "cue/api"))
 	if err != nil {
 		return out, WrapContractError(
 			StageCUE, ErrCodeCUEAPILoad, "load cue/api", fmt.Errorf("%s", parser.FormatCUELocationError(err)),
 		)
+	}
+	legacyMainPath := filepath.Join(basePath, "cue", "main.cue")
+	if !okDomain || !okAPI {
+		if _, statErr := os.Stat(legacyMainPath); statErr == nil {
+			legacyCue, legacyOK, legacyLoadErr := LoadOptionalDomain(p, filepath.Join(basePath, "cue"))
+			if legacyLoadErr != nil {
+				return out, WrapContractError(
+					StageCUE, ErrCodeCUEAPILoad, "load legacy cue/main.cue", fmt.Errorf("%s", parser.FormatCUELocationError(legacyLoadErr)),
+				)
+			}
+			if legacyOK {
+				if !okDomain {
+					valDomain = legacyCue
+					okDomain = true
+				}
+				if !okAPI {
+					valAPI = legacyCue
+					okAPI = true
+				}
+				emitFileSizeDiagnostics(filepath.Join(basePath, "cue"), opts)
+			}
+		}
 	}
 	valPolicy, okPolicy, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/policy"))
 	if !okPolicy {

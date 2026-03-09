@@ -12,9 +12,9 @@ func NewGenerator() *Generator {
 	return &Generator{}
 }
 
-// GenerateTenderReport creates a PDF report from report-like data.
-// Keep signature generic so runtime compiles even when tender-specific DTO is absent.
-func (g *Generator) GenerateTenderReport(data any) ([]byte, error) {
+// GenerateReport creates a PDF report from report-like data.
+// Keep signature generic so runtime compiles even when a project-specific DTO is absent.
+func (g *Generator) GenerateReport(data any) ([]byte, error) {
 	_ = data
 	return nil, fmt.Errorf("report rendering is not configured for this project")
 }

@@ -115,7 +115,7 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		st.pointers[output] = false
 		st.types[output] = "[]byte"
 		var b strings.Builder
-		b.WriteString(fmt.Sprintf("%s_pdfBytes, _pdfErr := s.reportPDF.GenerateTenderReport(%s)\n", pad, data))
+		b.WriteString(fmt.Sprintf("%s_pdfBytes, _pdfErr := s.reportPDF.GenerateReport(%s)\n", pad, data))
 		b.WriteString(fmt.Sprintf("%sif _pdfErr != nil {\n", pad))
 		b.WriteString(errReturn(st, pad+"\t", "_pdfErr"))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))

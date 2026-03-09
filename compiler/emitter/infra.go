@@ -205,6 +205,9 @@ func ensureRuntimeConfigFields(config *normalizer.ConfigDef) *normalizer.ConfigD
 	// Dev mode flag — disables email verification gate in dev/test environments.
 	add("DevMode", "bool", "DEV_MODE", "false", false)
 
+	// OpenAI — required by openai.Chat / openai.Stream flow actions.
+	add("OpenAIAPIKey", "string", "OPENAI_API_KEY", "", true)
+
 	// SMTP defaults required by mailer/notification templates.
 	add("EmailProvider", "string", "EMAIL_PROVIDER", "noop", false)
 	add("SMTPHost", "string", "SMTP_HOST", "", true)

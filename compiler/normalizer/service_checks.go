@@ -552,6 +552,55 @@ func isSafeMappingAssignExpr(expr ast.Expr) bool {
 	}
 }
 
+// isSafeAllowedCallExpr returns true for a curated list of safe stdlib calls that
+// are commonly used in mapping.Assign values (len, string, make, fmt.Sprintf, strings.*).
+func isSafeAllowedCallExpr(x *ast.CallExpr) bool {
+	allowedFuncs := map[string]bool{
+		"len": true, "string": true, "int": true, "int64": true, "float64": true,
+		"bool": true, "byte": true, "rune": true,
+	}
+	allowedPkgFuncs := map[string]map[string]bool{
+		"strings": {"TrimPrefix": true, "TrimSuffix": true, "TrimSpace": true, "Trim": true,
+			"Contains": true, "HasPrefix": true, "HasSuffix": true, "ToLower": true, "ToUpper": true,
+			"Replace": true, "ReplaceAll": true, "Split": true, "Join": true, "Count": true},
+		"fmt":     {"Sprintf": true},
+		"uuid":    {"NewString": true},
+		"time":    {"Now": true, "Since": true, "Until": true},
+		"strconv": {"Itoa": true, "Atoi": true, "FormatInt": true, "FormatFloat": true, "ParseInt": true, "ParseFloat": true},
+	}
+	switch fn := x.Fun.(type) {
+	case *ast.Ident:
+		if fn.Name == "make" {
+			// make(Type, len, cap?) — first arg is a type, not an expression; skip it.
+			for _, arg := range x.Args[1:] {
+				if !isSafeMappingAssignExpr(arg) {
+					return false
+				}
+			}
+			return true
+		}
+		if !allowedFuncs[fn.Name] {
+			return false
+		}
+	case *ast.SelectorExpr:
+		pkgIdent, ok := fn.X.(*ast.Ident)
+		if !ok {
+			return false
+		}
+		if funcs, ok := allowedPkgFuncs[pkgIdent.Name]; !ok || !funcs[fn.Sel.Name] {
+			return false
+		}
+	default:
+		return false
+	}
+	for _, arg := range x.Args {
+		if !isSafeMappingAssignExpr(arg) {
+			return false
+		}
+	}
+	return true
+}
+
 func flowStringMap(v any) map[string]string {
 	if v == nil {
 		return nil

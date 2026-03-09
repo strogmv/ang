@@ -241,7 +241,7 @@ func emitEventContractDiagnostics(basePath string, services []normalizer.Service
 				Code:     "EVENT_OWNER_MISSING",
 				Severity: "warn",
 				Message:  fmt.Sprintf("Event %s has no owner declared", e.Name),
-				Hint:     "Set owner in cue/events, e.g. owner: \"tender\"",
+				Hint:     "Set owner in cue/events, e.g. owner: \"service_name\"",
 				File:     file,
 				Line:     line,
 			}, opts)
@@ -251,7 +251,7 @@ func emitEventContractDiagnostics(basePath string, services []normalizer.Service
 				Code:     "EVENT_OWNER_UNKNOWN_SERVICE",
 				Severity: contractSeverity,
 				Message:  fmt.Sprintf("Event %s owner '%s' does not match any service", e.Name, e.Owner),
-				Hint:     "Use an existing service name in owner, e.g. \"tender\" (or set ANG_EVENT_CONTRACT_STRICT=1 to fail CI)",
+				Hint:     "Use an existing service name in owner, e.g. \"service_name\" (or set ANG_EVENT_CONTRACT_STRICT=1 to fail CI)",
 				File:     file,
 				Line:     line,
 			}, opts)

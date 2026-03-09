@@ -12,13 +12,6 @@ import (
 // Generated from: {{ .Method.Source }}
 {{- end }}
 {{ ServiceImplMethodSignature .Service.Name .Method }} {
-	{{- if .Method.IsStreaming }}
-	{{- if .Method.Output.Name }}
-	var resp port.{{ .Method.Output.Name }}
-	{{- else }}
-	var resp struct{}
-	{{- end }}
-	{{- end }}
 	{{- if and .Method.Impl .Method.Impl.Code }}
 {{ Indent (CleanImplCode .Method.Impl.Code .Method.Output.Name) 1 }}
 	{{- else if .Method.ImplSteps }}

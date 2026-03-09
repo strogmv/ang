@@ -14,7 +14,13 @@ func New{{ .Service.Name }}Cached(base port.{{ .Service.Name }}) *{{ .Service.Na
 }
 
 {{- range .Service.Methods }}
+{{- if .IsStreaming }}
+func (c *{{ $.Service.Name }}Cached) {{ .Name }}(ctx context.Context, req port.{{ .Input.Name }}, chunks chan<- string) error {
+	return c.base.{{ .Name }}(ctx, req, chunks)
+}
+{{- else }}
 func (c *{{ $.Service.Name }}Cached) {{ .Name }}(ctx context.Context, req port.{{ .Input.Name }}) ({{ if .Output.Name }}port.{{ .Output.Name }}, {{ end }}error) {
 	return c.base.{{ .Name }}(ctx, req)
 }
+{{- end }}
 {{- end }}
