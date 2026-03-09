@@ -803,6 +803,17 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		"EndpointPolicy": func(ep normalizer.Endpoint) policy.EndpointPolicy {
 			return policy.FromEndpoint(ep)
 		},
+		"HasStreamingEndpoints": func() bool {
+			for _, ep := range endpointsNorm {
+				if strings.ToUpper(strings.TrimSpace(ep.Method)) == "WS" {
+					continue
+				}
+				if ep.IsStreaming {
+					return true
+				}
+			}
+			return false
+		},
 		"QueryResourceKeyForRPC": func(rpc string) string {
 			if res, ok := queryOptionsByRPC[rpc]; ok {
 				return res.Key
