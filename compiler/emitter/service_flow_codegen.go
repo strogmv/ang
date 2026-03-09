@@ -120,7 +120,11 @@ func flowActionSupported(action string) bool {
 		"db.Get", "db.List", "db.Query",
 		"db.Insert", "db.Update", "db.Upsert", "db.Delete",
 		"db.Lock", "db.SelectForUpdate",
-		"secret.Get", "config.Get":
+		"secret.Get", "config.Get",
+		"list.Sum", "list.Avg",
+		"flow.Return",
+		"convert.ToFloat", "convert.ToInt",
+		"claude.Chat":
 		return true
 	default:
 		return false
@@ -471,7 +475,9 @@ func renderOneFlowStep(st *flowRenderState, step normalizer.FlowStep, indent int
 	case "flow.If", "flow.For", "flow.Block", "tx.Block", "list.Filter", "list.Paginate", "list.Append", "list.Sort", "list.Map", "list.Reduce", "list.GroupBy", "list.Distinct", "list.Chunk", "batch.Run", "str.Normalize", "mapping.Map", "event.Publish", "logic.Call", "service.Call", "flow.Call", "exec.Run", "fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove", "archive.ZipDir", "session.Get", "flow.Switch", "flow.While", "flow.Checkpoint", "flow.Resume", "flow.RecordEvent", "flow.Replay", "flow.History.Get", "flow.Validate", "flow.Try", "flow.Catch", "flow.Retry", "flow.Fallback", "flow.Timeout", "flow.SuggestNext", "flow.ExplainError",
 		"flow.Parallel", "flow.Join", "flow.Race",
 		"flow.Delay", "flow.Schedule", "flow.Cron",
-		"flow.Saga", "flow.Compensate", "flow.Rollback", "flow.Tag":
+		"flow.Saga", "flow.Compensate", "flow.Rollback", "flow.Tag",
+		"flow.Return",
+		"list.Sum", "list.Avg":
 		return renderFlowStepControl(st, step, indent, sfx, arg, child)
 
 		// -------------------------------------------------------------------------
@@ -490,7 +496,8 @@ func renderOneFlowStep(st *flowRenderState, step normalizer.FlowStep, indent int
 		"concurrency.Limit", "concurrency.Run",
 		"circuit.Check", "circuit.RecordSuccess", "circuit.RecordFailure", "circuit.Breaker",
 		"bulkhead.Acquire", "bulkhead.Run",
-		"log.Emit", "metric.Emit", "trace.Span", "slo.Budget":
+		"log.Emit", "metric.Emit", "trace.Span", "slo.Budget",
+		"claude.Chat":
 		return renderFlowStepInfra(st, step, indent, sfx, arg, child)
 
 	default:

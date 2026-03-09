@@ -111,6 +111,23 @@ func renderFlowStepControlFlow(st *flowRenderState, step normalizer.FlowStep, in
 
 	case "flow.Tag":
 		return renderFlowTag(st, step, indent, sfx, arg, child), true
+
+	case "flow.Return":
+		// Early return from the flow with the current response value.
+		// Optional: set a field before returning:
+		//   { action: "flow.Return", set: "resp.Status", value: `"ok"` }
+		setField := arg("set")
+		setValue := arg("value")
+		var b strings.Builder
+		if setField != "" && setValue != "" {
+			b.WriteString(fmt.Sprintf("%s%s = %s\n", pad, setField, setValue))
+		}
+		if st.returnErrOnly {
+			b.WriteString(fmt.Sprintf("%sreturn nil\n", pad))
+		} else {
+			b.WriteString(fmt.Sprintf("%sreturn resp, nil\n", pad))
+		}
+		return b.String(), true
 	}
 
 	return "", false

@@ -716,6 +716,31 @@ func Run() {
 	})
 
 	s.AddResourceTemplate(mcp.NewResourceTemplate(
+		"resource://ang/context/{service}",
+		"ANG Domain Context",
+		mcp.WithTemplateDescription("Compact domain snapshot for a service: entities, repo finders, methods, events. Use instead of reading internal/ files. Example: resource://ang/context/tender"),
+		mcp.WithTemplateMIMEType("text/markdown"),
+	), func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+		parts := strings.SplitN(strings.TrimPrefix(request.Params.URI, "resource://ang/context/"), "/", 2)
+		svcFilter := ""
+		if len(parts) > 0 {
+			svcFilter = strings.TrimSpace(parts[0])
+		}
+		showAll := svcFilter == "" || svcFilter == "all"
+
+		entities, services, endpoints, repos, events, _, _, _, _, err := compiler.RunPipeline(projectRoot)
+		if err != nil {
+			return nil, fmt.Errorf("ang context: %w", err)
+		}
+		md := compiler.RenderContextMarkdown(svcFilter, showAll, entities, services, endpoints, repos, events)
+		return []mcp.ResourceContents{mcp.TextResourceContents{
+			URI:      request.Params.URI,
+			MIMEType: "text/markdown",
+			Text:     md,
+		}}, nil
+	})
+
+	s.AddResourceTemplate(mcp.NewResourceTemplate(
 		"resource://ang/cue/{path}",
 		"ANG CUE File",
 		mcp.WithTemplateDescription("Read a concrete CUE file from the current project CWD/cue directory."),

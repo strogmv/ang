@@ -230,7 +230,7 @@ func handleFlowDataAndCalls(
 		payload, _ := step.Args["payload"].(string)
 		payloadMap := flowStringMap(step.Args["payloadMap"])
 		if payload != "" {
-			addWarn(stepNum, step.Action, "EVENT_PUBLISH_RAW_PAYLOAD_FORBIDDEN", "event.Publish raw 'payload' is not allowed; use payloadMap", "{action: \"event.Publish\", name: \""+name+"\", payloadMap: { TenderID: \"req.TenderID\" }}", step.File, step.Line, step.Column)
+			addWarnWithSeverity(stepNum, step.Action, "EVENT_PUBLISH_RAW_PAYLOAD_FORBIDDEN", "warn", "event.Publish raw 'payload' is not allowed; use payloadMap", "{action: \"event.Publish\", name: \""+name+"\", payloadMap: { TenderID: \"req.TenderID\" }}", step.File, step.Line, step.Column)
 		}
 		for field, expr := range payloadMap {
 			field = strings.TrimSpace(field)
@@ -297,6 +297,24 @@ func handleFlowDataAndCalls(
 				"warn",
 				"logic.Call uses fmt.Errorf; this propagates as HTTP 500 by default",
 				"Use errors.New(http.StatusXxx, \"Code\", \"Message\") for business errors.",
+				step.File,
+				step.Line,
+				step.Column,
+			)
+		}
+		// Detect one-liner inline lambda: has func( but no real newlines (triple-quote produces \n).
+		// Semicolons are used to join statements in one-liner style.
+		isInlineLambda := strings.Contains(funcExpr, "func(")
+		isOneLiner := !strings.Contains(funcExpr, "\n")
+		semicolons := strings.Count(funcExpr, ";")
+		if isInlineLambda && isOneLiner && (semicolons >= 3 || len(funcExpr) > 200) {
+			addWarnWithSeverity(
+				stepNum,
+				step.Action,
+				"LAMBDA_INLINE_ESCAPE",
+				"warn",
+				fmt.Sprintf("logic.Call.func is a one-liner inline lambda (%d chars, %d semicolons) — hard to read and error-prone", len(funcExpr), semicolons),
+				"Rewrite using CUE triple-quoted string for readability:\n  func: \"\"\"\n    (func(ctx context.Context, req port.XRequest) (RetType, error) {\n        // write normal Go here — quotes don't need escaping\n    })\n    \"\"\"",
 				step.File,
 				step.Line,
 				step.Column,

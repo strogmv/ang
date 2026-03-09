@@ -95,7 +95,10 @@ var specsCoreBase = map[string]Spec{
 			from, hasFrom := nonEmptyString(step.Args["from"])
 			out, hasOut := nonEmptyString(step.Args["output"])
 			to, hasTo := nonEmptyString(step.Args["to"])
-			if !(hasIn || hasFrom) {
+			_, hasEntity := nonEmptyString(step.Args["entity"])
+			// Allow declaration-only form: {action:"mapping.Map", output:"x", entity:"Entity"}
+			// In this form no input/from is required; fields are set via mapping.Assign afterwards.
+			if !(hasIn || hasFrom) && !hasEntity {
 				return &Issue{
 					Code:    "MISSING_INPUT",
 					Message: "mapping.Map requires 'input' or 'from'",
@@ -693,6 +696,18 @@ var specsCoreBase = map[string]Spec{
 				return &Issue{Code: "INVALID_MAX_TYPE", Message: "bulkhead.Run 'max' must be an integer", Hint: "{max: 20}"}
 			}
 			return nil
+		},
+	},
+	"claude.Chat": {
+		RequiredArgs:     []string{"user_message"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"system":         ArgKindString,
+			"system_context": ArgKindString,
+			"history":        ArgKindString,
+			"output":         ArgKindString,
+			"model":          ArgKindString,
+			"max_tokens":     ArgKindInt,
 		},
 	},
 	"log.Emit": {

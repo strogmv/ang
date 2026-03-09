@@ -533,6 +533,20 @@ func isSafeMappingAssignExpr(expr ast.Expr) bool {
 		return true
 	case *ast.UnaryExpr:
 		return (x.Op == token.SUB || x.Op == token.ADD || x.Op == token.NOT) && isSafeMappingAssignExpr(x.X)
+	case *ast.BinaryExpr:
+		switch x.Op {
+		case token.ADD, token.SUB, token.MUL, token.QUO, token.REM,
+			token.EQL, token.NEQ, token.LSS, token.LEQ, token.GTR, token.GEQ,
+			token.LAND, token.LOR:
+			return isSafeMappingAssignExpr(x.X) && isSafeMappingAssignExpr(x.Y)
+		}
+		return false
+	case *ast.CallExpr:
+		return true
+	case *ast.CompositeLit:
+		return true
+	case *ast.FuncLit:
+		return true
 	default:
 		return false
 	}

@@ -431,6 +431,7 @@ func isKnownPrefix(action string) bool {
 		"idem.", "idempotency.", "dedupe.", "ratelimit.", "concurrency.", "circuit.", "bulkhead.",
 		"log.", "metric.", "trace.", "slo.",
 		"pdf.",
+		"claude.",
 	}
 	for _, p := range prefixes {
 		if strings.HasPrefix(action, p) {

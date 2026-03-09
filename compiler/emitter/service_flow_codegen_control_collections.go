@@ -62,6 +62,55 @@ func renderFlowStepControlCollections(st *flowRenderState, step normalizer.FlowS
 			return out, true
 		}
 		return renderStrNormalizeLegacy(st, pad, arg), true
+
+	case "list.Sum":
+		input := arg("input")
+		field := arg("field")
+		output := arg("output")
+		if input == "" || output == "" {
+			return "", true
+		}
+		assign := ":="
+		if st.declared[output] {
+			assign = "="
+		}
+		st.declared[output] = true
+		st.pointers[output] = false
+		var b strings.Builder
+		tmp := "_sum" + sfx
+		b.WriteString(fmt.Sprintf("%svar %s float64\n", pad, tmp))
+		if field != "" {
+			b.WriteString(fmt.Sprintf("%sfor _, _item := range %s { %s += float64(_item.%s) }\n", pad, input, tmp, field))
+		} else {
+			b.WriteString(fmt.Sprintf("%sfor _, _item := range %s { %s += float64(_item) }\n", pad, input, tmp))
+		}
+		b.WriteString(fmt.Sprintf("%s%s %s %s\n", pad, output, assign, tmp))
+		return b.String(), true
+
+	case "list.Avg":
+		input := arg("input")
+		field := arg("field")
+		output := arg("output")
+		if input == "" || output == "" {
+			return "", true
+		}
+		assign := ":="
+		if st.declared[output] {
+			assign = "="
+		}
+		st.declared[output] = true
+		st.pointers[output] = false
+		var b strings.Builder
+		tmpSum := "_avgSum" + sfx
+		b.WriteString(fmt.Sprintf("%svar %s float64\n", pad, tmpSum))
+		if field != "" {
+			b.WriteString(fmt.Sprintf("%sfor _, _item := range %s { %s += float64(_item.%s) }\n", pad, input, tmpSum, field))
+		} else {
+			b.WriteString(fmt.Sprintf("%sfor _, _item := range %s { %s += float64(_item) }\n", pad, input, tmpSum))
+		}
+		b.WriteString(fmt.Sprintf("%s%s %s 0.0\n", pad, output, assign))
+		b.WriteString(fmt.Sprintf("%sif len(%s) > 0 { %s = %s / float64(len(%s)) }\n", pad, input, output, tmpSum, input))
+		return b.String(), true
 	}
 
 	return "", false

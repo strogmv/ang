@@ -36,5 +36,8 @@ func renderFlowStepInfra(st *flowRenderState, step normalizer.FlowStep, indent i
 	if out, ok := renderFlowStepInfraReliability(st, step, indent, sfx, arg, child); ok {
 		return out
 	}
+	if out, ok := renderFlowStepInfraClaude(st, step, indent, sfx, arg, child); ok {
+		return out
+	}
 	return renderFlowStepInfraLegacy(st, step, indent, sfx, arg, child)
 }

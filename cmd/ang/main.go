@@ -90,6 +90,8 @@ func main() {
 		runFmt(os.Args[2:])
 	case "fix":
 		runFix(os.Args[2:])
+	case "context":
+		runContext(os.Args[2:])
 	case "extract":
 		runExtract(os.Args[2:])
 	case "import":

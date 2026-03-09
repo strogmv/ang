@@ -349,6 +349,12 @@ func handleFlowControlAndInfra(
 	case "field.CopyNonEmpty", "str.Normalize", "time.CheckExpiry", "map.Build", "time.Now", "time.Format", "mail.Send", "queue.Enqueue", "queue.Ack", "queue.Nack", "dlq.Publish", "event.Outbox", "webhook.Ack", "webhook.Send", "state.Set", "state.Delete", "idem.Check", "idem.SaveResult", "idempotency.Check", "idempotency.SaveResult", "ratelimit.Check", "concurrency.Limit", "circuit.Check", "circuit.RecordSuccess", "circuit.RecordFailure", "bulkhead.Acquire", "ratelimit.Limit", "log.Emit", "metric.Emit":
 		return true
 
+	case "claude.Chat":
+		if output, _ := step.Args["output"].(string); output != "" {
+			declaredVars[output] = true
+		}
+		return true
+
 	case "list.Filter":
 		if step.Args["from"] == nil || step.Args["from"] == "" {
 			addWarn(stepNum, step.Action, "MISSING_FROM", "list.Filter missing 'from'", "{action: \"list.Filter\", from: \"items\", condition: \"item.Active\", output: \"filtered\"}", step.File, step.Line, step.Column)
@@ -447,6 +453,9 @@ func handleFlowControlAndInfra(
 		}
 		if output, _ := step.Args["output"].(string); output != "" {
 			declaredVars[output] = true
+		}
+		if exitCodeVar, _ := step.Args["exitCodeVar"].(string); exitCodeVar != "" {
+			declaredVars[exitCodeVar] = true
 		}
 		return true
 
@@ -727,7 +736,14 @@ func isUnknownFlowAction(action string) bool {
 		strings.HasPrefix(action, "slo.") ||
 		strings.HasPrefix(action, "state.") ||
 		strings.HasPrefix(action, "dlq.") ||
-		strings.HasPrefix(action, "db.") {
+		strings.HasPrefix(action, "db.") ||
+		strings.HasPrefix(action, "cast.") ||
+		strings.HasPrefix(action, "num.") ||
+		strings.HasPrefix(action, "pdf.") ||
+		strings.HasPrefix(action, "service.") ||
+		strings.HasPrefix(action, "secret.") ||
+		strings.HasPrefix(action, "config.") ||
+		strings.HasPrefix(action, "claude.") {
 		return false
 	}
 	return true

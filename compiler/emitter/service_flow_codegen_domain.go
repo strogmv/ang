@@ -400,6 +400,22 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		}
 		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("len(%s)", input), "int"), true
 
+	case "convert.ToFloat":
+		input := arg("input")
+		output := arg("output")
+		if input == "" || output == "" {
+			return "", true
+		}
+		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("float64(%s)", input), "float64"), true
+
+	case "convert.ToInt":
+		input := arg("input")
+		output := arg("output")
+		if input == "" || output == "" {
+			return "", true
+		}
+		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("int64(%s)", input), "int64"), true
+
 	case "list.New":
 		output := arg("output")
 		typ := arg("type")

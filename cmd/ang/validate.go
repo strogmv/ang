@@ -17,6 +17,11 @@ func runValidate(args []string) {
 	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	asJSON := fs.Bool("json", false, "output diagnostics as JSON (ang/diags/v1)")
+	var opFilters []string
+	fs.Func("op", "filter diagnostics to a specific operation (repeatable: --op=PlaceBid --op=CreateBid)", func(v string) error {
+		opFilters = append(opFilters, strings.ToLower(strings.TrimSpace(v)))
+		return nil
+	})
 	if err := fs.Parse(args); err != nil {
 		fmt.Printf("Validate FAILED: %v\n", err)
 		os.Exit(1)
@@ -27,14 +32,39 @@ func runValidate(args []string) {
 		projectPath = fs.Arg(0)
 	}
 
+	filterDiags := func(diags []normalizer.Warning) []normalizer.Warning {
+		if len(opFilters) == 0 {
+			return diags
+		}
+		var out []normalizer.Warning
+		for _, d := range diags {
+			if d.Op == "" {
+				// include non-op diagnostics (file-level, architecture-level)
+				out = append(out, d)
+				continue
+			}
+			for _, f := range opFilters {
+				if strings.EqualFold(d.Op, f) {
+					out = append(out, d)
+					break
+				}
+			}
+		}
+		return out
+	}
+
 	if !*asJSON {
-		fmt.Println("Validating architecture...")
+		if len(opFilters) > 0 {
+			fmt.Printf("Validating operation(s): %s...\n", strings.Join(opFilters, ", "))
+		} else {
+			fmt.Println("Validating architecture...")
+		}
 	}
 
 	_, compileErr := compiler.CompileForEmit(projectPath, compiler.PipelineOptions{}, compiler.CompileForEmitOptions{})
 
 	if *asJSON {
-		diags := append([]normalizer.Warning(nil), compiler.LatestDiagnostics...)
+		diags := filterDiags(append([]normalizer.Warning(nil), compiler.LatestDiagnostics...))
 		hasErrors := false
 		if compileErr != nil {
 			var ce *compiler.ContractError
@@ -55,7 +85,7 @@ func runValidate(args []string) {
 			}
 			hasErrors = true
 		}
-		for _, d := range compiler.LatestDiagnostics {
+		for _, d := range diags {
 			if strings.ToLower(d.Severity) == "error" {
 				hasErrors = true
 				break
@@ -88,7 +118,7 @@ func runValidate(args []string) {
 		os.Exit(1)
 	}
 
-	hasErrors := emitDiagnostics(os.Stderr, compiler.LatestDiagnostics)
+	hasErrors := emitDiagnostics(os.Stderr, filterDiags(compiler.LatestDiagnostics))
 	if hasErrors {
 		fmt.Println("Validation FAILED due to diagnostic errors.")
 		os.Exit(1)

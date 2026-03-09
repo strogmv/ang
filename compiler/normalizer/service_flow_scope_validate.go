@@ -400,9 +400,31 @@ func flowStepDeclaredVars(step FlowStep) []string {
 		out = append(out, raw)
 	}
 
-	for _, key := range []string{"output", "approvalId", "status", "decision", "decidedBy", "decidedAt", "reason", "effects", "ackToken", "statusVar"} {
+	for _, key := range []string{"output", "approvalId", "status", "decision", "decidedBy", "decidedAt", "reason", "effects", "ackToken", "statusVar", "exitCodeVar"} {
 		if v, _ := step.Args[key].(string); v != "" {
 			add(v)
+		}
+	}
+
+	// flow.Parallel / flow.Join / flow.Race: branch outputs are available in outer scope
+	if branches, ok := step.Args["_branches"].(map[string][]FlowStep); ok {
+		for _, branchSteps := range branches {
+			for _, bs := range branchSteps {
+				for _, v := range flowStepDeclaredVars(bs) {
+					add(v)
+				}
+			}
+		}
+	}
+
+	// tx.Block, flow.Block, etc.: inner _do vars are visible after the block
+	for _, childKey := range []string{"_do", "_catch", "_fallback", "_onTimeout", "_onMissing"} {
+		if childSteps, ok := step.Args[childKey].([]FlowStep); ok {
+			for _, cs := range childSteps {
+				for _, v := range flowStepDeclaredVars(cs) {
+					add(v)
+				}
+			}
 		}
 	}
 
