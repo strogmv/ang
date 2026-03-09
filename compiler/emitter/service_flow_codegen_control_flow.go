@@ -79,6 +79,12 @@ func renderFlowStepControlFlow(st *flowRenderState, step normalizer.FlowStep, in
 		}
 		return renderFlowCatchLegacy(st, pad, indent, child), true
 
+	case "flow.Defer":
+		if out, ok := renderFlowDeferAST(st, indent, child); ok {
+			return out, true
+		}
+		return renderFlowDeferLegacy(st, pad, indent, child), true
+
 	case "flow.SuggestNext":
 		if out, ok := renderFlowSuggestNextAST(st, step, indent, arg); ok {
 			return out, true
@@ -122,11 +128,7 @@ func renderFlowStepControlFlow(st *flowRenderState, step normalizer.FlowStep, in
 		if setField != "" && setValue != "" {
 			b.WriteString(fmt.Sprintf("%s%s = %s\n", pad, setField, setValue))
 		}
-		if st.returnErrOnly {
-			b.WriteString(fmt.Sprintf("%sreturn nil\n", pad))
-		} else {
-			b.WriteString(fmt.Sprintf("%sreturn resp, nil\n", pad))
-		}
+		b.WriteString(returnSuccess(st, pad))
 		return b.String(), true
 	}
 
@@ -538,6 +540,116 @@ func renderFlowCatchAST(st *flowRenderState, indent int, child func(string) []no
 		Body: &ast.BlockStmt{List: catchBody},
 	}
 	return renderFlowASTStmts([]ast.Stmt{stmt}, indent), true
+}
+
+func renderFlowDeferAST(st *flowRenderState, indent int, child func(string) []normalizer.FlowStep) (string, bool) {
+	deferSteps := child("_do")
+	if len(deferSteps) == 0 {
+		return "", true
+	}
+	pad := strings.Repeat("\t", indent)
+
+	predecl := flowDeferPredeclaredStringVars(st, deferSteps)
+	for _, name := range predecl {
+		st.declared[name] = true
+		st.pointers[name] = false
+		st.types[name] = "string"
+	}
+
+	deferState := cloneFlowState(st)
+	deferState.concurrMode = "race" // errReturn => plain `return` inside deferred closure
+	body, err := parseFlowStmtList(renderFlowSteps(deferState, deferSteps, 1))
+	if err != nil {
+		return "", false
+	}
+
+	stmt := &ast.DeferStmt{
+		Call: &ast.CallExpr{
+			Fun: &ast.FuncLit{
+				Type: &ast.FuncType{Params: &ast.FieldList{}},
+				Body: &ast.BlockStmt{List: body},
+			},
+		},
+	}
+
+	var b strings.Builder
+	for _, name := range predecl {
+		b.WriteString(fmt.Sprintf("%svar %s string\n", pad, name))
+	}
+	b.WriteString(renderFlowASTStmts([]ast.Stmt{stmt}, indent))
+	return b.String(), true
+}
+
+func renderFlowDeferLegacy(st *flowRenderState, pad string, indent int, child func(string) []normalizer.FlowStep) string {
+	deferSteps := child("_do")
+	if len(deferSteps) == 0 {
+		return ""
+	}
+	predecl := flowDeferPredeclaredStringVars(st, deferSteps)
+	for _, name := range predecl {
+		st.declared[name] = true
+		st.pointers[name] = false
+		st.types[name] = "string"
+	}
+
+	var b strings.Builder
+	for _, name := range predecl {
+		b.WriteString(fmt.Sprintf("%svar %s string\n", pad, name))
+	}
+	b.WriteString(fmt.Sprintf("%sdefer func() {\n", pad))
+	deferState := cloneFlowState(st)
+	deferState.concurrMode = "race"
+	b.WriteString(renderFlowSteps(deferState, deferSteps, indent+1))
+	b.WriteString(fmt.Sprintf("%s}()\n", pad))
+	return b.String()
+}
+
+func flowDeferPredeclaredStringVars(st *flowRenderState, steps []normalizer.FlowStep) []string {
+	set := map[string]struct{}{}
+	var walk func([]normalizer.FlowStep)
+	walk = func(items []normalizer.FlowStep) {
+		for _, s := range items {
+			if s.Action == "fs.Remove" {
+				if raw, ok := s.Args["path"].(string); ok {
+					if ident, ok := flowSimpleIdent(normalizeFlowExpr(strings.TrimSpace(raw))); ok && !st.declared[ident] {
+						set[ident] = struct{}{}
+					}
+				}
+			}
+			for _, nested := range flowChildSteps(s) {
+				walk(nested)
+			}
+		}
+	}
+	walk(steps)
+	if len(set) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(set))
+	for name := range set {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func flowSimpleIdent(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", false
+	}
+	for i, r := range s {
+		if i == 0 {
+			if !(r == '_' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')) {
+				return "", false
+			}
+			continue
+		}
+		if !(r == '_' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')) {
+			return "", false
+		}
+	}
+	return s, true
 }
 
 func renderFlowSuggestNextAST(st *flowRenderState, step normalizer.FlowStep, indent int, arg func(string) string) (string, bool) {

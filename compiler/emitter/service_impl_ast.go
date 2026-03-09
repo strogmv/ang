@@ -595,7 +595,7 @@ func serviceImplHasStateActions(s normalizer.Service) bool {
 		return true
 	}
 	// Reliability primitives all use stateStore internally
-	for _, prefix := range []string{"idem.", "idempotency.", "dedupe.", "ratelimit.", "concurrency.", "circuit.", "bulkhead.", "approval."} {
+	for _, prefix := range []string{"idem.", "idempotency.", "dedupe.", "ratelimit.", "quota.", "budget.", "profile.", "concurrency.", "circuit.", "bulkhead.", "approval."} {
 		if serviceImplHasFlowActionWithPrefix(s, prefix) {
 			return true
 		}

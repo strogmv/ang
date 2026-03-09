@@ -137,6 +137,10 @@ var specsCoreFlow = map[string]Spec{
 	"flow.Block": {
 		RequiredChildren: []string{"_do"},
 	},
+	"flow.Return": {},
+	"flow.Defer": {
+		RequiredChildren: []string{"_do"},
+	},
 	"tx.Block": {
 		RequiredChildren: []string{"_do"},
 	},
@@ -299,6 +303,20 @@ var specsCoreFlow = map[string]Spec{
 		DeclaresFromArgs: []string{"output"},
 		OptionalArgKinds: map[string]ArgKind{
 			"cap": ArgKindString,
+		},
+	},
+	"list.Sum": {
+		RequiredArgs:     []string{"input", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"field": ArgKindString,
+		},
+	},
+	"list.Avg": {
+		RequiredArgs:     []string{"input", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"field": ArgKindString,
 		},
 	},
 	"map.New": {

@@ -250,6 +250,13 @@ func (n *Normalizer) applyFlowPerformanceDefaults(steps []FlowStep) []FlowStep {
 					}
 				}
 
+			case "exec.Run", "exec.Stream":
+				if _, hasTimeout := s.Args["timeout"]; !hasTimeout {
+					if _, hasTimeoutMS := s.Args["timeoutMs"]; !hasTimeoutMS {
+						s.Args["timeout"] = "120 * time.Second"
+					}
+				}
+
 			case "queue.Enqueue", "queue.Dequeue":
 				if _, hasTimeout := s.Args["timeout"]; !hasTimeout {
 					if _, hasTimeoutMS := s.Args["timeoutMs"]; !hasTimeoutMS {

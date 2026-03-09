@@ -3,16 +3,30 @@ package emitter
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/strogmv/ang/compiler/normalizer"
 )
 
 func renderFlowStepControlLegacyExecFS(st *flowRenderState, step normalizer.FlowStep, pad, sfx string, arg func(string) string) (string, bool) {
 	switch step.Action {
-	case "exec.Run":
+	case "exec.Run", "exec.Stream":
 		cmd := arg("cmd")
 		output := arg("output")
 		exitCodeVar := arg("exitCodeVar")
+		isStream := step.Action == "exec.Stream"
+		timeout := arg("timeout")
+		if timeout == "" {
+			if timeoutMS := flowIntArg(step.Args, "timeoutMs", 0); timeoutMS > 0 {
+				timeout = fmt.Sprintf("time.Duration(%d) * time.Millisecond", timeoutMS)
+			} else {
+				timeout = "120 * time.Second"
+			}
+		} else if strings.HasPrefix(timeout, `"`) && strings.HasSuffix(timeout, `"`) {
+			if d, err := time.ParseDuration(timeout[1 : len(timeout)-1]); err == nil {
+				timeout = fmt.Sprintf("%d * time.Nanosecond", d.Nanoseconds())
+			}
+		}
 		failOnError := true
 		if v, ok := step.Args["failOnError"].(bool); ok {
 			failOnError = v
@@ -31,9 +45,12 @@ func renderFlowStepControlLegacyExecFS(st *flowRenderState, step normalizer.Flow
 				}
 			}
 		}
+		execCtxVar, execCancelVar := "_execCtx"+sfx, "_execCancel"+sfx
 		ecv, eov, eerv := "_execCmd"+sfx, "_execOut"+sfx, "_execErr"+sfx
 		var b strings.Builder
-		b.WriteString(fmt.Sprintf("%s%s := exec.CommandContext(ctx, %s", pad, ecv, cmd))
+		b.WriteString(fmt.Sprintf("%s%s, %s := context.WithTimeout(ctx, %s)\n", pad, execCtxVar, execCancelVar, timeout))
+		b.WriteString(fmt.Sprintf("%sdefer %s()\n", pad, execCancelVar))
+		b.WriteString(fmt.Sprintf("%s%s := exec.CommandContext(%s, %s", pad, ecv, execCtxVar, cmd))
 		for _, a := range cmdArgs {
 			b.WriteString(fmt.Sprintf(", %s", a))
 		}
@@ -41,7 +58,42 @@ func renderFlowStepControlLegacyExecFS(st *flowRenderState, step normalizer.Flow
 		if stdin := arg("stdin"); stdin != "" {
 			b.WriteString(fmt.Sprintf("%s%s.Stdin = strings.NewReader(%s)\n", pad, ecv, stdin))
 		}
-		b.WriteString(fmt.Sprintf("%s%s, %s := %s.CombinedOutput()\n", pad, eov, eerv, ecv))
+		if isStream {
+			pipeReadVar, pipeWriteVar := "_execPipeR"+sfx, "_execPipeW"+sfx
+			doneVar, linesVar := "_execDone"+sfx, "_execLines"+sfx
+			waitErrVar := "_execWaitErr" + sfx
+			b.WriteString(fmt.Sprintf("%s%s, %s := io.Pipe()\n", pad, pipeReadVar, pipeWriteVar))
+			b.WriteString(fmt.Sprintf("%s%s.Stdout = %s\n", pad, ecv, pipeWriteVar))
+			b.WriteString(fmt.Sprintf("%s%s.Stderr = %s\n", pad, ecv, pipeWriteVar))
+			b.WriteString(fmt.Sprintf("%sif %s := %s.Start(); %s != nil {\n", pad, eerv, ecv, eerv))
+			b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"exec.Stream start: %%w\", %s)", eerv)))
+			b.WriteString(fmt.Sprintf("%s}\n", pad))
+			b.WriteString(fmt.Sprintf("%s%s := make([]string, 0, 64)\n", pad, linesVar))
+			b.WriteString(fmt.Sprintf("%s%s := make(chan struct{})\n", pad, doneVar))
+			b.WriteString(fmt.Sprintf("%sgo func() {\n", pad))
+			b.WriteString(fmt.Sprintf("%s\tdefer close(%s)\n", pad, doneVar))
+			b.WriteString(fmt.Sprintf("%s\t_scanner := bufio.NewScanner(%s)\n", pad, pipeReadVar))
+			b.WriteString(fmt.Sprintf("%s\t_scannerBuf := make([]byte, 0, 64*1024)\n", pad))
+			b.WriteString(fmt.Sprintf("%s\t_scanner.Buffer(_scannerBuf, 1024*1024)\n", pad))
+			b.WriteString(fmt.Sprintf("%s\tfor _scanner.Scan() {\n", pad))
+			b.WriteString(fmt.Sprintf("%s\t\t_line := _scanner.Text()\n", pad))
+			b.WriteString(fmt.Sprintf("%s\t\tslog.Info(\"exec.stream\", \"line\", _line)\n", pad))
+			b.WriteString(fmt.Sprintf("%s\t\t%s = append(%s, _line)\n", pad, linesVar, linesVar))
+			b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+			b.WriteString(fmt.Sprintf("%s\tif _scanErr := _scanner.Err(); _scanErr != nil {\n", pad))
+			b.WriteString(fmt.Sprintf("%s\t\tslog.Warn(\"exec.stream.scanner\", \"error\", _scanErr)\n", pad))
+			b.WriteString(fmt.Sprintf("%s\t\t%s = append(%s, \"scanner error: \"+_scanErr.Error())\n", pad, linesVar, linesVar))
+			b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+			b.WriteString(fmt.Sprintf("%s}()\n", pad))
+			b.WriteString(fmt.Sprintf("%s%s := %s.Wait()\n", pad, waitErrVar, ecv))
+			b.WriteString(fmt.Sprintf("%s_ = %s.Close()\n", pad, pipeWriteVar))
+			b.WriteString(fmt.Sprintf("%s<-%s\n", pad, doneVar))
+			b.WriteString(fmt.Sprintf("%s_ = %s.Close()\n", pad, pipeReadVar))
+			b.WriteString(fmt.Sprintf("%s%s := strings.Join(%s, \"\\n\")\n", pad, eov, linesVar))
+			b.WriteString(fmt.Sprintf("%s%s := %s\n", pad, eerv, waitErrVar))
+		} else {
+			b.WriteString(fmt.Sprintf("%s%s, %s := %s.CombinedOutput()\n", pad, eov, eerv, ecv))
+		}
 		if exitCodeVar != "" {
 			assign := ":="
 			if st.declared[exitCodeVar] {
@@ -54,7 +106,7 @@ func renderFlowStepControlLegacyExecFS(st *flowRenderState, step normalizer.Flow
 		}
 		if failOnError {
 			b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, eerv))
-			b.WriteString(fmt.Sprintf("%s\t"+`return resp, fmt.Errorf("exec: %%s: %%w", string(%s), %s)`+"\n", pad, eov, eerv))
+			b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf(`fmt.Errorf("exec: %%s: %%w", string(%s), %s)`, eov, eerv)))
 			b.WriteString(fmt.Sprintf("%s}\n", pad))
 		}
 		if output != "" {
@@ -145,7 +197,12 @@ func renderFlowStepControlLegacyExecFS(st *flowRenderState, step normalizer.Flow
 		if path == "" {
 			return "", true
 		}
-		return fmt.Sprintf("%sdefer os.RemoveAll(%s)\n", pad, path), true
+		errVar := "_rmErr" + sfx
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%sif %s := os.RemoveAll(%s); %s != nil {\n", pad, errVar, path, errVar))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"remove path: %%w\", %s)", errVar)))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
 
 	case "archive.ZipDir":
 		// archive.ZipDir: zip a local directory tree into []byte.

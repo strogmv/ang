@@ -283,6 +283,7 @@ type Service struct {
 type Method struct {
 	Name        string
 	Description string
+	IsStreaming bool `json:"is_streaming,omitempty"`
 	Input       *Entity
 	Output      *Entity
 	Sources     []Source
@@ -387,6 +388,7 @@ type Error struct {
 type Endpoint struct {
 	Method           string // GET, POST, PUT, DELETE, WS
 	Path             string
+	IsStreaming      bool `json:"is_streaming,omitempty"`
 	Service          string
 	RPC              string
 	Description      string

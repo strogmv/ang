@@ -80,7 +80,7 @@ func validateFlowVariableScope(steps []FlowStep, emit func(stepNum int, step Flo
 				if doSteps, ok := step.Args["_do"].([]FlowStep); ok && len(doSteps) > 0 {
 					walk(doSteps, inner)
 				}
-			case "batch.Run", "tx.Block", "flow.Block", "flow.While", "flow.Try", "flow.Retry", "flow.Timeout", "flow.Catch", "flow.Fallback", "flow.Replay", "flow.Saga", "flow.Compensate", "event.Subscribe", "concurrency.Run", "bulkhead.Run", "circuit.Breaker", "trace.Span", "slo.Budget":
+			case "batch.Run", "tx.Block", "flow.Block", "flow.While", "flow.Try", "flow.Retry", "flow.Timeout", "flow.Catch", "flow.Fallback", "flow.Replay", "flow.Saga", "flow.Compensate", "flow.Defer", "event.Subscribe", "concurrency.Run", "bulkhead.Run", "circuit.Breaker", "trace.Span", "slo.Budget":
 				for _, key := range []string{"_do", "_catch", "_fallback", "_onTimeout", "_onMissing", "_onMismatch"} {
 					if child, ok := step.Args[key].([]FlowStep); ok && len(child) > 0 {
 						walk(child, cloneFlowScope(scope))
@@ -276,8 +276,8 @@ func flowStepReferenceExprs(step FlowStep) []flowRefExpr {
 		addArgs("user", "companyID", "status", "code", "throw")
 	case "policy.Evaluate", "policy.Require", "policy.Decide":
 		addArgs("policyKey", "subject", "resource", "operation", "tenant", "attrs", "context", "status", "code", "throw")
-	case "exec.Run":
-		addArg("cmd")
+	case "exec.Run", "exec.Stream":
+		addArgs("cmd", "stdin", "timeout")
 		addArgExprList("args")
 	case "fs.WriteFile":
 		addArgs("path", "data")
@@ -318,6 +318,18 @@ func flowStepReferenceExprs(step FlowStep) []flowRefExpr {
 		addArgs("key", "ttl")
 	case "ratelimit.Check", "ratelimit.Limit":
 		addArgs("key", "throw")
+	case "quota.Check":
+		addArgs("key", "throw") // window is a static enum literal (day/hour/month), not a runtime expr
+	case "budget.Check":
+		addArgs("key", "throw")
+	case "budget.Consume":
+		addArgs("key", "tokens", "ttl")
+	case "profile.Require":
+		addArgs("key", "tier", "throw")
+	case "context.Trim":
+		addArgs("input", "strategy")
+	case "openai.Chat", "openai.Stream":
+		addArgs("system", "system_context", "user_message", "history", "model")
 	case "concurrency.Limit", "concurrency.Run":
 		addArgs("key", "throw")
 	case "circuit.Check", "circuit.RecordSuccess", "circuit.RecordFailure", "circuit.Breaker":
@@ -329,6 +341,8 @@ func flowStepReferenceExprs(step FlowStep) []flowRefExpr {
 		addArgExprList("args")
 	case "str.Concat":
 		addArgExprList("parts")
+	case "str.StripMarkdown":
+		addArg("input")
 	case "time.Format":
 		addArgs("input", "format")
 	case "math.Op", "num.Add", "num.Sub", "num.Mul", "num.Div":
@@ -347,7 +361,7 @@ func flowStepReferenceExprs(step FlowStep) []flowRefExpr {
 		addArgs("input", "from", "value", "to", "key", "data", "url", "path", "payload", "token", "claims",
 			"subject", "messageID", "reason", "signature", "secret", "actor", "company", "user", "companyID",
 			"target", "resource", "operation", "tenant", "attrs", "context", "timeout", "ttl", "deadline",
-			"event", "body", "match", "id", "prefix", "a", "b", "name")
+			"event", "body", "match", "id", "prefix", "a", "b", "name", "tier", "window", "tokens", "strategy")
 		addArgExprList("args")
 		addArgExprList("parts")
 		addArgExprList("from")

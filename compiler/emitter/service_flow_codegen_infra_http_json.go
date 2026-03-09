@@ -214,6 +214,44 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		b.WriteString(fmt.Sprintf("%s%s %s strings.Join(%s, %s)\n", pad, output, assign, tmp, sep))
 		return b.String(), true
 
+	case "str.StripMarkdown":
+		input := arg("input")
+		output := arg("output")
+		if input == "" {
+			return "", true
+		}
+		if output == "" {
+			output = input
+		}
+		sfxVar := "_sm" + sfx
+		assign := ":="
+		if output != input && st.declared[output] {
+			assign = "="
+		}
+		if output != input {
+			st.declared[output] = true
+			st.pointers[output] = false
+			st.types[output] = "string"
+		}
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s// str.StripMarkdown\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s := strings.TrimSpace(%s)\n", pad, sfxVar, input))
+		b.WriteString(fmt.Sprintf("%sif strings.HasPrefix(%s, \"```\") {\n", pad, sfxVar))
+		b.WriteString(fmt.Sprintf("%s\t%sLines := strings.SplitN(%s, \"\\n\", 2)\n", pad, sfxVar, sfxVar))
+		b.WriteString(fmt.Sprintf("%s\tif len(%sLines) > 1 {\n", pad, sfxVar))
+		b.WriteString(fmt.Sprintf("%s\t\t%s = %sLines[1]\n", pad, sfxVar, sfxVar))
+		b.WriteString(fmt.Sprintf("%s\t\tif _smEnd := strings.LastIndex(%s, \"```\"); _smEnd >= 0 {\n", pad, sfxVar))
+		b.WriteString(fmt.Sprintf("%s\t\t\t%s = strings.TrimSpace(%s[:_smEnd])\n", pad, sfxVar, sfxVar))
+		b.WriteString(fmt.Sprintf("%s\t\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		if output == input {
+			b.WriteString(fmt.Sprintf("%s%s = strings.TrimSpace(%s)\n", pad, input, sfxVar))
+		} else {
+			b.WriteString(fmt.Sprintf("%s%s %s strings.TrimSpace(%s)\n", pad, output, assign, sfxVar))
+		}
+		return b.String(), true
+
 	case "cast.ToString":
 		input := arg("input")
 		output := arg("output")

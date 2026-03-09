@@ -341,13 +341,15 @@ func runNormalizePhase(parsed ParsePhaseOutput, opts PipelineOptions) (Normalize
 }
 
 func runFlowSemPhase(in FlowSemPhaseInput, opts PipelineOptions) {
-	flowSemOpts := flowsem.ValidateOptions{
-		Events: toFlowSemEvents(in.Events),
-	}
+	events := toFlowSemEvents(in.Events)
 	for _, svc := range in.Services {
 		for _, m := range svc.Methods {
 			if len(m.Flow) == 0 {
 				continue
+			}
+			flowSemOpts := flowsem.ValidateOptions{
+				Events:            events,
+				InStreamingMethod: m.IsStreaming,
 			}
 			issues := flowsem.ValidateWithOptions(toFlowSemSteps(m.Flow), flowSemOpts)
 			for _, issue := range issues {

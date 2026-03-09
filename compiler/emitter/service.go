@@ -186,15 +186,24 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 		}
 		serviceName, _ := args[0].(string)
 		methodName := ""
+		isStreaming := false
 		var steps []normalizer.FlowStep
 		switch len(args) {
 		case 2:
 			steps, _ = args[1].([]normalizer.FlowStep)
-		default:
+		case 3:
 			methodName, _ = args[1].(string)
 			steps, _ = args[2].([]normalizer.FlowStep)
+		default:
+			methodName, _ = args[1].(string)
+			if b, ok := args[2].(bool); ok {
+				isStreaming = b
+				steps, _ = args[3].([]normalizer.FlowStep)
+			} else {
+				steps, _ = args[2].([]normalizer.FlowStep)
+			}
 		}
-		return renderFlowForServiceWithSchemaAndSink(serviceName, methodName, steps, nEntities, nEvents, e.WarningSink)
+		return renderFlowForServiceWithSchemaAndSinkMode(serviceName, methodName, isStreaming, steps, nEntities, nEvents, e.WarningSink)
 	}
 	funcMapImpl["RenderImplSteps"] = func(svc normalizer.Service, steps []normalizer.ImplStep, serviceName, methodName string) string {
 		return renderImplSteps(svc, steps, serviceName, methodName)
@@ -270,6 +279,10 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 					switch step.Action {
 					case "exec.Run":
 						importMap["os/exec"] = ""
+					case "exec.Stream":
+						importMap["os/exec"] = ""
+						importMap["bufio"] = ""
+						importMap["io"] = ""
 					case "fs.WriteFile":
 						importMap["path/filepath"] = ""
 					case "cache.Get", "cache.Set", "cache.Del":
@@ -307,6 +320,19 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 						importMap["encoding/json"] = ""
 						importMap["fmt"] = ""
 						importMap["time"] = ""
+						importMap["net/http"] = ""
+					case "quota.Check":
+						importMap["fmt"] = ""
+						importMap["net/http"] = ""
+						importMap["strconv"] = ""
+						importMap["time"] = ""
+					case "budget.Check", "budget.Consume":
+						importMap["fmt"] = ""
+						importMap["net/http"] = ""
+						importMap["strconv"] = ""
+					case "context.Trim":
+						importMap["strings"] = ""
+					case "profile.Require":
 						importMap["net/http"] = ""
 					case "concurrency.Limit", "concurrency.Run":
 						importMap["encoding/json"] = ""
@@ -437,6 +463,16 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 						importMap["io"] = ""
 						importMap["net/http"] = ""
 						importMap["os"] = ""
+						importMap["time"] = ""
+					case "openai.Stream":
+						importMap["bufio"] = ""
+						importMap["bytes"] = ""
+						importMap["context"] = ""
+						importMap["encoding/json"] = ""
+						importMap["fmt"] = ""
+						importMap["net/http"] = ""
+						importMap["os"] = ""
+						importMap["strings"] = ""
 						importMap["time"] = ""
 					}
 					// Recurse into child steps

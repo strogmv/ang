@@ -33,6 +33,11 @@ func (n *Normalizer) parseService(name string, val cue.Value) (Service, error) {
 			Name:        methodName,
 			Description: mDescription,
 		}
+		if streamVal := methodVal.LookupPath(cue.MakePath(cue.Str("stream"))); streamVal.Exists() {
+			if b, err := streamVal.Bool(); err == nil {
+				method.IsStreaming = b
+			}
+		}
 
 		inVal := methodVal.LookupPath(cue.ParsePath("in"))
 		if inVal.Exists() {

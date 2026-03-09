@@ -88,6 +88,38 @@ var specsDomainOps = map[string]Spec{
 	"exec.Run": {
 		RequiredArgs:     []string{"cmd"},
 		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"timeout":   ArgKindString,
+			"timeoutMs": ArgKindInt,
+		},
+		CustomConstraints: func(step Step) *Issue {
+			if timeoutMS, ok := intArg(step.Args, "timeoutMs"); ok && timeoutMS <= 0 {
+				return &Issue{
+					Code:    "INVALID_TIMEOUTMS",
+					Message: "exec.Run timeoutMs must be > 0",
+					Hint:    "{action: \"exec.Run\", cmd: \"...\", timeoutMs: 120000}",
+				}
+			}
+			return nil
+		},
+	},
+	"exec.Stream": {
+		RequiredArgs:     []string{"cmd"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"timeout":   ArgKindString,
+			"timeoutMs": ArgKindInt,
+		},
+		CustomConstraints: func(step Step) *Issue {
+			if timeoutMS, ok := intArg(step.Args, "timeoutMs"); ok && timeoutMS <= 0 {
+				return &Issue{
+					Code:    "INVALID_TIMEOUTMS",
+					Message: "exec.Stream timeoutMs must be > 0",
+					Hint:    "{action: \"exec.Stream\", cmd: \"...\", timeoutMs: 120000}",
+				}
+			}
+			return nil
+		},
 	},
 	"fs.TempDir": {
 		RequiredArgs:     []string{"output"},

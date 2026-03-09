@@ -74,6 +74,13 @@ func buildServiceMethodField(svc normalizer.Service, m normalizer.Method) (*ast.
 		}
 		results = append(results, &ast.Field{Type: ast.NewIdent("error")})
 	}
+	if m.IsStreaming {
+		params = append(params, &ast.Field{
+			Names: []*ast.Ident{ast.NewIdent("chunks")},
+			Type:  mustParseExpr("chan<- string"),
+		})
+		results = []*ast.Field{{Type: ast.NewIdent("error")}}
+	}
 
 	field := &ast.Field{
 		Names: []*ast.Ident{ast.NewIdent(m.Name)},

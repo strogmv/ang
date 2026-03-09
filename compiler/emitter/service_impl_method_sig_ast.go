@@ -39,9 +39,17 @@ func renderServiceImplMethodSignature(serviceName string, m normalizer.Method) (
 			Type:  mustParseExpr("port." + reqType),
 		})
 	}
+	if m.IsStreaming {
+		params = append(params, &ast.Field{
+			Names: []*ast.Ident{ast.NewIdent("chunks")},
+			Type:  mustParseExpr("chan<- string"),
+		})
+	}
 
 	results := []*ast.Field{}
-	if m.Output.Name != "" && eventName == "" {
+	if m.IsStreaming {
+		results = append(results, &ast.Field{Type: ast.NewIdent("error")})
+	} else if m.Output.Name != "" && eventName == "" {
 		results = append(results, &ast.Field{
 			Names: []*ast.Ident{ast.NewIdent("resp")},
 			Type:  mustParseExpr("port." + m.Output.Name),

@@ -736,6 +736,45 @@ func TestValidate_NewSecurityActionsRequiredArgs(t *testing.T) {
 	}
 }
 
+func TestValidate_ExecRunTimeoutAndFlowDeferKnown(t *testing.T) {
+	t.Parallel()
+	issues := Validate([]Step{
+		{Action: "exec.Run", Args: map[string]any{"cmd": `"ang"`, "args": []string{`"build"`}, "timeout": "120 * time.Second", "output": "out"}},
+		{Action: "exec.Stream", Args: map[string]any{"cmd": `"ang"`, "args": []string{`"build"`}, "timeout": "120 * time.Second", "output": "streamOut"}},
+		{
+			Action: "flow.Defer",
+			Children: map[string][]Step{
+				"_do": {{Action: "fs.Remove", Args: map[string]any{"path": "workDir"}}},
+			},
+		},
+	})
+	for _, it := range issues {
+		if it.Code == "UNKNOWN_ACTION" {
+			t.Fatalf("unexpected UNKNOWN_ACTION for %s", it.Action)
+		}
+	}
+}
+
+func TestValidate_ExecRunTimeoutAndFlowDeferConstraints(t *testing.T) {
+	t.Parallel()
+	issues := Validate([]Step{
+		{Action: "exec.Run", Args: map[string]any{"cmd": `"ang"`, "timeoutMs": 0}},
+		{Action: "exec.Stream", Args: map[string]any{"cmd": `"ang"`, "timeoutMs": 0}},
+		{Action: "flow.Defer"},
+	})
+
+	want := map[string]bool{
+		"INVALID_TIMEOUTMS": true,
+		"MISSING_DO":        true,
+	}
+	for _, it := range issues {
+		delete(want, it.Code)
+	}
+	for code := range want {
+		t.Fatalf("expected %s issue in %+v", code, issues)
+	}
+}
+
 func TestValidate_ReliabilityAndObservabilityActionsKnown(t *testing.T) {
 	t.Parallel()
 	steps := []Step{
@@ -743,6 +782,11 @@ func TestValidate_ReliabilityAndObservabilityActionsKnown(t *testing.T) {
 		{Action: "idempotency.Check", Args: map[string]any{"key": "idemKey"}},
 		{Action: "idempotency.SaveResult", Args: map[string]any{"key": "idemKey", "ttl": "24*time.Hour"}},
 		{Action: "ratelimit.Limit", Args: map[string]any{"key": "req.UserID", "rps": 20}},
+		{Action: "quota.Check", Args: map[string]any{"key": "req.UserID", "limit": 100, "window": `"day"`}},
+		{Action: "budget.Check", Args: map[string]any{"key": "req.UserID", "limit": 100000}},
+		{Action: "budget.Consume", Args: map[string]any{"key": "req.UserID", "tokens": "reply.TokensUsed"}},
+		{Action: "context.Trim", Args: map[string]any{"input": "project.CueContent", "output": "trimmedCue", "max_bytes": 12000, "strategy": `"lines"`}},
+		{Action: "profile.Require", Args: map[string]any{"key": "req.UserID", "tier": `"ops"`}},
 		{
 			Action: "concurrency.Run",
 			Args:   map[string]any{"key": `"build"`, "max": 8},
@@ -794,6 +838,11 @@ func TestValidate_ReliabilityAndObservabilityConstraints(t *testing.T) {
 	t.Parallel()
 	issues := Validate([]Step{
 		{Action: "ratelimit.Limit", Args: map[string]any{"key": "req.UserID"}},
+		{Action: "quota.Check", Args: map[string]any{"key": "req.UserID", "window": `"day"`}},
+		{Action: "budget.Check", Args: map[string]any{"key": "req.UserID"}},
+		{Action: "budget.Consume", Args: map[string]any{"key": "req.UserID"}},
+		{Action: "context.Trim", Args: map[string]any{"input": "project.CueContent"}},
+		{Action: "profile.Require", Args: map[string]any{"key": "req.UserID", "tier": `"premium"`}},
 		{
 			Action: "concurrency.Run",
 			Args:   map[string]any{"key": `"build"`},
@@ -827,6 +876,10 @@ func TestValidate_ReliabilityAndObservabilityConstraints(t *testing.T) {
 
 	want := map[string]bool{
 		"MISSING_RPS":      true,
+		"MISSING_LIMIT":    true,
+		"MISSING_TOKENS":   true,
+		"MISSING_OUTPUT":   true,
+		"INVALID_TIER":     true,
 		"MISSING_MAX":      true,
 		"MISSING_DO":       true,
 		"MISSING_MESSAGE":  true,
@@ -1191,5 +1244,46 @@ func TestValidate_TimeFormatKnownAndConstraints(t *testing.T) {
 	}
 	if !foundMissingOutput {
 		t.Fatalf("expected MISSING_OUTPUT for invalid time.Format step, got %+v", issues)
+	}
+}
+
+func TestValidate_OpenAIStreamRequiresStreamingMethod(t *testing.T) {
+	t.Parallel()
+
+	issues := ValidateWithOptions([]Step{{
+		Action: "openai.Stream",
+		Args: map[string]any{
+			"user_message": "req.Prompt",
+			"output":       "chunk",
+		},
+	}}, ValidateOptions{})
+
+	found := false
+	for _, it := range issues {
+		if it.Code == "STREAMING_REQUIRED" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected STREAMING_REQUIRED for openai.Stream in non-streaming method, got %+v", issues)
+	}
+}
+
+func TestValidate_OpenAIStreamAllowedInStreamingMethod(t *testing.T) {
+	t.Parallel()
+
+	issues := ValidateWithOptions([]Step{{
+		Action: "openai.Stream",
+		Args: map[string]any{
+			"user_message": "req.Prompt",
+			"output":       "chunk",
+		},
+	}}, ValidateOptions{InStreamingMethod: true})
+
+	for _, it := range issues {
+		if it.Code == "STREAMING_REQUIRED" {
+			t.Fatalf("did not expect STREAMING_REQUIRED in streaming method, got %+v", issues)
+		}
 	}
 }

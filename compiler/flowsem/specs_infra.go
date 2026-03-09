@@ -26,6 +26,19 @@ var specsInfra = map[string]Spec{
 		RequiredArgs:     []string{"key", "output"},
 		DeclaresFromArgs: []string{"output"},
 	},
+	"openai.Stream": {
+		RequiredArgs:      []string{"user_message"},
+		DeclaresFromArgs:  []string{"output"},
+		RequiresStreaming: true,
+		OptionalArgKinds: map[string]ArgKind{
+			"system":         ArgKindString,
+			"system_context": ArgKindString,
+			"history":        ArgKindString,
+			"output":         ArgKindString,
+			"model":          ArgKindString,
+			"max_tokens":     ArgKindInt,
+		},
+	},
 	// Stage 3: New capabilities
 	"http.Call": {
 		RequiredArgs: []string{"method", "url"},
@@ -89,12 +102,21 @@ var specsInfra = map[string]Spec{
 			"sep":   ArgKindString,
 		},
 	},
+	"str.StripMarkdown": {OptionalArgKinds: map[string]ArgKind{"input": ArgKindString, "output": ArgKindString}},
 	"cast.ToString": {
 		RequiredArgs:     []string{"input", "output"},
 		DeclaresFromArgs: []string{"output"},
 		OptionalArgKinds: map[string]ArgKind{
 			"format": ArgKindString,
 		},
+	},
+	"convert.ToFloat": {
+		RequiredArgs:     []string{"input", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"convert.ToInt": {
+		RequiredArgs:     []string{"input", "output"},
+		DeclaresFromArgs: []string{"output"},
 	},
 	"num.Add": {
 		RequiredArgs:     []string{"a", "b", "output"},

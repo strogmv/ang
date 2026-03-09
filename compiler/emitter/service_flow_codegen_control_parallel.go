@@ -87,7 +87,9 @@ func renderFlowParallel(st *flowRenderState, step normalizer.FlowStep, indent in
 	}
 
 	b.WriteString(fmt.Sprintf("%s%sWg.Wait()\n", pad, pfx))
-	b.WriteString(fmt.Sprintf("%sif %sErr != nil {\n%s\treturn resp, %sErr\n%s}\n", pad, pfx, pad, pfx, pad))
+	b.WriteString(fmt.Sprintf("%sif %sErr != nil {\n", pad, pfx))
+	b.WriteString(errReturn(st, pad+"\t", pfx+"Err"))
+	b.WriteString(fmt.Sprintf("%s}\n", pad))
 	return b.String()
 }
 
@@ -167,7 +169,9 @@ func renderFlowJoin(st *flowRenderState, step normalizer.FlowStep, indent int, s
 	}
 
 	b.WriteString(fmt.Sprintf("%s%sWg.Wait()\n", pad, pfx))
-	b.WriteString(fmt.Sprintf("%sif len(%sErrs) > 0 {\n%s\treturn resp, %sErrs[0]\n%s}\n", pad, pfx, pad, pfx, pad))
+	b.WriteString(fmt.Sprintf("%sif len(%sErrs) > 0 {\n", pad, pfx))
+	b.WriteString(errReturn(st, pad+"\t", pfx+"Errs[0]"))
+	b.WriteString(fmt.Sprintf("%s}\n", pad))
 	return b.String()
 }
 
@@ -262,6 +266,8 @@ func renderFlowRace(st *flowRenderState, step normalizer.FlowStep, indent int, s
 	}
 
 	b.WriteString(fmt.Sprintf("%s%sWg.Wait()\n", pad, pfx))
-	b.WriteString(fmt.Sprintf("%sif !%sWon {\n%s\treturn resp, fmt.Errorf(\"flow.Race: all branches failed\")\n%s}\n", pad, pfx, pad, pad))
+	b.WriteString(fmt.Sprintf("%sif !%sWon {\n", pad, pfx))
+	b.WriteString(errReturn(st, pad+"\t", `fmt.Errorf("flow.Race: all branches failed")`))
+	b.WriteString(fmt.Sprintf("%s}\n", pad))
 	return b.String()
 }

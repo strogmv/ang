@@ -106,6 +106,11 @@ func (n *Normalizer) ExtractEndpoints(val cue.Value) ([]Endpoint, error) {
 			View:        getString(epVal, "view"),
 			Source:      formatPos(epVal),
 		}
+		if streamVal := opInfo.value.LookupPath(cue.MakePath(cue.Str("stream"))); streamVal.Exists() {
+			if b, err := streamVal.Bool(); err == nil {
+				ep.IsStreaming = b
+			}
+		}
 		// Intelligent RBAC: extract from @rbac attributes
 		for _, attr := range opInfo.value.Attributes(cue.ValueAttr) {
 			if attr.Name() == "rbac" {

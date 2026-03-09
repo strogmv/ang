@@ -143,6 +143,7 @@ type Method struct {
 	Name string
 
 	Description string
+	IsStreaming bool
 
 	Input Entity
 
@@ -240,6 +241,7 @@ type ErrorDef struct {
 type Endpoint struct {
 	Method           string
 	Path             string
+	IsStreaming      bool
 	ServiceName      string
 	RPC              string
 	Description      string

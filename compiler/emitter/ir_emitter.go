@@ -336,6 +336,7 @@ func IRMethodToNormalizer(m ir.Method) normalizer.Method {
 	method := normalizer.Method{
 		Name:        m.Name,
 		Description: m.Description,
+		IsStreaming: m.IsStreaming,
 		CacheTTL:    m.CacheTTL,
 		CacheTags:   initializeSlice(m.CacheTags),
 		Throws:      m.Throws,
@@ -468,6 +469,7 @@ func IREndpointsToNormalizer(irEndpoints []ir.Endpoint) []normalizer.Endpoint {
 		endpoint := normalizer.Endpoint{
 			Method:           ep.Method,
 			Path:             ep.Path,
+			IsStreaming:      ep.IsStreaming,
 			ServiceName:      ep.Service,
 			RPC:              ep.RPC,
 			Description:      ep.Description,

@@ -606,6 +606,99 @@ var specsCoreBase = map[string]Spec{
 			return nil
 		},
 	},
+	"quota.Check": {
+		RequiredArgs: []string{"key"},
+		OptionalArgKinds: map[string]ArgKind{
+			"throw":  ArgKindString,
+			"window": ArgKindString,
+			"limit":  ArgKindInt,
+		},
+		CustomConstraints: func(step Step) *Issue {
+			if _, ok := step.Args["limit"]; !ok {
+				return &Issue{Code: "MISSING_LIMIT", Message: "quota.Check missing 'limit'", Hint: "{action: \"quota.Check\", key: \"req.UserID\", limit: 100, window: \"day\"}"}
+			}
+			if !isIntLike(step.Args["limit"]) {
+				return &Issue{Code: "INVALID_LIMIT_TYPE", Message: "quota.Check 'limit' must be an integer", Hint: "{limit: 100}"}
+			}
+			window, ok := nonEmptyString(step.Args["window"])
+			if !ok {
+				return &Issue{Code: "MISSING_WINDOW", Message: "quota.Check missing 'window'", Hint: "{window: \"day\" | \"hour\" | \"month\"}"}
+			}
+			if literal, ok := staticWordLiteral(window); ok {
+				switch literal {
+				case "hour", "day", "month":
+					return nil
+				default:
+					return &Issue{Code: "INVALID_WINDOW", Message: "quota.Check 'window' must be one of hour|day|month", Hint: "{window: \"day\"}"}
+				}
+			}
+			return nil
+		},
+	},
+	"budget.Check": {
+		RequiredArgs: []string{"key"},
+		OptionalArgKinds: map[string]ArgKind{
+			"throw": ArgKindString,
+			"limit": ArgKindInt,
+		},
+		CustomConstraints: func(step Step) *Issue {
+			if _, ok := step.Args["limit"]; !ok {
+				return &Issue{Code: "MISSING_LIMIT", Message: "budget.Check missing 'limit'", Hint: "{action: \"budget.Check\", key: \"req.UserID\", limit: 100000}"}
+			}
+			if !isIntLike(step.Args["limit"]) {
+				return &Issue{Code: "INVALID_LIMIT_TYPE", Message: "budget.Check 'limit' must be an integer", Hint: "{limit: 100000}"}
+			}
+			return nil
+		},
+	},
+	"budget.Consume": {
+		RequiredArgs: []string{"key", "tokens"},
+		OptionalArgKinds: map[string]ArgKind{
+			"ttl": ArgKindString,
+		},
+	},
+	"context.Trim": {
+		RequiredArgs:     []string{"input", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"max_bytes": ArgKindInt,
+			"strategy":  ArgKindString,
+		},
+		CustomConstraints: func(step Step) *Issue {
+			if raw, ok := nonEmptyString(step.Args["strategy"]); ok {
+				if literal, ok := staticWordLiteral(raw); ok {
+					switch literal {
+					case "lines", "chars", "sentences":
+						return nil
+					default:
+						return &Issue{Code: "INVALID_STRATEGY", Message: "context.Trim 'strategy' must be one of lines|chars|sentences", Hint: "{strategy: \"lines\"}"}
+					}
+				}
+			}
+			return nil
+		},
+	},
+	"profile.Require": {
+		RequiredArgs: []string{"key", "tier"},
+		OptionalArgKinds: map[string]ArgKind{
+			"throw": ArgKindString,
+		},
+		CustomConstraints: func(step Step) *Issue {
+			raw, ok := nonEmptyString(step.Args["tier"])
+			if !ok {
+				return &Issue{Code: "MISSING_TIER", Message: "profile.Require missing 'tier'", Hint: "{action: \"profile.Require\", key: \"req.UserID\", tier: \"ops\"}"}
+			}
+			if literal, ok := staticWordLiteral(raw); ok {
+				switch literal {
+				case "free", "ops", "enterprise":
+					return nil
+				default:
+					return &Issue{Code: "INVALID_TIER", Message: "profile.Require 'tier' must be one of free|ops|enterprise", Hint: "{tier: \"ops\"}"}
+				}
+			}
+			return nil
+		},
+	},
 	"concurrency.Limit": {
 		RequiredArgs: []string{"key"},
 		OptionalArgKinds: map[string]ArgKind{

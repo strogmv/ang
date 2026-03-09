@@ -54,6 +54,46 @@ func (e *Emitter) EmitRedisClient() error {
 	return nil
 }
 
+// EmitRedisStateStore generates Redis StateStore adapter.
+func (e *Emitter) EmitRedisStateStore() error {
+	tmplPath := filepath.Join(e.TemplatesDir, "statestore_redis.tmpl")
+	if _, err := os.Stat(tmplPath); err != nil {
+		tmplPath = "templates/statestore_redis.tmpl"
+	}
+
+	tmplContent, err := ReadTemplateByPath(tmplPath)
+	if err != nil {
+		return fmt.Errorf("read template: %w", err)
+	}
+
+	t, err := template.New("statestore_redis").Parse(string(tmplContent))
+	if err != nil {
+		return fmt.Errorf("parse template: %w", err)
+	}
+
+	targetDir := filepath.Join(e.OutputDir, "internal", "adapter", "statestore", "redis")
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return fmt.Errorf("mkdir: %w", err)
+	}
+
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, nil); err != nil {
+		return fmt.Errorf("execute template: %w", err)
+	}
+
+	formatted, err := format.Source(buf.Bytes())
+	if err != nil {
+		formatted = buf.Bytes()
+	}
+
+	path := filepath.Join(targetDir, "store.go")
+	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
+		return fmt.Errorf("write file: %w", err)
+	}
+	fmt.Printf("Generated Redis StateStore: %s\n", path)
+	return nil
+}
+
 // EmitMongoSchema генерирует JSON Schema для Mongo валидации
 func (e *Emitter) EmitMongoSchema(entities []ir.Entity) error {
 	entitiesNorm := IREntitiesToNormalizer(entities)

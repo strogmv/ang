@@ -297,6 +297,7 @@ func (e *Emitter) AnalyzeContextFromIR(schema *ir.Schema) MainContext {
 		n := normalizer.Endpoint{
 			Method:           ep.Method,
 			Path:             ep.Path,
+			IsStreaming:      ep.IsStreaming,
 			ServiceName:      ep.Service,
 			RPC:              ep.RPC,
 			Description:      ep.Description,
@@ -450,6 +451,7 @@ func contextServiceFromIR(s ir.Service) normalizer.Service {
 	for _, m := range s.Methods {
 		nm := normalizer.Method{
 			Name:        m.Name,
+			IsStreaming: m.IsStreaming,
 			CacheTTL:    m.CacheTTL,
 			Publishes:   append([]string{}, m.Publishes...),
 			Idempotency: m.Idempotent,

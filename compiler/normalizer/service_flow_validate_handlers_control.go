@@ -134,6 +134,15 @@ func handleFlowControlAndInfra(
 		}
 		return true
 
+	case "flow.Defer":
+		subSteps, ok := step.Args["_do"].([]FlowStep)
+		if !ok || len(subSteps) == 0 {
+			addWarn(stepNum, step.Action, "MISSING_DO", "flow.Defer requires non-empty 'do' block", "{action: \"flow.Defer\", do: [ {action: \"fs.Remove\", path: \"workDir\"} ]}", step.File, step.Line, step.Column)
+			return true
+		}
+		validate(subSteps, inTx, depth+1)
+		return true
+
 	case "flow.Fallback":
 		if subSteps, ok := step.Args["_do"].([]FlowStep); ok {
 			validate(subSteps, inTx, depth+1)
@@ -346,7 +355,19 @@ func handleFlowControlAndInfra(
 		}
 		return true
 
-	case "field.CopyNonEmpty", "str.Normalize", "time.CheckExpiry", "map.Build", "time.Now", "time.Format", "mail.Send", "queue.Enqueue", "queue.Ack", "queue.Nack", "dlq.Publish", "event.Outbox", "webhook.Ack", "webhook.Send", "state.Set", "state.Delete", "idem.Check", "idem.SaveResult", "idempotency.Check", "idempotency.SaveResult", "ratelimit.Check", "concurrency.Limit", "circuit.Check", "circuit.RecordSuccess", "circuit.RecordFailure", "bulkhead.Acquire", "ratelimit.Limit", "log.Emit", "metric.Emit":
+	case "field.CopyNonEmpty", "str.Normalize", "time.CheckExpiry", "map.Build", "time.Now", "time.Format", "mail.Send", "queue.Enqueue", "queue.Ack", "queue.Nack", "dlq.Publish", "event.Outbox", "webhook.Ack", "webhook.Send", "state.Set", "state.Delete", "idem.Check", "idem.SaveResult", "idempotency.Check", "idempotency.SaveResult", "ratelimit.Check", "ratelimit.Limit", "quota.Check", "budget.Check", "budget.Consume", "profile.Require", "concurrency.Limit", "circuit.Check", "circuit.RecordSuccess", "circuit.RecordFailure", "bulkhead.Acquire", "log.Emit", "metric.Emit":
+		return true
+
+	case "context.Trim":
+		if getStringArg("input") == "" {
+			addWarn(stepNum, step.Action, "MISSING_INPUT", "context.Trim missing 'input'", "{action: \"context.Trim\", input: \"project.CueContent\", output: \"trimmedCue\"}", step.File, step.Line, step.Column)
+		}
+		output := getStringArg("output")
+		if output == "" {
+			addWarn(stepNum, step.Action, "MISSING_OUTPUT", "context.Trim missing 'output'", "{action: \"context.Trim\", input: \"project.CueContent\", output: \"trimmedCue\"}", step.File, step.Line, step.Column)
+		} else {
+			declaredVars[output] = true
+		}
 		return true
 
 	case "claude.Chat":
@@ -356,6 +377,15 @@ func handleFlowControlAndInfra(
 		return true
 
 	case "openai.Chat":
+		if output, _ := step.Args["output"].(string); output != "" {
+			declaredVars[output] = true
+		}
+		return true
+
+	case "openai.Stream":
+		if step.Args["user_message"] == nil || fmt.Sprint(step.Args["user_message"]) == "" {
+			addWarn(stepNum, step.Action, "MISSING_USER_MESSAGE", "openai.Stream missing 'user_message'", "{action: \"openai.Stream\", user_message: \"req.Message\"}", step.File, step.Line, step.Column)
+		}
 		if output, _ := step.Args["output"].(string); output != "" {
 			declaredVars[output] = true
 		}
@@ -453,9 +483,14 @@ func handleFlowControlAndInfra(
 		}
 		return true
 
-	case "exec.Run":
+	case "exec.Run", "exec.Stream":
 		if step.Args["cmd"] == nil || step.Args["cmd"] == "" {
-			addWarn(stepNum, step.Action, "MISSING_CMD", "exec.Run missing 'cmd'", "{action: \"exec.Run\", cmd: \"/usr/bin/ang\", args: [\"build\"], output: \"result\"}", step.File, step.Line, step.Column)
+			addWarn(stepNum, step.Action, "MISSING_CMD", step.Action+" missing 'cmd'", "{action: \""+step.Action+"\", cmd: \"/usr/bin/ang\", args: [\"build\"], output: \"result\"}", step.File, step.Line, step.Column)
+		}
+		if _, hasTimeout := step.Args["timeout"]; !hasTimeout {
+			if _, hasTimeoutMS := step.Args["timeoutMs"]; !hasTimeoutMS {
+				addWarn(stepNum, step.Action, "MISSING_TIMEOUT", step.Action+" missing timeout; add timeout or timeoutMs to avoid unbounded external process runtime", "{action: \""+step.Action+"\", cmd: \"/usr/bin/ang\", args: [\"build\"], timeout: \"120 * time.Second\"}", step.File, step.Line, step.Column)
+			}
 		}
 		if output, _ := step.Args["output"].(string); output != "" {
 			declaredVars[output] = true
@@ -624,7 +659,7 @@ func handleFlowControlAndInfra(
 		"url.Parse", "url.Build",
 		"query.Encode", "query.Decode",
 		"hash.Sum", "hash.HMAC",
-		"str.Format", "str.Concat",
+		"str.Format", "str.Concat", "str.StripMarkdown",
 		"cast.ToString",
 		"json.Parse", "json.Marshal",
 		"math.Op",
@@ -729,10 +764,16 @@ func isUnknownFlowAction(action string) bool {
 		strings.HasPrefix(action, "parallel.") ||
 		strings.HasPrefix(action, "archive.") ||
 		strings.HasPrefix(action, "session.") ||
+		strings.HasPrefix(action, "openai.") ||
+		strings.HasPrefix(action, "claude.") ||
 		strings.HasPrefix(action, "idem.") ||
 		strings.HasPrefix(action, "idempotency.") ||
 		strings.HasPrefix(action, "dedupe.") ||
 		strings.HasPrefix(action, "ratelimit.") ||
+		strings.HasPrefix(action, "quota.") ||
+		strings.HasPrefix(action, "budget.") ||
+		strings.HasPrefix(action, "context.") ||
+		strings.HasPrefix(action, "profile.") ||
 		strings.HasPrefix(action, "concurrency.") ||
 		strings.HasPrefix(action, "circuit.") ||
 		strings.HasPrefix(action, "bulkhead.") ||

@@ -410,6 +410,7 @@ func ConvertMethod(m normalizer.Method) Method {
 	method := Method{
 		Name:        m.Name,
 		Description: m.Description,
+		IsStreaming: m.IsStreaming,
 		CacheTTL:    m.CacheTTL,
 		CacheTags:   initializeSlice(m.CacheTags),
 		Throws:      m.Throws,
@@ -511,6 +512,7 @@ func ConvertEndpoint(ep normalizer.Endpoint) Endpoint {
 	endpoint := Endpoint{
 		Method:           ep.Method,
 		Path:             ep.Path,
+		IsStreaming:      ep.IsStreaming,
 		Service:          ep.ServiceName,
 		RPC:              ep.RPC,
 		Description:      ep.Description,

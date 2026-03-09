@@ -9,14 +9,14 @@ func renderFlowStepControlLegacyDeprecated(st *flowRenderState, step normalizer.
 	switch step.Action {
 	case "flow.If", "flow.For", "flow.Block", "tx.Block",
 		"flow.Switch", "flow.While", "flow.Checkpoint", "flow.Resume", "flow.Validate",
-		"flow.Try", "flow.Catch", "flow.Retry", "flow.Fallback", "flow.Timeout",
+		"flow.Try", "flow.Catch", "flow.Defer", "flow.Retry", "flow.Fallback", "flow.Timeout",
 		"flow.SuggestNext", "flow.ExplainError":
 		return ""
 	case "list.Filter", "list.Paginate", "list.Append", "list.Sort", "str.Normalize":
 		return ""
 	case "mapping.Map", "event.Publish", "logic.Call", "service.Call":
 		return ""
-	case "exec.Run", "fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove":
+	case "exec.Run", "exec.Stream", "fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove":
 		return ""
 	default:
 		// Deprecated fallback is intentionally no-op for unknown actions:

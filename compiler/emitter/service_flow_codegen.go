@@ -54,7 +54,7 @@ func flowActionSupported(action string) bool {
 		"repo.Query", "repo.Upsert",
 		"mapping.Assign", "mapping.Map",
 		"flow.If", "flow.For", "flow.Block", "flow.Switch", "flow.While", "flow.Call", "tx.Block",
-		"flow.Checkpoint", "flow.Resume", "flow.Validate", "flow.Try", "flow.Catch",
+		"flow.Checkpoint", "flow.Resume", "flow.Validate", "flow.Try", "flow.Catch", "flow.Defer",
 		"flow.RecordEvent", "flow.Replay", "flow.History.Get",
 		"flow.Retry", "flow.Fallback", "flow.Timeout", "flow.SuggestNext", "flow.ExplainError",
 		"list.Filter", "list.Paginate", "list.Append", "list.Sort", "list.Len", "list.New",
@@ -64,7 +64,7 @@ func flowActionSupported(action string) bool {
 		"str.Normalize",
 		"event.Publish", "logic.Call", "service.Call",
 		"event.Wait", "event.Subscribe", "event.Match", "event.Broadcast",
-		"exec.Run",
+		"exec.Run", "exec.Stream",
 		"fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove",
 		"archive.ZipDir", "map.New",
 		"audit.Log",
@@ -80,7 +80,7 @@ func flowActionSupported(action string) bool {
 		"storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List",
 		"http.Call", "http.Request", "http.RetryPolicy", "http.Paginate",
 		"rand.Code", "rand.Token",
-		"str.Format", "str.Concat",
+		"str.Format", "str.Concat", "str.StripMarkdown",
 		"cast.ToString",
 		"json.Parse", "json.Marshal",
 		"regex.Match", "regex.Replace",
@@ -113,6 +113,10 @@ func flowActionSupported(action string) bool {
 		"idempotency.DeriveKey", "idempotency.Check", "idempotency.SaveResult",
 		"dedupe.Once",
 		"ratelimit.Check", "ratelimit.Limit",
+		"quota.Check",
+		"budget.Check", "budget.Consume",
+		"context.Trim",
+		"profile.Require",
 		"concurrency.Limit", "concurrency.Run",
 		"circuit.Check", "circuit.RecordSuccess", "circuit.RecordFailure", "circuit.Breaker",
 		"bulkhead.Acquire", "bulkhead.Run",
@@ -125,7 +129,7 @@ func flowActionSupported(action string) bool {
 		"flow.Return",
 		"convert.ToFloat", "convert.ToInt",
 		"claude.Chat",
-		"openai.Chat":
+		"openai.Chat", "openai.Stream":
 		return true
 	default:
 		return false
@@ -203,6 +207,7 @@ type flowRenderState struct {
 	goroutineMode    bool              // if true, errors set _pErr/_mu instead of returning
 	stepN            *int              // shared monotonic counter; unique suffix for internal temp vars
 	returnErrOnly    bool              // if true, errReturn emits `return err` for inner error closures
+	deferMode        bool              // if true, errReturn emits `_ = err` (inside defer func(){}())
 	concurrMode      string            // "parallel" | "join" | "race" for flow.Parallel/Join/Race goroutines
 	concurrVarPfx    string            // e.g. "_fp_0" / "_fj_0" / "_fr_0"
 	sagaCompVar      string            // variable name for compensation slice
@@ -211,6 +216,7 @@ type flowRenderState struct {
 	warningSink      func(normalizer.Warning)
 	eventDefsByName  map[string]normalizer.EventDef
 	entityDefsByName map[string]normalizer.Entity
+	isStreaming      bool
 }
 
 func cloneFlowState(st *flowRenderState) *flowRenderState {
@@ -221,6 +227,7 @@ func cloneFlowState(st *flowRenderState) *flowRenderState {
 		goroutineMode:    st.goroutineMode,
 		stepN:            st.stepN, // share counter across all clones
 		returnErrOnly:    st.returnErrOnly,
+		deferMode:        st.deferMode,
 		concurrMode:      st.concurrMode,
 		concurrVarPfx:    st.concurrVarPfx,
 		sagaCompVar:      st.sagaCompVar,
@@ -229,6 +236,7 @@ func cloneFlowState(st *flowRenderState) *flowRenderState {
 		warningSink:      st.warningSink,
 		eventDefsByName:  st.eventDefsByName,
 		entityDefsByName: st.entityDefsByName,
+		isStreaming:      st.isStreaming,
 	}
 	for k, v := range st.declared {
 		cp.declared[k] = v
@@ -255,6 +263,10 @@ func renderFlowForServiceWithSchema(serviceName string, steps []normalizer.FlowS
 }
 
 func renderFlowForServiceWithSchemaAndSink(serviceName, methodName string, steps []normalizer.FlowStep, entities []normalizer.Entity, events []normalizer.EventDef, warningSink func(normalizer.Warning)) string {
+	return renderFlowForServiceWithSchemaAndSinkMode(serviceName, methodName, false, steps, entities, events, warningSink)
+}
+
+func renderFlowForServiceWithSchemaAndSinkMode(serviceName, methodName string, isStreaming bool, steps []normalizer.FlowStep, entities []normalizer.Entity, events []normalizer.EventDef, warningSink func(normalizer.Warning)) string {
 	n := 0
 	svcName := strings.TrimSpace(serviceName)
 	mName := strings.TrimSpace(methodName)
@@ -272,6 +284,7 @@ func renderFlowForServiceWithSchemaAndSink(serviceName, methodName string, steps
 		warningSink:      warningSink,
 		eventDefsByName:  flowEventDefsByName(events),
 		entityDefsByName: flowEntityDefsByName(entities),
+		isStreaming:      isStreaming,
 	}
 	var b strings.Builder
 	if flowHasAction(steps, "flow.Checkpoint", "flow.Resume") {
@@ -425,6 +438,13 @@ func flowStepTraceComment(step normalizer.FlowStep, stepIdx int, indent int) str
 	return fmt.Sprintf("%s// Generated from: %s (flow step %d)\n", pad, ref, stepIdx)
 }
 
+func returnSuccess(st *flowRenderState, pad string) string {
+	if st.isStreaming {
+		return fmt.Sprintf("%sreturn nil\n", pad)
+	}
+	return fmt.Sprintf("%sreturn resp, nil\n", pad)
+}
+
 // errReturn generates the appropriate error-return code depending on context.
 // In goroutine mode, errors are captured via mutex rather than returning from the outer func.
 func errReturn(st *flowRenderState, pad, errExpr string) string {
@@ -443,7 +463,13 @@ func errReturn(st *flowRenderState, pad, errExpr string) string {
 	if st.goroutineMode {
 		return fmt.Sprintf("%s_mu.Lock()\nif _pErr == nil { _pErr = %s; _pCancel() }\n%s_mu.Unlock()\n%sreturn\n", pad, errExpr, pad, pad)
 	}
+	if st.deferMode {
+		return fmt.Sprintf("%s_ = %s\n", pad, errExpr)
+	}
 	if st.returnErrOnly {
+		return fmt.Sprintf("%sreturn %s\n", pad, errExpr)
+	}
+	if st.isStreaming {
 		return fmt.Sprintf("%sreturn %s\n", pad, errExpr)
 	}
 	return fmt.Sprintf("%sreturn resp, %s\n", pad, errExpr)
@@ -473,7 +499,7 @@ func renderOneFlowStep(st *flowRenderState, step normalizer.FlowStep, indent int
 	}
 
 	switch step.Action {
-	case "flow.If", "flow.For", "flow.Block", "tx.Block", "list.Filter", "list.Paginate", "list.Append", "list.Sort", "list.Map", "list.Reduce", "list.GroupBy", "list.Distinct", "list.Chunk", "batch.Run", "str.Normalize", "mapping.Map", "event.Publish", "logic.Call", "service.Call", "flow.Call", "exec.Run", "fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove", "archive.ZipDir", "session.Get", "flow.Switch", "flow.While", "flow.Checkpoint", "flow.Resume", "flow.RecordEvent", "flow.Replay", "flow.History.Get", "flow.Validate", "flow.Try", "flow.Catch", "flow.Retry", "flow.Fallback", "flow.Timeout", "flow.SuggestNext", "flow.ExplainError",
+	case "flow.If", "flow.For", "flow.Block", "tx.Block", "list.Filter", "list.Paginate", "list.Append", "list.Sort", "list.Map", "list.Reduce", "list.GroupBy", "list.Distinct", "list.Chunk", "batch.Run", "str.Normalize", "mapping.Map", "event.Publish", "logic.Call", "service.Call", "flow.Call", "exec.Run", "exec.Stream", "fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove", "archive.ZipDir", "session.Get", "flow.Switch", "flow.While", "flow.Checkpoint", "flow.Resume", "flow.RecordEvent", "flow.Replay", "flow.History.Get", "flow.Validate", "flow.Try", "flow.Catch", "flow.Defer", "flow.Retry", "flow.Fallback", "flow.Timeout", "flow.SuggestNext", "flow.ExplainError",
 		"flow.Parallel", "flow.Join", "flow.Race",
 		"flow.Delay", "flow.Schedule", "flow.Cron",
 		"flow.Saga", "flow.Compensate", "flow.Rollback", "flow.Tag",
@@ -485,7 +511,7 @@ func renderOneFlowStep(st *flowRenderState, step normalizer.FlowStep, indent int
 		// STAGE 2: Infrastructure actions
 		// -------------------------------------------------------------------------
 
-	case "cache.Get", "cache.Set", "cache.Del", "mail.Send", "storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List", "http.Call", "http.Request", "http.RetryPolicy", "http.Paginate", "rand.Code", "rand.Token", "json.Parse", "json.Marshal", "regex.Match", "regex.Replace", "base64.Encode", "base64.Decode", "url.Parse", "url.Build", "query.Encode", "query.Decode", "hash.Sum", "hash.HMAC", "uuid.New", "ulid.New", "time.Now", "time.Format", "math.Op", "num.Add", "num.Sub", "num.Mul", "num.Div", "str.Concat", "cast.ToString", "jsonpath.Get", "jsonpath.Set", "jwt.Sign", "jwt.Verify", "oauth2.Token", "oauth2.Refresh", "crypto.Encrypt", "crypto.Decrypt", "crypto.Hash", "parallel.Run", "pdf.Render", "webhook.Send", "webhook.VerifySignature", "webhook.Ack", "queue.Enqueue", "queue.Dequeue", "queue.Ack", "queue.Nack", "dlq.Publish", "event.Outbox", "secret.Get", "config.Get",
+	case "cache.Get", "cache.Set", "cache.Del", "mail.Send", "storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List", "http.Call", "http.Request", "http.RetryPolicy", "http.Paginate", "rand.Code", "rand.Token", "json.Parse", "json.Marshal", "regex.Match", "regex.Replace", "base64.Encode", "base64.Decode", "url.Parse", "url.Build", "query.Encode", "query.Decode", "hash.Sum", "hash.HMAC", "uuid.New", "ulid.New", "time.Now", "time.Format", "math.Op", "num.Add", "num.Sub", "num.Mul", "num.Div", "str.Concat", "str.StripMarkdown", "cast.ToString", "jsonpath.Get", "jsonpath.Set", "jwt.Sign", "jwt.Verify", "oauth2.Token", "oauth2.Refresh", "crypto.Encrypt", "crypto.Decrypt", "crypto.Hash", "parallel.Run", "pdf.Render", "webhook.Send", "webhook.VerifySignature", "webhook.Ack", "queue.Enqueue", "queue.Dequeue", "queue.Ack", "queue.Nack", "dlq.Publish", "event.Outbox", "secret.Get", "config.Get",
 		"event.Wait", "event.Subscribe", "event.Match", "event.Broadcast",
 		"notify.Send", "approval.Request", "approval.Wait", "approval.Decide",
 		"policy.Check", "policy.Evaluate", "policy.Require", "policy.Decide",
@@ -494,11 +520,15 @@ func renderOneFlowStep(st *flowRenderState, step normalizer.FlowStep, indent int
 		"idempotency.DeriveKey", "idempotency.Check", "idempotency.SaveResult",
 		"dedupe.Once",
 		"ratelimit.Check", "ratelimit.Limit",
+		"quota.Check",
+		"budget.Check", "budget.Consume",
+		"context.Trim",
+		"profile.Require",
 		"concurrency.Limit", "concurrency.Run",
 		"circuit.Check", "circuit.RecordSuccess", "circuit.RecordFailure", "circuit.Breaker",
 		"bulkhead.Acquire", "bulkhead.Run",
 		"log.Emit", "metric.Emit", "trace.Span", "slo.Budget",
-		"claude.Chat", "openai.Chat":
+		"claude.Chat", "openai.Chat", "openai.Stream":
 		return renderFlowStepInfra(st, step, indent, sfx, arg, child)
 
 	default:

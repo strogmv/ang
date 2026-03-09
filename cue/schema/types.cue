@@ -10,6 +10,7 @@ import "github.com/strogmv/ang/cue/project"
 		errorCases?: [...string]
 	}
 	requiresS3?: bool
+	stream?:     bool
 	input:  _
 	output: _
 	throws?: [...string]
@@ -107,7 +108,7 @@ import "github.com/strogmv/ang/cue/project"
 // AI AGENTS: Use these definitions to understand valid flow step structures.
 // ============================================================================
 
-#FlowStep: #RepoStep | #DbStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #EventOutboxStep | #CustomStep | #ServiceCallStep | #FlowCallStep | #StateStep | #ExplicitStateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #ListLenStep | #ListNewStep | #AuditStep | #AuthStep | #CheckRoleStep | #RBACCheckPermissionStep | #PolicyCheckStep | #PolicyEvaluateStep | #PolicyRequireStep | #PolicyDecideStep | #JWTSignStep | #JWTVerifyStep | #OAuth2TokenStep | #OAuth2RefreshStep | #EncryptStep | #DecryptStep | #HashStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #ListMapStep | #ListReduceStep | #ListGroupByStep | #ListDistinctStep | #ListChunkStep | #BatchRunStep | #EnrichStep | #TimeNowStep | #TimeParseStep | #TimeFormatStep | #TimeCheckExpiryStep | #MapBuildStep | #MapNewStep | #ExecRunStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #ArchiveZipDirStep | #SessionGetStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #NotifySendStep | #NotifyDispatchStep | #ApprovalRequestStep | #ApprovalWaitStep | #ApprovalDecideStep | #StorageUploadStep | #StorageDownloadStep | #StorageDeleteStep | #StorageListStep | #StorageGetURLStep | #WebhookSendStep | #WebhookVerifySignatureStep | #WebhookAckStep | #QueueEnqueueStep | #QueueDequeueStep | #QueueAckStep | #QueueNackStep | #DLQPublishStep | #HTTPCallStep | #HTTPRequestStep | #HTTPRetryPolicyStep | #HTTPPaginateStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #StrConcatStep | #CastToStringStep | #NumBinaryStep | #MathExprStep | #MathOpStep | #RegexMatchStep | #RegexReplaceStep | #Base64EncodeStep | #Base64DecodeStep | #URLParseStep | #URLBuildStep | #QueryEncodeStep | #QueryDecodeStep | #HashSumStep | #HashHMACStep | #UUIDNewStep | #ULIDNewStep | #JSONParseStep | #JSONMarshalStep | #JSONPathGetStep | #JSONPathSetStep | #ParallelStep | #PDFRenderStep | #FlowParallelStep | #FlowJoinStep | #FlowRaceStep | #FlowDelayStep | #FlowScheduleStep | #FlowCronStep | #SecretGetStep | #ConfigGetStep | #EventWaitStep | #EventSubscribeStep | #EventMatchStep | #FlowSagaStep | #FlowCompensateStep | #FlowRollbackStep | #FlowTagStep | #FlowCheckpointStep | #FlowResumeStep | #FlowRecordEventStep | #FlowReplayStep | #FlowHistoryGetStep | #FlowValidateStep | #FlowTryStep | #FlowCatchStep | #FlowRetryStep | #FlowFallbackStep | #FlowTimeoutStep | #FlowSuggestNextStep | #FlowExplainErrorStep | #IdemDeriveKeyStep | #IdemCheckStep | #IdemSaveResultStep | #IdempotencyDeriveKeyStep | #IdempotencyCheckStep | #IdempotencySaveResultStep | #DedupeOnceStep | #RateLimitCheckStep | #RateLimitLimitStep | #ConcurrencyLimitStep | #ConcurrencyRunStep | #CircuitCheckStep | #CircuitRecordSuccessStep | #CircuitRecordFailureStep | #CircuitBreakerStep | #BulkheadAcquireStep | #BulkheadRunStep | #LogEmitStep | #MetricEmitStep | #TraceSpanStep | #SLOBudgetStep | #ListSumStep | #ListAvgStep | #FlowReturnStep | #ConvertToFloatStep | #ConvertToIntStep | #ClaudeChatStep | #OpenAIChatStep
+#FlowStep: #RepoStep | #DbStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #EventOutboxStep | #CustomStep | #ServiceCallStep | #FlowCallStep | #StateStep | #ExplicitStateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #ListLenStep | #ListNewStep | #AuditStep | #AuthStep | #CheckRoleStep | #RBACCheckPermissionStep | #PolicyCheckStep | #PolicyEvaluateStep | #PolicyRequireStep | #PolicyDecideStep | #JWTSignStep | #JWTVerifyStep | #OAuth2TokenStep | #OAuth2RefreshStep | #EncryptStep | #DecryptStep | #HashStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #ListMapStep | #ListReduceStep | #ListGroupByStep | #ListDistinctStep | #ListChunkStep | #BatchRunStep | #EnrichStep | #TimeNowStep | #TimeParseStep | #TimeFormatStep | #TimeCheckExpiryStep | #MapBuildStep | #MapNewStep | #ExecRunStep | #ExecStreamStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #ArchiveZipDirStep | #SessionGetStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #NotifySendStep | #NotifyDispatchStep | #ApprovalRequestStep | #ApprovalWaitStep | #ApprovalDecideStep | #StorageUploadStep | #StorageDownloadStep | #StorageDeleteStep | #StorageListStep | #StorageGetURLStep | #WebhookSendStep | #WebhookVerifySignatureStep | #WebhookAckStep | #QueueEnqueueStep | #QueueDequeueStep | #QueueAckStep | #QueueNackStep | #DLQPublishStep | #HTTPCallStep | #HTTPRequestStep | #HTTPRetryPolicyStep | #HTTPPaginateStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #StrConcatStep | #StrStripMarkdownStep | #CastToStringStep | #NumBinaryStep | #MathExprStep | #MathOpStep | #RegexMatchStep | #RegexReplaceStep | #Base64EncodeStep | #Base64DecodeStep | #URLParseStep | #URLBuildStep | #QueryEncodeStep | #QueryDecodeStep | #HashSumStep | #HashHMACStep | #UUIDNewStep | #ULIDNewStep | #JSONParseStep | #JSONMarshalStep | #JSONPathGetStep | #JSONPathSetStep | #ParallelStep | #PDFRenderStep | #FlowParallelStep | #FlowJoinStep | #FlowRaceStep | #FlowDelayStep | #FlowScheduleStep | #FlowCronStep | #SecretGetStep | #ConfigGetStep | #EventWaitStep | #EventSubscribeStep | #EventMatchStep | #FlowSagaStep | #FlowCompensateStep | #FlowRollbackStep | #FlowDeferStep | #FlowTagStep | #FlowCheckpointStep | #FlowResumeStep | #FlowRecordEventStep | #FlowReplayStep | #FlowHistoryGetStep | #FlowValidateStep | #FlowTryStep | #FlowCatchStep | #FlowRetryStep | #FlowFallbackStep | #FlowTimeoutStep | #FlowSuggestNextStep | #FlowExplainErrorStep | #IdemDeriveKeyStep | #IdemCheckStep | #IdemSaveResultStep | #IdempotencyDeriveKeyStep | #IdempotencyCheckStep | #IdempotencySaveResultStep | #DedupeOnceStep | #RateLimitCheckStep | #RateLimitLimitStep | #QuotaCheckStep | #BudgetCheckStep | #BudgetConsumeStep | #ContextTrimStep | #ProfileRequireStep | #ConcurrencyLimitStep | #ConcurrencyRunStep | #CircuitCheckStep | #CircuitRecordSuccessStep | #CircuitRecordFailureStep | #CircuitBreakerStep | #BulkheadAcquireStep | #BulkheadRunStep | #LogEmitStep | #MetricEmitStep | #TraceSpanStep | #SLOBudgetStep | #ListSumStep | #ListAvgStep | #FlowReturnStep | #ConvertToFloatStep | #ConvertToIntStep | #ClaudeChatStep | #OpenAIChatStep | #OpenAIStreamStep
 
 #FlowCheckpointStep: {
 	// flow.Checkpoint - Save current flow state for potential resumption
@@ -1675,6 +1676,14 @@ import "github.com/strogmv/ang/cue/project"
 	output: string
 }
 
+#StrStripMarkdownStep: {
+	action: "str.StripMarkdown"
+	// Go expression to strip markdown fences from
+	input: string
+	// Optional output variable; defaults to input (in-place)
+	output?: string
+}
+
 #CastToStringStep: {
 	action: "cast.ToString"
 	// Source expression
@@ -1909,6 +1918,13 @@ import "github.com/strogmv/ang/cue/project"
 	error?: string
 }
 
+// flow.Defer - Register cleanup/finalization steps that always run on function exit.
+// Similar to Go defer; use for temp files, locks, and best-effort cleanup.
+#FlowDeferStep: {
+	action: "flow.Defer"
+	do: [...#FlowStep]
+}
+
 // ============================================================================
 // SYSTEM / OS OPERATIONS (exec.*, fs.*)
 // ============================================================================
@@ -1925,6 +1941,10 @@ import "github.com/strogmv/ang/cue/project"
 	args?: [...string]
 	// Optional: pipe this expression as stdin (e.g. "req.CueContent")
 	stdin?: string
+	// Optional command timeout (default: "120 * time.Second")
+	timeout?: string
+	// Optional timeout in milliseconds (used when timeout is not set)
+	timeoutMs?: int
 	// Variable name to receive combined output as string (e.g. "buildOutput")
 	output?: string
 	// Variable name to receive exit code as int (e.g. "exitCode")
@@ -1932,6 +1952,25 @@ import "github.com/strogmv/ang/cue/project"
 	// If false, non-zero exit code is captured instead of throwing (default: true)
 	failOnError?: bool | *true
 	// Error message thrown on non-zero exit code; only used when failOnError: true
+	throw?: string
+}
+
+#ExecStreamStep: {
+	// exec.Stream - Execute external command and stream output line-by-line while running.
+	// Generated Go:
+	//   - context.WithTimeout
+	//   - io.Pipe + Scanner over merged stdout/stderr
+	//   - line logs via slog.Info("exec.stream", ...)
+	//   - optional aggregated output string
+	action: "exec.Stream"
+	cmd: string
+	args?: [...string]
+	stdin?: string
+	timeout?: string
+	timeoutMs?: int
+	output?: string
+	exitCodeVar?: string
+	failOnError?: bool | *true
 	throw?: string
 }
 
@@ -2125,6 +2164,48 @@ import "github.com/strogmv/ang/cue/project"
 	throw?: string
 }
 
+#QuotaCheckStep: {
+	// quota.Check - Per-key fixed-window quota guard (hour/day/month).
+	action: "quota.Check"
+	key: string
+	limit: int
+	window: "hour" | "day" | "month" | string
+	throw?: string
+}
+
+#BudgetCheckStep: {
+	// budget.Check - Ensure cumulative token budget for key is below limit.
+	action: "budget.Check"
+	key: string
+	limit: int
+	throw?: string
+}
+
+#BudgetConsumeStep: {
+	// budget.Consume - Increase cumulative token budget for key.
+	action: "budget.Consume"
+	key: string
+	tokens: string
+	ttl?: string
+}
+
+#ContextTrimStep: {
+	// context.Trim - Trim large text context to keep prompts bounded.
+	action: "context.Trim"
+	input: string
+	output: string
+	max_bytes?: int
+	strategy?: "lines" | "chars" | "sentences" | string
+}
+
+#ProfileRequireStep: {
+	// profile.Require - Enforce minimum profile tier (free < ops < enterprise).
+	action: "profile.Require"
+	key: string
+	tier: "free" | "ops" | "enterprise" | string
+	throw?: string
+}
+
 #ConcurrencyRunStep: {
 	// concurrency.Run - Acquire concurrency slot and run child steps.
 	action: "concurrency.Run"
@@ -2252,6 +2333,26 @@ import "github.com/strogmv/ang/cue/project"
 	// Variable name for the reply text (default: "openaiReply")
 	output?: string
 	// OpenAI model to use (default: "gpt-4o-mini")
+	model?: string
+	// Max tokens in response (default: 4096)
+	max_tokens?: int
+}
+
+#OpenAIStreamStep: {
+	// openai.Stream - Call OpenAI Chat Completions API in SSE mode and emit text chunks.
+	// Uses OPENAI_API_KEY env var.
+	action: "openai.Stream"
+	// Current user message Go expression (e.g. "req.Message")
+	user_message: string
+	// System prompt Go expression (e.g. `"You are a helpful assistant"`)
+	system?: string
+	// Go expression appended to system prompt (e.g. "project.CueContent")
+	system_context?: string
+	// History slice Go expression - must have .Role and .Content fields (e.g. "history")
+	history?: string
+	// Optional accumulated output variable in addition to streaming chunks
+	output?: string
+	// OpenAI model to use (default: "gpt-4o")
 	model?: string
 	// Max tokens in response (default: 4096)
 	max_tokens?: int

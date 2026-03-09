@@ -41,6 +41,11 @@
       "type": "[]string"
     },
     {
+      "name": "IsStreaming",
+      "type": "bool",
+      "tag": "is_streaming,omitempty"
+    },
+    {
       "name": "MaxBodySize",
       "type": "int64"
     },
@@ -350,6 +355,11 @@
     {
       "name": "Input",
       "type": "*ir.Entity"
+    },
+    {
+      "name": "IsStreaming",
+      "type": "bool",
+      "tag": "is_streaming,omitempty"
     },
     {
       "name": "Metadata",

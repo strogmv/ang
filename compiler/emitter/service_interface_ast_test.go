@@ -26,6 +26,11 @@ func TestRenderServiceInterfaceDecl(t *testing.T) {
 				Name:      "OrderPaid",
 				Publishes: []string{"OrderPaid"},
 			},
+			{
+				Name:        "StreamEdit",
+				IsStreaming: true,
+				Input:       normalizer.Entity{Name: "StreamEditRequest"},
+			},
 		},
 	}
 
@@ -41,6 +46,9 @@ func TestRenderServiceInterfaceDecl(t *testing.T) {
 	}
 	if !strings.Contains(src, "OrderPaid(ctx context.Context, req domain.OrderPaid) error") {
 		t.Fatalf("expected event method signature in source, got:\n%s", src)
+	}
+	if !strings.Contains(src, "StreamEdit(ctx context.Context, req StreamEditRequest, chunks chan<- string) error") {
+		t.Fatalf("expected streaming method signature in source, got:\n%s", src)
 	}
 
 	fileSrc := "package port\nimport (\n\"context\"\n\"github.com/acme/project/internal/domain\"\n)\n" + src

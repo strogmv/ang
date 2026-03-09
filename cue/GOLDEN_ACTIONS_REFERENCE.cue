@@ -533,6 +533,19 @@ RefExecRun: schema.#Operation & {
 }
 
 // ----------------------------------------------------------------------------
+// REF EXAMPLE 1038a: exec.Stream
+// ----------------------------------------------------------------------------
+RefExecStream: schema.#Operation & {
+	service: "reference"
+	input: { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "exec.Stream", cmd: "req.ID", timeout: "120 * time.Second", output: "streamOut"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ----------------------------------------------------------------------------
 // REF EXAMPLE 1039: field.CopyNonEmpty
 // ----------------------------------------------------------------------------
 RefFieldCopyNonEmpty: schema.#Operation & {
@@ -2049,5 +2062,205 @@ RefRepoGet: schema.#Operation & {
 	flow: [
 		{action: "repo.Get", source: "Tender", input: "req.ID", output: "item"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "item != nil"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2012: quota.Check
+// ----------------------------------------------------------------------------
+RefQuotaCheck: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "quota.Check", key: "req.ID", limit: 100, window: "day"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2013: budget.Check
+// ----------------------------------------------------------------------------
+RefBudgetCheck: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "budget.Check", key: "req.ID", limit: 10000},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2014: budget.Consume
+// ----------------------------------------------------------------------------
+RefBudgetConsume: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "budget.Consume", key: "req.ID", tokens: "5"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2015: context.Trim
+// ----------------------------------------------------------------------------
+RefContextTrim: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "context.Trim", input: "\"line1\\nline2\\nline3\\n\"", output: "trimmed", max_bytes: 8},
+		{action: "mapping.Assign", to: "resp.Ok", value: "len(trimmed) > 0"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2016: profile.Require
+// ----------------------------------------------------------------------------
+RefProfileRequire: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "profile.Require", key: "req.ID", tier: "ops"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2017: claude.Chat
+// ----------------------------------------------------------------------------
+RefClaudeChat: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "claude.Chat", user_message: "req.ID", output: "reply"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "len(reply) >= 0"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2018: openai.Chat
+// ----------------------------------------------------------------------------
+RefOpenAIChat: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "openai.Chat", user_message: "req.ID", output: "reply"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "len(reply) >= 0"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2018b: openai.Stream
+// ----------------------------------------------------------------------------
+RefOpenAIStream: schema.#Operation & {
+	service: "reference"
+	stream:  true
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "openai.Stream", user_message: "req.ID", output: "reply"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "len(reply) >= 0"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2019: flow.Defer
+// ----------------------------------------------------------------------------
+RefFlowDefer: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "mapping.Assign", to: "workDir", declare: true, value: "\"\""},
+		{action: "flow.Defer", do: [
+			{action: "fs.Remove", path: "workDir"},
+		]},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2020: str.StripMarkdown
+// ----------------------------------------------------------------------------
+RefStrStripMarkdown: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "str.StripMarkdown", input: "\"```cue\\nfoo: 1\\n```\"", output: "plain"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "len(plain) > 0"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2021: list.Sum
+// ----------------------------------------------------------------------------
+RefListSum: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "mapping.Assign", to: "nums", value: "[]int{1, 2, 3}"},
+		{action: "list.Sum", input: "nums", output: "total"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "total == 6"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2022: list.Avg
+// ----------------------------------------------------------------------------
+RefListAvg: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "mapping.Assign", to: "nums", value: "[]int{2, 4, 6}"},
+		{action: "list.Avg", input: "nums", output: "avg"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "avg > 0"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2023: flow.Return
+// ----------------------------------------------------------------------------
+RefFlowReturn: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "flow.Return", set: "resp.Ok", value: "true"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2024: convert.ToFloat
+// ----------------------------------------------------------------------------
+RefConvertToFloat: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "convert.ToFloat", input: "\"3.14\"", output: "flt"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "flt > 0"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2025: convert.ToInt
+// ----------------------------------------------------------------------------
+RefConvertToInt: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "convert.ToInt", input: "\"42\"", output: "num"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "num > 0"},
 	]
 }

@@ -15,7 +15,12 @@ import (
 	"net/http"
 	{{- if .HasETag }}
 	"crypto/sha256"
+	{{- end }}
+	{{- if or .HasETag .HasStreaming }}
 	"fmt"
+	{{- end }}
+	{{- if .HasStreaming }}
+	"strings"
 	{{- end }}
 	{{- if .HasQueryParse }}
 	"strconv"
@@ -185,6 +190,47 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 		}
 		{{- end }}
 
+		{{- if .IsStreaming }}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+			return
+		}
+
+		chunks := make(chan string, 32)
+		errCh := make(chan error, 1)
+		go func() {
+			errCh <- svc.{{ .RPC }}(r.Context(), {{ if .Input.Name }}req{{ else }}struct{}{}{{ end }}, chunks)
+			close(chunks)
+		}()
+
+		for {
+			select {
+			case chunk, ok := <-chunks:
+				if !ok {
+					if err := <-errCh; err != nil {
+						fmt.Fprintf(w, "event: error\ndata: %s\n\n", strings.ReplaceAll(err.Error(), "\n", " "))
+						flusher.Flush()
+						return
+					}
+					fmt.Fprintf(w, "data: [DONE]\n\n")
+					flusher.Flush()
+					return
+				}
+				for _, line := range strings.Split(chunk, "\n") {
+					fmt.Fprintf(w, "data: %s\n", line)
+				}
+				fmt.Fprint(w, "\n")
+				flusher.Flush()
+			case <-r.Context().Done():
+				return
+			}
+		}
+		{{- else }}
 		{{ if .Output.Name }}resp, {{ end }}err := svc.{{ .RPC }}(r.Context(), {{ if .Input.Name }}req{{ end }})
 		if err != nil {
 			errors.WriteError(w, r, err)
@@ -277,6 +323,7 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 		{{ else }}
 		w.WriteHeader(http.StatusNoContent)
 		{{ end }}
+		{{- end }}
 	}
 }
 {{- end }}

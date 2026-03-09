@@ -32,7 +32,8 @@ type EventDef struct {
 
 // ValidateOptions provides optional semantic context to flow validator.
 type ValidateOptions struct {
-	Events []EventDef
+	Events            []EventDef
+	InStreamingMethod bool
 }
 
 type Issue struct {
@@ -54,6 +55,7 @@ type Spec struct {
 	DeclaresFromArgs  []string
 	OptionalArgKinds  map[string]ArgKind
 	RequiresTx        bool
+	RequiresStreaming bool
 	CustomConstraints func(step Step) *Issue
 }
 
@@ -126,6 +128,9 @@ func ValidateWithOptions(steps []Step, opts ValidateOptions) []Issue {
 				}
 				if spec.RequiresTx && !inTx {
 					out = append(out, issue(step, i+1, "TX_REQUIRED", step.Action+" outside tx.Block", "{action: \"tx.Block\", do: [ ... ]}"))
+				}
+				if spec.RequiresStreaming && !opts.InStreamingMethod {
+					out = append(out, issue(step, i+1, "STREAMING_REQUIRED", step.Action+" requires operation stream: true", "Set stream: true on operation or replace action with non-streaming variant"))
 				}
 				if spec.CustomConstraints != nil {
 					if extra := spec.CustomConstraints(step); extra != nil {
@@ -429,6 +434,7 @@ func isKnownPrefix(action string) bool {
 		"http.", "rand.", "json.", "regex.", "base64.", "url.", "query.", "hash.", "uuid.", "ulid.", "math.", "jsonpath.", "batch.", "parallel.",
 		"jwt.", "oauth2.", "crypto.",
 		"idem.", "idempotency.", "dedupe.", "ratelimit.", "concurrency.", "circuit.", "bulkhead.",
+		"budget.", "quota.", "context.", "profile.",
 		"log.", "metric.", "trace.", "slo.",
 		"pdf.",
 		"claude.",

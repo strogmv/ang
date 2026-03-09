@@ -355,7 +355,7 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 				case "state.Get", "state.Set", "state.Delete":
 					return true
 				}
-				for _, prefix := range []string{"idem.", "idempotency.", "dedupe.", "ratelimit.", "concurrency.", "circuit.", "bulkhead.", "approval."} {
+				for _, prefix := range []string{"idem.", "idempotency.", "dedupe.", "ratelimit.", "quota.", "budget.", "profile.", "concurrency.", "circuit.", "bulkhead.", "approval."} {
 					if strings.HasPrefix(step.Action, prefix) {
 						return true
 					}

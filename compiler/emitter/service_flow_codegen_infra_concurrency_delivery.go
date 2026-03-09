@@ -94,7 +94,9 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		}
 
 		b.WriteString(fmt.Sprintf("%s_wg.Wait()\n", pad))
-		b.WriteString(fmt.Sprintf("%sif _pErr != nil {\n%s\treturn resp, _pErr\n%s}\n", pad, pad, pad))
+		b.WriteString(fmt.Sprintf("%sif _pErr != nil {\n", pad))
+		b.WriteString(errReturn(st, pad+"\t", "_pErr"))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
 
 	case "pdf.Render":

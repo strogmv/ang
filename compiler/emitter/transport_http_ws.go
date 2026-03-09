@@ -192,6 +192,9 @@ func (e *Emitter) EmitHTTP(irEndpoints []ir.Endpoint, irServices []ir.Service, i
 		if strings.ToUpper(ep.Method) == "GET" && method.Output.Name != "" {
 			groups[ep.ServiceName].HasETag = true
 		}
+		if ep.IsStreaming {
+			groups[ep.ServiceName].HasStreaming = true
+		}
 		if len(broadcasts) > 0 {
 			groups[ep.ServiceName].HasBroadcast = true
 		}
@@ -222,6 +225,7 @@ func (e *Emitter) EmitHTTP(irEndpoints []ir.Endpoint, irServices []ir.Service, i
 			HasViews:       group.HasViews,
 			HasQueryParse:  group.HasQueryParse,
 			HasETag:        group.HasETag,
+			HasStreaming:   group.HasStreaming,
 			HasBroadcast:   hasBroadcastInGroup,
 			HasDomainUsage: hasDomainUsageInGroup,
 		}

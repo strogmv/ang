@@ -25,6 +25,7 @@ type HttpServiceGroup struct {
 	HasViews       bool
 	HasQueryParse  bool
 	HasETag        bool
+	HasStreaming   bool
 	HasBroadcast   bool
 	HasDomainUsage bool
 }

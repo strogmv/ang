@@ -41,6 +41,10 @@ import (
 	{{- if $needsPolicy }}
 	"{{.GoModule}}/internal/pkg/policy"
 	{{- end }}
+	{{- if and $needsPG (AnyServiceHasStateActionsIR .ServicesIR) }}
+	redisclient "{{.GoModule}}/internal/adapter/cache/redis"
+	redistore "{{.GoModule}}/internal/adapter/statestore/redis"
+	{{- end }}
 	"{{.GoModule}}/internal/config"
 	"{{.GoModule}}/internal/port"
 	"{{.GoModule}}/internal/service"
@@ -119,6 +123,13 @@ func NewRuntimeContainer(
 	repoSystem := postgres.NewSystemRepository(pgPool)
 	{{- end }}
 
+	{{- if and $needsPG (AnyServiceHasStateActionsIR .ServicesIR) }}
+	var stateStore port.StateStore = repoSystem
+	if cfg.RedisAddr != "" {
+		stateStore = redistore.New(redisclient.NewClient(cfg.RedisAddr))
+	}
+	{{- end }}
+
 	{{- if and $needsPG (HasTxServicesIR .ServicesIR) }}
 	txManager := postgres.NewTxManager(pgPool)
 	{{- end }}
@@ -166,7 +177,7 @@ func NewRuntimeContainer(
 		{{- end }}
 		{{- if ServiceHasStateActionsIR . }}
 			{{- if $needsPG }}
-		repoSystem,
+		stateStore,
 			{{- else }}
 		nil,
 			{{- end }}

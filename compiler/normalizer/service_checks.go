@@ -542,11 +542,11 @@ func isSafeMappingAssignExpr(expr ast.Expr) bool {
 		}
 		return false
 	case *ast.CallExpr:
-		return true
+		return false
 	case *ast.CompositeLit:
 		return true
 	case *ast.FuncLit:
-		return true
+		return false
 	default:
 		return false
 	}

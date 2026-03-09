@@ -277,6 +277,7 @@ var knownActionPrefixes = []string{
 	"http.", "rand.", "json.", "regex.", "base64.", "url.", "query.", "hash.", "uuid.", "ulid.", "math.", "jsonpath.", "batch.", "parallel.",
 	"jwt.", "oauth2.", "crypto.",
 	"idem.", "idempotency.", "dedupe.", "ratelimit.", "concurrency.", "circuit.", "bulkhead.",
+	"budget.", "quota.", "context.", "profile.",
 	"log.", "metric.", "trace.", "slo.",
 	"pdf.",
 }

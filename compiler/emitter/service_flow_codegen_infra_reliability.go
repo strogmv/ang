@@ -85,7 +85,7 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 		b.WriteString(fmt.Sprintf("%s\tif err := json.Unmarshal(%s, &resp); err != nil {\n", pad, rawVar))
 		b.WriteString(errReturn(st, pad+"\t\t", "fmt.Errorf(\"idem.Check unmarshal: %w\", err)"))
 		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
-		b.WriteString(fmt.Sprintf("%s\treturn resp, nil\n", pad))
+		b.WriteString(returnSuccess(st, pad+"\t"))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
 
@@ -186,6 +186,237 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 		b.WriteString(fmt.Sprintf("%s%s++\n", pad, rlCountVar))
 		b.WriteString(fmt.Sprintf("%s%s, _ := json.Marshal(%s)\n", pad, rlDataVar, rlCountVar))
 		b.WriteString(fmt.Sprintf("%ss.stateStore.Set(ctx, %s, %s, 2*time.Second) //nolint:errcheck\n", pad, rlKeyVar, rlDataVar))
+		return b.String(), true
+
+	// ── quota.Check ───────────────────────────────────────────────────────────
+	// Fixed window key quota (hour/day/month). Throws 429 when limit exceeded.
+	case "quota.Check":
+		key := arg("key")
+		limit := flowIntArg(step.Args, "limit", 0)
+		if key == "" || limit <= 0 {
+			return "", true
+		}
+		// window is a static enum — decoded without quotes by normalizer; handle at codegen time
+		windowRaw, _ := step.Args["window"].(string)
+		if windowRaw == "" {
+			windowRaw = "day"
+		}
+		throwMsg := arg("throw")
+		if throwMsg == "" {
+			throwMsg = "quota exceeded"
+		}
+
+		var bucketFmt, ttlExpr string
+		switch windowRaw {
+		case "hour":
+			bucketFmt = "2006-01-02T15"
+			ttlExpr = "2 * time.Hour"
+		case "month":
+			bucketFmt = "2006-01"
+			ttlExpr = "32 * 24 * time.Hour"
+		default: // "day"
+			bucketFmt = "2006-01-02"
+			ttlExpr = "25 * time.Hour"
+		}
+
+		bucketVar := "_quotaBucket" + sfx
+		ttlVar := "_quotaTTL" + sfx
+		keyVar := "_quotaKey" + sfx
+		rawVar := "_quotaRaw" + sfx
+		errVar := "_quotaErr" + sfx
+		countVar := "_quotaCount" + sfx
+		setErrVar := "_quotaSetErr" + sfx
+
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s// quota.Check (window=%s)\n", pad, windowRaw))
+		b.WriteString(fmt.Sprintf("%s%s := time.Now().UTC().Format(%q)\n", pad, bucketVar, bucketFmt))
+		b.WriteString(fmt.Sprintf("%s%s := %s\n", pad, ttlVar, ttlExpr))
+		b.WriteString(fmt.Sprintf("%s%s := fmt.Sprintf(\"quota:%%v:%%s\", %s, %s)\n", pad, keyVar, key, bucketVar))
+		b.WriteString(fmt.Sprintf("%s%s, %s := s.stateStore.Get(ctx, %s)\n", pad, rawVar, errVar, keyVar))
+		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, errVar))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"quota.Check: %%w\", %s)", errVar)))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s := 0\n", pad, countVar))
+		b.WriteString(fmt.Sprintf("%sif len(%s) > 0 {\n", pad, rawVar))
+		b.WriteString(fmt.Sprintf("%s\t%s, _ = strconv.Atoi(string(%s))\n", pad, countVar, rawVar))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%sif %s >= %d {\n", pad, countVar, limit))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("errors.New(http.StatusTooManyRequests, \"Too Many Requests\", %q)", throwMsg)))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s++\n", pad, countVar))
+		b.WriteString(fmt.Sprintf("%s%s := s.stateStore.Set(ctx, %s, []byte(strconv.Itoa(%s)), %s)\n", pad, setErrVar, keyVar, countVar, ttlVar))
+		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, setErrVar))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"quota.Check: %%w\", %s)", setErrVar)))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
+
+	// ── budget.Check ──────────────────────────────────────────────────────────
+	// Cumulative token budget guard per key. Throws 402 when exhausted.
+	case "budget.Check":
+		key := arg("key")
+		limit := flowIntArg(step.Args, "limit", 0)
+		if key == "" || limit <= 0 {
+			return "", true
+		}
+		throwMsg := arg("throw")
+		if throwMsg == "" {
+			throwMsg = "Budget exhausted"
+		}
+
+		keyVar := "_budgetKey" + sfx
+		rawVar := "_budgetRaw" + sfx
+		errVar := "_budgetErr" + sfx
+		usedVar := "_budgetUsed" + sfx
+
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s// budget.Check\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s := fmt.Sprintf(\"budget:%%v\", %s)\n", pad, keyVar, key))
+		b.WriteString(fmt.Sprintf("%s%s, %s := s.stateStore.Get(ctx, %s)\n", pad, rawVar, errVar, keyVar))
+		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, errVar))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"budget.Check: %%w\", %s)", errVar)))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s := 0\n", pad, usedVar))
+		b.WriteString(fmt.Sprintf("%sif len(%s) > 0 {\n", pad, rawVar))
+		b.WriteString(fmt.Sprintf("%s\t%s, _ = strconv.Atoi(string(%s))\n", pad, usedVar, rawVar))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%sif %s >= %d {\n", pad, usedVar, limit))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("errors.New(http.StatusPaymentRequired, \"Payment Required\", %q)", throwMsg)))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
+
+	// ── budget.Consume ────────────────────────────────────────────────────────
+	// Increments cumulative token budget for key.
+	case "budget.Consume":
+		key := arg("key")
+		tokens := arg("tokens")
+		if key == "" || tokens == "" {
+			return "", true
+		}
+		ttl := arg("ttl")
+		if ttl == "" {
+			ttl = "0"
+		}
+
+		keyVar := "_budgetKey" + sfx
+		rawVar := "_budgetRaw" + sfx
+		errVar := "_budgetErr" + sfx
+		curVar := "_budgetCur" + sfx
+		setErrVar := "_budgetSetErr" + sfx
+
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s// budget.Consume\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s := fmt.Sprintf(\"budget:%%v\", %s)\n", pad, keyVar, key))
+		b.WriteString(fmt.Sprintf("%s%s, %s := s.stateStore.Get(ctx, %s)\n", pad, rawVar, errVar, keyVar))
+		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, errVar))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"budget.Consume: %%w\", %s)", errVar)))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s := 0\n", pad, curVar))
+		b.WriteString(fmt.Sprintf("%sif len(%s) > 0 {\n", pad, rawVar))
+		b.WriteString(fmt.Sprintf("%s\t%s, _ = strconv.Atoi(string(%s))\n", pad, curVar, rawVar))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s := s.stateStore.Set(ctx, %s, []byte(strconv.Itoa(%s + (%s))), %s)\n", pad, setErrVar, keyVar, curVar, tokens, ttl))
+		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, setErrVar))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"budget.Consume: %%w\", %s)", setErrVar)))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
+
+	// ── context.Trim ──────────────────────────────────────────────────────────
+	// Shrinks large string context before LLM calls.
+	case "context.Trim":
+		input := arg("input")
+		output := arg("output")
+		if input == "" || output == "" {
+			return "", true
+		}
+		maxBytes := flowIntArg(step.Args, "max_bytes", 8000)
+		if maxBytes <= 0 {
+			maxBytes = 8000
+		}
+		strategy := arg("strategy")
+		if strategy == "" {
+			strategy = `"lines"`
+		}
+
+		assign := ":="
+		if st.declared[output] {
+			assign = "="
+		}
+		st.declared[output] = true
+		st.pointers[output] = false
+		st.types[output] = "string"
+
+		inputVar := "_ctxInput" + sfx
+		maxVar := "_ctxMaxBytes" + sfx
+		strategyVar := "_ctxStrategy" + sfx
+		truncVar := "_ctxTrunc" + sfx
+
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s// context.Trim\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s := %s\n", pad, inputVar, input))
+		b.WriteString(fmt.Sprintf("%s%s := %d\n", pad, maxVar, maxBytes))
+		b.WriteString(fmt.Sprintf("%s%s := %s\n", pad, strategyVar, strategy))
+		b.WriteString(fmt.Sprintf("%s%s %s %s\n", pad, output, assign, inputVar))
+		b.WriteString(fmt.Sprintf("%sif len(%s) > %s {\n", pad, inputVar, maxVar))
+		b.WriteString(fmt.Sprintf("%s\t%s := %s[:%s]\n", pad, truncVar, inputVar, maxVar))
+		b.WriteString(fmt.Sprintf("%s\tswitch %s {\n", pad, strategyVar))
+		b.WriteString(fmt.Sprintf("%s\tcase \"chars\":\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t// keep hard cut\n", pad))
+		b.WriteString(fmt.Sprintf("%s\tcase \"sentences\":\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\tif _idx := strings.LastIndexAny(%s, \".!?\"); _idx > 0 {\n", pad, truncVar))
+		b.WriteString(fmt.Sprintf("%s\t\t\t%s = %s[:_idx+1]\n", pad, truncVar, truncVar))
+		b.WriteString(fmt.Sprintf("%s\t\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\tdefault:\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\tif _idx := strings.LastIndex(%s, \"\\n\"); _idx > 0 {\n", pad, truncVar))
+		b.WriteString(fmt.Sprintf("%s\t\t\t%s = %s[:_idx]\n", pad, truncVar, truncVar))
+		b.WriteString(fmt.Sprintf("%s\t\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t%s = %s + \"\\n... (truncated)\"\n", pad, output, truncVar))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
+
+	// ── profile.Require ───────────────────────────────────────────────────────
+	// Enforces minimum profile tier (free < ops < enterprise).
+	case "profile.Require":
+		key := arg("key")
+		tier := arg("tier")
+		if key == "" || tier == "" {
+			return "", true
+		}
+		throwMsg := arg("throw")
+		if throwMsg == "" {
+			throwMsg = "Upgrade required"
+		}
+
+		keyVar := "_profileKey" + sfx
+		rawVar := "_profileRaw" + sfx
+		errVar := "_profileErr" + sfx
+		tierVar := "_profileTier" + sfx
+		orderVar := "_profileOrder" + sfx
+		reqTierVar := "_requiredTier" + sfx
+		curRankVar := "_profileRank" + sfx
+		reqRankVar := "_requiredRank" + sfx
+
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s// profile.Require\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s := fmt.Sprintf(\"profile:%%v\", %s)\n", pad, keyVar, key))
+		b.WriteString(fmt.Sprintf("%s%s, %s := s.stateStore.Get(ctx, %s)\n", pad, rawVar, errVar, keyVar))
+		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, errVar))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"profile.Require: %%w\", %s)", errVar)))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s := \"free\"\n", pad, tierVar))
+		b.WriteString(fmt.Sprintf("%sif len(%s) > 0 {\n", pad, rawVar))
+		b.WriteString(fmt.Sprintf("%s\t%s = string(%s)\n", pad, tierVar, rawVar))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s := map[string]int{\"free\": 0, \"ops\": 1, \"enterprise\": 2}\n", pad, orderVar))
+		b.WriteString(fmt.Sprintf("%s%s := %s\n", pad, reqTierVar, tier))
+		b.WriteString(fmt.Sprintf("%s%s := %s[%s]\n", pad, curRankVar, orderVar, tierVar))
+		b.WriteString(fmt.Sprintf("%s%s := %s[\"enterprise\"]\n", pad, reqRankVar, orderVar))
+		b.WriteString(fmt.Sprintf("%sif _v, _ok := %s[%s]; _ok {\n", pad, orderVar, reqTierVar))
+		b.WriteString(fmt.Sprintf("%s\t%s = _v\n", pad, reqRankVar))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%sif %s < %s {\n", pad, curRankVar, reqRankVar))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("errors.New(http.StatusForbidden, \"Forbidden\", %q)", throwMsg)))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
 
 		// ── concurrency.Limit ─────────────────────────────────────────────────────

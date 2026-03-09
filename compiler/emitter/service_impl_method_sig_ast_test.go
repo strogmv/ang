@@ -32,3 +32,25 @@ func TestRenderServiceImplMethodSignature(t *testing.T) {
 		t.Fatalf("signature should be valid in function declaration: %v\n%s", err, fileSrc)
 	}
 }
+
+func TestRenderServiceImplMethodSignatureStreaming(t *testing.T) {
+	t.Parallel()
+
+	sig, err := renderServiceImplMethodSignature("Sandbox", normalizer.Method{
+		Name:        "StreamAIEdit",
+		IsStreaming: true,
+		Input:       normalizer.Entity{Name: "StreamAIEditRequest"},
+	})
+	if err != nil {
+		t.Fatalf("renderServiceImplMethodSignature failed: %v", err)
+	}
+	if !strings.Contains(sig, "func (s *SandboxImpl) StreamAIEdit(") {
+		t.Fatalf("unexpected signature: %s", sig)
+	}
+	if !strings.Contains(sig, "chunks chan<- string") {
+		t.Fatalf("expected chunks channel arg: %s", sig)
+	}
+	if !strings.Contains(sig, ") error") {
+		t.Fatalf("expected error-only return: %s", sig)
+	}
+}

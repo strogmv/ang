@@ -102,6 +102,11 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 			Name:   opName,
 			Source: formatPos(value),
 		}
+		if streamVal := value.LookupPath(cue.MakePath(cue.Str("stream"))); streamVal.Exists() {
+			if b, err := streamVal.Bool(); err == nil {
+				method.IsStreaming = b
+			}
+		}
 		if info, ok := cacheByOp[opName]; ok {
 			method.CacheTTL = info.ttl
 			method.CacheTags = info.tags
@@ -358,6 +363,48 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 			method.Flow = steps
 			if flowUsesObjectStorage(steps) {
 				svc.RequiresS3 = true
+			}
+			flowHasAction := func(items []FlowStep, action string) bool {
+				var scan func([]FlowStep) bool
+				scan = func(nodes []FlowStep) bool {
+					for _, node := range nodes {
+						if node.Action == action {
+							return true
+						}
+						for _, key := range []string{"_do", "_ifNew", "_ifExists", "_then", "_else", "_default", "_catch", "_fallback", "_onTimeout", "_onMissing", "_onMismatch"} {
+							if nested, ok := node.Args[key].([]FlowStep); ok && scan(nested) {
+								return true
+							}
+						}
+						if cases, ok := node.Args["_cases"].(map[string][]FlowStep); ok {
+							for _, branch := range cases {
+								if scan(branch) {
+									return true
+								}
+							}
+						}
+						if branches, ok := node.Args["_branches"].(map[string][]FlowStep); ok {
+							for _, branch := range branches {
+								if scan(branch) {
+									return true
+								}
+							}
+						}
+					}
+					return false
+				}
+				return scan(items)
+			}
+			if !method.IsStreaming && flowHasAction(steps, "openai.Stream") {
+				n.Warn(Warning{
+					Kind:     "flow",
+					Code:     "STREAM_ACTION_REQUIRES_STREAM_METHOD",
+					Severity: "error",
+					Message:  fmt.Sprintf("operation '%s' uses openai.Stream but stream: true is not set", opName),
+					Hint:     "Set stream: true on operation or replace openai.Stream with openai.Chat",
+					File:     method.Source,
+					CUEPath:  value.Path().String(),
+				})
 			}
 
 			// Validate flow steps and report warnings

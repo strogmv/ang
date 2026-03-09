@@ -83,6 +83,7 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 
 	registerInfraGoSteps(registry, in)
 	registry.Register(generator.Step{Name: "Redis Client", Requires: goOnly, Run: func() error { return in.Em.EmitRedisClient() }})
+	registry.Register(generator.Step{Name: "Redis StateStore", Requires: goOnly, Run: func() error { return in.Em.EmitRedisStateStore() }})
 	registry.Register(generator.Step{Name: "Auth Package", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilityAuth}, Run: func() error { return in.Em.EmitAuthPackage(in.AuthDef) }})
 	registry.Register(generator.Step{Name: "Refresh Store Port", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilityAuth}, Run: func() error { return in.Em.EmitRefreshTokenStorePort() }})
 	registry.Register(generator.Step{Name: "Refresh Store Memory", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilityAuth}, Run: func() error { return in.Em.EmitRefreshTokenStoreMemory() }})

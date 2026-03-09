@@ -13,26 +13,45 @@ import (
 {{- range .Service.Methods }}
 {{ if not (mapHas $.Overrides .Name) }}
 {{ ServiceImplMethodSignature $.Service.Name . }} {
+	{{- if .IsStreaming }}
+	{{- if .Output.Name }}
+	var resp port.{{ .Output.Name }}
+	{{- else }}
+	var resp struct{}
+	{{- end }}
+	{{- end }}
 	{{- if and .Impl .Impl.Code }}
 {{ Indent (CleanImplCode .Impl.Code .Output.Name) 1 }}
 	{{- else if .ImplSteps }}
 {{ Indent (RenderImplSteps $.Service .ImplSteps $.Service.Name .Name) 1 }}
 	{{- else if .Flow }}
 		{{- if FlowRenderable .Flow }}
-{{ Indent (RenderFlow $.Service.Name .Name .Flow) 1 }}
+{{ Indent (RenderFlow $.Service.Name .Name .IsStreaming .Flow) 1 }}
+{{- if .IsStreaming }}
+return nil
+{{- else }}
 return resp, nil
+{{- end }}
 		{{- else }}
 	// FLOW_NOT_IMPLEMENTED: unsupported flow actions in this method, fallback stub.
 	if os.Getenv("APP_ENV") != "production" {
 		panic("{{ $.Service.Name }}.{{ .Name }}: flow not implemented; set flowFirstBypass or implement flow")
 	}
+	{{- if .IsStreaming }}
+	return errors.New(http.StatusInternalServerError, "Not Implemented", "{{ $.Service.Name }}.{{ .Name }} not implemented")
+	{{- else }}
 	return resp, errors.New(http.StatusInternalServerError, "Not Implemented", "{{ $.Service.Name }}.{{ .Name }} not implemented")
+	{{- end }}
 		{{- end }}
 	{{- else }}
 	if os.Getenv("APP_ENV") != "production" {
 		panic("{{ $.Service.Name }}.{{ .Name }}: no flow or impl; set flowFirstBypass or implement")
 	}
+	{{- if .IsStreaming }}
+	return errors.New(http.StatusInternalServerError, "Not Implemented", "{{ $.Service.Name }}.{{ .Name }} not implemented")
+	{{- else }}
 	return resp, errors.New(http.StatusInternalServerError, "Not Implemented", "{{ $.Service.Name }}.{{ .Name }} not implemented")
+	{{- end }}
 	{{- end }}
 }
 {{- end }}
