@@ -429,6 +429,15 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 						importMap["net/http"] = ""
 						importMap["os"] = ""
 						importMap["time"] = ""
+					case "openai.Chat":
+						importMap["bytes"] = ""
+						importMap["context"] = ""
+						importMap["encoding/json"] = ""
+						importMap["fmt"] = ""
+						importMap["io"] = ""
+						importMap["net/http"] = ""
+						importMap["os"] = ""
+						importMap["time"] = ""
 					}
 					// Recurse into child steps
 					for _, childKey := range []string{"_do", "_then", "_else", "_ifNew", "_ifExists", "_default", "_catch", "_fallback", "_onTimeout", "_onMissing", "_onMismatch"} {

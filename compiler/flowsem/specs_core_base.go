@@ -710,6 +710,18 @@ var specsCoreBase = map[string]Spec{
 			"max_tokens":     ArgKindInt,
 		},
 	},
+	"openai.Chat": {
+		RequiredArgs:     []string{"user_message"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"system":         ArgKindString,
+			"system_context": ArgKindString,
+			"history":        ArgKindString,
+			"output":         ArgKindString,
+			"model":          ArgKindString,
+			"max_tokens":     ArgKindInt,
+		},
+	},
 	"log.Emit": {
 		RequiredArgs: []string{"message"},
 		OptionalArgKinds: map[string]ArgKind{

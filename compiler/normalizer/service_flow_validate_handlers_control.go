@@ -355,6 +355,12 @@ func handleFlowControlAndInfra(
 		}
 		return true
 
+	case "openai.Chat":
+		if output, _ := step.Args["output"].(string); output != "" {
+			declaredVars[output] = true
+		}
+		return true
+
 	case "list.Filter":
 		if step.Args["from"] == nil || step.Args["from"] == "" {
 			addWarn(stepNum, step.Action, "MISSING_FROM", "list.Filter missing 'from'", "{action: \"list.Filter\", from: \"items\", condition: \"item.Active\", output: \"filtered\"}", step.File, step.Line, step.Column)
@@ -743,7 +749,8 @@ func isUnknownFlowAction(action string) bool {
 		strings.HasPrefix(action, "service.") ||
 		strings.HasPrefix(action, "secret.") ||
 		strings.HasPrefix(action, "config.") ||
-		strings.HasPrefix(action, "claude.") {
+		strings.HasPrefix(action, "claude.") ||
+		strings.HasPrefix(action, "openai.") {
 		return false
 	}
 	return true
