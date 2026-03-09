@@ -29,10 +29,19 @@ type Warning struct {
 }
 
 type Fix struct {
-	Kind      string `json:"kind"` // replace, insert, delete, create
-	File      string `json:"file,omitempty"`
-	CUEPath   string `json:"cue_path,omitempty"`
-	Text      string `json:"text"`
+	Kind string `json:"kind,omitempty"` // legacy alias for Op
+	// Op is machine-applicable edit intent: merge|replace|insert|delete.
+	Op string `json:"op,omitempty"`
+	// File/CUEPath pin the patch target in source.
+	File    string `json:"file,omitempty"`
+	CUEPath string `json:"cue_path,omitempty"`
+	// Value is the patch payload (usually an object for merge).
+	Value any `json:"value,omitempty"`
+	// Text keeps backward compatibility with older fix consumers.
+	Text string `json:"text,omitempty"`
+	// Before/After provide explicit transformation hints for AI agents.
+	Before    string `json:"before,omitempty"`
+	After     string `json:"after,omitempty"`
 	Rationale string `json:"rationale,omitempty"`
 }
 

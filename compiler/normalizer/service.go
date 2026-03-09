@@ -410,6 +410,17 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 			// Validate flow steps and report warnings
 			warnings := validateFlowSteps(opName, svcName, steps, entities, svc.Uses, n.Policies, n.ArchitectureMode, n.ArchitectureAllowCross)
 			for _, w := range warnings {
+				canAutoApply := false
+				for _, fx := range w.SuggestedFix {
+					op := strings.ToLower(strings.TrimSpace(fx.Op))
+					if op == "" {
+						op = strings.ToLower(strings.TrimSpace(fx.Kind))
+					}
+					if op == "merge" || op == "replace" || op == "insert" || op == "delete" || op == "create" {
+						canAutoApply = true
+						break
+					}
+				}
 				n.Warn(Warning{
 					Kind:         "flow",
 					Code:         w.Code,
@@ -423,6 +434,7 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 					Line:         w.Line,
 					Column:       w.Column,
 					CUEPath:      w.CUEPath,
+					CanAutoApply: canAutoApply,
 					SuggestedFix: w.SuggestedFix,
 				})
 			}

@@ -5,10 +5,13 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/strogmv/ang/compiler"
+	"github.com/strogmv/ang/compiler/flowsem"
 	"github.com/strogmv/ang/compiler/normalizer"
 )
 
@@ -17,6 +20,7 @@ type vetDiagsEnvelope struct {
 	Schema      string               `json:"schema"`
 	Valid       bool                 `json:"valid"`
 	Diagnostics []normalizer.Warning `json:"diagnostics"`
+	FixReport   []string             `json:"fix_report,omitempty"`
 }
 
 // vetDiagWithExplain is one entry in the ang/diags/v2 envelope (--explain flag).
@@ -30,13 +34,32 @@ type vetDiagsV2Envelope struct {
 	Schema      string               `json:"schema"`
 	Valid       bool                 `json:"valid"`
 	Diagnostics []vetDiagWithExplain `json:"diagnostics"`
+	FixReport   []string             `json:"fix_report,omitempty"`
+}
+
+type vetRunResult struct {
+	Semantic  compiler.NormalizePhaseOutput
+	Diags     []normalizer.Warning
+	HasErrors bool
+}
+
+type opsContextEnvelope struct {
+	Schema      string                       `json:"schema"`
+	Valid       bool                         `json:"valid"`
+	ProjectPath string                       `json:"project_path"`
+	Profile     string                       `json:"profile"`
+	OpsSchema   opsSchemaEnvelope            `json:"ops_schema"`
+	Actions     []flowsem.ActionCatalogEntry `json:"actions"`
+	Diagnostics []vetDiagWithExplain         `json:"diagnostics"`
+	Proof       ProofReport                  `json:"proof"`
 }
 
 func runOps(args []string) {
 	if len(args) == 0 {
-		fmt.Println("Usage: ang ops <schema|vet> [flags]")
+		fmt.Println("Usage: ang ops <schema|vet|context> [flags]")
 		fmt.Println("  ang ops schema [--json|--cue]   Machine-readable #Operation schema for AI")
 		fmt.Println("  ang ops vet [path] [--json]     Semantic validation of ops CUE files")
+		fmt.Println("  ang ops context [path] --json   Unified AI context (schema + actions + diagnostics + proof)")
 		os.Exit(1)
 	}
 	switch args[0] {
@@ -44,9 +67,11 @@ func runOps(args []string) {
 		runOpsSchema(args[1:])
 	case "vet":
 		runOpsVet(args[1:])
+	case "context":
+		runOpsContext(args[1:])
 	default:
 		fmt.Printf("Unknown ops command: %s\n", args[0])
-		fmt.Println("Usage: ang ops <schema|vet>")
+		fmt.Println("Usage: ang ops <schema|vet|context>")
 		os.Exit(1)
 	}
 }
@@ -399,11 +424,68 @@ func cueTypeForOps(t string) string {
 
 // ── Vet ───────────────────────────────────────────────────────────────────────
 
+func runOpsContext(args []string) {
+	fs := flag.NewFlagSet("ops context", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	asJSON := fs.Bool("json", false, "output unified AI context as JSON")
+	profileRaw := fs.String("profile", string(lintProfileMini), "lint profile: mini|saas|prod")
+	migrationMode := fs.Bool("migration-mode", false, "enable facts-driven migration checks (requires --facts)")
+	factsPath := fs.String("facts", "", "path to ang/facts/v1 JSON (from `ang extract ...`)")
+	if err := fs.Parse(args); err != nil {
+		fmt.Printf("Ops context FAILED: %v\n", err)
+		os.Exit(1)
+	}
+	if !*asJSON {
+		fmt.Println("Ops context FAILED: --json is required for machine-readable output")
+		os.Exit(1)
+	}
+
+	profile, err := parseLintProfile(*profileRaw)
+	if err != nil {
+		fmt.Printf("Ops context FAILED: %v\n", err)
+		os.Exit(1)
+	}
+
+	projectPath := "."
+	if fs.NArg() > 0 {
+		projectPath = fs.Arg(0)
+	}
+
+	vetRes := collectVetDiagnostics(projectPath, profile, *migrationMode, *factsPath)
+	diagsV2 := make([]vetDiagWithExplain, 0, len(vetRes.Diags))
+	for _, d := range vetRes.Diags {
+		diagsV2 = append(diagsV2, vetDiagWithExplain{
+			Warning: d,
+			Explain: explainPtrForDiag(d),
+		})
+	}
+
+	report := BuildProofReport(vetRes.Semantic.Services, vetRes.Semantic.Endpoints)
+	payload := opsContextEnvelope{
+		Schema:      "ang/ops-context/v1",
+		Valid:       !vetRes.HasErrors,
+		ProjectPath: projectPath,
+		Profile:     string(profile),
+		OpsSchema:   buildOpsSchema(),
+		Actions:     flowsem.ActionCatalog(),
+		Diagnostics: diagsV2,
+		Proof:       report,
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(payload)
+	if vetRes.HasErrors {
+		os.Exit(1)
+	}
+}
+
 func runOpsVet(args []string) {
 	fs := flag.NewFlagSet("ops vet", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	asJSON := fs.Bool("json", false, "output diagnostics as JSON (ang/diags/v1)")
-	withExplain := fs.Bool("explain", false, "inline AI explanations in JSON output (ang/diags/v2, implies --json)")
+	withExplain := fs.Bool("explain", false, "inline AI explanations per diagnostic (ang/diags/v2, implies --json)")
+	withProof := fs.Bool("proof", false, "output per-operation proof report (ang/proof/v1)")
+	withFix := fs.Bool("fix", false, "apply safe structured suggested fixes and re-run vet")
 	profileRaw := fs.String("profile", string(lintProfileMini), "lint profile: mini|saas|prod")
 	migrationMode := fs.Bool("migration-mode", false, "enable facts-driven migration checks (requires --facts)")
 	factsPath := fs.String("facts", "", "path to ang/facts/v1 JSON (from `ang extract ...`)")
@@ -425,13 +507,84 @@ func runOpsVet(args []string) {
 		projectPath = fs.Arg(0)
 	}
 
+	vetRes := collectVetDiagnostics(projectPath, profile, *migrationMode, *factsPath)
+	fixReport := []string(nil)
+	if *withFix {
+		report, err := applyVetFixes(projectPath, vetRes.Diags)
+		if err != nil {
+			fmt.Printf("Ops vet FAILED: apply fix: %v\n", err)
+			os.Exit(1)
+		}
+		fixReport = report
+		vetRes = collectVetDiagnostics(projectPath, profile, *migrationMode, *factsPath)
+	}
+
+	if *withProof {
+		report := BuildProofReport(vetRes.Semantic.Services, vetRes.Semantic.Endpoints)
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(report)
+		if vetRes.HasErrors {
+			os.Exit(1)
+		}
+		return
+	}
+
+	if *asJSON {
+		if vetRes.Diags == nil {
+			vetRes.Diags = []normalizer.Warning{}
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if *withExplain {
+			// ang/diags/v2: each diagnostic carries an inline explain object.
+			dv2 := make([]vetDiagWithExplain, 0, len(vetRes.Diags))
+			for _, d := range vetRes.Diags {
+				dv2 = append(dv2, vetDiagWithExplain{
+					Warning: d,
+					Explain: explainPtrForDiag(d),
+				})
+			}
+			_ = enc.Encode(vetDiagsV2Envelope{
+				Schema:      "ang/diags/v2",
+				Valid:       !vetRes.HasErrors,
+				Diagnostics: dv2,
+				FixReport:   fixReport,
+			})
+		} else {
+			_ = enc.Encode(vetDiagsEnvelope{
+				Schema:      "ang/diags/v1",
+				Valid:       !vetRes.HasErrors,
+				Diagnostics: vetRes.Diags,
+				FixReport:   fixReport,
+			})
+		}
+		if vetRes.HasErrors {
+			os.Exit(1)
+		}
+		return
+	}
+
+	if len(fixReport) > 0 {
+		for _, line := range fixReport {
+			fmt.Fprintln(os.Stderr, line)
+		}
+	}
+	emitDiagnostics(os.Stderr, vetRes.Diags)
+	if vetRes.HasErrors {
+		fmt.Println("Vet FAILED.")
+		os.Exit(1)
+	}
+	fmt.Println("Vet OK.")
+}
+
+func collectVetDiagnostics(projectPath string, profile lintProfile, migrationMode bool, factsPath string) vetRunResult {
 	semantic, pipelineErr := compiler.RunSemanticPhases(projectPath)
 	diags := append([]normalizer.Warning(nil), compiler.LatestDiagnostics...)
 
-	// Layer 2: semantic lints (flow size, http timeout, outbox pattern)
 	diags = append(diags, runSemanticLints(semantic.Services, semantic.Endpoints, profile)...)
-	if *migrationMode {
-		if strings.TrimSpace(*factsPath) == "" {
+	if migrationMode {
+		if strings.TrimSpace(factsPath) == "" {
 			diags = append(diags, normalizer.Warning{
 				Kind:     "migration",
 				Code:     codeMigrationFactsRequired,
@@ -439,12 +592,12 @@ func runOpsVet(args []string) {
 				Message:  "--migration-mode requires --facts <path-to-ang-facts-v1.json>",
 				Hint:     "Generate facts via `ang extract <src> --from auto --out migration.facts.json` and rerun `ang ops vet --migration-mode --facts migration.facts.json`.",
 			})
-		} else if facts, err := loadFactsEnvelope(*factsPath); err != nil {
+		} else if facts, err := loadFactsEnvelope(factsPath); err != nil {
 			diags = append(diags, normalizer.Warning{
 				Kind:     "migration",
 				Code:     codeMigrationFactsLoadFailed,
 				Severity: "error",
-				Message:  fmt.Sprintf("failed to load facts file %q: %v", *factsPath, err),
+				Message:  fmt.Sprintf("failed to load facts file %q: %v", factsPath, err),
 				Hint:     "Ensure file exists, is valid JSON, and has schema ang/facts/v1.",
 			})
 		} else {
@@ -452,16 +605,14 @@ func runOpsVet(args []string) {
 		}
 	}
 
-	// Enrich unknown-action warnings with Allowed list + did-you-mean hint
+	diags = rewriteDiagnosticSources(diags, semantic.Services)
 	diags = enrichUnknownActionDiags(diags)
-
-	// Compute human-readable path for every diagnostic
+	diags = enrichSuggestedFixDiags(diags)
 	for i := range diags {
 		if diags[i].Path == "" {
 			diags[i].Path = computeVetPath(diags[i])
 		}
 	}
-
 	if pipelineErr != nil {
 		diags = append(diags, normalizer.Warning{
 			Kind:     "pipeline",
@@ -470,36 +621,299 @@ func runOpsVet(args []string) {
 			Message:  pipelineErr.Error(),
 		})
 	}
+	return vetRunResult{
+		Semantic:  semantic,
+		Diags:     diags,
+		HasErrors: hasErrorDiagnostics(diags) || pipelineErr != nil,
+	}
+}
 
-	hasErrors := pipelineErr != nil
+func hasErrorDiagnostics(diags []normalizer.Warning) bool {
 	for _, d := range diags {
-		if strings.ToLower(d.Severity) == "error" {
-			hasErrors = true
-			break
+		if strings.EqualFold(strings.TrimSpace(d.Severity), "error") {
+			return true
 		}
+	}
+	return false
+}
+
+func explainPtrForDiag(d normalizer.Warning) *explainItem {
+	ex := explainFromInput(explainInput{
+		Code:    d.Code,
+		Message: d.Message,
+		Path:    d.Path,
+		Action:  d.Action,
+		Hint:    d.Hint,
+		File:    d.File,
+		Line:    d.Line,
+		Column:  d.Column,
+	})
+	return &ex
+}
+
+func enrichSuggestedFixDiags(diags []normalizer.Warning) []normalizer.Warning {
+	for i := range diags {
+		d := &diags[i]
+		for fi := range d.SuggestedFix {
+			fx := &d.SuggestedFix[fi]
+			if strings.TrimSpace(fx.File) == "" {
+				fx.File = d.File
+			}
+			if strings.TrimSpace(fx.CUEPath) == "" {
+				fx.CUEPath = d.CUEPath
+			}
+			if strings.TrimSpace(fx.Op) == "" {
+				if strings.TrimSpace(fx.Kind) != "" {
+					fx.Op = fx.Kind
+				} else if fx.Value != nil {
+					fx.Op = "merge"
+				}
+			}
+		}
+		d.CanAutoApply = d.CanAutoApply && isSafeAutoFixCode(d.Code) && strings.TrimSpace(d.File) != "" && d.Line > 0
+	}
+	return diags
+}
+
+func isSafeAutoFixCode(code string) bool {
+	switch strings.TrimSpace(code) {
+	case "UNKNOWN_ACTION", "E_FLOW_UNKNOWN_ACTION", "W_FLOW_HTTP_NO_TIMEOUT", "NEEDS_QUOTES":
+		return true
+	default:
+		return false
+	}
+}
+
+func rewriteDiagnosticSources(diags []normalizer.Warning, services []normalizer.Service) []normalizer.Warning {
+	sources := buildOperationSourceIndex(services)
+	for i := range diags {
+		d := &diags[i]
+		src, ok := sources[strings.ToLower(strings.TrimSpace(d.Op))]
+		if !ok {
+			continue
+		}
+		if shouldOverrideDiagnosticFile(d.File) {
+			d.File = src.File
+			if src.Line > 0 {
+				d.Line = src.Line
+			}
+			if src.Column > 0 {
+				d.Column = src.Column
+			}
+		}
+		for fi := range d.SuggestedFix {
+			fx := &d.SuggestedFix[fi]
+			if shouldOverrideDiagnosticFile(fx.File) {
+				fx.File = src.File
+			}
+		}
+	}
+	return diags
+}
+
+func applyVetFixes(projectPath string, diags []normalizer.Warning) ([]string, error) {
+	root := strings.TrimSpace(projectPath)
+	if root == "" {
+		root = "."
+	}
+	attempted := 0
+	applied := 0
+	seen := make(map[string]struct{})
+	for _, d := range diags {
+		if !d.CanAutoApply || len(d.SuggestedFix) == 0 {
+			continue
+		}
+		for _, fx := range d.SuggestedFix {
+			op := strings.ToLower(strings.TrimSpace(fx.Op))
+			if op == "" {
+				op = strings.ToLower(strings.TrimSpace(fx.Kind))
+			}
+			if op != "merge" && op != "replace" {
+				continue
+			}
+			key := fmt.Sprintf("%s|%d|%s|%s|%s", strings.TrimSpace(d.File), d.Line, d.Code, d.Action, op)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			attempted++
+			changed, err := applyStructuredFix(root, d, fx)
+			if err != nil {
+				return nil, err
+			}
+			if changed {
+				applied++
+			}
+		}
+	}
+	if attempted == 0 {
+		return []string{"Ops vet --fix: no auto-fixable diagnostics detected."}, nil
+	}
+	return []string{fmt.Sprintf("Ops vet --fix: applied %d/%d suggested fix(es).", applied, attempted)}, nil
+}
+
+func applyStructuredFix(root string, d normalizer.Warning, fx normalizer.Fix) (bool, error) {
+	path := resolveDoctorPath(root, firstNonEmptyString(fx.File, d.File))
+	if strings.TrimSpace(path) == "" {
+		return false, nil
+	}
+	if !isSafeVetFixPath(path) {
+		return false, nil
+	}
+	aroundLine := d.Line
+	if aroundLine <= 0 {
+		return false, nil
+	}
+	valueMap, _ := fx.Value.(map[string]any)
+	if len(valueMap) == 0 {
+		return false, nil
 	}
 
-	if *asJSON {
-		if diags == nil {
-			diags = []normalizer.Warning{}
+	if toAction, ok := valueMap["action"].(string); ok && strings.TrimSpace(toAction) != "" {
+		from := strings.TrimSpace(d.Action)
+		if from == "" {
+			from = extractActionFromMessage(d.Message)
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(vetDiagsEnvelope{
-			Schema:      "ang/diags/v1",
-			Valid:       !hasErrors,
-			Diagnostics: diags,
-		})
-		if hasErrors {
-			os.Exit(1)
+		if from == "" {
+			before := strings.TrimSpace(fx.Before)
+			re := regexp.MustCompile(`action:\s*"([^"]+)"`)
+			if m := re.FindStringSubmatch(before); len(m) == 2 {
+				from = strings.TrimSpace(m[1])
+			}
 		}
-		return
+		if from == "" {
+			return false, nil
+		}
+		return replaceActionNearLine(path, aroundLine, from, strings.TrimSpace(toAction))
 	}
 
-	emitDiagnostics(os.Stderr, diags)
-	if hasErrors {
-		fmt.Println("Vet FAILED.")
-		os.Exit(1)
+	if timeout, ok := valueMap["timeout"].(string); ok {
+		return addOrReplaceStepFieldNearLine(path, aroundLine, d.Action, "timeout", timeout)
 	}
-	fmt.Println("Vet OK.")
+
+	if assignValue, ok := valueMap["value"].(string); ok && strings.EqualFold(strings.TrimSpace(d.Action), "mapping.Assign") {
+		return replaceAssignValueNearLine(path, aroundLine, assignValue)
+	}
+	return false, nil
+}
+
+func addOrReplaceStepFieldNearLine(path string, aroundLine int, action, field, value string) (bool, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	lines := strings.Split(string(raw), "\n")
+	idx := nearestActionLine(lines, aroundLine, action)
+	if idx < 0 {
+		return false, nil
+	}
+	if strings.Contains(lines[idx], field+":") {
+		return false, nil
+	}
+	pos := strings.LastIndex(lines[idx], "}")
+	quoted := strconv.Quote(value)
+	if pos >= 0 {
+		lines[idx] = lines[idx][:pos] + ", " + field + ": " + quoted + lines[idx][pos:]
+		return true, os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644)
+	}
+
+	indent := leadingWhitespace(lines[idx])
+	inserted := indent + "\t" + field + ": " + quoted
+	lines = append(lines[:idx+1], append([]string{inserted}, lines[idx+1:]...)...)
+	return true, os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644)
+}
+
+func replaceAssignValueNearLine(path string, aroundLine int, newValue string) (bool, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	lines := strings.Split(string(raw), "\n")
+	idx := nearestActionLine(lines, aroundLine, "mapping.Assign")
+	if idx < 0 {
+		return false, nil
+	}
+	reValue := regexp.MustCompile(`value:\s*"([^"\\]|\\.)*"`)
+	replaced := false
+	quoted := strconv.Quote(newValue)
+	end := idx + 6
+	if end >= len(lines) {
+		end = len(lines) - 1
+	}
+	for i := idx; i <= end; i++ {
+		if !strings.Contains(lines[i], "value:") {
+			continue
+		}
+		next := reValue.ReplaceAllString(lines[i], "value: "+quoted)
+		if next == lines[i] {
+			continue
+		}
+		lines[i] = next
+		replaced = true
+		break
+	}
+	if !replaced {
+		return false, nil
+	}
+	return true, os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644)
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func isSafeVetFixPath(path string) bool {
+	clean := filepath.ToSlash(strings.TrimSpace(path))
+	if clean == "" {
+		return false
+	}
+	return strings.Contains(clean, "/cue/api/") || strings.HasPrefix(clean, "cue/api/")
+}
+
+type diagSource struct {
+	File   string
+	Line   int
+	Column int
+}
+
+func buildOperationSourceIndex(services []normalizer.Service) map[string]diagSource {
+	out := make(map[string]diagSource)
+	for _, svc := range services {
+		for _, method := range svc.Methods {
+			key := strings.ToLower(strings.TrimSpace(svc.Name) + "." + strings.TrimSpace(method.Name))
+			file, line, column := parseSourceLocation(method.Source)
+			if file == "" {
+				continue
+			}
+			out[key] = diagSource{File: file, Line: line, Column: column}
+		}
+	}
+	return out
+}
+
+func parseSourceLocation(src string) (string, int, int) {
+	raw := strings.TrimSpace(src)
+	if raw == "" {
+		return "", 0, 0
+	}
+	parts := strings.Split(raw, ":")
+	if len(parts) < 2 {
+		return raw, 0, 0
+	}
+	line, _ := strconv.Atoi(strings.TrimSpace(parts[len(parts)-1]))
+	file := strings.Join(parts[:len(parts)-1], ":")
+	return file, line, 0
+}
+
+func shouldOverrideDiagnosticFile(path string) bool {
+	clean := filepath.ToSlash(strings.TrimSpace(path))
+	if clean == "" {
+		return true
+	}
+	return strings.Contains(clean, "/cue/schema/") || strings.HasPrefix(clean, "cue/schema/")
 }

@@ -217,9 +217,14 @@ func handleFlowDataAndCalls(
 		statusValues := map[string]bool{"draft": true, "active": true, "pending": true, "published": true, "closed": true, "approved": true, "rejected": true, "cancelled": true}
 		if value != "" && !strings.Contains(value, "\"") && !strings.Contains(value, ".") && !strings.Contains(value, "(") {
 			if statusValues[strings.ToLower(value)] {
+				quoted := "\"" + value + "\""
 				addWarn(stepNum, step.Action, "NEEDS_QUOTES", fmt.Sprintf("mapping.Assign '%s' needs quotes: \"\\\"%s\\\"\"", value, value), "{action: \"mapping.Assign\", to: \"x.Status\", value: \"\\\""+value+"\\\"\"}", step.File, step.Line, step.Column, Fix{
-					Kind: "replace",
-					Text: "\"" + value + "\"",
+					Kind:   "replace",
+					Op:     "merge",
+					Value:  map[string]any{"value": quoted},
+					Text:   quoted,
+					Before: value,
+					After:  quoted,
 				})
 			}
 		}
@@ -230,7 +235,7 @@ func handleFlowDataAndCalls(
 		payload, _ := step.Args["payload"].(string)
 		payloadMap := flowStringMap(step.Args["payloadMap"])
 		if payload != "" {
-			addWarnWithSeverity(stepNum, step.Action, "EVENT_PUBLISH_RAW_PAYLOAD_FORBIDDEN", "warn", "event.Publish raw 'payload' is not allowed; use payloadMap", "{action: \"event.Publish\", name: \""+name+"\", payloadMap: { TenderID: \"req.TenderID\" }}", step.File, step.Line, step.Column)
+			addWarnWithSeverity(stepNum, step.Action, "EVENT_PUBLISH_RAW_PAYLOAD_FORBIDDEN", "warn", "event.Publish raw 'payload' is not allowed; use payloadMap", "{action: \"event.Publish\", name: \""+name+"\", payloadMap: { id: \"req.ID\" }}", step.File, step.Line, step.Column)
 		}
 		for field, expr := range payloadMap {
 			field = strings.TrimSpace(field)
@@ -388,7 +393,7 @@ func handleFlowDataAndCalls(
 		opRaw, _ := step.Args["op"].(string)
 		opRaw = strings.TrimSpace(opRaw)
 		if opRaw == "" {
-			addWarn(stepNum, step.Action, "MISSING_OP", "flow.Call missing 'op'", "{action: \"flow.Call\", op: \"ValidateTenderForBid\", args: {tenderID: \"req.TenderID\"}}", step.File, step.Line, step.Column)
+			addWarn(stepNum, step.Action, "MISSING_OP", "flow.Call missing 'op'", "{action: \"flow.Call\", op: \"ValidateProject\", args: {id: \"req.ID\"}}", step.File, step.Line, step.Column)
 			return true
 		}
 
@@ -400,7 +405,7 @@ func handleFlowDataAndCalls(
 			targetMethod = strings.TrimSpace(parts[1])
 		}
 		if targetMethod == "" {
-			addWarn(stepNum, step.Action, "INVALID_OP", "flow.Call op must be MethodName or ServiceName.MethodName", "{action: \"flow.Call\", op: \"Tender.ValidateTenderForBid\"}", step.File, step.Line, step.Column)
+			addWarn(stepNum, step.Action, "INVALID_OP", "flow.Call op must be MethodName or ServiceName.MethodName", "{action: \"flow.Call\", op: \"Sandbox.ValidateProject\"}", step.File, step.Line, step.Column)
 		}
 		if targetService != "" {
 			dep := strings.ToLower(normalizeServiceName(targetService))
@@ -425,7 +430,7 @@ func handleFlowDataAndCalls(
 					}
 				}
 			default:
-				addWarn(stepNum, step.Action, "INVALID_ARGS_TYPE", "flow.Call args must be map[string]string", "{action: \"flow.Call\", op: \"ValidateTenderForBid\", args: {tenderID: \"req.TenderID\"}}", step.File, step.Line, step.Column)
+				addWarn(stepNum, step.Action, "INVALID_ARGS_TYPE", "flow.Call args must be map[string]string", "{action: \"flow.Call\", op: \"ValidateProject\", args: {id: \"req.ID\"}}", step.File, step.Line, step.Column)
 			}
 		}
 		if output, _ := step.Args["output"].(string); output != "" {

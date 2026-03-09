@@ -30,6 +30,7 @@ const (
 
 // runSemanticLints checks higher-level rules that the CUE schema and flowsem
 // engine do not cover. It operates on already-normalized service definitions.
+// L2: per-step lints. L3: cross-step graph (chain) lints via runChainLints.
 func runSemanticLints(services []normalizer.Service, endpoints []normalizer.Endpoint, profile lintProfile) []normalizer.Warning {
 	var out []normalizer.Warning
 	endpointByOp := buildEndpointIndex(endpoints)
@@ -48,6 +49,8 @@ func runSemanticLints(services []normalizer.Service, endpoints []normalizer.Endp
 			}
 		}
 	}
+	// L3: graph-level chain lints.
+	out = append(out, runChainLints(services, endpoints, profile)...)
 	return out
 }
 
@@ -92,18 +95,27 @@ func lintHTTPNoTimeout(opPath string, flow []normalizer.FlowStep, profile lintPr
 			return
 		}
 		out = append(out, normalizer.Warning{
-			Kind:     "semantic",
-			Code:     codeHTTPNoTimeout,
-			Severity: severityForProfile(codeHTTPNoTimeout, profile, "warn"),
-			Message:  fmt.Sprintf("'%s' at flow[%d] has no timeout — external HTTP calls can hang indefinitely", step.Action, i),
-			Op:       opPath,
-			Step:     i,
-			Action:   step.Action,
-			File:     step.File,
-			Line:     step.Line,
-			Column:   step.Column,
-			CUEPath:  stepPath(opPath, step, i),
-			Hint:     `Add timeout: "5s" (or appropriate value) to the step args. Example: {action: "http.Request", url: "...", timeout: "5s"}`,
+			Kind:         "semantic",
+			Code:         codeHTTPNoTimeout,
+			Severity:     severityForProfile(codeHTTPNoTimeout, profile, "warn"),
+			Message:      fmt.Sprintf("'%s' at flow[%d] has no timeout — external HTTP calls can hang indefinitely", step.Action, i),
+			Op:           opPath,
+			Step:         i,
+			Action:       step.Action,
+			File:         step.File,
+			Line:         step.Line,
+			Column:       step.Column,
+			CUEPath:      stepPath(opPath, step, i),
+			Hint:         `Add timeout: "5s" (or appropriate value) to the step args. Example: {action: "http.Request", url: "...", timeout: "5s"}`,
+			CanAutoApply: true,
+			SuggestedFix: []normalizer.Fix{{
+				Kind:    "merge",
+				Op:      "merge",
+				File:    step.File,
+				CUEPath: stepPath(opPath, step, i),
+				Value:   map[string]any{"timeout": "5s"},
+				After:   `timeout: "5s"`,
+			}},
 		})
 	})
 	return out
@@ -131,6 +143,8 @@ func lintOutboxPreferred(opPath string, flow []normalizer.FlowStep, profile lint
 	hasDBWrite := false
 	hasPublish := false
 	hasOutbox := false
+	firstPublishIdx := 0
+	var firstPublish normalizer.FlowStep
 
 	walkFlow(flow, false, false, func(step normalizer.FlowStep, i int, inTx bool, inTimeout bool) {
 		if dbWriteActions[step.Action] {
@@ -138,6 +152,10 @@ func lintOutboxPreferred(opPath string, flow []normalizer.FlowStep, profile lint
 		}
 		if step.Action == "event.Publish" || step.Action == "event.Broadcast" {
 			hasPublish = true
+			if firstPublishIdx == 0 && step.Action == "event.Publish" {
+				firstPublishIdx = i
+				firstPublish = step
+			}
 		}
 		if outboxActions[step.Action] {
 			hasOutbox = true
@@ -145,14 +163,46 @@ func lintOutboxPreferred(opPath string, flow []normalizer.FlowStep, profile lint
 	})
 
 	if hasDBWrite && hasPublish && !hasOutbox {
+		cuePath := opPath + ".flow"
+		file := ""
+		line := 0
+		column := 0
+		step := 0
+		action := ""
+		fixes := []normalizer.Fix(nil)
+		canAutoApply := false
+		if firstPublishIdx > 0 {
+			cuePath = stepPath(opPath, firstPublish, firstPublishIdx)
+			file = firstPublish.File
+			line = firstPublish.Line
+			column = firstPublish.Column
+			step = firstPublishIdx
+			action = firstPublish.Action
+			fixes = []normalizer.Fix{{
+				Kind:    "replace",
+				Op:      "merge",
+				File:    file,
+				CUEPath: cuePath,
+				Value:   map[string]any{"action": "event.Outbox"},
+				Before:  `action: "event.Publish"`,
+				After:   `action: "event.Outbox"`,
+			}}
+		}
 		return []normalizer.Warning{{
-			Kind:     "semantic",
-			Code:     codeOutboxPreferred,
-			Severity: severityForProfile(codeOutboxPreferred, profile, "warn"),
-			Message:  "flow writes to DB and publishes an event without the outbox pattern — event may be lost on crash between the DB commit and the publish",
-			Op:       opPath,
-			CUEPath:  opPath + ".flow",
-			Hint:     "Use event.Outbox inside tx.Block instead of event.Publish. This ensures the event is stored atomically with the DB write and delivered at-least-once.",
+			Kind:         "semantic",
+			Code:         codeOutboxPreferred,
+			Severity:     severityForProfile(codeOutboxPreferred, profile, "warn"),
+			Message:      "flow writes to DB and publishes an event without the outbox pattern — event may be lost on crash between the DB commit and the publish",
+			Op:           opPath,
+			Step:         step,
+			Action:       action,
+			File:         file,
+			Line:         line,
+			Column:       column,
+			CUEPath:      cuePath,
+			Hint:         "Use event.Outbox inside tx.Block instead of event.Publish. This ensures the event is stored atomically with the DB write and delivered at-least-once.",
+			CanAutoApply: canAutoApply,
+			SuggestedFix: fixes,
 		}}
 	}
 	return nil
@@ -513,6 +563,21 @@ func enrichUnknownActionDiags(diags []normalizer.Warning) []normalizer.Warning {
 		diags[i].Allowed = similar
 		if diags[i].Hint == "" {
 			diags[i].Hint = fmt.Sprintf("Did you mean '%s'? Run 'ang actions --json' for the full catalog.", similar[0])
+		}
+		diags[i].CanAutoApply = diags[i].Line > 0 && strings.TrimSpace(diags[i].File) != ""
+		if len(diags[i].SuggestedFix) == 0 {
+			unknown := strings.TrimSpace(action)
+			replacement := strings.TrimSpace(similar[0])
+			diags[i].SuggestedFix = []normalizer.Fix{{
+				Kind:      "replace",
+				Op:        "merge",
+				File:      diags[i].File,
+				CUEPath:   diags[i].CUEPath,
+				Value:     map[string]any{"action": replacement},
+				Before:    fmt.Sprintf(`action: %q`, unknown),
+				After:     fmt.Sprintf(`action: %q`, replacement),
+				Rationale: "replace unknown action with closest canonical action",
+			}}
 		}
 	}
 	return diags

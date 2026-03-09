@@ -58,7 +58,7 @@ func TestLintHTTPNoTimeout_WithTimeout(t *testing.T) {
 
 func TestLintHTTPNoTimeout_Missing(t *testing.T) {
 	flow := []normalizer.FlowStep{
-		{Action: "http.Request", Args: map[string]any{"url": "https://api.example.com"}},
+		{Action: "http.Request", File: "cue/api/users.cue", Line: 12, Args: map[string]any{"url": "https://api.example.com"}},
 	}
 	got := lintHTTPNoTimeout("users.CreateUser", flow, lintProfileMini)
 	if len(got) != 1 {
@@ -73,6 +73,15 @@ func TestLintHTTPNoTimeout_Missing(t *testing.T) {
 	}
 	if w.Step != 1 {
 		t.Errorf("step = %d, want 1", w.Step)
+	}
+	if !w.CanAutoApply {
+		t.Errorf("expected CanAutoApply=true")
+	}
+	if len(w.SuggestedFix) == 0 {
+		t.Fatalf("expected suggested_fix")
+	}
+	if w.SuggestedFix[0].Op != "merge" {
+		t.Errorf("suggested_fix[0].op=%q, want merge", w.SuggestedFix[0].Op)
 	}
 }
 
@@ -135,7 +144,7 @@ func TestLintOutboxPreferred_WithOutbox(t *testing.T) {
 func TestLintOutboxPreferred_Triggers(t *testing.T) {
 	flow := []normalizer.FlowStep{
 		{Action: "repo.Save"},
-		{Action: "event.Publish"},
+		{Action: "event.Publish", File: "cue/api/users.cue", Line: 14},
 	}
 	got := lintOutboxPreferred("users.CreateUser", flow, lintProfileMini)
 	if len(got) != 1 {
@@ -147,6 +156,12 @@ func TestLintOutboxPreferred_Triggers(t *testing.T) {
 	}
 	if w.Severity != "warn" {
 		t.Errorf("severity = %q, want warn", w.Severity)
+	}
+	if w.CanAutoApply {
+		t.Errorf("expected outbox lint to stay manual")
+	}
+	if len(w.SuggestedFix) == 0 {
+		t.Fatalf("expected suggested_fix for manual guidance")
 	}
 }
 
@@ -358,6 +373,9 @@ func TestEnrichUnknownActionDiags_AddsHint(t *testing.T) {
 			Code:    "E_FLOW_UNKNOWN_ACTION",
 			Message: "Unknown action 'http.Reqeust'",
 			Action:  "http.Reqeust",
+			File:    "cue/api/users.cue",
+			Line:    10,
+			CUEPath: "api.CreateUser.flow[0]",
 		},
 	}
 	enriched := enrichUnknownActionDiags(diags)
@@ -370,6 +388,15 @@ func TestEnrichUnknownActionDiags_AddsHint(t *testing.T) {
 	// hint should contain "Did you mean"
 	if !containsCI(enriched[0].Hint, "did you mean") {
 		t.Errorf("hint %q should contain 'Did you mean'", enriched[0].Hint)
+	}
+	if !enriched[0].CanAutoApply {
+		t.Errorf("expected CanAutoApply=true")
+	}
+	if len(enriched[0].SuggestedFix) == 0 {
+		t.Fatalf("expected suggested_fix")
+	}
+	if enriched[0].SuggestedFix[0].Op != "merge" {
+		t.Errorf("suggested_fix[0].op=%q, want merge", enriched[0].SuggestedFix[0].Op)
 	}
 }
 
