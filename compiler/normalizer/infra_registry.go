@@ -12,6 +12,7 @@ import (
 const (
 	InfraKeyConfig               = "config"
 	InfraKeyAuth                 = "auth"
+	InfraKeyModels               = "models"
 	InfraKeyEffectHandlers       = "effect_handlers"
 	InfraKeyEffectTestHandlers   = "effect_test_handlers"
 	InfraKeyEffectMiddleware     = "effect_middleware"
@@ -188,6 +189,11 @@ func InfraAuth(values map[string]any) *AuthDef {
 	return def
 }
 
+func InfraModels(values map[string]any) *ModelsDef {
+	def, _ := values[InfraKeyModels].(*ModelsDef)
+	return def
+}
+
 func InfraEffectHandlers(values map[string]any) *EffectHandlersDef {
 	def, _ := values[InfraKeyEffectHandlers].(*EffectHandlersDef)
 	return def
@@ -259,6 +265,17 @@ func init() {
 				Name:     "Python Auth Stores",
 				Requires: []string{"profile_python_fastapi", "auth"},
 			},
+		},
+	})
+
+	Register(InfraKeyModels, InfraDef{
+		CUEPath:   "#Models",
+		Type:      reflect.TypeOf(ModelsDef{}),
+		Template:  "models",
+		ErrorCode: infraErrCodeConfigParse,
+		ErrorOp:   "extract models",
+		Extractor: func(n *Normalizer, v cue.Value) (any, error) {
+			return n.ExtractModels(v)
 		},
 	})
 

@@ -468,6 +468,35 @@ func TestRenderFlow_NewResilienceActions(t *testing.T) {
 	}
 }
 
+func TestRenderFlow_TryPredeclaresFsTempDirAsString(t *testing.T) {
+	steps := []normalizer.FlowStep{
+		{Action: "flow.Try", Args: map[string]any{
+			"_do": []normalizer.FlowStep{
+				{Action: "fs.TempDir", Args: map[string]any{"output": "previewDir"}},
+				{Action: "cue.WriteProjectFiles", Args: map[string]any{"root": "previewDir", "files": "projectFiles", "output": "previewWrite"}},
+				{Action: "str.Concat", Args: map[string]any{"output": "previewMainPath", "parts": []string{"previewDir", `"/cue/main.cue"`}}},
+				{Action: "fs.Remove", Args: map[string]any{"path": "previewDir"}},
+			},
+			"_catch": []normalizer.FlowStep{
+				{Action: "flow.ExplainError", Args: map[string]any{"output": "streamErrorInfo"}},
+			},
+		}},
+	}
+
+	code := renderFlow(steps)
+	mustContain := []string{
+		"var previewDir string",
+		"previewDir = _tmpDir_",
+		"filepath.Clean(previewDir)",
+		"os.RemoveAll(previewDir)",
+	}
+	for _, part := range mustContain {
+		if !strings.Contains(code, part) {
+			t.Fatalf("expected generated code to contain %q\n\n%s", part, code)
+		}
+	}
+}
+
 func TestRenderFlow_DeterministicHistoryActions(t *testing.T) {
 	steps := []normalizer.FlowStep{
 		{Action: "flow.RecordEvent", Args: map[string]any{"name": `"project.created"`, "payload": "req", "output": "evt"}},

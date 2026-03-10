@@ -24,7 +24,7 @@ if req.ok {
 try {
   openai.Chat(user_message: req.message, output: reply)
 } catch {
-  mapping.Assign(to: status, value: "fallback")
+  mapping.Assign(to: status, value: "\"fallback\"")
 }
 `)
 	require.NoError(t, err)
@@ -33,8 +33,9 @@ try {
 	require.Equal(t, "flow.If", steps[3].Action)
 	require.Equal(t, "flow.Try", steps[4].Action)
 
-	thenSteps, ok := steps[3].Args["_then"].([]Step)
-	require.True(t, ok)
+	thenSteps := steps[3].Children["_then"]
 	require.Len(t, thenSteps, 1)
 	require.Equal(t, "tx.Block", thenSteps[0].Action)
+	require.Len(t, thenSteps[0].Children["_do"], 1)
+	require.Equal(t, "db.Lock", thenSteps[0].Children["_do"][0].Action)
 }

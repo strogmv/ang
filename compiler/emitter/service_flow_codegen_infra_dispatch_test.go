@@ -78,6 +78,7 @@ func TestRenderFlowStepInfra_DispatchHandlesKnownActions(t *testing.T) {
 		{name: "budget_consume", step: normalizer.FlowStep{Action: "budget.Consume", Args: map[string]any{"key": "req.UserID", "tokens": "reply.TokensUsed"}}},
 		{name: "context_trim", step: normalizer.FlowStep{Action: "context.Trim", Args: map[string]any{"input": "project.CueContent", "output": "trimmedCue", "max_bytes": 12000}}},
 		{name: "profile_require", step: normalizer.FlowStep{Action: "profile.Require", Args: map[string]any{"key": "req.UserID", "tier": `"ops"`}}},
+		{name: "stream_emit", step: normalizer.FlowStep{Action: "stream.Emit", Args: map[string]any{"data": "eventJSON"}}},
 		{name: "plan_build_automata", step: normalizer.FlowStep{Action: "plan.BuildAutomata", Args: map[string]any{"input": "usecasesDoc", "output": "automataDoc"}}},
 		{name: "plan_build_micro_plan", step: normalizer.FlowStep{Action: "plan.BuildMicroPlan", Args: map[string]any{"usecases": "usecasesDoc", "automata": "automataDoc", "output": "microPlanDoc"}}},
 		{name: "cue_emit_project", step: normalizer.FlowStep{Action: "cue.EmitProject", Args: map[string]any{"usecases": "usecasesDoc", "micro_plan": "microPlanDoc", "output": "projectFiles"}}},

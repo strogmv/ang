@@ -1,5 +1,9 @@
 package flowsem
 
+// flowsem is the public facade for effect logos used by validators and tests.
+// The canonical registry lives in compiler/effects so flow semantics, flowfn,
+// and normalizer do not drift apart.
+
 import sharedeffects "github.com/strogmv/ang/compiler/effects"
 
 type EffectKind = sharedeffects.EffectKind

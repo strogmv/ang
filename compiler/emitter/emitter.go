@@ -47,9 +47,10 @@ type Emitter struct {
 	InputHash                string
 	CompilerHash             string
 	GoModule                 string // Go module path for imports
-	NatsWorkers              int    // max concurrent NATS handlers per subscriber (from target.nats_workers)
-	NatsPublishRetryAttempts int    // retry attempts on publish failure (from target.nats_publish_retry_attempts)
-	NatsPublishRetryDelayMS  int    // initial backoff ms for publish retry (from target.nats_publish_retry_delay_ms)
+	InfraValues              map[string]any
+	NatsWorkers              int // max concurrent NATS handlers per subscriber (from target.nats_workers)
+	NatsPublishRetryAttempts int // retry attempts on publish failure (from target.nats_publish_retry_attempts)
+	NatsPublishRetryDelayMS  int // initial backoff ms for publish retry (from target.nats_publish_retry_delay_ms)
 	MissingImpls             []MissingImpl
 	missingImplIndex         map[string]struct{}
 }

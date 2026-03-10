@@ -3,7 +3,7 @@ package normalizer
 import (
 	"testing"
 
-	sharedeffects "github.com/strogmv/ang/compiler/effects"
+	"github.com/strogmv/ang/compiler/flowsem"
 )
 
 func TestValidateStep_MissingEffectPrerequisite(t *testing.T) {
@@ -20,8 +20,8 @@ func TestValidateStep_MissingEffectPrerequisite(t *testing.T) {
 func TestValidateStep_ExternalEffectInTx(t *testing.T) {
 	t.Parallel()
 	es := NewEffectSet()
-	es.Tags[sharedeffects.RequireTxOpen] = true
-	es.Tags[sharedeffects.RequireRateChecked] = true
+	es.Tags[flowsem.RequireTxOpen] = true
+	es.Tags[flowsem.RequireRateChecked] = true
 	errs := ValidateStep(FlowStep{Action: "http.Request"}, es)
 	if len(errs) == 0 {
 		t.Fatalf("expected tx incompatibility error")
@@ -78,5 +78,68 @@ func TestValidateFlowEffects_SequentialTagsAccumulate(t *testing.T) {
 	})
 	if len(warns) != 0 {
 		t.Fatalf("unexpected warnings: %+v", warns)
+	}
+}
+
+func TestValidateStep_UndeclaredFlowVar(t *testing.T) {
+	t.Parallel()
+	es := NewEffectSet()
+	es.Tags[flowsem.RequireQuotaChecked] = true
+	es.Tags[flowsem.RequireBudgetChecked] = true
+	errs := ValidateStep(FlowStep{Action: "openai.Chat", Args: map[string]any{"model": "gptModel", "user_message": "req.Prompt"}}, es)
+	found := false
+	for _, err := range errs {
+		if err.Code == "UNDECLARED_FLOW_VAR" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected UNDECLARED_FLOW_VAR, got %+v", errs)
+	}
+}
+
+func TestValidateFlowEffects_FlowForLocalVarScope(t *testing.T) {
+	t.Parallel()
+	warns := validateFlowEffects("Sandbox.Iterate", []FlowStep{
+		{Action: "list.New", Args: map[string]any{"output": "items"}},
+		{
+			Action: "flow.For",
+			Args: map[string]any{
+				"each": "items",
+				"as":   "item",
+				"_do": []FlowStep{{
+					Action: "mapping.Assign",
+					Args:   map[string]any{"to": "resp.CurrentID", "value": "item.ID"},
+				}},
+			},
+		},
+	})
+	if len(warns) != 0 {
+		t.Fatalf("unexpected warnings: %+v", warns)
+	}
+}
+
+func TestValidateFlowEffects_BranchVarDoesNotLeak(t *testing.T) {
+	t.Parallel()
+	warns := validateFlowEffects("Sandbox.BranchLeak", []FlowStep{
+		{
+			Action: "flow.If",
+			Args: map[string]any{
+				"condition": "req.Enabled",
+				"_then":     []FlowStep{{Action: "session.Get", Args: map[string]any{"output": "sessionID"}}},
+			},
+		},
+		{Action: "quota.Check", Args: map[string]any{"key": "sessionID", "limit": 1, "window": "day"}},
+	})
+	found := false
+	for _, warn := range warns {
+		if warn.Code == "UNDECLARED_FLOW_VAR" && warn.Action == "quota.Check" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected UNDECLARED_FLOW_VAR for branch-local sessionID leak, got %+v", warns)
 	}
 }

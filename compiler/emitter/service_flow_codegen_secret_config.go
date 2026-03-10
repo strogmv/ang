@@ -36,6 +36,33 @@ func renderFlowStepSecretConfig(st *flowRenderState, step normalizer.FlowStep, i
 		}
 
 		return b.String(), true
+	case "model.Resolve":
+		name := arg("name")
+		output := arg("output")
+		defVal := arg("default")
+
+		st.declared[output] = true
+		st.pointers[output] = false
+		st.types[output] = "string"
+
+		pad := strings.Repeat("\t", indent)
+		var b strings.Builder
+
+		models := normalizer.InfraModels(st.infraValues)
+		if models != nil {
+			if alias := strings.Trim(name, "\""); alias != "" {
+				if resolved := strings.TrimSpace(models.Aliases[alias]); resolved != "" {
+					b.WriteString(fmt.Sprintf("%svar %s string = %q\n", pad, output, resolved))
+					return b.String(), true
+				}
+			}
+		}
+		if defVal != "" {
+			b.WriteString(fmt.Sprintf("%svar %s string = %s\n", pad, output, defVal))
+			return b.String(), true
+		}
+		b.WriteString(fmt.Sprintf("%sreturn fmt.Errorf(\"model.Resolve: unknown model alias %%s\", %s)\n", pad, name))
+		return b.String(), true
 	}
 	return "", false
 }

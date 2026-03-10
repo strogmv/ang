@@ -52,6 +52,8 @@ func TestEmitTestContainerFromIR(t *testing.T) {
 		"UserRepository        *mock.MockUserRepository",
 		"RefreshTokenStore     *mock.MockRefreshTokenStore",
 		"func NewTestContainer(",
+		"func NewTestContainerWith(opts ...TestOption) *TestContainer",
+		"return NewTestContainer(opts...)",
 		"c.Effects = NewTestEffectRegistry(",
 		"service.NewAuthImpl(",
 	} {

@@ -260,7 +260,20 @@ RefConfigGet: schema.#Operation & {
 }
 
 // ----------------------------------------------------------------------------
-// REF EXAMPLE 1018: crypto.Decrypt
+// REF EXAMPLE 1018: model.Resolve
+// ----------------------------------------------------------------------------
+RefModelResolve: schema.#Operation & {
+	service: "reference"
+	input: { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "model.Resolve", name: "\"Cheap\"", output: "result"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 1019: crypto.Decrypt
 // ----------------------------------------------------------------------------
 RefCryptoDecrypt: schema.#Operation & {
 	service: "reference"
@@ -1652,6 +1665,19 @@ RefSessionGet: schema.#Operation & {
 
 // ----------------------------------------------------------------------------
 // REF EXAMPLE 1124: slo.Budget
+// ----------------------------------------------------------------------------
+RefStreamEmit: schema.#Operation & {
+	service: "reference"
+	stream:  true
+	input: { id: string }
+	output: {}
+	flow: [
+		{action: "stream.Emit", data: "\"{\\\"type\\\":\\\"stage\\\"}\""},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 1125: slo.Budget
 // ----------------------------------------------------------------------------
 RefSloBudget: schema.#Operation & {
 	service: "reference"

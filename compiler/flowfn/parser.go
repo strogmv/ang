@@ -12,21 +12,52 @@ type parser struct {
 	pos    int
 }
 
+type ParseOptions struct {
+	InStreamingMethod bool
+	ValidateSemantics bool
+}
+
 func Parse(source string) (Program, error) {
+	return ParseWithOptions(source, ParseOptions{})
+}
+
+func ParseWithOptions(source string, opts ParseOptions) (Program, error) {
 	tokens, err := lex(source)
 	if err != nil {
 		return Program{}, err
 	}
 	p := &parser{source: source, tokens: tokens}
-	return p.parseProgram(tokenEOF)
+	prog, err := p.parseProgram(tokenEOF)
+	if err != nil {
+		return Program{}, err
+	}
+	if opts.ValidateSemantics {
+		if err := ValidateDiagnostics(ValidateProgramWithOptions(prog, ValidateOptions{InStreamingMethod: opts.InStreamingMethod})); err != nil {
+			return Program{}, err
+		}
+	}
+	return prog, nil
 }
 
 func ParseAndExpand(source string) (Program, error) {
+	return ParseAndExpandWithOptions(source, ParseOptions{})
+}
+
+func ParseAndExpandWithOptions(source string, opts ParseOptions) (Program, error) {
 	prog, err := Parse(source)
 	if err != nil {
 		return Program{}, err
 	}
-	return ExpandFragments(prog)
+	expanded, err := ExpandFragments(prog)
+	if err != nil {
+		return Program{}, err
+	}
+	if opts.ValidateSemantics {
+		if err := ValidateDiagnostics(ValidateProgramWithOptions(expanded, ValidateOptions{InStreamingMethod: opts.InStreamingMethod})); err != nil {
+			return Program{}, err
+		}
+	}
+	return expanded, nil
 }
 
 func (p *parser) parseProgram(stop tokenKind) (Program, error) {

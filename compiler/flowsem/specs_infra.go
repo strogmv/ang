@@ -50,6 +50,9 @@ var specsInfra = map[string]Spec{
 	"cue.EmitProject": {
 		RequiredArgs:     []string{"usecases", "micro_plan", "output"},
 		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"layout": ArgKindString,
+		},
 	},
 	"cue.ValidateProject": {
 		RequiredArgs:     []string{"files", "output"},
@@ -552,6 +555,17 @@ var specsInfra = map[string]Spec{
 		OptionalArgKinds: map[string]ArgKind{
 			"default": ArgKindString,
 		},
+	},
+	"model.Resolve": {
+		RequiredArgs:     []string{"name", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"default": ArgKindString,
+		},
+	},
+	"stream.Emit": {
+		RequiredArgs:      []string{"data"},
+		RequiresStreaming: true,
 	},
 	"jwt.Sign": {
 		RequiredArgs:     []string{"claims", "output"},

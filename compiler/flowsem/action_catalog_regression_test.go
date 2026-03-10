@@ -15,6 +15,7 @@ func TestActionCatalog_RegressionActionsAreRegisteredAndKnown(t *testing.T) {
 		"circuit.RecordSuccess",
 		"claude.Chat",
 		"config.Get",
+		"model.Resolve",
 		"convert.ToFloat",
 		"convert.ToInt",
 		"db.Delete",

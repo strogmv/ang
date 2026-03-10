@@ -203,7 +203,7 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 				steps, _ = args[2].([]normalizer.FlowStep)
 			}
 		}
-		return renderFlowForServiceWithSchemaAndSinkMode(serviceName, methodName, isStreaming, steps, nEntities, nEvents, e.WarningSink)
+		return renderFlowForServiceWithSchemaAndSinkModeWithInfra(serviceName, methodName, isStreaming, steps, nEntities, nEvents, e.WarningSink, e.InfraValues)
 	}
 	funcMapImpl["RenderImplSteps"] = func(svc normalizer.Service, steps []normalizer.ImplStep, serviceName, methodName string) string {
 		return renderImplSteps(svc, steps, serviceName, methodName)

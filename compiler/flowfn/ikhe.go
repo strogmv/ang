@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	sharedeffects "github.com/strogmv/ang/compiler/effects"
+	"github.com/strogmv/ang/compiler/flowsem"
 )
 
 type Diagnostic struct {
@@ -14,35 +14,15 @@ type Diagnostic struct {
 	Column  int
 }
 
-type effectState struct {
-	Tags map[sharedeffects.SafetyTag]bool
-}
-
-func newEffectState() *effectState {
-	return &effectState{Tags: map[sharedeffects.SafetyTag]bool{}}
-}
-
-func (s *effectState) Clone() *effectState {
-	next := newEffectState()
-	for tag, ok := range s.Tags {
-		next.Tags[tag] = ok
-	}
-	return next
-}
-
-func (s *effectState) Apply(logos sharedeffects.ActionLogos) {
-	for _, tag := range logos.ProducesTags {
-		s.Tags[tag] = true
-	}
-}
-
-func (s *effectState) ApplyChildTags(tags []sharedeffects.SafetyTag) {
-	for _, tag := range tags {
-		s.Tags[tag] = true
-	}
+type ValidateOptions struct {
+	InStreamingMethod bool
 }
 
 func ParseValidateTranspile(source string) ([]Step, []Diagnostic, error) {
+	return ParseValidateTranspileWithOptions(source, ValidateOptions{})
+}
+
+func ParseValidateTranspileWithOptions(source string, opts ValidateOptions) ([]Step, []Diagnostic, error) {
 	program, err := Parse(source)
 	if err != nil {
 		return nil, nil, err
@@ -51,20 +31,48 @@ func ParseValidateTranspile(source string) ([]Step, []Diagnostic, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	diagnostics := ValidateProgram(expanded)
 	steps, err := Transpile(expanded)
-	return steps, diagnostics, err
+	if err != nil {
+		return nil, nil, err
+	}
+	diagnostics := ValidateStepsWithOptions(steps, opts)
+	return steps, diagnostics, nil
 }
 
 func ValidateProgram(program Program) []Diagnostic {
-	state := newEffectState()
-	var out []Diagnostic
-	out = append(out, validateNodes(program.Nodes, state)...)
-	return out
+	return ValidateProgramWithOptions(program, ValidateOptions{})
+}
+
+func ValidateProgramWithOptions(program Program, opts ValidateOptions) []Diagnostic {
+	expanded, err := ExpandFragments(program)
+	if err != nil {
+		pos := firstProgramPosition(program)
+		return []Diagnostic{{
+			Code:    "E_FLOW_MACRO",
+			Message: err.Error(),
+			Line:    pos.Line,
+			Column:  pos.Column,
+		}}
+	}
+	steps, err := Transpile(expanded)
+	if err != nil {
+		pos := firstProgramPosition(expanded)
+		return []Diagnostic{{
+			Code:    "E_FLOW_TRANSPILER",
+			Message: err.Error(),
+			Line:    pos.Line,
+			Column:  pos.Column,
+		}}
+	}
+	return ValidateStepsWithOptions(steps, opts)
 }
 
 func Validate(program Program) error {
 	diagnostics := ValidateProgram(program)
+	return ValidateDiagnostics(diagnostics)
+}
+
+func ValidateDiagnostics(diagnostics []Diagnostic) error {
 	if len(diagnostics) == 0 {
 		return nil
 	}
@@ -75,52 +83,53 @@ func Validate(program Program) error {
 	return errors.Join(errs...)
 }
 
-func validateNodes(nodes []Node, current *effectState) []Diagnostic {
-	var out []Diagnostic
-	for _, node := range nodes {
-		switch n := node.(type) {
-		case *CallNode:
-			logos, ok := sharedeffects.LookupLogos(n.Action)
-			if !ok {
-				out = append(out, Diagnostic{Code: "E_FLOW_UNKNOWN_ACTION", Message: fmt.Sprintf("unknown action %q", n.Action), Line: n.Pos.Line, Column: n.Pos.Column})
-				continue
-			}
-			for _, req := range logos.RequiresTags {
-				if !current.Tags[req] {
-					out = append(out, Diagnostic{
-						Code:    "MISSING_EFFECT_PREREQUISITE",
-						Message: fmt.Sprintf("%s requires %s to be established earlier in flow", n.Action, req),
-						Line:    n.Pos.Line,
-						Column:  n.Pos.Column,
-					})
-				}
-			}
-			if current.Tags[sharedeffects.RequireTxOpen] && logos.Effect != sharedeffects.EffectPure && !logos.TxCompatible {
-				out = append(out, Diagnostic{
-					Code:    "EXTERNAL_EFFECT_IN_TX",
-					Message: fmt.Sprintf("%s cannot be called inside tx.Block (external effect)", n.Action),
-					Line:    n.Pos.Line,
-					Column:  n.Pos.Column,
-				})
-			}
-
-			next := current.Clone()
-			next.Apply(logos)
-			childState := next.Clone()
-			childState.ApplyChildTags(logos.ChildTags)
-			for _, body := range n.Blocks {
-				out = append(out, validateNodes(body, childState.Clone())...)
-			}
-			current = next
-		case *IfNode:
-			out = append(out, validateNodes(n.Then, current.Clone())...)
-			out = append(out, validateNodes(n.Else, current.Clone())...)
-		case *ForNode:
-			out = append(out, validateNodes(n.Do, current.Clone())...)
-		case *TryNode:
-			out = append(out, validateNodes(n.Do, current.Clone())...)
-			out = append(out, validateNodes(n.Catch, current.Clone())...)
-		}
+func ValidateStepsWithOptions(steps []Step, opts ValidateOptions) []Diagnostic {
+	issues := flowsem.ValidateWithOptions(toFlowsemSteps(steps), flowsem.ValidateOptions{
+		InStreamingMethod: opts.InStreamingMethod,
+	})
+	out := make([]Diagnostic, 0, len(issues))
+	for _, issue := range issues {
+		out = append(out, Diagnostic{
+			Code:    issue.Code,
+			Message: issue.Message,
+			Line:    issue.Line,
+			Column:  issue.Column,
+		})
 	}
 	return out
+}
+
+func toFlowsemSteps(steps []Step) []flowsem.Step {
+	out := make([]flowsem.Step, 0, len(steps))
+	for _, step := range steps {
+		item := flowsem.Step{
+			Action:   step.Action,
+			Args:     step.Args,
+			Children: toFlowsemChildren(step.Children),
+			Line:     step.Line,
+			Column:   step.Column,
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func toFlowsemChildren(children map[string][]Step) map[string][]flowsem.Step {
+	if len(children) == 0 {
+		return nil
+	}
+	out := make(map[string][]flowsem.Step, len(children))
+	for name, steps := range children {
+		out[name] = toFlowsemSteps(steps)
+	}
+	return out
+}
+
+func firstProgramPosition(program Program) Position {
+	for _, node := range program.Nodes {
+		if node != nil {
+			return node.Position()
+		}
+	}
+	return Position{Line: 1, Column: 1}
 }

@@ -60,3 +60,11 @@ try {
 	require.Len(t, tryNode.Do, 1)
 	require.Len(t, tryNode.Catch, 1)
 }
+
+func TestParseWithOptionsSemanticValidation(t *testing.T) {
+	_, err := ParseWithOptions(`
+openai.Chat(user_message: req.message, output: reply)
+`, ParseOptions{ValidateSemantics: true})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "MISSING_EFFECT_PREREQUISITE")
+}

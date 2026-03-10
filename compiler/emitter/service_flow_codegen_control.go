@@ -442,6 +442,7 @@ func renderFlowStepControlLegacyDeprecatedMonolith(st *flowRenderState, step nor
 		}
 		st.declared[output] = true
 		st.pointers[output] = false
+		st.types[output] = "string"
 		tdv, tdev := "_tmpDir"+sfx, "_tmpDirErr"+sfx
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%s%s, %s := os.MkdirTemp(\"\", %s)\n", pad, tdv, tdev, pattern))

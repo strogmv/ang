@@ -53,6 +53,32 @@ func runValidate(args []string) {
 		return out
 	}
 
+	infraBundle, infraErr := compiler.LoadInfraBundle(projectPath)
+	if infraErr != nil {
+		if *asJSON {
+			diags := []normalizer.Warning{{
+				Kind:     "pipeline",
+				Code:     string(compiler.ErrCodeCUEInfraConfigParse),
+				Severity: "error",
+				Message:  infraErr.Error(),
+			}}
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			_ = enc.Encode(vetDiagsEnvelope{
+				Schema:      "ang/diags/v1",
+				Valid:       false,
+				Diagnostics: diags,
+			})
+			os.Exit(1)
+		}
+		if ce, ok := infraErr.(*compiler.ContractError); ok {
+			printStageFailure("Validation FAILED", ce.Stage, ce.Code, ce.Op, ce.Err)
+		} else {
+			printStageFailure("Validation FAILED", compiler.StageCUE, compiler.ErrCodeCUEInfraConfigParse, "load infrastructure bundle", infraErr)
+		}
+		os.Exit(1)
+	}
+
 	if !*asJSON {
 		if len(opFilters) > 0 {
 			fmt.Printf("Validating operation(s): %s...\n", strings.Join(opFilters, ", "))
@@ -61,7 +87,12 @@ func runValidate(args []string) {
 		}
 	}
 
-	_, compileErr := compiler.CompileForEmit(projectPath, compiler.PipelineOptions{}, compiler.CompileForEmitOptions{})
+	_, compileErr := compiler.CompileForEmit(projectPath, compiler.PipelineOptions{}, compiler.CompileForEmitOptions{
+		Config:      derefConfig(infraBundle.Config),
+		Auth:        infraBundle.Auth,
+		InfraValues: infraBundle.Values,
+		Templates:   infraBundle.Templates,
+	})
 
 	if *asJSON {
 		diags := filterDiags(append([]normalizer.Warning(nil), compiler.LatestDiagnostics...))
@@ -128,6 +159,13 @@ func runValidate(args []string) {
 		os.Exit(1)
 	}
 	fmt.Println("Validation SUCCESSFUL.")
+}
+
+func derefConfig(cfg *normalizer.ConfigDef) normalizer.ConfigDef {
+	if cfg == nil {
+		return normalizer.ConfigDef{}
+	}
+	return *cfg
 }
 
 func emitDiagnostics(w io.Writer, diagnostics []normalizer.Warning) bool {

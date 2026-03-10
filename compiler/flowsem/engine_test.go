@@ -120,6 +120,24 @@ func TestValidate_UnknownAction(t *testing.T) {
 	}
 }
 
+func TestValidate_StrConcatAcceptsNormalizedListArgs(t *testing.T) {
+	t.Parallel()
+
+	issues := Validate([]Step{
+		{Action: "mapping.Assign", Args: map[string]any{"to": "project", "declare": true, "value": "req.Project"}},
+		{
+			Action: "str.Concat",
+			Args: map[string]any{
+				"parts":  []any{"\"projects/\"", "project.ID", "\"/cue/main.cue\""},
+				"output": "mainFileKey",
+			},
+		},
+	})
+	if len(issues) != 0 {
+		t.Fatalf("expected no issues, got %+v", issues)
+	}
+}
+
 func TestValidate_FlowSwitchRequiresCases(t *testing.T) {
 	t.Parallel()
 	issues := Validate([]Step{{
@@ -1285,5 +1303,155 @@ func TestValidate_OpenAIStreamAllowedInStreamingMethod(t *testing.T) {
 		if it.Code == "STREAMING_REQUIRED" {
 			t.Fatalf("did not expect STREAMING_REQUIRED in streaming method, got %+v", issues)
 		}
+	}
+}
+
+func TestValidate_OpenAIChatRequiresQuotaAndBudget(t *testing.T) {
+	t.Parallel()
+
+	issues := Validate([]Step{{
+		Action: "openai.Chat",
+		Args: map[string]any{
+			"user_message": "req.Prompt",
+			"output":       "answer",
+		},
+	}})
+
+	missing := map[string]bool{}
+	for _, it := range issues {
+		if it.Code == "MISSING_EFFECT_PREREQUISITE" {
+			missing[it.Message] = true
+		}
+	}
+	if !missing["openai.Chat requires quota.checked to be established earlier in flow"] {
+		t.Fatalf("expected missing quota.checked prerequisite, got %+v", issues)
+	}
+	if !missing["openai.Chat requires budget.checked to be established earlier in flow"] {
+		t.Fatalf("expected missing budget.checked prerequisite, got %+v", issues)
+	}
+}
+
+func TestValidate_OpenAIChatAfterQuotaAndBudgetPassesEffectChecks(t *testing.T) {
+	t.Parallel()
+
+	issues := Validate([]Step{
+		{Action: "session.Get", Args: map[string]any{"output": "sessionID"}},
+		{Action: "quota.Check", Args: map[string]any{"key": "sessionID", "limit": 10, "window": "day"}},
+		{Action: "budget.Check", Args: map[string]any{"key": "sessionID", "limit": 1000}},
+		{Action: "openai.Chat", Args: map[string]any{"user_message": "req.Prompt", "output": "answer"}},
+	})
+
+	for _, it := range issues {
+		if it.Code == "MISSING_EFFECT_PREREQUISITE" {
+			t.Fatalf("did not expect missing prerequisite, got %+v", issues)
+		}
+	}
+}
+
+func TestValidate_StorageUploadInsideTxFailsEffectCheck(t *testing.T) {
+	t.Parallel()
+
+	issues := Validate([]Step{{
+		Action: "tx.Block",
+		Children: map[string][]Step{
+			"_do": {{
+				Action: "storage.Upload",
+				Args: map[string]any{
+					"key":  "\"files/demo.txt\"",
+					"data": "req.Body",
+				},
+			}},
+		},
+	}})
+
+	found := false
+	for _, it := range issues {
+		if it.Code == "EXTERNAL_EFFECT_IN_TX" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected EXTERNAL_EFFECT_IN_TX, got %+v", issues)
+	}
+}
+
+func TestValidate_UndeclaredFlowVarFromRequiresVars(t *testing.T) {
+	t.Parallel()
+
+	issues := Validate([]Step{{
+		Action: "openai.Chat",
+		Args: map[string]any{
+			"user_message": "req.Prompt",
+			"model":        "gptModel",
+			"output":       "answer",
+		},
+	}})
+
+	found := false
+	for _, it := range issues {
+		if it.Code == "UNDECLARED_FLOW_VAR" && it.Action == "openai.Chat" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected UNDECLARED_FLOW_VAR for openai.Chat model, got %+v", issues)
+	}
+}
+
+func TestValidate_FlowForLocalVarScope(t *testing.T) {
+	t.Parallel()
+
+	issues := Validate([]Step{
+		{Action: "list.New", Args: map[string]any{"output": "items"}},
+		{
+			Action: "flow.For",
+			Args: map[string]any{
+				"each": "items",
+				"as":   "item",
+			},
+			Children: map[string][]Step{
+				"_do": {{
+					Action: "mapping.Assign",
+					Args: map[string]any{
+						"to":    "resp.CurrentID",
+						"value": "item.ID",
+					},
+				}},
+			},
+		},
+	})
+
+	for _, it := range issues {
+		if it.Code == "UNDECLARED_FLOW_VAR" {
+			t.Fatalf("did not expect UNDECLARED_FLOW_VAR inside flow.For local scope, got %+v", issues)
+		}
+	}
+}
+
+func TestValidate_FlowIfBranchVarDoesNotLeak(t *testing.T) {
+	t.Parallel()
+
+	issues := Validate([]Step{
+		{
+			Action: "flow.If",
+			Args:   map[string]any{"condition": "req.Enabled"},
+			Children: map[string][]Step{
+				"_then": {{Action: "session.Get", Args: map[string]any{"output": "sessionID"}}},
+			},
+		},
+		{Action: "quota.Check", Args: map[string]any{"key": "sessionID", "limit": 10, "window": "day"}},
+	})
+
+	found := false
+	for _, it := range issues {
+		if it.Code == "UNDECLARED_FLOW_VAR" && it.Action == "quota.Check" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected UNDECLARED_FLOW_VAR for branch-local sessionID leak, got %+v", issues)
 	}
 }

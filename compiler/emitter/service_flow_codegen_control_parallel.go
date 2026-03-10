@@ -70,7 +70,6 @@ func renderFlowParallel(st *flowRenderState, step normalizer.FlowStep, indent in
 	b.WriteString(fmt.Sprintf("%svar %sWg sync.WaitGroup\n", pad, pfx))
 	b.WriteString(fmt.Sprintf("%svar %sMu sync.Mutex\n", pad, pfx))
 	b.WriteString(fmt.Sprintf("%svar %sErr error\n", pad, pfx))
-	b.WriteString(fmt.Sprintf("%s_ = %sMu\n", pad, pfx))
 
 	for _, k := range keys {
 		branchSteps := branches[k]
@@ -153,7 +152,6 @@ func renderFlowJoin(st *flowRenderState, step normalizer.FlowStep, indent int, s
 	b.WriteString(fmt.Sprintf("%svar %sWg sync.WaitGroup\n", pad, pfx))
 	b.WriteString(fmt.Sprintf("%svar %sMu sync.Mutex\n", pad, pfx))
 	b.WriteString(fmt.Sprintf("%svar %sErrs []error\n", pad, pfx))
-	b.WriteString(fmt.Sprintf("%s_ = %sMu\n", pad, pfx))
 
 	for _, k := range keys {
 		branchSteps := branches[k]
@@ -242,7 +240,6 @@ func renderFlowRace(st *flowRenderState, step normalizer.FlowStep, indent int, s
 	b.WriteString(fmt.Sprintf("%svar %sWg sync.WaitGroup\n", pad, pfx))
 	b.WriteString(fmt.Sprintf("%svar %sMu sync.Mutex\n", pad, pfx))
 	b.WriteString(fmt.Sprintf("%svar %sWon bool\n", pad, pfx))
-	b.WriteString(fmt.Sprintf("%s_ = %sMu\n", pad, pfx))
 
 	for _, k := range keys {
 		branchSteps := branches[k]

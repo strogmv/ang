@@ -391,6 +391,12 @@ func handleFlowControlAndInfra(
 		}
 		return true
 
+	case "stream.Emit":
+		if step.Args["data"] == nil || fmt.Sprint(step.Args["data"]) == "" {
+			addWarn(stepNum, step.Action, "MISSING_DATA", "stream.Emit missing 'data'", "{action: \"stream.Emit\", data: \"eventJSON\"}", step.File, step.Line, step.Column)
+		}
+		return true
+
 	case "list.Filter":
 		if step.Args["from"] == nil || step.Args["from"] == "" {
 			addWarn(stepNum, step.Action, "MISSING_FROM", "list.Filter missing 'from'", "{action: \"list.Filter\", from: \"items\", condition: \"item.Active\", output: \"filtered\"}", step.File, step.Line, step.Column)
@@ -704,6 +710,17 @@ func handleFlowControlAndInfra(
 		}
 		if output, _ := step.Args["output"].(string); output == "" {
 			addWarn(stepNum, step.Action, "MISSING_OUTPUT", fmt.Sprintf("%s missing 'output'", step.Action), fmt.Sprintf("{action: \"%s\", key: \"KEY_NAME\", output: \"val\"}", step.Action), step.File, step.Line, step.Column)
+		} else {
+			declaredVars[output] = true
+		}
+		return true
+
+	case "model.Resolve":
+		if step.Args["name"] == nil || step.Args["name"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_NAME", fmt.Sprintf("%s missing 'name'", step.Action), "{action: \"model.Resolve\", name: \"\\\"Cheap\\\"\", output: \"model\"}", step.File, step.Line, step.Column)
+		}
+		if output, _ := step.Args["output"].(string); output == "" {
+			addWarn(stepNum, step.Action, "MISSING_OUTPUT", fmt.Sprintf("%s missing 'output'", step.Action), "{action: \"model.Resolve\", name: \"\\\"Cheap\\\"\", output: \"model\"}", step.File, step.Line, step.Column)
 		} else {
 			declaredVars[output] = true
 		}

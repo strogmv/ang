@@ -6,7 +6,7 @@ func TestParseAndTranspile(t *testing.T) {
 	t.Parallel()
 
 	src := `
-repo.Find(source: "Project", input: req.ProjectID, output: project)
+repo.Find(source: "Project", input: req.ProjectID, output: project, error: "Project not found")
 if req.Admin {
   repo.Save(source: "AuditLog", input: project)
 } else {
@@ -18,7 +18,7 @@ for item in req.Items {
 try {
   repo.Save(source: "Project", input: project)
 } catch {
-  event.Publish(event: "Failed")
+  event.Publish(name: "Failed")
 }
 `
 	program, err := Parse(src)
@@ -44,8 +44,14 @@ try {
 	if steps[2].Action != "flow.For" {
 		t.Fatalf("expected flow.For, got %q", steps[2].Action)
 	}
+	if got := steps[2].Args["as"]; got != "item" {
+		t.Fatalf("expected flow.For as=item, got %#v", got)
+	}
 	if steps[3].Action != "flow.Try" {
 		t.Fatalf("expected flow.Try, got %q", steps[3].Action)
+	}
+	if len(steps[1].Children["_then"]) != 1 || len(steps[2].Children["_do"]) != 1 || len(steps[3].Children["_catch"]) != 1 {
+		t.Fatalf("expected structured child blocks in transpiled steps")
 	}
 }
 

@@ -54,6 +54,7 @@ func (e *Emitter) renderEffectRegistrySource(ctx MainContext, infraValues map[st
 	b.WriteString("package bootstrap\n\n")
 	b.WriteString("import (\n")
 	b.WriteString("\t\"context\"\n")
+	b.WriteString("\teffectmw " + strconv.Quote(strings.TrimSpace(e.GoModule)+"/internal/adapter/middleware") + "\n")
 	if needsPG {
 		b.WriteString("\t\"github.com/jackc/pgx/v5/pgxpool\"\n")
 	}
@@ -101,24 +102,13 @@ func (e *Emitter) renderEffectRegistrySource(ctx MainContext, infraValues map[st
 	b.WriteString("\tProvider string\n")
 	b.WriteString("\tOptions map[string]any\n")
 	b.WriteString("}\n\n")
-	b.WriteString("type EffectMiddleware struct {\n")
-	b.WriteString("\tType string\n")
-	b.WriteString("\tAttempts int\n")
-	b.WriteString("\tBackoff string\n")
-	b.WriteString("\tOn []int\n")
-	b.WriteString("\tTTL string\n")
-	b.WriteString("\tKey string\n")
-	b.WriteString("\tDuration string\n")
-	b.WriteString("\tLevel string\n")
-	b.WriteString("\tOptions map[string]any\n")
-	b.WriteString("}\n\n")
 	b.WriteString("type EffectProfile struct {\n")
 	b.WriteString("\tHandlers map[string]EffectHandler\n")
-	b.WriteString("\tMiddleware map[string][]EffectMiddleware\n")
+	b.WriteString("\tMiddleware map[string][]effectmw.EffectMiddleware\n")
 	b.WriteString("}\n\n")
 	b.WriteString("func (p EffectProfile) Handler(kind string) (EffectHandler, bool) {\n")
 	b.WriteString("\tv, ok := p.Handlers[kind]\n\treturn v, ok\n}\n\n")
-	b.WriteString("func (p EffectProfile) Chain(kind string) []EffectMiddleware {\n")
+	b.WriteString("func (p EffectProfile) Chain(kind string) []effectmw.EffectMiddleware {\n")
 	b.WriteString("\treturn p.Middleware[kind]\n}\n\n")
 
 	b.WriteString("type EffectRegistry struct {\n")
@@ -186,6 +176,10 @@ func (e *Emitter) renderEffectRegistrySource(ctx MainContext, infraValues map[st
 	b.WriteString("\t\tRuntime: EffectProfile{Handlers: " + renderEffectHandlerMap(handlers) + ", Middleware: " + renderEffectMiddlewareMap(middleware) + "},\n")
 	b.WriteString("\t\tTest: EffectProfile{Handlers: " + renderEffectHandlerMap(testHandlers) + ", Middleware: " + renderEffectMiddlewareMap(middleware) + "},\n")
 	b.WriteString("\t}\n")
+	b.WriteString("\treg.Publisher = effectmw.WrapPublisher(reg.Publisher, reg.Runtime.Chain(\"events\"))\n")
+	if needsS3 {
+		b.WriteString("\treg.Storage = effectmw.WrapFileStorage(reg.Storage, reg.Runtime.Chain(\"storage\"))\n")
+	}
 
 	for _, name := range repoEntities {
 		if entityStorageByName(entities, name) == "mongo" {
@@ -234,17 +228,22 @@ func (e *Emitter) renderEffectRegistrySource(ctx MainContext, infraValues map[st
 	if needsPolicy {
 		b.WriteString("\treg.PolicyEngine = policy.NewEngine()\n")
 	}
+	b.WriteString("\treg.StateStore = effectmw.WrapStateStore(reg.StateStore, reg.Runtime.Chain(\"state\"))\n")
 	b.WriteString("\treturn reg, nil\n")
 	b.WriteString("}\n\n")
 
 	b.WriteString("func NewTestEffectRegistry(publisher port.Publisher, storage port.FileStorage, stateStore port.StateStore) *EffectRegistry {\n")
-	b.WriteString("\treturn &EffectRegistry{\n")
+	b.WriteString("\treg := &EffectRegistry{\n")
 	b.WriteString("\t\tPublisher: publisher,\n")
 	b.WriteString("\t\tStorage: storage,\n")
 	b.WriteString("\t\tStateStore: stateStore,\n")
 	b.WriteString("\t\tRuntime: EffectProfile{Handlers: " + renderEffectHandlerMap(handlers) + ", Middleware: " + renderEffectMiddlewareMap(middleware) + "},\n")
 	b.WriteString("\t\tTest: EffectProfile{Handlers: " + renderEffectHandlerMap(testHandlers) + ", Middleware: " + renderEffectMiddlewareMap(middleware) + "},\n")
 	b.WriteString("\t}\n")
+	b.WriteString("\treg.Publisher = effectmw.WrapPublisher(reg.Publisher, reg.Test.Chain(\"events\"))\n")
+	b.WriteString("\treg.Storage = effectmw.WrapFileStorage(reg.Storage, reg.Test.Chain(\"storage\"))\n")
+	b.WriteString("\treg.StateStore = effectmw.WrapStateStore(reg.StateStore, reg.Test.Chain(\"state\"))\n")
+	b.WriteString("\treturn reg\n")
 	b.WriteString("}\n")
 	return b.String()
 }
@@ -378,7 +377,7 @@ func renderEffectHandlerMap(def *normalizer.EffectHandlersDef) string {
 
 func renderEffectMiddlewareMap(def *normalizer.EffectMiddlewareCatalogDef) string {
 	if def == nil || len(def.Chains) == 0 {
-		return "map[string][]EffectMiddleware{}"
+		return "map[string][]effectmw.EffectMiddleware{}"
 	}
 	keys := make([]string, 0, len(def.Chains))
 	for k := range def.Chains {
@@ -387,7 +386,7 @@ func renderEffectMiddlewareMap(def *normalizer.EffectMiddlewareCatalogDef) strin
 	sort.Strings(keys)
 
 	var b strings.Builder
-	b.WriteString("map[string][]EffectMiddleware{")
+	b.WriteString("map[string][]effectmw.EffectMiddleware{")
 	for i, kind := range keys {
 		if i > 0 {
 			b.WriteString(", ")

@@ -21,11 +21,38 @@ type EffectSet struct {
 }
 
 func NewEffectSet() *EffectSet {
+	scope := make(map[string]string, len(flowKnownRoots))
+	for name := range flowKnownRoots {
+		scope[name] = "builtin"
+	}
 	return &EffectSet{
 		Kinds: make(map[sharedeffects.EffectKind]bool),
 		Tags:  make(map[sharedeffects.SafetyTag]bool),
-		Scope: make(map[string]string),
+		Scope: scope,
 	}
+}
+
+func (es *EffectSet) HasVar(name string) bool {
+	if es == nil {
+		return false
+	}
+	_, ok := es.Scope[strings.TrimSpace(name)]
+	return ok
+}
+
+func (es *EffectSet) Declare(name, typ string) {
+	if es == nil {
+		return
+	}
+	name = strings.TrimSpace(name)
+	if !isSimpleIdent(name) {
+		return
+	}
+	typ = strings.TrimSpace(typ)
+	if typ == "" {
+		typ = "any"
+	}
+	es.Scope[name] = typ
 }
 
 func (es *EffectSet) Clone() *EffectSet {
@@ -68,8 +95,29 @@ func ValidateStep(step FlowStep, current *EffectSet) []ValidationError {
 	if !ok {
 		return nil
 	}
+	if current == nil {
+		current = NewEffectSet()
+	}
 
 	var errs []ValidationError
+	for _, expr := range flowStepReferenceExprs(step) {
+		for _, root := range flowExprRoots(expr.Expr) {
+			if isKnownFlowRoot(root) {
+				continue
+			}
+			if current.HasVar(root) {
+				continue
+			}
+			if _, ok := expr.LocalScope[root]; ok {
+				continue
+			}
+			errs = append(errs, ValidationError{
+				Code:    "UNDECLARED_FLOW_VAR",
+				Message: fmt.Sprintf("undefined flow variable '%s' in %s arg '%s'", root, step.Action, expr.ArgName),
+				Hint:    fmt.Sprintf("Declare '%s' in the same scope before usage, or move this step inside the branch where '%s' is declared.", root, root),
+			})
+		}
+	}
 	for _, req := range logos.RequiresTags {
 		if !current.Tags[req] {
 			errs = append(errs, ValidationError{
@@ -141,10 +189,18 @@ func validateFlowEffects(opName string, steps []FlowStep) []FlowWarning {
 				outputVar := outputVarForLogos(step, logos)
 				nextCurrent.Apply(logos, outputVar)
 			}
+			for _, name := range flowStepDeclaredVars(step) {
+				nextCurrent.Declare(name, "any")
+			}
 
 			childState := nextCurrent.Clone()
 			if ok && len(logos.ChildTags) > 0 {
 				childState.ApplyChildTags(logos.ChildTags)
+			}
+			if step.Action == "flow.For" {
+				if as, _ := step.Args["as"].(string); isSimpleIdent(strings.TrimSpace(as)) {
+					childState.Declare(strings.TrimSpace(as), "any")
+				}
 			}
 			for _, branch := range nestedFlowChildren(step.Args) {
 				walk(branch, childState.Clone())

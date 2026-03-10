@@ -81,8 +81,17 @@ func TestEmitEffectRegistry(t *testing.T) {
 	}
 	out := string(data)
 	for _, want := range []string{
+		"type EffectHandler struct",
+		"type EffectProfile struct",
+		"func (p EffectProfile) Handler(kind string) (EffectHandler, bool)",
+		"func (p EffectProfile) Chain(kind string) []effectmw.EffectMiddleware",
 		"type EffectRegistry struct",
 		"RepoPost",
+		"Runtime:",
+		"Test:",
+		"effectmw.WrapPublisher",
+		"effectmw.WrapStateStore",
+		"map[string][]effectmw.EffectMiddleware",
 		`"events": {Kind: "events", Driver: "nats"`,
 		`"events": {Kind: "events", Driver: "memory"`,
 		`Type: "retry", Attempts: 2, Backoff: "200ms"`,

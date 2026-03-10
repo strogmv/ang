@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	sharedeffects "github.com/strogmv/ang/compiler/effects"
 )
 
 // ActionArg describes one action argument for machine-readable catalogs.
@@ -15,13 +17,22 @@ type ActionArg struct {
 
 // ActionCatalogEntry is a normalized schema row for one flow action.
 type ActionCatalogEntry struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
-	Args        []ActionArg `json:"args"`
-	Outputs     []string    `json:"outputs"`
-	Errors      []string    `json:"errors"`
-	NestedKeys  []string    `json:"nested_keys"`
-	Example     string      `json:"example"`
+	Name         string      `json:"name"`
+	Description  string      `json:"description"`
+	Args         []ActionArg `json:"args"`
+	Outputs      []string    `json:"outputs"`
+	Errors       []string    `json:"errors"`
+	NestedKeys   []string    `json:"nested_keys"`
+	Example      string      `json:"example"`
+	Effect       string      `json:"effect"`
+	RequiresTags []string    `json:"requires_tags,omitempty"`
+	ProducesTags []string    `json:"produces_tags,omitempty"`
+	RequiresVars []string    `json:"requires_vars,omitempty"`
+	ProducesVar  string      `json:"produces_var,omitempty"`
+	ChildTags    []string    `json:"child_tags,omitempty"`
+	TxCompatible bool        `json:"tx_compatible"`
+	RequiresTx   bool        `json:"requires_tx,omitempty"`
+	KnownBy      string      `json:"known_by"`
 }
 
 // ActionCatalog builds a deterministic machine-readable catalog from flowsem specs.
@@ -35,7 +46,7 @@ func ActionCatalog() []ActionCatalogEntry {
 	out := make([]ActionCatalogEntry, 0, len(names))
 	for _, name := range names {
 		spec := specs[name]
-		out = append(out, ActionCatalogEntry{
+		entry := ActionCatalogEntry{
 			Name:        name,
 			Description: defaultActionDescription(name),
 			Args:        buildCatalogArgs(spec),
@@ -43,7 +54,9 @@ func ActionCatalog() []ActionCatalogEntry {
 			Errors:      buildCatalogErrors(spec),
 			NestedKeys:  buildCatalogNestedKeys(name, spec),
 			Example:     buildCatalogExample(name, spec),
-		})
+		}
+		applyCatalogSemantics(&entry, name, spec)
+		out = append(out, entry)
 	}
 	return out
 }
@@ -116,6 +129,45 @@ func buildCatalogExample(name string, spec Spec) string {
 
 func defaultActionDescription(name string) string {
 	return "Flow action contract generated from compiler semantics."
+}
+
+func applyCatalogSemantics(entry *ActionCatalogEntry, name string, spec Spec) {
+	if entry == nil {
+		return
+	}
+	logos, ok := LookupLogos(name)
+	if !ok {
+		entry.Effect = string(sharedeffects.EffectPure)
+		entry.TxCompatible = !spec.RequiresTx
+		entry.RequiresTx = spec.RequiresTx
+		entry.KnownBy = "missing"
+		return
+	}
+	entry.Effect = string(logos.Effect)
+	entry.RequiresTags = safetyTagsToStrings(logos.RequiresTags)
+	entry.ProducesTags = safetyTagsToStrings(logos.ProducesTags)
+	entry.RequiresVars = sortedStringsCopy(logos.RequiresVars)
+	entry.ProducesVar = strings.TrimSpace(logos.ProducesVar)
+	entry.ChildTags = safetyTagsToStrings(logos.ChildTags)
+	entry.TxCompatible = logos.TxCompatible
+	entry.RequiresTx = spec.RequiresTx || logos.RequiresTx
+	if _, explicit := sharedeffects.Registry[name]; explicit {
+		entry.KnownBy = "explicit"
+	} else {
+		entry.KnownBy = "prefix"
+	}
+}
+
+func safetyTagsToStrings(tags []sharedeffects.SafetyTag) []string {
+	if len(tags) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		out = append(out, string(tag))
+	}
+	sort.Strings(out)
+	return out
 }
 
 func sortedStringsCopy(in []string) []string {

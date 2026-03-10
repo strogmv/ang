@@ -33,6 +33,16 @@ func TestRenderFlow_Race_GeneratesFirstWinsPattern(t *testing.T) {
 			t.Fatalf("expected generated code to contain %q\n\n%s", part, code)
 		}
 	}
+	mustNotContain := []string{
+		"_ = _fr_0Mu",
+		"_ = _fj_0Mu",
+		"_ = _fp_0Mu",
+	}
+	for _, part := range mustNotContain {
+		if strings.Contains(code, part) {
+			t.Fatalf("did not expect generated code to contain %q\n\n%s", part, code)
+		}
+	}
 }
 
 func TestRenderFlow_SagaCompensateRollback_GeneratesCompensationStack(t *testing.T) {

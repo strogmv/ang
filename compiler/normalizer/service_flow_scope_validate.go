@@ -330,6 +330,8 @@ func flowStepReferenceExprs(step FlowStep) []flowRefExpr {
 		addArgs("input", "strategy")
 	case "openai.Chat", "openai.Stream":
 		addArgs("system", "system_context", "user_message", "history", "model")
+	case "stream.Emit":
+		addArg("data")
 	case "concurrency.Limit", "concurrency.Run":
 		addArgs("key", "throw")
 	case "circuit.Check", "circuit.RecordSuccess", "circuit.RecordFailure", "circuit.Breaker":
@@ -352,8 +354,9 @@ func flowStepReferenceExprs(step FlowStep) []flowRefExpr {
 	case "cast.ToString", "json.Parse", "json.Marshal", "regex.Match", "regex.Replace",
 		"base64.Encode", "base64.Decode", "url.Parse", "url.Build", "query.Encode", "query.Decode",
 		"hash.Sum", "hash.HMAC", "oauth2.Token", "oauth2.Refresh",
-		"crypto.Encrypt", "crypto.Decrypt", "secret.Get", "config.Get":
+		"crypto.Encrypt", "crypto.Decrypt", "secret.Get", "config.Get", "model.Resolve":
 		addArgs("input", "key", "path", "url", "value", "pattern", "replacement", "secret")
+		addArg("name")
 	case "map.Build":
 		addArgs("from", "key", "value")
 	default:

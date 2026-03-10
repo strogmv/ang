@@ -136,34 +136,23 @@ func runBuild(args []string) {
 		var templatesCatalog []normalizer.TemplateDef
 		var infraValues map[string]any
 		var infraContextPatch normalizer.InfraContextPatch
-		if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, "cue/infra")); err != nil {
-			fail(compiler.StageCUE, compiler.ErrCodeCUEInfraLoad, "load cue/infra", err)
+		infraBundle, err := compiler.LoadInfraBundle(projectPath)
+		if err != nil {
+			if ce, ok := err.(*compiler.ContractError); ok {
+				fail(ce.Stage, ce.Code, ce.Op, ce.Err)
+				return
+			}
+			fail(compiler.StageCUE, compiler.ErrCodeCUEInfraConfigParse, "load infrastructure bundle", err)
 			return
-		} else if ok {
-			infraRegistry := normalizer.NewInfraRegistry()
-			infraValues, err = infraRegistry.ExtractAll(n, val)
-			if err != nil {
-				if infraErr, ok := err.(*normalizer.InfraExtractError); ok {
-					code, op, unwrapErr := infraErr.FailParams()
-					fail(compiler.StageCUE, code, op, unwrapErr)
-					return
-				}
-				fail(compiler.StageCUE, compiler.ErrCodeCUEInfraConfigParse, "extract infrastructure definitions", err)
-				return
-			}
-			cfgDef = normalizer.InfraConfig(infraValues)
-			authDef = normalizer.InfraAuth(infraValues)
-			infraContextPatch = infraRegistry.BuildContextPatch(infraValues)
-			sessionDef, err = n.ExtractSession(val)
-			if err != nil {
-				fail(compiler.StageCUE, compiler.ErrCodeCUEInfraConfigParse, "extract session definition", err)
-				return
-			}
-			templatesCatalog, err = n.ExtractTemplates(val)
-			if err != nil {
-				fail(compiler.StageCUE, compiler.ErrCodeCUEInfraConfigParse, "extract templates", err)
-				return
-			}
+		}
+		if infraBundle.Has {
+			infraValues = infraBundle.Values
+			cfgDef = infraBundle.Config
+			authDef = infraBundle.Auth
+			sessionDef = infraBundle.Session
+			infraContextPatch = infraBundle.ContextPatch
+			templatesCatalog = infraBundle.Templates
+			emailTemplates = infraBundle.EmailTemplates
 			templatesCatalog, err = resolveTemplates(projectPath, templatesCatalog)
 			if err != nil {
 				fail(compiler.StageCUE, compiler.ErrCodeCUEInfraConfigParse, "resolve templates", err)
@@ -176,11 +165,6 @@ func runBuild(args []string) {
 					return
 				}
 			} else {
-				emailTemplates, err = n.ExtractEmailTemplates(val)
-				if err != nil {
-					fail(compiler.StageCUE, compiler.ErrCodeCUEInfraConfigParse, "extract email templates", err)
-					return
-				}
 				emailTemplates, err = resolveEmailTemplates(projectPath, emailTemplates)
 				if err != nil {
 					fail(compiler.StageCUE, compiler.ErrCodeCUEInfraConfigParse, "resolve email templates", err)

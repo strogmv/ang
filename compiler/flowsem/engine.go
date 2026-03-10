@@ -1,12 +1,17 @@
 package flowsem
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
+	"unicode"
+
+	sharedeffects "github.com/strogmv/ang/compiler/effects"
 )
 
 type Step struct {
@@ -75,6 +80,71 @@ func Validate(steps []Step) []Issue {
 	return ValidateWithOptions(steps, ValidateOptions{})
 }
 
+type validateState struct {
+	tags map[sharedeffects.SafetyTag]bool
+	vars map[string]struct{}
+}
+
+func newValidateState() *validateState {
+	return &validateState{
+		tags: map[sharedeffects.SafetyTag]bool{},
+		vars: cloneValidateVars(validateKnownRoots),
+	}
+}
+
+func (s *validateState) Clone() *validateState {
+	if s == nil {
+		return newValidateState()
+	}
+	next := &validateState{
+		tags: make(map[sharedeffects.SafetyTag]bool, len(s.tags)),
+		vars: cloneValidateVars(s.vars),
+	}
+	for tag, ok := range s.tags {
+		next.tags[tag] = ok
+	}
+	return next
+}
+
+func (s *validateState) Apply(logos sharedeffects.ActionLogos) {
+	if s == nil {
+		return
+	}
+	for _, tag := range logos.ProducesTags {
+		s.tags[tag] = true
+	}
+}
+
+func (s *validateState) ApplyChild(tags []sharedeffects.SafetyTag) {
+	if s == nil {
+		return
+	}
+	for _, tag := range tags {
+		s.tags[tag] = true
+	}
+}
+
+func (s *validateState) Declare(names ...string) {
+	if s == nil {
+		return
+	}
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if !isSimpleIdent(name) {
+			continue
+		}
+		s.vars[name] = struct{}{}
+	}
+}
+
+func (s *validateState) HasVar(name string) bool {
+	if s == nil {
+		return false
+	}
+	_, ok := s.vars[strings.TrimSpace(name)]
+	return ok
+}
+
 func ValidateWithOptions(steps []Step, opts ValidateOptions) []Issue {
 	var out []Issue
 	eventsByName := indexEventsByName(opts.Events)
@@ -85,13 +155,16 @@ func ValidateWithOptions(steps []Step, opts ValidateOptions) []Issue {
 		}
 		return strings.Contains(f, "/cue/schema/") || strings.HasPrefix(f, "cue/schema/")
 	}
-	var walk func(items []Step, inTx bool)
-	walk = func(items []Step, inTx bool) {
+	var walk func(items []Step, inTx bool, state *validateState)
+	walk = func(items []Step, inTx bool, state *validateState) {
+		current := state.Clone()
 		for i := range items {
 			step := items[i]
 			if isSchemaScaffoldFile(step.File) {
 				continue
 			}
+
+			logos, hasLogos := LookupLogos(step.Action)
 			spec, ok := specs[step.Action]
 			if !ok {
 				if !isKnownPrefix(step.Action) {
@@ -102,6 +175,12 @@ func ValidateWithOptions(steps []Step, opts ValidateOptions) []Issue {
 					v, present := step.Args[arg]
 					if !present {
 						out = append(out, issue(step, i+1, "MISSING_"+strings.ToUpper(arg), step.Action+" missing '"+arg+"'", "See action contract in flow semantics"))
+						continue
+					}
+					if kind, hasKind := spec.OptionalArgKinds[arg]; hasKind {
+						if !argMatchesKind(v, kind) {
+							out = append(out, issue(step, i+1, "INVALID_"+strings.ToUpper(arg)+"_TYPE", step.Action+" arg '"+arg+"' must be "+string(kind), "Fix arg type in CUE step"))
+						}
 						continue
 					}
 					if _, ok := nonEmptyString(v); !ok {
@@ -147,20 +226,60 @@ func ValidateWithOptions(steps []Step, opts ValidateOptions) []Issue {
 					}
 				}
 			}
+
+			for _, ref := range stepReferenceExprs(step, logos, hasLogos) {
+				for _, root := range exprRoots(ref.Expr) {
+					if isKnownRoot(root) {
+						continue
+					}
+					if current.HasVar(root) {
+						continue
+					}
+					if _, ok := ref.LocalScope[root]; ok {
+						continue
+					}
+					out = append(out, issue(step, i+1, "UNDECLARED_FLOW_VAR", "undefined flow variable '"+root+"' in "+step.Action+" arg '"+ref.ArgName+"'", "Declare '"+root+"' in the same scope before usage, or move this step inside the branch where '"+root+"' is declared."))
+				}
+			}
+
+			if hasLogos {
+				for _, req := range logos.RequiresTags {
+					if !current.tags[req] {
+						out = append(out, issue(step, i+1, "MISSING_EFFECT_PREREQUISITE", step.Action+" requires "+string(req)+" to be established earlier in flow", "Add the prerequisite step earlier in flow"))
+					}
+				}
+				if inTx && logos.Effect != sharedeffects.EffectPure && !logos.TxCompatible {
+					out = append(out, issue(step, i+1, "EXTERNAL_EFFECT_IN_TX", step.Action+" cannot be called inside tx.Block (external effect)", "Move the step outside tx.Block or use a tx-compatible action"))
+				}
+			}
+
 			if eventIssues := validateEventStep(step, i+1, eventsByName); len(eventIssues) > 0 {
 				out = append(out, eventIssues...)
 			}
-			// Transaction context propagates down the subtree; tx-only actions are validated
-			// against this propagated state, not global method position.
+
+			if hasLogos {
+				current.Apply(logos)
+			}
+			current.Declare(stepDeclaredVars(step, logos, hasLogos, spec, ok)...)
+
 			nextTx := inTx || step.Action == "tx.Block"
+			childState := current.Clone()
+			if hasLogos {
+				childState.ApplyChild(logos.ChildTags)
+			}
+			if step.Action == "flow.For" {
+				if as, _ := step.Args["as"].(string); isSimpleIdent(strings.TrimSpace(as)) {
+					childState.Declare(strings.TrimSpace(as))
+				}
+			}
 			for _, children := range step.Children {
 				if len(children) > 0 {
-					walk(children, nextTx)
+					walk(children, nextTx, childState.Clone())
 				}
 			}
 		}
 	}
-	walk(steps, false)
+	walk(steps, false, newValidateState())
 	return out
 }
 
@@ -232,6 +351,356 @@ func validateEventStep(step Step, idx int, eventsByName map[string]EventDef) []I
 		out = append(out, issue(step, idx, "PAYLOAD_FIELD_NOT_IN_EVENT", "event "+strconv.Quote(eventName)+": field "+strconv.Quote(key)+" does not exist in event schema", hint))
 	}
 	return out
+}
+
+type refExpr struct {
+	ArgName    string
+	Expr       string
+	LocalScope map[string]struct{}
+}
+
+func stepReferenceExprs(step Step, logos sharedeffects.ActionLogos, hasLogos bool) []refExpr {
+	var out []refExpr
+	seen := map[string]struct{}{}
+	add := func(argName, expr string, local map[string]struct{}) {
+		expr = strings.TrimSpace(expr)
+		if expr == "" {
+			return
+		}
+		key := argName + "\x00" + expr
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, refExpr{ArgName: argName, Expr: expr, LocalScope: local})
+	}
+	addArg := func(argName string) {
+		for _, expr := range argExpressions(step.Args[argName]) {
+			add(argName, expr, nil)
+		}
+	}
+	addMapValues := func(argName string) {
+		for _, expr := range stringMapExpressions(step.Args[argName]) {
+			add(argName, expr, nil)
+		}
+	}
+	for _, argName := range logos.RequiresVars {
+		switch argName {
+		case "args", "parts", "from":
+			for _, expr := range argExpressions(step.Args[argName]) {
+				add(argName, expr, nil)
+			}
+		case "headers", "query", "payloadMap":
+			addMapValues(argName)
+		default:
+			addArg(argName)
+		}
+	}
+	if step.Action == "flow.Call" {
+		switch raw := step.Args["args"].(type) {
+		case map[string]string:
+			for _, expr := range raw {
+				add("args", expr, nil)
+			}
+		case map[string]any:
+			for _, anyExpr := range raw {
+				add("args", strings.TrimSpace(toStringValue(anyExpr)), nil)
+			}
+		}
+	}
+	if step.Action == "list.Filter" {
+		local := map[string]struct{}{}
+		if as, _ := step.Args["as"].(string); isSimpleIdent(strings.TrimSpace(as)) {
+			local[strings.TrimSpace(as)] = struct{}{}
+		}
+		if v, _ := step.Args["condition"].(string); v != "" {
+			add("condition", v, local)
+		}
+	}
+	if !hasLogos {
+		for _, argName := range []string{"input", "from", "value", "to", "key", "data", "url", "path", "payload", "token", "claims",
+			"subject", "messageID", "reason", "signature", "secret", "actor", "company", "user", "companyID",
+			"target", "resource", "operation", "tenant", "attrs", "context", "timeout", "ttl", "deadline",
+			"event", "body", "match", "id", "prefix", "a", "b", "name", "tier", "window", "tokens", "strategy"} {
+			addArg(argName)
+		}
+		for _, argName := range []string{"args", "parts", "from"} {
+			for _, expr := range argExpressions(step.Args[argName]) {
+				add(argName, expr, nil)
+			}
+		}
+		for _, argName := range []string{"headers", "query", "payloadMap"} {
+			addMapValues(argName)
+		}
+	}
+	return out
+}
+
+func stepDeclaredVars(step Step, logos sharedeffects.ActionLogos, hasLogos bool, spec Spec, hasSpec bool) []string {
+	declared := map[string]struct{}{}
+	add := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		if !isSimpleIdent(raw) {
+			return
+		}
+		declared[raw] = struct{}{}
+	}
+	if hasSpec {
+		for _, key := range spec.DeclaresFromArgs {
+			if v, _ := step.Args[key].(string); v != "" {
+				add(v)
+			}
+		}
+	}
+	if hasLogos && strings.TrimSpace(logos.ProducesVar) != "" {
+		if v, _ := step.Args[strings.TrimSpace(logos.ProducesVar)].(string); v != "" {
+			add(v)
+		}
+	}
+	for _, key := range []string{"output", "approvalId", "status", "decision", "decidedBy", "decidedAt", "reason", "effects", "ackToken", "statusVar", "exitCodeVar"} {
+		if v, _ := step.Args[key].(string); v != "" {
+			add(v)
+		}
+	}
+	if branches, ok := step.Children["_branches"]; ok {
+		for _, bs := range branches {
+			for _, v := range stepDeclaredVars(bs, sharedeffects.ActionLogos{}, false, Spec{}, false) {
+				add(v)
+			}
+		}
+	}
+	for _, childKey := range []string{"_do", "_catch", "_fallback", "_onTimeout", "_onMissing", "_onMismatch"} {
+		if childSteps, ok := step.Children[childKey]; ok {
+			for _, cs := range childSteps {
+				for _, v := range stepDeclaredVars(cs, sharedeffects.ActionLogos{}, false, Spec{}, false) {
+					add(v)
+				}
+			}
+		}
+	}
+	if step.Action == "mapping.Map" {
+		if v, _ := step.Args["to"].(string); v != "" {
+			add(v)
+		}
+	}
+	if step.Action == "mapping.Assign" && isDeclareArg(step.Args["declare"]) {
+		if v, _ := step.Args["to"].(string); v != "" {
+			add(v)
+		}
+	}
+	if step.Action == "auth.RequireRole" {
+		add("currentUser")
+	}
+	out := make([]string, 0, len(declared))
+	for name := range declared {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func argExpressions(raw any) []string {
+	switch v := raw.(type) {
+	case string:
+		s := strings.TrimSpace(v)
+		if s == "" {
+			return nil
+		}
+		return []string{s}
+	case []string:
+		out := make([]string, 0, len(v))
+		for _, s := range v {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			s := strings.TrimSpace(toStringValue(item))
+			if s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func stringMapExpressions(raw any) []string {
+	switch v := raw.(type) {
+	case map[string]string:
+		out := make([]string, 0, len(v))
+		for _, expr := range v {
+			expr = strings.TrimSpace(expr)
+			if expr != "" {
+				out = append(out, expr)
+			}
+		}
+		return out
+	case map[string]any:
+		out := make([]string, 0, len(v))
+		for _, anyExpr := range v {
+			expr := strings.TrimSpace(toStringValue(anyExpr))
+			if expr != "" {
+				out = append(out, expr)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func cloneValidateVars(src map[string]struct{}) map[string]struct{} {
+	dst := make(map[string]struct{}, len(src))
+	for k := range src {
+		dst[k] = struct{}{}
+	}
+	return dst
+}
+
+func buildValidateKnownRoots() map[string]struct{} {
+	base := []string{
+		"req", "resp", "ctx", "s", "tx", "err",
+		"domain", "port", "errors", "http",
+		"time", "uuid", "fmt", "strings", "strconv", "math",
+		"json", "rand", "crypto", "hex", "base64",
+		"sql", "os", "url", "regexp", "sort", "slices", "maps", "bytes", "io", "filepath",
+		"true", "false", "nil",
+		"len", "cap", "append", "copy", "delete", "new", "make", "clear",
+		"complex", "real", "imag", "close", "panic", "recover", "min", "max",
+		"string", "bool", "int", "int8", "int16", "int32", "int64",
+		"uint", "uint8", "uint16", "uint32", "uint64",
+		"float32", "float64", "byte", "rune", "error", "any",
+	}
+	out := make(map[string]struct{}, len(base))
+	for _, v := range base {
+		out[v] = struct{}{}
+	}
+	return out
+}
+
+var validateKnownRoots = buildValidateKnownRoots()
+
+func exprRoots(expr string) []string {
+	parsed, err := parser.ParseExpr(strings.TrimSpace(expr))
+	if err != nil {
+		return nil
+	}
+	roots := make(map[string]struct{})
+	var stack []ast.Node
+	ast.Inspect(parsed, func(n ast.Node) bool {
+		if n == nil {
+			if len(stack) > 0 {
+				stack = stack[:len(stack)-1]
+			}
+			return true
+		}
+		var parent ast.Node
+		if len(stack) > 0 {
+			parent = stack[len(stack)-1]
+		}
+		stack = append(stack, n)
+		id, ok := n.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		name := strings.TrimSpace(id.Name)
+		if name == "" || name == "_" {
+			return true
+		}
+		if parent != nil {
+			switch p := parent.(type) {
+			case *ast.SelectorExpr:
+				if p.Sel == id {
+					return true
+				}
+			case *ast.KeyValueExpr:
+				if p.Key == id {
+					return true
+				}
+			case *ast.Field:
+				if p.Names != nil {
+					return true
+				}
+			case *ast.ImportSpec:
+				return true
+			}
+		}
+		roots[name] = struct{}{}
+		return true
+	})
+	out := make([]string, 0, len(roots))
+	for name := range roots {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func isKnownRoot(name string) bool {
+	if name == "" {
+		return true
+	}
+	r, _ := utf8FirstRune(name)
+	if unicode.IsUpper(r) {
+		return true
+	}
+	_, ok := validateKnownRoots[name]
+	return ok
+}
+
+func isSimpleIdent(s string) bool {
+	if s == "" || strings.Contains(s, ".") {
+		return false
+	}
+	if token.Lookup(s).IsKeyword() {
+		return false
+	}
+	for i, r := range s {
+		if i == 0 {
+			if !(r == '_' || unicode.IsLetter(r)) {
+				return false
+			}
+			continue
+		}
+		if !(r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r)) {
+			return false
+		}
+	}
+	return true
+}
+
+func isDeclareArg(v any) bool {
+	switch raw := v.(type) {
+	case bool:
+		return raw
+	case string:
+		s := strings.TrimSpace(strings.ToLower(raw))
+		return s == "true" || s == "1" || s == "yes"
+	default:
+		return false
+	}
+}
+
+func utf8FirstRune(s string) (rune, int) {
+	for _, r := range s {
+		return r, len(string(r))
+	}
+	return rune(0), 0
+}
+
+func toStringValue(v any) string {
+	switch x := v.(type) {
+	case string:
+		return x
+	default:
+		return fmt.Sprint(v)
+	}
 }
 
 func canonicalFieldName(s string) string {
@@ -337,8 +806,14 @@ func argMatchesKind(v any, kind ArgKind) bool {
 		if _, ok := nonEmptyString(v); ok {
 			return true
 		}
-		arr, ok := v.([]string)
-		return ok && len(arr) > 0
+		switch arr := v.(type) {
+		case []string:
+			return len(arr) > 0
+		case []any:
+			return len(arr) > 0
+		default:
+			return false
+		}
 	case ArgKindStringList:
 		switch arr := v.(type) {
 		case []string:

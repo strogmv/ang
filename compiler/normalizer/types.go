@@ -585,6 +585,11 @@ type EffectMiddlewareCatalogDef struct {
 	Chains map[string][]EffectMiddlewareDef
 }
 
+// ModelsDef stores named AI/model aliases from infra.
+type ModelsDef struct {
+	Aliases map[string]string
+}
+
 // TransformersConfig describes which transformers are enabled.
 type TransformersConfig struct {
 	Timestamps  bool

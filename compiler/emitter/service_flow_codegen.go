@@ -124,13 +124,13 @@ func flowActionSupported(action string) bool {
 		"db.Get", "db.List", "db.Query",
 		"db.Insert", "db.Update", "db.Upsert", "db.Delete",
 		"db.Lock", "db.SelectForUpdate",
-		"secret.Get", "config.Get",
+		"secret.Get", "config.Get", "model.Resolve",
 		"list.Sum", "list.Avg",
 		"flow.Return",
 		"convert.ToFloat", "convert.ToInt",
 		"claude.Chat",
 		"plan.BuildAutomata", "plan.BuildMicroPlan", "cue.EmitProject", "cue.ValidateProject", "cue.WriteProjectFiles",
-		"openai.Chat", "openai.Stream":
+		"openai.Chat", "openai.Stream", "stream.Emit":
 		return true
 	default:
 		return false
@@ -218,6 +218,7 @@ type flowRenderState struct {
 	eventDefsByName  map[string]normalizer.EventDef
 	entityDefsByName map[string]normalizer.Entity
 	isStreaming      bool
+	infraValues      map[string]any
 }
 
 func cloneFlowState(st *flowRenderState) *flowRenderState {
@@ -238,6 +239,7 @@ func cloneFlowState(st *flowRenderState) *flowRenderState {
 		eventDefsByName:  st.eventDefsByName,
 		entityDefsByName: st.entityDefsByName,
 		isStreaming:      st.isStreaming,
+		infraValues:      st.infraValues,
 	}
 	for k, v := range st.declared {
 		cp.declared[k] = v
@@ -268,6 +270,10 @@ func renderFlowForServiceWithSchemaAndSink(serviceName, methodName string, steps
 }
 
 func renderFlowForServiceWithSchemaAndSinkMode(serviceName, methodName string, isStreaming bool, steps []normalizer.FlowStep, entities []normalizer.Entity, events []normalizer.EventDef, warningSink func(normalizer.Warning)) string {
+	return renderFlowForServiceWithSchemaAndSinkModeWithInfra(serviceName, methodName, isStreaming, steps, entities, events, warningSink, nil)
+}
+
+func renderFlowForServiceWithSchemaAndSinkModeWithInfra(serviceName, methodName string, isStreaming bool, steps []normalizer.FlowStep, entities []normalizer.Entity, events []normalizer.EventDef, warningSink func(normalizer.Warning), infraValues map[string]any) string {
 	n := 0
 	svcName := strings.TrimSpace(serviceName)
 	mName := strings.TrimSpace(methodName)
@@ -286,6 +292,7 @@ func renderFlowForServiceWithSchemaAndSinkMode(serviceName, methodName string, i
 		eventDefsByName:  flowEventDefsByName(events),
 		entityDefsByName: flowEntityDefsByName(entities),
 		isStreaming:      isStreaming,
+		infraValues:      infraValues,
 	}
 	var b strings.Builder
 	if flowHasAction(steps, "flow.Checkpoint", "flow.Resume") {
@@ -512,7 +519,7 @@ func renderOneFlowStep(st *flowRenderState, step normalizer.FlowStep, indent int
 		// STAGE 2: Infrastructure actions
 		// -------------------------------------------------------------------------
 
-	case "cache.Get", "cache.Set", "cache.Del", "mail.Send", "storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List", "http.Call", "http.Request", "http.RetryPolicy", "http.Paginate", "rand.Code", "rand.Token", "json.Parse", "json.Marshal", "regex.Match", "regex.Replace", "base64.Encode", "base64.Decode", "url.Parse", "url.Build", "query.Encode", "query.Decode", "hash.Sum", "hash.HMAC", "uuid.New", "ulid.New", "time.Now", "time.Format", "math.Op", "num.Add", "num.Sub", "num.Mul", "num.Div", "str.Concat", "str.StripMarkdown", "cast.ToString", "jsonpath.Get", "jsonpath.Set", "jwt.Sign", "jwt.Verify", "oauth2.Token", "oauth2.Refresh", "crypto.Encrypt", "crypto.Decrypt", "crypto.Hash", "parallel.Run", "pdf.Render", "webhook.Send", "webhook.VerifySignature", "webhook.Ack", "queue.Enqueue", "queue.Dequeue", "queue.Ack", "queue.Nack", "dlq.Publish", "event.Outbox", "secret.Get", "config.Get", "plan.BuildAutomata", "plan.BuildMicroPlan", "cue.EmitProject", "cue.ValidateProject", "cue.WriteProjectFiles",
+	case "cache.Get", "cache.Set", "cache.Del", "mail.Send", "storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List", "http.Call", "http.Request", "http.RetryPolicy", "http.Paginate", "rand.Code", "rand.Token", "json.Parse", "json.Marshal", "regex.Match", "regex.Replace", "base64.Encode", "base64.Decode", "url.Parse", "url.Build", "query.Encode", "query.Decode", "hash.Sum", "hash.HMAC", "uuid.New", "ulid.New", "time.Now", "time.Format", "math.Op", "num.Add", "num.Sub", "num.Mul", "num.Div", "str.Concat", "str.StripMarkdown", "cast.ToString", "jsonpath.Get", "jsonpath.Set", "jwt.Sign", "jwt.Verify", "oauth2.Token", "oauth2.Refresh", "crypto.Encrypt", "crypto.Decrypt", "crypto.Hash", "parallel.Run", "pdf.Render", "webhook.Send", "webhook.VerifySignature", "webhook.Ack", "queue.Enqueue", "queue.Dequeue", "queue.Ack", "queue.Nack", "dlq.Publish", "event.Outbox", "secret.Get", "config.Get", "model.Resolve", "stream.Emit", "plan.BuildAutomata", "plan.BuildMicroPlan", "cue.EmitProject", "cue.ValidateProject", "cue.WriteProjectFiles",
 		"event.Wait", "event.Subscribe", "event.Match", "event.Broadcast",
 		"notify.Send", "approval.Request", "approval.Wait", "approval.Decide",
 		"policy.Check", "policy.Evaluate", "policy.Require", "policy.Decide",

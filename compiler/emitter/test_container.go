@@ -101,6 +101,7 @@ func (e *Emitter) EmitTestContainerFromIR(ctx MainContext, schema *ir.Schema, au
 	}
 	buf.WriteString("}\n\n")
 
+	buf.WriteString("// NewTestContainer creates a mock-first bootstrap container for unit tests.\n")
 	buf.WriteString("func NewTestContainer(opts ...TestOption) *TestContainer {\n")
 	buf.WriteString("\tc := &TestContainer{Config: &config.Config{}}\n")
 	for _, repoName := range repoNames {
@@ -224,6 +225,11 @@ func (e *Emitter) EmitTestContainerFromIR(ctx MainContext, schema *ir.Schema, au
 		buf.WriteString("\t}\n")
 	}
 	buf.WriteString("\treturn c\n")
+	buf.WriteString("}\n\n")
+
+	buf.WriteString("// NewTestContainerWith applies partial overrides on top of NewTestContainer.\n")
+	buf.WriteString("func NewTestContainerWith(opts ...TestOption) *TestContainer {\n")
+	buf.WriteString("\treturn NewTestContainer(opts...)\n")
 	buf.WriteString("}\n\n")
 
 	buf.WriteString("func WithConfig(cfg *config.Config) TestOption {\n")

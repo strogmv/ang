@@ -11,10 +11,11 @@ type Program struct {
 }
 
 type Step struct {
-	Action string
-	Args   map[string]any
-	Line   int
-	Column int
+	Action   string
+	Args     map[string]any
+	Children map[string][]Step
+	Line     int
+	Column   int
 }
 
 type Node interface {

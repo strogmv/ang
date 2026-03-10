@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"sort"
+	"strings"
 
 	"github.com/strogmv/ang/compiler/normalizer"
 )
@@ -55,12 +56,56 @@ func collectFlowBranchNewVars(st *flowRenderState, indent int, branches ...[]nor
 			}
 			goType := probeState.types[varName]
 			if goType == "" {
+				goType = inferFlowCapturedVarType(varName, branch)
+			}
+			if goType == "" {
 				goType = "any"
 			}
 			newVars[varName] = flowCapturedVar{typ: goType, isPtr: probeState.pointers[varName]}
 		}
 	}
 	return newVars
+}
+
+func inferFlowCapturedVarType(varName string, steps []normalizer.FlowStep) string {
+	for _, step := range steps {
+		if output, _ := step.Args["output"].(string); strings.TrimSpace(output) == varName {
+			switch step.Action {
+			case "fs.TempDir", "fs.ReadFile", "str.Concat", "flow.ExplainError", "openai.Chat", "model.Resolve", "config.Get":
+				return "string"
+			case "cue.WriteProjectFiles", "cue.ValidateProject", "plan.BuildAutomata", "plan.BuildMicroPlan":
+				return "map[string]any"
+			case "cue.EmitProject":
+				return "map[string]string"
+			case "json.Parse":
+				if into, _ := step.Args["into"].(string); strings.TrimSpace(into) != "" {
+					return strings.TrimSpace(into)
+				}
+			}
+		}
+		for _, key := range []string{"_do", "_catch", "_then", "_else", "_fallback", "_onTimeout", "_default", "_onMissing"} {
+			if nested, ok := step.Args[key].([]normalizer.FlowStep); ok {
+				if typ := inferFlowCapturedVarType(varName, nested); typ != "" {
+					return typ
+				}
+			}
+		}
+		if cases, ok := step.Args["_cases"].(map[string][]normalizer.FlowStep); ok {
+			for _, nested := range cases {
+				if typ := inferFlowCapturedVarType(varName, nested); typ != "" {
+					return typ
+				}
+			}
+		}
+		if branches, ok := step.Args["_branches"].(map[string][]normalizer.FlowStep); ok {
+			for _, nested := range branches {
+				if typ := inferFlowCapturedVarType(varName, nested); typ != "" {
+					return typ
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func renderFlowTryAST(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, child func(string) []normalizer.FlowStep) (string, bool) {

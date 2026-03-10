@@ -76,6 +76,8 @@ func main() {
 		runConfig(os.Args[2:])
 	case "lsp":
 		runLSP(os.Args[2:])
+	case "flowfn":
+		runFlowfn(os.Args[2:])
 	case "hash":
 		runHash(os.Args[2:])
 	case "tips":
@@ -147,6 +149,7 @@ func printUsage() {
 	fmt.Println("  ang config doctor  Validate runtime env against generated config schema")
 	fmt.Println("  ang mcp       Run ANG MCP server over stdio")
 	fmt.Println("  ang lsp --stdio  Run ANG language server (MVP diagnostics)")
+	fmt.Println("  ang flowfn transpile  Parse flowfn and print transpiled flow array (--format cue-array|json)")
 	fmt.Println("  ang explain   Explain CODE or error-json with fix hints (--json)")
 	fmt.Println("  ang draw      Generate architecture diagrams (Mermaid)")
 	fmt.Println("  ang hash      Show current project hash (CUE + Templates, or --artifacts)")

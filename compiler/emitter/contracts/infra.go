@@ -14,6 +14,10 @@ func InfraEffectHandlers(values map[string]any) *normalizer.EffectHandlersDef {
 	return normalizer.InfraEffectHandlers(values)
 }
 
+func InfraModels(values map[string]any) *normalizer.ModelsDef {
+	return normalizer.InfraModels(values)
+}
+
 func InfraEffectTestHandlers(values map[string]any) *normalizer.EffectHandlersDef {
 	return normalizer.InfraEffectTestHandlers(values)
 }

@@ -284,13 +284,20 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		if input == "" || into == "" || output == "" {
 			return "", true
 		}
+		assign := ":="
+		if st.declared[output] {
+			assign = "="
+		}
+		st.declared[output] = true
+		st.pointers[output] = false
+		st.types[output] = into
 		var b strings.Builder
-		b.WriteString(fmt.Sprintf("%svar %s %s\n", pad, output, into))
+		if assign == ":=" {
+			b.WriteString(fmt.Sprintf("%svar %s %s\n", pad, output, into))
+		}
 		b.WriteString(fmt.Sprintf("%sif _jErr := json.Unmarshal([]byte(%s), &%s); _jErr != nil {\n", pad, input, output))
 		b.WriteString(errReturn(st, pad+"\t", "fmt.Errorf(\"json: %w\", _jErr)"))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
-		st.declared[output] = true
-		st.pointers[output] = false
 		return b.String(), true
 
 	case "json.Marshal":
@@ -312,6 +319,19 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		b.WriteString(errReturn(st, pad+"\t", "fmt.Errorf(\"json: %w\", "+jerrv+")"))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		b.WriteString(fmt.Sprintf("%s%s %s string(%s)\n", pad, output, assign, jbv))
+		return b.String(), true
+
+	case "stream.Emit":
+		data := arg("data")
+		if data == "" {
+			return "", true
+		}
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%sselect {\n", pad))
+		b.WriteString(fmt.Sprintf("%scase <-ctx.Done():\n", pad+"\t"))
+		b.WriteString(errReturn(st, pad+"\t\t", "ctx.Err()"))
+		b.WriteString(fmt.Sprintf("%scase chunks <- fmt.Sprint(%s):\n", pad+"\t", data))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
 	}
 

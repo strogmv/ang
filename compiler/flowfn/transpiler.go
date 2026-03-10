@@ -13,11 +13,14 @@ func Transpile(program Program) ([]Step, error) {
 }
 
 func ParseTranspile(source string) ([]Step, error) {
-	program, err := Parse(source)
+	steps, diags, err := ParseValidateTranspile(source)
 	if err != nil {
 		return nil, err
 	}
-	return Transpile(program)
+	if len(diags) > 0 {
+		return nil, ValidateDiagnostics(diags)
+	}
+	return steps, nil
 }
 
 func transpileNodes(nodes []Node) ([]Step, error) {
@@ -39,7 +42,7 @@ func transpileNodes(nodes []Node) ([]Step, error) {
 func transpileNode(node Node) (Step, []Step, error) {
 	switch n := node.(type) {
 	case *CallNode:
-		step := Step{Action: n.Action, Args: map[string]any{}, Line: n.Pos.Line, Column: n.Pos.Column}
+		step := Step{Action: n.Action, Args: map[string]any{}, Children: map[string][]Step{}, Line: n.Pos.Line, Column: n.Pos.Column}
 		for k, v := range n.Args {
 			step.Args[k] = v.Interface()
 		}
@@ -48,7 +51,10 @@ func transpileNode(node Node) (Step, []Step, error) {
 			if err != nil {
 				return Step{}, nil, err
 			}
-			step.Args["_"+name] = child
+			step.Children["_"+name] = child
+		}
+		if len(step.Children) == 0 {
+			step.Children = nil
 		}
 		return step, nil, nil
 	case *IfNode:
@@ -61,10 +67,11 @@ func transpileNode(node Node) (Step, []Step, error) {
 			return Step{}, nil, err
 		}
 		return Step{
-			Action: "flow.If",
-			Args:   map[string]any{"condition": n.Condition, "_then": thenBody, "_else": elseBody},
-			Line:   n.Pos.Line,
-			Column: n.Pos.Column,
+			Action:   "flow.If",
+			Args:     map[string]any{"condition": n.Condition},
+			Children: map[string][]Step{"_then": thenBody, "_else": elseBody},
+			Line:     n.Pos.Line,
+			Column:   n.Pos.Column,
 		}, nil, nil
 	case *ForNode:
 		body, err := transpileNodes(n.Do)
@@ -72,10 +79,11 @@ func transpileNode(node Node) (Step, []Step, error) {
 			return Step{}, nil, err
 		}
 		return Step{
-			Action: "flow.For",
-			Args:   map[string]any{"alias": n.Alias, "each": n.Each, "_do": body},
-			Line:   n.Pos.Line,
-			Column: n.Pos.Column,
+			Action:   "flow.For",
+			Args:     map[string]any{"as": n.Alias, "each": n.Each},
+			Children: map[string][]Step{"_do": body},
+			Line:     n.Pos.Line,
+			Column:   n.Pos.Column,
 		}, nil, nil
 	case *TryNode:
 		doBody, err := transpileNodes(n.Do)
@@ -87,10 +95,11 @@ func transpileNode(node Node) (Step, []Step, error) {
 			return Step{}, nil, err
 		}
 		return Step{
-			Action: "flow.Try",
-			Args:   map[string]any{"_do": doBody, "_catch": catchBody},
-			Line:   n.Pos.Line,
-			Column: n.Pos.Column,
+			Action:   "flow.Try",
+			Args:     map[string]any{},
+			Children: map[string][]Step{"_do": doBody, "_catch": catchBody},
+			Line:     n.Pos.Line,
+			Column:   n.Pos.Column,
 		}, nil, nil
 	case *FragmentNode, *UseNode:
 		return Step{}, nil, fmt.Errorf("unexpanded macro node %T", node)

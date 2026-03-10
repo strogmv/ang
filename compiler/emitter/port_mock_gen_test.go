@@ -54,11 +54,15 @@ type Blog interface {
 	out := string(data)
 	for _, want := range []string{
 		`type MockBlog struct {`,
+		`GetPostFunc  func(ctx context.Context, req port.GetPostRequest) (port.GetPostResponse, error)`,
+		`StreamCalls  []MockBlogStreamCall`,
 		`var _ port.Blog = (*MockBlog)(nil)`,
 		`func NewBlog() *MockBlog`,
 		`req port.GetPostRequest`,
 		`ttl time.Duration`,
 		`type MockBlogGetPostCall struct {`,
+		`type MockBlogStreamCall struct {`,
+		`func (m *MockBlog) Stream(ctx context.Context, chunks chan<- string, ttl time.Duration) error {`,
 		`var ret0 port.GetPostResponse`,
 		`var ret1 error`,
 	} {

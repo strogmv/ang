@@ -14,8 +14,8 @@ Login: {
 	service: "Auth"
 	input: { email: string }
 	output: { ok: bool }
-	flowfn: """
-repo.Find(source: "User", input: req.Email, output: user)
+flowfn: """
+repo.Find(source: "User", input: req.Email, output: user, error: "User not found")
 if user.Active {
   repo.Save(source: "User", input: user)
 }

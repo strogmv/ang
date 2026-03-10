@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/strogmv/ang/compiler"
+	complsp "github.com/strogmv/ang/compiler/lsp"
 	"github.com/strogmv/ang/compiler/normalizer"
 )
 
@@ -159,6 +160,7 @@ func (s *lspServer) handle(req lspRequest) error {
 					"completionProvider": map[string]any{
 						"triggerCharacters": []string{"\"", "."},
 					},
+					"hoverProvider":      true,
 					"codeActionProvider": true,
 					"executeCommandProvider": map[string]any{
 						"commands": []string{"ang.openDoctor", "ang.showFixHint"},
@@ -244,9 +246,16 @@ func (s *lspServer) handle(req lspRequest) error {
 			TextDocument struct {
 				URI string `json:"uri"`
 			} `json:"textDocument"`
+			Position struct {
+				Line      int `json:"line"`
+				Character int `json:"character"`
+			} `json:"position"`
 		}
 		_ = json.Unmarshal(req.Params, &p)
-		items := s.flowCompletionItems(p.TextDocument.URI)
+		items := s.flowCompletionItems(p.TextDocument.URI, complsp.Position{
+			Line:      p.Position.Line,
+			Character: p.Position.Character,
+		})
 		return s.writeJSON(lspResponse{
 			JSONRPC: "2.0",
 			ID:      req.ID,
@@ -254,6 +263,26 @@ func (s *lspServer) handle(req lspRequest) error {
 				"isIncomplete": false,
 				"items":        items,
 			},
+		})
+	case "textDocument/hover":
+		var p struct {
+			TextDocument struct {
+				URI string `json:"uri"`
+			} `json:"textDocument"`
+			Position struct {
+				Line      int `json:"line"`
+				Character int `json:"character"`
+			} `json:"position"`
+		}
+		_ = json.Unmarshal(req.Params, &p)
+		result := s.hoverForURI(p.TextDocument.URI, complsp.Position{
+			Line:      p.Position.Line,
+			Character: p.Position.Character,
+		})
+		return s.writeJSON(lspResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Result:  result,
 		})
 	case "textDocument/codeAction":
 		var p struct {
@@ -307,33 +336,59 @@ func (s *lspServer) handle(req lspRequest) error {
 	}
 }
 
-func (s *lspServer) flowCompletionItems(uri string) []map[string]any {
-	if !strings.HasSuffix(strings.ToLower(uriToPath(uri)), ".cue") {
+func (s *lspServer) flowCompletionItems(uri string, pos complsp.Position) []map[string]any {
+	text, ok := s.openDocumentText(uri)
+	if !ok {
 		return []map[string]any{}
 	}
-	actions := []string{
-		"repo.Find", "repo.List", "repo.Save", "repo.Delete",
-		"mapping.Map", "mapping.Assign",
-		"logic.Check", "logic.Call",
-		"flow.If", "flow.For",
-		"tx.Block",
-		"fsm.Transition",
-		"event.Publish",
-		"cache.Get", "cache.Set",
-		"rateLimit.Check",
-		"storage.Upload",
-		"mailer.Send",
+	ext := strings.ToLower(filepath.Ext(uriToPath(uri)))
+	if ext != ".cue" && ext != ".flowfn" {
+		return []map[string]any{}
 	}
-	items := make([]map[string]any, 0, len(actions))
-	for _, a := range actions {
-		items = append(items, map[string]any{
-			"label":      a,
-			"kind":       14, // keyword
-			"detail":     "ANG flow action",
-			"insertText": a,
+	items := complsp.CompletionItems(text, pos)
+	out := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		out = append(out, map[string]any{
+			"label":      item.Label,
+			"kind":       14,
+			"detail":     item.Detail,
+			"insertText": item.InsertText,
+			"deprecated": item.Deprecated,
+			"sortText":   item.SortText,
 		})
 	}
-	return items
+	return out
+}
+
+func (s *lspServer) hoverForURI(uri string, pos complsp.Position) map[string]any {
+	text, ok := s.openDocumentText(uri)
+	if !ok {
+		return nil
+	}
+	hover, ok := complsp.HoverForSource(text, pos)
+	if !ok || hover == nil {
+		return nil
+	}
+	result := map[string]any{
+		"contents": map[string]any{
+			"kind":  "markdown",
+			"value": hover.Value,
+		},
+	}
+	if hover.Range != nil {
+		result["range"] = map[string]any{
+			"start": map[string]int{"line": hover.Range.Start.Line, "character": hover.Range.Start.Character},
+			"end":   map[string]int{"line": hover.Range.End.Line, "character": hover.Range.End.Character},
+		}
+	}
+	return result
+}
+
+func (s *lspServer) openDocumentText(uri string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	text, ok := s.openDocs[uri]
+	return text, ok
 }
 
 func buildCodeActions(uri string, diagnostics []struct {
@@ -457,7 +512,27 @@ func (s *lspServer) collectDiagnosticsByURI() (map[string][]map[string]any, erro
 		return nil, err
 	}
 
+	out := map[string][]map[string]any{}
 	for uri, text := range docs {
+		if strings.HasSuffix(strings.ToLower(uriToPath(uri)), ".flowfn") {
+			list := complsp.FlowDiagnostics(text, false)
+			if len(list) > 0 {
+				out[uri] = make([]map[string]any, 0, len(list))
+				for _, diag := range list {
+					out[uri] = append(out[uri], map[string]any{
+						"range": map[string]any{
+							"start": map[string]int{"line": diag.Range.Start.Line, "character": diag.Range.Start.Character},
+							"end":   map[string]int{"line": diag.Range.End.Line, "character": diag.Range.End.Character},
+						},
+						"severity": diag.Severity,
+						"source":   diag.Source,
+						"message":  diag.Message,
+						"code":     diag.Code,
+					})
+				}
+			}
+			continue
+		}
 		srcPath := uriToPath(uri)
 		if srcPath == "" {
 			continue
@@ -484,7 +559,6 @@ func (s *lspServer) collectDiagnosticsByURI() (map[string][]map[string]any, erro
 
 	_, runErr := compiler.RunSemanticPhases(projRoot)
 	diags := compiler.LatestDiagnostics
-	out := map[string][]map[string]any{}
 	for _, d := range diags {
 		if d.File == "" {
 			continue

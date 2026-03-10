@@ -37,6 +37,7 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 	if in.IRSchema == nil {
 		in.IRSchema = &ir.Schema{}
 	}
+	in.Em.InfraValues = in.InfraValues
 
 	goOnly := []compiler.Capability{compiler.CapabilityProfileGoLegacy}
 	goHTTP := []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilityHTTP}
@@ -76,6 +77,9 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 	registry.Register(generator.Step{Name: "Mongo Common", Requires: goOnly, Run: func() error { return in.Em.EmitMongoCommonFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "SQL Schema", Requires: goSQL, Run: func() error { return in.Em.EmitSQLFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "Infra Configs", Requires: goOnly, Run: func() error { return in.Em.EmitInfraConfigs() }})
+	registry.Register(generator.Step{Name: "Effect Middleware", Requires: goOnly, Run: func() error {
+		return in.Em.EmitEffectMiddleware(in.Ctx)
+	}})
 	registry.Register(generator.Step{Name: "Effect Registry", Requires: goOnly, Run: func() error {
 		return in.Em.EmitEffectRegistry(in.Ctx, in.InfraValues)
 	}})
