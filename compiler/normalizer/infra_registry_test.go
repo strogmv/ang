@@ -25,6 +25,44 @@ func TestInfraRegistryExtractAll(t *testing.T) {
 			}
 		}
 
+		Handlers: {
+			db:      {driver: "postgres"}
+			ai:      {provider: "openai"}
+			storage: {driver: "s3", bucket: "${S3_BUCKET}"}
+			session: {driver: "cookie"}
+			events:  {driver: "nats"}
+			http:    {driver: "default"}
+			cache:   {driver: "redis"}
+			state:   {driver: "redis"}
+		}
+
+		TestHandlers: {
+			db:      {driver: "stub"}
+			ai:      {provider: "mock"}
+			storage: {driver: "memory"}
+			session: {driver: "memory"}
+			events:  {driver: "memory"}
+			http:    {driver: "mock"}
+			cache:   {driver: "memory"}
+			state:   {driver: "memory"}
+		}
+
+		Middleware: {
+			db: [
+				{type: "trace", level: "debug"},
+				{type: "metrics", level: "info"},
+			]
+			ai: [
+				{type: "retry", attempts: 3, backoff: "500ms", on: [429, 503]},
+				{type: "timeout", duration: "30s"},
+				{type: "log", level: "info"},
+			]
+			http: [
+				{type: "retry", attempts: 2, backoff: "200ms"},
+				{type: "timeout", duration: "10s"},
+			]
+		}
+
 		#NotificationMuting: {
 			enabled: true
 			userEntity: "Account"
@@ -84,6 +122,48 @@ func TestInfraRegistryExtractAll(t *testing.T) {
 	}
 	if auth.Alg != "HS256" {
 		t.Fatalf("expected auth alg HS256, got %q", auth.Alg)
+	}
+
+	handlers, ok := out[InfraKeyEffectHandlers].(*EffectHandlersDef)
+	if !ok || handlers == nil {
+		t.Fatalf("expected %q to be parsed into *EffectHandlersDef", InfraKeyEffectHandlers)
+	}
+	if got := handlers.Bindings["db"].Driver; got != "postgres" {
+		t.Fatalf("expected db driver postgres, got %q", got)
+	}
+	if got := handlers.Bindings["ai"].Provider; got != "openai" {
+		t.Fatalf("expected ai provider openai, got %q", got)
+	}
+	if got := handlers.Bindings["storage"].Options["bucket"]; got != "${S3_BUCKET}" {
+		t.Fatalf("expected storage bucket option, got %#v", got)
+	}
+
+	testHandlers, ok := out[InfraKeyEffectTestHandlers].(*EffectHandlersDef)
+	if !ok || testHandlers == nil {
+		t.Fatalf("expected %q to be parsed into *EffectHandlersDef", InfraKeyEffectTestHandlers)
+	}
+	if got := testHandlers.Bindings["db"].Driver; got != "stub" {
+		t.Fatalf("expected test db driver stub, got %q", got)
+	}
+	if got := testHandlers.Bindings["ai"].Provider; got != "mock" {
+		t.Fatalf("expected test ai provider mock, got %q", got)
+	}
+
+	middleware, ok := out[InfraKeyEffectMiddleware].(*EffectMiddlewareCatalogDef)
+	if !ok || middleware == nil {
+		t.Fatalf("expected %q to be parsed into *EffectMiddlewareCatalogDef", InfraKeyEffectMiddleware)
+	}
+	if got := len(middleware.Chains["ai"]); got != 3 {
+		t.Fatalf("expected 3 ai middleware entries, got %d", got)
+	}
+	if got := middleware.Chains["ai"][0].Attempts; got != 3 {
+		t.Fatalf("expected ai retry attempts 3, got %d", got)
+	}
+	if got := middleware.Chains["ai"][0].On; len(got) != 2 || got[0] != 429 || got[1] != 503 {
+		t.Fatalf("unexpected ai retry status list: %#v", got)
+	}
+	if got := middleware.Chains["http"][1].Duration; got != "10s" {
+		t.Fatalf("expected http timeout 10s, got %q", got)
 	}
 
 	muting, ok := out[InfraKeyNotificationMuting].(*NotificationMutingDef)
@@ -168,7 +248,40 @@ func TestInfraRegistryMetadata(t *testing.T) {
 	var foundMuting bool
 	var foundChannels bool
 	var foundPolicies bool
+	var foundHandlers bool
+	var foundTestHandlers bool
+	var foundMiddleware bool
 	for _, d := range defs {
+		if d.Key == InfraKeyEffectHandlers {
+			foundHandlers = true
+			if d.CUEPath != "Handlers" {
+				t.Fatalf("unexpected CUEPath %q", d.CUEPath)
+			}
+			if d.Type != reflect.TypeOf(EffectHandlersDef{}) {
+				t.Fatalf("unexpected type %v", d.Type)
+			}
+			continue
+		}
+		if d.Key == InfraKeyEffectTestHandlers {
+			foundTestHandlers = true
+			if d.CUEPath != "TestHandlers" {
+				t.Fatalf("unexpected CUEPath %q", d.CUEPath)
+			}
+			if d.Type != reflect.TypeOf(EffectHandlersDef{}) {
+				t.Fatalf("unexpected type %v", d.Type)
+			}
+			continue
+		}
+		if d.Key == InfraKeyEffectMiddleware {
+			foundMiddleware = true
+			if d.CUEPath != "Middleware" {
+				t.Fatalf("unexpected CUEPath %q", d.CUEPath)
+			}
+			if d.Type != reflect.TypeOf(EffectMiddlewareCatalogDef{}) {
+				t.Fatalf("unexpected type %v", d.Type)
+			}
+			continue
+		}
 		if d.Key == InfraKeyNotificationMuting {
 			foundMuting = true
 			if d.CUEPath != "#NotificationMuting" {
@@ -210,6 +323,15 @@ func TestInfraRegistryMetadata(t *testing.T) {
 	}
 	if !foundMuting {
 		t.Fatalf("notification muting definition not found")
+	}
+	if !foundHandlers {
+		t.Fatalf("effect handlers definition not found")
+	}
+	if !foundTestHandlers {
+		t.Fatalf("effect test handlers definition not found")
+	}
+	if !foundMiddleware {
+		t.Fatalf("effect middleware definition not found")
 	}
 	if !foundChannels {
 		t.Fatalf("notification channels definition not found")

@@ -2264,3 +2264,68 @@ RefConvertToInt: schema.#Operation & {
 		{action: "mapping.Assign", to: "resp.Ok", value: "num > 0"},
 	]
 }
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2026: plan.BuildAutomata
+// ----------------------------------------------------------------------------
+RefPlanBuildAutomata: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "plan.BuildAutomata", input: "req.ID", output: "automata"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "automata != nil"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2027: plan.BuildMicroPlan
+// ----------------------------------------------------------------------------
+RefPlanBuildMicroPlan: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "plan.BuildMicroPlan", usecases: "req.ID", automata: "req.ID", output: "microPlan"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "microPlan != nil"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2028: cue.EmitProject
+// ----------------------------------------------------------------------------
+RefCueEmitProject: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "cue.EmitProject", usecases: "req.ID", micro_plan: "req.ID", output: "projectFiles"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "projectFiles != nil"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2029: cue.ValidateProject
+// ----------------------------------------------------------------------------
+RefCueValidateProject: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "cue.ValidateProject", files: "req.ID", output: "validation"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "validation != nil"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2030: cue.WriteProjectFiles
+// ----------------------------------------------------------------------------
+RefCueWriteProjectFiles: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "cue.WriteProjectFiles", root: "\"/tmp/project\"", files: "req.ID", output: "writeResult"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "writeResult != nil"},
+	]
+}

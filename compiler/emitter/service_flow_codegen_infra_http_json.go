@@ -147,6 +147,12 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 			switch x := v.(type) {
 			case []string:
 				fmtArgs = x
+			case []interface{}:
+				for _, it := range x {
+					if s, ok := it.(string); ok && strings.TrimSpace(s) != "" {
+						fmtArgs = append(fmtArgs, s)
+					}
+				}
 			case string:
 				if x != "" {
 					fmtArgs = []string{x}

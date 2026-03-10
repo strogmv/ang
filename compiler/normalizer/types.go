@@ -160,6 +160,7 @@ type Method struct {
 	Outbox      bool
 	Impl        *MethodImpl
 	Flow        []FlowStep
+	Effects     []string
 	ImplSteps   []ImplStep
 	Attributes  []Attribute
 	Metadata    map[string]any
@@ -549,6 +550,39 @@ type NotificationPolicyRule struct {
 type NotificationPoliciesDef struct {
 	Enabled bool
 	Rules   []NotificationPolicyRule
+}
+
+// EffectHandlerBinding describes one infra handler binding for an effect kind.
+type EffectHandlerBinding struct {
+	Kind     string
+	Driver   string
+	Provider string
+	Options  map[string]any
+	Source   string
+}
+
+// EffectHandlersDef groups effect handler bindings by effect kind.
+type EffectHandlersDef struct {
+	Bindings map[string]EffectHandlerBinding
+}
+
+// EffectMiddlewareDef describes one middleware instance bound to an effect kind.
+type EffectMiddlewareDef struct {
+	Type     string
+	Attempts int
+	Backoff  string
+	On       []int
+	TTL      string
+	Key      string
+	Duration string
+	Level    string
+	Options  map[string]any
+	Source   string
+}
+
+// EffectMiddlewareCatalogDef stores middleware chains per effect kind.
+type EffectMiddlewareCatalogDef struct {
+	Chains map[string][]EffectMiddlewareDef
 }
 
 // TransformersConfig describes which transformers are enabled.

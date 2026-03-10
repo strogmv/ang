@@ -142,6 +142,31 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		}
 		return false
 	}
+	appFuncs["ServiceNeedsTxIR"] = func(s ir.Service) bool {
+		var hasTx func([]ir.FlowStep) bool
+		hasTx = func(steps []ir.FlowStep) bool {
+			for _, step := range steps {
+				if step.Action == "tx.Block" {
+					return true
+				}
+				if hasTx(step.Steps) || hasTx(step.IfNew) || hasTx(step.IfExists) || hasTx(step.Then) || hasTx(step.Else) || hasTx(step.Default) {
+					return true
+				}
+				for _, branch := range step.Cases {
+					if hasTx(branch) {
+						return true
+					}
+				}
+			}
+			return false
+		}
+		for _, m := range s.Methods {
+			if hasTx(m.Flow) {
+				return true
+			}
+		}
+		return false
+	}
 	appFuncs["AnyServiceHasIdempotencyOrOutboxIR"] = func(services []ir.Service) bool {
 		var hasOutboxAction func([]ir.FlowStep) bool
 		hasOutboxAction = func(steps []ir.FlowStep) bool {
@@ -416,6 +441,109 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		hasPolicy := appFuncs["ServiceHasPolicyActionsIR"].(func(ir.Service) bool)
 		for _, svc := range services {
 			if hasPolicy(svc) {
+				return true
+			}
+		}
+		return false
+	}
+	appFuncs["ServiceHasCacheActionsIR"] = func(s ir.Service) bool {
+		var hasCache func([]ir.FlowStep) bool
+		hasCache = func(steps []ir.FlowStep) bool {
+			for _, step := range steps {
+				switch step.Action {
+				case "cache.Get", "cache.Set", "cache.Del":
+					return true
+				}
+				if hasCache(step.Steps) || hasCache(step.IfNew) || hasCache(step.IfExists) || hasCache(step.Then) || hasCache(step.Else) || hasCache(step.Default) {
+					return true
+				}
+				for _, branch := range step.Cases {
+					if hasCache(branch) {
+						return true
+					}
+				}
+			}
+			return false
+		}
+		for _, m := range s.Methods {
+			if hasCache(m.Flow) {
+				return true
+			}
+		}
+		return false
+	}
+	appFuncs["AnyServiceHasCacheActionsIR"] = func(services []ir.Service) bool {
+		hasCache := appFuncs["ServiceHasCacheActionsIR"].(func(ir.Service) bool)
+		for _, svc := range services {
+			if hasCache(svc) {
+				return true
+			}
+		}
+		return false
+	}
+	appFuncs["ServiceHasMailSendIR"] = func(s ir.Service) bool {
+		var hasMail func([]ir.FlowStep) bool
+		hasMail = func(steps []ir.FlowStep) bool {
+			for _, step := range steps {
+				if step.Action == "mail.Send" {
+					return true
+				}
+				if hasMail(step.Steps) || hasMail(step.IfNew) || hasMail(step.IfExists) || hasMail(step.Then) || hasMail(step.Else) || hasMail(step.Default) {
+					return true
+				}
+				for _, branch := range step.Cases {
+					if hasMail(branch) {
+						return true
+					}
+				}
+			}
+			return false
+		}
+		for _, m := range s.Methods {
+			if hasMail(m.Flow) {
+				return true
+			}
+		}
+		return false
+	}
+	appFuncs["AnyServiceHasMailSendIR"] = func(services []ir.Service) bool {
+		hasMail := appFuncs["ServiceHasMailSendIR"].(func(ir.Service) bool)
+		for _, svc := range services {
+			if hasMail(svc) {
+				return true
+			}
+		}
+		return false
+	}
+	appFuncs["ServiceHasQueueDeliveryActionsIR"] = func(s ir.Service) bool {
+		var hasQueue func([]ir.FlowStep) bool
+		hasQueue = func(steps []ir.FlowStep) bool {
+			for _, step := range steps {
+				if strings.HasPrefix(step.Action, "queue.") || step.Action == "dlq.Publish" {
+					return true
+				}
+				if hasQueue(step.Steps) || hasQueue(step.IfNew) || hasQueue(step.IfExists) || hasQueue(step.Then) || hasQueue(step.Else) || hasQueue(step.Default) {
+					return true
+				}
+				for _, branch := range step.Cases {
+					if hasQueue(branch) {
+						return true
+					}
+				}
+			}
+			return false
+		}
+		for _, m := range s.Methods {
+			if hasQueue(m.Flow) {
+				return true
+			}
+		}
+		return false
+	}
+	appFuncs["AnyServiceHasQueueDeliveryActionsIR"] = func(services []ir.Service) bool {
+		hasQueue := appFuncs["ServiceHasQueueDeliveryActionsIR"].(func(ir.Service) bool)
+		for _, svc := range services {
+			if hasQueue(svc) {
 				return true
 			}
 		}

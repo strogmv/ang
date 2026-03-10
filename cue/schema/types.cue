@@ -108,7 +108,7 @@ import "github.com/strogmv/ang/cue/project"
 // AI AGENTS: Use these definitions to understand valid flow step structures.
 // ============================================================================
 
-#FlowStep: #RepoStep | #DbStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #EventOutboxStep | #CustomStep | #ServiceCallStep | #FlowCallStep | #StateStep | #ExplicitStateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #ListLenStep | #ListNewStep | #AuditStep | #AuthStep | #CheckRoleStep | #RBACCheckPermissionStep | #PolicyCheckStep | #PolicyEvaluateStep | #PolicyRequireStep | #PolicyDecideStep | #JWTSignStep | #JWTVerifyStep | #OAuth2TokenStep | #OAuth2RefreshStep | #EncryptStep | #DecryptStep | #HashStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #ListMapStep | #ListReduceStep | #ListGroupByStep | #ListDistinctStep | #ListChunkStep | #BatchRunStep | #EnrichStep | #TimeNowStep | #TimeParseStep | #TimeFormatStep | #TimeCheckExpiryStep | #MapBuildStep | #MapNewStep | #ExecRunStep | #ExecStreamStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #ArchiveZipDirStep | #SessionGetStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #NotifySendStep | #NotifyDispatchStep | #ApprovalRequestStep | #ApprovalWaitStep | #ApprovalDecideStep | #StorageUploadStep | #StorageDownloadStep | #StorageDeleteStep | #StorageListStep | #StorageGetURLStep | #WebhookSendStep | #WebhookVerifySignatureStep | #WebhookAckStep | #QueueEnqueueStep | #QueueDequeueStep | #QueueAckStep | #QueueNackStep | #DLQPublishStep | #HTTPCallStep | #HTTPRequestStep | #HTTPRetryPolicyStep | #HTTPPaginateStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #StrConcatStep | #StrStripMarkdownStep | #CastToStringStep | #NumBinaryStep | #MathExprStep | #MathOpStep | #RegexMatchStep | #RegexReplaceStep | #Base64EncodeStep | #Base64DecodeStep | #URLParseStep | #URLBuildStep | #QueryEncodeStep | #QueryDecodeStep | #HashSumStep | #HashHMACStep | #UUIDNewStep | #ULIDNewStep | #JSONParseStep | #JSONMarshalStep | #JSONPathGetStep | #JSONPathSetStep | #ParallelStep | #PDFRenderStep | #FlowParallelStep | #FlowJoinStep | #FlowRaceStep | #FlowDelayStep | #FlowScheduleStep | #FlowCronStep | #SecretGetStep | #ConfigGetStep | #EventWaitStep | #EventSubscribeStep | #EventMatchStep | #FlowSagaStep | #FlowCompensateStep | #FlowRollbackStep | #FlowDeferStep | #FlowTagStep | #FlowCheckpointStep | #FlowResumeStep | #FlowRecordEventStep | #FlowReplayStep | #FlowHistoryGetStep | #FlowValidateStep | #FlowTryStep | #FlowCatchStep | #FlowRetryStep | #FlowFallbackStep | #FlowTimeoutStep | #FlowSuggestNextStep | #FlowExplainErrorStep | #IdemDeriveKeyStep | #IdemCheckStep | #IdemSaveResultStep | #IdempotencyDeriveKeyStep | #IdempotencyCheckStep | #IdempotencySaveResultStep | #DedupeOnceStep | #RateLimitCheckStep | #RateLimitLimitStep | #QuotaCheckStep | #BudgetCheckStep | #BudgetConsumeStep | #ContextTrimStep | #ProfileRequireStep | #ConcurrencyLimitStep | #ConcurrencyRunStep | #CircuitCheckStep | #CircuitRecordSuccessStep | #CircuitRecordFailureStep | #CircuitBreakerStep | #BulkheadAcquireStep | #BulkheadRunStep | #LogEmitStep | #MetricEmitStep | #TraceSpanStep | #SLOBudgetStep | #ListSumStep | #ListAvgStep | #FlowReturnStep | #ConvertToFloatStep | #ConvertToIntStep | #ClaudeChatStep | #OpenAIChatStep | #OpenAIStreamStep
+#FlowStep: #RepoStep | #DbStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #EventOutboxStep | #CustomStep | #ServiceCallStep | #FlowCallStep | #StateStep | #ExplicitStateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #ListLenStep | #ListNewStep | #AuditStep | #AuthStep | #CheckRoleStep | #RBACCheckPermissionStep | #PolicyCheckStep | #PolicyEvaluateStep | #PolicyRequireStep | #PolicyDecideStep | #JWTSignStep | #JWTVerifyStep | #OAuth2TokenStep | #OAuth2RefreshStep | #EncryptStep | #DecryptStep | #HashStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #ListMapStep | #ListReduceStep | #ListGroupByStep | #ListDistinctStep | #ListChunkStep | #BatchRunStep | #EnrichStep | #TimeNowStep | #TimeParseStep | #TimeFormatStep | #TimeCheckExpiryStep | #MapBuildStep | #MapNewStep | #ExecRunStep | #ExecStreamStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #ArchiveZipDirStep | #SessionGetStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #NotifySendStep | #NotifyDispatchStep | #ApprovalRequestStep | #ApprovalWaitStep | #ApprovalDecideStep | #StorageUploadStep | #StorageDownloadStep | #StorageDeleteStep | #StorageListStep | #StorageGetURLStep | #WebhookSendStep | #WebhookVerifySignatureStep | #WebhookAckStep | #QueueEnqueueStep | #QueueDequeueStep | #QueueAckStep | #QueueNackStep | #DLQPublishStep | #HTTPCallStep | #HTTPRequestStep | #HTTPRetryPolicyStep | #HTTPPaginateStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #StrConcatStep | #StrStripMarkdownStep | #CastToStringStep | #NumBinaryStep | #MathExprStep | #MathOpStep | #RegexMatchStep | #RegexReplaceStep | #Base64EncodeStep | #Base64DecodeStep | #URLParseStep | #URLBuildStep | #QueryEncodeStep | #QueryDecodeStep | #HashSumStep | #HashHMACStep | #UUIDNewStep | #ULIDNewStep | #JSONParseStep | #JSONMarshalStep | #JSONPathGetStep | #JSONPathSetStep | #ParallelStep | #PDFRenderStep | #FlowParallelStep | #FlowJoinStep | #FlowRaceStep | #FlowDelayStep | #FlowScheduleStep | #FlowCronStep | #SecretGetStep | #ConfigGetStep | #EventWaitStep | #EventSubscribeStep | #EventMatchStep | #FlowSagaStep | #FlowCompensateStep | #FlowRollbackStep | #FlowDeferStep | #FlowTagStep | #FlowCheckpointStep | #FlowResumeStep | #FlowRecordEventStep | #FlowReplayStep | #FlowHistoryGetStep | #FlowValidateStep | #FlowTryStep | #FlowCatchStep | #FlowRetryStep | #FlowFallbackStep | #FlowTimeoutStep | #FlowSuggestNextStep | #FlowExplainErrorStep | #IdemDeriveKeyStep | #IdemCheckStep | #IdemSaveResultStep | #IdempotencyDeriveKeyStep | #IdempotencyCheckStep | #IdempotencySaveResultStep | #DedupeOnceStep | #RateLimitCheckStep | #RateLimitLimitStep | #QuotaCheckStep | #BudgetCheckStep | #BudgetConsumeStep | #ContextTrimStep | #ProfileRequireStep | #ConcurrencyLimitStep | #ConcurrencyRunStep | #CircuitCheckStep | #CircuitRecordSuccessStep | #CircuitRecordFailureStep | #CircuitBreakerStep | #BulkheadAcquireStep | #BulkheadRunStep | #LogEmitStep | #MetricEmitStep | #TraceSpanStep | #SLOBudgetStep | #ListSumStep | #ListAvgStep | #FlowReturnStep | #ConvertToFloatStep | #ConvertToIntStep | #ClaudeChatStep | #OpenAIChatStep | #OpenAIStreamStep | #PlanBuildAutomataStep | #PlanBuildMicroPlanStep | #CueEmitProjectStep | #CueValidateProjectStep | #CueWriteProjectFilesStep
 
 #FlowCheckpointStep: {
 	// flow.Checkpoint - Save current flow state for potential resumption
@@ -2356,4 +2356,61 @@ import "github.com/strogmv/ang/cue/project"
 	model?: string
 	// Max tokens in response (default: 4096)
 	max_tokens?: int
+}
+
+#PlanBuildAutomataStep: {
+	// plan.BuildAutomata - Build automata.json from structured use cases.
+	action: "plan.BuildAutomata"
+	// Input expression containing usecases JSON/string/map/struct.
+	input: string
+	// Variable name for resulting automata document.
+	output: string
+}
+
+#PlanBuildMicroPlanStep: {
+	// plan.BuildMicroPlan - Build micro_plan.json from structured use cases + automata.
+	action: "plan.BuildMicroPlan"
+	// Input expression containing usecases JSON/string/map/struct.
+	usecases: string
+	// Input expression containing automata JSON/string/map/struct.
+	automata: string
+	// Variable name for resulting micro plan document.
+	output: string
+}
+
+#CueEmitProjectStep: {
+	// cue.EmitProject - Emit split CUE project files from usecases + micro plan.
+	action: "cue.EmitProject"
+	// Input expression containing usecases JSON/string/map/struct.
+	usecases: string
+	// Input expression containing micro plan JSON/string/map/struct.
+	micro_plan: string
+	// Variable name for resulting file map (path -> content).
+	output: string
+}
+
+#CueValidateProjectStep: {
+	// cue.ValidateProject - Validate emitted project files via `ang validate --json`.
+	action: "cue.ValidateProject"
+	// Input expression containing file map (path -> content).
+	files: string
+	// Optional ANG binary path/expression. Default: "ang".
+	binary?: string
+	// Variable name for resulting diagnostics envelope.
+	output: string
+}
+
+#CueWriteProjectFilesStep: {
+	// cue.WriteProjectFiles - Write emitted project file map to disk.
+	action: "cue.WriteProjectFiles"
+	// Target root directory.
+	root: string
+	// Input expression containing file map (path -> content).
+	files: string
+	// Optional write mode: "upsert" or "replace_prefix". Default: "upsert".
+	mode?: string
+	// Optional prefixes to clean first in replace_prefix mode.
+	prefixes?: [...string]
+	// Variable name for write result.
+	output: string
 }

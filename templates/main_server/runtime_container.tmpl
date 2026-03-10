@@ -51,6 +51,7 @@ import (
 )
 
 type RuntimeContainer struct {
+	Effects *EffectRegistry
 	{{- if and .AuthService (HasEntityByNameIR .EntitiesIR "User") }}
 	RepoUser port.UserRepository
 	{{- end }}
@@ -119,16 +120,19 @@ func NewRuntimeContainer(
 	repoNotification = adapter.NewMutingNotificationRepo(repoNotification, repoUser)
 	{{- end }}
 
-	{{- if and $needsPG (or (AnyServiceHasIdempotencyOrOutboxIR .ServicesIR) (AnyServiceHasStateActionsIR .ServicesIR)) }}
+	{{- if and $needsPG (AnyServiceHasIdempotencyOrOutboxIR .ServicesIR) }}
 	repoSystem := postgres.NewSystemRepository(pgPool)
 	{{- end }}
 
-	{{- if and $needsPG (AnyServiceHasStateActionsIR .ServicesIR) }}
-	var stateStore port.StateStore = repoSystem
-	if cfg.RedisAddr != "" {
-		stateStore = redistore.New(redisclient.NewClient(cfg.RedisAddr))
-	}
+	var effectStorage port.FileStorage
+	{{- if $needsS3 }}
+	effectStorage = s3Client
 	{{- end }}
+	effects, err := NewEffectRegistry(ctx, cfg, pgPool, publisher, effectStorage)
+	if err != nil {
+		return nil, err
+	}
+	c.Effects = effects
 
 	{{- if and $needsPG (HasTxServicesIR .ServicesIR) }}
 	txManager := postgres.NewTxManager(pgPool)
@@ -153,7 +157,7 @@ func NewRuntimeContainer(
 		refreshStore,
 		{{- end }}
 		{{- if ServiceHasPublishesIR . }}
-		publisher,
+		effects.Publisher,
 		{{- end }}
 		{{- if ServiceHasIdempotencyIR . }}
 			{{- if $needsPG }}
@@ -170,14 +174,14 @@ func NewRuntimeContainer(
 			{{- end }}
 		{{- end }}
 		{{- if or .RequiresS3 (ServiceHasStorageIR .) }}
-		s3Client,
+		effects.Storage,
 		{{- end }}
 		{{- if ServiceHasNotificationDispatchIR . }}
 		notificationDispatcher,
 		{{- end }}
 		{{- if ServiceHasStateActionsIR . }}
 			{{- if $needsPG }}
-		stateStore,
+		effects.StateStore,
 			{{- else }}
 		nil,
 			{{- end }}

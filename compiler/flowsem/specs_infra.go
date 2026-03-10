@@ -39,6 +39,33 @@ var specsInfra = map[string]Spec{
 			"max_tokens":     ArgKindInt,
 		},
 	},
+	"plan.BuildAutomata": {
+		RequiredArgs:     []string{"input", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"plan.BuildMicroPlan": {
+		RequiredArgs:     []string{"usecases", "automata", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"cue.EmitProject": {
+		RequiredArgs:     []string{"usecases", "micro_plan", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"cue.ValidateProject": {
+		RequiredArgs:     []string{"files", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"binary": ArgKindString,
+		},
+	},
+	"cue.WriteProjectFiles": {
+		RequiredArgs:     []string{"root", "files", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"mode":     ArgKindString,
+			"prefixes": ArgKindStringList,
+		},
+	},
 	// Stage 3: New capabilities
 	"http.Call": {
 		RequiredArgs: []string{"method", "url"},

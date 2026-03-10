@@ -708,6 +708,14 @@ func handleFlowControlAndInfra(
 			declaredVars[output] = true
 		}
 		return true
+
+	case "plan.BuildAutomata", "plan.BuildMicroPlan", "cue.EmitProject", "cue.ValidateProject", "cue.WriteProjectFiles":
+		if output, _ := step.Args["output"].(string); strings.TrimSpace(output) == "" {
+			addWarn(stepNum, step.Action, "MISSING_OUTPUT", fmt.Sprintf("%s missing 'output'", step.Action), fmt.Sprintf("{action: \"%s\", output: \"doc\"}", step.Action), step.File, step.Line, step.Column)
+		} else {
+			declaredVars[output] = true
+		}
+		return true
 	}
 
 	return false
@@ -790,6 +798,8 @@ func isUnknownFlowAction(action string) bool {
 		strings.HasPrefix(action, "service.") ||
 		strings.HasPrefix(action, "secret.") ||
 		strings.HasPrefix(action, "config.") ||
+		strings.HasPrefix(action, "plan.") ||
+		strings.HasPrefix(action, "cue.") ||
 		strings.HasPrefix(action, "claude.") ||
 		strings.HasPrefix(action, "openai.") {
 		return false

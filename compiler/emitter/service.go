@@ -474,6 +474,29 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 						importMap["os"] = ""
 						importMap["strings"] = ""
 						importMap["time"] = ""
+					case "plan.BuildAutomata", "plan.BuildMicroPlan":
+						importMap["encoding/json"] = ""
+						importMap["fmt"] = ""
+						importMap["strings"] = ""
+					case "cue.EmitProject":
+						importMap["encoding/json"] = ""
+						importMap["fmt"] = ""
+						importMap["sort"] = ""
+						importMap["strings"] = ""
+					case "cue.ValidateProject":
+						importMap["encoding/json"] = ""
+						importMap["fmt"] = ""
+						importMap["os"] = ""
+						importMap["os/exec"] = ""
+						importMap["path/filepath"] = ""
+						importMap["strings"] = ""
+					case "cue.WriteProjectFiles":
+						importMap["encoding/json"] = ""
+						importMap["fmt"] = ""
+						importMap["os"] = ""
+						importMap["path/filepath"] = ""
+						importMap["sort"] = ""
+						importMap["strings"] = ""
 					}
 					// Recurse into child steps
 					for _, childKey := range []string{"_do", "_then", "_else", "_ifNew", "_ifExists", "_default", "_catch", "_fallback", "_onTimeout", "_onMissing", "_onMismatch"} {

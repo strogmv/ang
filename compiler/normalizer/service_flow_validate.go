@@ -198,5 +198,8 @@ func validateFlowSteps(opName string, svcName string, steps []FlowStep, entities
 		currentStep = step
 		addWarn(stepNum, step.Action, code, message, hint, step.File, step.Line, step.Column)
 	})
+	for _, w := range validateFlowEffects(opName, steps) {
+		appendWarn(w)
+	}
 	return warnings
 }

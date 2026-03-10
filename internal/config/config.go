@@ -23,6 +23,7 @@ type Config struct {
 	MongoDatabase     string `env:"MONGO_DATABASE" env-default:"app"`
 	MongoURL          string `env:"MONGO_URL" env-default:"mongodb://localhost:27017"`
 	NatsURL           string `env:"NATS_URL" env-default:"nats://localhost:4222"`
+	OpenAIAPIKey      string `env:"OPENAI_API_KEY"`
 	PGMaxConnIdleTime string `env:"PG_MAX_CONN_IDLE_TIME" env-default:"30m"`
 	PGMaxConnLifetime string `env:"PG_MAX_CONN_LIFETIME" env-default:"1h"`
 	PGMaxConns        int    `env:"PG_MAX_CONNS" env-default:"25"`

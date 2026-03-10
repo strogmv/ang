@@ -354,13 +354,33 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 		}
 
 		// Extract flow steps
+		var steps []FlowStep
+		var hasFlow bool
 		flowVal := value.LookupPath(cue.ParsePath("flow"))
 		if flowVal.Exists() && flowVal.Kind() == cue.ListKind {
-			steps, err := n.parseFlowSteps(flowVal)
+			steps, err = n.parseFlowSteps(flowVal)
 			if err != nil {
 				return nil, err
 			}
+			hasFlow = true
+		} else if flowfnVal := value.LookupPath(cue.ParsePath("flowfn")); flowfnVal.Exists() && flowfnVal.IncompleteKind() == cue.StringKind {
+			raw, err := flowfnVal.String()
+			if err != nil {
+				return nil, fmt.Errorf("parse flowfn for %s.%s: %w", svcName, opName, err)
+			}
+			steps, err = n.parseFlowFn(raw)
+			if err != nil {
+				return nil, fmt.Errorf("parse flowfn for %s.%s: %w", svcName, opName, err)
+			}
+			hasFlow = true
+		}
+		if hasFlow {
 			method.Flow = steps
+			effects := DeriveOperationEffects(steps)
+			method.Effects = make([]string, 0, len(effects))
+			for _, kind := range effects {
+				method.Effects = append(method.Effects, string(kind))
+			}
 			if flowUsesObjectStorage(steps) {
 				svc.RequiresS3 = true
 			}

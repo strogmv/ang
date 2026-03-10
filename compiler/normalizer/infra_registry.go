@@ -12,12 +12,16 @@ import (
 const (
 	InfraKeyConfig               = "config"
 	InfraKeyAuth                 = "auth"
+	InfraKeyEffectHandlers       = "effect_handlers"
+	InfraKeyEffectTestHandlers   = "effect_test_handlers"
+	InfraKeyEffectMiddleware     = "effect_middleware"
 	InfraKeyNotificationMuting   = "notification_muting"
 	InfraKeyNotificationChannels = "notification_channels"
 	InfraKeyNotificationPolicies = "notification_policies"
 
-	infraErrCodeConfigParse = "CUE_INFRA_CONFIG_PARSE_ERROR"
-	infraErrCodeAuthParse   = "CUE_INFRA_AUTH_PARSE_ERROR"
+	infraErrCodeConfigParse  = "CUE_INFRA_CONFIG_PARSE_ERROR"
+	infraErrCodeAuthParse    = "CUE_INFRA_AUTH_PARSE_ERROR"
+	infraErrCodeEffectsParse = "CUE_INFRA_EFFECTS_PARSE_ERROR"
 )
 
 type InfraLanguage string
@@ -184,6 +188,21 @@ func InfraAuth(values map[string]any) *AuthDef {
 	return def
 }
 
+func InfraEffectHandlers(values map[string]any) *EffectHandlersDef {
+	def, _ := values[InfraKeyEffectHandlers].(*EffectHandlersDef)
+	return def
+}
+
+func InfraEffectTestHandlers(values map[string]any) *EffectHandlersDef {
+	def, _ := values[InfraKeyEffectTestHandlers].(*EffectHandlersDef)
+	return def
+}
+
+func InfraEffectMiddleware(values map[string]any) *EffectMiddlewareCatalogDef {
+	def, _ := values[InfraKeyEffectMiddleware].(*EffectMiddlewareCatalogDef)
+	return def
+}
+
 func InfraNotificationMuting(values map[string]any) *NotificationMutingDef {
 	def, _ := values[InfraKeyNotificationMuting].(*NotificationMutingDef)
 	return def
@@ -240,6 +259,36 @@ func init() {
 				Name:     "Python Auth Stores",
 				Requires: []string{"profile_python_fastapi", "auth"},
 			},
+		},
+	})
+
+	Register(InfraKeyEffectHandlers, InfraDef{
+		CUEPath:   "Handlers",
+		Type:      reflect.TypeOf(EffectHandlersDef{}),
+		ErrorCode: infraErrCodeEffectsParse,
+		ErrorOp:   "extract effect handlers",
+		Extractor: func(n *Normalizer, v cue.Value) (any, error) {
+			return n.ExtractEffectHandlers(v, "Handlers")
+		},
+	})
+
+	Register(InfraKeyEffectTestHandlers, InfraDef{
+		CUEPath:   "TestHandlers",
+		Type:      reflect.TypeOf(EffectHandlersDef{}),
+		ErrorCode: infraErrCodeEffectsParse,
+		ErrorOp:   "extract test effect handlers",
+		Extractor: func(n *Normalizer, v cue.Value) (any, error) {
+			return n.ExtractEffectHandlers(v, "TestHandlers")
+		},
+	})
+
+	Register(InfraKeyEffectMiddleware, InfraDef{
+		CUEPath:   "Middleware",
+		Type:      reflect.TypeOf(EffectMiddlewareCatalogDef{}),
+		ErrorCode: infraErrCodeEffectsParse,
+		ErrorOp:   "extract effect middleware",
+		Extractor: func(n *Normalizer, v cue.Value) (any, error) {
+			return n.ExtractEffectMiddleware(v)
 		},
 	})
 

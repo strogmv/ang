@@ -76,6 +76,9 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 	registry.Register(generator.Step{Name: "Mongo Common", Requires: goOnly, Run: func() error { return in.Em.EmitMongoCommonFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "SQL Schema", Requires: goSQL, Run: func() error { return in.Em.EmitSQLFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "Infra Configs", Requires: goOnly, Run: func() error { return in.Em.EmitInfraConfigs() }})
+	registry.Register(generator.Step{Name: "Effect Registry", Requires: goOnly, Run: func() error {
+		return in.Em.EmitEffectRegistry(in.Ctx, in.InfraValues)
+	}})
 	registry.Register(generator.Step{Name: "SQL Queries", Requires: goSQL, Run: func() error { return in.Em.EmitSQLQueriesFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "Mongo Schemas", Requires: goOnly, Run: func() error { return in.Em.EmitMongoSchemaFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "Repo Stubs", Requires: goOnly, Run: func() error { return in.Em.EmitStubRepoFromIR(in.IRSchema) }})
@@ -182,6 +185,8 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 	registry.Register(generator.Step{Name: "Tracing", Requires: goOnly, Run: func() error { return in.Em.EmitTracing() }})
 	registry.Register(generator.Step{Name: "Policy Runtime", Requires: goOnly, Run: func() error { return in.Em.EmitPolicyRuntime() }})
 	registry.Register(generator.Step{Name: "Service Impls", ArtifactKey: "go:service_impl", Requires: goOnly, Run: func() error { return in.Em.EmitServiceImplFromIR(in.IRSchema, in.AuthDef) }})
+	registry.Register(generator.Step{Name: "Port Mocks", Requires: goOnly, Run: func() error { return in.Em.EmitPortMocks() }})
+	registry.Register(generator.Step{Name: "Test Container", Requires: goOnly, Run: func() error { return in.Em.EmitTestContainerFromIR(in.Ctx, in.IRSchema, in.AuthDef, in.InfraValues) }})
 	registry.Register(generator.Step{Name: "Cached Services", Requires: goOnly, Run: func() error { return in.Em.EmitCachedServiceFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "K8s Manifests", Requires: goOnly, Run: func() error { return in.Em.EmitK8sFromIR(in.IRSchema, in.IsMicroservice) }})
 	registry.Register(generator.Step{Name: "Server Main", ArtifactKey: "go:server_main", Requires: goOnly, Run: func() error {
