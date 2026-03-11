@@ -340,5 +340,11 @@ func (e *Emitter) EmitRuntimeContainer(ctx MainContext) error {
 	if err != nil {
 		return err
 	}
-	return WriteFileIfChanged(filepath.Join(targetDir, "runtime_container.go"), formatted, 0644)
+	path := filepath.Join(targetDir, "runtime_container.go")
+	if shouldPreserveGoCustomBlocks("internal/bootstrap/runtime_container.go") {
+		if prev, err := os.ReadFile(path); err == nil {
+			formatted = []byte(mergeGoCustomBlocks(string(formatted), string(prev)))
+		}
+	}
+	return WriteFileIfChanged(path, formatted, 0644)
 }

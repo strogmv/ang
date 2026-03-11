@@ -94,6 +94,8 @@ func main() {
 		runFix(os.Args[2:])
 	case "context":
 		runContext(os.Args[2:])
+	case "template":
+		runTemplate(os.Args[2:])
 	case "extract":
 		runExtract(os.Args[2:])
 	case "import":
@@ -146,6 +148,8 @@ func printUsage() {
 	fmt.Println("  ang extract   Extract facts from Go/Java/OpenAPI/SQL for AI migration (--from=go|java|openapi|sql|auto, --out)")
 	fmt.Println("  ang import java  Normalize Java sources into import IR and generate contract-layer CUE (--report --diff --update)")
 	fmt.Println("  ang import openapi  Import OpenAPI spec into cue/api/http.cue + operations_*.cue + cue/domain/entities.cue (--report --diff --update)")
+	fmt.Println("  ang template diff    Compare emitted project against current files and classify drift")
+	fmt.Println("  ang template rebase  Plan/apply safe template deltas while preserving supported custom edits")
 	fmt.Println("  ang config doctor  Validate runtime env against generated config schema")
 	fmt.Println("  ang mcp       Run ANG MCP server over stdio")
 	fmt.Println("  ang lsp --stdio  Run ANG language server (MVP diagnostics)")

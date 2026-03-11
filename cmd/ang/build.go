@@ -105,12 +105,24 @@ func runBuild(args []string) {
 			},
 		}
 		if output.DryRun {
-			dryRunTmpRoot, err = os.MkdirTemp("", "ang-dry-run-*")
-			if err != nil {
-				printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterOptions, "create dry-run temp dir", err)
-				return
+			if strings.TrimSpace(output.DryRunRoot) != "" {
+				dryRunTmpRoot = filepath.Clean(output.DryRunRoot)
+				if err := os.RemoveAll(dryRunTmpRoot); err != nil && !os.IsNotExist(err) {
+					printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterOptions, "reset dry-run temp dir", err)
+					return
+				}
+				if err := os.MkdirAll(dryRunTmpRoot, 0o755); err != nil {
+					printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterOptions, "create dry-run temp dir", err)
+					return
+				}
+			} else {
+				dryRunTmpRoot, err = os.MkdirTemp("", "ang-dry-run-*")
+				if err != nil {
+					printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterOptions, "create dry-run temp dir", err)
+					return
+				}
+				defer os.RemoveAll(dryRunTmpRoot)
 			}
-			defer os.RemoveAll(dryRunTmpRoot)
 		}
 
 		fail := func(stage compiler.Stage, code, op string, err error) {
@@ -582,6 +594,22 @@ func runBuild(args []string) {
 
 		if output.DryRun {
 			summarizeDryRunManifest(&dryManifest)
+			if strings.TrimSpace(output.DryRunReport) != "" {
+				data, err := json.MarshalIndent(dryManifest, "", "  ")
+				if err != nil {
+					printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterOptions, "marshal dry-run report", err)
+					return
+				}
+				data = append(data, '\n')
+				if err := os.MkdirAll(filepath.Dir(output.DryRunReport), 0o755); err != nil {
+					printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterOptions, "mkdir dry-run report dir", err)
+					return
+				}
+				if err := os.WriteFile(output.DryRunReport, data, 0o644); err != nil {
+					printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterOptions, "write dry-run report", err)
+					return
+				}
+			}
 			printDryRunManifest(dryManifest)
 			logText("\nBuild DRY-RUN SUCCESSFUL.")
 			if jsonLogs {
