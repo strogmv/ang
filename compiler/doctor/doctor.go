@@ -66,14 +66,18 @@ func DetectErrorCodes(log string) []string {
 	matches := re.FindAllString(log, -1)
 
 	known := map[string]struct{}{
-		"E_FSM_UNDEFINED_STATE":   {},
-		"MISSING_ID":              {},
-		"MISSING_CREATED_AT":      {},
-		"UNKNOWN_ACTION":          {},
-		"E_FLOW_UNKNOWN_ACTION":   {},
-		"E_FLOW_TOO_LARGE":        {},
-		"W_FLOW_OUTBOX_PREFERRED": {},
-		"GO_UNDEFINED_SELECTOR":   {},
+		"E_FSM_UNDEFINED_STATE":                  {},
+		"MISSING_ID":                             {},
+		"MISSING_CREATED_AT":                     {},
+		"UNKNOWN_ACTION":                         {},
+		"E_FLOW_UNKNOWN_ACTION":                  {},
+		"E_FLOW_TOO_LARGE":                       {},
+		"W_FLOW_OUTBOX_PREFERRED":                {},
+		"GO_UNDEFINED_SELECTOR":                  {},
+		"W_PACK_AUTH_MISSING_SELF_PROFILE_ROUTE": {},
+		"E_PACK_MODERATION_MISSING_TRANSITIONS":  {},
+		"E_PACK_NOTIFY_MISSING_RECIPIENT_SOURCE": {},
+		"W_IR_CANONICAL_PACK_MISMATCH":           {},
 	}
 	for _, c := range compiler.StableErrorCodes {
 		known[c] = struct{}{}
@@ -106,8 +110,14 @@ func DetectErrorCodes(log string) []string {
 }
 
 func BuildSuggestionCatalog(log string) []Suggestion {
-	all := make([]string, 0, len(compiler.StableErrorCodes)+1)
+	all := make([]string, 0, len(compiler.StableErrorCodes)+5)
 	all = append(all, "E_FSM_UNDEFINED_STATE")
+	all = append(all,
+		"W_PACK_AUTH_MISSING_SELF_PROFILE_ROUTE",
+		"E_PACK_MODERATION_MISSING_TRANSITIONS",
+		"E_PACK_NOTIFY_MISSING_RECIPIENT_SOURCE",
+		"W_IR_CANONICAL_PACK_MISMATCH",
+	)
 	all = append(all, compiler.StableErrorCodes...)
 	all = uniqueSorted(all)
 
@@ -373,6 +383,51 @@ func suggestionForCode(code, log string) Suggestion {
 				"op":   "replace_action",
 				"from": "event.Publish",
 				"to":   "event.Outbox",
+			},
+		}
+	case "W_PACK_AUTH_MISSING_SELF_PROFILE_ROUTE":
+		return Suggestion{
+			Code:         code,
+			Fix:          "Add a canonical self-profile route. Recommended contract: GET /auth/profile -> GetProfile (and keep PUT /auth/profile for UpdateProfile).",
+			CanAutoApply: false,
+			Patch: map[string]any{
+				"op":     "insert_endpoint_scaffold",
+				"method": "GET",
+				"path":   "/auth/profile",
+				"rpc":    "GetProfile",
+			},
+		}
+	case "E_PACK_MODERATION_MISSING_TRANSITIONS":
+		return Suggestion{
+			Code:         code,
+			Fix:          "Add canonical moderation FSM states and transitions: pending -> approved|rejected.",
+			CanAutoApply: false,
+			Patch: map[string]any{
+				"op":          "merge_fsm",
+				"states":      []string{"pending", "approved", "rejected"},
+				"transitions": map[string]any{"pending": []string{"approved", "rejected"}},
+			},
+		}
+	case "E_PACK_NOTIFY_MISSING_RECIPIENT_SOURCE":
+		return Suggestion{
+			Code:         code,
+			Fix:          "Add explicit recipient source to the notify pack, for example req.Email or notify.Email { to: \"req.Email\" }.",
+			CanAutoApply: false,
+			Patch: map[string]any{
+				"op": "merge_notify_recipient",
+				"side_effect": map[string]any{
+					"kind": "notify.email",
+					"to":   "req.Email",
+				},
+			},
+		}
+	case "W_IR_CANONICAL_PACK_MISMATCH":
+		return Suggestion{
+			Code:         code,
+			Fix:          "Align canonical IR metadata: primary_operation_kind, capabilities, side_effects, and route/path should describe the same pack.",
+			CanAutoApply: false,
+			Patch: map[string]any{
+				"op": "align_canonical_pack_metadata",
 			},
 		}
 	case "GO_UNDEFINED_SELECTOR":
