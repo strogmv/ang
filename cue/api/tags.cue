@@ -47,7 +47,10 @@ CreateTag: schema.#Operation & {
 
 	flow: [
 		// Generate slug from name
-		{action: "logic.Call", func: "slugify", args: "req.Name", output: "slug"},
+		{action: "str.Normalize", input: "req.Name", mode: "lower", output: "slugSource"},
+		{action: "regex.Replace", input: "slugSource", pattern: "\"[^a-z0-9]+\"", repl: "\"-\"", output: "slugTrimmed"},
+		{action: "regex.Replace", input: "slugTrimmed", pattern: "\"(^-+|-+$)\"", repl: "\"\"", output: "slug"},
+		{action: "logic.Check", condition: "slug != \"\"", throw: "Tag slug cannot be empty"},
 
 		// Check if tag already exists
 		{action: "repo.Find", source: "Tag", method: "FindBySlug", input: "slug", output: "existing"},
@@ -86,7 +89,9 @@ UpdateTag: schema.#Operation & {
 
 		{action: "flow.If", condition: "req.Name != \"\"", then: [
 			{action: "mapping.Assign", to: "tag.Name", value: "req.Name"},
-			{action: "logic.Call", func: "slugify", args: "req.Name", output: "slug"},
+			{action: "str.Normalize", input: "req.Name", mode: "lower", output: "slugSource"},
+			{action: "regex.Replace", input: "slugSource", pattern: "\"[^a-z0-9]+\"", repl: "\"-\"", output: "slugTrimmed"},
+			{action: "regex.Replace", input: "slugTrimmed", pattern: "\"(^-+|-+$)\"", repl: "\"\"", output: "slug"},
 			{action: "mapping.Assign", to: "tag.Slug", value: "slug"},
 		]},
 		{action: "flow.If", condition: "req.Description != \"\"", then: [

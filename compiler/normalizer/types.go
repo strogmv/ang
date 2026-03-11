@@ -174,6 +174,24 @@ type SideEffect struct {
 	TargetField string
 }
 
+type PlannerRoute struct {
+	Method string
+	Path   string
+}
+
+type PlannerRepository struct {
+	LoadMethod string
+	ListMethod string
+	ActorField string
+	InputField string
+}
+
+type PlannerHints struct {
+	SourcePack string
+	Route      *PlannerRoute
+	Repository *PlannerRepository
+}
+
 type Method struct {
 	Name string
 
@@ -197,6 +215,7 @@ type Method struct {
 	Capabilities         []CapabilityKind
 	SideEffects          []SideEffect
 	ManualRequired       bool
+	Planner              *PlannerHints
 	Impl                 *MethodImpl
 	Flow                 []FlowStep
 	Effects              []string

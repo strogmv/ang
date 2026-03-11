@@ -228,6 +228,10 @@ import "github.com/strogmv/ang/cue/schema"
 			description: "Tag description"
 			optional:    true
 		}
+		createdAt: {
+			type:        "time"
+			description: "Creation timestamp"
+		}
 	}
 }
 
@@ -238,6 +242,9 @@ import "github.com/strogmv/ang/cue/schema"
 	description: "Post-Tag relationship"
 
 	fields: {
+		id: {
+			type: "uuid"
+		}
 		postID: {
 			type: "uuid"
 			ref:  "Post"

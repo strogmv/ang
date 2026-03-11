@@ -4,7 +4,7 @@ import "github.com/strogmv/ang/cue/project"
 
 #OperationKind: "create" | "get" | "list" | "update" | "delete" | "transition" | "notify" | "auth" | "message" | "upload"
 
-#CapabilityKind: "auth" | "profile" | "media" | "notify" | "messaging" | "moderation" | "search"
+#CapabilityKind: "auth" | "profile" | "media" | "notify" | "messaging" | "moderation" | "search" | "commerce" | "catalog" | "payment"
 
 #SideEffect: {
 	// Canonical kinds:
@@ -30,6 +30,14 @@ import "github.com/strogmv/ang/cue/project"
 	capabilities?: [...#CapabilityKind]
 	side_effects?: [...#SideEffect] | [...string]
 	manual_required?: bool
+	// Planner-facing canonical hints. Upper-layer generators such as sandbox
+	// should populate these explicitly instead of relying on ANG emitter
+	// heuristics to invent routes or repository bindings from names.
+	planner?: {
+		source_pack?: string
+		route?:      #RouteBinding
+		repository?: #RepositoryBinding
+	}
 	testHints?: {
 		happyPath?:  string
 		errorCases?: [...string]

@@ -84,6 +84,63 @@ func TestCollectCanonicalPackDiagnostics_NoAuthWarningWhenSelfProfileExists(t *t
 	}
 }
 
+func TestCollectCanonicalPackDiagnostics_MissingPlannerHints(t *testing.T) {
+	services := []normalizer.Service{{
+		Name: "Auth",
+		Methods: []normalizer.Method{{
+			Name:                 "GetMyProfile",
+			PrimaryOperationKind: normalizer.OperationKindGet,
+			Capabilities:         []normalizer.CapabilityKind{normalizer.CapabilityAuth, normalizer.CapabilityProfile},
+			Source:               "cue/api/auth.cue:12",
+		}},
+	}}
+	got := CollectCanonicalPackDiagnostics(nil, services, nil)
+	if !hasDiagCode(got, codePackMissingPlannerHints) {
+		t.Fatalf("expected %s, got %#v", codePackMissingPlannerHints, got)
+	}
+}
+
+func TestCollectCanonicalPackDiagnostics_NoPlannerWarningWhenPlannerHintsExist(t *testing.T) {
+	services := []normalizer.Service{{
+		Name: "Auth",
+		Methods: []normalizer.Method{{
+			Name:                 "GetMyProfile",
+			PrimaryOperationKind: normalizer.OperationKindGet,
+			Capabilities:         []normalizer.CapabilityKind{normalizer.CapabilityAuth, normalizer.CapabilityProfile},
+			Planner: &normalizer.PlannerHints{
+				SourcePack: "auth_profile",
+				Route:      &normalizer.PlannerRoute{Method: "GET", Path: "/auth/profile"},
+				Repository: &normalizer.PlannerRepository{LoadMethod: "FindByUserID", ActorField: "userID"},
+			},
+			Source: "cue/api/auth.cue:12",
+		}},
+	}}
+	got := CollectCanonicalPackDiagnostics(nil, services, nil)
+	if hasDiagCode(got, codePackMissingPlannerHints) {
+		t.Fatalf("did not expect %s, got %#v", codePackMissingPlannerHints, got)
+	}
+}
+
+func TestCollectCanonicalPackDiagnostics_MissingPlannerRoutePath(t *testing.T) {
+	services := []normalizer.Service{{
+		Name: "Auth",
+		Methods: []normalizer.Method{{
+			Name:                 "GetMyProfile",
+			PrimaryOperationKind: normalizer.OperationKindGet,
+			Capabilities:         []normalizer.CapabilityKind{normalizer.CapabilityAuth, normalizer.CapabilityProfile},
+			Planner: &normalizer.PlannerHints{
+				SourcePack: "auth_profile",
+				Route:      &normalizer.PlannerRoute{Method: "GET"},
+			},
+			Source: "cue/api/auth.cue:12",
+		}},
+	}}
+	got := CollectCanonicalPackDiagnostics(nil, services, nil)
+	if !hasDiagCode(got, codePackMissingPlannerRoutePath) {
+		t.Fatalf("expected %s, got %#v", codePackMissingPlannerRoutePath, got)
+	}
+}
+
 func hasDiagCode(diags []normalizer.Warning, code string) bool {
 	for _, d := range diags {
 		if d.Code == code {

@@ -350,6 +350,7 @@ func IRMethodToNormalizer(m ir.Method) normalizer.Method {
 		Capabilities:         irCapabilitiesToNormalizer(m.Capabilities),
 		SideEffects:          irSideEffectsToNormalizer(m.SideEffects),
 		ManualRequired:       m.ManualRequired,
+		Planner:              irPlannerToNormalizer(m.Planner),
 		Metadata:             m.Metadata,
 		Source:               m.Source,
 	}
@@ -422,40 +423,57 @@ func irSideEffectsToNormalizer(effects []ir.SideEffect) []normalizer.SideEffect 
 	for _, effect := range effects {
 		kind := strings.TrimSpace(strings.ToLower(effect.Kind))
 		switch kind {
-		case "email", "send_email", "sendemail", "notify.email", "notify_email":
+		case "notify.email", "notify_email":
 			kind = "notify.email"
-		case "sms", "send_sms", "sendsms", "notify.sms", "notify_sms":
+		case "notify.sms", "notify_sms":
 			kind = "notify.sms"
-		case "publish-event", "event":
+		case "publish-event":
 			kind = "publish_event"
-		case "notify", "notify-user":
+		case "notify-user":
 			kind = "notify_user"
-		case "review", "moderation_review":
+		case "moderation_review":
 			kind = "create_review"
-		case "upload_file", "upload-file":
-			kind = "upload_media"
 		}
 		out = append(out, normalizer.SideEffect{
 			Kind:        kind,
 			Channel:     effect.Channel,
 			Event:       effect.Event,
 			Template:    effect.Template,
-			TargetField: canonicalEmitterMediaFieldName(effect.TargetField),
+			TargetField: strings.TrimSpace(effect.TargetField),
 		})
 	}
 	return out
 }
 
-func canonicalEmitterMediaFieldName(name string) string {
-	key := strings.ToLower(strings.TrimSpace(name))
-	key = strings.NewReplacer("_", "", "-", "", " ", "", ".", "").Replace(key)
-	switch key {
-	case "avatar", "avatarurl", "photo", "photourl", "image", "imageurl", "picture", "pictureurl",
-		"profilepicture", "profilepictureurl", "profilephoto", "profilephotourl", "profileimage", "profileimageurl":
-		return "photoURL"
-	default:
-		return strings.TrimSpace(name)
+func irPlannerToNormalizer(hints *ir.PlannerHints) *normalizer.PlannerHints {
+	if hints == nil {
+		return nil
 	}
+	out := &normalizer.PlannerHints{
+		SourcePack: hints.SourcePack,
+	}
+	if hints.Route != nil {
+		out.Route = &normalizer.PlannerRoute{
+			Method: hints.Route.Method,
+			Path:   hints.Route.Path,
+		}
+	}
+	if hints.Repository != nil {
+		out.Repository = &normalizer.PlannerRepository{
+			LoadMethod: hints.Repository.LoadMethod,
+			ListMethod: hints.Repository.ListMethod,
+			ActorField: hints.Repository.ActorField,
+			InputField: hints.Repository.InputField,
+		}
+	}
+	if out.SourcePack == "" && out.Route == nil && out.Repository == nil {
+		return nil
+	}
+	return out
+}
+
+func canonicalEmitterMediaFieldName(name string) string {
+	return strings.TrimSpace(name)
 }
 
 func irImplStepsToNormalizer(irSteps []ir.ImplStep) []normalizer.ImplStep {

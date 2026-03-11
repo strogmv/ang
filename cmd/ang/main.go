@@ -13,6 +13,7 @@ import (
 
 	"github.com/strogmv/ang/compiler"
 	"github.com/strogmv/ang/internal/mcp"
+	"gopkg.in/yaml.v3"
 )
 
 func main() {
@@ -236,16 +237,28 @@ func readGoModuleAt(projectPath string) string {
 		base = "."
 	}
 	data, err := os.ReadFile(filepath.Join(base, "go.mod"))
+	if err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "module ") {
+				return strings.TrimSpace(strings.TrimPrefix(line, "module "))
+			}
+		}
+	}
+	type angYAML struct {
+		Go struct {
+			Module string `yaml:"module"`
+		} `yaml:"go"`
+	}
+	data, err = os.ReadFile(filepath.Join(base, "ang.yaml"))
 	if err != nil {
 		return ""
 	}
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "module ") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "module "))
-		}
+	var cfg angYAML
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return ""
 	}
-	return ""
+	return strings.TrimSpace(cfg.Go.Module)
 }
 
 func readGoModule() string {

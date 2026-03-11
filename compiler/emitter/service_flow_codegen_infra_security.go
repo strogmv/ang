@@ -43,6 +43,7 @@ func renderFlowStepInfraSecurity(st *flowRenderState, step normalizer.FlowStep, 
 		unsignedV := "_jwtUnsigned" + sfx
 		sigV := "_jwtSig" + sfx
 		encV := "_jwtEnc" + sfx
+		hmacV := "_jwtHMAC" + sfx
 
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%s%s := strings.ToUpper(strings.TrimSpace(%s))\n", pad, algV, alg))
@@ -91,9 +92,9 @@ func renderFlowStepInfraSecurity(st *flowRenderState, step normalizer.FlowStep, 
 		b.WriteString(fmt.Sprintf("%s%s, _ := json.Marshal(%s)\n", pad, payloadJV, claimsV))
 		b.WriteString(fmt.Sprintf("%s%s := base64.RawURLEncoding\n", pad, encV))
 		b.WriteString(fmt.Sprintf("%s%s := %s.EncodeToString(%s) + \".\" + %s.EncodeToString(%s)\n", pad, unsignedV, encV, headerJV, encV, payloadJV))
-		b.WriteString(fmt.Sprintf("%s_hmac := hmac.New(sha256.New, []byte(%s))\n", pad, secretV))
-		b.WriteString(fmt.Sprintf("%s_, _ = _hmac.Write([]byte(%s))\n", pad, unsignedV))
-		b.WriteString(fmt.Sprintf("%s%s := _hmac.Sum(nil)\n", pad, sigV))
+		b.WriteString(fmt.Sprintf("%s%s := hmac.New(sha256.New, []byte(%s))\n", pad, hmacV, secretV))
+		b.WriteString(fmt.Sprintf("%s_, _ = %s.Write([]byte(%s))\n", pad, hmacV, unsignedV))
+		b.WriteString(fmt.Sprintf("%s%s := %s.Sum(nil)\n", pad, sigV, hmacV))
 		b.WriteString(fmt.Sprintf("%s%s %s %s + \".\" + %s.EncodeToString(%s)\n", pad, output, assign, unsignedV, encV, sigV))
 		return b.String(), true
 

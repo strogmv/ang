@@ -79,17 +79,17 @@ func parseCapabilities(v cue.Value) []CapabilityKind {
 
 func canonicalSideEffectKind(kind string) string {
 	switch strings.TrimSpace(strings.ToLower(kind)) {
-	case "email", "send email", "send_email", "sendemail", "email notification", "notify.email", "notify_email":
+	case "notify.email", "notify_email":
 		return "notify.email"
-	case "sms", "send_sms", "sendsms", "notify.sms", "notify_sms":
+	case "notify.sms", "notify_sms":
 		return "notify.sms"
-	case "publish_event", "publish-event", "event":
+	case "publish_event", "publish-event":
 		return "publish_event"
-	case "notify_user", "notify", "notify-user":
+	case "notify_user", "notify-user":
 		return "notify_user"
-	case "create_review", "review", "moderation_review":
+	case "create_review", "moderation_review":
 		return "create_review"
-	case "upload_file", "upload_media", "upload-file":
+	case "upload_media":
 		return "upload_media"
 	default:
 		return strings.TrimSpace(strings.ToLower(kind))
@@ -97,15 +97,7 @@ func canonicalSideEffectKind(kind string) string {
 }
 
 func canonicalMediaFieldName(name string) string {
-	key := strings.ToLower(strings.TrimSpace(name))
-	key = strings.NewReplacer("_", "", "-", "", " ", "", ".", "").Replace(key)
-	switch key {
-	case "avatar", "avatarurl", "photo", "photourl", "image", "imageurl", "picture", "pictureurl",
-		"profilepicture", "profilepictureurl", "profilephoto", "profilephotourl", "profileimage", "profileimageurl":
-		return "photoURL"
-	default:
-		return strings.TrimSpace(name)
-	}
+	return strings.TrimSpace(name)
 }
 
 func parseSideEffects(v cue.Value) []SideEffect {
@@ -154,6 +146,55 @@ func parseManualRequired(v cue.Value) bool {
 		}
 	}
 	return false
+}
+
+func parsePlannerHints(v cue.Value) *PlannerHints {
+	res := v.LookupPath(cue.ParsePath("planner"))
+	if !res.Exists() {
+		return nil
+	}
+	hints := &PlannerHints{
+		SourcePack: strings.TrimSpace(getString(res, "source_pack")),
+	}
+	if hints.SourcePack == "" {
+		hints.SourcePack = strings.TrimSpace(getString(res, "sourcePack"))
+	}
+	if route := res.LookupPath(cue.ParsePath("route")); route.Exists() {
+		r := &PlannerRoute{
+			Method: strings.TrimSpace(getString(route, "method")),
+			Path:   strings.TrimSpace(getString(route, "path")),
+		}
+		if r.Method != "" || r.Path != "" {
+			hints.Route = r
+		}
+	}
+	if repo := res.LookupPath(cue.ParsePath("repository")); repo.Exists() {
+		r := &PlannerRepository{
+			LoadMethod: strings.TrimSpace(getString(repo, "load_method")),
+			ListMethod: strings.TrimSpace(getString(repo, "list_method")),
+			ActorField: strings.TrimSpace(getString(repo, "actor_field")),
+			InputField: strings.TrimSpace(getString(repo, "input_field")),
+		}
+		if r.LoadMethod == "" {
+			r.LoadMethod = strings.TrimSpace(getString(repo, "loadMethod"))
+		}
+		if r.ListMethod == "" {
+			r.ListMethod = strings.TrimSpace(getString(repo, "listMethod"))
+		}
+		if r.ActorField == "" {
+			r.ActorField = strings.TrimSpace(getString(repo, "actorField"))
+		}
+		if r.InputField == "" {
+			r.InputField = strings.TrimSpace(getString(repo, "inputField"))
+		}
+		if r.LoadMethod != "" || r.ListMethod != "" || r.ActorField != "" || r.InputField != "" {
+			hints.Repository = r
+		}
+	}
+	if hints.SourcePack == "" && hints.Route == nil && hints.Repository == nil {
+		return nil
+	}
+	return hints
 }
 
 // rpcEntityBase strips common verb prefixes from an RPC name to get the bare entity name.

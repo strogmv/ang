@@ -55,7 +55,7 @@ func TestAnalyze_FSMAutoFixAndMetrics(t *testing.T) {
 
 func TestBuildSuggestionCatalog_CoversAllCodes(t *testing.T) {
 	cat := BuildSuggestionCatalog("")
-	want := len(compiler.StableErrorCodes) + 5 // + FSM + 4 canonical-pack hardening codes
+	want := len(compiler.StableErrorCodes) + 7 // + FSM + 6 canonical-pack hardening codes
 	if len(cat) != want {
 		t.Fatalf("catalog size = %d, want %d", len(cat), want)
 	}

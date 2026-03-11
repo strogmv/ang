@@ -34,11 +34,12 @@ CreatePost: schema.#Operation & {
 
 	flow: [
 		// Generate slug and check availability
-		{action: "logic.Call", func: "slugify", args: "req.Title", output: "slug"},
+		{action: "str.Normalize", input: "req.Title", mode: "lower", output: "slugSource"},
+		{action: "regex.Replace", input: "slugSource", pattern: "\"[^a-z0-9]+\"", repl: "\"-\"", output: "slugTrimmed"},
+		{action: "regex.Replace", input: "slugTrimmed", pattern: "\"(^-+|-+$)\"", repl: "\"\"", output: "slug"},
+		{action: "logic.Check", condition: "slug != \"\"", throw: "Post slug cannot be empty"},
 		{action: "repo.Find", source: "Post", method: "FindBySlug", input: "slug", output: "existing"},
-		{action: "flow.If", condition: "existing != nil", then: [
-			{action: "logic.Call", func: "appendRandom", args: "slug", output: "slug"},
-		]},
+		{action: "logic.Check", condition: "existing == nil", throw: "Post slug already exists"},
 
 		{action: "tx.Block", do: [
 			// Create post
@@ -61,6 +62,7 @@ CreatePost: schema.#Operation & {
 				{action: "repo.Find", source: "Tag", method: "FindBySlug", input: "tagName", output: "tag"},
 				{action: "flow.If", condition: "tag != nil", then: [
 					{action: "mapping.Map", output: "assoc", entity: "PostTag"},
+					{action: "uuid.New", output: "assoc.ID"},
 					{action: "mapping.Assign", to: "assoc.PostID", value: "newPost.ID"},
 					{action: "mapping.Assign", to: "assoc.TagID", value: "tag.ID"},
 					{action: "repo.Save", source: "PostTag", input: "assoc"},

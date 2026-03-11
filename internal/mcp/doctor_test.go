@@ -88,13 +88,19 @@ func TestSuggestionForStableCode_ReturnsPatchTemplate(t *testing.T) {
 
 func TestBuildSuggestionCatalog_CoversAllCodes(t *testing.T) {
 	cat := doctor.BuildSuggestionCatalog("")
-	want := len(compiler.StableErrorCodes) + 1 // + E_FSM_UNDEFINED_STATE
-	if len(cat) != want {
-		t.Fatalf("catalog size = %d, want %d", len(cat), want)
+	if len(cat) < len(compiler.StableErrorCodes)+1 {
+		t.Fatalf("catalog size = %d, want at least %d", len(cat), len(compiler.StableErrorCodes)+1)
 	}
+	seen := map[string]bool{}
 	for _, s := range cat {
 		if s.Code == "" || s.Fix == "" || s.Patch == nil {
 			t.Fatalf("invalid catalog item: %#v", s)
+		}
+		seen[s.Code] = true
+	}
+	for _, code := range compiler.StableErrorCodes {
+		if !seen[code] {
+			t.Fatalf("catalog missing stable code %q", code)
 		}
 	}
 }

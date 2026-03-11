@@ -207,9 +207,20 @@ func TestIRRoundTrip(t *testing.T) {
 						{Kind: "upload_media", TargetField: "photoURL"},
 					},
 					ManualRequired: false,
-					Throws:         []string{"ERR1"},
-					Publishes:      []string{"EVT1"},
-					Broadcasts:     []string{"BRD1"},
+					Planner: &normalizer.PlannerHints{
+						SourcePack: "auth_profile",
+						Route: &normalizer.PlannerRoute{
+							Method: "GET",
+							Path:   "/auth/profile",
+						},
+						Repository: &normalizer.PlannerRepository{
+							LoadMethod: "FindByUserID",
+							ActorField: "userID",
+						},
+					},
+					Throws:     []string{"ERR1"},
+					Publishes:  []string{"EVT1"},
+					Broadcasts: []string{"BRD1"},
 					Pagination: &normalizer.PaginationDef{
 						Type:         "cursor",
 						DefaultLimit: 50,

@@ -16,6 +16,20 @@ import (
 	"github.com/strogmv/ang/internal/explain"
 )
 
+type angTemplateToolArgs struct {
+	projectPath       string
+	target            string
+	mode              string
+	backendDir        string
+	frontendDir       string
+	skipFrontend      bool
+	skipContractTests bool
+	outPath           string
+	fromPath          string
+	plan              bool
+	apply             bool
+}
+
 type coreToolDeps struct {
 	currentProfile     func() string
 	runtimeConfigPath  func() string
@@ -200,6 +214,75 @@ func registerCoreTools(addTool toolAdder, deps coreToolDeps) {
 		}
 		b, _ := json.MarshalIndent(resp, "", "  ")
 		return mcp.NewToolResultText(string(b)), nil
+	})
+
+	addTool("ang_ops_context", mcp.NewTool("ang_ops_context",
+		mcp.WithDescription("Unified AI context for ops work: schema + actions + diagnostics + proof."),
+		mcp.WithString("project_path", mcp.Description("Project root path (default: current directory).")),
+		mcp.WithString("profile", mcp.Description("Lint profile: mini|saas|prod (default: mini).")),
+		mcp.WithBoolean("migration_mode", mcp.Description("Enable facts-driven migration checks (requires facts_path).")),
+		mcp.WithString("facts_path", mcp.Description("Path to ang/facts/v1 JSON from `ang extract ...`.")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		projectPath := strings.TrimSpace(mcp.ParseString(request, "project_path", ""))
+		profile := strings.TrimSpace(mcp.ParseString(request, "profile", "mini"))
+		migrationMode := mcp.ParseBoolean(request, "migration_mode", false)
+		factsPath := strings.TrimSpace(mcp.ParseString(request, "facts_path", ""))
+		args := buildOpsContextArgs(projectPath, profile, migrationMode, factsPath)
+		return runANGJSONCommand(args)
+	})
+
+	addTool("ang_template_diff", mcp.NewTool("ang_template_diff",
+		mcp.WithDescription("Compare emitted project against current files and classify template drift."),
+		mcp.WithString("project_path", mcp.Description("Project root path (default: current directory).")),
+		mcp.WithString("target", mcp.Description("Restrict to selected build targets.")),
+		mcp.WithString("mode", mcp.Description("Build mode override: in_place|release.")),
+		mcp.WithString("backend_dir", mcp.Description("Backend dir override (default: .).")),
+		mcp.WithString("frontend_dir", mcp.Description("Frontend dir override (default: sdk).")),
+		mcp.WithBoolean("skip_frontend", mcp.Description("Skip frontend generation while diffing.")),
+		mcp.WithBoolean("skip_contract_tests", mcp.Description("Skip contract test generation while diffing.")),
+		mcp.WithString("out", mcp.Description("Optional path to write diff report JSON.")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		args := buildTemplateDiffArgs(angTemplateToolArgs{
+			projectPath:       strings.TrimSpace(mcp.ParseString(request, "project_path", "")),
+			target:            strings.TrimSpace(mcp.ParseString(request, "target", "")),
+			mode:              strings.TrimSpace(mcp.ParseString(request, "mode", "")),
+			backendDir:        strings.TrimSpace(mcp.ParseString(request, "backend_dir", "")),
+			frontendDir:       strings.TrimSpace(mcp.ParseString(request, "frontend_dir", "")),
+			skipFrontend:      mcp.ParseBoolean(request, "skip_frontend", false),
+			skipContractTests: mcp.ParseBoolean(request, "skip_contract_tests", false),
+			outPath:           strings.TrimSpace(mcp.ParseString(request, "out", "")),
+		})
+		return runANGJSONCommand(args)
+	})
+
+	addTool("ang_template_rebase", mcp.NewTool("ang_template_rebase",
+		mcp.WithDescription("Plan or apply safe template deltas while preserving supported custom edits."),
+		mcp.WithString("project_path", mcp.Description("Project root path (default: current directory).")),
+		mcp.WithBoolean("plan", mcp.Description("Print rebase plan without writing files (default if apply=false).")),
+		mcp.WithBoolean("apply", mcp.Description("Apply safe template deltas.")),
+		mcp.WithString("from", mcp.Description("Optional path to template diff/rebase plan JSON.")),
+		mcp.WithString("out", mcp.Description("Optional path to write rebase plan JSON.")),
+		mcp.WithString("target", mcp.Description("Restrict to selected build targets.")),
+		mcp.WithString("mode", mcp.Description("Build mode override: in_place|release.")),
+		mcp.WithString("backend_dir", mcp.Description("Backend dir override (default: .).")),
+		mcp.WithString("frontend_dir", mcp.Description("Frontend dir override (default: sdk).")),
+		mcp.WithBoolean("skip_frontend", mcp.Description("Skip frontend generation while planning/applying rebase.")),
+		mcp.WithBoolean("skip_contract_tests", mcp.Description("Skip contract test generation while planning/applying rebase.")),
+	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		args := buildTemplateRebaseArgs(angTemplateToolArgs{
+			projectPath:       strings.TrimSpace(mcp.ParseString(request, "project_path", "")),
+			target:            strings.TrimSpace(mcp.ParseString(request, "target", "")),
+			mode:              strings.TrimSpace(mcp.ParseString(request, "mode", "")),
+			backendDir:        strings.TrimSpace(mcp.ParseString(request, "backend_dir", "")),
+			frontendDir:       strings.TrimSpace(mcp.ParseString(request, "frontend_dir", "")),
+			skipFrontend:      mcp.ParseBoolean(request, "skip_frontend", false),
+			skipContractTests: mcp.ParseBoolean(request, "skip_contract_tests", false),
+			outPath:           strings.TrimSpace(mcp.ParseString(request, "out", "")),
+			fromPath:          strings.TrimSpace(mcp.ParseString(request, "from", "")),
+			plan:              mcp.ParseBoolean(request, "plan", false),
+			apply:             mcp.ParseBoolean(request, "apply", false),
+		})
+		return runANGJSONCommand(args)
 	})
 
 	addTool("ang_snapshot", mcp.NewTool("ang_snapshot",
@@ -455,6 +538,97 @@ func registerCoreTools(addTool toolAdder, deps coreToolDeps) {
 		out, _ := json.MarshalIndent(report, "", "  ")
 		return mcp.NewToolResultText(string(out)), nil
 	})
+}
+
+func buildOpsContextArgs(projectPath, profile string, migrationMode bool, factsPath string) []string {
+	args := []string{"ops", "context"}
+	if strings.TrimSpace(projectPath) != "" {
+		args = append(args, projectPath)
+	}
+	args = append(args, "--json")
+	if strings.TrimSpace(profile) != "" {
+		args = append(args, "--profile="+strings.TrimSpace(profile))
+	}
+	if migrationMode {
+		args = append(args, "--migration-mode")
+	}
+	if strings.TrimSpace(factsPath) != "" {
+		args = append(args, "--facts="+strings.TrimSpace(factsPath))
+	}
+	return args
+}
+
+func buildTemplateDiffArgs(opts angTemplateToolArgs) []string {
+	args := []string{"template", "diff"}
+	if strings.TrimSpace(opts.projectPath) != "" {
+		args = append(args, opts.projectPath)
+	}
+	args = append(args, "--json")
+	if strings.TrimSpace(opts.outPath) != "" {
+		args = append(args, "--out", strings.TrimSpace(opts.outPath))
+	}
+	return appendTemplateCommonFlags(args, opts)
+}
+
+func buildTemplateRebaseArgs(opts angTemplateToolArgs) []string {
+	args := []string{"template", "rebase"}
+	if strings.TrimSpace(opts.projectPath) != "" {
+		args = append(args, opts.projectPath)
+	}
+	args = append(args, "--json")
+	if opts.apply {
+		args = append(args, "--apply")
+	} else {
+		args = append(args, "--plan")
+	}
+	if strings.TrimSpace(opts.outPath) != "" {
+		args = append(args, "--out", strings.TrimSpace(opts.outPath))
+	}
+	if strings.TrimSpace(opts.fromPath) != "" {
+		args = append(args, "--from", strings.TrimSpace(opts.fromPath))
+	}
+	return appendTemplateCommonFlags(args, opts)
+}
+
+func appendTemplateCommonFlags(args []string, opts angTemplateToolArgs) []string {
+	if strings.TrimSpace(opts.target) != "" {
+		args = append(args, "--target", strings.TrimSpace(opts.target))
+	}
+	if strings.TrimSpace(opts.mode) != "" {
+		args = append(args, "--mode", strings.TrimSpace(opts.mode))
+	}
+	if strings.TrimSpace(opts.backendDir) != "" {
+		args = append(args, "--backend-dir", strings.TrimSpace(opts.backendDir))
+	}
+	if strings.TrimSpace(opts.frontendDir) != "" {
+		args = append(args, "--frontend-dir", strings.TrimSpace(opts.frontendDir))
+	}
+	if opts.skipFrontend {
+		args = append(args, "--skip-frontend")
+	}
+	if opts.skipContractTests {
+		args = append(args, "--skip-contract-tests")
+	}
+	return args
+}
+
+func runANGJSONCommand(args []string) (*mcp.CallToolResult, error) {
+	cmd := exec.Command(resolveANGExecutable(), args...)
+	out, err := cmd.CombinedOutput()
+	payload := bytes.TrimSpace(out)
+	if len(payload) > 0 && json.Valid(payload) {
+		return mcp.NewToolResultText(string(payload)), nil
+	}
+	resp := map[string]any{
+		"status":         "failed",
+		"command":        strings.Join(append([]string{resolveANGExecutable()}, args...), " "),
+		"output_excerpt": truncate(string(out), 12000),
+	}
+	if err != nil {
+		resp["error"] = err.Error()
+	}
+	b, _ := json.MarshalIndent(resp, "", "  ")
+	return mcp.NewToolResultText(string(b)), nil
 }
 
 func searchScopeRoots(scope string) ([]string, error) {

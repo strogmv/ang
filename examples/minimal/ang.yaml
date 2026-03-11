@@ -5,6 +5,8 @@ description: "Minimal ANG example"
 cue:
   api: "./cue/api"
   architecture: "./cue/architecture"
+  domain: "./cue/domain"
+  repo: "./cue/repo"
 
 output:
   backend: "."

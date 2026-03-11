@@ -34,6 +34,7 @@ package architecture
 // Event definitions
 #Events: {
     UserRegistered: {
+        owner: "auth"
         description: "Fired when a new user registers"
         payload: {
             userID: "uuid"
@@ -42,6 +43,7 @@ package architecture
     }
 
     UserLoggedIn: {
+        owner: "auth"
         description: "Fired on successful login"
         payload: {
             userID: "uuid"
@@ -49,6 +51,7 @@ package architecture
     }
 
     PostCreated: {
+        owner: "blog"
         description: "Fired when a new post is created"
         payload: {
             postID: "uuid"
@@ -58,6 +61,7 @@ package architecture
     }
 
     PostPublished: {
+        owner: "blog"
         description: "Fired when a post is published"
         payload: {
             postID: "uuid"
@@ -68,6 +72,7 @@ package architecture
     }
 
     PostUpdated: {
+        owner: "blog"
         description: "Fired when a post is updated"
         payload: {
             postID: "uuid"
@@ -75,6 +80,7 @@ package architecture
     }
 
     CommentCreated: {
+        owner: "blog"
         description: "Fired when a comment is added"
         payload: {
             commentID: "uuid"

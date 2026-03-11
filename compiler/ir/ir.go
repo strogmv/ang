@@ -314,6 +314,24 @@ type SideEffect struct {
 	TargetField string `json:"target_field,omitempty"`
 }
 
+type PlannerRoute struct {
+	Method string `json:"method,omitempty"`
+	Path   string `json:"path,omitempty"`
+}
+
+type PlannerRepository struct {
+	LoadMethod string `json:"load_method,omitempty"`
+	ListMethod string `json:"list_method,omitempty"`
+	ActorField string `json:"actor_field,omitempty"`
+	InputField string `json:"input_field,omitempty"`
+}
+
+type PlannerHints struct {
+	SourcePack string             `json:"source_pack,omitempty"`
+	Route      *PlannerRoute      `json:"route,omitempty"`
+	Repository *PlannerRepository `json:"repository,omitempty"`
+}
+
 // Method represents an RPC/service method.
 type Method struct {
 	Name                 string
@@ -335,6 +353,7 @@ type Method struct {
 	Capabilities         []CapabilityKind `json:"capabilities,omitempty"`
 	SideEffects          []SideEffect     `json:"side_effects,omitempty"`
 	ManualRequired       bool             `json:"manual_required,omitempty"`
+	Planner              *PlannerHints    `json:"planner,omitempty"`
 	Impl                 *Impl
 	ImplSteps            []ImplStep
 	Flow                 []FlowStep

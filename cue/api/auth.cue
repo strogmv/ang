@@ -42,7 +42,7 @@ Register: schema.#Operation & {
 		{action: "mapping.Map", output: "newUser", entity: "User"},
 		{action: "mapping.Assign", to: "newUser.Email", value: "req.Email"},
 		{action: "mapping.Assign", to: "newUser.Name", value: "req.Name"},
-		{action: "logic.Call", func: "hashPassword", args: ["req.Password"], output: "hash"},
+		{action: "crypto.Hash", input: "req.Password", algo: "\"sha256\"", output: "hash"},
 		{action: "mapping.Assign", to: "newUser.PasswordHash", value: "hash"},
 		{action: "mapping.Assign", to: "newUser.Role", value: "\"reader\""},
 
@@ -86,23 +86,21 @@ Login: schema.#Operation & {
 		{action: "repo.Find", source: "User", method: "FindByEmail", input: "req.Email", output: "user", error: "Invalid credentials"},
 
 		// Verify password
-		{action: "logic.Call", func: "checkPassword", args: ["req.Password", "user.PasswordHash"], output: "valid"},
-		{action: "logic.Check", condition: "valid", throw: "Invalid credentials"},
+		{action: "crypto.Hash", input: "req.Password", algo: "\"sha256\"", output: "passwordHash"},
+		{action: "logic.Check", condition: "user.PasswordHash == passwordHash", throw: "Invalid credentials"},
 
 		// Generate tokens
-		{action: "logic.Call", func: "generateTokens", args: "user", output: "tokens"},
+		{action: "jwt.Sign", claims: "map[string]any{\"sub\": user.ID, \"email\": user.Email, \"role\": user.Role}", ttl: "\"15m\"", output: "accessToken"},
+		{action: "jwt.Sign", claims: "map[string]any{\"sub\": user.ID, \"type\": \"refresh\"}", ttl: "\"168h\"", output: "refreshToken"},
 
 		// Publish event and respond
 			{action: "event.Publish", name: "UserLoggedIn", payloadMap: {
 				UserID: "user.ID"
 			}},
 
-		{action: "mapping.Assign", to: "resp.AccessToken", value: "tokens.AccessToken"},
-		{action: "mapping.Assign", to: "resp.RefreshToken", value: "tokens.RefreshToken"},
-		{action: "mapping.Assign", to: "resp.User.ID", value: "user.ID"},
-		{action: "mapping.Assign", to: "resp.User.Email", value: "user.Email"},
-		{action: "mapping.Assign", to: "resp.User.Name", value: "user.Name"},
-		{action: "mapping.Assign", to: "resp.User.Role", value: "user.Role"},
+		{action: "mapping.Assign", to: "resp.AccessToken", value: "accessToken"},
+		{action: "mapping.Assign", to: "resp.RefreshToken", value: "refreshToken"},
+		{action: "mapping.Assign", to: "resp.User", value: "map[string]any{\"id\": user.ID, \"email\": user.Email, \"name\": user.Name, \"role\": user.Role}"},
 	]
 }
 

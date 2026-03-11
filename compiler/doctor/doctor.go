@@ -77,6 +77,8 @@ func DetectErrorCodes(log string) []string {
 		"W_PACK_AUTH_MISSING_SELF_PROFILE_ROUTE": {},
 		"E_PACK_MODERATION_MISSING_TRANSITIONS":  {},
 		"E_PACK_NOTIFY_MISSING_RECIPIENT_SOURCE": {},
+		"W_PACK_MISSING_PLANNER_HINTS":           {},
+		"W_PACK_MISSING_PLANNER_ROUTE_PATH":      {},
 		"W_IR_CANONICAL_PACK_MISMATCH":           {},
 	}
 	for _, c := range compiler.StableErrorCodes {
@@ -110,12 +112,14 @@ func DetectErrorCodes(log string) []string {
 }
 
 func BuildSuggestionCatalog(log string) []Suggestion {
-	all := make([]string, 0, len(compiler.StableErrorCodes)+5)
+	all := make([]string, 0, len(compiler.StableErrorCodes)+6)
 	all = append(all, "E_FSM_UNDEFINED_STATE")
 	all = append(all,
 		"W_PACK_AUTH_MISSING_SELF_PROFILE_ROUTE",
 		"E_PACK_MODERATION_MISSING_TRANSITIONS",
 		"E_PACK_NOTIFY_MISSING_RECIPIENT_SOURCE",
+		"W_PACK_MISSING_PLANNER_HINTS",
+		"W_PACK_MISSING_PLANNER_ROUTE_PATH",
 		"W_IR_CANONICAL_PACK_MISMATCH",
 	)
 	all = append(all, compiler.StableErrorCodes...)
@@ -418,6 +422,35 @@ func suggestionForCode(code, log string) Suggestion {
 				"side_effect": map[string]any{
 					"kind": "notify.email",
 					"to":   "req.Email",
+				},
+			},
+		}
+	case "W_PACK_MISSING_PLANNER_HINTS":
+		return Suggestion{
+			Code:         code,
+			Fix:          "Add planner.source_pack and explicit planner.route / planner.repository bindings so ANG does not rely on fallback pack heuristics.",
+			CanAutoApply: false,
+			Patch: map[string]any{
+				"op": "merge_planner_hints",
+				"planner": map[string]any{
+					"source_pack": "custom",
+					"route": map[string]any{
+						"method": "POST",
+					},
+				},
+			},
+		}
+	case "W_PACK_MISSING_PLANNER_ROUTE_PATH":
+		return Suggestion{
+			Code:         code,
+			Fix:          "Add planner.route.path explicitly so canonical routing is fully declared in planner metadata.",
+			CanAutoApply: false,
+			Patch: map[string]any{
+				"op": "merge_planner_route_path",
+				"planner": map[string]any{
+					"route": map[string]any{
+						"path": "/...",
+					},
 				},
 			},
 		}

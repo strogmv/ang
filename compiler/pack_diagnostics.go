@@ -2,7 +2,6 @@ package compiler
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/strogmv/ang/compiler/normalizer"
@@ -12,6 +11,8 @@ const (
 	codePackAuthMissingSelfProfileRoute  = "W_PACK_AUTH_MISSING_SELF_PROFILE_ROUTE"
 	codePackModerationMissingTransitions = "E_PACK_MODERATION_MISSING_TRANSITIONS"
 	codePackNotifyMissingRecipientSource = "E_PACK_NOTIFY_MISSING_RECIPIENT_SOURCE"
+	codePackMissingPlannerHints          = "W_PACK_MISSING_PLANNER_HINTS"
+	codePackMissingPlannerRoutePath      = "W_PACK_MISSING_PLANNER_ROUTE_PATH"
 	codeIRCanonicalPackMismatch          = "W_IR_CANONICAL_PACK_MISMATCH"
 )
 
@@ -100,6 +101,61 @@ func collectCanonicalPackDiagnostics(entities []normalizer.Entity, services []no
 	for _, svc := range services {
 		for _, method := range svc.Methods {
 			op := strings.TrimSpace(svc.Name + "." + method.Name)
+			if needsPlannerHints(method) && !hasPlannerHints(method) {
+				file, line := parseSourcePos(method.Source)
+				out = append(out, normalizer.Warning{
+					Kind:     "canonical-pack",
+					Code:     codePackMissingPlannerHints,
+					Severity: "warn",
+					Message:  fmt.Sprintf("%s looks like a canonical pack operation but has no explicit planner hints", op),
+					Op:       op,
+					File:     file,
+					Line:     line,
+					Hint:     "Add planner.source_pack and planner.route / planner.repository so sandbox owns pack interpretation and ANG only renders explicit intent.",
+					SuggestedFix: []normalizer.Fix{{
+						Op:      "merge",
+						File:    file,
+						CUEPath: op,
+						Value: map[string]any{
+							"planner": map[string]any{
+								"source_pack": "custom",
+								"route": map[string]any{
+									"method": "...",
+								},
+							},
+						},
+						After:     `planner: { source_pack: "custom", route: { method: "..." } }`,
+						Rationale: "canonical pack operations should carry explicit planner hints instead of relying on compiler heuristics",
+					}},
+				})
+			}
+			if requiresPlannerRoutePath(method) && !hasPlannerRoutePath(method) {
+				file, line := parseSourcePos(method.Source)
+				out = append(out, normalizer.Warning{
+					Kind:     "canonical-pack",
+					Code:     codePackMissingPlannerRoutePath,
+					Severity: "warn",
+					Message:  fmt.Sprintf("%s carries planner hints but planner.route.path is empty", op),
+					Op:       op,
+					File:     file,
+					Line:     line,
+					Hint:     "Add planner.route.path so sandbox owns canonical routing and ANG only renders explicit intent.",
+					SuggestedFix: []normalizer.Fix{{
+						Op:      "merge",
+						File:    file,
+						CUEPath: op,
+						Value: map[string]any{
+							"planner": map[string]any{
+								"route": map[string]any{
+									"path": "/...",
+								},
+							},
+						},
+						After:     `planner: { route: { path: "/..." } }`,
+						Rationale: "canonical pack operations should carry explicit route path in planner metadata",
+					}},
+				})
+			}
 			if needsNotifyRecipient(method) && !hasRecipientSource(method) && !flowHasRecipientSource(method.Flow) {
 				file, line := parseSourcePos(method.Source)
 				out = append(out, normalizer.Warning{
@@ -132,6 +188,43 @@ func collectCanonicalPackDiagnostics(entities []normalizer.Entity, services []no
 	}
 
 	return dedupeWarnings(out)
+}
+
+func hasPlannerHints(method normalizer.Method) bool {
+	if method.Planner == nil {
+		return false
+	}
+	if strings.TrimSpace(method.Planner.SourcePack) != "" {
+		return true
+	}
+	if method.Planner.Route != nil && (strings.TrimSpace(method.Planner.Route.Method) != "" || strings.TrimSpace(method.Planner.Route.Path) != "") {
+		return true
+	}
+	if method.Planner.Repository != nil && (strings.TrimSpace(method.Planner.Repository.LoadMethod) != "" || strings.TrimSpace(method.Planner.Repository.ListMethod) != "" || strings.TrimSpace(method.Planner.Repository.ActorField) != "" || strings.TrimSpace(method.Planner.Repository.InputField) != "") {
+		return true
+	}
+	return false
+}
+
+func hasPlannerRoutePath(method normalizer.Method) bool {
+	return method.Planner != nil && method.Planner.Route != nil && strings.TrimSpace(method.Planner.Route.Path) != ""
+}
+
+func requiresPlannerRoutePath(method normalizer.Method) bool {
+	return needsPlannerHints(method) && hasPlannerHints(method)
+}
+
+func needsPlannerHints(method normalizer.Method) bool {
+	if method.PrimaryOperationKind == normalizer.OperationKindAuth || method.PrimaryOperationKind == normalizer.OperationKindMessage || hasCapability(method, normalizer.CapabilityProfile) || hasCapability(method, normalizer.CapabilityMessaging) {
+		return true
+	}
+	for _, cap := range method.Capabilities {
+		switch strings.ToLower(strings.TrimSpace(string(cap))) {
+		case "commerce", "catalog", "payment":
+			return true
+		}
+	}
+	return false
 }
 
 func collectIRMismatchDiagnostics(op string, method normalizer.Method, endpoint normalizer.Endpoint) []normalizer.Warning {
@@ -197,31 +290,6 @@ func collectIRMismatchDiagnostics(op string, method normalizer.Method, endpoint 
 			}},
 		})
 	}
-	if hasCapability(method, normalizer.CapabilityProfile) && endpoint.Path != "" && !isProfilePath(endpoint.Path) && isProfileMethodName(method.Name) {
-		epFile, epLine := parseSourcePos(endpoint.Source)
-		if epFile == "" {
-			epFile = file
-			epLine = line
-		}
-		out = append(out, normalizer.Warning{
-			Kind:     "canonical-pack",
-			Code:     codeIRCanonicalPackMismatch,
-			Severity: "warn",
-			Message:  fmt.Sprintf("%s looks like a self-profile operation but endpoint path %q is off the canonical auth/profile shape", op, endpoint.Path),
-			Op:       op,
-			File:     epFile,
-			Line:     epLine,
-			Hint:     "Prefer GET/PUT /auth/profile or GET /me for self-profile flows. This keeps canonical auth/profile routing stable.",
-			SuggestedFix: []normalizer.Fix{{
-				Op:        "replace",
-				File:      epFile,
-				CUEPath:   op,
-				Value:     map[string]any{"path": "/auth/profile"},
-				After:     `path: "/auth/profile"`,
-				Rationale: "canonical auth/profile pack prefers /auth/profile",
-			}},
-		})
-	}
 	return out
 }
 
@@ -250,17 +318,7 @@ func hasSelfProfileRoute(endpoints []normalizer.Endpoint) bool {
 
 func isModerationEntity(entity normalizer.Entity) bool {
 	name := strings.ToLower(strings.TrimSpace(entity.Name))
-	if name == "moderationreview" || name == "report" {
-		return true
-	}
-	hasStatus := false
-	for _, f := range entity.Fields {
-		if strings.EqualFold(strings.TrimSpace(f.Name), "status") {
-			hasStatus = true
-			break
-		}
-	}
-	return hasStatus && strings.Contains(name, "moder")
+	return name == "moderationreview" || name == "report"
 }
 
 func hasModerationStates(entity normalizer.Entity) bool {
@@ -359,16 +417,6 @@ func hasSideEffect(method normalizer.Method, kind string) bool {
 		}
 	}
 	return false
-}
-
-func isProfileMethodName(name string) bool {
-	key := strings.ToLower(strings.TrimSpace(name))
-	return strings.Contains(key, "profile") || strings.Contains(key, "myprofile") || strings.Contains(key, "me")
-}
-
-func isProfilePath(path string) bool {
-	key := strings.ToLower(strings.TrimSpace(filepath.ToSlash(path)))
-	return key == "/auth/profile" || key == "/me" || strings.HasSuffix(key, "/profile") || strings.HasSuffix(key, "/me")
 }
 
 func dedupeWarnings(in []normalizer.Warning) []normalizer.Warning {

@@ -58,6 +58,24 @@ func sourceFile(source string) string {
 	return source
 }
 
+func defaultFeatureAddWorkflow() []string {
+	base := []string{}
+	_ = json.Unmarshal([]byte(`[    "ang_plan",    "ang_ops_context",    "ang_diff_architecture",    "ang_schema",    "ang_validate",    "ang_template_diff",    "ang_template_rebase",    "ang_snapshot",    "ang_search",    "repo_read_symbol",    "ang_rbac_inspector",    "ang_event_map",    "ang_db_drift_detector",    "cue_set_field",    "cue_add_endpoint",    "cue_apply_patch",    "cue_history",    "run_preset('build')",    "ang_model_diff",    "ang_db_sync"]`), &base)
+	return base
+}
+
+func defaultBugFixWorkflow() []string {
+	base := []string{}
+	_ = json.Unmarshal([]byte(`[    "ang_schema",    "ang_ops_context",    "ang_diff_architecture",    "ang_validate",    "ang_template_diff",    "ang_template_rebase",    "ang_snapshot",    "run_preset('unit')",    "ang_explain_error",    "ang_doctor",    "cue_set_field",    "cue_add_endpoint",    "cue_apply_patch",    "cue_history",    "cue_undo",    "run_preset('build')",    "ang_model_diff"]`), &base)
+	return base
+}
+
+func defaultBootstrapExemptTools() []string {
+	list := []string{}
+	_ = json.Unmarshal([]byte(`[    "ang_mcp_health",    "ang_status",    "ang_schema",    "ang_dry_run"]`), &list)
+	return list
+}
+
 func goldenPatternSources() []string {
 	data, err := os.ReadFile(filepath.Join("cue", "GOLDEN_EXAMPLES.cue"))
 	if err != nil {
@@ -584,8 +602,7 @@ func Run() {
 	}
 
 	featureAddWorkflow := func() []string {
-		base := []string{}
-		_ = json.Unmarshal([]byte(`[    "ang_plan",    "ang_diff_architecture",    "ang_schema",    "ang_validate",    "ang_snapshot",    "ang_search",    "repo_read_symbol",    "ang_rbac_inspector",    "ang_event_map",    "ang_db_drift_detector",    "cue_set_field",    "cue_add_endpoint",    "cue_apply_patch",    "cue_history",    "run_preset('build')",    "ang_model_diff",    "ang_db_sync"]`), &base)
+		base := defaultFeatureAddWorkflow()
 		if ov := loadRuntimeOverrides(); ov != nil {
 			if wf, ok := ov.Workflows["feature_add"]; ok && len(wf) > 0 {
 				return wf
@@ -595,8 +612,7 @@ func Run() {
 	}
 
 	bugFixWorkflow := func() []string {
-		base := []string{}
-		_ = json.Unmarshal([]byte(`[    "ang_schema",    "ang_diff_architecture",    "ang_validate",    "ang_snapshot",    "run_preset('unit')",    "ang_explain_error",    "ang_doctor",    "cue_set_field",    "cue_add_endpoint",    "cue_apply_patch",    "cue_history",    "cue_undo",    "run_preset('build')",    "ang_model_diff"]`), &base)
+		base := defaultBugFixWorkflow()
 		if ov := loadRuntimeOverrides(); ov != nil {
 			if wf, ok := ov.Workflows["bug_fix"]; ok && len(wf) > 0 {
 				return wf
@@ -606,8 +622,7 @@ func Run() {
 	}
 
 	bootstrapExempt := func() map[string]bool {
-		list := []string{}
-		_ = json.Unmarshal([]byte(`[    "ang_mcp_health",    "ang_status",    "ang_schema",    "ang_dry_run"]`), &list)
+		list := defaultBootstrapExemptTools()
 		if ov := loadRuntimeOverrides(); ov != nil && len(ov.BootstrapExemptTools) > 0 {
 			list = ov.BootstrapExemptTools
 		}

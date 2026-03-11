@@ -124,11 +124,13 @@ func NewRuntimeContainer(
 	repoSystem := postgres.NewSystemRepository(pgPool)
 	{{- end }}
 
-	var effectStorage port.FileStorage
 	{{- if $needsS3 }}
+	var effectStorage port.FileStorage
 	effectStorage = s3Client
-	{{- end }}
 	effects, err := NewEffectRegistry(ctx, cfg, pgPool, publisher, effectStorage)
+	{{- else }}
+	effects, err := NewEffectRegistry(ctx, cfg, pgPool, publisher)
+	{{- end }}
 	if err != nil {
 		return nil, err
 	}
