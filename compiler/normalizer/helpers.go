@@ -96,6 +96,18 @@ func canonicalSideEffectKind(kind string) string {
 	}
 }
 
+func canonicalMediaFieldName(name string) string {
+	key := strings.ToLower(strings.TrimSpace(name))
+	key = strings.NewReplacer("_", "", "-", "", " ", "", ".", "").Replace(key)
+	switch key {
+	case "avatar", "avatarurl", "photo", "photourl", "image", "imageurl", "picture", "pictureurl",
+		"profilepicture", "profilepictureurl", "profilephoto", "profilephotourl", "profileimage", "profileimageurl":
+		return "photoURL"
+	default:
+		return strings.TrimSpace(name)
+	}
+}
+
 func parseSideEffects(v cue.Value) []SideEffect {
 	for _, path := range []string{"side_effects", "sideEffects"} {
 		res := v.LookupPath(cue.ParsePath(path))
@@ -121,10 +133,10 @@ func parseSideEffects(v cue.Value) []SideEffect {
 				Channel:     strings.TrimSpace(getString(item, "channel")),
 				Event:       strings.TrimSpace(getString(item, "event")),
 				Template:    strings.TrimSpace(getString(item, "template")),
-				TargetField: strings.TrimSpace(getString(item, "target_field")),
+				TargetField: canonicalMediaFieldName(strings.TrimSpace(getString(item, "target_field"))),
 			}
 			if effect.TargetField == "" {
-				effect.TargetField = strings.TrimSpace(getString(item, "targetField"))
+				effect.TargetField = canonicalMediaFieldName(strings.TrimSpace(getString(item, "targetField")))
 			}
 			if effect.Kind != "" || effect.Channel != "" || effect.Event != "" || effect.Template != "" || effect.TargetField != "" {
 				out = append(out, effect)

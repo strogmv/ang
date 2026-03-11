@@ -76,6 +76,18 @@ func TestBuildMicroPlanFixture_CreateCommunityListingWithModerationReview(t *tes
 	assertCanonicalEffectKind(t, op, "create_review")
 }
 
+func TestBuildMicroPlanFixture_UpdateProfileAvatarCanonicalizesToPhotoURL(t *testing.T) {
+	t.Parallel()
+
+	got := runGeneratedMicroPlanFixture(t, "update_profile_avatar_usecases.json", "empty_automata.json")
+	op := requireFixtureOperation(t, got, "UpdateProfileAvatar")
+	assertStringField(t, op, "kind", "update")
+	assertCapabilitiesContain(t, op, "profile", "media")
+	assertNoEffectKind(t, op, "upload_media")
+	assertStepHasFieldRef(t, op, "to", "userProfile.PhotoURL")
+	assertStepHasFieldRef(t, op, "value", "req.PhotoURL")
+}
+
 func runGeneratedMicroPlanFixture(t *testing.T, usecasesFixture, automataFixture string) map[string]any {
 	t.Helper()
 
@@ -199,6 +211,60 @@ func assertCanonicalEffectKind(t *testing.T, op map[string]any, want string) {
 	if kind != want {
 		t.Fatalf("side_effects[0].kind=%q, want %s", kind, want)
 	}
+}
+
+func assertNoEffectKind(t *testing.T, op map[string]any, unwanted string) {
+	t.Helper()
+	effects, ok := op["side_effects"].([]any)
+	if !ok {
+		return
+	}
+	for i, raw := range effects {
+		effect, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if kind, _ := effect["kind"].(string); kind == unwanted {
+			t.Fatalf("side_effects[%d].kind=%q, want absent", i, unwanted)
+		}
+	}
+}
+
+func assertCapabilitiesContain(t *testing.T, op map[string]any, want ...string) {
+	t.Helper()
+	rawCaps, ok := op["capabilities"].([]any)
+	if !ok {
+		t.Fatalf("capabilities missing or invalid: %#v", op["capabilities"])
+	}
+	seen := map[string]bool{}
+	for _, raw := range rawCaps {
+		if s, _ := raw.(string); s != "" {
+			seen[s] = true
+		}
+	}
+	for _, cap := range want {
+		if !seen[cap] {
+			t.Fatalf("capability %q missing from %#v", cap, rawCaps)
+		}
+	}
+}
+
+func assertStepHasFieldRef(t *testing.T, op map[string]any, key, want string) {
+	t.Helper()
+	steps, ok := op["steps"].([]any)
+	if !ok {
+		t.Fatalf("steps missing or invalid: %#v", op["steps"])
+	}
+	for _, raw := range steps {
+		step, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if got, _ := step[key].(string); got == want {
+			return
+		}
+	}
+	t.Fatalf("no step with %s=%q found in %#v", key, want, steps)
 }
 
 func assertStepKinds(t *testing.T, op map[string]any, want []string) {

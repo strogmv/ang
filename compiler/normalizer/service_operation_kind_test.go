@@ -55,8 +55,8 @@ func TestExtractServices_OperationKindAndSideEffects(t *testing.T) {
 	if method.SideEffects[0].Kind != "notify.email" || method.SideEffects[0].Template != "welcome_email" {
 		t.Fatalf("unexpected first side effect: %#v", method.SideEffects[0])
 	}
-	if method.SideEffects[2].TargetField != "avatarURL" {
-		t.Fatalf("TargetField=%q, want avatarURL", method.SideEffects[2].TargetField)
+	if method.SideEffects[2].TargetField != "photoURL" {
+		t.Fatalf("TargetField=%q, want photoURL", method.SideEffects[2].TargetField)
 	}
 	if method.ManualRequired {
 		t.Fatalf("ManualRequired=%v, want false", method.ManualRequired)

@@ -112,6 +112,27 @@ func TestRenderPlanBuildMicroPlanCode_LowersMessagingAndCommunityPatterns(t *tes
 	}
 }
 
+func TestRenderPlanBuildMicroPlanCode_CanonicalizesMediaProfileFields(t *testing.T) {
+	t.Parallel()
+
+	code := renderPlanBuildMicroPlanCode(&flowRenderState{}, "", "usecasesDoc", "automataDoc", "microPlanDoc", ":=", "_micro", "_err")
+	for _, snippet := range []string{
+		`_canonicalFieldName := func(name string) string`,
+		`case "avatar", "avatarurl", "photo", "photourl", "image", "imageurl", "picture", "pictureurl", "profilepicture", "profilepictureurl", "profilephoto", "profilephotourl", "profileimage", "profileimageurl":`,
+		`return "photoURL"`,
+		`uc.InputFields = _canonicalizeFields(uc.InputFields)`,
+		`uc.OutputFields = _canonicalizeFields(uc.OutputFields)`,
+		`entity.Fields = _canonicalizeFields(entity.Fields)`,
+		`typedEffects[i].TargetField = _canonicalFieldName(typedEffects[i].TargetField)`,
+		`if kind == "upload" || _containsAny(name, "upload", "avatar", "photo", "image", "profile picture", "media", "attachment") {`,
+		`if _canonicalFieldName(field.Name) == "photoURL" || _containsAny(field.Name, "media", "attachment") {`,
+	} {
+		if !strings.Contains(code, snippet) {
+			t.Fatalf("expected media/profile field normalization snippet %q, got:\n%s", snippet, code)
+		}
+	}
+}
+
 func TestRenderPlanBuildMicroPlanCode_DistinguishesExplicitNotifyFromNotifySideEffect(t *testing.T) {
 	t.Parallel()
 
@@ -205,6 +226,23 @@ func TestRenderCueEmitProjectCode_RendersCanonicalAuthAndProfilePaths(t *testing
 	} {
 		if !strings.Contains(code, snippet) {
 			t.Fatalf("expected canonical auth/profile emit snippet %q, got:\n%s", snippet, code)
+		}
+	}
+}
+
+func TestRenderCueEmitProjectCode_CanonicalizesMediaProfileFields(t *testing.T) {
+	t.Parallel()
+
+	code := renderCueEmitProjectCode(&flowRenderState{}, "", "usecasesDoc", "microPlanDoc", `"single_file"`, "projectFiles", ":=", "_files", "_err")
+	for _, snippet := range []string{
+		`_canonicalFieldName := func(name string) string`,
+		`entity.Fields = _canonicalizeFields(entity.Fields)`,
+		`uc.InputFields = _canonicalizeFields(uc.InputFields)`,
+		`uc.OutputFields = _canonicalizeFields(uc.OutputFields)`,
+		`{"photoURL", "string"}`,
+	} {
+		if !strings.Contains(code, snippet) {
+			t.Fatalf("expected media/profile emit normalization snippet %q, got:\n%s", snippet, code)
 		}
 	}
 }

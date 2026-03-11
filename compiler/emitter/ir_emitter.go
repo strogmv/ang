@@ -440,10 +440,22 @@ func irSideEffectsToNormalizer(effects []ir.SideEffect) []normalizer.SideEffect 
 			Channel:     effect.Channel,
 			Event:       effect.Event,
 			Template:    effect.Template,
-			TargetField: effect.TargetField,
+			TargetField: canonicalEmitterMediaFieldName(effect.TargetField),
 		})
 	}
 	return out
+}
+
+func canonicalEmitterMediaFieldName(name string) string {
+	key := strings.ToLower(strings.TrimSpace(name))
+	key = strings.NewReplacer("_", "", "-", "", " ", "", ".", "").Replace(key)
+	switch key {
+	case "avatar", "avatarurl", "photo", "photourl", "image", "imageurl", "picture", "pictureurl",
+		"profilepicture", "profilepictureurl", "profilephoto", "profilephotourl", "profileimage", "profileimageurl":
+		return "photoURL"
+	default:
+		return strings.TrimSpace(name)
+	}
 }
 
 func irImplStepsToNormalizer(irSteps []ir.ImplStep) []normalizer.ImplStep {

@@ -204,7 +204,7 @@ func TestIRRoundTrip(t *testing.T) {
 					SideEffects: []normalizer.SideEffect{
 						{Kind: "notify.email", Channel: "email", Template: "welcome_email"},
 						{Kind: "publish_event", Event: "UserCreated"},
-						{Kind: "upload_media", TargetField: "avatarURL"},
+						{Kind: "upload_media", TargetField: "photoURL"},
 					},
 					ManualRequired: false,
 					Throws:         []string{"ERR1"},
