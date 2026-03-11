@@ -291,7 +291,7 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		var hasDispatch func([]ir.FlowStep) bool
 		hasDispatch = func(steps []ir.FlowStep) bool {
 			for _, step := range steps {
-				if step.Action == "notification.Dispatch" || step.Action == "notify.Dispatch" || step.Action == "notify.Send" {
+				if step.Action == "notification.Dispatch" || step.Action == "notify.Dispatch" || step.Action == "notify.Send" || step.Action == "notify.Email" {
 					return true
 				}
 				if hasDispatch(step.Steps) || hasDispatch(step.IfNew) || hasDispatch(step.IfExists) || hasDispatch(step.Then) || hasDispatch(step.Else) || hasDispatch(step.Default) {
@@ -316,7 +316,7 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		var hasDispatch func([]ir.FlowStep) bool
 		hasDispatch = func(steps []ir.FlowStep) bool {
 			for _, step := range steps {
-				if step.Action == "notification.Dispatch" || step.Action == "notify.Dispatch" || step.Action == "notify.Send" {
+				if step.Action == "notification.Dispatch" || step.Action == "notify.Dispatch" || step.Action == "notify.Send" || step.Action == "notify.Email" {
 					return true
 				}
 				if hasDispatch(step.Steps) || hasDispatch(step.IfNew) || hasDispatch(step.IfExists) || hasDispatch(step.Then) || hasDispatch(step.Else) || hasDispatch(step.Default) {

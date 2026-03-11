@@ -477,7 +477,7 @@ func serviceImplHasNotificationDispatch(s normalizer.Service) bool {
 	var scanSteps func([]normalizer.FlowStep) bool
 	scanSteps = func(steps []normalizer.FlowStep) bool {
 		for _, step := range steps {
-			if step.Action == "notification.Dispatch" || step.Action == "notify.Dispatch" || step.Action == "notify.Send" {
+			if step.Action == "notification.Dispatch" || step.Action == "notify.Dispatch" || step.Action == "notify.Send" || step.Action == "notify.Email" {
 				return true
 			}
 			for _, childKey := range []string{"_do", "_ifNew", "_ifExists", "_then", "_else", "_default", "_catch", "_fallback", "_onTimeout", "_onMissing", "_onMismatch"} {

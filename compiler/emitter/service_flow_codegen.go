@@ -74,7 +74,7 @@ func flowActionSupported(action string) bool {
 		"time.Now", "time.Parse", "time.Format", "time.CheckExpiry",
 		"map.Build",
 		"fsm.Transition",
-		"notification.Dispatch", "notify.Dispatch", "notify.Send",
+		"notification.Dispatch", "notify.Dispatch", "notify.Send", "notify.Email",
 		"cache.Get", "cache.Set", "cache.Del",
 		"mail.Send",
 		"storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List",
@@ -521,7 +521,7 @@ func renderOneFlowStep(st *flowRenderState, step normalizer.FlowStep, indent int
 
 	case "cache.Get", "cache.Set", "cache.Del", "mail.Send", "storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List", "http.Call", "http.Request", "http.RetryPolicy", "http.Paginate", "rand.Code", "rand.Token", "json.Parse", "json.Marshal", "regex.Match", "regex.Replace", "base64.Encode", "base64.Decode", "url.Parse", "url.Build", "query.Encode", "query.Decode", "hash.Sum", "hash.HMAC", "uuid.New", "ulid.New", "time.Now", "time.Format", "math.Op", "num.Add", "num.Sub", "num.Mul", "num.Div", "str.Concat", "str.StripMarkdown", "cast.ToString", "jsonpath.Get", "jsonpath.Set", "jwt.Sign", "jwt.Verify", "oauth2.Token", "oauth2.Refresh", "crypto.Encrypt", "crypto.Decrypt", "crypto.Hash", "parallel.Run", "pdf.Render", "webhook.Send", "webhook.VerifySignature", "webhook.Ack", "queue.Enqueue", "queue.Dequeue", "queue.Ack", "queue.Nack", "dlq.Publish", "event.Outbox", "secret.Get", "config.Get", "model.Resolve", "stream.Emit", "plan.BuildAutomata", "plan.BuildMicroPlan", "cue.EmitProject", "cue.ValidateProject", "cue.WriteProjectFiles",
 		"event.Wait", "event.Subscribe", "event.Match", "event.Broadcast",
-		"notify.Send", "approval.Request", "approval.Wait", "approval.Decide",
+		"notify.Send", "notify.Email", "approval.Request", "approval.Wait", "approval.Decide",
 		"policy.Check", "policy.Evaluate", "policy.Require", "policy.Decide",
 		"state.Get", "state.Set", "state.Delete",
 		"idem.DeriveKey", "idem.Check", "idem.SaveResult",

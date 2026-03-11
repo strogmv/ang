@@ -39,6 +39,19 @@ RefFlowCall: schema.#Operation & {
 }
 
 // ----------------------------------------------------------------------------
+// REF EXAMPLE 10998: notify.Email
+// ----------------------------------------------------------------------------
+RefNotifyEmail: schema.#Operation & {
+	service: "reference"
+	input: { email: string }
+	output: { ok: bool }
+	flow: [
+		{action: "notify.Email", to: "req.Email", text: "\"Hello\""},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ----------------------------------------------------------------------------
 // REF EXAMPLE 1001: archive.ZipDir
 // ----------------------------------------------------------------------------
 RefArchiveZipDir: schema.#Operation & {

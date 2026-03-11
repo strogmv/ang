@@ -945,6 +945,7 @@ func TestValidate_ApprovalAndNotifyActionsKnown(t *testing.T) {
 		},
 		{Action: "approval.Decide", Args: map[string]any{"approvalId": "approvalID", "decision": `"approved"`, "actor": "req.UserID", "status": "approvalStatus"}},
 		{Action: "notify.Send", Args: map[string]any{"channel": `"email"`, "to": "req.Email", "text": `"Build completed"`}},
+		{Action: "notify.Email", Args: map[string]any{"to": "req.Email", "text": `"Build completed"`}},
 		{
 			Action: "policy.Evaluate",
 			Args: map[string]any{
@@ -1034,6 +1035,7 @@ func TestValidate_ApprovalAndNotifyConstraints(t *testing.T) {
 			},
 		},
 		{Action: "notify.Send", Args: map[string]any{"channel": `"email"`, "to": "req.Email"}},
+		{Action: "notify.Email", Args: map[string]any{"to": "req.Email"}},
 		{Action: "policy.Evaluate", Args: map[string]any{"policyKey": "req.PolicyKey"}},
 		{Action: "policy.Decide", Args: map[string]any{"policyKey": "req.PolicyKey"}},
 	})

@@ -267,7 +267,7 @@ func handleFlowDataAndCalls(
 	case "event.Match", "notification.Dispatch":
 		return true
 
-	case "notify.Send":
+	case "notify.Send", "notify.Email":
 		if output, _ := step.Args["output"].(string); output != "" {
 			declaredVars[output] = true
 		}

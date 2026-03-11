@@ -238,6 +238,30 @@ var specsCoreBase = map[string]Spec{
 			return nil
 		},
 	},
+	"notify.Email": {
+		RequiredArgs: []string{"to"},
+		OptionalArgKinds: map[string]ArgKind{
+			"template": ArgKindString,
+			"text":     ArgKindString,
+			"subject":  ArgKindString,
+			"html":     ArgKindString,
+			"data":     ArgKindString,
+			"output":   ArgKindString,
+		},
+		DeclaresFromArgs: []string{"output"},
+		CustomConstraints: func(step Step) *Issue {
+			_, hasTemplate := nonEmptyString(step.Args["template"])
+			_, hasText := nonEmptyString(step.Args["text"])
+			if !hasTemplate && !hasText {
+				return &Issue{
+					Code:    "MISSING_CONTENT",
+					Message: "notify.Email requires either 'template' or 'text'",
+					Hint:    "{action: \"notify.Email\", to: \"req.Email\", text: \"Build completed\"}",
+				}
+			}
+			return nil
+		},
+	},
 	"approval.Request": {
 		RequiredArgs: []string{"approvalKey", "title", "requestedBy", "approvers", "policy", "payload"},
 		OptionalArgKinds: map[string]ArgKind{

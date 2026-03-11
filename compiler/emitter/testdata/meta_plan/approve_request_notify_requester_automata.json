@@ -1,0 +1,14 @@
+{
+  "automata": [
+    {
+      "entity": "Request",
+      "initial_state": "pending",
+      "transitions": [
+        {
+          "from": "pending",
+          "via_operation": "ApproveRequest"
+        }
+      ]
+    }
+  ]
+}

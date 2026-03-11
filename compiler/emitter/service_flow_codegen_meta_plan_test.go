@@ -25,12 +25,186 @@ func TestRenderPlanBuildMicroPlanCode_AddsCreateAndReplyHeuristics(t *testing.T)
 
 	code := renderPlanBuildMicroPlanCode(&flowRenderState{}, "", "usecasesDoc", "automataDoc", "microPlanDoc", ":=", "_micro", "_err")
 	for _, snippet := range []string{
-		`_startsWithAny(name, "create", "submit", "add")`,
+		`PrimaryOperationKind string ` + "`json:\"primary_operation_kind\"`",
+		`Capabilities []string ` + "`json:\"capabilities\"`",
+		`SideEffectsTyped []_metaPlanSideEffect ` + "`json:\"side_effects_typed\"`",
+		`ManualRequired bool ` + "`json:\"manual_required\"`",
+		`_normalizeSideEffects := func(effects []string) []_metaPlanSideEffect`,
+		`_normalizeCapabilities := func(explicit []string, kind string, effects []_metaPlanSideEffect, name string, inputFields, outputFields, entityFields []struct{ Name, Type string }) []string`,
+		`_primaryKindOf := func(name, method string, inputFields, outputFields, entityFields []struct{ Name, Type string }, isTransition bool, explicit string) string`,
+		`_looksLikeProfileOrMediaMutation(name, inputFields, outputFields, entityFields)`,
+		`kind := _primaryKindOf(uc.Name, uc.Method, uc.InputFields, uc.OutputFields, entity.Fields, uc.IsStateTransition, uc.PrimaryOperationKind)`,
+		`typedEffects := append([]_metaPlanSideEffect(nil), uc.SideEffectsTyped...)`,
+		`capabilities := _normalizeCapabilities(uc.Capabilities, kind, typedEffects, uc.Name, uc.InputFields, uc.OutputFields, entity.Fields)`,
+		`manualReason = "missing_email_recipient"`,
+		`map[string]any{"p": "notify_email", "to": recipientExpr, "text": textExpr}`,
+		`"primary_operation_kind": kind`,
+		`"capabilities": capabilities`,
+		`"side_effects": typedEffects`,
+		`"manual_required": false`,
 		`_startsWithAny(name, "approve", "reject", "resolve", "close", "open", "cancel", "complete", "activate", "deactivate")`,
 		`_appendEntityReplies(&steps, uc.OutputFields, uc.PrimaryEntity, entityVar)`,
 	} {
 		if !strings.Contains(code, snippet) {
 			t.Fatalf("expected generated micro-plan heuristics %q, got:\n%s", snippet, code)
+		}
+	}
+}
+
+func TestRenderCueEmitProjectCode_RendersNotifyEmailSteps(t *testing.T) {
+	t.Parallel()
+
+	code := renderCueEmitProjectCode(&flowRenderState{}, "", "usecasesDoc", "microPlanDoc", `"single_file"`, "projectFiles", ":=", "_files", "_err")
+	for _, snippet := range []string{
+		`case "notify":`,
+		`_notifyVerb := func(opName, entity string) string`,
+		`strings.Contains(verb, "send-email")`,
+		`case "notify_email":`,
+		`"action: \"notify.Email\""`,
+		`"to: " + _cueExprArg(step["to"])`,
+		`"text: " + _cueExprArg(step["text"])`,
+	} {
+		if !strings.Contains(code, snippet) {
+			t.Fatalf("expected notify/email rendering snippet %q, got:\n%s", snippet, code)
+		}
+	}
+}
+
+func TestRenderPlanBuildMicroPlanCode_SeparatesPrimaryKindFromEmailSideEffects(t *testing.T) {
+	t.Parallel()
+
+	code := renderPlanBuildMicroPlanCode(&flowRenderState{}, "", "usecasesDoc", "automataDoc", "microPlanDoc", ":=", "_micro", "_err")
+	for _, snippet := range []string{
+		`_canonicalSideEffectKind := func(kind string) string`,
+		`case _containsAny(effect, "welcome email"):`,
+		`appendEffect(_metaPlanSideEffect{Kind: "notify.email", Channel: "email", Template: "welcome_email"})`,
+		`appendEffect(_metaPlanSideEffect{Kind: "notify_user"})`,
+		`appendEffect(_metaPlanSideEffect{Kind: "create_review"})`,
+		`appendEffect(_metaPlanSideEffect{Kind: "upload_media", TargetField: targetField})`,
+		`return "auth"`,
+		`return "message"`,
+		`return "upload"`,
+		`if _startsWithAny(name, "send", "notify", "email") {`,
+		`if _looksLikeProfileOrMediaMutation(name, inputFields, outputFields, entityFields) && _startsWithAny(name, "add", "set", "update", "upload", "attach", "change") {`,
+	} {
+		if !strings.Contains(code, snippet) {
+			t.Fatalf("expected side-effect/primary-kind separation snippet %q, got:\n%s", snippet, code)
+		}
+	}
+}
+
+func TestRenderPlanBuildMicroPlanCode_LowersMessagingAndCommunityPatterns(t *testing.T) {
+	t.Parallel()
+
+	code := renderPlanBuildMicroPlanCode(&flowRenderState{}, "", "usecasesDoc", "automataDoc", "microPlanDoc", ":=", "_micro", "_err")
+	for _, snippet := range []string{
+		`if kind == "message" || _containsAny(name, "message", "chat", "conversation", "reply", "community", "listing") { appendCap("messaging") }`,
+		`if strings.TrimSpace(actor) == "" {`,
+		`if _containsAny(field.Name, "senderid", "authorid", "userid", "memberid") {`,
+		`if conversationField := _findFieldByNames(entity.Fields, "conversationID"); conversationField != "" {`,
+		`if conversationInput := _findFieldByNames(uc.InputFields, conversationField, "conversationID", "conversationId"); conversationInput != "" {`,
+		`finder = "ListBy" + _pascal(conversationField)`,
+		`finderInput = "req." + _pascal(conversationInput)`,
+	} {
+		if !strings.Contains(code, snippet) {
+			t.Fatalf("expected messaging/community lowering snippet %q, got:\n%s", snippet, code)
+		}
+	}
+}
+
+func TestRenderPlanBuildMicroPlanCode_DistinguishesExplicitNotifyFromNotifySideEffect(t *testing.T) {
+	t.Parallel()
+
+	code := renderPlanBuildMicroPlanCode(&flowRenderState{}, "", "usecasesDoc", "automataDoc", "microPlanDoc", ":=", "_micro", "_err")
+	for _, snippet := range []string{
+		`if _startsWithAny(name, "send", "notify", "email") {`,
+		`return "notify"`,
+		`case "notify.email":`,
+		`notifyStep := map[string]any{"p": "notify_email", "to": recipientExpr, "text": textExpr}`,
+		`if sideEffectReason := _appendNormalizedSideEffects(&steps, typedEffects, entity.Fields, entityVar, uc.InputFields, uc.OutputFields, uc.Name); sideEffectReason != "" {`,
+	} {
+		if !strings.Contains(code, snippet) {
+			t.Fatalf("expected explicit notify vs side-effect snippet %q, got:\n%s", snippet, code)
+		}
+	}
+}
+
+func TestRenderPlanBuildMicroPlanCode_LowersCanonicalAuthProfileFlows(t *testing.T) {
+	t.Parallel()
+
+	code := renderPlanBuildMicroPlanCode(&flowRenderState{}, "", "usecasesDoc", "automataDoc", "microPlanDoc", ":=", "_micro", "_err")
+	for _, snippet := range []string{
+		`requiresSession := (kind != "auth" && (lowerKind == "create" || lowerKind == "update" || lowerKind == "delete" || lowerKind == "transition" || lowerKind == "list" || lowerKind == "notify")) || (isProfileCapability && _containsAny(uc.Name, "profile", "me"))`,
+		`case "auth":`,
+		`case _startsWithAny(uc.Name, "register", "signup", "sign-up"):`,
+		`map[string]any{"p": "hash_password", "input": "req." + _pascal(inField.Name), "output": "passwordHash"}`,
+		`map[string]any{"p": "logic_call", "func": "generateTokens", "args": []string{entityVar}, "output": "tokens"}`,
+		`case _startsWithAny(uc.Name, "login", "signin", "sign-in"):`,
+		`map[string]any{"p": "load", "entity": uc.PrimaryEntity, "method": "FindByEmail", "input_expr": "req." + _pascal(emailField), "output": entityVar, "error": "Invalid credentials"}`,
+		`map[string]any{"p": "logic_call", "func": "verifyPassword", "args": []string{entityVar + ".PasswordHash", "req." + _pascal(passwordField)}, "output": "passwordValid"}`,
+		`map[string]any{"p": "guard_bool", "condition": "passwordValid", "throw": "Invalid credentials"}`,
+		`if isProfileCapability && _containsAny(uc.Name, "profile", "me") {`,
+		`map[string]any{"p": "load", "entity": uc.PrimaryEntity, "input_expr": "sessionID", "output": entityVar, "error": uc.PrimaryEntity + " not found"}`,
+		`steps[len(steps)-1]["method"] = "FindByUserID"`,
+	} {
+		if !strings.Contains(code, snippet) {
+			t.Fatalf("expected canonical auth/profile lowering snippet %q, got:\n%s", snippet, code)
+		}
+	}
+}
+
+func TestRenderCueEmitProjectCode_StripsNotifyVerbToCanonicalSendEmail(t *testing.T) {
+	t.Parallel()
+
+	code := renderCueEmitProjectCode(&flowRenderState{}, "", "usecasesDoc", "microPlanDoc", `"single_file"`, "projectFiles", ":=", "_files", "_err")
+	for _, snippet := range []string{
+		`verb = "send-email"`,
+		`verb = strings.TrimSuffix(verb, "-to-"+entityKebab)`,
+		`verb = strings.TrimSuffix(verb, "-for-"+entityKebab)`,
+		`return base + "/{id}/" + verb`,
+		`opsB.WriteString(fmt.Sprintf("    primary_operation_kind: \"%s\"\n", op.PrimaryOperationKind))`,
+		`opsB.WriteString(fmt.Sprintf("    capabilities: [%s]\n", strings.Join(caps, ", ")))`,
+		`opsB.WriteString("    side_effects: [\n")`,
+	} {
+		if !strings.Contains(code, snippet) {
+			t.Fatalf("expected canonical notify path snippet %q, got:\n%s", snippet, code)
+		}
+	}
+}
+
+func TestRenderCueEmitProjectCode_RendersCanonicalAuthAndProfilePaths(t *testing.T) {
+	t.Parallel()
+
+	code := renderCueEmitProjectCode(&flowRenderState{}, "", "usecasesDoc", "microPlanDoc", `"single_file"`, "projectFiles", ":=", "_files", "_err")
+	for _, snippet := range []string{
+		`_authPath := func(opName string) string`,
+		`return "/auth/register"`,
+		`return "/auth/login"`,
+		`return "/auth/logout"`,
+		`return "/auth/refresh"`,
+		`return "/auth/profile"`,
+		`_messagePath := func(entity, opName string) string`,
+		`return "/conversations/{id}/messages"`,
+		`if strings.EqualFold(entity.Name, "User") && (_entityHasCapability(entity.Name, "auth") || _entityHasCapability(entity.Name, "profile")) {`,
+		`{"email", "string"}`,
+		`{"displayName", "string"}`,
+		`{"photoURL", "string"}`,
+		`{"createdAt", "time"}`,
+		`{"passwordHash", "string"}`,
+		`if strings.EqualFold(entity.Name, "UserProfile") && _entityHasCapability(entity.Name, "profile") {`,
+		`if strings.EqualFold(entity.Name, "Conversation") && _entityHasCapability(entity.Name, "messaging") {`,
+		`if strings.EqualFold(entity.Name, "ConversationMessage") && _entityHasCapability(entity.Name, "messaging") {`,
+		`{"conversationID", "uuid"}`,
+		`{"senderID", "uuid"}`,
+		`{"body", "string"}`,
+		`if strings.EqualFold(entity.Name, "CommunityListing") && _entityHasCapability(entity.Name, "messaging") {`,
+		`{"title", "string"}`,
+		`case "load":`,
+		`field := strings.TrimPrefix(strings.TrimPrefix(method, "FindBy"), "GetBy")`,
+		`repoFinders[entity][method] = _lowerCamel(field)`,
+	} {
+		if !strings.Contains(code, snippet) {
+			t.Fatalf("expected canonical auth/profile emit snippet %q, got:\n%s", snippet, code)
 		}
 	}
 }

@@ -86,7 +86,7 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 	pad := strings.Repeat("\t", indent)
 
 	switch step.Action {
-	case "notify.Send":
+	case "notify.Send", "notify.Email":
 		channel := arg("channel")
 		to := arg("to")
 		templateExpr := arg("template")
@@ -95,6 +95,9 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 		htmlExpr := arg("html")
 		dataExpr := arg("data")
 		output := arg("output")
+		if step.Action == "notify.Email" {
+			channel = `"email"`
+		}
 		if channel == "" || to == "" {
 			return "", true
 		}
@@ -119,7 +122,11 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 		b.WriteString(fmt.Sprintf("%s{\n", pad))
 		b.WriteString(fmt.Sprintf("%s\t_notifyChannel%s := strings.ToLower(strings.TrimSpace(fmt.Sprint(%s)))\n", pad, sfx, channel))
 		b.WriteString(fmt.Sprintf("%s\tif _notifyChannel%s == \"\" {\n", pad, sfx))
-		b.WriteString(errReturn(st, pad+"\t\t", `errors.New(http.StatusBadRequest, "INVALID_NOTIFY_CHANNEL", "notify.Send requires non-empty channel")`))
+		if step.Action == "notify.Email" {
+			b.WriteString(errReturn(st, pad+"\t\t", `errors.New(http.StatusBadRequest, "INVALID_NOTIFY_CHANNEL", "notify.Email requires non-empty recipient")`))
+		} else {
+			b.WriteString(errReturn(st, pad+"\t\t", `errors.New(http.StatusBadRequest, "INVALID_NOTIFY_CHANNEL", "notify.Send requires non-empty channel")`))
+		}
 		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
 		b.WriteString(fmt.Sprintf("%s\t_notifyMeta%s := map[string]any{\"to\": fmt.Sprint(%s)}\n", pad, sfx, to))
 		if textExpr != "" {
@@ -140,10 +147,18 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 		}
 		b.WriteString("}\n")
 		b.WriteString(fmt.Sprintf("%s\tif s.dispatcher == nil {\n", pad))
-		b.WriteString(errReturn(st, pad+"\t\t", `errors.New(http.StatusInternalServerError, "NOTIFY_DISPATCHER_NOT_CONFIGURED", "notify.Send requires notification dispatcher wiring")`))
+		if step.Action == "notify.Email" {
+			b.WriteString(errReturn(st, pad+"\t\t", `errors.New(http.StatusInternalServerError, "NOTIFY_DISPATCHER_NOT_CONFIGURED", "notify.Email requires notification dispatcher wiring")`))
+		} else {
+			b.WriteString(errReturn(st, pad+"\t\t", `errors.New(http.StatusInternalServerError, "NOTIFY_DISPATCHER_NOT_CONFIGURED", "notify.Send requires notification dispatcher wiring")`))
+		}
 		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
 		b.WriteString(fmt.Sprintf("%s\tif _notifyErr%s := s.dispatcher.Dispatch(ctx, _notifyMsg%s); _notifyErr%s != nil {\n", pad, sfx, sfx, sfx))
-		b.WriteString(errReturn(st, pad+"\t\t", fmt.Sprintf("fmt.Errorf(\"notify.Send: %%w\", _notifyErr%s)", sfx)))
+		if step.Action == "notify.Email" {
+			b.WriteString(errReturn(st, pad+"\t\t", fmt.Sprintf("fmt.Errorf(\"notify.Email: %%w\", _notifyErr%s)", sfx)))
+		} else {
+			b.WriteString(errReturn(st, pad+"\t\t", fmt.Sprintf("fmt.Errorf(\"notify.Send: %%w\", _notifyErr%s)", sfx)))
+		}
 		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
 		if output != "" {
 			b.WriteString(fmt.Sprintf("%s\t%s = uuid.NewString()\n", pad, output))

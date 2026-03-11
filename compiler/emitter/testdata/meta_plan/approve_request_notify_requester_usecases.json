@@ -1,0 +1,41 @@
+{
+  "service_name": "workflow",
+  "entities": [
+    {
+      "name": "Request",
+      "fields": [
+        {"name": "ID", "type": "uuid"},
+        {"name": "Status", "type": "string"},
+        {"name": "Email", "type": "string"}
+      ],
+      "has_status": true,
+      "statuses": ["pending", "approved"],
+      "transitions": []
+    }
+  ],
+  "use_cases": [
+    {
+      "name": "ApproveRequest",
+      "actor": "moderator",
+      "method": "PUT",
+      "primary_entity": "Request",
+      "secondary_entities": [],
+      "input_fields": [
+        {"name": "id", "type": "uuid"}
+      ],
+      "output_fields": [
+        {"name": "id", "type": "uuid"},
+        {"name": "status", "type": "string"}
+      ],
+      "capabilities": ["moderation", "notify"],
+      "is_state_transition": true,
+      "transition_to": "approved",
+      "guards": [],
+      "side_effects_typed": [
+        {"kind": "notify.email", "channel": "email"}
+      ],
+      "manual_required": false,
+      "complexity": "simple"
+    }
+  ]
+}

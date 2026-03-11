@@ -264,7 +264,7 @@ func flowStepReferenceExprs(step FlowStep) []flowRefExpr {
 		addArgMapValues("payloadMap")
 	case "notification.Dispatch", "notify.Dispatch":
 		addArgs("userID", "entityID", "payload")
-	case "notify.Send":
+	case "notify.Send", "notify.Email":
 		addArgs("to", "template", "text", "subject", "html", "data")
 	case "approval.Request":
 		addArgs("approvalKey", "title", "requestedBy", "approvers", "policy", "payload", "description", "deadline", "ttl")

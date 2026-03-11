@@ -393,7 +393,7 @@ func requiredVarArgs(action string) []string {
 		return []string{"payload", "payloadMap"}
 	case "notification.Dispatch", "notify.Dispatch":
 		return []string{"userID", "entityID", "payload"}
-	case "notify.Send":
+	case "notify.Send", "notify.Email":
 		return []string{"to", "template", "text", "subject", "html", "data"}
 	case "approval.Request":
 		return []string{"approvalKey", "title", "requestedBy", "approvers", "policy", "payload", "description", "deadline", "ttl"}

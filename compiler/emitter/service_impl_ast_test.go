@@ -24,7 +24,7 @@ func TestRenderServiceImplASTSkeleton(t *testing.T) {
 				Flow: []normalizer.FlowStep{
 					{Action: "event.Outbox", Args: map[string]any{"name": `"OrderCreated"`, "payload": "req"}},
 					{Action: "queue.Dequeue", Args: map[string]any{"subject": `"orders"`, "output": "msg"}},
-					{Action: "notify.Send", Args: map[string]any{"channel": `"email"`, "to": "req.Email", "text": `"hi"`}},
+					{Action: "notify.Email", Args: map[string]any{"to": "req.Email", "text": `"hi"`}},
 					{Action: "approval.Wait", Args: map[string]any{"approvalId": "req.ApprovalID"}},
 					{Action: "policy.Require", Args: map[string]any{"policyKey": `"order.create"`, "subject": "req.UserID"}},
 				},

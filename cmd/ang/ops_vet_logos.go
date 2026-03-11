@@ -281,6 +281,10 @@ var logosDB = map[string]ActionLogos{
 		Effects:     []string{effectNotify},
 		FailureMode: "terminal",
 	},
+	"notify.Email": {
+		Effects:     []string{effectNotify},
+		FailureMode: "terminal",
+	},
 	"mail.Send": {
 		Effects:     []string{effectNotify},
 		FailureMode: "terminal",

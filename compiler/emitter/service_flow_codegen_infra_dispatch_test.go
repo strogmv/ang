@@ -62,6 +62,7 @@ func TestRenderFlowStepInfra_DispatchHandlesKnownActions(t *testing.T) {
 		{name: "dlq_publish", step: normalizer.FlowStep{Action: "dlq.Publish", Args: map[string]any{"subject": `"events.test"`, "payload": "msg", "reason": `"decode failed"`}}},
 		{name: "event_outbox", step: normalizer.FlowStep{Action: "event.Outbox", Args: map[string]any{"name": `"ProjectCreated"`, "payload": "domain.ProjectCreated{ID: req.ID}"}}},
 		{name: "notify_send", step: normalizer.FlowStep{Action: "notify.Send", Args: map[string]any{"channel": `"email"`, "to": "req.Email", "text": `"Hello"`}}},
+		{name: "notify_email", step: normalizer.FlowStep{Action: "notify.Email", Args: map[string]any{"to": "req.Email", "text": `"Hello"`}}},
 		{name: "approval_request", step: normalizer.FlowStep{Action: "approval.Request", Args: map[string]any{"approvalKey": `"refund:123"`, "title": `"Refund approval"`, "requestedBy": "req.UserID", "approvers": []string{"manager@acme.io"}, "policy": `"any"`, "payload": "req", "approvalId": "approvalID", "status": "approvalStatus"}}},
 		{name: "approval_wait", step: normalizer.FlowStep{Action: "approval.Wait", Args: map[string]any{"approvalId": "approvalID", "timeout": "10*time.Minute", "decision": "approvalDecision", "status": "approvalStatus"}}},
 		{name: "approval_decide", step: normalizer.FlowStep{Action: "approval.Decide", Args: map[string]any{"approvalId": "approvalID", "decision": `"approved"`, "actor": "req.UserID", "status": "approvalStatus"}}},
