@@ -72,3 +72,25 @@ func TestLocalJavaImportOptionsToTransform_ParserBackend(t *testing.T) {
 		t.Fatalf("java parser backend = %q, want regex", out.JavaParserBackend)
 	}
 }
+
+func TestMergeImportEntities_CanonicalizesMediaProfileFields(t *testing.T) {
+	javaEntities := []FactEntity{{
+		Name: "UserProfile",
+		Fields: []FactField{
+			{Name: "avatarURL", CueTypeHint: "string"},
+			{Name: "profilePicture", CueTypeHint: "string"},
+		},
+	}}
+
+	var conflicts []importConflict
+	entities := mergeImportEntities(javaEntities, nil, nil, &conflicts)
+	if len(entities) != 1 {
+		t.Fatalf("entities len = %d, want 1", len(entities))
+	}
+	if got := len(entities[0].Fields); got != 1 {
+		t.Fatalf("fields len = %d, want 1 after canonical dedupe: %+v", got, entities[0].Fields)
+	}
+	if entities[0].Fields[0].Name != "PhotoURL" {
+		t.Fatalf("field name = %q, want PhotoURL", entities[0].Fields[0].Name)
+	}
+}

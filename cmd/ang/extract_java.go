@@ -62,51 +62,51 @@ var (
 
 	javaMapperUsesRe = regexp.MustCompile(`uses\s*=\s*\{?([^)}]+)\}?`)
 
-	javaNotNullAnnoRe = regexp.MustCompile(`@(?:NotNull|NotBlank|NotEmpty)\b`)
-	javaNullAnnoRe    = regexp.MustCompile(`@Null\b`)
-	javaSizeAnnoRe    = regexp.MustCompile(`@Size\s*\(([^)]*)\)`)
-	javaLengthAnnoRe  = regexp.MustCompile(`@Length\s*\(([^)]*)\)`)
-	javaPatternAnnoRe = regexp.MustCompile(`@Pattern\s*\(([^)]*)\)`)
-	javaEmailAnnoRe   = regexp.MustCompile(`@Email\b`)
-	javaMinAnnoRe     = regexp.MustCompile(`@Min\s*\(\s*([0-9]+)\s*\)`)
-	javaMaxAnnoRe     = regexp.MustCompile(`@Max\s*\(\s*([0-9]+)\s*\)`)
-	javaDecMinAnnoRe  = regexp.MustCompile(`@DecimalMin\s*\(\s*"([^"]+)"(?:\s*,\s*inclusive\s*=\s*(true|false))?\s*\)`)
-	javaDecMaxAnnoRe  = regexp.MustCompile(`@DecimalMax\s*\(\s*"([^"]+)"(?:\s*,\s*inclusive\s*=\s*(true|false))?\s*\)`)
-	javaDigitsAnnoRe  = regexp.MustCompile(`@Digits\s*\(([^)]*)\)`)
-	javaPastAnnoRe    = regexp.MustCompile(`@Past\b`)
-	javaPastNowAnnoRe = regexp.MustCompile(`@PastOrPresent\b`)
-	javaFutureAnnoRe  = regexp.MustCompile(`@Future\b`)
-	javaFutureNowAnnoRe = regexp.MustCompile(`@FutureOrPresent\b`)
-	javaPositiveAnnoRe = regexp.MustCompile(`@Positive\b`)
-	javaPosOrZeroAnnoRe = regexp.MustCompile(`@PositiveOrZero\b`)
-	javaNegativeAnnoRe = regexp.MustCompile(`@Negative\b`)
-	javaNegOrZeroAnnoRe = regexp.MustCompile(`@NegativeOrZero\b`)
-	javaAssertTrueAnnoRe = regexp.MustCompile(`@AssertTrue\b`)
+	javaNotNullAnnoRe     = regexp.MustCompile(`@(?:NotNull|NotBlank|NotEmpty)\b`)
+	javaNullAnnoRe        = regexp.MustCompile(`@Null\b`)
+	javaSizeAnnoRe        = regexp.MustCompile(`@Size\s*\(([^)]*)\)`)
+	javaLengthAnnoRe      = regexp.MustCompile(`@Length\s*\(([^)]*)\)`)
+	javaPatternAnnoRe     = regexp.MustCompile(`@Pattern\s*\(([^)]*)\)`)
+	javaEmailAnnoRe       = regexp.MustCompile(`@Email\b`)
+	javaMinAnnoRe         = regexp.MustCompile(`@Min\s*\(\s*([0-9]+)\s*\)`)
+	javaMaxAnnoRe         = regexp.MustCompile(`@Max\s*\(\s*([0-9]+)\s*\)`)
+	javaDecMinAnnoRe      = regexp.MustCompile(`@DecimalMin\s*\(\s*"([^"]+)"(?:\s*,\s*inclusive\s*=\s*(true|false))?\s*\)`)
+	javaDecMaxAnnoRe      = regexp.MustCompile(`@DecimalMax\s*\(\s*"([^"]+)"(?:\s*,\s*inclusive\s*=\s*(true|false))?\s*\)`)
+	javaDigitsAnnoRe      = regexp.MustCompile(`@Digits\s*\(([^)]*)\)`)
+	javaPastAnnoRe        = regexp.MustCompile(`@Past\b`)
+	javaPastNowAnnoRe     = regexp.MustCompile(`@PastOrPresent\b`)
+	javaFutureAnnoRe      = regexp.MustCompile(`@Future\b`)
+	javaFutureNowAnnoRe   = regexp.MustCompile(`@FutureOrPresent\b`)
+	javaPositiveAnnoRe    = regexp.MustCompile(`@Positive\b`)
+	javaPosOrZeroAnnoRe   = regexp.MustCompile(`@PositiveOrZero\b`)
+	javaNegativeAnnoRe    = regexp.MustCompile(`@Negative\b`)
+	javaNegOrZeroAnnoRe   = regexp.MustCompile(`@NegativeOrZero\b`)
+	javaAssertTrueAnnoRe  = regexp.MustCompile(`@AssertTrue\b`)
 	javaAssertFalseAnnoRe = regexp.MustCompile(`@AssertFalse\b`)
-	javaValidAnnoRe = regexp.MustCompile(`@Valid\b`)
-	javaNamedArgIntRe = regexp.MustCompile(`\b([a-zA-Z_]\w*)\s*=\s*([0-9]+)\b`)
-	javaNamedArgStrRe = regexp.MustCompile(`\b([a-zA-Z_]\w*)\s*=\s*"([^"]+)"`)
-	javaNamedArgBoolRe = regexp.MustCompile(`\b([a-zA-Z_]\w*)\s*=\s*(true|false)\b`)
-	javaFirstQuoteRe  = regexp.MustCompile(`"([^"]+)"`)
-	javaInlineAnnoRe  = regexp.MustCompile(`@\w+(?:\([^)]*\))?\s*`)
-	javaGenericTypeRe = regexp.MustCompile(`<[^>]+>`)
-	javaWhitespaceRe  = regexp.MustCompile(`\s+`)
-	javaAnnotationNameRe = regexp.MustCompile(`@([a-zA-Z_][\w.]*)`)
+	javaValidAnnoRe       = regexp.MustCompile(`@Valid\b`)
+	javaNamedArgIntRe     = regexp.MustCompile(`\b([a-zA-Z_]\w*)\s*=\s*([0-9]+)\b`)
+	javaNamedArgStrRe     = regexp.MustCompile(`\b([a-zA-Z_]\w*)\s*=\s*"([^"]+)"`)
+	javaNamedArgBoolRe    = regexp.MustCompile(`\b([a-zA-Z_]\w*)\s*=\s*(true|false)\b`)
+	javaFirstQuoteRe      = regexp.MustCompile(`"([^"]+)"`)
+	javaInlineAnnoRe      = regexp.MustCompile(`@\w+(?:\([^)]*\))?\s*`)
+	javaGenericTypeRe     = regexp.MustCompile(`<[^>]+>`)
+	javaWhitespaceRe      = regexp.MustCompile(`\s+`)
+	javaAnnotationNameRe  = regexp.MustCompile(`@([a-zA-Z_][\w.]*)`)
 
-	javaOneToManyRe      = regexp.MustCompile(`@OneToMany(?:\s*\(([^)]*)\))?`)
-	javaManyToOneRe      = regexp.MustCompile(`@ManyToOne(?:\s*\(([^)]*)\))?`)
-	javaOneToOneRe       = regexp.MustCompile(`@OneToOne(?:\s*\(([^)]*)\))?`)
-	javaManyToManyRe     = regexp.MustCompile(`@ManyToMany(?:\s*\(([^)]*)\))?`)
+	javaOneToManyRe         = regexp.MustCompile(`@OneToMany(?:\s*\(([^)]*)\))?`)
+	javaManyToOneRe         = regexp.MustCompile(`@ManyToOne(?:\s*\(([^)]*)\))?`)
+	javaOneToOneRe          = regexp.MustCompile(`@OneToOne(?:\s*\(([^)]*)\))?`)
+	javaManyToManyRe        = regexp.MustCompile(`@ManyToMany(?:\s*\(([^)]*)\))?`)
 	javaElementCollectionRe = regexp.MustCompile(`@ElementCollection(?:\s*\(([^)]*)\))?`)
-	javaJoinColumnRe     = regexp.MustCompile(`@JoinColumn\s*\(([^)]*)\)`)
-	javaJoinTableRe      = regexp.MustCompile(`@JoinTable\s*\(([^)]*)\)`)
-	javaMapsIDRe         = regexp.MustCompile(`@MapsId(?:\s*\(\s*"([^"]*)"\s*\))?`)
-	javaEnumeratedRe     = regexp.MustCompile(`@Enumerated\s*\(\s*EnumType\.([A-Z_]+)\s*\)`)
-	javaEmbeddedIDRe     = regexp.MustCompile(`@EmbeddedId\b`)
-	javaIDRe             = regexp.MustCompile(`@Id\b`)
-	javaGeneratedValueRe = regexp.MustCompile(`@GeneratedValue\b`)
-	javaEmbeddedRe       = regexp.MustCompile(`@Embedded\b`)
-	javaColumnNullableRe = regexp.MustCompile(`@Column\s*\(([^)]*)\)`)
+	javaJoinColumnRe        = regexp.MustCompile(`@JoinColumn\s*\(([^)]*)\)`)
+	javaJoinTableRe         = regexp.MustCompile(`@JoinTable\s*\(([^)]*)\)`)
+	javaMapsIDRe            = regexp.MustCompile(`@MapsId(?:\s*\(\s*"([^"]*)"\s*\))?`)
+	javaEnumeratedRe        = regexp.MustCompile(`@Enumerated\s*\(\s*EnumType\.([A-Z_]+)\s*\)`)
+	javaEmbeddedIDRe        = regexp.MustCompile(`@EmbeddedId\b`)
+	javaIDRe                = regexp.MustCompile(`@Id\b`)
+	javaGeneratedValueRe    = regexp.MustCompile(`@GeneratedValue\b`)
+	javaEmbeddedRe          = regexp.MustCompile(`@Embedded\b`)
+	javaColumnNullableRe    = regexp.MustCompile(`@Column\s*\(([^)]*)\)`)
 
 	javaIDClassRe        = regexp.MustCompile(`@IdClass\s*\(\s*([A-Za-z_][\w.]*)\.class\s*\)`)
 	javaSQLDeleteRe      = regexp.MustCompile(`@SQLDelete\s*\(([^)]*)\)`)
@@ -512,12 +512,12 @@ func extractJavaFields(body string) []FactField {
 			jsonTag = strings.TrimSpace(m[1])
 		}
 
-		exportedName := toPascalCase(fieldName)
+		exportedName := canonicalFactFieldName(toPascalCase(fieldName))
 		if jsonTag == "" {
 			jsonTag = fieldName // Java field name is usually the json name
 		}
 
-		fields = append(fields, FactField{
+		fields = append(fields, canonicalizeFactField(FactField{
 			Name:            exportedName,
 			GoType:          javaType,
 			CueTypeHint:     cueHint,
@@ -536,7 +536,7 @@ func extractJavaFields(body string) []FactField {
 			JoinTable:       joinTable,
 			EnumType:        enumType,
 			Persistence:     persistence,
-		})
+		}))
 		pendingAnnos = nil
 	}
 	return fields
@@ -1362,14 +1362,14 @@ func parseJavaParams(params string) []FactField {
 		if strings.ToLower(javaType) == "void" {
 			continue
 		}
-		fields = append(fields, FactField{
+		fields = append(fields, canonicalizeFactField(FactField{
 			Name:            paramName,
 			GoType:          javaType,
 			CueTypeHint:     javaTypeToCUE(javaType),
 			Validate:        strings.Join(rules, ","),
 			ValidationRules: rules,
 			Required:        required,
-		})
+		}))
 	}
 	return fields
 }
@@ -1753,11 +1753,11 @@ func javaReturnToFields(returnType string) []FactField {
 	if returnType == "void" || returnType == "Void" || returnType == "" {
 		return nil
 	}
-	return []FactField{{
+	return []FactField{canonicalizeFactField(FactField{
 		Name:        "_",
 		GoType:      returnType,
 		CueTypeHint: javaTypeToCUE(returnType),
-	}}
+	})}
 }
 
 func inferJavaRepoReturns(returnType string) string {
@@ -2051,6 +2051,7 @@ func normalizeFactID(s string) string {
 func mergeFactFields(a, b []FactField) []FactField {
 	byName := map[string]FactField{}
 	for _, f := range a {
+		f = canonicalizeFactField(f)
 		k := normalizeFactID(f.Name)
 		if k == "" {
 			k = f.Name
@@ -2058,6 +2059,7 @@ func mergeFactFields(a, b []FactField) []FactField {
 		byName[k] = f
 	}
 	for _, f := range b {
+		f = canonicalizeFactField(f)
 		k := normalizeFactID(f.Name)
 		if k == "" {
 			k = f.Name
@@ -2141,6 +2143,7 @@ func mergeCallRefs(a, b []FactCallRef) []FactCallRef {
 }
 
 func normalizeJavaFacts(env *FactsEnvelope) {
+	canonicalizeFactsEnvelopeFields(env)
 	// Operations: merge duplicates from interface+impl.
 	type opKey struct {
 		name string

@@ -176,6 +176,61 @@ type UserService interface {
 	}
 }
 
+func TestExtractJavaFacts_CanonicalizesMediaProfileFields(t *testing.T) {
+	dir := t.TempDir()
+	java := `package demo;
+
+import javax.persistence.Entity;
+
+@Entity
+public class UserProfile {
+    private String avatarURL;
+    private String profilePicture;
+}
+
+public interface ProfileService {
+    UserProfile updateProfileAvatar(String image);
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "UserProfile.java"), []byte(java), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	env, err := extractJavaFacts(dir)
+	if err != nil {
+		t.Fatalf("extractJavaFacts: %v", err)
+	}
+	var entity *FactEntity
+	for i := range env.Entities {
+		if env.Entities[i].Name == "UserProfile" {
+			entity = &env.Entities[i]
+			break
+		}
+	}
+	if entity == nil {
+		t.Fatalf("UserProfile entity not found: %v", entityNames(env.Entities))
+	}
+	if got := len(entity.Fields); got != 1 {
+		t.Fatalf("entity fields len=%d want=1 fields=%+v", got, entity.Fields)
+	}
+	if entity.Fields[0].Name != "PhotoURL" {
+		t.Fatalf("entity field name=%q want PhotoURL", entity.Fields[0].Name)
+	}
+	var op *FactOp
+	for i := range env.Operations {
+		if env.Operations[i].Name == "UpdateProfileAvatar" {
+			op = &env.Operations[i]
+			break
+		}
+	}
+	if op == nil {
+		t.Fatalf("UpdateProfileAvatar op not found: %v", opNames(env.Operations))
+	}
+	if len(op.InputFields) == 0 || op.InputFields[0].Name != "PhotoURL" {
+		t.Fatalf("input fields=%+v, want PhotoURL", op.InputFields)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // SQL extractor tests
 // ---------------------------------------------------------------------------

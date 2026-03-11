@@ -1635,6 +1635,7 @@ func transformFactsToLocal(tf transform.FactsEnvelope) (FactsEnvelope, error) {
 	if err := json.Unmarshal(data, &env); err != nil {
 		return FactsEnvelope{}, err
 	}
+	canonicalizeFactsEnvelopeFields(&env)
 	return env, nil
 }
 
@@ -1677,6 +1678,13 @@ func transformImportArtifactsToLocal(ir transform.JavaImportIR, report transform
 	}
 	if err := json.Unmarshal(data, &out); err != nil {
 		return javaImportIR{}, javaImportReport{}, err
+	}
+	for i := range out.IR.Entities {
+		out.IR.Entities[i].Fields = canonicalizeFactFields(out.IR.Entities[i].Fields)
+	}
+	for i := range out.IR.Operations {
+		out.IR.Operations[i].Inputs = canonicalizeFactFields(out.IR.Operations[i].Inputs)
+		out.IR.Operations[i].Outputs = canonicalizeFactFields(out.IR.Operations[i].Outputs)
 	}
 	return out.IR, out.Report, nil
 }

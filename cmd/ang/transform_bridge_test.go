@@ -42,6 +42,45 @@ func TestTransformFactsToLocal_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestTransformFactsToLocal_CanonicalizesMediaProfileFields(t *testing.T) {
+	tf := transform.FactsEnvelope{
+		Schema: "ang/facts/v1",
+		Entities: []transform.FactEntity{{
+			Name: "UserProfile",
+			Fields: []transform.FactField{
+				{Name: "avatarURL", CueTypeHint: "string"},
+				{Name: "profilePicture", CueTypeHint: "string"},
+			},
+		}},
+		Operations: []transform.FactOp{{
+			Name: "UpdateProfileAvatar",
+			InputFields: []transform.FactField{
+				{Name: "image", CueTypeHint: "string"},
+			},
+			OutputFields: []transform.FactField{
+				{Name: "avatarURL", CueTypeHint: "string"},
+			},
+		}},
+	}
+
+	local, err := transformFactsToLocal(tf)
+	if err != nil {
+		t.Fatalf("transformFactsToLocal: %v", err)
+	}
+	if got := len(local.Entities[0].Fields); got != 1 {
+		t.Fatalf("entity fields len=%d, want 1 after canonical dedupe: %+v", got, local.Entities[0].Fields)
+	}
+	if local.Entities[0].Fields[0].Name != "PhotoURL" {
+		t.Fatalf("entity field name=%q, want PhotoURL", local.Entities[0].Fields[0].Name)
+	}
+	if local.Operations[0].InputFields[0].Name != "PhotoURL" {
+		t.Fatalf("input field name=%q, want PhotoURL", local.Operations[0].InputFields[0].Name)
+	}
+	if local.Operations[0].OutputFields[0].Name != "PhotoURL" {
+		t.Fatalf("output field name=%q, want PhotoURL", local.Operations[0].OutputFields[0].Name)
+	}
+}
+
 func TestExtractViaTransformWithOptions_InvalidJavaParserBackend(t *testing.T) {
 	dir := t.TempDir()
 	java := `package demo;
