@@ -1,0 +1,40 @@
+{
+  "service_name": "auth",
+  "entities": [
+    {
+      "name": "UserProfile",
+      "fields": [
+        {"name": "ID", "type": "uuid"},
+        {"name": "UserID", "type": "uuid"},
+        {"name": "DisplayName", "type": "string"},
+        {"name": "PhotoURL", "type": "string"},
+        {"name": "CreatedAt", "type": "time"}
+      ],
+      "has_status": false,
+      "statuses": []
+    }
+  ],
+  "use_cases": [
+    {
+      "name": "UpdateMyProfile",
+      "actor": "user",
+      "method": "PUT",
+      "primary_entity": "UserProfile",
+      "secondary_entities": [],
+      "input_fields": [
+        {"name": "displayName", "type": "string"},
+        {"name": "photoURL", "type": "string"}
+      ],
+      "output_fields": [
+        {"name": "displayName", "type": "string"},
+        {"name": "photoURL", "type": "string"}
+      ],
+      "capabilities": [],
+      "is_state_transition": false,
+      "guards": [],
+      "side_effects": [],
+      "manual_required": false,
+      "complexity": "simple"
+    }
+  ]
+}

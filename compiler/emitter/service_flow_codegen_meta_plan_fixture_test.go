@@ -88,6 +88,86 @@ func TestBuildMicroPlanFixture_UpdateProfileAvatarCanonicalizesToPhotoURL(t *tes
 	assertStepHasFieldRef(t, op, "value", "req.PhotoURL")
 }
 
+func TestBuildMicroPlanFixture_SendConversationMessage(t *testing.T) {
+	t.Parallel()
+
+	got := runGeneratedMicroPlanFixture(t, "send_conversation_message_usecases.json", "empty_automata.json")
+	op := requireFixtureOperation(t, got, "SendConversationMessage")
+	assertStringField(t, op, "kind", "message")
+	assertCapabilitiesContain(t, op, "messaging")
+	assertStepKinds(t, op, []string{"session", "new", "set_id", "set_now", "set", "set", "set", "save", "reply", "reply"})
+	assertStepHasFieldRef(t, op, "to", "conversationMessage.SenderID")
+	assertStepHasFieldRef(t, op, "value", "sessionID")
+}
+
+func TestBuildMicroPlanFixture_ListConversationMessages(t *testing.T) {
+	t.Parallel()
+
+	got := runGeneratedMicroPlanFixture(t, "list_conversation_messages_usecases.json", "empty_automata.json")
+	op := requireFixtureOperation(t, got, "ListConversationMessages")
+	assertStringField(t, op, "kind", "list")
+	assertCapabilitiesContain(t, op, "messaging")
+	assertStepKinds(t, op, []string{"session", "load_list", "reply"})
+	assertStepFieldEquals(t, op, "method", "ListByConversationID")
+	assertStepHasFieldRef(t, op, "input", "req.ConversationID")
+}
+
+func TestBuildMicroPlanFixture_ListCommunityListings(t *testing.T) {
+	t.Parallel()
+
+	got := runGeneratedMicroPlanFixture(t, "list_community_listings_usecases.json", "empty_automata.json")
+	op := requireFixtureOperation(t, got, "ListCommunityListings")
+	assertStringField(t, op, "kind", "list")
+	assertCapabilitiesContain(t, op, "messaging")
+	assertStepKinds(t, op, []string{"load_list", "reply"})
+	assertNoStepKind(t, op, "session")
+}
+
+func TestBuildMicroPlanFixture_RegisterUser(t *testing.T) {
+	t.Parallel()
+
+	got := runGeneratedMicroPlanFixture(t, "register_user_usecases.json", "empty_automata.json")
+	op := requireFixtureOperation(t, got, "RegisterUser")
+	assertStringField(t, op, "kind", "auth")
+	assertCapabilitiesContain(t, op, "auth")
+	assertStepKinds(t, op, []string{"new", "set_id", "set_now", "set", "hash_password", "set", "set", "save", "logic_call", "reply", "reply", "reply"})
+}
+
+func TestBuildMicroPlanFixture_LoginUser(t *testing.T) {
+	t.Parallel()
+
+	got := runGeneratedMicroPlanFixture(t, "login_user_usecases.json", "empty_automata.json")
+	op := requireFixtureOperation(t, got, "LoginUser")
+	assertStringField(t, op, "kind", "auth")
+	assertCapabilitiesContain(t, op, "auth")
+	assertStepKinds(t, op, []string{"load", "logic_call", "guard_bool", "logic_call", "reply", "reply", "reply"})
+	assertStepFieldEquals(t, op, "method", "FindByEmail")
+}
+
+func TestBuildMicroPlanFixture_GetMyProfile(t *testing.T) {
+	t.Parallel()
+
+	got := runGeneratedMicroPlanFixture(t, "get_my_profile_usecases.json", "empty_automata.json")
+	op := requireFixtureOperation(t, got, "GetMyProfile")
+	assertStringField(t, op, "kind", "get")
+	assertCapabilitiesContain(t, op, "auth", "profile")
+	assertStepKinds(t, op, []string{"session", "load", "reply", "reply"})
+	assertStepFieldEquals(t, op, "method", "FindByUserID")
+	assertStepHasFieldRef(t, op, "input_expr", "sessionID")
+}
+
+func TestBuildMicroPlanFixture_UpdateMyProfile(t *testing.T) {
+	t.Parallel()
+
+	got := runGeneratedMicroPlanFixture(t, "update_my_profile_usecases.json", "empty_automata.json")
+	op := requireFixtureOperation(t, got, "UpdateMyProfile")
+	assertStringField(t, op, "kind", "update")
+	assertCapabilitiesContain(t, op, "auth", "profile", "media")
+	assertStepKinds(t, op, []string{"session", "load", "set", "set", "save", "reply", "reply"})
+	assertStepFieldEquals(t, op, "method", "FindByUserID")
+	assertStepHasFieldRef(t, op, "input_expr", "sessionID")
+}
+
 func runGeneratedMicroPlanFixture(t *testing.T, usecasesFixture, automataFixture string) map[string]any {
 	t.Helper()
 
@@ -289,6 +369,41 @@ func assertStepKinds(t *testing.T, op map[string]any, want []string) {
 			t.Fatalf("step[%d]=%q want=%q full=%v", i, got[i], want[i], got)
 		}
 	}
+}
+
+func assertNoStepKind(t *testing.T, op map[string]any, unwanted string) {
+	t.Helper()
+	steps, ok := op["steps"].([]any)
+	if !ok {
+		t.Fatalf("steps missing or invalid: %#v", op["steps"])
+	}
+	for i, raw := range steps {
+		step, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if got, _ := step["p"].(string); got == unwanted {
+			t.Fatalf("unexpected step[%d]=%q in %v", i, unwanted, steps)
+		}
+	}
+}
+
+func assertStepFieldEquals(t *testing.T, op map[string]any, key, want string) {
+	t.Helper()
+	steps, ok := op["steps"].([]any)
+	if !ok {
+		t.Fatalf("steps missing or invalid: %#v", op["steps"])
+	}
+	for _, raw := range steps {
+		step, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if got, _ := step[key].(string); got == want {
+			return
+		}
+	}
+	t.Fatalf("no step with %s=%q found in %#v", key, want, steps)
 }
 
 func asString(v any) string {

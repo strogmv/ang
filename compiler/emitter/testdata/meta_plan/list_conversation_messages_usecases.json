@@ -1,0 +1,38 @@
+{
+  "service_name": "community",
+  "entities": [
+    {
+      "name": "ConversationMessage",
+      "fields": [
+        {"name": "ID", "type": "uuid"},
+        {"name": "ConversationID", "type": "uuid"},
+        {"name": "SenderID", "type": "uuid"},
+        {"name": "Body", "type": "string"},
+        {"name": "CreatedAt", "type": "time"}
+      ],
+      "has_status": false,
+      "statuses": []
+    }
+  ],
+  "use_cases": [
+    {
+      "name": "ListConversationMessages",
+      "actor": "member",
+      "method": "GET",
+      "primary_entity": "ConversationMessage",
+      "secondary_entities": [],
+      "input_fields": [
+        {"name": "conversationID", "type": "uuid"}
+      ],
+      "output_fields": [
+        {"name": "messages", "type": "[]ConversationMessage"}
+      ],
+      "capabilities": [],
+      "is_state_transition": false,
+      "guards": [],
+      "side_effects": [],
+      "manual_required": false,
+      "complexity": "simple"
+    }
+  ]
+}

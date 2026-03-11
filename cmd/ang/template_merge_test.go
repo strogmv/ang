@@ -24,6 +24,18 @@ func TestMergeCueTopLevelDeclsRejectsPackageMismatch(t *testing.T) {
 	}
 }
 
+func TestMergeCueTopLevelDeclsPreservesManualImports(t *testing.T) {
+	desired := "package api\nimport \"strings\"\nA: {x: strings.ToUpper(\"a\")}\n"
+	current := "package api\nimport (\n\t\"strings\"\n\tmath \"math\"\n)\nA: {x: strings.ToUpper(\"a\")}\nB: math.Pi\n"
+	merged, ok := mergeCueTopLevelDecls(desired, current)
+	if !ok {
+		t.Fatal("expected merge to succeed")
+	}
+	if !containsAll(merged, "\"strings\"", "\"math\"", "B: math.Pi") {
+		t.Fatalf("expected merged CUE to preserve imports and manual decl, got:\n%s", merged)
+	}
+}
+
 func TestTryTemplatePreserveMergeGoCustomBlocks(t *testing.T) {
 	desired := "package bootstrap\n// ANG:BEGIN_CUSTOM runtime_container.after_init\n// default\n// ANG:END_CUSTOM runtime_container.after_init\n"
 	current := "package bootstrap\n// ANG:BEGIN_CUSTOM runtime_container.after_init\nfmt.Println(\"keep\")\n// ANG:END_CUSTOM runtime_container.after_init\n"

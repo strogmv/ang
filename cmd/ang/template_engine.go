@@ -599,6 +599,10 @@ func applyTemplateRebase(projectPath string, report templateDiffReport, plan tem
 			return res, fmt.Errorf("missing drift file for %s", step.Path)
 		}
 		absPath := filepath.Join(projectPath, filepath.FromSlash(step.Path))
+		if changed, skip := detectTemplateApplyDrift(absPath, f); changed {
+			res.Skipped = append(res.Skipped, skip)
+			continue
+		}
 		switch step.Action {
 		case "delete":
 			if err := os.Remove(absPath); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -621,7 +625,40 @@ func applyTemplateRebase(projectPath string, report templateDiffReport, plan tem
 	}
 	sort.Strings(res.ChangedFiles)
 	sort.Strings(res.DeletedFiles)
+	sort.Slice(res.Skipped, func(i, j int) bool { return res.Skipped[i].Path < res.Skipped[j].Path })
 	return res, nil
+}
+
+func detectTemplateApplyDrift(absPath string, f templateDriftFile) (bool, templateDriftFile) {
+	current, err := os.ReadFile(absPath)
+	if errors.Is(err, os.ErrNotExist) {
+		if strings.TrimSpace(f.CurrentHash) == "" {
+			return false, templateDriftFile{}
+		}
+		skip := f
+		skip.AutoApplicable = false
+		skip.Classification = "conflicting_drift"
+		skip.Reason = "file changed since diff/plan was computed"
+		return true, skip
+	}
+	if err != nil {
+		skip := f
+		skip.AutoApplicable = false
+		skip.Classification = "conflicting_drift"
+		skip.Reason = err.Error()
+		return true, skip
+	}
+	currentHash := sha256Hex(current)
+	expected := strings.TrimSpace(f.CurrentHash)
+	if expected != "" && currentHash != expected {
+		skip := f
+		skip.AutoApplicable = false
+		skip.Classification = "conflicting_drift"
+		skip.CurrentHash = currentHash
+		skip.Reason = "file changed since diff/plan was computed"
+		return true, skip
+	}
+	return false, templateDriftFile{}
 }
 
 func resolveDesiredBytesForApply(projectPath string, f templateDriftFile) ([]byte, error) {

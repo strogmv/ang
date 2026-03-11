@@ -1,0 +1,35 @@
+{
+  "service_name": "community",
+  "entities": [
+    {
+      "name": "CommunityListing",
+      "fields": [
+        {"name": "ID", "type": "uuid"},
+        {"name": "Title", "type": "string"},
+        {"name": "Body", "type": "string"},
+        {"name": "CreatedAt", "type": "time"}
+      ],
+      "has_status": false,
+      "statuses": []
+    }
+  ],
+  "use_cases": [
+    {
+      "name": "ListCommunityListings",
+      "actor": "",
+      "method": "GET",
+      "primary_entity": "CommunityListing",
+      "secondary_entities": [],
+      "input_fields": [],
+      "output_fields": [
+        {"name": "items", "type": "[]CommunityListing"}
+      ],
+      "capabilities": [],
+      "is_state_transition": false,
+      "guards": [],
+      "side_effects": [],
+      "manual_required": false,
+      "complexity": "simple"
+    }
+  ]
+}

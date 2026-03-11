@@ -1,0 +1,41 @@
+{
+  "service_name": "auth",
+  "entities": [
+    {
+      "name": "User",
+      "fields": [
+        {"name": "ID", "type": "uuid"},
+        {"name": "Email", "type": "string"},
+        {"name": "DisplayName", "type": "string"},
+        {"name": "PasswordHash", "type": "string"},
+        {"name": "CreatedAt", "type": "time"}
+      ],
+      "has_status": false,
+      "statuses": []
+    }
+  ],
+  "use_cases": [
+    {
+      "name": "LoginUser",
+      "actor": "",
+      "method": "POST",
+      "primary_entity": "User",
+      "secondary_entities": [],
+      "input_fields": [
+        {"name": "email", "type": "string"},
+        {"name": "password", "type": "string"}
+      ],
+      "output_fields": [
+        {"name": "accessToken", "type": "string"},
+        {"name": "refreshToken", "type": "string"},
+        {"name": "displayName", "type": "string"}
+      ],
+      "capabilities": [],
+      "is_state_transition": false,
+      "guards": [],
+      "side_effects": [],
+      "manual_required": false,
+      "complexity": "simple"
+    }
+  ]
+}

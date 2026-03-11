@@ -53,12 +53,12 @@ func TestRenderPlanBuildMicroPlanCode_AddsCreateAndReplyHeuristics(t *testing.T)
 		`SideEffectsTyped []_metaPlanSideEffect ` + "`json:\"side_effects_typed\"`",
 		`ManualRequired bool ` + "`json:\"manual_required\"`",
 		`_normalizeSideEffects := func(effects []string) []_metaPlanSideEffect`,
-		`_normalizeCapabilities := func(explicit []string, kind string, effects []_metaPlanSideEffect, name string, inputFields, outputFields, entityFields []struct{ Name, Type string }) []string`,
-		`_primaryKindOf := func(name, method string, inputFields, outputFields, entityFields []struct{ Name, Type string }, isTransition bool, explicit string) string`,
+		`_normalizeCapabilities := func(explicit []string, kind, entityName, method string, effects []_metaPlanSideEffect, name string, inputFields, outputFields, entityFields []struct{ Name, Type string }) []string`,
+		`_primaryKindOf := func(name, entityName, method string, inputFields, outputFields, entityFields []struct{ Name, Type string }, isTransition bool, explicit string) string`,
 		`_looksLikeProfileOrMediaMutation(name, inputFields, outputFields, entityFields)`,
-		`kind := _primaryKindOf(uc.Name, uc.Method, uc.InputFields, uc.OutputFields, entity.Fields, uc.IsStateTransition, uc.PrimaryOperationKind)`,
+		`kind := _primaryKindOf(uc.Name, uc.PrimaryEntity, uc.Method, uc.InputFields, uc.OutputFields, entity.Fields, uc.IsStateTransition, uc.PrimaryOperationKind)`,
 		`typedEffects := append([]_metaPlanSideEffect(nil), uc.SideEffectsTyped...)`,
-		`capabilities := _normalizeCapabilities(uc.Capabilities, kind, typedEffects, uc.Name, uc.InputFields, uc.OutputFields, entity.Fields)`,
+		`capabilities := _normalizeCapabilities(uc.Capabilities, kind, uc.PrimaryEntity, uc.Method, typedEffects, uc.Name, uc.InputFields, uc.OutputFields, entity.Fields)`,
 		`manualReason = "missing_email_recipient"`,
 		`map[string]any{"p": "notify_email", "to": recipientExpr, "text": textExpr}`,
 		`"primary_operation_kind": kind`,
@@ -121,7 +121,8 @@ func TestRenderPlanBuildMicroPlanCode_LowersMessagingAndCommunityPatterns(t *tes
 
 	code := renderPlanBuildMicroPlanCode(&flowRenderState{}, "", "usecasesDoc", "automataDoc", "microPlanDoc", ":=", "_micro", "_err")
 	for _, snippet := range []string{
-		`if kind == "message" || _containsAny(name, "message", "chat", "conversation", "reply", "community", "listing") { appendCap("messaging") }`,
+		`_isCanonicalMessagingUseCase := func(name, entityName, method string, inputFields, outputFields, entityFields []struct{ Name, Type string }) bool`,
+		`if kind == "message" || _isCanonicalMessagingUseCase(name, entityName, method, inputFields, outputFields, entityFields) || _containsAny(name, "message", "chat", "conversation", "reply", "community", "listing") { appendCap("messaging") }`,
 		`if strings.TrimSpace(actor) == "" {`,
 		`if _containsAny(field.Name, "senderid", "authorid", "userid", "memberid") {`,
 		`if conversationField := _findFieldByNames(entity.Fields, "conversationID"); conversationField != "" {`,
@@ -147,7 +148,7 @@ func TestRenderPlanBuildMicroPlanCode_CanonicalizesMediaProfileFields(t *testing
 		`uc.OutputFields = _canonicalizeFields(uc.OutputFields)`,
 		`entity.Fields = _canonicalizeFields(entity.Fields)`,
 		`typedEffects[i].TargetField = _canonicalFieldName(typedEffects[i].TargetField)`,
-		`if kind == "upload" || _containsAny(name, "upload", "avatar", "photo", "image", "profile picture", "media", "attachment") {`,
+		`if kind == "upload" || (_isCanonicalProfileUseCase(name, entityName, method, inputFields, outputFields, entityFields) && _containsAny(name, "avatar", "photo", "image", "picture")) || _containsAny(name, "upload", "avatar", "photo", "image", "profile picture", "media", "attachment") {`,
 		`if _canonicalFieldName(field.Name) == "photoURL" || _containsAny(field.Name, "media", "attachment") {`,
 	} {
 		if !strings.Contains(code, snippet) {
@@ -178,7 +179,9 @@ func TestRenderPlanBuildMicroPlanCode_LowersCanonicalAuthProfileFlows(t *testing
 
 	code := renderPlanBuildMicroPlanCode(&flowRenderState{}, "", "usecasesDoc", "automataDoc", "microPlanDoc", ":=", "_micro", "_err")
 	for _, snippet := range []string{
-		`requiresSession := (kind != "auth" && (lowerKind == "create" || lowerKind == "update" || lowerKind == "delete" || lowerKind == "transition" || lowerKind == "list" || lowerKind == "notify")) || (isProfileCapability && _containsAny(uc.Name, "profile", "me"))`,
+		`requiresSession := false`,
+		`case "create", "update", "delete", "transition", "notify":`,
+		`requiresSession = _findActorField(entity.Fields, uc.Actor) != "" || _containsAny(uc.Name, "my", "me")`,
 		`case "auth":`,
 		`case _startsWithAny(uc.Name, "register", "signup", "sign-up"):`,
 		`map[string]any{"p": "hash_password", "input": "req." + _pascal(inField.Name), "output": "passwordHash"}`,
@@ -187,6 +190,7 @@ func TestRenderPlanBuildMicroPlanCode_LowersCanonicalAuthProfileFlows(t *testing
 		`map[string]any{"p": "load", "entity": uc.PrimaryEntity, "method": "FindByEmail", "input_expr": "req." + _pascal(emailField), "output": entityVar, "error": "Invalid credentials"}`,
 		`map[string]any{"p": "logic_call", "func": "verifyPassword", "args": []string{entityVar + ".PasswordHash", "req." + _pascal(passwordField)}, "output": "passwordValid"}`,
 		`map[string]any{"p": "guard_bool", "condition": "passwordValid", "throw": "Invalid credentials"}`,
+		`isSelfProfileGet := isProfileCapability && _containsAny(uc.Name, "profile", "me")`,
 		`if isProfileCapability && _containsAny(uc.Name, "profile", "me") {`,
 		`map[string]any{"p": "load", "entity": uc.PrimaryEntity, "input_expr": "sessionID", "output": entityVar, "error": uc.PrimaryEntity + " not found"}`,
 		`steps[len(steps)-1]["method"] = "FindByUserID"`,
@@ -236,6 +240,7 @@ func TestRenderCueEmitProjectCode_RendersCanonicalAuthAndProfilePaths(t *testing
 		`{"createdAt", "time"}`,
 		`{"passwordHash", "string"}`,
 		`if strings.EqualFold(entity.Name, "UserProfile") && _entityHasCapability(entity.Name, "profile") {`,
+		`{"userID", "uuid"}`,
 		`if strings.EqualFold(entity.Name, "Conversation") && _entityHasCapability(entity.Name, "messaging") {`,
 		`if strings.EqualFold(entity.Name, "ConversationMessage") && _entityHasCapability(entity.Name, "messaging") {`,
 		`{"conversationID", "uuid"}`,

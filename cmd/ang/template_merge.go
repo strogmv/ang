@@ -41,6 +41,33 @@ func mergeCueTopLevelDecls(desired, current string) (string, bool) {
 	if pkgA, pkgB := strings.TrimSpace(df.PackageName()), strings.TrimSpace(cf.PackageName()); pkgA != pkgB {
 		return "", false
 	}
+	importSpecs := make([]*cueast.ImportSpec, 0)
+	seenImports := map[string]bool{}
+	appendImport := func(spec *cueast.ImportSpec) {
+		if spec == nil || spec.Path == nil {
+			return
+		}
+		key := cueImportSpecKey(spec)
+		if key == "" || seenImports[key] {
+			return
+		}
+		seenImports[key] = true
+		importSpecs = append(importSpecs, spec)
+	}
+	for _, decl := range df.Decls {
+		if imp, ok := decl.(*cueast.ImportDecl); ok {
+			for _, spec := range imp.Specs {
+				appendImport(spec)
+			}
+		}
+	}
+	for _, decl := range cf.Decls {
+		if imp, ok := decl.(*cueast.ImportDecl); ok {
+			for _, spec := range imp.Specs {
+				appendImport(spec)
+			}
+		}
+	}
 	desiredKeys := map[string]struct{}{}
 	for _, d := range df.Decls {
 		key, ok := cueDeclKey(d)
@@ -70,12 +97,41 @@ func mergeCueTopLevelDecls(desired, current string) (string, bool) {
 		return ki < kj
 	})
 	mergedDecls = append(mergedDecls, preserve...)
-	mergedFile := &cueast.File{Filename: df.Filename, Decls: mergedDecls}
+	finalDecls := make([]cueast.Decl, 0, len(mergedDecls)+2)
+	if pkgName := strings.TrimSpace(df.PackageName()); pkgName != "" {
+		finalDecls = append(finalDecls, &cueast.Package{Name: cueast.NewIdent(pkgName)})
+	}
+	if len(importSpecs) > 0 {
+		sort.SliceStable(importSpecs, func(i, j int) bool {
+			return cueImportSpecKey(importSpecs[i]) < cueImportSpecKey(importSpecs[j])
+		})
+		finalDecls = append(finalDecls, &cueast.ImportDecl{Specs: importSpecs})
+	}
+	for _, decl := range mergedDecls {
+		switch decl.(type) {
+		case *cueast.Package, *cueast.ImportDecl:
+			continue
+		default:
+			finalDecls = append(finalDecls, decl)
+		}
+	}
+	mergedFile := &cueast.File{Filename: df.Filename, Decls: finalDecls}
 	formatted, err := cueformat.Node(mergedFile)
 	if err != nil {
 		return "", false
 	}
 	return string(formatted), true
+}
+
+func cueImportSpecKey(spec *cueast.ImportSpec) string {
+	if spec == nil || spec.Path == nil {
+		return ""
+	}
+	alias := ""
+	if spec.Name != nil {
+		alias = strings.TrimSpace(spec.Name.Name)
+	}
+	return alias + ":" + strings.TrimSpace(spec.Path.Value)
 }
 
 func cueDeclKey(d cueast.Decl) (string, bool) {
