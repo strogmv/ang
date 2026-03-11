@@ -23,7 +23,7 @@ ArchivePost: schema.#Operation & {
 
 	flow: [
 		{action: "repo.Find", source: "Post", input: "req.ID", output: "post", error: "Post not found"},
-		{action: "fsm.Transition", entity: "post", to: "archived"},
+		{action: "fsm.Transition", entity: "post", to: "\"archived\""},
 		{action: "repo.Save", source: "Post", input: "post"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
