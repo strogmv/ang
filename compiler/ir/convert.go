@@ -408,19 +408,23 @@ func ConvertService(s normalizer.Service) Service {
 
 func ConvertMethod(m normalizer.Method) Method {
 	method := Method{
-		Name:        m.Name,
-		Description: m.Description,
-		IsStreaming: m.IsStreaming,
-		CacheTTL:    m.CacheTTL,
-		CacheTags:   initializeSlice(m.CacheTags),
-		Throws:      m.Throws,
-		Publishes:   m.Publishes,
-		Broadcasts:  m.Broadcasts,
-		Idempotent:  m.Idempotency,
-		DedupeKey:   m.DedupeKey,
-		Outbox:      m.Outbox,
-		Metadata:    m.Metadata,
-		Source:      m.Source,
+		Name:                 m.Name,
+		Description:          m.Description,
+		IsStreaming:          m.IsStreaming,
+		CacheTTL:             m.CacheTTL,
+		CacheTags:            initializeSlice(m.CacheTags),
+		Throws:               m.Throws,
+		Publishes:            m.Publishes,
+		Broadcasts:           m.Broadcasts,
+		Idempotent:           m.Idempotency,
+		DedupeKey:            m.DedupeKey,
+		Outbox:               m.Outbox,
+		PrimaryOperationKind: OperationKind(m.PrimaryOperationKind),
+		Capabilities:         convertCapabilitiesFromNormalizer(m.Capabilities),
+		SideEffects:          convertSideEffectsFromNormalizer(m.SideEffects),
+		ManualRequired:       m.ManualRequired,
+		Metadata:             m.Metadata,
+		Source:               m.Source,
 	}
 
 	// Convert input
@@ -474,6 +478,49 @@ func ConvertMethod(m normalizer.Method) Method {
 	method.Attributes = ConvertAttributes(m.Attributes)
 
 	return method
+}
+
+func convertCapabilitiesFromNormalizer(capabilities []normalizer.CapabilityKind) []CapabilityKind {
+	if len(capabilities) == 0 {
+		return nil
+	}
+	out := make([]CapabilityKind, 0, len(capabilities))
+	for _, capability := range capabilities {
+		out = append(out, CapabilityKind(capability))
+	}
+	return out
+}
+
+func convertSideEffectsFromNormalizer(effects []normalizer.SideEffect) []SideEffect {
+	if len(effects) == 0 {
+		return nil
+	}
+	out := make([]SideEffect, 0, len(effects))
+	for _, effect := range effects {
+		kind := strings.TrimSpace(strings.ToLower(effect.Kind))
+		switch kind {
+		case "email", "send_email", "sendemail", "notify.email", "notify_email":
+			kind = "notify.email"
+		case "sms", "send_sms", "sendsms", "notify.sms", "notify_sms":
+			kind = "notify.sms"
+		case "publish-event", "event":
+			kind = "publish_event"
+		case "notify", "notify-user":
+			kind = "notify_user"
+		case "review", "moderation_review":
+			kind = "create_review"
+		case "upload_file", "upload-file":
+			kind = "upload_media"
+		}
+		out = append(out, SideEffect{
+			Kind:        kind,
+			Channel:     effect.Channel,
+			Event:       effect.Event,
+			Template:    effect.Template,
+			TargetField: effect.TargetField,
+		})
+	}
+	return out
 }
 
 func convertImplSteps(steps []normalizer.ImplStep) []ImplStep {

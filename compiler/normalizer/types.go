@@ -139,6 +139,41 @@ type Service struct {
 	RequiresS3    bool
 }
 
+type OperationKind string
+
+const (
+	OperationKindCreate     OperationKind = "create"
+	OperationKindGet        OperationKind = "get"
+	OperationKindUpdate     OperationKind = "update"
+	OperationKindDelete     OperationKind = "delete"
+	OperationKindList       OperationKind = "list"
+	OperationKindTransition OperationKind = "transition"
+	OperationKindNotify     OperationKind = "notify"
+	OperationKindAuth       OperationKind = "auth"
+	OperationKindMessage    OperationKind = "message"
+	OperationKindUpload     OperationKind = "upload"
+)
+
+type CapabilityKind string
+
+const (
+	CapabilityAuth       CapabilityKind = "auth"
+	CapabilityProfile    CapabilityKind = "profile"
+	CapabilityMedia      CapabilityKind = "media"
+	CapabilityNotify     CapabilityKind = "notify"
+	CapabilityMessaging  CapabilityKind = "messaging"
+	CapabilityModeration CapabilityKind = "moderation"
+	CapabilitySearch     CapabilityKind = "search"
+)
+
+type SideEffect struct {
+	Kind        string
+	Channel     string
+	Event       string
+	Template    string
+	TargetField string
+}
+
 type Method struct {
 	Name string
 
@@ -147,24 +182,28 @@ type Method struct {
 
 	Input Entity
 
-	Output      Entity
-	Sources     []Source
-	CacheTTL    string
-	CacheTags   []string
-	Throws      []string
-	Publishes   []string
-	Broadcasts  []string
-	Pagination  *PaginationDef
-	Idempotency bool
-	DedupeKey   string
-	Outbox      bool
-	Impl        *MethodImpl
-	Flow        []FlowStep
-	Effects     []string
-	ImplSteps   []ImplStep
-	Attributes  []Attribute
-	Metadata    map[string]any
-	Source      string
+	Output               Entity
+	Sources              []Source
+	CacheTTL             string
+	CacheTags            []string
+	Throws               []string
+	Publishes            []string
+	Broadcasts           []string
+	Pagination           *PaginationDef
+	Idempotency          bool
+	DedupeKey            string
+	Outbox               bool
+	PrimaryOperationKind OperationKind
+	Capabilities         []CapabilityKind
+	SideEffects          []SideEffect
+	ManualRequired       bool
+	Impl                 *MethodImpl
+	Flow                 []FlowStep
+	Effects              []string
+	ImplSteps            []ImplStep
+	Attributes           []Attribute
+	Metadata             map[string]any
+	Source               string
 }
 
 type FlowStep struct {

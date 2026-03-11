@@ -2,6 +2,8 @@ package goemitter
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/strogmv/ang/compiler"
 	"github.com/strogmv/ang/compiler/emitter"
@@ -36,6 +38,10 @@ type RegisterInput struct {
 func Register(registry *generator.StepRegistry, in RegisterInput) {
 	if in.IRSchema == nil {
 		in.IRSchema = &ir.Schema{}
+	}
+	if in.Em == nil {
+		smokeRoot := filepath.Join(os.TempDir(), "ang-register-smoke")
+		in.Em = emitter.New(smokeRoot, filepath.Join(smokeRoot, "sdk"), "")
 	}
 	in.Em.InfraValues = in.InfraValues
 

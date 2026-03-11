@@ -279,29 +279,68 @@ type Service struct {
 	RequiresS3    bool
 }
 
+type OperationKind string
+
+const (
+	OperationKindCreate     OperationKind = "create"
+	OperationKindGet        OperationKind = "get"
+	OperationKindUpdate     OperationKind = "update"
+	OperationKindDelete     OperationKind = "delete"
+	OperationKindList       OperationKind = "list"
+	OperationKindTransition OperationKind = "transition"
+	OperationKindNotify     OperationKind = "notify"
+	OperationKindAuth       OperationKind = "auth"
+	OperationKindMessage    OperationKind = "message"
+	OperationKindUpload     OperationKind = "upload"
+)
+
+type CapabilityKind string
+
+const (
+	CapabilityAuth       CapabilityKind = "auth"
+	CapabilityProfile    CapabilityKind = "profile"
+	CapabilityMedia      CapabilityKind = "media"
+	CapabilityNotify     CapabilityKind = "notify"
+	CapabilityMessaging  CapabilityKind = "messaging"
+	CapabilityModeration CapabilityKind = "moderation"
+	CapabilitySearch     CapabilityKind = "search"
+)
+
+type SideEffect struct {
+	Kind        string `json:"kind"`
+	Channel     string `json:"channel,omitempty"`
+	Event       string `json:"event,omitempty"`
+	Template    string `json:"template,omitempty"`
+	TargetField string `json:"target_field,omitempty"`
+}
+
 // Method represents an RPC/service method.
 type Method struct {
-	Name        string
-	Description string
-	IsStreaming bool `json:"is_streaming,omitempty"`
-	Input       *Entity
-	Output      *Entity
-	Sources     []Source
-	CacheTTL    string
-	CacheTags   []string
-	Throws      []string
-	Publishes   []string
-	Broadcasts  []string
-	Pagination  *Pagination
-	Idempotent  bool
-	DedupeKey   string
-	Outbox      bool
-	Impl        *Impl
-	ImplSteps   []ImplStep
-	Flow        []FlowStep
-	Attributes  []Attribute
-	Metadata    map[string]any
-	Source      string
+	Name                 string
+	Description          string
+	IsStreaming          bool `json:"is_streaming,omitempty"`
+	Input                *Entity
+	Output               *Entity
+	Sources              []Source
+	CacheTTL             string
+	CacheTags            []string
+	Throws               []string
+	Publishes            []string
+	Broadcasts           []string
+	Pagination           *Pagination
+	Idempotent           bool
+	DedupeKey            string
+	Outbox               bool
+	PrimaryOperationKind OperationKind    `json:"primary_operation_kind,omitempty"`
+	Capabilities         []CapabilityKind `json:"capabilities,omitempty"`
+	SideEffects          []SideEffect     `json:"side_effects,omitempty"`
+	ManualRequired       bool             `json:"manual_required,omitempty"`
+	Impl                 *Impl
+	ImplSteps            []ImplStep
+	Flow                 []FlowStep
+	Attributes           []Attribute
+	Metadata             map[string]any
+	Source               string
 }
 
 // FlowStep represents a declarative step in a method's logic.

@@ -5,6 +5,7 @@ package emitter
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/strogmv/ang/compiler/ir"
 	"github.com/strogmv/ang/compiler/normalizer"
@@ -334,19 +335,23 @@ func IRServiceToNormalizer(s ir.Service) normalizer.Service {
 // IRMethodToNormalizer converts a single IR method.
 func IRMethodToNormalizer(m ir.Method) normalizer.Method {
 	method := normalizer.Method{
-		Name:        m.Name,
-		Description: m.Description,
-		IsStreaming: m.IsStreaming,
-		CacheTTL:    m.CacheTTL,
-		CacheTags:   initializeSlice(m.CacheTags),
-		Throws:      m.Throws,
-		Publishes:   m.Publishes,
-		Broadcasts:  m.Broadcasts,
-		Idempotency: m.Idempotent,
-		DedupeKey:   m.DedupeKey,
-		Outbox:      m.Outbox,
-		Metadata:    m.Metadata,
-		Source:      m.Source,
+		Name:                 m.Name,
+		Description:          m.Description,
+		IsStreaming:          m.IsStreaming,
+		CacheTTL:             m.CacheTTL,
+		CacheTags:            initializeSlice(m.CacheTags),
+		Throws:               m.Throws,
+		Publishes:            m.Publishes,
+		Broadcasts:           m.Broadcasts,
+		Idempotency:          m.Idempotent,
+		DedupeKey:            m.DedupeKey,
+		Outbox:               m.Outbox,
+		PrimaryOperationKind: normalizer.OperationKind(m.PrimaryOperationKind),
+		Capabilities:         irCapabilitiesToNormalizer(m.Capabilities),
+		SideEffects:          irSideEffectsToNormalizer(m.SideEffects),
+		ManualRequired:       m.ManualRequired,
+		Metadata:             m.Metadata,
+		Source:               m.Source,
 	}
 
 	if m.Input != nil {
@@ -396,6 +401,49 @@ func IRMethodToNormalizer(m ir.Method) normalizer.Method {
 	method.Flow = irFlowStepsToNormalizer(m.Flow)
 
 	return method
+}
+
+func irCapabilitiesToNormalizer(capabilities []ir.CapabilityKind) []normalizer.CapabilityKind {
+	if len(capabilities) == 0 {
+		return nil
+	}
+	out := make([]normalizer.CapabilityKind, 0, len(capabilities))
+	for _, capability := range capabilities {
+		out = append(out, normalizer.CapabilityKind(capability))
+	}
+	return out
+}
+
+func irSideEffectsToNormalizer(effects []ir.SideEffect) []normalizer.SideEffect {
+	if len(effects) == 0 {
+		return nil
+	}
+	out := make([]normalizer.SideEffect, 0, len(effects))
+	for _, effect := range effects {
+		kind := strings.TrimSpace(strings.ToLower(effect.Kind))
+		switch kind {
+		case "email", "send_email", "sendemail", "notify.email", "notify_email":
+			kind = "notify.email"
+		case "sms", "send_sms", "sendsms", "notify.sms", "notify_sms":
+			kind = "notify.sms"
+		case "publish-event", "event":
+			kind = "publish_event"
+		case "notify", "notify-user":
+			kind = "notify_user"
+		case "review", "moderation_review":
+			kind = "create_review"
+		case "upload_file", "upload-file":
+			kind = "upload_media"
+		}
+		out = append(out, normalizer.SideEffect{
+			Kind:        kind,
+			Channel:     effect.Channel,
+			Event:       effect.Event,
+			Template:    effect.Template,
+			TargetField: effect.TargetField,
+		})
+	}
+	return out
 }
 
 func irImplStepsToNormalizer(irSteps []ir.ImplStep) []normalizer.ImplStep {

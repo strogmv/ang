@@ -329,6 +329,11 @@
       "type": "[]string"
     },
     {
+      "name": "Capabilities",
+      "type": "[]ir.CapabilityKind",
+      "tag": "capabilities,omitempty"
+    },
+    {
       "name": "DedupeKey",
       "type": "string"
     },
@@ -362,6 +367,11 @@
       "tag": "is_streaming,omitempty"
     },
     {
+      "name": "ManualRequired",
+      "type": "bool",
+      "tag": "manual_required,omitempty"
+    },
+    {
       "name": "Metadata",
       "type": "map[string]interface {}"
     },
@@ -382,8 +392,18 @@
       "type": "*ir.Pagination"
     },
     {
+      "name": "PrimaryOperationKind",
+      "type": "ir.OperationKind",
+      "tag": "primary_operation_kind,omitempty"
+    },
+    {
       "name": "Publishes",
       "type": "[]string"
+    },
+    {
+      "name": "SideEffects",
+      "type": "[]ir.SideEffect",
+      "tag": "side_effects,omitempty"
     },
     {
       "name": "Source",

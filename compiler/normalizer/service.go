@@ -102,6 +102,10 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 			Name:   opName,
 			Source: formatPos(value),
 		}
+		method.PrimaryOperationKind = parseOperationKind(value)
+		method.Capabilities = parseCapabilities(value)
+		method.SideEffects = parseSideEffects(value)
+		method.ManualRequired = parseManualRequired(value)
 		if streamVal := value.LookupPath(cue.MakePath(cue.Str("stream"))); streamVal.Exists() {
 			if b, err := streamVal.Bool(); err == nil {
 				method.IsStreaming = b

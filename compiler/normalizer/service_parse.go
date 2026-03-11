@@ -33,6 +33,10 @@ func (n *Normalizer) parseService(name string, val cue.Value) (Service, error) {
 			Name:        methodName,
 			Description: mDescription,
 		}
+		method.PrimaryOperationKind = parseOperationKind(methodVal)
+		method.Capabilities = parseCapabilities(methodVal)
+		method.SideEffects = parseSideEffects(methodVal)
+		method.ManualRequired = parseManualRequired(methodVal)
 		if streamVal := methodVal.LookupPath(cue.MakePath(cue.Str("stream"))); streamVal.Exists() {
 			if b, err := streamVal.Bool(); err == nil {
 				method.IsStreaming = b
@@ -216,8 +220,9 @@ func (n *Normalizer) parseService(name string, val cue.Value) (Service, error) {
 			svc.RequiresNats = true
 
 			method := Method{
-				Name:  strings.Trim(handler, ""),
-				Input: Entity{Name: evtName},
+				Name:                 strings.Trim(handler, ""),
+				Input:                Entity{Name: evtName},
+				PrimaryOperationKind: "",
 			}
 			svc.Methods = append(svc.Methods, method)
 		}

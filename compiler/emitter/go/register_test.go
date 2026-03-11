@@ -89,9 +89,12 @@ func TestRegisterGoSteps_FrontendSDKRunsWithoutSkip(t *testing.T) {
 	if step == nil {
 		t.Fatal("Frontend SDK step not found")
 	}
-	panicked, _ := runStep(step)
-	if !panicked {
-		t.Fatal("expected Frontend SDK step to execute emitter when SkipFrontend=false")
+	panicked, err := runStep(step)
+	if panicked {
+		t.Fatal("Frontend SDK step must not panic when SkipFrontend=false")
+	}
+	if err != nil {
+		t.Fatalf("Frontend SDK step returned error: %v", err)
 	}
 }
 
@@ -122,9 +125,12 @@ func TestRegisterGoSteps_ContractTestsRunWithoutSkip(t *testing.T) {
 	if step == nil {
 		t.Fatal("Contract Tests step not found")
 	}
-	panicked, _ := runStep(step)
-	if !panicked {
-		t.Fatal("expected Contract Tests step to execute emitter when SkipContractTests=false")
+	panicked, err := runStep(step)
+	if panicked {
+		t.Fatal("Contract Tests step must not panic when SkipContractTests=false")
+	}
+	if err != nil {
+		t.Fatalf("Contract Tests step returned error: %v", err)
 	}
 }
 

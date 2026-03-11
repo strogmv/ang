@@ -34,6 +34,116 @@ func getString(v cue.Value, path string) string {
 	return strings.TrimSpace(s)
 }
 
+func parseOperationKind(v cue.Value) OperationKind {
+	for _, path := range []string{"primary_operation_kind", "primaryOperationKind"} {
+		if kind := strings.TrimSpace(getString(v, path)); kind != "" {
+			switch strings.ToLower(kind) {
+			case "get_one", "getone", "read":
+				return OperationKindGet
+			default:
+				return OperationKind(strings.ToLower(kind))
+			}
+		}
+	}
+	return ""
+}
+
+func parseCapabilities(v cue.Value) []CapabilityKind {
+	for _, path := range []string{"capabilities"} {
+		res := v.LookupPath(cue.ParsePath(path))
+		if !res.Exists() {
+			continue
+		}
+		list, err := res.List()
+		if err != nil {
+			return nil
+		}
+		seen := map[CapabilityKind]bool{}
+		var out []CapabilityKind
+		for list.Next() {
+			s, err := list.Value().String()
+			if err != nil {
+				continue
+			}
+			capability := CapabilityKind(strings.ToLower(strings.TrimSpace(s)))
+			if capability == "" || seen[capability] {
+				continue
+			}
+			seen[capability] = true
+			out = append(out, capability)
+		}
+		return out
+	}
+	return nil
+}
+
+func canonicalSideEffectKind(kind string) string {
+	switch strings.TrimSpace(strings.ToLower(kind)) {
+	case "email", "send email", "send_email", "sendemail", "email notification", "notify.email", "notify_email":
+		return "notify.email"
+	case "sms", "send_sms", "sendsms", "notify.sms", "notify_sms":
+		return "notify.sms"
+	case "publish_event", "publish-event", "event":
+		return "publish_event"
+	case "notify_user", "notify", "notify-user":
+		return "notify_user"
+	case "create_review", "review", "moderation_review":
+		return "create_review"
+	case "upload_file", "upload_media", "upload-file":
+		return "upload_media"
+	default:
+		return strings.TrimSpace(strings.ToLower(kind))
+	}
+}
+
+func parseSideEffects(v cue.Value) []SideEffect {
+	for _, path := range []string{"side_effects", "sideEffects"} {
+		res := v.LookupPath(cue.ParsePath(path))
+		if !res.Exists() {
+			continue
+		}
+		list, err := res.List()
+		if err != nil {
+			return nil
+		}
+		var out []SideEffect
+		for list.Next() {
+			item := list.Value()
+			if s, err := item.String(); err == nil {
+				s = strings.TrimSpace(s)
+				if s != "" {
+					out = append(out, SideEffect{Kind: canonicalSideEffectKind(s)})
+				}
+				continue
+			}
+			effect := SideEffect{
+				Kind:        canonicalSideEffectKind(getString(item, "kind")),
+				Channel:     strings.TrimSpace(getString(item, "channel")),
+				Event:       strings.TrimSpace(getString(item, "event")),
+				Template:    strings.TrimSpace(getString(item, "template")),
+				TargetField: strings.TrimSpace(getString(item, "target_field")),
+			}
+			if effect.TargetField == "" {
+				effect.TargetField = strings.TrimSpace(getString(item, "targetField"))
+			}
+			if effect.Kind != "" || effect.Channel != "" || effect.Event != "" || effect.Template != "" || effect.TargetField != "" {
+				out = append(out, effect)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+func parseManualRequired(v cue.Value) bool {
+	for _, path := range []string{"manual_required", "manualRequired"} {
+		if b, err := v.LookupPath(cue.ParsePath(path)).Bool(); err == nil {
+			return b
+		}
+	}
+	return false
+}
+
 // rpcEntityBase strips common verb prefixes from an RPC name to get the bare entity name.
 // E.g. "AdminCreateAPIKey" → "APIKey", "ListTenders" → "Tenders".
 func rpcEntityBase(rpc string) string {
