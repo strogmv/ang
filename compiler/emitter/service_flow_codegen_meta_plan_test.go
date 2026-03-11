@@ -121,7 +121,7 @@ func TestRenderPlanBuildMicroPlanCode_DistinguishesExplicitNotifyFromNotifySideE
 		`return "notify"`,
 		`case "notify.email":`,
 		`notifyStep := map[string]any{"p": "notify_email", "to": recipientExpr, "text": textExpr}`,
-		`if sideEffectReason := _appendNormalizedSideEffects(&steps, typedEffects, entity.Fields, entityVar, uc.InputFields, uc.OutputFields, uc.Name); sideEffectReason != "" {`,
+		`if sideEffectReason := _appendNormalizedSideEffects(&steps, typedEffects, uc.PrimaryEntity, entity.Fields, entityVar, uc.InputFields, uc.OutputFields, uc.Name); sideEffectReason != "" {`,
 	} {
 		if !strings.Contains(code, snippet) {
 			t.Fatalf("expected explicit notify vs side-effect snippet %q, got:\n%s", snippet, code)
@@ -205,6 +205,51 @@ func TestRenderCueEmitProjectCode_RendersCanonicalAuthAndProfilePaths(t *testing
 	} {
 		if !strings.Contains(code, snippet) {
 			t.Fatalf("expected canonical auth/profile emit snippet %q, got:\n%s", snippet, code)
+		}
+	}
+}
+
+func TestRenderPlanBuildMicroPlanCode_LowersModerationPack(t *testing.T) {
+	t.Parallel()
+
+	code := renderPlanBuildMicroPlanCode(&flowRenderState{}, "", "usecasesDoc", "automataDoc", "microPlanDoc", ":=", "_micro", "_err")
+	for _, snippet := range []string{
+		`_isModerationEntity := func(name string) bool`,
+		`return strings.EqualFold(strings.TrimSpace(name), "ModerationReview") || strings.EqualFold(strings.TrimSpace(name), "Report")`,
+		`_inferTransitionTo := func(opName string, explicit *string, entityName string) string`,
+		`if strings.HasPrefix(name, "approve") {`,
+		`return "approved"`,
+		`if strings.HasPrefix(name, "reject") {`,
+		`return "rejected"`,
+		`statusStates := append([]string(nil), entity.Statuses...)`,
+		`statusStates = []string{"pending", "approved", "rejected"}`,
+		`case "create_review":`,
+		`map[string]any{"p": "create_review", "entity": "ModerationReview", "output": "moderationReview"`,
+	} {
+		if !strings.Contains(code, snippet) {
+			t.Fatalf("expected moderation lowering snippet %q, got:\n%s", snippet, code)
+		}
+	}
+}
+
+func TestRenderCueEmitProjectCode_RendersModerationEntitiesAndReviewSteps(t *testing.T) {
+	t.Parallel()
+
+	code := renderCueEmitProjectCode(&flowRenderState{}, "", "usecasesDoc", "microPlanDoc", `"single_file"`, "projectFiles", ":=", "_files", "_err")
+	for _, snippet := range []string{
+		`_hasEntity := func(name string) bool`,
+		`_anyOperationUsesSideEffect := func(kind string) bool`,
+		`if (strings.EqualFold(entity.Name, "ModerationReview") || strings.EqualFold(entity.Name, "Report")) && _entityHasCapability(entity.Name, "moderation") {`,
+		`required,oneof=pending approved rejected`,
+		`if !_hasEntity("ModerationReview") && _anyOperationUsesSideEffect("create_review") {`,
+		`#ModerationReview: {`,
+		`case "create_review":`,
+		`{action: \"mapping.Map\", output: \"%s\", entity: \"%s\"}`,
+		`{action: \"mapping.Assign\", to: \"%s.TargetEntity\", value: %q}`,
+		`{action: \"repo.Save\", source: \"%s\", input: \"%s\"}`,
+	} {
+		if !strings.Contains(code, snippet) {
+			t.Fatalf("expected moderation emit snippet %q, got:\n%s", snippet, code)
 		}
 	}
 }

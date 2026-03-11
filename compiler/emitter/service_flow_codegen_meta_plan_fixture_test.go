@@ -39,6 +39,43 @@ func TestBuildMicroPlanFixture_ApproveRequestWithNotifyRequester(t *testing.T) {
 	assertCanonicalNotifyEffect(t, op)
 }
 
+func TestBuildMicroPlanFixture_CreateModerationReview(t *testing.T) {
+	t.Parallel()
+
+	got := runGeneratedMicroPlanFixture(t, "create_moderation_review_usecases.json", "empty_automata.json")
+	op := requireFixtureOperation(t, got, "CreateModerationReview")
+	assertStringField(t, op, "kind", "create")
+	assertStepKinds(t, op, []string{"session", "new", "set_id", "set_now", "set", "set", "set", "set", "save", "reply", "reply"})
+}
+
+func TestBuildMicroPlanFixture_ApproveModerationReview(t *testing.T) {
+	t.Parallel()
+
+	got := runGeneratedMicroPlanFixture(t, "approve_moderation_review_usecases.json", "moderation_review_automata.json")
+	op := requireFixtureOperation(t, got, "ApproveModerationReview")
+	assertStringField(t, op, "kind", "transition")
+	assertStepKinds(t, op, []string{"session", "load", "guard_status", "transition", "save", "reply", "reply"})
+}
+
+func TestBuildMicroPlanFixture_RejectModerationReview(t *testing.T) {
+	t.Parallel()
+
+	got := runGeneratedMicroPlanFixture(t, "reject_moderation_review_usecases.json", "moderation_review_automata.json")
+	op := requireFixtureOperation(t, got, "RejectModerationReview")
+	assertStringField(t, op, "kind", "transition")
+	assertStepKinds(t, op, []string{"session", "load", "guard_status", "transition", "save", "reply", "reply"})
+}
+
+func TestBuildMicroPlanFixture_CreateCommunityListingWithModerationReview(t *testing.T) {
+	t.Parallel()
+
+	got := runGeneratedMicroPlanFixture(t, "create_community_listing_with_review_usecases.json", "empty_automata.json")
+	op := requireFixtureOperation(t, got, "CreateCommunityListing")
+	assertStringField(t, op, "kind", "create")
+	assertStepKinds(t, op, []string{"session", "new", "set_id", "set_now", "set", "set", "save", "create_review", "reply", "reply"})
+	assertCanonicalEffectKind(t, op, "create_review")
+}
+
 func runGeneratedMicroPlanFixture(t *testing.T, usecasesFixture, automataFixture string) map[string]any {
 	t.Helper()
 
@@ -145,6 +182,11 @@ func assertStringField(t *testing.T, obj map[string]any, field, want string) {
 
 func assertCanonicalNotifyEffect(t *testing.T, op map[string]any) {
 	t.Helper()
+	assertCanonicalEffectKind(t, op, "notify.email")
+}
+
+func assertCanonicalEffectKind(t *testing.T, op map[string]any, want string) {
+	t.Helper()
 	effects, ok := op["side_effects"].([]any)
 	if !ok || len(effects) == 0 {
 		t.Fatalf("side_effects missing or empty: %#v", op["side_effects"])
@@ -154,8 +196,8 @@ func assertCanonicalNotifyEffect(t *testing.T, op map[string]any) {
 		t.Fatalf("first side effect invalid: %#v", effects[0])
 	}
 	kind, _ := first["kind"].(string)
-	if kind != "notify.email" {
-		t.Fatalf("side_effects[0].kind=%q, want notify.email", kind)
+	if kind != want {
+		t.Fatalf("side_effects[0].kind=%q, want %s", kind, want)
 	}
 }
 
