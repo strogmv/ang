@@ -20,6 +20,29 @@ func TestRenderCueEmitProjectCode_NormalizesServiceContext(t *testing.T) {
 	}
 }
 
+func TestRenderCueEmitProjectCode_UsesCanonicalSplitLayout(t *testing.T) {
+	t.Parallel()
+
+	code := renderCueEmitProjectCode(&flowRenderState{}, "", "usecasesDoc", "microPlanDoc", `"split"`, "projectFiles", ":=", "_files", "_err")
+	for _, snippet := range []string{
+		`files["cue/domain/entities.cue"] = entitiesB.String()`,
+		`files["cue/api/http.cue"] = httpB.String()`,
+		`files["cue/repo/repositories.cue"] = repoB.String()`,
+		`files["cue/infra/handlers.cue"] = infraB.String()`,
+		`_opsFileStem := func(kind, entity string, capabilities []string) string`,
+		`path := "cue/api/operations_" + group + ".cue"`,
+		`operationFilePaths := make([]string, 0, len(opsOrder))`,
+		`sort.Strings(opsOrder)`,
+		`if _layout == "single_file" {`,
+		`for _, path := range operationFilePaths {`,
+		`sections = append(sections, _stripPackage(files[path]))`,
+	} {
+		if !strings.Contains(code, snippet) {
+			t.Fatalf("expected canonical split layout snippet %q, got:\n%s", snippet, code)
+		}
+	}
+}
+
 func TestRenderPlanBuildMicroPlanCode_AddsCreateAndReplyHeuristics(t *testing.T) {
 	t.Parallel()
 
