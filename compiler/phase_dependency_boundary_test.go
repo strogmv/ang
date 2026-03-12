@@ -14,44 +14,57 @@ func TestCompilerPhaseBoundaries_NoReverseImports(t *testing.T) {
 	t.Parallel()
 
 	root := repoRootForPhaseBoundaryTest(t)
+	angIRRoot := angIRRootForPhaseBoundaryTest(t)
 	type phaseRule struct {
-		dir    string
-		forbid []string
+		name         string
+		dir          string
+		modulePrefix string
+		forbid       []string
 	}
 
 	rules := []phaseRule{
 		{
-			dir:    filepath.Join(root, "compiler", "parser"),
-			forbid: []string{"normalizer", "flowsem", "ir", "emitter"},
+			name:         "parser",
+			dir:          filepath.Join(angIRRoot, "parser"),
+			modulePrefix: "github.com/strogmv/ang-ir",
+			forbid:       []string{"normalizer", "flowsem", "ir"},
 		},
 		{
-			dir:    filepath.Join(root, "compiler", "normalizer"),
-			forbid: []string{"flowsem", "ir", "emitter"},
+			name:         "normalizer",
+			dir:          filepath.Join(angIRRoot, "normalizer"),
+			modulePrefix: "github.com/strogmv/ang-ir",
+			forbid:       []string{"flowsem", "ir"},
 		},
 		{
-			dir:    filepath.Join(root, "compiler", "flowsem"),
-			forbid: []string{"ir", "emitter"},
+			name:         "flowsem",
+			dir:          filepath.Join(angIRRoot, "flowsem"),
+			modulePrefix: "github.com/strogmv/ang-ir",
+			forbid:       []string{"ir"},
 		},
 		{
-			dir:    filepath.Join(root, "compiler", "ir"),
-			forbid: []string{"emitter"},
+			name:         "ir",
+			dir:          filepath.Join(angIRRoot, "ir"),
+			modulePrefix: "github.com/strogmv/ang-ir",
+			forbid:       nil,
 		},
 		{
-			dir:    filepath.Join(root, "compiler", "emitter"),
-			forbid: []string{"parser", "flowsem"},
+			name:         "emitter",
+			dir:          filepath.Join(root, "compiler", "emitter"),
+			modulePrefix: "github.com/strogmv/ang-ir",
+			forbid:       []string{"parser", "flowsem"},
 		},
 	}
 
 	for _, rule := range rules {
 		rule := rule
-		t.Run(filepath.Base(rule.dir), func(t *testing.T) {
+		t.Run(rule.name, func(t *testing.T) {
 			t.Parallel()
-			assertNoPhaseImports(t, rule.dir, rule.forbid)
+			assertNoPhaseImports(t, rule.dir, rule.modulePrefix, rule.forbid)
 		})
 	}
 }
 
-func assertNoPhaseImports(t *testing.T, dir string, forbiddenPhases []string) {
+func assertNoPhaseImports(t *testing.T, dir, modulePrefix string, forbiddenPhases []string) {
 	t.Helper()
 
 	fset := token.NewFileSet()
@@ -74,7 +87,7 @@ func assertNoPhaseImports(t *testing.T, dir string, forbiddenPhases []string) {
 		for _, imp := range file.Imports {
 			importPath := strings.Trim(imp.Path.Value, "\"")
 			for _, forbidden := range forbiddenPhases {
-				prefix := "github.com/strogmv/ang/compiler/" + forbidden
+				prefix := modulePrefix + "/" + forbidden
 				if importPath == prefix || strings.HasPrefix(importPath, prefix+"/") {
 					t.Fatalf("%s imports forbidden phase dependency %q", path, importPath)
 				}
@@ -95,4 +108,9 @@ func repoRootForPhaseBoundaryTest(t *testing.T) string {
 	}
 	// compiler/phase_dependency_boundary_test.go -> repo root
 	return filepath.Clean(filepath.Join(filepath.Dir(file), ".."))
+}
+
+func angIRRootForPhaseBoundaryTest(t *testing.T) string {
+	t.Helper()
+	return filepath.Clean(filepath.Join(repoRootForPhaseBoundaryTest(t), "..", "ang-ir"))
 }
