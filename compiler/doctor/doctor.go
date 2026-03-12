@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/strogmv/ang-ir/ir"
 	"github.com/strogmv/ang/compiler"
-	"github.com/strogmv/ang/compiler/ir"
 )
 
 type AutoFix struct {

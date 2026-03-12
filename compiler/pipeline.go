@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/normalizer"
 	planpkg "github.com/strogmv/ang/compiler/plan"
 )
 

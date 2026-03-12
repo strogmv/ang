@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/normalizer"
 )
 
 func TestLoadFactsEnvelope_OK(t *testing.T) {

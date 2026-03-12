@@ -1,6 +1,6 @@
 package emitter
 
-import "github.com/strogmv/ang/compiler/normalizer"
+import "github.com/strogmv/ang-ir/normalizer"
 
 func renderFlowStepInfraLegacy(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) string {
 	_ = st

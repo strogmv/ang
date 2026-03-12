@@ -11,9 +11,9 @@ import (
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/strogmv/ang-ir/normalizer"
+	parserpkg "github.com/strogmv/ang-ir/parser"
 	"github.com/strogmv/ang/compiler"
-	"github.com/strogmv/ang/compiler/normalizer"
-	parserpkg "github.com/strogmv/ang/compiler/parser"
 )
 
 func registerAnalysisTools(addTool toolAdder) {

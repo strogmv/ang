@@ -1,6 +1,6 @@
 package contracts
 
-import "github.com/strogmv/ang/compiler/normalizer"
+import "github.com/strogmv/ang-ir/normalizer"
 
 // Aliases expose normalizer DTOs through a dedicated emitter contract package.
 // Subpackages should depend on these aliases instead of importing normalizer directly.

@@ -8,10 +8,10 @@ import (
 	"strings"
 
 	"cuelang.org/go/cue"
+	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang-ir/parser"
 	"github.com/strogmv/ang/compiler"
 	"github.com/strogmv/ang/compiler/emitter"
-	"github.com/strogmv/ang/compiler/normalizer"
-	"github.com/strogmv/ang/compiler/parser"
 )
 
 func runContractTest() {

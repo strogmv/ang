@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/strogmv/ang-ir/normalizer"
 	"github.com/strogmv/ang/compiler"
-	"github.com/strogmv/ang/compiler/normalizer"
 )
 
 // Step is an independent generator module unit.

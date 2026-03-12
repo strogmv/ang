@@ -8,7 +8,7 @@ import (
 	"text/template"
 	"text/template/parse"
 
-	"github.com/strogmv/ang/compiler/ir"
+	"github.com/strogmv/ang-ir/ir"
 )
 
 var templateVarPathRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$`)

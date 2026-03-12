@@ -3,7 +3,7 @@ package lsp
 import (
 	"regexp"
 
-	"github.com/strogmv/ang/compiler/flowfn"
+	"github.com/strogmv/ang-ir/flowfn"
 )
 
 func FlowDiagnostics(text string, streaming bool) []Diagnostic {

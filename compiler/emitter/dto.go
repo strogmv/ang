@@ -9,7 +9,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/strogmv/ang/compiler/ir"
+	"github.com/strogmv/ang-ir/ir"
 )
 
 // DTOTemplateData wraps entity data for DTO template.

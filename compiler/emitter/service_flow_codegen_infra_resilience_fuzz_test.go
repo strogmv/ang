@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/normalizer"
 )
 
 // FuzzRenderFlow_InfraResilience_NoPanic ensures infra/resilience actions

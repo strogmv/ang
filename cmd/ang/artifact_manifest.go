@@ -12,8 +12,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/strogmv/ang-ir/ir"
 	"github.com/strogmv/ang/compiler"
-	"github.com/strogmv/ang/compiler/ir"
 )
 
 const artifactManifestSchemaVersion = "artifact-manifest/v2"

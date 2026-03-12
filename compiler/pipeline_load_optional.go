@@ -9,7 +9,7 @@ import (
 
 	"cuelang.org/go/cue"
 	cueparser "cuelang.org/go/cue/parser"
-	"github.com/strogmv/ang/compiler/parser"
+	"github.com/strogmv/ang-ir/parser"
 )
 
 func LoadOptionalDomain(p *parser.Parser, path string) (cue.Value, bool, error) {

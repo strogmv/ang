@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"cuelang.org/go/cue/cuecontext"
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/normalizer"
 )
 
 func TestResolveBackendDirForTarget_InPlaceIgnoresOutputDir(t *testing.T) {

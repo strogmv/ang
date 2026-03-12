@@ -1,11 +1,11 @@
 package sharedsteps
 
 import (
+	"github.com/strogmv/ang-ir/ir"
 	"github.com/strogmv/ang/compiler"
 	"github.com/strogmv/ang/compiler/emitter"
 	"github.com/strogmv/ang/compiler/emitter/contracts"
 	"github.com/strogmv/ang/compiler/generator"
-	"github.com/strogmv/ang/compiler/ir"
 )
 
 type RegisterInput struct {

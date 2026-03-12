@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/strogmv/ang/compiler/flowsem"
+	"github.com/strogmv/ang-ir/flowsem"
 )
 
 type actionCatalogEnvelope struct {

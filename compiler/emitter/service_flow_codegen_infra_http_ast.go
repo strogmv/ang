@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strconv"
 
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/normalizer"
 )
 
 func renderFlowHTTPCallAST(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string) (string, bool) {

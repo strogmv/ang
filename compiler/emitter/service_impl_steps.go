@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/normalizer"
 )
 
 // renderImplSteps renders a minimal Go implementation for the experimental impl_steps DSL.

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/normalizer"
 )
 
 func resolveTemplates(projectPath string, defs []normalizer.TemplateDef) ([]normalizer.TemplateDef, error) {

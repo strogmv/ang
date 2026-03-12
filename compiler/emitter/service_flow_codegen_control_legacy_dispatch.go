@@ -1,6 +1,6 @@
 package emitter
 
-import "github.com/strogmv/ang/compiler/normalizer"
+import "github.com/strogmv/ang-ir/normalizer"
 
 // renderFlowStepControlLegacy is a thin compatibility dispatch:
 // keep the actively maintained legacy handlers in a compact core, then

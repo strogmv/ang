@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/strogmv/ang/compiler/ir"
+	"github.com/strogmv/ang-ir/ir"
 )
 
 // OrderIRServicesByDependencies returns services in topological order by Uses dependencies.

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/strogmv/ang/compiler/flowsem"
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/flowsem"
+	"github.com/strogmv/ang-ir/normalizer"
 )
 
 // ── Thresholds ──────────────────────────────────────────────────────────────

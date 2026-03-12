@@ -3,10 +3,10 @@ package python
 import (
 	"testing"
 
+	"github.com/strogmv/ang-ir/ir"
+	"github.com/strogmv/ang-ir/normalizer"
 	"github.com/strogmv/ang/compiler"
 	"github.com/strogmv/ang/compiler/generator"
-	"github.com/strogmv/ang/compiler/ir"
-	"github.com/strogmv/ang/compiler/normalizer"
 )
 
 type emitterStub struct{}

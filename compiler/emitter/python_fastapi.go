@@ -3,9 +3,9 @@ package emitter
 import (
 	"fmt"
 
+	"github.com/strogmv/ang-ir/ir"
+	"github.com/strogmv/ang-ir/normalizer"
 	pyemitter "github.com/strogmv/ang/compiler/emitter/python"
-	"github.com/strogmv/ang/compiler/ir"
-	"github.com/strogmv/ang/compiler/normalizer"
 	"github.com/strogmv/ang/compiler/planner"
 )
 

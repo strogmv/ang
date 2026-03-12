@@ -9,9 +9,9 @@ import (
 	"testing"
 
 	"cuelang.org/go/cue"
-	"github.com/strogmv/ang/compiler/ir"
-	"github.com/strogmv/ang/compiler/normalizer"
-	"github.com/strogmv/ang/compiler/parser"
+	"github.com/strogmv/ang-ir/ir"
+	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang-ir/parser"
 	"github.com/strogmv/ang/compiler/transformers"
 )
 

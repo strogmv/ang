@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/strogmv/ang-ir/normalizer"
 	pyemitter "github.com/strogmv/ang/compiler/emitter/python"
-	"github.com/strogmv/ang/compiler/normalizer"
 )
 
 func TestBuildPythonModels_AliasAndEntityRefs(t *testing.T) {

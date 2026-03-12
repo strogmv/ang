@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/strogmv/ang/compiler/ir"
+	"github.com/strogmv/ang-ir/ir"
 )
 
 func TestValidateIRSemantics_OK(t *testing.T) {

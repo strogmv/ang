@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/strogmv/ang/compiler/ir"
+	"github.com/strogmv/ang-ir/ir"
 )
 
 func TestEmitHTTP_StreamingEndpointUsesSSE(t *testing.T) {

@@ -3,8 +3,8 @@ package compiler
 import (
 	"strings"
 
-	"github.com/strogmv/ang/compiler/ir"
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/ir"
+	"github.com/strogmv/ang-ir/normalizer"
 )
 
 // AttachTemplates copies parsed universal template catalog from CUE infra into IR.

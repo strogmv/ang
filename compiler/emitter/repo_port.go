@@ -8,7 +8,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/strogmv/ang/compiler/ir"
+	"github.com/strogmv/ang-ir/ir"
 )
 
 // EmitTransactionPort генерирует интерфейс менеджера транзакций

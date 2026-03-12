@@ -11,8 +11,8 @@ import (
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/strogmv/ang-ir/ir"
 	"github.com/strogmv/ang/compiler"
-	"github.com/strogmv/ang/compiler/ir"
 )
 
 func registerPlanTools(addTool toolAdder) {

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"text/template"
 
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/normalizer"
 )
 
 // EmitAuthPackage генерирует пакет для работы с JWT

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/normalizer"
 )
 
 // renderFlowDelay emits a context-aware timer pause.
@@ -59,11 +59,11 @@ func renderFlowSchedule(st *flowRenderState, _ normalizer.FlowStep, indent int, 
 
 // cronWindowSpec holds the parsed result of a window string.
 type cronWindowSpec struct {
-	weekdayMode string // "range" | "list" | "single" | "any"
-	wdStart     time.Weekday
-	wdEnd       time.Weekday
-	wdList      []time.Weekday
-	hourMode    string // "range" | "any"
+	weekdayMode    string // "range" | "list" | "single" | "any"
+	wdStart        time.Weekday
+	wdEnd          time.Weekday
+	wdList         []time.Weekday
+	hourMode       string // "range" | "any"
 	hStart, mStart int
 	hEnd, mEnd     int // exclusive end
 }

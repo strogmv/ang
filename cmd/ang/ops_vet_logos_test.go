@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/normalizer"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -356,8 +356,8 @@ func TestBuildProofReport_ViolatedFlow(t *testing.T) {
 		Methods: []normalizer.Method{{
 			Name: "Create",
 			Flow: []normalizer.FlowStep{
-				makeStep("repo.Save", nil),        // write before validate
-				makeStep("event.Publish", nil),    // unsafe publish
+				makeStep("repo.Save", nil),     // write before validate
+				makeStep("event.Publish", nil), // unsafe publish
 			},
 		}},
 	}}

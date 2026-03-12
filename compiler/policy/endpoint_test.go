@@ -3,7 +3,7 @@ package policy
 import (
 	"testing"
 
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/normalizer"
 )
 
 func TestFromEndpoint(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"text/template"
 
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/normalizer"
 )
 
 // EmitRBAC generates the RBAC logic based on roles and permissions.

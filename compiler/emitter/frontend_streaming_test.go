@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/strogmv/ang/compiler/ir"
+	"github.com/strogmv/ang-ir/ir"
 )
 
 func TestEmitFrontendSDK_GeneratesStreamingHelpersForStreamingEndpoints(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/strogmv/ang/compiler/flowsem"
+	"github.com/strogmv/ang-ir/flowsem"
 )
 
 func HoverForSource(text string, pos Position) (*Hover, bool) {

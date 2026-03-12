@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/normalizer"
 )
 
 func renderFlowStepControlLegacyExecFS(st *flowRenderState, step normalizer.FlowStep, pad, sfx string, arg func(string) string) (string, bool) {

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/strogmv/ang/compiler/ir"
+	"github.com/strogmv/ang-ir/ir"
 )
 
 func TestMainServerTemplate_UsesPublisherInterfaceForRuntimeContainer(t *testing.T) {
@@ -71,4 +71,3 @@ func TestMainServerTemplate_UsesPublisherInterfaceForRuntimeContainer(t *testing
 		t.Fatalf("runtime container call must not pass typed natsClient directly, got:\n%s", call)
 	}
 }
-

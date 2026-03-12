@@ -7,8 +7,8 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/strogmv/ang/compiler/ir"
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/ir"
+	"github.com/strogmv/ang-ir/normalizer"
 )
 
 func (e *Emitter) EmitRepoMocks(repos []ir.Repository) error {

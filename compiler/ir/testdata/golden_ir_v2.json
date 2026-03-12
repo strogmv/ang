@@ -392,6 +392,11 @@
       "type": "*ir.Pagination"
     },
     {
+      "name": "Planner",
+      "type": "*ir.PlannerHints",
+      "tag": "planner,omitempty"
+    },
+    {
       "name": "PrimaryOperationKind",
       "type": "ir.OperationKind",
       "tag": "primary_operation_kind,omitempty"

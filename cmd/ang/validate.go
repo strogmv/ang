@@ -9,8 +9,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/strogmv/ang-ir/normalizer"
 	"github.com/strogmv/ang/compiler"
-	"github.com/strogmv/ang/compiler/normalizer"
 )
 
 func runValidate(args []string) {

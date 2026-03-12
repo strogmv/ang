@@ -3,7 +3,7 @@ package transformers
 import (
 	"fmt"
 
-	"github.com/strogmv/ang/compiler/ir"
+	"github.com/strogmv/ang-ir/ir"
 )
 
 // TracingTransformer adds telemetry metadata to methods and services.

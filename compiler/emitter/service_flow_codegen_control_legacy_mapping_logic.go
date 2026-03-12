@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/normalizer"
 )
 
 func renderFlowStepControlLegacyMappingLogic(st *flowRenderState, step normalizer.FlowStep, pad string, arg func(string) string) (string, bool) {

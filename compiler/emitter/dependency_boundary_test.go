@@ -47,7 +47,7 @@ func checkNoNormalizerImports(t *testing.T, dir string, allow map[string]bool) {
 		}
 		for _, imp := range file.Imports {
 			p := strings.Trim(imp.Path.Value, "\"")
-			if p == "github.com/strogmv/ang/compiler/normalizer" {
+			if p == "github.com/strogmv/ang-ir/normalizer" {
 				t.Fatalf("%s must not import normalizer directly", path)
 			}
 		}

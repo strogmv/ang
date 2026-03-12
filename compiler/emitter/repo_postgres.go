@@ -9,8 +9,8 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/strogmv/ang/compiler/ir"
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/ir"
+	"github.com/strogmv/ang-ir/normalizer"
 	"github.com/strogmv/ang/compiler/planner"
 )
 
@@ -422,23 +422,23 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 		}
 
 		data := struct {
-			Name                string
-			Entity              string
-			Table               string
-			Columns             string
-			Placeholders        string
-			UpdateSet           string
-			InsertArgs          string
-			SelectColumns       string
-			Fields              []normalizer.Field
-			Finders             []finderOut
-			HasTime             bool
-			HasID               bool
-			FindByIDPlan        planner.ScanPlan
-			ListAllPlan         planner.ScanPlan
-			UpdateOnlySet       string
-			UpdateOnlyArgs      string
-			UpdateOnlyWherePos  int
+			Name               string
+			Entity             string
+			Table              string
+			Columns            string
+			Placeholders       string
+			UpdateSet          string
+			InsertArgs         string
+			SelectColumns      string
+			Fields             []normalizer.Field
+			Finders            []finderOut
+			HasTime            bool
+			HasID              bool
+			FindByIDPlan       planner.ScanPlan
+			ListAllPlan        planner.ScanPlan
+			UpdateOnlySet      string
+			UpdateOnlyArgs     string
+			UpdateOnlyWherePos int
 		}{
 			Name:               repo.Name,
 			Entity:             repo.Entity,

@@ -3,7 +3,7 @@ package planner
 import (
 	"testing"
 
-	"github.com/strogmv/ang/compiler/ir"
+	"github.com/strogmv/ang-ir/ir"
 )
 
 func TestBuildFastAPIPlan_DeduplicatesHandlersAndBuildsRoutes(t *testing.T) {

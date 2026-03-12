@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/normalizer"
 )
 
 // FuzzRenderFlow_ControlFlow_NoPanic checks that control-flow codegen handles

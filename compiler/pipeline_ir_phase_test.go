@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/normalizer"
 )
 
 func TestRunIRPhase_OrdersServicesByDependencies(t *testing.T) {

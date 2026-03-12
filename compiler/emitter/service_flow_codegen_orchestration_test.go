@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/normalizer"
 )
 
 func TestRenderFlow_Race_GeneratesFirstWinsPattern(t *testing.T) {

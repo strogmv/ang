@@ -20,9 +20,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/strogmv/ang-ir/normalizer"
 	"github.com/strogmv/ang/compiler"
 	complsp "github.com/strogmv/ang/compiler/lsp"
-	"github.com/strogmv/ang/compiler/normalizer"
 )
 
 type lspRequest struct {

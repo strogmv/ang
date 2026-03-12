@@ -3,9 +3,9 @@ package main
 import (
 	"testing"
 
+	"github.com/strogmv/ang-ir/ir"
+	"github.com/strogmv/ang-ir/normalizer"
 	"github.com/strogmv/ang/compiler/emitter"
-	"github.com/strogmv/ang/compiler/ir"
-	"github.com/strogmv/ang/compiler/normalizer"
 )
 
 func TestBuildStepRegistry_HasSingleServiceImplEmitterStep(t *testing.T) {

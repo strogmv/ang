@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"cuelang.org/go/cue"
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/normalizer"
 )
 
 type OutputOptions struct {

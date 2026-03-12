@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/strogmv/ang-ir/ir"
 	"github.com/strogmv/ang/compiler"
-	"github.com/strogmv/ang/compiler/ir"
 )
 
 func TestArtifactManifestStableAcrossRuns(t *testing.T) {

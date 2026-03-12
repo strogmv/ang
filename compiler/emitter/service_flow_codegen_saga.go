@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/normalizer"
 )
 
 func renderFlowStepSaga(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
@@ -43,11 +43,11 @@ func renderFlowStepSaga(st *flowRenderState, step normalizer.FlowStep, indent in
 
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%s%s = append(%s, func(ctx context.Context) error {\n", pad, st.sagaCompVar, st.sagaCompVar))
-		
+
 		compState := cloneFlowState(st)
 		compState.returnErrOnly = true
 		b.WriteString(renderFlowSteps(compState, doSteps, indent+1))
-		
+
 		b.WriteString(fmt.Sprintf("%s\treturn nil\n", pad))
 		b.WriteString(fmt.Sprintf("%s})\n", pad))
 		return b.String(), true
@@ -57,7 +57,7 @@ func renderFlowStepSaga(st *flowRenderState, step normalizer.FlowStep, indent in
 		if errExpr == "" {
 			errExpr = "fmt.Errorf(\"saga rollback triggered\")"
 		}
-		
+
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%serr = %s\n", pad, errExpr))
 		b.WriteString(errReturn(st, pad, "err"))

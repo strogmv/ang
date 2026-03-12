@@ -1,8 +1,8 @@
 package emitter
 
 import (
+	"github.com/strogmv/ang-ir/normalizer"
 	pyemitter "github.com/strogmv/ang/compiler/emitter/python"
-	"github.com/strogmv/ang/compiler/normalizer"
 )
 
 func (e *Emitter) EmitPythonConfig(cfg *normalizer.ConfigDef) error {

@@ -5,9 +5,9 @@ import (
 	"regexp"
 	"strings"
 
-	sharedeffects "github.com/strogmv/ang/compiler/effects"
-	"github.com/strogmv/ang/compiler/flowfn"
-	"github.com/strogmv/ang/compiler/flowsem"
+	sharedeffects "github.com/strogmv/ang-ir/effects"
+	"github.com/strogmv/ang-ir/flowfn"
+	"github.com/strogmv/ang-ir/flowsem"
 )
 
 func CompletionItems(text string, pos Position) []CompletionItem {

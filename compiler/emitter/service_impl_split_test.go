@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/strogmv/ang/compiler/ir"
+	"github.com/strogmv/ang-ir/ir"
 )
 
 func TestEmitServiceImpl_SplitsByMethod(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/normalizer"
 )
 
 // ValidateEndpoint checks policy contract conflicts for an endpoint.

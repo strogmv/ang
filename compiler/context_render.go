@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/normalizer"
 )
 
 // RenderContextMarkdown generates a compact domain snapshot for AI context loading.

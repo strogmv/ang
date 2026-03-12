@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/strogmv/ang-ir/flowsem"
+	"github.com/strogmv/ang-ir/normalizer"
 	"github.com/strogmv/ang/compiler"
-	"github.com/strogmv/ang/compiler/flowsem"
-	"github.com/strogmv/ang/compiler/normalizer"
 )
 
 // vetDiagsEnvelope is the ang/diags/v1 JSON envelope used by ops vet and validate --json.

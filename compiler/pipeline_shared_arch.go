@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/normalizer"
 )
 
 func emitSharedArchDiagnostics(entities []normalizer.Entity, services []normalizer.Service, opts PipelineOptions) {

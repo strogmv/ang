@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/strogmv/ang-ir/ir"
+	"github.com/strogmv/ang-ir/normalizer"
 	pyemitter "github.com/strogmv/ang/compiler/emitter/python"
-	"github.com/strogmv/ang/compiler/ir"
-	"github.com/strogmv/ang/compiler/normalizer"
 )
 
 // EmitPythonSDK generates a minimal Python client SDK from normalized endpoints.

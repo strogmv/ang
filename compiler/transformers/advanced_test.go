@@ -3,7 +3,7 @@ package transformers
 import (
 	"testing"
 
-	"github.com/strogmv/ang/compiler/ir"
+	"github.com/strogmv/ang-ir/ir"
 )
 
 func TestProfilingTransformer(t *testing.T) {

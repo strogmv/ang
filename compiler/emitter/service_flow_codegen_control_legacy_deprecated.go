@@ -1,6 +1,6 @@
 package emitter
 
-import "github.com/strogmv/ang/compiler/normalizer"
+import "github.com/strogmv/ang-ir/normalizer"
 
 // renderFlowStepControlLegacyDeprecated intentionally avoids duplicating logic
 // already covered by dedicated control modules and modern legacy core handlers.

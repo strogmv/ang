@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/strogmv/ang/compiler/flowsem"
+	"github.com/strogmv/ang-ir/flowsem"
 )
 
 // TestActionCatalogEmitterParity ensures that every action present in flowsem

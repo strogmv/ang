@@ -1,8 +1,8 @@
 package emitter
 
 import (
-	"github.com/strogmv/ang/compiler/ir"
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/ir"
+	"github.com/strogmv/ang-ir/normalizer"
 )
 
 func (e *Emitter) EmitServiceFromIR(schema *ir.Schema) error {

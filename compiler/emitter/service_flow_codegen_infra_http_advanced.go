@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/normalizer"
 )
 
 func renderFlowStepInfraHTTPAdvanced(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
@@ -73,17 +73,18 @@ func writeHTTPQuery(b *strings.Builder, pad, reqVar, qVar string, step normalize
 // renderHTTPRequest handles http.Request — enriched HTTP call with auth, query params, typed JSON decode.
 //
 // CUE args:
-//   method      string   — HTTP method ("GET", "POST", …)
-//   url         string   — URL expression
-//   body?       string   — body expression (passed to strings.NewReader)
-//   headers?    map      — static/dynamic header key→value
-//   auth?       string   — "bearer:TOKEN_EXPR" or "basic:USER_EXPR:PASS_EXPR"
-//   query?      map      — URL query params key→value expression
-//   timeout?    string   — duration expr (default "10*time.Second")
-//   into?       string   — Go type name for JSON unmarshal; output var receives this type
-//   output?     string   — variable name for result (string if no into, or typed if into set)
-//   statusVar?  string   — variable name to store HTTP status code
-//   failOnError? bool    — return error on 4xx/5xx (default true)
+//
+//	method      string   — HTTP method ("GET", "POST", …)
+//	url         string   — URL expression
+//	body?       string   — body expression (passed to strings.NewReader)
+//	headers?    map      — static/dynamic header key→value
+//	auth?       string   — "bearer:TOKEN_EXPR" or "basic:USER_EXPR:PASS_EXPR"
+//	query?      map      — URL query params key→value expression
+//	timeout?    string   — duration expr (default "10*time.Second")
+//	into?       string   — Go type name for JSON unmarshal; output var receives this type
+//	output?     string   — variable name for result (string if no into, or typed if into set)
+//	statusVar?  string   — variable name to store HTTP status code
+//	failOnError? bool    — return error on 4xx/5xx (default true)
 func renderHTTPRequest(st *flowRenderState, step normalizer.FlowStep, pad, sfx string, arg func(string) string) (string, bool) {
 	method := arg("method")
 	url := arg("url")
@@ -176,18 +177,19 @@ func renderHTTPRequest(st *flowRenderState, step normalizer.FlowStep, pad, sfx s
 // renderHTTPRetryPolicy handles http.RetryPolicy — HTTP call with status-code-aware retry.
 //
 // CUE args:
-//   method      string     — HTTP method
-//   url         string     — URL expression
-//   body?       string     — body expression
-//   headers?    map        — request headers
-//   auth?       string     — "bearer:TOKEN" or "basic:USER:PASS"
-//   timeout?    string     — per-attempt timeout (default "10*time.Second")
-//   attempts?   int        — max attempts (default 3)
-//   backoffMs?  int        — ms between retries (default 500)
-//   retryOn?    []int      — status codes to retry (default [429, 503])
-//   output?     string     — variable name for response body string
-//   statusVar?  string     — variable name for status code
-//   failOnError? bool      — return error on 4xx/5xx after all retries (default true)
+//
+//	method      string     — HTTP method
+//	url         string     — URL expression
+//	body?       string     — body expression
+//	headers?    map        — request headers
+//	auth?       string     — "bearer:TOKEN" or "basic:USER:PASS"
+//	timeout?    string     — per-attempt timeout (default "10*time.Second")
+//	attempts?   int        — max attempts (default 3)
+//	backoffMs?  int        — ms between retries (default 500)
+//	retryOn?    []int      — status codes to retry (default [429, 503])
+//	output?     string     — variable name for response body string
+//	statusVar?  string     — variable name for status code
+//	failOnError? bool      — return error on 4xx/5xx after all retries (default true)
 func renderHTTPRetryPolicy(st *flowRenderState, step normalizer.FlowStep, pad, sfx string, arg func(string) string) (string, bool) {
 	method := arg("method")
 	url := arg("url")
@@ -337,18 +339,19 @@ func renderHTTPRetryPolicy(st *flowRenderState, step normalizer.FlowStep, pad, s
 // renderHTTPPaginate handles http.Paginate — cursor-based pagination loop over an external API.
 //
 // CUE args:
-//   url          string   — base URL expression
-//   method?      string   — HTTP method (default "GET")
-//   into         string   — Go type for each page response (e.g. "PagedResponse")
-//   as           string   — variable name for each page (in scope for expressions below)
-//   cursor_expr  string   — Go expression to extract next cursor from page (empty = done)
-//   items_expr?  string   — Go expression for items slice to accumulate (e.g. "page.Items")
-//   cursor_param? string  — query param name for cursor (default "cursor")
-//   output?      string   — variable name for accumulated items
-//   output_type? string   — Go type for output slice (default "[]any")
-//   max_pages?   int      — safety limit on iterations (default 100)
-//   headers?     map      — request headers
-//   auth?        string   — "bearer:TOKEN" or "basic:USER:PASS"
+//
+//	url          string   — base URL expression
+//	method?      string   — HTTP method (default "GET")
+//	into         string   — Go type for each page response (e.g. "PagedResponse")
+//	as           string   — variable name for each page (in scope for expressions below)
+//	cursor_expr  string   — Go expression to extract next cursor from page (empty = done)
+//	items_expr?  string   — Go expression for items slice to accumulate (e.g. "page.Items")
+//	cursor_param? string  — query param name for cursor (default "cursor")
+//	output?      string   — variable name for accumulated items
+//	output_type? string   — Go type for output slice (default "[]any")
+//	max_pages?   int      — safety limit on iterations (default 100)
+//	headers?     map      — request headers
+//	auth?        string   — "bearer:TOKEN" or "basic:USER:PASS"
 func renderHTTPPaginate(st *flowRenderState, step normalizer.FlowStep, pad, sfx string, arg func(string) string) (string, bool) {
 	url := arg("url")
 	into := arg("into")

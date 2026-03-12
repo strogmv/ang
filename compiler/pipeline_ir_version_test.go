@@ -3,8 +3,8 @@ package compiler
 import (
 	"testing"
 
-	"github.com/strogmv/ang/compiler/ir"
-	"github.com/strogmv/ang/compiler/normalizer"
+	"github.com/strogmv/ang-ir/ir"
+	"github.com/strogmv/ang-ir/normalizer"
 )
 
 func TestConvertAndTransform_UsesCurrentIRVersion(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/strogmv/ang/compiler/flowfn"
+	"github.com/strogmv/ang-ir/flowfn"
 	anglsp "github.com/strogmv/ang/compiler/lsp"
 )
 

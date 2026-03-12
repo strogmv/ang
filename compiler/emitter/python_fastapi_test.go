@@ -3,7 +3,7 @@ package emitter
 import (
 	"testing"
 
-	"github.com/strogmv/ang/compiler/ir"
+	"github.com/strogmv/ang-ir/ir"
 	"github.com/strogmv/ang/compiler/planner"
 )
 
