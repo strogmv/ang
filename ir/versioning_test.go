@@ -11,7 +11,7 @@ import (
 
 func TestToCanonicalJSON_Golden(t *testing.T) {
 	schema := &Schema{
-		IRVersion: IRVersionV1,
+		IRVersion: IRVersionV2,
 		Project: Project{
 			Name:    "shop",
 			Version: "0.1.0",
