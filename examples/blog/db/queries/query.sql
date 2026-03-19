@@ -16,8 +16,17 @@ SELECT * FROM posts WHERE id = $1 LIMIT 1;
 -- name: ListPost :many
 SELECT * FROM posts ORDER BY id LIMIT $1 OFFSET $2;
 
+-- name: CreatePostTag :one
+INSERT INTO posttags (id, postid, tagid) VALUES ($1, $2, $3) RETURNING *;
+
+-- name: GetPostTag :one
+SELECT * FROM posttags WHERE id = $1 LIMIT 1;
+
+-- name: ListPostTag :many
+SELECT * FROM posttags ORDER BY id LIMIT $1 OFFSET $2;
+
 -- name: CreateTag :one
-INSERT INTO tags (id, name, slug, description) VALUES ($1, $2, $3, $4) RETURNING *;
+INSERT INTO tags (id, name, slug, description, createdat) VALUES ($1, $2, $3, $4, $5) RETURNING *;
 
 -- name: GetTag :one
 SELECT * FROM tags WHERE id = $1 LIMIT 1;

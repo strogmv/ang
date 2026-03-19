@@ -5,16 +5,7 @@ import { queryKeys } from '../query-keys';
 // @ts-ignore
 import { useEffect, useRef, useLayoutEffect } from 'react';
 
-const payloadResourceMap: Record<string, keyof typeof queryKeys> = {
-  tenderId: 'tenders',
-  applicationId: 'tenders',
-  bidId: 'tenders',
-  companyId: 'companies',
-  chatId: 'chat',
-  notificationId: 'notifications',
-  attachmentId: 'attachments',
-  reportId: 'tenders',
-};
+const payloadResourceMap: Partial<Record<string, keyof typeof queryKeys>> = {};
 
 const inferResourcesFromPayload = (payload: any): Array<keyof typeof queryKeys> => {
   if (!payload || typeof payload !== 'object') return [];

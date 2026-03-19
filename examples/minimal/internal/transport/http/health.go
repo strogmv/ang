@@ -12,9 +12,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/example/minimal/internal/adapter/events/nats"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
-	"github.com/strogmv/ang/internal/adapter/events/nats"
 )
 
 type ReadinessResponse struct {

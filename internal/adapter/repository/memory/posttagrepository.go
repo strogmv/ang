@@ -47,6 +47,31 @@ func (r *PostTagRepositoryStub) Delete(ctx context.Context, id string) error {
 	delete(r.data, id)
 	return nil
 }
+func (r *PostTagRepositoryStub) Insert(ctx context.Context, entity *domain.PostTag) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if entity == nil {
+		return fmt.Errorf("entity is required")
+	}
+	if _, exists := r.data[entity.ID]; exists {
+		return fmt.Errorf("posttag already exists: %s", entity.ID)
+	}
+	r.data[entity.ID] = entity
+	return nil
+}
+
+func (r *PostTagRepositoryStub) Update(ctx context.Context, entity *domain.PostTag) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if entity == nil {
+		return fmt.Errorf("entity is required")
+	}
+	if _, exists := r.data[entity.ID]; !exists {
+		return fmt.Errorf("posttag not found: %s", entity.ID)
+	}
+	r.data[entity.ID] = entity
+	return nil
+}
 func (r *PostTagRepositoryStub) LockByID(ctx context.Context, id string) (*domain.PostTag, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

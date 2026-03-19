@@ -143,6 +143,7 @@ export const updateTag = (params: Types.UpdateTagRequest = {} as Types.UpdateTag
 export const endpointMeta: Record<string, {
   method: string;
   path: string;
+  streaming?: boolean;
   idempotent?: boolean;
   timeout?: string;
   authRoles?: string[];

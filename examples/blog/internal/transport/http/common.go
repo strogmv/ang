@@ -25,13 +25,13 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
+	"github.com/example/blog/internal/config"
+	"github.com/example/blog/internal/pkg/circuitbreaker"
+	"github.com/example/blog/internal/pkg/errors"
+	"github.com/example/blog/internal/pkg/rbac"
+	"github.com/example/blog/internal/pkg/reqctx"
 	"github.com/go-playground/validator/v10"
 	"github.com/redis/go-redis/v9"
-	"github.com/strogmv/ang/internal/config"
-	"github.com/strogmv/ang/internal/pkg/circuitbreaker"
-	"github.com/strogmv/ang/internal/pkg/errors"
-	"github.com/strogmv/ang/internal/pkg/rbac"
-	"github.com/strogmv/ang/internal/pkg/reqctx"
 )
 
 var validate = validator.New()

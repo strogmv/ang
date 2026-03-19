@@ -50,9 +50,14 @@
         "UpdatePost",
         "UpdateTag"
       ],
-      "publishes": null,
+      "publishes": [
+        "CommentCreated",
+        "PostCreated"
+      ],
       "subscribes": {},
-      "depends_on": []
+      "depends_on": [
+        "NATS"
+      ]
     }
   ],
   "events": [

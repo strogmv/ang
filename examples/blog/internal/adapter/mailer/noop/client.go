@@ -3,7 +3,7 @@ package noop
 import (
 	"context"
 
-	"github.com/strogmv/ang/internal/port"
+	"github.com/example/blog/internal/port"
 )
 
 type Client struct{}

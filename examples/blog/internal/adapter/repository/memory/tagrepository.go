@@ -4,7 +4,7 @@ package memory
 import (
 	"context"
 	"fmt"
-	"github.com/strogmv/ang/internal/domain"
+	"github.com/example/blog/internal/domain"
 	"reflect"
 	"sort"
 	"sync"
@@ -48,7 +48,6 @@ func (r *TagRepositoryStub) Delete(ctx context.Context, id string) error {
 	delete(r.data, id)
 	return nil
 }
-
 func (r *TagRepositoryStub) Insert(ctx context.Context, entity *domain.Tag) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -74,7 +73,6 @@ func (r *TagRepositoryStub) Update(ctx context.Context, entity *domain.Tag) erro
 	r.data[entity.ID] = entity
 	return nil
 }
-
 func (r *TagRepositoryStub) LockByID(ctx context.Context, id string) (*domain.Tag, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

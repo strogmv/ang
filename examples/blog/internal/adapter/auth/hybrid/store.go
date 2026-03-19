@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	authpg "github.com/strogmv/ang/internal/adapter/auth/postgres"
-	authredis "github.com/strogmv/ang/internal/adapter/auth/redis"
-	"github.com/strogmv/ang/internal/port"
+	authpg "github.com/example/blog/internal/adapter/auth/postgres"
+	authredis "github.com/example/blog/internal/adapter/auth/redis"
+	"github.com/example/blog/internal/port"
 )
 
 type Store struct {

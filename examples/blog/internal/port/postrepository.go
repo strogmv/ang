@@ -2,7 +2,7 @@ package port
 //go:generate go run go.uber.org/mock/mockgen@latest -source=$GOFILE -destination=mocks/mock_$GOFILE -package=mocks
 import (
 	"context"
-	"github.com/strogmv/ang/internal/domain"
+	"github.com/example/blog/internal/domain"
 )
 // PostRepository defines storage operations for Post
 type PostRepository interface {

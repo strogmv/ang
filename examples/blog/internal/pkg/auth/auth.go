@@ -14,7 +14,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/strogmv/ang/internal/config"
+	"github.com/example/blog/internal/config"
 )
 
 // IssueAccessToken builds and signs an access JWT.

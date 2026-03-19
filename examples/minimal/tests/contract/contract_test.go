@@ -3,13 +3,20 @@
 package tests
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"regexp"
-	"strings"
 	"sync"
+	"math/rand"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 func contractBaseURL() string {

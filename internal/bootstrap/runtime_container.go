@@ -11,6 +11,7 @@ import (
 )
 
 type RuntimeContainer struct {
+	Effects *EffectRegistry
 	SvcAuth port.Auth
 	SvcBlog port.Blog
 }
@@ -28,10 +29,15 @@ func NewRuntimeContainer(
 	repoPostTag := postgres.NewPostTagRepository(pgPool)
 	repoTag := postgres.NewTagRepository(pgPool)
 	repoUser := postgres.NewUserRepository(pgPool)
+	effects, err := NewEffectRegistry(ctx, cfg, pgPool, publisher)
+	if err != nil {
+		return nil, err
+	}
+	c.Effects = effects
 	txManager := postgres.NewTxManager(pgPool)
 	c.SvcAuth = service.NewAuthImpl(
 		repoUser,
-		publisher,
+		effects.Publisher,
 	)
 	c.SvcBlog = service.NewBlogImpl(
 		repoComment,
@@ -39,8 +45,12 @@ func NewRuntimeContainer(
 		repoPostTag,
 		repoTag,
 		txManager,
-		publisher,
+		effects.Publisher,
 	)
+
+	// ANG:BEGIN_CUSTOM runtime_container.after_init
+	// Add project-specific runtime wiring here.
+	// ANG:END_CUSTOM runtime_container.after_init
 
 	return c, nil
 }

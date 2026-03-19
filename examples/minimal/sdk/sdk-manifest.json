@@ -1,0 +1,1 @@
+{"endpoints":[{"name":"listUsers","method":"GET","path":"/users"}],"query_keys":["users.all","users.list","users.lists"],"query_options":["usersOptions.list"]}

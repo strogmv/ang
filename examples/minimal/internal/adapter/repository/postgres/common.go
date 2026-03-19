@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -57,22 +58,19 @@ func nullString(s string) sql.NullString {
 	return sql.NullString{String: s, Valid: true}
 }
 
-func nullInt(i int) sql.NullInt64 {
-	return sql.NullInt64{Int64: int64(i), Valid: true}
-}
-
-// nullTime is available for future use
-var _ = nullTime
-
+// nullTime converts time values to sql.NullTime; supports time.Time, *time.Time, RFC3339 string.
 func nullTime(t any) sql.NullTime {
 	if t == nil {
 		return sql.NullTime{Valid: false}
 	}
 	switch v := t.(type) {
 	case time.Time:
+		if v.IsZero() {
+			return sql.NullTime{Valid: false}
+		}
 		return sql.NullTime{Time: v, Valid: true}
 	case *time.Time:
-		if v == nil {
+		if v == nil || v.IsZero() {
 			return sql.NullTime{Valid: false}
 		}
 		return sql.NullTime{Time: *v, Valid: true}
@@ -83,9 +81,34 @@ func nullTime(t any) sql.NullTime {
 		if parsed, ok := parseTimeFlexible(v); ok {
 			return sql.NullTime{Time: parsed, Valid: true}
 		}
-		return sql.NullTime{Valid: false}
 	}
 	return sql.NullTime{Valid: false}
+}
+
+func nullInt(i int) sql.NullInt64 {
+	return sql.NullInt64{Int64: int64(i), Valid: true}
+}
+
+func nullFloat64(f any) sql.NullFloat64 {
+	switch v := f.(type) {
+	case nil:
+		return sql.NullFloat64{Valid: false}
+	case float64:
+		return sql.NullFloat64{Float64: v, Valid: true}
+	case *float64:
+		if v == nil {
+			return sql.NullFloat64{Valid: false}
+		}
+		return sql.NullFloat64{Float64: *v, Valid: true}
+	case string:
+		if v == "" {
+			return sql.NullFloat64{Valid: false}
+		}
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
+			return sql.NullFloat64{Float64: parsed, Valid: true}
+		}
+	}
+	return sql.NullFloat64{Valid: false}
 }
 
 func nullJSON(v any) sql.NullString {

@@ -15,17 +15,23 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"math/rand"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"time"
 
+	"golang.org/x/sync/singleflight"
+
+	"github.com/example/minimal/internal/config"
+	"github.com/example/minimal/internal/pkg/circuitbreaker"
+	"github.com/example/minimal/internal/pkg/errors"
+	"github.com/example/minimal/internal/pkg/rbac"
+	"github.com/example/minimal/internal/pkg/reqctx"
 	"github.com/go-playground/validator/v10"
 	"github.com/redis/go-redis/v9"
-	"github.com/strogmv/ang/internal/config"
-	"github.com/strogmv/ang/internal/pkg/circuitbreaker"
-	"github.com/strogmv/ang/internal/pkg/errors"
-	"github.com/strogmv/ang/internal/pkg/rbac"
 )
 
 var validate = validator.New()
@@ -37,6 +43,7 @@ type authContext struct {
 	CompanyID string
 	Roles     []string
 	Perms     []string
+	Scopes    []string
 }
 
 var (
@@ -47,10 +54,12 @@ var (
 	authCompanyClaim = "cid"
 	authRolesClaim   = "roles"
 	authPermsClaim   = "perms"
+	authScopesClaim  = "scopes"
 
-	authRSAPublicKey   *rsa.PublicKey
-	authECDSAPublicKey *ecdsa.PublicKey
-	authHMACSecret     []byte
+	authRSAPublicKey    *rsa.PublicKey
+	authECDSAPublicKey  *ecdsa.PublicKey
+	authHMACSecret      []byte
+	verifiedUserChecker func(ctx context.Context, userID string) (bool, error)
 )
 
 func SetAuthConfigFromConfig(cfg *config.Config) error {
@@ -68,6 +77,7 @@ func SetAuthConfigFromConfig(cfg *config.Config) error {
 	authCompanyClaim = "cid"
 	authRolesClaim = "roles"
 	authPermsClaim = "perms"
+	authScopesClaim = "scopes"
 
 	switch authAlg {
 	case "RS256":
@@ -103,6 +113,10 @@ func SetAuthConfigFromConfig(cfg *config.Config) error {
 	return nil
 }
 
+func SetVerifiedUserChecker(checker func(ctx context.Context, userID string) (bool, error)) {
+	verifiedUserChecker = checker
+}
+
 func decodeJSONRequest(r *http.Request, out interface{}) error {
 	if r.Body == nil {
 		return io.EOF
@@ -136,6 +150,17 @@ func decodeJSONRequest(r *http.Request, out interface{}) error {
 	return json.Unmarshal(body, out)
 }
 
+// TestHeadersMiddleware reads test-only request headers and injects them into the context.
+// In production environments these headers are never sent, so this middleware is a no-op.
+func TestHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("x-test-skip-auto-verify") == "true" {
+			r = r.WithContext(reqctx.WithSkipAutoVerify(r.Context()))
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := r.Header.Get("Authorization")
@@ -165,6 +190,18 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			CompanyID: getStringClaim(claims, authCompanyClaim),
 			Roles:     getStringSliceClaim(claims, authRolesClaim),
 			Perms:     getStringSliceClaim(claims, authPermsClaim),
+			Scopes:    getStringSliceClaim(claims, authScopesClaim),
+		}
+		if verifiedUserChecker != nil {
+			ok, err := verifiedUserChecker(r.Context(), ac.UserID)
+			if err != nil {
+				errors.WriteError(w, r, errors.New(http.StatusInternalServerError, "Internal Server Error", "verification check failed"))
+				return
+			}
+			if !ok {
+				errors.WriteError(w, r, errors.New(http.StatusForbidden, "EMAIL_NOT_VERIFIED", "email is not verified"))
+				return
+			}
 		}
 		ctx := context.WithValue(r.Context(), authContextKey{}, ac)
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -195,6 +232,13 @@ func CurrentRoles(r *http.Request) []string {
 func CurrentPermissions(r *http.Request) []string {
 	if ac, ok := r.Context().Value(authContextKey{}).(authContext); ok {
 		return ac.Perms
+	}
+	return nil
+}
+
+func CurrentScopes(r *http.Request) []string {
+	if ac, ok := r.Context().Value(authContextKey{}).(authContext); ok {
+		return ac.Scopes
 	}
 	return nil
 }
@@ -248,6 +292,23 @@ func RequireRoles(roles []string) func(http.Handler) http.Handler {
 				}
 			}
 			errors.WriteError(w, r, errors.New(http.StatusForbidden, "Forbidden", "Insufficient role"))
+		})
+	}
+}
+
+func RequireScopeMiddleware(scopes []string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			current := CurrentScopes(r)
+			for _, required := range scopes {
+				for _, s := range current {
+					if s == required {
+						next.ServeHTTP(w, r)
+						return
+					}
+				}
+			}
+			errors.WriteError(w, r, errors.New(http.StatusForbidden, "Forbidden", "Insufficient scope: "+strings.Join(scopes, " or ")+" required"))
 		})
 	}
 }
@@ -473,14 +534,39 @@ func CacheMiddleware(ttl string) func(http.Handler) http.Handler {
 	}
 }
 
+// realClientIP extracts the real client IP honoring reverse-proxy headers.
+func realClientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if i := strings.Index(xff, ","); i != -1 {
+			return strings.TrimSpace(xff[:i])
+		}
+		return strings.TrimSpace(xff)
+	}
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return strings.TrimSpace(xri)
+	}
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return ip
+}
+
 type rateState struct {
 	windowStart time.Time
 	count       int
 }
 
+type windowState struct {
+	mu      sync.Mutex
+	count   int
+	resetAt time.Time
+}
+
 var (
 	rateMu      sync.Mutex
 	rateByIP    = map[string]*rateState{}
+	windowByKey sync.Map
 	redisClient *redis.Client
 )
 
@@ -488,51 +574,86 @@ func SetRedisClient(c *redis.Client) {
 	redisClient = c
 }
 
-func RateLimitMiddleware(rps, burst int) func(http.Handler) http.Handler {
+// RateLimitMiddleware enforces per-IP rate limiting at two levels:
+//   - rps/burst : per-second token-bucket (Redis when available, in-memory fallback)
+//   - windowSecs/windowLimit : fixed-window quota (e.g. 10 builds/hour)
+//     windowLimit=0 disables the window check.
+func RateLimitMiddleware(rps, burst, windowSecs, windowLimit int) func(http.Handler) http.Handler {
 	max := rps
 	if burst > max {
 		max = burst
 	}
-	if max <= 0 {
-		return func(next http.Handler) http.Handler { return next }
-	}
-
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ip := r.RemoteAddr
+			ip := realClientIP(r)
 			now := time.Now()
-			if redisClient != nil {
-				key := "rate:" + ip
-				ctx := context.Background()
-				count, err := redisClient.Incr(ctx, key).Result()
-				if err == nil {
-					_ = redisClient.Expire(ctx, key, time.Second).Err()
-					if int(count) > max {
+
+			// ---- per-second RPS check ----
+			if max > 0 {
+				if redisClient != nil {
+					key := fmt.Sprintf("rate:rps:%d:%s", max, ip)
+					ctx := context.Background()
+					count, err := redisClient.Incr(ctx, key).Result()
+					if err == nil {
+						_ = redisClient.Expire(ctx, key, time.Second).Err()
+						if int(count) > max {
+							errors.WriteError(w, r, errors.New(http.StatusTooManyRequests, "Too Many Requests", "Rate limit exceeded"))
+							return
+						}
+					}
+				} else {
+					rateMu.Lock()
+					state, ok := rateByIP[ip]
+					if !ok {
+						state = &rateState{windowStart: now}
+						rateByIP[ip] = state
+					}
+					if now.Sub(state.windowStart) >= time.Second {
+						state.windowStart = now
+						state.count = 0
+					}
+					state.count++
+					over := state.count > max
+					rateMu.Unlock()
+					if over {
 						errors.WriteError(w, r, errors.New(http.StatusTooManyRequests, "Too Many Requests", "Rate limit exceeded"))
 						return
 					}
-					next.ServeHTTP(w, r)
-					return
 				}
 			}
 
-			rateMu.Lock()
-			state, ok := rateByIP[ip]
-			if !ok {
-				state = &rateState{windowStart: now}
-				rateByIP[ip] = state
-			}
-			if now.Sub(state.windowStart) >= time.Second {
-				state.windowStart = now
-				state.count = 0
-			}
-			state.count++
-			over := state.count > max
-			rateMu.Unlock()
-
-			if over {
-				errors.WriteError(w, r, errors.New(http.StatusTooManyRequests, "Too Many Requests", "Rate limit exceeded"))
-				return
+			// ---- fixed-window quota check (e.g. hourly build limit) ----
+			if windowSecs > 0 && windowLimit > 0 {
+				windowDur := time.Duration(windowSecs) * time.Second
+				wkey := fmt.Sprintf("rate:win:%d:%s", windowSecs, ip)
+				if redisClient != nil {
+					ctx := context.Background()
+					count, err := redisClient.Incr(ctx, wkey).Result()
+					if err == nil {
+						if count == 1 {
+							_ = redisClient.Expire(ctx, wkey, windowDur).Err()
+						}
+						if int(count) > windowLimit {
+							errors.WriteError(w, r, errors.New(http.StatusTooManyRequests, "Too Many Requests", "Rate limit exceeded"))
+							return
+						}
+					}
+				} else {
+					v, _ := windowByKey.LoadOrStore(wkey, &windowState{resetAt: now.Add(windowDur)})
+					ws := v.(*windowState)
+					ws.mu.Lock()
+					if now.After(ws.resetAt) {
+						ws.count = 0
+						ws.resetAt = now.Add(windowDur)
+					}
+					ws.count++
+					over := ws.count > windowLimit
+					ws.mu.Unlock()
+					if over {
+						errors.WriteError(w, r, errors.New(http.StatusTooManyRequests, "Too Many Requests", "Rate limit exceeded"))
+						return
+					}
+				}
 			}
 
 			next.ServeHTTP(w, r)
@@ -625,6 +746,107 @@ func CircuitBreakerMiddleware(threshold int, timeout string, halfOpenMax int) fu
 			} else {
 				breaker.RecordSuccess()
 			}
+		})
+	}
+}
+
+// ConcurrencyMiddleware limits simultaneous in-flight requests via a buffered-channel semaphore.
+// When the limit is reached new requests get 503 Service Unavailable immediately (no queuing).
+// This is true backpressure: fast fail instead of queuing → prevents latency cascade.
+func ConcurrencyMiddleware(n int) func(http.Handler) http.Handler {
+	sem := make(chan struct{}, n)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+				next.ServeHTTP(w, r)
+			default:
+				concurrencyShed.WithLabelValues(r.URL.Path).Inc()
+				errors.WriteError(w, r, errors.New(http.StatusServiceUnavailable,
+					"Service Unavailable", "Server is at capacity, please retry later"))
+			}
+		})
+	}
+}
+
+// SingleflightMiddleware collapses identical in-flight GET requests into one handler call.
+// All waiting callers get the same response — reduces load on DB/cache by orders of magnitude.
+// Each call to SingleflightMiddleware() creates an independent group (one per route).
+func SingleflightMiddleware() func(http.Handler) http.Handler {
+	var group singleflight.Group
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				next.ServeHTTP(w, r)
+				return
+			}
+			type captured struct {
+				status  int
+				body    []byte
+				headers http.Header
+			}
+			v, _, _ := group.Do(r.URL.RequestURI(), func() (any, error) {
+				rec := httptest.NewRecorder()
+				next.ServeHTTP(rec, r)
+				res := rec.Result()
+				body, _ := io.ReadAll(res.Body)
+				return &captured{status: res.StatusCode, body: body, headers: res.Header}, nil
+			})
+			res := v.(*captured)
+			for k, vs := range res.headers {
+				for _, hv := range vs {
+					w.Header().Add(k, hv)
+				}
+			}
+			w.WriteHeader(res.status)
+			_, _ = w.Write(res.body)
+		})
+	}
+}
+
+// RetryMiddleware retries safe methods (GET/HEAD) on transient errors with exponential backoff + jitter.
+// Uses httptest.ResponseRecorder to buffer the response so it can be replayed on retry.
+func RetryMiddleware(maxAttempts, baseDelayMS int, retryStatuses []int) func(http.Handler) http.Handler {
+	isRetryable := func(code int) bool {
+		for _, s := range retryStatuses {
+			if s == code {
+				return true
+			}
+		}
+		return false
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				next.ServeHTTP(w, r)
+				return
+			}
+			delay := time.Duration(baseDelayMS) * time.Millisecond
+			var lastStatus int
+			var lastBody []byte
+			var lastHeaders http.Header
+			for attempt := 0; attempt < maxAttempts; attempt++ {
+				rec := httptest.NewRecorder()
+				next.ServeHTTP(rec, r)
+				res := rec.Result()
+				lastStatus = res.StatusCode
+				lastBody, _ = io.ReadAll(res.Body)
+				lastHeaders = res.Header
+				if !isRetryable(lastStatus) || attempt == maxAttempts-1 {
+					break
+				}
+				jitter := time.Duration(rand.Intn(50)) * time.Millisecond
+				time.Sleep(delay + jitter)
+				delay *= 2
+			}
+			for k, vs := range lastHeaders {
+				for _, hv := range vs {
+					w.Header().Add(k, hv)
+				}
+			}
+			w.WriteHeader(lastStatus)
+			_, _ = w.Write(lastBody)
 		})
 	}
 }
