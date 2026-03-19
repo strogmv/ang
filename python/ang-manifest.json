@@ -1,14 +1,14 @@
 {
   "project": {
-    "Name": "",
-    "Version": "",
-    "Target": {
-      "Lang": "go",
-      "Framework": "chi",
-      "DB": "postgres",
-      "Cache": "",
-      "Queue": "",
-      "Storage": ""
+    "name": "",
+    "version": "",
+    "target": {
+      "lang": "",
+      "framework": "",
+      "db": "",
+      "cache": "",
+      "queue": "",
+      "storage": ""
     }
   },
   "services": [
