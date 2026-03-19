@@ -47,6 +47,8 @@ export interface Post {
 }
 export interface PostTag {
   /**  */
+  ID: string;
+  /**  */
   postId: string;
   /**  */
   tagId: string;
@@ -60,6 +62,8 @@ export interface Tag {
   slug: string;
   /**  */
   description: string;
+  /**  */
+  createdAt: string;
 }
 export interface User {
   /**  */

@@ -1,11 +1,10 @@
 package http
 
 import (
+	"github.com/example/minimal/internal/pkg/logger"
+	"github.com/go-chi/chi/v5/middleware"
 	"net/http"
 	"time"
-
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/strogmv/ang/internal/pkg/logger"
 )
 
 func LoggingMiddleware(next http.Handler) http.Handler {

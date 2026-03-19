@@ -3,7 +3,7 @@ package notifications
 import (
 	"context"
 	"fmt"
-	"github.com/strogmv/ang/internal/port"
+	"github.com/example/blog/internal/port"
 	"strings"
 )
 

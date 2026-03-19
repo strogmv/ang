@@ -3,7 +3,7 @@ package port
 import (
 	"context"
 
-	"github.com/strogmv/ang/internal/domain"
+	"github.com/example/blog/internal/domain"
 )
 
 type PostTagRepositoryMock struct {

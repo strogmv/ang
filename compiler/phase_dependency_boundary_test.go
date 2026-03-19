@@ -1,9 +1,12 @@
 package compiler
 
 import (
+	"fmt"
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -14,7 +17,11 @@ func TestCompilerPhaseBoundaries_NoReverseImports(t *testing.T) {
 	t.Parallel()
 
 	root := repoRootForPhaseBoundaryTest(t)
-	angIRRoot := angIRRootForPhaseBoundaryTest(t)
+	angIRRoot, err := angIRRootForPhaseBoundaryTest(t)
+	if err != nil {
+		t.Skipf("Skipping phase boundary test because ang-ir root could not be found: %v", err)
+	}
+
 	type phaseRule struct {
 		name         string
 		dir          string
@@ -110,7 +117,25 @@ func repoRootForPhaseBoundaryTest(t *testing.T) string {
 	return filepath.Clean(filepath.Join(filepath.Dir(file), ".."))
 }
 
-func angIRRootForPhaseBoundaryTest(t *testing.T) string {
+func angIRRootForPhaseBoundaryTest(t *testing.T) (string, error) {
 	t.Helper()
-	return filepath.Clean(filepath.Join(repoRootForPhaseBoundaryTest(t), "..", "ang-ir"))
+
+	// Try using go list first
+	cmd := exec.Command("go", "list", "-m", "-f", "{{.Dir}}", "github.com/strogmv/ang-ir")
+	out, err := cmd.Output()
+	if err == nil {
+		dir := strings.TrimSpace(string(out))
+		if dir != "" {
+			return dir, nil
+		}
+	}
+
+	// Fallback to relative path
+	root := repoRootForPhaseBoundaryTest(t)
+	dir := filepath.Clean(filepath.Join(root, "..", "ang-ir"))
+	if _, err := os.Stat(dir); err == nil {
+		return dir, nil
+	}
+
+	return "", fmt.Errorf("could not find ang-ir root")
 }

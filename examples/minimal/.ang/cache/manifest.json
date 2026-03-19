@@ -1,0 +1,495 @@
+{
+  "schemaVersion": "artifact-manifest/v2",
+  "compilerVersion": "0.1.126",
+  "compilerFingerprint": "29a8f520277aa6f4d2ff45be2952a732164a1e0860bf797c7d714de4f1da85f9",
+  "irVersion": "2",
+  "irCanonicalVersion": "2",
+  "inputHash": "814ec3f9b96d4fb4583c9d3884daec6b98af5648440dd2b3457e19840dd94621",
+  "templateHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "artifacts": [
+    {
+      "path": "ang-manifest.json",
+      "hash": "135ae09d4b52523c70452da3a81d385b2e4f6a984946a54708b6c2fb3614a438"
+    },
+    {
+      "path": "api/asyncapi.yaml",
+      "hash": "747902b9ccf033a13ffd8a204046b3eb42642cf177271b37ccd34a1551dc9ced"
+    },
+    {
+      "path": "api/openapi.yaml",
+      "hash": "b3fc4bf8b5305e28abba4a9efaab2ddaea1fa25564a6a1f3e88d201b72c29d40"
+    },
+    {
+      "path": "atlas.hcl",
+      "hash": "e7a82ec1e9f4dd6e25745e8fa01720471b71123b32bf457e20c79aedbf652ce3"
+    },
+    {
+      "path": "cmd/server/main.go",
+      "hash": "636a6583ade3b07714f50c19761770774d5db027af70fad8edea66cb479b4180"
+    },
+    {
+      "path": "db/queries/query.sql",
+      "hash": "a2ae8d16c7b889d2f3d983161eca9b25bfa1367fb88e3ee9398f124d60253265"
+    },
+    {
+      "path": "db/schema/schema.sql",
+      "hash": "56337cae86c56d47558c440b814f516bb504ae6514e0fd21129702f4a4c0419b"
+    },
+    {
+      "path": "deploy/k8s/server-configmap.yaml",
+      "hash": "31ab050e076c9143030b8868332f87f8b3c6a9e03af2a6f47c05db6682516157"
+    },
+    {
+      "path": "deploy/k8s/server-deployment.yaml",
+      "hash": "568470be2fcf4e338676a33b6146030e5c1f491fbb00ceaee85902b1f25691ca"
+    },
+    {
+      "path": "deploy/k8s/server-service.yaml",
+      "hash": "e9a5d9e9e8edfc057faac3e4ecd57b5186602b76cd01123b1b49ffbbbe21b720"
+    },
+    {
+      "path": "internal/adapter/auth/hybrid/store.go",
+      "hash": "25832bf085c8580b3e5e164cd016537981da69b2c416bd4d7b34bf158c5a31d9"
+    },
+    {
+      "path": "internal/adapter/auth/memory/store.go",
+      "hash": "34535914ec42b264576c40f85a8c3ffbcb541aa5d93195c774819352efecbd90"
+    },
+    {
+      "path": "internal/adapter/auth/postgres/store.go",
+      "hash": "6a2e7080d21b6d724da2c8d318662d4410645cc1462a2e2f2d7c20768ed28b17"
+    },
+    {
+      "path": "internal/adapter/auth/redis/store.go",
+      "hash": "023494abf0b5f7a1fb8f82fe16a2102c39875d9f6cff6d016e66e7f186d54230"
+    },
+    {
+      "path": "internal/adapter/cache/redis/client.go",
+      "hash": "5a794af8fd6e9351219aea7084ac5d2af3254e42febf8754b98614465f5b2630"
+    },
+    {
+      "path": "internal/adapter/events/nats/client.go",
+      "hash": "f090cd111b6917bd32a5ac05f5e84de22c92753fb26a252de84637d51fcdf81d"
+    },
+    {
+      "path": "internal/adapter/mailer/noop/client.go",
+      "hash": "5e327494a90ce819e426372536f571c1f2e21e609740ca311e992224e8d4dbfe"
+    },
+    {
+      "path": "internal/adapter/mailer/smtp/client.go",
+      "hash": "9a715b10f8bc037a4acc9d2e0de25c07f71a3036a26f1f8689fe3b9aba50afdb"
+    },
+    {
+      "path": "internal/adapter/middleware/effects.gen.go",
+      "hash": "f0984e1c2eb65d840d065e7426d6582c9efe6c44abc9e37dd68137d065640053"
+    },
+    {
+      "path": "internal/adapter/mock/file_storage.gen.go",
+      "hash": "e54d816e29af0bd09fc39a7eda8a41024faedefa916c7d8958860d66c7573e66"
+    },
+    {
+      "path": "internal/adapter/mock/idempotency_store.gen.go",
+      "hash": "9cdcead4ce69fa0863b6a300014274d497c2b5f276ac085c910efa106f90880b"
+    },
+    {
+      "path": "internal/adapter/mock/mailer.gen.go",
+      "hash": "3c8c8a0a19cf0994f3a42b9dc61c4a0041f23a24cce08a2437e1ddfbcb5ac5f4"
+    },
+    {
+      "path": "internal/adapter/mock/notification_dispatcher.gen.go",
+      "hash": "26454fd523038ec42cae26d562ca9dadd3a52ffe448648ba1a11ea87c0de87b7"
+    },
+    {
+      "path": "internal/adapter/mock/notification_in_app_sink.gen.go",
+      "hash": "c127899e2db13f6debd8f53c1ac060a4bb9b103bd754ca5d62077c829a69fc78"
+    },
+    {
+      "path": "internal/adapter/mock/outbox_repository.gen.go",
+      "hash": "ca1690fb62ac847ccdb94b159cc8605c057bb8a0ad37f4b397e035c735c33693"
+    },
+    {
+      "path": "internal/adapter/mock/policy_engine.gen.go",
+      "hash": "ee39ffa361f49a8bf7495c1c6e67607d1db78bf574924149054da55b65bd253b"
+    },
+    {
+      "path": "internal/adapter/mock/publisher.gen.go",
+      "hash": "dbfc068840b15e2271d3b9227a583ad397731d47149bdb1fb328594c22ca9b82"
+    },
+    {
+      "path": "internal/adapter/mock/queue_publisher.gen.go",
+      "hash": "442ae5d8d11c01ad430a0cb1190ddf9feb81e7391c7e7239cc441b502f91db82"
+    },
+    {
+      "path": "internal/adapter/mock/refresh_token_store.gen.go",
+      "hash": "a9422625da8a1e44b4590607fc2bdcf16c2ce9fb0cb7bd657b436171dd55fd6f"
+    },
+    {
+      "path": "internal/adapter/mock/state_store.gen.go",
+      "hash": "1d727b22534614e045ef8864db392052c78c4e455bf8f4e66363c3fcd9eb55f0"
+    },
+    {
+      "path": "internal/adapter/mock/tx_manager.gen.go",
+      "hash": "a60799259bc7f95d35cc0a5e3d69aadd32ebe068963d3091765165331bb302c3"
+    },
+    {
+      "path": "internal/adapter/mock/user.gen.go",
+      "hash": "95697ade3cef1c26b26c873aa123954799ff47ae62014daf3f6a6216e7bc3ba5"
+    },
+    {
+      "path": "internal/adapter/mock/user_repository.gen.go",
+      "hash": "342106cd8fe12219c32bda554c7bbee0ab9baf3f4731c61a2bc801f19af7ecb5"
+    },
+    {
+      "path": "internal/adapter/notifications/dispatcher.go",
+      "hash": "1bf25098f8754f0d706c634e2a89219bddea7ac4453920ab55a9d99c6fcd81ea"
+    },
+    {
+      "path": "internal/adapter/repository/memory/userrepository.go",
+      "hash": "d1ce1535053b5f6f17bf05aaa914378dc1818577e86ffc266d0adbe77ea2e9a9"
+    },
+    {
+      "path": "internal/adapter/repository/postgres/common.go",
+      "hash": "8df6a1c8f4eadb19b7d96afcc3803f2297911db9b1b8b521ee1d710055c916be"
+    },
+    {
+      "path": "internal/adapter/repository/postgres/systemrepository.go",
+      "hash": "135534f6dd374805c71903c696137190d49a1ac8d7962cc51ad81013cd08011d"
+    },
+    {
+      "path": "internal/adapter/repository/postgres/userrepository.go",
+      "hash": "d66306f581d6be05f060e7cf00f031974c07833ab6773dc4df5ba38164886f0f"
+    },
+    {
+      "path": "internal/adapter/statestore/redis/store.go",
+      "hash": "8cd8b30c609c4e14ee38d954ec48831092fd21b9a68cf702bd77ea843a34d03c"
+    },
+    {
+      "path": "internal/adapter/storage/s3/client.go",
+      "hash": "6fe86daaf2286cc8ed55120e9d50836b9881e29d07cf64be80833984118eccd9"
+    },
+    {
+      "path": "internal/app/container.go",
+      "hash": "f85643d340023e2823513fdbd53a80f11ef4b5aecd2d3c0fb33bc5ed0cb8769b"
+    },
+    {
+      "path": "internal/bootstrap/effect_registry.gen.go",
+      "hash": "af0b4531082e4a5ba18a868048619ec79c0e5780b448679e57b5c9affd5c7074"
+    },
+    {
+      "path": "internal/bootstrap/runtime_container.go",
+      "hash": "2b44262e05c1a14dc16ac121151facf9b68e455aaaa7ea136d6a4be5c4ebb969"
+    },
+    {
+      "path": "internal/bootstrap/test_container.gen.go",
+      "hash": "eb4247fe7127fe057e93c7f4a82501f1b30be4d8fe75d0044907d487a28dd577"
+    },
+    {
+      "path": "internal/config/config.go",
+      "hash": "42c4f1a13d39e4cdce6ef7fac08670e1e128612b287a3c46eeed609be014a169"
+    },
+    {
+      "path": "internal/domain/events.go",
+      "hash": "20277d173f0daff513ee59eec0467237637433a46483fee4fbb8daf468e131e3"
+    },
+    {
+      "path": "internal/domain/user.go",
+      "hash": "16a4f40c4a817bc7e8ab7a12c5b5d9f3571024bb71b9e5657e0054ad6a2152d8"
+    },
+    {
+      "path": "internal/dto/user.go",
+      "hash": "e98f83ee2ce758a92b75be04fa36b9795f812881544ba90f3f03eae59882047d"
+    },
+    {
+      "path": "internal/pkg/auth/auth.go",
+      "hash": "a3c7df2e88c5715e5e2e296ceafc2e046099713a9701d8b20b8cba97445295e7"
+    },
+    {
+      "path": "internal/pkg/circuitbreaker/breaker.go",
+      "hash": "5c34b843f337ff6d3ab7831ce9ee5ead0807587d08035bfb0c25ebdd2e57e4b8"
+    },
+    {
+      "path": "internal/pkg/errors/codes.go",
+      "hash": "11626a55e59a6d3bc29052f8490f5136943413b439f291f5d0328247ca317976"
+    },
+    {
+      "path": "internal/pkg/errors/errors.go",
+      "hash": "9afd54d604e44e7f195c96d5f25e69264aca4f7873d9a3fbfc330af27fcc3545"
+    },
+    {
+      "path": "internal/pkg/helpers/helpers.go",
+      "hash": "44ab533a9175cea8d1feb6d7331b13ffd9f92751f51a3c363b5cf0bfa026cd31"
+    },
+    {
+      "path": "internal/pkg/logger/logger.go",
+      "hash": "f4140f79a2f25b5e2bb18fd20dd2e87728a54d41200507cfaa7a7ecc91692ce2"
+    },
+    {
+      "path": "internal/pkg/policy/engine.go",
+      "hash": "e85c0d61b43a775ba8222ac1254470e6cb6a6a1c26bbcc37d5f836cfb62b109a"
+    },
+    {
+      "path": "internal/pkg/presence/store.go",
+      "hash": "a17584dfb6640b7f5c1ea7e5f207243ff7bb6a44cb8275b671bf92ff2659f54e"
+    },
+    {
+      "path": "internal/pkg/rbac/rbac.go",
+      "hash": "9aef2efe0ee6f8e5eacc7addd3262f3754d194754fc4bafa200e5c4065493ec9"
+    },
+    {
+      "path": "internal/pkg/report/pdf.go",
+      "hash": "9686255f3972fa1693eb5ef5613b8b7296e302daa6ca0e57a9e5f43520728aeb"
+    },
+    {
+      "path": "internal/pkg/reqctx/reqctx.go",
+      "hash": "afafe8dab99a4a832d646b6bc391bdb55243fa20601d6f63e2bcbfc1f8270f07"
+    },
+    {
+      "path": "internal/pkg/templaterender/render.go",
+      "hash": "579446fe021517b84bad656af988deb33f9453c61cfe8e9bb650da96563927be"
+    },
+    {
+      "path": "internal/pkg/tracing/tracing.go",
+      "hash": "ad1926c7f3bd5e852200a0214cc23e08b8ed74cbbdbf179796cf7fafc2cf4a11"
+    },
+    {
+      "path": "internal/port/idempotency.go",
+      "hash": "f2766bec700e2069f34a5660496108b3193bd217e4fef962bb91d02c467e4314"
+    },
+    {
+      "path": "internal/port/mailer.go",
+      "hash": "36274716e2976778aabfe8ce87e578297c71b9f05b781a7b1b58ee3ad5fa4d0d"
+    },
+    {
+      "path": "internal/port/mock_user_test.go",
+      "hash": "42124df86ce7e5309cb9e30014c0969fc71516484bd5ad0e748c4694b51b2726"
+    },
+    {
+      "path": "internal/port/notification_dispatcher.go",
+      "hash": "5a09fb1aa773ecf42145e3625e1eb5dd43a066f1ec8fa48d30522967a9814052"
+    },
+    {
+      "path": "internal/port/outbox.go",
+      "hash": "3471a6b375cfccbc514a3cd46ba2d771f6ea44c526a71b9dd7c8c81e4512b1c7"
+    },
+    {
+      "path": "internal/port/policy.go",
+      "hash": "d35b5030d6e9aace5dfdbfdae80a6816584b75ff0a7255dc1928d6de35468640"
+    },
+    {
+      "path": "internal/port/publisher.go",
+      "hash": "a9be7ae475477f878b114c1cded9450cd81bc46b7b5a300ad2a318cb8af9c3ca"
+    },
+    {
+      "path": "internal/port/refreshstore.go",
+      "hash": "dd594f6baf29eab505c108b9b9877bdb312bd0056881b2589ce4c471bb423ff0"
+    },
+    {
+      "path": "internal/port/statestore.go",
+      "hash": "424cc97f7b485186589ea7d6578f68646a74abb686e356f5bb5ec6471e23ac5f"
+    },
+    {
+      "path": "internal/port/storage.go",
+      "hash": "fd83de885f5cff91c859154c0908bb81d143029297e318d312a2899ce878263d"
+    },
+    {
+      "path": "internal/port/tx.go",
+      "hash": "26311cb1feac8201fe03aafdf7ecc1a6d6f78678f0df88b292ac6dcff372f998"
+    },
+    {
+      "path": "internal/port/user.go",
+      "hash": "4689a9db1e48d36c4befbbf17e4b525806ea22f3a41a9681b34e7fdb755e048f"
+    },
+    {
+      "path": "internal/port/userrepository.go",
+      "hash": "c683c6dc96affc3cf4c53adca4ac4bc093088267e86d1075b28fc47bbd809c78"
+    },
+    {
+      "path": "internal/service/user__list_users.gen.go",
+      "hash": "af84d018773dcc3ad9bc925c329e6dc475155bf9b603ea9c336b36108aabefb2"
+    },
+    {
+      "path": "internal/service/user_cached.go",
+      "hash": "ec0366fb4f136b0ffcde852c7a51ff6e2ae605cb534d997b9b21c9f1685964b8"
+    },
+    {
+      "path": "internal/service/user_impl.gen.go",
+      "hash": "807fe10137b53fb31a733dee8de0c314ce83350ae82dd47397d08f23521f7354"
+    },
+    {
+      "path": "internal/transport/http/common.go",
+      "hash": "627755e41d6998bdf62e86b6ba475761aec832188a5e153de86ab76e864dd8db"
+    },
+    {
+      "path": "internal/transport/http/health.go",
+      "hash": "2cfe302741ea67a3d6861c01ae38dddcdfa1814bae2bffdbc1a1fb48d95590ba"
+    },
+    {
+      "path": "internal/transport/http/logging.go",
+      "hash": "15565050cd78287e8a585966f332ffa4a00071725a4d6fa000c07cfe8c6457b0"
+    },
+    {
+      "path": "internal/transport/http/metrics.go",
+      "hash": "2e2a9d80eeca1823e258ad83625ab18e82a5a491cb3848a1f382c7b27eb56351"
+    },
+    {
+      "path": "internal/transport/http/user.go",
+      "hash": "57b732e19697a9b340eaeda0a7d28286b8cca7cec159a66b72a21bb039fbfe80"
+    },
+    {
+      "path": "internal/transport/http/ws_common.go",
+      "hash": "a6bf10cc800e58fc11f41f9fdd626d1700cac2ecc337690e0f006b543604ecc6"
+    },
+    {
+      "path": "sdk/@ui/forms/index.tsx",
+      "hash": "dbcddc265574752cbccc120d08f6637104481b9ad5fd647c57d83d40af157279"
+    },
+    {
+      "path": "sdk/README.md",
+      "hash": "49314fdbb82f2469545abfe25d4b07e13bce4e3a139b42414a5352abd99e5219"
+    },
+    {
+      "path": "sdk/api-client.ts",
+      "hash": "478d0c6ee9f57edf08117eea451bf7f9b3739546694c094e91ca466d488ab0b0"
+    },
+    {
+      "path": "sdk/auth-store.ts",
+      "hash": "72c137b219eb7fcf43a42a4207f4c92ca6b67a96de7fb5de43ac343da1f7bc8a"
+    },
+    {
+      "path": "sdk/components/forms/index.ts",
+      "hash": "cfb1c2092de78f518b08446a9abc8f7092c428b3798a3225a028a111b96b6b9a"
+    },
+    {
+      "path": "sdk/components/tables/UserTable.tsx",
+      "hash": "0818c5f4c68805982a208ef56709ff701c734b3b03162d6ba0766e9239525255"
+    },
+    {
+      "path": "sdk/components/tables/index.ts",
+      "hash": "ae3d6d962ac8e350c4e5cfd0e7319557dc036d26162db472945f4ff9ebb9203d"
+    },
+    {
+      "path": "sdk/components/ui/auto-form/AutoForm.tsx",
+      "hash": "7f111a8767e44243206b685b005e051a0e0020ae31d68c2785ec3eff96a2d4e1"
+    },
+    {
+      "path": "sdk/components/ui/auto-form/FieldRegistry.tsx",
+      "hash": "be35d3ee8beef3ac762b2816cea27a37f4120eb06b24bc4c7234deda5d1105c6"
+    },
+    {
+      "path": "sdk/components/ui/auto-form/LayoutRenderer.tsx",
+      "hash": "438c954ab5f7c1956a9258f332b3fa5849db123f2399c970c94192be81777de8"
+    },
+    {
+      "path": "sdk/components/ui/auto-form/index.ts",
+      "hash": "641de6ba5a0eaa2780d17dd971bf93e01cdee7410054065336f6440cefe1b9a4"
+    },
+    {
+      "path": "sdk/components/ui/auto-form/types.ts",
+      "hash": "f1c479c12994b84fdb912e4e9352f14c9652a64160b7a471ab5da734a327fd09"
+    },
+    {
+      "path": "sdk/components/ui/forms/index.tsx",
+      "hash": "dbcddc265574752cbccc120d08f6637104481b9ad5fd647c57d83d40af157279"
+    },
+    {
+      "path": "sdk/endpoints.ts",
+      "hash": "49317792e90391363bddee8830aa8f9653221f4885e9cee3cef42041d081730c"
+    },
+    {
+      "path": "sdk/error-normalizer.ts",
+      "hash": "b94c5ceb52e63c607e04616aaccc5dcbacc25edc04d49e85202398be4eb50d42"
+    },
+    {
+      "path": "sdk/forms/index.ts",
+      "hash": "956e1a33321e57d6cd54970f2b01fa8dcc9abaf3575972446e68d9223a74020f"
+    },
+    {
+      "path": "sdk/hooks/index.ts",
+      "hash": "d466e7d04345f006b2b7d26eeafd329a8f4dfe80a9550ca92e677373f87122f2"
+    },
+    {
+      "path": "sdk/hooks/websocket-hooks.ts",
+      "hash": "4af53c9d3ad9df700f0a2dbd6cc26268a97779dc98ea5236b1f9837cfba3f2fb"
+    },
+    {
+      "path": "sdk/index.ts",
+      "hash": "4e0f535be182f51a83848d1c4568a10b8b1d4982307bfc2ffaa57b79de047454"
+    },
+    {
+      "path": "sdk/install-sdk.sh",
+      "hash": "e152015930854ea253c602b4286c0d21ece6405832b1cb582ec1b5995ddc7f0d"
+    },
+    {
+      "path": "sdk/mocks/handlers.ts",
+      "hash": "3bb510c9356bb7ec861d787a69d36afa413ab35de6f102c428bf9e410c233a9c"
+    },
+    {
+      "path": "sdk/package.json",
+      "hash": "f903bbea8200389c2cc7db37fb5ad824845078adae221e1be014125fdea43aaf"
+    },
+    {
+      "path": "sdk/prefetch/index.ts",
+      "hash": "bb9611b5cf7cdeed8cc040ad1d553e7ab59971ed962a543c61c90dea7f62a45b"
+    },
+    {
+      "path": "sdk/providers.tsx",
+      "hash": "775a96016716cdbe77889260f339a44e684d6c7a24f960f3cfd3b5afc17db4ab"
+    },
+    {
+      "path": "sdk/queries/index.ts",
+      "hash": "f6df0c6c8293902b12de54adb9cc032f1cceef4690ec0fe517560bbc3b823726"
+    },
+    {
+      "path": "sdk/queries/keys.ts",
+      "hash": "350f598f93feac71fe7d22870d435992065f58d402167b0770f72ee285652da1"
+    },
+    {
+      "path": "sdk/query-keys.ts",
+      "hash": "446ebc92d7f702d657d3a9809273fd3eaad686a534302a3f3aa9c11df69dff0f"
+    },
+    {
+      "path": "sdk/query-options.ts",
+      "hash": "b04cb0977522a414de9a4852ea06a48e1e3184e9af2ef5bb175c0df8f5896158"
+    },
+    {
+      "path": "sdk/rbac.ts",
+      "hash": "b49c1581df8e80fd6da29e60d4237dc513e92778d343381e8fa9d91ad57e8120"
+    },
+    {
+      "path": "sdk/routes.ts",
+      "hash": "13e2f99c88b0d456f854295d791b65108e67bf5ffad44783d386afa7bc30adbc"
+    },
+    {
+      "path": "sdk/schemas/index.ts",
+      "hash": "23231254bce9ff9075dde439bc15cec205c0c793b735d6dad5fb30f5e62a4a4a"
+    },
+    {
+      "path": "sdk/sdk-manifest.json",
+      "hash": "7325290de99aa302fb11a3368a979d5e9e0fce6466dd3e33365d2ee592545799"
+    },
+    {
+      "path": "sdk/stores/index.ts",
+      "hash": "7acba5e0335ccca26dd5736b4ba60a5b1113d40c10f950f94e0b522610f6ff5f"
+    },
+    {
+      "path": "sdk/stores/invalidation.ts",
+      "hash": "b50d52767984c03ca7ee895da24031ef54210c8e72d09b000e7217a0ad075c77"
+    },
+    {
+      "path": "sdk/tsconfig.json",
+      "hash": "95935a504b6d09062793a86f6dfd591fc64751a9d7fe87a10f6fb56b90fc9ea4"
+    },
+    {
+      "path": "sdk/types/index.ts",
+      "hash": "8894a9a454233f61a192b3e4c1b915a358ee35c32a002418a227db97cf0402fa"
+    },
+    {
+      "path": "sdk/websocket.ts",
+      "hash": "2cbb9f4f6ab1f0989297dc72a93f085c0e39d5595e24655b329757fcad14833c"
+    },
+    {
+      "path": "sqlc.yaml",
+      "hash": "3ab6560fbd1f4270761e97595b72f70f021acc6609463e1aed0bdb3fa18ee6d2"
+    }
+  ]
+}

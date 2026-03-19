@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/strogmv/ang/internal/port"
+	"github.com/example/minimal/internal/port"
 )
 
 type MemoryStore struct {

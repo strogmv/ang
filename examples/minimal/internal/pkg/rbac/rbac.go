@@ -1,11 +1,7 @@
 package rbac
 
 // Roles defines the RBAC policy for the application
-var Roles = map[string][]string{
-	"admin":  {},
-	"author": {},
-	"reader": {},
-}
+var Roles = map[string][]string{}
 
 // Permissions describes available permissions (optional metadata)
 var Permissions = map[string]string{}

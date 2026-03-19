@@ -723,7 +723,7 @@ func TestRenderFlow_NewDataTransformActions(t *testing.T) {
 		"helpers.Assign(&resp.CreatedAt, time.Now().UTC())",
 		"createdAtRFC3339 := createdAt.Format(time.RFC3339)",
 		"math.Round",
-		"strings.TrimPrefix(_jpPath",
+		"helpers.JSONPathGet(req.Payload, \"$.user.email\")",
 		"jsonpath.Set: input must be map[string]any",
 	}
 	for _, part := range mustContain {

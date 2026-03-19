@@ -112,7 +112,7 @@ func (s *S3Client) Delete(ctx context.Context, key string) error {
 }
 
 func (s *S3Client) GetURL(ctx context.Context, key string) (string, error) {
-	return fmt.Sprintf("/storage/%s", key), nil
+	return s.PresignGet(ctx, key, 15*time.Minute)
 }
 
 func (s *S3Client) List(ctx context.Context, prefix string) ([]string, error) {

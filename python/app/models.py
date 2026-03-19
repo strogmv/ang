@@ -33,6 +33,7 @@ class Post(BaseModel):
 
 
 class PostTag(BaseModel):
+    id: str
     postID: str
     tagID: str
 
@@ -42,6 +43,7 @@ class Tag(BaseModel):
     name: str
     slug: str
     description: str
+    createdAt: datetime
 
 
 class User(BaseModel):

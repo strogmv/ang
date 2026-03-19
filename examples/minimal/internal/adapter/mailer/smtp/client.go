@@ -6,8 +6,8 @@ import (
 	"net/smtp"
 	"strings"
 
-	"github.com/strogmv/ang/internal/config"
-	"github.com/strogmv/ang/internal/port"
+	"github.com/example/minimal/internal/config"
+	"github.com/example/minimal/internal/port"
 )
 
 type Client struct {

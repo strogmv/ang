@@ -358,6 +358,12 @@ func emitEventContractDiagnostics(basePath string, services []normalizer.Service
 }
 
 func loadEventsFromGitRef(basePath, ref string) ([]normalizer.EventDef, error) {
+	// Check if we are in a git repository
+	checkCmd := exec.Command("git", "-C", basePath, "rev-parse", "--is-inside-work-tree")
+	if err := checkCmd.Run(); err != nil {
+		return nil, nil // Not a git repo, skip compatibility check
+	}
+
 	cmd := exec.Command("git", "-C", basePath, "ls-tree", "-r", "--name-only", ref, "--", "cue", "cue.mod")
 	out, err := cmd.CombinedOutput()
 	if err != nil {

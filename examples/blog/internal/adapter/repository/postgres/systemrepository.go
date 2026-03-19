@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/strogmv/ang/internal/port"
+	"github.com/example/blog/internal/port"
 )
 
 // SystemRepository implements IdempotencyStore and OutboxRepository via Postgres.

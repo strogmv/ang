@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/go-playground/validator/v10"
@@ -134,6 +135,51 @@ func Assign(dst interface{}, src interface{}) error {
 		return err
 	}
 	return json.Unmarshal(b, dst)
+}
+
+// JSONPathGet resolves a minimal dot/index JSONPath like $.user.email or $.items[0].id.
+// Missing object keys return nil without error, matching Go map lookup semantics used by emitted flows.
+func JSONPathGet(input any, path string) (any, error) {
+	path = strings.TrimSpace(path)
+	path = strings.TrimPrefix(path, "$")
+	path = strings.TrimPrefix(path, ".")
+	if path == "" {
+		return input, nil
+	}
+
+	cur := input
+	for _, part := range strings.Split(path, ".") {
+		if part == "" {
+			continue
+		}
+		name := part
+		idx := -1
+		if lb := strings.Index(part, "["); lb >= 0 && strings.HasSuffix(part, "]") {
+			name = part[:lb]
+			idxStr := part[lb+1 : len(part)-1]
+			parsed, err := strconv.Atoi(idxStr)
+			if err != nil {
+				return nil, fmt.Errorf("jsonpath.Get: invalid index %q", idxStr)
+			}
+			idx = parsed
+		}
+		if name != "" {
+			obj, ok := cur.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("jsonpath.Get: expected object at %s", name)
+			}
+			cur = obj[name]
+		}
+		if idx >= 0 {
+			arr, ok := cur.([]any)
+			if !ok || idx >= len(arr) {
+				return nil, fmt.Errorf("jsonpath.Get: index out of range")
+			}
+			cur = arr[idx]
+		}
+	}
+
+	return cur, nil
 }
 
 // CopyNonEmptyFields copies non-zero fields from src to dst using reflection.

@@ -1,0 +1,18 @@
+package app
+
+import (
+	"context"
+
+	"github.com/example/minimal/internal/config"
+)
+
+type Container struct {
+	Config *config.Config
+}
+
+func NewContainer(ctx context.Context, cfg *config.Config, db any, extra ...any) (*Container, error) {
+	_ = ctx
+	_ = db
+	_ = extra
+	return &Container{Config: cfg}, nil
+}

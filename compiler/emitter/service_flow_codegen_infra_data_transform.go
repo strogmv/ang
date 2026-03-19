@@ -434,50 +434,13 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		st.declared[output] = true
 		st.pointers[output] = false
 		st.types[output] = "any"
-		pathV := "_jpPath" + sfx
-		curV := "_jpCur" + sfx
-		partsV := "_jpParts" + sfx
-		partV := "_jpPart" + sfx
-		nameV := "_jpName" + sfx
-		idxV := "_jpIdx" + sfx
-		idxStrV := "_jpIdxStr" + sfx
+		valV := "_jsonPathVal" + sfx
 		var b strings.Builder
-		b.WriteString(fmt.Sprintf("%s%s := strings.TrimSpace(%s)\n", pad, pathV, pathExpr))
-		b.WriteString(fmt.Sprintf("%s%s = strings.TrimPrefix(%s, \"$\")\n", pad, pathV, pathV))
-		b.WriteString(fmt.Sprintf("%s%s = strings.TrimPrefix(%s, \".\")\n", pad, pathV, pathV))
-		b.WriteString(fmt.Sprintf("%svar %s any = %s\n", pad, curV, input))
-		b.WriteString(fmt.Sprintf("%sif %s != \"\" {\n", pad, pathV))
-		b.WriteString(fmt.Sprintf("%s\t%s := strings.Split(%s, \".\")\n", pad, partsV, pathV))
-		b.WriteString(fmt.Sprintf("%s\tfor _, %s := range %s {\n", pad, partV, partsV))
-		b.WriteString(fmt.Sprintf("%s\t\tif %s == \"\" { continue }\n", pad, partV))
-		b.WriteString(fmt.Sprintf("%s\t\t%s := %s\n", pad, nameV, partV))
-		b.WriteString(fmt.Sprintf("%s\t\t%s := -1\n", pad, idxV))
-		b.WriteString(fmt.Sprintf("%s\t\tif _lb := strings.Index(%s, \"[\"); _lb >= 0 && strings.HasSuffix(%s, \"]\") {\n", pad, partV, partV))
-		b.WriteString(fmt.Sprintf("%s\t\t\t%s = %s[:_lb]\n", pad, nameV, partV))
-		b.WriteString(fmt.Sprintf("%s\t\t\t%s := %s[_lb+1:len(%s)-1]\n", pad, idxStrV, partV, partV))
-		b.WriteString(fmt.Sprintf("%s\t\t\t_p, _pe := strconv.Atoi(%s)\n", pad, idxStrV))
-		b.WriteString(fmt.Sprintf("%s\t\t\tif _pe != nil {\n", pad))
-		b.WriteString(errReturn(st, pad+"\t\t\t\t", "fmt.Errorf(\"jsonpath.Get: invalid index %q\", "+idxStrV+")"))
-		b.WriteString(fmt.Sprintf("%s\t\t\t}\n", pad))
-		b.WriteString(fmt.Sprintf("%s\t\t\t%s = _p\n", pad, idxV))
-		b.WriteString(fmt.Sprintf("%s\t\t}\n", pad))
-		b.WriteString(fmt.Sprintf("%s\t\tif %s != \"\" {\n", pad, nameV))
-		b.WriteString(fmt.Sprintf("%s\t\t\t_m, _ok := %s.(map[string]any)\n", pad, curV))
-		b.WriteString(fmt.Sprintf("%s\t\t\tif !_ok {\n", pad))
-		b.WriteString(errReturn(st, pad+"\t\t\t\t", "fmt.Errorf(\"jsonpath.Get: expected object at %s\", "+nameV+")"))
-		b.WriteString(fmt.Sprintf("%s\t\t\t}\n", pad))
-		b.WriteString(fmt.Sprintf("%s\t\t\t%s = _m[%s]\n", pad, curV, nameV))
-		b.WriteString(fmt.Sprintf("%s\t\t}\n", pad))
-		b.WriteString(fmt.Sprintf("%s\t\tif %s >= 0 {\n", pad, idxV))
-		b.WriteString(fmt.Sprintf("%s\t\t\t_a, _ok := %s.([]any)\n", pad, curV))
-		b.WriteString(fmt.Sprintf("%s\t\t\tif !_ok || %s >= len(_a) {\n", pad, idxV))
-		b.WriteString(errReturn(st, pad+"\t\t\t\t", "fmt.Errorf(\"jsonpath.Get: index out of range\")"))
-		b.WriteString(fmt.Sprintf("%s\t\t\t}\n", pad))
-		b.WriteString(fmt.Sprintf("%s\t\t\t%s = _a[%s]\n", pad, curV, idxV))
-		b.WriteString(fmt.Sprintf("%s\t\t}\n", pad))
-		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s, _jsonPathErr%s := helpers.JSONPathGet(%s, %s)\n", pad, valV, sfx, input, pathExpr))
+		b.WriteString(fmt.Sprintf("%sif _jsonPathErr%s != nil {\n", pad, sfx))
+		b.WriteString(errReturn(st, pad+"\t", "_jsonPathErr"+sfx))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
-		b.WriteString(fmt.Sprintf("%s%s %s %s\n", pad, output, assign, curV))
+		b.WriteString(fmt.Sprintf("%s%s %s %s\n", pad, output, assign, valV))
 		return b.String(), true
 
 	case "jsonpath.Set":

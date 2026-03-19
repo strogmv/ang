@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
@@ -18,28 +21,62 @@ type S3Client struct {
 }
 
 func New(ctx context.Context, region, bucket, endpoint string) (*S3Client, error) {
-	cfg, err := config.LoadDefaultConfig(ctx,
+	loadOpts := []func(*config.LoadOptions) error{
 		config.WithRegion(region),
-	)
+	}
+
+	accessKeyID := strings.TrimSpace(os.Getenv("AWS_ACCESS_KEY_ID"))
+	secretAccessKey := strings.TrimSpace(os.Getenv("AWS_SECRET_ACCESS_KEY"))
+	// Local S3-compatible endpoints (MinIO) should work out-of-the-box.
+	if endpoint != "" && (accessKeyID == "" || secretAccessKey == "") {
+		accessKeyID = "minioadmin"
+		secretAccessKey = "minioadmin"
+	}
+	if accessKeyID != "" && secretAccessKey != "" {
+		loadOpts = append(loadOpts, config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider(accessKeyID, secretAccessKey, ""),
+		))
+	}
+
+	cfg, err := config.LoadDefaultConfig(ctx, loadOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("load aws config: %w", err)
 	}
 
+	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
+		if endpoint != "" {
+			o.BaseEndpoint = aws.String(endpoint)
+			o.UsePathStyle = true
+		}
+	})
+	if endpoint != "" {
+		if err := ensureBucket(ctx, client, bucket); err != nil {
+			return nil, err
+		}
+	}
+
 	return &S3Client{
-		client: s3.NewFromConfig(cfg, func(o *s3.Options) {
-			if endpoint != "" {
-				o.BaseEndpoint = aws.String(endpoint)
-				o.UsePathStyle = true
-			}
-		}),
-		presigner: s3.NewPresignClient(s3.NewFromConfig(cfg, func(o *s3.Options) {
-			if endpoint != "" {
-				o.BaseEndpoint = aws.String(endpoint)
-				o.UsePathStyle = true
-			}
-		})),
-		bucket: bucket,
+		client:    client,
+		presigner: s3.NewPresignClient(client),
+		bucket:    bucket,
 	}, nil
+}
+
+func ensureBucket(ctx context.Context, client *s3.Client, bucket string) error {
+	if strings.TrimSpace(bucket) == "" {
+		return fmt.Errorf("s3 bucket is required")
+	}
+	_, err := client.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: aws.String(bucket)})
+	if err == nil {
+		return nil
+	}
+	_, err = client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
+	if err != nil &&
+		!strings.Contains(err.Error(), "BucketAlreadyOwnedByYou") &&
+		!strings.Contains(err.Error(), "BucketAlreadyExists") {
+		return fmt.Errorf("s3 ensure bucket %q: %w", bucket, err)
+	}
+	return nil
 }
 
 func (s *S3Client) Upload(ctx context.Context, key string, reader io.Reader, contentType string) (string, error) {
@@ -75,7 +112,29 @@ func (s *S3Client) Delete(ctx context.Context, key string) error {
 }
 
 func (s *S3Client) GetURL(ctx context.Context, key string) (string, error) {
-	return fmt.Sprintf("/storage/%s", key), nil
+	return s.PresignGet(ctx, key, 15*time.Minute)
+}
+
+func (s *S3Client) List(ctx context.Context, prefix string) ([]string, error) {
+	input := &s3.ListObjectsV2Input{
+		Bucket: aws.String(s.bucket),
+		Prefix: aws.String(prefix),
+	}
+	paginator := s3.NewListObjectsV2Paginator(s.client, input)
+	keys := make([]string, 0, 32)
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("s3 list objects: %w", err)
+		}
+		for _, obj := range page.Contents {
+			if obj.Key == nil {
+				continue
+			}
+			keys = append(keys, *obj.Key)
+		}
+	}
+	return keys, nil
 }
 
 func (s *S3Client) PresignGet(ctx context.Context, key string, expiresIn time.Duration) (string, error) {

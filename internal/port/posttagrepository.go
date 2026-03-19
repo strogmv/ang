@@ -9,6 +9,8 @@ type PostTagRepository interface {
 	Save(ctx context.Context, entity *domain.PostTag) error
 	FindByID(ctx context.Context, id string) (*domain.PostTag, error)
 	Delete(ctx context.Context, id string) error
+	Insert(ctx context.Context, entity *domain.PostTag) error
+	Update(ctx context.Context, entity *domain.PostTag) error
 	LockByID(ctx context.Context, id string) (*domain.PostTag, error)
 	DeleteByPost(ctx context.Context, postID string) (int64, error)
 	DeleteByTag(ctx context.Context, tagID string) (int64, error)

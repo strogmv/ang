@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 )
 
@@ -28,14 +29,18 @@ type ProblemDetail struct {
 	// --- Extensions ---
 
 	// Code - Custom business error code.
-	Code int `json:"code,omitempty"`
+	Code        int    `json:"code,omitempty"`
+	MessageCode string `json:"message_code,omitempty"`
 
 	// Errors - Validation details (field -> message).
 	Errors map[string]string `json:"errors,omitempty"`
+
+	// Intent - CUE source location (file:line) for debugging.
+	Intent string `json:"intent,omitempty"`
 }
 
 func (e *ProblemDetail) Error() string {
-	return fmt.Sprintf("error %d: %s (code=%d)", e.Status, e.Title, e.Code)
+	return fmt.Sprintf("error %d: %s (code=%d, message_code=%s)", e.Status, e.Title, e.Code, e.MessageCode)
 }
 
 func New(status int, title, detail string) *ProblemDetail {
@@ -49,12 +54,34 @@ func New(status int, title, detail string) *ProblemDetail {
 
 func NewValidationError(detail string, errs map[string]string) *ProblemDetail {
 	return &ProblemDetail{
-		Type:   "validation-error",
-		Title:  "VALIDATION_FAILED",
-		Status: http.StatusBadRequest,
-		Detail: detail,
-		Errors: errs,
-		Code:   40010,
+		Type:        "validation-error",
+		Title:       "VALIDATION_FAILED",
+		Status:      http.StatusBadRequest,
+		Detail:      detail,
+		Errors:      errs,
+		Code:        40010,
+		MessageCode: "VALIDATION_FAILED",
+	}
+}
+
+// WithIntent wraps an error with CUE source location information.
+func WithIntent(err error, intent string) error {
+	if err == nil {
+		return nil
+	}
+	var pd *ProblemDetail
+	if errors.As(err, &pd) {
+		pd.Intent = intent
+		return pd
+	}
+	return &ProblemDetail{
+		Type:        "internal-error",
+		Title:       "INTERNAL_ERROR",
+		Status:      http.StatusInternalServerError,
+		Detail:      err.Error(),
+		Intent:      intent,
+		Code:        50000,
+		MessageCode: "INTERNAL_ERROR",
 	}
 }
 
@@ -68,8 +95,25 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 		if pd.Instance == "" {
 			pd.Instance = r.URL.Path
 		}
+		if pd.Status >= http.StatusInternalServerError {
+			slog.Error("Application error response",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"status", pd.Status,
+				"title", pd.Title,
+				"detail", pd.Detail,
+				"code", pd.Code,
+				"message_code", pd.MessageCode,
+				"intent", pd.Intent,
+			)
+		}
 	} else {
-		// Hide internal error details from the client.
+		// Hide internal error details from the client, but keep full details in server logs.
+		slog.Error("Unhandled application error",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"error", err,
+		)
 		pd = New(http.StatusInternalServerError, "Internal Server Error", "An unexpected error occurred.")
 		pd.Instance = r.URL.Path
 	}

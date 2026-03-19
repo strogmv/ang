@@ -3,7 +3,7 @@ package app
 import (
 	"context"
 
-	"github.com/strogmv/ang/internal/config"
+	"github.com/example/blog/internal/config"
 )
 
 type Container struct {

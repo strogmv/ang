@@ -25,5 +25,7 @@
     }
   ],
   "events": null,
-  "entities": []
+  "entities": [
+    "User"
+  ]
 }
