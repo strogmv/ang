@@ -20,7 +20,7 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/redis/go-redis/v9 v9.17.3
 	github.com/stretchr/testify v1.11.1
-	github.com/strogmv/ang-ir v0.0.0-20260319115428-8de594dfb01d
+	github.com/strogmv/ang-ir v0.0.0-20260319212611-c66e88d2b2b3
 	github.com/strogmv/ang-transform v0.0.0-20260319202114-e3e253d058da
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.65.0
 	go.opentelemetry.io/otel v1.40.0

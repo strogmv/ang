@@ -174,8 +174,8 @@ github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UV
 github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
-github.com/strogmv/ang-ir v0.0.0-20260319115428-8de594dfb01d h1:rn5UbXWaV+R8bVbeaA/9ikaQzdLZStXnf71LJcBsmvg=
-github.com/strogmv/ang-ir v0.0.0-20260319115428-8de594dfb01d/go.mod h1:fwDBxC+ZJawvEOg8EgrVWrrde/M1fc2cAcj4q1rfr1o=
+github.com/strogmv/ang-ir v0.0.0-20260319212611-c66e88d2b2b3 h1:zAcpBwtYCpF+ADKjAT7cNsPITxED1mqBHCdBynserOU=
+github.com/strogmv/ang-ir v0.0.0-20260319212611-c66e88d2b2b3/go.mod h1:fwDBxC+ZJawvEOg8EgrVWrrde/M1fc2cAcj4q1rfr1o=
 github.com/strogmv/ang-transform v0.0.0-20260319202114-e3e253d058da h1:5QRdmq6s9+UGYxFjvq8IyZRRZ8ovg8WQelswkLCo+io=
 github.com/strogmv/ang-transform v0.0.0-20260319202114-e3e253d058da/go.mod h1:A0dZScFrl8bazEOtSjJMlGZC9moBcsEa0uK3wXQk2PU=
 github.com/tree-sitter/go-tree-sitter v0.25.0 h1:sx6kcg8raRFCvc9BnXglke6axya12krCJF5xJ2sftRU=
