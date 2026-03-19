@@ -20,9 +20,11 @@ func TestDualModeParity_BasicGeneratedDomain(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("initFromTemplate: %v", err)
 	}
+	repoRoot, _ := filepath.Abs("../..")
+	goModContent := "module github.com/example/parity-app\n\ngo 1.25\n\nreplace github.com/strogmv/ang => " + repoRoot + "\n"
 	if err := os.WriteFile(
 		filepath.Join(projectDir, "go.mod"),
-		[]byte("module github.com/example/parity-app\n\ngo 1.25\n"),
+		[]byte(goModContent),
 		0o644,
 	); err != nil {
 		t.Fatalf("write go.mod: %v", err)
