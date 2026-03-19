@@ -31,13 +31,15 @@ func ConvertFromNormalizer(
 		Project: Project{
 			Name:    project.Name,
 			Version: project.Version,
-			Target: Target{
-				Lang:      "go",       // Default, should come from CUE
-				Framework: "chi",      // Default
-				DB:        "postgres", // Default
-			},
+			Target:  Target{},
 		},
 		Metadata: make(map[string]any),
+	}
+	if project.Name != "" || project.Version != "" {
+		schema.Project.Provenance = &Provenance{
+			Origin: OriginExplicit,
+			From:   "project",
+		}
 	}
 
 	// Convert entities
@@ -159,6 +161,7 @@ func ConvertEntity(e normalizer.Entity) Entity {
 		Fields:         ConvertFields(e.Fields),
 		Metadata:       e.Metadata,
 		Source:         e.Source,
+		Provenance:     explicitProvenance(e.Source),
 	}
 	if e.ReadModel != nil {
 		entity.ReadModel = &ReadModel{
@@ -215,6 +218,7 @@ func ConvertField(f normalizer.Field) Field {
 		EnvVar:      f.EnvVar,
 		Metadata:    f.Metadata,
 		Source:      f.Source,
+		Provenance:  explicitProvenance(f.Source),
 	}
 
 	if f.UI != nil {
@@ -392,6 +396,7 @@ func ConvertService(s normalizer.Service) Service {
 		Uses:          s.Uses,
 		Metadata:      s.Metadata,
 		Source:        s.Source,
+		Provenance:    explicitProvenance(s.Source),
 		RequiresSQL:   s.RequiresSQL,
 		RequiresMongo: s.RequiresMongo,
 		RequiresRedis: s.RequiresRedis,
@@ -426,6 +431,7 @@ func ConvertMethod(m normalizer.Method) Method {
 		Planner:              convertPlannerFromNormalizer(m.Planner),
 		Metadata:             m.Metadata,
 		Source:               m.Source,
+		Provenance:           explicitProvenance(m.Source),
 	}
 
 	// Convert input
@@ -576,12 +582,13 @@ func convertImplSteps(steps []normalizer.ImplStep) []ImplStep {
 
 func ConvertEvent(e normalizer.EventDef) Event {
 	return Event{
-		Name:      e.Name,
-		Owner:     e.Owner,
-		Consumers: append([]string(nil), e.Consumers...),
-		Fields:    ConvertFields(e.Fields),
-		Metadata:  e.Metadata,
-		Source:    e.Source,
+		Name:       e.Name,
+		Owner:      e.Owner,
+		Consumers:  append([]string(nil), e.Consumers...),
+		Fields:     ConvertFields(e.Fields),
+		Metadata:   e.Metadata,
+		Source:     e.Source,
+		Provenance: explicitProvenance(e.Source),
 	}
 }
 
@@ -610,6 +617,7 @@ func ConvertEndpoint(ep normalizer.Endpoint) Endpoint {
 		View:             ep.View,
 		Metadata:         ep.Metadata,
 		Source:           ep.Source,
+		Provenance:       explicitProvenance(ep.Source),
 	}
 
 	// Convert auth
@@ -678,9 +686,10 @@ func ConvertEndpoint(ep normalizer.Endpoint) Endpoint {
 
 func ConvertRepository(r normalizer.Repository) Repository {
 	repo := Repository{
-		Name:   r.Name,
-		Entity: r.Entity,
-		Source: r.Source,
+		Name:       r.Name,
+		Entity:     r.Entity,
+		Source:     r.Source,
+		Provenance: explicitProvenance(r.Source),
 	}
 
 	for _, f := range r.Finders {
@@ -697,6 +706,7 @@ func ConvertRepository(r normalizer.Repository) Repository {
 			CustomSQL:  f.CustomSQL,
 			Where:      ConvertWhereClauses(f.Where),
 			Source:     f.Source,
+			Provenance: explicitProvenance(f.Source),
 		})
 	}
 
@@ -743,6 +753,10 @@ func ConvertAuth(a *normalizer.AuthDef) *Auth {
 			LogoutOp:            a.LogoutOp,
 			LogoutTokenField:    a.LogoutTokenField,
 		},
+		Provenance: &Provenance{
+			Origin: OriginExplicit,
+			From:   "auth",
+		},
 	}
 }
 
@@ -765,6 +779,17 @@ func ConvertSchedule(s normalizer.ScheduleDef) Schedule {
 	}
 
 	return schedule
+}
+
+func explicitProvenance(source string) *Provenance {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return nil
+	}
+	return &Provenance{
+		Origin: OriginExplicit,
+		From:   source,
+	}
 }
 
 func ConvertFlowSteps(source []normalizer.FlowStep) []FlowStep {

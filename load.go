@@ -19,6 +19,14 @@ type Result struct {
 	Warnings   []normalizer.Warning
 }
 
+type LoadOptions struct {
+	Strict                bool
+	AllowLegacyMain       bool
+	IncludeNormalized     bool
+	IncludeGraph          bool
+	IgnoreOptionalDomains []string
+}
+
 type Normalized struct {
 	Entities       []normalizer.Entity
 	Services       []normalizer.Service
@@ -39,83 +47,151 @@ type Normalized struct {
 }
 
 func Load(basePath string) (*Result, error) {
+	return LoadWithOptions(basePath, LoadOptions{
+		AllowLegacyMain:   true,
+		IncludeNormalized: true,
+		IncludeGraph:      true,
+	})
+}
+
+func LoadWithOptions(basePath string, opts LoadOptions) (*Result, error) {
 	p := parser.New()
 	n := normalizer.New()
+	ignored := make(map[string]struct{}, len(opts.IgnoreOptionalDomains))
+	for _, name := range opts.IgnoreOptionalDomains {
+		name = strings.TrimSpace(strings.ToLower(name))
+		if name != "" {
+			ignored[name] = struct{}{}
+		}
+	}
+	isIgnored := func(name string) bool {
+		_, ok := ignored[strings.TrimSpace(strings.ToLower(name))]
+		return ok
+	}
 
 	var warnings []normalizer.Warning
 	n.WarningSink = func(w normalizer.Warning) {
 		warnings = append(warnings, w)
 	}
 
-	valDomain, okDomain, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/domain"))
+	valDomain, okDomain, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/domain"), opts.Strict || isIgnored("domain"))
 	if err != nil {
 		return nil, fmt.Errorf("load cue/domain: %w", err)
 	}
-	valArch, _, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/architecture"))
+	if isIgnored("domain") {
+		okDomain = false
+		valDomain = cue.Value{}
+	}
+	valArch, _, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/architecture"), opts.Strict || isIgnored("architecture"))
 	if err != nil {
 		return nil, fmt.Errorf("load cue/architecture: %w", err)
 	}
-	valAPI, okAPI, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/api"))
+	if isIgnored("architecture") {
+		valArch = cue.Value{}
+	}
+	valAPI, okAPI, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/api"), opts.Strict || isIgnored("api"))
 	if err != nil {
 		return nil, fmt.Errorf("load cue/api: %w", err)
 	}
+	if isIgnored("api") {
+		okAPI = false
+		valAPI = cue.Value{}
+	}
 	legacyMainPath := filepath.Join(basePath, "cue", "main.cue")
-	if !okDomain || !okAPI {
+	if opts.AllowLegacyMain && (!okDomain || !okAPI) {
 		if _, statErr := os.Stat(legacyMainPath); statErr == nil {
-			legacyCue, legacyOK, legacyLoadErr := loadOptionalDomain(p, filepath.Join(basePath, "cue"))
+			legacyCue, legacyOK, legacyLoadErr := loadOptionalDomain(p, filepath.Join(basePath, "cue"), opts.Strict)
 			if legacyLoadErr != nil {
 				return nil, fmt.Errorf("load legacy cue/: %w", legacyLoadErr)
 			}
 			if legacyOK {
-				if !okDomain {
+				if !okDomain && !isIgnored("domain") {
 					valDomain = legacyCue
 					okDomain = true
 				}
-				if !okAPI {
+				if !okAPI && !isIgnored("api") {
 					valAPI = legacyCue
 					okAPI = true
 				}
 			}
 		}
 	}
+	if opts.Strict && !isIgnored("domain") && !okDomain {
+		return nil, fmt.Errorf("missing required domain cue/domain (and no legacy cue/main.cue fallback enabled)")
+	}
+	if opts.Strict && !isIgnored("api") && !okAPI {
+		return nil, fmt.Errorf("missing required api cue/api (and no legacy cue/main.cue fallback enabled)")
+	}
 
-	valPolicy, okPolicy, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/policy"))
+	valPolicy, okPolicy, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/policy"), opts.Strict || isIgnored("policy"))
 	if err != nil {
 		return nil, fmt.Errorf("load cue/policy: %w", err)
 	}
+	if isIgnored("policy") {
+		okPolicy = false
+		valPolicy = cue.Value{}
+	}
 	if !okPolicy {
-		if legacyPolicy, legacyOK, legacyErr := loadOptionalDomain(p, filepath.Join(basePath, "cue/policies")); legacyErr == nil && legacyOK {
+		if legacyPolicy, legacyOK, legacyErr := loadOptionalDomain(p, filepath.Join(basePath, "cue/policies"), opts.Strict); legacyErr == nil && legacyOK {
 			valPolicy = legacyPolicy
 			okPolicy = true
 		}
 	}
-	valRepo, okRepo, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/repo"))
+	valRepo, okRepo, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/repo"), opts.Strict || isIgnored("repo"))
 	if err != nil {
 		return nil, fmt.Errorf("load cue/repo: %w", err)
 	}
-	valEvents, okEvents, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/events"))
+	if isIgnored("repo") {
+		okRepo = false
+		valRepo = cue.Value{}
+	}
+	valEvents, okEvents, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/events"), opts.Strict || isIgnored("events"))
 	if err != nil {
 		return nil, fmt.Errorf("load cue/events: %w", err)
 	}
-	valErrors, okErrors, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/errors"))
+	if isIgnored("events") {
+		okEvents = false
+		valEvents = cue.Value{}
+	}
+	valErrors, okErrors, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/errors"), opts.Strict || isIgnored("errors"))
 	if err != nil {
 		return nil, fmt.Errorf("load cue/errors: %w", err)
 	}
-	valProject, okProject, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/project"))
+	if isIgnored("errors") {
+		okErrors = false
+		valErrors = cue.Value{}
+	}
+	valProject, okProject, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/project"), opts.Strict || isIgnored("project"))
 	if err != nil {
 		return nil, fmt.Errorf("load cue/project: %w", err)
 	}
-	valViews, okViews, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/views"))
+	if isIgnored("project") {
+		okProject = false
+		valProject = cue.Value{}
+	}
+	valViews, okViews, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/views"), opts.Strict || isIgnored("views"))
 	if err != nil {
 		return nil, fmt.Errorf("load cue/views: %w", err)
 	}
-	valInfra, okInfra, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/infra"))
+	if isIgnored("views") {
+		okViews = false
+		valViews = cue.Value{}
+	}
+	valInfra, okInfra, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/infra"), opts.Strict || isIgnored("infra"))
 	if err != nil {
 		return nil, fmt.Errorf("load cue/infra: %w", err)
 	}
-	valEffects, okEffects, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/effects"))
+	if isIgnored("infra") {
+		okInfra = false
+		valInfra = cue.Value{}
+	}
+	valEffects, okEffects, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/effects"), opts.Strict || isIgnored("effects"))
 	if err != nil {
 		return nil, fmt.Errorf("load cue/effects: %w", err)
+	}
+	if isIgnored("effects") {
+		okEffects = false
+		valEffects = cue.Value{}
 	}
 
 	entities, err := n.ExtractEntities(valDomain)
@@ -279,10 +355,13 @@ func Load(basePath string) (*Result, error) {
 		normalizer.InfraNotificationChannels(infraValues),
 		normalizer.InfraNotificationPolicies(infraValues),
 	)
+	if !opts.IncludeGraph {
+		schema.Graph = nil
+	}
 
-	return &Result{
-		Schema: schema,
-		Normalized: &Normalized{
+	var normalized *Normalized
+	if opts.IncludeNormalized {
+		normalized = &Normalized{
 			Entities:       entities,
 			Services:       services,
 			Endpoints:      endpoints,
@@ -299,13 +378,26 @@ func Load(basePath string) (*Result, error) {
 			Auth:           authDef,
 			RBAC:           rbacDef,
 			Project:        projectDef,
-		},
-		Warnings: warnings,
+		}
+	}
+
+	return &Result{
+		Schema:     schema,
+		Normalized: normalized,
+		Warnings:   warnings,
 	}, nil
 }
 
 func LoadSchema(basePath string) (*ir.Schema, error) {
 	result, err := Load(basePath)
+	if err != nil {
+		return nil, err
+	}
+	return result.Schema, nil
+}
+
+func LoadSchemaWithOptions(basePath string, opts LoadOptions) (*ir.Schema, error) {
+	result, err := LoadWithOptions(basePath, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -438,13 +530,16 @@ func convertNotifications(ch *normalizer.NotificationChannelsDef, pol *normalize
 	return out
 }
 
-func loadOptionalDomain(p *parser.Parser, path string) (cue.Value, bool, error) {
+func loadOptionalDomain(p *parser.Parser, path string, strict bool) (cue.Value, bool, error) {
 	matches, _ := filepath.Glob(filepath.Join(path, "*.cue"))
 	if len(matches) == 0 {
 		return cue.Value{}, false, nil
 	}
 	val, err := p.LoadDomain(path)
 	if err != nil {
+		if strict {
+			return cue.Value{}, false, err
+		}
 		filtered, skipped, filterErr := filterValidCUEFiles(matches)
 		if filterErr != nil || len(skipped) == 0 || len(filtered) == 0 {
 			return cue.Value{}, false, err

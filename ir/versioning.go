@@ -54,6 +54,7 @@ func MigrateToVersion(schema *Schema, targetVersion string) error {
 		return fmt.Errorf("unsupported target ir_version %q (current=%s)", targetVersion, CurrentVersion())
 	}
 	current := normalizeVersion(schema.IRVersion)
+	start := current
 
 	switch current {
 	case "0", IRVersionV1, IRVersionV2:
@@ -68,6 +69,14 @@ func MigrateToVersion(schema *Schema, targetVersion string) error {
 		}
 		step.Apply(schema)
 		current = normalizeVersion(schema.IRVersion)
+	}
+
+	if start != target {
+		schema.Provenance = &Provenance{
+			Origin: OriginMigrated,
+			From:   start,
+			Detail: "to " + target,
+		}
 	}
 
 	switch target {
@@ -148,6 +157,9 @@ func ensureMap(dst *map[string]any) {
 // ToCanonicalJSON normalizes schema version and returns stable indented JSON.
 func ToCanonicalJSON(schema *Schema) ([]byte, error) {
 	if err := MigrateToCurrent(schema); err != nil {
+		return nil, err
+	}
+	if err := ValidateABIV2(schema); err != nil {
 		return nil, err
 	}
 	return json.MarshalIndent(schema, "", "  ")

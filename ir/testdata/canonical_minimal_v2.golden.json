@@ -1,0 +1,120 @@
+{
+  "ir_version": "2",
+  "project": {
+    "name": "shop",
+    "version": "0.1.0",
+    "target": {
+      "lang": "",
+      "framework": "",
+      "db": "",
+      "cache": "",
+      "queue": "",
+      "storage": ""
+    }
+  },
+  "entities": [
+    {
+      "name": "Product",
+      "description": "",
+      "owner": "",
+      "bounded_context": "",
+      "aggregate_root": false,
+      "owns": [],
+      "fields": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "uuid",
+            "name": ""
+          },
+          "optional": false,
+          "is_secret": false,
+          "is_pii": false,
+          "skip_domain": false,
+          "validate_tag": "",
+          "env_var": "",
+          "attributes": [],
+          "ui": {
+            "type": "",
+            "importance": "",
+            "input_kind": "",
+            "intent": "",
+            "density": "",
+            "label_mode": "",
+            "surface": "",
+            "component": "",
+            "section": "",
+            "columns": 0,
+            "label": "",
+            "placeholder": "",
+            "helper_text": "",
+            "order": 0,
+            "hidden": false,
+            "disabled": false,
+            "full_width": false,
+            "rows": 0,
+            "currency": "",
+            "source": "",
+            "options": [],
+            "multiple": false,
+            "accept": "",
+            "max_size": 0
+          },
+          "metadata": {},
+          "source": ""
+        }
+      ],
+      "indexes": [],
+      "ui": {},
+      "metadata": {},
+      "source": "cue://domain/Product"
+    }
+  ],
+  "services": [
+    {
+      "name": "Catalog",
+      "description": "",
+      "methods": [
+        {
+          "name": "ListProducts",
+          "description": "",
+          "sources": [],
+          "cache_ttl": "",
+          "cache_tags": [],
+          "throws": [],
+          "publishes": [],
+          "broadcasts": [],
+          "idempotent": false,
+          "dedupe_key": "",
+          "outbox": false,
+          "impl_steps": [],
+          "flow": [],
+          "attributes": [],
+          "metadata": {},
+          "source": ""
+        }
+      ],
+      "publishes": [],
+      "subscribes": {},
+      "uses": [],
+      "metadata": {},
+      "source": "cue://service/Catalog",
+      "requires_sql": false,
+      "requires_mongo": false,
+      "requires_redis": false,
+      "requires_nats": false,
+      "requires_s3": false
+    }
+  ],
+  "events": [],
+  "errors": [],
+  "endpoints": [],
+  "scopes": [],
+  "repos": [],
+  "config": {
+    "fields": []
+  },
+  "schedules": [],
+  "views": [],
+  "metadata": {}
+}
