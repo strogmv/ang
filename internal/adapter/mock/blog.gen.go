@@ -8,40 +8,48 @@ import (
 )
 
 type MockBlog struct {
-	ArchivePostFunc    func(ctx context.Context, req port.ArchivePostRequest) (port.ArchivePostResponse, error)
-	ArchivePostCalls   []MockBlogArchivePostCall
-	CreateCommentFunc  func(ctx context.Context, req port.CreateCommentRequest) (port.CreateCommentResponse, error)
-	CreateCommentCalls []MockBlogCreateCommentCall
-	CreatePostFunc     func(ctx context.Context, req port.CreatePostRequest) (port.CreatePostResponse, error)
-	CreatePostCalls    []MockBlogCreatePostCall
-	CreateTagFunc      func(ctx context.Context, req port.CreateTagRequest) (port.CreateTagResponse, error)
-	CreateTagCalls     []MockBlogCreateTagCall
-	DeleteCommentFunc  func(ctx context.Context, req port.DeleteCommentRequest) (port.DeleteCommentResponse, error)
-	DeleteCommentCalls []MockBlogDeleteCommentCall
-	DeletePostFunc     func(ctx context.Context, req port.DeletePostRequest) (port.DeletePostResponse, error)
-	DeletePostCalls    []MockBlogDeletePostCall
-	DeleteTagFunc      func(ctx context.Context, req port.DeleteTagRequest) (port.DeleteTagResponse, error)
-	DeleteTagCalls     []MockBlogDeleteTagCall
-	GetPostFunc        func(ctx context.Context, req port.GetPostRequest) (port.GetPostResponse, error)
-	GetPostCalls       []MockBlogGetPostCall
-	ListCommentsFunc   func(ctx context.Context, req port.ListCommentsRequest) (port.ListCommentsResponse, error)
-	ListCommentsCalls  []MockBlogListCommentsCall
-	ListMyPostsFunc    func(ctx context.Context, req port.ListMyPostsRequest) (port.ListMyPostsResponse, error)
-	ListMyPostsCalls   []MockBlogListMyPostsCall
-	ListPostsFunc      func(ctx context.Context, req port.ListPostsRequest) (port.ListPostsResponse, error)
-	ListPostsCalls     []MockBlogListPostsCall
-	ListTagsFunc       func(ctx context.Context, req port.ListTagsRequest) (port.ListTagsResponse, error)
-	ListTagsCalls      []MockBlogListTagsCall
-	PublishPostFunc    func(ctx context.Context, req port.PublishPostRequest) (port.PublishPostResponse, error)
-	PublishPostCalls   []MockBlogPublishPostCall
-	SubmitPostFunc     func(ctx context.Context, req port.SubmitPostRequest) (port.SubmitPostResponse, error)
-	SubmitPostCalls    []MockBlogSubmitPostCall
-	UpdateCommentFunc  func(ctx context.Context, req port.UpdateCommentRequest) (port.UpdateCommentResponse, error)
-	UpdateCommentCalls []MockBlogUpdateCommentCall
-	UpdatePostFunc     func(ctx context.Context, req port.UpdatePostRequest) (port.UpdatePostResponse, error)
-	UpdatePostCalls    []MockBlogUpdatePostCall
-	UpdateTagFunc      func(ctx context.Context, req port.UpdateTagRequest) (port.UpdateTagResponse, error)
-	UpdateTagCalls     []MockBlogUpdateTagCall
+	ArchivePostFunc                 func(ctx context.Context, req port.ArchivePostRequest) (port.ArchivePostResponse, error)
+	ArchivePostCalls                []MockBlogArchivePostCall
+	CreateCommentFunc               func(ctx context.Context, req port.CreateCommentRequest) (port.CreateCommentResponse, error)
+	CreateCommentCalls              []MockBlogCreateCommentCall
+	CreatePostFunc                  func(ctx context.Context, req port.CreatePostRequest) (port.CreatePostResponse, error)
+	CreatePostCalls                 []MockBlogCreatePostCall
+	CreateTagFunc                   func(ctx context.Context, req port.CreateTagRequest) (port.CreateTagResponse, error)
+	CreateTagCalls                  []MockBlogCreateTagCall
+	DeleteCommentFunc               func(ctx context.Context, req port.DeleteCommentRequest) (port.DeleteCommentResponse, error)
+	DeleteCommentCalls              []MockBlogDeleteCommentCall
+	DeletePostFunc                  func(ctx context.Context, req port.DeletePostRequest) (port.DeletePostResponse, error)
+	DeletePostCalls                 []MockBlogDeletePostCall
+	DeleteTagFunc                   func(ctx context.Context, req port.DeleteTagRequest) (port.DeleteTagResponse, error)
+	DeleteTagCalls                  []MockBlogDeleteTagCall
+	GetPostFunc                     func(ctx context.Context, req port.GetPostRequest) (port.GetPostResponse, error)
+	GetPostCalls                    []MockBlogGetPostCall
+	ListCommentsFunc                func(ctx context.Context, req port.ListCommentsRequest) (port.ListCommentsResponse, error)
+	ListCommentsCalls               []MockBlogListCommentsCall
+	ListMyPostsFunc                 func(ctx context.Context, req port.ListMyPostsRequest) (port.ListMyPostsResponse, error)
+	ListMyPostsCalls                []MockBlogListMyPostsCall
+	ListPostsFunc                   func(ctx context.Context, req port.ListPostsRequest) (port.ListPostsResponse, error)
+	ListPostsCalls                  []MockBlogListPostsCall
+	ListTagsFunc                    func(ctx context.Context, req port.ListTagsRequest) (port.ListTagsResponse, error)
+	ListTagsCalls                   []MockBlogListTagsCall
+	OnCommentCreatedProjectionFunc  func(ctx context.Context, req port.OnCommentCreatedProjectionRequest) (port.OnCommentCreatedProjectionResponse, error)
+	OnCommentCreatedProjectionCalls []MockBlogOnCommentCreatedProjectionCall
+	OnPostCreatedProjectionFunc     func(ctx context.Context, req port.OnPostCreatedProjectionRequest) (port.OnPostCreatedProjectionResponse, error)
+	OnPostCreatedProjectionCalls    []MockBlogOnPostCreatedProjectionCall
+	OnPostPublishedProjectionFunc   func(ctx context.Context, req port.OnPostPublishedProjectionRequest) (port.OnPostPublishedProjectionResponse, error)
+	OnPostPublishedProjectionCalls  []MockBlogOnPostPublishedProjectionCall
+	OnPostUpdatedProjectionFunc     func(ctx context.Context, req port.OnPostUpdatedProjectionRequest) (port.OnPostUpdatedProjectionResponse, error)
+	OnPostUpdatedProjectionCalls    []MockBlogOnPostUpdatedProjectionCall
+	PublishPostFunc                 func(ctx context.Context, req port.PublishPostRequest) (port.PublishPostResponse, error)
+	PublishPostCalls                []MockBlogPublishPostCall
+	SubmitPostFunc                  func(ctx context.Context, req port.SubmitPostRequest) (port.SubmitPostResponse, error)
+	SubmitPostCalls                 []MockBlogSubmitPostCall
+	UpdateCommentFunc               func(ctx context.Context, req port.UpdateCommentRequest) (port.UpdateCommentResponse, error)
+	UpdateCommentCalls              []MockBlogUpdateCommentCall
+	UpdatePostFunc                  func(ctx context.Context, req port.UpdatePostRequest) (port.UpdatePostResponse, error)
+	UpdatePostCalls                 []MockBlogUpdatePostCall
+	UpdateTagFunc                   func(ctx context.Context, req port.UpdateTagRequest) (port.UpdateTagResponse, error)
+	UpdateTagCalls                  []MockBlogUpdateTagCall
 }
 
 var _ port.Blog = (*MockBlog)(nil)
@@ -226,6 +234,66 @@ func (m *MockBlog) ListTags(ctx context.Context, req port.ListTagsRequest) (port
 		return m.ListTagsFunc(ctx, req)
 	}
 	var ret0 port.ListTagsResponse
+	var ret1 error
+	return ret0, ret1
+}
+
+type MockBlogOnCommentCreatedProjectionCall struct {
+	Ctx context.Context
+	Req port.OnCommentCreatedProjectionRequest
+}
+
+func (m *MockBlog) OnCommentCreatedProjection(ctx context.Context, req port.OnCommentCreatedProjectionRequest) (port.OnCommentCreatedProjectionResponse, error) {
+	m.OnCommentCreatedProjectionCalls = append(m.OnCommentCreatedProjectionCalls, MockBlogOnCommentCreatedProjectionCall{Ctx: ctx, Req: req})
+	if m.OnCommentCreatedProjectionFunc != nil {
+		return m.OnCommentCreatedProjectionFunc(ctx, req)
+	}
+	var ret0 port.OnCommentCreatedProjectionResponse
+	var ret1 error
+	return ret0, ret1
+}
+
+type MockBlogOnPostCreatedProjectionCall struct {
+	Ctx context.Context
+	Req port.OnPostCreatedProjectionRequest
+}
+
+func (m *MockBlog) OnPostCreatedProjection(ctx context.Context, req port.OnPostCreatedProjectionRequest) (port.OnPostCreatedProjectionResponse, error) {
+	m.OnPostCreatedProjectionCalls = append(m.OnPostCreatedProjectionCalls, MockBlogOnPostCreatedProjectionCall{Ctx: ctx, Req: req})
+	if m.OnPostCreatedProjectionFunc != nil {
+		return m.OnPostCreatedProjectionFunc(ctx, req)
+	}
+	var ret0 port.OnPostCreatedProjectionResponse
+	var ret1 error
+	return ret0, ret1
+}
+
+type MockBlogOnPostPublishedProjectionCall struct {
+	Ctx context.Context
+	Req port.OnPostPublishedProjectionRequest
+}
+
+func (m *MockBlog) OnPostPublishedProjection(ctx context.Context, req port.OnPostPublishedProjectionRequest) (port.OnPostPublishedProjectionResponse, error) {
+	m.OnPostPublishedProjectionCalls = append(m.OnPostPublishedProjectionCalls, MockBlogOnPostPublishedProjectionCall{Ctx: ctx, Req: req})
+	if m.OnPostPublishedProjectionFunc != nil {
+		return m.OnPostPublishedProjectionFunc(ctx, req)
+	}
+	var ret0 port.OnPostPublishedProjectionResponse
+	var ret1 error
+	return ret0, ret1
+}
+
+type MockBlogOnPostUpdatedProjectionCall struct {
+	Ctx context.Context
+	Req port.OnPostUpdatedProjectionRequest
+}
+
+func (m *MockBlog) OnPostUpdatedProjection(ctx context.Context, req port.OnPostUpdatedProjectionRequest) (port.OnPostUpdatedProjectionResponse, error) {
+	m.OnPostUpdatedProjectionCalls = append(m.OnPostUpdatedProjectionCalls, MockBlogOnPostUpdatedProjectionCall{Ctx: ctx, Req: req})
+	if m.OnPostUpdatedProjectionFunc != nil {
+		return m.OnPostUpdatedProjectionFunc(ctx, req)
+	}
+	var ret0 port.OnPostUpdatedProjectionResponse
 	var ret1 error
 	return ret0, ret1
 }

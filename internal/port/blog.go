@@ -17,6 +17,10 @@ type Blog interface {
 	ListMyPosts(ctx context.Context, req ListMyPostsRequest) (ListMyPostsResponse, error)
 	ListPosts(ctx context.Context, req ListPostsRequest) (ListPostsResponse, error)
 	ListTags(ctx context.Context, req ListTagsRequest) (ListTagsResponse, error)
+	OnCommentCreatedProjection(ctx context.Context, req OnCommentCreatedProjectionRequest) (OnCommentCreatedProjectionResponse, error)
+	OnPostCreatedProjection(ctx context.Context, req OnPostCreatedProjectionRequest) (OnPostCreatedProjectionResponse, error)
+	OnPostPublishedProjection(ctx context.Context, req OnPostPublishedProjectionRequest) (OnPostPublishedProjectionResponse, error)
+	OnPostUpdatedProjection(ctx context.Context, req OnPostUpdatedProjectionRequest) (OnPostUpdatedProjectionResponse, error)
 	PublishPost(ctx context.Context, req PublishPostRequest) (PublishPostResponse, error)
 	SubmitPost(ctx context.Context, req SubmitPostRequest) (SubmitPostResponse, error)
 	UpdateComment(ctx context.Context, req UpdateCommentRequest) (UpdateCommentResponse, error)
@@ -240,6 +244,77 @@ type ListTagsResponse struct {
 }
 
 func (d *ListTagsResponse) Validate() error {
+	return nil
+}
+
+type OnCommentCreatedProjectionRequest struct {
+	CommentID string `json:"commentId"`
+	PostID    string `json:"postId"`
+	AuthorID  string `json:"authorId"`
+}
+
+func (d *OnCommentCreatedProjectionRequest) Validate() error {
+	return nil
+}
+
+type OnCommentCreatedProjectionResponse struct {
+	Ok bool `json:"ok"`
+}
+
+func (d *OnCommentCreatedProjectionResponse) Validate() error {
+	return nil
+}
+
+type OnPostCreatedProjectionRequest struct {
+	PostID   string `json:"postId"`
+	AuthorID string `json:"authorId"`
+	Title    string `json:"title"`
+}
+
+func (d *OnPostCreatedProjectionRequest) Validate() error {
+	return nil
+}
+
+type OnPostCreatedProjectionResponse struct {
+	Ok bool `json:"ok"`
+}
+
+func (d *OnPostCreatedProjectionResponse) Validate() error {
+	return nil
+}
+
+type OnPostPublishedProjectionRequest struct {
+	PostID   string `json:"postId"`
+	AuthorID string `json:"authorId"`
+	Title    string `json:"title"`
+	Slug     string `json:"slug"`
+}
+
+func (d *OnPostPublishedProjectionRequest) Validate() error {
+	return nil
+}
+
+type OnPostPublishedProjectionResponse struct {
+	Ok bool `json:"ok"`
+}
+
+func (d *OnPostPublishedProjectionResponse) Validate() error {
+	return nil
+}
+
+type OnPostUpdatedProjectionRequest struct {
+	PostID string `json:"postId"`
+}
+
+func (d *OnPostUpdatedProjectionRequest) Validate() error {
+	return nil
+}
+
+type OnPostUpdatedProjectionResponse struct {
+	Ok bool `json:"ok"`
+}
+
+func (d *OnPostUpdatedProjectionResponse) Validate() error {
 	return nil
 }
 

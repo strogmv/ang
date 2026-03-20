@@ -121,6 +121,24 @@ export interface LoginResponse {
   /**  */
   user: any;
 }
+export interface OnUserLoggedInAuditRequest {
+  /**  */
+  userId: string;
+}
+export interface OnUserLoggedInAuditResponse {
+  /**  */
+  ok: boolean;
+}
+export interface OnUserRegisteredAuditRequest {
+  /**  */
+  userId: string;
+  /**  */
+  email: string;
+}
+export interface OnUserRegisteredAuditResponse {
+  /**  */
+  ok: boolean;
+}
 export interface RegisterRequest {
   /**  */
   email: string;
@@ -346,6 +364,52 @@ export interface ListTagsResponseData {
   slug: string;
   /**  */
   description?: string;
+}
+export interface OnCommentCreatedProjectionRequest {
+  /**  */
+  commentId: string;
+  /**  */
+  postId: string;
+  /**  */
+  authorId: string;
+}
+export interface OnCommentCreatedProjectionResponse {
+  /**  */
+  ok: boolean;
+}
+export interface OnPostCreatedProjectionRequest {
+  /**  */
+  postId: string;
+  /**  */
+  authorId: string;
+  /**  */
+  title: string;
+}
+export interface OnPostCreatedProjectionResponse {
+  /**  */
+  ok: boolean;
+}
+export interface OnPostPublishedProjectionRequest {
+  /**  */
+  postId: string;
+  /**  */
+  authorId: string;
+  /**  */
+  title: string;
+  /**  */
+  slug: string;
+}
+export interface OnPostPublishedProjectionResponse {
+  /**  */
+  ok: boolean;
+}
+export interface OnPostUpdatedProjectionRequest {
+  /**  */
+  postId: string;
+}
+export interface OnPostUpdatedProjectionResponse {
+  /**  */
+  ok: boolean;
 }
 export interface PublishPostRequest {
   /**  */

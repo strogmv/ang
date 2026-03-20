@@ -2,6 +2,7 @@
 //   cue/api/comments.cue (sha: ff7ce88b)
 //   cue/api/posts.cue (sha: d94ac621)
 //   cue/api/posts_lifecycle.cue (sha: 1aea0c6f)
+//   cue/api/report.cue (sha: 1611f28a)
 //   cue/api/tags.cue (sha: 44dba6c8)
 // DO NOT EDIT.
 

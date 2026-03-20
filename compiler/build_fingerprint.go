@@ -24,23 +24,10 @@ func BuildFingerprint() string {
 	if bi, ok := debug.ReadBuildInfo(); ok {
 		parts = append(parts,
 			"main_path="+strings.TrimSpace(bi.Main.Path),
-			"main_version="+strings.TrimSpace(bi.Main.Version),
 		)
-		settings := map[string]string{}
-		for _, s := range bi.Settings {
-			switch s.Key {
-			case "vcs.revision", "vcs.modified", "vcs.time", "GOOS", "GOARCH", "-compiler", "CGO_ENABLED":
-				settings[s.Key] = strings.TrimSpace(s.Value)
-			}
-		}
-		keys := make([]string, 0, len(settings))
-		for k := range settings {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			parts = append(parts, "setting."+k+"="+settings[k])
-		}
+		// We intentionally exclude vcs.* and GOOS/GOARCH to keep the fingerprint
+		// stable across developer machines and CI, ensuring that generated artifacts
+		// (which include this hash) don't trigger unnecessary git diffs.
 	} else {
 		parts = append(parts, "build_info=unavailable")
 	}

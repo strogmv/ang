@@ -17,6 +17,8 @@
       "methods": [
         "GetProfile",
         "Login",
+        "OnUserLoggedInAudit",
+        "OnUserRegisteredAudit",
         "Register",
         "UpdateProfile"
       ],
@@ -47,6 +49,10 @@
         "ListMyPosts",
         "ListPosts",
         "ListTags",
+        "OnCommentCreatedProjection",
+        "OnPostCreatedProjection",
+        "OnPostPublishedProjection",
+        "OnPostUpdatedProjection",
         "PublishPost",
         "SubmitPost",
         "UpdateComment",

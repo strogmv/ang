@@ -8,14 +8,18 @@ import (
 )
 
 type MockAuth struct {
-	GetProfileFunc     func(ctx context.Context, req port.GetProfileRequest) (port.GetProfileResponse, error)
-	GetProfileCalls    []MockAuthGetProfileCall
-	LoginFunc          func(ctx context.Context, req port.LoginRequest) (port.LoginResponse, error)
-	LoginCalls         []MockAuthLoginCall
-	RegisterFunc       func(ctx context.Context, req port.RegisterRequest) (port.RegisterResponse, error)
-	RegisterCalls      []MockAuthRegisterCall
-	UpdateProfileFunc  func(ctx context.Context, req port.UpdateProfileRequest) (port.UpdateProfileResponse, error)
-	UpdateProfileCalls []MockAuthUpdateProfileCall
+	GetProfileFunc             func(ctx context.Context, req port.GetProfileRequest) (port.GetProfileResponse, error)
+	GetProfileCalls            []MockAuthGetProfileCall
+	LoginFunc                  func(ctx context.Context, req port.LoginRequest) (port.LoginResponse, error)
+	LoginCalls                 []MockAuthLoginCall
+	OnUserLoggedInAuditFunc    func(ctx context.Context, req port.OnUserLoggedInAuditRequest) (port.OnUserLoggedInAuditResponse, error)
+	OnUserLoggedInAuditCalls   []MockAuthOnUserLoggedInAuditCall
+	OnUserRegisteredAuditFunc  func(ctx context.Context, req port.OnUserRegisteredAuditRequest) (port.OnUserRegisteredAuditResponse, error)
+	OnUserRegisteredAuditCalls []MockAuthOnUserRegisteredAuditCall
+	RegisterFunc               func(ctx context.Context, req port.RegisterRequest) (port.RegisterResponse, error)
+	RegisterCalls              []MockAuthRegisterCall
+	UpdateProfileFunc          func(ctx context.Context, req port.UpdateProfileRequest) (port.UpdateProfileResponse, error)
+	UpdateProfileCalls         []MockAuthUpdateProfileCall
 }
 
 var _ port.Auth = (*MockAuth)(nil)
@@ -50,6 +54,36 @@ func (m *MockAuth) Login(ctx context.Context, req port.LoginRequest) (port.Login
 		return m.LoginFunc(ctx, req)
 	}
 	var ret0 port.LoginResponse
+	var ret1 error
+	return ret0, ret1
+}
+
+type MockAuthOnUserLoggedInAuditCall struct {
+	Ctx context.Context
+	Req port.OnUserLoggedInAuditRequest
+}
+
+func (m *MockAuth) OnUserLoggedInAudit(ctx context.Context, req port.OnUserLoggedInAuditRequest) (port.OnUserLoggedInAuditResponse, error) {
+	m.OnUserLoggedInAuditCalls = append(m.OnUserLoggedInAuditCalls, MockAuthOnUserLoggedInAuditCall{Ctx: ctx, Req: req})
+	if m.OnUserLoggedInAuditFunc != nil {
+		return m.OnUserLoggedInAuditFunc(ctx, req)
+	}
+	var ret0 port.OnUserLoggedInAuditResponse
+	var ret1 error
+	return ret0, ret1
+}
+
+type MockAuthOnUserRegisteredAuditCall struct {
+	Ctx context.Context
+	Req port.OnUserRegisteredAuditRequest
+}
+
+func (m *MockAuth) OnUserRegisteredAudit(ctx context.Context, req port.OnUserRegisteredAuditRequest) (port.OnUserRegisteredAuditResponse, error) {
+	m.OnUserRegisteredAuditCalls = append(m.OnUserRegisteredAuditCalls, MockAuthOnUserRegisteredAuditCall{Ctx: ctx, Req: req})
+	if m.OnUserRegisteredAuditFunc != nil {
+		return m.OnUserRegisteredAuditFunc(ctx, req)
+	}
+	var ret0 port.OnUserRegisteredAuditResponse
 	var ret1 error
 	return ret0, ret1
 }

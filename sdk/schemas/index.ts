@@ -79,6 +79,23 @@ export const LoginResponseSchema = z.object({
   user: z.any(),
 });
 export type LoginResponse = z.infer<typeof LoginResponseSchema>;
+export const OnUserLoggedInAuditRequestSchema = z.object({
+  userId: z.string(),
+});
+export type OnUserLoggedInAuditRequest = z.infer<typeof OnUserLoggedInAuditRequestSchema>;
+export const OnUserLoggedInAuditResponseSchema = z.object({
+  ok: z.boolean(),
+});
+export type OnUserLoggedInAuditResponse = z.infer<typeof OnUserLoggedInAuditResponseSchema>;
+export const OnUserRegisteredAuditRequestSchema = z.object({
+  userId: z.string(),
+  email: z.string().email(),
+});
+export type OnUserRegisteredAuditRequest = z.infer<typeof OnUserRegisteredAuditRequestSchema>;
+export const OnUserRegisteredAuditResponseSchema = z.object({
+  ok: z.boolean(),
+});
+export type OnUserRegisteredAuditResponse = z.infer<typeof OnUserRegisteredAuditResponseSchema>;
 export const RegisterRequestSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8).max(64),
@@ -258,6 +275,45 @@ export const ListTagsResponseDataSchema = z.object({
   description: z.string().optional(),
 });
 export type ListTagsResponseData = z.infer<typeof ListTagsResponseDataSchema>;
+export const OnCommentCreatedProjectionRequestSchema = z.object({
+  commentId: z.string(),
+  postId: z.string(),
+  authorId: z.string(),
+});
+export type OnCommentCreatedProjectionRequest = z.infer<typeof OnCommentCreatedProjectionRequestSchema>;
+export const OnCommentCreatedProjectionResponseSchema = z.object({
+  ok: z.boolean(),
+});
+export type OnCommentCreatedProjectionResponse = z.infer<typeof OnCommentCreatedProjectionResponseSchema>;
+export const OnPostCreatedProjectionRequestSchema = z.object({
+  postId: z.string(),
+  authorId: z.string(),
+  title: z.string(),
+});
+export type OnPostCreatedProjectionRequest = z.infer<typeof OnPostCreatedProjectionRequestSchema>;
+export const OnPostCreatedProjectionResponseSchema = z.object({
+  ok: z.boolean(),
+});
+export type OnPostCreatedProjectionResponse = z.infer<typeof OnPostCreatedProjectionResponseSchema>;
+export const OnPostPublishedProjectionRequestSchema = z.object({
+  postId: z.string(),
+  authorId: z.string(),
+  title: z.string(),
+  slug: z.string(),
+});
+export type OnPostPublishedProjectionRequest = z.infer<typeof OnPostPublishedProjectionRequestSchema>;
+export const OnPostPublishedProjectionResponseSchema = z.object({
+  ok: z.boolean(),
+});
+export type OnPostPublishedProjectionResponse = z.infer<typeof OnPostPublishedProjectionResponseSchema>;
+export const OnPostUpdatedProjectionRequestSchema = z.object({
+  postId: z.string(),
+});
+export type OnPostUpdatedProjectionRequest = z.infer<typeof OnPostUpdatedProjectionRequestSchema>;
+export const OnPostUpdatedProjectionResponseSchema = z.object({
+  ok: z.boolean(),
+});
+export type OnPostUpdatedProjectionResponse = z.infer<typeof OnPostUpdatedProjectionResponseSchema>;
 export const PublishPostRequestSchema = z.object({
   ID: z.string(),
 });
