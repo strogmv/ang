@@ -34,7 +34,7 @@ func TestBuildPythonModels_AliasAndEntityRefs(t *testing.T) {
 		},
 	}
 
-	models := pyemitter.BuildSDKModels(entities)
+	models := pyemitter.BuildSDKModels(entities, nil)
 	if len(models) != 3 {
 		t.Fatalf("expected 3 models, got %d", len(models))
 	}

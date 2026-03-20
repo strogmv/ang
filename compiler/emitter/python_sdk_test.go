@@ -81,7 +81,7 @@ func TestBuildPythonSDKModels(t *testing.T) {
 		},
 	}
 
-	got := pyemitter.BuildSDKModels(entities)
+	got := pyemitter.BuildSDKModels(entities, nil)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 model, got %d", len(got))
 	}
@@ -122,7 +122,7 @@ func TestBuildPythonSDKModels_AliasAndEntityRefs(t *testing.T) {
 		},
 	}
 
-	got := pyemitter.BuildSDKModels(entities)
+	got := pyemitter.BuildSDKModels(entities, nil)
 	if len(got) != 2 {
 		t.Fatalf("expected 2 models, got %d", len(got))
 	}
