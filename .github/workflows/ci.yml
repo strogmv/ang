@@ -81,6 +81,10 @@ jobs:
           ANG_FRONTEND_TSC: "1"
         run: go run ./cmd/ang build --mode=release
 
+      - name: OpenAPI Parity (Go vs Python, fail-fast)
+        run: |
+          diff -u dist/release/go-service/api/openapi.yaml dist/release/python-service/api/openapi.yaml
+
       - name: Generated Artifacts Are Committed
         run: |
           git diff --exit-code
@@ -105,10 +109,6 @@ jobs:
           ANG_FRONTEND_TSC: "1"
         run: |
           bash ./scripts/ci_determinism_plan_apply.sh
-
-      - name: OpenAPI Parity (Go vs Python, fail-fast)
-        run: |
-          diff -u dist/release/go-service/api/openapi.yaml dist/release/python-service/api/openapi.yaml
 
   release-gates:
     runs-on: ubuntu-latest
