@@ -302,7 +302,8 @@ func runBuild(args []string) {
 		scenarios := compiled.Normalized.Scenarios
 
 		isMicroservice := projectHasBuildStrategy(projectVal, "microservices")
-		if output.Mode == "" {
+		effectiveMode := resolveBuildMode(output.Mode, projectVal, output.BackendDirExplicit)
+		if output.Mode == "" && effectiveMode == "in_place" {
 			if hasDeprecatedOutputDirConfig(targetDefs) {
 				fmt.Println("Warning: targets[].output_dir without explicit --mode/build.mode is deprecated.")
 				fmt.Println("Migration: set build.mode: \"release\" (keep output_dir) or build.mode: \"in_place\" and use --backend-dir.")
@@ -318,7 +319,6 @@ func runBuild(args []string) {
 			}
 			return
 		}
-		effectiveMode := resolveBuildMode(output.Mode, projectVal, output.BackendDirExplicit)
 		if err := validateBuildMode(effectiveMode, output, selectedTargets); err != nil {
 			fail(compiler.StageEmitters, compiler.ErrCodeEmitterOptions, "validate output mode", err)
 			return

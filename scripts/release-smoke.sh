@@ -10,7 +10,7 @@ echo "[1/7] Compiler tests"
 go test ./compiler/... ./cmd/ang
 
 echo "[2/7] Multi-target build (Go + Python)"
-ANG_PY_SDK="${ANG_PY_SDK:-1}" go run ./cmd/ang build
+ANG_PY_SDK="${ANG_PY_SDK:-1}" go run ./cmd/ang build --mode=release
 
 echo "[3/7] Artifact presence checks"
 test -f dist/release/go-service/cmd/server/main.go

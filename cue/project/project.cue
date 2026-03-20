@@ -1,5 +1,7 @@
 package project
 
+build: mode: "release"
+
 state: {
 	target: {
 		lang:      "go"
