@@ -1,6 +1,6 @@
 package project
 
-build: mode: "release"
+build: mode: "in_place"
 
 state: {
 	target: {
