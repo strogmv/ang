@@ -346,6 +346,27 @@ cd tests && npm install && npm run test:e2e
 *   `ang mcp` — Run MCP server over stdio
 *   `ang lsp --stdio` — Run ANG language server (MVP diagnostics)
 
+## Release Preparation (Go + Python)
+
+Use this flow to prepare a release build and run the same sanity checks as in CI.
+
+```bash
+# 1) Validate CUE/architecture (fast)
+./ang validate
+
+# 2) Generate standalone release artifacts
+./ang build --mode=release
+
+# 3) Run release smoke (Go tests + artifact checks + OpenAPI parity + Python smoke)
+./scripts/release-smoke.sh
+```
+
+Optional environment variables:
+
+- `SKIP_PIP_SMOKE=1` — skip installing/importing the Python SDK (useful for local runs)
+- `ANG_EVENT_COMPAT_BASE_REF=<git-ref>` — override baseline ref for the event-compat gate
+  (example: `origin/main` if you see `EVENT_COMPAT_BASE_LOAD_FAILED`)
+
 ## Release Demo: Python SDK Generation
 
 Show Python code generation in release demos with the Phase 1 flag:
