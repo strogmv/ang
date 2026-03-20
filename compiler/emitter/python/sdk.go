@@ -68,7 +68,7 @@ func EmitSDKFromIR(outputDir, fallbackVersion string, rt Runtime, schema *ir.Sch
 	data := sdkData{
 		Version:   version,
 		Endpoints: BuildEndpointsFromIR(schema),
-		Models:    BuildSDKModelsFromIR(schema.Entities),
+		Models:    BuildSDKModelsFromIR(schema),
 	}
 
 	return emitSDKFiles(outputDir, rt, data)
@@ -78,7 +78,7 @@ func EmitSDK(outputDir, version string, rt Runtime, endpoints []normalizer.Endpo
 	data := sdkData{
 		Version:   version,
 		Endpoints: BuildEndpoints(endpoints, buildRPCSignatures(services)),
-		Models:    BuildSDKModels(entities),
+		Models:    BuildSDKModels(entities, services),
 	}
 
 	return emitSDKFiles(outputDir, rt, data)
@@ -97,6 +97,9 @@ func emitSDKFiles(outputDir string, rt Runtime, data sdkData) error {
 	}
 	rt.Funcs["PathWithFormat"] = func(path string) string {
 		return pathParamRe.ReplaceAllString(path, "{$1}")
+	}
+	rt.Funcs["Contains"] = func(s, substr string) bool {
+		return strings.Contains(s, substr)
 	}
 
 	files := []struct {
@@ -125,8 +128,33 @@ func emitSDKFiles(outputDir string, rt Runtime, data sdkData) error {
 	return nil
 }
 
-func BuildSDKModelsFromIR(entities []ir.Entity) []SDKModel {
-	modelPlans := planner.BuildModelPlans(entities)
+func BuildSDKModelsFromIR(schema *ir.Schema) []SDKModel {
+	var allEntities []ir.Entity
+	allEntities = append(allEntities, schema.Entities...)
+
+	seen := make(map[string]struct{})
+	for _, e := range schema.Entities {
+		seen[e.Name] = struct{}{}
+	}
+
+	for _, svc := range schema.Services {
+		for _, m := range svc.Methods {
+			if m.Input != nil && m.Input.Name != "" {
+				if _, ok := seen[m.Input.Name]; !ok {
+					allEntities = append(allEntities, *m.Input)
+					seen[m.Input.Name] = struct{}{}
+				}
+			}
+			if m.Output != nil && m.Output.Name != "" {
+				if _, ok := seen[m.Output.Name]; !ok {
+					allEntities = append(allEntities, *m.Output)
+					seen[m.Output.Name] = struct{}{}
+				}
+			}
+		}
+	}
+
+	modelPlans := planner.BuildModelPlans(allEntities)
 	out := make([]SDKModel, 0, len(modelPlans))
 	for _, m := range modelPlans {
 		model := SDKModel{Name: m.Name}
@@ -142,12 +170,51 @@ func BuildSDKModelsFromIR(entities []ir.Entity) []SDKModel {
 	return out
 }
 
-func BuildSDKModels(entities []normalizer.Entity) []SDKModel {
-	irEntities := make([]ir.Entity, 0, len(entities))
-	for _, ent := range entities {
+func BuildSDKModels(entities []normalizer.Entity, services []normalizer.Service) []SDKModel {
+	allEntities := make([]normalizer.Entity, 0, len(entities))
+	allEntities = append(allEntities, entities...)
+
+	seen := make(map[string]struct{})
+	for _, e := range entities {
+		seen[e.Name] = struct{}{}
+	}
+
+	for _, svc := range services {
+		for _, m := range svc.Methods {
+			if m.Input.Name != "" {
+				if _, ok := seen[m.Input.Name]; !ok {
+					allEntities = append(allEntities, m.Input)
+					seen[m.Input.Name] = struct{}{}
+				}
+			}
+			if m.Output.Name != "" {
+				if _, ok := seen[m.Output.Name]; !ok {
+					allEntities = append(allEntities, m.Output)
+					seen[m.Output.Name] = struct{}{}
+				}
+			}
+		}
+	}
+
+	irEntities := make([]ir.Entity, 0, len(allEntities))
+	for _, ent := range allEntities {
 		irEntities = append(irEntities, ir.ConvertEntity(ent))
 	}
-	return BuildSDKModelsFromIR(irEntities)
+
+	modelPlans := planner.BuildModelPlans(irEntities)
+	out := make([]SDKModel, 0, len(modelPlans))
+	for _, m := range modelPlans {
+		model := SDKModel{Name: m.Name}
+		for _, f := range m.Fields {
+			model.Fields = append(model.Fields, SDKModelField{
+				Name:       f.Name,
+				Type:       f.Type,
+				IsOptional: f.IsOptional,
+			})
+		}
+		out = append(out, model)
+	}
+	return out
 }
 
 func buildRPCSignatures(services []normalizer.Service) map[string]rpcSignature {
@@ -221,11 +288,11 @@ func BuildEndpoints(endpoints []normalizer.Endpoint, sigs map[string]rpcSignatur
 			payloadModelName = sig.InputModel
 		}
 		returnType := "Any"
-		returnAnnot := "Any | None"
+		returnAnnot := "Any | str | None"
 		returnModelName := ""
 		if sig.OutputModel != "" && sig.OutputModel != "Any" {
 			returnType = "models." + sig.OutputModel
-			returnAnnot = returnType + " | None"
+			returnAnnot = returnType + " | str | None"
 			returnModelName = sig.OutputModel
 		}
 		out = append(out, Endpoint{

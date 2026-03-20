@@ -2,8 +2,21 @@
 
 from __future__ import annotations
 
+{{- $hasAny := false -}}
+{{- $hasDateTime := false -}}
+{{- range .Models -}}
+  {{- range .Fields -}}
+    {{- if Contains .Type "Any" -}}{{- $hasAny = true -}}{{- end -}}
+    {{- if Contains .Type "datetime" -}}{{- $hasDateTime = true -}}{{- end -}}
+  {{- end -}}
+{{- end -}}
+
+{{- if $hasDateTime }}
 from datetime import datetime
+{{- end }}
+{{- if $hasAny }}
 from typing import Any
+{{- end }}
 
 from pydantic import BaseModel
 {{ range .Models }}
