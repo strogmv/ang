@@ -79,7 +79,7 @@ jobs:
         env:
           ANG_PY_SDK: "1"
           ANG_FRONTEND_TSC: "1"
-        run: go run ./cmd/ang build
+        run: go run ./cmd/ang build --mode=release
 
       - name: Generated Artifacts Are Committed
         run: |
@@ -93,9 +93,9 @@ jobs:
           ANG_FRONTEND_TSC: "1"
         run: |
           rm -rf dist
-          go run ./cmd/ang build
+          go run ./cmd/ang build --mode=release
           find dist/release -type f -print0 | sort -z | xargs -0 sha256sum > /tmp/ang-release-hash-1.txt
-          go run ./cmd/ang build
+          go run ./cmd/ang build --mode=release
           find dist/release -type f -print0 | sort -z | xargs -0 sha256sum > /tmp/ang-release-hash-2.txt
           diff -u /tmp/ang-release-hash-1.txt /tmp/ang-release-hash-2.txt
 
@@ -139,7 +139,7 @@ jobs:
         env:
           ANG_PY_SDK: "1"
           ANG_FRONTEND_TSC: "1"
-        run: go run ./cmd/ang build
+        run: go run ./cmd/ang build --mode=release
 
       - name: Determinism Check (second build, same outputs)
         env:
@@ -147,9 +147,9 @@ jobs:
           ANG_FRONTEND_TSC: "1"
         run: |
           rm -rf dist
-          go run ./cmd/ang build
+          go run ./cmd/ang build --mode=release
           find dist/release -type f -print0 | sort -z | xargs -0 sha256sum > /tmp/ang-release-hash-1.txt
-          go run ./cmd/ang build
+          go run ./cmd/ang build --mode=release
           find dist/release -type f -print0 | sort -z | xargs -0 sha256sum > /tmp/ang-release-hash-2.txt
           diff -u /tmp/ang-release-hash-1.txt /tmp/ang-release-hash-2.txt
 
@@ -233,7 +233,7 @@ jobs:
 
       - name: PDF Example Smoke (from CUE)
         run: |
-          ANG_FRONTEND_TSC=1 go run ./cmd/ang build examples/pdf-chart-python --target=python
+          ANG_FRONTEND_TSC=1 go run ./cmd/ang build examples/pdf-chart-python --target=python --mode=release
           test -f examples/pdf-chart-python/app/main.py
           test -f examples/pdf-chart-python/app/services/report.py
           python -m py_compile \
