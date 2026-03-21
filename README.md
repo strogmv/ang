@@ -38,7 +38,14 @@ ANG is designed from the ground up to work seamlessly with AI coding agents:
 - **Deterministic Output:** Same input always produces same output — AI can verify its work
 - **Validation at Compile Time:** Errors caught early, before runtime — AI gets immediate feedback
 
-### What’s new (0.1.100)
+### What’s new (0.1.127)
+- **`ang gen` — AI Migration Loop:** reads `ang/facts/v1` JSON (from `ang extract`) and calls Claude API to generate CUE operations directly into `cue/api/`. Closes the extract→AI→CUE pipeline.
+- **`ang openapi` — Standalone OpenAPI:** generates `openapi.yaml` without a full build — useful in CI docs pipelines and frontend integration.
+- **`ang sdk version|patch|minor|major` — Version management:** bump semver in `cue/project/project.cue` from CLI, ready for CI/CD automation.
+- **`ang ops vet --fix` — Auto-fix:** applies safe structured fixes (typos in action names, missing timeout, etc.) to `cue/api/*.cue` automatically.
+- **`ang ops vet --explain` — Inline explain:** outputs `ang/diags/v2` with embedded Fix/ActionRef/SchemaRef per diagnostic for AI consumption.
+- **`ang ops vet --proof` — Proof report:** outputs `ang/proof/v1` per-operation security/correctness properties (auth_before_write, validation_before_write, etc.).
+- **`ang extract` — Java extractor:** adds Java/Spring Boot source extraction alongside Go/OpenAPI/SQL.
 - **impl_steps → Go emitter:** load/assert/call/emit steps now render into service implementations (opt-in via `impl_steps` in CUE).
 - **Scope middleware:** `auth.scope` in CUE attaches `RequireScopeMiddleware` automatically to routes.
 - **Enum-driven consts:** CUE disjunctions generate Go/OpenAPI enums and DB CHECK constraints.
@@ -345,6 +352,11 @@ cd tests && npm install && npm run test:e2e
 *   `ang hash` — Print CUE/templates hash for deterministic traceability
 *   `ang mcp` — Run MCP server over stdio
 *   `ang lsp --stdio` — Run ANG language server (MVP diagnostics)
+*   `ang openapi [--out file] [--stdout]` — Generate OpenAPI spec without a full build (fast, CI-friendly)
+*   `ang sdk version` — Show current version from `cue/project/project.cue`
+*   `ang sdk patch|minor|major` — Bump semver in `cue/project/project.cue`
+*   `ang extract [path] [--from go|java|openapi|sql|auto] [--out facts.json]` — Extract facts for AI migration pipeline
+*   `ang gen --facts file [--service name] [--out cue/api] [--dry-run]` — Generate CUE operations from `ang/facts/v1` via Claude API
 
 ## Release Preparation (Go + Python)
 
@@ -436,6 +448,27 @@ python -c "from ang_sdk import AngClient; print('ok')"
 *   **MCP server (`ang mcp`):** intent-first operations for AI agents with envelope compatibility modes.
 *   **Doctor and explain tools:** build-log diagnosis and diagnostic-code explanation.
 *   **Flow references for agents:** `cue/GOLDEN_EXAMPLES.cue`, Flow DSL schema/helpers, and strict CUE-first workflow policy.
+*   **`ang extract` → `ang gen` migration pipeline:** deterministic fact extraction from existing code (Go/Java/OpenAPI/SQL) → AI-generated CUE intent (via Claude API) → validate with `ang ops vet` → compile with `ang build`.
+*   **`ang ops vet --proof`:** per-operation correctness proof (auth_before_write, validation_before_write, external_call_compensated) — machine-readable `ang/proof/v1` for AI agents to verify their work.
+*   **`ang ops vet --fix`:** auto-applies safe structured fixes to CUE files — agents can call vet+fix in a loop without human intervention.
+
+#### AI Migration Pipeline (Extract → Gen → Vet → Build)
+
+```bash
+# Step 1: extract facts from existing codebase (deterministic, no AI)
+ang extract ./src --from auto --out facts.json
+
+# Step 2: generate CUE intent from facts (AI, requires ANTHROPIC_API_KEY)
+ANTHROPIC_API_KEY=... ang gen --facts facts.json --service users --dry-run
+ANTHROPIC_API_KEY=... ang gen --facts facts.json --out cue/api
+
+# Step 3: validate + auto-fix
+ang ops vet --fix
+ang ops vet --proof --json   # machine-readable correctness proof
+
+# Step 4: compile
+ang build
+```
 
 ## Validation Pipeline
 

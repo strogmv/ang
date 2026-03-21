@@ -842,6 +842,7 @@ func Run() {
 	registerDBTools(addToolWithCatalog)
 	registerAnalysisTools(addToolWithCatalog)
 	registerPlanTools(addToolWithCatalog)
+	registerMigrationTools(addToolWithCatalog)
 	registerCoreTools(addToolWithCatalog, coreToolDeps{
 		currentProfile:     currentProfile,
 		runtimeConfigPath:  runtimeConfigPath,
