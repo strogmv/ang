@@ -44,8 +44,11 @@ func (s *AuthImpl) Register(ctx context.Context, req port.RegisterRequest) (resp
 	if err := s.UserRepo.Save(ctx, &newUser); err != nil {
 		return resp, err
 	}
-	if s.publisher != nil {
-		_ = s.publisher.PublishUserRegistered(ctx, domain.UserRegistered{Email: newUser.Email, UserID: newUser.ID})
+	if s.publisher == nil {
+		return resp, fmt.Errorf("event.Publish: publisher wiring is not configured")
+	}
+	if err := s.publisher.PublishUserRegistered(ctx, domain.UserRegistered{Email: newUser.Email, UserID: newUser.ID}); err != nil {
+		return resp, fmt.Errorf("event.Publish UserRegistered: %w", err)
 	}
 	{
 		_notifyMeta_10 := map[string]any{"to": fmt.Sprint(newUser.Email)}

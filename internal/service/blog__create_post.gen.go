@@ -60,8 +60,11 @@ func (s *BlogImpl) CreatePost(ctx context.Context, req port.CreatePostRequest) (
 	if err := s.PostRepo.Save(ctx, &newPost); err != nil {
 		return resp, err
 	}
-	if s.publisher != nil {
-		_ = s.publisher.PublishPostCreated(ctx, domain.PostCreated{AuthorID: newPost.AuthorID, PostID: newPost.ID, Title: newPost.Title})
+	if s.publisher == nil {
+		return resp, fmt.Errorf("event.Publish: publisher wiring is not configured")
+	}
+	if err := s.publisher.PublishPostCreated(ctx, domain.PostCreated{AuthorID: newPost.AuthorID, PostID: newPost.ID, Title: newPost.Title}); err != nil {
+		return resp, fmt.Errorf("event.Publish PostCreated: %w", err)
 	}
 	for _, tagName := range req.Tags {
 		tag, err := s.TagRepo.FindBySlug(ctx, tagName)

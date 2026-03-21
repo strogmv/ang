@@ -6,6 +6,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/strogmv/ang/internal/domain"
@@ -36,8 +37,11 @@ func (s *BlogImpl) UpdatePost(ctx context.Context, req port.UpdatePostRequest) (
 	if err := s.PostRepo.Save(ctx, post); err != nil {
 		return resp, err
 	}
-	if s.publisher != nil {
-		_ = s.publisher.PublishPostUpdated(ctx, domain.PostUpdated{PostID: post.ID})
+	if s.publisher == nil {
+		return resp, fmt.Errorf("event.Publish: publisher wiring is not configured")
+	}
+	if err := s.publisher.PublishPostUpdated(ctx, domain.PostUpdated{PostID: post.ID}); err != nil {
+		return resp, fmt.Errorf("event.Publish PostUpdated: %w", err)
 	}
 	if err := helpers.Assign(&resp.Ok, true); err != nil {
 		return resp, err

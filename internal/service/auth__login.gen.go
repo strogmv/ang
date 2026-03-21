@@ -117,8 +117,11 @@ func (s *AuthImpl) Login(ctx context.Context, req port.LoginRequest) (resp port.
 	_, _ = _jwtHMAC_4.Write([]byte(_jwtUnsigned_4))
 	_jwtSig_4 := _jwtHMAC_4.Sum(nil)
 	refreshToken := _jwtUnsigned_4 + "." + _jwtEnc_4.EncodeToString(_jwtSig_4)
-	if s.publisher != nil {
-		_ = s.publisher.PublishUserLoggedIn(ctx, domain.UserLoggedIn{UserID: user.ID})
+	if s.publisher == nil {
+		return resp, fmt.Errorf("event.Publish: publisher wiring is not configured")
+	}
+	if err := s.publisher.PublishUserLoggedIn(ctx, domain.UserLoggedIn{UserID: user.ID}); err != nil {
+		return resp, fmt.Errorf("event.Publish UserLoggedIn: %w", err)
 	}
 	if err := helpers.Assign(&resp.AccessToken, accessToken); err != nil {
 		return resp, err
