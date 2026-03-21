@@ -265,6 +265,7 @@ func buildRoutesAndServicePlans(endpoints []ir.Endpoint, services []ir.Service) 
 			})
 		}
 
+		needsAny := routesNeedAny(routes)
 		routers = append(routers, ServicePlan{
 			ServiceName: serviceName,
 			Name:        serviceName,
@@ -272,6 +273,7 @@ func buildRoutesAndServicePlans(endpoints []ir.Endpoint, services []ir.Service) 
 			ClassName:   className,
 			GetService:  getService,
 			Routes:      routes,
+			NeedsAny:    needsAny,
 		})
 		imports := make([]string, 0, len(importSet))
 		for imp := range importSet {
@@ -286,6 +288,7 @@ func buildRoutesAndServicePlans(endpoints []ir.Endpoint, services []ir.Service) 
 			GetService:  getService,
 			Imports:     imports,
 			Methods:     serviceMethods,
+			NeedsAny:    needsAny,
 		})
 	}
 	return routers, serviceStubs
@@ -361,6 +364,15 @@ func pathParamNames(path string) []string {
 		out = append(out, name)
 	}
 	return out
+}
+
+func routesNeedAny(routes []RoutePlan) bool {
+	for _, r := range routes {
+		if strings.Contains(r.ReturnType, "Any") || strings.Contains(r.Signature, "Any") {
+			return true
+		}
+	}
+	return false
 }
 
 func toSnake(s string) string {

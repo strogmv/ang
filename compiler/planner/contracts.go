@@ -68,6 +68,9 @@ type ServicePlan struct {
 	Imports     []string
 	Routes      []RoutePlan
 	ServiceName string
+	// NeedsAny is true when any route signature or return type uses "Any".
+	// Used by router/service templates to conditionally import typing.Any.
+	NeedsAny bool
 }
 
 type RepoFinderPlan struct {
