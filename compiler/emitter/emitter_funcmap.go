@@ -174,7 +174,7 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 			var scanSteps func([]normalizer.FlowStep)
 			scanSteps = func(steps []normalizer.FlowStep) {
 				for _, step := range steps {
-					if strings.HasPrefix(step.Action, "repo.") {
+					if strings.HasPrefix(step.Action, "repo.") || strings.HasPrefix(step.Action, "db.") {
 						ent := step.Args["source"]
 						if entName, ok := ent.(string); ok && entName != "" && !unique[entName] && !dtoEntities[entName] {
 							unique[entName] = true
@@ -260,7 +260,7 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 			var scanSteps func([]normalizer.FlowStep)
 			scanSteps = func(steps []normalizer.FlowStep) {
 				for _, step := range steps {
-					if strings.HasPrefix(step.Action, "repo.") {
+					if strings.HasPrefix(step.Action, "repo.") || strings.HasPrefix(step.Action, "db.") {
 						if entName, ok := step.Args["source"].(string); ok && entName != "" && !unique[entName] {
 							unique[entName] = true
 							res = append(res, entName)

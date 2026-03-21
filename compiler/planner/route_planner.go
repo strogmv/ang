@@ -33,7 +33,30 @@ func BuildFastAPIPlan(schema *ir.Schema, fallbackVersion string) FastAPIPlan {
 		return plan
 	}
 
-	plan.Models = BuildModelPlans(schema.Entities)
+	var allEntities []ir.Entity
+	allEntities = append(allEntities, schema.Entities...)
+	seen := make(map[string]struct{})
+	for _, e := range schema.Entities {
+		seen[e.Name] = struct{}{}
+	}
+	for _, svc := range schema.Services {
+		for _, m := range svc.Methods {
+			if m.Input != nil && m.Input.Name != "" {
+				if _, ok := seen[m.Input.Name]; !ok {
+					allEntities = append(allEntities, *m.Input)
+					seen[m.Input.Name] = struct{}{}
+				}
+			}
+			if m.Output != nil && m.Output.Name != "" {
+				if _, ok := seen[m.Output.Name]; !ok {
+					allEntities = append(allEntities, *m.Output)
+					seen[m.Output.Name] = struct{}{}
+				}
+			}
+		}
+	}
+
+	plan.Models = BuildModelPlans(allEntities)
 	routers, stubs := buildRoutesAndServicePlans(schema.Endpoints, schema.Services)
 	plan.Routers = routers
 	plan.ServiceStubs = stubs

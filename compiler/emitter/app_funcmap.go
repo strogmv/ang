@@ -30,7 +30,7 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		var scanSteps func([]ir.FlowStep)
 		scanSteps = func(steps []ir.FlowStep) {
 			for _, step := range steps {
-				if strings.HasPrefix(step.Action, "repo.") {
+				if strings.HasPrefix(step.Action, "repo.") || strings.HasPrefix(step.Action, "db.") {
 					if src, ok := step.Args["source"].(string); ok && src != "" && !dtoEntities[src] && !mongoEntities[src] {
 						seen[src] = true
 					}
@@ -562,7 +562,7 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		var scanSteps func([]ir.FlowStep)
 		scanSteps = func(steps []ir.FlowStep) {
 			for _, step := range steps {
-				if strings.HasPrefix(step.Action, "repo.") {
+				if strings.HasPrefix(step.Action, "repo.") || strings.HasPrefix(step.Action, "db.") {
 					if src, ok := step.Args["source"].(string); ok && src != "" && !seen[src] && !dtoEntities[src] {
 						seen[src] = true
 						out = append(out, src)
@@ -821,7 +821,7 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		var scanSteps func([]ir.FlowStep)
 		scanSteps = func(steps []ir.FlowStep) {
 			for _, step := range steps {
-				if strings.HasPrefix(step.Action, "repo.") {
+				if strings.HasPrefix(step.Action, "repo.") || strings.HasPrefix(step.Action, "db.") {
 					if src, ok := step.Args["source"].(string); ok && src != "" && !seen[src] && !dtoEntities[src] {
 						seen[src] = true
 						out = append(out, src)

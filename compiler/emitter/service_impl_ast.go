@@ -286,7 +286,7 @@ func serviceImplRepoEntities(s normalizer.Service, entities []normalizer.Entity)
 	var scanSteps func([]normalizer.FlowStep)
 	scanSteps = func(steps []normalizer.FlowStep) {
 		for _, step := range steps {
-			if strings.HasPrefix(step.Action, "repo.") {
+			if strings.HasPrefix(step.Action, "repo.") || strings.HasPrefix(step.Action, "db.") {
 				if src, ok := step.Args["source"].(string); ok && src != "" && !unique[src] && !dtoEntities[src] {
 					unique[src] = true
 					res = append(res, src)
