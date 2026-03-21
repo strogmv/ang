@@ -34,9 +34,21 @@ type OpenAPIContext struct {
 }
 
 func (e *Emitter) EmitOpenAPI(irEndpoints []ir.Endpoint, irServices []ir.Service, irErrors []ir.Error, project *normalizer.ProjectDef) error {
-	endpoints := IREndpointsToNormalizer(irEndpoints)
-	services := IRServicesToNormalizer(irServices)
-	errors := IRErrorsToNormalizer(irErrors)
+	return e.EmitOpenAPIFromNormalizerTypes(
+		IREndpointsToNormalizer(irEndpoints),
+		IRServicesToNormalizer(irServices),
+		IRErrorsToNormalizer(irErrors),
+		project,
+		filepath.Join(e.OutputDir, "api", "openapi.yaml"),
+	)
+}
+
+// EmitOpenAPIFromNormalizerTypes generates OpenAPI spec from already-normalized types.
+// outPath specifies the output file; use "" to default to OutputDir/api/openapi.yaml.
+func (e *Emitter) EmitOpenAPIFromNormalizerTypes(endpoints []normalizer.Endpoint, services []normalizer.Service, errors []normalizer.ErrorDef, project *normalizer.ProjectDef, outPath string) error {
+	if outPath == "" {
+		outPath = filepath.Join(e.OutputDir, "api", "openapi.yaml")
+	}
 
 	tmplPath := "templates/openapi.tmpl"
 	tmplContent, err := ReadTemplateByPath(tmplPath)
@@ -230,8 +242,7 @@ func (e *Emitter) EmitOpenAPI(irEndpoints []ir.Endpoint, irServices []ir.Service
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "api")
-	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
 
@@ -331,11 +342,10 @@ func (e *Emitter) EmitOpenAPI(irEndpoints []ir.Endpoint, irServices []ir.Service
 		return fmt.Errorf("execute template: %w", err)
 	}
 
-	path := filepath.Join(targetDir, "openapi.yaml")
-	if err := WriteFileIfChanged(path, buf.Bytes(), 0o644); err != nil {
+	if err := WriteFileIfChanged(outPath, buf.Bytes(), 0o644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated OpenAPI Spec: %s\n", path)
+	fmt.Printf("Generated OpenAPI Spec: %s\n", outPath)
 	return nil
 }
 

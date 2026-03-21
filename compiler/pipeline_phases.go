@@ -42,6 +42,7 @@ type NormalizePhaseOutput struct {
 	Schedules []normalizer.ScheduleDef
 	Scenarios []normalizer.ScenarioDef
 	Scopes    []normalizer.ScopeDef
+	Project   normalizer.ProjectDef
 }
 
 // FlowSemPhaseInput is the explicit contract accepted by the flow semantics phase.
@@ -361,6 +362,11 @@ func runNormalizePhase(parsed ParsePhaseOutput, opts PipelineOptions) (Normalize
 	out.Schedules = schedules
 	out.Scenarios = scenarios
 	out.Scopes = scopes
+	if parsed.HasProject && parsed.Project.Err() == nil {
+		if pd, err := n.ExtractProject(parsed.Project); err == nil && pd != nil {
+			out.Project = *pd
+		}
+	}
 	return out, nil
 }
 

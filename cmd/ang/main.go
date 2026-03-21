@@ -101,6 +101,12 @@ func main() {
 		runExtract(os.Args[2:])
 	case "import":
 		runImport(os.Args[2:])
+	case "openapi":
+		runOpenAPI(os.Args[2:])
+	case "sdk":
+		runSDKBump(os.Args[2:])
+	case "gen":
+		runAIGen(os.Args[2:])
 	case "mcp":
 		mcp.Run()
 	case "version":
@@ -161,6 +167,10 @@ func printUsage() {
 	fmt.Println("  ang explain   Explain CODE or error-json with fix hints (--json)")
 	fmt.Println("  ang draw      Generate architecture diagrams (Mermaid)")
 	fmt.Println("  ang hash      Show current project hash (CUE + Templates, or --artifacts)")
+	fmt.Println("  ang openapi   Generate OpenAPI spec without full build (--out, --stdout)")
+	fmt.Println("  ang sdk bump [patch|minor|major]  Bump version in cue/project/project.cue")
+	fmt.Println("  ang sdk version                   Show current version from project.cue")
+	fmt.Println("  ang gen       Generate CUE operations from ang/facts/v1 via AI (--facts, --service, --out, --dry-run)")
 }
 
 func runHash(args []string) {
