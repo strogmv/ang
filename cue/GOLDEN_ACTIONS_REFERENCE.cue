@@ -2195,6 +2195,20 @@ RefOpenAIChat: schema.#Operation & {
 	]
 }
 
+RefOpenAIChatWithTools: schema.#Operation & {
+	service: "reference"
+	input: {
+		message: string
+	}
+	output: {
+		ok: bool
+	}
+	flow: [
+		{action: "openai.Chat", user_message: "req.Message", tools: ["LookupPost"], tool_choice: "\"auto\"", max_rounds: 4, output: "reply", output_usage: "usage", output_tool_calls: "toolCalls"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "reply.TotalTokens >= 0"},
+	]
+}
+
 // ----------------------------------------------------------------------------
 // REF EXAMPLE 2018b: openai.Stream
 // ----------------------------------------------------------------------------

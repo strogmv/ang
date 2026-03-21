@@ -38,6 +38,7 @@ func runGeneratedGoVerify(backends []string) error {
 		fmt.Printf("Running go verify: go build ./internal/... (dir=%s)\n", cleaned)
 		cmd := exec.Command("go", "build", "./internal/...")
 		cmd.Dir = cleaned
+		cmd.Env = append(os.Environ(), "GOWORK=off")
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			raw := strings.TrimSpace(string(out))

@@ -25,9 +25,9 @@ func TestRenderFlowStepEventOrchestration_NotifyEmailIsFirstClass(t *testing.T) 
 		t.Fatalf("expected notify.Email to be handled by event orchestration renderer")
 	}
 	for _, snippet := range []string{
-		`_notifyChannel_x := strings.ToLower(strings.TrimSpace(fmt.Sprint("email")))`,
 		`notify.Email requires notification dispatcher wiring`,
 		`fmt.Errorf("notify.Email: %w", _notifyErr_x)`,
+		`_notifyMsg_x := port.NotificationMessage{Metadata: _notifyMeta_x`,
 		`notificationID := ""`,
 		`notificationID = uuid.NewString()`,
 	} {
@@ -36,6 +36,8 @@ func TestRenderFlowStepEventOrchestration_NotifyEmailIsFirstClass(t *testing.T) 
 		}
 	}
 	for _, unwanted := range []string{
+		`_notifyChannel_x :=`,
+		`Channels: []string{_notifyChannel_x}`,
 		`notify.Send requires non-empty channel`,
 		`fmt.Errorf("notify.Send: %w", _notifyErr_x)`,
 	} {

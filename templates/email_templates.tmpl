@@ -2,21 +2,27 @@ package emailtemplates
 
 import (
 	"fmt"
+	"reflect"
+	"strings"
 	"{{ GoModule }}/internal/pkg/templaterender"
 )
 
 type Template struct {
-	Subject string
-	Text    string
-	HTML    string
+	Subject      string
+	Text         string
+	HTML         string
+	RequiredVars []string
+	OptionalVars []string
 }
 
 var Templates = map[string]Template{
 {{- range . }}
 	"{{ .Name }}": {
-		Subject: {{ Quote .Subject }},
-		Text:    {{ Quote .Text }},
-		HTML:    {{ Quote .HTML }},
+		Subject:      {{ Quote .Subject }},
+		Text:         {{ Quote .Text }},
+		HTML:         {{ Quote .HTML }},
+		RequiredVars: []string{ {{- range $i, $v := .RequiredVars }}{{ if $i }}, {{ end }}{{ Quote $v }}{{- end }} },
+		OptionalVars: []string{ {{- range $i, $v := .OptionalVars }}{{ if $i }}, {{ end }}{{ Quote $v }}{{- end }} },
 	},
 {{- end }}
 }
@@ -25,6 +31,9 @@ func Render(name string, data any) (Template, error) {
 	tpl, ok := Templates[name]
 	if !ok {
 		return Template{}, fmt.Errorf("unknown email template: %s", name)
+	}
+	if err := validateRequiredData(data, tpl.RequiredVars); err != nil {
+		return Template{}, fmt.Errorf("template %s: %w", name, err)
 	}
 	subject, err := templaterender.RenderString(tpl.Subject, data)
 	if err != nil {
@@ -39,4 +48,59 @@ func Render(name string, data any) (Template, error) {
 		return Template{}, err
 	}
 	return Template{Subject: subject, Text: text, HTML: html}, nil
+}
+
+func validateRequiredData(data any, required []string) error {
+	for _, path := range required {
+		if strings.TrimSpace(path) == "" {
+			continue
+		}
+		if !hasTemplateVar(data, path) {
+			return fmt.Errorf("missing required template var %q", path)
+		}
+	}
+	return nil
+}
+
+func hasTemplateVar(data any, path string) bool {
+	if data == nil {
+		return false
+	}
+	parts := strings.Split(path, ".")
+	cur := reflect.ValueOf(data)
+	for _, part := range parts {
+		cur = derefValue(cur)
+		if !cur.IsValid() {
+			return false
+		}
+		switch cur.Kind() {
+		case reflect.Map:
+			key := reflect.ValueOf(part)
+			val := cur.MapIndex(key)
+			if !val.IsValid() {
+				return false
+			}
+			cur = val
+		case reflect.Struct:
+			field := cur.FieldByName(part)
+			if !field.IsValid() {
+				return false
+			}
+			cur = field
+		default:
+			return false
+		}
+	}
+	cur = derefValue(cur)
+	return cur.IsValid()
+}
+
+func derefValue(v reflect.Value) reflect.Value {
+	for v.IsValid() && (v.Kind() == reflect.Interface || v.Kind() == reflect.Pointer) {
+		if v.IsNil() {
+			return reflect.Value{}
+		}
+		v = v.Elem()
+	}
+	return v
 }

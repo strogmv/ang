@@ -106,7 +106,7 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 	registry.Register(generator.Step{Name: "Notification Dispatch Ports", Requires: goOnly, Run: func() error { return in.Em.EmitNotificationDispatchPortsFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "Notification Dispatcher Runtime", Requires: goOnly, Run: func() error { return in.Em.EmitNotificationDispatcherRuntimeFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "Template Renderer", Requires: goOnly, Run: func() error { return in.Em.EmitTemplateRenderer() }})
-	registry.Register(generator.Step{Name: "Email Templates", Requires: goOnly, Run: func() error { return in.Em.EmitEmailTemplates(in.EmailTemplates) }})
+	registry.Register(generator.Step{Name: "Email Templates", Requires: goOnly, Run: func() error { return in.Em.EmitEmailTemplatesFromIR(in.IRSchema, in.EmailTemplates) }})
 	registry.Register(generator.Step{Name: "Mailer Port", Requires: goOnly, Run: func() error { return in.Em.EmitMailerPort() }})
 	registry.Register(generator.Step{Name: "SMTP Client", Requires: goOnly, Run: func() error { return in.Em.EmitMailerAdapter() }})
 	registry.Register(generator.Step{Name: "Noop Mailer Client", Requires: goOnly, Run: func() error { return in.Em.EmitNoopMailerAdapter() }})

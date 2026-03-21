@@ -29,6 +29,12 @@ package architecture
         depends: ["auth", "blog"]
         publishes: ["CommentCreated"]
     }
+
+    notifications: {
+        name: "Notifications"
+        description: "Transactional email delivery and templated outbound notifications"
+        depends: ["auth"]
+    }
 }
 
 // Event definitions

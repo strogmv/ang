@@ -55,15 +55,16 @@ func TestEmitNotificationDispatcherRuntime(t *testing.T) {
 
 	cfg := &ir.NotificationsConfig{
 		Channels: &ir.NotificationChannels{
-			DefaultChannels: []string{"email"},
+			DefaultChannels: []string{"email_primary", "email_fallback"},
 			Channels: map[string]ir.NotificationChannelSpec{
-				"email":  {Enabled: true},
-				"in_app": {Enabled: true},
+				"email_primary":  {Enabled: true, Driver: "ses", Template: "password_reset"},
+				"email_fallback": {Enabled: true, Driver: "smtp", Template: "password_reset"},
+				"in_app":         {Enabled: true},
 			},
 		},
 		Policies: &ir.NotificationPolicies{
 			Rules: []ir.NotificationPolicyRule{
-				{Enabled: true, Channels: []string{"nats"}},
+				{Enabled: true, Channels: []string{"email_primary", "email_fallback"}},
 			},
 		},
 	}
@@ -82,12 +83,19 @@ func TestEmitNotificationDispatcherRuntime(t *testing.T) {
 		`package notifications`,
 		`"example.com/project/internal/port"`,
 		`func NewDispatcher(cfg *config.Config) *Dispatcher`,
-		`case "", "none", "noop", "disabled":`,
-		`case "email":`,
+		`FailureRecorder`,
+		`NotificationFailureRecorder`,
+		`RetryEnqueuer`,
+		`NotificationRetryEnqueuer`,
+		`func classifyNotificationError(err error)`,
+		`d.EmailPrimarySink = newEmailSink(cfg, "ses", "password_reset")`,
+		`d.EmailFallbackSink = newEmailSink(cfg, "smtp", "password_reset")`,
+		`case "email_primary":`,
+		`case "email_fallback":`,
 		`case "in_app":`,
-		`case "nats":`,
 		`channels = []string{`,
-		`"email"`,
+		`"email_primary"`,
+		`"email_fallback"`,
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("generated dispatcher missing fragment %q", want)

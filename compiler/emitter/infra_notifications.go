@@ -14,8 +14,11 @@ import (
 )
 
 type notificationChannelTemplate struct {
-	Name     string
-	TypeName string
+	Name      string
+	TypeName  string
+	Driver    string
+	Template  string
+	EmailLike bool
 }
 
 type notificationPolicyTemplate struct {
@@ -113,7 +116,7 @@ func (e *Emitter) EmitNotificationDispatcherRuntime(cfg *ir.NotificationsConfig)
 	}{
 		Channels:        channels,
 		DefaultChannels: defaultChannels,
-		HasEmailChannel: hasNotificationChannel(channels, "email"),
+		HasEmailChannel: hasEmailTransport(channels),
 		Policies:        policies,
 	}); err != nil {
 		return fmt.Errorf("execute template: %w", err)
@@ -132,13 +135,9 @@ func (e *Emitter) EmitNotificationDispatcherRuntime(cfg *ir.NotificationsConfig)
 	return nil
 }
 
-func hasNotificationChannel(channels []notificationChannelTemplate, name string) bool {
-	needle := strings.TrimSpace(strings.ToLower(name))
-	if needle == "" {
-		return false
-	}
+func hasEmailTransport(channels []notificationChannelTemplate) bool {
 	for _, ch := range channels {
-		if strings.EqualFold(strings.TrimSpace(ch.Name), needle) {
+		if ch.EmailLike {
 			return true
 		}
 	}
@@ -194,9 +193,16 @@ func collectNotificationChannels(cfg *ir.NotificationsConfig) ([]notificationCha
 
 	channels := make([]notificationChannelTemplate, 0, len(channelSet))
 	for name := range channelSet {
+		spec := ir.NotificationChannelSpec{}
+		if cfg != nil && cfg.Channels != nil && cfg.Channels.Channels != nil {
+			spec = cfg.Channels.Channels[name]
+		}
 		channels = append(channels, notificationChannelTemplate{
-			Name:     name,
-			TypeName: channelTypeName(name),
+			Name:      name,
+			TypeName:  channelTypeName(name),
+			Driver:    strings.TrimSpace(spec.Driver),
+			Template:  strings.TrimSpace(spec.Template),
+			EmailLike: isEmailDriver(spec.Driver),
 		})
 	}
 	sort.Slice(channels, func(i, j int) bool { return channels[i].Name < channels[j].Name })
@@ -251,4 +257,13 @@ func collectNotificationPolicies(cfg *ir.NotificationsConfig) []notificationPoli
 		})
 	}
 	return out
+}
+
+func isEmailDriver(driver string) bool {
+	switch strings.ToLower(strings.TrimSpace(driver)) {
+	case "", "smtp", "ses", "noop", "disabled", "none":
+		return true
+	default:
+		return false
+	}
 }

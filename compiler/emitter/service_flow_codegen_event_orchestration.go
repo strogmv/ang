@@ -95,10 +95,10 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 		htmlExpr := arg("html")
 		dataExpr := arg("data")
 		output := arg("output")
-		if step.Action == "notify.Email" {
-			channel = `"email"`
+		if to == "" {
+			return "", true
 		}
-		if channel == "" || to == "" {
+		if step.Action == "notify.Send" && channel == "" {
 			return "", true
 		}
 		if templateExpr == "" && textExpr == "" {
@@ -120,14 +120,12 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 			b.WriteString(fmt.Sprintf("%s%s %s \"\"\n", pad, output, assign))
 		}
 		b.WriteString(fmt.Sprintf("%s{\n", pad))
-		b.WriteString(fmt.Sprintf("%s\t_notifyChannel%s := strings.ToLower(strings.TrimSpace(fmt.Sprint(%s)))\n", pad, sfx, channel))
-		b.WriteString(fmt.Sprintf("%s\tif _notifyChannel%s == \"\" {\n", pad, sfx))
-		if step.Action == "notify.Email" {
-			b.WriteString(errReturn(st, pad+"\t\t", `errors.New(http.StatusBadRequest, "INVALID_NOTIFY_CHANNEL", "notify.Email requires non-empty recipient")`))
-		} else {
+		if channel != "" {
+			b.WriteString(fmt.Sprintf("%s\t_notifyChannel%s := strings.ToLower(strings.TrimSpace(fmt.Sprint(%s)))\n", pad, sfx, channel))
+			b.WriteString(fmt.Sprintf("%s\tif _notifyChannel%s == \"\" {\n", pad, sfx))
 			b.WriteString(errReturn(st, pad+"\t\t", `errors.New(http.StatusBadRequest, "INVALID_NOTIFY_CHANNEL", "notify.Send requires non-empty channel")`))
+			b.WriteString(fmt.Sprintf("%s\t}\n", pad))
 		}
-		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
 		b.WriteString(fmt.Sprintf("%s\t_notifyMeta%s := map[string]any{\"to\": fmt.Sprint(%s)}\n", pad, sfx, to))
 		if textExpr != "" {
 			b.WriteString(fmt.Sprintf("%s\t_notifyMeta%s[\"text\"] = fmt.Sprint(%s)\n", pad, sfx, textExpr))
@@ -138,7 +136,10 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 		if htmlExpr != "" {
 			b.WriteString(fmt.Sprintf("%s\t_notifyMeta%s[\"html\"] = fmt.Sprint(%s)\n", pad, sfx, htmlExpr))
 		}
-		b.WriteString(fmt.Sprintf("%s\t_notifyMsg%s := port.NotificationMessage{Channels: []string{_notifyChannel%s}, Metadata: _notifyMeta%s", pad, sfx, sfx, sfx))
+		b.WriteString(fmt.Sprintf("%s\t_notifyMsg%s := port.NotificationMessage{Metadata: _notifyMeta%s", pad, sfx, sfx))
+		if channel != "" {
+			b.WriteString(fmt.Sprintf(", Channels: []string{_notifyChannel%s}", sfx))
+		}
 		if templateExpr != "" {
 			b.WriteString(fmt.Sprintf(", Template: fmt.Sprint(%s)", templateExpr))
 		}

@@ -9,11 +9,62 @@ import (
 	"strconv"
 	"text/template"
 
+	"github.com/strogmv/ang-ir/ir"
 	"github.com/strogmv/ang-ir/normalizer"
 )
 
+type emailTemplateRenderModel struct {
+	Name         string
+	Subject      string
+	Text         string
+	HTML         string
+	RequiredVars []string
+	OptionalVars []string
+}
+
+func buildEmailTemplateRenderModels(schema *ir.Schema, defs []normalizer.EmailTemplateDef) []emailTemplateRenderModel {
+	if len(defs) == 0 && (schema == nil || len(schema.Templates) == 0) {
+		return nil
+	}
+	metaByID := map[string]ir.Template{}
+	if schema != nil {
+		for _, tpl := range schema.Templates {
+			if tpl.ID == "" {
+				continue
+			}
+			if tpl.Channel != "email" && tpl.Kind != "email" {
+				continue
+			}
+			metaByID[tpl.ID] = tpl
+		}
+	}
+	out := make([]emailTemplateRenderModel, 0, len(defs))
+	for _, def := range defs {
+		if def.Name == "" {
+			continue
+		}
+		item := emailTemplateRenderModel{
+			Name:    def.Name,
+			Subject: def.Subject,
+			Text:    def.Text,
+			HTML:    def.HTML,
+		}
+		if meta, ok := metaByID[def.Name]; ok {
+			item.RequiredVars = append([]string(nil), meta.RequiredVars...)
+			item.OptionalVars = append([]string(nil), meta.OptionalVars...)
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
 func (e *Emitter) EmitEmailTemplates(templates []normalizer.EmailTemplateDef) error {
-	if len(templates) == 0 {
+	return e.EmitEmailTemplatesFromIR(nil, templates)
+}
+
+func (e *Emitter) EmitEmailTemplatesFromIR(schema *ir.Schema, templates []normalizer.EmailTemplateDef) error {
+	models := buildEmailTemplateRenderModels(schema, templates)
+	if len(models) == 0 {
 		return nil
 	}
 	tmplPath := "templates/email_templates.tmpl"
@@ -40,7 +91,7 @@ func (e *Emitter) EmitEmailTemplates(templates []normalizer.EmailTemplateDef) er
 	}
 
 	var buf bytes.Buffer
-	if err := t.Execute(&buf, templates); err != nil {
+	if err := t.Execute(&buf, models); err != nil {
 		return fmt.Errorf("execute template: %w", err)
 	}
 

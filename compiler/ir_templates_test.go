@@ -22,7 +22,7 @@ func TestAttachTemplates(t *testing.T) {
 			RequiredVars: []string{"ID"},
 			OptionalVars: []string{"CompanyName"},
 		},
-	})
+	}, "")
 	if len(schema.Templates) != 1 {
 		t.Fatalf("expected 1 template in IR, got %d", len(schema.Templates))
 	}

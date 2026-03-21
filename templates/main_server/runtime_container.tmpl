@@ -127,10 +127,28 @@ func NewRuntimeContainer(
 	{{- if $needsS3 }}
 	var effectStorage port.FileStorage
 	effectStorage = s3Client
-	effects, err := NewEffectRegistry(ctx, cfg, pgPool, publisher, effectStorage)
-	{{- else }}
-	effects, err := NewEffectRegistry(ctx, cfg, pgPool, publisher)
 	{{- end }}
+	{{- $needsRedis := or .HasCache (or (eq .AuthRefreshStore "redis") (eq .AuthRefreshStore "hybrid")) }}
+	effects, err := NewEffectRegistry(
+		ctx,
+		cfg,
+		{{- if $needsPG }}
+		pgPool,
+		{{- end }}
+		{{- if .HasMongo }}
+		mongoClient,
+		{{- end }}
+		{{- if $needsRedis }}
+		redisClient,
+		{{- end }}
+		publisher,
+		{{- if $needsS3 }}
+		effectStorage,
+		{{- end }}
+		{{- if or .HasNotificationsService .HasNotificationDispatch }}
+		notificationDispatcher,
+		{{- end }}
+	)
 	if err != nil {
 		return nil, err
 	}

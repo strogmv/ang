@@ -254,6 +254,7 @@ func runNormalizePhase(parsed ParsePhaseOutput, opts PipelineOptions) (Normalize
 	if err != nil {
 		return out, WrapContractError(StageCUE, ErrCodeCUEServiceNormalize, "extract services", err)
 	}
+	services = mergeArchitectureServiceMetadata(services, parsed.Arch)
 	endpoints, err := n.ExtractEndpoints(parsed.API)
 	if err != nil {
 		return out, WrapContractError(StageCUE, ErrCodeCUEEndpointNormalize, "extract endpoints", err)
@@ -368,6 +369,171 @@ func runNormalizePhase(parsed ParsePhaseOutput, opts PipelineOptions) (Normalize
 		}
 	}
 	return out, nil
+}
+
+type architectureServiceMeta struct {
+	Name       string
+	Depends    []string
+	Publishes  []string
+	Subscribes map[string]string
+}
+
+func mergeArchitectureServiceMetadata(services []normalizer.Service, arch cue.Value) []normalizer.Service {
+	if len(services) == 0 || !arch.Exists() || arch.Err() != nil {
+		return services
+	}
+	metaByName := extractArchitectureServiceMetadata(arch)
+	if len(metaByName) == 0 {
+		return services
+	}
+	canonicalNames := make(map[string]string, len(services))
+	for _, svc := range services {
+		key := strings.TrimSpace(strings.ToLower(svc.Name))
+		if key != "" {
+			canonicalNames[key] = svc.Name
+		}
+	}
+	for i := range services {
+		key := strings.TrimSpace(strings.ToLower(services[i].Name))
+		meta, ok := metaByName[key]
+		if !ok {
+			continue
+		}
+		if len(services[i].Uses) == 0 && len(meta.Depends) > 0 {
+			services[i].Uses = normalizeArchitectureDepends(meta.Depends, canonicalNames)
+		}
+		if len(services[i].Publishes) == 0 && len(meta.Publishes) > 0 {
+			services[i].Publishes = append([]string{}, meta.Publishes...)
+		}
+		if len(services[i].Subscribes) == 0 && len(meta.Subscribes) > 0 {
+			services[i].Subscribes = make(map[string]string, len(meta.Subscribes))
+			for evt, handler := range meta.Subscribes {
+				services[i].Subscribes[evt] = handler
+			}
+		}
+	}
+	return services
+}
+
+func normalizeArchitectureDepends(depends []string, canonical map[string]string) []string {
+	if len(depends) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(depends))
+	seen := map[string]bool{}
+	for _, dep := range depends {
+		key := strings.TrimSpace(strings.ToLower(dep))
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		if canonicalName, ok := canonical[key]; ok {
+			out = append(out, canonicalName)
+			continue
+		}
+		out = append(out, strings.TrimSpace(dep))
+	}
+	return out
+}
+
+func extractArchitectureServiceMetadata(arch cue.Value) map[string]architectureServiceMeta {
+	root := arch.LookupPath(cue.ParsePath("#Services"))
+	if !root.Exists() || root.Err() != nil {
+		root = arch.LookupPath(cue.ParsePath("Services"))
+	}
+	if !root.Exists() || root.Err() != nil {
+		return nil
+	}
+	iter, err := root.Fields(cue.All())
+	if err != nil {
+		return nil
+	}
+	out := map[string]architectureServiceMeta{}
+	for iter.Next() {
+		label := strings.Trim(strings.TrimSpace(iter.Selector().String()), "\"")
+		if strings.HasPrefix(label, "#") {
+			continue
+		}
+		v := iter.Value()
+		name := cueStringAt(v, "name")
+		if name == "" {
+			name = label
+		}
+		if strings.TrimSpace(name) == "" {
+			continue
+		}
+		meta := architectureServiceMeta{
+			Name:       name,
+			Depends:    cueStringListAt(v, "depends"),
+			Publishes:  cueStringListAt(v, "publishes"),
+			Subscribes: cueStringMapAt(v, "subscribes"),
+		}
+		out[strings.ToLower(strings.TrimSpace(name))] = meta
+	}
+	return out
+}
+
+func cueStringAt(v cue.Value, path string) string {
+	p := v.LookupPath(cue.ParsePath(path))
+	if !p.Exists() || p.Err() != nil {
+		return ""
+	}
+	s, err := p.String()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(s)
+}
+
+func cueStringListAt(v cue.Value, path string) []string {
+	p := v.LookupPath(cue.ParsePath(path))
+	if !p.Exists() || p.Err() != nil {
+		return nil
+	}
+	it, err := p.List()
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for it.Next() {
+		s, err := it.Value().String()
+		if err != nil {
+			continue
+		}
+		s = strings.TrimSpace(s)
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func cueStringMapAt(v cue.Value, path string) map[string]string {
+	p := v.LookupPath(cue.ParsePath(path))
+	if !p.Exists() || p.Err() != nil {
+		return nil
+	}
+	it, err := p.Fields(cue.All())
+	if err != nil {
+		return nil
+	}
+	out := map[string]string{}
+	for it.Next() {
+		key := strings.Trim(strings.TrimSpace(it.Selector().String()), "\"")
+		val, err := it.Value().String()
+		if err != nil {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		val = strings.TrimSpace(val)
+		if key != "" && val != "" {
+			out[key] = val
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func runFlowSemPhase(in FlowSemPhaseInput, opts PipelineOptions) {

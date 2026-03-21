@@ -45,6 +45,7 @@ Register: schema.#Operation & {
 			UserID: "newUser.ID"
 			Email:  "newUser.Email"
 		}},
+		{action: "notify.Email", to: "newUser.Email", template: "\"welcome_email\"", data: "map[string]any{\"Name\": newUser.Name, \"LoginURL\": \"https://blog.ang.local/login\", \"AppName\": \"ANG Blog Example\", \"SupportEmail\": \"blog-support@ang.local\"}"},
 
 		{action: "mapping.Assign", to: "resp.ID", value: "newUser.ID"},
 		{action: "mapping.Assign", to: "resp.Email", value: "newUser.Email"},

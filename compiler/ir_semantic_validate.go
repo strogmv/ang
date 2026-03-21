@@ -411,7 +411,21 @@ func templateChannelCompatible(templateChannel, usageChannel string) bool {
 	if tplCh == "" || useCh == "" {
 		return true
 	}
-	return tplCh == useCh
+	if tplCh == useCh {
+		return true
+	}
+	return notificationChannelFamily(tplCh) == notificationChannelFamily(useCh)
+}
+
+func notificationChannelFamily(ch string) string {
+	ch = strings.TrimSpace(strings.ToLower(ch))
+	if ch == "" {
+		return ""
+	}
+	if i := strings.IndexAny(ch, "._-"); i > 0 {
+		return ch[:i]
+	}
+	return ch
 }
 
 func normalizeFinderFieldKey(s string) string {

@@ -70,6 +70,18 @@ func TestEnsureRuntimeConfigFields_EmailProviderDefaultsToNoop(t *testing.T) {
 	if got := fields["EmailProvider"]; got.Default != "noop" || got.EnvVar != "EMAIL_PROVIDER" {
 		t.Fatalf("unexpected EmailProvider field: %+v", got)
 	}
+	if got := fields["EmailDryRun"]; got.Type != "bool" || got.EnvVar != "EMAIL_DRY_RUN" || got.Default != "false" {
+		t.Fatalf("unexpected EmailDryRun field: %+v", got)
+	}
+	for _, name := range []string{"SESRegion", "SESAccessKeyID", "SESSecretAccessKey", "SESFrom"} {
+		f, ok := fields[name]
+		if !ok {
+			t.Fatalf("missing %s field", name)
+		}
+		if !f.IsOptional {
+			t.Fatalf("%s should be optional", name)
+		}
+	}
 	for _, name := range []string{"SMTPHost", "SMTPUser", "SMTPPass", "SMTPFrom"} {
 		f, ok := fields[name]
 		if !ok {

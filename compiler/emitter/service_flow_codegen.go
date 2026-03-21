@@ -203,22 +203,23 @@ type flowRenderState struct {
 	declared map[string]bool
 	// pointers tracks whether a declared variable is a pointer type (from repo.Find/Get)
 	// vs a value type (from mapping.Assign declare). Used to decide whether to pass &var to repo.Save.
-	pointers         map[string]bool
-	types            map[string]string // varName → Go type (e.g. "*domain.User", "[]domain.Order")
-	goroutineMode    bool              // if true, errors set _pErr/_mu instead of returning
-	stepN            *int              // shared monotonic counter; unique suffix for internal temp vars
-	returnErrOnly    bool              // if true, errReturn emits `return err` for inner error closures
-	deferMode        bool              // if true, errReturn emits `_ = err` (inside defer func(){}())
-	concurrMode      string            // "parallel" | "join" | "race" for flow.Parallel/Join/Race goroutines
-	concurrVarPfx    string            // e.g. "_fp_0" / "_fj_0" / "_fr_0"
-	sagaCompVar      string            // variable name for compensation slice
-	serviceName      string            // current service name for flow.Call self-call resolution
-	opName           string            // Service.Method for diagnostics
-	warningSink      func(normalizer.Warning)
-	eventDefsByName  map[string]normalizer.EventDef
-	entityDefsByName map[string]normalizer.Entity
-	isStreaming      bool
-	infraValues      map[string]any
+	pointers          map[string]bool
+	types             map[string]string // varName → Go type (e.g. "*domain.User", "[]domain.Order")
+	goroutineMode     bool              // if true, errors set _pErr/_mu instead of returning
+	stepN             *int              // shared monotonic counter; unique suffix for internal temp vars
+	returnErrOnly     bool              // if true, errReturn emits `return err` for inner error closures
+	deferMode         bool              // if true, errReturn emits `_ = err` (inside defer func(){}())
+	concurrMode       string            // "parallel" | "join" | "race" for flow.Parallel/Join/Race goroutines
+	concurrVarPfx     string            // e.g. "_fp_0" / "_fj_0" / "_fr_0"
+	sagaCompVar       string            // variable name for compensation slice
+	serviceName       string            // current service name for flow.Call self-call resolution
+	opName            string            // Service.Method for diagnostics
+	warningSink       func(normalizer.Warning)
+	eventDefsByName   map[string]normalizer.EventDef
+	entityDefsByName  map[string]normalizer.Entity
+	serviceDefsByName map[string]normalizer.Service
+	isStreaming       bool
+	infraValues       map[string]any
 }
 
 func cloneFlowState(st *flowRenderState) *flowRenderState {
@@ -282,17 +283,18 @@ func renderFlowForServiceWithSchemaAndSinkModeWithInfra(serviceName, methodName 
 		opName = opName + "." + mName
 	}
 	st := &flowRenderState{
-		declared:         map[string]bool{"resp": true, "err": true},
-		pointers:         map[string]bool{},
-		types:            map[string]string{},
-		stepN:            &n,
-		serviceName:      svcName,
-		opName:           opName,
-		warningSink:      warningSink,
-		eventDefsByName:  flowEventDefsByName(events),
-		entityDefsByName: flowEntityDefsByName(entities),
-		isStreaming:      isStreaming,
-		infraValues:      infraValues,
+		declared:          map[string]bool{"resp": true, "err": true},
+		pointers:          map[string]bool{},
+		types:             map[string]string{},
+		stepN:             &n,
+		serviceName:       svcName,
+		opName:            opName,
+		warningSink:       warningSink,
+		eventDefsByName:   flowEventDefsByName(events),
+		entityDefsByName:  flowEntityDefsByName(entities),
+		serviceDefsByName: flowServiceDefsByName(infraValues),
+		isStreaming:       isStreaming,
+		infraValues:       infraValues,
 	}
 	var b strings.Builder
 	if flowHasAction(steps, "flow.Checkpoint", "flow.Resume") {
@@ -356,6 +358,31 @@ func flowEntityDefsByName(entities []normalizer.Entity) map[string]normalizer.En
 			continue
 		}
 		out[name] = ent
+	}
+	return out
+}
+
+const flowInfraKeyServicesCatalog = "emitter.services_catalog"
+
+func flowServiceDefsByName(infraValues map[string]any) map[string]normalizer.Service {
+	if infraValues == nil {
+		return nil
+	}
+	raw, ok := infraValues[flowInfraKeyServicesCatalog]
+	if !ok {
+		return nil
+	}
+	services, ok := raw.([]normalizer.Service)
+	if !ok || len(services) == 0 {
+		return nil
+	}
+	out := make(map[string]normalizer.Service, len(services))
+	for _, svc := range services {
+		name := strings.TrimSpace(svc.Name)
+		if name == "" {
+			continue
+		}
+		out[name] = svc
 	}
 	return out
 }

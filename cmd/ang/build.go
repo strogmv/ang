@@ -426,8 +426,20 @@ func runBuild(args []string) {
 			targetOutput.BackendDir = backendDir
 			targetOutput.FrontendDir = frontendDir
 			// CUE target.frontend_app_dir is used as default when CLI flag is not set.
+			// ANG_FRONTEND_APP_DIR env var overrides both CLI flag and CUE value.
 			if strings.TrimSpace(targetOutput.FrontendAppDir) == "" && strings.TrimSpace(td.FrontendAppDir) != "" {
 				targetOutput.FrontendAppDir = td.FrontendAppDir
+			}
+			if envDir := strings.TrimSpace(os.ExpandEnv(os.Getenv("ANG_FRONTEND_APP_DIR"))); envDir != "" {
+				targetOutput.FrontendAppDir = envDir
+			}
+			// Expand env vars in the path (e.g. $HOME/project/src/@sdk in project.cue).
+			// Resolve relative paths against the project root.
+			if strings.TrimSpace(targetOutput.FrontendAppDir) != "" {
+				targetOutput.FrontendAppDir = strings.TrimSpace(os.ExpandEnv(targetOutput.FrontendAppDir))
+				if !filepath.IsAbs(targetOutput.FrontendAppDir) {
+					targetOutput.FrontendAppDir = filepath.Join(projectPath, targetOutput.FrontendAppDir)
+				}
 			}
 			if output.DryRun {
 				targetOutput.FrontendAppDir = ""

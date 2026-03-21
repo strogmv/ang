@@ -222,6 +222,33 @@ func TestValidateIRSemantics_FailsOnNotificationTemplateChannelMismatch_PolicyRu
 	}
 }
 
+func TestValidateIRSemantics_AllowsNotificationTemplateChannelFamilies(t *testing.T) {
+	t.Parallel()
+
+	schema := &ir.Schema{
+		Templates: []ir.Template{
+			{ID: "email_tpl", Channel: "email", Subject: "s", Text: "t"},
+		},
+		Notifications: &ir.NotificationsConfig{
+			Channels: &ir.NotificationChannels{
+				DefaultChannels: []string{"email_primary", "email_fallback"},
+				Channels: map[string]ir.NotificationChannelSpec{
+					"email_primary":  {Enabled: true, Template: "email_tpl"},
+					"email_fallback": {Enabled: true, Template: "email_tpl"},
+				},
+			},
+			Policies: &ir.NotificationPolicies{
+				Rules: []ir.NotificationPolicyRule{
+					{Enabled: true, Channels: []string{"email_primary", "email_fallback"}, Template: "email_tpl"},
+				},
+			},
+		},
+	}
+	if err := ValidateIRSemantics(schema); err != nil {
+		t.Fatalf("expected family-compatible notification channels, got %v", err)
+	}
+}
+
 func TestValidateIRSemantics_FailsOnTemplateCatalogRules(t *testing.T) {
 	t.Parallel()
 

@@ -210,6 +210,11 @@ func ensureRuntimeConfigFields(config *normalizer.ConfigDef) *normalizer.ConfigD
 
 	// SMTP defaults required by mailer/notification templates.
 	add("EmailProvider", "string", "EMAIL_PROVIDER", "noop", false)
+	add("EmailDryRun", "bool", "EMAIL_DRY_RUN", "false", true)
+	add("SESRegion", "string", "SES_REGION", "", true)
+	add("SESAccessKeyID", "string", "SES_ACCESS_KEY_ID", "", true)
+	add("SESSecretAccessKey", "string", "SES_SECRET_ACCESS_KEY", "", true)
+	add("SESFrom", "string", "SES_FROM", "", true)
 	add("SMTPHost", "string", "SMTP_HOST", "", true)
 	add("SMTPPort", "string", "SMTP_PORT", "587", true)
 	add("SMTPUser", "string", "SMTP_USER", "", true)

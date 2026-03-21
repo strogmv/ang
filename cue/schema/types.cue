@@ -2397,6 +2397,26 @@ import "github.com/strogmv/ang/cue/project"
 	model?: string
 	// Max tokens in response (default: 4096)
 	max_tokens?: int
+	// Explicit allowlist of tool-call methods.
+	// Unqualified names resolve to the current service, qualified names use
+	// "Service.Method" and require that Service is listed in architecture.depends.
+	tools?: [...string]
+	// OpenAI tool choice mode: "auto", "none", "required", or exact tool name.
+	tool_choice?: string
+	// Maximum tool-calling rounds before aborting (default: 6).
+	max_rounds?: int
+	// Optional variable receiving usage summary with PromptTokens / CompletionTokens / TotalTokens.
+	output_usage?: string
+	// Optional variable receiving tool call count.
+	output_tool_calls?: string
+	// Optional raw JSON Schema string expression for strict structured output.
+	response_json_schema?: string
+	// Optional response_format json_schema.name (default: "structured_response").
+	response_json_name?: string
+	// Optional response_format json_schema.strict (default: true).
+	response_json_strict?: bool
+	// Optional variable receiving parsed final JSON as map[string]any.
+	output_json?: string
 }
 
 #OpenAIStreamStep: {

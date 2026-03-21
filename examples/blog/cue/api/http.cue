@@ -28,6 +28,14 @@ HTTP: schema.#HTTP & {
 			inject: "userId"
 		}
 	}
+	SendPasswordResetEmail: {
+		method: "POST"
+		path:   "/notifications/password-reset"
+	}
+	SendEmailVerification: {
+		method: "POST"
+		path:   "/notifications/email-verification"
+	}
 
 	// Tags
 	ListTags: {

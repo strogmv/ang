@@ -102,3 +102,39 @@ func TestEvaluateConfig_EmailProviderConditional(t *testing.T) {
 		t.Fatalf("expected no missing for noop provider, got %#v", missingNoop)
 	}
 }
+
+func TestEvaluateConfig_SESProviderConditional(t *testing.T) {
+	t.Parallel()
+
+	fields := []configEnvField{
+		{Key: "JWT_ALG", Default: "HS256"},
+		{Key: "JWT_PRIVATE_KEY", Default: "secret"},
+		{Key: "EMAIL_PROVIDER", Default: "noop"},
+		{Key: "SES_REGION"},
+		{Key: "SES_ACCESS_KEY_ID"},
+		{Key: "SES_SECRET_ACCESS_KEY"},
+		{Key: "SES_FROM"},
+		{Key: "SMTP_FROM"},
+	}
+	getenv := func(string) string { return "" }
+
+	missingSES, _ := evaluateConfig(fields, map[string]string{
+		"EMAIL_PROVIDER":  "ses",
+		"JWT_PRIVATE_KEY": "secret",
+	}, map[string]struct{}{}, getenv)
+	if len(missingSES) != 4 {
+		t.Fatalf("expected 4 ses missing entries, got %#v", missingSES)
+	}
+
+	okSES, _ := evaluateConfig(fields, map[string]string{
+		"EMAIL_PROVIDER":         "ses",
+		"JWT_PRIVATE_KEY":        "secret",
+		"SES_REGION":             "eu-central-1",
+		"SES_ACCESS_KEY_ID":      "abc",
+		"SES_SECRET_ACCESS_KEY":  "def",
+		"SES_FROM":               "noreply@example.com",
+	}, map[string]struct{}{}, getenv)
+	if len(okSES) != 0 {
+		t.Fatalf("expected no missing for ses provider, got %#v", okSES)
+	}
+}

@@ -7,4 +7,16 @@ HTTP: schema.#HTTP & {
 		method: "GET"
 		path:   "/users"
 	}
+	SendNoticeEmail: {
+		method: "POST"
+		path:   "/notifications/email"
+	}
+	SendPasswordResetEmail: {
+		method: "POST"
+		path:   "/notifications/password-reset"
+	}
+	SendInvitationEmail: {
+		method: "POST"
+		path:   "/notifications/invitation"
+	}
 }

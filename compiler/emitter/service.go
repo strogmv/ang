@@ -203,7 +203,9 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 				steps, _ = args[2].([]normalizer.FlowStep)
 			}
 		}
-		return renderFlowForServiceWithSchemaAndSinkModeWithInfra(serviceName, methodName, isStreaming, steps, nEntities, nEvents, e.WarningSink, e.InfraValues)
+		infraValues := cloneInfraValues(e.InfraValues)
+		infraValues[flowInfraKeyServicesCatalog] = nServices
+		return renderFlowForServiceWithSchemaAndSinkModeWithInfra(serviceName, methodName, isStreaming, steps, nEntities, nEvents, e.WarningSink, infraValues)
 	}
 	funcMapImpl["RenderImplSteps"] = func(svc normalizer.Service, steps []normalizer.ImplStep, serviceName, methodName string) string {
 		return renderImplSteps(svc, steps, serviceName, methodName)
@@ -631,6 +633,17 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 	}
 
 	return nil
+}
+
+func cloneInfraValues(src map[string]any) map[string]any {
+	if len(src) == 0 {
+		return map[string]any{}
+	}
+	dst := make(map[string]any, len(src)+1)
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
 }
 
 type provenanceSource struct {

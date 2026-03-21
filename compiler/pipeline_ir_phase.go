@@ -15,6 +15,7 @@ type IRPhaseInput struct {
 	Project     normalizer.ProjectDef
 	InfraValues map[string]any
 	Templates   []normalizer.TemplateDef
+	BasePath    string
 }
 
 // IRPhaseOutput is the explicit contract produced by the IR phase.
@@ -66,7 +67,7 @@ func RunIRPhase(in IRPhaseInput) (IRPhaseOutput, error) {
 		normalizer.InfraNotificationChannels(in.InfraValues),
 		normalizer.InfraNotificationPolicies(in.InfraValues),
 	)
-	AttachTemplates(schema, in.Templates)
+	AttachTemplates(schema, in.Templates, in.BasePath)
 	if err := ValidateIRSemantics(schema); err != nil {
 		return IRPhaseOutput{}, WrapContractError(StageIR, ErrCodeIRSemanticValidate, "validate IR semantics", err)
 	}
@@ -94,6 +95,7 @@ func CompileForEmit(basePath string, pipelineOpts PipelineOptions, opts CompileF
 		Project:     opts.Project,
 		InfraValues: opts.InfraValues,
 		Templates:   opts.Templates,
+		BasePath:    basePath,
 	})
 	if err != nil {
 		return CompileForEmitOutput{}, err

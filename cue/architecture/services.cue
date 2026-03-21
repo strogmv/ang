@@ -33,6 +33,19 @@ package architecture
         depends: ["auth", "blog"]
         publishes: ["CommentCreated"]
     }
+
+    notifications: {
+        name: "Notifications"
+        description: "Transactional email delivery and templated outbound notifications"
+        depends: ["auth"]
+    }
+
+    assistant: {
+        name: "Assistant"
+        description: "AI assistant operations with explicit tool allowlists"
+        entities: ["Post"]
+        depends: ["auth", "blog"]
+    }
 }
 
 // Event definitions

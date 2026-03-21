@@ -204,6 +204,17 @@ package schema
 	if _out != _|_ { output: _out }
 }
 
+#NotifyEmail: {
+	_to: string, _template?: string, _text?: string, _subject?: string, _html?: string, _data?: string, _out?: string
+	action: "notify.Email", to: _to
+	if _template != _|_ { template: _template }
+	if _text != _|_ { text: _text }
+	if _subject != _|_ { subject: _subject }
+	if _html != _|_ { html: _html }
+	if _data != _|_ { data: _data }
+	if _out != _|_ { output: _out }
+}
+
 #ApprovalRequest: {
 	_key: string, _title: string, _requestedBy: string, _approvers: string | [...string], _policy: string, _payload: string, _description?: string, _deadline?: string, _ttl?: string, _approvalId?: string, _status?: string
 	action: "approval.Request", approvalKey: _key, title: _title, requestedBy: _requestedBy, approvers: _approvers, policy: _policy, payload: _payload
