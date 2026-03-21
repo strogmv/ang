@@ -298,3 +298,23 @@ export const UpdateTagResponseSchema = z.object({
   ok: z.boolean(),
 });
 export type UpdateTagResponse = z.infer<typeof UpdateTagResponseSchema>;
+export const SendEmailVerificationRequestSchema = z.object({
+  email: z.string().email(),
+  name: z.string().optional(),
+  verifyUrl: z.string().min(12).max(500),
+});
+export type SendEmailVerificationRequest = z.infer<typeof SendEmailVerificationRequestSchema>;
+export const SendEmailVerificationResponseSchema = z.object({
+  ok: z.boolean(),
+});
+export type SendEmailVerificationResponse = z.infer<typeof SendEmailVerificationResponseSchema>;
+export const SendPasswordResetEmailRequestSchema = z.object({
+  email: z.string().email(),
+  name: z.string().optional(),
+  resetUrl: z.string().min(12).max(500),
+});
+export type SendPasswordResetEmailRequest = z.infer<typeof SendPasswordResetEmailRequestSchema>;
+export const SendPasswordResetEmailResponseSchema = z.object({
+  ok: z.boolean(),
+});
+export type SendPasswordResetEmailResponse = z.infer<typeof SendPasswordResetEmailResponseSchema>;

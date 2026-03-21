@@ -9,6 +9,15 @@ export interface RouteMeta {
 
 export const createRouteDefinitions = (queryClient: QueryClient) => [
   {
+    path: '/assistant/chat',
+    method: 'POST',
+    rpc: 'ChatWithAssistant',
+    meta: {
+      title: 'ChatWithAssistant',
+      breadcrumb: 'ChatWithAssistant'
+    } as RouteMeta
+  },
+  {
     path: '/auth/login',
     method: 'POST',
     rpc: 'Login',
@@ -215,9 +224,28 @@ export const createRouteDefinitions = (queryClient: QueryClient) => [
       breadcrumb: 'UpdateTag'
     } as RouteMeta
   },
+  {
+    path: '/notifications/invitation',
+    method: 'POST',
+    rpc: 'SendInvitationEmail',
+    meta: {
+      title: 'SendInvitationEmail',
+      breadcrumb: 'SendInvitationEmail'
+    } as RouteMeta
+  },
+  {
+    path: '/notifications/password-reset',
+    method: 'POST',
+    rpc: 'SendPasswordResetEmail',
+    meta: {
+      title: 'SendPasswordResetEmail',
+      breadcrumb: 'SendPasswordResetEmail'
+    } as RouteMeta
+  },
 ];
 
 export const Routes = {
+  ChatWithAssistant: () => `/assistant/chat`,
   Login: () => `/auth/login`,
   GetProfile: () => `/auth/profile`,
   UpdateProfile: () => `/auth/profile`,
@@ -239,4 +267,6 @@ export const Routes = {
   CreateTag: () => `/tags`,
   DeleteTag: (id: string) => `/tags/${id}`,
   UpdateTag: (id: string) => `/tags/${id}`,
+  SendInvitationEmail: () => `/notifications/invitation`,
+  SendPasswordResetEmail: () => `/notifications/password-reset`,
 };

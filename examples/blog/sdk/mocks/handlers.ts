@@ -125,4 +125,14 @@ export const handlers = [
         ok: true,
     });
   }),
+  http.post('*//notifications/email-verification', () => {
+    return HttpResponse.json({
+        ok: true,
+    });
+  }),
+  http.post('*//notifications/password-reset', () => {
+    return HttpResponse.json({
+        ok: true,
+    });
+  }),
 ];

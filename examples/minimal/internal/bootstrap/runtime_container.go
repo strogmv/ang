@@ -11,8 +11,9 @@ import (
 )
 
 type RuntimeContainer struct {
-	Effects *EffectRegistry
-	SvcUser port.User
+	Effects          *EffectRegistry
+	SvcNotifications port.Notifications
+	SvcUser          port.User
 }
 
 func NewRuntimeContainer(
@@ -20,15 +21,25 @@ func NewRuntimeContainer(
 	cfg *config.Config,
 	pgPool *pgxpool.Pool,
 	publisher port.Publisher,
+	notificationDispatcher port.NotificationDispatcher,
 ) (*RuntimeContainer, error) {
 	_ = ctx
 	c := &RuntimeContainer{}
 	repoUser := postgres.NewUserRepository(pgPool)
-	effects, err := NewEffectRegistry(ctx, cfg, pgPool, publisher)
+	effects, err := NewEffectRegistry(
+		ctx,
+		cfg,
+		pgPool,
+		publisher,
+		notificationDispatcher,
+	)
 	if err != nil {
 		return nil, err
 	}
 	c.Effects = effects
+	c.SvcNotifications = service.NewNotificationsImpl(
+		notificationDispatcher,
+	)
 	c.SvcUser = service.NewUserImpl(
 		repoUser,
 	)

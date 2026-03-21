@@ -8,6 +8,29 @@ from typing import Any
 from pydantic import BaseModel
 
 
+class ArchivePostRequest(BaseModel):
+    id: str
+
+
+class ArchivePostResponse(BaseModel):
+    ok: bool
+
+
+class ChatWithAssistantRequest(BaseModel):
+    userID: str
+    message: str
+    messages: list[Any] | None = None
+
+
+class ChatWithAssistantResponse(BaseModel):
+    content: str
+    finishReason: str | None = None
+    toolCalls: int | None = None
+    promptTokens: int | None = None
+    completionTokens: int | None = None
+    totalTokens: int | None = None
+
+
 class Comment(BaseModel):
     id: str
     postID: str
@@ -16,6 +39,211 @@ class Comment(BaseModel):
     content: str
     createdAt: datetime
     updatedAt: datetime
+
+
+class CreateCommentRequest(BaseModel):
+    postID: str
+    content: str
+    userId: str
+
+
+class CreateCommentResponse(BaseModel):
+    id: str
+
+
+class CreatePostRequest(BaseModel):
+    title: str
+    content: str
+    userId: str
+    tags: list[str] | None = None
+
+
+class CreatePostResponse(BaseModel):
+    id: str
+    slug: str
+
+
+class CreateTagRequest(BaseModel):
+    name: str
+    description: str | None = None
+
+
+class CreateTagResponse(BaseModel):
+    id: str
+    slug: str
+
+
+class DeleteCommentRequest(BaseModel):
+    id: str
+    userId: str
+
+
+class DeleteCommentResponse(BaseModel):
+    ok: bool
+
+
+class DeletePostRequest(BaseModel):
+    id: str
+
+
+class DeletePostResponse(BaseModel):
+    ok: bool
+
+
+class DeleteTagRequest(BaseModel):
+    id: str
+
+
+class DeleteTagResponse(BaseModel):
+    ok: bool
+
+
+class GetPostRequest(BaseModel):
+    slug: str
+    limit: int | None = None
+    offset: int | None = None
+
+
+class GetPostResponse(BaseModel):
+    id: str
+    title: str
+    content: str
+    authorId: str
+    createdAt: str
+    tags: list[Any]
+
+
+class GetProfileRequest(BaseModel):
+    userId: str
+
+
+class GetProfileResponse(BaseModel):
+    id: str
+    email: str
+    name: str
+    role: str
+    avatarURL: str | None = None
+    createdAt: str
+
+
+class ListCommentsRequest(BaseModel):
+    postID: str
+    limit: int
+    offset: int
+
+
+class ListCommentsResponse(BaseModel):
+    data: list[Any]
+    total: int
+
+
+class ListMyPostsRequest(BaseModel):
+    userId: str
+    status: str | None = None
+    limit: int
+    offset: int
+
+
+class ListMyPostsResponse(BaseModel):
+    data: list[Any]
+
+
+class ListPostsRequest(BaseModel):
+    tag: str | None = None
+    limit: int
+    offset: int
+
+
+class ListPostsResponse(BaseModel):
+    data: list[Any]
+    total: int
+
+
+class ListTagsRequest(BaseModel):
+    limit: int | None = None
+    offset: int | None = None
+
+
+class ListTagsResponse(BaseModel):
+    data: list[Any]
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    accessToken: str
+    refreshToken: str
+    user: Any
+
+
+class LookupPostForAssistantRequest(BaseModel):
+    slug: str
+
+
+class LookupPostForAssistantResponse(BaseModel):
+    id: str
+    title: str
+    status: str
+    excerpt: str | None = None
+
+
+class OnCommentCreatedProjectionRequest(BaseModel):
+    CommentID: str
+    PostID: str
+    AuthorID: str
+
+
+class OnCommentCreatedProjectionResponse(BaseModel):
+    ok: bool
+
+
+class OnPostCreatedProjectionRequest(BaseModel):
+    PostID: str
+    AuthorID: str
+    Title: str
+
+
+class OnPostCreatedProjectionResponse(BaseModel):
+    ok: bool
+
+
+class OnPostPublishedProjectionRequest(BaseModel):
+    PostID: str
+    AuthorID: str
+    Title: str
+    Slug: str
+
+
+class OnPostPublishedProjectionResponse(BaseModel):
+    ok: bool
+
+
+class OnPostUpdatedProjectionRequest(BaseModel):
+    PostID: str
+
+
+class OnPostUpdatedProjectionResponse(BaseModel):
+    ok: bool
+
+
+class OnUserLoggedInAuditRequest(BaseModel):
+    UserID: str
+
+
+class OnUserLoggedInAuditResponse(BaseModel):
+    ok: bool
+
+
+class OnUserRegisteredAuditRequest(BaseModel):
+    UserID: str
+    Email: str
+
+
+class OnUserRegisteredAuditResponse(BaseModel):
+    ok: bool
 
 
 class Post(BaseModel):
@@ -38,12 +266,101 @@ class PostTag(BaseModel):
     tagID: str
 
 
+class PublishPostRequest(BaseModel):
+    id: str
+
+
+class PublishPostResponse(BaseModel):
+    ok: bool
+
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    name: str
+
+
+class RegisterResponse(BaseModel):
+    id: str
+    email: str
+    name: str
+
+
+class SendInvitationEmailRequest(BaseModel):
+    email: str
+    name: str | None = None
+    inviterName: str
+    inviteURL: str
+
+
+class SendInvitationEmailResponse(BaseModel):
+    ok: bool
+
+
+class SendPasswordResetEmailRequest(BaseModel):
+    email: str
+    name: str | None = None
+    resetURL: str
+
+
+class SendPasswordResetEmailResponse(BaseModel):
+    ok: bool
+
+
+class SubmitPostRequest(BaseModel):
+    id: str
+
+
+class SubmitPostResponse(BaseModel):
+    ok: bool
+
+
 class Tag(BaseModel):
     id: str
     name: str
     slug: str
     description: str
     createdAt: datetime
+
+
+class UpdateCommentRequest(BaseModel):
+    id: str
+    content: str
+    userId: str
+
+
+class UpdateCommentResponse(BaseModel):
+    ok: bool
+
+
+class UpdatePostRequest(BaseModel):
+    id: str
+    title: str | None = None
+    content: str | None = None
+
+
+class UpdatePostResponse(BaseModel):
+    ok: bool
+
+
+class UpdateProfileRequest(BaseModel):
+    userId: str
+    name: str | None = None
+    avatarURL: str | None = None
+
+
+class UpdateProfileResponse(BaseModel):
+    ok: bool
+
+
+class UpdateTagRequest(BaseModel):
+    id: str
+    name: str | None = None
+    description: str | None = None
+
+
+class UpdateTagResponse(BaseModel):
+    ok: bool
 
 
 class User(BaseModel):

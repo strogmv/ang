@@ -89,6 +89,48 @@ export interface UserVault {
   /**  */
   bio?: Encrypted<string>;
 }
+export interface ChatWithAssistantRequest {
+  /**  */
+  userId: string;
+  /**  */
+  message: string;
+  /**  */
+  messages?: ChatWithAssistantRequestMessagesItem[];
+}
+export interface ChatWithAssistantResponse {
+  /**  */
+  content: string;
+  /**  */
+  finishReason?: string;
+  /**  */
+  toolCalls?: number;
+  /**  */
+  promptTokens?: number;
+  /**  */
+  completionTokens?: number;
+  /**  */
+  totalTokens?: number;
+}
+export interface ChatWithAssistantRequestMessagesItem {
+  /**  */
+  role: string;
+  /**  */
+  content: string;
+}
+export interface LookupPostForAssistantRequest {
+  /**  */
+  slug: string;
+}
+export interface LookupPostForAssistantResponse {
+  /**  */
+  ID: string;
+  /**  */
+  title: string;
+  /**  */
+  status: string;
+  /**  */
+  excerpt?: string;
+}
 export interface GetProfileRequest {
   /**  */
   userId: string;
@@ -460,6 +502,32 @@ export interface UpdateTagRequest {
   description?: string;
 }
 export interface UpdateTagResponse {
+  /**  */
+  ok: boolean;
+}
+export interface SendInvitationEmailRequest {
+  /**  */
+  email: string;
+  /**  */
+  name?: string;
+  /**  */
+  inviterName: string;
+  /**  */
+  inviteUrl: string;
+}
+export interface SendInvitationEmailResponse {
+  /**  */
+  ok: boolean;
+}
+export interface SendPasswordResetEmailRequest {
+  /**  */
+  email: string;
+  /**  */
+  name?: string;
+  /**  */
+  resetUrl: string;
+}
+export interface SendPasswordResetEmailResponse {
   /**  */
   ok: boolean;
 }

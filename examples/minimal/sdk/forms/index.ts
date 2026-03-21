@@ -2,3 +2,21 @@
 import { useForm, UseFormProps } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as Schemas from '../schemas';
+export const useSendNoticeEmailForm = (props?: UseFormProps<Schemas.SendNoticeEmailRequest>) => {
+  return useForm<Schemas.SendNoticeEmailRequest>({
+    resolver: zodResolver(Schemas.SendNoticeEmailRequestSchema),
+    ...props,
+  });
+};
+export const useSendInvitationEmailForm = (props?: UseFormProps<Schemas.SendInvitationEmailRequest>) => {
+  return useForm<Schemas.SendInvitationEmailRequest>({
+    resolver: zodResolver(Schemas.SendInvitationEmailRequestSchema),
+    ...props,
+  });
+};
+export const useSendPasswordResetEmailForm = (props?: UseFormProps<Schemas.SendPasswordResetEmailRequest>) => {
+  return useForm<Schemas.SendPasswordResetEmailRequest>({
+    resolver: zodResolver(Schemas.SendPasswordResetEmailRequestSchema),
+    ...props,
+  });
+};

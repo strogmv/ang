@@ -17,10 +17,11 @@ type BlogImpl struct {
 	PostRepo    port.PostRepository
 	PostTagRepo port.PostTagRepository
 	TagRepo     port.TagRepository
+	AuthService port.Auth
 	txManager   port.TxManager
 	publisher   port.Publisher
 }
 
-func NewBlogImpl(commentRepo port.CommentRepository, postRepo port.PostRepository, postTagRepo port.PostTagRepository, tagRepo port.TagRepository, txManager port.TxManager, publisher port.Publisher) *BlogImpl {
-	return &BlogImpl{CommentRepo: commentRepo, PostRepo: postRepo, PostTagRepo: postTagRepo, TagRepo: tagRepo, txManager: txManager, publisher: publisher}
+func NewBlogImpl(commentRepo port.CommentRepository, postRepo port.PostRepository, postTagRepo port.PostTagRepository, tagRepo port.TagRepository, authService port.Auth, txManager port.TxManager, publisher port.Publisher) *BlogImpl {
+	return &BlogImpl{CommentRepo: commentRepo, PostRepo: postRepo, PostTagRepo: postTagRepo, TagRepo: tagRepo, AuthService: authService, txManager: txManager, publisher: publisher}
 }

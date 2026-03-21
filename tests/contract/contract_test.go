@@ -338,6 +338,23 @@ func TestContractHTTPValidation(t *testing.T) {
 	baseURL := contractBaseURL()
 	client := &http.Client{Timeout: 10 * time.Second}
 	token := contractToken()
+	t.Run("ChatWithAssistant_validation", func(t *testing.T) {
+		url := baseURL + fillPathParams("/assistant/chat") + "?userid=test&message=test"
+		req, err := http.NewRequest("POST", url, bytes.NewBufferString("{}"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("expected 400, got %d: %s", resp.StatusCode, string(body))
+		}
+	})
 	t.Run("Login_validation", func(t *testing.T) {
 		url := baseURL + fillPathParams("/auth/login") + "?email=user@example.com&password=test"
 		req, err := http.NewRequest("POST", url, bytes.NewBufferString("{}"))
@@ -472,12 +489,64 @@ func TestContractHTTPValidation(t *testing.T) {
 			t.Fatalf("expected 400, got %d: %s", resp.StatusCode, string(body))
 		}
 	})
+	t.Run("SendInvitationEmail_validation", func(t *testing.T) {
+		url := baseURL + fillPathParams("/notifications/invitation") + "?email=user@example.com&invitername=test&inviteurl=test"
+		req, err := http.NewRequest("POST", url, bytes.NewBufferString("{}"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("expected 400, got %d: %s", resp.StatusCode, string(body))
+		}
+	})
+	t.Run("SendPasswordResetEmail_validation", func(t *testing.T) {
+		url := baseURL + fillPathParams("/notifications/password-reset") + "?email=user@example.com&reseturl=test"
+		req, err := http.NewRequest("POST", url, bytes.NewBufferString("{}"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("expected 400, got %d: %s", resp.StatusCode, string(body))
+		}
+	})
 }
 
 func TestContractHTTPPositive(t *testing.T) {
 	baseURL := contractBaseURL()
 	client := &http.Client{Timeout: 10 * time.Second}
 	token := contractToken()
+	t.Run("ChatWithAssistant_positive", func(t *testing.T) {
+		url := baseURL + fillPathParamsRequired(t, "/assistant/chat") + "?userid=test&message=test"
+		payload := "{\"message\":\"test\",\"userid\":\"test\"}"
+		req, err := http.NewRequest("POST", url, bytes.NewBufferString(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("expected 2xx, got %d: %s", resp.StatusCode, string(body))
+		}
+	})
 	t.Run("Login_positive", func(t *testing.T) {
 		url := baseURL + fillPathParamsRequired(t, "/auth/login") + "?email=user@example.com&password=test"
 		payload := "{\"email\":\"user@example.com\",\"password\":\"test1234\"}"
@@ -842,6 +911,42 @@ func TestContractHTTPPositive(t *testing.T) {
 			t.Skip("CONTRACT_TOKEN not set")
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("expected 2xx, got %d: %s", resp.StatusCode, string(body))
+		}
+	})
+	t.Run("SendInvitationEmail_positive", func(t *testing.T) {
+		url := baseURL + fillPathParamsRequired(t, "/notifications/invitation") + "?email=user@example.com&invitername=test&inviteurl=test"
+		payload := "{\"email\":\"user@example.com\",\"invitername\":\"test\",\"inviteurl\":\"test\"}"
+		req, err := http.NewRequest("POST", url, bytes.NewBufferString(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("expected 2xx, got %d: %s", resp.StatusCode, string(body))
+		}
+	})
+	t.Run("SendPasswordResetEmail_positive", func(t *testing.T) {
+		url := baseURL + fillPathParamsRequired(t, "/notifications/password-reset") + "?email=user@example.com&reseturl=test"
+		payload := "{\"email\":\"user@example.com\",\"reseturl\":\"test\"}"
+		req, err := http.NewRequest("POST", url, bytes.NewBufferString(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
 		resp, err := client.Do(req)
 		if err != nil {
 			t.Fatal(err)

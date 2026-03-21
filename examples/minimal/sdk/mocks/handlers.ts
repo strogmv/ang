@@ -2,6 +2,21 @@
 import { http, HttpResponse, ws } from 'msw';
 
 export const handlers = [
+  http.post('*//notifications/email', () => {
+    return HttpResponse.json({
+        ok: true,
+    });
+  }),
+  http.post('*//notifications/invitation', () => {
+    return HttpResponse.json({
+        ok: true,
+    });
+  }),
+  http.post('*//notifications/password-reset', () => {
+    return HttpResponse.json({
+        ok: true,
+    });
+  }),
   http.get('*//users', () => {
     return HttpResponse.json({
         data: [],

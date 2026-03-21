@@ -391,6 +391,30 @@ export interface UpdateTagResponse {
   /**  */
   ok: boolean;
 }
+export interface SendEmailVerificationRequest {
+  /**  */
+  email: string;
+  /**  */
+  name?: string;
+  /**  */
+  verifyUrl: string;
+}
+export interface SendEmailVerificationResponse {
+  /**  */
+  ok: boolean;
+}
+export interface SendPasswordResetEmailRequest {
+  /**  */
+  email: string;
+  /**  */
+  name?: string;
+  /**  */
+  resetUrl: string;
+}
+export interface SendPasswordResetEmailResponse {
+  /**  */
+  ok: boolean;
+}
 
 // Events
 export interface CommentCreated {

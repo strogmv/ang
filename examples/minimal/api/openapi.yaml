@@ -2,10 +2,85 @@ openapi: 3.0.3
 info:
   title: ANG API
   version: 0.1.0
-  x-ang-version: 0.1.126
-  x-ang-input-hash: 814ec3f9b96d4fb4583c9d3884daec6b98af5648440dd2b3457e19840dd94621
-  x-ang-compiler-hash: 29a8f520277aa6f4d2ff45be2952a732164a1e0860bf797c7d714de4f1da85f9
+  x-ang-version: 0.1.127
+  x-ang-input-hash: 0042c83541f19460bd5eeaaca878da6acf4e7b35b891888724c9c4cdb759de2b
+  x-ang-compiler-hash: 294b50c17c5868adf98ff6e7e34d9b0ddcf67156d863f2f508ad57df44889164
 paths:
+  /notifications/email:
+    post:
+      summary: SendNoticeEmail
+      operationId: SendNoticeEmail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendNoticeEmailRequest'
+      responses:
+        '200':
+          description: OK
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendNoticeEmailResponse'
+        '401':
+          description: Unauthorized
+        '400':
+          description: Bad Request
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+  /notifications/invitation:
+    post:
+      summary: SendInvitationEmail
+      operationId: SendInvitationEmail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendInvitationEmailRequest'
+      responses:
+        '200':
+          description: OK
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendInvitationEmailResponse'
+        '401':
+          description: Unauthorized
+        '400':
+          description: Bad Request
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+  /notifications/password-reset:
+    post:
+      summary: SendPasswordResetEmail
+      operationId: SendPasswordResetEmail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendPasswordResetEmailRequest'
+      responses:
+        '200':
+          description: OK
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendPasswordResetEmailResponse'
+        '401':
+          description: Unauthorized
+        '400':
+          description: Bad Request
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
   /users:
     get:
       summary: ListUsers
@@ -74,6 +149,79 @@ components:
             type: string
       required:
         - data
+    SendInvitationEmailRequest:
+      type: object
+      properties:
+        email:
+          type: string
+        name:
+          type: string
+        invitername:
+          type: string
+          minLength: 2
+          maxLength: 120
+        inviteurl:
+          type: string
+          minLength: 12
+          maxLength: 500
+      required:
+        - email
+        - invitername
+        - inviteurl
+    SendInvitationEmailResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+      required:
+        - ok
+    SendNoticeEmailRequest:
+      type: object
+      properties:
+        email:
+          type: string
+        name:
+          type: string
+        title:
+          type: string
+          minLength: 3
+          maxLength: 120
+        body:
+          type: string
+          minLength: 5
+          maxLength: 1000
+      required:
+        - email
+        - title
+        - body
+    SendNoticeEmailResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+      required:
+        - ok
+    SendPasswordResetEmailRequest:
+      type: object
+      properties:
+        email:
+          type: string
+        name:
+          type: string
+        reseturl:
+          type: string
+          minLength: 12
+          maxLength: 500
+      required:
+        - email
+        - reseturl
+    SendPasswordResetEmailResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+      required:
+        - ok
     ListUsersResponseData:
       type: object
       properties:

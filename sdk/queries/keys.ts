@@ -6,6 +6,9 @@ import * as Types from '../types';
  * Use these keys for manual invalidation or custom hooks.
  */
 export const queryKeys = {
+  Assistant: {
+    all: ['Assistant'] as const,
+  },
   Auth: {
     all: ['Auth'] as const,
     GetProfile: (params: Types.GetProfileRequest = {} as Types.GetProfileRequest) => {
@@ -31,5 +34,8 @@ export const queryKeys = {
     ListTags: (params: Types.ListTagsRequest = {} as Types.ListTagsRequest) => {
       return [...queryKeys.Blog.all, 'ListTags', params] as const;
     },
+  },
+  Notifications: {
+    all: ['Notifications'] as const,
   },
 } as const;

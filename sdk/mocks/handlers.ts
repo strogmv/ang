@@ -2,6 +2,16 @@
 import { http, HttpResponse, ws } from 'msw';
 
 export const handlers = [
+  http.post('*//assistant/chat', () => {
+    return HttpResponse.json({
+        content: "sample text",
+        finishReason: "sample text",
+        toolCalls: 42,
+        promptTokens: 42,
+        completionTokens: 42,
+        totalTokens: 42,
+    });
+  }),
   http.post('*//auth/login', () => {
     return HttpResponse.json({
         accessToken: "sample text",
@@ -121,6 +131,16 @@ export const handlers = [
     });
   }),
   http.put('*//tags/:id', () => {
+    return HttpResponse.json({
+        ok: true,
+    });
+  }),
+  http.post('*//notifications/invitation', () => {
+    return HttpResponse.json({
+        ok: true,
+    });
+  }),
+  http.post('*//notifications/password-reset', () => {
     return HttpResponse.json({
         ok: true,
     });

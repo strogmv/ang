@@ -215,6 +215,24 @@ export const createRouteDefinitions = (queryClient: QueryClient) => [
       breadcrumb: 'UpdateTag'
     } as RouteMeta
   },
+  {
+    path: '/notifications/email-verification',
+    method: 'POST',
+    rpc: 'SendEmailVerification',
+    meta: {
+      title: 'SendEmailVerification',
+      breadcrumb: 'SendEmailVerification'
+    } as RouteMeta
+  },
+  {
+    path: '/notifications/password-reset',
+    method: 'POST',
+    rpc: 'SendPasswordResetEmail',
+    meta: {
+      title: 'SendPasswordResetEmail',
+      breadcrumb: 'SendPasswordResetEmail'
+    } as RouteMeta
+  },
 ];
 
 export const Routes = {
@@ -239,4 +257,6 @@ export const Routes = {
   CreateTag: () => `/tags`,
   DeleteTag: (id: string) => `/tags/${id}`,
   UpdateTag: (id: string) => `/tags/${id}`,
+  SendEmailVerification: () => `/notifications/email-verification`,
+  SendPasswordResetEmail: () => `/notifications/password-reset`,
 };

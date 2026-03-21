@@ -1,1 +1,1 @@
-{"endpoints":[{"name":"listUsers","method":"GET","path":"/users"}],"query_keys":["users.all","users.list","users.lists"],"query_options":["usersOptions.list"]}
+{"endpoints":[{"name":"listUsers","method":"GET","path":"/users"},{"name":"sendInvitationEmail","method":"POST","path":"/notifications/invitation"},{"name":"sendNoticeEmail","method":"POST","path":"/notifications/email"},{"name":"sendPasswordResetEmail","method":"POST","path":"/notifications/password-reset"}],"query_keys":["users.all","users.list","users.lists"],"query_options":["usersOptions.list"]}

@@ -442,3 +442,21 @@ export const useUpdateTag = (options?: UseMutationOptions<Types.UpdateTagRespons
     ...options,
   });
 };
+export const useSendEmailVerification = (options?: UseMutationOptions<Types.SendEmailVerificationResponse, Error, Types.SendEmailVerificationRequest, any>) => {
+
+  return useMutation({
+    mutationFn: async (variables: Types.SendEmailVerificationRequest) => {
+      return api.sendEmailVerification(variables);
+    },
+    ...options,
+  });
+};
+export const useSendPasswordResetEmail = (options?: UseMutationOptions<Types.SendPasswordResetEmailResponse, Error, Types.SendPasswordResetEmailRequest, any>) => {
+
+  return useMutation({
+    mutationFn: async (variables: Types.SendPasswordResetEmailRequest) => {
+      return api.sendPasswordResetEmail(variables);
+    },
+    ...options,
+  });
+};

@@ -16,12 +16,41 @@ type NotificationMessage struct {
 	Metadata map[string]any
 }
 
+// NotificationFailure captures one failed channel delivery attempt.
+type NotificationFailure struct {
+	Event     string
+	Type      string
+	Channel   string
+	Template  string
+	Recipient string
+	Attempt   int
+	Kind      string
+	Retryable bool
+	Message   string
+	Provider  string
+}
+
 // NotificationDispatcher routes notification message to configured channel sinks.
 type NotificationDispatcher interface {
 	Dispatch(ctx context.Context, msg NotificationMessage) error
 }
 
-// NotificationInAppSink delivers notifications via "in_app" channel.
-type NotificationInAppSink interface {
+// NotificationFailureRecorder records channel delivery failures for audit and analysis.
+type NotificationFailureRecorder interface {
+	RecordFailure(ctx context.Context, failure NotificationFailure) error
+}
+
+// NotificationRetryEnqueuer enqueues a transiently failed notification for retry.
+type NotificationRetryEnqueuer interface {
+	EnqueueRetry(ctx context.Context, msg NotificationMessage, failure NotificationFailure) error
+}
+
+// NotificationEmailFallbackSink delivers notifications via "email_fallback" channel.
+type NotificationEmailFallbackSink interface {
+	Send(ctx context.Context, msg NotificationMessage) error
+}
+
+// NotificationEmailPrimarySink delivers notifications via "email_primary" channel.
+type NotificationEmailPrimarySink interface {
 	Send(ctx context.Context, msg NotificationMessage) error
 }

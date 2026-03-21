@@ -11,6 +11,33 @@ import { useAuthStore } from '../auth-store';
 import { useEffect, useRef, useLayoutEffect } from 'react';
 
 export { wsClient, useWebsocketSubscription, useAutoInvalidation };
+export const useSendNoticeEmail = (options?: UseMutationOptions<Types.SendNoticeEmailResponse, Error, Types.SendNoticeEmailRequest, any>) => {
+
+  return useMutation({
+    mutationFn: async (variables: Types.SendNoticeEmailRequest) => {
+      return api.sendNoticeEmail(variables);
+    },
+    ...options,
+  });
+};
+export const useSendInvitationEmail = (options?: UseMutationOptions<Types.SendInvitationEmailResponse, Error, Types.SendInvitationEmailRequest, any>) => {
+
+  return useMutation({
+    mutationFn: async (variables: Types.SendInvitationEmailRequest) => {
+      return api.sendInvitationEmail(variables);
+    },
+    ...options,
+  });
+};
+export const useSendPasswordResetEmail = (options?: UseMutationOptions<Types.SendPasswordResetEmailResponse, Error, Types.SendPasswordResetEmailRequest, any>) => {
+
+  return useMutation({
+    mutationFn: async (variables: Types.SendPasswordResetEmailRequest) => {
+      return api.sendPasswordResetEmail(variables);
+    },
+    ...options,
+  });
+};
 export const useListUsers = (params?: Types.ListUsersRequest, options?: Omit<UseQueryOptions<Types.ListUsersResponse, Error, Types.ListUsersResponse, any[]>, 'queryKey' | 'queryFn'>) => {
   const hasRequiredParams =true;
   return useQuery({

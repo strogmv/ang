@@ -139,6 +139,16 @@ export const updateTag = (params: Types.UpdateTagRequest = {} as Types.UpdateTag
     validateResponse('UpdateTagResponseSchema', r.data, 'UpdateTag')
   );
 };
+export const sendEmailVerification = (params: Types.SendEmailVerificationRequest = {} as Types.SendEmailVerificationRequest) => {
+  return apiClient.post<Types.SendEmailVerificationResponse>(`/notifications/email-verification`, params).then((r) =>
+    validateResponse('SendEmailVerificationResponseSchema', r.data, 'SendEmailVerification')
+  );
+};
+export const sendPasswordResetEmail = (params: Types.SendPasswordResetEmailRequest = {} as Types.SendPasswordResetEmailRequest) => {
+  return apiClient.post<Types.SendPasswordResetEmailResponse>(`/notifications/password-reset`, params).then((r) =>
+    validateResponse('SendPasswordResetEmailResponseSchema', r.data, 'SendPasswordResetEmail')
+  );
+};
 
 export const endpointMeta: Record<string, {
   method: string;
@@ -338,6 +348,18 @@ export const endpointMeta: Record<string, {
     authRoles: ['admin'],
     requiredHeaders: ['Authorization'],
     invalidateTargets: [{ store: 'tag', mode: 'list' }
+    ],
+  },
+  sendEmailVerification: {
+    method: 'POST',
+    path: '/notifications/email-verification',
+    invalidateTargets: [{ store: 'notification', mode: 'list' }
+    ],
+  },
+  sendPasswordResetEmail: {
+    method: 'POST',
+    path: '/notifications/password-reset',
+    invalidateTargets: [{ store: 'notification', mode: 'list' }
     ],
   },
 };

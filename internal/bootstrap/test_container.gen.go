@@ -10,26 +10,34 @@ import (
 type TestOption func(*TestContainer)
 
 type TestContainer struct {
-	Config                *config.Config
-	Effects               *EffectRegistry
-	CommentRepository     *mock.MockCommentRepository
-	commentRepositoryImpl port.CommentRepository
-	PostRepository        *mock.MockPostRepository
-	postRepositoryImpl    port.PostRepository
-	PostTagRepository     *mock.MockPostTagRepository
-	postTagRepositoryImpl port.PostTagRepository
-	TagRepository         *mock.MockTagRepository
-	tagRepositoryImpl     port.TagRepository
-	UserRepository        *mock.MockUserRepository
-	userRepositoryImpl    port.UserRepository
-	TxManager             *mock.MockTxManager
-	txManagerImpl         port.TxManager
-	Publisher             *mock.MockPublisher
-	publisherImpl         port.Publisher
-	SvcAuth               port.Auth
-	svcAuthOverride       port.Auth
-	SvcBlog               port.Blog
-	svcBlogOverride       port.Blog
+	Config                     *config.Config
+	Effects                    *EffectRegistry
+	CommentRepository          *mock.MockCommentRepository
+	commentRepositoryImpl      port.CommentRepository
+	PostRepository             *mock.MockPostRepository
+	postRepositoryImpl         port.PostRepository
+	PostTagRepository          *mock.MockPostTagRepository
+	postTagRepositoryImpl      port.PostTagRepository
+	TagRepository              *mock.MockTagRepository
+	tagRepositoryImpl          port.TagRepository
+	UserRepository             *mock.MockUserRepository
+	userRepositoryImpl         port.UserRepository
+	TxManager                  *mock.MockTxManager
+	txManagerImpl              port.TxManager
+	Publisher                  *mock.MockPublisher
+	publisherImpl              port.Publisher
+	NotificationDispatcher     *mock.MockNotificationDispatcher
+	notificationDispatcherImpl port.NotificationDispatcher
+	StateStore                 *mock.MockStateStore
+	stateStoreImpl             port.StateStore
+	SvcAuth                    port.Auth
+	svcAuthOverride            port.Auth
+	SvcBlog                    port.Blog
+	svcBlogOverride            port.Blog
+	SvcAssistant               port.Assistant
+	svcAssistantOverride       port.Assistant
+	SvcNotifications           port.Notifications
+	svcNotificationsOverride   port.Notifications
 }
 
 // NewTestContainer creates a mock-first bootstrap container for unit tests.
@@ -49,18 +57,23 @@ func NewTestContainer(opts ...TestOption) *TestContainer {
 	c.txManagerImpl = c.TxManager
 	c.Publisher = mock.NewPublisher()
 	c.publisherImpl = c.Publisher
+	c.NotificationDispatcher = mock.NewNotificationDispatcher()
+	c.notificationDispatcherImpl = c.NotificationDispatcher
+	c.StateStore = mock.NewStateStore()
+	c.stateStoreImpl = c.StateStore
 	for _, opt := range opts {
 		if opt != nil {
 			opt(c)
 		}
 	}
-	c.Effects = NewTestEffectRegistry(c.publisherImpl, nil, nil)
+	c.Effects = NewTestEffectRegistry(c.publisherImpl, nil, c.stateStoreImpl)
 	if c.svcAuthOverride != nil {
 		c.SvcAuth = c.svcAuthOverride
 	} else {
 		c.SvcAuth = service.NewAuthImpl(
 			c.userRepositoryImpl,
 			c.Effects.Publisher,
+			c.notificationDispatcherImpl,
 		)
 	}
 	if c.svcBlogOverride != nil {
@@ -71,8 +84,27 @@ func NewTestContainer(opts ...TestOption) *TestContainer {
 			c.postRepositoryImpl,
 			c.postTagRepositoryImpl,
 			c.tagRepositoryImpl,
+			c.SvcAuth,
 			c.txManagerImpl,
 			c.Effects.Publisher,
+		)
+	}
+	if c.svcAssistantOverride != nil {
+		c.SvcAssistant = c.svcAssistantOverride
+	} else {
+		c.SvcAssistant = service.NewAssistantImpl(
+			c.postRepositoryImpl,
+			c.SvcAuth,
+			c.SvcBlog,
+			c.Effects.StateStore,
+		)
+	}
+	if c.svcNotificationsOverride != nil {
+		c.SvcNotifications = c.svcNotificationsOverride
+	} else {
+		c.SvcNotifications = service.NewNotificationsImpl(
+			c.SvcAuth,
+			c.notificationDispatcherImpl,
 		)
 	}
 	return c
@@ -150,6 +182,25 @@ func WithPublisher(v port.Publisher) TestOption {
 	}
 }
 
+func WithNotificationDispatcher(v port.NotificationDispatcher) TestOption {
+	return func(c *TestContainer) {
+		if v != nil {
+			c.notificationDispatcherImpl = v
+		}
+	}
+}
+
+func WithStateStore(v port.StateStore) TestOption {
+	return func(c *TestContainer) {
+		if v != nil {
+			c.stateStoreImpl = v
+			if c.Effects != nil {
+				c.Effects.StateStore = v
+			}
+		}
+	}
+}
+
 func WithAuthService(v port.Auth) TestOption {
 	return func(c *TestContainer) {
 		if v != nil {
@@ -164,6 +215,24 @@ func WithBlogService(v port.Blog) TestOption {
 		if v != nil {
 			c.svcBlogOverride = v
 			c.SvcBlog = v
+		}
+	}
+}
+
+func WithAssistantService(v port.Assistant) TestOption {
+	return func(c *TestContainer) {
+		if v != nil {
+			c.svcAssistantOverride = v
+			c.SvcAssistant = v
+		}
+	}
+}
+
+func WithNotificationsService(v port.Notifications) TestOption {
+	return func(c *TestContainer) {
+		if v != nil {
+			c.svcNotificationsOverride = v
+			c.SvcNotifications = v
 		}
 	}
 }

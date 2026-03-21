@@ -6,6 +6,9 @@ import * as Types from '../types';
  * Use these keys for manual invalidation or custom hooks.
  */
 export const queryKeys = {
+  Notifications: {
+    all: ['Notifications'] as const,
+  },
   User: {
     all: ['User'] as const,
     ListUsers: (params: Types.ListUsersRequest = {} as Types.ListUsersRequest) => {

@@ -472,6 +472,40 @@ func TestContractHTTPValidation(t *testing.T) {
 			t.Fatalf("expected 400, got %d: %s", resp.StatusCode, string(body))
 		}
 	})
+	t.Run("SendEmailVerification_validation", func(t *testing.T) {
+		url := baseURL + fillPathParams("/notifications/email-verification") + "?email=user@example.com&verifyurl=test"
+		req, err := http.NewRequest("POST", url, bytes.NewBufferString("{}"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("expected 400, got %d: %s", resp.StatusCode, string(body))
+		}
+	})
+	t.Run("SendPasswordResetEmail_validation", func(t *testing.T) {
+		url := baseURL + fillPathParams("/notifications/password-reset") + "?email=user@example.com&reseturl=test"
+		req, err := http.NewRequest("POST", url, bytes.NewBufferString("{}"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("expected 400, got %d: %s", resp.StatusCode, string(body))
+		}
+	})
 }
 
 func TestContractHTTPPositive(t *testing.T) {
@@ -842,6 +876,42 @@ func TestContractHTTPPositive(t *testing.T) {
 			t.Skip("CONTRACT_TOKEN not set")
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("expected 2xx, got %d: %s", resp.StatusCode, string(body))
+		}
+	})
+	t.Run("SendEmailVerification_positive", func(t *testing.T) {
+		url := baseURL + fillPathParamsRequired(t, "/notifications/email-verification") + "?email=user@example.com&verifyurl=test"
+		payload := "{\"email\":\"user@example.com\",\"verifyurl\":\"test\"}"
+		req, err := http.NewRequest("POST", url, bytes.NewBufferString(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("expected 2xx, got %d: %s", resp.StatusCode, string(body))
+		}
+	})
+	t.Run("SendPasswordResetEmail_positive", func(t *testing.T) {
+		url := baseURL + fillPathParamsRequired(t, "/notifications/password-reset") + "?email=user@example.com&reseturl=test"
+		payload := "{\"email\":\"user@example.com\",\"reseturl\":\"test\"}"
+		req, err := http.NewRequest("POST", url, bytes.NewBufferString(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
 		resp, err := client.Do(req)
 		if err != nil {
 			t.Fatal(err)

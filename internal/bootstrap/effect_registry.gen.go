@@ -5,8 +5,10 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	redisclient "github.com/strogmv/ang/internal/adapter/cache/redis"
 	effectmw "github.com/strogmv/ang/internal/adapter/middleware"
 	"github.com/strogmv/ang/internal/adapter/repository/postgres"
+	redistore "github.com/strogmv/ang/internal/adapter/statestore/redis"
 	"github.com/strogmv/ang/internal/config"
 	"github.com/strogmv/ang/internal/port"
 )
@@ -33,15 +35,16 @@ func (p EffectProfile) Chain(kind string) []effectmw.EffectMiddleware {
 }
 
 type EffectRegistry struct {
-	RepoComment port.CommentRepository
-	RepoPost    port.PostRepository
-	RepoPostTag port.PostTagRepository
-	RepoTag     port.TagRepository
-	RepoUser    port.UserRepository
-	TxManager   port.TxManager
-	Publisher   port.Publisher
-	Storage     port.FileStorage
-	StateStore  port.StateStore
+	RepoComment            port.CommentRepository
+	RepoPost               port.PostRepository
+	RepoPostTag            port.PostTagRepository
+	RepoTag                port.TagRepository
+	RepoUser               port.UserRepository
+	TxManager              port.TxManager
+	Publisher              port.Publisher
+	Storage                port.FileStorage
+	StateStore             port.StateStore
+	NotificationDispatcher port.NotificationDispatcher
 	// Runtime EffectProfile metadata
 	Runtime EffectProfile
 	// Test EffectProfile metadata
@@ -53,12 +56,14 @@ func NewEffectRegistry(
 	cfg *config.Config,
 	pgPool *pgxpool.Pool,
 	publisher port.Publisher,
+	notificationDispatcher port.NotificationDispatcher,
 ) (*EffectRegistry, error) {
 	_ = ctx
 	reg := &EffectRegistry{
-		Publisher: publisher,
-		Runtime:   EffectProfile{Handlers: map[string]EffectHandler{}, Middleware: map[string][]effectmw.EffectMiddleware{}},
-		Test:      EffectProfile{Handlers: map[string]EffectHandler{}, Middleware: map[string][]effectmw.EffectMiddleware{}},
+		Publisher:              publisher,
+		NotificationDispatcher: notificationDispatcher,
+		Runtime:                EffectProfile{Handlers: map[string]EffectHandler{}, Middleware: map[string][]effectmw.EffectMiddleware{}},
+		Test:                   EffectProfile{Handlers: map[string]EffectHandler{}, Middleware: map[string][]effectmw.EffectMiddleware{}},
 	}
 	reg.Publisher = effectmw.WrapPublisher(reg.Publisher, reg.Runtime.Chain("events"))
 	reg.RepoComment = postgres.NewCommentRepository(pgPool)
@@ -66,6 +71,11 @@ func NewEffectRegistry(
 	reg.RepoPostTag = postgres.NewPostTagRepository(pgPool)
 	reg.RepoTag = postgres.NewTagRepository(pgPool)
 	reg.RepoUser = postgres.NewUserRepository(pgPool)
+	repoSystem := postgres.NewSystemRepository(pgPool)
+	reg.StateStore = repoSystem
+	if cfg.RedisAddr != "" {
+		reg.StateStore = redistore.New(redisclient.NewClient(cfg.RedisAddr))
+	}
 	reg.TxManager = postgres.NewTxManager(pgPool)
 	reg.StateStore = effectmw.WrapStateStore(reg.StateStore, reg.Runtime.Chain("state"))
 	return reg, nil

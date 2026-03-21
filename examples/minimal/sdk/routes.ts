@@ -9,6 +9,33 @@ export interface RouteMeta {
 
 export const createRouteDefinitions = (queryClient: QueryClient) => [
   {
+    path: '/notifications/email',
+    method: 'POST',
+    rpc: 'SendNoticeEmail',
+    meta: {
+      title: 'SendNoticeEmail',
+      breadcrumb: 'SendNoticeEmail'
+    } as RouteMeta
+  },
+  {
+    path: '/notifications/invitation',
+    method: 'POST',
+    rpc: 'SendInvitationEmail',
+    meta: {
+      title: 'SendInvitationEmail',
+      breadcrumb: 'SendInvitationEmail'
+    } as RouteMeta
+  },
+  {
+    path: '/notifications/password-reset',
+    method: 'POST',
+    rpc: 'SendPasswordResetEmail',
+    meta: {
+      title: 'SendPasswordResetEmail',
+      breadcrumb: 'SendPasswordResetEmail'
+    } as RouteMeta
+  },
+  {
     path: '/users',
     method: 'GET',
     rpc: 'ListUsers',
@@ -23,5 +50,8 @@ export const createRouteDefinitions = (queryClient: QueryClient) => [
 ];
 
 export const Routes = {
+  SendNoticeEmail: () => `/notifications/email`,
+  SendInvitationEmail: () => `/notifications/invitation`,
+  SendPasswordResetEmail: () => `/notifications/password-reset`,
   ListUsers: () => `/users`,
 };

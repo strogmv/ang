@@ -55,6 +55,37 @@ export const UserVaultSchema = z.object({
   bio: z.string().optional(),
 });
 export type UserVault = z.infer<typeof UserVaultSchema>;
+export const ChatWithAssistantRequestSchema = z.object({
+  userId: z.string().min(2).max(120),
+  message: z.string().min(2).max(4000),
+  messages: z.array(z.lazy(() => ChatWithAssistantRequestMessagesItemSchema)).optional(),
+});
+export type ChatWithAssistantRequest = z.infer<typeof ChatWithAssistantRequestSchema>;
+export const ChatWithAssistantResponseSchema = z.object({
+  content: z.string(),
+  finishReason: z.string().optional(),
+  toolCalls: z.number().optional(),
+  promptTokens: z.number().optional(),
+  completionTokens: z.number().optional(),
+  totalTokens: z.number().optional(),
+});
+export type ChatWithAssistantResponse = z.infer<typeof ChatWithAssistantResponseSchema>;
+export const ChatWithAssistantRequestMessagesItemSchema = z.object({
+  role: z.string(),
+  content: z.string(),
+});
+export type ChatWithAssistantRequestMessagesItem = z.infer<typeof ChatWithAssistantRequestMessagesItemSchema>;
+export const LookupPostForAssistantRequestSchema = z.object({
+  slug: z.string().min(2).max(120),
+});
+export type LookupPostForAssistantRequest = z.infer<typeof LookupPostForAssistantRequestSchema>;
+export const LookupPostForAssistantResponseSchema = z.object({
+  ID: z.string(),
+  title: z.string(),
+  status: z.string(),
+  excerpt: z.string().optional(),
+});
+export type LookupPostForAssistantResponse = z.infer<typeof LookupPostForAssistantResponseSchema>;
 export const GetProfileRequestSchema = z.object({
   userId: z.string(),
 });
@@ -360,3 +391,24 @@ export const UpdateTagResponseSchema = z.object({
   ok: z.boolean(),
 });
 export type UpdateTagResponse = z.infer<typeof UpdateTagResponseSchema>;
+export const SendInvitationEmailRequestSchema = z.object({
+  email: z.string().email(),
+  name: z.string().optional(),
+  inviterName: z.string().min(2).max(120),
+  inviteUrl: z.string().min(12).max(500),
+});
+export type SendInvitationEmailRequest = z.infer<typeof SendInvitationEmailRequestSchema>;
+export const SendInvitationEmailResponseSchema = z.object({
+  ok: z.boolean(),
+});
+export type SendInvitationEmailResponse = z.infer<typeof SendInvitationEmailResponseSchema>;
+export const SendPasswordResetEmailRequestSchema = z.object({
+  email: z.string().email(),
+  name: z.string().optional(),
+  resetUrl: z.string().min(12).max(500),
+});
+export type SendPasswordResetEmailRequest = z.infer<typeof SendPasswordResetEmailRequestSchema>;
+export const SendPasswordResetEmailResponseSchema = z.object({
+  ok: z.boolean(),
+});
+export type SendPasswordResetEmailResponse = z.infer<typeof SendPasswordResetEmailResponseSchema>;

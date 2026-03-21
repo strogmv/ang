@@ -11,6 +11,15 @@ import { useAuthStore } from '../auth-store';
 import { useEffect, useRef, useLayoutEffect } from 'react';
 
 export { wsClient, useWebsocketSubscription, useAutoInvalidation };
+export const useChatWithAssistant = (options?: UseMutationOptions<Types.ChatWithAssistantResponse, Error, Types.ChatWithAssistantRequest, any>) => {
+
+  return useMutation({
+    mutationFn: async (variables: Types.ChatWithAssistantRequest) => {
+      return api.chatWithAssistant(variables);
+    },
+    ...options,
+  });
+};
 export const useLogin = (options?: UseMutationOptions<Types.LoginResponse, Error, Types.LoginRequest, any>) => {
 
   return useMutation({
@@ -438,6 +447,24 @@ export const useUpdateTag = (options?: UseMutationOptions<Types.UpdateTagRespons
     },
     onSettled: (_data: any, _error: Error | null, _variables: Types.UpdateTagRequest) => {
         queryClient.invalidateQueries({ queryKey: queryKeys.tags.list() });
+    },
+    ...options,
+  });
+};
+export const useSendInvitationEmail = (options?: UseMutationOptions<Types.SendInvitationEmailResponse, Error, Types.SendInvitationEmailRequest, any>) => {
+
+  return useMutation({
+    mutationFn: async (variables: Types.SendInvitationEmailRequest) => {
+      return api.sendInvitationEmail(variables);
+    },
+    ...options,
+  });
+};
+export const useSendPasswordResetEmail = (options?: UseMutationOptions<Types.SendPasswordResetEmailResponse, Error, Types.SendPasswordResetEmailRequest, any>) => {
+
+  return useMutation({
+    mutationFn: async (variables: Types.SendPasswordResetEmailRequest) => {
+      return api.sendPasswordResetEmail(variables);
     },
     ...options,
   });

@@ -11,9 +11,10 @@ import (
 )
 
 type RuntimeContainer struct {
-	Effects *EffectRegistry
-	SvcAuth port.Auth
-	SvcBlog port.Blog
+	Effects          *EffectRegistry
+	SvcAuth          port.Auth
+	SvcBlog          port.Blog
+	SvcNotifications port.Notifications
 }
 
 func NewRuntimeContainer(
@@ -21,6 +22,7 @@ func NewRuntimeContainer(
 	cfg *config.Config,
 	pgPool *pgxpool.Pool,
 	publisher port.Publisher,
+	notificationDispatcher port.NotificationDispatcher,
 ) (*RuntimeContainer, error) {
 	_ = ctx
 	c := &RuntimeContainer{}
@@ -29,7 +31,13 @@ func NewRuntimeContainer(
 	repoPostTag := postgres.NewPostTagRepository(pgPool)
 	repoTag := postgres.NewTagRepository(pgPool)
 	repoUser := postgres.NewUserRepository(pgPool)
-	effects, err := NewEffectRegistry(ctx, cfg, pgPool, publisher)
+	effects, err := NewEffectRegistry(
+		ctx,
+		cfg,
+		pgPool,
+		publisher,
+		notificationDispatcher,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -38,6 +46,7 @@ func NewRuntimeContainer(
 	c.SvcAuth = service.NewAuthImpl(
 		repoUser,
 		effects.Publisher,
+		notificationDispatcher,
 	)
 	c.SvcBlog = service.NewBlogImpl(
 		repoComment,
@@ -46,6 +55,9 @@ func NewRuntimeContainer(
 		repoTag,
 		txManager,
 		effects.Publisher,
+	)
+	c.SvcNotifications = service.NewNotificationsImpl(
+		notificationDispatcher,
 	)
 
 	// ANG:BEGIN_CUSTOM runtime_container.after_init

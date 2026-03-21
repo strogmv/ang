@@ -33,10 +33,11 @@ func (p EffectProfile) Chain(kind string) []effectmw.EffectMiddleware {
 }
 
 type EffectRegistry struct {
-	RepoUser   port.UserRepository
-	Publisher  port.Publisher
-	Storage    port.FileStorage
-	StateStore port.StateStore
+	RepoUser               port.UserRepository
+	Publisher              port.Publisher
+	Storage                port.FileStorage
+	StateStore             port.StateStore
+	NotificationDispatcher port.NotificationDispatcher
 	// Runtime EffectProfile metadata
 	Runtime EffectProfile
 	// Test EffectProfile metadata
@@ -48,12 +49,14 @@ func NewEffectRegistry(
 	cfg *config.Config,
 	pgPool *pgxpool.Pool,
 	publisher port.Publisher,
+	notificationDispatcher port.NotificationDispatcher,
 ) (*EffectRegistry, error) {
 	_ = ctx
 	reg := &EffectRegistry{
-		Publisher: publisher,
-		Runtime:   EffectProfile{Handlers: map[string]EffectHandler{}, Middleware: map[string][]effectmw.EffectMiddleware{}},
-		Test:      EffectProfile{Handlers: map[string]EffectHandler{}, Middleware: map[string][]effectmw.EffectMiddleware{}},
+		Publisher:              publisher,
+		NotificationDispatcher: notificationDispatcher,
+		Runtime:                EffectProfile{Handlers: map[string]EffectHandler{}, Middleware: map[string][]effectmw.EffectMiddleware{}},
+		Test:                   EffectProfile{Handlers: map[string]EffectHandler{}, Middleware: map[string][]effectmw.EffectMiddleware{}},
 	}
 	reg.Publisher = effectmw.WrapPublisher(reg.Publisher, reg.Runtime.Chain("events"))
 	reg.RepoUser = postgres.NewUserRepository(pgPool)

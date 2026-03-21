@@ -13,6 +13,16 @@
   },
   "services": [
     {
+      "name": "Assistant",
+      "methods": [
+        "ChatWithAssistant",
+        "LookupPostForAssistant"
+      ],
+      "publishes": null,
+      "subscribes": {},
+      "depends_on": []
+    },
+    {
       "name": "Auth",
       "methods": [
         "GetProfile",
@@ -74,6 +84,16 @@
       "depends_on": [
         "NATS"
       ]
+    },
+    {
+      "name": "Notifications",
+      "methods": [
+        "SendInvitationEmail",
+        "SendPasswordResetEmail"
+      ],
+      "publishes": null,
+      "subscribes": {},
+      "depends_on": []
     }
   ],
   "events": [

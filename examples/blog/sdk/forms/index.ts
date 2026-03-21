@@ -92,3 +92,15 @@ export const useUpdateTagForm = (props?: UseFormProps<Schemas.UpdateTagRequest>)
     ...props,
   });
 };
+export const useSendEmailVerificationForm = (props?: UseFormProps<Schemas.SendEmailVerificationRequest>) => {
+  return useForm<Schemas.SendEmailVerificationRequest>({
+    resolver: zodResolver(Schemas.SendEmailVerificationRequestSchema),
+    ...props,
+  });
+};
+export const useSendPasswordResetEmailForm = (props?: UseFormProps<Schemas.SendPasswordResetEmailRequest>) => {
+  return useForm<Schemas.SendPasswordResetEmailRequest>({
+    resolver: zodResolver(Schemas.SendPasswordResetEmailRequestSchema),
+    ...props,
+  });
+};

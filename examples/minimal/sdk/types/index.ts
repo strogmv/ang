@@ -13,6 +13,46 @@ export interface User {
   /**  */
   name: string;
 }
+export interface SendInvitationEmailRequest {
+  /**  */
+  email: string;
+  /**  */
+  name?: string;
+  /**  */
+  inviterName: string;
+  /**  */
+  inviteUrl: string;
+}
+export interface SendInvitationEmailResponse {
+  /**  */
+  ok: boolean;
+}
+export interface SendNoticeEmailRequest {
+  /**  */
+  email: string;
+  /**  */
+  name?: string;
+  /**  */
+  title: string;
+  /**  */
+  body: string;
+}
+export interface SendNoticeEmailResponse {
+  /**  */
+  ok: boolean;
+}
+export interface SendPasswordResetEmailRequest {
+  /**  */
+  email: string;
+  /**  */
+  name?: string;
+  /**  */
+  resetUrl: string;
+}
+export interface SendPasswordResetEmailResponse {
+  /**  */
+  ok: boolean;
+}
 export interface ListUsersRequest {
   /**  */
   limit?: number;

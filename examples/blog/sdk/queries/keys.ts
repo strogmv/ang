@@ -32,4 +32,7 @@ export const queryKeys = {
       return [...queryKeys.Blog.all, 'ListTags', params] as const;
     },
   },
+  Notifications: {
+    all: ['Notifications'] as const,
+  },
 } as const;

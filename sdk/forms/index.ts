@@ -2,6 +2,12 @@
 import { useForm, UseFormProps } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as Schemas from '../schemas';
+export const useChatWithAssistantForm = (props?: UseFormProps<Schemas.ChatWithAssistantRequest>) => {
+  return useForm<Schemas.ChatWithAssistantRequest>({
+    resolver: zodResolver(Schemas.ChatWithAssistantRequestSchema),
+    ...props,
+  });
+};
 export const useLoginForm = (props?: UseFormProps<Schemas.LoginRequest>) => {
   return useForm<Schemas.LoginRequest>({
     resolver: zodResolver(Schemas.LoginRequestSchema),
@@ -89,6 +95,18 @@ export const useDeleteTagForm = (props?: UseFormProps<Schemas.DeleteTagRequest>)
 export const useUpdateTagForm = (props?: UseFormProps<Schemas.UpdateTagRequest>) => {
   return useForm<Schemas.UpdateTagRequest>({
     resolver: zodResolver(Schemas.UpdateTagRequestSchema),
+    ...props,
+  });
+};
+export const useSendInvitationEmailForm = (props?: UseFormProps<Schemas.SendInvitationEmailRequest>) => {
+  return useForm<Schemas.SendInvitationEmailRequest>({
+    resolver: zodResolver(Schemas.SendInvitationEmailRequestSchema),
+    ...props,
+  });
+};
+export const useSendPasswordResetEmailForm = (props?: UseFormProps<Schemas.SendPasswordResetEmailRequest>) => {
+  return useForm<Schemas.SendPasswordResetEmailRequest>({
+    resolver: zodResolver(Schemas.SendPasswordResetEmailRequestSchema),
     ...props,
   });
 };

@@ -10,26 +10,30 @@ import (
 type TestOption func(*TestContainer)
 
 type TestContainer struct {
-	Config                *config.Config
-	Effects               *EffectRegistry
-	CommentRepository     *mock.MockCommentRepository
-	commentRepositoryImpl port.CommentRepository
-	PostRepository        *mock.MockPostRepository
-	postRepositoryImpl    port.PostRepository
-	PostTagRepository     *mock.MockPostTagRepository
-	postTagRepositoryImpl port.PostTagRepository
-	TagRepository         *mock.MockTagRepository
-	tagRepositoryImpl     port.TagRepository
-	UserRepository        *mock.MockUserRepository
-	userRepositoryImpl    port.UserRepository
-	TxManager             *mock.MockTxManager
-	txManagerImpl         port.TxManager
-	Publisher             *mock.MockPublisher
-	publisherImpl         port.Publisher
-	SvcAuth               port.Auth
-	svcAuthOverride       port.Auth
-	SvcBlog               port.Blog
-	svcBlogOverride       port.Blog
+	Config                     *config.Config
+	Effects                    *EffectRegistry
+	CommentRepository          *mock.MockCommentRepository
+	commentRepositoryImpl      port.CommentRepository
+	PostRepository             *mock.MockPostRepository
+	postRepositoryImpl         port.PostRepository
+	PostTagRepository          *mock.MockPostTagRepository
+	postTagRepositoryImpl      port.PostTagRepository
+	TagRepository              *mock.MockTagRepository
+	tagRepositoryImpl          port.TagRepository
+	UserRepository             *mock.MockUserRepository
+	userRepositoryImpl         port.UserRepository
+	TxManager                  *mock.MockTxManager
+	txManagerImpl              port.TxManager
+	Publisher                  *mock.MockPublisher
+	publisherImpl              port.Publisher
+	NotificationDispatcher     *mock.MockNotificationDispatcher
+	notificationDispatcherImpl port.NotificationDispatcher
+	SvcAuth                    port.Auth
+	svcAuthOverride            port.Auth
+	SvcBlog                    port.Blog
+	svcBlogOverride            port.Blog
+	SvcNotifications           port.Notifications
+	svcNotificationsOverride   port.Notifications
 }
 
 // NewTestContainer creates a mock-first bootstrap container for unit tests.
@@ -49,6 +53,8 @@ func NewTestContainer(opts ...TestOption) *TestContainer {
 	c.txManagerImpl = c.TxManager
 	c.Publisher = mock.NewPublisher()
 	c.publisherImpl = c.Publisher
+	c.NotificationDispatcher = mock.NewNotificationDispatcher()
+	c.notificationDispatcherImpl = c.NotificationDispatcher
 	for _, opt := range opts {
 		if opt != nil {
 			opt(c)
@@ -61,6 +67,7 @@ func NewTestContainer(opts ...TestOption) *TestContainer {
 		c.SvcAuth = service.NewAuthImpl(
 			c.userRepositoryImpl,
 			c.Effects.Publisher,
+			c.notificationDispatcherImpl,
 		)
 	}
 	if c.svcBlogOverride != nil {
@@ -73,6 +80,13 @@ func NewTestContainer(opts ...TestOption) *TestContainer {
 			c.tagRepositoryImpl,
 			c.txManagerImpl,
 			c.Effects.Publisher,
+		)
+	}
+	if c.svcNotificationsOverride != nil {
+		c.SvcNotifications = c.svcNotificationsOverride
+	} else {
+		c.SvcNotifications = service.NewNotificationsImpl(
+			c.notificationDispatcherImpl,
 		)
 	}
 	return c
@@ -150,6 +164,14 @@ func WithPublisher(v port.Publisher) TestOption {
 	}
 }
 
+func WithNotificationDispatcher(v port.NotificationDispatcher) TestOption {
+	return func(c *TestContainer) {
+		if v != nil {
+			c.notificationDispatcherImpl = v
+		}
+	}
+}
+
 func WithAuthService(v port.Auth) TestOption {
 	return func(c *TestContainer) {
 		if v != nil {
@@ -164,6 +186,15 @@ func WithBlogService(v port.Blog) TestOption {
 		if v != nil {
 			c.svcBlogOverride = v
 			c.SvcBlog = v
+		}
+	}
+}
+
+func WithNotificationsService(v port.Notifications) TestOption {
+	return func(c *TestContainer) {
+		if v != nil {
+			c.svcNotificationsOverride = v
+			c.SvcNotifications = v
 		}
 	}
 }

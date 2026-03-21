@@ -2,10 +2,14 @@
 
 from fastapi import FastAPI
 from app.routers import (
+    assistant,
     auth,
     blog,
+    notifications,
 )
 
 app = FastAPI(title="ANG Service", version="0.1.127")
+app.include_router(assistant.router)
 app.include_router(auth.router)
 app.include_router(blog.router)
+app.include_router(notifications.router)

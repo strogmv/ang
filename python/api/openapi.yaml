@@ -3,9 +3,34 @@ info:
   title: ANG API
   version: 0.1.0
   x-ang-version: 0.1.127
-  x-ang-input-hash: 11367b7e3f788dd63c1d017d8b040da91707c2840a266ff078c91e2aa966a10d
+  x-ang-input-hash: 7d9ba8054e7ed584000a9c7ea12959fe1c66741726ec018e6c1e6f79ce78470c
   x-ang-compiler-hash: 294b50c17c5868adf98ff6e7e34d9b0ddcf67156d863f2f508ad57df44889164
 paths:
+  /assistant/chat:
+    post:
+      summary: ChatWithAssistant
+      operationId: ChatWithAssistant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatWithAssistantRequest'
+      responses:
+        '200':
+          description: OK
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatWithAssistantResponse'
+        '401':
+          description: Unauthorized
+        '400':
+          description: Bad Request
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
   /auth/login:
     post:
       summary: Login
@@ -635,6 +660,56 @@ paths:
                 $ref: '#/components/schemas/ProblemDetail'
       security:
         - bearerAuth: []
+  /notifications/invitation:
+    post:
+      summary: SendInvitationEmail
+      operationId: SendInvitationEmail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendInvitationEmailRequest'
+      responses:
+        '200':
+          description: OK
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendInvitationEmailResponse'
+        '401':
+          description: Unauthorized
+        '400':
+          description: Bad Request
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+  /notifications/password-reset:
+    post:
+      summary: SendPasswordResetEmail
+      operationId: SendPasswordResetEmail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendPasswordResetEmailRequest'
+      responses:
+        '200':
+          description: OK
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendPasswordResetEmailResponse'
+        '401':
+          description: Unauthorized
+        '400':
+          description: Bad Request
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
 
 components:
   schemas:
@@ -669,6 +744,45 @@ components:
           type: boolean
       required:
         - ok
+    ChatWithAssistantRequest:
+      type: object
+      properties:
+        userid:
+          type: string
+          minLength: 2
+          maxLength: 120
+        message:
+          type: string
+          minLength: 2
+          maxLength: 4000
+        messages:
+          type: array
+          items:
+            type: string
+      required:
+        - userid
+        - message
+    ChatWithAssistantResponse:
+      type: object
+      properties:
+        content:
+          type: string
+        finishreason:
+          type: string
+        toolcalls:
+          type: integer
+          format: int64
+        prompttokens:
+          type: integer
+          format: int64
+        completiontokens:
+          type: integer
+          format: int64
+        totaltokens:
+          type: integer
+          format: int64
+      required:
+        - content
     CreateCommentRequest:
       type: object
       properties:
@@ -1017,6 +1131,53 @@ components:
         - id
         - email
         - name
+    SendInvitationEmailRequest:
+      type: object
+      properties:
+        email:
+          type: string
+        name:
+          type: string
+        invitername:
+          type: string
+          minLength: 2
+          maxLength: 120
+        inviteurl:
+          type: string
+          minLength: 12
+          maxLength: 500
+      required:
+        - email
+        - invitername
+        - inviteurl
+    SendInvitationEmailResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+      required:
+        - ok
+    SendPasswordResetEmailRequest:
+      type: object
+      properties:
+        email:
+          type: string
+        name:
+          type: string
+        reseturl:
+          type: string
+          minLength: 12
+          maxLength: 500
+      required:
+        - email
+        - reseturl
+    SendPasswordResetEmailResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+      required:
+        - ok
     SubmitPostRequest:
       type: object
       properties:
@@ -1113,6 +1274,16 @@ components:
           type: boolean
       required:
         - ok
+    ChatWithAssistantRequestMessagesItem:
+      type: object
+      properties:
+        role:
+          type: string
+        content:
+          type: string
+      required:
+        - role
+        - content
     GetPostResponseTagsItem:
       type: object
       properties:

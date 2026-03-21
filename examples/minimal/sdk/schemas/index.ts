@@ -6,6 +6,38 @@ export const UserSchema = z.object({
   name: z.string(),
 });
 export type User = z.infer<typeof UserSchema>;
+export const SendInvitationEmailRequestSchema = z.object({
+  email: z.string().email(),
+  name: z.string().optional(),
+  inviterName: z.string().min(2).max(120),
+  inviteUrl: z.string().min(12).max(500),
+});
+export type SendInvitationEmailRequest = z.infer<typeof SendInvitationEmailRequestSchema>;
+export const SendInvitationEmailResponseSchema = z.object({
+  ok: z.boolean(),
+});
+export type SendInvitationEmailResponse = z.infer<typeof SendInvitationEmailResponseSchema>;
+export const SendNoticeEmailRequestSchema = z.object({
+  email: z.string().email(),
+  name: z.string().optional(),
+  title: z.string().min(3).max(120),
+  body: z.string().min(5).max(1000),
+});
+export type SendNoticeEmailRequest = z.infer<typeof SendNoticeEmailRequestSchema>;
+export const SendNoticeEmailResponseSchema = z.object({
+  ok: z.boolean(),
+});
+export type SendNoticeEmailResponse = z.infer<typeof SendNoticeEmailResponseSchema>;
+export const SendPasswordResetEmailRequestSchema = z.object({
+  email: z.string().email(),
+  name: z.string().optional(),
+  resetUrl: z.string().min(12).max(500),
+});
+export type SendPasswordResetEmailRequest = z.infer<typeof SendPasswordResetEmailRequestSchema>;
+export const SendPasswordResetEmailResponseSchema = z.object({
+  ok: z.boolean(),
+});
+export type SendPasswordResetEmailResponse = z.infer<typeof SendPasswordResetEmailResponseSchema>;
 export const ListUsersRequestSchema = z.object({
   limit: z.number().optional(),
   offset: z.number().optional(),
