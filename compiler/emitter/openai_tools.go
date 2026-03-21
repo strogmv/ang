@@ -150,7 +150,7 @@ func normalizeOpenAIToolChoiceExpr(expr string, specs []openAIToolSpec) string {
 	}
 	for _, spec := range specs {
 		if raw == spec.OriginalName || raw == spec.ToolName || raw == spec.Method.Name {
-			return strconv.Quote(spec.ToolName)
+			return fmt.Sprintf(`map[string]any{"type": "function", "function": map[string]any{"name": %q}}`, spec.ToolName)
 		}
 	}
 	return expr

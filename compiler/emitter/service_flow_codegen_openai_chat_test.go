@@ -78,7 +78,7 @@ func TestRenderFlow_OpenAIChat_ToolLoop(t *testing.T) {
 
 	mustContain := []string{
 		`"tools": _oaiTools`,
-		`"tool_choice"] = "Blog__GetPost"`,
+		`"tool_choice"] = map[string]any{"type": "function", "function": map[string]any{"name": "Blog__GetPost"}}`,
 		`for _oaiRound`,
 		`LookupPostForAssistant`,
 		`Blog__GetPost`,
