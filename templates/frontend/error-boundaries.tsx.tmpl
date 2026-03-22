@@ -27,8 +27,8 @@ type ResourceBoundaryProps = {
 
 {{- range .QueryResources }}
 
-/** Error boundary isolating {{ .key | Title }} data UI. Resets on query-client reset. */
-export const {{ .key | Title }}ErrorBoundary = ({
+/** Error boundary isolating {{ .Key | Title }} data UI. Resets on query-client reset. */
+export const {{ .Key | Title }}ErrorBoundary = ({
   children,
   fallback: FallbackComponent = DefaultFallback,
   onError,

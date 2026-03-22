@@ -4,6 +4,7 @@
 import 'server-only';
 import { cache } from 'react';
 import { QueryClient, dehydrate } from '@tanstack/react-query';
+import { queryKeys } from './query-keys';
 import * as api from './endpoints';
 import type * as Types from './types';
 
@@ -37,11 +38,11 @@ export const fetch{{ .Key | Title }}Me = cache(async () => {
  *
  * Usage in Server Component:
  * ```ts
- * const { queryClient, dehydratedState } = await prefetch{{ .key | Title }}(filters);
+ * const { queryClient, dehydratedState } = await prefetch{{ .Key | Title }}(filters);
  * return <HydrationBoundary state={dehydratedState}><ClientPage /></HydrationBoundary>;
  * ```
  */
-export async function prefetch{{ .key | Title }}(
+export async function prefetch{{ .Key | Title }}(
 {{- if .HasList }}
   listFilters?: Types.{{ .ListRPC }}Request,
 {{- end }}
@@ -53,8 +54,8 @@ export async function prefetch{{ .key | Title }}(
   await Promise.all([
     {{- if .HasList }}
     queryClient.prefetchQuery({
-      queryKey: ['{{ .Key }}', 'list', listFilters],
-      queryFn: () => fetch{{ .key | Title }}List(listFilters),
+      queryKey: queryKeys.{{ .Key }}.list(listFilters),
+      queryFn: () => fetch{{ .Key | Title }}List(listFilters),
       {{- if .ListCacheTTL }}
       staleTime: {{ CacheTTLToMs .ListCacheTTL }},
       {{- end }}
@@ -63,8 +64,8 @@ export async function prefetch{{ .key | Title }}(
     {{- if .HasDetail }}
     ...({{ .DetailParamName }} ? [
       queryClient.prefetchQuery({
-        queryKey: ['{{ .Key }}', 'detail', {{ .DetailParamName }}],
-        queryFn: () => fetch{{ .key | Title }}Detail({{ .DetailParamName }}!),
+        queryKey: queryKeys.{{ .Key }}.detail({{ .DetailParamName }}!),
+        queryFn: () => fetch{{ .Key | Title }}Detail({{ .DetailParamName }}!),
         {{- if .DetailCacheTTL }}
         staleTime: {{ CacheTTLToMs .DetailCacheTTL }},
         {{- end }}

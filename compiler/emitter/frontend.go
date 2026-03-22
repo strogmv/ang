@@ -42,6 +42,16 @@ type QueryResource struct {
 	DetailParamName string
 	ListCacheTTL    string
 	DetailCacheTTL  string
+	EntityName      string // derived from DetailRPC — used for Zustand store import
+}
+
+func deriveEntityName(rpc string) string {
+	for _, pfx := range []string{"AdminGet", "AdminFetch", "Get", "Fetch", "Find", "Load", "Read"} {
+		if strings.HasPrefix(rpc, pfx) {
+			return rpc[len(pfx):]
+		}
+	}
+	return ""
 }
 
 func buildQueryResources(endpoints []normalizer.Endpoint) ([]QueryResource, bool, bool) {
@@ -100,6 +110,7 @@ func buildQueryResources(endpoints []normalizer.Endpoint) ([]QueryResource, bool
 				param := strings.TrimSuffix(strings.TrimPrefix(segs[detailIndex], "{"), "}")
 				entry.r.DetailParamName = JSONName(param)
 				entry.r.DetailCacheTTL = ep.CacheTTL
+				entry.r.EntityName = deriveEntityName(ep.RPC)
 			}
 		}
 	}
@@ -877,6 +888,7 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		{"optimistic-hooks", "hooks/optimistic-hooks.ts"},
 		{"app-router", "app-router.ts"},
 		{"error-boundaries", "error-boundaries.tsx"},
+		{"suspense-boundaries", "suspense-boundaries.tsx"},
 	}
 
 	for _, f := range files {
