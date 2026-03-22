@@ -415,7 +415,14 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 						importMap["crypto/hmac"] = ""
 						importMap["crypto/sha256"] = ""
 						importMap["encoding/base64"] = ""
-					case "oauth2.Token", "oauth2.Refresh":
+									case "oauth2.Token", "oauth2.Refresh":
+					importMap["io"] = ""
+					importMap["net/url"] = ""
+				case "oauth.Google.GetURL", "oauth.Google.Exchange", "oauth.Google.UserInfo":
+					importMap["golang.org/x/oauth2"] = ""
+					importMap["golang.org/x/oauth2/google"] = ""
+					importMap["encoding/json"] = ""
+					importMap["strings"] = ""
 						importMap["io"] = ""
 						importMap["net/url"] = ""
 					case "crypto.Encrypt", "crypto.Decrypt":
