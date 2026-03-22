@@ -120,6 +120,34 @@ func TestRenderFlowStepInfra_DispatchHandlesKnownActions(t *testing.T) {
 	}
 }
 
+func TestRenderFlowStepInfra_StrFormatAssignsToStructField(t *testing.T) {
+	t.Parallel()
+
+	step := normalizer.FlowStep{
+		Action: "str.Format",
+		Args: map[string]any{
+			"template": `"u:%s/%s"`,
+			"args":     []string{"req.UserID", "req.CompanyID"},
+			"output":   "resp.RedirectURL",
+		},
+	}
+
+	st := newInfraTestFlowState()
+	arg := infraTestArg(step)
+	child := infraTestChild(step)
+
+	got := renderFlowStepInfra(st, step, 1, "_x", arg, child)
+	if strings.TrimSpace(got) == "" {
+		t.Fatal("dispatcher returned empty render for str.Format with dotted output")
+	}
+	if !strings.Contains(got, "_fmt_x := fmt.Sprintf(") {
+		t.Fatalf("expected temp fmt var, got:\n%s", got)
+	}
+	if !strings.Contains(got, "helpers.Assign(&resp.RedirectURL, _fmt_x)") {
+		t.Fatalf("expected helper-based assignment into struct field, got:\n%s", got)
+	}
+}
+
 func newInfraTestFlowState() *flowRenderState {
 	n := 0
 	return &flowRenderState{

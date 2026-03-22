@@ -8,12 +8,12 @@ import { useQueryErrorResetBoundary } from '@tanstack/react-query';
 
 /** Default error fallback — shows message + retry button. Replace via fallbackComponent prop. */
 const DefaultFallback = ({ error, resetErrorBoundary }: FallbackProps) => (
-  <div role="alert" style={{ padding: '1rem', border: '1px solid #f87171', borderRadius: 8 }}>
-    <p style={{ fontWeight: 600, color: '#dc2626' }}>Something went wrong</p>
-    <pre style={{ fontSize: '0.75rem', color: '#6b7280', whiteSpace: 'pre-wrap' }}>
+  <div role="alert">
+    <p>Something went wrong</p>
+    <pre>
       {error?.message ?? String(error)}
     </pre>
-    <button onClick={resetErrorBoundary} style={{ marginTop: '0.5rem' }}>
+    <button onClick={resetErrorBoundary}>
       Try again
     </button>
   </div>

@@ -87,6 +87,13 @@ func TestRenderFlowActionMatrix_ControlAndScheduling(t *testing.T) {
 			},
 		},
 		{
+			name: "str.Format",
+			step: normalizer.FlowStep{Action: "str.Format", Args: map[string]any{"template": `"u:%s"`, "args": []string{"req.UserID"}, "output": "line"}},
+			wants: []string{
+				`line := fmt.Sprintf("u:%s", req.UserID)`,
+			},
+		},
+		{
 			name: "flow.Cron",
 			step: normalizer.FlowStep{Action: "flow.Cron", Args: map[string]any{"window": "Mon-Fri 09:00-17:00", "_do": []normalizer.FlowStep{{Action: "flow.SuggestNext", Args: map[string]any{"options": []string{"inside"}}}}}},
 			wants: []string{

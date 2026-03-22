@@ -949,6 +949,13 @@ func nestedEntitiesFromEntity(ent normalizer.Entity) []normalizer.Entity {
 
 func (e *Emitter) emitFrontendFile(tmplName string, data interface{}, funcs template.FuncMap, outName string) error {
 	tmplPath := fmt.Sprintf("templates/frontend/%s.ts.tmpl", tmplName)
+	if _, err := ReadTemplateByPath(tmplPath); err != nil {
+		if strings.HasSuffix(outName, ".tsx") {
+			tmplPath = fmt.Sprintf("templates/frontend/%s.tsx.tmpl", tmplName)
+		} else {
+			return err
+		}
+	}
 	return e.emitFrontendTemplate(tmplPath, data, funcs, outName)
 }
 

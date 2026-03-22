@@ -159,16 +159,24 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 				}
 			}
 		}
+		callArgs := tmpl
+		if len(fmtArgs) > 0 {
+			callArgs += ", " + strings.Join(fmtArgs, ", ")
+		}
+		if strings.Contains(output, ".") {
+			tmpVar := "_fmt" + sfx
+			var b strings.Builder
+			b.WriteString(fmt.Sprintf("%s%s := fmt.Sprintf(%s)\n", pad, tmpVar, callArgs))
+			b.WriteString(renderFlowAssignTarget(st, pad, output, tmpVar, "string"))
+			return b.String(), true
+		}
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
 		}
 		st.declared[output] = true
 		st.pointers[output] = false
-		callArgs := tmpl
-		if len(fmtArgs) > 0 {
-			callArgs += ", " + strings.Join(fmtArgs, ", ")
-		}
+		st.types[output] = "string"
 		return fmt.Sprintf("%s%s %s fmt.Sprintf(%s)\n", pad, output, assign, callArgs), true
 
 	case "str.Concat":

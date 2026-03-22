@@ -147,6 +147,19 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 		}
 		return in.Em.EmitTestStubs(missing, "NEW-endpoint-stubs.test.ts")
 	}})
+	registry.Register(generator.Step{Name: "Tracing", Requires: goOnly, Run: func() error { return in.Em.EmitTracing() }})
+	registry.Register(generator.Step{Name: "Policy Runtime", Requires: goOnly, Run: func() error { return in.Em.EmitPolicyRuntime() }})
+	registry.Register(generator.Step{Name: "Service Impls", ArtifactKey: "go:service_impl", Requires: goOnly, Run: func() error { return in.Em.EmitServiceImplFromIR(in.IRSchema, in.AuthDef) }})
+	registry.Register(generator.Step{Name: "Port Mocks", Requires: goOnly, Run: func() error { return in.Em.EmitPortMocks() }})
+	registry.Register(generator.Step{Name: "Test Container", Requires: goOnly, Run: func() error { return in.Em.EmitTestContainerFromIR(in.Ctx, in.IRSchema, in.AuthDef, in.InfraValues) }})
+	registry.Register(generator.Step{Name: "Cached Services", Requires: goOnly, Run: func() error { return in.Em.EmitCachedServiceFromIR(in.IRSchema) }})
+	registry.Register(generator.Step{Name: "K8s Manifests", Requires: goOnly, Run: func() error { return in.Em.EmitK8sFromIR(in.IRSchema, in.IsMicroservice) }})
+	registry.Register(generator.Step{Name: "Server Main", ArtifactKey: "go:server_main", Requires: goOnly, Run: func() error {
+		if in.IsMicroservice {
+			return in.Em.EmitMicroservicesFromIR(in.IRSchema, in.Ctx.WebSocketServices, in.AuthDef)
+		}
+		return in.Em.EmitMain(in.Ctx)
+	}})
 	registry.Register(generator.Step{Name: "Frontend SDK", ArtifactKey: "go:frontend_sdk", Requires: goOnly, Run: func() error {
 		if in.SkipFrontend {
 			return nil
@@ -191,18 +204,5 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 			return nil
 		}
 		return in.WriteFrontendEnvExample()
-	}})
-	registry.Register(generator.Step{Name: "Tracing", Requires: goOnly, Run: func() error { return in.Em.EmitTracing() }})
-	registry.Register(generator.Step{Name: "Policy Runtime", Requires: goOnly, Run: func() error { return in.Em.EmitPolicyRuntime() }})
-	registry.Register(generator.Step{Name: "Service Impls", ArtifactKey: "go:service_impl", Requires: goOnly, Run: func() error { return in.Em.EmitServiceImplFromIR(in.IRSchema, in.AuthDef) }})
-	registry.Register(generator.Step{Name: "Port Mocks", Requires: goOnly, Run: func() error { return in.Em.EmitPortMocks() }})
-	registry.Register(generator.Step{Name: "Test Container", Requires: goOnly, Run: func() error { return in.Em.EmitTestContainerFromIR(in.Ctx, in.IRSchema, in.AuthDef, in.InfraValues) }})
-	registry.Register(generator.Step{Name: "Cached Services", Requires: goOnly, Run: func() error { return in.Em.EmitCachedServiceFromIR(in.IRSchema) }})
-	registry.Register(generator.Step{Name: "K8s Manifests", Requires: goOnly, Run: func() error { return in.Em.EmitK8sFromIR(in.IRSchema, in.IsMicroservice) }})
-	registry.Register(generator.Step{Name: "Server Main", ArtifactKey: "go:server_main", Requires: goOnly, Run: func() error {
-		if in.IsMicroservice {
-			return in.Em.EmitMicroservicesFromIR(in.IRSchema, in.Ctx.WebSocketServices, in.AuthDef)
-		}
-		return in.Em.EmitMain(in.Ctx)
 	}})
 }
