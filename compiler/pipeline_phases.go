@@ -96,11 +96,6 @@ func runParsePhase(basePath string, opts PipelineOptions) (ParsePhaseOutput, err
 	out := ParsePhaseOutput{}
 	p := parser.New()
 
-	// Pre-warm the CUE context cache with schema and domain packages.
-	// cue/api imports both; loading them first means BuildInstance for cue/api
-	// can reuse the already-evaluated packages instead of re-evaluating them
-	// for each of the 100+ api files.
-	LoadOptionalDomain(p, filepath.Join(basePath, "cue/schema")) //nolint:errcheck
 	valDomain, okDomain, err := LoadOptionalDomain(p, filepath.Join(basePath, "cue/domain"))
 	if err != nil {
 		return out, WrapContractError(
