@@ -534,7 +534,7 @@ import "github.com/strogmv/ang/cue/project"
 	action: "jwt.Sign"
 	// Claims expression (must evaluate to map[string]any)
 	claims: string
-	// Optional secret expression. If omitted, runtime uses JWT_PRIVATE_KEY/JWT_PUBLIC_KEY env.
+	// Optional secret expression. If omitted, runtime uses APP_TOKEN_SECRET or JWT_PRIVATE_KEY.
 	secret?: string
 	// Optional algorithm expression (default HS256)
 	alg?: string
@@ -562,6 +562,7 @@ import "github.com/strogmv/ang/cue/project"
 	output:  string
 	purpose?: string
 	claims?:  string
+	// Optional secret expression. If omitted, runtime uses APP_TOKEN_SECRET or JWT_PRIVATE_KEY.
 	secret?:  string
 	ttl?:     string
 }
@@ -572,6 +573,7 @@ import "github.com/strogmv/ang/cue/project"
 	token: string
 	output: string
 	purpose?: string
+	// Optional secret expression. If omitted, runtime uses APP_TOKEN_SECRET or JWT_PRIVATE_KEY.
 	secret?:  string
 }
 

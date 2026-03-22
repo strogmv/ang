@@ -125,6 +125,7 @@ func TestRenderFlowActionMatrix_InfraAndReliability(t *testing.T) {
 		name  string
 		step  normalizer.FlowStep
 		wants []string
+		avoid []string
 	}{
 		{
 			name: "http.Request",
@@ -253,6 +254,7 @@ func TestRenderFlowActionMatrix_DomainAndState(t *testing.T) {
 		name  string
 		step  normalizer.FlowStep
 		wants []string
+		avoid []string
 	}{
 		{
 			name: "auth.RequireRole",
@@ -390,6 +392,11 @@ func TestRenderFlowActionMatrix_DomainAndState(t *testing.T) {
 					t.Fatalf("expected %s to contain %q, got:\n%s", tc.step.Action, needle, got)
 				}
 			}
+			for _, needle := range tc.avoid {
+				if strings.Contains(got, needle) {
+					t.Fatalf("did not expect %s to contain %q, got:\n%s", tc.step.Action, needle, got)
+				}
+			}
 		})
 	}
 }
@@ -435,6 +442,7 @@ func TestRenderFlowActionMatrix_RemainingCoverage(t *testing.T) {
 		name  string
 		step  normalizer.FlowStep
 		wants []string
+		avoid []string
 	}{
 		{
 			name: "archive.ZipDir",
@@ -620,6 +628,7 @@ func TestRenderFlowActionMatrix_NewPrimitives(t *testing.T) {
 		name  string
 		step  normalizer.FlowStep
 		wants []string
+		avoid []string
 	}{
 		{
 			name: "repo.Exists",
@@ -627,6 +636,17 @@ func TestRenderFlowActionMatrix_NewPrimitives(t *testing.T) {
 			wants: []string{
 				"s.UserRepo.FindByID(ctx, req.UserID)",
 				"exists := _repoExists",
+				"!= nil",
+			},
+		},
+		{
+			name: "repo.Exists bool method",
+			step: normalizer.FlowStep{Action: "repo.Exists", Args: map[string]any{"source": "User", "method": "ExistsByEmail", "input": "req.Email", "output": "exists"}},
+			wants: []string{
+				"exists, err := s.UserRepo.ExistsByEmail(ctx, req.Email)",
+			},
+			avoid: []string{
+				"_repoExists",
 				"!= nil",
 			},
 		},

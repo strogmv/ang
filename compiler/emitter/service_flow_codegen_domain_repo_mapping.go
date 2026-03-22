@@ -30,6 +30,13 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 		st.pointers[output] = false
 		st.types[output] = "bool"
 		var b strings.Builder
+		if strings.HasPrefix(method, "Exists") || strings.HasPrefix(method, "Has") {
+			b.WriteString(fmt.Sprintf("%s%s, err %s s.%sRepo.%s(ctx, %s)\n", pad, output, assign, ExportName(source), method, input))
+			b.WriteString(fmt.Sprintf("%sif err != nil {\n", pad))
+			b.WriteString(errReturn(st, pad+"\t", "err"))
+			b.WriteString(fmt.Sprintf("%s}\n", pad))
+			return b.String(), true
+		}
 		b.WriteString(fmt.Sprintf("%s_repoExists%s, err := s.%sRepo.%s(ctx, %s)\n", pad, sfx, ExportName(source), method, input))
 		b.WriteString(fmt.Sprintf("%sif err != nil {\n", pad))
 		b.WriteString(errReturn(st, pad+"\t", "err"))
