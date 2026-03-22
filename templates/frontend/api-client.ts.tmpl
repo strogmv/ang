@@ -137,11 +137,17 @@ const shouldRetry = (error: AxiosError) => {
   return typeof status === 'number' && Array.isArray(strategy.retryOnStatuses) && strategy.retryOnStatuses.includes(status);
 };
 
-// 1. JWT & Trace Context Interceptor
+// 1. JWT, Locale & Trace Context Interceptor
 apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = useAuthStore.getState().token;
   if (token && config.headers) {
     config.headers.Authorization = `Bearer ${token}`;
+  }
+
+  // Accept-Language: propagate user locale to backend (supports fallback chain in ANG)
+  const userLocale = (useAuthStore.getState().user as any)?.locale;
+  if (userLocale && typeof userLocale === 'string' && userLocale.trim()) {
+    config.headers.set('Accept-Language', userLocale.trim());
   }
 
   // W3C Trace Context (OpenTelemetry compatible)

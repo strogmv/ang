@@ -34,6 +34,7 @@ type OutputOptions struct {
 	SkipGoVerify        bool
 	DryRunRoot          string
 	DryRunReport        string
+	WithOpenAPI         bool
 }
 
 func parseOutputOptions(args []string) (OutputOptions, error) {
@@ -57,6 +58,7 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 	planJSON := fs.Bool("json", false, "Print build plan as JSON (for --phase=plan|apply)")
 	runTests := fs.Bool("run-tests", false, "Run go test ./... for generated Go targets after successful build")
 	skipGoVerify := fs.Bool("skip-go-verify", false, "Skip post-build go verify (go build ./internal/...)")
+	withOpenAPI := fs.Bool("openapi", false, "Also generate api/openapi.yaml after build")
 	dryRunRoot := fs.String("dry-run-root", "", "internal: override dry-run temp root")
 	dryRunReport := fs.String("dry-run-report", "", "internal: write dry-run manifest json to path")
 	if err := fs.Parse(args); err != nil {
@@ -98,6 +100,7 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 		SkipGoVerify:        *skipGoVerify,
 		DryRunRoot:          strings.TrimSpace(*dryRunRoot),
 		DryRunReport:        strings.TrimSpace(*dryRunReport),
+		WithOpenAPI:         *withOpenAPI,
 	}
 	if opts.FrontendDir == "" {
 		opts.FrontendDir = "sdk"

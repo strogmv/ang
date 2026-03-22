@@ -578,6 +578,24 @@ func runBuild(args []string) {
 				printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterMCPGen, "run optional MCP generation", err)
 				return
 			}
+			if output.WithOpenAPI {
+				openapiPath := filepath.Join(projectPath, "api", "openapi.yaml")
+				openapiEm := &emitter.Emitter{
+					OutputDir: filepath.Join(projectPath, "api"),
+					Version:   compiler.Version,
+				}
+				if oErr := openapiEm.EmitOpenAPIFromNormalizerTypes(
+					compiled.Normalized.Endpoints,
+					compiled.Normalized.Services,
+					compiled.Normalized.Errors,
+					&compiled.Normalized.Project,
+					openapiPath,
+				); oErr != nil {
+					logText("Warning: openapi generation failed: %v", oErr)
+				} else {
+					logText("OpenAPI spec written to %s", openapiPath)
+				}
+			}
 			if err := runFrontendTypecheckGate(frontendTypecheckDirs); err != nil {
 				printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterStep, "frontend typecheck gate", err)
 				return

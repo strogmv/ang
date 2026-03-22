@@ -853,6 +853,7 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		{"websocket-hooks", "hooks/websocket-hooks.ts"},
 		{"routes", "routes.ts"},
 		{"handlers", "mocks/handlers.ts"},
+		{"msw-server", "mocks/server.ts"},
 		{"forms", "forms/index.ts"},
 	}
 
