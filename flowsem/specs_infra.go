@@ -682,6 +682,12 @@ func init() {
 			RequiredArgs:     []string{"token", "output"},
 			DeclaresFromArgs: []string{"output"},
 		},
+		// locale.Resolve — resolves user locale via fallback chain: sources → reqctx → default
+		"locale.Resolve": {
+			RequiredArgs:     []string{"output"},
+			DeclaresFromArgs: []string{"output"},
+			OptionalArgKinds: map[string]ArgKind{"sources": ArgKindString, "default": ArgKindString},
+		},
 	} {
 		specsInfra[k] = v
 	}
