@@ -164,6 +164,10 @@ func flowStepReferenceExprs(step FlowStep) []flowRefExpr {
 	case "repo.Find", "repo.Get", "repo.GetForUpdate", "repo.Save", "repo.Delete", "repo.List",
 		"db.Get", "db.List", "db.Insert", "db.Update", "db.Delete", "db.Lock", "db.SelectForUpdate":
 		addArg("input")
+	case "repo.Exists":
+		addArg("input")
+	case "repo.Count":
+		addArg("input")
 	case "repo.Query", "db.Query":
 		addArg("input")
 		addArgExprList("args")
@@ -203,6 +207,15 @@ func flowStepReferenceExprs(step FlowStep) []flowRefExpr {
 		if v, _ := step.Args["condition"].(string); v != "" {
 			add("condition", v, local)
 		}
+	case "list.Find", "list.Any", "list.All":
+		addArg("from")
+		local := map[string]struct{}{}
+		if as, _ := step.Args["as"].(string); isSimpleIdent(strings.TrimSpace(as)) {
+			local[strings.TrimSpace(as)] = struct{}{}
+		}
+		if v, _ := step.Args["condition"].(string); v != "" {
+			add("condition", v, local)
+		}
 	case "list.Paginate":
 		addArgs("input", "offset", "limit")
 	case "list.Sort":
@@ -211,13 +224,25 @@ func flowStepReferenceExprs(step FlowStep) []flowRefExpr {
 		addArgs("items", "lookupInput")
 	case "math.Expr":
 		addArg("expr")
+	case "value.Coalesce":
+		addArgExprList("values")
 	case "time.Parse":
 		if v, _ := step.Args["value"].(string); v != "" {
 			add("value", v, nil)
 		} else {
 			addArg("input")
 		}
+	case "time.Add":
+		addArgs("input", "duration")
+	case "time.Sub":
+		addArgs("a", "b")
+	case "time.Diff":
+		addArgs("from", "to")
 	case "str.Normalize":
+		addArg("input")
+	case "errors.New":
+		addArgs("message", "status", "code")
+	case "errors.Map":
 		addArg("input")
 	case "enum.Validate":
 		addArg("value")
@@ -253,6 +278,10 @@ func flowStepReferenceExprs(step FlowStep) []flowRefExpr {
 		addArgs("claims", "secret")
 	case "jwt.Verify":
 		addArgs("token", "secret")
+	case "token.Generate":
+		addArgs("subject", "purpose", "claims", "secret", "ttl")
+	case "token.Verify":
+		addArgs("token", "purpose", "secret")
 	case "crypto.Hash":
 		addArg("input")
 	case "event.Wait":
@@ -334,6 +363,8 @@ func flowStepReferenceExprs(step FlowStep) []flowRefExpr {
 		addArg("data")
 	case "concurrency.Limit", "concurrency.Run":
 		addArgs("key", "throw")
+	case "mutex.With":
+		addArgs("key", "wait", "poll", "throw")
 	case "circuit.Check", "circuit.RecordSuccess", "circuit.RecordFailure", "circuit.Breaker":
 		addArgs("name", "throw", "openTTL")
 	case "bulkhead.Acquire", "bulkhead.Run":
@@ -357,8 +388,28 @@ func flowStepReferenceExprs(step FlowStep) []flowRefExpr {
 		"crypto.Encrypt", "crypto.Decrypt", "secret.Get", "config.Get", "model.Resolve":
 		addArgs("input", "key", "path", "url", "value", "pattern", "replacement", "secret")
 		addArg("name")
+	case "template.Render":
+		addArgs("template", "data")
+	case "map.Get":
+		addArgs("input", "key", "default")
+	case "map.Has":
+		addArgs("input", "key")
+	case "map.Set":
+		addArgs("input", "key", "value")
+	case "map.Merge":
+		addArgs("left", "right")
 	case "map.Build":
-		addArgs("from", "key", "value")
+		addArg("from")
+		local := map[string]struct{}{}
+		if as, _ := step.Args["as"].(string); isSimpleIdent(strings.TrimSpace(as)) {
+			local[strings.TrimSpace(as)] = struct{}{}
+		}
+		if v, _ := step.Args["key"].(string); v != "" {
+			add("key", v, local)
+		}
+		if v, _ := step.Args["value"].(string); v != "" {
+			add("value", v, local)
+		}
 	default:
 		// Fallback: catch undeclared vars for exotic/rare actions by scanning common expression args.
 		addArgs("input", "from", "value", "to", "key", "data", "url", "path", "payload", "token", "claims",
@@ -504,18 +555,30 @@ func flowExprRoots(expr string) []string {
 
 	roots := make(map[string]struct{})
 	var stack []ast.Node
+	funcLitDepth := 0
 	ast.Inspect(parsed, func(n ast.Node) bool {
 		if n == nil {
 			if len(stack) > 0 {
+				if _, isFuncLit := stack[len(stack)-1].(*ast.FuncLit); isFuncLit {
+					funcLitDepth--
+				}
 				stack = stack[:len(stack)-1]
 			}
 			return true
+		}
+		if _, isFuncLit := n.(*ast.FuncLit); isFuncLit {
+			funcLitDepth++
 		}
 		var parent ast.Node
 		if len(stack) > 0 {
 			parent = stack[len(stack)-1]
 		}
 		stack = append(stack, n)
+
+		// Variables inside inline func() literals are locally scoped — skip them.
+		if funcLitDepth > 0 {
+			return true
+		}
 
 		id, ok := n.(*ast.Ident)
 		if !ok {

@@ -411,6 +411,23 @@ func handleFlowControlAndInfra(
 		}
 		return true
 
+	case "list.Find", "list.Any", "list.All":
+		if step.Args["from"] == nil || step.Args["from"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_FROM", step.Action+" missing 'from'", "{action: \""+step.Action+"\", from: \"items\", condition: \"item.Active\", output: \"result\"}", step.File, step.Line, step.Column)
+		}
+		if step.Args["condition"] == nil || step.Args["condition"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_CONDITION", step.Action+" missing 'condition'", "{action: \""+step.Action+"\", from: \"items\", condition: \"item.Active\", output: \"result\"}", step.File, step.Line, step.Column)
+		}
+		if output, _ := step.Args["output"].(string); strings.TrimSpace(output) == "" {
+			addWarn(stepNum, step.Action, "MISSING_OUTPUT", step.Action+" missing 'output'", "{action: \""+step.Action+"\", from: \"items\", condition: \"item.Active\", output: \"result\"}", step.File, step.Line, step.Column)
+		} else {
+			declaredVars[output] = true
+		}
+		if found, _ := step.Args["found"].(string); strings.TrimSpace(found) != "" {
+			declaredVars[found] = true
+		}
+		return true
+
 	case "list.Sort":
 		if step.Args["items"] == nil || step.Args["items"] == "" {
 			addWarn(stepNum, step.Action, "MISSING_ITEMS", "list.Sort missing 'items'", "{action: \"list.Sort\", items: \"items\", by: \"CreatedAt\", order: \"desc\"}", step.File, step.Line, step.Column)
@@ -450,10 +467,220 @@ func handleFlowControlAndInfra(
 		}
 		return true
 
+	case "time.Add":
+		if step.Args["input"] == nil || step.Args["input"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_INPUT", "time.Add missing 'input'", "{action: \"time.Add\", input: \"issuedAt\", duration: \"15*time.Minute\", output: \"expiresAt\"}", step.File, step.Line, step.Column)
+		}
+		if step.Args["duration"] == nil || step.Args["duration"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_DURATION", "time.Add missing 'duration'", "{action: \"time.Add\", input: \"issuedAt\", duration: \"15*time.Minute\", output: \"expiresAt\"}", step.File, step.Line, step.Column)
+		}
+		if output, _ := step.Args["output"].(string); strings.TrimSpace(output) == "" {
+			addWarn(stepNum, step.Action, "MISSING_OUTPUT", "time.Add missing 'output'", "{action: \"time.Add\", input: \"issuedAt\", duration: \"15*time.Minute\", output: \"expiresAt\"}", step.File, step.Line, step.Column)
+		} else {
+			declaredVars[output] = true
+		}
+		return true
+
+	case "time.Sub":
+		if step.Args["a"] == nil || step.Args["a"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_A", "time.Sub missing 'a'", "{action: \"time.Sub\", a: \"expiresAt\", b: \"issuedAt\", output: \"ttl\"}", step.File, step.Line, step.Column)
+		}
+		if step.Args["b"] == nil || step.Args["b"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_B", "time.Sub missing 'b'", "{action: \"time.Sub\", a: \"expiresAt\", b: \"issuedAt\", output: \"ttl\"}", step.File, step.Line, step.Column)
+		}
+		if output, _ := step.Args["output"].(string); strings.TrimSpace(output) == "" {
+			addWarn(stepNum, step.Action, "MISSING_OUTPUT", "time.Sub missing 'output'", "{action: \"time.Sub\", a: \"expiresAt\", b: \"issuedAt\", output: \"ttl\"}", step.File, step.Line, step.Column)
+		} else {
+			declaredVars[output] = true
+		}
+		return true
+
+	case "time.Diff":
+		if step.Args["from"] == nil || step.Args["from"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_FROM", "time.Diff missing 'from'", "{action: \"time.Diff\", from: \"issuedAt\", to: \"expiresAt\", output: \"minutesLeft\"}", step.File, step.Line, step.Column)
+		}
+		if step.Args["to"] == nil || step.Args["to"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_TO", "time.Diff missing 'to'", "{action: \"time.Diff\", from: \"issuedAt\", to: \"expiresAt\", output: \"minutesLeft\"}", step.File, step.Line, step.Column)
+		}
+		if output, _ := step.Args["output"].(string); strings.TrimSpace(output) == "" {
+			addWarn(stepNum, step.Action, "MISSING_OUTPUT", "time.Diff missing 'output'", "{action: \"time.Diff\", from: \"issuedAt\", to: \"expiresAt\", output: \"minutesLeft\"}", step.File, step.Line, step.Column)
+		} else {
+			declaredVars[output] = true
+		}
+		return true
+
+	case "value.Coalesce":
+		if !hasNonEmptyListArg(step.Args["values"]) {
+			addWarn(stepNum, step.Action, "MISSING_VALUES", "value.Coalesce missing 'values'", "{action: \"value.Coalesce\", values: [\"req.Name\", \"req.Email\", \"\\\"anonymous\\\"\"], output: \"displayName\"}", step.File, step.Line, step.Column)
+		}
+		if output, _ := step.Args["output"].(string); strings.TrimSpace(output) == "" {
+			addWarn(stepNum, step.Action, "MISSING_OUTPUT", "value.Coalesce missing 'output'", "{action: \"value.Coalesce\", values: [\"req.Name\", \"req.Email\"], output: \"displayName\"}", step.File, step.Line, step.Column)
+		} else {
+			declaredVars[output] = true
+		}
+		return true
+
 	case "list.Len", "list.New", "map.New", "list.Map", "list.Reduce", "list.GroupBy", "list.Distinct", "list.Chunk":
 		if output, _ := step.Args["output"].(string); output != "" {
 			declaredVars[output] = true
 		}
+		return true
+
+	case "repo.Exists":
+		if step.Args["source"] == nil || step.Args["source"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_SOURCE", "repo.Exists missing 'source'", "{action: \"repo.Exists\", source: \"User\", input: \"req.UserID\", output: \"exists\"}", step.File, step.Line, step.Column)
+		}
+		if step.Args["input"] == nil || step.Args["input"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_INPUT", "repo.Exists missing 'input'", "{action: \"repo.Exists\", source: \"User\", input: \"req.UserID\", output: \"exists\"}", step.File, step.Line, step.Column)
+		}
+		if output, _ := step.Args["output"].(string); strings.TrimSpace(output) == "" {
+			addWarn(stepNum, step.Action, "MISSING_OUTPUT", "repo.Exists missing 'output'", "{action: \"repo.Exists\", source: \"User\", input: \"req.UserID\", output: \"exists\"}", step.File, step.Line, step.Column)
+		} else {
+			declaredVars[output] = true
+		}
+		return true
+
+	case "repo.Count":
+		if step.Args["source"] == nil || step.Args["source"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_SOURCE", "repo.Count missing 'source'", "{action: \"repo.Count\", source: \"Post\", method: \"CountByAuthorID\", input: \"req.AuthorID\", output: \"count\"}", step.File, step.Line, step.Column)
+		}
+		if step.Args["method"] == nil || step.Args["method"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_METHOD", "repo.Count missing 'method'", "{action: \"repo.Count\", source: \"Post\", method: \"CountByAuthorID\", input: \"req.AuthorID\", output: \"count\"}", step.File, step.Line, step.Column)
+		}
+		if output, _ := step.Args["output"].(string); strings.TrimSpace(output) == "" {
+			addWarn(stepNum, step.Action, "MISSING_OUTPUT", "repo.Count missing 'output'", "{action: \"repo.Count\", source: \"Post\", method: \"CountByAuthorID\", input: \"req.AuthorID\", output: \"count\"}", step.File, step.Line, step.Column)
+		} else {
+			declaredVars[output] = true
+		}
+		return true
+
+	case "map.Get":
+		if step.Args["input"] == nil || step.Args["input"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_INPUT", "map.Get missing 'input'", "{action: \"map.Get\", input: \"labels\", key: \"\\\"status\\\"\", output: \"status\"}", step.File, step.Line, step.Column)
+		}
+		if step.Args["key"] == nil || step.Args["key"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_KEY", "map.Get missing 'key'", "{action: \"map.Get\", input: \"labels\", key: \"\\\"status\\\"\", output: \"status\"}", step.File, step.Line, step.Column)
+		}
+		if output, _ := step.Args["output"].(string); strings.TrimSpace(output) == "" {
+			addWarn(stepNum, step.Action, "MISSING_OUTPUT", "map.Get missing 'output'", "{action: \"map.Get\", input: \"labels\", key: \"\\\"status\\\"\", output: \"status\"}", step.File, step.Line, step.Column)
+		} else {
+			declaredVars[output] = true
+		}
+		if found, _ := step.Args["found"].(string); strings.TrimSpace(found) != "" {
+			declaredVars[found] = true
+		}
+		return true
+
+	case "map.Has":
+		if step.Args["input"] == nil || step.Args["input"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_INPUT", "map.Has missing 'input'", "{action: \"map.Has\", input: \"labels\", key: \"\\\"status\\\"\", output: \"hasStatus\"}", step.File, step.Line, step.Column)
+		}
+		if step.Args["key"] == nil || step.Args["key"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_KEY", "map.Has missing 'key'", "{action: \"map.Has\", input: \"labels\", key: \"\\\"status\\\"\", output: \"hasStatus\"}", step.File, step.Line, step.Column)
+		}
+		if output, _ := step.Args["output"].(string); strings.TrimSpace(output) == "" {
+			addWarn(stepNum, step.Action, "MISSING_OUTPUT", "map.Has missing 'output'", "{action: \"map.Has\", input: \"labels\", key: \"\\\"status\\\"\", output: \"hasStatus\"}", step.File, step.Line, step.Column)
+		} else {
+			declaredVars[output] = true
+		}
+		return true
+
+	case "map.Set":
+		if step.Args["input"] == nil || step.Args["input"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_INPUT", "map.Set missing 'input'", "{action: \"map.Set\", input: \"labels\", key: \"\\\"status\\\"\", value: \"\\\"ready\\\"\", output: \"nextLabels\"}", step.File, step.Line, step.Column)
+		}
+		if step.Args["key"] == nil || step.Args["key"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_KEY", "map.Set missing 'key'", "{action: \"map.Set\", input: \"labels\", key: \"\\\"status\\\"\", value: \"\\\"ready\\\"\", output: \"nextLabels\"}", step.File, step.Line, step.Column)
+		}
+		if step.Args["value"] == nil || step.Args["value"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_VALUE", "map.Set missing 'value'", "{action: \"map.Set\", input: \"labels\", key: \"\\\"status\\\"\", value: \"\\\"ready\\\"\", output: \"nextLabels\"}", step.File, step.Line, step.Column)
+		}
+		if output, _ := step.Args["output"].(string); strings.TrimSpace(output) != "" {
+			declaredVars[output] = true
+		}
+		return true
+
+	case "map.Merge":
+		if step.Args["left"] == nil || step.Args["left"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_LEFT", "map.Merge missing 'left'", "{action: \"map.Merge\", left: \"defaults\", right: \"labels\", output: \"merged\"}", step.File, step.Line, step.Column)
+		}
+		if step.Args["right"] == nil || step.Args["right"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_RIGHT", "map.Merge missing 'right'", "{action: \"map.Merge\", left: \"defaults\", right: \"labels\", output: \"merged\"}", step.File, step.Line, step.Column)
+		}
+		if output, _ := step.Args["output"].(string); strings.TrimSpace(output) == "" {
+			addWarn(stepNum, step.Action, "MISSING_OUTPUT", "map.Merge missing 'output'", "{action: \"map.Merge\", left: \"defaults\", right: \"labels\", output: \"merged\"}", step.File, step.Line, step.Column)
+		} else {
+			declaredVars[output] = true
+		}
+		return true
+
+	case "errors.New":
+		if step.Args["message"] == nil || step.Args["message"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_MESSAGE", "errors.New missing 'message'", "{action: \"errors.New\", message: \"\\\"boom\\\"\", output: \"errObj\"}", step.File, step.Line, step.Column)
+		}
+		if output, _ := step.Args["output"].(string); strings.TrimSpace(output) != "" {
+			declaredVars[output] = true
+		}
+		return true
+
+	case "errors.Map":
+		if step.Args["input"] == nil || step.Args["input"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_INPUT", "errors.Map missing 'input'", "{action: \"errors.Map\", input: \"err\", cases: {\"not found\": {status: \"http.StatusNotFound\", code: \"NOT_FOUND\", message: \"missing\"}}, output: \"mappedErr\"}", step.File, step.Line, step.Column)
+		}
+		if step.Args["cases"] == nil {
+			addWarn(stepNum, step.Action, "MISSING_CASES", "errors.Map missing 'cases'", "{action: \"errors.Map\", input: \"err\", cases: {\"not found\": {status: \"http.StatusNotFound\", code: \"NOT_FOUND\", message: \"missing\"}}, output: \"mappedErr\"}", step.File, step.Line, step.Column)
+		}
+		if output, _ := step.Args["output"].(string); strings.TrimSpace(output) != "" {
+			declaredVars[output] = true
+		}
+		return true
+
+	case "template.Render":
+		if step.Args["template"] == nil || step.Args["template"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_TEMPLATE", "template.Render missing 'template'", "{action: \"template.Render\", template: \"\\\"Hello {{.Name}}\\\"\", data: \"map[string]any{\\\"Name\\\": req.Name}\", output: \"body\"}", step.File, step.Line, step.Column)
+		}
+		if step.Args["data"] == nil || step.Args["data"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_DATA", "template.Render missing 'data'", "{action: \"template.Render\", template: \"\\\"Hello {{.Name}}\\\"\", data: \"map[string]any{\\\"Name\\\": req.Name}\", output: \"body\"}", step.File, step.Line, step.Column)
+		}
+		if output, _ := step.Args["output"].(string); strings.TrimSpace(output) == "" {
+			addWarn(stepNum, step.Action, "MISSING_OUTPUT", "template.Render missing 'output'", "{action: \"template.Render\", template: \"\\\"Hello {{.Name}}\\\"\", data: \"map[string]any{\\\"Name\\\": req.Name}\", output: \"body\"}", step.File, step.Line, step.Column)
+		} else {
+			declaredVars[output] = true
+		}
+		return true
+
+	case "token.Generate":
+		if step.Args["subject"] == nil || step.Args["subject"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_SUBJECT", "token.Generate missing 'subject'", "{action: \"token.Generate\", subject: \"user.ID\", purpose: \"\\\"verify_email\\\"\", output: \"token\"}", step.File, step.Line, step.Column)
+		}
+		if output, _ := step.Args["output"].(string); strings.TrimSpace(output) == "" {
+			addWarn(stepNum, step.Action, "MISSING_OUTPUT", "token.Generate missing 'output'", "{action: \"token.Generate\", subject: \"user.ID\", purpose: \"\\\"verify_email\\\"\", output: \"token\"}", step.File, step.Line, step.Column)
+		} else {
+			declaredVars[output] = true
+		}
+		return true
+
+	case "token.Verify":
+		if step.Args["token"] == nil || step.Args["token"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_TOKEN", "token.Verify missing 'token'", "{action: \"token.Verify\", token: \"req.Token\", purpose: \"\\\"verify_email\\\"\", output: \"claims\"}", step.File, step.Line, step.Column)
+		}
+		if output, _ := step.Args["output"].(string); strings.TrimSpace(output) == "" {
+			addWarn(stepNum, step.Action, "MISSING_OUTPUT", "token.Verify missing 'output'", "{action: \"token.Verify\", token: \"req.Token\", purpose: \"\\\"verify_email\\\"\", output: \"claims\"}", step.File, step.Line, step.Column)
+		} else {
+			declaredVars[output] = true
+		}
+		return true
+
+	case "mutex.With":
+		if step.Args["key"] == nil || step.Args["key"] == "" {
+			addWarn(stepNum, step.Action, "MISSING_KEY", "mutex.With missing 'key'", "{action: \"mutex.With\", key: \"\\\"jobs:sync\\\"\", do: [ ... ]}", step.File, step.Line, step.Column)
+		}
+		subSteps, ok := step.Args["_do"].([]FlowStep)
+		if !ok || len(subSteps) == 0 {
+			addWarn(stepNum, step.Action, "MISSING_DO", "mutex.With requires non-empty 'do' block", "{action: \"mutex.With\", key: \"\\\"jobs:sync\\\"\", do: [ ... ]}", step.File, step.Line, step.Column)
+			return true
+		}
+		validate(subSteps, inTx, depth+1)
 		return true
 
 	case "list.Enrich":
