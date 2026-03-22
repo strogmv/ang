@@ -13,6 +13,9 @@ export const {{ .Key }}Options = {
     queryOptions({
       queryKey: queryKeys.{{ .Key }}.list(filters),
       queryFn: () => api.{{ LowerFirst .ListRPC }}(filters),
+      {{- if .ListCacheTTL }}
+      staleTime: {{ CacheTTLToMs .ListCacheTTL }},
+      {{- end }}
     }),
 
   {{- end }}
@@ -22,6 +25,9 @@ export const {{ .Key }}Options = {
       queryKey: queryKeys.{{ .Key }}.detail({{ .DetailParamName }}),
       queryFn: () => api.{{ LowerFirst .DetailRPC }}({ {{ .DetailParamName }} } as Types.{{ .DetailRPC }}Request),
       enabled: !!{{ .DetailParamName }},
+      {{- if .DetailCacheTTL }}
+      staleTime: {{ CacheTTLToMs .DetailCacheTTL }},
+      {{- end }}
     }),
 
   {{- end }}

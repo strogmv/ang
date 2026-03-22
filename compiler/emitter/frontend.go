@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+	"time"
 
 	"github.com/strogmv/ang-ir/ir"
 	"github.com/strogmv/ang-ir/normalizer"
@@ -39,6 +40,8 @@ type QueryResource struct {
 	MeRPC           string
 	ListFiltersType string
 	DetailParamName string
+	ListCacheTTL    string
+	DetailCacheTTL  string
 }
 
 func buildQueryResources(endpoints []normalizer.Endpoint) ([]QueryResource, bool, bool) {
@@ -83,6 +86,7 @@ func buildQueryResources(endpoints []normalizer.Endpoint) ([]QueryResource, bool
 				entry.r.HasList = true
 				entry.r.ListRPC = ep.RPC
 				entry.r.ListFiltersType = "Types." + ep.RPC + "Request"
+				entry.r.ListCacheTTL = ep.CacheTTL
 			}
 		case len(segs) == detailIndex+1 && segs[detailIndex] == "me":
 			if !entry.r.HasMe {
@@ -95,6 +99,7 @@ func buildQueryResources(endpoints []normalizer.Endpoint) ([]QueryResource, bool
 				entry.r.DetailRPC = ep.RPC
 				param := strings.TrimSuffix(strings.TrimPrefix(segs[detailIndex], "{"), "}")
 				entry.r.DetailParamName = JSONName(param)
+				entry.r.DetailCacheTTL = ep.CacheTTL
 			}
 		}
 	}
@@ -826,6 +831,19 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		"IsAuthLoginRPC": func(rpc string) bool {
 			return rpc == "LoginUser" || rpc == "RegisterUser"
 		},
+		"Title": func(s string) string {
+			if len(s) == 0 {
+				return ""
+			}
+			return strings.ToUpper(s[:1]) + s[1:]
+		},
+		"CacheTTLToMs": func(ttl string) int64 {
+			d, err := time.ParseDuration(ttl)
+			if err != nil {
+				return 0
+			}
+			return d.Milliseconds()
+		},
 	}
 
 	files := []struct {
@@ -855,6 +873,10 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		{"handlers", "mocks/handlers.ts"},
 		{"msw-server", "mocks/server.ts"},
 		{"forms", "forms/index.ts"},
+		{"format", "format.ts"},
+		{"optimistic-hooks", "hooks/optimistic-hooks.ts"},
+		{"app-router", "app-router.ts"},
+		{"error-boundaries", "error-boundaries.tsx"},
 	}
 
 	for _, f := range files {
