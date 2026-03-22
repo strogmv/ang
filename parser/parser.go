@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -16,13 +17,35 @@ var _ = cue.Value{}
 
 // Parser loads and performs initial validation of CUE models.
 type Parser struct {
-	ctx *cue.Context
+	ctx        *cue.Context
+	moduleRoot string // cached cue.mod root; avoids repeated filesystem walks
 }
 
 func New() *Parser {
 	return &Parser{
 		ctx: cuecontext.New(),
 	}
+}
+
+// findModuleRoot walks up from absPath to find the directory that contains
+// cue.mod/module.cue and caches the result so subsequent calls are O(1).
+func (p *Parser) findModuleRoot(absPath string) string {
+	if p.moduleRoot != "" {
+		return p.moduleRoot
+	}
+	dir := absPath
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "cue.mod", "module.cue")); err == nil {
+			p.moduleRoot = dir
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return ""
 }
 
 // FormatCUELocationError converts CUE error into human-readable advice with locations.
@@ -60,9 +83,13 @@ func (p *Parser) LoadDomain(path string) (cue.Value, error) {
 	if err != nil {
 		return cue.Value{}, err
 	}
-	bis := load.Instances([]string{"."}, &load.Config{
-		Dir: absPath,
-	})
+	cfg := &load.Config{Dir: absPath}
+	// Setting ModuleRoot explicitly avoids CUE re-scanning the filesystem on
+	// every call.  The first successful lookup is cached in p.moduleRoot.
+	if root := p.findModuleRoot(absPath); root != "" {
+		cfg.ModuleRoot = root
+	}
+	bis := load.Instances([]string{"."}, cfg)
 
 	if len(bis) == 0 {
 		return cue.Value{}, fmt.Errorf("no CUE files found in %s", path)
