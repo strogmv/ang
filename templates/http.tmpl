@@ -153,6 +153,14 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 		if req.CompanyID == "" {
 			req.CompanyID = CurrentCompanyID(r)
 		}
+		{{- else if eq . "locale" }}
+		if req.Locale == "" {
+			req.Locale = CurrentLocale(r)
+		}
+		{{- else if eq . "timezone" }}
+		if req.Timezone == "" {
+			req.Timezone = CurrentTimezone(r)
+		}
 		{{- end }}
 		{{- end }}
 		if err := validate.Struct(&req); err != nil {

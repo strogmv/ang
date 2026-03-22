@@ -357,7 +357,36 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		if format == "" {
 			format = "time.RFC3339"
 		}
+		timezone := arg("timezone")
+		if timezone != "" {
+			// timezone-aware format: convert to location first
+			locVar := "_tzLoc" + sfx
+			tVar := "_tzTime" + sfx
+			var b strings.Builder
+			b.WriteString(fmt.Sprintf("%s%s, _ := time.LoadLocation(fmt.Sprint(%s))\n", pad, locVar, timezone))
+			b.WriteString(fmt.Sprintf("%sif %s == nil { %s = time.UTC }\n", pad, locVar, locVar))
+			b.WriteString(fmt.Sprintf("%s%s := %s.In(%s)\n", pad, tVar, input, locVar))
+			rest := renderFlowAssignTarget(st, pad, output, tVar+".Format("+format+")", "string")
+			b.WriteString(rest)
+			return b.String(), true
+		}
 		return renderFlowAssignTarget(st, pad, output, input+".Format("+format+")", "string"), true
+
+	case "time.InZone":
+		// time.InZone: convert time.Time to given IANA timezone → output is time.Time in that zone
+		input := arg("input")
+		output := arg("output")
+		timezone := arg("timezone")
+		if input == "" || output == "" || timezone == "" {
+			return "", true
+		}
+		locVar := "_inZoneLoc" + sfx
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s%s, _ := time.LoadLocation(fmt.Sprint(%s))\n", pad, locVar, timezone))
+		b.WriteString(fmt.Sprintf("%sif %s == nil { %s = time.UTC }\n", pad, locVar, locVar))
+		rest := renderFlowAssignTarget(st, pad, output, input+".In("+locVar+")", "time.Time")
+		b.WriteString(rest)
+		return b.String(), true
 
 	case "math.Op":
 		op := arg("op")

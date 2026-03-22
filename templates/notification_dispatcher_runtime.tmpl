@@ -298,6 +298,12 @@ func (s *emailSink) Send(ctx context.Context, msg port.NotificationMessage) erro
 	if templateID == "" {
 		return fmt.Errorf("email template is required")
 	}
+	// locale-aware template resolution: try templateID.locale first, fallback to templateID
+	if locale := strings.TrimSpace(msg.Locale); locale != "" {
+		if localized := templateID + "." + locale; emailtemplates.Has(localized) {
+			templateID = localized
+		}
+	}
 	data := msg.Payload
 	if data == nil {
 		data = msg.Metadata

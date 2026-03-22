@@ -949,6 +949,10 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		input := arg("input")
 		output := arg("output")
 		errMsg := arg("error")
+		// required: true → auto-inject nil-check with generic "not found" message
+		if required, _ := step.Args["required"].(bool); required && errMsg == "" {
+			errMsg = source + " not found"
+		}
 		if source == "" || method == "" {
 			return "", true
 		}

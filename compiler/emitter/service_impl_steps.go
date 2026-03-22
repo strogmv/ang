@@ -61,7 +61,20 @@ func renderImplSteps(svc normalizer.Service, steps []normalizer.ImplStep, servic
 				cid := valString(st.CallArgsMap, "companyID", "\"\"")
 				roles := valString(st.CallArgsMap, "roles", "nil")
 				perms := valString(st.CallArgsMap, "perms", "nil")
-				b.WriteString(fmt.Sprintf("%s, err := auth.IssueAccessToken(s.cfg, %s, %s, %s, %s)\n", into, uid, cid, roles, perms))
+				locale := valString(st.CallArgsMap, "locale", "")
+				timezone := valString(st.CallArgsMap, "timezone", "")
+				if locale != "" || timezone != "" {
+					b.WriteString("_issueExtraClaims := map[string]string{}\n")
+					if locale != "" {
+						b.WriteString(fmt.Sprintf("if _lv := fmt.Sprint(%s); _lv != \"\" { _issueExtraClaims[\"locale\"] = _lv }\n", locale))
+					}
+					if timezone != "" {
+						b.WriteString(fmt.Sprintf("if _tv := fmt.Sprint(%s); _tv != \"\" { _issueExtraClaims[\"timezone\"] = _tv }\n", timezone))
+					}
+					b.WriteString(fmt.Sprintf("%s, err := auth.IssueAccessToken(s.cfg, %s, %s, %s, %s, _issueExtraClaims)\n", into, uid, cid, roles, perms))
+				} else {
+					b.WriteString(fmt.Sprintf("%s, err := auth.IssueAccessToken(s.cfg, %s, %s, %s, %s)\n", into, uid, cid, roles, perms))
+				}
 				b.WriteString("if err != nil { return resp, err }\n")
 			case "auth.checkpassword":
 				hash := valString(st.CallArgsMap, "hash", "\"\"")

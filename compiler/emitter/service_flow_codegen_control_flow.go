@@ -261,11 +261,40 @@ func renderFlowIfAST(st *flowRenderState, indent int, arg func(string) string, c
 	}
 	elseSteps := child("_else")
 	if len(elseSteps) > 0 {
-		elseBody, parseErr := parseFlowStmtList(renderFlowSteps(cloneFlowState(st), elseSteps, 1))
-		if parseErr != nil {
-			return "", false
+		// If else contains a single flow.If step, render as "else if" (ast.IfStmt as Else)
+		if len(elseSteps) == 1 && elseSteps[0].Action == "flow.If" {
+			nestedStep := elseSteps[0]
+			nestedArg := func(key string) string {
+				if v, ok := nestedStep.Args[key]; ok {
+					if s, ok := v.(string); ok {
+						return normalizeFlowExpr(strings.TrimSpace(s))
+					}
+				}
+				return ""
+			}
+			nestedChild := func(key string) []normalizer.FlowStep {
+				if v, ok := nestedStep.Args[key].([]normalizer.FlowStep); ok {
+					return v
+				}
+				return nil
+			}
+			nestedStr, ok := renderFlowIfAST(cloneFlowState(st), 1, nestedArg, nestedChild)
+			if ok && nestedStr != "" {
+				nestedStmts, parseErr := parseFlowStmtList(nestedStr)
+				if parseErr == nil && len(nestedStmts) == 1 {
+					if nestedIf, ok2 := nestedStmts[0].(*ast.IfStmt); ok2 {
+						stmt.Else = nestedIf
+					}
+				}
+			}
 		}
-		stmt.Else = &ast.BlockStmt{List: elseBody}
+		if stmt.Else == nil {
+			elseBody, parseErr := parseFlowStmtList(renderFlowSteps(cloneFlowState(st), elseSteps, 1))
+			if parseErr != nil {
+				return "", false
+			}
+			stmt.Else = &ast.BlockStmt{List: elseBody}
+		}
 	}
 	return renderFlowASTStmts([]ast.Stmt{stmt}, indent), true
 }
