@@ -224,7 +224,7 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		input := arg("input")
 		output := arg("output")
 		if input == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "str.StripMarkdown", "str.StripMarkdown requires input"), true
 		}
 		if output == "" {
 			output = input
@@ -262,7 +262,7 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		input := arg("input")
 		output := arg("output")
 		if input == "" || output == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "cast.ToString", "cast.ToString requires input and output"), true
 		}
 		format := arg("format")
 		assign := ":="
@@ -282,7 +282,7 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		into := arg("into")
 		output := arg("output")
 		if input == "" || into == "" || output == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "json.Parse", "json.Parse requires input, into, and output"), true
 		}
 		assign := ":="
 		if st.declared[output] {
@@ -304,7 +304,7 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		input := arg("input")
 		output := arg("output")
 		if input == "" || output == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "json.Marshal", "json.Marshal requires input and output"), true
 		}
 		assign := ":="
 		if st.declared[output] {
@@ -319,6 +319,57 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		b.WriteString(errReturn(st, pad+"\t", "fmt.Errorf(\"json: %w\", "+jerrv+")"))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		b.WriteString(fmt.Sprintf("%s%s %s string(%s)\n", pad, output, assign, jbv))
+		return b.String(), true
+
+	case "json.Stringify":
+		input := arg("input")
+		output := arg("output")
+		if input == "" || output == "" {
+			return renderInvalidFlowStepConfig(st, pad, "json.Stringify", "json.Stringify requires input and output"), true
+		}
+		assign := ":="
+		if st.declared[output] {
+			assign = "="
+		}
+		st.declared[output] = true
+		st.pointers[output] = false
+		st.types[output] = "string"
+		jbv, jerrv := "_jsb"+sfx, "_jsErr"+sfx
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s%s, %s := json.Marshal(%s)\n", pad, jbv, jerrv, input))
+		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, jerrv))
+		b.WriteString(errReturn(st, pad+"\t", "fmt.Errorf(\"json.Stringify: %w\", "+jerrv+")"))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s %s string(%s)\n", pad, output, assign, jbv))
+		return b.String(), true
+
+	case "template.Render":
+		tmpl := arg("template")
+		data := arg("data")
+		output := arg("output")
+		if tmpl == "" || data == "" || output == "" {
+			return renderInvalidFlowStepConfig(st, pad, "template.Render", "template.Render requires template, data, and output"), true
+		}
+		assign := ":="
+		if st.declared[output] {
+			assign = "="
+		}
+		st.declared[output] = true
+		st.pointers[output] = false
+		st.types[output] = "string"
+		tmplVar := "_tmpl" + sfx
+		bufVar := "_tmplBuf" + sfx
+		errVar := "_tmplErr" + sfx
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s%s, %s := template.New(\"flow\").Parse(%s)\n", pad, tmplVar, errVar, tmpl))
+		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, errVar))
+		b.WriteString(errReturn(st, pad+"\t", "fmt.Errorf(\"template.Render parse: %w\", "+errVar+")"))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%svar %s bytes.Buffer\n", pad, bufVar))
+		b.WriteString(fmt.Sprintf("%sif %s := %s.Execute(&%s, %s); %s != nil {\n", pad, errVar, tmplVar, bufVar, data, errVar))
+		b.WriteString(errReturn(st, pad+"\t", "fmt.Errorf(\"template.Render execute: %w\", "+errVar+")"))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s %s %s.String()\n", pad, output, assign, bufVar))
 		return b.String(), true
 
 	case "stream.Emit":

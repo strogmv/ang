@@ -148,7 +148,7 @@ func renderFlowStepControlLegacyExecFS(st *flowRenderState, step normalizer.Flow
 		path := arg("path")
 		data := arg("data")
 		if path == "" || data == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "fs.WriteFile", "fs.WriteFile requires path and data"), true
 		}
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%sif _mkErr := os.MkdirAll(filepath.Dir(%s), 0o755); _mkErr != nil {\n", pad, path))
@@ -258,7 +258,7 @@ func renderFlowStepControlLegacyExecFS(st *flowRenderState, step normalizer.Flow
 		// Args: output (var name for string result).
 		output := arg("output")
 		if output == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "session.Get", "session.Get requires output"), true
 		}
 		assign := ":="
 		if st.declared[output] {

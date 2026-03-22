@@ -179,6 +179,158 @@ func renderFlowStepInfraSecurity(st *flowRenderState, step normalizer.FlowStep, 
 		b.WriteString(fmt.Sprintf("%s%s %s %s\n", pad, output, assign, claimsV))
 		return b.String(), true
 
+	case "token.Generate":
+		subject := arg("subject")
+		output := arg("output")
+		if subject == "" || output == "" {
+			return renderInvalidFlowStepConfig(st, pad, "token.Generate", "token.Generate requires subject and output"), true
+		}
+		purposeExpr := arg("purpose")
+		claimsExpr := arg("claims")
+		secretExpr := arg("secret")
+		ttlExpr := arg("ttl")
+		if ttlExpr == "" {
+			ttlExpr = `"15m"`
+		}
+		secretV := "_tokenSecret" + sfx
+		payloadV := "_tokenPayload" + sfx
+		ttlV := "_tokenTTL" + sfx
+		ttlErrV := "_tokenTTLErr" + sfx
+		nowV := "_tokenNow" + sfx
+		payloadJSONV := "_tokenPayloadJSON" + sfx
+		unsignedV := "_tokenUnsigned" + sfx
+		sigV := "_tokenSig" + sfx
+		encV := "_tokenEnc" + sfx
+		hmacV := "_tokenHMAC" + sfx
+
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s%s := \"\"\n", pad, secretV))
+		if secretExpr != "" {
+			b.WriteString(fmt.Sprintf("%s%s = %s\n", pad, secretV, secretExpr))
+		} else {
+			b.WriteString(fmt.Sprintf("%s%s = os.Getenv(\"APP_TOKEN_SECRET\")\n", pad, secretV))
+			b.WriteString(fmt.Sprintf("%sif %s == \"\" {\n", pad, secretV))
+			b.WriteString(fmt.Sprintf("%s\t%s = os.Getenv(\"JWT_PRIVATE_KEY\")\n", pad, secretV))
+			b.WriteString(fmt.Sprintf("%s}\n", pad))
+			b.WriteString(fmt.Sprintf("%sif %s == \"\" {\n", pad, secretV))
+			b.WriteString(fmt.Sprintf("%s\t%s = os.Getenv(\"JWT_PUBLIC_KEY\")\n", pad, secretV))
+			b.WriteString(fmt.Sprintf("%s}\n", pad))
+		}
+		b.WriteString(fmt.Sprintf("%sif %s == \"\" {\n", pad, secretV))
+		b.WriteString(errReturn(st, pad+"\t", `errors.New(http.StatusInternalServerError, "TOKEN_SECRET_MISSING", "token.Generate requires secret or APP_TOKEN_SECRET")`))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s, %s := time.ParseDuration(%s)\n", pad, ttlV, ttlErrV, ttlExpr))
+		b.WriteString(fmt.Sprintf("%sif %s != nil || %s <= 0 {\n", pad, ttlErrV, ttlV))
+		b.WriteString(errReturn(st, pad+"\t", "fmt.Errorf(\"token.Generate: invalid ttl: %w\", "+ttlErrV+")"))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s := make(map[string]any)\n", pad, payloadV))
+		if claimsExpr != "" {
+			b.WriteString(fmt.Sprintf("%sswitch _claims := any(%s).(type) {\n", pad, claimsExpr))
+			b.WriteString(fmt.Sprintf("%scase map[string]any:\n", pad))
+			b.WriteString(fmt.Sprintf("%s\tfor _k, _v := range _claims {\n", pad))
+			b.WriteString(fmt.Sprintf("%s\t\t%s[_k] = _v\n", pad, payloadV))
+			b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+			b.WriteString(fmt.Sprintf("%sdefault:\n", pad))
+			b.WriteString(errReturn(st, pad+"\t", `errors.New(http.StatusBadRequest, "INVALID_CLAIMS", "token.Generate claims must be map[string]any")`))
+			b.WriteString(fmt.Sprintf("%s}\n", pad))
+		}
+		b.WriteString(fmt.Sprintf("%s%s[\"sub\"] = %s\n", pad, payloadV, subject))
+		if purposeExpr != "" {
+			b.WriteString(fmt.Sprintf("%s%s[\"purpose\"] = %s\n", pad, payloadV, purposeExpr))
+		}
+		b.WriteString(fmt.Sprintf("%s%s := time.Now().UTC()\n", pad, nowV))
+		b.WriteString(fmt.Sprintf("%s%s[\"iat\"] = %s.Unix()\n", pad, payloadV, nowV))
+		b.WriteString(fmt.Sprintf("%s%s[\"exp\"] = %s.Add(%s).Unix()\n", pad, payloadV, nowV, ttlV))
+		b.WriteString(fmt.Sprintf("%s%s, _ := json.Marshal(%s)\n", pad, payloadJSONV, payloadV))
+		b.WriteString(fmt.Sprintf("%s%s := base64.RawURLEncoding\n", pad, encV))
+		b.WriteString(fmt.Sprintf("%s%s := \"tk1.\" + %s.EncodeToString(%s)\n", pad, unsignedV, encV, payloadJSONV))
+		b.WriteString(fmt.Sprintf("%s%s := hmac.New(sha256.New, []byte(%s))\n", pad, hmacV, secretV))
+		b.WriteString(fmt.Sprintf("%s_, _ = %s.Write([]byte(%s))\n", pad, hmacV, unsignedV))
+		b.WriteString(fmt.Sprintf("%s%s := %s.Sum(nil)\n", pad, sigV, hmacV))
+		b.WriteString(renderFlowAssignTarget(st, pad, output, unsignedV+"+\".\"+"+encV+".EncodeToString("+sigV+")", "string"))
+		return b.String(), true
+
+	case "token.Verify":
+		tokenExpr := arg("token")
+		output := arg("output")
+		if tokenExpr == "" || output == "" {
+			return renderInvalidFlowStepConfig(st, pad, "token.Verify", "token.Verify requires token and output"), true
+		}
+		secretExpr := arg("secret")
+		purposeExpr := arg("purpose")
+		secretV := "_tokenSecret" + sfx
+		partsV := "_tokenParts" + sfx
+		unsignedV := "_tokenUnsigned" + sfx
+		sigV := "_tokenSig" + sfx
+		sigErrV := "_tokenSigErr" + sfx
+		payloadV := "_tokenPayload" + sfx
+		payloadErrV := "_tokenPayloadErr" + sfx
+		claimsV := "_tokenClaims" + sfx
+		encV := "_tokenEnc" + sfx
+
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s%s := \"\"\n", pad, secretV))
+		if secretExpr != "" {
+			b.WriteString(fmt.Sprintf("%s%s = %s\n", pad, secretV, secretExpr))
+		} else {
+			b.WriteString(fmt.Sprintf("%s%s = os.Getenv(\"APP_TOKEN_SECRET\")\n", pad, secretV))
+			b.WriteString(fmt.Sprintf("%sif %s == \"\" {\n", pad, secretV))
+			b.WriteString(fmt.Sprintf("%s\t%s = os.Getenv(\"JWT_PRIVATE_KEY\")\n", pad, secretV))
+			b.WriteString(fmt.Sprintf("%s}\n", pad))
+			b.WriteString(fmt.Sprintf("%sif %s == \"\" {\n", pad, secretV))
+			b.WriteString(fmt.Sprintf("%s\t%s = os.Getenv(\"JWT_PUBLIC_KEY\")\n", pad, secretV))
+			b.WriteString(fmt.Sprintf("%s}\n", pad))
+		}
+		b.WriteString(fmt.Sprintf("%sif %s == \"\" {\n", pad, secretV))
+		b.WriteString(errReturn(st, pad+"\t", `errors.New(http.StatusInternalServerError, "TOKEN_SECRET_MISSING", "token.Verify requires secret or APP_TOKEN_SECRET")`))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s := strings.Split(%s, \".\")\n", pad, partsV, tokenExpr))
+		b.WriteString(fmt.Sprintf("%sif len(%s) != 3 || %s[0] != \"tk1\" {\n", pad, partsV, partsV))
+		b.WriteString(errReturn(st, pad+"\t", `errors.New(http.StatusUnauthorized, "TOKEN_INVALID", "token.Verify: malformed token")`))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s := base64.RawURLEncoding\n", pad, encV))
+		b.WriteString(fmt.Sprintf("%s%s, %s := %s.DecodeString(%s[2])\n", pad, sigV, sigErrV, encV, partsV))
+		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, sigErrV))
+		b.WriteString(errReturn(st, pad+"\t", "fmt.Errorf(\"token.Verify: decode signature: %w\", "+sigErrV+")"))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s := %s[0] + \".\" + %s[1]\n", pad, unsignedV, partsV, partsV))
+		b.WriteString(fmt.Sprintf("%s_hmac := hmac.New(sha256.New, []byte(%s))\n", pad, secretV))
+		b.WriteString(fmt.Sprintf("%s_, _ = _hmac.Write([]byte(%s))\n", pad, unsignedV))
+		b.WriteString(fmt.Sprintf("%sif !hmac.Equal(%s, _hmac.Sum(nil)) {\n", pad, sigV))
+		b.WriteString(errReturn(st, pad+"\t", `errors.New(http.StatusUnauthorized, "TOKEN_INVALID_SIGNATURE", "token.Verify: invalid signature")`))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s, %s := %s.DecodeString(%s[1])\n", pad, payloadV, payloadErrV, encV, partsV))
+		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, payloadErrV))
+		b.WriteString(errReturn(st, pad+"\t", "fmt.Errorf(\"token.Verify: decode payload: %w\", "+payloadErrV+")"))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%svar %s map[string]any\n", pad, claimsV))
+		b.WriteString(fmt.Sprintf("%sif err := json.Unmarshal(%s, &%s); err != nil {\n", pad, payloadV, claimsV))
+		b.WriteString(errReturn(st, pad+"\t", `errors.New(http.StatusUnauthorized, "TOKEN_INVALID", "token.Verify: invalid payload")`))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%sif _expRaw, _ok := %s[\"exp\"]; _ok {\n", pad, claimsV))
+		b.WriteString(fmt.Sprintf("%s\tswitch _exp := _expRaw.(type) {\n", pad))
+		b.WriteString(fmt.Sprintf("%s\tcase float64:\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\tif int64(_exp) < time.Now().Unix() {\n", pad))
+		b.WriteString(errReturn(st, pad+"\t\t\t", `errors.New(http.StatusUnauthorized, "TOKEN_EXPIRED", "token.Verify: token expired")`))
+		b.WriteString(fmt.Sprintf("%s\t\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\tcase int64:\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\tif _exp < time.Now().Unix() {\n", pad))
+		b.WriteString(errReturn(st, pad+"\t\t\t", `errors.New(http.StatusUnauthorized, "TOKEN_EXPIRED", "token.Verify: token expired")`))
+		b.WriteString(fmt.Sprintf("%s\t\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\tcase int:\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\tif int64(_exp) < time.Now().Unix() {\n", pad))
+		b.WriteString(errReturn(st, pad+"\t\t\t", `errors.New(http.StatusUnauthorized, "TOKEN_EXPIRED", "token.Verify: token expired")`))
+		b.WriteString(fmt.Sprintf("%s\t\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		if purposeExpr != "" {
+			b.WriteString(fmt.Sprintf("%sif fmt.Sprint(%s[\"purpose\"]) != fmt.Sprint(%s) {\n", pad, claimsV, purposeExpr))
+			b.WriteString(errReturn(st, pad+"\t", `errors.New(http.StatusUnauthorized, "TOKEN_PURPOSE_MISMATCH", "token.Verify: purpose mismatch")`))
+			b.WriteString(fmt.Sprintf("%s}\n", pad))
+		}
+		b.WriteString(renderFlowAssignTarget(st, pad, output, claimsV, "map[string]any"))
+		return b.String(), true
+
 	case "crypto.Hash":
 		input := arg("input")
 		output := arg("output")

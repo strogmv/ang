@@ -12,8 +12,6 @@ import (
 )
 
 func TestEmitAssistantChatWithTools_MethodTemplateFormats(t *testing.T) {
-	t.Parallel()
-
 	root := filepath.Clean(filepath.Join("..", ".."))
 	result, err := angir.Load(root)
 	if err != nil {

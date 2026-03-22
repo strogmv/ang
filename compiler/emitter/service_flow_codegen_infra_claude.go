@@ -37,7 +37,7 @@ func renderFlowStepInfraClaude(st *flowRenderState, step normalizer.FlowStep, in
 			systemExpr = `""`
 		}
 		if userMessage == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "claude.Chat", "claude.Chat requires user_message"), true
 		}
 
 		msgsVar := "_claudeMsgs" + sfx

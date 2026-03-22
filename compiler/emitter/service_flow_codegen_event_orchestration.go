@@ -96,13 +96,13 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 		dataExpr := arg("data")
 		output := arg("output")
 		if to == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, step.Action, step.Action+" requires to"), true
 		}
 		if step.Action == "notify.Send" && channel == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, step.Action, "notify.Send requires channel"), true
 		}
 		if templateExpr == "" && textExpr == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, step.Action, step.Action+" requires template or text"), true
 		}
 		declareOutput := output != "" && !st.declared[output]
 		if declareOutput {
@@ -183,7 +183,7 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 		approvalIDOut := arg("approvalId")
 		statusOut := arg("status")
 		if approvalKey == "" || title == "" || requestedBy == "" || approvers == "" || policy == "" || payload == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "approval.Request", "approval.Request requires approvalKey, title, requestedBy, approvers, policy and payload"), true
 		}
 		if approvalIDOut != "" && !st.declared[approvalIDOut] {
 			st.declared[approvalIDOut] = true
@@ -542,11 +542,20 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 	case "event.Broadcast":
 		name := arg("name")
 		payload := renderEventPayloadExpr(st, step, name, arg)
-		if name == "" || payload == "" {
-			return "", true
+		if name == "" {
+			return renderInvalidFlowStepConfig(st, pad, "event.Broadcast", "event.Broadcast requires name"), true
 		}
-		return fmt.Sprintf("%sif s.publisher != nil {\n%s\t_ = s.publisher.Broadcast%s(ctx, %s)\n%s}\n",
-			pad, pad, ExportName(name), payload, pad), true
+		if payload == "" {
+			return renderInvalidFlowStepConfig(st, pad, "event.Broadcast", "event.Broadcast requires renderable payload"), true
+		}
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%sif s.publisher == nil {\n", pad))
+		b.WriteString(errReturn(st, pad+"\t", `fmt.Errorf("event.Broadcast: publisher wiring is not configured")`))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%sif err := s.publisher.Broadcast%s(ctx, %s); err != nil {\n", pad, ExportName(name), payload))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"event.Broadcast %s: %%w\", err)", ExportName(name))))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
 
 	case "event.Outbox":
 		name := arg("name")
@@ -580,6 +589,7 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 		timeout := arg("timeout")
 		match := arg("match")
 		output := arg("output")
+		into := arg("into")
 		if name == "" {
 			return "", true
 		}
@@ -588,44 +598,68 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 		}
 
 		var b strings.Builder
-		if output != "" && !st.declared[output] {
-			b.WriteString(fmt.Sprintf("%svar %s any\n", pad, output))
+		outputType := resolveFlowDynamicOutputType(st, output, into)
+		declareOutput := output != "" && !st.declared[output]
+		if output != "" {
 			st.declared[output] = true
 			st.pointers[output] = false
-			st.types[output] = "any"
+			st.types[output] = outputType
+			if declareOutput {
+				b.WriteString(fmt.Sprintf("%svar %s %s\n", pad, output, outputType))
+			}
 		}
 
 		b.WriteString(fmt.Sprintf("%s// event.Wait: %s\n", pad, name))
 		b.WriteString(fmt.Sprintf("%s{\n", pad))
+		b.WriteString(fmt.Sprintf("%s\tif s.publisher == nil {\n", pad))
+		b.WriteString(errReturn(st, pad+"\t\t", `fmt.Errorf("event.Wait: publisher wiring is not configured")`))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t_waitName := strings.TrimSpace(fmt.Sprint(%s))\n", pad, name))
+		b.WriteString(fmt.Sprintf("%s\t_waitMatch := strings.TrimSpace(fmt.Sprint(%s))\n", pad, flowQuoteOrExpr(match)))
+		b.WriteString(fmt.Sprintf("%s\tif _waitName == \"\" {\n", pad))
+		b.WriteString(errReturn(st, pad+"\t\t", `fmt.Errorf("event.Wait: resolved event name is empty")`))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
 		b.WriteString(fmt.Sprintf("%s\t_waitCtx, _waitCancel := context.WithTimeout(ctx, %s)\n", pad, timeout))
 		b.WriteString(fmt.Sprintf("%s\tdefer _waitCancel()\n", pad))
 
-		waitCall := fmt.Sprintf("s.publisher.Wait(_waitCtx, %q, %q)", name, match)
+		waitCall := "s.publisher.Wait(_waitCtx, _waitName, _waitMatch)"
 
 		b.WriteString(fmt.Sprintf("%s\t_evt, _waitErr := %s\n", pad, waitCall))
 		b.WriteString(fmt.Sprintf("%s\tif _waitErr != nil {\n", pad))
-		b.WriteString(errReturn(st, pad+"\t\t", fmt.Sprintf("fmt.Errorf(\"event.Wait(%%s): %%w\", %q, _waitErr)", name)))
+		b.WriteString(errReturn(st, pad+"\t\t", `fmt.Errorf("event.Wait(%s): %w", _waitName, _waitErr)`))
 		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
 
 		if output != "" {
-			b.WriteString(fmt.Sprintf("%s\t%s = _evt\n", pad, output))
+			if outputType == "any" {
+				b.WriteString(fmt.Sprintf("%s\t%s = _evt\n", pad, output))
+			} else {
+				b.WriteString(fmt.Sprintf("%s\t_waitCast, _waitCastOK := _evt.(%s)\n", pad, outputType))
+				b.WriteString(fmt.Sprintf("%s\tif !_waitCastOK {\n", pad))
+				b.WriteString(errReturn(st, pad+"\t\t", fmt.Sprintf("fmt.Errorf(\"event.Wait(%%s): payload is not %s\", _waitName)", outputType)))
+				b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+				b.WriteString(fmt.Sprintf("%s\t%s = _waitCast\n", pad, output))
+			}
 		}
 
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
 
 	case "event.Subscribe":
-		name := arg("name")
-		match := arg("match")
+		nameExpr := arg("name")
+		matchExpr := arg("match")
 		doSteps := child("_do")
-		if name == "" || len(doSteps) == 0 {
-			return "", true
+		if nameExpr == "" || len(doSteps) == 0 {
+			return renderInvalidFlowStepConfig(st, pad, "event.Subscribe", "event.Subscribe requires name and _do"), true
 		}
+		nameVar := "_subName" + sfx
+		matchVar := "_subMatch" + sfx
 
 		var b strings.Builder
-		b.WriteString(fmt.Sprintf("%s// event.Subscribe: %s\n", pad, name))
+		b.WriteString(fmt.Sprintf("%s%s := strings.TrimSpace(fmt.Sprint(%s))\n", pad, nameVar, nameExpr))
+		b.WriteString(fmt.Sprintf("%s%s := strings.TrimSpace(fmt.Sprint(%s))\n", pad, matchVar, matchExpr))
+		b.WriteString(fmt.Sprintf("%s// event.Subscribe: %s\n", pad, nameExpr))
 		b.WriteString(fmt.Sprintf("%sif s.publisher != nil {\n", pad))
-		b.WriteString(fmt.Sprintf("%s\ts.publisher.Subscribe(ctx, %q, %q, func(ctx context.Context, evt any) {\n", pad, name, match))
+		b.WriteString(fmt.Sprintf("%s\ts.publisher.Subscribe(ctx, %s, %s, func(ctx context.Context, evt any) {\n", pad, nameVar, matchVar))
 
 		subState := cloneFlowState(st)
 		subState.goroutineMode = true
@@ -642,14 +676,16 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 		matchCriteria := arg("match")
 		throwMsg := arg("throw")
 		if evtVar == "" || matchCriteria == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "event.Match", "event.Match requires event and match"), true
 		}
+		matchVar := "_eventMatch" + sfx
 		if throwMsg == "" {
 			throwMsg = fmt.Sprintf("event match failed for %s", matchCriteria)
 		}
 
 		var b strings.Builder
-		b.WriteString(fmt.Sprintf("%sif !helpers.MatchEvent(%s, %q) {\n", pad, evtVar, matchCriteria))
+		b.WriteString(fmt.Sprintf("%s%s := strings.TrimSpace(fmt.Sprint(%s))\n", pad, matchVar, matchCriteria))
+		b.WriteString(fmt.Sprintf("%sif !helpers.MatchEvent(%s, %s) {\n", pad, evtVar, matchVar))
 		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("errors.New(http.StatusBadRequest, \"EVENT_MISMATCH\", %q)", throwMsg)))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true

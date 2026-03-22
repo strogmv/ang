@@ -32,6 +32,8 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
+replace github.com/strogmv/ang-ir => ../ang-ir
+
 require (
 	cuelabs.dev/go/oci/ociregistry v0.0.0-20251212221603-3adeb8663819 // indirect
 	github.com/BurntSushi/toml v1.2.1 // indirect

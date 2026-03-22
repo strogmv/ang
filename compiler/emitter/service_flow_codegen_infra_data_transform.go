@@ -122,9 +122,20 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		base := arg("base")
 		output := arg("output")
 		if base == "" || output == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "url.Build", "url.Build requires base and output"), true
 		}
 		pathExpr := arg("path")
+		var segments []string
+		switch raw := step.Args["segments"].(type) {
+		case []string:
+			segments = append(segments, raw...)
+		case []any:
+			for _, it := range raw {
+				if s, ok := it.(string); ok && strings.TrimSpace(s) != "" {
+					segments = append(segments, normalizeFlowExpr(strings.TrimSpace(s)))
+				}
+			}
+		}
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -139,7 +150,12 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, errV))
 		b.WriteString(errReturn(st, pad+"\t", "fmt.Errorf(\"url.Build: %w\", "+errV+")"))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
-		if pathExpr != "" {
+		if len(segments) > 0 {
+			allParts := make([]string, 0, len(segments)+1)
+			allParts = append(allParts, uV+".Path")
+			allParts = append(allParts, segments...)
+			b.WriteString(fmt.Sprintf("%s%s.Path = path.Join(%s)\n", pad, uV, strings.Join(allParts, ", ")))
+		} else if pathExpr != "" {
 			b.WriteString(fmt.Sprintf("%s%s.Path = %s\n", pad, uV, pathExpr))
 		}
 		if qMap, ok := step.Args["query"].(map[string]string); ok && len(qMap) > 0 {
@@ -393,7 +409,7 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		bExpr := arg("b")
 		output := arg("output")
 		if a == "" || bExpr == "" || output == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, step.Action, step.Action+" requires a, b, and output"), true
 		}
 		assign := ":="
 		if st.declared[output] {

@@ -16,15 +16,24 @@ func renderFlowStepState(st *flowRenderState, step normalizer.FlowStep, indent i
 		output := arg("output")
 		defVal := arg("default")
 		if key == "" || output == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "state.Get", "state.Get requires key and output"), true
 		}
+		into := arg("into")
 
 		rawVar := "_stateRaw" + sfx
 		errVar := "_stateErr" + sfx
 
+		outputType := strings.TrimSpace(into)
+		if outputType == "" && st.declared[output] {
+			outputType = strings.TrimSpace(st.types[output])
+		}
+		if outputType == "" {
+			outputType = "any"
+		}
+		declareOutput := !st.declared[output]
 		st.declared[output] = true
 		st.pointers[output] = false
-		st.types[output] = "any"
+		st.types[output] = outputType
 
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%s// state.Get: %s\n", pad, key))
@@ -33,7 +42,9 @@ func renderFlowStepState(st *flowRenderState, step normalizer.FlowStep, indent i
 		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"state.Get: %%w\", %s)", errVar)))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 
-		b.WriteString(fmt.Sprintf("%svar %s any\n", pad, output))
+		if declareOutput {
+			b.WriteString(fmt.Sprintf("%svar %s %s\n", pad, output, outputType))
+		}
 		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, rawVar))
 		b.WriteString(fmt.Sprintf("%s\tif err := json.Unmarshal(%s, &%s); err != nil {\n", pad, rawVar, output))
 		b.WriteString(errReturn(st, pad+"\t\t", "fmt.Errorf(\"state.Get unmarshal: %w\", err)"))
@@ -51,7 +62,7 @@ func renderFlowStepState(st *flowRenderState, step normalizer.FlowStep, indent i
 		value := arg("value")
 		ttl := arg("ttl")
 		if key == "" || value == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "state.Set", "state.Set requires key and value"), true
 		}
 
 		if ttl == "" {
@@ -74,7 +85,7 @@ func renderFlowStepState(st *flowRenderState, step normalizer.FlowStep, indent i
 	case "state.Delete":
 		key := arg("key")
 		if key == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "state.Delete", "state.Delete requires key"), true
 		}
 
 		errVar := "_stateErr" + sfx

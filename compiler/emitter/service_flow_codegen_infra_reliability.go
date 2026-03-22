@@ -70,7 +70,7 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 	case "idem.Check", "idempotency.Check":
 		key := arg("key")
 		if key == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, step.Action, step.Action+" requires key"), true
 		}
 		rawVar := "_idemRaw" + sfx
 		errVar := "_idemErr" + sfx
@@ -95,7 +95,7 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 	case "idem.SaveResult", "idempotency.SaveResult":
 		key := arg("key")
 		if key == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, step.Action, step.Action+" requires key"), true
 		}
 		ttl := arg("ttl")
 		if ttl == "" {
@@ -103,14 +103,18 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 		}
 
 		dataVar := "_idemData" + sfx
+		marshalErrVar := "_idemMarshalErr" + sfx
 		errVar := "_idemSetErr" + sfx
 
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%s// idem.SaveResult\n", pad))
-		b.WriteString(fmt.Sprintf("%s%s, _ := json.Marshal(resp)\n", pad, dataVar))
+		b.WriteString(fmt.Sprintf("%s%s, %s := json.Marshal(resp)\n", pad, dataVar, marshalErrVar))
+		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, marshalErrVar))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"%s marshal: %%w\", %s)", step.Action, marshalErrVar)))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		b.WriteString(fmt.Sprintf("%s%s := s.stateStore.Set(ctx, %s, %s, %s)\n", pad, errVar, key, dataVar, ttl))
 		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, errVar))
-		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"idem.SaveResult: %%w\", %s)", errVar)))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"%s: %%w\", %s)", step.Action, errVar)))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
 
@@ -120,7 +124,7 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 	case "dedupe.Once":
 		key := arg("key")
 		if key == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "dedupe.Once", "dedupe.Once requires key"), true
 		}
 		ttl := arg("ttl")
 		if ttl == "" {
@@ -156,7 +160,7 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 		key := arg("key")
 		rps := flowIntArg(step.Args, "rps", 0)
 		if key == "" || rps <= 0 {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, step.Action, step.Action+" requires key and positive rps"), true
 		}
 		throwMsg := arg("throw")
 		if throwMsg == "" {
@@ -168,6 +172,8 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 		rlErrVar := "_rlErr" + sfx
 		rlCountVar := "_rlCount" + sfx
 		rlDataVar := "_rlData" + sfx
+		rlMarshalErrVar := "_rlMarshalErr" + sfx
+		rlSetErrVar := "_rlSetErr" + sfx
 
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%s// ratelimit.Check\n", pad))
@@ -184,8 +190,14 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("errors.New(http.StatusTooManyRequests, \"Too Many Requests\", %q)", throwMsg)))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		b.WriteString(fmt.Sprintf("%s%s++\n", pad, rlCountVar))
-		b.WriteString(fmt.Sprintf("%s%s, _ := json.Marshal(%s)\n", pad, rlDataVar, rlCountVar))
-		b.WriteString(fmt.Sprintf("%ss.stateStore.Set(ctx, %s, %s, 2*time.Second) //nolint:errcheck\n", pad, rlKeyVar, rlDataVar))
+		b.WriteString(fmt.Sprintf("%s%s, %s := json.Marshal(%s)\n", pad, rlDataVar, rlMarshalErrVar, rlCountVar))
+		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, rlMarshalErrVar))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"%s marshal: %%w\", %s)", step.Action, rlMarshalErrVar)))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s := s.stateStore.Set(ctx, %s, %s, 2*time.Second)\n", pad, rlSetErrVar, rlKeyVar, rlDataVar))
+		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, rlSetErrVar))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"%s: %%w\", %s)", step.Action, rlSetErrVar)))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
 
 	// ── quota.Check ───────────────────────────────────────────────────────────
@@ -500,13 +512,69 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 		}
 		return b.String(), true
 
+	// ── mutex.With ────────────────────────────────────────────────────────────
+	// Process-local mutex keyed by string. Optional bounded wait with polling.
+	case "mutex.With":
+		key := arg("key")
+		if key == "" {
+			return renderInvalidFlowStepConfig(st, pad, "mutex.With", "mutex.With requires key"), true
+		}
+		mutexHelper := "_FlowMutexForKey"
+		if strings.TrimSpace(st.serviceName) != "" {
+			mutexHelper = "_" + ExportName(st.serviceName) + "FlowMutexForKey"
+		}
+		waitExpr := arg("wait")
+		if waitExpr == "" {
+			waitExpr = "0"
+		}
+		pollExpr := arg("poll")
+		if pollExpr == "" {
+			pollExpr = "50 * time.Millisecond"
+		}
+		throwMsg := arg("throw")
+		if throwMsg == "" {
+			throwMsg = "mutex busy"
+		}
+		mutexVar := "_mutex" + sfx
+		startVar := "_mutexStart" + sfx
+		waitVar := "_mutexWait" + sfx
+		pollVar := "_mutexPoll" + sfx
+
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s// mutex.With\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s := %s(fmt.Sprint(%s))\n", pad, mutexVar, mutexHelper, key))
+		b.WriteString(fmt.Sprintf("%s%s := %s\n", pad, waitVar, waitExpr))
+		b.WriteString(fmt.Sprintf("%s%s := %s\n", pad, pollVar, pollExpr))
+		b.WriteString(fmt.Sprintf("%sif %s <= 0 {\n", pad, pollVar))
+		b.WriteString(fmt.Sprintf("%s\t%s = 50 * time.Millisecond\n", pad, pollVar))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%sif %s <= 0 {\n", pad, waitVar))
+		b.WriteString(fmt.Sprintf("%s\t%s.Lock()\n", pad, mutexVar))
+		b.WriteString(fmt.Sprintf("%s} else {\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t%s := time.Now()\n", pad, startVar))
+		b.WriteString(fmt.Sprintf("%s\tfor {\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\tif %s.TryLock() {\n", pad, mutexVar))
+		b.WriteString(fmt.Sprintf("%s\t\t\tbreak\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\tif time.Since(%s) >= %s {\n", pad, startVar, waitVar))
+		b.WriteString(errReturn(st, pad+"\t\t\t", fmt.Sprintf("errors.New(http.StatusServiceUnavailable, \"MUTEX_BUSY\", %q)", throwMsg)))
+		b.WriteString(fmt.Sprintf("%s\t\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\ttime.Sleep(%s)\n", pad, pollVar))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%sdefer %s.Unlock()\n", pad, mutexVar))
+		if doSteps := child("_do"); len(doSteps) > 0 {
+			b.WriteString(renderFlowSteps(st, doSteps, indent))
+		}
+		return b.String(), true
+
 	// ── circuit.Check ─────────────────────────────────────────────────────────
 	// Reads the circuit-open flag; returns 503 if circuit is open.
 	// Args: name (string literal for circuit name), throw? (string message)
 	case "circuit.Check":
 		name := arg("name")
 		if name == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "circuit.Check", "circuit.Check requires name"), true
 		}
 		throwMsg := arg("throw")
 		if throwMsg == "" {
@@ -535,12 +603,20 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 	case "circuit.RecordSuccess":
 		name := arg("name")
 		if name == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "circuit.RecordSuccess", "circuit.RecordSuccess requires name"), true
 		}
+		delCountErrVar := "_circDelCountErr" + sfx
+		delOpenErrVar := "_circDelOpenErr" + sfx
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%s// circuit.RecordSuccess\n", pad))
-		b.WriteString(fmt.Sprintf("%ss.stateStore.Delete(ctx, \"circuit:count:\"+%s) //nolint:errcheck\n", pad, name))
-		b.WriteString(fmt.Sprintf("%ss.stateStore.Delete(ctx, \"circuit:open:\"+%s) //nolint:errcheck\n", pad, name))
+		b.WriteString(fmt.Sprintf("%s%s := s.stateStore.Delete(ctx, \"circuit:count:\"+%s)\n", pad, delCountErrVar, name))
+		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, delCountErrVar))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"circuit.RecordSuccess: %%w\", %s)", delCountErrVar)))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s := s.stateStore.Delete(ctx, \"circuit:open:\"+%s)\n", pad, delOpenErrVar, name))
+		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, delOpenErrVar))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"circuit.RecordSuccess: %%w\", %s)", delOpenErrVar)))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
 
 		// ── circuit.RecordFailure ─────────────────────────────────────────────────
@@ -549,7 +625,7 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 	case "circuit.RecordFailure":
 		name := arg("name")
 		if name == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "circuit.RecordFailure", "circuit.RecordFailure requires name"), true
 		}
 		threshold := flowIntArg(step.Args, "threshold", 5)
 		openTTL := arg("openTTL")
@@ -559,22 +635,38 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 
 		cfKeyVar := "_cfKey" + sfx
 		cfRawVar := "_cfRaw" + sfx
+		cfGetErrVar := "_cfGetErr" + sfx
 		cfCountVar := "_cfCount" + sfx
 		cfDataVar := "_cfData" + sfx
+		cfMarshalErrVar := "_cfMarshalErr" + sfx
+		cfSetErrVar := "_cfSetErr" + sfx
+		cfOpenSetErrVar := "_cfOpenSetErr" + sfx
 
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%s// circuit.RecordFailure\n", pad))
 		b.WriteString(fmt.Sprintf("%s%s := \"circuit:count:\" + %s\n", pad, cfKeyVar, name))
-		b.WriteString(fmt.Sprintf("%s%s, _ := s.stateStore.Get(ctx, %s)\n", pad, cfRawVar, cfKeyVar))
+		b.WriteString(fmt.Sprintf("%s%s, %s := s.stateStore.Get(ctx, %s)\n", pad, cfRawVar, cfGetErrVar, cfKeyVar))
+		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, cfGetErrVar))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"circuit.RecordFailure: %%w\", %s)", cfGetErrVar)))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		b.WriteString(fmt.Sprintf("%svar %s int\n", pad, cfCountVar))
 		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, cfRawVar))
 		b.WriteString(fmt.Sprintf("%s\tjson.Unmarshal(%s, &%s) //nolint:errcheck\n", pad, cfRawVar, cfCountVar))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		b.WriteString(fmt.Sprintf("%s%s++\n", pad, cfCountVar))
-		b.WriteString(fmt.Sprintf("%s%s, _ := json.Marshal(%s)\n", pad, cfDataVar, cfCountVar))
-		b.WriteString(fmt.Sprintf("%ss.stateStore.Set(ctx, %s, %s, 5*time.Minute) //nolint:errcheck\n", pad, cfKeyVar, cfDataVar))
+		b.WriteString(fmt.Sprintf("%s%s, %s := json.Marshal(%s)\n", pad, cfDataVar, cfMarshalErrVar, cfCountVar))
+		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, cfMarshalErrVar))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"circuit.RecordFailure marshal: %%w\", %s)", cfMarshalErrVar)))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s := s.stateStore.Set(ctx, %s, %s, 5*time.Minute)\n", pad, cfSetErrVar, cfKeyVar, cfDataVar))
+		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, cfSetErrVar))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"circuit.RecordFailure: %%w\", %s)", cfSetErrVar)))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		b.WriteString(fmt.Sprintf("%sif %s >= %d {\n", pad, cfCountVar, threshold))
-		b.WriteString(fmt.Sprintf("%s\ts.stateStore.Set(ctx, \"circuit:open:\"+%s, []byte(\"1\"), %s) //nolint:errcheck\n", pad, name, openTTL))
+		b.WriteString(fmt.Sprintf("%s\t%s := s.stateStore.Set(ctx, \"circuit:open:\"+%s, []byte(\"1\"), %s)\n", pad, cfOpenSetErrVar, name, openTTL))
+		b.WriteString(fmt.Sprintf("%s\tif %s != nil {\n", pad, cfOpenSetErrVar))
+		b.WriteString(errReturn(st, pad+"\t\t", fmt.Sprintf("fmt.Errorf(\"circuit.RecordFailure open: %%w\", %s)", cfOpenSetErrVar)))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
 

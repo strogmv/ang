@@ -71,8 +71,19 @@ func inferFlowCapturedVarType(varName string, steps []normalizer.FlowStep) strin
 	for _, step := range steps {
 		if output, _ := step.Args["output"].(string); strings.TrimSpace(output) == varName {
 			switch step.Action {
-			case "fs.TempDir", "fs.ReadFile", "str.Concat", "flow.ExplainError", "openai.Chat", "model.Resolve", "config.Get":
+			case "fs.TempDir", "fs.ReadFile", "str.Concat", "flow.ExplainError", "model.Resolve", "config.Get", "json.Stringify", "json.Marshal", "template.Render":
 				return "string"
+			case "repo.Exists":
+				return "bool"
+			case "repo.Count":
+				return "int"
+			case "openai.Chat":
+				if len(parseOpenAIToolNames(step)) > 0 {
+					return "struct{ Content string; FinishReason string; ToolCalls int; PromptTokens int; CompletionTokens int; TotalTokens int }"
+				}
+				return "string"
+			case "openai.Embed":
+				return "[]float64"
 			case "cue.WriteProjectFiles", "cue.ValidateProject", "plan.BuildAutomata", "plan.BuildMicroPlan":
 				return "map[string]any"
 			case "cue.EmitProject":
@@ -81,6 +92,11 @@ func inferFlowCapturedVarType(varName string, steps []normalizer.FlowStep) strin
 				if into, _ := step.Args["into"].(string); strings.TrimSpace(into) != "" {
 					return strings.TrimSpace(into)
 				}
+			case "map.Get":
+				if into, _ := step.Args["into"].(string); strings.TrimSpace(into) != "" {
+					return strings.TrimSpace(into)
+				}
+				return "any"
 			}
 		}
 		for _, key := range []string{"_do", "_catch", "_then", "_else", "_fallback", "_onTimeout", "_default", "_onMissing"} {

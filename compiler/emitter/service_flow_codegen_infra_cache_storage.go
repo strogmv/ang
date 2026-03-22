@@ -72,7 +72,11 @@ func renderFlowStepInfraCacheMailStorage(st *flowRenderState, step normalizer.Fl
 		if key == "" {
 			return "", true
 		}
-		return fmt.Sprintf("%s_ = s.cache.Del(ctx, %s).Err()\n", pad, key), true
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%sif _cErr := s.cache.Del(ctx, %s).Err(); _cErr != nil {\n", pad, key))
+		b.WriteString(errReturn(st, pad+"\t", "_cErr"))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
 
 	case "mail.Send":
 		to := arg("to")

@@ -71,17 +71,49 @@ func renderFlowStepControlLegacyMappingLogic(st *flowRenderState, step normalize
 	case "event.Publish":
 		name := arg("name")
 		payload := renderEventPayloadExpr(st, step, name, arg)
-		if name == "" || payload == "" {
-			return "", true
+		if name == "" {
+			return renderInvalidFlowStepConfig(st, pad, "event.Publish", "event.Publish requires name"), true
 		}
-		return fmt.Sprintf("%sif s.publisher != nil {\n%s\t_ = s.publisher.Publish%s(ctx, %s)\n%s}\n",
-			pad, pad, ExportName(name), payload, pad), true
+		if payload == "" {
+			return renderInvalidFlowStepConfig(st, pad, "event.Publish", "event.Publish requires renderable payload"), true
+		}
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%sif s.publisher == nil {\n", pad))
+		b.WriteString(errReturn(st, pad+"\t", `fmt.Errorf("event.Publish: publisher wiring is not configured")`))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%sif err := s.publisher.Publish%s(ctx, %s); err != nil {\n", pad, ExportName(name), payload))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"event.Publish %s: %%w\", err)", ExportName(name))))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
+
+	case "event.EmitIf":
+		cond := arg("condition")
+		name := arg("name")
+		payload := renderEventPayloadExpr(st, step, name, arg)
+		if cond == "" || name == "" {
+			return renderInvalidFlowStepConfig(st, pad, "event.EmitIf", "event.EmitIf requires condition and name"), true
+		}
+		if payload == "" {
+			return renderInvalidFlowStepConfig(st, pad, "event.EmitIf", "event.EmitIf requires renderable payload"), true
+		}
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%sif %s {\n", pad, cond))
+		b.WriteString(fmt.Sprintf("%s\tif s.publisher == nil {\n", pad))
+		b.WriteString(errReturn(st, pad+"\t\t", `fmt.Errorf("event.EmitIf: publisher wiring is not configured")`))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\tif err := s.publisher.Publish%s(ctx, %s); err != nil {\n", pad, ExportName(name), payload))
+		b.WriteString(errReturn(st, pad+"\t\t", fmt.Sprintf("fmt.Errorf(\"event.EmitIf %s: %%w\", err)", ExportName(name))))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
 
 	case "logic.Call":
 		funcExpr := arg("func")
 		output := arg("output")
+		ignoreErr, _ := step.Args["ignoreErr"].(bool)
+		ignoreErrReason := strings.TrimSpace(arg("ignoreErrReason"))
 		if funcExpr == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "logic.Call", "logic.Call requires func"), true
 		}
 		var callArgs []string
 		if v, ok := step.Args["args"]; ok {
@@ -93,6 +125,26 @@ func renderFlowStepControlLegacyMappingLogic(st *flowRenderState, step normalize
 			}
 		}
 		callStr := funcExpr + "(" + strings.Join(callArgs, ", ") + ")"
+		if ignoreErr {
+			emitFlowWarning(st, step, "FLOW_IGNORE_ERR", "warn", "logic.Call ignores returned error explicitly", "Document intent with ignoreErrReason and use only for deliberate fire-and-forget behavior")
+			comment := fmt.Sprintf("%s// explicit ignoreErr=true", pad)
+			if ignoreErrReason != "" {
+				comment = fmt.Sprintf("%s// explicit ignoreErr=true: %s", pad, ignoreErrReason)
+			}
+			if output != "" {
+				assign := ":="
+				if st.declared[output] {
+					assign = "="
+				}
+				st.declared[output] = true
+				st.pointers[output] = false
+				var b strings.Builder
+				b.WriteString(comment + "\n")
+				b.WriteString(fmt.Sprintf("%s%s %s %s\n", pad, output+", _", assign, callStr))
+				return b.String(), true
+			}
+			return fmt.Sprintf("%s\n%s_, _ = %s\n", comment, pad, callStr), true
+		}
 		if output != "" {
 			assign := ":="
 			if st.declared[output] {
@@ -117,8 +169,9 @@ func renderFlowStepControlLegacyMappingLogic(st *flowRenderState, step normalize
 		methodName := strings.TrimSpace(arg("method"))
 		output := arg("output")
 		ignoreErr, _ := step.Args["ignoreErr"].(bool)
+		ignoreErrReason := strings.TrimSpace(arg("ignoreErrReason"))
 		if serviceName == "" || methodName == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "service.Call", "service.Call requires service and method"), true
 		}
 		var callArgs []string
 		if v, ok := step.Args["args"]; ok {
@@ -134,7 +187,12 @@ func renderFlowStepControlLegacyMappingLogic(st *flowRenderState, step normalize
 		}
 		callStr := fmt.Sprintf("s.%sService.%s(%s)", ExportName(serviceName), ExportName(methodName), strings.Join(callArgs, ", "))
 		if ignoreErr {
-			return fmt.Sprintf("%s_, _ = %s\n", pad, callStr), true
+			emitFlowWarning(st, step, "FLOW_IGNORE_ERR", "warn", "service.Call ignores returned error explicitly", "Document intent with ignoreErrReason and use only for deliberate fire-and-forget behavior")
+			comment := fmt.Sprintf("%s// explicit ignoreErr=true", pad)
+			if ignoreErrReason != "" {
+				comment = fmt.Sprintf("%s// explicit ignoreErr=true: %s", pad, ignoreErrReason)
+			}
+			return fmt.Sprintf("%s\n%s_, _ = %s\n", comment, pad, callStr), true
 		}
 		if output != "" {
 			assign := ":="

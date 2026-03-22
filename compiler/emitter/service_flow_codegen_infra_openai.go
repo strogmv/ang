@@ -388,6 +388,91 @@ func renderFlowStepInfraOpenAI(st *flowRenderState, step normalizer.FlowStep, in
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
 
+	case "openai.Embed":
+		input := arg("input")
+		output := arg("output")
+		outputUsage := arg("output_usage")
+		model := arg("model")
+		if model == "" {
+			model = `"text-embedding-3-small"`
+		}
+		if input == "" || output == "" {
+			return renderInvalidFlowStepConfig(st, pad, "openai.Embed", "openai.Embed requires input and output"), true
+		}
+		dimensions := flowIntArg(step.Args, "dimensions", 0)
+		bodyVar := "_oaiEmbedReqBody" + sfx
+		ctxVar := "_oaiEmbedCtx" + sfx
+		cancelVar := "_oaiEmbedCancel" + sfx
+		reqVar := "_oaiEmbedReq" + sfx
+		reqErrVar := "_oaiEmbedReqErr" + sfx
+		resVar := "_oaiEmbedRes" + sfx
+		resErrVar := "_oaiEmbedResErr" + sfx
+		rawVar := "_oaiEmbedRaw" + sfx
+		payloadVar := "_oaiEmbedPayload" + sfx
+		parsedVar := "_oaiEmbedParsed" + sfx
+		assign := ":="
+		if st.declared[output] {
+			assign = "="
+		}
+		st.declared[output] = true
+		st.pointers[output] = false
+		st.types[output] = "[]float64"
+		var b strings.Builder
+		if outputUsage != "" && !st.declared[outputUsage] {
+			st.declared[outputUsage] = true
+			st.pointers[outputUsage] = false
+			st.types[outputUsage] = "struct{ PromptTokens int; TotalTokens int }"
+			b.WriteString(fmt.Sprintf("%svar %s struct {\n", pad, outputUsage))
+			b.WriteString(fmt.Sprintf("%s\tPromptTokens int\n", pad))
+			b.WriteString(fmt.Sprintf("%s\tTotalTokens int\n", pad))
+			b.WriteString(fmt.Sprintf("%s}\n", pad))
+		}
+		b.WriteString(fmt.Sprintf("%s// openai.Embed\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s := map[string]any{\"model\": %s, \"input\": %s}\n", pad, payloadVar, model, input))
+		if dimensions > 0 {
+			b.WriteString(fmt.Sprintf("%s%s[\"dimensions\"] = %d\n", pad, payloadVar, dimensions))
+		}
+		b.WriteString(fmt.Sprintf("%s%s, _ := json.Marshal(%s)\n", pad, bodyVar, payloadVar))
+		b.WriteString(fmt.Sprintf("%s%s, %s := context.WithTimeout(ctx, 60*time.Second)\n", pad, ctxVar, cancelVar))
+		b.WriteString(fmt.Sprintf("%sdefer %s()\n", pad, cancelVar))
+		b.WriteString(fmt.Sprintf("%s%s, %s := http.NewRequestWithContext(%s, \"POST\", \"https://api.openai.com/v1/embeddings\", bytes.NewReader(%s))\n", pad, reqVar, reqErrVar, ctxVar, bodyVar))
+		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, reqErrVar))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"openai.Embed: %%w\", %s)", reqErrVar)))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s.Header.Set(\"Authorization\", \"Bearer \"+os.Getenv(\"OPENAI_API_KEY\"))\n", pad, reqVar))
+		b.WriteString(fmt.Sprintf("%s%s.Header.Set(\"Content-Type\", \"application/json\")\n", pad, reqVar))
+		b.WriteString(fmt.Sprintf("%s%s, %s := http.DefaultClient.Do(%s)\n", pad, resVar, resErrVar, reqVar))
+		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, resErrVar))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"openai.Embed: %%w\", %s)", resErrVar)))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%sdefer %s.Body.Close()\n", pad, resVar))
+		b.WriteString(fmt.Sprintf("%s%s, _ := io.ReadAll(%s.Body)\n", pad, rawVar, resVar))
+		b.WriteString(fmt.Sprintf("%svar %s struct {\n", pad, parsedVar))
+		b.WriteString(fmt.Sprintf("%s\tData []struct {\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\tEmbedding []float64 `json:\"embedding\"`\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t} `json:\"data\"`\n", pad))
+		b.WriteString(fmt.Sprintf("%s\tUsage struct {\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\tPromptTokens int `json:\"prompt_tokens\"`\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\tTotalTokens int `json:\"total_tokens\"`\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t} `json:\"usage\"`\n", pad))
+		b.WriteString(fmt.Sprintf("%s\tError *struct{ Message string `json:\"message\"` } `json:\"error\"`\n", pad))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%sif err := json.Unmarshal(%s, &%s); err != nil {\n", pad, rawVar, parsedVar))
+		b.WriteString(errReturn(st, pad+"\t", "fmt.Errorf(\"openai.Embed parse: %w\", err)"))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%sif %s.Error != nil {\n", pad, parsedVar))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"openai.Embed: API error: %%s\", %s.Error.Message)", parsedVar)))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%sif len(%s.Data) == 0 {\n", pad, parsedVar))
+		b.WriteString(errReturn(st, pad+"\t", `fmt.Errorf("openai.Embed: no embeddings in response")`))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s %s %s.Data[0].Embedding\n", pad, output, assign, parsedVar))
+		if outputUsage != "" {
+			b.WriteString(fmt.Sprintf("%s%s.PromptTokens = %s.Usage.PromptTokens\n", pad, outputUsage, parsedVar))
+			b.WriteString(fmt.Sprintf("%s%s.TotalTokens = %s.Usage.TotalTokens\n", pad, outputUsage, parsedVar))
+		}
+		return b.String(), true
+
 	case "openai.Stream":
 		if !st.isStreaming {
 			var b strings.Builder

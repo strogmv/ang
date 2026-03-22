@@ -52,19 +52,58 @@ func renderFlowSwitchLegacy(st *flowRenderState, step normalizer.FlowStep, pad s
 	if value == "" {
 		return ""
 	}
+	matchMode := strings.ToLower(strings.TrimSpace(arg("match")))
+	if matchMode == "" {
+		matchMode = "exact"
+	}
 	cases, keys := flowSwitchCases(step)
 	defaultSteps := child("_default")
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%sswitch %s {\n", pad, value))
-	for _, k := range keys {
-		b.WriteString(fmt.Sprintf("%scase %q:\n", pad, k))
+	if matchMode == "exact" {
+		b.WriteString(fmt.Sprintf("%sswitch %s {\n", pad, value))
+		for _, k := range keys {
+			b.WriteString(fmt.Sprintf("%scase %q:\n", pad, k))
+			b.WriteString(renderFlowSteps(cloneFlowState(st), cases[k], indent+1))
+		}
+		if len(defaultSteps) > 0 {
+			b.WriteString(fmt.Sprintf("%sdefault:\n", pad))
+			b.WriteString(renderFlowSteps(cloneFlowState(st), defaultSteps, indent+1))
+		}
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String()
+	}
+	selector := "_switchValue"
+	b.WriteString(fmt.Sprintf("%s%s := strings.TrimSpace(fmt.Sprint(%s))\n", pad, selector, value))
+	for i, k := range keys {
+		cond := fmt.Sprintf("%s == %q", selector, k)
+		switch matchMode {
+		case "prefix":
+			cond = fmt.Sprintf("strings.HasPrefix(%s, %q)", selector, k)
+		case "suffix":
+			cond = fmt.Sprintf("strings.HasSuffix(%s, %q)", selector, k)
+		case "contains":
+			cond = fmt.Sprintf("strings.Contains(%s, %q)", selector, k)
+		case "glob":
+			cond = fmt.Sprintf("_switchMatch, _ := path.Match(%q, %s); _switchMatch", k, selector)
+		}
+		if i == 0 {
+			b.WriteString(fmt.Sprintf("%sif %s {\n", pad, cond))
+		} else {
+			b.WriteString(fmt.Sprintf("%s} else if %s {\n", pad, cond))
+		}
 		b.WriteString(renderFlowSteps(cloneFlowState(st), cases[k], indent+1))
 	}
 	if len(defaultSteps) > 0 {
-		b.WriteString(fmt.Sprintf("%sdefault:\n", pad))
+		if len(keys) > 0 {
+			b.WriteString(fmt.Sprintf("%s} else {\n", pad))
+		} else {
+			b.WriteString(fmt.Sprintf("%s{\n", pad))
+		}
 		b.WriteString(renderFlowSteps(cloneFlowState(st), defaultSteps, indent+1))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+	} else if len(keys) > 0 {
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
 	}
-	b.WriteString(fmt.Sprintf("%s}\n", pad))
 	return b.String()
 }
 
@@ -104,9 +143,11 @@ func renderFlowResumeLegacy(st *flowRenderState, pad string, indent int, sfx str
 		return ""
 	}
 	output := arg("output")
+	into := arg("into")
 	onMissing := child("_onMissing")
 	keyLit := fmt.Sprintf("%q", name)
 	ckptValV, ckptOKV := "_ckptVal"+sfx, "_ckptOK"+sfx
+	ckptCastV, ckptCastOKV := "_ckptCast"+sfx, "_ckptCastOK"+sfx
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("%svar %s any\n", pad, ckptValV))
 	b.WriteString(fmt.Sprintf("%s%s := false\n", pad, ckptOKV))
@@ -121,14 +162,27 @@ func renderFlowResumeLegacy(st *flowRenderState, pad string, indent int, sfx str
 	}
 	b.WriteString(fmt.Sprintf("%s}\n", pad))
 	if output != "" {
-		assign := ":="
-		if st.declared[output] {
-			assign = "="
-		}
+		outputType := resolveFlowDynamicOutputType(st, output, into)
+		declareOutput := !st.declared[output]
 		st.declared[output] = true
 		st.pointers[output] = false
-		st.types[output] = "any"
-		b.WriteString(fmt.Sprintf("%s%s %s %s\n", pad, output, assign, ckptValV))
+		st.types[output] = outputType
+		if outputType == "any" {
+			assign := ":="
+			if !declareOutput {
+				assign = "="
+			}
+			b.WriteString(fmt.Sprintf("%s%s %s %s\n", pad, output, assign, ckptValV))
+			return b.String()
+		}
+		if declareOutput {
+			b.WriteString(fmt.Sprintf("%svar %s %s\n", pad, output, outputType))
+		}
+		b.WriteString(fmt.Sprintf("%s%s, %s := %s.(%s)\n", pad, ckptCastV, ckptCastOKV, ckptValV, outputType))
+		b.WriteString(fmt.Sprintf("%sif !%s {\n", pad, ckptCastOKV))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"flow.Resume %s: checkpoint payload is not %s\")", name, outputType)))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s = %s\n", pad, output, ckptCastV))
 	}
 	return b.String()
 }

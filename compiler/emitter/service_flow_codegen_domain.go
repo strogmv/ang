@@ -8,6 +8,46 @@ import (
 	"github.com/strogmv/ang-ir/normalizer"
 )
 
+func flowHTTPStatusExpr(raw any, fallback string) string {
+	switch v := raw.(type) {
+	case int:
+		return fmt.Sprintf("%d", v)
+	case int64:
+		return fmt.Sprintf("%d", v)
+	case float64:
+		return fmt.Sprintf("%d", int(v))
+	case string:
+		s := strings.TrimSpace(v)
+		if s == "" {
+			return fallback
+		}
+		switch strings.ToLower(s) {
+		case "400", "bad_request":
+			return "http.StatusBadRequest"
+		case "401", "unauthorized":
+			return "http.StatusUnauthorized"
+		case "403", "forbidden":
+			return "http.StatusForbidden"
+		case "404", "not_found":
+			return "http.StatusNotFound"
+		case "409", "conflict":
+			return "http.StatusConflict"
+		case "422", "unprocessable_entity":
+			return "http.StatusUnprocessableEntity"
+		case "429", "too_many_requests":
+			return "http.StatusTooManyRequests"
+		case "500", "internal", "internal_error":
+			return "http.StatusInternalServerError"
+		case "503", "service_unavailable":
+			return "http.StatusServiceUnavailable"
+		default:
+			return s
+		}
+	default:
+		return fallback
+	}
+}
+
 func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
 	pad := strings.Repeat("\t", indent)
 
@@ -16,6 +56,38 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 	}
 
 	switch step.Action {
+	case "errors.New":
+		message := arg("message")
+		if message == "" {
+			return renderInvalidFlowStepConfig(st, pad, "errors.New", "errors.New requires message"), true
+		}
+		statusExpr := flowHTTPStatusExpr(step.Args["status"], "http.StatusInternalServerError")
+		codeExpr := arg("code")
+		if codeExpr == "" {
+			codeExpr = `"ERROR"`
+		}
+		errExpr := fmt.Sprintf("errors.New(%s, %s, %s)", statusExpr, codeExpr, message)
+		output := arg("output")
+		throwNow := false
+		if raw, ok := step.Args["throw"].(bool); ok {
+			throwNow = raw
+		}
+		if output != "" {
+			b := &strings.Builder{}
+			if !st.declared[output] {
+				b.WriteString(fmt.Sprintf("%svar %s error\n", pad, output))
+			}
+			st.declared[output] = true
+			st.pointers[output] = false
+			st.types[output] = "error"
+			b.WriteString(fmt.Sprintf("%s%s = %s\n", pad, output, errExpr))
+			if throwNow {
+				b.WriteString(errReturn(st, pad, output))
+			}
+			return b.String(), true
+		}
+		return errReturn(st, pad, errExpr), true
+
 	case "logic.Check":
 		cond := arg("condition")
 		throw := arg("throw")
@@ -46,6 +118,177 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%sif !(%s) {\n", pad, cond))
 		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("errors.New(%s, %q, %q)", httpStatus, statusLabel, throw)))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
+
+	case "errors.ThrowIf":
+		cond := arg("condition")
+		throw := arg("throw")
+		if cond == "" || throw == "" {
+			return renderInvalidFlowStepConfig(st, pad, "errors.ThrowIf", "errors.ThrowIf requires condition and throw"), true
+		}
+		httpStatus := "http.StatusBadRequest"
+		statusLabel := "Error"
+		if s := strings.TrimSpace(arg("status")); s != "" {
+			switch s {
+			case "403", "forbidden":
+				httpStatus = "http.StatusForbidden"
+				statusLabel = "Forbidden"
+			case "404", "not_found":
+				httpStatus = "http.StatusNotFound"
+				statusLabel = "Not Found"
+			case "409", "conflict":
+				httpStatus = "http.StatusConflict"
+				statusLabel = "Conflict"
+			case "401", "unauthorized":
+				httpStatus = "http.StatusUnauthorized"
+				statusLabel = "Unauthorized"
+			default:
+				httpStatus = s
+			}
+		}
+		if code := strings.TrimSpace(arg("code")); code != "" {
+			statusLabel = code
+		}
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%sif %s {\n", pad, cond))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("errors.New(%s, %q, %q)", httpStatus, statusLabel, throw)))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
+
+	case "errors.Wrap":
+		errExpr := arg("err")
+		message := arg("message")
+		output := arg("output")
+		if errExpr == "" || message == "" {
+			return renderInvalidFlowStepConfig(st, pad, "errors.Wrap", "errors.Wrap requires err and message"), true
+		}
+		if output != "" {
+			alreadyDeclared := st.declared[output]
+			st.declared[output] = true
+			st.pointers[output] = false
+			st.types[output] = "error"
+			var b strings.Builder
+			if !alreadyDeclared {
+				b.WriteString(fmt.Sprintf("%svar %s error\n", pad, output))
+			}
+			b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, errExpr))
+			b.WriteString(fmt.Sprintf("%s\t%s = fmt.Errorf(\"%%s: %%w\", %s, %s)\n", pad, output, message, errExpr))
+			b.WriteString(fmt.Sprintf("%s} else {\n", pad))
+			b.WriteString(fmt.Sprintf("%s\t%s = nil\n", pad, output))
+			b.WriteString(fmt.Sprintf("%s}\n", pad))
+			return b.String(), true
+		}
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, errExpr))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"%%s: %%w\", %s, %s)", message, errExpr)))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
+
+	case "errors.Map":
+		input := arg("input")
+		output := arg("output")
+		mode := strings.TrimSpace(arg("mode"))
+		if mode == "" {
+			mode = "contains"
+		}
+		rawCases := map[string]map[string]string{}
+		switch v := step.Args["cases"].(type) {
+		case map[string]map[string]string:
+			rawCases = v
+		case map[string]any:
+			for key, rawCase := range v {
+				switch cfg := rawCase.(type) {
+				case map[string]string:
+					rawCases[key] = cfg
+				case map[string]any:
+					flat := map[string]string{}
+					for ck, cv := range cfg {
+						flat[ck] = fmt.Sprint(cv)
+					}
+					rawCases[key] = flat
+				}
+			}
+		}
+		if input == "" || len(rawCases) == 0 {
+			return renderInvalidFlowStepConfig(st, pad, "errors.Map", "errors.Map requires input and cases"), true
+		}
+		keys := make([]string, 0, len(rawCases))
+		for k := range rawCases {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		defaultMessage := strings.TrimSpace(arg("defaultMessage"))
+		defaultCode := strings.TrimSpace(arg("defaultCode"))
+		defaultStatus := strings.TrimSpace(arg("defaultStatus"))
+		if defaultCode == "" {
+			defaultCode = "INTERNAL_ERROR"
+		}
+		if defaultStatus == "" {
+			defaultStatus = "http.StatusInternalServerError"
+		}
+		errVar := "_mappedErr" + sfx
+		msgVar := "_mappedErrMsg" + sfx
+		checkVar := "_mapErrCheck" + sfx
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, input))
+		b.WriteString(fmt.Sprintf("%s\t%s := strings.TrimSpace(%s.Error())\n", pad, msgVar, input))
+		b.WriteString(fmt.Sprintf("%s\tvar %s error\n", pad, errVar))
+		for i, key := range keys {
+			caseCfg := rawCases[key]
+			status := strings.TrimSpace(caseCfg["status"])
+			if status == "" {
+				status = "http.StatusBadGateway"
+			}
+			code := strings.TrimSpace(caseCfg["code"])
+			if code == "" {
+				code = strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(key), " ", "_"))
+			}
+			message := strings.TrimSpace(caseCfg["message"])
+			if message == "" {
+				message = key
+			}
+			prefix := "if"
+			if i > 0 {
+				prefix = "} else if"
+			}
+			if mode == "equals" {
+				b.WriteString(fmt.Sprintf("%s\t%s %s == %q {\n", pad, prefix, msgVar, key))
+			} else {
+				b.WriteString(fmt.Sprintf("%s\t%s strings.Contains(%s, %q) {\n", pad, prefix, msgVar, key))
+			}
+			b.WriteString(fmt.Sprintf("%s\t\t%s = errors.New(%s, %q, %q)\n", pad, errVar, status, code, message))
+		}
+		if len(keys) > 0 {
+			if defaultMessage != "" {
+				b.WriteString(fmt.Sprintf("%s\t} else {\n", pad))
+				b.WriteString(fmt.Sprintf("%s\t\t%s = errors.New(%s, %q, %q)\n", pad, errVar, defaultStatus, defaultCode, defaultMessage))
+				b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+			} else {
+				b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+			}
+		}
+		if output != "" {
+			alreadyDeclared := st.declared[output]
+			st.declared[output] = true
+			st.pointers[output] = false
+			st.types[output] = "error"
+			if !alreadyDeclared {
+				b.WriteString(fmt.Sprintf("%s\tvar %s error\n", pad, output))
+			}
+			b.WriteString(fmt.Sprintf("%s\tif %s != nil {\n", pad, errVar))
+			b.WriteString(fmt.Sprintf("%s\t\t%s = %s\n", pad, output, errVar))
+			b.WriteString(fmt.Sprintf("%s\t} else {\n", pad))
+			b.WriteString(fmt.Sprintf("%s\t\t%s = %s\n", pad, output, input))
+			b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+			b.WriteString(fmt.Sprintf("%s}\n", pad))
+			return b.String(), true
+		}
+		b.WriteString(fmt.Sprintf("%s\t%s = %s\n", pad, checkVar, errVar))
+		b.WriteString(fmt.Sprintf("%s\tif %s == nil {\n", pad, checkVar))
+		b.WriteString(fmt.Sprintf("%s\t\t%s = %s\n", pad, checkVar, input))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		b.WriteString(errReturn(st, pad+"\t", checkVar))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
 
@@ -141,7 +384,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		to := arg("to")
 		val := arg("value")
 		if to == "" || val == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "mapping.Assign", "mapping.Assign requires to and value"), true
 		}
 		declare := false
 		if v, ok := step.Args["declare"]; ok {
@@ -168,12 +411,17 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		company := arg("company")
 		event := arg("event")
 		if actor == "" || company == "" || event == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "audit.Log", "audit.Log requires actor, company, and event"), true
 		}
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%s{\n", pad))
 		b.WriteString(fmt.Sprintf("%s\t_auditRec := &domain.AuditLog{ID: uuid.NewString(), ActorID: %s, CompanyID: %s, Action: %q, CreatedAt: time.Now().UTC()}\n", pad, actor, company, event))
-		b.WriteString(fmt.Sprintf("%s\t_ = s.AuditLogRepo.Save(ctx, _auditRec)\n", pad))
+		b.WriteString(fmt.Sprintf("%s\tif s.AuditLogRepo == nil {\n", pad))
+		b.WriteString(errReturn(st, pad+"\t\t", `fmt.Errorf("audit.Log: audit repository wiring is not configured")`))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\tif _auditErr := s.AuditLogRepo.Save(ctx, _auditRec); _auditErr != nil {\n", pad))
+		b.WriteString(errReturn(st, pad+"\t\t", `fmt.Errorf("audit.Log: %w", _auditErr)`))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
 
@@ -183,7 +431,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		roles := arg("roles")
 		output := arg("output")
 		if userID == "" || companyID == "" || roles == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "auth.RequireRole", "auth.RequireRole requires userID, companyID, and roles"), true
 		}
 		if output == "" {
 			output = "currentUser"
@@ -224,7 +472,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		roles := arg("roles")
 		companyID := arg("companyID")
 		if user == "" || roles == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "auth.CheckRole", "auth.CheckRole requires user and roles"), true
 		}
 		var b strings.Builder
 		if companyID != "" {
@@ -286,7 +534,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		from := arg("from")
 		fields := arg("fields")
 		if target == "" || from == "" || fields == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "entity.PatchNonZero", "entity.PatchNonZero requires target, from, and fields"), true
 		}
 		parts := strings.Split(fields, ",")
 		var quotedFields []string
@@ -303,7 +551,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		to := arg("to")
 		fields := arg("fields")
 		if from == "" || to == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "field.CopyNonEmpty", "field.CopyNonEmpty requires from and to"), true
 		}
 		if fields == "" {
 			return fmt.Sprintf("%shelpers.CopyNonEmptyFields(&%s, %s)\n", pad, to, from), true
@@ -323,11 +571,11 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		from := arg("from")
 		source := arg("source")
 		if target == "" || from == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "entity.PatchValidated", "entity.PatchValidated requires target and from"), true
 		}
 		fieldsMap, ok := step.Args["fields"].(map[string]map[string]string)
 		if !ok || len(fieldsMap) == 0 {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "entity.PatchValidated", "entity.PatchValidated requires fields map"), true
 		}
 		fieldNames := make([]string, 0, len(fieldsMap))
 		for k := range fieldsMap {
@@ -376,7 +624,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		allowed := arg("allowed")
 		throw := arg("throw")
 		if value == "" || allowed == "" || throw == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "enum.Validate", "enum.Validate requires value, allowed, and throw"), true
 		}
 		parts := strings.Split(allowed, ",")
 		var quotedAllowed []string
@@ -396,7 +644,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		input := arg("input")
 		output := arg("output")
 		if input == "" || output == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "list.Len", "list.Len requires input and output"), true
 		}
 		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("len(%s)", input), "int"), true
 
@@ -404,7 +652,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		input := arg("input")
 		output := arg("output")
 		if input == "" || output == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "convert.ToFloat", "convert.ToFloat requires input and output"), true
 		}
 		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("float64(%s)", input), "float64"), true
 
@@ -412,7 +660,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		input := arg("input")
 		output := arg("output")
 		if input == "" || output == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "convert.ToInt", "convert.ToInt requires input and output"), true
 		}
 		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("int64(%s)", input), "int64"), true
 
@@ -420,7 +668,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		output := arg("output")
 		typ := arg("type")
 		if output == "" || typ == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "list.New", "list.New requires output and type"), true
 		}
 		capExpr := arg("cap")
 		if strings.TrimSpace(capExpr) != "" {
@@ -432,9 +680,110 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		output := arg("output")
 		typ := arg("type")
 		if output == "" || typ == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "map.New", "map.New requires output and type"), true
 		}
 		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("make(%s)", typ), typ), true
+
+	case "map.Get":
+		input := arg("input")
+		key := arg("key")
+		output := arg("output")
+		into := arg("into")
+		defaultExpr := arg("default")
+		found := arg("found")
+		if input == "" || key == "" || output == "" {
+			return renderInvalidFlowStepConfig(st, pad, "map.Get", "map.Get requires input, key, and output"), true
+		}
+		assign := ":="
+		if st.declared[output] {
+			assign = "="
+		}
+		if into == "" {
+			into = "any"
+		}
+		foundDeclaredBefore := false
+		if found != "" {
+			foundDeclaredBefore = st.declared[found]
+		}
+		st.declared[output] = true
+		st.pointers[output] = false
+		st.types[output] = into
+		if found != "" {
+			st.declared[found] = true
+			st.pointers[found] = false
+			st.types[found] = "bool"
+		}
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s_mapVal%s, _mapFound%s := %s[%s]\n", pad, sfx, sfx, input, key))
+		if found != "" {
+			assignFound := ":="
+			if foundDeclaredBefore {
+				assignFound = "="
+			}
+			b.WriteString(fmt.Sprintf("%s%s %s _mapFound%s\n", pad, found, assignFound, sfx))
+		}
+		if into == "any" {
+			b.WriteString(fmt.Sprintf("%s%s %s _mapVal%s\n", pad, output, assign, sfx))
+		} else {
+			if assign == ":=" {
+				b.WriteString(fmt.Sprintf("%svar %s %s\n", pad, output, into))
+			}
+			b.WriteString(fmt.Sprintf("%sif _mapFound%s {\n", pad, sfx))
+			b.WriteString(fmt.Sprintf("%s\tif _typedVal%s, _ok%s := _mapVal%s.(%s); _ok%s {\n", pad, sfx, sfx, sfx, into, sfx))
+			b.WriteString(fmt.Sprintf("%s\t\t%s = _typedVal%s\n", pad, output, sfx))
+			b.WriteString(fmt.Sprintf("%s\t} else {\n", pad))
+			b.WriteString(errReturn(st, pad+"\t\t", fmt.Sprintf("fmt.Errorf(\"map.Get: value for key %%v is not %s\", %s)", into, key)))
+			b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+			b.WriteString(fmt.Sprintf("%s} else {\n", pad))
+			if defaultExpr != "" {
+				b.WriteString(fmt.Sprintf("%s\t%s = %s\n", pad, output, defaultExpr))
+			}
+			b.WriteString(fmt.Sprintf("%s}\n", pad))
+		}
+		if into == "any" && defaultExpr != "" {
+			b.WriteString(fmt.Sprintf("%sif !_mapFound%s {\n", pad, sfx))
+			b.WriteString(fmt.Sprintf("%s\t%s = %s\n", pad, output, defaultExpr))
+			b.WriteString(fmt.Sprintf("%s}\n", pad))
+		}
+		return b.String(), true
+
+	case "map.Has":
+		input := arg("input")
+		key := arg("key")
+		output := arg("output")
+		if input == "" || key == "" || output == "" {
+			return renderInvalidFlowStepConfig(st, pad, "map.Has", "map.Has requires input, key, and output"), true
+		}
+		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("func() bool { _, _ok := %s[%s]; return _ok }()", input, key), "bool"), true
+
+	case "map.Set":
+		input := arg("input")
+		key := arg("key")
+		value := arg("value")
+		output := arg("output")
+		if input == "" || key == "" || value == "" {
+			return renderInvalidFlowStepConfig(st, pad, "map.Set", "map.Set requires input, key, and value"), true
+		}
+		var b strings.Builder
+		target := input
+		if output != "" && output != input {
+			b.WriteString(renderFlowAssignTarget(st, pad, output, fmt.Sprintf("maps.Clone(%s)", input), ""))
+			target = output
+		}
+		b.WriteString(fmt.Sprintf("%s%s[%s] = %s\n", pad, target, key, value))
+		return b.String(), true
+
+	case "map.Merge":
+		left := arg("left")
+		right := arg("right")
+		output := arg("output")
+		if left == "" || right == "" || output == "" {
+			return renderInvalidFlowStepConfig(st, pad, "map.Merge", "map.Merge requires left, right, and output"), true
+		}
+		var b strings.Builder
+		b.WriteString(renderFlowAssignTarget(st, pad, output, fmt.Sprintf("maps.Clone(%s)", left), ""))
+		b.WriteString(fmt.Sprintf("%smaps.Copy(%s, %s)\n", pad, output, right))
+		return b.String(), true
 
 	case "list.Enrich":
 		items := arg("items")
@@ -443,7 +792,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		set := arg("set")
 		as := arg("as")
 		if items == "" || lookupSource == "" || lookupInput == "" || set == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "list.Enrich", "list.Enrich requires items, lookupSource, lookupInput, and set"), true
 		}
 		if as == "" {
 			as = "_item"
@@ -473,7 +822,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		output := arg("output")
 		format := arg("format")
 		if value == "" || output == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "time.Parse", "time.Parse requires value and output"), true
 		}
 		if format == "" {
 			format = "time.RFC3339"
@@ -491,12 +840,58 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
 
+	case "time.Add":
+		input := arg("input")
+		duration := arg("duration")
+		output := arg("output")
+		if input == "" || duration == "" || output == "" {
+			return renderInvalidFlowStepConfig(st, pad, "time.Add", "time.Add requires input, duration, and output"), true
+		}
+		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("%s.Add(%s)", input, duration), "time.Time"), true
+
+	case "time.Sub":
+		a := arg("a")
+		bExpr := arg("b")
+		output := arg("output")
+		if a == "" || bExpr == "" || output == "" {
+			return renderInvalidFlowStepConfig(st, pad, "time.Sub", "time.Sub requires a, b, and output"), true
+		}
+		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("%s.Sub(%s)", a, bExpr), "time.Duration"), true
+
+	case "time.Diff":
+		from := arg("from")
+		to := arg("to")
+		output := arg("output")
+		unit := strings.TrimSpace(arg("unit"))
+		if from == "" || to == "" || output == "" {
+			return renderInvalidFlowStepConfig(st, pad, "time.Diff", "time.Diff requires from, to, and output"), true
+		}
+		if unit == "" || unit == "duration" {
+			return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("%s.Sub(%s)", to, from), "time.Duration"), true
+		}
+		expr := fmt.Sprintf("%s.Sub(%s).Hours()", to, from)
+		switch unit {
+		case "milliseconds":
+			expr = fmt.Sprintf("float64(%s.Sub(%s).Milliseconds())", to, from)
+		case "seconds":
+			expr = fmt.Sprintf("%s.Sub(%s).Seconds()", to, from)
+		case "minutes":
+			expr = fmt.Sprintf("%s.Sub(%s).Minutes()", to, from)
+		case "hours":
+			expr = fmt.Sprintf("%s.Sub(%s).Hours()", to, from)
+		case "days":
+			expr = fmt.Sprintf("%s.Sub(%s).Hours() / 24", to, from)
+		default:
+			return renderInvalidFlowStepConfig(st, pad, "time.Diff", "time.Diff unit must be duration, milliseconds, seconds, minutes, hours, or days"), true
+		}
+		return renderFlowAssignTarget(st, pad, output, expr, "float64"), true
+
 	case "time.CheckExpiry":
 		value := arg("value")
 		throw := arg("throw")
 		mustBe := arg("mustBe")
 		if value == "" || throw == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "time.CheckExpiry", "time.CheckExpiry requires value and throw"), true
 		}
 		if mustBe == "" {
 			mustBe = "future"
@@ -526,7 +921,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		output := arg("output")
 		valueType := arg("valueType")
 		if from == "" || key == "" || value == "" || output == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "map.Build", "map.Build requires from, key, value, and output"), true
 		}
 		if as == "" {
 			as = "_item"
@@ -623,7 +1018,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		expr := arg("expr")
 		output := arg("output")
 		if expr == "" || output == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "math.Expr", "math.Expr requires expr and output"), true
 		}
 		declare := false
 		if v, ok := step.Args["declare"]; ok {
@@ -648,7 +1043,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		input := arg("input")
 		output := arg("output")
 		if source == "" || find == "" || input == "" || output == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "repo.Upsert", "repo.Upsert requires source, find, input, and output"), true
 		}
 		ifNewSteps := child("_ifNew")
 		ifExistsSteps := child("_ifExists")
@@ -703,7 +1098,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 			event = arg("message")
 		}
 		if event == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "notify.Dispatch", "notify.Dispatch requires event or message"), true
 		}
 		userID := arg("userID")
 		entityID := arg("entityID")
@@ -711,9 +1106,12 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		payload := arg("payload")
 		tmpl := arg("template")
 		var b strings.Builder
-		b.WriteString(fmt.Sprintf("%s_ = s.dispatcher.Dispatch(ctx, port.NotificationMessage{Event: %q", pad, event))
+		b.WriteString(fmt.Sprintf("%sif s.dispatcher == nil {\n", pad))
+		b.WriteString(errReturn(st, pad+"\t", `fmt.Errorf("notify.Dispatch: notification dispatcher wiring is not configured")`))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%sif _dispatchErr := s.dispatcher.Dispatch(ctx, port.NotificationMessage{Event: strings.TrimSpace(fmt.Sprint(%s))", pad, event))
 		if msgType != "" {
-			b.WriteString(fmt.Sprintf(", Type: %q", msgType))
+			b.WriteString(fmt.Sprintf(", Type: strings.TrimSpace(fmt.Sprint(%s))", msgType))
 		}
 		if userID != "" {
 			b.WriteString(fmt.Sprintf(", UserID: %s", userID))
@@ -725,9 +1123,11 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 			b.WriteString(fmt.Sprintf(", Payload: %s", payload))
 		}
 		if tmpl != "" {
-			b.WriteString(fmt.Sprintf(", Template: %q", tmpl))
+			b.WriteString(fmt.Sprintf(", Template: strings.TrimSpace(fmt.Sprint(%s))", tmpl))
 		}
-		b.WriteString("})\n")
+		b.WriteString("}); _dispatchErr != nil {\n")
+		b.WriteString(errReturn(st, pad+"\t", `fmt.Errorf("notify.Dispatch: %w", _dispatchErr)`))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
 	}
 

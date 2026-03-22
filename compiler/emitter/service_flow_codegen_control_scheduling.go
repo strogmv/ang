@@ -13,10 +13,10 @@ import (
 func renderFlowDelay(st *flowRenderState, _ normalizer.FlowStep, indent int, sfx string,
 	arg func(string) string, _ func(string) []normalizer.FlowStep) string {
 	duration := arg("duration")
-	if duration == "" {
-		return ""
-	}
 	pad := strings.Repeat("\t", indent)
+	if duration == "" {
+		return renderInvalidFlowStepConfig(st, pad, "flow.Delay", "flow.Delay requires duration")
+	}
 	timerV := "_delayTimer" + sfx
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("%s{\n", pad))
@@ -35,10 +35,10 @@ func renderFlowDelay(st *flowRenderState, _ normalizer.FlowStep, indent int, sfx
 func renderFlowSchedule(st *flowRenderState, _ normalizer.FlowStep, indent int, sfx string,
 	arg func(string) string, _ func(string) []normalizer.FlowStep) string {
 	at := arg("at")
-	if at == "" {
-		return ""
-	}
 	pad := strings.Repeat("\t", indent)
+	if at == "" {
+		return renderInvalidFlowStepConfig(st, pad, "flow.Schedule", "flow.Schedule requires at")
+	}
 	waitV := "_schedWait" + sfx
 	timerV := "_schedTimer" + sfx
 	var b strings.Builder
@@ -190,13 +190,12 @@ func renderFlowCron(st *flowRenderState, step normalizer.FlowStep, indent int, s
 	arg func(string) string, child func(string) []normalizer.FlowStep) string {
 	window := arg("window")
 	if window == "" {
-		return fmt.Sprintf("%s// flow.Cron: missing window argument\n", strings.Repeat("\t", indent))
+		return renderInvalidFlowStepConfig(st, strings.Repeat("\t", indent), "flow.Cron", "flow.Cron requires window")
 	}
 
 	spec, err := parseCronWindow(window)
 	if err != nil {
-		return fmt.Sprintf("%s// flow.Cron: invalid window %q: %v\n",
-			strings.Repeat("\t", indent), window, err)
+		return renderInvalidFlowStepConfig(st, strings.Repeat("\t", indent), "flow.Cron", fmt.Sprintf("flow.Cron invalid window %q: %v", window, err))
 	}
 
 	tz := arg("timezone")

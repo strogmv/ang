@@ -25,6 +25,149 @@ RefApprovalDecide: schema.#Operation & {
 }
 
 // ----------------------------------------------------------------------------
+// REF EXAMPLE 10997: value.Coalesce
+// ----------------------------------------------------------------------------
+RefValueCoalesce: schema.#Operation & {
+	service: "reference"
+	input: { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "value.Coalesce", values: ["req.ID", "\"fallback\""], output: "result", into: "string"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 10996: map.Has
+// ----------------------------------------------------------------------------
+RefMapHas: schema.#Operation & {
+	service: "reference"
+	input: { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "map.Has", input: "labels", key: "\"sample\"", output: "exists"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "exists"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 10995: map.Set
+// ----------------------------------------------------------------------------
+RefMapSet: schema.#Operation & {
+	service: "reference"
+	input: { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "map.Set", input: "labels", key: "\"sample\"", value: "req.ID", output: "nextLabels"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 10994: map.Merge
+// ----------------------------------------------------------------------------
+RefMapMerge: schema.#Operation & {
+	service: "reference"
+	input: { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "map.Merge", left: "leftLabels", right: "rightLabels", output: "labels"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 10993: list.Find
+// ----------------------------------------------------------------------------
+RefListFind: schema.#Operation & {
+	service: "reference"
+	input: { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "list.Find", from: "items", as: "item", condition: "item.ID == req.ID", output: "result", found: "found"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "found"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 10992: list.Any
+// ----------------------------------------------------------------------------
+RefListAny: schema.#Operation & {
+	service: "reference"
+	input: { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "list.Any", from: "items", as: "item", condition: "item.ID == req.ID", output: "result"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "result"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 10991: list.All
+// ----------------------------------------------------------------------------
+RefListAll: schema.#Operation & {
+	service: "reference"
+	input: { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "list.All", from: "items", as: "item", condition: "item.ID != \"\"", output: "result"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "result"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 10990: time.Add
+// ----------------------------------------------------------------------------
+RefTimeAdd: schema.#Operation & {
+	service: "reference"
+	input: { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "time.Add", input: "issuedAt", duration: "15*time.Minute", output: "result"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 10989: time.Sub
+// ----------------------------------------------------------------------------
+RefTimeSub: schema.#Operation & {
+	service: "reference"
+	input: { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "time.Sub", a: "expiresAt", b: "issuedAt", output: "result"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 10988: time.Diff
+// ----------------------------------------------------------------------------
+RefTimeDiff: schema.#Operation & {
+	service: "reference"
+	input: { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "time.Diff", from: "issuedAt", to: "expiresAt", unit: "minutes", output: "result"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 10987: errors.Map
+// ----------------------------------------------------------------------------
+RefErrorsMap: schema.#Operation & {
+	service: "reference"
+	input: { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "errors.Map", input: "err", cases: {"no rows": {status: "http.StatusNotFound", code: "NOT_FOUND", message: "resource missing"}}, output: "mappedErr"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ----------------------------------------------------------------------------
 // REF EXAMPLE 10999: flow.Call
 // ----------------------------------------------------------------------------
 RefFlowCall: schema.#Operation & {
@@ -2380,5 +2523,58 @@ RefCueWriteProjectFiles: schema.#Operation & {
 	flow: [
 		{action: "cue.WriteProjectFiles", root: "\"/tmp/project\"", files: "req.ID", output: "writeResult"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "writeResult != nil"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2031: errors.New
+// ----------------------------------------------------------------------------
+RefErrorsNew: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "errors.New", message: "\"boom\"", status: 404, code: "\"NOT_FOUND\"", output: "errObj"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "errObj != nil"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2032: token.Generate
+// ----------------------------------------------------------------------------
+RefTokenGenerate: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "token.Generate", subject: "req.ID", purpose: "\"verify_email\"", ttl: "\"30m\"", output: "token"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "token != \"\""},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2033: token.Verify
+// ----------------------------------------------------------------------------
+RefTokenVerify: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "token.Verify", token: "req.ID", purpose: "\"verify_email\"", output: "claims"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "claims != nil"},
+	]
+}
+
+// ----------------------------------------------------------------------------
+// REF EXAMPLE 2034: mutex.With
+// ----------------------------------------------------------------------------
+RefMutexWith: schema.#Operation & {
+	service: "reference"
+	input:  { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "mutex.With", key: "\"jobs:sync\"", do: [
+			{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+		]},
 	]
 }

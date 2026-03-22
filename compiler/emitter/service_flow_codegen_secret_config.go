@@ -8,11 +8,15 @@ import (
 )
 
 func renderFlowStepSecretConfig(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
+	pad := strings.Repeat("\t", indent)
 	switch step.Action {
 	case "secret.Get", "config.Get":
 		key := arg("key")
 		output := arg("output")
 		defVal := arg("default")
+		if key == "" || output == "" {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, step.Action+" requires key and output"), true
+		}
 
 		// Both secret.Get and config.Get use os.Getenv for now.
 		// This avoids the complexity of injecting config structs into every service
@@ -22,7 +26,6 @@ func renderFlowStepSecretConfig(st *flowRenderState, step normalizer.FlowStep, i
 		st.pointers[output] = false
 		st.types[output] = "string"
 
-		pad := strings.Repeat("\t", indent)
 		var b strings.Builder
 
 		// var output string = os.Getenv(key)
@@ -40,6 +43,9 @@ func renderFlowStepSecretConfig(st *flowRenderState, step normalizer.FlowStep, i
 		name := arg("name")
 		output := arg("output")
 		defVal := arg("default")
+		if name == "" || output == "" {
+			return renderInvalidFlowStepConfig(st, pad, "model.Resolve", "model.Resolve requires name and output"), true
+		}
 
 		st.declared[output] = true
 		st.pointers[output] = false

@@ -89,7 +89,7 @@ func renderHTTPRequest(st *flowRenderState, step normalizer.FlowStep, pad, sfx s
 	method := arg("method")
 	url := arg("url")
 	if method == "" || url == "" {
-		return "", true
+		return renderInvalidFlowStepConfig(st, pad, "http.Request", "http.Request requires method and url"), true
 	}
 	body := arg("body")
 	output := arg("output")
@@ -194,7 +194,7 @@ func renderHTTPRetryPolicy(st *flowRenderState, step normalizer.FlowStep, pad, s
 	method := arg("method")
 	url := arg("url")
 	if method == "" || url == "" {
-		return "", true
+		return renderInvalidFlowStepConfig(st, pad, "http.RetryPolicy", "http.RetryPolicy requires method and url"), true
 	}
 	body := arg("body")
 	output := arg("output")
@@ -358,7 +358,7 @@ func renderHTTPPaginate(st *flowRenderState, step normalizer.FlowStep, pad, sfx 
 	asVar := arg("as")
 	cursorExpr := arg("cursor_expr")
 	if url == "" || into == "" || asVar == "" || cursorExpr == "" {
-		return "", true
+		return renderInvalidFlowStepConfig(st, pad, "http.Paginate", "http.Paginate requires url, into, as, and cursor_expr"), true
 	}
 	itemsExpr := arg("items_expr")
 	cursorParam := arg("cursor_param")

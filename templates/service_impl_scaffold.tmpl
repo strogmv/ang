@@ -7,6 +7,25 @@ import (
 {{- end }}
 )
 
+var _{{ .Service.Name }}FlowMutexRegistry sync.Map
+
+func _{{ .Service.Name }}FlowMutexForKey(key string) *sync.Mutex {
+	if key == "" {
+		key = "__default__"
+	}
+	if existing, ok := _{{ .Service.Name }}FlowMutexRegistry.Load(key); ok {
+		if mu, ok := existing.(*sync.Mutex); ok && mu != nil {
+			return mu
+		}
+	}
+	mu := &sync.Mutex{}
+	actual, _ := _{{ .Service.Name }}FlowMutexRegistry.LoadOrStore(key, mu)
+	if existing, ok := actual.(*sync.Mutex); ok && existing != nil {
+		return existing
+	}
+	return mu
+}
+
 {{ ServiceImplTypeDecl .Service .Entities .Auth }}
 
 {{ ServiceImplConstructorDecl .Service .Entities .Auth }}

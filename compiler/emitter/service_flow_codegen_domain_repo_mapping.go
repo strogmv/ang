@@ -11,6 +11,58 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 	pad := strings.Repeat("\t", indent)
 
 	switch step.Action {
+	case "repo.Exists":
+		source := arg("source")
+		input := arg("input")
+		output := arg("output")
+		method := arg("method")
+		if source == "" || input == "" || output == "" {
+			return renderInvalidFlowStepConfig(st, pad, "repo.Exists", "repo.Exists requires source, input, and output"), true
+		}
+		if method == "" {
+			method = "FindByID"
+		}
+		assign := ":="
+		if st.declared[output] {
+			assign = "="
+		}
+		st.declared[output] = true
+		st.pointers[output] = false
+		st.types[output] = "bool"
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s_repoExists%s, err := s.%sRepo.%s(ctx, %s)\n", pad, sfx, ExportName(source), method, input))
+		b.WriteString(fmt.Sprintf("%sif err != nil {\n", pad))
+		b.WriteString(errReturn(st, pad+"\t", "err"))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		b.WriteString(fmt.Sprintf("%s%s %s _repoExists%s != nil\n", pad, output, assign, sfx))
+		return b.String(), true
+
+	case "repo.Count":
+		source := arg("source")
+		method := arg("method")
+		output := arg("output")
+		input := arg("input")
+		if source == "" || method == "" || output == "" {
+			return renderInvalidFlowStepConfig(st, pad, "repo.Count", "repo.Count requires source, method, and output"), true
+		}
+		assign := ":="
+		if st.declared[output] {
+			assign = "="
+		}
+		st.declared[output] = true
+		st.pointers[output] = false
+		st.types[output] = "int"
+		call := "ctx"
+		if input != "" {
+			call += ", " + input
+		}
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s%s %s s.%sRepo.%s(%s)\n", pad, output+", err", assign, ExportName(source), method, call))
+		b.WriteString(fmt.Sprintf("%sif err != nil {\n", pad))
+		b.WriteString(errReturn(st, pad+"\t", "err"))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
+
 	case "repo.Get", "repo.Find", "repo.GetForUpdate", "repo.List":
 		source := arg("source")
 		if source == "" {
@@ -233,7 +285,7 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 		// Aliases for repo.Get / repo.List
 		source := arg("source")
 		if source == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, step.Action, step.Action+" requires source"), true
 		}
 		method := arg("method")
 		input := arg("input")

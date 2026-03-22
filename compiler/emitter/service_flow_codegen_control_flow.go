@@ -53,9 +53,6 @@ func renderFlowStepControlFlow(st *flowRenderState, step normalizer.FlowStep, in
 		return renderFlowCheckpointLegacy(pad, arg), true
 
 	case "flow.Resume":
-		if out, ok := renderFlowResumeAST(st, indent, sfx, arg, child); ok {
-			return out, true
-		}
 		return renderFlowResumeLegacy(st, pad, indent, sfx, arg, child), true
 
 	case "flow.RecordEvent":
@@ -140,7 +137,7 @@ func renderFlowTag(st *flowRenderState, step normalizer.FlowStep, indent int, sf
 	name := arg("name")
 	value := arg("value")
 	if name == "" {
-		return ""
+		return renderInvalidFlowStepConfig(st, pad, "flow.Tag", "flow.Tag requires name")
 	}
 
 	if value != "" {
@@ -152,10 +149,11 @@ func renderFlowTag(st *flowRenderState, step normalizer.FlowStep, indent int, sf
 func renderFlowCall(st *flowRenderState, pad string, step normalizer.FlowStep, arg func(string) string) string {
 	opRaw := strings.TrimSpace(arg("op"))
 	if opRaw == "" {
-		return ""
+		return renderInvalidFlowStepConfig(st, pad, "flow.Call", "flow.Call requires op")
 	}
 	output := strings.TrimSpace(arg("output"))
 	ignoreErr, _ := step.Args["ignoreErr"].(bool)
+	ignoreErrReason := strings.TrimSpace(arg("ignoreErrReason"))
 
 	serviceName := ""
 	methodName := opRaw
@@ -164,7 +162,7 @@ func renderFlowCall(st *flowRenderState, pad string, step normalizer.FlowStep, a
 		methodName = strings.TrimSpace(parts[1])
 	}
 	if methodName == "" {
-		return ""
+		return renderInvalidFlowStepConfig(st, pad, "flow.Call", "flow.Call requires valid op method name")
 	}
 	methodExport := ExportName(methodName)
 
@@ -203,6 +201,11 @@ func renderFlowCall(st *flowRenderState, pad string, step normalizer.FlowStep, a
 	}
 
 	if ignoreErr {
+		emitFlowWarning(st, step, "FLOW_IGNORE_ERR", "warn", "flow.Call ignores returned error explicitly", "Document intent with ignoreErrReason and use only for deliberate fire-and-forget behavior")
+		comment := fmt.Sprintf("%s// explicit ignoreErr=true", pad)
+		if ignoreErrReason != "" {
+			comment = fmt.Sprintf("%s// explicit ignoreErr=true: %s", pad, ignoreErrReason)
+		}
 		if output != "" {
 			assign := ":="
 			if st.declared[output] {
@@ -211,9 +214,9 @@ func renderFlowCall(st *flowRenderState, pad string, step normalizer.FlowStep, a
 			st.declared[output] = true
 			st.pointers[output] = false
 			st.types[output] = "port." + methodExport + "Response"
-			return fmt.Sprintf("%s%s %s %s\n", pad, output+", _", assign, callStr)
+			return fmt.Sprintf("%s\n%s%s %s %s\n", comment, pad, output+", _", assign, callStr)
 		}
-		return fmt.Sprintf("%s_, _ = %s\n", pad, callStr)
+		return fmt.Sprintf("%s\n%s_, _ = %s\n", comment, pad, callStr)
 	}
 
 	if output != "" {
@@ -314,6 +317,10 @@ func renderFlowSwitchAST(st *flowRenderState, step normalizer.FlowStep, indent i
 	value := arg("value")
 	if value == "" {
 		return "", true
+	}
+	matchMode := strings.ToLower(strings.TrimSpace(arg("match")))
+	if matchMode != "" && matchMode != "exact" {
+		return "", false
 	}
 	valueExpr, err := parseFlowExprSafe(value)
 	if err != nil {

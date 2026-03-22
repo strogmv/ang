@@ -238,6 +238,7 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 			"os",
 			"sort",
 			"strings",
+			"sync",
 			"time",
 			"github.com/google/uuid",
 			"golang.org/x/crypto/bcrypt",
@@ -376,8 +377,13 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 						importMap["regexp"] = ""
 					case "base64.Encode", "base64.Decode":
 						importMap["encoding/base64"] = ""
-					case "url.Parse", "url.Build", "query.Encode", "query.Decode":
+					case "url.Parse", "query.Encode", "query.Decode":
 						importMap["net/url"] = ""
+					case "url.Build":
+						importMap["net/url"] = ""
+						importMap["path"] = ""
+					case "map.Set", "map.Merge":
+						importMap["maps"] = ""
 					case "hash.Sum":
 						importMap["crypto/sha1"] = ""
 						importMap["crypto/sha256"] = ""
@@ -402,7 +408,10 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 					case "jsonpath.Get", "jsonpath.Set":
 						importMap["strconv"] = ""
 						importMap["strings"] = ""
-					case "jwt.Sign", "jwt.Verify":
+					case "template.Render":
+						importMap["bytes"] = ""
+						importMap["text/template"] = ""
+					case "jwt.Sign", "jwt.Verify", "token.Generate", "token.Verify":
 						importMap["crypto/hmac"] = ""
 						importMap["crypto/sha256"] = ""
 						importMap["encoding/base64"] = ""
@@ -422,6 +431,10 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 					case "flow.Parallel", "flow.Join":
 						importMap["sync"] = ""
 						importMap["context"] = ""
+					case "flow.Switch":
+						if match, ok := step.Args["match"].(string); ok && strings.EqualFold(strings.TrimSpace(match), "glob") {
+							importMap["path"] = ""
+						}
 					case "flow.Race":
 						importMap["sync"] = ""
 						importMap["context"] = ""
@@ -457,7 +470,7 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 						importMap["net/http"] = ""
 						importMap["os"] = ""
 						importMap["time"] = ""
-					case "openai.Chat":
+					case "openai.Chat", "openai.Embed":
 						importMap["bytes"] = ""
 						importMap["context"] = ""
 						importMap["encoding/json"] = ""

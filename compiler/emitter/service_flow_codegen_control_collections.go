@@ -13,6 +13,95 @@ import (
 func renderFlowStepControlCollections(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
 	pad := strings.Repeat("\t", indent)
 	switch step.Action {
+	case "value.Coalesce":
+		output := arg("output")
+		if output == "" {
+			return renderInvalidFlowStepConfig(st, pad, "value.Coalesce", "value.Coalesce requires output"), true
+		}
+		mode := strings.TrimSpace(arg("mode"))
+		if mode == "" {
+			mode = "non_empty"
+		}
+		var values []string
+		switch raw := step.Args["values"].(type) {
+		case []string:
+			values = append(values, raw...)
+		case []any:
+			for _, it := range raw {
+				if s, ok := it.(string); ok && strings.TrimSpace(s) != "" {
+					values = append(values, normalizeFlowExpr(strings.TrimSpace(s)))
+				}
+			}
+		case string:
+			if strings.TrimSpace(raw) != "" {
+				values = append(values, normalizeFlowExpr(strings.TrimSpace(raw)))
+			}
+		}
+		if len(values) == 0 {
+			return renderInvalidFlowStepConfig(st, pad, "value.Coalesce", "value.Coalesce requires values and output"), true
+		}
+		outputType := resolveFlowDynamicOutputType(st, output, arg("into"))
+		foundV := "_coalesceFound" + sfx
+		anyV := "_coalesceValue" + sfx
+		modeV := "_coalesceMode" + sfx
+		typedV := "_coalesceTyped" + sfx
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s%s := strings.ToLower(strings.TrimSpace(%q))\n", pad, modeV, mode))
+		b.WriteString(fmt.Sprintf("%svar %s any\n", pad, anyV))
+		b.WriteString(fmt.Sprintf("%s%s := false\n", pad, foundV))
+		b.WriteString(fmt.Sprintf("%sfor _, _candidate := range []any{%s} {\n", pad, strings.Join(values, ", ")))
+		b.WriteString(fmt.Sprintf("%s\tif _candidate == nil {\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\tcontinue\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t_use := false\n", pad))
+		b.WriteString(fmt.Sprintf("%s\tswitch _v := _candidate.(type) {\n", pad))
+		b.WriteString(fmt.Sprintf("%s\tcase string:\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\tswitch %s {\n", pad, modeV))
+		b.WriteString(fmt.Sprintf("%s\t\tcase \"non_nil\":\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t\t_use = true\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\tcase \"non_zero\":\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t\t_use = _v != \"\"\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\tdefault:\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t\t_use = strings.TrimSpace(_v) != \"\"\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\tcase time.Time:\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t_use = %s == \"non_nil\" || !_v.IsZero()\n", pad, modeV))
+		b.WriteString(fmt.Sprintf("%s\tcase int:\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t_use = %s == \"non_nil\" || _v != 0\n", pad, modeV))
+		b.WriteString(fmt.Sprintf("%s\tcase int64:\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t_use = %s == \"non_nil\" || _v != 0\n", pad, modeV))
+		b.WriteString(fmt.Sprintf("%s\tcase float64:\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t_use = %s == \"non_nil\" || _v != 0\n", pad, modeV))
+		b.WriteString(fmt.Sprintf("%s\tcase bool:\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t_use = %s == \"non_nil\" || _v\n", pad, modeV))
+		b.WriteString(fmt.Sprintf("%s\tdefault:\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t_use = true\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s\tif _use {\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t\t%s = _candidate\n", pad, anyV))
+		b.WriteString(fmt.Sprintf("%s\t\t%s = true\n", pad, foundV))
+		b.WriteString(fmt.Sprintf("%s\t\tbreak\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		if outputType == "any" {
+			b.WriteString(renderFlowAssignTarget(st, pad, output, anyV, "any"))
+			return b.String(), true
+		}
+		if !st.declared[output] && !flowIsAssignableTarget(output) {
+			st.declared[output] = true
+			st.pointers[output] = false
+			st.types[output] = outputType
+			b.WriteString(fmt.Sprintf("%svar %s %s\n", pad, output, outputType))
+		}
+		b.WriteString(fmt.Sprintf("%sif %s {\n", pad, foundV))
+		b.WriteString(fmt.Sprintf("%s\t%s, _ok := %s.(%s)\n", pad, typedV, anyV, outputType))
+		b.WriteString(fmt.Sprintf("%s\tif !_ok {\n", pad))
+		b.WriteString(errReturn(st, pad+"\t\t", fmt.Sprintf("fmt.Errorf(\"value.Coalesce: result is not %s\")", outputType)))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		b.WriteString(renderFlowAssignTarget(st, pad+"\t", output, typedV, outputType))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
+
 	case "list.Filter":
 		if out, ok := renderListFilterAST(st, step, indent, arg); ok {
 			return out, true
@@ -29,9 +118,85 @@ func renderFlowStepControlCollections(st *flowRenderState, step normalizer.FlowS
 		to := arg("to")
 		item := arg("item")
 		if to == "" || item == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "list.Append", "list.Append requires to and item"), true
 		}
 		return fmt.Sprintf("%s%s = append(%s, %s)\n", pad, to, to, item), true
+
+	case "list.Find":
+		from := arg("from")
+		cond := arg("condition")
+		output := arg("output")
+		if from == "" || cond == "" || output == "" {
+			return renderInvalidFlowStepConfig(st, pad, "list.Find", "list.Find requires from, condition, and output"), true
+		}
+		as := arg("as")
+		if as == "" {
+			as = "_item"
+		}
+		found := arg("found")
+		outputType := resolveFlowDynamicOutputType(st, output, arg("into"))
+		var b strings.Builder
+		if found != "" {
+			b.WriteString(renderFlowAssignTarget(st, pad, found, "false", "bool"))
+		}
+		if outputType != "any" && !st.declared[output] && !flowIsAssignableTarget(output) {
+			st.declared[output] = true
+			st.pointers[output] = false
+			st.types[output] = outputType
+			b.WriteString(fmt.Sprintf("%svar %s %s\n", pad, output, outputType))
+		}
+		b.WriteString(fmt.Sprintf("%sfor _, %s := range %s {\n", pad, as, from))
+		b.WriteString(fmt.Sprintf("%s\tif %s {\n", pad, cond))
+		if found != "" {
+			b.WriteString(fmt.Sprintf("%s\t\t%s = true\n", pad, found))
+		}
+		b.WriteString(renderFlowAssignTarget(st, pad+"\t\t", output, as, outputType))
+		b.WriteString(fmt.Sprintf("%s\t\tbreak\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
+
+	case "list.Any":
+		from := arg("from")
+		cond := arg("condition")
+		output := arg("output")
+		if from == "" || cond == "" || output == "" {
+			return renderInvalidFlowStepConfig(st, pad, "list.Any", "list.Any requires from, condition, and output"), true
+		}
+		as := arg("as")
+		if as == "" {
+			as = "_item"
+		}
+		var b strings.Builder
+		b.WriteString(renderFlowAssignTarget(st, pad, output, "false", "bool"))
+		b.WriteString(fmt.Sprintf("%sfor _, %s := range %s {\n", pad, as, from))
+		b.WriteString(fmt.Sprintf("%s\tif %s {\n", pad, cond))
+		b.WriteString(fmt.Sprintf("%s\t\t%s = true\n", pad, output))
+		b.WriteString(fmt.Sprintf("%s\t\tbreak\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
+
+	case "list.All":
+		from := arg("from")
+		cond := arg("condition")
+		output := arg("output")
+		if from == "" || cond == "" || output == "" {
+			return renderInvalidFlowStepConfig(st, pad, "list.All", "list.All requires from, condition, and output"), true
+		}
+		as := arg("as")
+		if as == "" {
+			as = "_item"
+		}
+		var b strings.Builder
+		b.WriteString(renderFlowAssignTarget(st, pad, output, "true", "bool"))
+		b.WriteString(fmt.Sprintf("%sfor _, %s := range %s {\n", pad, as, from))
+		b.WriteString(fmt.Sprintf("%s\tif !(%s) {\n", pad, cond))
+		b.WriteString(fmt.Sprintf("%s\t\t%s = false\n", pad, output))
+		b.WriteString(fmt.Sprintf("%s\t\tbreak\n", pad))
+		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String(), true
 
 	case "list.Map":
 		return renderListMapLegacy(st, step, pad, arg), true
@@ -68,7 +233,7 @@ func renderFlowStepControlCollections(st *flowRenderState, step normalizer.FlowS
 		field := arg("field")
 		output := arg("output")
 		if input == "" || output == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "list.Sum", "list.Sum requires input and output"), true
 		}
 		assign := ":="
 		if st.declared[output] {
@@ -92,7 +257,7 @@ func renderFlowStepControlCollections(st *flowRenderState, step normalizer.FlowS
 		field := arg("field")
 		output := arg("output")
 		if input == "" || output == "" {
-			return "", true
+			return renderInvalidFlowStepConfig(st, pad, "list.Avg", "list.Avg requires input and output"), true
 		}
 		assign := ":="
 		if st.declared[output] {

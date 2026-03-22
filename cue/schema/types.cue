@@ -141,7 +141,7 @@ import "github.com/strogmv/ang/cue/project"
 // AI AGENTS: Use these definitions to understand valid flow step structures.
 // ============================================================================
 
-#FlowStep: #RepoStep | #DbStep | #UpsertStep | #CheckStep | #MapStep | #EventStep | #EventOutboxStep | #CustomStep | #ServiceCallStep | #FlowCallStep | #StateStep | #ExplicitStateStep | #MapActionStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #ListLenStep | #ListNewStep | #AuditStep | #AuthStep | #CheckRoleStep | #RBACCheckPermissionStep | #PolicyCheckStep | #PolicyEvaluateStep | #PolicyRequireStep | #PolicyDecideStep | #JWTSignStep | #JWTVerifyStep | #OAuth2TokenStep | #OAuth2RefreshStep | #EncryptStep | #DecryptStep | #HashStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #ListMapStep | #ListReduceStep | #ListGroupByStep | #ListDistinctStep | #ListChunkStep | #BatchRunStep | #EnrichStep | #TimeNowStep | #TimeParseStep | #TimeFormatStep | #TimeCheckExpiryStep | #MapBuildStep | #MapNewStep | #ExecRunStep | #ExecStreamStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #ArchiveZipDirStep | #SessionGetStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #NotifySendStep | #NotifyEmailStep | #NotifyDispatchStep | #ApprovalRequestStep | #ApprovalWaitStep | #ApprovalDecideStep | #StorageUploadStep | #StorageDownloadStep | #StorageDeleteStep | #StorageListStep | #StorageGetURLStep | #WebhookSendStep | #WebhookVerifySignatureStep | #WebhookAckStep | #QueueEnqueueStep | #QueueDequeueStep | #QueueAckStep | #QueueNackStep | #DLQPublishStep | #HTTPCallStep | #HTTPRequestStep | #HTTPRetryPolicyStep | #HTTPPaginateStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #StrConcatStep | #StrStripMarkdownStep | #CastToStringStep | #NumBinaryStep | #MathExprStep | #MathOpStep | #RegexMatchStep | #RegexReplaceStep | #Base64EncodeStep | #Base64DecodeStep | #URLParseStep | #URLBuildStep | #QueryEncodeStep | #QueryDecodeStep | #HashSumStep | #HashHMACStep | #UUIDNewStep | #ULIDNewStep | #JSONParseStep | #JSONMarshalStep | #JSONPathGetStep | #JSONPathSetStep | #ParallelStep | #PDFRenderStep | #FlowParallelStep | #FlowJoinStep | #FlowRaceStep | #FlowDelayStep | #FlowScheduleStep | #FlowCronStep | #SecretGetStep | #ConfigGetStep | #ModelResolveStep | #StreamEmitStep | #EventWaitStep | #EventSubscribeStep | #EventMatchStep | #FlowSagaStep | #FlowCompensateStep | #FlowRollbackStep | #FlowDeferStep | #FlowTagStep | #FlowCheckpointStep | #FlowResumeStep | #FlowRecordEventStep | #FlowReplayStep | #FlowHistoryGetStep | #FlowValidateStep | #FlowTryStep | #FlowCatchStep | #FlowRetryStep | #FlowFallbackStep | #FlowTimeoutStep | #FlowSuggestNextStep | #FlowExplainErrorStep | #IdemDeriveKeyStep | #IdemCheckStep | #IdemSaveResultStep | #IdempotencyDeriveKeyStep | #IdempotencyCheckStep | #IdempotencySaveResultStep | #DedupeOnceStep | #RateLimitCheckStep | #RateLimitLimitStep | #QuotaCheckStep | #BudgetCheckStep | #BudgetConsumeStep | #ContextTrimStep | #ProfileRequireStep | #ConcurrencyLimitStep | #ConcurrencyRunStep | #CircuitCheckStep | #CircuitRecordSuccessStep | #CircuitRecordFailureStep | #CircuitBreakerStep | #BulkheadAcquireStep | #BulkheadRunStep | #LogEmitStep | #MetricEmitStep | #TraceSpanStep | #SLOBudgetStep | #ListSumStep | #ListAvgStep | #FlowReturnStep | #ConvertToFloatStep | #ConvertToIntStep | #ClaudeChatStep | #OpenAIChatStep | #OpenAIStreamStep | #PlanBuildAutomataStep | #PlanBuildMicroPlanStep | #CueEmitProjectStep | #CueValidateProjectStep | #CueWriteProjectFilesStep
+#FlowStep: #RepoStep | #RepoExistsStep | #RepoCountStep | #DbStep | #UpsertStep | #CheckStep | #MapStep | #ValueCoalesceStep | #ErrorNewStep | #ErrorThrowIfStep | #ErrorWrapStep | #ErrorMapStep | #EventStep | #EventEmitIfStep | #EventOutboxStep | #CustomStep | #ServiceCallStep | #FlowCallStep | #StateStep | #ExplicitStateStep | #MapActionStep | #MapGetStep | #MapHasStep | #MapSetStep | #MapMergeStep | #IfStep | #SwitchStep | #ForStep | #WhileStep | #BlockStep | #ListStep | #ListLenStep | #ListNewStep | #ListFindStep | #ListAnyStep | #ListAllStep | #AuditStep | #AuthStep | #CheckRoleStep | #RBACCheckPermissionStep | #PolicyCheckStep | #PolicyEvaluateStep | #PolicyRequireStep | #PolicyDecideStep | #JWTSignStep | #JWTVerifyStep | #TokenGenerateStep | #TokenVerifyStep | #OAuth2TokenStep | #OAuth2RefreshStep | #EncryptStep | #DecryptStep | #HashStep | #PatchStep | #PatchValidatedStep | #CopyNonEmptyStep | #PaginateStep | #NormalizeStep | #EnumValidateStep | #SortStep | #FilterStep | #ListMapStep | #ListReduceStep | #ListGroupByStep | #ListDistinctStep | #ListChunkStep | #BatchRunStep | #EnrichStep | #TimeNowStep | #TimeParseStep | #TimeFormatStep | #TimeAddStep | #TimeSubStep | #TimeDiffStep | #TimeCheckExpiryStep | #MapBuildStep | #MapNewStep | #ExecRunStep | #ExecStreamStep | #FSTempDirStep | #FSWriteFileStep | #FSReadFileStep | #FSRemoveStep | #ArchiveZipDirStep | #SessionGetStep | #CacheGetStep | #CacheSetStep | #CacheDelStep | #MailSendStep | #NotifySendStep | #NotifyEmailStep | #NotifyDispatchStep | #ApprovalRequestStep | #ApprovalWaitStep | #ApprovalDecideStep | #StorageUploadStep | #StorageDownloadStep | #StorageDeleteStep | #StorageListStep | #StorageGetURLStep | #WebhookSendStep | #WebhookVerifySignatureStep | #WebhookAckStep | #QueueEnqueueStep | #QueueDequeueStep | #QueueAckStep | #QueueNackStep | #DLQPublishStep | #HTTPCallStep | #HTTPRequestStep | #HTTPRetryPolicyStep | #HTTPPaginateStep | #RandCodeStep | #RandTokenStep | #StrFormatStep | #StrConcatStep | #TemplateRenderStep | #StrStripMarkdownStep | #CastToStringStep | #NumBinaryStep | #MathExprStep | #MathOpStep | #RegexMatchStep | #RegexReplaceStep | #Base64EncodeStep | #Base64DecodeStep | #URLParseStep | #URLBuildStep | #QueryEncodeStep | #QueryDecodeStep | #HashSumStep | #HashHMACStep | #UUIDNewStep | #ULIDNewStep | #JSONParseStep | #JSONStringifyStep | #JSONMarshalStep | #JSONPathGetStep | #JSONPathSetStep | #ParallelStep | #PDFRenderStep | #FlowParallelStep | #FlowJoinStep | #FlowRaceStep | #FlowDelayStep | #FlowScheduleStep | #FlowCronStep | #SecretGetStep | #ConfigGetStep | #ModelResolveStep | #StreamEmitStep | #EventWaitStep | #EventSubscribeStep | #EventMatchStep | #FlowSagaStep | #FlowCompensateStep | #FlowRollbackStep | #FlowDeferStep | #FlowTagStep | #FlowCheckpointStep | #FlowResumeStep | #FlowRecordEventStep | #FlowReplayStep | #FlowHistoryGetStep | #FlowValidateStep | #FlowTryStep | #FlowCatchStep | #FlowRetryStep | #FlowFallbackStep | #FlowTimeoutStep | #FlowSuggestNextStep | #FlowExplainErrorStep | #IdemDeriveKeyStep | #IdemCheckStep | #IdemSaveResultStep | #IdempotencyDeriveKeyStep | #IdempotencyCheckStep | #IdempotencySaveResultStep | #DedupeOnceStep | #RateLimitCheckStep | #RateLimitLimitStep | #QuotaCheckStep | #BudgetCheckStep | #BudgetConsumeStep | #ContextTrimStep | #ProfileRequireStep | #ConcurrencyLimitStep | #ConcurrencyRunStep | #MutexWithStep | #CircuitCheckStep | #CircuitRecordSuccessStep | #CircuitRecordFailureStep | #CircuitBreakerStep | #BulkheadAcquireStep | #BulkheadRunStep | #LogEmitStep | #MetricEmitStep | #TraceSpanStep | #SLOBudgetStep | #ListSumStep | #ListAvgStep | #FlowReturnStep | #ConvertToFloatStep | #ConvertToIntStep | #ClaudeChatStep | #OpenAIChatStep | #OpenAIEmbedStep | #OpenAIStreamStep | #PlanBuildAutomataStep | #PlanBuildMicroPlanStep | #CueEmitProjectStep | #CueValidateProjectStep | #CueWriteProjectFilesStep
 
 #FlowCheckpointStep: {
 	// flow.Checkpoint - Save current flow state for potential resumption
@@ -159,6 +159,8 @@ import "github.com/strogmv/ang/cue/project"
 	name: string
 	// Variable name to store restored data
 	output: string
+	// Optional Go type for restored payload (e.g. "map[string]any", "port.EventPayload")
+	into?: string
 	// Steps to execute if checkpoint is missing
 	onMissing?: [...#FlowStep]
 }
@@ -368,6 +370,32 @@ import "github.com/strogmv/ang/cue/project"
 	cap?:   int | string
 }
 
+#ListFindStep: {
+	action: "list.Find"
+	from:   string
+	as?:    string
+	condition: string
+	output: string
+	into?:  string
+	found?: string
+}
+
+#ListAnyStep: {
+	action: "list.Any"
+	from:   string
+	as?:    string
+	condition: string
+	output: string
+}
+
+#ListAllStep: {
+	action: "list.All"
+	from:   string
+	as?:    string
+	condition: string
+	output: string
+}
+
 // ----------------------------------------------------------------------------
 // AUDIT LOGGING
 // ----------------------------------------------------------------------------
@@ -525,6 +553,26 @@ import "github.com/strogmv/ang/cue/project"
 	secret?: string
 	// Output claims variable (map[string]any)
 	output: string
+}
+
+#TokenGenerateStep: {
+	// token.Generate - Sign a compact app token with subject, purpose, and optional claims
+	action: "token.Generate"
+	subject: string
+	output:  string
+	purpose?: string
+	claims?:  string
+	secret?:  string
+	ttl?:     string
+}
+
+#TokenVerifyStep: {
+	// token.Verify - Verify token signature, expiry, and optional purpose
+	action: "token.Verify"
+	token: string
+	output: string
+	purpose?: string
+	secret?:  string
 }
 
 #OAuth2TokenStep: {
@@ -700,6 +748,22 @@ import "github.com/strogmv/ang/cue/project"
 	method?: string
 }
 
+#RepoExistsStep: {
+	action: "repo.Exists"
+	source: string
+	input:  string
+	output: string
+	method?: string
+}
+
+#RepoCountStep: {
+	action: "repo.Count"
+	source: string
+	output: string
+	input?: string
+	method: string
+}
+
 #DbStep: {
 	// db.* - Explicit Database Primitives
 	action: "db.Get" | "db.List" | "db.Query" | "db.Insert" | "db.Update" | "db.Upsert" | "db.Delete" | "db.Lock" | "db.SelectForUpdate"
@@ -746,6 +810,8 @@ import "github.com/strogmv/ang/cue/project"
 	action: "flow.Switch"
 	// Go expression yielding branch selector value (e.g., "req.Role", "tender.Status")
 	value: string
+	// Matching mode for branch keys.
+	match?: "exact" | "prefix" | "suffix" | "contains" | "glob" | *"exact"
 	// Branches keyed by selector literal values (e.g., owner, admin, draft)
 	cases: [string]: [...#FlowStep]
 	// Optional fallback branch
@@ -829,6 +895,49 @@ import "github.com/strogmv/ang/cue/project"
 	generated?: string | bool
 }
 
+#ValueCoalesceStep: {
+	action: "value.Coalesce"
+	values: [...string]
+	output: string
+	mode?: "non_empty" | "non_nil" | "non_zero" | *"non_empty"
+	into?: string
+}
+
+#ErrorNewStep: {
+	action: "errors.New"
+	message: string
+	status?: int | string
+	code?:   string
+	output?: string
+	throw?:  bool | *false
+}
+
+#ErrorThrowIfStep: {
+	action: "errors.ThrowIf"
+	condition: string
+	throw:     string
+	status?:   int | string
+	code?:     string
+}
+
+#ErrorWrapStep: {
+	action: "errors.Wrap"
+	err:     string
+	message: string
+	output?: string
+}
+
+#ErrorMapStep: {
+	action: "errors.Map"
+	input:  string
+	cases:  [string]: [string]: string
+	mode?:  "contains" | "equals" | *"contains"
+	output?: string
+	defaultMessage?: string
+	defaultCode?:    string
+	defaultStatus?:  string
+}
+
 #MapActionStep: {
 	action: "mapping.Map"
 	// Source variable to map from
@@ -868,6 +977,14 @@ import "github.com/strogmv/ang/cue/project"
 	kind?: string
 }
 
+#EventEmitIfStep: {
+	action: "event.EmitIf"
+	condition: string
+	name:      string
+	payload?:  string
+	payloadMap?: [string]: string
+}
+
 #EventOutboxStep: {
 	// event.Outbox - Persist event to outbox table in current tx for reliable delivery
 	action: "event.Outbox"
@@ -890,6 +1007,8 @@ import "github.com/strogmv/ang/cue/project"
 	match?: string
 	// Variable name to store received event payload
 	output?: string
+	// Optional Go type for received payload (e.g. "map[string]any", "domain.OrderCreated")
+	into?: string
 }
 
 #EventSubscribeStep: {
@@ -929,6 +1048,10 @@ import "github.com/strogmv/ang/cue/project"
 	args?: string | [...string]
 	// Variable to store result (if function returns value)
 	output?: string
+	// Ignore returned error explicitly. Use only for deliberate fire-and-forget behavior.
+	ignoreErr?: bool
+	// Optional reason documenting why ignoring the error is acceptable here.
+	ignoreErrReason?: string
 }
 
 #ServiceCallStep: {
@@ -943,8 +1066,10 @@ import "github.com/strogmv/ang/cue/project"
 	args?: string | [...string]
 	// Variable to store result
 	output?: string
-	// Ignore returned error (fire-and-forget style)
+	// Ignore returned error explicitly. Use only for deliberate fire-and-forget behavior.
 	ignoreErr?: bool
+	// Optional reason documenting why ignoring the error is acceptable here.
+	ignoreErrReason?: string
 }
 
 #FlowCallStep: {
@@ -957,8 +1082,10 @@ import "github.com/strogmv/ang/cue/project"
 	args?: [string]: string
 	// Variable to store port.<Method>Response result
 	output?: string
-	// Ignore returned error
+	// Ignore returned error explicitly. Use only for deliberate fire-and-forget behavior.
 	ignoreErr?: bool
+	// Optional reason documenting why ignoring the error is acceptable here.
+	ignoreErrReason?: string
 }
 
 // ----------------------------------------------------------------------------
@@ -1174,6 +1301,28 @@ import "github.com/strogmv/ang/cue/project"
 	format?: string
 }
 
+#TimeAddStep: {
+	action: "time.Add"
+	input:  string
+	duration: string
+	output: string
+}
+
+#TimeSubStep: {
+	action: "time.Sub"
+	a:      string
+	b:      string
+	output: string
+}
+
+#TimeDiffStep: {
+	action: "time.Diff"
+	from:   string
+	to:     string
+	output: string
+	unit?:  "duration" | "seconds" | "minutes" | "hours" | "days" | "milliseconds" | *"duration"
+}
+
 // ----------------------------------------------------------------------------
 // EXPIRY CHECK
 // ----------------------------------------------------------------------------
@@ -1213,6 +1362,38 @@ import "github.com/strogmv/ang/cue/project"
 	action: "map.New"
 	output: string
 	type:   string
+}
+
+#MapGetStep: {
+	action: "map.Get"
+	input:  string
+	key:    string
+	output: string
+	into?:  string
+	default?: string
+	found?: string
+}
+
+#MapHasStep: {
+	action: "map.Has"
+	input:  string
+	key:    string
+	output: string
+}
+
+#MapSetStep: {
+	action: "map.Set"
+	input:  string
+	key:    string
+	value:  string
+	output?: string
+}
+
+#MapMergeStep: {
+	action: "map.Merge"
+	left:   string
+	right:  string
+	output: string
 }
 
 // --- HTTP & INFRA ---
@@ -1818,6 +1999,7 @@ import "github.com/strogmv/ang/cue/project"
 	action: "url.Build"
 	base:   string
 	path?:  string
+	segments?: [...string]
 	query?: [string]: string
 	output: string
 }
@@ -1877,12 +2059,25 @@ import "github.com/strogmv/ang/cue/project"
 	output: string
 }
 
+#JSONStringifyStep: {
+	action: "json.Stringify"
+	input:  string
+	output: string
+}
+
 #JSONMarshalStep: {
 	action: "json.Marshal"
 	// Value expression to marshal
 	input: string
 	// Variable name for result JSON string
 	output: string
+}
+
+#TemplateRenderStep: {
+	action: "template.Render"
+	template: string
+	data:     string
+	output:   string
 }
 
 #JSONPathGetStep: {
@@ -2276,6 +2471,16 @@ import "github.com/strogmv/ang/cue/project"
 	do: [...#FlowStep]
 }
 
+#MutexWithStep: {
+	// mutex.With - Acquire a process-local mutex by key and run child steps.
+	action: "mutex.With"
+	key: string
+	throw?: string
+	wait?: string
+	poll?: string
+	do: [...#FlowStep]
+}
+
 #CircuitBreakerStep: {
 	// circuit.Breaker - Open-check gate plus success/failure recording around child steps.
 	action: "circuit.Breaker"
@@ -2417,6 +2622,15 @@ import "github.com/strogmv/ang/cue/project"
 	response_json_strict?: bool
 	// Optional variable receiving parsed final JSON as map[string]any.
 	output_json?: string
+}
+
+#OpenAIEmbedStep: {
+	action: "openai.Embed"
+	input:  string
+	output: string
+	model?: string
+	dimensions?: int
+	output_usage?: string
 }
 
 #OpenAIStreamStep: {

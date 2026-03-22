@@ -877,21 +877,6 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		}
 	}
 
-	// Per-entity store files: stores/<entityname>.ts
-	entityHasID := funcMap["EntityHasID"].(func(normalizer.Entity) bool)
-	for _, ent := range ctx.Entities {
-		if !entityHasID(ent) {
-			continue
-		}
-		entCtx := struct {
-			Entity normalizer.Entity
-		}{Entity: ent}
-		outName := "stores/" + strings.ToLower(ent.Name) + ".ts"
-		if err := e.emitFrontendTemplate("templates/frontend/store-item.ts.tmpl", entCtx, funcMap, outName); err != nil {
-			return err
-		}
-	}
-
 	if err := e.EmitSDKManifest(endpointsNorm, queryResources); err != nil {
 		return err
 	}
