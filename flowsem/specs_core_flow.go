@@ -23,12 +23,21 @@ var specsCoreFlow = map[string]Spec{
 	},
 	"flow.Switch": {
 		RequiredArgs: []string{"value"},
+		OptionalArgKinds: map[string]ArgKind{
+			"match": ArgKindString,
+		},
 		CustomConstraints: func(step Step) *Issue {
 			if len(step.Children["_cases"]) == 0 {
 				return &Issue{
 					Code:    "MISSING_CASES",
 					Message: "flow.Switch requires at least one case",
 					Hint:    "{action: \"flow.Switch\", value: \"req.Role\", cases: {owner: [ ... ]}}",
+				}
+			}
+			if raw, ok := nonEmptyString(step.Args["match"]); ok {
+				mode, isStatic := staticWordLiteral(raw)
+				if isStatic && mode != "exact" && mode != "prefix" && mode != "suffix" && mode != "contains" && mode != "glob" {
+					return &Issue{Code: "INVALID_MATCH", Message: "flow.Switch match must be exact, prefix, suffix, contains, or glob", Hint: "{action: \"flow.Switch\", value: \"req.Kind\", match: \"glob\", cases: {\"post.*\": [ ... ]}}"}
 				}
 			}
 			return nil
@@ -175,6 +184,29 @@ var specsCoreFlow = map[string]Spec{
 	},
 	"list.Append": {
 		RequiredArgs: []string{"to", "item"},
+	},
+	"list.Find": {
+		RequiredArgs:     []string{"from", "condition", "output"},
+		DeclaresFromArgs: []string{"output", "found"},
+		OptionalArgKinds: map[string]ArgKind{
+			"as":    ArgKindString,
+			"into":  ArgKindString,
+			"found": ArgKindString,
+		},
+	},
+	"list.Any": {
+		RequiredArgs:     []string{"from", "condition", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"as": ArgKindString,
+		},
+	},
+	"list.All": {
+		RequiredArgs:     []string{"from", "condition", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"as": ArgKindString,
+		},
 	},
 	"list.Map": {
 		RequiredArgs:     []string{"from", "expr", "output"},
@@ -368,6 +400,21 @@ var specsCoreFlow = map[string]Spec{
 		DeclaresFromArgs: []string{"output"},
 		OptionalArgKinds: map[string]ArgKind{
 			"format": ArgKindString,
+		},
+	},
+	"time.Add": {
+		RequiredArgs:     []string{"input", "duration", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"time.Sub": {
+		RequiredArgs:     []string{"a", "b", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"time.Diff": {
+		RequiredArgs:     []string{"from", "to", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"unit": ArgKindString,
 		},
 	},
 	"map.Build": {

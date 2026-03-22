@@ -49,6 +49,20 @@ var specsCoreBase = map[string]Spec{
 		},
 		DeclaresFromArgs: []string{"output"},
 	},
+	"repo.Exists": {
+		RequiredArgs:     []string{"source", "input", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"method": ArgKindString,
+		},
+	},
+	"repo.Count": {
+		RequiredArgs:     []string{"source", "method", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"input": ArgKindString,
+		},
+	},
 	"repo.Save": {
 		RequiredArgs: []string{"source", "input"},
 	},
@@ -59,6 +73,51 @@ var specsCoreBase = map[string]Spec{
 		RequiredArgs: []string{"condition", "throw"},
 		CustomConstraints: func(step Step) *Issue {
 			return validateGoExprArg(step, "condition")
+		},
+	},
+	"errors.New": {
+		RequiredArgs: []string{"message"},
+		OptionalArgKinds: map[string]ArgKind{
+			"status": ArgKindString,
+			"code":   ArgKindString,
+			"output": ArgKindString,
+			"throw":  ArgKindBool,
+		},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"errors.ThrowIf": {
+		RequiredArgs: []string{"condition", "throw"},
+		OptionalArgKinds: map[string]ArgKind{
+			"status": ArgKindString,
+			"code":   ArgKindString,
+		},
+		CustomConstraints: func(step Step) *Issue {
+			return validateGoExprArg(step, "condition")
+		},
+	},
+	"errors.Wrap": {
+		RequiredArgs: []string{"err", "message"},
+		OptionalArgKinds: map[string]ArgKind{
+			"output": ArgKindString,
+		},
+		DeclaresFromArgs: []string{"output"},
+		CustomConstraints: func(step Step) *Issue {
+			return validateGoExprArg(step, "err")
+		},
+	},
+	"errors.Map": {
+		RequiredArgs: []string{"input", "cases"},
+		OptionalArgKinds: map[string]ArgKind{
+			"output":         ArgKindString,
+			"mode":           ArgKindString,
+			"cases":          ArgKindFieldsRuleMap,
+			"defaultMessage": ArgKindString,
+			"defaultCode":    ArgKindString,
+			"defaultStatus":  ArgKindString,
+		},
+		DeclaresFromArgs: []string{"output"},
+		CustomConstraints: func(step Step) *Issue {
+			return validateGoExprArg(step, "input")
 		},
 	},
 	"logic.Call": {
@@ -81,6 +140,39 @@ var specsCoreBase = map[string]Spec{
 			}
 			return validateMappingAssignValue(step)
 		},
+	},
+	"value.Coalesce": {
+		RequiredArgs:     []string{"values", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"values": ArgKindStringOrStringArr,
+			"mode":   ArgKindString,
+			"into":   ArgKindString,
+		},
+	},
+	"map.Get": {
+		RequiredArgs:     []string{"input", "key", "output"},
+		DeclaresFromArgs: []string{"output", "found"},
+		OptionalArgKinds: map[string]ArgKind{
+			"into":    ArgKindString,
+			"default": ArgKindString,
+			"found":   ArgKindString,
+		},
+	},
+	"map.Has": {
+		RequiredArgs:     []string{"input", "key", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"map.Set": {
+		RequiredArgs: []string{"input", "key", "value"},
+		OptionalArgKinds: map[string]ArgKind{
+			"output": ArgKindString,
+		},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"map.Merge": {
+		RequiredArgs:     []string{"left", "right", "output"},
+		DeclaresFromArgs: []string{"output"},
 	},
 	"mapping.Map": {
 		OptionalArgKinds: map[string]ArgKind{
@@ -757,6 +849,15 @@ var specsCoreBase = map[string]Spec{
 		},
 	},
 	// Circuit breaker & Bulkhead
+	"mutex.With": {
+		RequiredArgs:     []string{"key"},
+		RequiredChildren: []string{"_do"},
+		OptionalArgKinds: map[string]ArgKind{
+			"throw": ArgKindString,
+			"wait":  ArgKindString,
+			"poll":  ArgKindString,
+		},
+	},
 	"circuit.Check": {
 		RequiredArgs: []string{"name"},
 		OptionalArgKinds: map[string]ArgKind{
@@ -837,6 +938,15 @@ var specsCoreBase = map[string]Spec{
 			"output":         ArgKindString,
 			"model":          ArgKindString,
 			"max_tokens":     ArgKindInt,
+		},
+	},
+	"openai.Embed": {
+		RequiredArgs:     []string{"input", "output"},
+		DeclaresFromArgs: []string{"output", "output_usage"},
+		OptionalArgKinds: map[string]ArgKind{
+			"model":        ArgKindString,
+			"dimensions":   ArgKindInt,
+			"output_usage": ArgKindString,
 		},
 	},
 	"log.Emit": {

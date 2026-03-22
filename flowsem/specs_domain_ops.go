@@ -9,6 +9,15 @@ var specsDomainOps = map[string]Spec{
 	"fsm.Transition": {
 		RequiredArgs: []string{"entity", "to"},
 	},
+	"event.EmitIf": {
+		RequiredArgs: []string{"condition", "name"},
+		OptionalArgKinds: map[string]ArgKind{
+			"payload": ArgKindString,
+		},
+		CustomConstraints: func(step Step) *Issue {
+			return validateGoExprArg(step, "condition")
+		},
+	},
 	"auth.RequireRole": {
 		RequiredArgs: []string{"userID", "companyID", "roles"},
 	},

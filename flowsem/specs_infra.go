@@ -120,6 +120,24 @@ var specsInfra = map[string]Spec{
 		RequiredArgs:     []string{"output"},
 		DeclaresFromArgs: []string{"output"},
 	},
+	"token.Generate": {
+		RequiredArgs:     []string{"subject", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"purpose": ArgKindString,
+			"claims":  ArgKindString,
+			"secret":  ArgKindString,
+			"ttl":     ArgKindString,
+		},
+	},
+	"token.Verify": {
+		RequiredArgs:     []string{"token", "output"},
+		DeclaresFromArgs: []string{"output"},
+		OptionalArgKinds: map[string]ArgKind{
+			"purpose": ArgKindString,
+			"secret":  ArgKindString,
+		},
+	},
 	"str.Format": {
 		RequiredArgs:     []string{"template", "output"},
 		DeclaresFromArgs: []string{"output"},
@@ -172,6 +190,14 @@ var specsInfra = map[string]Spec{
 		RequiredArgs:     []string{"input", "output"},
 		DeclaresFromArgs: []string{"output"},
 	},
+	"json.Stringify": {
+		RequiredArgs:     []string{"input", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"template.Render": {
+		RequiredArgs:     []string{"template", "data", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
 	"regex.Match": {
 		RequiredArgs:     []string{"input", "pattern", "output"},
 		DeclaresFromArgs: []string{"output"},
@@ -196,8 +222,9 @@ var specsInfra = map[string]Spec{
 		RequiredArgs:     []string{"base", "output"},
 		DeclaresFromArgs: []string{"output"},
 		OptionalArgKinds: map[string]ArgKind{
-			"path":  ArgKindString,
-			"query": ArgKindStringMap,
+			"path":     ArgKindString,
+			"segments": ArgKindStringList,
+			"query":    ArgKindStringMap,
 		},
 	},
 	"query.Encode": {
