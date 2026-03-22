@@ -653,3 +653,36 @@ var specsInfra = map[string]Spec{
 		},
 	},
 }
+
+// specsOAuthGoogle is merged into specsInfra at init time.
+func init() {
+	for k, v := range map[string]Spec{
+		// oauth.Google.GetURL — builds the Google authorization URL.
+		// output: string
+		"oauth.Google.GetURL": {
+			RequiredArgs:     []string{"clientID", "redirectURL", "output"},
+			DeclaresFromArgs: []string{"output"},
+			OptionalArgKinds: map[string]ArgKind{
+				"state":  ArgKindString, // defaults to ""
+				"scopes": ArgKindString, // space-separated; default "openid email profile"
+			},
+		},
+		// oauth.Google.Exchange — exchanges authorization code for *oauth2.Token.
+		// output variable holds AccessToken, RefreshToken, Expiry, etc.
+		"oauth.Google.Exchange": {
+			RequiredArgs:     []string{"clientID", "clientSecret", "redirectURL", "code", "output"},
+			DeclaresFromArgs: []string{"output"},
+			OptionalArgKinds: map[string]ArgKind{
+				"scopes": ArgKindString,
+			},
+		},
+		// oauth.Google.UserInfo — fetches Google profile using an *oauth2.Token.
+		// output: struct{Sub,Email,Name,GivenName,FamilyName,Picture string; EmailVerified bool}
+		"oauth.Google.UserInfo": {
+			RequiredArgs:     []string{"token", "output"},
+			DeclaresFromArgs: []string{"output"},
+		},
+	} {
+		specsInfra[k] = v
+	}
+}
