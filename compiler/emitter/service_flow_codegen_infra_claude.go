@@ -23,6 +23,8 @@ func renderFlowStepInfraClaude(st *flowRenderState, step normalizer.FlowStep, in
 			model = `"claude-sonnet-4-6"`
 		}
 		maxTokens := flowIntArg(step.Args, "max_tokens", 4096)
+		localeExpr := arg("locale")
+		timezoneExpr := arg("timezone")
 		if output == "" {
 			output = "claudeReply"
 		}
@@ -35,6 +37,21 @@ func renderFlowStepInfraClaude(st *flowRenderState, step normalizer.FlowStep, in
 			systemExpr = systemContext
 		} else {
 			systemExpr = `""`
+		}
+		if localeExpr != "" || timezoneExpr != "" {
+			var parts []string
+			if localeExpr != "" {
+				parts = append(parts, fmt.Sprintf(`"locale=" + fmt.Sprint(%s)`, localeExpr))
+			}
+			if timezoneExpr != "" {
+				parts = append(parts, fmt.Sprintf(`"timezone=" + fmt.Sprint(%s)`, timezoneExpr))
+			}
+			localePrefix := fmt.Sprintf(`"[" + %s + "]\n"`, strings.Join(parts, ` + ", " + `))
+			if systemExpr == `""` {
+				systemExpr = localePrefix
+			} else {
+				systemExpr = localePrefix + ` + ` + systemExpr
+			}
 		}
 		if userMessage == "" {
 			return renderInvalidFlowStepConfig(st, pad, "claude.Chat", "claude.Chat requires user_message"), true

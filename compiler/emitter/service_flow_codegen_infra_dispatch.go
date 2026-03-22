@@ -48,5 +48,8 @@ func renderFlowStepInfra(st *flowRenderState, step normalizer.FlowStep, indent i
 	if out, ok := renderFlowStepOAuthGoogle(st, step, indent, sfx, arg, child); ok {
 		return out
 	}
+	if out, ok := renderFlowStepLocale(st, step, indent, sfx, arg, child); ok {
+		return out
+	}
 	return renderFlowStepInfraLegacy(st, step, indent, sfx, arg, child)
 }

@@ -94,6 +94,7 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 		subjectExpr := arg("subject")
 		htmlExpr := arg("html")
 		dataExpr := arg("data")
+		localeExpr := arg("locale")
 		output := arg("output")
 		if to == "" {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, step.Action+" requires to"), true
@@ -145,6 +146,9 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 		}
 		if dataExpr != "" {
 			b.WriteString(fmt.Sprintf(", Payload: %s", dataExpr))
+		}
+		if localeExpr != "" {
+			b.WriteString(fmt.Sprintf(", Locale: fmt.Sprint(%s)", localeExpr))
 		}
 		b.WriteString("}\n")
 		b.WriteString(fmt.Sprintf("%s\tif s.dispatcher == nil {\n", pad))

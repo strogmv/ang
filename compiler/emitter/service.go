@@ -466,7 +466,7 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 						importMap["bytes"] = ""
 						importMap["io"] = ""
 						importMap["path/filepath"] = ""
-					case "session.Get":
+					case "session.Get", "locale.Resolve":
 						importMap[e.GoModule+"/internal/pkg/reqctx"] = ""
 					case "claude.Chat":
 						importMap["bytes"] = ""

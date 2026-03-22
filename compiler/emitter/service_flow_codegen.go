@@ -135,7 +135,8 @@ func flowActionSupported(action string) bool {
 		"claude.Chat",
 		"openai.Embed",
 		"plan.BuildAutomata", "plan.BuildMicroPlan", "cue.EmitProject", "cue.ValidateProject", "cue.WriteProjectFiles",
-		"openai.Chat", "openai.Stream", "stream.Emit":
+		"openai.Chat", "openai.Stream", "stream.Emit",
+		"locale.Resolve":
 		return true
 	default:
 		return false
@@ -616,7 +617,8 @@ func renderOneFlowStep(st *flowRenderState, step normalizer.FlowStep, indent int
 		"circuit.Check", "circuit.RecordSuccess", "circuit.RecordFailure", "circuit.Breaker",
 		"bulkhead.Acquire", "bulkhead.Run",
 		"log.Emit", "metric.Emit", "trace.Span", "slo.Budget",
-		"claude.Chat", "openai.Chat", "openai.Embed", "openai.Stream":
+		"claude.Chat", "openai.Chat", "openai.Embed", "openai.Stream",
+		"locale.Resolve":
 		return renderFlowStepInfra(st, step, indent, sfx, arg, child)
 
 	default:

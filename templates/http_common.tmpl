@@ -44,6 +44,8 @@ type authContext struct {
 	Roles     []string
 	Perms     []string
 	Scopes    []string
+	Locale    string
+	Timezone  string
 }
 
 var (
@@ -54,7 +56,9 @@ var (
 	authCompanyClaim = "cid"
 	authRolesClaim   = "roles"
 	authPermsClaim   = "perms"
-	authScopesClaim  = "scopes"
+	authScopesClaim    = "scopes"
+	authLocaleClaim    = "locale"
+	authTimezoneClaim  = "timezone"
 
 	authRSAPublicKey    *rsa.PublicKey
 	authECDSAPublicKey  *ecdsa.PublicKey
@@ -192,6 +196,8 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			Perms:     getStringSliceClaim(claims, authPermsClaim),
 			Scopes:    getStringSliceClaim(claims, authScopesClaim),
 		}
+		ac.Locale   = getStringClaim(claims, authLocaleClaim)
+		ac.Timezone = getStringClaim(claims, authTimezoneClaim)
 		if verifiedUserChecker != nil {
 			ok, err := verifiedUserChecker(r.Context(), ac.UserID)
 			if err != nil {
@@ -203,7 +209,22 @@ func AuthMiddleware(next http.Handler) http.Handler {
 				return
 			}
 		}
-		ctx := context.WithValue(r.Context(), authContextKey{}, ac)
+		localeToSet := ac.Locale
+		if localeToSet == "" {
+			if al := r.Header.Get("Accept-Language"); al != "" {
+				// Take the first language tag before comma or semicolon
+				localeToSet = strings.SplitN(strings.SplitN(al, ",", 2)[0], ";", 2)[0]
+				localeToSet = strings.TrimSpace(localeToSet)
+			}
+		}
+		rCtx := r.Context()
+		if localeToSet != "" {
+			rCtx = reqctx.WithLocale(rCtx, localeToSet)
+		}
+		if ac.Timezone != "" {
+			rCtx = reqctx.WithTimezone(rCtx, ac.Timezone)
+		}
+		ctx := context.WithValue(rCtx, authContextKey{}, ac)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -249,6 +270,20 @@ func CurrentRole(r *http.Request) string {
 		return roles[0]
 	}
 	return ""
+}
+
+func CurrentLocale(r *http.Request) string {
+	if ac, ok := r.Context().Value(authContextKey{}).(authContext); ok && ac.Locale != "" {
+		return ac.Locale
+	}
+	return reqctx.Locale(r.Context())
+}
+
+func CurrentTimezone(r *http.Request) string {
+	if ac, ok := r.Context().Value(authContextKey{}).(authContext); ok && ac.Timezone != "" {
+		return ac.Timezone
+	}
+	return reqctx.Timezone(r.Context())
 }
 
 func RequirePermission(perm string) func(http.Handler) http.Handler {
