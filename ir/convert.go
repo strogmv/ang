@@ -187,6 +187,15 @@ func ConvertEntity(e normalizer.Entity) Entity {
 		}
 	}
 
+	if e.GDPRPolicy != nil {
+		entity.GDPRPolicy = &GDPRPolicy{
+			Erasable:   e.GDPRPolicy.Erasable,
+			Exportable: e.GDPRPolicy.Exportable,
+			Retention:  e.GDPRPolicy.Retention,
+			OwnerField: e.GDPRPolicy.OwnerField,
+		}
+	}
+
 	for _, idx := range e.Indexes {
 		entity.Indexes = append(entity.Indexes, Index{
 			Fields: idx.Fields,

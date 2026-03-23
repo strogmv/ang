@@ -1,5 +1,18 @@
 package normalizer
 
+// GDPRPolicy describes per-entity GDPR compliance requirements.
+// Set via @gdpr(erasable=true, exportable=true, retention="2y", owner_field="userId") on an entity.
+type GDPRPolicy struct {
+	// Erasable: generate ErasePersonalData(ctx, ownerID) that NULLs/anonymizes PII fields.
+	Erasable bool
+	// Exportable: generate ExportPersonalData(ctx, ownerID) that returns all rows as JSON.
+	Exportable bool
+	// Retention: Go duration string (e.g. "3y", "90d"). Generate PurgeExpired(ctx, cutoff).
+	Retention string
+	// OwnerField: field name pointing to the data subject's ID (default: "userId").
+	OwnerField string
+}
+
 // Entity представляет доменную сущность.
 type Entity struct {
 	Name           string
@@ -11,11 +24,12 @@ type Entity struct {
 	ReadModel      *ReadModelDef
 	Fields         []Field
 
-	FSM      *FSM
-	Indexes  []IndexDef
-	UI       *EntityUIDef
-	Metadata map[string]any // Универсальное хранилище для плагинов
-	Source   string
+	FSM        *FSM
+	Indexes    []IndexDef
+	UI         *EntityUIDef
+	GDPRPolicy *GDPRPolicy    // Non-nil when entity has @gdpr annotation
+	Metadata   map[string]any // Универсальное хранилище для плагинов
+	Source     string
 }
 
 // ReadModelDef describes ACL read-model contract for cross-context analytics.

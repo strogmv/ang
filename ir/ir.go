@@ -141,6 +141,14 @@ type Target struct {
 }
 
 // Entity represents a domain entity (aggregate, value object, etc.)
+// GDPRPolicy mirrors normalizer.GDPRPolicy for the IR layer.
+type GDPRPolicy struct {
+	Erasable   bool   `json:"erasable"`
+	Exportable bool   `json:"exportable"`
+	Retention  string `json:"retention,omitempty"`
+	OwnerField string `json:"owner_field,omitempty"`
+}
+
 type Entity struct {
 	Name           string         `json:"name"`
 	Description    string         `json:"description"`
@@ -153,6 +161,7 @@ type Entity struct {
 	FSM            *FSM           `json:"fsm,omitempty"`
 	Indexes        []Index        `json:"indexes"`
 	UI             EntityUI       `json:"ui"`
+	GDPRPolicy     *GDPRPolicy    `json:"gdpr_policy,omitempty"`
 	Metadata       map[string]any `json:"metadata"`
 	Source         string         `json:"source"`
 	Provenance     *Provenance    `json:"provenance,omitempty"`

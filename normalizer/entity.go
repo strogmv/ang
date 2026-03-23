@@ -168,6 +168,29 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 		entity.Owns = dedup
 	}
 
+	// 3b. GDPR policy via @gdpr attribute on entity.
+	// Example: @gdpr(erasable=true, exportable=true, retention="2y", owner_field="userId")
+	if attr := val.Attribute("gdpr"); attr.Err() == nil {
+		policy := &GDPRPolicy{OwnerField: "userId"}
+		if v, found, _ := attr.Lookup(0, "erasable"); found {
+			if b, err := strconv.ParseBool(v); err == nil {
+				policy.Erasable = b
+			}
+		}
+		if v, found, _ := attr.Lookup(0, "exportable"); found {
+			if b, err := strconv.ParseBool(v); err == nil {
+				policy.Exportable = b
+			}
+		}
+		if v, found, _ := attr.Lookup(0, "retention"); found && v != "" {
+			policy.Retention = strings.Trim(v, `"`)
+		}
+		if v, found, _ := attr.Lookup(0, "owner_field"); found && v != "" {
+			policy.OwnerField = strings.Trim(v, `"`)
+		}
+		entity.GDPRPolicy = policy
+	}
+
 	// 4. Optional storage override via @storage attribute
 	if attr := val.Attribute("storage"); attr.Err() == nil {
 		if s, found, _ := attr.Lookup(0, ""); found && s != "" {
@@ -346,6 +369,29 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 				field.Metadata = make(map[string]any)
 			}
 			field.Metadata["redact"] = true
+		}
+
+		// @gdpr("pii") — alias for @pii, also sets metadata["gdpr"]
+		// @gdpr("sensitive") — alias for @secret, also sets metadata["gdpr"]
+		// @gdpr("pii", retention="90d") — PII with per-field retention override
+		if attr := val.Attribute("gdpr"); attr.Err() == nil {
+			cls := ""
+			if c, found, _ := attr.Lookup(0, ""); found {
+				cls = c
+			}
+			if field.Metadata == nil {
+				field.Metadata = make(map[string]any)
+			}
+			field.Metadata["gdpr"] = cls
+			switch cls {
+			case "pii":
+				field.IsPII = true
+			case "sensitive":
+				field.IsSecret = true
+			}
+			if ret, found, _ := attr.Lookup(0, "retention"); found && ret != "" {
+				field.Metadata["gdpr_retention"] = strings.Trim(ret, `"`)
+			}
 		}
 
 		if attr := val.Attribute("image"); attr.Err() == nil {
