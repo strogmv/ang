@@ -885,6 +885,7 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		{"msw-server", "mocks/server.ts"},
 		{"forms", "forms/index.ts"},
 		{"format", "format.ts"},
+		{"gdpr-policy", "gdpr-policy.ts"},
 		{"optimistic-hooks", "hooks/optimistic-hooks.ts"},
 		{"app-router", "app-router.ts"},
 		{"error-boundaries", "error-boundaries.tsx"},

@@ -89,6 +89,15 @@ func IREntityToNormalizer(e ir.Entity) normalizer.Entity {
 		}
 	}
 
+	if e.GDPRPolicy != nil {
+		entity.GDPRPolicy = &normalizer.GDPRPolicy{
+			Erasable:   e.GDPRPolicy.Erasable,
+			Exportable: e.GDPRPolicy.Exportable,
+			Retention:  e.GDPRPolicy.Retention,
+			OwnerField: e.GDPRPolicy.OwnerField,
+		}
+	}
+
 	for _, idx := range e.Indexes {
 		entity.Indexes = append(entity.Indexes, normalizer.IndexDef{
 			Fields: idx.Fields,

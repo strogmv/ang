@@ -62,6 +62,7 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 	registry.Register(generator.Step{Name: "Report PDF", Requires: goOnly, Run: func() error { return in.Em.EmitReportPDF() }})
 	registry.Register(generator.Step{Name: "DI Container", ArtifactKey: "go:di_container", Requires: nil, Run: func() error { return in.Em.EmitContainer() }})
 	registry.Register(generator.Step{Name: "Domain Entities", Requires: goOnly, Run: func() error { return in.Em.EmitDomain(in.IRSchema.Entities) }})
+	registry.Register(generator.Step{Name: "GDPR Compliance", Requires: goOnly, Run: func() error { return in.Em.EmitGDPR(in.IRSchema.Entities) }})
 	registry.Register(generator.Step{Name: "DTOs", Requires: goOnly, Run: func() error { return in.Em.EmitDTO(in.IRSchema.Entities) }})
 	registry.Register(generator.Step{Name: "Service Ports", Requires: goOnly, Run: func() error { return in.Em.EmitServiceFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "HTTP Handlers", ArtifactKey: "go:http_handlers", Requires: goHTTP, Run: func() error { return in.Em.EmitHTTPFromIR(in.IRSchema, in.AuthDef) }})
