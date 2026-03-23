@@ -60,6 +60,7 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 		var req port.{{ .Input.Name }}
 		{{- if eq .Method "GET" }}
 		{{- range .Input.Fields }}
+		{{- if not (HasAuthInject $ep.Endpoint .Name) }}
 		{{- $fname := .Name | ToLower }}
 		{{- if eq .Type "int" }}
 		if v := r.URL.Query().Get("{{ $fname }}"); v != "" {
@@ -94,6 +95,7 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 		}
 		{{- end }}
 		{{- end }}
+		{{- end }}
 		{{- else }}
 		{{- if .HasBodyField }}
 		if err := decodeJSONRequest(r, &req.Body); err != nil {
@@ -108,6 +110,7 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 		{{- end }}
 		{{- end }}
 		{{- range .Input.Fields }}
+		{{- if not (HasAuthInject $ep.Endpoint .Name) }}
 		{{- $param := ParamForField $ep.Path .Name }}
 		{{- if ne $param "" }}
 		{{- if eq .Type "int" }}
@@ -144,23 +147,16 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 		{{- end }}
 		{{- end }}
 		{{- end }}
+		{{- end }}
 		{{- range .AuthInject }}
 		{{- if eq . "userId" }}
-		if req.UserID == "" {
-			req.UserID = CurrentUserID(r)
-		}
+		req.UserID = CurrentUserID(r)
 		{{- else if eq . "companyId" }}
-		if req.CompanyID == "" {
-			req.CompanyID = CurrentCompanyID(r)
-		}
+		req.CompanyID = CurrentCompanyID(r)
 		{{- else if eq . "locale" }}
-		if req.Locale == "" {
-			req.Locale = CurrentLocale(r)
-		}
+		req.Locale = CurrentLocale(r)
 		{{- else if eq . "timezone" }}
-		if req.Timezone == "" {
-			req.Timezone = CurrentTimezone(r)
-		}
+		req.Timezone = CurrentTimezone(r)
 		{{- end }}
 		{{- end }}
 		if err := validate.Struct(&req); err != nil {

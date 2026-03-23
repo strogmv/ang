@@ -50,6 +50,14 @@ func (e *Emitter) EmitHTTP(irEndpoints []ir.Endpoint, irServices []ir.Service, i
 	funcMap["MiddlewareList"] = func(ep normalizer.Endpoint) string {
 		return buildMiddlewareList(ep, true, true)
 	}
+	funcMap["HasAuthInject"] = func(ep normalizer.Endpoint, field string) bool {
+		for _, injected := range ep.AuthInject {
+			if strings.EqualFold(injected, field) {
+				return true
+			}
+		}
+		return false
+	}
 
 	t, err := template.New("http").Funcs(funcMap).Parse(string(tmplContent))
 	if err != nil {
