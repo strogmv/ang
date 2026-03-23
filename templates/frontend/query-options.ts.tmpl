@@ -33,7 +33,7 @@ export const endpointQueryOptions = {
 {{- if and (eq .Method "GET") $profile }}
   {{ LowerFirst .RPC }}: (params: Types.{{ .RPC }}Request = {} as Types.{{ .RPC }}Request) =>
     queryOptions({
-      queryKey: queryKeys.{{ .ServiceName }}.{{ .RPC }}(params),
+      queryKey: queryKeys.endpoint.{{ .ServiceName }}.{{ .RPC }}(params),
       queryFn: () => api.{{ LowerFirst .RPC }}(params),
       ...(queryProfiles['{{ $profile }}'] || {}),
     }),

@@ -56,6 +56,23 @@ func TestEmitFrontendSDK_UsesEndpointFrontendMetadataProfiles(t *testing.T) {
 		t.Fatalf("emit frontend sdk: %v", err)
 	}
 
+	queryKeysText, err := os.ReadFile(filepath.Join(tmp, "query-keys.ts"))
+	if err != nil {
+		t.Fatalf("read query-keys.ts: %v", err)
+	}
+	keys := string(queryKeysText)
+	for _, expected := range []string{
+		"endpoint: {",
+		"Realtime: {",
+		"ListPresenceFeed: (params: Types.ListPresenceFeedRequest",
+		"['Realtime', 'ListPresenceFeed', params] as const",
+		"GetPresenceRoom: (params: Types.GetPresenceRoomRequest",
+	} {
+		if !strings.Contains(keys, expected) {
+			t.Fatalf("expected %q in query-keys.ts, got:\n%s", expected, keys)
+		}
+	}
+
 	queryOptionsText, err := os.ReadFile(filepath.Join(tmp, "query-options.ts"))
 	if err != nil {
 		t.Fatalf("read query-options.ts: %v", err)
@@ -67,7 +84,7 @@ func TestEmitFrontendSDK_UsesEndpointFrontendMetadataProfiles(t *testing.T) {
 		"refetchOnMount: 'always'",
 		"export const endpointQueryOptions = {",
 		"listPresenceFeed: (params: Types.ListPresenceFeedRequest",
-		"queryKey: queryKeys.Realtime.ListPresenceFeed(params)",
+		"queryKey: queryKeys.endpoint.Realtime.ListPresenceFeed(params)",
 		"...(queryProfiles['realtime'] || {})",
 		"getPresenceRoom: (params: Types.GetPresenceRoomRequest",
 	} {

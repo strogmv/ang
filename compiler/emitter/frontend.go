@@ -843,6 +843,14 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 			}
 			return false
 		},
+		"HasGETEndpoints": func() bool {
+			for _, ep := range endpointsNorm {
+				if strings.ToUpper(strings.TrimSpace(ep.Method)) == "GET" {
+					return true
+				}
+			}
+			return false
+		},
 		"QueryOptionsDetailParam": func(rpc string) string {
 			if r, ok := queryOptionsByRPC[rpc]; ok {
 				return r.DetailParamName

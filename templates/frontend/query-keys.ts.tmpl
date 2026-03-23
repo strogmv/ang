@@ -6,6 +6,18 @@ import * as Types from '../types';
  * Use these keys for manual invalidation or custom hooks.
  */
 export const queryKeys = {
+  endpoint: {
+{{- range .Services }}
+    {{ .Name }}: {
+      {{- range ServiceEndpoints .Name }}
+      {{- if eq .Method "GET" }}
+      {{ .RPC }}: (params: Types.{{ .RPC }}Request = {} as Types.{{ .RPC }}Request) =>
+        ['{{ .ServiceName }}', '{{ .RPC }}', params] as const,
+      {{- end }}
+      {{- end }}
+    },
+{{- end }}
+  },
 {{- range .Services }}
   {{ .Name }}: {
     all: ['{{ .Name }}'] as const,
