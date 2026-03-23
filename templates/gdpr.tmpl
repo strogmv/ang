@@ -6,80 +6,158 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 )
 
+func parseGDPRRetention(spec string) (time.Duration, error) {
+	spec = strings.TrimSpace(strings.ToLower(spec))
+	if spec == "" {
+		return 0, nil
+	}
+	for _, suffix := range []string{"mo", "y", "w", "d"} {
+		if strings.HasSuffix(spec, suffix) {
+			num := strings.TrimSpace(strings.TrimSuffix(spec, suffix))
+			value, err := strconv.ParseFloat(num, 64)
+			if err != nil {
+				return 0, fmt.Errorf("invalid gdpr retention %q: %w", spec, err)
+			}
+			switch suffix {
+			case "mo":
+				return time.Duration(value * float64(30*24*time.Hour)), nil
+			case "y":
+				return time.Duration(value * float64(365*24*time.Hour)), nil
+			case "w":
+				return time.Duration(value * float64(7*24*time.Hour)), nil
+			case "d":
+				return time.Duration(value * float64(24*time.Hour)), nil
+			}
+		}
+	}
+	return time.ParseDuration(spec)
+}
+
 {{- range .Entities }}
-{{- if .GDPRPolicy }}
 {{- $e := . }}
-{{- $p := .GDPRPolicy }}
-{{- $ownerField := ExportName $p.OwnerField }}
-{{- $piiFields := PIIFields .Fields }}
 
-// ── {{ $e.Name }} GDPR ────────────────────────────────────────────────────────
-{{- if $p.Erasable }}
+// ── {{ $e.Entity.Name }} GDPR ────────────────────────────────────────────────────────
+{{- if and $e.Entity.GDPRPolicy.Erasable $e.SupportsErase }}
 
-// Erase{{ $e.Name }}PersonalData implements GDPR Article 17 — Right to Erasure.
-// All PII fields for ownerID are set to zero/anonymous values.
-// A structured audit entry is written if AuditLogRepo is available.
-func (s *{{ $e.Name }}ServiceImpl) Erase{{ $e.Name }}PersonalData(ctx context.Context, ownerID string) error {
-	item, err := s.{{ $e.Name }}Repo.GetBy{{ $ownerField }}(ctx, ownerID)
-	if err != nil {
-		return fmt.Errorf("gdpr erase: fetch: %w", err)
+// Erase{{ $e.Entity.Name }}PersonalData implements GDPR Article 17 — Right to Erasure.
+// It scans repository pages and anonymizes GDPR-marked fields for records owned by ownerID.
+func (s *{{ $e.Receiver }}) Erase{{ $e.Entity.Name }}PersonalData(ctx context.Context, ownerID string) error {
+	const pageSize = 500
+	for offset := 0; ; offset += pageSize {
+		items, err := s.{{ $e.RepoField }}.ListAll(ctx, offset, pageSize)
+		if err != nil {
+			return fmt.Errorf("gdpr erase: list: %w", err)
+		}
+		if len(items) == 0 {
+			break
+		}
+		for i := range items {
+			item := &items[i]
+			if item.{{ $e.OwnerFieldGo }} != ownerID {
+				continue
+			}
+			{{- range $e.GDPRFields }}
+			item.{{ ExportName .Name }} = {{ ZeroLiteral .Type }}
+			{{- end }}
+			if err := s.{{ $e.RepoField }}.Save(ctx, item); err != nil {
+				return fmt.Errorf("gdpr erase: save: %w", err)
+			}
+		}
+		if len(items) < pageSize {
+			break
+		}
 	}
-	if item == nil {
-		return nil // nothing to erase
-	}
-	{{- range $piiFields }}
-	item.{{ ExportName .Name }} = {{ ZeroLiteral .Type }}
-	{{- end }}
-	if err := s.{{ $e.Name }}Repo.Save(ctx, item); err != nil {
-		return fmt.Errorf("gdpr erase: save: %w", err)
-	}
-	{{- if HasAuditLog }}
-	_ = s.writeAudit(ctx, ownerID, "gdpr.erase.{{ ToLower $e.Name }}")
-	{{- end }}
 	return nil
 }
+{{- else if $e.Entity.GDPRPolicy.Erasable }}
+// Erase{{ $e.Entity.Name }}PersonalData was not generated: {{ $e.EraseSkipReason }}.
 {{- end }}
 
-{{- if $p.Exportable }}
+{{- if and $e.Entity.GDPRPolicy.Exportable $e.SupportsExport }}
 
-// Export{{ $e.Name }}PersonalData implements GDPR Article 20 — Right to Data Portability.
-// Returns all rows belonging to ownerID as JSON.
-func (s *{{ $e.Name }}ServiceImpl) Export{{ $e.Name }}PersonalData(ctx context.Context, ownerID string) (json.RawMessage, error) {
-	items, err := s.{{ $e.Name }}Repo.ListBy{{ $ownerField }}(ctx, ownerID)
-	if err != nil {
-		return nil, fmt.Errorf("gdpr export: list: %w", err)
+// Export{{ $e.Entity.Name }}PersonalData implements GDPR Article 20 — Right to Data Portability.
+// It scans repository pages and returns matching records as JSON.
+func (s *{{ $e.Receiver }}) Export{{ $e.Entity.Name }}PersonalData(ctx context.Context, ownerID string) (json.RawMessage, error) {
+	const pageSize = 500
+	itemsForOwner := make([]any, 0)
+	for offset := 0; ; offset += pageSize {
+		items, err := s.{{ $e.RepoField }}.ListAll(ctx, offset, pageSize)
+		if err != nil {
+			return nil, fmt.Errorf("gdpr export: list: %w", err)
+		}
+		if len(items) == 0 {
+			break
+		}
+		for i := range items {
+			item := items[i]
+			if item.{{ $e.OwnerFieldGo }} != ownerID {
+				continue
+			}
+			itemsForOwner = append(itemsForOwner, item)
+		}
+		if len(items) < pageSize {
+			break
+		}
 	}
-	data, err := json.Marshal(items)
+	data, err := json.Marshal(itemsForOwner)
 	if err != nil {
 		return nil, fmt.Errorf("gdpr export: marshal: %w", err)
 	}
-	{{- if HasAuditLog }}
-	_ = s.writeAudit(ctx, ownerID, "gdpr.export.{{ ToLower $e.Name }}")
-	{{- end }}
 	return data, nil
 }
+{{- else if $e.Entity.GDPRPolicy.Exportable }}
+// Export{{ $e.Entity.Name }}PersonalData was not generated: {{ $e.ExportSkipReason }}.
 {{- end }}
 
-{{- if $p.Retention }}
+{{- if and $e.Entity.GDPRPolicy.Retention $e.SupportsRetention }}
 
-// Purge{{ $e.Name }}Expired removes records older than the configured retention period ({{ $p.Retention }}).
-// Call from a scheduled job / cron.
-func (s *{{ $e.Name }}ServiceImpl) Purge{{ $e.Name }}Expired(ctx context.Context) (int64, error) {
-	retention, _ := time.ParseDuration("{{ $p.Retention }}")
-	if retention == 0 {
+// Purge{{ $e.Entity.Name }}Expired removes records older than the configured retention period ({{ $e.Entity.GDPRPolicy.Retention }}).
+func (s *{{ $e.Receiver }}) Purge{{ $e.Entity.Name }}Expired(ctx context.Context) (int64, error) {
+	retention, err := parseGDPRRetention("{{ $e.Entity.GDPRPolicy.Retention }}")
+	if err != nil {
+		return 0, fmt.Errorf("gdpr purge: parse retention: %w", err)
+	}
+	if retention <= 0 {
 		return 0, nil
 	}
 	cutoff := time.Now().Add(-retention)
-	deleted, err := s.{{ $e.Name }}Repo.DeleteCreatedBefore(ctx, cutoff)
-	if err != nil {
-		return 0, fmt.Errorf("gdpr purge: %w", err)
+	const pageSize = 500
+	idsToDelete := make([]string, 0)
+	for offset := 0; ; offset += pageSize {
+		items, err := s.{{ $e.RepoField }}.ListAll(ctx, offset, pageSize)
+		if err != nil {
+			return 0, fmt.Errorf("gdpr purge: list: %w", err)
+		}
+		if len(items) == 0 {
+			break
+		}
+		for i := range items {
+			item := items[i]
+			if item.CreatedAt.IsZero() || !item.CreatedAt.Before(cutoff) {
+				continue
+			}
+			idsToDelete = append(idsToDelete, item.ID)
+		}
+		if len(items) < pageSize {
+			break
+		}
+	}
+	var deleted int64
+	for _, id := range idsToDelete {
+		if err := s.{{ $e.RepoField }}.Delete(ctx, id); err != nil {
+			return deleted, fmt.Errorf("gdpr purge: delete: %w", err)
+		}
+		deleted++
 	}
 	return deleted, nil
 }
+{{- else if $e.Entity.GDPRPolicy.Retention }}
+// Purge{{ $e.Entity.Name }}Expired was not generated: {{ $e.RetentionSkipReason }}.
 {{- end }}
 
-{{- end }}
-{{- end }}
+{{ end }}

@@ -13,15 +13,30 @@ import (
 	"github.com/strogmv/ang-ir/normalizer"
 )
 
+type GDPREntityData struct {
+	Entity             normalizer.Entity
+	Receiver           string
+	RepoField          string
+	OwnerField         string
+	OwnerFieldGo       string
+	OwnerFieldType     string
+	GDPRFields         []normalizer.Field
+	SupportsErase      bool
+	SupportsExport     bool
+	SupportsRetention  bool
+	EraseSkipReason    string
+	ExportSkipReason   string
+	RetentionSkipReason string
+}
+
 // GDPRTemplateData is the top-level context for gdpr.tmpl.
 type GDPRTemplateData struct {
-	Entities     []normalizer.Entity
+	Entities     []GDPREntityData
 	ANGVersion   string
 	InputHash    string
 	CompilerHash string
 }
 
-// HasAnyGDPRPolicy returns true when at least one entity has a GDPR policy.
 func HasAnyGDPRPolicy(entities []normalizer.Entity) bool {
 	for _, e := range entities {
 		if e.GDPRPolicy != nil {
@@ -31,12 +46,115 @@ func HasAnyGDPRPolicy(entities []normalizer.Entity) bool {
 	return false
 }
 
+func buildGDPREntityData(entities []normalizer.Entity) []GDPREntityData {
+	out := make([]GDPREntityData, 0, len(entities))
+	for _, e := range entities {
+		if e.GDPRPolicy == nil {
+			continue
+		}
+
+		item := GDPREntityData{
+			Entity:    e,
+			Receiver:  ExportName(firstNonEmpty(e.Owner, e.BoundedContext, e.Name)) + "Impl",
+			RepoField: ExportName(e.Name) + "Repo",
+		}
+
+		for _, f := range e.Fields {
+			if isGDPRManagedField(f) {
+				item.GDPRFields = append(item.GDPRFields, f)
+			}
+		}
+
+		ownerField, ok := findFieldByName(e.Fields, e.GDPRPolicy.OwnerField)
+		if !ok {
+			item.EraseSkipReason = fmt.Sprintf("owner field %q not found on entity", e.GDPRPolicy.OwnerField)
+			item.ExportSkipReason = item.EraseSkipReason
+		} else {
+			item.OwnerField = ownerField.Name
+			item.OwnerFieldGo = ExportName(ownerField.Name)
+			item.OwnerFieldType = ownerField.Type
+			if ownerField.Type != "string" {
+				reason := fmt.Sprintf("owner field %q has unsupported type %q; only string owner IDs are supported", ownerField.Name, ownerField.Type)
+				item.EraseSkipReason = reason
+				item.ExportSkipReason = reason
+			} else {
+				item.SupportsErase = e.GDPRPolicy.Erasable
+				item.SupportsExport = e.GDPRPolicy.Exportable
+			}
+		}
+
+		if e.GDPRPolicy.Retention != "" {
+			idField, hasID := findFieldByName(e.Fields, "id")
+			createdAtField, hasCreatedAt := findFieldByName(e.Fields, "createdAt")
+			switch {
+			case !hasID:
+				item.RetentionSkipReason = `required field "id" not found on entity`
+			case idField.Type != "string":
+				item.RetentionSkipReason = fmt.Sprintf(`field %q has unsupported type %q; retention purge requires string IDs`, idField.Name, idField.Type)
+			case !hasCreatedAt:
+				item.RetentionSkipReason = `required field "createdAt" not found on entity`
+			case createdAtField.Type != "time.Time":
+				item.RetentionSkipReason = fmt.Sprintf(`field %q has unsupported type %q; retention purge requires time.Time`, createdAtField.Name, createdAtField.Type)
+			default:
+				item.SupportsRetention = true
+			}
+		}
+
+		out = append(out, item)
+	}
+	return out
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func findFieldByName(fields []normalizer.Field, want string) (normalizer.Field, bool) {
+	want = strings.TrimSpace(want)
+	if want == "" {
+		return normalizer.Field{}, false
+	}
+	wantExported := ExportName(want)
+	for _, f := range fields {
+		if strings.EqualFold(f.Name, want) || strings.EqualFold(ExportName(f.Name), wantExported) {
+			return f, true
+		}
+	}
+	return normalizer.Field{}, false
+}
+
+func isGDPRManagedField(f normalizer.Field) bool {
+	if f.IsPII || f.IsSecret {
+		return true
+	}
+	if f.Metadata == nil {
+		return false
+	}
+	_, ok := f.Metadata["gdpr"]
+	return ok
+}
+
+func removeFileIfExists(path string) error {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 // EmitGDPR generates internal/service/gdpr.gen.go for entities with @gdpr annotations.
 // The file is skipped entirely when no entity has a GDPR policy.
 func (e *Emitter) EmitGDPR(entities []ir.Entity) error {
+	targetDir := filepath.Join(e.OutputDir, "internal", "service")
+	outPath := filepath.Join(targetDir, "gdpr.gen.go")
+
 	norm := IREntitiesToNormalizer(entities)
 	if !HasAnyGDPRPolicy(norm) {
-		return nil
+		return removeFileIfExists(outPath)
 	}
 
 	tmplContent, err := ReadTemplateByPath("templates/gdpr.tmpl")
@@ -45,32 +163,26 @@ func (e *Emitter) EmitGDPR(entities []ir.Entity) error {
 	}
 
 	funcMap := e.getSharedFuncMap()
-	funcMap["PIIFields"] = func(fields []normalizer.Field) []normalizer.Field {
-		var pii []normalizer.Field
-		for _, f := range fields {
-			if f.IsPII {
-				pii = append(pii, f)
-			}
-		}
-		return pii
-	}
 	funcMap["ZeroLiteral"] = func(goType string) string {
 		switch {
 		case goType == "string":
 			return `""`
 		case goType == "bool":
 			return "false"
-		case strings.HasPrefix(goType, "int"), strings.HasPrefix(goType, "float"), goType == "uint64":
+		case goType == "any" || goType == "interface{}":
+			return "nil"
+		case strings.HasPrefix(goType, "int"), strings.HasPrefix(goType, "float"), strings.HasPrefix(goType, "uint"):
 			return "0"
 		case goType == "time.Time":
 			return "time.Time{}"
-		case strings.HasPrefix(goType, "*"):
+		case strings.HasPrefix(goType, "*"), strings.HasPrefix(goType, "[]"), strings.HasPrefix(goType, "map["):
 			return "nil"
+		case strings.Contains(goType, "."):
+			return goType + "{}"
 		default:
-			return `""`
+			return goType + "{}"
 		}
 	}
-	funcMap["HasAuditLog"] = func() bool { return false }
 	funcMap["ToLower"] = strings.ToLower
 
 	t, err := template.New("gdpr").Funcs(funcMap).Parse(string(tmplContent))
@@ -79,7 +191,7 @@ func (e *Emitter) EmitGDPR(entities []ir.Entity) error {
 	}
 
 	ctx := GDPRTemplateData{
-		Entities:     norm,
+		Entities:     buildGDPREntityData(norm),
 		ANGVersion:   e.Version,
 		InputHash:    e.InputHash,
 		CompilerHash: e.CompilerHash,
@@ -92,16 +204,13 @@ func (e *Emitter) EmitGDPR(entities []ir.Entity) error {
 
 	formatted, err := format.Source(buf.Bytes())
 	if err != nil {
-		// Return raw source on format error so the user can diagnose
 		formatted = buf.Bytes()
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "service")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("gdpr: mkdir: %w", err)
 	}
 
-	outPath := filepath.Join(targetDir, "gdpr.gen.go")
 	if err := writeFileAtomic(outPath, formatted, 0644); err != nil {
 		return fmt.Errorf("gdpr: write: %w", err)
 	}

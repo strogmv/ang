@@ -410,6 +410,15 @@ func IRMethodToNormalizer(m ir.Method) normalizer.Method {
 
 	method.Flow = irFlowStepsToNormalizer(m.Flow)
 
+	if m.AIActPolicy != nil {
+		method.AIActPolicy = &normalizer.AIActPolicy{
+			Risk:      m.AIActPolicy.Risk,
+			UseCase:   m.AIActPolicy.UseCase,
+			Oversight: m.AIActPolicy.Oversight,
+			Logging:   m.AIActPolicy.Logging,
+		}
+	}
+
 	return method
 }
 

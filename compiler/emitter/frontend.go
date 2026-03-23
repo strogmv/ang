@@ -892,6 +892,8 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		{"app-router", "app-router.ts"},
 		{"error-boundaries", "error-boundaries.tsx"},
 		{"suspense-boundaries", "suspense-boundaries.tsx"},
+		{"a11y", "a11y.ts"},
+		{"cookie-banner", "cookie-banner.tsx"},
 	}
 
 	for _, f := range files {
