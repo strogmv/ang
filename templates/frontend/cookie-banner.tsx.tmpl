@@ -87,6 +87,32 @@ export const hasConsented = (category: CookieCategory): boolean => {
   return record?.categories[category] ?? false;
 };
 
+const bannerStyle: React.CSSProperties = {
+  position: 'fixed',
+  bottom: 0,
+  left: 0,
+  right: 0,
+  zIndex: 9999,
+  background: '#fff',
+  borderTop: '1px solid #e5e7eb',
+  padding: '1rem 1.5rem',
+  boxShadow: '0 -2px 8px rgba(0,0,0,0.08)',
+  maxHeight: '80vh',
+  overflowY: 'auto',
+};
+
+const descriptionStyle: React.CSSProperties = { margin: '0 0 0.5rem', fontSize: 14 };
+const detailsStyle: React.CSSProperties = { marginBottom: '0.75rem' };
+const categoryRowStyle: React.CSSProperties = { display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 };
+const categoryTextStyle: React.CSSProperties = { fontSize: 12, color: '#6b7280' };
+const linkStyle: React.CSSProperties = { color: '#2563eb' };
+const checkboxStyle: React.CSSProperties = { marginTop: 2 };
+const categoryTitleStyle: React.CSSProperties = { fontSize: 13 };
+const actionsStyle: React.CSSProperties = { display: 'flex', gap: 8, flexWrap: 'wrap' };
+const primaryButtonStyle: React.CSSProperties = { padding: '6px 14px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13 };
+const secondaryButtonStyle: React.CSSProperties = { padding: '6px 14px', background: '#f3f4f6', border: '1px solid #d1d5db', borderRadius: 6, cursor: 'pointer', fontSize: 13 };
+const tertiaryButtonStyle: React.CSSProperties = { padding: '6px 14px', background: 'none', border: '1px solid #d1d5db', borderRadius: 6, cursor: 'pointer', fontSize: 13 };
+
 // ── CookieBanner component ────────────────────────────────────────────────────
 
 interface CookieBannerProps {
@@ -158,53 +184,48 @@ export const CookieBanner = ({ onConsent, render, privacyPolicyUrl = '/privacy' 
       aria-modal="true"
       aria-label="Cookie preferences"
       aria-describedby="cookie-banner-desc"
-      style={{
-        position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 9999,
-        background: '#fff', borderTop: '1px solid #e5e7eb',
-        padding: '1rem 1.5rem', boxShadow: '0 -2px 8px rgba(0,0,0,0.08)',
-        maxHeight: '80vh', overflowY: 'auto',
-      }}
+      style={bannerStyle}
     >
-      <p id="cookie-banner-desc" style={{ margin: '0 0 0.5rem', fontSize: 14 }}>
+      <p id="cookie-banner-desc" style={descriptionStyle}>
         We use cookies to improve your experience.{' '}
-        <a href={privacyPolicyUrl} style={{ color: '#2563eb' }}>Privacy Policy</a>
+        <a href={privacyPolicyUrl} style={linkStyle}>Privacy Policy</a>
       </p>
 
       {expanded && (
-        <div style={{ marginBottom: '0.75rem' }}>
+        <div style={detailsStyle}>
           {COOKIE_CATEGORIES.map((cat) => (
-            <label key={cat.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8, cursor: cat.required ? 'default' : 'pointer' }}>
+            <label key={cat.id} style={cat.required ? categoryRowStyle : { ...categoryRowStyle, cursor: 'pointer' }}>
               <input
                 type="checkbox"
                 checked={selections[cat.id]}
                 disabled={cat.required}
                 onChange={() => toggle(cat.id)}
                 aria-label={`${cat.label}: ${cat.description}`}
-                style={{ marginTop: 2 }}
+                style={checkboxStyle}
               />
               <span>
-                <strong style={{ fontSize: 13 }}>{cat.label}{cat.required ? ' (required)' : ''}</strong>
+                <strong style={categoryTitleStyle}>{cat.label}{cat.required ? ' (required)' : ''}</strong>
                 <br />
-                <span style={{ fontSize: 12, color: '#6b7280' }}>{cat.description}</span>
+                <span style={categoryTextStyle}>{cat.description}</span>
               </span>
             </label>
           ))}
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <button onClick={acceptAll} style={{ padding: '6px 14px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>
+      <div style={actionsStyle}>
+        <button onClick={acceptAll} style={primaryButtonStyle}>
           Accept all
         </button>
-        <button onClick={rejectOptional} style={{ padding: '6px 14px', background: '#f3f4f6', border: '1px solid #d1d5db', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>
+        <button onClick={rejectOptional} style={secondaryButtonStyle}>
           Essential only
         </button>
         {!expanded ? (
-          <button onClick={() => setExpanded(true)} style={{ padding: '6px 14px', background: 'none', border: '1px solid #d1d5db', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>
+          <button onClick={() => setExpanded(true)} style={tertiaryButtonStyle}>
             Manage preferences
           </button>
         ) : (
-          <button onClick={savePreferences} style={{ padding: '6px 14px', background: '#f3f4f6', border: '1px solid #d1d5db', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>
+          <button onClick={savePreferences} style={secondaryButtonStyle}>
             Save preferences
           </button>
         )}
