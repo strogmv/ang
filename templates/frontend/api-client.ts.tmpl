@@ -159,6 +159,15 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   config.headers.set('traceparent', traceparent);
   
   const meta = findEndpointMeta(config.url);
+  const method = config.method?.toUpperCase();
+  if ((meta?.cachePolicy === 'realtime' || meta?.cachePolicy === 'bypass' || meta?.cachePolicy === 'no-store') && method === 'GET') {
+    config.params = {
+      ...((config.params as any) || {}),
+      _rt: Date.now().toString(),
+    };
+    config.headers.set('Cache-Control', 'no-store, no-cache, max-age=0, must-revalidate');
+    config.headers.set('Pragma', 'no-cache');
+  }
   // Attach trace + contract metadata for response/retry interceptor.
   const attempt = Number((config as any)?.meta?.retryAttempt || 0);
   (config as any).meta = { traceId, endpointMeta: meta, retryAttempt: attempt };

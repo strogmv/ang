@@ -2,8 +2,46 @@
 import { queryOptions } from '@tanstack/react-query';
 import { queryKeys } from './query-keys';
 import * as api from './endpoints';
-{{- if .QueryOptionsNeedsTypes }}
+{{- if or .QueryOptionsNeedsTypes HasEndpointQueryProfiles }}
 import type * as Types from './types';
+{{- end }}
+
+export type QueryProfileOptions = {
+  staleTime?: number;
+  gcTime?: number;
+  refetchOnMount?: 'always' | boolean;
+  refetchOnWindowFocus?: boolean;
+  refetchOnReconnect?: boolean;
+  retry?: number | boolean;
+};
+
+export const queryProfiles: Record<string, QueryProfileOptions> = {
+  realtime: {
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    retry: 1,
+  },
+};
+
+{{- if HasEndpointQueryProfiles }}
+export const endpointQueryOptions = {
+{{- range .Endpoints }}
+{{- $profile := EndpointQueryProfile . }}
+{{- if and (eq .Method "GET") $profile }}
+  {{ LowerFirst .RPC }}: (params: Types.{{ .RPC }}Request = {} as Types.{{ .RPC }}Request) =>
+    queryOptions({
+      queryKey: queryKeys.{{ .ServiceName }}.{{ .RPC }}(params),
+      queryFn: () => api.{{ LowerFirst .RPC }}(params),
+      ...(queryProfiles['{{ $profile }}'] || {}),
+    }),
+
+{{- end }}
+{{- end }}
+};
+
 {{- end }}
 
 {{- range .QueryResources }}

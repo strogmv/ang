@@ -54,6 +54,49 @@ func deriveEntityName(rpc string) string {
 	return ""
 }
 
+func metadataString(meta map[string]any, path ...string) string {
+	if len(path) == 0 {
+		return ""
+	}
+	var current any = meta
+	for _, part := range path {
+		m, ok := current.(map[string]any)
+		if !ok {
+			return ""
+		}
+		current, ok = m[part]
+		if !ok {
+			return ""
+		}
+	}
+	switch v := current.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	default:
+		return strings.TrimSpace(fmt.Sprint(v))
+	}
+}
+
+func endpointQueryProfile(ep normalizer.Endpoint) string {
+	if strings.ToUpper(strings.TrimSpace(ep.Method)) != "GET" {
+		return ""
+	}
+	if v := metadataString(ep.Metadata, "frontend", "queryProfile"); v != "" {
+		return v
+	}
+	return metadataString(ep.Metadata, "queryProfile")
+}
+
+func endpointCachePolicy(ep normalizer.Endpoint) string {
+	if strings.ToUpper(strings.TrimSpace(ep.Method)) != "GET" {
+		return ""
+	}
+	if v := metadataString(ep.Metadata, "frontend", "cachePolicy"); v != "" {
+		return v
+	}
+	return metadataString(ep.Metadata, "cachePolicy")
+}
+
 func buildQueryResources(endpoints []normalizer.Endpoint) ([]QueryResource, bool, bool) {
 	type resourceEntry struct {
 		r QueryResource
@@ -792,6 +835,14 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		"QueryOptionsKind": func(rpc string) string {
 			return queryOptionsKindByRPC[rpc]
 		},
+		"HasEndpointQueryProfiles": func() bool {
+			for _, ep := range endpointsNorm {
+				if endpointQueryProfile(ep) != "" {
+					return true
+				}
+			}
+			return false
+		},
 		"QueryOptionsDetailParam": func(rpc string) string {
 			if r, ok := queryOptionsByRPC[rpc]; ok {
 				return r.DetailParamName
@@ -820,6 +871,12 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		},
 		"EndpointPolicy": func(ep normalizer.Endpoint) policy.EndpointPolicy {
 			return policy.FromEndpoint(ep)
+		},
+		"EndpointQueryProfile": func(ep normalizer.Endpoint) string {
+			return endpointQueryProfile(ep)
+		},
+		"EndpointCachePolicy": func(ep normalizer.Endpoint) string {
+			return endpointCachePolicy(ep)
 		},
 		"HasStreamingEndpoints": func() bool {
 			for _, ep := range endpointsNorm {

@@ -19,6 +19,7 @@ export const use{{ .RPC }} = (params?: Types.{{ .RPC }}Request, options?: Omit<U
   const hasRequiredParams = {{- if gt (len $argList) 0 -}} !!({{- range $i, $a := $argList -}}{{ if $i }} && {{ end }}(((params as any)?.{{ $a }} ?? (params as any)?.{{ JSONName $a }})){{- end -}}) {{- else -}} true {{- end }};
   {{- $optRes := QueryOptionsResource .RPC }}
   {{- $optKind := QueryOptionsKind .RPC }}
+  {{- $profile := EndpointQueryProfile . }}
   {{- if and $optRes (eq $optKind "detail") }}
   const queryClient = useQueryClient();
   {{- end }}
@@ -37,8 +38,9 @@ export const use{{ .RPC }} = (params?: Types.{{ .RPC }}Request, options?: Omit<U
       return undefined;
     },
     {{- end }}
-    {{- if $optRes }}
-    {{- $optKind := QueryOptionsKind .RPC }}
+    {{- if $profile }}
+    ...QueryOptions.endpointQueryOptions.{{ LowerFirst .RPC }}(params),
+    {{- else if $optRes }}
     {{- if eq $optKind "list" }}
     ...QueryOptions.{{ $optRes }}Options.list(params),
     {{- else if eq $optKind "detail" }}
@@ -59,8 +61,11 @@ export const use{{ .RPC }} = (params?: Types.{{ .RPC }}Request, options?: Omit<U
 export const use{{ .RPC }}Suspense = (params?: Types.{{ .RPC }}Request, options?: Omit<UseQueryOptions<Types.{{ .RPC }}Response, Error, Types.{{ .RPC }}Response, any[]>, 'queryKey' | 'queryFn'>) => {
   const hasRequiredParams = {{- if gt (len $argList) 0 -}} !!({{- range $i, $a := $argList -}}{{ if $i }} && {{ end }}(((params as any)?.{{ $a }} ?? (params as any)?.{{ JSONName $a }})){{- end -}}) {{- else -}} true {{- end }};
   {{- $optRes := QueryOptionsResource .RPC }}
+  {{- $profile := EndpointQueryProfile . }}
   return useQuery({
-    {{- if $optRes }}
+    {{- if $profile }}
+    ...QueryOptions.endpointQueryOptions.{{ LowerFirst .RPC }}(params),
+    {{- else if $optRes }}
     {{- $optKind := QueryOptionsKind .RPC }}
     {{- if eq $optKind "list" }}
     ...QueryOptions.{{ $optRes }}Options.list(params),

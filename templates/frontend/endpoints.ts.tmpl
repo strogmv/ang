@@ -220,6 +220,8 @@ export const endpointMeta: Record<string, {
   timeout?: string;
   authRoles?: string[];
   cacheTTL?: string;
+  queryProfile?: string;
+  cachePolicy?: string;
   rateLimit?: {
     rps: number;
     burst: number;
@@ -257,6 +259,14 @@ export const endpointMeta: Record<string, {
     {{- end }}
     {{- if $policy.CacheTTL }}
     cacheTTL: '{{ $policy.CacheTTL }}',
+    {{- end }}
+    {{- $queryProfile := EndpointQueryProfile . }}
+    {{- if $queryProfile }}
+    queryProfile: '{{ $queryProfile }}',
+    {{- end }}
+    {{- $cachePolicy := EndpointCachePolicy . }}
+    {{- if $cachePolicy }}
+    cachePolicy: '{{ $cachePolicy }}',
     {{- end }}
     {{- if $policy.RateLimit }}
     rateLimit: {
