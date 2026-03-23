@@ -64,9 +64,13 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 	}
 
 	// 2. Explicit owner via @owner attribute
-	if attr := val.Attribute("owner"); attr.Err() == nil {
+	for _, attr := range val.Attributes(cue.ValueAttr | cue.FieldAttr | cue.DeclAttr) {
+		if attr.Name() != "owner" {
+			continue
+		}
 		if s, found, _ := attr.Lookup(0, ""); found {
 			entity.Owner = s
+			break
 		}
 	}
 
@@ -170,7 +174,10 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 
 	// 3b. GDPR policy via @gdpr attribute on entity.
 	// Example: @gdpr(erasable=true, exportable=true, retention="2y", owner_field="userId")
-	if attr := val.Attribute("gdpr"); attr.Err() == nil {
+	for _, attr := range val.Attributes(cue.ValueAttr | cue.FieldAttr | cue.DeclAttr) {
+		if attr.Name() != "gdpr" {
+			continue
+		}
 		policy := &GDPRPolicy{OwnerField: "userId"}
 		if v, found, _ := attr.Lookup(0, "erasable"); found {
 			if b, err := strconv.ParseBool(v); err == nil {
@@ -189,6 +196,7 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 			policy.OwnerField = strings.Trim(v, `"`)
 		}
 		entity.GDPRPolicy = policy
+		break
 	}
 
 	// 4. Optional storage override via @storage attribute

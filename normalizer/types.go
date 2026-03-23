@@ -1,5 +1,17 @@
 package normalizer
 
+// AIActPolicy describes EU AI Act compliance metadata for a service method.
+// Set via @ai_act(risk="limited", use_case="recommendation", oversight="human_review") on an operation.
+type AIActPolicy struct {
+	// Risk: "prohibited" | "high" | "limited" | "minimal"
+	Risk string
+	UseCase string
+	// Oversight: "none" | "human_review" | "human_override"
+	Oversight string
+	// Logging: whether AI interactions must be logged (default true for high risk)
+	Logging bool
+}
+
 // GDPRPolicy describes per-entity GDPR compliance requirements.
 // Set via @gdpr(erasable=true, exportable=true, retention="2y", owner_field="userId") on an entity.
 type GDPRPolicy struct {
@@ -235,6 +247,7 @@ type Method struct {
 	Effects              []string
 	ImplSteps            []ImplStep
 	Attributes           []Attribute
+	AIActPolicy          *AIActPolicy
 	Metadata             map[string]any
 	Source               string
 }

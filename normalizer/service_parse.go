@@ -70,6 +70,29 @@ func (n *Normalizer) parseService(name string, val cue.Value) (Service, error) {
 			}
 		}
 
+		// @ai_act(risk="limited", use_case="recommendation", oversight="human_review")
+		aiActAttr := methodVal.Attribute("ai_act")
+		if aiActAttr.Err() == nil {
+			policy := &AIActPolicy{
+				Risk:      "limited",
+				Oversight: "human_review",
+				Logging:   true,
+			}
+			if v, found, _ := aiActAttr.Lookup(0, "risk"); found && v != "" {
+				policy.Risk = strings.Trim(v, `"`)
+			}
+			if v, found, _ := aiActAttr.Lookup(0, "use_case"); found && v != "" {
+				policy.UseCase = strings.Trim(v, `"`)
+			}
+			if v, found, _ := aiActAttr.Lookup(0, "oversight"); found && v != "" {
+				policy.Oversight = strings.Trim(v, `"`)
+			}
+			if policy.Risk == "high" {
+				policy.Logging = true
+			}
+			method.AIActPolicy = policy
+		}
+
 		srcVal := methodVal.LookupPath(cue.ParsePath("sources"))
 		if srcVal.Exists() {
 			srcIter, _ := srcVal.Fields()
@@ -186,6 +209,14 @@ func (n *Normalizer) parseService(name string, val cue.Value) (Service, error) {
 			method.Flow = steps
 			if flowUsesObjectStorage(steps) {
 				svc.RequiresS3 = true
+			}
+			// Auto-detect AI Act relevance: if no explicit @ai_act but flow contains claude.* actions,
+			// set a minimal AIActPolicy.
+			if method.AIActPolicy == nil && flowHasClaudeActions(steps) {
+				method.AIActPolicy = &AIActPolicy{
+					Risk:    "limited",
+					Logging: true,
+				}
 			}
 		}
 		if implVal.Exists() {

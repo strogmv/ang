@@ -493,6 +493,15 @@ func ConvertMethod(m normalizer.Method) Method {
 	method.Flow = ConvertFlowSteps(m.Flow)
 	method.Attributes = ConvertAttributes(m.Attributes)
 
+	if m.AIActPolicy != nil {
+		method.AIActPolicy = &AIActPolicy{
+			Risk:      m.AIActPolicy.Risk,
+			UseCase:   m.AIActPolicy.UseCase,
+			Oversight: m.AIActPolicy.Oversight,
+			Logging:   m.AIActPolicy.Logging,
+		}
+	}
+
 	return method
 }
 

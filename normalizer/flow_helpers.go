@@ -1,5 +1,35 @@
 package normalizer
 
+import "strings"
+
+func flowHasClaudeActions(steps []FlowStep) bool {
+	for _, step := range steps {
+		if strings.HasPrefix(step.Action, "claude.") {
+			return true
+		}
+		for _, key := range []string{"_do", "_ifNew", "_ifExists", "_then", "_else", "_default", "_catch", "_fallback", "_onTimeout", "_onMissing", "_onMismatch"} {
+			if nested, ok := step.Args[key].([]FlowStep); ok && flowHasClaudeActions(nested) {
+				return true
+			}
+		}
+		if cases, ok := step.Args["_cases"].(map[string][]FlowStep); ok {
+			for _, nested := range cases {
+				if flowHasClaudeActions(nested) {
+					return true
+				}
+			}
+		}
+		if branches, ok := step.Args["_branches"].(map[string][]FlowStep); ok {
+			for _, nested := range branches {
+				if flowHasClaudeActions(nested) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 func flowUsesObjectStorage(steps []FlowStep) bool {
 	for _, step := range steps {
 		switch step.Action {

@@ -364,6 +364,14 @@ type PlannerHints struct {
 	Repository *PlannerRepository `json:"repository,omitempty"`
 }
 
+// AIActPolicy describes EU AI Act compliance metadata for a service method.
+type AIActPolicy struct {
+	Risk      string `json:"risk"`
+	UseCase   string `json:"use_case,omitempty"`
+	Oversight string `json:"oversight,omitempty"`
+	Logging   bool   `json:"logging"`
+}
+
 // Method represents an RPC/service method.
 type Method struct {
 	Name                 string           `json:"name"`
@@ -390,6 +398,7 @@ type Method struct {
 	ImplSteps            []ImplStep       `json:"impl_steps"`
 	Flow                 []FlowStep       `json:"flow"`
 	Attributes           []Attribute      `json:"attributes"`
+	AIActPolicy          *AIActPolicy     `json:"ai_act_policy,omitempty"`
 	Metadata             map[string]any   `json:"metadata"`
 	Source               string           `json:"source"`
 	Provenance           *Provenance      `json:"provenance,omitempty"`
