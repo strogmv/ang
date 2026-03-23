@@ -135,7 +135,7 @@ type PropData struct {
 func (e *Emitter) EmitFrontendComponents(services []ir.Service, endpoints []ir.Endpoint, entities []ir.Entity) error {
 	servicesNorm := IRServicesToNormalizer(services)
 	entitiesNorm := IREntitiesToNormalizer(entities)
-	_ = endpoints
+	endpointsNorm := IREndpointsToNormalizer(endpoints)
 
 	targetDir := filepath.Join(e.FrontendDir, "components")
 	formsDir := filepath.Join(targetDir, "forms")
@@ -220,7 +220,7 @@ func (e *Emitter) EmitFrontendComponents(services []ir.Service, endpoints []ir.E
 				continue
 			}
 
-			tableData := buildTableData(m, entitiesNorm)
+			tableData := buildTableData(svc.Name, m, entitiesNorm, endpointsNorm)
 			if len(tableData.Columns) == 0 {
 				continue
 			}
@@ -498,7 +498,7 @@ func buildFormData(m normalizer.Method) (FormData, error) {
 	return data, nil
 }
 
-func buildTableData(m normalizer.Method, entities []normalizer.Entity) TableData {
+func buildTableData(serviceName string, m normalizer.Method, entities []normalizer.Entity, endpoints []normalizer.Endpoint) TableData {
 	name := strings.TrimPrefix(m.Name, "Admin")
 	name = strings.TrimPrefix(name, "List")
 	name = singularize(name)
@@ -510,12 +510,26 @@ func buildTableData(m normalizer.Method, entities []normalizer.Entity) TableData
 		PageSize:   25,
 	}
 
+	injected := make(map[string]struct{})
+	for _, ep := range endpoints {
+		if !strings.EqualFold(ep.ServiceName, serviceName) || !strings.EqualFold(ep.RPC, m.Name) {
+			continue
+		}
+		for _, field := range ep.AuthInject {
+			injected[strings.ToLower(field)] = struct{}{}
+		}
+		break
+	}
+
 	for _, f := range m.Input.Fields {
 		if f.UI != nil && f.UI.Hidden {
 			continue
 		}
 
 		lower := strings.ToLower(f.Name)
+		if _, skip := injected[lower]; skip {
+			continue
+		}
 		switch lower {
 		case "limit":
 			data.QueryParams = append(data.QueryParams, QueryParamData{
