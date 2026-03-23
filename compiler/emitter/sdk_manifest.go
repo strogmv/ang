@@ -24,6 +24,7 @@ type SDKManifestEndpoint struct {
 	Idempotent bool     `json:"idempotent,omitempty"`
 	Timeout    string   `json:"timeout,omitempty"`
 	AuthRoles  []string `json:"authRoles,omitempty"`
+	AuthInject []string `json:"authInject,omitempty"`
 	CacheTTL   string   `json:"cacheTTL,omitempty"`
 }
 
@@ -57,6 +58,9 @@ func (e *Emitter) EmitSDKManifest(endpoints []normalizer.Endpoint, queryResource
 		}
 		if len(p.AuthRoles) > 0 {
 			entry.AuthRoles = p.AuthRoles
+		}
+		if len(ep.AuthInject) > 0 {
+			entry.AuthInject = append([]string{}, ep.AuthInject...)
 		}
 		manifest.Endpoints = append(manifest.Endpoints, entry)
 	}

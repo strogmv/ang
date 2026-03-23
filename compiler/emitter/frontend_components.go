@@ -136,6 +136,7 @@ func (e *Emitter) EmitFrontendComponents(services []ir.Service, endpoints []ir.E
 	servicesNorm := IRServicesToNormalizer(services)
 	entitiesNorm := IREntitiesToNormalizer(entities)
 	endpointsNorm := IREndpointsToNormalizer(endpoints)
+	servicesNorm, entitiesNorm = applyFrontendAuthInjectFilters(servicesNorm, entitiesNorm, endpointsNorm)
 
 	targetDir := filepath.Join(e.FrontendDir, "components")
 	formsDir := filepath.Join(targetDir, "forms")

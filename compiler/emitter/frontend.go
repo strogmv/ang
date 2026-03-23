@@ -294,6 +294,8 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 	eventsNorm := IREventsToNormalizer(events)
 	errorsNorm := IRErrorsToNormalizer(errors)
 
+	servicesNorm, entitiesNorm = applyFrontendAuthInjectFilters(servicesNorm, entitiesNorm, endpointsNorm)
+
 	// 1. Collect implicit DTOs from services
 	for _, svc := range servicesNorm {
 		for _, m := range svc.Methods {
