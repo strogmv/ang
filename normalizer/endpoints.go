@@ -104,7 +104,13 @@ func (n *Normalizer) ExtractEndpoints(val cue.Value) ([]Endpoint, error) {
 			AuthCheck:   getString(epVal, "auth.check"),
 			CacheTTL:    getString(epVal, "cache.ttl"),
 			View:        getString(epVal, "view"),
+			Metadata:    map[string]any{},
 			Source:      formatPos(epVal),
+		}
+		mergeEndpointMetadata(ep.Metadata, opInfo.value)
+		mergeEndpointMetadata(ep.Metadata, epVal)
+		if len(ep.Metadata) == 0 {
+			ep.Metadata = nil
 		}
 		if streamVal := opInfo.value.LookupPath(cue.MakePath(cue.Str("stream"))); streamVal.Exists() {
 			if b, err := streamVal.Bool(); err == nil {
@@ -449,4 +455,31 @@ func (n *Normalizer) ExtractEndpoints(val cue.Value) ([]Endpoint, error) {
 	}
 
 	return endpoints, nil
+}
+
+func mergeEndpointMetadata(dst map[string]any, src cue.Value) {
+	for _, key := range []string{"meta", "metadata"} {
+		v := src.LookupPath(cue.ParsePath(key))
+		if !v.Exists() {
+			continue
+		}
+		raw := cueValueToJSONCompatible(v)
+		if m, ok := raw.(map[string]any); ok {
+			mergeJSONMaps(dst, m)
+			continue
+		}
+		dst[key] = raw
+	}
+}
+
+func mergeJSONMaps(dst, src map[string]any) {
+	for k, v := range src {
+		if existing, ok := dst[k].(map[string]any); ok {
+			if incoming, ok := v.(map[string]any); ok {
+				mergeJSONMaps(existing, incoming)
+				continue
+			}
+		}
+		dst[k] = v
+	}
 }
