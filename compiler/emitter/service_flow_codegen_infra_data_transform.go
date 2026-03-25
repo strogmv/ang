@@ -118,6 +118,18 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		b.WriteString(fmt.Sprintf("%s%s %s %s\n", pad, output, assign, uV))
 		return b.String(), true
 
+	case "path.Base":
+		input := arg("input")
+		output := arg("output")
+		if input == "" || output == "" {
+			return renderInvalidFlowStepConfig(st, pad, "path.Base", "path.Base requires input and output"), true
+		}
+		normV := "_pathNorm" + sfx
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("%s%s := strings.ReplaceAll(%s, \"\\\\\", \"/\")\n", pad, normV, input))
+		b.WriteString(renderFlowAssignTarget(st, pad, output, "path.Base("+normV+")", "string"))
+		return b.String(), true
+
 	case "url.Build":
 		base := arg("base")
 		output := arg("output")

@@ -58,6 +58,13 @@ func (e *Emitter) EmitHTTP(irEndpoints []ir.Endpoint, irServices []ir.Service, i
 		}
 		return false
 	}
+	funcMap["RequestBodyEncoding"] = func(ep HttpEndpointView) string {
+		if ep.Metadata == nil {
+			return ""
+		}
+		v, _ := ep.Metadata["request_body"].(string)
+		return strings.TrimSpace(v)
+	}
 
 	t, err := template.New("http").Funcs(funcMap).Parse(string(tmplContent))
 	if err != nil {

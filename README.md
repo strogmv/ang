@@ -751,6 +751,7 @@ notify.Send
 oauth2.Refresh
 oauth2.Token
 parallel.Run
+path.Base
 pdf.Render
 queue.Ack
 queue.Dequeue
@@ -786,6 +787,8 @@ storage.List
 storage.Upload
 str.Format
 str.Normalize
+str.ReplaceAll
+str.TrimSpace
 time.CheckExpiry
 time.Parse
 trace.Span

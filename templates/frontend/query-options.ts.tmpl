@@ -2,7 +2,7 @@
 import { queryOptions } from '@tanstack/react-query';
 import { queryKeys } from './query-keys';
 import * as api from './endpoints';
-{{- if or .QueryOptionsNeedsTypes HasEndpointQueryProfiles }}
+{{- if or .QueryOptionsNeedsTypes HasGETEndpoints }}
 import type * as Types from './types';
 {{- end }}
 
@@ -26,57 +26,24 @@ export const queryProfiles: Record<string, QueryProfileOptions> = {
   },
 };
 
-{{- if HasEndpointQueryProfiles }}
+// Canonical React Query options for every GET RPC (single key-space: queryKeys.endpoint.*).
 export const endpointQueryOptions = {
 {{- range .Endpoints }}
+{{- if eq .Method "GET" }}
 {{- $profile := EndpointQueryProfile . }}
-{{- if and (eq .Method "GET") $profile }}
   {{ LowerFirst .RPC }}: (params: Types.{{ .RPC }}Request = {} as Types.{{ .RPC }}Request) =>
     queryOptions({
       queryKey: queryKeys.endpoint.{{ .ServiceName }}.{{ .RPC }}(params),
       queryFn: () => api.{{ LowerFirst .RPC }}(params),
+      {{- if $profile }}
       ...(queryProfiles['{{ $profile }}'] || {}),
+      {{- else }}
+      {{- if .CacheTTL }}
+      staleTime: {{ CacheTTLToMs .CacheTTL }},
+      {{- end }}
+      {{- end }}
     }),
 
 {{- end }}
 {{- end }}
 };
-
-{{- end }}
-
-{{- range .QueryResources }}
-export const {{ .Key }}Options = {
-  {{- if .HasList }}
-  list: (filters?: Types.{{ .ListRPC }}Request) =>
-    queryOptions({
-      queryKey: queryKeys.{{ .Key }}.list(filters),
-      queryFn: () => api.{{ LowerFirst .ListRPC }}(filters),
-      {{- if .ListCacheTTL }}
-      staleTime: {{ CacheTTLToMs .ListCacheTTL }},
-      {{- end }}
-    }),
-
-  {{- end }}
-  {{- if .HasDetail }}
-  detail: ({{ .DetailParamName }}: string) =>
-    queryOptions({
-      queryKey: queryKeys.{{ .Key }}.detail({{ .DetailParamName }}),
-      queryFn: () => api.{{ LowerFirst .DetailRPC }}({ {{ .DetailParamName }} } as Types.{{ .DetailRPC }}Request),
-      enabled: !!{{ .DetailParamName }},
-      {{- if .DetailCacheTTL }}
-      staleTime: {{ CacheTTLToMs .DetailCacheTTL }},
-      {{- end }}
-    }),
-
-  {{- end }}
-  {{- if .HasMe }}
-  me: () =>
-    queryOptions({
-      queryKey: queryKeys.{{ .Key }}.me(),
-      queryFn: () => api.{{ LowerFirst .MeRPC }}(),
-      staleTime: 5 * 60 * 1000,
-    }),
-  {{- end }}
-};
-
-{{- end }}

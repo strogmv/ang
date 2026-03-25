@@ -9,6 +9,47 @@ import (
 	"github.com/strogmv/ang-ir/ir"
 )
 
+func TestEmitFrontendSDK_ResolvesCacheProfileMetadataAlias(t *testing.T) {
+	t.Parallel()
+
+	tmp := t.TempDir()
+	em := New("", tmp, "templates")
+	em.Version = "0.1.0"
+
+	services := []ir.Service{
+		{
+			Name: "Chat",
+			Methods: []ir.Method{
+				{Name: "ListChats", Input: &ir.Entity{Name: "ListChatsRequest"}, Output: &ir.Entity{Name: "ListChatsResponse"}},
+			},
+		},
+	}
+	endpoints := []ir.Endpoint{
+		{
+			Method:  "GET",
+			Path:    "/api/chats",
+			Service: "Chat",
+			RPC:     "ListChats",
+			Metadata: map[string]any{
+				"cacheProfile": "realtime",
+			},
+		},
+	}
+
+	if err := em.EmitFrontendSDK(nil, services, endpoints, nil, nil, nil); err != nil {
+		t.Fatalf("emit frontend sdk: %v", err)
+	}
+
+	queryOptionsText, err := os.ReadFile(filepath.Join(tmp, "query-options.ts"))
+	if err != nil {
+		t.Fatalf("read query-options.ts: %v", err)
+	}
+	q := string(queryOptionsText)
+	if !strings.Contains(q, "...(queryProfiles['realtime'] || {})") {
+		t.Fatalf("expected cacheProfile -> realtime profile spread in query-options.ts, got:\n%s", q)
+	}
+}
+
 func TestEmitFrontendSDK_UsesEndpointFrontendMetadataProfiles(t *testing.T) {
 	t.Parallel()
 
@@ -99,8 +140,8 @@ func TestEmitFrontendSDK_UsesEndpointFrontendMetadataProfiles(t *testing.T) {
 	}
 	h := string(hooksText)
 	for _, expected := range []string{
-		"...QueryOptions.endpointQueryOptions.listPresenceFeed(params)",
-		"...QueryOptions.endpointQueryOptions.getPresenceRoom(params)",
+		"...QueryOptions.endpointQueryOptions.listPresenceFeed((params ?? {}) as Types.ListPresenceFeedRequest)",
+		"...QueryOptions.endpointQueryOptions.getPresenceRoom((params ?? {}) as Types.GetPresenceRoomRequest)",
 	} {
 		if !strings.Contains(h, expected) {
 			t.Fatalf("expected %q in hooks/index.ts, got:\n%s", expected, h)

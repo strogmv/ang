@@ -11,10 +11,10 @@
 // PURPOSE: React Hook Form + schema-driven AutoForm renderer
 // LIBRARIES:
 //   - react-hook-form: Form state management and validation
-//   - @/components/ui/auto-form: Runtime schema renderer
+//   - ../../components/ui/auto-form: Runtime schema renderer (SDK-relative)
 // ============================================================================
-import { AutoForm } from '@/components/ui/auto-form';
-import type { FormSchema } from '@/components/ui/auto-form';
+import { AutoForm } from '../../components/ui/auto-form';
+import type { FormSchema } from '../../components/ui/auto-form';
 import { use{{ .Name }}Form } from '../../forms';
 import { use{{ .Name }} } from '../../hooks';
 import type { {{ .InputType }}, {{ .ResponseType }} } from '../../types';

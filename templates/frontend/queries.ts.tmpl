@@ -8,13 +8,7 @@ import * as api from '../endpoints';
 {{- if eq .Method "GET" }}
 export const {{ LowerFirst .RPC }}QueryOptions = (params: Types.{{ .RPC }}Request = {} as Types.{{ .RPC }}Request) => {
   return queryOptions({
-    {{- $res := QueryOptionsResource .RPC }}
-    {{- $kind := QueryOptionsKind .RPC }}
-    {{- if $res }}
-    queryKey: queryKeys.{{ $res }}.{{ $kind }}({{ if eq $kind "detail" }}params.{{ QueryOptionsDetailParam .RPC }}{{ else if eq $kind "me" }}{{ else }}params{{ end }}),
-    {{- else }}
-    queryKey: ['{{ .ServiceName }}', '{{ .RPC }}', params],
-    {{- end }}
+    queryKey: queryKeys.endpoint.{{ .ServiceName }}.{{ .RPC }}(params),
     queryFn: async () => {
       return api.{{ LowerFirst .RPC }}(params);
     },
@@ -24,13 +18,7 @@ export const {{ LowerFirst .RPC }}QueryOptions = (params: Types.{{ .RPC }}Reques
 {{- if .Pagination }}
 export const {{ LowerFirst .RPC }}InfiniteQueryOptions = (params: Types.{{ .RPC }}Request = {} as Types.{{ .RPC }}Request) => {
   return infiniteQueryOptions({
-    {{- $res := QueryOptionsResource .RPC }}
-    {{- $kind := QueryOptionsKind .RPC }}
-    {{- if $res }}
-    queryKey: queryKeys.{{ $res }}.{{ $kind }}({{ if eq $kind "detail" }}params.{{ QueryOptionsDetailParam .RPC }}{{ else }}params{{ end }}),
-    {{- else }}
-    queryKey: ['{{ .ServiceName }}', '{{ .RPC }}', params],
-    {{- end }}
+    queryKey: queryKeys.endpoint.{{ .ServiceName }}.{{ .RPC }}(params),
     queryFn: async ({ pageParam }: { pageParam: any }) => {
       const p = { ...(params as any) };
       {{- if eq .Pagination.Type "offset" }}

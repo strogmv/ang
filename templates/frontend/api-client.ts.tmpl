@@ -249,7 +249,7 @@ export const isProblemDetail = (err: unknown): err is ProblemDetail => {
 export const hasErrorCode = (err: unknown, codes: ErrorCode | ErrorCode[]): boolean => {
   if (!isProblemDetail(err)) return false;
   const list = Array.isArray(codes) ? codes : [codes];
-  return list.includes(err.code);
+  return list.includes(err.message_code);
 };
 
 // Helper for React Hook Form

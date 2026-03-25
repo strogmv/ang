@@ -7,16 +7,19 @@ import { useQueryClient } from '@tanstack/react-query';
 import * as api from '../endpoints';
 import type * as Types from '../types';
 import { queryKeys } from '../query-keys';
+{{- range UniqueQueryResourceStoreImports .QueryResources }}
+import { {{ . }} } from '../stores';
+{{- end }}
 
 {{- range .QueryResources }}
 {{- if and .HasList .HasDetail }}
+{{- $lsvc := ServiceNameForGETRPC .ListRPC }}
+{{- $dsvc := ServiceNameForGETRPC .DetailRPC }}
+{{- if and $lsvc $dsvc }}
 {{- $store := printf "use%sStore" .EntityName }}
 {{- $hasStore := ne .EntityName "" }}
 
 // ── {{ .Key | Title }} ───────────────────────────────────────────────────────
-{{- if $hasStore }}
-import { {{ $store }} } from '../stores';
-{{- end }}
 
 /** useOptimistic wrapper for {{ .Key }} list — adds an item optimistically while the mutation is in flight. */
 export const useOptimisticCreate{{ .Key | Title }} = <T extends Partial<Types.{{ .DetailRPC }}Response>>(
@@ -30,11 +33,11 @@ export const useOptimisticCreate{{ .Key | Title }} = <T extends Partial<Types.{{
 
   const createOptimistically = (req: any, optimisticItem: T) => {
     startTransition(async () => {
-      const listKey = queryKeys.{{ .Key }}.lists();
-      const snapshot = queryClient.getQueriesData<any>({ queryKey: listKey });
+      const listPrefix = ['{{ $lsvc }}', '{{ .ListRPC }}'] as const;
+      const snapshot = queryClient.getQueriesData<any>({ queryKey: listPrefix });
 
       // Optimistic update — TanStack Query cache
-      queryClient.setQueriesData<any>({ queryKey: listKey }, (old: any) => {
+      queryClient.setQueriesData<any>({ queryKey: listPrefix }, (old: any) => {
         if (!old) return old;
         const items = Array.isArray(old) ? old : (old?.data ?? []);
         const updated = [{ ...optimisticItem, _optimistic: true }, ...items];
@@ -44,7 +47,7 @@ export const useOptimisticCreate{{ .Key | Title }} = <T extends Partial<Types.{{
       try {
         const result = await mutationFn(req);
         // Replace placeholder with real result in TQ cache
-        queryClient.setQueriesData<any>({ queryKey: listKey }, (old: any) => {
+        queryClient.setQueriesData<any>({ queryKey: listPrefix }, (old: any) => {
           if (!old) return old;
           const items = Array.isArray(old) ? old : (old?.data ?? []);
           const updated = items.map((item: any) => (item._optimistic ? result : item));
@@ -80,23 +83,23 @@ export const useOptimisticUpdate{{ .Key | Title }} = <T extends Partial<Types.{{
 
   const updateOptimistically = (id: string, patch: Partial<T>, req: any) => {
     startTransition(async () => {
-      const detailKey = queryKeys.{{ .Key }}.detail(id);
-      const listKey = queryKeys.{{ .Key }}.lists();
+      const detailKey = queryKeys.endpoint.{{ $dsvc }}.{{ .DetailRPC }}({ {{ .DetailParamName }}: id } as Types.{{ .DetailRPC }}Request);
+      const listPrefix = ['{{ $lsvc }}', '{{ .ListRPC }}'] as const;
       const snapshotDetail = queryClient.getQueryData<any>(detailKey);
-      const snapshotLists = queryClient.getQueriesData<any>({ queryKey: listKey });
+      const snapshotLists = queryClient.getQueriesData<any>({ queryKey: listPrefix });
 
       queryClient.setQueryData<any>(detailKey, (old: any) =>
         old ? { ...old, ...(old?.data ? { data: { ...old.data, ...patch } } : patch) } : old
       );
-      queryClient.setQueriesData<any>({ queryKey: listKey }, (old: any) => {
+      queryClient.setQueriesData<any>({ queryKey: listPrefix }, (old: any) => {
         if (!old) return old;
         const items = Array.isArray(old) ? old : (old?.data ?? []);
-        const updated = items.map((item: any) => (item.id === id ? { ...item, ...patch } : item));
+        const updated = items.map((item: any) => (item.{{ .DetailParamName }} === id ? { ...item, ...patch } : item));
         return Array.isArray(old) ? updated : { ...old, data: updated };
       });
       {{- if $hasStore }}
       // Optimistic Zustand update
-      store.upsert({ id, ...patch } as any);
+      store.upsert({ {{ .DetailParamName }}: id, ...patch } as any);
       {{- end }}
 
       try {
@@ -132,13 +135,13 @@ export const useOptimisticDelete{{ .Key | Title }} = (
 
   const deleteOptimistically = (id: string, req: any) => {
     startTransition(async () => {
-      const listKey = queryKeys.{{ .Key }}.lists();
-      const snapshot = queryClient.getQueriesData<any>({ queryKey: listKey });
+      const listPrefix = ['{{ $lsvc }}', '{{ .ListRPC }}'] as const;
+      const snapshot = queryClient.getQueriesData<any>({ queryKey: listPrefix });
 
-      queryClient.setQueriesData<any>({ queryKey: listKey }, (old: any) => {
+      queryClient.setQueriesData<any>({ queryKey: listPrefix }, (old: any) => {
         if (!old) return old;
         const items = Array.isArray(old) ? old : (old?.data ?? []);
-        const updated = items.filter((item: any) => item.id !== id);
+        const updated = items.filter((item: any) => item.{{ .DetailParamName }} !== id);
         return Array.isArray(old) ? updated : { ...old, data: updated };
       });
       {{- if $hasStore }}
@@ -160,5 +163,6 @@ export const useOptimisticDelete{{ .Key | Title }} = (
 
   return { deleteOptimistically, isPending };
 };
+{{- end }}
 {{- end }}
 {{- end }}

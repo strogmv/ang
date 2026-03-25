@@ -27,6 +27,19 @@ type FrontendContext struct {
 	QueryResources         []QueryResource
 	QueryKeysNeedsTypes    bool
 	QueryOptionsNeedsTypes bool
+	WSInvalidateRules      []WSInvalidateRule
+}
+
+type StoreItemContext struct {
+	Entity normalizer.Entity
+}
+
+// WSInvalidateRule drives WebSocket → TanStack invalidation (endpoint query key prefixes).
+type WSInvalidateRule struct {
+	EventName string
+	Omit      bool
+	Noop      bool
+	Prefixes  [][]string
 }
 
 type QueryResource struct {
@@ -77,14 +90,228 @@ func metadataString(meta map[string]any, path ...string) string {
 	}
 }
 
+func metadataValue(meta map[string]any, path ...string) any {
+	var cur any = meta
+	for _, p := range path {
+		m, ok := cur.(map[string]any)
+		if !ok {
+			return nil
+		}
+		cur, ok = m[p]
+		if !ok {
+			return nil
+		}
+	}
+	return cur
+}
+
+func metadataBool(meta map[string]any, path ...string) bool {
+	v := metadataValue(meta, path...)
+	switch x := v.(type) {
+	case bool:
+		return x
+	case string:
+		s := strings.TrimSpace(strings.ToLower(x))
+		return s == "true" || s == "1" || s == "yes"
+	default:
+		return false
+	}
+}
+
+func metadataStringSlice(meta map[string]any, path ...string) []string {
+	v := metadataValue(meta, path...)
+	if v == nil {
+		return nil
+	}
+	switch x := v.(type) {
+	case string:
+		s := strings.TrimSpace(x)
+		if s == "" {
+			return nil
+		}
+		return []string{s}
+	case []any:
+		var out []string
+		for _, el := range x {
+			switch t := el.(type) {
+			case string:
+				if s := strings.TrimSpace(t); s != "" {
+					out = append(out, s)
+				}
+			default:
+				if s := strings.TrimSpace(fmt.Sprint(t)); s != "" {
+					out = append(out, s)
+				}
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func metadataHasFrontendWS(meta map[string]any) bool {
+	f, ok := meta["frontend"].(map[string]any)
+	if !ok {
+		return false
+	}
+	_, ok = f["ws"].(map[string]any)
+	return ok
+}
+
+func queryKeyPrefixForGETRPC(rpc string, endpoints []normalizer.Endpoint) []string {
+	rpc = strings.TrimSpace(rpc)
+	for _, ep := range endpoints {
+		if strings.TrimSpace(ep.RPC) != rpc {
+			continue
+		}
+		if strings.ToUpper(strings.TrimSpace(ep.Method)) != "GET" {
+			continue
+		}
+		svc := strings.TrimSpace(ep.ServiceName)
+		if svc == "" {
+			continue
+		}
+		return []string{svc, ep.RPC}
+	}
+	return nil
+}
+
+func dedupePrefixSlices(in [][]string) [][]string {
+	seen := make(map[string]struct{})
+	var out [][]string
+	for _, p := range in {
+		key := strings.Join(p, "\x00")
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, p)
+	}
+	return out
+}
+
+func buildWSInvalidateRules(events []normalizer.EventDef, endpoints []normalizer.Endpoint) []WSInvalidateRule {
+	svcGET := serviceNamesWithGET(endpoints)
+	svcSet := make(map[string]struct{}, len(svcGET))
+	for _, s := range svcGET {
+		svcSet[s] = struct{}{}
+	}
+	out := make([]WSInvalidateRule, 0, len(events))
+	for _, ev := range events {
+		name := ev.Name
+		hasWS := metadataHasFrontendWS(ev.Metadata)
+		owner := strings.TrimSpace(ev.Owner)
+		hasCons := len(ev.Consumers) > 0
+
+		if !hasWS && owner == "" && !hasCons {
+			out = append(out, WSInvalidateRule{EventName: name, Omit: true})
+			continue
+		}
+
+		if metadataBool(ev.Metadata, "frontend", "ws", "noop") {
+			out = append(out, WSInvalidateRule{EventName: name, Noop: true})
+			continue
+		}
+
+		if metadataBool(ev.Metadata, "frontend", "ws", "invalidateAll") {
+			var prefixes [][]string
+			for _, s := range svcGET {
+				prefixes = append(prefixes, []string{s})
+			}
+			out = append(out, WSInvalidateRule{EventName: name, Prefixes: dedupePrefixSlices(prefixes)})
+			continue
+		}
+
+		var prefixes [][]string
+		if rpcs := metadataStringSlice(ev.Metadata, "frontend", "ws", "invalidateRPCs"); len(rpcs) > 0 {
+			for _, rpc := range rpcs {
+				if p := queryKeyPrefixForGETRPC(rpc, endpoints); len(p) == 2 {
+					prefixes = append(prefixes, p)
+				}
+			}
+			prefixes = dedupePrefixSlices(prefixes)
+			if len(prefixes) == 0 {
+				out = append(out, WSInvalidateRule{EventName: name, Noop: true})
+			} else {
+				out = append(out, WSInvalidateRule{EventName: name, Prefixes: prefixes})
+			}
+			continue
+		}
+		if svcs := metadataStringSlice(ev.Metadata, "frontend", "ws", "invalidateServices"); len(svcs) > 0 {
+			for _, s := range svcs {
+				s = strings.TrimSpace(s)
+				if s != "" {
+					prefixes = append(prefixes, []string{s})
+				}
+			}
+			prefixes = dedupePrefixSlices(prefixes)
+			if len(prefixes) == 0 {
+				out = append(out, WSInvalidateRule{EventName: name, Noop: true})
+			} else {
+				out = append(out, WSInvalidateRule{EventName: name, Prefixes: prefixes})
+			}
+			continue
+		}
+		if owner != "" {
+			out = append(out, WSInvalidateRule{EventName: name, Prefixes: [][]string{{owner}}})
+			continue
+		}
+		for _, c := range ev.Consumers {
+			c = strings.TrimSpace(c)
+			if _, ok := svcSet[c]; ok {
+				prefixes = append(prefixes, []string{c})
+			}
+		}
+		prefixes = dedupePrefixSlices(prefixes)
+		if len(prefixes) > 0 {
+			out = append(out, WSInvalidateRule{EventName: name, Prefixes: prefixes})
+			continue
+		}
+		out = append(out, WSInvalidateRule{EventName: name, Noop: true})
+	}
+	return out
+}
+
 func endpointQueryProfile(ep normalizer.Endpoint) string {
 	if strings.ToUpper(strings.TrimSpace(ep.Method)) != "GET" {
 		return ""
 	}
+	// Aliases for cache/query behavior (documented for frontend intent).
+	if v := metadataString(ep.Metadata, "client", "query", "profile"); v != "" {
+		return v
+	}
 	if v := metadataString(ep.Metadata, "frontend", "queryProfile"); v != "" {
 		return v
 	}
+	if v := metadataString(ep.Metadata, "frontend", "cacheProfile"); v != "" {
+		return v
+	}
+	if v := metadataString(ep.Metadata, "cacheProfile"); v != "" {
+		return v
+	}
 	return metadataString(ep.Metadata, "queryProfile")
+}
+
+func serviceNamesWithGET(endpoints []normalizer.Endpoint) []string {
+	seen := make(map[string]struct{})
+	var out []string
+	for _, ep := range endpoints {
+		if strings.ToUpper(strings.TrimSpace(ep.Method)) != "GET" {
+			continue
+		}
+		svc := strings.TrimSpace(ep.ServiceName)
+		if svc == "" {
+			continue
+		}
+		if _, ok := seen[svc]; ok {
+			continue
+		}
+		seen[svc] = struct{}{}
+		out = append(out, svc)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func endpointCachePolicy(ep normalizer.Endpoint) string {
@@ -433,6 +660,7 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		QueryResources:         queryResources,
 		QueryKeysNeedsTypes:    queryKeysNeedsTypes,
 		QueryOptionsNeedsTypes: queryOptionsNeedsTypes,
+		WSInvalidateRules:      buildWSInvalidateRules(eventsNorm, endpointsNorm),
 	}
 
 	targetDir := e.FrontendDir
@@ -462,6 +690,12 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		return err
 	}
 	if err := os.MkdirAll(filepath.Join(targetDir, "prefetch"), 0755); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Join(targetDir, "adapters"), 0755); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Join(targetDir, "app-hooks"), 0755); err != nil {
 		return err
 	}
 
@@ -578,6 +812,7 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 	}
 
 	funcMap := template.FuncMap{
+		"TrimSpace":  strings.TrimSpace,
 		"ToLower":    strings.ToLower,
 		"JSONName":   JSONName,
 		"ExportName": ExportName,
@@ -751,6 +986,10 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		"EntityHasID": func(entity normalizer.Entity) bool {
 			return entityIDField(entity) != nil
 		},
+		"EntityIDFieldIsSecret": func(entity normalizer.Entity) bool {
+			field := entityIDField(entity)
+			return field != nil && field.IsSecret
+		},
 		"EntityIDFieldName": func(entity normalizer.Entity) string {
 			field := entityIDField(entity)
 			if field == nil {
@@ -843,6 +1082,50 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 			}
 			return false
 		},
+		"ServiceNameForGETRPC": func(rpc string) string {
+			rpc = strings.TrimSpace(rpc)
+			for _, ep := range endpointsNorm {
+				if ep.RPC != rpc {
+					continue
+				}
+				if strings.ToUpper(strings.TrimSpace(ep.Method)) != "GET" {
+					continue
+				}
+				return ep.ServiceName
+			}
+			return ""
+		},
+		"InvalidateGETEndpointTuple": func(rpc string) string {
+			rpc = strings.TrimSpace(rpc)
+			for _, ep := range endpointsNorm {
+				if ep.RPC != rpc {
+					continue
+				}
+				if strings.ToUpper(strings.TrimSpace(ep.Method)) != "GET" {
+					continue
+				}
+				return fmt.Sprintf("['%s', '%s'] as const", ep.ServiceName, ep.RPC)
+			}
+			return ""
+		},
+		"DetailPlaceholderListPrefixTuple": func(detailRPC string) string {
+			detailRPC = strings.TrimSpace(detailRPC)
+			res, ok := queryOptionsByRPC[detailRPC]
+			if !ok || !res.HasList || strings.TrimSpace(res.ListRPC) == "" {
+				return ""
+			}
+			listRPC := strings.TrimSpace(res.ListRPC)
+			for _, ep := range endpointsNorm {
+				if ep.RPC != listRPC {
+					continue
+				}
+				if strings.ToUpper(strings.TrimSpace(ep.Method)) != "GET" {
+					continue
+				}
+				return fmt.Sprintf("['%s', '%s'] as const", ep.ServiceName, ep.RPC)
+			}
+			return ""
+		},
 		"HasGETEndpoints": func() bool {
 			for _, ep := range endpointsNorm {
 				if strings.ToUpper(strings.TrimSpace(ep.Method)) == "GET" {
@@ -850,6 +1133,9 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 				}
 			}
 			return false
+		},
+		"GETServiceNames": func() []string {
+			return serviceNamesWithGET(endpointsNorm)
 		},
 		"QueryOptionsDetailParam": func(rpc string) string {
 			if r, ok := queryOptionsByRPC[rpc]; ok {
@@ -922,6 +1208,22 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 			}
 			return d.Milliseconds()
 		},
+		"UniqueQueryResourceStoreImports": func(resources []QueryResource) []string {
+			seen := map[string]bool{}
+			var stores []string
+			for _, r := range resources {
+				if !r.HasList || !r.HasDetail || r.EntityName == "" {
+					continue
+				}
+				storeName := "use" + r.EntityName + "Store"
+				if !seen[storeName] {
+					seen[storeName] = true
+					stores = append(stores, storeName)
+				}
+			}
+			sort.Strings(stores)
+			return stores
+		},
 	}
 
 	files := []struct {
@@ -945,8 +1247,10 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		{"prefetch", "prefetch/index.ts"},
 		{"hooks", "hooks/index.ts"},
 		{"queries", "queries/index.ts"},
-		{"query-keys", "queries/keys.ts"},
+		{"query-keys-reexport", "queries/keys.ts"},
 		{"websocket-hooks", "hooks/websocket-hooks.ts"},
+		{"adapters-index", "adapters/index.ts"},
+		{"app-hooks-index", "app-hooks/index.ts"},
 		{"routes", "routes.ts"},
 		{"handlers", "mocks/handlers.ts"},
 		{"msw-server", "mocks/server.ts"},
@@ -982,7 +1286,18 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		}
 	}
 
-	if err := e.EmitSDKManifest(endpointsNorm, queryResources); err != nil {
+	// Per-entity Zustand store files (stores/apikey.ts, stores/tender.ts, …)
+	for _, ent := range entitiesNorm {
+		if entityIDField(ent) == nil {
+			continue
+		}
+		outName := "stores/" + strings.ToLower(ent.Name) + ".ts"
+		if err := e.emitFrontendFile("store-item", StoreItemContext{Entity: ent}, funcMap, outName); err != nil {
+			return err
+		}
+	}
+
+	if err := e.EmitSDKManifest(endpointsNorm); err != nil {
 		return err
 	}
 

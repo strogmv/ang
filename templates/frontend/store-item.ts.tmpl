@@ -5,10 +5,22 @@ import { registerStoreInvalidator } from './invalidation';
 
 {{- $ent := .Entity }}
 {{- if EntityHasID $ent }}
-type {{ $ent.Name }}Id = Types.{{ $ent.Name }}['{{ ToLower (EntityIDFieldName $ent) }}'];
+{{- $idTS := JSONName (EntityIDFieldName $ent) }}
+{{- if EntityIDFieldIsSecret $ent }}
+// Primary id is omitted from public Types (e.g. @gdpr); runtime payloads may still carry id/ID.
+type {{ $ent.Name }}Id = string;
+const {{ LowerFirst $ent.Name }}IdKey = (item: Types.{{ $ent.Name }}): string =>
+  String(
+    (item as unknown as Record<string, unknown>)['id'] ??
+    (item as unknown as Record<string, unknown>)['ID'] ??
+    (item as unknown as Record<string, unknown>)['{{ $idTS }}'],
+  );
+{{- else }}
+type {{ $ent.Name }}Id = Types.{{ $ent.Name }}['{{ $idTS }}'];
 
 const {{ LowerFirst $ent.Name }}IdKey = (item: Types.{{ $ent.Name }}): string =>
-  String(item.{{ ToLower (EntityIDFieldName $ent) }});
+  String(item.{{ $idTS }});
+{{- end }}
 
 export interface {{ $ent.Name }}Store {
   items: Record<string, Types.{{ $ent.Name }}>;

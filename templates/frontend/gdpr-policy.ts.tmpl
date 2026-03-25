@@ -3,6 +3,20 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import * as api from './endpoints';
 
+type GdprOwnerReq = { ownerId: string };
+type GdprEndpointFn = (req: GdprOwnerReq) => Promise<unknown>;
+
+/** Resolve optional GDPR RPCs without keyof errors when they are not yet on the OpenAPI surface. */
+function gdprCall(name: string, req: GdprOwnerReq): Promise<unknown> {
+  const fn = (api as unknown as Record<string, GdprEndpointFn | undefined>)[name];
+  if (typeof fn !== 'function') {
+    return Promise.reject(
+      new Error(`GDPR SDK: "${name}" is missing from generated endpoints; add the RPC to the API spec.`),
+    );
+  }
+  return fn(req);
+}
+
 // ── Consent tracking ─────────────────────────────────────────────────────────
 
 export type ConsentScope =
@@ -55,8 +69,7 @@ export const hasConsent = (scope: ConsentScope): boolean =>
 export const useErase{{ $e.Name }}PersonalData = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (req: { ownerId: string }) =>
-      api.erase{{ $e.Name }}PersonalData(req),
+    mutationFn: (req: GdprOwnerReq) => gdprCall('erase{{ $e.Name }}PersonalData', req),
     onSuccess: (_, { ownerId }) => {
       // Invalidate all cached data for this user after erasure
       queryClient.invalidateQueries({ queryKey: ['{{ LowerFirst $e.Name }}'] });
@@ -76,14 +89,16 @@ export const useErase{{ $e.Name }}PersonalData = () => {
  */
 export const useExport{{ $e.Name }}PersonalData = () =>
   useMutation({
-    mutationFn: (req: { ownerId: string }) =>
-      api.export{{ $e.Name }}PersonalData(req),
+    mutationFn: (req: GdprOwnerReq) => gdprCall('export{{ $e.Name }}PersonalData', req),
   });
+{{- end }}
+{{- end }}
+{{- end }}
 
 /** Helper: trigger download of exported personal data as a JSON file. */
 export const downloadPersonalData = (blob: unknown, filename = 'my-data.json'): void => {
   const url = URL.createObjectURL(
-    new Blob([JSON.stringify(blob, null, 2)], { type: 'application/json' })
+    new Blob([JSON.stringify(blob, null, 2)], { type: 'application/json' }),
   );
   const a = document.createElement('a');
   a.href = url;
@@ -91,6 +106,3 @@ export const downloadPersonalData = (blob: unknown, filename = 'my-data.json'): 
   a.click();
   URL.revokeObjectURL(url);
 };
-{{- end }}
-{{- end }}
-{{- end }}

@@ -379,6 +379,11 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 						importMap["encoding/base64"] = ""
 					case "url.Parse", "query.Encode", "query.Decode":
 						importMap["net/url"] = ""
+					case "path.Base":
+						importMap["path"] = ""
+						importMap["strings"] = ""
+					case "str.ReplaceAll", "str.TrimSpace":
+						importMap["strings"] = ""
 					case "url.Build":
 						importMap["net/url"] = ""
 						importMap["path"] = ""

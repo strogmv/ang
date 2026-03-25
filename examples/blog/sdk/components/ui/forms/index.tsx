@@ -174,7 +174,7 @@ export function Field(props: FieldProps) {
         <Button size="small" variant="text" onClick={() => setSensitiveVisible((v) => !v)}>
           {sensitiveVisible ? 'Hide' : 'Show'}
         </Button>
-      ) : nil}
+      ) : null}
     </Box>
   );
 }

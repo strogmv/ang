@@ -14,10 +14,10 @@ const DefaultFallback = () => (
   <div aria-busy="true" aria-label="Loading..." />
 );
 
-{{- range .QueryResources }}
+{{- range .Services }}
 
-/** Suspense boundary for {{ .Key | Title }} data. Renders fallback while queries are loading. */
-export const {{ .Key | Title }}Suspense = ({ children, fallback }: SuspenseBoundaryProps) => (
+/** Suspense boundary for {{ .Name }} service data. Renders fallback while queries are loading. */
+export const {{ .Name }}Suspense = ({ children, fallback }: SuspenseBoundaryProps) => (
   <Suspense fallback={fallback ?? <DefaultFallback />}>{children}</Suspense>
 );
 {{- end }}

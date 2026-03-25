@@ -266,6 +266,24 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		}
 		return b.String(), true
 
+	case "str.ReplaceAll":
+		input := arg("input")
+		old := arg("old")
+		newS := arg("new")
+		output := arg("output")
+		if input == "" || old == "" || newS == "" || output == "" {
+			return renderInvalidFlowStepConfig(st, pad, "str.ReplaceAll", "str.ReplaceAll requires input, old, new, output"), true
+		}
+		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("strings.ReplaceAll(%s, %s, %s)", input, old, newS), "string"), true
+
+	case "str.TrimSpace":
+		input := arg("input")
+		output := arg("output")
+		if input == "" || output == "" {
+			return renderInvalidFlowStepConfig(st, pad, "str.TrimSpace", "str.TrimSpace requires input and output"), true
+		}
+		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("strings.TrimSpace(%s)", input), "string"), true
+
 	case "cast.ToString":
 		input := arg("input")
 		output := arg("output")

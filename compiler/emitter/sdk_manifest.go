@@ -28,7 +28,7 @@ type SDKManifestEndpoint struct {
 	CacheTTL   string   `json:"cacheTTL,omitempty"`
 }
 
-func (e *Emitter) EmitSDKManifest(endpoints []normalizer.Endpoint, queryResources []QueryResource) error {
+func (e *Emitter) EmitSDKManifest(endpoints []normalizer.Endpoint) error {
 	lowerFirst := func(s string) string {
 		if len(s) == 0 {
 			return ""
@@ -65,29 +65,17 @@ func (e *Emitter) EmitSDKManifest(endpoints []normalizer.Endpoint, queryResource
 		manifest.Endpoints = append(manifest.Endpoints, entry)
 	}
 
-	for _, r := range queryResources {
-		base := r.Key
-		manifest.QueryKeys = append(manifest.QueryKeys, base+".all")
-		if r.HasList {
-			manifest.QueryKeys = append(manifest.QueryKeys, base+".lists", base+".list")
+	for _, ep := range endpoints {
+		if strings.ToUpper(strings.TrimSpace(ep.Method)) != "GET" {
+			continue
 		}
-		if r.HasDetail {
-			manifest.QueryKeys = append(manifest.QueryKeys, base+".details", base+".detail")
+		svc := strings.TrimSpace(ep.ServiceName)
+		rpc := strings.TrimSpace(ep.RPC)
+		if svc == "" || rpc == "" {
+			continue
 		}
-		if r.HasMe {
-			manifest.QueryKeys = append(manifest.QueryKeys, base+".me")
-		}
-
-		optionsBase := base + "Options"
-		if r.HasList {
-			manifest.QueryOptions = append(manifest.QueryOptions, optionsBase+".list")
-		}
-		if r.HasDetail {
-			manifest.QueryOptions = append(manifest.QueryOptions, optionsBase+".detail")
-		}
-		if r.HasMe {
-			manifest.QueryOptions = append(manifest.QueryOptions, optionsBase+".me")
-		}
+		manifest.QueryKeys = append(manifest.QueryKeys, fmt.Sprintf("endpoint.%s.%s", svc, rpc))
+		manifest.QueryOptions = append(manifest.QueryOptions, "endpointQueryOptions."+lowerFirst(rpc))
 	}
 
 	sort.Slice(manifest.Endpoints, func(i, j int) bool {

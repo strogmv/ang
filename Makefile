@@ -5,10 +5,14 @@ build:
 	@echo "--- Building ANG Compiler ---"
 	go build -o bin/ang ./cmd/ang
 
-# Install ang globally
+# Install ang to $(go env GOBIN) or $(go env GOPATH)/bin — add that dir to PATH
 install:
 	@echo "--- Installing ANG CLI ---"
 	go install ./cmd/ang
+	@BIN=$$(go env GOBIN); \
+	if [ -z "$$BIN" ]; then BIN=$$(go env GOPATH)/bin; fi; \
+	echo "Installed: $$BIN/ang"; \
+	echo "On PATH if you have: export PATH=\"$$PATH:$$BIN\""
 
 # Run compiler tests
 test:

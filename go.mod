@@ -115,3 +115,6 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	olympos.io/encoding/edn v0.0.0-20201019073823-d3554ca0b0a3 // indirect
 )
+
+// Local ang-ir (flowsem catalog); remove for CI/release that only has the ang module.
+replace github.com/strogmv/ang-ir => ../ang-ir

@@ -1950,6 +1950,21 @@ RefStrFormat: schema.#Operation & {
 }
 
 // ----------------------------------------------------------------------------
+// REF EXAMPLE 1132b: str.ReplaceAll / str.TrimSpace / path.Base
+// ----------------------------------------------------------------------------
+RefStrPathHelpers: schema.#Operation & {
+	service: "reference"
+	input: { id: string }
+	output: { ok: bool }
+	flow: [
+		{action: "str.ReplaceAll", input: "req.ID", old: "\"\\\\\"", new: "\"/\"", output: "norm"},
+		{action: "str.TrimSpace", input: "norm", output: "trimmed"},
+		{action: "path.Base", input: "trimmed", output: "base"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// ----------------------------------------------------------------------------
 // REF EXAMPLE 1133: str.Normalize
 // ----------------------------------------------------------------------------
 RefStrNormalize: schema.#Operation & {

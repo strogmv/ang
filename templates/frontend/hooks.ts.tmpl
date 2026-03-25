@@ -18,6 +18,7 @@ import * as QueryOptions from '../query-options';
 import * as LegacyQueries from '../queries';
 import * as api from '../endpoints';
 import { wsClient, useWebsocketSubscription, useAutoInvalidation } from './websocket-hooks';
+import { WebSocketClient } from '../websocket';
 import { queryKeys } from '../query-keys';
 import { useAuthStore } from '../auth-store';
 // @ts-ignore
@@ -40,16 +41,16 @@ export const use{{ $ep.RPC }} = (params?: Types.{{ $ep.RPC }}Request, options?: 
   return useQuery<Types.{{ $ep.RPC }}Response, Error>({
     {{- if and $optRes (eq $optKind "detail") (ne $listPref "") }}
     placeholderData: () => {
-      const id = ((params as Types.{{ $ep.RPC }}Request | undefined)?.{{ JSONName (QueryOptionsDetailParam $ep.RPC) }});
+      const id = ((params as Types.{{ $ep.RPC }}Request | undefined)?.{{ QueryOptionsDetailParam $ep.RPC }});
       if (!id) return undefined;
       const cachedLists = queryClient.getQueriesData<Types.{{ $ep.RPC }}Response>({
         queryKey: {{ $listPref }},
       });
       for (const [, listData] of cachedLists) {
         const found = (listData as { data?: Record<string, unknown>[] } | undefined)?.data?.find(
-          (item: Record<string, unknown>) => item['{{ JSONName (QueryOptionsDetailParam $ep.RPC) }}'] === id,
+          (item: Record<string, unknown>) => item['{{ QueryOptionsDetailParam $ep.RPC }}'] === id,
         );
-        if (found) return { data: found } as Types.{{ $ep.RPC }}Response;
+        if (found) return { data: found } as unknown as Types.{{ $ep.RPC }}Response;
       }
       return undefined;
     },
@@ -70,10 +71,11 @@ export const use{{ $ep.RPC }}Suspense = (
   const hasRequiredParams = {{- if gt (len $argList) 0 -}} !!({{- range $i, $a := $argList -}}{{ if $i }} && {{ end }}((params as Types.{{ $ep.RPC }}Request | undefined)?.{{ JSONName $a }}){{- end -}}) {{- else -}} true {{- end }};
   const baseOptions = QueryOptions.endpointQueryOptions.{{ LowerFirst $ep.RPC }}((params ?? {}) as Types.{{ $ep.RPC }}Request);
   if (!hasRequiredParams) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return useSuspenseQuery<Types.{{ $ep.RPC }}Response, Error>({
       ...baseOptions,
       ...options,
-      queryFn: skipToken,
+      queryFn: skipToken as any,
     });
   }
   return useSuspenseQuery<Types.{{ $ep.RPC }}Response, Error>({
@@ -173,7 +175,7 @@ export const use{{ .RPC }} = (options?: UseMutationOptions<Types.{{ .RPC }}Respo
         {{- $isList := or (HasPrefix $relatedRPC "List") (HasPrefix $relatedRPC "AdminList") }}
         {{- $relTuple := InvalidateGETEndpointTuple $relatedRPC }}
         {{- $relSvc := ServiceNameForGETRPC $relatedRPC }}
-        const _v = variables as Record<string, unknown>;
+        const _v = variables as unknown as Record<string, unknown>;
         const id = _v['{{ JSONName "id" }}'] ?? _v['{{ JSONName (GetEntityIDParam .RPC) }}'];
         
         {{- if $isList }}

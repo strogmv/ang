@@ -14,6 +14,8 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"mime"
+	"path/filepath"
 	"math/big"
 	"math/rand"
 	"net"
@@ -150,6 +152,82 @@ func decodeJSONRequest(r *http.Request, out interface{}) error {
 		if err != nil {
 			return err
 		}
+	}
+	return json.Unmarshal(body, out)
+}
+
+// decodeMultipartOrJSONUpload accepts application/json (same as decodeJSONRequest) or multipart/form-data
+// with a "file" part and optional text fields (ownerType, ownerId, folderId, name, mime, url, size).
+// Populates any struct with matching JSON tags (e.g. port.UploadAttachmentRequest).
+func decodeMultipartOrJSONUpload(r *http.Request, out interface{}) error {
+	ct := r.Header.Get("Content-Type")
+	mediatype, _, err := mime.ParseMediaType(ct)
+	if err != nil || mediatype != "multipart/form-data" {
+		return decodeJSONRequest(r, out)
+	}
+
+	const maxMemory = 64 << 20
+	if err := r.ParseMultipartForm(maxMemory); err != nil {
+		return fmt.Errorf("multipart parse: %w", err)
+	}
+	if r.MultipartForm != nil {
+		defer func() { _ = r.MultipartForm.RemoveAll() }()
+	}
+
+	file, hdr, err := r.FormFile("file")
+	if err != nil {
+		return fmt.Errorf("multipart form field \"file\" is required")
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return fmt.Errorf("read upload: %w", err)
+	}
+	if len(data) == 0 {
+		return fmt.Errorf("empty file upload")
+	}
+
+	payload := map[string]interface{}{
+		"fileBase64": base64.StdEncoding.EncodeToString(data),
+		"size":       len(data),
+	}
+	if fn := strings.TrimSpace(hdr.Filename); fn != "" {
+		payload["name"] = filepath.Base(fn)
+	}
+	if v := strings.TrimSpace(hdr.Header.Get("Content-Type")); v != "" {
+		payload["mime"] = v
+	}
+
+	for key, formKey := range map[string]string{
+		"url":        "url",
+		"name":       "name",
+		"mime":       "mime",
+		"ownerType":  "ownerType",
+		"ownerId":    "ownerId",
+		"folderId":   "folderId",
+		"companyId":  "companyId",
+		"userId":     "userId",
+	} {
+		if v := strings.TrimSpace(r.FormValue(formKey)); v != "" {
+			payload[key] = v
+		}
+	}
+	// Lowercase aliases from HTML forms
+	if v := strings.TrimSpace(r.FormValue("ownerid")); v != "" {
+		if _, ok := payload["ownerId"]; !ok {
+			payload["ownerId"] = v
+		}
+	}
+	if v := strings.TrimSpace(r.FormValue("folderid")); v != "" {
+		if _, ok := payload["folderId"]; !ok {
+			payload["folderId"] = v
+		}
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
 	}
 	return json.Unmarshal(body, out)
 }

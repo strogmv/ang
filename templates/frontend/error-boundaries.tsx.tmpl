@@ -25,10 +25,10 @@ type ResourceBoundaryProps = {
   onError?: (error: Error, info: React.ErrorInfo) => void;
 };
 
-{{- range .QueryResources }}
+{{- range .Services }}
 
-/** Error boundary isolating {{ .Key | Title }} data UI. Resets on query-client reset. */
-export const {{ .Key | Title }}ErrorBoundary = ({
+/** Error boundary isolating {{ .Name }} service UI. Resets on query-client reset. */
+export const {{ .Name }}ErrorBoundary = ({
   children,
   fallback: FallbackComponent = DefaultFallback,
   onError,
