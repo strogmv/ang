@@ -12,6 +12,9 @@ import (
 	"text/template"
 	"time"
 
+	"cuelang.org/go/cue"
+	"cuelang.org/go/cue/cuecontext"
+	cueload "cuelang.org/go/cue/load"
 	"github.com/strogmv/ang-ir/ir"
 	"github.com/strogmv/ang-ir/normalizer"
 	"github.com/strogmv/ang/compiler/policy"
@@ -19,6 +22,7 @@ import (
 
 type FrontendContext struct {
 	Entities               []normalizer.Entity
+	NamedEnums             []NamedEnum
 	Services               []normalizer.Service
 	Endpoints              []normalizer.Endpoint
 	Events                 []normalizer.EventDef
@@ -28,6 +32,11 @@ type FrontendContext struct {
 	QueryKeysNeedsTypes    bool
 	QueryOptionsNeedsTypes bool
 	WSInvalidateRules      []WSInvalidateRule
+}
+
+type NamedEnum struct {
+	Name   string
+	Values []string
 }
 
 type StoreItemContext struct {
@@ -56,6 +65,212 @@ type QueryResource struct {
 	ListCacheTTL    string
 	DetailCacheTTL  string
 	EntityName      string // derived from DetailRPC — used for Zustand store import
+}
+
+func equalStringSlices(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func namedEnumNameSet(namedEnums []NamedEnum) map[string]struct{} {
+	out := make(map[string]struct{}, len(namedEnums))
+	for _, enum := range namedEnums {
+		if enum.Name == "" {
+			continue
+		}
+		out[enum.Name] = struct{}{}
+	}
+	return out
+}
+
+func matchFieldNamedEnum(f normalizer.Field, namedEnums []NamedEnum, namedEnumSet map[string]struct{}) string {
+	baseType := strings.TrimSpace(f.Type)
+	isList := f.IsList || strings.HasPrefix(baseType, "[]")
+	if isList {
+		baseType = strings.TrimPrefix(baseType, "[]")
+	}
+	baseType = strings.TrimPrefix(baseType, "domain.")
+	if _, ok := namedEnumSet[baseType]; ok {
+		return baseType
+	}
+	if f.Constraints == nil || len(f.Constraints.Enum) == 0 {
+		return ""
+	}
+	for _, enum := range namedEnums {
+		if equalStringSlices(enum.Values, f.Constraints.Enum) {
+			return enum.Name
+		}
+	}
+	return ""
+}
+
+func tsEnumKey(value string) string {
+	parts := strings.FieldsFunc(value, func(r rune) bool {
+		return (r < '0' || r > '9') && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z')
+	})
+	if len(parts) == 0 {
+		return "Value"
+	}
+	replacements := map[string]string{
+		"ai":     "AI",
+		"api":    "API",
+		"id":     "ID",
+		"paypal": "PayPal",
+		"sepa":   "SEPA",
+		"ui":     "UI",
+		"url":    "URL",
+	}
+	var b strings.Builder
+	for _, part := range parts {
+		lower := strings.ToLower(strings.TrimSpace(part))
+		if lower == "" {
+			continue
+		}
+		if repl, ok := replacements[lower]; ok {
+			b.WriteString(repl)
+			continue
+		}
+		b.WriteString(strings.ToUpper(lower[:1]))
+		if len(lower) > 1 {
+			b.WriteString(lower[1:])
+		}
+	}
+	if b.Len() == 0 {
+		return "Value"
+	}
+	return b.String()
+}
+
+func collectFrontendEnumStrings(v cue.Value) []string {
+	if v.IncompleteKind() == cue.StringKind {
+		s, err := v.String()
+		if err == nil {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				return []string{s}
+			}
+		}
+	}
+	if v.IncompleteKind() == cue.ListKind {
+		var vals []string
+		it, _ := v.List()
+		for it.Next() {
+			s, err := it.Value().String()
+			if err != nil {
+				return nil
+			}
+			s = strings.TrimSpace(s)
+			if s != "" {
+				vals = append(vals, s)
+			}
+		}
+		if len(vals) > 0 {
+			return vals
+		}
+	}
+	if op, args := v.Expr(); op == cue.OrOp {
+		vals := make([]string, 0, len(args))
+		for _, arg := range args {
+			s, err := arg.String()
+			if err != nil {
+				return nil
+			}
+			s = strings.TrimSpace(s)
+			if s != "" {
+				vals = append(vals, s)
+			}
+		}
+		if len(vals) > 0 {
+			return vals
+		}
+	}
+	return nil
+}
+
+func extractFrontendNamedEnums(projectRoot string) []NamedEnum {
+	domainDir := filepath.Join(projectRoot, "cue", "domain")
+	stat, err := os.Stat(domainDir)
+	if err != nil || !stat.IsDir() {
+		return nil
+	}
+	insts := cueload.Instances([]string{"./cue/domain"}, &cueload.Config{Dir: projectRoot})
+	if len(insts) == 0 {
+		return nil
+	}
+	ctx := cuecontext.New()
+	built := ctx.BuildInstance(insts[0])
+	if err := built.Err(); err != nil {
+		return nil
+	}
+	it, err := built.Fields(cue.Definitions(true), cue.Hidden(true), cue.Optional(true))
+	if err != nil {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	var out []NamedEnum
+	for it.Next() {
+		name := strings.TrimPrefix(strings.TrimSpace(it.Selector().String()), "#")
+		if name == "" || strings.HasPrefix(name, "_") {
+			continue
+		}
+		if strings.HasSuffix(name, "Service") || strings.HasSuffix(name, "API") || name == "AppConfig" || name == "RBAC" || name == "Scopes" {
+			continue
+		}
+		values := collectFrontendEnumStrings(it.Value())
+		if len(values) == 0 {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, NamedEnum{Name: name, Values: values})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+func findProjectRootWithCueDomain(start string) string {
+	base := strings.TrimSpace(start)
+	if base == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(base)
+	if err == nil {
+		base = abs
+	}
+	for {
+		domainDir := filepath.Join(base, "cue", "domain")
+		if stat, err := os.Stat(domainDir); err == nil && stat.IsDir() {
+			return base
+		}
+		parent := filepath.Dir(base)
+		if parent == base {
+			return ""
+		}
+		base = parent
+	}
+}
+
+func resolveFrontendProjectRoot(outputDir, frontendDir string) string {
+	for _, candidate := range []string{frontendDir, outputDir} {
+		if root := findProjectRootWithCueDomain(candidate); root != "" {
+			return root
+		}
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		if root := findProjectRootWithCueDomain(cwd); root != "" {
+			return root
+		}
+	}
+	return strings.TrimSpace(outputDir)
 }
 
 func deriveEntityName(rpc string) string {
@@ -650,8 +865,12 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		}
 	}
 
+	namedEnums := extractFrontendNamedEnums(resolveFrontendProjectRoot(e.OutputDir, e.FrontendDir))
+	namedEnumSet := namedEnumNameSet(namedEnums)
+
 	ctx := FrontendContext{
 		Entities:               entitiesNorm,
+		NamedEnums:             namedEnums,
 		Services:               servicesNorm,
 		Endpoints:              endpointsNorm,
 		Events:                 eventsNorm,
@@ -854,10 +1073,69 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		"TSType": tsType,
 		"TSFieldType": func(f normalizer.Field) string {
 			base := tsType(f.Type)
+			if enumName := matchFieldNamedEnum(f, namedEnums, namedEnumSet); enumName != "" {
+				base = enumName
+				if f.IsList || strings.HasPrefix(strings.TrimSpace(f.Type), "[]") {
+					base += "[]"
+				}
+			}
 			if f.Metadata != nil && f.Metadata["client_side_encryption"] == true {
 				return "Encrypted<" + base + ">"
 			}
 			return base
+		},
+		"ZodFieldType": func(f normalizer.Field) string {
+			if enumName := matchFieldNamedEnum(f, namedEnums, namedEnumSet); enumName != "" {
+				if f.IsList || strings.HasPrefix(strings.TrimSpace(f.Type), "[]") {
+					return fmt.Sprintf("z.array(%sSchema)", enumName)
+				}
+				return fmt.Sprintf("%sSchema", enumName)
+			}
+			goType := f.Type
+			if strings.HasPrefix(goType, "[]") {
+				elem := strings.TrimPrefix(goType, "[]")
+				if strings.HasPrefix(elem, "domain.") {
+					elem = strings.TrimPrefix(elem, "domain.")
+				}
+				switch elem {
+				case "string":
+					return "z.array(z.string())"
+				case "int", "int64", "float64", "float":
+					return "z.array(z.number())"
+				case "bool":
+					return "z.array(z.boolean())"
+				case "time.Time":
+					return "z.array(z.coerce.date())"
+				default:
+					for _, ent := range entitiesNorm {
+						if ent.Name == elem {
+							return fmt.Sprintf("z.array(z.lazy(() => %sSchema))", elem)
+						}
+					}
+					return "z.array(z.any())"
+				}
+			}
+			base := goType
+			if strings.HasPrefix(base, "domain.") {
+				base = strings.TrimPrefix(base, "domain.")
+			}
+			switch base {
+			case "int", "int64", "float64", "float":
+				return "z.number()"
+			case "bool":
+				return "z.boolean()"
+			case "string":
+				return "z.string()"
+			case "time.Time":
+				return "z.coerce.date()"
+			default:
+				for _, ent := range entitiesNorm {
+					if ent.Name == base {
+						return fmt.Sprintf("z.lazy(() => %sSchema)", base)
+					}
+				}
+				return "z.any()"
+			}
 		},
 		"ZodType": func(goType string) string {
 			if strings.HasPrefix(goType, "[]") {
@@ -904,6 +1182,11 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 				}
 				return "z.any()"
 			}
+		},
+		"TSEnumKey": tsEnumKey,
+		"IsNamedEnumEntity": func(name string) bool {
+			_, ok := namedEnumSet[strings.TrimSpace(name)]
+			return ok
 		},
 		"IsRequired": func(f normalizer.Field) bool {
 			rules := parseValidateTag(f.ValidateTag)

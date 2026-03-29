@@ -6,7 +6,17 @@
  */
 export type Encrypted<T> = string & { __encrypted?: T };
 
+{{- range .NamedEnums }}
+export const {{ .Name }} = {
+{{- range .Values }}
+  {{ . | TSEnumKey }}: "{{ . }}",
+{{- end }}
+} as const;
+export type {{ .Name }} = typeof {{ .Name }}[keyof typeof {{ .Name }}];
+
+{{- end }}
 {{- range .Entities }}
+{{- if not (IsNamedEnumEntity .Name) }}
 export interface {{ .Name }} {
 {{- range .Fields }}
   {{- if not .IsSecret }}
@@ -15,6 +25,7 @@ export interface {{ .Name }} {
   {{- end }}
 {{- end }}
 }
+{{- end }}
 {{- end }}
 
 // Events
