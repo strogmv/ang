@@ -472,6 +472,12 @@ func mapDeclaredCueTypeToGo(raw string) string {
 		}
 		return "[]any"
 	}
+	if strings.HasPrefix(t, "#") {
+		return "domain." + exportName(strings.TrimPrefix(t, "#"))
+	}
+	if strings.HasPrefix(strings.ToLower(t), "domain.") {
+		return "domain." + exportName(strings.TrimPrefix(t, "domain."))
+	}
 
 	switch strings.ToLower(t) {
 	case "string", "email", "url", "phone", "password", "uuid":

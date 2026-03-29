@@ -237,6 +237,14 @@ func parseUIHints(v cue.Value) *UIHints {
 }
 
 func extractConstraints(v cue.Value) *Constraints {
+	if root, path := v.ReferencePath(); len(path.Selectors()) > 0 {
+		if target := root.LookupPath(path); target.Exists() {
+			if sub := extractConstraints(target); sub != nil {
+				return sub
+			}
+		}
+	}
+
 	c := &Constraints{}
 	hasAny := false
 
