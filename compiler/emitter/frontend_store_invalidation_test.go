@@ -81,9 +81,20 @@ func TestEmitFrontendSDK_GeneratesStoreAutoInvalidation(t *testing.T) {
 		t.Fatalf("stores/invalidation.ts must not export markStoresListStale (Zustand invalidation removed)")
 	}
 
-	// No entity store files should be generated (Zustand stores removed).
-	if _, err := os.Stat(filepath.Join(tmp, "stores", "tender.ts")); !os.IsNotExist(err) {
-		t.Fatalf("stores/tender.ts must not be generated (entity stores removed)")
+	// Legacy entity stores are still generated for compatibility, but invalidation.ts is a no-op.
+	storeData, err := os.ReadFile(filepath.Join(tmp, "stores", "tender.ts"))
+	if err != nil {
+		t.Fatalf("read stores/tender.ts: %v", err)
+	}
+	storeText := string(storeData)
+	for _, expected := range []string{
+		"registerStoreInvalidator('tender'",
+		"state.markListStale()",
+		"state.markDetailStale(",
+	} {
+		if !strings.Contains(storeText, expected) {
+			t.Fatalf("expected %q in stores/tender.ts, got:\n%s", expected, storeText)
+		}
 	}
 
 	// endpoints.ts should NOT reference the old Zustand invalidation helpers.
