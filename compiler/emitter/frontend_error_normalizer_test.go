@@ -74,4 +74,13 @@ func TestEmitFrontendSDK_GeneratesErrorNormalizerModule(t *testing.T) {
 	if !strings.Contains(clientText, "return apiClient.request(cfg);") {
 		t.Fatalf("expected api-client.ts to retry failed request based on endpoint metadata")
 	}
+	if !strings.Contains(clientText, "const getHeaderValue = (config: InternalAxiosRequestConfig, name: string): string | undefined =>") {
+		t.Fatalf("expected api-client.ts to include explicit authorization helper")
+	}
+	if !strings.Contains(clientText, "const hasExplicitAuthorization = Boolean(getHeaderValue(config, 'Authorization'));") {
+		t.Fatalf("expected api-client.ts to preserve explicit authorization headers")
+	}
+	if !strings.Contains(clientText, "authFromStore: token && hasExplicitAuthorization === false") {
+		t.Fatalf("expected api-client.ts retry metadata to remember store-authenticated requests")
+	}
 }

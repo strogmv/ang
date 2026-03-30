@@ -84,6 +84,17 @@ const findEndpointMeta = (url: string | undefined) => {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const getHeaderValue = (config: InternalAxiosRequestConfig, name: string): string | undefined => {
+  const headers: any = config.headers;
+  if (headers == null) return undefined;
+  if (typeof headers.get === 'function') {
+    const value = headers.get(name);
+    return typeof value === 'string' && value.trim() ? value : undefined;
+  }
+  const direct = headers[name] ?? headers[name.toLowerCase()];
+  return typeof direct === 'string' && direct.trim() ? direct : undefined;
+};
+
 const REFRESH_ENDPOINT = '/api/auth/refresh';
 const isRefreshRequest = (config?: InternalAxiosRequestConfig) => {
   const url = config?.url;
@@ -140,7 +151,8 @@ const shouldRetry = (error: AxiosError) => {
 // 1. JWT, Locale & Trace Context Interceptor
 apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = useAuthStore.getState().token;
-  if (token && config.headers) {
+  const hasExplicitAuthorization = Boolean(getHeaderValue(config, 'Authorization'));
+  if (token && config.headers && hasExplicitAuthorization === false) {
     config.headers.Authorization = `Bearer ${token}`;
   }
 
@@ -170,7 +182,12 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   }
   // Attach trace + contract metadata for response/retry interceptor.
   const attempt = Number((config as any)?.meta?.retryAttempt || 0);
-  (config as any).meta = { traceId, endpointMeta: meta, retryAttempt: attempt };
+  (config as any).meta = {
+    traceId,
+    endpointMeta: meta,
+    retryAttempt: attempt,
+    authFromStore: token && hasExplicitAuthorization === false,
+  };
 
   // Auto-Idempotency for contract-driven endpoints.
   if (meta?.idempotent && config.method?.toUpperCase() !== 'GET') {
@@ -191,7 +208,7 @@ apiClient.interceptors.response.use(
       try {
         await refreshAuthToken();
         const newToken = useAuthStore.getState().token;
-        if (newToken && cfg.headers) {
+        if (newToken && cfg.headers && ((cfg as any)?.meta?.authFromStore || getHeaderValue(cfg, 'Authorization') === undefined)) {
           cfg.headers.Authorization = `Bearer ${newToken}`;
         }
         return apiClient.request(cfg);
