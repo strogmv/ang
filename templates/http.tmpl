@@ -258,14 +258,14 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 		{{- $hasRedirectURL := false }}
 		{{- if .Output.Name }}
 		{{- range .Output.Fields }}
-		{{- if eq .Name "redirectUrl" }}
+		{{- if eq .Name "redirectURL" }}
 		{{- $hasRedirectURL = true }}
 		{{- end }}
 		{{- end }}
 		{{- end }}
 		{{- if and $hasRedirect $hasRedirectURL }}
-		if req.Redirect && resp.RedirectUrl != "" {
-			http.Redirect(w, r, resp.RedirectUrl, http.StatusFound)
+		if req.Redirect && resp.RedirectURL != "" {
+			http.Redirect(w, r, resp.RedirectURL, http.StatusFound)
 			return
 		}
 		{{- end }}
