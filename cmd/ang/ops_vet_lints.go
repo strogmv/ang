@@ -76,6 +76,7 @@ func lintFlowTooLarge(opPath string, flow []normalizer.FlowStep) []normalizer.Wa
 
 var httpActions = map[string]bool{
 	"http.Request":  true,
+	"http.SOAP":     true,
 	"http.Call":     true,
 	"http.Paginate": true,
 	"http.Get":      true,

@@ -24,6 +24,7 @@ func TestRenderFlowStepInfra_DispatchHandlesKnownActions(t *testing.T) {
 		{name: "storage_delete", step: normalizer.FlowStep{Action: "storage.Delete", Args: map[string]any{"key": `"path/file"`}}},
 		{name: "storage_list", step: normalizer.FlowStep{Action: "storage.List", Args: map[string]any{"prefix": `"path/"`, "output": "keys"}}},
 		{name: "http_call", step: normalizer.FlowStep{Action: "http.Call", Args: map[string]any{"method": "POST", "url": `"https://example.com"`, "body": `"{}"`, "output": "httpBody", "statusVar": "httpStatus"}}},
+		{name: "http_soap", step: normalizer.FlowStep{Action: "http.SOAP", Args: map[string]any{"url": `"https://example.com/soap"`, "namespace": `"urn:test"`, "operation": `"CheckVat"`, "request": map[string]string{"countryCode": `"DE"`, "vatNumber": "req.VAT"}, "into": "VIESResponse", "output": "soapResp", "statusVar": "soapStatus"}}},
 		{name: "rand_code", step: normalizer.FlowStep{Action: "rand.Code", Args: map[string]any{"output": "otp", "length": 6}}},
 		{name: "rand_token", step: normalizer.FlowStep{Action: "rand.Token", Args: map[string]any{"output": "token", "bytes": 16}}},
 		{name: "str_format", step: normalizer.FlowStep{Action: "str.Format", Args: map[string]any{"template": `"u:%s"`, "args": []string{"req.UserID"}, "output": "line"}}},

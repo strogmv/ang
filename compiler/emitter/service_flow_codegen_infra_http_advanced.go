@@ -15,6 +15,8 @@ func renderFlowStepInfraHTTPAdvanced(st *flowRenderState, step normalizer.FlowSt
 	switch step.Action {
 	case "http.Request":
 		return renderHTTPRequest(st, step, pad, sfx, arg)
+	case "http.SOAP":
+		return renderHTTPSOAP(st, step, pad, sfx, arg)
 	case "http.RetryPolicy":
 		return renderHTTPRetryPolicy(st, step, pad, sfx, arg)
 	case "http.Paginate":
@@ -444,5 +446,117 @@ func renderHTTPPaginate(st *flowRenderState, step normalizer.FlowStep, pad, sfx 
 	b.WriteString(fmt.Sprintf("%s}\n", inner))
 
 	b.WriteString(fmt.Sprintf("%s}\n", pad))
+	return b.String(), true
+}
+
+func renderHTTPSOAP(st *flowRenderState, step normalizer.FlowStep, pad, sfx string, arg func(string) string) (string, bool) {
+	url := arg("url")
+	namespace := arg("namespace")
+	operation := arg("operation")
+	if url == "" || namespace == "" || operation == "" {
+		return renderInvalidFlowStepConfig(st, pad, "http.SOAP", "http.SOAP requires url, namespace, and operation"), true
+	}
+	output := arg("output")
+	into := arg("into")
+	statusVar := arg("statusVar")
+	timeout := arg("timeout")
+	soapAction := arg("soapAction")
+	if timeout == "" {
+		timeout = "10*time.Second"
+	}
+	if soapAction == "" {
+		soapAction = operation
+	}
+	failOnError := true
+	if v, ok := step.Args["failOnError"].(bool); ok {
+		failOnError = v
+	}
+
+	reqV := "_httpReq" + sfx
+	reqErrV := "_httpReqErr" + sfx
+	resV := "_httpRes" + sfx
+	hErrV := "_hErr" + sfx
+	bodyV := "_httpBody" + sfx
+	callCtxV := "_httpCallCtx" + sfx
+	cancelV := "_httpCancel" + sfx
+	payloadV := "_soapPayload" + sfx
+	jErrV := "_soapDecodeErr" + sfx
+	valV := "_soapVal" + sfx
+	escV := "_soapEsc" + sfx
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("%s// http.SOAP: POST %s\n", pad, url))
+	b.WriteString(fmt.Sprintf("%svar %s strings.Builder\n", pad, payloadV))
+	b.WriteString(fmt.Sprintf("%s%s.WriteString(%q)\n", pad, payloadV, `<?xml version="1.0" encoding="UTF-8"?>`))
+	b.WriteString(fmt.Sprintf("%s%s.WriteString(%q)\n", pad, payloadV, `<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body>`))
+	b.WriteString(fmt.Sprintf("%s%s.WriteString(fmt.Sprintf(%q, %s, %s))\n", pad, payloadV, `<%s xmlns="%s">`, operation, namespace))
+	if reqMap, ok := step.Args["request"].(map[string]string); ok && len(reqMap) > 0 {
+		keys := make([]string, 0, len(reqMap))
+		for k := range reqMap {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for i, k := range keys {
+			valVar := fmt.Sprintf("%s_%d", valV, i)
+			escVar := fmt.Sprintf("%s_%d", escV, i)
+			b.WriteString(fmt.Sprintf("%s%s := fmt.Sprint(%s)\n", pad, valVar, reqMap[k]))
+			b.WriteString(fmt.Sprintf("%svar %s strings.Builder\n", pad, escVar))
+			b.WriteString(fmt.Sprintf("%sif _soapErr := xml.EscapeText(&%s, []byte(%s)); _soapErr != nil {\n", pad, escVar, valVar))
+			b.WriteString(errReturn(st, pad+"\t", "fmt.Errorf(\"http.SOAP: escape: %w\", _soapErr)"))
+			b.WriteString(fmt.Sprintf("%s}\n", pad))
+			b.WriteString(fmt.Sprintf("%s%s.WriteString(%q)\n", pad, payloadV, "<"+k+">"))
+			b.WriteString(fmt.Sprintf("%s%s.WriteString(%s.String())\n", pad, payloadV, escVar))
+			b.WriteString(fmt.Sprintf("%s%s.WriteString(%q)\n", pad, payloadV, "</"+k+">"))
+		}
+	}
+	b.WriteString(fmt.Sprintf("%s%s.WriteString(fmt.Sprintf(%q, %s))\n", pad, payloadV, `</%s></soap:Body></soap:Envelope>`, operation))
+	b.WriteString(fmt.Sprintf("%s%s, %s := context.WithTimeout(ctx, %s)\n", pad, callCtxV, cancelV, timeout))
+	b.WriteString(fmt.Sprintf("%s%s, %s := http.NewRequestWithContext(%s, %q, %s, strings.NewReader(%s.String()))\n", pad, reqV, reqErrV, callCtxV, "POST", url, payloadV))
+	b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, reqErrV))
+	b.WriteString(fmt.Sprintf("%s\t%s()\n", pad, cancelV))
+	b.WriteString(errReturn(st, pad+"\t", "fmt.Errorf(\"http.SOAP: %w\", "+reqErrV+")"))
+	b.WriteString(fmt.Sprintf("%s}\n", pad))
+	b.WriteString(fmt.Sprintf("%s%s.Header.Set(%q, %q)\n", pad, reqV, "Content-Type", "text/xml; charset=utf-8"))
+	b.WriteString(fmt.Sprintf("%s%s.Header.Set(%q, fmt.Sprint(%s))\n", pad, reqV, "SOAPAction", soapAction))
+	writeHTTPAuth(&b, pad, reqV, step, arg)
+	b.WriteString(fmt.Sprintf("%s%s, %s := http.DefaultClient.Do(%s)\n", pad, resV, hErrV, reqV))
+	b.WriteString(fmt.Sprintf("%s%s()\n", pad, cancelV))
+	b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, hErrV))
+	b.WriteString(errReturn(st, pad+"\t", "fmt.Errorf(\"http.SOAP: %w\", "+hErrV+")"))
+	b.WriteString(fmt.Sprintf("%s}\n", pad))
+	b.WriteString(fmt.Sprintf("%s%s, _ := io.ReadAll(%s.Body)\n", pad, bodyV, resV))
+	b.WriteString(fmt.Sprintf("%s%s.Body.Close()\n", pad, resV))
+	if statusVar != "" {
+		assign := ":="
+		if st.declared[statusVar] {
+			assign = "="
+		}
+		st.declared[statusVar] = true
+		st.pointers[statusVar] = false
+		b.WriteString(fmt.Sprintf("%s%s %s %s.StatusCode\n", pad, statusVar, assign, resV))
+	}
+	if failOnError {
+		b.WriteString(fmt.Sprintf("%sif %s.StatusCode >= 400 {\n", pad, resV))
+		b.WriteString(errReturn(st, pad+"\t", "errors.New("+resV+".StatusCode, \"HTTP_ERROR\", string("+bodyV+"))"))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+	}
+	if into != "" && output != "" {
+		if !st.declared[output] {
+			b.WriteString(fmt.Sprintf("%svar %s %s\n", pad, output, into))
+			st.declared[output] = true
+			st.pointers[output] = false
+		}
+		b.WriteString(fmt.Sprintf("%sif %s := xml.Unmarshal(%s, &%s); %s != nil {\n", pad, jErrV, bodyV, output, jErrV))
+		b.WriteString(errReturn(st, pad+"\t", "fmt.Errorf(\"http.SOAP: unmarshal: %w\", "+jErrV+")"))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+	} else if output != "" {
+		assign := ":="
+		if st.declared[output] {
+			assign = "="
+		}
+		st.declared[output] = true
+		st.pointers[output] = false
+		b.WriteString(fmt.Sprintf("%s%s %s string(%s)\n", pad, output, assign, bodyV))
+	}
 	return b.String(), true
 }

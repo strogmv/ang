@@ -238,6 +238,10 @@ var logosDB = map[string]ActionLogos{
 		Effects:     []string{effectExtCall},
 		FailureMode: "compensatable",
 	},
+	"http.SOAP": {
+		Effects:     []string{effectExtCall},
+		FailureMode: "compensatable",
+	},
 	"http.Call": {
 		Effects:     []string{effectExtCall},
 		FailureMode: "compensatable",

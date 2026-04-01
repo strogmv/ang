@@ -144,6 +144,16 @@ func TestRenderFlowActionMatrix_InfraAndReliability(t *testing.T) {
 			},
 		},
 		{
+			name: "http.SOAP",
+			step: normalizer.FlowStep{Action: "http.SOAP", Args: map[string]any{"url": `"https://example.com/soap"`, "namespace": `"urn:test"`, "operation": `"CheckVat"`, "request": map[string]string{"countryCode": `"DE"`, "vatNumber": "req.VAT"}, "into": "VIESResponse", "output": "soapResp", "statusVar": "soapStatus"}},
+			wants: []string{
+				"text/xml; charset=utf-8",
+				"SOAPAction",
+				"xml.Unmarshal",
+				"soapStatus := _httpRes",
+			},
+		},
+		{
 			name: "http.RetryPolicy",
 			step: normalizer.FlowStep{Action: "http.RetryPolicy", Args: map[string]any{"method": "POST", "url": `"https://example.com"`, "body": `"{}"`, "output": "body", "attempts": 3}},
 			wants: []string{
@@ -418,6 +428,7 @@ func TestRenderFlowActionMatrix_InvalidConfigPaths(t *testing.T) {
 	}{
 		{action: "config.Get", step: normalizer.FlowStep{Action: "config.Get", Args: map[string]any{"output": "cfg"}}, want: `config.Get: config.Get requires key and output`},
 		{action: "http.Request", step: normalizer.FlowStep{Action: "http.Request", Args: map[string]any{"url": `"https://example.com"`}}, want: `http.Request: http.Request requires method and url`},
+		{action: "http.SOAP", step: normalizer.FlowStep{Action: "http.SOAP", Args: map[string]any{"url": `"https://example.com/soap"`, "operation": `"CheckVat"`}}, want: `http.SOAP: http.SOAP requires url, namespace, and operation`},
 		{action: "http.RetryPolicy", step: normalizer.FlowStep{Action: "http.RetryPolicy", Args: map[string]any{"method": "GET"}}, want: `http.RetryPolicy: http.RetryPolicy requires method and url`},
 		{action: "http.Paginate", step: normalizer.FlowStep{Action: "http.Paginate", Args: map[string]any{"url": `"https://example.com"`}}, want: `http.Paginate: http.Paginate requires url, into, as, and cursor_expr`},
 		{action: "flow.Tag", step: normalizer.FlowStep{Action: "flow.Tag", Args: map[string]any{}}, want: `flow.Tag: flow.Tag requires name`},
