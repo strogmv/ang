@@ -312,7 +312,7 @@ func flowStepReferenceExprs(step FlowStep) []flowRefExpr {
 		addArgs("path", "data")
 	case "fs.ReadFile", "fs.Remove", "archive.ZipDir":
 		addArg("path")
-	case "http.Call", "http.Request", "http.RetryPolicy":
+	case "http.Call", "http.Request", "http.SOAP", "http.RetryPolicy":
 		addArgs("url", "body", "timeout", "auth")
 		addArgMapValues("headers")
 		addArgMapValues("query")

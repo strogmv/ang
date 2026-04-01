@@ -546,6 +546,20 @@ var specsCoreBase = map[string]Spec{
 			"query":     ArgKindStringMap,
 		},
 	},
+	"http.SOAP": {
+		RequiredArgs:     []string{"url", "namespace", "operation"},
+		DeclaresFromArgs: []string{"output", "statusVar"},
+		OptionalArgKinds: map[string]ArgKind{
+			"soapAction":  ArgKindString,
+			"timeout":     ArgKindString,
+			"into":        ArgKindString,
+			"statusVar":   ArgKindString,
+			"output":      ArgKindString,
+			"headers":     ArgKindStringMap,
+			"request":     ArgKindStringMap,
+			"failOnError": ArgKindBool,
+		},
+	},
 	"http.RetryPolicy": {
 		RequiredArgs:     []string{"method", "url"},
 		DeclaresFromArgs: []string{"output"},

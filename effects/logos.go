@@ -167,6 +167,12 @@ var Registry = map[string]ActionLogos{
 		ProducesVar:  "output",
 		TxCompatible: false,
 	},
+	"http.SOAP": {
+		Effect:       EffectHTTP,
+		RequiresTags: []SafetyTag{RequireRateChecked},
+		ProducesVar:  "output",
+		TxCompatible: false,
+	},
 	"http.Call": {
 		Effect:       EffectHTTP,
 		RequiresTags: []SafetyTag{RequireRateChecked},
@@ -411,7 +417,7 @@ func requiredVarArgs(action string) []string {
 		return []string{"path", "data"}
 	case "fs.ReadFile", "fs.Remove", "archive.ZipDir":
 		return []string{"path"}
-	case "http.Call", "http.Request", "http.RetryPolicy":
+	case "http.Call", "http.Request", "http.SOAP", "http.RetryPolicy":
 		return []string{"url", "body", "timeout", "auth", "headers", "query"}
 	case "http.Paginate":
 		return []string{"url", "body", "timeout", "cursor", "next", "headers", "query"}

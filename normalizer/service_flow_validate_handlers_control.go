@@ -837,7 +837,7 @@ func handleFlowControlAndInfra(
 		}
 		return true
 
-	case "http.Request", "http.RetryPolicy":
+	case "http.Request", "http.SOAP", "http.RetryPolicy":
 		if output, _ := step.Args["output"].(string); output != "" {
 			declaredVars[output] = true
 		}
@@ -890,6 +890,7 @@ func handleFlowControlAndInfra(
 		"regex.Match", "regex.Replace",
 		"base64.Encode", "base64.Decode",
 		"url.Parse", "url.Build",
+		"path.Base",
 		"query.Encode", "query.Decode",
 		"hash.Sum", "hash.HMAC",
 		"str.Format", "str.Concat", "str.StripMarkdown",
@@ -1002,6 +1003,7 @@ func isUnknownFlowAction(action string) bool {
 		strings.HasPrefix(action, "regex.") ||
 		strings.HasPrefix(action, "base64.") ||
 		strings.HasPrefix(action, "url.") ||
+		strings.HasPrefix(action, "path.") ||
 		strings.HasPrefix(action, "query.") ||
 		strings.HasPrefix(action, "hash.") ||
 		strings.HasPrefix(action, "uuid.") ||
