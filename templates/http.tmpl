@@ -61,7 +61,7 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 		{{- if eq .Method "GET" }}
 		{{- range .Input.Fields }}
 		{{- if not (HasAuthInject $ep.Endpoint .Name) }}
-		{{- $fname := .Name | ToLower }}
+		{{- $fname := .Name | JSONName }}
 		{{- if eq .Type "int" }}
 		if v := r.URL.Query().Get("{{ $fname }}"); v != "" {
 			if i, err := strconv.Atoi(v); err == nil {

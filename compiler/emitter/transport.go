@@ -118,9 +118,10 @@ func buildMiddlewareListFull(ep normalizer.Endpoint, includeCache, includeIdempo
 			ep.RetryPolicy.MaxAttempts, ep.RetryPolicy.BaseDelayMS,
 			formatIntSlice(ep.RetryPolicy.RetryOnStatuses)))
 	}
-	// TimeoutMiddleware must not be applied to WebSocket endpoints: http.TimeoutHandler
-	// wraps the ResponseWriter and removes the http.Hijacker interface required for WS upgrade.
-	if p.Timeout != "" && !strings.EqualFold(ep.Method, "WS") {
+	// TimeoutMiddleware must not be applied to streaming endpoints: http.TimeoutHandler
+	// wraps the ResponseWriter and strips interfaces like http.Flusher/http.Hijacker
+	// required by SSE and WebSocket handlers.
+	if p.Timeout != "" && !strings.EqualFold(ep.Method, "WS") && !ep.IsStreaming {
 		parts = append(parts, fmt.Sprintf("TimeoutMiddleware(%q)", p.Timeout))
 	}
 	if includeIdempotency && p.Idempotency {
