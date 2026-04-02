@@ -39,6 +39,7 @@ func runGeneratedGoVerify(backends []string) error {
 		cmd := exec.Command("go", "build", "./internal/...")
 		cmd.Dir = cleaned
 		cmd.Env = append(os.Environ(), "GOWORK=off")
+		configureBuildSubprocess(cmd)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			raw := strings.TrimSpace(string(out))

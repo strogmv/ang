@@ -33,6 +33,7 @@ func runGeneratedGoTests(backends []string) error {
 		fmt.Printf("Running tests: go test ./... (dir=%s)\n", cleaned)
 		cmd := exec.Command("go", "test", "./...")
 		cmd.Dir = cleaned
+		configureBuildSubprocess(cmd)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {

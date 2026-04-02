@@ -34,6 +34,8 @@ func main() {
 
 	cmd := os.Args[1]
 
+	applyBuildProcessLimitsIfNeeded(cmd)
+
 	switch cmd {
 	case "init":
 		runInit(os.Args[2:])
