@@ -169,6 +169,7 @@ func TestEmitFrontendSDK_GeneratesResilientWebSocketClient(t *testing.T) {
 	}
 	hooksText := string(hooksData)
 	for _, expected := range []string{
+		"import { useQueryClient, type QueryClient } from '@tanstack/react-query';",
 		"export type StreamAppEventsWSMessage =",
 		"export const streamAppEventsWsClient = new WebSocketClient<StreamAppEventsWSMessage>(",
 		"export type AppWSMessage = StreamAppEventsWSMessage;",
@@ -178,6 +179,8 @@ func TestEmitFrontendSDK_GeneratesResilientWebSocketClient(t *testing.T) {
 		"endpoints.streamAppEventsUrl()",
 		"endpoints.streamNotificationsUrl()",
 		"endpoints.streamUserChatsUrl()",
+		"const applyHotEventCacheUpdate = (",
+		"applyHotEventCacheUpdate(queryClient, data)",
 		"export const subscribeStreamUserChatsRoom = (room: string) => streamUserChatsWsClient.subscribeRoom(room);",
 		"export const unsubscribeStreamUserChatsRoom = (room: string) => streamUserChatsWsClient.unsubscribeRoom(room);",
 		"export const setStreamUserChatsRooms = (rooms: readonly string[]) => streamUserChatsWsClient.setSubscribedRooms(rooms);",

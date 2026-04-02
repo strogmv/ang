@@ -1319,6 +1319,27 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 			}
 			return false
 		},
+		"HasEvent": func(name string) bool {
+			for _, ev := range eventsNorm {
+				if strings.EqualFold(strings.TrimSpace(ev.Name), strings.TrimSpace(name)) {
+					return true
+				}
+			}
+			return false
+		},
+		"HasGETRPC": func(rpc string) bool {
+			rpc = strings.TrimSpace(rpc)
+			for _, ep := range endpointsNorm {
+				if strings.TrimSpace(ep.RPC) != rpc {
+					continue
+				}
+				if strings.ToUpper(strings.TrimSpace(ep.Method)) != "GET" {
+					continue
+				}
+				return true
+			}
+			return false
+		},
 		"EntityHasID": func(entity normalizer.Entity) bool {
 			return entityIDField(entity) != nil
 		},
