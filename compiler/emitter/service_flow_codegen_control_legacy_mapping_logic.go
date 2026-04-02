@@ -126,7 +126,9 @@ func renderFlowStepControlLegacyMappingLogic(st *flowRenderState, step normalize
 		}
 		callStr := funcExpr + "(" + strings.Join(callArgs, ", ") + ")"
 		if ignoreErr {
-			emitFlowWarning(st, step, "FLOW_IGNORE_ERR", "warn", "logic.Call ignores returned error explicitly", "Document intent with ignoreErrReason and use only for deliberate fire-and-forget behavior")
+			if ignoreErrReason == "" {
+				emitFlowWarning(st, step, "FLOW_IGNORE_ERR", "warn", "logic.Call ignores returned error explicitly", "Document intent with ignoreErrReason and use only for deliberate fire-and-forget behavior")
+			}
 			comment := fmt.Sprintf("%s// explicit ignoreErr=true", pad)
 			if ignoreErrReason != "" {
 				comment = fmt.Sprintf("%s// explicit ignoreErr=true: %s", pad, ignoreErrReason)
@@ -187,7 +189,9 @@ func renderFlowStepControlLegacyMappingLogic(st *flowRenderState, step normalize
 		}
 		callStr := fmt.Sprintf("s.%sService.%s(%s)", ExportName(serviceName), ExportName(methodName), strings.Join(callArgs, ", "))
 		if ignoreErr {
-			emitFlowWarning(st, step, "FLOW_IGNORE_ERR", "warn", "service.Call ignores returned error explicitly", "Document intent with ignoreErrReason and use only for deliberate fire-and-forget behavior")
+			if ignoreErrReason == "" {
+				emitFlowWarning(st, step, "FLOW_IGNORE_ERR", "warn", "service.Call ignores returned error explicitly", "Document intent with ignoreErrReason and use only for deliberate fire-and-forget behavior")
+			}
 			comment := fmt.Sprintf("%s// explicit ignoreErr=true", pad)
 			if ignoreErrReason != "" {
 				comment = fmt.Sprintf("%s// explicit ignoreErr=true: %s", pad, ignoreErrReason)

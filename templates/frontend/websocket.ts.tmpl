@@ -12,94 +12,234 @@ export type WSMessage = {
   [K in keyof EventMap]: { type: K; payload: EventMap[K] }
 }[keyof EventMap];
 
+export type ConnectState = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
+
+export type WebSocketClientOptions = {
+  handleNetworkEvents?: boolean;
+  reconnectBaseDelayMs?: number;
+  maxReconnectDelayMs?: number;
+  heartbeatIntervalMs?: number;
+  heartbeatTimeoutMs?: number;
+  maxQueuedMessages?: number;
+};
+
 type Listener<T> = (data: T) => void;
+type StateListener = (state: ConnectState) => void;
+type InternalWSMessage = { type: 'pong'; payload?: { ts?: string | number } };
+
+export interface WebSocketLogger {
+  info?: (message: string, meta?: unknown) => void;
+  warn?: (message: string, meta?: unknown) => void;
+  error?: (message: string, meta?: unknown) => void;
+}
+
+const noopWebSocketLogger: Required<WebSocketLogger> = {
+  info: () => undefined,
+  warn: () => undefined,
+  error: () => undefined,
+};
+
+export const getWebSocketBaseUrl = (): string => {
+  try {
+    const maybeImportMeta = import.meta as ImportMeta | undefined;
+    const viteBase = maybeImportMeta?.env?.VITE_API_URL;
+    if (typeof viteBase === 'string' && viteBase.trim() !== '') {
+      return viteBase.replace(/^http/, 'ws');
+    }
+  } catch {
+    // ignore env probing failures outside Vite
+  }
+  return 'http://localhost:8080'.replace(/^http/, 'ws');
+};
+
+let wsLogger: Required<WebSocketLogger> = noopWebSocketLogger;
+
+export const setWebSocketLogger = (logger: WebSocketLogger) => {
+  wsLogger = {
+    info: logger.info ?? noopWebSocketLogger.info,
+    warn: logger.warn ?? noopWebSocketLogger.warn,
+    error: logger.error ?? noopWebSocketLogger.error,
+  };
+};
 
 export class WebSocketClient<T = WSMessage> {
   private ws: WebSocket | null = null;
-  private url: string;
+  private readonly url: string;
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 10;
   private listeners: Map<string, Set<Listener<any>>> = new Map();
   private anyListeners: Set<Listener<T>> = new Set();
+  private stateListeners: Set<StateListener> = new Set();
   private shouldReconnect = true;
   private connectPromise: Promise<void> | null = null;
-
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private heartbeatTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingMessages: any[] = [];
+  private subscribedRooms: Set<string> = new Set();
   private token: string | null = null;
+  private state: ConnectState = 'disconnected';
+  private browserHooksInstalled = false;
+  private readonly options: Required<WebSocketClientOptions>;
 
-  constructor(url: string, token?: string) {
+  private readonly handleOnline = () => {
+    if (!this.shouldReconnect) {
+      return;
+    }
+    if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
+      return;
+    }
+    void this.connect().catch(() => {});
+  };
+
+  private readonly handleVisibilityChange = () => {
+    if (typeof document === 'undefined' || document.visibilityState !== 'visible') {
+      return;
+    }
+    if (!this.shouldReconnect) {
+      return;
+    }
+    if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
+      return;
+    }
+    void this.connect().catch(() => {});
+  };
+
+  constructor(url: string, tokenOrOptions?: string | WebSocketClientOptions, options?: WebSocketClientOptions) {
     this.url = url;
-    this.token = token || null;
+    this.token = typeof tokenOrOptions === 'string' ? tokenOrOptions : null;
+    const resolvedOptions = typeof tokenOrOptions === 'string' ? options : tokenOrOptions;
+    this.options = {
+      handleNetworkEvents: false,
+      reconnectBaseDelayMs: 1000,
+      maxReconnectDelayMs: 30000,
+      heartbeatIntervalMs: 25000,
+      heartbeatTimeoutMs: 10000,
+      maxQueuedMessages: 100,
+      ...(resolvedOptions || {}),
+    };
+    this.installBrowserHooks();
+  }
+
+  public getState(): ConnectState {
+    return this.state;
+  }
+
+  public onStateChange(listener: StateListener): () => void {
+    this.stateListeners.add(listener);
+    listener(this.state);
+    return () => {
+      this.stateListeners.delete(listener);
+    };
+  }
+
+  public setToken(token: string | null) {
+    this.token = token;
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.sendAuthFrame();
+    }
   }
 
   public async connect() {
-    if (this.ws?.readyState === WebSocket.OPEN) return;
-    if (this.connectPromise) return this.connectPromise;
+    this.installBrowserHooks();
+    this.shouldReconnect = true;
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      return;
+    }
+    if (this.connectPromise) {
+      return this.connectPromise;
+    }
 
-    this.connectPromise = new Promise((resolve) => {
-      // Token is sent as the first WS message after handshake — never in the URL.
-      // URL-based tokens appear in server access logs, browser history, and Referer headers.
-      this.ws = new WebSocket(this.url);
+    this.clearReconnectTimer();
+    this.setState(this.reconnectAttempts > 0 || this.state === 'reconnecting' ? 'reconnecting' : 'connecting');
 
-      this.ws.onopen = () => {
-        const activeToken = this.token || useAuthStore.getState().token;
-        if (activeToken) {
-          this.ws!.send(JSON.stringify({ type: 'auth', token: activeToken }));
+    this.connectPromise = new Promise((resolve, reject) => {
+      let opened = false;
+      let settled = false;
+
+      const rejectOnce = (error: unknown) => {
+        if (settled) {
+          return;
         }
-        console.log('WS Connected');
-        this.reconnectAttempts = 0;
+        settled = true;
+        this.connectPromise = null;
+        reject(error instanceof Error ? error : new Error(String(error || 'WebSocket connection failed')));
+      };
+
+      const resolveOnce = () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
         this.connectPromise = null;
         resolve();
       };
 
+      this.ws = new WebSocket(this.url);
+
+      this.ws.onopen = () => {
+        opened = true;
+        this.reconnectAttempts = 0;
+        this.sendAuthFrame();
+        this.flushSubscribedRooms();
+        this.flushPendingMessages();
+        this.startHeartbeat();
+        this.setState('connected');
+        wsLogger.info('WS Connected');
+        resolveOnce();
+      };
+
       this.ws.onmessage = (event) => {
+        this.acknowledgeHeartbeat();
         try {
-          const data = JSON.parse(event.data);
-          const typed = data as WSMessage;
-          this.anyListeners.forEach((listener) => listener(data));
+          const message = JSON.parse(event.data) as WSMessage | InternalWSMessage;
+          if (message?.type === 'pong') {
+            return;
+          }
+          const typed = message as WSMessage;
+          this.anyListeners.forEach((listener) => listener(message as T));
           const bucket = this.listeners.get(String(typed?.type));
           if (bucket) {
             bucket.forEach((listener) => listener(typed));
           }
         } catch (e) {
-          console.error("WS Parse error", e);
+          wsLogger.error('WS Parse error', e);
         }
       };
 
-      this.ws.onclose = () => {
+      this.ws.onclose = (event) => {
+        this.stopHeartbeat();
+        if (this.ws?.readyState === WebSocket.CLOSED || this.ws?.readyState === WebSocket.CLOSING) {
+          this.ws = null;
+        }
         this.connectPromise = null;
+        if (!opened) {
+          rejectOnce(new Error(`WebSocket closed before open (${event.code})`));
+        }
         if (this.shouldReconnect) {
           this.scheduleReconnect();
+        } else {
+          this.setState('disconnected');
         }
       };
 
       this.ws.onerror = (err) => {
-        console.error('WS Error', err);
-        // Error will trigger onclose, where reconnect logic resides
+        wsLogger.error('WS Error', err);
+        if (!opened) {
+          rejectOnce(new Error('WebSocket connection error'));
+          try {
+            this.ws?.close();
+          } catch {}
+        }
       };
     });
 
     return this.connectPromise;
   }
 
-  private scheduleReconnect() {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('Max reconnect attempts reached');
-      return;
-    }
-
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
-    console.log(`Reconnecting in ${delay}ms...`);
-    
-    setTimeout(() => {
-      this.reconnectAttempts++;
-      this.connect();
-    }, delay);
-  }
-
   public subscribe(listener: Listener<T>): () => void {
     this.anyListeners.add(listener);
     if (this.ws?.readyState !== WebSocket.OPEN) {
-      this.connect();
+      void this.connect().catch(() => {});
     }
     return () => {
       this.anyListeners.delete(listener);
@@ -115,7 +255,7 @@ export class WebSocketClient<T = WSMessage> {
     }
     bucket.add(listener as Listener<any>);
     if (this.ws?.readyState !== WebSocket.OPEN) {
-      this.connect();
+      void this.connect().catch(() => {});
     }
     return () => {
       const current = this.listeners.get(key);
@@ -130,15 +270,213 @@ export class WebSocketClient<T = WSMessage> {
   }
 
   public send(data: any) {
+    if (this.rawSend(data)) {
+      return;
+    }
+    if (this.pendingMessages.length >= this.options.maxQueuedMessages) {
+      this.pendingMessages.shift();
+    }
+    this.pendingMessages.push(data);
+    if (this.shouldReconnect && this.ws?.readyState !== WebSocket.CONNECTING) {
+      void this.connect().catch(() => {});
+    }
+  }
+
+  public subscribeRoom(room: string) {
+    const normalized = String(room || '').trim();
+    if (!normalized) {
+      return;
+    }
+    this.subscribedRooms.add(normalized);
     if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(data));
-    } else {
-      console.warn('WS not connected, cannot send message');
+      this.rawSend({ type: 'subscribe', room: normalized });
+      return;
+    }
+    if (this.shouldReconnect && this.ws?.readyState !== WebSocket.CONNECTING) {
+      void this.connect().catch(() => {});
+    }
+  }
+
+  public unsubscribeRoom(room: string) {
+    const normalized = String(room || '').trim();
+    if (!normalized) {
+      return;
+    }
+    this.subscribedRooms.delete(normalized);
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.rawSend({ type: 'unsubscribe', room: normalized });
+    }
+  }
+
+  public setSubscribedRooms(rooms: readonly string[]) {
+    const next = new Set(
+      (rooms || [])
+        .map((room) => String(room || '').trim())
+        .filter((room) => room !== '')
+    );
+    for (const room of this.subscribedRooms) {
+      if (!next.has(room)) {
+        this.unsubscribeRoom(room);
+      }
+    }
+    for (const room of next) {
+      if (!this.subscribedRooms.has(room)) {
+        this.subscribeRoom(room);
+      }
     }
   }
 
   public close() {
     this.shouldReconnect = false;
+    this.clearReconnectTimer();
+    this.stopHeartbeat();
+    this.connectPromise = null;
     this.ws?.close();
+    this.ws = null;
+    this.setState('disconnected');
+    this.uninstallBrowserHooks();
+  }
+
+  private setState(next: ConnectState) {
+    if (this.state === next) {
+      return;
+    }
+    this.state = next;
+    this.stateListeners.forEach((listener) => listener(next));
+  }
+
+  private getActiveToken(): string | null {
+    return this.token || useAuthStore.getState().token || null;
+  }
+
+  private sendAuthFrame() {
+    const activeToken = this.getActiveToken();
+    if (!activeToken || this.ws?.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    this.rawSend({ type: 'auth', token: activeToken });
+  }
+
+  private rawSend(data: any): boolean {
+    if (this.ws?.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    this.ws.send(JSON.stringify(data));
+    return true;
+  }
+
+  private flushPendingMessages() {
+    if (this.ws?.readyState !== WebSocket.OPEN || this.pendingMessages.length === 0) {
+      return;
+    }
+    const queued = [...this.pendingMessages];
+    this.pendingMessages = [];
+    for (const message of queued) {
+      if (!this.rawSend(message)) {
+        this.pendingMessages.unshift(message);
+        break;
+      }
+    }
+  }
+
+  private flushSubscribedRooms() {
+    if (this.ws?.readyState !== WebSocket.OPEN || this.subscribedRooms.size === 0) {
+      return;
+    }
+    for (const room of this.subscribedRooms) {
+      this.rawSend({ type: 'subscribe', room });
+    }
+  }
+
+  private clearReconnectTimer() {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+
+  private scheduleReconnect() {
+    if (!this.shouldReconnect || this.reconnectTimer) {
+      return;
+    }
+    this.setState('reconnecting');
+    const delay = Math.min(this.options.reconnectBaseDelayMs * Math.pow(2, this.reconnectAttempts), this.options.maxReconnectDelayMs);
+    wsLogger.info(`Reconnecting in ${delay}ms...`);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.reconnectAttempts++;
+      void this.connect().catch((error) => {
+        wsLogger.warn('WS reconnect attempt failed', error);
+      });
+    }, delay);
+  }
+
+  private startHeartbeat() {
+    if (this.ws?.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    this.stopHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      if (this.ws?.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      if (!this.rawSend({ type: 'ping', ts: Date.now() })) {
+        return;
+      }
+      this.scheduleHeartbeatTimeout();
+    }, this.options.heartbeatIntervalMs);
+  }
+
+  private stopHeartbeat() {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+    if (this.heartbeatTimeoutTimer) {
+      clearTimeout(this.heartbeatTimeoutTimer);
+      this.heartbeatTimeoutTimer = null;
+    }
+  }
+
+  private scheduleHeartbeatTimeout() {
+    this.acknowledgeHeartbeat();
+    this.heartbeatTimeoutTimer = setTimeout(() => {
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        wsLogger.warn('WS heartbeat timeout, forcing reconnect');
+        this.ws.close();
+      }
+    }, this.options.heartbeatTimeoutMs);
+  }
+
+  private acknowledgeHeartbeat() {
+    if (this.heartbeatTimeoutTimer) {
+      clearTimeout(this.heartbeatTimeoutTimer);
+      this.heartbeatTimeoutTimer = null;
+    }
+  }
+
+  private installBrowserHooks() {
+    if (!this.options.handleNetworkEvents || this.browserHooksInstalled) {
+      return;
+    }
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      return;
+    }
+    window.addEventListener('online', this.handleOnline);
+    document.addEventListener('visibilitychange', this.handleVisibilityChange);
+    this.browserHooksInstalled = true;
+  }
+
+  private uninstallBrowserHooks() {
+    if (!this.browserHooksInstalled) {
+      return;
+    }
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('online', this.handleOnline);
+    }
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this.handleVisibilityChange);
+    }
+    this.browserHooksInstalled = false;
   }
 }

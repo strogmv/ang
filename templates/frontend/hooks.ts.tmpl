@@ -6,7 +6,6 @@ import {
   useInfiniteQuery,
   useSuspenseQuery,
   useSuspenseInfiniteQuery,
-  skipToken,
   UseQueryOptions,
   UseMutationOptions,
   UseSuspenseQueryOptions,
@@ -17,14 +16,87 @@ import * as Types from '../types';
 import * as QueryOptions from '../query-options';
 import * as LegacyQueries from '../queries';
 import * as api from '../endpoints';
-import { wsClient, useWebsocketSubscription, useAutoInvalidation } from './websocket-hooks';
-import { WebSocketClient } from '../websocket';
+import { endpointMeta } from '../endpoints';
+import { appWsClient, useWebsocketSubscription, useAutoInvalidation, useAppWebsocketSubscription } from './websocket-hooks';
+import { WebSocketClient, getWebSocketBaseUrl } from '../websocket';
 import { queryKeys } from '../query-keys';
 import { useAuthStore } from '../auth-store';
-// @ts-ignore
 import { useEffect, useRef, useLayoutEffect } from 'react';
 
-export { wsClient, useWebsocketSubscription, useAutoInvalidation };
+export { appWsClient, useWebsocketSubscription, useAppWebsocketSubscription, useAutoInvalidation };
+
+
+type MutationInvalidateTarget = {
+  store: string;
+  service?: string;
+  rpc?: string;
+  scopeParam?: string;
+  mode?: 'list' | 'detail' | 'aggregate';
+};
+
+type GeneratedMutationContext = {
+  queryKey?: readonly unknown[];
+  previousData?: unknown;
+};
+
+type AuthMutationPayload = {
+  accessToken: string;
+  refreshToken?: string;
+};
+
+const invalidateGeneratedTargets = (
+  queryClient: ReturnType<typeof useQueryClient>,
+  mutationName: string,
+  variables: Record<string, unknown>,
+) => {
+  const targets = (endpointMeta as Record<string, { invalidateTargets?: MutationInvalidateTarget[] }>)[mutationName]?.invalidateTargets || [];
+  for (const target of targets) {
+    const storeName = String(target.store || '').toLowerCase();
+    const serviceName = String(target.service || '');
+    const rpcName = String(target.rpc || '');
+    const scopeParam = target.scopeParam;
+    const scopeValue = scopeParam ? variables[scopeParam] : undefined;
+
+    if (serviceName && rpcName) {
+      queryClient.invalidateQueries({
+        predicate: (query) => {
+          const key = query.queryKey;
+          if (!Array.isArray(key) || key.length < 2) return false;
+          if (String(key[0] || '') !== serviceName) return false;
+          if (String(key[1] || '') !== rpcName) return false;
+          if (target.mode === 'detail' && scopeParam && scopeValue !== undefined && scopeValue !== null && scopeValue !== '') {
+            const params = key[2];
+            return Boolean(params && typeof params === 'object' && (params as Record<string, unknown>)[scopeParam] === scopeValue);
+          }
+          return true;
+        },
+      });
+      continue;
+    }
+
+    if (target.mode === 'detail' && scopeParam && scopeValue !== undefined && scopeValue !== null && scopeValue !== '') {
+      queryClient.invalidateQueries({
+        predicate: (query) => {
+          const key = query.queryKey;
+          if (!Array.isArray(key) || key.length < 3) return false;
+          if (String(key[0] || '').toLowerCase() !== storeName) return false;
+          const params = key[2];
+          return Boolean(params && typeof params === 'object' && (params as Record<string, unknown>)[scopeParam] === scopeValue);
+        },
+      });
+      continue;
+    }
+
+    queryClient.invalidateQueries({
+      predicate: (query) => {
+        const key = query.queryKey;
+        return Array.isArray(key) && key.length > 0 && String(key[0] || '').toLowerCase() === storeName;
+      },
+    });
+  }
+};
+
+const missingRequiredParamsError = (hookName: string) => new Error(`${hookName} requires all path params before suspense execution`);
 
 {{- range .Endpoints }}
 {{- if eq .Method "GET" }}
@@ -71,12 +143,7 @@ export const use{{ $ep.RPC }}Suspense = (
   const hasRequiredParams = {{- if gt (len $argList) 0 -}} !!({{- range $i, $a := $argList -}}{{ if $i }} && {{ end }}((params as Types.{{ $ep.RPC }}Request | undefined)?.{{ JSONName $a }}){{- end -}}) {{- else -}} true {{- end }};
   const baseOptions = QueryOptions.endpointQueryOptions.{{ LowerFirst $ep.RPC }}((params ?? {}) as Types.{{ $ep.RPC }}Request);
   if (!hasRequiredParams) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return useSuspenseQuery<Types.{{ $ep.RPC }}Response, Error>({
-      ...baseOptions,
-      ...options,
-      queryFn: skipToken as any,
-    });
+    throw missingRequiredParamsError('use{{ $ep.RPC }}Suspense');
   }
   return useSuspenseQuery<Types.{{ $ep.RPC }}Response, Error>({
     ...baseOptions,
@@ -117,21 +184,21 @@ export const useInfinite{{ $ep.RPC }}Suspense = (
 ) => {
   const hasRequiredParams = {{- if gt (len $argList) 0 -}} !!({{- range $i, $a := $argList -}}{{ if $i }} && {{ end }}((params as Types.{{ $ep.RPC }}Request | undefined)?.{{ JSONName $a }}){{- end -}}) {{- else -}} true {{- end }};
   const baseInfinite = LegacyQueries.{{ LowerFirst $ep.RPC }}InfiniteQueryOptions((params ?? {}) as Types.{{ $ep.RPC }}Request);
-  // Single return keeps TypeScript inference consistent: skipToken disables the query when
-  // required path params are absent; otherwise the real queryFn is used.
   {{- if eq $ep.Pagination.Type "offset" }}
+  if (!hasRequiredParams) {
+    throw missingRequiredParamsError('useInfinite{{ $ep.RPC }}Suspense');
+  }
   return useSuspenseInfiniteQuery<Types.{{ $ep.RPC }}Response, Error, InfiniteData<Types.{{ $ep.RPC }}Response>, readonly unknown[], number>({
     ...baseInfinite,
     ...options,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    queryFn: hasRequiredParams ? baseInfinite.queryFn : (skipToken as any),
   });
   {{- else }}
+  if (!hasRequiredParams) {
+    throw missingRequiredParamsError('useInfinite{{ $ep.RPC }}Suspense');
+  }
   return useSuspenseInfiniteQuery<Types.{{ $ep.RPC }}Response, Error, InfiniteData<Types.{{ $ep.RPC }}Response>, readonly unknown[], string | null>({
     ...baseInfinite,
     ...options,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    queryFn: hasRequiredParams ? baseInfinite.queryFn : (skipToken as any),
   });
   {{- end }}
 };
@@ -139,22 +206,22 @@ export const useInfinite{{ $ep.RPC }}Suspense = (
 {{- else if eq .Method "WS" }}
 {{- $params := PathParams .Path }}
 {{- $args := PathArgs .Path }}
-export const use{{ .RPC }}Raw = ({{- if ne $params "" }}{{ $params }}, {{ end }}onMessage: (data: any) => void) => {
+export const use{{ .RPC }}Raw = ({{- if ne $params "" }}{{ $params }}, {{ end }}onMessage: (data: unknown) => void) => {
   // Ref-pattern: stable subscription, always calls the latest callback.
   const onMessageRef = useRef(onMessage);
   useLayoutEffect(() => { onMessageRef.current = onMessage; });
 
   useEffect(() => {
     {{- if ne $params "" }}
-    const wsUrl = ((import.meta as any).env?.VITE_API_URL || 'http://localhost:8080').replace(/^http/, 'ws') + `{{ PathTemplate .Path }}`;
+    const wsUrl = getWebSocketBaseUrl() + `{{ PathTemplate .Path }}`;
     const client = new WebSocketClient(wsUrl);
-    const unsubscribe = client.subscribe((data: any) => onMessageRef.current(data));
+    const unsubscribe = client.subscribe((data: unknown) => onMessageRef.current(data));
     return () => {
       unsubscribe();
       client.close();
     };
     {{- else }}
-    const unsubscribe = wsClient.subscribe((data: any) => onMessageRef.current(data));
+    const unsubscribe = appWsClient.subscribe((data: unknown) => onMessageRef.current(data));
     return () => unsubscribe();
     {{- end }}
   }, [{{ $args }}]);
@@ -162,7 +229,7 @@ export const use{{ .RPC }}Raw = ({{- if ne $params "" }}{{ $params }}, {{ end }}
 {{- else }}
 {{- $relatedRPC := GetRelatedReadRPC . }}
 {{- if ne $relatedRPC "" }}
-export const use{{ .RPC }} = (options?: UseMutationOptions<Types.{{ .RPC }}Response, Error, Types.{{ .RPC }}Request, any>) => {
+export const use{{ .RPC }} = (options?: UseMutationOptions<Types.{{ .RPC }}Response, Error, Types.{{ .RPC }}Request, GeneratedMutationContext>) => {
   const queryClient = useQueryClient();
   
   return useMutation({
@@ -204,27 +271,22 @@ export const use{{ .RPC }} = (options?: UseMutationOptions<Types.{{ .RPC }}Respo
         {{- end }}
         {{- end }}
     },
-    onError: (_err: Error, _variables: Types.{{ .RPC }}Request, context: { queryKey?: readonly unknown[]; previousData?: unknown } | undefined) => {
+    onError: (_err: Error, _variables: Types.{{ .RPC }}Request, context: GeneratedMutationContext | undefined) => {
         if (context?.previousData !== undefined && context?.queryKey) {
             queryClient.setQueryData(context.queryKey, context.previousData);
         }
     },
-    onSettled: (_data: unknown, _error: Error | null, _variables: Types.{{ .RPC }}Request, context: { queryKey?: readonly unknown[]; previousData?: unknown } | undefined) => {
+    onSettled: (_data: unknown, _error: Error | null, _variables: Types.{{ .RPC }}Request, context: GeneratedMutationContext | undefined) => {
         if (context?.queryKey) {
             queryClient.invalidateQueries({ queryKey: context.queryKey });
         }
-        {{- range .Invalidate }}
-        {{- $inv := InvalidateGETEndpointTuple . }}
-        {{- if $inv }}
-        queryClient.invalidateQueries({ queryKey: {{ $inv }} });
-        {{- end }}
-        {{- end }}
+        invalidateGeneratedTargets(queryClient, '{{ LowerFirst .RPC }}', (_variables ?? {}) as Record<string, unknown>);
     },
     ...options,
   });
 };
 {{- else }}
-export const use{{ .RPC }} = (options?: UseMutationOptions<Types.{{ .RPC }}Response, Error, Types.{{ .RPC }}Request, any>) => {
+export const use{{ .RPC }} = (options?: UseMutationOptions<Types.{{ .RPC }}Response, Error, Types.{{ .RPC }}Request, GeneratedMutationContext>) => {
   {{- if .Invalidate }}
   const queryClient = useQueryClient();
   {{- end }}
@@ -236,17 +298,13 @@ export const use{{ .RPC }} = (options?: UseMutationOptions<Types.{{ .RPC }}Respo
     {{- if IsAuthLoginRPC .RPC }}
     onSuccess: (data: Types.{{ .RPC }}Response) => {
       const store = useAuthStore.getState();
-      store.setAuth((data as any).accessToken, store.user, (data as any).refreshToken ?? undefined);
+      const authData = data as AuthMutationPayload;
+      store.setAuth(authData.accessToken, store.user, authData.refreshToken ?? undefined);
     },
     {{- end }}
     {{- if .Invalidate }}
     onSettled: (_data: unknown, _error: Error | null, _variables: Types.{{ .RPC }}Request) => {
-        {{- range .Invalidate }}
-        {{- $inv := InvalidateGETEndpointTuple . }}
-        {{- if $inv }}
-        queryClient.invalidateQueries({ queryKey: {{ $inv }} });
-        {{- end }}
-        {{- end }}
+        invalidateGeneratedTargets(queryClient, '{{ LowerFirst .RPC }}', (_variables ?? {}) as Record<string, unknown>);
     },
     {{- end }}
     ...options,

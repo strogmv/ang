@@ -24,6 +24,30 @@ export const queryProfiles: Record<string, QueryProfileOptions> = {
     refetchOnReconnect: true,
     retry: 1,
   },
+  fresh: {
+    staleTime: 0,
+    gcTime: 5 * 60 * 1000,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    retry: 1,
+  },
+  standard: {
+    staleTime: 30 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
+    retry: 1,
+  },
+  admin: {
+    staleTime: 5 * 1000,
+    gcTime: 2 * 60 * 1000,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    retry: 1,
+  },
 };
 
 // Canonical React Query options for every GET RPC (single key-space: queryKeys.endpoint.*).
@@ -34,12 +58,14 @@ export const endpointQueryOptions = {
   {{ LowerFirst .RPC }}: (params: Types.{{ .RPC }}Request = {} as Types.{{ .RPC }}Request) =>
     queryOptions({
       queryKey: queryKeys.endpoint.{{ .ServiceName }}.{{ .RPC }}(params),
-      queryFn: () => api.{{ LowerFirst .RPC }}(params),
+      queryFn: ({ signal }) => api.{{ LowerFirst .RPC }}(params, { signal }),
       {{- if $profile }}
       ...(queryProfiles['{{ $profile }}'] || {}),
       {{- else }}
       {{- if .CacheTTL }}
       staleTime: {{ CacheTTLToMs .CacheTTL }},
+      {{- else }}
+      ...(queryProfiles.standard || {}),
       {{- end }}
       {{- end }}
     }),

@@ -638,12 +638,63 @@ func pathSegments(path string) []string {
 	return segs
 }
 
+func wsStaticPathPrefix(path string) string {
+	if idx := strings.Index(path, "{"); idx >= 0 {
+		path = path[:idx]
+	}
+	return strings.TrimRight(path, "/")
+}
+
+func hasDynamicRoomSiblings(ep normalizer.Endpoint, endpoints []normalizer.Endpoint) bool {
+	if strings.ToUpper(strings.TrimSpace(ep.Method)) != "WS" {
+		return false
+	}
+	if len(pathParams(ep.Path)) != 0 {
+		return false
+	}
+	base := wsStaticPathPrefix(ep.Path)
+	if base == "" {
+		return false
+	}
+	for _, other := range endpoints {
+		if other.ServiceName != ep.ServiceName || other.RPC == ep.RPC || strings.ToUpper(strings.TrimSpace(other.Method)) != "WS" {
+			continue
+		}
+		if len(pathParams(other.Path)) == 0 {
+			continue
+		}
+		if wsStaticPathPrefix(other.Path) == base {
+			return true
+		}
+	}
+	return false
+}
+
+func isPrimaryAppWSEndpoint(ep normalizer.Endpoint) bool {
+	if strings.ToUpper(strings.TrimSpace(ep.Method)) != "WS" {
+		return false
+	}
+	path := strings.TrimSpace(ep.Path)
+	return path == "/ws/app" || path == "ws/app"
+}
+
+func primaryAppWSEndpoint(endpoints []normalizer.Endpoint) (normalizer.Endpoint, bool) {
+	for _, ep := range endpoints {
+		if isPrimaryAppWSEndpoint(ep) {
+			return ep, true
+		}
+	}
+	return normalizer.Endpoint{}, false
+}
+
 func isPathParamSegment(seg string) bool {
 	return strings.HasPrefix(seg, "{") && strings.HasSuffix(seg, "}")
 }
 
 type frontendInvalidateTarget struct {
 	Store      string
+	Service    string
+	RPC        string
 	ScopeParam string
 	Mode       string
 }
@@ -716,7 +767,7 @@ func mutationInvalidateTargetsForEndpoint(ep normalizer.Endpoint, all []normaliz
 		if t.Store == "" {
 			return
 		}
-		key := t.Store + "|" + t.ScopeParam + "|" + t.Mode
+		key := t.Store + "|" + t.Service + "|" + t.RPC + "|" + t.ScopeParam + "|" + t.Mode
 		if _, ok := seen[key]; ok {
 			return
 		}
@@ -740,6 +791,8 @@ func mutationInvalidateTargetsForEndpoint(ep normalizer.Endpoint, all []normaliz
 			}
 			add(frontendInvalidateTarget{
 				Store:      store,
+				Service:    target.ServiceName,
+				RPC:        target.RPC,
 				ScopeParam: firstPathParamName(target.Path),
 				Mode:       endpointMode(target),
 			})
@@ -1356,6 +1409,22 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		},
 		"QueryOptionsKind": func(rpc string) string {
 			return queryOptionsKindByRPC[rpc]
+		},
+		"HasDynamicRoomSiblings": func(ep normalizer.Endpoint) bool {
+			return hasDynamicRoomSiblings(ep, endpointsNorm)
+		},
+		"HasPrimaryAppWSEndpoint": func() bool {
+			_, ok := primaryAppWSEndpoint(endpointsNorm)
+			return ok
+		},
+		"PrimaryAppWSRPC": func() string {
+			if ep, ok := primaryAppWSEndpoint(endpointsNorm); ok {
+				return ep.RPC
+			}
+			return ""
+		},
+		"IsPrimaryAppWSEndpoint": func(ep normalizer.Endpoint) bool {
+			return isPrimaryAppWSEndpoint(ep)
 		},
 		"HasEndpointQueryProfiles": func() bool {
 			for _, ep := range endpointsNorm {

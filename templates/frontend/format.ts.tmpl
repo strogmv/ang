@@ -2,14 +2,19 @@
 // Locale-aware formatters — read user.locale and user.timezone from auth store automatically.
 import { useAuthStore } from './auth-store';
 
+type LocalizedUserLike = {
+  locale?: string | null;
+  timezone?: string | null;
+};
+
 const getLocale = (): string => {
   const user = useAuthStore.getState().user;
-  return (user as any)?.locale || (typeof navigator !== 'undefined' ? navigator.language : 'en') || 'en';
+  return (user as LocalizedUserLike | null | undefined)?.locale || (typeof navigator !== 'undefined' ? navigator.language : 'en') || 'en';
 };
 
 const getTimezone = (): string => {
   const user = useAuthStore.getState().user;
-  return (user as any)?.timezone
+  return (user as LocalizedUserLike | null | undefined)?.timezone
     || (typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC');
 };
 

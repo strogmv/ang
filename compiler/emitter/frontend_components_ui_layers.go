@@ -287,7 +287,7 @@ export type FormSchema<TValues = any> = {
   };
 };
 
-export type AutoFormProps<TValues = any> = {
+export type AutoFormProps<TValues = Record<string, unknown>> = {
   form: UseFormReturn<TValues>;
   schema: FormSchema<TValues>;
   onSubmit: (values: TValues) => void;
@@ -323,7 +323,7 @@ export function LayoutRenderer({ children, columns = 1, type = 'stack' }: Props)
 		"AutoForm.tsx": "import { Form, Field, Actions } from '" + uiProviderPath + `';
 import type { AutoFormProps } from './types';
 
-export function AutoForm<TValues = any>({
+export function AutoForm<TValues = Record<string, unknown>>({
   form,
   schema,
   onSubmit,
@@ -341,8 +341,12 @@ export function AutoForm<TValues = any>({
   }, {});
   const sections = Object.entries(grouped);
 
+  const handleValidSubmit: Parameters<typeof form.handleSubmit>[0] = (values) => {
+    onSubmit(values as TValues);
+  };
+
   return (
-    <Form onSubmit={form.handleSubmit(onSubmit as any)}>
+    <Form onSubmit={form.handleSubmit(handleValidSubmit)}>
       {sections.map(([section, fields]) => (
         <div key={section} style={{ width: '100%' }}>
             {section !== '_default' ? (

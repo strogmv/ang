@@ -283,7 +283,7 @@ func TestRenderFlowStepEventOrchestration_EventWaitUsesIntoTypeAssertion(t *test
 	}
 }
 
-func TestRenderFlow_FlowCallIgnoreErrEmitsWarningAndComment(t *testing.T) {
+func TestRenderFlow_FlowCallIgnoreErrWithReasonEmitsCommentWithoutWarning(t *testing.T) {
 	t.Parallel()
 
 	var diags []normalizer.Warning
@@ -303,7 +303,7 @@ func TestRenderFlow_FlowCallIgnoreErrEmitsWarningAndComment(t *testing.T) {
 	if !strings.Contains(got, `// explicit ignoreErr=true: "best effort side effect"`) {
 		t.Fatalf("expected explicit ignoreErr comment, got:\n%s", got)
 	}
-	if len(diags) != 1 || diags[0].Code != "FLOW_IGNORE_ERR" {
-		t.Fatalf("expected FLOW_IGNORE_ERR warning, got %#v", diags)
+	if len(diags) != 0 {
+		t.Fatalf("expected no FLOW_IGNORE_ERR warning when ignoreErrReason is present, got %#v", diags)
 	}
 }

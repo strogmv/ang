@@ -9,8 +9,8 @@ import * as api from '../endpoints';
 export const {{ LowerFirst .RPC }}QueryOptions = (params: Types.{{ .RPC }}Request = {} as Types.{{ .RPC }}Request) => {
   return queryOptions({
     queryKey: queryKeys.endpoint.{{ .ServiceName }}.{{ .RPC }}(params),
-    queryFn: async () => {
-      return api.{{ LowerFirst .RPC }}(params);
+    queryFn: async ({ signal }) => {
+      return api.{{ LowerFirst .RPC }}(params, { signal });
     },
   });
 };
@@ -19,15 +19,15 @@ export const {{ LowerFirst .RPC }}QueryOptions = (params: Types.{{ .RPC }}Reques
 export const {{ LowerFirst .RPC }}InfiniteQueryOptions = (params: Types.{{ .RPC }}Request = {} as Types.{{ .RPC }}Request) => {
   return infiniteQueryOptions({
     queryKey: queryKeys.endpoint.{{ .ServiceName }}.{{ .RPC }}(params),
-    queryFn: async ({ pageParam }: { pageParam: any }) => {
-      const p = { ...(params as any) };
+    queryFn: async ({ pageParam, signal }: { pageParam: any; signal: AbortSignal }) => {
+      const p: Record<string, unknown> = { ...((params ?? {}) as Record<string, unknown>) };
       {{- if eq .Pagination.Type "offset" }}
       p.offset = pageParam;
       p.limit = p.limit ?? {{ if .Pagination.DefaultLimit }}{{ .Pagination.DefaultLimit }}{{ else }}20{{ end }};
       {{- else }}
       p.cursor = pageParam;
       {{- end }}
-      return api.{{ LowerFirst .RPC }}(p);
+      return api.{{ LowerFirst .RPC }}(p as Types.{{ .RPC }}Request, { signal });
     },
     initialPageParam: {{ if eq .Pagination.Type "offset" }}0{{ else }}null{{ end }},
     getNextPageParam: (lastPage: any, allPages: any[]) => {

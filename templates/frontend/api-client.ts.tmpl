@@ -6,24 +6,31 @@ import * as Types from './types';
 import { isProblemDetailLike, normalizeApiError } from './error-normalizer';
 import * as Schemas from './schemas';
 
-const getBaseUrl = () => {
+type ViteEnv = {
+  VITE_API_URL?: string;
+  DEV?: boolean;
+};
+
+const getViteEnv = (): ViteEnv | undefined => {
   try {
-    // @ts-ignore
-    if (import.meta.env?.VITE_API_URL) return import.meta.env.VITE_API_URL;
-  } catch (e) {}
-  
+    return typeof import.meta !== 'undefined' ? (import.meta.env as ViteEnv | undefined) : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const getBaseUrl = () => {
+  const viteEnv = getViteEnv();
+  if (viteEnv?.VITE_API_URL) return viteEnv.VITE_API_URL;
   if (typeof process !== 'undefined' && process.env?.VITE_API_URL) return process.env.VITE_API_URL;
   return 'http://localhost:8080';
 };
 
 const isDevEnv = () => {
-  try {
-    // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta.env?.DEV !== undefined) {
-      // @ts-ignore
-      return Boolean(import.meta.env.DEV);
-    }
-  } catch (e) {}
+  const viteEnv = getViteEnv();
+  if (viteEnv?.DEV !== undefined) {
+    return Boolean(viteEnv.DEV);
+  }
   if (typeof process !== 'undefined' && process.env?.NODE_ENV) {
     return process.env.NODE_ENV !== 'production';
   }
@@ -37,13 +44,48 @@ export const apiClient = axios.create({
   },
 });
 
+export type ApiRequestOptions = {
+  signal?: AbortSignal;
+};
+
+export interface ApiClientLogger {
+  warn?: (message: string, meta?: unknown) => void;
+  error?: (message: string, meta?: unknown) => void;
+}
+
+export type ResponseValidationReporter = (issue: {
+  schemaName: string;
+  context: string;
+  issues: unknown;
+  data: unknown;
+}) => void;
+
+const noopLogger: Required<ApiClientLogger> = {
+  warn: () => undefined,
+  error: () => undefined,
+};
+
+let apiLogger: Required<ApiClientLogger> = noopLogger;
+let responseValidationReporter: ResponseValidationReporter | null = null;
+
+export const setApiClientLogger = (logger: ApiClientLogger) => {
+  apiLogger = {
+    warn: logger.warn ?? noopLogger.warn,
+    error: logger.error ?? noopLogger.error,
+  };
+};
+
+export const setResponseValidationReporter = (reporter: ResponseValidationReporter | null) => {
+  responseValidationReporter = reporter;
+};
+
 /**
  * Interface for Client-Side Encryption.
  * If provided, SDK will use it to handle fields marked as Encrypted<T>.
  */
 export interface CryptoProvider {
-  encrypt(data: any): Promise<string>;
-  decrypt(encrypted: string): Promise<any>;
+  encrypt(data: unknown): Promise<string>;
+  decrypt(encrypted: string): Promise<unknown>;
 }
 
 let cryptoProvider: CryptoProvider | null = null;
@@ -54,19 +96,12 @@ export const setCryptoProvider = (provider: CryptoProvider) => {
 
 // Helper: Generate hex string
 const hex = (len: number) => {
-  const arr = new Uint8Array(len / 2);
-  if (typeof window !== 'undefined' && window.crypto) {
-    window.crypto.getRandomValues(arr);
-  } else if (typeof global !== 'undefined' && (global as any).crypto?.getRandomValues) {
-    (global as any).crypto.getRandomValues(arr);
-  } else if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-    crypto.getRandomValues(arr);
-  } else {
-    // Fallback for Node.js or environments without crypto.getRandomValues
-    for (let i = 0; i < arr.length; i++) {
-      arr[i] = Math.floor(Math.random() * 256);
-    }
+  const cryptoObject = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined;
+  if (!cryptoObject?.getRandomValues) {
+    throw new Error('Secure random generation is unavailable in this environment');
   }
+  const arr = new Uint8Array(len / 2);
+  cryptoObject.getRandomValues(arr);
   return Array.from(arr, (byte) => byte.toString(16).padStart(2, '0')).join('');
 };
 
@@ -84,8 +119,32 @@ const findEndpointMeta = (url: string | undefined) => {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+type AuthStoreUserLike = {
+  locale?: string | null;
+};
+
+type ApiClientRequestMeta = {
+  traceId?: string;
+  endpointMeta?: ReturnType<typeof findEndpointMeta>;
+  retryAttempt?: number;
+  authFromStore?: boolean;
+};
+
+type ApiClientConfigWithMeta = InternalAxiosRequestConfig & {
+  meta?: ApiClientRequestMeta;
+};
+
+const getRequestMeta = (config: InternalAxiosRequestConfig | undefined): ApiClientRequestMeta => {
+  if (!config) return {};
+  return (config as ApiClientConfigWithMeta).meta || {};
+};
+
+const setRequestMeta = (config: InternalAxiosRequestConfig, meta: ApiClientRequestMeta) => {
+  (config as ApiClientConfigWithMeta).meta = meta;
+};
+
 const getHeaderValue = (config: InternalAxiosRequestConfig, name: string): string | undefined => {
-  const headers: any = config.headers;
+  const headers = config.headers as InternalAxiosRequestConfig['headers'] & Record<string, unknown>;
   if (headers == null) return undefined;
   if (typeof headers.get === 'function') {
     const value = headers.get(name);
@@ -102,9 +161,38 @@ const isRefreshRequest = (config?: InternalAxiosRequestConfig) => {
   return url.endsWith(REFRESH_ENDPOINT) || url.includes(`${REFRESH_ENDPOINT}?`);
 };
 
-let refreshPromise: Promise<void> | null = null;
+type RefreshWaiter = {
+  resolve: (token: string) => void;
+  reject: (error: unknown) => void;
+};
 
-const refreshAuthToken = async () => {
+let refreshPromise: Promise<string> | null = null;
+let refreshWaiters: RefreshWaiter[] = [];
+
+const waitForRefreshToken = () =>
+  new Promise<string>((resolve, reject) => {
+    refreshWaiters.push({ resolve, reject });
+  });
+
+const flushRefreshWaiters = (token?: string, error?: unknown) => {
+  const pending = [...refreshWaiters];
+  refreshWaiters = [];
+  for (const waiter of pending) {
+    if (token !== undefined) {
+      waiter.resolve(token);
+      continue;
+    }
+    waiter.reject(error ?? new Error('Token refresh failed'));
+  }
+};
+
+const shouldClearAuthOnRefreshFailure = (error: unknown) => {
+  if (!axios.isAxiosError(error)) return false;
+  const status = Number(error.response?.status || 0);
+  return status === 401 || status === 403;
+};
+
+const refreshAuthToken = async (): Promise<string> => {
   const store = useAuthStore.getState();
   const storedRefresh = store.refreshToken;
   if (!storedRefresh) {
@@ -118,9 +206,14 @@ const refreshAuthToken = async () => {
       .then((response) => {
         const data = validateResponse('RefreshTokenResponseSchema', response.data, 'RefreshToken');
         store.setAuth(data.accessToken, store.user, data.refreshToken);
+        flushRefreshWaiters(data.accessToken);
+        return data.accessToken;
       })
       .catch((err) => {
-        store.clearAuth();
+        if (shouldClearAuthOnRefreshFailure(err)) {
+          store.clearAuth();
+        }
+        flushRefreshWaiters(undefined, err);
         throw err;
       })
       .finally(() => {
@@ -133,7 +226,7 @@ const refreshAuthToken = async () => {
 const isNetworkError = (error: AxiosError) => !error.response;
 
 const shouldRetry = (error: AxiosError) => {
-  const cfg: any = error.config || {};
+  const cfg = error.config as ApiClientConfigWithMeta | undefined;
   const meta = cfg?.meta || {};
   const endpoint = meta.endpointMeta;
   const strategy = endpoint?.retryStrategy;
@@ -157,7 +250,7 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   }
 
   // Accept-Language: propagate user locale to backend (supports fallback chain in ANG)
-  const userLocale = (useAuthStore.getState().user as any)?.locale;
+  const userLocale = (useAuthStore.getState().user as AuthStoreUserLike | null | undefined)?.locale;
   if (userLocale && typeof userLocale === 'string' && userLocale.trim()) {
     config.headers.set('Accept-Language', userLocale.trim());
   }
@@ -173,21 +266,25 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const meta = findEndpointMeta(config.url);
   const method = config.method?.toUpperCase();
   if ((meta?.cachePolicy === 'realtime' || meta?.cachePolicy === 'bypass' || meta?.cachePolicy === 'no-store') && method === 'GET') {
+    const currentParams =
+      config.params && typeof config.params === 'object'
+        ? (config.params as Record<string, unknown>)
+        : {};
     config.params = {
-      ...((config.params as any) || {}),
+      ...currentParams,
       _rt: Date.now().toString(),
     };
     config.headers.set('Cache-Control', 'no-store, no-cache, max-age=0, must-revalidate');
     config.headers.set('Pragma', 'no-cache');
   }
   // Attach trace + contract metadata for response/retry interceptor.
-  const attempt = Number((config as any)?.meta?.retryAttempt || 0);
-  (config as any).meta = {
+  const attempt = Number(getRequestMeta(config).retryAttempt || 0);
+  setRequestMeta(config, {
     traceId,
     endpointMeta: meta,
     retryAttempt: attempt,
     authFromStore: token && hasExplicitAuthorization === false,
-  };
+  });
 
   // Auto-Idempotency for contract-driven endpoints.
   if (meta?.idempotent && config.method?.toUpperCase() !== 'GET') {
@@ -200,15 +297,14 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
 });
 
 apiClient.interceptors.response.use(
-  (response: any) => response,
+  (response) => response,
   async (error: AxiosError) => {
     const cfg = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
     if (error.response?.status === 401 && cfg && !cfg._retry && !isRefreshRequest(cfg)) {
       cfg._retry = true;
       try {
-        await refreshAuthToken();
-        const newToken = useAuthStore.getState().token;
-        if (newToken && cfg.headers && ((cfg as any)?.meta?.authFromStore || getHeaderValue(cfg, 'Authorization') === undefined)) {
+        const newToken = refreshPromise ? await waitForRefreshToken() : await refreshAuthToken();
+        if (newToken && cfg.headers && (getRequestMeta(cfg).authFromStore || getHeaderValue(cfg, 'Authorization') === undefined)) {
           cfg.headers.Authorization = `Bearer ${newToken}`;
         }
         return apiClient.request(cfg);
@@ -217,25 +313,29 @@ apiClient.interceptors.response.use(
       }
     }
     if (shouldRetry(error) && error.config) {
-      const cfg: any = error.config;
-      const currentAttempt = Number(cfg?.meta?.retryAttempt || 0);
-      const strategy = cfg?.meta?.endpointMeta?.retryStrategy;
+      const cfg = error.config as ApiClientConfigWithMeta;
+      const meta = getRequestMeta(cfg);
+      const currentAttempt = Number(meta.retryAttempt || 0);
+      const strategy = meta.endpointMeta?.retryStrategy;
       const delay = Math.max(0, Number(strategy?.baseDelayMs || 0)) * Math.pow(2, currentAttempt);
-      cfg.meta = {
-        ...(cfg.meta || {}),
+      setRequestMeta(cfg, {
+        ...meta,
         retryAttempt: currentAttempt + 1,
-      };
+      });
       if (delay > 0) {
         await sleep(delay);
       }
       return apiClient.request(cfg);
     }
 
-    const traceId = (error.config as any)?.meta?.traceId;
-    
-    if (traceId) {
-      console.error(`[TraceID: ${traceId}] API Error:`, error.message);
-    }
+    const traceId = getRequestMeta(error.config as InternalAxiosRequestConfig | undefined).traceId;
+
+    apiLogger.error('[ANG SDK] API request failed', {
+      traceId,
+      message: error.message,
+      status: error.response?.status,
+      url: error.config?.url,
+    });
 
     const problem = normalizeApiError({
       data: error.response?.data,
@@ -249,12 +349,25 @@ apiClient.interceptors.response.use(
 );
 
 export const validateResponse = <T>(schemaName: string, data: T, context: string): T => {
-  if (!isDevEnv()) return data;
-  const schema = (Schemas as any)[schemaName];
+  const schemaMap = Schemas as unknown as Record<string, { safeParse?: (value: unknown) => { success: boolean; error?: unknown } }>;
+  const schema = schemaMap[schemaName];
   if (!schema || typeof schema.safeParse !== 'function') return data;
   const result = schema.safeParse(data);
   if (!result.success) {
-    console.warn(`[ANG SDK] Response schema mismatch for ${context} (${schemaName})`, result.error);
+    const issue = {
+      schemaName,
+      context,
+      issues: result.error,
+      data,
+    };
+    apiLogger.warn(`[ANG SDK] Response schema mismatch for ${context} (${schemaName})`, issue);
+    if (responseValidationReporter) {
+      try {
+        responseValidationReporter(issue);
+      } catch (reportError) {
+        apiLogger.error('[ANG SDK] Response validation reporter failed', reportError);
+      }
+    }
   }
   return data;
 };

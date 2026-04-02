@@ -42,8 +42,8 @@ export const apiClient = axios.create({
  * If provided, SDK will use it to handle fields marked as Encrypted<T>.
  */
 export interface CryptoProvider {
-  encrypt(data: any): Promise<string>;
-  decrypt(encrypted: string): Promise<any>;
+  encrypt(data: unknown): Promise<string>;
+  decrypt(encrypted: string): Promise<unknown>;
 }
 
 let cryptoProvider: CryptoProvider | null = null;
@@ -85,7 +85,7 @@ const findEndpointMeta = (url: string | undefined) => {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const getHeaderValue = (config: InternalAxiosRequestConfig, name: string): string | undefined => {
-  const headers: any = config.headers;
+  const headers = config.headers as InternalAxiosRequestConfig['headers'] & Record<string, unknown>;
   if (headers == null) return undefined;
   if (typeof headers.get === 'function') {
     const value = headers.get(name);
@@ -133,7 +133,7 @@ const refreshAuthToken = async () => {
 const isNetworkError = (error: AxiosError) => !error.response;
 
 const shouldRetry = (error: AxiosError) => {
-  const cfg: any = error.config || {};
+  const cfg = error.config as ApiClientConfigWithMeta | undefined;
   const meta = cfg?.meta || {};
   const endpoint = meta.endpointMeta;
   const strategy = endpoint?.retryStrategy;
@@ -185,7 +185,7 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
 });
 
 apiClient.interceptors.response.use(
-  (response: any) => response,
+  (response) => response,
   async (error: AxiosError) => {
     const cfg = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
     if (error.response?.status === 401 && cfg && !cfg._retry && !isRefreshRequest(cfg)) {
@@ -202,14 +202,15 @@ apiClient.interceptors.response.use(
       }
     }
     if (shouldRetry(error) && error.config) {
-      const cfg: any = error.config;
-      const currentAttempt = Number(cfg?.meta?.retryAttempt || 0);
-      const strategy = cfg?.meta?.endpointMeta?.retryStrategy;
+      const cfg = error.config as ApiClientConfigWithMeta;
+      const meta = getRequestMeta(cfg);
+      const currentAttempt = Number(meta.retryAttempt || 0);
+      const strategy = meta.endpointMeta?.retryStrategy;
       const delay = Math.max(0, Number(strategy?.baseDelayMs || 0)) * Math.pow(2, currentAttempt);
-      cfg.meta = {
-        ...(cfg.meta || {}),
+      setRequestMeta(cfg, {
+        ...meta,
         retryAttempt: currentAttempt + 1,
-      };
+      });
       if (delay > 0) {
         await sleep(delay);
       }

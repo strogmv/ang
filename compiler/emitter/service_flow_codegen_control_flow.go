@@ -201,7 +201,9 @@ func renderFlowCall(st *flowRenderState, pad string, step normalizer.FlowStep, a
 	}
 
 	if ignoreErr {
-		emitFlowWarning(st, step, "FLOW_IGNORE_ERR", "warn", "flow.Call ignores returned error explicitly", "Document intent with ignoreErrReason and use only for deliberate fire-and-forget behavior")
+		if ignoreErrReason == "" {
+			emitFlowWarning(st, step, "FLOW_IGNORE_ERR", "warn", "flow.Call ignores returned error explicitly", "Document intent with ignoreErrReason and use only for deliberate fire-and-forget behavior")
+		}
 		comment := fmt.Sprintf("%s// explicit ignoreErr=true", pad)
 		if ignoreErrReason != "" {
 			comment = fmt.Sprintf("%s// explicit ignoreErr=true: %s", pad, ignoreErrReason)

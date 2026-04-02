@@ -36,7 +36,7 @@ export default function AdminPage() {
 function AdminEntityPage({ config }: { config: AdminEntityConfig }) {
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
-  const [editRow, setEditRow] = useState<any | null>(null);
+  const [editRow, setEditRow] = useState<Record<string, unknown> | null>(null);
 
   const invalidateList = () => {
     queryClient.invalidateQueries({ queryKey: config.listQueryKey });
@@ -57,7 +57,7 @@ function AdminEntityPage({ config }: { config: AdminEntityConfig }) {
 
       <Suspense fallback={<LoadingFallback />}>
         <TableComponent
-          onEdit={config.updateFormName ? (row: any) => setEditRow(row) : undefined}
+          onEdit={config.updateFormName ? (row) => setEditRow(row) : undefined}
         />
       </Suspense>
 
@@ -66,7 +66,7 @@ function AdminEntityPage({ config }: { config: AdminEntityConfig }) {
           <DialogTitle>Создать {config.title}</DialogTitle>
           <DialogContent>
             <FormRenderer
-              formName={config.createFormName as any}
+              formName={config.createFormName}
               onSuccess={() => {
                 setCreateOpen(false);
                 invalidateList();
@@ -83,7 +83,7 @@ function AdminEntityPage({ config }: { config: AdminEntityConfig }) {
           <DialogContent>
             {editRow && (
               <FormRenderer
-                formName={config.updateFormName as any}
+                formName={config.updateFormName}
                 defaultValues={config.updateIdField ? { ...editRow, [config.updateIdField]: editRow.id } : editRow}
                 onSuccess={() => {
                   setEditRow(null);

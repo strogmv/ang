@@ -25,6 +25,8 @@ var {{ .Name | ToLower }}Hub = &wsHub{
 	broadcast:  make(chan wsMessage, 1024),
 	register:   make(chan *wsClient),
 	unregister: make(chan *wsClient),
+	subscribe:  make(chan wsRoomSubscription),
+	unsubscribe: make(chan wsRoomSubscription),
 	stop:       make(chan struct{}),
 }
 
@@ -164,7 +166,17 @@ func handler{{ .RPC }}WS(svc port.{{ $.Name }}) http.HandlerFunc {
 		roomID = wsUserID
 		{{- end }}
 
-		client := &wsClient{hub: {{ $.Name | ToLower }}Hub, conn: conn, send: make(chan []byte, 256), room: roomID}
+		initialRooms := map[string]struct{}{}
+		if roomID != "" {
+			initialRooms[roomID] = struct{}{}
+		}
+		client := &wsClient{
+			hub:               {{ $.Name | ToLower }}Hub,
+			conn:              conn,
+			send:              make(chan []byte, 256),
+			rooms:             initialRooms,
+			allowDynamicRooms: {{ if .AllowDynamicRooms }}true{{ else }}false{{ end }},
+		}
 		client.hub.register <- client
 
 		go client.writePump()

@@ -36,6 +36,7 @@ type WsEndpointView struct {
 	Input                 normalizer.Entity
 	RoomParam             string
 	RoomField             string
+	AllowDynamicRooms     bool
 	AuthCheckHasCompanyID bool
 }
 
