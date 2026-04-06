@@ -278,7 +278,7 @@ func (e *Emitter) EmitServiceMain(svcName string, ctx MainContext) error {
 		return err
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "cmd", "services", strings.ToLower(svcName))
+	targetDir := e.outDir("cmd", "services", strings.ToLower(svcName))
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("create directory: %w", err)
 	}
@@ -304,7 +304,7 @@ func (e *Emitter) EmitMain(ctx MainContext) error {
 		return err
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "cmd", "server")
+	targetDir := e.outDir("cmd", "server")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("create directory: %w", err)
 	}
@@ -326,7 +326,7 @@ func (e *Emitter) EmitRuntimeContainer(ctx MainContext) error {
 		return err
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "bootstrap")
+	targetDir := e.outDir("internal", "bootstrap")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("create directory: %w", err)
 	}

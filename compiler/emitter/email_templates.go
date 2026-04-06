@@ -85,7 +85,7 @@ func (e *Emitter) EmitEmailTemplatesFromIR(schema *ir.Schema, templates []normal
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "pkg", "emailtemplates")
+	targetDir := e.outDir("internal", "pkg", "emailtemplates")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}

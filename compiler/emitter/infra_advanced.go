@@ -31,7 +31,7 @@ func (e *Emitter) EmitRedisClient() error {
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "adapter", "cache", "redis")
+	targetDir := e.outDir("internal", "adapter", "cache", "redis")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -71,7 +71,7 @@ func (e *Emitter) EmitRedisStateStore() error {
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "adapter", "statestore", "redis")
+	targetDir := e.outDir("internal", "adapter", "statestore", "redis")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -148,7 +148,7 @@ func (e *Emitter) EmitMongoSchema(entities []ir.Entity) error {
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "db", "mongo", "schemas")
+	targetDir := e.outDir("db", "mongo", "schemas")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -256,7 +256,7 @@ func (e *Emitter) EmitPublisherInterface(services []ir.Service, schedules []ir.S
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "port")
+	targetDir := e.outDir("internal", "port")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -305,7 +305,7 @@ func (e *Emitter) EmitNatsAdapter(services []ir.Service, schedules []ir.Schedule
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "adapter", "events", "nats")
+	targetDir := e.outDir("internal", "adapter", "events", "nats")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}

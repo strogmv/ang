@@ -40,7 +40,7 @@ func (e *Emitter) EmitStubRepo(repos []ir.Repository, entities []ir.Entity) erro
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "adapter", "repository", "memory")
+	targetDir := e.outDir("internal", "adapter", "repository", "memory")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}

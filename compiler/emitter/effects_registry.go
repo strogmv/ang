@@ -2,7 +2,6 @@ package emitter
 
 import (
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,7 +12,7 @@ import (
 // EmitEffectRegistry generates internal/bootstrap/effect_registry.gen.go with
 // both declarative handler metadata and concrete runtime wiring.
 func (e *Emitter) EmitEffectRegistry(ctx MainContext, infraValues map[string]any) error {
-	target := filepath.Join(e.OutputDir, "internal", "bootstrap", "effect_registry.gen.go")
+	target := e.outDir("internal", "bootstrap", "effect_registry.gen.go")
 	src := e.renderEffectRegistrySource(ctx, infraValues)
 	formatted, err := formatGoStrict([]byte(src), "internal/bootstrap/effect_registry.gen.go")
 	if err != nil {

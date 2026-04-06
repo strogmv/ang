@@ -73,7 +73,7 @@ func (e *Emitter) EmitDTO(entities []ir.Entity) error {
 		return fmt.Errorf("failed to parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "dto")
+	targetDir := e.outDir("internal", "dto")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", targetDir, err)
 	}

@@ -84,9 +84,9 @@ func TestEmitFrontendSDK_GeneratesHardenedClientAndEndpoints(t *testing.T) {
 		t.Fatalf("did not expect direct console usage in api-client.ts, got:\n%s", client)
 	}
 
-	endpointsText, err := os.ReadFile(filepath.Join(tmp, "endpoints.ts"))
+	endpointsText, err := os.ReadFile(filepath.Join(tmp, "endpoints", "tender.ts"))
 	if err != nil {
-		t.Fatalf("read endpoints.ts: %v", err)
+		t.Fatalf("read endpoints/tender.ts: %v", err)
 	}
 	e := string(endpointsText)
 	for _, expected := range []string{
@@ -96,14 +96,19 @@ func TestEmitFrontendSDK_GeneratesHardenedClientAndEndpoints(t *testing.T) {
 		"getPathParamValue(paramsRecord, 'tenderId'",
 		"Missing required path param: ${primary}",
 		"signal: requestOptions.signal",
+		"if (import.meta.env.DEV) {",
+		"validateResponse('GetTenderResponseSchema', data, 'GetTender');",
 		"const queryParams = omitKeys(toParamRecord(params)",
 	} {
 		if !strings.Contains(e, expected) {
-			t.Fatalf("expected %q in endpoints.ts, got:\n%s", expected, e)
+			t.Fatalf("expected %q in endpoints/tender.ts, got:\n%s", expected, e)
 		}
 	}
+	if !strings.Contains(e, "params: Types.UpdateTenderRequest = {} as Types.UpdateTenderRequest") {
+		t.Fatalf("expected mutation endpoint params default in endpoints/tender.ts, got:\n%s", e)
+	}
 	if strings.Contains(e, "// @ts-ignore") {
-		t.Fatalf("did not expect ts-ignore path param extraction in endpoints.ts, got:\n%s", e)
+		t.Fatalf("did not expect ts-ignore path param extraction in endpoints/tender.ts, got:\n%s", e)
 	}
 
 	queryOptionsText, err := os.ReadFile(filepath.Join(tmp, "query-options.ts"))
@@ -120,6 +125,22 @@ func TestEmitFrontendSDK_GeneratesHardenedClientAndEndpoints(t *testing.T) {
 	} {
 		if !strings.Contains(q, expected) {
 			t.Fatalf("expected %q in query-options.ts, got:\n%s", expected, q)
+		}
+	}
+
+	tokenRefreshText, err := os.ReadFile(filepath.Join(tmp, "token-refresh.ts"))
+	if err != nil {
+		t.Fatalf("read token-refresh.ts: %v", err)
+	}
+	tr := string(tokenRefreshText)
+	for _, expected := range []string{
+		"const REFRESH_ENDPOINT = '/api/auth/refresh';",
+		"export const startTokenRefresh = () => {",
+		"export const stopTokenRefresh = () => {",
+		"startTokenRefresh();",
+	} {
+		if !strings.Contains(tr, expected) {
+			t.Fatalf("expected %q in token-refresh.ts, got:\n%s", expected, tr)
 		}
 	}
 
@@ -141,7 +162,7 @@ func TestEmitFrontendSDK_GeneratesHardenedClientAndEndpoints(t *testing.T) {
 	}
 	h := string(hooksText)
 	for _, expected := range []string{
-		"import { endpointMeta } from '../endpoints';",
+		"import { endpointMeta } from '../endpoints/meta';",
 		"const invalidateGeneratedTargets = (",
 		"service?: string;",
 		"rpc?: string;",

@@ -46,7 +46,7 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "adapter", "repository", "postgres")
+	targetDir := e.outDir("internal", "adapter", "repository", "postgres")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -718,7 +718,7 @@ func (e *Emitter) EmitPostgresCommon() error {
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "adapter", "repository", "postgres")
+	targetDir := e.outDir("internal", "adapter", "repository", "postgres")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}

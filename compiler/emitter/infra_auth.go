@@ -35,7 +35,7 @@ func (e *Emitter) EmitAuthPackage(auth *normalizer.AuthDef) error {
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "pkg", "auth")
+	targetDir := e.outDir("internal", "pkg", "auth")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -75,7 +75,7 @@ func (e *Emitter) EmitRefreshTokenStorePort() error {
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "port")
+	targetDir := e.outDir("internal", "port")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -115,7 +115,7 @@ func (e *Emitter) EmitRefreshTokenStoreMemory() error {
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "adapter", "auth", "memory")
+	targetDir := e.outDir("internal", "adapter", "auth", "memory")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -155,7 +155,7 @@ func (e *Emitter) EmitRefreshTokenStoreRedis() error {
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "adapter", "auth", "redis")
+	targetDir := e.outDir("internal", "adapter", "auth", "redis")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -195,7 +195,7 @@ func (e *Emitter) EmitRefreshTokenStorePostgres() error {
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "adapter", "auth", "postgres")
+	targetDir := e.outDir("internal", "adapter", "auth", "postgres")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -235,7 +235,7 @@ func (e *Emitter) EmitRefreshTokenStoreHybrid() error {
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "adapter", "auth", "hybrid")
+	targetDir := e.outDir("internal", "adapter", "auth", "hybrid")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}

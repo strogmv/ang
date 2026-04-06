@@ -150,7 +150,7 @@ func (e *Emitter) EmitDomain(entities []ir.Entity) error {
 		return fmt.Errorf("failed to parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "domain")
+	targetDir := e.outDir("internal", "domain")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", targetDir, err)
 	}
@@ -299,7 +299,7 @@ func (e *Emitter) EmitEvents(events []ir.Event) error {
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "domain")
+	targetDir := e.outDir("internal", "domain")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}

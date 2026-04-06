@@ -104,7 +104,7 @@ func (e *Emitter) EmitConfig(config *normalizer.ConfigDef) error {
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "config")
+	targetDir := e.outDir("internal", "config")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -151,7 +151,7 @@ func (e *Emitter) emitBackendEnvExample(config *normalizer.ConfigDef) error {
 		b.WriteString("\n")
 	}
 
-	path := filepath.Join(e.OutputDir, ".env.example")
+	path := e.outDir(".env.example")
 	if err := WriteFileIfChanged(path, []byte(b.String()), 0644); err != nil {
 		return err
 	}
@@ -240,7 +240,7 @@ func (e *Emitter) EmitLogger() error {
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "pkg", "logger")
+	targetDir := e.outDir("internal", "pkg", "logger")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -276,7 +276,7 @@ func (e *Emitter) EmitTracing() error {
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "pkg", "tracing")
+	targetDir := e.outDir("internal", "pkg", "tracing")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -301,7 +301,7 @@ func (e *Emitter) EmitTracing() error {
 
 // EmitErrors generates the error handling package.
 func (e *Emitter) EmitErrors(errors []ir.Error) error {
-	targetDir := filepath.Join(e.OutputDir, "internal", "pkg", "errors")
+	targetDir := e.outDir("internal", "pkg", "errors")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -384,7 +384,7 @@ func (e *Emitter) EmitViews(views []ir.View) error {
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "pkg", "views")
+	targetDir := e.outDir("internal", "pkg", "views")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -428,7 +428,7 @@ func (e *Emitter) EmitScheduler(schedules []ir.Schedule) error {
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "scheduler")
+	targetDir := e.outDir("internal", "scheduler")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -519,7 +519,7 @@ func (e *Emitter) EmitInfraConfigs() error {
   }
 }
 `
-	if err := WriteFileIfChanged(filepath.Join(e.OutputDir, "atlas.hcl"), []byte(atlasContent), 0644); err != nil {
+	if err := WriteFileIfChanged(e.outDir("atlas.hcl"), []byte(atlasContent), 0644); err != nil {
 		return err
 	}
 	fmt.Printf("Generated Atlas Config: atlas.hcl\n")
@@ -536,18 +536,18 @@ sql:
         out: "internal/adapter/repository/sql/db"
         sql_package: "pgx/v5"
 `
-	if err := WriteFileIfChanged(filepath.Join(e.OutputDir, "sqlc.yaml"), []byte(sqlcContent), 0644); err != nil {
+	if err := WriteFileIfChanged(e.outDir("sqlc.yaml"), []byte(sqlcContent), 0644); err != nil {
 		return err
 	}
 	fmt.Printf("Generated SQLC Config: sqlc.yaml\n")
 
-	if err := os.MkdirAll(filepath.Join(e.OutputDir, "db", "queries"), 0755); err != nil {
+	if err := os.MkdirAll(e.outDir("db", "queries"), 0755); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Join(e.OutputDir, "db", "migrations"), 0755); err != nil {
+	if err := os.MkdirAll(e.outDir("db", "migrations"), 0755); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Join(e.OutputDir, "scripts"), 0755); err != nil {
+	if err := os.MkdirAll(e.outDir("scripts"), 0755); err != nil {
 		return err
 	}
 
@@ -589,10 +589,10 @@ fi
 atlas migrate apply --dir file://db/migrations --url "${DB_URL}"
 `
 
-	if err := writeExecutable(filepath.Join(e.OutputDir, "scripts", "atlas-diff.sh"), []byte(diffScript)); err != nil {
+	if err := writeExecutable(e.outDir("scripts", "atlas-diff.sh"), []byte(diffScript)); err != nil {
 		return err
 	}
-	if err := writeExecutable(filepath.Join(e.OutputDir, "scripts", "atlas-apply.sh"), []byte(applyScript)); err != nil {
+	if err := writeExecutable(e.outDir("scripts", "atlas-apply.sh"), []byte(applyScript)); err != nil {
 		return err
 	}
 
@@ -620,7 +620,7 @@ func (e *Emitter) EmitHealth() error {
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "transport", "http")
+	targetDir := e.outDir("internal", "transport", "http")
 	var buf bytes.Buffer
 	if err := t.Execute(&buf, data); err != nil {
 		return fmt.Errorf("execute template: %w", err)
@@ -647,7 +647,7 @@ func (e *Emitter) EmitHelpers() error {
 		return fmt.Errorf("read template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "pkg", "helpers")
+	targetDir := e.outDir("internal", "pkg", "helpers")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -673,7 +673,7 @@ func (e *Emitter) EmitReqCtx() error {
 		return fmt.Errorf("read template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "pkg", "reqctx")
+	targetDir := e.outDir("internal", "pkg", "reqctx")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -711,7 +711,7 @@ func (e *Emitter) EmitSessionMiddleware(session *normalizer.SessionDef) error {
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "transport", "http")
+	targetDir := e.outDir("internal", "transport", "http")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -742,7 +742,7 @@ func (e *Emitter) EmitCircuitBreaker() error {
 		return fmt.Errorf("read template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "pkg", "circuitbreaker")
+	targetDir := e.outDir("internal", "pkg", "circuitbreaker")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -768,7 +768,7 @@ func (e *Emitter) EmitPresence() error {
 		return fmt.Errorf("read template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "pkg", "presence")
+	targetDir := e.outDir("internal", "pkg", "presence")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -799,7 +799,7 @@ func (e *Emitter) EmitReportPDF() error {
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "pkg", "report")
+	targetDir := e.outDir("internal", "pkg", "report")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -876,7 +876,7 @@ func (e *Emitter) EmitNotificationMuting(def *normalizer.NotificationMutingDef, 
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "adapter")
+	targetDir := e.outDir("internal", "adapter")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -991,7 +991,7 @@ func (e *Emitter) EmitMermaid(ctx MainContext) error {
 
 	buf.WriteString("```\n")
 
-	path := filepath.Join(e.OutputDir, "ARCHITECTURE.md")
+	path := e.outDir("ARCHITECTURE.md")
 	if err := WriteFileIfChanged(path, buf.Bytes(), 0644); err != nil {
 		return err
 	}
@@ -1010,7 +1010,7 @@ type K8sContext struct {
 
 // EmitK8s generates Kubernetes manifests.
 func (e *Emitter) EmitK8s(services []ir.Service, isMicroservice bool) error {
-	targetDir := filepath.Join(e.OutputDir, "deploy", "k8s")
+	targetDir := e.outDir("deploy", "k8s")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return err
 	}

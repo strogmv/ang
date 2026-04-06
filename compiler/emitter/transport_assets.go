@@ -30,7 +30,7 @@ func (e *Emitter) emitWSCommon() error {
 		return fmt.Errorf("parse ws common template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "transport", "http")
+	targetDir := e.outDir("internal", "transport", "http")
 	if err := os.MkdirAll(targetDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -67,7 +67,7 @@ func (e *Emitter) EmitHTTPCommon(auth *normalizer.AuthDef) error {
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "transport", "http")
+	targetDir := e.outDir("internal", "transport", "http")
 	var buf bytes.Buffer
 	if auth == nil {
 		auth = &normalizer.AuthDef{
@@ -110,7 +110,7 @@ func (e *Emitter) EmitMetrics() error {
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "transport", "http")
+	targetDir := e.outDir("internal", "transport", "http")
 	if err := os.MkdirAll(targetDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -146,7 +146,7 @@ func (e *Emitter) EmitLoggingMiddleware() error {
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "transport", "http")
+	targetDir := e.outDir("internal", "transport", "http")
 
 	var buf bytes.Buffer
 	if err := t.Execute(&buf, nil); err != nil {

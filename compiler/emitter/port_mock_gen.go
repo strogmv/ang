@@ -33,11 +33,11 @@ type portFieldSpec struct {
 // EmitPortMocks generates internal/adapter/mock/*.gen.go by parsing generated
 // interfaces from internal/port.
 func (e *Emitter) EmitPortMocks() error {
-	specs, importPaths, err := readPortInterfaces(filepath.Join(e.OutputDir, "internal", "port"))
+	specs, importPaths, err := readPortInterfaces(e.outDir("internal", "port"))
 	if err != nil {
 		return err
 	}
-	targetDir := filepath.Join(e.OutputDir, "internal", "adapter", "mock")
+	targetDir := e.outDir("internal", "adapter", "mock")
 	if err := os.MkdirAll(targetDir, 0o755); err != nil {
 		return err
 	}

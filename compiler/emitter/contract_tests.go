@@ -278,7 +278,7 @@ func (e *Emitter) EmitContractTests(irEndpoints []ir.Endpoint, irServices []ir.S
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "tests", "contract")
+	targetDir := e.outDir("tests", "contract")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}

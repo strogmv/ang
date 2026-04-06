@@ -45,7 +45,7 @@ func (e *Emitter) EmitSQL(entities []ir.Entity) error {
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "db", "schema")
+	targetDir := e.outDir("db", "schema")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -233,7 +233,7 @@ func (e *Emitter) EmitSQLQueries(entities []ir.Entity) error {
 		buf.WriteString(fmt.Sprintf("SELECT * FROM %s ORDER BY id LIMIT $1 OFFSET $2;\n\n", tableName))
 	}
 
-	path := filepath.Join(e.OutputDir, "db", "queries", "query.sql")
+	path := e.outDir("db", "queries", "query.sql")
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("create directory: %w", err)
 	}

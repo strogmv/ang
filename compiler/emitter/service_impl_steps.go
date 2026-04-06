@@ -11,7 +11,10 @@ import (
 // Supported kinds: load/assert/call/emit (limited handling). Unknown steps panic in non-prod to surface gaps.
 func renderImplSteps(svc normalizer.Service, steps []normalizer.ImplStep, serviceName, methodName string) string {
 	if len(steps) == 0 {
-		return "// FLOW_NOT_IMPLEMENTED: empty impl_steps\nif os.Getenv(\"APP_ENV\") != \"production\" { panic(\"" + serviceName + "." + methodName + ": impl_steps not implemented\") }\nreturn resp, errors.New(http.StatusInternalServerError, \"Not Implemented\", \"" + serviceName + "." + methodName + " not implemented\")\n"
+		return fmt.Sprintf(
+			"// FLOW_NOT_IMPLEMENTED: empty impl_steps for %s.%s\nreturn resp, errors.New(http.StatusNotImplemented, \"Not Implemented\", \"%s.%s not implemented\")\n",
+			serviceName, methodName, serviceName, methodName,
+		)
 	}
 	var b strings.Builder
 	b.WriteString("// generated from impl_steps\n")
@@ -159,21 +162,24 @@ func renderImplSteps(svc normalizer.Service, steps []normalizer.ImplStep, servic
 							b.WriteString(fmt.Sprintf("%s, err := %s.Count(ctx, %s)\n", into, repoVar, arg))
 							b.WriteString("if err != nil { return resp, err }\n")
 						default:
-							b.WriteString(fmt.Sprintf("// TODO impl_steps repo.%s not supported yet\n", method))
-							b.WriteString("if os.Getenv(\"APP_ENV\") != \"production\" { panic(\"impl_steps repo call not supported\") }\n")
+							b.WriteString(fmt.Sprintf("// impl_steps repo.%s is not supported; add a case above or use mapping.assign\n", method))
+							b.WriteString(fmt.Sprintf("return resp, errors.New(http.StatusNotImplemented, \"Not Implemented\", \"repo.%s not supported in impl_steps\")\n", method))
 						}
 					} else {
 						b.WriteString("// malformed repo call\n")
 					}
 				} else {
-					b.WriteString(fmt.Sprintf("// TODO impl_steps call %s not supported yet\n", st.CallTarget))
-					b.WriteString("if os.Getenv(\"APP_ENV\") != \"production\" { panic(\"impl_steps call not supported\") }\n")
+					b.WriteString(fmt.Sprintf("// impl_steps call target %q is not supported; register it in service_impl_steps.go\n", st.CallTarget))
+					b.WriteString(fmt.Sprintf("return resp, errors.New(http.StatusNotImplemented, \"Not Implemented\", \"impl_steps call %s not supported\")\n", st.CallTarget))
 				}
 			}
 		case "emit":
 			if !hasPublisher {
+				// No publisher wired: emit a structured warning via logger if available, then skip.
+				// Do not return an error — the caller may still proceed; missing events are non-fatal
+				// by design so that services without an event bus continue to function.
 				b.WriteString(fmt.Sprintf("// emit %s skipped: publisher not configured for this service\n", st.EmitEvent))
-				b.WriteString("if os.Getenv(\"APP_ENV\") != \"production\" { panic(\"impl_steps emit requires publisher\") }\n")
+				b.WriteString("if _logger, ok := interface{}(s).(interface{ Warn(string) }); ok { _logger.Warn(\"publisher not configured, event skipped\") }\n")
 				break
 			}
 			typeName := exportName(st.EmitEvent)

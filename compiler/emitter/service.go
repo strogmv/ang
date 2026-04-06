@@ -121,7 +121,7 @@ func (e *Emitter) EmitService(services []ir.Service) error {
 		return err
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "port")
+	targetDir := e.outDir("internal", "port")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -219,7 +219,7 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 		return err
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "service")
+	targetDir := e.outDir("internal", "service")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return err
 	}
@@ -713,7 +713,7 @@ func (e *Emitter) resolveSourcePath(file string) string {
 		return filepath.Clean(file)
 	}
 	candidates := []string{
-		filepath.Join(e.OutputDir, file),
+		e.outDir(file),
 		file,
 	}
 	for _, c := range candidates {
@@ -841,7 +841,7 @@ func (e *Emitter) EmitCachedService(services []ir.Service) error {
 		return err
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "service")
+	targetDir := e.outDir("internal", "service")
 	for _, svc := range nServices {
 		var buf bytes.Buffer
 		overrides := e.getManualMethods(svc.Name)
@@ -873,7 +873,7 @@ func (e *Emitter) EmitCachedService(services []ir.Service) error {
 
 func (e *Emitter) getManualMethods(serviceName string) map[string]bool {
 	overrides := make(map[string]bool)
-	manualFile := filepath.Join(e.OutputDir, "internal/service", strings.ToLower(serviceName)+".manual.go")
+	manualFile := e.outDir("internal/service", strings.ToLower(serviceName)+".manual.go")
 
 	if _, err := os.Stat(manualFile); os.IsNotExist(err) {
 		return overrides

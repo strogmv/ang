@@ -2,7 +2,6 @@ package emitter
 
 import (
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -10,7 +9,7 @@ import (
 // EmitEffectMiddleware generates internal/adapter/middleware/effects.gen.go with
 // executable wrappers for effect-bound ports.
 func (e *Emitter) EmitEffectMiddleware(ctx MainContext) error {
-	target := filepath.Join(e.OutputDir, "internal", "adapter", "middleware", "effects.gen.go")
+	target := e.outDir("internal", "adapter", "middleware", "effects.gen.go")
 	src := e.renderEffectMiddlewareSource(ctx)
 	formatted, err := formatGoStrict([]byte(src), "internal/adapter/middleware/effects.gen.go")
 	if err != nil {

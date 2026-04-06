@@ -52,7 +52,7 @@ func (e *Emitter) EmitNIS2(services []ir.Service) error {
 		formatted = buf.Bytes()
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "compliance")
+	targetDir := e.outDir("internal", "compliance")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("nis2: mkdir: %w", err)
 	}

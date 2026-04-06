@@ -39,7 +39,7 @@ func (e *Emitter) EmitOpenAPI(irEndpoints []ir.Endpoint, irServices []ir.Service
 		IRServicesToNormalizer(irServices),
 		IRErrorsToNormalizer(irErrors),
 		project,
-		filepath.Join(e.OutputDir, "api", "openapi.yaml"),
+		e.outDir("api", "openapi.yaml"),
 	)
 }
 
@@ -47,7 +47,7 @@ func (e *Emitter) EmitOpenAPI(irEndpoints []ir.Endpoint, irServices []ir.Service
 // outPath specifies the output file; use "" to default to OutputDir/api/openapi.yaml.
 func (e *Emitter) EmitOpenAPIFromNormalizerTypes(endpoints []normalizer.Endpoint, services []normalizer.Service, errors []normalizer.ErrorDef, project *normalizer.ProjectDef, outPath string) error {
 	if outPath == "" {
-		outPath = filepath.Join(e.OutputDir, "api", "openapi.yaml")
+		outPath = e.outDir("api", "openapi.yaml")
 	}
 
 	tmplPath := "templates/openapi.tmpl"
@@ -378,7 +378,7 @@ func (e *Emitter) EmitAsyncAPI(irEvents []ir.Event, project *normalizer.ProjectD
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "api")
+	targetDir := e.outDir("api")
 	if err := os.MkdirAll(targetDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}

@@ -28,7 +28,7 @@ func (e *Emitter) EmitTransactionPort() error {
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "port")
+	targetDir := e.outDir("internal", "port")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -53,7 +53,7 @@ func (e *Emitter) EmitTransactionPort() error {
 
 // EmitIdempotencyPort генерирует интерфейс IdempotencyStore
 func (e *Emitter) EmitIdempotencyPort() error {
-	targetDir := filepath.Join(e.OutputDir, "internal", "port")
+	targetDir := e.outDir("internal", "port")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -84,7 +84,7 @@ type IdempotencyStore interface {
 
 // EmitStateStorePort generates port.StateStore interface.
 func (e *Emitter) EmitStateStorePort() error {
-	targetDir := filepath.Join(e.OutputDir, "internal", "port")
+	targetDir := e.outDir("internal", "port")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -120,7 +120,7 @@ type StateStore interface {
 
 // EmitPolicyPort generates port.PolicyEngine interface and policy decision contracts.
 func (e *Emitter) EmitPolicyPort() error {
-	targetDir := filepath.Join(e.OutputDir, "internal", "port")
+	targetDir := e.outDir("internal", "port")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -166,7 +166,7 @@ type PolicyEngine interface {
 
 // EmitOutboxPort генерирует интерфейс OutboxRepository
 func (e *Emitter) EmitOutboxPort() error {
-	targetDir := filepath.Join(e.OutputDir, "internal", "port")
+	targetDir := e.outDir("internal", "port")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -207,7 +207,7 @@ type OutboxRepository interface {
 // EmitSystemRepository generates a Postgres adapter that satisfies both
 // port.IdempotencyStore and port.OutboxRepository using two simple tables.
 func (e *Emitter) EmitSystemRepository() error {
-	targetDir := filepath.Join(e.OutputDir, "internal", "adapter", "repository", "postgres")
+	targetDir := e.outDir("internal", "adapter", "repository", "postgres")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -360,7 +360,7 @@ func (e *Emitter) EmitRepository(repos []ir.Repository, entities []ir.Entity) er
 		}
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "port")
+	targetDir := e.outDir("internal", "port")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}

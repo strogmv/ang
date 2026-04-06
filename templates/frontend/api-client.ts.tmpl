@@ -1,6 +1,6 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from './auth-store';
-import { endpointMeta } from './endpoints';
+import { endpointMeta } from './endpoints/meta';
 import { ErrorCode, ProblemDetail } from './types';
 import * as Types from './types';
 import { isProblemDetailLike, normalizeApiError } from './error-normalizer';
@@ -204,7 +204,10 @@ const refreshAuthToken = async (): Promise<string> => {
     refreshPromise = apiClient
       .post<Types.RefreshTokenResponse>(`/api/auth/refresh`, { refreshToken: storedRefresh })
       .then((response) => {
-        const data = validateResponse('RefreshTokenResponseSchema', response.data, 'RefreshToken');
+        const data = response.data;
+        if (import.meta.env.DEV) {
+          validateResponse('RefreshTokenResponseSchema', data, 'RefreshToken');
+        }
         store.setAuth(data.accessToken, store.user, data.refreshToken);
         flushRefreshWaiters(data.accessToken);
         return data.accessToken;
@@ -348,10 +351,13 @@ apiClient.interceptors.response.use(
   }
 );
 
+// Zod schemas are typed with specific key names; dynamic lookup requires a structural cast.
+type _ZodSchemaLookup = Record<string, { safeParse: (value: unknown) => { success: boolean; error?: unknown } } | undefined>;
+const _schemasByName = Schemas as unknown as _ZodSchemaLookup;
+
 export const validateResponse = <T>(schemaName: string, data: T, context: string): T => {
-  const schemaMap = Schemas as unknown as Record<string, { safeParse?: (value: unknown) => { success: boolean; error?: unknown } }>;
-  const schema = schemaMap[schemaName];
-  if (!schema || typeof schema.safeParse !== 'function') return data;
+  const schema = _schemasByName[schemaName];
+  if (!schema) return data;
   const result = schema.safeParse(data);
   if (!result.success) {
     const issue = {

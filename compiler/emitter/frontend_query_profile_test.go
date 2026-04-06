@@ -148,9 +148,9 @@ func TestEmitFrontendSDK_UsesEndpointFrontendMetadataProfiles(t *testing.T) {
 		}
 	}
 
-	endpointsText, err := os.ReadFile(filepath.Join(tmp, "endpoints.ts"))
+	endpointsText, err := os.ReadFile(filepath.Join(tmp, "endpoints", "meta.ts"))
 	if err != nil {
-		t.Fatalf("read endpoints.ts: %v", err)
+		t.Fatalf("read endpoints/meta.ts: %v", err)
 	}
 	e := string(endpointsText)
 	for _, expected := range []string{
@@ -160,7 +160,7 @@ func TestEmitFrontendSDK_UsesEndpointFrontendMetadataProfiles(t *testing.T) {
 		"cachePolicy: 'realtime'",
 	} {
 		if !strings.Contains(e, expected) {
-			t.Fatalf("expected %q in endpoints.ts, got:\n%s", expected, e)
+			t.Fatalf("expected %q in endpoints/meta.ts, got:\n%s", expected, e)
 		}
 	}
 

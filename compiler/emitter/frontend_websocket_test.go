@@ -180,6 +180,7 @@ func TestEmitFrontendSDK_GeneratesResilientWebSocketClient(t *testing.T) {
 		"endpoints.streamNotificationsUrl()",
 		"endpoints.streamUserChatsUrl()",
 		"const applyHotEventCacheUpdate = (",
+		"const eventTimestamp = (payload: unknown) => {",
 		"applyHotEventCacheUpdate(queryClient, data)",
 		"export const subscribeStreamUserChatsRoom = (room: string) => streamUserChatsWsClient.subscribeRoom(room);",
 		"export const unsubscribeStreamUserChatsRoom = (room: string) => streamUserChatsWsClient.unsubscribeRoom(room);",
@@ -193,6 +194,12 @@ func TestEmitFrontendSDK_GeneratesResilientWebSocketClient(t *testing.T) {
 		"export const useStreamTenderUpdatesSubscription = <K extends StreamTenderUpdatesWSMessage['type']>(",
 		"export const useStreamChatMessagesSubscription = <K extends StreamChatMessagesWSMessage['type']>(",
 		"export const useAppWebsocketSubscription = <K extends AppWSMessage['type']>(",
+		"const emit = onMessage as (payload: Extract<T, { type: K }>['payload']) => void;",
+		"emit(matched.payload as unknown as Extract<T, { type: K }>['payload']);",
+		"const emit = onMessageRef.current as unknown as (payload: Extract<AppWSMessage, { type: K }>['payload']) => void;",
+		"emit(payload as unknown as Extract<AppWSMessage, { type: K }>['payload']);",
+		"const emit = onMessageRef.current as unknown as (payload: Extract<StreamChatMessagesWSMessage, { type: K }>['payload']) => void;",
+		"emit(matched.payload as unknown as Extract<StreamChatMessagesWSMessage, { type: K }>['payload']);",
 	} {
 		if !strings.Contains(hooksText, expected) {
 			t.Fatalf("expected %q in websocket-hooks.ts, got:\n%s", expected, hooksText)
@@ -213,12 +220,19 @@ func TestEmitFrontendSDK_GeneratesResilientWebSocketClient(t *testing.T) {
 		t.Fatalf("did not expect shared-room lifecycle hook for singleton websocket client, got:\n%s", hooksText)
 	}
 
-	endpointsPath := filepath.Join(tmp, "endpoints.ts")
-	endpointsData, err := os.ReadFile(endpointsPath)
+	chatEndpointsData, err := os.ReadFile(filepath.Join(tmp, "endpoints", "chat.ts"))
 	if err != nil {
-		t.Fatalf("read generated endpoints.ts: %v", err)
+		t.Fatalf("read generated endpoints/chat.ts: %v", err)
 	}
-	endpointsText := string(endpointsData)
+	notificationEndpointsData, err := os.ReadFile(filepath.Join(tmp, "endpoints", "notifications.ts"))
+	if err != nil {
+		t.Fatalf("read generated endpoints/notifications.ts: %v", err)
+	}
+	tenderEndpointsData, err := os.ReadFile(filepath.Join(tmp, "endpoints", "tender.ts"))
+	if err != nil {
+		t.Fatalf("read generated endpoints/tender.ts: %v", err)
+	}
+	endpointsText := string(chatEndpointsData) + "\n" + string(notificationEndpointsData) + "\n" + string(tenderEndpointsData)
 	for _, expected := range []string{
 		"export const streamAppEventsUrl = (",
 		"export const streamNotificationsUrl = (",
@@ -230,7 +244,7 @@ func TestEmitFrontendSDK_GeneratesResilientWebSocketClient(t *testing.T) {
 		"let streamUrl = resolveStreamUrl(`/ws/chats/${chatId}`);",
 	} {
 		if !strings.Contains(endpointsText, expected) {
-			t.Fatalf("expected %q in endpoints.ts, got:\n%s", expected, endpointsText)
+			t.Fatalf("expected %q in split endpoint modules, got:\n%s", expected, endpointsText)
 		}
 	}
 }

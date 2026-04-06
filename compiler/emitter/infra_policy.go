@@ -8,7 +8,7 @@ import (
 
 // EmitPolicyRuntime generates a default in-memory policy engine runtime.
 func (e *Emitter) EmitPolicyRuntime() error {
-	targetDir := filepath.Join(e.OutputDir, "internal", "pkg", "policy")
+	targetDir := e.outDir("internal", "pkg", "policy")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}

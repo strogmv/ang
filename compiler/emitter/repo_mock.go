@@ -42,7 +42,7 @@ func (e *Emitter) EmitRepoMocks(repos []ir.Repository) error {
 		return err
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "port")
+	targetDir := e.outDir("internal", "port")
 	keep := make(map[string]struct{})
 
 	for _, repo := range reposNorm {

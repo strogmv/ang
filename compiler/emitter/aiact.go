@@ -74,7 +74,7 @@ func (e *Emitter) EmitAIAct(services []ir.Service) error {
 	ops := collectAIOperations(norm)
 	if len(ops) == 0 {
 		// Remove stale file if no AI operations present.
-		outPath := filepath.Join(e.OutputDir, "internal", "compliance", "aiact.gen.go")
+		outPath := e.outDir("internal", "compliance", "aiact.gen.go")
 		if err := os.Remove(outPath); err != nil && !os.IsNotExist(err) {
 			return err
 		}
@@ -117,7 +117,7 @@ func (e *Emitter) EmitAIAct(services []ir.Service) error {
 		formatted = buf.Bytes()
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "compliance")
+	targetDir := e.outDir("internal", "compliance")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("aiact: mkdir: %w", err)
 	}

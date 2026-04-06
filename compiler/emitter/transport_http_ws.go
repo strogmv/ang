@@ -71,7 +71,7 @@ func (e *Emitter) EmitHTTP(irEndpoints []ir.Endpoint, irServices []ir.Service, i
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "transport", "http")
+	targetDir := e.outDir("internal", "transport", "http")
 	if err := os.MkdirAll(targetDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -380,7 +380,7 @@ func (e *Emitter) EmitWebSocket(irEndpoints []ir.Endpoint, irServices []ir.Servi
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "transport", "http")
+	targetDir := e.outDir("internal", "transport", "http")
 	if err := os.MkdirAll(targetDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}

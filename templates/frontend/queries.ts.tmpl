@@ -27,7 +27,7 @@ export const {{ LowerFirst .RPC }}InfiniteQueryOptions = (params: Types.{{ .RPC 
       {{- else }}
       p.cursor = pageParam;
       {{- end }}
-      return api.{{ LowerFirst .RPC }}(p as Types.{{ .RPC }}Request, { signal });
+      return api.{{ LowerFirst .RPC }}(p as unknown as Types.{{ .RPC }}Request, { signal });
     },
     initialPageParam: {{ if eq .Pagination.Type "offset" }}0{{ else }}null{{ end }},
     getNextPageParam: (lastPage: any, allPages: any[]) => {

@@ -88,9 +88,9 @@ func TestPolicyParity_BackendMiddlewareAndSDKMeta(t *testing.T) {
 	if err := em.EmitFrontendSDK(entities, services, endpoints, nil, nil, nil); err != nil {
 		t.Fatalf("emit frontend sdk: %v", err)
 	}
-	data, err := os.ReadFile(filepath.Join(tmp, "endpoints.ts"))
+	data, err := os.ReadFile(filepath.Join(tmp, "endpoints", "meta.ts"))
 	if err != nil {
-		t.Fatalf("read endpoints.ts: %v", err)
+		t.Fatalf("read endpoints/meta.ts: %v", err)
 	}
 	text := string(data)
 	for _, expected := range []string{

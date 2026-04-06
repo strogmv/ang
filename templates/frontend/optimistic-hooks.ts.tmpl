@@ -22,7 +22,7 @@ import { {{ . }} } from '../stores';
 // ── {{ .Key | Title }} ───────────────────────────────────────────────────────
 
 /** useOptimistic wrapper for {{ .Key }} list — adds an item optimistically while the mutation is in flight. */
-export const useOptimisticCreate{{ .Key | Title }} = <T extends Partial<Types.{{ .DetailRPC }}Response>, TReq = unknown>(
+export const useOptimisticCreate{{ .Key | Title }} = <T extends object & Partial<Types.{{ .DetailRPC }}Response>, TReq = unknown>(
   mutationFn: (req: TReq) => Promise<T>
 ) => {
   const queryClient = useQueryClient();
@@ -41,7 +41,7 @@ export const useOptimisticCreate{{ .Key | Title }} = <T extends Partial<Types.{{
         if (!old) return old;
         const items = Array.isArray(old) ? old : (((old as { data?: unknown[] } | null | undefined)?.data) ?? []);
         const updated = [{ ...optimisticItem, _optimistic: true }, ...items];
-        return Array.isArray(old) ? updated : { ...old, data: updated };
+        return Array.isArray(old) ? updated : { ...((old as Record<string, unknown>) ?? {}), data: updated };
       });
 
       try {
@@ -51,11 +51,11 @@ export const useOptimisticCreate{{ .Key | Title }} = <T extends Partial<Types.{{
           if (!old) return old;
           const items = Array.isArray(old) ? old : (((old as { data?: unknown[] } | null | undefined)?.data) ?? []);
           const updated = items.map((item) => ((item as { _optimistic?: boolean })._optimistic ? result : item));
-          return Array.isArray(old) ? updated : { ...old, data: updated };
+          return Array.isArray(old) ? updated : { ...((old as Record<string, unknown>) ?? {}), data: updated };
         });
         {{- if $hasStore }}
-        // Sync Zustand store with confirmed result
-        store.upsert(result as Parameters<typeof store.upsert>[0]);
+        // Query cache already has the confirmed result; keep Zustand conservative.
+        store.markListStale();
         {{- end }}
       } catch {
         for (const [key, data] of snapshot) {
@@ -72,7 +72,7 @@ export const useOptimisticCreate{{ .Key | Title }} = <T extends Partial<Types.{{
 };
 
 /** useOptimistic wrapper for {{ .Key }} update — patches an existing item optimistically. */
-export const useOptimisticUpdate{{ .Key | Title }} = <T extends Partial<Types.{{ .DetailRPC }}Response>, TReq = unknown>(
+export const useOptimisticUpdate{{ .Key | Title }} = <T extends object & Partial<Types.{{ .DetailRPC }}Response>, TReq = unknown>(
   mutationFn: (req: TReq) => Promise<T>
 ) => {
   const queryClient = useQueryClient();
@@ -95,18 +95,19 @@ export const useOptimisticUpdate{{ .Key | Title }} = <T extends Partial<Types.{{
         if (!old) return old;
         const items = Array.isArray(old) ? old : (((old as { data?: unknown[] } | null | undefined)?.data) ?? []);
         const updated = items.map((item) => (((item as Record<string, unknown>)['{{ .DetailParamName }}']) === id ? { ...(item as Record<string, unknown>), ...patch } : item));
-        return Array.isArray(old) ? updated : { ...old, data: updated };
+        return Array.isArray(old) ? updated : { ...((old as Record<string, unknown>) ?? {}), data: updated };
       });
       {{- if $hasStore }}
-      // Optimistic Zustand update
-      store.upsert({ {{ .DetailParamName }}: id, ...patch } as Parameters<typeof store.upsert>[0]);
+      // Partial patches are not guaranteed to satisfy the store entity shape.
+      store.markDetailStale(id as Parameters<typeof store.markDetailStale>[0]);
       {{- end }}
 
       try {
         const result = await mutationFn(req);
         queryClient.invalidateQueries({ queryKey: detailKey });
         {{- if $hasStore }}
-        store.upsert(result as Parameters<typeof store.upsert>[0]);
+        store.markDetailStale(id as Parameters<typeof store.markDetailStale>[0]);
+        store.markListStale();
         {{- end }}
       } catch {
         queryClient.setQueryData(detailKey, snapshotDetail);
@@ -142,7 +143,7 @@ export const useOptimisticDelete{{ .Key | Title }} = <TReq = unknown>(
         if (!old) return old;
         const items = Array.isArray(old) ? old : (((old as { data?: unknown[] } | null | undefined)?.data) ?? []);
         const updated = items.filter((item) => ((item as Record<string, unknown>)['{{ .DetailParamName }}']) !== id);
-        return Array.isArray(old) ? updated : { ...old, data: updated };
+        return Array.isArray(old) ? updated : { ...((old as Record<string, unknown>) ?? {}), data: updated };
       });
       {{- if $hasStore }}
       store.remove(id as Parameters<typeof store.remove>[0]);

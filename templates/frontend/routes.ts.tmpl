@@ -15,7 +15,7 @@ export const createRouteDefinitions = (queryClient: QueryClient) => [
     rpc: '{{ .RPC }}',
     {{- if eq .Method "GET" }}
     loader: async ({ params }: { params: any }) => {
-      {{- $args := ParamsFromRouter .Path }}
+      {{- $args := ParamsFromRouter . }}
       {{- if ne $args "" }}
       await queryClient.ensureQueryData(Queries.{{ LowerFirst .RPC }}QueryOptions({{ $args }}));
       {{- else }}

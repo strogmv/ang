@@ -22,7 +22,7 @@ func (e *Emitter) EmitTemplateRenderer() error {
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "pkg", "templaterender")
+	targetDir := e.outDir("internal", "pkg", "templaterender")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}

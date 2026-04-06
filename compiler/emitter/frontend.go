@@ -25,6 +25,7 @@ type FrontendContext struct {
 	NamedEnums             []NamedEnum
 	Services               []normalizer.Service
 	Endpoints              []normalizer.Endpoint
+	EndpointModules        []FrontendEndpointModule
 	Events                 []normalizer.EventDef
 	Errors                 []normalizer.ErrorDef
 	RBAC                   *normalizer.RBACDef
@@ -67,6 +68,12 @@ type QueryResource struct {
 	EntityName      string // derived from DetailRPC — used for Zustand store import
 }
 
+type FrontendEndpointModule struct {
+	ServiceName string
+	ModuleName  string
+	Endpoints   []normalizer.Endpoint
+}
+
 func equalStringSlices(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
@@ -88,6 +95,49 @@ func namedEnumNameSet(namedEnums []NamedEnum) map[string]struct{} {
 		out[enum.Name] = struct{}{}
 	}
 	return out
+}
+
+// zodGoType converts a Go type string to its Zod schema expression.
+// Used by both ZodFieldType (field-level, handles enums separately) and ZodType (plain type string).
+func zodGoType(goType string, entitiesNorm []normalizer.Entity) string {
+	if strings.HasPrefix(goType, "[]") {
+		elem := strings.TrimPrefix(strings.TrimPrefix(goType, "[]"), "domain.")
+		switch elem {
+		case "string":
+			return "z.array(z.string())"
+		case "int", "int64", "float64", "float":
+			return "z.array(z.number())"
+		case "bool":
+			return "z.array(z.boolean())"
+		case "time.Time":
+			return "z.array(z.coerce.date())"
+		default:
+			for _, ent := range entitiesNorm {
+				if ent.Name == elem {
+					return fmt.Sprintf("z.array(z.lazy(() => %sSchema))", elem)
+				}
+			}
+			return "z.array(z.any())"
+		}
+	}
+	base := strings.TrimPrefix(goType, "domain.")
+	switch base {
+	case "int", "int64", "float64", "float":
+		return "z.number()"
+	case "bool":
+		return "z.boolean()"
+	case "string":
+		return "z.string()"
+	case "time.Time":
+		return "z.coerce.date()"
+	default:
+		for _, ent := range entitiesNorm {
+			if ent.Name == base {
+				return fmt.Sprintf("z.lazy(() => %sSchema)", base)
+			}
+		}
+		return "z.any()"
+	}
 }
 
 func matchFieldNamedEnum(f normalizer.Field, namedEnums []NamedEnum, namedEnumSet map[string]struct{}) string {
@@ -926,6 +976,7 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		NamedEnums:             namedEnums,
 		Services:               servicesNorm,
 		Endpoints:              endpointsNorm,
+		EndpointModules:        buildFrontendEndpointModules(endpointsNorm),
 		Events:                 eventsNorm,
 		Errors:                 uniqueErrors,
 		RBAC:                   rbac,
@@ -1144,97 +1195,10 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 				}
 				return fmt.Sprintf("%sSchema", enumName)
 			}
-			goType := f.Type
-			if strings.HasPrefix(goType, "[]") {
-				elem := strings.TrimPrefix(goType, "[]")
-				if strings.HasPrefix(elem, "domain.") {
-					elem = strings.TrimPrefix(elem, "domain.")
-				}
-				switch elem {
-				case "string":
-					return "z.array(z.string())"
-				case "int", "int64", "float64", "float":
-					return "z.array(z.number())"
-				case "bool":
-					return "z.array(z.boolean())"
-				case "time.Time":
-					return "z.array(z.coerce.date())"
-				default:
-					for _, ent := range entitiesNorm {
-						if ent.Name == elem {
-							return fmt.Sprintf("z.array(z.lazy(() => %sSchema))", elem)
-						}
-					}
-					return "z.array(z.any())"
-				}
-			}
-			base := goType
-			if strings.HasPrefix(base, "domain.") {
-				base = strings.TrimPrefix(base, "domain.")
-			}
-			switch base {
-			case "int", "int64", "float64", "float":
-				return "z.number()"
-			case "bool":
-				return "z.boolean()"
-			case "string":
-				return "z.string()"
-			case "time.Time":
-				return "z.coerce.date()"
-			default:
-				for _, ent := range entitiesNorm {
-					if ent.Name == base {
-						return fmt.Sprintf("z.lazy(() => %sSchema)", base)
-					}
-				}
-				return "z.any()"
-			}
+			return zodGoType(f.Type, entitiesNorm)
 		},
 		"ZodType": func(goType string) string {
-			if strings.HasPrefix(goType, "[]") {
-				elem := strings.TrimPrefix(goType, "[]")
-				if strings.HasPrefix(elem, "domain.") {
-					elem = strings.TrimPrefix(elem, "domain.")
-				}
-				switch elem {
-				case "string":
-					return "z.array(z.string())"
-				case "int", "int64", "float64", "float":
-					return "z.array(z.number())"
-				case "bool":
-					return "z.array(z.boolean())"
-				case "time.Time":
-					return "z.array(z.coerce.date())"
-				default:
-					for _, ent := range entitiesNorm {
-						if ent.Name == elem {
-							return fmt.Sprintf("z.array(z.lazy(() => %sSchema))", elem)
-						}
-					}
-					return "z.array(z.any())"
-				}
-			}
-			base := goType
-			if strings.HasPrefix(base, "domain.") {
-				base = strings.TrimPrefix(base, "domain.")
-			}
-			switch base {
-			case "int", "int64", "float64", "float":
-				return "z.number()"
-			case "bool":
-				return "z.boolean()"
-			case "string":
-				return "z.string()"
-			case "time.Time":
-				return "z.coerce.date()"
-			default:
-				for _, ent := range entitiesNorm {
-					if ent.Name == base {
-						return fmt.Sprintf("z.lazy(() => %sSchema)", base)
-					}
-				}
-				return "z.any()"
-			}
+			return zodGoType(goType, entitiesNorm)
 		},
 		"TSEnumKey": tsEnumKey,
 		"IsNamedEnumEntity": func(name string) bool {
@@ -1391,14 +1355,37 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 			}
 			return keys
 		},
-		"ParamsFromRouter": func(path string) string {
+		"ParamsFromRouter": func(ep normalizer.Endpoint) string {
 			re := regexp.MustCompile(`{([a-zA-Z0-9]+)}`)
-			matches := re.FindAllStringSubmatch(path, -1)
+			matches := re.FindAllStringSubmatch(ep.Path, -1)
+			if len(matches) == 0 {
+				return ""
+			}
+			var reqEntity *normalizer.Entity
+			reqName := ep.RPC + "Request"
+			for i := range entitiesNorm {
+				if strings.EqualFold(entitiesNorm[i].Name, reqName) {
+					reqEntity = &entitiesNorm[i]
+					break
+				}
+			}
+			mapField := func(arg string) string {
+				if reqEntity == nil {
+					return arg
+				}
+				for _, f := range reqEntity.Fields {
+					if strings.EqualFold(f.Name, arg) || strings.EqualFold(JSONName(f.Name), arg) || strings.EqualFold(ExportName(f.Name), arg) {
+						return f.Name
+					}
+				}
+				return arg
+			}
 			var args []string
 			for _, m := range matches {
-				args = append(args, fmt.Sprintf("params.%s", m[1]))
+				arg := m[1]
+				args = append(args, fmt.Sprintf("%s: params.%s", mapField(arg), arg))
 			}
-			return strings.Join(args, ", ")
+			return "{" + strings.Join(args, ", ") + "}"
 		},
 		"IsOptimisticCandidate": func(rpc string) bool {
 			return strings.HasPrefix(rpc, "Update") || strings.HasPrefix(rpc, "Edit")
@@ -1556,6 +1543,25 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 			}
 			return false
 		},
+		"HasStreamingEndpointsIn": func(items []normalizer.Endpoint) bool {
+			for _, ep := range items {
+				if strings.ToUpper(strings.TrimSpace(ep.Method)) == "WS" {
+					continue
+				}
+				if ep.IsStreaming {
+					return true
+				}
+			}
+			return false
+		},
+		"HasStreamURLHelpersIn": func(items []normalizer.Endpoint) bool {
+			for _, ep := range items {
+				if strings.ToUpper(strings.TrimSpace(ep.Method)) == "WS" || ep.IsStreaming {
+					return true
+				}
+			}
+			return false
+		},
 		"QueryResourceKeyForRPC": func(rpc string) string {
 			if res, ok := queryOptionsByRPC[rpc]; ok {
 				return res.Key
@@ -1606,9 +1612,10 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		{"index", "index.ts"},
 		{"api-client", "api-client.ts"},
 		{"error-normalizer", "error-normalizer.ts"},
-		{"endpoints", "endpoints.ts"},
+		{"endpoints-root", "endpoints.ts"},
 		{"websocket", "websocket.ts"},
 		{"auth-store", "auth-store.ts"},
+		{"token-refresh", "token-refresh.ts"},
 		{"stores", "stores/index.ts"},
 		{"store-invalidation", "stores/invalidation.ts"},
 		{"providers", "providers.tsx"},
@@ -1644,6 +1651,18 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		}
 	}
 
+	for _, module := range ctx.EndpointModules {
+		if err := e.emitFrontendFile("endpoints-domain", module, funcMap, filepath.Join("endpoints", module.ModuleName+".ts")); err != nil {
+			return err
+		}
+	}
+	if err := e.emitFrontendFile("endpoints-index", ctx, funcMap, filepath.Join("endpoints", "index.ts")); err != nil {
+		return err
+	}
+	if err := e.emitFrontendFile("endpoints-meta", ctx, funcMap, filepath.Join("endpoints", "meta.ts")); err != nil {
+		return err
+	}
+
 	extraFiles := []struct {
 		tmplPath string
 		out      string
@@ -1675,6 +1694,52 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 	}
 
 	return nil
+}
+
+var frontendEndpointModuleDashRegex = regexp.MustCompile(`-+`)
+var frontendEndpointModuleBoundaryRegex = regexp.MustCompile(`([a-z0-9])([A-Z])`)
+
+func serviceModuleName(serviceName string) string {
+	name := strings.TrimSpace(serviceName)
+	if name == "" {
+		return "misc"
+	}
+	name = strings.ReplaceAll(name, "_", "-")
+	name = strings.ReplaceAll(name, " ", "-")
+	name = frontendEndpointModuleBoundaryRegex.ReplaceAllString(name, "$1-$2")
+	name = strings.ToLower(name)
+	name = frontendEndpointModuleDashRegex.ReplaceAllString(name, "-")
+	name = strings.Trim(name, "-")
+	if name == "" {
+		return "misc"
+	}
+	return name
+}
+
+func buildFrontendEndpointModules(endpoints []normalizer.Endpoint) []FrontendEndpointModule {
+	byService := make(map[string][]normalizer.Endpoint)
+	for _, ep := range endpoints {
+		serviceName := strings.TrimSpace(ep.ServiceName)
+		if serviceName == "" {
+			serviceName = "misc"
+		}
+		byService[serviceName] = append(byService[serviceName], ep)
+	}
+	modules := make([]FrontendEndpointModule, 0, len(byService))
+	for serviceName, items := range byService {
+		modules = append(modules, FrontendEndpointModule{
+			ServiceName: serviceName,
+			ModuleName:  serviceModuleName(serviceName),
+			Endpoints:   items,
+		})
+	}
+	sort.Slice(modules, func(i, j int) bool {
+		if modules[i].ModuleName == modules[j].ModuleName {
+			return modules[i].ServiceName < modules[j].ServiceName
+		}
+		return modules[i].ModuleName < modules[j].ModuleName
+	})
+	return modules
 }
 
 func entityExists(entities []normalizer.Entity, name string) bool {

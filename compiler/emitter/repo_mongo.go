@@ -60,7 +60,7 @@ func (e *Emitter) EmitMongoRepo(repos []ir.Repository, entities []ir.Entity) err
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "adapter", "repository", "mongo")
+	targetDir := e.outDir("internal", "adapter", "repository", "mongo")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -229,7 +229,7 @@ func (e *Emitter) EmitMongoCommon(entities []ir.Entity) error {
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "adapter", "repository", "mongo")
+	targetDir := e.outDir("internal", "adapter", "repository", "mongo")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}

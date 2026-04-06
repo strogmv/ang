@@ -1,7 +1,6 @@
 package emitter
 
 import (
-	"path/filepath"
 )
 
 func (e *Emitter) EmitContainer() error {
@@ -30,6 +29,6 @@ func (e *Emitter) EmitContainer() error {
 		formatted = []byte(rendered)
 	}
 
-	path := filepath.Join(e.OutputDir, "internal/app/container.go")
+	path := e.outDir("internal/app/container.go")
 	return WriteFileIfChanged(path, formatted, 0644)
 }

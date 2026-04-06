@@ -89,7 +89,7 @@ func (e *Emitter) EmitGRPCProto(schema *ir.Schema) error {
 		b.WriteString("}\n\n")
 	}
 
-	path := filepath.Join(e.OutputDir, "api", "grpc", "service.proto")
+	path := e.outDir("api", "grpc", "service.proto")
 	if err := WriteFileIfChanged(path, []byte(b.String()), 0o644); err != nil {
 		return fmt.Errorf("write grpc proto: %w", err)
 	}
@@ -147,7 +147,7 @@ func (e *Emitter) EmitGRPCTransport(schema *ir.Schema) error {
 	goBuf.WriteString("\t// TODO: run protoc, import generated pb package, register services on grpc.Server.\n")
 	goBuf.WriteString("}\n")
 
-	goPath := filepath.Join(e.OutputDir, "internal", "transport", "grpc", "server.go")
+	goPath := e.outDir("internal", "transport", "grpc", "server.go")
 	if err := WriteFileIfChanged(goPath, []byte(goBuf.String()), 0o644); err != nil {
 		return fmt.Errorf("write grpc server scaffold: %w", err)
 	}
@@ -162,7 +162,7 @@ func (e *Emitter) EmitGRPCTransport(schema *ir.Schema) error {
 	readme.WriteString("2. Add `google.golang.org/grpc` dependency.\n")
 	readme.WriteString("3. Wire generated handlers into runtime startup.\n")
 
-	readmePath := filepath.Join(e.OutputDir, "internal", "transport", "grpc", "README.md")
+	readmePath := e.outDir("internal", "transport", "grpc", "README.md")
 	if err := WriteFileIfChanged(readmePath, readme.Bytes(), 0o644); err != nil {
 		return fmt.Errorf("write grpc readme: %w", err)
 	}

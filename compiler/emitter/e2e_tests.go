@@ -29,7 +29,7 @@ func (e *Emitter) EmitE2ETests(scenarios []normalizer.ScenarioDef) error {
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "tests", "e2e")
+	targetDir := e.outDir("tests", "e2e")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}

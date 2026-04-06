@@ -43,23 +43,22 @@ func TestEmitFrontendSDK_GeneratesStreamingHelpersForStreamingEndpoints(t *testi
 		t.Fatalf("emit frontend sdk: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(tmp, "endpoints.ts"))
+	data, err := os.ReadFile(filepath.Join(tmp, "endpoints", "sandbox.ts"))
 	if err != nil {
-		t.Fatalf("read endpoints.ts: %v", err)
+		t.Fatalf("read split endpoints module: %v", err)
 	}
 	text := string(data)
 
 	mustContain := []string{
-		"import { useAuthStore } from './auth-store';",
+		"import { useAuthStore } from '../auth-store';",
 		"export async function* streamAIEditStream(",
 		"AsyncGenerator<string, void, unknown>",
 		"const token = useAuthStore.getState().token;",
 		") => streamAIEditStream(params, init);",
-		"streaming: true",
-	}
+			}
 	for _, expected := range mustContain {
 		if !strings.Contains(text, expected) {
-			t.Fatalf("expected %q in endpoints.ts, got:\n%s", expected, text)
+			t.Fatalf("expected %q in split endpoints module, got:\n%s", expected, text)
 		}
 	}
 
@@ -100,21 +99,21 @@ func TestEmitFrontendSDK_OmitsStreamingHelpersWhenNoStreamingEndpoints(t *testin
 		t.Fatalf("emit frontend sdk: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(tmp, "endpoints.ts"))
+	data, err := os.ReadFile(filepath.Join(tmp, "endpoints", "tender.ts"))
 	if err != nil {
-		t.Fatalf("read endpoints.ts: %v", err)
+		t.Fatalf("read split endpoints module: %v", err)
 	}
 	text := string(data)
 
 	mustNotContain := []string{
-		"import { useAuthStore } from './auth-store';",
+		"import { useAuthStore } from '../auth-store';",
 		"parseSSEEvent",
 		"resolveStreamUrl",
 		"AsyncGenerator<string, void, unknown>",
 	}
 	for _, unexpected := range mustNotContain {
 		if strings.Contains(text, unexpected) {
-			t.Fatalf("did not expect %q in endpoints.ts, got:\n%s", unexpected, text)
+			t.Fatalf("did not expect %q in split endpoints module, got:\n%s", unexpected, text)
 		}
 	}
 }

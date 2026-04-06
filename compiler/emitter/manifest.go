@@ -3,7 +3,6 @@ package emitter
 import (
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"sort"
 
 	"github.com/strogmv/ang-ir/ir"
@@ -96,7 +95,7 @@ func (e *Emitter) EmitManifest(schema *ir.Schema) error {
 		return fmt.Errorf("failed to marshal manifest: %w", err)
 	}
 
-	path := filepath.Join(e.OutputDir, "ang-manifest.json")
+	path := e.outDir("ang-manifest.json")
 	if err := WriteFileIfChanged(path, data, 0644); err != nil {
 		return fmt.Errorf("failed to write manifest: %w", err)
 	}

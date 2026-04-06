@@ -51,7 +51,7 @@ func (e *Emitter) EmitNotificationDispatchPorts(cfg *ir.NotificationsConfig) err
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "port")
+	targetDir := e.outDir("internal", "port")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -102,7 +102,7 @@ func (e *Emitter) EmitNotificationDispatcherRuntime(cfg *ir.NotificationsConfig)
 		return fmt.Errorf("parse template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "internal", "adapter", "notifications")
+	targetDir := e.outDir("internal", "adapter", "notifications")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}

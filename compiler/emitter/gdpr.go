@@ -149,7 +149,7 @@ func removeFileIfExists(path string) error {
 // EmitGDPR generates internal/service/gdpr.gen.go for entities with @gdpr annotations.
 // The file is skipped entirely when no entity has a GDPR policy.
 func (e *Emitter) EmitGDPR(entities []ir.Entity) error {
-	targetDir := filepath.Join(e.OutputDir, "internal", "service")
+	targetDir := e.outDir("internal", "service")
 	outPath := filepath.Join(targetDir, "gdpr.gen.go")
 
 	norm := IREntitiesToNormalizer(entities)

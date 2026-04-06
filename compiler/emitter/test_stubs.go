@@ -25,7 +25,7 @@ func (e *Emitter) EmitTestStubs(endpoints []normalizer.Endpoint, filename string
 		return fmt.Errorf("parse test stub template: %w", err)
 	}
 
-	targetDir := filepath.Join(e.OutputDir, "tests", "generated")
+	targetDir := e.outDir("tests", "generated")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return fmt.Errorf("mkdir tests/generated: %w", err)
 	}

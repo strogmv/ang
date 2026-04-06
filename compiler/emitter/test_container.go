@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"go/format"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -305,7 +304,7 @@ func (e *Emitter) EmitTestContainerFromIR(ctx MainContext, schema *ir.Schema, au
 	if err != nil {
 		return fmt.Errorf("format test container: %w", err)
 	}
-	path := filepath.Join(e.OutputDir, "internal", "bootstrap", "test_container.gen.go")
+	path := e.outDir("internal", "bootstrap", "test_container.gen.go")
 	return WriteFileIfChanged(path, formatted, 0644)
 }
 

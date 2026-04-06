@@ -97,14 +97,14 @@ func TestEmitFrontendSDK_GeneratesStoreAutoInvalidation(t *testing.T) {
 		}
 	}
 
-	// endpoints.ts should NOT reference the old Zustand invalidation helpers.
-	endpointsData, err := os.ReadFile(filepath.Join(tmp, "endpoints.ts"))
+	// endpoints/meta.ts should NOT reference the old Zustand invalidation helpers.
+	endpointsData, err := os.ReadFile(filepath.Join(tmp, "endpoints", "meta.ts"))
 	if err != nil {
-		t.Fatalf("read endpoints.ts: %v", err)
+		t.Fatalf("read endpoints/meta.ts: %v", err)
 	}
 	endpointsText := string(endpointsData)
 	if strings.Contains(endpointsText, "markInvalidateTargets") {
-		t.Fatalf("endpoints.ts must not call markInvalidateTargets (Zustand invalidation removed)")
+		t.Fatalf("endpoints/meta.ts must not call markInvalidateTargets (Zustand invalidation removed)")
 	}
 
 	// hooks/index.ts should contain TanStack Query invalidation for CreateTender → ListTenders.
@@ -161,9 +161,9 @@ func TestEmitFrontendSDK_EndpointMetaPolicyParity(t *testing.T) {
 		t.Fatalf("emit frontend sdk: %v", err)
 	}
 
-	endpointsData, err := os.ReadFile(filepath.Join(tmp, "endpoints.ts"))
+	endpointsData, err := os.ReadFile(filepath.Join(tmp, "endpoints", "meta.ts"))
 	if err != nil {
-		t.Fatalf("read endpoints.ts: %v", err)
+		t.Fatalf("read endpoints/meta.ts: %v", err)
 	}
 	text := string(endpointsData)
 	for _, expected := range []string{
@@ -224,9 +224,9 @@ func TestEmitFrontendSDK_InvalidateTargetsCarryScopeForDetailRPC(t *testing.T) {
 		t.Fatalf("emit frontend sdk: %v", err)
 	}
 
-	endpointsData, err := os.ReadFile(filepath.Join(tmp, "endpoints.ts"))
+	endpointsData, err := os.ReadFile(filepath.Join(tmp, "endpoints", "meta.ts"))
 	if err != nil {
-		t.Fatalf("read endpoints.ts: %v", err)
+		t.Fatalf("read endpoints/meta.ts: %v", err)
 	}
 	text := string(endpointsData)
 	if !strings.Contains(text, "scopeParam: 'tenderId'") || !strings.Contains(text, "mode: 'detail'") {
