@@ -20,7 +20,7 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/redis/go-redis/v9 v9.17.3
 	github.com/stretchr/testify v1.11.1
-	github.com/strogmv/ang-ir v0.0.0-20260319212611-c66e88d2b2b3
+	github.com/strogmv/ang-ir v0.0.0-20260406212839-5d2600b53bdd
 	github.com/strogmv/ang-transform v0.0.0-20260319202114-e3e253d058da
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.65.0
 	go.opentelemetry.io/otel v1.40.0
@@ -31,8 +31,6 @@ require (
 	golang.org/x/tools v0.42.0
 	gopkg.in/yaml.v3 v3.0.1
 )
-
-replace github.com/strogmv/ang-ir => ../ang-ir
 
 require (
 	cuelabs.dev/go/oci/ociregistry v0.0.0-20251212221603-3adeb8663819 // indirect
@@ -115,6 +113,3 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	olympos.io/encoding/edn v0.0.0-20201019073823-d3554ca0b0a3 // indirect
 )
-
-// Local ang-ir (flowsem catalog); remove for CI/release that only has the ang module.
-replace github.com/strogmv/ang-ir => ../ang-ir
