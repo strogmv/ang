@@ -417,6 +417,10 @@ var specsCoreFlow = map[string]Spec{
 			"unit": ArgKindString,
 		},
 	},
+	"time.InZone": {
+		RequiredArgs:     []string{"input", "timezone", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
 	"map.Build": {
 		RequiredArgs:     []string{"from", "key", "value", "output"},
 		DeclaresFromArgs: []string{"output"},

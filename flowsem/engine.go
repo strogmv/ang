@@ -806,11 +806,12 @@ func argMatchesKind(v any, kind ArgKind) bool {
 		if _, ok := nonEmptyString(v); ok {
 			return true
 		}
-		switch arr := v.(type) {
+		switch v.(type) {
 		case []string:
-			return len(arr) > 0
+			// Empty slice is valid (e.g. logic.Call with no args after normalizer fill).
+			return true
 		case []any:
-			return len(arr) > 0
+			return true
 		default:
 			return false
 		}
@@ -906,7 +907,7 @@ func isKnownPrefix(action string) bool {
 		"exec.", "fs.",
 		"cache.", "mail.", "storage.",
 		"webhook.", "queue.", "dlq.",
-		"http.", "rand.", "json.", "regex.", "base64.", "url.", "query.", "hash.", "uuid.", "ulid.", "math.", "jsonpath.", "batch.", "parallel.",
+		"http.", "rand.", "json.", "regex.", "base64.", "url.", "path.", "query.", "hash.", "uuid.", "ulid.", "math.", "jsonpath.", "batch.", "parallel.",
 		"jwt.", "oauth2.", "crypto.",
 		"idem.", "idempotency.", "dedupe.", "ratelimit.", "concurrency.", "circuit.", "bulkhead.",
 		"budget.", "quota.", "context.", "profile.",

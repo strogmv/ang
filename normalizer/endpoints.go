@@ -107,6 +107,9 @@ func (n *Normalizer) ExtractEndpoints(val cue.Value) ([]Endpoint, error) {
 			Metadata:    map[string]any{},
 			Source:      formatPos(epVal),
 		}
+		if rb := strings.TrimSpace(getString(epVal, "request_body")); rb != "" {
+			ep.Metadata["request_body"] = rb
+		}
 		mergeEndpointMetadata(ep.Metadata, opInfo.value)
 		mergeEndpointMetadata(ep.Metadata, epVal)
 		if len(ep.Metadata) == 0 {

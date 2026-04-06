@@ -151,6 +151,14 @@ var specsInfra = map[string]Spec{
 		},
 	},
 	"str.StripMarkdown": {OptionalArgKinds: map[string]ArgKind{"input": ArgKindString, "output": ArgKindString}},
+	"str.ReplaceAll": {
+		RequiredArgs:     []string{"input", "old", "new", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
+	"str.TrimSpace": {
+		RequiredArgs:     []string{"input", "output"},
+		DeclaresFromArgs: []string{"output"},
+	},
 	"cast.ToString": {
 		RequiredArgs:     []string{"input", "output"},
 		DeclaresFromArgs: []string{"output"},
@@ -226,6 +234,10 @@ var specsInfra = map[string]Spec{
 			"segments": ArgKindStringList,
 			"query":    ArgKindStringMap,
 		},
+	},
+	"path.Base": {
+		RequiredArgs:     []string{"input", "output"},
+		DeclaresFromArgs: []string{"output"},
 	},
 	"query.Encode": {
 		RequiredArgs:     []string{"input", "output"},
