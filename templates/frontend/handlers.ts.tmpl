@@ -44,7 +44,7 @@ export const mock{{ .RPC }} = http.{{ .Method | ToLower }}('*/{{ RouterPath .Pat
 {{- if $entity }}
   const data: Partial<Types.{{ $entity.Name }}> = {
   {{- range $entity.Fields }}
-    {{ .Name | LowerFirst }}: {{ MockValue . }},
+    {{ .Name | JSONName }}: {{ MockValue . }},
   {{- end }}
   };
   return HttpResponse.json(data);

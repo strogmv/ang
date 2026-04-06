@@ -128,9 +128,12 @@ const trimPatchedList = <T,>(items: readonly T[], maxSize: number) => {
   return items.slice(0, maxSize);
 };
 
-const eventTimestamp = (payload: { createdAt?: string }) => {
-  if (typeof payload.createdAt === 'string' && payload.createdAt.trim() !== '') {
-    return payload.createdAt;
+const eventTimestamp = (payload: unknown) => {
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    const createdAt = (payload as { createdAt?: unknown }).createdAt;
+    if (typeof createdAt === 'string' && createdAt.trim() !== '') {
+      return createdAt;
+    }
   }
   return new Date().toISOString();
 };
@@ -258,7 +261,8 @@ export const subscribeToWebSocketClient = <T extends WSMessage, K extends T['typ
 ) => client.subscribe((data: T) => {
   if (data.type === topic) {
     const matched = data as Extract<T, { type: K }>;
-    onMessage(matched.payload);
+    const emit = onMessage as (payload: Extract<T, { type: K }>['payload']) => void;
+    emit(matched.payload as unknown as Extract<T, { type: K }>['payload']);
   }
 });
 
@@ -275,9 +279,14 @@ export const useWebsocketSubscription = <K extends WSMessage['type']>(
   useLayoutEffect(() => { onMessageRef.current = onMessage; });
 
   useEffect(() => {
-    const unsubs = defaultWsClients.map((client) => subscribeToWebSocketClient(client, topic, (payload) => {
-      onMessageRef.current(payload as Extract<WSMessage, { type: K }>['payload']);
-    }));
+    // Cast to WebSocketClient<WSMessage>: singleton clients carry all event types at runtime;
+    // their static type is narrowed by what the WS endpoint declares, but
+    // useWebsocketSubscription is a catch-all that must accept the full WSMessage union.
+    const unsubs = (defaultWsClients as unknown as ReadonlyArray<WebSocketClient<WSMessage>>)
+      .map((client) => subscribeToWebSocketClient(client, topic, (payload) => {
+        const emit = onMessageRef.current as unknown as (payload: Extract<WSMessage, { type: K }>['payload']) => void;
+        emit(payload as Extract<WSMessage, { type: K }>['payload']);
+      }));
     return () => {
       for (const unsub of unsubs) {
         unsub();
@@ -296,7 +305,8 @@ export const useAppWebsocketSubscription = <K extends AppWSMessage['type']>(
 
   useEffect(() => {
     const unsubscribe = subscribeToWebSocketClient(appWsClient, topic, (payload) => {
-      onMessageRef.current(payload);
+      const emit = onMessageRef.current as unknown as (payload: Extract<AppWSMessage, { type: K }>['payload']) => void;
+      emit(payload as unknown as Extract<AppWSMessage, { type: K }>['payload']);
     });
     return () => {
       unsubscribe();
@@ -331,7 +341,8 @@ export const use{{ .RPC }}Subscription = <K extends {{ .RPC }}WSMessage['type']>
       applyHotEventCacheUpdate(queryClient, data as WSMessage);
       if (data.type === topic) {
         const matched = data as Extract<{{ .RPC }}WSMessage, { type: K }>;
-        onMessageRef.current(matched.payload);
+        const emit = onMessageRef.current as unknown as (payload: Extract<{{ .RPC }}WSMessage, { type: K }>['payload']) => void;
+        emit(matched.payload as unknown as Extract<{{ .RPC }}WSMessage, { type: K }>['payload']);
       }
     });
     return () => {
