@@ -2,6 +2,11 @@ package project
 
 build: mode: "in_place"
 
+// architecture_mode relaxed: cross-service access warnings are non-fatal (sample project only).
+#Project: {
+	architecture_mode: "relaxed"
+}
+
 state: {
 	target: {
 		lang:      "go"
@@ -10,18 +15,12 @@ state: {
 	}
 
 	// Optional multi-target build matrix. `ang build` will generate all targets.
-	// You can select one or many via `ang build --target=name` or `--target=python`.
+	// You can select one or many via `ang build --target=name`.
 	targets: [{
 		name:       "go"
 		lang:       "go"
 		framework:  "chi"
 		db:         "postgres"
 		output_dir: "dist/release/go-service"
-	}, {
-		name:       "python"
-		lang:       "python"
-		framework:  "fastapi"
-		db:         "postgres"
-		output_dir: "dist/release/python-service"
 	}]
 }
