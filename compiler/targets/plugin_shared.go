@@ -30,9 +30,8 @@ func (p SharedPlugin) Descriptor() PluginDescriptor {
 
 func (SharedPlugin) RegisterSteps(registry *generator.StepRegistry, ctx BuildContext) {
 	sharedsteps.Register(registry, sharedsteps.RegisterInput{
-		Em:               ctx.Emitter,
-		IRSchema:         ctx.IRSchema,
-		ProjectDef:       ctx.Project,
-		PythonSDKEnabled: ctx.PythonSDKEnabled,
+		Em:         ctx.Emitter,
+		IRSchema:   ctx.IRSchema,
+		ProjectDef: ctx.Project,
 	})
 }

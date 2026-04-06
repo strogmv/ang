@@ -9,10 +9,9 @@ import (
 )
 
 type RegisterInput struct {
-	Em               *emitter.Emitter
-	IRSchema         *ir.Schema
-	ProjectDef       *contracts.ProjectDef
-	PythonSDKEnabled bool
+	Em         *emitter.Emitter
+	IRSchema   *ir.Schema
+	ProjectDef *contracts.ProjectDef
 }
 
 func Register(registry *generator.StepRegistry, in RegisterInput) {
@@ -32,16 +31,6 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 		Requires: []compiler.Capability{compiler.CapabilityEvents},
 		Run: func() error {
 			return in.Em.EmitAsyncAPIFromIR(in.IRSchema, in.ProjectDef)
-		},
-	})
-	registry.Register(generator.Step{
-		Name:     "Python SDK",
-		Requires: []compiler.Capability{compiler.CapabilityHTTP},
-		Run: func() error {
-			if !in.PythonSDKEnabled {
-				return nil
-			}
-			return in.Em.EmitPythonSDKFromIR(in.IRSchema, compiler.Version)
 		},
 	})
 	registry.Register(generator.Step{

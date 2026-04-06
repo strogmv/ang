@@ -12,18 +12,16 @@ import (
 func TestBuiltinPlugins_OrderAndNames(t *testing.T) {
 	t.Parallel()
 
+	// PythonPlugin is excluded from the release build.
 	plugins := BuiltinPlugins()
-	if len(plugins) != 3 {
-		t.Fatalf("expected 3 builtin plugins, got %d", len(plugins))
+	if len(plugins) != 2 {
+		t.Fatalf("expected 2 builtin plugins (shared + go_legacy), got %d", len(plugins))
 	}
 	if plugins[0].Name() != "shared" {
 		t.Fatalf("expected first plugin shared, got %q", plugins[0].Name())
 	}
-	if plugins[1].Name() != "python_fastapi" {
-		t.Fatalf("expected second plugin python_fastapi, got %q", plugins[1].Name())
-	}
-	if plugins[2].Name() != "go_legacy" {
-		t.Fatalf("expected third plugin go_legacy, got %q", plugins[2].Name())
+	if plugins[1].Name() != "go_legacy" {
+		t.Fatalf("expected second plugin go_legacy, got %q", plugins[1].Name())
 	}
 }
 
@@ -52,8 +50,8 @@ func TestResolvePlugins_DefaultsToBuiltins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve default plugins: %v", err)
 	}
-	if len(plugins) != 3 {
-		t.Fatalf("expected 3 plugins, got %d", len(plugins))
+	if len(plugins) != 2 {
+		t.Fatalf("expected 2 plugins, got %d", len(plugins))
 	}
 }
 

@@ -23,7 +23,6 @@ type buildStepRegistryInput struct {
 	emailTemplates   []normalizer.EmailTemplateDef
 	projectDef       *normalizer.ProjectDef
 	targetOutput     OutputOptions
-	pythonSDKEnabled bool
 	isMicroservice   bool
 }
 
@@ -41,7 +40,6 @@ func buildStepRegistry(in buildStepRegistryInput) (*generator.StepRegistry, []st
 		InfraValues:       in.infraValues,
 		EmailTemplates:    in.emailTemplates,
 		Project:           in.projectDef,
-		PythonSDKEnabled:  in.pythonSDKEnabled,
 		IsMicroservice:    in.isMicroservice,
 		SkipFrontend:      in.targetOutput.SkipFrontend,
 		SkipContractTests: in.targetOutput.SkipContractTests,

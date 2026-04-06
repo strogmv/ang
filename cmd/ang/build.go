@@ -264,8 +264,6 @@ func runBuild(args []string) {
 			goModule = "github.com/strogmv/ang"
 		}
 
-		pythonSDKEnabled := strings.TrimSpace(os.Getenv("ANG_PY_SDK")) == "1"
-
 		var projectDefVal normalizer.ProjectDef
 		if projectDef != nil {
 			projectDefVal = *projectDef
@@ -472,9 +470,8 @@ func runBuild(args []string) {
 				infraValues:      infraValues,
 				emailTemplates:   emailTemplates,
 				projectDef:       projectDef,
-				targetOutput:     targetOutput,
-				pythonSDKEnabled: pythonSDKEnabled,
-				isMicroservice:   isMicroservice,
+				targetOutput:   targetOutput,
+				isMicroservice: isMicroservice,
 			})
 			if err != nil {
 				fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "resolve target plugins", err)

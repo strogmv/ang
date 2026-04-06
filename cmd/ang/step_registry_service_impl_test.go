@@ -71,9 +71,9 @@ func TestBuildStepRegistry_ServiceImplStepPresenceMatchesGoPlugin(t *testing.T) 
 			expectedSteps: 1,
 		},
 		{
-			name: "go plugin disabled",
+			name: "go plugin disabled (shared only)",
 			project: &normalizer.ProjectDef{
-				Plugins: []string{"shared", "python_fastapi"},
+				Plugins: []string{"shared"},
 			},
 			expectedSteps: 0,
 		},
