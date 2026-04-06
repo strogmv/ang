@@ -32,7 +32,6 @@ export interface MyPostTableProps {
   onView?: (row: any) => void;
   onEdit?: (row: any) => void;
   onDelete?: (row: any) => void;
-  userId?: string;
   status?: string;
 }
 
@@ -42,14 +41,13 @@ export interface MyPostTableProps {
 // PATTERN: MUI DataGrid with useMemo for column definitions
 // DATA: Fetched via useListMyPosts hook (React Query)
 // ============================================================================
-export function MyPostTable({ onView, onEdit, onDelete, userId, status }: MyPostTableProps) {
+export function MyPostTable({ onView, onEdit, onDelete, status }: MyPostTableProps) {
   const [paginationModel, setPaginationModel] = useState<GridPaginationModel>({
     page: 0,
     pageSize: 25,
   });
 
   const { data, isLoading } = useListMyPosts({
-    userId: userId,
     status: status,
     limit: paginationModel.pageSize,
     offset: paginationModel.page * paginationModel.pageSize,

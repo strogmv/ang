@@ -61,6 +61,160 @@ export const ChatWithAssistantRequestSchema = z.object({
   messages: z.array(z.lazy(() => ChatWithAssistantRequestMessagesItemSchema)).optional(),
 });
 export type ChatWithAssistantRequest = z.infer<typeof ChatWithAssistantRequestSchema>;
+export const LookupPostForAssistantRequestSchema = z.object({
+  slug: z.string().min(2).max(120),
+});
+export type LookupPostForAssistantRequest = z.infer<typeof LookupPostForAssistantRequestSchema>;
+export const GetProfileRequestSchema = z.object({
+});
+export type GetProfileRequest = z.infer<typeof GetProfileRequestSchema>;
+export const LoginRequestSchema = z.object({
+  email: z.string().email(),
+  password: z.string(),
+});
+export type LoginRequest = z.infer<typeof LoginRequestSchema>;
+export const OnUserLoggedInAuditRequestSchema = z.object({
+  userId: z.string(),
+});
+export type OnUserLoggedInAuditRequest = z.infer<typeof OnUserLoggedInAuditRequestSchema>;
+export const OnUserRegisteredAuditRequestSchema = z.object({
+  userId: z.string(),
+  email: z.string().email(),
+});
+export type OnUserRegisteredAuditRequest = z.infer<typeof OnUserRegisteredAuditRequestSchema>;
+export const RegisterRequestSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8).max(64),
+  name: z.string().min(2).max(100),
+});
+export type RegisterRequest = z.infer<typeof RegisterRequestSchema>;
+export const UpdateProfileRequestSchema = z.object({
+  name: z.string().min(2).max(100).optional(),
+  avatarUrl: z.string().url().optional(),
+});
+export type UpdateProfileRequest = z.infer<typeof UpdateProfileRequestSchema>;
+export const ArchivePostRequestSchema = z.object({
+  ID: z.string(),
+});
+export type ArchivePostRequest = z.infer<typeof ArchivePostRequestSchema>;
+export const CreateCommentRequestSchema = z.object({
+  postId: z.string(),
+  content: z.string().min(1).max(1000),
+});
+export type CreateCommentRequest = z.infer<typeof CreateCommentRequestSchema>;
+export const CreatePostRequestSchema = z.object({
+  title: z.string().min(5).max(200),
+  content: z.string(),
+  tags: z.array(z.string()).optional(),
+});
+export type CreatePostRequest = z.infer<typeof CreatePostRequestSchema>;
+export const CreateTagRequestSchema = z.object({
+  name: z.string().min(2).max(50),
+  description: z.string().optional(),
+});
+export type CreateTagRequest = z.infer<typeof CreateTagRequestSchema>;
+export const DeleteCommentRequestSchema = z.object({
+  ID: z.string(),
+});
+export type DeleteCommentRequest = z.infer<typeof DeleteCommentRequestSchema>;
+export const DeletePostRequestSchema = z.object({
+  ID: z.string(),
+});
+export type DeletePostRequest = z.infer<typeof DeletePostRequestSchema>;
+export const DeleteTagRequestSchema = z.object({
+  ID: z.string(),
+});
+export type DeleteTagRequest = z.infer<typeof DeleteTagRequestSchema>;
+export const GetPostRequestSchema = z.object({
+  slug: z.string(),
+  limit: z.number().optional(),
+  offset: z.number().optional(),
+});
+export type GetPostRequest = z.infer<typeof GetPostRequestSchema>;
+export const ListCommentsRequestSchema = z.object({
+  postId: z.string(),
+  limit: z.number(),
+  offset: z.number(),
+});
+export type ListCommentsRequest = z.infer<typeof ListCommentsRequestSchema>;
+export const ListMyPostsRequestSchema = z.object({
+  status: z.string().optional(),
+  limit: z.number(),
+  offset: z.number(),
+});
+export type ListMyPostsRequest = z.infer<typeof ListMyPostsRequestSchema>;
+export const ListPostsRequestSchema = z.object({
+  tag: z.string().optional(),
+  limit: z.number(),
+  offset: z.number(),
+});
+export type ListPostsRequest = z.infer<typeof ListPostsRequestSchema>;
+export const ListTagsRequestSchema = z.object({
+  limit: z.number().optional(),
+  offset: z.number().optional(),
+});
+export type ListTagsRequest = z.infer<typeof ListTagsRequestSchema>;
+export const OnCommentCreatedProjectionRequestSchema = z.object({
+  commentId: z.string(),
+  postId: z.string(),
+  authorId: z.string(),
+});
+export type OnCommentCreatedProjectionRequest = z.infer<typeof OnCommentCreatedProjectionRequestSchema>;
+export const OnPostCreatedProjectionRequestSchema = z.object({
+  postId: z.string(),
+  authorId: z.string(),
+  title: z.string(),
+});
+export type OnPostCreatedProjectionRequest = z.infer<typeof OnPostCreatedProjectionRequestSchema>;
+export const OnPostPublishedProjectionRequestSchema = z.object({
+  postId: z.string(),
+  authorId: z.string(),
+  title: z.string(),
+  slug: z.string(),
+});
+export type OnPostPublishedProjectionRequest = z.infer<typeof OnPostPublishedProjectionRequestSchema>;
+export const OnPostUpdatedProjectionRequestSchema = z.object({
+  postId: z.string(),
+});
+export type OnPostUpdatedProjectionRequest = z.infer<typeof OnPostUpdatedProjectionRequestSchema>;
+export const PublishPostRequestSchema = z.object({
+  ID: z.string(),
+});
+export type PublishPostRequest = z.infer<typeof PublishPostRequestSchema>;
+export const SubmitPostRequestSchema = z.object({
+  ID: z.string(),
+});
+export type SubmitPostRequest = z.infer<typeof SubmitPostRequestSchema>;
+export const UpdateCommentRequestSchema = z.object({
+  ID: z.string(),
+  content: z.string().min(1).max(1000),
+});
+export type UpdateCommentRequest = z.infer<typeof UpdateCommentRequestSchema>;
+export const UpdatePostRequestSchema = z.object({
+  ID: z.string(),
+  title: z.string().min(5).max(200).optional(),
+  content: z.string().optional(),
+});
+export type UpdatePostRequest = z.infer<typeof UpdatePostRequestSchema>;
+export const UpdateTagRequestSchema = z.object({
+  ID: z.string(),
+  name: z.string().min(2).max(50).optional(),
+  description: z.string().optional(),
+});
+export type UpdateTagRequest = z.infer<typeof UpdateTagRequestSchema>;
+export const SendInvitationEmailRequestSchema = z.object({
+  email: z.string().email(),
+  name: z.string().optional(),
+  inviterName: z.string().min(2).max(120),
+  inviteUrl: z.string().min(12).max(500),
+});
+export type SendInvitationEmailRequest = z.infer<typeof SendInvitationEmailRequestSchema>;
+export const SendPasswordResetEmailRequestSchema = z.object({
+  email: z.string().email(),
+  name: z.string().optional(),
+  resetUrl: z.string().min(12).max(500),
+});
+export type SendPasswordResetEmailRequest = z.infer<typeof SendPasswordResetEmailRequestSchema>;
 export const ChatWithAssistantResponseSchema = z.object({
   content: z.string(),
   finishReason: z.string().optional(),
@@ -75,10 +229,6 @@ export const ChatWithAssistantRequestMessagesItemSchema = z.object({
   content: z.string(),
 });
 export type ChatWithAssistantRequestMessagesItem = z.infer<typeof ChatWithAssistantRequestMessagesItemSchema>;
-export const LookupPostForAssistantRequestSchema = z.object({
-  slug: z.string().min(2).max(120),
-});
-export type LookupPostForAssistantRequest = z.infer<typeof LookupPostForAssistantRequestSchema>;
 export const LookupPostForAssistantResponseSchema = z.object({
   ID: z.string(),
   title: z.string(),
@@ -86,10 +236,6 @@ export const LookupPostForAssistantResponseSchema = z.object({
   excerpt: z.string().optional(),
 });
 export type LookupPostForAssistantResponse = z.infer<typeof LookupPostForAssistantResponseSchema>;
-export const GetProfileRequestSchema = z.object({
-  userId: z.string(),
-});
-export type GetProfileRequest = z.infer<typeof GetProfileRequestSchema>;
 export const GetProfileResponseSchema = z.object({
   ID: z.string(),
   email: z.string().email(),
@@ -99,127 +245,60 @@ export const GetProfileResponseSchema = z.object({
   createdAt: z.string(),
 });
 export type GetProfileResponse = z.infer<typeof GetProfileResponseSchema>;
-export const LoginRequestSchema = z.object({
-  email: z.string().email(),
-  password: z.string(),
-});
-export type LoginRequest = z.infer<typeof LoginRequestSchema>;
 export const LoginResponseSchema = z.object({
   accessToken: z.string(),
   refreshToken: z.string(),
   user: z.any(),
 });
 export type LoginResponse = z.infer<typeof LoginResponseSchema>;
-export const OnUserLoggedInAuditRequestSchema = z.object({
-  userId: z.string(),
-});
-export type OnUserLoggedInAuditRequest = z.infer<typeof OnUserLoggedInAuditRequestSchema>;
 export const OnUserLoggedInAuditResponseSchema = z.object({
   ok: z.boolean(),
 });
 export type OnUserLoggedInAuditResponse = z.infer<typeof OnUserLoggedInAuditResponseSchema>;
-export const OnUserRegisteredAuditRequestSchema = z.object({
-  userId: z.string(),
-  email: z.string().email(),
-});
-export type OnUserRegisteredAuditRequest = z.infer<typeof OnUserRegisteredAuditRequestSchema>;
 export const OnUserRegisteredAuditResponseSchema = z.object({
   ok: z.boolean(),
 });
 export type OnUserRegisteredAuditResponse = z.infer<typeof OnUserRegisteredAuditResponseSchema>;
-export const RegisterRequestSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(8).max(64),
-  name: z.string().min(2).max(100),
-});
-export type RegisterRequest = z.infer<typeof RegisterRequestSchema>;
 export const RegisterResponseSchema = z.object({
   ID: z.string(),
   email: z.string().email(),
   name: z.string(),
 });
 export type RegisterResponse = z.infer<typeof RegisterResponseSchema>;
-export const UpdateProfileRequestSchema = z.object({
-  userId: z.string(),
-  name: z.string().min(2).max(100).optional(),
-  avatarUrl: z.string().url().optional(),
-});
-export type UpdateProfileRequest = z.infer<typeof UpdateProfileRequestSchema>;
 export const UpdateProfileResponseSchema = z.object({
   ok: z.boolean(),
 });
 export type UpdateProfileResponse = z.infer<typeof UpdateProfileResponseSchema>;
-export const ArchivePostRequestSchema = z.object({
-  ID: z.string(),
-});
-export type ArchivePostRequest = z.infer<typeof ArchivePostRequestSchema>;
 export const ArchivePostResponseSchema = z.object({
   ok: z.boolean(),
 });
 export type ArchivePostResponse = z.infer<typeof ArchivePostResponseSchema>;
-export const CreateCommentRequestSchema = z.object({
-  postId: z.string(),
-  content: z.string().min(1).max(1000),
-  userId: z.string(),
-});
-export type CreateCommentRequest = z.infer<typeof CreateCommentRequestSchema>;
 export const CreateCommentResponseSchema = z.object({
   ID: z.string(),
 });
 export type CreateCommentResponse = z.infer<typeof CreateCommentResponseSchema>;
-export const CreatePostRequestSchema = z.object({
-  title: z.string().min(5).max(200),
-  content: z.string(),
-  userId: z.string(),
-  tags: z.array(z.string()).optional(),
-});
-export type CreatePostRequest = z.infer<typeof CreatePostRequestSchema>;
 export const CreatePostResponseSchema = z.object({
   ID: z.string(),
   slug: z.string(),
 });
 export type CreatePostResponse = z.infer<typeof CreatePostResponseSchema>;
-export const CreateTagRequestSchema = z.object({
-  name: z.string().min(2).max(50),
-  description: z.string().optional(),
-});
-export type CreateTagRequest = z.infer<typeof CreateTagRequestSchema>;
 export const CreateTagResponseSchema = z.object({
   ID: z.string(),
   slug: z.string(),
 });
 export type CreateTagResponse = z.infer<typeof CreateTagResponseSchema>;
-export const DeleteCommentRequestSchema = z.object({
-  ID: z.string(),
-  userId: z.string(),
-});
-export type DeleteCommentRequest = z.infer<typeof DeleteCommentRequestSchema>;
 export const DeleteCommentResponseSchema = z.object({
   ok: z.boolean(),
 });
 export type DeleteCommentResponse = z.infer<typeof DeleteCommentResponseSchema>;
-export const DeletePostRequestSchema = z.object({
-  ID: z.string(),
-});
-export type DeletePostRequest = z.infer<typeof DeletePostRequestSchema>;
 export const DeletePostResponseSchema = z.object({
   ok: z.boolean(),
 });
 export type DeletePostResponse = z.infer<typeof DeletePostResponseSchema>;
-export const DeleteTagRequestSchema = z.object({
-  ID: z.string(),
-});
-export type DeleteTagRequest = z.infer<typeof DeleteTagRequestSchema>;
 export const DeleteTagResponseSchema = z.object({
   ok: z.boolean(),
 });
 export type DeleteTagResponse = z.infer<typeof DeleteTagResponseSchema>;
-export const GetPostRequestSchema = z.object({
-  slug: z.string(),
-  limit: z.number().optional(),
-  offset: z.number().optional(),
-});
-export type GetPostRequest = z.infer<typeof GetPostRequestSchema>;
 export const GetPostResponseSchema = z.object({
   ID: z.string(),
   title: z.string(),
@@ -235,12 +314,6 @@ export const GetPostResponseTagsItemSchema = z.object({
   slug: z.string(),
 });
 export type GetPostResponseTagsItem = z.infer<typeof GetPostResponseTagsItemSchema>;
-export const ListCommentsRequestSchema = z.object({
-  postId: z.string(),
-  limit: z.number(),
-  offset: z.number(),
-});
-export type ListCommentsRequest = z.infer<typeof ListCommentsRequestSchema>;
 export const ListCommentsResponseSchema = z.object({
   data: z.array(z.lazy(() => ListCommentsResponseDataSchema)),
   total: z.number(),
@@ -253,13 +326,6 @@ export const ListCommentsResponseDataSchema = z.object({
   createdAt: z.string(),
 });
 export type ListCommentsResponseData = z.infer<typeof ListCommentsResponseDataSchema>;
-export const ListMyPostsRequestSchema = z.object({
-  userId: z.string(),
-  status: z.string().optional(),
-  limit: z.number(),
-  offset: z.number(),
-});
-export type ListMyPostsRequest = z.infer<typeof ListMyPostsRequestSchema>;
 export const ListMyPostsResponseSchema = z.object({
   data: z.array(z.lazy(() => ListMyPostsResponseDataSchema)),
 });
@@ -271,12 +337,6 @@ export const ListMyPostsResponseDataSchema = z.object({
   createdAt: z.string(),
 });
 export type ListMyPostsResponseData = z.infer<typeof ListMyPostsResponseDataSchema>;
-export const ListPostsRequestSchema = z.object({
-  tag: z.string().optional(),
-  limit: z.number(),
-  offset: z.number(),
-});
-export type ListPostsRequest = z.infer<typeof ListPostsRequestSchema>;
 export const ListPostsResponseSchema = z.object({
   data: z.array(z.lazy(() => ListPostsResponseDataSchema)),
   total: z.number(),
@@ -290,11 +350,6 @@ export const ListPostsResponseDataSchema = z.object({
   createdAt: z.string(),
 });
 export type ListPostsResponseData = z.infer<typeof ListPostsResponseDataSchema>;
-export const ListTagsRequestSchema = z.object({
-  limit: z.number().optional(),
-  offset: z.number().optional(),
-});
-export type ListTagsRequest = z.infer<typeof ListTagsRequestSchema>;
 export const ListTagsResponseSchema = z.object({
   data: z.array(z.lazy(() => ListTagsResponseDataSchema)),
 });
@@ -306,108 +361,46 @@ export const ListTagsResponseDataSchema = z.object({
   description: z.string().optional(),
 });
 export type ListTagsResponseData = z.infer<typeof ListTagsResponseDataSchema>;
-export const OnCommentCreatedProjectionRequestSchema = z.object({
-  commentId: z.string(),
-  postId: z.string(),
-  authorId: z.string(),
-});
-export type OnCommentCreatedProjectionRequest = z.infer<typeof OnCommentCreatedProjectionRequestSchema>;
 export const OnCommentCreatedProjectionResponseSchema = z.object({
   ok: z.boolean(),
 });
 export type OnCommentCreatedProjectionResponse = z.infer<typeof OnCommentCreatedProjectionResponseSchema>;
-export const OnPostCreatedProjectionRequestSchema = z.object({
-  postId: z.string(),
-  authorId: z.string(),
-  title: z.string(),
-});
-export type OnPostCreatedProjectionRequest = z.infer<typeof OnPostCreatedProjectionRequestSchema>;
 export const OnPostCreatedProjectionResponseSchema = z.object({
   ok: z.boolean(),
 });
 export type OnPostCreatedProjectionResponse = z.infer<typeof OnPostCreatedProjectionResponseSchema>;
-export const OnPostPublishedProjectionRequestSchema = z.object({
-  postId: z.string(),
-  authorId: z.string(),
-  title: z.string(),
-  slug: z.string(),
-});
-export type OnPostPublishedProjectionRequest = z.infer<typeof OnPostPublishedProjectionRequestSchema>;
 export const OnPostPublishedProjectionResponseSchema = z.object({
   ok: z.boolean(),
 });
 export type OnPostPublishedProjectionResponse = z.infer<typeof OnPostPublishedProjectionResponseSchema>;
-export const OnPostUpdatedProjectionRequestSchema = z.object({
-  postId: z.string(),
-});
-export type OnPostUpdatedProjectionRequest = z.infer<typeof OnPostUpdatedProjectionRequestSchema>;
 export const OnPostUpdatedProjectionResponseSchema = z.object({
   ok: z.boolean(),
 });
 export type OnPostUpdatedProjectionResponse = z.infer<typeof OnPostUpdatedProjectionResponseSchema>;
-export const PublishPostRequestSchema = z.object({
-  ID: z.string(),
-});
-export type PublishPostRequest = z.infer<typeof PublishPostRequestSchema>;
 export const PublishPostResponseSchema = z.object({
   ok: z.boolean(),
 });
 export type PublishPostResponse = z.infer<typeof PublishPostResponseSchema>;
-export const SubmitPostRequestSchema = z.object({
-  ID: z.string(),
-});
-export type SubmitPostRequest = z.infer<typeof SubmitPostRequestSchema>;
 export const SubmitPostResponseSchema = z.object({
   ok: z.boolean(),
 });
 export type SubmitPostResponse = z.infer<typeof SubmitPostResponseSchema>;
-export const UpdateCommentRequestSchema = z.object({
-  ID: z.string(),
-  content: z.string().min(1).max(1000),
-  userId: z.string(),
-});
-export type UpdateCommentRequest = z.infer<typeof UpdateCommentRequestSchema>;
 export const UpdateCommentResponseSchema = z.object({
   ok: z.boolean(),
 });
 export type UpdateCommentResponse = z.infer<typeof UpdateCommentResponseSchema>;
-export const UpdatePostRequestSchema = z.object({
-  ID: z.string(),
-  title: z.string().min(5).max(200).optional(),
-  content: z.string().optional(),
-});
-export type UpdatePostRequest = z.infer<typeof UpdatePostRequestSchema>;
 export const UpdatePostResponseSchema = z.object({
   ok: z.boolean(),
 });
 export type UpdatePostResponse = z.infer<typeof UpdatePostResponseSchema>;
-export const UpdateTagRequestSchema = z.object({
-  ID: z.string(),
-  name: z.string().min(2).max(50).optional(),
-  description: z.string().optional(),
-});
-export type UpdateTagRequest = z.infer<typeof UpdateTagRequestSchema>;
 export const UpdateTagResponseSchema = z.object({
   ok: z.boolean(),
 });
 export type UpdateTagResponse = z.infer<typeof UpdateTagResponseSchema>;
-export const SendInvitationEmailRequestSchema = z.object({
-  email: z.string().email(),
-  name: z.string().optional(),
-  inviterName: z.string().min(2).max(120),
-  inviteUrl: z.string().min(12).max(500),
-});
-export type SendInvitationEmailRequest = z.infer<typeof SendInvitationEmailRequestSchema>;
 export const SendInvitationEmailResponseSchema = z.object({
   ok: z.boolean(),
 });
 export type SendInvitationEmailResponse = z.infer<typeof SendInvitationEmailResponseSchema>;
-export const SendPasswordResetEmailRequestSchema = z.object({
-  email: z.string().email(),
-  name: z.string().optional(),
-  resetUrl: z.string().min(12).max(500),
-});
-export type SendPasswordResetEmailRequest = z.infer<typeof SendPasswordResetEmailRequestSchema>;
 export const SendPasswordResetEmailResponseSchema = z.object({
   ok: z.boolean(),
 });

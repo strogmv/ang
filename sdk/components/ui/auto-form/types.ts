@@ -46,7 +46,7 @@ export type FormSchema<TValues = any> = {
   };
 };
 
-export type AutoFormProps<TValues = any> = {
+export type AutoFormProps<TValues = Record<string, unknown>> = {
   form: UseFormReturn<TValues>;
   schema: FormSchema<TValues>;
   onSubmit: (values: TValues) => void;

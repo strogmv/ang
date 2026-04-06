@@ -30,6 +30,41 @@ type Listener<T> = (data: T) => void;
 type StateListener = (state: ConnectState) => void;
 type InternalWSMessage = { type: 'pong'; payload?: { ts?: string | number } };
 
+export interface WebSocketLogger {
+  info?: (message: string, meta?: unknown) => void;
+  warn?: (message: string, meta?: unknown) => void;
+  error?: (message: string, meta?: unknown) => void;
+}
+
+const noopWebSocketLogger: Required<WebSocketLogger> = {
+  info: () => undefined,
+  warn: () => undefined,
+  error: () => undefined,
+};
+
+export const getWebSocketBaseUrl = (): string => {
+  try {
+    const maybeImportMeta = import.meta as ImportMeta | undefined;
+    const viteBase = maybeImportMeta?.env?.VITE_API_URL;
+    if (typeof viteBase === 'string' && viteBase.trim() !== '') {
+      return viteBase.replace(/^http/, 'ws');
+    }
+  } catch {
+    // ignore env probing failures outside Vite
+  }
+  return 'http://localhost:8080'.replace(/^http/, 'ws');
+};
+
+let wsLogger: Required<WebSocketLogger> = noopWebSocketLogger;
+
+export const setWebSocketLogger = (logger: WebSocketLogger) => {
+  wsLogger = {
+    info: logger.info ?? noopWebSocketLogger.info,
+    warn: logger.warn ?? noopWebSocketLogger.warn,
+    error: logger.error ?? noopWebSocketLogger.error,
+  };
+};
+
 export class WebSocketClient<T = WSMessage> {
   private ws: WebSocket | null = null;
   private readonly url: string;
@@ -43,6 +78,7 @@ export class WebSocketClient<T = WSMessage> {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private heartbeatTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingMessages: any[] = [];
+  private subscribedRooms: Set<string> = new Set();
   private token: string | null = null;
   private state: ConnectState = 'disconnected';
   private browserHooksInstalled = false;
@@ -147,10 +183,11 @@ export class WebSocketClient<T = WSMessage> {
         opened = true;
         this.reconnectAttempts = 0;
         this.sendAuthFrame();
+        this.flushSubscribedRooms();
         this.flushPendingMessages();
         this.startHeartbeat();
         this.setState('connected');
-        console.log('WS Connected');
+        wsLogger.info('WS Connected');
         resolveOnce();
       };
 
@@ -168,7 +205,7 @@ export class WebSocketClient<T = WSMessage> {
             bucket.forEach((listener) => listener(typed));
           }
         } catch (e) {
-          console.error('WS Parse error', e);
+          wsLogger.error('WS Parse error', e);
         }
       };
 
@@ -189,7 +226,7 @@ export class WebSocketClient<T = WSMessage> {
       };
 
       this.ws.onerror = (err) => {
-        console.error('WS Error', err);
+        wsLogger.error('WS Error', err);
         if (!opened) {
           rejectOnce(new Error('WebSocket connection error'));
           try {
@@ -248,6 +285,50 @@ export class WebSocketClient<T = WSMessage> {
     }
   }
 
+  public subscribeRoom(room: string) {
+    const normalized = String(room || '').trim();
+    if (!normalized) {
+      return;
+    }
+    this.subscribedRooms.add(normalized);
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.rawSend({ type: 'subscribe', room: normalized });
+      return;
+    }
+    if (this.shouldReconnect && this.ws?.readyState !== WebSocket.CONNECTING) {
+      void this.connect().catch(() => {});
+    }
+  }
+
+  public unsubscribeRoom(room: string) {
+    const normalized = String(room || '').trim();
+    if (!normalized) {
+      return;
+    }
+    this.subscribedRooms.delete(normalized);
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.rawSend({ type: 'unsubscribe', room: normalized });
+    }
+  }
+
+  public setSubscribedRooms(rooms: readonly string[]) {
+    const next = new Set(
+      (rooms || [])
+        .map((room) => String(room || '').trim())
+        .filter((room) => room !== '')
+    );
+    for (const room of this.subscribedRooms) {
+      if (!next.has(room)) {
+        this.unsubscribeRoom(room);
+      }
+    }
+    for (const room of next) {
+      if (!this.subscribedRooms.has(room)) {
+        this.subscribeRoom(room);
+      }
+    }
+  }
+
   public close() {
     this.shouldReconnect = false;
     this.clearReconnectTimer();
@@ -301,6 +382,15 @@ export class WebSocketClient<T = WSMessage> {
     }
   }
 
+  private flushSubscribedRooms() {
+    if (this.ws?.readyState !== WebSocket.OPEN || this.subscribedRooms.size === 0) {
+      return;
+    }
+    for (const room of this.subscribedRooms) {
+      this.rawSend({ type: 'subscribe', room });
+    }
+  }
+
   private clearReconnectTimer() {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -314,12 +404,12 @@ export class WebSocketClient<T = WSMessage> {
     }
     this.setState('reconnecting');
     const delay = Math.min(this.options.reconnectBaseDelayMs * Math.pow(2, this.reconnectAttempts), this.options.maxReconnectDelayMs);
-    console.log(`Reconnecting in ${delay}ms...`);
+    wsLogger.info(`Reconnecting in ${delay}ms...`);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.reconnectAttempts++;
       void this.connect().catch((error) => {
-        console.warn('WS reconnect attempt failed', error);
+        wsLogger.warn('WS reconnect attempt failed', error);
       });
     }, delay);
   }
@@ -355,7 +445,7 @@ export class WebSocketClient<T = WSMessage> {
     this.acknowledgeHeartbeat();
     this.heartbeatTimeoutTimer = setTimeout(() => {
       if (this.ws?.readyState === WebSocket.OPEN) {
-        console.warn('WS heartbeat timeout, forcing reconnect');
+        wsLogger.warn('WS heartbeat timeout, forcing reconnect');
         this.ws.close();
       }
     }, this.options.heartbeatTimeoutMs);

@@ -2,10 +2,10 @@
 import { create } from 'zustand';
 import type * as Types from '../types';
 import { registerStoreInvalidator } from './invalidation';
-type GetPostResponseTagsItemId = Types.GetPostResponseTagsItem['id'];
+type GetPostResponseTagsItemId = Types.GetPostResponseTagsItem['ID'];
 
 const getPostResponseTagsItemIdKey = (item: Types.GetPostResponseTagsItem): string =>
-  String(item.id);
+  String(item.ID);
 
 export interface GetPostResponseTagsItemStore {
   items: Record<string, Types.GetPostResponseTagsItem>;

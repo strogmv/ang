@@ -1,29 +1,36 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from './auth-store';
-import { endpointMeta } from './endpoints';
+import { endpointMeta } from './endpoints/meta';
 import { ErrorCode, ProblemDetail } from './types';
 import * as Types from './types';
 import { isProblemDetailLike, normalizeApiError } from './error-normalizer';
 import * as Schemas from './schemas';
 
-const getBaseUrl = () => {
+type ViteEnv = {
+  VITE_API_URL?: string;
+  DEV?: boolean;
+};
+
+const getViteEnv = (): ViteEnv | undefined => {
   try {
-    // @ts-ignore
-    if (import.meta.env?.VITE_API_URL) return import.meta.env.VITE_API_URL;
-  } catch (e) {}
-  
+    return typeof import.meta !== 'undefined' ? (import.meta.env as ViteEnv | undefined) : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const getBaseUrl = () => {
+  const viteEnv = getViteEnv();
+  if (viteEnv?.VITE_API_URL) return viteEnv.VITE_API_URL;
   if (typeof process !== 'undefined' && process.env?.VITE_API_URL) return process.env.VITE_API_URL;
   return 'http://localhost:8080';
 };
 
 const isDevEnv = () => {
-  try {
-    // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta.env?.DEV !== undefined) {
-      // @ts-ignore
-      return Boolean(import.meta.env.DEV);
-    }
-  } catch (e) {}
+  const viteEnv = getViteEnv();
+  if (viteEnv?.DEV !== undefined) {
+    return Boolean(viteEnv.DEV);
+  }
   if (typeof process !== 'undefined' && process.env?.NODE_ENV) {
     return process.env.NODE_ENV !== 'production';
   }
@@ -36,6 +43,41 @@ export const apiClient = axios.create({
     'Content-Type': 'application/json',
   },
 });
+
+export type ApiRequestOptions = {
+  signal?: AbortSignal;
+};
+
+export interface ApiClientLogger {
+  warn?: (message: string, meta?: unknown) => void;
+  error?: (message: string, meta?: unknown) => void;
+}
+
+export type ResponseValidationReporter = (issue: {
+  schemaName: string;
+  context: string;
+  issues: unknown;
+  data: unknown;
+}) => void;
+
+const noopLogger: Required<ApiClientLogger> = {
+  warn: () => undefined,
+  error: () => undefined,
+};
+
+let apiLogger: Required<ApiClientLogger> = noopLogger;
+let responseValidationReporter: ResponseValidationReporter | null = null;
+
+export const setApiClientLogger = (logger: ApiClientLogger) => {
+  apiLogger = {
+    warn: logger.warn ?? noopLogger.warn,
+    error: logger.error ?? noopLogger.error,
+  };
+};
+
+export const setResponseValidationReporter = (reporter: ResponseValidationReporter | null) => {
+  responseValidationReporter = reporter;
+};
 
 /**
  * Interface for Client-Side Encryption.
@@ -54,19 +96,12 @@ export const setCryptoProvider = (provider: CryptoProvider) => {
 
 // Helper: Generate hex string
 const hex = (len: number) => {
-  const arr = new Uint8Array(len / 2);
-  if (typeof window !== 'undefined' && window.crypto) {
-    window.crypto.getRandomValues(arr);
-  } else if (typeof global !== 'undefined' && (global as any).crypto?.getRandomValues) {
-    (global as any).crypto.getRandomValues(arr);
-  } else if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-    crypto.getRandomValues(arr);
-  } else {
-    // Fallback for Node.js or environments without crypto.getRandomValues
-    for (let i = 0; i < arr.length; i++) {
-      arr[i] = Math.floor(Math.random() * 256);
-    }
+  const cryptoObject = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined;
+  if (!cryptoObject?.getRandomValues) {
+    throw new Error('Secure random generation is unavailable in this environment');
   }
+  const arr = new Uint8Array(len / 2);
+  cryptoObject.getRandomValues(arr);
   return Array.from(arr, (byte) => byte.toString(16).padStart(2, '0')).join('');
 };
 
@@ -83,6 +118,30 @@ const findEndpointMeta = (url: string | undefined) => {
 };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+type AuthStoreUserLike = {
+  locale?: string | null;
+};
+
+type ApiClientRequestMeta = {
+  traceId?: string;
+  endpointMeta?: ReturnType<typeof findEndpointMeta>;
+  retryAttempt?: number;
+  authFromStore?: boolean;
+};
+
+type ApiClientConfigWithMeta = InternalAxiosRequestConfig & {
+  meta?: ApiClientRequestMeta;
+};
+
+const getRequestMeta = (config: InternalAxiosRequestConfig | undefined): ApiClientRequestMeta => {
+  if (!config) return {};
+  return (config as ApiClientConfigWithMeta).meta || {};
+};
+
+const setRequestMeta = (config: InternalAxiosRequestConfig, meta: ApiClientRequestMeta) => {
+  (config as ApiClientConfigWithMeta).meta = meta;
+};
 
 const getHeaderValue = (config: InternalAxiosRequestConfig, name: string): string | undefined => {
   const headers = config.headers as InternalAxiosRequestConfig['headers'] & Record<string, unknown>;
@@ -102,9 +161,38 @@ const isRefreshRequest = (config?: InternalAxiosRequestConfig) => {
   return url.endsWith(REFRESH_ENDPOINT) || url.includes(`${REFRESH_ENDPOINT}?`);
 };
 
-let refreshPromise: Promise<void> | null = null;
+type RefreshWaiter = {
+  resolve: (token: string) => void;
+  reject: (error: unknown) => void;
+};
 
-const refreshAuthToken = async () => {
+let refreshPromise: Promise<string> | null = null;
+let refreshWaiters: RefreshWaiter[] = [];
+
+const waitForRefreshToken = () =>
+  new Promise<string>((resolve, reject) => {
+    refreshWaiters.push({ resolve, reject });
+  });
+
+const flushRefreshWaiters = (token?: string, error?: unknown) => {
+  const pending = [...refreshWaiters];
+  refreshWaiters = [];
+  for (const waiter of pending) {
+    if (token !== undefined) {
+      waiter.resolve(token);
+      continue;
+    }
+    waiter.reject(error ?? new Error('Token refresh failed'));
+  }
+};
+
+const shouldClearAuthOnRefreshFailure = (error: unknown) => {
+  if (!axios.isAxiosError(error)) return false;
+  const status = Number(error.response?.status || 0);
+  return status === 401 || status === 403;
+};
+
+const refreshAuthToken = async (): Promise<string> => {
   const store = useAuthStore.getState();
   const storedRefresh = store.refreshToken;
   if (!storedRefresh) {
@@ -116,11 +204,19 @@ const refreshAuthToken = async () => {
     refreshPromise = apiClient
       .post<Types.RefreshTokenResponse>(`/api/auth/refresh`, { refreshToken: storedRefresh })
       .then((response) => {
-        const data = validateResponse('RefreshTokenResponseSchema', response.data, 'RefreshToken');
+        const data = response.data;
+        if (import.meta.env.DEV) {
+          validateResponse('RefreshTokenResponseSchema', data, 'RefreshToken');
+        }
         store.setAuth(data.accessToken, store.user, data.refreshToken);
+        flushRefreshWaiters(data.accessToken);
+        return data.accessToken;
       })
       .catch((err) => {
-        store.clearAuth();
+        if (shouldClearAuthOnRefreshFailure(err)) {
+          store.clearAuth();
+        }
+        flushRefreshWaiters(undefined, err);
         throw err;
       })
       .finally(() => {
@@ -148,12 +244,18 @@ const shouldRetry = (error: AxiosError) => {
   return typeof status === 'number' && Array.isArray(strategy.retryOnStatuses) && strategy.retryOnStatuses.includes(status);
 };
 
-// 1. JWT & Trace Context Interceptor
+// 1. JWT, Locale & Trace Context Interceptor
 apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = useAuthStore.getState().token;
   const hasExplicitAuthorization = Boolean(getHeaderValue(config, 'Authorization'));
   if (token && config.headers && hasExplicitAuthorization === false) {
     config.headers.Authorization = `Bearer ${token}`;
+  }
+
+  // Accept-Language: propagate user locale to backend (supports fallback chain in ANG)
+  const userLocale = (useAuthStore.getState().user as AuthStoreUserLike | null | undefined)?.locale;
+  if (userLocale && typeof userLocale === 'string' && userLocale.trim()) {
+    config.headers.set('Accept-Language', userLocale.trim());
   }
 
   // W3C Trace Context (OpenTelemetry compatible)
@@ -165,14 +267,27 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   config.headers.set('traceparent', traceparent);
   
   const meta = findEndpointMeta(config.url);
+  const method = config.method?.toUpperCase();
+  if ((meta?.cachePolicy === 'realtime' || meta?.cachePolicy === 'bypass' || meta?.cachePolicy === 'no-store') && method === 'GET') {
+    const currentParams =
+      config.params && typeof config.params === 'object'
+        ? (config.params as Record<string, unknown>)
+        : {};
+    config.params = {
+      ...currentParams,
+      _rt: Date.now().toString(),
+    };
+    config.headers.set('Cache-Control', 'no-store, no-cache, max-age=0, must-revalidate');
+    config.headers.set('Pragma', 'no-cache');
+  }
   // Attach trace + contract metadata for response/retry interceptor.
-  const attempt = Number((config as any)?.meta?.retryAttempt || 0);
-  (config as any).meta = {
+  const attempt = Number(getRequestMeta(config).retryAttempt || 0);
+  setRequestMeta(config, {
     traceId,
     endpointMeta: meta,
     retryAttempt: attempt,
     authFromStore: token && hasExplicitAuthorization === false,
-  };
+  });
 
   // Auto-Idempotency for contract-driven endpoints.
   if (meta?.idempotent && config.method?.toUpperCase() !== 'GET') {
@@ -191,9 +306,8 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401 && cfg && !cfg._retry && !isRefreshRequest(cfg)) {
       cfg._retry = true;
       try {
-        await refreshAuthToken();
-        const newToken = useAuthStore.getState().token;
-        if (newToken && cfg.headers && ((cfg as any)?.meta?.authFromStore || getHeaderValue(cfg, 'Authorization') === undefined)) {
+        const newToken = refreshPromise ? await waitForRefreshToken() : await refreshAuthToken();
+        if (newToken && cfg.headers && (getRequestMeta(cfg).authFromStore || getHeaderValue(cfg, 'Authorization') === undefined)) {
           cfg.headers.Authorization = `Bearer ${newToken}`;
         }
         return apiClient.request(cfg);
@@ -217,11 +331,14 @@ apiClient.interceptors.response.use(
       return apiClient.request(cfg);
     }
 
-    const traceId = (error.config as any)?.meta?.traceId;
-    
-    if (traceId) {
-      console.error(`[TraceID: ${traceId}] API Error:`, error.message);
-    }
+    const traceId = getRequestMeta(error.config as InternalAxiosRequestConfig | undefined).traceId;
+
+    apiLogger.error('[ANG SDK] API request failed', {
+      traceId,
+      message: error.message,
+      status: error.response?.status,
+      url: error.config?.url,
+    });
 
     const problem = normalizeApiError({
       data: error.response?.data,
@@ -234,13 +351,29 @@ apiClient.interceptors.response.use(
   }
 );
 
+// Zod schemas are typed with specific key names; dynamic lookup requires a structural cast.
+type _ZodSchemaLookup = Record<string, { safeParse: (value: unknown) => { success: boolean; error?: unknown } } | undefined>;
+const _schemasByName = Schemas as unknown as _ZodSchemaLookup;
+
 export const validateResponse = <T>(schemaName: string, data: T, context: string): T => {
-  if (!isDevEnv()) return data;
-  const schema = (Schemas as any)[schemaName];
-  if (!schema || typeof schema.safeParse !== 'function') return data;
+  const schema = _schemasByName[schemaName];
+  if (!schema) return data;
   const result = schema.safeParse(data);
   if (!result.success) {
-    console.warn(`[ANG SDK] Response schema mismatch for ${context} (${schemaName})`, result.error);
+    const issue = {
+      schemaName,
+      context,
+      issues: result.error,
+      data,
+    };
+    apiLogger.warn(`[ANG SDK] Response schema mismatch for ${context} (${schemaName})`, issue);
+    if (responseValidationReporter) {
+      try {
+        responseValidationReporter(issue);
+      } catch (reportError) {
+        apiLogger.error('[ANG SDK] Response validation reporter failed', reportError);
+      }
+    }
   }
   return data;
 };
@@ -252,7 +385,7 @@ export const isProblemDetail = (err: unknown): err is ProblemDetail => {
 export const hasErrorCode = (err: unknown, codes: ErrorCode | ErrorCode[]): boolean => {
   if (!isProblemDetail(err)) return false;
   const list = Array.isArray(codes) ? codes : [codes];
-  return list.includes(err.code);
+  return list.includes(err.message_code);
 };
 
 // Helper for React Hook Form

@@ -1,7 +1,7 @@
 import { Form, Field, Actions } from '@/components/ui/forms';
 import type { AutoFormProps } from './types';
 
-export function AutoForm<TValues = any>({
+export function AutoForm<TValues = Record<string, unknown>>({
   form,
   schema,
   onSubmit,
@@ -19,8 +19,12 @@ export function AutoForm<TValues = any>({
   }, {});
   const sections = Object.entries(grouped);
 
+  const handleValidSubmit: Parameters<typeof form.handleSubmit>[0] = (values) => {
+    onSubmit(values as TValues);
+  };
+
   return (
-    <Form onSubmit={form.handleSubmit(onSubmit as any)}>
+    <Form onSubmit={form.handleSubmit(handleValidSubmit)}>
       {sections.map(([section, fields]) => (
         <div key={section} style={{ width: '100%' }}>
             {section !== '_default' ? (

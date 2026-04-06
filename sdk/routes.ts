@@ -157,7 +157,7 @@ export const createRouteDefinitions = (queryClient: QueryClient) => [
     method: 'GET',
     rpc: 'ListComments',
     loader: async ({ params }: { params: any }) => {
-      await queryClient.ensureQueryData(Queries.listCommentsQueryOptions(params.postID));
+      await queryClient.ensureQueryData(Queries.listCommentsQueryOptions({postID: params.postID}));
     },
     meta: {
       title: 'ListComments',
@@ -178,7 +178,7 @@ export const createRouteDefinitions = (queryClient: QueryClient) => [
     method: 'GET',
     rpc: 'GetPost',
     loader: async ({ params }: { params: any }) => {
-      await queryClient.ensureQueryData(Queries.getPostQueryOptions(params.slug));
+      await queryClient.ensureQueryData(Queries.getPostQueryOptions({slug: params.slug}));
     },
     meta: {
       title: 'GetPost',
