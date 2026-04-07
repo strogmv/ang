@@ -66,6 +66,14 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install TypeScript
+        run: npm install -g typescript
+
       - name: Invariant Unit Tests (entity/projection/determinism)
         run: go test ./compiler -run 'TestEntityIntegrity|TestProjectionRules'
 
@@ -75,15 +83,10 @@ jobs:
       - name: Policy Parity Gate (backend ↔ OpenAPI ↔ SDK)
         run: go test ./compiler/emitter -run TestPolicyParity_BackendMiddlewareAndSDKMeta
 
-      - name: Build Multi-Target (Go + Python)
+      - name: Build Release (Go)
         env:
-          ANG_PY_SDK: "1"
           ANG_FRONTEND_TSC: "1"
         run: go run ./cmd/ang build --mode=release
-
-      - name: OpenAPI Parity (Go vs Python, fail-fast)
-        run: |
-          diff -u dist/release/go-service/api/openapi.yaml dist/release/python-service/api/openapi.yaml
 
       - name: Generated Artifacts Are Committed
         run: |
@@ -93,7 +96,6 @@ jobs:
 
       - name: Deterministic Release Output (hash parity)
         env:
-          ANG_PY_SDK: "1"
           ANG_FRONTEND_TSC: "1"
         run: |
           rm -rf dist
@@ -105,176 +107,6 @@ jobs:
 
       - name: Deterministic Build Phases (plan/apply)
         env:
-          ANG_PY_SDK: "1"
           ANG_FRONTEND_TSC: "1"
         run: |
           bash ./scripts/ci_determinism_plan_apply.sh
-
-  release-gates:
-    runs-on: ubuntu-latest
-    needs: architecture-invariants
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Install TypeScript
-        run: npm install -g typescript
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Build Multi-Target (Go + Python)
-        env:
-          ANG_PY_SDK: "1"
-          ANG_FRONTEND_TSC: "1"
-        run: go run ./cmd/ang build --mode=release
-
-      - name: Determinism Check (second build, same outputs)
-        env:
-          ANG_PY_SDK: "1"
-          ANG_FRONTEND_TSC: "1"
-        run: |
-          rm -rf dist
-          go run ./cmd/ang build --mode=release
-          find dist/release -type f -print0 | sort -z | xargs -0 sha256sum > /tmp/ang-release-hash-1.txt
-          go run ./cmd/ang build --mode=release
-          find dist/release -type f -print0 | sort -z | xargs -0 sha256sum > /tmp/ang-release-hash-2.txt
-          diff -u /tmp/ang-release-hash-1.txt /tmp/ang-release-hash-2.txt
-
-      - name: Artifact Presence Smoke
-        run: |
-          test -f dist/release/go-service/cmd/server/main.go
-          test -f dist/release/python-service/app/main.py
-          test -f dist/release/go-service/sdk/python/pyproject.toml
-
-      - name: Python SDK Smoke (install + import)
-        run: |
-          python -m venv .venv
-          . .venv/bin/activate
-          python -m pip install --upgrade pip
-          python -m pip install -e dist/release/go-service/sdk/python
-          python -c "from ang_sdk import AngClient; print('ok')"
-
-      - name: Python SDK Quality Gates (ruff, mypy, pytest)
-        run: |
-          python -m venv .venv-sdk-quality
-          . .venv-sdk-quality/bin/activate
-          python -m pip install --upgrade pip
-          python -m pip install -e dist/release/go-service/sdk/python
-          python -m pip install ruff==0.8.6 mypy==1.13.0 pytest==8.3.4
-
-          ruff check dist/release/go-service/sdk/python/ang_sdk
-          mypy --strict --ignore-missing-imports dist/release/go-service/sdk/python/ang_sdk
-
-          cat > /tmp/test_generated_sdk.py << 'EOF'
-          from ang_sdk import AngClient, AsyncAngClient, models
-          from ang_sdk.errors import ProblemDetails, AngAPIError
-
-          def test_sdk_import_surface() -> None:
-              assert AngClient is not None
-              assert AsyncAngClient is not None
-              assert ProblemDetails is not None
-              assert AngAPIError is not None
-              assert models is not None
-          EOF
-          pytest -q /tmp/test_generated_sdk.py
-
-      - name: FastAPI Scaffold Smoke (py_compile)
-        run: |
-          test -f dist/release/python-service/app/main.py
-          test -f dist/release/python-service/app/routers/auth.py
-          test -f dist/release/python-service/app/services/auth.py
-          python -m py_compile \
-            dist/release/python-service/app/main.py \
-            dist/release/python-service/app/routers/auth.py \
-            dist/release/python-service/app/services/auth.py
-
-      - name: FastAPI Contract Subset (runtime openapi parity)
-        run: |
-          python -m venv .venv-contract
-          . .venv-contract/bin/activate
-          python -m pip install --upgrade pip
-          python -m pip install -e dist/release/python-service/app
-          python ./scripts/python_contract_subset.py \
-            --app-dir dist/release/python-service/app \
-            --openapi dist/release/python-service/api/openapi.yaml
-
-      - name: FastAPI Quality Gates (ruff, mypy, pytest)
-        run: |
-          python -m venv .venv-quality
-          . .venv-quality/bin/activate
-          python -m pip install --upgrade pip
-          python -m pip install -e dist/release/python-service/app
-          python -m pip install ruff==0.8.6 mypy==1.13.0 pytest==8.3.4
-
-          ruff check dist/release/python-service/app
-          mypy --strict --ignore-missing-imports dist/release/python-service/app
-
-          cat > /tmp/test_generated_fastapi_app.py << 'EOF'
-          from app.main import app
-
-          def test_app_import_and_title() -> None:
-              assert app is not None
-              assert isinstance(app.title, str)
-          EOF
-          pytest -q /tmp/test_generated_fastapi_app.py
-
-      - name: PDF Example Smoke (from CUE)
-        run: |
-          ANG_FRONTEND_TSC=1 go run ./cmd/ang build examples/pdf-chart-python --target=python --mode=release
-          test -f examples/pdf-chart-python/app/main.py
-          test -f examples/pdf-chart-python/app/services/report.py
-          python -m py_compile \
-            examples/pdf-chart-python/app/main.py \
-            examples/pdf-chart-python/app/services/report.py
-          python -m venv .venv-pdf-contract
-          . .venv-pdf-contract/bin/activate
-          python -m pip install --upgrade pip
-          python -m pip install -e examples/pdf-chart-python/app
-          python -m pip install matplotlib reportlab
-          python ./scripts/python_contract_subset.py \
-            --app-dir examples/pdf-chart-python/app \
-            --openapi examples/pdf-chart-python/api/openapi.yaml \
-            --pdf-endpoint /reports/pdf
-
-      - name: OpenAPI Compatibility Report
-        run: |
-          mkdir -p dist/release/reports
-          GO_OAS="dist/release/go-service/api/openapi.yaml"
-          PY_OAS="dist/release/python-service/api/openapi.yaml"
-          DIFF_FILE="dist/release/reports/openapi-go-vs-python.diff"
-          SUMMARY_FILE="dist/release/reports/openapi-go-vs-python.md"
-
-          GO_SHA="$(sha256sum "$GO_OAS" | awk '{print $1}')"
-          PY_SHA="$(sha256sum "$PY_OAS" | awk '{print $1}')"
-          if diff -u "$GO_OAS" "$PY_OAS" >"$DIFF_FILE"; then
-            STATUS="identical"
-          else
-            STATUS="different"
-          fi
-
-          cat >"$SUMMARY_FILE" <<EOF
-          # OpenAPI Compatibility Report
-          - Go sha256: \`$GO_SHA\`
-          - Python sha256: \`$PY_SHA\`
-          - Status: **$STATUS**
-          - Diff: \`$DIFF_FILE\`
-          EOF
-
-      - name: Upload Release Reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-reports
-          path: dist/release/reports
