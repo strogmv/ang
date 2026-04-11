@@ -39,7 +39,7 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-	{{ if and .AuthService (HasEntityByNameIR .EntitiesIR "User") }}"strings"{{ end }}
+	"strings"
 	{{ if .HasNats }}"encoding/json"{{ end }}
 
 	"github.com/go-chi/chi/v5"
@@ -261,13 +261,27 @@ func main() {
 	r.Use(transport.LoggingMiddleware)
 	r.Use(middleware.Recoverer)
 
-	// CORS configuration - allows cross-origin requests from frontend apps
+	// CORS: when CORS_ORIGINS env var is set (comma-separated), enable credentials
+	// mode with those specific origins. Required for BFF session-cookie auth across
+	// different ports (dev) or subdomains. Falls back to wildcard/no-credentials.
+	corsAllowedOrigins := []string{"*"}
+	corsAllowCredentials := false
+	if raw := strings.TrimSpace(os.Getenv("CORS_ORIGINS")); raw != "" {
+		parts := strings.Split(raw, ",")
+		corsAllowedOrigins = corsAllowedOrigins[:0]
+		for _, p := range parts {
+			if p = strings.TrimSpace(p); p != "" {
+				corsAllowedOrigins = append(corsAllowedOrigins, p)
+			}
+		}
+		corsAllowCredentials = true
+	}
 	corsMiddleware := cors.New(cors.Options{
-		AllowedOrigins:   []string{"*"},
+		AllowedOrigins:   corsAllowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"*"},
 		ExposedHeaders:   []string{"Link", "X-Total-Count"},
-		AllowCredentials: false,
+		AllowCredentials: corsAllowCredentials,
 		MaxAge:           300,
 	})
 	r.Use(corsMiddleware.Handler)
@@ -296,6 +310,7 @@ func main() {
 	{{- else }}
 	refreshStore = authstore.NewMemoryStore()
 	{{- end }}
+	transport.SetAuthRefreshStore(refreshStore)
 	{{- end }}
 
 	// Repository instances - one per domain entity

@@ -7,12 +7,24 @@
 	r.Use(transport.TestHeadersMiddleware)
 	r.Use(middleware.Recoverer)
 
+	corsAllowedOrigins := []string{"*"}
+	corsAllowCredentials := false
+	if raw := strings.TrimSpace(os.Getenv("CORS_ORIGINS")); raw != "" {
+		parts := strings.Split(raw, ",")
+		corsAllowedOrigins = corsAllowedOrigins[:0]
+		for _, p := range parts {
+			if p = strings.TrimSpace(p); p != "" {
+				corsAllowedOrigins = append(corsAllowedOrigins, p)
+			}
+		}
+		corsAllowCredentials = true
+	}
 	corsMiddleware := cors.New(cors.Options{
-		AllowedOrigins:   []string{"*"},
+		AllowedOrigins:   corsAllowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"*"},
 		ExposedHeaders:   []string{"Link", "X-Total-Count"},
-		AllowCredentials: false,
+		AllowCredentials: corsAllowCredentials,
 		MaxAge:           300,
 	})
 	r.Use(corsMiddleware.Handler)
