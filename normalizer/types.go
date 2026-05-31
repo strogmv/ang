@@ -412,6 +412,7 @@ type ConfigDef struct {
 
 // AuthDef описывает настройки JWT.
 type AuthDef struct {
+	Mode                string
 	Alg                 string
 	Issuer              string
 	Audience            string
