@@ -94,15 +94,6 @@ func ToJSONName(s string) string {
 		}
 		parts[i] = strings.ToUpper(lower[:1]) + lower[1:]
 	}
-	if s == "id" {
-		return "ID"
-	}
-	if s == "id" {
-		return "ID"
-	}
-	if s == "id" {
-		return "ID"
-	}
 	return strings.Join(parts, "")
 }
 
