@@ -1,30 +1,68 @@
 package http
 
 import (
-	"time"
 	"net/http"
+	"os"
+	"strings"
+	"sync"
+	"time"
 	"github.com/go-chi/chi/v5/middleware"
 	"{{GoModule}}/internal/pkg/logger"
 )
+
+var (
+	accessLogExcludeOnce sync.Once
+	accessLogExclude     []string
+)
+
+// accessLogExcluded reports whether SUCCESSFUL requests to path should be skipped
+// in the access log. Configured via ACCESS_LOG_EXCLUDE (comma-separated path
+// prefixes); defaults to health/readiness/metrics probes. Requests that fail
+// (status >= 400) are always logged regardless of this list.
+func accessLogExcluded(path string) bool {
+	accessLogExcludeOnce.Do(func() {
+		raw := strings.TrimSpace(os.Getenv("ACCESS_LOG_EXCLUDE"))
+		if raw == "" {
+			raw = "/health,/health/ready,/metrics"
+		}
+		for _, p := range strings.Split(raw, ",") {
+			if p = strings.TrimSpace(p); p != "" {
+				accessLogExclude = append(accessLogExclude, p)
+			}
+		}
+	})
+	for _, p := range accessLogExclude {
+		if path == p || strings.HasPrefix(path, p) {
+			return true
+		}
+	}
+	return false
+}
 
 func LoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
-		
+		excluded := accessLogExcluded(r.URL.Path)
+
 		log := logger.From(r.Context())
-		log.Info("HTTP Request", 
-			"method", r.Method, 
-			"path", r.URL.Path,
-			"request_id", middleware.GetReqID(r.Context()),
-		)
+		if !excluded {
+			log.Info("HTTP Request",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"request_id", middleware.GetReqID(r.Context()),
+			)
+		}
 
 		next.ServeHTTP(ww, r)
 
-		log.Info("HTTP Response",
-			"status", ww.Status(),
-			"duration", time.Since(start).String(),
-			"bytes", ww.BytesWritten(),
-		)
+		// Always log failures; skip only successful excluded (health/metrics) requests.
+		if !excluded || ww.Status() >= 400 {
+			log.Info("HTTP Response",
+				"status", ww.Status(),
+				"duration", time.Since(start).String(),
+				"bytes", ww.BytesWritten(),
+			)
+		}
 	})
 }
