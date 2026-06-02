@@ -39,6 +39,9 @@ const isDevEnv = () => {
 
 export const apiClient = axios.create({
   baseURL: getBaseUrl(),
+  // Send/receive the session cookie (opaque_session_cookie auth) across origins.
+  // The API must allow credentials and echo the exact Origin (not "*").
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
