@@ -152,7 +152,7 @@ const applyHotEventCacheUpdate = (queryClient: QueryClient, data: WSMessage): bo
           return old;
         }
         handled = true;
-        if (old.data.some((item) => item.ID === data.payload.ID)) {
+        if (old.data.some((item) => item.id === data.payload.id)) {
           return old;
         }
         const nextItem: Types.ListNotificationsResponseData = { ...data.payload };
@@ -175,7 +175,7 @@ const applyHotEventCacheUpdate = (queryClient: QueryClient, data: WSMessage): bo
             return false;
           }
           const params = getQueryKeyParams(query.queryKey);
-          return params?.ID === data.payload.chatId;
+          return params?.id === data.payload.chatId;
         },
       },
       (old) => {
@@ -183,11 +183,11 @@ const applyHotEventCacheUpdate = (queryClient: QueryClient, data: WSMessage): bo
           return old;
         }
         handled = true;
-        if (old.data.some((item) => item.ID === data.payload.messageId)) {
+        if (old.data.some((item) => item.id === data.payload.messageId)) {
           return old;
         }
         const nextItem: Types.GetMessagesFromAChatResponseData = {
-          ID: data.payload.messageId,
+          id: data.payload.messageId,
           chatId: data.payload.chatId,
           senderUserId: data.payload.senderUserId,
           senderCompanyId: data.payload.senderCompanyId,
@@ -227,11 +227,11 @@ const applyHotEventCacheUpdate = (queryClient: QueryClient, data: WSMessage): bo
           return old;
         }
         handled = true;
-        if (old.data.some((item) => item.ID === data.payload.bidId)) {
+        if (old.data.some((item) => item.id === data.payload.bidId)) {
           return old;
         }
         const nextItem: Types.ListBidsResponseData = {
-          ID: data.payload.bidId,
+          id: data.payload.bidId,
           tenderId: data.payload.tenderId,
           companyId: data.payload.companyId,
           userId: data.payload.userId,
@@ -285,7 +285,7 @@ export const useWebsocketSubscription = <K extends WSMessage['type']>(
     const unsubs = (defaultWsClients as unknown as ReadonlyArray<WebSocketClient<WSMessage>>)
       .map((client) => subscribeToWebSocketClient(client, topic, (payload) => {
         const emit = onMessageRef.current as unknown as (payload: Extract<WSMessage, { type: K }>['payload']) => void;
-        emit(payload as Extract<WSMessage, { type: K }>['payload']);
+        emit(payload as any);
       }));
     return () => {
       for (const unsub of unsubs) {
@@ -306,7 +306,7 @@ export const useAppWebsocketSubscription = <K extends AppWSMessage['type']>(
   useEffect(() => {
     const unsubscribe = subscribeToWebSocketClient(appWsClient, topic, (payload) => {
       const emit = onMessageRef.current as unknown as (payload: Extract<AppWSMessage, { type: K }>['payload']) => void;
-      emit(payload as unknown as Extract<AppWSMessage, { type: K }>['payload']);
+      emit(payload as any);
     });
     return () => {
       unsubscribe();
@@ -342,7 +342,7 @@ export const use{{ .RPC }}Subscription = <K extends {{ .RPC }}WSMessage['type']>
       if (data.type === topic) {
         const matched = data as Extract<{{ .RPC }}WSMessage, { type: K }>;
         const emit = onMessageRef.current as unknown as (payload: Extract<{{ .RPC }}WSMessage, { type: K }>['payload']) => void;
-        emit(matched.payload as unknown as Extract<{{ .RPC }}WSMessage, { type: K }>['payload']);
+        emit(matched.payload as any);
       }
     });
     return () => {

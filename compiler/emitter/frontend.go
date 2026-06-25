@@ -245,12 +245,13 @@ func collectFrontendEnumStrings(v cue.Value) []string {
 }
 
 func extractFrontendNamedEnums(projectRoot string) []NamedEnum {
-	domainDir := filepath.Join(projectRoot, "cue", "domain")
+	cr := defaultCueRoot
+	domainDir := filepath.Join(projectRoot, cr, "domain")
 	stat, err := os.Stat(domainDir)
 	if err != nil || !stat.IsDir() {
 		return nil
 	}
-	insts := cueload.Instances([]string{"./cue/domain"}, &cueload.Config{Dir: projectRoot})
+	insts := cueload.Instances([]string{"./"+cr+"/domain"}, &cueload.Config{Dir: projectRoot})
 	if len(insts) == 0 {
 		return nil
 	}
@@ -297,7 +298,7 @@ func findProjectRootWithCueDomain(start string) string {
 		base = abs
 	}
 	for {
-		domainDir := filepath.Join(base, "cue", "domain")
+		domainDir := filepath.Join(base, defaultCueRoot, "domain")
 		if stat, err := os.Stat(domainDir); err == nil && stat.IsDir() {
 			return base
 		}
@@ -1134,6 +1135,7 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		return nil
 	}
 
+	authCfg := normalizer.InfraAuth(e.InfraValues)
 	funcMap := template.FuncMap{
 		"TrimSpace":  strings.TrimSpace,
 		"ToLower":    strings.ToLower,
@@ -1375,7 +1377,11 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 				}
 				for _, f := range reqEntity.Fields {
 					if strings.EqualFold(f.Name, arg) || strings.EqualFold(JSONName(f.Name), arg) || strings.EqualFold(ExportName(f.Name), arg) {
-						return f.Name
+						// The TS request type emits fields by their JSON name (see types.ts.tmpl:
+						// `{{ .Name | JSONName }}`), so the object key here must match that —
+						// returning the raw f.Name (e.g. "tenderID") produced {tenderID: params.tenderId}
+						// which does not satisfy the request type and broke `tsc`.
+						return JSONName(f.Name)
 					}
 				}
 				return arg
@@ -1572,7 +1578,15 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 			return queryOptionsKindByRPC[rpc]
 		},
 		"IsAuthLoginRPC": func(rpc string) bool {
-			return rpc == "LoginUser" || rpc == "RegisterUser"
+			if authCfg == nil {
+				return rpc == "LoginUser" || rpc == "RegisterUser"
+			}
+			switch rpc {
+			case authCfg.LoginOp, authCfg.RegisterOp, authCfg.DemoSessionOp, authCfg.RefreshOp:
+				return true
+			default:
+				return false
+			}
 		},
 		"Title": func(s string) string {
 			if len(s) == 0 {
