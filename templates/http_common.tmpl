@@ -36,6 +36,8 @@ import (
 	"{{GoModule}}/internal/pkg/errors"
 	"{{GoModule}}/internal/pkg/rbac"
 	"{{GoModule}}/internal/pkg/reqctx"
+	authredis "{{GoModule}}/internal/adapter/auth/redis"
+	statestoreredis "{{GoModule}}/internal/adapter/statestore/redis"
 	"{{GoModule}}/internal/port"
 )
 
@@ -806,6 +808,20 @@ func AuthMiddleware(next http.Handler) http.Handler {
 				}
 			}
 			if err != nil || claims == nil {
+{{- if .BearerFallback }}
+				token := strings.TrimSpace(r.Header.Get("Authorization"))
+				if token == "" {
+					token = strings.TrimSpace(r.URL.Query().Get("token"))
+				}
+				if strings.HasPrefix(strings.ToLower(token), "bearer ") {
+					token = strings.TrimSpace(token[7:])
+				}
+				if token != "" {
+					claims, err = parseAndVerifyJWT(token)
+				}
+{{- end }}
+			}
+			if err != nil || claims == nil {
 				clearAuthCookies(w, r)
 				errors.WriteError(w, r, errors.New(http.StatusUnauthorized, "Unauthorized", "Valid session cookie required"))
 				return
@@ -1251,6 +1267,17 @@ var (
 
 func SetRedisClient(c *redis.Client) {
 	redisClient = c
+	// authMode is "opaque_session_cookie": wire the session + refresh stores from the
+	// same Redis client, otherwise every cookie-authenticated request 401s
+	// ("Valid session cookie required") because the opaque session can never resolve.
+	if c != nil {
+		if authSessionStore == nil {
+			authSessionStore = statestoreredis.New(c)
+		}
+		if authRefreshStore == nil {
+			authRefreshStore = authredis.NewStore(c)
+		}
+	}
 }
 
 // RateLimitMiddleware enforces per-IP rate limiting at two levels:
