@@ -76,8 +76,27 @@ func defaultBootstrapExemptTools() []string {
 	return list
 }
 
+// resolveMCPCueRoot reads ang.yaml for a custom cue_root, defaulting to "cue".
+func resolveMCPCueRoot(projectRoot string) string {
+	data, err := os.ReadFile(filepath.Join(projectRoot, "ang.yaml"))
+	if err != nil {
+		return compiler.DefaultCueRoot
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "cue_root:") {
+			val := strings.TrimSpace(strings.TrimPrefix(line, "cue_root:"))
+			val = strings.Trim(val, `"'`)
+			if val != "" {
+				return val
+			}
+		}
+	}
+	return compiler.DefaultCueRoot
+}
+
 func goldenPatternSources() []string {
-	data, err := os.ReadFile(filepath.Join("cue", "GOLDEN_EXAMPLES.cue"))
+	data, err := os.ReadFile(filepath.Join(resolveMCPCueRoot("."), "GOLDEN_EXAMPLES.cue"))
 	if err != nil {
 		return []string{"template:crud_entity", "template:fsm_entity", "template:event_service", "template:webhook_handler"}
 	}
@@ -634,7 +653,7 @@ func Run() {
 	}
 
 	projectRoot, _ := os.Getwd()
-	cueRoot := filepath.Join(projectRoot, "cue")
+	cueRoot := filepath.Join(projectRoot, resolveMCPCueRoot(projectRoot))
 
 	resolveCueURI := func(uri string) (string, error) {
 		const prefix = "resource://ang/cue/"
@@ -698,6 +717,26 @@ func Run() {
 			URI:      "resource://ang/policy",
 			MIMEType: "application/json",
 			Text:     string(out),
+		}}, nil
+	})
+
+	s.AddResource(mcp.NewResource(
+		"resource://ang/memory",
+		"ANG Memory",
+		mcp.WithResourceDescription("Durable cross-session facts and decisions the agent chose to remember. "+
+			"Load this at session start for passive recall before working."),
+		mcp.WithMIMEType("text/markdown"),
+	), func(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+		memoryMu.Lock()
+		digest, err := memoryDigest()
+		memoryMu.Unlock()
+		if err != nil {
+			return nil, err
+		}
+		return []mcp.ResourceContents{mcp.TextResourceContents{
+			URI:      "resource://ang/memory",
+			MIMEType: "text/markdown",
+			Text:     digest,
 		}}, nil
 	})
 
@@ -857,6 +896,7 @@ func Run() {
 		mcpSchemaVersion:   mcpSchemaVersion,
 	})
 	registerCUETools(addToolWithCatalog)
+	registerMemoryTools(addToolWithCatalog)
 	registerListTools := func(name string) {
 		addToolWithCatalog(name, mcp.NewTool(name,
 			mcp.WithDescription("List all registered MCP tools with descriptions."),

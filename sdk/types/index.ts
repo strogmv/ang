@@ -7,7 +7,7 @@
 export type Encrypted<T> = string & { __encrypted?: T };
 export interface Comment {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   postId: string;
   /**  */
@@ -23,7 +23,7 @@ export interface Comment {
 }
 export interface Post {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   authorId: string;
   /**  */
@@ -47,7 +47,7 @@ export interface Post {
 }
 export interface PostTag {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   postId: string;
   /**  */
@@ -55,7 +55,7 @@ export interface PostTag {
 }
 export interface Tag {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   name: string;
   /**  */
@@ -67,7 +67,7 @@ export interface Tag {
 }
 export interface User {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   email: string;
   /**  */
@@ -83,7 +83,7 @@ export interface User {
 }
 export interface UserVault {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   personalKey: Encrypted<string>;
   /**  */
@@ -135,7 +135,7 @@ export interface UpdateProfileRequest {
 }
 export interface ArchivePostRequest {
   /**  */
-  ID: string;
+  id: string;
 }
 export interface CreateCommentRequest {
   /**  */
@@ -159,15 +159,15 @@ export interface CreateTagRequest {
 }
 export interface DeleteCommentRequest {
   /**  */
-  ID: string;
+  id: string;
 }
 export interface DeletePostRequest {
   /**  */
-  ID: string;
+  id: string;
 }
 export interface DeleteTagRequest {
   /**  */
-  ID: string;
+  id: string;
 }
 export interface GetPostRequest {
   /**  */
@@ -239,21 +239,21 @@ export interface OnPostUpdatedProjectionRequest {
 }
 export interface PublishPostRequest {
   /**  */
-  ID: string;
+  id: string;
 }
 export interface SubmitPostRequest {
   /**  */
-  ID: string;
+  id: string;
 }
 export interface UpdateCommentRequest {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   content: string;
 }
 export interface UpdatePostRequest {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   title?: string;
   /**  */
@@ -261,7 +261,7 @@ export interface UpdatePostRequest {
 }
 export interface UpdateTagRequest {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   name?: string;
   /**  */
@@ -307,7 +307,7 @@ export interface ChatWithAssistantRequestMessagesItem {
 }
 export interface LookupPostForAssistantResponse {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   title: string;
   /**  */
@@ -317,7 +317,7 @@ export interface LookupPostForAssistantResponse {
 }
 export interface GetProfileResponse {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   email: string;
   /**  */
@@ -347,7 +347,7 @@ export interface OnUserRegisteredAuditResponse {
 }
 export interface RegisterResponse {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   email: string;
   /**  */
@@ -363,17 +363,17 @@ export interface ArchivePostResponse {
 }
 export interface CreateCommentResponse {
   /**  */
-  ID: string;
+  id: string;
 }
 export interface CreatePostResponse {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   slug: string;
 }
 export interface CreateTagResponse {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   slug: string;
 }
@@ -391,7 +391,7 @@ export interface DeleteTagResponse {
 }
 export interface GetPostResponse {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   title: string;
   /**  */
@@ -405,7 +405,7 @@ export interface GetPostResponse {
 }
 export interface GetPostResponseTagsItem {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   name: string;
   /**  */
@@ -419,7 +419,7 @@ export interface ListCommentsResponse {
 }
 export interface ListCommentsResponseData {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   content: string;
   /**  */
@@ -433,7 +433,7 @@ export interface ListMyPostsResponse {
 }
 export interface ListMyPostsResponseData {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   title: string;
   /**  */
@@ -449,7 +449,7 @@ export interface ListPostsResponse {
 }
 export interface ListPostsResponseData {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   title: string;
   /**  */
@@ -465,7 +465,7 @@ export interface ListTagsResponse {
 }
 export interface ListTagsResponseData {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   name: string;
   /**  */

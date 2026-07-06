@@ -153,6 +153,23 @@ func summarizeCaseKinds(cases []flowTestCase) map[string]int {
 
 func deriveFlowCases(service string, method normalizer.Method, ep normalizer.Endpoint) []flowTestCase {
 	var out []flowTestCase
+	if ep.Permission != "" || ep.AuthCheck != "" || len(ep.AuthRoles) > 0 || len(ep.RequiredScopes) > 0 {
+		out = append(out, flowTestCase{
+			ID:      service + "." + method.Name + ".policy_forbidden",
+			Service: service, Method: method.Name, EndpointMethod: ep.Method, EndpointPath: ep.Path,
+			Kind: "policy_forbidden", Title: "request outside the authorized scope should return 403", ExpectedStatus: 403,
+		})
+	}
+	for _, field := range method.Input.Fields {
+		if field.IsOptional {
+			continue
+		}
+		out = append(out, flowTestCase{
+			ID:      service + "." + method.Name + ".required_field." + strings.ToLower(field.Name),
+			Service: service, Method: method.Name, EndpointMethod: ep.Method, EndpointPath: ep.Path,
+			Kind: "required_field", Title: "missing required field " + field.Name + " should return 400", ExpectedStatus: 400,
+		})
+	}
 	var visit func([]normalizer.FlowStep)
 	visit = func(steps []normalizer.FlowStep) {
 		for idx, step := range steps {
@@ -202,24 +219,30 @@ func deriveFlowCases(service string, method normalizer.Method, ep normalizer.End
 				elseCase.Title = "flow.If else branch should be covered"
 				out = append(out, elseCase)
 			case "repo.Find", "repo.Get":
-				if errMsg, ok := step.Args["error"].(string); ok && strings.TrimSpace(errMsg) != "" {
-					c := flowTestCase{
-						ID:             fmt.Sprintf("%s.%s.repo_not_found.%d", service, method.Name, stepNo),
-						Service:        service,
-						Method:         method.Name,
-						EndpointMethod: ep.Method,
-						EndpointPath:   ep.Path,
-						Kind:           "repo_not_found",
-						Title:          "repo.Find/Get not-found branch should return 404",
-						Throw:          errMsg,
-						ExpectedStatus: 404,
-						StepFile:       step.File,
-						StepLine:       step.Line,
-						StepColumn:     step.Column,
-						CUEPath:        step.CUEPath,
-					}
-					out = append(out, c)
+				errMsg, _ := step.Args["error"].(string)
+				c := flowTestCase{
+					ID:             fmt.Sprintf("%s.%s.repo_not_found.%d", service, method.Name, stepNo),
+					Service:        service,
+					Method:         method.Name,
+					EndpointMethod: ep.Method,
+					EndpointPath:   ep.Path,
+					Kind:           "repo_not_found",
+					Title:          "repo.Find/Get not-found branch should return 404",
+					Throw:          errMsg,
+					ExpectedStatus: 404,
+					StepFile:       step.File,
+					StepLine:       step.Line,
+					StepColumn:     step.Column,
+					CUEPath:        step.CUEPath,
 				}
+				out = append(out, c)
+			case "tx.Block":
+				out = append(out, flowTestCase{
+					ID:      fmt.Sprintf("%s.%s.tx_rollback.%d", service, method.Name, stepNo),
+					Service: service, Method: method.Name, EndpointMethod: ep.Method, EndpointPath: ep.Path,
+					Kind: "tx_rollback", Title: "failure inside tx.Block should roll back all writes",
+					StepFile: step.File, StepLine: step.Line, StepColumn: step.Column, CUEPath: step.CUEPath,
+				})
 			}
 			if nested, ok := step.Args["_do"].([]normalizer.FlowStep); ok {
 				visit(nested)

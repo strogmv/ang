@@ -1,8 +1,5 @@
 package emitter
 
-import (
-)
-
 func (e *Emitter) EmitContainer() error {
 	if e.IRSchema == nil {
 		return nil
@@ -26,7 +23,7 @@ func (e *Emitter) EmitContainer() error {
 
 	formatted, err := e.FormatGo([]byte(rendered))
 	if err != nil {
-		formatted = []byte(rendered)
+		return err
 	}
 
 	path := e.outDir("internal/app/container.go")

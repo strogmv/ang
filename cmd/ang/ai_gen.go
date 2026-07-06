@@ -23,7 +23,7 @@ func runAIGen(args []string) {
 	fs.SetOutput(os.Stderr)
 	factsPath := fs.String("facts", "", "path to ang/facts/v1 JSON (required)")
 	service := fs.String("service", "", "generate only operations for this service hint (empty = all)")
-	outDir := fs.String("out", "cue/api", "output directory for generated CUE files")
+	outDir := fs.String("out", loadProjectConfig(".").CueRoot+"/api", "output directory for generated CUE files")
 	dryRun := fs.Bool("dry-run", false, "print generated CUE without writing files")
 	model := fs.String("model", aiGenModel, "Claude model ID")
 	if err := fs.Parse(args); err != nil {

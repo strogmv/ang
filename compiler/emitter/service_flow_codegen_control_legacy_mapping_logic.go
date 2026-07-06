@@ -108,54 +108,45 @@ func renderFlowStepControlLegacyMappingLogic(st *flowRenderState, step normalize
 		return b.String(), true
 
 	case "logic.Call":
-		funcExpr := arg("func")
-		output := arg("output")
-		ignoreErr, _ := step.Args["ignoreErr"].(bool)
-		ignoreErrReason := strings.TrimSpace(arg("ignoreErrReason"))
-		if funcExpr == "" {
+		call, callErr := decodeFlowCall(step)
+		if callErr != nil {
+			return renderInvalidFlowStepConfig(st, pad, "logic.Call", callErr.Error()), true
+		}
+		if call.Function == "" {
 			return renderInvalidFlowStepConfig(st, pad, "logic.Call", "logic.Call requires func"), true
 		}
-		var callArgs []string
-		if v, ok := step.Args["args"]; ok {
-			switch x := v.(type) {
-			case []string:
-				callArgs = x
-			case string:
-				callArgs = []string{x}
-			}
-		}
-		callStr := funcExpr + "(" + strings.Join(callArgs, ", ") + ")"
-		if ignoreErr {
-			if ignoreErrReason == "" {
+		callStr := call.Function + "(" + strings.Join(call.Arguments, ", ") + ")"
+		if call.IgnoreError {
+			if call.IgnoreErrReason == "" {
 				emitFlowWarning(st, step, "FLOW_IGNORE_ERR", "warn", "logic.Call ignores returned error explicitly", "Document intent with ignoreErrReason and use only for deliberate fire-and-forget behavior")
 			}
 			comment := fmt.Sprintf("%s// explicit ignoreErr=true", pad)
-			if ignoreErrReason != "" {
-				comment = fmt.Sprintf("%s// explicit ignoreErr=true: %s", pad, ignoreErrReason)
+			if call.IgnoreErrReason != "" {
+				comment = fmt.Sprintf("%s// explicit ignoreErr=true: %s", pad, call.IgnoreErrReason)
 			}
-			if output != "" {
+			if call.Output != "" {
 				assign := ":="
-				if st.declared[output] {
+				if st.declared[call.Output] {
 					assign = "="
 				}
-				st.declared[output] = true
-				st.pointers[output] = false
+				st.declared[call.Output] = true
+				st.pointers[call.Output] = false
 				var b strings.Builder
 				b.WriteString(comment + "\n")
-				b.WriteString(fmt.Sprintf("%s%s %s %s\n", pad, output+", _", assign, callStr))
+				b.WriteString(fmt.Sprintf("%s%s %s %s\n", pad, call.Output+", _", assign, callStr))
 				return b.String(), true
 			}
 			return fmt.Sprintf("%s\n%s_, _ = %s\n", comment, pad, callStr), true
 		}
-		if output != "" {
+		if call.Output != "" {
 			assign := ":="
-			if st.declared[output] {
+			if st.declared[call.Output] {
 				assign = "="
 			}
-			st.declared[output] = true
-			st.pointers[output] = false
+			st.declared[call.Output] = true
+			st.pointers[call.Output] = false
 			var b strings.Builder
-			b.WriteString(fmt.Sprintf("%s%s %s %s\n", pad, output+", err", assign, callStr))
+			b.WriteString(fmt.Sprintf("%s%s %s %s\n", pad, call.Output+", err", assign, callStr))
 			b.WriteString(fmt.Sprintf("%sif err != nil {\n", pad))
 			b.WriteString(errReturn(st, pad+"\t", "err"))
 			b.WriteString(fmt.Sprintf("%s}\n", pad))

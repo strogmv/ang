@@ -77,6 +77,7 @@ func runUp(args []string) {
 	watch := fs.Bool("watch", false, "watch cue/ changes and auto-run validate/build/smoke loop")
 	watchInterval := fs.Duration("watch-interval", 2*time.Second, "poll interval for --watch mode")
 	fun := fs.Bool("fun", false, "show launch banner and celebratory ready marker")
+	frontend := fs.Bool("frontend", false, "start frontend dev server in background when package.json is present")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return
@@ -96,7 +97,11 @@ func runUp(args []string) {
 	if usedPort, altPort := suggestPortConflict(root); usedPort != "" && altPort != "" {
 		fmt.Printf("Port hint: HTTP_PORT=%s is busy. Try HTTP_PORT=%s (for smoke: `ang smoke --base-url http://localhost:%s`).\n", usedPort, altPort, altPort)
 	}
-	progress := newUpProgress(4)
+	steps := 4
+	if *frontend {
+		steps++
+	}
+	progress := newUpProgress(steps)
 
 	progress.step("Preflight checks")
 	if !*skipDoctor {
@@ -156,6 +161,14 @@ func runUp(args []string) {
 		fmt.Println("     skipped (--skip-build)")
 	}
 
+	if *frontend {
+		progress.step("Frontend dev server")
+		if err := startFrontendDev(root); err != nil {
+			printCommandFailure("Up", fmt.Sprintf("frontend: %v", err), "check frontend/package.json and npm scripts")
+			os.Exit(1)
+		}
+	}
+
 	progress.step("Readiness smoke")
 	if !*skipSmoke {
 		fmt.Println("==> Running: ang smoke")
@@ -172,6 +185,48 @@ func runUp(args []string) {
 	if *watch {
 		runUpWatchLoop(root, *skipSmoke, *watchInterval)
 	}
+}
+
+func startFrontendDev(root string) error {
+	frontendDir := ""
+	for _, candidate := range []string{filepath.Join(root, "frontend"), root} {
+		if _, err := os.Stat(filepath.Join(candidate, "package.json")); err == nil {
+			frontendDir = candidate
+			break
+		}
+	}
+	if frontendDir == "" {
+		return fmt.Errorf("package.json not found in frontend/ or project root")
+	}
+	npm, err := exec.LookPath("npm")
+	if err != nil {
+		return fmt.Errorf("npm not found in PATH")
+	}
+	stateDir := filepath.Join(root, ".ang")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		return err
+	}
+	logPath := filepath.Join(stateDir, "frontend.log")
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(npm, "run", "dev", "--", "--host", "0.0.0.0")
+	cmd.Dir = frontendDir
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+	if err := cmd.Start(); err != nil {
+		_ = logFile.Close()
+		return err
+	}
+	_ = logFile.Close()
+	pidPath := filepath.Join(stateDir, "frontend.pid")
+	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o644); err != nil {
+		_ = cmd.Process.Kill()
+		return err
+	}
+	fmt.Printf("==> Frontend started: pid=%d log=%s\n", cmd.Process.Pid, logPath)
+	return nil
 }
 
 func runSmoke(args []string) {
@@ -262,6 +317,9 @@ func collectStartupChecks(projectPath string, checkConfig bool) ([]startupCheck,
 	if _, err := os.Stat(frontendPkg); err == nil {
 		add(checkTool("node", false))
 		add(checkTool("npm", false))
+	}
+	if _, err := os.Stat(filepath.Join(root, "atlas.hcl")); err == nil {
+		add(checkTool("atlas", false))
 	}
 
 	if checkConfig {

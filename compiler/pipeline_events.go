@@ -97,7 +97,7 @@ func loadEventAnnotations(basePath string) (map[string]struct{}, map[string]stru
 	planned := make(map[string]struct{})
 	compatAllowBreaking := make(map[string]struct{})
 
-	path := filepath.Join(basePath, "cue", "events_meta", "annotations.cue")
+	path := filepath.Join(basePath, DefaultCueRoot, "events_meta", "annotations.cue")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return broadcastOnly, planned, compatAllowBreaking
@@ -364,7 +364,7 @@ func loadEventsFromGitRef(basePath, ref string) ([]normalizer.EventDef, error) {
 		return nil, nil // Not a git repo, skip compatibility check
 	}
 
-	cmd := exec.Command("git", "-C", basePath, "ls-tree", "-r", "--name-only", ref, "--", "cue", "cue.mod")
+	cmd := exec.Command("git", "-C", basePath, "ls-tree", "-r", "--name-only", ref, "--", DefaultCueRoot, "cue.mod")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("git ls-tree failed: %s", strings.TrimSpace(string(out)))
@@ -403,11 +403,11 @@ func loadEventsFromGitRef(basePath, ref string) ([]normalizer.EventDef, error) {
 	}
 
 	p := parser.New()
-	valEvents, okEvents, err := LoadOptionalDomain(p, filepath.Join(tmpDir, "cue/events"))
+	valEvents, okEvents, err := LoadOptionalDomain(p, filepath.Join(tmpDir, DefaultCueRoot, "events"))
 	if err != nil {
 		return nil, err
 	}
-	valArch, okArch, err := LoadOptionalDomain(p, filepath.Join(tmpDir, "cue/architecture"))
+	valArch, okArch, err := LoadOptionalDomain(p, filepath.Join(tmpDir, DefaultCueRoot, "architecture"))
 	if err != nil {
 		return nil, err
 	}

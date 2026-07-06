@@ -72,7 +72,7 @@ func runSemanticPhases(basePath string, opts PipelineOptions) (NormalizePhaseOut
 		return NormalizePhaseOutput{}, err
 	}
 
-	normalized, err := runNormalizePhase(parsed, opts)
+	normalized, err := runNormalizePhase(basePath, parsed, opts)
 	if err != nil {
 		return NormalizePhaseOutput{}, err
 	}
@@ -95,32 +95,33 @@ func runSemanticPhases(basePath string, opts PipelineOptions) (NormalizePhaseOut
 func runParsePhase(basePath string, opts PipelineOptions) (ParsePhaseOutput, error) {
 	out := ParsePhaseOutput{}
 	p := parser.New()
+	cr := opts.ResolveCueRoot()
 
-	valDomain, okDomain, err := LoadOptionalDomain(p, filepath.Join(basePath, "cue/domain"))
+	valDomain, okDomain, err := LoadOptionalDomain(p, filepath.Join(basePath, cr, "domain"))
 	if err != nil {
 		return out, WrapContractError(
-			StageCUE, ErrCodeCUEDomainLoad, "load cue/domain", fmt.Errorf("%s", parser.FormatCUELocationError(err)),
+			StageCUE, ErrCodeCUEDomainLoad, "load "+cr+"/domain", fmt.Errorf("%s", parser.FormatCUELocationError(err)),
 		)
 	}
-	valArch, _, err := LoadOptionalDomain(p, filepath.Join(basePath, "cue/architecture"))
+	valArch, _, err := LoadOptionalDomain(p, filepath.Join(basePath, cr, "architecture"))
 	if err != nil {
 		return out, WrapContractError(
-			StageCUE, ErrCodeCUEArchLoad, "load cue/architecture", fmt.Errorf("%s", parser.FormatCUELocationError(err)),
+			StageCUE, ErrCodeCUEArchLoad, "load "+cr+"/architecture", fmt.Errorf("%s", parser.FormatCUELocationError(err)),
 		)
 	}
-	valAPI, okAPI, err := LoadOptionalDomain(p, filepath.Join(basePath, "cue/api"))
+	valAPI, okAPI, err := LoadOptionalDomain(p, filepath.Join(basePath, cr, "api"))
 	if err != nil {
 		return out, WrapContractError(
-			StageCUE, ErrCodeCUEAPILoad, "load cue/api", fmt.Errorf("%s", parser.FormatCUELocationError(err)),
+			StageCUE, ErrCodeCUEAPILoad, "load "+cr+"/api", fmt.Errorf("%s", parser.FormatCUELocationError(err)),
 		)
 	}
-	legacyMainPath := filepath.Join(basePath, "cue", "main.cue")
+	legacyMainPath := filepath.Join(basePath, cr, "main.cue")
 	if !okDomain || !okAPI {
 		if _, statErr := os.Stat(legacyMainPath); statErr == nil {
-			legacyCue, legacyOK, legacyLoadErr := LoadOptionalDomain(p, filepath.Join(basePath, "cue"))
+			legacyCue, legacyOK, legacyLoadErr := LoadOptionalDomain(p, filepath.Join(basePath, cr))
 			if legacyLoadErr != nil {
 				return out, WrapContractError(
-					StageCUE, ErrCodeCUEAPILoad, "load legacy cue/main.cue", fmt.Errorf("%s", parser.FormatCUELocationError(legacyLoadErr)),
+					StageCUE, ErrCodeCUEAPILoad, "load legacy "+cr+"/main.cue", fmt.Errorf("%s", parser.FormatCUELocationError(legacyLoadErr)),
 				)
 			}
 			if legacyOK {
@@ -132,33 +133,34 @@ func runParsePhase(basePath string, opts PipelineOptions) (ParsePhaseOutput, err
 					valAPI = legacyCue
 					okAPI = true
 				}
-				emitFileSizeDiagnostics(filepath.Join(basePath, "cue"), opts)
+				emitFileSizeDiagnostics(filepath.Join(basePath, cr), opts)
 			}
 		}
 	}
-	valPolicy, okPolicy, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/policy"))
+	valPolicy, okPolicy, _ := LoadOptionalDomain(p, filepath.Join(basePath, cr, "policy"))
 	if !okPolicy {
-		if legacyPolicy, legacyOK, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/policies")); legacyOK {
+		if legacyPolicy, legacyOK, _ := LoadOptionalDomain(p, filepath.Join(basePath, cr, "policies")); legacyOK {
 			valPolicy = legacyPolicy
 			okPolicy = true
 		}
 	}
-	valRepo, okRepo, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/repo"))
-	valEvents, _, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/events"))
-	valErrors, _, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/errors"))
-	valProject, okProject, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/project"))
-	valProjections, okProjections, _ := LoadOptionalDomain(p, filepath.Join(basePath, "cue/projections"))
+	valRepo, okRepo, _ := LoadOptionalDomain(p, filepath.Join(basePath, cr, "repo"))
+	valEvents, _, _ := LoadOptionalDomain(p, filepath.Join(basePath, cr, "events"))
+	valErrors, _, _ := LoadOptionalDomain(p, filepath.Join(basePath, cr, "errors"))
+	valProject, okProject, _ := LoadOptionalDomain(p, filepath.Join(basePath, cr, "project"))
+	valProjections, okProjections, _ := LoadOptionalDomain(p, filepath.Join(basePath, cr, "projections"))
 
-	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/domain"), opts)
-	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/architecture"), opts)
-	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/api"), opts)
-	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/policy"), opts)
-	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/policies"), opts)
-	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/repo"), opts)
-	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/events"), opts)
-	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/errors"), opts)
-	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/project"), opts)
-	emitFileSizeDiagnostics(filepath.Join(basePath, "cue/projections"), opts)
+	emitFileSizeDiagnostics(filepath.Join(basePath, cr, "domain"), opts)
+	emitFileSizeDiagnostics(filepath.Join(basePath, cr, "architecture"), opts)
+	emitFileSizeDiagnostics(filepath.Join(basePath, cr, "api"), opts)
+	emitFileSizeDiagnostics(filepath.Join(basePath, cr, "policy"), opts)
+	emitFileSizeDiagnostics(filepath.Join(basePath, cr, "policies"), opts)
+	emitFileSizeDiagnostics(filepath.Join(basePath, cr, "repo"), opts)
+	emitFileSizeDiagnostics(filepath.Join(basePath, cr, "events"), opts)
+	emitFileSizeDiagnostics(filepath.Join(basePath, cr, "errors"), opts)
+	emitFileSizeDiagnostics(filepath.Join(basePath, cr, "project"), opts)
+	emitFileSizeDiagnostics(filepath.Join(basePath, cr, "projections"), opts)
+	emitDeadCUEDirectoryDiagnostics(basePath, cr, opts)
 
 	out.Domain = valDomain
 	out.Arch = valArch
@@ -176,7 +178,7 @@ func runParsePhase(basePath string, opts PipelineOptions) (ParsePhaseOutput, err
 	return out, nil
 }
 
-func runNormalizePhase(parsed ParsePhaseOutput, opts PipelineOptions) (NormalizePhaseOutput, error) {
+func runNormalizePhase(basePath string, parsed ParsePhaseOutput, opts PipelineOptions) (NormalizePhaseOutput, error) {
 	out := NormalizePhaseOutput{}
 
 	n := normalizer.New()
@@ -255,6 +257,17 @@ func runNormalizePhase(parsed ParsePhaseOutput, opts PipelineOptions) (Normalize
 		return out, WrapContractError(StageCUE, ErrCodeCUEServiceNormalize, "extract services", err)
 	}
 	services = mergeArchitectureServiceMetadata(services, parsed.Arch)
+	services, err = resolveGoSidecarImpls(basePath, parsed.API, services)
+	if err != nil {
+		return out, WrapContractError(StageCUE, ErrCodeCUEServiceNormalize, "resolve Go sidecar implementations", err)
+	}
+	services, err = resolveLogicCallSidecars(basePath, services)
+	if err != nil {
+		return out, WrapContractError(StageCUE, ErrCodeCUEServiceNormalize, "resolve logic.Call sidecars", err)
+	}
+	if err := validateImplDTOSelectors(services); err != nil {
+		return out, WrapContractError(StageCUE, ErrCodeDTOFieldUnknown, "validate embedded Go DTO selectors", err)
+	}
 	endpoints, err := n.ExtractEndpoints(parsed.API)
 	if err != nil {
 		return out, WrapContractError(StageCUE, ErrCodeCUEEndpointNormalize, "extract endpoints", err)
@@ -376,6 +389,7 @@ type architectureServiceMeta struct {
 	Depends    []string
 	Publishes  []string
 	Subscribes map[string]string
+	Delivery   map[string]string
 }
 
 func mergeArchitectureServiceMetadata(services []normalizer.Service, arch cue.Value) []normalizer.Service {
@@ -410,6 +424,16 @@ func mergeArchitectureServiceMetadata(services []normalizer.Service, arch cue.Va
 			for evt, handler := range meta.Subscribes {
 				services[i].Subscribes[evt] = handler
 			}
+		}
+		if len(meta.Delivery) > 0 {
+			if services[i].Metadata == nil {
+				services[i].Metadata = map[string]any{}
+			}
+			delivery := make(map[string]any, len(meta.Delivery))
+			for event, mode := range meta.Delivery {
+				delivery[event] = mode
+			}
+			services[i].Metadata["subscriptionDelivery"] = delivery
 		}
 	}
 	return services
@@ -462,15 +486,56 @@ func extractArchitectureServiceMetadata(arch cue.Value) map[string]architectureS
 		if strings.TrimSpace(name) == "" {
 			continue
 		}
+		subscribes, delivery := cueSubscriptionsAt(v, "subscribes")
 		meta := architectureServiceMeta{
 			Name:       name,
 			Depends:    cueStringListAt(v, "depends"),
 			Publishes:  cueStringListAt(v, "publishes"),
-			Subscribes: cueStringMapAt(v, "subscribes"),
+			Subscribes: subscribes,
+			Delivery:   delivery,
 		}
 		out[strings.ToLower(strings.TrimSpace(name))] = meta
 	}
 	return out
+}
+
+func cueSubscriptionsAt(v cue.Value, path string) (map[string]string, map[string]string) {
+	root := v.LookupPath(cue.ParsePath(path))
+	if !root.Exists() || root.Err() != nil {
+		return nil, nil
+	}
+	handlers := map[string]string{}
+	delivery := map[string]string{}
+	iter, err := root.Fields(cue.All())
+	if err != nil {
+		return nil, nil
+	}
+	for iter.Next() {
+		event := strings.Trim(iter.Selector().String(), "\"")
+		value := iter.Value()
+		if handler, err := value.String(); err == nil {
+			handlers[event] = strings.TrimSpace(handler)
+			delivery[event] = "queue"
+			continue
+		}
+		handler := cueStringAt(value, "op")
+		if handler == "" {
+			handler = cueStringAt(value, "handler")
+		}
+		if handler == "" {
+			continue
+		}
+		mode := strings.ToLower(cueStringAt(value, "delivery"))
+		if mode == "" {
+			mode = "queue"
+		}
+		if mode != "queue" && mode != "broadcast" {
+			mode = "queue"
+		}
+		handlers[event] = handler
+		delivery[event] = mode
+	}
+	return handlers, delivery
 }
 
 func cueStringAt(v cue.Value, path string) string {

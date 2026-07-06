@@ -2,10 +2,10 @@
 import { create } from 'zustand';
 import type * as Types from '../types';
 import { registerStoreInvalidator } from './invalidation';
-type PostId = Types.Post['ID'];
+type PostId = Types.Post['id'];
 
 const postIdKey = (item: Types.Post): string =>
-  String(item.ID);
+  String(item.id);
 
 export interface PostStore {
   items: Record<string, Types.Post>;

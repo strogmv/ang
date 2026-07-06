@@ -67,7 +67,7 @@ export const mockGetProfile = http.get('*//auth/profile', () => {
     return HttpResponse.json(override);
   }
   const data: Partial<Types.GetProfileResponse> = {
-    ID: "gen-id-123",
+    id: "gen-id-123",
     email: "user@example.com",
     name: "sample text",
     role: "sample text",
@@ -108,7 +108,7 @@ export const mockRegister = http.post('*//auth/register', () => {
     return HttpResponse.json(override);
   }
   const data: Partial<Types.RegisterResponse> = {
-    ID: "gen-id-123",
+    id: "gen-id-123",
     email: "user@example.com",
     name: "sample text",
   };
@@ -201,7 +201,7 @@ export const mockCreatePost = http.post('*//posts', () => {
     return HttpResponse.json(override);
   }
   const data: Partial<Types.CreatePostResponse> = {
-    ID: "gen-id-123",
+    id: "gen-id-123",
     slug: "sample text",
   };
   return HttpResponse.json(data);
@@ -329,7 +329,7 @@ export const mockCreateComment = http.post('*//posts/:postID/comments', () => {
     return HttpResponse.json(override);
   }
   const data: Partial<Types.CreateCommentResponse> = {
-    ID: "gen-id-123",
+    id: "gen-id-123",
   };
   return HttpResponse.json(data);
 });
@@ -347,7 +347,7 @@ export const mockGetPost = http.get('*//posts/:slug', () => {
     return HttpResponse.json(override);
   }
   const data: Partial<Types.GetPostResponse> = {
-    ID: "gen-id-123",
+    id: "gen-id-123",
     title: "sample text",
     content: "sample text",
     authorId: "gen-id-123",
@@ -388,7 +388,7 @@ export const mockCreateTag = http.post('*//tags', () => {
     return HttpResponse.json(override);
   }
   const data: Partial<Types.CreateTagResponse> = {
-    ID: "gen-id-123",
+    id: "gen-id-123",
     slug: "sample text",
   };
   return HttpResponse.json(data);

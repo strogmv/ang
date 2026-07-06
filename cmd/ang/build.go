@@ -14,6 +14,7 @@ import (
 	"github.com/strogmv/ang/compiler"
 	"github.com/strogmv/ang/compiler/emitter"
 	"github.com/strogmv/ang/compiler/generator"
+	"github.com/strogmv/ang/compiler/paymentprovider"
 )
 
 func runBuild(args []string) {
@@ -72,7 +73,7 @@ func runBuild(args []string) {
 			}
 			return
 		}
-		jsonLogs := output.LogFormat == "json"
+		jsonLogs := output.LogFormat == "json" || output.PlanJSON || !stdoutIsTerminal()
 		logText := func(format string, args ...any) {
 			if !jsonLogs {
 				fmt.Printf(format+"\n", args...)
@@ -127,14 +128,6 @@ func runBuild(args []string) {
 
 		fail := func(stage compiler.Stage, code, op string, err error) {
 			printBootstrapGuidanceIfNeeded(projectPath, stage, code, err)
-			if jsonLogs {
-				logEvent(buildEvent{
-					Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
-					Stage:     string(stage),
-					Status:    "error",
-					Error:     fmt.Sprintf("%s: %s: %v", code, op, err),
-				})
-			}
 			printStageFailure("Build FAILED", stage, code, op, err)
 		}
 
@@ -148,7 +141,34 @@ func runBuild(args []string) {
 		var templatesCatalog []normalizer.TemplateDef
 		var infraValues map[string]any
 		var infraContextPatch normalizer.InfraContextPatch
-		infraBundle, err := compiler.LoadInfraBundle(projectPath)
+		projPath := resolvePaymentProviderProjectPath(projectPath, output)
+		projCfg := loadProjectConfig(projPath)
+		cueRoot := projCfg.CueRoot
+		tmplDir := projCfg.TemplatesDir
+
+		if paymentprovider.IsProject(projPath, cueRoot) {
+			logText("Building payment provider from CUE intent...")
+			if err := paymentprovider.Build(paymentprovider.BuildOptions{
+				ProjectPath:  projPath,
+				CueRoot:      cueRoot,
+				TemplatesDir: tmplDir,
+			}); err != nil {
+				fail(compiler.StageCUE, compiler.ErrCodeCUEPipeline, "build payment provider", err)
+				return
+			}
+			logText("\nBuild SUCCESSFUL (payment provider).")
+			if jsonLogs {
+				logEvent(buildEvent{
+					Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+					Stage:     "build",
+					Status:    "ok",
+					Message:   "Payment provider build successful",
+				})
+			}
+			return
+		}
+
+		infraBundle, err := compiler.LoadInfraBundleWithRoot(projectPath, cueRoot)
 		if err != nil {
 			if ce, ok := err.(*compiler.ContractError); ok {
 				fail(ce.Stage, ce.Code, ce.Op, ce.Err)
@@ -186,8 +206,8 @@ func runBuild(args []string) {
 		}
 
 		var rbacDef *normalizer.RBACDef
-		if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, "cue/rbac")); err != nil {
-			fail(compiler.StageCUE, compiler.ErrCodeCUERBACLoad, "load cue/rbac", err)
+		if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, cueRoot, "rbac")); err != nil {
+			fail(compiler.StageCUE, compiler.ErrCodeCUERBACLoad, "load "+cueRoot+"/rbac", err)
 			return
 		} else if ok {
 			rbacDef, err = n.ExtractRBAC(val)
@@ -195,8 +215,8 @@ func runBuild(args []string) {
 				fail(compiler.StageCUE, compiler.ErrCodeCUERBACParse, "extract rbac", err)
 				return
 			}
-		} else if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, "cue/policies")); err != nil {
-			fail(compiler.StageCUE, compiler.ErrCodeCUEPoliciesLoad, "load cue/policies", err)
+		} else if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, cueRoot, "policies")); err != nil {
+			fail(compiler.StageCUE, compiler.ErrCodeCUEPoliciesLoad, "load "+cueRoot+"/policies", err)
 			return
 		} else if ok {
 			rbacDef, err = n.ExtractRBAC(val)
@@ -207,8 +227,8 @@ func runBuild(args []string) {
 		}
 
 		var views []normalizer.ViewDef
-		if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, "cue/views")); err != nil {
-			fail(compiler.StageCUE, compiler.ErrCodeCUEViewsLoad, "load cue/views", err)
+		if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, cueRoot, "views")); err != nil {
+			fail(compiler.StageCUE, compiler.ErrCodeCUEViewsLoad, "load "+cueRoot+"/views", err)
 			return
 		} else if ok {
 			views, err = n.ExtractViews(val)
@@ -221,8 +241,8 @@ func runBuild(args []string) {
 		var projectDef *normalizer.ProjectDef
 		var targetDefs []normalizer.TargetDef
 		var projectVal cue.Value
-		if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, "cue/project")); err != nil {
-			fail(compiler.StageCUE, compiler.ErrCodeCUEProjectLoad, "load cue/project", err)
+		if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, cueRoot, "project")); err != nil {
+			fail(compiler.StageCUE, compiler.ErrCodeCUEProjectLoad, "load "+cueRoot+"/project", err)
 			return
 		} else if ok {
 			projectVal = val
@@ -249,14 +269,22 @@ func runBuild(args []string) {
 			}}
 		}
 
-		if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, "cue/schema")); err == nil && ok {
+		if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, cueRoot, "schema")); err == nil && ok {
 			if err := n.LoadCodegenConfig(val); err != nil {
 				fmt.Printf("Warning: failed to load codegen config: %v\n", err)
 			}
 		}
 
-		inputHash, _ := calculateHash([]string{"cue"})
-		templateHash, _ := calculateHash([]string{"templates"})
+		inputHash, err := calculateHash([]string{filepath.Join(projectPath, cueRoot)})
+		if err != nil {
+			fail(compiler.StageCUE, compiler.ErrCodeCUEPipeline, "calculate CUE input hash", err)
+			return
+		}
+		templateHash, err := calculateEmbeddedTemplateHash()
+		if err != nil {
+			fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "calculate embedded template hash", err)
+			return
+		}
 		compilerFingerprint := compiler.BuildFingerprint()
 
 		goModule := readGoModuleAt(projectPath)
@@ -273,7 +301,7 @@ func runBuild(args []string) {
 			cfgDefVal = *cfgDef
 		}
 
-		compiled, err := compiler.CompileForEmit(projectPath, compiler.PipelineOptions{}, compiler.CompileForEmitOptions{
+		compiled, err := compiler.CompileForEmit(projectPath, compiler.PipelineOptions{CueRoot: cueRoot}, compiler.CompileForEmitOptions{
 			Config:      cfgDefVal,
 			Auth:        authDef,
 			RBAC:        rbacDef,
@@ -290,7 +318,13 @@ func runBuild(args []string) {
 			fail(compiler.StageCUE, compiler.ErrCodeCUEPipeline, "compile for emit", err)
 			return
 		}
-		if emitDiagnostics(os.Stderr, compiler.LatestDiagnostics) {
+		hasDiagnosticErrors := false
+		if jsonLogs {
+			hasDiagnosticErrors = emitBuildDiagnostics(compiler.LatestDiagnostics)
+		} else {
+			hasDiagnosticErrors = emitDiagnostics(os.Stderr, compiler.LatestDiagnostics)
+		}
+		if hasDiagnosticErrors {
 			fmt.Println("Build FAILED due to diagnostic errors.")
 			return
 		}
@@ -322,16 +356,97 @@ func runBuild(args []string) {
 			return
 		}
 
+		var transaction *buildTransaction
+		var buildWorkspace string
+		contractBaselines := map[string][]byte{}
+		if !output.DryRun {
+			backendDirs := make([]string, 0, len(selectedTargets))
+			frontendDirs := make([]string, 0, len(selectedTargets))
+			multiTarget := len(selectedTargets) > 1
+			for _, td := range selectedTargets {
+				backend := resolveBackendDirForTarget(effectiveMode, output.BackendDir, td, multiTarget)
+				frontend := resolveFrontendDirForTarget(output.FrontendDir, backend, td, multiTarget)
+				if !filepath.IsAbs(backend) {
+					backend = filepath.Join(projectPath, backend)
+				}
+				if !filepath.IsAbs(frontend) {
+					frontend = filepath.Join(projectPath, frontend)
+				}
+				backendDirs = append(backendDirs, backend)
+				frontendDirs = append(frontendDirs, frontend)
+				contractPath := filepath.Join(backend, "api", "openapi.yaml")
+				if data, readErr := os.ReadFile(contractPath); readErr == nil {
+					contractBaselines[contractPath] = data
+				} else if !os.IsNotExist(readErr) {
+					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "read previous OpenAPI contract", readErr)
+					return
+				}
+
+				frontendAppDir := strings.TrimSpace(output.FrontendAppDir)
+				if frontendAppDir == "" {
+					frontendAppDir = strings.TrimSpace(td.FrontendAppDir)
+				}
+				if envDir := strings.TrimSpace(os.ExpandEnv(os.Getenv("ANG_FRONTEND_APP_DIR"))); envDir != "" {
+					frontendAppDir = envDir
+				}
+				for _, externalOutput := range []string{frontendAppDir, output.FrontendAdminAppDir, output.FrontendEnvPath} {
+					externalOutput = strings.TrimSpace(os.ExpandEnv(externalOutput))
+					if externalOutput == "" {
+						continue
+					}
+					if !filepath.IsAbs(externalOutput) {
+						externalOutput = filepath.Join(projectPath, externalOutput)
+					}
+					if multiTarget {
+						externalOutput = filepath.Join(externalOutput, safeTargetDirName(td.Name))
+					}
+					frontendDirs = append(frontendDirs, externalOutput)
+				}
+			}
+			transaction, err = beginBuildTransaction(generatedTransactionPaths(projectPath, effectiveMode, backendDirs, frontendDirs))
+			if err != nil {
+				fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "snapshot generated outputs", err)
+				return
+			}
+			buildWorkspace, err = transaction.CreateWorkspace(projectPath)
+			if err != nil {
+				fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "create staged project workspace", err)
+				return
+			}
+			defer func() {
+				if rollbackErr := transaction.Rollback(); rollbackErr != nil {
+					printStageFailure("Build ROLLBACK FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterStep, "restore generated outputs", rollbackErr)
+				}
+			}()
+		}
+
 		multiTarget := len(selectedTargets) > 1
+		stagePath := func(path string) string {
+			if strings.TrimSpace(path) == "" {
+				return ""
+			}
+			if transaction == nil {
+				return path
+			}
+			if buildWorkspace != "" {
+				projectAbs, _ := filepath.Abs(projectPath)
+				pathAbs, _ := filepath.Abs(path)
+				if rel, relErr := filepath.Rel(projectAbs, pathAbs); relErr == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+					return filepath.Join(buildWorkspace, rel)
+				}
+			}
+			return transaction.StagePath(path)
+		}
 		type buildTargetSummary struct {
-			Name      string
-			Lang      string
-			Mode      string
-			Backend   string
-			Frontend  string
-			Plugins   string
-			SelfCheck string
-			Details   []runtimePackageDir
+			Name          string
+			Lang          string
+			Mode          string
+			Backend       string
+			StagedBackend string
+			Frontend      string
+			Plugins       string
+			SelfCheck     string
+			Details       []runtimePackageDir
 		}
 		summaries := make([]buildTargetSummary, 0, len(selectedTargets))
 		frontendTypecheckDirs := make([]string, 0, len(selectedTargets))
@@ -344,14 +459,14 @@ func runBuild(args []string) {
 			if !filepath.IsAbs(intendedFrontendDir) {
 				intendedFrontendDir = filepath.Join(projectPath, intendedFrontendDir)
 			}
-			backendDir := intendedBackendDir
-			frontendDir := intendedFrontendDir
+			backendDir := stagePath(intendedBackendDir)
+			frontendDir := stagePath(intendedFrontendDir)
 			if output.DryRun {
 				safeName := safeTargetDirName(td.Name)
 				backendDir = filepath.Join(dryRunTmpRoot, "backend", safeName)
 				frontendDir = filepath.Join(dryRunTmpRoot, "frontend", safeName)
 			} else {
-				frontendTypecheckDirs = append(frontendTypecheckDirs, intendedFrontendDir)
+				frontendTypecheckDirs = append(frontendTypecheckDirs, frontendDir)
 			}
 			logText("Generating target %s (%s/%s/%s) -> %s", td.Name, td.Lang, td.Framework, td.DB, backendDir)
 			if jsonLogs {
@@ -364,7 +479,7 @@ func runBuild(args []string) {
 				})
 			}
 
-			em := emitter.New(backendDir, frontendDir, "templates")
+			em := emitter.New(backendDir, frontendDir, tmplDir)
 			em.NatsWorkers = td.NatsWorkers
 			if em.NatsWorkers <= 0 {
 				em.NatsWorkers = 20
@@ -453,23 +568,28 @@ func runBuild(args []string) {
 			if !output.DryRun && multiTarget && strings.TrimSpace(output.FrontendEnvPath) != "" {
 				targetOutput.FrontendEnvPath = filepath.Join(output.FrontendEnvPath, safeTargetDirName(td.Name), ".env.example")
 			}
+			if !output.DryRun {
+				targetOutput.FrontendAppDir = stagePath(targetOutput.FrontendAppDir)
+				targetOutput.FrontendAdminAppDir = stagePath(targetOutput.FrontendAdminAppDir)
+				targetOutput.FrontendEnvPath = stagePath(targetOutput.FrontendEnvPath)
+			}
 
 			if infraContextPatch.NotificationMuting {
 				ctx.NotificationMuting = true
 			}
 
 			registry, pluginNames, err := buildStepRegistry(buildStepRegistryInput{
-				em:               em,
-				irSchema:         irSchema,
-				ctx:              ctx,
-				scenarios:        scenarios,
-				cfgDef:           cfgDef,
-				authDef:          authDef,
-				sessionDef:       sessionDef,
-				rbacDef:          rbacDef,
-				infraValues:      infraValues,
-				emailTemplates:   emailTemplates,
-				projectDef:       projectDef,
+				em:             em,
+				irSchema:       irSchema,
+				ctx:            ctx,
+				scenarios:      scenarios,
+				cfgDef:         cfgDef,
+				authDef:        authDef,
+				sessionDef:     sessionDef,
+				rbacDef:        rbacDef,
+				infraValues:    infraValues,
+				emailTemplates: emailTemplates,
+				projectDef:     projectDef,
 				targetOutput:   targetOutput,
 				isMicroservice: isMicroservice,
 			})
@@ -477,11 +597,31 @@ func runBuild(args []string) {
 				fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "resolve target plugins", err)
 				return
 			}
-			if err := registry.Execute(td, caps, func(format string, args ...interface{}) {
-				logText(format, args...)
-			}, logStepEvent); err != nil {
-				fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "run capability matrix steps", err)
+			var executeErr error
+			if jsonLogs {
+				var bufferedEvents []generator.StepEvent
+				executeErr = withSuppressedStdout(func() error {
+					return registry.Execute(td, caps, func(string, ...interface{}) {}, func(event generator.StepEvent) {
+						bufferedEvents = append(bufferedEvents, event)
+					})
+				})
+				for _, event := range bufferedEvents {
+					logStepEvent(event)
+				}
+			} else {
+				executeErr = registry.Execute(td, caps, func(format string, args ...interface{}) {
+					logText(format, args...)
+				}, logStepEvent)
+			}
+			if executeErr != nil {
+				fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "run capability matrix steps", executeErr)
 				return
+			}
+			if strings.EqualFold(td.Lang, "go") {
+				if err := emitter.ValidateGeneratedDI(backendDir, ctx, authDef); err != nil {
+					fail(compiler.StageEmitters, compiler.ErrCodeEmitterCapabilityResolve, "validate generated dependency injection", err)
+					return
+				}
 			}
 			if jsonLogs {
 				logEvent(buildEvent{
@@ -503,7 +643,11 @@ func runBuild(args []string) {
 			selfCheckStatus := "skipped"
 			var selfCheckDetails []runtimePackageDir
 			if !output.DryRun && strings.EqualFold(td.Lang, "go") {
-				checkRes, err := runGoRuntimeSelfCheck(projectPath, backendDir, effectiveMode)
+				selfCheckRoot := projectPath
+				if buildWorkspace != "" {
+					selfCheckRoot = buildWorkspace
+				}
+				checkRes, err := runGoRuntimeSelfCheck(selfCheckRoot, backendDir, effectiveMode)
 				if err != nil {
 					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "runtime source self-check", err)
 					return
@@ -519,14 +663,15 @@ func runBuild(args []string) {
 				}
 			}
 			summaries = append(summaries, buildTargetSummary{
-				Name:      td.Name,
-				Lang:      td.Lang,
-				Mode:      effectiveMode,
-				Backend:   filepath.ToSlash(filepath.Clean(backendDir)),
-				Frontend:  filepath.ToSlash(filepath.Clean(frontendDir)),
-				Plugins:   joinPluginNames(pluginNames),
-				SelfCheck: selfCheckStatus,
-				Details:   selfCheckDetails,
+				Name:          td.Name,
+				Lang:          td.Lang,
+				Mode:          effectiveMode,
+				Backend:       filepath.ToSlash(filepath.Clean(intendedBackendDir)),
+				StagedBackend: filepath.ToSlash(filepath.Clean(backendDir)),
+				Frontend:      filepath.ToSlash(filepath.Clean(intendedFrontendDir)),
+				Plugins:       joinPluginNames(pluginNames),
+				SelfCheck:     selfCheckStatus,
+				Details:       selfCheckDetails,
 			})
 
 			if output.DryRun {
@@ -552,9 +697,34 @@ func runBuild(args []string) {
 		}
 
 		newEmitterDiagnostics := compiler.LatestDiagnostics[postEmitDiagStart:]
-		if emitDiagnostics(os.Stderr, newEmitterDiagnostics) {
+		hasEmitterErrors := false
+		if jsonLogs {
+			hasEmitterErrors = emitBuildDiagnostics(newEmitterDiagnostics)
+		} else {
+			hasEmitterErrors = emitDiagnostics(os.Stderr, newEmitterDiagnostics)
+		}
+		if hasEmitterErrors {
 			fmt.Println("Build FAILED due to diagnostic errors.")
 			return
+		}
+		if !output.DryRun {
+			for contractPath, previous := range contractBaselines {
+				current, readErr := os.ReadFile(stagePath(contractPath))
+				if readErr != nil {
+					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "read generated OpenAPI contract", readErr)
+					return
+				}
+				diff, diffErr := diffOpenAPIContracts(previous, current)
+				if diffErr != nil {
+					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "compare OpenAPI contract", diffErr)
+					return
+				}
+				logText("openapi: +%d operations, -%d operations, %d breaking", len(diff.AddedOperations), len(diff.RemovedOperations), len(diff.BreakingChanges))
+				if len(diff.BreakingChanges) > 0 && !output.AcceptContract {
+					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "OpenAPI breaking change gate", fmt.Errorf("%s; rerun with --accept-contract to confirm", strings.Join(diff.BreakingChanges, "; ")))
+					return
+				}
+			}
 		}
 
 		if !output.DryRun {
@@ -566,17 +736,25 @@ func runBuild(args []string) {
 					Frontend: s.Frontend,
 				})
 			}
-			if err := writeArtifactHashManifest(projectPath, manifestTargets, irSchema.IRVersion, inputHash, templateHash, compilerFingerprint); err != nil {
+			manifestRoot := projectPath
+			if buildWorkspace != "" {
+				manifestRoot = buildWorkspace
+				for i := range manifestTargets {
+					manifestTargets[i].Backend = stagePath(manifestTargets[i].Backend)
+					manifestTargets[i].Frontend = stagePath(manifestTargets[i].Frontend)
+				}
+			}
+			if err := writeArtifactHashManifest(manifestRoot, manifestTargets, irSchema.IRVersion, inputHash, templateHash, compilerFingerprint); err != nil {
 				printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterStep, "write artifact hash manifest", err)
 				return
 			}
 
-			if err := runOptionalMCPGeneration(projectPath); err != nil {
+			if err := runOptionalMCPGeneration(manifestRoot); err != nil {
 				printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterMCPGen, "run optional MCP generation", err)
 				return
 			}
 			if output.WithOpenAPI {
-				openapiPath := filepath.Join(projectPath, "api", "openapi.yaml")
+				openapiPath := filepath.Join(manifestRoot, "api", "openapi.yaml")
 				openapiEm := &emitter.Emitter{
 					OutputDir: filepath.Join(projectPath, "api"),
 					Version:   compiler.Version,
@@ -600,7 +778,7 @@ func runBuild(args []string) {
 			goBackends := make([]string, 0, len(summaries))
 			for _, s := range summaries {
 				if strings.EqualFold(strings.TrimSpace(s.Lang), "go") {
-					goBackends = append(goBackends, s.Backend)
+					goBackends = append(goBackends, s.StagedBackend)
 				}
 			}
 			if !output.SkipGoVerify {
@@ -649,6 +827,18 @@ func runBuild(args []string) {
 			}
 			return
 		}
+		if transaction != nil {
+			if buildWorkspace != "" {
+				if err := transaction.CaptureWorkspace(projectPath, buildWorkspace); err != nil {
+					printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterStep, "capture staged generated outputs", err)
+					return
+				}
+			}
+			if err := transaction.Commit(); err != nil {
+				printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterStep, "commit generated outputs", err)
+				return
+			}
+		}
 
 		logText("\nBuild SUCCESSFUL.")
 		logText("Build Report:")
@@ -672,12 +862,13 @@ func runBuild(args []string) {
 	}
 
 	if watch {
-		fmt.Println("Live Mode: Watching for changes in cue/...")
-		lastHash, _ := compiler.ComputeProjectHash(projectPath)
+		watchCueRoot := loadProjectConfig(projectPath).CueRoot
+		fmt.Printf("Live Mode: Watching for changes in %s/...\n", watchCueRoot)
+		lastHash, _ := compiler.ComputeProjectHashWithRoot(projectPath, watchCueRoot)
 		buildTask()
 		for {
 			time.Sleep(1 * time.Second)
-			newHash, _ := compiler.ComputeProjectHash(projectPath)
+			newHash, _ := compiler.ComputeProjectHashWithRoot(projectPath, watchCueRoot)
 			if newHash != lastHash {
 				lastHash = newHash
 				buildTask()

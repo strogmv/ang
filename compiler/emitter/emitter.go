@@ -3,6 +3,7 @@ package emitter
 import (
 	"bytes"
 	"fmt"
+	"go/format"
 	"os"
 	"path/filepath"
 	"sort"
@@ -56,6 +57,8 @@ type Emitter struct {
 }
 
 const DefaultUIProviderPath = "@/components/ui/forms"
+
+const defaultCueRoot = "cue"
 
 func New(outputDir, frontendDir, templatesDir string) *Emitter {
 	if templatesDir == "" {
@@ -441,6 +444,7 @@ func contextServiceFromIR(s ir.Service) normalizer.Service {
 		Name:          s.Name,
 		Publishes:     append([]string{}, s.Publishes...),
 		Subscribes:    s.Subscribes,
+		Metadata:      s.Metadata,
 		Uses:          append([]string{}, s.Uses...),
 		RequiresSQL:   s.RequiresSQL,
 		RequiresMongo: s.RequiresMongo,
@@ -641,5 +645,9 @@ func (e *Emitter) RenderTemplate(name, text string, data interface{}) (string, e
 }
 
 func (e *Emitter) FormatGo(src []byte) ([]byte, error) {
-	return src, nil
+	formatted, err := format.Source(src)
+	if err != nil {
+		return nil, fmt.Errorf("parse and format generated Go: %w", err)
+	}
+	return formatted, nil
 }

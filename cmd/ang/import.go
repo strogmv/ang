@@ -240,7 +240,7 @@ func runImportJava(args []string) {
 	reportOut := fs.String("report-out", "", "write report JSON to file")
 	diff := fs.Bool("diff", false, "show contract-layer diff against existing generated import CUE")
 	update := fs.Bool("update", false, "write generated import contract CUE into out-dir")
-	outDir := fs.String("out-dir", "cue/import", "directory for generated import contract CUE")
+	outDir := fs.String("out-dir", loadProjectConfig(".").CueRoot+"/import", "directory for generated import contract CUE")
 	incremental := fs.Bool("incremental", false, "import only changed source files in git working tree")
 	javaParser := fs.String("java-parser", "auto", "java parser backend: auto|regex|treesitter|antlr")
 	profileRaw := fs.String("profile", string(importProfileLayered), "project profile: layered|hexagonal|legacy_monolith|microservice")
@@ -353,8 +353,9 @@ func runImportOpenAPI(args []string) {
 	reportOut := fs.String("report-out", "", "write report JSON to file")
 	diff := fs.Bool("diff", false, "show schema/http layer diff against existing CUE files")
 	update := fs.Bool("update", false, "write generated schema/http CUE files")
-	outAPIDir := fs.String("out-api-dir", "cue/api", "directory for generated API CUE files")
-	outDomain := fs.String("out-domain-file", "cue/domain/entities.cue", "generated entities CUE file path")
+	cr := loadProjectConfig(".").CueRoot
+	outAPIDir := fs.String("out-api-dir", cr+"/api", "directory for generated API CUE files")
+	outDomain := fs.String("out-domain-file", cr+"/domain/entities.cue", "generated entities CUE file path")
 	groupByOwner := fs.Bool("group-by-owner", true, "split operations into operations_<owner>.cue files")
 
 	var positional []string

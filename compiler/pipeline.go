@@ -19,8 +19,15 @@ const (
 )
 
 func ComputeProjectHash(path string) (string, error) {
+	return ComputeProjectHashWithRoot(path, DefaultCueRoot)
+}
+
+func ComputeProjectHashWithRoot(path, cueRoot string) (string, error) {
+	if cueRoot == "" {
+		cueRoot = DefaultCueRoot
+	}
 	h := sha256.New()
-	err := filepath.Walk(filepath.Join(path, "cue"), func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(filepath.Join(path, cueRoot), func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -46,7 +53,18 @@ type PipelineOptions struct {
 	WarningSink       func(normalizer.Warning)
 	ArchitectureMode  string
 	AllowCrossService map[string]map[string]struct{}
+	CueRoot           string // CUE intent directory name relative to project root (default: "cue")
 }
+
+// ResolveCueRoot returns opts.CueRoot if non-empty, otherwise the default "cue".
+func (o PipelineOptions) ResolveCueRoot() string {
+	if r := strings.TrimSpace(o.CueRoot); r != "" {
+		return r
+	}
+	return "cue"
+}
+
+const DefaultCueRoot = "cue"
 
 type RunPhase string
 

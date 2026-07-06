@@ -24,7 +24,7 @@ Common flags:
 One-command local startup.
 
 ```bash
-ang up [--project-path .] [--compose-file docker-compose.yml] [--skip-doctor] [--skip-compose] [--skip-build] [--skip-smoke]
+ang up [--project-path .] [--frontend] [--compose-file docker-compose.yml] [--skip-doctor] [--skip-compose] [--skip-build] [--skip-smoke]
 ```
 
 Common flags:
@@ -51,7 +51,7 @@ ang lint [--json] [--check-test-coverage] [--test-dir tests] [--min-coverage 80]
 Compile CUE intent into code and artifacts.
 
 ```bash
-ang build [--mode in_place|release] [--backend-dir .] [--target go] [--dry-run] [--run-tests]
+ang build [--mode in_place|release] [--backend-dir .] [--target go] [--dry-run] [--log-format json] [--accept-contract]
 ```
 
 Planning mode:
@@ -136,7 +136,12 @@ Analyze build logs and suggest CUE fixes.
 ang doctor [--log-file ang-build.log]
 ang doctor --stdin < ang-build.log
 ang doctor --log "inline text"
+ang doctor --project-path .
+ang doctor --code DTO_FIELD_UNKNOWN
 ```
+
+Without a readable build log, `doctor` checks the current project semantics,
+generated artifact hashes, dead CUE configuration, and generated DI wiring.
 
 ### `ang doctor start`
 

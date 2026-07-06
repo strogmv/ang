@@ -9,6 +9,7 @@ import (
 
 	"cuelang.org/go/cue"
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/paymentprovider"
 )
 
 type OutputOptions struct {
@@ -35,6 +36,7 @@ type OutputOptions struct {
 	DryRunRoot          string
 	DryRunReport        string
 	WithOpenAPI         bool
+	AcceptContract      bool
 }
 
 func parseOutputOptions(args []string) (OutputOptions, error) {
@@ -57,8 +59,9 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 	outPlan := fs.String("out-plan", "", "Path to write generated build plan (for --phase=plan|all)")
 	planJSON := fs.Bool("json", false, "Print build plan as JSON (for --phase=plan|apply)")
 	runTests := fs.Bool("run-tests", false, "Run go test ./... for generated Go targets after successful build")
-	skipGoVerify := fs.Bool("skip-go-verify", false, "Skip post-build go verify (go build ./internal/...)")
+	skipGoVerify := fs.Bool("skip-go-verify", false, "Skip post-build go verify (go build ./...)")
 	withOpenAPI := fs.Bool("openapi", false, "Also generate api/openapi.yaml after build")
+	acceptContract := fs.Bool("accept-contract", false, "accept breaking OpenAPI operation removals")
 	dryRunRoot := fs.String("dry-run-root", "", "internal: override dry-run temp root")
 	dryRunReport := fs.String("dry-run-report", "", "internal: write dry-run manifest json to path")
 	if err := fs.Parse(args); err != nil {
@@ -101,6 +104,7 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 		DryRunRoot:          strings.TrimSpace(*dryRunRoot),
 		DryRunReport:        strings.TrimSpace(*dryRunReport),
 		WithOpenAPI:         *withOpenAPI,
+		AcceptContract:      *acceptContract,
 	}
 	if opts.FrontendDir == "" {
 		opts.FrontendDir = "sdk"
@@ -230,6 +234,35 @@ func resolveBuildMode(cliMode string, projectVal cue.Value, backendDirExplicit b
 		return m
 	}
 	return "in_place"
+}
+
+// resolvePaymentProviderProjectPath returns projectPath or --backend-dir when that
+// directory is a payment-provider ANG project (has .cue/provider.cue).
+func resolvePaymentProviderProjectPath(projectPath string, opts OutputOptions) string {
+	candidates := []string{projectPath}
+	if opts.BackendDirExplicit {
+		bd := opts.BackendDir
+		if !filepath.IsAbs(bd) {
+			bd = filepath.Join(projectPath, bd)
+		}
+		candidates = append([]string{filepath.Clean(bd)}, candidates...)
+	}
+	seen := make(map[string]struct{}, len(candidates))
+	for _, p := range candidates {
+		p = filepath.Clean(p)
+		if p == "" {
+			continue
+		}
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		seen[p] = struct{}{}
+		cfg := loadProjectConfig(p)
+		if paymentprovider.IsProject(p, cfg.CueRoot) {
+			return p
+		}
+	}
+	return projectPath
 }
 
 func validateBuildMode(mode string, opts OutputOptions, targets []normalizer.TargetDef) error {

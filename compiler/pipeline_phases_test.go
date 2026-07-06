@@ -21,6 +21,7 @@ package architecture
 		publishes: ["AssistantAsked"]
 		subscribes: {
 			PostPublished: "OnPostPublished"
+			PostDeleted: {op: "OnPostDeleted", delivery: "broadcast"}
 		}
 	}
 }
@@ -44,5 +45,12 @@ package architecture
 	}
 	if got[0].Subscribes["PostPublished"] != "OnPostPublished" {
 		t.Fatalf("unexpected merged subscribes: %#v", got[0].Subscribes)
+	}
+	if got[0].Subscribes["PostDeleted"] != "OnPostDeleted" {
+		t.Fatalf("unexpected object subscription: %#v", got[0].Subscribes)
+	}
+	delivery, ok := got[0].Metadata["subscriptionDelivery"].(map[string]any)
+	if !ok || delivery["PostPublished"] != "queue" || delivery["PostDeleted"] != "broadcast" {
+		t.Fatalf("unexpected subscription delivery metadata: %#v", got[0].Metadata)
 	}
 }

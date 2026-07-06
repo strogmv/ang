@@ -60,8 +60,14 @@ func resolveCueRoot(flagPath string) (string, error) {
 	if flagPath != "" {
 		return filepath.Clean(flagPath), nil
 	}
-	if st, err := os.Stat("cue"); err == nil && st.IsDir() {
-		return "cue", nil
+	cfg := loadProjectConfig(".")
+	if st, err := os.Stat(cfg.CueRoot); err == nil && st.IsDir() {
+		return cfg.CueRoot, nil
+	}
+	if cfg.CueRoot != "cue" {
+		if st, err := os.Stat("cue"); err == nil && st.IsDir() {
+			return "cue", nil
+		}
 	}
 	return ".", nil
 }

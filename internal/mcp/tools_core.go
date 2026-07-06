@@ -632,11 +632,12 @@ func runANGJSONCommand(args []string) (*mcp.CallToolResult, error) {
 }
 
 func searchScopeRoots(scope string) ([]string, error) {
+	cr := resolveMCPCueRoot(".") + "/"
 	switch scope {
 	case "", "all":
-		return []string{"cue/", "internal/", "templates/", "sdk/", "api/"}, nil
+		return []string{cr, "internal/", "templates/", "sdk/", "api/"}, nil
 	case "cue":
-		return []string{"cue/"}, nil
+		return []string{cr}, nil
 	case "generated":
 		return []string{"internal/", "sdk/", "api/"}, nil
 	case "templates":

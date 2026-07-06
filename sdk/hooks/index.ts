@@ -151,7 +151,7 @@ export const useUpdateProfile = (options?: UseMutationOptions<Types.UpdateProfil
     // Optimistic Update for GetProfile (canonical endpoint query keys only)
     onMutate: async (variables: Types.UpdateProfileRequest) => {
         const _v = variables as unknown as Record<string, unknown>;
-        const id = _v['ID'] ?? _v['profileId'];
+        const id = _v['id'] ?? _v['profileId'];
         // Detail Update
         if (!id) return;
         const queryKey = queryKeys.endpoint.Auth.GetProfile(variables as Types.GetProfileRequest);
@@ -361,7 +361,7 @@ export const useUpdatePost = (options?: UseMutationOptions<Types.UpdatePostRespo
     // Optimistic Update for GetPost (canonical endpoint query keys only)
     onMutate: async (variables: Types.UpdatePostRequest) => {
         const _v = variables as unknown as Record<string, unknown>;
-        const id = _v['ID'] ?? _v['postId'];
+        const id = _v['id'] ?? _v['postId'];
         // Detail Update
         if (!id) return;
         const queryKey = queryKeys.endpoint.Blog.GetPost(variables as Types.GetPostRequest);

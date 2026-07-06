@@ -7,7 +7,7 @@ export const UpdateTagFormSchema: FormSchema<UpdateTagRequest> = {
   layout: { type: 'grid', columns: 12 },
   fields: [
   {
-    name: "ID",
+    name: "id",
     label: "Id",
     type: "text",
     required: true,

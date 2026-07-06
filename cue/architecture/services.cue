@@ -13,8 +13,10 @@ package architecture
 	        entities: ["User"]
 	        publishes: ["UserRegistered", "UserLoggedIn"]
 	        subscribes: {
+	            // String form defaults to queue delivery across replicas.
 	            UserRegistered: "OnUserRegisteredAudit"
-	            UserLoggedIn:   "OnUserLoggedInAudit"
+	            // Object form can opt into broadcast explicitly.
+	            UserLoggedIn: {op: "OnUserLoggedInAudit", delivery: "broadcast"}
 	        }
 	    }
 

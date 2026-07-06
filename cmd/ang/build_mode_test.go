@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"cuelang.org/go/cue/cuecontext"
@@ -108,5 +110,25 @@ func TestParseOutputOptions_SkipContractTestsFlag(t *testing.T) {
 	}
 	if !opts.SkipContractTests {
 		t.Fatal("expected SkipContractTests=true")
+	}
+}
+
+func TestResolvePaymentProviderProjectPath_BackendDirWins(t *testing.T) {
+	pp := t.TempDir()
+	cueDir := filepath.Join(pp, ".cue")
+	if err := os.MkdirAll(cueDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cueDir, "provider.cue"), []byte("package provider\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pp, "ang.yaml"), []byte("cue_root: .cue\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := OutputOptions{BackendDir: pp, BackendDirExplicit: true}
+	got := resolvePaymentProviderProjectPath(".", opts)
+	if got != pp {
+		t.Fatalf("expected %q, got %q", pp, got)
 	}
 }

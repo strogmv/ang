@@ -5,7 +5,7 @@
 	{{- $svc := . }}
 	{{- range $evtName := sortedKeys $svc.Subscribes }}
 	{{- $method := mapGet $svc.Subscribes $evtName }}
-		if _, err := natsClient.SubscribeRaw("{{ $evtName }}", func(data []byte) error {
+		if _, err := natsClient.{{ if eq (subscriptionDeliveryIR $svc $evtName) "broadcast" }}SubscribeRaw("{{ $evtName }}"{{ else }}SubscribeQueueRaw("{{ $evtName }}", "ang-{{ $svc.Name | ToLower }}-{{ $evtName | ToLower }}"{{ end }}, func(data []byte) error {
 			defer func() {
 				if r := recover(); r != nil {
 					log.Error("NATS handler panic recovered", "event", "{{ $evtName }}", "panic", r)

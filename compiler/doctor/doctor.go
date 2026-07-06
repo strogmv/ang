@@ -25,6 +25,7 @@ type Suggestion struct {
 	Fix          string         `json:"fix"`
 	Patch        map[string]any `json:"patch,omitempty"`
 	CanAutoApply bool           `json:"can_auto_apply"`
+	DocsURL      string         `json:"docs_url,omitempty"`
 }
 
 type State struct {
@@ -127,7 +128,9 @@ func BuildSuggestionCatalog(log string) []Suggestion {
 
 	out := make([]Suggestion, 0, len(all))
 	for _, code := range all {
-		out = append(out, suggestionForCode(code, log))
+		suggestion := suggestionForCode(code, log)
+		suggestion.DocsURL = compiler.DiagnosticDocsURL(code)
+		out = append(out, suggestion)
 	}
 	return out
 }
@@ -147,6 +150,7 @@ func (a *Analyzer) Analyze(log string) Response {
 	autoFixable := make([]AutoFix, 0, len(codes))
 	for _, code := range codes {
 		s := suggestionForCode(code, log)
+		s.DocsURL = compiler.DiagnosticDocsURL(code)
 		suggestions = append(suggestions, s)
 		if s.CanAutoApply {
 			autoFixable = append(autoFixable, AutoFix{
@@ -306,24 +310,25 @@ func parseFSMLocation(log string) (path string, line int, entity string, state s
 		state = "paid"
 	}
 	if path == "" {
-		path = "cue/domain/order.cue"
+		path = compiler.DefaultCueRoot + "/domain/order.cue"
 	}
 	return path, line, entity, state
 }
 
 func defaultPatchTemplate(code string) map[string]any {
+	cr := compiler.DefaultCueRoot
 	pathByCode := map[string]string{
-		compiler.ErrCodeCUEDomainLoad:        "cue/domain/entities.cue",
-		compiler.ErrCodeCUEArchLoad:          "cue/architecture/services.cue",
-		compiler.ErrCodeCUEAPILoad:           "cue/api/http.cue",
-		compiler.ErrCodeCUERepoNormalize:     "cue/repo/repositories.cue",
-		compiler.ErrCodeCUEScheduleNormalize: "cue/api/schedules.cue",
-		compiler.ErrCodeCUEViewsLoad:         "cue/views/views.cue",
-		compiler.ErrCodeCUEProjectLoad:       "cue/project/project.cue",
+		compiler.ErrCodeCUEDomainLoad:        cr + "/domain/entities.cue",
+		compiler.ErrCodeCUEArchLoad:          cr + "/architecture/services.cue",
+		compiler.ErrCodeCUEAPILoad:           cr + "/api/http.cue",
+		compiler.ErrCodeCUERepoNormalize:     cr + "/repo/repositories.cue",
+		compiler.ErrCodeCUEScheduleNormalize: cr + "/api/schedules.cue",
+		compiler.ErrCodeCUEViewsLoad:         cr + "/views/views.cue",
+		compiler.ErrCodeCUEProjectLoad:       cr + "/project/project.cue",
 	}
 	path := pathByCode[code]
 	if path == "" {
-		path = "cue/domain/entities.cue"
+		path = cr + "/domain/entities.cue"
 	}
 	return map[string]any{
 		"path":         path,

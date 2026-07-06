@@ -124,7 +124,7 @@ func registerMigrationTools(addTool toolAdder) {
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		factsPath := mcp.ParseString(request, "facts_path", "")
 		service := mcp.ParseString(request, "service", "")
-		outDir := mcp.ParseString(request, "out", "cue/api")
+		outDir := mcp.ParseString(request, "out", resolveMCPCueRoot(".")+"/api")
 		dryRun := mcp.ParseBoolean(request, "dry_run", false)
 		model := mcp.ParseString(request, "model", "")
 

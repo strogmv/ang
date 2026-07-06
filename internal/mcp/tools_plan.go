@@ -419,7 +419,8 @@ func assessDeterminismRiskFlags(patches []map[string]any) []string {
 		if selector == "" {
 			risks = append(risks, "root_level_merge")
 		}
-		if strings.Contains(path, "cue/project") || strings.Contains(path, "cue/targets") {
+		cr := resolveMCPCueRoot(".")
+		if strings.Contains(path, cr+"/project") || strings.Contains(path, cr+"/targets") {
 			risks = append(risks, "build_target_change")
 		}
 		if strings.Contains(content, "map[") || strings.Contains(content, "{") && strings.Contains(content, ":") {

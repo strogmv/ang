@@ -3,6 +3,7 @@ package generator
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/strogmv/ang-ir/normalizer"
@@ -16,6 +17,9 @@ type Step struct {
 	ArtifactKey string
 	Requires    []compiler.Capability
 	Run         func() error
+	// ParallelSafe allows adjacent independent steps to execute concurrently.
+	// Steps touching shared emitter state or depending on previous artifacts must leave this false.
+	ParallelSafe bool
 }
 
 type StepEvent struct {
@@ -104,58 +108,98 @@ func Execute(
 	logger func(string, ...interface{}),
 	eventLogger func(StepEvent),
 ) error {
-	for _, step := range steps {
-		if !caps.HasAll(step.Requires...) {
-			missing := caps.Missing(step.Requires...)
-			if len(missing) > 0 && logger != nil {
-				missingNames := make([]string, 0, len(missing))
-				for _, c := range missing {
-					missingNames = append(missingNames, string(c))
+	for index := 0; index < len(steps); {
+		if steps[index].ParallelSafe {
+			end := index + 1
+			for end < len(steps) && steps[end].ParallelSafe {
+				end++
+			}
+			batch := steps[index:end]
+			type result struct {
+				events []StepEvent
+				err    error
+			}
+			results := make([]result, len(batch))
+			var wg sync.WaitGroup
+			for i, step := range batch {
+				wg.Add(1)
+				go func(i int, step Step) {
+					defer wg.Done()
+					results[i].events, results[i].err = executeStep(td, caps, step, logger)
+				}(i, step)
+			}
+			wg.Wait()
+			for i, result := range results {
+				for _, event := range result.events {
+					if eventLogger != nil {
+						eventLogger(event)
+					}
 				}
-				logger("Skipping %s for target %s: missing capabilities [%s]", step.Name, td.Name, strings.Join(missingNames, ", "))
+				if result.err != nil {
+					return fmt.Errorf("target=%s step=%s: %w", td.Name, batch[i].Name, result.err)
+				}
 			}
-			if eventLogger != nil {
-				eventLogger(StepEvent{
-					Stage:       "emitters",
-					Target:      td.Name,
-					Step:        step.Name,
-					Status:      "skip",
-					MissingCaps: missing,
-				})
-			}
+			index = end
 			continue
 		}
-		start := time.Now()
-		if eventLogger != nil {
-			eventLogger(StepEvent{
-				Stage:  "emitters",
-				Target: td.Name,
-				Step:   step.Name,
-				Status: "start",
-			})
-		}
-		if err := step.Run(); err != nil {
+		events, err := executeStep(td, caps, steps[index], logger)
+		for _, event := range events {
 			if eventLogger != nil {
-				eventLogger(StepEvent{
-					Stage:      "emitters",
-					Target:     td.Name,
-					Step:       step.Name,
-					Status:     "error",
-					DurationMS: time.Since(start).Milliseconds(),
-					Error:      err.Error(),
-				})
+				eventLogger(event)
 			}
-			return fmt.Errorf("target=%s step=%s: %w", td.Name, step.Name, err)
 		}
-		if eventLogger != nil {
-			eventLogger(StepEvent{
-				Stage:      "emitters",
-				Target:     td.Name,
-				Step:       step.Name,
-				Status:     "ok",
-				DurationMS: time.Since(start).Milliseconds(),
-			})
+		if err != nil {
+			return fmt.Errorf("target=%s step=%s: %w", td.Name, steps[index].Name, err)
 		}
+		index++
 	}
 	return nil
+}
+
+func executeStep(td normalizer.TargetDef, caps compiler.CapabilitySet, step Step, logger func(string, ...interface{})) ([]StepEvent, error) {
+	var events []StepEvent
+	if !caps.HasAll(step.Requires...) {
+		missing := caps.Missing(step.Requires...)
+		if len(missing) > 0 && logger != nil {
+			missingNames := make([]string, 0, len(missing))
+			for _, c := range missing {
+				missingNames = append(missingNames, string(c))
+			}
+			logger("Skipping %s for target %s: missing capabilities [%s]", step.Name, td.Name, strings.Join(missingNames, ", "))
+		}
+		events = append(events, StepEvent{
+			Stage:       "emitters",
+			Target:      td.Name,
+			Step:        step.Name,
+			Status:      "skip",
+			MissingCaps: missing,
+		})
+		return events, nil
+	}
+	start := time.Now()
+	events = append(events, StepEvent{
+		Stage:  "emitters",
+		Target: td.Name,
+		Step:   step.Name,
+		Status: "start",
+	})
+	if err := step.Run(); err != nil {
+		events = append(events, StepEvent{
+			Stage:      "emitters",
+			Target:     td.Name,
+			Step:       step.Name,
+			Status:     "error",
+			DurationMS: time.Since(start).Milliseconds(),
+			Error:      err.Error(),
+		})
+		return events, err
+	}
+	events = append(events, StepEvent{
+		Stage:      "emitters",
+		Target:     td.Name,
+		Step:       step.Name,
+		Status:     "ok",
+		DurationMS: time.Since(start).Milliseconds(),
+	})
+	return events, nil
 }

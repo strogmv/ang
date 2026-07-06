@@ -130,7 +130,7 @@ func buildOpsSchema() opsSchemaEnvelope {
 	return opsSchemaEnvelope{
 		Schema:        "ang/ops-schema/v2",
 		Version:       "2.0",
-		OpFileGlobs:   []string{"cue/api/*.cue"},
+		OpFileGlobs:   []string{loadProjectConfig(".").CueRoot + "/api/*.cue"},
 		OperationType: "schema.#Operation",
 		Modes:         []string{"flow", "impl_steps", "impl", "none"},
 		Operation: opsSchemaOperation{
@@ -872,7 +872,8 @@ func isSafeVetFixPath(path string) bool {
 	if clean == "" {
 		return false
 	}
-	return strings.Contains(clean, "/cue/api/") || strings.HasPrefix(clean, "cue/api/")
+	cr := loadProjectConfig(".").CueRoot
+	return strings.Contains(clean, "/"+cr+"/api/") || strings.HasPrefix(clean, cr+"/api/")
 }
 
 type diagSource struct {
@@ -915,5 +916,6 @@ func shouldOverrideDiagnosticFile(path string) bool {
 	if clean == "" {
 		return true
 	}
-	return strings.Contains(clean, "/cue/schema/") || strings.HasPrefix(clean, "cue/schema/")
+	cr := loadProjectConfig(".").CueRoot
+	return strings.Contains(clean, "/"+cr+"/schema/") || strings.HasPrefix(clean, cr+"/schema/")
 }

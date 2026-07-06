@@ -199,6 +199,9 @@ func ensureRuntimeConfigFields(config *normalizer.ConfigDef) *normalizer.ConfigD
 	add("JWTAudience", "string", "JWT_AUDIENCE", "ang-api", false)
 	add("JWTAccessTTL", "string", "JWT_ACCESS_TTL", "15m", false)
 	add("JWTRefreshTTL", "string", "JWT_REFRESH_TTL", "168h", false)
+	// Referenced unconditionally by templates/http_common.tmpl (authCfg.JWTRotation).
+	// Must be emitted or fresh projects without a legacy config field fail to compile.
+	add("JWTRotation", "bool", "JWT_ROTATION", "true", false)
 	add("JWTPublicKey", "string", "JWT_PUBLIC_KEY", "", true)
 	add("JWTPrivateKey", "string", "JWT_PRIVATE_KEY", "secret-key-for-tests", false)
 

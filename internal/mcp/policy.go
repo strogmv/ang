@@ -14,8 +14,9 @@ func validateCuePath(path string) error {
 	if strings.HasPrefix(clean, ".."+string(filepath.Separator)) || clean == ".." {
 		return fmt.Errorf("path escapes workspace")
 	}
-	if !strings.HasPrefix(clean, "cue"+string(filepath.Separator)) {
-		return fmt.Errorf("path must be under cue/")
+	cr := resolveMCPCueRoot(".")
+	if !strings.HasPrefix(clean, cr+string(filepath.Separator)) {
+		return fmt.Errorf("path must be under %s/", cr)
 	}
 	if filepath.Ext(clean) != ".cue" {
 		return fmt.Errorf("path must be a .cue file")

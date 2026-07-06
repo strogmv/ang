@@ -232,35 +232,23 @@ func renderFlowStepControlLegacyDeprecatedMonolith(st *flowRenderState, step nor
 			pad, pad, ExportName(name), payload, pad)
 
 	case "logic.Call":
-		func_ := arg("func")
-		output := arg("output")
-		ignoreErr, _ := step.Args["ignoreErr"].(bool)
-		if func_ == "" {
+		call, callErr := decodeFlowCall(step)
+		if callErr != nil || call.Function == "" {
 			return ""
 		}
-		// args is stored as []string
-		var callArgs []string
-		if v, ok := step.Args["args"]; ok {
-			switch x := v.(type) {
-			case []string:
-				callArgs = x
-			case string:
-				callArgs = []string{x}
-			}
-		}
-		callStr := func_ + "(" + strings.Join(callArgs, ", ") + ")"
-		if ignoreErr {
+		callStr := call.Function + "(" + strings.Join(call.Arguments, ", ") + ")"
+		if call.IgnoreError {
 			return fmt.Sprintf("%s_, _ = %s\n", pad, callStr)
 		}
-		if output != "" {
+		if call.Output != "" {
 			assign := ":="
-			if st.declared[output] {
+			if st.declared[call.Output] {
 				assign = "="
 			}
-			st.declared[output] = true
-			st.pointers[output] = false
+			st.declared[call.Output] = true
+			st.pointers[call.Output] = false
 			var b strings.Builder
-			b.WriteString(fmt.Sprintf("%s%s %s %s\n", pad, output+", err", assign, callStr))
+			b.WriteString(fmt.Sprintf("%s%s %s %s\n", pad, call.Output+", err", assign, callStr))
 			b.WriteString(fmt.Sprintf("%sif err != nil {\n", pad))
 			b.WriteString(errReturn(st, pad+"\t", "err"))
 			b.WriteString(fmt.Sprintf("%s}\n", pad))

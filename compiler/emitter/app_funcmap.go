@@ -11,6 +11,21 @@ import (
 
 func (e *Emitter) getAppFuncMap() template.FuncMap {
 	appFuncs := e.getSharedFuncMap()
+	appFuncs["subscriptionDeliveryIR"] = func(service ir.Service, event string) string {
+		if service.Metadata != nil {
+			switch values := service.Metadata["subscriptionDelivery"].(type) {
+			case map[string]string:
+				if mode := strings.TrimSpace(values[event]); strings.EqualFold(mode, "broadcast") {
+					return "broadcast"
+				}
+			case map[string]any:
+				if mode, ok := values[event].(string); ok && strings.EqualFold(strings.TrimSpace(mode), "broadcast") {
+					return "broadcast"
+				}
+			}
+		}
+		return "queue"
+	}
 
 	// Add app-specific functions
 	appFuncs["HasRepoEntitiesIR"] = func(services []ir.Service, entities []ir.Entity) bool {

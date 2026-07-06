@@ -106,6 +106,21 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 				return nil
 			}
 		},
+		"subscriptionDelivery": func(service normalizer.Service, event string) string {
+			if service.Metadata != nil {
+				switch values := service.Metadata["subscriptionDelivery"].(type) {
+				case map[string]string:
+					if mode := strings.ToLower(strings.TrimSpace(values[event])); mode == "broadcast" {
+						return mode
+					}
+				case map[string]interface{}:
+					if mode, ok := values[event].(string); ok && strings.EqualFold(strings.TrimSpace(mode), "broadcast") {
+						return "broadcast"
+					}
+				}
+			}
+			return "queue"
+		},
 		"makeMap": func() map[string]bool {
 			return make(map[string]bool)
 		},

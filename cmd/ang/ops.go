@@ -45,7 +45,8 @@ func runVet(args []string) {
 
 	fmt.Println("Running CUE Policy Checks...")
 	p := parser.New()
-	val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, "cue/policies"))
+	cfg := loadProjectConfig(projectPath)
+	val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, cfg.CueRoot, "policies"))
 	if err == nil && ok {
 		if err := val.Validate(); err != nil {
 			printStageFailure("Policy Violation", compiler.StageCUE, compiler.ErrCodeCUEPolicyValidate, "validate cue/policies", err)

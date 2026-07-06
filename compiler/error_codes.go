@@ -1,5 +1,7 @@
 package compiler
 
+import "strings"
+
 const (
 	// CUE stage
 	ErrCodeCUEDomainLoad           = "CUE_DOMAIN_LOAD_ERROR"
@@ -7,6 +9,7 @@ const (
 	ErrCodeCUEAPILoad              = "CUE_API_LOAD_ERROR"
 	ErrCodeCUEEntityNormalize      = "CUE_ENTITY_NORMALIZE_ERROR"
 	ErrCodeCUEServiceNormalize     = "CUE_SERVICE_NORMALIZE_ERROR"
+	ErrCodeDTOFieldUnknown         = "DTO_FIELD_UNKNOWN"
 	ErrCodeCUEEndpointNormalize    = "CUE_ENDPOINT_NORMALIZE_ERROR"
 	ErrCodeCUERepoNormalize        = "CUE_REPO_NORMALIZE_ERROR"
 	ErrCodeCUEScheduleNormalize    = "CUE_SCHEDULE_NORMALIZE_ERROR"
@@ -52,6 +55,7 @@ var StableErrorCodes = []string{
 	ErrCodeCUEAPILoad,
 	ErrCodeCUEEntityNormalize,
 	ErrCodeCUEServiceNormalize,
+	ErrCodeDTOFieldUnknown,
 	ErrCodeCUEEndpointNormalize,
 	ErrCodeCUERepoNormalize,
 	ErrCodeCUEScheduleNormalize,
@@ -82,4 +86,11 @@ var StableErrorCodes = []string{
 	ErrCodeEmitterStep,
 	ErrCodeEmitterMCPGen,
 	ErrCodeEmitterCapabilityResolve,
+}
+
+func DiagnosticDocsURL(code string) string {
+	if strings.TrimSpace(code) == "" {
+		return ""
+	}
+	return "https://github.com/strogmv/ang/blob/main/docs/diagnostics.md#diagnostic-codes"
 }

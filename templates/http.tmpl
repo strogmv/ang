@@ -302,6 +302,13 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 
 		{{ if .Output.Name }}
 		w.Header().Set("Content-Type", "application/json")
+{{- if CookieAuthEnabled }}
+{{- $access := AuthCookieAccessField .RPC }}
+{{- $refresh := AuthCookieRefreshField .RPC }}
+{{- if and $access $refresh }}
+		writeAuthCookies(w, r, resp.{{ $access | ExportName }}, resp.{{ $refresh | ExportName }})
+{{- end }}
+{{- end }}
 		{{- if eq .Method "GET" }}
 		var out any
 		{{- if .View }}

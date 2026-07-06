@@ -505,7 +505,8 @@ func (s *lspServer) collectDiagnosticsByURI() (map[string][]map[string]any, erro
 	if err := os.MkdirAll(projRoot, 0o755); err != nil {
 		return nil, err
 	}
-	if err := copyDir(filepath.Join(workspaceRoot, "cue"), filepath.Join(projRoot, "cue")); err != nil {
+	cr := loadProjectConfig(workspaceRoot).CueRoot
+	if err := copyDir(filepath.Join(workspaceRoot, cr), filepath.Join(projRoot, cr)); err != nil {
 		return nil, err
 	}
 	if err := copyDir(filepath.Join(workspaceRoot, "cue.mod"), filepath.Join(projRoot, "cue.mod")); err != nil && !os.IsNotExist(err) {

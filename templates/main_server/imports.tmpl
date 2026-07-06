@@ -16,7 +16,10 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	{{ if $needsPG }}"github.com/jackc/pgx/v5/pgxpool"{{ end }}
+	{{/* pgPool is always declared (a nil *pgxpool.Pool for ReadinessHandler when
+	     there is no SQL), so pin the v5 import unconditionally — otherwise goimports
+	     resolves the bare pgxpool symbol from the module cache and may pick pgx/v4. */}}
+	"github.com/jackc/pgx/v5/pgxpool"
 	redisv9 "github.com/redis/go-redis/v9"
 	{{ if .HasMongo }}
 	"go.mongodb.org/mongo-driver/mongo"

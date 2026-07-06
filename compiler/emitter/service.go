@@ -22,7 +22,26 @@ import (
 
 var (
 	reSelectorID = regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9]*)Id\b`)
+
+	logicCallImportHints = []struct {
+		needle string
+		path   string
+	}{
+		{needle: "excelize.", path: "github.com/xuri/excelize/v2"},
+	}
 )
+
+func addLogicCallImports(fn string, importMap map[string]string) {
+	fn = strings.TrimSpace(fn)
+	if fn == "" {
+		return
+	}
+	for _, hint := range logicCallImportHints {
+		if strings.Contains(fn, hint.needle) {
+			importMap[hint.path] = ""
+		}
+	}
+}
 
 const serviceImplTemplatePath = "templates/service_impl.tmpl"
 
@@ -529,6 +548,15 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 						importMap["path/filepath"] = ""
 						importMap["sort"] = ""
 						importMap["strings"] = ""
+					case "logic.Call":
+						if fn, ok := step.Args["func"].(string); ok {
+							addLogicCallImports(fn, importMap)
+						}
+						if imports, ok := step.Args["_funcRefImports"].([]string); ok {
+							for _, path := range imports {
+								importMap[path] = ""
+							}
+						}
 					}
 					// Recurse into child steps
 					for _, childKey := range []string{"_do", "_then", "_else", "_ifNew", "_ifExists", "_default", "_catch", "_fallback", "_onTimeout", "_onMissing", "_onMismatch"} {

@@ -32,9 +32,22 @@ func runDoctor(args []string) {
 	fromStdin := fs.Bool("stdin", false, "read log from stdin")
 	fix := fs.Bool("fix", false, "apply safe fixes for current project diagnostics (including ARCHITECTURE_VIOLATION)")
 	projectPath := fs.String("project-path", ".", "path to project root for --fix")
+	code := fs.String("code", "", "show guidance for one diagnostic code")
 	if err := fs.Parse(args); err != nil {
 		fmt.Printf("Doctor FAILED: %v\n", err)
 		os.Exit(1)
+	}
+	if strings.TrimSpace(*code) != "" {
+		wanted := strings.ToUpper(strings.TrimSpace(*code))
+		for _, suggestion := range doctor.BuildSuggestionCatalog("") {
+			if suggestion.Code == wanted {
+				b, _ := json.MarshalIndent(suggestion, "", "  ")
+				fmt.Println(string(b))
+				return
+			}
+		}
+		fmt.Printf("Doctor FAILED: unknown diagnostic code %s\n", wanted)
+		return
 	}
 
 	logText := strings.TrimSpace(*inlineLog)
@@ -52,9 +65,14 @@ func runDoctor(args []string) {
 	if strings.TrimSpace(logText) == "" {
 		b, err := os.ReadFile(*logFile)
 		if err != nil {
-			fmt.Printf("Doctor FAILED: cannot read %s (%v)\n", *logFile, err)
-			fmt.Println("Provide --log, --stdin, or run with an existing ang-build.log")
-			os.Exit(1)
+			report := analyzeProjectHealth(*projectPath)
+			encoded, marshalErr := json.MarshalIndent(report, "", "  ")
+			if marshalErr != nil {
+				fmt.Printf("Doctor FAILED: marshal project report: %v\n", marshalErr)
+				return
+			}
+			fmt.Println(string(encoded))
+			return
 		}
 		logText = string(b)
 	}

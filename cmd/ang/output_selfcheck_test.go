@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestParseGoListDirOutput_LastPathLineWins(t *testing.T) {
 	t.Parallel()
@@ -24,3 +28,16 @@ func TestParseGoListDirOutput_EmptyFails(t *testing.T) {
 	}
 }
 
+func TestSameResolvedPathAcceptsSymlinkAlias(t *testing.T) {
+	realDir := filepath.Join(t.TempDir(), "real")
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(realDir, alias); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if !sameResolvedPath(realDir, alias) {
+		t.Fatalf("expected symlink aliases to compare equal: %s vs %s", realDir, alias)
+	}
+}

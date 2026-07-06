@@ -27,6 +27,9 @@ func (e *Emitter) EmitHTTP(irEndpoints []ir.Endpoint, irServices []ir.Service, i
 	}
 
 	funcMap := e.getSharedFuncMap()
+	for name, fn := range authCookieFuncMap(auth) {
+		funcMap[name] = fn
+	}
 	funcMap["ParamForField"] = func(path, field string) string {
 		normalizedField := strings.ToLower(strings.ReplaceAll(field, "_", ""))
 		for _, p := range pathParams(path) {
@@ -168,7 +171,7 @@ func (e *Emitter) EmitHTTP(irEndpoints []ir.Endpoint, irServices []ir.Service, i
 			Output:                method.Output,
 			Broadcasts:            broadcasts,
 			AuthCheckHasCompanyID: authCheckHasCompanyID,
-			HasBodyField:          hasField(method.Input, "body") && len(method.Input.Fields) == 1,
+			HasBodyField:          bodyPassthroughOnly(method.Input, ep.Path),
 			RoomField: func() string {
 				roomField := wsRoomFieldByService[ep.ServiceName]
 				if roomField == "" {
@@ -533,6 +536,30 @@ func (e *Emitter) EmitWebSocket(irEndpoints []ir.Endpoint, irServices []ir.Servi
 	}
 
 	return nil
+}
+
+// bodyPassthroughOnly reports whether the input is a whole-body passthrough: it has
+// a "body" field and every OTHER field is bound from the URL path. This lets a
+// webhook capture the raw request body into req.Body while still taking a path param
+// (e.g. POST /tg/webhook/{botId} with input {botId: string, body: _}). The plain
+// single-"body" case is a subset (no other fields), so this stays backward-compatible.
+func bodyPassthroughOnly(input normalizer.Entity, path string) bool {
+	pp := map[string]bool{}
+	for _, p := range pathParams(path) {
+		pp[strings.ToLower(strings.ReplaceAll(p, "_", ""))] = true
+	}
+	hasBody := false
+	for _, f := range input.Fields {
+		if strings.EqualFold(f.Name, "body") {
+			hasBody = true
+			continue
+		}
+		nf := strings.ToLower(strings.ReplaceAll(f.Name, "_", ""))
+		if !pp[nf] {
+			return false
+		}
+	}
+	return hasBody
 }
 
 func firstPathParam(path string) string {

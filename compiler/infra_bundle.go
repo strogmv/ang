@@ -28,19 +28,27 @@ type InfraBundle struct {
 // merging them into one extracted bundle. cue/effects is intended for effect
 // taxonomy bindings (Handlers/TestHandlers/Middleware) and overlays cue/infra.
 func LoadInfraBundle(projectPath string) (InfraBundle, error) {
+	return LoadInfraBundleWithRoot(projectPath, DefaultCueRoot)
+}
+
+// LoadInfraBundleWithRoot is like LoadInfraBundle but uses a custom CUE root directory.
+func LoadInfraBundleWithRoot(projectPath, cueRoot string) (InfraBundle, error) {
+	if cueRoot == "" {
+		cueRoot = DefaultCueRoot
+	}
 	var out InfraBundle
 
 	p := parser.New()
 	n := normalizer.New()
 	reg := normalizer.NewInfraRegistry()
 
-	valInfra, okInfra, err := LoadOptionalDomain(p, filepath.Join(projectPath, "cue/infra"))
+	valInfra, okInfra, err := LoadOptionalDomain(p, filepath.Join(projectPath, cueRoot, "infra"))
 	if err != nil {
-		return out, WrapContractError(StageCUE, ErrCodeCUEInfraLoad, "load cue/infra", err)
+		return out, WrapContractError(StageCUE, ErrCodeCUEInfraLoad, "load "+cueRoot+"/infra", err)
 	}
-	valEffects, okEffects, err := LoadOptionalDomain(p, filepath.Join(projectPath, "cue/effects"))
+	valEffects, okEffects, err := LoadOptionalDomain(p, filepath.Join(projectPath, cueRoot, "effects"))
 	if err != nil {
-		return out, WrapContractError(StageCUE, ErrCodeCUEInfraLoad, "load cue/effects", err)
+		return out, WrapContractError(StageCUE, ErrCodeCUEInfraLoad, "load "+cueRoot+"/effects", err)
 	}
 
 	out.InfraValueExists = okInfra

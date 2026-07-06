@@ -109,6 +109,8 @@ func main() {
 		runSDKBump(os.Args[2:])
 	case "gen":
 		runAIGen(os.Args[2:])
+	case "pp":
+		runPP(os.Args[2:])
 	case "mcp":
 		mcp.Run()
 	case "version":
@@ -127,7 +129,7 @@ func printUsage() {
 	fmt.Println("  ang validate  Validate CUE models and architecture")
 	fmt.Println("  ang lint      Perform deep semantic linting of flows and logic")
 	fmt.Println("  ang build     Compile CUE intent into code and infra configs (--mode=in_place|release, --backend-dir, --dry-run, --run-tests, --skip-frontend, --skip-contract-tests, --log-format=json, --phase=all|plan|apply, --out-plan, --plan-file)")
-	fmt.Println("  ang up        Local one-command bootstrap (doctor start + compose up + build + smoke)")
+	fmt.Println("  ang up        Local one-command bootstrap (doctor start + compose up + build + smoke; --frontend starts UI)")
 	fmt.Println("  ang first-run Guided first launch (env bootstrap + infra/build + smoke)")
 	fmt.Println("  ang status    Show local runtime/dev status (checks + health + compose)")
 	fmt.Println("                Examples:")
@@ -145,6 +147,7 @@ func printUsage() {
 	fmt.Println("  ang rbac inspect  Audit RBAC policies for holes and errors")
 	fmt.Println("  ang events map    Visualize end-to-end event journey (Pub/Sub)")
 	fmt.Println("  ang doctor    Analyze build log and suggest concrete CUE fixes")
+	fmt.Println("  ang doctor --code <CODE>  Show guidance for one diagnostic code")
 	fmt.Println("  ang doctor start  Preflight local startup checks (tools/env/compose/ports)")
 	fmt.Println("  ang smoke     Check /health and /health/ready endpoints")
 	fmt.Println("  ang tips      Beginner-friendly quick commands and recovery hints")
@@ -173,6 +176,8 @@ func printUsage() {
 	fmt.Println("  ang sdk bump [patch|minor|major]  Bump version in cue/project/project.cue")
 	fmt.Println("  ang sdk version                   Show current version from project.cue")
 	fmt.Println("  ang gen       Generate CUE operations from ang/facts/v1 via AI (--facts, --service, --out, --dry-run)")
+	fmt.Println("  ang pp schema sync|check|list  Payment-provider schema bundle")
+	fmt.Println("  ang pp vet [path]              Semantic validation of provider CUE intent")
 }
 
 func runHash(args []string) {
@@ -210,35 +215,72 @@ func runHash(args []string) {
 		}
 		return
 	}
-	inputHash, _ := calculateHash([]string{"cue"})
-	templateHash, _ := calculateHash([]string{"templates"})
+	projCfg := loadProjectConfig(".")
+	inputHash, err := calculateHash([]string{projCfg.CueRoot})
+	if err != nil {
+		fmt.Printf("Hash FAILED: calculate input hash: %v\n", err)
+		os.Exit(1)
+	}
+	templateHash, err := calculateEmbeddedTemplateHash()
+	if err != nil {
+		fmt.Printf("Hash FAILED: calculate embedded template hash: %v\n", err)
+		os.Exit(1)
+	}
 	compilerFingerprint := compiler.BuildFingerprint()
 	fmt.Printf("ANG Version:  %s\n", compiler.Version)
-	fmt.Printf("Input Hash:   %s (cue/)\n", inputHash)
-	fmt.Printf("Template Hash: %s (templates/)\n", templateHash)
+	fmt.Printf("Input Hash:   %s (%s/)\n", inputHash, projCfg.CueRoot)
+	fmt.Printf("Template Hash: %s (embedded templates)\n", templateHash)
 	fmt.Printf("Compiler Fingerprint: %s (binary + IR ABI)\n", compilerFingerprint)
 }
 
 func calculateHash(dirs []string) (string, error) {
 	h := sha256.New()
-	var files []string
-	for _, dir := range dirs {
-		filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-			if err != nil || d.IsDir() {
+	type hashInput struct {
+		path string
+		key  string
+	}
+	var files []hashInput
+	for dirIndex, dir := range dirs {
+		dir = strings.TrimSpace(dir)
+		if dir == "" {
+			return "", fmt.Errorf("hash directory is empty")
+		}
+		if err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
 				return nil
 			}
-			files = append(files, path)
+			rel, relErr := filepath.Rel(dir, path)
+			if relErr != nil {
+				return relErr
+			}
+			files = append(files, hashInput{path: path, key: fmt.Sprintf("%d/%s", dirIndex, filepath.ToSlash(rel))})
 			return nil
-		})
-	}
-	sort.Strings(files)
-	for _, file := range files {
-		f, err := os.Open(file)
-		if err != nil {
-			continue
+		}); err != nil {
+			return "", fmt.Errorf("walk hash directory %s: %w", dir, err)
 		}
-		io.Copy(h, f)
-		f.Close()
+	}
+	if len(files) == 0 {
+		return "", fmt.Errorf("no files found in hash directories")
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].key < files[j].key })
+	for _, file := range files {
+		f, err := os.Open(file.path)
+		if err != nil {
+			return "", fmt.Errorf("open hash input %s: %w", file.path, err)
+		}
+		_, _ = h.Write([]byte(file.key))
+		_, _ = h.Write([]byte{0})
+		if _, err := io.Copy(h, f); err != nil {
+			_ = f.Close()
+			return "", fmt.Errorf("hash input %s: %w", file.path, err)
+		}
+		if err := f.Close(); err != nil {
+			return "", fmt.Errorf("close hash input %s: %w", file.path, err)
+		}
+		_, _ = h.Write([]byte{0})
 	}
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
@@ -275,6 +317,49 @@ func readGoModuleAt(projectPath string) string {
 
 func readGoModule() string {
 	return readGoModuleAt(".")
+}
+
+// ProjectConfig holds optional overrides loaded from ang.yaml.
+type ProjectConfig struct {
+	CueRoot      string // CUE intent directory (default: "cue", e.g. ".cue" for hidden)
+	TemplatesDir string // Custom templates directory (default: "templates")
+	SchemaDir    string // Shared schema directory (optional, e.g. "../.ang/schema")
+}
+
+func loadProjectConfig(projectPath string) ProjectConfig {
+	base := strings.TrimSpace(projectPath)
+	if base == "" {
+		base = "."
+	}
+	type angYAMLFull struct {
+		CueRoot      string `yaml:"cue_root"`
+		TemplatesDir string `yaml:"templates_dir"`
+		SchemaDir    string `yaml:"schema_dir"`
+	}
+	defaults := ProjectConfig{
+		CueRoot:      compiler.DefaultCueRoot,
+		TemplatesDir: "templates",
+	}
+	data, err := os.ReadFile(filepath.Join(base, "ang.yaml"))
+	if err != nil {
+		return defaults
+	}
+	var cfg angYAMLFull
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return ProjectConfig{}
+	}
+	pc := ProjectConfig{
+		CueRoot:      strings.TrimSpace(cfg.CueRoot),
+		TemplatesDir: strings.TrimSpace(cfg.TemplatesDir),
+		SchemaDir:    strings.TrimSpace(cfg.SchemaDir),
+	}
+	if pc.CueRoot == "" {
+		pc.CueRoot = compiler.DefaultCueRoot
+	}
+	if pc.TemplatesDir == "" {
+		pc.TemplatesDir = "templates"
+	}
+	return pc
 }
 
 func runInit(args []string) {
@@ -352,15 +437,16 @@ func initLegacyScaffold(root, modulePath, lang, db string) error {
 	}
 	framework := defaultFrameworkForLang(lang)
 
+	cr := compiler.DefaultCueRoot
 	dirs := []string{
-		filepath.Join(root, "cue", "domain"),
-		filepath.Join(root, "cue", "api"),
-		filepath.Join(root, "cue", "policies"),
-		filepath.Join(root, "cue", "invariants"),
-		filepath.Join(root, "cue", "architecture"),
-		filepath.Join(root, "cue", "repo"),
-		filepath.Join(root, "cue", "schema"),
-		filepath.Join(root, "cue", "project"),
+		filepath.Join(root, cr, "domain"),
+		filepath.Join(root, cr, "api"),
+		filepath.Join(root, cr, "policies"),
+		filepath.Join(root, cr, "invariants"),
+		filepath.Join(root, cr, "architecture"),
+		filepath.Join(root, cr, "repo"),
+		filepath.Join(root, cr, "schema"),
+		filepath.Join(root, cr, "project"),
 	}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {
@@ -476,6 +562,21 @@ tasks:
 `
 	goModContent := fmt.Sprintf("module %s\n\ngo %s\n", modulePath, detectRootGoVersion("go.mod"))
 	goWorkContent := fmt.Sprintf("go %s\n\nuse .\n", detectRootGoVersion("go.mod"))
+	runbookContent := `# Project runbook
+
+## Normal development cycle
+
+    ang validate
+    ang build
+    ang doctor --project-path .
+    ang up --frontend
+
+Edit intent under cue/. Never edit generated internal/, api/, sdk/,
+db/schema/, or db/queries/ files directly. Use ang build --log-format json
+for machine-readable diagnostics and ang doctor --code <CODE> for guidance.
+Failed generation is staged and leaves the previous generated tree unchanged.
+Breaking OpenAPI changes require explicit ang build --accept-contract.
+`
 
 	modFile := filepath.Join(root, "cue.mod", "module.cue")
 	if err := os.MkdirAll(filepath.Dir(modFile), 0755); err != nil {
@@ -498,17 +599,18 @@ tasks:
 	}
 
 	files := map[string]string{
-		modFile:                                                    moduleContent,
-		filepath.Join(root, "go.mod"):                              goModContent,
-		filepath.Join(root, "go.work"):                             goWorkContent,
-		filepath.Join(root, "Taskfile.yml"):                        taskfileContent,
-		filepath.Join(root, "cue", "project", "project.cue"):       projectContent,
-		filepath.Join(root, "cue", "domain", "entities.cue"):       domainContent,
-		filepath.Join(root, "cue", "architecture", "services.cue"): archContent,
-		filepath.Join(root, "cue", "api", "http.cue"):              httpContent,
-		filepath.Join(root, "cue", "api", "operations.cue"):        opsContent,
-		filepath.Join(root, "cue", "repo", "repositories.cue"):     repoContent,
-		filepath.Join(root, "cue", "policies", "rbac.cue"):         rbacContent,
+		modFile:                                                 moduleContent,
+		filepath.Join(root, "go.mod"):                           goModContent,
+		filepath.Join(root, "go.work"):                          goWorkContent,
+		filepath.Join(root, "Taskfile.yml"):                     taskfileContent,
+		filepath.Join(root, "RUNBOOK.md"):                       runbookContent,
+		filepath.Join(root, cr, "project", "project.cue"):       projectContent,
+		filepath.Join(root, cr, "domain", "entities.cue"):       domainContent,
+		filepath.Join(root, cr, "architecture", "services.cue"): archContent,
+		filepath.Join(root, cr, "api", "http.cue"):              httpContent,
+		filepath.Join(root, cr, "api", "operations.cue"):        opsContent,
+		filepath.Join(root, cr, "repo", "repositories.cue"):     repoContent,
+		filepath.Join(root, cr, "policies", "rbac.cue"):         rbacContent,
 	}
 	for path, content := range files {
 		if err := writeIfMissing(path, content); err != nil {

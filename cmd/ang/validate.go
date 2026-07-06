@@ -170,13 +170,27 @@ func derefConfig(cfg *normalizer.ConfigDef) normalizer.ConfigDef {
 
 func emitDiagnostics(w io.Writer, diagnostics []normalizer.Warning) bool {
 	hasErrors := false
+	seen := make(map[string]struct{}, len(diagnostics))
+	warnings := 0
+	suppressed := 0
 	for _, d := range diagnostics {
+		key := strings.Join([]string{d.Code, d.File, fmt.Sprint(d.Line), d.CUEPath, d.Op, d.Action, d.Message}, "|")
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		if diagnosticSuppressed(d) {
+			suppressed++
+			continue
+		}
 		severity := "WARN"
 		if d.Severity != "" {
 			severity = strings.ToUpper(d.Severity)
 		}
 		if severity == "ERROR" {
 			hasErrors = true
+		} else if severity == "WARN" {
+			warnings++
 		}
 		if d.Code != "" {
 			fmt.Fprintf(w, "⚠️  %s [%s]: %s\n", severity, d.Code, d.Message)
@@ -185,10 +199,47 @@ func emitDiagnostics(w io.Writer, diagnostics []normalizer.Warning) bool {
 		}
 		if d.File != "" {
 			fmt.Fprintf(w, "   at %s:%d:%d\n", d.File, d.Line, d.Column)
+		} else if d.Path != "" {
+			fmt.Fprintf(w, "   at %s\n", d.Path)
 		}
 		if d.Hint != "" {
 			fmt.Fprintf(w, "   💡 Hint: %s\n", d.Hint)
 		}
 	}
+	if warnings > 0 || suppressed > 0 {
+		fmt.Fprintf(w, "%d warnings, %d suppressed\n", warnings, suppressed)
+	}
 	return hasErrors
+}
+
+func diagnosticSuppressed(d normalizer.Warning) bool {
+	if d.File == "" || d.Line <= 0 || strings.TrimSpace(d.Code) == "" {
+		return false
+	}
+	data, err := os.ReadFile(d.File)
+	if err != nil {
+		return false
+	}
+	lines := strings.Split(string(data), "\n")
+	start := d.Line - 1
+	if start >= len(lines) {
+		start = len(lines) - 1
+	}
+	for index := start; index >= 0 && index >= start-2; index-- {
+		line := strings.ToLower(lines[index])
+		marker := strings.Index(line, "ang:nolint")
+		if marker < 0 {
+			continue
+		}
+		codes := strings.Fields(strings.NewReplacer(",", " ", "//", " ", "#", " ").Replace(line[marker+len("ang:nolint"):]))
+		if len(codes) == 0 {
+			return true
+		}
+		for _, code := range codes {
+			if strings.EqualFold(code, d.Code) {
+				return true
+			}
+		}
+	}
+	return false
 }

@@ -18,7 +18,8 @@ func detectReleaseRootModuleMismatch(projectPath string) (string, bool) {
 
 	var projectVal cue.Value
 	var targets []normalizer.TargetDef
-	if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, "cue/project")); err == nil && ok {
+	cfg := loadProjectConfig(projectPath)
+	if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, cfg.CueRoot, "project")); err == nil && ok {
 		projectVal = val
 		parsed, err := n.ExtractTargets(val)
 		if err == nil {

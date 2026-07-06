@@ -42,6 +42,7 @@ Core scaffold:
 - `docker-compose.yml`
 - `Makefile`, `Taskfile.yml`, `scripts/dev-*.sh`
 - `AGENTS.md`
+- `RUNBOOK.md`
 - `tests/contract/contract_test.go`
 
 ## First Run (Recommended)
@@ -100,3 +101,4 @@ If your project was initialized before startup DX updates:
 - [Commands](./commands.md)
 - [Config](./config.md)
 - [Troubleshooting](./troubleshooting.md)
+- [Copy/paste recipes](./recipes.md)

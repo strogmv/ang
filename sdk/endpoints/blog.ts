@@ -34,7 +34,7 @@ export const deleteComment = (
   requestOptions: ApiRequestOptions = {}
 ) => {
   const paramsRecord = toParamRecord(params);
-  const id = getPathParamValue(paramsRecord, 'id', ['ID']);
+  const id = getPathParamValue(paramsRecord, 'id', []);
   return apiClient.delete<Types.DeleteCommentResponse>(`/comments/${id}`, { data: params, signal: requestOptions.signal }).then((r) => {
     const data = r.data;
     if (import.meta.env.DEV) {
@@ -48,7 +48,7 @@ export const updateComment = (
   requestOptions: ApiRequestOptions = {}
 ) => {
   const paramsRecord = toParamRecord(params);
-  const id = getPathParamValue(paramsRecord, 'id', ['ID']);
+  const id = getPathParamValue(paramsRecord, 'id', []);
   return apiClient.put<Types.UpdateCommentResponse>(`/comments/${id}`, params, { signal: requestOptions.signal }).then((r) => {
     const data = r.data;
     if (import.meta.env.DEV) {
@@ -100,7 +100,7 @@ export const deletePost = (
   requestOptions: ApiRequestOptions = {}
 ) => {
   const paramsRecord = toParamRecord(params);
-  const id = getPathParamValue(paramsRecord, 'id', ['ID']);
+  const id = getPathParamValue(paramsRecord, 'id', []);
   return apiClient.delete<Types.DeletePostResponse>(`/posts/${id}`, { data: params, signal: requestOptions.signal }).then((r) => {
     const data = r.data;
     if (import.meta.env.DEV) {
@@ -114,7 +114,7 @@ export const updatePost = (
   requestOptions: ApiRequestOptions = {}
 ) => {
   const paramsRecord = toParamRecord(params);
-  const id = getPathParamValue(paramsRecord, 'id', ['ID']);
+  const id = getPathParamValue(paramsRecord, 'id', []);
   return apiClient.put<Types.UpdatePostResponse>(`/posts/${id}`, params, { signal: requestOptions.signal }).then((r) => {
     const data = r.data;
     if (import.meta.env.DEV) {
@@ -128,7 +128,7 @@ export const archivePost = (
   requestOptions: ApiRequestOptions = {}
 ) => {
   const paramsRecord = toParamRecord(params);
-  const id = getPathParamValue(paramsRecord, 'id', ['ID']);
+  const id = getPathParamValue(paramsRecord, 'id', []);
   return apiClient.post<Types.ArchivePostResponse>(`/posts/${id}/archive`, params, { signal: requestOptions.signal }).then((r) => {
     const data = r.data;
     if (import.meta.env.DEV) {
@@ -142,7 +142,7 @@ export const publishPost = (
   requestOptions: ApiRequestOptions = {}
 ) => {
   const paramsRecord = toParamRecord(params);
-  const id = getPathParamValue(paramsRecord, 'id', ['ID']);
+  const id = getPathParamValue(paramsRecord, 'id', []);
   return apiClient.post<Types.PublishPostResponse>(`/posts/${id}/publish`, params, { signal: requestOptions.signal }).then((r) => {
     const data = r.data;
     if (import.meta.env.DEV) {
@@ -156,7 +156,7 @@ export const submitPost = (
   requestOptions: ApiRequestOptions = {}
 ) => {
   const paramsRecord = toParamRecord(params);
-  const id = getPathParamValue(paramsRecord, 'id', ['ID']);
+  const id = getPathParamValue(paramsRecord, 'id', []);
   return apiClient.post<Types.SubmitPostResponse>(`/posts/${id}/submit`, params, { signal: requestOptions.signal }).then((r) => {
     const data = r.data;
     if (import.meta.env.DEV) {
@@ -239,7 +239,7 @@ export const deleteTag = (
   requestOptions: ApiRequestOptions = {}
 ) => {
   const paramsRecord = toParamRecord(params);
-  const id = getPathParamValue(paramsRecord, 'id', ['ID']);
+  const id = getPathParamValue(paramsRecord, 'id', []);
   return apiClient.delete<Types.DeleteTagResponse>(`/tags/${id}`, { data: params, signal: requestOptions.signal }).then((r) => {
     const data = r.data;
     if (import.meta.env.DEV) {
@@ -253,7 +253,7 @@ export const updateTag = (
   requestOptions: ApiRequestOptions = {}
 ) => {
   const paramsRecord = toParamRecord(params);
-  const id = getPathParamValue(paramsRecord, 'id', ['ID']);
+  const id = getPathParamValue(paramsRecord, 'id', []);
   return apiClient.put<Types.UpdateTagResponse>(`/tags/${id}`, params, { signal: requestOptions.signal }).then((r) => {
     const data = r.data;
     if (import.meta.env.DEV) {

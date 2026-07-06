@@ -48,10 +48,11 @@ func runSDKBump(args []string) {
 }
 
 func findProjectCUE(projectPath string) string {
+	cr := loadProjectConfig(projectPath).CueRoot
 	candidates := []string{
-		filepath.Join(projectPath, "cue", "project", "project.cue"),
-		filepath.Join(projectPath, "cue", "meta", "meta.cue"),
-		filepath.Join(projectPath, "cue", "project.cue"),
+		filepath.Join(projectPath, cr, "project", "project.cue"),
+		filepath.Join(projectPath, cr, "meta", "meta.cue"),
+		filepath.Join(projectPath, cr, "project.cue"),
 	}
 	for _, p := range candidates {
 		if _, err := os.Stat(p); err == nil {

@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-var reGoBuildLine = regexp.MustCompile(`^((?:\./)?internal/[^:]+|/.*/internal/[^:]+):([0-9]+):([0-9]+):\s*(.+)$`)
+var reGoBuildLine = regexp.MustCompile(`^((?:\./)?[^:]+\.go|/[^:]+\.go):([0-9]+):([0-9]+):\s*(.+)$`)
 
 func runGeneratedGoVerify(backends []string) error {
 	seen := make(map[string]struct{}, len(backends))
@@ -35,8 +35,8 @@ func runGeneratedGoVerify(backends []string) error {
 			return fmt.Errorf("check go.mod in %s: %w", cleaned, err)
 		}
 
-		fmt.Printf("Running go verify: go build ./internal/... (dir=%s)\n", cleaned)
-		cmd := exec.Command("go", "build", "./internal/...")
+		fmt.Printf("Running go verify: go build ./... (dir=%s)\n", cleaned)
+		cmd := exec.Command("go", "build", "./...")
 		cmd.Dir = cleaned
 		cmd.Env = append(os.Environ(), "GOWORK=off")
 		configureBuildSubprocess(cmd)

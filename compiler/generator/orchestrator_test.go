@@ -3,6 +3,7 @@ package generator
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/strogmv/ang-ir/normalizer"
 	"github.com/strogmv/ang/compiler"
@@ -30,6 +31,30 @@ func TestExecute_SkipsMissingCapabilities(t *testing.T) {
 	}
 	if called {
 		t.Fatalf("step should be skipped when capabilities are missing")
+	}
+}
+
+func TestExecuteRunsAdjacentParallelSafeStepsConcurrently(t *testing.T) {
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	steps := []Step{
+		{Name: "one", ParallelSafe: true, Run: func() error { started <- "one"; <-release; return nil }},
+		{Name: "two", ParallelSafe: true, Run: func() error { started <- "two"; <-release; return nil }},
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- Execute(normalizer.TargetDef{Name: "go"}, compiler.CapabilitySet{}, steps, nil, nil)
+	}()
+	for i := 0; i < 2; i++ {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatal("parallel-safe steps did not start concurrently")
+		}
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }
 

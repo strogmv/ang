@@ -117,6 +117,33 @@ CREATE INDEX IF NOT EXISTS idx_kv_store_expires ON kv_store (expires_at) WHERE e
 				fullSchema.WriteString(fmt.Sprintf("\nCREATE INDEX IF NOT EXISTS %s ON %s (%s);", idxName, tableName, colName))
 			}
 		}
+		for _, index := range entity.Indexes {
+			if len(index.Fields) == 0 {
+				return fmt.Errorf("entity %s declares an index without fields", entity.Name)
+			}
+			columns := make([]string, 0, len(index.Fields))
+			for _, fieldName := range index.Fields {
+				found := false
+				for _, field := range entity.Fields {
+					if strings.EqualFold(field.Name, fieldName) {
+						columns = append(columns, DBName(field.Name))
+						found = true
+						break
+					}
+				}
+				if !found {
+					return fmt.Errorf("entity %s index references unknown field %s", entity.Name, fieldName)
+				}
+			}
+			kind := "INDEX"
+			prefix := "idx"
+			if index.Unique {
+				kind = "UNIQUE INDEX"
+				prefix = "uidx"
+			}
+			idxName := fmt.Sprintf("%s_%s_%s", prefix, tableName, strings.Join(columns, "_"))
+			fullSchema.WriteString(fmt.Sprintf("\nCREATE %s IF NOT EXISTS %s ON %s (%s);", kind, idxName, tableName, strings.Join(columns, ", ")))
+		}
 
 		fullSchema.WriteString("\n\n")
 	}

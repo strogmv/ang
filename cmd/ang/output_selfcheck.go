@@ -50,7 +50,7 @@ func runGoRuntimeSelfCheck(projectRoot, backendDir, mode string) (runtimeSelfChe
 				Dir:     filepath.ToSlash(filepath.Clean(dir)),
 			})
 			expected := filepath.Clean(filepath.Join(backendAbs, p))
-			if filepath.Clean(dir) != expected {
+			if !sameResolvedPath(dir, expected) {
 				res.Status = "failed"
 				return res, fmt.Errorf("runtime package mismatch for %s: expected %s, got %s", p, expected, dir)
 			}
@@ -79,12 +79,26 @@ func runGoRuntimeSelfCheck(projectRoot, backendDir, mode string) (runtimeSelfChe
 		if backendRelToRoot == "." {
 			expected = filepath.Clean(filepath.Join(rootAbs, p))
 		}
-		if filepath.Clean(dir) != expected {
+		if !sameResolvedPath(dir, expected) {
 			res.Status = "failed"
 			return res, fmt.Errorf("runtime package mismatch for %s: expected %s, got %s", pkgPath, expected, dir)
 		}
 	}
 	return res, nil
+}
+
+func sameResolvedPath(left, right string) bool {
+	canonical := func(path string) string {
+		path = filepath.Clean(path)
+		if resolved, err := filepath.EvalSymlinks(path); err == nil {
+			path = resolved
+		}
+		if abs, err := filepath.Abs(path); err == nil {
+			path = abs
+		}
+		return filepath.Clean(path)
+	}
+	return canonical(left) == canonical(right)
 }
 
 func goListDir(workDir, pkg string) (string, error) {

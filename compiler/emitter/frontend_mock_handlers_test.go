@@ -48,10 +48,10 @@ func TestEmitFrontendSDK_MockHandlersUseExactResponseFieldNames(t *testing.T) {
 	}
 	out := string(text)
 	// Field names must use JSONName convention (camelCase, matching the TypeScript types).
-	// "id" → "ID" (JSONName special-cases the standalone "id" acronym).
+	// "id" → "id" (standard lower camelCase JSON key).
 	// "url" → "url" (not ExportName "URL" — mock keys must match TS type keys, not Go field names).
-	if !strings.Contains(out, `ID: "gen-id-123",`) {
-		t.Fatalf("expected id field as 'ID' (JSONName acronym) in mocks/handlers.ts, got:\n%s", out)
+	if !strings.Contains(out, `id: "gen-id-123",`) {
+		t.Fatalf("expected id field as 'id' (JSONName) in mocks/handlers.ts, got:\n%s", out)
 	}
 	if !strings.Contains(out, `url: "sample text",`) {
 		t.Fatalf("expected url field as 'url' (JSONName) in mocks/handlers.ts, got:\n%s", out)

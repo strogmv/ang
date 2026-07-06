@@ -334,6 +334,11 @@ func runBuildDryRunSubprocess(projectPath string, opts OutputOptions) error {
 	if err != nil {
 		return fmt.Errorf("build dry-run subprocess failed: %w\n%s", err, strings.TrimSpace(string(out)))
 	}
+	if report := strings.TrimSpace(opts.DryRunReport); report != "" {
+		if _, statErr := os.Stat(report); statErr != nil {
+			return fmt.Errorf("build dry-run did not produce %s: %w\n%s", report, statErr, strings.TrimSpace(string(out)))
+		}
+	}
 	return nil
 }
 

@@ -8,7 +8,8 @@ import (
 
 func TestDeriveFlowCases(t *testing.T) {
 	method := normalizer.Method{
-		Name: "UpdateOrder",
+		Name:  "UpdateOrder",
+		Input: normalizer.Entity{Fields: []normalizer.Field{{Name: "ID"}}},
 		Flow: []normalizer.FlowStep{
 			{
 				Action: "repo.Find",
@@ -30,15 +31,16 @@ func TestDeriveFlowCases(t *testing.T) {
 					"condition": "order.Status == \"draft\"",
 				},
 			},
+			{Action: "tx.Block", Args: map[string]any{"_do": []normalizer.FlowStep{}}},
 		},
 	}
-	ep := normalizer.Endpoint{Method: "POST", Path: "/orders/{id}", ServiceName: "orders", RPC: "UpdateOrder"}
+	ep := normalizer.Endpoint{Method: "POST", Path: "/orders/{id}", ServiceName: "orders", RPC: "UpdateOrder", Permission: "orders.update"}
 	cases := deriveFlowCases("orders", method, ep)
-	if len(cases) != 4 {
-		t.Fatalf("len(cases)=%d, want 4", len(cases))
+	if len(cases) != 7 {
+		t.Fatalf("len(cases)=%d, want 7", len(cases))
 	}
 
-	var has404, has403, hasThen, hasElse bool
+	var has404, has403, hasThen, hasElse, hasPolicy, hasRequired, hasRollback bool
 	for _, c := range cases {
 		if c.Kind == "repo_not_found" && c.ExpectedStatus == 404 {
 			has404 = true
@@ -52,9 +54,12 @@ func TestDeriveFlowCases(t *testing.T) {
 		if c.ID == "orders.UpdateOrder.flow_if_else.3" {
 			hasElse = true
 		}
+		hasPolicy = hasPolicy || c.Kind == "policy_forbidden"
+		hasRequired = hasRequired || c.Kind == "required_field"
+		hasRollback = hasRollback || c.Kind == "tx_rollback"
 	}
-	if !has404 || !has403 || !hasThen || !hasElse {
-		t.Fatalf("missing expected generated cases: has404=%v has403=%v hasThen=%v hasElse=%v", has404, has403, hasThen, hasElse)
+	if !has404 || !has403 || !hasThen || !hasElse || !hasPolicy || !hasRequired || !hasRollback {
+		t.Fatalf("missing expected generated cases: %#v", cases)
 	}
 }
 

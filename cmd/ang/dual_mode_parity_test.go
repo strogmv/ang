@@ -31,7 +31,7 @@ func TestDualModeParity_BasicGeneratedDomain(t *testing.T) {
 	}
 
 	// In-place build writes generated code into project root.
-	runBuild([]string{projectDir, "--mode=in_place", "--backend-dir=."})
+	runBuild([]string{projectDir, "--mode=in_place", "--backend-dir=.", "--skip-go-verify"})
 	inPlaceFile := filepath.Join(projectDir, "internal", "domain", "user.go")
 	inPlaceData, err := os.ReadFile(inPlaceFile)
 	if err != nil {
@@ -39,7 +39,7 @@ func TestDualModeParity_BasicGeneratedDomain(t *testing.T) {
 	}
 
 	// Release build writes generated code into dist/release.
-	runBuild([]string{projectDir, "--mode=release"})
+	runBuild([]string{projectDir, "--mode=release", "--skip-go-verify"})
 	releaseFile := filepath.Join(projectDir, "dist", "release", "go-service", "internal", "domain", "user.go")
 	releaseData, err := os.ReadFile(releaseFile)
 	if err != nil {

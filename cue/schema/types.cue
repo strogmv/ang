@@ -106,7 +106,10 @@ import "github.com/strogmv/ang/cue/project"
 	lang: string
 	tx?: bool
 	flowFirstBypass?: bool
-	code: string
+	code?: string
+	// Reference to a real Go function whose body is used as the implementation.
+	// The file path is relative to the CUE file: "impl/customer.go#getCustomerBody".
+	funcRef?: string
 	imports?: [...string] | string
 }
 
@@ -1046,7 +1049,10 @@ import "github.com/strogmv/ang/cue/project"
 	action: "logic.Call"
 	// Function to call (can be method or package function)
 	// Example: "validateInput", "pkg.ProcessData"
-	func: string
+	func?: string
+	// Reference to a real Go function, relative to this CUE file.
+	// The function is embedded as an inline literal: "impl/helpers.go#normalizeName".
+	funcRef?: string
 	// Arguments as single string or array
 	// SAFE expression subset in strict validator (no function calls)
 	// Example: "ctx, req" or ["ctx", "req", "options"]
