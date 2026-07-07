@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 func renderFlowStepInfraHTTPAdvanced(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
@@ -14,33 +15,49 @@ func renderFlowStepInfraHTTPAdvanced(st *flowRenderState, step normalizer.FlowSt
 
 	switch step.Action {
 	case "http.Request":
-		return renderHTTPRequest(st, step, pad, sfx, arg)
+		typed, err := flowir.DecodeAs[flowir.HTTPRequest](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
+		return renderHTTPRequest(st, typed, pad, sfx)
 	case "http.SOAP":
-		return renderHTTPSOAP(st, step, pad, sfx, arg)
+		typed, err := flowir.DecodeAs[flowir.HTTPSOAP](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
+		return renderHTTPSOAP(st, typed, pad, sfx)
 	case "http.RetryPolicy":
-		return renderHTTPRetryPolicy(st, step, pad, sfx, arg)
+		typed, err := flowir.DecodeAs[flowir.HTTPRetryPolicy](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
+		return renderHTTPRetryPolicy(st, typed, pad, sfx)
 	case "http.Paginate":
-		return renderHTTPPaginate(st, step, pad, sfx, arg)
+		typed, err := flowir.DecodeAs[flowir.HTTPPaginate](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
+		return renderHTTPPaginate(st, typed, pad, sfx)
 	}
 
 	return "", false
 }
 
 // writeHTTPAuth appends auth and header setup lines for an HTTP request variable.
-func writeHTTPAuth(b *strings.Builder, pad, reqVar string, step normalizer.FlowStep, arg func(string) string) {
+func writeHTTPAuthTyped(b *strings.Builder, pad, reqVar string, headers map[string]flowir.Expression, authStr string) {
 	// headers (sorted for deterministic output)
-	if hdrs, ok := step.Args["headers"].(map[string]string); ok {
+	if hdrs := headers; len(hdrs) > 0 {
 		keys := make([]string, 0, len(hdrs))
 		for k := range hdrs {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
 		for _, hk := range keys {
-			b.WriteString(fmt.Sprintf("%s%s.Header.Set(%q, %s)\n", pad, reqVar, hk, hdrs[hk]))
+			b.WriteString(fmt.Sprintf("%s%s.Header.Set(%q, %s)\n", pad, reqVar, hk, normalizeFlowExpr(hdrs[hk].Source)))
 		}
 	}
 	// auth: "bearer:TOKEN_EXPR" or "basic:USER_EXPR:PASS_EXPR"
-	if authStr := arg("auth"); authStr != "" {
+	if authStr != "" {
 		if strings.HasPrefix(authStr, "bearer:") {
 			token := authStr[len("bearer:"):]
 			b.WriteString(fmt.Sprintf("%s%s.Header.Set(\"Authorization\", \"Bearer \"+%s)\n", pad, reqVar, token))
@@ -55,9 +72,8 @@ func writeHTTPAuth(b *strings.Builder, pad, reqVar string, step normalizer.FlowS
 }
 
 // writeHTTPQuery appends URL query param setup lines using a temporary Values variable.
-func writeHTTPQuery(b *strings.Builder, pad, reqVar, qVar string, step normalizer.FlowStep) {
-	qp, ok := step.Args["query"].(map[string]string)
-	if !ok || len(qp) == 0 {
+func writeHTTPQueryTyped(b *strings.Builder, pad, reqVar, qVar string, qp map[string]flowir.Expression) {
+	if len(qp) == 0 {
 		return
 	}
 	b.WriteString(fmt.Sprintf("%s%s := %s.URL.Query()\n", pad, qVar, reqVar))
@@ -67,7 +83,7 @@ func writeHTTPQuery(b *strings.Builder, pad, reqVar, qVar string, step normalize
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		b.WriteString(fmt.Sprintf("%s%s.Set(%q, %s)\n", pad, qVar, k, qp[k]))
+		b.WriteString(fmt.Sprintf("%s%s.Set(%q, %s)\n", pad, qVar, k, normalizeFlowExpr(qp[k].Source)))
 	}
 	b.WriteString(fmt.Sprintf("%s%s.URL.RawQuery = %s.Encode()\n", pad, reqVar, qVar))
 }
@@ -87,24 +103,8 @@ func writeHTTPQuery(b *strings.Builder, pad, reqVar, qVar string, step normalize
 //	output?     string   — variable name for result (string if no into, or typed if into set)
 //	statusVar?  string   — variable name to store HTTP status code
 //	failOnError? bool    — return error on 4xx/5xx (default true)
-func renderHTTPRequest(st *flowRenderState, step normalizer.FlowStep, pad, sfx string, arg func(string) string) (string, bool) {
-	method := arg("method")
-	url := arg("url")
-	if method == "" || url == "" {
-		return renderInvalidFlowStepConfig(st, pad, "http.Request", "http.Request requires method and url"), true
-	}
-	body := arg("body")
-	output := arg("output")
-	into := arg("into")
-	statusVar := arg("statusVar")
-	timeout := arg("timeout")
-	if timeout == "" {
-		timeout = "10*time.Second"
-	}
-	failOnError := true
-	if v, ok := step.Args["failOnError"].(bool); ok {
-		failOnError = v
-	}
+func renderHTTPRequest(st *flowRenderState, typed flowir.HTTPRequest, pad, sfx string) (string, bool) {
+	method, url, body, output, into, statusVar, timeout, failOnError := typed.Method, normalizeFlowExpr(typed.URL.Source), normalizeFlowExpr(typed.Body.Source), typed.Output, typed.Into, typed.StatusVar, normalizeFlowExpr(typed.Timeout.Source), typed.FailOnError
 
 	reqV := "_httpReq" + sfx
 	reqErrV := "_httpReqErr" + sfx
@@ -130,8 +130,8 @@ func renderHTTPRequest(st *flowRenderState, step normalizer.FlowStep, pad, sfx s
 	b.WriteString(errReturn(st, pad+"\t", "fmt.Errorf(\"http.Request: %w\", "+reqErrV+")"))
 	b.WriteString(fmt.Sprintf("%s}\n", pad))
 
-	writeHTTPAuth(&b, pad, reqV, step, arg)
-	writeHTTPQuery(&b, pad, reqV, qV, step)
+	writeHTTPAuthTyped(&b, pad, reqV, typed.Headers, typed.Auth)
+	writeHTTPQueryTyped(&b, pad, reqV, qV, typed.Query)
 
 	b.WriteString(fmt.Sprintf("%s%s, %s := http.DefaultClient.Do(%s)\n", pad, resV, hErrV, reqV))
 	b.WriteString(fmt.Sprintf("%s%s()\n", pad, cancelV))
@@ -192,59 +192,8 @@ func renderHTTPRequest(st *flowRenderState, step normalizer.FlowStep, pad, sfx s
 //	output?     string     — variable name for response body string
 //	statusVar?  string     — variable name for status code
 //	failOnError? bool      — return error on 4xx/5xx after all retries (default true)
-func renderHTTPRetryPolicy(st *flowRenderState, step normalizer.FlowStep, pad, sfx string, arg func(string) string) (string, bool) {
-	method := arg("method")
-	url := arg("url")
-	if method == "" || url == "" {
-		return renderInvalidFlowStepConfig(st, pad, "http.RetryPolicy", "http.RetryPolicy requires method and url"), true
-	}
-	body := arg("body")
-	output := arg("output")
-	statusVar := arg("statusVar")
-	timeout := arg("timeout")
-	if timeout == "" {
-		timeout = "10*time.Second"
-	}
-	attempts := flowIntArg(step.Args, "attempts", 3)
-	if attempts < 1 {
-		attempts = 1
-	}
-	backoffMs := flowIntArg(step.Args, "backoffMs", 500)
-	failOnError := true
-	if v, ok := step.Args["failOnError"].(bool); ok {
-		failOnError = v
-	}
-
-	// Parse retryOn: accepts []int, []int64, []float64, []any
-	var retryOn []int
-	if v, ok := step.Args["retryOn"]; ok {
-		switch rv := v.(type) {
-		case []int:
-			retryOn = rv
-		case []int64:
-			for _, n := range rv {
-				retryOn = append(retryOn, int(n))
-			}
-		case []float64:
-			for _, n := range rv {
-				retryOn = append(retryOn, int(n))
-			}
-		case []any:
-			for _, n := range rv {
-				switch nn := n.(type) {
-				case int:
-					retryOn = append(retryOn, nn)
-				case int64:
-					retryOn = append(retryOn, int(nn))
-				case float64:
-					retryOn = append(retryOn, int(nn))
-				}
-			}
-		}
-	}
-	if len(retryOn) == 0 {
-		retryOn = []int{429, 503}
-	}
+func renderHTTPRetryPolicy(st *flowRenderState, typed flowir.HTTPRetryPolicy, pad, sfx string) (string, bool) {
+	method, url, body, output, statusVar, timeout, attempts, backoffMs, failOnError, retryOn := typed.Method, normalizeFlowExpr(typed.URL.Source), normalizeFlowExpr(typed.Body.Source), typed.Output, typed.StatusVar, normalizeFlowExpr(typed.Timeout.Source), typed.Attempts, typed.BackoffMS, typed.FailOnError, typed.RetryOn
 
 	reqV := "_httpReq" + sfx
 	reqErrV := "_httpReqErr" + sfx
@@ -283,8 +232,8 @@ func renderHTTPRetryPolicy(st *flowRenderState, step normalizer.FlowStep, pad, s
 	b.WriteString(errReturn(st, inner+"\t", "fmt.Errorf(\"http.RetryPolicy: request: %w\", "+reqErrV+")"))
 	b.WriteString(fmt.Sprintf("%s}\n", inner))
 
-	writeHTTPAuth(&b, inner, reqV, step, arg)
-	writeHTTPQuery(&b, inner, reqV, qV, step)
+	writeHTTPAuthTyped(&b, inner, reqV, typed.Headers, typed.Auth)
+	writeHTTPQueryTyped(&b, inner, reqV, qV, typed.Query)
 
 	b.WriteString(fmt.Sprintf("%s%s, %s = http.DefaultClient.Do(%s)\n", inner, resV, hErrV, reqV))
 	b.WriteString(fmt.Sprintf("%s%s()\n", inner, cancelV))
@@ -354,32 +303,8 @@ func renderHTTPRetryPolicy(st *flowRenderState, step normalizer.FlowStep, pad, s
 //	max_pages?   int      — safety limit on iterations (default 100)
 //	headers?     map      — request headers
 //	auth?        string   — "bearer:TOKEN" or "basic:USER:PASS"
-func renderHTTPPaginate(st *flowRenderState, step normalizer.FlowStep, pad, sfx string, arg func(string) string) (string, bool) {
-	url := arg("url")
-	into := arg("into")
-	asVar := arg("as")
-	cursorExpr := arg("cursor_expr")
-	if url == "" || into == "" || asVar == "" || cursorExpr == "" {
-		return renderInvalidFlowStepConfig(st, pad, "http.Paginate", "http.Paginate requires url, into, as, and cursor_expr"), true
-	}
-	itemsExpr := arg("items_expr")
-	cursorParam := arg("cursor_param")
-	output := arg("output")
-	outputType := arg("output_type")
-	method := arg("method")
-	if method == "" {
-		method = "GET"
-	}
-	if cursorParam == "" {
-		cursorParam = "cursor"
-	}
-	if outputType == "" {
-		outputType = "[]any"
-	}
-	maxPages := flowIntArg(step.Args, "max_pages", 100)
-	if maxPages < 1 {
-		maxPages = 1
-	}
+func renderHTTPPaginate(st *flowRenderState, typed flowir.HTTPPaginate, pad, sfx string) (string, bool) {
+	url, into, asVar, cursorExpr, itemsExpr, cursorParam, output, outputType, method, maxPages := normalizeFlowExpr(typed.URL.Source), typed.Into, typed.As, normalizeFlowExpr(typed.Cursor.Source), normalizeFlowExpr(typed.Items.Source), typed.CursorParam, typed.Output, typed.OutputType, typed.Method, typed.MaxPages
 
 	uV := "_u" + sfx
 	uErrV := "_uErr" + sfx
@@ -419,7 +344,7 @@ func renderHTTPPaginate(st *flowRenderState, step normalizer.FlowStep, pad, sfx 
 	b.WriteString(errReturn(st, inner+"\t", "fmt.Errorf(\"http.Paginate: request: %w\", "+reqErrV+")"))
 	b.WriteString(fmt.Sprintf("%s}\n", inner))
 
-	writeHTTPAuth(&b, inner, reqV, step, arg)
+	writeHTTPAuthTyped(&b, inner, reqV, typed.Headers, typed.Auth)
 
 	b.WriteString(fmt.Sprintf("%s%s, %s := http.DefaultClient.Do(%s)\n", inner, resV, hErrV, reqV))
 	b.WriteString(fmt.Sprintf("%sif %s != nil {\n", inner, hErrV))
@@ -449,28 +374,8 @@ func renderHTTPPaginate(st *flowRenderState, step normalizer.FlowStep, pad, sfx 
 	return b.String(), true
 }
 
-func renderHTTPSOAP(st *flowRenderState, step normalizer.FlowStep, pad, sfx string, arg func(string) string) (string, bool) {
-	url := arg("url")
-	namespace := arg("namespace")
-	operation := arg("operation")
-	if url == "" || namespace == "" || operation == "" {
-		return renderInvalidFlowStepConfig(st, pad, "http.SOAP", "http.SOAP requires url, namespace, and operation"), true
-	}
-	output := arg("output")
-	into := arg("into")
-	statusVar := arg("statusVar")
-	timeout := arg("timeout")
-	soapAction := arg("soapAction")
-	if timeout == "" {
-		timeout = "10*time.Second"
-	}
-	if soapAction == "" {
-		soapAction = operation
-	}
-	failOnError := true
-	if v, ok := step.Args["failOnError"].(bool); ok {
-		failOnError = v
-	}
+func renderHTTPSOAP(st *flowRenderState, typed flowir.HTTPSOAP, pad, sfx string) (string, bool) {
+	url, namespace, operation, output, into, statusVar, timeout, soapAction, failOnError := normalizeFlowExpr(typed.URL.Source), normalizeFlowExpr(typed.Namespace.Source), normalizeFlowExpr(typed.Operation.Source), typed.Output, typed.Into, typed.StatusVar, normalizeFlowExpr(typed.Timeout.Source), normalizeFlowExpr(typed.SOAPAction.Source), typed.FailOnError
 
 	reqV := "_httpReq" + sfx
 	reqErrV := "_httpReqErr" + sfx
@@ -490,7 +395,7 @@ func renderHTTPSOAP(st *flowRenderState, step normalizer.FlowStep, pad, sfx stri
 	b.WriteString(fmt.Sprintf("%s%s.WriteString(%q)\n", pad, payloadV, `<?xml version="1.0" encoding="UTF-8"?>`))
 	b.WriteString(fmt.Sprintf("%s%s.WriteString(%q)\n", pad, payloadV, `<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body>`))
 	b.WriteString(fmt.Sprintf("%s%s.WriteString(fmt.Sprintf(%q, %s, %s))\n", pad, payloadV, `<%s xmlns="%s">`, operation, namespace))
-	if reqMap, ok := step.Args["request"].(map[string]string); ok && len(reqMap) > 0 {
+	if reqMap := typed.Request; len(reqMap) > 0 {
 		keys := make([]string, 0, len(reqMap))
 		for k := range reqMap {
 			keys = append(keys, k)
@@ -499,7 +404,7 @@ func renderHTTPSOAP(st *flowRenderState, step normalizer.FlowStep, pad, sfx stri
 		for i, k := range keys {
 			valVar := fmt.Sprintf("%s_%d", valV, i)
 			escVar := fmt.Sprintf("%s_%d", escV, i)
-			b.WriteString(fmt.Sprintf("%s%s := fmt.Sprint(%s)\n", pad, valVar, reqMap[k]))
+			b.WriteString(fmt.Sprintf("%s%s := fmt.Sprint(%s)\n", pad, valVar, normalizeFlowExpr(reqMap[k].Source)))
 			b.WriteString(fmt.Sprintf("%svar %s strings.Builder\n", pad, escVar))
 			b.WriteString(fmt.Sprintf("%sif _soapErr := xml.EscapeText(&%s, []byte(%s)); _soapErr != nil {\n", pad, escVar, valVar))
 			b.WriteString(errReturn(st, pad+"\t", "fmt.Errorf(\"http.SOAP: escape: %w\", _soapErr)"))
@@ -518,7 +423,7 @@ func renderHTTPSOAP(st *flowRenderState, step normalizer.FlowStep, pad, sfx stri
 	b.WriteString(fmt.Sprintf("%s}\n", pad))
 	b.WriteString(fmt.Sprintf("%s%s.Header.Set(%q, %q)\n", pad, reqV, "Content-Type", "text/xml; charset=utf-8"))
 	b.WriteString(fmt.Sprintf("%s%s.Header.Set(%q, fmt.Sprint(%s))\n", pad, reqV, "SOAPAction", soapAction))
-	writeHTTPAuth(&b, pad, reqV, step, arg)
+	writeHTTPAuthTyped(&b, pad, reqV, typed.Headers, "")
 	b.WriteString(fmt.Sprintf("%s%s, %s := http.DefaultClient.Do(%s)\n", pad, resV, hErrV, reqV))
 	b.WriteString(fmt.Sprintf("%s%s()\n", pad, cancelV))
 	b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, hErrV))

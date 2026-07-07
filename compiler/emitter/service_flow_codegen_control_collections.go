@@ -8,39 +8,23 @@ import (
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 func renderFlowStepControlCollections(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
 	pad := strings.Repeat("\t", indent)
 	switch step.Action {
 	case "value.Coalesce":
-		output := arg("output")
-		if output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "value.Coalesce", "value.Coalesce requires output"), true
+		typed, err := flowir.DecodeAs[flowir.ValueCoalesce](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		mode := strings.TrimSpace(arg("mode"))
-		if mode == "" {
-			mode = "non_empty"
+		output, mode := typed.Output, typed.Mode
+		values := make([]string, 0, len(typed.Values))
+		for _, v := range typed.Values {
+			values = append(values, normalizeFlowExpr(v.Source))
 		}
-		var values []string
-		switch raw := step.Args["values"].(type) {
-		case []string:
-			values = append(values, raw...)
-		case []any:
-			for _, it := range raw {
-				if s, ok := it.(string); ok && strings.TrimSpace(s) != "" {
-					values = append(values, normalizeFlowExpr(strings.TrimSpace(s)))
-				}
-			}
-		case string:
-			if strings.TrimSpace(raw) != "" {
-				values = append(values, normalizeFlowExpr(strings.TrimSpace(raw)))
-			}
-		}
-		if len(values) == 0 {
-			return renderInvalidFlowStepConfig(st, pad, "value.Coalesce", "value.Coalesce requires values and output"), true
-		}
-		outputType := resolveFlowDynamicOutputType(st, output, arg("into"))
+		outputType := resolveFlowDynamicOutputType(st, output, typed.Into)
 		foundV := "_coalesceFound" + sfx
 		anyV := "_coalesceValue" + sfx
 		modeV := "_coalesceMode" + sfx
@@ -103,38 +87,38 @@ func renderFlowStepControlCollections(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "list.Filter":
+		if _, err := flowir.DecodeAs[flowir.ListFilter](step); err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
 		if out, ok := renderListFilterAST(st, step, indent, arg); ok {
 			return out, true
 		}
 		return renderListFilterLegacy(st, step, pad, arg), true
 
 	case "list.Paginate":
+		if _, err := flowir.DecodeAs[flowir.ListPaginate](step); err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
 		if out, ok := renderListPaginateAST(st, step, indent, sfx, arg); ok {
 			return out, true
 		}
 		return renderListPaginateLegacy(st, step, pad, sfx, arg), true
 
 	case "list.Append":
-		to := arg("to")
-		item := arg("item")
-		if to == "" || item == "" {
-			return renderInvalidFlowStepConfig(st, pad, "list.Append", "list.Append requires to and item"), true
+		typed, err := flowir.DecodeAs[flowir.ListAppend](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		to, item := normalizeFlowExpr(typed.Target.Source), normalizeFlowExpr(typed.Item.Source)
 		return fmt.Sprintf("%s%s = append(%s, %s)\n", pad, to, to, item), true
 
 	case "list.Find":
-		from := arg("from")
-		cond := arg("condition")
-		output := arg("output")
-		if from == "" || cond == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "list.Find", "list.Find requires from, condition, and output"), true
+		typed, err := flowir.DecodeAs[flowir.ListFind](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		as := arg("as")
-		if as == "" {
-			as = "_item"
-		}
-		found := arg("found")
-		outputType := resolveFlowDynamicOutputType(st, output, arg("into"))
+		from, cond, output, as, found := normalizeFlowExpr(typed.From.Source), normalizeFlowExpr(typed.Condition.Source), typed.Output, typed.As, typed.Found
+		outputType := resolveFlowDynamicOutputType(st, output, typed.Into)
 		var b strings.Builder
 		if found != "" {
 			b.WriteString(renderFlowAssignTarget(st, pad, found, "false", "bool"))
@@ -157,16 +141,11 @@ func renderFlowStepControlCollections(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "list.Any":
-		from := arg("from")
-		cond := arg("condition")
-		output := arg("output")
-		if from == "" || cond == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "list.Any", "list.Any requires from, condition, and output"), true
+		typed, err := flowir.DecodeAs[flowir.ListAny](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		as := arg("as")
-		if as == "" {
-			as = "_item"
-		}
+		from, cond, output, as := normalizeFlowExpr(typed.From.Source), normalizeFlowExpr(typed.Condition.Source), typed.Output, typed.As
 		var b strings.Builder
 		b.WriteString(renderFlowAssignTarget(st, pad, output, "false", "bool"))
 		b.WriteString(fmt.Sprintf("%sfor _, %s := range %s {\n", pad, as, from))
@@ -178,16 +157,11 @@ func renderFlowStepControlCollections(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "list.All":
-		from := arg("from")
-		cond := arg("condition")
-		output := arg("output")
-		if from == "" || cond == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "list.All", "list.All requires from, condition, and output"), true
+		typed, err := flowir.DecodeAs[flowir.ListAll](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		as := arg("as")
-		if as == "" {
-			as = "_item"
-		}
+		from, cond, output, as := normalizeFlowExpr(typed.From.Source), normalizeFlowExpr(typed.Condition.Source), typed.Output, typed.As
 		var b strings.Builder
 		b.WriteString(renderFlowAssignTarget(st, pad, output, "true", "bool"))
 		b.WriteString(fmt.Sprintf("%sfor _, %s := range %s {\n", pad, as, from))
@@ -199,42 +173,62 @@ func renderFlowStepControlCollections(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "list.Map":
+		if _, err := flowir.DecodeAs[flowir.ListMap](step); err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
 		return renderListMapLegacy(st, step, pad, arg), true
 
 	case "list.Reduce":
+		if _, err := flowir.DecodeAs[flowir.ListReduce](step); err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
 		return renderListReduceLegacy(st, step, pad, sfx, arg), true
 
 	case "list.GroupBy":
+		if _, err := flowir.DecodeAs[flowir.ListGroupBy](step); err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
 		return renderListGroupByLegacy(st, step, pad, sfx, arg), true
 
 	case "list.Distinct":
+		if _, err := flowir.DecodeAs[flowir.ListDistinct](step); err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
 		return renderListDistinctLegacy(st, step, pad, sfx, arg), true
 
 	case "list.Chunk":
+		if _, err := flowir.DecodeAs[flowir.ListChunk](step); err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
 		return renderListChunkLegacy(st, step, pad, sfx, arg), true
 
 	case "batch.Run":
 		return renderBatchRunLegacy(st, step, pad, indent, sfx, arg, child), true
 
 	case "list.Sort":
+		if _, err := flowir.DecodeAs[flowir.ListSort](step); err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
 		if out, ok := renderListSortAST(step, indent, arg); ok {
 			return out, true
 		}
 		return renderListSortLegacy(pad, arg), true
 
 	case "str.Normalize":
+		if _, err := flowir.DecodeAs[flowir.StringNormalize](step); err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
 		if out, ok := renderStrNormalizeAST(st, step, indent, arg); ok {
 			return out, true
 		}
 		return renderStrNormalizeLegacy(st, pad, arg), true
 
 	case "list.Sum":
-		input := arg("input")
-		field := arg("field")
-		output := arg("output")
-		if input == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "list.Sum", "list.Sum requires input and output"), true
+		typed, err := flowir.DecodeAs[flowir.ListAggregate](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		input, field, output := normalizeFlowExpr(typed.Input.Source), typed.Field, typed.Output
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -253,12 +247,11 @@ func renderFlowStepControlCollections(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "list.Avg":
-		input := arg("input")
-		field := arg("field")
-		output := arg("output")
-		if input == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "list.Avg", "list.Avg requires input and output"), true
+		typed, err := flowir.DecodeAs[flowir.ListAggregate](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		input, field, output := normalizeFlowExpr(typed.Input.Source), typed.Field, typed.Output
 		assign := ":="
 		if st.declared[output] {
 			assign = "="

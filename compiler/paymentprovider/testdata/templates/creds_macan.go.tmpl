@@ -1,0 +1,80 @@
+package {{ .PackageName }}
+
+import (
+	"errors"
+	"fmt"
+	"strconv"
+
+	providers "gitlab.q-tech.host/transferty/backend/tnx_processor/payment_providers"
+)
+
+const (
+	secretLabelAPIToken = "{{ (index .SecretParts 0).Name }}"
+	secretLabelSigKey   = "{{ (index .SecretParts 1).Name }}"
+{{- if gt (len .SecretParts) 2 }}
+	secretLabelReturnRD = "{{ (index .SecretParts 2).Name }}"
+{{- end }}
+)
+
+var secretLabels = providers.NewSecretsLabels(
+	[]string{secretLabelAPIToken, secretLabelSigKey},
+{{- if gt (len .SecretParts) 2 }}
+	secretLabelReturnRD,
+{{- end }}
+)
+
+var (
+	errRequiredSecretValues = errors.New("required secret values must not be empty")
+{{- if gt (len .SecretParts) 2 }}
+	errInvalidReturnRDValue = errors.New("invalid return recipient details value")
+{{- end }}
+)
+
+type apiSecrets struct {
+	apiToken               string
+	signatureKey           string
+{{- if gt (len .SecretParts) 2 }}
+	returnRecipientDetails bool
+{{- end }}
+}
+
+func parseSecrets(secret string) (*apiSecrets, error) {
+	parts, err := secretLabels.SplitMerchantSecret(secret)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w: %w", ppSID, providers.ErrInvalidMerchantSecret, err)
+	}
+
+	apiToken := secretLabels.GetValue(secretLabelAPIToken, parts)
+	sigKey := secretLabels.GetValue(secretLabelSigKey, parts)
+	if apiToken == "" || sigKey == "" {
+		return nil, fmt.Errorf("%s: %w: %w", ppSID, providers.ErrInvalidMerchantSecret, errRequiredSecretValues)
+	}
+
+{{- if gt (len .SecretParts) 2 }}
+	returnRD := false
+	if raw := secretLabels.GetValue(secretLabelReturnRD, parts); raw != "" {
+		returnRD, err = strconv.ParseBool(raw)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"%s: %w: %w: %s=%q",
+				ppSID,
+				providers.ErrInvalidMerchantSecret,
+				errInvalidReturnRDValue,
+				secretLabelReturnRD,
+				raw,
+			)
+		}
+	}
+
+	return &apiSecrets{
+		apiToken:               apiToken,
+		signatureKey:           sigKey,
+		returnRecipientDetails: returnRD,
+	}, nil
+{{- else }}
+	return &apiSecrets{
+		apiToken:     apiToken,
+		signatureKey: sigKey,
+	}, nil
+{{- end }}
+}

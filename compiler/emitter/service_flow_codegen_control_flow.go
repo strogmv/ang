@@ -8,40 +8,119 @@ import (
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 func renderFlowStepControlFlow(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
 	pad := strings.Repeat("\t", indent)
 	switch step.Action {
 	case "flow.If":
-		if out, ok := renderFlowIfAST(st, indent, arg, child); ok {
+		typed, err := flowir.DecodeAs[flowir.FlowIf](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, "flow.If", err.Error()), true
+		}
+		typedArg := func(name string) string {
+			if name == "condition" {
+				return normalizeFlowExpr(typed.Condition.Source)
+			}
+			return arg(name)
+		}
+		typedChild := func(name string) []normalizer.FlowStep {
+			switch name {
+			case "_then":
+				return typed.Then
+			case "_else":
+				return typed.Else
+			default:
+				return child(name)
+			}
+		}
+		if out, ok := renderFlowIfAST(st, indent, typedArg, typedChild); ok {
 			return out, true
 		}
-		return renderFlowIfLegacy(st, pad, indent, arg, child), true
+		return renderFlowIfLegacy(st, pad, indent, typedArg, typedChild), true
 
 	case "flow.For":
-		if out, ok := renderFlowForAST(st, indent, arg, child); ok {
+		typed, err := flowir.DecodeAs[flowir.FlowFor](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
+		typedArg := func(n string) string {
+			if n == "each" {
+				return normalizeFlowExpr(typed.Each.Source)
+			}
+			if n == "as" {
+				return typed.As
+			}
+			return arg(n)
+		}
+		typedChild := func(n string) []normalizer.FlowStep {
+			if n == "_do" {
+				return typed.Steps
+			}
+			return child(n)
+		}
+		if out, ok := renderFlowForAST(st, indent, typedArg, typedChild); ok {
 			return out, true
 		}
-		return renderFlowForLegacy(st, pad, indent, arg, child), true
+		return renderFlowForLegacy(st, pad, indent, typedArg, typedChild), true
 
 	case "flow.Block", "tx.Block":
-		if out, ok := renderFlowBlockAST(st, indent, child); ok {
+		typed, err := flowir.DecodeAs[flowir.FlowBlock](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
+		typedChild := func(name string) []normalizer.FlowStep {
+			if name == "_do" {
+				return typed.Steps
+			}
+			return child(name)
+		}
+		if out, ok := renderFlowBlockAST(st, indent, typedChild); ok {
 			return out, true
 		}
-		return renderFlowBlockLegacy(st, indent, child), true
+		return renderFlowBlockLegacy(st, indent, typedChild), true
 
 	case "flow.Switch":
-		if out, ok := renderFlowSwitchAST(st, step, indent, arg, child); ok {
+		typed, err := flowir.DecodeAs[flowir.FlowSwitch](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
+		typedArg := func(n string) string {
+			if n == "value" {
+				return normalizeFlowExpr(typed.Value.Source)
+			}
+			if n == "match" {
+				return typed.Match
+			}
+			return arg(n)
+		}
+		if out, ok := renderFlowSwitchAST(st, typed.Cases, indent, typedArg, typed.Default); ok {
 			return out, true
 		}
-		return renderFlowSwitchLegacy(st, step, pad, indent, arg, child), true
+		return renderFlowSwitchLegacy(st, typed.Cases, pad, indent, typedArg, typed.Default), true
 
 	case "flow.While":
-		if out, ok := renderFlowWhileAST(st, indent, arg, child); ok {
+		typed, err := flowir.DecodeAs[flowir.FlowWhile](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
+		typedArg := func(n string) string {
+			if n == "condition" {
+				return normalizeFlowExpr(typed.Condition.Source)
+			}
+			return arg(n)
+		}
+		typedChild := func(n string) []normalizer.FlowStep {
+			if n == "_do" {
+				return typed.Steps
+			}
+			return child(n)
+		}
+		if out, ok := renderFlowWhileAST(st, indent, typedArg, typedChild); ok {
 			return out, true
 		}
-		return renderFlowWhileLegacy(st, pad, indent, arg, child), true
+		return renderFlowWhileLegacy(st, pad, indent, typedArg, typedChild), true
 
 	case "flow.Call":
 		return renderFlowCall(st, pad, step, arg), true
@@ -95,13 +174,25 @@ func renderFlowStepControlFlow(st *flowRenderState, step normalizer.FlowStep, in
 		return renderFlowExplainErrorLegacy(st, pad, sfx, arg), true
 
 	case "flow.Parallel":
-		return renderFlowParallel(st, step, indent, sfx, arg, child), true
+		typed, err := flowir.DecodeAs[flowir.FlowParallel](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
+		return renderFlowParallel(st, typed.Branches, indent, sfx), true
 
 	case "flow.Join":
-		return renderFlowJoin(st, step, indent, sfx, arg, child), true
+		typed, err := flowir.DecodeAs[flowir.FlowJoin](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
+		return renderFlowJoin(st, typed.Branches, indent, sfx), true
 
 	case "flow.Race":
-		return renderFlowRace(st, step, indent, sfx, arg, child), true
+		typed, err := flowir.DecodeAs[flowir.FlowRace](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
+		return renderFlowRace(st, typed.Branches, indent, sfx), true
 
 	case "flow.Delay":
 		return renderFlowDelay(st, step, indent, sfx, arg, child), true
@@ -344,7 +435,7 @@ func renderFlowForAST(st *flowRenderState, indent int, arg func(string) string, 
 	return renderFlowASTStmts([]ast.Stmt{stmt}, indent), true
 }
 
-func renderFlowSwitchAST(st *flowRenderState, step normalizer.FlowStep, indent int, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
+func renderFlowSwitchAST(st *flowRenderState, cases map[string][]normalizer.FlowStep, indent int, arg func(string) string, defaultSteps []normalizer.FlowStep) (string, bool) {
 	value := arg("value")
 	if value == "" {
 		return "", true
@@ -357,7 +448,11 @@ func renderFlowSwitchAST(st *flowRenderState, step normalizer.FlowStep, indent i
 	if err != nil {
 		return "", false
 	}
-	cases, keys := flowSwitchCases(step)
+	keys := make([]string, 0, len(cases))
+	for k := range cases {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
 	clauses := make([]ast.Stmt, 0, len(keys)+1)
 	for _, k := range keys {
 		body, parseErr := parseFlowStmtList(renderFlowSteps(cloneFlowState(st), cases[k], 1))
@@ -371,7 +466,6 @@ func renderFlowSwitchAST(st *flowRenderState, step normalizer.FlowStep, indent i
 			Body: body,
 		})
 	}
-	defaultSteps := child("_default")
 	if len(defaultSteps) > 0 {
 		body, parseErr := parseFlowStmtList(renderFlowSteps(cloneFlowState(st), defaultSteps, 1))
 		if parseErr != nil {

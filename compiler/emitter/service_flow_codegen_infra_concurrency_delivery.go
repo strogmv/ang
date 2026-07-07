@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
@@ -14,17 +15,11 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 
 	switch step.Action {
 	case "parallel.Run":
-		branches, _ := step.Args["_branches"].(map[string][]normalizer.FlowStep)
-		if len(branches) == 0 {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.ParallelRun](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		maxConcurrency := flowIntArg(step.Args, "maxConcurrency", 0)
-		if maxConcurrency <= 0 {
-			maxConcurrency = flowIntArg(step.Args, "maxParallel", 0)
-		}
-		if maxConcurrency <= 0 {
-			maxConcurrency = 8
-		}
+		branches, maxConcurrency := typed.Branches, typed.MaxConcurrency
 		keys := make([]string, 0, len(branches))
 		for k := range branches {
 			keys = append(keys, k)
@@ -123,23 +118,11 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		return b.String(), true
 
 	case "webhook.Send":
-		url := arg("url")
-		payload := arg("payload")
-		if url == "" || payload == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.WebhookSend](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		event := arg("event")
-		retries := 3
-		if v, ok := step.Args["retries"]; ok {
-			switch n := v.(type) {
-			case int:
-				retries = n
-			case int64:
-				retries = int(n)
-			case float64:
-				retries = int(n)
-			}
-		}
+		url, payload, event, retries := normalizeFlowExpr(typed.URL.Source), normalizeFlowExpr(typed.Payload.Source), normalizeFlowExpr(typed.Event.Source), typed.Retries
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%s{\n", pad))
 		b.WriteString(fmt.Sprintf("%s\t_whBytes, _whMarshalErr := json.Marshal(%s)\n", pad, payload))
@@ -182,28 +165,11 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		return b.String(), true
 
 	case "webhook.VerifySignature":
-		payload := arg("payload")
-		signature := arg("signature")
-		if payload == "" || signature == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.WebhookVerifySignature](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		algorithm := arg("algorithm")
-		if algorithm == "" {
-			algorithm = `"sha256"`
-		}
-		secretExpr := arg("secret")
-		if secretExpr == "" {
-			secretExpr = `os.Getenv("WEBHOOK_SECRET")`
-		}
-		throwExpr := arg("throw")
-		if throwExpr == "" {
-			throwExpr = `"invalid webhook signature"`
-		}
-		output := arg("output")
-		strict := true
-		if v, ok := step.Args["strict"].(bool); ok {
-			strict = v
-		}
+		payload, signature, algorithm, secretExpr, throwExpr, output, strict := normalizeFlowExpr(typed.Payload.Source), normalizeFlowExpr(typed.Signature.Source), normalizeFlowExpr(typed.Algorithm.Source), normalizeFlowExpr(typed.Secret.Source), normalizeFlowExpr(typed.Throw.Source), typed.Output, typed.Strict
 
 		assign := ":="
 		if output != "" {
@@ -257,29 +223,21 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		return b.String(), true
 
 	case "webhook.Ack":
-		status := flowIntArg(step.Args, "status", 200)
-		body := arg("body")
-		if body == "" {
-			body = `"ok"`
+		typed, err := flowir.DecodeAs[flowir.WebhookAck](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		status, body := typed.Status, normalizeFlowExpr(typed.Body.Source)
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%s// webhook.Ack marker: transport should acknowledge with status=%d body=%s\n", pad, status, body))
 		return b.String(), true
 
 	case "queue.Enqueue":
-		subject := arg("subject")
-		payload := arg("payload")
-		if subject == "" || payload == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.QueueEnqueue](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		timeout := arg("timeout")
-		if timeout == "" {
-			if timeoutMS := flowIntArg(step.Args, "timeoutMs", 0); timeoutMS > 0 {
-				timeout = fmt.Sprintf("time.Duration(%d) * time.Millisecond", timeoutMS)
-			} else {
-				timeout = "3*time.Second"
-			}
-		}
+		subject, payload, timeout := normalizeFlowExpr(typed.Subject.Source), normalizeFlowExpr(typed.Payload.Source), normalizeFlowExpr(typed.Timeout.Source)
 		queueCtxVar := "_qCtx" + sfx
 		queueCancelVar := "_qCancel" + sfx
 		var b strings.Builder
@@ -297,36 +255,11 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		return b.String(), true
 
 	case "queue.Dequeue":
-		subject := arg("subject")
-		output := arg("output")
-		if subject == "" || output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.QueueDequeue](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		timeout := arg("timeout")
-		if timeout == "" {
-			if timeoutMS := flowIntArg(step.Args, "timeoutMs", 0); timeoutMS > 0 {
-				timeout = fmt.Sprintf("time.Duration(%d) * time.Millisecond", timeoutMS)
-			} else {
-				timeout = "3*time.Second"
-			}
-		}
-		ackToken := arg("ackToken")
-		attempts := flowIntArg(step.Args, "attempts", 0)
-		if attempts <= 0 {
-			if retries := flowIntArg(step.Args, "retries", -1); retries >= 0 {
-				attempts = retries + 1
-			} else {
-				attempts = 2
-			}
-		}
-		backoffMS := flowIntArg(step.Args, "backoffMs", 150)
-		if backoffMS < 0 {
-			backoffMS = 0
-		}
-		jitterMS := flowIntArg(step.Args, "jitterMs", 50)
-		if jitterMS < 0 {
-			jitterMS = 0
-		}
+		subject, output, timeout, ackToken, attempts, backoffMS, jitterMS := normalizeFlowExpr(typed.Subject.Source), typed.Output, normalizeFlowExpr(typed.Timeout.Source), typed.AckToken, typed.Attempts, typed.BackoffMS, typed.JitterMS
 
 		outAssign := ":="
 		if st.declared[output] {
@@ -388,11 +321,11 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		return b.String(), true
 
 	case "queue.Ack":
-		subject := arg("subject")
-		messageID := arg("messageID")
-		if subject == "" || messageID == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.QueueAck](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		subject, messageID := normalizeFlowExpr(typed.Subject.Source), normalizeFlowExpr(typed.MessageID.Source)
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%sif _qAckErr := s.queuePublisher.Ack(ctx, %s, %s); _qAckErr != nil {\n", pad, subject, messageID))
 		b.WriteString(errReturn(st, pad+"\t", "fmt.Errorf(\"queue.Ack: %w\", _qAckErr)"))
@@ -400,15 +333,11 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		return b.String(), true
 
 	case "queue.Nack":
-		subject := arg("subject")
-		messageID := arg("messageID")
-		if subject == "" || messageID == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.QueueNack](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		reason := arg("reason")
-		if reason == "" {
-			reason = `"nack"`
-		}
+		subject, messageID, reason := normalizeFlowExpr(typed.Subject.Source), normalizeFlowExpr(typed.MessageID.Source), normalizeFlowExpr(typed.Reason.Source)
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%sif _qNackErr := s.queuePublisher.Nack(ctx, %s, %s, fmt.Sprint(%s)); _qNackErr != nil {\n", pad, subject, messageID, reason))
 		b.WriteString(errReturn(st, pad+"\t", "fmt.Errorf(\"queue.Nack: %w\", _qNackErr)"))
@@ -416,15 +345,11 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		return b.String(), true
 
 	case "dlq.Publish":
-		subject := arg("subject")
-		payload := arg("payload")
-		if subject == "" || payload == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.DLQPublish](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		reason := arg("reason")
-		if reason == "" {
-			reason = `"unspecified"`
-		}
+		subject, payload, reason := normalizeFlowExpr(typed.Subject.Source), normalizeFlowExpr(typed.Payload.Source), normalizeFlowExpr(typed.Reason.Source)
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%s{\n", pad))
 		b.WriteString(fmt.Sprintf("%s\t_dlqPayload, _dlqMarshalErr := json.Marshal(%s)\n", pad, payload))

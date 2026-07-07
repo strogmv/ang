@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 func renderFlowStepInfraCacheMailStorage(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
@@ -13,15 +14,13 @@ func renderFlowStepInfraCacheMailStorage(st *flowRenderState, step normalizer.Fl
 
 	switch step.Action {
 	case "cache.Get":
-		key := arg("key")
-		output := arg("output")
-		if key == "" || output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.CacheGet](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, "cache.Get", err.Error()), true
 		}
-		optional := true
-		if v, ok := step.Args["optional"].(bool); ok {
-			optional = v
-		}
+		key := normalizeFlowExpr(typed.Key.Source)
+		output := typed.Output
+		optional := typed.Optional
 		var b strings.Builder
 		assign := ":="
 		if st.declared[output] {
@@ -52,12 +51,13 @@ func renderFlowStepInfraCacheMailStorage(st *flowRenderState, step normalizer.Fl
 		return b.String(), true
 
 	case "cache.Set":
-		key := arg("key")
-		value := arg("value")
-		ttl := arg("ttl")
-		if key == "" || value == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.CacheSet](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, "cache.Set", err.Error()), true
 		}
+		key := normalizeFlowExpr(typed.Key.Source)
+		value := normalizeFlowExpr(typed.Value.Source)
+		ttl := normalizeFlowExpr(typed.TTL.Source)
 		if ttl == "" {
 			ttl = "0"
 		}
@@ -68,10 +68,11 @@ func renderFlowStepInfraCacheMailStorage(st *flowRenderState, step normalizer.Fl
 		return b.String(), true
 
 	case "cache.Del":
-		key := arg("key")
-		if key == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.CacheDelete](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, "cache.Del", err.Error()), true
 		}
+		key := normalizeFlowExpr(typed.Key.Source)
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%sif _cErr := s.cache.Del(ctx, %s).Err(); _cErr != nil {\n", pad, key))
 		b.WriteString(errReturn(st, pad+"\t", "_cErr"))
@@ -79,13 +80,11 @@ func renderFlowStepInfraCacheMailStorage(st *flowRenderState, step normalizer.Fl
 		return b.String(), true
 
 	case "mail.Send":
-		to := arg("to")
-		subject := arg("subject")
-		body := arg("body")
-		if to == "" || subject == "" || body == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.MailSend](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		html := arg("html")
+		to, subject, body, html := normalizeFlowExpr(typed.To.Source), normalizeFlowExpr(typed.Subject.Source), normalizeFlowExpr(typed.Body.Source), normalizeFlowExpr(typed.HTML.Source)
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%sif _mErr := s.mailer.Send(ctx, port.EmailMessage{To: %s, Subject: %s, Text: %s", pad, to, subject, body))
 		if html != "" {
@@ -97,13 +96,14 @@ func renderFlowStepInfraCacheMailStorage(st *flowRenderState, step normalizer.Fl
 		return b.String(), true
 
 	case "storage.Upload":
-		key := arg("key")
-		data := arg("data")
-		output := arg("output")
-		contentType := arg("contentType")
-		if key == "" || data == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.StorageUpload](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, "storage.Upload", err.Error()), true
 		}
+		key := normalizeFlowExpr(typed.Key.Source)
+		data := normalizeFlowExpr(typed.Data.Source)
+		output := typed.Output
+		contentType := normalizeFlowExpr(typed.ContentType.Source)
 		if contentType == "" {
 			contentType = `"application/octet-stream"`
 		}
@@ -143,11 +143,12 @@ func renderFlowStepInfraCacheMailStorage(st *flowRenderState, step normalizer.Fl
 		return b.String(), true
 
 	case "storage.Download":
-		key := arg("key")
-		output := arg("output")
-		if key == "" || output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.StorageDownload](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, "storage.Download", err.Error()), true
 		}
+		key := normalizeFlowExpr(typed.Key.Source)
+		output := typed.Output
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -176,10 +177,11 @@ func renderFlowStepInfraCacheMailStorage(st *flowRenderState, step normalizer.Fl
 		return b.String(), true
 
 	case "storage.Delete":
-		key := arg("key")
-		if key == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.StorageDelete](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, "storage.Delete", err.Error()), true
 		}
+		key := normalizeFlowExpr(typed.Key.Source)
 		var b strings.Builder
 		sDelErrV := "_sDelErr" + sfx
 		b.WriteString(fmt.Sprintf("%sif %s := s.storage.Delete(ctx, %s); %s != nil {\n", pad, sDelErrV, key, sDelErrV))
@@ -188,11 +190,12 @@ func renderFlowStepInfraCacheMailStorage(st *flowRenderState, step normalizer.Fl
 		return b.String(), true
 
 	case "storage.List":
-		prefix := arg("prefix")
-		output := arg("output")
-		if prefix == "" || output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.StorageList](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, "storage.List", err.Error()), true
 		}
+		prefix := normalizeFlowExpr(typed.Prefix.Source)
+		output := typed.Output
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -210,11 +213,12 @@ func renderFlowStepInfraCacheMailStorage(st *flowRenderState, step normalizer.Fl
 		return b.String(), true
 
 	case "storage.GetURL":
-		key := arg("key")
-		output := arg("output")
-		if key == "" || output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.StorageGetURL](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, "storage.GetURL", err.Error()), true
 		}
+		key := normalizeFlowExpr(typed.Key.Source)
+		output := typed.Output
 		assign := ":="
 		if st.declared[output] {
 			assign = "="

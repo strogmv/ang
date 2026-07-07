@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 func renderFlowStepState(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
@@ -12,13 +13,14 @@ func renderFlowStepState(st *flowRenderState, step normalizer.FlowStep, indent i
 
 	switch step.Action {
 	case "state.Get":
-		key := arg("key")
-		output := arg("output")
-		defVal := arg("default")
-		if key == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "state.Get", "state.Get requires key and output"), true
+		typed, err := flowir.DecodeAs[flowir.StateGet](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, "state.Get", err.Error()), true
 		}
-		into := arg("into")
+		key := normalizeFlowExpr(typed.Key.Source)
+		output := typed.Output
+		defVal := normalizeFlowExpr(typed.Default.Source)
+		into := typed.Into
 
 		rawVar := "_stateRaw" + sfx
 		errVar := "_stateErr" + sfx
@@ -58,12 +60,13 @@ func renderFlowStepState(st *flowRenderState, step normalizer.FlowStep, indent i
 		return b.String(), true
 
 	case "state.Set":
-		key := arg("key")
-		value := arg("value")
-		ttl := arg("ttl")
-		if key == "" || value == "" {
-			return renderInvalidFlowStepConfig(st, pad, "state.Set", "state.Set requires key and value"), true
+		typed, err := flowir.DecodeAs[flowir.StateSet](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, "state.Set", err.Error()), true
 		}
+		key := normalizeFlowExpr(typed.Key.Source)
+		value := normalizeFlowExpr(typed.Value.Source)
+		ttl := normalizeFlowExpr(typed.TTL.Source)
 
 		if ttl == "" {
 			ttl = "0"
@@ -83,10 +86,11 @@ func renderFlowStepState(st *flowRenderState, step normalizer.FlowStep, indent i
 		return b.String(), true
 
 	case "state.Delete":
-		key := arg("key")
-		if key == "" {
-			return renderInvalidFlowStepConfig(st, pad, "state.Delete", "state.Delete requires key"), true
+		typed, err := flowir.DecodeAs[flowir.StateDelete](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, "state.Delete", err.Error()), true
 		}
+		key := normalizeFlowExpr(typed.Key.Source)
 
 		errVar := "_stateErr" + sfx
 

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 func flowHTTPStatusExpr(raw any, fallback string) string {
@@ -57,21 +58,18 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 
 	switch step.Action {
 	case "errors.New":
-		message := arg("message")
-		if message == "" {
-			return renderInvalidFlowStepConfig(st, pad, "errors.New", "errors.New requires message"), true
+		typed, err := flowir.DecodeAs[flowir.ErrorNew](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		statusExpr := flowHTTPStatusExpr(step.Args["status"], "http.StatusInternalServerError")
-		codeExpr := arg("code")
+		message := normalizeFlowExpr(typed.Message.Source)
+		statusExpr := flowHTTPStatusExpr(typed.Status.Source, "http.StatusInternalServerError")
+		codeExpr := normalizeFlowExpr(typed.Code.Source)
 		if codeExpr == "" {
 			codeExpr = `"ERROR"`
 		}
 		errExpr := fmt.Sprintf("errors.New(%s, %s, %s)", statusExpr, codeExpr, message)
-		output := arg("output")
-		throwNow := false
-		if raw, ok := step.Args["throw"].(bool); ok {
-			throwNow = raw
-		}
+		output, throwNow := typed.Output, typed.Throw
 		if output != "" {
 			b := &strings.Builder{}
 			if !st.declared[output] {
@@ -89,8 +87,12 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return errReturn(st, pad, errExpr), true
 
 	case "logic.Check":
-		cond := arg("condition")
-		throw := arg("throw")
+		typed, err := flowir.DecodeAs[flowir.LogicCheck](step)
+		if err != nil {
+			return "", true
+		}
+		cond := normalizeFlowExpr(typed.Condition.Source)
+		throw := typed.Throw
 		if cond == "" {
 			return "", true
 		}
@@ -122,14 +124,14 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "errors.ThrowIf":
-		cond := arg("condition")
-		throw := arg("throw")
-		if cond == "" || throw == "" {
-			return renderInvalidFlowStepConfig(st, pad, "errors.ThrowIf", "errors.ThrowIf requires condition and throw"), true
+		typed, err := flowir.DecodeAs[flowir.ErrorThrowIf](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		cond, throw := normalizeFlowExpr(typed.Condition.Source), typed.Throw
 		httpStatus := "http.StatusBadRequest"
 		statusLabel := "Error"
-		if s := strings.TrimSpace(arg("status")); s != "" {
+		if s := strings.TrimSpace(typed.Status.Source); s != "" {
 			switch s {
 			case "403", "forbidden":
 				httpStatus = "http.StatusForbidden"
@@ -147,7 +149,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 				httpStatus = s
 			}
 		}
-		if code := strings.TrimSpace(arg("code")); code != "" {
+		if code := strings.TrimSpace(normalizeFlowExpr(typed.Code.Source)); code != "" {
 			statusLabel = code
 		}
 		var b strings.Builder
@@ -157,12 +159,11 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "errors.Wrap":
-		errExpr := arg("err")
-		message := arg("message")
-		output := arg("output")
-		if errExpr == "" || message == "" {
-			return renderInvalidFlowStepConfig(st, pad, "errors.Wrap", "errors.Wrap requires err and message"), true
+		typed, err := flowir.DecodeAs[flowir.ErrorWrap](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		errExpr, message, output := normalizeFlowExpr(typed.Error.Source), normalizeFlowExpr(typed.Message.Source), typed.Output
 		if output != "" {
 			alreadyDeclared := st.declared[output]
 			st.declared[output] = true
@@ -186,41 +187,19 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "errors.Map":
-		input := arg("input")
-		output := arg("output")
-		mode := strings.TrimSpace(arg("mode"))
-		if mode == "" {
-			mode = "contains"
+		typed, err := flowir.DecodeAs[flowir.ErrorMap](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		rawCases := map[string]map[string]string{}
-		switch v := step.Args["cases"].(type) {
-		case map[string]map[string]string:
-			rawCases = v
-		case map[string]any:
-			for key, rawCase := range v {
-				switch cfg := rawCase.(type) {
-				case map[string]string:
-					rawCases[key] = cfg
-				case map[string]any:
-					flat := map[string]string{}
-					for ck, cv := range cfg {
-						flat[ck] = fmt.Sprint(cv)
-					}
-					rawCases[key] = flat
-				}
-			}
-		}
-		if input == "" || len(rawCases) == 0 {
-			return renderInvalidFlowStepConfig(st, pad, "errors.Map", "errors.Map requires input and cases"), true
-		}
+		input, output, mode, rawCases := normalizeFlowExpr(typed.Input.Source), typed.Output, typed.Mode, typed.Cases
 		keys := make([]string, 0, len(rawCases))
 		for k := range rawCases {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
-		defaultMessage := strings.TrimSpace(arg("defaultMessage"))
-		defaultCode := strings.TrimSpace(arg("defaultCode"))
-		defaultStatus := strings.TrimSpace(arg("defaultStatus"))
+		defaultMessage := typed.DefaultMessage
+		defaultCode := typed.DefaultCode
+		defaultStatus := typed.DefaultStatus
 		if defaultCode == "" {
 			defaultCode = "INTERNAL_ERROR"
 		}
@@ -236,15 +215,15 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		b.WriteString(fmt.Sprintf("%s\tvar %s error\n", pad, errVar))
 		for i, key := range keys {
 			caseCfg := rawCases[key]
-			status := strings.TrimSpace(caseCfg["status"])
+			status := strings.TrimSpace(caseCfg.Status)
 			if status == "" {
 				status = "http.StatusBadGateway"
 			}
-			code := strings.TrimSpace(caseCfg["code"])
+			code := strings.TrimSpace(caseCfg.Code)
 			if code == "" {
 				code = strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(key), " ", "_"))
 			}
-			message := strings.TrimSpace(caseCfg["message"])
+			message := strings.TrimSpace(caseCfg.Message)
 			if message == "" {
 				message = key
 			}
@@ -426,20 +405,11 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "auth.RequireRole":
-		userID := arg("userID")
-		companyID := arg("companyID")
-		roles := arg("roles")
-		output := arg("output")
-		if userID == "" || companyID == "" || roles == "" {
-			return renderInvalidFlowStepConfig(st, pad, "auth.RequireRole", "auth.RequireRole requires userID, companyID, and roles"), true
+		typed, err := flowir.DecodeAs[flowir.AuthRequireRole](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		if output == "" {
-			output = "currentUser"
-		}
-		adminBypass := true
-		if v, ok := step.Args["adminBypass"].(bool); ok {
-			adminBypass = v
-		}
+		userID, companyID, roles, output, adminBypass := normalizeFlowExpr(typed.UserID.Source), normalizeFlowExpr(typed.CompanyID.Source), normalizeFlowExpr(typed.Roles.Source), typed.Output, typed.AdminBypass
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -468,12 +438,11 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "auth.CheckRole":
-		user := arg("user")
-		roles := arg("roles")
-		companyID := arg("companyID")
-		if user == "" || roles == "" {
-			return renderInvalidFlowStepConfig(st, pad, "auth.CheckRole", "auth.CheckRole requires user and roles"), true
+		typed, err := flowir.DecodeAs[flowir.AuthCheckRole](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		user, roles, companyID := normalizeFlowExpr(typed.User.Source), normalizeFlowExpr(typed.Roles.Source), normalizeFlowExpr(typed.CompanyID.Source)
 		var b strings.Builder
 		if companyID != "" {
 			b.WriteString(fmt.Sprintf("%sif %s.CompanyID != %s && %s.Role != \"admin\" {\n", pad, user, companyID, user))
@@ -641,59 +610,54 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "list.Len":
-		input := arg("input")
-		output := arg("output")
-		if input == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "list.Len", "list.Len requires input and output"), true
+		typed, err := flowir.DecodeAs[flowir.ListLen](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		input, output := normalizeFlowExpr(typed.Input.Source), typed.Output
 		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("len(%s)", input), "int"), true
 
 	case "convert.ToFloat":
-		input := arg("input")
-		output := arg("output")
-		if input == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "convert.ToFloat", "convert.ToFloat requires input and output"), true
+		typed, err := flowir.DecodeAs[flowir.ConvertToFloat](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		input, output := normalizeFlowExpr(typed.Input.Source), typed.Output
 		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("float64(%s)", input), "float64"), true
 
 	case "convert.ToInt":
-		input := arg("input")
-		output := arg("output")
-		if input == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "convert.ToInt", "convert.ToInt requires input and output"), true
+		typed, err := flowir.DecodeAs[flowir.ConvertToInt](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		input, output := normalizeFlowExpr(typed.Input.Source), typed.Output
 		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("int64(%s)", input), "int64"), true
 
 	case "list.New":
-		output := arg("output")
-		typ := arg("type")
-		if output == "" || typ == "" {
-			return renderInvalidFlowStepConfig(st, pad, "list.New", "list.New requires output and type"), true
+		typed, err := flowir.DecodeAs[flowir.ListNew](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		capExpr := arg("cap")
+		output, typ, capExpr := typed.Output, typed.GoType, normalizeFlowExpr(typed.Capacity.Source)
 		if strings.TrimSpace(capExpr) != "" {
 			return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("make(%s, 0, %s)", typ, capExpr), typ), true
 		}
 		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("make(%s, 0)", typ), typ), true
 
 	case "map.New":
-		output := arg("output")
-		typ := arg("type")
-		if output == "" || typ == "" {
-			return renderInvalidFlowStepConfig(st, pad, "map.New", "map.New requires output and type"), true
+		typed, err := flowir.DecodeAs[flowir.MapNew](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		output, typ := typed.Output, typed.GoType
 		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("make(%s)", typ), typ), true
 
 	case "map.Get":
-		input := arg("input")
-		key := arg("key")
-		output := arg("output")
-		into := arg("into")
-		defaultExpr := arg("default")
-		found := arg("found")
-		if input == "" || key == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "map.Get", "map.Get requires input, key, and output"), true
+		typed, err := flowir.DecodeAs[flowir.MapGet](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		input, key, output, into, defaultExpr, found := normalizeFlowExpr(typed.Input.Source), normalizeFlowExpr(typed.Key.Source), typed.Output, typed.Into, normalizeFlowExpr(typed.Default.Source), typed.Found
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -748,22 +712,19 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "map.Has":
-		input := arg("input")
-		key := arg("key")
-		output := arg("output")
-		if input == "" || key == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "map.Has", "map.Has requires input, key, and output"), true
+		typed, err := flowir.DecodeAs[flowir.MapHas](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		input, key, output := normalizeFlowExpr(typed.Input.Source), normalizeFlowExpr(typed.Key.Source), typed.Output
 		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("func() bool { _, _ok := %s[%s]; return _ok }()", input, key), "bool"), true
 
 	case "map.Set":
-		input := arg("input")
-		key := arg("key")
-		value := arg("value")
-		output := arg("output")
-		if input == "" || key == "" || value == "" {
-			return renderInvalidFlowStepConfig(st, pad, "map.Set", "map.Set requires input, key, and value"), true
+		typed, err := flowir.DecodeAs[flowir.MapSet](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		input, key, value, output := normalizeFlowExpr(typed.Input.Source), normalizeFlowExpr(typed.Key.Source), normalizeFlowExpr(typed.Value.Source), typed.Output
 		var b strings.Builder
 		target := input
 		if output != "" && output != input {
@@ -774,12 +735,11 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "map.Merge":
-		left := arg("left")
-		right := arg("right")
-		output := arg("output")
-		if left == "" || right == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "map.Merge", "map.Merge requires left, right, and output"), true
+		typed, err := flowir.DecodeAs[flowir.MapMerge](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		left, right, output := normalizeFlowExpr(typed.Left.Source), normalizeFlowExpr(typed.Right.Source), typed.Output
 		var b strings.Builder
 		b.WriteString(renderFlowAssignTarget(st, pad, output, fmt.Sprintf("maps.Clone(%s)", left), ""))
 		b.WriteString(fmt.Sprintf("%smaps.Copy(%s, %s)\n", pad, output, right))
@@ -818,12 +778,11 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "time.Parse":
-		value := arg("value")
-		output := arg("output")
-		format := arg("format")
-		if value == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "time.Parse", "time.Parse requires value and output"), true
+		typed, err := flowir.DecodeAs[flowir.TimeParse](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		value, output, format := normalizeFlowExpr(typed.Value.Source), typed.Output, normalizeFlowExpr(typed.Format)
 		if format == "" {
 			format = "time.RFC3339"
 		}
@@ -841,31 +800,27 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "time.Add":
-		input := arg("input")
-		duration := arg("duration")
-		output := arg("output")
-		if input == "" || duration == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "time.Add", "time.Add requires input, duration, and output"), true
+		typed, err := flowir.DecodeAs[flowir.TimeAdd](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		input, duration, output := normalizeFlowExpr(typed.Input.Source), normalizeFlowExpr(typed.Duration.Source), typed.Output
 		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("%s.Add(%s)", input, duration), "time.Time"), true
 
 	case "time.Sub":
-		a := arg("a")
-		bExpr := arg("b")
-		output := arg("output")
-		if a == "" || bExpr == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "time.Sub", "time.Sub requires a, b, and output"), true
+		typed, err := flowir.DecodeAs[flowir.TimeSub](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		a, bExpr, output := normalizeFlowExpr(typed.A.Source), normalizeFlowExpr(typed.B.Source), typed.Output
 		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("%s.Sub(%s)", a, bExpr), "time.Duration"), true
 
 	case "time.Diff":
-		from := arg("from")
-		to := arg("to")
-		output := arg("output")
-		unit := strings.TrimSpace(arg("unit"))
-		if from == "" || to == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "time.Diff", "time.Diff requires from, to, and output"), true
+		typed, err := flowir.DecodeAs[flowir.TimeDiff](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		from, to, output, unit := normalizeFlowExpr(typed.From.Source), normalizeFlowExpr(typed.To.Source), typed.Output, typed.Unit
 		if unit == "" || unit == "duration" {
 			return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("%s.Sub(%s)", to, from), "time.Duration"), true
 		}
@@ -887,15 +842,11 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return renderFlowAssignTarget(st, pad, output, expr, "float64"), true
 
 	case "time.CheckExpiry":
-		value := arg("value")
-		throw := arg("throw")
-		mustBe := arg("mustBe")
-		if value == "" || throw == "" {
-			return renderInvalidFlowStepConfig(st, pad, "time.CheckExpiry", "time.CheckExpiry requires value and throw"), true
+		typed, err := flowir.DecodeAs[flowir.TimeCheckExpiry](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		if mustBe == "" {
-			mustBe = "future"
-		}
+		value, throw, mustBe := normalizeFlowExpr(typed.Value.Source), typed.Throw, typed.MustBe
 		tv, terrv := "_t"+sfx, "_tErr"+sfx
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%s%s, %s := time.Parse(time.RFC3339, %s)\n", pad, tv, terrv, value))
@@ -914,21 +865,11 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "map.Build":
-		from := arg("from")
-		as := arg("as")
-		key := arg("key")
-		value := arg("value")
-		output := arg("output")
-		valueType := arg("valueType")
-		if from == "" || key == "" || value == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "map.Build", "map.Build requires from, key, value, and output"), true
+		typed, err := flowir.DecodeAs[flowir.MapBuild](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		if as == "" {
-			as = "_item"
-		}
-		if valueType == "" {
-			valueType = "string"
-		}
+		from, as, key, value, output, valueType := normalizeFlowExpr(typed.From.Source), typed.As, normalizeFlowExpr(typed.Key.Source), normalizeFlowExpr(typed.Value.Source), typed.Output, typed.ValueType
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -1019,20 +960,11 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "math.Expr":
-		expr := arg("expr")
-		output := arg("output")
-		if expr == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "math.Expr", "math.Expr requires expr and output"), true
+		typed, err := flowir.DecodeAs[flowir.MathExpression](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		declare := false
-		if v, ok := step.Args["declare"]; ok {
-			switch x := v.(type) {
-			case bool:
-				declare = x
-			case string:
-				declare = strings.EqualFold(strings.TrimSpace(x), "true")
-			}
-		}
+		expr, output, declare := normalizeFlowExpr(typed.Value.Source), typed.Output, typed.Declare
 		assign := "="
 		if declare && !st.declared[output] {
 			assign = ":="
@@ -1097,18 +1029,11 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "notification.Dispatch", "notify.Dispatch":
-		event := arg("event")
-		if event == "" {
-			event = arg("message")
+		typed, err := flowir.DecodeAs[flowir.NotificationDispatch](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		if event == "" {
-			return renderInvalidFlowStepConfig(st, pad, "notify.Dispatch", "notify.Dispatch requires event or message"), true
-		}
-		userID := arg("userID")
-		entityID := arg("entityID")
-		msgType := arg("type")
-		payload := arg("payload")
-		tmpl := arg("template")
+		event, userID, entityID, msgType, payload, tmpl := normalizeFlowExpr(typed.Event.Source), normalizeFlowExpr(typed.UserID.Source), normalizeFlowExpr(typed.EntityID.Source), normalizeFlowExpr(typed.Type.Source), normalizeFlowExpr(typed.Payload.Source), normalizeFlowExpr(typed.Template.Source)
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%sif s.dispatcher == nil {\n", pad))
 		b.WriteString(errReturn(st, pad+"\t", `fmt.Errorf("notify.Dispatch: notification dispatcher wiring is not configured")`))

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 func flowStringOrListExpr(v any) string {
@@ -87,23 +88,19 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 
 	switch step.Action {
 	case "notify.Send", "notify.Email":
-		channel := arg("channel")
-		to := arg("to")
-		templateExpr := arg("template")
-		textExpr := arg("text")
-		subjectExpr := arg("subject")
-		htmlExpr := arg("html")
-		dataExpr := arg("data")
-		localeExpr := arg("locale")
-		output := arg("output")
-		if to == "" {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, step.Action+" requires to"), true
-		}
-		if step.Action == "notify.Send" && channel == "" {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, "notify.Send requires channel"), true
-		}
-		if templateExpr == "" && textExpr == "" {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, step.Action+" requires template or text"), true
+		var channel, to, templateExpr, textExpr, subjectExpr, htmlExpr, dataExpr, localeExpr, output string
+		if step.Action == "notify.Send" {
+			typed, err := flowir.DecodeAs[flowir.NotifySend](step)
+			if err != nil {
+				return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			}
+			channel, to, templateExpr, textExpr, subjectExpr, htmlExpr, dataExpr, output = normalizeFlowExpr(typed.Channel.Source), normalizeFlowExpr(typed.To.Source), normalizeFlowExpr(typed.Template.Source), normalizeFlowExpr(typed.Text.Source), normalizeFlowExpr(typed.Subject.Source), normalizeFlowExpr(typed.HTML.Source), normalizeFlowExpr(typed.Data.Source), typed.Output
+		} else {
+			typed, err := flowir.DecodeAs[flowir.NotifyEmail](step)
+			if err != nil {
+				return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			}
+			to, templateExpr, textExpr, subjectExpr, htmlExpr, dataExpr, localeExpr, output = normalizeFlowExpr(typed.To.Source), normalizeFlowExpr(typed.Template.Source), normalizeFlowExpr(typed.Text.Source), normalizeFlowExpr(typed.Subject.Source), normalizeFlowExpr(typed.HTML.Source), normalizeFlowExpr(typed.Data.Source), normalizeFlowExpr(typed.Locale.Source), typed.Output
 		}
 		declareOutput := output != "" && !st.declared[output]
 		if declareOutput {
@@ -172,23 +169,20 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "approval.Request":
-		approvalKey := arg("approvalKey")
-		title := arg("title")
-		requestedBy := arg("requestedBy")
-		approvers := arg("approvers")
-		if approvers == "" {
-			approvers = flowStringOrListExpr(step.Args["approvers"])
+		typed, err := flowir.DecodeAs[flowir.ApprovalRequest](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		policy := arg("policy")
-		payload := arg("payload")
-		description := arg("description")
-		deadline := arg("deadline")
-		ttl := arg("ttl")
-		approvalIDOut := arg("approvalId")
-		statusOut := arg("status")
-		if approvalKey == "" || title == "" || requestedBy == "" || approvers == "" || policy == "" || payload == "" {
-			return renderInvalidFlowStepConfig(st, pad, "approval.Request", "approval.Request requires approvalKey, title, requestedBy, approvers, policy and payload"), true
+		approvalKey, title, requestedBy, policy, payload, description, deadline, ttl := normalizeFlowExpr(typed.ApprovalKey.Source), normalizeFlowExpr(typed.Title.Source), normalizeFlowExpr(typed.RequestedBy.Source), normalizeFlowExpr(typed.Policy.Source), normalizeFlowExpr(typed.Payload.Source), normalizeFlowExpr(typed.Description.Source), normalizeFlowExpr(typed.Deadline.Source), normalizeFlowExpr(typed.TTL.Source)
+		approverExprs := make([]string, 0, len(typed.Approvers))
+		for _, v := range typed.Approvers {
+			approverExprs = append(approverExprs, normalizeFlowExpr(v.Source))
 		}
+		approvers := approverExprs[0]
+		if typed.ApproversList {
+			approvers = "[]string{" + strings.Join(approverExprs, ", ") + "}"
+		}
+		approvalIDOut, statusOut := typed.ApprovalID, typed.Status
 		if approvalIDOut != "" && !st.declared[approvalIDOut] {
 			st.declared[approvalIDOut] = true
 			st.pointers[approvalIDOut] = false
@@ -305,28 +299,12 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "approval.Wait":
-		approvalID := arg("approvalId")
-		timeout := arg("timeout")
-		timeoutMode := arg("onTimeout")
-		timeoutSteps := child("_onTimeout")
-		decisionOut := arg("decision")
-		statusOut := arg("status")
-		decidedByOut := arg("decidedBy")
-		decidedAtOut := arg("decidedAt")
-		reasonOut := arg("reason")
-		if approvalID == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.ApprovalWait](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		if timeout == "" {
-			timeout = "15 * time.Minute"
-		}
-		if timeoutMode == "" {
-			if len(timeoutSteps) > 0 {
-				timeoutMode = `"fallback"`
-			} else {
-				timeoutMode = `"reject"`
-			}
-		}
+		approvalID, timeout, timeoutMode, timeoutSteps := normalizeFlowExpr(typed.ApprovalID.Source), normalizeFlowExpr(typed.Timeout.Source), normalizeFlowExpr(typed.TimeoutMode.Source), typed.TimeoutSteps
+		decisionOut, statusOut, decidedByOut, decidedAtOut, reasonOut := typed.Decision, typed.Status, typed.DecidedBy, typed.DecidedAt, typed.Reason
 
 		declareOut := map[string]bool{}
 		for _, out := range []string{decisionOut, statusOut, decidedByOut, decidedAtOut, reasonOut} {
@@ -471,14 +449,11 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "approval.Decide":
-		approvalID := arg("approvalId")
-		decision := arg("decision")
-		actor := arg("actor")
-		reason := arg("reason")
-		statusOut := arg("status")
-		if approvalID == "" || decision == "" || actor == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.ApprovalDecide](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		approvalID, decision, actor, reason, statusOut := normalizeFlowExpr(typed.ApprovalID.Source), normalizeFlowExpr(typed.Decision.Source), normalizeFlowExpr(typed.Actor.Source), normalizeFlowExpr(typed.Reason.Source), typed.Status
 		declareStatusOut := statusOut != "" && !st.declared[statusOut]
 		if declareStatusOut {
 			st.declared[statusOut] = true

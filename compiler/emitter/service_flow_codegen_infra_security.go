@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 func renderFlowStepInfraSecurity(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
@@ -13,17 +14,11 @@ func renderFlowStepInfraSecurity(st *flowRenderState, step normalizer.FlowStep, 
 
 	switch step.Action {
 	case "jwt.Sign":
-		claims := arg("claims")
-		output := arg("output")
-		if claims == "" || output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.JWTSign](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		alg := arg("alg")
-		if alg == "" {
-			alg = `"HS256"`
-		}
-		secretExpr := arg("secret")
-		ttl := arg("ttl")
+		claims, output, alg, secretExpr, ttl := normalizeFlowExpr(typed.Claims.Source), typed.Output, normalizeFlowExpr(typed.Algorithm.Source), normalizeFlowExpr(typed.Secret.Source), normalizeFlowExpr(typed.TTL.Source)
 
 		assign := ":="
 		if st.declared[output] {
@@ -99,12 +94,11 @@ func renderFlowStepInfraSecurity(st *flowRenderState, step normalizer.FlowStep, 
 		return b.String(), true
 
 	case "jwt.Verify":
-		tokenExpr := arg("token")
-		output := arg("output")
-		if tokenExpr == "" || output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.JWTVerify](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		secretExpr := arg("secret")
+		tokenExpr, output, secretExpr := normalizeFlowExpr(typed.Token.Source), typed.Output, normalizeFlowExpr(typed.Secret.Source)
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -180,18 +174,11 @@ func renderFlowStepInfraSecurity(st *flowRenderState, step normalizer.FlowStep, 
 		return b.String(), true
 
 	case "token.Generate":
-		subject := arg("subject")
-		output := arg("output")
-		if subject == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "token.Generate", "token.Generate requires subject and output"), true
+		typed, err := flowir.DecodeAs[flowir.TokenGenerate](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		purposeExpr := arg("purpose")
-		claimsExpr := arg("claims")
-		secretExpr := arg("secret")
-		ttlExpr := arg("ttl")
-		if ttlExpr == "" {
-			ttlExpr = `"15m"`
-		}
+		subject, output, purposeExpr, claimsExpr, secretExpr, ttlExpr := normalizeFlowExpr(typed.Subject.Source), typed.Output, normalizeFlowExpr(typed.Purpose.Source), normalizeFlowExpr(typed.Claims.Source), normalizeFlowExpr(typed.Secret.Source), normalizeFlowExpr(typed.TTL.Source)
 		secretV := "_tokenSecret" + sfx
 		payloadV := "_tokenPayload" + sfx
 		ttlV := "_tokenTTL" + sfx
@@ -248,13 +235,11 @@ func renderFlowStepInfraSecurity(st *flowRenderState, step normalizer.FlowStep, 
 		return b.String(), true
 
 	case "token.Verify":
-		tokenExpr := arg("token")
-		output := arg("output")
-		if tokenExpr == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "token.Verify", "token.Verify requires token and output"), true
+		typed, err := flowir.DecodeAs[flowir.TokenVerify](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		secretExpr := arg("secret")
-		purposeExpr := arg("purpose")
+		tokenExpr, output, secretExpr, purposeExpr := normalizeFlowExpr(typed.Token.Source), typed.Output, normalizeFlowExpr(typed.Secret.Source), normalizeFlowExpr(typed.Purpose.Source)
 		secretV := "_tokenSecret" + sfx
 		partsV := "_tokenParts" + sfx
 		unsignedV := "_tokenUnsigned" + sfx
@@ -326,12 +311,11 @@ func renderFlowStepInfraSecurity(st *flowRenderState, step normalizer.FlowStep, 
 		return b.String(), true
 
 	case "crypto.Hash":
-		input := arg("input")
-		output := arg("output")
-		if input == "" || output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.CryptoHash](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		algo := arg("algo")
+		input, output, algo := normalizeFlowExpr(typed.Input.Source), typed.Output, typed.Algorithm
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -356,18 +340,24 @@ func renderFlowStepInfraSecurity(st *flowRenderState, step normalizer.FlowStep, 
 		return b.String(), true
 
 	case "oauth2.Token":
-		return renderOAuthTokenLike(st, step, pad, sfx, arg, "oauth2.Token", false), true
+		typed, err := flowir.DecodeAs[flowir.OAuth2Token](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
+		return renderOAuthTokenLike(st, typed.OAuth2Fields, pad, sfx, "oauth2.Token", false), true
 	case "oauth2.Refresh":
-		return renderOAuthTokenLike(st, step, pad, sfx, arg, "oauth2.Refresh", true), true
+		typed, err := flowir.DecodeAs[flowir.OAuth2Refresh](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
+		return renderOAuthTokenLike(st, typed.OAuth2Fields, pad, sfx, "oauth2.Refresh", true), true
 
 	case "crypto.Encrypt":
-		input := arg("input")
-		output := arg("output")
-		if input == "" || output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.CryptoCipher](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		keyExpr := arg("key")
-		aadExpr := arg("aad")
+		input, output, keyExpr, aadExpr := normalizeFlowExpr(typed.Input.Source), typed.Output, normalizeFlowExpr(typed.Key.Source), normalizeFlowExpr(typed.AAD.Source)
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -422,13 +412,11 @@ func renderFlowStepInfraSecurity(st *flowRenderState, step normalizer.FlowStep, 
 		return b.String(), true
 
 	case "crypto.Decrypt":
-		input := arg("input")
-		output := arg("output")
-		if input == "" || output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.CryptoCipher](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		keyExpr := arg("key")
-		aadExpr := arg("aad")
+		input, output, keyExpr, aadExpr := normalizeFlowExpr(typed.Input.Source), typed.Output, normalizeFlowExpr(typed.Key.Source), normalizeFlowExpr(typed.AAD.Source)
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -498,22 +486,12 @@ func renderFlowStepInfraSecurity(st *flowRenderState, step normalizer.FlowStep, 
 	return "", false
 }
 
-func renderOAuthTokenLike(st *flowRenderState, step normalizer.FlowStep, pad, sfx string, arg func(string) string, action string, refreshOnly bool) string {
-	tokenURL := arg("tokenURL")
-	output := arg("output")
-	if tokenURL == "" || output == "" {
-		return ""
-	}
-	clientID := arg("clientID")
-	clientSecret := arg("clientSecret")
-	scope := arg("scope")
-	audience := arg("audience")
-	grantType := arg("grantType")
-	refreshToken := arg("refreshToken")
-	code := arg("code")
-	redirectURI := arg("redirectURI")
-	username := arg("username")
-	password := arg("password")
+func renderOAuthTokenLike(st *flowRenderState, fields flowir.OAuth2Fields, pad, sfx, action string, refreshOnly bool) string {
+	expr := func(v flowir.Expression) string { return normalizeFlowExpr(v.Source) }
+	tokenURL, output := expr(fields.TokenURL), fields.Output
+	clientID, clientSecret, scope, audience := expr(fields.ClientID), expr(fields.ClientSecret), expr(fields.Scope), expr(fields.Audience)
+	grantType, refreshToken, code, redirectURI := expr(fields.GrantType), expr(fields.RefreshToken), expr(fields.Code), expr(fields.RedirectURI)
+	username, password := expr(fields.Username), expr(fields.Password)
 
 	assign := ":="
 	if st.declared[output] {

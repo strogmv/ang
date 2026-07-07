@@ -5,10 +5,12 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/strogmv/ang-ir/flowsem"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 type actionCatalogEnvelope struct {
@@ -30,7 +32,12 @@ func runActions(args []string) {
 		os.Exit(1)
 	}
 
-	catalog := flowsem.ActionCatalog()
+	baseCatalog := flowsem.ActionCatalog()
+	if err := flowir.ValidateSchemaContract(baseCatalog); err != nil {
+		fmt.Printf("Actions FAILED: %v\n", err)
+		return
+	}
+	catalog := mergedActionCatalogFrom(baseCatalog)
 	if *asCUE {
 		fmt.Print(renderActionCatalogCUE(catalog))
 		return
@@ -46,6 +53,32 @@ func runActions(args []string) {
 		fmt.Printf("Actions FAILED: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func mergedActionCatalog() []flowsem.ActionCatalogEntry {
+	return mergedActionCatalogFrom(flowsem.ActionCatalog())
+}
+
+func mergedActionCatalogFrom(catalog []flowsem.ActionCatalogEntry) []flowsem.ActionCatalogEntry {
+	index := make(map[string]int, len(catalog))
+	for i := range catalog {
+		index[catalog[i].Name] = i
+	}
+	for _, typed := range flowir.All() {
+		args := make([]flowsem.ActionArg, 0, len(typed.Args))
+		for _, arg := range typed.Args {
+			args = append(args, flowsem.ActionArg{Name: arg.Name, Type: string(arg.Kind), Required: arg.Required})
+		}
+		if position, ok := index[typed.Name]; ok {
+			catalog[position].Description = typed.Description
+			catalog[position].Args = args
+			catalog[position].KnownBy = "typed-flowir"
+			continue
+		}
+		catalog = append(catalog, flowsem.ActionCatalogEntry{Name: typed.Name, Description: typed.Description, Args: args, KnownBy: "typed-flowir"})
+	}
+	sort.Slice(catalog, func(i, j int) bool { return catalog[i].Name < catalog[j].Name })
+	return catalog
 }
 
 func renderActionCatalogCUE(entries []flowsem.ActionCatalogEntry) string {

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
@@ -13,12 +14,11 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 
 	switch step.Action {
 	case "regex.Match":
-		input := arg("input")
-		pattern := arg("pattern")
-		output := arg("output")
-		if input == "" || pattern == "" || output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.RegexMatch](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		input, pattern, output := normalizeFlowExpr(typed.Input.Source), normalizeFlowExpr(typed.Pattern.Source), typed.Output
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -36,13 +36,11 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "regex.Replace":
-		input := arg("input")
-		pattern := arg("pattern")
-		repl := arg("repl")
-		output := arg("output")
-		if input == "" || pattern == "" || repl == "" || output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.RegexReplace](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		input, pattern, repl, output := normalizeFlowExpr(typed.Input.Source), normalizeFlowExpr(typed.Pattern.Source), normalizeFlowExpr(typed.Replacement.Source), typed.Output
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -60,11 +58,11 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "base64.Encode":
-		input := arg("input")
-		output := arg("output")
-		if input == "" || output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.Base64Encode](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		input, output := normalizeFlowExpr(typed.Input.Source), typed.Output
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -75,11 +73,11 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return fmt.Sprintf("%s%s %s base64.StdEncoding.EncodeToString([]byte(%s))\n", pad, output, assign, input), true
 
 	case "base64.Decode":
-		input := arg("input")
-		output := arg("output")
-		if input == "" || output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.Base64Decode](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		input, output := normalizeFlowExpr(typed.Input.Source), typed.Output
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -97,11 +95,11 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "url.Parse":
-		input := arg("input")
-		output := arg("output")
-		if input == "" || output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.URLParse](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		input, output := normalizeFlowExpr(typed.Input.Source), typed.Output
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -119,11 +117,11 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "path.Base":
-		input := arg("input")
-		output := arg("output")
-		if input == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "path.Base", "path.Base requires input and output"), true
+		typed, err := flowir.DecodeAs[flowir.PathBase](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		input, output := normalizeFlowExpr(typed.Input.Source), typed.Output
 		normV := "_pathNorm" + sfx
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%s%s := strings.ReplaceAll(%s, \"\\\\\", \"/\")\n", pad, normV, input))
@@ -131,22 +129,14 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "url.Build":
-		base := arg("base")
-		output := arg("output")
-		if base == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "url.Build", "url.Build requires base and output"), true
+		typed, err := flowir.DecodeAs[flowir.URLBuild](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		pathExpr := arg("path")
-		var segments []string
-		switch raw := step.Args["segments"].(type) {
-		case []string:
-			segments = append(segments, raw...)
-		case []any:
-			for _, it := range raw {
-				if s, ok := it.(string); ok && strings.TrimSpace(s) != "" {
-					segments = append(segments, normalizeFlowExpr(strings.TrimSpace(s)))
-				}
-			}
+		base, output, pathExpr := normalizeFlowExpr(typed.Base.Source), typed.Output, normalizeFlowExpr(typed.Path.Source)
+		segments := make([]string, 0, len(typed.Segments))
+		for _, v := range typed.Segments {
+			segments = append(segments, normalizeFlowExpr(v.Source))
 		}
 		assign := ":="
 		if st.declared[output] {
@@ -170,10 +160,10 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		} else if pathExpr != "" {
 			b.WriteString(fmt.Sprintf("%s%s.Path = %s\n", pad, uV, pathExpr))
 		}
-		if qMap, ok := step.Args["query"].(map[string]string); ok && len(qMap) > 0 {
+		if qMap := typed.Query; len(qMap) > 0 {
 			b.WriteString(fmt.Sprintf("%s%s := %s.Query()\n", pad, qV, uV))
 			for k, v := range qMap {
-				b.WriteString(fmt.Sprintf("%s%s.Set(%q, %s)\n", pad, qV, k, v))
+				b.WriteString(fmt.Sprintf("%s%s.Set(%q, %s)\n", pad, qV, k, normalizeFlowExpr(v.Source)))
 			}
 			b.WriteString(fmt.Sprintf("%s%s.RawQuery = %s.Encode()\n", pad, uV, qV))
 		}
@@ -181,11 +171,11 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "query.Encode":
-		input := arg("input")
-		output := arg("output")
-		if input == "" || output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.QueryEncode](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		input, output := normalizeFlowExpr(typed.Input.Source), typed.Output
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -216,11 +206,11 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "query.Decode":
-		input := arg("input")
-		output := arg("output")
-		if input == "" || output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.QueryDecode](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		input, output := normalizeFlowExpr(typed.Input.Source), typed.Output
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -238,18 +228,11 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "hash.Sum":
-		input := arg("input")
-		output := arg("output")
-		if input == "" || output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.HashSum](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		alg := arg("algorithm")
-		if alg == "" {
-			alg = arg("algo")
-		}
-		if alg == "" {
-			alg = `"sha256"`
-		}
+		input, output, alg := normalizeFlowExpr(typed.Input.Source), typed.Output, normalizeFlowExpr(typed.Algorithm.Source)
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -276,19 +259,11 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "hash.HMAC":
-		input := arg("input")
-		key := arg("key")
-		output := arg("output")
-		if input == "" || key == "" || output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.HashHMAC](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		alg := arg("algorithm")
-		if alg == "" {
-			alg = arg("algo")
-		}
-		if alg == "" {
-			alg = `"sha256"`
-		}
+		input, key, output, alg := normalizeFlowExpr(typed.Input.Source), normalizeFlowExpr(typed.Key.Source), typed.Output, normalizeFlowExpr(typed.Algorithm.Source)
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -316,17 +291,19 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "uuid.New":
-		output := arg("output")
-		if output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.UUIDNew](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		output := typed.Output
 		return renderFlowAssignTarget(st, pad, output, "uuid.NewString()", "string"), true
 
 	case "ulid.New":
-		output := arg("output")
-		if output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.ULIDNew](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		output := typed.Output
 		rawV := "_ulidRaw" + sfx
 		msV := "_ulidMs" + sfx
 		encV := "_ulidEnc" + sfx
@@ -349,27 +326,26 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "time.Now":
-		output := arg("output")
-		if output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.TimeNow](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		format := arg("format")
+		output, format := typed.Output, normalizeFlowExpr(typed.Format)
 		if format != "" {
 			return renderFlowAssignTarget(st, pad, output, "time.Now().UTC().Format("+format+")", "string"), true
 		}
 		return renderFlowAssignTarget(st, pad, output, "time.Now().UTC()", "time.Time"), true
 
 	case "time.Format":
-		input := arg("input")
-		output := arg("output")
-		if input == "" || output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.TimeFormat](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		format := arg("format")
+		input, output, format := normalizeFlowExpr(typed.Input.Source), typed.Output, normalizeFlowExpr(typed.Format)
 		if format == "" {
 			format = "time.RFC3339"
 		}
-		timezone := arg("timezone")
+		timezone := normalizeFlowExpr(typed.Timezone)
 		if timezone != "" {
 			// timezone-aware format: convert to location first
 			locVar := "_tzLoc" + sfx
@@ -386,12 +362,11 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 
 	case "time.InZone":
 		// time.InZone: convert time.Time to given IANA timezone → output is time.Time in that zone
-		input := arg("input")
-		output := arg("output")
-		timezone := arg("timezone")
-		if input == "" || output == "" || timezone == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.TimeInZone](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		input, output, timezone := normalizeFlowExpr(typed.Input.Source), typed.Output, normalizeFlowExpr(typed.Timezone)
 		locVar := "_inZoneLoc" + sfx
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%s%s, _ := time.LoadLocation(fmt.Sprint(%s))\n", pad, locVar, timezone))
@@ -401,11 +376,11 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "math.Op":
-		op := arg("op")
-		output := arg("output")
-		if op == "" || output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.MathOperation](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		op, output := normalizeFlowExpr(typed.Operation.Source), typed.Output
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -414,12 +389,8 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		st.pointers[output] = false
 		st.types[output] = "float64"
 
-		precision := stepIntArgOrDefault(step.Args, "precision", 0)
-		a := arg("a")
-		bExpr := arg("b")
-		val := arg("value")
-		min := arg("min")
-		max := arg("max")
+		precision := typed.Precision
+		a, bExpr, val, min, max := normalizeFlowExpr(typed.A.Source), normalizeFlowExpr(typed.B.Source), normalizeFlowExpr(typed.Value.Source), normalizeFlowExpr(typed.Min.Source), normalizeFlowExpr(typed.Max.Source)
 		opV := "_mathOp" + sfx
 		factorV := "_roundFactor" + sfx
 		var b strings.Builder
@@ -446,12 +417,11 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "num.Add", "num.Sub", "num.Mul", "num.Div":
-		a := arg("a")
-		bExpr := arg("b")
-		output := arg("output")
-		if a == "" || bExpr == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, step.Action+" requires a, b, and output"), true
+		typed, err := flowir.DecodeAs[flowir.NumberBinary](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		a, bExpr, output := normalizeFlowExpr(typed.A.Source), normalizeFlowExpr(typed.B.Source), typed.Output
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -478,12 +448,11 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		}
 
 	case "jsonpath.Get":
-		input := arg("input")
-		pathExpr := arg("path")
-		output := arg("output")
-		if input == "" || pathExpr == "" || output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.JSONPathGet](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		input, pathExpr, output := normalizeFlowExpr(typed.Input.Source), normalizeFlowExpr(typed.Path.Source), typed.Output
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -501,13 +470,11 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "jsonpath.Set":
-		input := arg("input")
-		pathExpr := arg("path")
-		value := arg("value")
-		output := arg("output")
-		if input == "" || pathExpr == "" || value == "" || output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.JSONPathSet](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		input, pathExpr, value, output := normalizeFlowExpr(typed.Input.Source), normalizeFlowExpr(typed.Path.Source), normalizeFlowExpr(typed.Value.Source), typed.Output
 		assign := ":="
 		if st.declared[output] {
 			assign = "="

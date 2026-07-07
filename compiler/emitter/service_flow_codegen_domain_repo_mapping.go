@@ -5,17 +5,26 @@ import (
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
 	pad := strings.Repeat("\t", indent)
+	var repositoryCall flowir.RepositoryCall
+	if strings.HasPrefix(step.Action, "repo.") {
+		decoded, err := flowir.DecodeAs[flowir.RepositoryCall](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
+		repositoryCall = decoded
+	}
 
 	switch step.Action {
 	case "repo.Exists":
-		source := arg("source")
-		input := arg("input")
-		output := arg("output")
-		method := arg("method")
+		source := repositoryCall.Entity
+		input := repositoryCall.Input.Source
+		output := repositoryCall.Output
+		method := repositoryCall.Method
 		if source == "" || input == "" || output == "" {
 			return renderInvalidFlowStepConfig(st, pad, "repo.Exists", "repo.Exists requires source, input, and output"), true
 		}
@@ -45,10 +54,10 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 		return b.String(), true
 
 	case "repo.Count":
-		source := arg("source")
-		method := arg("method")
-		output := arg("output")
-		input := arg("input")
+		source := repositoryCall.Entity
+		method := repositoryCall.Method
+		output := repositoryCall.Output
+		input := repositoryCall.Input.Source
 		if source == "" || method == "" || output == "" {
 			return renderInvalidFlowStepConfig(st, pad, "repo.Count", "repo.Count requires source, method, and output"), true
 		}
@@ -71,13 +80,13 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 		return b.String(), true
 
 	case "repo.Get", "repo.Find", "repo.GetForUpdate", "repo.List":
-		source := arg("source")
+		source := repositoryCall.Entity
 		if source == "" {
 			return "", true
 		}
-		method := arg("method")
-		input := arg("input")
-		output := arg("output")
+		method := repositoryCall.Method
+		input := repositoryCall.Input.Source
+		output := repositoryCall.Output
 		if method == "" {
 			switch step.Action {
 			case "repo.List":
@@ -111,7 +120,7 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 			b.WriteString(fmt.Sprintf("%sif err != nil {\n", pad))
 			b.WriteString(errReturn(st, pad+"\t", "err"))
 			b.WriteString(fmt.Sprintf("%s}\n", pad))
-			if errMsg := arg("error"); errMsg != "" && step.Action != "repo.List" {
+			if errMsg := repositoryCall.Error; errMsg != "" && step.Action != "repo.List" {
 				b.WriteString(fmt.Sprintf("%sif %s == nil {\n", pad, output))
 				b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("errors.New(http.StatusNotFound, \"Not Found\", %q)", errMsg)))
 				b.WriteString(fmt.Sprintf("%s}\n", pad))
@@ -125,11 +134,11 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 		return b.String(), true
 
 	case "repo.Save", "repo.Delete":
-		source := arg("source")
+		source := repositoryCall.Entity
 		if source == "" {
 			return "", true
 		}
-		method := arg("method")
+		method := repositoryCall.Method
 		if method == "" {
 			if step.Action == "repo.Save" {
 				method = "Save"
@@ -137,7 +146,7 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 				method = "Delete"
 			}
 		}
-		input := arg("input")
+		input := repositoryCall.Input.Source
 		call := "ctx"
 		if input != "" {
 			inputArg := input
@@ -159,20 +168,16 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 		return b.String(), true
 
 	case "mapping.Assign":
-		to := arg("to")
-		val := arg("value")
+		typed, err := flowir.DecodeAs[flowir.MappingAssign](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, "mapping.Assign", err.Error()), true
+		}
+		to := normalizeFlowExpr(typed.Target.Source)
+		val := normalizeFlowExpr(typed.Value.Source)
 		if to == "" || val == "" {
 			return "", true
 		}
-		declare := false
-		if v, ok := step.Args["declare"]; ok {
-			switch x := v.(type) {
-			case bool:
-				declare = x
-			case string:
-				declare = strings.EqualFold(strings.TrimSpace(x), "true")
-			}
-		}
+		declare := typed.Declare
 		if declare && !st.declared[to] {
 			st.declared[to] = true
 			st.pointers[to] = false
@@ -185,11 +190,11 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 		return b.String(), true
 
 	case "repo.Query":
-		source := arg("source")
-		method := arg("method")
-		input := arg("input")
-		output := arg("output")
-		errMsg := arg("error")
+		source := repositoryCall.Entity
+		method := repositoryCall.Method
+		input := repositoryCall.Input.Source
+		output := repositoryCall.Output
+		errMsg := repositoryCall.Error
 		if source == "" || method == "" {
 			return "", true
 		}
@@ -199,21 +204,15 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 			inputArg = ", " + input
 		}
 		// Multi-arg support: args: ["req.TenderID", "req.CompanyID"]
-		if inputArg == "" {
-			if v, ok := step.Args["args"]; ok {
-				switch x := v.(type) {
-				case []string:
-					if len(x) > 0 {
-						inputArg = ", " + strings.Join(x, ", ")
-					}
-				}
+		if inputArg == "" && len(repositoryCall.Arguments) > 0 {
+			args := make([]string, 0, len(repositoryCall.Arguments))
+			for _, expression := range repositoryCall.Arguments {
+				args = append(args, expression.Source)
 			}
+			inputArg = ", " + strings.Join(args, ", ")
 		}
 		// list:true → output is a slice, not a pointer
-		isList := false
-		if b2, ok := step.Args["list"].(bool); ok && b2 {
-			isList = true
-		}
+		isList := repositoryCall.List
 		if output == "" {
 			b.WriteString(fmt.Sprintf("%sif _, _qrErr := s.%sRepo.%s(ctx%s); _qrErr != nil {\n", pad, ExportName(source), ExportName(method), inputArg))
 			b.WriteString(errReturn(st, pad+"\t", "_qrErr"))
@@ -242,10 +241,10 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 		return b.String(), true
 
 	case "repo.Upsert":
-		source := arg("source")
-		find := arg("find")
-		input := arg("input")
-		output := arg("output")
+		source := repositoryCall.Entity
+		find := repositoryCall.Find.Source
+		input := repositoryCall.Input.Source
+		output := repositoryCall.Output
 		if source == "" || find == "" || input == "" || output == "" {
 			return "", true
 		}

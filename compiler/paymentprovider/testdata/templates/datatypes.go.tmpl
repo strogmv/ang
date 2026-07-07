@@ -1,0 +1,854 @@
+package {{ .PackageName }}
+
+import (
+	"encoding/json"
+{{- if or (and .ErrorCodes .CallbackErrorCodeField .ErrorMappingMatrix) .UseMacanP2P .UseTransfertyH2H }}
+	"strings"
+{{- end }}
+{{- if or .UseMacanP2P .UseTransfertyH2H }}
+	"fmt"
+{{- end }}
+{{- if .UseMacanP2P }}
+	"strconv"
+{{- end }}
+{{- if .HasMultiCurrency }}
+	"gitlab.q-tech.host/transferty/backend/utils/currency"
+{{- end }}
+{{- if .UseMacanP2P }}
+	"gitlab.q-tech.host/transferty/backend/utils/helpers"
+	"gitlab.q-tech.host/transferty/backend/utils/types"
+{{- end }}
+{{- if and .SupportedMethods (not .UseMacanP2P) }}
+	"gitlab.q-tech.host/transferty/backend/utils/types"
+{{- end }}
+
+	"gitlab.q-tech.host/transferty/backend/tnx_processor/model"
+	providers "gitlab.q-tech.host/transferty/backend/tnx_processor/payment_providers"
+)
+
+const (
+	ppSID       = "{{ .SID }}"
+	ppLabel     = "{{ .Label }}"
+	ppMIDPrefix = "{{ .MIDPrefix }}"
+)
+
+const (
+	{{- range .Endpoints }}
+	{{ .ConstName }} = "{{ .Path }}"
+	{{- end }}
+)
+
+const (
+{{- if and .RuntimePolicyConfig .RuntimePolicyConfig.Limits .RuntimePolicyConfig.Limits.MaxCallbackBodyBytes }}
+	maxCallbackBodyBytes = {{ .RuntimePolicyConfig.Limits.MaxCallbackBodyBytes }}
+{{- else }}
+	maxCallbackBodyBytes = 1 << 20
+{{- end }}
+
+	errReadCallbackBodyFmt = "{{ .SID }}: read callback body: %w"
+	errCallbackTooLargeFmt = "{{ .SID }}: callback body too large (limit %d bytes)"
+
+	opPayin    = "payin"
+	opPayout   = "payout"
+	opStatus   = "status"
+	opP2P      = "p2p"
+	opCallback = "callback"
+	opBalance  = "balance"
+	opCancel   = "cancel"
+)
+
+{{ if eq .StatusCodeType "string" -}}
+type providerStatus string
+
+const (
+	{{- range .PayinStatuses }}
+	{{ .ConstName }} providerStatus = "{{ .Code }}"
+	{{- end }}
+	{{- range .PayoutStatusesExtra }}
+	{{ .ConstName }} providerStatus = "{{ .Code }}"
+	{{- end }}
+)
+{{ else -}}
+const (
+	{{- range .PayinStatuses }}
+	{{ .ConstName }} = {{ .Code }}
+	{{- end }}
+	{{- range .PayoutStatusesExtra }}
+	{{ .ConstName }} = {{ .Code }}
+	{{- end }}
+)
+{{ end }}
+
+{{ if .StatusDetails }}
+const (
+	{{- range .StatusDetails }}
+	{{ .ConstName }} = "{{ .Code }}"
+	{{- end }}
+)
+{{ end }}
+
+{{ if .ErrorCodes }}
+const (
+	{{- range .ErrorCodes }}
+	{{ .ConstName }} = "{{ .Code }}"
+	{{- end }}
+)
+{{ end }}
+
+var (
+{{- range .TnxStatusVars }}
+	tnxStatus{{ .TitleName }}, _ = model.ParseStatus("{{ .Kind }}")
+{{- end }}
+)
+
+{{ if .HasMultiCurrency -}}
+func isSupportedCurrency(cur string) bool {
+	switch cur {
+	{{- range .SupportedCurrencies }}
+	{{- if eq . "RUB" }}
+	case currency.RUBCurrency:
+	{{- else if eq . "KGS" }}
+	case currency.KGSCurrency:
+	{{- else if eq . "UZS" }}
+	case currency.UZSCurrency:
+	{{- else if eq . "USD" }}
+	case currency.USDCurrency:
+	{{- else if eq . "EUR" }}
+	case currency.EURCurrency:
+	{{- else if eq . "USDT" }}
+	case currency.USDTCurrency:
+	{{- else }}
+	case "{{ . }}":
+	{{- end }}
+		return true
+	{{- end }}
+	default:
+		return false
+	}
+}
+{{ end -}}
+
+{{ if .HasP2PDualEndpoint -}}
+func p2pInitEndpoint(brand string) string {
+	switch {
+	case types.CardP2PMethod.Equal(brand):
+		return {{ .P2PCardEndpointConst }}
+	default:
+		return {{ .P2PAPMEndpointConst }}
+	}
+}
+{{ end -}}
+
+{{ if .HasPayoutDualEndpoint -}}
+func p2pPayoutEndpoint(brand string) string {
+	switch {
+	case types.CardP2PMethod.Equal(brand):
+		return {{ .PayoutCardEndpointConst }}
+	default:
+		return {{ .PayoutAPMEndpointConst }}
+	}
+}
+{{ end -}}
+
+{{ if .SupportedMethods -}}
+{{ if .UseMacanP2P -}}
+func isSupportedP2PMethod(brand string) bool {
+	for _, rule := range macanPaymentMethodRules {
+		if macanBrandMatches(rule, brand) {
+			return true
+		}
+	}
+	return false
+}
+{{ else -}}
+func isSupportedP2PMethod(brand string) bool {
+	switch {
+	{{- range .SupportedMethods }}
+	{{- if eq . "cardp2p" }}
+	case types.CardP2PMethod.Equal(brand):
+		return true
+	{{- else if eq . "sbp" }}
+	case types.SBPMethod.Equal(brand):
+		return true
+	{{- else if eq . "click" }}
+	case types.ClickMethod.Equal(brand):
+		return true
+	{{- else if eq . "qrcode" }}
+	case types.QRCodeMethod.Equal(brand):
+		return true
+	{{- else }}
+	case brand == "{{ . }}":
+		return true
+	{{- end }}
+	{{- end }}
+	default:
+		return false
+	}
+}
+{{ end -}}
+{{ end -}}
+
+{{ if eq .StatusCodeType "string" -}}
+func mapPayinStatus(status providerStatus) (model.TnxStatus, model.TnxStatusCode, string) {
+	switch status {
+	{{- range .PayinStatuses }}
+	case {{ .ConstName }}:
+		return tnxStatus{{ .StatusTitle }}, model.{{ .StatusCode }}{{ if .Message }}, "{{ .Message }}"{{ else }}, model.{{ .StatusCode }}.Description(){{ end }}
+	{{- end }}
+	default:
+		return tnxStatusPending, model.SCodeOk, string(status)
+	}
+}
+
+func mapPayoutStatus(status providerStatus) (model.TnxStatus, model.TnxStatusCode, string) {
+	switch status {
+	{{- range .PayoutStatuses }}
+	case {{ .ConstName }}:
+		return tnxStatus{{ .StatusTitle }}, model.{{ .StatusCode }}{{ if .Message }}, "{{ .Message }}"{{ else }}, model.{{ .StatusCode }}.Description(){{ end }}
+	{{- end }}
+	default:
+		return tnxStatusPending, model.SCodeOk, string(status)
+	}
+}
+{{ else -}}
+func mapPayinStatus(status int) (model.TnxStatus, model.TnxStatusCode, string) {
+	switch status {
+	{{- range .PayinStatuses }}
+	case {{ .ConstName }}:
+		return tnxStatus{{ .StatusTitle }}, model.{{ .StatusCode }}{{ if .Message }}, "{{ .Message }}"{{ else }}, model.{{ .StatusCode }}.Description(){{ end }}
+	{{- end }}
+	default:
+		return tnxStatusPending, model.SCodeOk, providers.ProviderInternalErrNotFinal
+	}
+}
+
+func mapPayoutStatus(status int) (model.TnxStatus, model.TnxStatusCode, string) {
+	switch status {
+	{{- range .PayoutStatuses }}
+	case {{ .ConstName }}:
+		return tnxStatus{{ .StatusTitle }}, model.{{ .StatusCode }}{{ if .Message }}, "{{ .Message }}"{{ else }}, model.{{ .StatusCode }}.Description(){{ end }}
+	{{- end }}
+	default:
+		return tnxStatusPending, model.SCodeOk, providers.ProviderInternalErrNotFinal
+	}
+}
+{{ end }}
+
+{{ if .UseTransfertyH2H -}}
+type h2hTransaction struct {
+	ID                string `json:"id"`
+	Status            string `json:"status"`
+	StatusCode        int    `json:"status_code"`
+	StatusDescription string `json:"status_description,omitempty"`
+}
+
+type h2hPaymentResponse struct {
+	Code        int             `json:"code"`
+	Reason      string          `json:"reason"`
+	RedirectURL string          `json:"redirect_url,omitempty"`
+	Transaction h2hTransaction  `json:"transaction"`
+}
+
+type h2hPaymentAccount struct {
+	Method     string `json:"method"`
+	Identifier string `json:"identifier"`
+}
+
+type h2hCardPayoutRequest struct {
+	OrderID          string `json:"order_id"`
+	OrderDescription string `json:"order_description,omitempty"`
+	Amount           int64  `json:"amount"`
+	Currency         string `json:"currency"`
+	CustomerID       string `json:"customer_id"`
+	CustomerIP       string `json:"customer_ip,omitempty"`
+	CallbackURL      string `json:"callback_url,omitempty"`
+	CcNumber         string `json:"cc_number"`
+}
+
+func (r *h2hCardPayoutRequest) Marshal() ([]byte, error) { return json.Marshal(r) }
+
+func (r *h2hCardPayoutRequest) String() (string, error) {
+	safe := *r
+	safe.CcNumber = providers.HiddenStringValue
+	b, err := json.Marshal(safe)
+	return string(b), err
+}
+
+type h2hApmPayoutRequest struct {
+	OrderID          string            `json:"order_id"`
+	OrderDescription string            `json:"order_description,omitempty"`
+	Amount           int64             `json:"amount"`
+	Currency         string            `json:"currency"`
+	CustomerID       string            `json:"customer_id"`
+	CustomerIP       string            `json:"customer_ip,omitempty"`
+	CallbackURL      string            `json:"callback_url,omitempty"`
+	PaymentAccount   h2hPaymentAccount `json:"payment_account"`
+	Details          map[string]string `json:"details,omitempty"`
+}
+
+func (r *h2hApmPayoutRequest) Marshal() ([]byte, error) { return json.Marshal(r) }
+
+func (r *h2hApmPayoutRequest) String() (string, error) {
+	safe := *r
+	safe.PaymentAccount.Identifier = providers.HiddenStringValue
+	b, err := json.Marshal(safe)
+	return string(b), err
+}
+
+func mapH2HResponseCode(code int) (model.TnxStatus, model.TnxStatusCode, string) {
+	switch code {
+	case 0:
+		return tnxStatusPending, model.SCodeOk, model.SCodeOk.Description()
+	case 30040:
+		return tnxStatusDeclined, model.SCodeInsufficientFunds, model.SCodeInsufficientFunds.Description()
+	case 30003, 30005, 30010, 30011, 30012, 30020, 30022, 30401, 30404, 30600:
+		return tnxStatusDeclined, model.SCodeDeclinedByBank, model.SCodeDeclinedByBank.Description()
+	case 30500, 30030, 30031, 30700:
+		return tnxStatusPending, model.SCodeOk, providers.ProviderInternalErrNotFinal
+	default:
+		return tnxStatusError, model.SCodeInternalError, fmt.Sprintf("code: %d", code)
+	}
+}
+
+func buildApmDetails(ownerInfo map[string]string) (map[string]string, map[string]string) {
+	details := make(map[string]string, len(ownerInfo))
+	extra := make(map[string]string, len(ownerInfo))
+	for k, v := range ownerInfo {
+		extra[k] = v
+		switch k {
+		case providers.ExternalCustomerIDKey, providers.IPKey:
+			continue
+		default:
+			details[k] = v
+		}
+	}
+	return details, extra
+}
+
+const (
+	h2hStatusSuccess = "success"
+	h2hStatusPending = "pending"
+	h2hStatusInitial = "initial"
+	h2hStatusError   = "error"
+	h2hStatusBlocked = "blocked"
+)
+
+func mapH2HTxnStatus(status string, statusCode int) (model.TnxStatus, model.TnxStatusCode, string) {
+	switch status {
+	case h2hStatusSuccess:
+		return tnxStatusSuccess, model.SCodeOk, model.SCodeOk.Description()
+	case h2hStatusPending, h2hStatusInitial:
+		return tnxStatusPending, model.SCodeOk, model.SCodeOk.Description()
+	case h2hStatusError:
+		if statusCode != 0 {
+			if sc, ok := model.TnxStatusCodeByValue(statusCode); ok {
+				return tnxStatusError, sc, sc.Description()
+			}
+		}
+		return tnxStatusError, model.SCodeInternalError, model.SCodeInternalError.Description()
+	case h2hStatusBlocked:
+		if statusCode != 0 {
+			if sc, ok := model.TnxStatusCodeByValue(statusCode); ok {
+				return tnxStatusBlocked, sc, sc.Description()
+			}
+		}
+		return tnxStatusBlocked, model.SCodeBlocked, model.SCodeBlocked.Description()
+	default:
+		if statusCode != 0 {
+			if sc, ok := model.TnxStatusCodeByValue(statusCode); ok {
+				return tnxStatusDeclined, sc, sc.Description()
+			}
+		}
+		return tnxStatusDeclined, model.SCodeDeclinedByBank, model.SCodeDeclinedByBank.Description()
+	}
+}
+{{ end -}}
+
+{{ if .UseMacanP2P -}}
+type macanPayInRequest struct {
+	Amount        float64              `json:"amount"`
+	PaymentMethod macanPaymentMethod   `json:"payment_method"`
+	Bank          *macanBank           `json:"bank,omitempty"`
+	Customer      macanCustomer        `json:"customer"`
+	ExternalID    string               `json:"external_id"`
+	CallbackURL   string               `json:"callback_url,omitempty"`
+	SuccessURL    string               `json:"success_url,omitempty"`
+	IsRedirect    bool                 `json:"is_redirect"`
+}
+
+func (r *macanPayInRequest) Marshal() ([]byte, error) { return json.Marshal(r) }
+
+func (r *macanPayInRequest) String() (string, error) {
+	b, err := json.Marshal(r)
+	return string(b), err
+}
+
+type macanPayOutRequest struct {
+	Amount        float64            `json:"amount"`
+	Currency      macanCurrency      `json:"currency"`
+	PaymentMethod macanPaymentMethod `json:"payment_method"`
+	Bank          macanBank          `json:"bank"`
+	Customer      macanPayOutCustomer `json:"customer"`
+	ExternalID    string             `json:"external_id"`
+	CallbackURL   string             `json:"callback_url,omitempty"`
+}
+
+func (r *macanPayOutRequest) Marshal() ([]byte, error) { return json.Marshal(r) }
+
+func (r *macanPayOutRequest) String() (string, error) {
+	safe := *r
+	if safe.Customer.Requisite.CardNumber != "" {
+		safe.Customer.Requisite.CardNumber = providers.HiddenStringValue
+	}
+	if safe.Customer.Requisite.PhoneNumber != "" {
+		safe.Customer.Requisite.PhoneNumber = providers.HiddenStringValue
+	}
+	if safe.Customer.Requisite.AccountNumber != "" {
+		safe.Customer.Requisite.AccountNumber = providers.HiddenStringValue
+	}
+	b, err := json.Marshal(safe)
+	return string(b), err
+}
+
+type macanPaymentMethod struct {
+	Name string `json:"name"`
+}
+
+type macanBank struct {
+	Code string `json:"code"`
+}
+
+type macanCurrency struct {
+	Name string `json:"name"`
+}
+
+type macanCustomer struct {
+	ID string `json:"id"`
+}
+
+type macanPayOutCustomer struct {
+	ID        string           `json:"id"`
+	Requisite macanRequisite   `json:"requisite"`
+}
+
+type macanRequisite struct {
+	HolderName    string `json:"holder_name,omitempty"`
+	PhoneNumber   string `json:"phone_number,omitempty"`
+	CardNumber    string `json:"card_number,omitempty"`
+	AccountNumber string `json:"account_number,omitempty"`
+}
+
+type macanPayInResponse struct {
+	PayIn macanPayIn `json:"payIn"`
+}
+
+func (r *macanPayInResponse) Unmarshal(data []byte) error {
+	return json.Unmarshal(data, r)
+}
+
+func (r macanPayInResponse) String() (string, error) {
+	if r.PayIn.Requisites.CardInfo != "" {
+		r.PayIn.Requisites.CardInfo = providers.HiddenStringValue
+	}
+	if r.PayIn.Requisites.CardHolder != "" {
+		r.PayIn.Requisites.CardHolder = providers.HiddenStringValue
+	}
+	if r.PayIn.Requisites.Phone != "" {
+		r.PayIn.Requisites.Phone = providers.HiddenStringValue
+	}
+	raw, err := json.Marshal(r)
+	return string(raw), err
+}
+
+type macanPayOutResponse struct {
+	PayOut macanPayOut `json:"payOut"`
+}
+
+func (r *macanPayOutResponse) Unmarshal(data []byte) error {
+	return json.Unmarshal(data, r)
+}
+
+func (r macanPayOutResponse) String() (string, error) {
+	raw, err := json.Marshal(r)
+	return string(raw), err
+}
+
+type macanPayIn struct {
+	ID            string               `json:"id"`
+	Status        string               `json:"status"`
+	StatusDetails string               `json:"statusDetails"`
+	RedirectURL   string               `json:"redirectUrl"`
+	Requisites    macanPayInRequisites `json:"requisites"`
+	Amount        string               `json:"amount"`
+	InitialAmount string               `json:"initialAmount"`
+}
+
+type macanPayOut struct {
+	ID            string `json:"id"`
+	Status        string `json:"status"`
+	StatusDetails string `json:"statusDetails"`
+	Amount        string `json:"amount"`
+}
+
+type macanPayInRequisites struct {
+	CardInfo   string `json:"card_info"`
+	CardHolder string `json:"card_holder"`
+	Phone      string `json:"phone"`
+	BankName   string `json:"bank_name"`
+	NspkLink   string `json:"nspk_link"`
+}
+
+type macanBalanceResponse struct {
+	Balance struct {
+		Currency string  `json:"currency"`
+		Amount   float64 `json:"amount"`
+	} `json:"balance"`
+}
+
+type macanAPIError struct {
+	Attribute string `json:"attribute"`
+	Message   string `json:"message"`
+	Type      string `json:"type"`
+}
+
+type macanAPIErrorResponse struct {
+	Errors []macanAPIError `json:"errors"`
+}
+
+func macanAPIErrorsMessage(errs []macanAPIError) string {
+	if len(errs) == 0 {
+		return model.SCodeDeclinedByBank.Description()
+	}
+	var b strings.Builder
+	for i, e := range errs {
+		if i > 0 {
+			b.WriteString("; ")
+		}
+		if e.Type != "" {
+			b.WriteString(e.Type)
+			b.WriteString(": ")
+		}
+		b.WriteString(e.Message)
+	}
+	return b.String()
+}
+
+{{ if .ErrorCodes -}}
+func mapMacanAPIErrorType(errType string) (model.TnxStatus, model.TnxStatusCode, bool) {
+	switch errType {
+	{{- range .ErrorCodes }}
+	case {{ .ConstName }}:
+		return tnxStatus{{ .StatusTitle }}, model.{{ .StatusCode }}, true
+	{{- end }}
+	default:
+		return tnxStatusDeclined, model.SCodeDeclinedByBank, false
+	}
+}
+{{ end -}}
+
+const (
+	{{- range .MacanPayMethodConsts }}
+	{{ .Name }} = "{{ .Value }}"
+	{{- end }}
+)
+
+{{ if .MacanPaymentBrandConsts -}}
+type macanPaymentBrand string
+
+func (b macanPaymentBrand) Equal(brand string) bool { return string(b) == brand }
+
+func (b macanPaymentBrand) String() string { return string(b) }
+
+const (
+	{{- range .MacanPaymentBrandConsts }}
+	{{ .Name }} macanPaymentBrand = "{{ .Value }}"
+	{{- end }}
+)
+{{ end -}}
+
+const (
+	{{- range .MacanBrandMatchCases }}
+	{{ .MatchConst }} = "{{ .MatchValue }}"
+	{{- end }}
+	matchLiteral = "literal"
+
+	requisiteCard  = "card"
+	requisitePhone = "phone"
+)
+
+type macanPayMethodRule struct {
+	match         string // cardp2p | sbp | click | qrcode | trans_card2card | trans_sbp | literal
+	literalBrand  string
+	defaultAPI    string
+	kgsAPI        string
+	requisiteKind string // card | phone | "" (empty = account)
+}
+
+var macanPaymentMethodRules = []macanPayMethodRule{
+	{{- range .PaymentMethodMap }}
+	{{- if eq .MatchKey "cardp2p" }}
+	{match: matchCardP2P, literalBrand: "{{ .Brand }}", defaultAPI: {{ .APINameConst }}, requisiteKind: requisiteCard},
+	{{- else if eq .MatchKey "sbp" }}
+	{match: matchSBP, literalBrand: "{{ .Brand }}", defaultAPI: {{ .APINameConst }}, requisiteKind: requisitePhone},
+	{{- else if eq .MatchKey "trans_card2card" }}
+	{match: matchTransCard2Card, literalBrand: "{{ .Brand }}", defaultAPI: {{ .APINameConst }}, requisiteKind: requisiteCard},
+	{{- else if eq .MatchKey "trans_sbp" }}
+	{match: matchTransSBP, literalBrand: "{{ .Brand }}", defaultAPI: {{ .APINameConst }}, requisiteKind: requisitePhone},
+	{{- else if eq .MatchKey "literal" }}
+	{match: matchLiteral, literalBrand: "{{ .Brand }}", defaultAPI: {{ .APINameConst }}{{- if or (eq .Brand "trans_card2card") (eq .Brand "trans_card") }}, requisiteKind: requisiteCard{{- else if or (eq .Brand "trans_sbp") (eq .Brand "trans_phone") }}, requisiteKind: requisitePhone{{- end }}},
+	{{- else if eq .MatchKey "click" }}
+	{match: matchClick, literalBrand: "{{ .Brand }}", defaultAPI: {{ .APINameConst }}{{- if .KGSAPIConst }}, kgsAPI: {{ .KGSAPIConst }}{{- end }}},
+	{{- else if eq .MatchKey "qrcode" }}
+	{match: matchQRCode, literalBrand: "{{ .Brand }}", defaultAPI: {{ .APINameConst }}{{- if .KGSAPIConst }}, kgsAPI: {{ .KGSAPIConst }}{{- end }}},
+	{{- else }}
+	{match: "{{ .MatchKey }}", literalBrand: "{{ .Brand }}", defaultAPI: {{ .APINameConst }}{{- if .KGSAPIConst }}, kgsAPI: {{ .KGSAPIConst }}{{- end }}},
+	{{- end }}
+	{{- end }}
+}
+
+func macanBrandMatches(rule macanPayMethodRule, brand string) bool {
+	switch rule.match {
+	{{- range .MacanBrandMatchCases }}
+	case {{ .MatchConst }}:
+		return {{ .EqualExpr }}
+	{{- end }}
+	case matchLiteral:
+		return brand == rule.literalBrand
+	default:
+		return false
+	}
+}
+
+func macanIsRedirect(brand string) bool {
+	return types.ClickMethod.Equal(brand) || types.QRCodeMethod.Equal(brand)
+}
+
+func macanPaymentMethodName(brand, cur string) (string, error) {
+	for _, rule := range macanPaymentMethodRules {
+		if !macanBrandMatches(rule, brand) {
+			continue
+		}
+		if rule.kgsAPI != "" && cur == currency.KGSCurrency {
+			return rule.kgsAPI, nil
+		}
+		return rule.defaultAPI, nil
+	}
+	return "", fmt.Errorf("%s: unsupported payment method brand %q", ppSID, brand)
+}
+
+func macanPaymentDecline(body []byte) (st model.TnxStatus, code model.TnxStatusCode, msg string, ok bool) {
+	if len(body) == 0 {
+		return
+	}
+	var errResp macanAPIErrorResponse
+	if err := json.Unmarshal(body, &errResp); err != nil || len(errResp.Errors) == 0 {
+		return
+	}
+	msg = macanAPIErrorsMessage(errResp.Errors)
+	for _, e := range errResp.Errors {
+		if e.Type == "" {
+			continue
+		}
+{{- if .ErrorCodes }}
+		if st, code, ok = mapMacanAPIErrorType(e.Type); ok {
+			return st, code, msg, true
+		}
+{{- end }}
+	}
+	return tnxStatusDeclined, model.SCodeDeclinedByBank, msg, true
+}
+
+func macanBankCode(ownerInfo map[string]string) string {
+	if code := helpers.MapGet(ownerInfo, providers.BankCodeKey, ""); code != "" {
+		return code
+	}
+	return helpers.MapGet(ownerInfo, providers.BankNameKey, "")
+}
+
+// syncExchangedAmount writes the provider-reported amount into tx.ExchangedAmount
+// when present, so p2p amount adjustments are reflected back.
+func syncExchangedAmount(tx *model.Transaction, amountStr string) {
+	if amount, err := strconv.ParseFloat(amountStr, 64); err == nil && amount > 0 {
+		tx.ExchangedAmount = helpers.FloatAmountToCoins(amount, tx.Currency)
+	}
+}
+
+{{ if .StatusDetails }}
+func mapStatusDetail(details string) (model.TnxStatus, model.TnxStatusCode, string, bool) {
+	switch details {
+	{{- range .GroupedStatusDetails }}
+	case {{ .CaseLabel }}:
+		return tnxStatus{{ .StatusTitle }}, model.{{ .StatusCode }}, model.{{ .StatusCode }}.Description(), true
+	{{- end }}
+	default:
+		return tnxStatusPending, model.SCodeOk, "", false
+	}
+}
+{{ end }}
+
+func macanPayInStatus(status providerStatus, details string) (model.TnxStatus, model.TnxStatusCode, string) {
+{{- if .StatusDetails }}
+	if st, code, msg, ok := mapStatusDetail(details); ok {
+		return st, code, msg
+	}
+{{- end }}
+	return mapPayinStatus(status)
+}
+
+func macanPayOutStatus(status providerStatus, details string) (model.TnxStatus, model.TnxStatusCode, string) {
+{{- if .StatusDetails }}
+	if st, code, msg, ok := mapStatusDetail(details); ok {
+		return st, code, msg
+	}
+{{- end }}
+	return mapPayoutStatus(status)
+}
+
+func macanRecipientDetails(req macanPayInRequisites) *model.RecipientDetails {
+	if req.NspkLink != "" {
+		return &model.RecipientDetails{
+			Identifier: req.NspkLink,
+		}
+	}
+	if req.Phone != "" {
+		return &model.RecipientDetails{
+			Identifier:       req.Phone,
+			IdentifierHolder: req.CardHolder,
+			InstitutionName:  req.BankName,
+		}
+	}
+	if req.CardInfo != "" {
+		return &model.RecipientDetails{
+			Identifier:       req.CardInfo,
+			IdentifierHolder: req.CardHolder,
+			InstitutionName:  req.BankName,
+		}
+	}
+	return nil
+}
+
+func macanPayoutRequisite(brand string, ps *model.PaymentSource, ownerInfo map[string]string) macanRequisite {
+	holder := helpers.MapGet(ownerInfo, providers.FullnameKey, "")
+	if holder == "" {
+		holder = helpers.MapGet(ownerInfo, providers.CardholderKey, "")
+	}
+	req := macanRequisite{HolderName: holder}
+	apmID := ps.APM.ID
+	for _, rule := range macanPaymentMethodRules {
+		if macanBrandMatches(rule, brand) {
+			switch rule.requisiteKind {
+			case requisiteCard:
+				if ps.Card != nil {
+					req.CardNumber = ps.Card.PAN
+				}
+			case requisitePhone:
+				req.PhoneNumber = apmID
+			default:
+				req.AccountNumber = apmID
+			}
+			return req
+		}
+	}
+	req.AccountNumber = apmID
+	return req
+}
+{{ end -}}
+
+{{ range .AllRequestTypes }}
+type {{ .Name }} struct {
+{{- range .Fields }}
+	{{ .Name }} {{ .Type }} `json:"{{ .JSON }}{{ if .Omitempty }},omitempty{{ end }}"`
+{{- end }}
+}
+
+func (r *{{ .Name }}) Marshal() ([]byte, error) { return json.Marshal(r) }
+
+{{ if .HasRedacted }}
+func (r *{{ .Name }}) String() (string, error) {
+	safe := *r
+{{- range .RedactedFields }}
+	safe.{{ . }} = payment_providers.HiddenStringValue
+{{- end }}
+	b, err := json.Marshal(safe)
+	return string(b), err
+}
+{{ else }}
+func (r *{{ .Name }}) String() (string, error) {
+	b, err := json.Marshal(r)
+	return string(b), err
+}
+{{ end }}
+{{ end }}
+
+{{ range .ResponseTypes }}
+type {{ .Name }} struct {
+{{- range .Fields }}
+	{{ .Name }} {{ .Type }} `json:"{{ .JSON }}{{ if .Omitempty }},omitempty{{ end }}"`
+{{- end }}
+}
+{{ end }}
+
+{{ if .CallbackFields }}
+type cbData struct {
+	raw []byte
+{{- range .CallbackFields }}
+	{{ .Name }} {{ .Type }} `json:"{{ .JSON }}{{ if .Omitempty }},omitempty{{ end }}"`
+{{- end }}
+}
+{{ end }}
+
+{{ if and .ErrorCodes .CallbackErrorCodeField -}}
+{{ if .ErrorMappingMatrix -}}
+func splitProviderErrorCode(raw string) (major, minor string) {
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		switch r {
+		case ':', '.', '|', '/', '-':
+			return true
+		default:
+			return false
+		}
+	})
+	if len(parts) == 0 {
+		return "", ""
+	}
+	major = parts[0]
+	if len(parts) > 1 {
+		minor = parts[1]
+	}
+	return major, minor
+}
+
+func mapErrorCodeMatrix(major, minor string) (model.TnxStatus, model.TnxStatusCode, bool) {
+	switch major {
+	{{- range .ErrorMappingMatrix }}
+	case "{{ printf "%v" .Major }}":
+		{{- if eq (printf "%v" .Minor) "" }}
+		return tnxStatus{{ .StatusTitle }}, model.{{ .StatusCode }}, true
+		{{- else }}
+		if minor == "{{ printf "%v" .Minor }}" {
+			return tnxStatus{{ .StatusTitle }}, model.{{ .StatusCode }}, true
+		}
+		{{- end }}
+	{{- end }}
+	}
+	return tnxStatusDeclined, model.SCodeDeclinedByBank, false
+}
+{{ end }}
+
+func mapErrorCode(code string) (model.TnxStatus, model.TnxStatusCode) {
+{{ if .ErrorMappingMatrix -}}
+	major, minor := splitProviderErrorCode(code)
+	if st, sc, ok := mapErrorCodeMatrix(major, minor); ok {
+		return st, sc
+	}
+{{ end -}}
+	switch code {
+	{{- range .ErrorCodes }}
+	case {{ .ConstName }}:
+		return tnxStatus{{ .StatusTitle }}, model.{{ .StatusCode }}
+	{{- end }}
+	default:
+		return tnxStatusDeclined, model.SCodeDeclinedByBank
+	}
+}
+{{ end }}

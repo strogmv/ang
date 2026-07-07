@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 var reFlowSelectorID = regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9]*)Id\b`)
@@ -48,6 +49,9 @@ func flowRenderable(steps []normalizer.FlowStep) bool {
 }
 
 func flowActionSupported(action string) bool {
+	if _, ok := flowir.Lookup(action); ok {
+		return true
+	}
 	switch action {
 	case "logic.Check",
 		"repo.Find", "repo.Get", "repo.GetForUpdate", "repo.List", "repo.Save", "repo.Delete",

@@ -1,0 +1,184 @@
+package {{ .PackageName }}
+
+import (
+{{- if or .CallbackSignature (and .UseMacanP2P (not .CallbackSignature)) }}
+	"crypto/sha1" //nolint:gosec // provider callback signature spec
+	"encoding/hex"
+	"fmt"
+	"sort"
+	"strings"
+{{- end }}
+{{- if or (eq .SigningAlgorithm "sha256") (eq .SigningAlgorithm "hmac-sha256") }}
+	"crypto/sha256"
+{{- end }}
+{{- if eq .SigningAlgorithm "hmac-sha256" }}
+	"crypto/hmac"
+{{- end }}
+{{- if eq .SigningAlgorithm "md5" }}
+	"crypto/md5"
+{{- end }}
+{{- if and (ne .SigningAlgorithm "none") (not .CallbackSignature) (not .UseMacanP2P) }}
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+{{- end }}
+{{- if and (ne .SigningAlgorithm "none") (eq .SigningFormat "key_concat_sorted_values") (not .CallbackSignature) }}
+	"sort"
+	"strings"
+{{- end }}
+)
+
+{{ if eq .SigningAlgorithm "sha256" -}}
+{{ if eq .SigningFormat "key_concat_sorted_values" -}}
+func computeSignature(key string, data map[string]string) string {
+	keys := make([]string, 0, len(data))
+	for k := range data {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var sb strings.Builder
+	for _, k := range keys {
+		sb.WriteString(data[k])
+	}
+
+	sum := sha256.Sum256([]byte(key + sb.String()))
+	return hex.EncodeToString(sum[:])
+}
+{{ else -}}
+func computeSignature(key, payload string) string {
+	sum := sha256.Sum256([]byte(key + payload))
+	return hex.EncodeToString(sum[:])
+}
+{{ end -}}
+{{ end -}}
+
+{{ if eq .SigningAlgorithm "hmac-sha256" -}}
+func computeSignature(secret string, body []byte) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(body)
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func verifySignature(secret string, body []byte, expected string) bool {
+	return hmac.Equal([]byte(computeSignature(secret, body)), []byte(expected))
+}
+{{ end -}}
+
+{{ if eq .SigningAlgorithm "md5" -}}
+func computeSignature(key, payload string) string {
+	sum := md5.Sum([]byte(key + payload))
+	return hex.EncodeToString(sum[:])
+}
+{{ end -}}
+
+{{ if .CallbackSignature -}}
+{{- if .HasCallbackSigFloatFormat }}
+func formatCallbackSigFloatAmount(amount float64) string {
+	s := fmt.Sprintf("%v", amount)
+	if !strings.Contains(s, ".") {
+		return s + ".0"
+	}
+	return s
+}
+{{- end }}
+
+func computeCallbackSignature(signatureKey string, cb *cbData) string {
+	pairs := map[string]string{}
+{{- range .CallbackSignature.Fields }}
+{{- if .IsSecretKey }}
+	pairs["{{ .MapKey }}"] = signatureKey
+{{- else if .OmitIfEmpty }}
+	if cb.{{ .CallbackGoField }} != "" {
+		pairs["{{ .MapKey }}"] = {{ if eq .Format "float_trailing_zero" }}formatCallbackSigFloatAmount(cb.{{ .CallbackGoField }}){{ else }}cb.{{ .CallbackGoField }}{{ end }}
+	}
+{{- else }}
+	pairs["{{ .MapKey }}"] = {{ if eq .Format "float_trailing_zero" }}formatCallbackSigFloatAmount(cb.{{ .CallbackGoField }}){{ else }}cb.{{ .CallbackGoField }}{{ end }}
+{{- end }}
+{{- end }}
+	keys := make([]string, 0, len(pairs))
+	for k := range pairs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for i, k := range keys {
+		if i > 0 {
+			b.WriteByte('|')
+		}
+		b.WriteString(k)
+		b.WriteByte('=')
+		b.WriteString(pairs[k])
+	}
+	sum := sha1.Sum([]byte(b.String())) //nolint:gosec
+	return hex.EncodeToString(sum[:])
+}
+
+func verifyCallbackSignature(signatureKey, expected string, cb *cbData) bool {
+	if expected == "" {
+		return false
+	}
+	got := computeCallbackSignature(signatureKey, cb)
+{{- if .CallbackSignature.CompareEqualFold }}
+	return strings.EqualFold(got, expected)
+{{- else }}
+	return got == expected
+{{- end }}
+}
+{{ end -}}
+
+{{ if and .UseMacanP2P (not .CallbackSignature) -}}
+func computeMacanCallbackSignature(signatureKey string, amount float64, id, status, statusDetails, externalID string) string {
+	pairs := map[string]string{
+		"amount":               formatMacanCallbackAmount(amount),
+		"external_id":          externalID,
+		"id":                   id,
+		"merchantSignatureKey": signatureKey,
+		"status":               status,
+		"status_details":       statusDetails,
+	}
+	keys := make([]string, 0, len(pairs))
+	for k := range pairs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for i, k := range keys {
+		if i > 0 {
+			b.WriteByte('|')
+		}
+		b.WriteString(k)
+		b.WriteByte('=')
+		b.WriteString(pairs[k])
+	}
+	sum := sha1.Sum([]byte(b.String())) //nolint:gosec
+	return hex.EncodeToString(sum[:])
+}
+
+func formatMacanCallbackAmount(amount float64) string {
+	s := fmt.Sprintf("%v", amount)
+	if !strings.Contains(s, ".") {
+		return s + ".0"
+	}
+	return s
+}
+
+func verifyMacanCallbackSignature(signatureKey, expected string, cb *cbData) bool {
+	if expected == "" {
+		return false
+	}
+	got := computeMacanCallbackSignature(signatureKey, cb.Amount, cb.ID, cb.Status, cb.StatusDetails, cb.ExternalID)
+	return strings.EqualFold(got, expected)
+}
+
+{{ end -}}
+
+{{- if and (ne .SigningAlgorithm "none") (not .CallbackSignature) (not .UseMacanP2P) }}
+func generateSalt() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("%032x", 0)
+	}
+	return hex.EncodeToString(b)
+}
+{{- end }}

@@ -10,13 +10,10 @@ import (
 
 // renderFlowParallel emits errgroup-style concurrent code for flow.Parallel.
 // All branches must succeed; the first error cancels remaining branches (fail-fast).
-func renderFlowParallel(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) string {
-	_ = arg
-	_ = child
+func renderFlowParallel(st *flowRenderState, branches map[string][]normalizer.FlowStep, indent int, sfx string) string {
 	pad := strings.Repeat("\t", indent)
 	pfx := "_fp" + sfx // e.g. "_fp_0"
 
-	branches, _ := step.Args["_branches"].(map[string][]normalizer.FlowStep)
 	if len(branches) == 0 {
 		return ""
 	}
@@ -94,13 +91,10 @@ func renderFlowParallel(st *flowRenderState, step normalizer.FlowStep, indent in
 
 // renderFlowJoin emits lenient concurrent code for flow.Join.
 // All branches run to completion; if any fail, the first error is returned at the end.
-func renderFlowJoin(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) string {
-	_ = arg
-	_ = child
+func renderFlowJoin(st *flowRenderState, branches map[string][]normalizer.FlowStep, indent int, sfx string) string {
 	pad := strings.Repeat("\t", indent)
 	pfx := "_fj" + sfx // e.g. "_fj_0"
 
-	branches, _ := step.Args["_branches"].(map[string][]normalizer.FlowStep)
 	if len(branches) == 0 {
 		return ""
 	}
@@ -179,13 +173,10 @@ func renderFlowJoin(st *flowRenderState, step normalizer.FlowStep, indent int, s
 //
 // Note: output variable assignments are not mutex-protected. This is safe in
 // practice because losing branches are cancelled before their final steps complete.
-func renderFlowRace(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) string {
-	_ = arg
-	_ = child
+func renderFlowRace(st *flowRenderState, branches map[string][]normalizer.FlowStep, indent int, sfx string) string {
 	pad := strings.Repeat("\t", indent)
 	pfx := "_fr" + sfx // e.g. "_fr_0"
 
-	branches, _ := step.Args["_branches"].(map[string][]normalizer.FlowStep)
 	if len(branches) == 0 {
 		return ""
 	}

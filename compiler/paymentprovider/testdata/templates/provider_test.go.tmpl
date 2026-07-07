@@ -1,0 +1,614 @@
+package {{ .PackageName }}
+
+import (
+	"testing"
+
+	providers "gitlab.q-tech.host/transferty/backend/tnx_processor/payment_providers"
+)
+
+func TestInterfaceCompliance(t *testing.T) {
+	var _ model.PaymentProvider = (*{{ .StructName }})(nil)
+{{ if .HasBalanceFetcher -}}
+	var _ model.PaymentProviderBalanceFetcher = (*{{ .StructName }})(nil)
+{{ end -}}
+{{ if .HasMobileProcessor -}}
+	var _ model.PaymentProviderMobileProcessor = (*{{ .StructName }})(nil)
+{{ end -}}
+{{ if .HasCustomerRandomization -}}
+	var _ model.CustomerRandomizationRuler = (*{{ .StructName }})(nil)
+{{ end -}}
+}
+
+func TestGetProviderInfo(t *testing.T) {
+	pp := {{ .ConstructorName }}({{ .ConstructorTestArgs }})
+	info := pp.GetProviderInfo()
+
+	require.Equal(t, ppSID, info.SID)
+	require.Equal(t, ppLabel, info.Label)
+	require.Equal(t, ppMIDPrefix, info.MIDPrefix)
+	require.Len(t, info.SecretParts, {{ .SecretPartsCount }})
+}
+
+func TestParseSecrets(t *testing.T) {
+{{- if and .UseMacanP2P .HasOptionalReturnRecipientDetails }}
+	tests := []struct {
+		name      string
+		input     string
+		wantErr   bool
+		wantRetRD bool
+	}{
+		{"valid", "x:x", false, false},
+		{"valid with returnRD=true", "x:x:true", false, true},
+		{"valid with returnRD=false", "x:x:false", false, false},
+		{"empty", "", true, false},
+		{"single part", "onlyone", true, false},
+		{"missing part", "a:", true, false},
+		{"missing other", ":b", true, false},
+		{"invalid returnRD value", "x:x:notabool", true, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, err := parseSecrets(tt.input)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, providers.ErrInvalidMerchantSecret)
+				return
+			}
+			require.NoError(t, err)
+			require.NotEmpty(t, s.apiToken, "apiToken must not be empty")
+			require.NotEmpty(t, s.signatureKey, "signatureKey must not be empty")
+			assert.Equal(t, tt.wantRetRD, s.returnRecipientDetails)
+		})
+	}
+{{- else }}
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{"valid", "{{ .SecretTestValue }}", false},
+		{"empty", "", true},
+		{"single part", "onlyone", true},
+		{"missing part", "a:", true},
+		{"missing other", ":b", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, err := parseSecrets(tt.input)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			{{- range $i, $p := .SecretParts }}
+			{{- if not $p.Optional }}
+			require.NotEmpty(t, s.{{ $p.Key }}, "{{ $p.Key }} must not be empty")
+			{{- end }}
+			{{- end }}
+		})
+	}
+{{- end }}
+}
+
+{{ if .PayinStatusTests -}}
+func TestMapPayinStatus(t *testing.T) {
+	tests := []struct {
+		name       string
+		code       {{ if eq .StatusCodeType "string" }}providerStatus{{ else }}{{ .StatusInputType }}{{ end }}
+		wantStatus model.TnxStatus
+		wantCode   model.TnxStatusCode
+	}{
+		{{- range .PayinStatusTests }}
+		{"{{ .Name }}", {{ .Code }}, tnxStatus{{ .ExpectedStatus }}, model.{{ .ExpectedCode }}},
+		{{- end }}
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, c, _ := mapPayinStatus(tt.code)
+			require.Equal(t, tt.wantStatus, s)
+			require.Equal(t, tt.wantCode, c)
+		})
+	}
+}
+{{ end }}
+
+{{ if .PayoutStatusTests -}}
+func TestMapPayoutStatus(t *testing.T) {
+	tests := []struct {
+		name       string
+		code       {{ if eq .StatusCodeType "string" }}providerStatus{{ else }}{{ .StatusInputType }}{{ end }}
+		wantStatus model.TnxStatus
+		wantCode   model.TnxStatusCode
+	}{
+		{{- range .PayoutStatusTests }}
+		{"{{ .Name }}", {{ .Code }}, tnxStatus{{ .ExpectedStatus }}, model.{{ .ExpectedCode }}},
+		{{- end }}
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, c, _ := mapPayoutStatus(tt.code)
+			require.Equal(t, tt.wantStatus, s)
+			require.Equal(t, tt.wantCode, c)
+		})
+	}
+}
+{{ end }}
+
+{{ if .UseMacanP2P -}}
+const (
+	testMacanBaseURL  = "https://api.macanp2p.test"
+	testMacanAPIToken = "test-api-token"
+	testMacanSigKey    = "test-sig-key-uuid"
+	testMacanMcSecret  = testMacanAPIToken + "{{ .SecretSeparator }}" + testMacanSigKey
+)
+
+func testMacanMerchantCreds() *model.MerchantCreds {
+	return &model.MerchantCreds{
+		ApiEndpoint: testMacanBaseURL,
+		Secret:      testMacanMcSecret,
+	}
+}
+
+{{- if .HasOptionalReturnRecipientDetails }}
+func testMacanMerchantCredsRD() *model.MerchantCreds {
+	return &model.MerchantCreds{
+		ApiEndpoint: testMacanBaseURL,
+		Secret:      testMacanMcSecret + "{{ .SecretSeparator }}true",
+	}
+}
+{{- end }}
+
+func testMacanPayTx(brand string, amount int64) *model.Transaction {
+	return &model.Transaction{
+		Id:          "tnx-test-001",
+		Amount:      amount,
+		Currency:    "{{ .CurrencyCode }}",
+		CallbackURL: "https://merchant.example/callback",
+		Type:        model.TnxTypePay,
+		Created:     time.Now(),
+		Order: &model.Order{
+			PaymentMethodBrand: brand,
+			ResultUrl:          "https://merchant.example/return",
+		},
+	}
+}
+
+func setupTest{{ .StructName }}(mocks providers.MockObjects) *{{ .StructName }} {
+	return &{{ .StructName }}{
+{{- range .ConstructorDepMocks }}
+		{{ .Name }}: mocks.{{ .MockField }},
+{{- end }}
+		httpClient: mocks.HttpClient,
+	}
+}
+
+func sampleMacanCard2CardPayInJSON() []byte {
+	resp := macanPayInResponse{
+		PayIn: macanPayIn{
+			ID:     "23a76e55-7a84-4b22-a703-65c5e0fe5833",
+			Status: "customer_confirm",
+			Requisites: macanPayInRequisites{
+				CardInfo:   "TEST-CARD-FIXTURE-01",
+				CardHolder: "IVAN IVANOV",
+				BankName:   "ПСБ",
+			},
+		},
+	}
+	raw, _ := json.Marshal(resp)
+	return raw
+}
+
+{{ if .MacanMethodTests -}}
+func TestMacanPaymentMethodName(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name             string
+		brand, currency  string
+		want             string
+		wantErr          bool
+	}{
+		{{- range .MacanMethodTests }}
+		{ "{{ .Subtest }}", {{ .BrandExpr }}, "{{ .Currency }}", "{{ .Want }}", {{ .WantErr }} },
+		{{- end }}
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := macanPaymentMethodName(tc.brand, tc.currency)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+{{ end }}
+
+{{ if .StatusDetails -}}
+func TestMacanPayInStatus_statusDetails(t *testing.T) {
+	{{- range .StatusDetails }}
+	t.Run("payin_{{ .Code }}", func(t *testing.T) {
+		status, code, _ := macanPayInStatus({{ $.MacanStatusDetailProbeConst }}, {{ .ConstName }})
+		assert.Equal(t, tnxStatus{{ .StatusTitle }}, status)
+		assert.Equal(t, model.{{ .StatusCode }}, code)
+	})
+	{{- end }}
+}
+
+func TestMacanPayOutStatus_statusDetails(t *testing.T) {
+	{{- range .StatusDetails }}
+	t.Run("payout_{{ .Code }}", func(t *testing.T) {
+		status, code, _ := macanPayOutStatus({{ $.MacanStatusDetailProbeConst }}, {{ .ConstName }})
+		assert.Equal(t, tnxStatus{{ .StatusTitle }}, status)
+		assert.Equal(t, model.{{ .StatusCode }}, code)
+	})
+	{{- end }}
+}
+{{ end }}
+
+{{ if .ErrorCodes -}}
+func TestMacanPaymentDecline(t *testing.T) {
+	body := []byte(`{"errors":[{"attribute":"base","type":"P10005","message":"Реквизиты не найдены"}]}`)
+	st, code, msg, ok := macanPaymentDecline(body)
+	require.True(t, ok)
+	assert.Equal(t, tnxStatusDeclined, st)
+	assert.Equal(t, model.SCodeRequisiteNotAvailable, code)
+	assert.Contains(t, msg, "P10005")
+}
+{{ end }}
+
+func TestVerifyCallbackSignature(t *testing.T) {
+	cb := &cbData{
+		ID:            "23a76e55-7a84-4b22-a703-65c5e0fe5833",
+		ExternalID:    "tnx-test-001",
+		Status:        "customer_confirm",
+		StatusDetails: "",
+		Amount:        1000,
+	}
+{{- if .CallbackSignature }}
+	sig := computeCallbackSignature(testMacanSigKey, cb)
+	cb.{{ .CallbackSignature.SignatureField }} = sig
+	assert.True(t, verifyCallbackSignature(testMacanSigKey, sig, cb))
+	assert.False(t, verifyCallbackSignature(testMacanSigKey, "bad", cb))
+{{- else }}
+	sig := computeMacanCallbackSignature(testMacanSigKey, cb.Amount, cb.ID, cb.Status, cb.StatusDetails, cb.ExternalID)
+	cb.Signature = sig
+	assert.True(t, verifyMacanCallbackSignature(testMacanSigKey, sig, cb))
+	assert.False(t, verifyMacanCallbackSignature(testMacanSigKey, "bad", cb))
+{{- end }}
+}
+
+{{ if .HasP2P -}}
+func TestInitPayP2P_card2card(t *testing.T) {
+	t.Parallel()
+	mocks := providers.MockObjects{
+		TxPathLogger: &providers.MockTxPathLogger{},
+		HttpClient:   &providers.MockHTTPClient{},
+	}
+	pp := setupTest{{ .StructName }}(mocks)
+{{- if .HasOptionalReturnRecipientDetails }}
+	mc := testMacanMerchantCredsRD()
+{{- else }}
+	mc := testMacanMerchantCreds()
+{{- end }}
+	tx := testMacanPayTx(types.CardP2PMethod.String(), 100000)
+
+	mocks.HttpClient.On("PostWithResponse", tx, testMacanBaseURL+{{ .PayinEndpointConst }}, mock.Anything, mock.Anything, mock.Anything).
+		Return(sampleMacanCard2CardPayInJSON(), http.Header{}, "200 OK", nil)
+
+	out, err := pp.InitPayP2P(mc, &model.PaymentSource{APM: &model.APM{}}, tx)
+	require.NoError(t, err)
+	require.Equal(t, "23a76e55-7a84-4b22-a703-65c5e0fe5833", out.ForeignId)
+	assert.Equal(t, tnxStatusPending, out.Status)
+	require.NotNil(t, out.RecipientDetails)
+	assert.Equal(t, "TEST-CARD-FIXTURE-01", out.RecipientDetails.Identifier)
+	mocks.HttpClient.AssertExpectations(t)
+}
+
+func TestInitPayP2P_sbp_phoneRequisites(t *testing.T) {
+	t.Parallel()
+	mocks := providers.MockObjects{
+		TxPathLogger: &providers.MockTxPathLogger{},
+		HttpClient:   &providers.MockHTTPClient{},
+	}
+	pp := setupTest{{ .StructName }}(mocks)
+{{- if .HasOptionalReturnRecipientDetails }}
+	mc := testMacanMerchantCredsRD()
+{{- else }}
+	mc := testMacanMerchantCreds()
+{{- end }}
+	tx := testMacanPayTx(types.SBPMethod.String(), 50000)
+
+	raw, _ := json.Marshal(macanPayInResponse{
+		PayIn: macanPayIn{
+			ID:     "ebe5d2f3-070c-4b6b-9ff0-65076c6784be",
+			Status: "requisites",
+			Requisites: macanPayInRequisites{
+				Phone:      "+7 912 000-00-00",
+				CardHolder: "HOLDER",
+				BankName:   "ПСБ",
+			},
+		},
+	})
+	mocks.HttpClient.On("PostWithResponse", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(raw, http.Header{}, "200 OK", nil)
+
+	out, err := pp.InitPayP2P(mc, &model.PaymentSource{APM: &model.APM{}}, tx)
+	require.NoError(t, err)
+	require.NotNil(t, out.RecipientDetails)
+	assert.Equal(t, "+7 912 000-00-00", out.RecipientDetails.Identifier)
+}
+
+{{ if .HasMacanRedirectMethods -}}
+func TestInitPayP2P_redirect(t *testing.T) {
+	t.Parallel()
+	mocks := providers.MockObjects{
+		TxPathLogger:  &providers.MockTxPathLogger{},
+		HttpClient:    &providers.MockHTTPClient{},
+		TdsRedirector: &providers.MockTDSRedirector{},
+	}
+	pp := setupTest{{ .StructName }}(mocks)
+	mc := testMacanMerchantCreds()
+	tx := testMacanPayTx(types.QRCodeMethod.String(), 100000)
+
+	raw, _ := json.Marshal(macanPayInResponse{
+		PayIn: macanPayIn{
+			ID:          "payin-redirect-1",
+			Status:      "created",
+			RedirectURL: "https://xforge.io/pay_ins/redirect",
+		},
+	})
+	mocks.HttpClient.On("PostWithResponse", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(raw, http.Header{}, "200 OK", nil)
+	mocks.TdsRedirector.On("GetTDSLink", mock.Anything).Return("https://tds.example/link", nil)
+
+	out, err := pp.InitPayP2P(mc, &model.PaymentSource{APM: &model.APM{}}, tx)
+	require.NoError(t, err)
+	assert.Equal(t, "https://tds.example/link", out.RedirectUrl)
+	assert.True(t, macanIsRedirect(tx.Order.PaymentMethodBrand))
+}
+{{ end }}
+
+{{ if .HasCancel -}}
+func TestCancelPay_success(t *testing.T) {
+	t.Parallel()
+	mocks := providers.MockObjects{
+		TxPathLogger: &providers.MockTxPathLogger{},
+		HttpClient:   &providers.MockHTTPClient{},
+	}
+	pp := setupTest{{ .StructName }}(mocks)
+	mc := testMacanMerchantCreds()
+	tx := testMacanPayTx(types.CardP2PMethod.String(), 100000)
+	tx.ForeignId = "payin-cancel-1"
+
+	raw, _ := json.Marshal(macanPayInResponse{
+		PayIn: macanPayIn{ID: tx.ForeignId, Status: string(providerStatusCancelled)},
+	})
+	url := testMacanBaseURL + {{ .PayinEndpointConst }} + "/" + tx.ForeignId + "/cancel"
+	mocks.HttpClient.On("PostWithResponse", tx, url, mock.Anything, mock.Anything, mock.Anything).Return(raw, http.Header{}, "200 OK", nil)
+
+	out, err := pp.CancelPay(mc, tx)
+	require.NoError(t, err)
+	assert.Equal(t, model.CancelSuccess, out.Code)
+}
+{{ end }}
+
+func TestInitPayP2P_emptyForeignID_declined(t *testing.T) {
+	t.Parallel()
+	mocks := providers.MockObjects{TxPathLogger: &providers.MockTxPathLogger{}, HttpClient: &providers.MockHTTPClient{}}
+	pp := setupTest{{ .StructName }}(mocks)
+	mc := testMacanMerchantCreds()
+	tx := testMacanPayTx(types.CardP2PMethod.String(), 100000)
+
+	raw, _ := json.Marshal(macanPayInResponse{PayIn: macanPayIn{ID: "", Status: "created", StatusDetails: "no_payment"}})
+	mocks.HttpClient.On("PostWithResponse", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(raw, http.Header{}, "200 OK", nil)
+
+	out, err := pp.InitPayP2P(mc, &model.PaymentSource{APM: &model.APM{}}, tx)
+	require.NoError(t, err)
+	assert.Empty(t, out.ForeignId)
+	assert.Equal(t, tnxStatusDeclined, out.Status)
+}
+
+func TestInitPayP2P_badRequestDeclined(t *testing.T) {
+	t.Parallel()
+	mocks := providers.MockObjects{
+		TxPathLogger: &providers.MockTxPathLogger{},
+		HttpClient:   &providers.MockHTTPClient{},
+	}
+	pp := setupTest{{ .StructName }}(mocks)
+	mc := testMacanMerchantCreds()
+	tx := testMacanPayTx(types.CardP2PMethod.String(), 100000)
+
+	errBody := []byte(`{}`)
+	mocks.HttpClient.On("PostWithResponse", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(errBody, http.Header{}, "", httpcli.NewMockErrBadRequest("400"))
+	mocks.HttpClient.On("LogRawResponseDetails", errBody, http.Header{}).Return("bad request response")
+	mocks.TxPathLogger.On("Log", mock.Anything, model.LogActionTypeResponse, "", "bad request response").Return()
+
+	out, err := pp.InitPayP2P(mc, &model.PaymentSource{APM: &model.APM{}}, tx)
+	require.NoError(t, err)
+	assert.Equal(t, tnxStatusDeclined, out.Status)
+}
+{{ end }}
+
+{{ if and .HasStatusEndpoints .HasP2P -}}
+func TestCheckStatus_payin(t *testing.T) {
+	t.Parallel()
+	mocks := providers.MockObjects{
+		TxPathLogger: &providers.MockTxPathLogger{},
+		HttpClient:   &providers.MockHTTPClient{},
+	}
+	pp := setupTest{{ .StructName }}(mocks)
+	mc := testMacanMerchantCreds()
+	tx := testMacanPayTx(types.CardP2PMethod.String(), 100000)
+	tx.ForeignId = "23a76e55-7a84-4b22-a703-65c5e0fe5833"
+
+	raw, _ := json.Marshal(macanPayInResponse{
+		PayIn: macanPayIn{ID: tx.ForeignId, Status: "completed"},
+	})
+	url := testMacanBaseURL + {{ .PayinStatusEndpointConst }} + "/" + tx.ForeignId
+	mocks.HttpClient.On("GetWithResponse", tx, url, mock.Anything, mock.Anything).Return(raw, http.Header{}, "200 OK", nil)
+
+	st, err := pp.CheckStatus(mc, tx)
+	require.NoError(t, err)
+	assert.Equal(t, tnxStatusSuccess, st.Status)
+}
+{{ end }}
+
+{{ if .HasPayout -}}
+func TestInitPayout_requiresBankCode(t *testing.T) {
+	t.Parallel()
+	pp := setupTest{{ .StructName }}(providers.MockObjects{HttpClient: &providers.MockHTTPClient{}})
+	mc := testMacanMerchantCreds()
+	tx := testMacanPayTx(types.CardP2PMethod.String(), 100000)
+	tx.Type = model.TnxTypePayout
+
+	_, err := pp.InitPayout(mc, &model.PaymentSource{
+		APM: &model.APM{ID: "4111111111111111", OwnerInfo: map[string]string{}},
+	}, tx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "bank code")
+}
+
+func TestInitPayout_success(t *testing.T) {
+	t.Parallel()
+	mocks := providers.MockObjects{
+		TxPathLogger: &providers.MockTxPathLogger{},
+		HttpClient:   &providers.MockHTTPClient{},
+	}
+	pp := setupTest{{ .StructName }}(mocks)
+	mc := testMacanMerchantCreds()
+	tx := testMacanPayTx(types.CardP2PMethod.String(), 100000)
+	tx.Type = model.TnxTypePayout
+
+	raw, _ := json.Marshal(macanPayOutResponse{
+		PayOut: macanPayOut{ID: "payout-uuid-1", Status: "created"},
+	})
+	mocks.HttpClient.On("Post", mock.Anything, testMacanBaseURL+{{ .PayoutEndpointConst }}, mock.Anything, mock.Anything).
+		Return(raw, nil)
+
+	out, err := pp.InitPayout(mc, &model.PaymentSource{
+		APM: &model.APM{
+			ID: "4111111111111111",
+			OwnerInfo: map[string]string{"bank_code": "psbank"},
+		},
+	}, tx)
+	require.NoError(t, err)
+	assert.Equal(t, "payout-uuid-1", out.ForeignId)
+	assert.Equal(t, tnxStatusPending, out.Status)
+}
+{{ end }}
+
+{{ if .HasBalanceFetcher -}}
+func TestFetchBalances(t *testing.T) {
+	t.Parallel()
+	mocks := providers.MockObjects{
+		TxPathLogger: &providers.MockTxPathLogger{},
+		HttpClient:   &providers.MockHTTPClient{},
+	}
+	pp := setupTest{{ .StructName }}(mocks)
+	mc := testMacanMerchantCreds()
+
+	raw := []byte(`{"balance":{"currency":"USDT","amount":1000.5}}`)
+	mocks.HttpClient.On("Get", mock.Anything, testMacanBaseURL+endpointBalance, mock.Anything).Return(raw, nil)
+
+	resp, err := pp.FetchBalances(mc, []string{"USDT"})
+	require.NoError(t, err)
+	require.Len(t, resp.Balances, 1)
+	assert.Equal(t, "USDT", resp.Balances[0].Currency)
+}
+{{ end }}
+
+func TestValidateCallback_andFinish(t *testing.T) {
+	t.Parallel()
+	pp := setupTest{{ .StructName }}(providers.MockObjects{
+		TxPathLogger: &providers.MockTxPathLogger{},
+	})
+	mc := testMacanMerchantCreds()
+	tx := testMacanPayTx(types.CardP2PMethod.String(), 100000)
+
+	payInID := "23a76e55-7a84-4b22-a703-65c5e0fe5833"
+	cbAmount := helpers.FloatAmount(tx.Amount, tx.Currency)
+	cb := &cbData{
+		ID:         payInID,
+		ExternalID: tx.Id,
+		Status:     "completed",
+		Amount:     cbAmount,
+	}
+{{- if .CallbackSignature }}
+	sig := computeCallbackSignature(testMacanSigKey, cb)
+	cb.{{ .CallbackSignature.SignatureField }} = sig
+{{- else }}
+	sig := computeMacanCallbackSignature(testMacanSigKey, cbAmount, payInID, "completed", "", tx.Id)
+	cb.Signature = sig
+{{- end }}
+	body, _ := json.Marshal(map[string]any{
+		"id":             payInID,
+		"external_id":    tx.Id,
+		"status":         "completed",
+		"status_details": "",
+		"amount":         cbAmount,
+		"signature":      sig,
+	})
+
+	req, _ := http.NewRequest(http.MethodPost, "/callback", bytes.NewReader(body))
+	cd, err := pp.ParseCallback(req)
+	require.NoError(t, err)
+	require.Equal(t, tx.Id, cd.TnxId)
+
+	err = pp.ValidateCallback(mc, tx, cd)
+	require.NoError(t, err)
+
+	mocks := providers.MockObjects{TxPathLogger: &providers.MockTxPathLogger{}}
+	pp.txPathLogger = mocks.TxPathLogger
+	mocks.TxPathLogger.On("Log", tx, model.LogActionTypeCallback, providers.LogActionTypeReceived, mock.Anything).Return()
+
+	st, err := pp.FinishCallback(mc, tx, cd)
+	require.NoError(t, err)
+	assert.Equal(t, tnxStatusSuccess, st.Status)
+}
+
+{{ if .HasP2P -}}
+func TestLive_InitPayP2P_card2card(t *testing.T) {
+	if os.Getenv("{{ .MacanLiveEnvPrefix }}_LIVE") != "1" {
+		t.Skip("skipped: set {{ .MacanLiveEnvPrefix }}_LIVE=1 {{ .MacanLiveEnvPrefix }}_TOKEN {{ .MacanLiveEnvPrefix }}_SIGKEY for live API")
+	}
+	token := os.Getenv("{{ .MacanLiveEnvPrefix }}_TOKEN")
+	sigKey := os.Getenv("{{ .MacanLiveEnvPrefix }}_SIGKEY")
+	if token == "" || sigKey == "" {
+		t.Fatal("{{ .MacanLiveEnvPrefix }}_TOKEN and {{ .MacanLiveEnvPrefix }}_SIGKEY are required")
+	}
+	base := os.Getenv("{{ .MacanLiveEnvPrefix }}_API")
+	if base == "" {
+		base = "https://api.macanp2p.xyz"
+	}
+
+	txLog := &providers.MockTxPathLogger{}
+	txLog.On("Log", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
+	pp := {{ .ConstructorName }}({{ .ConstructorTestArgs }})
+	pp.txPathLogger = txLog
+	mc := &model.MerchantCreds{
+		ApiEndpoint: base,
+		Secret:      token + "{{ .SecretSeparator }}" + sigKey,
+	}
+	tx := testMacanPayTx(types.CardP2PMethod.String(), 100000)
+	tx.Id = fmt.Sprintf("live-go-test-%d", time.Now().UnixNano())
+	tx.CallbackURL = "https://example.com/api/v1/callback"
+	tx.Order.ResultUrl = "https://example.com/success"
+
+	out, err := pp.InitPayP2P(mc, &model.PaymentSource{APM: &model.APM{}}, tx)
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	if out.ForeignId == "" {
+		t.Skipf("live pay-in declined without id: status=%s msg=%q", out.Status, out.Message)
+	}
+	t.Logf("ForeignId=%s status=%s", out.ForeignId, out.Status)
+
+	st, err := pp.CheckStatus(mc, &model.Transaction{
+		Id: tx.Id, ForeignId: out.ForeignId, Type: model.TnxTypePay, Currency: "{{ .CurrencyCode }}",
+		Order: tx.Order,
+	})
+	require.NoError(t, err)
+	t.Logf("CheckStatus: %s %v", st.Status, st.Code)
+}
+{{ end }}
+{{ end }}

@@ -1,0 +1,190 @@
+package testpp
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"time"
+
+	"github.com/sirupsen/logrus"
+
+	"gitlab.q-tech.host/transferty/backend/tnx_processor/httpcli"
+	"gitlab.q-tech.host/transferty/backend/tnx_processor/model"
+	providers "gitlab.q-tech.host/transferty/backend/tnx_processor/payment_providers"
+)
+
+type PPTest struct {
+	txPathLogger model.TxPathLogger
+	httpClient httpcli.HTTPTnxClient
+	log        *logrus.Entry
+}
+
+func New(txPathLogger model.TxPathLogger) *PPTest {
+	return &PPTest{
+		txPathLogger: txPathLogger,
+		httpClient: httpcli.NewHTTPTnxClient(ppSID, txPathLogger),
+		log:        logrus.WithFields(logrus.Fields{"source": "PPTestPP"}),
+	}
+}
+
+func (pp *PPTest) GetProviderInfo() model.ProviderInfo {
+	return model.ProviderInfo{
+		SID:         ppSID,
+		Label:       ppLabel,
+		MIDPrefix:   ppMIDPrefix,
+		SecretParts: []string{"Key", "Sign"},
+	}
+}
+
+func (pp *PPTest) InitPay(mc *model.MerchantCreds, ps *model.PaymentSource, tx *model.Transaction) (*model.PaymentResponse, error) {
+if ps.APM == nil {
+		return nil, providers.ErrAPMSupportOnly
+	}
+
+	info := ps.APM.OwnerInfo
+
+	secrets, err := parseSecrets(mc.Secret)
+	if err != nil {
+		return nil, fmt.Errorf("parsing secrets for %s: %w", ppSID, err)
+	}
+req := &payinRequest{
+		OrderID: tx.Id,
+		Amount: helpers.CoinsToFormattedAmount(tx.Amount, tx.Currency),
+		Currency: 840,
+		ApiKey: secrets.apiKey,
+		Salt: generateSalt(),
+	}
+_ = secrets
+
+	return pp.doPayin(tx, mc, req)
+
+}
+
+func (pp *PPTest) doPayin(tx *model.Transaction, mc *model.MerchantCreds, req httpcli.APIRequest) (*model.PaymentResponse, error) {
+	respBody, err := pp.httpClient.Post(tx, mc.ApiEndpoint+endpointPayin, req,
+		httpcli.NewHeaders().Add("Content-Type", "application/json"))
+	if err != nil {
+		if httpcli.IsBadRequestError(err) {
+			return &model.PaymentResponse{
+				Timestamp: time.Now(),
+				Status:    tnxStatusDeclined,
+				Code:      model.SCodeDeclinedByBank,
+				Message:   model.SCodeDeclinedByBank.Description(),
+			}, nil
+		}
+		return nil, fmt.Errorf("calling %s payin: %w", ppSID, err)
+	}
+
+	var resp payinResponse
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return nil, fmt.Errorf(errUnmarshalRespFmt, err)
+	}
+
+	return &model.PaymentResponse{
+		Timestamp: time.Now(),
+		Status:    tnxStatusPending,
+		Code:      model.SCodeOk,
+		ForeignId: resp.PaymentID,
+	}, nil
+}
+
+func (pp *PPTest) InitPayout(mc *model.MerchantCreds, ps *model.PaymentSource, tx *model.Transaction) (*model.PaymentResponse, error) {
+	return nil, providers.ErrNotImplemented
+}
+
+func (pp *PPTest) CheckStatus(mc *model.MerchantCreds, tx *model.Transaction) (*model.StatusResponse, error) {
+	return nil, providers.ErrNotImplemented
+}
+
+func (pp *PPTest) InitRefund(mc *model.MerchantCreds, tx, parentTx *model.Transaction) (*model.PaymentResponse, error) {
+	return nil, providers.ErrNotImplemented
+}
+
+func (pp *PPTest) InitPayP2P(mc *model.MerchantCreds, ps *model.PaymentSource, tx *model.Transaction) (*model.P2PInitResponse, error) {
+	return nil, providers.ErrNotImplemented
+}
+
+
+func (pp *PPTest) CancelPay(mc *model.MerchantCreds, tx *model.Transaction) (*model.CancelPaymentResponse, error) {
+	return nil, providers.ErrNotImplemented
+}
+
+func (pp *PPTest) InitSubscription(mc *model.MerchantCreds, ps *model.PaymentSource, tx *model.Transaction) (*model.PaymentResponse, error) {
+	return nil, providers.ErrNotImplemented
+}
+
+func (pp *PPTest) SubscriptionPay(mc *model.MerchantCreds, ps *model.PaymentSource, tx *model.Transaction) (*model.PaymentResponse, error) {
+	return nil, providers.ErrNotImplemented
+}
+
+func (pp *PPTest) ParseCallback(r *http.Request) (*model.CallbackData, error) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxCallbackBodyBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf(errReadCallbackBodyFmt, err)
+	}
+	if len(body) > maxCallbackBodyBytes {
+		return nil, fmt.Errorf(errCallbackTooLargeFmt, maxCallbackBodyBytes)
+	}
+
+	var cb cbData
+	if err := json.Unmarshal(body, &cb); err != nil {
+		return nil, fmt.Errorf(errUnmarshalCallbackFmt, err)
+	}
+	cb.raw = body
+	txID := cb.PayInID
+	if txID == "" {
+		txID = cb.PayOutID
+	}
+
+	cd := &model.CallbackData{
+		TnxId:    txID,
+		Data:     &cb,
+		HttpCode: http.StatusOK,
+	}
+	return cd, nil
+}
+
+func (pp *PPTest) ValidateCallback(mc *model.MerchantCreds, tx *model.Transaction, cd *model.CallbackData) error {
+	d := cd.Data.(*cbData)
+
+	secrets, err := parseSecrets(mc.Secret)
+	if err != nil {
+		return fmt.Errorf("parsing secrets for %s callback validation: %w", ppSID, err)
+	}
+
+	if !verifySignature(secrets.signingKey, d.raw, "" /* TODO: extract signature from callback */) {
+		return providers.ErrInvalidSignature
+	}
+	return nil
+}
+
+func (pp *PPTest) FinishCallback(mc *model.MerchantCreds, tx *model.Transaction, cd *model.CallbackData) (*model.StatusResponse, error) {
+	d := cd.Data.(*cbData)
+
+	pp.txPathLogger.Log(tx, model.LogActionTypeCallback, providers.LogActionTypeReceived, string(d.raw))
+
+	var status model.TnxStatus
+	var code model.TnxStatusCode
+	var msg string
+
+	if tx.Type == model.TnxTypePay {
+		status, code, msg = mapPayinStatus(providerStatus(d.))
+	} else {
+		status, code, msg = mapPayoutStatus(providerStatus(d.))
+	}
+
+	return &model.StatusResponse{
+		Status:  status,
+		Code:    code,
+		Message: msg,
+	}, nil
+}
+
+
+
+
+
+
+
+var _ model.PaymentProvider = (*PPTest)(nil)

@@ -5,18 +5,16 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
-func renderFlowTryLegacy(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, child func(string) []normalizer.FlowStep) string {
+func renderFlowTryLegacy(st *flowRenderState, action flowir.FlowTry, indent int, sfx string) string {
 	pad := strings.Repeat("\t", indent)
-	doSteps := child("_do")
-	catchSteps := child("_catch")
+	doSteps, catchSteps := action.Steps, action.Catch
 	if len(doSteps) == 0 {
 		return ""
 	}
-	retries := flowIntArg(step.Args, "retries", 0)
-	backoffMs := flowIntArg(step.Args, "backoffMs", 0)
+	retries, backoffMs := action.Retries, action.BackoffMS
 
 	newVars := collectFlowBranchNewVars(st, indent, doSteps, catchSteps)
 
@@ -67,26 +65,13 @@ func renderFlowTryLegacy(st *flowRenderState, step normalizer.FlowStep, indent i
 	return b.String()
 }
 
-func renderFlowRetryLegacy(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, child func(string) []normalizer.FlowStep) string {
+func renderFlowRetryLegacy(st *flowRenderState, action flowir.FlowRetry, indent int, sfx string) string {
 	pad := strings.Repeat("\t", indent)
-	doSteps := child("_do")
-	catchSteps := child("_catch")
+	doSteps, catchSteps := action.Steps, action.Catch
 	if len(doSteps) == 0 {
 		return ""
 	}
-	attempts := flowIntArg(step.Args, "attempts", -1)
-	if attempts < 0 {
-		retries := flowIntArg(step.Args, "retries", -1)
-		if retries >= 0 {
-			attempts = retries + 1
-		} else {
-			attempts = 3
-		}
-	}
-	if attempts <= 0 {
-		attempts = 1
-	}
-	backoffMs := flowIntArg(step.Args, "backoffMs", 0)
+	attempts, backoffMs := action.Attempts, action.BackoffMS
 
 	runV, errV, attemptsV, backoffV := "_retryRun"+sfx, "_retryErr"+sfx, "_retryAttempts"+sfx, "_retryBackoff"+sfx
 	var b strings.Builder
@@ -121,10 +106,9 @@ func renderFlowRetryLegacy(st *flowRenderState, step normalizer.FlowStep, indent
 	return b.String()
 }
 
-func renderFlowFallbackLegacy(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, child func(string) []normalizer.FlowStep) string {
+func renderFlowFallbackLegacy(st *flowRenderState, action flowir.FlowFallback, indent int, sfx string) string {
 	pad := strings.Repeat("\t", indent)
-	mainSteps := child("_do")
-	fallbackSteps := child("_fallback")
+	mainSteps, fallbackSteps := action.Steps, action.Fallback
 	if len(mainSteps) == 0 || len(fallbackSteps) == 0 {
 		return ""
 	}
@@ -146,11 +130,10 @@ func renderFlowFallbackLegacy(st *flowRenderState, step normalizer.FlowStep, ind
 	return b.String()
 }
 
-func renderFlowTimeoutLegacy(st *flowRenderState, _ normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) string {
+func renderFlowTimeoutLegacy(st *flowRenderState, action flowir.FlowTimeout, indent int, sfx string) string {
 	pad := strings.Repeat("\t", indent)
-	duration := arg("duration")
-	doSteps := child("_do")
-	onTimeout := child("_onTimeout")
+	duration := normalizeFlowExpr(action.Duration.Source)
+	doSteps, onTimeout := action.Steps, action.OnTimeout
 	if duration == "" || len(doSteps) == 0 {
 		return ""
 	}

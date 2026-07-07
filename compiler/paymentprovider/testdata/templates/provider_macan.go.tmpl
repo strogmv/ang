@@ -1,0 +1,45 @@
+package {{ .PackageName }}
+
+import (
+	"errors"
+	"fmt"
+	"net/url"
+
+	"gitlab.q-tech.host/transferty/backend/tnx_processor/httpcli"
+	"gitlab.q-tech.host/transferty/backend/tnx_processor/model"
+	providers "gitlab.q-tech.host/transferty/backend/tnx_processor/payment_providers"
+)
+
+// CancelPay is generated for macan_p2p providers (see provider_macan.go.tmpl).
+func (pp *{{ .StructName }}) CancelPay(mc *model.MerchantCreds, tx *model.Transaction) (*model.CancelPaymentResponse, error) {
+	if tx.ForeignId == "" {
+		return nil, errors.New(providers.MessageMissingForeignID)
+	}
+	secrets, err := pp.parseProviderSecrets(mc, opCancel)
+	if err != nil {
+		return nil, err
+	}
+	basePath := {{ .PayinEndpointConst }}
+	endpoint := mc.ApiEndpoint + basePath + "/" + url.PathEscape(tx.ForeignId) + "/cancel"
+	var resp macanPayInResponse
+	respBody, _, _, err := pp.httpClient.PostWithResponse(tx, endpoint, httpcli.DummyReq{}, pp.authHeaders(secrets), &resp)
+	if err != nil {
+		if httpcli.IsBadRequestError(err) {
+			if _, _, msg, ok := macanPaymentDecline(respBody); ok {
+				return &model.CancelPaymentResponse{Code: model.CancelForeignError, Message: msg}, nil
+			}
+			return &model.CancelPaymentResponse{
+				Code:    model.CancelForeignError,
+				Message: model.SCodeDeclinedByBank.Description(),
+			}, nil
+		}
+		return nil, fmt.Errorf("calling %s cancel: %w", ppSID, err)
+	}
+	if providerStatus(resp.PayIn.Status) == providerStatusCancelled {
+		return &model.CancelPaymentResponse{Code: model.CancelSuccess, Message: resp.PayIn.Status}, nil
+	}
+	return &model.CancelPaymentResponse{
+		Code:    model.CancelForeignError,
+		Message: resp.PayIn.Status,
+	}, nil
+}

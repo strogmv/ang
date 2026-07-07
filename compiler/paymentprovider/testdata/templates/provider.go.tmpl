@@ -1,0 +1,1685 @@
+package {{ .PackageName }}
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+{{- if or (and .CheckStatusThrottleConfig .CheckStatusThrottleConfig.Enabled) (and .Async3DSConfig .Async3DSConfig.Enabled) }}
+	"sync"
+{{- end }}
+	"time"
+
+	"github.com/sirupsen/logrus"
+
+	"gitlab.q-tech.host/transferty/backend/tnx_processor/httpcli"
+	"gitlab.q-tech.host/transferty/backend/tnx_processor/model"
+	providers "gitlab.q-tech.host/transferty/backend/tnx_processor/payment_providers"
+{{- range .ExtraImports }}
+	"{{ . }}"
+{{- end }}
+)
+
+type {{ .StructName }} struct {
+	txPathLogger model.TxPathLogger
+{{- if .HasTDSRedirector }}
+	tdsRedirector model.TDSRedirector
+{{- end }}
+{{- if .HasOTPFormRedirector }}
+	formRedirector model.OTPFormRedirector
+{{- end }}
+{{- if .HasPaymentMethodSelector }}
+	pmsRedirector model.PaymentMethodSelectRedirector
+{{- end }}
+	httpClient httpcli.HTTPTnxClient
+	log        *logrus.Entry
+{{- if and .CheckStatusThrottleConfig .CheckStatusThrottleConfig.Enabled }}
+	throttleMu     sync.Mutex
+	lastStatusByTx map[string]time.Time
+{{- end }}
+{{- if and .CrossInstanceStateConfig .CrossInstanceStateConfig.Enabled }}
+	checkStatusStore checkStatusStore
+{{- end }}
+{{- if and .StatusConfirmationConfig .StatusConfirmationConfig.Enabled }}
+	statusConfirmer statusConfirmer
+{{- end }}
+{{- if and .Async3DSConfig .Async3DSConfig.Enabled }}
+	async3DSCoordinator async3DSCoordinator
+	async3DSMu          sync.Mutex
+	async3DSNextCheck   map[string]time.Time
+{{- end }}
+}
+
+func {{ .ConstructorName }}({{ .ConstructorParams }}) *{{ .StructName }} {
+	return &{{ .StructName }}{
+		txPathLogger: txPathLogger,
+{{- if .HasTDSRedirector }}
+		tdsRedirector: tdsRedirector,
+{{- end }}
+{{- if .HasOTPFormRedirector }}
+		formRedirector: formRedirector,
+{{- end }}
+{{- if .HasPaymentMethodSelector }}
+		pmsRedirector: pmsRedirector,
+{{- end }}
+		httpClient: httpcli.NewHTTPTnxClient(ppSID, txPathLogger),
+		log:        logrus.WithFields(logrus.Fields{"source": "{{ .Source }}"}),
+{{- if and .CheckStatusThrottleConfig .CheckStatusThrottleConfig.Enabled }}
+		lastStatusByTx: make(map[string]time.Time),
+{{- end }}
+{{- if and .Async3DSConfig .Async3DSConfig.Enabled }}
+		async3DSNextCheck: make(map[string]time.Time),
+{{- end }}
+	}
+}
+
+func (pp *{{ .StructName }}) parseProviderSecrets(mc *model.MerchantCreds, op string) (*apiSecrets, error) {
+	s, err := parseSecrets(mc.Secret)
+	if err != nil {
+		return nil, fmt.Errorf("parsing secrets for %s %s: %w", ppSID, op, err)
+	}
+	return s, nil
+}
+
+{{ if .HTTPAuth -}}
+func (pp *{{ .StructName }}) authHeaders(secrets *apiSecrets) httpcli.Headers {
+	h := httpcli.NewHeaders().Add("Content-Type", "{{ .HTTPAuth.ContentType }}")
+{{- if eq .HTTPAuth.Type "header_token" }}
+	return h.Add("{{ .HTTPAuth.Header }}", secrets.{{ .HTTPAuth.SecretKeyField }})
+{{- else if eq .HTTPAuth.Type "bearer" }}
+	return h.Add("Authorization", "{{ .HTTPAuth.Prefix }}"+secrets.{{ .HTTPAuth.SecretKeyField }})
+{{- else if eq .HTTPAuth.Type "basic" }}
+	return h.AddBasicAuth(secrets.{{ .PubKeyField }}, secrets.{{ .SecretKeyField }})
+{{- else }}
+	return h.Add("{{ .HTTPAuth.Header }}", secrets.{{ .HTTPAuth.SecretKeyField }})
+{{- end }}
+}
+{{ else if .UseBasicAuth -}}
+func (pp *{{ .StructName }}) authHeaders(secrets *apiSecrets) httpcli.Headers {
+	return httpcli.NewHeaders().
+		Add("Content-Type", "application/json").
+		AddBasicAuth(secrets.{{ .PubKeyField }}, secrets.{{ .SecretKeyField }})
+}
+{{ else if .UseMacanP2P -}}
+func (pp *{{ .StructName }}) authHeaders(secrets *apiSecrets) httpcli.Headers {
+	return httpcli.NewHeaders().
+		Add("Content-Type", "application/json").
+		Add("Authorization-Token", secrets.apiToken)
+}
+{{ end -}}
+
+func (pp *{{ .StructName }}) GetProviderInfo() model.ProviderInfo {
+	return model.ProviderInfo{
+		SID:         ppSID,
+		Label:       ppLabel,
+		MIDPrefix:   ppMIDPrefix,
+{{- if .UseMacanP2P }}
+		SecretParts: secretLabels.GetLabels(),
+{{- else }}
+		SecretParts: []string{ {{- range $i, $p := .SecretParts }}{{ if $i }}, {{ end }}"{{ $p.Name }}"{{ end -}} },
+{{- end }}
+{{- if .HasCheckStatusConfig }}
+		CheckStatusConfig: &model.CheckStatusConfig{
+{{- if .CheckStatusPeriod }}
+			SinceCreatedPeriod: {{ .CheckStatusPeriod }},
+{{- end }}
+			ByTransactionType: {{ .CheckStatusByTxType }},
+		},
+{{- end }}
+{{- if .HasOTPConfig }}
+		OTPConfig: &model.OTPConfig{
+			HandlesOTPCodeExternally: {{ .OTPHandlesExternally }},
+		},
+{{- end }}
+	}
+}
+
+func (pp *{{ .StructName }}) InitPay(mc *model.MerchantCreds, ps *model.PaymentSource, tx *model.Transaction) (*model.PaymentResponse, error) {
+{{- if .HasPayin }}
+{{ if eq .PaymentSource "both" -}}
+	if ps.Card == nil && ps.APM == nil {
+		return nil, providers.ErrUnsupportedPaymentSource
+	}
+	if ps.Card != nil {
+		return pp.initPayCard(mc, ps, tx)
+	}
+	return pp.initPayAPM(mc, ps, tx)
+}
+
+func (pp *{{ .StructName }}) initPayCard(mc *model.MerchantCreds, ps *model.PaymentSource, tx *model.Transaction) (*model.PaymentResponse, error) {
+	card := ps.Card
+
+	secrets, err := pp.parseProviderSecrets(mc, opPayin)
+	if err != nil {
+		return nil, err
+	}
+
+	firstName, lastName := helpers.SplitCardHolder(card.OwnerInfo)
+{{ if .PayinRequest -}}
+	req := &{{ .PayinRequest.Name }}{
+	{{- range .PayinRequest.Fields }}
+	{{- if .IsCard }}
+		{{ .GoName }}: {{ .GoExpr }},
+	{{- end }}
+	{{- end }}
+	}
+{{ else -}}
+	req := &{{ .PayinRequestType }}{
+		// TODO: fill card fields
+	}
+{{ end -}}
+	_, _, _ = secrets, firstName, lastName
+
+	return pp.doPayin(tx, mc, req)
+}
+
+func (pp *{{ .StructName }}) initPayAPM(mc *model.MerchantCreds, ps *model.PaymentSource, tx *model.Transaction) (*model.PaymentResponse, error) {
+	info := ps.APM.OwnerInfo
+
+	secrets, err := pp.parseProviderSecrets(mc, opPayin)
+	if err != nil {
+		return nil, err
+	}
+{{ if .PayinRequest -}}
+	req := &{{ .PayinRequest.Name }}{
+	{{- range .PayinRequest.Fields }}
+	{{- if .IsAPM }}
+		{{ .GoName }}: {{ .GoExpr }},
+	{{- end }}
+	{{- end }}
+	}
+{{ else -}}
+	req := &{{ .PayinRequestType }}{
+		// TODO: fill APM fields
+	}
+{{ end -}}
+	_, _ = secrets, info
+
+	return pp.doPayin(tx, mc, req)
+{{ else if eq .PaymentSource "card" -}}
+	if ps.Card == nil {
+		return nil, providers.ErrCardSupportOnly
+	}
+
+	card := ps.Card
+
+	secrets, err := pp.parseProviderSecrets(mc, opPayin)
+	if err != nil {
+		return nil, err
+	}
+
+	firstName, lastName := helpers.SplitCardHolder(card.OwnerInfo)
+{{ if .PayinRequest -}}
+	req := &{{ .PayinRequest.Name }}{
+	{{- range .PayinRequest.Fields }}
+		{{ .GoName }}: {{ .GoExpr }},
+	{{- end }}
+	}
+{{ else -}}
+	req := &{{ .PayinRequestType }}{
+		// TODO: fill card fields
+	}
+{{ end -}}
+	_, _, _ = secrets, firstName, lastName
+
+	return pp.doPayin(tx, mc, req)
+{{ else -}}
+	if ps.APM == nil {
+		return nil, providers.ErrAPMSupportOnly
+	}
+
+	info := ps.APM.OwnerInfo
+
+	secrets, err := pp.parseProviderSecrets(mc, opPayin)
+	if err != nil {
+		return nil, err
+	}
+{{ if .PayinRequest -}}
+	req := &{{ .PayinRequest.Name }}{
+	{{- range .PayinRequest.Fields }}
+		{{ .GoName }}: {{ .GoExpr }},
+	{{- end }}
+	}
+{{ else -}}
+	req := &{{ .PayinRequestType }}{
+		// TODO: fill APM fields
+	}
+{{ end -}}
+	_, _ = secrets, info
+
+	return pp.doPayin(tx, mc, req)
+{{ end -}}
+{{- else }}
+	return nil, providers.ErrNotImplemented
+{{- end }}
+}
+
+{{- if .HasPayin }}
+
+func (pp *{{ .StructName }}) doPayin(tx *model.Transaction, mc *model.MerchantCreds, req httpcli.APIRequest) (*model.PaymentResponse, error) {
+{{- if or .HTTPAuth .UseBasicAuth .UseMacanP2P }}
+	secrets, err := pp.parseProviderSecrets(mc, opPayin)
+	if err != nil {
+		return nil, err
+	}
+	headers := pp.authHeaders(secrets)
+{{- else }}
+	headers := httpcli.NewHeaders().Add("Content-Type", "application/json")
+{{- end }}
+	respBody, err := pp.httpClient.Post(tx, mc.ApiEndpoint+{{ .PayinEndpointConst }}, req, headers)
+	if err != nil {
+		if httpcli.IsBadRequestError(err) {
+{{- template "declineBadRequestPayment" . }}
+		}
+		return nil, fmt.Errorf("calling %s payin: %w", ppSID, err)
+	}
+
+	var resp {{ .PayinResponseType }}
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return nil, fmt.Errorf(providers.ErrUnmarshalRespFmt, err)
+	}
+
+	return &model.PaymentResponse{
+		Timestamp: time.Now(),
+		Status:    tnxStatusPending,
+		Code:      model.SCodeOk,
+		ForeignId: resp.{{ .PayinForeignIDField }},
+	}, nil
+}
+{{- end }}
+
+func (pp *{{ .StructName }}) InitPayout(mc *model.MerchantCreds, ps *model.PaymentSource, tx *model.Transaction) (*model.PaymentResponse, error) {
+{{- if .HasPayout }}
+{{- if eq .PaymentSource "card" }}
+	if ps.Card == nil {
+		return nil, providers.ErrCardSupportOnly
+	}
+	card := ps.Card
+{{- else if eq .PaymentSource "apm" }}
+	if ps.APM == nil {
+		return nil, providers.ErrAPMSupportOnly
+	}
+{{- else }}
+	if ps.Card == nil && ps.APM == nil {
+		return nil, providers.ErrUnsupportedPaymentSource
+	}
+{{- end }}
+	secrets, err := pp.parseProviderSecrets(mc, opPayout)
+	if err != nil {
+		return nil, err
+	}
+{{- if and .UseMacanP2P .HasMultiCurrency }}
+	if !isSupportedCurrency(tx.Currency) {
+		return nil, fmt.Errorf("%w: %s", providers.ErrUnsupportedCurrency, tx.Currency)
+	}
+{{- end }}
+{{- if eq .PaymentSource "apm" }}
+	info := ps.APM.OwnerInfo
+{{- end }}
+
+{{- if .HasPayoutDualEndpoint }}
+	path := p2pPayoutEndpoint(tx.Order.PaymentMethodBrand)
+{{- else }}
+	path := {{ .PayoutEndpointConst }}
+{{- end }}
+{{- if .UseOperationRuntime }}
+	path = pp.operationEndpointPath("init_payout", path)
+{{- end }}
+
+{{- if .UseTransfertyH2H }}
+	customerID := helpers.MapGet(info, providers.ExternalCustomerIDKey, tx.Id)
+	var req httpcli.APIRequest
+	if path == {{ .PayoutCardEndpointConst }} {
+		req = &h2hCardPayoutRequest{
+			OrderID:          tx.Id,
+			OrderDescription: tx.Order.Description,
+			Amount:           tx.Amount,
+			Currency:         tx.Currency,
+			CustomerID:       customerID,
+			CustomerIP:       tx.Order.IP,
+			CallbackURL:      tx.CallbackURL,
+			CcNumber:         ps.APM.ID,
+		}
+	} else {
+		details, _ := buildApmDetails(info)
+		req = &h2hApmPayoutRequest{
+			OrderID:          tx.Id,
+			OrderDescription: tx.Order.Description,
+			Amount:           tx.Amount,
+			Currency:         tx.Currency,
+			CustomerID:       customerID,
+			CustomerIP:       tx.Order.IP,
+			CallbackURL:      tx.CallbackURL,
+			PaymentAccount: h2hPaymentAccount{
+				Method:     tx.Order.PaymentMethodBrand,
+				Identifier: ps.APM.ID,
+			},
+			Details: details,
+		}
+	}
+	headers := pp.authHeaders(secrets)
+{{- else if .UseMacanP2P }}
+	methodName, err := macanPaymentMethodName(tx.Order.PaymentMethodBrand, tx.Currency)
+	if err != nil {
+		return nil, err
+	}
+	bankCode := macanBankCode(info)
+	if bankCode == "" {
+		return nil, fmt.Errorf("%s: bank code is required for payout", ppSID)
+	}
+	customerID := helpers.MapGet(info, providers.ExternalCustomerIDKey, tx.Id)
+	req := &macanPayOutRequest{
+		Amount: helpers.FloatAmount(tx.Amount, tx.Currency),
+		Currency: macanCurrency{Name: tx.Currency},
+		PaymentMethod: macanPaymentMethod{Name: methodName},
+		Bank: macanBank{Code: bankCode},
+		Customer: macanPayOutCustomer{
+			ID: customerID,
+			Requisite: macanPayoutRequisite(tx.Order.PaymentMethodBrand, ps, info),
+		},
+		ExternalID:  tx.Id,
+		CallbackURL: tx.CallbackURL,
+	}
+	headers := pp.authHeaders(secrets)
+{{- else }}
+{{ if and (eq .PaymentSource "card") .PayoutRequest -}}
+	firstName, lastName := helpers.SplitCardHolder(card.OwnerInfo)
+{{ end -}}
+{{ if .PayoutRequest -}}
+	req := &{{ .PayoutRequest.Name }}{
+	{{- range .PayoutRequest.Fields }}
+		{{ .GoName }}: {{ .GoExpr }},
+	{{- end }}
+	}
+{{ else -}}
+	req := &{{ .PayoutRequestType }}{
+		// TODO: fill payout fields
+	}
+{{ end -}}
+	_ = secrets
+{{ if and (eq .PaymentSource "card") .PayoutRequest -}}
+	_, _ = firstName, lastName
+{{ end -}}
+{{ if eq .PaymentSource "apm" -}}
+	_ = info
+{{ end -}}
+	headers := httpcli.NewHeaders().Add("Content-Type", "application/json")
+{{- end }}
+
+	respBody, err := pp.httpClient.Post(tx, mc.ApiEndpoint+path, req, headers)
+	if err != nil {
+		if httpcli.IsBadRequestError(err) {
+{{- template "declineBadRequestPayment" . }}
+		}
+		if httpcli.IsUnexpectedError(err) {
+			return &model.PaymentResponse{
+				Timestamp: time.Now(),
+				Status:    tnxStatusPending,
+				Code:      model.SCodeOk,
+				Message:   providers.ProviderInternalErrNotFinal,
+			}, nil
+		}
+		return nil, fmt.Errorf("calling %s payout: %w", ppSID, err)
+	}
+
+{{- if .UseTransfertyH2H }}
+	var resp h2hPaymentResponse
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return nil, fmt.Errorf(providers.ErrUnmarshalRespFmt, err)
+	}
+	out := &model.PaymentResponse{Timestamp: time.Now()}
+	if resp.Code != 0 {
+		out.Status, out.Code, out.Message = mapH2HResponseCode(resp.Code)
+		if resp.Transaction.ID != "" {
+			out.ForeignId = resp.Transaction.ID
+		}
+		return out, nil
+	}
+	out.ForeignId = resp.Transaction.ID
+	out.Status, out.Code, out.Message = mapH2HTxnStatus(resp.Transaction.Status, resp.Transaction.StatusCode)
+	return out, nil
+{{- else if .UseMacanP2P }}
+	var resp macanPayOutResponse
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return nil, fmt.Errorf(providers.ErrUnmarshalRespFmt, err)
+	}
+	out := &model.PaymentResponse{Timestamp: time.Now(), ForeignId: resp.PayOut.ID}
+	if resp.PayOut.ID == "" {
+		out.Status = tnxStatusError
+		out.Code = model.SCodeInternalError
+		out.Message = model.SCodeInternalError.Description()
+		return out, nil
+	}
+	out.Status, out.Code, out.Message = macanPayOutStatus(providerStatus(resp.PayOut.Status), resp.PayOut.StatusDetails)
+	syncExchangedAmount(tx, resp.PayOut.Amount)
+	return out, nil
+{{- else }}
+	var resp {{ .PayoutResponseType }}
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return nil, fmt.Errorf(providers.ErrUnmarshalRespFmt, err)
+	}
+
+	return &model.PaymentResponse{
+		Timestamp: time.Now(),
+		Status:    tnxStatusPending,
+		Code:      model.SCodeOk,
+		ForeignId: resp.{{ .PayoutForeignIDField }},
+	}, nil
+{{- end }}
+{{- else }}
+	return nil, providers.ErrNotImplemented
+{{- end }}
+}
+
+func (pp *{{ .StructName }}) CheckStatus(mc *model.MerchantCreds, tx *model.Transaction) (*model.StatusResponse, error) {
+{{- if not .HasStatusEndpoints }}
+	return nil, providers.ErrNotImplemented
+{{- else if .UseMacanP2P }}
+	if tx.ForeignId == "" {
+		return nil, errors.New(providers.MessageMissingForeignID)
+	}
+	secrets, err := pp.parseProviderSecrets(mc, opStatus)
+	if err != nil {
+		return nil, err
+	}
+	base := {{ .PayinStatusEndpointConst }}
+	if tx.Type != model.TnxTypePay {
+		base = {{ .PayoutStatusEndpointConst }}
+	}
+	endpoint := mc.ApiEndpoint + base + "/" + url.PathEscape(tx.ForeignId)
+	var status model.TnxStatus
+	var code model.TnxStatusCode
+	var msg string
+	if tx.Type == model.TnxTypePay {
+		var resp macanPayInResponse
+		rawResp, respHeaders, respStatus, err := pp.httpClient.GetWithResponse(tx, endpoint, pp.authHeaders(secrets), &resp)
+		if err != nil {
+			if rawResp != nil {
+				pp.txPathLogger.Log(tx, model.LogActionTypeResponse, respStatus,
+					pp.httpClient.LogRawResponseDetails(rawResp, respHeaders))
+			}
+			return nil, fmt.Errorf("calling %s status: %w", ppSID, err)
+		}
+		status, code, msg = macanPayInStatus(providerStatus(resp.PayIn.Status), resp.PayIn.StatusDetails)
+		syncExchangedAmount(tx, resp.PayIn.Amount)
+	} else {
+		var resp macanPayOutResponse
+		rawResp, respHeaders, respStatus, err := pp.httpClient.GetWithResponse(tx, endpoint, pp.authHeaders(secrets), &resp)
+		if err != nil {
+			if rawResp != nil {
+				pp.txPathLogger.Log(tx, model.LogActionTypeResponse, respStatus,
+					pp.httpClient.LogRawResponseDetails(rawResp, respHeaders))
+			}
+			return nil, fmt.Errorf("calling %s status: %w", ppSID, err)
+		}
+		status, code, msg = macanPayOutStatus(providerStatus(resp.PayOut.Status), resp.PayOut.StatusDetails)
+		syncExchangedAmount(tx, resp.PayOut.Amount)
+	}
+	return &model.StatusResponse{Status: status, Code: code, Message: msg}, nil
+{{- else }}
+{{- if and .CheckStatusThrottleConfig .CheckStatusThrottleConfig.Enabled }}
+	if pp.isCheckStatusThrottled(tx.Id) {
+		return &model.StatusResponse{Status: tnxStatusPending, Code: model.SCodeOk, Message: model.SCodeOk.Description()}, nil
+	}
+	pp.markCheckStatusCall(tx.Id)
+{{- end }}
+	if tx.ForeignId == "" {
+		return nil, errors.New(providers.MessageMissingForeignID)
+	}
+
+	secrets, err := pp.parseProviderSecrets(mc, opStatus)
+	if err != nil {
+		return nil, err
+	}
+	_ = secrets
+
+	var endpoint string
+	if tx.Type == model.TnxTypePay {
+		endpoint = mc.ApiEndpoint + {{ .PayinStatusEndpointConst }}
+	} else {
+		endpoint = mc.ApiEndpoint + {{ .PayoutStatusEndpointConst }}
+	}
+
+{{- if .UseBasicAuth }}
+	respBody, err := pp.httpClient.Get(tx, endpoint, pp.authHeaders(secrets))
+{{- else }}
+	respBody, err := pp.httpClient.Get(tx, endpoint,
+		httpcli.NewHeaders().Add("Content-Type", "application/json"))
+{{- end }}
+	if err != nil {
+		return nil, fmt.Errorf("calling %s status: %w", ppSID, err)
+	}
+	_ = respBody
+
+	// TODO: parse status response and call mapPayinStatus / mapPayoutStatus
+	return nil, fmt.Errorf("%s: CheckStatus not fully implemented", ppSID)
+{{- end }}
+}
+
+func (pp *{{ .StructName }}) InitRefund(mc *model.MerchantCreds, tx, parentTx *model.Transaction) (*model.PaymentResponse, error) {
+{{- if .HasRefund }}
+	if parentTx == nil || parentTx.ForeignId == "" {
+		return nil, fmt.Errorf("%s: parent transaction has no ForeignId", ppSID)
+	}
+	secrets, err := pp.parseProviderSecrets(mc, opPayin)
+	if err != nil {
+		return nil, err
+	}
+	_ = secrets
+
+	path := {{ .RefundEndpointConst }}
+{{- if .UseOperationRuntime }}
+	path = pp.operationEndpointPath("init_refund", path)
+{{- end }}
+
+{{- if .RefundRequest }}
+	req := &{{ .RefundRequest.Name }}{
+	{{- range .RefundRequest.Fields }}
+		{{ .GoName }}: {{ .GoExpr }},
+	{{- end }}
+	}
+{{- else }}
+	req := &{{ .RefundRequestType }}{
+		// TODO: fill refund fields
+	}
+{{- end }}
+	headers := httpcli.NewHeaders().Add("Content-Type", "application/json")
+	respBody, err := pp.httpClient.Post(tx, mc.ApiEndpoint+path, req, headers)
+	if err != nil {
+		if httpcli.IsBadRequestError(err) {
+{{- template "declineBadRequestPayment" . }}
+		}
+		if httpcli.IsUnexpectedError(err) {
+			return &model.PaymentResponse{
+				Timestamp: time.Now(),
+				Status:    tnxStatusPending,
+				Code:      model.SCodeOk,
+				Message:   providers.ProviderInternalErrNotFinal,
+			}, nil
+		}
+		return nil, fmt.Errorf("calling %s refund: %w", ppSID, err)
+	}
+	var resp {{ .RefundResponseType }}
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return nil, fmt.Errorf(providers.ErrUnmarshalRespFmt, err)
+	}
+	return &model.PaymentResponse{
+		Timestamp: time.Now(),
+		Status:    tnxStatusPending,
+		Code:      model.SCodeOk,
+		ForeignId: resp.{{ .RefundForeignIDField }},
+	}, nil
+{{- else }}
+	return nil, providers.ErrNotImplemented
+{{- end }}
+}
+
+{{ if .HasP2P -}}
+func (pp *{{ .StructName }}) InitPayP2P(mc *model.MerchantCreds, ps *model.PaymentSource, tx *model.Transaction) (*model.P2PInitResponse, error) {
+	if ps.APM == nil {
+		return nil, providers.ErrAPMSupportOnly
+	}
+{{- if .SupportedMethods }}
+	if !isSupportedP2PMethod(tx.Order.PaymentMethodBrand) {
+		return nil, providers.ErrUnsupportedPaymentMethod
+	}
+{{- else if .P2PMethodCheck }}
+	if !types.{{ .P2PMethodCheck }}.Equal(tx.Order.PaymentMethodBrand) {
+		return nil, providers.ErrUnsupportedPaymentMethod
+	}
+{{- end }}
+{{- if .HasMultiCurrency }}
+	if !isSupportedCurrency(tx.Currency) {
+		return nil, fmt.Errorf("%w: %s", providers.ErrUnsupportedCurrency, tx.Currency)
+	}
+{{- else }}
+	if tx.Currency != currency.{{ .CurrencyCode }}Currency {
+		return nil, fmt.Errorf("%w: %s", providers.ErrUnsupportedCurrency, tx.Currency)
+	}
+{{- end }}
+
+	info := ps.APM.OwnerInfo
+
+	secrets, err := pp.parseProviderSecrets(mc, opP2P)
+	if err != nil {
+		return nil, err
+	}
+
+{{- if .HasP2PDualEndpoint }}
+	path := p2pInitEndpoint(tx.Order.PaymentMethodBrand)
+{{- else }}
+	path := {{ .PayinEndpointConst }}
+{{- end }}
+{{- if .UseOperationRuntime }}
+	path = pp.operationEndpointPath("init_pay_p2p", path)
+{{- end }}
+
+{{- if .UseTransfertyH2H }}
+	customerID := helpers.MapGet(info, providers.ExternalCustomerIDKey, tx.Id)
+	req := &p2pInitRequest{
+		OrderID:          tx.Id,
+		OrderDescription: tx.Order.Description,
+		Amount:           tx.Amount,
+		Currency:         tx.Currency,
+		CustomerID:       customerID,
+		CustomerIP:       tx.Order.IP,
+		CallbackURL:      tx.CallbackURL,
+		ResultURL:        tx.Order.ResultUrl,
+	}
+	if path == {{ .P2PAPMEndpointConst }} {
+		req.Method = tx.Order.PaymentMethodBrand
+	}
+
+	headers := pp.authHeaders(secrets)
+{{- else if .UseMacanP2P }}
+	methodName, err := macanPaymentMethodName(tx.Order.PaymentMethodBrand, tx.Currency)
+	if err != nil {
+		return nil, err
+	}
+	customerID := helpers.MapGet(info, providers.ExternalCustomerIDKey, tx.Id)
+	req := &macanPayInRequest{
+		Amount:        helpers.FloatAmount(tx.Amount, tx.Currency),
+		PaymentMethod: macanPaymentMethod{Name: methodName},
+		Customer:      macanCustomer{ID: customerID},
+		ExternalID:    tx.Id,
+		CallbackURL:   tx.CallbackURL,
+		SuccessURL:    tx.Order.ResultUrl,
+		IsRedirect:    !secrets.returnRecipientDetails,
+	}
+	if bankCode := macanBankCode(info); bankCode != "" {
+		req.Bank = &macanBank{Code: bankCode}
+	}
+	headers := pp.authHeaders(secrets)
+{{- else }}
+{{ if .P2PRequest -}}
+	req := &{{ .P2PRequest.Name }}{
+	{{- range .P2PRequest.Fields }}
+		{{ .GoName }}: {{ .GoExpr }},
+	{{- end }}
+	}
+{{ else -}}
+	req := &{{ .PayinRequestType }}{
+		// TODO: fill P2P fields
+	}
+{{ end -}}
+	_ = info
+	headers := httpcli.NewHeaders().Add("Content-Type", "application/json")
+{{- end }}
+
+{{- if .UseMacanP2P }}
+	var resp macanPayInResponse
+	respBody, respHeaders, respStatus, err := pp.httpClient.PostWithResponse(tx, mc.ApiEndpoint+path, req, headers, &resp)
+{{- else }}
+	respBody, err := pp.httpClient.Post(tx, mc.ApiEndpoint+path, req, headers)
+{{- end }}
+	if err != nil {
+{{- if .UseMacanP2P }}
+		if respBody != nil {
+			pp.txPathLogger.Log(tx, model.LogActionTypeResponse, respStatus,
+				pp.httpClient.LogRawResponseDetails(respBody, respHeaders))
+		}
+{{- end }}
+		if httpcli.IsUnexpectedError(err) {
+			return &model.P2PInitResponse{
+				Timestamp: time.Now(),
+				Status:    tnxStatusError,
+				Code:      model.SCodeInternalError,
+				Message:   model.SCodeInternalError.Description(),
+			}, nil
+		}
+		if httpcli.IsBadRequestError(err) {
+{{- if .UseMacanP2P }}
+			if st, code, msg, ok := macanPaymentDecline(respBody); ok {
+				return &model.P2PInitResponse{Timestamp: time.Now(), Status: st, Code: code, Message: msg}, nil
+			}
+{{- end }}
+			return &model.P2PInitResponse{
+				Timestamp: time.Now(),
+				Status:    tnxStatusDeclined,
+				Code:      model.SCodeDeclinedByBank,
+				Message:   model.SCodeDeclinedByBank.Description(),
+			}, nil
+		}
+		return nil, fmt.Errorf("calling %s p2p: %w", ppSID, err)
+	}
+
+{{- if .UseTransfertyH2H }}
+	var resp h2hPaymentResponse
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return nil, fmt.Errorf(providers.ErrUnmarshalRespFmt, err)
+	}
+
+	out := &model.P2PInitResponse{Timestamp: time.Now()}
+	if resp.Code != 0 {
+		out.Status, out.Code, out.Message = mapH2HResponseCode(resp.Code)
+		if resp.Transaction.ID != "" {
+			out.ForeignId = resp.Transaction.ID
+		}
+		return out, nil
+	}
+	out.ForeignId = resp.Transaction.ID
+	out.Status, out.Code, out.Message = mapH2HTxnStatus(resp.Transaction.Status, resp.Transaction.StatusCode)
+
+	if resp.RedirectURL != "" {
+		link, err := pp.tdsRedirector.GetTDSLink(&model.TDSLinkContent{
+			TransactionID: tx.Id,
+			Code:          http.StatusMovedPermanently,
+			Headers:       map[string]string{"Location": resp.RedirectURL},
+		})
+		if err != nil {
+			return nil, fmt.Errorf(providers.ErrCantGet3DSLinkFmt, err)
+		}
+		out.RedirectUrl = link
+	}
+	return out, nil
+{{- else if .UseMacanP2P }}
+	out := &model.P2PInitResponse{Timestamp: time.Now(), ForeignId: resp.PayIn.ID}
+	out.Status, out.Code, out.Message = macanPayInStatus(providerStatus(resp.PayIn.Status), resp.PayIn.StatusDetails)
+	if resp.PayIn.ID == "" {
+		if out.Status == tnxStatusPending {
+			out.Status = tnxStatusDeclined
+			out.Code = model.SCodeDeclinedByBank
+		}
+		if out.Message == "" || out.Message == model.SCodeOk.Description() {
+			if resp.PayIn.StatusDetails != "" {
+				out.Message = resp.PayIn.StatusDetails
+			} else {
+				out.Message = "pay-in response without provider id"
+			}
+		}
+		return out, nil
+	}
+	syncExchangedAmount(tx, resp.PayIn.Amount)
+	if !secrets.returnRecipientDetails && resp.PayIn.RedirectURL != "" {
+		link, err := pp.tdsRedirector.GetTDSLink(&model.TDSLinkContent{
+			TransactionID: tx.Id,
+			Code:          http.StatusMovedPermanently,
+			Headers:       map[string]string{"Location": resp.PayIn.RedirectURL},
+		})
+		if err != nil {
+			return nil, fmt.Errorf(providers.ErrCantGet3DSLinkFmt, err)
+		}
+		out.RedirectUrl = link
+	}
+	if secrets.returnRecipientDetails {
+		if rd := macanRecipientDetails(resp.PayIn.Requisites); rd != nil {
+			out.RecipientDetails = rd
+		}
+	}
+	return out, nil
+{{- else }}
+	var resp {{ .PayinResponseType }}
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return nil, fmt.Errorf(providers.ErrUnmarshalRespFmt, err)
+	}
+
+	return &model.P2PInitResponse{
+		Timestamp: time.Now(),
+		Status:    tnxStatusPending,
+		Code:      model.SCodeOk,
+		ForeignId: resp.{{ .PayinForeignIDField }},
+	}, nil
+{{- end }}
+}
+{{ else -}}
+func (pp *{{ .StructName }}) InitPayP2P(mc *model.MerchantCreds, ps *model.PaymentSource, tx *model.Transaction) (*model.P2PInitResponse, error) {
+	return nil, providers.ErrNotImplemented
+}
+{{ end }}
+
+{{- if not (and .UseMacanP2P .HasCancel) }}
+func (pp *{{ .StructName }}) CancelPay(mc *model.MerchantCreds, tx *model.Transaction) (*model.CancelPaymentResponse, error) {
+	return nil, providers.ErrNotImplemented
+}
+{{- end }}
+
+func (pp *{{ .StructName }}) InitSubscription(mc *model.MerchantCreds, ps *model.PaymentSource, tx *model.Transaction) (*model.PaymentResponse, error) {
+{{- if .HasSubscription }}
+	return pp.InitPay(mc, ps, tx)
+{{- else }}
+	return nil, providers.ErrNotImplemented
+{{- end }}
+}
+
+func (pp *{{ .StructName }}) SubscriptionPay(mc *model.MerchantCreds, ps *model.PaymentSource, tx *model.Transaction) (*model.PaymentResponse, error) {
+{{- if .HasSubscription }}
+	return pp.InitPay(mc, ps, tx)
+{{- else }}
+	return nil, providers.ErrNotImplemented
+{{- end }}
+}
+
+func (pp *{{ .StructName }}) ParseCallback(r *http.Request) (*model.CallbackData, error) {
+{{- if .CallbackReturnQueryTxIDParam }}
+	queryTxID := r.URL.Query().Get("{{ .CallbackReturnQueryTxIDParam }}")
+	if queryTxID != "" {
+		cb := &cbData{
+{{- if .CallbackTxIDField }}
+			{{ .CallbackTxIDField }}: queryTxID,
+{{- end }}
+{{- if and (eq .StatusCodeType "string") .CallbackStatusField .CallbackReturnQueryStatusValue }}
+			{{ .CallbackStatusField }}: "{{ .CallbackReturnQueryStatusValue }}",
+{{- end }}
+		}
+		return &model.CallbackData{
+			TnxId:        queryTxID,
+			Data:         cb,
+			InfoCallback: {{ .CallbackReturnQueryInfoCallback }},
+			HttpCode:     http.StatusOK,
+		}, nil
+	}
+{{- end }}
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxCallbackBodyBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf(errReadCallbackBodyFmt, err)
+	}
+	if len(body) > maxCallbackBodyBytes {
+		return nil, fmt.Errorf(errCallbackTooLargeFmt, maxCallbackBodyBytes)
+	}
+
+	var cb cbData
+	if err := json.Unmarshal(body, &cb); err != nil {
+		return nil, fmt.Errorf(providers.ErrUnmarshalCallbackFmt, err)
+	}
+	cb.raw = body
+
+	var txID string
+{{- if .CallbackTxIDField }}
+	txID = cb.{{ .CallbackTxIDField }}
+{{- else }}
+	txID = cb.PayInID
+	if txID == "" {
+		txID = cb.PayOutID
+	}
+{{- end }}
+
+	cd := &model.CallbackData{
+		TnxId:    txID,
+		Data:     &cb,
+		HttpCode: http.StatusOK,
+	}
+{{- if .CallbackForeignIDField }}
+	cd.ForeignID = cb.{{ .CallbackForeignIDField }}
+{{- end }}
+	return cd, nil
+}
+
+func (pp *{{ .StructName }}) ValidateCallback(mc *model.MerchantCreds, tx *model.Transaction, cd *model.CallbackData) error {
+{{- if .CallbackSignature }}
+	d, ok := cd.Data.(*cbData)
+	if !ok {
+		return fmt.Errorf("%s: unexpected callback data type %T", ppSID, cd.Data)
+	}
+	secrets, err := pp.parseProviderSecrets(mc, opCallback)
+	if err != nil {
+		return err
+	}
+	if !verifyCallbackSignature(secrets.{{ .CallbackSignature.SecretKeyField }}, d.{{ .CallbackSignature.SignatureField }}, d) {
+		return providers.ErrInvalidSignature
+	}
+{{- if .UseMacanP2P }}
+	if !macanCallbackAmountMatches(tx, d) {
+		return fmt.Errorf("%s: callback amount mismatch", ppSID)
+	}
+{{- end }}
+{{- else if .UseMacanP2P }}
+	d, ok := cd.Data.(*cbData)
+	if !ok {
+		return fmt.Errorf("%s: unexpected callback data type %T", ppSID, cd.Data)
+	}
+	secrets, err := pp.parseProviderSecrets(mc, opCallback)
+	if err != nil {
+		return err
+	}
+	if !verifyMacanCallbackSignature(secrets.signatureKey, d.Signature, d) {
+		return providers.ErrInvalidSignature
+	}
+	if !macanCallbackAmountMatches(tx, d) {
+		return fmt.Errorf("%s: callback amount mismatch", ppSID)
+	}
+{{- else if eq .SigningAlgorithm "hmac-sha256" }}
+	d, ok := cd.Data.(*cbData)
+	if !ok {
+		return fmt.Errorf("%s: unexpected callback data type %T", ppSID, cd.Data)
+	}
+	if len(d.raw) == 0 {
+		return nil
+	}
+
+	secrets, err := pp.parseProviderSecrets(mc, opCallback)
+	if err != nil {
+		return err
+	}
+
+	if !verifySignature(secrets.{{ .SigningSecretField }}, d.raw, "" /* TODO: extract signature from callback */) {
+		return providers.ErrInvalidSignature
+	}
+{{- end }}
+	return nil
+}
+
+func (pp *{{ .StructName }}) FinishCallback(mc *model.MerchantCreds, tx *model.Transaction, cd *model.CallbackData) (*model.StatusResponse, error) {
+{{- if not .CallbackStatusField }}
+	return nil, providers.ErrNotImplemented
+{{- else }}
+	d, ok := cd.Data.(*cbData)
+	if !ok {
+		return nil, fmt.Errorf("%s: unexpected callback data type %T", ppSID, cd.Data)
+	}
+
+	pp.txPathLogger.Log(tx, model.LogActionTypeCallback, providers.LogActionTypeReceived, string(d.raw))
+
+{{- if and .ErrorCodes .CallbackErrorCodeField }}
+	if d.{{ .CallbackErrorCodeField }} != "" {
+		status, code := mapErrorCode(d.{{ .CallbackErrorCodeField }})
+		return &model.StatusResponse{Status: status, Code: code, Message: code.Description()}, nil
+	}
+{{ end }}
+	var status model.TnxStatus
+	var code model.TnxStatusCode
+	var msg string
+
+	if tx.Type == model.TnxTypePay {
+{{- if .UseMacanP2P }}
+		status, code, msg = macanPayInStatus(providerStatus(d.{{ .CallbackStatusField }}), d.StatusDetails)
+{{- else if eq .StatusCodeType "string" }}
+		status, code, msg = mapPayinStatus(providerStatus(d.{{ .CallbackStatusField }}))
+{{- else }}
+		status, code, msg = mapPayinStatus(d.{{ .CallbackStatusField }})
+{{- end }}
+	} else {
+{{- if .UseMacanP2P }}
+		status, code, msg = macanPayOutStatus(providerStatus(d.{{ .CallbackStatusField }}), d.StatusDetails)
+{{- else if eq .StatusCodeType "string" }}
+		status, code, msg = mapPayoutStatus(providerStatus(d.{{ .CallbackStatusField }}))
+{{- else }}
+		status, code, msg = mapPayoutStatus(d.{{ .CallbackStatusField }})
+{{- end }}
+	}
+{{- if and .ExtendedCallbackConfig .ExtendedCallbackConfig.Enabled }}
+	applyExtendedCallbackFallbacks(tx)
+{{- end }}
+{{- if .UseMacanP2P }}
+	if d.Amount > 0 {
+		tx.ExchangedAmount = helpers.FloatAmountToCoins(d.Amount, tx.Currency)
+	}
+{{- end }}
+{{- if .UseOperationRuntime }}
+	if status.Pending() && pp.shouldCheckStatusAfterPendingCallback("finish_callback") {
+		statusResp, err := pp.CheckStatus(mc, tx)
+		if err != nil {
+			pp.txPathLogger.Log(tx, model.LogActionTypeCallback, "pending callback check status failed", err.Error())
+		} else if statusResp != nil {
+			return statusResp, nil
+		}
+	}
+{{- end }}
+	resp := &model.StatusResponse{
+		Status:  status,
+		Code:    code,
+		Message: msg,
+	}
+{{- if and .Async3DSConfig .Async3DSConfig.Enabled }}
+	return pp.tryAsync3DSCallback(mc, tx, cd, resp)
+{{- else }}
+	return resp, nil
+{{- end }}
+{{- end }}
+}
+
+{{ if .HasBalanceFetcher -}}
+func (pp *{{ .StructName }}) FetchBalances(mc *model.MerchantCreds, currencies []string) (*model.PaymentProviderBalanceResponse, error) {
+	secrets, err := pp.parseProviderSecrets(mc, opBalance)
+	if err != nil {
+		return nil, err
+	}
+{{- if .UseMacanP2P }}
+	path := endpointBalance
+{{- if .UseOperationRuntime }}
+	path = pp.operationEndpointPath("fetch_balances", path)
+{{- end }}
+	respBody, err := pp.httpClient.Get(common.FakeTxForBalanceFetch(ppSID), mc.ApiEndpoint+path, pp.authHeaders(secrets))
+	if err != nil {
+		return nil, fmt.Errorf("calling %s balance: %w", ppSID, err)
+	}
+	var resp macanBalanceResponse
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return nil, fmt.Errorf(providers.ErrUnmarshalRespFmt, err)
+	}
+	out := &model.PaymentProviderBalanceResponse{}
+	for _, cur := range currencies {
+		if resp.Balance.Currency != cur {
+			continue
+		}
+		out.Balances = append(out.Balances, model.PaymentProviderBalance{
+			Currency:  cur,
+			Available: helpers.FloatAmountToCoins(resp.Balance.Amount, cur),
+		})
+	}
+	if len(out.Balances) == 0 && len(currencies) > 0 {
+		return nil, fmt.Errorf("%s: balance currency %q not in requested %v", ppSID, resp.Balance.Currency, currencies)
+	}
+	return out, nil
+{{- else }}
+	_ = secrets
+
+	// TODO: implement balance fetching
+	return &model.PaymentProviderBalanceResponse{}, nil
+{{- end }}
+}
+{{ end }}
+
+{{ if .HasMobileProcessor -}}
+func (pp *{{ .StructName }}) ResendOTPCode(mc *model.MerchantCreds, tx *model.Transaction, phone string) error {
+	return providers.ErrNotImplemented
+}
+
+func (pp *{{ .StructName }}) SubmitOTPCode(mc *model.MerchantCreds, tx *model.Transaction, otpCode string) (*model.StatusResponse, error) {
+	return nil, providers.ErrNotImplemented
+}
+{{ end }}
+
+{{ if .HasCustomerRandomization -}}
+func (pp *{{ .StructName }}) GetRules() *model.RandomizationRules {
+	return &model.RandomizationRules{
+		StateFormat:       model.StateFormatFull,
+		PronounceableName: false,
+	}
+}
+{{ end }}
+
+{{ if .UseOperationRuntime -}}
+type responseLoggable interface {
+	Unmarshal([]byte) error
+	String() (string, error)
+}
+
+func (pp *{{ .StructName }}) logResponsePreferParsed(
+	tx *model.Transaction,
+	respStatus string,
+	rawResp []byte,
+	respHeaders http.Header,
+	resp any,
+) {
+	// 1) Prefer provider-defined redacted logging when available.
+	if loggableResp, ok := resp.(responseLoggable); ok {
+		if err := loggableResp.Unmarshal(rawResp); err == nil {
+			if logResp, logErr := loggableResp.String(); logErr == nil {
+				pp.txPathLogger.Log(tx, model.LogActionTypeResponse, respStatus, logResp)
+				return
+			}
+		}
+	}
+	// 2) Fallback: best-effort parse+marshal for readable logs.
+	if err := json.Unmarshal(rawResp, resp); err == nil {
+		if logResp, logErr := json.Marshal(resp); logErr == nil {
+			pp.txPathLogger.Log(tx, model.LogActionTypeResponse, respStatus, string(logResp))
+			return
+		}
+	}
+	// 3) Final fallback: raw response details.
+	pp.txPathLogger.Log(tx, model.LogActionTypeResponse, respStatus, pp.httpClient.LogRawResponseDetails(rawResp, respHeaders))
+}
+
+{{ end }}
+
+{{ if .UseMacanP2P -}}
+func macanCallbackAmountMatches(tx *model.Transaction, cb *cbData) bool {
+	return helpers.FloatAmountToCoins(cb.Amount, tx.Currency) == tx.Amount
+}
+{{ end }}
+
+{{ if and .CheckStatusThrottleConfig .CheckStatusThrottleConfig.Enabled -}}
+func (pp *{{ .StructName }}) isCheckStatusThrottled(txID string) bool {
+{{- if and .CrossInstanceStateConfig .CrossInstanceStateConfig.Enabled }}
+	windowStore, errStore := time.ParseDuration("{{ .CheckStatusThrottleConfig.Period }}")
+	if errStore == nil && pp.checkStatusStore != nil {
+		throttled, storeErr := pp.checkStatusStore.IsThrottled(txID)
+		if storeErr == nil {
+			return throttled
+		}
+		_ = windowStore // keep config validated before local fallback
+	}
+{{- end }}
+	pp.throttleMu.Lock()
+	defer pp.throttleMu.Unlock()
+
+	last, ok := pp.lastStatusByTx[txID]
+	if !ok {
+		return false
+	}
+	window, err := time.ParseDuration("{{ .CheckStatusThrottleConfig.Period }}")
+	if err != nil {
+		// Invalid config should not break status checks in runtime.
+		return false
+	}
+	return time.Since(last) < window
+}
+
+func (pp *{{ .StructName }}) markCheckStatusCall(txID string) {
+{{- if and .CrossInstanceStateConfig .CrossInstanceStateConfig.Enabled }}
+	window, err := time.ParseDuration("{{ .CheckStatusThrottleConfig.Period }}")
+	if err == nil && pp.checkStatusStore != nil {
+		_ = pp.checkStatusStore.Mark(txID, window)
+		return
+	}
+{{- end }}
+	pp.throttleMu.Lock()
+	pp.lastStatusByTx[txID] = time.Now()
+	pp.throttleMu.Unlock()
+}
+{{ end }}
+
+{{ if and .CrossInstanceStateConfig .CrossInstanceStateConfig.Enabled -}}
+// checkStatusStore allows shared throttling across instances (e.g. redis-backed).
+// Generated provider falls back to in-memory throttling when store is not configured.
+type checkStatusStore interface {
+	IsThrottled(txID string) (bool, error)
+	Mark(txID string, ttl time.Duration) error
+}
+{{ end }}
+
+{{ if and .StatusConfirmationConfig .StatusConfirmationConfig.Enabled -}}
+// statusConfirmer allows provider-specific confirmation of pending statuses
+// (e.g. extra transaction-list lookup) without forking generated flow.
+type statusConfirmer interface {
+	ConfirmPendingStatus(mc *model.MerchantCreds, tx *model.Transaction, current *model.StatusResponse) (*model.StatusResponse, bool, error)
+}
+
+func (pp *{{ .StructName }}) tryConfirmPendingStatus(mc *model.MerchantCreds, tx *model.Transaction, current *model.StatusResponse) (*model.StatusResponse, error) {
+	if current == nil || current.Status != tnxStatusPending || pp.statusConfirmer == nil {
+		return current, nil
+	}
+	confirmed, ok, err := pp.statusConfirmer.ConfirmPendingStatus(mc, tx, current)
+	if err != nil {
+		return nil, err
+	}
+	if ok && confirmed != nil {
+		return confirmed, nil
+	}
+	return current, nil
+}
+{{ end }}
+
+{{ if and .Async3DSConfig .Async3DSConfig.Enabled -}}
+// async3DSCoordinator allows provider-specific asynchronous 3DS completion logic
+// (e.g. deferred capture/charge after callback) without forking generated callback flow.
+type async3DSCoordinator interface {
+	HandleFinishCallback(mc *model.MerchantCreds, tx *model.Transaction, cd *model.CallbackData, current *model.StatusResponse) (*model.StatusResponse, bool, error)
+}
+
+func (pp *{{ .StructName }}) tryAsync3DSCallback(mc *model.MerchantCreds, tx *model.Transaction, cd *model.CallbackData, current *model.StatusResponse) (*model.StatusResponse, error) {
+	if current == nil || !current.Status.Pending() {
+		return current, nil
+	}
+	if pp.async3DSCoordinator != nil {
+		next, ok, err := pp.async3DSCoordinator.HandleFinishCallback(mc, tx, cd, current)
+		if err != nil {
+			return nil, err
+		}
+		if ok && next != nil {
+			return next, nil
+		}
+	}
+	return pp.tryAsync3DSDefault(mc, tx, current), nil
+}
+
+func (pp *{{ .StructName }}) tryAsync3DSDefault(mc *model.MerchantCreds, tx *model.Transaction, current *model.StatusResponse) *model.StatusResponse {
+	waitTimeout := time.Duration(0)
+{{- if .Async3DSConfig.FinishCallbackWaitTimeout }}
+	if d, err := time.ParseDuration("{{ .Async3DSConfig.FinishCallbackWaitTimeout }}"); err == nil {
+		waitTimeout = d
+	}
+{{- end }}
+	autoChargeAfter := time.Duration(0)
+{{- if .Async3DSConfig.AutoChargeAfter }}
+	if d, err := time.ParseDuration("{{ .Async3DSConfig.AutoChargeAfter }}"); err == nil {
+		autoChargeAfter = d
+	}
+{{- end }}
+	staleGrace := time.Duration(0)
+{{- if .Async3DSConfig.StalePendingGrace }}
+	if d, err := time.ParseDuration("{{ .Async3DSConfig.StalePendingGrace }}"); err == nil {
+		staleGrace = d
+	}
+{{- end }}
+
+	now := time.Now()
+	if waitTimeout > 0 && !tx.Created.IsZero() {
+		age := now.Sub(tx.Created)
+		if age > waitTimeout+staleGrace {
+			pp.clearAsync3DSCooldown(tx.Id)
+			return &model.StatusResponse{
+				Status:  tnxStatusError,
+				Code:    model.SCodeTimeouted,
+				Message: model.SCodeTimeouted.Description(),
+			}
+		}
+	}
+	if !pp.async3DSCanCheckNow(tx.Id, now, autoChargeAfter) {
+		return current
+	}
+	statusResp, err := pp.CheckStatus(mc, tx)
+	pp.markAsync3DSCooldown(tx.Id, now, autoChargeAfter)
+	if err != nil || statusResp == nil {
+		return current
+	}
+	if statusResp.Status.Pending() {
+		return current
+	}
+	pp.clearAsync3DSCooldown(tx.Id)
+	return statusResp
+}
+
+func (pp *{{ .StructName }}) async3DSCanCheckNow(txID string, now time.Time, cooldown time.Duration) bool {
+	if cooldown <= 0 {
+		return true
+	}
+	key := "async3ds:" + txID
+{{- if and .CrossInstanceStateConfig .CrossInstanceStateConfig.Enabled }}
+	if pp.checkStatusStore != nil {
+		if throttled, err := pp.checkStatusStore.IsThrottled(key); err == nil && throttled {
+			return false
+		}
+	}
+{{- end }}
+	pp.async3DSMu.Lock()
+	defer pp.async3DSMu.Unlock()
+	nextAt, ok := pp.async3DSNextCheck[txID]
+	if !ok {
+		return true
+	}
+	return !now.Before(nextAt)
+}
+
+func (pp *{{ .StructName }}) markAsync3DSCooldown(txID string, now time.Time, cooldown time.Duration) {
+	if cooldown <= 0 {
+		return
+	}
+	key := "async3ds:" + txID
+{{- if and .CrossInstanceStateConfig .CrossInstanceStateConfig.Enabled }}
+	if pp.checkStatusStore != nil {
+		_ = pp.checkStatusStore.Mark(key, cooldown)
+	}
+{{- end }}
+	pp.async3DSMu.Lock()
+	pp.async3DSNextCheck[txID] = now.Add(cooldown)
+	pp.async3DSMu.Unlock()
+}
+
+func (pp *{{ .StructName }}) clearAsync3DSCooldown(txID string) {
+	pp.async3DSMu.Lock()
+	delete(pp.async3DSNextCheck, txID)
+	pp.async3DSMu.Unlock()
+}
+{{ end }}
+
+{{ if and .ExtendedCallbackConfig .ExtendedCallbackConfig.Enabled -}}
+func applyExtendedCallbackFallbacks(tx *model.Transaction) {
+{{- range .ExtendedCallbackConfig.Fields }}
+{{- if eq . "auth_code" }}
+	if tx.AuthCode == "" {
+		tx.AuthCode = " "
+	}
+{{- end }}
+{{- if eq . "md" }}
+	if tx.MD == "" {
+		tx.MD = " "
+	}
+{{- end }}
+{{- if eq . "rrn" }}
+	if tx.RRN == "" {
+		tx.RRN = " "
+	}
+{{- end }}
+{{- end }}
+}
+{{ end }}
+
+{{ if .UseOperationRuntime -}}
+type operationTransport struct {
+	EndpointKey        string
+	EndpointPath       string
+	RequestType        string
+	ResponseType       string
+	ErrorResponseType  string
+	ResponseLoggingMode string
+	StatusStrategy     string
+	RetryMaxAttempts   int
+	RetryInitialBackoff string
+	RetryMaxBackoff    string
+	Timeout            string
+	PendingCallbackAction string
+	StatusField        string
+	StatusDetailsField string
+	ErrorCodeField     string
+}
+
+var operationTransports = map[string]operationTransport{
+{{- range .Operations }}
+	"{{ .Kind }}": {
+		EndpointKey: "{{ .Transport.Endpoint }}",
+		EndpointPath: "{{ .Transport.EndpointPath }}",
+		RequestType: "{{ .Transport.RequestType }}",
+		ResponseType: "{{ .Transport.ResponseType }}",
+		ErrorResponseType: "{{ .Transport.ErrorResponseType }}",
+		ResponseLoggingMode: "{{ .Transport.ResponseLoggingMode }}",
+		StatusStrategy: "{{ .Transport.StatusStrategy }}",
+		RetryMaxAttempts: {{ .Transport.RetryMaxAttempts }},
+		RetryInitialBackoff: "{{ .Transport.RetryInitialBackoff }}",
+		RetryMaxBackoff: "{{ .Transport.RetryMaxBackoff }}",
+		Timeout: "{{ .Transport.Timeout }}",
+		PendingCallbackAction: "{{ .Transport.PendingCallbackAction }}",
+		StatusField: "{{ .Transport.StatusField }}",
+		StatusDetailsField: "{{ .Transport.StatusDetailsField }}",
+		ErrorCodeField: "{{ .Transport.ErrorCodeField }}",
+	},
+{{- end }}
+}
+
+func (pp *{{ .StructName }}) shouldPreferParsedLogging(opKind string) bool {
+	defaultPreferParsed := "{{ .ResponseLoggingMode }}" == "prefer_parsed"
+	op, ok := operationTransports[opKind]
+	if !ok {
+		return defaultPreferParsed
+	}
+	switch op.ResponseLoggingMode {
+	case "prefer_parsed":
+		return true
+	case "raw":
+		return false
+	default: // "inherit" or empty
+		return defaultPreferParsed
+	}
+}
+
+func (pp *{{ .StructName }}) shouldCheckStatusAfterPendingCallback(opKind string) bool {
+	op, ok := operationTransports[opKind]
+	if !ok {
+		return false
+	}
+	return op.PendingCallbackAction == "check_status"
+}
+
+func (pp *{{ .StructName }}) validateStatusHints(opKind, statusVal, detailsVal string) error {
+	op, ok := operationTransports[opKind]
+	if !ok {
+		return nil
+	}
+	strategy := pp.operationStatusStrategy(op)
+	switch strategy {
+	case "macan":
+		if op.StatusField != "" {
+			want := op.StatusField
+			if want != "payIn.status" && want != "payOut.status" {
+				return fmt.Errorf("%s: unsupported status_field hint %q for %s (strategy=macan)", ppSID, want, opKind)
+			}
+		}
+		if op.StatusDetailsField != "" {
+			want := op.StatusDetailsField
+			if want != "payIn.statusDetails" && want != "payOut.statusDetails" {
+				return fmt.Errorf("%s: unsupported status_details_field hint %q for %s (strategy=macan)", ppSID, want, opKind)
+			}
+		}
+	case "direct":
+		if op.StatusField != "" && op.StatusField != "status" {
+			return fmt.Errorf("%s: unsupported status_field hint %q for %s (strategy=direct)", ppSID, op.StatusField, opKind)
+		}
+		if op.StatusDetailsField != "" && op.StatusDetailsField != "status_details" && op.StatusDetailsField != "statusDetails" {
+			return fmt.Errorf("%s: unsupported status_details_field hint %q for %s (strategy=direct)", ppSID, op.StatusDetailsField, opKind)
+		}
+	default:
+		return fmt.Errorf("%s: unsupported status strategy %q for %s", ppSID, strategy, opKind)
+	}
+	if op.StatusField != "" && statusVal == "" {
+		return fmt.Errorf("%s: empty status value for %s", ppSID, opKind)
+	}
+	_ = detailsVal // details may be legitimately empty for many statuses.
+	return nil
+}
+
+func (pp *{{ .StructName }}) operationStatusStrategy(op operationTransport) string {
+	switch op.StatusStrategy {
+	case "", "inherit":
+{{- if .UseMacanP2P }}
+		return "macan"
+{{- else }}
+		return "direct"
+{{- end }}
+	case "macan", "direct":
+		return op.StatusStrategy
+	default:
+		return op.StatusStrategy
+	}
+}
+
+func (pp *{{ .StructName }}) operationEndpointPath(opKind, fallback string) string {
+	op, ok := operationTransports[opKind]
+	if !ok || op.EndpointPath == "" {
+		return fallback
+	}
+	return op.EndpointPath
+}
+{{ else if not .UseMacanP2P }}
+func (pp *{{ .StructName }}) shouldPreferParsedLogging(opKind string) bool {
+	_ = opKind
+	return "{{ .ResponseLoggingMode }}" == "prefer_parsed"
+}
+{{ end }}
+
+{{ if .UseOperationRuntime -}}
+func (pp *{{ .StructName }}) checkStatusMaxAttempts(opKind string) int {
+{{- if .UseOperationRuntime }}
+	if op, ok := operationTransports[opKind]; ok && op.RetryMaxAttempts > 0 {
+		return op.RetryMaxAttempts
+	}
+{{- else }}
+	_ = opKind
+{{- end }}
+{{- if and .RuntimePolicyConfig .RuntimePolicyConfig.Retries .RuntimePolicyConfig.Retries.MaxAttempts }}
+	if {{ .RuntimePolicyConfig.Retries.MaxAttempts }} > 0 {
+		return {{ .RuntimePolicyConfig.Retries.MaxAttempts }}
+	}
+{{- end }}
+	return 1
+}
+
+func (pp *{{ .StructName }}) checkStatusBackoff(opKind string, attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	base := time.Duration(0)
+{{- if .UseOperationRuntime }}
+	if op, ok := operationTransports[opKind]; ok && op.RetryInitialBackoff != "" {
+		if d, err := time.ParseDuration(op.RetryInitialBackoff); err == nil {
+			base = d
+		}
+	}
+{{- else }}
+	_ = opKind
+{{- end }}
+	if base <= 0 {
+{{- if and .RuntimePolicyConfig .RuntimePolicyConfig.Retries .RuntimePolicyConfig.Retries.InitialBackoff }}
+		if d, err := time.ParseDuration("{{ .RuntimePolicyConfig.Retries.InitialBackoff }}"); err == nil {
+			base = d
+		}
+{{- end }}
+	}
+	if base <= 0 {
+		return 0
+	}
+	// Exponential backoff capped by max_backoff when configured.
+	backoff := base << (attempt - 1)
+	maxBackoff := ""
+{{- if .UseOperationRuntime }}
+	if op, ok := operationTransports[opKind]; ok && op.RetryMaxBackoff != "" {
+		maxBackoff = op.RetryMaxBackoff
+	}
+{{- end }}
+	if maxBackoff == "" {
+{{- if and .RuntimePolicyConfig .RuntimePolicyConfig.Retries .RuntimePolicyConfig.Retries.MaxBackoff }}
+		maxBackoff = "{{ .RuntimePolicyConfig.Retries.MaxBackoff }}"
+{{- end }}
+	}
+	if maxBackoff != "" {
+		if maxD, err := time.ParseDuration(maxBackoff); err == nil && maxD > 0 && backoff > maxD {
+			backoff = maxD
+		}
+	}
+	return backoff
+}
+
+func (pp *{{ .StructName }}) shouldRetryCheckStatus(opKind string, err error, attempt int) bool {
+	if attempt >= pp.checkStatusMaxAttempts(opKind) {
+		return false
+	}
+{{- if and .RuntimePolicyConfig .RuntimePolicyConfig.Retries .RuntimePolicyConfig.Retries.RetryOnNotFound }}
+	if {{ .RuntimePolicyConfig.Retries.RetryOnNotFound }} && httpcli.IsNotFoundError(err) {
+		return true
+	}
+{{- end }}
+{{- if and .RuntimePolicyConfig .RuntimePolicyConfig.Retries .RuntimePolicyConfig.Retries.RetryOn5xx }}
+	if {{ .RuntimePolicyConfig.Retries.RetryOn5xx }} && httpcli.IsUnexpectedError(err) {
+		return true
+	}
+{{- end }}
+{{- if and .RuntimePolicyConfig .RuntimePolicyConfig.Retries .RuntimePolicyConfig.Retries.RetryOnRateLimit }}
+	if {{ .RuntimePolicyConfig.Retries.RetryOnRateLimit }} && isRateLimitedError(err) {
+		return true
+	}
+{{- end }}
+	return false
+}
+
+func (pp *{{ .StructName }}) isCheckStatusTimedOut(startedAt time.Time) bool {
+	_ = startedAt
+	return false
+}
+
+func (pp *{{ .StructName }}) isOperationTimedOut(opKind string, startedAt time.Time) bool {
+	timeoutVal := ""
+{{- if .UseOperationRuntime }}
+	if op, ok := operationTransports[opKind]; ok && op.Timeout != "" {
+		timeoutVal = op.Timeout
+	}
+{{- else }}
+	_ = opKind
+{{- end }}
+	if timeoutVal == "" {
+{{- if and .RuntimePolicyConfig .RuntimePolicyConfig.Timeouts .RuntimePolicyConfig.Timeouts.CheckStatusTimeout }}
+		timeoutVal = "{{ .RuntimePolicyConfig.Timeouts.CheckStatusTimeout }}"
+{{- end }}
+	}
+	if timeoutVal == "" {
+		return false
+	}
+	if d, err := time.ParseDuration(timeoutVal); err == nil {
+		return time.Since(startedAt) > d
+	}
+	return false
+}
+
+func (pp *{{ .StructName }}) doCheckStatusWithRetry(
+	tx *model.Transaction,
+	endpoint string,
+	headers httpcli.Headers,
+	resp httpcli.APIResponse,
+	opKind string,
+) error {
+	var lastErr error
+	for attempt := 1; attempt <= pp.checkStatusMaxAttempts(opKind); attempt++ {
+		rawResp, respHeaders, respStatus, err := pp.httpClient.GetWithResponse(tx, endpoint, headers, resp)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if rawResp != nil {
+			if pp.shouldPreferParsedLogging(opKind) {
+				pp.logResponsePreferParsed(tx, respStatus, rawResp, respHeaders, resp)
+			} else {
+				pp.txPathLogger.Log(tx, model.LogActionTypeResponse, respStatus,
+					pp.httpClient.LogRawResponseDetails(rawResp, respHeaders))
+			}
+		}
+		if !pp.shouldRetryCheckStatus(opKind, err, attempt) {
+			break
+		}
+		time.Sleep(pp.checkStatusBackoff(opKind, attempt))
+	}
+	return lastErr
+}
+
+func (pp *{{ .StructName }}) doPostWithResponseWithPolicy(
+	tx *model.Transaction,
+	endpoint string,
+	req httpcli.APIRequest,
+	headers httpcli.Headers,
+	resp httpcli.APIResponse,
+	opKind string,
+) ([]byte, http.Header, string, error) {
+	var (
+		rawResp     []byte
+		respHeaders http.Header
+		respStatus  string
+		lastErr     error
+	)
+	for attempt := 1; attempt <= pp.checkStatusMaxAttempts(opKind); attempt++ {
+		rawResp, respHeaders, respStatus, lastErr = pp.httpClient.PostWithResponse(tx, endpoint, req, headers, resp)
+		if lastErr == nil {
+			return rawResp, respHeaders, respStatus, nil
+		}
+		if rawResp != nil {
+			if pp.shouldPreferParsedLogging(opKind) {
+				pp.logResponsePreferParsed(tx, respStatus, rawResp, respHeaders, resp)
+			} else {
+				pp.txPathLogger.Log(tx, model.LogActionTypeResponse, respStatus,
+					pp.httpClient.LogRawResponseDetails(rawResp, respHeaders))
+			}
+		}
+		if !pp.shouldRetryCheckStatus(opKind, lastErr, attempt) {
+			break
+		}
+		time.Sleep(pp.checkStatusBackoff(opKind, attempt))
+	}
+	return rawResp, respHeaders, respStatus, lastErr
+}
+
+func isRateLimitedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "429") ||
+		strings.Contains(msg, "too many requests") ||
+		strings.Contains(msg, "rate limit")
+}
+{{ end }}
+
+var _ model.PaymentProvider = (*{{ .StructName }})(nil)
+{{ if .HasBalanceFetcher -}}
+var _ model.PaymentProviderBalanceFetcher = (*{{ .StructName }})(nil)
+{{ end -}}
+{{ if .HasMobileProcessor -}}
+var _ model.PaymentProviderMobileProcessor = (*{{ .StructName }})(nil)
+{{ end -}}
+{{ if .HasCustomerRandomization -}}
+var _ model.CustomerRandomizationRuler = (*{{ .StructName }})(nil)
+{{ end -}}
+
+{{- /* declineBadRequestPayment renders the body of an IsBadRequestError branch
+that returns a declined *model.PaymentResponse (shared by doPayin and InitPayout). */ -}}
+{{- define "declineBadRequestPayment" }}
+{{- if .UseMacanP2P }}
+		if st, code, msg, ok := macanPaymentDecline(respBody); ok {
+			return &model.PaymentResponse{Timestamp: time.Now(), Status: st, Code: code, Message: msg}, nil
+		}
+{{- end }}
+		return &model.PaymentResponse{
+			Timestamp: time.Now(),
+			Status:    tnxStatusDeclined,
+			Code:      model.SCodeDeclinedByBank,
+			Message:   model.SCodeDeclinedByBank.Description(),
+		}, nil
+{{- end }}

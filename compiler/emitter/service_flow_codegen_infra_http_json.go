@@ -2,9 +2,11 @@ package emitter
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
@@ -13,21 +15,14 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 
 	switch step.Action {
 	case "http.Call":
+		typed, decodeErr := flowir.DecodeAs[flowir.HTTPCall](step)
+		if decodeErr != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, decodeErr.Error()), true
+		}
 		if out, ok := renderFlowHTTPCallAST(st, step, indent, sfx, arg); ok {
 			return out, true
 		}
-		method := arg("method")
-		url := arg("url")
-		body := arg("body")
-		output := arg("output")
-		statusVar := arg("statusVar")
-		if method == "" || url == "" {
-			return "", true
-		}
-		failOnError := true
-		if v, ok := step.Args["failOnError"].(bool); ok {
-			failOnError = v
-		}
+		method, url, body, output, statusVar, failOnError := typed.Method, normalizeFlowExpr(typed.URL.Source), normalizeFlowExpr(typed.Body.Source), typed.Output, typed.StatusVar, typed.FailOnError
 		httpReqV, httpReqErrV := "_httpReq"+sfx, "_httpReqErr"+sfx
 		httpResV, httpErrV := "_httpRes"+sfx, "_hErr"+sfx
 		httpBodyV := "_httpBody" + sfx
@@ -40,9 +35,14 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, httpReqErrV))
 		b.WriteString(errReturn(st, pad+"\t", "fmt.Errorf(\"http: request: %w\", "+httpReqErrV+")"))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
-		if hdrs, ok := step.Args["headers"].(map[string]string); ok {
-			for hk, hv := range hdrs {
-				b.WriteString(fmt.Sprintf("%s%s.Header.Set(%q, %s)\n", pad, httpReqV, hk, hv))
+		if hdrs := typed.Headers; len(hdrs) > 0 {
+			keys := make([]string, 0, len(hdrs))
+			for k := range hdrs {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, hk := range keys {
+				b.WriteString(fmt.Sprintf("%s%s.Header.Set(%q, %s)\n", pad, httpReqV, hk, normalizeFlowExpr(hdrs[hk].Source)))
 			}
 		}
 		b.WriteString(fmt.Sprintf("%s%s, %s := http.DefaultClient.Do(%s)\n", pad, httpResV, httpErrV, httpReqV))
@@ -77,21 +77,11 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		return b.String(), true
 
 	case "rand.Code":
-		output := arg("output")
-		if output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.RandomCode](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		length := 6
-		if v, ok := step.Args["length"]; ok {
-			switch n := v.(type) {
-			case int:
-				length = n
-			case int64:
-				length = int(n)
-			case float64:
-				length = int(n)
-			}
-		}
+		output, length := typed.Output, typed.Length
 		modBase := "_codeBase" + sfx
 		codeNVar := "_codeN" + sfx
 		codeBufVar := "_codeBuf" + sfx
@@ -109,21 +99,11 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		return b.String(), true
 
 	case "rand.Token":
-		output := arg("output")
-		if output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.RandomToken](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		nbytes := 32
-		if v, ok := step.Args["bytes"]; ok {
-			switch n := v.(type) {
-			case int:
-				nbytes = n
-			case int64:
-				nbytes = int(n)
-			case float64:
-				nbytes = int(n)
-			}
-		}
+		output, nbytes := typed.Output, typed.Bytes
 		rbv, rerrv := "_rb"+sfx, "_rbErr"+sfx
 		outV := "_tokenOut" + sfx
 		var b strings.Builder
@@ -137,27 +117,14 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		return b.String(), true
 
 	case "str.Format":
-		tmpl := arg("template")
-		output := arg("output")
-		if tmpl == "" || output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.StringFormat](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		var fmtArgs []string
-		if v, ok := step.Args["args"]; ok {
-			switch x := v.(type) {
-			case []string:
-				fmtArgs = x
-			case []interface{}:
-				for _, it := range x {
-					if s, ok := it.(string); ok && strings.TrimSpace(s) != "" {
-						fmtArgs = append(fmtArgs, s)
-					}
-				}
-			case string:
-				if x != "" {
-					fmtArgs = []string{x}
-				}
-			}
+		tmpl, output := normalizeFlowExpr(typed.Template.Source), typed.Output
+		fmtArgs := make([]string, 0, len(typed.Arguments))
+		for _, item := range typed.Arguments {
+			fmtArgs = append(fmtArgs, normalizeFlowExpr(item.Source))
 		}
 		callArgs := tmpl
 		if len(fmtArgs) > 0 {
@@ -180,27 +147,14 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		return fmt.Sprintf("%s%s %s fmt.Sprintf(%s)\n", pad, output, assign, callArgs), true
 
 	case "str.Concat":
-		output := arg("output")
-		if output == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.StringConcat](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		sep := arg("sep")
-		var parts []string
-		if v, ok := step.Args["parts"]; ok {
-			switch x := v.(type) {
-			case []string:
-				parts = x
-			case []interface{}:
-				for _, it := range x {
-					if s, ok := it.(string); ok && strings.TrimSpace(s) != "" {
-						parts = append(parts, s)
-					}
-				}
-			case string:
-				if strings.TrimSpace(x) != "" {
-					parts = []string{x}
-				}
-			}
+		output, sep := typed.Output, normalizeFlowExpr(typed.Separator.Source)
+		parts := make([]string, 0, len(typed.Parts))
+		for _, item := range typed.Parts {
+			parts = append(parts, normalizeFlowExpr(item.Source))
 		}
 		assign := ":="
 		if st.declared[output] {
@@ -229,11 +183,11 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		return b.String(), true
 
 	case "str.StripMarkdown":
-		input := arg("input")
-		output := arg("output")
-		if input == "" {
-			return renderInvalidFlowStepConfig(st, pad, "str.StripMarkdown", "str.StripMarkdown requires input"), true
+		typed, err := flowir.DecodeAs[flowir.StringStripMarkdown](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		input, output := normalizeFlowExpr(typed.Input.Source), typed.Output
 		if output == "" {
 			output = input
 		}
@@ -267,30 +221,27 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		return b.String(), true
 
 	case "str.ReplaceAll":
-		input := arg("input")
-		old := arg("old")
-		newS := arg("new")
-		output := arg("output")
-		if input == "" || old == "" || newS == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "str.ReplaceAll", "str.ReplaceAll requires input, old, new, output"), true
+		typed, err := flowir.DecodeAs[flowir.StringReplaceAll](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		input, old, newS, output := normalizeFlowExpr(typed.Input.Source), normalizeFlowExpr(typed.Old.Source), normalizeFlowExpr(typed.New.Source), typed.Output
 		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("strings.ReplaceAll(%s, %s, %s)", input, old, newS), "string"), true
 
 	case "str.TrimSpace":
-		input := arg("input")
-		output := arg("output")
-		if input == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "str.TrimSpace", "str.TrimSpace requires input and output"), true
+		typed, err := flowir.DecodeAs[flowir.StringTrimSpace](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		input, output := normalizeFlowExpr(typed.Input.Source), typed.Output
 		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("strings.TrimSpace(%s)", input), "string"), true
 
 	case "cast.ToString":
-		input := arg("input")
-		output := arg("output")
-		if input == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "cast.ToString", "cast.ToString requires input and output"), true
+		typed, err := flowir.DecodeAs[flowir.CastToString](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		format := arg("format")
+		input, output, format := normalizeFlowExpr(typed.Input.Source), typed.Output, normalizeFlowExpr(typed.Format)
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -304,12 +255,11 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		return fmt.Sprintf("%s%s %s fmt.Sprint(%s)\n", pad, output, assign, input), true
 
 	case "json.Parse":
-		input := arg("input")
-		into := arg("into")
-		output := arg("output")
-		if input == "" || into == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "json.Parse", "json.Parse requires input, into, and output"), true
+		typed, err := flowir.DecodeAs[flowir.JSONParse](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		input, into, output := normalizeFlowExpr(typed.Input.Source), typed.Into, typed.Output
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -327,11 +277,11 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		return b.String(), true
 
 	case "json.Marshal":
-		input := arg("input")
-		output := arg("output")
-		if input == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "json.Marshal", "json.Marshal requires input and output"), true
+		typed, err := flowir.DecodeAs[flowir.JSONMarshal](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		input, output := normalizeFlowExpr(typed.Input.Source), typed.Output
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -348,11 +298,11 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		return b.String(), true
 
 	case "json.Stringify":
-		input := arg("input")
-		output := arg("output")
-		if input == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "json.Stringify", "json.Stringify requires input and output"), true
+		typed, err := flowir.DecodeAs[flowir.JSONMarshal](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		input, output := normalizeFlowExpr(typed.Input.Source), typed.Output
 		assign := ":="
 		if st.declared[output] {
 			assign = "="

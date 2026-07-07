@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 type flowCapturedVar struct {
@@ -17,25 +18,41 @@ type flowCapturedVar struct {
 func renderFlowStepControlResilience(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
 	switch step.Action {
 	case "flow.Try":
-		if out, ok := renderFlowTryAST(st, step, indent, sfx, child); ok {
+		typed, err := flowir.DecodeAs[flowir.FlowTry](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, strings.Repeat("\t", indent), step.Action, err.Error()), true
+		}
+		if out, ok := renderFlowTryAST(st, typed, indent, sfx); ok {
 			return out, true
 		}
-		return renderFlowTryLegacy(st, step, indent, sfx, child), true
+		return renderFlowTryLegacy(st, typed, indent, sfx), true
 	case "flow.Retry":
-		if out, ok := renderFlowRetryAST(st, step, indent, sfx, child); ok {
+		typed, err := flowir.DecodeAs[flowir.FlowRetry](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, strings.Repeat("\t", indent), step.Action, err.Error()), true
+		}
+		if out, ok := renderFlowRetryAST(st, typed, indent, sfx); ok {
 			return out, true
 		}
-		return renderFlowRetryLegacy(st, step, indent, sfx, child), true
+		return renderFlowRetryLegacy(st, typed, indent, sfx), true
 	case "flow.Timeout":
-		if out, ok := renderFlowTimeoutAST(st, step, indent, sfx, arg, child); ok {
+		typed, err := flowir.DecodeAs[flowir.FlowTimeout](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, strings.Repeat("\t", indent), step.Action, err.Error()), true
+		}
+		if out, ok := renderFlowTimeoutAST(st, typed, indent, sfx); ok {
 			return out, true
 		}
-		return renderFlowTimeoutLegacy(st, step, indent, sfx, arg, child), true
+		return renderFlowTimeoutLegacy(st, typed, indent, sfx), true
 	case "flow.Fallback":
-		if out, ok := renderFlowFallbackAST(st, step, indent, sfx, child); ok {
+		typed, err := flowir.DecodeAs[flowir.FlowFallback](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, strings.Repeat("\t", indent), step.Action, err.Error()), true
+		}
+		if out, ok := renderFlowFallbackAST(st, typed, indent, sfx); ok {
 			return out, true
 		}
-		return renderFlowFallbackLegacy(st, step, indent, sfx, child), true
+		return renderFlowFallbackLegacy(st, typed, indent, sfx), true
 	}
 	return "", false
 }
@@ -124,15 +141,13 @@ func inferFlowCapturedVarType(varName string, steps []normalizer.FlowStep) strin
 	return ""
 }
 
-func renderFlowTryAST(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, child func(string) []normalizer.FlowStep) (string, bool) {
-	doSteps := child("_do")
-	catchSteps := child("_catch")
+func renderFlowTryAST(st *flowRenderState, action flowir.FlowTry, indent int, sfx string) (string, bool) {
+	doSteps, catchSteps := action.Steps, action.Catch
 	if len(doSteps) == 0 {
 		return "", true
 	}
 
-	retries := flowIntArg(step.Args, "retries", 0)
-	backoffMs := flowIntArg(step.Args, "backoffMs", 0)
+	retries, backoffMs := action.Retries, action.BackoffMS
 
 	newVars := collectFlowBranchNewVars(st, indent, doSteps, catchSteps)
 
@@ -330,26 +345,13 @@ func renderFlowTryAST(st *flowRenderState, step normalizer.FlowStep, indent int,
 	return renderFlowASTStmt(&ast.BlockStmt{List: stmts}, indent), true
 }
 
-func renderFlowRetryAST(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, child func(string) []normalizer.FlowStep) (string, bool) {
-	doSteps := child("_do")
-	catchSteps := child("_catch")
+func renderFlowRetryAST(st *flowRenderState, action flowir.FlowRetry, indent int, sfx string) (string, bool) {
+	doSteps, catchSteps := action.Steps, action.Catch
 	if len(doSteps) == 0 {
 		return "", true
 	}
 
-	attempts := flowIntArg(step.Args, "attempts", -1)
-	if attempts < 0 {
-		retries := flowIntArg(step.Args, "retries", -1)
-		if retries >= 0 {
-			attempts = retries + 1
-		} else {
-			attempts = 3
-		}
-	}
-	if attempts <= 0 {
-		attempts = 1
-	}
-	backoffMs := flowIntArg(step.Args, "backoffMs", 0)
+	attempts, backoffMs := action.Attempts, action.BackoffMS
 
 	runV, errV, attemptsV, backoffV := "_retryRun"+sfx, "_retryErr"+sfx, "_retryAttempts"+sfx, "_retryBackoff"+sfx
 	stmts := make([]ast.Stmt, 0, 9)
@@ -503,10 +505,9 @@ func renderFlowRetryAST(st *flowRenderState, step normalizer.FlowStep, indent in
 	return renderFlowASTStmt(&ast.BlockStmt{List: stmts}, indent), true
 }
 
-func renderFlowTimeoutAST(st *flowRenderState, _ normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
-	duration := arg("duration")
-	doSteps := child("_do")
-	onTimeout := child("_onTimeout")
+func renderFlowTimeoutAST(st *flowRenderState, action flowir.FlowTimeout, indent int, sfx string) (string, bool) {
+	duration := normalizeFlowExpr(action.Duration.Source)
+	doSteps, onTimeout := action.Steps, action.OnTimeout
 	if duration == "" || len(doSteps) == 0 {
 		return "", true
 	}
@@ -620,9 +621,8 @@ func renderFlowTimeoutAST(st *flowRenderState, _ normalizer.FlowStep, indent int
 	return renderFlowASTStmt(&ast.BlockStmt{List: stmts}, indent), true
 }
 
-func renderFlowFallbackAST(st *flowRenderState, _ normalizer.FlowStep, indent int, sfx string, child func(string) []normalizer.FlowStep) (string, bool) {
-	mainSteps := child("_do")
-	fallbackSteps := child("_fallback")
+func renderFlowFallbackAST(st *flowRenderState, action flowir.FlowFallback, indent int, sfx string) (string, bool) {
+	mainSteps, fallbackSteps := action.Steps, action.Fallback
 	if len(mainSteps) == 0 || len(fallbackSteps) == 0 {
 		return "", true
 	}

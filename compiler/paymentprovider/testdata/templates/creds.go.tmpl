@@ -1,0 +1,62 @@
+package {{ .PackageName }}
+
+import (
+	"fmt"
+	"net/url"
+	"strings"
+)
+
+type apiSecrets struct {
+	{{- range .SecretParts }}
+	{{ .Key }} string
+	{{- end }}
+}
+
+func parseSecrets(secret string) (*apiSecrets, error) {
+	parts := strings.Split(strings.TrimSpace(secret), "{{ .SecretSeparator }}")
+	if len(parts) > {{ .SecretPartsCount }} {
+		return nil, fmt.Errorf("%s: expected secret format '%s' (max %d parts), got %d parts",
+			ppSID, "{{ .SecretFormat }}", {{ .SecretPartsCount }}, len(parts))
+	}
+	{{- range $i, $p := .SecretParts }}
+	{{- if not $p.Optional }}
+	if len(parts) <= {{ $i }} || parts[{{ $i }}] == "" {
+		return nil, fmt.Errorf("%s: required secret part '{{ $p.Key }}' must not be empty", ppSID)
+	}
+	{{- end }}
+	{{- end }}
+
+	{{- range $i, $p := .SecretParts }}
+	{{ $p.Key }}Raw := ""
+	if len(parts) > {{ $i }} {
+		{{ $p.Key }}Raw = parts[{{ $i }}]
+	}
+	{{ $p.Key }}Val, err := applySecretTransform({{ $p.Key }}Raw, "{{ $p.Transform }}")
+	if err != nil {
+		return nil, fmt.Errorf("%s: invalid secret part '{{ $p.Key }}': %w", ppSID, err)
+	}
+	{{- end }}
+
+	return &apiSecrets{
+		{{- range $i, $p := .SecretParts }}
+		{{ $p.Key }}: {{ $p.Key }}Val,
+		{{- end }}
+	}, nil
+}
+
+func applySecretTransform(value, transform string) (string, error) {
+	switch transform {
+	case "", "none":
+		return value, nil
+	case "trim_space":
+		return strings.TrimSpace(value), nil
+	case "query_unescape":
+		decoded, err := url.QueryUnescape(value)
+		if err != nil {
+			return "", err
+		}
+		return decoded, nil
+	default:
+		return "", fmt.Errorf("unsupported transform %q", transform)
+	}
+}

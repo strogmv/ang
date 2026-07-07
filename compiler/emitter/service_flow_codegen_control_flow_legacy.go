@@ -2,6 +2,7 @@ package emitter
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
@@ -47,7 +48,7 @@ func renderFlowForLegacy(st *flowRenderState, pad string, indent int, arg func(s
 	return b.String()
 }
 
-func renderFlowSwitchLegacy(st *flowRenderState, step normalizer.FlowStep, pad string, indent int, arg func(string) string, child func(string) []normalizer.FlowStep) string {
+func renderFlowSwitchLegacy(st *flowRenderState, cases map[string][]normalizer.FlowStep, pad string, indent int, arg func(string) string, defaultSteps []normalizer.FlowStep) string {
 	value := arg("value")
 	if value == "" {
 		return ""
@@ -56,8 +57,11 @@ func renderFlowSwitchLegacy(st *flowRenderState, step normalizer.FlowStep, pad s
 	if matchMode == "" {
 		matchMode = "exact"
 	}
-	cases, keys := flowSwitchCases(step)
-	defaultSteps := child("_default")
+	keys := make([]string, 0, len(cases))
+	for k := range cases {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
 	var b strings.Builder
 	if matchMode == "exact" {
 		b.WriteString(fmt.Sprintf("%sswitch %s {\n", pad, value))

@@ -5,16 +5,21 @@ import (
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 func renderFlowStepControlLegacyMappingLogic(st *flowRenderState, step normalizer.FlowStep, pad string, arg func(string) string) (string, bool) {
 	switch step.Action {
 	case "mapping.Map":
-		from := arg("from")
-		to := arg("to")
-		input := arg("input")
-		output := arg("output")
-		entity := arg("entity")
+		typed, decodeErr := flowir.DecodeAs[flowir.MappingMap](step)
+		if decodeErr != nil {
+			return renderInvalidFlowStepConfig(st, pad, "mapping.Map", decodeErr.Error()), true
+		}
+		from := typed.Input.Source
+		to := typed.Output
+		input := typed.Input.Source
+		output := typed.Output
+		entity := typed.Entity
 		if from != "" && to != "" {
 			toRef := to
 			if strings.Contains(to, ".") {
@@ -69,7 +74,11 @@ func renderFlowStepControlLegacyMappingLogic(st *flowRenderState, step normalize
 		return "", true
 
 	case "event.Publish":
-		name := arg("name")
+		typed, decodeErr := flowir.DecodeAs[flowir.EventPublish](step)
+		if decodeErr != nil {
+			return renderInvalidFlowStepConfig(st, pad, "event.Publish", decodeErr.Error()), true
+		}
+		name := typed.Event
 		payload := renderEventPayloadExpr(st, step, name, arg)
 		if name == "" {
 			return renderInvalidFlowStepConfig(st, pad, "event.Publish", "event.Publish requires name"), true
@@ -108,14 +117,18 @@ func renderFlowStepControlLegacyMappingLogic(st *flowRenderState, step normalize
 		return b.String(), true
 
 	case "logic.Call":
-		call, callErr := decodeFlowCall(step)
+		call, callErr := flowir.DecodeAs[flowir.LogicCall](step)
 		if callErr != nil {
 			return renderInvalidFlowStepConfig(st, pad, "logic.Call", callErr.Error()), true
 		}
-		if call.Function == "" {
+		if call.Function.Source == "" {
 			return renderInvalidFlowStepConfig(st, pad, "logic.Call", "logic.Call requires func"), true
 		}
-		callStr := call.Function + "(" + strings.Join(call.Arguments, ", ") + ")"
+		callArgs := make([]string, 0, len(call.Arguments))
+		for _, expression := range call.Arguments {
+			callArgs = append(callArgs, expression.Source)
+		}
+		callStr := call.Function.Source + "(" + strings.Join(callArgs, ", ") + ")"
 		if call.IgnoreError {
 			if call.IgnoreErrReason == "" {
 				emitFlowWarning(st, step, "FLOW_IGNORE_ERR", "warn", "logic.Call ignores returned error explicitly", "Document intent with ignoreErrReason and use only for deliberate fire-and-forget behavior")
@@ -158,46 +171,40 @@ func renderFlowStepControlLegacyMappingLogic(st *flowRenderState, step normalize
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
 	case "service.Call":
-		serviceName := strings.TrimSpace(arg("service"))
-		methodName := strings.TrimSpace(arg("method"))
-		output := arg("output")
-		ignoreErr, _ := step.Args["ignoreErr"].(bool)
-		ignoreErrReason := strings.TrimSpace(arg("ignoreErrReason"))
-		if serviceName == "" || methodName == "" {
+		if strings.TrimSpace(arg("service")) == "" || strings.TrimSpace(arg("method")) == "" {
 			return renderInvalidFlowStepConfig(st, pad, "service.Call", "service.Call requires service and method"), true
 		}
-		var callArgs []string
-		if v, ok := step.Args["args"]; ok {
-			switch x := v.(type) {
-			case []string:
-				callArgs = append(callArgs, x...)
-			case string:
-				callArgs = append(callArgs, x)
-			}
+		call, callErr := flowir.DecodeAs[flowir.ServiceCall](step)
+		if callErr != nil {
+			return renderInvalidFlowStepConfig(st, pad, "service.Call", callErr.Error()), true
+		}
+		callArgs := make([]string, 0, len(call.Arguments)+1)
+		for _, expression := range call.Arguments {
+			callArgs = append(callArgs, expression.Source)
 		}
 		if len(callArgs) == 0 || strings.TrimSpace(callArgs[0]) != "ctx" {
 			callArgs = append([]string{"ctx"}, callArgs...)
 		}
-		callStr := fmt.Sprintf("s.%sService.%s(%s)", ExportName(serviceName), ExportName(methodName), strings.Join(callArgs, ", "))
-		if ignoreErr {
-			if ignoreErrReason == "" {
+		callStr := fmt.Sprintf("s.%sService.%s(%s)", ExportName(call.Service), ExportName(call.Method), strings.Join(callArgs, ", "))
+		if call.IgnoreError {
+			if call.IgnoreErrReason == "" {
 				emitFlowWarning(st, step, "FLOW_IGNORE_ERR", "warn", "service.Call ignores returned error explicitly", "Document intent with ignoreErrReason and use only for deliberate fire-and-forget behavior")
 			}
 			comment := fmt.Sprintf("%s// explicit ignoreErr=true", pad)
-			if ignoreErrReason != "" {
-				comment = fmt.Sprintf("%s// explicit ignoreErr=true: %s", pad, ignoreErrReason)
+			if call.IgnoreErrReason != "" {
+				comment = fmt.Sprintf("%s// explicit ignoreErr=true: %s", pad, call.IgnoreErrReason)
 			}
 			return fmt.Sprintf("%s\n%s_, _ = %s\n", comment, pad, callStr), true
 		}
-		if output != "" {
+		if call.Output != "" {
 			assign := ":="
-			if st.declared[output] {
+			if st.declared[call.Output] {
 				assign = "="
 			}
-			st.declared[output] = true
-			st.pointers[output] = false
+			st.declared[call.Output] = true
+			st.pointers[call.Output] = false
 			var b strings.Builder
-			b.WriteString(fmt.Sprintf("%s%s %s %s\n", pad, output+", err", assign, callStr))
+			b.WriteString(fmt.Sprintf("%s%s %s %s\n", pad, call.Output+", err", assign, callStr))
 			b.WriteString(fmt.Sprintf("%sif err != nil {\n", pad))
 			b.WriteString(errReturn(st, pad+"\t", "err"))
 			b.WriteString(fmt.Sprintf("%s}\n", pad))

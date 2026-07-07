@@ -10,6 +10,7 @@ import (
 	"github.com/strogmv/ang-ir/flowsem"
 	"github.com/strogmv/ang-ir/normalizer"
 	"github.com/strogmv/ang-ir/parser"
+	"github.com/strogmv/ang/compiler/flowir"
 	"github.com/strogmv/ang/compiler/policy"
 )
 
@@ -47,8 +48,10 @@ type NormalizePhaseOutput struct {
 
 // FlowSemPhaseInput is the explicit contract accepted by the flow semantics phase.
 type FlowSemPhaseInput struct {
-	Services []normalizer.Service
-	Events   []normalizer.EventDef
+	Services     []normalizer.Service
+	Entities     []normalizer.Entity
+	Repositories []normalizer.Repository
+	Events       []normalizer.EventDef
 }
 
 // RunSemanticPhases runs parse -> normalize -> flowsem and returns typed semantic output.
@@ -78,8 +81,10 @@ func runSemanticPhases(basePath string, opts PipelineOptions) (NormalizePhaseOut
 	}
 
 	runFlowSemPhase(FlowSemPhaseInput{
-		Services: normalized.Services,
-		Events:   normalized.Events,
+		Services:     normalized.Services,
+		Entities:     normalized.Entities,
+		Repositories: normalized.Repos,
+		Events:       normalized.Events,
 	}, opts)
 
 	broadcastOnly, planned, compatAllowBreaking := loadEventAnnotations(basePath)
@@ -634,6 +639,12 @@ func runFlowSemPhase(in FlowSemPhaseInput, opts PipelineOptions) {
 				}, opts)
 			}
 		}
+	}
+	for _, issue := range flowir.Check(flowir.Program{Services: in.Services, Entities: in.Entities, Repositories: in.Repositories, Events: in.Events}) {
+		recordPipelineDiagnostic(normalizer.Warning{
+			Kind: "flow", Code: issue.Code, Severity: "error", Message: issue.Message,
+			File: issue.Source.File, Line: issue.Source.Line, Column: issue.Source.Column, CUEPath: issue.Source.CUEPath,
+		}, opts)
 	}
 }
 

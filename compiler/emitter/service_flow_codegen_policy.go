@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 func renderFlowStepPolicy(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
@@ -13,47 +14,13 @@ func renderFlowStepPolicy(st *flowRenderState, step normalizer.FlowStep, indent 
 
 	switch step.Action {
 	case "policy.Check":
-		policyName := arg("policy")
-		userExpr := arg("user")
-		if policyName == "" || userExpr == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.PolicyCheck](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-
-		output := arg("output")
-		statusExpr := arg("status")
-		if statusExpr == "" {
-			statusExpr = "http.StatusForbidden"
-		}
-		codeExpr := arg("code")
-		if codeExpr == "" {
-			codeExpr = `"FORBIDDEN"`
-		}
-		throwExpr := arg("throw")
-		companyExpr := arg("companyID")
-
-		isResolved := false
-		if v, ok := step.Args["_policyResolved"].(bool); ok {
-			isResolved = v
-		}
-		roles := []string{}
-		if v, ok := step.Args["_policyRoles"].([]string); ok {
-			roles = append(roles, v...)
-		} else if raw, ok := step.Args["_policyRoles"].([]any); ok {
-			for _, item := range raw {
-				s := strings.TrimSpace(fmt.Sprint(item))
-				if s != "" {
-					roles = append(roles, s)
-				}
-			}
-		}
-		sameCompany := false
-		if v, ok := step.Args["_policySameCompany"].(bool); ok {
-			sameCompany = v
-		}
-		allowAdminOverride := true
-		if v, ok := step.Args["_policyAllowAdminOverride"].(bool); ok {
-			allowAdminOverride = v
-		}
+		policyName, userExpr, output := typed.Policy, normalizeFlowExpr(typed.User.Source), typed.Output
+		statusExpr, codeExpr, throwExpr, companyExpr := normalizeFlowExpr(typed.Status.Source), normalizeFlowExpr(typed.Code.Source), normalizeFlowExpr(typed.Throw.Source), normalizeFlowExpr(typed.CompanyID.Source)
+		isResolved, roles, sameCompany, allowAdminOverride := typed.Resolved, typed.Roles, typed.SameCompany, typed.AllowAdminOverride
 
 		allowedVar := "_policyAllowed" + sfx
 		codeVar := "_policyCode" + sfx
@@ -130,22 +97,12 @@ func renderFlowStepPolicy(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "policy.Evaluate", "policy.Require", "policy.Decide":
-		policyKey := arg("policyKey")
-		if policyKey == "" {
-			return "", true
+		typed, err := flowir.DecodeAs[flowir.PolicyDecisionAction](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-
-		subject := arg("subject")
-		resource := arg("resource")
-		operation := arg("operation")
-		tenant := arg("tenant")
-		attrs := arg("attrs")
-		ctxExpr := arg("context")
-
-		decisionOut := arg("decision")
-		reasonOut := arg("reason")
-		effectsOut := arg("effects")
-		output := arg("output")
+		policyKey, subject, resource, operation, tenant, attrs, ctxExpr := normalizeFlowExpr(typed.PolicyKey.Source), normalizeFlowExpr(typed.Subject.Source), normalizeFlowExpr(typed.Resource.Source), normalizeFlowExpr(typed.Operation.Source), normalizeFlowExpr(typed.Tenant.Source), normalizeFlowExpr(typed.Attrs.Source), normalizeFlowExpr(typed.Context.Source)
+		decisionOut, reasonOut, effectsOut, output := typed.Decision, typed.Reason, typed.Effects, typed.Output
 
 		declareMap := map[string]bool{}
 		if decisionOut != "" && !st.declared[decisionOut] {
@@ -173,15 +130,7 @@ func renderFlowStepPolicy(st *flowRenderState, step normalizer.FlowStep, indent 
 			st.types[output] = "port.PolicyDecision"
 		}
 
-		statusExpr := arg("status")
-		if statusExpr == "" {
-			statusExpr = "http.StatusForbidden"
-		}
-		codeExpr := arg("code")
-		if codeExpr == "" {
-			codeExpr = `"POLICY_DENIED"`
-		}
-		throwExpr := arg("throw")
+		statusExpr, codeExpr, throwExpr := normalizeFlowExpr(typed.Status.Source), normalizeFlowExpr(typed.Code.Source), normalizeFlowExpr(typed.Throw.Source)
 
 		inputVar := "_policyInput" + sfx
 		decisionVar := "_policyDecision" + sfx

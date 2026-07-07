@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 func renderFlowStepControlLegacyDeprecatedMonolith(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) string {
@@ -160,11 +161,15 @@ func renderFlowStepControlLegacyDeprecatedMonolith(st *flowRenderState, step nor
 		}
 
 	case "mapping.Map":
-		from := arg("from")
-		to := arg("to")
-		input := arg("input")
-		output := arg("output")
-		entity := arg("entity")
+		typed, decodeErr := flowir.DecodeAs[flowir.MappingMap](step)
+		if decodeErr != nil {
+			return ""
+		}
+		from := typed.Input.Source
+		to := typed.Output
+		input := typed.Input.Source
+		output := typed.Output
+		entity := typed.Entity
 		// from/to form: { from: "list", to: "resp.data" } or { from: "req", to: "newAtt", entity: "Foo" }
 		if from != "" && to != "" {
 			// Export struct field accesses in dot-path
@@ -223,7 +228,11 @@ func renderFlowStepControlLegacyDeprecatedMonolith(st *flowRenderState, step nor
 		return ""
 
 	case "event.Publish":
-		name := arg("name")
+		typed, decodeErr := flowir.DecodeAs[flowir.EventPublish](step)
+		if decodeErr != nil {
+			return ""
+		}
+		name := typed.Event
 		payload := renderEventPayloadExpr(st, step, name, arg)
 		if name == "" || payload == "" {
 			return ""
@@ -232,11 +241,15 @@ func renderFlowStepControlLegacyDeprecatedMonolith(st *flowRenderState, step nor
 			pad, pad, ExportName(name), payload, pad)
 
 	case "logic.Call":
-		call, callErr := decodeFlowCall(step)
-		if callErr != nil || call.Function == "" {
+		call, callErr := flowir.DecodeAs[flowir.LogicCall](step)
+		if callErr != nil || call.Function.Source == "" {
 			return ""
 		}
-		callStr := call.Function + "(" + strings.Join(call.Arguments, ", ") + ")"
+		callArgs := make([]string, 0, len(call.Arguments))
+		for _, expression := range call.Arguments {
+			callArgs = append(callArgs, expression.Source)
+		}
+		callStr := call.Function.Source + "(" + strings.Join(callArgs, ", ") + ")"
 		if call.IgnoreError {
 			return fmt.Sprintf("%s_, _ = %s\n", pad, callStr)
 		}
@@ -261,38 +274,30 @@ func renderFlowStepControlLegacyDeprecatedMonolith(st *flowRenderState, step nor
 		return b.String()
 
 	case "service.Call":
-		serviceName := strings.TrimSpace(arg("service"))
-		methodName := strings.TrimSpace(arg("method"))
-		output := arg("output")
-		ignoreErr, _ := step.Args["ignoreErr"].(bool)
-		if serviceName == "" || methodName == "" {
+		call, callErr := flowir.DecodeAs[flowir.ServiceCall](step)
+		if callErr != nil {
 			return ""
 		}
-		var callArgs []string
-		if v, ok := step.Args["args"]; ok {
-			switch x := v.(type) {
-			case []string:
-				callArgs = append(callArgs, x...)
-			case string:
-				callArgs = append(callArgs, x)
-			}
+		callArgs := make([]string, 0, len(call.Arguments)+1)
+		for _, expression := range call.Arguments {
+			callArgs = append(callArgs, expression.Source)
 		}
 		if len(callArgs) == 0 || strings.TrimSpace(callArgs[0]) != "ctx" {
 			callArgs = append([]string{"ctx"}, callArgs...)
 		}
-		callStr := fmt.Sprintf("s.%sService.%s(%s)", ExportName(serviceName), ExportName(methodName), strings.Join(callArgs, ", "))
-		if ignoreErr {
+		callStr := fmt.Sprintf("s.%sService.%s(%s)", ExportName(call.Service), ExportName(call.Method), strings.Join(callArgs, ", "))
+		if call.IgnoreError {
 			return fmt.Sprintf("%s_, _ = %s\n", pad, callStr)
 		}
-		if output != "" {
+		if call.Output != "" {
 			assign := ":="
-			if st.declared[output] {
+			if st.declared[call.Output] {
 				assign = "="
 			}
-			st.declared[output] = true
-			st.pointers[output] = false
+			st.declared[call.Output] = true
+			st.pointers[call.Output] = false
 			var b strings.Builder
-			b.WriteString(fmt.Sprintf("%s%s %s %s\n", pad, output+", err", assign, callStr))
+			b.WriteString(fmt.Sprintf("%s%s %s %s\n", pad, call.Output+", err", assign, callStr))
 			b.WriteString(fmt.Sprintf("%sif err != nil {\n", pad))
 			b.WriteString(errReturn(st, pad+"\t", "err"))
 			b.WriteString(fmt.Sprintf("%s}\n", pad))
