@@ -135,6 +135,8 @@ type TemplateData struct {
 
 	Endpoints []EndpointTemplate
 
+	RequestLiteralConsts []RequestLiteralConst
+
 	PayinStatuses       []StatusTemplate
 	PayoutStatuses      []StatusTemplate
 	PayoutStatusesExtra []StatusTemplate
@@ -266,6 +268,8 @@ type CallbackSignatureFieldTemplate struct {
 type CallbackSignatureTemplate struct {
 	Algorithm        string
 	SecretKeyField   string
+	UsernameKeyField string
+	SignatureJSON    string
 	Format           string
 	CompareEqualFold bool
 	SignatureField   string
@@ -406,6 +410,12 @@ type MacanBrandMatchCase struct {
 	EqualExpr  string
 }
 
+// RequestLiteralConst is a generated package-level const for source "const" request fields.
+type RequestLiteralConst struct {
+	Name  string
+	Value string
+}
+
 type ResolvedRequestDef struct {
 	Name   string
 	Fields []ResolvedField
@@ -438,10 +448,46 @@ type GroupedStatusDetail struct {
 	ConstNames  []string
 	StatusTitle string
 	StatusCode  string
+	Message     string
 }
 
 func (g GroupedStatusDetail) CaseLabel() string {
 	return strings.Join(g.ConstNames, ", ")
+}
+
+func groupStatusTemplates(items []StatusTemplate) []GroupedStatusDetail {
+	type key struct {
+		title string
+		code  string
+		msg   string
+	}
+	var order []key
+	groups := map[key][]string{}
+	for _, e := range items {
+		k := key{e.StatusTitle, e.StatusCode, e.Message}
+		if _, ok := groups[k]; !ok {
+			order = append(order, k)
+		}
+		groups[k] = append(groups[k], e.ConstName)
+	}
+	result := make([]GroupedStatusDetail, 0, len(order))
+	for _, k := range order {
+		result = append(result, GroupedStatusDetail{
+			ConstNames:  groups[k],
+			StatusTitle: k.title,
+			StatusCode:  k.code,
+			Message:     k.msg,
+		})
+	}
+	return result
+}
+
+func (d *TemplateData) GroupedPayinStatuses() []GroupedStatusDetail {
+	return groupStatusTemplates(d.PayinStatuses)
+}
+
+func (d *TemplateData) GroupedPayoutStatuses() []GroupedStatusDetail {
+	return groupStatusTemplates(d.PayoutStatuses)
 }
 
 func (d *TemplateData) GroupedStatusDetails() []GroupedStatusDetail {
@@ -817,6 +863,11 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 		data.P2PRequest = data.PayinRequest
 	}
 
+	data.RequestLiteralConsts, err = BuildRequestLiteralConsts(spec)
+	if err != nil {
+		return nil, err
+	}
+
 	data.PayinResponsePayloadType, data.PayinForeignIDField = inferResponse(spec.ResponseTypes, "payin", "payinProfile", "PaymentID")
 	data.PayoutResponsePayloadType, data.PayoutForeignIDField = inferResponse(spec.ResponseTypes, "payout", "payoutMessage", "ReferenceID")
 	data.RefundResponseType, data.RefundForeignIDField = inferResponse(spec.ResponseTypes, "refund", "refundResponse", "PaymentID")
@@ -1166,6 +1217,7 @@ func buildCallbackSignature(spec *ProviderSpec) *CallbackSignatureTemplate {
 	out := &CallbackSignatureTemplate{
 		Algorithm:        strings.TrimSpace(cs.Algorithm),
 		SecretKeyField:   exportGoIdent(cs.SecretKey),
+		UsernameKeyField: exportGoIdent(cs.UsernameKey),
 		Format:           strings.TrimSpace(cs.Format),
 		CompareEqualFold: cs.Compare == "" || cs.Compare == "equal_fold",
 		Optional:         cs.Optional,
@@ -1198,6 +1250,16 @@ func buildCallbackSignature(spec *ProviderSpec) *CallbackSignatureTemplate {
 		}
 	}
 	out.SignatureField = callbackFieldForJSON(callbackFields, "signature")
+	sigJSON := strings.TrimSpace(cs.SignatureJSON)
+	if sigJSON != "" {
+		if field := callbackFieldForJSON(callbackFields, sigJSON); field != "" {
+			out.SignatureField = field
+		}
+		out.SignatureJSON = sigJSON
+	}
+	if out.SignatureJSON == "" {
+		out.SignatureJSON = "x-api-signature"
+	}
 	if out.SignatureField == "" {
 		out.SignatureField = "Signature"
 	}

@@ -24,7 +24,8 @@ package schema
 #TemplateCallbackSignature: {
 	Algorithm:        string // sha1 | sha256 | hmac-sha256 | hmac-sha512
 	SecretKeyField:   string
-	Format:           string // sorted_kv_pipe | hmac_body | custom
+	UsernameKeyField: string
+	Format:           string // sorted_kv_pipe | hmac_body | username_key_form_b64 | custom
 	SignatureField:   string // cbData JSON field when format != hmac_body
 	CompareEqualFold: bool
 	Optional:         bool   // skip ValidateCallback when secret empty

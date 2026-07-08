@@ -103,7 +103,7 @@ func renderFlowStepControlFlow(st *flowRenderState, step normalizer.FlowStep, in
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		return renderFlowCall(st, typed, step, pad), true
+		return renderFlowCall(st, typed, pad), true
 
 	case "flow.Checkpoint":
 		typed, err := decodeCurrentActionAs[flowir.FlowCheckpoint](st, step)
@@ -277,7 +277,7 @@ func renderFlowTag(st *flowRenderState, action flowir.FlowTag, indent int) strin
 	return fmt.Sprintf("%sslog.Info(\"flow.tag\", \"name\", %s)\n", pad, name)
 }
 
-func renderFlowCall(st *flowRenderState, action flowir.FlowCall, step normalizer.FlowStep, pad string) string {
+func renderFlowCall(st *flowRenderState, action flowir.FlowCall, pad string) string {
 	opRaw := action.Operation
 	if opRaw == "" {
 		return renderInvalidFlowStepConfig(st, pad, "flow.Call", "flow.Call requires op")
@@ -323,7 +323,7 @@ func renderFlowCall(st *flowRenderState, action flowir.FlowCall, step normalizer
 
 	if ignoreErr {
 		if ignoreErrReason == "" {
-			emitFlowWarning(st, step, "FLOW_IGNORE_ERR", "warn", "flow.Call ignores returned error explicitly", "Document intent with ignoreErrReason and use only for deliberate fire-and-forget behavior")
+			emitFlowWarning(st, "FLOW_IGNORE_ERR", "warn", "flow.Call ignores returned error explicitly", "Document intent with ignoreErrReason and use only for deliberate fire-and-forget behavior")
 		}
 		comment := fmt.Sprintf("%s// explicit ignoreErr=true", pad)
 		if ignoreErrReason != "" {

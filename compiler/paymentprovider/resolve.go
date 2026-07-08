@@ -2,6 +2,7 @@ package paymentprovider
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -164,7 +165,7 @@ func resolveSource(f RequestField, paymentSource string, currencyISONum int) (ex
 		if v == "" {
 			return "", false, false, fmt.Errorf("const_val required for source \"const\"")
 		}
-		return quote(v), false, false, nil
+		return RequestLiteralConstName(f), false, false, nil
 
 	case "uuid":
 		return `helpers.UUID()`, false, false, nil
@@ -289,6 +290,62 @@ func browserData(field, def string) string {
 
 func quote(s string) string {
 	return strconv.Quote(s)
+}
+
+// RequestLiteralConstName is the Go identifier for a request field with source "const".
+func RequestLiteralConstName(f RequestField) string {
+	if n := strings.TrimSpace(f.ConstName); n != "" {
+		return n
+	}
+	return exportGoIdent(f.Name)
+}
+
+// BuildRequestLiteralConsts collects unique request literal constants for datatypes.go.
+func BuildRequestLiteralConsts(spec *ProviderSpec) ([]RequestLiteralConst, error) {
+	if spec == nil {
+		return nil, nil
+	}
+	var fields []RequestField
+	collect := func(def *RequestDef) {
+		if def != nil {
+			fields = append(fields, def.Fields...)
+		}
+	}
+	collect(spec.PayinRequest)
+	collect(spec.PayoutRequest)
+	collect(spec.PayinStatusRequest)
+	collect(spec.PayoutStatusRequest)
+	collect(spec.RefundRequest)
+	collect(spec.P2PRequest)
+
+	seen := map[string]string{}
+	for _, f := range fields {
+		if strings.TrimSpace(f.Source) != "const" {
+			continue
+		}
+		v := strings.TrimSpace(f.ConstVal)
+		if v == "" {
+			continue
+		}
+		name := RequestLiteralConstName(f)
+		if prev, ok := seen[name]; ok && prev != v {
+			return nil, fmt.Errorf("request const %q has conflicting values %q and %q", name, prev, v)
+		}
+		seen[name] = v
+	}
+	if len(seen) == 0 {
+		return nil, nil
+	}
+	names := make([]string, 0, len(seen))
+	for name := range seen {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]RequestLiteralConst, 0, len(names))
+	for _, name := range names {
+		out = append(out, RequestLiteralConst{Name: name, Value: seen[name]})
+	}
+	return out, nil
 }
 
 func defOr(v, fallback string) string {

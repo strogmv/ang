@@ -55,7 +55,11 @@ func Emit(templatesDir, outputDir string, data *TemplateData) error {
 			}
 		}
 		if tf.tmpl == "sign_test.go.tmpl" {
-			if data.RequestSigning == nil || data.RequestSigning.Format != "username_key_body_b64" {
+			emitSignTest := data.RequestSigning != nil && data.RequestSigning.Format == "username_key_body_b64"
+			if data.CallbackSignature != nil && data.CallbackSignature.Format == "username_key_form_b64" {
+				emitSignTest = true
+			}
+			if !emitSignTest {
 				continue
 			}
 		}

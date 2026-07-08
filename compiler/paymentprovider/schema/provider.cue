@@ -29,6 +29,7 @@ package schema
 	owner_from: *"" | #OwnerInfoFrom
 	default:    *"" | string  // default value for MapGet/GetBrowserData
 	const_val:  *"" | string  // literal value when source is "const"
+	const_name: *"" | string  // optional Go const identifier; default: lowerCamelCase field name
 	format:     *"" | string  // optional format string
 	omitempty:  *false | bool
 	redacted:   *false | bool // hide in logs (PAN, CVV, tokens)
@@ -226,7 +227,7 @@ package schema
 
 // --- Callback signature verification ---
 
-#CallbackSignatureFormat: "sorted_kv_pipe" | "hmac_body" | "notification_token" | "custom"
+#CallbackSignatureFormat: "sorted_kv_pipe" | "hmac_body" | "notification_token" | "username_key_form_b64" | "custom"
 #CallbackSignatureCompare: "equal_fold" | "equal"
 #CallbackSignatureFieldFormat: "plain" | "float_trailing_zero"
 
@@ -248,6 +249,10 @@ package schema
 	optional: *false | bool
 	// Signature carried in an HTTP header instead of callback JSON (Nebeus X-Signature, Ikra X-Notification-Token).
 	header: *"" | string
+	// Processing Gateway form callback: username secret part for username_key_form_b64.
+	username_key: *"" | string
+	// JSON/form key carrying the signature when not in header (e.g. x-api-signature).
+	signature_json: *"" | string
 }
 
 // --- Payment methods (from utils/types) ---

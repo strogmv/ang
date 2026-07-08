@@ -206,6 +206,25 @@ func vetCallbackSignature(spec *ProviderSpec, secretKeys map[string]struct{}) []
 			Hint:     "Add signature key to secrets.parts (e.g. signatureKey).",
 		}}
 	}
+	format := strings.TrimSpace(spec.CallbackSignature.Format)
+	if format == "username_key_form_b64" {
+		userKey := strings.TrimSpace(spec.CallbackSignature.UsernameKey)
+		if userKey == "" {
+			return []VetIssue{{
+				Code:     "PP007",
+				Severity: "error",
+				Message:  "callback_signature.username_key is required for username_key_form_b64",
+			}}
+		}
+		if !hasSecretKey(secretKeys, userKey) {
+			return []VetIssue{{
+				Code:     "PP007",
+				Severity: "error",
+				Message:  fmt.Sprintf("callback_signature.username_key %q not found in secrets.parts", userKey),
+			}}
+		}
+		return nil
+	}
 	if len(spec.CallbackSignature.Fields) == 0 {
 		return []VetIssue{{
 			Code:     "PP007",

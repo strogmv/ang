@@ -250,6 +250,7 @@ type RequestField struct {
 	SecretKey string `json:"secret_key"`
 	Default   string `json:"default"`
 	ConstVal  string `json:"const_val"`
+	ConstName string `json:"const_name"`
 	OmitEmpty bool   `json:"omitempty"`
 	Redacted  bool   `json:"redacted"`
 	OwnerKey  string `json:"owner_key"`
@@ -299,13 +300,15 @@ type CallbackSignatureField struct {
 }
 
 type CallbackSignatureConfig struct {
-	Algorithm string                   `json:"algorithm"`
-	SecretKey string                   `json:"secret_key"`
-	Format    string                   `json:"format"`
-	Fields    []CallbackSignatureField `json:"fields"`
-	Compare   string                   `json:"compare"`
-	Optional  bool                     `json:"optional"`
-	Header    string                   `json:"header"`
+	Algorithm     string                   `json:"algorithm"`
+	SecretKey     string                   `json:"secret_key"`
+	Format        string                   `json:"format"`
+	Fields        []CallbackSignatureField `json:"fields"`
+	Compare       string                   `json:"compare"`
+	Optional      bool                     `json:"optional"`
+	Header        string                   `json:"header"`
+	UsernameKey   string                   `json:"username_key"`
+	SignatureJSON string                   `json:"signature_json"`
 }
 
 type ConstructorDep struct {

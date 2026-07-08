@@ -38,10 +38,7 @@ func TestRenderFlowStepState_StateGetUsesIntoType(t *testing.T) {
 		},
 	}
 
-	got, ok := renderFlowStepState(newInfraTestFlowState(), step, 1, "_x", infraTestArg(step), infraTestChild(step))
-	if !ok {
-		t.Fatal("expected state.Get to be handled")
-	}
+	got := renderOneFlowStep(newInfraTestFlowState(), step, 1)
 	if !strings.Contains(got, "var result map[string]any") {
 		t.Fatalf("expected typed declaration, got:\n%s", got)
 	}
@@ -64,16 +61,13 @@ func TestRenderFlowStepState_StateGetDoesNotRedeclareExistingOutput(t *testing.T
 	st.declared["result"] = true
 	st.types["result"] = "map[string]any"
 
-	got, ok := renderFlowStepState(st, step, 1, "_x", infraTestArg(step), infraTestChild(step))
-	if !ok {
-		t.Fatal("expected state.Get to be handled")
-	}
+	got := renderOneFlowStep(st, step, 1)
 	if strings.Contains(got, "var result ") {
 		t.Fatalf("unexpected redeclaration, got:\n%s", got)
 	}
 }
 
-func TestRenderFlowStepControlLegacyMappingLogic_ServiceCallMissingMethodReturnsError(t *testing.T) {
+func TestTypedServiceCallMissingMethodReturnsError(t *testing.T) {
 	t.Parallel()
 
 	step := normalizer.FlowStep{
@@ -83,11 +77,8 @@ func TestRenderFlowStepControlLegacyMappingLogic_ServiceCallMissingMethodReturns
 		},
 	}
 
-	got, ok := renderFlowStepControlLegacyMappingLogic(newInfraTestFlowState(), step, "\t", infraTestArg(step))
-	if !ok {
-		t.Fatal("expected service.Call to be handled")
-	}
-	if !strings.Contains(got, `service.Call: service.Call requires service and method`) {
+	got := renderOneFlowStep(newInfraTestFlowState(), step, 1)
+	if !strings.Contains(got, `service.Call: method is required`) {
 		t.Fatalf("expected deterministic invalid-config error, got:\n%s", got)
 	}
 }

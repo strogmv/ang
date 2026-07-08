@@ -240,20 +240,6 @@ func renderFlowStepControlLegacyExecFS(st *flowRenderState, step normalizer.Flow
 		b.WriteString(fmt.Sprintf("%s%s %s %s.Bytes()\n", pad, output, assign, bufv))
 		return b.String(), true
 
-	case "session.Get":
-		// session.Get: read anonymous session ID from request context.
-		// Args: output (var name for string result).
-		output := arg("output")
-		if output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "session.Get", "session.Get requires output"), true
-		}
-		assign := ":="
-		if st.declared[output] {
-			assign = "="
-		}
-		st.declared[output] = true
-		st.pointers[output] = false
-		return fmt.Sprintf("%s%s %s reqctx.SessionID(ctx)\n", pad, output, assign), true
 	}
 
 	return "", false

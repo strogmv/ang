@@ -8,62 +8,35 @@ import (
 	"github.com/strogmv/ang/compiler/flowir"
 )
 
-func renderFlowStepSecretConfig(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
+func renderTypedStepSecretConfig(st *flowRenderState, step flowir.TypedStep, indent int) (string, bool) {
 	pad := strings.Repeat("\t", indent)
-	switch step.Action {
-	case "secret.Get", "config.Get":
-		var key, defVal, output string
-		if step.Action == "secret.Get" {
-			typed, err := decodeCurrentActionAs[flowir.SecretGet](st, step)
-			if err != nil {
-				return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
-			}
-			key, defVal, output = normalizeFlowExpr(typed.Key.Source), normalizeFlowExpr(typed.Default.Source), typed.Output
-		} else {
-			typed, err := decodeCurrentActionAs[flowir.ConfigGet](st, step)
-			if err != nil {
-				return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
-			}
-			key, defVal, output = normalizeFlowExpr(typed.Key.Source), normalizeFlowExpr(typed.Default.Source), typed.Output
-		}
-
-		// Both secret.Get and config.Get use os.Getenv for now.
-		// This avoids the complexity of injecting config structs into every service
-		// and aligns with 12-factor app principles where config is in env.
-
-		st.declared[output] = true
-		st.pointers[output] = false
-		st.types[output] = "string"
-
-		var b strings.Builder
-
-		// var output string = os.Getenv(key)
-		b.WriteString(fmt.Sprintf("%svar %s string = os.Getenv(%s)\n", pad, output, key))
-
-		// Apply default if provided
-		if defVal != "" {
-			b.WriteString(fmt.Sprintf("%sif %s == \"\" {\n", pad, output))
-			b.WriteString(fmt.Sprintf("%s\t%s = %s\n", pad, output, defVal))
-			b.WriteString(fmt.Sprintf("%s}\n", pad))
-		}
-
-		return b.String(), true
-	case "model.Resolve":
-		typed, err := decodeCurrentActionAs[flowir.ModelResolve](st, step)
+	var key, defVal, output string
+	switch step.Name {
+	case "secret.Get":
+		typed, err := typedActionAs[flowir.SecretGet](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		name, output, defVal := normalizeFlowExpr(typed.Name.Source), typed.Output, normalizeFlowExpr(typed.Default.Source)
-
+		key, defVal, output = normalizeFlowExpr(typed.Key.Source), normalizeFlowExpr(typed.Default.Source), typed.Output
+	case "config.Get":
+		typed, err := typedActionAs[flowir.ConfigGet](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
+		}
+		key, defVal, output = normalizeFlowExpr(typed.Key.Source), normalizeFlowExpr(typed.Default.Source), typed.Output
+	case "model.Resolve":
+		typed, err := typedActionAs[flowir.ModelResolve](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
+		}
+		name := normalizeFlowExpr(typed.Name.Source)
+		output = typed.Output
+		defVal = normalizeFlowExpr(typed.Default.Source)
 		st.declared[output] = true
 		st.pointers[output] = false
 		st.types[output] = "string"
-
-		pad := strings.Repeat("\t", indent)
 		var b strings.Builder
-
-		models := normalizer.InfraModels(st.infraValues)
-		if models != nil {
+		if models := normalizer.InfraModels(st.infraValues); models != nil {
 			if alias := strings.Trim(name, "\""); alias != "" {
 				if resolved := strings.TrimSpace(models.Aliases[alias]); resolved != "" {
 					b.WriteString(fmt.Sprintf("%svar %s string = %q\n", pad, output, resolved))
@@ -77,6 +50,17 @@ func renderFlowStepSecretConfig(st *flowRenderState, step normalizer.FlowStep, i
 		}
 		b.WriteString(fmt.Sprintf("%sreturn fmt.Errorf(\"model.Resolve: unknown model alias %%s\", %s)\n", pad, name))
 		return b.String(), true
+	default:
+		return "", false
 	}
-	return "", false
+
+	st.declared[output] = true
+	st.pointers[output] = false
+	st.types[output] = "string"
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("%svar %s string = os.Getenv(%s)\n", pad, output, key))
+	if defVal != "" {
+		b.WriteString(fmt.Sprintf("%sif %s == \"\" {\n%s\t%s = %s\n%s}\n", pad, output, pad, output, defVal, pad))
+	}
+	return b.String(), true
 }

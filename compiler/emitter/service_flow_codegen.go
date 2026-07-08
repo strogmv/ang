@@ -492,10 +492,101 @@ func renderOneTypedFlowStep(st *flowRenderState, step flowir.TypedStep, indent i
 }
 
 func renderOneFlowStepTyped(st *flowRenderState, typedStep flowir.TypedStep, indent int) string {
-	return renderOneFlowStepWithAccessors(st, flowStepMetadata(typedStep), indent,
+	return renderTypedStepDispatch(st, typedStep, indent)
+}
+
+// renderTypedStepDispatch is the sole production entry into action emission.
+// The metadata adapter below exists only while individual renderer families
+// are migrated from their legacy signatures.
+func renderTypedStepDispatch(st *flowRenderState, typedStep flowir.TypedStep, indent int) string {
+	switch typedStep.Name {
+	case "state.Get", "state.Set", "state.Delete":
+		if out, ok := renderTypedStepState(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "cache.Get", "cache.Set", "cache.Del":
+		if out, ok := renderTypedStepCache(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "storage.Delete", "storage.List", "storage.GetURL":
+		if out, ok := renderTypedStepStorageSimple(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "storage.Upload", "storage.Download":
+		if out, ok := renderTypedStepStorageData(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "mail.Send":
+		if out, ok := renderTypedStepMail(st, typedStep, indent); ok {
+			return out
+		}
+	case "secret.Get", "config.Get", "model.Resolve":
+		if out, ok := renderTypedStepSecretConfig(st, typedStep, indent); ok {
+			return out
+		}
+	case "stream.Emit", "session.Get", "event.Publish", "event.EmitIf", "rand.Token", "rand.Code", "str.ReplaceAll", "str.TrimSpace", "cast.ToString", "template.Render":
+		if out, ok := renderTypedStepCore(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "logic.Call", "service.Call", "flow.Call":
+		if out, ok := renderTypedStepCall(st, typedStep, indent); ok {
+			return out
+		}
+	case "repo.Exists", "repo.Count", "repo.Get", "repo.Find", "repo.GetForUpdate", "repo.List", "repo.Save", "repo.Delete", "repo.Query", "repo.Upsert":
+		if out, ok := renderTypedStepRepository(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "mapping.Assign", "mapping.Map":
+		if out, ok := renderTypedStepMapping(st, typedStep, indent); ok {
+			return out
+		}
+	case "json.Parse", "json.Marshal", "json.Stringify":
+		if out, ok := renderTypedStepJSON(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "http.Call":
+		if out, ok := renderTypedStepHTTPCall(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "http.Request", "http.SOAP", "http.RetryPolicy", "http.Paginate":
+		if out, ok := renderTypedStepHTTPAdvanced(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "str.Format", "str.Concat", "str.StripMarkdown":
+		if out, ok := renderTypedStepString(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "regex.Match", "regex.Replace", "base64.Encode", "base64.Decode", "url.Parse", "path.Base", "url.Build", "query.Encode", "query.Decode", "hash.Sum", "hash.HMAC", "uuid.New", "ulid.New", "time.Now", "time.Format", "time.InZone", "math.Op", "num.Add", "num.Sub", "num.Mul", "num.Div", "jsonpath.Get", "jsonpath.Set":
+		if out, ok := renderTypedStepDataTransform(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "crypto.Hash", "oauth2.Token", "oauth2.Refresh", "crypto.Encrypt", "crypto.Decrypt":
+		if out, ok := renderTypedStepSecurity(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	}
+	return renderLegacyStepDispatch(st, flowStepMetadata(typedStep), indent,
 		func(name string) string { return normalizeFlowExpr(typedStep.ScalarArgs[name].Source()) },
 		func(string) []normalizer.FlowStep { return nil },
 	)
+}
+
+func nextFlowStepSuffix(st *flowRenderState) string {
+	sfx := fmt.Sprintf("_%d", *st.stepN)
+	*st.stepN++
+	return sfx
+}
+
+func typedActionAs[T flowir.Action](step flowir.TypedStep) (T, error) {
+	var zero T
+	if step.DecodeError != nil {
+		return zero, step.DecodeError
+	}
+	typed, ok := step.Action.(T)
+	if !ok {
+		return zero, fmt.Errorf("action %q decoded as %T", step.Name, step.Action)
+	}
+	return typed, nil
 }
 
 func flowStepMetadata(step flowir.TypedStep) normalizer.FlowStep {
@@ -616,7 +707,11 @@ func resolveFlowDynamicOutputType(st *flowRenderState, output, into string) stri
 	return outputType
 }
 
-func emitFlowWarning(st *flowRenderState, step normalizer.FlowStep, code, severity, message, hint string) {
+func emitFlowWarning(st *flowRenderState, code, severity, message, hint string) {
+	meta := flowir.StepMeta{}
+	if st.currentTyped != nil {
+		meta = st.currentTyped.Meta()
+	}
 	if st.warningSink != nil {
 		st.warningSink(normalizer.Warning{
 			Kind:     "flow",
@@ -624,11 +719,11 @@ func emitFlowWarning(st *flowRenderState, step normalizer.FlowStep, code, severi
 			Severity: severity,
 			Message:  message,
 			Op:       st.opName,
-			Action:   step.Action,
-			File:     step.File,
-			Line:     step.Line,
-			Column:   step.Column,
-			CUEPath:  step.CUEPath,
+			Action:   meta.Name,
+			File:     meta.Source.File,
+			Line:     meta.Source.Line,
+			Column:   meta.Source.Column,
+			CUEPath:  meta.Source.CUEPath,
 			Hint:     hint,
 		})
 		return
@@ -636,9 +731,9 @@ func emitFlowWarning(st *flowRenderState, step normalizer.FlowStep, code, severi
 	slog.Warn("flow.warning",
 		"code", code,
 		"severity", severity,
-		"action", step.Action,
-		"file", step.File,
-		"line", step.Line,
+		"action", meta.Name,
+		"file", meta.Source.File,
+		"line", meta.Source.Line,
 		"message", message,
 		"hint", hint,
 	)
@@ -652,7 +747,7 @@ func renderOneFlowStep(st *flowRenderState, step normalizer.FlowStep, indent int
 	return ""
 }
 
-func renderOneFlowStepWithAccessors(st *flowRenderState, step normalizer.FlowStep, indent int, arg func(string) string, child func(string) []normalizer.FlowStep) string {
+func renderLegacyStepDispatch(st *flowRenderState, step normalizer.FlowStep, indent int, arg func(string) string, child func(string) []normalizer.FlowStep) string {
 	sfx := fmt.Sprintf("_%d", *st.stepN)
 	*st.stepN++
 	_ = sfx // consumed by actions with internal temp vars
