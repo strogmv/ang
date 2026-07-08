@@ -67,7 +67,7 @@ func Check(program Program) []Issue {
 func (c checker) checkTypedSteps(service normalizer.Service, method normalizer.Method, steps []TypedStep, env map[string]TypeRef) []Issue {
 	var issues []Issue
 	for _, step := range steps {
-		metadata := step.MetadataStep()
+		metadata := step.Meta()
 		if step.DecodeError != nil {
 			issues = append(issues, issue(metadata, "FLOW_TYPED_DECODE", step.DecodeError.Error()))
 		} else if step.Action != nil {
@@ -130,7 +130,7 @@ func (c checker) repositoryOutputType(call RepositoryCall) TypeRef {
 	return TypeRef{Kind: TypeUnknown}
 }
 
-func (c checker) checkAction(service normalizer.Service, method normalizer.Method, step normalizer.FlowStep, action Action, env map[string]TypeRef) []Issue {
+func (c checker) checkAction(service normalizer.Service, method normalizer.Method, step StepMeta, action Action, env map[string]TypeRef) []Issue {
 	switch typed := action.(type) {
 	case LogicCall:
 		for _, argument := range typed.Arguments {
@@ -550,7 +550,7 @@ func (c checker) checkAction(service normalizer.Service, method normalizer.Metho
 	return nil
 }
 
-func (c checker) checkFlowCall(owner normalizer.Service, method normalizer.Method, step normalizer.FlowStep, call FlowCall, env map[string]TypeRef) []Issue {
+func (c checker) checkFlowCall(owner normalizer.Service, method normalizer.Method, step StepMeta, call FlowCall, env map[string]TypeRef) []Issue {
 	serviceName, methodName := owner.Name, call.Operation
 	if parts := strings.SplitN(call.Operation, ".", 2); len(parts) == 2 {
 		serviceName, methodName = strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
@@ -606,42 +606,42 @@ func (c checker) checkFlowCall(owner normalizer.Service, method normalizer.Metho
 	return issues
 }
 
-func (c checker) checkOAuth2(method normalizer.Method, step normalizer.FlowStep, fields OAuth2Fields, env map[string]TypeRef) []Issue {
+func (c checker) checkOAuth2(method normalizer.Method, step StepMeta, fields OAuth2Fields, env map[string]TypeRef) []Issue {
 	var issues []Issue
 	for _, v := range []Expression{fields.TokenURL, fields.ClientID, fields.ClientSecret, fields.Scope, fields.Audience, fields.GrantType, fields.Username, fields.Password, fields.Code, fields.RedirectURI, fields.RefreshToken} {
 		if v.Source != "" {
-			issues = append(issues, c.expectExpression(method, step, step.Action+" argument", v, TypeRef{Kind: TypeString}, env)...)
+			issues = append(issues, c.expectExpression(method, step, step.Name+" argument", v, TypeRef{Kind: TypeString}, env)...)
 		}
 	}
 	return issues
 }
 
-func (c checker) expectMap(method normalizer.Method, step normalizer.FlowStep, expression Expression, env map[string]TypeRef) []Issue {
-	return c.expectExpression(method, step, step.Action+" input", expression, TypeRef{Kind: TypeMap}, env)
+func (c checker) expectMap(method normalizer.Method, step StepMeta, expression Expression, env map[string]TypeRef) []Issue {
+	return c.expectExpression(method, step, step.Name+" input", expression, TypeRef{Kind: TypeMap}, env)
 }
 
-func (c checker) expectNumber(method normalizer.Method, step normalizer.FlowStep, expression Expression, env map[string]TypeRef) []Issue {
+func (c checker) expectNumber(method normalizer.Method, step StepMeta, expression Expression, env map[string]TypeRef) []Issue {
 	actual := c.inferExpression(expression.Source, method, env)
 	if actual.Kind == TypeUnknown || actual.Kind == TypeInt || actual.Kind == TypeFloat {
 		return nil
 	}
-	return []Issue{issue(step, "FLOW_TYPE_MISMATCH", fmt.Sprintf("%s input has type %s, expected number", step.Action, displayType(actual)))}
+	return []Issue{issue(step, "FLOW_TYPE_MISMATCH", fmt.Sprintf("%s input has type %s, expected number", step.Name, displayType(actual)))}
 }
 
-func (c checker) expectList(method normalizer.Method, step normalizer.FlowStep, expression Expression, env map[string]TypeRef) []Issue {
-	return c.expectExpression(method, step, step.Action+" input", expression, TypeRef{Kind: TypeList}, env)
+func (c checker) expectList(method normalizer.Method, step StepMeta, expression Expression, env map[string]TypeRef) []Issue {
+	return c.expectExpression(method, step, step.Name+" input", expression, TypeRef{Kind: TypeList}, env)
 }
 
-func (c checker) checkListPredicate(method normalizer.Method, step normalizer.FlowStep, from, condition Expression, env map[string]TypeRef) []Issue {
+func (c checker) checkListPredicate(method normalizer.Method, step StepMeta, from, condition Expression, env map[string]TypeRef) []Issue {
 	issues := c.expectList(method, step, from, env)
 	actual := c.inferExpression(condition.Source, method, env)
 	if actual.Kind != TypeUnknown && actual.Kind != TypeBool {
-		issues = append(issues, issue(step, "FLOW_TYPE_MISMATCH", fmt.Sprintf("%s condition has type %s, expected bool", step.Action, displayType(actual))))
+		issues = append(issues, issue(step, "FLOW_TYPE_MISMATCH", fmt.Sprintf("%s condition has type %s, expected bool", step.Name, displayType(actual))))
 	}
 	return issues
 }
 
-func (c checker) expectStrings(method normalizer.Method, step normalizer.FlowStep, env map[string]TypeRef, label string, expressions ...Expression) []Issue {
+func (c checker) expectStrings(method normalizer.Method, step StepMeta, env map[string]TypeRef, label string, expressions ...Expression) []Issue {
 	var issues []Issue
 	for _, expression := range expressions {
 		issues = append(issues, c.expectExpression(method, step, label, expression, TypeRef{Kind: TypeString}, env)...)
@@ -649,7 +649,7 @@ func (c checker) expectStrings(method normalizer.Method, step normalizer.FlowSte
 	return issues
 }
 
-func (c checker) expectExpression(method normalizer.Method, step normalizer.FlowStep, label string, expression Expression, expected TypeRef, env map[string]TypeRef) []Issue {
+func (c checker) expectExpression(method normalizer.Method, step StepMeta, label string, expression Expression, expected TypeRef, env map[string]TypeRef) []Issue {
 	actual := c.inferExpression(expression.Source, method, env)
 	if actual.Kind == TypeUnknown || assignable(actual, expected) {
 		return nil
@@ -657,7 +657,7 @@ func (c checker) expectExpression(method normalizer.Method, step normalizer.Flow
 	return []Issue{issue(step, "FLOW_TYPE_MISMATCH", fmt.Sprintf("%s has type %s, expected %s", label, displayType(actual), displayType(expected)))}
 }
 
-func (c checker) checkEventPublish(method normalizer.Method, step normalizer.FlowStep, publish EventPublish, env map[string]TypeRef) []Issue {
+func (c checker) checkEventPublish(method normalizer.Method, step StepMeta, publish EventPublish, env map[string]TypeRef) []Issue {
 	event, ok := c.events[strings.ToLower(publish.Event)]
 	if !ok {
 		return []Issue{issue(step, "FLOW_EVENT_UNKNOWN", fmt.Sprintf("%s references unknown event %q", publish.ActionName(), publish.Event))}
@@ -680,7 +680,7 @@ func (c checker) checkEventPublish(method normalizer.Method, step normalizer.Flo
 	return nil
 }
 
-func (c checker) checkServiceCall(owner normalizer.Service, method normalizer.Method, step normalizer.FlowStep, call ServiceCall, env map[string]TypeRef) []Issue {
+func (c checker) checkServiceCall(owner normalizer.Service, method normalizer.Method, step StepMeta, call ServiceCall, env map[string]TypeRef) []Issue {
 	target, ok := c.services[strings.ToLower(call.Service)]
 	if !ok {
 		return []Issue{issue(step, "FLOW_SERVICE_UNKNOWN", fmt.Sprintf("service.Call references unknown service %q", call.Service))}
@@ -713,7 +713,7 @@ func (c checker) checkServiceCall(owner normalizer.Service, method normalizer.Me
 	return nil
 }
 
-func (c checker) checkRepositoryCall(method normalizer.Method, step normalizer.FlowStep, call RepositoryCall, env map[string]TypeRef) []Issue {
+func (c checker) checkRepositoryCall(method normalizer.Method, step StepMeta, call RepositoryCall, env map[string]TypeRef) []Issue {
 	entity, exists := c.entities[strings.ToLower(call.Entity)]
 	if !exists {
 		return []Issue{issue(step, "FLOW_REPOSITORY_ENTITY_UNKNOWN", fmt.Sprintf("%s references unknown entity %q", call.Operation, call.Entity))}
@@ -909,8 +909,8 @@ func cloneEnv(env map[string]TypeRef) map[string]TypeRef {
 	return out
 }
 
-func issue(step normalizer.FlowStep, code, message string) Issue {
-	return Issue{Code: code, Message: message, Source: SourceOf(step)}
+func issue(step StepMeta, code, message string) Issue {
+	return Issue{Code: code, Message: message, Source: step.Source}
 }
 
 func containsFold(values []string, wanted string) bool {

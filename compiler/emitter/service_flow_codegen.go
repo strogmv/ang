@@ -492,10 +492,17 @@ func renderOneTypedFlowStep(st *flowRenderState, step flowir.TypedStep, indent i
 }
 
 func renderOneFlowStepTyped(st *flowRenderState, typedStep flowir.TypedStep, indent int) string {
-	return renderOneFlowStepWithAccessors(st, typedStep.MetadataStep(), indent,
+	return renderOneFlowStepWithAccessors(st, flowStepMetadata(typedStep), indent,
 		func(name string) string { return normalizeFlowExpr(typedStep.ScalarArgs[name].Source()) },
 		func(string) []normalizer.FlowStep { return nil },
 	)
+}
+
+func flowStepMetadata(step flowir.TypedStep) normalizer.FlowStep {
+	return normalizer.FlowStep{
+		Action: step.Name, File: step.Source.File, Line: step.Source.Line,
+		Column: step.Source.Column, CUEPath: step.Source.CUEPath,
+	}
 }
 
 func decodeCurrentActionAs[T flowir.Action](st *flowRenderState, raw normalizer.FlowStep) (T, error) {

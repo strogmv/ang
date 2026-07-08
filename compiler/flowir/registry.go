@@ -21,6 +21,13 @@ type TypedStep struct {
 	ScalarArgs  map[string]ScalarArg
 }
 
+type StepMeta struct {
+	Name   string
+	Source Source
+}
+
+func (s TypedStep) Meta() StepMeta { return StepMeta{Name: s.Name, Source: s.Source} }
+
 type ScalarKind string
 
 const (
@@ -55,16 +62,6 @@ func (a ScalarArg) Source() string {
 
 func SourceOf(step normalizer.FlowStep) Source {
 	return Source{File: step.File, Line: step.Line, Column: step.Column, CUEPath: step.CUEPath}
-}
-
-func (s TypedStep) MetadataStep() normalizer.FlowStep {
-	return normalizer.FlowStep{
-		Action:  s.Name,
-		File:    s.Source.File,
-		Line:    s.Source.Line,
-		Column:  s.Source.Column,
-		CUEPath: s.Source.CUEPath,
-	}
 }
 
 var nestedStepKeys = []string{"_do", "_ifNew", "_ifExists", "_then", "_else", "_default", "_catch", "_fallback", "_onTimeout", "_onMissing", "_onMismatch"}
