@@ -14,7 +14,7 @@ func renderFlowStepPolicy(st *flowRenderState, step normalizer.FlowStep, indent 
 
 	switch step.Action {
 	case "policy.Check":
-		typed, err := flowir.DecodeAs[flowir.PolicyCheck](step)
+		typed, err := decodeCurrentActionAs[flowir.PolicyCheck](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -97,7 +97,7 @@ func renderFlowStepPolicy(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "policy.Evaluate", "policy.Require", "policy.Decide":
-		typed, err := flowir.DecodeAs[flowir.PolicyDecisionAction](step)
+		typed, err := decodeCurrentActionAs[flowir.PolicyDecisionAction](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}

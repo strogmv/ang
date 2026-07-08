@@ -714,10 +714,13 @@ func runBuild(args []string) {
 					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "read generated OpenAPI contract", readErr)
 					return
 				}
-				diff, diffErr := diffOpenAPIContracts(previous, current)
+				diff, recoveredBaseline, diffErr := diffOpenAPIContractsWithRecovery(previous, current)
 				if diffErr != nil {
 					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "compare OpenAPI contract", diffErr)
 					return
+				}
+				if recoveredBaseline {
+					logText("openapi: previous generated contract is invalid; replacing it with the valid regenerated contract")
 				}
 				logText("openapi: +%d operations, -%d operations, %d breaking", len(diff.AddedOperations), len(diff.RemovedOperations), len(diff.BreakingChanges))
 				if len(diff.BreakingChanges) > 0 && !output.AcceptContract {

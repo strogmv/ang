@@ -14,7 +14,7 @@ func renderFlowStepInfraSecurity(st *flowRenderState, step normalizer.FlowStep, 
 
 	switch step.Action {
 	case "jwt.Sign":
-		typed, err := flowir.DecodeAs[flowir.JWTSign](step)
+		typed, err := decodeCurrentActionAs[flowir.JWTSign](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -94,7 +94,7 @@ func renderFlowStepInfraSecurity(st *flowRenderState, step normalizer.FlowStep, 
 		return b.String(), true
 
 	case "jwt.Verify":
-		typed, err := flowir.DecodeAs[flowir.JWTVerify](step)
+		typed, err := decodeCurrentActionAs[flowir.JWTVerify](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -174,7 +174,7 @@ func renderFlowStepInfraSecurity(st *flowRenderState, step normalizer.FlowStep, 
 		return b.String(), true
 
 	case "token.Generate":
-		typed, err := flowir.DecodeAs[flowir.TokenGenerate](step)
+		typed, err := decodeCurrentActionAs[flowir.TokenGenerate](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -235,7 +235,7 @@ func renderFlowStepInfraSecurity(st *flowRenderState, step normalizer.FlowStep, 
 		return b.String(), true
 
 	case "token.Verify":
-		typed, err := flowir.DecodeAs[flowir.TokenVerify](step)
+		typed, err := decodeCurrentActionAs[flowir.TokenVerify](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -311,7 +311,7 @@ func renderFlowStepInfraSecurity(st *flowRenderState, step normalizer.FlowStep, 
 		return b.String(), true
 
 	case "crypto.Hash":
-		typed, err := flowir.DecodeAs[flowir.CryptoHash](step)
+		typed, err := decodeCurrentActionAs[flowir.CryptoHash](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -340,20 +340,20 @@ func renderFlowStepInfraSecurity(st *flowRenderState, step normalizer.FlowStep, 
 		return b.String(), true
 
 	case "oauth2.Token":
-		typed, err := flowir.DecodeAs[flowir.OAuth2Token](step)
+		typed, err := decodeCurrentActionAs[flowir.OAuth2Token](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
 		return renderOAuthTokenLike(st, typed.OAuth2Fields, pad, sfx, "oauth2.Token", false), true
 	case "oauth2.Refresh":
-		typed, err := flowir.DecodeAs[flowir.OAuth2Refresh](step)
+		typed, err := decodeCurrentActionAs[flowir.OAuth2Refresh](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
 		return renderOAuthTokenLike(st, typed.OAuth2Fields, pad, sfx, "oauth2.Refresh", true), true
 
 	case "crypto.Encrypt":
-		typed, err := flowir.DecodeAs[flowir.CryptoCipher](step)
+		typed, err := decodeCurrentActionAs[flowir.CryptoCipher](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -412,7 +412,7 @@ func renderFlowStepInfraSecurity(st *flowRenderState, step normalizer.FlowStep, 
 		return b.String(), true
 
 	case "crypto.Decrypt":
-		typed, err := flowir.DecodeAs[flowir.CryptoCipher](step)
+		typed, err := decodeCurrentActionAs[flowir.CryptoCipher](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}

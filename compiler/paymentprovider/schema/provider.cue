@@ -200,6 +200,14 @@ package schema
 	format:    *"key_concat_sorted_values" | "hmac" | "hmac_body" | "md5_concat" | "basic_auth" | "custom" | "method_url_body" | "md5_fields_concat"
 }
 
+// Processing Gateway JSON envelope (Spayce MX-772): top-level status bool + nested message object.
+#ResponseEnvelope: {
+	enabled:       *false | bool
+	wrapper_field: *"message" | string
+	success_field: *"status" | string
+	error_field:   *"error" | string
+}
+
 #SigningAlgorithm: "sha256" | "hmac-sha256" | "hmac-sha1" | "md5" | "none" | "basic"
 
 // --- HTTP auth (request headers) ---
@@ -487,6 +495,7 @@ package schema
 
 	// Wire format for provider responses (Pacepay uses XML for payout/check).
 	response_format: *"json" | "xml"
+	response_envelope: *null | #ResponseEnvelope
 	// Callback payload encoding (Pacepay uses application/x-www-form-urlencoded).
 	callback_format: *"json" | "form-urlencoded"
 	// macan_p2p: use has_p2p + InitPayP2P; classic has_payin should stay false

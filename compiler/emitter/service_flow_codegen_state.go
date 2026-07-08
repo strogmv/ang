@@ -13,7 +13,7 @@ func renderFlowStepState(st *flowRenderState, step normalizer.FlowStep, indent i
 
 	switch step.Action {
 	case "state.Get":
-		typed, err := flowir.DecodeAs[flowir.StateGet](step)
+		typed, err := decodeCurrentActionAs[flowir.StateGet](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, "state.Get", err.Error()), true
 		}
@@ -60,7 +60,7 @@ func renderFlowStepState(st *flowRenderState, step normalizer.FlowStep, indent i
 		return b.String(), true
 
 	case "state.Set":
-		typed, err := flowir.DecodeAs[flowir.StateSet](step)
+		typed, err := decodeCurrentActionAs[flowir.StateSet](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, "state.Set", err.Error()), true
 		}
@@ -86,7 +86,7 @@ func renderFlowStepState(st *flowRenderState, step normalizer.FlowStep, indent i
 		return b.String(), true
 
 	case "state.Delete":
-		typed, err := flowir.DecodeAs[flowir.StateDelete](step)
+		typed, err := decodeCurrentActionAs[flowir.StateDelete](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, "state.Delete", err.Error()), true
 		}

@@ -20,6 +20,7 @@ var templateFiles = []struct {
 	{"creds.go.tmpl", func(pkg string) string { return "creds.go" }, false},
 	{"creds_macan.go.tmpl", func(pkg string) string { return "creds.go" }, false},
 	{"sign.go.tmpl", func(pkg string) string { return "sign.go" }, false},
+	{"sign_test.go.tmpl", func(pkg string) string { return "sign_test.go" }, false},
 	{"provider.go.tmpl", func(pkg string) string { return pkg + ".go" }, false},
 	{"provider_macan.go.tmpl", func(pkg string) string { return pkg + "_macan.go" }, true},
 	{"provider_test.go.tmpl", func(pkg string) string { return pkg + "_test.go" }, false},
@@ -50,6 +51,11 @@ func Emit(templatesDir, outputDir string, data *TemplateData) error {
 		if tf.tmpl == "sign.go.tmpl" && data.SigningAlgorithm == "none" {
 			// Still emit if salt or signature fields are used
 			if !needsSignFile(data) {
+				continue
+			}
+		}
+		if tf.tmpl == "sign_test.go.tmpl" {
+			if data.RequestSigning == nil || data.RequestSigning.Format != "username_key_body_b64" {
 				continue
 			}
 		}

@@ -3,6 +3,7 @@ package flowir
 import (
 	"fmt"
 	"go/token"
+	"strconv"
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
@@ -214,14 +215,222 @@ func registerFlowResilienceActions() {
 	Register(ActionSpec{Name: "flow.Retry", Args: []ArgSpec{{Name: "attempts", Kind: ArgInt}, {Name: "retries", Kind: ArgInt}, {Name: "backoffMs", Kind: ArgInt}}, Decode: decodeFlowRetry})
 	Register(ActionSpec{Name: "flow.Timeout", Args: []ArgSpec{{Name: "duration", Kind: ArgExpression, Required: true}}, Decode: decodeFlowTimeout})
 	Register(ActionSpec{Name: "flow.Fallback", Decode: decodeFlowFallback})
-	Register(ActionSpec{Name: "flow.Parallel", Decode: func(s normalizer.FlowStep) (Action, error) { b, e := requiredBranches(s); return FlowParallel{b}, e }})
-	Register(ActionSpec{Name: "flow.Join", Decode: func(s normalizer.FlowStep) (Action, error) { b, e := requiredBranches(s); return FlowJoin{b}, e }})
-	Register(ActionSpec{Name: "flow.Race", Decode: func(s normalizer.FlowStep) (Action, error) { b, e := requiredBranches(s); return FlowRace{b}, e }})
+	Register(ActionSpec{Name: "flow.Parallel", Decode: func(s normalizer.FlowStep) (Action, error) { _, e := requiredBranches(s); return FlowParallel{}, e }})
+	Register(ActionSpec{Name: "flow.Join", Decode: func(s normalizer.FlowStep) (Action, error) { _, e := requiredBranches(s); return FlowJoin{}, e }})
+	Register(ActionSpec{Name: "flow.Race", Decode: func(s normalizer.FlowStep) (Action, error) { _, e := requiredBranches(s); return FlowRace{}, e }})
 	Register(ActionSpec{Name: "parallel.Run", Args: []ArgSpec{{Name: "maxConcurrency", Kind: ArgInt}, {Name: "maxParallel", Kind: ArgInt}}, Decode: decodeParallelRun})
+	Register(ActionSpec{Name: "flow.Delay", Args: []ArgSpec{{Name: "duration", Kind: ArgExpression, Required: true}}, Decode: decodeFlowDelay})
+	Register(ActionSpec{Name: "flow.Schedule", Args: []ArgSpec{{Name: "at", Kind: ArgExpression, Required: true}}, Decode: decodeFlowSchedule})
+	Register(ActionSpec{Name: "flow.Cron", Args: []ArgSpec{{Name: "window", Kind: ArgString, Required: true}, {Name: "timezone", Kind: ArgString}}, Decode: decodeFlowCron})
+	Register(ActionSpec{Name: "flow.Saga", Decode: func(s normalizer.FlowStep) (Action, error) {
+		_, e := nestedSteps(s, "_do", true)
+		return FlowSaga{}, e
+	}})
+	Register(ActionSpec{Name: "flow.Compensate", Decode: func(s normalizer.FlowStep) (Action, error) {
+		_, e := nestedSteps(s, "_do", true)
+		return FlowCompensate{}, e
+	}})
+	Register(ActionSpec{Name: "flow.Rollback", Args: []ArgSpec{{Name: "error", Kind: ArgExpression}}, Decode: func(s normalizer.FlowStep) (Action, error) { return FlowRollback{optionalExpression(s, "error")}, nil }})
+	Register(ActionSpec{Name: "flow.Checkpoint", Args: []ArgSpec{{Name: "name", Kind: ArgString, Required: true}, {Name: "data", Kind: ArgExpression}}, Decode: decodeFlowCheckpoint})
+	Register(ActionSpec{Name: "flow.Resume", Args: []ArgSpec{{Name: "name", Kind: ArgString, Required: true}, {Name: "output", Kind: ArgIdentifier, Required: true}, {Name: "into", Kind: ArgString}}, Decode: decodeFlowResume})
+	Register(ActionSpec{Name: "flow.RecordEvent", Args: []ArgSpec{{Name: "name", Kind: ArgExpression, Required: true}, {Name: "payload", Kind: ArgExpression}, {Name: "output", Kind: ArgIdentifier}}, Decode: decodeFlowRecordEvent})
+	Register(ActionSpec{Name: "flow.History.Get", Args: []ArgSpec{{Name: "name", Kind: ArgExpression}, {Name: "limit", Kind: ArgExpression}, {Name: "output", Kind: ArgIdentifier, Required: true}}, Decode: decodeFlowHistoryGet})
+	Register(ActionSpec{Name: "flow.Replay", Args: []ArgSpec{{Name: "history", Kind: ArgExpression, Required: true}, {Name: "output", Kind: ArgIdentifier}}, Decode: decodeFlowReplay})
+	Register(ActionSpec{Name: "flow.Validate", Args: []ArgSpec{{Name: "condition", Kind: ArgExpression, Required: true}, {Name: "throw", Kind: ArgString}, {Name: "message", Kind: ArgString}, {Name: "hint", Kind: ArgString}, {Name: "code", Kind: ArgString}, {Name: "status", Kind: ArgExpression}}, Decode: decodeFlowValidate})
+	Register(ActionSpec{Name: "flow.Catch", Decode: func(s normalizer.FlowStep) (Action, error) {
+		_, e := nestedSteps(s, "_do", true)
+		return FlowCatch{}, e
+	}})
+	Register(ActionSpec{Name: "flow.Defer", Decode: func(s normalizer.FlowStep) (Action, error) {
+		_, e := nestedSteps(s, "_do", true)
+		return FlowDefer{}, e
+	}})
+	Register(ActionSpec{Name: "flow.SuggestNext", Args: []ArgSpec{{Name: "options", Kind: ArgExpressions, Required: true}, {Name: "output", Kind: ArgIdentifier}}, Decode: decodeFlowSuggestNext})
+	Register(ActionSpec{Name: "flow.ExplainError", Args: []ArgSpec{{Name: "error", Kind: ArgExpression}, {Name: "output", Kind: ArgIdentifier, Required: true}, {Name: "message", Kind: ArgString}, {Name: "hint", Kind: ArgString}}, Decode: decodeFlowExplainError})
+	Register(ActionSpec{Name: "flow.Tag", Args: []ArgSpec{{Name: "name", Kind: ArgExpression, Required: true}, {Name: "value", Kind: ArgExpression}}, Decode: decodeFlowTag})
+	Register(ActionSpec{Name: "flow.Return", Args: []ArgSpec{{Name: "set", Kind: ArgExpression}, {Name: "value", Kind: ArgExpression}}, Decode: decodeFlowReturn})
+	Register(ActionSpec{Name: "flow.Call", Args: []ArgSpec{{Name: "op", Kind: ArgString, Required: true}, {Name: "args", Kind: ArgExpression}, {Name: "output", Kind: ArgIdentifier}, {Name: "ignoreErr", Kind: ArgBool}, {Name: "ignoreErrReason", Kind: ArgString}}, Decode: decodeFlowCall})
+}
+
+func decodeFlowCheckpoint(s normalizer.FlowStep) (Action, error) {
+	n, err := requiredString(s, "name")
+	if err != nil {
+		return nil, err
+	}
+	d := optionalExpression(s, "data")
+	if d.Source == "" {
+		d = Expression{Source: `map[string]any{"resp": resp}`, Type: TypeRef{Kind: TypeMap}}
+	}
+	return FlowCheckpoint{Name: n, Data: d}, nil
+}
+func decodeFlowResume(s normalizer.FlowStep) (Action, error) {
+	n, err := requiredString(s, "name")
+	if err != nil {
+		return nil, err
+	}
+	o, err := requiredIdentifier(s, "output")
+	if err != nil {
+		return nil, err
+	}
+	i, _ := optionalString(s, "into")
+	_, _ = nestedSteps(s, "_onMissing", false)
+	return FlowResume{Name: n, Output: o, Into: i}, nil
+}
+func decodeFlowRecordEvent(s normalizer.FlowStep) (Action, error) {
+	n, err := requiredExpression(s, "name")
+	if err != nil {
+		return nil, err
+	}
+	o, err := optionalIdentifier(s, "output")
+	if err != nil {
+		return nil, err
+	}
+	return FlowRecordEvent{Name: n, Payload: optionalExpression(s, "payload"), Output: o}, nil
+}
+func decodeFlowHistoryGet(s normalizer.FlowStep) (Action, error) {
+	o, err := requiredIdentifier(s, "output")
+	if err != nil {
+		return nil, err
+	}
+	return FlowHistoryGet{Name: optionalExpression(s, "name"), Limit: optionalAnyExpression(s, "limit"), Output: o}, nil
+}
+func decodeFlowReplay(s normalizer.FlowStep) (Action, error) {
+	h, err := requiredExpression(s, "history")
+	if err != nil {
+		return nil, err
+	}
+	o, err := optionalIdentifier(s, "output")
+	if err != nil {
+		return nil, err
+	}
+	_, _ = nestedSteps(s, "_do", false)
+	_, _ = nestedSteps(s, "_onMismatch", false)
+	return FlowReplay{History: h, Output: o}, nil
+}
+
+func decodeFlowValidate(s normalizer.FlowStep) (Action, error) {
+	c, err := requiredExpression(s, "condition")
+	if err != nil {
+		return nil, err
+	}
+	m, _ := optionalString(s, "message")
+	if m == "" {
+		m, _ = optionalString(s, "throw")
+	}
+	if m == "" {
+		m = "validation failed"
+	}
+	h, _ := optionalString(s, "hint")
+	code, _ := optionalString(s, "code")
+	if code == "" {
+		code = "VALIDATION_FAILED"
+	}
+	status := optionalExpression(s, "status")
+	if status.Source == "" {
+		status.Source = "http.StatusBadRequest"
+	}
+	return FlowValidate{Condition: c, Message: m, Hint: h, Code: code, Status: status}, nil
+}
+
+func decodeFlowSuggestNext(s normalizer.FlowStep) (Action, error) {
+	var opts []string
+	switch v := s.Args["options"].(type) {
+	case []string:
+		opts = append(opts, v...)
+	case string:
+		if strings.TrimSpace(v) != "" {
+			opts = []string{v}
+		}
+	default:
+		return nil, fmt.Errorf("options must be a string list")
+	}
+	if len(opts) == 0 {
+		return nil, fmt.Errorf("options is required")
+	}
+	o, err := optionalIdentifier(s, "output")
+	return FlowSuggestNext{Options: opts, Output: o}, err
+}
+
+func decodeFlowExplainError(s normalizer.FlowStep) (Action, error) {
+	o, err := requiredIdentifier(s, "output")
+	if err != nil {
+		return nil, err
+	}
+	m, _ := optionalString(s, "message")
+	h, _ := optionalString(s, "hint")
+	e := optionalExpression(s, "error")
+	if e.Source == "" {
+		e.Source = "_flowLastError"
+	}
+	return FlowExplainError{Error: e, Output: o, Message: m, Hint: h}, nil
+}
+
+func decodeFlowTag(s normalizer.FlowStep) (Action, error) {
+	n, err := requiredExpression(s, "name")
+	return FlowTag{Name: n, Value: optionalExpression(s, "value")}, err
+}
+
+func decodeFlowReturn(s normalizer.FlowStep) (Action, error) {
+	return FlowReturn{Set: optionalExpression(s, "set"), Value: optionalExpression(s, "value")}, nil
+}
+
+func decodeFlowCall(s normalizer.FlowStep) (Action, error) {
+	op, err := requiredString(s, "op")
+	if err != nil {
+		return nil, err
+	}
+	o, err := optionalIdentifier(s, "output")
+	if err != nil {
+		return nil, err
+	}
+	ignore, err := optionalBool(s, "ignoreErr")
+	if err != nil {
+		return nil, err
+	}
+	reason, _ := optionalString(s, "ignoreErrReason")
+	args := map[string]Expression{}
+	if raw, ok := s.Args["args"]; ok {
+		args, err = expressionMap(raw)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return FlowCall{Operation: op, Output: o, Arguments: args, IgnoreError: ignore, IgnoreErrReason: reason}, nil
+}
+
+func decodeFlowDelay(s normalizer.FlowStep) (Action, error) {
+	v, err := requiredExpression(s, "duration")
+	if err != nil {
+		return nil, err
+	}
+	v.Type = TypeRef{Kind: TypeDuration}
+	return FlowDelay{Duration: v}, nil
+}
+
+func decodeFlowSchedule(s normalizer.FlowStep) (Action, error) {
+	v, err := requiredExpression(s, "at")
+	if err != nil {
+		return nil, err
+	}
+	v.Type = TypeRef{Kind: TypeTime}
+	return FlowSchedule{At: v}, nil
+}
+
+func decodeFlowCron(s normalizer.FlowStep) (Action, error) {
+	w, err := requiredString(s, "window")
+	if err != nil {
+		return nil, err
+	}
+	tz, _ := optionalString(s, "timezone")
+	if tz == "" {
+		tz = "UTC"
+	}
+	_, _ = nestedSteps(s, "_onMismatch", false)
+	return FlowCron{Window: w, Timezone: tz}, nil
 }
 
 func decodeParallelRun(s normalizer.FlowStep) (Action, error) {
-	b, err := requiredBranches(s)
+	_, err := requiredBranches(s)
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +447,7 @@ func decodeParallelRun(s normalizer.FlowStep) (Action, error) {
 	if max <= 0 {
 		max = 8
 	}
-	return ParallelRun{Branches: b, MaxConcurrency: max}, nil
+	return ParallelRun{MaxConcurrency: max}, nil
 }
 
 func nestedSteps(s normalizer.FlowStep, key string, required bool) ([]normalizer.FlowStep, error) {
@@ -258,11 +467,11 @@ func requiredBranches(s normalizer.FlowStep) (map[string][]normalizer.FlowStep, 
 }
 
 func decodeFlowTry(s normalizer.FlowStep) (Action, error) {
-	do, e := nestedSteps(s, "_do", true)
+	_, e := nestedSteps(s, "_do", true)
 	if e != nil {
 		return nil, e
 	}
-	catch, _ := nestedSteps(s, "_catch", false)
+	_, _ = nestedSteps(s, "_catch", false)
 	r, e := optionalInt(s, "retries", 0)
 	if e != nil {
 		return nil, e
@@ -271,15 +480,15 @@ func decodeFlowTry(s normalizer.FlowStep) (Action, error) {
 	if e != nil {
 		return nil, e
 	}
-	return FlowTry{do, catch, r, b}, nil
+	return FlowTry{Retries: r, BackoffMS: b}, nil
 }
 
 func decodeFlowRetry(s normalizer.FlowStep) (Action, error) {
-	do, e := nestedSteps(s, "_do", true)
+	_, e := nestedSteps(s, "_do", true)
 	if e != nil {
 		return nil, e
 	}
-	catch, _ := nestedSteps(s, "_catch", false)
+	_, _ = nestedSteps(s, "_catch", false)
 	a, e := optionalInt(s, "attempts", -1)
 	if e != nil {
 		return nil, e
@@ -302,7 +511,7 @@ func decodeFlowRetry(s normalizer.FlowStep) (Action, error) {
 	if e != nil {
 		return nil, e
 	}
-	return FlowRetry{do, catch, a, b}, nil
+	return FlowRetry{Attempts: a, BackoffMS: b}, nil
 }
 
 func decodeFlowTimeout(s normalizer.FlowStep) (Action, error) {
@@ -310,24 +519,24 @@ func decodeFlowTimeout(s normalizer.FlowStep) (Action, error) {
 	if e != nil {
 		return nil, e
 	}
-	do, e := nestedSteps(s, "_do", true)
+	_, e = nestedSteps(s, "_do", true)
 	if e != nil {
 		return nil, e
 	}
-	on, _ := nestedSteps(s, "_onTimeout", false)
-	return FlowTimeout{d, do, on}, nil
+	_, _ = nestedSteps(s, "_onTimeout", false)
+	return FlowTimeout{Duration: d}, nil
 }
 
 func decodeFlowFallback(s normalizer.FlowStep) (Action, error) {
-	do, e := nestedSteps(s, "_do", true)
+	_, e := nestedSteps(s, "_do", true)
 	if e != nil {
 		return nil, e
 	}
-	fb, e := nestedSteps(s, "_fallback", true)
+	_, e = nestedSteps(s, "_fallback", true)
 	if e != nil {
 		return nil, e
 	}
-	return FlowFallback{do, fb}, nil
+	return FlowFallback{}, nil
 }
 func decodeFlowFor(s normalizer.FlowStep) (Action, error) {
 	e, err := requiredExpression(s, "each")
@@ -335,22 +544,22 @@ func decodeFlowFor(s normalizer.FlowStep) (Action, error) {
 		return nil, err
 	}
 	a, err := requiredIdentifier(s, "as")
-	steps, ok := s.Args["_do"].([]normalizer.FlowStep)
+	_, ok := s.Args["_do"].([]normalizer.FlowStep)
 	if !ok {
 		return nil, fmt.Errorf("do block is required")
 	}
-	return FlowFor{e, a, steps}, err
+	return FlowFor{Each: e, As: a}, err
 }
 func decodeFlowWhile(s normalizer.FlowStep) (Action, error) {
 	c, e := requiredExpression(s, "condition")
 	if e != nil {
 		return nil, e
 	}
-	steps, ok := s.Args["_do"].([]normalizer.FlowStep)
+	_, ok := s.Args["_do"].([]normalizer.FlowStep)
 	if !ok {
 		return nil, fmt.Errorf("do block is required")
 	}
-	return FlowWhile{c, steps}, nil
+	return FlowWhile{Condition: c}, nil
 }
 func decodeFlowSwitch(s normalizer.FlowStep) (Action, error) {
 	v, e := requiredExpression(s, "value")
@@ -370,8 +579,7 @@ func decodeFlowSwitch(s normalizer.FlowStep) (Action, error) {
 	if !ok || len(cases) == 0 {
 		return nil, fmt.Errorf("cases are required")
 	}
-	def, _ := s.Args["_default"].([]normalizer.FlowStep)
-	return FlowSwitch{v, m, cases, def}, nil
+	return FlowSwitch{Value: v, Match: m}, nil
 }
 func intList(raw any) ([]int, error) {
 	if raw == nil {
@@ -496,9 +704,9 @@ func decodeHTTPSOAP(s normalizer.FlowStep) (Action, error) {
 	return HTTPSOAP{x[0], x[1], x[2], soap, timeout, req, h, into, o, status, fail}, e
 }
 func httpArgs(advanced bool) []ArgSpec {
-	a := []ArgSpec{{Name: "method", Kind: ArgString, Required: true}, {Name: "url", Kind: ArgExpression, Required: true}, {Name: "body", Kind: ArgExpression}, {Name: "headers", Kind: ArgExpression}, {Name: "output", Kind: ArgIdentifier}, {Name: "statusVar", Kind: ArgIdentifier}, {Name: "failOnError", Kind: ArgBool}}
+	a := []ArgSpec{{Name: "method", Kind: ArgString, Required: true}, {Name: "url", Kind: ArgExpression, Required: true}, {Name: "body", Kind: ArgExpression}, {Name: "headers", Kind: ArgExpression}, {Name: "output", Kind: ArgIdentifier}, {Name: "statusVar", Kind: ArgIdentifier}, {Name: "failOnError", Kind: ArgBool}, {Name: "timeout", Kind: ArgExpression}, {Name: "attempts", Kind: ArgInt}, {Name: "backoffMs", Kind: ArgInt}}
 	if advanced {
-		a = append(a, ArgSpec{Name: "query", Kind: ArgExpression}, ArgSpec{Name: "auth", Kind: ArgString}, ArgSpec{Name: "timeout", Kind: ArgExpression}, ArgSpec{Name: "into", Kind: ArgString})
+		a = append(a, ArgSpec{Name: "query", Kind: ArgExpression}, ArgSpec{Name: "auth", Kind: ArgString}, ArgSpec{Name: "into", Kind: ArgString})
 	}
 	return a
 }
@@ -521,11 +729,23 @@ func decodeHTTPCall(s normalizer.FlowStep) (Action, error) {
 	if _, ok := s.Args["failOnError"]; ok {
 		fail, e = optionalBool(s, "failOnError")
 	}
+	timeout := optionalExpression(s, "timeout")
+	if timeout.Source == "" {
+		timeout.Source = "5*time.Second"
+	}
+	attempts, attemptsErr := optionalInt(s, "attempts", 2)
+	if e == nil {
+		e = attemptsErr
+	}
+	backoffMS, backoffErr := optionalInt(s, "backoffMs", 150)
+	if e == nil {
+		e = backoffErr
+	}
 	m = strings.ToUpper(m)
 	if m != "GET" && m != "POST" && m != "PUT" && m != "DELETE" && m != "PATCH" {
 		return nil, fmt.Errorf("unsupported HTTP method %q", m)
 	}
-	return HTTPCall{m, u, optionalExpression(s, "body"), h, o, status, fail}, e
+	return HTTPCall{Method: m, URL: u, Body: optionalExpression(s, "body"), Timeout: timeout, Headers: h, Output: o, StatusVar: status, FailOnError: fail, Attempts: attempts, BackoffMS: backoffMS}, e
 }
 func decodeHTTPRequest(s normalizer.FlowStep) (Action, error) {
 	base, e := decodeHTTPCall(s)
@@ -580,8 +800,7 @@ func decodeTraceSpan(s normalizer.FlowStep) (Action, error) {
 		return nil, e
 	}
 	a, e := expressionMap(s.Args["attrs"])
-	steps, _ := s.Args["_do"].([]normalizer.FlowStep)
-	return TraceSpan{n, a, steps}, e
+	return TraceSpan{Name: n, Attributes: a}, e
 }
 func decodeSLOBudget(s normalizer.FlowStep) (Action, error) {
 	d, e := requiredExpression(s, "duration")
@@ -589,8 +808,7 @@ func decodeSLOBudget(s normalizer.FlowStep) (Action, error) {
 		return nil, e
 	}
 	n, _ := optionalString(s, "name")
-	steps, _ := s.Args["_do"].([]normalizer.FlowStep)
-	return SLOBudget{n, d, steps}, nil
+	return SLOBudget{Name: n, Duration: d}, nil
 }
 func decodeContextTrim(s normalizer.FlowStep) (Action, error) {
 	i, e := requiredExpression(s, "input")
@@ -636,8 +854,7 @@ func decodeConcurrencyLimit(s normalizer.FlowStep) (ConcurrencyLimit, error) {
 }
 func decodeConcurrencyRun(s normalizer.FlowStep) (Action, error) {
 	l, e := decodeConcurrencyLimit(s)
-	steps, _ := s.Args["_do"].([]normalizer.FlowStep)
-	return ConcurrencyRun{l, steps}, e
+	return ConcurrencyRun{ConcurrencyLimit: l}, e
 }
 func decodeMutexWith(s normalizer.FlowStep) (Action, error) {
 	k, e := requiredExpression(s, "key")
@@ -656,8 +873,7 @@ func decodeMutexWith(s normalizer.FlowStep) (Action, error) {
 	if t == "" {
 		t = "mutex busy"
 	}
-	steps, _ := s.Args["_do"].([]normalizer.FlowStep)
-	return MutexWith{k, w, p, t, steps}, nil
+	return MutexWith{Key: k, Wait: w, Poll: p, Throw: t}, nil
 }
 func decodeCircuit(s normalizer.FlowStep, alias string) (Action, error) {
 	n, e := requiredExpression(s, "name")
@@ -673,8 +889,7 @@ func decodeCircuit(s normalizer.FlowStep, alias string) (Action, error) {
 	if t == "" {
 		t = "circuit breaker open: " + strings.Trim(n.Source, "\"")
 	}
-	steps, _ := s.Args["_do"].([]normalizer.FlowStep)
-	return CircuitAction{alias, n, ttl, threshold, t, steps}, nil
+	return CircuitAction{Alias: alias, Name: n, OpenTTL: ttl, Threshold: threshold, Throw: t}, nil
 }
 func decodeBulkhead(s normalizer.FlowStep, alias string) (Action, error) {
 	n, e := requiredExpression(s, "name")
@@ -689,8 +904,7 @@ func decodeBulkhead(s normalizer.FlowStep, alias string) (Action, error) {
 	if t == "" {
 		t = "bulkhead full: " + strings.Trim(n.Source, "\"")
 	}
-	steps, _ := s.Args["_do"].([]normalizer.FlowStep)
-	return BulkheadAction{alias, n, m, t, steps}, nil
+	return BulkheadAction{Alias: alias, Name: n, Max: m, Throw: t}, nil
 }
 func decodeIdemDerive(s normalizer.FlowStep, alias string) (Action, error) {
 	from, e := expressionList(s.Args["from"])
@@ -710,8 +924,7 @@ func decodeDedupeOnce(s normalizer.FlowStep) (Action, error) {
 	if ttl.Source == "" {
 		ttl.Source = "24 * time.Hour"
 	}
-	steps, _ := s.Args["_do"].([]normalizer.FlowStep)
-	return DedupeOnce{k, ttl, steps}, e
+	return DedupeOnce{Key: k, TTL: ttl}, e
 }
 func decodeRateLimit(s normalizer.FlowStep, alias string) (Action, error) {
 	k, e := requiredExpression(s, "key")
@@ -838,9 +1051,17 @@ func decodeApprovalRequest(s normalizer.FlowStep) (Action, error) {
 	if e != nil || len(a) == 0 {
 		return nil, fmt.Errorf("approvers is required")
 	}
+	_, scalar := s.Args["approvers"].(string)
+	if !scalar {
+		for i := range a {
+			if _, err := strconv.Unquote(a[i].Source); err != nil {
+				a[i].Source = strconv.Quote(a[i].Source)
+			}
+			a[i].Type = TypeRef{Kind: TypeString}
+		}
+	}
 	id, _ := optionalString(s, "approvalId")
 	status, _ := optionalString(s, "status")
-	_, scalar := s.Args["approvers"].(string)
 	return ApprovalRequest{x[0], x[1], optionalExpression(s, "description"), x[2], x[3], x[4], optionalExpression(s, "deadline"), optionalExpression(s, "ttl"), a, !scalar, id, status}, nil
 }
 func decodeApprovalWait(s normalizer.FlowStep) (Action, error) {
@@ -866,7 +1087,7 @@ func decodeApprovalWait(s normalizer.FlowStep) (Action, error) {
 	by, _ := optionalString(s, "decidedBy")
 	at, _ := optionalString(s, "decidedAt")
 	r, _ := optionalString(s, "reason")
-	return ApprovalWait{id, timeout, mode, steps, d, st, by, at, r}, nil
+	return ApprovalWait{ApprovalID: id, Timeout: timeout, TimeoutMode: mode, Decision: d, Status: st, DecidedBy: by, DecidedAt: at, Reason: r}, nil
 }
 func decodeApprovalDecide(s normalizer.FlowStep) (Action, error) {
 	x, e := exprs(s, "approvalId", "decision", "actor")
@@ -1504,11 +1725,653 @@ func registerListActions() {
 	Register(ActionSpec{Name: "list.GroupBy", Args: listTransformArgs("key"), Decode: decodeListGroupBy})
 	Register(ActionSpec{Name: "list.Distinct", Args: []ArgSpec{{Name: "from", Kind: ArgExpression, Required: true}, {Name: "as", Kind: ArgIdentifier}, {Name: "key", Kind: ArgExpression}, {Name: "output", Kind: ArgIdentifier, Required: true}}, Decode: decodeListDistinct})
 	Register(ActionSpec{Name: "list.Chunk", Args: []ArgSpec{{Name: "from", Kind: ArgExpression, Required: true}, {Name: "size", Kind: ArgExpression, Required: true}, {Name: "output", Kind: ArgIdentifier, Required: true}}, Decode: decodeListChunk})
+	Register(ActionSpec{Name: "batch.Run", Args: []ArgSpec{{Name: "from", Kind: ArgExpression, Required: true}, {Name: "size", Kind: ArgExpression}, {Name: "as", Kind: ArgIdentifier}}, Decode: decodeBatchRun})
+	for _, name := range []string{"exec.Run", "exec.Stream"} {
+		n := name
+		Register(ActionSpec{Name: n, Args: []ArgSpec{{Name: "cmd", Kind: ArgExpression, Required: true}, {Name: "args", Kind: ArgExpressions}, {Name: "stdin", Kind: ArgExpression}, {Name: "timeout", Kind: ArgExpression}, {Name: "timeoutMs", Kind: ArgInt}, {Name: "output", Kind: ArgIdentifier}, {Name: "exitCodeVar", Kind: ArgIdentifier}, {Name: "failOnError", Kind: ArgBool}, {Name: "throw", Kind: ArgString}}, Decode: func(s normalizer.FlowStep) (Action, error) { return decodeExecCommand(n, s) }})
+	}
+	Register(ActionSpec{Name: "fs.TempDir", Args: []ArgSpec{{Name: "output", Kind: ArgIdentifier, Required: true}, {Name: "pattern", Kind: ArgExpression}}, Decode: decodeFSTempDir})
+	Register(ActionSpec{Name: "fs.WriteFile", Args: []ArgSpec{{Name: "path", Kind: ArgExpression, Required: true}, {Name: "data", Kind: ArgExpression, Required: true}}, Decode: decodeFSWriteFile})
+	Register(ActionSpec{Name: "fs.ReadFile", Args: []ArgSpec{{Name: "path", Kind: ArgExpression, Required: true}, {Name: "output", Kind: ArgIdentifier, Required: true}, {Name: "optional", Kind: ArgBool}}, Decode: decodeFSReadFile})
+	Register(ActionSpec{Name: "fs.Remove", Args: []ArgSpec{{Name: "path", Kind: ArgExpression, Required: true}}, Decode: func(s normalizer.FlowStep) (Action, error) {
+		p, e := requiredExpression(s, "path")
+		return FSRemove{p}, e
+	}})
+	Register(ActionSpec{Name: "archive.ZipDir", Args: []ArgSpec{{Name: "path", Kind: ArgExpression, Required: true}, {Name: "output", Kind: ArgIdentifier, Required: true}}, Decode: decodeArchiveZipDir})
+	Register(ActionSpec{Name: "claude.Chat", Args: aiChatArgs(), Decode: decodeClaudeChat})
+	Register(ActionSpec{Name: "openai.Chat", Args: append(aiChatArgs(), ArgSpec{Name: "tools", Kind: ArgExpressions}, ArgSpec{Name: "tool_choice", Kind: ArgExpression}, ArgSpec{Name: "max_rounds", Kind: ArgInt}, ArgSpec{Name: "output_usage", Kind: ArgIdentifier}, ArgSpec{Name: "output_tool_calls", Kind: ArgIdentifier}, ArgSpec{Name: "response_json_schema", Kind: ArgExpression}, ArgSpec{Name: "response_json_name", Kind: ArgExpression}, ArgSpec{Name: "response_json_strict", Kind: ArgBool}, ArgSpec{Name: "output_json", Kind: ArgIdentifier}), Decode: decodeOpenAIChat})
+	Register(ActionSpec{Name: "openai.Embed", Args: []ArgSpec{{Name: "input", Kind: ArgExpression, Required: true}, {Name: "output", Kind: ArgIdentifier, Required: true}, {Name: "model", Kind: ArgExpression}, {Name: "dimensions", Kind: ArgInt}, {Name: "output_usage", Kind: ArgIdentifier}}, Decode: decodeOpenAIEmbed})
+	Register(ActionSpec{Name: "openai.Stream", Args: aiChatArgs(), Decode: decodeOpenAIStream})
+	Register(ActionSpec{Name: "plan.BuildAutomata", Args: []ArgSpec{{Name: "input", Kind: ArgExpression, Required: true}, {Name: "output", Kind: ArgIdentifier, Required: true}}, Decode: decodePlanBuildAutomata})
+	Register(ActionSpec{Name: "plan.BuildMicroPlan", Args: []ArgSpec{{Name: "usecases", Kind: ArgExpression, Required: true}, {Name: "automata", Kind: ArgExpression, Required: true}, {Name: "output", Kind: ArgIdentifier, Required: true}}, Decode: decodePlanBuildMicroPlan})
+	Register(ActionSpec{Name: "cue.EmitProject", Args: []ArgSpec{{Name: "usecases", Kind: ArgExpression, Required: true}, {Name: "micro_plan", Kind: ArgExpression, Required: true}, {Name: "layout", Kind: ArgExpression}, {Name: "output", Kind: ArgIdentifier, Required: true}}, Decode: decodeCueEmitProject})
+	Register(ActionSpec{Name: "cue.ValidateProject", Args: []ArgSpec{{Name: "files", Kind: ArgExpression, Required: true}, {Name: "binary", Kind: ArgExpression}, {Name: "output", Kind: ArgIdentifier, Required: true}}, Decode: decodeCueValidateProject})
+	Register(ActionSpec{Name: "cue.WriteProjectFiles", Args: []ArgSpec{{Name: "root", Kind: ArgExpression, Required: true}, {Name: "files", Kind: ArgExpression, Required: true}, {Name: "mode", Kind: ArgExpression}, {Name: "prefixes", Kind: ArgExpressions}, {Name: "output", Kind: ArgIdentifier, Required: true}}, Decode: decodeCueWriteProjectFiles})
+	Register(ActionSpec{Name: "audit.Log", Args: []ArgSpec{{Name: "actor", Kind: ArgExpression, Required: true}, {Name: "company", Kind: ArgExpression, Required: true}, {Name: "event", Kind: ArgExpression, Required: true}}, Decode: func(s normalizer.FlowStep) (Action, error) {
+		x, e := exprs(s, "actor", "company", "event")
+		if e != nil {
+			return nil, e
+		}
+		return AuditLog{x[0], x[1], x[2]}, nil
+	}})
+	Register(ActionSpec{Name: "rbac.CheckPermission", Args: []ArgSpec{{Name: "user", Kind: ArgExpression, Required: true}, {Name: "permission", Kind: ArgExpression, Required: true}, {Name: "output", Kind: ArgIdentifier}, {Name: "throw", Kind: ArgString}, {Name: "code", Kind: ArgString}, {Name: "status", Kind: ArgExpression}}, Decode: decodeRBACCheckPermission})
+	Register(ActionSpec{Name: "secret.Get", Args: kvResolveArgs("key"), Decode: func(s normalizer.FlowStep) (Action, error) {
+		k, d, o, e := decodeKVResolve(s, "key")
+		return SecretGet{k, d, o}, e
+	}})
+	Register(ActionSpec{Name: "config.Get", Args: kvResolveArgs("key"), Decode: func(s normalizer.FlowStep) (Action, error) {
+		k, d, o, e := decodeKVResolve(s, "key")
+		return ConfigGet{k, d, o}, e
+	}})
+	Register(ActionSpec{Name: "model.Resolve", Args: kvResolveArgs("name"), Decode: func(s normalizer.FlowStep) (Action, error) {
+		k, d, o, e := decodeKVResolve(s, "name")
+		return ModelResolve{k, d, o}, e
+	}})
+	Register(ActionSpec{Name: "stream.Emit", Args: []ArgSpec{{Name: "data", Kind: ArgExpression, Required: true}}, Decode: func(s normalizer.FlowStep) (Action, error) {
+		v, e := requiredExpression(s, "data")
+		return StreamEmit{v}, e
+	}})
+	Register(ActionSpec{Name: "locale.Resolve", Args: []ArgSpec{{Name: "output", Kind: ArgIdentifier}, {Name: "sources", Kind: ArgString}, {Name: "default", Kind: ArgExpression}}, Decode: decodeLocaleResolve})
+	Register(ActionSpec{Name: "template.Render", Args: []ArgSpec{{Name: "template", Kind: ArgExpression, Required: true}, {Name: "data", Kind: ArgExpression, Required: true}, {Name: "output", Kind: ArgIdentifier, Required: true}}, Decode: decodeTemplateRender})
+	Register(ActionSpec{Name: "pdf.Render", Args: []ArgSpec{{Name: "template", Kind: ArgExpression, Required: true}, {Name: "data", Kind: ArgExpression, Required: true}, {Name: "output", Kind: ArgIdentifier, Required: true}}, Decode: decodePDFRender})
+	Register(ActionSpec{Name: "session.Get", Args: []ArgSpec{{Name: "output", Kind: ArgIdentifier, Required: true}}, Decode: func(s normalizer.FlowStep) (Action, error) { o, e := requiredOutput(s); return SessionGet{o}, e }})
+	for _, name := range []string{"db.Get", "db.List", "db.Query", "db.Insert", "db.Update", "db.Upsert", "db.Delete", "db.Lock", "db.SelectForUpdate"} {
+		n := name
+		Register(ActionSpec{Name: n, Args: []ArgSpec{{Name: "source", Kind: ArgString, Required: true}, {Name: "input", Kind: ArgExpression, Required: true}, {Name: "output", Kind: ArgIdentifier}, {Name: "method", Kind: ArgString}, {Name: "error", Kind: ArgString}}, Decode: func(s normalizer.FlowStep) (Action, error) { return decodeDBAction(n, s) }})
+	}
+	Register(ActionSpec{Name: "event.EmitIf", Args: []ArgSpec{{Name: "condition", Kind: ArgExpression, Required: true}, {Name: "name", Kind: ArgString, Required: true}, {Name: "payload", Kind: ArgExpression}, {Name: "payloadMap", Kind: ArgExpression}}, Decode: decodeEventEmitIf})
+	Register(ActionSpec{Name: "event.Outbox", Args: []ArgSpec{{Name: "name", Kind: ArgExpression, Required: true}, {Name: "payload", Kind: ArgExpression, Required: true}, {Name: "id", Kind: ArgExpression}}, Decode: decodeEventOutbox})
+	Register(ActionSpec{Name: "event.Wait", Args: []ArgSpec{{Name: "name", Kind: ArgExpression, Required: true}, {Name: "timeout", Kind: ArgExpression}, {Name: "match", Kind: ArgExpression}, {Name: "output", Kind: ArgIdentifier}, {Name: "into", Kind: ArgString}}, Decode: decodeEventWait})
+	Register(ActionSpec{Name: "event.Subscribe", Args: []ArgSpec{{Name: "name", Kind: ArgExpression, Required: true}, {Name: "match", Kind: ArgExpression, Required: true}}, Decode: decodeEventSubscribe})
+	Register(ActionSpec{Name: "event.Match", Args: []ArgSpec{{Name: "event", Kind: ArgExpression, Required: true}, {Name: "match", Kind: ArgExpression, Required: true}, {Name: "throw", Kind: ArgString}}, Decode: decodeEventMatch})
+	Register(ActionSpec{Name: "entity.PatchNonZero", Args: []ArgSpec{{Name: "target", Kind: ArgExpression, Required: true}, {Name: "from", Kind: ArgExpression, Required: true}, {Name: "fields", Kind: ArgString, Required: true}}, Decode: decodeEntityPatchNonZero})
+	Register(ActionSpec{Name: "field.CopyNonEmpty", Args: []ArgSpec{{Name: "from", Kind: ArgExpression, Required: true}, {Name: "to", Kind: ArgExpression, Required: true}, {Name: "fields", Kind: ArgString}}, Decode: decodeFieldCopyNonEmpty})
+	Register(ActionSpec{Name: "entity.PatchValidated", Args: []ArgSpec{{Name: "target", Kind: ArgExpression, Required: true}, {Name: "from", Kind: ArgExpression, Required: true}, {Name: "source", Kind: ArgString}, {Name: "fields", Kind: ArgExpression, Required: true}}, Decode: decodeEntityPatchValidated})
+	Register(ActionSpec{Name: "enum.Validate", Args: []ArgSpec{{Name: "value", Kind: ArgExpression, Required: true}, {Name: "allowed", Kind: ArgString, Required: true}, {Name: "throw", Kind: ArgString, Required: true}}, Decode: decodeEnumValidate})
+	Register(ActionSpec{Name: "fsm.Transition", Args: []ArgSpec{{Name: "entity", Kind: ArgExpression, Required: true}, {Name: "to", Kind: ArgString, Required: true}}, Decode: func(s normalizer.FlowStep) (Action, error) {
+		e, err := requiredExpression(s, "entity")
+		if err != nil {
+			return nil, err
+		}
+		to, err := requiredString(s, "to")
+		return FSMTransition{e, to}, err
+	}})
+	Register(ActionSpec{Name: "list.Enrich", Args: []ArgSpec{{Name: "items", Kind: ArgExpression, Required: true}, {Name: "as", Kind: ArgIdentifier}, {Name: "lookupSource", Kind: ArgString, Required: true}, {Name: "lookupInput", Kind: ArgExpression, Required: true}, {Name: "set", Kind: ArgString, Required: true}}, Decode: decodeListEnrich})
+	Register(ActionSpec{Name: "oauth.Google.GetURL", Args: []ArgSpec{{Name: "clientID", Kind: ArgExpression, Required: true}, {Name: "redirectURL", Kind: ArgExpression, Required: true}, {Name: "output", Kind: ArgIdentifier, Required: true}, {Name: "state", Kind: ArgExpression}, {Name: "scopes", Kind: ArgExpression}}, Decode: decodeOAuthGoogleGetURL})
+	Register(ActionSpec{Name: "oauth.Google.Exchange", Args: []ArgSpec{{Name: "clientID", Kind: ArgExpression, Required: true}, {Name: "clientSecret", Kind: ArgExpression, Required: true}, {Name: "redirectURL", Kind: ArgExpression, Required: true}, {Name: "code", Kind: ArgExpression, Required: true}, {Name: "output", Kind: ArgIdentifier, Required: true}, {Name: "scopes", Kind: ArgExpression}}, Decode: decodeOAuthGoogleExchange})
+	Register(ActionSpec{Name: "oauth.Google.UserInfo", Args: []ArgSpec{{Name: "token", Kind: ArgExpression, Required: true}, {Name: "output", Kind: ArgIdentifier, Required: true}}, Decode: decodeOAuthGoogleUserInfo})
 	Register(ActionSpec{Name: "list.Sort", Args: []ArgSpec{{Name: "items", Kind: ArgExpression, Required: true}, {Name: "by", Kind: ArgString, Required: true}, {Name: "desc", Kind: ArgBool}}, Decode: decodeListSort})
 	for _, name := range []string{"list.Sum", "list.Avg"} {
 		n := name
 		Register(ActionSpec{Name: n, Args: []ArgSpec{{Name: "input", Kind: ArgExpression, Required: true}, {Name: "field", Kind: ArgString}, {Name: "output", Kind: ArgIdentifier, Required: true}}, Decode: func(s normalizer.FlowStep) (Action, error) { return decodeListAggregate(s, n) }})
 	}
+}
+
+func kvResolveArgs(key string) []ArgSpec {
+	return []ArgSpec{{Name: key, Kind: ArgExpression, Required: true}, {Name: "output", Kind: ArgIdentifier, Required: true}, {Name: "default", Kind: ArgExpression}}
+}
+func decodeKVResolve(s normalizer.FlowStep, key string) (Expression, Expression, string, error) {
+	k, e := requiredExpression(s, key)
+	if e != nil {
+		return Expression{}, Expression{}, "", e
+	}
+	o, e := requiredOutput(s)
+	return k, optionalExpression(s, "default"), o, e
+}
+func decodeRBACCheckPermission(s normalizer.FlowStep) (Action, error) {
+	x, e := exprs(s, "user", "permission")
+	if e != nil {
+		return nil, e
+	}
+	o, e := optionalIdentifier(s, "output")
+	if e != nil {
+		return nil, e
+	}
+	t, _ := optionalString(s, "throw")
+	c, _ := optionalString(s, "code")
+	if c == "" {
+		c = "FORBIDDEN"
+	}
+	status := optionalExpression(s, "status")
+	if status.Source == "" {
+		status.Source = "http.StatusForbidden"
+	}
+	return RBACCheckPermission{x[0], x[1], status, o, t, c}, nil
+}
+func decodeLocaleResolve(s normalizer.FlowStep) (Action, error) {
+	o, e := optionalIdentifier(s, "output")
+	if e != nil {
+		return nil, e
+	}
+	if o == "" {
+		o = "locale"
+	}
+	src, _ := optionalString(s, "sources")
+	d := optionalExpression(s, "default")
+	if d.Source == "" {
+		d.Source = `"en"`
+	}
+	return LocaleResolve{src, d, o}, nil
+}
+func decodeTemplateRender(s normalizer.FlowStep) (Action, error) {
+	x, e := exprs(s, "template", "data")
+	if e != nil {
+		return nil, e
+	}
+	o, e := requiredOutput(s)
+	return TemplateRender{x[0], x[1], o}, e
+}
+func decodePDFRender(s normalizer.FlowStep) (Action, error) {
+	x, e := exprs(s, "template", "data")
+	if e != nil {
+		return nil, e
+	}
+	o, e := requiredOutput(s)
+	return PDFRender{x[0], x[1], o}, e
+}
+
+func requiredOutput(s normalizer.FlowStep) (string, error) { return requiredIdentifier(s, "output") }
+func decodeDBAction(name string, s normalizer.FlowStep) (Action, error) {
+	source, err := requiredString(s, "source")
+	if err != nil {
+		return nil, err
+	}
+	input, err := requiredExpression(s, "input")
+	if err != nil {
+		return nil, err
+	}
+	output, err := optionalIdentifier(s, "output")
+	if err != nil {
+		return nil, err
+	}
+	method, _ := optionalString(s, "method")
+	message, _ := optionalString(s, "error")
+	if (name == "db.Lock" || name == "db.SelectForUpdate") && output == "" {
+		output = strings.ToLower(source[:1]) + source[1:]
+	}
+	f := DBFields{Source: source, Method: method, Output: output, Error: message, Input: input}
+	switch name {
+	case "db.Get":
+		return DBGet{f}, nil
+	case "db.List":
+		return DBList{f}, nil
+	case "db.Query":
+		if method == "" {
+			return nil, fmt.Errorf("method is required")
+		}
+		return DBQuery{f}, nil
+	case "db.Insert":
+		return DBInsert{f}, nil
+	case "db.Update":
+		return DBUpdate{f}, nil
+	case "db.Upsert":
+		return DBUpsert{f}, nil
+	case "db.Delete":
+		return DBDelete{f}, nil
+	case "db.Lock":
+		return DBLock{f}, nil
+	case "db.SelectForUpdate":
+		return DBSelectForUpdate{f}, nil
+	}
+	return nil, fmt.Errorf("unsupported DB action %q", name)
+}
+func decodeEventEmitIf(s normalizer.FlowStep) (Action, error) {
+	c, e := requiredExpression(s, "condition")
+	if e != nil {
+		return nil, e
+	}
+	n, e := requiredString(s, "name")
+	if e != nil {
+		return nil, e
+	}
+	m, e := expressionMap(s.Args["payloadMap"])
+	return EventEmitIf{c, n, optionalExpression(s, "payload"), m}, e
+}
+func decodeEventOutbox(s normalizer.FlowStep) (Action, error) {
+	x, e := exprs(s, "name", "payload")
+	if e != nil {
+		return nil, e
+	}
+	id := optionalExpression(s, "id")
+	if id.Source == "" {
+		id.Source = "uuid.NewString()"
+	}
+	return EventOutbox{x[0], x[1], id}, nil
+}
+func decodeEventWait(s normalizer.FlowStep) (Action, error) {
+	n, e := requiredExpression(s, "name")
+	if e != nil {
+		return nil, e
+	}
+	o, e := optionalIdentifier(s, "output")
+	if e != nil {
+		return nil, e
+	}
+	into, _ := optionalString(s, "into")
+	timeout := optionalExpression(s, "timeout")
+	if timeout.Source == "" {
+		timeout.Source = "5*time.Minute"
+	}
+	return EventWait{n, timeout, optionalExpression(s, "match"), o, into}, nil
+}
+func decodeEventSubscribe(s normalizer.FlowStep) (Action, error) {
+	x, e := exprs(s, "name", "match")
+	if e != nil {
+		return nil, e
+	}
+	_, e = nestedSteps(s, "_do", true)
+	return EventSubscribe{Name: x[0], Match: x[1]}, e
+}
+func decodeEventMatch(s normalizer.FlowStep) (Action, error) {
+	x, e := exprs(s, "event", "match")
+	if e != nil {
+		return nil, e
+	}
+	t, _ := optionalString(s, "throw")
+	return EventMatch{x[0], x[1], t}, nil
+}
+func commaList(value string) []string {
+	var out []string
+	for _, item := range strings.Split(value, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+func decodeEntityPatchNonZero(s normalizer.FlowStep) (Action, error) {
+	x, e := exprs(s, "target", "from")
+	if e != nil {
+		return nil, e
+	}
+	f, e := requiredString(s, "fields")
+	return EntityPatchNonZero{x[0], x[1], commaList(f)}, e
+}
+func decodeFieldCopyNonEmpty(s normalizer.FlowStep) (Action, error) {
+	x, e := exprs(s, "from", "to")
+	if e != nil {
+		return nil, e
+	}
+	f, _ := optionalString(s, "fields")
+	return FieldCopyNonEmpty{x[0], x[1], commaList(f)}, nil
+}
+func decodeEntityPatchValidated(s normalizer.FlowStep) (Action, error) {
+	x, e := exprs(s, "target", "from")
+	if e != nil {
+		return nil, e
+	}
+	source, _ := optionalString(s, "source")
+	raw, ok := s.Args["fields"].(map[string]map[string]string)
+	if !ok || len(raw) == 0 {
+		return nil, fmt.Errorf("fields map is required")
+	}
+	fields := make(map[string]PatchFieldRule, len(raw))
+	for name, rules := range raw {
+		fields[name] = PatchFieldRule{Normalize: rules["normalize"], Format: rules["format"], Unique: rules["unique"]}
+	}
+	return EntityPatchValidated{x[0], x[1], source, fields}, nil
+}
+func decodeEnumValidate(s normalizer.FlowStep) (Action, error) {
+	v, e := requiredExpression(s, "value")
+	if e != nil {
+		return nil, e
+	}
+	a, e := requiredString(s, "allowed")
+	if e != nil {
+		return nil, e
+	}
+	t, e := requiredString(s, "throw")
+	return EnumValidate{v, commaList(a), t}, e
+}
+func decodeListEnrich(s normalizer.FlowStep) (Action, error) {
+	items, e := requiredExpression(s, "items")
+	if e != nil {
+		return nil, e
+	}
+	lookup, e := requiredExpression(s, "lookupInput")
+	if e != nil {
+		return nil, e
+	}
+	as, e := optionalIdentifier(s, "as")
+	if e != nil {
+		return nil, e
+	}
+	if as == "" {
+		as = "_item"
+	}
+	source, e := requiredString(s, "lookupSource")
+	if e != nil {
+		return nil, e
+	}
+	set, e := requiredString(s, "set")
+	if e != nil {
+		return nil, e
+	}
+	var fields []EnrichField
+	for _, pair := range strings.Split(set, ",") {
+		parts := strings.SplitN(strings.TrimSpace(pair), "=", 2)
+		if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+			return nil, fmt.Errorf("set contains invalid mapping %q", pair)
+		}
+		fields = append(fields, EnrichField{strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])})
+	}
+	return ListEnrich{items, lookup, as, source, fields}, nil
+}
+func defaultExpr(s normalizer.FlowStep, key, value string) Expression {
+	e := optionalExpression(s, key)
+	if e.Source == "" {
+		e.Source = value
+	}
+	return e
+}
+func decodeOAuthGoogleGetURL(s normalizer.FlowStep) (Action, error) {
+	x, e := exprs(s, "clientID", "redirectURL")
+	if e != nil {
+		return nil, e
+	}
+	o, e := requiredOutput(s)
+	return OAuthGoogleGetURL{x[0], x[1], defaultExpr(s, "state", `""`), defaultExpr(s, "scopes", `"openid email profile"`), o}, e
+}
+func decodeOAuthGoogleExchange(s normalizer.FlowStep) (Action, error) {
+	x, e := exprs(s, "clientID", "clientSecret", "redirectURL", "code")
+	if e != nil {
+		return nil, e
+	}
+	o, e := requiredOutput(s)
+	return OAuthGoogleExchange{x[0], x[1], x[2], x[3], defaultExpr(s, "scopes", `"openid email profile"`), o}, e
+}
+func decodeOAuthGoogleUserInfo(s normalizer.FlowStep) (Action, error) {
+	t, e := requiredExpression(s, "token")
+	if e != nil {
+		return nil, e
+	}
+	o, e := requiredOutput(s)
+	return OAuthGoogleUserInfo{t, o}, e
+}
+func decodePlanBuildAutomata(s normalizer.FlowStep) (Action, error) {
+	i, e := requiredExpression(s, "input")
+	if e != nil {
+		return nil, e
+	}
+	o, e := requiredOutput(s)
+	return PlanBuildAutomata{i, o}, e
+}
+func decodePlanBuildMicroPlan(s normalizer.FlowStep) (Action, error) {
+	x, e := exprs(s, "usecases", "automata")
+	if e != nil {
+		return nil, e
+	}
+	o, e := requiredOutput(s)
+	return PlanBuildMicroPlan{x[0], x[1], o}, e
+}
+func decodeCueEmitProject(s normalizer.FlowStep) (Action, error) {
+	x, e := exprs(s, "usecases", "micro_plan")
+	if e != nil {
+		return nil, e
+	}
+	o, e := requiredOutput(s)
+	l := optionalExpression(s, "layout")
+	if l.Source == "" {
+		l.Source = `"split"`
+	}
+	return CueEmitProject{x[0], x[1], l, o}, e
+}
+func decodeCueValidateProject(s normalizer.FlowStep) (Action, error) {
+	f, e := requiredExpression(s, "files")
+	if e != nil {
+		return nil, e
+	}
+	o, e := requiredOutput(s)
+	b := optionalExpression(s, "binary")
+	if b.Source == "" {
+		b.Source = `"ang"`
+	}
+	return CueValidateProject{f, b, o}, e
+}
+func decodeCueWriteProjectFiles(s normalizer.FlowStep) (Action, error) {
+	x, e := exprs(s, "root", "files")
+	if e != nil {
+		return nil, e
+	}
+	o, e := requiredOutput(s)
+	if e != nil {
+		return nil, e
+	}
+	m := optionalExpression(s, "mode")
+	if m.Source == "" {
+		m.Source = `"upsert"`
+	}
+	var p []string
+	if raw, ok := s.Args["prefixes"]; ok {
+		switch v := raw.(type) {
+		case []string:
+			p = append(p, v...)
+		case []any:
+			for _, item := range v {
+				value, ok := item.(string)
+				if !ok {
+					return nil, fmt.Errorf("prefixes must contain strings")
+				}
+				p = append(p, value)
+			}
+		default:
+			return nil, fmt.Errorf("prefixes must be a string list")
+		}
+	}
+	return CueWriteProjectFiles{x[0], x[1], m, p, o}, nil
+}
+
+func aiChatArgs() []ArgSpec {
+	return []ArgSpec{{Name: "user_message", Kind: ArgExpression, Required: true}, {Name: "system", Kind: ArgExpression}, {Name: "system_context", Kind: ArgExpression}, {Name: "history", Kind: ArgExpression}, {Name: "output", Kind: ArgIdentifier}, {Name: "model", Kind: ArgExpression}, {Name: "max_tokens", Kind: ArgInt}, {Name: "locale", Kind: ArgExpression}, {Name: "timezone", Kind: ArgExpression}}
+}
+func aiOutput(s normalizer.FlowStep, key, fallback string) (string, error) {
+	v, e := optionalIdentifier(s, key)
+	if e != nil {
+		return "", e
+	}
+	if v == "" {
+		v = fallback
+	}
+	return v, nil
+}
+func decodeClaudeChat(s normalizer.FlowStep) (Action, error) {
+	u, e := requiredExpression(s, "user_message")
+	if e != nil {
+		return nil, e
+	}
+	o, e := aiOutput(s, "output", "claudeReply")
+	if e != nil {
+		return nil, e
+	}
+	n, e := optionalInt(s, "max_tokens", 4096)
+	m := optionalExpression(s, "model")
+	if m.Source == "" {
+		m.Source = `"claude-sonnet-4-6"`
+	}
+	return ClaudeChat{optionalExpression(s, "system"), optionalExpression(s, "system_context"), u, optionalExpression(s, "history"), m, optionalExpression(s, "locale"), optionalExpression(s, "timezone"), o, n}, e
+}
+func decodeOpenAIChat(s normalizer.FlowStep) (Action, error) {
+	u, decodeErr := requiredExpression(s, "user_message")
+	var e error
+	o, e := aiOutput(s, "output", "openaiReply")
+	if e != nil {
+		return nil, e
+	}
+	mt, e := optionalInt(s, "max_tokens", 4096)
+	if e != nil {
+		return nil, e
+	}
+	mr, e := optionalInt(s, "max_rounds", 6)
+	if e != nil {
+		return nil, e
+	}
+	strict := true
+	if _, ok := s.Args["response_json_strict"]; ok {
+		strict, e = optionalBool(s, "response_json_strict")
+		if e != nil {
+			return nil, e
+		}
+	}
+	m := optionalExpression(s, "model")
+	if m.Source == "" {
+		m.Source = `"gpt-4o-mini"`
+	}
+	rn := optionalExpression(s, "response_json_name")
+	if rn.Source == "" {
+		rn.Source = `"structured_response"`
+	}
+	var tools []string
+	if raw, ok := s.Args["tools"]; ok {
+		switch v := raw.(type) {
+		case []string:
+			tools = append(tools, v...)
+		case string:
+			if strings.TrimSpace(v) != "" {
+				tools = []string{v}
+			}
+		default:
+			return nil, fmt.Errorf("tools must be a string list")
+		}
+	}
+	ou, e := optionalIdentifier(s, "output_usage")
+	if e != nil {
+		return nil, e
+	}
+	ot, e := optionalIdentifier(s, "output_tool_calls")
+	if e != nil {
+		return nil, e
+	}
+	oj, e := optionalIdentifier(s, "output_json")
+	if e != nil {
+		return nil, e
+	}
+	return OpenAIChat{optionalExpression(s, "system"), optionalExpression(s, "system_context"), u, optionalExpression(s, "history"), m, optionalExpression(s, "tool_choice"), optionalExpression(s, "response_json_schema"), rn, o, ou, ot, oj, tools, mt, mr, strict}, decodeErr
+}
+func decodeOpenAIEmbed(s normalizer.FlowStep) (Action, error) {
+	i, e := requiredExpression(s, "input")
+	if e != nil {
+		return nil, e
+	}
+	o, e := requiredIdentifier(s, "output")
+	if e != nil {
+		return nil, e
+	}
+	u, e := optionalIdentifier(s, "output_usage")
+	if e != nil {
+		return nil, e
+	}
+	d, e := optionalInt(s, "dimensions", 0)
+	m := optionalExpression(s, "model")
+	if m.Source == "" {
+		m.Source = `"text-embedding-3-small"`
+	}
+	return OpenAIEmbed{i, m, o, u, d}, e
+}
+func decodeOpenAIStream(s normalizer.FlowStep) (Action, error) {
+	u, e := requiredExpression(s, "user_message")
+	if e != nil {
+		return nil, e
+	}
+	o, e := optionalIdentifier(s, "output")
+	if e != nil {
+		return nil, e
+	}
+	n, e := optionalInt(s, "max_tokens", 4096)
+	m := optionalExpression(s, "model")
+	if m.Source == "" {
+		m.Source = `"gpt-4o"`
+	}
+	return OpenAIStream{optionalExpression(s, "system"), optionalExpression(s, "system_context"), u, optionalExpression(s, "history"), m, o, n}, e
+}
+
+func decodeExecCommand(name string, s normalizer.FlowStep) (Action, error) {
+	cmd, err := requiredExpression(s, "cmd")
+	if err != nil {
+		return nil, err
+	}
+	args, err := expressionList(s.Args["args"])
+	if err != nil {
+		return nil, err
+	}
+	tms, err := optionalInt(s, "timeoutMs", 0)
+	if err != nil {
+		return nil, err
+	}
+	out, err := optionalIdentifier(s, "output")
+	if err != nil {
+		return nil, err
+	}
+	exit, err := optionalIdentifier(s, "exitCodeVar")
+	if err != nil {
+		return nil, err
+	}
+	fail := true
+	if _, ok := s.Args["failOnError"]; ok {
+		fail, err = optionalBool(s, "failOnError")
+		if err != nil {
+			return nil, err
+		}
+	}
+	throw, _ := optionalString(s, "throw")
+	return ExecCommand{Alias: name, Command: cmd, Arguments: args, Stdin: optionalExpression(s, "stdin"), Timeout: optionalExpression(s, "timeout"), TimeoutMS: tms, Output: out, ExitCodeVar: exit, FailOnError: fail, Throw: throw}, nil
+}
+func decodeFSTempDir(s normalizer.FlowStep) (Action, error) {
+	o, e := requiredIdentifier(s, "output")
+	p := optionalExpression(s, "pattern")
+	if p.Source == "" {
+		p.Source = `"ang-tmp-*"`
+	}
+	return FSTempDir{p, o}, e
+}
+func decodeFSWriteFile(s normalizer.FlowStep) (Action, error) {
+	x, e := exprs(s, "path", "data")
+	if e != nil {
+		return nil, e
+	}
+	return FSWriteFile{x[0], x[1]}, nil
+}
+func decodeFSReadFile(s normalizer.FlowStep) (Action, error) {
+	p, e := requiredExpression(s, "path")
+	if e != nil {
+		return nil, e
+	}
+	o, e := requiredIdentifier(s, "output")
+	if e != nil {
+		return nil, e
+	}
+	optional, e := optionalBool(s, "optional")
+	return FSReadFile{p, o, optional}, e
+}
+func decodeArchiveZipDir(s normalizer.FlowStep) (Action, error) {
+	p, e := requiredExpression(s, "path")
+	if e != nil {
+		return nil, e
+	}
+	o, e := requiredIdentifier(s, "output")
+	return ArchiveZipDir{p, o}, e
+}
+
+func decodeBatchRun(s normalizer.FlowStep) (Action, error) {
+	from, err := requiredExpression(s, "from")
+	if err != nil {
+		return nil, err
+	}
+	size := optionalAnyExpression(s, "size")
+	if size.Source == "" {
+		size = Expression{Source: "100", Type: TypeRef{Kind: TypeInt}}
+	}
+	as, err := optionalIdentifier(s, "as")
+	if err != nil {
+		return nil, err
+	}
+	if as == "" {
+		as = "batch"
+	}
+	_, err = nestedSteps(s, "_do", true)
+	if err != nil {
+		return nil, err
+	}
+	return BatchRun{From: from, Size: size, As: as}, nil
 }
 
 func listPredicateArgs(_ bool) []ArgSpec {
@@ -1636,7 +2499,14 @@ func decodeListReduce(s normalizer.FlowStep) (Action, error) {
 		return nil, e
 	}
 	v := m.(ListMap)
-	return ListReduce{v.From, v.As, v.Value, optionalExpression(s, "initial"), v.Output}, nil
+	initial := optionalExpression(s, "initial")
+	if initial.Source == "" {
+		initial = optionalExpression(s, "init")
+	}
+	if initial.Source == "" {
+		initial = optionalExpression(s, "seed")
+	}
+	return ListReduce{v.From, v.As, v.Value, initial, v.Output}, nil
 }
 func decodeListGroupBy(s normalizer.FlowStep) (Action, error) {
 	f, e := requiredExpression(s, "from")
@@ -1687,11 +2557,19 @@ func decodeListSort(s normalizer.FlowStep) (Action, error) {
 	if e != nil {
 		return nil, e
 	}
-	d := true
+	d := false
+	o := optionalExpression(s, "order")
 	if _, ok := s.Args["desc"]; ok {
 		d, e = optionalBool(s, "desc")
+		if o.Source == "" {
+			if d {
+				o.Source = "desc"
+			} else {
+				o.Source = "asc"
+			}
+		}
 	}
-	return ListSort{i, b, d}, e
+	return ListSort{Items: i, Order: o, By: b, Descending: d}, e
 }
 func decodeListAggregate(s normalizer.FlowStep, n string) (Action, error) {
 	i, e := requiredExpression(s, "input")
@@ -2064,15 +2942,9 @@ func decodeMappingMap(step normalizer.FlowStep) (Action, error) {
 	if input == "" {
 		input, _ = optionalString(step, "from")
 	}
-	output, err := optionalIdentifier(step, "output")
-	if err != nil {
-		return nil, err
-	}
+	output, _ := optionalString(step, "output")
 	if output == "" {
-		output, err = optionalIdentifier(step, "to")
-		if err != nil {
-			return nil, err
-		}
+		output, _ = optionalString(step, "to")
 	}
 	entity, _ := optionalString(step, "entity")
 	if output == "" && input == "" {
@@ -2102,20 +2974,19 @@ func decodeFlowIf(step normalizer.FlowStep) (Action, error) {
 	if err != nil {
 		return nil, err
 	}
-	thenSteps, ok := step.Args["_then"].([]normalizer.FlowStep)
+	_, ok := step.Args["_then"].([]normalizer.FlowStep)
 	if !ok {
 		return nil, fmt.Errorf("then block is required")
 	}
-	elseSteps, _ := step.Args["_else"].([]normalizer.FlowStep)
-	return FlowIf{Condition: Expression{Source: condition, Type: TypeRef{Kind: TypeBool}}, Then: thenSteps, Else: elseSteps}, nil
+	return FlowIf{Condition: Expression{Source: condition, Type: TypeRef{Kind: TypeBool}}}, nil
 }
 
 func decodeFlowBlock(step normalizer.FlowStep, transactional bool) (Action, error) {
-	steps, ok := step.Args["_do"].([]normalizer.FlowStep)
+	_, ok := step.Args["_do"].([]normalizer.FlowStep)
 	if !ok {
 		return nil, fmt.Errorf("do block is required")
 	}
-	return FlowBlock{Transactional: transactional, Steps: steps}, nil
+	return FlowBlock{Transactional: transactional}, nil
 }
 
 func decodeEventPublish(step normalizer.FlowStep, broadcast bool) (Action, error) {

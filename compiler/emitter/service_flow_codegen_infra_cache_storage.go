@@ -14,7 +14,7 @@ func renderFlowStepInfraCacheMailStorage(st *flowRenderState, step normalizer.Fl
 
 	switch step.Action {
 	case "cache.Get":
-		typed, err := flowir.DecodeAs[flowir.CacheGet](step)
+		typed, err := decodeCurrentActionAs[flowir.CacheGet](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, "cache.Get", err.Error()), true
 		}
@@ -51,7 +51,7 @@ func renderFlowStepInfraCacheMailStorage(st *flowRenderState, step normalizer.Fl
 		return b.String(), true
 
 	case "cache.Set":
-		typed, err := flowir.DecodeAs[flowir.CacheSet](step)
+		typed, err := decodeCurrentActionAs[flowir.CacheSet](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, "cache.Set", err.Error()), true
 		}
@@ -68,7 +68,7 @@ func renderFlowStepInfraCacheMailStorage(st *flowRenderState, step normalizer.Fl
 		return b.String(), true
 
 	case "cache.Del":
-		typed, err := flowir.DecodeAs[flowir.CacheDelete](step)
+		typed, err := decodeCurrentActionAs[flowir.CacheDelete](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, "cache.Del", err.Error()), true
 		}
@@ -80,7 +80,7 @@ func renderFlowStepInfraCacheMailStorage(st *flowRenderState, step normalizer.Fl
 		return b.String(), true
 
 	case "mail.Send":
-		typed, err := flowir.DecodeAs[flowir.MailSend](step)
+		typed, err := decodeCurrentActionAs[flowir.MailSend](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -96,7 +96,7 @@ func renderFlowStepInfraCacheMailStorage(st *flowRenderState, step normalizer.Fl
 		return b.String(), true
 
 	case "storage.Upload":
-		typed, err := flowir.DecodeAs[flowir.StorageUpload](step)
+		typed, err := decodeCurrentActionAs[flowir.StorageUpload](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, "storage.Upload", err.Error()), true
 		}
@@ -143,7 +143,7 @@ func renderFlowStepInfraCacheMailStorage(st *flowRenderState, step normalizer.Fl
 		return b.String(), true
 
 	case "storage.Download":
-		typed, err := flowir.DecodeAs[flowir.StorageDownload](step)
+		typed, err := decodeCurrentActionAs[flowir.StorageDownload](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, "storage.Download", err.Error()), true
 		}
@@ -177,7 +177,7 @@ func renderFlowStepInfraCacheMailStorage(st *flowRenderState, step normalizer.Fl
 		return b.String(), true
 
 	case "storage.Delete":
-		typed, err := flowir.DecodeAs[flowir.StorageDelete](step)
+		typed, err := decodeCurrentActionAs[flowir.StorageDelete](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, "storage.Delete", err.Error()), true
 		}
@@ -190,7 +190,7 @@ func renderFlowStepInfraCacheMailStorage(st *flowRenderState, step normalizer.Fl
 		return b.String(), true
 
 	case "storage.List":
-		typed, err := flowir.DecodeAs[flowir.StorageList](step)
+		typed, err := decodeCurrentActionAs[flowir.StorageList](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, "storage.List", err.Error()), true
 		}
@@ -213,7 +213,7 @@ func renderFlowStepInfraCacheMailStorage(st *flowRenderState, step normalizer.Fl
 		return b.String(), true
 
 	case "storage.GetURL":
-		typed, err := flowir.DecodeAs[flowir.StorageGetURL](step)
+		typed, err := decodeCurrentActionAs[flowir.StorageGetURL](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, "storage.GetURL", err.Error()), true
 		}

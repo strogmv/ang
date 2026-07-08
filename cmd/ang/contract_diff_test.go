@@ -54,3 +54,26 @@ components:
 		t.Fatalf("breaking changes=%#v", diff.BreakingChanges)
 	}
 }
+
+func TestDiffOpenAPIContractsRecoversMalformedGeneratedBaseline(t *testing.T) {
+	previous := []byte("openapi: 3.0.0\ninfo:\n  description: invalid: scalar\n")
+	current := []byte("openapi: 3.0.0\npaths:\n  /health:\n    get: {}\n")
+
+	diff, recovered, err := diffOpenAPIContractsWithRecovery(previous, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !recovered {
+		t.Fatal("expected malformed generated baseline recovery")
+	}
+	if len(diff.AddedOperations) != 1 || diff.AddedOperations[0] != "GET /health" {
+		t.Fatalf("unexpected recovered diff: %#v", diff)
+	}
+}
+
+func TestDiffOpenAPIContractsRecoveryStillRejectsMalformedCurrent(t *testing.T) {
+	malformed := []byte("openapi: 3.0.0\ninfo:\n  description: invalid: scalar\n")
+	if _, _, err := diffOpenAPIContractsWithRecovery(malformed, malformed); err == nil {
+		t.Fatal("expected malformed current contract error")
+	}
+}

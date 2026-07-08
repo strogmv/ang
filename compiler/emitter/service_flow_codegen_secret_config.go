@@ -5,17 +5,26 @@ import (
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 func renderFlowStepSecretConfig(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
 	pad := strings.Repeat("\t", indent)
 	switch step.Action {
 	case "secret.Get", "config.Get":
-		key := arg("key")
-		output := arg("output")
-		defVal := arg("default")
-		if key == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, step.Action+" requires key and output"), true
+		var key, defVal, output string
+		if step.Action == "secret.Get" {
+			typed, err := decodeCurrentActionAs[flowir.SecretGet](st, step)
+			if err != nil {
+				return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			}
+			key, defVal, output = normalizeFlowExpr(typed.Key.Source), normalizeFlowExpr(typed.Default.Source), typed.Output
+		} else {
+			typed, err := decodeCurrentActionAs[flowir.ConfigGet](st, step)
+			if err != nil {
+				return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			}
+			key, defVal, output = normalizeFlowExpr(typed.Key.Source), normalizeFlowExpr(typed.Default.Source), typed.Output
 		}
 
 		// Both secret.Get and config.Get use os.Getenv for now.
@@ -40,12 +49,11 @@ func renderFlowStepSecretConfig(st *flowRenderState, step normalizer.FlowStep, i
 
 		return b.String(), true
 	case "model.Resolve":
-		name := arg("name")
-		output := arg("output")
-		defVal := arg("default")
-		if name == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "model.Resolve", "model.Resolve requires name and output"), true
+		typed, err := decodeCurrentActionAs[flowir.ModelResolve](st, step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		name, output, defVal := normalizeFlowExpr(typed.Name.Source), typed.Output, normalizeFlowExpr(typed.Default.Source)
 
 		st.declared[output] = true
 		st.pointers[output] = false

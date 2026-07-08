@@ -49,13 +49,14 @@ func TestPolicyParity_BackendMiddlewareAndSDKMeta(t *testing.T) {
 	entities := []ir.Entity{{Name: "Company", Fields: []ir.Field{{Name: "ID", Type: ir.TypeRef{Kind: ir.KindString}}}}}
 	services := []ir.Service{{Name: "Company", Methods: []ir.Method{{Name: "UpdateCompany", Input: &ir.Entity{Name: "UpdateCompanyRequest"}, Output: &ir.Entity{Name: "UpdateCompanyResponse"}}}}}
 	endpoints := []ir.Endpoint{{
-		Method:     "POST",
-		Path:       "/api/company/update",
-		Service:    "Company",
-		RPC:        "UpdateCompany",
-		Idempotent: true,
-		Timeout:    "30s",
-		Cache:      "24h",
+		Method:      "POST",
+		Path:        "/api/company/update",
+		Service:     "Company",
+		RPC:         "UpdateCompany",
+		Description: `Update company: accepts JSON`,
+		Idempotent:  true,
+		Timeout:     "30s",
+		Cache:       "24h",
 		RateLimit: &ir.RateLimit{
 			RPS:   25,
 			Burst: 50,
@@ -71,6 +72,7 @@ func TestPolicyParity_BackendMiddlewareAndSDKMeta(t *testing.T) {
 	}
 	openapiText := string(openapiData)
 	for _, expected := range []string{
+		`description: "Update company: accepts JSON"`,
 		"x-idempotency: true",
 		"x-timeout: 30s",
 		"x-cache-ttl: 24h",

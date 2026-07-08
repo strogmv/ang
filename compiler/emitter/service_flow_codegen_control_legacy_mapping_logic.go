@@ -11,7 +11,7 @@ import (
 func renderFlowStepControlLegacyMappingLogic(st *flowRenderState, step normalizer.FlowStep, pad string, arg func(string) string) (string, bool) {
 	switch step.Action {
 	case "mapping.Map":
-		typed, decodeErr := flowir.DecodeAs[flowir.MappingMap](step)
+		typed, decodeErr := decodeCurrentActionAs[flowir.MappingMap](st, step)
 		if decodeErr != nil {
 			return renderInvalidFlowStepConfig(st, pad, "mapping.Map", decodeErr.Error()), true
 		}
@@ -74,12 +74,12 @@ func renderFlowStepControlLegacyMappingLogic(st *flowRenderState, step normalize
 		return "", true
 
 	case "event.Publish":
-		typed, decodeErr := flowir.DecodeAs[flowir.EventPublish](step)
+		typed, decodeErr := decodeCurrentActionAs[flowir.EventPublish](st, step)
 		if decodeErr != nil {
 			return renderInvalidFlowStepConfig(st, pad, "event.Publish", decodeErr.Error()), true
 		}
 		name := typed.Event
-		payload := renderEventPayloadExpr(st, step, name, arg)
+		payload := renderTypedEventPayloadExpr(st, name, typed.Payload, typed.PayloadMap)
 		if name == "" {
 			return renderInvalidFlowStepConfig(st, pad, "event.Publish", "event.Publish requires name"), true
 		}
@@ -96,12 +96,12 @@ func renderFlowStepControlLegacyMappingLogic(st *flowRenderState, step normalize
 		return b.String(), true
 
 	case "event.EmitIf":
-		cond := arg("condition")
-		name := arg("name")
-		payload := renderEventPayloadExpr(st, step, name, arg)
-		if cond == "" || name == "" {
-			return renderInvalidFlowStepConfig(st, pad, "event.EmitIf", "event.EmitIf requires condition and name"), true
+		typed, err := decodeCurrentActionAs[flowir.EventEmitIf](st, step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		cond, name := normalizeFlowExpr(typed.Condition.Source), typed.Event
+		payload := renderTypedEventPayloadExpr(st, name, typed.Payload, typed.PayloadMap)
 		if payload == "" {
 			return renderInvalidFlowStepConfig(st, pad, "event.EmitIf", "event.EmitIf requires renderable payload"), true
 		}
@@ -117,7 +117,7 @@ func renderFlowStepControlLegacyMappingLogic(st *flowRenderState, step normalize
 		return b.String(), true
 
 	case "logic.Call":
-		call, callErr := flowir.DecodeAs[flowir.LogicCall](step)
+		call, callErr := decodeCurrentActionAs[flowir.LogicCall](st, step)
 		if callErr != nil {
 			return renderInvalidFlowStepConfig(st, pad, "logic.Call", callErr.Error()), true
 		}
@@ -174,7 +174,7 @@ func renderFlowStepControlLegacyMappingLogic(st *flowRenderState, step normalize
 		if strings.TrimSpace(arg("service")) == "" || strings.TrimSpace(arg("method")) == "" {
 			return renderInvalidFlowStepConfig(st, pad, "service.Call", "service.Call requires service and method"), true
 		}
-		call, callErr := flowir.DecodeAs[flowir.ServiceCall](step)
+		call, callErr := decodeCurrentActionAs[flowir.ServiceCall](st, step)
 		if callErr != nil {
 			return renderInvalidFlowStepConfig(st, pad, "service.Call", callErr.Error()), true
 		}

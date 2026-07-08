@@ -6,18 +6,21 @@ import (
 	"time"
 
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 func renderFlowStepControlLegacyExecFS(st *flowRenderState, step normalizer.FlowStep, pad, sfx string, arg func(string) string) (string, bool) {
 	switch step.Action {
 	case "exec.Run", "exec.Stream":
-		cmd := arg("cmd")
-		output := arg("output")
-		exitCodeVar := arg("exitCodeVar")
+		typed, decodeErr := decodeCurrentActionAs[flowir.ExecCommand](st, step)
+		if decodeErr != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, decodeErr.Error()), true
+		}
+		cmd, output, exitCodeVar := normalizeFlowExpr(typed.Command.Source), typed.Output, typed.ExitCodeVar
 		isStream := step.Action == "exec.Stream"
-		timeout := arg("timeout")
+		timeout := normalizeFlowExpr(typed.Timeout.Source)
 		if timeout == "" {
-			if timeoutMS := flowIntArg(step.Args, "timeoutMs", 0); timeoutMS > 0 {
+			if timeoutMS := typed.TimeoutMS; timeoutMS > 0 {
 				timeout = fmt.Sprintf("time.Duration(%d) * time.Millisecond", timeoutMS)
 			} else {
 				timeout = "120 * time.Second"
@@ -27,23 +30,13 @@ func renderFlowStepControlLegacyExecFS(st *flowRenderState, step normalizer.Flow
 				timeout = fmt.Sprintf("%d * time.Nanosecond", d.Nanoseconds())
 			}
 		}
-		failOnError := true
-		if v, ok := step.Args["failOnError"].(bool); ok {
-			failOnError = v
-		}
+		failOnError := typed.FailOnError
 		if cmd == "" {
 			return "", true
 		}
-		var cmdArgs []string
-		if v, ok := step.Args["args"]; ok {
-			switch x := v.(type) {
-			case []string:
-				cmdArgs = x
-			case string:
-				if x != "" {
-					cmdArgs = []string{x}
-				}
-			}
+		cmdArgs := make([]string, 0, len(typed.Arguments))
+		for _, item := range typed.Arguments {
+			cmdArgs = append(cmdArgs, normalizeFlowExpr(item.Source))
 		}
 		execCtxVar, execCancelVar := "_execCtx"+sfx, "_execCancel"+sfx
 		ecv, eov, eerv := "_execCmd"+sfx, "_execOut"+sfx, "_execErr"+sfx
@@ -55,7 +48,7 @@ func renderFlowStepControlLegacyExecFS(st *flowRenderState, step normalizer.Flow
 			b.WriteString(fmt.Sprintf(", %s", a))
 		}
 		b.WriteString(")\n")
-		if stdin := arg("stdin"); stdin != "" {
+		if stdin := normalizeFlowExpr(typed.Stdin.Source); stdin != "" {
 			b.WriteString(fmt.Sprintf("%s%s.Stdin = strings.NewReader(%s)\n", pad, ecv, stdin))
 		}
 		if isStream {
@@ -121,14 +114,11 @@ func renderFlowStepControlLegacyExecFS(st *flowRenderState, step normalizer.Flow
 		return b.String(), true
 
 	case "fs.TempDir":
-		output := arg("output")
-		if output == "" {
-			return "", true
+		typed, decodeErr := decodeCurrentActionAs[flowir.FSTempDir](st, step)
+		if decodeErr != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, decodeErr.Error()), true
 		}
-		pattern := arg("pattern")
-		if pattern == "" {
-			pattern = `"ang-tmp-*"`
-		}
+		output, pattern := typed.Output, normalizeFlowExpr(typed.Pattern.Source)
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -145,11 +135,11 @@ func renderFlowStepControlLegacyExecFS(st *flowRenderState, step normalizer.Flow
 		return b.String(), true
 
 	case "fs.WriteFile":
-		path := arg("path")
-		data := arg("data")
-		if path == "" || data == "" {
-			return renderInvalidFlowStepConfig(st, pad, "fs.WriteFile", "fs.WriteFile requires path and data"), true
+		typed, decodeErr := decodeCurrentActionAs[flowir.FSWriteFile](st, step)
+		if decodeErr != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, decodeErr.Error()), true
 		}
+		path, data := normalizeFlowExpr(typed.Path.Source), normalizeFlowExpr(typed.Data.Source)
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%sif _mkErr := os.MkdirAll(filepath.Dir(%s), 0o755); _mkErr != nil {\n", pad, path))
 		b.WriteString(errReturn(st, pad+"\t", "fmt.Errorf(\"mkdir: %w\", _mkErr)"))
@@ -160,15 +150,11 @@ func renderFlowStepControlLegacyExecFS(st *flowRenderState, step normalizer.Flow
 		return b.String(), true
 
 	case "fs.ReadFile":
-		path := arg("path")
-		output := arg("output")
-		if path == "" || output == "" {
-			return "", true
+		typed, decodeErr := decodeCurrentActionAs[flowir.FSReadFile](st, step)
+		if decodeErr != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, decodeErr.Error()), true
 		}
-		optional := false
-		if v, ok := step.Args["optional"].(bool); ok {
-			optional = v
-		}
+		path, output, optional := normalizeFlowExpr(typed.Path.Source), typed.Output, typed.Optional
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -193,10 +179,11 @@ func renderFlowStepControlLegacyExecFS(st *flowRenderState, step normalizer.Flow
 		return b.String(), true
 
 	case "fs.Remove":
-		path := arg("path")
-		if path == "" {
-			return "", true
+		typed, decodeErr := decodeCurrentActionAs[flowir.FSRemove](st, step)
+		if decodeErr != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, decodeErr.Error()), true
 		}
+		path := normalizeFlowExpr(typed.Path.Source)
 		errVar := "_rmErr" + sfx
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%sif %s := os.RemoveAll(%s); %s != nil {\n", pad, errVar, path, errVar))
@@ -207,11 +194,11 @@ func renderFlowStepControlLegacyExecFS(st *flowRenderState, step normalizer.Flow
 	case "archive.ZipDir":
 		// archive.ZipDir: zip a local directory tree into []byte.
 		// Args: path (dir to zip), output (var name for []byte result).
-		srcPath := arg("path")
-		output := arg("output")
-		if srcPath == "" || output == "" {
-			return "", true
+		typed, decodeErr := decodeCurrentActionAs[flowir.ArchiveZipDir](st, step)
+		if decodeErr != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, decodeErr.Error()), true
 		}
+		srcPath, output := normalizeFlowExpr(typed.Path.Source), typed.Output
 		assign := ":="
 		if st.declared[output] {
 			assign = "="

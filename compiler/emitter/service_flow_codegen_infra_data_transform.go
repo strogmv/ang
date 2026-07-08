@@ -14,7 +14,7 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 
 	switch step.Action {
 	case "regex.Match":
-		typed, err := flowir.DecodeAs[flowir.RegexMatch](step)
+		typed, err := decodeCurrentActionAs[flowir.RegexMatch](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -36,7 +36,7 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "regex.Replace":
-		typed, err := flowir.DecodeAs[flowir.RegexReplace](step)
+		typed, err := decodeCurrentActionAs[flowir.RegexReplace](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -58,7 +58,7 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "base64.Encode":
-		typed, err := flowir.DecodeAs[flowir.Base64Encode](step)
+		typed, err := decodeCurrentActionAs[flowir.Base64Encode](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -73,7 +73,7 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return fmt.Sprintf("%s%s %s base64.StdEncoding.EncodeToString([]byte(%s))\n", pad, output, assign, input), true
 
 	case "base64.Decode":
-		typed, err := flowir.DecodeAs[flowir.Base64Decode](step)
+		typed, err := decodeCurrentActionAs[flowir.Base64Decode](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -95,7 +95,7 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "url.Parse":
-		typed, err := flowir.DecodeAs[flowir.URLParse](step)
+		typed, err := decodeCurrentActionAs[flowir.URLParse](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -117,7 +117,7 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "path.Base":
-		typed, err := flowir.DecodeAs[flowir.PathBase](step)
+		typed, err := decodeCurrentActionAs[flowir.PathBase](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -129,7 +129,7 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "url.Build":
-		typed, err := flowir.DecodeAs[flowir.URLBuild](step)
+		typed, err := decodeCurrentActionAs[flowir.URLBuild](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -171,7 +171,7 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "query.Encode":
-		typed, err := flowir.DecodeAs[flowir.QueryEncode](step)
+		typed, err := decodeCurrentActionAs[flowir.QueryEncode](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -206,7 +206,7 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "query.Decode":
-		typed, err := flowir.DecodeAs[flowir.QueryDecode](step)
+		typed, err := decodeCurrentActionAs[flowir.QueryDecode](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -228,7 +228,7 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "hash.Sum":
-		typed, err := flowir.DecodeAs[flowir.HashSum](step)
+		typed, err := decodeCurrentActionAs[flowir.HashSum](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -259,7 +259,7 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "hash.HMAC":
-		typed, err := flowir.DecodeAs[flowir.HashHMAC](step)
+		typed, err := decodeCurrentActionAs[flowir.HashHMAC](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -291,7 +291,7 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "uuid.New":
-		typed, err := flowir.DecodeAs[flowir.UUIDNew](step)
+		typed, err := decodeCurrentActionAs[flowir.UUIDNew](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -299,7 +299,7 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return renderFlowAssignTarget(st, pad, output, "uuid.NewString()", "string"), true
 
 	case "ulid.New":
-		typed, err := flowir.DecodeAs[flowir.ULIDNew](step)
+		typed, err := decodeCurrentActionAs[flowir.ULIDNew](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -326,7 +326,7 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "time.Now":
-		typed, err := flowir.DecodeAs[flowir.TimeNow](step)
+		typed, err := decodeCurrentActionAs[flowir.TimeNow](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -337,7 +337,7 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return renderFlowAssignTarget(st, pad, output, "time.Now().UTC()", "time.Time"), true
 
 	case "time.Format":
-		typed, err := flowir.DecodeAs[flowir.TimeFormat](step)
+		typed, err := decodeCurrentActionAs[flowir.TimeFormat](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -362,7 +362,7 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 
 	case "time.InZone":
 		// time.InZone: convert time.Time to given IANA timezone → output is time.Time in that zone
-		typed, err := flowir.DecodeAs[flowir.TimeInZone](step)
+		typed, err := decodeCurrentActionAs[flowir.TimeInZone](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -376,7 +376,7 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "math.Op":
-		typed, err := flowir.DecodeAs[flowir.MathOperation](step)
+		typed, err := decodeCurrentActionAs[flowir.MathOperation](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -417,7 +417,7 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "num.Add", "num.Sub", "num.Mul", "num.Div":
-		typed, err := flowir.DecodeAs[flowir.NumberBinary](step)
+		typed, err := decodeCurrentActionAs[flowir.NumberBinary](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -448,7 +448,7 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		}
 
 	case "jsonpath.Get":
-		typed, err := flowir.DecodeAs[flowir.JSONPathGet](step)
+		typed, err := decodeCurrentActionAs[flowir.JSONPathGet](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -470,7 +470,7 @@ func renderFlowStepInfraDataTransform(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "jsonpath.Set":
-		typed, err := flowir.DecodeAs[flowir.JSONPathSet](step)
+		typed, err := decodeCurrentActionAs[flowir.JSONPathSet](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}

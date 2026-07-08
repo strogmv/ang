@@ -12,7 +12,7 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 	pad := strings.Repeat("\t", indent)
 	var repositoryCall flowir.RepositoryCall
 	if strings.HasPrefix(step.Action, "repo.") {
-		decoded, err := flowir.DecodeAs[flowir.RepositoryCall](step)
+		decoded, err := decodeCurrentActionAs[flowir.RepositoryCall](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -168,7 +168,7 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 		return b.String(), true
 
 	case "mapping.Assign":
-		typed, err := flowir.DecodeAs[flowir.MappingAssign](step)
+		typed, err := decodeCurrentActionAs[flowir.MappingAssign](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, "mapping.Assign", err.Error()), true
 		}
@@ -248,8 +248,6 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 		if source == "" || find == "" || input == "" || output == "" {
 			return "", true
 		}
-		ifNewSteps := child("_ifNew")
-		ifExistsSteps := child("_ifExists")
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -266,16 +264,16 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 		b.WriteString(fmt.Sprintf("%s_uNew := %s\n", innerPad, input))
 		b.WriteString(fmt.Sprintf("%s%s = &_uNew\n", innerPad, output))
 		ifNewState := cloneFlowState(st)
-		if len(ifNewSteps) > 0 {
-			b.WriteString(renderFlowSteps(ifNewState, ifNewSteps, indent+1))
+		if flowChildStepCount(st, child, "_ifNew") > 0 {
+			b.WriteString(renderFlowChildSteps(ifNewState, child, "_ifNew", indent+1))
 		}
 		b.WriteString(fmt.Sprintf("%sif err := s.%sRepo.Save(ctx, %s); err != nil {\n", innerPad, ExportName(source), output))
 		b.WriteString(errReturn(st, innerPad+"\t", "err"))
 		b.WriteString(fmt.Sprintf("%s}\n", innerPad))
 		b.WriteString(fmt.Sprintf("%s} else {\n", pad))
 		ifExistsState := cloneFlowState(st)
-		if len(ifExistsSteps) > 0 {
-			b.WriteString(renderFlowSteps(ifExistsState, ifExistsSteps, indent+1))
+		if flowChildStepCount(st, child, "_ifExists") > 0 {
+			b.WriteString(renderFlowChildSteps(ifExistsState, child, "_ifExists", indent+1))
 		}
 		b.WriteString(fmt.Sprintf("%sif err := s.%sRepo.Save(ctx, %s); err != nil {\n", innerPad, ExportName(source), output))
 		b.WriteString(errReturn(st, innerPad+"\t", "err"))
@@ -289,14 +287,22 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 
 	case "db.Get", "db.List":
 		// Aliases for repo.Get / repo.List
-		source := arg("source")
-		if source == "" {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, step.Action+" requires source"), true
-		}
-		method := arg("method")
-		input := arg("input")
-		output := arg("output")
 		isList := step.Action == "db.List"
+		var fields flowir.DBFields
+		if isList {
+			typed, err := decodeCurrentActionAs[flowir.DBList](st, step)
+			if err != nil {
+				return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			}
+			fields = typed.DBFields
+		} else {
+			typed, err := decodeCurrentActionAs[flowir.DBGet](st, step)
+			if err != nil {
+				return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			}
+			fields = typed.DBFields
+		}
+		source, method, input, output := fields.Source, fields.Method, normalizeFlowExpr(fields.Input.Source), fields.Output
 		if method == "" {
 			if isList {
 				method = "ListAll"
@@ -325,7 +331,7 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 			b.WriteString(fmt.Sprintf("%sif err != nil {\n", pad))
 			b.WriteString(errReturn(st, pad+"\t", "err"))
 			b.WriteString(fmt.Sprintf("%s}\n", pad))
-			if errMsg := arg("error"); errMsg != "" && !isList {
+			if errMsg := fields.Error; errMsg != "" && !isList {
 				b.WriteString(fmt.Sprintf("%sif %s == nil {\n", pad, output))
 				b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("errors.New(http.StatusNotFound, \"Not Found\", %q)", errMsg)))
 				b.WriteString(fmt.Sprintf("%s}\n", pad))
@@ -340,14 +346,11 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 
 	case "db.Query":
 		// Alias for repo.Query
-		source := arg("source")
-		method := arg("method")
-		input := arg("input")
-		output := arg("output")
-		errMsg := arg("error")
-		if source == "" || method == "" {
-			return "", true
+		typed, err := decodeCurrentActionAs[flowir.DBQuery](st, step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		source, method, input, output, errMsg := typed.Source, typed.Method, normalizeFlowExpr(typed.Input.Source), typed.Output, typed.Error
 		var b strings.Builder
 		inputArg := ""
 		if input != "" {
@@ -382,11 +385,11 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 
 	case "db.Insert":
 		// Pure INSERT — error on duplicate PK
-		source := arg("source")
-		input := arg("input")
-		if source == "" || input == "" {
-			return "", true
+		typed, err := decodeCurrentActionAs[flowir.DBInsert](st, step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		source, input := typed.Source, normalizeFlowExpr(typed.Input.Source)
 		inputArg := input
 		if !strings.HasPrefix(input, "&") && !st.pointers[input] {
 			inputArg = "&" + input
@@ -399,11 +402,11 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 
 	case "db.Update":
 		// UPDATE only — error if 0 rows affected
-		source := arg("source")
-		input := arg("input")
-		if source == "" || input == "" {
-			return "", true
+		typed, err := decodeCurrentActionAs[flowir.DBUpdate](st, step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		source, input := typed.Source, normalizeFlowExpr(typed.Input.Source)
 		inputArg := input
 		if !strings.HasPrefix(input, "&") && !st.pointers[input] {
 			inputArg = "&" + input
@@ -416,11 +419,11 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 
 	case "db.Upsert":
 		// Simple alias for Save (no find+branch)
-		source := arg("source")
-		input := arg("input")
-		if source == "" || input == "" {
-			return "", true
+		typed, err := decodeCurrentActionAs[flowir.DBUpsert](st, step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		source, input := typed.Source, normalizeFlowExpr(typed.Input.Source)
 		inputArg := input
 		if !strings.HasPrefix(input, "&") && !st.pointers[input] {
 			inputArg = "&" + input
@@ -433,11 +436,11 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 
 	case "db.Delete":
 		// Alias for repo.Delete
-		source := arg("source")
-		input := arg("input")
-		if source == "" || input == "" {
-			return "", true
+		typed, err := decodeCurrentActionAs[flowir.DBDelete](st, step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		source, input := typed.Source, normalizeFlowExpr(typed.Input.Source)
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%sif err := s.%sRepo.Delete(ctx, %s); err != nil {\n", pad, ExportName(source), input))
 		b.WriteString(errReturn(st, pad+"\t", "err"))
@@ -446,15 +449,21 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 
 	case "db.Lock", "db.SelectForUpdate":
 		// SELECT FOR UPDATE — must be inside tx.Block
-		source := arg("source")
-		input := arg("input")
-		output := arg("output")
-		if source == "" || input == "" {
-			return "", true
+		var fields flowir.DBFields
+		if step.Action == "db.Lock" {
+			typed, err := decodeCurrentActionAs[flowir.DBLock](st, step)
+			if err != nil {
+				return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			}
+			fields = typed.DBFields
+		} else {
+			typed, err := decodeCurrentActionAs[flowir.DBSelectForUpdate](st, step)
+			if err != nil {
+				return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			}
+			fields = typed.DBFields
 		}
-		if output == "" {
-			output = strings.ToLower(source[:1]) + source[1:]
-		}
+		source, input, output := fields.Source, normalizeFlowExpr(fields.Input.Source), fields.Output
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -467,7 +476,7 @@ func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowSt
 		b.WriteString(fmt.Sprintf("%sif err != nil {\n", pad))
 		b.WriteString(errReturn(st, pad+"\t", "err"))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
-		if errMsg := arg("error"); errMsg != "" {
+		if errMsg := fields.Error; errMsg != "" {
 			b.WriteString(fmt.Sprintf("%sif %s == nil {\n", pad, output))
 			b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("errors.New(http.StatusNotFound, \"Not Found\", %q)", errMsg)))
 			b.WriteString(fmt.Sprintf("%s}\n", pad))

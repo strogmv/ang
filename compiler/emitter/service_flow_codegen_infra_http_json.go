@@ -15,11 +15,11 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 
 	switch step.Action {
 	case "http.Call":
-		typed, decodeErr := flowir.DecodeAs[flowir.HTTPCall](step)
+		typed, decodeErr := decodeCurrentActionAs[flowir.HTTPCall](st, step)
 		if decodeErr != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, decodeErr.Error()), true
 		}
-		if out, ok := renderFlowHTTPCallAST(st, step, indent, sfx, arg); ok {
+		if out, ok := renderFlowHTTPCallAST(st, typed, indent, sfx); ok {
 			return out, true
 		}
 		method, url, body, output, statusVar, failOnError := typed.Method, normalizeFlowExpr(typed.URL.Source), normalizeFlowExpr(typed.Body.Source), typed.Output, typed.StatusVar, typed.FailOnError
@@ -77,7 +77,7 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		return b.String(), true
 
 	case "rand.Code":
-		typed, err := flowir.DecodeAs[flowir.RandomCode](step)
+		typed, err := decodeCurrentActionAs[flowir.RandomCode](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -99,7 +99,7 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		return b.String(), true
 
 	case "rand.Token":
-		typed, err := flowir.DecodeAs[flowir.RandomToken](step)
+		typed, err := decodeCurrentActionAs[flowir.RandomToken](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -117,7 +117,7 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		return b.String(), true
 
 	case "str.Format":
-		typed, err := flowir.DecodeAs[flowir.StringFormat](step)
+		typed, err := decodeCurrentActionAs[flowir.StringFormat](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -147,7 +147,7 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		return fmt.Sprintf("%s%s %s fmt.Sprintf(%s)\n", pad, output, assign, callArgs), true
 
 	case "str.Concat":
-		typed, err := flowir.DecodeAs[flowir.StringConcat](step)
+		typed, err := decodeCurrentActionAs[flowir.StringConcat](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -183,7 +183,7 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		return b.String(), true
 
 	case "str.StripMarkdown":
-		typed, err := flowir.DecodeAs[flowir.StringStripMarkdown](step)
+		typed, err := decodeCurrentActionAs[flowir.StringStripMarkdown](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -221,7 +221,7 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		return b.String(), true
 
 	case "str.ReplaceAll":
-		typed, err := flowir.DecodeAs[flowir.StringReplaceAll](step)
+		typed, err := decodeCurrentActionAs[flowir.StringReplaceAll](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -229,7 +229,7 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("strings.ReplaceAll(%s, %s, %s)", input, old, newS), "string"), true
 
 	case "str.TrimSpace":
-		typed, err := flowir.DecodeAs[flowir.StringTrimSpace](step)
+		typed, err := decodeCurrentActionAs[flowir.StringTrimSpace](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -237,7 +237,7 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("strings.TrimSpace(%s)", input), "string"), true
 
 	case "cast.ToString":
-		typed, err := flowir.DecodeAs[flowir.CastToString](step)
+		typed, err := decodeCurrentActionAs[flowir.CastToString](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -255,7 +255,7 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		return fmt.Sprintf("%s%s %s fmt.Sprint(%s)\n", pad, output, assign, input), true
 
 	case "json.Parse":
-		typed, err := flowir.DecodeAs[flowir.JSONParse](step)
+		typed, err := decodeCurrentActionAs[flowir.JSONParse](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -277,7 +277,7 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		return b.String(), true
 
 	case "json.Marshal":
-		typed, err := flowir.DecodeAs[flowir.JSONMarshal](step)
+		typed, err := decodeCurrentActionAs[flowir.JSONMarshal](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -298,7 +298,7 @@ func renderFlowStepInfraHTTPAndSerialization(st *flowRenderState, step normalize
 		return b.String(), true
 
 	case "json.Stringify":
-		typed, err := flowir.DecodeAs[flowir.JSONMarshal](step)
+		typed, err := decodeCurrentActionAs[flowir.JSONMarshal](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}

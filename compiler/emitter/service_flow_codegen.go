@@ -35,12 +35,22 @@ func normalizePayloadExpr(s string) string {
 
 // flowRenderable reports whether all actions inside steps are supported by RenderFlow.
 func flowRenderable(steps []normalizer.FlowStep) bool {
+	typed, _ := flowir.DecodeSteps(steps)
+	return typedFlowRenderable(typed)
+}
+
+func typedFlowRenderable(steps []flowir.TypedStep) bool {
 	for _, step := range steps {
-		if !flowActionSupported(step.Action) {
+		if !flowActionSupported(step.Name) {
 			return false
 		}
-		for _, child := range flowChildSteps(step) {
-			if !flowRenderable(child) {
+		for _, child := range step.Children {
+			if !typedFlowRenderable(child) {
+				return false
+			}
+		}
+		for _, branch := range step.Branches {
+			if !typedFlowRenderable(branch) {
 				return false
 			}
 		}
@@ -147,68 +157,6 @@ func flowActionSupported(action string) bool {
 	}
 }
 
-func flowChildSteps(step normalizer.FlowStep) [][]normalizer.FlowStep {
-	var out [][]normalizer.FlowStep
-	if v, ok := step.Args["_do"].([]normalizer.FlowStep); ok && len(v) > 0 {
-		out = append(out, v)
-	}
-	if v, ok := step.Args["_ifNew"].([]normalizer.FlowStep); ok && len(v) > 0 {
-		out = append(out, v)
-	}
-	if v, ok := step.Args["_ifExists"].([]normalizer.FlowStep); ok && len(v) > 0 {
-		out = append(out, v)
-	}
-	if v, ok := step.Args["_then"].([]normalizer.FlowStep); ok && len(v) > 0 {
-		out = append(out, v)
-	}
-	if v, ok := step.Args["_else"].([]normalizer.FlowStep); ok && len(v) > 0 {
-		out = append(out, v)
-	}
-	if v, ok := step.Args["_default"].([]normalizer.FlowStep); ok && len(v) > 0 {
-		out = append(out, v)
-	}
-	if v, ok := step.Args["_catch"].([]normalizer.FlowStep); ok && len(v) > 0 {
-		out = append(out, v)
-	}
-	if v, ok := step.Args["_fallback"].([]normalizer.FlowStep); ok && len(v) > 0 {
-		out = append(out, v)
-	}
-	if v, ok := step.Args["_onTimeout"].([]normalizer.FlowStep); ok && len(v) > 0 {
-		out = append(out, v)
-	}
-	if v, ok := step.Args["_onMissing"].([]normalizer.FlowStep); ok && len(v) > 0 {
-		out = append(out, v)
-	}
-	if v, ok := step.Args["_onMismatch"].([]normalizer.FlowStep); ok && len(v) > 0 {
-		out = append(out, v)
-	}
-	if cases, ok := step.Args["_cases"].(map[string][]normalizer.FlowStep); ok {
-		keys := make([]string, 0, len(cases))
-		for k := range cases {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			if len(cases[k]) > 0 {
-				out = append(out, cases[k])
-			}
-		}
-	}
-	if branches, ok := step.Args["_branches"].(map[string][]normalizer.FlowStep); ok {
-		keys := make([]string, 0, len(branches))
-		for k := range branches {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			if len(branches[k]) > 0 {
-				out = append(out, branches[k])
-			}
-		}
-	}
-	return out
-}
-
 type flowRenderState struct {
 	declared map[string]bool
 	// pointers tracks whether a declared variable is a pointer type (from repo.Find/Get)
@@ -230,6 +178,7 @@ type flowRenderState struct {
 	serviceDefsByName map[string]normalizer.Service
 	isStreaming       bool
 	infraValues       map[string]any
+	currentTyped      *flowir.TypedStep
 }
 
 func cloneFlowState(st *flowRenderState) *flowRenderState {
@@ -251,6 +200,7 @@ func cloneFlowState(st *flowRenderState) *flowRenderState {
 		entityDefsByName: st.entityDefsByName,
 		isStreaming:      st.isStreaming,
 		infraValues:      st.infraValues,
+		currentTyped:     st.currentTyped,
 	}
 	for k, v := range st.declared {
 		cp.declared[k] = v
@@ -285,6 +235,7 @@ func renderFlowForServiceWithSchemaAndSinkMode(serviceName, methodName string, i
 }
 
 func renderFlowForServiceWithSchemaAndSinkModeWithInfra(serviceName, methodName string, isStreaming bool, steps []normalizer.FlowStep, entities []normalizer.Entity, events []normalizer.EventDef, warningSink func(normalizer.Warning), infraValues map[string]any) string {
+	typedSteps, _ := flowir.DecodeSteps(steps)
 	n := 0
 	svcName := strings.TrimSpace(serviceName)
 	mName := strings.TrimSpace(methodName)
@@ -307,19 +258,19 @@ func renderFlowForServiceWithSchemaAndSinkModeWithInfra(serviceName, methodName 
 		infraValues:       infraValues,
 	}
 	var b strings.Builder
-	if flowHasAction(steps, "flow.Checkpoint", "flow.Resume") {
+	if typedFlowHasAction(typedSteps, "flow.Checkpoint", "flow.Resume") {
 		st.declared["_flowCheckpoints"] = true
 		st.pointers["_flowCheckpoints"] = false
 		st.types["_flowCheckpoints"] = "map[string]any"
 		b.WriteString("var _flowCheckpoints map[string]any\n")
 	}
-	if flowHasAction(steps, "flow.Try", "flow.Catch", "flow.Retry", "flow.Fallback", "flow.Timeout", "flow.ExplainError") {
+	if typedFlowHasAction(typedSteps, "flow.Try", "flow.Catch", "flow.Retry", "flow.Fallback", "flow.Timeout", "flow.ExplainError") {
 		st.declared["_flowLastError"] = true
 		st.pointers["_flowLastError"] = false
 		st.types["_flowLastError"] = "error"
 		b.WriteString("var _flowLastError error\n")
 	}
-	if flowHasAction(steps, "flow.RecordEvent", "flow.Replay", "flow.History.Get") {
+	if typedFlowHasAction(typedSteps, "flow.RecordEvent", "flow.Replay", "flow.History.Get") {
 		st.declared["_flowHistory"] = true
 		st.pointers["_flowHistory"] = false
 		st.types["_flowHistory"] = "[]map[string]any"
@@ -329,7 +280,7 @@ func renderFlowForServiceWithSchemaAndSinkModeWithInfra(serviceName, methodName 
 		b.WriteString("var _flowHistory []map[string]any\n")
 		b.WriteString("var _flowReplayMode bool\n")
 	}
-	b.WriteString(renderFlowSteps(st, steps, 0))
+	b.WriteString(renderTypedFlowSteps(st, typedSteps, 0))
 	return b.String()
 }
 
@@ -397,19 +348,24 @@ func flowServiceDefsByName(infraValues map[string]any) map[string]normalizer.Ser
 	return out
 }
 
-func flowHasAction(steps []normalizer.FlowStep, actions ...string) bool {
+func typedFlowHasAction(steps []flowir.TypedStep, actions ...string) bool {
 	need := make(map[string]struct{}, len(actions))
 	for _, a := range actions {
 		need[a] = struct{}{}
 	}
-	var walk func([]normalizer.FlowStep) bool
-	walk = func(items []normalizer.FlowStep) bool {
+	var walk func([]flowir.TypedStep) bool
+	walk = func(items []flowir.TypedStep) bool {
 		for _, s := range items {
-			if _, ok := need[s.Action]; ok {
+			if _, ok := need[s.Name]; ok {
 				return true
 			}
-			for _, child := range flowChildSteps(s) {
+			for _, child := range s.Children {
 				if walk(child) {
+					return true
+				}
+			}
+			for _, branch := range s.Branches {
+				if walk(branch) {
 					return true
 				}
 			}
@@ -420,16 +376,76 @@ func flowHasAction(steps []normalizer.FlowStep, actions ...string) bool {
 }
 
 func renderFlowSteps(st *flowRenderState, steps []normalizer.FlowStep, indent int) string {
+	typed, _ := flowir.DecodeSteps(steps)
+	return renderTypedFlowSteps(st, typed, indent)
+}
+
+func renderFlowChildSteps(st *flowRenderState, child func(string) []normalizer.FlowStep, key string, indent int) string {
+	if st != nil && st.currentTyped != nil {
+		return renderTypedFlowSteps(st, st.currentTyped.Children[key], indent)
+	}
+	return renderFlowSteps(st, child(key), indent)
+}
+
+func flowChildStepCount(st *flowRenderState, child func(string) []normalizer.FlowStep, key string) int {
+	if st != nil && st.currentTyped != nil {
+		return len(st.currentTyped.Children[key])
+	}
+	return len(child(key))
+}
+
+func renderFlowNestedSteps(st *flowRenderState, key string, fallback []normalizer.FlowStep, indent int) string {
+	if st != nil && st.currentTyped != nil {
+		return renderTypedFlowSteps(st, st.currentTyped.Children[key], indent)
+	}
+	return renderFlowSteps(st, fallback, indent)
+}
+
+func flowNestedStepCount(st *flowRenderState, key string, fallback []normalizer.FlowStep) int {
+	if st != nil && st.currentTyped != nil {
+		return len(st.currentTyped.Children[key])
+	}
+	return len(fallback)
+}
+
+func renderFlowBranchSteps(st *flowRenderState, name string, fallback []normalizer.FlowStep, indent int) string {
+	if st != nil && st.currentTyped != nil {
+		return renderTypedFlowSteps(st, st.currentTyped.Branches[name], indent)
+	}
+	return renderFlowSteps(st, fallback, indent)
+}
+
+func flowBranchNames(st *flowRenderState, fallback map[string][]normalizer.FlowStep) []string {
+	keys := make([]string, 0)
+	if st != nil && st.currentTyped != nil {
+		keys = make([]string, 0, len(st.currentTyped.Branches))
+		for key := range st.currentTyped.Branches {
+			keys = append(keys, key)
+		}
+	} else {
+		keys = make([]string, 0, len(fallback))
+		for key := range fallback {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func renderTypedFlowSteps(st *flowRenderState, steps []flowir.TypedStep, indent int) string {
 	var b strings.Builder
-	for i, step := range steps {
-		if trace := flowStepTraceComment(step, *st.stepN+1, indent); trace != "" {
+	for i, typedStep := range steps {
+		if trace := flowStepTraceComment(typedStep.Source, *st.stepN+1, indent); trace != "" {
 			b.WriteString(trace)
 		}
-		code := renderOneFlowStep(st, step, indent)
-		if code == "" && flowActionSupported(step.Action) {
+		code := ""
+		if typedStep.DecodeError == nil {
+			code = renderOneTypedFlowStep(st, typedStep, indent)
+		}
+		if code == "" && flowActionSupported(typedStep.Name) {
 			severity := "warn"
 			codeName := "FLOW_STEP_NO_CODEGEN"
-			if isSafetyCriticalNoCodegenAction(step.Action) {
+			if isSafetyCriticalNoCodegenAction(typedStep.Name) {
 				severity = "error"
 				codeName = "FLOW_STEP_NO_CODEGEN_CRITICAL"
 			}
@@ -438,47 +454,78 @@ func renderFlowSteps(st *flowRenderState, steps []normalizer.FlowStep, indent in
 					Kind:     "flow",
 					Code:     codeName,
 					Severity: severity,
-					Message:  fmt.Sprintf("step %d (%s) produced no code; check required fields", i+1, step.Action),
+					Message:  fmt.Sprintf("step %d (%s) produced no code; check required fields", i+1, typedStep.Name),
 					Op:       st.opName,
 					Step:     i + 1,
-					Action:   step.Action,
-					File:     step.File,
-					Line:     step.Line,
-					Column:   step.Column,
-					CUEPath:  step.CUEPath,
+					Action:   typedStep.Name,
+					File:     typedStep.Source.File,
+					Line:     typedStep.Source.Line,
+					Column:   typedStep.Source.Column,
+					CUEPath:  typedStep.Source.CUEPath,
 					Hint:     "Verify required step fields in cue/schema/types.cue and flow docs",
 				})
 			}
 			if st.warningSink == nil {
 				slog.Warn("flow.step.no_codegen",
 					"step", i+1,
-					"action", step.Action,
-					"file", step.File,
-					"line", step.Line,
+					"action", typedStep.Name,
+					"file", typedStep.Source.File,
+					"line", typedStep.Source.Line,
 					"severity", severity,
 					"hint", "missing required flow fields",
 				)
 			}
 			pad := strings.Repeat("\t", indent)
-			b.WriteString(fmt.Sprintf("%s// WARNING: step %d (%s) produced no code; check required fields\n", pad, i+1, step.Action))
-			b.WriteString(renderInvalidFlowStepConfig(st, pad, step.Action, "step produced no code; check required fields"))
+			b.WriteString(fmt.Sprintf("%s// WARNING: step %d (%s) produced no code; check required fields\n", pad, i+1, typedStep.Name))
+			b.WriteString(renderInvalidFlowStepConfig(st, pad, typedStep.Name, "step produced no code; check required fields"))
 		}
 		b.WriteString(code)
 	}
 	return b.String()
 }
 
-func flowStepTraceComment(step normalizer.FlowStep, stepIdx int, indent int) string {
-	file := strings.TrimSpace(step.File)
-	if file == "" && strings.TrimSpace(step.CUEPath) != "" {
-		file = strings.TrimSpace(step.CUEPath)
+func renderOneTypedFlowStep(st *flowRenderState, step flowir.TypedStep, indent int) string {
+	previous := st.currentTyped
+	st.currentTyped = &step
+	defer func() { st.currentTyped = previous }()
+	return renderOneFlowStepTyped(st, step, indent)
+}
+
+func renderOneFlowStepTyped(st *flowRenderState, typedStep flowir.TypedStep, indent int) string {
+	return renderOneFlowStepWithAccessors(st, typedStep.MetadataStep(), indent,
+		func(name string) string { return normalizeFlowExpr(typedStep.ScalarArgs[name].Source()) },
+		func(string) []normalizer.FlowStep { return nil },
+	)
+}
+
+func decodeCurrentActionAs[T flowir.Action](st *flowRenderState, raw normalizer.FlowStep) (T, error) {
+	var zero T
+	if st != nil && (st.currentTyped == nil || st.currentTyped.Name != raw.Action) {
+		decoded, _ := flowir.DecodeSteps([]normalizer.FlowStep{raw})
+		if len(decoded) == 1 {
+			st.currentTyped = &decoded[0]
+		}
+	}
+	if st != nil && st.currentTyped != nil && st.currentTyped.Action != nil {
+		if typed, ok := st.currentTyped.Action.(T); ok {
+			return typed, st.currentTyped.DecodeError
+		}
+		return zero, fmt.Errorf("action %q decoded as %T", raw.Action, st.currentTyped.Action)
+	}
+	return flowir.DecodeAs[T](raw)
+}
+
+func flowStepTraceComment(source flowir.Source, stepIdx int, indent int) string {
+	file := strings.TrimSpace(source.File)
+	if file == "" && strings.TrimSpace(source.CUEPath) != "" {
+		file = strings.TrimSpace(source.CUEPath)
 	}
 	if file == "" {
 		return ""
 	}
 	ref := filepath.ToSlash(filepath.Clean(file))
-	if step.Line > 0 {
-		ref = fmt.Sprintf("%s:%d", ref, step.Line)
+	if source.Line > 0 {
+		ref = fmt.Sprintf("%s:%d", ref, source.Line)
 	}
 	pad := strings.Repeat("\t", indent)
 	return fmt.Sprintf("%s// Generated from: %s (flow step %d)\n", pad, ref, stepIdx)
@@ -522,10 +569,33 @@ func errReturn(st *flowRenderState, pad, errExpr string) string {
 }
 
 func renderInvalidFlowStepConfig(st *flowRenderState, pad, action, msg string) string {
+	msg = flowInvalidConfigMessage(action, msg)
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("%s// invalid %s configuration\n", pad, action))
 	b.WriteString(errReturn(st, pad, fmt.Sprintf("fmt.Errorf(%q)", action+": "+msg)))
 	return b.String()
+}
+
+func flowInvalidConfigMessage(action, fallback string) string {
+	required := map[string]string{
+		"auth.RequireRole":      "auth.RequireRole requires userID, companyID, and roles",
+		"circuit.RecordSuccess": "circuit.RecordSuccess requires name",
+		"config.Get":            "config.Get requires key and output",
+		"dedupe.Once":           "dedupe.Once requires key",
+		"flow.Call":             "flow.Call requires op",
+		"flow.Cron":             "flow.Cron requires window",
+		"flow.Tag":              "flow.Tag requires name",
+		"http.Paginate":         "http.Paginate requires url, into, as, and cursor_expr",
+		"http.Request":          "http.Request requires method and url",
+		"http.RetryPolicy":      "http.RetryPolicy requires method and url",
+		"http.SOAP":             "http.SOAP requires url, namespace, and operation",
+		"list.Sum":              "list.Sum requires input and output",
+		"notify.Email":          "notify.Email requires to",
+	}
+	if message, ok := required[action]; ok && strings.Contains(strings.ToLower(fallback), "required") {
+		return message
+	}
+	return fallback
 }
 
 func resolveFlowDynamicOutputType(st *flowRenderState, output, into string) string {
@@ -568,23 +638,17 @@ func emitFlowWarning(st *flowRenderState, step normalizer.FlowStep, code, severi
 }
 
 func renderOneFlowStep(st *flowRenderState, step normalizer.FlowStep, indent int) string {
+	typed, _ := flowir.DecodeSteps([]normalizer.FlowStep{step})
+	if len(typed) == 1 {
+		return renderOneTypedFlowStep(st, typed[0], indent)
+	}
+	return ""
+}
+
+func renderOneFlowStepWithAccessors(st *flowRenderState, step normalizer.FlowStep, indent int, arg func(string) string, child func(string) []normalizer.FlowStep) string {
 	sfx := fmt.Sprintf("_%d", *st.stepN)
 	*st.stepN++
 	_ = sfx // consumed by actions with internal temp vars
-	arg := func(name string) string {
-		if v, ok := step.Args[name]; ok {
-			if s, ok := v.(string); ok {
-				return normalizeFlowExpr(strings.TrimSpace(s))
-			}
-		}
-		return ""
-	}
-	child := func(name string) []normalizer.FlowStep {
-		if v, ok := step.Args[name].([]normalizer.FlowStep); ok {
-			return v
-		}
-		return nil
-	}
 
 	if out, ok := renderFlowStepDomain(st, step, indent, sfx, arg, child); ok {
 		return out

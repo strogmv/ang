@@ -58,7 +58,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 
 	switch step.Action {
 	case "errors.New":
-		typed, err := flowir.DecodeAs[flowir.ErrorNew](step)
+		typed, err := decodeCurrentActionAs[flowir.ErrorNew](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -87,7 +87,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return errReturn(st, pad, errExpr), true
 
 	case "logic.Check":
-		typed, err := flowir.DecodeAs[flowir.LogicCheck](step)
+		typed, err := decodeCurrentActionAs[flowir.LogicCheck](st, step)
 		if err != nil {
 			return "", true
 		}
@@ -124,7 +124,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "errors.ThrowIf":
-		typed, err := flowir.DecodeAs[flowir.ErrorThrowIf](step)
+		typed, err := decodeCurrentActionAs[flowir.ErrorThrowIf](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -159,7 +159,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "errors.Wrap":
-		typed, err := flowir.DecodeAs[flowir.ErrorWrap](step)
+		typed, err := decodeCurrentActionAs[flowir.ErrorWrap](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -187,7 +187,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "errors.Map":
-		typed, err := flowir.DecodeAs[flowir.ErrorMap](step)
+		typed, err := decodeCurrentActionAs[flowir.ErrorMap](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -360,21 +360,16 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "mapping.Assign":
-		to := arg("to")
-		val := arg("value")
+		typed, err := decodeCurrentActionAs[flowir.MappingAssign](st, step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
+		to := normalizeFlowExpr(typed.Target.Source)
+		val := normalizeFlowExpr(typed.Value.Source)
 		if to == "" || val == "" {
 			return renderInvalidFlowStepConfig(st, pad, "mapping.Assign", "mapping.Assign requires to and value"), true
 		}
-		declare := false
-		if v, ok := step.Args["declare"]; ok {
-			switch x := v.(type) {
-			case bool:
-				declare = x
-			case string:
-				declare = strings.EqualFold(strings.TrimSpace(x), "true")
-			}
-		}
-		if declare && !st.declared[to] {
+		if typed.Declare && !st.declared[to] {
 			st.declared[to] = true
 			st.pointers[to] = false
 			return fmt.Sprintf("%s%s := %s\n", pad, to, val), true
@@ -405,7 +400,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "auth.RequireRole":
-		typed, err := flowir.DecodeAs[flowir.AuthRequireRole](step)
+		typed, err := decodeCurrentActionAs[flowir.AuthRequireRole](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -438,7 +433,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "auth.CheckRole":
-		typed, err := flowir.DecodeAs[flowir.AuthCheckRole](step)
+		typed, err := decodeCurrentActionAs[flowir.AuthCheckRole](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -499,53 +494,38 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "entity.PatchNonZero":
-		target := arg("target")
-		from := arg("from")
-		fields := arg("fields")
-		if target == "" || from == "" || fields == "" {
-			return renderInvalidFlowStepConfig(st, pad, "entity.PatchNonZero", "entity.PatchNonZero requires target, from, and fields"), true
+		typed, err := decodeCurrentActionAs[flowir.EntityPatchNonZero](st, step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		parts := strings.Split(fields, ",")
-		var quotedFields []string
-		for _, f := range parts {
-			f = strings.TrimSpace(f)
-			if f != "" {
-				quotedFields = append(quotedFields, fmt.Sprintf("%q", f))
-			}
+		target, from := normalizeFlowExpr(typed.Target.Source), normalizeFlowExpr(typed.From.Source)
+		quotedFields := make([]string, 0, len(typed.Fields))
+		for _, field := range typed.Fields {
+			quotedFields = append(quotedFields, fmt.Sprintf("%q", field))
 		}
 		return fmt.Sprintf("%shelpers.CopyNonEmptyFields(&%s, %s, %s)\n", pad, target, from, strings.Join(quotedFields, ", ")), true
 
 	case "field.CopyNonEmpty":
-		from := arg("from")
-		to := arg("to")
-		fields := arg("fields")
-		if from == "" || to == "" {
-			return renderInvalidFlowStepConfig(st, pad, "field.CopyNonEmpty", "field.CopyNonEmpty requires from and to"), true
+		typed, err := decodeCurrentActionAs[flowir.FieldCopyNonEmpty](st, step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		if fields == "" {
+		from, to := normalizeFlowExpr(typed.From.Source), normalizeFlowExpr(typed.To.Source)
+		if len(typed.Fields) == 0 {
 			return fmt.Sprintf("%shelpers.CopyNonEmptyFields(&%s, %s)\n", pad, to, from), true
 		}
-		parts := strings.Split(fields, ",")
-		var quotedFields []string
-		for _, f := range parts {
-			f = strings.TrimSpace(f)
-			if f != "" {
-				quotedFields = append(quotedFields, fmt.Sprintf("%q", f))
-			}
+		quotedFields := make([]string, 0, len(typed.Fields))
+		for _, field := range typed.Fields {
+			quotedFields = append(quotedFields, fmt.Sprintf("%q", field))
 		}
 		return fmt.Sprintf("%shelpers.CopyNonEmptyFields(&%s, %s, %s)\n", pad, to, from, strings.Join(quotedFields, ", ")), true
 
 	case "entity.PatchValidated":
-		target := arg("target")
-		from := arg("from")
-		source := arg("source")
-		if target == "" || from == "" {
-			return renderInvalidFlowStepConfig(st, pad, "entity.PatchValidated", "entity.PatchValidated requires target and from"), true
+		typed, err := decodeCurrentActionAs[flowir.EntityPatchValidated](st, step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		fieldsMap, ok := step.Args["fields"].(map[string]map[string]string)
-		if !ok || len(fieldsMap) == 0 {
-			return renderInvalidFlowStepConfig(st, pad, "entity.PatchValidated", "entity.PatchValidated requires fields map"), true
-		}
+		target, from, source, fieldsMap := normalizeFlowExpr(typed.Target.Source), normalizeFlowExpr(typed.From.Source), typed.Source, typed.Fields
 		fieldNames := make([]string, 0, len(fieldsMap))
 		for k := range fieldsMap {
 			fieldNames = append(fieldNames, k)
@@ -554,9 +534,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		var b strings.Builder
 		for _, fieldName := range fieldNames {
 			rules := fieldsMap[fieldName]
-			normalize := rules["normalize"]
-			format := rules["format"]
-			unique := rules["unique"]
+			normalize, format, unique := rules.Normalize, rules.Format, rules.Unique
 			b.WriteString(fmt.Sprintf("%sif %s.%s != \"\" {\n", pad, from, fieldName))
 			innerPad := pad + "\t"
 			switch normalize {
@@ -589,19 +567,14 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "enum.Validate":
-		value := arg("value")
-		allowed := arg("allowed")
-		throw := arg("throw")
-		if value == "" || allowed == "" || throw == "" {
-			return renderInvalidFlowStepConfig(st, pad, "enum.Validate", "enum.Validate requires value, allowed, and throw"), true
+		typed, err := decodeCurrentActionAs[flowir.EnumValidate](st, step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		parts := strings.Split(allowed, ",")
-		var quotedAllowed []string
-		for _, p := range parts {
-			p = strings.TrimSpace(p)
-			if p != "" {
-				quotedAllowed = append(quotedAllowed, fmt.Sprintf("%q", p))
-			}
+		value, throw := normalizeFlowExpr(typed.Value.Source), typed.Throw
+		quotedAllowed := make([]string, 0, len(typed.Allowed))
+		for _, allowed := range typed.Allowed {
+			quotedAllowed = append(quotedAllowed, fmt.Sprintf("%q", allowed))
 		}
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%sif !helpers.IsOneOf(%s, []string{%s}) {\n", pad, value, strings.Join(quotedAllowed, ", ")))
@@ -610,7 +583,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "list.Len":
-		typed, err := flowir.DecodeAs[flowir.ListLen](step)
+		typed, err := decodeCurrentActionAs[flowir.ListLen](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -618,7 +591,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("len(%s)", input), "int"), true
 
 	case "convert.ToFloat":
-		typed, err := flowir.DecodeAs[flowir.ConvertToFloat](step)
+		typed, err := decodeCurrentActionAs[flowir.ConvertToFloat](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -626,7 +599,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("float64(%s)", input), "float64"), true
 
 	case "convert.ToInt":
-		typed, err := flowir.DecodeAs[flowir.ConvertToInt](step)
+		typed, err := decodeCurrentActionAs[flowir.ConvertToInt](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -634,7 +607,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("int64(%s)", input), "int64"), true
 
 	case "list.New":
-		typed, err := flowir.DecodeAs[flowir.ListNew](step)
+		typed, err := decodeCurrentActionAs[flowir.ListNew](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -645,7 +618,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("make(%s, 0)", typ), typ), true
 
 	case "map.New":
-		typed, err := flowir.DecodeAs[flowir.MapNew](step)
+		typed, err := decodeCurrentActionAs[flowir.MapNew](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -653,7 +626,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("make(%s)", typ), typ), true
 
 	case "map.Get":
-		typed, err := flowir.DecodeAs[flowir.MapGet](step)
+		typed, err := decodeCurrentActionAs[flowir.MapGet](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -712,7 +685,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "map.Has":
-		typed, err := flowir.DecodeAs[flowir.MapHas](step)
+		typed, err := decodeCurrentActionAs[flowir.MapHas](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -720,7 +693,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("func() bool { _, _ok := %s[%s]; return _ok }()", input, key), "bool"), true
 
 	case "map.Set":
-		typed, err := flowir.DecodeAs[flowir.MapSet](step)
+		typed, err := decodeCurrentActionAs[flowir.MapSet](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -735,7 +708,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "map.Merge":
-		typed, err := flowir.DecodeAs[flowir.MapMerge](step)
+		typed, err := decodeCurrentActionAs[flowir.MapMerge](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -746,17 +719,11 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "list.Enrich":
-		items := arg("items")
-		lookupSource := arg("lookupSource")
-		lookupInput := arg("lookupInput")
-		set := arg("set")
-		as := arg("as")
-		if items == "" || lookupSource == "" || lookupInput == "" || set == "" {
-			return renderInvalidFlowStepConfig(st, pad, "list.Enrich", "list.Enrich requires items, lookupSource, lookupInput, and set"), true
+		typed, err := decodeCurrentActionAs[flowir.ListEnrich](st, step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		if as == "" {
-			as = "_item"
-		}
+		items, lookupSource, lookupInput, as := normalizeFlowExpr(typed.Items.Source), typed.LookupSource, normalizeFlowExpr(typed.LookupInput.Source), typed.As
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%sfor _i := range %s {\n", pad, items))
 		innerPad := pad + "\t"
@@ -764,21 +731,15 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		b.WriteString(fmt.Sprintf("%s_enriched, _eErr := s.%sRepo.FindByID(ctx, %s)\n", innerPad, ExportName(lookupSource), lookupInput))
 		b.WriteString(fmt.Sprintf("%sif _eErr == nil && _enriched != nil {\n", innerPad))
 		innerInnerPad := innerPad + "\t"
-		pairs := strings.Split(set, ",")
-		for _, pair := range pairs {
-			kv := strings.SplitN(strings.TrimSpace(pair), "=", 2)
-			if len(kv) == 2 {
-				targetField := strings.TrimSpace(kv[0])
-				lookupField := strings.TrimSpace(kv[1])
-				b.WriteString(fmt.Sprintf("%s%s.%s = _enriched.%s\n", innerInnerPad, as, targetField, lookupField))
-			}
+		for _, field := range typed.Fields {
+			b.WriteString(fmt.Sprintf("%s%s.%s = _enriched.%s\n", innerInnerPad, as, field.Target, field.Source))
 		}
 		b.WriteString(fmt.Sprintf("%s}\n", innerPad))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
 
 	case "time.Parse":
-		typed, err := flowir.DecodeAs[flowir.TimeParse](step)
+		typed, err := decodeCurrentActionAs[flowir.TimeParse](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -800,7 +761,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "time.Add":
-		typed, err := flowir.DecodeAs[flowir.TimeAdd](step)
+		typed, err := decodeCurrentActionAs[flowir.TimeAdd](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -808,7 +769,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("%s.Add(%s)", input, duration), "time.Time"), true
 
 	case "time.Sub":
-		typed, err := flowir.DecodeAs[flowir.TimeSub](step)
+		typed, err := decodeCurrentActionAs[flowir.TimeSub](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -816,7 +777,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("%s.Sub(%s)", a, bExpr), "time.Duration"), true
 
 	case "time.Diff":
-		typed, err := flowir.DecodeAs[flowir.TimeDiff](step)
+		typed, err := decodeCurrentActionAs[flowir.TimeDiff](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -842,7 +803,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return renderFlowAssignTarget(st, pad, output, expr, "float64"), true
 
 	case "time.CheckExpiry":
-		typed, err := flowir.DecodeAs[flowir.TimeCheckExpiry](step)
+		typed, err := decodeCurrentActionAs[flowir.TimeCheckExpiry](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -865,7 +826,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "map.Build":
-		typed, err := flowir.DecodeAs[flowir.MapBuild](step)
+		typed, err := decodeCurrentActionAs[flowir.MapBuild](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -885,13 +846,17 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "repo.Query":
-		source := arg("source")
-		method := arg("method")
-		input := arg("input")
-		output := arg("output")
-		errMsg := arg("error")
+		typed, err := decodeCurrentActionAs[flowir.RepositoryCall](st, step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
+		source := typed.Entity
+		method := typed.Method
+		input := normalizeFlowExpr(typed.Input.Source)
+		output := typed.Output
+		errMsg := typed.Error
 		// required: true → auto-inject nil-check with generic "not found" message
-		if required, _ := step.Args["required"].(bool); required && errMsg == "" {
+		if typed.Required && errMsg == "" {
 			errMsg = source + " not found"
 		}
 		if source == "" || method == "" {
@@ -903,35 +868,19 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 			inputArg = ", " + input
 		}
 		// multi-arg fallback: args: ["req.TenderID", "req.CompanyID"]
-		if inputArg == "" {
-			if v, ok := step.Args["args"]; ok {
-				switch x := v.(type) {
-				case []string:
-					if len(x) > 0 {
-						inputArg = ", " + strings.Join(x, ", ")
-					}
-				case []interface{}:
-					var parts []string
-					for _, item := range x {
-						if s, ok := item.(string); ok && s != "" {
-							parts = append(parts, normalizeFlowExpr(strings.TrimSpace(s)))
-						}
-					}
-					if len(parts) > 0 {
-						inputArg = ", " + strings.Join(parts, ", ")
-					}
-				case string:
-					if x != "" {
-						inputArg = ", " + x
-					}
+		if inputArg == "" && len(typed.Arguments) > 0 {
+			parts := make([]string, 0, len(typed.Arguments))
+			for _, argument := range typed.Arguments {
+				if source := normalizeFlowExpr(argument.Source); source != "" {
+					parts = append(parts, source)
 				}
+			}
+			if len(parts) > 0 {
+				inputArg = ", " + strings.Join(parts, ", ")
 			}
 		}
 		// list:true → output is a slice, not a pointer
-		isList := false
-		if b2, ok := step.Args["list"].(bool); ok && b2 {
-			isList = true
-		}
+		isList := typed.List
 		if output == "" {
 			b.WriteString(fmt.Sprintf("%sif _, _qrErr := s.%sRepo.%s(ctx%s); _qrErr != nil {\n", pad, ExportName(source), ExportName(method), inputArg))
 			b.WriteString(errReturn(st, pad+"\t", "_qrErr"))
@@ -960,7 +909,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "math.Expr":
-		typed, err := flowir.DecodeAs[flowir.MathExpression](step)
+		typed, err := decodeCurrentActionAs[flowir.MathExpression](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -981,8 +930,6 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		if source == "" || find == "" || input == "" || output == "" {
 			return renderInvalidFlowStepConfig(st, pad, "repo.Upsert", "repo.Upsert requires source, find, input, and output"), true
 		}
-		ifNewSteps := child("_ifNew")
-		ifExistsSteps := child("_ifExists")
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -999,16 +946,16 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		b.WriteString(fmt.Sprintf("%s_uNew := %s\n", innerPad, input))
 		b.WriteString(fmt.Sprintf("%s%s = &_uNew\n", innerPad, output))
 		ifNewState := cloneFlowState(st)
-		if len(ifNewSteps) > 0 {
-			b.WriteString(renderFlowSteps(ifNewState, ifNewSteps, indent+1))
+		if flowChildStepCount(st, child, "_ifNew") > 0 {
+			b.WriteString(renderFlowChildSteps(ifNewState, child, "_ifNew", indent+1))
 		}
 		b.WriteString(fmt.Sprintf("%sif err := s.%sRepo.Save(ctx, %s); err != nil {\n", innerPad, ExportName(source), output))
 		b.WriteString(errReturn(st, innerPad+"\t", "err"))
 		b.WriteString(fmt.Sprintf("%s}\n", innerPad))
 		b.WriteString(fmt.Sprintf("%s} else {\n", pad))
 		ifExistsState := cloneFlowState(st)
-		if len(ifExistsSteps) > 0 {
-			b.WriteString(renderFlowSteps(ifExistsState, ifExistsSteps, indent+1))
+		if flowChildStepCount(st, child, "_ifExists") > 0 {
+			b.WriteString(renderFlowChildSteps(ifExistsState, child, "_ifExists", indent+1))
 		}
 		b.WriteString(fmt.Sprintf("%sif err := s.%sRepo.Save(ctx, %s); err != nil {\n", innerPad, ExportName(source), output))
 		b.WriteString(errReturn(st, innerPad+"\t", "err"))
@@ -1017,11 +964,11 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "fsm.Transition":
-		entity := arg("entity")
-		to := arg("to")
-		if entity == "" || to == "" {
-			return "", true
+		typed, err := decodeCurrentActionAs[flowir.FSMTransition](st, step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
+		entity, to := normalizeFlowExpr(typed.Entity.Source), typed.To
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%sif err := %s.TransitionTo(%q); err != nil {\n", pad, entity, to))
 		b.WriteString(errReturn(st, pad+"\t", "err"))
@@ -1029,7 +976,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "notification.Dispatch", "notify.Dispatch":
-		typed, err := flowir.DecodeAs[flowir.NotificationDispatch](step)
+		typed, err := decodeCurrentActionAs[flowir.NotificationDispatch](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}

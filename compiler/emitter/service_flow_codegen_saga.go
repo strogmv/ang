@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 func renderFlowStepSaga(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
@@ -12,10 +13,11 @@ func renderFlowStepSaga(st *flowRenderState, step normalizer.FlowStep, indent in
 
 	switch step.Action {
 	case "flow.Saga":
-		doSteps := child("_do")
-		if len(doSteps) == 0 {
-			return "", true
+		_, decodeErr := decodeCurrentActionAs[flowir.FlowSaga](st, step)
+		if decodeErr != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, decodeErr.Error()), true
 		}
+		var doSteps []normalizer.FlowStep
 
 		compVar := "_sagaCompensations" + sfx
 		var b strings.Builder
@@ -31,13 +33,17 @@ func renderFlowStepSaga(st *flowRenderState, step normalizer.FlowStep, indent in
 
 		sagaState := cloneFlowState(st)
 		sagaState.sagaCompVar = compVar
-		b.WriteString(renderFlowSteps(sagaState, doSteps, indent+1))
+		b.WriteString(renderFlowNestedSteps(sagaState, "_do", doSteps, indent+1))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
 
 	case "flow.Compensate":
-		doSteps := child("_do")
-		if len(doSteps) == 0 || st.sagaCompVar == "" {
+		_, decodeErr := decodeCurrentActionAs[flowir.FlowCompensate](st, step)
+		if decodeErr != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, decodeErr.Error()), true
+		}
+		var doSteps []normalizer.FlowStep
+		if st.sagaCompVar == "" {
 			return "", true
 		}
 
@@ -46,14 +52,18 @@ func renderFlowStepSaga(st *flowRenderState, step normalizer.FlowStep, indent in
 
 		compState := cloneFlowState(st)
 		compState.returnErrOnly = true
-		b.WriteString(renderFlowSteps(compState, doSteps, indent+1))
+		b.WriteString(renderFlowNestedSteps(compState, "_do", doSteps, indent+1))
 
 		b.WriteString(fmt.Sprintf("%s\treturn nil\n", pad))
 		b.WriteString(fmt.Sprintf("%s})\n", pad))
 		return b.String(), true
 
 	case "flow.Rollback":
-		errExpr := arg("error")
+		typed, decodeErr := decodeCurrentActionAs[flowir.FlowRollback](st, step)
+		if decodeErr != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, decodeErr.Error()), true
+		}
+		errExpr := normalizeFlowExpr(typed.Error.Source)
 		if errExpr == "" {
 			errExpr = "fmt.Errorf(\"saga rollback triggered\")"
 		}

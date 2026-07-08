@@ -15,25 +15,25 @@ func renderFlowStepInfraHTTPAdvanced(st *flowRenderState, step normalizer.FlowSt
 
 	switch step.Action {
 	case "http.Request":
-		typed, err := flowir.DecodeAs[flowir.HTTPRequest](step)
+		typed, err := decodeCurrentActionAs[flowir.HTTPRequest](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
 		return renderHTTPRequest(st, typed, pad, sfx)
 	case "http.SOAP":
-		typed, err := flowir.DecodeAs[flowir.HTTPSOAP](step)
+		typed, err := decodeCurrentActionAs[flowir.HTTPSOAP](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
 		return renderHTTPSOAP(st, typed, pad, sfx)
 	case "http.RetryPolicy":
-		typed, err := flowir.DecodeAs[flowir.HTTPRetryPolicy](step)
+		typed, err := decodeCurrentActionAs[flowir.HTTPRetryPolicy](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
 		return renderHTTPRetryPolicy(st, typed, pad, sfx)
 	case "http.Paginate":
-		typed, err := flowir.DecodeAs[flowir.HTTPPaginate](step)
+		typed, err := decodeCurrentActionAs[flowir.HTTPPaginate](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}

@@ -6,39 +6,33 @@ import (
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
-func renderEventPayloadExpr(st *flowRenderState, step normalizer.FlowStep, eventName string, arg func(string) string) string {
-	if payloadMap := flowEventPayloadMap(step.Args["payloadMap"]); payloadMap != nil {
-		if len(payloadMap) == 0 {
-			return fmt.Sprintf("domain.%s{}", ExportName(eventName))
-		}
+func renderTypedEventPayloadExpr(st *flowRenderState, eventName string, payload flowir.Expression, fields map[string]flowir.Expression) string {
+	if fields != nil {
 		eventDef, hasEvent := normalizer.EventDef{}, false
 		if st != nil && st.eventDefsByName != nil {
 			eventDef, hasEvent = st.eventDefsByName[eventName]
 		}
-		keys := make([]string, 0, len(payloadMap))
-		for k := range payloadMap {
-			keys = append(keys, k)
+		keys := make([]string, 0, len(fields))
+		for key := range fields {
+			keys = append(keys, key)
 		}
 		sort.Strings(keys)
 		parts := make([]string, 0, len(keys))
-		for _, k := range keys {
-			v := strings.TrimSpace(payloadMap[k])
-			if v == "" {
-				continue
+		for _, key := range keys {
+			value := normalizeFlowExpr(fields[key].Source)
+			if value != "" {
+				parts = append(parts, fmt.Sprintf("%s: %s", key, coerceValueForEventField(key, value, eventDef, hasEvent, st)))
 			}
-			v = coerceValueForEventField(k, v, eventDef, hasEvent, st)
-			parts = append(parts, fmt.Sprintf("%s: %s", k, v))
 		}
 		return fmt.Sprintf("domain.%s{%s}", ExportName(eventName), strings.Join(parts, ", "))
 	}
-
-	payload := strings.TrimSpace(arg("payload"))
-	if payload == "" {
-		return fmt.Sprintf("domain.%s{}", ExportName(eventName))
+	if value := normalizeFlowExpr(payload.Source); value != "" {
+		return normalizePayloadExpr(value)
 	}
-	return normalizePayloadExpr(payload)
+	return fmt.Sprintf("domain.%s{}", ExportName(eventName))
 }
 
 func coerceValueForEventField(

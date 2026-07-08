@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 // renderFlowStepOAuthGoogle handles oauth.Google.* actions.
@@ -12,11 +13,23 @@ func renderFlowStepOAuthGoogle(st *flowRenderState, step normalizer.FlowStep, in
 	pad := strings.Repeat("\t", indent)
 	switch step.Action {
 	case "oauth.Google.GetURL":
-		return renderOAuthGoogleGetURL(st, step, pad, sfx, arg), true
+		typed, err := decodeCurrentActionAs[flowir.OAuthGoogleGetURL](st, step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
+		return renderOAuthGoogleGetURL(st, typed, pad, sfx), true
 	case "oauth.Google.Exchange":
-		return renderOAuthGoogleExchange(st, step, pad, sfx, arg), true
+		typed, err := decodeCurrentActionAs[flowir.OAuthGoogleExchange](st, step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
+		return renderOAuthGoogleExchange(st, typed, pad, sfx), true
 	case "oauth.Google.UserInfo":
-		return renderOAuthGoogleUserInfo(st, step, pad, sfx, arg), true
+		typed, err := decodeCurrentActionAs[flowir.OAuthGoogleUserInfo](st, step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
+		return renderOAuthGoogleUserInfo(st, typed, pad, sfx), true
 	}
 	return "", false
 }
@@ -27,22 +40,9 @@ func renderFlowStepOAuthGoogle(st *flowRenderState, step normalizer.FlowStep, in
 //
 //	{ action: "oauth.Google.GetURL", clientID: "s.cfg.GoogleClientID",
 //	  redirectURL: "s.cfg.GoogleRedirectURL", state: "stateVar", output: "authURL" }
-func renderOAuthGoogleGetURL(st *flowRenderState, step normalizer.FlowStep, pad, sfx string, arg func(string) string) string {
-	clientID := arg("clientID")
-	redirectURL := arg("redirectURL")
-	output := arg("output")
-	if clientID == "" || redirectURL == "" || output == "" {
-		return renderInvalidFlowStepConfig(st, pad, "oauth.Google.GetURL", "clientID, redirectURL and output are required")
-	}
-
-	stateExpr := arg("state")
-	if stateExpr == "" {
-		stateExpr = `""`
-	}
-	scopesExpr := arg("scopes")
-	if scopesExpr == "" {
-		scopesExpr = `"openid email profile"`
-	}
+func renderOAuthGoogleGetURL(st *flowRenderState, action flowir.OAuthGoogleGetURL, pad, sfx string) string {
+	clientID, redirectURL, output := normalizeFlowExpr(action.ClientID.Source), normalizeFlowExpr(action.RedirectURL.Source), action.Output
+	stateExpr, scopesExpr := normalizeFlowExpr(action.State.Source), normalizeFlowExpr(action.Scopes.Source)
 
 	assign := ":="
 	if st.declared[output] {
@@ -76,20 +76,9 @@ func renderOAuthGoogleGetURL(st *flowRenderState, step normalizer.FlowStep, pad,
 //	{ action: "oauth.Google.Exchange",
 //	  clientID: "s.cfg.GoogleClientID", clientSecret: "s.cfg.GoogleClientSecret",
 //	  redirectURL: "s.cfg.GoogleRedirectURL", code: "req.Code", output: "token" }
-func renderOAuthGoogleExchange(st *flowRenderState, step normalizer.FlowStep, pad, sfx string, arg func(string) string) string {
-	clientID := arg("clientID")
-	clientSecret := arg("clientSecret")
-	redirectURL := arg("redirectURL")
-	code := arg("code")
-	output := arg("output")
-	if clientID == "" || clientSecret == "" || redirectURL == "" || code == "" || output == "" {
-		return renderInvalidFlowStepConfig(st, pad, "oauth.Google.Exchange", "clientID, clientSecret, redirectURL, code and output are required")
-	}
-
-	scopesExpr := arg("scopes")
-	if scopesExpr == "" {
-		scopesExpr = `"openid email profile"`
-	}
+func renderOAuthGoogleExchange(st *flowRenderState, action flowir.OAuthGoogleExchange, pad, sfx string) string {
+	clientID, clientSecret, redirectURL, code, output := normalizeFlowExpr(action.ClientID.Source), normalizeFlowExpr(action.ClientSecret.Source), normalizeFlowExpr(action.RedirectURL.Source), normalizeFlowExpr(action.Code.Source), action.Output
+	scopesExpr := normalizeFlowExpr(action.Scopes.Source)
 
 	assign := ":="
 	if st.declared[output] {
@@ -128,12 +117,8 @@ func renderOAuthGoogleExchange(st *flowRenderState, step normalizer.FlowStep, pa
 //	{ action: "oauth.Google.UserInfo", token: "token", output: "profile" }
 //
 // The output variable has fields: Sub, Email, EmailVerified, Name, GivenName, FamilyName, Picture.
-func renderOAuthGoogleUserInfo(st *flowRenderState, step normalizer.FlowStep, pad, sfx string, arg func(string) string) string {
-	tokenExpr := arg("token")
-	output := arg("output")
-	if tokenExpr == "" || output == "" {
-		return renderInvalidFlowStepConfig(st, pad, "oauth.Google.UserInfo", "token and output are required")
-	}
+func renderOAuthGoogleUserInfo(st *flowRenderState, action flowir.OAuthGoogleUserInfo, pad, sfx string) string {
+	tokenExpr, output := normalizeFlowExpr(action.Token.Source), action.Output
 
 	assign := ":="
 	if st.declared[output] {

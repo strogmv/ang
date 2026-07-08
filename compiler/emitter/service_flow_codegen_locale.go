@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 func renderFlowStepLocale(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
@@ -12,15 +13,11 @@ func renderFlowStepLocale(st *flowRenderState, step normalizer.FlowStep, indent 
 
 	switch step.Action {
 	case "locale.Resolve":
-		output := arg("output")
-		if output == "" {
-			output = "locale"
+		typed, err := decodeCurrentActionAs[flowir.LocaleResolve](st, step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		defaultLocale := arg("default")
-		if defaultLocale == "" {
-			defaultLocale = `"en"`
-		}
-		sources := arg("sources") // comma-separated Go expressions to try
+		output, defaultLocale, sources := typed.Output, normalizeFlowExpr(typed.Default.Source), typed.Sources
 
 		declareOutput := !st.declared[output]
 		if declareOutput {

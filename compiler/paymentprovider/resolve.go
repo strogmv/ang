@@ -8,14 +8,14 @@ import (
 
 // ResolvedField is a request field ready for template emission.
 type ResolvedField struct {
-	GoName   string
-	GoExpr   string
-	Type     string
-	JSON     string
+	GoName    string
+	GoExpr    string
+	Type      string
+	JSON      string
 	OmitEmpty bool
-	Redacted bool
-	IsCard   bool
-	IsAPM    bool
+	Redacted  bool
+	IsCard    bool
+	IsAPM     bool
 }
 
 // ResolveRequestFields maps CUE field sources to Go expressions.
@@ -51,6 +51,8 @@ func resolveSource(f RequestField, paymentSource string, currencyISONum int) (ex
 	switch src {
 	case "tx_id":
 		return `tx.Id`, false, false, nil
+	case "foreign_id":
+		return `tx.ForeignId`, false, false, nil
 	case "tx_amount":
 		return `tx.Amount`, false, false, nil
 	case "tx_amount_float":
@@ -237,20 +239,20 @@ func ownerInfoKeyConst(key string) string {
 }
 
 var ownerInfoParams = map[string]string{
-	"email":       "Email",
-	"phone":       "Phone",
-	"first_name":  "FirstName",
-	"last_name":   "LastName",
-	"fullname":    "FullName",
-	"cardholder":  "CardHolder",
-	"address":     "Address",
-	"city":        "City",
-	"state":       "State",
-	"country":     "Country",
-	"zip":         "Zip",
-	"ip":          "IP",
-	"language":    "Language",
-	"birth_date":  "BirthDate",
+	"email":         "Email",
+	"phone":         "Phone",
+	"first_name":    "FirstName",
+	"last_name":     "LastName",
+	"fullname":      "FullName",
+	"cardholder":    "CardHolder",
+	"address":       "Address",
+	"city":          "City",
+	"state":         "State",
+	"country":       "Country",
+	"zip":           "Zip",
+	"ip":            "IP",
+	"language":      "Language",
+	"birth_date":    "BirthDate",
 	"receiver_iban": "ReceiverIban", // not in owner_info.go as var - use MapGet fallback
 }
 

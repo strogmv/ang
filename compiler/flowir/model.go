@@ -2,8 +2,6 @@ package flowir
 
 import (
 	"go/token"
-
-	"github.com/strogmv/ang-ir/normalizer"
 )
 
 type TypeKind string
@@ -47,7 +45,6 @@ type Action interface {
 }
 
 type FlowTry struct {
-	Steps, Catch       []normalizer.FlowStep
 	Retries, BackoffMS int
 }
 
@@ -55,7 +52,6 @@ func (FlowTry) ActionName() string            { return "flow.Try" }
 func (FlowTry) DeclaredVariables() []Variable { return nil }
 
 type FlowRetry struct {
-	Steps, Catch        []normalizer.FlowStep
 	Attempts, BackoffMS int
 }
 
@@ -63,50 +59,139 @@ func (FlowRetry) ActionName() string            { return "flow.Retry" }
 func (FlowRetry) DeclaredVariables() []Variable { return nil }
 
 type FlowTimeout struct {
-	Duration         Expression
-	Steps, OnTimeout []normalizer.FlowStep
+	Duration Expression
 }
 
 func (FlowTimeout) ActionName() string            { return "flow.Timeout" }
 func (FlowTimeout) DeclaredVariables() []Variable { return nil }
 
-type FlowFallback struct{ Steps, Fallback []normalizer.FlowStep }
+type FlowFallback struct{}
 
 func (FlowFallback) ActionName() string            { return "flow.Fallback" }
 func (FlowFallback) DeclaredVariables() []Variable { return nil }
 
-type FlowParallel struct {
-	Branches map[string][]normalizer.FlowStep
-}
-type FlowJoin struct {
-	Branches map[string][]normalizer.FlowStep
-}
-type FlowRace struct {
-	Branches map[string][]normalizer.FlowStep
-}
+type FlowParallel struct{}
+type FlowJoin struct{}
+type FlowRace struct{}
 type ParallelRun struct {
-	Branches       map[string][]normalizer.FlowStep
 	MaxConcurrency int
 }
+type FlowDelay struct{ Duration Expression }
+type FlowSchedule struct{ At Expression }
+type FlowCron struct {
+	Window, Timezone string
+}
+type FlowSaga struct{}
+type FlowCompensate struct{}
+type FlowRollback struct{ Error Expression }
+type FlowCheckpoint struct {
+	Name string
+	Data Expression
+}
+type FlowResume struct {
+	Name, Output, Into string
+}
+type FlowRecordEvent struct {
+	Name, Payload Expression
+	Output        string
+}
+type FlowHistoryGet struct {
+	Name, Limit Expression
+	Output      string
+}
+type FlowReplay struct {
+	History Expression
+	Output  string
+}
+type FlowValidate struct {
+	Condition           Expression
+	Message, Hint, Code string
+	Status              Expression
+}
+type FlowCatch struct{}
+type FlowDefer struct{}
+type FlowSuggestNext struct {
+	Options []string
+	Output  string
+}
+type FlowExplainError struct {
+	Error                 Expression
+	Output, Message, Hint string
+}
+type FlowTag struct{ Name, Value Expression }
+type FlowReturn struct{ Set, Value Expression }
+type FlowCall struct {
+	Operation, Output, IgnoreErrReason string
+	Arguments                          map[string]Expression
+	IgnoreError                        bool
+}
 
-func (FlowParallel) ActionName() string            { return "flow.Parallel" }
-func (FlowParallel) DeclaredVariables() []Variable { return nil }
-func (FlowJoin) ActionName() string                { return "flow.Join" }
-func (FlowJoin) DeclaredVariables() []Variable     { return nil }
-func (FlowRace) ActionName() string                { return "flow.Race" }
-func (FlowRace) DeclaredVariables() []Variable     { return nil }
-func (ParallelRun) ActionName() string             { return "parallel.Run" }
-func (ParallelRun) DeclaredVariables() []Variable  { return nil }
+func (FlowParallel) ActionName() string              { return "flow.Parallel" }
+func (FlowParallel) DeclaredVariables() []Variable   { return nil }
+func (FlowJoin) ActionName() string                  { return "flow.Join" }
+func (FlowJoin) DeclaredVariables() []Variable       { return nil }
+func (FlowRace) ActionName() string                  { return "flow.Race" }
+func (FlowRace) DeclaredVariables() []Variable       { return nil }
+func (ParallelRun) ActionName() string               { return "parallel.Run" }
+func (ParallelRun) DeclaredVariables() []Variable    { return nil }
+func (FlowDelay) ActionName() string                 { return "flow.Delay" }
+func (FlowDelay) DeclaredVariables() []Variable      { return nil }
+func (FlowSchedule) ActionName() string              { return "flow.Schedule" }
+func (FlowSchedule) DeclaredVariables() []Variable   { return nil }
+func (FlowCron) ActionName() string                  { return "flow.Cron" }
+func (FlowCron) DeclaredVariables() []Variable       { return nil }
+func (FlowSaga) ActionName() string                  { return "flow.Saga" }
+func (FlowSaga) DeclaredVariables() []Variable       { return nil }
+func (FlowCompensate) ActionName() string            { return "flow.Compensate" }
+func (FlowCompensate) DeclaredVariables() []Variable { return nil }
+func (FlowRollback) ActionName() string              { return "flow.Rollback" }
+func (FlowRollback) DeclaredVariables() []Variable   { return nil }
+func (FlowCheckpoint) ActionName() string            { return "flow.Checkpoint" }
+func (FlowCheckpoint) DeclaredVariables() []Variable { return nil }
+func (FlowResume) ActionName() string                { return "flow.Resume" }
+func (a FlowResume) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, parseTypeHint(a.Into))
+}
+func (FlowRecordEvent) ActionName() string { return "flow.RecordEvent" }
+func (a FlowRecordEvent) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeMap})
+}
+func (FlowHistoryGet) ActionName() string { return "flow.History.Get" }
+func (a FlowHistoryGet) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeList})
+}
+func (FlowReplay) ActionName() string { return "flow.Replay" }
+func (a FlowReplay) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeList})
+}
+func (FlowValidate) ActionName() string            { return "flow.Validate" }
+func (FlowValidate) DeclaredVariables() []Variable { return nil }
+func (FlowCatch) ActionName() string               { return "flow.Catch" }
+func (FlowCatch) DeclaredVariables() []Variable    { return nil }
+func (FlowDefer) ActionName() string               { return "flow.Defer" }
+func (FlowDefer) DeclaredVariables() []Variable    { return nil }
+func (FlowSuggestNext) ActionName() string         { return "flow.SuggestNext" }
+func (a FlowSuggestNext) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeList, Elem: &TypeRef{Kind: TypeString}})
+}
+func (FlowExplainError) ActionName() string { return "flow.ExplainError" }
+func (a FlowExplainError) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeString})
+}
+func (FlowTag) ActionName() string               { return "flow.Tag" }
+func (FlowTag) DeclaredVariables() []Variable    { return nil }
+func (FlowReturn) ActionName() string            { return "flow.Return" }
+func (FlowReturn) DeclaredVariables() []Variable { return nil }
+func (FlowCall) ActionName() string              { return "flow.Call" }
+func (a FlowCall) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeDTO, Name: a.Operation + "Response"})
+}
 
 type Source struct {
 	File    string
 	Line    int
 	Column  int
 	CUEPath string
-}
-
-func SourceOf(step normalizer.FlowStep) Source {
-	return Source{File: step.File, Line: step.Line, Column: step.Column, CUEPath: step.CUEPath}
 }
 
 type CallOptions struct {
@@ -195,14 +280,11 @@ type MappingMap struct {
 
 func (MappingMap) ActionName() string { return "mapping.Map" }
 func (a MappingMap) DeclaredVariables() []Variable {
-	if a.Output == "" {
-		return nil
-	}
 	typ := TypeRef{Kind: TypeUnknown}
 	if a.Entity != "" {
 		typ = TypeRef{Kind: TypeEntity, Name: a.Entity}
 	}
-	return []Variable{{Name: a.Output, Type: typ}}
+	return outputVariable(a.Output, typ)
 }
 
 type LogicCheck struct {
@@ -216,8 +298,6 @@ func (LogicCheck) DeclaredVariables() []Variable { return nil }
 
 type FlowIf struct {
 	Condition Expression
-	Then      []normalizer.FlowStep
-	Else      []normalizer.FlowStep
 }
 
 func (FlowIf) ActionName() string            { return "flow.If" }
@@ -225,7 +305,6 @@ func (FlowIf) DeclaredVariables() []Variable { return nil }
 
 type FlowBlock struct {
 	Transactional bool
-	Steps         []normalizer.FlowStep
 }
 
 func (a FlowBlock) ActionName() string {
@@ -670,6 +749,350 @@ type ListChunk struct {
 	Output     string
 }
 
+type BatchRun struct {
+	From, Size Expression
+	As         string
+}
+
+type ExecCommand struct {
+	Alias                      string
+	Command, Stdin, Timeout    Expression
+	Arguments                  []Expression
+	TimeoutMS                  int
+	Output, ExitCodeVar, Throw string
+	FailOnError                bool
+}
+type FSTempDir struct {
+	Pattern Expression
+	Output  string
+}
+type FSWriteFile struct{ Path, Data Expression }
+type FSReadFile struct {
+	Path     Expression
+	Output   string
+	Optional bool
+}
+type FSRemove struct{ Path Expression }
+type ArchiveZipDir struct {
+	Path   Expression
+	Output string
+}
+type ClaudeChat struct {
+	System, SystemContext, UserMessage, History, Model, Locale, Timezone Expression
+	Output                                                               string
+	MaxTokens                                                            int
+}
+type OpenAIChat struct {
+	System, SystemContext, UserMessage, History, Model, ToolChoice Expression
+	ResponseJSONSchema, ResponseJSONName                           Expression
+	Output, OutputUsage, OutputToolCalls, OutputJSON               string
+	Tools                                                          []string
+	MaxTokens, MaxRounds                                           int
+	ResponseJSONStrict                                             bool
+}
+type OpenAIEmbed struct {
+	Input, Model        Expression
+	Output, OutputUsage string
+	Dimensions          int
+}
+type OpenAIStream struct {
+	System, SystemContext, UserMessage, History, Model Expression
+	Output                                             string
+	MaxTokens                                          int
+}
+type PlanBuildAutomata struct {
+	Input  Expression
+	Output string
+}
+type PlanBuildMicroPlan struct {
+	Usecases, Automata Expression
+	Output             string
+}
+type CueEmitProject struct {
+	Usecases, MicroPlan, Layout Expression
+	Output                      string
+}
+type CueValidateProject struct {
+	Files, Binary Expression
+	Output        string
+}
+type CueWriteProjectFiles struct {
+	Root, Files, Mode Expression
+	Prefixes          []string
+	Output            string
+}
+type AuditLog struct{ Actor, Company, Event Expression }
+type RBACCheckPermission struct {
+	User, Permission, Status Expression
+	Output, Throw, Code      string
+}
+type SecretGet struct {
+	Key, Default Expression
+	Output       string
+}
+type ConfigGet struct {
+	Key, Default Expression
+	Output       string
+}
+type ModelResolve struct {
+	Name, Default Expression
+	Output        string
+}
+type StreamEmit struct{ Data Expression }
+type LocaleResolve struct {
+	Sources string
+	Default Expression
+	Output  string
+}
+type TemplateRender struct {
+	Template, Data Expression
+	Output         string
+}
+type PDFRender struct {
+	Template, Data Expression
+	Output         string
+}
+type SessionGet struct{ Output string }
+type DBFields struct {
+	Source, Method, Output, Error string
+	Input                         Expression
+}
+type DBGet struct{ DBFields }
+type DBList struct{ DBFields }
+type DBQuery struct{ DBFields }
+type DBInsert struct{ DBFields }
+type DBUpdate struct{ DBFields }
+type DBUpsert struct{ DBFields }
+type DBDelete struct{ DBFields }
+type DBLock struct{ DBFields }
+type DBSelectForUpdate struct{ DBFields }
+type EventEmitIf struct {
+	Condition  Expression
+	Event      string
+	Payload    Expression
+	PayloadMap map[string]Expression
+}
+type EventOutbox struct{ Name, Payload, ID Expression }
+type EventWait struct {
+	Name, Timeout, Match Expression
+	Output, Into         string
+}
+type EventSubscribe struct {
+	Name, Match Expression
+}
+type EventMatch struct {
+	Event, Match Expression
+	Throw        string
+}
+type EntityPatchNonZero struct {
+	Target, From Expression
+	Fields       []string
+}
+type FieldCopyNonEmpty struct {
+	From, To Expression
+	Fields   []string
+}
+type PatchFieldRule struct{ Normalize, Format, Unique string }
+type EntityPatchValidated struct {
+	Target, From Expression
+	Source       string
+	Fields       map[string]PatchFieldRule
+}
+type EnumValidate struct {
+	Value   Expression
+	Allowed []string
+	Throw   string
+}
+type FSMTransition struct {
+	Entity Expression
+	To     string
+}
+type EnrichField struct{ Target, Source string }
+type ListEnrich struct {
+	Items, LookupInput Expression
+	As, LookupSource   string
+	Fields             []EnrichField
+}
+type OAuthGoogleGetURL struct {
+	ClientID, RedirectURL, State, Scopes Expression
+	Output                               string
+}
+type OAuthGoogleExchange struct {
+	ClientID, ClientSecret, RedirectURL, Code, Scopes Expression
+	Output                                            string
+}
+type OAuthGoogleUserInfo struct {
+	Token  Expression
+	Output string
+}
+
+func (FSMTransition) ActionName() string            { return "fsm.Transition" }
+func (FSMTransition) DeclaredVariables() []Variable { return nil }
+func (ListEnrich) ActionName() string               { return "list.Enrich" }
+func (ListEnrich) DeclaredVariables() []Variable    { return nil }
+func (OAuthGoogleGetURL) ActionName() string        { return "oauth.Google.GetURL" }
+func (a OAuthGoogleGetURL) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeString})
+}
+func (OAuthGoogleExchange) ActionName() string { return "oauth.Google.Exchange" }
+func (a OAuthGoogleExchange) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypePointer, Elem: &TypeRef{Kind: TypeUnknown, Name: "oauth2.Token"}})
+}
+func (OAuthGoogleUserInfo) ActionName() string { return "oauth.Google.UserInfo" }
+func (a OAuthGoogleUserInfo) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeUnknown, Name: "GoogleUserInfo"})
+}
+
+func (EntityPatchNonZero) ActionName() string              { return "entity.PatchNonZero" }
+func (EntityPatchNonZero) DeclaredVariables() []Variable   { return nil }
+func (FieldCopyNonEmpty) ActionName() string               { return "field.CopyNonEmpty" }
+func (FieldCopyNonEmpty) DeclaredVariables() []Variable    { return nil }
+func (EntityPatchValidated) ActionName() string            { return "entity.PatchValidated" }
+func (EntityPatchValidated) DeclaredVariables() []Variable { return nil }
+func (EnumValidate) ActionName() string                    { return "enum.Validate" }
+func (EnumValidate) DeclaredVariables() []Variable         { return nil }
+
+func (EventEmitIf) ActionName() string            { return "event.EmitIf" }
+func (EventEmitIf) DeclaredVariables() []Variable { return nil }
+func (EventOutbox) ActionName() string            { return "event.Outbox" }
+func (EventOutbox) DeclaredVariables() []Variable { return nil }
+func (EventWait) ActionName() string              { return "event.Wait" }
+func (a EventWait) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, parseTypeHint(a.Into))
+}
+func (EventSubscribe) ActionName() string            { return "event.Subscribe" }
+func (EventSubscribe) DeclaredVariables() []Variable { return nil }
+func (EventMatch) ActionName() string                { return "event.Match" }
+func (EventMatch) DeclaredVariables() []Variable     { return nil }
+
+func (AuditLog) ActionName() string            { return "audit.Log" }
+func (AuditLog) DeclaredVariables() []Variable { return nil }
+func (RBACCheckPermission) ActionName() string { return "rbac.CheckPermission" }
+func (a RBACCheckPermission) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeBool})
+}
+func (SecretGet) ActionName() string { return "secret.Get" }
+func (a SecretGet) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeString})
+}
+func (ConfigGet) ActionName() string { return "config.Get" }
+func (a ConfigGet) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeString})
+}
+func (ModelResolve) ActionName() string { return "model.Resolve" }
+func (a ModelResolve) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeString})
+}
+func (StreamEmit) ActionName() string            { return "stream.Emit" }
+func (StreamEmit) DeclaredVariables() []Variable { return nil }
+func (LocaleResolve) ActionName() string         { return "locale.Resolve" }
+func (a LocaleResolve) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeString})
+}
+func (TemplateRender) ActionName() string { return "template.Render" }
+func (a TemplateRender) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeString})
+}
+func (PDFRender) ActionName() string { return "pdf.Render" }
+func (a PDFRender) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeBytes})
+}
+func (SessionGet) ActionName() string { return "session.Get" }
+func (a SessionGet) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeString})
+}
+func (DBGet) ActionName() string { return "db.Get" }
+func (a DBGet) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypePointer, Elem: &TypeRef{Kind: TypeEntity, Name: a.Source}})
+}
+func (DBList) ActionName() string { return "db.List" }
+func (a DBList) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeList, Elem: &TypeRef{Kind: TypeEntity, Name: a.Source}})
+}
+func (DBQuery) ActionName() string { return "db.Query" }
+func (a DBQuery) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeUnknown})
+}
+func (DBInsert) ActionName() string            { return "db.Insert" }
+func (DBInsert) DeclaredVariables() []Variable { return nil }
+func (DBUpdate) ActionName() string            { return "db.Update" }
+func (DBUpdate) DeclaredVariables() []Variable { return nil }
+func (DBUpsert) ActionName() string            { return "db.Upsert" }
+func (DBUpsert) DeclaredVariables() []Variable { return nil }
+func (DBDelete) ActionName() string            { return "db.Delete" }
+func (DBDelete) DeclaredVariables() []Variable { return nil }
+func (DBLock) ActionName() string              { return "db.Lock" }
+func (a DBLock) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypePointer, Elem: &TypeRef{Kind: TypeEntity, Name: a.Source}})
+}
+func (DBSelectForUpdate) ActionName() string { return "db.SelectForUpdate" }
+func (a DBSelectForUpdate) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypePointer, Elem: &TypeRef{Kind: TypeEntity, Name: a.Source}})
+}
+
+func (PlanBuildAutomata) ActionName() string { return "plan.BuildAutomata" }
+func (a PlanBuildAutomata) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeMap})
+}
+func (PlanBuildMicroPlan) ActionName() string { return "plan.BuildMicroPlan" }
+func (a PlanBuildMicroPlan) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeMap})
+}
+func (CueEmitProject) ActionName() string { return "cue.EmitProject" }
+func (a CueEmitProject) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeMap})
+}
+func (CueValidateProject) ActionName() string { return "cue.ValidateProject" }
+func (a CueValidateProject) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeMap})
+}
+func (CueWriteProjectFiles) ActionName() string { return "cue.WriteProjectFiles" }
+func (a CueWriteProjectFiles) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeMap})
+}
+
+func (ClaudeChat) ActionName() string { return "claude.Chat" }
+func (a ClaudeChat) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeString})
+}
+func (OpenAIChat) ActionName() string { return "openai.Chat" }
+func (a OpenAIChat) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeString})
+}
+func (OpenAIEmbed) ActionName() string { return "openai.Embed" }
+func (a OpenAIEmbed) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeList, Elem: &TypeRef{Kind: TypeFloat}})
+}
+func (OpenAIStream) ActionName() string { return "openai.Stream" }
+func (a OpenAIStream) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeString})
+}
+
+func (a ExecCommand) ActionName() string { return a.Alias }
+func (a ExecCommand) DeclaredVariables() []Variable {
+	v := outputVariable(a.Output, TypeRef{Kind: TypeString})
+	return append(v, outputVariable(a.ExitCodeVar, TypeRef{Kind: TypeInt})...)
+}
+func (FSTempDir) ActionName() string { return "fs.TempDir" }
+func (a FSTempDir) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeString})
+}
+func (FSWriteFile) ActionName() string            { return "fs.WriteFile" }
+func (FSWriteFile) DeclaredVariables() []Variable { return nil }
+func (FSReadFile) ActionName() string             { return "fs.ReadFile" }
+func (a FSReadFile) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeString})
+}
+func (FSRemove) ActionName() string            { return "fs.Remove" }
+func (FSRemove) DeclaredVariables() []Variable { return nil }
+func (ArchiveZipDir) ActionName() string       { return "archive.ZipDir" }
+func (a ArchiveZipDir) DeclaredVariables() []Variable {
+	return outputVariable(a.Output, TypeRef{Kind: TypeBytes})
+}
+
+func (BatchRun) ActionName() string            { return "batch.Run" }
+func (BatchRun) DeclaredVariables() []Variable { return nil }
+
 func (ListChunk) ActionName() string { return "list.Chunk" }
 func (a ListChunk) DeclaredVariables() []Variable {
 	return outputVariable(a.Output, TypeRef{Kind: TypeList, Elem: &TypeRef{Kind: TypeList}})
@@ -677,6 +1100,7 @@ func (a ListChunk) DeclaredVariables() []Variable {
 
 type ListSort struct {
 	Items      Expression
+	Order      Expression
 	By         string
 	Descending bool
 }
@@ -1220,7 +1644,6 @@ func (IdempotencySaveResult) DeclaredVariables() []Variable { return nil }
 
 type DedupeOnce struct {
 	Key, TTL Expression
-	Steps    []normalizer.FlowStep
 }
 
 func (DedupeOnce) ActionName() string            { return "dedupe.Once" }
@@ -1298,7 +1721,6 @@ func (ConcurrencyLimit) DeclaredVariables() []Variable { return nil }
 
 type ConcurrencyRun struct {
 	ConcurrencyLimit
-	Steps []normalizer.FlowStep
 }
 
 func (ConcurrencyRun) ActionName() string            { return "concurrency.Run" }
@@ -1307,7 +1729,6 @@ func (ConcurrencyRun) DeclaredVariables() []Variable { return nil }
 type MutexWith struct {
 	Key, Wait, Poll Expression
 	Throw           string
-	Steps           []normalizer.FlowStep
 }
 
 func (MutexWith) ActionName() string            { return "mutex.With" }
@@ -1318,7 +1739,6 @@ type CircuitAction struct {
 	Name, OpenTTL Expression
 	Threshold     int
 	Throw         string
-	Steps         []normalizer.FlowStep
 }
 
 func (a CircuitAction) ActionName() string          { return a.Alias }
@@ -1329,7 +1749,6 @@ type BulkheadAction struct {
 	Name  Expression
 	Max   int
 	Throw string
-	Steps []normalizer.FlowStep
 }
 type LogEmit struct {
 	Message Expression
@@ -1353,7 +1772,6 @@ func (MetricEmit) DeclaredVariables() []Variable { return nil }
 type TraceSpan struct {
 	Name       Expression
 	Attributes map[string]Expression
-	Steps      []normalizer.FlowStep
 }
 
 func (TraceSpan) ActionName() string            { return "trace.Span" }
@@ -1362,14 +1780,15 @@ func (TraceSpan) DeclaredVariables() []Variable { return nil }
 type SLOBudget struct {
 	Name     string
 	Duration Expression
-	Steps    []normalizer.FlowStep
 }
 type HTTPCall struct {
-	Method            string
-	URL, Body         Expression
-	Headers           map[string]Expression
-	Output, StatusVar string
-	FailOnError       bool
+	Method             string
+	URL, Body, Timeout Expression
+	Headers            map[string]Expression
+	Output, StatusVar  string
+	FailOnError        bool
+	Attempts           int
+	BackoffMS          int
 }
 
 func (HTTPCall) ActionName() string { return "http.Call" }
@@ -1392,9 +1811,8 @@ type HTTPRetryPolicy struct {
 	RetryOn             []int
 }
 type FlowFor struct {
-	Each  Expression
-	As    string
-	Steps []normalizer.FlowStep
+	Each Expression
+	As   string
 }
 
 func (FlowFor) ActionName() string            { return "flow.For" }
@@ -1402,17 +1820,14 @@ func (FlowFor) DeclaredVariables() []Variable { return nil }
 
 type FlowWhile struct {
 	Condition Expression
-	Steps     []normalizer.FlowStep
 }
 
 func (FlowWhile) ActionName() string            { return "flow.While" }
 func (FlowWhile) DeclaredVariables() []Variable { return nil }
 
 type FlowSwitch struct {
-	Value   Expression
-	Match   string
-	Cases   map[string][]normalizer.FlowStep
-	Default []normalizer.FlowStep
+	Value Expression
+	Match string
 }
 
 func (FlowSwitch) ActionName() string            { return "flow.Switch" }
@@ -1484,7 +1899,6 @@ func (a ApprovalRequest) DeclaredVariables() []Variable {
 
 type ApprovalWait struct {
 	ApprovalID, Timeout, TimeoutMode               Expression
-	TimeoutSteps                                   []normalizer.FlowStep
 	Decision, Status, DecidedBy, DecidedAt, Reason string
 }
 

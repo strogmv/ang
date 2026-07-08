@@ -24,13 +24,18 @@ type OpenAPIEndpoint struct {
 }
 
 type OpenAPIContext struct {
-	Endpoints    []OpenAPIEndpoint
+	Paths        []OpenAPIPath
 	Schemas      []normalizer.Entity
 	Title        string
 	Version      string
 	ANGVersion   string
 	InputHash    string
 	CompilerHash string
+}
+
+type OpenAPIPath struct {
+	Path      string
+	Endpoints []OpenAPIEndpoint
 }
 
 func (e *Emitter) EmitOpenAPI(irEndpoints []ir.Endpoint, irServices []ir.Service, irErrors []ir.Error, project *normalizer.ProjectDef) error {
@@ -182,6 +187,7 @@ func (e *Emitter) EmitOpenAPIFromNormalizerTypes(endpoints []normalizer.Endpoint
 	}
 
 	funcMap := e.getSharedFuncMap()
+	funcMap["YAMLQuote"] = strconv.Quote
 	funcMap["Lower"] = strings.ToLower
 	funcMap["IsArray"] = func(goType string) bool {
 		return strings.HasPrefix(goType, "[]")
@@ -317,6 +323,18 @@ func (e *Emitter) EmitOpenAPIFromNormalizerTypes(endpoints []normalizer.Endpoint
 	for _, name := range nestedNames {
 		schemas = append(schemas, nestedMap[name])
 	}
+	pathIndex := make(map[string]int)
+	apiPaths := make([]OpenAPIPath, 0, len(apiEndpoints))
+	for _, endpoint := range apiEndpoints {
+		path := endpoint.Endpoint.Path
+		index, ok := pathIndex[path]
+		if !ok {
+			index = len(apiPaths)
+			pathIndex[path] = index
+			apiPaths = append(apiPaths, OpenAPIPath{Path: path})
+		}
+		apiPaths[index].Endpoints = append(apiPaths[index].Endpoints, endpoint)
+	}
 
 	var buf bytes.Buffer
 	title := "ANG API"
@@ -330,7 +348,7 @@ func (e *Emitter) EmitOpenAPIFromNormalizerTypes(endpoints []normalizer.Endpoint
 		}
 	}
 	ctx := OpenAPIContext{
-		Endpoints:    apiEndpoints,
+		Paths:        apiPaths,
 		Schemas:      schemas,
 		Title:        title,
 		Version:      version,

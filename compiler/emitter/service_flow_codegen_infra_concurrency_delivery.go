@@ -15,16 +15,12 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 
 	switch step.Action {
 	case "parallel.Run":
-		typed, err := flowir.DecodeAs[flowir.ParallelRun](step)
+		typed, err := decodeCurrentActionAs[flowir.ParallelRun](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
-		branches, maxConcurrency := typed.Branches, typed.MaxConcurrency
-		keys := make([]string, 0, len(branches))
-		for k := range branches {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
+		branches, maxConcurrency := map[string][]normalizer.FlowStep(nil), typed.MaxConcurrency
+		keys := flowBranchNames(st, branches)
 
 		outerDeclared := make(map[string]bool, len(st.declared))
 		for k, v := range st.declared {
@@ -38,7 +34,7 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		newVars := make(map[string]newVar)
 		for _, k := range keys {
 			probeState := cloneFlowState(st)
-			_ = renderFlowSteps(probeState, branches[k], indent+1)
+			_ = renderFlowBranchSteps(probeState, k, branches[k], indent+1)
 			for varName := range probeState.declared {
 				if outerDeclared[varName] {
 					continue
@@ -84,7 +80,7 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 			b.WriteString(fmt.Sprintf("%s\tdefer func() { <-_pSem }()\n", pad))
 			b.WriteString(fmt.Sprintf("%s\tctx := _pCtx // shadow outer ctx; cancelled if sibling fails\n", pad))
 			b.WriteString(fmt.Sprintf("%s\t_ = ctx\n", pad))
-			b.WriteString(renderFlowSteps(branchState, branchSteps, indent+1))
+			b.WriteString(renderFlowBranchSteps(branchState, k, branchSteps, indent+1))
 			b.WriteString(fmt.Sprintf("%s}() // branch: %s\n", pad, k))
 		}
 
@@ -118,7 +114,7 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		return b.String(), true
 
 	case "webhook.Send":
-		typed, err := flowir.DecodeAs[flowir.WebhookSend](step)
+		typed, err := decodeCurrentActionAs[flowir.WebhookSend](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -165,7 +161,7 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		return b.String(), true
 
 	case "webhook.VerifySignature":
-		typed, err := flowir.DecodeAs[flowir.WebhookVerifySignature](step)
+		typed, err := decodeCurrentActionAs[flowir.WebhookVerifySignature](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -223,7 +219,7 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		return b.String(), true
 
 	case "webhook.Ack":
-		typed, err := flowir.DecodeAs[flowir.WebhookAck](step)
+		typed, err := decodeCurrentActionAs[flowir.WebhookAck](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -233,7 +229,7 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		return b.String(), true
 
 	case "queue.Enqueue":
-		typed, err := flowir.DecodeAs[flowir.QueueEnqueue](step)
+		typed, err := decodeCurrentActionAs[flowir.QueueEnqueue](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -255,7 +251,7 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		return b.String(), true
 
 	case "queue.Dequeue":
-		typed, err := flowir.DecodeAs[flowir.QueueDequeue](step)
+		typed, err := decodeCurrentActionAs[flowir.QueueDequeue](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -321,7 +317,7 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		return b.String(), true
 
 	case "queue.Ack":
-		typed, err := flowir.DecodeAs[flowir.QueueAck](step)
+		typed, err := decodeCurrentActionAs[flowir.QueueAck](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -333,7 +329,7 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		return b.String(), true
 
 	case "queue.Nack":
-		typed, err := flowir.DecodeAs[flowir.QueueNack](step)
+		typed, err := decodeCurrentActionAs[flowir.QueueNack](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
@@ -345,7 +341,7 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		return b.String(), true
 
 	case "dlq.Publish":
-		typed, err := flowir.DecodeAs[flowir.DLQPublish](step)
+		typed, err := decodeCurrentActionAs[flowir.DLQPublish](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
 		}
