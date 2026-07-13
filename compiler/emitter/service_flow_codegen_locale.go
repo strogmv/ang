@@ -4,18 +4,17 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
 	"github.com/strogmv/ang/compiler/flowir"
 )
 
-func renderFlowStepLocale(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
+func renderTypedStepLocale(st *flowRenderState, step flowir.TypedStep, indent int, sfx string) (string, bool) {
 	pad := strings.Repeat("\t", indent)
 
-	switch step.Action {
+	switch step.Name {
 	case "locale.Resolve":
-		typed, err := decodeCurrentActionAs[flowir.LocaleResolve](st, step)
+		typed, err := typedActionAs[flowir.LocaleResolve](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		output, defaultLocale, sources := typed.Output, normalizeFlowExpr(typed.Default.Source), typed.Sources
 

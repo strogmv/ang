@@ -117,7 +117,7 @@ func renderFlowWhileLegacy(st *flowRenderState, pad string, indent int, arg func
 	return b.String()
 }
 
-func renderFlowCheckpointLegacy(pad string, action flowir.FlowCheckpoint) string {
+func renderTypedFlowCheckpoint(pad string, action flowir.FlowCheckpoint) string {
 	name := action.Name
 	if name == "" {
 		return ""
@@ -132,13 +132,12 @@ func renderFlowCheckpointLegacy(pad string, action flowir.FlowCheckpoint) string
 	return b.String()
 }
 
-func renderFlowResumeLegacy(st *flowRenderState, action flowir.FlowResume, pad string, indent int, sfx string) string {
+func renderTypedFlowResume(st *flowRenderState, step flowir.TypedStep, action flowir.FlowResume, pad string, indent int, sfx string) string {
 	name := action.Name
 	if name == "" {
 		return ""
 	}
 	output, into := action.Output, action.Into
-	var onMissing []normalizer.FlowStep
 	keyLit := fmt.Sprintf("%q", name)
 	ckptValV, ckptOKV := "_ckptVal"+sfx, "_ckptOK"+sfx
 	ckptCastV, ckptCastOKV := "_ckptCast"+sfx, "_ckptCastOK"+sfx
@@ -149,8 +148,8 @@ func renderFlowResumeLegacy(st *flowRenderState, action flowir.FlowResume, pad s
 	b.WriteString(fmt.Sprintf("%s\t%s, %s = _flowCheckpoints[%s]\n", pad, ckptValV, ckptOKV, keyLit))
 	b.WriteString(fmt.Sprintf("%s}\n", pad))
 	b.WriteString(fmt.Sprintf("%sif !%s {\n", pad, ckptOKV))
-	if flowNestedStepCount(st, "_onMissing", onMissing) > 0 {
-		b.WriteString(renderFlowNestedSteps(cloneFlowState(st), "_onMissing", onMissing, indent+1))
+	if onMissing := step.Children["_onMissing"]; len(onMissing) > 0 {
+		b.WriteString(renderTypedFlowSteps(cloneFlowState(st), onMissing, indent+1))
 	} else {
 		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("errors.New(http.StatusNotFound, \"CHECKPOINT_NOT_FOUND\", \"checkpoint %s not found\")", name)))
 	}
@@ -181,19 +180,20 @@ func renderFlowResumeLegacy(st *flowRenderState, action flowir.FlowResume, pad s
 	return b.String()
 }
 
-func renderFlowCatchLegacy(st *flowRenderState, catchSteps []normalizer.FlowStep, pad string, indent int) string {
-	if flowNestedStepCount(st, "_do", catchSteps) == 0 {
+func renderTypedFlowCatch(st *flowRenderState, step flowir.TypedStep, pad string, indent int) string {
+	catchSteps := step.Children["_do"]
+	if len(catchSteps) == 0 {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("%sif _flowLastError != nil {\n", pad))
-	b.WriteString(renderFlowNestedSteps(cloneFlowState(st), "_do", catchSteps, indent+1))
+	b.WriteString(renderTypedFlowSteps(cloneFlowState(st), catchSteps, indent+1))
 	b.WriteString(fmt.Sprintf("%s\t_flowLastError = nil\n", pad))
 	b.WriteString(fmt.Sprintf("%s}\n", pad))
 	return b.String()
 }
 
-func renderFlowSuggestNextLegacy(st *flowRenderState, action flowir.FlowSuggestNext, pad string) string {
+func renderTypedFlowSuggestNext(st *flowRenderState, action flowir.FlowSuggestNext, pad string) string {
 	output, options := action.Output, action.Options
 	if len(options) == 0 {
 		return ""
@@ -216,7 +216,7 @@ func renderFlowSuggestNextLegacy(st *flowRenderState, action flowir.FlowSuggestN
 	return fmt.Sprintf("%sslog.Info(\"flow.suggest_next\", \"options\", %s)\n", pad, listExpr)
 }
 
-func renderFlowValidateLegacy(st *flowRenderState, action flowir.FlowValidate, pad string) string {
+func renderTypedFlowValidate(st *flowRenderState, action flowir.FlowValidate, pad string) string {
 	cond := normalizeFlowExpr(action.Condition.Source)
 	if cond == "" {
 		return ""
@@ -233,7 +233,7 @@ func renderFlowValidateLegacy(st *flowRenderState, action flowir.FlowValidate, p
 	return b.String()
 }
 
-func renderFlowExplainErrorLegacy(st *flowRenderState, action flowir.FlowExplainError, pad, sfx string) string {
+func renderTypedFlowExplainError(st *flowRenderState, action flowir.FlowExplainError, pad, sfx string) string {
 	errExpr := normalizeFlowExpr(action.Error.Source)
 	output, message, hint := action.Output, action.Message, action.Hint
 	expMsgV := "_expMsg" + sfx

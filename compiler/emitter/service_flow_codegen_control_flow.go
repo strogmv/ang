@@ -106,21 +106,10 @@ func renderFlowStepControlFlow(st *flowRenderState, step normalizer.FlowStep, in
 		return renderFlowCall(st, typed, pad), true
 
 	case "flow.Checkpoint":
-		typed, err := decodeCurrentActionAs[flowir.FlowCheckpoint](st, step)
-		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
-		}
-		if out, ok := renderFlowCheckpointAST(indent, typed); ok {
-			return out, true
-		}
-		return renderFlowCheckpointLegacy(pad, typed), true
+		return "", true
 
 	case "flow.Resume":
-		typed, err := decodeCurrentActionAs[flowir.FlowResume](st, step)
-		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
-		}
-		return renderFlowResumeLegacy(st, typed, pad, indent, sfx), true
+		return "", true
 
 	case "flow.RecordEvent":
 		typed, err := decodeCurrentActionAs[flowir.FlowRecordEvent](st, step)
@@ -144,54 +133,19 @@ func renderFlowStepControlFlow(st *flowRenderState, step normalizer.FlowStep, in
 		return renderFlowReplay(st, typed, indent, sfx), true
 
 	case "flow.Validate":
-		typed, err := decodeCurrentActionAs[flowir.FlowValidate](st, step)
-		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
-		}
-		if out, ok := renderFlowValidateAST(st, typed, indent); ok {
-			return out, true
-		}
-		return renderFlowValidateLegacy(st, typed, pad), true
+		return "", true
 
 	case "flow.Catch":
-		_, err := decodeCurrentActionAs[flowir.FlowCatch](st, step)
-		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
-		}
-		if out, ok := renderFlowCatchAST(st, nil, indent); ok {
-			return out, true
-		}
-		return renderFlowCatchLegacy(st, nil, pad, indent), true
+		return "", true
 
 	case "flow.Defer":
-		_, err := decodeCurrentActionAs[flowir.FlowDefer](st, step)
-		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
-		}
-		if out, ok := renderFlowDeferAST(st, nil, indent); ok {
-			return out, true
-		}
-		return renderFlowDeferLegacy(st, nil, pad, indent), true
+		return "", true
 
 	case "flow.SuggestNext":
-		typed, err := decodeCurrentActionAs[flowir.FlowSuggestNext](st, step)
-		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
-		}
-		if out, ok := renderFlowSuggestNextAST(st, typed, indent); ok {
-			return out, true
-		}
-		return renderFlowSuggestNextLegacy(st, typed, pad), true
+		return "", true
 
 	case "flow.ExplainError":
-		typed, err := decodeCurrentActionAs[flowir.FlowExplainError](st, step)
-		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
-		}
-		if out, ok := renderFlowExplainErrorAST(st, typed, indent, sfx); ok {
-			return out, true
-		}
-		return renderFlowExplainErrorLegacy(st, typed, pad, sfx), true
+		return "", true
 
 	case "flow.Parallel":
 		_, err := decodeCurrentActionAs[flowir.FlowParallel](st, step)
@@ -758,11 +712,12 @@ func renderFlowDeferAST(st *flowRenderState, deferSteps []normalizer.FlowStep, i
 	return b.String(), true
 }
 
-func renderFlowDeferLegacy(st *flowRenderState, deferSteps []normalizer.FlowStep, pad string, indent int) string {
-	if flowNestedStepCount(st, "_do", deferSteps) == 0 {
+func renderTypedFlowDefer(st *flowRenderState, step flowir.TypedStep, pad string, indent int) string {
+	deferSteps := step.Children["_do"]
+	if len(deferSteps) == 0 {
 		return ""
 	}
-	predecl := flowDeferPredeclaredStringVars(st, deferSteps)
+	predecl := flowTypedDeferPredeclaredStringVars(st, deferSteps)
 	for _, name := range predecl {
 		st.declared[name] = true
 		st.pointers[name] = false
@@ -776,7 +731,7 @@ func renderFlowDeferLegacy(st *flowRenderState, deferSteps []normalizer.FlowStep
 	b.WriteString(fmt.Sprintf("%sdefer func() {\n", pad))
 	deferState := cloneFlowState(st)
 	deferState.concurrMode = "race"
-	b.WriteString(renderFlowNestedSteps(deferState, "_do", deferSteps, indent+1))
+	b.WriteString(renderTypedFlowSteps(deferState, deferSteps, indent+1))
 	b.WriteString(fmt.Sprintf("%s}()\n", pad))
 	return b.String()
 }

@@ -8,12 +8,12 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 var (
-	flowActionFuncRe = regexp.MustCompile(`func flowActionSupported\(action string\) bool \{(?s)(.*?)\n\}`)
-	actionStringRe   = regexp.MustCompile(`"([a-zA-Z0-9_.]+)"`)
-	schemaActionRe   = regexp.MustCompile(`action:\s*("[^"]+"(?:\s*\|\s*"[^"]+")*)`)
+	schemaActionRe = regexp.MustCompile(`action:\s*("[^"]+"(?:\s*\|\s*"[^"]+")*)`)
 )
 
 // These actions are supported in emitter/flowsem but still intentionally schema-loose.
@@ -24,7 +24,7 @@ func TestFlowActionSupportedSchemaParity(t *testing.T) {
 	t.Parallel()
 
 	root := repoRoot(t)
-	supported := parseFlowActionSupported(t, filepath.Join(root, "compiler", "emitter", "service_flow_codegen.go"))
+	supported := typedFlowActionSet()
 	schema := parseSchemaActions(t, filepath.Join(root, "cue", "schema", "types.cue"))
 
 	var missing []string
@@ -45,7 +45,7 @@ func TestFlowActionSupportedSchemaParity(t *testing.T) {
 	var stale []string
 	for action := range schemaParityAllowlist {
 		if _, ok := supported[action]; !ok {
-			stale = append(stale, action+" (not in flowActionSupported)")
+			stale = append(stale, action+" (not in typed Flow IR)")
 			continue
 		}
 		if _, ok := schema[action]; ok {
@@ -58,23 +58,11 @@ func TestFlowActionSupportedSchemaParity(t *testing.T) {
 	}
 }
 
-func parseFlowActionSupported(t *testing.T, path string) map[string]struct{} {
-	t.Helper()
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	m := flowActionFuncRe.FindStringSubmatch(string(b))
-	if len(m) < 2 {
-		t.Fatalf("could not locate flowActionSupported in %s", path)
-	}
-	body := m[1]
-	out := make(map[string]struct{}, 128)
-	for _, match := range actionStringRe.FindAllStringSubmatch(body, -1) {
-		if len(match) < 2 {
-			continue
-		}
-		out[match[1]] = struct{}{}
+func typedFlowActionSet() map[string]struct{} {
+	actions := flowir.All()
+	out := make(map[string]struct{}, len(actions))
+	for _, action := range actions {
+		out[action.Name] = struct{}{}
 	}
 	return out
 }

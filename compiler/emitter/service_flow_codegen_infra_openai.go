@@ -4,19 +4,18 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
 	"github.com/strogmv/ang/compiler/flowir"
 )
 
-// renderFlowStepInfraOpenAI handles openai.Chat action.
-func renderFlowStepInfraOpenAI(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
+// renderTypedStepOpenAI handles OpenAI actions directly from TypedStep.
+func renderTypedStepOpenAI(st *flowRenderState, step flowir.TypedStep, indent int, sfx string) (string, bool) {
 	pad := strings.Repeat("\t", indent)
 
-	switch step.Action {
+	switch step.Name {
 	case "openai.Chat":
-		typed, decodeErr := decodeCurrentActionAs[flowir.OpenAIChat](st, step)
+		typed, decodeErr := typedActionAs[flowir.OpenAIChat](step)
 		if decodeErr != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, decodeErr.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, decodeErr.Error()), true
 		}
 		system, systemContext, userMessage, history, model := normalizeFlowExpr(typed.System.Source), normalizeFlowExpr(typed.SystemContext.Source), normalizeFlowExpr(typed.UserMessage.Source), normalizeFlowExpr(typed.History.Source), normalizeFlowExpr(typed.Model.Source)
 		output, outputUsage, outputToolCalls, outputJSON := typed.Output, typed.OutputUsage, typed.OutputToolCalls, typed.OutputJSON
@@ -374,9 +373,9 @@ func renderFlowStepInfraOpenAI(st *flowRenderState, step normalizer.FlowStep, in
 		return b.String(), true
 
 	case "openai.Embed":
-		typed, decodeErr := decodeCurrentActionAs[flowir.OpenAIEmbed](st, step)
+		typed, decodeErr := typedActionAs[flowir.OpenAIEmbed](step)
 		if decodeErr != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, decodeErr.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, decodeErr.Error()), true
 		}
 		input, output, outputUsage, model, dimensions := normalizeFlowExpr(typed.Input.Source), typed.Output, typed.OutputUsage, normalizeFlowExpr(typed.Model.Source), typed.Dimensions
 		bodyVar := "_oaiEmbedReqBody" + sfx
@@ -453,9 +452,9 @@ func renderFlowStepInfraOpenAI(st *flowRenderState, step normalizer.FlowStep, in
 		return b.String(), true
 
 	case "openai.Stream":
-		typed, decodeErr := decodeCurrentActionAs[flowir.OpenAIStream](st, step)
+		typed, decodeErr := typedActionAs[flowir.OpenAIStream](step)
 		if decodeErr != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, decodeErr.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, decodeErr.Error()), true
 		}
 		if !st.isStreaming {
 			var b strings.Builder

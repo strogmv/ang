@@ -59,102 +59,8 @@ func typedFlowRenderable(steps []flowir.TypedStep) bool {
 }
 
 func flowActionSupported(action string) bool {
-	if _, ok := flowir.Lookup(action); ok {
-		return true
-	}
-	switch action {
-	case "logic.Check",
-		"repo.Find", "repo.Get", "repo.GetForUpdate", "repo.List", "repo.Save", "repo.Delete",
-		"repo.Exists", "repo.Count",
-		"repo.Query", "repo.Upsert",
-		"mapping.Assign", "mapping.Map", "value.Coalesce", "map.Get", "map.Has", "map.Set", "map.Merge",
-		"errors.New", "errors.ThrowIf", "errors.Wrap", "errors.Map",
-		"flow.If", "flow.For", "flow.Block", "flow.Switch", "flow.While", "flow.Call", "tx.Block",
-		"flow.Checkpoint", "flow.Resume", "flow.Validate", "flow.Try", "flow.Catch", "flow.Defer",
-		"flow.RecordEvent", "flow.Replay", "flow.History.Get",
-		"flow.Retry", "flow.Fallback", "flow.Timeout", "flow.SuggestNext", "flow.ExplainError",
-		"list.Filter", "list.Paginate", "list.Append", "list.Sort", "list.Len", "list.New", "list.Find", "list.Any", "list.All",
-		"list.Map", "list.Reduce", "list.GroupBy", "list.Distinct", "list.Chunk",
-		"batch.Run",
-		"list.Enrich",
-		"str.Normalize",
-		"event.Publish", "logic.Call", "service.Call",
-		"event.Wait", "event.Subscribe", "event.Match", "event.Broadcast", "event.EmitIf",
-		"exec.Run", "exec.Stream",
-		"fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove",
-		"archive.ZipDir", "map.New",
-		"audit.Log",
-		"auth.RequireRole", "auth.CheckRole", "rbac.CheckPermission",
-		"entity.PatchNonZero", "entity.PatchValidated", "field.CopyNonEmpty",
-		"enum.Validate",
-		"time.Now", "time.Parse", "time.Format", "time.InZone", "time.Add", "time.Sub", "time.Diff", "time.CheckExpiry",
-		"map.Build",
-		"fsm.Transition",
-		"notification.Dispatch", "notify.Dispatch", "notify.Send", "notify.Email",
-		"cache.Get", "cache.Set", "cache.Del",
-		"mail.Send",
-		"storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List",
-		"http.Call", "http.Request", "http.SOAP", "http.RetryPolicy", "http.Paginate",
-		"rand.Code", "rand.Token",
-		"str.Format", "str.Concat", "str.StripMarkdown", "str.ReplaceAll", "str.TrimSpace",
-		"cast.ToString",
-		"json.Parse", "json.Marshal", "json.Stringify",
-		"template.Render",
-		"regex.Match", "regex.Replace",
-		"base64.Encode", "base64.Decode",
-		"url.Parse", "url.Build", "path.Base",
-		"query.Encode", "query.Decode",
-		"hash.Sum", "hash.HMAC",
-		"uuid.New", "ulid.New",
-		"math.Op", "math.Expr",
-		"num.Add", "num.Sub", "num.Mul", "num.Div",
-		"jsonpath.Get", "jsonpath.Set",
-		"jwt.Sign", "jwt.Verify", "token.Generate", "token.Verify",
-		"oauth2.Token", "oauth2.Refresh",
-		"oauth.Google.GetURL", "oauth.Google.Exchange", "oauth.Google.UserInfo",
-		"crypto.Encrypt", "crypto.Decrypt", "crypto.Hash",
-		"parallel.Run",
-		"pdf.Render",
-		"webhook.Send",
-		"webhook.VerifySignature", "webhook.Ack",
-		"queue.Enqueue", "queue.Dequeue", "queue.Ack", "queue.Nack",
-		"dlq.Publish",
-		"event.Outbox",
-		"approval.Request", "approval.Wait", "approval.Decide",
-		"policy.Check", "policy.Evaluate", "policy.Require", "policy.Decide",
-		"session.Get",
-		"flow.Parallel", "flow.Join", "flow.Race",
-		"flow.Delay", "flow.Schedule", "flow.Cron",
-		"flow.Saga", "flow.Compensate", "flow.Rollback", "flow.Tag",
-		"state.Get", "state.Set", "state.Delete",
-		"idem.DeriveKey", "idem.Check", "idem.SaveResult",
-		"idempotency.DeriveKey", "idempotency.Check", "idempotency.SaveResult",
-		"dedupe.Once",
-		"ratelimit.Check", "ratelimit.Limit",
-		"quota.Check",
-		"budget.Check", "budget.Consume",
-		"context.Trim",
-		"profile.Require",
-		"concurrency.Limit", "concurrency.Run", "mutex.With",
-		"circuit.Check", "circuit.RecordSuccess", "circuit.RecordFailure", "circuit.Breaker",
-		"bulkhead.Acquire", "bulkhead.Run",
-		"log.Emit", "metric.Emit", "trace.Span", "slo.Budget",
-		"db.Get", "db.List", "db.Query",
-		"db.Insert", "db.Update", "db.Upsert", "db.Delete",
-		"db.Lock", "db.SelectForUpdate",
-		"secret.Get", "config.Get", "model.Resolve",
-		"list.Sum", "list.Avg",
-		"flow.Return",
-		"convert.ToFloat", "convert.ToInt",
-		"claude.Chat",
-		"openai.Embed",
-		"plan.BuildAutomata", "plan.BuildMicroPlan", "cue.EmitProject", "cue.ValidateProject", "cue.WriteProjectFiles",
-		"openai.Chat", "openai.Stream", "stream.Emit",
-		"locale.Resolve":
-		return true
-	default:
-		return false
-	}
+	_, ok := flowir.Lookup(action)
+	return ok
 }
 
 type flowRenderState struct {
@@ -496,8 +402,6 @@ func renderOneFlowStepTyped(st *flowRenderState, typedStep flowir.TypedStep, ind
 }
 
 // renderTypedStepDispatch is the sole production entry into action emission.
-// The metadata adapter below exists only while individual renderer families
-// are migrated from their legacy signatures.
 func renderTypedStepDispatch(st *flowRenderState, typedStep flowir.TypedStep, indent int) string {
 	switch typedStep.Name {
 	case "state.Get", "state.Set", "state.Delete":
@@ -669,10 +573,11 @@ func renderTypedStepDispatch(st *flowRenderState, typedStep flowir.TypedStep, in
 			return out
 		}
 	}
-	return renderLegacyStepDispatch(st, flowStepMetadata(typedStep), indent,
-		func(name string) string { return normalizeFlowExpr(typedStep.ScalarArgs[name].Source()) },
-		func(string) []normalizer.FlowStep { return nil },
-	)
+	if _, registered := flowir.Lookup(typedStep.Name); registered {
+		pad := strings.Repeat("\t", indent)
+		return renderInvalidFlowStepConfig(st, pad, typedStep.Name, "registered action has no typed emitter route")
+	}
+	return ""
 }
 
 func nextFlowStepSuffix(st *flowRenderState) string {
@@ -693,28 +598,21 @@ func typedActionAs[T flowir.Action](step flowir.TypedStep) (T, error) {
 	return typed, nil
 }
 
-func flowStepMetadata(step flowir.TypedStep) normalizer.FlowStep {
-	return normalizer.FlowStep{
-		Action: step.Name, File: step.Source.File, Line: step.Source.Line,
-		Column: step.Source.Column, CUEPath: step.Source.CUEPath,
-	}
-}
-
 func decodeCurrentActionAs[T flowir.Action](st *flowRenderState, raw normalizer.FlowStep) (T, error) {
 	var zero T
-	if st != nil && (st.currentTyped == nil || st.currentTyped.Name != raw.Action) {
-		decoded, _ := flowir.DecodeSteps([]normalizer.FlowStep{raw})
-		if len(decoded) == 1 {
-			st.currentTyped = &decoded[0]
-		}
+	if st == nil || st.currentTyped == nil {
+		return zero, fmt.Errorf("action %q has no typed Flow IR context", raw.Action)
 	}
-	if st != nil && st.currentTyped != nil && st.currentTyped.Action != nil {
-		if typed, ok := st.currentTyped.Action.(T); ok {
-			return typed, st.currentTyped.DecodeError
-		}
-		return zero, fmt.Errorf("action %q decoded as %T", raw.Action, st.currentTyped.Action)
+	if st.currentTyped.Name != raw.Action {
+		return zero, fmt.Errorf("typed Flow IR action %q does not match renderer action %q", st.currentTyped.Name, raw.Action)
 	}
-	return flowir.DecodeAs[T](raw)
+	if st.currentTyped.DecodeError != nil {
+		return zero, st.currentTyped.DecodeError
+	}
+	if typed, ok := st.currentTyped.Action.(T); ok {
+		return typed, nil
+	}
+	return zero, fmt.Errorf("action %q decoded as %T", raw.Action, st.currentTyped.Action)
 }
 
 func flowStepTraceComment(source flowir.Source, stepIdx int, indent int) string {
@@ -849,49 +747,4 @@ func renderOneFlowStep(st *flowRenderState, step normalizer.FlowStep, indent int
 		return renderOneTypedFlowStep(st, typed[0], indent)
 	}
 	return ""
-}
-
-func renderLegacyStepDispatch(st *flowRenderState, step normalizer.FlowStep, indent int, arg func(string) string, child func(string) []normalizer.FlowStep) string {
-	sfx := fmt.Sprintf("_%d", *st.stepN)
-	*st.stepN++
-	_ = sfx // consumed by actions with internal temp vars
-
-	if out, ok := renderFlowStepDomain(st, step, indent, sfx, arg, child); ok {
-		return out
-	}
-
-	switch step.Action {
-	case "mapping.Map", "event.Publish", "event.EmitIf", "logic.Call", "service.Call", "flow.Call", "session.Get",
-		"list.Sum", "list.Avg":
-		return renderFlowStepControl(st, step, indent, sfx, arg, child)
-
-		// -------------------------------------------------------------------------
-		// STAGE 2: Infrastructure actions
-		// -------------------------------------------------------------------------
-
-	case "cache.Get", "cache.Set", "cache.Del", "mail.Send", "storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List", "http.Call", "http.Request", "http.SOAP", "http.RetryPolicy", "http.Paginate", "rand.Code", "rand.Token", "json.Parse", "json.Marshal", "json.Stringify", "template.Render", "regex.Match", "regex.Replace", "base64.Encode", "base64.Decode", "url.Parse", "url.Build", "path.Base", "query.Encode", "query.Decode", "hash.Sum", "hash.HMAC", "uuid.New", "ulid.New", "time.Now", "time.Format", "time.InZone", "time.Add", "time.Sub", "time.Diff", "math.Op", "num.Add", "num.Sub", "num.Mul", "num.Div", "str.Format", "str.Concat", "str.StripMarkdown", "str.ReplaceAll", "str.TrimSpace", "cast.ToString", "jsonpath.Get", "jsonpath.Set", "jwt.Sign", "jwt.Verify", "token.Generate", "token.Verify", "oauth2.Token", "oauth2.Refresh",
-		"oauth.Google.GetURL", "oauth.Google.Exchange", "oauth.Google.UserInfo", "crypto.Encrypt", "crypto.Decrypt", "crypto.Hash", "parallel.Run", "pdf.Render", "webhook.Send", "webhook.VerifySignature", "webhook.Ack", "queue.Enqueue", "queue.Dequeue", "queue.Ack", "queue.Nack", "dlq.Publish", "event.Outbox", "secret.Get", "config.Get", "model.Resolve", "stream.Emit", "plan.BuildAutomata", "plan.BuildMicroPlan", "cue.EmitProject", "cue.ValidateProject", "cue.WriteProjectFiles",
-		"event.Wait", "event.Subscribe", "event.Match", "event.Broadcast",
-		"notify.Send", "notify.Email", "approval.Request", "approval.Wait", "approval.Decide",
-		"policy.Check", "policy.Evaluate", "policy.Require", "policy.Decide",
-		"state.Get", "state.Set", "state.Delete",
-		"idem.DeriveKey", "idem.Check", "idem.SaveResult",
-		"idempotency.DeriveKey", "idempotency.Check", "idempotency.SaveResult",
-		"dedupe.Once",
-		"ratelimit.Check", "ratelimit.Limit",
-		"quota.Check",
-		"budget.Check", "budget.Consume",
-		"context.Trim",
-		"profile.Require",
-		"concurrency.Limit", "concurrency.Run", "mutex.With",
-		"circuit.Check", "circuit.RecordSuccess", "circuit.RecordFailure", "circuit.Breaker",
-		"bulkhead.Acquire", "bulkhead.Run",
-		"log.Emit", "metric.Emit", "trace.Span", "slo.Budget",
-		"claude.Chat", "openai.Chat", "openai.Embed", "openai.Stream",
-		"locale.Resolve":
-		return renderFlowStepInfra(st, step, indent, sfx, arg, child)
-
-	default:
-		return ""
-	}
 }

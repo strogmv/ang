@@ -1,27 +1,25 @@
 package emitter
 
-import (
-	"github.com/strogmv/ang-ir/normalizer"
-	"github.com/strogmv/ang/compiler/flowir"
-)
+import "github.com/strogmv/ang/compiler/flowir"
 
 // renderTypedStepInfrastructure is the typed production entry for AI and
-// project-planning actions. The mature renderers below already consume the
-// predecoded Action through decodeCurrentActionAs; this adapter supplies only
-// source metadata, never raw scalar arguments or legacy child steps.
+// project-planning actions. Planning and locale actions consume TypedStep
+// directly; the remaining AI adapters receive source metadata only, never raw
+// scalar arguments or legacy child steps.
 func renderTypedStepInfrastructure(st *flowRenderState, step flowir.TypedStep, indent int, sfx string) (string, bool) {
-	metadata := flowStepMetadata(step)
-	emptyArg := func(string) string { return "" }
-	emptyChild := func(string) []normalizer.FlowStep { return nil }
+	switch step.Name {
+	case "plan.BuildAutomata", "plan.BuildMicroPlan", "cue.EmitProject", "cue.ValidateProject", "cue.WriteProjectFiles":
+		return renderTypedStepMetaPlan(st, step, indent, sfx)
+	case "locale.Resolve":
+		return renderTypedStepLocale(st, step, indent, sfx)
+	}
 
-	if out, ok := renderFlowStepInfraClaude(st, metadata, indent, sfx, emptyArg, emptyChild); ok {
+	if out, ok := renderTypedStepClaude(st, step, indent, sfx); ok {
 		return out, true
 	}
-	if out, ok := renderFlowStepMetaPlan(st, metadata, indent, sfx, emptyArg, emptyChild); ok {
+
+	if out, ok := renderTypedStepOpenAI(st, step, indent, sfx); ok {
 		return out, true
 	}
-	if out, ok := renderFlowStepInfraOpenAI(st, metadata, indent, sfx, emptyArg, emptyChild); ok {
-		return out, true
-	}
-	return renderFlowStepLocale(st, metadata, indent, sfx, emptyArg, emptyChild)
+	return "", false
 }

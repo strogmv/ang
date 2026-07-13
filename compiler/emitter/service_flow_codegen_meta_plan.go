@@ -4,19 +4,17 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
 	"github.com/strogmv/ang/compiler/flowir"
 )
 
-func renderFlowStepMetaPlan(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
-	_ = child
+func renderTypedStepMetaPlan(st *flowRenderState, step flowir.TypedStep, indent int, sfx string) (string, bool) {
 	pad := strings.Repeat("\t", indent)
 
-	switch step.Action {
+	switch step.Name {
 	case "plan.BuildAutomata":
-		typed, err := decodeCurrentActionAs[flowir.PlanBuildAutomata](st, step)
+		typed, err := typedActionAs[flowir.PlanBuildAutomata](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		input, output := normalizeFlowExpr(typed.Input.Source), typed.Output
 		assign := ":="
@@ -32,9 +30,9 @@ func renderFlowStepMetaPlan(st *flowRenderState, step normalizer.FlowStep, inden
 		return code, true
 
 	case "plan.BuildMicroPlan":
-		typed, err := decodeCurrentActionAs[flowir.PlanBuildMicroPlan](st, step)
+		typed, err := typedActionAs[flowir.PlanBuildMicroPlan](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		usecases, automata, output := normalizeFlowExpr(typed.Usecases.Source), normalizeFlowExpr(typed.Automata.Source), typed.Output
 		assign := ":="
@@ -50,9 +48,9 @@ func renderFlowStepMetaPlan(st *flowRenderState, step normalizer.FlowStep, inden
 		return code, true
 
 	case "cue.EmitProject":
-		typed, err := decodeCurrentActionAs[flowir.CueEmitProject](st, step)
+		typed, err := typedActionAs[flowir.CueEmitProject](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		usecases, microPlan, layout, output := normalizeFlowExpr(typed.Usecases.Source), normalizeFlowExpr(typed.MicroPlan.Source), normalizeFlowExpr(typed.Layout.Source), typed.Output
 		assign := ":="
@@ -68,9 +66,9 @@ func renderFlowStepMetaPlan(st *flowRenderState, step normalizer.FlowStep, inden
 		return code, true
 
 	case "cue.ValidateProject":
-		typed, err := decodeCurrentActionAs[flowir.CueValidateProject](st, step)
+		typed, err := typedActionAs[flowir.CueValidateProject](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		files, binary, output := normalizeFlowExpr(typed.Files.Source), normalizeFlowExpr(typed.Binary.Source), typed.Output
 		assign := ":="
@@ -86,9 +84,9 @@ func renderFlowStepMetaPlan(st *flowRenderState, step normalizer.FlowStep, inden
 		return code, true
 
 	case "cue.WriteProjectFiles":
-		typed, err := decodeCurrentActionAs[flowir.CueWriteProjectFiles](st, step)
+		typed, err := typedActionAs[flowir.CueWriteProjectFiles](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		root, files, mode, output := normalizeFlowExpr(typed.Root.Source), normalizeFlowExpr(typed.Files.Source), normalizeFlowExpr(typed.Mode.Source), typed.Output
 		assign := ":="

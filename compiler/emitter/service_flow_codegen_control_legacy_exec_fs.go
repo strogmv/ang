@@ -5,26 +5,21 @@ import (
 	"strings"
 	"time"
 
-	"github.com/strogmv/ang-ir/normalizer"
 	"github.com/strogmv/ang/compiler/flowir"
 )
 
-// renderTypedStepExecFS keeps execution/filesystem actions on the typed
-// production path while reusing the established code writer. The legacy
-// adapter receives metadata only, never ScalarArgs.
+// renderTypedStepExecFS renders execution and filesystem actions directly
+// from TypedStep without reconstructing normalizer.FlowStep metadata.
 func renderTypedStepExecFS(st *flowRenderState, step flowir.TypedStep, indent int, sfx string) (string, bool) {
-	return renderFlowStepControlLegacyExecFS(st, flowStepMetadata(step), strings.Repeat("\t", indent), sfx, func(string) string { return "" })
-}
-
-func renderFlowStepControlLegacyExecFS(st *flowRenderState, step normalizer.FlowStep, pad, sfx string, arg func(string) string) (string, bool) {
-	switch step.Action {
+	pad := strings.Repeat("\t", indent)
+	switch step.Name {
 	case "exec.Run", "exec.Stream":
-		typed, decodeErr := decodeCurrentActionAs[flowir.ExecCommand](st, step)
+		typed, decodeErr := typedActionAs[flowir.ExecCommand](step)
 		if decodeErr != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, decodeErr.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, decodeErr.Error()), true
 		}
 		cmd, output, exitCodeVar := normalizeFlowExpr(typed.Command.Source), typed.Output, typed.ExitCodeVar
-		isStream := step.Action == "exec.Stream"
+		isStream := step.Name == "exec.Stream"
 		timeout := normalizeFlowExpr(typed.Timeout.Source)
 		if timeout == "" {
 			if timeoutMS := typed.TimeoutMS; timeoutMS > 0 {
@@ -121,9 +116,9 @@ func renderFlowStepControlLegacyExecFS(st *flowRenderState, step normalizer.Flow
 		return b.String(), true
 
 	case "fs.TempDir":
-		typed, decodeErr := decodeCurrentActionAs[flowir.FSTempDir](st, step)
+		typed, decodeErr := typedActionAs[flowir.FSTempDir](step)
 		if decodeErr != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, decodeErr.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, decodeErr.Error()), true
 		}
 		output, pattern := typed.Output, normalizeFlowExpr(typed.Pattern.Source)
 		assign := ":="
@@ -142,9 +137,9 @@ func renderFlowStepControlLegacyExecFS(st *flowRenderState, step normalizer.Flow
 		return b.String(), true
 
 	case "fs.WriteFile":
-		typed, decodeErr := decodeCurrentActionAs[flowir.FSWriteFile](st, step)
+		typed, decodeErr := typedActionAs[flowir.FSWriteFile](step)
 		if decodeErr != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, decodeErr.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, decodeErr.Error()), true
 		}
 		path, data := normalizeFlowExpr(typed.Path.Source), normalizeFlowExpr(typed.Data.Source)
 		var b strings.Builder
@@ -157,9 +152,9 @@ func renderFlowStepControlLegacyExecFS(st *flowRenderState, step normalizer.Flow
 		return b.String(), true
 
 	case "fs.ReadFile":
-		typed, decodeErr := decodeCurrentActionAs[flowir.FSReadFile](st, step)
+		typed, decodeErr := typedActionAs[flowir.FSReadFile](step)
 		if decodeErr != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, decodeErr.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, decodeErr.Error()), true
 		}
 		path, output, optional := normalizeFlowExpr(typed.Path.Source), typed.Output, typed.Optional
 		assign := ":="
@@ -186,9 +181,9 @@ func renderFlowStepControlLegacyExecFS(st *flowRenderState, step normalizer.Flow
 		return b.String(), true
 
 	case "fs.Remove":
-		typed, decodeErr := decodeCurrentActionAs[flowir.FSRemove](st, step)
+		typed, decodeErr := typedActionAs[flowir.FSRemove](step)
 		if decodeErr != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, decodeErr.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, decodeErr.Error()), true
 		}
 		path := normalizeFlowExpr(typed.Path.Source)
 		errVar := "_rmErr" + sfx
@@ -201,9 +196,9 @@ func renderFlowStepControlLegacyExecFS(st *flowRenderState, step normalizer.Flow
 	case "archive.ZipDir":
 		// archive.ZipDir: zip a local directory tree into []byte.
 		// Args: path (dir to zip), output (var name for []byte result).
-		typed, decodeErr := decodeCurrentActionAs[flowir.ArchiveZipDir](st, step)
+		typed, decodeErr := typedActionAs[flowir.ArchiveZipDir](step)
 		if decodeErr != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, decodeErr.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, decodeErr.Error()), true
 		}
 		srcPath, output := normalizeFlowExpr(typed.Path.Source), typed.Output
 		assign := ":="

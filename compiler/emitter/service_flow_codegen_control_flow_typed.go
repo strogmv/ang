@@ -2,19 +2,17 @@ package emitter
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
 	"github.com/strogmv/ang/compiler/flowir"
 )
 
 // renderTypedStepControlFlowBasic owns the direct Typed Flow IR dispatch for
-// structural control-flow. The AST and text fallbacks below still share the
-// established rendering helpers, but their inputs and nested steps come from
-// TypedStep rather than reconstructed normalizer.FlowStep arguments.
+// structural control-flow. It reads nested control paths solely from
+// TypedStep.Children and TypedStep.Branches.
 func renderTypedStepControlFlowBasic(st *flowRenderState, step flowir.TypedStep, indent int) (string, bool) {
 	pad := strings.Repeat("\t", indent)
-	noRawChildren := func(string) []normalizer.FlowStep { return nil }
 
 	switch step.Name {
 	case "flow.If":
@@ -22,88 +20,142 @@ func renderTypedStepControlFlowBasic(st *flowRenderState, step flowir.TypedStep,
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		arg := func(name string) string {
-			if name == "condition" {
-				return normalizeFlowExpr(action.Condition.Source)
-			}
-			return ""
-		}
-		if out, ok := renderFlowIfAST(st, indent, arg, noRawChildren); ok {
-			return out, true
-		}
-		return renderFlowIfLegacy(st, pad, indent, arg, noRawChildren), true
+		return renderTypedFlowIf(st, step, indent, normalizeFlowExpr(action.Condition.Source)), true
 
 	case "flow.For":
 		action, err := typedActionAs[flowir.FlowFor](step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		arg := func(name string) string {
-			switch name {
-			case "each":
-				return normalizeFlowExpr(action.Each.Source)
-			case "as":
-				return action.As
-			default:
-				return ""
-			}
-		}
-		if out, ok := renderFlowForAST(st, indent, arg, noRawChildren); ok {
-			return out, true
-		}
-		return renderFlowForLegacy(st, pad, indent, arg, noRawChildren), true
+		return renderTypedFlowFor(st, step, indent, normalizeFlowExpr(action.Each.Source), action.As), true
 
 	case "flow.Block", "tx.Block":
 		if _, err := typedActionAs[flowir.FlowBlock](step); err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		if out, ok := renderFlowBlockAST(st, indent, noRawChildren); ok {
-			return out, true
-		}
-		return renderFlowBlockLegacy(st, indent, noRawChildren), true
+		return renderTypedFlowSteps(cloneFlowState(st), step.Children["_do"], indent), true
 
 	case "flow.Switch":
 		action, err := typedActionAs[flowir.FlowSwitch](step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		arg := func(name string) string {
-			switch name {
-			case "value":
-				return normalizeFlowExpr(action.Value.Source)
-			case "match":
-				return action.Match
-			default:
-				return ""
-			}
-		}
-		if out, ok := renderFlowSwitchAST(st, nil, indent, arg, nil); ok {
-			return out, true
-		}
-		return renderFlowSwitchLegacy(st, nil, pad, indent, arg, nil), true
+		return renderTypedFlowSwitch(st, step, indent, normalizeFlowExpr(action.Value.Source), action.Match), true
 
 	case "flow.While":
 		action, err := typedActionAs[flowir.FlowWhile](step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		arg := func(name string) string {
-			if name == "condition" {
-				return normalizeFlowExpr(action.Condition.Source)
-			}
-			return ""
-		}
-		if out, ok := renderFlowWhileAST(st, indent, arg, noRawChildren); ok {
-			return out, true
-		}
-		return renderFlowWhileLegacy(st, pad, indent, arg, noRawChildren), true
+		return renderTypedFlowWhile(st, step, indent, normalizeFlowExpr(action.Condition.Source)), true
 	}
 	return "", false
 }
 
+func renderTypedFlowIf(st *flowRenderState, step flowir.TypedStep, indent int, condition string) string {
+	if condition == "" {
+		return ""
+	}
+	pad := strings.Repeat("\t", indent)
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("%sif %s {\n", pad, condition))
+	b.WriteString(renderTypedFlowSteps(cloneFlowState(st), step.Children["_then"], indent+1))
+	b.WriteString(fmt.Sprintf("%s}", pad))
+	if elseSteps := step.Children["_else"]; len(elseSteps) > 0 {
+		b.WriteString(" else {\n")
+		b.WriteString(renderTypedFlowSteps(cloneFlowState(st), elseSteps, indent+1))
+		b.WriteString(fmt.Sprintf("%s}", pad))
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func renderTypedFlowFor(st *flowRenderState, step flowir.TypedStep, indent int, each, as string) string {
+	if each == "" {
+		return ""
+	}
+	if as == "" {
+		as = "item"
+	}
+	pad := strings.Repeat("\t", indent)
+	return fmt.Sprintf("%sfor _, %s := range %s {\n%s%s}\n", pad, as, each,
+		renderTypedFlowSteps(cloneFlowState(st), step.Children["_do"], indent+1), pad)
+}
+
+func renderTypedFlowSwitch(st *flowRenderState, step flowir.TypedStep, indent int, value, matchMode string) string {
+	if value == "" {
+		return ""
+	}
+	pad := strings.Repeat("\t", indent)
+	matchMode = strings.ToLower(strings.TrimSpace(matchMode))
+	if matchMode == "" {
+		matchMode = "exact"
+	}
+	keys := make([]string, 0, len(step.Branches))
+	for key := range step.Branches {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	if matchMode == "exact" {
+		b.WriteString(fmt.Sprintf("%sswitch %s {\n", pad, value))
+		for _, key := range keys {
+			b.WriteString(fmt.Sprintf("%scase %q:\n", pad, key))
+			b.WriteString(renderTypedFlowSteps(cloneFlowState(st), step.Branches[key], indent+1))
+		}
+		if defaultSteps := step.Children["_default"]; len(defaultSteps) > 0 {
+			b.WriteString(fmt.Sprintf("%sdefault:\n", pad))
+			b.WriteString(renderTypedFlowSteps(cloneFlowState(st), defaultSteps, indent+1))
+		}
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+		return b.String()
+	}
+	selector := "_switchValue"
+	b.WriteString(fmt.Sprintf("%s%s := strings.TrimSpace(fmt.Sprint(%s))\n", pad, selector, value))
+	for i, key := range keys {
+		condition := fmt.Sprintf("%s == %q", selector, key)
+		switch matchMode {
+		case "prefix":
+			condition = fmt.Sprintf("strings.HasPrefix(%s, %q)", selector, key)
+		case "suffix":
+			condition = fmt.Sprintf("strings.HasSuffix(%s, %q)", selector, key)
+		case "contains":
+			condition = fmt.Sprintf("strings.Contains(%s, %q)", selector, key)
+		case "glob":
+			condition = fmt.Sprintf("_switchMatch, _ := path.Match(%q, %s); _switchMatch", key, selector)
+		}
+		if i == 0 {
+			b.WriteString(fmt.Sprintf("%sif %s {\n", pad, condition))
+		} else {
+			b.WriteString(fmt.Sprintf("%s} else if %s {\n", pad, condition))
+		}
+		b.WriteString(renderTypedFlowSteps(cloneFlowState(st), step.Branches[key], indent+1))
+	}
+	if defaultSteps := step.Children["_default"]; len(defaultSteps) > 0 {
+		if len(keys) > 0 {
+			b.WriteString(fmt.Sprintf("%s} else {\n", pad))
+		} else {
+			b.WriteString(fmt.Sprintf("%s{\n", pad))
+		}
+		b.WriteString(renderTypedFlowSteps(cloneFlowState(st), defaultSteps, indent+1))
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+	} else if len(keys) > 0 {
+		b.WriteString(fmt.Sprintf("%s}\n", pad))
+	}
+	return b.String()
+}
+
+func renderTypedFlowWhile(st *flowRenderState, step flowir.TypedStep, indent int, condition string) string {
+	if condition == "" {
+		return ""
+	}
+	pad := strings.Repeat("\t", indent)
+	return fmt.Sprintf("%sfor %s {\n%s%s}\n", pad, condition,
+		renderTypedFlowSteps(cloneFlowState(st), step.Children["_do"], indent+1), pad)
+}
+
 // renderTypedStepControlFlowStateful emits actions that operate on the flow
-// checkpoint/history state. Nested paths are read from TypedStep.Children;
-// the nil raw collections are compatibility parameters for shared helpers.
+// checkpoint/history state. Nested paths are read from TypedStep.Children.
 func renderTypedStepControlFlowStateful(st *flowRenderState, step flowir.TypedStep, indent int, sfx string) (string, bool) {
 	pad := strings.Repeat("\t", indent)
 
@@ -113,17 +165,14 @@ func renderTypedStepControlFlowStateful(st *flowRenderState, step flowir.TypedSt
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		if out, ok := renderFlowCheckpointAST(indent, action); ok {
-			return out, true
-		}
-		return renderFlowCheckpointLegacy(pad, action), true
+		return renderTypedFlowCheckpoint(pad, action), true
 
 	case "flow.Resume":
 		action, err := typedActionAs[flowir.FlowResume](step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		return renderFlowResumeLegacy(st, action, pad, indent, sfx), true
+		return renderTypedFlowResume(st, step, action, pad, indent, sfx), true
 
 	case "flow.RecordEvent":
 		action, err := typedActionAs[flowir.FlowRecordEvent](step)
@@ -151,48 +200,33 @@ func renderTypedStepControlFlowStateful(st *flowRenderState, step flowir.TypedSt
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		if out, ok := renderFlowValidateAST(st, action, indent); ok {
-			return out, true
-		}
-		return renderFlowValidateLegacy(st, action, pad), true
+		return renderTypedFlowValidate(st, action, pad), true
 
 	case "flow.Catch":
 		if _, err := typedActionAs[flowir.FlowCatch](step); err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		if out, ok := renderFlowCatchAST(st, nil, indent); ok {
-			return out, true
-		}
-		return renderFlowCatchLegacy(st, nil, pad, indent), true
+		return renderTypedFlowCatch(st, step, pad, indent), true
 
 	case "flow.Defer":
 		if _, err := typedActionAs[flowir.FlowDefer](step); err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		if out, ok := renderFlowDeferAST(st, nil, indent); ok {
-			return out, true
-		}
-		return renderFlowDeferLegacy(st, nil, pad, indent), true
+		return renderTypedFlowDefer(st, step, pad, indent), true
 
 	case "flow.SuggestNext":
 		action, err := typedActionAs[flowir.FlowSuggestNext](step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		if out, ok := renderFlowSuggestNextAST(st, action, indent); ok {
-			return out, true
-		}
-		return renderFlowSuggestNextLegacy(st, action, pad), true
+		return renderTypedFlowSuggestNext(st, action, pad), true
 
 	case "flow.ExplainError":
 		action, err := typedActionAs[flowir.FlowExplainError](step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		if out, ok := renderFlowExplainErrorAST(st, action, indent, sfx); ok {
-			return out, true
-		}
-		return renderFlowExplainErrorLegacy(st, action, pad, sfx), true
+		return renderTypedFlowExplainError(st, action, pad, sfx), true
 	}
 	return "", false
 }

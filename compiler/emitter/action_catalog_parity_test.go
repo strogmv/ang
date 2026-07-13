@@ -33,8 +33,7 @@ func TestActionCatalogEmitterParity(t *testing.T) {
 func TestActionCatalogEmitterParityReverse(t *testing.T) {
 	t.Parallel()
 
-	root := repoRoot(t)
-	supported := parseFlowActionSupported(t, filepath.Join(root, "compiler", "emitter", "service_flow_codegen.go"))
+	supported := typedFlowActionSet()
 
 	catalogSet := make(map[string]struct{}, 256)
 	for _, entry := range flowsem.ActionCatalog() {
