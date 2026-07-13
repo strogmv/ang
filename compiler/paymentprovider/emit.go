@@ -64,11 +64,11 @@ func Emit(templatesDir, outputDir string, data *TemplateData) error {
 			}
 		}
 		tmplPath := filepath.Join(templatesDir, tf.tmpl)
-		raw, err := os.ReadFile(tmplPath)
-		if err != nil {
-			return fmt.Errorf("read template %s: %w", tf.tmpl, err)
+		parsePaths := []string{tmplPath}
+		if moduleFiles, globErr := filepath.Glob(filepath.Join(templatesDir, "modules", "*.tmpl")); globErr == nil {
+			parsePaths = append(parsePaths, moduleFiles...)
 		}
-		tmpl, err := template.New(tf.tmpl).Parse(string(raw))
+		tmpl, err := template.New(filepath.Base(tmplPath)).ParseFiles(parsePaths...)
 		if err != nil {
 			return fmt.Errorf("parse template %s: %w", tf.tmpl, err)
 		}
@@ -93,7 +93,13 @@ func needsSignFile(data *TemplateData) bool {
 	if data.UseMacanP2P {
 		return true
 	}
+	if data.CardEncryption != nil && data.CardEncryption.Enabled {
+		return true
+	}
 	if data.CallbackSignature != nil {
+		if data.CallbackSignature.Format == "rsa_pkcs1v15_body" {
+			return true
+		}
 		return true
 	}
 	if data.RequestSigning != nil {

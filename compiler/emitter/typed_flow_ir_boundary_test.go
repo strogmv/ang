@@ -85,6 +85,48 @@ func TestTypedDispatchDoesNotCallLegacyRenderers(t *testing.T) {
 	}
 }
 
+func TestTypedDispatchUsesRegistryRendererGroup(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(repoRoot(t), "compiler", "emitter", "service_flow_codegen.go")
+	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatalf("parse typed dispatcher: %v", err)
+	}
+	var dispatch *ast.FuncDecl
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if ok && fn.Name.Name == "renderTypedStepDispatch" {
+			dispatch = fn
+			break
+		}
+	}
+	if dispatch == nil {
+		t.Fatal("renderTypedStepDispatch not found")
+	}
+	usesGroup := false
+	ast.Inspect(dispatch.Body, func(node ast.Node) bool {
+		switchStmt, ok := node.(*ast.SwitchStmt)
+		if !ok || switchStmt.Tag == nil {
+			return true
+		}
+		selector, ok := switchStmt.Tag.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		if ident, ok := selector.X.(*ast.Ident); ok && ident.Name == "typedStep" && selector.Sel.Name == "Name" {
+			t.Fatalf("typed dispatcher must route through registry metadata, not action names")
+		}
+		if ident, ok := selector.X.(*ast.Ident); ok && ident.Name == "spec" && selector.Sel.Name == "RendererGroup" {
+			usesGroup = true
+		}
+		return true
+	})
+	if !usesGroup {
+		t.Fatal("typed dispatcher does not switch on ActionSpec.RendererGroup")
+	}
+}
+
 func TestTypedControlFlowBasicDoesNotCallRawHelpers(t *testing.T) {
 	t.Parallel()
 

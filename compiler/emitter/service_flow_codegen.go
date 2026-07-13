@@ -403,181 +403,182 @@ func renderOneFlowStepTyped(st *flowRenderState, typedStep flowir.TypedStep, ind
 
 // renderTypedStepDispatch is the sole production entry into action emission.
 func renderTypedStepDispatch(st *flowRenderState, typedStep flowir.TypedStep, indent int) string {
-	switch typedStep.Name {
-	case "state.Get", "state.Set", "state.Delete":
+	spec, registered := flowir.Lookup(typedStep.Name)
+	if !registered {
+		return ""
+	}
+	switch spec.RendererGroup {
+	case flowir.RendererGroupState:
 		if out, ok := renderTypedStepState(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "cache.Get", "cache.Set", "cache.Del":
+	case flowir.RendererGroupCache:
 		if out, ok := renderTypedStepCache(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "storage.Delete", "storage.List", "storage.GetURL":
+	case flowir.RendererGroupStorageSimple:
 		if out, ok := renderTypedStepStorageSimple(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "storage.Upload", "storage.Download":
+	case flowir.RendererGroupStorageData:
 		if out, ok := renderTypedStepStorageData(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "mail.Send":
+	case flowir.RendererGroupMail:
 		if out, ok := renderTypedStepMail(st, typedStep, indent); ok {
 			return out
 		}
-	case "secret.Get", "config.Get", "model.Resolve":
+	case flowir.RendererGroupSecretConfig:
 		if out, ok := renderTypedStepSecretConfig(st, typedStep, indent); ok {
 			return out
 		}
-	case "stream.Emit", "session.Get", "event.Publish", "event.EmitIf", "rand.Token", "rand.Code", "str.ReplaceAll", "str.TrimSpace", "cast.ToString", "template.Render":
+	case flowir.RendererGroupCore:
 		if out, ok := renderTypedStepCore(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "logic.Call", "service.Call", "flow.Call":
+	case flowir.RendererGroupCall:
 		if out, ok := renderTypedStepCall(st, typedStep, indent); ok {
 			return out
 		}
-	case "repo.Exists", "repo.Count", "repo.Get", "repo.Find", "repo.GetForUpdate", "repo.List", "repo.Save", "repo.Delete":
+	case flowir.RendererGroupRepositoryBasic:
 		if out, ok := renderTypedStepRepositoryBasic(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "repo.Query", "repo.Upsert":
+	case flowir.RendererGroupRepositoryAdvanced:
 		if out, ok := renderTypedStepRepositoryAdvanced(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "db.Get", "db.List", "db.Query", "db.Insert", "db.Update", "db.Upsert", "db.Delete", "db.Lock", "db.SelectForUpdate":
+	case flowir.RendererGroupDB:
 		if out, ok := renderTypedStepDB(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "mapping.Assign", "mapping.Map":
+	case flowir.RendererGroupMapping:
 		if out, ok := renderTypedStepMapping(st, typedStep, indent); ok {
 			return out
 		}
-	case "json.Parse", "json.Marshal", "json.Stringify":
+	case flowir.RendererGroupJSON:
 		if out, ok := renderTypedStepJSON(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "http.Call":
+	case flowir.RendererGroupHTTPCall:
 		if out, ok := renderTypedStepHTTPCall(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "http.Request", "http.SOAP", "http.RetryPolicy", "http.Paginate":
+	case flowir.RendererGroupHTTPAdvanced:
 		if out, ok := renderTypedStepHTTPAdvanced(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "str.Format", "str.Concat", "str.StripMarkdown":
+	case flowir.RendererGroupString:
 		if out, ok := renderTypedStepString(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "regex.Match", "regex.Replace", "base64.Encode", "base64.Decode", "url.Parse", "path.Base", "url.Build", "query.Encode", "query.Decode", "hash.Sum", "hash.HMAC", "uuid.New", "ulid.New", "time.Now", "time.Format", "time.InZone", "math.Op", "num.Add", "num.Sub", "num.Mul", "num.Div", "jsonpath.Get", "jsonpath.Set":
+	case flowir.RendererGroupDataTransform:
 		if out, ok := renderTypedStepDataTransform(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "jwt.Sign", "jwt.Verify", "token.Generate", "token.Verify", "crypto.Hash", "oauth2.Token", "oauth2.Refresh", "crypto.Encrypt", "crypto.Decrypt":
+	case flowir.RendererGroupSecurity:
 		if out, ok := renderTypedStepSecurity(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "parallel.Run", "pdf.Render", "webhook.Send", "webhook.VerifySignature", "webhook.Ack", "queue.Enqueue", "queue.Dequeue", "queue.Ack", "queue.Nack", "dlq.Publish":
+	case flowir.RendererGroupConcurrencyDelivery:
 		if out, ok := renderTypedStepConcurrencyAndDelivery(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "notify.Send", "notify.Email", "approval.Request", "approval.Wait", "approval.Decide", "event.Broadcast", "event.Outbox", "event.Wait", "event.Subscribe", "event.Match":
+	case flowir.RendererGroupEventOrchestration:
 		if out, ok := renderTypedStepEventOrchestration(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "policy.Check", "policy.Evaluate", "policy.Require", "policy.Decide":
+	case flowir.RendererGroupPolicy:
 		if out, ok := renderTypedStepPolicy(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "idem.DeriveKey", "idempotency.DeriveKey", "idem.Check", "idempotency.Check", "idem.SaveResult", "idempotency.SaveResult", "dedupe.Once", "ratelimit.Check", "ratelimit.Limit", "quota.Check", "budget.Check", "budget.Consume", "context.Trim", "profile.Require", "concurrency.Limit", "concurrency.Run", "mutex.With", "circuit.Check", "circuit.RecordSuccess", "circuit.RecordFailure", "circuit.Breaker", "bulkhead.Acquire", "bulkhead.Run", "log.Emit", "metric.Emit", "trace.Span", "slo.Budget":
+	case flowir.RendererGroupReliability:
 		if out, ok := renderTypedStepReliability(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "oauth.Google.GetURL", "oauth.Google.Exchange", "oauth.Google.UserInfo":
+	case flowir.RendererGroupOAuthGoogle:
 		if out, ok := renderTypedStepOAuthGoogle(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "flow.Try", "flow.Retry", "flow.Timeout", "flow.Fallback":
+	case flowir.RendererGroupControlResilience:
 		if out, ok := renderTypedStepControlResilience(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "flow.If", "flow.For", "flow.Block", "tx.Block", "flow.Switch", "flow.While":
+	case flowir.RendererGroupControlFlowBasic:
 		if out, ok := renderTypedStepControlFlowBasic(st, typedStep, indent); ok {
 			return out
 		}
-	case "flow.Checkpoint", "flow.Resume", "flow.RecordEvent", "flow.History.Get", "flow.Replay", "flow.Validate", "flow.Catch", "flow.Defer", "flow.SuggestNext", "flow.ExplainError":
+	case flowir.RendererGroupControlFlowStateful:
 		if out, ok := renderTypedStepControlFlowStateful(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "flow.Parallel", "flow.Join", "flow.Race":
+	case flowir.RendererGroupControlParallel:
 		if out, ok := renderTypedStepControlParallel(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "flow.Saga", "flow.Compensate", "flow.Rollback":
+	case flowir.RendererGroupSaga:
 		if out, ok := renderTypedStepSaga(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "flow.Delay", "flow.Schedule", "flow.Cron", "flow.Tag", "flow.Return":
+	case flowir.RendererGroupControlScheduling:
 		if out, ok := renderTypedStepControlScheduling(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "value.Coalesce", "list.Filter", "list.Paginate", "list.Append", "list.Sort", "list.Map", "list.Reduce", "list.GroupBy", "list.Distinct", "list.Chunk", "list.Find", "list.Any", "list.All", "list.Sum", "list.Avg", "batch.Run", "str.Normalize":
+	case flowir.RendererGroupCollections:
 		if out, ok := renderTypedStepCollections(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "errors.New", "errors.ThrowIf", "errors.Wrap", "errors.Map":
+	case flowir.RendererGroupDomainErrors:
 		if out, ok := renderTypedStepDomainErrors(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "auth.RequireRole", "auth.CheckRole":
+	case flowir.RendererGroupDomainAuth:
 		if out, ok := renderTypedStepDomainAuth(st, typedStep, indent); ok {
 			return out
 		}
-	case "list.Len", "list.New", "convert.ToFloat", "convert.ToInt", "map.New", "map.Get", "map.Has", "map.Set", "map.Merge":
+	case flowir.RendererGroupDomainPrimitives:
 		if out, ok := renderTypedStepDomainPrimitives(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "time.Parse", "time.Add", "time.Sub", "time.Diff", "time.CheckExpiry":
+	case flowir.RendererGroupDomainTime:
 		if out, ok := renderTypedStepDomainTime(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "entity.PatchNonZero", "field.CopyNonEmpty", "entity.PatchValidated", "enum.Validate":
+	case flowir.RendererGroupDomainValidation:
 		if out, ok := renderTypedStepDomainValidation(st, typedStep, indent); ok {
 			return out
 		}
-	case "list.Enrich":
+	case flowir.RendererGroupListEnrich:
 		if out, ok := renderTypedStepListEnrich(st, typedStep, indent); ok {
 			return out
 		}
-	case "audit.Log", "fsm.Transition", "notification.Dispatch", "notify.Dispatch":
+	case flowir.RendererGroupDomainSpecial:
 		if out, ok := renderTypedStepDomainSpecial(st, typedStep, indent); ok {
 			return out
 		}
-	case "rbac.CheckPermission":
+	case flowir.RendererGroupRBAC:
 		if out, ok := renderTypedStepRBAC(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "logic.Check":
+	case flowir.RendererGroupLogicCheck:
 		if out, ok := renderTypedStepLogicCheck(st, typedStep, indent); ok {
 			return out
 		}
-	case "map.Build", "math.Expr":
+	case flowir.RendererGroupDomainComputed:
 		if out, ok := renderTypedStepDomainComputed(st, typedStep, indent); ok {
 			return out
 		}
-	case "exec.Run", "exec.Stream", "fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove", "archive.ZipDir":
+	case flowir.RendererGroupExecFS:
 		if out, ok := renderTypedStepExecFS(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "claude.Chat", "openai.Chat", "openai.Embed", "openai.Stream", "plan.BuildAutomata", "plan.BuildMicroPlan", "cue.EmitProject", "cue.ValidateProject", "cue.WriteProjectFiles", "locale.Resolve":
+	case flowir.RendererGroupInfrastructure:
 		if out, ok := renderTypedStepInfrastructure(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
 	}
-	if _, registered := flowir.Lookup(typedStep.Name); registered {
-		pad := strings.Repeat("\t", indent)
-		return renderInvalidFlowStepConfig(st, pad, typedStep.Name, "registered action has no typed emitter route")
-	}
-	return ""
+	pad := strings.Repeat("\t", indent)
+	return renderInvalidFlowStepConfig(st, pad, typedStep.Name, fmt.Sprintf("renderer group %q has no typed emitter route", spec.RendererGroup))
 }
 
 func nextFlowStepSuffix(st *flowRenderState) string {

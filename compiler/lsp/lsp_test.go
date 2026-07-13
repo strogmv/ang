@@ -1,6 +1,9 @@
 package lsp
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestCompletionItemsMarkOpenAIUnavailableWithoutPrereqs(t *testing.T) {
 	items := CompletionItems("session.Get(output: session)\n", Position{Line: 1, Character: 0})
@@ -11,8 +14,8 @@ func TestCompletionItemsMarkOpenAIUnavailableWithoutPrereqs(t *testing.T) {
 			if !item.Deprecated {
 				t.Fatalf("expected openai.Chat to be marked unavailable without quota/budget prerequisites")
 			}
-			if item.Detail == "" {
-				t.Fatalf("expected unavailable reason in detail")
+			if !strings.Contains(item.Detail, "renderer=infrastructure") {
+				t.Fatalf("expected renderer group in completion detail, got %q", item.Detail)
 			}
 		}
 	}
@@ -81,6 +84,9 @@ func TestHoverForSource(t *testing.T) {
 	}
 	if hover == nil || hover.Value == "" {
 		t.Fatalf("expected non-empty hover")
+	}
+	if !strings.Contains(hover.Value, "Renderer group: `infrastructure`") {
+		t.Fatalf("expected renderer group in hover, got %q", hover.Value)
 	}
 }
 

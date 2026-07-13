@@ -54,3 +54,29 @@ package architecture
 		t.Fatalf("unexpected subscription delivery metadata: %#v", got[0].Metadata)
 	}
 }
+
+func TestRunFlowSemPhasePublishesTypedVariableDiagnostic(t *testing.T) {
+	var diagnostics []normalizer.Warning
+	service := normalizer.Service{Methods: []normalizer.Method{{
+		Name:   "Run",
+		Input:  normalizer.Entity{Name: "RunRequest", Fields: []normalizer.Field{{Name: "name", Type: "string"}}},
+		Output: normalizer.Entity{Name: "RunResponse", Fields: []normalizer.Field{{Name: "name", Type: "string"}}},
+		Flow: []normalizer.FlowStep{
+			{Action: "flow.If", Args: map[string]any{"condition": "true", "_then": []normalizer.FlowStep{{Action: "mapping.Assign", Args: map[string]any{"to": "branchValue", "value": "req.Name", "declare": true}}}}},
+			{Action: "mapping.Assign", Args: map[string]any{"to": "resp.Name", "value": "branchValue"}},
+		},
+	}}}
+
+	runFlowSemPhase(FlowSemPhaseInput{Services: []normalizer.Service{service}}, PipelineOptions{
+		WarningSink: func(w normalizer.Warning) { diagnostics = append(diagnostics, w) },
+	})
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code == "FLOW_VARIABLE_UNKNOWN" {
+			if diagnostic.Severity != "error" {
+				t.Fatalf("FLOW_VARIABLE_UNKNOWN severity = %q, want error", diagnostic.Severity)
+			}
+			return
+		}
+	}
+	t.Fatalf("FLOW_VARIABLE_UNKNOWN not forwarded to pipeline diagnostics: %#v", diagnostics)
+}

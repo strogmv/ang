@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/strogmv/ang-ir/flowsem"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 func HoverForSource(text string, pos Position) (*Hover, bool) {
@@ -25,6 +26,9 @@ func HoverForSource(text string, pos Position) (*Hover, bool) {
 	}
 	if entry.Effect != "" {
 		parts = append(parts, fmt.Sprintf("Effect: `%s`", entry.Effect))
+	}
+	if spec, ok := flowir.Lookup(entry.Name); ok && spec.RendererGroup != "" {
+		parts = append(parts, fmt.Sprintf("Renderer group: `%s`", spec.RendererGroup))
 	}
 	if len(entry.RequiresTags) > 0 {
 		parts = append(parts, "Requires: `"+strings.Join(entry.RequiresTags, "`, `")+"`")

@@ -160,10 +160,11 @@ type ArgSpec struct {
 }
 
 type ActionSpec struct {
-	Name        string                                    `json:"name"`
-	Description string                                    `json:"description"`
-	Args        []ArgSpec                                 `json:"args"`
-	Decode      func(normalizer.FlowStep) (Action, error) `json:"-"`
+	Name          string                                    `json:"name"`
+	Description   string                                    `json:"description"`
+	Args          []ArgSpec                                 `json:"args"`
+	RendererGroup RendererGroup                             `json:"renderer_group"`
+	Decode        func(normalizer.FlowStep) (Action, error) `json:"-"`
 }
 
 var (
@@ -174,6 +175,9 @@ var (
 func Register(spec ActionSpec) {
 	if strings.TrimSpace(spec.Name) == "" || spec.Decode == nil {
 		panic("flowir: action spec requires name and decoder")
+	}
+	if spec.RendererGroup == "" {
+		spec.RendererGroup = RendererGroupFor(spec.Name)
 	}
 	registryMu.Lock()
 	defer registryMu.Unlock()

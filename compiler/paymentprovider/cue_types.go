@@ -148,6 +148,10 @@ type ProviderSpec struct {
 
 	CheckStatusConfig *CheckStatusConfigSpec `json:"check_status_config"`
 
+	KeysEndpoint           *KeysEndpointConfig   `json:"keys_endpoint"`
+	CardEncryption         *CardEncryptionConfig `json:"card_encryption"`
+	PayoutStatusValueField string                `json:"payout_status_value_field"`
+
 	Callback *CallbackConfig `json:"callback"`
 
 	ExtraImports []string `json:"extra_imports"`
@@ -165,6 +169,21 @@ type CheckStatusConfigSpec struct {
 	SinceCreatedPeriod  string `json:"since_created_period"`
 	ByTransactionType   bool   `json:"by_transaction_type"`
 	PathSuffixForeignID bool   `json:"path_suffix_foreign_id"`
+	PathFormatTxID      bool   `json:"path_format_tx_id"`
+}
+
+type KeysEndpointConfig struct {
+	Enabled     bool   `json:"enabled"`
+	EndpointKey string `json:"endpoint_key"`
+	BaseURL     string `json:"base_url"`
+	CacheTTL    string `json:"cache_ttl"`
+}
+
+type CardEncryptionConfig struct {
+	Enabled         bool   `json:"enabled"`
+	Algorithm       string `json:"algorithm"`
+	PEMSecretKey    string `json:"pem_secret_key"`
+	PaymentDataType string `json:"payment_data_type"`
 }
 
 type PayoutRuntimeConfig struct {
@@ -186,6 +205,7 @@ type ResponseEnvelopeConfig struct {
 	WrapperField string `json:"wrapper_field"`
 	SuccessField string `json:"success_field"`
 	ErrorField   string `json:"error_field"`
+	SuccessMode  string `json:"success_mode"`
 }
 
 type RequestSigningConfig struct {
@@ -263,11 +283,12 @@ type ResponseType struct {
 }
 
 type StructField struct {
-	Name      string `json:"name"`
-	Type      string `json:"type"`
-	JSON      string `json:"json"`
-	OmitEmpty bool   `json:"omitempty"`
-	Omitempty bool   // template alias (datatypes.go.tmpl uses .Omitempty)
+	Name       string `json:"name"`
+	Type       string `json:"type"`
+	JSON       string `json:"json"`
+	OmitEmpty  bool   `json:"omitempty"`
+	Omitempty  bool   // template alias (datatypes.go.tmpl uses .Omitempty)
+	NestedPath string `json:"nested_path"`
 }
 
 type CallbackConfig struct {

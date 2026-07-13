@@ -48,6 +48,9 @@ type TemplateData struct {
 	PayoutStatusEndpointConst string
 	PayinStatusMethod         string
 	PayoutStatusMethod        string
+	PayoutMethod              string
+	PayoutPathTxID            bool
+	CheckStatusPathFormatTxID bool
 
 	PayinResponseType    string
 	PayoutResponseType   string
@@ -64,6 +67,8 @@ type TemplateData struct {
 	SecretFormat                      string
 	SecretTestValue                   string
 	HasOptionalReturnRecipientDetails bool
+
+	HasOptionalSecretParts bool
 
 	SigningAlgorithm   string
 	SigningFormat      string
@@ -85,6 +90,10 @@ type TemplateData struct {
 	ResponseFormat            string
 	CallbackFormat            string
 	ResponseEnvelope          *ResponseEnvelopeTemplate
+	KeysEndpoint              *KeysEndpointTemplate
+	CardEncryption            *CardEncryptionTemplate
+	PayoutStatusValueField    string
+	HasCallbackNestedPaths    bool
 
 	PayinResponsePayloadType  string
 	PayoutResponsePayloadType string
@@ -220,6 +229,7 @@ type CheckStatusConfigTemplate struct {
 	SinceCreatedPeriod  string
 	ByTransactionType   bool
 	PathSuffixForeignID bool
+	PathFormatTxID      bool
 }
 
 type PayoutRuntimeTemplate struct {
@@ -255,6 +265,21 @@ type ResponseEnvelopeTemplate struct {
 	SuccessGoField string
 	ErrorField     string
 	ErrorGoField   string
+	SuccessMode    string
+}
+
+type KeysEndpointTemplate struct {
+	Enabled       bool
+	EndpointConst string
+	BaseURL       string
+	CacheTTLExpr  string
+}
+
+type CardEncryptionTemplate struct {
+	Enabled           bool
+	Algorithm         string
+	PEMSecretKeyField string
+	PaymentDataType   string
 }
 
 type CallbackSignatureFieldTemplate struct {
@@ -590,6 +615,12 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 			break
 		}
 	}
+	for _, p := range spec.Secrets.Parts {
+		if p.Optional {
+			data.HasOptionalSecretParts = true
+			break
+		}
+	}
 	data.SecretPartsSimple = len(spec.Secrets.Parts) > 0
 	for _, p := range spec.Secrets.Parts {
 		if p.Optional || strings.TrimSpace(p.Type) == "bool" {
@@ -628,7 +659,9 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 			SinceCreatedPeriod:  data.CheckStatusPeriod,
 			ByTransactionType:   spec.CheckStatusConfig.ByTransactionType,
 			PathSuffixForeignID: spec.CheckStatusConfig.PathSuffixForeignID,
+			PathFormatTxID:      spec.CheckStatusConfig.PathFormatTxID,
 		}
+		data.CheckStatusPathFormatTxID = spec.CheckStatusConfig.PathFormatTxID
 	}
 	if spec.PayoutRuntime != nil {
 		data.PayoutRuntime = &PayoutRuntimeTemplate{
@@ -671,8 +704,27 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 			SuccessGoField: jsonKeyToGoField(success),
 			ErrorField:     errField,
 			ErrorGoField:   jsonKeyToGoField(errField),
+			SuccessMode:    defaultString(spec.ResponseEnvelope.SuccessMode, "field_bool"),
 		}
 	}
+	if spec.KeysEndpoint != nil && spec.KeysEndpoint.Enabled {
+		epKey := defaultString(spec.KeysEndpoint.EndpointKey, "keys")
+		data.KeysEndpoint = &KeysEndpointTemplate{
+			Enabled:       true,
+			EndpointConst: endpointKeyToConst(epKey),
+			BaseURL:       strings.TrimRight(strings.TrimSpace(spec.KeysEndpoint.BaseURL), "/"),
+			CacheTTLExpr:  formatDurationGoExpr(defaultString(spec.KeysEndpoint.CacheTTL, "12h")),
+		}
+	}
+	if spec.CardEncryption != nil && spec.CardEncryption.Enabled {
+		data.CardEncryption = &CardEncryptionTemplate{
+			Enabled:           true,
+			Algorithm:         defaultString(spec.CardEncryption.Algorithm, "rsa_oaep_sha256"),
+			PEMSecretKeyField: exportGoIdent(defaultString(spec.CardEncryption.PEMSecretKey, "callbackSignKey")),
+			PaymentDataType:   defaultString(spec.CardEncryption.PaymentDataType, "card"),
+		}
+	}
+	data.PayoutStatusValueField = strings.TrimSpace(spec.PayoutStatusValueField)
 	if spec.OTPConfig != nil {
 		data.HasOTPConfig = true
 		data.OTPHandlesExternally = spec.OTPConfig.HandlesExternally
@@ -686,6 +738,12 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 		data.CallbackReturnQueryStatusValue = spec.Callback.ReturnQueryStatusValue
 		data.CallbackReturnQueryInfoCallback = spec.Callback.ReturnQueryInfoCallback
 		data.CallbackFields = normalizeStructFields(spec.Callback.Fields)
+		for _, f := range data.CallbackFields {
+			if strings.TrimSpace(f.NestedPath) != "" {
+				data.HasCallbackNestedPaths = true
+				break
+			}
+		}
 	}
 
 	data.HTTPAuth = buildHTTPAuth(spec)
@@ -813,6 +871,10 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 	data.PayoutStatusMethod = endpointMethod(spec.Endpoints, "payout_status", "GET")
 	if data.PayoutStatusMethod == "GET" && hasEndpoint(spec.Endpoints, "check") {
 		data.PayoutStatusMethod = endpointMethod(spec.Endpoints, "check", "GET")
+	}
+	data.PayoutMethod = endpointMethod(spec.Endpoints, "payout", "POST")
+	if ep, ok := spec.Endpoints["payout"]; ok {
+		data.PayoutPathTxID = strings.Contains(ep.Path, "%s")
 	}
 	data.HasStatusEndpoints = hasEndpoint(spec.Endpoints, "payin_status") || hasEndpoint(spec.Endpoints, "payout_status") || hasEndpoint(spec.Endpoints, "check")
 
@@ -958,6 +1020,9 @@ func buildExtraImports(spec *ProviderSpec) []string {
 		if spec.Interfaces.BalanceFetcher {
 			out = appendImportIfMissing(out, "gitlab.q-tech.host/transferty/backend/tnx_processor/payment_providers/common")
 		}
+	}
+	if spec.CardEncryption != nil && spec.CardEncryption.Enabled {
+		out = appendImportIfMissing(out, "gitlab.q-tech.host/transferty/backend/utils/helpers")
 	}
 	sort.Strings(out)
 	return out
