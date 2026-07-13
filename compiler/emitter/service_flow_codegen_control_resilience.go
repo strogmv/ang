@@ -15,52 +15,9 @@ type flowCapturedVar struct {
 	isPtr bool
 }
 
-func renderFlowStepControlResilience(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
-	switch step.Action {
-	case "flow.Try":
-		typed, err := decodeCurrentActionAs[flowir.FlowTry](st, step)
-		if err != nil {
-			return renderInvalidFlowStepConfig(st, strings.Repeat("\t", indent), step.Action, err.Error()), true
-		}
-		if out, ok := renderFlowTryAST(st, typed, indent, sfx); ok {
-			return out, true
-		}
-		return renderFlowTryLegacy(st, typed, indent, sfx), true
-	case "flow.Retry":
-		typed, err := decodeCurrentActionAs[flowir.FlowRetry](st, step)
-		if err != nil {
-			return renderInvalidFlowStepConfig(st, strings.Repeat("\t", indent), step.Action, err.Error()), true
-		}
-		if out, ok := renderFlowRetryAST(st, typed, indent, sfx); ok {
-			return out, true
-		}
-		return renderFlowRetryLegacy(st, typed, indent, sfx), true
-	case "flow.Timeout":
-		typed, err := decodeCurrentActionAs[flowir.FlowTimeout](st, step)
-		if err != nil {
-			return renderInvalidFlowStepConfig(st, strings.Repeat("\t", indent), step.Action, err.Error()), true
-		}
-		if out, ok := renderFlowTimeoutAST(st, typed, indent, sfx); ok {
-			return out, true
-		}
-		return renderFlowTimeoutLegacy(st, typed, indent, sfx), true
-	case "flow.Fallback":
-		typed, err := decodeCurrentActionAs[flowir.FlowFallback](st, step)
-		if err != nil {
-			return renderInvalidFlowStepConfig(st, strings.Repeat("\t", indent), step.Action, err.Error()), true
-		}
-		if out, ok := renderFlowFallbackAST(st, typed, indent, sfx); ok {
-			return out, true
-		}
-		return renderFlowFallbackLegacy(st, typed, indent, sfx), true
-	}
-	return "", false
-}
-
+// collectFlowBranchNewVars is retained only for legacy renderer compatibility.
+// Typed renderers use collectTypedFlowBranchNewVars directly.
 func collectFlowBranchNewVars(st *flowRenderState, indent int, branches ...[]normalizer.FlowStep) map[string]flowCapturedVar {
-	if st.currentTyped != nil {
-		return collectTypedFlowBranchNewVars(st, indent, st.currentTyped.Children["_do"], st.currentTyped.Children["_catch"])
-	}
 	outerDeclared := make(map[string]bool, len(st.declared))
 	for k, v := range st.declared {
 		outerDeclared[k] = v
@@ -85,6 +42,48 @@ func collectFlowBranchNewVars(st *flowRenderState, indent int, branches ...[]nor
 		}
 	}
 	return newVars
+}
+
+func renderTypedStepControlResilience(st *flowRenderState, step flowir.TypedStep, indent int, sfx string) (string, bool) {
+	switch step.Name {
+	case "flow.Try":
+		typed, err := typedActionAs[flowir.FlowTry](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, strings.Repeat("\t", indent), step.Name, err.Error()), true
+		}
+		if out, ok := renderFlowTryAST(st, step, typed, indent, sfx); ok {
+			return out, true
+		}
+		return renderFlowTryLegacy(st, typed, indent, sfx), true
+	case "flow.Retry":
+		typed, err := typedActionAs[flowir.FlowRetry](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, strings.Repeat("\t", indent), step.Name, err.Error()), true
+		}
+		if out, ok := renderFlowRetryAST(st, step, typed, indent, sfx); ok {
+			return out, true
+		}
+		return renderFlowRetryLegacy(st, typed, indent, sfx), true
+	case "flow.Timeout":
+		typed, err := typedActionAs[flowir.FlowTimeout](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, strings.Repeat("\t", indent), step.Name, err.Error()), true
+		}
+		if out, ok := renderFlowTimeoutAST(st, step, typed, indent, sfx); ok {
+			return out, true
+		}
+		return renderFlowTimeoutLegacy(st, typed, indent, sfx), true
+	case "flow.Fallback":
+		typed, err := typedActionAs[flowir.FlowFallback](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, strings.Repeat("\t", indent), step.Name, err.Error()), true
+		}
+		if out, ok := renderFlowFallbackAST(st, step, typed, indent, sfx); ok {
+			return out, true
+		}
+		return renderFlowFallbackLegacy(st, typed, indent, sfx), true
+	}
+	return "", false
 }
 
 func collectTypedFlowBranchNewVars(st *flowRenderState, indent int, branches ...[]flowir.TypedStep) map[string]flowCapturedVar {
@@ -114,6 +113,8 @@ func collectTypedFlowBranchNewVars(st *flowRenderState, indent int, branches ...
 	return newVars
 }
 
+// inferFlowCapturedVarType is a legacy test/renderer bridge. New production
+// code must use inferTypedCapturedVarType after the single Flow IR decode.
 func inferFlowCapturedVarType(varName string, steps []normalizer.FlowStep) string {
 	typed, _ := flowir.DecodeSteps(steps)
 	return inferTypedCapturedVarType(varName, typed)
@@ -189,15 +190,15 @@ func flowIRTypeRefGoType(typ flowir.TypeRef) string {
 	return ""
 }
 
-func renderFlowTryAST(st *flowRenderState, action flowir.FlowTry, indent int, sfx string) (string, bool) {
-	var doSteps, catchSteps []normalizer.FlowStep
-	if flowNestedStepCount(st, "_do", doSteps) == 0 {
+func renderFlowTryAST(st *flowRenderState, step flowir.TypedStep, action flowir.FlowTry, indent int, sfx string) (string, bool) {
+	doSteps, catchSteps := step.Children["_do"], step.Children["_catch"]
+	if len(doSteps) == 0 {
 		return "", true
 	}
 
 	retries, backoffMs := action.Retries, action.BackoffMS
 
-	newVars := collectFlowBranchNewVars(st, indent, doSteps, catchSteps)
+	newVars := collectTypedFlowBranchNewVars(st, indent, doSteps, catchSteps)
 
 	stmts := make([]ast.Stmt, 0, 12+len(newVars))
 	newVarNames := make([]string, 0, len(newVars))
@@ -257,7 +258,7 @@ func renderFlowTryAST(st *flowRenderState, action flowir.FlowTry, indent int, sf
 
 	tryState := cloneFlowState(st)
 	tryState.returnErrOnly = true
-	tryBodyStmts, err := parseFlowStmtList(renderFlowNestedSteps(tryState, "_do", doSteps, 1) + "return nil\n")
+	tryBodyStmts, err := parseFlowStmtList(renderTypedFlowSteps(tryState, doSteps, 1) + "return nil\n")
 	if err != nil {
 		return "", false
 	}
@@ -368,8 +369,8 @@ func renderFlowTryAST(st *flowRenderState, action flowir.FlowTry, indent int, sf
 			Rhs: []ast.Expr{ast.NewIdent(tryErrV)},
 		},
 	}
-	if flowNestedStepCount(st, "_catch", catchSteps) > 0 {
-		catchBody, parseErr := parseFlowStmtList(renderFlowNestedSteps(cloneFlowState(st), "_catch", catchSteps, 1))
+	if len(catchSteps) > 0 {
+		catchBody, parseErr := parseFlowStmtList(renderTypedFlowSteps(cloneFlowState(st), catchSteps, 1))
 		if parseErr != nil {
 			return "", false
 		}
@@ -393,9 +394,9 @@ func renderFlowTryAST(st *flowRenderState, action flowir.FlowTry, indent int, sf
 	return renderFlowASTStmt(&ast.BlockStmt{List: stmts}, indent), true
 }
 
-func renderFlowRetryAST(st *flowRenderState, action flowir.FlowRetry, indent int, sfx string) (string, bool) {
-	var doSteps, catchSteps []normalizer.FlowStep
-	if flowNestedStepCount(st, "_do", doSteps) == 0 {
+func renderFlowRetryAST(st *flowRenderState, step flowir.TypedStep, action flowir.FlowRetry, indent int, sfx string) (string, bool) {
+	doSteps, catchSteps := step.Children["_do"], step.Children["_catch"]
+	if len(doSteps) == 0 {
 		return "", true
 	}
 
@@ -416,7 +417,7 @@ func renderFlowRetryAST(st *flowRenderState, action flowir.FlowRetry, indent int
 
 	retryState := cloneFlowState(st)
 	retryState.returnErrOnly = true
-	retryBodyStmts, err := parseFlowStmtList(renderFlowNestedSteps(retryState, "_do", doSteps, 1) + "return nil\n")
+	retryBodyStmts, err := parseFlowStmtList(renderTypedFlowSteps(retryState, doSteps, 1) + "return nil\n")
 	if err != nil {
 		return "", false
 	}
@@ -528,8 +529,8 @@ func renderFlowRetryAST(st *flowRenderState, action flowir.FlowRetry, indent int
 			Rhs: []ast.Expr{ast.NewIdent(errV)},
 		},
 	}
-	if flowNestedStepCount(st, "_catch", catchSteps) > 0 {
-		catchBody, parseErr := parseFlowStmtList(renderFlowNestedSteps(cloneFlowState(st), "_catch", catchSteps, 1))
+	if len(catchSteps) > 0 {
+		catchBody, parseErr := parseFlowStmtList(renderTypedFlowSteps(cloneFlowState(st), catchSteps, 1))
 		if parseErr != nil {
 			return "", false
 		}
@@ -553,10 +554,10 @@ func renderFlowRetryAST(st *flowRenderState, action flowir.FlowRetry, indent int
 	return renderFlowASTStmt(&ast.BlockStmt{List: stmts}, indent), true
 }
 
-func renderFlowTimeoutAST(st *flowRenderState, action flowir.FlowTimeout, indent int, sfx string) (string, bool) {
+func renderFlowTimeoutAST(st *flowRenderState, step flowir.TypedStep, action flowir.FlowTimeout, indent int, sfx string) (string, bool) {
 	duration := normalizeFlowExpr(action.Duration.Source)
-	var doSteps, onTimeout []normalizer.FlowStep
-	if duration == "" || flowNestedStepCount(st, "_do", doSteps) == 0 {
+	doSteps, onTimeout := step.Children["_do"], step.Children["_onTimeout"]
+	if duration == "" || len(doSteps) == 0 {
 		return "", true
 	}
 	durationExpr, err := parseFlowExprSafe(duration)
@@ -585,7 +586,7 @@ func renderFlowTimeoutAST(st *flowRenderState, action flowir.FlowTimeout, indent
 
 	toState := cloneFlowState(st)
 	toState.returnErrOnly = true
-	doBodyStmts, parseErr := parseFlowStmtList(renderFlowNestedSteps(toState, "_do", doSteps, 1) + "return nil\n")
+	doBodyStmts, parseErr := parseFlowStmtList(renderTypedFlowSteps(toState, doSteps, 1) + "return nil\n")
 	if parseErr != nil {
 		return "", false
 	}
@@ -623,8 +624,8 @@ func renderFlowTimeoutAST(st *flowRenderState, action flowir.FlowTimeout, indent
 	})
 
 	timeoutBranch := []ast.Stmt{}
-	if flowNestedStepCount(st, "_onTimeout", onTimeout) > 0 {
-		timeoutBranch, parseErr = parseFlowStmtList(renderFlowNestedSteps(cloneFlowState(st), "_onTimeout", onTimeout, 1))
+	if len(onTimeout) > 0 {
+		timeoutBranch, parseErr = parseFlowStmtList(renderTypedFlowSteps(cloneFlowState(st), onTimeout, 1))
 		if parseErr != nil {
 			return "", false
 		}
@@ -669,9 +670,9 @@ func renderFlowTimeoutAST(st *flowRenderState, action flowir.FlowTimeout, indent
 	return renderFlowASTStmt(&ast.BlockStmt{List: stmts}, indent), true
 }
 
-func renderFlowFallbackAST(st *flowRenderState, action flowir.FlowFallback, indent int, sfx string) (string, bool) {
-	var mainSteps, fallbackSteps []normalizer.FlowStep
-	if flowNestedStepCount(st, "_do", mainSteps) == 0 || flowNestedStepCount(st, "_fallback", fallbackSteps) == 0 {
+func renderFlowFallbackAST(st *flowRenderState, step flowir.TypedStep, action flowir.FlowFallback, indent int, sfx string) (string, bool) {
+	mainSteps, fallbackSteps := step.Children["_do"], step.Children["_fallback"]
+	if len(mainSteps) == 0 || len(fallbackSteps) == 0 {
 		return "", true
 	}
 
@@ -680,7 +681,7 @@ func renderFlowFallbackAST(st *flowRenderState, action flowir.FlowFallback, inde
 
 	runState := cloneFlowState(st)
 	runState.returnErrOnly = true
-	runBody, err := parseFlowStmtList(renderFlowNestedSteps(runState, "_do", mainSteps, 1) + "return nil\n")
+	runBody, err := parseFlowStmtList(renderTypedFlowSteps(runState, mainSteps, 1) + "return nil\n")
 	if err != nil {
 		return "", false
 	}
@@ -709,7 +710,7 @@ func renderFlowFallbackAST(st *flowRenderState, action flowir.FlowFallback, inde
 		},
 	})
 
-	fallbackBody, parseErr := parseFlowStmtList(renderFlowNestedSteps(cloneFlowState(st), "_fallback", fallbackSteps, 1))
+	fallbackBody, parseErr := parseFlowStmtList(renderTypedFlowSteps(cloneFlowState(st), fallbackSteps, 1))
 	if parseErr != nil {
 		return "", false
 	}

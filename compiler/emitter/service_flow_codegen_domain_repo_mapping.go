@@ -8,24 +8,6 @@ import (
 	"github.com/strogmv/ang/compiler/flowir"
 )
 
-// renderTypedStepRepository keeps RepositoryCall as the source of truth while
-// the mature repository code writer is extracted from the legacy domain file.
-// The metadata step contains no Args, so production emission cannot fall back
-// to map-based argument reads or a second decode.
-func renderTypedStepRepository(st *flowRenderState, step flowir.TypedStep, indent int, sfx string) (string, bool) {
-	if _, err := typedActionAs[flowir.RepositoryCall](step); err != nil {
-		return renderInvalidFlowStepConfig(st, strings.Repeat("\t", indent), step.Name, err.Error()), true
-	}
-	return renderFlowStepDomainRepoMapping(
-		st,
-		flowStepMetadata(step),
-		indent,
-		sfx,
-		func(name string) string { return normalizeFlowExpr(step.ScalarArgs[name].Source()) },
-		func(string) []normalizer.FlowStep { return nil },
-	)
-}
-
 func renderFlowStepDomainRepoMapping(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
 	pad := strings.Repeat("\t", indent)
 	var repositoryCall flowir.RepositoryCall

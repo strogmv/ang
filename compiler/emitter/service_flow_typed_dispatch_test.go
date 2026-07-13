@@ -619,6 +619,175 @@ func TestTypedRepositoryDispatchDoesNotReconstructLegacyArgs(t *testing.T) {
 	}
 }
 
+func TestTypedRepositoryAdvancedDispatchUsesTypedArgumentsAndChildren(t *testing.T) {
+	n := 0
+	state := &flowRenderState{
+		declared: map[string]bool{"resp": true, "err": true},
+		pointers: map[string]bool{},
+		types:    map[string]string{},
+		stepN:    &n,
+	}
+	steps := []flowir.TypedStep{
+		{
+			Name: "repo.Query",
+			Action: flowir.RepositoryCall{
+				Operation: flowir.RepoQuery,
+				Entity:    "TypedEntity",
+				Method:    "FindByEmail",
+				Arguments: []flowir.Expression{{Source: "req.TypedEmail"}, {Source: "req.TypedCompanyID"}},
+				Output:    "typedQueryResult",
+			},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"source": {Kind: flowir.ScalarString, String: "LegacyEntity"},
+				"method": {Kind: flowir.ScalarString, String: "FindByLegacy"},
+				"input":  {Kind: flowir.ScalarString, String: "req.LegacyEmail"},
+				"output": {Kind: flowir.ScalarString, String: "legacyQueryResult"},
+			},
+		},
+		{
+			Name: "repo.Upsert",
+			Action: flowir.RepositoryCall{
+				Operation: flowir.RepoUpsert,
+				Entity:    "TypedEntity",
+				Find:      flowir.Expression{Source: "req.TypedID"},
+				Input:     flowir.Expression{Source: "typedInput"},
+				Output:    "typedUpsertResult",
+			},
+			Children: map[string][]flowir.TypedStep{
+				"_ifNew": {{
+					Name: "mapping.Assign",
+					Action: flowir.MappingAssign{
+						Target:  flowir.Expression{Source: "typedUpsertMarker"},
+						Value:   flowir.Expression{Source: `"new"`},
+						Declare: true,
+					},
+				}},
+			},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"source": {Kind: flowir.ScalarString, String: "LegacyEntity"},
+				"find":   {Kind: flowir.ScalarString, String: "req.LegacyID"},
+				"input":  {Kind: flowir.ScalarString, String: "legacyInput"},
+				"output": {Kind: flowir.ScalarString, String: "legacyUpsertResult"},
+			},
+		},
+	}
+
+	got := renderTypedFlowSteps(state, steps, 0)
+	for _, expected := range []string{"FindByEmail", "req.TypedEmail", "req.TypedCompanyID", "typedQueryResult", "req.TypedID", "typedInput", "typedUpsertResult", "typedUpsertMarker"} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("advanced repository renderer omitted %q:\n%s", expected, got)
+		}
+	}
+	if strings.Contains(got, "legacy") || strings.Contains(got, "Legacy") {
+		t.Fatalf("advanced repository renderer reconstructed legacy arguments:\n%s", got)
+	}
+}
+
+func TestTypedDBDispatchDoesNotReconstructLegacyArgs(t *testing.T) {
+	n := 0
+	state := &flowRenderState{
+		declared: map[string]bool{"resp": true, "err": true},
+		pointers: map[string]bool{},
+		types:    map[string]string{},
+		stepN:    &n,
+	}
+	steps := []flowir.TypedStep{
+		{
+			Name: "db.Get",
+			Action: flowir.DBGet{DBFields: flowir.DBFields{
+				Source: "TypedEntity", Input: flowir.Expression{Source: "req.TypedID"}, Output: "typedEntity",
+			}},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"source": {Kind: flowir.ScalarString, String: "LegacyEntity"},
+				"input":  {Kind: flowir.ScalarString, String: "req.LegacyID"},
+				"output": {Kind: flowir.ScalarString, String: "legacyEntity"},
+			},
+		},
+		{
+			Name: "db.Update",
+			Action: flowir.DBUpdate{DBFields: flowir.DBFields{
+				Source: "TypedEntity", Input: flowir.Expression{Source: "typedEntity"},
+			}},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"source": {Kind: flowir.ScalarString, String: "LegacyEntity"},
+				"input":  {Kind: flowir.ScalarString, String: "legacyEntity"},
+			},
+		},
+	}
+
+	got := renderTypedFlowSteps(state, steps, 0)
+	for _, expected := range []string{"TypedEntityRepo.FindByID", "req.TypedID", "typedEntity", "TypedEntityRepo.Update"} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("DB renderer omitted %q:\n%s", expected, got)
+		}
+	}
+	if strings.Contains(got, "legacy") || strings.Contains(got, "Legacy") {
+		t.Fatalf("DB renderer reconstructed legacy arguments:\n%s", got)
+	}
+}
+
+func TestTypedDomainPrimitivesDoNotReconstructLegacyArgs(t *testing.T) {
+	n := 0
+	state := &flowRenderState{
+		declared: map[string]bool{"resp": true, "err": true},
+		pointers: map[string]bool{},
+		types:    map[string]string{},
+		stepN:    &n,
+	}
+	steps := []flowir.TypedStep{
+		{
+			Name:   "list.Len",
+			Action: flowir.ListLen{Input: flowir.Expression{Source: "typedItems"}, Output: "typedCount"},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"input":  {Kind: flowir.ScalarString, String: "legacyItems"},
+				"output": {Kind: flowir.ScalarString, String: "legacyCount"},
+			},
+		},
+		{
+			Name: "map.Set",
+			Action: flowir.MapSet{
+				Input:  flowir.Expression{Source: "typedMap"},
+				Key:    flowir.Expression{Source: `"typed-key"`},
+				Value:  flowir.Expression{Source: "typedValue"},
+				Output: "typedMapCopy",
+			},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"input":  {Kind: flowir.ScalarString, String: "legacyMap"},
+				"key":    {Kind: flowir.ScalarString, String: `"legacy-key"`},
+				"value":  {Kind: flowir.ScalarString, String: "legacyValue"},
+				"output": {Kind: flowir.ScalarString, String: "legacyMapCopy"},
+			},
+		},
+		{
+			Name: "map.Get",
+			Action: flowir.MapGet{
+				Input:   flowir.Expression{Source: "typedMap"},
+				Key:     flowir.Expression{Source: `"typed-key"`},
+				Output:  "typedMapValue",
+				Into:    "string",
+				Default: flowir.Expression{Source: `"typed-default"`},
+				Found:   "typedFound",
+			},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"input":   {Kind: flowir.ScalarString, String: "legacyMap"},
+				"key":     {Kind: flowir.ScalarString, String: `"legacy-key"`},
+				"output":  {Kind: flowir.ScalarString, String: "legacyMapValue"},
+				"default": {Kind: flowir.ScalarString, String: `"legacy-default"`},
+			},
+		},
+	}
+
+	got := renderTypedFlowSteps(state, steps, 0)
+	for _, expected := range []string{"typedItems", "typedCount", "typedMap", "typed-key", "typedValue", "typedMapCopy", "typedMapValue", "typed-default", "typedFound"} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("domain primitive renderer omitted %q:\n%s", expected, got)
+		}
+	}
+	if strings.Contains(got, "legacy") || strings.Contains(got, "Legacy") {
+		t.Fatalf("domain primitive renderer reconstructed legacy arguments:\n%s", got)
+	}
+}
+
 func TestTypedMappingDispatchDoesNotReconstructLegacyArgs(t *testing.T) {
 	n := 0
 	state := &flowRenderState{
@@ -876,5 +1045,609 @@ func TestTypedOAuthGoogleDispatchDoesNotReconstructLegacyArgs(t *testing.T) {
 	got := renderTypedFlowSteps(state, []flowir.TypedStep{step}, 0)
 	if !strings.Contains(got, "typed-client") || !strings.Contains(got, "typed.example") || !strings.Contains(got, "typedState") || !strings.Contains(got, "typedURL") || strings.Contains(got, "legacy") || strings.Contains(got, "Legacy") {
 		t.Fatalf("Google OAuth renderer did not use typed action directly:\n%s", got)
+	}
+}
+
+func TestTypedControlResilienceDispatchDoesNotReconstructLegacyArgs(t *testing.T) {
+	n := 0
+	state := &flowRenderState{
+		declared: map[string]bool{"resp": true, "err": true},
+		pointers: map[string]bool{},
+		types:    map[string]string{},
+		stepN:    &n,
+	}
+	steps := []flowir.TypedStep{
+		{
+			Name:   "flow.Try",
+			Action: flowir.FlowTry{Retries: 2, BackoffMS: 7},
+			Children: map[string][]flowir.TypedStep{
+				"_do": {{
+					Name: "mapping.Assign",
+					Action: flowir.MappingAssign{
+						Target:  flowir.Expression{Source: "typedTryValue"},
+						Value:   flowir.Expression{Source: "req.TypedValue"},
+						Declare: true,
+					},
+				}},
+			},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"retries":   {Kind: flowir.ScalarInt, Int: 99},
+				"backoffMs": {Kind: flowir.ScalarInt, Int: 999},
+			},
+		},
+		{
+			Name:   "flow.Timeout",
+			Action: flowir.FlowTimeout{Duration: flowir.Expression{Source: "time.Second"}},
+			Children: map[string][]flowir.TypedStep{
+				"_do": {{
+					Name: "mapping.Assign",
+					Action: flowir.MappingAssign{
+						Target:  flowir.Expression{Source: "typedTimeoutValue"},
+						Value:   flowir.Expression{Source: "req.TypedTimeoutValue"},
+						Declare: true,
+					},
+				}},
+			},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"duration": {Kind: flowir.ScalarString, String: "24 * time.Hour"},
+			},
+		},
+	}
+
+	got := renderTypedFlowSteps(state, steps, 0)
+	if !strings.Contains(got, "_tryMax_0 := 2") || !strings.Contains(got, "typedTryValue") || !strings.Contains(got, "req.TypedValue") || !strings.Contains(got, "time.Second") || !strings.Contains(got, "typedTimeoutValue") || !strings.Contains(got, "req.TypedTimeoutValue") || strings.Contains(got, "999") || strings.Contains(got, "24 * time.Hour") || strings.Contains(got, "legacy") || strings.Contains(got, "Legacy") {
+		t.Fatalf("control resilience renderer did not use typed actions and children directly:\n%s", got)
+	}
+}
+
+func TestTypedControlFlowBasicDispatchDoesNotReconstructLegacyArgs(t *testing.T) {
+	n := 0
+	state := &flowRenderState{
+		declared: map[string]bool{"resp": true, "err": true},
+		pointers: map[string]bool{},
+		types:    map[string]string{},
+		stepN:    &n,
+	}
+	assign := func(target, value string) flowir.TypedStep {
+		return flowir.TypedStep{
+			Name: "mapping.Assign",
+			Action: flowir.MappingAssign{
+				Target:  flowir.Expression{Source: target},
+				Value:   flowir.Expression{Source: value},
+				Declare: true,
+			},
+		}
+	}
+	steps := []flowir.TypedStep{
+		{
+			Name:   "flow.If",
+			Action: flowir.FlowIf{Condition: flowir.Expression{Source: "typedCondition"}},
+			Children: map[string][]flowir.TypedStep{
+				"_then": {assign("typedIfValue", "req.TypedIfValue")},
+			},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"condition": {Kind: flowir.ScalarString, String: "legacyCondition"},
+			},
+		},
+		{
+			Name:   "flow.Switch",
+			Action: flowir.FlowSwitch{Value: flowir.Expression{Source: "typedStatus"}, Match: "exact"},
+			Branches: map[string][]flowir.TypedStep{
+				"typed": {assign("typedSwitchValue", "req.TypedSwitchValue")},
+			},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"value": {Kind: flowir.ScalarString, String: "legacyStatus"},
+				"match": {Kind: flowir.ScalarString, String: "prefix"},
+			},
+		},
+		{
+			Name:   "flow.For",
+			Action: flowir.FlowFor{Each: flowir.Expression{Source: "typedItems"}, As: "typedItem"},
+			Children: map[string][]flowir.TypedStep{
+				"_do": {assign("typedForValue", "typedItem")},
+			},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"each": {Kind: flowir.ScalarString, String: "legacyItems"},
+				"as":   {Kind: flowir.ScalarString, String: "legacyItem"},
+			},
+		},
+		{
+			Name:   "flow.While",
+			Action: flowir.FlowWhile{Condition: flowir.Expression{Source: "typedContinue"}},
+			Children: map[string][]flowir.TypedStep{
+				"_do": {assign("typedWhileValue", "req.TypedWhileValue")},
+			},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"condition": {Kind: flowir.ScalarString, String: "legacyContinue"},
+			},
+		},
+	}
+
+	got := renderTypedFlowSteps(state, steps, 0)
+	for _, expected := range []string{"typedCondition", "typedIfValue", "typedStatus", "typedSwitchValue", "typedItems", "typedItem", "typedForValue", "typedContinue", "typedWhileValue"} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("control-flow renderer omitted %q:\n%s", expected, got)
+		}
+	}
+	if strings.Contains(got, "legacy") || strings.Contains(got, "Legacy") {
+		t.Fatalf("control-flow renderer reconstructed legacy arguments:\n%s", got)
+	}
+}
+
+func TestTypedStatefulControlDispatchDoesNotReconstructLegacyArgs(t *testing.T) {
+	n := 0
+	state := &flowRenderState{
+		declared: map[string]bool{"resp": true, "err": true},
+		pointers: map[string]bool{},
+		types:    map[string]string{},
+		stepN:    &n,
+	}
+	steps := []flowir.TypedStep{
+		{
+			Name: "flow.Checkpoint",
+			Action: flowir.FlowCheckpoint{
+				Name: "typed-checkpoint",
+				Data: flowir.Expression{Source: "req.TypedCheckpoint"},
+			},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"name": {Kind: flowir.ScalarString, String: "legacy-checkpoint"},
+				"data": {Kind: flowir.ScalarString, String: "req.LegacyCheckpoint"},
+			},
+		},
+		{
+			Name: "flow.RecordEvent",
+			Action: flowir.FlowRecordEvent{
+				Name:    flowir.Expression{Source: `"typed-event"`},
+				Payload: flowir.Expression{Source: "req.TypedPayload"},
+				Output:  "typedEvent",
+			},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"name":    {Kind: flowir.ScalarString, String: `"legacy-event"`},
+				"payload": {Kind: flowir.ScalarString, String: "req.LegacyPayload"},
+				"output":  {Kind: flowir.ScalarString, String: "legacyEvent"},
+			},
+		},
+		{
+			Name: "flow.Validate",
+			Action: flowir.FlowValidate{
+				Condition: flowir.Expression{Source: "typedValid"},
+				Message:   "typed validation failed",
+				Code:      "TYPED_INVALID",
+				Status:    flowir.Expression{Source: "http.StatusBadRequest"},
+			},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"condition": {Kind: flowir.ScalarString, String: "legacyValid"},
+				"message":   {Kind: flowir.ScalarString, String: "legacy validation failed"},
+			},
+		},
+		{
+			Name:   "flow.SuggestNext",
+			Action: flowir.FlowSuggestNext{Options: []string{"typed-next"}, Output: "typedNext"},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"output":    {Kind: flowir.ScalarString, String: "legacyNext"},
+				"options.0": {Kind: flowir.ScalarString, String: "legacy-next"},
+			},
+		},
+	}
+
+	got := renderTypedFlowSteps(state, steps, 0)
+	for _, expected := range []string{"typed-checkpoint", "req.TypedCheckpoint", "typed-event", "req.TypedPayload", "typedEvent", "typedValid", "typed validation failed", "typedNext", "typed-next"} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("stateful control renderer omitted %q:\n%s", expected, got)
+		}
+	}
+	if strings.Contains(got, "legacy") || strings.Contains(got, "Legacy") {
+		t.Fatalf("stateful control renderer reconstructed legacy arguments:\n%s", got)
+	}
+}
+
+func TestTypedParallelControlDispatchUsesTypedBranches(t *testing.T) {
+	n := 0
+	state := &flowRenderState{
+		declared: map[string]bool{"resp": true, "err": true},
+		pointers: map[string]bool{},
+		types:    map[string]string{},
+		stepN:    &n,
+	}
+	branch := func(target, value string) []flowir.TypedStep {
+		return []flowir.TypedStep{{
+			Name: "mapping.Assign",
+			Action: flowir.MappingAssign{
+				Target:  flowir.Expression{Source: target},
+				Value:   flowir.Expression{Source: value},
+				Declare: true,
+			},
+		}}
+	}
+	steps := []flowir.TypedStep{
+		{
+			Name:   "flow.Parallel",
+			Action: flowir.FlowParallel{},
+			Branches: map[string][]flowir.TypedStep{
+				"typed-first":  branch("typedParallelFirst", "req.TypedParallelFirst"),
+				"typed-second": branch("typedParallelSecond", "req.TypedParallelSecond"),
+			},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"legacy": {Kind: flowir.ScalarString, String: "legacy-parallel"},
+			},
+		},
+		{
+			Name:   "flow.Race",
+			Action: flowir.FlowRace{},
+			Branches: map[string][]flowir.TypedStep{
+				"typed-race": branch("typedRaceValue", "req.TypedRaceValue"),
+			},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"legacy": {Kind: flowir.ScalarString, String: "legacy-race"},
+			},
+		},
+	}
+
+	got := renderTypedFlowSteps(state, steps, 0)
+	for _, expected := range []string{"typedParallelFirst", "req.TypedParallelFirst", "typedParallelSecond", "req.TypedParallelSecond", "typedRaceValue", "req.TypedRaceValue", "_fp_0Wg", "_fr_1Wg"} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("parallel control renderer omitted %q:\n%s", expected, got)
+		}
+	}
+	if strings.Contains(got, "legacy") || strings.Contains(got, "Legacy") {
+		t.Fatalf("parallel control renderer reconstructed legacy arguments:\n%s", got)
+	}
+}
+
+func TestTypedSchedulingControlDispatchDoesNotReconstructLegacyArgs(t *testing.T) {
+	n := 0
+	state := &flowRenderState{
+		declared: map[string]bool{"resp": true, "err": true},
+		pointers: map[string]bool{},
+		types:    map[string]string{},
+		stepN:    &n,
+	}
+	steps := []flowir.TypedStep{
+		{
+			Name:   "flow.Delay",
+			Action: flowir.FlowDelay{Duration: flowir.Expression{Source: "typedDelay"}},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"duration": {Kind: flowir.ScalarString, String: "legacyDelay"},
+			},
+		},
+		{
+			Name:   "flow.Schedule",
+			Action: flowir.FlowSchedule{At: flowir.Expression{Source: "typedAt"}},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"at": {Kind: flowir.ScalarString, String: "legacyAt"},
+			},
+		},
+		{
+			Name:   "flow.Tag",
+			Action: flowir.FlowTag{Name: flowir.Expression{Source: `"typed-tag"`}, Value: flowir.Expression{Source: "typedTagValue"}},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"name":  {Kind: flowir.ScalarString, String: `"legacy-tag"`},
+				"value": {Kind: flowir.ScalarString, String: "legacyTagValue"},
+			},
+		},
+		{
+			Name:   "flow.Return",
+			Action: flowir.FlowReturn{Set: flowir.Expression{Source: "resp.TypedStatus"}, Value: flowir.Expression{Source: `"typed-ok"`}},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"set":   {Kind: flowir.ScalarString, String: "resp.LegacyStatus"},
+				"value": {Kind: flowir.ScalarString, String: `"legacy-ok"`},
+			},
+		},
+	}
+
+	got := renderTypedFlowSteps(state, steps, 0)
+	for _, expected := range []string{"typedDelay", "typedAt", "typed-tag", "typedTagValue", "resp.TypedStatus", "typed-ok"} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("scheduling control renderer omitted %q:\n%s", expected, got)
+		}
+	}
+	if strings.Contains(got, "legacy") || strings.Contains(got, "Legacy") {
+		t.Fatalf("scheduling control renderer reconstructed legacy arguments:\n%s", got)
+	}
+}
+
+func TestTypedSagaControlDispatchUsesTypedChildren(t *testing.T) {
+	n := 0
+	state := &flowRenderState{
+		declared: map[string]bool{"resp": true, "err": true},
+		pointers: map[string]bool{},
+		types:    map[string]string{},
+		stepN:    &n,
+	}
+	step := flowir.TypedStep{
+		Name:   "flow.Saga",
+		Action: flowir.FlowSaga{},
+		Children: map[string][]flowir.TypedStep{
+			"_do": {{
+				Name:   "flow.Compensate",
+				Action: flowir.FlowCompensate{},
+				Children: map[string][]flowir.TypedStep{
+					"_do": {{
+						Name: "mapping.Assign",
+						Action: flowir.MappingAssign{
+							Target:  flowir.Expression{Source: "typedCompensationValue"},
+							Value:   flowir.Expression{Source: "req.TypedCompensationValue"},
+							Declare: true,
+						},
+					}},
+				},
+			}, {
+				Name:   "flow.Rollback",
+				Action: flowir.FlowRollback{Error: flowir.Expression{Source: `fmt.Errorf("typed rollback")`}},
+			}},
+		},
+		ScalarArgs: map[string]flowir.ScalarArg{
+			"legacy": {Kind: flowir.ScalarString, String: "legacy-saga"},
+		},
+	}
+
+	got := renderTypedFlowSteps(state, []flowir.TypedStep{step}, 0)
+	for _, expected := range []string{"_sagaCompensations_0", "typedCompensationValue", "req.TypedCompensationValue", "typed rollback"} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("saga renderer omitted %q:\n%s", expected, got)
+		}
+	}
+	if strings.Contains(got, "legacy") || strings.Contains(got, "Legacy") {
+		t.Fatalf("saga renderer reconstructed legacy arguments:\n%s", got)
+	}
+}
+
+func TestTypedCollectionDispatchDoesNotReconstructLegacyArgs(t *testing.T) {
+	n := 0
+	state := &flowRenderState{
+		declared: map[string]bool{"resp": true, "err": true},
+		pointers: map[string]bool{},
+		types:    map[string]string{},
+		stepN:    &n,
+	}
+	steps := []flowir.TypedStep{
+		{
+			Name: "list.Append",
+			Action: flowir.ListAppend{
+				Target: flowir.Expression{Source: "typedItems"},
+				Item:   flowir.Expression{Source: "req.TypedItem"},
+			},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"to":   {Kind: flowir.ScalarString, String: "legacyItems"},
+				"item": {Kind: flowir.ScalarString, String: "req.LegacyItem"},
+			},
+		},
+		{
+			Name: "str.Normalize",
+			Action: flowir.StringNormalize{
+				Input:  flowir.Expression{Source: "req.TypedName"},
+				Mode:   "upper",
+				Output: "typedName",
+			},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"input":  {Kind: flowir.ScalarString, String: "req.LegacyName"},
+				"mode":   {Kind: flowir.ScalarString, String: "lower"},
+				"output": {Kind: flowir.ScalarString, String: "legacyName"},
+			},
+		},
+		{
+			Name: "value.Coalesce",
+			Action: flowir.ValueCoalesce{
+				Values: []flowir.Expression{{Source: "typedPrimary"}, {Source: "typedFallback"}},
+				Output: "typedCoalesced",
+				Mode:   "non_nil",
+			},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"values.0": {Kind: flowir.ScalarString, String: "legacyPrimary"},
+				"output":   {Kind: flowir.ScalarString, String: "legacyCoalesced"},
+			},
+		},
+		{
+			Name:   "batch.Run",
+			Action: flowir.BatchRun{From: flowir.Expression{Source: "typedBatchItems"}, Size: flowir.Expression{Source: "typedBatchSize"}, As: "typedBatch"},
+			Children: map[string][]flowir.TypedStep{
+				"_do": {{
+					Name: "mapping.Assign",
+					Action: flowir.MappingAssign{
+						Target:  flowir.Expression{Source: "typedBatchValue"},
+						Value:   flowir.Expression{Source: "typedBatch[0]"},
+						Declare: true,
+					},
+				}},
+			},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"from": {Kind: flowir.ScalarString, String: "legacyBatchItems"},
+				"size": {Kind: flowir.ScalarString, String: "legacyBatchSize"},
+				"as":   {Kind: flowir.ScalarString, String: "legacyBatch"},
+			},
+		},
+	}
+
+	got := renderTypedFlowSteps(state, steps, 0)
+	for _, expected := range []string{"typedItems", "req.TypedItem", "req.TypedName", "typedName", "typedPrimary", "typedFallback", "typedCoalesced", "typedBatchItems", "typedBatchSize", "typedBatch", "typedBatchValue"} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("collection renderer omitted %q:\n%s", expected, got)
+		}
+	}
+	if strings.Contains(got, "legacy") || strings.Contains(got, "Legacy") {
+		t.Fatalf("collection renderer reconstructed legacy arguments:\n%s", got)
+	}
+}
+
+func TestTypedDomainErrorDispatchDoesNotReconstructLegacyArgs(t *testing.T) {
+	n := 0
+	state := &flowRenderState{
+		declared: map[string]bool{"resp": true, "err": true},
+		pointers: map[string]bool{},
+		types:    map[string]string{},
+		stepN:    &n,
+	}
+	steps := []flowir.TypedStep{
+		{
+			Name: "errors.New",
+			Action: flowir.ErrorNew{
+				Message: flowir.Expression{Source: `"typed failure"`},
+				Status:  flowir.Expression{Source: "http.StatusTeapot"},
+				Code:    flowir.Expression{Source: `"TYPED_FAILURE"`},
+				Output:  "typedErr",
+			},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"message": {Kind: flowir.ScalarString, String: `"legacy failure"`},
+				"status":  {Kind: flowir.ScalarString, String: "http.StatusInternalServerError"},
+				"code":    {Kind: flowir.ScalarString, String: `"LEGACY_FAILURE"`},
+				"output":  {Kind: flowir.ScalarString, String: "legacyErr"},
+			},
+		},
+		{
+			Name: "errors.Wrap",
+			Action: flowir.ErrorWrap{
+				Error:   flowir.Expression{Source: "typedErr"},
+				Message: flowir.Expression{Source: `"typed context"`},
+				Output:  "typedWrappedErr",
+			},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"error":   {Kind: flowir.ScalarString, String: "legacyErr"},
+				"message": {Kind: flowir.ScalarString, String: `"legacy context"`},
+				"output":  {Kind: flowir.ScalarString, String: "legacyWrappedErr"},
+			},
+		},
+	}
+
+	got := renderTypedFlowSteps(state, steps, 0)
+	for _, expected := range []string{"typed failure", "http.StatusTeapot", "TYPED_FAILURE", "typedErr", "typed context", "typedWrappedErr"} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("domain error renderer omitted %q:\n%s", expected, got)
+		}
+	}
+	if strings.Contains(got, "legacy") || strings.Contains(got, "Legacy") {
+		t.Fatalf("domain error renderer reconstructed legacy arguments:\n%s", got)
+	}
+}
+
+func TestTypedDomainAuthDispatchDoesNotReconstructLegacyArgs(t *testing.T) {
+	n := 0
+	state := &flowRenderState{
+		declared: map[string]bool{"resp": true, "err": true},
+		pointers: map[string]bool{},
+		types:    map[string]string{},
+		stepN:    &n,
+	}
+	step := flowir.TypedStep{
+		Name: "auth.CheckRole",
+		Action: flowir.AuthCheckRole{
+			User:      flowir.Expression{Source: "typedUser"},
+			Roles:     flowir.Expression{Source: "typedRoles"},
+			CompanyID: flowir.Expression{Source: "typedCompanyID"},
+		},
+		ScalarArgs: map[string]flowir.ScalarArg{
+			"user":      {Kind: flowir.ScalarString, String: "legacyUser"},
+			"roles":     {Kind: flowir.ScalarString, String: "legacyRoles"},
+			"companyID": {Kind: flowir.ScalarString, String: "legacyCompanyID"},
+		},
+	}
+
+	got := renderTypedFlowSteps(state, []flowir.TypedStep{step}, 0)
+	for _, expected := range []string{"typedUser", "typedRoles", "typedCompanyID"} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("domain auth renderer omitted %q:\n%s", expected, got)
+		}
+	}
+	if strings.Contains(got, "legacy") || strings.Contains(got, "Legacy") {
+		t.Fatalf("domain auth renderer reconstructed legacy arguments:\n%s", got)
+	}
+}
+
+func TestTypedInfrastructureDispatchDoesNotReconstructLegacyArgs(t *testing.T) {
+	n := 0
+	state := &flowRenderState{
+		declared:    map[string]bool{"resp": true, "err": true},
+		pointers:    map[string]bool{},
+		types:       map[string]string{},
+		stepN:       &n,
+		isStreaming: true,
+	}
+	steps := []flowir.TypedStep{
+		{
+			Name: "openai.Chat",
+			Action: flowir.OpenAIChat{
+				UserMessage: flowir.Expression{Source: "typedOpenAIPrompt"},
+				Model:       flowir.Expression{Source: `"typed-openai"`},
+				Output:      "typedOpenAIReply",
+				MaxTokens:   222,
+				MaxRounds:   1,
+			},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"user_message": {Kind: flowir.ScalarString, String: "legacyOpenAIPrompt"},
+				"output":       {Kind: flowir.ScalarString, String: "legacyOpenAIReply"},
+			},
+		},
+		{
+			Name: "openai.Stream",
+			Action: flowir.OpenAIStream{
+				UserMessage: flowir.Expression{Source: "typedStreamPrompt"},
+				Model:       flowir.Expression{Source: `"typed-stream"`},
+				Output:      "typedStreamReply",
+				MaxTokens:   333,
+			},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"user_message": {Kind: flowir.ScalarString, String: "legacyStreamPrompt"},
+				"output":       {Kind: flowir.ScalarString, String: "legacyStreamReply"},
+			},
+		},
+		{
+			Name: "claude.Chat",
+			Action: flowir.ClaudeChat{
+				UserMessage: flowir.Expression{Source: "typedClaudePrompt"},
+				Model:       flowir.Expression{Source: `"typed-claude"`},
+				Output:      "typedClaudeReply",
+				MaxTokens:   111,
+			},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"user_message": {Kind: flowir.ScalarString, String: "legacyClaudePrompt"},
+				"output":       {Kind: flowir.ScalarString, String: "legacyClaudeReply"},
+			},
+		},
+		{
+			Name: "openai.Embed",
+			Action: flowir.OpenAIEmbed{
+				Input:      flowir.Expression{Source: "typedEmbeddingInput"},
+				Model:      flowir.Expression{Source: `"typed-embedding"`},
+				Output:     "typedEmbedding",
+				Dimensions: 42,
+			},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"input":  {Kind: flowir.ScalarString, String: "legacyEmbeddingInput"},
+				"output": {Kind: flowir.ScalarString, String: "legacyEmbedding"},
+			},
+		},
+		{
+			Name: "plan.BuildAutomata",
+			Action: flowir.PlanBuildAutomata{
+				Input:  flowir.Expression{Source: "typedUsecases"},
+				Output: "typedAutomata",
+			},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"input":  {Kind: flowir.ScalarString, String: "legacyUsecases"},
+				"output": {Kind: flowir.ScalarString, String: "legacyAutomata"},
+			},
+		},
+		{
+			Name: "locale.Resolve",
+			Action: flowir.LocaleResolve{
+				Sources: "typedLocaleSource",
+				Default: flowir.Expression{Source: `"typed-default"`},
+				Output:  "typedLocale",
+			},
+			ScalarArgs: map[string]flowir.ScalarArg{
+				"sources": {Kind: flowir.ScalarString, String: "legacyLocaleSource"},
+				"default": {Kind: flowir.ScalarString, String: `"legacy-default"`},
+				"output":  {Kind: flowir.ScalarString, String: "legacyLocale"},
+			},
+		},
+	}
+
+	got := renderTypedFlowSteps(state, steps, 0)
+	for _, expected := range []string{"typedOpenAIPrompt", "typedOpenAIReply", "typedStreamPrompt", "typedStreamReply", "typedClaudePrompt", "typedClaudeReply", "typedEmbeddingInput", "typedEmbedding", "typedUsecases", "typedAutomata", "typedLocaleSource", "typed-default", "typedLocale"} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("infrastructure renderer omitted %q:\n%s", expected, got)
+		}
+	}
+	if strings.Contains(got, "legacy") || strings.Contains(got, "Legacy") {
+		t.Fatalf("infrastructure renderer reconstructed legacy arguments:\n%s", got)
 	}
 }

@@ -6,17 +6,18 @@ import (
 	"go/token"
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
 	"github.com/strogmv/ang/compiler/flowir"
 )
 
-func renderFlowStepControlCollections(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
+// renderTypedStepCollections renders collection actions from their pre-decoded
+// Flow IR actions. It has no normalizer.FlowStep or ScalarArgs input.
+func renderTypedStepCollections(st *flowRenderState, step flowir.TypedStep, indent int, sfx string) (string, bool) {
 	pad := strings.Repeat("\t", indent)
-	switch step.Action {
+	switch step.Name {
 	case "value.Coalesce":
-		typed, err := decodeCurrentActionAs[flowir.ValueCoalesce](st, step)
+		typed, err := typedActionAs[flowir.ValueCoalesce](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		output, mode := typed.Output, typed.Mode
 		values := make([]string, 0, len(typed.Values))
@@ -86,20 +87,20 @@ func renderFlowStepControlCollections(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "list.Filter":
-		typed, err := decodeCurrentActionAs[flowir.ListFilter](st, step)
+		typed, err := typedActionAs[flowir.ListFilter](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		typedArg := listFilterArgs(typed)
-		if out, ok := renderListFilterAST(st, step, indent, typedArg); ok {
+		if out, ok := renderListFilterAST(st, indent, typedArg); ok {
 			return out, true
 		}
-		return renderListFilterLegacy(st, step, pad, typedArg), true
+		return renderListFilterLegacy(st, pad, typedArg), true
 
 	case "list.Paginate":
-		typed, err := decodeCurrentActionAs[flowir.ListPaginate](st, step)
+		typed, err := typedActionAs[flowir.ListPaginate](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		if out, ok := renderListPaginateAST(st, typed, indent, sfx); ok {
 			return out, true
@@ -107,17 +108,17 @@ func renderFlowStepControlCollections(st *flowRenderState, step normalizer.FlowS
 		return renderListPaginateLegacy(st, typed, pad, sfx), true
 
 	case "list.Append":
-		typed, err := decodeCurrentActionAs[flowir.ListAppend](st, step)
+		typed, err := typedActionAs[flowir.ListAppend](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		to, item := normalizeFlowExpr(typed.Target.Source), normalizeFlowExpr(typed.Item.Source)
 		return fmt.Sprintf("%s%s = append(%s, %s)\n", pad, to, to, item), true
 
 	case "list.Find":
-		typed, err := decodeCurrentActionAs[flowir.ListFind](st, step)
+		typed, err := typedActionAs[flowir.ListFind](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		from, cond, output, as, found := normalizeFlowExpr(typed.From.Source), normalizeFlowExpr(typed.Condition.Source), typed.Output, typed.As, typed.Found
 		outputType := resolveFlowDynamicOutputType(st, output, typed.Into)
@@ -143,9 +144,9 @@ func renderFlowStepControlCollections(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "list.Any":
-		typed, err := decodeCurrentActionAs[flowir.ListAny](st, step)
+		typed, err := typedActionAs[flowir.ListAny](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		from, cond, output, as := normalizeFlowExpr(typed.From.Source), normalizeFlowExpr(typed.Condition.Source), typed.Output, typed.As
 		var b strings.Builder
@@ -159,9 +160,9 @@ func renderFlowStepControlCollections(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "list.All":
-		typed, err := decodeCurrentActionAs[flowir.ListAll](st, step)
+		typed, err := typedActionAs[flowir.ListAll](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		from, cond, output, as := normalizeFlowExpr(typed.From.Source), normalizeFlowExpr(typed.Condition.Source), typed.Output, typed.As
 		var b strings.Builder
@@ -175,73 +176,73 @@ func renderFlowStepControlCollections(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "list.Map":
-		typed, err := decodeCurrentActionAs[flowir.ListMap](st, step)
+		typed, err := typedActionAs[flowir.ListMap](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		return renderListMapLegacy(st, step, pad, listMapArgs(typed)), true
+		return renderListMapLegacy(st, pad, listMapArgs(typed)), true
 
 	case "list.Reduce":
-		typed, err := decodeCurrentActionAs[flowir.ListReduce](st, step)
+		typed, err := typedActionAs[flowir.ListReduce](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		return renderListReduceLegacy(st, step, pad, sfx, listReduceArgs(typed)), true
+		return renderListReduceLegacy(st, pad, sfx, listReduceArgs(typed)), true
 
 	case "list.GroupBy":
-		typed, err := decodeCurrentActionAs[flowir.ListGroupBy](st, step)
+		typed, err := typedActionAs[flowir.ListGroupBy](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		return renderListGroupByLegacy(st, step, pad, sfx, listGroupByArgs(typed)), true
+		return renderListGroupByLegacy(st, pad, sfx, listGroupByArgs(typed)), true
 
 	case "list.Distinct":
-		typed, err := decodeCurrentActionAs[flowir.ListDistinct](st, step)
+		typed, err := typedActionAs[flowir.ListDistinct](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		return renderListDistinctLegacy(st, step, pad, sfx, listDistinctArgs(typed)), true
+		return renderListDistinctLegacy(st, pad, sfx, listDistinctArgs(typed)), true
 
 	case "list.Chunk":
-		typed, err := decodeCurrentActionAs[flowir.ListChunk](st, step)
+		typed, err := typedActionAs[flowir.ListChunk](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		return renderListChunkLegacy(st, typed, pad, sfx), true
 
 	case "batch.Run":
-		typed, err := decodeCurrentActionAs[flowir.BatchRun](st, step)
+		typed, err := typedActionAs[flowir.BatchRun](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		return renderBatchRunLegacy(st, typed, pad, indent, sfx), true
+		return renderBatchRunTyped(st, step, typed, pad, indent, sfx), true
 
 	case "list.Sort":
-		typed, err := decodeCurrentActionAs[flowir.ListSort](st, step)
+		typed, err := typedActionAs[flowir.ListSort](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		typedArg := listSortArgs(typed)
-		if out, ok := renderListSortAST(step, indent, typedArg); ok {
+		if out, ok := renderListSortAST(indent, typedArg); ok {
 			return out, true
 		}
 		return renderListSortLegacy(pad, typedArg), true
 
 	case "str.Normalize":
-		typed, err := decodeCurrentActionAs[flowir.StringNormalize](st, step)
+		typed, err := typedActionAs[flowir.StringNormalize](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		typedArg := stringNormalizeArgs(typed)
-		if out, ok := renderStrNormalizeAST(st, step, indent, typedArg); ok {
+		if out, ok := renderStrNormalizeAST(st, indent, typedArg); ok {
 			return out, true
 		}
 		return renderStrNormalizeLegacy(st, pad, typedArg), true
 
 	case "list.Sum":
-		typed, err := decodeCurrentActionAs[flowir.ListAggregate](st, step)
+		typed, err := typedActionAs[flowir.ListAggregate](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		input, field, output := normalizeFlowExpr(typed.Input.Source), typed.Field, typed.Output
 		assign := ":="
@@ -262,9 +263,9 @@ func renderFlowStepControlCollections(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "list.Avg":
-		typed, err := decodeCurrentActionAs[flowir.ListAggregate](st, step)
+		typed, err := typedActionAs[flowir.ListAggregate](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		input, field, output := normalizeFlowExpr(typed.Input.Source), typed.Field, typed.Output
 		assign := ":="
@@ -391,7 +392,7 @@ func stringNormalizeArgs(action flowir.StringNormalize) func(string) string {
 	}
 }
 
-func renderListSortAST(step normalizer.FlowStep, indent int, arg func(string) string) (string, bool) {
+func renderListSortAST(indent int, arg func(string) string) (string, bool) {
 	items := arg("items")
 	by := arg("by")
 	order := arg("order") // raw: "asc" | "desc" | runtime expr e.g. "req.SortOrder"
@@ -475,7 +476,7 @@ func renderListSortAST(step normalizer.FlowStep, indent int, arg func(string) st
 	return renderFlowASTStmts([]ast.Stmt{sortStmt}, indent), true
 }
 
-func renderStrNormalizeAST(st *flowRenderState, _ normalizer.FlowStep, indent int, arg func(string) string) (string, bool) {
+func renderStrNormalizeAST(st *flowRenderState, indent int, arg func(string) string) (string, bool) {
 	in := arg("input")
 	mode := strings.ToLower(arg("mode"))
 	out := arg("output")
@@ -531,7 +532,7 @@ func renderStrNormalizeAST(st *flowRenderState, _ normalizer.FlowStep, indent in
 	return renderFlowASTStmts([]ast.Stmt{stmt}, indent), true
 }
 
-func renderListFilterAST(st *flowRenderState, step normalizer.FlowStep, indent int, arg func(string) string) (string, bool) {
+func renderListFilterAST(st *flowRenderState, indent int, arg func(string) string) (string, bool) {
 	from := arg("from")
 	as := arg("as")
 	cond := arg("condition")
@@ -610,7 +611,7 @@ func renderListFilterAST(st *flowRenderState, step normalizer.FlowStep, indent i
 	return renderFlowASTStmts([]ast.Stmt{initOut, rangeStmt}, indent), true
 }
 
-func renderListMapLegacy(st *flowRenderState, step normalizer.FlowStep, pad string, arg func(string) string) string {
+func renderListMapLegacy(st *flowRenderState, pad string, arg func(string) string) string {
 	from := arg("from")
 	as := arg("as")
 	expr := arg("expr")
@@ -637,7 +638,7 @@ func renderListMapLegacy(st *flowRenderState, step normalizer.FlowStep, pad stri
 	return b.String()
 }
 
-func renderListReduceLegacy(st *flowRenderState, step normalizer.FlowStep, pad, sfx string, arg func(string) string) string {
+func renderListReduceLegacy(st *flowRenderState, pad, sfx string, arg func(string) string) string {
 	from := arg("from")
 	as := arg("as")
 	expr := arg("expr")
@@ -683,7 +684,7 @@ func renderListReduceLegacy(st *flowRenderState, step normalizer.FlowStep, pad, 
 	return b.String()
 }
 
-func renderListGroupByLegacy(st *flowRenderState, step normalizer.FlowStep, pad, sfx string, arg func(string) string) string {
+func renderListGroupByLegacy(st *flowRenderState, pad, sfx string, arg func(string) string) string {
 	from := arg("from")
 	as := arg("as")
 	keyExpr := arg("key")
@@ -712,7 +713,7 @@ func renderListGroupByLegacy(st *flowRenderState, step normalizer.FlowStep, pad,
 	return b.String()
 }
 
-func renderListDistinctLegacy(st *flowRenderState, step normalizer.FlowStep, pad, sfx string, arg func(string) string) string {
+func renderListDistinctLegacy(st *flowRenderState, pad, sfx string, arg func(string) string) string {
 	from := arg("from")
 	as := arg("as")
 	out := arg("output")
@@ -790,13 +791,12 @@ func renderListChunkLegacy(st *flowRenderState, action flowir.ListChunk, pad, sf
 	return b.String()
 }
 
-func renderBatchRunLegacy(st *flowRenderState, action flowir.BatchRun, pad string, indent int, sfx string) string {
+func renderBatchRunTyped(st *flowRenderState, step flowir.TypedStep, action flowir.BatchRun, pad string, indent int, sfx string) string {
 	from := normalizeFlowExpr(action.From.Source)
 	if from == "" {
 		return ""
 	}
 	as, sizeExpr := action.As, normalizeFlowExpr(action.Size.Source)
-	var doSteps []normalizer.FlowStep
 
 	sizeVar := "_batchSize" + sfx
 	startVar := "_batchStart" + sfx
@@ -812,7 +812,7 @@ func renderBatchRunLegacy(st *flowRenderState, action flowir.BatchRun, pad strin
 	b.WriteString(fmt.Sprintf("%s\t\t%s = len(%s)\n", pad, endVar, from))
 	b.WriteString(fmt.Sprintf("%s\t}\n", pad))
 	b.WriteString(fmt.Sprintf("%s\t%s := %s[%s:%s]\n", pad, as, from, startVar, endVar))
-	b.WriteString(renderFlowNestedSteps(cloneFlowState(st), "_do", doSteps, indent+1))
+	b.WriteString(renderTypedFlowSteps(cloneFlowState(st), step.Children["_do"], indent+1))
 	b.WriteString(fmt.Sprintf("%s}\n", pad))
 	return b.String()
 }
@@ -907,7 +907,7 @@ func renderListPaginateAST(st *flowRenderState, action flowir.ListPaginate, inde
 	return renderFlowASTStmts(stmts, indent), true
 }
 
-func renderListFilterLegacy(st *flowRenderState, step normalizer.FlowStep, pad string, arg func(string) string) string {
+func renderListFilterLegacy(st *flowRenderState, pad string, arg func(string) string) string {
 	from := arg("from")
 	as := arg("as")
 	cond := arg("condition")

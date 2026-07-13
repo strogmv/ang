@@ -9,6 +9,13 @@ import (
 	"github.com/strogmv/ang/compiler/flowir"
 )
 
+// renderTypedStepExecFS keeps execution/filesystem actions on the typed
+// production path while reusing the established code writer. The legacy
+// adapter receives metadata only, never ScalarArgs.
+func renderTypedStepExecFS(st *flowRenderState, step flowir.TypedStep, indent int, sfx string) (string, bool) {
+	return renderFlowStepControlLegacyExecFS(st, flowStepMetadata(step), strings.Repeat("\t", indent), sfx, func(string) string { return "" })
+}
+
 func renderFlowStepControlLegacyExecFS(st *flowRenderState, step normalizer.FlowStep, pad, sfx string, arg func(string) string) (string, bool) {
 	switch step.Action {
 	case "exec.Run", "exec.Stream":

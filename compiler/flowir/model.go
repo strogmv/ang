@@ -290,6 +290,7 @@ func (a MappingMap) DeclaredVariables() []Variable {
 type LogicCheck struct {
 	Condition Expression
 	Throw     string
+	Status    string
 	Params    []Expression
 }
 

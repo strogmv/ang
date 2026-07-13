@@ -532,8 +532,16 @@ func renderTypedStepDispatch(st *flowRenderState, typedStep flowir.TypedStep, in
 		if out, ok := renderTypedStepCall(st, typedStep, indent); ok {
 			return out
 		}
-	case "repo.Exists", "repo.Count", "repo.Get", "repo.Find", "repo.GetForUpdate", "repo.List", "repo.Save", "repo.Delete", "repo.Query", "repo.Upsert":
-		if out, ok := renderTypedStepRepository(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+	case "repo.Exists", "repo.Count", "repo.Get", "repo.Find", "repo.GetForUpdate", "repo.List", "repo.Save", "repo.Delete":
+		if out, ok := renderTypedStepRepositoryBasic(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "repo.Query", "repo.Upsert":
+		if out, ok := renderTypedStepRepositoryAdvanced(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "db.Get", "db.List", "db.Query", "db.Insert", "db.Update", "db.Upsert", "db.Delete", "db.Lock", "db.SelectForUpdate":
+		if out, ok := renderTypedStepDB(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
 	case "mapping.Assign", "mapping.Map":
@@ -582,6 +590,82 @@ func renderTypedStepDispatch(st *flowRenderState, typedStep flowir.TypedStep, in
 		}
 	case "oauth.Google.GetURL", "oauth.Google.Exchange", "oauth.Google.UserInfo":
 		if out, ok := renderTypedStepOAuthGoogle(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "flow.Try", "flow.Retry", "flow.Timeout", "flow.Fallback":
+		if out, ok := renderTypedStepControlResilience(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "flow.If", "flow.For", "flow.Block", "tx.Block", "flow.Switch", "flow.While":
+		if out, ok := renderTypedStepControlFlowBasic(st, typedStep, indent); ok {
+			return out
+		}
+	case "flow.Checkpoint", "flow.Resume", "flow.RecordEvent", "flow.History.Get", "flow.Replay", "flow.Validate", "flow.Catch", "flow.Defer", "flow.SuggestNext", "flow.ExplainError":
+		if out, ok := renderTypedStepControlFlowStateful(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "flow.Parallel", "flow.Join", "flow.Race":
+		if out, ok := renderTypedStepControlParallel(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "flow.Saga", "flow.Compensate", "flow.Rollback":
+		if out, ok := renderTypedStepSaga(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "flow.Delay", "flow.Schedule", "flow.Cron", "flow.Tag", "flow.Return":
+		if out, ok := renderTypedStepControlScheduling(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "value.Coalesce", "list.Filter", "list.Paginate", "list.Append", "list.Sort", "list.Map", "list.Reduce", "list.GroupBy", "list.Distinct", "list.Chunk", "list.Find", "list.Any", "list.All", "list.Sum", "list.Avg", "batch.Run", "str.Normalize":
+		if out, ok := renderTypedStepCollections(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "errors.New", "errors.ThrowIf", "errors.Wrap", "errors.Map":
+		if out, ok := renderTypedStepDomainErrors(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "auth.RequireRole", "auth.CheckRole":
+		if out, ok := renderTypedStepDomainAuth(st, typedStep, indent); ok {
+			return out
+		}
+	case "list.Len", "list.New", "convert.ToFloat", "convert.ToInt", "map.New", "map.Get", "map.Has", "map.Set", "map.Merge":
+		if out, ok := renderTypedStepDomainPrimitives(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "time.Parse", "time.Add", "time.Sub", "time.Diff", "time.CheckExpiry":
+		if out, ok := renderTypedStepDomainTime(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "entity.PatchNonZero", "field.CopyNonEmpty", "entity.PatchValidated", "enum.Validate":
+		if out, ok := renderTypedStepDomainValidation(st, typedStep, indent); ok {
+			return out
+		}
+	case "list.Enrich":
+		if out, ok := renderTypedStepListEnrich(st, typedStep, indent); ok {
+			return out
+		}
+	case "audit.Log", "fsm.Transition", "notification.Dispatch", "notify.Dispatch":
+		if out, ok := renderTypedStepDomainSpecial(st, typedStep, indent); ok {
+			return out
+		}
+	case "rbac.CheckPermission":
+		if out, ok := renderTypedStepRBAC(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "logic.Check":
+		if out, ok := renderTypedStepLogicCheck(st, typedStep, indent); ok {
+			return out
+		}
+	case "map.Build", "math.Expr":
+		if out, ok := renderTypedStepDomainComputed(st, typedStep, indent); ok {
+			return out
+		}
+	case "exec.Run", "exec.Stream", "fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove", "archive.ZipDir":
+		if out, ok := renderTypedStepExecFS(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "claude.Chat", "openai.Chat", "openai.Embed", "openai.Stream", "plan.BuildAutomata", "plan.BuildMicroPlan", "cue.EmitProject", "cue.ValidateProject", "cue.WriteProjectFiles", "locale.Resolve":
+		if out, ok := renderTypedStepInfrastructure(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
 	}
@@ -777,11 +861,7 @@ func renderLegacyStepDispatch(st *flowRenderState, step normalizer.FlowStep, ind
 	}
 
 	switch step.Action {
-	case "flow.If", "flow.For", "flow.Block", "tx.Block", "list.Filter", "list.Paginate", "list.Append", "list.Sort", "list.Map", "list.Reduce", "list.GroupBy", "list.Distinct", "list.Chunk", "list.Find", "list.Any", "list.All", "batch.Run", "str.Normalize", "mapping.Map", "value.Coalesce", "event.Publish", "event.EmitIf", "logic.Call", "service.Call", "flow.Call", "exec.Run", "exec.Stream", "fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove", "archive.ZipDir", "session.Get", "flow.Switch", "flow.While", "flow.Checkpoint", "flow.Resume", "flow.RecordEvent", "flow.Replay", "flow.History.Get", "flow.Validate", "flow.Try", "flow.Catch", "flow.Defer", "flow.Retry", "flow.Fallback", "flow.Timeout", "flow.SuggestNext", "flow.ExplainError",
-		"flow.Parallel", "flow.Join", "flow.Race",
-		"flow.Delay", "flow.Schedule", "flow.Cron",
-		"flow.Saga", "flow.Compensate", "flow.Rollback", "flow.Tag",
-		"flow.Return", "errors.New", "errors.ThrowIf", "errors.Wrap", "errors.Map",
+	case "mapping.Map", "event.Publish", "event.EmitIf", "logic.Call", "service.Call", "flow.Call", "session.Get",
 		"list.Sum", "list.Avg":
 		return renderFlowStepControl(st, step, indent, sfx, arg, child)
 

@@ -24,7 +24,7 @@ func init() {
 	Register(ActionSpec{Name: "storage.GetURL", Description: "Resolve an object URL", Args: []ArgSpec{{Name: "key", Kind: ArgExpression, Required: true}, {Name: "output", Kind: ArgIdentifier, Required: true}}, Decode: decodeStorageGetURL})
 	Register(ActionSpec{Name: "mapping.Assign", Description: "Assign a typed expression to a field or local", Args: []ArgSpec{{Name: "to", Kind: ArgExpression, Required: true}, {Name: "value", Kind: ArgExpression, Required: true}, {Name: "declare", Kind: ArgBool}}, Decode: decodeMappingAssign})
 	Register(ActionSpec{Name: "mapping.Map", Description: "Declare or map an entity/value", Args: []ArgSpec{{Name: "input", Kind: ArgExpression}, {Name: "output", Kind: ArgIdentifier}, {Name: "entity", Kind: ArgString}}, Decode: decodeMappingMap})
-	Register(ActionSpec{Name: "logic.Check", Description: "Require a boolean expression", Args: []ArgSpec{{Name: "condition", Kind: ArgExpression, Required: true}, {Name: "throw", Kind: ArgString, Required: true}, {Name: "params", Kind: ArgExpressions}}, Decode: decodeLogicCheck})
+	Register(ActionSpec{Name: "logic.Check", Description: "Require a boolean expression", Args: []ArgSpec{{Name: "condition", Kind: ArgExpression, Required: true}, {Name: "throw", Kind: ArgString, Required: true}, {Name: "status", Kind: ArgString}, {Name: "params", Kind: ArgExpressions}}, Decode: decodeLogicCheck})
 	Register(ActionSpec{Name: "flow.If", Description: "Conditional typed flow", Args: []ArgSpec{{Name: "condition", Kind: ArgExpression, Required: true}}, Decode: decodeFlowIf})
 	Register(ActionSpec{Name: "flow.Block", Description: "Lexical flow block", Args: nil, Decode: func(step normalizer.FlowStep) (Action, error) { return decodeFlowBlock(step, false) }})
 	Register(ActionSpec{Name: "tx.Block", Description: "Transactional flow block", Args: nil, Decode: func(step normalizer.FlowStep) (Action, error) { return decodeFlowBlock(step, true) }})
@@ -2966,7 +2966,8 @@ func decodeLogicCheck(step normalizer.FlowStep) (Action, error) {
 	if err != nil {
 		return nil, fmt.Errorf("params: %w", err)
 	}
-	return LogicCheck{Condition: Expression{Source: condition, Type: TypeRef{Kind: TypeBool}}, Throw: throwMessage, Params: params}, nil
+	status, _ := optionalString(step, "status")
+	return LogicCheck{Condition: Expression{Source: condition, Type: TypeRef{Kind: TypeBool}}, Throw: throwMessage, Status: status, Params: params}, nil
 }
 
 func decodeFlowIf(step normalizer.FlowStep) (Action, error) {
