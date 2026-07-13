@@ -28,12 +28,17 @@ type checker struct {
 	entities map[string]normalizer.Entity
 	repos    map[string]normalizer.Repository
 	events   map[string]normalizer.EventDef
+	dtos     map[string]normalizer.Entity
 }
 
 func Check(program Program) []Issue {
-	c := checker{services: map[string]normalizer.Service{}, entities: map[string]normalizer.Entity{}, repos: map[string]normalizer.Repository{}, events: map[string]normalizer.EventDef{}}
+	c := checker{services: map[string]normalizer.Service{}, entities: map[string]normalizer.Entity{}, repos: map[string]normalizer.Repository{}, events: map[string]normalizer.EventDef{}, dtos: map[string]normalizer.Entity{}}
 	for _, service := range program.Services {
 		c.services[strings.ToLower(service.Name)] = service
+		for _, method := range service.Methods {
+			c.registerDTO(method.Input)
+			c.registerDTO(method.Output)
+		}
 	}
 	for _, entity := range program.Entities {
 		c.entities[strings.ToLower(entity.Name)] = entity
@@ -73,8 +78,21 @@ func (c checker) checkTypedSteps(service normalizer.Service, method normalizer.M
 		} else if step.Action != nil {
 			issues = append(issues, c.checkAction(service, method, metadata, step.Action, env)...)
 			for _, variable := range step.Action.DeclaredVariables() {
-				if typed, ok := step.Action.(RepositoryCall); ok && typed.Method != "" {
+				switch typed := step.Action.(type) {
+				case RepositoryCall:
 					if resolved := c.repositoryOutputType(typed); resolved.Kind != TypeUnknown {
+						variable.Type = resolved
+					}
+				case ServiceCall:
+					if resolved := c.serviceCallOutputType(typed); resolved.Kind != TypeUnknown {
+						variable.Type = resolved
+					}
+				case FlowCall:
+					if resolved := c.flowCallOutputType(service, typed); resolved.Kind != TypeUnknown {
+						variable.Type = resolved
+					}
+				case LogicCall:
+					if resolved := logicCallOutputType(typed); resolved.Kind != TypeUnknown {
 						variable.Type = resolved
 					}
 				}
@@ -99,33 +117,86 @@ func (c checker) checkTypedSteps(service normalizer.Service, method normalizer.M
 	return issues
 }
 
-func (c checker) repositoryOutputType(call RepositoryCall) TypeRef {
-	if call.Method == "" {
+func (c checker) registerDTO(dto normalizer.Entity) {
+	name := strings.ToLower(strings.TrimSpace(dto.Name))
+	if name != "" {
+		c.dtos[name] = dto
+	}
+}
+
+func (c checker) serviceCallOutputType(call ServiceCall) TypeRef {
+	_, method, ok := c.serviceMethod(call.Service, call.Method)
+	if !ok || strings.TrimSpace(method.Output.Name) == "" {
 		return TypeRef{Kind: TypeUnknown}
 	}
+	return TypeRef{Kind: TypeDTO, Name: method.Output.Name}
+}
+
+func (c checker) flowCallOutputType(owner normalizer.Service, call FlowCall) TypeRef {
+	serviceName, methodName := owner.Name, call.Operation
+	if parts := strings.SplitN(call.Operation, ".", 2); len(parts) == 2 {
+		serviceName, methodName = strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+	}
+	_, method, ok := c.serviceMethod(serviceName, methodName)
+	if !ok || strings.TrimSpace(method.Output.Name) == "" {
+		return TypeRef{Kind: TypeUnknown}
+	}
+	return TypeRef{Kind: TypeDTO, Name: method.Output.Name}
+}
+
+func (c checker) serviceMethod(serviceName, methodName string) (normalizer.Service, normalizer.Method, bool) {
+	service, ok := c.services[strings.ToLower(strings.TrimSpace(serviceName))]
+	if !ok {
+		return normalizer.Service{}, normalizer.Method{}, false
+	}
+	for _, method := range service.Methods {
+		if strings.EqualFold(method.Name, strings.TrimSpace(methodName)) {
+			return service, method, true
+		}
+	}
+	return normalizer.Service{}, normalizer.Method{}, false
+}
+
+func (c checker) repositoryOutputType(call RepositoryCall) TypeRef {
 	repo, ok := c.repos[strings.ToLower(call.Entity)]
 	if !ok {
 		return TypeRef{Kind: TypeUnknown}
 	}
-	for _, finder := range repo.Finders {
-		if !strings.EqualFold(finder.Name, call.Method) {
-			continue
+	if call.Method != "" {
+		for _, finder := range repo.Finders {
+			if !strings.EqualFold(finder.Name, call.Method) {
+				continue
+			}
+			returns := strings.ToLower(strings.TrimSpace(finder.Returns))
+			returnType := strings.TrimSpace(finder.ReturnType)
+			if returns == "count" || strings.Contains(strings.ToLower(returnType), "int") || strings.HasPrefix(strings.ToLower(finder.Name), "count") {
+				return TypeRef{Kind: TypeInt}
+			}
+			if returns == "exists" || strings.Contains(strings.ToLower(returnType), "bool") {
+				return TypeRef{Kind: TypeBool}
+			}
+			if strings.HasPrefix(returnType, "[]") || returns == "many" || returns == "list" {
+				return TypeRef{Kind: TypeList, Elem: &TypeRef{Kind: TypeEntity, Name: strings.TrimPrefix(strings.TrimPrefix(returnType, "[]"), "domain.")}}
+			}
+			if returnType != "" {
+				name := strings.TrimPrefix(strings.TrimPrefix(returnType, "*"), "domain.")
+				return TypeRef{Kind: TypePointer, Elem: &TypeRef{Kind: TypeEntity, Name: name}}
+			}
 		}
-		returns := strings.ToLower(strings.TrimSpace(finder.Returns))
-		returnType := strings.TrimSpace(finder.ReturnType)
-		if returns == "count" || strings.Contains(strings.ToLower(returnType), "int") || strings.HasPrefix(strings.ToLower(finder.Name), "count") {
-			return TypeRef{Kind: TypeInt}
-		}
-		if returns == "exists" || strings.Contains(strings.ToLower(returnType), "bool") {
-			return TypeRef{Kind: TypeBool}
-		}
-		if strings.HasPrefix(returnType, "[]") || returns == "many" || returns == "list" {
-			return TypeRef{Kind: TypeList, Elem: &TypeRef{Kind: TypeEntity, Name: strings.TrimPrefix(strings.TrimPrefix(returnType, "[]"), "domain.")}}
-		}
-		if returnType != "" {
-			name := strings.TrimPrefix(strings.TrimPrefix(returnType, "*"), "domain.")
-			return TypeRef{Kind: TypePointer, Elem: &TypeRef{Kind: TypeEntity, Name: name}}
-		}
+	}
+	entity, exists := c.entities[strings.ToLower(call.Entity)]
+	if !exists {
+		return TypeRef{Kind: TypeUnknown}
+	}
+	switch call.Operation {
+	case RepoFind, RepoGet, RepoGetForUpdate, RepoUpsert:
+		return TypeRef{Kind: TypePointer, Elem: &TypeRef{Kind: TypeEntity, Name: entity.Name}}
+	case RepoList:
+		return TypeRef{Kind: TypeList, Elem: &TypeRef{Kind: TypeEntity, Name: entity.Name}}
+	case RepoExists:
+		return TypeRef{Kind: TypeBool}
+	case RepoCount:
+		return TypeRef{Kind: TypeInt}
 	}
 	return TypeRef{Kind: TypeUnknown}
 }
@@ -133,9 +204,7 @@ func (c checker) repositoryOutputType(call RepositoryCall) TypeRef {
 func (c checker) checkAction(service normalizer.Service, method normalizer.Method, step StepMeta, action Action, env map[string]TypeRef) []Issue {
 	switch typed := action.(type) {
 	case LogicCall:
-		for _, argument := range typed.Arguments {
-			_ = c.inferExpression(argument.Source, method, env)
-		}
+		return c.checkLogicCall(method, step, typed, env)
 	case ServiceCall:
 		return c.checkServiceCall(service, method, step, typed, env)
 	case FlowCall:
@@ -606,6 +675,136 @@ func (c checker) checkFlowCall(owner normalizer.Service, method normalizer.Metho
 	return issues
 }
 
+type logicCallSignature struct {
+	parameters []TypeRef
+	results    []TypeRef
+	variadic   bool
+}
+
+func (c checker) checkLogicCall(method normalizer.Method, step StepMeta, call LogicCall, env map[string]TypeRef) []Issue {
+	signature, known := parseLogicCallSignature(call.Function.Source)
+	if !known {
+		// A named Go function cannot be resolved safely without a sidecar
+		// signature catalog. Keep it unknown rather than guessing.
+		return nil
+	}
+	if !signature.variadic && len(call.Arguments) != len(signature.parameters) {
+		return []Issue{issue(step, "FLOW_LOGIC_SIGNATURE", fmt.Sprintf("logic.Call function expects %d arguments, got %d", len(signature.parameters), len(call.Arguments)))}
+	}
+	if signature.variadic && len(call.Arguments) < len(signature.parameters)-1 {
+		return []Issue{issue(step, "FLOW_LOGIC_SIGNATURE", fmt.Sprintf("logic.Call function expects at least %d arguments, got %d", len(signature.parameters)-1, len(call.Arguments)))}
+	}
+
+	var issues []Issue
+	for index, argument := range call.Arguments {
+		if len(signature.parameters) == 0 {
+			break
+		}
+		expectedIndex := index
+		if expectedIndex >= len(signature.parameters) {
+			expectedIndex = len(signature.parameters) - 1
+		}
+		expected := signature.parameters[expectedIndex]
+		actual := c.inferExpression(argument.Source, method, env)
+		if actual.Kind != TypeUnknown && expected.Kind != TypeUnknown && !assignable(actual, expected) {
+			issues = append(issues, issue(step, "FLOW_TYPE_MISMATCH", fmt.Sprintf("logic.Call argument %d has type %s, expected %s", index+1, displayType(actual), displayType(expected))))
+		}
+	}
+	return issues
+}
+
+func logicCallOutputType(call LogicCall) TypeRef {
+	signature, known := parseLogicCallSignature(call.Function.Source)
+	if !known || len(signature.results) == 0 {
+		return TypeRef{Kind: TypeUnknown}
+	}
+	return signature.results[0]
+}
+
+func parseLogicCallSignature(source string) (logicCallSignature, bool) {
+	expression, err := parser.ParseExpr(strings.TrimSpace(source))
+	if err != nil {
+		return logicCallSignature{}, false
+	}
+	for {
+		paren, ok := expression.(*ast.ParenExpr)
+		if !ok {
+			break
+		}
+		expression = paren.X
+	}
+	function, ok := expression.(*ast.FuncLit)
+	if !ok {
+		return logicCallSignature{}, false
+	}
+	return logicCallSignature{
+		parameters: goFieldTypes(function.Type.Params),
+		results:    goFieldTypes(function.Type.Results),
+		variadic:   hasVariadicParameter(function.Type.Params),
+	}, true
+}
+
+func goFieldTypes(fields *ast.FieldList) []TypeRef {
+	if fields == nil {
+		return nil
+	}
+	result := make([]TypeRef, 0, len(fields.List))
+	for _, field := range fields.List {
+		count := len(field.Names)
+		if count == 0 {
+			count = 1
+		}
+		for range count {
+			result = append(result, goASTTypeRef(field.Type))
+		}
+	}
+	return result
+}
+
+func hasVariadicParameter(fields *ast.FieldList) bool {
+	if fields == nil || len(fields.List) == 0 {
+		return false
+	}
+	_, ok := fields.List[len(fields.List)-1].Type.(*ast.Ellipsis)
+	return ok
+}
+
+func goASTTypeRef(expression ast.Expr) TypeRef {
+	switch typed := expression.(type) {
+	case *ast.Ident:
+		switch typed.Name {
+		case "string":
+			return TypeRef{Kind: TypeString}
+		case "bool":
+			return TypeRef{Kind: TypeBool}
+		case "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64":
+			return TypeRef{Kind: TypeInt}
+		case "float32", "float64":
+			return TypeRef{Kind: TypeFloat}
+		case "error":
+			return TypeRef{Kind: TypeError}
+		}
+	case *ast.ArrayType:
+		element := goASTTypeRef(typed.Elt)
+		if element.Kind == TypeUnknown {
+			return TypeRef{Kind: TypeUnknown}
+		}
+		if element.Kind == TypeInt {
+			return TypeRef{Kind: TypeBytes}
+		}
+		return TypeRef{Kind: TypeList, Elem: &element}
+	case *ast.MapType:
+		return TypeRef{Kind: TypeMap}
+	case *ast.SelectorExpr:
+		if packageName, ok := typed.X.(*ast.Ident); ok && packageName.Name == "time" && typed.Sel.Name == "Time" {
+			return TypeRef{Kind: TypeTime}
+		}
+	case *ast.Ellipsis:
+		return goASTTypeRef(typed.Elt)
+	}
+	return TypeRef{Kind: TypeUnknown}
+}
+
 func (c checker) checkOAuth2(method normalizer.Method, step StepMeta, fields OAuth2Fields, env map[string]TypeRef) []Issue {
 	var issues []Issue
 	for _, v := range []Expression{fields.TokenURL, fields.ClientID, fields.ClientSecret, fields.Scope, fields.Audience, fields.GrantType, fields.Username, fields.Password, fields.Code, fields.RedirectURI, fields.RefreshToken} {
@@ -789,7 +988,9 @@ func (c checker) inferAST(expr ast.Expr, method normalizer.Method, env map[strin
 		var entity normalizer.Entity
 		switch rootType.Kind {
 		case TypeDTO:
-			if rootType.Name == method.Input.Name {
+			if dto, ok := c.dtos[strings.ToLower(rootType.Name)]; ok {
+				entity = dto
+			} else if rootType.Name == method.Input.Name {
 				entity = method.Input
 			} else if rootType.Name == method.Output.Name {
 				entity = method.Output
