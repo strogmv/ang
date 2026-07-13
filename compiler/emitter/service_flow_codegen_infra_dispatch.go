@@ -3,21 +3,6 @@ package emitter
 import "github.com/strogmv/ang-ir/normalizer"
 
 func renderFlowStepInfra(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) string {
-	if out, ok := renderFlowStepInfraSecurity(st, step, indent, sfx, arg, child); ok {
-		return out
-	}
-	if out, ok := renderFlowStepInfraConcurrencyAndDelivery(st, step, indent, sfx, arg, child); ok {
-		return out
-	}
-	if out, ok := renderFlowStepEventOrchestration(st, step, indent, sfx, arg, child); ok {
-		return out
-	}
-	if out, ok := renderFlowStepPolicy(st, step, indent, sfx, arg, child); ok {
-		return out
-	}
-	if out, ok := renderFlowStepInfraReliability(st, step, indent, sfx, arg, child); ok {
-		return out
-	}
 	if out, ok := renderFlowStepInfraClaude(st, step, indent, sfx, arg, child); ok {
 		return out
 	}
@@ -25,9 +10,6 @@ func renderFlowStepInfra(st *flowRenderState, step normalizer.FlowStep, indent i
 		return out
 	}
 	if out, ok := renderFlowStepInfraOpenAI(st, step, indent, sfx, arg, child); ok {
-		return out
-	}
-	if out, ok := renderFlowStepOAuthGoogle(st, step, indent, sfx, arg, child); ok {
 		return out
 	}
 	if out, ok := renderFlowStepLocale(st, step, indent, sfx, arg, child); ok {

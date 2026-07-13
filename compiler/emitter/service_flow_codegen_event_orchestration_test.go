@@ -5,7 +5,21 @@ import (
 	"testing"
 
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
+
+// renderFlowStepEventOrchestration preserves focused unit-test ergonomics while
+// production dispatch enters the typed renderer directly.
+func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, _ func(string) string, _ func(string) []normalizer.FlowStep) (string, bool) {
+	typedSteps, _ := flowir.DecodeSteps([]normalizer.FlowStep{step})
+	if len(typedSteps) != 1 {
+		return "", false
+	}
+	previous := st.currentTyped
+	st.currentTyped = &typedSteps[0]
+	defer func() { st.currentTyped = previous }()
+	return renderTypedStepEventOrchestration(st, typedSteps[0], indent, sfx)
+}
 
 func TestRenderFlowStepEventOrchestration_NotifyEmailIsFirstClass(t *testing.T) {
 	t.Parallel()

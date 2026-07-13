@@ -560,8 +560,28 @@ func renderTypedStepDispatch(st *flowRenderState, typedStep flowir.TypedStep, in
 		if out, ok := renderTypedStepDataTransform(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
-	case "crypto.Hash", "oauth2.Token", "oauth2.Refresh", "crypto.Encrypt", "crypto.Decrypt":
+	case "jwt.Sign", "jwt.Verify", "token.Generate", "token.Verify", "crypto.Hash", "oauth2.Token", "oauth2.Refresh", "crypto.Encrypt", "crypto.Decrypt":
 		if out, ok := renderTypedStepSecurity(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "parallel.Run", "pdf.Render", "webhook.Send", "webhook.VerifySignature", "webhook.Ack", "queue.Enqueue", "queue.Dequeue", "queue.Ack", "queue.Nack", "dlq.Publish":
+		if out, ok := renderTypedStepConcurrencyAndDelivery(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "notify.Send", "notify.Email", "approval.Request", "approval.Wait", "approval.Decide", "event.Broadcast", "event.Outbox", "event.Wait", "event.Subscribe", "event.Match":
+		if out, ok := renderTypedStepEventOrchestration(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "policy.Check", "policy.Evaluate", "policy.Require", "policy.Decide":
+		if out, ok := renderTypedStepPolicy(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "idem.DeriveKey", "idempotency.DeriveKey", "idem.Check", "idempotency.Check", "idem.SaveResult", "idempotency.SaveResult", "dedupe.Once", "ratelimit.Check", "ratelimit.Limit", "quota.Check", "budget.Check", "budget.Consume", "context.Trim", "profile.Require", "concurrency.Limit", "concurrency.Run", "mutex.With", "circuit.Check", "circuit.RecordSuccess", "circuit.RecordFailure", "circuit.Breaker", "bulkhead.Acquire", "bulkhead.Run", "log.Emit", "metric.Emit", "trace.Span", "slo.Budget":
+		if out, ok := renderTypedStepReliability(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case "oauth.Google.GetURL", "oauth.Google.Exchange", "oauth.Google.UserInfo":
+		if out, ok := renderTypedStepOAuthGoogle(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
 			return out
 		}
 	}

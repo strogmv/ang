@@ -4,30 +4,29 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
 	"github.com/strogmv/ang/compiler/flowir"
 )
 
-// renderFlowStepOAuthGoogle handles oauth.Google.* actions.
-func renderFlowStepOAuthGoogle(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, _ func(string) []normalizer.FlowStep) (string, bool) {
+// renderTypedStepOAuthGoogle handles oauth.Google.* actions.
+func renderTypedStepOAuthGoogle(st *flowRenderState, step flowir.TypedStep, indent int, sfx string) (string, bool) {
 	pad := strings.Repeat("\t", indent)
-	switch step.Action {
+	switch step.Name {
 	case "oauth.Google.GetURL":
-		typed, err := decodeCurrentActionAs[flowir.OAuthGoogleGetURL](st, step)
+		typed, err := typedActionAs[flowir.OAuthGoogleGetURL](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		return renderOAuthGoogleGetURL(st, typed, pad, sfx), true
 	case "oauth.Google.Exchange":
-		typed, err := decodeCurrentActionAs[flowir.OAuthGoogleExchange](st, step)
+		typed, err := typedActionAs[flowir.OAuthGoogleExchange](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		return renderOAuthGoogleExchange(st, typed, pad, sfx), true
 	case "oauth.Google.UserInfo":
-		typed, err := decodeCurrentActionAs[flowir.OAuthGoogleUserInfo](st, step)
+		typed, err := typedActionAs[flowir.OAuthGoogleUserInfo](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		return renderOAuthGoogleUserInfo(st, typed, pad, sfx), true
 	}
