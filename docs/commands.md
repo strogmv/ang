@@ -219,6 +219,32 @@ ang test gen [projectPath] [--out tests/generated/flow_cases.json]
 
 ## Architecture Audit
 
+### `ang advise`
+
+Read-only expert audit built from existing compiler diagnostics.
+
+```bash
+ang advise --goal project.audit
+ang advise --goal project.audit --json
+ang advise --goal project.audit --facts facts.json --pack cue/expert/security --json
+```
+
+`--json` writes the versioned `ang/expert-report/v1` envelope. The current
+goal is only `project.audit`: it creates findings, diagnostics and explanation
+traces with `origin: "compiler"`, but never writes CUE, proposes patches or
+accepts `--apply`.
+
+`--facts` accepts an `ang/facts/v1` document from `ang extract`; it is
+canonicalized and reported as `facts_hash`. Each repeatable `--pack` points to
+a CUE directory with a top-level `pack` constrained by
+`schema.#ExpertKnowledgePack`. Packs require `--facts` and can add only
+deterministic findings/traces in the current phase.
+
+If facts conflict, or mutually exclusive rules with the same `conflict_key`
+match, the report contains conflict findings and its status becomes `blocked`.
+Resolve that evidence or rule-pack conflict before treating the report as
+advice.
+
 ### `ang vet`
 
 Architecture invariants check.

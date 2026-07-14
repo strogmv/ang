@@ -46,6 +46,7 @@ type TemplateData struct {
 	RefundEndpointConst       string
 	PayinStatusEndpointConst  string
 	PayoutStatusEndpointConst string
+	PayoutStatusSameAsPayout  bool
 	PayinStatusMethod         string
 	PayoutStatusMethod        string
 	PayoutMethod              string
@@ -150,6 +151,7 @@ type TemplateData struct {
 	PayoutStatuses      []StatusTemplate
 	PayoutStatusesExtra []StatusTemplate
 	ErrorCodes          []ErrorTemplate
+	ErrorCodesNumeric   bool
 	StatusDetails       []ErrorTemplate
 
 	PayinStatusTests  []StatusTestTemplate
@@ -234,6 +236,7 @@ type CheckStatusConfigTemplate struct {
 
 type PayoutRuntimeTemplate struct {
 	ForeignIDOnUnexpectedError bool
+	UnexpectedErrorPending     bool
 }
 
 type CallbackRuntimeTemplate struct {
@@ -269,10 +272,12 @@ type ResponseEnvelopeTemplate struct {
 }
 
 type KeysEndpointTemplate struct {
-	Enabled       bool
-	EndpointConst string
-	BaseURL       string
-	CacheTTLExpr  string
+	Enabled        bool
+	EndpointConst  string
+	BaseURL        string
+	CacheTTLExpr   string
+	CacheEnabled   bool
+	SecretKeyField string
 }
 
 type CardEncryptionTemplate struct {
@@ -465,6 +470,7 @@ type StatusTemplate struct {
 type ErrorTemplate struct {
 	ConstName   string
 	Code        string
+	CodeIsInt   bool
 	StatusTitle string
 	StatusCode  string
 }
@@ -520,6 +526,28 @@ func (d *TemplateData) GroupedStatusDetails() []GroupedStatusDetail {
 	var order []key
 	groups := map[key][]string{}
 	for _, e := range d.StatusDetails {
+		k := key{e.StatusTitle, e.StatusCode}
+		if _, ok := groups[k]; !ok {
+			order = append(order, k)
+		}
+		groups[k] = append(groups[k], e.ConstName)
+	}
+	result := make([]GroupedStatusDetail, 0, len(order))
+	for _, k := range order {
+		result = append(result, GroupedStatusDetail{
+			ConstNames:  groups[k],
+			StatusTitle: k.title,
+			StatusCode:  k.code,
+		})
+	}
+	return result
+}
+
+func (d *TemplateData) GroupedErrorCodes() []GroupedStatusDetail {
+	type key struct{ title, code string }
+	var order []key
+	groups := map[key][]string{}
+	for _, e := range d.ErrorCodes {
 		k := key{e.StatusTitle, e.StatusCode}
 		if _, ok := groups[k]; !ok {
 			order = append(order, k)
@@ -666,6 +694,7 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 	if spec.PayoutRuntime != nil {
 		data.PayoutRuntime = &PayoutRuntimeTemplate{
 			ForeignIDOnUnexpectedError: spec.PayoutRuntime.ForeignIDOnUnexpectedError,
+			UnexpectedErrorPending:     spec.PayoutRuntime.UnexpectedErrorPending,
 		}
 	}
 	if spec.CallbackRuntime != nil {
@@ -709,11 +738,17 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 	}
 	if spec.KeysEndpoint != nil && spec.KeysEndpoint.Enabled {
 		epKey := defaultString(spec.KeysEndpoint.EndpointKey, "keys")
+		cacheEnabled := true
+		if spec.KeysEndpoint.CacheEnabled != nil {
+			cacheEnabled = *spec.KeysEndpoint.CacheEnabled
+		}
 		data.KeysEndpoint = &KeysEndpointTemplate{
-			Enabled:       true,
-			EndpointConst: endpointKeyToConst(epKey),
-			BaseURL:       strings.TrimRight(strings.TrimSpace(spec.KeysEndpoint.BaseURL), "/"),
-			CacheTTLExpr:  formatDurationGoExpr(defaultString(spec.KeysEndpoint.CacheTTL, "12h")),
+			Enabled:        true,
+			EndpointConst:  endpointKeyToConst(epKey),
+			BaseURL:        strings.TrimRight(strings.TrimSpace(spec.KeysEndpoint.BaseURL), "/"),
+			CacheTTLExpr:   formatDurationGoExpr(defaultString(spec.KeysEndpoint.CacheTTL, "12h")),
+			CacheEnabled:   cacheEnabled,
+			SecretKeyField: exportGoIdent(defaultString(spec.KeysEndpoint.SecretKey, "keysBaseURL")),
 		}
 	}
 	if spec.CardEncryption != nil && spec.CardEncryption.Enabled {
@@ -864,6 +899,12 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 	data.RefundEndpointConst = endpointConst(spec.Endpoints, "refund", "endpointRefund")
 	data.PayinStatusEndpointConst = endpointConst(spec.Endpoints, "payin_status", "endpointPayinStatus")
 	data.PayoutStatusEndpointConst = endpointConst(spec.Endpoints, "payout_status", "endpointPayoutStatus")
+	if payoutEP, ok := spec.Endpoints["payout"]; ok {
+		if statusEP, ok2 := spec.Endpoints["payout_status"]; ok2 && payoutEP.Path == statusEP.Path {
+			data.PayoutStatusSameAsPayout = true
+			data.PayoutStatusEndpointConst = data.PayoutEndpointConst
+		}
+	}
 	if !hasEndpoint(spec.Endpoints, "payout_status") && hasEndpoint(spec.Endpoints, "check") {
 		data.PayoutStatusEndpointConst = endpointConst(spec.Endpoints, "check", "endpointCheck")
 	}
@@ -932,6 +973,9 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 
 	data.PayinResponsePayloadType, data.PayinForeignIDField = inferResponse(spec.ResponseTypes, "payin", "payinProfile", "PaymentID")
 	data.PayoutResponsePayloadType, data.PayoutForeignIDField = inferResponse(spec.ResponseTypes, "payout", "payoutMessage", "ReferenceID")
+	if field := strings.TrimSpace(spec.PayoutForeignIDField); field != "" {
+		data.PayoutForeignIDField = field
+	}
 	data.RefundResponseType, data.RefundForeignIDField = inferResponse(spec.ResponseTypes, "refund", "refundResponse", "PaymentID")
 
 	if data.ResponseEnvelope != nil && data.ResponseEnvelope.Enabled {
@@ -949,6 +993,13 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 
 	data.PayinStatuses, data.PayoutStatuses, data.PayoutStatusesExtra = buildStatuses(spec, statusType)
 	data.ErrorCodes = buildCodeMappings(spec.ErrorCodes, "errCode")
+	data.ErrorCodesNumeric = len(data.ErrorCodes) > 0
+	for _, e := range data.ErrorCodes {
+		if !e.CodeIsInt {
+			data.ErrorCodesNumeric = false
+			break
+		}
+	}
 	data.StatusDetails = buildCodeMappings(spec.StatusDetails, "statusDetail")
 	data.PayinStatusTests = statusTests(data.PayinStatuses, statusType)
 	data.PayoutStatusTests = statusTests(data.PayoutStatuses, statusType)
@@ -1163,8 +1214,13 @@ func buildEndpoints(endpoints map[string]Endpoint) []EndpointTemplate {
 		}
 	}
 	out := make([]EndpointTemplate, 0, len(keys))
+	seenPaths := map[string]string{}
 	for _, k := range keys {
 		ep := endpoints[k]
+		if prev, ok := seenPaths[ep.Path]; ok && (k == "payout_status" && prev == "payout") {
+			continue
+		}
+		seenPaths[ep.Path] = k
 		out = append(out, EndpointTemplate{
 			ConstName:     endpointKeyToConst(k),
 			Path:          ep.Path,
@@ -1684,9 +1740,12 @@ func buildTnxStatusVars(spec *ProviderSpec, data *TemplateData) []TnxStatusVar {
 func buildCodeMappings(items []ErrorMapping, constPrefix string) []ErrorTemplate {
 	out := make([]ErrorTemplate, 0, len(items))
 	for _, e := range items {
+		code := strings.TrimSpace(e.Code)
+		_, err := strconv.Atoi(code)
 		out = append(out, ErrorTemplate{
-			ConstName:   stringCodeToConstName(e.Code, constPrefix),
-			Code:        e.Code,
+			ConstName:   stringCodeToConstName(code, constPrefix),
+			Code:        code,
+			CodeIsInt:   err == nil,
 			StatusTitle: titleCase(e.Status),
 			StatusCode:  e.StatusCode,
 		})

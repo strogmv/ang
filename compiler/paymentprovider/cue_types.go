@@ -151,6 +151,7 @@ type ProviderSpec struct {
 	KeysEndpoint           *KeysEndpointConfig   `json:"keys_endpoint"`
 	CardEncryption         *CardEncryptionConfig `json:"card_encryption"`
 	PayoutStatusValueField string                `json:"payout_status_value_field"`
+	PayoutForeignIDField   string                `json:"payout_foreign_id_field"`
 
 	Callback *CallbackConfig `json:"callback"`
 
@@ -173,10 +174,12 @@ type CheckStatusConfigSpec struct {
 }
 
 type KeysEndpointConfig struct {
-	Enabled     bool   `json:"enabled"`
-	EndpointKey string `json:"endpoint_key"`
-	BaseURL     string `json:"base_url"`
-	CacheTTL    string `json:"cache_ttl"`
+	Enabled      bool   `json:"enabled"`
+	EndpointKey  string `json:"endpoint_key"`
+	BaseURL      string `json:"base_url"`
+	CacheTTL     string `json:"cache_ttl"`
+	CacheEnabled *bool  `json:"cache_enabled"`
+	SecretKey    string `json:"secret_key"`
 }
 
 type CardEncryptionConfig struct {
@@ -188,6 +191,7 @@ type CardEncryptionConfig struct {
 
 type PayoutRuntimeConfig struct {
 	ForeignIDOnUnexpectedError bool `json:"foreign_id_on_unexpected_error"`
+	UnexpectedErrorPending     bool `json:"unexpected_error_pending"`
 }
 
 type CallbackRuntimeConfig struct {

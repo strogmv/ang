@@ -73,6 +73,8 @@ func main() {
 		runTest(os.Args[2:])
 	case "doctor":
 		runDoctor(os.Args[2:])
+	case "advise":
+		runAdvise(os.Args[2:])
 	case "smoke":
 		runSmoke(os.Args[2:])
 	case "config":
@@ -148,6 +150,7 @@ func printUsage() {
 	fmt.Println("  ang events map    Visualize end-to-end event journey (Pub/Sub)")
 	fmt.Println("  ang doctor    Analyze build log and suggest concrete CUE fixes")
 	fmt.Println("  ang doctor --code <CODE>  Show guidance for one diagnostic code")
+	fmt.Println("  ang advise --goal project.audit [--json]  Read-only expert audit from compiler diagnostics")
 	fmt.Println("  ang doctor start  Preflight local startup checks (tools/env/compose/ports)")
 	fmt.Println("  ang smoke     Check /health and /health/ready endpoints")
 	fmt.Println("  ang tips      Beginner-friendly quick commands and recovery hints")
