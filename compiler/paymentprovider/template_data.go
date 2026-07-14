@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -64,6 +65,7 @@ type TemplateData struct {
 	SecretPartsCount                  int
 	SecretPartsNeedTransform          bool
 	SecretPartsSimple                 bool
+	SecretHasJoinRemainder            bool
 	SecretSeparator                   string
 	SecretFormat                      string
 	SecretTestValue                   string
@@ -182,7 +184,8 @@ type TemplateData struct {
 	Async3DSConfig            *Async3DSConfig
 
 	Operations          []OperationTemplate
-	UseOperationRuntime bool // operations table + retry/timeout helpers (not for macan_p2p yet)
+	UseOperationRuntime bool // operations table + operation-scoped overrides (not for macan_p2p yet)
+	UseRuntimePolicy    bool // runtime_policy_config retry/timeout helpers without operations table
 	ErrorMappingMatrix  []ErrorMatrixTemplate
 
 	// TnxStatusVars lists model.ParseStatus variables to emit (only kinds used by this provider).
@@ -330,18 +333,22 @@ type RuntimePolicyConfig struct {
 		RequestTimeout      string
 		CheckStatusTimeout  string
 		CallbackWaitTimeout string
+		RequestTimeoutExpr  string
 	}
 	Retries struct {
-		MaxAttempts      int
-		InitialBackoff   string
-		MaxBackoff       string
-		RetryOnNotFound  bool
-		RetryOn5xx       bool
-		RetryOnRateLimit bool
+		MaxAttempts        int
+		InitialBackoff     string
+		MaxBackoff         string
+		InitialBackoffExpr string
+		MaxBackoffExpr     string
+		RetryOnNotFound    bool
+		RetryOn5xx         bool
+		RetryOnRateLimit   bool
 	}
 	Limits struct {
 		MaxCallbackBodyBytes int
 		MaxPendingAge        string
+		MaxPendingAgeExpr    string
 	}
 }
 
@@ -483,7 +490,46 @@ type GroupedStatusDetail struct {
 }
 
 func (g GroupedStatusDetail) CaseLabel() string {
-	return strings.Join(g.ConstNames, ", ")
+	return wrapSwitchCaseLabel(g.ConstNames, switchCaseWrapWidth)
+}
+
+// switchCaseWrapWidth accounts for the "\tcase " prefix emitted by datatypes templates.
+const switchCaseWrapWidth = 100
+
+func wrapSwitchCaseLabel(names []string, maxLineLen int) string {
+	if len(names) == 0 {
+		return ""
+	}
+	if len(names) == 1 {
+		return names[0]
+	}
+	const casePrefixLen = len("\tcase ")
+	if maxLineLen <= casePrefixLen+1 {
+		maxLineLen = casePrefixLen + 40
+	}
+	budget := maxLineLen - casePrefixLen
+
+	var lines []string
+	var current strings.Builder
+	for i, name := range names {
+		chunk := name
+		if i > 0 {
+			chunk = ", " + name
+		}
+		if current.Len() > 0 && current.Len()+len(chunk) > budget {
+			lines = append(lines, current.String())
+			current.Reset()
+			chunk = name
+		}
+		current.WriteString(chunk)
+	}
+	if current.Len() > 0 {
+		lines = append(lines, current.String())
+	}
+	if len(lines) == 1 {
+		return lines[0]
+	}
+	return lines[0] + ",\n\t\t" + strings.Join(lines[1:], ",\n\t\t")
 }
 
 func groupStatusTemplates(items []StatusTemplate) []GroupedStatusDetail {
@@ -650,6 +696,13 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 		}
 	}
 	data.SecretPartsSimple = len(spec.Secrets.Parts) > 0
+	for _, p := range spec.Secrets.Parts {
+		if p.JoinRemainder {
+			data.SecretHasJoinRemainder = true
+			data.SecretPartsSimple = false
+			break
+		}
+	}
 	for _, p := range spec.Secrets.Parts {
 		if p.Optional || strings.TrimSpace(p.Type) == "bool" {
 			data.SecretPartsSimple = false
@@ -830,8 +883,12 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 		rp.Retries.RetryOnNotFound = spec.RuntimePolicyConfig.Retries.RetryOnNotFound
 		rp.Retries.RetryOn5xx = spec.RuntimePolicyConfig.Retries.RetryOn5xx
 		rp.Retries.RetryOnRateLimit = spec.RuntimePolicyConfig.Retries.RetryOnRateLimit
+		rp.Retries.InitialBackoffExpr = durationGoExpr(rp.Retries.InitialBackoff)
+		rp.Retries.MaxBackoffExpr = durationGoExpr(rp.Retries.MaxBackoff)
+		rp.Timeouts.RequestTimeoutExpr = durationGoExpr(rp.Timeouts.RequestTimeout)
 		rp.Limits.MaxCallbackBodyBytes = spec.RuntimePolicyConfig.Limits.MaxCallbackBodyBytes
 		rp.Limits.MaxPendingAge = spec.RuntimePolicyConfig.Limits.MaxPendingAge
+		rp.Limits.MaxPendingAgeExpr = durationGoExpr(rp.Limits.MaxPendingAge)
 		data.RuntimePolicyConfig = rp
 	}
 	if spec.Async3DSConfig != nil {
@@ -869,6 +926,7 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 		}
 	}
 	data.UseOperationRuntime = len(data.Operations) > 0 && !data.UseMacanP2P
+	data.UseRuntimePolicy = data.RuntimePolicyConfig != nil
 
 	if len(spec.ErrorMappingMatrix) > 0 {
 		data.ErrorMappingMatrix = make([]ErrorMatrixTemplate, 0, len(spec.ErrorMappingMatrix))
@@ -1821,6 +1879,32 @@ func statusTests(statuses []StatusTemplate, statusType string) []StatusTestTempl
 		})
 	}
 	return out
+}
+
+func durationGoExpr(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "0"
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return "0"
+	}
+	if d%time.Second == 0 {
+		n := d / time.Second
+		if n == 1 {
+			return "time.Second"
+		}
+		return fmt.Sprintf("%d * time.Second", n)
+	}
+	if d%time.Millisecond == 0 {
+		n := d / time.Millisecond
+		if n == 1 {
+			return "time.Millisecond"
+		}
+		return fmt.Sprintf("%d * time.Millisecond", n)
+	}
+	return fmt.Sprintf("%d", int64(d))
 }
 
 func defaultString(value, fallback string) string {

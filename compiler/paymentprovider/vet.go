@@ -225,6 +225,9 @@ func vetCallbackSignature(spec *ProviderSpec, secretKeys map[string]struct{}) []
 		}
 		return nil
 	}
+	if format == "rsa_pkcs1v15_body" || format == "hmac_body" {
+		return nil
+	}
 	if len(spec.CallbackSignature.Fields) == 0 {
 		return []VetIssue{{
 			Code:     "PP007",

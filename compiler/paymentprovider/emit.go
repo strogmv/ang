@@ -39,6 +39,9 @@ func Emit(templatesDir, outputDir string, data *TemplateData) error {
 		if tf.tmpl == "creds.go.tmpl" && (data.UseMacanP2P || data.SecretUseLabels) {
 			continue
 		}
+		if tf.tmpl == "creds.go.tmpl" && data.CardEncryption != nil && data.CardEncryption.Enabled {
+			continue
+		}
 		if tf.tmpl == "creds_macan.go.tmpl" && !data.UseMacanP2P && !data.SecretUseLabels {
 			continue
 		}

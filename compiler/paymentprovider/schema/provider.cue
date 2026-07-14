@@ -168,6 +168,7 @@ package schema
 	// Optional transform applied after parsing the part.
 	// query_unescape is useful for URL values entered percent-encoded.
 	transform?: *"none" | "query_unescape" | "trim_space"
+	join_remainder?: *false | bool
 }
 
 #RequestSigningConfig: {

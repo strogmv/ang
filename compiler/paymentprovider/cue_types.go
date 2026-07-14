@@ -159,11 +159,12 @@ type ProviderSpec struct {
 }
 
 type SecretPart struct {
-	Name      string `json:"name"`
-	Key       string `json:"key"`
-	Optional  bool   `json:"optional"`
-	Transform string `json:"transform"`
-	Type      string `json:"type"`
+	Name          string `json:"name"`
+	Key           string `json:"key"`
+	Optional      bool   `json:"optional"`
+	Transform     string `json:"transform"`
+	Type          string `json:"type"`
+	JoinRemainder bool   `json:"join_remainder"`
 }
 
 type CheckStatusConfigSpec struct {
