@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -118,6 +119,45 @@ func TestBuildTransactionWorkspacePublishesOnlyTrackedPaths(t *testing.T) {
 	}
 }
 
+func TestBuildTransactionWorkspaceRebasesLocalGoModReplace(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "project")
+	dependency := filepath.Join(parent, "shared", "dependency")
+	if err := os.MkdirAll(dependency, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	goMod := "module example.com/project\n\ngo 1.25\n\nreplace example.com/dependency => ../shared/dependency\n"
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte(goMod), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tx, err := beginBuildTransaction([]string{filepath.Join(root, "internal")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, err := tx.CreateWorkspace(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspaceGoMod, err := os.ReadFile(filepath.Join(workspace, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(workspaceGoMod), "replace example.com/dependency => "+filepath.ToSlash(dependency); !strings.Contains(filepath.ToSlash(got), want) {
+		t.Fatalf("workspace replace was not rebased:\n%s", got)
+	}
+	originalGoMod, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(originalGoMod); !strings.Contains(got, "=> ../shared/dependency") {
+		t.Fatalf("source go.mod was changed:\n%s", got)
+	}
+}
+
 func TestRunBuildRollsBackGeneratedTreeWhenPostVerifyFails(t *testing.T) {
 	projectDir := filepath.Join(t.TempDir(), "rollback-app")
 	if err := initFromTemplate(initTemplateOptions{
@@ -143,7 +183,9 @@ func TestRunBuildRollsBackGeneratedTreeWhenPostVerifyFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	runBuild([]string{projectDir, "--mode=in_place", "--backend-dir=."})
+	if err := runBuild([]string{projectDir, "--mode=in_place", "--backend-dir=."}); err == nil {
+		t.Fatal("runBuild succeeded despite a failed post-build Go verification")
+	}
 
 	data, err := os.ReadFile(sentinel)
 	if err != nil || string(data) != "preserve" {

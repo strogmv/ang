@@ -5,6 +5,8 @@ metadata:
 data:
   ENV: "production"
   HTTP_PORT: "8080"
+  # Daily scheduler clock times use this IANA timezone. Override per environment.
+  SCHEDULER_TIMEZONE: "UTC"
   {{ if .HasSQL }}DATABASE_URL: "postgres://user:pass@postgres-service:5432/db"{{ end }}
   {{ if .HasMongo }}MONGO_URL: "mongodb://mongo-service:27017"{{ end }}
   {{ if .HasCache }}REDIS_ADDR: "redis-service:6379"{{ end }}

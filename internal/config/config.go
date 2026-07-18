@@ -2,9 +2,11 @@ package config
 
 import (
 	"fmt"
-	"github.com/ilyakaznacheev/cleanenv"
 	"os"
+	"path/filepath"
 	"strings"
+
+	"github.com/ilyakaznacheev/cleanenv"
 )
 
 type Config struct {
@@ -21,6 +23,7 @@ type Config struct {
 	JWTPrivateKey      string `env:"JWT_PRIVATE_KEY" env-default:"secret-key-for-tests"`
 	JWTPublicKey       string `env:"JWT_PUBLIC_KEY"`
 	JWTRefreshTTL      string `env:"JWT_REFRESH_TTL" env-default:"168h"`
+	JWTRotation        bool   `env:"JWT_ROTATION" env-default:"true"`
 	MongoDatabase      string `env:"MONGO_DATABASE" env-default:"app"`
 	MongoURL           string `env:"MONGO_URL" env-default:"mongodb://localhost:27017"`
 	NatsURL            string `env:"NATS_URL" env-default:"nats://localhost:4222"`
@@ -46,17 +49,20 @@ type Config struct {
 func Load() (*Config, error) {
 	var cfg Config
 
-	// Prefer .env in local development, fallback to process env.
-	if _, err := os.Stat(".env"); err == nil {
-		if err := cleanenv.ReadConfig(".env", &cfg); err != nil {
-			return nil, fmt.Errorf("config error: %w", err)
-		}
-	} else if os.IsNotExist(err) {
-		if err := cleanenv.ReadEnv(&cfg); err != nil {
+	// Prefer a local .env file when present. When running nested entrypoints like
+	// cmd/server/main.go, walk parent directories until repository root.
+	envPath, err := findDotEnv()
+	if err != nil {
+		return nil, fmt.Errorf("config error: %w", err)
+	}
+	if envPath != "" {
+		if err := cleanenv.ReadConfig(envPath, &cfg); err != nil {
 			return nil, fmt.Errorf("config error: %w", err)
 		}
 	} else {
-		return nil, fmt.Errorf("config error: %w", err)
+		if err := cleanenv.ReadEnv(&cfg); err != nil {
+			return nil, fmt.Errorf("config error: %w", err)
+		}
 	}
 
 	if err := validateJWTConfig(&cfg); err != nil {
@@ -64,6 +70,26 @@ func Load() (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+func findDotEnv() (string, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		candidate := filepath.Join(wd, ".env")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		} else if !os.IsNotExist(err) {
+			return "", err
+		}
+		parent := filepath.Dir(wd)
+		if parent == wd {
+			return "", nil
+		}
+		wd = parent
+	}
 }
 
 func validateJWTConfig(cfg *Config) error {

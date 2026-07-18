@@ -38,17 +38,20 @@ CreatePost: schema.#Operation & {
 		{action: "regex.Replace", input: "slugSource", pattern: "\"[^a-z0-9]+\"", repl: "\"-\"", output: "slugTrimmed"},
 		{action: "regex.Replace", input: "slugTrimmed", pattern: "\"(^-+|-+$)\"", repl: "\"\"", output: "slug"},
 		{action: "logic.Check", condition: "slug != \"\"", throw: "Post slug cannot be empty"},
-		{action: "repo.Find", source: "Post", method: "FindBySlug", input: "slug", output: "existing"},
+		{action: "repo.Query", source: "Post", method: "FindBySlug", input: "slug", output: "existing"},
 		{action: "logic.Check", condition: "existing == nil", throw: "Post slug already exists"},
 
+		// Build the entity outside tx.Block so it is also available for the response.
+		// The save and the tag association writes remain atomic below.
+		{action: "mapping.Map", output: "newPost", entity: "Post"},
+		{action: "mapping.Assign", to: "newPost.Title", value: "req.Title"},
+		{action: "mapping.Assign", to: "newPost.Content", value: "req.Content"},
+		{action: "mapping.Assign", to: "newPost.Slug", value: "slug"},
+		{action: "mapping.Assign", to: "newPost.AuthorID", value: "req.UserID"},
+		{action: "mapping.Assign", to: "newPost.Status", value: "\"draft\""},
+
 		{action: "tx.Block", do: [
-			// Create post
-			{action: "mapping.Map", output: "newPost", entity: "Post"},
-			{action: "mapping.Assign", to: "newPost.Title", value: "req.Title"},
-			{action: "mapping.Assign", to: "newPost.Content", value: "req.Content"},
-			{action: "mapping.Assign", to: "newPost.Slug", value: "slug"},
-			{action: "mapping.Assign", to: "newPost.AuthorID", value: "req.UserID"},
-			{action: "mapping.Assign", to: "newPost.Status", value: "\"draft\""},
+			// Persist post and its tag associations atomically.
 
 				{action: "repo.Save", source: "Post", input: "newPost"},
 				{action: "event.Publish", name: "PostCreated", payloadMap: {
@@ -59,7 +62,7 @@ CreatePost: schema.#Operation & {
 
 			// Handle tags
 			{action: "flow.For", each: "req.Tags", as: "tagName", do: [
-				{action: "repo.Find", source: "Tag", method: "FindBySlug", input: "tagName", output: "tag"},
+				{action: "repo.Query", source: "Tag", method: "FindBySlug", input: "tagName", output: "tag"},
 				{action: "flow.If", condition: "tag != nil", then: [
 					{action: "mapping.Map", output: "assoc", entity: "PostTag"},
 					{action: "uuid.New", output: "assoc.ID"},
@@ -88,6 +91,8 @@ GetPost: schema.#Operation & {
 		id:        string
 		title:     string
 		content:   string
+		status?:   string
+		excerpt?:  string
 		authorId:  string
 		createdAt: string
 		tags: [...{
@@ -104,6 +109,8 @@ GetPost: schema.#Operation & {
 		{action: "mapping.Assign", to: "resp.ID", value: "post.ID"},
 		{action: "mapping.Assign", to: "resp.Title", value: "post.Title"},
 		{action: "mapping.Assign", to: "resp.Content", value: "post.Content"},
+		{action: "mapping.Assign", to: "resp.Status", value: "post.Status"},
+		{action: "mapping.Assign", to: "resp.Excerpt", value: "post.Excerpt"},
 		{action: "mapping.Assign", to: "resp.AuthorID", value: "post.AuthorID"},
 		{action: "mapping.Assign", to: "resp.CreatedAt", value: "post.CreatedAt"},
 		{action: "mapping.Assign", to: "resp.Tags", value: "tags"},
@@ -134,13 +141,13 @@ ListPosts: schema.#Operation & {
 
 	flow: [
 		{action: "flow.If", condition: "req.Tag != \"\"", then: [
-			{action: "repo.List", source: "Post", method: "ListPublishedByTag", input: "\"published\", req.Tag", output: "posts"},
-			{action: "repo.Find", source: "Post", method: "CountPublishedByTag", input: "\"published\", req.Tag", output: "totalCount"},
+			{action: "repo.Query", source: "Post", method: "ListPublishedByTag", args: ["\"published\"", "req.Tag"], output: "posts", list: true},
+			{action: "repo.Query", source: "Post", method: "CountPublishedByTag", args: ["\"published\"", "req.Tag"], output: "totalCount"},
 			{action: "mapping.Assign", to: "resp.Data", value: "posts"},
 			{action: "mapping.Assign", to: "resp.Total", value: "totalCount"},
 		], else: [
 			{action: "repo.List", source: "Post", method: "ListPublished", input: "\"published\"", output: "posts"},
-			{action: "repo.Find", source: "Post", method: "CountPublished", input: "\"published\"", output: "totalCount"},
+			{action: "repo.Query", source: "Post", method: "CountPublished", input: "\"published\"", output: "totalCount"},
 			{action: "mapping.Assign", to: "resp.Data", value: "posts"},
 			{action: "mapping.Assign", to: "resp.Total", value: "totalCount"},
 		]},
@@ -170,7 +177,7 @@ ListMyPosts: schema.#Operation & {
 
 	flow: [
 		{action: "flow.If", condition: "req.Status != \"\"", then: [
-			{action: "repo.List", source: "Post", method: "ListByAuthorAndStatus", input: "req.UserID, req.Status", output: "posts"},
+			{action: "repo.Query", source: "Post", method: "ListByAuthorAndStatus", args: ["req.UserID", "req.Status"], output: "posts", list: true},
 			{action: "mapping.Assign", to: "resp.Data", value: "posts"},
 		], else: [
 			{action: "repo.List", source: "Post", method: "ListByAuthor", input: "req.UserID", output: "posts"},

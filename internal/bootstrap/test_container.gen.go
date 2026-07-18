@@ -93,8 +93,6 @@ func NewTestContainer(opts ...TestOption) *TestContainer {
 		c.SvcAssistant = c.svcAssistantOverride
 	} else {
 		c.SvcAssistant = service.NewAssistantImpl(
-			c.postRepositoryImpl,
-			c.SvcAuth,
 			c.SvcBlog,
 			c.Effects.StateStore,
 		)

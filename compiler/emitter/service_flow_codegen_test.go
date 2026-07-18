@@ -703,6 +703,7 @@ func TestRenderFlow_NewDataTransformActions(t *testing.T) {
 		{Action: "time.Now", Args: map[string]any{"output": "createdAt"}},
 		{Action: "time.Now", Args: map[string]any{"output": "resp.CreatedAt"}},
 		{Action: "time.Format", Args: map[string]any{"input": "createdAt", "output": "createdAtRFC3339", "format": "time.RFC3339"}},
+		{Action: "time.Format", Args: map[string]any{"input": "createdAt", "output": "createdAtOptional", "format": "time.RFC3339", "zero": "empty"}},
 		{Action: "math.Op", Args: map[string]any{"op": `"round"`, "value": "req.Amount", "precision": 2, "output": "rounded"}},
 		{Action: "jsonpath.Get", Args: map[string]any{"input": "req.Payload", "path": `"$.user.email"`, "output": "email"}},
 		{Action: "jsonpath.Set", Args: map[string]any{"input": "req.Payload", "path": `"$.user.role"`, "value": `"admin"`, "output": "patched"}},
@@ -722,6 +723,7 @@ func TestRenderFlow_NewDataTransformActions(t *testing.T) {
 		"createdAt := time.Now().UTC()",
 		"helpers.Assign(&resp.CreatedAt, time.Now().UTC())",
 		"createdAtRFC3339 := createdAt.Format(time.RFC3339)",
+		"createdAtOptional := func() string { if createdAt.IsZero() { return \"\" }; return createdAt.Format(time.RFC3339) }()",
 		"math.Round",
 		"helpers.JSONPathGet(req.Payload, \"$.user.email\")",
 		"jsonpath.Set: input must be map[string]any",
@@ -729,6 +731,29 @@ func TestRenderFlow_NewDataTransformActions(t *testing.T) {
 	for _, part := range mustContain {
 		if !strings.Contains(code, part) {
 			t.Fatalf("expected generated code to contain %q\n\n%s", part, code)
+		}
+	}
+}
+
+func TestRenderFlow_TimeFormatZeroEmptyWithTimezone(t *testing.T) {
+	code := renderFlow([]normalizer.FlowStep{{
+		Action: "time.Format",
+		Args: map[string]any{
+			"input":    "eventAt",
+			"output":   "eventAtText",
+			"format":   "time.RFC3339",
+			"timezone": "req.Timezone",
+			"zero":     "empty",
+		},
+	}})
+
+	for _, want := range []string{
+		`eventAtText := func() string { if eventAt.IsZero() { return "" }`,
+		`time.LoadLocation(fmt.Sprint(req.Timezone))`,
+		`return eventAt.In(_tz).Format(time.RFC3339)`,
+	} {
+		if !strings.Contains(code, want) {
+			t.Fatalf("expected generated code to contain %q\n\n%s", want, code)
 		}
 	}
 }

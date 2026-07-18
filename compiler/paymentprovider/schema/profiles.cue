@@ -469,13 +469,199 @@ ProfilePacepay: {
 		check:   {path: "/partner/%s/check", method: "POST", content_type: "application/x-www-form-urlencoded", path_secret_key: "serviceID"}
 		balance: {path: "/partner/%s/balance", method: "POST", content_type: "application/x-www-form-urlencoded", path_secret_key: "serviceID"}
 	}
-	payout_statuses: [
-		{code: "PAID", status: "success", status_code: "SCodeOk"},
-		{code: "NOT_PAID", status: "declined", status_code: "SCodeDeclinedByBank"},
-		{code: "ERROR", status: "error", status_code: "SCodeInternalError"},
-		{code: "NOT FOUND", status: "pending", status_code: "SCodeOk"},
-		{code: "PROCESSING", status: "pending", status_code: "SCodeOk"},
-	]
 	payin_statuses: []
 	error_codes:    []
+}
+
+// --- Incas N-692 (card payout RUB, RSA card encryption, RSA callback header) ---
+
+IncasAuth: #AuthConfig & {
+	type:         "bearer"
+	header:       "Authorization"
+	secret_key:   "accessToken"
+	content_type: "application/json"
+	masked:       true
+}
+
+IncasCallbackSignature: #CallbackSignatureConfig & {
+	algorithm:  "sha256"
+	secret_key: "callbackSignKey"
+	format:     "rsa_pkcs1v15_body"
+	header:     "Signature"
+	compare:    "equal"
+	optional:   true
+	fields:     []
+}
+
+ProfileIncasPayout: {
+	auth_flow:             "h2h"
+	api_compat:            "incas_payout"
+	response_logging_mode: "prefer_parsed"
+	payment_source:        "card"
+	has_payin:             false
+	has_payout:            true
+	has_p2p:               false
+	signing: {
+		algorithm: "none"
+		format:    "custom"
+	}
+	auth:               IncasAuth
+	callback_signature: IncasCallbackSignature
+	check_status_config: {
+		since_created_period:   "2m"
+		path_suffix_foreign_id: false
+		path_format_tx_id:      true
+	}
+	keys_endpoint: {
+		enabled:       true
+		endpoint_key:  "keys"
+		base_url:      "https://secure.incas.world"
+		cache_enabled: false
+		secret_key:    "keysBaseURL"
+	}
+	card_encryption: {
+		enabled:           true
+		algorithm:         "rsa_oaep_sha256"
+		pem_secret_key:    "callbackSignKey"
+		payment_data_type: "card"
+	}
+	response_envelope: {
+		enabled:       true
+		wrapper_field: "object"
+		success_mode:  "error_code_zero"
+		error_field:   "error"
+	}
+	payout_status_value_field: "Value"
+	payout_foreign_id_field:   "TxnID"
+	callback: {
+		tx_id_field:      "PayoutID"
+		foreign_id_field: "TxnID"
+		status_field:     "Status"
+		status_type:      "string"
+		fields: [
+			{name: "Type", type: "string", json: "type", nested_path: "type"},
+			{name: "PayoutID", type: "string", json: "payoutId", nested_path: "object.payoutId"},
+			{name: "TxnID", type: "string", json: "txnId", nested_path: "object.txnId"},
+			{name: "Status", type: "string", json: "value", nested_path: "object.status.value"},
+		]
+	}
+	response_types: [
+		{
+			name: "payoutObject"
+			fields: [
+				{name: "PayoutID", type: "string", json: "payoutId"},
+				{name: "TxnID", type: "string", json: "txnId"},
+				{name: "OrderID", type: "string", json: "orderId", omitempty: true},
+				{name: "CallbackURL", type: "string", json: "callbackUrl", omitempty: true},
+				{name: "Status", type: "payoutStatusObject", json: "status"},
+			]
+		},
+		{
+			name: "payoutStatusObject"
+			fields: [
+				{name: "Value", type: "string", json: "value"},
+				{name: "Description", type: "string", json: "description", omitempty: true},
+			]
+		},
+		{
+			name: "providerErrorObject"
+			fields: [
+				{name: "Code", type: "int", json: "code"},
+				{name: "Description", type: "string", json: "description", omitempty: true},
+			]
+		},
+	]
+	payout_runtime: {
+		foreign_id_on_unexpected_error: false
+		unexpected_error_pending:       true
+	}
+	callback_runtime: {
+		finish_via_check_status: true
+	}
+	check_status_foreign_id_empty: "error_status"
+	init_payout_policy: {
+		map_status_from_response: true
+		foreign_id_strategy:      "response"
+		client_uuid_field:        "payoutId"
+	}
+	runtime_policy_config: {
+		timeouts: {
+			request_timeout:      "45s"
+			check_status_timeout: "45s"
+		}
+		retries: {
+			max_attempts:        2
+			initial_backoff:     "500ms"
+			max_backoff:         "3s"
+			retry_on_not_found:  false
+			retry_on_5xx:        true
+			retry_on_rate_limit: true
+		}
+		limits: {
+			max_callback_body_bytes: 1048576
+			max_pending_age:         "30m"
+		}
+	}
+	endpoints: {
+		payout:        {path: "/payouts/%s", method: "PUT"}
+		payout_status: {path: "/payouts/%s", method: "GET"}
+		keys:          {path: "/keys", method: "GET"}
+	}
+	interfaces: {
+		customer_randomization: true
+	}
+	payout_statuses: [
+		{code: "PENDING", status: "pending", status_code: "SCodeOk"},
+		{code: "PROCESSING", status: "pending", status_code: "SCodeOk"},
+		{code: "COMPLETED", status: "success", status_code: "SCodeOk"},
+		{code: "SUCCESS", status: "success", status_code: "SCodeOk"},
+		{code: "DECLINED", status: "declined", status_code: "SCodeDeclinedByBank"},
+		{code: "FAILED", status: "declined", status_code: "SCodeDeclinedByBank"},
+		{code: "CANCELLED", status: "declined", status_code: "SCodeCancelledByCustomer"},
+		{code: "ERROR", status: "error", status_code: "SCodeInternalError"},
+	]
+	payin_statuses: []
+	error_codes: [
+		{code: "9100", status: "error", status_code: "SCodeInternalError"},
+		{code: "9112", status: "error", status_code: "SCodeInternalError"},
+		{code: "9200", status: "pending", status_code: "SCodeOk"},
+		{code: "9201", status: "pending", status_code: "SCodeOk"},
+		{code: "9500", status: "declined", status_code: "SCodeDeclinedByAntifraud"},
+		{code: "9600", status: "declined", status_code: "SCodeDeclinedByBank"},
+		{code: "9606", status: "declined", status_code: "SCodeInsufficientFunds"},
+	]
+	supported_methods: ["cards", "visa", "mastercard", "mir"]
+}
+
+	// --- Redirect checkout (hosted / wallet: Apple Pay, Google Pay, CentroBill MX-6) ---
+
+ProfileRedirectCheckout: {
+	auth_flow:             "redirect"
+	api_compat:            "redirect_checkout"
+	response_logging_mode: "prefer_parsed"
+	payment_source:        "apm"
+	has_payin:             true
+	has_payout:            false
+	has_p2p:               false
+	has_refund:            false
+	has_cancel:            false
+	signing: {
+		algorithm: "none"
+		format:    "custom"
+	}
+	interfaces: {
+		tds_redirector: true
+	}
+	check_status_config: {
+		path_suffix_foreign_id: true
+	}
+	runtime_policy_config: {
+		timeouts: {
+			request_timeout:      "30s"
+			check_status_timeout: "15s"
+		}
+		limits: {
+			max_callback_body_bytes: 1048576
+		}
+	}
 }

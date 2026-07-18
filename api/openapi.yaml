@@ -1,10 +1,10 @@
 openapi: 3.0.3
 info:
-  title: ANG API
-  version: 0.1.0
-  x-ang-version: 0.1.128
-  x-ang-input-hash: da749d642ad054f87ce6ce781de8c4121fb3e2489a6d0b671c0805e5e1468c97
-  x-ang-compiler-hash: 79cb397a90ef9aac201dfb4974782c5c77878dadc0b507ee261f8141c25ed1d8
+  title: "ANG API"
+  version: "0.1.0"
+  x-ang-version: 0.2.2
+  x-ang-input-hash: 2296caed74fdde9812254e75795150a89ee654796273fcb9ef6ddb9c5d768fd5
+  x-ang-compiler-hash: c6ff969c4f849a3d43096b736ea8243bff5fb2015fae31865c80a26ea3379894
 paths:
   /assistant/chat:
     post:
@@ -83,7 +83,6 @@ paths:
                 $ref: '#/components/schemas/ProblemDetail'
       security:
         - bearerAuth: []
-  /auth/profile:
     put:
       summary: UpdateProfile
       operationId: UpdateProfile
@@ -162,7 +161,6 @@ paths:
                 $ref: '#/components/schemas/ProblemDetail'
       security:
         - bearerAuth: []
-  /comments/{id}:
     put:
       summary: UpdateComment
       operationId: UpdateComment
@@ -267,7 +265,6 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetail'
-  /posts:
     post:
       summary: CreatePost
       operationId: CreatePost
@@ -327,7 +324,6 @@ paths:
                 $ref: '#/components/schemas/ProblemDetail'
       security:
         - bearerAuth: []
-  /posts/{id}:
     put:
       summary: UpdatePost
       operationId: UpdatePost
@@ -481,7 +477,6 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetail'
-  /posts/{postID}/comments:
     post:
       summary: CreateComment
       operationId: CreateComment
@@ -573,7 +568,6 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetail'
-  /tags:
     post:
       summary: CreateTag
       operationId: CreateTag
@@ -631,7 +625,6 @@ paths:
                 $ref: '#/components/schemas/ProblemDetail'
       security:
         - bearerAuth: []
-  /tags/{id}:
     put:
       summary: UpdateTag
       operationId: UpdateTag
@@ -921,6 +914,10 @@ components:
         title:
           type: string
         content:
+          type: string
+        status:
+          type: string
+        excerpt:
           type: string
         authorid:
           type: string

@@ -66,7 +66,7 @@ func registerScalarActions() {
 	Register(ActionSpec{Name: "str.Normalize", Args: []ArgSpec{{Name: "input", Kind: ArgExpression, Required: true}, {Name: "mode", Kind: ArgString}, {Name: "output", Kind: ArgIdentifier, Required: true}}, Decode: decodeStringNormalize})
 	Register(ActionSpec{Name: "time.Now", Args: []ArgSpec{{Name: "output", Kind: ArgIdentifier, Required: true}, {Name: "format", Kind: ArgString}}, Decode: decodeTimeNow})
 	Register(ActionSpec{Name: "time.Parse", Args: []ArgSpec{{Name: "value", Kind: ArgExpression, Required: true}, {Name: "format", Kind: ArgString}, {Name: "output", Kind: ArgIdentifier, Required: true}}, Decode: decodeTimeParse})
-	Register(ActionSpec{Name: "time.Format", Args: []ArgSpec{{Name: "input", Kind: ArgExpression, Required: true}, {Name: "format", Kind: ArgString}, {Name: "timezone", Kind: ArgString}, {Name: "output", Kind: ArgIdentifier, Required: true}}, Decode: decodeTimeFormat})
+	Register(ActionSpec{Name: "time.Format", Args: []ArgSpec{{Name: "input", Kind: ArgExpression, Required: true}, {Name: "format", Kind: ArgString}, {Name: "timezone", Kind: ArgString}, {Name: "zero", Kind: ArgString}, {Name: "output", Kind: ArgIdentifier, Required: true}}, Decode: decodeTimeFormat})
 	Register(ActionSpec{Name: "time.InZone", Args: []ArgSpec{{Name: "input", Kind: ArgExpression, Required: true}, {Name: "timezone", Kind: ArgString, Required: true}, {Name: "output", Kind: ArgIdentifier, Required: true}}, Decode: decodeTimeInZone})
 	Register(ActionSpec{Name: "time.Add", Args: expressionActionArgs("input", "duration"), Decode: decodeTimeAdd})
 	Register(ActionSpec{Name: "time.Sub", Args: expressionActionArgs("a", "b"), Decode: decodeTimeSub})
@@ -2731,8 +2731,15 @@ func decodeTimeFormat(s normalizer.FlowStep) (Action, error) {
 	}
 	f, _ := optionalString(s, "format")
 	z, _ := optionalString(s, "timezone")
+	zero, _ := optionalString(s, "zero")
+	if zero == "" {
+		zero = "format"
+	}
+	if zero != "format" && zero != "empty" {
+		return nil, fmt.Errorf("unsupported zero mode %q (use \"format\" or \"empty\")", zero)
+	}
 	o, e := output(s)
-	return TimeFormat{i, f, z, o}, e
+	return TimeFormat{Input: i, Format: f, Timezone: z, Zero: zero, Output: o}, e
 }
 func decodeTimeInZone(s normalizer.FlowStep) (Action, error) {
 	i, e := requiredExpression(s, "input")
@@ -2947,8 +2954,14 @@ func decodeMappingMap(step normalizer.FlowStep) (Action, error) {
 		output, _ = optionalString(step, "to")
 	}
 	entity, _ := optionalString(step, "entity")
-	if output == "" && input == "" {
-		return nil, fmt.Errorf("mapping.Map requires input/from or output/to")
+	if entity != "" {
+		if output == "" {
+			return nil, fmt.Errorf("mapping.Map with entity requires output/to")
+		}
+		return MappingMap{Input: Expression{Source: input, Type: TypeRef{Kind: TypeUnknown}}, Output: output, Entity: entity}, nil
+	}
+	if input == "" || output == "" {
+		return nil, fmt.Errorf("mapping.Map without entity requires both input/from and output/to")
 	}
 	return MappingMap{Input: Expression{Source: input, Type: TypeRef{Kind: TypeUnknown}}, Output: output, Entity: entity}, nil
 }
@@ -3182,6 +3195,9 @@ func optionalBoolish(step normalizer.FlowStep, key string) (bool, error) {
 
 func parseTypeHint(value string) TypeRef {
 	value = strings.TrimSpace(value)
+	if strings.HasPrefix(strings.ToLower(value), "map[") {
+		return TypeRef{Kind: TypeMap, Name: value}
+	}
 	switch strings.ToLower(value) {
 	case "string":
 		return TypeRef{Kind: TypeString}

@@ -551,8 +551,8 @@ func (a TimeParse) DeclaredVariables() []Variable {
 }
 
 type TimeFormat struct {
-	Input                    Expression
-	Format, Timezone, Output string
+	Input                          Expression
+	Format, Timezone, Zero, Output string
 }
 
 func (TimeFormat) ActionName() string { return "time.Format" }

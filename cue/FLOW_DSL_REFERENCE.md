@@ -6,7 +6,7 @@ Quick reference for all Flow DSL actions in ANG.
 
 | Action | Description | Required Fields | Optional |
 |--------|-------------|-----------------|----------|
-| `repo.Find` | Find entity by ID, returns nil if not found | `source`, `input`, `output` | `error` |
+| `repo.Find` | Find entity by ID, returns nil if not found | `source`, `input`, `output` | `error`, `required` |
 | `repo.Get` | Get entity by ID, expects to exist | `source`, `input`, `output` | - |
 | `repo.GetForUpdate` | Get with row lock (use in tx.Block) | `source`, `input`, `output` | - |
 | `repo.Save` | Persist entity (upsert) | `source`, `input` | - |
@@ -18,6 +18,9 @@ Quick reference for all Flow DSL actions in ANG.
 // Find by ID with error handling
 {action: "repo.Find", source: "User", input: "req.UserID", output: "user", error: "User not found"}
 
+// Or require a result while using ANG's generic "User not found" message.
+{action: "repo.Find", source: "User", input: "req.UserID", output: "user", required: true}
+
 // Save entity
 {action: "repo.Save", source: "Order", input: "newOrder"}
 
@@ -25,6 +28,49 @@ Quick reference for all Flow DSL actions in ANG.
 {action: "repo.List", source: "Order", method: "ListByUser", input: "req.UserID", output: "orders"}
 
 {action: "repo.Query", source: "Product", method: "SearchByCompanyFilters", input: "req.CompanyID, req.Query, req.CategoryID, req.MinPrice, req.MaxPrice, req.Offset, req.Limit", output: "items"}
+```
+
+## Time Formatting
+
+```cue
+// Default: preserve Go's formatting of a zero time.
+{action: "time.Format", input: "order.ShippedAt", output: "shippedAt"}
+
+// Optional timestamp: represent a zero time as an empty string.
+{action: "time.Format", input: "order.ShippedAt", output: "shippedAt", zero: "empty"}
+
+// The zero policy also works with an explicit timezone.
+{action: "time.Format", input: "order.ShippedAt", output: "shippedAt", timezone: "req.Timezone", zero: "empty"}
+```
+
+`zero` accepts `"format"` (the backward-compatible default) and `"empty"`.
+
+## Reusable Flow Fragments
+
+Use `schema.#FlowFragment` with CUE's `list.Concat` when an operation needs
+to be separated by responsibility but must keep one variable and transaction
+scope. A fragment is compile-time composition, not a service call.
+
+```cue
+import (
+    "list"
+    "github.com/strog/ang/cue/schema"
+)
+
+_validate: schema.#FlowFragment & [
+    {action: "logic.Check", condition: "req.ID != \"\"", throw: "id is required"},
+]
+
+_persist: schema.#FlowFragment & [
+    {action: "repo.Save", source: "Order", input: "order"},
+]
+
+UpdateOrder: schema.#Operation & {
+    service: "orders"
+    input: { id: string }
+    output: { ok: bool }
+    flow: list.Concat([_validate, _persist])
+}
 ```
 
 ## Mapping & Assignment

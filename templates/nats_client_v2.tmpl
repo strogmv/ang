@@ -100,7 +100,7 @@ func (c *Client) PublishDLQ(ctx context.Context, subject string, payload []byte,
 }
 
 {{- range .Events }}
-func (c *Client) Publish{{ . }}(ctx context.Context, event domain.{{ ExportName . }}) error {
+func (c *Client) Publish{{ ExportName . }}(ctx context.Context, event domain.{{ ExportName . }}) error {
 	data, err := json.Marshal(event)
 	if err != nil {
 		return err
@@ -120,9 +120,9 @@ func (c *Client) Publish{{ . }}(ctx context.Context, event domain.{{ ExportName 
 	return lastErr
 }
 
-// Broadcast{{ . }} delegates to Publish{{ . }} — NATS subjects are already broadcast channels.
-func (c *Client) Broadcast{{ . }}(ctx context.Context, event domain.{{ ExportName . }}) error {
-	return c.Publish{{ . }}(ctx, event)
+// Broadcast{{ ExportName . }} delegates to Publish{{ ExportName . }} — NATS subjects are already broadcast channels.
+func (c *Client) Broadcast{{ ExportName . }}(ctx context.Context, event domain.{{ ExportName . }}) error {
+	return c.Publish{{ ExportName . }}(ctx, event)
 }
 
 // Subscribe{{ . }} processes messages concurrently using a worker pool of {{ $.Workers }} goroutines.

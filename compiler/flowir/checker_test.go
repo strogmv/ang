@@ -133,6 +133,25 @@ func TestCheckRepositoryFinderPropagatesPrimitiveOutputType(t *testing.T) {
 	}
 }
 
+func TestCheckAllowsMapAssignmentToMapResponseField(t *testing.T) {
+	service := normalizer.Service{Methods: []normalizer.Method{{
+		Name:   "Run",
+		Input:  normalizer.Entity{Name: "RunRequest"},
+		Output: normalizer.Entity{Name: "RunResponse", Fields: []normalizer.Field{{Name: "metadata", Type: "map[string]any"}}},
+		Flow: []normalizer.FlowStep{
+			{Action: "map.New", Args: map[string]any{"output": "metadata", "type": "map[string]any"}},
+			{Action: "mapping.Assign", Args: map[string]any{"to": "resp.Metadata", "value": "metadata"}},
+		},
+	}}}
+
+	issues := Check(Program{Services: []normalizer.Service{service}})
+	for _, issue := range issues {
+		if issue.Code == "FLOW_TYPE_MISMATCH" {
+			t.Fatalf("map assignment should be valid, got %#v", issues)
+		}
+	}
+}
+
 func TestCheckReportsVariableDeclaredOnlyInsideBranch(t *testing.T) {
 	service := normalizer.Service{Methods: []normalizer.Method{{
 		Name:   "Run",

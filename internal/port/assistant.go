@@ -42,7 +42,7 @@ func (d *LookupPostForAssistantRequest) Validate() error {
 }
 
 type LookupPostForAssistantResponse struct {
-	ID      string `json:"ID"`
+	ID      string `json:"id"`
 	Title   string `json:"title"`
 	Status  string `json:"status"`
 	Excerpt string `json:"excerpt"`

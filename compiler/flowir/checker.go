@@ -109,13 +109,25 @@ func (c checker) checkTypedSteps(service normalizer.Service, method normalizer.M
 			}
 		}
 		for _, children := range step.Children {
-			issues = append(issues, c.checkTypedSteps(service, method, children, cloneEnv(env))...)
+			childEnv := cloneEnv(env)
+			if typed, ok := step.Action.(FlowFor); ok {
+				childEnv[typed.As] = c.flowForItemType(typed, method, env)
+			}
+			issues = append(issues, c.checkTypedSteps(service, method, children, childEnv)...)
 		}
 		for _, branch := range step.Branches {
 			issues = append(issues, c.checkTypedSteps(service, method, branch, cloneEnv(env))...)
 		}
 	}
 	return issues
+}
+
+func (c checker) flowForItemType(action FlowFor, method normalizer.Method, env map[string]TypeRef) TypeRef {
+	listType := c.inferExpression(action.Each.Source, method, env)
+	if listType.Kind == TypeList && listType.Elem != nil {
+		return *listType.Elem
+	}
+	return TypeRef{Kind: TypeUnknown}
 }
 
 func (c checker) registerDTO(dto normalizer.Entity) {
@@ -1127,7 +1139,8 @@ func checkExpressionVariableRoot(name string, env map[string]TypeRef, unknown ma
 func knownExpressionRoot(name string) bool {
 	known := map[string]struct{}{
 		"nil": {}, "true": {}, "false": {}, "ctx": {}, "err": {}, "s": {},
-		"fmt": {}, "strings": {}, "time": {}, "math": {}, "json": {}, "http": {}, "errors": {}, "context": {}, "path": {}, "url": {}, "base64": {}, "regexp": {}, "crypto": {}, "sha256": {}, "hmac": {}, "os": {}, "io": {}, "bytes": {}, "slog": {}, "helpers": {}, "domain": {},
+		"fmt": {}, "strings": {}, "time": {}, "math": {}, "json": {}, "http": {}, "errors": {}, "context": {}, "path": {}, "url": {}, "base64": {}, "regexp": {}, "crypto": {}, "sha256": {}, "hmac": {}, "os": {}, "io": {}, "bytes": {}, "slog": {}, "helpers": {}, "domain": {}, "port": {}, "uuid": {}, "strconv": {},
+		"string": {}, "any": {}, "int": {}, "int64": {}, "float64": {}, "bool": {},
 		"len": {}, "cap": {}, "make": {}, "append": {}, "copy": {}, "delete": {}, "new": {},
 	}
 	if _, ok := known[name]; ok {
@@ -1197,6 +1210,9 @@ func fieldType(field normalizer.Field) TypeRef {
 	name := strings.ToLower(strings.TrimSpace(field.Type))
 	if strings.Contains(name, "time.time") || name == "time" || name == "date" || name == "datetime" {
 		return TypeRef{Kind: TypeUnknown, Name: field.Type}
+	}
+	if strings.HasPrefix(name, "map[") {
+		return TypeRef{Kind: TypeMap, Name: field.Type}
 	}
 	name = strings.TrimPrefix(name, "[]")
 	var typ TypeRef

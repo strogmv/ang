@@ -28,13 +28,20 @@ var templateFiles = []struct {
 
 // Emit writes generated provider files into outputDir.
 func Emit(templatesDir, outputDir string, data *TemplateData) error {
+	_, err := EmitWithResult(templatesDir, outputDir, data)
+	return err
+}
+
+// EmitWithResult writes generated files and returns the generator-owned manifest.
+func EmitWithResult(templatesDir, outputDir string, data *TemplateData) ([]GeneratedFile, error) {
 	if data == nil {
-		return fmt.Errorf("template data is nil")
+		return nil, fmt.Errorf("template data is nil")
 	}
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
-		return fmt.Errorf("mkdir output: %w", err)
+		return nil, fmt.Errorf("mkdir output: %w", err)
 	}
 
+	var files []GeneratedFile
 	for _, tf := range templateFiles {
 		if tf.tmpl == "creds.go.tmpl" && (data.UseMacanP2P || data.SecretUseLabels) {
 			continue
@@ -73,23 +80,31 @@ func Emit(templatesDir, outputDir string, data *TemplateData) error {
 		}
 		tmpl, err := template.New(filepath.Base(tmplPath)).ParseFiles(parsePaths...)
 		if err != nil {
-			return fmt.Errorf("parse template %s: %w", tf.tmpl, err)
+			return nil, fmt.Errorf("parse template %s: %w", tf.tmpl, err)
 		}
 		var buf bytes.Buffer
 		if err := tmpl.Execute(&buf, data); err != nil {
-			return fmt.Errorf("execute template %s: %w", tf.tmpl, err)
+			return nil, fmt.Errorf("execute template %s: %w", tf.tmpl, err)
 		}
 		src := buf.Bytes()
 		outPath := filepath.Join(outputDir, tf.output(data.PackageName))
 		formatted, err := imports.Process(outPath, src, &imports.Options{Comments: true, TabIndent: true, TabWidth: 8})
 		if err != nil {
-			return fmt.Errorf("format generated %s: %w", tf.output(data.PackageName), err)
+			return nil, fmt.Errorf("format generated %s: %w", tf.output(data.PackageName), err)
 		}
 		if err := os.WriteFile(outPath, formatted, 0o644); err != nil {
-			return fmt.Errorf("write %s: %w", outPath, err)
+			return nil, fmt.Errorf("write %s: %w", outPath, err)
 		}
+		rel, err := filepath.Rel(outputDir, outPath)
+		if err != nil {
+			return nil, fmt.Errorf("rel output path %s: %w", outPath, err)
+		}
+		files = append(files, GeneratedFile{
+			RelativePath: filepath.ToSlash(rel),
+			SHA256:       hashFileContents(formatted),
+		})
 	}
-	return nil
+	return files, nil
 }
 
 func needsSignFile(data *TemplateData) bool {

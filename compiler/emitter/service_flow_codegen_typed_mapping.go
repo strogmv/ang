@@ -46,6 +46,9 @@ func renderTypedStepMapping(st *flowRenderState, step flowir.TypedStep, indent i
 			st.pointers[output] = false
 			var b strings.Builder
 			b.WriteString(fmt.Sprintf("%svar %s domain.%s\n", pad, output, typed.Entity))
+			if input == "" {
+				return b.String(), true
+			}
 			b.WriteString(fmt.Sprintf("%sif err := helpers.Assign(&%s, %s); err != nil {\n", pad, output, input))
 			b.WriteString(errReturn(st, pad+"\t", "err"))
 			b.WriteString(fmt.Sprintf("%s}\n", pad))

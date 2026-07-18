@@ -10,8 +10,8 @@ import (
 
 type Publisher interface {
 {{- range . }}
-	Publish{{ . }}(ctx context.Context, event domain.{{ ExportName . }}) error
-	Broadcast{{ . }}(ctx context.Context, event domain.{{ ExportName . }}) error
+	Publish{{ ExportName . }}(ctx context.Context, event domain.{{ ExportName . }}) error
+	Broadcast{{ ExportName . }}(ctx context.Context, event domain.{{ ExportName . }}) error
 {{- end }}
 	// Wait blocks until an event with matching correlation arrives or timeout occurs.
 	Wait(ctx context.Context, name string, match string) (any, error)

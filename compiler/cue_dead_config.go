@@ -19,8 +19,8 @@ func emitDeadCUEDirectoryDiagnostics(basePath, cueRoot string, opts PipelineOpti
 	}
 	live := map[string]struct{}{
 		"domain": {}, "architecture": {}, "api": {}, "policy": {}, "policies": {},
-		"repo": {}, "events": {}, "errors": {}, "project": {}, "projections": {},
-		"infra": {}, "effects": {}, "schema": {}, "views": {}, "lint": {},
+		"repo": {}, "events": {}, "events_meta": {}, "errors": {}, "project": {}, "projections": {},
+		"infra": {}, "effects": {}, "schema": {}, "views": {}, "lint": {}, "expert": {},
 	}
 	var dead []string
 	for _, entry := range entries {

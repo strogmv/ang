@@ -95,7 +95,7 @@ func runValidate(args []string) {
 	})
 
 	if *asJSON {
-		diags := filterDiags(append([]normalizer.Warning(nil), compiler.LatestDiagnostics...))
+		diags := machineReadableDiagnostics(filterDiags(append([]normalizer.Warning(nil), compiler.LatestDiagnostics...)))
 		hasErrors := false
 		if compileErr != nil {
 			var ce *compiler.ContractError
@@ -242,4 +242,23 @@ func diagnosticSuppressed(d normalizer.Warning) bool {
 		}
 	}
 	return false
+}
+
+// machineReadableDiagnostics keeps JSON validation consistent with the human
+// output: diagnostics are deduplicated and per-site nolint directives apply.
+func machineReadableDiagnostics(diagnostics []normalizer.Warning) []normalizer.Warning {
+	seen := make(map[string]struct{}, len(diagnostics))
+	out := make([]normalizer.Warning, 0, len(diagnostics))
+	for _, d := range diagnostics {
+		key := strings.Join([]string{d.Code, d.File, fmt.Sprint(d.Line), d.CUEPath, d.Op, d.Action, d.Message}, "|")
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		if diagnosticSuppressed(d) {
+			continue
+		}
+		out = append(out, d)
+	}
+	return out
 }

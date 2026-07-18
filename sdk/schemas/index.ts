@@ -232,7 +232,7 @@ export type ChatWithAssistantRequestMessagesItem = z.infer<typeof ChatWithAssist
 export const LookupPostForAssistantResponseSchema = z.object({
   id: z.string(),
   title: z.string(),
-  status: z.string(),
+  status: z.string().optional(),
   excerpt: z.string().optional(),
 });
 export type LookupPostForAssistantResponse = z.infer<typeof LookupPostForAssistantResponseSchema>;
@@ -303,6 +303,8 @@ export const GetPostResponseSchema = z.object({
   id: z.string(),
   title: z.string(),
   content: z.string(),
+  status: z.string().optional(),
+  excerpt: z.string().optional(),
   authorId: z.string(),
   createdAt: z.string(),
   tags: z.array(z.lazy(() => GetPostResponseTagsItemSchema)),

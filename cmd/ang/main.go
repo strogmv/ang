@@ -44,7 +44,9 @@ func main() {
 	case "lint":
 		runLint(os.Args[2:])
 	case "build":
-		runBuild(os.Args[2:])
+		if err := runBuild(os.Args[2:]); err != nil {
+			os.Exit(1)
+		}
 	case "up":
 		runUp(os.Args[2:])
 	case "first-run":

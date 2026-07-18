@@ -53,6 +53,12 @@ var Templates = map[string]Template{
 	},
 }
 
+// Has reports whether a template with the given name is registered.
+func Has(name string) bool {
+	_, ok := Templates[name]
+	return ok
+}
+
 func Render(name string, data any) (Template, error) {
 	tpl, ok := Templates[name]
 	if !ok {

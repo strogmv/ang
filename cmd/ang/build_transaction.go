@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"golang.org/x/mod/modfile"
 )
 
 type buildTransactionEntry struct {
@@ -142,6 +144,9 @@ func (tx *buildTransaction) CreateWorkspace(projectRoot string) (string, error) 
 			return "", err
 		}
 	}
+	if err := rebaseWorkspaceLocalGoModReplaces(root, workspace); err != nil {
+		return "", err
+	}
 	for _, entry := range tx.entries {
 		rel, relErr := filepath.Rel(root, entry.path)
 		if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
@@ -152,6 +157,82 @@ func (tx *buildTransaction) CreateWorkspace(projectRoot string) (string, error) 
 		}
 	}
 	return workspace, nil
+}
+
+// rebaseWorkspaceLocalGoModReplaces keeps a copy-on-write workspace usable
+// when a project depends on a sibling module through a relative replace
+// directive. The workspace is deliberately created outside of the project
+// root, so the original relative path would otherwise point somewhere else.
+//
+// Only the workspace copy is changed; the project's go.mod remains untouched.
+func rebaseWorkspaceLocalGoModReplaces(projectRoot, workspace string) error {
+	sourcePath := filepath.Join(projectRoot, "go.mod")
+	data, err := os.ReadFile(sourcePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read project go.mod: %w", err)
+	}
+
+	parsed, err := modfile.Parse(sourcePath, data, nil)
+	if err != nil {
+		return fmt.Errorf("parse project go.mod: %w", err)
+	}
+	type replacement struct {
+		oldPath    string
+		oldVersion string
+		newPath    string
+		newVersion string
+	}
+	changes := make([]replacement, 0)
+	for _, replace := range parsed.Replace {
+		if !isRelativeLocalReplacePath(replace.New.Path) {
+			continue
+		}
+		resolved := filepath.Clean(filepath.Join(projectRoot, replace.New.Path))
+		info, statErr := os.Stat(resolved)
+		if statErr != nil {
+			return fmt.Errorf("resolve local go.mod replace %s => %s: %w", replace.Old.Path, replace.New.Path, statErr)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("resolve local go.mod replace %s => %s: target %s is not a directory", replace.Old.Path, replace.New.Path, resolved)
+		}
+		changes = append(changes, replacement{
+			oldPath: replace.Old.Path, oldVersion: replace.Old.Version,
+			newPath: resolved, newVersion: replace.New.Version,
+		})
+	}
+	if len(changes) == 0 {
+		return nil
+	}
+
+	for _, change := range changes {
+		if err := parsed.AddReplace(change.oldPath, change.oldVersion, change.newPath, change.newVersion); err != nil {
+			return fmt.Errorf("rebase local go.mod replace %s: %w", change.oldPath, err)
+		}
+	}
+	workspaceGoMod := filepath.Join(workspace, "go.mod")
+	info, err := os.Stat(sourcePath)
+	if err != nil {
+		return fmt.Errorf("stat project go.mod: %w", err)
+	}
+	if err := os.Remove(workspaceGoMod); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("materialize workspace go.mod: %w", err)
+	}
+	formatted, err := parsed.Format()
+	if err != nil {
+		return fmt.Errorf("format workspace go.mod: %w", err)
+	}
+	if err := os.WriteFile(workspaceGoMod, formatted, info.Mode().Perm()); err != nil {
+		return fmt.Errorf("write workspace go.mod: %w", err)
+	}
+	return nil
+}
+
+func isRelativeLocalReplacePath(path string) bool {
+	cleaned := filepath.Clean(strings.TrimSpace(path))
+	return cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "."+string(filepath.Separator)) || strings.HasPrefix(cleaned, ".."+string(filepath.Separator))
 }
 
 // CaptureWorkspace copies only transaction-owned paths out of the overlay.

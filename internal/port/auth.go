@@ -23,7 +23,7 @@ func (d *GetProfileRequest) Validate() error {
 }
 
 type GetProfileResponse struct {
-	ID        string `json:"ID"`
+	ID        string `json:"id"`
 	Email     string `json:"email"`
 	Name      string `json:"name"`
 	Role      string `json:"role"`
@@ -98,7 +98,7 @@ func (d *RegisterRequest) Validate() error {
 }
 
 type RegisterResponse struct {
-	ID    string `json:"ID"`
+	ID    string `json:"id"`
 	Email string `json:"email"`
 	Name  string `json:"name"`
 }

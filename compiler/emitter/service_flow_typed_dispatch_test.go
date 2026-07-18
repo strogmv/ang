@@ -815,6 +815,28 @@ func TestTypedMappingDispatchDoesNotReconstructLegacyArgs(t *testing.T) {
 	}
 }
 
+func TestTypedMappingMapConstructsEntityWithoutInput(t *testing.T) {
+	n := 0
+	state := &flowRenderState{
+		declared: map[string]bool{"resp": true, "err": true},
+		pointers: map[string]bool{},
+		types:    map[string]string{},
+		stepN:    &n,
+	}
+	step := flowir.TypedStep{
+		Name:   "mapping.Map",
+		Action: flowir.MappingMap{Output: "newUser", Entity: "User"},
+	}
+
+	got := renderTypedFlowSteps(state, []flowir.TypedStep{step}, 0)
+	if !strings.Contains(got, "var newUser domain.User") {
+		t.Fatalf("entity construction did not declare a domain value:\n%s", got)
+	}
+	if strings.Contains(got, "helpers.Assign") {
+		t.Fatalf("entity construction without input emitted invalid assignment:\n%s", got)
+	}
+}
+
 func TestTypedHTTPCallDoesNotReconstructLegacyArgs(t *testing.T) {
 	n := 0
 	state := &flowRenderState{declared: map[string]bool{"resp": true, "err": true}, pointers: map[string]bool{}, types: map[string]string{}, stepN: &n}

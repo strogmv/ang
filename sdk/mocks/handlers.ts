@@ -350,6 +350,8 @@ export const mockGetPost = http.get('*//posts/:slug', () => {
     id: "gen-id-123",
     title: "sample text",
     content: "sample text",
+    status: "sample text",
+    excerpt: "sample text",
     authorId: "gen-id-123",
     createdAt: "sample text",
     tags: [],

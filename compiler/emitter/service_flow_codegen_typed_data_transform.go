@@ -285,6 +285,14 @@ func renderTypedStepDataTransform(st *flowRenderState, step flowir.TypedStep, in
 			format = "time.RFC3339"
 		}
 		timezone := normalizeFlowExpr(typed.Timezone)
+		if typed.Zero == "empty" {
+			if timezone != "" {
+				expr := fmt.Sprintf("func() string { if %s.IsZero() { return \"\" }; _tz, _ := time.LoadLocation(fmt.Sprint(%s)); if _tz == nil { _tz = time.UTC }; return %s.In(_tz).Format(%s) }()", input, timezone, input, format)
+				return renderFlowAssignTarget(st, pad, typed.Output, expr, "string"), true
+			}
+			expr := fmt.Sprintf("func() string { if %s.IsZero() { return \"\" }; return %s.Format(%s) }()", input, input, format)
+			return renderFlowAssignTarget(st, pad, typed.Output, expr, "string"), true
+		}
 		if timezone != "" {
 			locVar := "_tzLoc" + sfx
 			timeVar := "_tzTime" + sfx

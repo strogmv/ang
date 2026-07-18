@@ -77,6 +77,22 @@ func TestVet_detectsAuthSecretMismatch(t *testing.T) {
 	}
 }
 
+func TestVet_redirectCheckoutRequiresTDS(t *testing.T) {
+	spec := &ProviderSpec{
+		SID:         "mx6",
+		PackageName: "mx6_centrobill",
+		StructName:  "PPMx6",
+		APICompat:   "redirect_checkout",
+		HasPayin:    true,
+		PaymentSource: "apm",
+		Endpoints:   map[string]Endpoint{"payin": {Path: "/checkout"}},
+	}
+	issues := Vet(spec)
+	if !containsVetCode(issues, "PP011") {
+		t.Fatalf("expected PP011 for missing tds_redirector, got %#v", issues)
+	}
+}
+
 func containsVetCode(issues []VetIssue, code string) bool {
 	for _, iss := range issues {
 		if iss.Code == code {

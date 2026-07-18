@@ -20,6 +20,18 @@ func runPP(args []string) {
 		runPPSchema(args[1:])
 	case "vet":
 		runPPVet(args[1:])
+	case "facts":
+		runPPFacts(args[1:])
+	case "expert":
+		runPPExpert(args[1:])
+	case "apply":
+		runPPApply(args[1:])
+	case "init":
+		runPPInit(args[1:])
+	case "brief":
+		runPPBrief(args[1:])
+	case "pack":
+		runPPPack(args[1:])
 	default:
 		fmt.Printf("Unknown pp subcommand: %s\n", args[0])
 		printPPUsage()
@@ -28,16 +40,41 @@ func runPP(args []string) {
 }
 
 func printPPUsage() {
-	fmt.Println("Usage: ang pp <schema|vet> ...")
+	fmt.Println("Usage: ang pp <schema|vet|facts|expert|apply|init|brief|pack> ...")
 	fmt.Println("  ang pp schema list              List bundled schema files shipped with ang")
 	fmt.Println("  ang pp schema sync [path]       Copy bundled schema into project schema dir")
 	fmt.Println("                                  (uses schema_dir from ang.yaml when set)")
+	fmt.Println("                                  [--force] [--dry-run]")
 	fmt.Println("  ang pp schema check [path]      Fail if local schema differs from ang bundle")
 	fmt.Println("  ang pp vet [path]               Semantic validation of provider CUE intent")
+	fmt.Println("  ang pp facts [path]             Extract canonical payment-provider facts JSON")
+	fmt.Println("                                  [--cue-root .cue] [--schema-dir DIR] [--json]")
+	fmt.Println("  ang pp expert [path]            Read-only payment-provider expert audit")
+	fmt.Println("                                  [--mode off|shadow|advise|gate] [--expert-base-url URL]")
+	fmt.Println("                                  [--expert-pack ID] [--json]")
+	fmt.Println("  ang pp apply [path]             Sandbox-verify and optionally apply a proposal")
+	fmt.Println("                                  --proposal ID --expert-base-url URL [--approve]")
+	fmt.Println("                                  [--expert-pack ID] [--json]")
+	fmt.Println("  ang pp init [path]              Scaffold provider workspace (ang.yaml, CUE skeleton)")
+	fmt.Println("                                  --sid SID --label LABEL [--name NAME] [--package PKG]")
+	fmt.Println("                                  [--module MODULE] [--ticket SUMMARY] [--knowledge ID] [--force]")
+	fmt.Println("  ang pp brief [path]             Show integration brief from Expert knowledge [--json]")
+	fmt.Println("  ang pp pack validate [path]     Validate Expert *.research.cue manifest")
 	fmt.Println("")
 	fmt.Println("Payment-provider schema (provider.cue, catalogs.cue, profiles.cue) is maintained in ang.")
 	fmt.Println("Consumer repos keep provider intent (.cue/provider.cue) only.")
 	fmt.Println("Schema: per-provider .cue/schema/ OR shared schema_dir in ang.yaml (monorepo).")
+}
+
+// splitPPProjectPath separates an optional leading project path from flag arguments.
+func splitPPProjectPath(args []string) (projectPath string, flagArgs []string) {
+	projectPath = "."
+	flagArgs = args
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		projectPath = args[0]
+		flagArgs = args[1:]
+	}
+	return projectPath, flagArgs
 }
 
 func runPPSchema(args []string) {
@@ -74,6 +111,7 @@ func runPPSchemaSync(args []string) {
 	fs := flag.NewFlagSet("pp schema sync", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	dryRun := fs.Bool("dry-run", false, "show files that would be updated without writing")
+	force := fs.Bool("force", false, "overwrite local schema extensions with ang bundle")
 	cueRoot := fs.String("cue-root", ".cue", "CUE root directory inside the provider project")
 	if err := fs.Parse(args); err != nil {
 		os.Exit(1)
@@ -86,6 +124,7 @@ func runPPSchemaSync(args []string) {
 		ProjectPath: path,
 		CueRoot:     *cueRoot,
 		DryRun:      *dryRun,
+		Force:       *force,
 	})
 	if err != nil {
 		fmt.Printf("Schema sync FAILED: %v\n", err)
@@ -94,9 +133,15 @@ func runPPSchemaSync(args []string) {
 	if *dryRun {
 		fmt.Printf("Dry run: target %s\n", res.TargetDir)
 	}
-	if len(res.Written) == 0 && len(res.Skipped) > 0 {
+	if len(res.Written) == 0 && len(res.Skipped) > 0 && len(res.Guarded) == 0 {
 		fmt.Printf("Schema already up to date (%d files checked).\n", len(res.Skipped))
 		return
+	}
+	if len(res.Guarded) > 0 {
+		fmt.Println("Schema sync preserved local extensions:")
+		for _, item := range res.Guarded {
+			fmt.Printf("  - %s\n", item)
+		}
 	}
 	if len(res.Written) > 0 {
 		action := "Updated"

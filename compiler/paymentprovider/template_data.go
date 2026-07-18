@@ -58,6 +58,7 @@ type TemplateData struct {
 	PayoutResponseType   string
 	RefundResponseType   string
 	PayinForeignIDField  string
+	PayinRedirectURLField string
 	PayoutForeignIDField string
 	RefundForeignIDField string
 
@@ -81,6 +82,8 @@ type TemplateData struct {
 	UseMacanP2P        bool
 	UsePaytechGateway  bool
 	UseFluxsgate       bool
+	UseRedirectCheckout bool
+	UseCentrobillHPP    bool
 	SecretUseLabels    bool // CUE: secrets.use_labels
 	PubKeyField        string
 	SecretKeyField     string
@@ -661,6 +664,8 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 		UseMacanP2P:               strings.EqualFold(spec.APICompat, "macan_p2p"),
 		UsePaytechGateway:         strings.EqualFold(spec.APICompat, "paytech_gateway"),
 		UseFluxsgate:              strings.EqualFold(spec.APICompat, "fluxsgate"),
+		UseRedirectCheckout:       strings.EqualFold(spec.APICompat, "redirect_checkout"),
+		UseCentrobillHPP:          strings.EqualFold(spec.CheckoutCompat, "centrobill_hpp"),
 		SecretUseLabels:           spec.Secrets.UseLabels,
 		CheckStatusForeignIDEmpty: defaultCheckStatusForeignIDEmpty(spec.CheckStatusForeignIDEmpty),
 		ResponseFormat:            defaultString(spec.ResponseFormat, "json"),
@@ -887,8 +892,14 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 		rp.Retries.MaxBackoffExpr = durationGoExpr(rp.Retries.MaxBackoff)
 		rp.Timeouts.RequestTimeoutExpr = durationGoExpr(rp.Timeouts.RequestTimeout)
 		rp.Limits.MaxCallbackBodyBytes = spec.RuntimePolicyConfig.Limits.MaxCallbackBodyBytes
-		rp.Limits.MaxPendingAge = spec.RuntimePolicyConfig.Limits.MaxPendingAge
-		rp.Limits.MaxPendingAgeExpr = durationGoExpr(rp.Limits.MaxPendingAge)
+		rp.Limits.MaxPendingAge = strings.TrimSpace(spec.RuntimePolicyConfig.Limits.MaxPendingAge)
+		if rp.Limits.MaxPendingAge != "" {
+			rp.Limits.MaxPendingAgeExpr = durationGoExpr(rp.Limits.MaxPendingAge)
+			if rp.Limits.MaxPendingAgeExpr == "0" {
+				rp.Limits.MaxPendingAge = ""
+				rp.Limits.MaxPendingAgeExpr = ""
+			}
+		}
 		data.RuntimePolicyConfig = rp
 	}
 	if spec.Async3DSConfig != nil {
@@ -1048,6 +1059,7 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 	data.PayoutStatusResponseType = data.PayoutResponseType
 	data.PayinStatusField = inferStatusField(spec.ResponseTypes, "payin", "Status")
 	data.PayoutStatusField = inferStatusField(spec.ResponseTypes, "payout", "Status")
+	data.PayinRedirectURLField = inferRedirectURLField(spec.ResponseTypes, data.PayinResponsePayloadType)
 
 	data.PayinStatuses, data.PayoutStatuses, data.PayoutStatusesExtra = buildStatuses(spec, statusType)
 	data.ErrorCodes = buildCodeMappings(spec.ErrorCodes, "errCode")
@@ -1493,6 +1505,21 @@ func findForeignIDField(fields []StructField, fallback string) string {
 		}
 	}
 	return fallback
+}
+
+func inferRedirectURLField(types []ResponseType, payloadType string) string {
+	for _, rt := range types {
+		if payloadType != "" && rt.Name != payloadType {
+			continue
+		}
+		for _, f := range rt.Fields {
+			lower := strings.ToLower(f.Name)
+			if lower == "redirecturl" || lower == "paymenturl" || lower == "checkouturl" {
+				return f.Name
+			}
+		}
+	}
+	return "RedirectUrl"
 }
 
 func buildStatuses(spec *ProviderSpec, statusType string) (payin, payout, payoutExtra []StatusTemplate) {
@@ -1968,9 +1995,16 @@ func inferStatusField(types []ResponseType, kind, fallback string) string {
 		nameLower := strings.ToLower(rt.Name)
 		if strings.Contains(nameLower, kind) {
 			for _, f := range rt.Fields {
-				if f.Name == fallback || strings.EqualFold(f.Name, "status") {
+				if f.Name == fallback || strings.EqualFold(f.Name, "status") || f.Name == "State" {
 					return f.Name
 				}
+			}
+		}
+	}
+	for _, rt := range types {
+		for _, f := range rt.Fields {
+			if f.Name == fallback || strings.EqualFold(f.Name, "status") || f.Name == "State" {
+				return f.Name
 			}
 		}
 	}

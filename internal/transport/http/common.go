@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/hmac"
+	crand "crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -16,9 +17,11 @@ import (
 	"io"
 	"math/big"
 	"math/rand"
+	"mime"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -27,11 +30,15 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/redis/go-redis/v9"
+	authredis "github.com/strogmv/ang/internal/adapter/auth/redis"
+	statestoreredis "github.com/strogmv/ang/internal/adapter/statestore/redis"
 	"github.com/strogmv/ang/internal/config"
+	"github.com/strogmv/ang/internal/pkg/auth"
 	"github.com/strogmv/ang/internal/pkg/circuitbreaker"
 	"github.com/strogmv/ang/internal/pkg/errors"
 	"github.com/strogmv/ang/internal/pkg/rbac"
 	"github.com/strogmv/ang/internal/pkg/reqctx"
+	"github.com/strogmv/ang/internal/port"
 )
 
 var validate = validator.New()
@@ -44,28 +51,56 @@ type authContext struct {
 	Roles     []string
 	Perms     []string
 	Scopes    []string
+	Locale    string
+	Timezone  string
+}
+
+type opaqueSessionPayload struct {
+	ID           string   `json:"id,omitempty"`
+	RefreshToken string   `json:"rt"`
+	UserID       string   `json:"uid"`
+	CompanyID    string   `json:"cid,omitempty"`
+	Roles        []string `json:"roles,omitempty"`
+	Perms        []string `json:"perms,omitempty"`
+	Scopes       []string `json:"scopes,omitempty"`
+	Locale       string   `json:"locale,omitempty"`
+	Timezone     string   `json:"timezone,omitempty"`
+	ExpiresAt    int64    `json:"exp,omitempty"`
 }
 
 var (
-	authAlg          = "RS256"
-	authIssuer       = ""
-	authAudience     = ""
-	authUserClaim    = "sub"
-	authCompanyClaim = "cid"
-	authRolesClaim   = "roles"
-	authPermsClaim   = "perms"
-	authScopesClaim  = "scopes"
+	authMode              = ""
+	authAccessCookieName  = "access_token"
+	authRefreshCookieName = "refresh_token"
+	authSessionCookieName = "sid"
+	authAlg               = "RS256"
+	authIssuer            = ""
+	authAudience          = ""
+	authUserClaim         = "sub"
+	authCompanyClaim      = "cid"
+	authRolesClaim        = "roles"
+	authPermsClaim        = "perms"
+	authScopesClaim       = "scopes"
+	authLocaleClaim       = "locale"
+	authTimezoneClaim     = "timezone"
 
 	authRSAPublicKey    *rsa.PublicKey
 	authECDSAPublicKey  *ecdsa.PublicKey
 	authHMACSecret      []byte
+	authCfg             *config.Config
+	authRefreshStore    port.RefreshTokenStore
+	authSessionStore    port.StateStore
 	verifiedUserChecker func(ctx context.Context, userID string) (bool, error)
+	authSessionMu       sync.Mutex
+	authSessionMemory   = map[string]opaqueSessionPayload{}
+	authSessionByUser   = map[string]map[string]struct{}{} // userID → set of SIDs (memory fallback)
 )
 
 func SetAuthConfigFromConfig(cfg *config.Config) error {
 	if cfg == nil {
 		return nil
 	}
+	authCfg = cfg
 	if cfg.JWTAlg != "" {
 		authAlg = cfg.JWTAlg
 	}
@@ -117,6 +152,14 @@ func SetVerifiedUserChecker(checker func(ctx context.Context, userID string) (bo
 	verifiedUserChecker = checker
 }
 
+func SetAuthRefreshStore(store port.RefreshTokenStore) {
+	authRefreshStore = store
+}
+
+func SetAuthSessionStore(store port.StateStore) {
+	authSessionStore = store
+}
+
 func decodeJSONRequest(r *http.Request, out interface{}) error {
 	if r.Body == nil {
 		return io.EOF
@@ -150,6 +193,82 @@ func decodeJSONRequest(r *http.Request, out interface{}) error {
 	return json.Unmarshal(body, out)
 }
 
+// decodeMultipartOrJSONUpload accepts application/json (same as decodeJSONRequest) or multipart/form-data
+// with a "file" part and optional text fields (ownerType, ownerId, folderId, name, mime, url, size).
+// Populates any struct with matching JSON tags (e.g. port.UploadAttachmentRequest).
+func decodeMultipartOrJSONUpload(r *http.Request, out interface{}) error {
+	ct := r.Header.Get("Content-Type")
+	mediatype, _, err := mime.ParseMediaType(ct)
+	if err != nil || mediatype != "multipart/form-data" {
+		return decodeJSONRequest(r, out)
+	}
+
+	const maxMemory = 64 << 20
+	if err := r.ParseMultipartForm(maxMemory); err != nil {
+		return fmt.Errorf("multipart parse: %w", err)
+	}
+	if r.MultipartForm != nil {
+		defer func() { _ = r.MultipartForm.RemoveAll() }()
+	}
+
+	file, hdr, err := r.FormFile("file")
+	if err != nil {
+		return fmt.Errorf("multipart form field \"file\" is required")
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return fmt.Errorf("read upload: %w", err)
+	}
+	if len(data) == 0 {
+		return fmt.Errorf("empty file upload")
+	}
+
+	payload := map[string]interface{}{
+		"fileBase64": base64.StdEncoding.EncodeToString(data),
+		"size":       len(data),
+	}
+	if fn := strings.TrimSpace(hdr.Filename); fn != "" {
+		payload["name"] = filepath.Base(fn)
+	}
+	if v := strings.TrimSpace(hdr.Header.Get("Content-Type")); v != "" {
+		payload["mime"] = v
+	}
+
+	for key, formKey := range map[string]string{
+		"url":       "url",
+		"name":      "name",
+		"mime":      "mime",
+		"ownerType": "ownerType",
+		"ownerId":   "ownerId",
+		"folderId":  "folderId",
+		"companyId": "companyId",
+		"userId":    "userId",
+	} {
+		if v := strings.TrimSpace(r.FormValue(formKey)); v != "" {
+			payload[key] = v
+		}
+	}
+	// Lowercase aliases from HTML forms
+	if v := strings.TrimSpace(r.FormValue("ownerid")); v != "" {
+		if _, ok := payload["ownerId"]; !ok {
+			payload["ownerId"] = v
+		}
+	}
+	if v := strings.TrimSpace(r.FormValue("folderid")); v != "" {
+		if _, ok := payload["folderId"]; !ok {
+			payload["folderId"] = v
+		}
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(body, out)
+}
+
 // TestHeadersMiddleware reads test-only request headers and injects them into the context.
 // In production environments these headers are never sent, so this middleware is a no-op.
 func TestHeadersMiddleware(next http.Handler) http.Handler {
@@ -161,37 +280,564 @@ func TestHeadersMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+func authContextFromClaims(claims map[string]any) authContext {
+	return authContext{
+		UserID:    getStringClaim(claims, authUserClaim),
+		CompanyID: getStringClaim(claims, authCompanyClaim),
+		Roles:     getStringSliceClaim(claims, authRolesClaim),
+		Perms:     getStringSliceClaim(claims, authPermsClaim),
+		Scopes:    getStringSliceClaim(claims, authScopesClaim),
+		Locale:    getStringClaim(claims, authLocaleClaim),
+		Timezone:  getStringClaim(claims, authTimezoneClaim),
+	}
+}
+
+func authClaimsFromContext(ac authContext) map[string]any {
+	claims := map[string]any{
+		authUserClaim: ac.UserID,
+	}
+	if ac.CompanyID != "" {
+		claims[authCompanyClaim] = ac.CompanyID
+	}
+	if len(ac.Roles) > 0 {
+		claims[authRolesClaim] = ac.Roles
+	}
+	if len(ac.Perms) > 0 {
+		claims[authPermsClaim] = ac.Perms
+	}
+	if len(ac.Scopes) > 0 {
+		claims[authScopesClaim] = ac.Scopes
+	}
+	if ac.Locale != "" {
+		claims[authLocaleClaim] = ac.Locale
+	}
+	if ac.Timezone != "" {
+		claims[authTimezoneClaim] = ac.Timezone
+	}
+	return claims
+}
+
+func cookieAuthEnabled() bool {
+	return authMode == "web_session_cookie" || authMode == "opaque_session_cookie"
+}
+
+func opaqueSessionEnabled() bool {
+	return authMode == "opaque_session_cookie"
+}
+
+func authSessionKey(sessionID string) string {
+	return "auth_session:" + strings.TrimSpace(sessionID)
+}
+
+func authSessionTTL(payload opaqueSessionPayload) time.Duration {
+	if payload.ExpiresAt > 0 {
+		if ttl := time.Until(time.Unix(payload.ExpiresAt, 0)); ttl > 0 {
+			return ttl
+		}
+		return time.Second
+	}
+	if authCfg != nil {
+		if d, err := time.ParseDuration(strings.TrimSpace(authCfg.JWTRefreshTTL)); err == nil && d > 0 {
+			return d
+		}
+	}
+	return 7 * 24 * time.Hour
+}
+
+func generateOpaqueSessionID() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := io.ReadFull(crand.Reader, buf); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
+func saveOpaqueSession(ctx context.Context, payload opaqueSessionPayload) error {
+	if strings.TrimSpace(payload.ID) == "" {
+		return fmt.Errorf("opaque session id is required")
+	}
+	if authSessionStore != nil {
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			return err
+		}
+		return authSessionStore.Set(ctx, authSessionKey(payload.ID), raw, authSessionTTL(payload))
+	}
+	authSessionMu.Lock()
+	defer authSessionMu.Unlock()
+	authSessionMemory[payload.ID] = payload
+	return nil
+}
+
+func deleteOpaqueSession(ctx context.Context, sessionID string) error {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return nil
+	}
+	if authSessionStore != nil {
+		return authSessionStore.Delete(ctx, authSessionKey(sessionID))
+	}
+	authSessionMu.Lock()
+	defer authSessionMu.Unlock()
+	delete(authSessionMemory, sessionID)
+	return nil
+}
+
+func findOpaqueSession(ctx context.Context, sessionID string) (*opaqueSessionPayload, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return nil, fmt.Errorf("missing session id")
+	}
+	if authSessionStore != nil {
+		raw, err := authSessionStore.Get(ctx, authSessionKey(sessionID))
+		if err != nil {
+			return nil, err
+		}
+		if len(raw) == 0 {
+			return nil, nil
+		}
+		var payload opaqueSessionPayload
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			return nil, err
+		}
+		return &payload, nil
+	}
+	authSessionMu.Lock()
+	defer authSessionMu.Unlock()
+	payload, ok := authSessionMemory[sessionID]
+	if !ok {
+		return nil, nil
+	}
+	return &payload, nil
+}
+
+// ── user→sessions index ─────────────────────────────────────────────────────
+// Tracks which SIDs belong to each user so logout-all-sessions can revoke them.
+
+func userSessionsIndexKey(userID string) string {
+	return "user_sessions:" + strings.TrimSpace(userID)
+}
+
+func registerSessionForUser(ctx context.Context, userID, sessionID string) {
+	if userID == "" || sessionID == "" {
+		return
+	}
+	if authSessionStore != nil {
+		raw, _ := authSessionStore.Get(ctx, userSessionsIndexKey(userID))
+		var sids []string
+		if len(raw) > 0 {
+			_ = json.Unmarshal(raw, &sids)
+		}
+		for _, s := range sids {
+			if s == sessionID {
+				return
+			}
+		}
+		sids = append(sids, sessionID)
+		if data, err := json.Marshal(sids); err == nil {
+			_ = authSessionStore.Set(ctx, userSessionsIndexKey(userID), data, 30*24*time.Hour)
+		}
+		return
+	}
+	authSessionMu.Lock()
+	defer authSessionMu.Unlock()
+	if authSessionByUser[userID] == nil {
+		authSessionByUser[userID] = make(map[string]struct{})
+	}
+	authSessionByUser[userID][sessionID] = struct{}{}
+}
+
+func unregisterSessionForUser(ctx context.Context, userID, sessionID string) {
+	if userID == "" || sessionID == "" {
+		return
+	}
+	if authSessionStore != nil {
+		raw, _ := authSessionStore.Get(ctx, userSessionsIndexKey(userID))
+		if len(raw) == 0 {
+			return
+		}
+		var sids []string
+		if err := json.Unmarshal(raw, &sids); err != nil {
+			return
+		}
+		filtered := sids[:0]
+		for _, s := range sids {
+			if s != sessionID {
+				filtered = append(filtered, s)
+			}
+		}
+		if len(filtered) == 0 {
+			_ = authSessionStore.Delete(ctx, userSessionsIndexKey(userID))
+			return
+		}
+		if data, err := json.Marshal(filtered); err == nil {
+			_ = authSessionStore.Set(ctx, userSessionsIndexKey(userID), data, 30*24*time.Hour)
+		}
+		return
+	}
+	authSessionMu.Lock()
+	defer authSessionMu.Unlock()
+	delete(authSessionByUser[userID], sessionID)
+}
+
+// RevokeAllUserSessions invalidates every active session for the given user.
+// Call from the logout-all-sessions endpoint after verifying the user's identity.
+func RevokeAllUserSessions(ctx context.Context, w http.ResponseWriter, r *http.Request, userID string) {
+	if userID == "" {
+		return
+	}
+	if authSessionStore != nil {
+		raw, _ := authSessionStore.Get(ctx, userSessionsIndexKey(userID))
+		if len(raw) > 0 {
+			var sids []string
+			if err := json.Unmarshal(raw, &sids); err == nil {
+				for _, sid := range sids {
+					_ = authSessionStore.Delete(ctx, authSessionKey(sid))
+				}
+			}
+		}
+		_ = authSessionStore.Delete(ctx, userSessionsIndexKey(userID))
+	} else {
+		authSessionMu.Lock()
+		for sid := range authSessionByUser[userID] {
+			delete(authSessionMemory, sid)
+		}
+		delete(authSessionByUser, userID)
+		authSessionMu.Unlock()
+	}
+	clearAuthCookies(w, r)
+}
+
+func buildOpaqueSessionPayload(accessToken, refreshToken string) (*opaqueSessionPayload, error) {
+	if strings.TrimSpace(accessToken) == "" || strings.TrimSpace(refreshToken) == "" {
+		return nil, fmt.Errorf("missing access or refresh token for opaque session")
+	}
+	claims, err := parseAndVerifyJWT(accessToken)
+	if err != nil {
+		return nil, err
+	}
+	ac := authContextFromClaims(claims)
+	payload := &opaqueSessionPayload{
+		ID:           "",
+		RefreshToken: refreshToken,
+		UserID:       ac.UserID,
+		CompanyID:    ac.CompanyID,
+		Roles:        ac.Roles,
+		Perms:        ac.Perms,
+		Scopes:       ac.Scopes,
+		Locale:       ac.Locale,
+		Timezone:     ac.Timezone,
+	}
+	if authCfg != nil {
+		if d, err := time.ParseDuration(strings.TrimSpace(authCfg.JWTRefreshTTL)); err == nil && d > 0 {
+			payload.ExpiresAt = time.Now().Add(d).Unix()
+		}
+	}
+	return payload, nil
+}
+
+func readOpaqueSessionPayload(r *http.Request) (*opaqueSessionPayload, error) {
+	if !opaqueSessionEnabled() {
+		return nil, fmt.Errorf("opaque session mode is disabled")
+	}
+	cookie, err := r.Cookie(authSessionCookieName)
+	if err != nil || strings.TrimSpace(cookie.Value) == "" {
+		return nil, fmt.Errorf("missing session cookie")
+	}
+	payload, err := findOpaqueSession(r.Context(), cookie.Value)
+	if err != nil {
+		return nil, err
+	}
+	if payload == nil {
+		return nil, fmt.Errorf("opaque session not found")
+	}
+	if strings.TrimSpace(payload.ID) == "" {
+		payload.ID = strings.TrimSpace(cookie.Value)
+	}
+	if payload == nil || strings.TrimSpace(payload.RefreshToken) == "" || strings.TrimSpace(payload.UserID) == "" {
+		return nil, fmt.Errorf("invalid opaque session payload")
+	}
+	if payload.ExpiresAt > 0 && time.Now().Unix() > payload.ExpiresAt {
+		_ = deleteOpaqueSession(r.Context(), payload.ID)
+		return nil, fmt.Errorf("opaque session expired")
+	}
+	return payload, nil
+}
+
+func authRefreshTokenFromRequest(r *http.Request) (string, error) {
+	if opaqueSessionEnabled() {
+		payload, err := readOpaqueSessionPayload(r)
+		if err != nil {
+			return "", err
+		}
+		return payload.RefreshToken, nil
+	}
+	c, err := r.Cookie(authRefreshCookieName)
+	if err != nil || strings.TrimSpace(c.Value) == "" {
+		return "", fmt.Errorf("missing refresh token cookie")
+	}
+	return c.Value, nil
+}
+
+func authClaimsFromCookieSession(r *http.Request) (map[string]any, error) {
+	if opaqueSessionEnabled() {
+		payload, err := readOpaqueSessionPayload(r)
+		if err != nil {
+			return nil, err
+		}
+		if authRefreshStore == nil {
+			return nil, fmt.Errorf("opaque session store is not configured")
+		}
+		rec, err := authRefreshStore.Find(r.Context(), payload.RefreshToken)
+		if err != nil {
+			return nil, err
+		}
+		if rec == nil || rec.Revoked || (!rec.ExpiresAt.IsZero() && time.Now().After(rec.ExpiresAt)) {
+			return nil, fmt.Errorf("opaque session is invalid")
+		}
+		if rec.UserID != payload.UserID {
+			return nil, fmt.Errorf("opaque session user mismatch")
+		}
+		return authClaimsFromContext(authContext{
+			UserID:    payload.UserID,
+			CompanyID: payload.CompanyID,
+			Roles:     payload.Roles,
+			Perms:     payload.Perms,
+			Scopes:    payload.Scopes,
+			Locale:    payload.Locale,
+			Timezone:  payload.Timezone,
+		}), nil
+	}
+	if c, cookieErr := r.Cookie(authAccessCookieName); cookieErr == nil && strings.TrimSpace(c.Value) != "" {
+		return parseAndVerifyJWT(c.Value)
+	}
+	return nil, fmt.Errorf("missing access token cookie")
+}
+
+func authCookieSecure(r *http.Request) bool {
+	if r != nil && r.TLS != nil {
+		return true
+	}
+	if r != nil {
+		if proto := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); strings.EqualFold(proto, "https") {
+			return true
+		}
+	}
+	return false
+}
+
+func authCookieMaxAge(ttl string, fallback time.Duration) int {
+	if d, err := time.ParseDuration(strings.TrimSpace(ttl)); err == nil && d > 0 {
+		return int(d.Seconds())
+	}
+	return int(fallback.Seconds())
+}
+
+func writeAuthCookies(w http.ResponseWriter, r *http.Request, accessToken, refreshToken string) {
+	accessTTL := "15m"
+	refreshTTL := "168h"
+	if authCfg != nil {
+		if strings.TrimSpace(authCfg.JWTAccessTTL) != "" {
+			accessTTL = authCfg.JWTAccessTTL
+		}
+		if strings.TrimSpace(authCfg.JWTRefreshTTL) != "" {
+			refreshTTL = authCfg.JWTRefreshTTL
+		}
+	}
+	if opaqueSessionEnabled() {
+		payload, err := buildOpaqueSessionPayload(accessToken, refreshToken)
+		if err != nil {
+			return
+		}
+		// SID rotation: always invalidate the old session and issue a fresh SID.
+		// Prevents session fixation and ensures refresh-token rotation is reflected
+		// in the session store immediately.
+		if existing, cookieErr := r.Cookie(authSessionCookieName); cookieErr == nil && strings.TrimSpace(existing.Value) != "" {
+			oldSID := strings.TrimSpace(existing.Value)
+			if oldPayload, _ := findOpaqueSession(r.Context(), oldSID); oldPayload != nil {
+				unregisterSessionForUser(r.Context(), oldPayload.UserID, oldSID)
+			}
+			_ = deleteOpaqueSession(r.Context(), oldSID)
+		}
+		payload.ID, err = generateOpaqueSessionID()
+		if err != nil {
+			return
+		}
+		if err := saveOpaqueSession(r.Context(), *payload); err != nil {
+			return
+		}
+		registerSessionForUser(r.Context(), payload.UserID, payload.ID)
+		http.SetCookie(w, &http.Cookie{
+			Name:     authSessionCookieName,
+			Value:    payload.ID,
+			Path:     "/",
+			MaxAge:   authCookieMaxAge(refreshTTL, 7*time.Hour*24),
+			HttpOnly: true,
+			Secure:   authCookieSecure(r),
+			SameSite: http.SameSiteLaxMode,
+		})
+		for _, legacyName := range []string{authAccessCookieName, authRefreshCookieName} {
+			http.SetCookie(w, &http.Cookie{
+				Name:     legacyName,
+				Value:    "",
+				Path:     "/",
+				MaxAge:   -1,
+				HttpOnly: true,
+				Secure:   authCookieSecure(r),
+				SameSite: http.SameSiteLaxMode,
+			})
+		}
+		return
+	}
+	if strings.TrimSpace(accessToken) != "" {
+		http.SetCookie(w, &http.Cookie{
+			Name:     authAccessCookieName,
+			Value:    accessToken,
+			Path:     "/",
+			MaxAge:   authCookieMaxAge(accessTTL, 15*time.Minute),
+			HttpOnly: true,
+			Secure:   authCookieSecure(r),
+			SameSite: http.SameSiteLaxMode,
+		})
+	}
+	if strings.TrimSpace(refreshToken) != "" {
+		http.SetCookie(w, &http.Cookie{
+			Name:     authRefreshCookieName,
+			Value:    refreshToken,
+			Path:     "/",
+			MaxAge:   authCookieMaxAge(refreshTTL, 7*24*time.Hour),
+			HttpOnly: true,
+			Secure:   authCookieSecure(r),
+			SameSite: http.SameSiteLaxMode,
+		})
+	}
+}
+
+func clearAuthCookies(w http.ResponseWriter, r *http.Request) {
+	if opaqueSessionEnabled() && r != nil {
+		if cookie, err := r.Cookie(authSessionCookieName); err == nil && strings.TrimSpace(cookie.Value) != "" {
+			sid := strings.TrimSpace(cookie.Value)
+			if payload, _ := findOpaqueSession(r.Context(), sid); payload != nil {
+				unregisterSessionForUser(r.Context(), payload.UserID, sid)
+			}
+			_ = deleteOpaqueSession(r.Context(), sid)
+		}
+	}
+	for _, name := range []string{authAccessCookieName, authRefreshCookieName, authSessionCookieName} {
+		http.SetCookie(w, &http.Cookie{
+			Name:     name,
+			Value:    "",
+			Path:     "/",
+			MaxAge:   -1,
+			HttpOnly: true,
+			Secure:   authCookieSecure(r),
+			SameSite: http.SameSiteLaxMode,
+		})
+	}
+}
+
+func tryRefreshCookieSession(w http.ResponseWriter, r *http.Request) (map[string]any, error) {
+	if authCfg == nil || authRefreshStore == nil {
+		return nil, fmt.Errorf("cookie auth refresh not configured")
+	}
+	accessCookie, err := r.Cookie(authAccessCookieName)
+	if err != nil || strings.TrimSpace(accessCookie.Value) == "" {
+		return nil, fmt.Errorf("missing access token cookie")
+	}
+	refreshCookie, err := r.Cookie(authRefreshCookieName)
+	if err != nil || strings.TrimSpace(refreshCookie.Value) == "" {
+		return nil, fmt.Errorf("missing refresh token cookie")
+	}
+	expiredClaims, err := parseAndVerifyJWTAllowExpired(accessCookie.Value)
+	if err != nil {
+		return nil, err
+	}
+	rec, err := authRefreshStore.Find(r.Context(), refreshCookie.Value)
+	if err != nil {
+		return nil, err
+	}
+	if rec == nil || rec.Revoked || (!rec.ExpiresAt.IsZero() && time.Now().After(rec.ExpiresAt)) {
+		return nil, fmt.Errorf("refresh token invalid")
+	}
+	ac := authContextFromClaims(expiredClaims)
+	if ac.UserID == "" || rec.UserID != ac.UserID {
+		return nil, fmt.Errorf("refresh token user mismatch")
+	}
+	extraClaims := map[string]string{}
+	if ac.Locale != "" {
+		extraClaims["locale"] = ac.Locale
+	}
+	if ac.Timezone != "" {
+		extraClaims["timezone"] = ac.Timezone
+	}
+	accessToken, err := auth.IssueAccessToken(authCfg, ac.UserID, ac.CompanyID, ac.Roles, ac.Perms, extraClaims)
+	if err != nil {
+		return nil, err
+	}
+	newRefreshToken := refreshCookie.Value
+	if authCfg.JWTRotation {
+		newRefreshToken, err = auth.IssueRefreshToken(authCfg, ac.UserID)
+		if err != nil {
+			return nil, err
+		}
+		exp := time.Now().Add(24 * time.Hour)
+		if d, derr := time.ParseDuration(authCfg.JWTRefreshTTL); derr == nil && d > 0 {
+			exp = time.Now().Add(d)
+		}
+		if err := authRefreshStore.Rotate(r.Context(), refreshCookie.Value, newRefreshToken, ac.UserID, exp); err != nil {
+			return nil, err
+		}
+	}
+	writeAuthCookies(w, r, accessToken, newRefreshToken)
+	return parseAndVerifyJWT(accessToken)
+}
+
 func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token := r.Header.Get("Authorization")
-		if token == "" {
-			token = r.URL.Query().Get("token")
-		}
-		if token == "" {
-			errors.WriteError(w, r, errors.New(http.StatusUnauthorized, "Unauthorized", "JWT token required"))
-			return
-		}
-		if strings.HasPrefix(strings.ToLower(token), "bearer ") {
-			token = strings.TrimSpace(token[7:])
-		}
-		if token == "" {
-			errors.WriteError(w, r, errors.New(http.StatusUnauthorized, "Unauthorized", "JWT token required"))
-			return
+		var claims map[string]any
+		var err error
+		if cookieAuthEnabled() {
+			if opaqueSessionEnabled() {
+				claims, err = authClaimsFromCookieSession(r)
+			} else {
+				if c, cookieErr := r.Cookie(authAccessCookieName); cookieErr == nil && strings.TrimSpace(c.Value) != "" {
+					claims, err = parseAndVerifyJWT(c.Value)
+				}
+				if err != nil || claims == nil {
+					claims, err = tryRefreshCookieSession(w, r)
+				}
+			}
+			if err != nil || claims == nil {
+			}
+			if err != nil || claims == nil {
+				clearAuthCookies(w, r)
+				errors.WriteError(w, r, errors.New(http.StatusUnauthorized, "Unauthorized", "Valid session cookie required"))
+				return
+			}
+		} else {
+			token := r.Header.Get("Authorization")
+			if token == "" {
+				token = r.URL.Query().Get("token")
+			}
+			if token == "" {
+				errors.WriteError(w, r, errors.New(http.StatusUnauthorized, "Unauthorized", "JWT token required"))
+				return
+			}
+			if strings.HasPrefix(strings.ToLower(token), "bearer ") {
+				token = strings.TrimSpace(token[7:])
+			}
+			if token == "" {
+				errors.WriteError(w, r, errors.New(http.StatusUnauthorized, "Unauthorized", "JWT token required"))
+				return
+			}
+			claims, err = parseAndVerifyJWT(token)
+			if err != nil {
+				errors.WriteError(w, r, errors.New(http.StatusUnauthorized, "Unauthorized", "Invalid JWT"))
+				return
+			}
 		}
 
-		claims, err := parseAndVerifyJWT(token)
-		if err != nil {
-			errors.WriteError(w, r, errors.New(http.StatusUnauthorized, "Unauthorized", "Invalid JWT"))
-			return
-		}
-
-		ac := authContext{
-			UserID:    getStringClaim(claims, authUserClaim),
-			CompanyID: getStringClaim(claims, authCompanyClaim),
-			Roles:     getStringSliceClaim(claims, authRolesClaim),
-			Perms:     getStringSliceClaim(claims, authPermsClaim),
-			Scopes:    getStringSliceClaim(claims, authScopesClaim),
-		}
+		ac := authContextFromClaims(claims)
 		if verifiedUserChecker != nil {
 			ok, err := verifiedUserChecker(r.Context(), ac.UserID)
 			if err != nil {
@@ -203,7 +849,22 @@ func AuthMiddleware(next http.Handler) http.Handler {
 				return
 			}
 		}
-		ctx := context.WithValue(r.Context(), authContextKey{}, ac)
+		localeToSet := ac.Locale
+		if localeToSet == "" {
+			if al := r.Header.Get("Accept-Language"); al != "" {
+				// Take the first language tag before comma or semicolon
+				localeToSet = strings.SplitN(strings.SplitN(al, ",", 2)[0], ";", 2)[0]
+				localeToSet = strings.TrimSpace(localeToSet)
+			}
+		}
+		rCtx := r.Context()
+		if localeToSet != "" {
+			rCtx = reqctx.WithLocale(rCtx, localeToSet)
+		}
+		if ac.Timezone != "" {
+			rCtx = reqctx.WithTimezone(rCtx, ac.Timezone)
+		}
+		ctx := context.WithValue(rCtx, authContextKey{}, ac)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -249,6 +910,20 @@ func CurrentRole(r *http.Request) string {
 		return roles[0]
 	}
 	return ""
+}
+
+func CurrentLocale(r *http.Request) string {
+	if ac, ok := r.Context().Value(authContextKey{}).(authContext); ok && ac.Locale != "" {
+		return ac.Locale
+	}
+	return reqctx.Locale(r.Context())
+}
+
+func CurrentTimezone(r *http.Request) string {
+	if ac, ok := r.Context().Value(authContextKey{}).(authContext); ok && ac.Timezone != "" {
+		return ac.Timezone
+	}
+	return reqctx.Timezone(r.Context())
 }
 
 func RequirePermission(perm string) func(http.Handler) http.Handler {
@@ -314,6 +989,14 @@ func RequireScopeMiddleware(scopes []string) func(http.Handler) http.Handler {
 }
 
 func parseAndVerifyJWT(token string) (map[string]any, error) {
+	return parseAndVerifyJWTWithOptions(token, false)
+}
+
+func parseAndVerifyJWTAllowExpired(token string) (map[string]any, error) {
+	return parseAndVerifyJWTWithOptions(token, true)
+}
+
+func parseAndVerifyJWTWithOptions(token string, allowExpired bool) (map[string]any, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return nil, fmt.Errorf("invalid token format")
@@ -391,7 +1074,7 @@ func parseAndVerifyJWT(token string) (map[string]any, error) {
 			return nil, fmt.Errorf("invalid audience")
 		}
 	}
-	if !validateTimes(claims) {
+	if !allowExpired && !validateTimes(claims) {
 		return nil, fmt.Errorf("token expired or not valid yet")
 	}
 	return claims, nil
@@ -572,6 +1255,17 @@ var (
 
 func SetRedisClient(c *redis.Client) {
 	redisClient = c
+	// authMode is "opaque_session_cookie": wire the session + refresh stores from the
+	// same Redis client, otherwise every cookie-authenticated request 401s
+	// ("Valid session cookie required") because the opaque session can never resolve.
+	if c != nil {
+		if authSessionStore == nil {
+			authSessionStore = statestoreredis.New(c)
+		}
+		if authRefreshStore == nil {
+			authRefreshStore = authredis.NewStore(c)
+		}
+	}
 }
 
 // RateLimitMiddleware enforces per-IP rate limiting at two levels:

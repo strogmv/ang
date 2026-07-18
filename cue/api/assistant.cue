@@ -4,6 +4,7 @@ import "github.com/strogmv/ang/cue/schema"
 
 LookupPostForAssistant: schema.#Operation & {
 	service: "assistant"
+	uses:    ["Blog"]
 	description: "Lookup one post by slug for AI tool use"
 
 	input: {
@@ -13,12 +14,12 @@ LookupPostForAssistant: schema.#Operation & {
 	output: {
 		id:      string
 		title:   string
-		status:  string
+		status?: string
 		excerpt?: string
 	}
 
 	flow: [
-		{action: "repo.Find", source: "Post", method: "FindBySlug", input: "req.Slug", output: "post", error: "Post not found"},
+		{action: "flow.Call", op: "Blog.GetPost", args: {slug: "req.Slug"}, output: "post"},
 		{action: "mapping.Assign", to: "resp.ID", value: "post.ID"},
 		{action: "mapping.Assign", to: "resp.Title", value: "post.Title"},
 		{action: "mapping.Assign", to: "resp.Status", value: "post.Status"},

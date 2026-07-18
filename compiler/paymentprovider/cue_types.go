@@ -77,6 +77,7 @@ type ProviderSpec struct {
 
 	AuthFlow  string `json:"auth_flow"`
 	APICompat string `json:"api_compat"`
+	CheckoutCompat string `json:"checkout_compat"`
 
 	ResponseLoggingMode string `json:"response_logging_mode"`
 

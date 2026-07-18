@@ -102,6 +102,18 @@ import "github.com/strogmv/ang/cue/project"
 	internal?: bool | *true
 }
 
+// #FlowFragment is a reusable, domain-neutral sequence of flow steps.
+//
+// Use CUE's list.Concat to compose fragments into an operation:
+//
+//   _validate: schema.#FlowFragment & [{ action: "logic.Check", ... }]
+//   _persist:  schema.#FlowFragment & [{ action: "repo.Save", ... }]
+//   flow: list.Concat([_validate, _persist])
+//
+// Fragments deliberately do not introduce a runtime call boundary: they keep
+// the parent operation's variables and transaction scope.
+#FlowFragment: [...#FlowStep]
+
 #CodeBlock: {
 	lang: string
 	tx?: bool
@@ -1312,6 +1324,10 @@ import "github.com/strogmv/ang/cue/project"
 	format?: string
 	// IANA timezone to convert to before formatting (e.g. "user.Timezone" or "\"Europe/Moscow\"")
 	timezone?: string
+	// How to format a zero time. "format" preserves Go's default formatting;
+	// "empty" emits an empty string instead. This is useful for optional
+	// timestamps in DTOs, audit diffs, and internal subflows.
+	zero?: "format" | "empty" | *"format"
 }
 
 #TimeInZoneStep: {

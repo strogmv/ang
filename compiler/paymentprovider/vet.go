@@ -275,6 +275,52 @@ func vetCapabilities(spec *ProviderSpec) []VetIssue {
 			}
 		}
 	}
+	issues = append(issues, vetRedirectCheckout(spec)...)
+	return issues
+}
+
+func vetRedirectCheckout(spec *ProviderSpec) []VetIssue {
+	if !strings.EqualFold(spec.APICompat, "redirect_checkout") {
+		return nil
+	}
+	var issues []VetIssue
+	if !spec.HasPayin {
+		issues = append(issues, VetIssue{
+			Code:     "PP011",
+			Severity: "error",
+			Message:  "redirect_checkout requires has_payin: true",
+		})
+	}
+	if ps := strings.TrimSpace(spec.PaymentSource); ps != "apm" && ps != "both" {
+		issues = append(issues, VetIssue{
+			Code:     "PP011",
+			Severity: "warning",
+			Message:  "redirect_checkout expects payment_source apm or both",
+		})
+	}
+	if !spec.Interfaces.TDSRedirector {
+		issues = append(issues, VetIssue{
+			Code:     "PP011",
+			Severity: "error",
+			Message:  "redirect_checkout requires interfaces.tds_redirector: true",
+			Hint:     "Use schema.ProfileRedirectCheckout or enable tds_redirector.",
+		})
+	}
+	if _, ok := spec.Endpoints["payin"]; !ok {
+		issues = append(issues, VetIssue{
+			Code:     "PP011",
+			Severity: "warning",
+			Message:  "redirect_checkout: endpoints.payin is not defined",
+			Hint:     "Fill payin endpoint from Expert knowledge/data after PM sign-off.",
+		})
+	}
+	if spec.PayinRequest == nil {
+		issues = append(issues, VetIssue{
+			Code:     "PP011",
+			Severity: "warning",
+			Message:  "redirect_checkout: payin_request is recommended for generated checkout",
+		})
+	}
 	return issues
 }
 
