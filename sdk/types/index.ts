@@ -311,7 +311,7 @@ export interface LookupPostForAssistantResponse {
   /**  */
   title: string;
   /**  */
-  status: string;
+  status?: string;
   /**  */
   excerpt?: string;
 }
@@ -396,6 +396,10 @@ export interface GetPostResponse {
   title: string;
   /**  */
   content: string;
+  /**  */
+  status?: string;
+  /**  */
+  excerpt?: string;
   /**  */
   authorId: string;
   /**  */

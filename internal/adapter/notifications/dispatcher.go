@@ -322,6 +322,12 @@ func (s *emailSink) Send(ctx context.Context, msg port.NotificationMessage) erro
 	if templateID == "" {
 		return fmt.Errorf("email template is required")
 	}
+	// locale-aware template resolution: try templateID.locale first, fallback to templateID
+	if locale := strings.TrimSpace(msg.Locale); locale != "" {
+		if localized := templateID + "." + locale; emailtemplates.Has(localized) {
+			templateID = localized
+		}
+	}
 	data := msg.Payload
 	if data == nil {
 		data = msg.Metadata
@@ -378,9 +384,11 @@ func resolveMailer(cfg *config.Config, driver string) (port.Mailer, string, erro
 }
 
 func normalizeMailerProvider(driver string, cfg *config.Config) string {
+	// Runtime EMAIL_PROVIDER env wins so the email provider can be switched
+	// (e.g. smtp -> ses) without a rebuild; the compiled driver is the default.
 	return strings.ToLower(strings.TrimSpace(firstNonEmpty(
-		strings.TrimSpace(driver),
 		strings.TrimSpace(os.Getenv("EMAIL_PROVIDER")),
+		strings.TrimSpace(driver),
 		strings.TrimSpace(cfg.EmailProvider),
 		"noop",
 	)))

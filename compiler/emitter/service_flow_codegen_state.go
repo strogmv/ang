@@ -4,16 +4,15 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
 	"github.com/strogmv/ang/compiler/flowir"
 )
 
-func renderFlowStepState(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
+func renderTypedStepState(st *flowRenderState, step flowir.TypedStep, indent int, sfx string) (string, bool) {
 	pad := strings.Repeat("\t", indent)
 
-	switch step.Action {
+	switch step.Name {
 	case "state.Get":
-		typed, err := flowir.DecodeAs[flowir.StateGet](step)
+		typed, err := typedActionAs[flowir.StateGet](step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, "state.Get", err.Error()), true
 		}
@@ -60,7 +59,7 @@ func renderFlowStepState(st *flowRenderState, step normalizer.FlowStep, indent i
 		return b.String(), true
 
 	case "state.Set":
-		typed, err := flowir.DecodeAs[flowir.StateSet](step)
+		typed, err := typedActionAs[flowir.StateSet](step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, "state.Set", err.Error()), true
 		}
@@ -86,7 +85,7 @@ func renderFlowStepState(st *flowRenderState, step normalizer.FlowStep, indent i
 		return b.String(), true
 
 	case "state.Delete":
-		typed, err := flowir.DecodeAs[flowir.StateDelete](step)
+		typed, err := typedActionAs[flowir.StateDelete](step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, "state.Delete", err.Error()), true
 		}

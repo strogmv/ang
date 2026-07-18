@@ -81,9 +81,9 @@ func TestEmitAssistantChatWithTools_MethodTemplateFormats(t *testing.T) {
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, TemplateContext{
-		Service: assistant,
-		Method:  method,
-		Imports: []string{`"context"`, `"encoding/json"`, `"fmt"`, `"net/http"`, `"os"`, `"strings"`, `"time"`, `"bytes"`, `"io"`},
+		Service:  assistant,
+		Method:   method,
+		Imports:  []string{`"context"`, `"encoding/json"`, `"fmt"`, `"net/http"`, `"os"`, `"strings"`, `"time"`, `"bytes"`, `"io"`},
 		GoModule: "github.com/strogmv/ang",
 	}); err != nil {
 		t.Fatalf("execute method template: %v", err)

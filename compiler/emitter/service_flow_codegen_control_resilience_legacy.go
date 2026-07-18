@@ -5,13 +5,14 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/strogmv/ang-ir/normalizer"
 	"github.com/strogmv/ang/compiler/flowir"
 )
 
 func renderFlowTryLegacy(st *flowRenderState, action flowir.FlowTry, indent int, sfx string) string {
 	pad := strings.Repeat("\t", indent)
-	doSteps, catchSteps := action.Steps, action.Catch
-	if len(doSteps) == 0 {
+	var doSteps, catchSteps []normalizer.FlowStep
+	if flowNestedStepCount(st, "_do", doSteps) == 0 {
 		return ""
 	}
 	retries, backoffMs := action.Retries, action.BackoffMS
@@ -40,7 +41,7 @@ func renderFlowTryLegacy(st *flowRenderState, action flowir.FlowTry, indent int,
 	b.WriteString(fmt.Sprintf("%s\t%s := func() error {\n", pad, tryRunV))
 	tryState := cloneFlowState(st)
 	tryState.returnErrOnly = true
-	b.WriteString(renderFlowSteps(tryState, doSteps, indent+2))
+	b.WriteString(renderFlowNestedSteps(tryState, "_do", doSteps, indent+2))
 	b.WriteString(fmt.Sprintf("%s\t\treturn nil\n", pad))
 	b.WriteString(fmt.Sprintf("%s\t}\n", pad))
 	b.WriteString(fmt.Sprintf("%s\tvar %s error\n", pad, tryErrV))
@@ -55,8 +56,8 @@ func renderFlowTryLegacy(st *flowRenderState, action flowir.FlowTry, indent int,
 	b.WriteString(fmt.Sprintf("%s\t}\n", pad))
 	b.WriteString(fmt.Sprintf("%s\tif %s != nil {\n", pad, tryErrV))
 	b.WriteString(fmt.Sprintf("%s\t\t_flowLastError = %s\n", pad, tryErrV))
-	if len(catchSteps) > 0 {
-		b.WriteString(renderFlowSteps(cloneFlowState(st), catchSteps, indent+2))
+	if flowNestedStepCount(st, "_catch", catchSteps) > 0 {
+		b.WriteString(renderFlowNestedSteps(cloneFlowState(st), "_catch", catchSteps, indent+2))
 	} else {
 		b.WriteString(errReturn(st, pad+"\t\t", tryErrV))
 	}
@@ -67,8 +68,8 @@ func renderFlowTryLegacy(st *flowRenderState, action flowir.FlowTry, indent int,
 
 func renderFlowRetryLegacy(st *flowRenderState, action flowir.FlowRetry, indent int, sfx string) string {
 	pad := strings.Repeat("\t", indent)
-	doSteps, catchSteps := action.Steps, action.Catch
-	if len(doSteps) == 0 {
+	var doSteps, catchSteps []normalizer.FlowStep
+	if flowNestedStepCount(st, "_do", doSteps) == 0 {
 		return ""
 	}
 	attempts, backoffMs := action.Attempts, action.BackoffMS
@@ -81,7 +82,7 @@ func renderFlowRetryLegacy(st *flowRenderState, action flowir.FlowRetry, indent 
 	b.WriteString(fmt.Sprintf("%s\t%s := func() error {\n", pad, runV))
 	retryState := cloneFlowState(st)
 	retryState.returnErrOnly = true
-	b.WriteString(renderFlowSteps(retryState, doSteps, indent+2))
+	b.WriteString(renderFlowNestedSteps(retryState, "_do", doSteps, indent+2))
 	b.WriteString(fmt.Sprintf("%s\t\treturn nil\n", pad))
 	b.WriteString(fmt.Sprintf("%s\t}\n", pad))
 	b.WriteString(fmt.Sprintf("%s\tvar %s error\n", pad, errV))
@@ -96,8 +97,8 @@ func renderFlowRetryLegacy(st *flowRenderState, action flowir.FlowRetry, indent 
 	b.WriteString(fmt.Sprintf("%s\t}\n", pad))
 	b.WriteString(fmt.Sprintf("%s\tif %s != nil {\n", pad, errV))
 	b.WriteString(fmt.Sprintf("%s\t\t_flowLastError = %s\n", pad, errV))
-	if len(catchSteps) > 0 {
-		b.WriteString(renderFlowSteps(cloneFlowState(st), catchSteps, indent+2))
+	if flowNestedStepCount(st, "_catch", catchSteps) > 0 {
+		b.WriteString(renderFlowNestedSteps(cloneFlowState(st), "_catch", catchSteps, indent+2))
 	} else {
 		b.WriteString(errReturn(st, pad+"\t\t", errV))
 	}
@@ -108,8 +109,8 @@ func renderFlowRetryLegacy(st *flowRenderState, action flowir.FlowRetry, indent 
 
 func renderFlowFallbackLegacy(st *flowRenderState, action flowir.FlowFallback, indent int, sfx string) string {
 	pad := strings.Repeat("\t", indent)
-	mainSteps, fallbackSteps := action.Steps, action.Fallback
-	if len(mainSteps) == 0 || len(fallbackSteps) == 0 {
+	var mainSteps, fallbackSteps []normalizer.FlowStep
+	if flowNestedStepCount(st, "_do", mainSteps) == 0 || flowNestedStepCount(st, "_fallback", fallbackSteps) == 0 {
 		return ""
 	}
 	runV, errV := "_fbRun"+sfx, "_fbErr"+sfx
@@ -118,13 +119,13 @@ func renderFlowFallbackLegacy(st *flowRenderState, action flowir.FlowFallback, i
 	b.WriteString(fmt.Sprintf("%s\t%s := func() error {\n", pad, runV))
 	fbState := cloneFlowState(st)
 	fbState.returnErrOnly = true
-	b.WriteString(renderFlowSteps(fbState, mainSteps, indent+2))
+	b.WriteString(renderFlowNestedSteps(fbState, "_do", mainSteps, indent+2))
 	b.WriteString(fmt.Sprintf("%s\t\treturn nil\n", pad))
 	b.WriteString(fmt.Sprintf("%s\t}\n", pad))
 	b.WriteString(fmt.Sprintf("%s\t%s := %s()\n", pad, errV, runV))
 	b.WriteString(fmt.Sprintf("%s\tif %s != nil {\n", pad, errV))
 	b.WriteString(fmt.Sprintf("%s\t\t_flowLastError = %s\n", pad, errV))
-	b.WriteString(renderFlowSteps(cloneFlowState(st), fallbackSteps, indent+2))
+	b.WriteString(renderFlowNestedSteps(cloneFlowState(st), "_fallback", fallbackSteps, indent+2))
 	b.WriteString(fmt.Sprintf("%s\t}\n", pad))
 	b.WriteString(fmt.Sprintf("%s}\n", pad))
 	return b.String()
@@ -133,8 +134,8 @@ func renderFlowFallbackLegacy(st *flowRenderState, action flowir.FlowFallback, i
 func renderFlowTimeoutLegacy(st *flowRenderState, action flowir.FlowTimeout, indent int, sfx string) string {
 	pad := strings.Repeat("\t", indent)
 	duration := normalizeFlowExpr(action.Duration.Source)
-	doSteps, onTimeout := action.Steps, action.OnTimeout
-	if duration == "" || len(doSteps) == 0 {
+	var doSteps, onTimeout []normalizer.FlowStep
+	if duration == "" || flowNestedStepCount(st, "_do", doSteps) == 0 {
 		return ""
 	}
 	toCtxV, toCancelV, toRunV, toErrV := "_toCtx"+sfx, "_toCancel"+sfx, "_toRun"+sfx, "_toErr"+sfx
@@ -145,15 +146,15 @@ func renderFlowTimeoutLegacy(st *flowRenderState, action flowir.FlowTimeout, ind
 	b.WriteString(fmt.Sprintf("%s\t%s := func(ctx context.Context) error {\n", pad, toRunV))
 	toState := cloneFlowState(st)
 	toState.returnErrOnly = true
-	b.WriteString(renderFlowSteps(toState, doSteps, indent+2))
+	b.WriteString(renderFlowNestedSteps(toState, "_do", doSteps, indent+2))
 	b.WriteString(fmt.Sprintf("%s\t\treturn nil\n", pad))
 	b.WriteString(fmt.Sprintf("%s\t}\n", pad))
 	b.WriteString(fmt.Sprintf("%s\t%s := %s(%s)\n", pad, toErrV, toRunV, toCtxV))
 	b.WriteString(fmt.Sprintf("%s\tif %s != nil {\n", pad, toErrV))
 	b.WriteString(fmt.Sprintf("%s\t\t_flowLastError = %s\n", pad, toErrV))
 	b.WriteString(fmt.Sprintf("%s\t\tif %s.Err() == context.DeadlineExceeded {\n", pad, toCtxV))
-	if len(onTimeout) > 0 {
-		b.WriteString(renderFlowSteps(cloneFlowState(st), onTimeout, indent+3))
+	if flowNestedStepCount(st, "_onTimeout", onTimeout) > 0 {
+		b.WriteString(renderFlowNestedSteps(cloneFlowState(st), "_onTimeout", onTimeout, indent+3))
 	} else {
 		b.WriteString(errReturn(st, pad+"\t\t\t", "errors.New(http.StatusGatewayTimeout, \"TIMEOUT\", \"flow step timed out\")"))
 	}

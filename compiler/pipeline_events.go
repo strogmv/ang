@@ -21,6 +21,7 @@ func emitEventUsageDiagnostics(services []normalizer.Service, events []normalize
 	for _, e := range events {
 		defined[e.Name] = struct{}{}
 	}
+	emitScheduleDiagnostics(services, defined, schedules, opts)
 
 	published := make(map[string]struct{})
 	subscribed := make(map[string]struct{})
@@ -87,6 +88,83 @@ func emitEventUsageDiagnostics(services []normalizer.Service, events []normalize
 			Severity: "warn",
 			Message:  fmt.Sprintf("Event %s is subscribed but never published", name),
 		}, opts)
+	}
+}
+
+// emitScheduleDiagnostics rejects schedules that the generated runtime would
+// otherwise accept but never execute. The scheduler is event-driven: action is
+// descriptive metadata, while publish is the actual trigger delivered to a
+// subscriber in the owning service.
+func emitScheduleDiagnostics(services []normalizer.Service, definedEvents map[string]struct{}, schedules []normalizer.ScheduleDef, opts PipelineOptions) {
+	serviceByName := make(map[string]normalizer.Service, len(services))
+	for _, service := range services {
+		serviceByName[strings.ToLower(strings.TrimSpace(service.Name))] = service
+	}
+
+	for _, schedule := range schedules {
+		serviceName := strings.ToLower(strings.TrimSpace(schedule.Service))
+		service, serviceExists := serviceByName[serviceName]
+		if !serviceExists {
+			recordPipelineDiagnostic(normalizer.Warning{
+				Kind:     "schedule-contract",
+				Code:     "SCHEDULE_SERVICE_UNKNOWN",
+				Severity: "error",
+				Message:  fmt.Sprintf("Schedule %s targets unknown service %s", schedule.Name, schedule.Service),
+				Hint:     "Set service to an existing ANG service.",
+			}, opts)
+		}
+
+		if serviceExists && strings.TrimSpace(schedule.Action) != "" {
+			actionExists := false
+			for _, method := range service.Methods {
+				if method.Name == schedule.Action {
+					actionExists = true
+					break
+				}
+			}
+			if !actionExists {
+				recordPipelineDiagnostic(normalizer.Warning{
+					Kind:     "schedule-contract",
+					Code:     "SCHEDULE_ACTION_UNKNOWN",
+					Severity: "error",
+					Message:  fmt.Sprintf("Schedule %s targets unknown action %s.%s", schedule.Name, schedule.Service, schedule.Action),
+					Hint:     "Use an operation exposed by the target service or remove the stale schedule.",
+				}, opts)
+			}
+		}
+
+		publish := strings.TrimSpace(schedule.Publish)
+		if publish == "" {
+			recordPipelineDiagnostic(normalizer.Warning{
+				Kind:     "schedule-contract",
+				Code:     "SCHEDULE_NO_TRIGGER",
+				Severity: "error",
+				Message:  fmt.Sprintf("Schedule %s has no publish event and would never execute", schedule.Name),
+				Hint:     "Set publish to a scheduler trigger event and subscribe the target operation to it.",
+			}, opts)
+			continue
+		}
+
+		if _, ok := definedEvents[publish]; !ok {
+			recordPipelineDiagnostic(normalizer.Warning{
+				Kind:     "schedule-contract",
+				Code:     "SCHEDULE_EVENT_UNDEFINED",
+				Severity: "error",
+				Message:  fmt.Sprintf("Schedule %s publishes undefined event %s", schedule.Name, publish),
+				Hint:     "Declare the event in cue/events.",
+			}, opts)
+		}
+		if serviceExists {
+			if _, ok := service.Subscribes[publish]; !ok {
+				recordPipelineDiagnostic(normalizer.Warning{
+					Kind:     "schedule-contract",
+					Code:     "SCHEDULE_TRIGGER_UNBOUND",
+					Severity: "error",
+					Message:  fmt.Sprintf("Schedule %s publishes %s but service %s does not subscribe to it", schedule.Name, publish, schedule.Service),
+					Hint:     "Add the event to subscribes on the operation that executes this job.",
+				}, opts)
+			}
+		}
 	}
 }
 

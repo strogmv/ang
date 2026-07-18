@@ -7,6 +7,7 @@ This folder is organized so both humans and AI agents can find the right entry p
 - [Getting Started](./getting-started.md): first run, bootstrap flow, and generated project layout.
 - [Project Understanding Guide](./project-understanding.md): architecture map and recommended reading order before writing docs.
 - [Commands](./commands.md): CLI reference with practical examples.
+- [Expert Report Versioning](./expert-report-versioning.md): compatibility and determinism policy for `ang/expert-report/v1`.
 - [Import Report](./import-report.md): JSON report schema and triage workflow for `ang import java`.
 - [Java -> CUE E2E](./java-to-cue-e2e.md): practical migration flow from Java sources to CUE contracts.
 - [Java Parsing Improvements](./java-parsing-improvements.md): roadmap for higher-fidelity Java -> IR -> CUE extraction.

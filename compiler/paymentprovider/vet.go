@@ -206,6 +206,28 @@ func vetCallbackSignature(spec *ProviderSpec, secretKeys map[string]struct{}) []
 			Hint:     "Add signature key to secrets.parts (e.g. signatureKey).",
 		}}
 	}
+	format := strings.TrimSpace(spec.CallbackSignature.Format)
+	if format == "username_key_form_b64" {
+		userKey := strings.TrimSpace(spec.CallbackSignature.UsernameKey)
+		if userKey == "" {
+			return []VetIssue{{
+				Code:     "PP007",
+				Severity: "error",
+				Message:  "callback_signature.username_key is required for username_key_form_b64",
+			}}
+		}
+		if !hasSecretKey(secretKeys, userKey) {
+			return []VetIssue{{
+				Code:     "PP007",
+				Severity: "error",
+				Message:  fmt.Sprintf("callback_signature.username_key %q not found in secrets.parts", userKey),
+			}}
+		}
+		return nil
+	}
+	if format == "rsa_pkcs1v15_body" || format == "hmac_body" {
+		return nil
+	}
 	if len(spec.CallbackSignature.Fields) == 0 {
 		return []VetIssue{{
 			Code:     "PP007",
@@ -252,6 +274,52 @@ func vetCapabilities(spec *ProviderSpec) []VetIssue {
 				break
 			}
 		}
+	}
+	issues = append(issues, vetRedirectCheckout(spec)...)
+	return issues
+}
+
+func vetRedirectCheckout(spec *ProviderSpec) []VetIssue {
+	if !strings.EqualFold(spec.APICompat, "redirect_checkout") {
+		return nil
+	}
+	var issues []VetIssue
+	if !spec.HasPayin {
+		issues = append(issues, VetIssue{
+			Code:     "PP011",
+			Severity: "error",
+			Message:  "redirect_checkout requires has_payin: true",
+		})
+	}
+	if ps := strings.TrimSpace(spec.PaymentSource); ps != "apm" && ps != "both" {
+		issues = append(issues, VetIssue{
+			Code:     "PP011",
+			Severity: "warning",
+			Message:  "redirect_checkout expects payment_source apm or both",
+		})
+	}
+	if !spec.Interfaces.TDSRedirector {
+		issues = append(issues, VetIssue{
+			Code:     "PP011",
+			Severity: "error",
+			Message:  "redirect_checkout requires interfaces.tds_redirector: true",
+			Hint:     "Use schema.ProfileRedirectCheckout or enable tds_redirector.",
+		})
+	}
+	if _, ok := spec.Endpoints["payin"]; !ok {
+		issues = append(issues, VetIssue{
+			Code:     "PP011",
+			Severity: "warning",
+			Message:  "redirect_checkout: endpoints.payin is not defined",
+			Hint:     "Fill payin endpoint from Expert knowledge/data after PM sign-off.",
+		})
+	}
+	if spec.PayinRequest == nil {
+		issues = append(issues, VetIssue{
+			Code:     "PP011",
+			Severity: "warning",
+			Message:  "redirect_checkout: payin_request is recommended for generated checkout",
+		})
 	}
 	return issues
 }

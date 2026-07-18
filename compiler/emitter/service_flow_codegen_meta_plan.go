@@ -4,20 +4,19 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
-func renderFlowStepMetaPlan(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
-	_ = child
+func renderTypedStepMetaPlan(st *flowRenderState, step flowir.TypedStep, indent int, sfx string) (string, bool) {
 	pad := strings.Repeat("\t", indent)
 
-	switch step.Action {
+	switch step.Name {
 	case "plan.BuildAutomata":
-		input := arg("input")
-		output := arg("output")
-		if input == "" || output == "" {
-			return "", true
+		typed, err := typedActionAs[flowir.PlanBuildAutomata](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
+		input, output := normalizeFlowExpr(typed.Input.Source), typed.Output
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -31,12 +30,11 @@ func renderFlowStepMetaPlan(st *flowRenderState, step normalizer.FlowStep, inden
 		return code, true
 
 	case "plan.BuildMicroPlan":
-		usecases := arg("usecases")
-		automata := arg("automata")
-		output := arg("output")
-		if usecases == "" || automata == "" || output == "" {
-			return "", true
+		typed, err := typedActionAs[flowir.PlanBuildMicroPlan](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
+		usecases, automata, output := normalizeFlowExpr(typed.Usecases.Source), normalizeFlowExpr(typed.Automata.Source), typed.Output
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -50,16 +48,11 @@ func renderFlowStepMetaPlan(st *flowRenderState, step normalizer.FlowStep, inden
 		return code, true
 
 	case "cue.EmitProject":
-		usecases := arg("usecases")
-		microPlan := arg("micro_plan")
-		layout := arg("layout")
-		if layout == "" {
-			layout = `"split"`
+		typed, err := typedActionAs[flowir.CueEmitProject](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		output := arg("output")
-		if usecases == "" || microPlan == "" || output == "" {
-			return "", true
-		}
+		usecases, microPlan, layout, output := normalizeFlowExpr(typed.Usecases.Source), normalizeFlowExpr(typed.MicroPlan.Source), normalizeFlowExpr(typed.Layout.Source), typed.Output
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -73,15 +66,11 @@ func renderFlowStepMetaPlan(st *flowRenderState, step normalizer.FlowStep, inden
 		return code, true
 
 	case "cue.ValidateProject":
-		files := arg("files")
-		output := arg("output")
-		if files == "" || output == "" {
-			return "", true
+		typed, err := typedActionAs[flowir.CueValidateProject](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		binary := arg("binary")
-		if binary == "" {
-			binary = `"ang"`
-		}
+		files, binary, output := normalizeFlowExpr(typed.Files.Source), normalizeFlowExpr(typed.Binary.Source), typed.Output
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -95,16 +84,11 @@ func renderFlowStepMetaPlan(st *flowRenderState, step normalizer.FlowStep, inden
 		return code, true
 
 	case "cue.WriteProjectFiles":
-		root := arg("root")
-		files := arg("files")
-		output := arg("output")
-		if root == "" || files == "" || output == "" {
-			return "", true
+		typed, err := typedActionAs[flowir.CueWriteProjectFiles](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		mode := arg("mode")
-		if mode == "" {
-			mode = `"upsert"`
-		}
+		root, files, mode, output := normalizeFlowExpr(typed.Root.Source), normalizeFlowExpr(typed.Files.Source), normalizeFlowExpr(typed.Mode.Source), typed.Output
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -114,14 +98,14 @@ func renderFlowStepMetaPlan(st *flowRenderState, step normalizer.FlowStep, inden
 		st.types[output] = "map[string]any"
 		resV := "_cueWrite" + sfx
 		errV := "_cueWriteErr" + sfx
-		code := renderCueWriteProjectFilesCode(st, pad, root, files, mode, output, assign, resV, errV, step.Args["prefixes"])
+		code := renderCueWriteProjectFilesCode(st, pad, root, files, mode, output, assign, resV, errV, typed.Prefixes)
 		return code, true
 	}
 
 	return "", false
 }
 
-func renderCueWriteProjectFilesCode(st *flowRenderState, pad, root, files, mode, output, assign, resV, errV string, prefixesArg any) string {
+func renderCueWriteProjectFilesCode(st *flowRenderState, pad, root, files, mode, output, assign, resV, errV string, prefixes []string) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("%s// cue.WriteProjectFiles\n", pad))
 	b.WriteString(fmt.Sprintf("%s%s, %s := func() (map[string]any, error) {\n", pad, resV, errV))
@@ -154,21 +138,8 @@ func renderCueWriteProjectFilesCode(st *flowRenderState, pad, root, files, mode,
 	b.WriteString(fmt.Sprintf("%s\t\treturn p, nil\n", pad))
 	b.WriteString(fmt.Sprintf("%s\t}\n", pad))
 	b.WriteString(fmt.Sprintf("%s\t_prefixes := make([]string, 0)\n", pad))
-	switch v := prefixesArg.(type) {
-	case []string:
-		if len(v) > 0 {
-			for _, p := range v {
-				b.WriteString(fmt.Sprintf("%s\t_prefixes = append(_prefixes, %q)\n", pad, p))
-			}
-		}
-	case []any:
-		if len(v) > 0 {
-			for _, raw := range v {
-				if s, ok := raw.(string); ok {
-					b.WriteString(fmt.Sprintf("%s\t_prefixes = append(_prefixes, %q)\n", pad, s))
-				}
-			}
-		}
+	for _, prefix := range prefixes {
+		b.WriteString(fmt.Sprintf("%s\t_prefixes = append(_prefixes, %q)\n", pad, prefix))
 	}
 	b.WriteString(fmt.Sprintf("%s\tif _mode == \"replace_prefix\" && len(_prefixes) == 0 {\n", pad))
 	b.WriteString(fmt.Sprintf("%s\t\t_seen := map[string]struct{}{}\n", pad))

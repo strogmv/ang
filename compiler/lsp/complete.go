@@ -8,6 +8,7 @@ import (
 	sharedeffects "github.com/strogmv/ang-ir/effects"
 	"github.com/strogmv/ang-ir/flowfn"
 	"github.com/strogmv/ang-ir/flowsem"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 func CompletionItems(text string, pos Position) []CompletionItem {
@@ -15,9 +16,16 @@ func CompletionItems(text string, pos Position) []CompletionItem {
 	catalog := flowsem.ActionCatalog()
 	items := make([]CompletionItem, 0, len(catalog))
 	for _, entry := range catalog {
+		rendererGroup := ""
+		if spec, ok := flowir.Lookup(entry.Name); ok {
+			rendererGroup = string(spec.RendererGroup)
+		}
 		detail := "ANG flow action"
 		if entry.Effect != "" {
 			detail = fmt.Sprintf("ANG flow action · effect=%s", entry.Effect)
+		}
+		if rendererGroup != "" {
+			detail += fmt.Sprintf(" · renderer=%s", rendererGroup)
 		}
 		unavailableReason := actionUnavailableReason(entry, ctx)
 		deprecated := unavailableReason != ""
@@ -25,6 +33,9 @@ func CompletionItems(text string, pos Position) []CompletionItem {
 			detail = "Unavailable here"
 			if entry.Effect != "" {
 				detail += fmt.Sprintf(" · effect=%s", entry.Effect)
+			}
+			if rendererGroup != "" {
+				detail += fmt.Sprintf(" · renderer=%s", rendererGroup)
 			}
 			detail += " · " + unavailableReason
 		}

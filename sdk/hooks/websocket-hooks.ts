@@ -113,7 +113,7 @@ export const useWebsocketSubscription = <K extends WSMessage['type']>(
     const unsubs = (defaultWsClients as unknown as ReadonlyArray<WebSocketClient<WSMessage>>)
       .map((client) => subscribeToWebSocketClient(client, topic, (payload) => {
         const emit = onMessageRef.current as unknown as (payload: Extract<WSMessage, { type: K }>['payload']) => void;
-        emit(payload as Extract<WSMessage, { type: K }>['payload']);
+		emit(payload as unknown as Extract<WSMessage, { type: K }>['payload']);
       }));
     return () => {
       for (const unsub of unsubs) {

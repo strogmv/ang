@@ -14,14 +14,10 @@ func renderFlowParallel(st *flowRenderState, branches map[string][]normalizer.Fl
 	pad := strings.Repeat("\t", indent)
 	pfx := "_fp" + sfx // e.g. "_fp_0"
 
-	if len(branches) == 0 {
+	keys := flowBranchNames(st, branches)
+	if len(keys) == 0 {
 		return ""
 	}
-	keys := make([]string, 0, len(branches))
-	for k := range branches {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
 
 	// Probe branches to find new output variables; pre-declare them in outer scope.
 	outerDeclared := make(map[string]bool, len(st.declared))
@@ -35,7 +31,7 @@ func renderFlowParallel(st *flowRenderState, branches map[string][]normalizer.Fl
 	newVars := make(map[string]newVar)
 	for _, k := range keys {
 		probeState := cloneFlowState(st)
-		_ = renderFlowSteps(probeState, branches[k], indent+1)
+		_ = renderFlowBranchSteps(probeState, k, branches[k], indent+1)
 		for varName := range probeState.declared {
 			if outerDeclared[varName] {
 				continue
@@ -78,7 +74,7 @@ func renderFlowParallel(st *flowRenderState, branches map[string][]normalizer.Fl
 		b.WriteString(fmt.Sprintf("%s\tdefer %sWg.Done()\n", pad, pfx))
 		b.WriteString(fmt.Sprintf("%s\tctx := %sCtx // shadow outer ctx; cancelled if sibling fails\n", pad, pfx))
 		b.WriteString(fmt.Sprintf("%s\t_ = ctx\n", pad))
-		b.WriteString(renderFlowSteps(branchState, branchSteps, indent+1))
+		b.WriteString(renderFlowBranchSteps(branchState, k, branchSteps, indent+1))
 		b.WriteString(fmt.Sprintf("%s}() // branch: %s\n", pad, k))
 	}
 
@@ -95,14 +91,10 @@ func renderFlowJoin(st *flowRenderState, branches map[string][]normalizer.FlowSt
 	pad := strings.Repeat("\t", indent)
 	pfx := "_fj" + sfx // e.g. "_fj_0"
 
-	if len(branches) == 0 {
+	keys := flowBranchNames(st, branches)
+	if len(keys) == 0 {
 		return ""
 	}
-	keys := make([]string, 0, len(branches))
-	for k := range branches {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
 
 	// Probe branches to find new output variables; pre-declare them in outer scope.
 	outerDeclared := make(map[string]bool, len(st.declared))
@@ -116,7 +108,7 @@ func renderFlowJoin(st *flowRenderState, branches map[string][]normalizer.FlowSt
 	newVars := make(map[string]newVar)
 	for _, k := range keys {
 		probeState := cloneFlowState(st)
-		_ = renderFlowSteps(probeState, branches[k], indent+1)
+		_ = renderFlowBranchSteps(probeState, k, branches[k], indent+1)
 		for varName := range probeState.declared {
 			if outerDeclared[varName] {
 				continue
@@ -156,7 +148,7 @@ func renderFlowJoin(st *flowRenderState, branches map[string][]normalizer.FlowSt
 		b.WriteString(fmt.Sprintf("%sgo func() {\n", pad))
 		b.WriteString(fmt.Sprintf("%s\tdefer %sWg.Done()\n", pad, pfx))
 		b.WriteString(fmt.Sprintf("%s\t_ = ctx\n", pad))
-		b.WriteString(renderFlowSteps(branchState, branchSteps, indent+1))
+		b.WriteString(renderFlowBranchSteps(branchState, k, branchSteps, indent+1))
 		b.WriteString(fmt.Sprintf("%s}() // branch: %s\n", pad, k))
 	}
 
@@ -177,14 +169,10 @@ func renderFlowRace(st *flowRenderState, branches map[string][]normalizer.FlowSt
 	pad := strings.Repeat("\t", indent)
 	pfx := "_fr" + sfx // e.g. "_fr_0"
 
-	if len(branches) == 0 {
+	keys := flowBranchNames(st, branches)
+	if len(keys) == 0 {
 		return ""
 	}
-	keys := make([]string, 0, len(branches))
-	for k := range branches {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
 
 	// Probe all branches to find new output variables; pre-declare them in outer scope
 	// so all competing goroutines can write to them.
@@ -199,7 +187,7 @@ func renderFlowRace(st *flowRenderState, branches map[string][]normalizer.FlowSt
 	newVars := make(map[string]newVar)
 	for _, k := range keys {
 		probeState := cloneFlowState(st)
-		_ = renderFlowSteps(probeState, branches[k], indent+1)
+		_ = renderFlowBranchSteps(probeState, k, branches[k], indent+1)
 		for varName := range probeState.declared {
 			if outerDeclared[varName] {
 				continue
@@ -242,7 +230,7 @@ func renderFlowRace(st *flowRenderState, branches map[string][]normalizer.FlowSt
 		b.WriteString(fmt.Sprintf("%s\tdefer %sWg.Done()\n", pad, pfx))
 		b.WriteString(fmt.Sprintf("%s\tctx := %sCtx\n", pad, pfx))
 		b.WriteString(fmt.Sprintf("%s\t_ = ctx\n", pad))
-		b.WriteString(renderFlowSteps(branchState, branchSteps, indent+1))
+		b.WriteString(renderFlowBranchSteps(branchState, k, branchSteps, indent+1))
 		// Win block: first branch to reach this point claims the win and cancels others.
 		b.WriteString(fmt.Sprintf("%s\t%sMu.Lock()\n", pad, pfx))
 		b.WriteString(fmt.Sprintf("%s\tif !%sWon {\n", pad, pfx))

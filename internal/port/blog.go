@@ -30,7 +30,7 @@ type Blog interface {
 
 // Request/Response DTOs
 type ArchivePostRequest struct {
-	ID string `json:"ID"`
+	ID string `json:"id"`
 }
 
 func (d *ArchivePostRequest) Validate() error {
@@ -56,7 +56,7 @@ func (d *CreateCommentRequest) Validate() error {
 }
 
 type CreateCommentResponse struct {
-	ID string `json:"ID"`
+	ID string `json:"id"`
 }
 
 func (d *CreateCommentResponse) Validate() error {
@@ -75,7 +75,7 @@ func (d *CreatePostRequest) Validate() error {
 }
 
 type CreatePostResponse struct {
-	ID   string `json:"ID"`
+	ID   string `json:"id"`
 	Slug string `json:"slug"`
 }
 
@@ -93,7 +93,7 @@ func (d *CreateTagRequest) Validate() error {
 }
 
 type CreateTagResponse struct {
-	ID   string `json:"ID"`
+	ID   string `json:"id"`
 	Slug string `json:"slug"`
 }
 
@@ -102,7 +102,7 @@ func (d *CreateTagResponse) Validate() error {
 }
 
 type DeleteCommentRequest struct {
-	ID     string `json:"ID"`
+	ID     string `json:"id"`
 	UserID string `json:"userId"`
 }
 
@@ -119,7 +119,7 @@ func (d *DeleteCommentResponse) Validate() error {
 }
 
 type DeletePostRequest struct {
-	ID string `json:"ID"`
+	ID string `json:"id"`
 }
 
 func (d *DeletePostRequest) Validate() error {
@@ -135,7 +135,7 @@ func (d *DeletePostResponse) Validate() error {
 }
 
 type DeleteTagRequest struct {
-	ID string `json:"ID"`
+	ID string `json:"id"`
 }
 
 func (d *DeleteTagRequest) Validate() error {
@@ -161,9 +161,11 @@ func (d *GetPostRequest) Validate() error {
 }
 
 type GetPostResponse struct {
-	ID        string                    `json:"ID"`
+	ID        string                    `json:"id"`
 	Title     string                    `json:"title"`
 	Content   string                    `json:"content"`
+	Status    string                    `json:"status"`
+	Excerpt   string                    `json:"excerpt"`
 	AuthorID  string                    `json:"authorId"`
 	CreatedAt string                    `json:"createdAt"`
 	Tags      []GetPostResponseTagsItem `json:"tags"`
@@ -319,7 +321,7 @@ func (d *OnPostUpdatedProjectionResponse) Validate() error {
 }
 
 type PublishPostRequest struct {
-	ID string `json:"ID"`
+	ID string `json:"id"`
 }
 
 func (d *PublishPostRequest) Validate() error {
@@ -335,7 +337,7 @@ func (d *PublishPostResponse) Validate() error {
 }
 
 type SubmitPostRequest struct {
-	ID string `json:"ID"`
+	ID string `json:"id"`
 }
 
 func (d *SubmitPostRequest) Validate() error {
@@ -351,7 +353,7 @@ func (d *SubmitPostResponse) Validate() error {
 }
 
 type UpdateCommentRequest struct {
-	ID      string `json:"ID"`
+	ID      string `json:"id"`
 	Content string `json:"content"`
 	UserID  string `json:"userId"`
 }
@@ -369,7 +371,7 @@ func (d *UpdateCommentResponse) Validate() error {
 }
 
 type UpdatePostRequest struct {
-	ID      string `json:"ID"`
+	ID      string `json:"id"`
 	Title   string `json:"title"`
 	Content string `json:"content"`
 }
@@ -387,7 +389,7 @@ func (d *UpdatePostResponse) Validate() error {
 }
 
 type UpdateTagRequest struct {
-	ID          string `json:"ID"`
+	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
 }
@@ -405,7 +407,7 @@ func (d *UpdateTagResponse) Validate() error {
 }
 
 type GetPostResponseTagsItem struct {
-	ID   string `json:"ID"`
+	ID   string `json:"id"`
 	Name string `json:"name"`
 	Slug string `json:"slug"`
 }
@@ -415,7 +417,7 @@ func (d *GetPostResponseTagsItem) Validate() error {
 }
 
 type ListCommentsResponseData struct {
-	ID        string `json:"ID"`
+	ID        string `json:"id"`
 	Content   string `json:"content"`
 	UserID    string `json:"userId"`
 	CreatedAt string `json:"createdAt"`
@@ -426,7 +428,7 @@ func (d *ListCommentsResponseData) Validate() error {
 }
 
 type ListMyPostsResponseData struct {
-	ID        string `json:"ID"`
+	ID        string `json:"id"`
 	Title     string `json:"title"`
 	Status    string `json:"status"`
 	CreatedAt string `json:"createdAt"`
@@ -437,7 +439,7 @@ func (d *ListMyPostsResponseData) Validate() error {
 }
 
 type ListPostsResponseData struct {
-	ID        string `json:"ID"`
+	ID        string `json:"id"`
 	Title     string `json:"title"`
 	Slug      string `json:"slug"`
 	AuthorID  string `json:"authorId"`
@@ -449,7 +451,7 @@ func (d *ListPostsResponseData) Validate() error {
 }
 
 type ListTagsResponseData struct {
-	ID          string `json:"ID"`
+	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Slug        string `json:"slug"`
 	Description string `json:"description"`

@@ -4,19 +4,17 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
 	"github.com/strogmv/ang/compiler/flowir"
 )
 
-func renderFlowStepPolicy(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
-	_ = child
+func renderTypedStepPolicy(st *flowRenderState, step flowir.TypedStep, indent int, sfx string) (string, bool) {
 	pad := strings.Repeat("\t", indent)
 
-	switch step.Action {
+	switch step.Name {
 	case "policy.Check":
-		typed, err := flowir.DecodeAs[flowir.PolicyCheck](step)
+		typed, err := typedActionAs[flowir.PolicyCheck](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		policyName, userExpr, output := typed.Policy, normalizeFlowExpr(typed.User.Source), typed.Output
 		statusExpr, codeExpr, throwExpr, companyExpr := normalizeFlowExpr(typed.Status.Source), normalizeFlowExpr(typed.Code.Source), normalizeFlowExpr(typed.Throw.Source), normalizeFlowExpr(typed.CompanyID.Source)
@@ -97,9 +95,9 @@ func renderFlowStepPolicy(st *flowRenderState, step normalizer.FlowStep, indent 
 		return b.String(), true
 
 	case "policy.Evaluate", "policy.Require", "policy.Decide":
-		typed, err := flowir.DecodeAs[flowir.PolicyDecisionAction](step)
+		typed, err := typedActionAs[flowir.PolicyDecisionAction](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		policyKey, subject, resource, operation, tenant, attrs, ctxExpr := normalizeFlowExpr(typed.PolicyKey.Source), normalizeFlowExpr(typed.Subject.Source), normalizeFlowExpr(typed.Resource.Source), normalizeFlowExpr(typed.Operation.Source), normalizeFlowExpr(typed.Tenant.Source), normalizeFlowExpr(typed.Attrs.Source), normalizeFlowExpr(typed.Context.Source)
 		decisionOut, reasonOut, effectsOut, output := typed.Decision, typed.Reason, typed.Effects, typed.Output
@@ -179,7 +177,7 @@ func renderFlowStepPolicy(st *flowRenderState, step normalizer.FlowStep, indent 
 		b.WriteString("}\n")
 		b.WriteString(fmt.Sprintf("%s%s, %s := s.policyEngine.Evaluate(ctx, %s)\n", pad, decisionVar, errVar, inputVar))
 		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, errVar))
-		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"%s: %%w\", %s)", step.Action, errVar)))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"%s: %%w\", %s)", step.Name, errVar)))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 
 		if decisionOut != "" {
@@ -195,7 +193,7 @@ func renderFlowStepPolicy(st *flowRenderState, step normalizer.FlowStep, indent 
 			b.WriteString(fmt.Sprintf("%s%s = %s\n", pad, output, decisionVar))
 		}
 
-		if step.Action == "policy.Require" {
+		if step.Name == "policy.Require" {
 			b.WriteString(fmt.Sprintf("%sif !strings.EqualFold(strings.TrimSpace(%s.Decision), \"allow\") {\n", pad, decisionVar))
 			b.WriteString(fmt.Sprintf("%s\t%s := strings.TrimSpace(fmt.Sprint(%s))\n", pad, codeVar, codeExpr))
 			b.WriteString(fmt.Sprintf("%s\tif %s == \"\" { %s = \"POLICY_DENIED\" }\n", pad, codeVar, codeVar))

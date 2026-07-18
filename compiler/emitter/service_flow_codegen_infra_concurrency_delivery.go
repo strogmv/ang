@@ -5,24 +5,22 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
 	"github.com/strogmv/ang/compiler/flowir"
 )
 
-func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
-	_ = child
+func renderTypedStepConcurrencyAndDelivery(st *flowRenderState, step flowir.TypedStep, indent int, sfx string) (string, bool) {
 	pad := strings.Repeat("\t", indent)
 
-	switch step.Action {
+	switch step.Name {
 	case "parallel.Run":
-		typed, err := flowir.DecodeAs[flowir.ParallelRun](step)
+		typed, err := typedActionAs[flowir.ParallelRun](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		branches, maxConcurrency := typed.Branches, typed.MaxConcurrency
+		branches, maxConcurrency := step.Branches, typed.MaxConcurrency
 		keys := make([]string, 0, len(branches))
-		for k := range branches {
-			keys = append(keys, k)
+		for name := range branches {
+			keys = append(keys, name)
 		}
 		sort.Strings(keys)
 
@@ -38,7 +36,7 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		newVars := make(map[string]newVar)
 		for _, k := range keys {
 			probeState := cloneFlowState(st)
-			_ = renderFlowSteps(probeState, branches[k], indent+1)
+			_ = renderFlowBranchSteps(probeState, k, nil, indent+1)
 			for varName := range probeState.declared {
 				if outerDeclared[varName] {
 					continue
@@ -74,7 +72,6 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		b.WriteString(fmt.Sprintf("%s_ = _mu\n", pad))
 
 		for _, k := range keys {
-			branchSteps := branches[k]
 			branchState := cloneFlowState(st)
 			branchState.goroutineMode = true
 			b.WriteString(fmt.Sprintf("%s_wg.Add(1)\n", pad))
@@ -84,7 +81,7 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 			b.WriteString(fmt.Sprintf("%s\tdefer func() { <-_pSem }()\n", pad))
 			b.WriteString(fmt.Sprintf("%s\tctx := _pCtx // shadow outer ctx; cancelled if sibling fails\n", pad))
 			b.WriteString(fmt.Sprintf("%s\t_ = ctx\n", pad))
-			b.WriteString(renderFlowSteps(branchState, branchSteps, indent+1))
+			b.WriteString(renderFlowBranchSteps(branchState, k, nil, indent+1))
 			b.WriteString(fmt.Sprintf("%s}() // branch: %s\n", pad, k))
 		}
 
@@ -95,13 +92,11 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		return b.String(), true
 
 	case "pdf.Render":
-		tmplName := arg("template")
-		data := arg("data")
-		output := arg("output")
-		if tmplName == "" || data == "" || output == "" {
-			return "", true
+		typed, err := typedActionAs[flowir.PDFRender](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		_ = tmplName
+		data, output := normalizeFlowExpr(typed.Data.Source), typed.Output
 		assign := ":="
 		if st.declared[output] {
 			assign = "="
@@ -118,9 +113,9 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		return b.String(), true
 
 	case "webhook.Send":
-		typed, err := flowir.DecodeAs[flowir.WebhookSend](step)
+		typed, err := typedActionAs[flowir.WebhookSend](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		url, payload, event, retries := normalizeFlowExpr(typed.URL.Source), normalizeFlowExpr(typed.Payload.Source), normalizeFlowExpr(typed.Event.Source), typed.Retries
 		var b strings.Builder
@@ -165,9 +160,9 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		return b.String(), true
 
 	case "webhook.VerifySignature":
-		typed, err := flowir.DecodeAs[flowir.WebhookVerifySignature](step)
+		typed, err := typedActionAs[flowir.WebhookVerifySignature](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		payload, signature, algorithm, secretExpr, throwExpr, output, strict := normalizeFlowExpr(typed.Payload.Source), normalizeFlowExpr(typed.Signature.Source), normalizeFlowExpr(typed.Algorithm.Source), normalizeFlowExpr(typed.Secret.Source), normalizeFlowExpr(typed.Throw.Source), typed.Output, typed.Strict
 
@@ -223,9 +218,9 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		return b.String(), true
 
 	case "webhook.Ack":
-		typed, err := flowir.DecodeAs[flowir.WebhookAck](step)
+		typed, err := typedActionAs[flowir.WebhookAck](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		status, body := typed.Status, normalizeFlowExpr(typed.Body.Source)
 		var b strings.Builder
@@ -233,9 +228,9 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		return b.String(), true
 
 	case "queue.Enqueue":
-		typed, err := flowir.DecodeAs[flowir.QueueEnqueue](step)
+		typed, err := typedActionAs[flowir.QueueEnqueue](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		subject, payload, timeout := normalizeFlowExpr(typed.Subject.Source), normalizeFlowExpr(typed.Payload.Source), normalizeFlowExpr(typed.Timeout.Source)
 		queueCtxVar := "_qCtx" + sfx
@@ -255,9 +250,9 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		return b.String(), true
 
 	case "queue.Dequeue":
-		typed, err := flowir.DecodeAs[flowir.QueueDequeue](step)
+		typed, err := typedActionAs[flowir.QueueDequeue](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		subject, output, timeout, ackToken, attempts, backoffMS, jitterMS := normalizeFlowExpr(typed.Subject.Source), typed.Output, normalizeFlowExpr(typed.Timeout.Source), typed.AckToken, typed.Attempts, typed.BackoffMS, typed.JitterMS
 
@@ -321,9 +316,9 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		return b.String(), true
 
 	case "queue.Ack":
-		typed, err := flowir.DecodeAs[flowir.QueueAck](step)
+		typed, err := typedActionAs[flowir.QueueAck](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		subject, messageID := normalizeFlowExpr(typed.Subject.Source), normalizeFlowExpr(typed.MessageID.Source)
 		var b strings.Builder
@@ -333,9 +328,9 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		return b.String(), true
 
 	case "queue.Nack":
-		typed, err := flowir.DecodeAs[flowir.QueueNack](step)
+		typed, err := typedActionAs[flowir.QueueNack](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		subject, messageID, reason := normalizeFlowExpr(typed.Subject.Source), normalizeFlowExpr(typed.MessageID.Source), normalizeFlowExpr(typed.Reason.Source)
 		var b strings.Builder
@@ -345,9 +340,9 @@ func renderFlowStepInfraConcurrencyAndDelivery(st *flowRenderState, step normali
 		return b.String(), true
 
 	case "dlq.Publish":
-		typed, err := flowir.DecodeAs[flowir.DLQPublish](step)
+		typed, err := typedActionAs[flowir.DLQPublish](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		subject, payload, reason := normalizeFlowExpr(typed.Subject.Source), normalizeFlowExpr(typed.Payload.Source), normalizeFlowExpr(typed.Reason.Source)
 		var b strings.Builder

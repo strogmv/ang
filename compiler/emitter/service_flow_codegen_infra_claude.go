@@ -4,30 +4,22 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
-// renderFlowStepInfraClaude handles claude.Chat action.
-func renderFlowStepInfraClaude(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
+// renderTypedStepClaude handles claude.Chat directly from TypedStep.
+func renderTypedStepClaude(st *flowRenderState, step flowir.TypedStep, indent int, sfx string) (string, bool) {
 	pad := strings.Repeat("\t", indent)
 
-	switch step.Action {
+	switch step.Name {
 	case "claude.Chat":
-		system := arg("system")
-		systemContext := arg("system_context")
-		userMessage := arg("user_message")
-		output := arg("output")
-		history := arg("history")
-		model := arg("model")
-		if model == "" {
-			model = `"claude-sonnet-4-6"`
+		typed, decodeErr := typedActionAs[flowir.ClaudeChat](step)
+		if decodeErr != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Name, decodeErr.Error()), true
 		}
-		maxTokens := flowIntArg(step.Args, "max_tokens", 4096)
-		localeExpr := arg("locale")
-		timezoneExpr := arg("timezone")
-		if output == "" {
-			output = "claudeReply"
-		}
+		system, systemContext, userMessage, history, model := normalizeFlowExpr(typed.System.Source), normalizeFlowExpr(typed.SystemContext.Source), normalizeFlowExpr(typed.UserMessage.Source), normalizeFlowExpr(typed.History.Source), normalizeFlowExpr(typed.Model.Source)
+		output, maxTokens := typed.Output, typed.MaxTokens
+		localeExpr, timezoneExpr := normalizeFlowExpr(typed.Locale.Source), normalizeFlowExpr(typed.Timezone.Source)
 		var systemExpr string
 		if system != "" && systemContext != "" {
 			systemExpr = fmt.Sprintf(`%s + "\n\n== Current project CUE content ==\n" + %s`, system, systemContext)

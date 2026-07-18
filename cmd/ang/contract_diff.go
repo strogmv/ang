@@ -14,6 +14,21 @@ type openAPIContractDiff struct {
 	BreakingChanges   []string
 }
 
+// diffOpenAPIContractsWithRecovery lets a fixed generator replace a malformed
+// generated baseline. The current contract is still parsed strictly; only the
+// unusable previous baseline is discarded.
+func diffOpenAPIContractsWithRecovery(previous, current []byte) (openAPIContractDiff, bool, error) {
+	diff, err := diffOpenAPIContracts(previous, current)
+	if err == nil || !strings.HasPrefix(err.Error(), "parse previous OpenAPI") {
+		return diff, false, err
+	}
+	diff, currentErr := diffOpenAPIContracts(nil, current)
+	if currentErr != nil {
+		return openAPIContractDiff{}, false, currentErr
+	}
+	return diff, true, nil
+}
+
 func diffOpenAPIContracts(previous, current []byte) (openAPIContractDiff, error) {
 	before, err := openAPIOperations(previous)
 	if err != nil {

@@ -6,18 +6,19 @@ import (
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
-func renderFlowRecordEvent(st *flowRenderState, indent int, sfx string, arg func(string) string) string {
+func renderFlowRecordEvent(st *flowRenderState, action flowir.FlowRecordEvent, indent int, sfx string) string {
 	pad := strings.Repeat("\t", indent)
-	name := arg("name")
+	name := normalizeFlowExpr(action.Name.Source)
 	if name == "" {
 		return ""
 	}
 	if _, err := parseFlowExprSafe(name); err != nil {
 		return ""
 	}
-	payload := arg("payload")
+	payload := normalizeFlowExpr(action.Payload.Source)
 	if payload == "" {
 		payload = "nil"
 	} else if _, err := parseFlowExprSafe(payload); err != nil {
@@ -31,7 +32,7 @@ func renderFlowRecordEvent(st *flowRenderState, indent int, sfx string, arg func
 	b.WriteString(fmt.Sprintf("%s\t_flowHistory = append(_flowHistory, %s)\n", pad, evVar))
 	b.WriteString(fmt.Sprintf("%s}\n", pad))
 
-	if output := arg("output"); output != "" {
+	if output := action.Output; output != "" {
 		assignLine, ok := renderFlowOutputAssign(st, indent, output, evVar, "map[string]any")
 		if !ok {
 			return ""
@@ -41,19 +42,19 @@ func renderFlowRecordEvent(st *flowRenderState, indent int, sfx string, arg func
 	return b.String()
 }
 
-func renderFlowHistoryGet(st *flowRenderState, indent int, sfx string, arg func(string) string) string {
+func renderFlowHistoryGet(st *flowRenderState, action flowir.FlowHistoryGet, indent int, sfx string) string {
 	pad := strings.Repeat("\t", indent)
-	output := arg("output")
+	output := action.Output
 	if output == "" {
 		return ""
 	}
-	filterName := arg("name")
+	filterName := normalizeFlowExpr(action.Name.Source)
 	if filterName != "" {
 		if _, err := parseFlowExprSafe(filterName); err != nil {
 			return ""
 		}
 	}
-	limit := arg("limit")
+	limit := normalizeFlowExpr(action.Limit.Source)
 	if limit != "" {
 		if _, err := parseFlowExprSafe(limit); err != nil {
 			return ""
@@ -89,9 +90,9 @@ func renderFlowHistoryGet(st *flowRenderState, indent int, sfx string, arg func(
 	return b.String()
 }
 
-func renderFlowReplay(st *flowRenderState, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) string {
+func renderFlowReplay(st *flowRenderState, action flowir.FlowReplay, indent int, sfx string) string {
 	pad := strings.Repeat("\t", indent)
-	historyExpr := arg("history")
+	historyExpr := normalizeFlowExpr(action.History.Source)
 	if historyExpr == "" {
 		return ""
 	}
@@ -121,30 +122,29 @@ func renderFlowReplay(st *flowRenderState, indent int, sfx string, arg func(stri
 	b.WriteString(fmt.Sprintf("%s\t}\n", pad))
 	b.WriteString(fmt.Sprintf("%s}\n", pad))
 
-	onMismatch := child("_onMismatch")
-	doSteps := child("_do")
+	var onMismatch, doSteps []normalizer.FlowStep
 
 	b.WriteString(fmt.Sprintf("%sif !%s {\n", pad, okVar))
-	if len(onMismatch) > 0 {
-		b.WriteString(renderFlowSteps(cloneFlowState(st), onMismatch, indent+1))
+	if flowNestedStepCount(st, "_onMismatch", onMismatch) > 0 {
+		b.WriteString(renderFlowNestedSteps(cloneFlowState(st), "_onMismatch", onMismatch, indent+1))
 	} else {
 		b.WriteString(errReturn(st, pad+"\t", "errors.New(http.StatusBadRequest, \"INVALID_REPLAY_HISTORY\", \"flow.Replay history must be []map[string]any\")"))
 	}
 	b.WriteString(fmt.Sprintf("%s} else {\n", pad))
 	b.WriteString(fmt.Sprintf("%s\t_flowHistory = append(make([]map[string]any, 0, len(%s)), %s...)\n", pad, itemsVar, itemsVar))
 
-	if output := arg("output"); output != "" {
+	if output := action.Output; output != "" {
 		assignLine, ok := renderFlowOutputAssign(st, indent+1, output, "_flowHistory", "[]map[string]any")
 		if !ok {
 			return ""
 		}
 		b.WriteString(assignLine)
 	}
-	if len(doSteps) > 0 {
+	if flowNestedStepCount(st, "_do", doSteps) > 0 {
 		prevVar := "_flowReplayPrev" + sfx
 		b.WriteString(fmt.Sprintf("%s\t%s := _flowReplayMode\n", pad, prevVar))
 		b.WriteString(fmt.Sprintf("%s\t_flowReplayMode = true\n", pad))
-		b.WriteString(renderFlowSteps(cloneFlowState(st), doSteps, indent+1))
+		b.WriteString(renderFlowNestedSteps(cloneFlowState(st), "_do", doSteps, indent+1))
 		b.WriteString(fmt.Sprintf("%s\t_flowReplayMode = %s\n", pad, prevVar))
 	}
 	b.WriteString(fmt.Sprintf("%s}\n", pad))

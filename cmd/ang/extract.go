@@ -10,181 +10,27 @@ import (
 	"unicode"
 
 	transform "github.com/strogmv/ang-transform/pkg/transform"
+	"github.com/strogmv/ang/compiler/facts"
 )
 
-// FactsEnvelope is the root ang/facts/v1 document.
-type FactsEnvelope struct {
-	Schema         string              `json:"schema"`
-	SourceType     string              `json:"source_type"`
-	SourcePath     string              `json:"source_path"`
-	Entities       []FactEntity        `json:"entities"`
-	Operations     []FactOp            `json:"operations"`
-	Repositories   []FactRepo          `json:"repositories"`
-	Events         []FactEvent         `json:"events"`
-	Constants      []FactConstant      `json:"constants,omitempty"`
-	Enums          []FactEnum          `json:"enums,omitempty"`
-	Endpoints      []FactEndpoint      `json:"endpoints,omitempty"`
-	Calls          []FactCallEdge      `json:"calls,omitempty"`
-	Mappers        []FactMapper        `json:"mappers,omitempty"`
-	ErrorContracts []FactErrorContract `json:"error_contracts,omitempty"`
-	SecurityRules  []FactSecurityRule  `json:"security_rules,omitempty"`
-}
-
-// FactEntity represents a domain entity/struct.
-type FactEntity struct {
-	Name               string      `json:"name"`
-	TableHint          string      `json:"table_hint,omitempty"`
-	Source             string      `json:"source,omitempty"`
-	Fields             []FactField `json:"fields"`
-	CompositeKey       string      `json:"composite_key,omitempty"`        // embedded_id|id_class:<Type>|multiple_ids
-	SoftDelete         bool        `json:"soft_delete,omitempty"`          // inferred from SQLDelete/Where/soft-delete field
-	SoftDeleteStrategy string      `json:"soft_delete_strategy,omitempty"` // sql_delete|where_clause|field
-	SoftDeleteClause   string      `json:"soft_delete_clause,omitempty"`
-	WhereClause        string      `json:"where_clause,omitempty"`
-}
-
-// FactField is one field of an entity, operation, or event.
-type FactField struct {
-	Name            string   `json:"name"`
-	GoType          string   `json:"go_type,omitempty"`
-	ResolvedType    string   `json:"resolved_type,omitempty"`
-	CueTypeHint     string   `json:"cue_type_hint,omitempty"`
-	JSONTag         string   `json:"json_tag,omitempty"`
-	DBTag           string   `json:"db_tag,omitempty"`
-	SourceLine      int      `json:"source_line,omitempty"`
-	Extractor       string   `json:"extractor,omitempty"`
-	Evidence        []string `json:"evidence,omitempty"`
-	Validate        string   `json:"validate,omitempty"`
-	ValidationRules []string `json:"validation_rules,omitempty"`
-	Required        bool     `json:"required,omitempty"`
-	RelationKind    string   `json:"relation_kind,omitempty"`   // one_to_many|many_to_one|one_to_one|many_to_many|element_collection
-	RelationTarget  string   `json:"relation_target,omitempty"` // inferred from generic/field type
-	MappedBy        string   `json:"mapped_by,omitempty"`
-	Cascade         []string `json:"cascade,omitempty"`
-	Fetch           string   `json:"fetch,omitempty"` // lazy|eager
-	OrphanRemoval   bool     `json:"orphan_removal,omitempty"`
-	JoinColumn      string   `json:"join_column,omitempty"`
-	JoinTable       string   `json:"join_table,omitempty"`
-	EnumType        string   `json:"enum_type,omitempty"` // string|ordinal
-	Persistence     []string `json:"persistence,omitempty"`
-}
-
-// FactOp represents a service operation (from interface methods or OpenAPI paths).
-type FactOp struct {
-	Name          string        `json:"name"`
-	ServiceHint   string        `json:"service_hint,omitempty"`
-	Source        string        `json:"source,omitempty"`
-	SourceLine    int           `json:"source_line,omitempty"`
-	ClassName     string        `json:"class_name,omitempty"`
-	Kind          string        `json:"kind,omitempty"` // controller|service|usecase|other
-	Extractor     string        `json:"extractor,omitempty"`
-	Evidence      []string      `json:"evidence,omitempty"`
-	EntryKind     string        `json:"entry_kind,omitempty"`
-	EntryRef      string        `json:"entry_ref,omitempty"`
-	HTTPMethod    string        `json:"http_method,omitempty"`
-	HTTPPath      string        `json:"http_path,omitempty"`
-	AuthExpr      string        `json:"auth_expr,omitempty"`
-	Transactional bool          `json:"transactional,omitempty"`
-	TxReadOnly    bool          `json:"tx_read_only,omitempty"`
-	InputFields   []FactField   `json:"input_fields,omitempty"`
-	OutputFields  []FactField   `json:"output_fields,omitempty"`
-	Calls         []FactCallRef `json:"calls,omitempty"`
-	ConstantsUsed []string      `json:"constants_used,omitempty"`
-	EnumsUsed     []string      `json:"enums_used,omitempty"`
-}
-
-// FactRepo describes repository interface methods.
-type FactRepo struct {
-	Entity  string           `json:"entity"`
-	Source  string           `json:"source,omitempty"`
-	Methods []FactRepoMethod `json:"methods"`
-}
-
-// FactRepoMethod is one method of a repository.
-type FactRepoMethod struct {
-	Name           string   `json:"name"`
-	Returns        string   `json:"returns"` // one|many|count|none
-	QueryKind      string   `json:"query_kind,omitempty"`
-	CriteriaFields []string `json:"criteria_fields,omitempty"`
-}
-
-// FactEvent represents an event/notification struct.
-type FactEvent struct {
-	Name          string      `json:"name"`
-	Source        string      `json:"source,omitempty"`
-	PayloadFields []FactField `json:"payload_fields,omitempty"`
-}
-
-type FactConstant struct {
-	Name   string `json:"name"`
-	Type   string `json:"type,omitempty"`
-	Value  string `json:"value,omitempty"`
-	Scope  string `json:"scope,omitempty"`
-	Source string `json:"source,omitempty"`
-}
-
-type FactEnum struct {
-	Name   string   `json:"name"`
-	Values []string `json:"values,omitempty"`
-	Source string   `json:"source,omitempty"`
-}
-
-type FactEndpoint struct {
-	Operation     string   `json:"operation"`
-	HTTPMethod    string   `json:"http_method,omitempty"`
-	HTTPPath      string   `json:"http_path,omitempty"`
-	ServiceHint   string   `json:"service_hint,omitempty"`
-	Source        string   `json:"source,omitempty"`
-	SourceLine    int      `json:"source_line,omitempty"`
-	Extractor     string   `json:"extractor,omitempty"`
-	Evidence      []string `json:"evidence,omitempty"`
-	AuthExpr      string   `json:"auth_expr,omitempty"`
-	Transactional bool     `json:"transactional,omitempty"`
-	TxReadOnly    bool     `json:"tx_read_only,omitempty"`
-}
-
-type FactCallRef struct {
-	Target         string   `json:"target"`
-	ResolvedTarget string   `json:"resolved_target,omitempty"`
-	Kind           string   `json:"kind,omitempty"`
-	Evidence       []string `json:"evidence,omitempty"`
-}
-
-type FactCallEdge struct {
-	From   string `json:"from"`
-	To     string `json:"to"`
-	Kind   string `json:"kind,omitempty"`
-	Source string `json:"source,omitempty"`
-}
-
-type FactMapper struct {
-	Name    string             `json:"name"`
-	Source  string             `json:"source,omitempty"`
-	Uses    []string           `json:"uses,omitempty"`
-	Methods []FactMapperMethod `json:"methods,omitempty"`
-}
-
-type FactMapperMethod struct {
-	Name       string `json:"name"`
-	SourceType string `json:"source_type,omitempty"`
-	TargetType string `json:"target_type,omitempty"`
-	Many       bool   `json:"many,omitempty"`
-}
-
-type FactErrorContract struct {
-	Exception string `json:"exception"`
-	Status    string `json:"status,omitempty"`
-	HTTPCode  int    `json:"http_code,omitempty"`
-	Handler   string `json:"handler,omitempty"`
-	Source    string `json:"source,omitempty"`
-}
-
-type FactSecurityRule struct {
-	Scope       string `json:"scope,omitempty"` // global|method|endpoint
-	Pattern     string `json:"pattern,omitempty"`
-	Requirement string `json:"requirement,omitempty"`
-	Source      string `json:"source,omitempty"`
-}
+// These aliases keep the cmd/ang internal API source-compatible while facts
+// becomes the importable owner of the ang/facts/v1 model.
+type FactsEnvelope = facts.Envelope
+type FactEntity = facts.Entity
+type FactField = facts.Field
+type FactOp = facts.Operation
+type FactRepo = facts.Repository
+type FactRepoMethod = facts.RepositoryMethod
+type FactEvent = facts.Event
+type FactConstant = facts.Constant
+type FactEnum = facts.Enum
+type FactEndpoint = facts.Endpoint
+type FactCallRef = facts.CallRef
+type FactCallEdge = facts.CallEdge
+type FactMapper = facts.Mapper
+type FactMapperMethod = facts.MapperMethod
+type FactErrorContract = facts.ErrorContract
+type FactSecurityRule = facts.SecurityRule
 
 func runExtract(args []string) {
 	fs := flag.NewFlagSet("extract", flag.ContinueOnError)

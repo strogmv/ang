@@ -6,13 +6,7 @@ func renderFlowStepControl(st *flowRenderState, step normalizer.FlowStep, indent
 	if out, ok := renderFlowStepSaga(st, step, indent, sfx, arg, child); ok {
 		return out
 	}
-	if out, ok := renderFlowStepControlCollections(st, step, indent, sfx, arg, child); ok {
-		return out
-	}
 	if out, ok := renderFlowStepControlFlow(st, step, indent, sfx, arg, child); ok {
-		return out
-	}
-	if out, ok := renderFlowStepControlResilience(st, step, indent, sfx, arg, child); ok {
 		return out
 	}
 	return renderFlowStepControlLegacy(st, step, indent, sfx, arg, child)

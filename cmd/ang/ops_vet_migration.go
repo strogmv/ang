@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/facts"
 )
 
 const (
@@ -30,10 +31,10 @@ func loadFactsEnvelope(path string) (*FactsEnvelope, error) {
 		return nil, err
 	}
 	if strings.TrimSpace(env.Schema) == "" {
-		env.Schema = "ang/facts/v1"
+		env.Schema = facts.SchemaV1
 	}
-	if env.Schema != "ang/facts/v1" {
-		return nil, fmt.Errorf("unsupported facts schema %q (expected ang/facts/v1)", env.Schema)
+	if err := facts.Validate(env); err != nil {
+		return nil, err
 	}
 	return &env, nil
 }

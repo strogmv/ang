@@ -52,6 +52,7 @@ type SchemaSyncOptions struct {
 	CueRoot     string // defaults to ".cue"
 	SchemaDir   string // if set in ang.yaml or here, sync to shared dir instead of cueRoot/schema
 	DryRun      bool
+	Force       bool // overwrite even when local schema contains extensions absent from ang bundle
 }
 
 // SchemaSyncResult describes files written or that would be written.
@@ -59,6 +60,7 @@ type SchemaSyncResult struct {
 	TargetDir string
 	Written   []string
 	Skipped   []string
+	Guarded   []string // files skipped to preserve local-only schema extensions
 }
 
 // schemaTargetDir resolves where schema files should live for a project.
@@ -115,6 +117,12 @@ func SyncSchema(opts SchemaSyncOptions) (*SchemaSyncResult, error) {
 			return nil, err
 		} else if same {
 			result.Skipped = append(result.Skipped, name)
+			continue
+		}
+		if extras, skip, err := guardSchemaOverwrite(dst, src, opts.Force); err != nil {
+			return nil, err
+		} else if skip {
+			result.Guarded = append(result.Guarded, formatGuardedSchemaFile(name, extras))
 			continue
 		}
 		if opts.DryRun {

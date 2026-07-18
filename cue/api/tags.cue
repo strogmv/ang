@@ -53,7 +53,7 @@ CreateTag: schema.#Operation & {
 		{action: "logic.Check", condition: "slug != \"\"", throw: "Tag slug cannot be empty"},
 
 		// Check if tag already exists
-		{action: "repo.Find", source: "Tag", method: "FindBySlug", input: "slug", output: "existing"},
+		{action: "repo.Query", source: "Tag", method: "FindBySlug", input: "slug", output: "existing"},
 		{action: "logic.Check", condition: "existing == nil", throw: "Tag already exists"},
 
 		// Create tag

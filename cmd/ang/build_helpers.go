@@ -37,6 +37,9 @@ type OutputOptions struct {
 	DryRunReport        string
 	WithOpenAPI         bool
 	AcceptContract      bool
+	ExpertMode          string
+	ExpertBaseURL       string
+	ExpertPackIDs       []string
 }
 
 func parseOutputOptions(args []string) (OutputOptions, error) {
@@ -64,6 +67,13 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 	acceptContract := fs.Bool("accept-contract", false, "accept breaking OpenAPI operation removals")
 	dryRunRoot := fs.String("dry-run-root", "", "internal: override dry-run temp root")
 	dryRunReport := fs.String("dry-run-report", "", "internal: write dry-run manifest json to path")
+	expertMode := fs.String("expert-mode", "off", "Expert integration mode: off|shadow|advise|gate")
+	expertBaseURL := fs.String("expert-base-url", "", "Expert Runtime base URL (required for shadow/advise/gate)")
+	var expertPackIDs []string
+	fs.Func("expert-pack", "Expert Runtime pack ID (repeatable; default payment-provider.core for payment providers)", func(value string) error {
+		expertPackIDs = append(expertPackIDs, value)
+		return nil
+	})
 	if err := fs.Parse(args); err != nil {
 		return OutputOptions{}, err
 	}
@@ -105,6 +115,12 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 		DryRunReport:        strings.TrimSpace(*dryRunReport),
 		WithOpenAPI:         *withOpenAPI,
 		AcceptContract:      *acceptContract,
+		ExpertMode:          strings.ToLower(strings.TrimSpace(*expertMode)),
+		ExpertBaseURL:       strings.TrimSpace(*expertBaseURL),
+		ExpertPackIDs:       append([]string(nil), expertPackIDs...),
+	}
+	if err := validateExpertBuildOptions(opts); err != nil {
+		return OutputOptions{}, err
 	}
 	if opts.FrontendDir == "" {
 		opts.FrontendDir = "sdk"

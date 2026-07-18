@@ -5,6 +5,8 @@ metadata:
 data:
   ENV: "production"
   HTTP_PORT: "8080"
+  # Daily scheduler clock times use this IANA timezone. Override per environment.
+  SCHEDULER_TIMEZONE: "UTC"
   
   
   

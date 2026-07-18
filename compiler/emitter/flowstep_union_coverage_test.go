@@ -20,7 +20,7 @@ func TestFlowStepCoverageComplete(t *testing.T) {
 	t.Parallel()
 
 	root := repoRoot(t)
-	supported := parseFlowActionSupported(t, filepath.Join(root, "compiler", "emitter", "service_flow_codegen.go"))
+	supported := typedFlowActionSet()
 	unionActions := parseFlowStepUnionActions(t, filepath.Join(root, "cue", "schema", "types.cue"))
 
 	var missing []string

@@ -35,7 +35,7 @@ Register: schema.#Operation & {
 
 	flow: [
 		// Check if email already exists
-		{action: "repo.Find", source: "User", method: "FindByEmail", input: "req.Email", output: "existing"},
+		{action: "repo.Query", source: "User", method: "FindByEmail", input: "req.Email", output: "existing"},
 		{action: "logic.Check", condition: "existing == nil", throw: "Email already registered"},
 
 		// Create new user
@@ -101,7 +101,12 @@ Login: schema.#Operation & {
 
 		{action: "mapping.Assign", to: "resp.AccessToken", value: "accessToken"},
 		{action: "mapping.Assign", to: "resp.RefreshToken", value: "refreshToken"},
-		{action: "mapping.Assign", to: "resp.User", value: "map[string]any{\"id\": user.ID, \"email\": user.Email, \"name\": user.Name, \"role\": user.Role}"},
+		{action: "map.New", output: "userProfile", type: "map[string]any"},
+		{action: "map.Set", input: "userProfile", key: "\"id\"", value: "user.ID"},
+		{action: "map.Set", input: "userProfile", key: "\"email\"", value: "user.Email"},
+		{action: "map.Set", input: "userProfile", key: "\"name\"", value: "user.Name"},
+		{action: "map.Set", input: "userProfile", key: "\"role\"", value: "user.Role"},
+		{action: "mapping.Assign", to: "resp.User", value: "userProfile"},
 	]
 }
 

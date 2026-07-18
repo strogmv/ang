@@ -39,6 +39,9 @@ const isDevEnv = () => {
 
 export const apiClient = axios.create({
   baseURL: getBaseUrl(),
+  // Send/receive the session cookie (opaque_session_cookie auth) across origins.
+  // The API must allow credentials and echo the exact Origin (not "*").
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -303,7 +306,10 @@ apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     const cfg = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
-    if (error.response?.status === 401 && cfg && !cfg._retry && !isRefreshRequest(cfg)) {
+    // Only attempt a token refresh when we actually have a refresh token; otherwise a
+    // 401 from login/register (no session yet) would trigger a pointless refresh and
+    // mask the real error ("Missing refresh token") instead of propagating the 401.
+    if (error.response?.status === 401 && cfg && !cfg._retry && !isRefreshRequest(cfg) && useAuthStore.getState().refreshToken) {
       cfg._retry = true;
       try {
         const newToken = refreshPromise ? await waitForRefreshToken() : await refreshAuthToken();

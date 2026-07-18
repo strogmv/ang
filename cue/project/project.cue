@@ -1,6 +1,7 @@
 package project
 
-build: mode: "in_place"
+// This sample emits into targets[].output_dir, so declare release mode explicitly.
+build: mode: "release"
 
 // architecture_mode relaxed: cross-service access warnings are non-fatal (sample project only).
 #Project: {

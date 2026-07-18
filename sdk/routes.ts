@@ -157,7 +157,7 @@ export const createRouteDefinitions = (queryClient: QueryClient) => [
     method: 'GET',
     rpc: 'ListComments',
     loader: async ({ params }: { params: any }) => {
-      await queryClient.ensureQueryData(Queries.listCommentsQueryOptions({postID: params.postID}));
+      await queryClient.ensureQueryData(Queries.listCommentsQueryOptions({postId: params.postID}));
     },
     meta: {
       title: 'ListComments',

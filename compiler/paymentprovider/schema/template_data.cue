@@ -24,7 +24,8 @@ package schema
 #TemplateCallbackSignature: {
 	Algorithm:        string // sha1 | sha256 | hmac-sha256 | hmac-sha512
 	SecretKeyField:   string
-	Format:           string // sorted_kv_pipe | hmac_body | custom
+	UsernameKeyField: string
+	Format:           string // sorted_kv_pipe | hmac_body | username_key_form_b64 | custom
 	SignatureField:   string // cbData JSON field when format != hmac_body
 	CompareEqualFold: bool
 	Optional:         bool   // skip ValidateCallback when secret empty
@@ -47,12 +48,24 @@ package schema
 	FinishViaCheckStatus: bool // FinishCallback → CheckStatus
 }
 
+#TemplateResponseEnvelope: {
+	Enabled:        bool
+	WrapperField:   string
+	WrapperGoField: string
+	SuccessField:   string
+	SuccessGoField: string
+	ErrorField:     string
+	ErrorGoField:   string
+}
+
 #TemplateRequestSigning: {
-	Algorithm:      string // hmac-sha1 | hmac-sha256 | md5
-	Format:         string // method_url_body | md5_concat | notification_token
-	Header:         string // X-Signature
+	Algorithm:        string // sha256 | hmac-sha1 | hmac-sha256 | md5
+	Format:           string // method_url_body | md5_concat | notification_token | username_key_body_b64
+	Header:           string // X-Signature
 	SecretKeyField:   string
-	Encoding:       string // base64 | hex
+	UsernameHeader:   string
+	UsernameKeyField: string
+	Encoding:         string // base64 | hex
 	// md5_concat: ordered field names for Pacepay-style signatures
 	ConcatFields: [...string]
 }
@@ -96,6 +109,7 @@ package schema
 	ErrorCodeField:        string
 	ContentType:           string // per-operation override
 	ResponseFormat:        string // json | xml
+	ResponseEnvelope:      *null | #TemplateResponseEnvelope
 }
 
 #TemplateOperation: {
@@ -145,7 +159,9 @@ package schema
 	SecretFormat:     string
 	SecretSeparator:  string
 	SecretParts:      [...#TemplateSecretPart]
-	SecretPartsCount: int
+	SecretPartsCount:         int
+	SecretPartsNeedTransform: bool
+	SecretPartsSimple:        bool // all required string parts, no transforms
 	SecretUseLabels:  bool // secrets.use_labels → creds_macan.go.tmpl + secretLabels.GetLabels()
 
 	// HTTP

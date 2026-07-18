@@ -2,33 +2,35 @@ package paymentprovider
 
 // ProviderSpec is the decoded CUE value at provider: schema.#Provider & {...}.
 type ProviderSpec struct {
-	PackageName      string `json:"package_name"`
-	SID              string `json:"sid"`
-	Source           string `json:"source"`
-	Label            string `json:"label"`
-	MIDPrefix        string `json:"mid_prefix"`
-	StructName       string `json:"struct_name"`
-	ConstructorName  string `json:"constructor_name"`
-	PaymentSource    string `json:"payment_source"`
+	PackageName     string `json:"package_name"`
+	SID             string `json:"sid"`
+	Source          string `json:"source"`
+	Label           string `json:"label"`
+	MIDPrefix       string `json:"mid_prefix"`
+	StructName      string `json:"struct_name"`
+	ConstructorName string `json:"constructor_name"`
+	PaymentSource   string `json:"payment_source"`
 
 	Secrets struct {
-		Format     string       `json:"format"`
-		Separator  string       `json:"separator"`
-		Parts      []SecretPart `json:"parts"`
-		UseLabels  bool         `json:"use_labels"`
+		Format    string       `json:"format"`
+		Separator string       `json:"separator"`
+		Parts     []SecretPart `json:"parts"`
+		UseLabels bool         `json:"use_labels"`
 	} `json:"secrets"`
 
 	RequestSigning *RequestSigningConfig `json:"request_signing"`
 
 	InitPayoutPolicy *InitPayoutPolicy `json:"init_payout_policy"`
 
-	PayoutRuntime  *PayoutRuntimeConfig  `json:"payout_runtime"`
+	PayoutRuntime   *PayoutRuntimeConfig   `json:"payout_runtime"`
 	CallbackRuntime *CallbackRuntimeConfig `json:"callback_runtime"`
 
 	CheckStatusForeignIDEmpty string `json:"check_status_foreign_id_empty"`
 
 	ResponseFormat string `json:"response_format"`
 	CallbackFormat string `json:"callback_format"`
+
+	ResponseEnvelope *ResponseEnvelopeConfig `json:"response_envelope"`
 
 	Currency struct {
 		Code    string `json:"code"`
@@ -47,22 +49,24 @@ type ProviderSpec struct {
 
 	CallbackSignature *CallbackSignatureConfig `json:"callback_signature"`
 
-	PayinStatuses  []StatusMapping `json:"payin_statuses"`
-	PayoutStatuses []StatusMapping `json:"payout_statuses"`
-	ErrorCodes         []ErrorMapping            `json:"error_codes"`
-	ErrorMappingMatrix []ErrorMatrixEntry        `json:"error_mapping_matrix"`
-	StatusDetails      []ErrorMapping            `json:"status_details"`
-	PaymentMethodMap   []PaymentMethodMapEntry   `json:"payment_method_map"`
+	PayinStatuses      []StatusMapping         `json:"payin_statuses"`
+	PayoutStatuses     []StatusMapping         `json:"payout_statuses"`
+	ErrorCodes         []ErrorMapping          `json:"error_codes"`
+	ErrorMappingMatrix []ErrorMatrixEntry      `json:"error_mapping_matrix"`
+	StatusDetails      []ErrorMapping          `json:"status_details"`
+	PaymentMethodMap   []PaymentMethodMapEntry `json:"payment_method_map"`
 
-	PayinRequest  *RequestDef `json:"payin_request"`
-	PayoutRequest *RequestDef `json:"payout_request"`
-	P2PRequest    *RequestDef `json:"p2p_request"`
-	RefundRequest *RequestDef `json:"refund_request"`
+	PayinRequest        *RequestDef `json:"payin_request"`
+	PayoutRequest       *RequestDef `json:"payout_request"`
+	PayinStatusRequest  *RequestDef `json:"payin_status_request"`
+	PayoutStatusRequest *RequestDef `json:"payout_status_request"`
+	P2PRequest          *RequestDef `json:"p2p_request"`
+	RefundRequest       *RequestDef `json:"refund_request"`
 
 	ResponseTypes []ResponseType `json:"response_types"`
 
-	SupportedMethods     []string `json:"supported_methods"`
-	SupportedCurrencies  []string `json:"supported_currencies"`
+	SupportedMethods    []string `json:"supported_methods"`
+	SupportedCurrencies []string `json:"supported_currencies"`
 
 	HasPayin        bool `json:"has_payin"`
 	HasPayout       bool `json:"has_payout"`
@@ -73,25 +77,26 @@ type ProviderSpec struct {
 
 	AuthFlow  string `json:"auth_flow"`
 	APICompat string `json:"api_compat"`
+	CheckoutCompat string `json:"checkout_compat"`
 
 	ResponseLoggingMode string `json:"response_logging_mode"`
 
 	Interfaces struct {
-		BalanceFetcher         bool `json:"balance_fetcher"`
-		MobileProcessor        bool `json:"mobile_processor"`
-		OTPFormRedirector      bool `json:"otp_form_redirector"`
-		TDSRedirector          bool `json:"tds_redirector"`
-		PaymentMethodSelector  bool `json:"payment_method_selector"`
-		CustomerRandomization  bool `json:"customer_randomization"`
+		BalanceFetcher        bool `json:"balance_fetcher"`
+		MobileProcessor       bool `json:"mobile_processor"`
+		OTPFormRedirector     bool `json:"otp_form_redirector"`
+		TDSRedirector         bool `json:"tds_redirector"`
+		PaymentMethodSelector bool `json:"payment_method_selector"`
+		CustomerRandomization bool `json:"customer_randomization"`
 	} `json:"interfaces"`
 
 	ConstructorDeps []ConstructorDep `json:"constructor_deps"`
 
 	Async3DSConfig *struct {
-		Enabled                bool   `json:"enabled"`
-		AutoChargeAfter        string `json:"auto_charge_after"`
+		Enabled                   bool   `json:"enabled"`
+		AutoChargeAfter           string `json:"auto_charge_after"`
 		FinishCallbackWaitTimeout string `json:"finish_callback_wait_timeout"`
-		StalePendingGrace      string `json:"stale_pending_grace"`
+		StalePendingGrace         string `json:"stale_pending_grace"`
 	} `json:"async_3ds_config"`
 
 	CrossInstanceStateConfig *struct {
@@ -100,9 +105,9 @@ type ProviderSpec struct {
 	} `json:"cross_instance_state_config"`
 
 	StatusConfirmationConfig *struct {
-		Enabled         bool     `json:"enabled"`
-		Strategy        string   `json:"strategy"`
-		RetryNotReady   bool     `json:"retry_not_ready"`
+		Enabled          bool     `json:"enabled"`
+		Strategy         string   `json:"strategy"`
+		RetryNotReady    bool     `json:"retry_not_ready"`
 		NotReadyPatterns []string `json:"not_ready_patterns"`
 	} `json:"status_confirmation_config"`
 
@@ -123,12 +128,12 @@ type ProviderSpec struct {
 			CallbackWaitTimeout string `json:"callback_wait_timeout"`
 		} `json:"timeouts"`
 		Retries struct {
-			MaxAttempts       int    `json:"max_attempts"`
-			InitialBackoff    string `json:"initial_backoff"`
-			MaxBackoff        string `json:"max_backoff"`
-			RetryOnNotFound   bool   `json:"retry_on_not_found"`
-			RetryOn5xx        bool   `json:"retry_on_5xx"`
-			RetryOnRateLimit  bool   `json:"retry_on_rate_limit"`
+			MaxAttempts      int    `json:"max_attempts"`
+			InitialBackoff   string `json:"initial_backoff"`
+			MaxBackoff       string `json:"max_backoff"`
+			RetryOnNotFound  bool   `json:"retry_on_not_found"`
+			RetryOn5xx       bool   `json:"retry_on_5xx"`
+			RetryOnRateLimit bool   `json:"retry_on_rate_limit"`
 		} `json:"retries"`
 		Limits struct {
 			MaxCallbackBodyBytes int    `json:"max_callback_body_bytes"`
@@ -144,27 +149,51 @@ type ProviderSpec struct {
 
 	CheckStatusConfig *CheckStatusConfigSpec `json:"check_status_config"`
 
+	KeysEndpoint           *KeysEndpointConfig   `json:"keys_endpoint"`
+	CardEncryption         *CardEncryptionConfig `json:"card_encryption"`
+	PayoutStatusValueField string                `json:"payout_status_value_field"`
+	PayoutForeignIDField   string                `json:"payout_foreign_id_field"`
+
 	Callback *CallbackConfig `json:"callback"`
 
 	ExtraImports []string `json:"extra_imports"`
 }
 
 type SecretPart struct {
-	Name      string `json:"name"`
-	Key       string `json:"key"`
-	Optional  bool   `json:"optional"`
-	Transform string `json:"transform"`
-	Type      string `json:"type"`
+	Name          string `json:"name"`
+	Key           string `json:"key"`
+	Optional      bool   `json:"optional"`
+	Transform     string `json:"transform"`
+	Type          string `json:"type"`
+	JoinRemainder bool   `json:"join_remainder"`
 }
 
 type CheckStatusConfigSpec struct {
-	SinceCreatedPeriod   string `json:"since_created_period"`
-	ByTransactionType    bool   `json:"by_transaction_type"`
-	PathSuffixForeignID  bool   `json:"path_suffix_foreign_id"`
+	SinceCreatedPeriod  string `json:"since_created_period"`
+	ByTransactionType   bool   `json:"by_transaction_type"`
+	PathSuffixForeignID bool   `json:"path_suffix_foreign_id"`
+	PathFormatTxID      bool   `json:"path_format_tx_id"`
+}
+
+type KeysEndpointConfig struct {
+	Enabled      bool   `json:"enabled"`
+	EndpointKey  string `json:"endpoint_key"`
+	BaseURL      string `json:"base_url"`
+	CacheTTL     string `json:"cache_ttl"`
+	CacheEnabled *bool  `json:"cache_enabled"`
+	SecretKey    string `json:"secret_key"`
+}
+
+type CardEncryptionConfig struct {
+	Enabled         bool   `json:"enabled"`
+	Algorithm       string `json:"algorithm"`
+	PEMSecretKey    string `json:"pem_secret_key"`
+	PaymentDataType string `json:"payment_data_type"`
 }
 
 type PayoutRuntimeConfig struct {
 	ForeignIDOnUnexpectedError bool `json:"foreign_id_on_unexpected_error"`
+	UnexpectedErrorPending     bool `json:"unexpected_error_pending"`
 }
 
 type CallbackRuntimeConfig struct {
@@ -177,13 +206,23 @@ type InitPayoutPolicy struct {
 	ClientUUIDField       string `json:"client_uuid_field"`
 }
 
+type ResponseEnvelopeConfig struct {
+	Enabled      bool   `json:"enabled"`
+	WrapperField string `json:"wrapper_field"`
+	SuccessField string `json:"success_field"`
+	ErrorField   string `json:"error_field"`
+	SuccessMode  string `json:"success_mode"`
+}
+
 type RequestSigningConfig struct {
-	Algorithm    string   `json:"algorithm"`
-	Format       string   `json:"format"`
-	Header       string   `json:"header"`
-	SecretKey    string   `json:"secret_key"`
-	Encoding     string   `json:"encoding"`
-	ConcatFields []string `json:"concat_fields"`
+	Algorithm      string   `json:"algorithm"`
+	Format         string   `json:"format"`
+	Header         string   `json:"header"`
+	SecretKey      string   `json:"secret_key"`
+	UsernameHeader string   `json:"username_header"`
+	UsernameKey    string   `json:"username_key"`
+	Encoding       string   `json:"encoding"`
+	ConcatFields   []string `json:"concat_fields"`
 }
 
 type Endpoint struct {
@@ -237,6 +276,7 @@ type RequestField struct {
 	SecretKey string `json:"secret_key"`
 	Default   string `json:"default"`
 	ConstVal  string `json:"const_val"`
+	ConstName string `json:"const_name"`
 	OmitEmpty bool   `json:"omitempty"`
 	Redacted  bool   `json:"redacted"`
 	OwnerKey  string `json:"owner_key"`
@@ -249,23 +289,24 @@ type ResponseType struct {
 }
 
 type StructField struct {
-	Name      string `json:"name"`
-	Type      string `json:"type"`
-	JSON      string `json:"json"`
-	OmitEmpty bool   `json:"omitempty"`
-	Omitempty bool   // template alias (datatypes.go.tmpl uses .Omitempty)
+	Name       string `json:"name"`
+	Type       string `json:"type"`
+	JSON       string `json:"json"`
+	OmitEmpty  bool   `json:"omitempty"`
+	Omitempty  bool   // template alias (datatypes.go.tmpl uses .Omitempty)
+	NestedPath string `json:"nested_path"`
 }
 
 type CallbackConfig struct {
-	TxIDField      string        `json:"tx_id_field"`
-	ForeignIDField string        `json:"foreign_id_field"`
-	StatusField    string        `json:"status_field"`
-	StatusType     string        `json:"status_type"`
-	ErrorCodeField string        `json:"error_code_field"`
-	ReturnQueryTxIDParam    string `json:"return_query_txid_param"`
-	ReturnQueryStatusValue  string `json:"return_query_status_value"`
-	ReturnQueryInfoCallback bool   `json:"return_query_info_callback"`
-	Fields         []StructField `json:"fields"`
+	TxIDField               string        `json:"tx_id_field"`
+	ForeignIDField          string        `json:"foreign_id_field"`
+	StatusField             string        `json:"status_field"`
+	StatusType              string        `json:"status_type"`
+	ErrorCodeField          string        `json:"error_code_field"`
+	ReturnQueryTxIDParam    string        `json:"return_query_txid_param"`
+	ReturnQueryStatusValue  string        `json:"return_query_status_value"`
+	ReturnQueryInfoCallback bool          `json:"return_query_info_callback"`
+	Fields                  []StructField `json:"fields"`
 }
 
 type AuthConfig struct {
@@ -286,13 +327,15 @@ type CallbackSignatureField struct {
 }
 
 type CallbackSignatureConfig struct {
-	Algorithm string                   `json:"algorithm"`
-	SecretKey string                   `json:"secret_key"`
-	Format    string                   `json:"format"`
-	Fields    []CallbackSignatureField `json:"fields"`
-	Compare   string                   `json:"compare"`
-	Optional  bool                     `json:"optional"`
-	Header    string                   `json:"header"`
+	Algorithm     string                   `json:"algorithm"`
+	SecretKey     string                   `json:"secret_key"`
+	Format        string                   `json:"format"`
+	Fields        []CallbackSignatureField `json:"fields"`
+	Compare       string                   `json:"compare"`
+	Optional      bool                     `json:"optional"`
+	Header        string                   `json:"header"`
+	UsernameKey   string                   `json:"username_key"`
+	SignatureJSON string                   `json:"signature_json"`
 }
 
 type ConstructorDep struct {
@@ -307,19 +350,19 @@ type OperationDef struct {
 }
 
 type OperationTransport struct {
-	Endpoint             string `json:"endpoint"`
-	EndpointPath         string `json:"endpoint_path"`
-	RequestType          string `json:"request_type"`
-	ResponseType         string `json:"response_type"`
-	ErrorResponseType    string `json:"error_response_type"`
-	ResponseLoggingMode  string `json:"response_logging_mode"`
-	StatusStrategy       string `json:"status_strategy"`
-	RetryMaxAttempts     int    `json:"retry_max_attempts"`
-	RetryInitialBackoff  string `json:"retry_initial_backoff"`
-	RetryMaxBackoff      string `json:"retry_max_backoff"`
-	Timeout              string `json:"timeout"`
+	Endpoint              string `json:"endpoint"`
+	EndpointPath          string `json:"endpoint_path"`
+	RequestType           string `json:"request_type"`
+	ResponseType          string `json:"response_type"`
+	ErrorResponseType     string `json:"error_response_type"`
+	ResponseLoggingMode   string `json:"response_logging_mode"`
+	StatusStrategy        string `json:"status_strategy"`
+	RetryMaxAttempts      int    `json:"retry_max_attempts"`
+	RetryInitialBackoff   string `json:"retry_initial_backoff"`
+	RetryMaxBackoff       string `json:"retry_max_backoff"`
+	Timeout               string `json:"timeout"`
 	PendingCallbackAction string `json:"pending_callback_action"`
-	StatusField          string `json:"status_field"`
-	StatusDetailsField   string `json:"status_details_field"`
-	ErrorCodeField       string `json:"error_code_field"`
+	StatusField           string `json:"status_field"`
+	StatusDetailsField    string `json:"status_details_field"`
+	ErrorCodeField        string `json:"error_code_field"`
 }

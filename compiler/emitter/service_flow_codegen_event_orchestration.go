@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
 	"github.com/strogmv/ang/compiler/flowir"
 )
 
@@ -83,22 +82,22 @@ func flowLooksLikeIdentifierPath(s string) bool {
 	return partLen > 0
 }
 
-func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
+func renderTypedStepEventOrchestration(st *flowRenderState, step flowir.TypedStep, indent int, sfx string) (string, bool) {
 	pad := strings.Repeat("\t", indent)
 
-	switch step.Action {
+	switch step.Name {
 	case "notify.Send", "notify.Email":
 		var channel, to, templateExpr, textExpr, subjectExpr, htmlExpr, dataExpr, localeExpr, output string
-		if step.Action == "notify.Send" {
-			typed, err := flowir.DecodeAs[flowir.NotifySend](step)
+		if step.Name == "notify.Send" {
+			typed, err := typedActionAs[flowir.NotifySend](step)
 			if err != nil {
-				return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+				return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 			}
 			channel, to, templateExpr, textExpr, subjectExpr, htmlExpr, dataExpr, output = normalizeFlowExpr(typed.Channel.Source), normalizeFlowExpr(typed.To.Source), normalizeFlowExpr(typed.Template.Source), normalizeFlowExpr(typed.Text.Source), normalizeFlowExpr(typed.Subject.Source), normalizeFlowExpr(typed.HTML.Source), normalizeFlowExpr(typed.Data.Source), typed.Output
 		} else {
-			typed, err := flowir.DecodeAs[flowir.NotifyEmail](step)
+			typed, err := typedActionAs[flowir.NotifyEmail](step)
 			if err != nil {
-				return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+				return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 			}
 			to, templateExpr, textExpr, subjectExpr, htmlExpr, dataExpr, localeExpr, output = normalizeFlowExpr(typed.To.Source), normalizeFlowExpr(typed.Template.Source), normalizeFlowExpr(typed.Text.Source), normalizeFlowExpr(typed.Subject.Source), normalizeFlowExpr(typed.HTML.Source), normalizeFlowExpr(typed.Data.Source), normalizeFlowExpr(typed.Locale.Source), typed.Output
 		}
@@ -149,14 +148,14 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 		}
 		b.WriteString("}\n")
 		b.WriteString(fmt.Sprintf("%s\tif s.dispatcher == nil {\n", pad))
-		if step.Action == "notify.Email" {
+		if step.Name == "notify.Email" {
 			b.WriteString(errReturn(st, pad+"\t\t", `errors.New(http.StatusInternalServerError, "NOTIFY_DISPATCHER_NOT_CONFIGURED", "notify.Email requires notification dispatcher wiring")`))
 		} else {
 			b.WriteString(errReturn(st, pad+"\t\t", `errors.New(http.StatusInternalServerError, "NOTIFY_DISPATCHER_NOT_CONFIGURED", "notify.Send requires notification dispatcher wiring")`))
 		}
 		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
 		b.WriteString(fmt.Sprintf("%s\tif _notifyErr%s := s.dispatcher.Dispatch(ctx, _notifyMsg%s); _notifyErr%s != nil {\n", pad, sfx, sfx, sfx))
-		if step.Action == "notify.Email" {
+		if step.Name == "notify.Email" {
 			b.WriteString(errReturn(st, pad+"\t\t", fmt.Sprintf("fmt.Errorf(\"notify.Email: %%w\", _notifyErr%s)", sfx)))
 		} else {
 			b.WriteString(errReturn(st, pad+"\t\t", fmt.Sprintf("fmt.Errorf(\"notify.Send: %%w\", _notifyErr%s)", sfx)))
@@ -169,9 +168,9 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "approval.Request":
-		typed, err := flowir.DecodeAs[flowir.ApprovalRequest](step)
+		typed, err := typedActionAs[flowir.ApprovalRequest](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		approvalKey, title, requestedBy, policy, payload, description, deadline, ttl := normalizeFlowExpr(typed.ApprovalKey.Source), normalizeFlowExpr(typed.Title.Source), normalizeFlowExpr(typed.RequestedBy.Source), normalizeFlowExpr(typed.Policy.Source), normalizeFlowExpr(typed.Payload.Source), normalizeFlowExpr(typed.Description.Source), normalizeFlowExpr(typed.Deadline.Source), normalizeFlowExpr(typed.TTL.Source)
 		approverExprs := make([]string, 0, len(typed.Approvers))
@@ -299,11 +298,11 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "approval.Wait":
-		typed, err := flowir.DecodeAs[flowir.ApprovalWait](step)
+		typed, err := typedActionAs[flowir.ApprovalWait](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		approvalID, timeout, timeoutMode, timeoutSteps := normalizeFlowExpr(typed.ApprovalID.Source), normalizeFlowExpr(typed.Timeout.Source), normalizeFlowExpr(typed.TimeoutMode.Source), typed.TimeoutSteps
+		approvalID, timeout, timeoutMode := normalizeFlowExpr(typed.ApprovalID.Source), normalizeFlowExpr(typed.Timeout.Source), normalizeFlowExpr(typed.TimeoutMode.Source)
 		decisionOut, statusOut, decidedByOut, decidedAtOut, reasonOut := typed.Decision, typed.Status, typed.DecidedBy, typed.DecidedAt, typed.Reason
 
 		declareOut := map[string]bool{}
@@ -394,8 +393,8 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 		b.WriteString(fmt.Sprintf("%s\t\t\t\t%s = \"system\"\n", pad, decidedByVar))
 		b.WriteString(fmt.Sprintf("%s\t\t\t\t%s = time.Now().UTC().Format(time.RFC3339)\n", pad, decidedAtVar))
 		b.WriteString(fmt.Sprintf("%s\t\t\t\t%s = \"approval wait timeout\"\n", pad, reasonVar))
-		if len(timeoutSteps) > 0 {
-			b.WriteString(renderFlowSteps(cloneFlowState(st), timeoutSteps, indent+4))
+		if flowNestedStepCount(st, "_onTimeout", nil) > 0 {
+			b.WriteString(renderFlowNestedSteps(cloneFlowState(st), "_onTimeout", nil, indent+4))
 		}
 		b.WriteString(fmt.Sprintf("%s\t\t\tcase \"\", \"reject\":\n", pad))
 		b.WriteString(fmt.Sprintf("%s\t\t\t\t%s = \"rejected\"\n", pad, decisionVar))
@@ -449,9 +448,9 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "approval.Decide":
-		typed, err := flowir.DecodeAs[flowir.ApprovalDecide](step)
+		typed, err := typedActionAs[flowir.ApprovalDecide](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		approvalID, decision, actor, reason, statusOut := normalizeFlowExpr(typed.ApprovalID.Source), normalizeFlowExpr(typed.Decision.Source), normalizeFlowExpr(typed.Actor.Source), normalizeFlowExpr(typed.Reason.Source), typed.Status
 		declareStatusOut := statusOut != "" && !st.declared[statusOut]
@@ -519,8 +518,12 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "event.Broadcast":
-		name := arg("name")
-		payload := renderEventPayloadExpr(st, step, name, arg)
+		typed, err := typedActionAs[flowir.EventPublish](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
+		}
+		name := typed.Event
+		payload := renderTypedEventPayloadExpr(st, name, typed.Payload, typed.PayloadMap)
 		if name == "" {
 			return renderInvalidFlowStepConfig(st, pad, "event.Broadcast", "event.Broadcast requires name"), true
 		}
@@ -537,15 +540,11 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "event.Outbox":
-		name := arg("name")
-		payload := renderEventPayloadExpr(st, step, name, arg)
-		if name == "" || payload == "" {
-			return "", true
+		typed, err := typedActionAs[flowir.EventOutbox](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		idExpr := arg("id")
-		if idExpr == "" {
-			idExpr = "uuid.NewString()"
-		}
+		name, payload, idExpr := normalizeFlowExpr(typed.Name.Source), normalizeFlowExpr(typed.Payload.Source), normalizeFlowExpr(typed.ID.Source)
 
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("%s{\n", pad))
@@ -564,17 +563,11 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "event.Wait":
-		name := arg("name")
-		timeout := arg("timeout")
-		match := arg("match")
-		output := arg("output")
-		into := arg("into")
-		if name == "" {
-			return "", true
+		typed, err := typedActionAs[flowir.EventWait](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		if timeout == "" {
-			timeout = "5*time.Minute"
-		}
+		name, timeout, match, output, into := normalizeFlowExpr(typed.Name.Source), normalizeFlowExpr(typed.Timeout.Source), normalizeFlowExpr(typed.Match.Source), typed.Output, typed.Into
 
 		var b strings.Builder
 		outputType := resolveFlowDynamicOutputType(st, output, into)
@@ -624,12 +617,11 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 		return b.String(), true
 
 	case "event.Subscribe":
-		nameExpr := arg("name")
-		matchExpr := arg("match")
-		doSteps := child("_do")
-		if nameExpr == "" || len(doSteps) == 0 {
-			return renderInvalidFlowStepConfig(st, pad, "event.Subscribe", "event.Subscribe requires name and _do"), true
+		typed, err := typedActionAs[flowir.EventSubscribe](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
+		nameExpr, matchExpr := normalizeFlowExpr(typed.Name.Source), normalizeFlowExpr(typed.Match.Source)
 		nameVar := "_subName" + sfx
 		matchVar := "_subMatch" + sfx
 
@@ -645,18 +637,17 @@ func renderFlowStepEventOrchestration(st *flowRenderState, step normalizer.FlowS
 		subState.declared["evt"] = true
 		subState.types["evt"] = "any"
 
-		b.WriteString(renderFlowSteps(subState, doSteps, indent+2))
+		b.WriteString(renderFlowNestedSteps(subState, "_do", nil, indent+2))
 		b.WriteString(fmt.Sprintf("%s\t})\n", pad))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
 
 	case "event.Match":
-		evtVar := arg("event")
-		matchCriteria := arg("match")
-		throwMsg := arg("throw")
-		if evtVar == "" || matchCriteria == "" {
-			return renderInvalidFlowStepConfig(st, pad, "event.Match", "event.Match requires event and match"), true
+		typed, err := typedActionAs[flowir.EventMatch](step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
+		evtVar, matchCriteria, throwMsg := normalizeFlowExpr(typed.Event.Source), normalizeFlowExpr(typed.Match.Source), typed.Throw
 		matchVar := "_eventMatch" + sfx
 		if throwMsg == "" {
 			throwMsg = fmt.Sprintf("event match failed for %s", matchCriteria)

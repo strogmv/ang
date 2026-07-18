@@ -29,6 +29,7 @@ package schema
 	owner_from: *"" | #OwnerInfoFrom
 	default:    *"" | string  // default value for MapGet/GetBrowserData
 	const_val:  *"" | string  // literal value when source is "const"
+	const_name: *"" | string  // optional Go const identifier; default: lowerCamelCase field name
 	format:     *"" | string  // optional format string
 	omitempty:  *false | bool
 	redacted:   *false | bool // hide in logs (PAN, CVV, tokens)
@@ -167,6 +168,7 @@ package schema
 	// Optional transform applied after parsing the part.
 	// query_unescape is useful for URL values entered percent-encoded.
 	transform?: *"none" | "query_unescape" | "trim_space"
+	join_remainder?: *false | bool
 }
 
 #RequestSigningConfig: {
@@ -200,6 +202,31 @@ package schema
 	format:    *"key_concat_sorted_values" | "hmac" | "hmac_body" | "md5_concat" | "basic_auth" | "custom" | "method_url_body" | "md5_fields_concat"
 }
 
+// Processing Gateway JSON envelope (Spayce MX-772): top-level status bool + nested message object.
+#ResponseEnvelope: {
+	enabled:       *false | bool
+	wrapper_field: *"message" | string
+	success_field: *"status" | string
+	error_field:   *"error" | string
+	success_mode:  *"" | "error_code_zero" | string
+}
+
+#KeysEndpointConfig: {
+	enabled:       bool
+	endpoint_key:  string
+	base_url:      string
+	cache_enabled: *true | bool
+	cache_ttl:     *"" | string
+	secret_key:    string
+}
+
+#CardEncryptionConfig: {
+	enabled:           bool
+	algorithm:         string
+	pem_secret_key:    string
+	payment_data_type: string
+}
+
 #SigningAlgorithm: "sha256" | "hmac-sha256" | "hmac-sha1" | "md5" | "none" | "basic"
 
 // --- HTTP auth (request headers) ---
@@ -218,7 +245,7 @@ package schema
 
 // --- Callback signature verification ---
 
-#CallbackSignatureFormat: "sorted_kv_pipe" | "hmac_body" | "notification_token" | "custom"
+#CallbackSignatureFormat: "sorted_kv_pipe" | "hmac_body" | "notification_token" | "username_key_form_b64" | "rsa_pkcs1v15_body" | "custom"
 #CallbackSignatureCompare: "equal_fold" | "equal"
 #CallbackSignatureFieldFormat: "plain" | "float_trailing_zero"
 
@@ -240,6 +267,10 @@ package schema
 	optional: *false | bool
 	// Signature carried in an HTTP header instead of callback JSON (Nebeus X-Signature, Ikra X-Notification-Token).
 	header: *"" | string
+	// Processing Gateway form callback: username secret part for username_key_form_b64.
+	username_key: *"" | string
+	// JSON/form key carrying the signature when not in header (e.g. x-api-signature).
+	signature_json: *"" | string
 }
 
 // --- Payment methods (from utils/types) ---
@@ -288,11 +319,15 @@ package schema
 	by_transaction_type:  *false | bool
 	// Append /{foreignId} to status endpoint (Nebeus GET, Ikra/Macan invoice lookup).
 	path_suffix_foreign_id: *false | bool
+	// Format status path with tx.Id instead of ForeignId (Incas PUT/GET /payouts/%s).
+	path_format_tx_id: *false | bool
 }
 
 #PayoutRuntimeConfig: {
 	// On connection/timeout during InitPayout, return pending with client-generated foreign id (Nebeus payoutId).
 	foreign_id_on_unexpected_error: *false | bool
+	// Treat unexpected HTTP errors as pending instead of hard failure (Incas).
+	unexpected_error_pending: *false | bool
 }
 
 #CallbackRuntimeConfig: {
@@ -483,10 +518,14 @@ package schema
 	auth_flow: *"h2h" | #AuthFlowType
 
 	// Merchant API compatibility layer (e.g. Transferty H2H JSON shape)
-	api_compat: *"" | "transferty_h2h" | "macan_p2p" | "paytech_gateway" | "fluxsgate" | "nebeus_payout" | "ikra_invoice" | "pacepay"
+	api_compat: *"" | "transferty_h2h" | "macan_p2p" | "paytech_gateway" | "fluxsgate" | "nebeus_payout" | "ikra_invoice" | "pacepay" | "incas_payout" | "redirect_checkout"
+
+	// Redirect checkout provider-specific quirks (Centrobill HPP nested body, IPN ?tx=, lookup API).
+	checkout_compat: *"" | "centrobill_hpp"
 
 	// Wire format for provider responses (Pacepay uses XML for payout/check).
 	response_format: *"json" | "xml"
+	response_envelope: *null | #ResponseEnvelope
 	// Callback payload encoding (Pacepay uses application/x-www-form-urlencoded).
 	callback_format: *"json" | "form-urlencoded"
 	// macan_p2p: use has_p2p + InitPayP2P; classic has_payin should stay false
@@ -537,6 +576,12 @@ package schema
 
 	// Callback configuration
 	callback: *null | #CallbackConfig
+
+	// Incas-style remote key discovery and card payload encryption.
+	keys_endpoint: *null | #KeysEndpointConfig
+	card_encryption: *null | #CardEncryptionConfig
+	payout_status_value_field: *"" | string
+	payout_foreign_id_field: *"" | string
 
 	// Custom imports
 	extra_imports: [...string]

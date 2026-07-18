@@ -59,8 +59,6 @@ func NewRuntimeContainer(
 		effects.Publisher,
 	)
 	c.SvcAssistant = service.NewAssistantImpl(
-		repoPost,
-		c.SvcAuth,
 		c.SvcBlog,
 		effects.StateStore,
 	)

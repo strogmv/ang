@@ -7,12 +7,12 @@ import (
 	"time"
 
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 // renderFlowDelay emits a context-aware timer pause.
-func renderFlowDelay(st *flowRenderState, _ normalizer.FlowStep, indent int, sfx string,
-	arg func(string) string, _ func(string) []normalizer.FlowStep) string {
-	duration := arg("duration")
+func renderFlowDelay(st *flowRenderState, action flowir.FlowDelay, indent int, sfx string) string {
+	duration := normalizeFlowExpr(action.Duration.Source)
 	pad := strings.Repeat("\t", indent)
 	if duration == "" {
 		return renderInvalidFlowStepConfig(st, pad, "flow.Delay", "flow.Delay requires duration")
@@ -32,9 +32,8 @@ func renderFlowDelay(st *flowRenderState, _ normalizer.FlowStep, indent int, sfx
 }
 
 // renderFlowSchedule emits a blocking wait until an absolute time.Time arrives.
-func renderFlowSchedule(st *flowRenderState, _ normalizer.FlowStep, indent int, sfx string,
-	arg func(string) string, _ func(string) []normalizer.FlowStep) string {
-	at := arg("at")
+func renderFlowSchedule(st *flowRenderState, action flowir.FlowSchedule, indent int, sfx string) string {
+	at := normalizeFlowExpr(action.At.Source)
 	pad := strings.Repeat("\t", indent)
 	if at == "" {
 		return renderInvalidFlowStepConfig(st, pad, "flow.Schedule", "flow.Schedule requires at")
@@ -186,9 +185,8 @@ func parseCronWindow(window string) (cronWindowSpec, error) {
 	return spec, nil
 }
 
-func renderFlowCron(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string,
-	arg func(string) string, child func(string) []normalizer.FlowStep) string {
-	window := arg("window")
+func renderFlowCron(st *flowRenderState, action flowir.FlowCron, indent int, sfx string) string {
+	window := action.Window
 	if window == "" {
 		return renderInvalidFlowStepConfig(st, strings.Repeat("\t", indent), "flow.Cron", "flow.Cron requires window")
 	}
@@ -198,10 +196,7 @@ func renderFlowCron(st *flowRenderState, step normalizer.FlowStep, indent int, s
 		return renderInvalidFlowStepConfig(st, strings.Repeat("\t", indent), "flow.Cron", fmt.Sprintf("flow.Cron invalid window %q: %v", window, err))
 	}
 
-	tz := arg("timezone")
-	if tz == "" {
-		tz = "UTC"
-	}
+	tz := action.Timezone
 
 	pad := strings.Repeat("\t", indent)
 	nowV := "_cronNow" + sfx
@@ -257,9 +252,9 @@ func renderFlowCron(st *flowRenderState, step normalizer.FlowStep, indent int, s
 
 	// Emit the mismatch gate.
 	b.WriteString(fmt.Sprintf("%s\tif !%s {\n", pad, matchV))
-	onMismatch := child("_onMismatch")
-	if len(onMismatch) > 0 {
-		inner := renderFlowSteps(cloneFlowState(st), onMismatch, indent+2)
+	var onMismatch []normalizer.FlowStep
+	if flowNestedStepCount(st, "_onMismatch", onMismatch) > 0 {
+		inner := renderFlowNestedSteps(cloneFlowState(st), "_onMismatch", onMismatch, indent+2)
 		b.WriteString(inner)
 	} else {
 		b.WriteString(errReturn(st, pad+"\t\t",

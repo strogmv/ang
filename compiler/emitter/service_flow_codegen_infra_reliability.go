@@ -5,24 +5,23 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
 	"github.com/strogmv/ang/compiler/flowir"
 )
 
-// renderFlowStepInfraReliability handles idempotency, deduplication, rate limiting,
+// renderTypedStepReliability handles idempotency, deduplication, rate limiting,
 // concurrency limiting, circuit breaker, and bulkhead actions.
-func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
+func renderTypedStepReliability(st *flowRenderState, step flowir.TypedStep, indent int, sfx string) (string, bool) {
 	pad := strings.Repeat("\t", indent)
 
-	switch step.Action {
+	switch step.Name {
 
 	// ── idem.DeriveKey ────────────────────────────────────────────────────────
 	// Computes a deterministic idempotency key from a list of expressions.
 	// Args: from (list of expr strings), output (var name), prefix? (string prefix)
 	case "idem.DeriveKey", "idempotency.DeriveKey":
-		typed, err := flowir.DecodeAs[flowir.IdempotencyDeriveKey](step)
+		typed, err := typedActionAs[flowir.IdempotencyDeriveKey](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		output, prefix := typed.Output, normalizeFlowExpr(typed.Prefix.Source)
 		fromList := make([]string, 0, len(typed.From))
@@ -55,9 +54,9 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 		// Reads stateStore for given key; if found, unmarshals into resp and returns early.
 		// Args: key (expr)
 	case "idem.Check", "idempotency.Check":
-		typed, err := flowir.DecodeAs[flowir.IdempotencyCheck](step)
+		typed, err := typedActionAs[flowir.IdempotencyCheck](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		key := normalizeFlowExpr(typed.Key.Source)
 		rawVar := "_idemRaw" + sfx
@@ -81,9 +80,9 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 		// Marshals current resp and stores it under the idempotency key.
 		// Args: key (expr), ttl? (duration string like "24*time.Hour")
 	case "idem.SaveResult", "idempotency.SaveResult":
-		typed, err := flowir.DecodeAs[flowir.IdempotencySaveResult](step)
+		typed, err := typedActionAs[flowir.IdempotencySaveResult](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		key, ttl := normalizeFlowExpr(typed.Key.Source), normalizeFlowExpr(typed.TTL.Source)
 
@@ -95,11 +94,11 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 		b.WriteString(fmt.Sprintf("%s// idem.SaveResult\n", pad))
 		b.WriteString(fmt.Sprintf("%s%s, %s := json.Marshal(resp)\n", pad, dataVar, marshalErrVar))
 		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, marshalErrVar))
-		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"%s marshal: %%w\", %s)", step.Action, marshalErrVar)))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"%s marshal: %%w\", %s)", step.Name, marshalErrVar)))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		b.WriteString(fmt.Sprintf("%s%s := s.stateStore.Set(ctx, %s, %s, %s)\n", pad, errVar, key, dataVar, ttl))
 		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, errVar))
-		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"%s: %%w\", %s)", step.Action, errVar)))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"%s: %%w\", %s)", step.Name, errVar)))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
 
@@ -107,11 +106,11 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 	// Checks if key exists → skip the child steps. After child steps, marks key as done.
 	// Args: key (expr), ttl? (duration string), do: [child steps]
 	case "dedupe.Once":
-		typed, err := flowir.DecodeAs[flowir.DedupeOnce](step)
+		typed, err := typedActionAs[flowir.DedupeOnce](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		key, ttl, doSteps := normalizeFlowExpr(typed.Key.Source), normalizeFlowExpr(typed.TTL.Source), typed.Steps
+		key, ttl := normalizeFlowExpr(typed.Key.Source), normalizeFlowExpr(typed.TTL.Source)
 
 		rawVar := "_dedupeRaw" + sfx
 		errVar := "_dedupeErr" + sfx
@@ -124,8 +123,8 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"dedupe.Once: %%w\", %s)", errVar)))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		b.WriteString(fmt.Sprintf("%sif %s == nil {\n", pad, rawVar))
-		if len(doSteps) > 0 {
-			b.WriteString(renderFlowSteps(cloneFlowState(st), doSteps, indent+1))
+		if flowNestedStepCount(st, "_do", nil) > 0 {
+			b.WriteString(renderFlowNestedSteps(cloneFlowState(st), "_do", nil, indent+1))
 		}
 		b.WriteString(fmt.Sprintf("%s\t%s := s.stateStore.Set(ctx, %s, []byte(\"1\"), %s)\n", pad, markErrVar, key, ttl))
 		b.WriteString(fmt.Sprintf("%s\tif %s != nil {\n", pad, markErrVar))
@@ -138,9 +137,9 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 		// Per-key per-second token counter. Throws 429 if limit exceeded.
 		// Args: key (expr), rps (int), throw? (string message)
 	case "ratelimit.Check", "ratelimit.Limit":
-		typed, err := flowir.DecodeAs[flowir.RateLimit](step)
+		typed, err := typedActionAs[flowir.RateLimit](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		key, rps, throwMsg := normalizeFlowExpr(typed.Key.Source), typed.RPS, typed.Throw
 
@@ -169,20 +168,20 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 		b.WriteString(fmt.Sprintf("%s%s++\n", pad, rlCountVar))
 		b.WriteString(fmt.Sprintf("%s%s, %s := json.Marshal(%s)\n", pad, rlDataVar, rlMarshalErrVar, rlCountVar))
 		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, rlMarshalErrVar))
-		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"%s marshal: %%w\", %s)", step.Action, rlMarshalErrVar)))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"%s marshal: %%w\", %s)", step.Name, rlMarshalErrVar)))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		b.WriteString(fmt.Sprintf("%s%s := s.stateStore.Set(ctx, %s, %s, 2*time.Second)\n", pad, rlSetErrVar, rlKeyVar, rlDataVar))
 		b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, rlSetErrVar))
-		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"%s: %%w\", %s)", step.Action, rlSetErrVar)))
+		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("fmt.Errorf(\"%s: %%w\", %s)", step.Name, rlSetErrVar)))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String(), true
 
 	// ── quota.Check ───────────────────────────────────────────────────────────
 	// Fixed window key quota (hour/day/month). Throws 429 when limit exceeded.
 	case "quota.Check":
-		typed, err := flowir.DecodeAs[flowir.QuotaCheck](step)
+		typed, err := typedActionAs[flowir.QuotaCheck](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		key, limit, windowRaw, throwMsg := normalizeFlowExpr(typed.Key.Source), typed.Limit, typed.Window, typed.Throw
 
@@ -233,9 +232,9 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 	// ── budget.Check ──────────────────────────────────────────────────────────
 	// Cumulative token budget guard per key. Throws 402 when exhausted.
 	case "budget.Check":
-		typed, err := flowir.DecodeAs[flowir.BudgetCheck](step)
+		typed, err := typedActionAs[flowir.BudgetCheck](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		key, limit, throwMsg := normalizeFlowExpr(typed.Key.Source), typed.Limit, typed.Throw
 
@@ -263,9 +262,9 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 	// ── budget.Consume ────────────────────────────────────────────────────────
 	// Increments cumulative token budget for key.
 	case "budget.Consume":
-		typed, err := flowir.DecodeAs[flowir.BudgetConsume](step)
+		typed, err := typedActionAs[flowir.BudgetConsume](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		key, tokens, ttl := normalizeFlowExpr(typed.Key.Source), normalizeFlowExpr(typed.Tokens.Source), normalizeFlowExpr(typed.TTL.Source)
 
@@ -295,9 +294,9 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 	// ── context.Trim ──────────────────────────────────────────────────────────
 	// Shrinks large string context before LLM calls.
 	case "context.Trim":
-		typed, err := flowir.DecodeAs[flowir.ContextTrim](step)
+		typed, err := typedActionAs[flowir.ContextTrim](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		input, output, maxBytes, strategy := normalizeFlowExpr(typed.Input.Source), typed.Output, typed.MaxBytes, normalizeFlowExpr(typed.Strategy.Source)
 
@@ -341,9 +340,9 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 	// ── profile.Require ───────────────────────────────────────────────────────
 	// Enforces minimum profile tier (free < ops < enterprise).
 	case "profile.Require":
-		typed, err := flowir.DecodeAs[flowir.ProfileRequire](step)
+		typed, err := typedActionAs[flowir.ProfileRequire](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		key, tier, throwMsg := normalizeFlowExpr(typed.Key.Source), normalizeFlowExpr(typed.Tier.Source), typed.Throw
 
@@ -383,32 +382,33 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 		// State-store semaphore. Increments counter; defers decrement. Throws 503 when full.
 		// Args: key (expr string), max (int), throw? (string message)
 	case "concurrency.Limit":
-		typed, err := flowir.DecodeAs[flowir.ConcurrencyLimit](step)
+		typed, err := typedActionAs[flowir.ConcurrencyLimit](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		return renderStateSemaphore(st, pad, sfx, "concurrency.Limit", "cl:", normalizeFlowExpr(typed.Key.Source), typed.Max, typed.Throw), true
 
 	// ── concurrency.Run ───────────────────────────────────────────────────────
 	// Composite wrapper: acquire concurrency slot then execute child steps.
 	case "concurrency.Run":
-		typed, err := flowir.DecodeAs[flowir.ConcurrencyRun](step)
+		typed, err := typedActionAs[flowir.ConcurrencyRun](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		var b strings.Builder
+		b.WriteString(pad + "// concurrency.Limit\n")
 		b.WriteString(renderStateSemaphore(st, pad, sfx+"_run", "concurrency.Run", "cl:", normalizeFlowExpr(typed.Key.Source), typed.Max, typed.Throw))
-		if doSteps := typed.Steps; len(doSteps) > 0 {
-			b.WriteString(renderFlowSteps(st, doSteps, indent))
+		if flowNestedStepCount(st, "_do", nil) > 0 {
+			b.WriteString(renderFlowNestedSteps(st, "_do", nil, indent))
 		}
 		return b.String(), true
 
 	// ── mutex.With ────────────────────────────────────────────────────────────
 	// Process-local mutex keyed by string. Optional bounded wait with polling.
 	case "mutex.With":
-		typed, err := flowir.DecodeAs[flowir.MutexWith](step)
+		typed, err := typedActionAs[flowir.MutexWith](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		key := normalizeFlowExpr(typed.Key.Source)
 		mutexHelper := "_FlowMutexForKey"
@@ -444,8 +444,8 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		b.WriteString(fmt.Sprintf("%sdefer %s.Unlock()\n", pad, mutexVar))
-		if doSteps := typed.Steps; len(doSteps) > 0 {
-			b.WriteString(renderFlowSteps(st, doSteps, indent))
+		if flowNestedStepCount(st, "_do", nil) > 0 {
+			b.WriteString(renderFlowNestedSteps(st, "_do", nil, indent))
 		}
 		return b.String(), true
 
@@ -453,9 +453,9 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 	// Reads the circuit-open flag; returns 503 if circuit is open.
 	// Args: name (string literal for circuit name), throw? (string message)
 	case "circuit.Check":
-		typed, err := flowir.DecodeAs[flowir.CircuitAction](step)
+		typed, err := typedActionAs[flowir.CircuitAction](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		name, throwMsg := normalizeFlowExpr(typed.Name.Source), typed.Throw
 
@@ -479,9 +479,9 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 	// Resets the failure counter and closes the circuit.
 	// Args: name (string literal for circuit name)
 	case "circuit.RecordSuccess":
-		typed, err := flowir.DecodeAs[flowir.CircuitAction](step)
+		typed, err := typedActionAs[flowir.CircuitAction](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		name := normalizeFlowExpr(typed.Name.Source)
 		delCountErrVar := "_circDelCountErr" + sfx
@@ -502,9 +502,9 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 		// Increments failure counter; opens circuit when threshold is reached.
 		// Args: name (string literal), threshold? (int, default 5), openTTL? (duration, default 60s)
 	case "circuit.RecordFailure":
-		typed, err := flowir.DecodeAs[flowir.CircuitAction](step)
+		typed, err := typedActionAs[flowir.CircuitAction](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		name, threshold, openTTL := normalizeFlowExpr(typed.Name.Source), typed.Threshold, normalizeFlowExpr(typed.OpenTTL.Source)
 
@@ -548,9 +548,9 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 	// ── circuit.Breaker ───────────────────────────────────────────────────────
 	// Composite wrapper: check-open gate + auto record success/failure around child block.
 	case "circuit.Breaker":
-		typed, err := flowir.DecodeAs[flowir.CircuitAction](step)
+		typed, err := typedActionAs[flowir.CircuitAction](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		name, throwMsg, threshold, openTTL := normalizeFlowExpr(typed.Name.Source), typed.Throw, typed.Threshold, normalizeFlowExpr(typed.OpenTTL.Source)
 
@@ -593,8 +593,8 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 		b.WriteString(fmt.Sprintf("%s\ts.stateStore.Delete(ctx, \"circuit:open:\"+%s) //nolint:errcheck\n", pad, name))
 		b.WriteString(fmt.Sprintf("%s}()\n", pad))
 
-		if doSteps := typed.Steps; len(doSteps) > 0 {
-			b.WriteString(renderFlowSteps(st, doSteps, indent))
+		if flowNestedStepCount(st, "_do", nil) > 0 {
+			b.WriteString(renderFlowNestedSteps(st, "_do", nil, indent))
 		}
 		return b.String(), true
 
@@ -602,31 +602,32 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 	// Named resource pool. Increments counter; defers release. Throws 503 when pool full.
 	// Args: name (string literal), max (int), throw? (string message)
 	case "bulkhead.Acquire":
-		typedEarly, typedErr := flowir.DecodeAs[flowir.BulkheadAction](step)
+		typedEarly, typedErr := typedActionAs[flowir.BulkheadAction](step)
 		if typedErr != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, typedErr.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, typedErr.Error()), true
 		}
 		return renderStateSemaphore(st, pad, sfx, "bulkhead.Acquire", "bulkhead:", normalizeFlowExpr(typedEarly.Name.Source), typedEarly.Max, typedEarly.Throw), true
 
 	// ── bulkhead.Run ──────────────────────────────────────────────────────────
 	// Composite wrapper: acquire bulkhead slot then execute child steps.
 	case "bulkhead.Run":
-		typed, err := flowir.DecodeAs[flowir.BulkheadAction](step)
+		typed, err := typedActionAs[flowir.BulkheadAction](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		var b strings.Builder
+		b.WriteString(pad + "// bulkhead.Acquire\n")
 		b.WriteString(renderStateSemaphore(st, pad, sfx+"_run", "bulkhead.Run", "bulkhead:", normalizeFlowExpr(typed.Name.Source), typed.Max, typed.Throw))
-		if doSteps := typed.Steps; len(doSteps) > 0 {
-			b.WriteString(renderFlowSteps(st, doSteps, indent))
+		if flowNestedStepCount(st, "_do", nil) > 0 {
+			b.WriteString(renderFlowNestedSteps(st, "_do", nil, indent))
 		}
 		return b.String(), true
 
 	// ── log.Emit ──────────────────────────────────────────────────────────────
 	case "log.Emit":
-		typed, err := flowir.DecodeAs[flowir.LogEmit](step)
+		typed, err := typedActionAs[flowir.LogEmit](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		message, level := normalizeFlowExpr(typed.Message.Source), strings.ToLower(typed.Level)
 		fields := typed.Fields
@@ -656,9 +657,9 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 	// ── metric.Emit ───────────────────────────────────────────────────────────
 	// Current implementation emits structured metric events via slog.
 	case "metric.Emit":
-		typed, err := flowir.DecodeAs[flowir.MetricEmit](step)
+		typed, err := typedActionAs[flowir.MetricEmit](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		name, kind, value, labels := normalizeFlowExpr(typed.Name.Source), fmt.Sprintf("%q", typed.Kind), normalizeFlowExpr(typed.Value.Source), typed.Labels
 		labelsExpr := "map[string]any{}"
@@ -679,9 +680,9 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 	// ── trace.Span ────────────────────────────────────────────────────────────
 	// Starts a span for the child block and attaches optional attributes.
 	case "trace.Span":
-		typed, err := flowir.DecodeAs[flowir.TraceSpan](step)
+		typed, err := typedActionAs[flowir.TraceSpan](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		name := normalizeFlowExpr(typed.Name.Source)
 		spanCtxVar := "_traceCtx" + sfx
@@ -702,17 +703,17 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 			}
 		}
 		b.WriteString(fmt.Sprintf("%sdefer %s.End()\n", pad, spanVar))
-		if doSteps := typed.Steps; len(doSteps) > 0 {
-			b.WriteString(renderFlowSteps(st, doSteps, indent))
+		if flowNestedStepCount(st, "_do", nil) > 0 {
+			b.WriteString(renderFlowNestedSteps(st, "_do", nil, indent))
 		}
 		return b.String(), true
 
 	// ── slo.Budget ────────────────────────────────────────────────────────────
 	// Applies a latency budget context to child steps and logs budget overrun.
 	case "slo.Budget":
-		typed, err := flowir.DecodeAs[flowir.SLOBudget](step)
+		typed, err := typedActionAs[flowir.SLOBudget](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		duration, name := normalizeFlowExpr(typed.Duration.Source), fmt.Sprintf("%q", typed.Name)
 		if typed.Name == "" {
@@ -731,8 +732,8 @@ func renderFlowStepInfraReliability(st *flowRenderState, step normalizer.FlowSte
 		b.WriteString(fmt.Sprintf("%s%s := ctx\n", pad, prevCtxVar))
 		b.WriteString(fmt.Sprintf("%s%s, %s := context.WithTimeout(ctx, %s)\n", pad, ctxVar, cancelVar, limitVar))
 		b.WriteString(fmt.Sprintf("%sctx = %s\n", pad, ctxVar))
-		if doSteps := typed.Steps; len(doSteps) > 0 {
-			b.WriteString(renderFlowSteps(st, doSteps, indent))
+		if flowNestedStepCount(st, "_do", nil) > 0 {
+			b.WriteString(renderFlowNestedSteps(st, "_do", nil, indent))
 		}
 		b.WriteString(fmt.Sprintf("%s%s()\n", pad, cancelVar))
 		b.WriteString(fmt.Sprintf("%sctx = %s\n", pad, prevCtxVar))

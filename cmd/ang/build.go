@@ -17,7 +17,7 @@ import (
 	"github.com/strogmv/ang/compiler/paymentprovider"
 )
 
-func runBuild(args []string) {
+func runBuild(args []string) error {
 	watch := false
 	for _, arg := range args {
 		if arg == "-w" || arg == "--watch" {
@@ -31,7 +31,7 @@ func runBuild(args []string) {
 		projectPath = args[0]
 	}
 
-	buildTask := func() {
+	buildTask := func() (succeeded bool) {
 		parseArgs := args
 		if len(parseArgs) > 0 && !strings.HasPrefix(parseArgs[0], "-") {
 			parseArgs = parseArgs[1:]
@@ -71,7 +71,7 @@ func runBuild(args []string) {
 					fmt.Printf("Plan written: %s\n", output.OutPlan)
 				}
 			}
-			return
+			return true
 		}
 		jsonLogs := output.LogFormat == "json" || output.PlanJSON || !stdoutIsTerminal()
 		logText := func(format string, args ...any) {
@@ -148,12 +148,21 @@ func runBuild(args []string) {
 
 		if paymentprovider.IsProject(projPath, cueRoot) {
 			logText("Building payment provider from CUE intent...")
-			if err := paymentprovider.Build(paymentprovider.BuildOptions{
-				ProjectPath:  projPath,
-				CueRoot:      cueRoot,
-				TemplatesDir: tmplDir,
-			}); err != nil {
-				fail(compiler.StageCUE, compiler.ErrCodeCUEPipeline, "build payment provider", err)
+			result := runPaymentProviderBuild(projPath, cueRoot, tmplDir, dryRunTmpRoot, output)
+			if result.Err != nil {
+				fail(compiler.StageCUE, compiler.ErrCodeCUEPipeline, "build payment provider", result.Err)
+				return
+			}
+			if output.DryRun {
+				logText("\nBuild DRY-RUN SUCCESSFUL (payment provider).")
+				if jsonLogs {
+					logEvent(buildEvent{
+						Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+						Stage:     "build",
+						Status:    "ok",
+						Message:   "Payment provider dry-run successful",
+					})
+				}
 				return
 			}
 			logText("\nBuild SUCCESSFUL (payment provider).")
@@ -165,7 +174,7 @@ func runBuild(args []string) {
 					Message:   "Payment provider build successful",
 				})
 			}
-			return
+			return true
 		}
 
 		infraBundle, err := compiler.LoadInfraBundleWithRoot(projectPath, cueRoot)
@@ -714,10 +723,13 @@ func runBuild(args []string) {
 					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "read generated OpenAPI contract", readErr)
 					return
 				}
-				diff, diffErr := diffOpenAPIContracts(previous, current)
+				diff, recoveredBaseline, diffErr := diffOpenAPIContractsWithRecovery(previous, current)
 				if diffErr != nil {
 					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "compare OpenAPI contract", diffErr)
 					return
+				}
+				if recoveredBaseline {
+					logText("openapi: previous generated contract is invalid; replacing it with the valid regenerated contract")
 				}
 				logText("openapi: +%d operations, -%d operations, %d breaking", len(diff.AddedOperations), len(diff.RemovedOperations), len(diff.BreakingChanges))
 				if len(diff.BreakingChanges) > 0 && !output.AcceptContract {
@@ -825,7 +837,7 @@ func runBuild(args []string) {
 					Message:   "Dry-run build successful",
 				})
 			}
-			return
+			return true
 		}
 		if transaction != nil {
 			if buildWorkspace != "" {
@@ -859,6 +871,7 @@ func runBuild(args []string) {
 				Message:   "Build successful",
 			})
 		}
+		return true
 	}
 
 	if watch {
@@ -875,8 +888,11 @@ func runBuild(args []string) {
 			}
 		}
 	} else {
-		buildTask()
+		if !buildTask() {
+			return fmt.Errorf("build failed")
+		}
 	}
+	return nil
 }
 
 func buildDoctorHint(projectPath string) (bool, string) {

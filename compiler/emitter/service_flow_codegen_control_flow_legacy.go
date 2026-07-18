@@ -2,14 +2,14 @@ package emitter
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 func renderFlowBlockLegacy(st *flowRenderState, indent int, child func(string) []normalizer.FlowStep) string {
-	return renderFlowSteps(st, child("_do"), indent)
+	return renderFlowChildSteps(st, child, "_do", indent)
 }
 
 func renderFlowIfLegacy(st *flowRenderState, pad string, indent int, arg func(string) string, child func(string) []normalizer.FlowStep) string {
@@ -17,15 +17,13 @@ func renderFlowIfLegacy(st *flowRenderState, pad string, indent int, arg func(st
 	if cond == "" {
 		return ""
 	}
-	thenSteps := child("_then")
-	elseSteps := child("_else")
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("%sif %s {\n", pad, cond))
-	b.WriteString(renderFlowSteps(cloneFlowState(st), thenSteps, indent+1))
+	b.WriteString(renderFlowChildSteps(cloneFlowState(st), child, "_then", indent+1))
 	b.WriteString(fmt.Sprintf("%s}", pad))
-	if len(elseSteps) > 0 {
+	if flowChildStepCount(st, child, "_else") > 0 {
 		b.WriteString(" else {\n")
-		b.WriteString(renderFlowSteps(cloneFlowState(st), elseSteps, indent+1))
+		b.WriteString(renderFlowChildSteps(cloneFlowState(st), child, "_else", indent+1))
 		b.WriteString(fmt.Sprintf("%s}", pad))
 	}
 	b.WriteString("\n")
@@ -43,7 +41,7 @@ func renderFlowForLegacy(st *flowRenderState, pad string, indent int, arg func(s
 	}
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("%sfor _, %s := range %s {\n", pad, as, each))
-	b.WriteString(renderFlowSteps(cloneFlowState(st), child("_do"), indent+1))
+	b.WriteString(renderFlowChildSteps(cloneFlowState(st), child, "_do", indent+1))
 	b.WriteString(fmt.Sprintf("%s}\n", pad))
 	return b.String()
 }
@@ -57,21 +55,17 @@ func renderFlowSwitchLegacy(st *flowRenderState, cases map[string][]normalizer.F
 	if matchMode == "" {
 		matchMode = "exact"
 	}
-	keys := make([]string, 0, len(cases))
-	for k := range cases {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := flowBranchNames(st, cases)
 	var b strings.Builder
 	if matchMode == "exact" {
 		b.WriteString(fmt.Sprintf("%sswitch %s {\n", pad, value))
 		for _, k := range keys {
 			b.WriteString(fmt.Sprintf("%scase %q:\n", pad, k))
-			b.WriteString(renderFlowSteps(cloneFlowState(st), cases[k], indent+1))
+			b.WriteString(renderFlowBranchSteps(cloneFlowState(st), k, cases[k], indent+1))
 		}
-		if len(defaultSteps) > 0 {
+		if flowNestedStepCount(st, "_default", defaultSteps) > 0 {
 			b.WriteString(fmt.Sprintf("%sdefault:\n", pad))
-			b.WriteString(renderFlowSteps(cloneFlowState(st), defaultSteps, indent+1))
+			b.WriteString(renderFlowNestedSteps(cloneFlowState(st), "_default", defaultSteps, indent+1))
 		}
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 		return b.String()
@@ -95,15 +89,15 @@ func renderFlowSwitchLegacy(st *flowRenderState, cases map[string][]normalizer.F
 		} else {
 			b.WriteString(fmt.Sprintf("%s} else if %s {\n", pad, cond))
 		}
-		b.WriteString(renderFlowSteps(cloneFlowState(st), cases[k], indent+1))
+		b.WriteString(renderFlowBranchSteps(cloneFlowState(st), k, cases[k], indent+1))
 	}
-	if len(defaultSteps) > 0 {
+	if flowNestedStepCount(st, "_default", defaultSteps) > 0 {
 		if len(keys) > 0 {
 			b.WriteString(fmt.Sprintf("%s} else {\n", pad))
 		} else {
 			b.WriteString(fmt.Sprintf("%s{\n", pad))
 		}
-		b.WriteString(renderFlowSteps(cloneFlowState(st), defaultSteps, indent+1))
+		b.WriteString(renderFlowNestedSteps(cloneFlowState(st), "_default", defaultSteps, indent+1))
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
 	} else if len(keys) > 0 {
 		b.WriteString(fmt.Sprintf("%s}\n", pad))
@@ -118,20 +112,17 @@ func renderFlowWhileLegacy(st *flowRenderState, pad string, indent int, arg func
 	}
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("%sfor %s {\n", pad, cond))
-	b.WriteString(renderFlowSteps(cloneFlowState(st), child("_do"), indent+1))
+	b.WriteString(renderFlowChildSteps(cloneFlowState(st), child, "_do", indent+1))
 	b.WriteString(fmt.Sprintf("%s}\n", pad))
 	return b.String()
 }
 
-func renderFlowCheckpointLegacy(pad string, arg func(string) string) string {
-	name := arg("name")
+func renderTypedFlowCheckpoint(pad string, action flowir.FlowCheckpoint) string {
+	name := action.Name
 	if name == "" {
 		return ""
 	}
-	data := arg("data")
-	if data == "" {
-		data = "map[string]any{\"resp\": resp}"
-	}
+	data := normalizeFlowExpr(action.Data.Source)
 	keyLit := fmt.Sprintf("%q", name)
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("%sif _flowCheckpoints == nil {\n", pad))
@@ -141,14 +132,12 @@ func renderFlowCheckpointLegacy(pad string, arg func(string) string) string {
 	return b.String()
 }
 
-func renderFlowResumeLegacy(st *flowRenderState, pad string, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) string {
-	name := arg("name")
+func renderTypedFlowResume(st *flowRenderState, step flowir.TypedStep, action flowir.FlowResume, pad string, indent int, sfx string) string {
+	name := action.Name
 	if name == "" {
 		return ""
 	}
-	output := arg("output")
-	into := arg("into")
-	onMissing := child("_onMissing")
+	output, into := action.Output, action.Into
 	keyLit := fmt.Sprintf("%q", name)
 	ckptValV, ckptOKV := "_ckptVal"+sfx, "_ckptOK"+sfx
 	ckptCastV, ckptCastOKV := "_ckptCast"+sfx, "_ckptCastOK"+sfx
@@ -159,8 +148,8 @@ func renderFlowResumeLegacy(st *flowRenderState, pad string, indent int, sfx str
 	b.WriteString(fmt.Sprintf("%s\t%s, %s = _flowCheckpoints[%s]\n", pad, ckptValV, ckptOKV, keyLit))
 	b.WriteString(fmt.Sprintf("%s}\n", pad))
 	b.WriteString(fmt.Sprintf("%sif !%s {\n", pad, ckptOKV))
-	if len(onMissing) > 0 {
-		b.WriteString(renderFlowSteps(cloneFlowState(st), onMissing, indent+1))
+	if onMissing := step.Children["_onMissing"]; len(onMissing) > 0 {
+		b.WriteString(renderTypedFlowSteps(cloneFlowState(st), onMissing, indent+1))
 	} else {
 		b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("errors.New(http.StatusNotFound, \"CHECKPOINT_NOT_FOUND\", \"checkpoint %s not found\")", name)))
 	}
@@ -191,22 +180,21 @@ func renderFlowResumeLegacy(st *flowRenderState, pad string, indent int, sfx str
 	return b.String()
 }
 
-func renderFlowCatchLegacy(st *flowRenderState, pad string, indent int, child func(string) []normalizer.FlowStep) string {
-	catchSteps := child("_do")
+func renderTypedFlowCatch(st *flowRenderState, step flowir.TypedStep, pad string, indent int) string {
+	catchSteps := step.Children["_do"]
 	if len(catchSteps) == 0 {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("%sif _flowLastError != nil {\n", pad))
-	b.WriteString(renderFlowSteps(cloneFlowState(st), catchSteps, indent+1))
+	b.WriteString(renderTypedFlowSteps(cloneFlowState(st), catchSteps, indent+1))
 	b.WriteString(fmt.Sprintf("%s\t_flowLastError = nil\n", pad))
 	b.WriteString(fmt.Sprintf("%s}\n", pad))
 	return b.String()
 }
 
-func renderFlowSuggestNextLegacy(st *flowRenderState, step normalizer.FlowStep, pad string, arg func(string) string) string {
-	output := arg("output")
-	options := flowSuggestNextOptions(step)
+func renderTypedFlowSuggestNext(st *flowRenderState, action flowir.FlowSuggestNext, pad string) string {
+	output, options := action.Output, action.Options
 	if len(options) == 0 {
 		return ""
 	}
@@ -228,29 +216,16 @@ func renderFlowSuggestNextLegacy(st *flowRenderState, step normalizer.FlowStep, 
 	return fmt.Sprintf("%sslog.Info(\"flow.suggest_next\", \"options\", %s)\n", pad, listExpr)
 }
 
-func renderFlowValidateLegacy(st *flowRenderState, pad string, arg func(string) string) string {
-	cond := arg("condition")
+func renderTypedFlowValidate(st *flowRenderState, action flowir.FlowValidate, pad string) string {
+	cond := normalizeFlowExpr(action.Condition.Source)
 	if cond == "" {
 		return ""
 	}
-	message := arg("message")
-	if message == "" {
-		message = arg("throw")
-	}
-	if message == "" {
-		message = "validation failed"
-	}
-	if hint := arg("hint"); hint != "" {
+	message := action.Message
+	if hint := action.Hint; hint != "" {
 		message = message + " (hint: " + hint + ")"
 	}
-	code := arg("code")
-	if code == "" {
-		code = "VALIDATION_FAILED"
-	}
-	status := arg("status")
-	if status == "" {
-		status = "http.StatusBadRequest"
-	}
+	code, status := action.Code, normalizeFlowExpr(action.Status.Source)
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("%sif !(%s) {\n", pad, cond))
 	b.WriteString(errReturn(st, pad+"\t", fmt.Sprintf("errors.New(%s, %q, %q)", status, code, message)))
@@ -258,14 +233,9 @@ func renderFlowValidateLegacy(st *flowRenderState, pad string, arg func(string) 
 	return b.String()
 }
 
-func renderFlowExplainErrorLegacy(st *flowRenderState, pad, sfx string, arg func(string) string) string {
-	errExpr := arg("error")
-	if errExpr == "" {
-		errExpr = "_flowLastError"
-	}
-	output := arg("output")
-	message := arg("message")
-	hint := arg("hint")
+func renderTypedFlowExplainError(st *flowRenderState, action flowir.FlowExplainError, pad, sfx string) string {
+	errExpr := normalizeFlowExpr(action.Error.Source)
+	output, message, hint := action.Output, action.Message, action.Hint
 	expMsgV := "_expMsg" + sfx
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("%sif %s != nil {\n", pad, errExpr))

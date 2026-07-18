@@ -38,6 +38,12 @@ func (c *Client) SubscribeRaw(subject string, handler func(data []byte) error) (
 	})
 }
 
+func (c *Client) SubscribeQueueRaw(subject string, queue string, handler func(data []byte) error) (*natspkg.Subscription, error) {
+	return c.nc.QueueSubscribe(subject, queue, func(msg *natspkg.Msg) {
+		_ = handler(msg.Data)
+	})
+}
+
 // Enqueue publishes a raw payload to the given subject (implements port.QueuePublisher).
 func (c *Client) Enqueue(ctx context.Context, subject string, payload []byte) error {
 	return c.nc.Publish(subject, payload)

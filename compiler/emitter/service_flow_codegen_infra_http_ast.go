@@ -6,51 +6,27 @@ import (
 	"sort"
 	"strconv"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
-func renderFlowHTTPCallAST(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string) (string, bool) {
-	method := arg("method")
-	url := arg("url")
-	body := arg("body")
-	output := arg("output")
-	statusVar := arg("statusVar")
+func renderFlowHTTPCallAST(st *flowRenderState, action flowir.HTTPCall, indent int, sfx string) (string, bool) {
+	method, url, body := action.Method, normalizeFlowExpr(action.URL.Source), normalizeFlowExpr(action.Body.Source)
+	output, statusVar := action.Output, action.StatusVar
 	if method == "" || url == "" {
 		return "", true
 	}
-	failOnError := true
-	if v, ok := step.Args["failOnError"].(bool); ok {
-		failOnError = v
-	}
-	attempts := flowIntArg(step.Args, "attempts", -1)
-	if attempts < 0 {
-		retries := flowIntArg(step.Args, "retries", -1)
-		if retries >= 0 {
-			attempts = retries + 1
-		} else {
-			attempts = 2
-		}
-	}
+	failOnError, attempts, backoffMs := action.FailOnError, action.Attempts, action.BackoffMS
 	if attempts <= 0 {
-		attempts = 1
-	}
-	backoffMs := flowIntArg(step.Args, "backoffMs", 150)
-	if backoffMs < 0 {
-		backoffMs = 0
+		attempts = 2
 	}
 
 	urlExpr, err := parseFlowExprSafe(url)
 	if err != nil {
 		return "", false
 	}
-	timeoutRaw := arg("timeout")
-	timeoutExprRaw := timeoutRaw
+	timeoutExprRaw := normalizeFlowExpr(action.Timeout.Source)
 	if timeoutExprRaw == "" {
-		if timeoutMS := flowIntArg(step.Args, "timeoutMs", 0); timeoutMS > 0 {
-			timeoutExprRaw = "time.Duration(" + strconv.Itoa(timeoutMS) + ") * time.Millisecond"
-		} else {
-			timeoutExprRaw = "5 * time.Second"
-		}
+		timeoutExprRaw = "5 * time.Second"
 	}
 	timeoutExpr, err := parseFlowExprSafe(timeoutExprRaw)
 	if err != nil {
@@ -146,14 +122,14 @@ func renderFlowHTTPCallAST(st *flowRenderState, step normalizer.FlowStep, indent
 		},
 		Body: &ast.BlockStmt{List: reqErrBody},
 	})
-	if hdrs, ok := step.Args["headers"].(map[string]string); ok && len(hdrs) > 0 {
+	if hdrs := action.Headers; len(hdrs) > 0 {
 		keys := make([]string, 0, len(hdrs))
 		for hk := range hdrs {
 			keys = append(keys, hk)
 		}
 		sort.Strings(keys)
 		for _, hk := range keys {
-			hvExpr, parseErr := parseFlowExprSafe(hdrs[hk])
+			hvExpr, parseErr := parseFlowExprSafe(hdrs[hk].Source)
 			if parseErr != nil {
 				return "", false
 			}

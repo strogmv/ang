@@ -3,7 +3,10 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 	"time"
+	_ "time/tzdata"
 
 	{{- if .HasPublish }}
 	"{{GoModule}}/internal/domain"
@@ -102,11 +105,36 @@ var DefaultSchedules = []Schedule{
 }
 
 func mustParseTime(v string) time.Time {
+	if v == "" {
+		return time.Time{}
+	}
 	t, err := time.Parse(time.RFC3339, v)
+	if err == nil {
+		return t
+	}
+	clock, err := time.Parse("15:04", v)
 	if err != nil {
 		return time.Time{}
 	}
-	return t
+	now := time.Now().In(schedulerLocation())
+	next := time.Date(now.Year(), now.Month(), now.Day(), clock.Hour(), clock.Minute(), 0, 0, now.Location())
+	if !next.After(now) {
+		next = next.Add(24 * time.Hour)
+	}
+	return next
+}
+
+func schedulerLocation() *time.Location {
+	name := strings.TrimSpace(os.Getenv("SCHEDULER_TIMEZONE"))
+	if name == "" {
+		return time.UTC
+	}
+	location, err := time.LoadLocation(name)
+	if err != nil {
+		fmt.Printf("scheduler invalid timezone %q, using UTC: %v\n", name, err)
+		return time.UTC
+	}
+	return location
 }
 
 func mustParseDuration(v string) time.Duration {

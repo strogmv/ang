@@ -23,6 +23,9 @@ func ValidateGeneratedDI(backendDir string, ctx MainContext, auth *normalizer.Au
 	requireMain := func(contains, reason string) {
 		requirements = append(requirements, generatedDIRequirement{"cmd/server/main.go", contains, reason})
 	}
+	requireEffectRegistry := func(contains, reason string) {
+		requirements = append(requirements, generatedDIRequirement{"internal/bootstrap/effect_registry.gen.go", contains, reason})
+	}
 	if ctx.HasSQL {
 		requireMain("pgxpool.NewWithConfig(ctx, poolCfg)", "SQL capability requires a PostgreSQL pool")
 		requireMain("bootstrap.NewRuntimeContainer(", "SQL capability requires runtime-container wiring")
@@ -56,13 +59,13 @@ func ValidateGeneratedDI(backendDir string, ctx MainContext, auth *normalizer.Au
 	}
 	switch refreshStore {
 	case "memory":
-		requireMain("authstore.NewMemoryStore()", "memory refresh-store capability requires store construction")
+		requireEffectRegistry("reg.RefreshStore = authstore.NewMemoryStore()", "memory refresh-store capability requires store construction")
 	case "redis":
-		requireMain("authredis.NewStore(redisClient)", "Redis refresh-store capability requires store construction")
+		requireEffectRegistry("reg.RefreshStore = authredis.NewStore(redisClient)", "Redis refresh-store capability requires store construction")
 	case "postgres":
-		requireMain("authpg.NewStore(pgPool)", "PostgreSQL refresh-store capability requires store construction")
+		requireEffectRegistry("reg.RefreshStore = authpg.NewStore(pgPool)", "PostgreSQL refresh-store capability requires store construction")
 	case "hybrid":
-		requireMain("authhybrid.NewStore(authpg.NewStore(pgPool), authredis.NewStore(redisClient))", "hybrid refresh-store capability requires both backing stores")
+		requireEffectRegistry("reg.RefreshStore = authhybrid.NewStore(authpg.NewStore(pgPool), authredis.NewStore(redisClient))", "hybrid refresh-store capability requires both backing stores")
 	}
 	if auth != nil && strings.EqualFold(strings.TrimSpace(auth.Mode), "opaque_session_cookie") {
 		requirements = append(requirements,

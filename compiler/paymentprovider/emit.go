@@ -20,6 +20,7 @@ var templateFiles = []struct {
 	{"creds.go.tmpl", func(pkg string) string { return "creds.go" }, false},
 	{"creds_macan.go.tmpl", func(pkg string) string { return "creds.go" }, false},
 	{"sign.go.tmpl", func(pkg string) string { return "sign.go" }, false},
+	{"sign_test.go.tmpl", func(pkg string) string { return "sign_test.go" }, false},
 	{"provider.go.tmpl", func(pkg string) string { return pkg + ".go" }, false},
 	{"provider_macan.go.tmpl", func(pkg string) string { return pkg + "_macan.go" }, true},
 	{"provider_test.go.tmpl", func(pkg string) string { return pkg + "_test.go" }, false},
@@ -27,15 +28,25 @@ var templateFiles = []struct {
 
 // Emit writes generated provider files into outputDir.
 func Emit(templatesDir, outputDir string, data *TemplateData) error {
+	_, err := EmitWithResult(templatesDir, outputDir, data)
+	return err
+}
+
+// EmitWithResult writes generated files and returns the generator-owned manifest.
+func EmitWithResult(templatesDir, outputDir string, data *TemplateData) ([]GeneratedFile, error) {
 	if data == nil {
-		return fmt.Errorf("template data is nil")
+		return nil, fmt.Errorf("template data is nil")
 	}
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
-		return fmt.Errorf("mkdir output: %w", err)
+		return nil, fmt.Errorf("mkdir output: %w", err)
 	}
 
+	var files []GeneratedFile
 	for _, tf := range templateFiles {
 		if tf.tmpl == "creds.go.tmpl" && (data.UseMacanP2P || data.SecretUseLabels) {
+			continue
+		}
+		if tf.tmpl == "creds.go.tmpl" && data.CardEncryption != nil && data.CardEncryption.Enabled {
 			continue
 		}
 		if tf.tmpl == "creds_macan.go.tmpl" && !data.UseMacanP2P && !data.SecretUseLabels {
@@ -53,37 +64,60 @@ func Emit(templatesDir, outputDir string, data *TemplateData) error {
 				continue
 			}
 		}
-		tmplPath := filepath.Join(templatesDir, tf.tmpl)
-		raw, err := os.ReadFile(tmplPath)
-		if err != nil {
-			return fmt.Errorf("read template %s: %w", tf.tmpl, err)
+		if tf.tmpl == "sign_test.go.tmpl" {
+			emitSignTest := data.RequestSigning != nil && data.RequestSigning.Format == "username_key_body_b64"
+			if data.CallbackSignature != nil && data.CallbackSignature.Format == "username_key_form_b64" {
+				emitSignTest = true
+			}
+			if !emitSignTest {
+				continue
+			}
 		}
-		tmpl, err := template.New(tf.tmpl).Parse(string(raw))
+		tmplPath := filepath.Join(templatesDir, tf.tmpl)
+		parsePaths := []string{tmplPath}
+		if moduleFiles, globErr := filepath.Glob(filepath.Join(templatesDir, "modules", "*.tmpl")); globErr == nil {
+			parsePaths = append(parsePaths, moduleFiles...)
+		}
+		tmpl, err := template.New(filepath.Base(tmplPath)).ParseFiles(parsePaths...)
 		if err != nil {
-			return fmt.Errorf("parse template %s: %w", tf.tmpl, err)
+			return nil, fmt.Errorf("parse template %s: %w", tf.tmpl, err)
 		}
 		var buf bytes.Buffer
 		if err := tmpl.Execute(&buf, data); err != nil {
-			return fmt.Errorf("execute template %s: %w", tf.tmpl, err)
+			return nil, fmt.Errorf("execute template %s: %w", tf.tmpl, err)
 		}
 		src := buf.Bytes()
 		outPath := filepath.Join(outputDir, tf.output(data.PackageName))
 		formatted, err := imports.Process(outPath, src, &imports.Options{Comments: true, TabIndent: true, TabWidth: 8})
 		if err != nil {
-			return fmt.Errorf("format generated %s: %w", tf.output(data.PackageName), err)
+			return nil, fmt.Errorf("format generated %s: %w", tf.output(data.PackageName), err)
 		}
 		if err := os.WriteFile(outPath, formatted, 0o644); err != nil {
-			return fmt.Errorf("write %s: %w", outPath, err)
+			return nil, fmt.Errorf("write %s: %w", outPath, err)
 		}
+		rel, err := filepath.Rel(outputDir, outPath)
+		if err != nil {
+			return nil, fmt.Errorf("rel output path %s: %w", outPath, err)
+		}
+		files = append(files, GeneratedFile{
+			RelativePath: filepath.ToSlash(rel),
+			SHA256:       hashFileContents(formatted),
+		})
 	}
-	return nil
+	return files, nil
 }
 
 func needsSignFile(data *TemplateData) bool {
 	if data.UseMacanP2P {
 		return true
 	}
+	if data.CardEncryption != nil && data.CardEncryption.Enabled {
+		return true
+	}
 	if data.CallbackSignature != nil {
+		if data.CallbackSignature.Format == "rsa_pkcs1v15_body" {
+			return true
+		}
 		return true
 	}
 	if data.RequestSigning != nil {

@@ -5,37 +5,34 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
 	"github.com/strogmv/ang/compiler/flowir"
 )
 
-func renderFlowStepInfraHTTPAdvanced(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
-	_ = child
+func renderTypedStepHTTPAdvanced(st *flowRenderState, step flowir.TypedStep, indent int, sfx string) (string, bool) {
 	pad := strings.Repeat("\t", indent)
-
-	switch step.Action {
+	switch step.Name {
 	case "http.Request":
-		typed, err := flowir.DecodeAs[flowir.HTTPRequest](step)
+		typed, err := typedActionAs[flowir.HTTPRequest](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		return renderHTTPRequest(st, typed, pad, sfx)
 	case "http.SOAP":
-		typed, err := flowir.DecodeAs[flowir.HTTPSOAP](step)
+		typed, err := typedActionAs[flowir.HTTPSOAP](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		return renderHTTPSOAP(st, typed, pad, sfx)
 	case "http.RetryPolicy":
-		typed, err := flowir.DecodeAs[flowir.HTTPRetryPolicy](step)
+		typed, err := typedActionAs[flowir.HTTPRetryPolicy](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		return renderHTTPRetryPolicy(st, typed, pad, sfx)
 	case "http.Paginate":
-		typed, err := flowir.DecodeAs[flowir.HTTPPaginate](step)
+		typed, err := typedActionAs[flowir.HTTPPaginate](step)
 		if err != nil {
-			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		return renderHTTPPaginate(st, typed, pad, sfx)
 	}

@@ -53,9 +53,16 @@ sched.Start(ctx)
 r.Use(transport.SessionMiddleware)
 notifications.NewDispatcher(cfg)
 notificationDispatcher,
-authhybrid.NewStore(authpg.NewStore(pgPool), authredis.NewStore(redisClient))
 `
 	if err := os.WriteFile(path, []byte(complete), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	effectRegistryPath := filepath.Join(root, "internal", "bootstrap", "effect_registry.gen.go")
+	if err := os.MkdirAll(filepath.Dir(effectRegistryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const effectRegistry = "reg.RefreshStore = authhybrid.NewStore(authpg.NewStore(pgPool), authredis.NewStore(redisClient))"
+	if err := os.WriteFile(effectRegistryPath, []byte(effectRegistry), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	ctx := MainContext{HasSQL: true, HasMongo: true, HasNats: true, HasS3: true, HasScheduler: true, HasSession: true, HasNotificationDispatch: true, AuthRefreshStore: "hybrid"}
@@ -67,5 +74,14 @@ authhybrid.NewStore(authpg.NewStore(pgPool), authredis.NewStore(redisClient))
 	}
 	if err := ValidateGeneratedDI(root, ctx, nil); err == nil || !strings.Contains(err.Error(), "publisher wiring") {
 		t.Fatalf("expected missing NATS publisher error, got %v", err)
+	}
+	if err := os.WriteFile(path, []byte(complete), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(effectRegistryPath, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateGeneratedDI(root, ctx, nil); err == nil || !strings.Contains(err.Error(), "hybrid refresh-store") {
+		t.Fatalf("expected missing hybrid refresh-store error, got %v", err)
 	}
 }

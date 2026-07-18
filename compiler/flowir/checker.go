@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"sort"
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
@@ -28,12 +29,17 @@ type checker struct {
 	entities map[string]normalizer.Entity
 	repos    map[string]normalizer.Repository
 	events   map[string]normalizer.EventDef
+	dtos     map[string]normalizer.Entity
 }
 
 func Check(program Program) []Issue {
-	c := checker{services: map[string]normalizer.Service{}, entities: map[string]normalizer.Entity{}, repos: map[string]normalizer.Repository{}, events: map[string]normalizer.EventDef{}}
+	c := checker{services: map[string]normalizer.Service{}, entities: map[string]normalizer.Entity{}, repos: map[string]normalizer.Repository{}, events: map[string]normalizer.EventDef{}, dtos: map[string]normalizer.Entity{}}
 	for _, service := range program.Services {
 		c.services[strings.ToLower(service.Name)] = service
+		for _, method := range service.Methods {
+			c.registerDTO(method.Input)
+			c.registerDTO(method.Output)
+		}
 	}
 	for _, entity := range program.Entities {
 		c.entities[strings.ToLower(entity.Name)] = entity
@@ -57,94 +63,217 @@ func Check(program Program) []Issue {
 				"out":  {Kind: TypeDTO, Name: method.Output.Name},
 				"ctx":  {Kind: TypeUnknown, Name: "context.Context"},
 			}
-			issues = append(issues, c.checkSteps(service, method, method.Flow, env)...)
+			typedSteps, _ := DecodeSteps(method.Flow)
+			issues = append(issues, c.checkTypedSteps(service, method, typedSteps, env)...)
 		}
 	}
 	return issues
 }
 
-func (c checker) checkSteps(service normalizer.Service, method normalizer.Method, steps []normalizer.FlowStep, env map[string]TypeRef) []Issue {
+func (c checker) checkTypedSteps(service normalizer.Service, method normalizer.Method, steps []TypedStep, env map[string]TypeRef) []Issue {
 	var issues []Issue
 	for _, step := range steps {
-		spec, registered := Lookup(step.Action)
-		if registered {
-			action, err := spec.Decode(step)
-			if err != nil {
-				issues = append(issues, issue(step, "FLOW_TYPED_DECODE", err.Error()))
-			} else {
-				issues = append(issues, c.checkAction(service, method, step, action, env)...)
-				for _, variable := range action.DeclaredVariables() {
-					if typed, ok := action.(RepositoryCall); ok && typed.Method != "" {
-						if resolved := c.repositoryOutputType(typed); resolved.Kind != TypeUnknown {
-							variable.Type = resolved
-						}
+		metadata := step.Meta()
+		if step.DecodeError != nil {
+			issues = append(issues, issue(metadata, "FLOW_TYPED_DECODE", step.DecodeError.Error()))
+		} else if step.Action != nil {
+			issues = append(issues, c.checkAction(service, method, metadata, step.Action, env)...)
+			for _, variable := range step.Action.DeclaredVariables() {
+				switch typed := step.Action.(type) {
+				case RepositoryCall:
+					if resolved := c.repositoryOutputType(typed); resolved.Kind != TypeUnknown {
+						variable.Type = resolved
 					}
-					if variable.Type.Kind == TypeUnknown {
-						switch typed := action.(type) {
-						case MappingAssign:
-							variable.Type = c.inferExpression(typed.Value.Source, method, env)
-						case MappingMap:
-							variable.Type = c.inferExpression(typed.Input.Source, method, env)
-						}
+				case ServiceCall:
+					if resolved := c.serviceCallOutputType(typed); resolved.Kind != TypeUnknown {
+						variable.Type = resolved
 					}
-					env[variable.Name] = variable.Type
+				case FlowCall:
+					if resolved := c.flowCallOutputType(service, typed); resolved.Kind != TypeUnknown {
+						variable.Type = resolved
+					}
+				case LogicCall:
+					if resolved := logicCallOutputType(typed); resolved.Kind != TypeUnknown {
+						variable.Type = resolved
+					}
 				}
+				if variable.Type.Kind == TypeUnknown {
+					switch typed := step.Action.(type) {
+					case MappingAssign:
+						variable.Type = c.inferExpression(typed.Value.Source, method, env)
+					case MappingMap:
+						variable.Type = c.inferExpression(typed.Input.Source, method, env)
+					}
+				}
+				env[variable.Name] = variable.Type
 			}
 		}
-		for _, nested := range nestedStepGroups(step) {
-			issues = append(issues, c.checkSteps(service, method, nested, cloneEnv(env))...)
+		for _, children := range step.Children {
+			childEnv := cloneEnv(env)
+			if typed, ok := step.Action.(FlowFor); ok {
+				childEnv[typed.As] = c.flowForItemType(typed, method, env)
+			}
+			issues = append(issues, c.checkTypedSteps(service, method, children, childEnv)...)
+		}
+		for _, branch := range step.Branches {
+			issues = append(issues, c.checkTypedSteps(service, method, branch, cloneEnv(env))...)
 		}
 	}
 	return issues
 }
 
-func (c checker) repositoryOutputType(call RepositoryCall) TypeRef {
-	if call.Method == "" {
-		return TypeRef{Kind: TypeUnknown}
-	}
-	repo, ok := c.repos[strings.ToLower(call.Entity)]
-	if !ok {
-		return TypeRef{Kind: TypeUnknown}
-	}
-	for _, finder := range repo.Finders {
-		if !strings.EqualFold(finder.Name, call.Method) {
-			continue
-		}
-		returns := strings.ToLower(strings.TrimSpace(finder.Returns))
-		returnType := strings.TrimSpace(finder.ReturnType)
-		if returns == "count" || strings.Contains(strings.ToLower(returnType), "int") || strings.HasPrefix(strings.ToLower(finder.Name), "count") {
-			return TypeRef{Kind: TypeInt}
-		}
-		if returns == "exists" || strings.Contains(strings.ToLower(returnType), "bool") {
-			return TypeRef{Kind: TypeBool}
-		}
-		if strings.HasPrefix(returnType, "[]") || returns == "many" || returns == "list" {
-			return TypeRef{Kind: TypeList, Elem: &TypeRef{Kind: TypeEntity, Name: strings.TrimPrefix(strings.TrimPrefix(returnType, "[]"), "domain.")}}
-		}
-		if returnType != "" {
-			name := strings.TrimPrefix(strings.TrimPrefix(returnType, "*"), "domain.")
-			return TypeRef{Kind: TypePointer, Elem: &TypeRef{Kind: TypeEntity, Name: name}}
-		}
+func (c checker) flowForItemType(action FlowFor, method normalizer.Method, env map[string]TypeRef) TypeRef {
+	listType := c.inferExpression(action.Each.Source, method, env)
+	if listType.Kind == TypeList && listType.Elem != nil {
+		return *listType.Elem
 	}
 	return TypeRef{Kind: TypeUnknown}
 }
 
-func (c checker) checkAction(service normalizer.Service, method normalizer.Method, step normalizer.FlowStep, action Action, env map[string]TypeRef) []Issue {
+func (c checker) registerDTO(dto normalizer.Entity) {
+	name := strings.ToLower(strings.TrimSpace(dto.Name))
+	if name != "" {
+		c.dtos[name] = dto
+	}
+}
+
+func (c checker) serviceCallOutputType(call ServiceCall) TypeRef {
+	_, method, ok := c.serviceMethod(call.Service, call.Method)
+	if !ok || strings.TrimSpace(method.Output.Name) == "" {
+		return TypeRef{Kind: TypeUnknown}
+	}
+	return TypeRef{Kind: TypeDTO, Name: method.Output.Name}
+}
+
+func (c checker) flowCallOutputType(owner normalizer.Service, call FlowCall) TypeRef {
+	serviceName, methodName := owner.Name, call.Operation
+	if parts := strings.SplitN(call.Operation, ".", 2); len(parts) == 2 {
+		serviceName, methodName = strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+	}
+	_, method, ok := c.serviceMethod(serviceName, methodName)
+	if !ok || strings.TrimSpace(method.Output.Name) == "" {
+		return TypeRef{Kind: TypeUnknown}
+	}
+	return TypeRef{Kind: TypeDTO, Name: method.Output.Name}
+}
+
+func (c checker) serviceMethod(serviceName, methodName string) (normalizer.Service, normalizer.Method, bool) {
+	service, ok := c.services[strings.ToLower(strings.TrimSpace(serviceName))]
+	if !ok {
+		return normalizer.Service{}, normalizer.Method{}, false
+	}
+	for _, method := range service.Methods {
+		if strings.EqualFold(method.Name, strings.TrimSpace(methodName)) {
+			return service, method, true
+		}
+	}
+	return normalizer.Service{}, normalizer.Method{}, false
+}
+
+func (c checker) repositoryOutputType(call RepositoryCall) TypeRef {
+	repo, ok := c.repos[strings.ToLower(call.Entity)]
+	if !ok {
+		return TypeRef{Kind: TypeUnknown}
+	}
+	if call.Method != "" {
+		for _, finder := range repo.Finders {
+			if !strings.EqualFold(finder.Name, call.Method) {
+				continue
+			}
+			return c.finderOutputType(call.Entity, finder)
+		}
+	}
+	entity, exists := c.entities[strings.ToLower(call.Entity)]
+	if !exists {
+		return TypeRef{Kind: TypeUnknown}
+	}
+	switch call.Operation {
+	case RepoFind, RepoGet, RepoGetForUpdate, RepoUpsert:
+		return TypeRef{Kind: TypePointer, Elem: &TypeRef{Kind: TypeEntity, Name: entity.Name}}
+	case RepoList:
+		return TypeRef{Kind: TypeList, Elem: &TypeRef{Kind: TypeEntity, Name: entity.Name}}
+	case RepoExists:
+		return TypeRef{Kind: TypeBool}
+	case RepoCount:
+		return TypeRef{Kind: TypeInt}
+	}
+	return TypeRef{Kind: TypeUnknown}
+}
+
+func (c checker) finderOutputType(entityName string, finder normalizer.RepositoryFinder) TypeRef {
+	if returnType := strings.TrimSpace(finder.ReturnType); returnType != "" {
+		return c.repositoryDeclaredType(returnType)
+	}
+	switch strings.ToLower(strings.TrimSpace(finder.Returns)) {
+	case "count", "sum":
+		return TypeRef{Kind: TypeInt}
+	case "exists":
+		return TypeRef{Kind: TypeBool}
+	case "many", "list", "[]" + strings.ToLower(entityName):
+		item := TypeRef{Kind: TypeEntity, Name: entityName}
+		return TypeRef{Kind: TypeList, Elem: &item}
+	case "one", strings.ToLower(entityName), "*" + strings.ToLower(entityName):
+		item := TypeRef{Kind: TypeEntity, Name: entityName}
+		return TypeRef{Kind: TypePointer, Elem: &item}
+	}
+	if strings.HasPrefix(strings.ToLower(finder.Name), "count") {
+		return TypeRef{Kind: TypeInt}
+	}
+	return TypeRef{Kind: TypeUnknown}
+}
+
+func (c checker) repositoryDeclaredType(raw string) TypeRef {
+	raw = strings.TrimSpace(raw)
+	if strings.HasPrefix(raw, "*") {
+		elem := c.repositoryDeclaredType(strings.TrimPrefix(raw, "*"))
+		return TypeRef{Kind: TypePointer, Elem: &elem}
+	}
+	if strings.HasPrefix(raw, "[]") {
+		elem := c.repositoryDeclaredType(strings.TrimPrefix(raw, "[]"))
+		return TypeRef{Kind: TypeList, Elem: &elem}
+	}
+	switch strings.ToLower(raw) {
+	case "string", "uuid", "email":
+		return TypeRef{Kind: TypeString}
+	case "bool", "boolean":
+		return TypeRef{Kind: TypeBool}
+	case "int", "int32", "int64", "uint", "uint32", "uint64":
+		return TypeRef{Kind: TypeInt}
+	case "float", "float32", "float64", "decimal":
+		return TypeRef{Kind: TypeFloat}
+	case "bytes", "[]byte":
+		return TypeRef{Kind: TypeBytes}
+	case "time", "time.time", "date", "datetime":
+		return TypeRef{Kind: TypeTime}
+	}
+	name := strings.TrimPrefix(raw, "domain.")
+	if dto, ok := c.dtos[strings.ToLower(name)]; ok {
+		return TypeRef{Kind: TypeDTO, Name: dto.Name}
+	}
+	if entity, ok := c.entities[strings.ToLower(name)]; ok {
+		return TypeRef{Kind: TypeEntity, Name: entity.Name}
+	}
+	return TypeRef{Kind: TypeEntity, Name: name}
+}
+
+func (c checker) checkAction(service normalizer.Service, method normalizer.Method, step StepMeta, action Action, env map[string]TypeRef) []Issue {
 	switch typed := action.(type) {
 	case LogicCall:
-		for _, argument := range typed.Arguments {
-			_ = c.inferExpression(argument.Source, method, env)
-		}
+		return c.checkLogicCall(method, step, typed, env)
 	case ServiceCall:
 		return c.checkServiceCall(service, method, step, typed, env)
+	case FlowCall:
+		return c.checkFlowCall(service, method, step, typed, env)
 	case RepositoryCall:
 		return c.checkRepositoryCall(method, step, typed, env)
 	case MappingAssign:
 		actual := c.inferExpression(typed.Value.Source, method, env)
 		expected := c.inferExpression(typed.Target.Source, method, env)
+		issues := c.checkExpressionVariables(step, "mapping.Assign value", typed.Value, env)
 		if actual.Kind != TypeUnknown && expected.Kind != TypeUnknown && !mappingAssignable(actual, expected) {
-			return []Issue{issue(step, "FLOW_TYPE_MISMATCH", fmt.Sprintf("cannot assign %s to %s (%s)", displayType(actual), typed.Target.Source, displayType(expected)))}
+			issues = append(issues, issue(step, "FLOW_TYPE_MISMATCH", fmt.Sprintf("cannot assign %s to %s (%s)", displayType(actual), typed.Target.Source, displayType(expected))))
 		}
+		return issues
 	case MappingMap:
 		if typed.Entity != "" {
 			if _, ok := c.entities[strings.ToLower(typed.Entity)]; !ok {
@@ -153,14 +282,18 @@ func (c checker) checkAction(service normalizer.Service, method normalizer.Metho
 		}
 	case LogicCheck:
 		conditionType := c.inferExpression(typed.Condition.Source, method, env)
+		issues := c.checkExpressionVariables(step, "logic.Check condition", typed.Condition, env)
 		if conditionType.Kind != TypeUnknown && conditionType.Kind != TypeBool {
-			return []Issue{issue(step, "FLOW_TYPE_MISMATCH", fmt.Sprintf("logic.Check condition has type %s, expected bool", displayType(conditionType)))}
+			issues = append(issues, issue(step, "FLOW_TYPE_MISMATCH", fmt.Sprintf("logic.Check condition has type %s, expected bool", displayType(conditionType))))
 		}
+		return issues
 	case FlowIf:
 		conditionType := c.inferExpression(typed.Condition.Source, method, env)
+		issues := c.checkExpressionVariables(step, "flow.If condition", typed.Condition, env)
 		if conditionType.Kind != TypeUnknown && conditionType.Kind != TypeBool {
-			return []Issue{issue(step, "FLOW_TYPE_MISMATCH", fmt.Sprintf("flow.If condition has type %s, expected bool", displayType(conditionType)))}
+			issues = append(issues, issue(step, "FLOW_TYPE_MISMATCH", fmt.Sprintf("flow.If condition has type %s, expected bool", displayType(conditionType))))
 		}
+		return issues
 	case EventPublish:
 		return c.checkEventPublish(method, step, typed, env)
 	case CacheGet:
@@ -542,47 +675,238 @@ func (c checker) checkAction(service normalizer.Service, method normalizer.Metho
 	case FlowFor:
 		return c.expectList(method, step, typed.Each, env)
 	case FlowWhile:
-		return c.expectExpression(method, step, "flow.While condition", typed.Condition, TypeRef{Kind: TypeBool}, env)
+		issues := c.checkExpressionVariables(step, "flow.While condition", typed.Condition, env)
+		return append(issues, c.expectExpression(method, step, "flow.While condition", typed.Condition, TypeRef{Kind: TypeBool}, env)...)
 	}
 	return nil
 }
 
-func (c checker) checkOAuth2(method normalizer.Method, step normalizer.FlowStep, fields OAuth2Fields, env map[string]TypeRef) []Issue {
+func (c checker) checkFlowCall(owner normalizer.Service, method normalizer.Method, step StepMeta, call FlowCall, env map[string]TypeRef) []Issue {
+	serviceName, methodName := owner.Name, call.Operation
+	if parts := strings.SplitN(call.Operation, ".", 2); len(parts) == 2 {
+		serviceName, methodName = strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+	}
+	target, ok := c.services[strings.ToLower(serviceName)]
+	if !ok {
+		return []Issue{issue(step, "FLOW_SERVICE_UNKNOWN", fmt.Sprintf("flow.Call references unknown service %q", serviceName))}
+	}
+	if !strings.EqualFold(owner.Name, target.Name) && !containsFold(owner.Uses, target.Name) {
+		return []Issue{issue(step, "FLOW_SERVICE_DEPENDENCY", fmt.Sprintf("service %q must declare uses: %q before flow.Call", owner.Name, target.Name))}
+	}
+	var targetMethod *normalizer.Method
+	for i := range target.Methods {
+		if strings.EqualFold(target.Methods[i].Name, methodName) {
+			targetMethod = &target.Methods[i]
+			break
+		}
+	}
+	if targetMethod == nil {
+		return []Issue{issue(step, "FLOW_SERVICE_METHOD_UNKNOWN", fmt.Sprintf("service %q has no method %q", target.Name, methodName))}
+	}
+	fields := make(map[string]normalizer.Field, len(targetMethod.Input.Fields))
+	for _, field := range targetMethod.Input.Fields {
+		fields[strings.ToLower(field.Name)] = field
+	}
 	var issues []Issue
-	for _, v := range []Expression{fields.TokenURL, fields.ClientID, fields.ClientSecret, fields.Scope, fields.Audience, fields.GrantType, fields.Username, fields.Password, fields.Code, fields.RedirectURI, fields.RefreshToken} {
-		if v.Source != "" {
-			issues = append(issues, c.expectExpression(method, step, step.Action+" argument", v, TypeRef{Kind: TypeString}, env)...)
+	for name, argument := range call.Arguments {
+		issues = append(issues, c.checkExpressionVariables(step, "flow.Call argument "+name, argument, env)...)
+		field, exists := fields[strings.ToLower(name)]
+		if !exists {
+			issues = append(issues, issue(step, "FLOW_SERVICE_SIGNATURE", fmt.Sprintf("%s.%s request has no field %q", target.Name, targetMethod.Name, name)))
+			continue
+		}
+		actual, expected := c.inferExpression(argument.Source, method, env), parseTypeHint(field.Type)
+		if actual.Kind != TypeUnknown && expected.Kind != TypeUnknown && !assignable(actual, expected) {
+			issues = append(issues, issue(step, "FLOW_TYPE_MISMATCH", fmt.Sprintf("%s.%s field %s has type %s, expected %s", target.Name, targetMethod.Name, field.Name, displayType(actual), displayType(expected))))
+		}
+	}
+	for _, field := range targetMethod.Input.Fields {
+		if field.IsOptional {
+			continue
+		}
+		found := false
+		for name := range call.Arguments {
+			if strings.EqualFold(name, field.Name) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			issues = append(issues, issue(step, "FLOW_SERVICE_SIGNATURE", fmt.Sprintf("%s.%s request requires field %q", target.Name, targetMethod.Name, field.Name)))
 		}
 	}
 	return issues
 }
 
-func (c checker) expectMap(method normalizer.Method, step normalizer.FlowStep, expression Expression, env map[string]TypeRef) []Issue {
-	return c.expectExpression(method, step, step.Action+" input", expression, TypeRef{Kind: TypeMap}, env)
+type logicCallSignature struct {
+	parameters []TypeRef
+	results    []TypeRef
+	variadic   bool
 }
 
-func (c checker) expectNumber(method normalizer.Method, step normalizer.FlowStep, expression Expression, env map[string]TypeRef) []Issue {
-	actual := c.inferExpression(expression.Source, method, env)
-	if actual.Kind == TypeUnknown || actual.Kind == TypeInt || actual.Kind == TypeFloat {
-		return nil
+func (c checker) checkLogicCall(method normalizer.Method, step StepMeta, call LogicCall, env map[string]TypeRef) []Issue {
+	issues := make([]Issue, 0)
+	for index, argument := range call.Arguments {
+		issues = append(issues, c.checkExpressionVariables(step, fmt.Sprintf("logic.Call argument %d", index+1), argument, env)...)
 	}
-	return []Issue{issue(step, "FLOW_TYPE_MISMATCH", fmt.Sprintf("%s input has type %s, expected number", step.Action, displayType(actual)))}
-}
+	signature, known := parseLogicCallSignature(call.Function.Source)
+	if !known {
+		// A named Go function cannot be resolved safely without a sidecar
+		// signature catalog. Keep it unknown rather than guessing.
+		return issues
+	}
+	if !signature.variadic && len(call.Arguments) != len(signature.parameters) {
+		return append(issues, issue(step, "FLOW_LOGIC_SIGNATURE", fmt.Sprintf("logic.Call function expects %d arguments, got %d", len(signature.parameters), len(call.Arguments))))
+	}
+	if signature.variadic && len(call.Arguments) < len(signature.parameters)-1 {
+		return append(issues, issue(step, "FLOW_LOGIC_SIGNATURE", fmt.Sprintf("logic.Call function expects at least %d arguments, got %d", len(signature.parameters)-1, len(call.Arguments))))
+	}
 
-func (c checker) expectList(method normalizer.Method, step normalizer.FlowStep, expression Expression, env map[string]TypeRef) []Issue {
-	return c.expectExpression(method, step, step.Action+" input", expression, TypeRef{Kind: TypeList}, env)
-}
-
-func (c checker) checkListPredicate(method normalizer.Method, step normalizer.FlowStep, from, condition Expression, env map[string]TypeRef) []Issue {
-	issues := c.expectList(method, step, from, env)
-	actual := c.inferExpression(condition.Source, method, env)
-	if actual.Kind != TypeUnknown && actual.Kind != TypeBool {
-		issues = append(issues, issue(step, "FLOW_TYPE_MISMATCH", fmt.Sprintf("%s condition has type %s, expected bool", step.Action, displayType(actual))))
+	for index, argument := range call.Arguments {
+		if len(signature.parameters) == 0 {
+			break
+		}
+		expectedIndex := index
+		if expectedIndex >= len(signature.parameters) {
+			expectedIndex = len(signature.parameters) - 1
+		}
+		expected := signature.parameters[expectedIndex]
+		actual := c.inferExpression(argument.Source, method, env)
+		if actual.Kind != TypeUnknown && expected.Kind != TypeUnknown && !assignable(actual, expected) {
+			issues = append(issues, issue(step, "FLOW_TYPE_MISMATCH", fmt.Sprintf("logic.Call argument %d has type %s, expected %s", index+1, displayType(actual), displayType(expected))))
+		}
 	}
 	return issues
 }
 
-func (c checker) expectStrings(method normalizer.Method, step normalizer.FlowStep, env map[string]TypeRef, label string, expressions ...Expression) []Issue {
+func logicCallOutputType(call LogicCall) TypeRef {
+	signature, known := parseLogicCallSignature(call.Function.Source)
+	if !known || len(signature.results) == 0 {
+		return TypeRef{Kind: TypeUnknown}
+	}
+	return signature.results[0]
+}
+
+func parseLogicCallSignature(source string) (logicCallSignature, bool) {
+	expression, err := parser.ParseExpr(strings.TrimSpace(source))
+	if err != nil {
+		return logicCallSignature{}, false
+	}
+	for {
+		paren, ok := expression.(*ast.ParenExpr)
+		if !ok {
+			break
+		}
+		expression = paren.X
+	}
+	function, ok := expression.(*ast.FuncLit)
+	if !ok {
+		return logicCallSignature{}, false
+	}
+	return logicCallSignature{
+		parameters: goFieldTypes(function.Type.Params),
+		results:    goFieldTypes(function.Type.Results),
+		variadic:   hasVariadicParameter(function.Type.Params),
+	}, true
+}
+
+func goFieldTypes(fields *ast.FieldList) []TypeRef {
+	if fields == nil {
+		return nil
+	}
+	result := make([]TypeRef, 0, len(fields.List))
+	for _, field := range fields.List {
+		count := len(field.Names)
+		if count == 0 {
+			count = 1
+		}
+		for range count {
+			result = append(result, goASTTypeRef(field.Type))
+		}
+	}
+	return result
+}
+
+func hasVariadicParameter(fields *ast.FieldList) bool {
+	if fields == nil || len(fields.List) == 0 {
+		return false
+	}
+	_, ok := fields.List[len(fields.List)-1].Type.(*ast.Ellipsis)
+	return ok
+}
+
+func goASTTypeRef(expression ast.Expr) TypeRef {
+	switch typed := expression.(type) {
+	case *ast.Ident:
+		switch typed.Name {
+		case "string":
+			return TypeRef{Kind: TypeString}
+		case "bool":
+			return TypeRef{Kind: TypeBool}
+		case "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64":
+			return TypeRef{Kind: TypeInt}
+		case "float32", "float64":
+			return TypeRef{Kind: TypeFloat}
+		case "error":
+			return TypeRef{Kind: TypeError}
+		}
+	case *ast.ArrayType:
+		element := goASTTypeRef(typed.Elt)
+		if element.Kind == TypeUnknown {
+			return TypeRef{Kind: TypeUnknown}
+		}
+		if element.Kind == TypeInt {
+			return TypeRef{Kind: TypeBytes}
+		}
+		return TypeRef{Kind: TypeList, Elem: &element}
+	case *ast.MapType:
+		return TypeRef{Kind: TypeMap}
+	case *ast.SelectorExpr:
+		if packageName, ok := typed.X.(*ast.Ident); ok && packageName.Name == "time" && typed.Sel.Name == "Time" {
+			return TypeRef{Kind: TypeTime}
+		}
+	case *ast.Ellipsis:
+		return goASTTypeRef(typed.Elt)
+	}
+	return TypeRef{Kind: TypeUnknown}
+}
+
+func (c checker) checkOAuth2(method normalizer.Method, step StepMeta, fields OAuth2Fields, env map[string]TypeRef) []Issue {
+	var issues []Issue
+	for _, v := range []Expression{fields.TokenURL, fields.ClientID, fields.ClientSecret, fields.Scope, fields.Audience, fields.GrantType, fields.Username, fields.Password, fields.Code, fields.RedirectURI, fields.RefreshToken} {
+		if v.Source != "" {
+			issues = append(issues, c.expectExpression(method, step, step.Name+" argument", v, TypeRef{Kind: TypeString}, env)...)
+		}
+	}
+	return issues
+}
+
+func (c checker) expectMap(method normalizer.Method, step StepMeta, expression Expression, env map[string]TypeRef) []Issue {
+	return c.expectExpression(method, step, step.Name+" input", expression, TypeRef{Kind: TypeMap}, env)
+}
+
+func (c checker) expectNumber(method normalizer.Method, step StepMeta, expression Expression, env map[string]TypeRef) []Issue {
+	actual := c.inferExpression(expression.Source, method, env)
+	if actual.Kind == TypeUnknown || actual.Kind == TypeInt || actual.Kind == TypeFloat {
+		return nil
+	}
+	return []Issue{issue(step, "FLOW_TYPE_MISMATCH", fmt.Sprintf("%s input has type %s, expected number", step.Name, displayType(actual)))}
+}
+
+func (c checker) expectList(method normalizer.Method, step StepMeta, expression Expression, env map[string]TypeRef) []Issue {
+	return c.expectExpression(method, step, step.Name+" input", expression, TypeRef{Kind: TypeList}, env)
+}
+
+func (c checker) checkListPredicate(method normalizer.Method, step StepMeta, from, condition Expression, env map[string]TypeRef) []Issue {
+	issues := c.expectList(method, step, from, env)
+	actual := c.inferExpression(condition.Source, method, env)
+	if actual.Kind != TypeUnknown && actual.Kind != TypeBool {
+		issues = append(issues, issue(step, "FLOW_TYPE_MISMATCH", fmt.Sprintf("%s condition has type %s, expected bool", step.Name, displayType(actual))))
+	}
+	return issues
+}
+
+func (c checker) expectStrings(method normalizer.Method, step StepMeta, env map[string]TypeRef, label string, expressions ...Expression) []Issue {
 	var issues []Issue
 	for _, expression := range expressions {
 		issues = append(issues, c.expectExpression(method, step, label, expression, TypeRef{Kind: TypeString}, env)...)
@@ -590,7 +914,7 @@ func (c checker) expectStrings(method normalizer.Method, step normalizer.FlowSte
 	return issues
 }
 
-func (c checker) expectExpression(method normalizer.Method, step normalizer.FlowStep, label string, expression Expression, expected TypeRef, env map[string]TypeRef) []Issue {
+func (c checker) expectExpression(method normalizer.Method, step StepMeta, label string, expression Expression, expected TypeRef, env map[string]TypeRef) []Issue {
 	actual := c.inferExpression(expression.Source, method, env)
 	if actual.Kind == TypeUnknown || assignable(actual, expected) {
 		return nil
@@ -598,7 +922,7 @@ func (c checker) expectExpression(method normalizer.Method, step normalizer.Flow
 	return []Issue{issue(step, "FLOW_TYPE_MISMATCH", fmt.Sprintf("%s has type %s, expected %s", label, displayType(actual), displayType(expected)))}
 }
 
-func (c checker) checkEventPublish(method normalizer.Method, step normalizer.FlowStep, publish EventPublish, env map[string]TypeRef) []Issue {
+func (c checker) checkEventPublish(method normalizer.Method, step StepMeta, publish EventPublish, env map[string]TypeRef) []Issue {
 	event, ok := c.events[strings.ToLower(publish.Event)]
 	if !ok {
 		return []Issue{issue(step, "FLOW_EVENT_UNKNOWN", fmt.Sprintf("%s references unknown event %q", publish.ActionName(), publish.Event))}
@@ -621,7 +945,7 @@ func (c checker) checkEventPublish(method normalizer.Method, step normalizer.Flo
 	return nil
 }
 
-func (c checker) checkServiceCall(owner normalizer.Service, method normalizer.Method, step normalizer.FlowStep, call ServiceCall, env map[string]TypeRef) []Issue {
+func (c checker) checkServiceCall(owner normalizer.Service, method normalizer.Method, step StepMeta, call ServiceCall, env map[string]TypeRef) []Issue {
 	target, ok := c.services[strings.ToLower(call.Service)]
 	if !ok {
 		return []Issue{issue(step, "FLOW_SERVICE_UNKNOWN", fmt.Sprintf("service.Call references unknown service %q", call.Service))}
@@ -646,32 +970,40 @@ func (c checker) checkServiceCall(owner normalizer.Service, method normalizer.Me
 	if len(args) != 1 {
 		return []Issue{issue(step, "FLOW_SERVICE_SIGNATURE", fmt.Sprintf("%s.%s expects one %s request argument after ctx, got %d", target.Name, targetMethod.Name, targetMethod.Input.Name, len(args)))}
 	}
+	issues := c.checkExpressionVariables(step, "service.Call request", args[0], env)
 	actual := c.inferExpression(args[0].Source, method, env)
 	expected := TypeRef{Kind: TypeDTO, Name: targetMethod.Input.Name}
 	if actual.Kind != TypeUnknown && !assignable(actual, expected) {
-		return []Issue{issue(step, "FLOW_TYPE_MISMATCH", fmt.Sprintf("%s.%s argument has type %s, expected %s", target.Name, targetMethod.Name, displayType(actual), displayType(expected)))}
+		issues = append(issues, issue(step, "FLOW_TYPE_MISMATCH", fmt.Sprintf("%s.%s argument has type %s, expected %s", target.Name, targetMethod.Name, displayType(actual), displayType(expected))))
 	}
-	return nil
+	return issues
 }
 
-func (c checker) checkRepositoryCall(method normalizer.Method, step normalizer.FlowStep, call RepositoryCall, env map[string]TypeRef) []Issue {
+func (c checker) checkRepositoryCall(method normalizer.Method, step StepMeta, call RepositoryCall, env map[string]TypeRef) []Issue {
 	entity, exists := c.entities[strings.ToLower(call.Entity)]
 	if !exists {
 		return []Issue{issue(step, "FLOW_REPOSITORY_ENTITY_UNKNOWN", fmt.Sprintf("%s references unknown entity %q", call.Operation, call.Entity))}
 	}
+	var issues []Issue
 	if call.Method != "" && !isBuiltinRepoMethod(call.Operation, call.Method) {
 		repo, ok := c.repos[strings.ToLower(entity.Name)]
-		if !ok || !repoHasFinder(repo, call.Method) {
+		finder, found := repositoryFinder(repo, call.Method)
+		if !ok || !found {
 			return []Issue{issue(step, "FLOW_REPOSITORY_METHOD_UNKNOWN", fmt.Sprintf("repository for %s has no finder %q", entity.Name, call.Method))}
 		}
+		issues = append(issues, c.checkRepositoryFinderCall(method, step, call, finder, env)...)
 	}
-	if call.Input.Source == "" && call.Operation != RepoList && call.Operation != RepoCount {
-		return []Issue{issue(step, "FLOW_REPOSITORY_SIGNATURE", fmt.Sprintf("%s requires input", call.Operation))}
+	requiresInput := call.Operation != RepoList && call.Operation != RepoCount
+	if call.Operation == RepoQuery && (strings.HasPrefix(strings.ToLower(call.Method), "list") || strings.EqualFold(call.Method, "FindAll")) {
+		requiresInput = false
+	}
+	if call.Input.Source == "" && len(call.Arguments) == 0 && requiresInput {
+		issues = append(issues, issue(step, "FLOW_REPOSITORY_SIGNATURE", fmt.Sprintf("%s requires input", call.Operation)))
 	}
 	if call.Output == "" {
 		switch call.Operation {
 		case RepoFind, RepoGet, RepoGetForUpdate, RepoList, RepoQuery, RepoExists, RepoCount, RepoUpsert:
-			return []Issue{issue(step, "FLOW_REPOSITORY_SIGNATURE", fmt.Sprintf("%s requires output", call.Operation))}
+			issues = append(issues, issue(step, "FLOW_REPOSITORY_SIGNATURE", fmt.Sprintf("%s requires output", call.Operation)))
 		}
 	}
 	if call.Operation == RepoSave && call.Input.Source != "" {
@@ -681,10 +1013,51 @@ func (c checker) checkRepositoryCall(method normalizer.Method, step normalizer.F
 			actual = *actual.Elem
 		}
 		if actual.Kind != TypeUnknown && !assignable(actual, expected) {
-			return []Issue{issue(step, "FLOW_TYPE_MISMATCH", fmt.Sprintf("repo.Save %s input has type %s, expected %s", entity.Name, displayType(actual), displayType(expected)))}
+			issues = append(issues, issue(step, "FLOW_TYPE_MISMATCH", fmt.Sprintf("repo.Save %s input has type %s, expected %s", entity.Name, displayType(actual), displayType(expected))))
 		}
 	}
-	return nil
+	return issues
+}
+
+func (c checker) checkRepositoryFinderCall(method normalizer.Method, step StepMeta, call RepositoryCall, finder normalizer.RepositoryFinder, env map[string]TypeRef) []Issue {
+	if call.Operation != RepoQuery && len(call.Arguments) > 0 {
+		return []Issue{issue(step, "FLOW_REPOSITORY_SIGNATURE", fmt.Sprintf("%s.%s accepts input, not args", call.Operation, finder.Name))}
+	}
+	if call.Operation == RepoQuery && call.Input.Source != "" && len(call.Arguments) > 0 {
+		return []Issue{issue(step, "FLOW_REPOSITORY_SIGNATURE", fmt.Sprintf("repo.Query %s cannot set both input and args", finder.Name))}
+	}
+
+	arguments := call.Arguments
+	if len(arguments) == 0 && strings.TrimSpace(call.Input.Source) != "" {
+		arguments = []Expression{call.Input}
+	}
+	if len(arguments) != len(finder.Where) {
+		return []Issue{issue(step, "FLOW_REPOSITORY_SIGNATURE", fmt.Sprintf("%s.%s expects %d argument(s), got %d", call.Operation, finder.Name, len(finder.Where), len(arguments)))}
+	}
+
+	issues := make([]Issue, 0)
+	for index, argument := range arguments {
+		issues = append(issues, c.checkExpressionVariables(step, fmt.Sprintf("%s.%s argument %d", call.Operation, finder.Name, index+1), argument, env)...)
+		expected := finderParamTypeRef(finder.Where[index].ParamType)
+		actual := c.inferExpression(argument.Source, method, env)
+		if actual.Kind != TypeUnknown && expected.Kind != TypeUnknown && !assignable(actual, expected) {
+			issues = append(issues, issue(step, "FLOW_TYPE_MISMATCH", fmt.Sprintf("%s.%s argument %d has type %s, expected %s", call.Operation, finder.Name, index+1, displayType(actual), displayType(expected))))
+		}
+	}
+	return issues
+}
+
+func finderParamTypeRef(value string) TypeRef {
+	value = strings.TrimSpace(value)
+	switch strings.ToLower(value) {
+	case "time", "time.time", "date", "datetime":
+		return TypeRef{Kind: TypeTime}
+	case "float", "float32", "float64", "decimal":
+		return TypeRef{Kind: TypeFloat}
+	case "bytes", "[]byte":
+		return TypeRef{Kind: TypeBytes}
+	}
+	return parseTypeHint(value)
 }
 
 func (c checker) inferExpression(source string, method normalizer.Method, env map[string]TypeRef) TypeRef {
@@ -693,6 +1066,87 @@ func (c checker) inferExpression(source string, method normalizer.Method, env ma
 		return TypeRef{Kind: TypeUnknown}
 	}
 	return c.inferAST(expr, method, env)
+}
+
+func (c checker) checkExpressionVariables(step StepMeta, label string, expression Expression, env map[string]TypeRef) []Issue {
+	expressionAST, err := parser.ParseExpr(strings.TrimSpace(expression.Source))
+	if err != nil {
+		return nil
+	}
+	unknown := map[string]struct{}{}
+	var inspect func(ast.Node)
+	inspect = func(node ast.Node) {
+		ast.Inspect(node, func(current ast.Node) bool {
+			switch typed := current.(type) {
+			case *ast.CallExpr:
+				if selector, ok := typed.Fun.(*ast.SelectorExpr); ok {
+					inspect(selector.X)
+				}
+				for _, argument := range typed.Args {
+					inspect(argument)
+				}
+				return false
+			case *ast.SelectorExpr:
+				if root := expressionRootIdentifier(typed); root != "" {
+					checkExpressionVariableRoot(root, env, unknown)
+				}
+				return false
+			case *ast.Ident:
+				checkExpressionVariableRoot(typed.Name, env, unknown)
+			}
+			return true
+		})
+	}
+	inspect(expressionAST)
+	if len(unknown) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(unknown))
+	for name := range unknown {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	issues := make([]Issue, 0, len(names))
+	for _, name := range names {
+		issues = append(issues, issue(step, "FLOW_VARIABLE_UNKNOWN", fmt.Sprintf("%s references undeclared variable %q", label, name)))
+	}
+	return issues
+}
+
+func expressionRootIdentifier(selector *ast.SelectorExpr) string {
+	var expression ast.Expr = selector
+	for {
+		next, ok := expression.(*ast.SelectorExpr)
+		if !ok {
+			break
+		}
+		expression = next.X
+	}
+	ident, _ := expression.(*ast.Ident)
+	if ident == nil {
+		return ""
+	}
+	return ident.Name
+}
+
+func checkExpressionVariableRoot(name string, env map[string]TypeRef, unknown map[string]struct{}) {
+	if _, ok := env[name]; ok || knownExpressionRoot(name) {
+		return
+	}
+	unknown[name] = struct{}{}
+}
+
+func knownExpressionRoot(name string) bool {
+	known := map[string]struct{}{
+		"nil": {}, "true": {}, "false": {}, "ctx": {}, "err": {}, "s": {},
+		"fmt": {}, "strings": {}, "time": {}, "math": {}, "json": {}, "http": {}, "errors": {}, "context": {}, "path": {}, "url": {}, "base64": {}, "regexp": {}, "crypto": {}, "sha256": {}, "hmac": {}, "os": {}, "io": {}, "bytes": {}, "slog": {}, "helpers": {}, "domain": {}, "port": {}, "uuid": {}, "strconv": {},
+		"string": {}, "any": {}, "int": {}, "int64": {}, "float64": {}, "bool": {},
+		"len": {}, "cap": {}, "make": {}, "append": {}, "copy": {}, "delete": {}, "new": {},
+	}
+	if _, ok := known[name]; ok {
+		return true
+	}
+	return len(name) > 0 && name[0] >= 'A' && name[0] <= 'Z'
 }
 
 func (c checker) inferAST(expr ast.Expr, method normalizer.Method, env map[string]TypeRef) TypeRef {
@@ -726,7 +1180,9 @@ func (c checker) inferAST(expr ast.Expr, method normalizer.Method, env map[strin
 		var entity normalizer.Entity
 		switch rootType.Kind {
 		case TypeDTO:
-			if rootType.Name == method.Input.Name {
+			if dto, ok := c.dtos[strings.ToLower(rootType.Name)]; ok {
+				entity = dto
+			} else if rootType.Name == method.Input.Name {
 				entity = method.Input
 			} else if rootType.Name == method.Output.Name {
 				entity = method.Output
@@ -755,9 +1211,14 @@ func fieldType(field normalizer.Field) TypeRef {
 	if strings.Contains(name, "time.time") || name == "time" || name == "date" || name == "datetime" {
 		return TypeRef{Kind: TypeUnknown, Name: field.Type}
 	}
+	if strings.HasPrefix(name, "map[") {
+		return TypeRef{Kind: TypeMap, Name: field.Type}
+	}
 	name = strings.TrimPrefix(name, "[]")
 	var typ TypeRef
 	switch name {
+	case "", "any", "interface{}":
+		typ = TypeRef{Kind: TypeUnknown}
 	case "string", "uuid", "email":
 		typ = TypeRef{Kind: TypeString}
 	case "bool", "boolean":
@@ -787,7 +1248,10 @@ func mappingAssignable(actual, expected TypeRef) bool {
 	if expected.Kind == TypePointer && expected.Elem != nil {
 		return mappingAssignable(actual, *expected.Elem)
 	}
-	if actual.Kind == TypeList && expected.Kind == TypeList && actual.Elem != nil && expected.Elem != nil {
+	if actual.Kind == TypeList && expected.Kind == TypeList {
+		if actual.Elem == nil || expected.Elem == nil {
+			return true
+		}
 		return mappingAssignable(*actual.Elem, *expected.Elem)
 	}
 	structured := func(kind TypeKind) bool { return kind == TypeEntity || kind == TypeDTO }
@@ -833,23 +1297,6 @@ func displayType(typ TypeRef) string {
 	return string(typ.Kind)
 }
 
-func nestedStepGroups(step normalizer.FlowStep) [][]normalizer.FlowStep {
-	var out [][]normalizer.FlowStep
-	for _, key := range []string{"_do", "_ifNew", "_ifExists", "_then", "_else", "_default", "_catch", "_fallback", "_onTimeout", "_onMissing", "_onMismatch"} {
-		if nested, ok := step.Args[key].([]normalizer.FlowStep); ok {
-			out = append(out, nested)
-		}
-	}
-	for _, key := range []string{"_cases", "_branches"} {
-		if groups, ok := step.Args[key].(map[string][]normalizer.FlowStep); ok {
-			for _, nested := range groups {
-				out = append(out, nested)
-			}
-		}
-	}
-	return out
-}
-
 func cloneEnv(env map[string]TypeRef) map[string]TypeRef {
 	out := make(map[string]TypeRef, len(env))
 	for key, value := range env {
@@ -858,8 +1305,8 @@ func cloneEnv(env map[string]TypeRef) map[string]TypeRef {
 	return out
 }
 
-func issue(step normalizer.FlowStep, code, message string) Issue {
-	return Issue{Code: code, Message: message, Source: SourceOf(step)}
+func issue(step StepMeta, code, message string) Issue {
+	return Issue{Code: code, Message: message, Source: step.Source}
 }
 
 func containsFold(values []string, wanted string) bool {
@@ -872,18 +1319,23 @@ func containsFold(values []string, wanted string) bool {
 }
 
 func repoHasFinder(repo normalizer.Repository, method string) bool {
+	_, ok := repositoryFinder(repo, method)
+	return ok
+}
+
+func repositoryFinder(repo normalizer.Repository, method string) (normalizer.RepositoryFinder, bool) {
 	for _, finder := range repo.Finders {
 		if strings.EqualFold(finder.Name, method) {
-			return true
+			return finder, true
 		}
 	}
-	return false
+	return normalizer.RepositoryFinder{}, false
 }
 
 func isBuiltinRepoMethod(operation RepositoryOperation, method string) bool {
 	defaults := map[RepositoryOperation][]string{
 		RepoSave: {"Save"}, RepoDelete: {"Delete"}, RepoFind: {"FindByID"}, RepoGet: {"GetByID"},
-		RepoGetForUpdate: {"GetByIDForUpdate"}, RepoList: {"FindAll"}, RepoExists: {"Exists"}, RepoCount: {"Count"}, RepoUpsert: {"Upsert"},
+		RepoGetForUpdate: {"GetByIDForUpdate"}, RepoList: {"FindAll", "ListAll"}, RepoQuery: {"FindByID", "GetByID", "FindAll", "ListAll"}, RepoExists: {"Exists"}, RepoCount: {"Count"}, RepoUpsert: {"Upsert"},
 	}
 	return containsFold(defaults[operation], method)
 }

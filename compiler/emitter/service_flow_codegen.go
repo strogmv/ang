@@ -35,12 +35,22 @@ func normalizePayloadExpr(s string) string {
 
 // flowRenderable reports whether all actions inside steps are supported by RenderFlow.
 func flowRenderable(steps []normalizer.FlowStep) bool {
+	typed, _ := flowir.DecodeSteps(steps)
+	return typedFlowRenderable(typed)
+}
+
+func typedFlowRenderable(steps []flowir.TypedStep) bool {
 	for _, step := range steps {
-		if !flowActionSupported(step.Action) {
+		if !flowActionSupported(step.Name) {
 			return false
 		}
-		for _, child := range flowChildSteps(step) {
-			if !flowRenderable(child) {
+		for _, child := range step.Children {
+			if !typedFlowRenderable(child) {
+				return false
+			}
+		}
+		for _, branch := range step.Branches {
+			if !typedFlowRenderable(branch) {
 				return false
 			}
 		}
@@ -49,164 +59,8 @@ func flowRenderable(steps []normalizer.FlowStep) bool {
 }
 
 func flowActionSupported(action string) bool {
-	if _, ok := flowir.Lookup(action); ok {
-		return true
-	}
-	switch action {
-	case "logic.Check",
-		"repo.Find", "repo.Get", "repo.GetForUpdate", "repo.List", "repo.Save", "repo.Delete",
-		"repo.Exists", "repo.Count",
-		"repo.Query", "repo.Upsert",
-		"mapping.Assign", "mapping.Map", "value.Coalesce", "map.Get", "map.Has", "map.Set", "map.Merge",
-		"errors.New", "errors.ThrowIf", "errors.Wrap", "errors.Map",
-		"flow.If", "flow.For", "flow.Block", "flow.Switch", "flow.While", "flow.Call", "tx.Block",
-		"flow.Checkpoint", "flow.Resume", "flow.Validate", "flow.Try", "flow.Catch", "flow.Defer",
-		"flow.RecordEvent", "flow.Replay", "flow.History.Get",
-		"flow.Retry", "flow.Fallback", "flow.Timeout", "flow.SuggestNext", "flow.ExplainError",
-		"list.Filter", "list.Paginate", "list.Append", "list.Sort", "list.Len", "list.New", "list.Find", "list.Any", "list.All",
-		"list.Map", "list.Reduce", "list.GroupBy", "list.Distinct", "list.Chunk",
-		"batch.Run",
-		"list.Enrich",
-		"str.Normalize",
-		"event.Publish", "logic.Call", "service.Call",
-		"event.Wait", "event.Subscribe", "event.Match", "event.Broadcast", "event.EmitIf",
-		"exec.Run", "exec.Stream",
-		"fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove",
-		"archive.ZipDir", "map.New",
-		"audit.Log",
-		"auth.RequireRole", "auth.CheckRole", "rbac.CheckPermission",
-		"entity.PatchNonZero", "entity.PatchValidated", "field.CopyNonEmpty",
-		"enum.Validate",
-		"time.Now", "time.Parse", "time.Format", "time.InZone", "time.Add", "time.Sub", "time.Diff", "time.CheckExpiry",
-		"map.Build",
-		"fsm.Transition",
-		"notification.Dispatch", "notify.Dispatch", "notify.Send", "notify.Email",
-		"cache.Get", "cache.Set", "cache.Del",
-		"mail.Send",
-		"storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List",
-		"http.Call", "http.Request", "http.SOAP", "http.RetryPolicy", "http.Paginate",
-		"rand.Code", "rand.Token",
-		"str.Format", "str.Concat", "str.StripMarkdown", "str.ReplaceAll", "str.TrimSpace",
-		"cast.ToString",
-		"json.Parse", "json.Marshal", "json.Stringify",
-		"template.Render",
-		"regex.Match", "regex.Replace",
-		"base64.Encode", "base64.Decode",
-		"url.Parse", "url.Build", "path.Base",
-		"query.Encode", "query.Decode",
-		"hash.Sum", "hash.HMAC",
-		"uuid.New", "ulid.New",
-		"math.Op", "math.Expr",
-		"num.Add", "num.Sub", "num.Mul", "num.Div",
-		"jsonpath.Get", "jsonpath.Set",
-		"jwt.Sign", "jwt.Verify", "token.Generate", "token.Verify",
-		"oauth2.Token", "oauth2.Refresh",
-		"oauth.Google.GetURL", "oauth.Google.Exchange", "oauth.Google.UserInfo",
-		"crypto.Encrypt", "crypto.Decrypt", "crypto.Hash",
-		"parallel.Run",
-		"pdf.Render",
-		"webhook.Send",
-		"webhook.VerifySignature", "webhook.Ack",
-		"queue.Enqueue", "queue.Dequeue", "queue.Ack", "queue.Nack",
-		"dlq.Publish",
-		"event.Outbox",
-		"approval.Request", "approval.Wait", "approval.Decide",
-		"policy.Check", "policy.Evaluate", "policy.Require", "policy.Decide",
-		"session.Get",
-		"flow.Parallel", "flow.Join", "flow.Race",
-		"flow.Delay", "flow.Schedule", "flow.Cron",
-		"flow.Saga", "flow.Compensate", "flow.Rollback", "flow.Tag",
-		"state.Get", "state.Set", "state.Delete",
-		"idem.DeriveKey", "idem.Check", "idem.SaveResult",
-		"idempotency.DeriveKey", "idempotency.Check", "idempotency.SaveResult",
-		"dedupe.Once",
-		"ratelimit.Check", "ratelimit.Limit",
-		"quota.Check",
-		"budget.Check", "budget.Consume",
-		"context.Trim",
-		"profile.Require",
-		"concurrency.Limit", "concurrency.Run", "mutex.With",
-		"circuit.Check", "circuit.RecordSuccess", "circuit.RecordFailure", "circuit.Breaker",
-		"bulkhead.Acquire", "bulkhead.Run",
-		"log.Emit", "metric.Emit", "trace.Span", "slo.Budget",
-		"db.Get", "db.List", "db.Query",
-		"db.Insert", "db.Update", "db.Upsert", "db.Delete",
-		"db.Lock", "db.SelectForUpdate",
-		"secret.Get", "config.Get", "model.Resolve",
-		"list.Sum", "list.Avg",
-		"flow.Return",
-		"convert.ToFloat", "convert.ToInt",
-		"claude.Chat",
-		"openai.Embed",
-		"plan.BuildAutomata", "plan.BuildMicroPlan", "cue.EmitProject", "cue.ValidateProject", "cue.WriteProjectFiles",
-		"openai.Chat", "openai.Stream", "stream.Emit",
-		"locale.Resolve":
-		return true
-	default:
-		return false
-	}
-}
-
-func flowChildSteps(step normalizer.FlowStep) [][]normalizer.FlowStep {
-	var out [][]normalizer.FlowStep
-	if v, ok := step.Args["_do"].([]normalizer.FlowStep); ok && len(v) > 0 {
-		out = append(out, v)
-	}
-	if v, ok := step.Args["_ifNew"].([]normalizer.FlowStep); ok && len(v) > 0 {
-		out = append(out, v)
-	}
-	if v, ok := step.Args["_ifExists"].([]normalizer.FlowStep); ok && len(v) > 0 {
-		out = append(out, v)
-	}
-	if v, ok := step.Args["_then"].([]normalizer.FlowStep); ok && len(v) > 0 {
-		out = append(out, v)
-	}
-	if v, ok := step.Args["_else"].([]normalizer.FlowStep); ok && len(v) > 0 {
-		out = append(out, v)
-	}
-	if v, ok := step.Args["_default"].([]normalizer.FlowStep); ok && len(v) > 0 {
-		out = append(out, v)
-	}
-	if v, ok := step.Args["_catch"].([]normalizer.FlowStep); ok && len(v) > 0 {
-		out = append(out, v)
-	}
-	if v, ok := step.Args["_fallback"].([]normalizer.FlowStep); ok && len(v) > 0 {
-		out = append(out, v)
-	}
-	if v, ok := step.Args["_onTimeout"].([]normalizer.FlowStep); ok && len(v) > 0 {
-		out = append(out, v)
-	}
-	if v, ok := step.Args["_onMissing"].([]normalizer.FlowStep); ok && len(v) > 0 {
-		out = append(out, v)
-	}
-	if v, ok := step.Args["_onMismatch"].([]normalizer.FlowStep); ok && len(v) > 0 {
-		out = append(out, v)
-	}
-	if cases, ok := step.Args["_cases"].(map[string][]normalizer.FlowStep); ok {
-		keys := make([]string, 0, len(cases))
-		for k := range cases {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			if len(cases[k]) > 0 {
-				out = append(out, cases[k])
-			}
-		}
-	}
-	if branches, ok := step.Args["_branches"].(map[string][]normalizer.FlowStep); ok {
-		keys := make([]string, 0, len(branches))
-		for k := range branches {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			if len(branches[k]) > 0 {
-				out = append(out, branches[k])
-			}
-		}
-	}
-	return out
+	_, ok := flowir.Lookup(action)
+	return ok
 }
 
 type flowRenderState struct {
@@ -230,6 +84,7 @@ type flowRenderState struct {
 	serviceDefsByName map[string]normalizer.Service
 	isStreaming       bool
 	infraValues       map[string]any
+	currentTyped      *flowir.TypedStep
 }
 
 func cloneFlowState(st *flowRenderState) *flowRenderState {
@@ -251,6 +106,7 @@ func cloneFlowState(st *flowRenderState) *flowRenderState {
 		entityDefsByName: st.entityDefsByName,
 		isStreaming:      st.isStreaming,
 		infraValues:      st.infraValues,
+		currentTyped:     st.currentTyped,
 	}
 	for k, v := range st.declared {
 		cp.declared[k] = v
@@ -285,6 +141,7 @@ func renderFlowForServiceWithSchemaAndSinkMode(serviceName, methodName string, i
 }
 
 func renderFlowForServiceWithSchemaAndSinkModeWithInfra(serviceName, methodName string, isStreaming bool, steps []normalizer.FlowStep, entities []normalizer.Entity, events []normalizer.EventDef, warningSink func(normalizer.Warning), infraValues map[string]any) string {
+	typedSteps, _ := flowir.DecodeSteps(steps)
 	n := 0
 	svcName := strings.TrimSpace(serviceName)
 	mName := strings.TrimSpace(methodName)
@@ -307,19 +164,19 @@ func renderFlowForServiceWithSchemaAndSinkModeWithInfra(serviceName, methodName 
 		infraValues:       infraValues,
 	}
 	var b strings.Builder
-	if flowHasAction(steps, "flow.Checkpoint", "flow.Resume") {
+	if typedFlowHasAction(typedSteps, "flow.Checkpoint", "flow.Resume") {
 		st.declared["_flowCheckpoints"] = true
 		st.pointers["_flowCheckpoints"] = false
 		st.types["_flowCheckpoints"] = "map[string]any"
 		b.WriteString("var _flowCheckpoints map[string]any\n")
 	}
-	if flowHasAction(steps, "flow.Try", "flow.Catch", "flow.Retry", "flow.Fallback", "flow.Timeout", "flow.ExplainError") {
+	if typedFlowHasAction(typedSteps, "flow.Try", "flow.Catch", "flow.Retry", "flow.Fallback", "flow.Timeout", "flow.ExplainError") {
 		st.declared["_flowLastError"] = true
 		st.pointers["_flowLastError"] = false
 		st.types["_flowLastError"] = "error"
 		b.WriteString("var _flowLastError error\n")
 	}
-	if flowHasAction(steps, "flow.RecordEvent", "flow.Replay", "flow.History.Get") {
+	if typedFlowHasAction(typedSteps, "flow.RecordEvent", "flow.Replay", "flow.History.Get") {
 		st.declared["_flowHistory"] = true
 		st.pointers["_flowHistory"] = false
 		st.types["_flowHistory"] = "[]map[string]any"
@@ -329,7 +186,7 @@ func renderFlowForServiceWithSchemaAndSinkModeWithInfra(serviceName, methodName 
 		b.WriteString("var _flowHistory []map[string]any\n")
 		b.WriteString("var _flowReplayMode bool\n")
 	}
-	b.WriteString(renderFlowSteps(st, steps, 0))
+	b.WriteString(renderTypedFlowSteps(st, typedSteps, 0))
 	return b.String()
 }
 
@@ -397,19 +254,24 @@ func flowServiceDefsByName(infraValues map[string]any) map[string]normalizer.Ser
 	return out
 }
 
-func flowHasAction(steps []normalizer.FlowStep, actions ...string) bool {
+func typedFlowHasAction(steps []flowir.TypedStep, actions ...string) bool {
 	need := make(map[string]struct{}, len(actions))
 	for _, a := range actions {
 		need[a] = struct{}{}
 	}
-	var walk func([]normalizer.FlowStep) bool
-	walk = func(items []normalizer.FlowStep) bool {
+	var walk func([]flowir.TypedStep) bool
+	walk = func(items []flowir.TypedStep) bool {
 		for _, s := range items {
-			if _, ok := need[s.Action]; ok {
+			if _, ok := need[s.Name]; ok {
 				return true
 			}
-			for _, child := range flowChildSteps(s) {
+			for _, child := range s.Children {
 				if walk(child) {
+					return true
+				}
+			}
+			for _, branch := range s.Branches {
+				if walk(branch) {
 					return true
 				}
 			}
@@ -420,16 +282,76 @@ func flowHasAction(steps []normalizer.FlowStep, actions ...string) bool {
 }
 
 func renderFlowSteps(st *flowRenderState, steps []normalizer.FlowStep, indent int) string {
+	typed, _ := flowir.DecodeSteps(steps)
+	return renderTypedFlowSteps(st, typed, indent)
+}
+
+func renderFlowChildSteps(st *flowRenderState, child func(string) []normalizer.FlowStep, key string, indent int) string {
+	if st != nil && st.currentTyped != nil {
+		return renderTypedFlowSteps(st, st.currentTyped.Children[key], indent)
+	}
+	return renderFlowSteps(st, child(key), indent)
+}
+
+func flowChildStepCount(st *flowRenderState, child func(string) []normalizer.FlowStep, key string) int {
+	if st != nil && st.currentTyped != nil {
+		return len(st.currentTyped.Children[key])
+	}
+	return len(child(key))
+}
+
+func renderFlowNestedSteps(st *flowRenderState, key string, fallback []normalizer.FlowStep, indent int) string {
+	if st != nil && st.currentTyped != nil {
+		return renderTypedFlowSteps(st, st.currentTyped.Children[key], indent)
+	}
+	return renderFlowSteps(st, fallback, indent)
+}
+
+func flowNestedStepCount(st *flowRenderState, key string, fallback []normalizer.FlowStep) int {
+	if st != nil && st.currentTyped != nil {
+		return len(st.currentTyped.Children[key])
+	}
+	return len(fallback)
+}
+
+func renderFlowBranchSteps(st *flowRenderState, name string, fallback []normalizer.FlowStep, indent int) string {
+	if st != nil && st.currentTyped != nil {
+		return renderTypedFlowSteps(st, st.currentTyped.Branches[name], indent)
+	}
+	return renderFlowSteps(st, fallback, indent)
+}
+
+func flowBranchNames(st *flowRenderState, fallback map[string][]normalizer.FlowStep) []string {
+	keys := make([]string, 0)
+	if st != nil && st.currentTyped != nil {
+		keys = make([]string, 0, len(st.currentTyped.Branches))
+		for key := range st.currentTyped.Branches {
+			keys = append(keys, key)
+		}
+	} else {
+		keys = make([]string, 0, len(fallback))
+		for key := range fallback {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func renderTypedFlowSteps(st *flowRenderState, steps []flowir.TypedStep, indent int) string {
 	var b strings.Builder
-	for i, step := range steps {
-		if trace := flowStepTraceComment(step, *st.stepN+1, indent); trace != "" {
+	for i, typedStep := range steps {
+		if trace := flowStepTraceComment(typedStep.Source, *st.stepN+1, indent); trace != "" {
 			b.WriteString(trace)
 		}
-		code := renderOneFlowStep(st, step, indent)
-		if code == "" && flowActionSupported(step.Action) {
+		code := ""
+		if typedStep.DecodeError == nil {
+			code = renderOneTypedFlowStep(st, typedStep, indent)
+		}
+		if code == "" && flowActionSupported(typedStep.Name) {
 			severity := "warn"
 			codeName := "FLOW_STEP_NO_CODEGEN"
-			if isSafetyCriticalNoCodegenAction(step.Action) {
+			if isSafetyCriticalNoCodegenAction(typedStep.Name) {
 				severity = "error"
 				codeName = "FLOW_STEP_NO_CODEGEN_CRITICAL"
 			}
@@ -438,47 +360,273 @@ func renderFlowSteps(st *flowRenderState, steps []normalizer.FlowStep, indent in
 					Kind:     "flow",
 					Code:     codeName,
 					Severity: severity,
-					Message:  fmt.Sprintf("step %d (%s) produced no code; check required fields", i+1, step.Action),
+					Message:  fmt.Sprintf("step %d (%s) produced no code; check required fields", i+1, typedStep.Name),
 					Op:       st.opName,
 					Step:     i + 1,
-					Action:   step.Action,
-					File:     step.File,
-					Line:     step.Line,
-					Column:   step.Column,
-					CUEPath:  step.CUEPath,
+					Action:   typedStep.Name,
+					File:     typedStep.Source.File,
+					Line:     typedStep.Source.Line,
+					Column:   typedStep.Source.Column,
+					CUEPath:  typedStep.Source.CUEPath,
 					Hint:     "Verify required step fields in cue/schema/types.cue and flow docs",
 				})
 			}
 			if st.warningSink == nil {
 				slog.Warn("flow.step.no_codegen",
 					"step", i+1,
-					"action", step.Action,
-					"file", step.File,
-					"line", step.Line,
+					"action", typedStep.Name,
+					"file", typedStep.Source.File,
+					"line", typedStep.Source.Line,
 					"severity", severity,
 					"hint", "missing required flow fields",
 				)
 			}
 			pad := strings.Repeat("\t", indent)
-			b.WriteString(fmt.Sprintf("%s// WARNING: step %d (%s) produced no code; check required fields\n", pad, i+1, step.Action))
-			b.WriteString(renderInvalidFlowStepConfig(st, pad, step.Action, "step produced no code; check required fields"))
+			b.WriteString(fmt.Sprintf("%s// WARNING: step %d (%s) produced no code; check required fields\n", pad, i+1, typedStep.Name))
+			b.WriteString(renderInvalidFlowStepConfig(st, pad, typedStep.Name, "step produced no code; check required fields"))
 		}
 		b.WriteString(code)
 	}
 	return b.String()
 }
 
-func flowStepTraceComment(step normalizer.FlowStep, stepIdx int, indent int) string {
-	file := strings.TrimSpace(step.File)
-	if file == "" && strings.TrimSpace(step.CUEPath) != "" {
-		file = strings.TrimSpace(step.CUEPath)
+func renderOneTypedFlowStep(st *flowRenderState, step flowir.TypedStep, indent int) string {
+	previous := st.currentTyped
+	st.currentTyped = &step
+	defer func() { st.currentTyped = previous }()
+	return renderOneFlowStepTyped(st, step, indent)
+}
+
+func renderOneFlowStepTyped(st *flowRenderState, typedStep flowir.TypedStep, indent int) string {
+	return renderTypedStepDispatch(st, typedStep, indent)
+}
+
+// renderTypedStepDispatch is the sole production entry into action emission.
+func renderTypedStepDispatch(st *flowRenderState, typedStep flowir.TypedStep, indent int) string {
+	spec, registered := flowir.Lookup(typedStep.Name)
+	if !registered {
+		return ""
+	}
+	switch spec.RendererGroup {
+	case flowir.RendererGroupState:
+		if out, ok := renderTypedStepState(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupCache:
+		if out, ok := renderTypedStepCache(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupStorageSimple:
+		if out, ok := renderTypedStepStorageSimple(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupStorageData:
+		if out, ok := renderTypedStepStorageData(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupMail:
+		if out, ok := renderTypedStepMail(st, typedStep, indent); ok {
+			return out
+		}
+	case flowir.RendererGroupSecretConfig:
+		if out, ok := renderTypedStepSecretConfig(st, typedStep, indent); ok {
+			return out
+		}
+	case flowir.RendererGroupCore:
+		if out, ok := renderTypedStepCore(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupCall:
+		if out, ok := renderTypedStepCall(st, typedStep, indent); ok {
+			return out
+		}
+	case flowir.RendererGroupRepositoryBasic:
+		if out, ok := renderTypedStepRepositoryBasic(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupRepositoryAdvanced:
+		if out, ok := renderTypedStepRepositoryAdvanced(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupDB:
+		if out, ok := renderTypedStepDB(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupMapping:
+		if out, ok := renderTypedStepMapping(st, typedStep, indent); ok {
+			return out
+		}
+	case flowir.RendererGroupJSON:
+		if out, ok := renderTypedStepJSON(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupHTTPCall:
+		if out, ok := renderTypedStepHTTPCall(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupHTTPAdvanced:
+		if out, ok := renderTypedStepHTTPAdvanced(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupString:
+		if out, ok := renderTypedStepString(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupDataTransform:
+		if out, ok := renderTypedStepDataTransform(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupSecurity:
+		if out, ok := renderTypedStepSecurity(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupConcurrencyDelivery:
+		if out, ok := renderTypedStepConcurrencyAndDelivery(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupEventOrchestration:
+		if out, ok := renderTypedStepEventOrchestration(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupPolicy:
+		if out, ok := renderTypedStepPolicy(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupReliability:
+		if out, ok := renderTypedStepReliability(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupOAuthGoogle:
+		if out, ok := renderTypedStepOAuthGoogle(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupControlResilience:
+		if out, ok := renderTypedStepControlResilience(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupControlFlowBasic:
+		if out, ok := renderTypedStepControlFlowBasic(st, typedStep, indent); ok {
+			return out
+		}
+	case flowir.RendererGroupControlFlowStateful:
+		if out, ok := renderTypedStepControlFlowStateful(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupControlParallel:
+		if out, ok := renderTypedStepControlParallel(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupSaga:
+		if out, ok := renderTypedStepSaga(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupControlScheduling:
+		if out, ok := renderTypedStepControlScheduling(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupCollections:
+		if out, ok := renderTypedStepCollections(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupDomainErrors:
+		if out, ok := renderTypedStepDomainErrors(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupDomainAuth:
+		if out, ok := renderTypedStepDomainAuth(st, typedStep, indent); ok {
+			return out
+		}
+	case flowir.RendererGroupDomainPrimitives:
+		if out, ok := renderTypedStepDomainPrimitives(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupDomainTime:
+		if out, ok := renderTypedStepDomainTime(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupDomainValidation:
+		if out, ok := renderTypedStepDomainValidation(st, typedStep, indent); ok {
+			return out
+		}
+	case flowir.RendererGroupListEnrich:
+		if out, ok := renderTypedStepListEnrich(st, typedStep, indent); ok {
+			return out
+		}
+	case flowir.RendererGroupDomainSpecial:
+		if out, ok := renderTypedStepDomainSpecial(st, typedStep, indent); ok {
+			return out
+		}
+	case flowir.RendererGroupRBAC:
+		if out, ok := renderTypedStepRBAC(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupLogicCheck:
+		if out, ok := renderTypedStepLogicCheck(st, typedStep, indent); ok {
+			return out
+		}
+	case flowir.RendererGroupDomainComputed:
+		if out, ok := renderTypedStepDomainComputed(st, typedStep, indent); ok {
+			return out
+		}
+	case flowir.RendererGroupExecFS:
+		if out, ok := renderTypedStepExecFS(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	case flowir.RendererGroupInfrastructure:
+		if out, ok := renderTypedStepInfrastructure(st, typedStep, indent, nextFlowStepSuffix(st)); ok {
+			return out
+		}
+	}
+	pad := strings.Repeat("\t", indent)
+	return renderInvalidFlowStepConfig(st, pad, typedStep.Name, fmt.Sprintf("renderer group %q has no typed emitter route", spec.RendererGroup))
+}
+
+func nextFlowStepSuffix(st *flowRenderState) string {
+	sfx := fmt.Sprintf("_%d", *st.stepN)
+	*st.stepN++
+	return sfx
+}
+
+func typedActionAs[T flowir.Action](step flowir.TypedStep) (T, error) {
+	var zero T
+	if step.DecodeError != nil {
+		return zero, step.DecodeError
+	}
+	typed, ok := step.Action.(T)
+	if !ok {
+		return zero, fmt.Errorf("action %q decoded as %T", step.Name, step.Action)
+	}
+	return typed, nil
+}
+
+func decodeCurrentActionAs[T flowir.Action](st *flowRenderState, raw normalizer.FlowStep) (T, error) {
+	var zero T
+	if st == nil || st.currentTyped == nil {
+		return zero, fmt.Errorf("action %q has no typed Flow IR context", raw.Action)
+	}
+	if st.currentTyped.Name != raw.Action {
+		return zero, fmt.Errorf("typed Flow IR action %q does not match renderer action %q", st.currentTyped.Name, raw.Action)
+	}
+	if st.currentTyped.DecodeError != nil {
+		return zero, st.currentTyped.DecodeError
+	}
+	if typed, ok := st.currentTyped.Action.(T); ok {
+		return typed, nil
+	}
+	return zero, fmt.Errorf("action %q decoded as %T", raw.Action, st.currentTyped.Action)
+}
+
+func flowStepTraceComment(source flowir.Source, stepIdx int, indent int) string {
+	file := strings.TrimSpace(source.File)
+	if file == "" && strings.TrimSpace(source.CUEPath) != "" {
+		file = strings.TrimSpace(source.CUEPath)
 	}
 	if file == "" {
 		return ""
 	}
 	ref := filepath.ToSlash(filepath.Clean(file))
-	if step.Line > 0 {
-		ref = fmt.Sprintf("%s:%d", ref, step.Line)
+	if source.Line > 0 {
+		ref = fmt.Sprintf("%s:%d", ref, source.Line)
 	}
 	pad := strings.Repeat("\t", indent)
 	return fmt.Sprintf("%s// Generated from: %s (flow step %d)\n", pad, ref, stepIdx)
@@ -522,10 +670,33 @@ func errReturn(st *flowRenderState, pad, errExpr string) string {
 }
 
 func renderInvalidFlowStepConfig(st *flowRenderState, pad, action, msg string) string {
+	msg = flowInvalidConfigMessage(action, msg)
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("%s// invalid %s configuration\n", pad, action))
 	b.WriteString(errReturn(st, pad, fmt.Sprintf("fmt.Errorf(%q)", action+": "+msg)))
 	return b.String()
+}
+
+func flowInvalidConfigMessage(action, fallback string) string {
+	required := map[string]string{
+		"auth.RequireRole":      "auth.RequireRole requires userID, companyID, and roles",
+		"circuit.RecordSuccess": "circuit.RecordSuccess requires name",
+		"config.Get":            "config.Get requires key and output",
+		"dedupe.Once":           "dedupe.Once requires key",
+		"flow.Call":             "flow.Call requires op",
+		"flow.Cron":             "flow.Cron requires window",
+		"flow.Tag":              "flow.Tag requires name",
+		"http.Paginate":         "http.Paginate requires url, into, as, and cursor_expr",
+		"http.Request":          "http.Request requires method and url",
+		"http.RetryPolicy":      "http.RetryPolicy requires method and url",
+		"http.SOAP":             "http.SOAP requires url, namespace, and operation",
+		"list.Sum":              "list.Sum requires input and output",
+		"notify.Email":          "notify.Email requires to",
+	}
+	if message, ok := required[action]; ok && strings.Contains(strings.ToLower(fallback), "required") {
+		return message
+	}
+	return fallback
 }
 
 func resolveFlowDynamicOutputType(st *flowRenderState, output, into string) string {
@@ -539,7 +710,11 @@ func resolveFlowDynamicOutputType(st *flowRenderState, output, into string) stri
 	return outputType
 }
 
-func emitFlowWarning(st *flowRenderState, step normalizer.FlowStep, code, severity, message, hint string) {
+func emitFlowWarning(st *flowRenderState, code, severity, message, hint string) {
+	meta := flowir.StepMeta{}
+	if st.currentTyped != nil {
+		meta = st.currentTyped.Meta()
+	}
 	if st.warningSink != nil {
 		st.warningSink(normalizer.Warning{
 			Kind:     "flow",
@@ -547,11 +722,11 @@ func emitFlowWarning(st *flowRenderState, step normalizer.FlowStep, code, severi
 			Severity: severity,
 			Message:  message,
 			Op:       st.opName,
-			Action:   step.Action,
-			File:     step.File,
-			Line:     step.Line,
-			Column:   step.Column,
-			CUEPath:  step.CUEPath,
+			Action:   meta.Name,
+			File:     meta.Source.File,
+			Line:     meta.Source.Line,
+			Column:   meta.Source.Column,
+			CUEPath:  meta.Source.CUEPath,
 			Hint:     hint,
 		})
 		return
@@ -559,73 +734,18 @@ func emitFlowWarning(st *flowRenderState, step normalizer.FlowStep, code, severi
 	slog.Warn("flow.warning",
 		"code", code,
 		"severity", severity,
-		"action", step.Action,
-		"file", step.File,
-		"line", step.Line,
+		"action", meta.Name,
+		"file", meta.Source.File,
+		"line", meta.Source.Line,
 		"message", message,
 		"hint", hint,
 	)
 }
 
 func renderOneFlowStep(st *flowRenderState, step normalizer.FlowStep, indent int) string {
-	sfx := fmt.Sprintf("_%d", *st.stepN)
-	*st.stepN++
-	_ = sfx // consumed by actions with internal temp vars
-	arg := func(name string) string {
-		if v, ok := step.Args[name]; ok {
-			if s, ok := v.(string); ok {
-				return normalizeFlowExpr(strings.TrimSpace(s))
-			}
-		}
-		return ""
+	typed, _ := flowir.DecodeSteps([]normalizer.FlowStep{step})
+	if len(typed) == 1 {
+		return renderOneTypedFlowStep(st, typed[0], indent)
 	}
-	child := func(name string) []normalizer.FlowStep {
-		if v, ok := step.Args[name].([]normalizer.FlowStep); ok {
-			return v
-		}
-		return nil
-	}
-
-	if out, ok := renderFlowStepDomain(st, step, indent, sfx, arg, child); ok {
-		return out
-	}
-
-	switch step.Action {
-	case "flow.If", "flow.For", "flow.Block", "tx.Block", "list.Filter", "list.Paginate", "list.Append", "list.Sort", "list.Map", "list.Reduce", "list.GroupBy", "list.Distinct", "list.Chunk", "list.Find", "list.Any", "list.All", "batch.Run", "str.Normalize", "mapping.Map", "value.Coalesce", "event.Publish", "event.EmitIf", "logic.Call", "service.Call", "flow.Call", "exec.Run", "exec.Stream", "fs.TempDir", "fs.WriteFile", "fs.ReadFile", "fs.Remove", "archive.ZipDir", "session.Get", "flow.Switch", "flow.While", "flow.Checkpoint", "flow.Resume", "flow.RecordEvent", "flow.Replay", "flow.History.Get", "flow.Validate", "flow.Try", "flow.Catch", "flow.Defer", "flow.Retry", "flow.Fallback", "flow.Timeout", "flow.SuggestNext", "flow.ExplainError",
-		"flow.Parallel", "flow.Join", "flow.Race",
-		"flow.Delay", "flow.Schedule", "flow.Cron",
-		"flow.Saga", "flow.Compensate", "flow.Rollback", "flow.Tag",
-		"flow.Return", "errors.New", "errors.ThrowIf", "errors.Wrap", "errors.Map",
-		"list.Sum", "list.Avg":
-		return renderFlowStepControl(st, step, indent, sfx, arg, child)
-
-		// -------------------------------------------------------------------------
-		// STAGE 2: Infrastructure actions
-		// -------------------------------------------------------------------------
-
-	case "cache.Get", "cache.Set", "cache.Del", "mail.Send", "storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List", "http.Call", "http.Request", "http.SOAP", "http.RetryPolicy", "http.Paginate", "rand.Code", "rand.Token", "json.Parse", "json.Marshal", "json.Stringify", "template.Render", "regex.Match", "regex.Replace", "base64.Encode", "base64.Decode", "url.Parse", "url.Build", "path.Base", "query.Encode", "query.Decode", "hash.Sum", "hash.HMAC", "uuid.New", "ulid.New", "time.Now", "time.Format", "time.InZone", "time.Add", "time.Sub", "time.Diff", "math.Op", "num.Add", "num.Sub", "num.Mul", "num.Div", "str.Format", "str.Concat", "str.StripMarkdown", "str.ReplaceAll", "str.TrimSpace", "cast.ToString", "jsonpath.Get", "jsonpath.Set", "jwt.Sign", "jwt.Verify", "token.Generate", "token.Verify", "oauth2.Token", "oauth2.Refresh",
-		"oauth.Google.GetURL", "oauth.Google.Exchange", "oauth.Google.UserInfo", "crypto.Encrypt", "crypto.Decrypt", "crypto.Hash", "parallel.Run", "pdf.Render", "webhook.Send", "webhook.VerifySignature", "webhook.Ack", "queue.Enqueue", "queue.Dequeue", "queue.Ack", "queue.Nack", "dlq.Publish", "event.Outbox", "secret.Get", "config.Get", "model.Resolve", "stream.Emit", "plan.BuildAutomata", "plan.BuildMicroPlan", "cue.EmitProject", "cue.ValidateProject", "cue.WriteProjectFiles",
-		"event.Wait", "event.Subscribe", "event.Match", "event.Broadcast",
-		"notify.Send", "notify.Email", "approval.Request", "approval.Wait", "approval.Decide",
-		"policy.Check", "policy.Evaluate", "policy.Require", "policy.Decide",
-		"state.Get", "state.Set", "state.Delete",
-		"idem.DeriveKey", "idem.Check", "idem.SaveResult",
-		"idempotency.DeriveKey", "idempotency.Check", "idempotency.SaveResult",
-		"dedupe.Once",
-		"ratelimit.Check", "ratelimit.Limit",
-		"quota.Check",
-		"budget.Check", "budget.Consume",
-		"context.Trim",
-		"profile.Require",
-		"concurrency.Limit", "concurrency.Run", "mutex.With",
-		"circuit.Check", "circuit.RecordSuccess", "circuit.RecordFailure", "circuit.Breaker",
-		"bulkhead.Acquire", "bulkhead.Run",
-		"log.Emit", "metric.Emit", "trace.Span", "slo.Budget",
-		"claude.Chat", "openai.Chat", "openai.Embed", "openai.Stream",
-		"locale.Resolve":
-		return renderFlowStepInfra(st, step, indent, sfx, arg, child)
-
-	default:
-		return ""
-	}
+	return ""
 }

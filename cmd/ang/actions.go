@@ -14,8 +14,16 @@ import (
 )
 
 type actionCatalogEnvelope struct {
-	Schema  string                       `json:"schema"`
-	Actions []flowsem.ActionCatalogEntry `json:"actions"`
+	Schema  string                  `json:"schema"`
+	Actions []documentedActionEntry `json:"actions"`
+}
+
+// documentedActionEntry combines semantic documentation from flowsem with
+// the target-neutral renderer routing published by the Typed Flow IR registry.
+// The embedded entry keeps the existing ang/actions/v1 fields stable.
+type documentedActionEntry struct {
+	flowsem.ActionCatalogEntry
+	RendererGroup flowir.RendererGroup `json:"renderer_group"`
 }
 
 func runActions(args []string) {
@@ -38,14 +46,15 @@ func runActions(args []string) {
 		return
 	}
 	catalog := mergedActionCatalogFrom(baseCatalog)
+	documented := documentedActionCatalog(catalog)
 	if *asCUE {
-		fmt.Print(renderActionCatalogCUE(catalog))
+		fmt.Print(renderActionCatalogCUE(documented))
 		return
 	}
 
 	env := actionCatalogEnvelope{
 		Schema:  "ang/actions/v1",
-		Actions: catalog,
+		Actions: documented,
 	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
@@ -81,7 +90,22 @@ func mergedActionCatalogFrom(catalog []flowsem.ActionCatalogEntry) []flowsem.Act
 	return catalog
 }
 
-func renderActionCatalogCUE(entries []flowsem.ActionCatalogEntry) string {
+func documentedActionCatalog(catalog []flowsem.ActionCatalogEntry) []documentedActionEntry {
+	groups := make(map[string]flowir.RendererGroup, len(flowir.All()))
+	for _, spec := range flowir.All() {
+		groups[spec.Name] = spec.RendererGroup
+	}
+	out := make([]documentedActionEntry, 0, len(catalog))
+	for _, entry := range catalog {
+		out = append(out, documentedActionEntry{
+			ActionCatalogEntry: entry,
+			RendererGroup:      groups[entry.Name],
+		})
+	}
+	return out
+}
+
+func renderActionCatalogCUE(entries []documentedActionEntry) string {
 	var b strings.Builder
 	b.WriteString("package actions\n\n")
 	b.WriteString("#Catalog: {\n")
@@ -91,6 +115,7 @@ func renderActionCatalogCUE(entries []flowsem.ActionCatalogEntry) string {
 		b.WriteString("\t\t{\n")
 		b.WriteString("\t\t\tname: " + strconv.Quote(e.Name) + "\n")
 		b.WriteString("\t\t\tdescription: " + strconv.Quote(e.Description) + "\n")
+		b.WriteString("\t\t\trenderer_group: " + strconv.Quote(string(e.RendererGroup)) + "\n")
 		b.WriteString("\t\t\targs: [\n")
 		for _, a := range e.Args {
 			b.WriteString("\t\t\t\t{")

@@ -55,3 +55,34 @@ func TestResolveSource_guardClassification(t *testing.T) {
 		t.Fatalf("apm_id: IsCard=%v IsAPM=%v", resolved[1].IsCard, resolved[1].IsAPM)
 	}
 }
+
+func TestResolveSource_constUsesNamedConstant(t *testing.T) {
+	fields := []RequestField{
+		{Name: "TransactionType", JSON: "transaction_type", Source: "const", ConstVal: "CREDIT"},
+	}
+	resolved, err := ResolveRequestFields(fields, "card", 840)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved[0].GoExpr != "transactionType" {
+		t.Fatalf("const: got %q want transactionType", resolved[0].GoExpr)
+	}
+}
+
+func TestBuildRequestLiteralConsts(t *testing.T) {
+	spec := &ProviderSpec{
+		PayoutRequest: &RequestDef{
+			Name: "payoutRequest",
+			Fields: []RequestField{
+				{Name: "TransactionType", Source: "const", ConstVal: "CREDIT"},
+			},
+		},
+	}
+	consts, err := BuildRequestLiteralConsts(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(consts) != 1 || consts[0].Name != "transactionType" || consts[0].Value != "CREDIT" {
+		t.Fatalf("unexpected consts: %#v", consts)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -16,24 +17,26 @@ type TemplateData struct {
 	Label       string
 	MIDPrefix   string
 
-	StructName      string
-	ConstructorName string
-	ConstructorParams     string
-	ConstructorTestArgs   string
+	StructName          string
+	ConstructorName     string
+	ConstructorParams   string
+	ConstructorTestArgs string
 
 	PaymentSource string
 
-	HasPayin  bool
-	HasPayout bool
-	HasP2P    bool
-	HasCancel bool
-	HasRefund bool
+	HasPayin        bool
+	HasPayout       bool
+	HasP2P          bool
+	HasCancel       bool
+	HasRefund       bool
 	HasSubscription bool
 
-	PayinRequest  *ResolvedRequestDef
-	PayoutRequest *ResolvedRequestDef
-	P2PRequest    *ResolvedRequestDef
-	RefundRequest *ResolvedRequestDef
+	PayinRequest        *ResolvedRequestDef
+	PayoutRequest       *ResolvedRequestDef
+	PayinStatusRequest  *ResolvedRequestDef
+	PayoutStatusRequest *ResolvedRequestDef
+	P2PRequest          *ResolvedRequestDef
+	RefundRequest       *ResolvedRequestDef
 
 	PayinRequestType  string
 	PayoutRequestType string
@@ -44,45 +47,66 @@ type TemplateData struct {
 	RefundEndpointConst       string
 	PayinStatusEndpointConst  string
 	PayoutStatusEndpointConst string
+	PayoutStatusSameAsPayout  bool
+	PayinStatusMethod         string
+	PayoutStatusMethod        string
+	PayoutMethod              string
+	PayoutPathTxID            bool
+	CheckStatusPathFormatTxID bool
 
-	PayinResponseType  string
-	PayoutResponseType string
-	RefundResponseType string
+	PayinResponseType    string
+	PayoutResponseType   string
+	RefundResponseType   string
 	PayinForeignIDField  string
+	PayinRedirectURLField string
 	PayoutForeignIDField string
 	RefundForeignIDField string
 
-	SecretParts      []SecretPart
-	SecretPartsCount int
-	SecretSeparator  string
-	SecretFormat     string
-	SecretTestValue  string
+	SecretParts                       []SecretPart
+	SecretPartsCount                  int
+	SecretPartsNeedTransform          bool
+	SecretPartsSimple                 bool
+	SecretHasJoinRemainder            bool
+	SecretSeparator                   string
+	SecretFormat                      string
+	SecretTestValue                   string
 	HasOptionalReturnRecipientDetails bool
 
-	SigningAlgorithm    string
-	SigningFormat       string
-	SigningSecretField  string
-	UseBasicAuth        bool
-	UseTransfertyH2H    bool
-	UseMacanP2P         bool
-	UsePaytechGateway   bool
-	UseFluxsgate        bool
-	SecretUseLabels     bool // CUE: secrets.use_labels
-	PubKeyField         string
-	SecretKeyField      string
+	HasOptionalSecretParts bool
 
-	PayoutRuntime               *PayoutRuntimeTemplate
-	CallbackRuntime             *CallbackRuntimeTemplate
-	InitPayoutPolicy            *InitPayoutPolicyTemplate
-	RequestSigning              *RequestSigningTemplate
-	CheckStatusForeignIDEmpty   string
-	ResponseFormat              string
-	CallbackFormat              string
+	SigningAlgorithm   string
+	SigningFormat      string
+	SigningSecretField string
+	UseBasicAuth       bool
+	UseTransfertyH2H   bool
+	UseMacanP2P        bool
+	UsePaytechGateway  bool
+	UseFluxsgate       bool
+	UseRedirectCheckout bool
+	UseCentrobillHPP    bool
+	SecretUseLabels    bool // CUE: secrets.use_labels
+	PubKeyField        string
+	SecretKeyField     string
 
-	PayinStatusResponseType  string
-	PayoutStatusResponseType string
-	PayinStatusField         string
-	PayoutStatusField        string
+	PayoutRuntime             *PayoutRuntimeTemplate
+	CallbackRuntime           *CallbackRuntimeTemplate
+	InitPayoutPolicy          *InitPayoutPolicyTemplate
+	RequestSigning            *RequestSigningTemplate
+	CheckStatusForeignIDEmpty string
+	ResponseFormat            string
+	CallbackFormat            string
+	ResponseEnvelope          *ResponseEnvelopeTemplate
+	KeysEndpoint              *KeysEndpointTemplate
+	CardEncryption            *CardEncryptionTemplate
+	PayoutStatusValueField    string
+	HasCallbackNestedPaths    bool
+
+	PayinResponsePayloadType  string
+	PayoutResponsePayloadType string
+	PayinStatusResponseType   string
+	PayoutStatusResponseType  string
+	PayinStatusField          string
+	PayoutStatusField         string
 
 	CheckStatusConfig *CheckStatusConfigTemplate
 
@@ -117,25 +141,28 @@ type TemplateData struct {
 	SupportedCurrencies []string
 	HasMultiCurrency    bool
 
-	HasP2PDualEndpoint    bool
-	P2PCardEndpointConst  string
-	P2PAPMEndpointConst   string
-	HasPayoutDualEndpoint bool
+	HasP2PDualEndpoint      bool
+	P2PCardEndpointConst    string
+	P2PAPMEndpointConst     string
+	HasPayoutDualEndpoint   bool
 	PayoutCardEndpointConst string
 	PayoutAPMEndpointConst  string
 
 	Endpoints []EndpointTemplate
 
-	PayinStatuses  []StatusTemplate
-	PayoutStatuses []StatusTemplate
+	RequestLiteralConsts []RequestLiteralConst
+
+	PayinStatuses       []StatusTemplate
+	PayoutStatuses      []StatusTemplate
 	PayoutStatusesExtra []StatusTemplate
-	ErrorCodes     []ErrorTemplate
-	StatusDetails  []ErrorTemplate
+	ErrorCodes          []ErrorTemplate
+	ErrorCodesNumeric   bool
+	StatusDetails       []ErrorTemplate
 
 	PayinStatusTests  []StatusTestTemplate
 	PayoutStatusTests []StatusTestTemplate
-	StatusInputType string
-	StatusCodeType  string // "string" | "int" for provider status codes
+	StatusInputType   string
+	StatusCodeType    string // "string" | "int" for provider status codes
 
 	AllRequestTypes []RequestTypeTemplate
 	ResponseTypes   []ResponseType
@@ -152,16 +179,17 @@ type TemplateData struct {
 	CallbackReturnQueryInfoCallback bool
 
 	// Advanced capability knobs (schema-driven).
-	CheckStatusThrottleConfig    *CheckStatusThrottleConfig
-	CrossInstanceStateConfig     *CrossInstanceStateConfig
-	StatusConfirmationConfig     *StatusConfirmationConfig
-	ExtendedCallbackConfig       *ExtendedCallbackConfig
-	RuntimePolicyConfig          *RuntimePolicyConfig
-	Async3DSConfig               *Async3DSConfig
+	CheckStatusThrottleConfig *CheckStatusThrottleConfig
+	CrossInstanceStateConfig  *CrossInstanceStateConfig
+	StatusConfirmationConfig  *StatusConfirmationConfig
+	ExtendedCallbackConfig    *ExtendedCallbackConfig
+	RuntimePolicyConfig       *RuntimePolicyConfig
+	Async3DSConfig            *Async3DSConfig
 
 	Operations          []OperationTemplate
-	UseOperationRuntime bool // operations table + retry/timeout helpers (not for macan_p2p yet)
-	ErrorMappingMatrix []ErrorMatrixTemplate
+	UseOperationRuntime bool // operations table + operation-scoped overrides (not for macan_p2p yet)
+	UseRuntimePolicy    bool // runtime_policy_config retry/timeout helpers without operations table
+	ErrorMappingMatrix  []ErrorMatrixTemplate
 
 	// TnxStatusVars lists model.ParseStatus variables to emit (only kinds used by this provider).
 	TnxStatusVars []TnxStatusVar
@@ -172,10 +200,10 @@ type TemplateData struct {
 	ConstructorDepMocks         []ConstructorDepMock
 	HasMacanRedirectMethods     bool
 
-	PaymentMethodMap         []PaymentMethodMapTemplate
-	MacanPayMethodConsts     []MacanPayMethodConst
-	MacanPaymentBrandConsts  []MacanPaymentBrandConst
-	MacanBrandMatchCases     []MacanBrandMatchCase
+	PaymentMethodMap        []PaymentMethodMapTemplate
+	MacanPayMethodConsts    []MacanPayMethodConst
+	MacanPaymentBrandConsts []MacanPaymentBrandConst
+	MacanBrandMatchCases    []MacanBrandMatchCase
 
 	// Paytech Gateway (secrets.go + status.go layout).
 	PaytechSecretParts []PaytechSecretPart
@@ -205,14 +233,16 @@ type AuthConfigTemplate struct {
 }
 
 type CheckStatusConfigTemplate struct {
-	Enabled              bool
-	SinceCreatedPeriod   string
-	ByTransactionType    bool
-	PathSuffixForeignID  bool
+	Enabled             bool
+	SinceCreatedPeriod  string
+	ByTransactionType   bool
+	PathSuffixForeignID bool
+	PathFormatTxID      bool
 }
 
 type PayoutRuntimeTemplate struct {
 	ForeignIDOnUnexpectedError bool
+	UnexpectedErrorPending     bool
 }
 
 type CallbackRuntimeTemplate struct {
@@ -226,12 +256,41 @@ type InitPayoutPolicyTemplate struct {
 }
 
 type RequestSigningTemplate struct {
-	Algorithm    string
-	Format       string
-	Header       string
+	Algorithm        string
+	Format           string
+	Header           string
+	SecretKeyField   string
+	UsernameHeader   string
+	UsernameKeyField string
+	Encoding         string
+	ConcatFields     []string
+}
+
+type ResponseEnvelopeTemplate struct {
+	Enabled        bool
+	WrapperField   string
+	WrapperGoField string
+	SuccessField   string
+	SuccessGoField string
+	ErrorField     string
+	ErrorGoField   string
+	SuccessMode    string
+}
+
+type KeysEndpointTemplate struct {
+	Enabled        bool
+	EndpointConst  string
+	BaseURL        string
+	CacheTTLExpr   string
+	CacheEnabled   bool
 	SecretKeyField string
-	Encoding     string
-	ConcatFields []string
+}
+
+type CardEncryptionTemplate struct {
+	Enabled           bool
+	Algorithm         string
+	PEMSecretKeyField string
+	PaymentDataType   string
 }
 
 type CallbackSignatureFieldTemplate struct {
@@ -245,6 +304,8 @@ type CallbackSignatureFieldTemplate struct {
 type CallbackSignatureTemplate struct {
 	Algorithm        string
 	SecretKeyField   string
+	UsernameKeyField string
+	SignatureJSON    string
 	Format           string
 	CompareEqualFold bool
 	SignatureField   string
@@ -275,26 +336,30 @@ type RuntimePolicyConfig struct {
 		RequestTimeout      string
 		CheckStatusTimeout  string
 		CallbackWaitTimeout string
+		RequestTimeoutExpr  string
 	}
 	Retries struct {
-		MaxAttempts       int
-		InitialBackoff    string
-		MaxBackoff        string
-		RetryOnNotFound   bool
-		RetryOn5xx        bool
-		RetryOnRateLimit  bool
+		MaxAttempts        int
+		InitialBackoff     string
+		MaxBackoff         string
+		InitialBackoffExpr string
+		MaxBackoffExpr     string
+		RetryOnNotFound    bool
+		RetryOn5xx         bool
+		RetryOnRateLimit   bool
 	}
 	Limits struct {
 		MaxCallbackBodyBytes int
 		MaxPendingAge        string
+		MaxPendingAgeExpr    string
 	}
 }
 
 type Async3DSConfig struct {
-	Enabled                  bool
-	AutoChargeAfter          string
+	Enabled                   bool
+	AutoChargeAfter           string
 	FinishCallbackWaitTimeout string
-	StalePendingGrace        string
+	StalePendingGrace         string
 }
 
 type OperationTemplate struct {
@@ -321,8 +386,8 @@ type OperationTransportTemplate struct {
 }
 
 type ErrorMatrixTemplate struct {
-	Major      string
-	Minor      string
+	Major       string
+	Minor       string
 	StatusTitle string
 	StatusCode  string
 	Message     string
@@ -385,6 +450,12 @@ type MacanBrandMatchCase struct {
 	EqualExpr  string
 }
 
+// RequestLiteralConst is a generated package-level const for source "const" request fields.
+type RequestLiteralConst struct {
+	Name  string
+	Value string
+}
+
 type ResolvedRequestDef struct {
 	Name   string
 	Fields []ResolvedField
@@ -409,6 +480,7 @@ type StatusTemplate struct {
 type ErrorTemplate struct {
 	ConstName   string
 	Code        string
+	CodeIsInt   bool
 	StatusTitle string
 	StatusCode  string
 }
@@ -417,10 +489,85 @@ type GroupedStatusDetail struct {
 	ConstNames  []string
 	StatusTitle string
 	StatusCode  string
+	Message     string
 }
 
 func (g GroupedStatusDetail) CaseLabel() string {
-	return strings.Join(g.ConstNames, ", ")
+	return wrapSwitchCaseLabel(g.ConstNames, switchCaseWrapWidth)
+}
+
+// switchCaseWrapWidth accounts for the "\tcase " prefix emitted by datatypes templates.
+const switchCaseWrapWidth = 100
+
+func wrapSwitchCaseLabel(names []string, maxLineLen int) string {
+	if len(names) == 0 {
+		return ""
+	}
+	if len(names) == 1 {
+		return names[0]
+	}
+	const casePrefixLen = len("\tcase ")
+	if maxLineLen <= casePrefixLen+1 {
+		maxLineLen = casePrefixLen + 40
+	}
+	budget := maxLineLen - casePrefixLen
+
+	var lines []string
+	var current strings.Builder
+	for i, name := range names {
+		chunk := name
+		if i > 0 {
+			chunk = ", " + name
+		}
+		if current.Len() > 0 && current.Len()+len(chunk) > budget {
+			lines = append(lines, current.String())
+			current.Reset()
+			chunk = name
+		}
+		current.WriteString(chunk)
+	}
+	if current.Len() > 0 {
+		lines = append(lines, current.String())
+	}
+	if len(lines) == 1 {
+		return lines[0]
+	}
+	return lines[0] + ",\n\t\t" + strings.Join(lines[1:], ",\n\t\t")
+}
+
+func groupStatusTemplates(items []StatusTemplate) []GroupedStatusDetail {
+	type key struct {
+		title string
+		code  string
+		msg   string
+	}
+	var order []key
+	groups := map[key][]string{}
+	for _, e := range items {
+		k := key{e.StatusTitle, e.StatusCode, e.Message}
+		if _, ok := groups[k]; !ok {
+			order = append(order, k)
+		}
+		groups[k] = append(groups[k], e.ConstName)
+	}
+	result := make([]GroupedStatusDetail, 0, len(order))
+	for _, k := range order {
+		result = append(result, GroupedStatusDetail{
+			ConstNames:  groups[k],
+			StatusTitle: k.title,
+			StatusCode:  k.code,
+			Message:     k.msg,
+		})
+	}
+	return result
+}
+
+func (d *TemplateData) GroupedPayinStatuses() []GroupedStatusDetail {
+	return groupStatusTemplates(d.PayinStatuses)
+}
+
+func (d *TemplateData) GroupedPayoutStatuses() []GroupedStatusDetail {
+	return groupStatusTemplates(d.PayoutStatuses)
 }
 
 func (d *TemplateData) GroupedStatusDetails() []GroupedStatusDetail {
@@ -428,6 +575,28 @@ func (d *TemplateData) GroupedStatusDetails() []GroupedStatusDetail {
 	var order []key
 	groups := map[key][]string{}
 	for _, e := range d.StatusDetails {
+		k := key{e.StatusTitle, e.StatusCode}
+		if _, ok := groups[k]; !ok {
+			order = append(order, k)
+		}
+		groups[k] = append(groups[k], e.ConstName)
+	}
+	result := make([]GroupedStatusDetail, 0, len(order))
+	for _, k := range order {
+		result = append(result, GroupedStatusDetail{
+			ConstNames:  groups[k],
+			StatusTitle: k.title,
+			StatusCode:  k.code,
+		})
+	}
+	return result
+}
+
+func (d *TemplateData) GroupedErrorCodes() []GroupedStatusDetail {
+	type key struct{ title, code string }
+	var order []key
+	groups := map[key][]string{}
+	for _, e := range d.ErrorCodes {
 		k := key{e.StatusTitle, e.StatusCode}
 		if _, ok := groups[k]; !ok {
 			order = append(order, k)
@@ -468,58 +637,86 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 	}
 
 	data := &TemplateData{
-		PackageName:     spec.PackageName,
-		SID:             spec.SID,
-		Source:          spec.Source,
-		Label:           spec.Label,
-		MIDPrefix:       spec.MIDPrefix,
-		StructName:      spec.StructName,
-		ConstructorName: spec.ConstructorName,
-		PaymentSource:   spec.PaymentSource,
-		HasPayin:        spec.HasPayin,
-		HasPayout:       spec.HasPayout,
-		HasP2P:          spec.HasP2P,
-		HasCancel:       spec.HasCancel,
-		HasRefund:       spec.HasRefund,
-		HasSubscription: spec.HasSubscription,
-		SecretParts:     spec.Secrets.Parts,
-		SecretPartsCount: len(spec.Secrets.Parts),
-		SecretSeparator: spec.Secrets.Separator,
-		SecretFormat:    spec.Secrets.Format,
-		SecretTestValue: buildSecretTestValue(spec),
-		SigningAlgorithm: spec.Signing.Algorithm,
-		SigningFormat:    spec.Signing.Format,
-		SigningSecretField: pickSigningSecretField(spec),
-		UseBasicAuth:     strings.EqualFold(spec.Signing.Algorithm, "basic") || spec.Signing.Format == "basic_auth",
-		UseTransfertyH2H:  strings.EqualFold(spec.APICompat, "transferty_h2h"),
-		UseMacanP2P:       strings.EqualFold(spec.APICompat, "macan_p2p"),
-		UsePaytechGateway: strings.EqualFold(spec.APICompat, "paytech_gateway"),
-		UseFluxsgate:      strings.EqualFold(spec.APICompat, "fluxsgate"),
-		SecretUseLabels:   spec.Secrets.UseLabels,
+		PackageName:               spec.PackageName,
+		SID:                       spec.SID,
+		Source:                    spec.Source,
+		Label:                     spec.Label,
+		MIDPrefix:                 spec.MIDPrefix,
+		StructName:                spec.StructName,
+		ConstructorName:           spec.ConstructorName,
+		PaymentSource:             spec.PaymentSource,
+		HasPayin:                  spec.HasPayin,
+		HasPayout:                 spec.HasPayout,
+		HasP2P:                    spec.HasP2P,
+		HasCancel:                 spec.HasCancel,
+		HasRefund:                 spec.HasRefund,
+		HasSubscription:           spec.HasSubscription,
+		SecretParts:               spec.Secrets.Parts,
+		SecretPartsCount:          len(spec.Secrets.Parts),
+		SecretSeparator:           spec.Secrets.Separator,
+		SecretFormat:              spec.Secrets.Format,
+		SecretTestValue:           buildSecretTestValue(spec),
+		SigningAlgorithm:          spec.Signing.Algorithm,
+		SigningFormat:             spec.Signing.Format,
+		SigningSecretField:        pickSigningSecretField(spec),
+		UseBasicAuth:              strings.EqualFold(spec.Signing.Algorithm, "basic") || spec.Signing.Format == "basic_auth",
+		UseTransfertyH2H:          strings.EqualFold(spec.APICompat, "transferty_h2h"),
+		UseMacanP2P:               strings.EqualFold(spec.APICompat, "macan_p2p"),
+		UsePaytechGateway:         strings.EqualFold(spec.APICompat, "paytech_gateway"),
+		UseFluxsgate:              strings.EqualFold(spec.APICompat, "fluxsgate"),
+		UseRedirectCheckout:       strings.EqualFold(spec.APICompat, "redirect_checkout"),
+		UseCentrobillHPP:          strings.EqualFold(spec.CheckoutCompat, "centrobill_hpp"),
+		SecretUseLabels:           spec.Secrets.UseLabels,
 		CheckStatusForeignIDEmpty: defaultCheckStatusForeignIDEmpty(spec.CheckStatusForeignIDEmpty),
-		ResponseFormat:    defaultString(spec.ResponseFormat, "json"),
-		CallbackFormat:    defaultString(spec.CallbackFormat, "json"),
-		PubKeyField:      pickSecretField(spec, 0, "pubKey"),
-		SecretKeyField:   pickSecretField(spec, 1, "secretKey"),
-		HasBalanceFetcher:       spec.Interfaces.BalanceFetcher,
-		HasMobileProcessor:      spec.Interfaces.MobileProcessor,
-		HasOTPFormRedirector:    spec.Interfaces.OTPFormRedirector,
-		HasTDSRedirector:        spec.Interfaces.TDSRedirector,
-		HasPaymentMethodSelector: spec.Interfaces.PaymentMethodSelector,
-		HasCustomerRandomization: spec.Interfaces.CustomerRandomization,
-		CurrencyCode:          strings.ToUpper(spec.Currency.Code),
-		SupportedMethods:      spec.SupportedMethods,
-		SupportedCurrencies:   supportedCurrencies(spec),
-		HasMultiCurrency:      len(supportedCurrencies(spec)) > 1,
-		StatusInputType:       statusType,
-		StatusCodeType:        statusType,
-		ExtraImports:          buildExtraImports(spec),
-		ResponseLoggingMode:   spec.ResponseLoggingMode,
+		ResponseFormat:            defaultString(spec.ResponseFormat, "json"),
+		CallbackFormat:            defaultString(spec.CallbackFormat, "json"),
+		PubKeyField:               pickSecretField(spec, 0, "pubKey"),
+		SecretKeyField:            pickSecretField(spec, 1, "secretKey"),
+		HasBalanceFetcher:         spec.Interfaces.BalanceFetcher,
+		HasMobileProcessor:        spec.Interfaces.MobileProcessor,
+		HasOTPFormRedirector:      spec.Interfaces.OTPFormRedirector,
+		HasTDSRedirector:          spec.Interfaces.TDSRedirector,
+		HasPaymentMethodSelector:  spec.Interfaces.PaymentMethodSelector,
+		HasCustomerRandomization:  spec.Interfaces.CustomerRandomization,
+		CurrencyCode:              strings.ToUpper(spec.Currency.Code),
+		SupportedMethods:          spec.SupportedMethods,
+		SupportedCurrencies:       supportedCurrencies(spec),
+		HasMultiCurrency:          len(supportedCurrencies(spec)) > 1,
+		StatusInputType:           statusType,
+		StatusCodeType:            statusType,
+		ExtraImports:              buildExtraImports(spec),
+		ResponseLoggingMode:       spec.ResponseLoggingMode,
 	}
 
 	for _, p := range spec.Secrets.Parts {
 		if p.Optional && p.Key == "returnRecipientDetails" {
 			data.HasOptionalReturnRecipientDetails = true
+			break
+		}
+	}
+	for _, p := range spec.Secrets.Parts {
+		if p.Optional {
+			data.HasOptionalSecretParts = true
+			break
+		}
+	}
+	data.SecretPartsSimple = len(spec.Secrets.Parts) > 0
+	for _, p := range spec.Secrets.Parts {
+		if p.JoinRemainder {
+			data.SecretHasJoinRemainder = true
+			data.SecretPartsSimple = false
+			break
+		}
+	}
+	for _, p := range spec.Secrets.Parts {
+		if p.Optional || strings.TrimSpace(p.Type) == "bool" {
+			data.SecretPartsSimple = false
+			break
+		}
+		t := strings.TrimSpace(p.Transform)
+		if t != "" && t != "none" {
+			data.SecretPartsNeedTransform = true
+			data.SecretPartsSimple = false
 			break
 		}
 	}
@@ -548,11 +745,14 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 			SinceCreatedPeriod:  data.CheckStatusPeriod,
 			ByTransactionType:   spec.CheckStatusConfig.ByTransactionType,
 			PathSuffixForeignID: spec.CheckStatusConfig.PathSuffixForeignID,
+			PathFormatTxID:      spec.CheckStatusConfig.PathFormatTxID,
 		}
+		data.CheckStatusPathFormatTxID = spec.CheckStatusConfig.PathFormatTxID
 	}
 	if spec.PayoutRuntime != nil {
 		data.PayoutRuntime = &PayoutRuntimeTemplate{
 			ForeignIDOnUnexpectedError: spec.PayoutRuntime.ForeignIDOnUnexpectedError,
+			UnexpectedErrorPending:     spec.PayoutRuntime.UnexpectedErrorPending,
 		}
 	}
 	if spec.CallbackRuntime != nil {
@@ -569,14 +769,55 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 	}
 	if spec.RequestSigning != nil {
 		data.RequestSigning = &RequestSigningTemplate{
-			Algorithm:      spec.RequestSigning.Algorithm,
-			Format:         spec.RequestSigning.Format,
-			Header:         spec.RequestSigning.Header,
-			SecretKeyField: exportGoIdent(spec.RequestSigning.SecretKey),
-			Encoding:       defaultString(spec.RequestSigning.Encoding, "hex"),
-			ConcatFields:   append([]string(nil), spec.RequestSigning.ConcatFields...),
+			Algorithm:        spec.RequestSigning.Algorithm,
+			Format:           spec.RequestSigning.Format,
+			Header:           spec.RequestSigning.Header,
+			SecretKeyField:   exportGoIdent(spec.RequestSigning.SecretKey),
+			UsernameHeader:   spec.RequestSigning.UsernameHeader,
+			UsernameKeyField: exportGoIdent(spec.RequestSigning.UsernameKey),
+			Encoding:         defaultString(spec.RequestSigning.Encoding, "hex"),
+			ConcatFields:     append([]string(nil), spec.RequestSigning.ConcatFields...),
 		}
 	}
+	if spec.ResponseEnvelope != nil && spec.ResponseEnvelope.Enabled {
+		wrapper := defaultString(spec.ResponseEnvelope.WrapperField, "message")
+		success := defaultString(spec.ResponseEnvelope.SuccessField, "status")
+		errField := defaultString(spec.ResponseEnvelope.ErrorField, "error")
+		data.ResponseEnvelope = &ResponseEnvelopeTemplate{
+			Enabled:        true,
+			WrapperField:   wrapper,
+			WrapperGoField: jsonKeyToGoField(wrapper),
+			SuccessField:   success,
+			SuccessGoField: jsonKeyToGoField(success),
+			ErrorField:     errField,
+			ErrorGoField:   jsonKeyToGoField(errField),
+			SuccessMode:    defaultString(spec.ResponseEnvelope.SuccessMode, "field_bool"),
+		}
+	}
+	if spec.KeysEndpoint != nil && spec.KeysEndpoint.Enabled {
+		epKey := defaultString(spec.KeysEndpoint.EndpointKey, "keys")
+		cacheEnabled := true
+		if spec.KeysEndpoint.CacheEnabled != nil {
+			cacheEnabled = *spec.KeysEndpoint.CacheEnabled
+		}
+		data.KeysEndpoint = &KeysEndpointTemplate{
+			Enabled:        true,
+			EndpointConst:  endpointKeyToConst(epKey),
+			BaseURL:        strings.TrimRight(strings.TrimSpace(spec.KeysEndpoint.BaseURL), "/"),
+			CacheTTLExpr:   formatDurationGoExpr(defaultString(spec.KeysEndpoint.CacheTTL, "12h")),
+			CacheEnabled:   cacheEnabled,
+			SecretKeyField: exportGoIdent(defaultString(spec.KeysEndpoint.SecretKey, "keysBaseURL")),
+		}
+	}
+	if spec.CardEncryption != nil && spec.CardEncryption.Enabled {
+		data.CardEncryption = &CardEncryptionTemplate{
+			Enabled:           true,
+			Algorithm:         defaultString(spec.CardEncryption.Algorithm, "rsa_oaep_sha256"),
+			PEMSecretKeyField: exportGoIdent(defaultString(spec.CardEncryption.PEMSecretKey, "callbackSignKey")),
+			PaymentDataType:   defaultString(spec.CardEncryption.PaymentDataType, "card"),
+		}
+	}
+	data.PayoutStatusValueField = strings.TrimSpace(spec.PayoutStatusValueField)
 	if spec.OTPConfig != nil {
 		data.HasOTPConfig = true
 		data.OTPHandlesExternally = spec.OTPConfig.HandlesExternally
@@ -590,6 +831,12 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 		data.CallbackReturnQueryStatusValue = spec.Callback.ReturnQueryStatusValue
 		data.CallbackReturnQueryInfoCallback = spec.Callback.ReturnQueryInfoCallback
 		data.CallbackFields = normalizeStructFields(spec.Callback.Fields)
+		for _, f := range data.CallbackFields {
+			if strings.TrimSpace(f.NestedPath) != "" {
+				data.HasCallbackNestedPaths = true
+				break
+			}
+		}
 	}
 
 	data.HTTPAuth = buildHTTPAuth(spec)
@@ -641,16 +888,26 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 		rp.Retries.RetryOnNotFound = spec.RuntimePolicyConfig.Retries.RetryOnNotFound
 		rp.Retries.RetryOn5xx = spec.RuntimePolicyConfig.Retries.RetryOn5xx
 		rp.Retries.RetryOnRateLimit = spec.RuntimePolicyConfig.Retries.RetryOnRateLimit
+		rp.Retries.InitialBackoffExpr = durationGoExpr(rp.Retries.InitialBackoff)
+		rp.Retries.MaxBackoffExpr = durationGoExpr(rp.Retries.MaxBackoff)
+		rp.Timeouts.RequestTimeoutExpr = durationGoExpr(rp.Timeouts.RequestTimeout)
 		rp.Limits.MaxCallbackBodyBytes = spec.RuntimePolicyConfig.Limits.MaxCallbackBodyBytes
-		rp.Limits.MaxPendingAge = spec.RuntimePolicyConfig.Limits.MaxPendingAge
+		rp.Limits.MaxPendingAge = strings.TrimSpace(spec.RuntimePolicyConfig.Limits.MaxPendingAge)
+		if rp.Limits.MaxPendingAge != "" {
+			rp.Limits.MaxPendingAgeExpr = durationGoExpr(rp.Limits.MaxPendingAge)
+			if rp.Limits.MaxPendingAgeExpr == "0" {
+				rp.Limits.MaxPendingAge = ""
+				rp.Limits.MaxPendingAgeExpr = ""
+			}
+		}
 		data.RuntimePolicyConfig = rp
 	}
 	if spec.Async3DSConfig != nil {
 		data.Async3DSConfig = &Async3DSConfig{
-			Enabled:                  spec.Async3DSConfig.Enabled,
-			AutoChargeAfter:          spec.Async3DSConfig.AutoChargeAfter,
+			Enabled:                   spec.Async3DSConfig.Enabled,
+			AutoChargeAfter:           spec.Async3DSConfig.AutoChargeAfter,
 			FinishCallbackWaitTimeout: spec.Async3DSConfig.FinishCallbackWaitTimeout,
-			StalePendingGrace:        spec.Async3DSConfig.StalePendingGrace,
+			StalePendingGrace:         spec.Async3DSConfig.StalePendingGrace,
 		}
 	}
 
@@ -680,6 +937,7 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 		}
 	}
 	data.UseOperationRuntime = len(data.Operations) > 0 && !data.UseMacanP2P
+	data.UseRuntimePolicy = data.RuntimePolicyConfig != nil
 
 	if len(spec.ErrorMappingMatrix) > 0 {
 		data.ErrorMappingMatrix = make([]ErrorMatrixTemplate, 0, len(spec.ErrorMappingMatrix))
@@ -710,8 +968,23 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 	data.RefundEndpointConst = endpointConst(spec.Endpoints, "refund", "endpointRefund")
 	data.PayinStatusEndpointConst = endpointConst(spec.Endpoints, "payin_status", "endpointPayinStatus")
 	data.PayoutStatusEndpointConst = endpointConst(spec.Endpoints, "payout_status", "endpointPayoutStatus")
+	if payoutEP, ok := spec.Endpoints["payout"]; ok {
+		if statusEP, ok2 := spec.Endpoints["payout_status"]; ok2 && payoutEP.Path == statusEP.Path {
+			data.PayoutStatusSameAsPayout = true
+			data.PayoutStatusEndpointConst = data.PayoutEndpointConst
+		}
+	}
 	if !hasEndpoint(spec.Endpoints, "payout_status") && hasEndpoint(spec.Endpoints, "check") {
 		data.PayoutStatusEndpointConst = endpointConst(spec.Endpoints, "check", "endpointCheck")
+	}
+	data.PayinStatusMethod = endpointMethod(spec.Endpoints, "payin_status", "GET")
+	data.PayoutStatusMethod = endpointMethod(spec.Endpoints, "payout_status", "GET")
+	if data.PayoutStatusMethod == "GET" && hasEndpoint(spec.Endpoints, "check") {
+		data.PayoutStatusMethod = endpointMethod(spec.Endpoints, "check", "GET")
+	}
+	data.PayoutMethod = endpointMethod(spec.Endpoints, "payout", "POST")
+	if ep, ok := spec.Endpoints["payout"]; ok {
+		data.PayoutPathTxID = strings.Contains(ep.Path, "%s")
 	}
 	data.HasStatusEndpoints = hasEndpoint(spec.Endpoints, "payin_status") || hasEndpoint(spec.Endpoints, "payout_status") || hasEndpoint(spec.Endpoints, "check")
 
@@ -734,6 +1007,18 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 		}
 		data.PayoutRequestType = spec.PayoutRequest.Name
 	}
+	if spec.PayinStatusRequest != nil {
+		data.PayinStatusRequest, err = resolveRequestDef(spec.PayinStatusRequest, spec.PaymentSource, currencyNum)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if spec.PayoutStatusRequest != nil {
+		data.PayoutStatusRequest, err = resolveRequestDef(spec.PayoutStatusRequest, spec.PaymentSource, currencyNum)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if spec.RefundRequest != nil {
 		data.RefundRequest, err = resolveRequestDef(spec.RefundRequest, spec.PaymentSource, currencyNum)
 		if err != nil {
@@ -750,17 +1035,41 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 		data.P2PRequest = data.PayinRequest
 	}
 
-	data.PayinResponseType, data.PayinForeignIDField = inferResponse(spec.ResponseTypes, "payin", "payinProfile", "PaymentID")
-	data.PayoutResponseType, data.PayoutForeignIDField = inferResponse(spec.ResponseTypes, "payout", "payoutProfile", "PaymentID")
+	data.RequestLiteralConsts, err = BuildRequestLiteralConsts(spec)
+	if err != nil {
+		return nil, err
+	}
+
+	data.PayinResponsePayloadType, data.PayinForeignIDField = inferResponse(spec.ResponseTypes, "payin", "payinProfile", "PaymentID")
+	data.PayoutResponsePayloadType, data.PayoutForeignIDField = inferResponse(spec.ResponseTypes, "payout", "payoutMessage", "ReferenceID")
+	if field := strings.TrimSpace(spec.PayoutForeignIDField); field != "" {
+		data.PayoutForeignIDField = field
+	}
 	data.RefundResponseType, data.RefundForeignIDField = inferResponse(spec.ResponseTypes, "refund", "refundResponse", "PaymentID")
+
+	if data.ResponseEnvelope != nil && data.ResponseEnvelope.Enabled {
+		data.PayinResponseType = envelopeWrapperTypeName(data.PayinResponsePayloadType)
+		data.PayoutResponseType = envelopeWrapperTypeName(data.PayoutResponsePayloadType)
+	} else {
+		data.PayinResponseType = data.PayinResponsePayloadType
+		data.PayoutResponseType = data.PayoutResponsePayloadType
+	}
 
 	data.PayinStatusResponseType = data.PayinResponseType
 	data.PayoutStatusResponseType = data.PayoutResponseType
 	data.PayinStatusField = inferStatusField(spec.ResponseTypes, "payin", "Status")
 	data.PayoutStatusField = inferStatusField(spec.ResponseTypes, "payout", "Status")
+	data.PayinRedirectURLField = inferRedirectURLField(spec.ResponseTypes, data.PayinResponsePayloadType)
 
 	data.PayinStatuses, data.PayoutStatuses, data.PayoutStatusesExtra = buildStatuses(spec, statusType)
 	data.ErrorCodes = buildCodeMappings(spec.ErrorCodes, "errCode")
+	data.ErrorCodesNumeric = len(data.ErrorCodes) > 0
+	for _, e := range data.ErrorCodes {
+		if !e.CodeIsInt {
+			data.ErrorCodesNumeric = false
+			break
+		}
+	}
 	data.StatusDetails = buildCodeMappings(spec.StatusDetails, "statusDetail")
 	data.PayinStatusTests = statusTests(data.PayinStatuses, statusType)
 	data.PayoutStatusTests = statusTests(data.PayoutStatuses, statusType)
@@ -832,6 +1141,9 @@ func buildExtraImports(spec *ProviderSpec) []string {
 		if spec.Interfaces.BalanceFetcher {
 			out = appendImportIfMissing(out, "gitlab.q-tech.host/transferty/backend/tnx_processor/payment_providers/common")
 		}
+	}
+	if spec.CardEncryption != nil && spec.CardEncryption.Enabled {
+		out = appendImportIfMissing(out, "gitlab.q-tech.host/transferty/backend/utils/helpers")
 	}
 	sort.Strings(out)
 	return out
@@ -910,6 +1222,30 @@ func buildAllRequestTypes(data *TemplateData) []RequestTypeTemplate {
 			add(data.P2PRequest)
 		}
 	}
+	if data.PayinStatusRequest != nil {
+		seen := false
+		for _, rt := range out {
+			if rt.Name == data.PayinStatusRequest.Name {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			add(data.PayinStatusRequest)
+		}
+	}
+	if data.PayoutStatusRequest != nil {
+		seen := false
+		for _, rt := range out {
+			if rt.Name == data.PayoutStatusRequest.Name {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			add(data.PayoutStatusRequest)
+		}
+	}
 	return out
 }
 
@@ -948,8 +1284,13 @@ func buildEndpoints(endpoints map[string]Endpoint) []EndpointTemplate {
 		}
 	}
 	out := make([]EndpointTemplate, 0, len(keys))
+	seenPaths := map[string]string{}
 	for _, k := range keys {
 		ep := endpoints[k]
+		if prev, ok := seenPaths[ep.Path]; ok && (k == "payout_status" && prev == "payout") {
+			continue
+		}
+		seenPaths[ep.Path] = k
 		out = append(out, EndpointTemplate{
 			ConstName:     endpointKeyToConst(k),
 			Path:          ep.Path,
@@ -982,6 +1323,13 @@ func hasEndpoint(endpoints map[string]Endpoint, key string) bool {
 func endpointConst(endpoints map[string]Endpoint, key, fallback string) string {
 	if _, ok := endpoints[key]; ok {
 		return endpointKeyToConst(key)
+	}
+	return fallback
+}
+
+func endpointMethod(endpoints map[string]Endpoint, key, fallback string) string {
+	if ep, ok := endpoints[key]; ok && strings.TrimSpace(ep.Method) != "" {
+		return strings.ToUpper(strings.TrimSpace(ep.Method))
 	}
 	return fallback
 }
@@ -1060,6 +1408,7 @@ func buildCallbackSignature(spec *ProviderSpec) *CallbackSignatureTemplate {
 	out := &CallbackSignatureTemplate{
 		Algorithm:        strings.TrimSpace(cs.Algorithm),
 		SecretKeyField:   exportGoIdent(cs.SecretKey),
+		UsernameKeyField: exportGoIdent(cs.UsernameKey),
 		Format:           strings.TrimSpace(cs.Format),
 		CompareEqualFold: cs.Compare == "" || cs.Compare == "equal_fold",
 		Optional:         cs.Optional,
@@ -1092,6 +1441,16 @@ func buildCallbackSignature(spec *ProviderSpec) *CallbackSignatureTemplate {
 		}
 	}
 	out.SignatureField = callbackFieldForJSON(callbackFields, "signature")
+	sigJSON := strings.TrimSpace(cs.SignatureJSON)
+	if sigJSON != "" {
+		if field := callbackFieldForJSON(callbackFields, sigJSON); field != "" {
+			out.SignatureField = field
+		}
+		out.SignatureJSON = sigJSON
+	}
+	if out.SignatureJSON == "" {
+		out.SignatureJSON = "x-api-signature"
+	}
 	if out.SignatureField == "" {
 		out.SignatureField = "Signature"
 	}
@@ -1146,6 +1505,21 @@ func findForeignIDField(fields []StructField, fallback string) string {
 		}
 	}
 	return fallback
+}
+
+func inferRedirectURLField(types []ResponseType, payloadType string) string {
+	for _, rt := range types {
+		if payloadType != "" && rt.Name != payloadType {
+			continue
+		}
+		for _, f := range rt.Fields {
+			lower := strings.ToLower(f.Name)
+			if lower == "redirecturl" || lower == "paymenturl" || lower == "checkouturl" {
+				return f.Name
+			}
+		}
+	}
+	return "RedirectUrl"
 }
 
 func buildStatuses(spec *ProviderSpec, statusType string) (payin, payout, payoutExtra []StatusTemplate) {
@@ -1451,9 +1825,12 @@ func buildTnxStatusVars(spec *ProviderSpec, data *TemplateData) []TnxStatusVar {
 func buildCodeMappings(items []ErrorMapping, constPrefix string) []ErrorTemplate {
 	out := make([]ErrorTemplate, 0, len(items))
 	for _, e := range items {
+		code := strings.TrimSpace(e.Code)
+		_, err := strconv.Atoi(code)
 		out = append(out, ErrorTemplate{
-			ConstName:   stringCodeToConstName(e.Code, constPrefix),
-			Code:        e.Code,
+			ConstName:   stringCodeToConstName(code, constPrefix),
+			Code:        code,
+			CodeIsInt:   err == nil,
 			StatusTitle: titleCase(e.Status),
 			StatusCode:  e.StatusCode,
 		})
@@ -1531,6 +1908,32 @@ func statusTests(statuses []StatusTemplate, statusType string) []StatusTestTempl
 	return out
 }
 
+func durationGoExpr(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "0"
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return "0"
+	}
+	if d%time.Second == 0 {
+		n := d / time.Second
+		if n == 1 {
+			return "time.Second"
+		}
+		return fmt.Sprintf("%d * time.Second", n)
+	}
+	if d%time.Millisecond == 0 {
+		n := d / time.Millisecond
+		if n == 1 {
+			return "time.Millisecond"
+		}
+		return fmt.Sprintf("%d * time.Millisecond", n)
+	}
+	return fmt.Sprintf("%d", int64(d))
+}
+
 func defaultString(value, fallback string) string {
 	if strings.TrimSpace(value) != "" {
 		return value
@@ -1545,6 +1948,23 @@ func defaultCheckStatusForeignIDEmpty(value string) string {
 	default:
 		return "error"
 	}
+}
+
+func jsonKeyToGoField(key string) string {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return ""
+	}
+	runes := []rune(key)
+	runes[0] = rune(strings.ToUpper(string(runes[0]))[0])
+	return string(runes)
+}
+
+func envelopeWrapperTypeName(innerName string) string {
+	if strings.HasSuffix(innerName, "Message") {
+		return strings.TrimSuffix(innerName, "Message") + "Response"
+	}
+	return innerName + "Envelope"
 }
 
 // formatDurationGoExpr converts CUE duration strings into valid Go duration expressions.
@@ -1575,9 +1995,16 @@ func inferStatusField(types []ResponseType, kind, fallback string) string {
 		nameLower := strings.ToLower(rt.Name)
 		if strings.Contains(nameLower, kind) {
 			for _, f := range rt.Fields {
-				if f.Name == fallback || strings.EqualFold(f.Name, "status") {
+				if f.Name == fallback || strings.EqualFold(f.Name, "status") || f.Name == "State" {
 					return f.Name
 				}
+			}
+		}
+	}
+	for _, rt := range types {
+		for _, f := range rt.Fields {
+			if f.Name == fallback || strings.EqualFold(f.Name, "status") || f.Name == "State" {
+				return f.Name
 			}
 		}
 	}

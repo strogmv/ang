@@ -32,3 +32,23 @@ func TestEmitDiagnosticsDeduplicatesSuppressesAndSummarizes(t *testing.T) {
 		t.Fatalf("unexpected suppression output:\n%s", text)
 	}
 }
+
+func TestMachineReadableDiagnosticsDeduplicatesAndSuppresses(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "operations.cue")
+	if err := os.WriteFile(path, []byte("//ang:nolint SUPPRESSED\noperation: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diagnostics := []normalizer.Warning{
+		{Code: "VISIBLE", Severity: "warn", Message: "visible", File: path, Line: 2},
+		{Code: "VISIBLE", Severity: "warn", Message: "visible", File: path, Line: 2},
+		{Code: "SUPPRESSED", Severity: "warn", Message: "hidden", File: path, Line: 2},
+	}
+
+	got := machineReadableDiagnostics(diagnostics)
+	if len(got) != 1 {
+		t.Fatalf("expected one visible diagnostic, got %#v", got)
+	}
+	if got[0].Code != "VISIBLE" {
+		t.Fatalf("unexpected diagnostic: %#v", got[0])
+	}
+}

@@ -11,9 +11,11 @@ import (
 
 // ProjectConfig holds optional overrides from ang.yaml in a provider package.
 type ProjectConfig struct {
-	CueRoot      string
-	TemplatesDir string
-	SchemaDir    string
+	CueRoot           string
+	TemplatesDir      string
+	SchemaDir         string
+	ExpertKnowledgeID string
+	ExpertRoot        string
 }
 
 // LoadProjectConfig reads ang.yaml from projectPath (provider package root).
@@ -23,9 +25,11 @@ func LoadProjectConfig(projectPath string) ProjectConfig {
 		base = "."
 	}
 	type angYAML struct {
-		CueRoot      string `yaml:"cue_root"`
-		TemplatesDir string `yaml:"templates_dir"`
-		SchemaDir    string `yaml:"schema_dir"`
+		CueRoot           string `yaml:"cue_root"`
+		TemplatesDir      string `yaml:"templates_dir"`
+		SchemaDir         string `yaml:"schema_dir"`
+		ExpertKnowledgeID string `yaml:"expert_knowledge_id"`
+		ExpertRoot        string `yaml:"expert_root"`
 	}
 	defaults := ProjectConfig{
 		CueRoot:      compiler.DefaultCueRoot,
@@ -40,9 +44,11 @@ func LoadProjectConfig(projectPath string) ProjectConfig {
 		return defaults
 	}
 	pc := ProjectConfig{
-		CueRoot:      strings.TrimSpace(cfg.CueRoot),
-		TemplatesDir: strings.TrimSpace(cfg.TemplatesDir),
-		SchemaDir:    strings.TrimSpace(cfg.SchemaDir),
+		CueRoot:           strings.TrimSpace(cfg.CueRoot),
+		TemplatesDir:      strings.TrimSpace(cfg.TemplatesDir),
+		SchemaDir:         strings.TrimSpace(cfg.SchemaDir),
+		ExpertKnowledgeID: strings.TrimSpace(cfg.ExpertKnowledgeID),
+		ExpertRoot:        strings.TrimSpace(cfg.ExpertRoot),
 	}
 	if pc.CueRoot == "" {
 		pc.CueRoot = compiler.DefaultCueRoot

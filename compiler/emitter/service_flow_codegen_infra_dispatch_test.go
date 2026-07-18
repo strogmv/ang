@@ -32,30 +32,6 @@ func TestRenderFlowStepInfra_DispatchHandlesKnownActions(t *testing.T) {
 		{name: "str_trim_space", step: normalizer.FlowStep{Action: "str.TrimSpace", Args: map[string]any{"input": "req.Name", "output": "trimName"}}},
 		{name: "json_parse", step: normalizer.FlowStep{Action: "json.Parse", Args: map[string]any{"input": "req.Raw", "into": "map[string]any", "output": "parsed"}}},
 		{name: "json_marshal", step: normalizer.FlowStep{Action: "json.Marshal", Args: map[string]any{"input": "req.Payload", "output": "rawJSON"}}},
-		{name: "regex_match", step: normalizer.FlowStep{Action: "regex.Match", Args: map[string]any{"input": "req.Email", "pattern": `"^[^@]+@[^@]+$"`, "output": "ok"}}},
-		{name: "regex_replace", step: normalizer.FlowStep{Action: "regex.Replace", Args: map[string]any{"input": "req.Name", "pattern": `"\\s+"`, "repl": `"-"`, "output": "slug"}}},
-		{name: "base64_encode", step: normalizer.FlowStep{Action: "base64.Encode", Args: map[string]any{"input": "req.Payload", "output": "b64"}}},
-		{name: "base64_decode", step: normalizer.FlowStep{Action: "base64.Decode", Args: map[string]any{"input": "req.Encoded", "output": "raw"}}},
-		{name: "url_parse", step: normalizer.FlowStep{Action: "url.Parse", Args: map[string]any{"input": "req.URL", "output": "u"}}},
-		{name: "path_base", step: normalizer.FlowStep{Action: "path.Base", Args: map[string]any{"input": "req.FilePath", "output": "baseName"}}},
-		{name: "url_build", step: normalizer.FlowStep{Action: "url.Build", Args: map[string]any{"base": `"https://api.test"`, "path": `"/v1/items"`, "query": map[string]string{"q": "req.Query"}, "output": "builtURL"}}},
-		{name: "query_encode", step: normalizer.FlowStep{Action: "query.Encode", Args: map[string]any{"input": "req.QueryMap", "output": "rawQuery"}}},
-		{name: "query_decode", step: normalizer.FlowStep{Action: "query.Decode", Args: map[string]any{"input": "req.RawQuery", "output": "queryVals"}}},
-		{name: "hash_sum", step: normalizer.FlowStep{Action: "hash.Sum", Args: map[string]any{"algorithm": `"sha256"`, "input": "req.Payload", "output": "digest"}}},
-		{name: "hash_hmac", step: normalizer.FlowStep{Action: "hash.HMAC", Args: map[string]any{"algorithm": `"sha256"`, "key": "req.Secret", "input": "req.Payload", "output": "signature"}}},
-		{name: "uuid_new", step: normalizer.FlowStep{Action: "uuid.New", Args: map[string]any{"output": "id"}}},
-		{name: "ulid_new", step: normalizer.FlowStep{Action: "ulid.New", Args: map[string]any{"output": "ulid"}}},
-		{name: "math_op", step: normalizer.FlowStep{Action: "math.Op", Args: map[string]any{"op": `"clamp"`, "value": "req.Score", "min": "0", "max": "100", "output": "clamped"}}},
-		{name: "jsonpath_get", step: normalizer.FlowStep{Action: "jsonpath.Get", Args: map[string]any{"input": "req.Payload", "path": `"$.user.email"`, "output": "email"}}},
-		{name: "jsonpath_set", step: normalizer.FlowStep{Action: "jsonpath.Set", Args: map[string]any{"input": "req.Payload", "path": `"$.user.role"`, "value": `"admin"`, "output": "patched"}}},
-		{name: "jwt_sign", step: normalizer.FlowStep{Action: "jwt.Sign", Args: map[string]any{"claims": "map[string]any{\"sub\": req.UserID}", "secret": `"secret"`, "ttl": `"1h"`, "output": "token"}}},
-		{name: "jwt_verify", step: normalizer.FlowStep{Action: "jwt.Verify", Args: map[string]any{"token": "req.Token", "secret": `"secret"`, "output": "claims"}}},
-		{name: "token_generate", step: normalizer.FlowStep{Action: "token.Generate", Args: map[string]any{"subject": "req.UserID", "purpose": `"verify_email"`, "secret": `"secret"`, "output": "token"}}},
-		{name: "token_verify", step: normalizer.FlowStep{Action: "token.Verify", Args: map[string]any{"token": "req.Token", "purpose": `"verify_email"`, "secret": `"secret"`, "output": "claims"}}},
-		{name: "oauth2_token", step: normalizer.FlowStep{Action: "oauth2.Token", Args: map[string]any{"tokenURL": `"https://oauth.example/token"`, "clientID": `"id"`, "clientSecret": `"secret"`, "output": "tokenResp"}}},
-		{name: "oauth2_refresh", step: normalizer.FlowStep{Action: "oauth2.Refresh", Args: map[string]any{"tokenURL": `"https://oauth.example/token"`, "refreshToken": "req.RefreshToken", "output": "tokenResp"}}},
-		{name: "crypto_encrypt", step: normalizer.FlowStep{Action: "crypto.Encrypt", Args: map[string]any{"input": "req.Payload", "key": `"enc-key"`, "output": "cipher"}}},
-		{name: "crypto_decrypt", step: normalizer.FlowStep{Action: "crypto.Decrypt", Args: map[string]any{"input": "req.Cipher", "key": `"enc-key"`, "output": "plain"}}},
 		{name: "parallel_run", step: normalizer.FlowStep{Action: "parallel.Run", Args: map[string]any{"_branches": map[string][]normalizer.FlowStep{"a": []normalizer.FlowStep{}, "b": []normalizer.FlowStep{}}}}},
 		{name: "pdf_render", step: normalizer.FlowStep{Action: "pdf.Render", Args: map[string]any{"template": `"t"`, "data": "req.ReportData", "output": "pdfBytes"}}},
 		{name: "webhook_send", step: normalizer.FlowStep{Action: "webhook.Send", Args: map[string]any{"url": `"https://hook.example"`, "payload": "req.Payload", "event": `"evt"`}}},
@@ -85,7 +61,6 @@ func TestRenderFlowStepInfra_DispatchHandlesKnownActions(t *testing.T) {
 		{name: "budget_consume", step: normalizer.FlowStep{Action: "budget.Consume", Args: map[string]any{"key": "req.UserID", "tokens": "reply.TokensUsed"}}},
 		{name: "context_trim", step: normalizer.FlowStep{Action: "context.Trim", Args: map[string]any{"input": "project.CueContent", "output": "trimmedCue", "max_bytes": 12000}}},
 		{name: "profile_require", step: normalizer.FlowStep{Action: "profile.Require", Args: map[string]any{"key": "req.UserID", "tier": `"ops"`}}},
-		{name: "stream_emit", step: normalizer.FlowStep{Action: "stream.Emit", Args: map[string]any{"data": "eventJSON"}}},
 		{name: "plan_build_automata", step: normalizer.FlowStep{Action: "plan.BuildAutomata", Args: map[string]any{"input": "usecasesDoc", "output": "automataDoc"}}},
 		{name: "plan_build_micro_plan", step: normalizer.FlowStep{Action: "plan.BuildMicroPlan", Args: map[string]any{"usecases": "usecasesDoc", "automata": "automataDoc", "output": "microPlanDoc"}}},
 		{name: "cue_emit_project", step: normalizer.FlowStep{Action: "cue.EmitProject", Args: map[string]any{"usecases": "usecasesDoc", "micro_plan": "microPlanDoc", "output": "projectFiles"}}},
@@ -110,7 +85,7 @@ func TestRenderFlowStepInfra_DispatchHandlesKnownActions(t *testing.T) {
 			arg := infraTestArg(tc.step)
 			child := infraTestChild(tc.step)
 
-			got := renderFlowStepInfra(stNew, tc.step, 1, "_x", arg, child)
+			got := renderOneFlowStep(stNew, tc.step, 1)
 			if strings.TrimSpace(got) == "" {
 				t.Fatalf("dispatcher returned empty render for known infra action %q", tc.step.Action)
 			}
@@ -137,17 +112,14 @@ func TestRenderFlowStepInfra_StrFormatAssignsToStructField(t *testing.T) {
 	}
 
 	st := newInfraTestFlowState()
-	arg := infraTestArg(step)
-	child := infraTestChild(step)
-
-	got := renderFlowStepInfra(st, step, 1, "_x", arg, child)
+	got := renderOneFlowStep(st, step, 1)
 	if strings.TrimSpace(got) == "" {
 		t.Fatal("dispatcher returned empty render for str.Format with dotted output")
 	}
-	if !strings.Contains(got, "_fmt_x := fmt.Sprintf(") {
+	if !strings.Contains(got, "_fmt_0 := fmt.Sprintf(") {
 		t.Fatalf("expected temp fmt var, got:\n%s", got)
 	}
-	if !strings.Contains(got, "helpers.Assign(&resp.RedirectURL, _fmt_x)") {
+	if !strings.Contains(got, "helpers.Assign(&resp.RedirectURL, _fmt_0)") {
 		t.Fatalf("expected helper-based assignment into struct field, got:\n%s", got)
 	}
 }

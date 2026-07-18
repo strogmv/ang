@@ -4,40 +4,24 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
-// renderFlowStepInfraOpenAI handles openai.Chat action.
-func renderFlowStepInfraOpenAI(st *flowRenderState, step normalizer.FlowStep, indent int, sfx string, arg func(string) string, child func(string) []normalizer.FlowStep) (string, bool) {
+// renderTypedStepOpenAI handles OpenAI actions directly from TypedStep.
+func renderTypedStepOpenAI(st *flowRenderState, step flowir.TypedStep, indent int, sfx string) (string, bool) {
 	pad := strings.Repeat("\t", indent)
 
-	switch step.Action {
+	switch step.Name {
 	case "openai.Chat":
-		system := arg("system")
-		systemContext := arg("system_context")
-		userMessage := arg("user_message")
-		output := arg("output")
-		outputUsage := arg("output_usage")
-		outputToolCalls := arg("output_tool_calls")
-		outputJSON := arg("output_json")
-		history := arg("history")
-		model := arg("model")
-		if model == "" {
-			model = `"gpt-4o-mini"`
+		typed, decodeErr := typedActionAs[flowir.OpenAIChat](step)
+		if decodeErr != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Name, decodeErr.Error()), true
 		}
-		maxTokens := flowIntArg(step.Args, "max_tokens", 4096)
-		maxRounds := flowIntArg(step.Args, "max_rounds", 6)
-		responseJSONSchema := arg("response_json_schema")
-		responseJSONName := arg("response_json_name")
-		if responseJSONName == "" {
-			responseJSONName = `"structured_response"`
-		}
-		responseJSONStrict := true
-		if raw, ok := step.Args["response_json_strict"].(bool); ok {
-			responseJSONStrict = raw
-		}
-		toolChoice := arg("tool_choice")
-		toolNames := parseOpenAIToolNames(step)
+		system, systemContext, userMessage, history, model := normalizeFlowExpr(typed.System.Source), normalizeFlowExpr(typed.SystemContext.Source), normalizeFlowExpr(typed.UserMessage.Source), normalizeFlowExpr(typed.History.Source), normalizeFlowExpr(typed.Model.Source)
+		output, outputUsage, outputToolCalls, outputJSON := typed.Output, typed.OutputUsage, typed.OutputToolCalls, typed.OutputJSON
+		maxTokens, maxRounds := typed.MaxTokens, typed.MaxRounds
+		responseJSONSchema, responseJSONName, responseJSONStrict := normalizeFlowExpr(typed.ResponseJSONSchema.Source), normalizeFlowExpr(typed.ResponseJSONName.Source), typed.ResponseJSONStrict
+		toolChoice, toolNames := normalizeFlowExpr(typed.ToolChoice.Source), typed.Tools
 		toolSpecs, toolErr := resolveOpenAITools(st, st.serviceName, toolNames)
 		if toolErr != nil {
 			var b strings.Builder
@@ -389,17 +373,11 @@ func renderFlowStepInfraOpenAI(st *flowRenderState, step normalizer.FlowStep, in
 		return b.String(), true
 
 	case "openai.Embed":
-		input := arg("input")
-		output := arg("output")
-		outputUsage := arg("output_usage")
-		model := arg("model")
-		if model == "" {
-			model = `"text-embedding-3-small"`
+		typed, decodeErr := typedActionAs[flowir.OpenAIEmbed](step)
+		if decodeErr != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Name, decodeErr.Error()), true
 		}
-		if input == "" || output == "" {
-			return renderInvalidFlowStepConfig(st, pad, "openai.Embed", "openai.Embed requires input and output"), true
-		}
-		dimensions := flowIntArg(step.Args, "dimensions", 0)
+		input, output, outputUsage, model, dimensions := normalizeFlowExpr(typed.Input.Source), typed.Output, typed.OutputUsage, normalizeFlowExpr(typed.Model.Source), typed.Dimensions
 		bodyVar := "_oaiEmbedReqBody" + sfx
 		ctxVar := "_oaiEmbedCtx" + sfx
 		cancelVar := "_oaiEmbedCancel" + sfx
@@ -474,6 +452,10 @@ func renderFlowStepInfraOpenAI(st *flowRenderState, step normalizer.FlowStep, in
 		return b.String(), true
 
 	case "openai.Stream":
+		typed, decodeErr := typedActionAs[flowir.OpenAIStream](step)
+		if decodeErr != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Name, decodeErr.Error()), true
+		}
 		if !st.isStreaming {
 			var b strings.Builder
 			b.WriteString(fmt.Sprintf("%s// openai.Stream requires streaming method signature\n", pad))
@@ -481,16 +463,8 @@ func renderFlowStepInfraOpenAI(st *flowRenderState, step normalizer.FlowStep, in
 			return b.String(), true
 		}
 
-		system := arg("system")
-		systemContext := arg("system_context")
-		userMessage := arg("user_message")
-		output := arg("output")
-		history := arg("history")
-		model := arg("model")
-		if model == "" {
-			model = `"gpt-4o"`
-		}
-		maxTokens := flowIntArg(step.Args, "max_tokens", 4096)
+		system, systemContext, userMessage, history, model := normalizeFlowExpr(typed.System.Source), normalizeFlowExpr(typed.SystemContext.Source), normalizeFlowExpr(typed.UserMessage.Source), normalizeFlowExpr(typed.History.Source), normalizeFlowExpr(typed.Model.Source)
+		output, maxTokens := typed.Output, typed.MaxTokens
 		var systemExpr string
 		if system != "" && systemContext != "" {
 			systemExpr = fmt.Sprintf(`%s + "\n\n== Current project CUE content ==\n" + %s`, system, systemContext)

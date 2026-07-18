@@ -17,8 +17,14 @@ type BuildOptions struct {
 
 // Build loads CUE intent, resolves field mappings, and emits Go sources.
 func Build(opts BuildOptions) error {
+	_, err := BuildWithResult(opts)
+	return err
+}
+
+// BuildWithResult runs generation and returns the generator-owned output manifest.
+func BuildWithResult(opts BuildOptions) (BuildResult, error) {
 	if opts.ProjectPath == "" {
-		return fmt.Errorf("project path is required")
+		return BuildResult{}, fmt.Errorf("project path is required")
 	}
 	cueRoot := opts.CueRoot
 	pc := LoadProjectConfig(opts.ProjectPath)
@@ -29,36 +35,37 @@ func Build(opts BuildOptions) error {
 	if schemaDir == "" && pc.SchemaDir != "" {
 		resolved, err := ResolvePath(opts.ProjectPath, pc.SchemaDir)
 		if err != nil {
-			return err
+			return BuildResult{}, err
 		}
 		schemaDir = resolved
 	} else if schemaDir != "" {
 		resolved, err := ResolvePath(opts.ProjectPath, schemaDir)
 		if err != nil {
-			return err
+			return BuildResult{}, err
 		}
 		schemaDir = resolved
 	}
 	spec, err := Load(opts.ProjectPath, cueRoot, schemaDir)
 	if err != nil {
-		return err
+		return BuildResult{}, err
 	}
 	data, err := BuildTemplateData(spec)
 	if err != nil {
-		return fmt.Errorf("build template data: %w", err)
+		return BuildResult{}, fmt.Errorf("build template data: %w", err)
 	}
 	tmplDir, err := ResolveTemplatesDir(opts.ProjectPath, opts.TemplatesDir)
 	if err != nil {
-		return err
+		return BuildResult{}, err
 	}
 	outDir := opts.OutputDir
 	if outDir == "" {
 		outDir = opts.ProjectPath
 	}
-	if err := Emit(tmplDir, outDir, data); err != nil {
-		return fmt.Errorf("emit: %w", err)
+	files, err := EmitWithResult(tmplDir, outDir, data)
+	if err != nil {
+		return BuildResult{}, fmt.Errorf("emit: %w", err)
 	}
-	return nil
+	return BuildResult{OutputDir: outDir, Files: files}, nil
 }
 
 // BuildFromProject is a convenience wrapper using paths relative to project root.
