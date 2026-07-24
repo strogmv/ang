@@ -25,6 +25,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	{{- if .HasTime }}
 	"time"
 	{{- end }}
@@ -76,6 +77,50 @@ func (r *{{ ExportName .Name }}) Save(ctx context.Context, entity *domain.{{ Exp
 		ON CONFLICT (id) DO UPDATE
 		SET {{ .UpdateSet }}
 	`, {{ .InsertArgs }})
+	return err
+}
+
+// ============================================================================
+// METHOD: SaveBatch
+// PURPOSE: Persist multiple entities with one PostgreSQL upsert statement
+// PATTERN: Preserves the transaction in ctx; callers choose a safe batch size
+// ============================================================================
+func (r *{{ ExportName .Name }}) SaveBatch(ctx context.Context, entities []*domain.{{ ExportName .Entity }}) error {
+	if r.DB == nil {
+		return fmt.Errorf("db not configured")
+	}
+	if len(entities) == 0 {
+		return nil
+	}
+	const columnsPerEntity = {{ .BatchColumnCount }}
+	const maxPostgresParameters = 65535
+	if len(entities) > maxPostgresParameters/columnsPerEntity {
+		return fmt.Errorf("batch is too large: max %d {{ .Entity }} entities", maxPostgresParameters/columnsPerEntity)
+	}
+	exec := getExecutor(ctx, r.DB)
+	values := make([]string, 0, len(entities))
+	args := make([]any, 0, len(entities)*columnsPerEntity)
+	for _, entity := range entities {
+		if entity == nil {
+			return fmt.Errorf("entity is required")
+		}
+		if err := entity.Validate(); err != nil {
+			return fmt.Errorf("invalid entity: %w", err)
+		}
+		firstPlaceholder := len(args) + 1
+		placeholders := make([]string, columnsPerEntity)
+		for index := range placeholders {
+			placeholders[index] = fmt.Sprintf("$%d", firstPlaceholder+index)
+		}
+		values = append(values, "("+strings.Join(placeholders, ", ")+")")
+		args = append(args, {{ .InsertArgs }})
+	}
+	query := `
+		INSERT INTO {{ .Table }} ({{ .Columns }})
+		VALUES ` + strings.Join(values, ", ") + `
+		ON CONFLICT (id) DO UPDATE
+		SET {{ .UpdateSet }}`
+	_, err := exec.Exec(ctx, query, args...)
 	return err
 }
 

@@ -35,6 +35,22 @@ func (r *MutingNotificationRepo) Save(ctx context.Context, entity *domain.Notifi
 	return r.inner.Save(ctx, entity)
 }
 
+// SaveBatch applies mute checks to every notification, then delegates the
+// remaining notifications as one repository batch.
+func (r *MutingNotificationRepo) SaveBatch(ctx context.Context, entities []*domain.Notification) error {
+	active := make([]*domain.Notification, 0, len(entities))
+	for _, entity := range entities {
+		if entity != nil && entity.UserID != "" {
+			user, err := r.userRepo.FindByID(ctx, entity.UserID)
+			if err == nil && IsNotificationMuted(user, entity.Type) {
+				continue
+			}
+		}
+		active = append(active, entity)
+	}
+	return r.inner.SaveBatch(ctx, active)
+}
+
 // IsNotificationMuted checks whether notification type is muted for a user.
 func IsNotificationMuted(user *domain.User, notificationType string) bool {
 	if user == nil {

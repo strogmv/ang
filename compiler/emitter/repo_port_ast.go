@@ -25,10 +25,14 @@ func (e *Emitter) renderRepositoryPortAST(repo normalizer.Repository, hasID bool
 
 	hasListAll := false
 	hasTime := false
-	methods := make([]*ast.Field, 0, 4+len(repo.Finders))
+	methods := make([]*ast.Field, 0, 5+len(repo.Finders))
 
 	methods = append(methods, buildMethodField("Save",
 		[]methodParam{{name: "ctx", typ: "context.Context"}, {name: "entity", typ: "*domain." + entityName}},
+		[]string{"error"},
+	))
+	methods = append(methods, buildMethodField("SaveBatch",
+		[]methodParam{{name: "ctx", typ: "context.Context"}, {name: "entities", typ: "[]*domain." + entityName}},
 		[]string{"error"},
 	))
 	methods = append(methods, buildMethodField("FindByID",

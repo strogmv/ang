@@ -44,6 +44,9 @@ func TestRenderRepositoryPortAST_GeneratesValidGo(t *testing.T) {
 	if !strings.Contains(string(src), "type UserRepository interface") {
 		t.Fatalf("expected UserRepository interface, got:\n%s", string(src))
 	}
+	if !strings.Contains(string(src), "SaveBatch(ctx context.Context, entities []*domain.User) error") {
+		t.Fatalf("expected SaveBatch repository contract, got:\n%s", string(src))
+	}
 	if !strings.Contains(string(src), "\"time\"") {
 		t.Fatalf("expected time import for time-based finder, got:\n%s", string(src))
 	}

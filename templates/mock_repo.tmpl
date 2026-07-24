@@ -8,6 +8,7 @@ import (
 type {{ ExportName .Entity }}RepositoryMock struct {
 	FindByIDFunc func(ctx context.Context, id string) (*domain.{{ ExportName .Entity }}, error)
 	SaveFunc     func(ctx context.Context, item *domain.{{ ExportName .Entity }}) error
+	SaveBatchFunc func(ctx context.Context, items []*domain.{{ ExportName .Entity }}) error
 	DeleteFunc   func(ctx context.Context, id string) error
 	InsertFunc   func(ctx context.Context, item *domain.{{ ExportName .Entity }}) error
 	UpdateFunc   func(ctx context.Context, item *domain.{{ ExportName .Entity }}) error
@@ -24,6 +25,11 @@ func (m *{{ ExportName .Entity }}RepositoryMock) FindByID(ctx context.Context, i
 
 func (m *{{ ExportName .Entity }}RepositoryMock) Save(ctx context.Context, item *domain.{{ ExportName .Entity }}) error {
 	if m.SaveFunc != nil { return m.SaveFunc(ctx, item) }
+	return nil
+}
+
+func (m *{{ ExportName .Entity }}RepositoryMock) SaveBatch(ctx context.Context, items []*domain.{{ ExportName .Entity }}) error {
+	if m.SaveBatchFunc != nil { return m.SaveBatchFunc(ctx, items) }
 	return nil
 }
 

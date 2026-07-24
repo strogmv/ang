@@ -37,6 +37,19 @@ func (r *{{ ExportName .Entity }}RepositoryStub) Save(ctx context.Context, entit
 	return nil
 }
 
+func (r *{{ ExportName .Entity }}RepositoryStub) SaveBatch(ctx context.Context, entities []*domain.{{ ExportName .Entity }}) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, entity := range entities {
+		if entity == nil {
+			return fmt.Errorf("entity is required")
+		}
+		id := fmt.Sprintf("%p", entity)
+		r.data[id] = entity
+	}
+	return nil
+}
+
 func (r *{{ ExportName .Entity }}RepositoryStub) FindByID(ctx context.Context, id string) (*domain.{{ ExportName .Entity }}, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

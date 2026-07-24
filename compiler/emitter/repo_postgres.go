@@ -429,6 +429,7 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 			Placeholders       string
 			UpdateSet          string
 			InsertArgs         string
+			BatchColumnCount   int
 			SelectColumns      string
 			Fields             []normalizer.Field
 			Finders            []finderOut
@@ -447,6 +448,7 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 			Placeholders:       strings.Join(placeholders, ", "),
 			UpdateSet:          strings.Join(updateSets, ", "),
 			InsertArgs:         strings.Join(insertArgs, ", "),
+			BatchColumnCount:   len(dbFields),
 			SelectColumns:      strings.Join(allSelectCols, ", "),
 			Fields:             ent.Fields,
 			Finders:            finders,
@@ -469,6 +471,7 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 				"Placeholders":       data.Placeholders,
 				"UpdateSet":          data.UpdateSet,
 				"InsertArgs":         data.InsertArgs,
+				"BatchColumnCount":   data.BatchColumnCount,
 				"SelectColumns":      data.SelectColumns,
 				"Fields":             data.Fields,
 				"Finders":            data.Finders,

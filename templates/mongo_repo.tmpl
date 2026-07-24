@@ -67,6 +67,30 @@ func (r *{{ ExportName .Name }}) Save(ctx context.Context, entity *domain.{{ Exp
 	return err
 }
 
+func (r *{{ ExportName .Name }}) SaveBatch(ctx context.Context, entities []*domain.{{ ExportName .Entity }}) error {
+	if r.collection == nil {
+		return fmt.Errorf("mongo not configured")
+	}
+	if len(entities) == 0 {
+		return nil
+	}
+	models := make([]mongo.WriteModel, 0, len(entities))
+	for _, entity := range entities {
+		if entity == nil {
+			return fmt.Errorf("entity is required")
+		}
+		if entity.ID == "" {
+			return fmt.Errorf("entity id is required")
+		}
+		models = append(models, mongo.NewReplaceOneModel().
+			SetFilter(bson.M{"_id": entity.ID}).
+			SetReplacement({{ JSONName .Entity }}ToDoc(entity)).
+			SetUpsert(true))
+	}
+	_, err := r.collection.BulkWrite(ctx, models, options.BulkWrite().SetOrdered(true))
+	return err
+}
+
 func (r *{{ ExportName .Name }}) FindByID(ctx context.Context, id string) (*domain.{{ ExportName .Entity }}, error) {
 	if r.collection == nil {
 		return nil, fmt.Errorf("mongo not configured")
