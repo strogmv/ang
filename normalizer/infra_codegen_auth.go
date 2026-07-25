@@ -70,6 +70,7 @@ func (n *Normalizer) ExtractAuth(val cue.Value) (*AuthDef, error) {
 
 	mode, _ := jwtVal.LookupPath(cue.ParsePath("mode")).String()
 	mode = strings.TrimSpace(mode)
+	bearerFallback, _ := jwtVal.LookupPath(cue.ParsePath("bearer_fallback")).Bool()
 	alg, _ := jwtVal.LookupPath(cue.ParsePath("alg")).String()
 	alg = strings.TrimSpace(alg)
 	issuer, _ := jwtVal.LookupPath(cue.ParsePath("issuer")).String()
@@ -89,6 +90,12 @@ func (n *Normalizer) ExtractAuth(val cue.Value) (*AuthDef, error) {
 	loginOp, _ := jwtVal.LookupPath(cue.ParsePath("ops.login.op")).String()
 	loginAccess, _ := jwtVal.LookupPath(cue.ParsePath("ops.login.access_field")).String()
 	loginRefresh, _ := jwtVal.LookupPath(cue.ParsePath("ops.login.refresh_field")).String()
+	registerOp, _ := jwtVal.LookupPath(cue.ParsePath("ops.register.op")).String()
+	registerAccess, _ := jwtVal.LookupPath(cue.ParsePath("ops.register.access_field")).String()
+	registerRefresh, _ := jwtVal.LookupPath(cue.ParsePath("ops.register.refresh_field")).String()
+	demoSessionOp, _ := jwtVal.LookupPath(cue.ParsePath("ops.demo_session.op")).String()
+	demoSessionAccess, _ := jwtVal.LookupPath(cue.ParsePath("ops.demo_session.access_field")).String()
+	demoSessionRefresh, _ := jwtVal.LookupPath(cue.ParsePath("ops.demo_session.refresh_field")).String()
 	refreshOp, _ := jwtVal.LookupPath(cue.ParsePath("ops.refresh.op")).String()
 	refreshTokenField, _ := jwtVal.LookupPath(cue.ParsePath("ops.refresh.token_field")).String()
 	refreshAccess, _ := jwtVal.LookupPath(cue.ParsePath("ops.refresh.access_field")).String()
@@ -97,28 +104,35 @@ func (n *Normalizer) ExtractAuth(val cue.Value) (*AuthDef, error) {
 	logoutTokenField, _ := jwtVal.LookupPath(cue.ParsePath("ops.logout.token_field")).String()
 
 	return &AuthDef{
-		Mode:                mode,
-		Alg:                 alg,
-		Issuer:              issuer,
-		Audience:            audience,
-		UserIDClaim:         getClaim("userId", "sub"),
-		CompanyIDClaim:      getClaim("companyId", "cid"),
-		RolesClaim:          getClaim("roles", "roles"),
-		PermissionsClaim:    getClaim("perms", "perms"),
-		AccessTTL:           strings.TrimSpace(accessTTL),
-		RefreshTTL:          strings.TrimSpace(refreshTTL),
-		Rotation:            rotation,
-		RefreshStore:        strings.TrimSpace(refreshStore),
-		Service:             service,
-		LoginOp:             strings.TrimSpace(loginOp),
-		LoginAccessField:    strings.TrimSpace(loginAccess),
-		LoginRefreshField:   strings.TrimSpace(loginRefresh),
-		RefreshOp:           strings.TrimSpace(refreshOp),
-		RefreshTokenField:   strings.TrimSpace(refreshTokenField),
-		RefreshAccessField:  strings.TrimSpace(refreshAccess),
-		RefreshRefreshField: strings.TrimSpace(refreshRefresh),
-		LogoutOp:            strings.TrimSpace(logoutOp),
-		LogoutTokenField:    strings.TrimSpace(logoutTokenField),
+		Mode:                    mode,
+		BearerFallback:          bearerFallback,
+		Alg:                     alg,
+		Issuer:                  issuer,
+		Audience:                audience,
+		UserIDClaim:             getClaim("userId", "sub"),
+		CompanyIDClaim:          getClaim("companyId", "cid"),
+		RolesClaim:              getClaim("roles", "roles"),
+		PermissionsClaim:        getClaim("perms", "perms"),
+		AccessTTL:               strings.TrimSpace(accessTTL),
+		RefreshTTL:              strings.TrimSpace(refreshTTL),
+		Rotation:                rotation,
+		RefreshStore:            strings.TrimSpace(refreshStore),
+		Service:                 service,
+		LoginOp:                 strings.TrimSpace(loginOp),
+		LoginAccessField:        strings.TrimSpace(loginAccess),
+		LoginRefreshField:       strings.TrimSpace(loginRefresh),
+		RegisterOp:              strings.TrimSpace(registerOp),
+		RegisterAccessField:     strings.TrimSpace(registerAccess),
+		RegisterRefreshField:    strings.TrimSpace(registerRefresh),
+		DemoSessionOp:           strings.TrimSpace(demoSessionOp),
+		DemoSessionAccessField:  strings.TrimSpace(demoSessionAccess),
+		DemoSessionRefreshField: strings.TrimSpace(demoSessionRefresh),
+		RefreshOp:               strings.TrimSpace(refreshOp),
+		RefreshTokenField:       strings.TrimSpace(refreshTokenField),
+		RefreshAccessField:      strings.TrimSpace(refreshAccess),
+		RefreshRefreshField:     strings.TrimSpace(refreshRefresh),
+		LogoutOp:                strings.TrimSpace(logoutOp),
+		LogoutTokenField:        strings.TrimSpace(logoutTokenField),
 	}, nil
 }
 

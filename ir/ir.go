@@ -89,18 +89,18 @@ type NotificationPolicyRule struct {
 
 // Template is a channel-agnostic template catalog item.
 type Template struct {
-	ID           string   `json:"id"`
-	Kind         string   `json:"kind,omitempty"`
-	Channel      string   `json:"channel,omitempty"`
-	Locale       string   `json:"locale,omitempty"`
-	Version      string   `json:"version,omitempty"`
-	Engine       string   `json:"engine,omitempty"`
-	Subject      string   `json:"subject,omitempty"`
-	Text         string   `json:"text,omitempty"`
-	HTML         string   `json:"html,omitempty"`
-	Body         string   `json:"body,omitempty"`
-	RequiredVars []string `json:"required_vars,omitempty"`
-	OptionalVars []string `json:"optional_vars,omitempty"`
+	ID           string      `json:"id"`
+	Kind         string      `json:"kind,omitempty"`
+	Channel      string      `json:"channel,omitempty"`
+	Locale       string      `json:"locale,omitempty"`
+	Version      string      `json:"version,omitempty"`
+	Engine       string      `json:"engine,omitempty"`
+	Subject      string      `json:"subject,omitempty"`
+	Text         string      `json:"text,omitempty"`
+	HTML         string      `json:"html,omitempty"`
+	Body         string      `json:"body,omitempty"`
+	RequiredVars []string    `json:"required_vars,omitempty"`
+	OptionalVars []string    `json:"optional_vars,omitempty"`
 	Provenance   *Provenance `json:"provenance,omitempty"`
 }
 
@@ -131,12 +131,12 @@ type Project struct {
 
 // Target describes the generation target.
 type Target struct {
-	Lang      string `json:"lang"`      // "go", "rust", "typescript"
-	Framework string `json:"framework"` // "chi", "echo", "fiber", "axum"
-	DB        string `json:"db"`        // "postgres", "mysql", "mongodb"
-	Cache     string `json:"cache"`     // "redis", "memcached"
-	Queue     string `json:"queue"`     // "nats", "kafka", "rabbitmq"
-	Storage   string `json:"storage"`   // "s3", "gcs", "minio"
+	Lang       string      `json:"lang"`      // "go", "rust", "typescript"
+	Framework  string      `json:"framework"` // "chi", "echo", "fiber", "axum"
+	DB         string      `json:"db"`        // "postgres", "mysql", "mongodb"
+	Cache      string      `json:"cache"`     // "redis", "memcached"
+	Queue      string      `json:"queue"`     // "nats", "kafka", "rabbitmq"
+	Storage    string      `json:"storage"`   // "s3", "gcs", "minio"
 	Provenance *Provenance `json:"provenance,omitempty"`
 }
 
@@ -467,13 +467,13 @@ type ImplStep struct {
 
 // Event represents a domain event.
 type Event struct {
-	Name      string         `json:"name"`
-	Owner     string         `json:"owner"`
-	Consumers []string       `json:"consumers"`
-	Fields    []Field        `json:"fields"`
-	Metadata  map[string]any `json:"metadata"`
-	Source    string         `json:"source"`
-	Provenance *Provenance   `json:"provenance,omitempty"`
+	Name       string         `json:"name"`
+	Owner      string         `json:"owner"`
+	Consumers  []string       `json:"consumers"`
+	Fields     []Field        `json:"fields"`
+	Metadata   map[string]any `json:"metadata"`
+	Source     string         `json:"source"`
+	Provenance *Provenance    `json:"provenance,omitempty"`
 }
 
 // Error represents a business error.
@@ -569,10 +569,10 @@ type SLO struct {
 
 // Repository describes a data access interface.
 type Repository struct {
-	Name    string   `json:"name"`
-	Entity  string   `json:"entity"`
-	Finders []Finder `json:"finders"`
-	Source  string   `json:"source"`
+	Name       string      `json:"name"`
+	Entity     string      `json:"entity"`
+	Finders    []Finder    `json:"finders"`
+	Source     string      `json:"source"`
 	Provenance *Provenance `json:"provenance,omitempty"`
 }
 
@@ -609,16 +609,18 @@ type Config struct {
 
 // Auth describes authentication settings.
 type Auth struct {
-	Algorithm    string     `json:"algorithm"`
-	Issuer       string     `json:"issuer"`
-	Audience     string     `json:"audience"`
-	AccessTTL    string     `json:"access_ttl"`
-	RefreshTTL   string     `json:"refresh_ttl"`
-	Rotation     bool       `json:"rotation"`
-	RefreshStore string     `json:"refresh_store"` // "redis", "postgres", "memory"
-	Claims       AuthClaims `json:"claims"`
-	Operations   AuthOps    `json:"operations"`
-	Provenance   *Provenance `json:"provenance,omitempty"`
+	Mode           string      `json:"mode"`
+	BearerFallback bool        `json:"bearer_fallback"`
+	Algorithm      string      `json:"algorithm"`
+	Issuer         string      `json:"issuer"`
+	Audience       string      `json:"audience"`
+	AccessTTL      string      `json:"access_ttl"`
+	RefreshTTL     string      `json:"refresh_ttl"`
+	Rotation       bool        `json:"rotation"`
+	RefreshStore   string      `json:"refresh_store"` // "redis", "postgres", "memory"
+	Claims         AuthClaims  `json:"claims"`
+	Operations     AuthOps     `json:"operations"`
+	Provenance     *Provenance `json:"provenance,omitempty"`
 }
 
 // AuthClaims describes JWT claim mappings.
@@ -631,16 +633,22 @@ type AuthClaims struct {
 
 // AuthOps describes auth service operations.
 type AuthOps struct {
-	Service             string `json:"service"`
-	LoginOp             string `json:"login_op"`
-	LoginAccessField    string `json:"login_access_field"`
-	LoginRefreshField   string `json:"login_refresh_field"`
-	RefreshOp           string `json:"refresh_op"`
-	RefreshTokenField   string `json:"refresh_token_field"`
-	RefreshAccessField  string `json:"refresh_access_field"`
-	RefreshRefreshField string `json:"refresh_refresh_field"`
-	LogoutOp            string `json:"logout_op"`
-	LogoutTokenField    string `json:"logout_token_field"`
+	Service                 string `json:"service"`
+	LoginOp                 string `json:"login_op"`
+	LoginAccessField        string `json:"login_access_field"`
+	LoginRefreshField       string `json:"login_refresh_field"`
+	RegisterOp              string `json:"register_op"`
+	RegisterAccessField     string `json:"register_access_field"`
+	RegisterRefreshField    string `json:"register_refresh_field"`
+	DemoSessionOp           string `json:"demo_session_op"`
+	DemoSessionAccessField  string `json:"demo_session_access_field"`
+	DemoSessionRefreshField string `json:"demo_session_refresh_field"`
+	RefreshOp               string `json:"refresh_op"`
+	RefreshTokenField       string `json:"refresh_token_field"`
+	RefreshAccessField      string `json:"refresh_access_field"`
+	RefreshRefreshField     string `json:"refresh_refresh_field"`
+	LogoutOp                string `json:"logout_op"`
+	LogoutTokenField        string `json:"logout_token_field"`
 }
 
 // RBAC describes role-based access control.

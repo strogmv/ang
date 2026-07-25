@@ -4,7 +4,7 @@ package normalizer
 // Set via @ai_act(risk="limited", use_case="recommendation", oversight="human_review") on an operation.
 type AIActPolicy struct {
 	// Risk: "prohibited" | "high" | "limited" | "minimal"
-	Risk string
+	Risk    string
 	UseCase string
 	// Oversight: "none" | "human_review" | "human_override"
 	Oversight string
@@ -412,28 +412,35 @@ type ConfigDef struct {
 
 // AuthDef описывает настройки JWT.
 type AuthDef struct {
-	Mode                string
-	Alg                 string
-	Issuer              string
-	Audience            string
-	UserIDClaim         string
-	CompanyIDClaim      string
-	RolesClaim          string
-	PermissionsClaim    string
-	AccessTTL           string
-	RefreshTTL          string
-	Rotation            bool
-	RefreshStore        string
-	Service             string
-	LoginOp             string
-	LoginAccessField    string
-	LoginRefreshField   string
-	RefreshOp           string
-	RefreshTokenField   string
-	RefreshAccessField  string
-	RefreshRefreshField string
-	LogoutOp            string
-	LogoutTokenField    string
+	Mode                    string
+	BearerFallback          bool
+	Alg                     string
+	Issuer                  string
+	Audience                string
+	UserIDClaim             string
+	CompanyIDClaim          string
+	RolesClaim              string
+	PermissionsClaim        string
+	AccessTTL               string
+	RefreshTTL              string
+	Rotation                bool
+	RefreshStore            string
+	Service                 string
+	LoginOp                 string
+	LoginAccessField        string
+	LoginRefreshField       string
+	RegisterOp              string
+	RegisterAccessField     string
+	RegisterRefreshField    string
+	DemoSessionOp           string
+	DemoSessionAccessField  string
+	DemoSessionRefreshField string
+	RefreshOp               string
+	RefreshTokenField       string
+	RefreshAccessField      string
+	RefreshRefreshField     string
+	LogoutOp                string
+	LogoutTokenField        string
 }
 
 // SessionDef describes anonymous cookie-session configuration.
