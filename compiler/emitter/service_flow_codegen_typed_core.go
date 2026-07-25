@@ -1,7 +1,12 @@
 package emitter
 
 import (
+	"bytes"
 	"fmt"
+	"go/ast"
+	"go/format"
+	"go/parser"
+	"go/token"
 	"strings"
 
 	"github.com/strogmv/ang/compiler/flowir"
@@ -176,7 +181,13 @@ func renderTypedStepCall(st *flowRenderState, step flowir.TypedStep, indent int)
 			args = append(args, expression.Source)
 		}
 		call := typed.Function.Source + "(" + strings.Join(args, ", ") + ")"
-		return renderTypedCallResult(st, step.Name, typed.Output, typed.IgnoreError, typed.IgnoreErrReason, call, pad), true
+		rendered := renderTypedCallResult(st, step.Name, typed.Output, typed.IgnoreError, typed.IgnoreErrReason, call, pad)
+		if typed.Output != "" {
+			if outputType := inlineLogicCallResultGoType(typed.Function.Source); outputType != "" {
+				st.types[typed.Output] = outputType
+			}
+		}
+		return rendered, true
 
 	case "service.Call":
 		typed, err := typedActionAs[flowir.ServiceCall](step)
@@ -199,6 +210,33 @@ func renderTypedStepCall(st *flowRenderState, step flowir.TypedStep, indent int)
 		return renderTypedCallResult(st, step.Name, output, typed.IgnoreError, typed.IgnoreErrReason, call, pad), true
 	}
 	return "", false
+}
+
+// inlineLogicCallResultGoType extracts the first result type from an inline
+// Go function used by logic.Call. The flow checker already parses the same
+// expression for signature validation; retaining the concrete Go spelling here
+// lets a transaction lift that result out of its callback scope safely.
+func inlineLogicCallResultGoType(source string) string {
+	expr, err := parser.ParseExpr(strings.TrimSpace(source))
+	if err != nil {
+		return ""
+	}
+	for {
+		paren, ok := expr.(*ast.ParenExpr)
+		if !ok {
+			break
+		}
+		expr = paren.X
+	}
+	fn, ok := expr.(*ast.FuncLit)
+	if !ok || fn.Type.Results == nil || len(fn.Type.Results.List) == 0 {
+		return ""
+	}
+	var b bytes.Buffer
+	if err := format.Node(&b, token.NewFileSet(), fn.Type.Results.List[0].Type); err != nil {
+		return ""
+	}
+	return b.String()
 }
 
 func renderTypedCallResult(st *flowRenderState, action, output string, ignoreErr bool, ignoreReason, call, pad string) string {

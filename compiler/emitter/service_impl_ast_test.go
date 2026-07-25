@@ -74,3 +74,25 @@ func TestRenderServiceImplASTSkeleton(t *testing.T) {
 		t.Fatalf("generated skeleton should be valid Go: %v\n%s", err, src)
 	}
 }
+
+func TestServiceImplNeedsTxForInlineLogicCallThatOwnsTransaction(t *testing.T) {
+	t.Parallel()
+
+	svc := normalizer.Service{
+		Name: "Orders",
+		Methods: []normalizer.Method{{
+			Name: "Cancel",
+			Flow: []normalizer.FlowStep{{
+				Action: "flow.Block",
+				Args: map[string]any{"_do": []normalizer.FlowStep{{
+					Action: "logic.Call",
+					Args:   map[string]any{"func": "(func() error { return s.txManager.WithTx(ctx, nil) })"},
+				}}},
+			}},
+		}},
+	}
+
+	if !serviceImplNeedsTx(svc) {
+		t.Fatal("expected raw logic.Call that uses s.txManager to inject TxManager")
+	}
+}

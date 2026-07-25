@@ -29,11 +29,17 @@ func renderTypedStepControlFlowBasic(st *flowRenderState, step flowir.TypedStep,
 		}
 		return renderTypedFlowFor(st, step, indent, normalizeFlowExpr(action.Each.Source), action.As), true
 
-	case "flow.Block", "tx.Block":
+	case "flow.Block":
 		if _, err := typedActionAs[flowir.FlowBlock](step); err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
 		return renderTypedFlowSteps(cloneFlowState(st), step.Children["_do"], indent), true
+
+	case "tx.Block":
+		if _, err := typedActionAs[flowir.FlowBlock](step); err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
+		}
+		return renderTypedTransactionBlock(st, step.Children["_do"], indent), true
 
 	case "flow.Switch":
 		action, err := typedActionAs[flowir.FlowSwitch](step)
@@ -50,6 +56,67 @@ func renderTypedStepControlFlowBasic(st *flowRenderState, step flowir.TypedStep,
 		return renderTypedFlowWhile(st, step, indent, normalizeFlowExpr(action.Condition.Source)), true
 	}
 	return "", false
+}
+
+func renderTypedTransactionBlock(st *flowRenderState, steps []flowir.TypedStep, indent int) string {
+	// First render into an isolated state. This discovers concrete output types
+	// declared by the transaction body without leaking its lexical declarations
+	// into the outer flow yet.
+	preview := cloneFlowState(st)
+	preview.returnErrOnly = true
+	_ = renderTypedFlowSteps(preview, steps, indent+1)
+
+	prelude := hoistTransactionLocals(st, preview, indent)
+	txState := cloneFlowState(st)
+	txState.returnErrOnly = true
+	body := renderTypedFlowSteps(txState, steps, indent+1)
+	return prelude + emitTransactionBlock(st, indent, body)
+}
+
+// hoistTransactionLocals declares values that a tx.Block creates in the outer
+// method scope. A transaction executes in a closure; without this lift, a
+// result used by a following flow step would be out of scope after commit.
+// Unknown types are intentionally left local: flow validation/codegen will
+// reject an invalid escape rather than silently weakening it to any.
+func hoistTransactionLocals(st, txState *flowRenderState, indent int) string {
+	names := make([]string, 0)
+	for name := range txState.declared {
+		if name == "" || st.declared[name] || txState.types[name] == "" {
+			continue
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	if len(names) == 0 {
+		return ""
+	}
+	pad := strings.Repeat("\t", indent)
+	var b strings.Builder
+	for _, name := range names {
+		b.WriteString(fmt.Sprintf("%svar %s %s\n", pad, name, txState.types[name]))
+		st.declared[name] = true
+		st.pointers[name] = txState.pointers[name]
+		st.types[name] = txState.types[name]
+	}
+	return b.String()
+}
+
+// emitTransactionBlock makes tx.Block an actual database transaction.
+// The callback shadows ctx with the transaction-bound context so every generated
+// repository call automatically uses the transaction executor.
+func emitTransactionBlock(st *flowRenderState, indent int, body string) string {
+	pad := strings.Repeat("\t", indent)
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("%sif s.txManager == nil {\n", pad))
+	b.WriteString(errReturn(st, pad+"\t", `fmt.Errorf("transaction manager is not configured")`))
+	b.WriteString(fmt.Sprintf("%s}\n", pad))
+	b.WriteString(fmt.Sprintf("%sif err := s.txManager.WithTx(ctx, func(ctx context.Context) error {\n", pad))
+	b.WriteString(body)
+	b.WriteString(fmt.Sprintf("%s\treturn nil\n", pad))
+	b.WriteString(fmt.Sprintf("%s}); err != nil {\n", pad))
+	b.WriteString(errReturn(st, pad+"\t", "err"))
+	b.WriteString(fmt.Sprintf("%s}\n", pad))
+	return b.String()
 }
 
 func renderTypedFlowIf(st *flowRenderState, step flowir.TypedStep, indent int, condition string) string {

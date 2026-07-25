@@ -388,7 +388,7 @@ func serviceImplNeedsTx(s normalizer.Service) bool {
 	var scanSteps func([]normalizer.FlowStep) bool
 	scanSteps = func(steps []normalizer.FlowStep) bool {
 		for _, step := range steps {
-			if step.Action == "tx.Block" {
+			if step.Action == "tx.Block" || flowStepUsesTxManager(step) {
 				return true
 			}
 			if v, ok := step.Args["_do"].([]normalizer.FlowStep); ok && scanSteps(v) {
@@ -424,6 +424,20 @@ func serviceImplNeedsTx(s normalizer.Service) bool {
 			return true
 		}
 		if m.Impl != nil && m.Impl.RequiresTx {
+			return true
+		}
+	}
+	return false
+}
+
+// flowStepUsesTxManager keeps dependency injection aligned with an explicitly
+// transactional raw logic.Call. Such a call owns its transaction itself and
+// therefore must remain a flow.Block rather than be wrapped in a second
+// tx.Block, but it still needs the generated TxManager dependency.
+func flowStepUsesTxManager(step normalizer.FlowStep) bool {
+	for _, key := range []string{"func", "code"} {
+		value, ok := step.Args[key].(string)
+		if ok && strings.Contains(value, "s.txManager") {
 			return true
 		}
 	}

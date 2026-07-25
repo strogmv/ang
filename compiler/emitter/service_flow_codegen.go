@@ -633,6 +633,9 @@ func flowStepTraceComment(source flowir.Source, stepIdx int, indent int) string 
 }
 
 func returnSuccess(st *flowRenderState, pad string) string {
+	if st.returnErrOnly {
+		return fmt.Sprintf("%sreturn nil\n", pad)
+	}
 	if st.isStreaming {
 		return fmt.Sprintf("%sreturn nil\n", pad)
 	}

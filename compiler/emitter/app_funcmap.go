@@ -134,7 +134,7 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		var hasTx func([]ir.FlowStep) bool
 		hasTx = func(steps []ir.FlowStep) bool {
 			for _, step := range steps {
-				if step.Action == "tx.Block" {
+				if step.Action == "tx.Block" || irFlowStepUsesTxManager(step) {
 					return true
 				}
 				if hasTx(step.Steps) || hasTx(step.IfNew) || hasTx(step.IfExists) || hasTx(step.Then) || hasTx(step.Else) || hasTx(step.Default) {
@@ -161,7 +161,7 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		var hasTx func([]ir.FlowStep) bool
 		hasTx = func(steps []ir.FlowStep) bool {
 			for _, step := range steps {
-				if step.Action == "tx.Block" {
+				if step.Action == "tx.Block" || irFlowStepUsesTxManager(step) {
 					return true
 				}
 				if hasTx(step.Steps) || hasTx(step.IfNew) || hasTx(step.IfExists) || hasTx(step.Then) || hasTx(step.Else) || hasTx(step.Default) {
@@ -221,7 +221,7 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		var hasTx func([]ir.FlowStep) bool
 		hasTx = func(steps []ir.FlowStep) bool {
 			for _, step := range steps {
-				if step.Action == "tx.Block" {
+				if step.Action == "tx.Block" || irFlowStepUsesTxManager(step) {
 					return true
 				}
 				if hasTx(step.Steps) || hasTx(step.IfNew) || hasTx(step.IfExists) || hasTx(step.Then) || hasTx(step.Else) || hasTx(step.Default) {
@@ -962,6 +962,19 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 	}
 
 	return appFuncs
+}
+
+// irFlowStepUsesTxManager mirrors flowStepUsesTxManager for the runtime
+// container templates, which receive the normalized IR rather than Flow IR.
+// Explicit raw transaction ownership still needs TxManager constructor wiring.
+func irFlowStepUsesTxManager(step ir.FlowStep) bool {
+	for _, key := range []string{"func", "code"} {
+		value, ok := step.Args[key].(string)
+		if ok && strings.Contains(value, "s.txManager") {
+			return true
+		}
+	}
+	return false
 }
 
 // EmitServiceMain generates main.go for a specific service.

@@ -191,6 +191,62 @@ func TestRenderFlow_FlowBlock(t *testing.T) {
 	}
 }
 
+func TestRenderFlow_TxBlockUsesTransactionBoundContext(t *testing.T) {
+	steps := []normalizer.FlowStep{
+		{Action: "tx.Block", Args: map[string]any{
+			"_do": []normalizer.FlowStep{
+				{Action: "logic.Check", Args: map[string]any{"condition": "req.ID != \"\"", "throw": "id is required"}},
+				{Action: "repo.Save", Args: map[string]any{"source": "Order", "input": "order"}},
+			},
+		}},
+	}
+
+	code := renderFlow(steps)
+	for _, want := range []string{
+		"s.txManager.WithTx(ctx, func(ctx context.Context) error {",
+		"return errors.New(http.StatusBadRequest, \"Validation Error\", \"id is required\")",
+		"s.OrderRepo.Save(ctx, &order)",
+		"return nil",
+		"if err := s.txManager.WithTx",
+	} {
+		if !strings.Contains(code, want) {
+			t.Fatalf("expected generated tx.Block code to contain %q\n\n%s", want, code)
+		}
+	}
+	if strings.Contains(code, "return resp, errors.New(http.StatusBadRequest") {
+		t.Fatalf("tx.Block callback must return error, not the outer response:\n%s", code)
+	}
+}
+
+func TestRenderFlow_TxBlockHoistsInlineLogicCallOutput(t *testing.T) {
+	steps := []normalizer.FlowStep{
+		{Action: "tx.Block", Args: map[string]any{
+			"_do": []normalizer.FlowStep{
+				{Action: "logic.Call", Args: map[string]any{
+					"func":   "(func(ctx context.Context) ([]domain.SendTelegramAction, error) { return nil, nil })",
+					"args":   []string{"ctx"},
+					"output": "actions",
+				}},
+			},
+		}},
+		{Action: "flow.For", Args: map[string]any{
+			"each": "actions",
+			"as":   "action",
+			"_do":  []normalizer.FlowStep{{Action: "flow.SuggestNext", Args: map[string]any{"options": []string{"published"}}}},
+		}},
+	}
+
+	code := renderFlow(steps)
+	declaration := "var actions []domain.SendTelegramAction"
+	assignment := "actions, err = (func(ctx context.Context) ([]domain.SendTelegramAction, error) { return nil, nil })(ctx)"
+	if !strings.Contains(code, declaration) || !strings.Contains(code, assignment) {
+		t.Fatalf("expected tx.Block to hoist the typed result into outer scope:\n%s", code)
+	}
+	if strings.Index(code, declaration) > strings.Index(code, "s.txManager.WithTx") {
+		t.Fatalf("expected transaction result to be declared before its callback:\n%s", code)
+	}
+}
+
 func TestRenderFlow_ListMyTendersLike(t *testing.T) {
 	steps := []normalizer.FlowStep{
 		{Action: "logic.Check", Args: map[string]any{"condition": "req.CompanyID != \"\"", "throw": "companyId is required"}},

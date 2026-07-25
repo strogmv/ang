@@ -51,7 +51,7 @@ func renderFlowStepControlFlow(st *flowRenderState, step normalizer.FlowStep, in
 		}
 		return renderFlowForLegacy(st, pad, indent, typedArg, typedChild), true
 
-	case "flow.Block", "tx.Block":
+	case "flow.Block":
 		_, err := decodeCurrentActionAs[flowir.FlowBlock](st, step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
@@ -61,6 +61,16 @@ func renderFlowStepControlFlow(st *flowRenderState, step normalizer.FlowStep, in
 			return out, true
 		}
 		return renderFlowBlockLegacy(st, indent, typedChild), true
+
+	case "tx.Block":
+		_, err := decodeCurrentActionAs[flowir.FlowBlock](st, step)
+		if err != nil {
+			return renderInvalidFlowStepConfig(st, pad, step.Action, err.Error()), true
+		}
+		txState := cloneFlowState(st)
+		txState.returnErrOnly = true
+		body := renderFlowChildSteps(txState, child, "_do", indent+1)
+		return emitTransactionBlock(st, indent, body), true
 
 	case "flow.Switch":
 		typed, err := decodeCurrentActionAs[flowir.FlowSwitch](st, step)
