@@ -25,7 +25,13 @@ func TestEmitFrontendSDK_RouteLoadersPassParamsObject(t *testing.T) {
 		},
 	}
 	endpoints := []ir.Endpoint{
-		{Method: "GET", Path: "/api/public/user-avatars/{assetId}/{variant}", Service: "User", RPC: "GetPublicUserAvatar"},
+		{
+			Method:      "GET",
+			Path:        "/api/public/user-avatars/{assetId}/{variant}",
+			Service:     "User",
+			RPC:         "GetPublicUserAvatar",
+			Description: "Read owner's \"public\" avatar",
+		},
 	}
 
 	if err := em.EmitFrontendSDK(nil, services, endpoints, nil, nil, nil); err != nil {
@@ -42,5 +48,8 @@ func TestEmitFrontendSDK_RouteLoadersPassParamsObject(t *testing.T) {
 	}
 	if strings.Contains(out, "Queries.getPublicUserAvatarQueryOptions(params.assetId, params.variant)") {
 		t.Fatalf("did not expect positional route loader args in routes.ts, got:\n%s", out)
+	}
+	if !strings.Contains(out, `title: "Read owner's \"public\" avatar"`) {
+		t.Fatalf("expected escaped TypeScript route title, got:\n%s", out)
 	}
 }

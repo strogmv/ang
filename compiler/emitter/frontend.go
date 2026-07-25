@@ -251,7 +251,7 @@ func extractFrontendNamedEnums(projectRoot string) []NamedEnum {
 	if err != nil || !stat.IsDir() {
 		return nil
 	}
-	insts := cueload.Instances([]string{"./"+cr+"/domain"}, &cueload.Config{Dir: projectRoot})
+	insts := cueload.Instances([]string{"./" + cr + "/domain"}, &cueload.Config{Dir: projectRoot})
 	if len(insts) == 0 {
 		return nil
 	}
@@ -1137,6 +1137,11 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 
 	authCfg := normalizer.InfraAuth(e.InfraValues)
 	funcMap := template.FuncMap{
+		// TSString emits a complete, quoted TypeScript string literal. Endpoint
+		// descriptions are user-authored CUE text and may contain apostrophes,
+		// quotes or line breaks, so templates must never interpolate them inside
+		// handwritten quote delimiters.
+		"TSString":   strconv.Quote,
 		"TrimSpace":  strings.TrimSpace,
 		"ToLower":    strings.ToLower,
 		"JSONName":   JSONName,
@@ -1197,6 +1202,19 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 				}
 				return fmt.Sprintf("%sSchema", enumName)
 			}
+			// Zod's .url() and .email() are string methods. Apply them to
+			// each item for []string rather than appending them to z.array(...),
+			// which produces invalid runtime code such as z.array(z.string()).url().
+			isStringList := (f.IsList || strings.HasPrefix(strings.TrimSpace(f.Type), "[]")) && strings.TrimPrefix(strings.TrimSpace(f.Type), "[]") == "string"
+			if isStringList {
+				rules := parseValidateTag(f.ValidateTag)
+				if rules.URL {
+					return "z.array(z.string().url())"
+				}
+				if rules.Email {
+					return "z.array(z.string().email())"
+				}
+			}
 			return zodGoType(f.Type, entitiesNorm)
 		},
 		"ZodType": func(goType string) string {
@@ -1214,10 +1232,11 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		"ZodRules": func(f normalizer.Field) string {
 			rules := parseValidateTag(f.ValidateTag)
 			var parts []string
-			if rules.Email {
+			isList := f.IsList || strings.HasPrefix(strings.TrimSpace(f.Type), "[]")
+			if rules.Email && !isList {
 				parts = append(parts, ".email()")
 			}
-			if rules.URL {
+			if rules.URL && !isList {
 				parts = append(parts, ".url()")
 			}
 			isString := f.Type == "string"

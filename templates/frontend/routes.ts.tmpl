@@ -10,9 +10,9 @@ export interface RouteMeta {
 export const createRouteDefinitions = (queryClient: QueryClient) => [
 {{- range .Endpoints }}
   {
-    path: '{{ RouterPath .Path }}',
-    method: '{{ .Method }}',
-    rpc: '{{ .RPC }}',
+    path: {{ TSString (RouterPath .Path) }},
+    method: {{ TSString .Method }},
+    rpc: {{ TSString .RPC }},
     {{- if eq .Method "GET" }}
     loader: async ({ params }: { params: any }) => {
       {{- $args := ParamsFromRouter . }}
@@ -24,8 +24,8 @@ export const createRouteDefinitions = (queryClient: QueryClient) => [
     },
     {{- end }}
     meta: {
-      title: '{{ if .Description }}{{ .Description }}{{ else }}{{ .RPC }}{{ end }}',
-      breadcrumb: '{{ .RPC }}'
+      title: {{ TSString (or .Description .RPC) }},
+      breadcrumb: {{ TSString .RPC }}
     } as RouteMeta
   },
 {{- end }}
@@ -33,6 +33,6 @@ export const createRouteDefinitions = (queryClient: QueryClient) => [
 
 export const Routes = {
 {{- range .Endpoints }}
-  {{ .RPC }}: ({{ PathParams .Path }}) => `{{ PathTemplate .Path }}`,
+  {{ .RPC }}: ({{ PathParams .Path }}) => {{ TSString (PathTemplate .Path) }},
 {{- end }}
 };
