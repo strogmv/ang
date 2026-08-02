@@ -172,11 +172,13 @@ package schema
 }
 
 #RequestSigningConfig: {
-	algorithm:    "hmac-sha1" | "hmac-sha256" | "md5"
-	format:       "method_url_body" | "md5_fields_concat" | "notification_token"
-	header:       string
-	secret_key:   string
-	encoding:     *"hex" | "base64"
+	algorithm:       "sha256" | "hmac-sha1" | "hmac-sha256" | "md5"
+	format:          "method_url_body" | "md5_fields_concat" | "notification_token" | "username_key_body_b64"
+	header:          string
+	secret_key:      string
+	username_header: *"" | string
+	username_key:    *"" | string
+	encoding:        *"hex" | "base64"
 	// md5_fields_concat: ordered logical field names (see Pacepay computePayoutSignature).
 	concat_fields: *[...string] | [...string]
 }
@@ -222,8 +224,14 @@ package schema
 
 #CardEncryptionConfig: {
 	enabled:           bool
-	algorithm:         string
-	pem_secret_key:    string
+	// e.g. "rsa_oaep_sha256" (incas) or "aes-256-gcm" (Flutterwave).
+	algorithm: string
+	// Secret part holding a PEM public key (RSA algorithms).
+	pem_secret_key: *"" | string
+	// Secret part holding a base64-encoded symmetric key (AES-GCM algorithms).
+	key_secret_key: *"" | string
+	// GCM nonce length in bytes; used directly as the IV. 0 => algorithm default.
+	nonce_length:      *0 | int
 	payment_data_type: string
 }
 
@@ -231,21 +239,34 @@ package schema
 
 // --- HTTP auth (request headers) ---
 
-#AuthType: "header_token" | "bearer" | "basic" | "custom"
+#AuthType: "header_token" | "bearer" | "basic" | "custom" | "oauth_client_credentials"
 
 #AuthConfig: {
 	type: *"header_token" | #AuthType
 	header: string
-	secret_key: string
+	// Static secret holding the token/key. Empty for oauth_client_credentials,
+	// where the Bearer token is minted from client_id/client_secret instead.
+	secret_key: *"" | string
 	content_type: *"application/json" | string
 	prefix: *"" | string // e.g. "Bearer "
 	// When true, generated authHeaders use httpcli.AddMasked (Nebeus x-api-key, Ikra X-Identity).
 	masked: *false | bool
+
+	// OAuth client_credentials minting (generic, reusable). Used when
+	// type == "oauth_client_credentials": the Bearer token is fetched from
+	// token_url with client_id/client_secret taken from the named secret parts,
+	// then cached until token_ttl_buffer before its expires_in.
+	token_url:         *"" | string
+	client_id_key:     *"" | string
+	client_secret_key: *"" | string
+	grant_type:        *"client_credentials" | string
+	scope:             *"" | string
+	token_ttl_buffer:  *"" | string // e.g. "60s"; refresh this early
 }
 
 // --- Callback signature verification ---
 
-#CallbackSignatureFormat: "sorted_kv_pipe" | "hmac_body" | "notification_token" | "username_key_form_b64" | "rsa_pkcs1v15_body" | "custom"
+#CallbackSignatureFormat: "sorted_kv_pipe" | "hmac_body" | "notification_token" | "username_key_form_b64" | "rsa_pkcs1v15_body" | "sha256_concat" | "custom"
 #CallbackSignatureCompare: "equal_fold" | "equal"
 #CallbackSignatureFieldFormat: "plain" | "float_trailing_zero"
 
@@ -328,11 +349,6 @@ package schema
 	foreign_id_on_unexpected_error: *false | bool
 	// Treat unexpected HTTP errors as pending instead of hard failure (Incas).
 	unexpected_error_pending: *false | bool
-}
-
-#CallbackRuntimeConfig: {
-	// FinishCallback delegates to CheckStatus instead of mapping callback payload (Nebeus).
-	finish_via_check_status: *false | bool
 }
 
 // Behaviour when CheckStatus is called with empty tx.ForeignId.
@@ -425,6 +441,10 @@ package schema
 	status_field:     string
 	status_type:      *"int" | "string"
 	error_code_field: *"" | string
+	// Optional human-readable status detail and provider return code to surface
+	// from an authenticated callback.
+	message_field:     *"" | string
+	return_code_field: *"" | string
 	// Optional return-url callback channel via query parameter (e.g. ?txid=...).
 	return_query_txid_param:   *"" | string
 	// Optional status value injected for return-url query callbacks.
@@ -492,10 +512,12 @@ package schema
 	payment_method_map: *[...#PaymentMethodMapEntry] | [...#PaymentMethodMapEntry]
 
 	// Auto-populated request definitions (generate both struct + population code)
-	payin_request:  *null | #RequestDef
-	payout_request: *null | #RequestDef
-	p2p_request:    *null | #RequestDef
-	refund_request: *null | #RequestDef
+	payin_request:         *null | #RequestDef
+	payout_request:        *null | #RequestDef
+	payin_status_request:  *null | #RequestDef
+	payout_status_request: *null | #RequestDef
+	p2p_request:           *null | #RequestDef
+	refund_request:        *null | #RequestDef
 
 	// Declarative operation→transport bindings.
 	operations: [...#OperationDef]
@@ -549,9 +571,6 @@ package schema
 
 	// Payout reliability (connection-error foreign id, etc.)
 	payout_runtime: *null | #PayoutRuntimeConfig
-
-	// Callback flow overrides
-	callback_runtime: *null | #CallbackRuntimeConfig
 
 	// CheckStatus when tx.ForeignId is empty (Ikra → declined, Nebeus → error status).
 	check_status_foreign_id_empty: *"error" | #CheckStatusForeignIDEmpty

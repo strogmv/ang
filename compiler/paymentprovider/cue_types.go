@@ -22,8 +22,7 @@ type ProviderSpec struct {
 
 	InitPayoutPolicy *InitPayoutPolicy `json:"init_payout_policy"`
 
-	PayoutRuntime   *PayoutRuntimeConfig   `json:"payout_runtime"`
-	CallbackRuntime *CallbackRuntimeConfig `json:"callback_runtime"`
+	PayoutRuntime *PayoutRuntimeConfig `json:"payout_runtime"`
 
 	CheckStatusForeignIDEmpty string `json:"check_status_foreign_id_empty"`
 
@@ -75,8 +74,8 @@ type ProviderSpec struct {
 	HasRefund       bool `json:"has_refund"`
 	HasCancel       bool `json:"has_cancel"`
 
-	AuthFlow  string `json:"auth_flow"`
-	APICompat string `json:"api_compat"`
+	AuthFlow       string `json:"auth_flow"`
+	APICompat      string `json:"api_compat"`
 	CheckoutCompat string `json:"checkout_compat"`
 
 	ResponseLoggingMode string `json:"response_logging_mode"`
@@ -188,16 +187,14 @@ type CardEncryptionConfig struct {
 	Enabled         bool   `json:"enabled"`
 	Algorithm       string `json:"algorithm"`
 	PEMSecretKey    string `json:"pem_secret_key"`
+	KeySecretKey    string `json:"key_secret_key"`
+	NonceLength     int    `json:"nonce_length"`
 	PaymentDataType string `json:"payment_data_type"`
 }
 
 type PayoutRuntimeConfig struct {
 	ForeignIDOnUnexpectedError bool `json:"foreign_id_on_unexpected_error"`
 	UnexpectedErrorPending     bool `json:"unexpected_error_pending"`
-}
-
-type CallbackRuntimeConfig struct {
-	FinishViaCheckStatus bool `json:"finish_via_check_status"`
 }
 
 type InitPayoutPolicy struct {
@@ -303,6 +300,8 @@ type CallbackConfig struct {
 	StatusField             string        `json:"status_field"`
 	StatusType              string        `json:"status_type"`
 	ErrorCodeField          string        `json:"error_code_field"`
+	MessageField            string        `json:"message_field"`
+	ReturnCodeField         string        `json:"return_code_field"`
 	ReturnQueryTxIDParam    string        `json:"return_query_txid_param"`
 	ReturnQueryStatusValue  string        `json:"return_query_status_value"`
 	ReturnQueryInfoCallback bool          `json:"return_query_info_callback"`
@@ -316,6 +315,14 @@ type AuthConfig struct {
 	ContentType string `json:"content_type"`
 	Prefix      string `json:"prefix"`
 	Masked      bool   `json:"masked"`
+
+	// OAuth client_credentials minting (type == "oauth_client_credentials").
+	TokenURL        string `json:"token_url"`
+	ClientIDKey     string `json:"client_id_key"`
+	ClientSecretKey string `json:"client_secret_key"`
+	GrantType       string `json:"grant_type"`
+	Scope           string `json:"scope"`
+	TokenTTLBuffer  string `json:"token_ttl_buffer"`
 }
 
 type CallbackSignatureField struct {

@@ -44,10 +44,6 @@ package schema
 	ClientUUIDVarName: string // default "clientPayoutID"
 }
 
-#TemplateCallbackRuntime: {
-	FinishViaCheckStatus: bool // FinishCallback → CheckStatus
-}
-
 #TemplateResponseEnvelope: {
 	Enabled:        bool
 	WrapperField:   string
@@ -176,9 +172,8 @@ package schema
 	// Outbound request signing (Ikra X-Signature, Pacepay hash in body)
 	RequestSigning: *null | #TemplateRequestSigning
 
-	// Runtime policies (from payout_runtime, callback_runtime, check_status_*, init_payout_policy)
+	// Runtime policies (from payout_runtime, check_status_*, init_payout_policy)
 	PayoutRuntime:               *null | #TemplatePayoutRuntime
-	CallbackRuntime:             *null | #TemplateCallbackRuntime
 	InitPayoutPolicy:            *null | {
 		MapStatusFromResponse: bool
 		ForeignIDStrategy:     string
@@ -247,6 +242,8 @@ package schema
 	CallbackForeignIDField: string
 	CallbackStatusField:   string
 	CallbackErrorCodeField: string
+	CallbackMessageField:  string
+	CallbackReturnCodeField: string
 	CallbackFields:        [...]
 	CallbackReturnQueryTxIDParam: string
 	CallbackReturnQueryStatusValue: string

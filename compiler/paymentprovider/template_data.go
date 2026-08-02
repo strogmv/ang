@@ -54,13 +54,13 @@ type TemplateData struct {
 	PayoutPathTxID            bool
 	CheckStatusPathFormatTxID bool
 
-	PayinResponseType    string
-	PayoutResponseType   string
-	RefundResponseType   string
-	PayinForeignIDField  string
+	PayinResponseType     string
+	PayoutResponseType    string
+	RefundResponseType    string
+	PayinForeignIDField   string
 	PayinRedirectURLField string
-	PayoutForeignIDField string
-	RefundForeignIDField string
+	PayoutForeignIDField  string
+	RefundForeignIDField  string
 
 	SecretParts                       []SecretPart
 	SecretPartsCount                  int
@@ -74,22 +74,21 @@ type TemplateData struct {
 
 	HasOptionalSecretParts bool
 
-	SigningAlgorithm   string
-	SigningFormat      string
-	SigningSecretField string
-	UseBasicAuth       bool
-	UseTransfertyH2H   bool
-	UseMacanP2P        bool
-	UsePaytechGateway  bool
-	UseFluxsgate       bool
+	SigningAlgorithm    string
+	SigningFormat       string
+	SigningSecretField  string
+	UseBasicAuth        bool
+	UseTransfertyH2H    bool
+	UseMacanP2P         bool
+	UsePaytechGateway   bool
+	UseFluxsgate        bool
 	UseRedirectCheckout bool
 	UseCentrobillHPP    bool
-	SecretUseLabels    bool // CUE: secrets.use_labels
-	PubKeyField        string
-	SecretKeyField     string
+	SecretUseLabels     bool // CUE: secrets.use_labels
+	PubKeyField         string
+	SecretKeyField      string
 
 	PayoutRuntime             *PayoutRuntimeTemplate
-	CallbackRuntime           *CallbackRuntimeTemplate
 	InitPayoutPolicy          *InitPayoutPolicyTemplate
 	RequestSigning            *RequestSigningTemplate
 	CheckStatusForeignIDEmpty string
@@ -129,10 +128,12 @@ type TemplateData struct {
 	HasOTPConfig         bool
 	OTPHandlesExternally bool
 
-	CallbackTxIDField      string
-	CallbackForeignIDField string
-	CallbackStatusField    string
-	CallbackErrorCodeField string
+	CallbackTxIDField       string
+	CallbackForeignIDField  string
+	CallbackStatusField     string
+	CallbackErrorCodeField  string
+	CallbackMessageField    string
+	CallbackReturnCodeField string
 
 	P2PMethodCheck string
 	CurrencyCode   string
@@ -230,6 +231,16 @@ type AuthConfigTemplate struct {
 	ContentType    string
 	Prefix         string
 	Masked         bool
+
+	// OAuth client_credentials minting (Type == "oauth_client_credentials").
+	IsOAuthClientCredentials bool
+	TokenURL                 string
+	ClientIDKeyField         string
+	ClientSecretKeyField     string
+	GrantType                string
+	Scope                    string
+	TokenTTLBuffer           string
+	TokenTTLBufferExpr       string
 }
 
 type CheckStatusConfigTemplate struct {
@@ -243,10 +254,6 @@ type CheckStatusConfigTemplate struct {
 type PayoutRuntimeTemplate struct {
 	ForeignIDOnUnexpectedError bool
 	UnexpectedErrorPending     bool
-}
-
-type CallbackRuntimeTemplate struct {
-	FinishViaCheckStatus bool
 }
 
 type InitPayoutPolicyTemplate struct {
@@ -291,6 +298,11 @@ type CardEncryptionTemplate struct {
 	Algorithm         string
 	PEMSecretKeyField string
 	PaymentDataType   string
+
+	// AES-GCM symmetric encryption (Algorithm == "aes-256-gcm").
+	IsAESGCM          bool
+	KeySecretKeyField string
+	NonceLength       int
 }
 
 type CallbackSignatureFieldTemplate struct {
@@ -755,11 +767,6 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 			UnexpectedErrorPending:     spec.PayoutRuntime.UnexpectedErrorPending,
 		}
 	}
-	if spec.CallbackRuntime != nil {
-		data.CallbackRuntime = &CallbackRuntimeTemplate{
-			FinishViaCheckStatus: spec.CallbackRuntime.FinishViaCheckStatus,
-		}
-	}
 	if spec.InitPayoutPolicy != nil {
 		data.InitPayoutPolicy = &InitPayoutPolicyTemplate{
 			MapStatusFromResponse: spec.InitPayoutPolicy.MapStatusFromResponse,
@@ -810,12 +817,22 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 		}
 	}
 	if spec.CardEncryption != nil && spec.CardEncryption.Enabled {
-		data.CardEncryption = &CardEncryptionTemplate{
+		algorithm := defaultString(spec.CardEncryption.Algorithm, "rsa_oaep_sha256")
+		ce := &CardEncryptionTemplate{
 			Enabled:           true,
-			Algorithm:         defaultString(spec.CardEncryption.Algorithm, "rsa_oaep_sha256"),
+			Algorithm:         algorithm,
 			PEMSecretKeyField: exportGoIdent(defaultString(spec.CardEncryption.PEMSecretKey, "callbackSignKey")),
 			PaymentDataType:   defaultString(spec.CardEncryption.PaymentDataType, "card"),
 		}
+		if strings.EqualFold(algorithm, "aes-256-gcm") {
+			ce.IsAESGCM = true
+			ce.KeySecretKeyField = exportGoIdent(defaultString(spec.CardEncryption.KeySecretKey, "encryptionKey"))
+			ce.NonceLength = spec.CardEncryption.NonceLength
+			if ce.NonceLength == 0 {
+				ce.NonceLength = 12 // GCM standard IV length
+			}
+		}
+		data.CardEncryption = ce
 	}
 	data.PayoutStatusValueField = strings.TrimSpace(spec.PayoutStatusValueField)
 	if spec.OTPConfig != nil {
@@ -827,6 +844,8 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 		data.CallbackForeignIDField = spec.Callback.ForeignIDField
 		data.CallbackStatusField = spec.Callback.StatusField
 		data.CallbackErrorCodeField = spec.Callback.ErrorCodeField
+		data.CallbackMessageField = spec.Callback.MessageField
+		data.CallbackReturnCodeField = spec.Callback.ReturnCodeField
 		data.CallbackReturnQueryTxIDParam = spec.Callback.ReturnQueryTxIDParam
 		data.CallbackReturnQueryStatusValue = spec.Callback.ReturnQueryStatusValue
 		data.CallbackReturnQueryInfoCallback = spec.Callback.ReturnQueryInfoCallback
@@ -1396,6 +1415,22 @@ func buildHTTPAuth(spec *ProviderSpec) *AuthConfigTemplate {
 	}
 	if a.ContentType == "" {
 		a.ContentType = "application/json"
+	}
+	if strings.EqualFold(a.Type, "oauth_client_credentials") {
+		a.IsOAuthClientCredentials = true
+		a.TokenURL = strings.TrimSpace(spec.Auth.TokenURL)
+		a.ClientIDKeyField = exportGoIdent(spec.Auth.ClientIDKey)
+		a.ClientSecretKeyField = exportGoIdent(spec.Auth.ClientSecretKey)
+		a.GrantType = strings.TrimSpace(spec.Auth.GrantType)
+		if a.GrantType == "" {
+			a.GrantType = "client_credentials"
+		}
+		a.Scope = strings.TrimSpace(spec.Auth.Scope)
+		a.TokenTTLBuffer = strings.TrimSpace(spec.Auth.TokenTTLBuffer)
+		if a.TokenTTLBuffer == "" {
+			a.TokenTTLBuffer = "60s"
+		}
+		a.TokenTTLBufferExpr = formatDurationGoExpr(a.TokenTTLBuffer)
 	}
 	return a
 }

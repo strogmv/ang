@@ -968,6 +968,11 @@ func (pp *{{ .StructName }}) FinishCallback(mc *model.MerchantCreds, tx *model.T
 	if !ok {
 		return nil, fmt.Errorf("%s: unexpected callback data type %T", ppSID, cd.Data)
 	}
+{{- if eq .StatusCodeType "string" }}
+	if d.{{ .CallbackStatusField }} == "" {
+		return nil, fmt.Errorf("%s: callback missing status", ppSID)
+	}
+{{- end }}
 
 	pp.txPathLogger.Log(tx, model.LogActionTypeCallback, providers.LogActionTypeReceived, string(d.raw))
 
@@ -981,6 +986,7 @@ func (pp *{{ .StructName }}) FinishCallback(mc *model.MerchantCreds, tx *model.T
 	var code model.TnxStatusCode
 	var msg string
 
+{{- if .HasPayin }}
 	if tx.Type == model.TnxTypePay {
 {{- if .UseMacanP2P }}
 		status, code, msg = macanPayInStatus(providerStatus(d.{{ .CallbackStatusField }}), d.StatusDetails)
@@ -989,7 +995,14 @@ func (pp *{{ .StructName }}) FinishCallback(mc *model.MerchantCreds, tx *model.T
 {{- else }}
 		status, code, msg = mapPayinStatus(d.{{ .CallbackStatusField }})
 {{- end }}
-	} else {
+	}
+{{- end }}
+{{- if and .HasPayin .HasPayout }} else {
+{{- end }}
+{{- if .HasPayout }}
+	{{- if not .HasPayin }}
+	// This provider has no payin operation; every callback status is a payout status.
+	{{- end }}
 {{- if .UseMacanP2P }}
 		status, code, msg = macanPayOutStatus(providerStatus(d.{{ .CallbackStatusField }}), d.StatusDetails)
 {{- else if eq .StatusCodeType "string" }}
@@ -997,7 +1010,17 @@ func (pp *{{ .StructName }}) FinishCallback(mc *model.MerchantCreds, tx *model.T
 {{- else }}
 		status, code, msg = mapPayoutStatus(d.{{ .CallbackStatusField }})
 {{- end }}
+{{- end }}
+{{- if .CallbackMessageField }}
+	if d.{{ .CallbackMessageField }} != "" {
+		msg = d.{{ .CallbackMessageField }}
 	}
+{{- end }}
+{{- if .CallbackReturnCodeField }}
+	if d.{{ .CallbackReturnCodeField }} != "" {
+		msg = d.{{ .CallbackReturnCodeField }} + ": " + msg
+	}
+{{- end }}
 {{- if and .ExtendedCallbackConfig .ExtendedCallbackConfig.Enabled }}
 	applyExtendedCallbackFallbacks(tx)
 {{- end }}

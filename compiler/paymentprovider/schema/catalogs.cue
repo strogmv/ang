@@ -5,7 +5,7 @@ package schema
 #CatalogFieldSource:
 	"tx_id" | "tx_amount" | "tx_amount_float" | "tx_amount_fmt" | "tx_amount_sprintf" |
 	"tx_currency" | "tx_callback_url" | "tx_ip" | "tx_description" | "tx_result_url" |
-	"tx_merchant_order" | "tx_card_country" | "tx_payment_method" |
+	"tx_merchant_order" | "tx_card_country" | "tx_payment_method" | "foreign_id" |
 	"card_pan" | "card_cvv" | "card_exp_month" | "card_exp_year" | "card_exp_month_fmt" |
 	"card_exp_year_short" | "cardholder" | "first_name" | "last_name" |
 	// Deprecated for new providers: prefer source "owner_info" + owner_key and

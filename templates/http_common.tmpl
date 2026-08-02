@@ -272,12 +272,83 @@ func decodeMultipartOrJSONUpload(r *http.Request, out interface{}) error {
 // TestHeadersMiddleware reads test-only request headers and injects them into the context.
 // In production environments these headers are never sent, so this middleware is a no-op.
 func TestHeadersMiddleware(next http.Handler) http.Handler {
+	next = WhatsAppWebhookAdapter(next)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("x-test-skip-auto-verify") == "true" {
 			r = r.WithContext(reqctx.WithSkipAutoVerify(r.Context()))
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// WhatsAppWebhookAdapter maps Meta hub.* query params onto VerifyWhatsAppWebhook
+// fields and rewrites a successful JSON challenge to plain text (Meta requirement).
+func WhatsAppWebhookAdapter(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/wa/webhook/") {
+			q := r.URL.Query()
+			if v := q.Get("hub.mode"); v != "" {
+				q.Set("hubMode", v)
+			}
+			if v := q.Get("hub.verify_token"); v != "" {
+				q.Set("hubVerifyToken", v)
+			}
+			if v := q.Get("hub.challenge"); v != "" {
+				q.Set("hubChallenge", v)
+			}
+			r.URL.RawQuery = q.Encode()
+			cw := &waChallengeWriter{ResponseWriter: w, status: http.StatusOK}
+			next.ServeHTTP(cw, r)
+			if cw.status == http.StatusOK && len(cw.buf) > 0 {
+				var parsed struct {
+					Challenge string `json:"challenge"`
+					Ok        bool   `json:"ok"`
+				}
+				if json.Unmarshal(cw.buf, &parsed) == nil && parsed.Challenge != "" {
+					w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+					w.WriteHeader(http.StatusOK)
+					_, _ = w.Write([]byte(parsed.Challenge))
+					return
+				}
+			}
+			for k, vv := range cw.header {
+				for _, v := range vv {
+					w.Header().Add(k, v)
+				}
+			}
+			if cw.status != 0 {
+				w.WriteHeader(cw.status)
+			}
+			if len(cw.buf) > 0 {
+				_, _ = w.Write(cw.buf)
+			}
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+type waChallengeWriter struct {
+	http.ResponseWriter
+	header http.Header
+	buf    []byte
+	status int
+}
+
+func (w *waChallengeWriter) Header() http.Header {
+	if w.header == nil {
+		w.header = make(http.Header)
+	}
+	return w.header
+}
+
+func (w *waChallengeWriter) WriteHeader(statusCode int) {
+	w.status = statusCode
+}
+
+func (w *waChallengeWriter) Write(b []byte) (int, error) {
+	w.buf = append(w.buf, b...)
+	return len(b), nil
 }
 
 func authContextFromClaims(claims map[string]any) authContext {

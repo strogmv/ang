@@ -43,13 +43,13 @@ func EmitWithResult(templatesDir, outputDir string, data *TemplateData) ([]Gener
 
 	var files []GeneratedFile
 	for _, tf := range templateFiles {
-		if tf.tmpl == "creds.go.tmpl" && (data.UseMacanP2P || data.SecretUseLabels) {
+		if tf.tmpl == "creds.go.tmpl" && data.UseMacanP2P {
 			continue
 		}
 		if tf.tmpl == "creds.go.tmpl" && data.CardEncryption != nil && data.CardEncryption.Enabled {
 			continue
 		}
-		if tf.tmpl == "creds_macan.go.tmpl" && !data.UseMacanP2P && !data.SecretUseLabels {
+		if tf.tmpl == "creds_macan.go.tmpl" && !data.UseMacanP2P {
 			continue
 		}
 		if tf.whenMacan && !data.UseMacanP2P {

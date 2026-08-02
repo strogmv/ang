@@ -25,6 +25,33 @@ func TestBundledSchemaFiles(t *testing.T) {
 	}
 }
 
+func TestBundledSchemaSupportsGatewayPayoutFields(t *testing.T) {
+	providerSchema, err := ReadBundledSchemaFile("provider.cue")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`algorithm:       "sha256" | "hmac-sha1"`,
+		`"username_key_body_b64"`,
+		`"sha256_concat"`,
+		`username_header: *"" | string`,
+		`username_key:    *"" | string`,
+		`payout_status_request: *null | #RequestDef`,
+	} {
+		if !containsString(string(providerSchema), want) {
+			t.Fatalf("provider schema missing %q", want)
+		}
+	}
+
+	catalogs, err := ReadBundledSchemaFile("catalogs.cue")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsString(string(catalogs), `"tx_payment_method" | "foreign_id"`) {
+		t.Fatal("catalog schema missing foreign_id request source")
+	}
+}
+
 func TestSyncSchema_andCheckSchema(t *testing.T) {
 	dir := t.TempDir()
 	res, err := SyncSchema(SchemaSyncOptions{ProjectPath: dir, CueRoot: ".cue"})

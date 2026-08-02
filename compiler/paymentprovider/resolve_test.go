@@ -22,6 +22,17 @@ func TestResolveSource_txFields(t *testing.T) {
 	}
 }
 
+func TestResolveSource_foreignID(t *testing.T) {
+	fields := []RequestField{{Name: "ReferenceID", JSON: "reference_id", Source: "foreign_id"}}
+	resolved, err := ResolveRequestFields(fields, "card", 840)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved[0].GoExpr != `tx.ForeignId` {
+		t.Fatalf("foreign_id: got %q", resolved[0].GoExpr)
+	}
+}
+
 func TestResolveSource_ownerInfoAPM(t *testing.T) {
 	fields := []RequestField{
 		{Name: "Phone", JSON: "phone", Source: "owner_info", OwnerKey: "phone", OwnerFrom: "apm"},

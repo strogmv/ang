@@ -293,9 +293,6 @@ ProfileNebeusPayout: {
 	payout_runtime: {
 		foreign_id_on_unexpected_error: true
 	}
-	callback_runtime: {
-		finish_via_check_status: true
-	}
 	check_status_foreign_id_empty: "error_status"
 	init_payout_policy: {
 		map_status_from_response: true
