@@ -11,19 +11,26 @@ import (
 	"golang.org/x/tools/imports"
 )
 
+// A template set may lay its types out either as a single datatypes.go or as the
+// model.go / secrets.go / status.go split; entries marked optional are emitted
+// only when the set actually provides that template.
 var templateFiles = []struct {
 	tmpl      string
 	output    func(pkg string) string
 	whenMacan bool // emit only when TemplateData.UseMacanP2P
+	optional  bool // skip silently when the template set omits this file
 }{
-	{"datatypes.go.tmpl", func(pkg string) string { return "datatypes.go" }, false},
-	{"creds.go.tmpl", func(pkg string) string { return "creds.go" }, false},
-	{"creds_macan.go.tmpl", func(pkg string) string { return "creds.go" }, false},
-	{"sign.go.tmpl", func(pkg string) string { return "sign.go" }, false},
-	{"sign_test.go.tmpl", func(pkg string) string { return "sign_test.go" }, false},
-	{"provider.go.tmpl", func(pkg string) string { return pkg + ".go" }, false},
-	{"provider_macan.go.tmpl", func(pkg string) string { return pkg + "_macan.go" }, true},
-	{"provider_test.go.tmpl", func(pkg string) string { return pkg + "_test.go" }, false},
+	{"datatypes.go.tmpl", func(pkg string) string { return "datatypes.go" }, false, true},
+	{"model.go.tmpl", func(pkg string) string { return "model.go" }, false, true},
+	{"secrets.go.tmpl", func(pkg string) string { return "secrets.go" }, false, true},
+	{"status.go.tmpl", func(pkg string) string { return "status.go" }, false, true},
+	{"creds.go.tmpl", func(pkg string) string { return "creds.go" }, false, false},
+	{"creds_macan.go.tmpl", func(pkg string) string { return "creds.go" }, false, false},
+	{"sign.go.tmpl", func(pkg string) string { return "sign.go" }, false, false},
+	{"sign_test.go.tmpl", func(pkg string) string { return "sign_test.go" }, false, false},
+	{"provider.go.tmpl", func(pkg string) string { return pkg + ".go" }, false, false},
+	{"provider_macan.go.tmpl", func(pkg string) string { return pkg + "_macan.go" }, true, false},
+	{"provider_test.go.tmpl", func(pkg string) string { return pkg + "_test.go" }, false, false},
 }
 
 // Emit writes generated provider files into outputDir.
@@ -74,6 +81,11 @@ func EmitWithResult(templatesDir, outputDir string, data *TemplateData) ([]Gener
 			}
 		}
 		tmplPath := filepath.Join(templatesDir, tf.tmpl)
+		if tf.optional {
+			if _, statErr := os.Stat(tmplPath); os.IsNotExist(statErr) {
+				continue
+			}
+		}
 		parsePaths := []string{tmplPath}
 		if moduleFiles, globErr := filepath.Glob(filepath.Join(templatesDir, "modules", "*.tmpl")); globErr == nil {
 			parsePaths = append(parsePaths, moduleFiles...)
