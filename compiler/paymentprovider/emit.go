@@ -26,6 +26,9 @@ var templateFiles = []struct {
 	{"status.go.tmpl", func(pkg string) string { return "status.go" }, false, true},
 	{"creds.go.tmpl", func(pkg string) string { return "creds.go" }, false, false},
 	{"creds_macan.go.tmpl", func(pkg string) string { return "creds.go" }, false, false},
+	// A provider that hosts its own pages (PIN/OTP forms) keeps them here; sets
+	// without such pages simply omit the template.
+	{"forms.go.tmpl", func(pkg string) string { return "forms.go" }, false, true},
 	{"sign.go.tmpl", func(pkg string) string { return "sign.go" }, false, false},
 	{"sign_test.go.tmpl", func(pkg string) string { return "sign_test.go" }, false, false},
 	{"provider.go.tmpl", func(pkg string) string { return pkg + ".go" }, false, false},
