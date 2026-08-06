@@ -160,6 +160,11 @@ func vetAuth(spec *ProviderSpec, secretKeys map[string]struct{}) []VetIssue {
 	if spec.Auth == nil {
 		return nil
 	}
+	// OAuth mints its bearer token from the client id/secret parts, so it carries no
+	// static secret_key.
+	if strings.EqualFold(strings.TrimSpace(spec.Auth.Type), "oauth_client_credentials") {
+		return vetOAuthClientCredentials(spec, secretKeys)
+	}
 	key := strings.TrimSpace(spec.Auth.SecretKey)
 	if key == "" {
 		return []VetIssue{{
@@ -184,6 +189,48 @@ func vetAuth(spec *ProviderSpec, secretKeys map[string]struct{}) []VetIssue {
 		}}
 	}
 	return nil
+}
+
+// vetOAuthClientCredentials checks the parts an OAuth provider needs instead of a
+// static auth.secret_key: a token endpoint and the two credential secret parts.
+func vetOAuthClientCredentials(spec *ProviderSpec, secretKeys map[string]struct{}) []VetIssue {
+	var issues []VetIssue
+	if strings.TrimSpace(spec.Auth.TokenURL) == "" {
+		issues = append(issues, VetIssue{
+			Code:     "PP006",
+			Severity: "error",
+			Message:  "auth.token_url is required for oauth_client_credentials",
+		})
+	}
+	for field, key := range map[string]string{
+		"auth.client_id_key":     strings.TrimSpace(spec.Auth.ClientIDKey),
+		"auth.client_secret_key": strings.TrimSpace(spec.Auth.ClientSecretKey),
+	} {
+		if key == "" {
+			issues = append(issues, VetIssue{
+				Code:     "PP006",
+				Severity: "error",
+				Message:  fmt.Sprintf("%s is required for oauth_client_credentials", field),
+			})
+			continue
+		}
+		if !hasSecretKey(secretKeys, key) {
+			issues = append(issues, VetIssue{
+				Code:     "PP006",
+				Severity: "error",
+				Message:  fmt.Sprintf("%s %q not found in secrets.parts", field, key),
+				Hint:     "Add a matching secrets.parts entry or fix the key.",
+			})
+		}
+	}
+	if strings.TrimSpace(spec.Auth.Header) == "" {
+		issues = append(issues, VetIssue{
+			Code:     "PP006",
+			Severity: "error",
+			Message:  "auth.header is required when auth is configured",
+		})
+	}
+	return issues
 }
 
 func vetCallbackSignature(spec *ProviderSpec, secretKeys map[string]struct{}) []VetIssue {
