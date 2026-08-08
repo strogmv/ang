@@ -68,19 +68,19 @@ func TestEmitFrontendSDK_GeneratesErrorNormalizerModule(t *testing.T) {
 	if !strings.Contains(clientText, "normalizeApiError({") {
 		t.Fatalf("expected api-client.ts to use normalizeApiError")
 	}
-	if !strings.Contains(clientText, "const shouldRetry = (error: AxiosError)") {
-		t.Fatalf("expected api-client.ts to include typed retry strategy helper")
+	if !strings.Contains(clientText, "const shouldRetry = (meta: ApiClientRequestMeta") {
+		t.Fatalf("expected api-client.ts to include ky retry strategy helper")
 	}
-	if !strings.Contains(clientText, "return apiClient.request(cfg);") {
+	if !strings.Contains(clientText, "config.retryAttempt = attempt + 1;") {
 		t.Fatalf("expected api-client.ts to retry failed request based on endpoint metadata")
 	}
-	if !strings.Contains(clientText, "const getHeaderValue = (config: InternalAxiosRequestConfig, name: string): string | undefined =>") {
+	if !strings.Contains(clientText, "const getHeaderValue = (headers: HeadersInit | undefined, name: string)") {
 		t.Fatalf("expected api-client.ts to include explicit authorization helper")
 	}
-	if !strings.Contains(clientText, "const hasExplicitAuthorization = Boolean(getHeaderValue(config, 'Authorization'));") {
+	if !strings.Contains(clientText, "const hasExplicitAuthorization = Boolean(getHeaderValue(config.headers, 'Authorization'));") {
 		t.Fatalf("expected api-client.ts to preserve explicit authorization headers")
 	}
-	if !strings.Contains(clientText, "authFromStore: token && hasExplicitAuthorization === false") {
-		t.Fatalf("expected api-client.ts retry metadata to remember store-authenticated requests")
+	if !strings.Contains(clientText, "headers.set('Authorization', `Bearer ${token}`)") {
+		t.Fatalf("expected api-client.ts to preserve store-authenticated requests")
 	}
 }

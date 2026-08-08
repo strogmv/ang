@@ -170,10 +170,10 @@ func TestEmitFrontendSDK_UsesEndpointFrontendMetadataProfiles(t *testing.T) {
 	}
 	c := string(clientText)
 	for _, expected := range []string{
-		"meta?.cachePolicy === 'realtime'",
+		"endpoint?.cachePolicy === 'realtime'",
 		"_rt: Date.now().toString()",
-		"Cache-Control', 'no-store, no-cache, max-age=0, must-revalidate'",
-		"config.headers.set('Pragma', 'no-cache')",
+		"headers.set('Cache-Control', 'no-store, no-cache, max-age=0, must-revalidate')",
+		"headers.set('Pragma', 'no-cache')",
 	} {
 		if !strings.Contains(c, expected) {
 			t.Fatalf("expected %q in api-client.ts, got:\n%s", expected, c)

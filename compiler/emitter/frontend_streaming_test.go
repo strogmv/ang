@@ -63,7 +63,7 @@ func TestEmitFrontendSDK_GeneratesStreamingHelpersForStreamingEndpoints(t *testi
 	}
 
 	if strings.Contains(text, "validateResponse('StreamAIEditResponseSchema'") {
-		t.Fatalf("streaming endpoint must not be generated as regular axios+validateResponse call, got:\n%s", text)
+		t.Fatalf("streaming endpoint must not be generated as a regular validated API call, got:\n%s", text)
 	}
 }
 

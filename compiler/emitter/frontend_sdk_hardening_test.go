@@ -66,10 +66,9 @@ func TestEmitFrontendSDK_GeneratesHardenedClientAndEndpoints(t *testing.T) {
 		"setApiClientLogger",
 		"setResponseValidationReporter",
 		"Secure random generation is unavailable in this environment",
-		"type RefreshWaiter = {",
 		"let refreshPromise: Promise<string> | null = null;",
-		"waitForRefreshToken() : await refreshAuthToken()",
-		"if (shouldClearAuthOnRefreshFailure(err)) {",
+		"const refreshAuthToken = async (): Promise<string> =>",
+		"shouldClearAuthOnRefreshFailure(error)",
 		"responseValidationReporter(issue)",
 		"apiLogger.error('[ANG SDK] API request failed'",
 	} {

@@ -90,7 +90,7 @@ export const subscribeToWebSocketClient = <T extends WSMessage, K extends T['typ
   if (data.type === topic) {
     const matched = data as Extract<T, { type: K }>;
     const emit = onMessage as (payload: Extract<T, { type: K }>['payload']) => void;
-    emit(matched.payload as unknown as Extract<T, { type: K }>['payload']);
+    emit(matched.payload as never);
   }
 });
 
@@ -113,7 +113,7 @@ export const useWebsocketSubscription = <K extends WSMessage['type']>(
     const unsubs = (defaultWsClients as unknown as ReadonlyArray<WebSocketClient<WSMessage>>)
       .map((client) => subscribeToWebSocketClient(client, topic, (payload) => {
         const emit = onMessageRef.current as unknown as (payload: Extract<WSMessage, { type: K }>['payload']) => void;
-		emit(payload as unknown as Extract<WSMessage, { type: K }>['payload']);
+        emit(payload as never);
       }));
     return () => {
       for (const unsub of unsubs) {

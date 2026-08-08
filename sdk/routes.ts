@@ -9,264 +9,264 @@ export interface RouteMeta {
 
 export const createRouteDefinitions = (queryClient: QueryClient) => [
   {
-    path: '/assistant/chat',
-    method: 'POST',
-    rpc: 'ChatWithAssistant',
+    path: "/assistant/chat",
+    method: "POST",
+    rpc: "ChatWithAssistant",
     meta: {
-      title: 'ChatWithAssistant',
-      breadcrumb: 'ChatWithAssistant'
+      title: "ChatWithAssistant",
+      breadcrumb: "ChatWithAssistant"
     } as RouteMeta
   },
   {
-    path: '/auth/login',
-    method: 'POST',
-    rpc: 'Login',
+    path: "/auth/login",
+    method: "POST",
+    rpc: "Login",
     meta: {
-      title: 'Login',
-      breadcrumb: 'Login'
+      title: "Login",
+      breadcrumb: "Login"
     } as RouteMeta
   },
   {
-    path: '/auth/profile',
-    method: 'GET',
-    rpc: 'GetProfile',
+    path: "/auth/profile",
+    method: "GET",
+    rpc: "GetProfile",
     loader: async ({ params }: { params: any }) => {
       await queryClient.ensureQueryData(Queries.getProfileQueryOptions());
     },
     meta: {
-      title: 'GetProfile',
-      breadcrumb: 'GetProfile'
+      title: "GetProfile",
+      breadcrumb: "GetProfile"
     } as RouteMeta
   },
   {
-    path: '/auth/profile',
-    method: 'PUT',
-    rpc: 'UpdateProfile',
+    path: "/auth/profile",
+    method: "PUT",
+    rpc: "UpdateProfile",
     meta: {
-      title: 'UpdateProfile',
-      breadcrumb: 'UpdateProfile'
+      title: "UpdateProfile",
+      breadcrumb: "UpdateProfile"
     } as RouteMeta
   },
   {
-    path: '/auth/register',
-    method: 'POST',
-    rpc: 'Register',
+    path: "/auth/register",
+    method: "POST",
+    rpc: "Register",
     meta: {
-      title: 'Register',
-      breadcrumb: 'Register'
+      title: "Register",
+      breadcrumb: "Register"
     } as RouteMeta
   },
   {
-    path: '/comments/:id',
-    method: 'DELETE',
-    rpc: 'DeleteComment',
+    path: "/comments/:id",
+    method: "DELETE",
+    rpc: "DeleteComment",
     meta: {
-      title: 'DeleteComment',
-      breadcrumb: 'DeleteComment'
+      title: "DeleteComment",
+      breadcrumb: "DeleteComment"
     } as RouteMeta
   },
   {
-    path: '/comments/:id',
-    method: 'PUT',
-    rpc: 'UpdateComment',
+    path: "/comments/:id",
+    method: "PUT",
+    rpc: "UpdateComment",
     meta: {
-      title: 'UpdateComment',
-      breadcrumb: 'UpdateComment'
+      title: "UpdateComment",
+      breadcrumb: "UpdateComment"
     } as RouteMeta
   },
   {
-    path: '/my/posts',
-    method: 'GET',
-    rpc: 'ListMyPosts',
+    path: "/my/posts",
+    method: "GET",
+    rpc: "ListMyPosts",
     loader: async ({ params }: { params: any }) => {
       await queryClient.ensureQueryData(Queries.listMyPostsQueryOptions());
     },
     meta: {
-      title: 'ListMyPosts',
-      breadcrumb: 'ListMyPosts'
+      title: "ListMyPosts",
+      breadcrumb: "ListMyPosts"
     } as RouteMeta
   },
   {
-    path: '/posts',
-    method: 'GET',
-    rpc: 'ListPosts',
+    path: "/posts",
+    method: "GET",
+    rpc: "ListPosts",
     loader: async ({ params }: { params: any }) => {
       await queryClient.ensureQueryData(Queries.listPostsQueryOptions());
     },
     meta: {
-      title: 'ListPosts',
-      breadcrumb: 'ListPosts'
+      title: "ListPosts",
+      breadcrumb: "ListPosts"
     } as RouteMeta
   },
   {
-    path: '/posts',
-    method: 'POST',
-    rpc: 'CreatePost',
+    path: "/posts",
+    method: "POST",
+    rpc: "CreatePost",
     meta: {
-      title: 'CreatePost',
-      breadcrumb: 'CreatePost'
+      title: "CreatePost",
+      breadcrumb: "CreatePost"
     } as RouteMeta
   },
   {
-    path: '/posts/:id',
-    method: 'DELETE',
-    rpc: 'DeletePost',
+    path: "/posts/:id",
+    method: "DELETE",
+    rpc: "DeletePost",
     meta: {
-      title: 'DeletePost',
-      breadcrumb: 'DeletePost'
+      title: "DeletePost",
+      breadcrumb: "DeletePost"
     } as RouteMeta
   },
   {
-    path: '/posts/:id',
-    method: 'PUT',
-    rpc: 'UpdatePost',
+    path: "/posts/:id",
+    method: "PUT",
+    rpc: "UpdatePost",
     meta: {
-      title: 'UpdatePost',
-      breadcrumb: 'UpdatePost'
+      title: "UpdatePost",
+      breadcrumb: "UpdatePost"
     } as RouteMeta
   },
   {
-    path: '/posts/:id/archive',
-    method: 'POST',
-    rpc: 'ArchivePost',
+    path: "/posts/:id/archive",
+    method: "POST",
+    rpc: "ArchivePost",
     meta: {
-      title: 'ArchivePost',
-      breadcrumb: 'ArchivePost'
+      title: "ArchivePost",
+      breadcrumb: "ArchivePost"
     } as RouteMeta
   },
   {
-    path: '/posts/:id/publish',
-    method: 'POST',
-    rpc: 'PublishPost',
+    path: "/posts/:id/publish",
+    method: "POST",
+    rpc: "PublishPost",
     meta: {
-      title: 'PublishPost',
-      breadcrumb: 'PublishPost'
+      title: "PublishPost",
+      breadcrumb: "PublishPost"
     } as RouteMeta
   },
   {
-    path: '/posts/:id/submit',
-    method: 'POST',
-    rpc: 'SubmitPost',
+    path: "/posts/:id/submit",
+    method: "POST",
+    rpc: "SubmitPost",
     meta: {
-      title: 'SubmitPost',
-      breadcrumb: 'SubmitPost'
+      title: "SubmitPost",
+      breadcrumb: "SubmitPost"
     } as RouteMeta
   },
   {
-    path: '/posts/:postID/comments',
-    method: 'GET',
-    rpc: 'ListComments',
+    path: "/posts/:postID/comments",
+    method: "GET",
+    rpc: "ListComments",
     loader: async ({ params }: { params: any }) => {
       await queryClient.ensureQueryData(Queries.listCommentsQueryOptions({postId: params.postID}));
     },
     meta: {
-      title: 'ListComments',
-      breadcrumb: 'ListComments'
+      title: "ListComments",
+      breadcrumb: "ListComments"
     } as RouteMeta
   },
   {
-    path: '/posts/:postID/comments',
-    method: 'POST',
-    rpc: 'CreateComment',
+    path: "/posts/:postID/comments",
+    method: "POST",
+    rpc: "CreateComment",
     meta: {
-      title: 'CreateComment',
-      breadcrumb: 'CreateComment'
+      title: "CreateComment",
+      breadcrumb: "CreateComment"
     } as RouteMeta
   },
   {
-    path: '/posts/:slug',
-    method: 'GET',
-    rpc: 'GetPost',
+    path: "/posts/:slug",
+    method: "GET",
+    rpc: "GetPost",
     loader: async ({ params }: { params: any }) => {
       await queryClient.ensureQueryData(Queries.getPostQueryOptions({slug: params.slug}));
     },
     meta: {
-      title: 'GetPost',
-      breadcrumb: 'GetPost'
+      title: "GetPost",
+      breadcrumb: "GetPost"
     } as RouteMeta
   },
   {
-    path: '/tags',
-    method: 'GET',
-    rpc: 'ListTags',
+    path: "/tags",
+    method: "GET",
+    rpc: "ListTags",
     loader: async ({ params }: { params: any }) => {
       await queryClient.ensureQueryData(Queries.listTagsQueryOptions());
     },
     meta: {
-      title: 'ListTags',
-      breadcrumb: 'ListTags'
+      title: "ListTags",
+      breadcrumb: "ListTags"
     } as RouteMeta
   },
   {
-    path: '/tags',
-    method: 'POST',
-    rpc: 'CreateTag',
+    path: "/tags",
+    method: "POST",
+    rpc: "CreateTag",
     meta: {
-      title: 'CreateTag',
-      breadcrumb: 'CreateTag'
+      title: "CreateTag",
+      breadcrumb: "CreateTag"
     } as RouteMeta
   },
   {
-    path: '/tags/:id',
-    method: 'DELETE',
-    rpc: 'DeleteTag',
+    path: "/tags/:id",
+    method: "DELETE",
+    rpc: "DeleteTag",
     meta: {
-      title: 'DeleteTag',
-      breadcrumb: 'DeleteTag'
+      title: "DeleteTag",
+      breadcrumb: "DeleteTag"
     } as RouteMeta
   },
   {
-    path: '/tags/:id',
-    method: 'PUT',
-    rpc: 'UpdateTag',
+    path: "/tags/:id",
+    method: "PUT",
+    rpc: "UpdateTag",
     meta: {
-      title: 'UpdateTag',
-      breadcrumb: 'UpdateTag'
+      title: "UpdateTag",
+      breadcrumb: "UpdateTag"
     } as RouteMeta
   },
   {
-    path: '/notifications/invitation',
-    method: 'POST',
-    rpc: 'SendInvitationEmail',
+    path: "/notifications/invitation",
+    method: "POST",
+    rpc: "SendInvitationEmail",
     meta: {
-      title: 'SendInvitationEmail',
-      breadcrumb: 'SendInvitationEmail'
+      title: "SendInvitationEmail",
+      breadcrumb: "SendInvitationEmail"
     } as RouteMeta
   },
   {
-    path: '/notifications/password-reset',
-    method: 'POST',
-    rpc: 'SendPasswordResetEmail',
+    path: "/notifications/password-reset",
+    method: "POST",
+    rpc: "SendPasswordResetEmail",
     meta: {
-      title: 'SendPasswordResetEmail',
-      breadcrumb: 'SendPasswordResetEmail'
+      title: "SendPasswordResetEmail",
+      breadcrumb: "SendPasswordResetEmail"
     } as RouteMeta
   },
 ];
 
 export const Routes = {
-  ChatWithAssistant: () => `/assistant/chat`,
-  Login: () => `/auth/login`,
-  GetProfile: () => `/auth/profile`,
-  UpdateProfile: () => `/auth/profile`,
-  Register: () => `/auth/register`,
-  DeleteComment: (id: string) => `/comments/${id}`,
-  UpdateComment: (id: string) => `/comments/${id}`,
-  ListMyPosts: () => `/my/posts`,
-  ListPosts: () => `/posts`,
-  CreatePost: () => `/posts`,
-  DeletePost: (id: string) => `/posts/${id}`,
-  UpdatePost: (id: string) => `/posts/${id}`,
-  ArchivePost: (id: string) => `/posts/${id}/archive`,
-  PublishPost: (id: string) => `/posts/${id}/publish`,
-  SubmitPost: (id: string) => `/posts/${id}/submit`,
-  ListComments: (postID: string) => `/posts/${postID}/comments`,
-  CreateComment: (postID: string) => `/posts/${postID}/comments`,
-  GetPost: (slug: string) => `/posts/${slug}`,
-  ListTags: () => `/tags`,
-  CreateTag: () => `/tags`,
-  DeleteTag: (id: string) => `/tags/${id}`,
-  UpdateTag: (id: string) => `/tags/${id}`,
-  SendInvitationEmail: () => `/notifications/invitation`,
-  SendPasswordResetEmail: () => `/notifications/password-reset`,
+  ChatWithAssistant: () => "/assistant/chat",
+  Login: () => "/auth/login",
+  GetProfile: () => "/auth/profile",
+  UpdateProfile: () => "/auth/profile",
+  Register: () => "/auth/register",
+  DeleteComment: (id: string) => "/comments/${id}",
+  UpdateComment: (id: string) => "/comments/${id}",
+  ListMyPosts: () => "/my/posts",
+  ListPosts: () => "/posts",
+  CreatePost: () => "/posts",
+  DeletePost: (id: string) => "/posts/${id}",
+  UpdatePost: (id: string) => "/posts/${id}",
+  ArchivePost: (id: string) => "/posts/${id}/archive",
+  PublishPost: (id: string) => "/posts/${id}/publish",
+  SubmitPost: (id: string) => "/posts/${id}/submit",
+  ListComments: (postID: string) => "/posts/${postID}/comments",
+  CreateComment: (postID: string) => "/posts/${postID}/comments",
+  GetPost: (slug: string) => "/posts/${slug}",
+  ListTags: () => "/tags",
+  CreateTag: () => "/tags",
+  DeleteTag: (id: string) => "/tags/${id}",
+  UpdateTag: (id: string) => "/tags/${id}",
+  SendInvitationEmail: () => "/notifications/invitation",
+  SendPasswordResetEmail: () => "/notifications/password-reset",
 };

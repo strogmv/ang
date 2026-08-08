@@ -312,10 +312,12 @@ func wsReadAuthToken(conn *websocket.Conn) (userID string, companyID string, err
 	return getStringClaim(claims, authUserClaim), getStringClaim(claims, authCompanyClaim), nil
 }
 
-// wsReadAuthTokenOrQuery first checks for a JWT in the ?token= query parameter.
-// If present, it validates that token directly (no auth frame needed).
-// Otherwise it falls back to wsReadAuthToken (JSON auth frame protocol).
-// This supports both browser SDK clients (auth frame) and test/tool clients (?token=).
+// wsReadAuthTokenOrQuery authenticates a WebSocket connection using the same
+// credentials as the HTTP API. It first checks for a JWT in the ?token= query
+// parameter, then the configured auth cookie (including opaque sid sessions),
+// and finally falls back to the JSON auth frame protocol. Supporting the cookie
+// here is important for browser clients because WebSocket handshakes include
+// cookies, while JavaScript cannot attach an Authorization header.
 func wsReadAuthTokenOrQuery(conn *websocket.Conn, r *http.Request) (userID string, companyID string, err error) {
 	if raw := r.URL.Query().Get("token"); raw != "" {
 		claims, clErr := parseAndVerifyJWT(raw)
@@ -325,6 +327,12 @@ func wsReadAuthTokenOrQuery(conn *websocket.Conn, r *http.Request) (userID strin
 			return "", "", fmt.Errorf("ws auth: %w", clErr)
 		}
 		return getStringClaim(claims, authUserClaim), getStringClaim(claims, authCompanyClaim), nil
+	}
+	if claims, cookieErr := authClaimsFromCookieSession(r); cookieErr == nil {
+		ac := authContextFromClaims(claims)
+		if ac.UserID != "" {
+			return ac.UserID, ac.CompanyID, nil
+		}
 	}
 	return wsReadAuthToken(conn)
 }
