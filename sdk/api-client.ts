@@ -1,4 +1,3 @@
-import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from './auth-store';
 import { endpointMeta } from './endpoints/meta';
 import { ErrorCode, ProblemDetail } from './types';
@@ -36,16 +35,6 @@ const isDevEnv = () => {
   }
   return true;
 };
-
-export const apiClient = axios.create({
-  baseURL: getBaseUrl(),
-  // Send/receive the session cookie (opaque_session_cookie auth) across origins.
-  // The API must allow credentials and echo the exact Origin (not "*").
-  withCredentials: true,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
 
 export type ApiRequestOptions = {
   signal?: AbortSignal;
@@ -126,42 +115,87 @@ type AuthStoreUserLike = {
   locale?: string | null;
 };
 
-type ApiClientRequestMeta = {
-  traceId?: string;
-  endpointMeta?: ReturnType<typeof findEndpointMeta>;
-  retryAttempt?: number;
-  authFromStore?: boolean;
+// ── fetch-based transport ───────────────────────────────────────────────────
+// Axios was dropped as a dependency; this reimplements the same request/retry/
+// auth-refresh behaviour (previously axios interceptors) directly over fetch,
+// while keeping the exact axios-shaped call surface (`.get/.post/.../.request`
+// returning `{ data, status }`) that every generated endpoint file — and the
+// base-api-client.ts compatibility facade — already calls.
+
+export type RequestMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
+export type ApiRequestConfig = {
+  url: string;
+  method: RequestMethod;
+  data?: unknown;
+  params?: Record<string, unknown>;
+  headers?: Record<string, string>;
+  signal?: AbortSignal;
+  /** internal: set once a 401 retry has been attempted for this request */
+  _retry?: boolean;
+  /** internal: retry-strategy attempt counter, distinct from the 401 retry above */
+  _retryAttempt?: number;
 };
 
-type ApiClientConfigWithMeta = InternalAxiosRequestConfig & {
-  meta?: ApiClientRequestMeta;
+export type ApiResponse<T> = {
+  data: T;
+  status: number;
+  statusText: string;
+  headers: Headers;
 };
 
-const getRequestMeta = (config: InternalAxiosRequestConfig | undefined): ApiClientRequestMeta => {
-  if (!config) return {};
-  return (config as ApiClientConfigWithMeta).meta || {};
+const defaultHeaders: Record<string, string> = {
+  'Content-Type': 'application/json',
 };
 
-const setRequestMeta = (config: InternalAxiosRequestConfig, meta: ApiClientRequestMeta) => {
-  (config as ApiClientConfigWithMeta).meta = meta;
+export const apiClient = {
+  defaults: {
+    // Send/receive the session cookie (opaque_session_cookie auth) across origins.
+    // The API must allow credentials and echo the exact Origin (not "*").
+    baseURL: getBaseUrl(),
+    headers: defaultHeaders,
+  },
+  get: <T = unknown>(url: string, config: { params?: Record<string, unknown>; headers?: Record<string, string>; signal?: AbortSignal } = {}) =>
+    request<T>({ url, method: 'GET', params: config.params, headers: config.headers, signal: config.signal }),
+  post: <T = unknown>(url: string, data?: unknown, config: { headers?: Record<string, string>; signal?: AbortSignal } = {}) =>
+    request<T>({ url, method: 'POST', data, headers: config.headers, signal: config.signal }),
+  put: <T = unknown>(url: string, data?: unknown, config: { headers?: Record<string, string>; signal?: AbortSignal } = {}) =>
+    request<T>({ url, method: 'PUT', data, headers: config.headers, signal: config.signal }),
+  patch: <T = unknown>(url: string, data?: unknown, config: { headers?: Record<string, string>; signal?: AbortSignal } = {}) =>
+    request<T>({ url, method: 'PATCH', data, headers: config.headers, signal: config.signal }),
+  delete: <T = unknown>(url: string, config: { data?: unknown; headers?: Record<string, string>; signal?: AbortSignal } = {}) =>
+    request<T>({ url, method: 'DELETE', data: config.data, headers: config.headers, signal: config.signal }),
+  request: <T = unknown>(config: ApiRequestConfig) => request<T>(config),
 };
 
-const getHeaderValue = (config: InternalAxiosRequestConfig, name: string): string | undefined => {
-  const headers = config.headers as InternalAxiosRequestConfig['headers'] & Record<string, unknown>;
-  if (headers == null) return undefined;
-  if (typeof headers.get === 'function') {
-    const value = headers.get(name);
-    return typeof value === 'string' && value.trim() ? value : undefined;
+const buildQueryString = (params: Record<string, unknown> | undefined): string => {
+  if (!params) return '';
+  const usp = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null) continue;
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item === undefined || item === null) continue;
+        usp.append(key, typeof item === 'object' ? JSON.stringify(item) : String(item));
+      }
+      continue;
+    }
+    usp.append(key, typeof value === 'object' ? JSON.stringify(value) : String(value));
   }
-  const direct = headers[name] ?? headers[name.toLowerCase()];
-  return typeof direct === 'string' && direct.trim() ? direct : undefined;
+  const qs = usp.toString();
+  return qs ? `?${qs}` : '';
+};
+
+const buildUrl = (config: ApiRequestConfig): string => {
+  const base = String(apiClient.defaults.baseURL || '').replace(/\/+$/, '');
+  const path = config.url.startsWith('/') ? config.url : `/${config.url}`;
+  return `${base}${path}${buildQueryString(config.params)}`;
 };
 
 const REFRESH_ENDPOINT = '/api/auth/refresh';
-const isRefreshRequest = (config?: InternalAxiosRequestConfig) => {
-  const url = config?.url;
-  if (!url) return false;
-  return url.endsWith(REFRESH_ENDPOINT) || url.includes(`${REFRESH_ENDPOINT}?`);
+const isRefreshRequest = (config: ApiRequestConfig) => {
+  const url = config.url;
+  return url === REFRESH_ENDPOINT || url.startsWith(`${REFRESH_ENDPOINT}?`) || url.endsWith(REFRESH_ENDPOINT);
 };
 
 type RefreshWaiter = {
@@ -190,9 +224,8 @@ const flushRefreshWaiters = (token?: string, error?: unknown) => {
 };
 
 const shouldClearAuthOnRefreshFailure = (error: unknown) => {
-  if (!axios.isAxiosError(error)) return false;
-  const status = Number(error.response?.status || 0);
-  return status === 401 || status === 403;
+  if (!isProblemDetailLike(error)) return false;
+  return error.status === 401 || error.status === 403;
 };
 
 const refreshAuthToken = async (): Promise<string> => {
@@ -205,7 +238,7 @@ const refreshAuthToken = async (): Promise<string> => {
 
   if (!refreshPromise) {
     refreshPromise = apiClient
-      .post<Types.RefreshTokenResponse>(`/api/auth/refresh`, { refreshToken: storedRefresh })
+      .post<Types.RefreshTokenResponse>(REFRESH_ENDPOINT, { refreshToken: storedRefresh })
       .then((response) => {
         const data = response.data;
         if (import.meta.env.DEV) {
@@ -229,133 +262,172 @@ const refreshAuthToken = async (): Promise<string> => {
   return refreshPromise;
 };
 
-const isNetworkError = (error: AxiosError) => !error.response;
-
-const shouldRetry = (error: AxiosError) => {
-  const cfg = error.config as ApiClientConfigWithMeta | undefined;
-  const meta = cfg?.meta || {};
-  const endpoint = meta.endpointMeta;
-  const strategy = endpoint?.retryStrategy;
+const shouldRetry = (config: ApiRequestConfig, isNetworkError: boolean, status?: number) => {
+  const meta = findEndpointMeta(config.url);
+  const strategy = meta?.retryStrategy;
   if (!strategy) return false;
-  const attempt = Number(meta.retryAttempt || 0);
+  const attempt = Number(config._retryAttempt || 0);
   if (attempt >= Number(strategy.maxAttempts || 0)) return false;
 
-  if (isNetworkError(error)) {
+  if (isNetworkError) {
     return Boolean(strategy.retryNetworkErrors);
   }
-  const status = error.response?.status;
   return typeof status === 'number' && Array.isArray(strategy.retryOnStatuses) && strategy.retryOnStatuses.includes(status);
 };
 
-// 1. JWT, Locale & Trace Context Interceptor
-apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+const buildHeaders = (config: ApiRequestConfig, traceId: string, meta: ReturnType<typeof findEndpointMeta>): Headers => {
+  const headers = new Headers();
+  headers.set('Content-Type', 'application/json');
+
+  const explicitAuthorization = config.headers?.Authorization ?? config.headers?.authorization;
   const token = useAuthStore.getState().token;
-  const hasExplicitAuthorization = Boolean(getHeaderValue(config, 'Authorization'));
-  if (token && config.headers && hasExplicitAuthorization === false) {
-    config.headers.Authorization = `Bearer ${token}`;
+  if (token && !explicitAuthorization) {
+    headers.set('Authorization', `Bearer ${token}`);
   }
 
   // Accept-Language: propagate user locale to backend (supports fallback chain in ANG)
   const userLocale = (useAuthStore.getState().user as AuthStoreUserLike | null | undefined)?.locale;
   if (userLocale && typeof userLocale === 'string' && userLocale.trim()) {
-    config.headers.set('Accept-Language', userLocale.trim());
+    headers.set('Accept-Language', userLocale.trim());
   }
 
   // W3C Trace Context (OpenTelemetry compatible)
   // Format: 00-traceId(32)-spanId(16)-01
-  const traceId = hex(32);
   const spanId = hex(16);
-  const traceparent = `00-${traceId}-${spanId}-01`;
-  
-  config.headers.set('traceparent', traceparent);
-  
-  const meta = findEndpointMeta(config.url);
-  const method = config.method?.toUpperCase();
-  if ((meta?.cachePolicy === 'realtime' || meta?.cachePolicy === 'bypass' || meta?.cachePolicy === 'no-store') && method === 'GET') {
-    const currentParams =
-      config.params && typeof config.params === 'object'
-        ? (config.params as Record<string, unknown>)
-        : {};
-    config.params = {
-      ...currentParams,
-      _rt: Date.now().toString(),
-    };
-    config.headers.set('Cache-Control', 'no-store, no-cache, max-age=0, must-revalidate');
-    config.headers.set('Pragma', 'no-cache');
-  }
-  // Attach trace + contract metadata for response/retry interceptor.
-  const attempt = Number(getRequestMeta(config).retryAttempt || 0);
-  setRequestMeta(config, {
-    traceId,
-    endpointMeta: meta,
-    retryAttempt: attempt,
-    authFromStore: token && hasExplicitAuthorization === false,
-  });
+  headers.set('traceparent', `00-${traceId}-${spanId}-01`);
 
   // Auto-Idempotency for contract-driven endpoints.
-  if (meta?.idempotent && config.method?.toUpperCase() !== 'GET') {
-    if (!config.headers.get('Idempotency-Key')) {
-      config.headers.set('Idempotency-Key', hex(32));
+  if (meta?.idempotent && config.method !== 'GET') {
+    headers.set('Idempotency-Key', hex(32));
+  }
+
+  if (config.headers) {
+    for (const [key, value] of Object.entries(config.headers)) {
+      if (value !== undefined) headers.set(key, value);
     }
   }
 
-  return config;
-});
+  return headers;
+};
 
-apiClient.interceptors.response.use(
-  (response) => response,
-  async (error: AxiosError) => {
-    const cfg = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
-    // Only attempt a token refresh when we actually have a refresh token; otherwise a
-    // 401 from login/register (no session yet) would trigger a pointless refresh and
-    // mask the real error ("Missing refresh token") instead of propagating the 401.
-    if (error.response?.status === 401 && cfg && !cfg._retry && !isRefreshRequest(cfg) && useAuthStore.getState().refreshToken) {
-      cfg._retry = true;
-      try {
-        const newToken = refreshPromise ? await waitForRefreshToken() : await refreshAuthToken();
-        if (newToken && cfg.headers && (getRequestMeta(cfg).authFromStore || getHeaderValue(cfg, 'Authorization') === undefined)) {
-          cfg.headers.Authorization = `Bearer ${newToken}`;
-        }
-        return apiClient.request(cfg);
-      } catch (refreshErr) {
-        return Promise.reject(refreshErr);
-      }
+const parseBody = async (response: Response): Promise<unknown> => {
+  const contentLength = response.headers.get('content-length');
+  if (response.status === 204 || contentLength === '0') return undefined;
+  const text = await response.text();
+  if (!text) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+};
+
+async function request<T>(config: ApiRequestConfig): Promise<ApiResponse<T>> {
+  const traceId = hex(32);
+  const meta = findEndpointMeta(config.url);
+
+  let effectiveConfig = config;
+  if (meta?.cachePolicy === 'realtime' || meta?.cachePolicy === 'bypass' || meta?.cachePolicy === 'no-store') {
+    if (config.method === 'GET') {
+      effectiveConfig = {
+        ...config,
+        params: { ...(config.params || {}), _rt: Date.now().toString() },
+      };
     }
-    if (shouldRetry(error) && error.config) {
-      const cfg = error.config as ApiClientConfigWithMeta;
-      const meta = getRequestMeta(cfg);
-      const currentAttempt = Number(meta.retryAttempt || 0);
-      const strategy = meta.endpointMeta?.retryStrategy;
-      const delay = Math.max(0, Number(strategy?.baseDelayMs || 0)) * Math.pow(2, currentAttempt);
-      setRequestMeta(cfg, {
-        ...meta,
-        retryAttempt: currentAttempt + 1,
-      });
-      if (delay > 0) {
-        await sleep(delay);
-      }
-      return apiClient.request(cfg);
+  }
+
+  const headers = buildHeaders(effectiveConfig, traceId, meta);
+  if (effectiveConfig.method === 'GET' || effectiveConfig.method === 'DELETE') {
+    if ((meta?.cachePolicy === 'realtime' || meta?.cachePolicy === 'bypass' || meta?.cachePolicy === 'no-store') && effectiveConfig.method === 'GET') {
+      headers.set('Cache-Control', 'no-store, no-cache, max-age=0, must-revalidate');
+      headers.set('Pragma', 'no-cache');
     }
+  }
 
-    const traceId = getRequestMeta(error.config as InternalAxiosRequestConfig | undefined).traceId;
+  const url = buildUrl(effectiveConfig);
+  const hasBody = effectiveConfig.data !== undefined && effectiveConfig.method !== 'GET';
 
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: effectiveConfig.method,
+      headers,
+      body: hasBody ? JSON.stringify(effectiveConfig.data) : undefined,
+      signal: effectiveConfig.signal,
+      credentials: 'include',
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw err;
+    }
+    // Network error — no response was ever received.
+    if (shouldRetry(effectiveConfig, true)) {
+      const strategy = meta?.retryStrategy;
+      const attempt = Number(effectiveConfig._retryAttempt || 0);
+      const delay = Math.max(0, Number(strategy?.baseDelayMs || 0)) * Math.pow(2, attempt);
+      if (delay > 0) await sleep(delay);
+      return request<T>({ ...effectiveConfig, _retryAttempt: attempt + 1 });
+    }
     apiLogger.error('[ANG SDK] API request failed', {
       traceId,
-      message: error.message,
-      status: error.response?.status,
-      url: error.config?.url,
+      message: err instanceof Error ? err.message : String(err),
+      status: undefined,
+      url: effectiveConfig.url,
     });
-
-    const problem = normalizeApiError({
-      data: error.response?.data,
-      status: error.response?.status,
-      statusText: error.response?.statusText,
-      errorMessage: error.message,
+    throw normalizeApiError({
+      data: undefined,
+      errorMessage: err instanceof Error ? err.message : 'Network Error',
       traceId,
     });
-    return Promise.reject(problem);
   }
-);
+
+  if (response.ok) {
+    const data = (await parseBody(response)) as T;
+    return { data, status: response.status, statusText: response.statusText, headers: response.headers };
+  }
+
+  // 401 → refresh-and-retry, once per request (mirrors the old axios response interceptor).
+  if (
+    response.status === 401 &&
+    !effectiveConfig._retry &&
+    !isRefreshRequest(effectiveConfig) &&
+    useAuthStore.getState().refreshToken
+  ) {
+    const retryConfig: ApiRequestConfig = { ...effectiveConfig, _retry: true };
+    try {
+      const newToken = refreshPromise ? await waitForRefreshToken() : await refreshAuthToken();
+      if (newToken) {
+        retryConfig.headers = { ...(retryConfig.headers || {}), Authorization: `Bearer ${newToken}` };
+      }
+      return request<T>(retryConfig);
+    } catch (refreshErr) {
+      throw refreshErr;
+    }
+  }
+
+  if (shouldRetry(effectiveConfig, false, response.status)) {
+    const strategy = meta?.retryStrategy;
+    const attempt = Number(effectiveConfig._retryAttempt || 0);
+    const delay = Math.max(0, Number(strategy?.baseDelayMs || 0)) * Math.pow(2, attempt);
+    if (delay > 0) await sleep(delay);
+    return request<T>({ ...effectiveConfig, _retryAttempt: attempt + 1 });
+  }
+
+  const errorBody = await parseBody(response);
+  apiLogger.error('[ANG SDK] API request failed', {
+    traceId,
+    message: response.statusText,
+    status: response.status,
+    url: effectiveConfig.url,
+  });
+  const problem = normalizeApiError({
+    data: errorBody,
+    status: response.status,
+    statusText: response.statusText,
+    traceId,
+  });
+  throw problem;
+}
 
 // Zod schemas are typed with specific key names; dynamic lookup requires a structural cast.
 type _ZodSchemaLookup = Record<string, { safeParse: (value: unknown) => { success: boolean; error?: unknown } } | undefined>;
