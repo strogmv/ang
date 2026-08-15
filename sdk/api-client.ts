@@ -1,3 +1,4 @@
+import ky from 'ky';
 import { useAuthStore } from './auth-store';
 import { endpointMeta } from './endpoints/meta';
 import { ErrorCode, ProblemDetail } from './types';
@@ -27,12 +28,8 @@ const getBaseUrl = () => {
 
 const isDevEnv = () => {
   const viteEnv = getViteEnv();
-  if (viteEnv?.DEV !== undefined) {
-    return Boolean(viteEnv.DEV);
-  }
-  if (typeof process !== 'undefined' && process.env?.NODE_ENV) {
-    return process.env.NODE_ENV !== 'production';
-  }
+  if (viteEnv?.DEV !== undefined) return Boolean(viteEnv.DEV);
+  if (typeof process !== 'undefined' && process.env?.NODE_ENV) return process.env.NODE_ENV !== 'production';
   return true;
 };
 
@@ -86,7 +83,6 @@ export const setCryptoProvider = (provider: CryptoProvider) => {
   cryptoProvider = provider;
 };
 
-// Helper: Generate hex string
 const hex = (len: number) => {
   const cryptoObject = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined;
   if (!cryptoObject?.getRandomValues) {
@@ -102,9 +98,7 @@ const findEndpointMeta = (url: string | undefined) => {
   const pathOnly = url.split('?')[0] || url;
   for (const meta of Object.values(endpointMeta)) {
     const pattern = meta.path.replace(/\{[^}]+\}/g, '[^/]+');
-    if (new RegExp(`^${pattern}$`).test(pathOnly)) {
-      return meta;
-    }
+    if (new RegExp(`^${pattern}$`).test(pathOnly)) return meta;
   }
   return undefined;
 };
@@ -115,117 +109,124 @@ type AuthStoreUserLike = {
   locale?: string | null;
 };
 
-// ── fetch-based transport ───────────────────────────────────────────────────
-// Axios was dropped as a dependency; this reimplements the same request/retry/
-// auth-refresh behaviour (previously axios interceptors) directly over fetch,
-// while keeping the exact axios-shaped call surface (`.get/.post/.../.request`
-// returning `{ data, status }`) that every generated endpoint file — and the
-// base-api-client.ts compatibility facade — already calls.
-
-export type RequestMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
-
-export type ApiRequestConfig = {
-  url: string;
-  method: RequestMethod;
-  data?: unknown;
-  params?: Record<string, unknown>;
-  headers?: Record<string, string>;
-  signal?: AbortSignal;
-  /** internal: set once a 401 retry has been attempted for this request */
-  _retry?: boolean;
-  /** internal: retry-strategy attempt counter, distinct from the 401 retry above */
-  _retryAttempt?: number;
+type ApiClientRequestMeta = {
+  traceId: string;
+  endpointMeta?: ReturnType<typeof findEndpointMeta>;
+  retryAttempt: number;
 };
 
-export type ApiResponse<T> = {
+type ApiRequestConfig = {
+  url: string;
+  method: string;
+  params?: Record<string, unknown>;
+  data?: unknown;
+  signal?: AbortSignal;
+  headers?: HeadersInit;
+  retryAttempt?: number;
+};
+
+type ApiResponse<T> = {
   data: T;
   status: number;
   statusText: string;
   headers: Headers;
+  config: ApiRequestConfig;
 };
 
-const defaultHeaders: Record<string, string> = {
-  'Content-Type': 'application/json',
-};
-
-export const apiClient = {
-  defaults: {
-    // Send/receive the session cookie (opaque_session_cookie auth) across origins.
-    // The API must allow credentials and echo the exact Origin (not "*").
-    baseURL: getBaseUrl(),
-    headers: defaultHeaders,
-  },
-  get: <T = unknown>(url: string, config: { params?: Record<string, unknown>; headers?: Record<string, string>; signal?: AbortSignal } = {}) =>
-    request<T>({ url, method: 'GET', params: config.params, headers: config.headers, signal: config.signal }),
-  post: <T = unknown>(url: string, data?: unknown, config: { headers?: Record<string, string>; signal?: AbortSignal } = {}) =>
-    request<T>({ url, method: 'POST', data, headers: config.headers, signal: config.signal }),
-  put: <T = unknown>(url: string, data?: unknown, config: { headers?: Record<string, string>; signal?: AbortSignal } = {}) =>
-    request<T>({ url, method: 'PUT', data, headers: config.headers, signal: config.signal }),
-  patch: <T = unknown>(url: string, data?: unknown, config: { headers?: Record<string, string>; signal?: AbortSignal } = {}) =>
-    request<T>({ url, method: 'PATCH', data, headers: config.headers, signal: config.signal }),
-  delete: <T = unknown>(url: string, config: { data?: unknown; headers?: Record<string, string>; signal?: AbortSignal } = {}) =>
-    request<T>({ url, method: 'DELETE', data: config.data, headers: config.headers, signal: config.signal }),
-  request: <T = unknown>(config: ApiRequestConfig) => request<T>(config),
-};
-
-const buildQueryString = (params: Record<string, unknown> | undefined): string => {
-  if (!params) return '';
-  const usp = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === null) continue;
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        if (item === undefined || item === null) continue;
-        usp.append(key, typeof item === 'object' ? JSON.stringify(item) : String(item));
-      }
-      continue;
-    }
-    usp.append(key, typeof value === 'object' ? JSON.stringify(value) : String(value));
-  }
-  const qs = usp.toString();
-  return qs ? `?${qs}` : '';
-};
-
-const buildUrl = (config: ApiRequestConfig): string => {
-  const base = String(apiClient.defaults.baseURL || '').replace(/\/+$/, '');
-  const path = config.url.startsWith('/') ? config.url : `/${config.url}`;
-  return `${base}${path}${buildQueryString(config.params)}`;
+type ApiClientError = Error & {
+  response?: Response;
+  config?: ApiRequestConfig;
+  status?: number;
+  data?: unknown;
+  traceId?: string;
+  networkError?: boolean;
+  normalized?: boolean;
 };
 
 const REFRESH_ENDPOINT = '/api/auth/refresh';
-const isRefreshRequest = (config: ApiRequestConfig) => {
-  const url = config.url;
-  return url === REFRESH_ENDPOINT || url.startsWith(`${REFRESH_ENDPOINT}?`) || url.endsWith(REFRESH_ENDPOINT);
+
+const isRefreshRequest = (url: string) => url.endsWith(REFRESH_ENDPOINT) || url.includes(`${REFRESH_ENDPOINT}?`);
+
+const joinUrl = (baseUrl: string, path: string) => {
+  if (/^https?:\/\//i.test(path)) return path;
+  const base = baseUrl.replace(/\/+$/, '');
+  return `${base}${path.startsWith('/') ? path : `/${path}`}`;
 };
 
-type RefreshWaiter = {
-  resolve: (token: string) => void;
-  reject: (error: unknown) => void;
-};
-
-let refreshPromise: Promise<string> | null = null;
-let refreshWaiters: RefreshWaiter[] = [];
-
-const waitForRefreshToken = () =>
-  new Promise<string>((resolve, reject) => {
-    refreshWaiters.push({ resolve, reject });
-  });
-
-const flushRefreshWaiters = (token?: string, error?: unknown) => {
-  const pending = [...refreshWaiters];
-  refreshWaiters = [];
-  for (const waiter of pending) {
-    if (token !== undefined) {
-      waiter.resolve(token);
+const appendQuery = (url: string, params: Record<string, unknown> | undefined) => {
+  if (!params) return url;
+  const query = new URLSearchParams();
+  for (const [key, raw] of Object.entries(params)) {
+    if (raw === undefined || raw === null) continue;
+    if (Array.isArray(raw)) {
+      raw.forEach((item) => item !== undefined && item !== null && query.append(key, String(item)));
       continue;
     }
-    waiter.reject(error ?? new Error('Token refresh failed'));
+    query.set(key, String(raw));
+  }
+  const queryString = query.toString();
+  if (!queryString) return url;
+  return url.includes('?') ? `${url}&${queryString}` : `${url}?${queryString}`;
+};
+
+const getHeaderValue = (headers: HeadersInit | undefined, name: string) => new Headers(headers).get(name);
+
+const isBodyInit = (value: unknown): value is BodyInit =>
+  typeof value === 'string' || value instanceof FormData || value instanceof Blob || value instanceof URLSearchParams || value instanceof ArrayBuffer;
+
+const readResponseBody = async (response: Response): Promise<unknown> => {
+  if (response.status === 204 || response.status === 205) return undefined;
+  const text = await response.text();
+  if (!text) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
   }
 };
 
+const makeError = (message: string, config: ApiRequestConfig, meta: ApiClientRequestMeta, response?: Response, data?: unknown, networkError = false): ApiClientError => {
+  const error = new Error(message) as ApiClientError;
+  error.response = response;
+  error.config = config;
+  error.status = response?.status;
+  error.data = data;
+  error.traceId = meta.traceId;
+  error.networkError = networkError;
+  return error;
+};
+
+const shouldRetry = (meta: ApiClientRequestMeta, status?: number, networkError = false) => {
+  const strategy = meta.endpointMeta?.retryStrategy;
+  if (!strategy || meta.retryAttempt >= Number(strategy.maxAttempts || 0)) return false;
+  if (networkError) return Boolean(strategy.retryNetworkErrors);
+  return typeof status === 'number' && Array.isArray(strategy.retryOnStatuses) && strategy.retryOnStatuses.includes(status);
+};
+
+const retryDelay = (meta: ApiClientRequestMeta) => {
+  const baseDelay = Math.max(0, Number(meta.endpointMeta?.retryStrategy?.baseDelayMs || 0));
+  return baseDelay * Math.pow(2, meta.retryAttempt);
+};
+
+const normalizeError = (error: ApiClientError): ProblemDetail => {
+  const problem = normalizeApiError({
+    data: error.data,
+    status: error.response?.status ?? error.status,
+    statusText: error.response?.statusText,
+    errorMessage: error.message,
+    traceId: error.traceId,
+  }) as ProblemDetail & ApiClientError;
+  problem.status = error.response?.status ?? error.status;
+  problem.traceId = error.traceId;
+  problem.normalized = true;
+  return problem;
+};
+
+let refreshPromise: Promise<string> | null = null;
+
 const shouldClearAuthOnRefreshFailure = (error: unknown) => {
-  if (!isProblemDetailLike(error)) return false;
-  return error.status === 401 || error.status === 403;
+  const status = Number((error as ApiClientError | null)?.status || 0);
+  return status === 401 || status === 403;
 };
 
 const refreshAuthToken = async (): Promise<string> => {
@@ -238,22 +239,16 @@ const refreshAuthToken = async (): Promise<string> => {
 
   if (!refreshPromise) {
     refreshPromise = apiClient
-      .post<Types.RefreshTokenResponse>(REFRESH_ENDPOINT, { refreshToken: storedRefresh })
+      .post<Types.RefreshTokenResponse>(REFRESH_ENDPOINT, { refreshToken: storedRefresh }, { skipAuthRefresh: true })
       .then((response) => {
         const data = response.data;
-        if (import.meta.env.DEV) {
-          validateResponse('RefreshTokenResponseSchema', data, 'RefreshToken');
-        }
+        if (import.meta.env.DEV) validateResponse('RefreshTokenResponseSchema', data, 'RefreshToken');
         store.setAuth(data.accessToken, store.user, data.refreshToken);
-        flushRefreshWaiters(data.accessToken);
         return data.accessToken;
       })
-      .catch((err) => {
-        if (shouldClearAuthOnRefreshFailure(err)) {
-          store.clearAuth();
-        }
-        flushRefreshWaiters(undefined, err);
-        throw err;
+      .catch((error) => {
+        if (shouldClearAuthOnRefreshFailure(error)) store.clearAuth();
+        throw error;
       })
       .finally(() => {
         refreshPromise = null;
@@ -262,172 +257,121 @@ const refreshAuthToken = async (): Promise<string> => {
   return refreshPromise;
 };
 
-const shouldRetry = (config: ApiRequestConfig, isNetworkError: boolean, status?: number) => {
-  const meta = findEndpointMeta(config.url);
-  const strategy = meta?.retryStrategy;
-  if (!strategy) return false;
-  const attempt = Number(config._retryAttempt || 0);
-  if (attempt >= Number(strategy.maxAttempts || 0)) return false;
+class KyApiClient {
+  defaults = { baseURL: getBaseUrl() };
 
-  if (isNetworkError) {
-    return Boolean(strategy.retryNetworkErrors);
-  }
-  return typeof status === 'number' && Array.isArray(strategy.retryOnStatuses) && strategy.retryOnStatuses.includes(status);
-};
-
-const buildHeaders = (config: ApiRequestConfig, traceId: string, meta: ReturnType<typeof findEndpointMeta>): Headers => {
-  const headers = new Headers();
-  headers.set('Content-Type', 'application/json');
-
-  const explicitAuthorization = config.headers?.Authorization ?? config.headers?.authorization;
-  const token = useAuthStore.getState().token;
-  if (token && !explicitAuthorization) {
-    headers.set('Authorization', `Bearer ${token}`);
+  get<T>(url: string, config: Omit<ApiRequestConfig, 'url' | 'method'> = {}) {
+    return this.request<T>({ ...config, url, method: 'GET' });
   }
 
-  // Accept-Language: propagate user locale to backend (supports fallback chain in ANG)
-  const userLocale = (useAuthStore.getState().user as AuthStoreUserLike | null | undefined)?.locale;
-  if (userLocale && typeof userLocale === 'string' && userLocale.trim()) {
-    headers.set('Accept-Language', userLocale.trim());
+  post<T>(url: string, data?: unknown, config: Omit<ApiRequestConfig, 'url' | 'method' | 'data'> & { skipAuthRefresh?: boolean } = {}) {
+    return this.request<T>({ ...config, url, method: 'POST', data });
   }
 
-  // W3C Trace Context (OpenTelemetry compatible)
-  // Format: 00-traceId(32)-spanId(16)-01
-  const spanId = hex(16);
-  headers.set('traceparent', `00-${traceId}-${spanId}-01`);
-
-  // Auto-Idempotency for contract-driven endpoints.
-  if (meta?.idempotent && config.method !== 'GET') {
-    headers.set('Idempotency-Key', hex(32));
+  put<T>(url: string, data?: unknown, config: Omit<ApiRequestConfig, 'url' | 'method' | 'data'> = {}) {
+    return this.request<T>({ ...config, url, method: 'PUT', data });
   }
 
-  if (config.headers) {
-    for (const [key, value] of Object.entries(config.headers)) {
-      if (value !== undefined) headers.set(key, value);
-    }
+  patch<T>(url: string, data?: unknown, config: Omit<ApiRequestConfig, 'url' | 'method' | 'data'> = {}) {
+    return this.request<T>({ ...config, url, method: 'PATCH', data });
   }
 
-  return headers;
-};
-
-const parseBody = async (response: Response): Promise<unknown> => {
-  const contentLength = response.headers.get('content-length');
-  if (response.status === 204 || contentLength === '0') return undefined;
-  const text = await response.text();
-  if (!text) return undefined;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
+  delete<T>(url: string, config: Omit<ApiRequestConfig, 'url' | 'method'> = {}) {
+    return this.request<T>({ ...config, url, method: 'DELETE' });
   }
-};
 
-async function request<T>(config: ApiRequestConfig): Promise<ApiResponse<T>> {
-  const traceId = hex(32);
-  const meta = findEndpointMeta(config.url);
+  async request<T>(input: ApiRequestConfig & { skipAuthRefresh?: boolean }): Promise<ApiResponse<T>> {
+    const config: ApiRequestConfig & { skipAuthRefresh?: boolean } = { ...input };
+    let refreshed = false;
 
-  let effectiveConfig = config;
-  if (meta?.cachePolicy === 'realtime' || meta?.cachePolicy === 'bypass' || meta?.cachePolicy === 'no-store') {
-    if (config.method === 'GET') {
-      effectiveConfig = {
-        ...config,
-        params: { ...(config.params || {}), _rt: Date.now().toString() },
+    while (true) {
+      const attempt = Number(config.retryAttempt || 0);
+      const endpoint = findEndpointMeta(config.url);
+      const meta: ApiClientRequestMeta = {
+        traceId: `${hex(32)}-${hex(16)}`,
+        endpointMeta: endpoint,
+        retryAttempt: attempt,
       };
-    }
-  }
+      const headers = new Headers(config.headers);
+      const token = useAuthStore.getState().token;
+      const hasExplicitAuthorization = Boolean(getHeaderValue(config.headers, 'Authorization'));
+      if (token && !hasExplicitAuthorization) headers.set('Authorization', `Bearer ${token}`);
 
-  const headers = buildHeaders(effectiveConfig, traceId, meta);
-  if (effectiveConfig.method === 'GET' || effectiveConfig.method === 'DELETE') {
-    if ((meta?.cachePolicy === 'realtime' || meta?.cachePolicy === 'bypass' || meta?.cachePolicy === 'no-store') && effectiveConfig.method === 'GET') {
-      headers.set('Cache-Control', 'no-store, no-cache, max-age=0, must-revalidate');
-      headers.set('Pragma', 'no-cache');
-    }
-  }
+      const userLocale = (useAuthStore.getState().user as AuthStoreUserLike | null | undefined)?.locale;
+      if (userLocale?.trim()) headers.set('Accept-Language', userLocale.trim());
+      headers.set('traceparent', `00-${meta.traceId.slice(0, 32)}-${meta.traceId.slice(33)}-01`);
 
-  const url = buildUrl(effectiveConfig);
-  const hasBody = effectiveConfig.data !== undefined && effectiveConfig.method !== 'GET';
-
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method: effectiveConfig.method,
-      headers,
-      body: hasBody ? JSON.stringify(effectiveConfig.data) : undefined,
-      signal: effectiveConfig.signal,
-      credentials: 'include',
-    });
-  } catch (err) {
-    if (err instanceof DOMException && err.name === 'AbortError') {
-      throw err;
-    }
-    // Network error — no response was ever received.
-    if (shouldRetry(effectiveConfig, true)) {
-      const strategy = meta?.retryStrategy;
-      const attempt = Number(effectiveConfig._retryAttempt || 0);
-      const delay = Math.max(0, Number(strategy?.baseDelayMs || 0)) * Math.pow(2, attempt);
-      if (delay > 0) await sleep(delay);
-      return request<T>({ ...effectiveConfig, _retryAttempt: attempt + 1 });
-    }
-    apiLogger.error('[ANG SDK] API request failed', {
-      traceId,
-      message: err instanceof Error ? err.message : String(err),
-      status: undefined,
-      url: effectiveConfig.url,
-    });
-    throw normalizeApiError({
-      data: undefined,
-      errorMessage: err instanceof Error ? err.message : 'Network Error',
-      traceId,
-    });
-  }
-
-  if (response.ok) {
-    const data = (await parseBody(response)) as T;
-    return { data, status: response.status, statusText: response.statusText, headers: response.headers };
-  }
-
-  // 401 → refresh-and-retry, once per request (mirrors the old axios response interceptor).
-  if (
-    response.status === 401 &&
-    !effectiveConfig._retry &&
-    !isRefreshRequest(effectiveConfig) &&
-    useAuthStore.getState().refreshToken
-  ) {
-    const retryConfig: ApiRequestConfig = { ...effectiveConfig, _retry: true };
-    try {
-      const newToken = refreshPromise ? await waitForRefreshToken() : await refreshAuthToken();
-      if (newToken) {
-        retryConfig.headers = { ...(retryConfig.headers || {}), Authorization: `Bearer ${newToken}` };
+      let requestUrl = appendQuery(joinUrl(this.defaults.baseURL, config.url), config.params);
+      if ((endpoint?.cachePolicy === 'realtime' || endpoint?.cachePolicy === 'bypass' || endpoint?.cachePolicy === 'no-store') && config.method === 'GET') {
+        requestUrl = appendQuery(requestUrl, { _rt: Date.now().toString() });
+        headers.set('Cache-Control', 'no-store, no-cache, max-age=0, must-revalidate');
+        headers.set('Pragma', 'no-cache');
       }
-      return request<T>(retryConfig);
-    } catch (refreshErr) {
-      throw refreshErr;
+      if (endpoint?.idempotent && config.method !== 'GET' && !headers.has('Idempotency-Key')) headers.set('Idempotency-Key', hex(32));
+
+      const kyOptions: Parameters<typeof ky>[1] = {
+        method: config.method,
+        headers,
+        credentials: 'include',
+        signal: config.signal,
+        retry: 0,
+        throwHttpErrors: false,
+      };
+      if (config.data !== undefined) {
+        if (isBodyInit(config.data)) {
+          kyOptions.body = config.data;
+        } else {
+          kyOptions.body = JSON.stringify(config.data);
+          if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+        }
+      }
+      config.headers = headers;
+
+      let response: Response;
+      let data: unknown;
+      try {
+        response = await ky(requestUrl, kyOptions);
+        data = await readResponseBody(response);
+      } catch (cause) {
+        if (config.signal?.aborted) throw cause;
+        const error = makeError(cause instanceof Error ? cause.message : 'Network request failed', config, meta, undefined, undefined, true);
+        if (shouldRetry(meta, undefined, true)) {
+          await sleep(retryDelay(meta));
+          config.retryAttempt = attempt + 1;
+          continue;
+        }
+        apiLogger.error('[ANG SDK] API request failed', { traceId: meta.traceId, message: error.message, url: config.url });
+        throw normalizeError(error);
+      }
+
+      if (response.ok) {
+        return { data: data as T, status: response.status, statusText: response.statusText, headers: response.headers, config };
+      }
+
+      const error = makeError(`Request failed with status ${response.status}`, config, meta, response, data);
+      if (response.status === 401 && !refreshed && !config.skipAuthRefresh && !isRefreshRequest(config.url) && useAuthStore.getState().refreshToken) {
+        refreshed = true;
+        await refreshAuthToken();
+        continue;
+      }
+      if (shouldRetry(meta, response.status, false)) {
+        await sleep(retryDelay(meta));
+        config.retryAttempt = attempt + 1;
+        continue;
+      }
+
+      apiLogger.error('[ANG SDK] API request failed', {
+        traceId: meta.traceId,
+        message: error.message,
+        status: response.status,
+        url: config.url,
+      });
+      throw normalizeError(error);
     }
   }
-
-  if (shouldRetry(effectiveConfig, false, response.status)) {
-    const strategy = meta?.retryStrategy;
-    const attempt = Number(effectiveConfig._retryAttempt || 0);
-    const delay = Math.max(0, Number(strategy?.baseDelayMs || 0)) * Math.pow(2, attempt);
-    if (delay > 0) await sleep(delay);
-    return request<T>({ ...effectiveConfig, _retryAttempt: attempt + 1 });
-  }
-
-  const errorBody = await parseBody(response);
-  apiLogger.error('[ANG SDK] API request failed', {
-    traceId,
-    message: response.statusText,
-    status: response.status,
-    url: effectiveConfig.url,
-  });
-  const problem = normalizeApiError({
-    data: errorBody,
-    status: response.status,
-    statusText: response.statusText,
-    traceId,
-  });
-  throw problem;
 }
+
+export const apiClient = new KyApiClient();
 
 // Zod schemas are typed with specific key names; dynamic lookup requires a structural cast.
 type _ZodSchemaLookup = Record<string, { safeParse: (value: unknown) => { success: boolean; error?: unknown } } | undefined>;
@@ -438,12 +382,7 @@ export const validateResponse = <T>(schemaName: string, data: T, context: string
   if (!schema) return data;
   const result = schema.safeParse(data);
   if (!result.success) {
-    const issue = {
-      schemaName,
-      context,
-      issues: result.error,
-      data,
-    };
+    const issue = { schemaName, context, issues: result.error, data };
     apiLogger.warn(`[ANG SDK] Response schema mismatch for ${context} (${schemaName})`, issue);
     if (responseValidationReporter) {
       try {
@@ -456,9 +395,7 @@ export const validateResponse = <T>(schemaName: string, data: T, context: string
   return data;
 };
 
-export const isProblemDetail = (err: unknown): err is ProblemDetail => {
-  return isProblemDetailLike(err);
-};
+export const isProblemDetail = (err: unknown): err is ProblemDetail => isProblemDetailLike(err);
 
 export const hasErrorCode = (err: unknown, codes: ErrorCode | ErrorCode[]): boolean => {
   if (!isProblemDetail(err)) return false;
@@ -466,15 +403,13 @@ export const hasErrorCode = (err: unknown, codes: ErrorCode | ErrorCode[]): bool
   return list.includes(err.message_code);
 };
 
-// Helper for React Hook Form
 export const mapApiErrorsToForm = (problem: ProblemDetail, setError: Function) => {
   if (problem.invalidFields) {
     Object.entries(problem.invalidFields).forEach(([field, message]) => {
       setError(field, { type: 'server', message });
     });
   }
-  // If no specific fields, usually you set a root error
   if (!problem.invalidFields && problem.detail) {
-      setError('root', { type: 'server', message: problem.detail });
+    setError('root', { type: 'server', message: problem.detail });
   }
 };
