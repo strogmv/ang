@@ -195,11 +195,11 @@ func TestEmitFrontendSDK_GeneratesResilientWebSocketClient(t *testing.T) {
 		"export const useStreamChatMessagesSubscription = <K extends StreamChatMessagesWSMessage['type']>(",
 		"export const useAppWebsocketSubscription = <K extends AppWSMessage['type']>(",
 		"const emit = onMessage as (payload: Extract<T, { type: K }>['payload']) => void;",
-		"emit(matched.payload as unknown as Extract<T, { type: K }>['payload']);",
+		"emit(matched.payload as never);",
 		"const emit = onMessageRef.current as unknown as (payload: Extract<AppWSMessage, { type: K }>['payload']) => void;",
-		"emit(payload as unknown as Extract<AppWSMessage, { type: K }>['payload']);",
+		"emit(payload as never);",
 		"const emit = onMessageRef.current as unknown as (payload: Extract<StreamChatMessagesWSMessage, { type: K }>['payload']) => void;",
-		"emit(matched.payload as unknown as Extract<StreamChatMessagesWSMessage, { type: K }>['payload']);",
+		"emit(matched.payload as never);",
 	} {
 		if !strings.Contains(hooksText, expected) {
 			t.Fatalf("expected %q in websocket-hooks.ts, got:\n%s", expected, hooksText)

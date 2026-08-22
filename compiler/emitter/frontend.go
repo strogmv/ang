@@ -11,6 +11,7 @@ import (
 	"strings"
 	"text/template"
 	"time"
+	"unicode"
 
 	"cuelang.org/go/cue"
 	"cuelang.org/go/cue/cuecontext"
@@ -23,6 +24,7 @@ import (
 type FrontendContext struct {
 	Entities               []normalizer.Entity
 	NamedEnums             []NamedEnum
+	FieldEnums             []NamedEnum
 	Services               []normalizer.Service
 	Endpoints              []normalizer.Endpoint
 	EndpointModules        []FrontendEndpointModule
@@ -198,6 +200,22 @@ func tsEnumKey(value string) string {
 	return b.String()
 }
 
+// tsFieldEnumKey converts a field identifier to the PascalCase segment used
+// in generated constant names. Unlike tsEnumKey, it preserves existing camel
+// case (for example catalogShareStatus -> CatalogShareStatus).
+func tsFieldEnumKey(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "Value"
+	}
+	if strings.ContainsAny(value, "_- .") {
+		return tsEnumKey(value)
+	}
+	runes := []rune(value)
+	runes[0] = unicode.ToUpper(runes[0])
+	return string(runes)
+}
+
 func collectFrontendEnumStrings(v cue.Value) []string {
 	if v.IncompleteKind() == cue.StringKind {
 		s, err := v.String()
@@ -283,6 +301,47 @@ func extractFrontendNamedEnums(projectRoot string) []NamedEnum {
 		}
 		seen[name] = struct{}{}
 		out = append(out, NamedEnum{Name: name, Values: values})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// extractFrontendFieldEnums collects inline string unions from entities and
+// endpoint DTOs. Named CUE definitions already become runtime constants in
+// types.ts; this covers fields that use an inline union such as
+// `quantityMode: "catalog" | "allocated" | "hidden"`.
+//
+// The generated names are scoped by their owning entity and field so two
+// semantically different fields with the same values do not accidentally
+// share a TypeScript type. The constants are emitted separately from types.ts
+// to keep the runtime contract discoverable without changing existing field
+// type generation.
+func extractFrontendFieldEnums(entities []normalizer.Entity, namedEnums []NamedEnum) []NamedEnum {
+	named := namedEnumNameSet(namedEnums)
+	seen := make(map[string]struct{})
+	var out []NamedEnum
+
+	var visit func(string, []normalizer.Field)
+	visit = func(owner string, fields []normalizer.Field) {
+		for _, field := range fields {
+			if field.Constraints != nil && len(field.Constraints.Enum) > 0 {
+				name := owner + tsFieldEnumKey(field.Name) + "Values"
+				if _, exists := named[name]; !exists {
+					if _, exists := seen[name]; !exists {
+						values := append([]string(nil), field.Constraints.Enum...)
+						out = append(out, NamedEnum{Name: name, Values: values})
+						seen[name] = struct{}{}
+					}
+				}
+			}
+			if len(field.ItemFields) > 0 {
+				visit(owner+tsFieldEnumKey(field.Name), field.ItemFields)
+			}
+		}
+	}
+
+	for _, entity := range entities {
+		visit(entity.Name, entity.Fields)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
@@ -971,10 +1030,12 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 
 	namedEnums := extractFrontendNamedEnums(resolveFrontendProjectRoot(e.OutputDir, e.FrontendDir))
 	namedEnumSet := namedEnumNameSet(namedEnums)
+	fieldEnums := extractFrontendFieldEnums(entitiesNorm, namedEnums)
 
 	ctx := FrontendContext{
 		Entities:               entitiesNorm,
 		NamedEnums:             namedEnums,
+		FieldEnums:             fieldEnums,
 		Services:               servicesNorm,
 		Endpoints:              endpointsNorm,
 		EndpointModules:        buildFrontendEndpointModules(endpointsNorm),
@@ -1654,6 +1715,7 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		{"providers", "providers.tsx"},
 		{"rbac", "rbac.ts"},
 		{"types", "types/index.ts"},
+		{"constants", "constants.ts"},
 		{"schemas", "schemas/index.ts"},
 		{"query-keys-root", "query-keys.ts"},
 		{"query-options", "query-options.ts"},
