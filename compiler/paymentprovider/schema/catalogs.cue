@@ -7,7 +7,7 @@ package schema
 	"tx_currency" | "tx_callback_url" | "tx_ip" | "tx_description" | "tx_result_url" |
 	"tx_merchant_order" | "tx_card_country" | "tx_payment_method" | "foreign_id" |
 	"card_pan" | "card_cvv" | "card_exp_month" | "card_exp_year" | "card_exp_month_fmt" |
-	"card_exp_year_short" | "cardholder" | "first_name" | "last_name" |
+	"card_exp_year_fmt" | "card_exp_year_short" | "cardholder" | "first_name" | "last_name" |
 	// Deprecated for new providers: prefer source "owner_info" + owner_key and
 	// providers.GetParameter in Go so platform defaults apply when randomization is off.
 	"card_email" |
@@ -19,6 +19,7 @@ package schema
 	"browser_tz" | "browser_tz_name" | "browser_accept" |
 	"salt" | "currency_iso_num" | "const" | "uuid" |
 	"notification_token" | "utc_timestamp" | "card_exp_last_day" |
+	"provider_method_value" |
 	"external_customer_id" | "description_payment" | "description_payout" |
 	"client_payout_id" | "card_holder_name"
 
@@ -36,6 +37,8 @@ package schema
 	"SCodeInvalidPhoneNumber" | "SCodeWaitCascading" | "SCodeCustomerLimitReached" |
 	"SCodeTimeouted"
 
+// methods: SIDs must exist in compiler/paymentprovider/methodconst.go
+// (utils/types names are not a function of the SID).
 #CatalogPaymentMethodSID:
 	"cards" | "visa" | "mastercard" | "amex" | "discover" | "jcb" |
 	"unionpay" | "mir" | "internationalcard" | "UZCARD" | "HUMO" |
@@ -59,7 +62,7 @@ package schema
 	"SANTANDER" | "HSBC_MX" | "BANORTE" | "AZTECA" | "SCOTIABANK" |
 	"INBURSA" | "BAJIO" | "BANREGIO" | "BANCOPPEL" | "AFIRME" |
 	"MIFEL" | "MULTIVA" | "INTERCAM" |
-	"cardp2p" | "mobilecom" | "click" | "applepay" | "googlepay" | "other" |
+	"cardp2p" | "phonep2p" | "mobilecom" | "click" | "applepay" | "googlepay" | "other" |
 	string
 
 #CatalogAuthFlowType: "h2h" | "3ds" | "redirect" | "otp" | "qr" | "p2p" | "none"

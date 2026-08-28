@@ -11,9 +11,19 @@ import (
 
 // ProjectConfig holds optional overrides from ang.yaml in a provider package.
 type ProjectConfig struct {
-	CueRoot           string
-	TemplatesDir      string
-	SchemaDir         string
+	CueRoot      string
+	TemplatesDir string
+	SchemaDir    string
+	// ModuleDirs lists template libraries to parse alongside every template,
+	// earliest first. A project shares blocks by pointing several template sets
+	// at one library instead of copying it into each set.
+	ModuleDirs []string
+	// Outputs maps a template file to the file it produces, replacing the
+	// built-in layout. "{package}" expands to the generated package name. A
+	// project that declares it owns its own file naming; the built-in table
+	// stays in charge when it is absent.
+	Outputs map[string]string
+
 	ExpertKnowledgeID string
 	ExpertRoot        string
 }
@@ -25,11 +35,13 @@ func LoadProjectConfig(projectPath string) ProjectConfig {
 		base = "."
 	}
 	type angYAML struct {
-		CueRoot           string `yaml:"cue_root"`
-		TemplatesDir      string `yaml:"templates_dir"`
-		SchemaDir         string `yaml:"schema_dir"`
-		ExpertKnowledgeID string `yaml:"expert_knowledge_id"`
-		ExpertRoot        string `yaml:"expert_root"`
+		CueRoot           string            `yaml:"cue_root"`
+		TemplatesDir      string            `yaml:"templates_dir"`
+		SchemaDir         string            `yaml:"schema_dir"`
+		ModuleDirs        []string          `yaml:"module_dirs"`
+		Outputs           map[string]string `yaml:"outputs"`
+		ExpertKnowledgeID string            `yaml:"expert_knowledge_id"`
+		ExpertRoot        string            `yaml:"expert_root"`
 	}
 	defaults := ProjectConfig{
 		CueRoot:      compiler.DefaultCueRoot,
@@ -47,6 +59,8 @@ func LoadProjectConfig(projectPath string) ProjectConfig {
 		CueRoot:           strings.TrimSpace(cfg.CueRoot),
 		TemplatesDir:      strings.TrimSpace(cfg.TemplatesDir),
 		SchemaDir:         strings.TrimSpace(cfg.SchemaDir),
+		ModuleDirs:        trimAll(cfg.ModuleDirs),
+		Outputs:           cfg.Outputs,
 		ExpertKnowledgeID: strings.TrimSpace(cfg.ExpertKnowledgeID),
 		ExpertRoot:        strings.TrimSpace(cfg.ExpertRoot),
 	}
@@ -84,4 +98,14 @@ func ResolvePath(projectPath, p string) (string, error) {
 		return filepath.Clean(p), nil
 	}
 	return filepath.Clean(filepath.Join(projectPath, p)), nil
+}
+
+func trimAll(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }

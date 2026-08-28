@@ -38,6 +38,21 @@ type TemplateData struct {
 	P2PRequest          *ResolvedRequestDef
 	RefundRequest       *ResolvedRequestDef
 
+	// Methods is what the provider calls each method the contract supports. It
+	// carries no fields of its own — those belong to the per-method objects that
+	// use them.
+	Methods []ResolvedMethod
+
+	// NeedsOwnerInfoHelper is true when any request constructor reads the
+	// ownerInfo(ps) local — the helper is emitted once in the package.
+	NeedsOwnerInfoHelper bool
+
+	// AllRequestFields is every leaf field of every request definition, flattened
+	// across grouping objects. A template that has to answer "does this provider
+	// bind anything to X" reads it once instead of walking each definition and
+	// each nesting level itself.
+	AllRequestFields []ResolvedField
+
 	PayinRequestType  string
 	PayoutRequestType string
 	RefundRequestType string
@@ -270,6 +285,8 @@ type RequestSigningTemplate struct {
 	UsernameHeader   string
 	UsernameKeyField string
 	Encoding         string
+	TimestampHeader  string
+	NonceHeader      string
 	ConcatFields     []string
 }
 
@@ -471,6 +488,20 @@ type RequestLiteralConst struct {
 type ResolvedRequestDef struct {
 	Name   string
 	Fields []ResolvedField
+	// Locals are the variables the field expressions read from, in declaration
+	// order. The constructor stands on its own, so it declares them itself.
+	Locals []RequestLocal
+	// CtorName is the constructor's Go name. Request type names are lower camel,
+	// so it cannot be spelled by concatenation in a template.
+	CtorName string
+	// ObjectTypes is every nested object in this request, depth-first, so a
+	// template can declare types without knowing how deep the contract nests.
+	ObjectTypes []ResolvedField
+	// MaskLeaves is every value-carrying field with a selector from the
+	// String() receiver, at any depth.
+	MaskLeaves []MaskLeaf
+	// UsesSecrets is true when any field expression reads secrets.
+	UsesSecrets bool
 }
 
 type EndpointTemplate struct {
@@ -548,6 +579,14 @@ func wrapSwitchCaseLabel(names []string, maxLineLen int) string {
 }
 
 func groupStatusTemplates(items []StatusTemplate) []GroupedStatusDetail {
+	return groupStatusTemplatesByKey(items, true)
+}
+
+func groupStatusTemplatesByOutcome(items []StatusTemplate) []GroupedStatusDetail {
+	return groupStatusTemplatesByKey(items, false)
+}
+
+func groupStatusTemplatesByKey(items []StatusTemplate, includeMessage bool) []GroupedStatusDetail {
 	type key struct {
 		title string
 		code  string
@@ -555,11 +594,20 @@ func groupStatusTemplates(items []StatusTemplate) []GroupedStatusDetail {
 	}
 	var order []key
 	groups := map[key][]string{}
+	seen := map[key]map[string]struct{}{}
 	for _, e := range items {
-		k := key{e.StatusTitle, e.StatusCode, e.Message}
+		k := key{e.StatusTitle, e.StatusCode, ""}
+		if includeMessage {
+			k.msg = e.Message
+		}
 		if _, ok := groups[k]; !ok {
 			order = append(order, k)
+			seen[k] = map[string]struct{}{}
 		}
+		if _, dup := seen[k][e.ConstName]; dup {
+			continue
+		}
+		seen[k][e.ConstName] = struct{}{}
 		groups[k] = append(groups[k], e.ConstName)
 	}
 	result := make([]GroupedStatusDetail, 0, len(order))
@@ -580,6 +628,64 @@ func (d *TemplateData) GroupedPayinStatuses() []GroupedStatusDetail {
 
 func (d *TemplateData) GroupedPayoutStatuses() []GroupedStatusDetail {
 	return groupStatusTemplates(d.PayoutStatuses)
+}
+
+// GroupedPayinOutcomes collapses codes that map to the same internal status
+// and status code. v2 mappers take the provider message as an argument, so
+// contract-level Message is not part of the grouping key.
+func (d *TemplateData) GroupedPayinOutcomes() []GroupedStatusDetail {
+	return groupStatusTemplatesByOutcome(d.PayinStatuses)
+}
+
+func (d *TemplateData) GroupedPayoutOutcomes() []GroupedStatusDetail {
+	return groupStatusTemplatesByOutcome(d.PayoutStatuses)
+}
+
+// ShareStatusMapper is true when payin and payout collapse to the same mapped
+// outcomes, so the generated payout mapper can call the payin one.
+func (d *TemplateData) ShareStatusMapper() bool {
+	return statusMapsEquivalent(d.PayinStatuses, d.PayoutStatuses)
+}
+
+func statusMapsEquivalent(a, b []StatusTemplate) bool {
+	if len(a) == 0 || len(b) == 0 || len(a) != len(b) {
+		return false
+	}
+	type outcome struct{ title, code string }
+	am := make(map[string]outcome, len(a))
+	for _, s := range a {
+		am[s.Code] = outcome{s.StatusTitle, s.StatusCode}
+	}
+	for _, s := range b {
+		got, ok := am[s.Code]
+		if !ok || got.title != s.StatusTitle || got.code != s.StatusCode {
+			return false
+		}
+	}
+	return true
+}
+
+func (d *TemplateData) PendingRawStatusCaseLabel() string {
+	names := pendingStatusConstNames(d.PayinStatuses, d.PayoutStatuses)
+	return wrapSwitchCaseLabel(names, switchCaseWrapWidth)
+}
+
+func pendingStatusConstNames(lists ...[]StatusTemplate) []string {
+	var names []string
+	seen := map[string]struct{}{}
+	for _, items := range lists {
+		for _, s := range items {
+			if s.StatusTitle != "Pending" {
+				continue
+			}
+			if _, ok := seen[s.ConstName]; ok {
+				continue
+			}
+			seen[s.ConstName] = struct{}{}
+			names = append(names, s.ConstName)
+		}
+	}
+	return names
 }
 
 func (d *TemplateData) GroupedStatusDetails() []GroupedStatusDetail {
@@ -775,6 +881,10 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 		}
 	}
 	if spec.RequestSigning != nil {
+		encoding := defaultString(spec.RequestSigning.Encoding, "hex")
+		if spec.RequestSigning.Format == "hmac_timestamp_nonce" && strings.TrimSpace(spec.RequestSigning.Encoding) == "" {
+			encoding = "base64"
+		}
 		data.RequestSigning = &RequestSigningTemplate{
 			Algorithm:        spec.RequestSigning.Algorithm,
 			Format:           spec.RequestSigning.Format,
@@ -782,7 +892,9 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 			SecretKeyField:   exportGoIdent(spec.RequestSigning.SecretKey),
 			UsernameHeader:   spec.RequestSigning.UsernameHeader,
 			UsernameKeyField: exportGoIdent(spec.RequestSigning.UsernameKey),
-			Encoding:         defaultString(spec.RequestSigning.Encoding, "hex"),
+			Encoding:         encoding,
+			TimestampHeader:  spec.RequestSigning.TimestampHeader,
+			NonceHeader:      spec.RequestSigning.NonceHeader,
 			ConcatFields:     append([]string(nil), spec.RequestSigning.ConcatFields...),
 		}
 	}
@@ -987,6 +1099,11 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 	data.RefundEndpointConst = endpointConst(spec.Endpoints, "refund", "endpointRefund")
 	data.PayinStatusEndpointConst = endpointConst(spec.Endpoints, "payin_status", "endpointPayinStatus")
 	data.PayoutStatusEndpointConst = endpointConst(spec.Endpoints, "payout_status", "endpointPayoutStatus")
+	if payinEP, ok := spec.Endpoints["payin"]; ok {
+		if statusEP, ok2 := spec.Endpoints["payin_status"]; ok2 && payinEP.Path == statusEP.Path {
+			data.PayinStatusEndpointConst = data.PayinEndpointConst
+		}
+	}
 	if payoutEP, ok := spec.Endpoints["payout"]; ok {
 		if statusEP, ok2 := spec.Endpoints["payout_status"]; ok2 && payoutEP.Path == statusEP.Path {
 			data.PayoutStatusSameAsPayout = true
@@ -1013,40 +1130,40 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 
 	var err error
 	if spec.PayinRequest != nil {
-		data.PayinRequest, err = resolveRequestDef(spec.PayinRequest, spec.PaymentSource, currencyNum)
+		data.PayinRequest, err = resolveRequestDef(spec.PayinRequest, spec.Methods, spec.PaymentSource, currencyNum)
 		if err != nil {
 			return nil, err
 		}
 		data.PayinRequestType = spec.PayinRequest.Name
 	}
 	if spec.PayoutRequest != nil {
-		data.PayoutRequest, err = resolveRequestDef(spec.PayoutRequest, spec.PaymentSource, currencyNum)
+		data.PayoutRequest, err = resolveRequestDef(spec.PayoutRequest, spec.Methods, spec.PaymentSource, currencyNum)
 		if err != nil {
 			return nil, err
 		}
 		data.PayoutRequestType = spec.PayoutRequest.Name
 	}
 	if spec.PayinStatusRequest != nil {
-		data.PayinStatusRequest, err = resolveRequestDef(spec.PayinStatusRequest, spec.PaymentSource, currencyNum)
+		data.PayinStatusRequest, err = resolveRequestDef(spec.PayinStatusRequest, spec.Methods, spec.PaymentSource, currencyNum)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if spec.PayoutStatusRequest != nil {
-		data.PayoutStatusRequest, err = resolveRequestDef(spec.PayoutStatusRequest, spec.PaymentSource, currencyNum)
+		data.PayoutStatusRequest, err = resolveRequestDef(spec.PayoutStatusRequest, spec.Methods, spec.PaymentSource, currencyNum)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if spec.RefundRequest != nil {
-		data.RefundRequest, err = resolveRequestDef(spec.RefundRequest, spec.PaymentSource, currencyNum)
+		data.RefundRequest, err = resolveRequestDef(spec.RefundRequest, spec.Methods, spec.PaymentSource, currencyNum)
 		if err != nil {
 			return nil, err
 		}
 		data.RefundRequestType = spec.RefundRequest.Name
 	}
 	if spec.P2PRequest != nil {
-		data.P2PRequest, err = resolveRequestDef(spec.P2PRequest, "apm", currencyNum)
+		data.P2PRequest, err = resolveRequestDef(spec.P2PRequest, spec.Methods, "apm", currencyNum)
 		if err != nil {
 			return nil, err
 		}
@@ -1054,17 +1171,34 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 		data.P2PRequest = data.PayinRequest
 	}
 
+	for _, m := range spec.Methods {
+		goConst, err := paymentMethodGoConst(m.Sid)
+		if err != nil {
+			return nil, err
+		}
+		data.Methods = append(data.Methods, ResolvedMethod{
+			Sid:           m.Sid,
+			ProviderValue: m.ProviderValue,
+			GoConst:       goConst,
+		})
+	}
+
+	data.AllRequestFields = collectRequestLeaves(
+		data.PayinRequest, data.PayoutRequest, data.PayinStatusRequest,
+		data.PayoutStatusRequest, data.RefundRequest, data.P2PRequest,
+	)
+
 	data.RequestLiteralConsts, err = BuildRequestLiteralConsts(spec)
 	if err != nil {
 		return nil, err
 	}
 
-	data.PayinResponsePayloadType, data.PayinForeignIDField = inferResponse(spec.ResponseTypes, "payin", "payinProfile", "PaymentID")
-	data.PayoutResponsePayloadType, data.PayoutForeignIDField = inferResponse(spec.ResponseTypes, "payout", "payoutMessage", "ReferenceID")
+	data.PayinResponsePayloadType, data.PayinForeignIDField = inferResponse(spec.ResponseTypes, "payin", "payinProfile", "PaymentID", data.ResponseEnvelope)
+	data.PayoutResponsePayloadType, data.PayoutForeignIDField = inferResponse(spec.ResponseTypes, "payout", "payoutMessage", "ReferenceID", data.ResponseEnvelope)
 	if field := strings.TrimSpace(spec.PayoutForeignIDField); field != "" {
 		data.PayoutForeignIDField = field
 	}
-	data.RefundResponseType, data.RefundForeignIDField = inferResponse(spec.ResponseTypes, "refund", "refundResponse", "PaymentID")
+	data.RefundResponseType, data.RefundForeignIDField = inferResponse(spec.ResponseTypes, "refund", "refundResponse", "PaymentID", nil)
 
 	if data.ResponseEnvelope != nil && data.ResponseEnvelope.Enabled {
 		data.PayinResponseType = envelopeWrapperTypeName(data.PayinResponsePayloadType)
@@ -1079,6 +1213,13 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 	data.PayinStatusField = inferStatusField(spec.ResponseTypes, "payin", "Status")
 	data.PayoutStatusField = inferStatusField(spec.ResponseTypes, "payout", "Status")
 	data.PayinRedirectURLField = inferRedirectURLField(spec.ResponseTypes, data.PayinResponsePayloadType)
+	data.PayinStatusField = nestUnderEnvelope(data.ResponseEnvelope, data.PayinStatusField)
+	data.PayoutStatusField = nestUnderEnvelope(data.ResponseEnvelope, data.PayoutStatusField)
+	data.PayinForeignIDField = nestUnderEnvelope(data.ResponseEnvelope, data.PayinForeignIDField)
+	data.PayoutForeignIDField = nestUnderEnvelope(data.ResponseEnvelope, data.PayoutForeignIDField)
+	data.PayinRedirectURLField = nestUnderEnvelope(data.ResponseEnvelope, data.PayinRedirectURLField)
+	data.ResponseTypes = ensureResponseEnvelopeType(data.ResponseTypes, data.PayinResponseType, data.PayinResponsePayloadType, data.ResponseEnvelope)
+	data.ResponseTypes = ensureResponseEnvelopeType(data.ResponseTypes, data.PayoutResponseType, data.PayoutResponsePayloadType, data.ResponseEnvelope)
 
 	data.PayinStatuses, data.PayoutStatuses, data.PayoutStatusesExtra = buildStatuses(spec, statusType)
 	data.ErrorCodes = buildCodeMappings(spec.ErrorCodes, "errCode")
@@ -1121,6 +1262,8 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 		}
 	}
 
+	data.NeedsOwnerInfoHelper = requestDefsNeedLocal(data, "info") ||
+		(spec.PaymentSource != "card" && spec.PaymentSource != "apm" && hasRequestSource(data, "external_customer_id"))
 	return data, nil
 }
 
@@ -1155,6 +1298,9 @@ func paytechSecretGoField(key string) string {
 
 func buildExtraImports(spec *ProviderSpec) []string {
 	out := append([]string(nil), spec.ExtraImports...)
+	if len(spec.Methods) > 0 {
+		out = appendImportIfMissing(out, "gitlab.q-tech.host/transferty/backend/utils/types")
+	}
 	if strings.EqualFold(spec.APICompat, "macan_p2p") {
 		out = appendImportIfMissing(out, "gitlab.q-tech.host/transferty/backend/utils/helpers")
 		if spec.Interfaces.BalanceFetcher {
@@ -1168,6 +1314,48 @@ func buildExtraImports(spec *ProviderSpec) []string {
 	return out
 }
 
+func requestDefsNeedLocal(data *TemplateData, name string) bool {
+	return defNeedsLocal(data.PayinRequest, name) ||
+		defNeedsLocal(data.PayoutRequest, name) ||
+		defNeedsLocal(data.PayinStatusRequest, name) ||
+		defNeedsLocal(data.PayoutStatusRequest, name) ||
+		defNeedsLocal(data.RefundRequest, name) ||
+		defNeedsLocal(data.P2PRequest, name)
+}
+
+func defNeedsLocal(def *ResolvedRequestDef, name string) bool {
+	if def == nil {
+		return false
+	}
+	for _, l := range def.Locals {
+		if l.Name == name {
+			return true
+		}
+	}
+	for _, obj := range def.ObjectTypes {
+		for _, m := range obj.Methods {
+			for _, l := range m.Locals {
+				if l.Name == name {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func hasRequestSource(data *TemplateData, source string) bool {
+	if data == nil {
+		return false
+	}
+	for _, f := range data.AllRequestFields {
+		if f.Source == source {
+			return true
+		}
+	}
+	return false
+}
+
 func appendImportIfMissing(imports []string, path string) []string {
 	for _, imp := range imports {
 		if imp == path {
@@ -1177,28 +1365,80 @@ func appendImportIfMissing(imports []string, path string) []string {
 	return append(imports, path)
 }
 
-func resolveRequestDef(def *RequestDef, paymentSource string, currencyNum int) (*ResolvedRequestDef, error) {
-	fields, err := ResolveRequestFields(def.Fields, paymentSource, currencyNum)
+func resolveRequestDef(def *RequestDef, methods []Method, paymentSource string, currencyNum int) (*ResolvedRequestDef, error) {
+	fields, err := ResolveRequestFieldsIn(RequestTypeScope(def.Name), def.Fields, paymentSource, currencyNum)
 	if err != nil {
 		return nil, err
 	}
-	// Refine IsCard/IsAPM for owner_info based on OwnerFrom
-	for i := range fields {
-		f := &def.Fields[i]
-		if f.Source == "owner_info" {
-			from := strings.TrimSpace(f.OwnerFrom)
-			if from == "card" {
-				fields[i].IsCard, fields[i].IsAPM = true, false
-			} else if from == "apm" {
-				fields[i].IsCard, fields[i].IsAPM = false, true
-			} else if paymentSource == "card" {
-				fields[i].IsCard, fields[i].IsAPM = true, false
-			} else {
-				fields[i].IsCard, fields[i].IsAPM = false, true
-			}
+	refineOwnerSource(fields, def.Fields, paymentSource)
+	if err := FillPerMethodObjects(fields, methods, paymentSource, currencyNum); err != nil {
+		return nil, fmt.Errorf("%s: %w", def.Name, err)
+	}
+	locals := RequestLocals(fields)
+	if err := mixedConstructorLocals(locals); err != nil {
+		return nil, fmt.Errorf("%s: %w", def.Name, err)
+	}
+	return &ResolvedRequestDef{
+		Name:        def.Name,
+		Fields:      fields,
+		Locals:      locals,
+		CtorName:    constructorName(def.Name),
+		ObjectTypes: collectObjectTypes(fields),
+		MaskLeaves:  collectMaskLeaves(fields, "r"),
+		UsesSecrets: fieldsUseSecret(fields),
+	}, nil
+}
+
+// refineOwnerSource decides which of the two owner maps an owner_info field
+// reads from. Resolution keeps the declared order, so the two slices stay
+// aligned, including inside nested objects.
+func refineOwnerSource(resolved []ResolvedField, declared []RequestField, paymentSource string) {
+	for i := range resolved {
+		f := &declared[i]
+		if len(f.Fields) > 0 {
+			refineOwnerSource(resolved[i].Nested, f.Fields, paymentSource)
+			continue
+		}
+		if f.Source != "owner_info" {
+			continue
+		}
+		switch from := strings.TrimSpace(f.OwnerFrom); {
+		case from == "card":
+			resolved[i].IsCard, resolved[i].IsAPM = true, false
+		case from == "apm":
+			resolved[i].IsCard, resolved[i].IsAPM = false, true
+		case paymentSource == "card":
+			resolved[i].IsCard, resolved[i].IsAPM = true, false
+		default:
+			resolved[i].IsCard, resolved[i].IsAPM = false, true
 		}
 	}
-	return &ResolvedRequestDef{Name: def.Name, Fields: fields}, nil
+}
+
+// collectRequestLeaves flattens the given definitions into their value-carrying
+// fields. The same definition may be reached twice (a p2p body defaulting to the
+// payin one), so each is taken once.
+func collectRequestLeaves(defs ...*ResolvedRequestDef) []ResolvedField {
+	var out []ResolvedField
+	seen := map[*ResolvedRequestDef]bool{}
+	var walk func(fields []ResolvedField)
+	walk = func(fields []ResolvedField) {
+		for _, f := range fields {
+			if f.IsObject() {
+				walk(f.Nested)
+				continue
+			}
+			out = append(out, f)
+		}
+	}
+	for _, def := range defs {
+		if def == nil || seen[def] {
+			continue
+		}
+		seen[def] = true
+		walk(def.Fields)
+	}
+	return out
 }
 
 func buildAllRequestTypes(data *TemplateData) []RequestTypeTemplate {
@@ -1306,7 +1546,7 @@ func buildEndpoints(endpoints map[string]Endpoint) []EndpointTemplate {
 	seenPaths := map[string]string{}
 	for _, k := range keys {
 		ep := endpoints[k]
-		if prev, ok := seenPaths[ep.Path]; ok && (k == "payout_status" && prev == "payout") {
+		if prev, ok := seenPaths[ep.Path]; ok && ((k == "payout_status" && prev == "payout") || (k == "payin_status" && prev == "payin")) {
 			continue
 		}
 		seenPaths[ep.Path] = k
@@ -1510,15 +1750,20 @@ func callbackFieldForJSON(fields []StructField, jsonTag string) string {
 	return strings.Join(parts, "")
 }
 
-func inferResponse(types []ResponseType, kind, defaultName, defaultForeign string) (typeName, foreignField string) {
+func inferResponse(types []ResponseType, kind, defaultName, defaultForeign string, env *ResponseEnvelopeTemplate) (typeName, foreignField string) {
 	for _, rt := range types {
 		nameLower := strings.ToLower(rt.Name)
-		if strings.Contains(nameLower, kind) {
+		if strings.Contains(nameLower, kind) && !looksLikeEnvelope(rt, env) {
 			return rt.Name, findForeignIDField(rt.Fields, defaultForeign)
 		}
 	}
 	for _, rt := range types {
-		if rt.Name == defaultName {
+		if rt.Name == defaultName && !looksLikeEnvelope(rt, env) {
+			return rt.Name, findForeignIDField(rt.Fields, defaultForeign)
+		}
+	}
+	for _, rt := range types {
+		if !looksLikeEnvelope(rt, env) {
 			return rt.Name, findForeignIDField(rt.Fields, defaultForeign)
 		}
 	}
@@ -1558,6 +1803,7 @@ func inferRedirectURLField(types []ResponseType, payloadType string) string {
 }
 
 func buildStatuses(spec *ProviderSpec, statusType string) (payin, payout, payoutExtra []StatusTemplate) {
+	applySharedStatuses(spec)
 	payin = mapStatuses(spec.PayinStatuses, statusType)
 	payout = mapStatuses(spec.PayoutStatuses, statusType)
 	// Payout-only codes still need their consts declared because mapPayoutStatus
@@ -1573,6 +1819,18 @@ func buildStatuses(spec *ProviderSpec, statusType string) (payin, payout, payout
 		}
 	}
 	return payin, payout, payoutExtra
+}
+
+func applySharedStatuses(spec *ProviderSpec) {
+	if spec == nil || len(spec.Statuses) == 0 {
+		return
+	}
+	if len(spec.PayinStatuses) == 0 {
+		spec.PayinStatuses = spec.Statuses
+	}
+	if len(spec.PayoutStatuses) == 0 {
+		spec.PayoutStatuses = spec.Statuses
+	}
 }
 
 func mapStatuses(items []StatusMapping, statusType string) []StatusTemplate {
@@ -2000,6 +2258,52 @@ func envelopeWrapperTypeName(innerName string) string {
 		return strings.TrimSuffix(innerName, "Message") + "Response"
 	}
 	return innerName + "Envelope"
+}
+
+func looksLikeEnvelope(rt ResponseType, env *ResponseEnvelopeTemplate) bool {
+	if env == nil || !env.Enabled {
+		return false
+	}
+	success, wrapper := env.SuccessGoField, env.WrapperGoField
+	hasSuccess, hasWrapper, hasStatus := false, false, false
+	for _, f := range rt.Fields {
+		switch f.Name {
+		case success:
+			hasSuccess = true
+		case wrapper:
+			hasWrapper = true
+		case "Status":
+			if !strings.EqualFold(f.Type, "bool") {
+				hasStatus = true
+			}
+		}
+	}
+	return hasSuccess && hasWrapper && !hasStatus
+}
+
+func nestUnderEnvelope(env *ResponseEnvelopeTemplate, field string) string {
+	if env == nil || !env.Enabled || field == "" || strings.Contains(field, ".") {
+		return field
+	}
+	return env.WrapperGoField + "." + field
+}
+
+func ensureResponseEnvelopeType(types []ResponseType, envelopeName, payloadName string, env *ResponseEnvelopeTemplate) []ResponseType {
+	if env == nil || !env.Enabled || envelopeName == "" || payloadName == "" || envelopeName == payloadName {
+		return types
+	}
+	for _, rt := range types {
+		if rt.Name == envelopeName {
+			return types
+		}
+	}
+	return append(types, ResponseType{
+		Name: envelopeName,
+		Fields: []StructField{
+			{Name: env.SuccessGoField, Type: "bool", JSON: env.SuccessField},
+			{Name: env.WrapperGoField, Type: payloadName, JSON: env.WrapperField},
+		},
+	})
 }
 
 // formatDurationGoExpr converts CUE duration strings into valid Go duration expressions.

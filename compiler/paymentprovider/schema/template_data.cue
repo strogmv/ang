@@ -56,12 +56,14 @@ package schema
 
 #TemplateRequestSigning: {
 	Algorithm:        string // sha256 | hmac-sha1 | hmac-sha256 | md5
-	Format:           string // method_url_body | md5_concat | notification_token | username_key_body_b64
+	Format:           string // method_url_body | md5_concat | notification_token | username_key_body_b64 | hmac_timestamp_nonce
 	Header:           string // X-Signature
 	SecretKeyField:   string
 	UsernameHeader:   string
 	UsernameKeyField: string
 	Encoding:         string // base64 | hex
+	TimestampHeader:  string // hmac_timestamp_nonce: X-Timestamp
+	NonceHeader:      string // hmac_timestamp_nonce: X-Nonce
 	// md5_concat: ordered field names for Pacepay-style signatures
 	ConcatFields: [...string]
 }
@@ -277,38 +279,9 @@ package schema
 	ExtraImports: [...string]
 }
 
-// Field source → Go expression (ang: buildRequestFieldExpr).
-// Add new sources here AND in catalogs.cue #CatalogFieldSource.
-#FieldSourceExpr: {
-	source:   #CatalogFieldSource
-	go_expr:  string
-	imports?: [...string]
-}
-
-FieldSourceCatalog: [#FieldSourceExpr, ...#FieldSourceExpr] & [
-	{source: "tx_id", go_expr: "tx.Id"},
-	{source: "tx_amount", go_expr: "tx.Amount"},
-	{source: "tx_amount_float", go_expr: "helpers.FloatAmount(tx.Amount, tx.Currency)"},
-	{source: "tx_amount_fmt", go_expr: "helpers.CoinsToFormattedAmount(tx.Amount, tx.Currency)"},
-	{source: "tx_currency", go_expr: "tx.Currency"},
-	{source: "tx_callback_url", go_expr: "tx.CallbackURL"},
-	{source: "tx_ip", go_expr: "tx.Order.IP"},
-	{source: "tx_description", go_expr: "fmt.Sprintf(\"Payment_%s\", tx.Id)"},
-	{source: "description_payment", go_expr: "fmt.Sprintf(\"Payment_%s\", tx.Id)"},
-	{source: "description_payout", go_expr: "fmt.Sprintf(\"Payout_%s\", tx.Id)"},
-	{source: "tx_result_url", go_expr: "tx.Order.ResultUrl"},
-	{source: "uuid", go_expr: "helpers.UUID()"},
-	{source: "card_pan", go_expr: "card.PAN"},
-	{source: "cardholder", go_expr: "providers.GetParameter(card.OwnerInfo, providers.CardHolder)"},
-	{source: "first_name", go_expr: "firstName"},
-	{source: "last_name", go_expr: "lastName"},
-	{source: "notification_token", go_expr: "computeNotificationToken(tx.Id, secrets.{{secret_key}})"},
-	{source: "utc_timestamp", go_expr: "pp.utcTimestamp()"},
-	{source: "card_exp_last_day", go_expr: "cardExpirationLastDay(card)"},
-	{source: "external_customer_id", go_expr: "userID(ps)"},
-	{source: "notification_token", go_expr: "computeNotificationToken(tx.Id, secrets.secret)"},
-	{source: "utc_timestamp", go_expr: "pp.utcTimestamp()"},
-]
+// Live field-source mapping is the switch in resolve.go, kept in lockstep with
+// #CatalogFieldSource by TestCatalogFieldSourcesMatchResolve. Do not revive a
+// parallel go_expr catalog here — it drifted (duplicate keys, incomplete coverage).
 
 // --- Ang implementation checklist (compiler/paymentprovider/emit) ---
 //
@@ -317,7 +290,7 @@ FieldSourceCatalog: [#FieldSourceExpr, ...#FieldSourceExpr] & [
 //    - api_compat → UseMacanP2P / UsePaytechGateway / UseFluxsgate only (bundled alternate template sets)
 //    - secrets.use_labels → SecretUseLabels
 //    - nullable blocks: keep nil when CUE value is null (templates use {{ if .PayoutRuntime }})
-// 3. Field sources: implement FieldSourceCatalog + catalogs.cue sources.
+// 3. Field sources: #CatalogFieldSource ↔ resolve.go (TestCatalogFieldSourcesMatchResolve).
 // 4. Durations: check_status_config.since_created_period "10m" → CheckStatusPeriod "10 * time.Minute".
 // 5. Response types: set PayoutStatusField from response_types status field name.
 // 6. Pick creds template: SecretUseLabels → creds_macan.go.tmpl else creds.go.tmpl.

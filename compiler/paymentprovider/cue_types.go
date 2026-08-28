@@ -48,6 +48,7 @@ type ProviderSpec struct {
 
 	CallbackSignature *CallbackSignatureConfig `json:"callback_signature"`
 
+	Statuses           []StatusMapping         `json:"statuses"`
 	PayinStatuses      []StatusMapping         `json:"payin_statuses"`
 	PayoutStatuses     []StatusMapping         `json:"payout_statuses"`
 	ErrorCodes         []ErrorMapping          `json:"error_codes"`
@@ -65,6 +66,7 @@ type ProviderSpec struct {
 	ResponseTypes []ResponseType `json:"response_types"`
 
 	SupportedMethods    []string `json:"supported_methods"`
+	Methods             []Method `json:"methods"`
 	SupportedCurrencies []string `json:"supported_currencies"`
 
 	HasPayin        bool `json:"has_payin"`
@@ -212,14 +214,16 @@ type ResponseEnvelopeConfig struct {
 }
 
 type RequestSigningConfig struct {
-	Algorithm      string   `json:"algorithm"`
-	Format         string   `json:"format"`
-	Header         string   `json:"header"`
-	SecretKey      string   `json:"secret_key"`
-	UsernameHeader string   `json:"username_header"`
-	UsernameKey    string   `json:"username_key"`
-	Encoding       string   `json:"encoding"`
-	ConcatFields   []string `json:"concat_fields"`
+	Algorithm       string   `json:"algorithm"`
+	Format          string   `json:"format"`
+	Header          string   `json:"header"`
+	SecretKey       string   `json:"secret_key"`
+	UsernameHeader  string   `json:"username_header"`
+	UsernameKey     string   `json:"username_key"`
+	Encoding        string   `json:"encoding"`
+	TimestampHeader string   `json:"timestamp_header"`
+	NonceHeader     string   `json:"nonce_header"`
+	ConcatFields    []string `json:"concat_fields"`
 }
 
 type Endpoint struct {
@@ -266,18 +270,32 @@ type RequestDef struct {
 }
 
 type RequestField struct {
-	Name      string `json:"name"`
-	JSON      string `json:"json"`
-	Type      string `json:"type"`
-	Source    string `json:"source"`
-	SecretKey string `json:"secret_key"`
-	Default   string `json:"default"`
-	ConstVal  string `json:"const_val"`
-	ConstName string `json:"const_name"`
-	OmitEmpty bool   `json:"omitempty"`
-	Redacted  bool   `json:"redacted"`
-	OwnerKey  string `json:"owner_key"`
-	OwnerFrom string `json:"owner_from"`
+	// Fields is non-empty when this node groups others instead of carrying a
+	// value: the provider's body nests, so the definition nests with it.
+	Fields    []RequestField `json:"fields"`
+	Name      string         `json:"name"`
+	JSON      string         `json:"json"`
+	Type      string         `json:"type"`
+	Source    string         `json:"source"`
+	SecretKey string         `json:"secret_key"`
+	Default   string         `json:"default"`
+	ConstVal  string         `json:"const_val"`
+	ConstName string         `json:"const_name"`
+	OmitEmpty bool           `json:"omitempty"`
+	Redacted  bool           `json:"redacted"`
+	OwnerKey  string         `json:"owner_key"`
+	OwnerFrom string         `json:"owner_from"`
+	Required  bool           `json:"required"`
+	// PerMethod marks a grouping node whose contents come from the selected
+	// method rather than from Fields.
+	PerMethod bool `json:"per_method"`
+}
+
+// Method is one payment method as a provider sees it.
+type Method struct {
+	Sid           string         `json:"sid"`
+	ProviderValue string         `json:"provider_value"`
+	Destination   []RequestField `json:"destination"`
 }
 
 type ResponseType struct {

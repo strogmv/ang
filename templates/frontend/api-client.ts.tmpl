@@ -325,7 +325,9 @@ class KyApiClient {
           if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
         }
       }
-      config.headers = headers;
+      // Do not persist the injected access token on the request config. On a
+      // 401 retry the client must rebuild headers from the refreshed store
+      // token; a persisted header would be treated as an explicit override.
 
       let response: Response;
       let data: unknown;

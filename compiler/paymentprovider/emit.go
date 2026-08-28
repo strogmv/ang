@@ -3,8 +3,10 @@ package paymentprovider
 import (
 	"bytes"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/template"
 
@@ -37,15 +39,34 @@ var templateFiles = []struct {
 }
 
 // Emit writes generated provider files into outputDir.
-func Emit(templatesDir, outputDir string, data *TemplateData) error {
-	_, err := EmitWithResult(templatesDir, outputDir, data)
+func Emit(templatesDir, outputDir string, data *TemplateData, moduleDirs ...string) error {
+	_, err := EmitWithResult(templatesDir, outputDir, data, moduleDirs...)
 	return err
 }
 
+// EmitOptions carries project-declared generation settings.
+type EmitOptions struct {
+	// ModuleDirs are template libraries parsed before the set's own modules, so
+	// a project can share blocks between sets; a block redefined by the set wins.
+	ModuleDirs []string
+	// Outputs replaces the built-in file layout with the project's own mapping
+	// of template file to output file.
+	Outputs map[string]string
+}
+
 // EmitWithResult writes generated files and returns the generator-owned manifest.
-func EmitWithResult(templatesDir, outputDir string, data *TemplateData) ([]GeneratedFile, error) {
+func EmitWithResult(templatesDir, outputDir string, data *TemplateData, moduleDirs ...string) ([]GeneratedFile, error) {
+	return EmitWithOptions(templatesDir, outputDir, data, EmitOptions{ModuleDirs: moduleDirs})
+}
+
+// EmitWithOptions writes generated files and returns the generator-owned manifest.
+func EmitWithOptions(templatesDir, outputDir string, data *TemplateData, opts EmitOptions) ([]GeneratedFile, error) {
 	if data == nil {
 		return nil, fmt.Errorf("template data is nil")
+	}
+	moduleDirs := opts.ModuleDirs
+	if len(opts.Outputs) > 0 {
+		return emitDeclaredOutputs(templatesDir, outputDir, data, opts)
 	}
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return nil, fmt.Errorf("mkdir output: %w", err)
@@ -75,7 +96,7 @@ func EmitWithResult(templatesDir, outputDir string, data *TemplateData) ([]Gener
 			}
 		}
 		if tf.tmpl == "sign_test.go.tmpl" {
-			emitSignTest := data.RequestSigning != nil && data.RequestSigning.Format == "username_key_body_b64"
+			emitSignTest := data.RequestSigning != nil && (data.RequestSigning.Format == "username_key_body_b64" || data.RequestSigning.Format == "hmac_timestamp_nonce")
 			if data.CallbackSignature != nil && data.CallbackSignature.Format == "username_key_form_b64" {
 				emitSignTest = true
 			}
@@ -90,6 +111,13 @@ func EmitWithResult(templatesDir, outputDir string, data *TemplateData) ([]Gener
 			}
 		}
 		parsePaths := []string{tmplPath}
+		for _, dir := range moduleDirs {
+			shared, walkErr := collectTemplates(dir)
+			if walkErr != nil {
+				return nil, fmt.Errorf("collect module dir %s: %w", dir, walkErr)
+			}
+			parsePaths = append(parsePaths, shared...)
+		}
 		if moduleFiles, globErr := filepath.Glob(filepath.Join(templatesDir, "modules", "*.tmpl")); globErr == nil {
 			parsePaths = append(parsePaths, moduleFiles...)
 		}
@@ -122,6 +150,92 @@ func EmitWithResult(templatesDir, outputDir string, data *TemplateData) ([]Gener
 	return files, nil
 }
 
+// emitDeclaredOutputs generates exactly the files the project asked for. Unlike
+// the built-in table it has no optional entries: a declared template that is
+// missing is an error, so a misnamed file cannot be dropped in silence.
+func emitDeclaredOutputs(templatesDir, outputDir string, data *TemplateData, opts EmitOptions) ([]GeneratedFile, error) {
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		return nil, fmt.Errorf("mkdir output: %w", err)
+	}
+
+	names := make([]string, 0, len(opts.Outputs))
+	for name := range opts.Outputs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	files := make([]GeneratedFile, 0, len(names))
+	for _, name := range names {
+		outName := strings.ReplaceAll(opts.Outputs[name], "{package}", data.PackageName)
+		file, err := renderTemplate(filepath.Join(templatesDir, name), filepath.Join(outputDir, outName), templatesDir, data, opts.ModuleDirs)
+		if err != nil {
+			return nil, err
+		}
+		rel, err := filepath.Rel(outputDir, filepath.Join(outputDir, outName))
+		if err != nil {
+			return nil, fmt.Errorf("rel output path %s: %w", outName, err)
+		}
+		file.RelativePath = filepath.ToSlash(rel)
+		files = append(files, file)
+	}
+	return files, nil
+}
+
+// renderTemplate parses a template together with the block libraries visible to
+// it, formats the result and writes it out.
+func renderTemplate(tmplPath, outPath, templatesDir string, data *TemplateData, moduleDirs []string) (GeneratedFile, error) {
+	parsePaths := []string{tmplPath}
+	for _, dir := range moduleDirs {
+		shared, err := collectTemplates(dir)
+		if err != nil {
+			return GeneratedFile{}, fmt.Errorf("collect module dir %s: %w", dir, err)
+		}
+		parsePaths = append(parsePaths, shared...)
+	}
+	own, err := collectTemplates(filepath.Join(templatesDir, "modules"))
+	if err == nil {
+		parsePaths = append(parsePaths, own...)
+	}
+
+	tmpl, err := template.New(filepath.Base(tmplPath)).ParseFiles(parsePaths...)
+	if err != nil {
+		return GeneratedFile{}, fmt.Errorf("parse template %s: %w", filepath.Base(tmplPath), err)
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return GeneratedFile{}, fmt.Errorf("execute template %s: %w", filepath.Base(tmplPath), err)
+	}
+	formatted, err := imports.Process(outPath, buf.Bytes(), &imports.Options{Comments: true, TabIndent: true, TabWidth: 8})
+	if err != nil {
+		return GeneratedFile{}, fmt.Errorf("format generated %s: %w", filepath.Base(outPath), err)
+	}
+	if err := os.WriteFile(outPath, formatted, 0o644); err != nil {
+		return GeneratedFile{}, fmt.Errorf("write %s: %w", outPath, err)
+	}
+	return GeneratedFile{SHA256: hashFileContents(formatted)}, nil
+}
+
+// collectTemplates walks a template library so blocks can be grouped in
+// subdirectories instead of one flat list; order is stable so generation is
+// reproducible.
+func collectTemplates(dir string) ([]string, error) {
+	var paths []string
+	err := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() && strings.HasSuffix(path, ".tmpl") {
+			paths = append(paths, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(paths)
+	return paths, nil
+}
+
 func needsSignFile(data *TemplateData) bool {
 	if data.UseMacanP2P {
 		return true
@@ -142,14 +256,20 @@ func needsSignFile(data *TemplateData) bool {
 		if def == nil {
 			return false
 		}
-		for _, f := range def.Fields {
-			if f.GoExpr == `generateSalt()` {
-				return true
-			}
-		}
-		return false
+		return usesSalt(def.Fields)
 	}
 	return check(data.PayinRequest) || check(data.PayoutRequest) || check(data.P2PRequest)
+}
+
+// usesSalt reports whether any field, at any depth, is bound to the generated
+// nonce — the generator needs it to decide on the crypto imports.
+func usesSalt(fields []ResolvedField) bool {
+	for _, f := range fields {
+		if f.GoExpr == `generateSalt()` || usesSalt(f.Nested) {
+			return true
+		}
+	}
+	return false
 }
 
 // ResolveTemplatesDir resolves templates_dir relative to projectPath when not absolute.

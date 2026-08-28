@@ -2,6 +2,7 @@ package paymentprovider
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -49,6 +50,11 @@ func BuildWithResult(opts BuildOptions) (BuildResult, error) {
 	if err != nil {
 		return BuildResult{}, err
 	}
+	for _, iss := range Vet(spec) {
+		if iss.Severity == "error" && (iss.Code == "PP012" || iss.Code == "PP013") {
+			return BuildResult{}, fmt.Errorf("%s: %s", iss.Code, iss.Message)
+		}
+	}
 	data, err := BuildTemplateData(spec)
 	if err != nil {
 		return BuildResult{}, fmt.Errorf("build template data: %w", err)
@@ -57,11 +63,25 @@ func BuildWithResult(opts BuildOptions) (BuildResult, error) {
 	if err != nil {
 		return BuildResult{}, err
 	}
+	if usesV1Datatypes(tmplDir) && hasNestedRequestObjects(data) {
+		return BuildResult{}, fmt.Errorf("nested request objects require the v2 template set")
+	}
 	outDir := opts.OutputDir
 	if outDir == "" {
 		outDir = opts.ProjectPath
 	}
-	files, err := EmitWithResult(tmplDir, outDir, data)
+	moduleDirs := make([]string, 0, len(pc.ModuleDirs))
+	for _, dir := range pc.ModuleDirs {
+		resolved, err := ResolvePath(opts.ProjectPath, dir)
+		if err != nil {
+			return BuildResult{}, err
+		}
+		moduleDirs = append(moduleDirs, resolved)
+	}
+	files, err := EmitWithOptions(tmplDir, outDir, data, EmitOptions{
+		ModuleDirs: moduleDirs,
+		Outputs:    pc.Outputs,
+	})
 	if err != nil {
 		return BuildResult{}, fmt.Errorf("emit: %w", err)
 	}
@@ -75,4 +95,21 @@ func BuildFromProject(projectPath, cueRoot, templatesDir string) error {
 		CueRoot:      cueRoot,
 		TemplatesDir: templatesDir,
 	})
+}
+
+func usesV1Datatypes(templatesDir string) bool {
+	_, err := os.Stat(filepath.Join(templatesDir, "datatypes.go.tmpl"))
+	return err == nil
+}
+
+func hasNestedRequestObjects(data *TemplateData) bool {
+	if data == nil {
+		return false
+	}
+	check := func(def *ResolvedRequestDef) bool {
+		return def != nil && len(def.ObjectTypes) > 0
+	}
+	return check(data.PayinRequest) || check(data.PayoutRequest) ||
+		check(data.PayinStatusRequest) || check(data.PayoutStatusRequest) ||
+		check(data.RefundRequest) || check(data.P2PRequest)
 }

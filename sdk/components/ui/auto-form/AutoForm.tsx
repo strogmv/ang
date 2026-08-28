@@ -26,9 +26,9 @@ export function AutoForm<TValues = Record<string, unknown>>({
   return (
     <Form onSubmit={form.handleSubmit(handleValidSubmit)}>
       {sections.map(([section, fields]) => (
-        <div key={section} style={{ width: '100%' }}>
+        <div key={section} style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 16 }}>
             {section !== '_default' ? (
-              <h4 style={{ margin: 0, marginBottom: 10, fontSize: '0.95rem', fontWeight: 600 }}>
+              <h4 style={{ margin: 0, marginBottom: 4, fontSize: '1.8rem', lineHeight: '2.6rem', fontWeight: 700, color: '#333333' }}>
                 {section}
               </h4>
             ) : null}

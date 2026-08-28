@@ -30,8 +30,10 @@ func Vet(spec *ProviderSpec) []VetIssue {
 	}
 	issues = append(issues, vetCallback(spec)...)
 	issues = append(issues, vetAuth(spec, secretKeys)...)
+	issues = append(issues, vetRequestSigning(spec, secretKeys)...)
 	issues = append(issues, vetCallbackSignature(spec, secretKeys)...)
 	issues = append(issues, vetCapabilities(spec)...)
+	issues = append(issues, vetOutboundAuth(spec)...)
 
 	return issues
 }
@@ -233,6 +235,47 @@ func vetOAuthClientCredentials(spec *ProviderSpec, secretKeys map[string]struct{
 	return issues
 }
 
+func vetRequestSigning(spec *ProviderSpec, secretKeys map[string]struct{}) []VetIssue {
+	if spec.RequestSigning == nil {
+		return nil
+	}
+	rs := spec.RequestSigning
+	var issues []VetIssue
+	key := strings.TrimSpace(rs.SecretKey)
+	if key == "" {
+		issues = append(issues, VetIssue{
+			Code:     "PP013",
+			Severity: "error",
+			Message:  "request_signing.secret_key is required when request_signing is configured",
+		})
+	} else if !hasSecretKey(secretKeys, key) {
+		issues = append(issues, VetIssue{
+			Code:     "PP013",
+			Severity: "error",
+			Message:  fmt.Sprintf("request_signing.secret_key %q not found in secrets.parts", key),
+			Hint:     "Add a matching secrets.parts entry or fix request_signing.secret_key.",
+		})
+	}
+	if strings.TrimSpace(rs.Header) == "" {
+		issues = append(issues, VetIssue{
+			Code:     "PP013",
+			Severity: "error",
+			Message:  "request_signing.header is required when request_signing is configured",
+		})
+	}
+	if strings.EqualFold(strings.TrimSpace(rs.Format), "hmac_timestamp_nonce") {
+		if strings.TrimSpace(rs.TimestampHeader) == "" || strings.TrimSpace(rs.NonceHeader) == "" {
+			issues = append(issues, VetIssue{
+				Code:     "PP013",
+				Severity: "error",
+				Message:  "request_signing.format hmac_timestamp_nonce requires timestamp_header and nonce_header",
+				Hint:     "These headers carry the two parts of the canonical string timestamp.nonce.",
+			})
+		}
+	}
+	return issues
+}
+
 func vetCallbackSignature(spec *ProviderSpec, secretKeys map[string]struct{}) []VetIssue {
 	if spec.CallbackSignature == nil {
 		return nil
@@ -374,6 +417,35 @@ func vetRedirectCheckout(spec *ProviderSpec) []VetIssue {
 func hasOperationKind(ops []OperationDef, kind string) bool {
 	for _, op := range ops {
 		if op.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func vetOutboundAuth(spec *ProviderSpec) []VetIssue {
+	if spec.Auth != nil || spec.RequestSigning != nil {
+		return nil
+	}
+	if !hasOutboundHTTP(spec) {
+		return nil
+	}
+	if strings.TrimSpace(spec.Signing.Format) != "custom" {
+		return nil
+	}
+	return []VetIssue{{
+		Code:     "PP012",
+		Severity: "error",
+		Message:  "outbound API calls are defined but neither auth nor request_signing is set, and signing.format is custom",
+		Hint:     "Describe the header scheme in auth / request_signing, or drop outbound operations until the signing input is known.",
+	}}
+}
+
+func hasOutboundHTTP(spec *ProviderSpec) bool {
+	for _, op := range spec.Operations {
+		switch strings.TrimSpace(op.Kind) {
+		case "init_pay", "init_payout", "init_pay_p2p", "init_refund",
+			"check_status_payin", "check_status_payout", "cancel_pay", "fetch_balances":
 			return true
 		}
 	}

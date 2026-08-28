@@ -40,11 +40,11 @@ func TestLoad_pumpp2pFixture(t *testing.T) {
 
 func TestVet_detectsMissingEndpoint(t *testing.T) {
 	spec := &ProviderSpec{
-		SID:          "x",
-		PackageName:  "x",
-		StructName:   "X",
-		Endpoints:    map[string]Endpoint{"payin": {Path: "/pay"}},
-		APICompat:    "macan_p2p",
+		SID:         "x",
+		PackageName: "x",
+		StructName:  "X",
+		Endpoints:   map[string]Endpoint{"payin": {Path: "/pay"}},
+		APICompat:   "macan_p2p",
 		Operations: []OperationDef{{
 			Kind: "init_pay_p2p",
 			Transport: OperationTransport{
@@ -79,17 +79,95 @@ func TestVet_detectsAuthSecretMismatch(t *testing.T) {
 
 func TestVet_redirectCheckoutRequiresTDS(t *testing.T) {
 	spec := &ProviderSpec{
-		SID:         "mx6",
-		PackageName: "mx6_centrobill",
-		StructName:  "PPMx6",
-		APICompat:   "redirect_checkout",
-		HasPayin:    true,
+		SID:           "mx6",
+		PackageName:   "mx6_centrobill",
+		StructName:    "PPMx6",
+		APICompat:     "redirect_checkout",
+		HasPayin:      true,
 		PaymentSource: "apm",
-		Endpoints:   map[string]Endpoint{"payin": {Path: "/checkout"}},
+		Endpoints:     map[string]Endpoint{"payin": {Path: "/checkout"}},
 	}
 	issues := Vet(spec)
 	if !containsVetCode(issues, "PP011") {
 		t.Fatalf("expected PP011 for missing tds_redirector, got %#v", issues)
+	}
+}
+
+func TestVet_outboundCustomSigningWithoutAuth(t *testing.T) {
+	spec := &ProviderSpec{
+		SID:         "x",
+		PackageName: "x",
+		StructName:  "X",
+		Operations: []OperationDef{{
+			Kind: "fetch_balances",
+			Transport: OperationTransport{
+				Endpoint:     "balance",
+				ResponseType: "balanceResponse",
+			},
+		}},
+		Endpoints: map[string]Endpoint{"balance": {Path: "/balance"}},
+	}
+	spec.Signing.Algorithm = "hmac-sha256"
+	spec.Signing.Format = "custom"
+	issues := Vet(spec)
+	if !containsVetCode(issues, "PP012") {
+		t.Fatalf("expected PP012, got %#v", issues)
+	}
+}
+
+func TestVet_hmacTimestampNonceRequiresHeaders(t *testing.T) {
+	spec := &ProviderSpec{
+		SID:         "x",
+		PackageName: "x",
+		StructName:  "X",
+		RequestSigning: &RequestSigningConfig{
+			Algorithm: "hmac-sha256",
+			Format:    "hmac_timestamp_nonce",
+			Header:    "X-Signature",
+			SecretKey: "signingSecret",
+			Encoding:  "base64",
+		},
+	}
+	spec.Secrets.Parts = []SecretPart{{Name: "SigningSecret", Key: "signingSecret"}}
+	issues := Vet(spec)
+	if !containsVetCode(issues, "PP013") {
+		t.Fatalf("expected PP013, got %#v", issues)
+	}
+}
+
+func TestVet_hmacTimestampNonceWithAuthSkipsPP012(t *testing.T) {
+	spec := &ProviderSpec{
+		SID:         "x",
+		PackageName: "x",
+		StructName:  "X",
+		Auth:        &AuthConfig{Type: "header_token", Header: "X-Api-Key", SecretKey: "apiKey"},
+		RequestSigning: &RequestSigningConfig{
+			Algorithm:       "hmac-sha256",
+			Format:          "hmac_timestamp_nonce",
+			Header:          "X-Signature",
+			SecretKey:       "signingSecret",
+			Encoding:        "base64",
+			TimestampHeader: "X-Timestamp",
+			NonceHeader:     "X-Nonce",
+		},
+		Operations: []OperationDef{{
+			Kind: "fetch_balances",
+			Transport: OperationTransport{
+				Endpoint:     "balance",
+				ResponseType: "balanceResponse",
+			},
+		}},
+		Endpoints: map[string]Endpoint{"balance": {Path: "/balance"}},
+	}
+	spec.Secrets.Parts = []SecretPart{
+		{Name: "ApiKey", Key: "apiKey"},
+		{Name: "SigningSecret", Key: "signingSecret"},
+	}
+	spec.Signing.Algorithm = "hmac-sha256"
+	spec.Signing.Format = "custom"
+	issues := Vet(spec)
+	if containsVetCode(issues, "PP012") || containsVetCode(issues, "PP013") {
+		t.Fatalf("did not expect PP012/PP013, got %#v", issues)
 	}
 }
 

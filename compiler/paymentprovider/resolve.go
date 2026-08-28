@@ -7,22 +7,92 @@ import (
 	"strings"
 )
 
-// ResolvedField is a request field ready for template emission.
+// ResolvedField is a request field ready for template emission. A field that
+// groups others carries them in Nested and has no expression of its own.
 type ResolvedField struct {
 	GoName    string
 	GoExpr    string
 	Type      string
 	JSON      string
 	OmitEmpty bool
+	Required  bool
 	Redacted  bool
 	IsCard    bool
 	IsAPM     bool
+	// Source is the contract's source verbatim. It is passed through so a
+	// template can branch on what a value is without the generator having to
+	// know what any particular source means.
+	Source string
+	Nested []ResolvedField
+	// PerMethod marks an object filled from the selected payment method. Nested
+	// then holds every field any method can put there, and Methods says which of
+	// them each method actually sets.
+	PerMethod bool
+	Methods   []ResolvedMethod
+	// Locals is set on a per-method object: it builds itself, so it declares the
+	// variables its own expressions read from.
+	Locals []RequestLocal
+	// CtorName is the constructor of a per-method object.
+	CtorName string
 }
+
+// ResolvedMethod is one payment method's contribution to a per-method object.
+type ResolvedMethod struct {
+	Sid           string
+	ProviderValue string
+	// GoConst is the identifier in utils/types (CardsMethod). Empty when the
+	// method is only listed for provider_value lookup and has no destination.
+	GoConst string
+	// Locals are declared inside this method's branch, not at the slot
+	// constructor top: a card method and an APM method must not both panic
+	// the other source.
+	Locals []RequestLocal
+	Fields []ResolvedField
+}
+
+// IsObject reports whether the field groups other fields rather than carrying a
+// value; templates emit a nested struct for it.
+func (f ResolvedField) IsObject() bool { return len(f.Nested) > 0 }
 
 // ResolveRequestFields maps CUE field sources to Go expressions.
 func ResolveRequestFields(fields []RequestField, paymentSource string, currencyISONum int) ([]ResolvedField, error) {
+	return ResolveRequestFieldsIn("", fields, paymentSource, currencyISONum)
+}
+
+// ResolveRequestFieldsIn is ResolveRequestFields scoped to an owning request.
+// The scope only names the nested struct types: a payin and a payout may both
+// carry a "customer" object with different fields, so the generated types must
+// not collide on the field name alone.
+func ResolveRequestFieldsIn(scope string, fields []RequestField, paymentSource string, currencyISONum int) ([]ResolvedField, error) {
 	out := make([]ResolvedField, 0, len(fields))
 	for _, f := range fields {
+		if f.PerMethod {
+			// Contents are filled from the methods once those are known; the
+			// field list here is empty by definition.
+			out = append(out, ResolvedField{
+				GoName:    f.Name,
+				Type:      goTypeForObject(scope, f.Name),
+				JSON:      f.JSON,
+				OmitEmpty: f.OmitEmpty,
+				PerMethod: true,
+			})
+			continue
+		}
+		if len(f.Fields) > 0 {
+			typeName := goTypeForObject(scope, f.Name)
+			nested, err := ResolveRequestFieldsIn(typeName, f.Fields, paymentSource, currencyISONum)
+			if err != nil {
+				return nil, fmt.Errorf("object %s: %w", f.Name, err)
+			}
+			out = append(out, ResolvedField{
+				GoName:    f.Name,
+				Type:      typeName,
+				JSON:      f.JSON,
+				OmitEmpty: f.OmitEmpty,
+				Nested:    nested,
+			})
+			continue
+		}
 		expr, isCard, isAPM, err := resolveSource(f, paymentSource, currencyISONum)
 		if err != nil {
 			return nil, fmt.Errorf("field %s: %w", f.Name, err)
@@ -37,9 +107,11 @@ func ResolveRequestFields(fields []RequestField, paymentSource string, currencyI
 			Type:      typ,
 			JSON:      f.JSON,
 			OmitEmpty: f.OmitEmpty,
+			Required:  f.Required,
 			Redacted:  f.Redacted,
 			IsCard:    isCard,
 			IsAPM:     isAPM,
+			Source:    strings.TrimSpace(f.Source),
 		})
 	}
 	return out, nil
@@ -89,6 +161,8 @@ func resolveSource(f RequestField, paymentSource string, currencyISONum int) (ex
 		return `card.ExpDateYear`, true, false, nil
 	case "card_exp_month_fmt":
 		return `fmt.Sprintf("%02d", card.ExpDateMonth)`, true, false, nil
+	case "card_exp_year_fmt":
+		return `fmt.Sprintf("%d", card.ExpDateYear)`, true, false, nil
 	case "card_exp_year_short":
 		return `fmt.Sprintf("%02d", card.ExpDateYear-2000)`, true, false, nil
 	case "cardholder":
@@ -156,6 +230,8 @@ func resolveSource(f RequestField, paymentSource string, currencyISONum int) (ex
 	case "browser_accept":
 		return browserData("BrowserAcceptHeader", defOr(def, "text/html,application/xhtml+xml")), false, false, nil
 
+	case "provider_method_value":
+		return `providerMethodValue(tx)`, false, false, nil
 	case "salt":
 		return `generateSalt()`, false, false, nil
 	case "currency_iso_num":
@@ -188,7 +264,14 @@ func resolveSource(f RequestField, paymentSource string, currencyISONum int) (ex
 	case "card_exp_last_day":
 		return `func() string { if card.ExpDateMonth == 0 || card.ExpDateYear == 0 { return "" }; return card.ExpTime().AddDate(0, 0, -1).Format("2006-01-02") }()`, true, false, nil
 	case "external_customer_id":
-		return `userID(ps)`, false, false, nil
+		switch paymentSource {
+		case "card":
+			return `card.OwnerInfo[providers.ExternalCustomerIDKey]`, true, false, nil
+		case "apm":
+			return `info[providers.ExternalCustomerIDKey]`, false, true, nil
+		default:
+			return `ownerInfo(ps)[providers.ExternalCustomerIDKey]`, false, false, nil
+		}
 
 	default:
 		return "", false, false, fmt.Errorf("unknown source %q", src)
@@ -216,9 +299,18 @@ func resolveOwnerInfo(f RequestField, paymentSource string) (string, bool, bool,
 	}
 	if !ok {
 		ownerKey := ownerInfoKeyConst(key)
-		expr := fmt.Sprintf(`helpers.MapGet(%s, %s, %s)`, mapExpr, ownerKey, quote(defOr(f.Default, "")))
-		return expr, from == "card", from == "apm", nil
+		if def := strings.TrimSpace(f.Default); def != "" {
+			expr := fmt.Sprintf(`helpers.MapGet(%s, %s, %s)`, mapExpr, ownerKey, quote(def))
+			return expr, from == "card", from == "apm", nil
+		}
+		// No OwnerInfoParameter and no sentinel default: map index is the same
+		// as MapGet(..., "") and is what reviewers expect.
+		return fmt.Sprintf(`%s[%s]`, mapExpr, ownerKey), from == "card", from == "apm", nil
 	}
+	// OwnerInfoParameter keys always go through GetParameter, including omitempty:
+	// omitempty only affects the JSON tag. Filling the platform default when
+	// randomization is off is the customer-data contract; wrapping GetParameter
+	// in MapGet(..., "") is never generated.
 	switch from {
 	case "card":
 		return fmt.Sprintf("providers.GetParameter(card.OwnerInfo, providers.%s)", param), true, false, nil
@@ -231,7 +323,7 @@ func resolveOwnerInfo(f RequestField, paymentSource string) (string, bool, bool,
 
 func ownerInfoKeyConst(key string) string {
 	consts := map[string]string{
-		"receiver_iban": "payment_providers.ReceiverIbanKey",
+		"receiver_iban": "providers.ReceiverIbanKey",
 	}
 	if c, ok := consts[key]; ok {
 		return c
@@ -240,21 +332,20 @@ func ownerInfoKeyConst(key string) string {
 }
 
 var ownerInfoParams = map[string]string{
-	"email":         "Email",
-	"phone":         "Phone",
-	"first_name":    "FirstName",
-	"last_name":     "LastName",
-	"fullname":      "FullName",
-	"cardholder":    "CardHolder",
-	"address":       "Address",
-	"city":          "City",
-	"state":         "State",
-	"country":       "Country",
-	"zip":           "Zip",
-	"ip":            "IP",
-	"language":      "Language",
-	"birth_date":    "BirthDate",
-	"receiver_iban": "ReceiverIban", // not in owner_info.go as var - use MapGet fallback
+	"email":      "Email",
+	"phone":      "Phone",
+	"first_name": "FirstName",
+	"last_name":  "LastName",
+	"fullname":   "FullName",
+	"cardholder": "CardHolder",
+	"address":    "Address",
+	"city":       "City",
+	"state":      "State",
+	"country":    "Country",
+	"zip":        "Zip",
+	"ip":         "IP",
+	"language":   "Language",
+	"birth_date": "BirthDate",
 }
 
 func inferGoType(source string, currencyISONum int) string {
@@ -300,6 +391,169 @@ func RequestLiteralConstName(f RequestField) string {
 	return exportGoIdent(f.Name)
 }
 
+// constructorName is the Go name of a generated constructor for a type.
+func constructorName(typeName string) string {
+	if typeName == "" {
+		return ""
+	}
+	return "new" + strings.ToUpper(typeName[:1]) + typeName[1:]
+}
+
+// RequestLocal is a variable a request body's expressions read from.
+type RequestLocal struct {
+	Name string
+	Decl string
+}
+
+// requestLocalDecls are the locals resolved expressions may refer to, in the
+// order they have to be declared: the cardholder split reads the card.
+var requestLocalDecls = []RequestLocal{
+	{Name: "card", Decl: "card := ps.Card"},
+	{Name: "info", Decl: "info := ownerInfo(ps)"},
+	{Name: "firstName", Decl: "firstName, lastName := helpers.SplitCardHolder(card.OwnerInfo)"},
+}
+
+// RequestLocals reports which locals a set of fields needs declared before the
+// body can be built. It reads the expressions rather than the sources, so a new
+// source that reuses an existing local is covered without being listed twice.
+func RequestLocals(fields []ResolvedField) []RequestLocal {
+	used := map[string]bool{}
+	var scan func([]ResolvedField)
+	scan = func(fs []ResolvedField) {
+		for _, f := range fs {
+			// A per-method object builds itself, and declares its own locals there.
+			if f.PerMethod {
+				continue
+			}
+			if f.IsObject() {
+				scan(f.Nested)
+				continue
+			}
+			for _, l := range requestLocalDecls {
+				if referencesIdent(f.GoExpr, l.Name) {
+					used[l.Name] = true
+				}
+			}
+			if referencesIdent(f.GoExpr, "lastName") {
+				used["firstName"] = true
+			}
+		}
+	}
+	scan(fields)
+	if used["firstName"] {
+		used["card"] = true
+	}
+	var out []RequestLocal
+	for _, l := range requestLocalDecls {
+		if used[l.Name] {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// referencesIdent reports whether expr uses ident as a whole identifier, so
+// "card" does not match "cardHolder".
+func referencesIdent(expr, ident string) bool {
+	for i := 0; i+len(ident) <= len(expr); i++ {
+		if expr[i:i+len(ident)] != ident {
+			continue
+		}
+		if i > 0 && isIdentByte(expr[i-1]) {
+			continue
+		}
+		if end := i + len(ident); end < len(expr) && isIdentByte(expr[end]) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func isIdentByte(b byte) bool {
+	return b == '_' || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
+}
+
+// FillPerMethodObjects resolves the method-specific slots of a request. Every
+// method's destination is resolved against the object's own type name, then
+// merged: the struct carries the union of what any method can send, and each
+// method keeps the subset it actually sets. Fields common to several methods
+// must agree — the same JSON name cannot mean two different things in one body.
+func FillPerMethodObjects(fields []ResolvedField, methods []Method, paymentSource string, currencyISONum int) error {
+	for i := range fields {
+		f := &fields[i]
+		if !f.PerMethod {
+			if err := FillPerMethodObjects(f.Nested, methods, paymentSource, currencyISONum); err != nil {
+				return err
+			}
+			continue
+		}
+		if len(methods) == 0 {
+			return fmt.Errorf("object %s is per_method but the provider declares no methods", f.GoName)
+		}
+		union := make([]ResolvedField, 0)
+		seen := map[string]ResolvedField{}
+		for _, m := range methods {
+			resolved, err := ResolveRequestFieldsIn(f.Type, m.Destination, paymentSource, currencyISONum)
+			if err != nil {
+				return fmt.Errorf("method %s: %w", m.Sid, err)
+			}
+			// These fields are resolved after the request's own were refined, so
+			// they need the same treatment or owner_from would be ignored here.
+			refineOwnerSource(resolved, m.Destination, paymentSource)
+			for _, rf := range resolved {
+				prev, ok := seen[rf.GoName]
+				if !ok {
+					seen[rf.GoName] = rf
+					union = append(union, rf)
+					continue
+				}
+				if prev.JSON != rf.JSON || prev.Type != rf.Type {
+					return fmt.Errorf("field %s of object %s differs between methods: %s %s vs %s %s",
+						rf.GoName, f.GoName, prev.Type, prev.JSON, rf.Type, rf.JSON)
+				}
+			}
+			goConst, err := paymentMethodGoConst(m.Sid)
+			if err != nil {
+				return err
+			}
+			f.Methods = append(f.Methods, ResolvedMethod{
+				Sid:           m.Sid,
+				ProviderValue: m.ProviderValue,
+				GoConst:       goConst,
+				Locals:        RequestLocals(resolved),
+				Fields:        resolved,
+			})
+		}
+		// A method sends only its own fields, so every one of them has to be
+		// omissible for the others — unless the contract marked it required,
+		// in which case an empty value is still meaningful on the wire.
+		for j := range union {
+			if !union[j].Required {
+				union[j].OmitEmpty = true
+			}
+		}
+		f.Nested = union
+		f.CtorName = constructorName(f.Type)
+	}
+	return nil
+}
+
+// flattenRequestFields returns every leaf field of a request, whatever depth it
+// sits at. Anything that inspects fields by source has to see grouped bodies
+// too, or a contract that nests its fields loses them silently.
+func flattenRequestFields(fields []RequestField) []RequestField {
+	out := make([]RequestField, 0, len(fields))
+	for _, f := range fields {
+		if len(f.Fields) > 0 {
+			out = append(out, flattenRequestFields(f.Fields)...)
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
 // BuildRequestLiteralConsts collects unique request literal constants for datatypes.go.
 func BuildRequestLiteralConsts(spec *ProviderSpec) ([]RequestLiteralConst, error) {
 	if spec == nil {
@@ -308,7 +562,7 @@ func BuildRequestLiteralConsts(spec *ProviderSpec) ([]RequestLiteralConst, error
 	var fields []RequestField
 	collect := func(def *RequestDef) {
 		if def != nil {
-			fields = append(fields, def.Fields...)
+			fields = append(fields, flattenRequestFields(def.Fields)...)
 		}
 	}
 	collect(spec.PayinRequest)
@@ -372,7 +626,7 @@ func exportGoIdent(s string) string {
 func IsCardSource(source string) bool {
 	switch source {
 	case "card_pan", "card_cvv", "card_exp_month", "card_exp_year", "card_exp_month_fmt",
-		"card_exp_year_short", "cardholder", "first_name", "last_name",
+		"card_exp_year_fmt", "card_exp_year_short", "cardholder", "first_name", "last_name",
 		"card_email", "card_phone", "card_customer_id", "card_exp_last_day", "card_holder_name":
 		return true
 	default:
@@ -390,4 +644,113 @@ func IsAPMSource(source string) bool {
 	default:
 		return false
 	}
+}
+
+// goTypeForObject names the struct generated for a nested request object. The
+// name is derived from the field so a contract never has to invent Go types.
+func goTypeForObject(scope, fieldName string) string {
+	if fieldName == "" {
+		return ""
+	}
+	if scope == "" {
+		return strings.ToLower(fieldName[:1]) + fieldName[1:] + "Object"
+	}
+	return scope + strings.ToUpper(fieldName[:1]) + fieldName[1:]
+}
+
+// RequestTypeScope is the prefix nested types of a request are named under. The
+// definition name already reads as the body it describes ("payoutRequest"), so
+// the trailing noun is dropped to keep payoutCustomer from becoming
+// payoutRequestCustomer.
+func RequestTypeScope(defName string) string {
+	trimmed := strings.TrimSuffix(strings.TrimSpace(defName), "Request")
+	if trimmed == "" {
+		return strings.TrimSpace(defName)
+	}
+	return trimmed
+}
+
+// mixedConstructorLocals reports a request whose envelope (not a per-method
+// slot) needs both a card and an APM local. Those sources cannot share one
+// constructor: only one of ps.Card and ps.APM is live.
+func mixedConstructorLocals(locals []RequestLocal) error {
+	hasCard, hasAPM := false, false
+	for _, l := range locals {
+		switch l.Name {
+		case "card", "firstName":
+			hasCard = true
+		case "info":
+			hasAPM = true
+		}
+	}
+	if hasCard && hasAPM {
+		return fmt.Errorf("constructor mixes card and APM sources; put method-specific fields in a per_method slot")
+	}
+	return nil
+}
+
+// MaskLeaf is one value-carrying field addressed from a request String()
+// receiver. The selector is a Go expression (r.Customer.Email); which fields
+// are actually masked remains a template decision.
+type MaskLeaf struct {
+	Selector string
+	Source   string
+	Type     string
+	Redacted bool
+}
+
+func collectObjectTypes(fields []ResolvedField) []ResolvedField {
+	var out []ResolvedField
+	var walk func([]ResolvedField)
+	walk = func(fs []ResolvedField) {
+		for _, f := range fs {
+			if f.PerMethod || f.IsObject() {
+				out = append(out, f)
+				walk(f.Nested)
+			}
+		}
+	}
+	walk(fields)
+	return out
+}
+
+func collectMaskLeaves(fields []ResolvedField, prefix string) []MaskLeaf {
+	var out []MaskLeaf
+	for _, f := range fields {
+		sel := prefix + "." + f.GoName
+		if f.PerMethod || f.IsObject() {
+			out = append(out, collectMaskLeaves(f.Nested, sel)...)
+			continue
+		}
+		out = append(out, MaskLeaf{
+			Selector: sel,
+			Source:   f.Source,
+			Type:     f.Type,
+			Redacted: f.Redacted,
+		})
+	}
+	return out
+}
+
+func fieldsUseSecret(fields []ResolvedField) bool {
+	for _, f := range fields {
+		if f.PerMethod {
+			for _, m := range f.Methods {
+				if fieldsUseSecret(m.Fields) {
+					return true
+				}
+			}
+		}
+		if f.IsObject() {
+			if fieldsUseSecret(f.Nested) {
+				return true
+			}
+			continue
+		}
+		switch f.Source {
+		case "secret", "notification_token":
+			return true
+		}
+	}
+	return false
 }

@@ -25,19 +25,40 @@ package schema
 	type:       *"string" | "int" | "int64" | "float64" | "decimal.Decimal" | "bool"
 	source:     #FieldSource  // what populates this field
 	secret_key: *"" | string  // when source is "secret", which key from apiSecrets
-	owner_key:  *"" | #OwnerInfoKey // when source is "owner_info"; generated/hand-written Go must use providers.GetParameter(info, providers.<Param>), never info[key] alone
+	owner_key:  *"" | #OwnerInfoKey // when source is "owner_info"; compiler emits GetParameter for OwnerInfoParameter keys even if omitempty. Map index only when there is no parameter. Never helpers.MapGet(map, key, "")
 	owner_from: *"" | #OwnerInfoFrom
 	default:    *"" | string  // default value for MapGet/GetBrowserData
 	const_val:  *"" | string  // literal value when source is "const"
 	const_name: *"" | string  // optional Go const identifier; default: lowerCamelCase field name
 	format:     *"" | string  // optional format string
 	omitempty:  *false | bool
+	// required keeps the field on the wire even when a per-method union would
+	// otherwise omit empty values so sibling methods stay silent.
+	required:   *false | bool
 	redacted:   *false | bool // hide in logs (PAN, CVV, tokens)
+}
+
+// A request body may nest: a node is either a populated leaf field or an object
+// grouping further nodes. Providers that wrap their payload ({payment, customer,
+// payment_details}) are then described rather than hand-written.
+#RequestNode: #RequestFieldMapping | #RequestObject
+
+#RequestObject: {
+	name:      string  // Go struct field name
+	json:      string  // JSON tag
+	fields:    [...#RequestNode]
+	omitempty: *false | bool
+	// per_method fills the object from the selected payment method instead of
+	// from a fixed field list: providers that accept several methods on one
+	// endpoint put the method-specific values in a slot like payment_details,
+	// and what belongs there is a property of the method, not of the request.
+	// The object's own fields then come from #Method.destination.
+	per_method: *false | bool
 }
 
 #RequestDef: {
 	name:   string
-	fields: [...#RequestFieldMapping]
+	fields: [...#RequestNode]
 }
 
 // Deprecated: use payin_request / payout_request (#RequestDef) instead.
@@ -173,12 +194,16 @@ package schema
 
 #RequestSigningConfig: {
 	algorithm:       "sha256" | "hmac-sha1" | "hmac-sha256" | "md5"
-	format:          "method_url_body" | "md5_fields_concat" | "notification_token" | "username_key_body_b64"
+	format:          "method_url_body" | "md5_fields_concat" | "notification_token" | "username_key_body_b64" | "hmac_timestamp_nonce"
 	header:          string
 	secret_key:      string
 	username_header: *"" | string
 	username_key:    *"" | string
 	encoding:        *"hex" | "base64"
+	// hmac_timestamp_nonce: header names carrying the two parts of the
+	// canonical string "<timestamp>.<nonce>". Empty is a vet error for that format.
+	timestamp_header: *"" | string
+	nonce_header:     *"" | string
 	// md5_fields_concat: ordered logical field names (see Pacepay computePayoutSignature).
 	concat_fields: *[...string] | [...string]
 }
@@ -306,6 +331,18 @@ package schema
 	sid:            #PaymentMethodSID
 	method_type:    #PaymentMethodType
 	account_id_type: *"none" | #AccountIDType
+}
+
+// #Method describes one payment method as this provider sees it. sid is ours —
+// the value the platform routes on; provider_value is the provider's own name
+// for the same method, sent where its API asks for one.
+#Method: {
+	sid:            #PaymentMethodSID
+	provider_value: *"" | string
+	// Fields the provider expects for this method and no other. They fill the
+	// request object marked per_method, so adding a method is a contract change
+	// and not a template change.
+	destination: [...#RequestNode]
 }
 
 // --- Transaction types ---
@@ -502,8 +539,12 @@ package schema
 	// Callback webhook signature verification (optional; separate from outbound signing).
 	callback_signature: *null | #CallbackSignatureConfig
 
-	payin_statuses: [...#StatusMapping]
-	payout_statuses: [...#StatusMapping]
+	// Shared provider status map. payin_statuses and payout_statuses default to
+	// this list, so identical maps are written once. Override a direction to
+	// give it a different map; set it to [] to omit that mapper.
+	statuses: *[...#StatusMapping] | [...#StatusMapping]
+	payin_statuses: *statuses | [...#StatusMapping]
+	payout_statuses: *statuses | [...#StatusMapping]
 	error_codes: [...#ErrorMapping]
 	error_mapping_matrix: *[...#ErrorMatrixEntry] | [...#ErrorMatrixEntry]
 	// Provider status_details / detail strings (e.g. Macan status_details) → internal status
@@ -527,6 +568,12 @@ package schema
 	response_types: [...#ResponseType]
 
 	supported_methods: [...#PaymentMethodSID]
+
+	// What each supported method looks like on this provider's wire. Only
+	// providers that serve several methods through one endpoint need it; a
+	// single-method provider states its body in the request definition and
+	// leaves this empty.
+	methods: [...#Method]
 
 	// Transaction type support
 	has_payin:        *true | bool

@@ -39,3 +39,19 @@ schema_dir: "../.ang/schema"
 		t.Fatalf("resolved: %s", resolved)
 	}
 }
+
+func TestLoad_rejectsLocalSchemaWhenSchemaDirSet(t *testing.T) {
+	dir := t.TempDir()
+	cueDir := filepath.Join(dir, ".cue")
+	if err := os.MkdirAll(filepath.Join(cueDir, "schema"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	shared := filepath.Join(dir, "shared-schema")
+	if err := os.MkdirAll(shared, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	err := rejectStaleLocalSchema(cueDir, shared)
+	if err == nil {
+		t.Fatal("expected error for leftover .cue/schema")
+	}
+}

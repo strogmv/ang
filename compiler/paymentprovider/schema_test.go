@@ -33,6 +33,7 @@ func TestBundledSchemaSupportsGatewayPayoutFields(t *testing.T) {
 	for _, want := range []string{
 		`algorithm:       "sha256" | "hmac-sha1"`,
 		`"username_key_body_b64"`,
+		`"hmac_timestamp_nonce"`,
 		`"sha256_concat"`,
 		`username_header: *"" | string`,
 		`username_key:    *"" | string`,

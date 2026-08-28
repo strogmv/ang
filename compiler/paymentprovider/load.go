@@ -2,6 +2,7 @@ package paymentprovider
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -20,6 +21,10 @@ func Load(projectPath, cueRoot, schemaDir string) (*ProviderSpec, error) {
 		cueRoot = compiler.DefaultCueRoot
 	}
 	cueDir := filepath.Join(projectPath, cueRoot)
+
+	if err := rejectStaleLocalSchema(cueDir, schemaDir); err != nil {
+		return nil, err
+	}
 
 	overlay, err := schemaOverlay(cueDir, schemaDir)
 	if err != nil {
@@ -87,4 +92,37 @@ func firstLoadError(insts []*build.Instance) error {
 		}
 	}
 	return nil
+}
+
+// rejectStaleLocalSchema fails when a provider both points schema_dir at a
+// shared schema and still keeps .cue/schema on disk. Overlay would hide the
+// copy, and CUE errors then look like a broken contract.
+func rejectStaleLocalSchema(cueDir, schemaDir string) error {
+	schemaDir = strings.TrimSpace(schemaDir)
+	if schemaDir == "" {
+		return nil
+	}
+	local := filepath.Join(cueDir, "schema")
+	absLocal, err := filepath.Abs(local)
+	if err != nil {
+		return fmt.Errorf("abs local schema: %w", err)
+	}
+	absShared, err := filepath.Abs(schemaDir)
+	if err != nil {
+		return fmt.Errorf("abs schema dir: %w", err)
+	}
+	if absLocal == absShared {
+		return nil
+	}
+	info, err := os.Stat(local)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("stat local schema: %w", err)
+	}
+	if !info.IsDir() {
+		return nil
+	}
+	return fmt.Errorf("provider has %s while schema_dir is %s; remove the copy so CUE loads the shared schema", local, schemaDir)
 }

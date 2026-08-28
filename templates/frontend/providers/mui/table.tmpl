@@ -119,6 +119,11 @@ export function {{ .Name }}Table({ onView, onEdit, onDelete{{- range .ExtraProps
     <Box sx={{"{{"}} width: '100%', overflowX: 'auto' {{"}}"}}>
       <DataGrid
         rows={data?.data ?? []}
+        // Some list contracts intentionally use a domain key such as
+        // productId/packageId instead of the generic `id`. Resolve the
+        // stable identity at the generated boundary so every table remains
+        // safe for MUI DataGrid without hand-written per-page adapters.
+        getRowId={(row) => row.id ?? row.productId ?? row.packageId ?? row.key ?? JSON.stringify(row)}
         columns={columns}
         loading={isLoading}
         paginationModel={paginationModel}
