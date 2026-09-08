@@ -15,11 +15,13 @@
 //   - dayjs: Date formatting
 // ============================================================================
 import { useMemo, useState, type ReactNode } from 'react';
+import { keepPreviousData } from '@tanstack/react-query';
 import { Avatar, Box{{ if .ColumnPicker }}, Button{{ end }}, Chip, IconButton, Tooltip } from '@mui/material';
-import { DataGrid{{ if .ColumnPicker }}, Toolbar, ColumnsPanelTrigger, useGridApiContext{{ end }}, type GridColDef, type GridColumnVisibilityModel, type GridPaginationModel, type GridRenderCellParams } from '@mui/x-data-grid';
+import { DataGrid, useGridApiContext, useGridSelector, gridPageSelector, gridPageCountSelector{{ if .ColumnPicker }}, Toolbar, ColumnsPanelTrigger{{ end }}, type GridColDef, type GridColumnVisibilityModel, type GridPaginationModel, type GridRenderCellParams } from '@mui/x-data-grid';
 import { Edit as EditIcon, Delete as DeleteIcon, Visibility as ViewIcon{{ if .ColumnPicker }}, ViewColumn as ViewColumnIcon{{ end }} } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { use{{ .QueryName }} } from '../../hooks';
+import { TablePagination } from '../../@ui/tables';
 {{- range .CustomImports }}
 import { {{ .Component }} } from '{{ .Path }}';
 {{- end }}
@@ -115,6 +117,23 @@ function {{ .Name }}TableToolbar() {
 }
 {{- end }}
 
+// Footer: page pills via the table UI registry (@ui/tables). The host app
+// swaps the look once with registerTablePagination(); tables stay generated.
+function {{ .Name }}TableFooter() {
+  const apiRef = useGridApiContext();
+  const page = useGridSelector(apiRef, gridPageSelector);
+  const pageCount = useGridSelector(apiRef, gridPageCountSelector);
+  return (
+    <Box sx={{"{{"}} px: 1, py: 1.5 {{"}}"}}>
+      <TablePagination
+        page={page + 1}
+        pageCount={pageCount}
+        onChange={(next) => apiRef.current.setPage(next - 1)}
+      />
+    </Box>
+  );
+}
+
 // ============================================================================
 // SECTION: Table Component
 // PURPOSE: Render paginated data table with action buttons
@@ -136,11 +155,21 @@ export function {{ .Name }}Table({ onView, onEdit, onDelete, columnVisibilityMod
     onColumnVisibilityModelChange?.(model);
   };
 
+  // keepPreviousData: while the next page loads the grid keeps the current
+  // rows and rowCount, otherwise MUI clamps the page back to 0 mid-fetch.
   const { data, isLoading } = use{{ .QueryName }}({
 {{- range .QueryParams }}
     {{ .Name }}: {{ .Value }},
 {{- end }}
-  });
+  }, { placeholderData: keepPreviousData });
+  const rows = data?.data ?? [];
+{{- if .HasTotal }}
+  const rowCount = data?.total ?? rows.length;
+{{- else }}
+  // No total in the contract: a full page means at least one more page exists.
+  const loadedRows = paginationModel.page * paginationModel.pageSize + rows.length;
+  const rowCount = rows.length >= paginationModel.pageSize ? loadedRows + 1 : loadedRows;
+{{- end }}
 
   const columns = useMemo<GridColDef[]>(() => [
 {{- range $i, $col := .Columns }}
@@ -203,7 +232,9 @@ export function {{ .Name }}Table({ onView, onEdit, onDelete, columnVisibilityMod
     <Box sx={{"{{"}} width: '100%', overflowX: 'auto' {{"}}"}}>
       {toolbar && <Box sx={{"{{"}} mb: 1 {{"}}"}}>{toolbar}</Box>}
       <DataGrid
-        rows={data?.data ?? []}
+        rows={rows}
+        rowCount={rowCount}
+        paginationMode="server"
         // Some list contracts intentionally use a domain key such as
         // productId/packageId instead of the generic `id`. Resolve the
         // stable identity at the generated boundary so every table remains
@@ -217,8 +248,8 @@ export function {{ .Name }}Table({ onView, onEdit, onDelete, columnVisibilityMod
         onColumnVisibilityModelChange={handleColumnVisibilityChange}
 {{- if .ColumnPicker }}
         showToolbar
-        slots={{"{{"}} toolbar: {{ .Name }}TableToolbar {{"}}"}}
 {{- end }}
+        slots={{"{{"}} footer: {{ .Name }}TableFooter{{ if .ColumnPicker }}, toolbar: {{ .Name }}TableToolbar{{ end }} {{"}}"}}
         pageSizeOptions={[10, 25, 50, 100]}
         disableRowSelectionOnClick
         autoHeight

@@ -93,6 +93,13 @@ func TestBuildTableData_ColumnPickerFromCUE(t *testing.T) {
 	if buildTableData("Svc", normalizer.Method{Name: "ListThings"}, nil, nil).StorageKey != "Thing" {
 		t.Fatalf("expected storage key to default to the table name")
 	}
+	if got.HasTotal {
+		t.Fatalf("expected HasTotal=false without a total output field")
+	}
+	withTotal := normalizer.Method{Name: "ListThings", Output: normalizer.Entity{Fields: []normalizer.Field{{Name: "data", Type: "[]X", IsList: true}, {Name: "total", Type: "int"}}}}
+	if !buildTableData("Svc", withTotal, nil, nil).HasTotal {
+		t.Fatalf("expected HasTotal=true when the response has total")
+	}
 }
 
 func TestHasFrontendListEndpointRequiresGETEndpoint(t *testing.T) {

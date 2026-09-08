@@ -141,6 +141,9 @@ type TableData struct {
 	ColumnPicker bool
 	// StorageKey namespaces the persisted column selection in localStorage.
 	StorageKey string
+	// HasTotal is true when the list response carries a `total` count, which
+	// lets the generated table paginate server-side with an exact page count.
+	HasTotal bool
 }
 
 // HasHiddenColumns reports whether any column is hidden by default.
@@ -259,6 +262,9 @@ func (e *Emitter) EmitFrontendComponents(services []ir.Service, endpoints []ir.E
 	}
 
 	if err := e.emitBaseUIFormsProxyLayer(); err != nil {
+		return err
+	}
+	if err := e.emitBaseUITablesLayer(); err != nil {
 		return err
 	}
 	if err := e.emitBaseUIAutoFormLayer(); err != nil {
@@ -667,6 +673,12 @@ func buildTableData(serviceName string, m normalizer.Method, entities []normaliz
 			Type:     tsTypeForField(f),
 			Optional: true,
 		})
+	}
+
+	for _, f := range m.Output.Fields {
+		if strings.EqualFold(f.Name, "total") {
+			data.HasTotal = true
+		}
 	}
 
 	// Find the Data field in output
