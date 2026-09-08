@@ -842,16 +842,52 @@ func isLikelyImportPath(v string) bool {
 	return ok
 }
 
+// isDateColumn recognises timestamp columns. The camelCase "At" suffix is
+// checked on the original name so that plain words ending in "at" (format,
+// seat, flat) are not mistaken for dates.
+func isDateColumn(name, lower string) bool {
+	if strings.HasSuffix(name, "At") || strings.HasSuffix(lower, "_at") || lower == "at" {
+		return true
+	}
+	if strings.HasSuffix(lower, "date") {
+		return true
+	}
+	// priceEffectiveFrom / validTo and friends are date ranges, not money.
+	if strings.HasSuffix(lower, "from") || strings.HasSuffix(lower, "to") {
+		return strings.Contains(lower, "effective") || strings.Contains(lower, "valid") || strings.Contains(lower, "date")
+	}
+	return false
+}
+
+// isMoneyColumn keeps identifiers, basis points, modes and codes out of the
+// currency formatter even though their names contain "price".
+func isMoneyColumn(f normalizer.Field, lower string) bool {
+	switch f.Type {
+	case "int", "int32", "int64", "float", "float32", "float64":
+	default:
+		return false
+	}
+	if !strings.Contains(lower, "price") && !strings.Contains(lower, "amount") && !strings.Contains(lower, "budget") {
+		return false
+	}
+	for _, suffix := range []string{"id", "ids", "bps", "mode", "code", "count", "status", "type", "kind", "version"} {
+		if strings.HasSuffix(lower, suffix) {
+			return false
+		}
+	}
+	return true
+}
+
 func inferColumnRender(f normalizer.Field) (string, string) {
 	lower := strings.ToLower(f.Name)
 
 	switch {
-	case strings.HasSuffix(lower, "at"):
-		return "date", "dayjs(params.value).format('DD.MM.YYYY HH:mm')"
+	case isDateColumn(f.Name, lower):
+		return "date", "formatTableDate(params.value)"
 	case lower == "status":
 		return "status", "<Chip label={params.value} size=\"small\" />"
-	case strings.Contains(lower, "price") || strings.Contains(lower, "amount") || strings.Contains(lower, "budget"):
-		return "currency", "new Intl.NumberFormat('ru-BY', { style: 'currency', currency: 'BYN' }).format(params.value)"
+	case isMoneyColumn(f, lower):
+		return "currency", "formatTableCurrency(params.value, params.row?.currencyCode)"
 	case strings.Contains(lower, "avatar") || strings.Contains(lower, "image") || strings.Contains(lower, "logo"):
 		return "avatar", "<Avatar src={params.value} />"
 	}

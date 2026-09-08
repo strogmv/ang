@@ -24,6 +24,7 @@ func (e *Emitter) emitBaseUITablesLayer() error {
 //   - TableActionsHeader                         — actions header + column picker
 //   - TableFooter                                — footer slot with pagination
 //   - registerTableSlots / getTableSlots         — extra DataGrid slots (baseCheckbox, ...)
+//   - formatTableDate / formatTableCurrency      — cell formatting shared by all tables
 // DO NOT EDIT - changes will be overwritten on next generation
 // ============================================================================
 import type { ComponentType } from 'react';
@@ -39,6 +40,40 @@ import {
   type GridSlotsComponent,
 } from '@mui/x-data-grid';
 import { ViewColumn as ViewColumnIcon } from '@mui/icons-material';
+import dayjs from 'dayjs';
+
+// ---------------------------------------------------------------------------
+// Cell formatting
+// ---------------------------------------------------------------------------
+
+/** Empty placeholder for cells with no value. */
+export const TABLE_EMPTY_CELL = '—';
+
+/** Date cell: never renders "Invalid Date" for empty or unparsable values. */
+export function formatTableDate(value: unknown, withTime = true): string {
+  if (value === null || value === undefined || value === '') return TABLE_EMPTY_CELL;
+  const parsed = dayjs(value as string | number | Date);
+  if (!parsed.isValid()) return TABLE_EMPTY_CELL;
+  return parsed.format(withTime ? 'DD.MM.YYYY HH:mm' : 'DD.MM.YYYY');
+}
+
+/**
+ * Money cell. The currency comes from the row (currencyCode) because a table
+ * can mix currencies; without one the value is rendered as a plain number
+ * instead of guessing a symbol.
+ */
+export function formatTableCurrency(value: unknown, currencyCode?: unknown): string {
+  if (value === null || value === undefined || value === '') return TABLE_EMPTY_CELL;
+  const amount = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(amount)) return TABLE_EMPTY_CELL;
+  const code = typeof currencyCode === 'string' ? currencyCode.trim().toUpperCase() : '';
+  if (code.length !== 3) return new Intl.NumberFormat().format(amount);
+  try {
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency: code }).format(amount);
+  } catch {
+    return new Intl.NumberFormat().format(amount) + ' ' + code;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Column / action labels

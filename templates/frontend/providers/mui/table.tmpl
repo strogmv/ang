@@ -21,7 +21,7 @@ import { DataGrid, type GridColDef, type GridColumnVisibilityModel, type GridPag
 import { Edit as EditIcon, Delete as DeleteIcon, Visibility as ViewIcon } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { use{{ .QueryName }} } from '../../hooks';
-import { TableActionsHeader, TableFooter, getTableSlots, useTableColumnVisibility, useTableLabels } from '../../@ui/tables';
+import { TableActionsHeader, TableFooter, formatTableCurrency, formatTableDate, getTableSlots, useTableColumnVisibility, useTableLabels } from '../../@ui/tables';
 {{- range .CustomImports }}
 import { {{ .Component }} } from '{{ .Path }}';
 {{- end }}
