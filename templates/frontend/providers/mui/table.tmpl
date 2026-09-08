@@ -21,7 +21,7 @@ import { DataGrid, useGridApiContext, useGridSelector, gridPageSelector, gridPag
 import { Edit as EditIcon, Delete as DeleteIcon, Visibility as ViewIcon{{ if .ColumnPicker }}, ViewColumn as ViewColumnIcon{{ end }} } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { use{{ .QueryName }} } from '../../hooks';
-import { TablePagination } from '../../@ui/tables';
+import { TablePagination, useTableLabels } from '../../@ui/tables';
 {{- range .CustomImports }}
 import { {{ .Component }} } from '{{ .Path }}';
 {{- end }}
@@ -106,9 +106,17 @@ function {{ .Name }}TableToolbar() {
   const apiRef = useGridApiContext();
   const label = apiRef.current.getLocaleText('toolbarColumns');
   return (
-    <Toolbar style={{"{{"}} justifyContent: 'flex-start' {{"}}"}}>
+    <Toolbar style={{"{{"}} justifyContent: 'flex-end', padding: '4px 0 8px' {{"}}"}}>
       <ColumnsPanelTrigger
-        render={<Button size="small" variant="text" color="inherit" startIcon={<ViewColumnIcon fontSize="small" />} sx={{"{{"}} textTransform: 'none', fontWeight: 500 {{"}}"}} />}
+        render={
+          <Button
+            size="small"
+            variant="outlined"
+            color="inherit"
+            startIcon={<ViewColumnIcon sx={{"{{"}} fontSize: 20 {{"}}"}} />}
+            sx={{"{{"}} textTransform: 'none', fontWeight: 500, minHeight: 36, px: 1.5, borderColor: 'divider' {{"}}"}}
+          />
+        }
       >
         {label}
       </ColumnsPanelTrigger>
@@ -171,11 +179,12 @@ export function {{ .Name }}Table({ onView, onEdit, onDelete, columnVisibilityMod
   const rowCount = rows.length >= paginationModel.pageSize ? loadedRows + 1 : loadedRows;
 {{- end }}
 
+  const label = useTableLabels();
   const columns = useMemo<GridColDef[]>(() => [
 {{- range $i, $col := .Columns }}
     {
       field: '{{ $col.Field }}',
-      headerName: '{{ $col.Header }}',
+      headerName: label('{{ $.Name }}', '{{ $col.Field }}', '{{ $col.Header }}'),
       {{- if $col.Width }}
       width: {{ $col.Width }},
       {{- else if eq $col.Field "id" }}
@@ -195,28 +204,28 @@ export function {{ .Name }}Table({ onView, onEdit, onDelete, columnVisibilityMod
 {{- if .HasActions }}
     {
       field: 'actions',
-      headerName: 'Действия',
+      headerName: label('{{ .Name }}', 'actions', 'Действия'),
       width: 120,
       sortable: false,
       hideable: false,
       renderCell: (params: GridRenderCellParams) => (
         <Box>
           {onView && (
-            <Tooltip title="Просмотр">
+            <Tooltip title={label('{{ .Name }}', 'actions.view', 'Просмотр')}>
               <IconButton size="small" onClick={() => onView(params.row)}>
                 <ViewIcon fontSize="small" />
               </IconButton>
             </Tooltip>
           )}
           {onEdit && (
-            <Tooltip title="Редактировать">
+            <Tooltip title={label('{{ .Name }}', 'actions.edit', 'Редактировать')}>
               <IconButton size="small" onClick={() => onEdit(params.row)}>
                 <EditIcon fontSize="small" />
               </IconButton>
             </Tooltip>
           )}
           {onDelete && (
-            <Tooltip title="Удалить">
+            <Tooltip title={label('{{ .Name }}', 'actions.delete', 'Удалить')}>
               <IconButton size="small" onClick={() => onDelete(params.row)}>
                 <DeleteIcon fontSize="small" color="error" />
               </IconButton>
@@ -226,7 +235,7 @@ export function {{ .Name }}Table({ onView, onEdit, onDelete, columnVisibilityMod
       ),
     },
 {{- end }}
-  ], [onView, onEdit, onDelete]);
+  ], [onView, onEdit, onDelete, label]);
 
   return (
     <Box sx={{"{{"}} width: '100%', overflowX: 'auto' {{"}}"}}>
