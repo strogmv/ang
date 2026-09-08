@@ -23,6 +23,7 @@ type TemplateData struct {
 	ConstructorTestArgs string
 
 	PaymentSource string
+	H2HPayin      string
 
 	HasPayin        bool
 	HasPayout       bool
@@ -37,6 +38,7 @@ type TemplateData struct {
 	PayoutStatusRequest *ResolvedRequestDef
 	P2PRequest          *ResolvedRequestDef
 	RefundRequest       *ResolvedRequestDef
+	InvoiceRequest      *ResolvedRequestDef
 
 	// Methods is what the provider calls each method the contract supports. It
 	// carries no fields of its own — those belong to the per-method objects that
@@ -193,6 +195,11 @@ type TemplateData struct {
 	CallbackReturnQueryTxIDParam    string
 	CallbackReturnQueryStatusValue  string
 	CallbackReturnQueryInfoCallback bool
+	CallbackAmountPolicy            string
+	CallbackAmountField             string
+	CallbackFinishAction            string
+	CheckStatusAmountPolicy         string
+	CheckStatusAmountField          string
 
 	// Advanced capability knobs (schema-driven).
 	CheckStatusThrottleConfig *CheckStatusThrottleConfig
@@ -409,9 +416,15 @@ type OperationTransportTemplate struct {
 	RetryMaxBackoff       string
 	Timeout               string
 	PendingCallbackAction string
+	AmountPolicy          string
+	AmountField           string
+	FinishAction          string
 	StatusField           string
 	StatusDetailsField    string
 	ErrorCodeField        string
+	ForeignIDField        string
+	RedirectURLField      string
+	SuccessField          string
 }
 
 type ErrorMatrixTemplate struct {
@@ -866,6 +879,10 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 			PathFormatTxID:      spec.CheckStatusConfig.PathFormatTxID,
 		}
 		data.CheckStatusPathFormatTxID = spec.CheckStatusConfig.PathFormatTxID
+		if spec.CheckStatusConfig.Actions != nil {
+			data.CheckStatusAmountPolicy = defaultString(spec.CheckStatusConfig.Actions.Amount, "ignore")
+			data.CheckStatusAmountField = strings.TrimSpace(spec.CheckStatusConfig.Actions.AmountField)
+		}
 	}
 	if spec.PayoutRuntime != nil {
 		data.PayoutRuntime = &PayoutRuntimeTemplate{
@@ -962,6 +979,14 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 		data.CallbackReturnQueryStatusValue = spec.Callback.ReturnQueryStatusValue
 		data.CallbackReturnQueryInfoCallback = spec.Callback.ReturnQueryInfoCallback
 		data.CallbackFields = normalizeStructFields(spec.Callback.Fields)
+		if spec.Callback.Actions != nil {
+			data.CallbackAmountPolicy = defaultString(spec.Callback.Actions.Amount, "ignore")
+			data.CallbackAmountField = strings.TrimSpace(spec.Callback.Actions.AmountField)
+			data.CallbackFinishAction = defaultString(spec.Callback.Actions.Finish, "map")
+		} else {
+			data.CallbackAmountPolicy = "ignore"
+			data.CallbackFinishAction = "map"
+		}
 		for _, f := range data.CallbackFields {
 			if strings.TrimSpace(f.NestedPath) != "" {
 				data.HasCallbackNestedPaths = true
@@ -1060,9 +1085,15 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 					RetryMaxBackoff:       op.Transport.RetryMaxBackoff,
 					Timeout:               op.Transport.Timeout,
 					PendingCallbackAction: op.Transport.PendingCallbackAction,
+					AmountPolicy:          op.Transport.AmountPolicy,
+					AmountField:           op.Transport.AmountField,
+					FinishAction:          op.Transport.FinishAction,
 					StatusField:           op.Transport.StatusField,
 					StatusDetailsField:    op.Transport.StatusDetailsField,
 					ErrorCodeField:        op.Transport.ErrorCodeField,
+					ForeignIDField:        op.Transport.ForeignIDField,
+					RedirectURLField:      op.Transport.RedirectURLField,
+					SuccessField:          op.Transport.SuccessField,
 				},
 			})
 		}
@@ -1170,6 +1201,12 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 	} else if data.HasP2P && spec.PayinRequest != nil {
 		data.P2PRequest = data.PayinRequest
 	}
+	if spec.InvoiceRequest != nil {
+		data.InvoiceRequest, err = resolveRequestDef(spec.InvoiceRequest, spec.Methods, spec.PaymentSource, currencyNum)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	for _, m := range spec.Methods {
 		goConst, err := paymentMethodGoConst(m.Sid)
@@ -1179,13 +1216,23 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 		data.Methods = append(data.Methods, ResolvedMethod{
 			Sid:           m.Sid,
 			ProviderValue: m.ProviderValue,
+			H2H:           m.H2H,
 			GoConst:       goConst,
 		})
+	}
+
+	data.H2HPayin = defaultString(spec.H2HPayin, "none")
+	for _, m := range spec.Methods {
+		if h2h := strings.TrimSpace(m.H2H); h2h != "" {
+			data.H2HPayin = h2h
+			break
+		}
 	}
 
 	data.AllRequestFields = collectRequestLeaves(
 		data.PayinRequest, data.PayoutRequest, data.PayinStatusRequest,
 		data.PayoutStatusRequest, data.RefundRequest, data.P2PRequest,
+		data.InvoiceRequest,
 	)
 
 	data.RequestLiteralConsts, err = BuildRequestLiteralConsts(spec)
@@ -1218,6 +1265,7 @@ func BuildTemplateData(spec *ProviderSpec) (*TemplateData, error) {
 	data.PayinForeignIDField = nestUnderEnvelope(data.ResponseEnvelope, data.PayinForeignIDField)
 	data.PayoutForeignIDField = nestUnderEnvelope(data.ResponseEnvelope, data.PayoutForeignIDField)
 	data.PayinRedirectURLField = nestUnderEnvelope(data.ResponseEnvelope, data.PayinRedirectURLField)
+	applyInitPayTransportOverrides(data, spec)
 	data.ResponseTypes = ensureResponseEnvelopeType(data.ResponseTypes, data.PayinResponseType, data.PayinResponsePayloadType, data.ResponseEnvelope)
 	data.ResponseTypes = ensureResponseEnvelopeType(data.ResponseTypes, data.PayoutResponseType, data.PayoutResponsePayloadType, data.ResponseEnvelope)
 
@@ -1320,7 +1368,8 @@ func requestDefsNeedLocal(data *TemplateData, name string) bool {
 		defNeedsLocal(data.PayinStatusRequest, name) ||
 		defNeedsLocal(data.PayoutStatusRequest, name) ||
 		defNeedsLocal(data.RefundRequest, name) ||
-		defNeedsLocal(data.P2PRequest, name)
+		defNeedsLocal(data.P2PRequest, name) ||
+		defNeedsLocal(data.InvoiceRequest, name)
 }
 
 func defNeedsLocal(def *ResolvedRequestDef, name string) bool {
@@ -1503,6 +1552,18 @@ func buildAllRequestTypes(data *TemplateData) []RequestTypeTemplate {
 		}
 		if !seen {
 			add(data.PayoutStatusRequest)
+		}
+	}
+	if data.InvoiceRequest != nil {
+		seen := false
+		for _, rt := range out {
+			if rt.Name == data.InvoiceRequest.Name {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			add(data.InvoiceRequest)
 		}
 	}
 	return out
@@ -2232,6 +2293,64 @@ func defaultString(value, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func applyInitPayTransportOverrides(data *TemplateData, spec *ProviderSpec) {
+	for _, op := range spec.Operations {
+		t := op.Transport
+		switch op.Kind {
+		case "init_pay":
+			if s := goSelectorOverride(t.StatusField); s != "" {
+				data.PayinStatusField = s
+			}
+			if s := goSelectorOverride(t.ForeignIDField); s != "" {
+				data.PayinForeignIDField = s
+			}
+			if s := goSelectorOverride(t.RedirectURLField); s != "" {
+				data.PayinRedirectURLField = s
+			}
+			if s := strings.TrimSpace(t.ResponseType); s != "" {
+				data.PayinResponseType = s
+			}
+		case "init_payout":
+			if s := goSelectorOverride(t.StatusField); s != "" {
+				data.PayoutStatusField = s
+			}
+			if s := goSelectorOverride(t.ForeignIDField); s != "" {
+				data.PayoutForeignIDField = s
+			}
+			if s := strings.TrimSpace(t.ResponseType); s != "" {
+				data.PayoutResponseType = s
+			}
+		}
+	}
+}
+
+// goSelectorOverride accepts CUE transport fields that are Go selectors
+// (Status, Result.State, URL). JSON names like "status" stay with inferred
+// exported fields — v1 fixtures still write status_field: "status".
+func goSelectorOverride(raw string) string {
+	s := strings.TrimSpace(raw)
+	if !looksLikeGoSelector(s) {
+		return ""
+	}
+	return s
+}
+
+func looksLikeGoSelector(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, part := range strings.Split(s, ".") {
+		if part == "" {
+			return false
+		}
+		r := []rune(part)
+		if !unicode.IsUpper(r[0]) {
+			return false
+		}
+	}
+	return true
 }
 
 func defaultCheckStatusForeignIDEmpty(value string) string {

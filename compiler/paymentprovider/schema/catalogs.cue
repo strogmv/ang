@@ -7,7 +7,7 @@ package schema
 	"tx_currency" | "tx_callback_url" | "tx_ip" | "tx_description" | "tx_result_url" |
 	"tx_merchant_order" | "tx_card_country" | "tx_payment_method" | "foreign_id" |
 	"card_pan" | "card_cvv" | "card_exp_month" | "card_exp_year" | "card_exp_month_fmt" |
-	"card_exp_year_fmt" | "card_exp_year_short" | "cardholder" | "first_name" | "last_name" |
+	"card_exp_year_fmt" | "card_exp_year_short" | "card_exp_mm_yy" | "cardholder" | "first_name" | "last_name" |
 	// Deprecated for new providers: prefer source "owner_info" + owner_key and
 	// providers.GetParameter in Go so platform defaults apply when randomization is off.
 	"card_email" |
@@ -66,3 +66,6 @@ package schema
 	string
 
 #CatalogAuthFlowType: "h2h" | "3ds" | "redirect" | "otp" | "qr" | "p2p" | "none"
+
+// quasi_ecom: we collect PAN/CVV (Finzo QUASI_ECOM, Titan QuasiC2C, Aggrepay q_ecom).
+#CatalogH2HKind: "none" | "quasi_ecom"

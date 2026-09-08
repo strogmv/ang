@@ -38,6 +38,8 @@ knowledge/
 
 ## Commands
 
+`ang pp init` renders the consumer repo's nearest `.ang/init` templates (in tnx: `payment_providers/.ang/init`). Ang does not ship provider-domain scaffolds.
+
 ```bash
 export ANG_EXPERT_ROOT=/path/to/deal/expert
 

@@ -62,6 +62,7 @@ type ProviderSpec struct {
 	PayoutStatusRequest *RequestDef `json:"payout_status_request"`
 	P2PRequest          *RequestDef `json:"p2p_request"`
 	RefundRequest       *RequestDef `json:"refund_request"`
+	InvoiceRequest      *RequestDef `json:"invoice_request"`
 
 	ResponseTypes []ResponseType `json:"response_types"`
 
@@ -77,6 +78,7 @@ type ProviderSpec struct {
 	HasCancel       bool `json:"has_cancel"`
 
 	AuthFlow       string `json:"auth_flow"`
+	H2HPayin       string `json:"h2h_payin"`
 	APICompat      string `json:"api_compat"`
 	CheckoutCompat string `json:"checkout_compat"`
 
@@ -170,10 +172,11 @@ type SecretPart struct {
 }
 
 type CheckStatusConfigSpec struct {
-	SinceCreatedPeriod  string `json:"since_created_period"`
-	ByTransactionType   bool   `json:"by_transaction_type"`
-	PathSuffixForeignID bool   `json:"path_suffix_foreign_id"`
-	PathFormatTxID      bool   `json:"path_format_tx_id"`
+	SinceCreatedPeriod  string             `json:"since_created_period"`
+	ByTransactionType   bool               `json:"by_transaction_type"`
+	PathSuffixForeignID bool               `json:"path_suffix_foreign_id"`
+	PathFormatTxID      bool               `json:"path_format_tx_id"`
+	Actions             *SettleActionsSpec `json:"actions"`
 }
 
 type KeysEndpointConfig struct {
@@ -295,6 +298,7 @@ type RequestField struct {
 type Method struct {
 	Sid           string         `json:"sid"`
 	ProviderValue string         `json:"provider_value"`
+	H2H           string         `json:"h2h"`
 	Destination   []RequestField `json:"destination"`
 }
 
@@ -313,17 +317,24 @@ type StructField struct {
 }
 
 type CallbackConfig struct {
-	TxIDField               string        `json:"tx_id_field"`
-	ForeignIDField          string        `json:"foreign_id_field"`
-	StatusField             string        `json:"status_field"`
-	StatusType              string        `json:"status_type"`
-	ErrorCodeField          string        `json:"error_code_field"`
-	MessageField            string        `json:"message_field"`
-	ReturnCodeField         string        `json:"return_code_field"`
-	ReturnQueryTxIDParam    string        `json:"return_query_txid_param"`
-	ReturnQueryStatusValue  string        `json:"return_query_status_value"`
-	ReturnQueryInfoCallback bool          `json:"return_query_info_callback"`
-	Fields                  []StructField `json:"fields"`
+	TxIDField               string             `json:"tx_id_field"`
+	ForeignIDField          string             `json:"foreign_id_field"`
+	StatusField             string             `json:"status_field"`
+	StatusType              string             `json:"status_type"`
+	ErrorCodeField          string             `json:"error_code_field"`
+	MessageField            string             `json:"message_field"`
+	ReturnCodeField         string             `json:"return_code_field"`
+	ReturnQueryTxIDParam    string             `json:"return_query_txid_param"`
+	ReturnQueryStatusValue  string             `json:"return_query_status_value"`
+	ReturnQueryInfoCallback bool               `json:"return_query_info_callback"`
+	Fields                  []StructField      `json:"fields"`
+	Actions                 *SettleActionsSpec `json:"actions"`
+}
+
+type SettleActionsSpec struct {
+	Amount      string `json:"amount"`
+	AmountField string `json:"amount_field"`
+	Finish      string `json:"finish"`
 }
 
 type AuthConfig struct {
@@ -387,7 +398,13 @@ type OperationTransport struct {
 	RetryMaxBackoff       string `json:"retry_max_backoff"`
 	Timeout               string `json:"timeout"`
 	PendingCallbackAction string `json:"pending_callback_action"`
+	AmountPolicy          string `json:"amount"`
+	AmountField           string `json:"amount_field"`
+	FinishAction          string `json:"finish"`
 	StatusField           string `json:"status_field"`
 	StatusDetailsField    string `json:"status_details_field"`
 	ErrorCodeField        string `json:"error_code_field"`
+	ForeignIDField        string `json:"foreign_id_field"`
+	RedirectURLField      string `json:"redirect_url_field"`
+	SuccessField          string `json:"success_field"`
 }

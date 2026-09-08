@@ -541,6 +541,9 @@ ProfileIncasPayout: {
 			{name: "TxnID", type: "string", json: "txnId", nested_path: "object.txnId"},
 			{name: "Status", type: "string", json: "value", nested_path: "object.status.value"},
 		]
+		actions: {
+			finish: "check_status"
+		}
 	}
 	response_types: [
 		{
@@ -571,9 +574,6 @@ ProfileIncasPayout: {
 	payout_runtime: {
 		foreign_id_on_unexpected_error: false
 		unexpected_error_pending:       true
-	}
-	callback_runtime: {
-		finish_via_check_status: true
 	}
 	check_status_foreign_id_empty: "error_status"
 	init_payout_policy: {
@@ -660,5 +660,50 @@ ProfileRedirectCheckout: {
 		limits: {
 			max_callback_body_bytes: 1048576
 		}
+	}
+}
+
+ProfileApplyProviderAmount: {
+	callback: {
+		actions: {
+			amount:       "apply"
+			amount_field: "Amount"
+		}
+	}
+}
+
+ProfileRequireProviderAmount: {
+	callback: {
+		actions: {
+			amount:       "require_match"
+			amount_field: "Amount"
+		}
+	}
+}
+
+ProfileFinishViaCheckStatus: {
+	callback: {
+		actions: {
+			finish: "check_status"
+		}
+	}
+}
+
+ProfilePendingPollsStatus: {
+	callback: {
+		actions: {
+			finish: "check_status_if_pending"
+		}
+	}
+}
+
+ProfileCardQuasiEcom: {
+	auth_flow:      "h2h"
+	h2h_payin:      "quasi_ecom"
+	payment_source: "card"
+	has_payin:      true
+	has_p2p:        false
+	interfaces: {
+		tds_redirector: true
 	}
 }

@@ -157,6 +157,19 @@ func TestBuildRequestLiteralConsts(t *testing.T) {
 	}
 }
 
+func TestResolveCardExpMMYY(t *testing.T) {
+	fields, err := ResolveRequestFields([]RequestField{
+		{Name: "Expiry", JSON: "expiry", Source: "card_exp_mm_yy"},
+	}, "card", 840)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `fmt.Sprintf("%02d/%02d", card.ExpDateMonth, card.ExpDateYear%100)`
+	if len(fields) != 1 || fields[0].GoExpr != want {
+		t.Fatalf("got %#v want %s", fields, want)
+	}
+}
+
 func TestResolveCardExpYearFmt(t *testing.T) {
 	fields, err := ResolveRequestFields([]RequestField{
 		{Name: "Year", JSON: "year", Source: "card_exp_year_fmt"},

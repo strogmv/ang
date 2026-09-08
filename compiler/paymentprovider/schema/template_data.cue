@@ -102,6 +102,9 @@ package schema
 	RetryMaxBackoff:       string
 	Timeout:               string
 	PendingCallbackAction: string
+	AmountPolicy:          string
+	AmountField:           string
+	FinishAction:          string
 	StatusField:           string
 	StatusDetailsField:    string
 	ErrorCodeField:        string
@@ -210,7 +213,8 @@ package schema
 	PayinRequest:  *null | #TemplateRequestDef
 	PayoutRequest: *null | #TemplateRequestDef
 	P2PRequest:    *null | #TemplateRequestDef
-	RefundRequest: *null | #TemplateRequestDef
+	RefundRequest:  *null | #TemplateRequestDef
+	InvoiceRequest: *null | #TemplateRequestDef
 
 	// Legacy / manual types
 	PayinRequestType:    string
@@ -250,6 +254,11 @@ package schema
 	CallbackReturnQueryTxIDParam: string
 	CallbackReturnQueryStatusValue: string
 	CallbackReturnQueryInfoCallback: bool
+	CallbackAmountPolicy:    string
+	CallbackAmountField:     string
+	CallbackFinishAction:    string
+	CheckStatusAmountPolicy: string
+	CheckStatusAmountField:  string
 
 	// Macan / P2P extras
 	PaymentMethodMap: [...]

@@ -40,6 +40,7 @@ type ResolvedField struct {
 type ResolvedMethod struct {
 	Sid           string
 	ProviderValue string
+	H2H           string
 	// GoConst is the identifier in utils/types (CardsMethod). Empty when the
 	// method is only listed for provider_value lookup and has no destination.
 	GoConst string
@@ -165,6 +166,8 @@ func resolveSource(f RequestField, paymentSource string, currencyISONum int) (ex
 		return `fmt.Sprintf("%d", card.ExpDateYear)`, true, false, nil
 	case "card_exp_year_short":
 		return `fmt.Sprintf("%02d", card.ExpDateYear-2000)`, true, false, nil
+	case "card_exp_mm_yy":
+		return `fmt.Sprintf("%02d/%02d", card.ExpDateMonth, card.ExpDateYear%100)`, true, false, nil
 	case "cardholder":
 		return mapGet("card.OwnerInfo", "cardholder", def), true, false, nil
 	case "first_name":

@@ -3,6 +3,7 @@ package integration
 import (
 	"bytes"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,16 +11,29 @@ import (
 )
 
 // InitOptions configures ang pp init scaffolding.
+// Domain content lives in the consumer repo's .ang/init templates, not here.
 type InitOptions struct {
 	ProjectPath   string
+	InitDir       string // consumer .ang/init; empty → walk up from ProjectPath
 	SID           string
 	Label         string
 	Name          string
 	PackageName   string
 	Module        string
 	TicketSummary string
-	KnowledgeID   string // Expert knowledge/data/<id>.json (default: derived from name/sid)
+	KnowledgeID   string // Expert knowledge/data/<id>.json (default: sid)
 	Force         bool
+}
+
+// InitData is the generic substitution context for consumer init templates.
+type InitData struct {
+	PackageName   string
+	SID           string
+	Label         string
+	Name          string
+	Module        string
+	KnowledgeID   string
+	TicketSummary string
 }
 
 // InitResult lists files created by InitProject.
@@ -28,7 +42,7 @@ type InitResult struct {
 	Skipped []string
 }
 
-// InitProject scaffolds CUE skeleton and ang.yaml (knowledge lives in Expert, not provider).
+// InitProject renders *.tmpl from the consumer .ang/init tree into ProjectPath.
 func InitProject(opts InitOptions) (InitResult, error) {
 	opts = normalizeInitOptions(opts)
 	if strings.TrimSpace(opts.SID) == "" {
@@ -37,41 +51,81 @@ func InitProject(opts InitOptions) (InitResult, error) {
 	if strings.TrimSpace(opts.Label) == "" {
 		return InitResult{}, fmt.Errorf("label is required")
 	}
-	if err := os.MkdirAll(opts.ProjectPath, 0o755); err != nil {
-		return InitResult{}, err
-	}
-	var result InitResult
-
-	write := func(rel string, content []byte) error {
-		target := filepath.Join(opts.ProjectPath, rel)
-		if _, err := os.Stat(target); err == nil && !opts.Force {
-			result.Skipped = append(result.Skipped, rel)
-			return nil
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return err
-		}
-		if err := os.WriteFile(target, content, 0o644); err != nil {
-			return err
-		}
-		result.Created = append(result.Created, rel)
-		return nil
-	}
-
-	if err := write("ang.yaml", []byte(renderAngYAML(opts))); err != nil {
-		return InitResult{}, err
-	}
-	if err := write(filepath.Join(".cue", "cue.mod", "module.cue"), []byte(renderModuleCUE(opts))); err != nil {
-		return InitResult{}, err
-	}
-	providerCUE, err := renderProviderCUE(opts)
+	initDir, err := resolveInitDir(opts.ProjectPath, opts.InitDir)
 	if err != nil {
 		return InitResult{}, err
 	}
-	if err := write(filepath.Join(".cue", "provider.cue"), []byte(providerCUE)); err != nil {
+
+	data := InitData{
+		PackageName:   opts.PackageName,
+		SID:           opts.SID,
+		Label:         opts.Label,
+		Name:          opts.Name,
+		Module:        opts.Module,
+		KnowledgeID:   opts.KnowledgeID,
+		TicketSummary: opts.TicketSummary,
+	}
+	tmpl := template.New("init").Option("missingkey=error").Funcs(initFuncMap())
+
+	if err := os.MkdirAll(opts.ProjectPath, 0o755); err != nil {
 		return InitResult{}, err
 	}
+
+	var result InitResult
+	rendered := 0
+	err = filepath.WalkDir(initDir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(d.Name(), ".tmpl") {
+			return nil
+		}
+		rel, err := filepath.Rel(initDir, path)
+		if err != nil {
+			return err
+		}
+		outRel := strings.TrimSuffix(rel, ".tmpl")
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", rel, err)
+		}
+		parsed, err := tmpl.New(rel).Parse(string(raw))
+		if err != nil {
+			return fmt.Errorf("parse %s: %w", rel, err)
+		}
+		var buf bytes.Buffer
+		if err := parsed.Execute(&buf, data); err != nil {
+			return fmt.Errorf("render %s: %w", rel, err)
+		}
+		rendered++
+		return writeInitFile(opts, &result, outRel, buf.Bytes())
+	})
+	if err != nil {
+		return result, err
+	}
+	if rendered == 0 {
+		return result, fmt.Errorf("pp init: no *.tmpl files in %s", initDir)
+	}
 	return result, nil
+}
+
+func writeInitFile(opts InitOptions, result *InitResult, rel string, content []byte) error {
+	target := filepath.Join(opts.ProjectPath, rel)
+	if _, err := os.Stat(target); err == nil && !opts.Force {
+		result.Skipped = append(result.Skipped, rel)
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(target, content, 0o644); err != nil {
+		return err
+	}
+	result.Created = append(result.Created, rel)
+	return nil
 }
 
 func normalizeInitOptions(opts InitOptions) InitOptions {
@@ -79,6 +133,7 @@ func normalizeInitOptions(opts InitOptions) InitOptions {
 	if opts.ProjectPath == "" {
 		opts.ProjectPath = "."
 	}
+	opts.InitDir = strings.TrimSpace(opts.InitDir)
 	opts.SID = strings.TrimSpace(opts.SID)
 	opts.Label = strings.TrimSpace(opts.Label)
 	opts.Name = strings.TrimSpace(opts.Name)
@@ -93,157 +148,63 @@ func normalizeInitOptions(opts InitOptions) InitOptions {
 		opts.Name = opts.Label
 	}
 	opts.Module = strings.TrimSpace(opts.Module)
-	if opts.Module == "" {
-		opts.Module = "transferty.local/" + opts.PackageName
-	}
 	if strings.TrimSpace(opts.KnowledgeID) == "" {
 		opts.KnowledgeID = opts.SID
 	}
 	return opts
 }
 
-func renderAngYAML(opts InitOptions) string {
-	return fmt.Sprintf(`cue_root: ".cue"
-templates_dir: "../.ang/templates/redirect_checkout"
-schema_dir: "../.ang/schema"
-expert_knowledge_id: %q
-`, opts.KnowledgeID)
-}
-
-func renderModuleCUE(opts InitOptions) string {
-	return fmt.Sprintf(`module: %q
-language: {
-	version: "v0.14.0"
-}
-`, opts.Module)
-}
-
-func renderProviderCUE(opts InitOptions) (string, error) {
-	const tmpl = `package provider
-
-import "{{.Module}}/schema"
-
-// Intent scaffold — refine using Expert knowledge/data (see ang.yaml expert_knowledge_id)
-// Profile: redirect checkout (wallet / hosted page). Templates: .ang/templates/redirect_checkout
-provider: schema.#Provider & schema.ProfileRedirectCheckout & {
-	package_name: "{{.PackageName}}"
-	sid:          "{{.SID}}"
-	source:       "{{.Source}}"
-	label:        "{{.Label}}"
-	mid_prefix:   "{{.MIDPrefix}}"
-
-	struct_name:      "{{.StructName}}"
-	constructor_name: "New{{.StructName}}"
-
-	supported_currencies: ["EUR"]
-	supported_methods:    ["applepay", "googlepay"]
-
-	currency: {
-		code:    "EUR"
-		iso_num: 978
-		country: "EU"
+func resolveInitDir(projectPath, explicit string) (string, error) {
+	if explicit != "" {
+		abs, err := filepath.Abs(explicit)
+		if err != nil {
+			return "", fmt.Errorf("pp init: init-dir: %w", err)
+		}
+		if err := requireInitDir(abs); err != nil {
+			return "", err
+		}
+		return abs, nil
 	}
-
-	// TODO: endpoints from Expert knowledge/data after PM sign-off
-	endpoints: {
-		payin:        {path: "/TODO/checkout/sessions", method: "POST"}
-		payin_status: {path: "/TODO/checkout/sessions", method: "GET"}
-	}
-
-	secrets: {
-		format:    "API Key:Signing Key"
-		separator: ":"
-		parts: [
-			{name: "API Key", key: "apiKey"},
-			{name: "Signing Key", key: "signingKey"},
-		]
-	}
-
-	auth: {
-		type:         "bearer"
-		header:       "Authorization"
-		secret_key:   "apiKey"
-		content_type: "application/json"
-	}
-
-	payin_request: {
-		name: "createCheckoutSessionRequest"
-		fields: [
-			{name: "ReferenceID",   json: "referenceId",   source: "tx_id"},
-			{name: "Amount",        json: "amount",        source: "tx_amount_float", type: "float64"},
-			{name: "Currency",      json: "currency",      source: "tx_currency"},
-			{name: "PaymentMethod", json: "paymentMethod", source: "tx_payment_method"},
-			{name: "ReturnUrl",     json: "returnUrl",     source: "tx_result_url"},
-			{name: "WebhookUrl",    json: "webhookUrl",    source: "tx_callback_url"},
-			{name: "Email",         json: "email",         source: "owner_info", owner_key: "email", owner_from: "apm"},
-		]
-	}
-
-	response_types: [{
-		name: "checkoutSessionResponse"
-		fields: [
-			{name: "ID",          type: "string", json: "id"},
-			{name: "RedirectUrl", type: "string", json: "redirectUrl"},
-			{name: "State",       type: "string", json: "state"},
-		]
-	}]
-
-	payin_statuses: [
-		{code: "pending",   status: "pending", status_code: "SCodeOk"},
-		{code: "completed", status: "success", status_code: "SCodeOk"},
-		{code: "failed",    status: "declined", status_code: "SCodeDeclinedByBank"},
-		{code: "expired",   status: "declined", status_code: "SCodeTimeouted"},
-	]
-
-	callback: {
-		tx_id_field:      "ReferenceID"
-		foreign_id_field: "SessionID"
-		status_field:     "State"
-		status_type:      "string"
-		fields: [
-			{name: "ReferenceID", type: "string", json: "referenceId"},
-			{name: "SessionID",   type: "string", json: "sessionId"},
-			{name: "State",       type: "string", json: "state"},
-		]
-	}
-
-	callback_signature: {
-		algorithm:  "hmac-sha256"
-		secret_key: "signingKey"
-		format:     "hmac_body"
-		header:     "X-Signature"
-		compare:    "equal"
-		fields:     [{json: "referenceId"}]
-	}
-
-	constructor_deps: [
-		{name: "tdsRedirector", type: "model.TDSRedirector", pkg: "gitlab.q-tech.host/transferty/backend/tnx_processor/model"},
-		{name: "txPathLogger", type: "model.TxPathLogger", pkg: "gitlab.q-tech.host/transferty/backend/tnx_processor/model"},
-	]
-}
-`
-	t, err := template.New("provider").Parse(tmpl)
+	start, err := filepath.Abs(projectPath)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("pp init: project path: %w", err)
 	}
-	mid := strings.ToUpper(opts.SID)
-	if mid == "" {
-		mid = strings.ToUpper(opts.PackageName)
+	dir := start
+	for {
+		for _, cand := range []string{
+			filepath.Join(filepath.Dir(dir), ".ang", "init"),
+			filepath.Join(dir, ".ang", "init"),
+		} {
+			if err := requireInitDir(cand); err == nil {
+				return cand, nil
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
 	}
-	data := map[string]string{
-		"Module":      opts.Module,
-		"PackageName": opts.PackageName,
-		"SID":         opts.SID,
-		"Source":      ppSourceName(opts.PackageName),
-		"Label":       opts.Label,
-		"MIDPrefix":   mid,
-		"StructName":  ppSourceName(opts.PackageName),
+	return "", fmt.Errorf("pp init: no .ang/init templates found from %s (consumer repo must ship them)", projectPath)
+}
+
+func requireInitDir(dir string) error {
+	st, err := os.Stat(dir)
+	if err != nil {
+		return err
 	}
-	var buf bytes.Buffer
-	if err := t.Execute(&buf, data); err != nil {
-		return "", err
+	if !st.IsDir() {
+		return fmt.Errorf("pp init: %s is not a directory", dir)
 	}
-	return buf.String(), nil
+	return nil
+}
+
+func initFuncMap() template.FuncMap {
+	return template.FuncMap{
+		"upper":  strings.ToUpper,
+		"lower":  strings.ToLower,
+		"pascal": toExportIdentifier,
+	}
 }
 
 func toExportIdentifier(s string) string {
@@ -255,8 +216,4 @@ func toExportIdentifier(s string) string {
 		parts[i] = strings.ToUpper(p[:1]) + strings.ToLower(p[1:])
 	}
 	return strings.Join(parts, "")
-}
-
-func ppSourceName(packageName string) string {
-	return "PP" + toExportIdentifier(packageName)
 }

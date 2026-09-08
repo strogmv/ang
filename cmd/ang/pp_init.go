@@ -19,9 +19,10 @@ func runPPInit(args []string) {
 	label := fs.String("label", "", "Provider label (e.g. MX-6)")
 	name := fs.String("name", "", "Provider display name")
 	pkg := fs.String("package", "", "Go package name (default: directory name)")
-	module := fs.String("module", "", "CUE module (default: transferty.local/<package>)")
+	module := fs.String("module", "", "CUE module path (optional; consumer template may default it)")
 	ticket := fs.String("ticket", "", "One-line PM ticket summary")
 	knowledge := fs.String("knowledge", "", "Expert knowledge id (knowledge/data/<id>.json; default: sid)")
+	initDir := fs.String("init-dir", "", "Consumer .ang/init templates (default: walk up from [path])")
 	force := fs.Bool("force", false, "Overwrite existing scaffold files")
 	if err := fs.Parse(flagArgs); err != nil {
 		os.Exit(2)
@@ -52,6 +53,7 @@ func runPPInit(args []string) {
 		Module:        *module,
 		TicketSummary: *ticket,
 		KnowledgeID:   *knowledge,
+		InitDir:       *initDir,
 		Force:         *force,
 	})
 	if err != nil {
@@ -71,7 +73,7 @@ func runPPInit(args []string) {
 			fmt.Printf("  - %s\n", f)
 		}
 	}
-	fmt.Println("\nNext: add ticket/API knowledge to deal/expert/knowledge/data/, refine .cue/provider.cue, run ang pp vet")
+	fmt.Println("\nNext: fill the scaffolded files, then ang pp vet && ang build")
 }
 
 func runPPBrief(args []string) {

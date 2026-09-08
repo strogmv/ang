@@ -117,16 +117,31 @@ package schema
 	timeout:              *"" | string
 	// Operation behaviour when callback returns pending/intermediate status.
 	pending_callback_action: *"none" | "check_status"
+	amount:       *"" | #AmountPolicy
+	amount_field: *"" | string
+	finish:       *"" | #FinishAction
 
 	// Optional response status extraction hints
-	status_field:         *"" | string // e.g. "status", "ticket.status"
+	status_field:         *"" | string // Go selector: "Status", "Result.State"
 	status_details_field: *"" | string // e.g. "status_details"
 	error_code_field:     *"" | string
+	foreign_id_field:     *"" | string // e.g. "Result.ID"
+	redirect_url_field:   *"" | string // e.g. "URL"
+	success_field:        *"" | string
 }
 
 #OperationDef: {
 	kind:      #OperationKind
 	transport: #OperationTransport
+}
+
+#AmountPolicy: "ignore" | "require_match" | "apply"
+#FinishAction: "map" | "check_status" | "check_status_if_pending"
+
+#SettleActions: {
+	amount:       *"ignore" | #AmountPolicy
+	amount_field: *"" | string
+	finish:       *"map" | #FinishAction
 }
 
 #Endpoint: {
@@ -333,15 +348,15 @@ package schema
 	account_id_type: *"none" | #AccountIDType
 }
 
+#H2HKind: #CatalogH2HKind
+
 // #Method describes one payment method as this provider sees it. sid is ours —
 // the value the platform routes on; provider_value is the provider's own name
 // for the same method, sent where its API asks for one.
 #Method: {
 	sid:            #PaymentMethodSID
 	provider_value: *"" | string
-	// Fields the provider expects for this method and no other. They fill the
-	// request object marked per_method, so adding a method is a contract change
-	// and not a template change.
+	h2h:            *"" | #H2HKind
 	destination: [...#RequestNode]
 }
 
@@ -379,6 +394,7 @@ package schema
 	path_suffix_foreign_id: *false | bool
 	// Format status path with tx.Id instead of ForeignId (Incas PUT/GET /payouts/%s).
 	path_format_tx_id: *false | bool
+	actions: #SettleActions
 }
 
 #PayoutRuntimeConfig: {
@@ -489,6 +505,7 @@ package schema
 	// Optional flag for generated CallbackData.InfoCallback on return-url query callbacks.
 	return_query_info_callback:*false | bool
 	fields: [...#CallbackField]
+	actions: #SettleActions
 }
 
 // --- Payment source type ---
@@ -559,6 +576,8 @@ package schema
 	payout_status_request: *null | #RequestDef
 	p2p_request:           *null | #RequestDef
 	refund_request:        *null | #RequestDef
+	// Second hop of card_charge: PAN/CVV posted to endpoints.invoice after create.
+	invoice_request: *null | #RequestDef
 
 	// Declarative operation→transport bindings.
 	operations: [...#OperationDef]
@@ -585,6 +604,7 @@ package schema
 
 	// Auth flow
 	auth_flow: *"h2h" | #AuthFlowType
+	h2h_payin: *"none" | #H2HKind
 
 	// Merchant API compatibility layer (e.g. Transferty H2H JSON shape)
 	api_compat: *"" | "transferty_h2h" | "macan_p2p" | "paytech_gateway" | "fluxsgate" | "nebeus_payout" | "ikra_invoice" | "pacepay" | "incas_payout" | "redirect_checkout"

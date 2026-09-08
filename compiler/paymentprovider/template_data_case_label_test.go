@@ -105,3 +105,61 @@ func TestPendingRawStatusCaseLabel(t *testing.T) {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
+
+func TestGoSelectorOverride(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		in, want string
+	}{
+		{"", ""},
+		{"status", ""},
+		{"ticket.status", ""},
+		{"Status", "Status"},
+		{"Result.State", "Result.State"},
+		{"URL", "URL"},
+		{"Result.ID", "Result.ID"},
+	}
+	for _, tt := range tests {
+		if got := goSelectorOverride(tt.in); got != tt.want {
+			t.Fatalf("%q: got %q want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestApplyInitPayTransportOverrides_skipsJSONNames(t *testing.T) {
+	t.Parallel()
+
+	data := &TemplateData{
+		PayinStatusField:      "Status",
+		PayinForeignIDField:   "ID",
+		PayinRedirectURLField: "Link",
+	}
+	applyInitPayTransportOverrides(data, &ProviderSpec{
+		Operations: []OperationDef{{
+			Kind: "init_pay",
+			Transport: OperationTransport{
+				StatusField:      "status",
+				ForeignIDField:   "id",
+				RedirectURLField: "url",
+			},
+		}},
+	})
+	if data.PayinStatusField != "Status" || data.PayinForeignIDField != "ID" || data.PayinRedirectURLField != "Link" {
+		t.Fatalf("json names overwrote inferred fields: %+v", data)
+	}
+
+	applyInitPayTransportOverrides(data, &ProviderSpec{
+		Operations: []OperationDef{{
+			Kind: "init_pay",
+			Transport: OperationTransport{
+				StatusField:      "Result.State",
+				ForeignIDField:   "Result.ID",
+				RedirectURLField: "URL",
+			},
+		}},
+	})
+	if data.PayinStatusField != "Result.State" || data.PayinForeignIDField != "Result.ID" || data.PayinRedirectURLField != "URL" {
+		t.Fatalf("go selectors not applied: %+v", data)
+	}
+}
