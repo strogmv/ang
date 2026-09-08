@@ -41,6 +41,15 @@ func runBuild(args []string) error {
 			printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterOptions, "parse output options", err)
 			return
 		}
+		projectPath := projectPath
+		if output.ProjectDir != "" {
+			projectPath = output.ProjectDir
+		}
+		// Guard before anything is written: the target must be an ANG project.
+		if err := ensureGeneratableProject(projectPath, loadProjectConfig(projectPath).CueRoot); err != nil {
+			printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterOptions, "resolve project directory", err)
+			return
+		}
 		if output.Phase == "plan" || output.Phase == "apply" {
 			phase := compiler.PhaseAll
 			switch output.Phase {

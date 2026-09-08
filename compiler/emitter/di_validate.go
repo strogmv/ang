@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
@@ -79,6 +80,9 @@ func ValidateGeneratedDI(backendDir string, ctx MainContext, auth *normalizer.Au
 			"cmd/server/main.go", "transport.SetRedisClient(redisClient)", "cache capability requires Redis transport wiring",
 		})
 	}
+	if redisIsBootstrapped(ctx, refreshStore) {
+		requirements = append(requirements, redisClientRequirements(backendDir)...)
+	}
 	seen := map[string]struct{}{}
 	for _, requirement := range requirements {
 		key := requirement.file + "|" + requirement.contains
@@ -96,4 +100,69 @@ func ValidateGeneratedDI(backendDir string, ctx MainContext, auth *normalizer.Au
 		}
 	}
 	return nil
+}
+
+// redisIsBootstrapped mirrors the condition under which the bootstrap template
+// constructs redisClient. Without it there is nothing to hand to a package
+// setter, so the wiring requirements below do not apply.
+func redisIsBootstrapped(ctx MainContext, refreshStore string) bool {
+	return ctx.HasCache || refreshStore == "redis" || refreshStore == "hybrid"
+}
+
+// redisClientRequirements demands bootstrap wiring for every generated package
+// under internal/pkg that exposes SetRedisClient.
+//
+// Emitting a package is not the same as connecting it: presence shipped for
+// months with its setter never called, so online status silently lived in
+// process memory and never expired, and the session store had the same defect
+// before it (cookie logins 401'd in production). The setter exists precisely
+// because the package cannot work without the client, so a generated package
+// that declares one and is never handed a client is a build error, not a
+// runtime surprise.
+func redisClientRequirements(backendDir string) []generatedDIRequirement {
+	pkgRoot := filepath.Join(backendDir, "internal", "pkg")
+	entries, err := os.ReadDir(pkgRoot)
+	if err != nil {
+		return nil
+	}
+	var out []generatedDIRequirement
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		pkg := entry.Name()
+		if !declaresRedisSetter(filepath.Join(pkgRoot, pkg)) {
+			continue
+		}
+		out = append(out, generatedDIRequirement{
+			file:     "cmd/server/main.go",
+			contains: pkg + ".SetRedisClient(redisClient)",
+			reason:   fmt.Sprintf("package internal/pkg/%s exposes SetRedisClient and requires Redis bootstrap wiring", pkg),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].contains < out[j].contains })
+	return out
+}
+
+// declaresRedisSetter reports whether any Go file directly in dir declares
+// SetRedisClient.
+func declaresRedisSetter(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			continue
+		}
+		if strings.Contains(string(data), "func SetRedisClient(") {
+			return true
+		}
+	}
+	return false
 }

@@ -13,6 +13,9 @@ import (
 )
 
 type OutputOptions struct {
+	// ProjectDir names the directory to generate, overriding the positional
+	// argument and the current directory.
+	ProjectDir          string
 	BackendDir          string
 	BackendDirExplicit  bool
 	FrontendDir         string
@@ -44,6 +47,7 @@ type OutputOptions struct {
 
 func parseOutputOptions(args []string) (OutputOptions, error) {
 	fs := flag.NewFlagSet("build", flag.ContinueOnError)
+	projectDir := fs.String("project", "", "Project directory to generate (defaults to the positional argument or the current directory)")
 	backendDir := fs.String("backend-dir", ".", "Directory for generated backend code")
 	frontendDir := fs.String("frontend-dir", "sdk", "Directory for generated frontend SDK (relative to backend-dir if not absolute)")
 	frontendAppDir := fs.String("frontend-app-dir", "", "Directory to copy generated frontend SDK into app (optional)")
@@ -91,6 +95,7 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 	}
 
 	opts := OutputOptions{
+		ProjectDir:          strings.TrimSpace(*projectDir),
 		BackendDir:          normalizeBackendDir(*backendDir),
 		BackendDirExplicit:  flagPassed(args, "--backend-dir"),
 		FrontendDir:         strings.TrimSpace(*frontendDir),

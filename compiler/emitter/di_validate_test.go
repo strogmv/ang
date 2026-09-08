@@ -85,3 +85,57 @@ notificationDispatcher,
 		t.Fatalf("expected missing hybrid refresh-store error, got %v", err)
 	}
 }
+
+func TestValidateGeneratedDIRequiresRedisSetterWiring(t *testing.T) {
+	root := t.TempDir()
+	write := func(path, content string) {
+		t.Helper()
+		full := filepath.Join(root, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("internal/pkg/presence/store.go", "package presence\n\nfunc SetRedisClient(client *redis.Client) {}\n")
+	write("internal/pkg/logger/logger.go", "package logger\n")
+	ctx := MainContext{HasCache: true}
+
+	write("cmd/server/main.go", "transport.SetRedisClient(redisClient)")
+	err := ValidateGeneratedDI(root, ctx, nil)
+	if err == nil {
+		t.Fatal("expected an unwired presence setter to fail validation")
+	}
+	if !strings.Contains(err.Error(), "presence.SetRedisClient(redisClient)") {
+		t.Fatalf("expected the message to name the missing call, got %v", err)
+	}
+
+	write("cmd/server/main.go", "transport.SetRedisClient(redisClient)\npresence.SetRedisClient(redisClient)")
+	if err := ValidateGeneratedDI(root, ctx, nil); err != nil {
+		t.Fatalf("complete wiring rejected: %v", err)
+	}
+}
+
+func TestValidateGeneratedDISkipsRedisSettersWithoutRedis(t *testing.T) {
+	root := t.TempDir()
+	presence := filepath.Join(root, "internal", "pkg", "presence")
+	if err := os.MkdirAll(presence, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(presence, "store.go"), []byte("package presence\n\nfunc SetRedisClient(client *redis.Client) {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	main := filepath.Join(root, "cmd", "server", "main.go")
+	if err := os.MkdirAll(filepath.Dir(main), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(main, []byte("func main() {}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// No cache and no Redis refresh store: the bootstrap builds no client, so
+	// the setter cannot be called and must not be demanded.
+	if err := ValidateGeneratedDI(root, MainContext{}, nil); err != nil {
+		t.Fatalf("expected no Redis wiring requirement, got %v", err)
+	}
+}

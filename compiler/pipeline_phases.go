@@ -93,6 +93,7 @@ func runSemanticPhases(basePath string, opts PipelineOptions) (NormalizePhaseOut
 	emitReadModelDiagnostics(normalized.Entities, normalized.Events, opts)
 	emitSharedArchDiagnostics(normalized.Entities, normalized.Services, opts)
 	emitCanonicalPackDiagnostics(normalized.Entities, normalized.Services, normalized.Endpoints, opts)
+	emitRawBodyDiagnostics(normalized.Services, normalized.Endpoints, opts)
 
 	return normalized, nil
 }
