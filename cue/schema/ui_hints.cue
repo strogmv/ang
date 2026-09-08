@@ -69,6 +69,29 @@ package schema
 	columns?:   int     // for grid layout
 }
 
+// ============================================================================
+// TABLE INTENT (consumed by the frontend table emitter)
+// ============================================================================
+// Generated list tables read their UI intent from CUE, not from hand edits:
+//
+//   ListThings: schema.#Operation & {
+//       @table(hidden="id,internalRef", storageKey="things")  // operation-level
+//       output: { data: [...{
+//           id:    string @ui(hidden)            // hidden by default, pickable
+//           name:  string @ui(label="Название")  // column header
+//           ...
+//       }] }
+//   }
+//
+// @table(...) keys (all optional):
+//   picker=false      — no column-picker toolbar (default: picker on)
+//   hidden="a,b"      — columns hidden by default (JSON field names)
+//   storageKey="key"  — localStorage namespace for the user's column choice
+//                       (default: generated table name)
+//
+// #TableConfig below is the richer, entity-level form (search/filters); it is
+// reserved and not yet consumed by the emitter — prefer @table/@ui above.
+
 #TableConfig: {
 	name:       string
 	operation:  string  // List operation name

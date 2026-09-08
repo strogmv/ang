@@ -364,6 +364,15 @@ func IRMethodToNormalizer(m ir.Method) normalizer.Method {
 		Source:               m.Source,
 	}
 
+	// Operation-level CUE attributes (e.g. @table(...)) drive frontend emitters;
+	// keep them across the IR round trip.
+	for _, attr := range m.Attributes {
+		method.Attributes = append(method.Attributes, normalizer.Attribute{
+			Name: attr.Name,
+			Args: attr.Args,
+		})
+	}
+
 	if m.Input != nil {
 		input := IREntityToNormalizer(*m.Input)
 		method.Input = input

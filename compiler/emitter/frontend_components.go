@@ -120,6 +120,10 @@ type TableColumnData struct {
 	Sortable   bool
 	Render     string
 	RenderCode string
+	// Hidden marks a column that is not shown by default but stays available
+	// in the column picker. Declared in CUE via @ui(hidden) on the output
+	// field or @table(hidden="a,b") on the operation.
+	Hidden bool
 }
 
 // TableData describes a table component.
@@ -132,6 +136,67 @@ type TableData struct {
 	QueryParams   []QueryParamData
 	ExtraProps    []PropData
 	CustomImports []ImportData
+	// ColumnPicker renders the built-in "columns" toolbar button so users can
+	// choose which columns to show. On by default; @table(picker=false) opts out.
+	ColumnPicker bool
+	// StorageKey namespaces the persisted column selection in localStorage.
+	StorageKey string
+}
+
+// HasHiddenColumns reports whether any column is hidden by default.
+func (d TableData) HasHiddenColumns() bool {
+	for _, c := range d.Columns {
+		if c.Hidden {
+			return true
+		}
+	}
+	return false
+}
+
+// tableUIConfig is the operation-level table intent declared in CUE as
+// `@table(...)` on a list operation. All keys are optional:
+//
+//	@table(picker=false)                 // no column picker toolbar
+//	@table(hidden="id,slug,coverId")     // columns hidden by default (JSON names)
+//	@table(storageKey="b2b.partners")    // persistence key (default: table name)
+type tableUIConfig struct {
+	Picker     bool
+	Hidden     map[string]struct{}
+	StorageKey string
+}
+
+func parseTableUIConfig(attrs []normalizer.Attribute) tableUIConfig {
+	cfg := tableUIConfig{Picker: true, Hidden: map[string]struct{}{}}
+	for _, attr := range attrs {
+		if !strings.EqualFold(attr.Name, "table") {
+			continue
+		}
+		for key, raw := range attr.Args {
+			val := strings.Trim(strings.TrimSpace(fmt.Sprint(raw)), "\"")
+			switch strings.ToLower(key) {
+			case "_":
+				// Unkeyed flags: @table(picker) / @table(nopicker)
+				switch strings.ToLower(val) {
+				case "picker":
+					cfg.Picker = true
+				case "nopicker":
+					cfg.Picker = false
+				}
+			case "picker":
+				cfg.Picker = !strings.EqualFold(val, "false")
+			case "hidden":
+				for _, name := range strings.Split(val, ",") {
+					name = strings.ToLower(strings.TrimSpace(name))
+					if name != "" {
+						cfg.Hidden[name] = struct{}{}
+					}
+				}
+			case "storagekey":
+				cfg.StorageKey = val
+			}
+		}
+	}
+	return cfg
 }
 
 // QueryParamData describes a query parameter.
@@ -544,11 +609,17 @@ func buildTableData(serviceName string, m normalizer.Method, entities []normaliz
 	name = strings.TrimPrefix(name, "List")
 	name = singularize(name)
 
+	tableUI := parseTableUIConfig(m.Attributes)
 	data := TableData{
-		Name:       name,
-		QueryName:  m.Name,
-		HasActions: true,
-		PageSize:   25,
+		Name:         name,
+		QueryName:    m.Name,
+		HasActions:   true,
+		PageSize:     25,
+		ColumnPicker: tableUI.Picker,
+		StorageKey:   tableUI.StorageKey,
+	}
+	if data.StorageKey == "" {
+		data.StorageKey = name
 	}
 
 	injected := make(map[string]struct{})
@@ -624,6 +695,14 @@ func buildTableData(serviceName string, m normalizer.Method, entities []normaliz
 						Field:    JSONName(itemField.Name),
 						Header:   inferLabel(itemField),
 						Sortable: true,
+					}
+					if itemField.UI != nil && itemField.UI.Hidden {
+						col.Hidden = true
+					}
+					if _, hidden := tableUI.Hidden[strings.ToLower(col.Field)]; hidden {
+						col.Hidden = true
+					} else if _, hidden := tableUI.Hidden[strings.ToLower(itemField.Name)]; hidden {
+						col.Hidden = true
 					}
 
 					// Determine render type

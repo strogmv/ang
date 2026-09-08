@@ -44,6 +44,10 @@ func New(ctx context.Context, region, bucket, endpoint string) (*S3Client, error
 	}
 
 	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
+		// Presigned GET URLs must be usable by plain HTTP clients (browsers, <img>).
+		// With the default WhenSupported mode the SDK signs x-amz-checksum-mode into
+		// the presigned URL and S3 rejects requests that omit the header.
+		o.ResponseChecksumValidation = aws.ResponseChecksumValidationWhenRequired
 		if endpoint != "" {
 			o.BaseEndpoint = aws.String(endpoint)
 			o.UsePathStyle = true

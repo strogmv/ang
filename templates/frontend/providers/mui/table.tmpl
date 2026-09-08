@@ -14,10 +14,10 @@
 //   - @mui/material: UI components (Avatar, Chip, IconButton, etc.)
 //   - dayjs: Date formatting
 // ============================================================================
-import { useMemo, useState } from 'react';
-import { Avatar, Box, Chip, IconButton, Tooltip } from '@mui/material';
-import { DataGrid, type GridColDef, type GridPaginationModel, type GridRenderCellParams } from '@mui/x-data-grid';
-import { Edit as EditIcon, Delete as DeleteIcon, Visibility as ViewIcon } from '@mui/icons-material';
+import { useMemo, useState, type ReactNode } from 'react';
+import { Avatar, Box{{ if .ColumnPicker }}, Button{{ end }}, Chip, IconButton, Tooltip } from '@mui/material';
+import { DataGrid{{ if .ColumnPicker }}, Toolbar, ColumnsPanelTrigger, useGridApiContext{{ end }}, type GridColDef, type GridColumnVisibilityModel, type GridPaginationModel, type GridRenderCellParams } from '@mui/x-data-grid';
+import { Edit as EditIcon, Delete as DeleteIcon, Visibility as ViewIcon{{ if .ColumnPicker }}, ViewColumn as ViewColumnIcon{{ end }} } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { use{{ .QueryName }} } from '../../hooks';
 {{- range .CustomImports }}
@@ -31,15 +31,89 @@ import { {{ .Component }} } from '{{ .Path }}';
 //   - onView: View row details callback
 //   - onEdit: Edit row callback (opens update form)
 //   - onDelete: Delete row callback
+//   - columnVisibilityModel / onColumnVisibilityModelChange: optional controlled
+//     column visibility. When omitted the table manages it itself: defaults come
+//     from CUE (@ui(hidden) on output fields / @table(hidden=...)) and the
+//     user's choice persists in localStorage under "{{ .StorageKey }}".
+//   - toolbar: optional node rendered above the grid (filters, search)
 // ============================================================================
 export interface {{ .Name }}TableProps {
   onView?: (row: any) => void;
   onEdit?: (row: any) => void;
   onDelete?: (row: any) => void;
+  columnVisibilityModel?: GridColumnVisibilityModel;
+  onColumnVisibilityModelChange?: (model: GridColumnVisibilityModel) => void;
+  toolbar?: ReactNode;
 {{- range .ExtraProps }}
   {{ .Name }}{{ if .Optional }}?{{ end }}: {{ .Type }};
 {{- end }}
 }
+
+// ============================================================================
+// SECTION: Column Options
+// PURPOSE: Stable list of data columns (key + label) for column pickers.
+// ============================================================================
+export const {{ .Name }}TableColumnOptions = [
+{{- range $i, $col := .Columns }}
+  { key: '{{ $col.Field }}', label: '{{ $col.Header }}' },
+{{- end }}
+] as const;
+
+// ============================================================================
+// SECTION: Column Visibility
+// PURPOSE: CUE-declared defaults + per-user persistence of the column choice.
+// SOURCE: @ui(hidden) on output fields, @table(hidden=..., storageKey=...)
+// ============================================================================
+const {{ .Name }}_COLUMNS_STORAGE_KEY = 'ang:table:{{ .StorageKey }}:columns';
+
+const {{ .Name }}_DEFAULT_COLUMN_VISIBILITY: GridColumnVisibilityModel = {
+{{- range $i, $col := .Columns }}
+  {{- if $col.Hidden }}
+  {{ $col.Field }}: false,
+  {{- end }}
+{{- end }}
+};
+
+function read{{ .Name }}ColumnVisibility(): GridColumnVisibilityModel {
+  if (typeof window === 'undefined') return {{ .Name }}_DEFAULT_COLUMN_VISIBILITY;
+  try {
+    const raw = window.localStorage.getItem({{ .Name }}_COLUMNS_STORAGE_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as GridColumnVisibilityModel;
+    }
+  } catch {
+    // Storage unavailable (private mode, quota, disabled): fall back to defaults.
+  }
+  return {{ .Name }}_DEFAULT_COLUMN_VISIBILITY;
+}
+
+function persist{{ .Name }}ColumnVisibility(model: GridColumnVisibilityModel) {
+  try {
+    window.localStorage.setItem({{ .Name }}_COLUMNS_STORAGE_KEY, JSON.stringify(model));
+  } catch {
+    // Best effort only; the in-memory model still applies for this session.
+  }
+}
+{{- if .ColumnPicker }}
+
+// Built-in toolbar: opens the MUI columns panel (checkbox per column).
+// Label and panel texts come from the grid locale (theme `localeText`),
+// so the app translates them centrally. Opt out in CUE with @table(picker=false).
+function {{ .Name }}TableToolbar() {
+  const apiRef = useGridApiContext();
+  const label = apiRef.current.getLocaleText('toolbarColumns');
+  return (
+    <Toolbar style={{"{{"}} justifyContent: 'flex-start' {{"}}"}}>
+      <ColumnsPanelTrigger
+        render={<Button size="small" variant="text" color="inherit" startIcon={<ViewColumnIcon fontSize="small" />} sx={{"{{"}} textTransform: 'none', fontWeight: 500 {{"}}"}} />}
+      >
+        {label}
+      </ColumnsPanelTrigger>
+    </Toolbar>
+  );
+}
+{{- end }}
 
 // ============================================================================
 // SECTION: Table Component
@@ -47,11 +121,20 @@ export interface {{ .Name }}TableProps {
 // PATTERN: MUI DataGrid with useMemo for column definitions
 // DATA: Fetched via use{{ .QueryName }} hook (React Query)
 // ============================================================================
-export function {{ .Name }}Table({ onView, onEdit, onDelete{{- range .ExtraProps }}, {{ .Name }}{{- end }} }: {{ .Name }}TableProps) {
+export function {{ .Name }}Table({ onView, onEdit, onDelete, columnVisibilityModel, onColumnVisibilityModelChange, toolbar{{- range .ExtraProps }}, {{ .Name }}{{- end }} }: {{ .Name }}TableProps) {
   const [paginationModel, setPaginationModel] = useState<GridPaginationModel>({
     page: 0,
     pageSize: {{ .PageSize | default 25 }},
   });
+  const [storedColumnVisibility, setStoredColumnVisibility] = useState<GridColumnVisibilityModel>(read{{ .Name }}ColumnVisibility);
+  const effectiveColumnVisibility = columnVisibilityModel ?? storedColumnVisibility;
+  const handleColumnVisibilityChange = (model: GridColumnVisibilityModel) => {
+    if (columnVisibilityModel === undefined) {
+      setStoredColumnVisibility(model);
+      persist{{ .Name }}ColumnVisibility(model);
+    }
+    onColumnVisibilityModelChange?.(model);
+  };
 
   const { data, isLoading } = use{{ .QueryName }}({
 {{- range .QueryParams }}
@@ -86,6 +169,7 @@ export function {{ .Name }}Table({ onView, onEdit, onDelete{{- range .ExtraProps
       headerName: 'Действия',
       width: 120,
       sortable: false,
+      hideable: false,
       renderCell: (params: GridRenderCellParams) => (
         <Box>
           {onView && (
@@ -117,6 +201,7 @@ export function {{ .Name }}Table({ onView, onEdit, onDelete{{- range .ExtraProps
 
   return (
     <Box sx={{"{{"}} width: '100%', overflowX: 'auto' {{"}}"}}>
+      {toolbar && <Box sx={{"{{"}} mb: 1 {{"}}"}}>{toolbar}</Box>}
       <DataGrid
         rows={data?.data ?? []}
         // Some list contracts intentionally use a domain key such as
@@ -128,6 +213,12 @@ export function {{ .Name }}Table({ onView, onEdit, onDelete{{- range .ExtraProps
         loading={isLoading}
         paginationModel={paginationModel}
         onPaginationModelChange={setPaginationModel}
+        columnVisibilityModel={effectiveColumnVisibility}
+        onColumnVisibilityModelChange={handleColumnVisibilityChange}
+{{- if .ColumnPicker }}
+        showToolbar
+        slots={{"{{"}} toolbar: {{ .Name }}TableToolbar {{"}}"}}
+{{- end }}
         pageSizeOptions={[10, 25, 50, 100]}
         disableRowSelectionOnClick
         autoHeight

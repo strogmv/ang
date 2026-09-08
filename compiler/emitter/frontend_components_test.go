@@ -44,6 +44,57 @@ func TestBuildTableData_SkipsAuthInjectedFields(t *testing.T) {
 	}
 }
 
+func TestBuildTableData_ColumnPickerFromCUE(t *testing.T) {
+	t.Parallel()
+
+	method := normalizer.Method{
+		Name: "ListB2BPartners",
+		Attributes: []normalizer.Attribute{
+			{Name: "table", Args: map[string]any{"hidden": "id,priceListId", "storageKey": "b2b.partners"}},
+		},
+		Output: normalizer.Entity{
+			Name: "ListB2BPartnersResponse",
+			Fields: []normalizer.Field{
+				{Name: "data", Type: "[]ListB2BPartnersData", IsList: true, ItemFields: []normalizer.Field{
+					{Name: "id", Type: "string"},
+					{Name: "targetCompanyName", Type: "string"},
+					{Name: "priceListID", Type: "string"},
+					{Name: "roundingMode", Type: "string", UI: &normalizer.UIHints{Hidden: true}},
+				}},
+			},
+		},
+	}
+
+	got := buildTableData("B2B", method, nil, nil)
+
+	if !got.ColumnPicker {
+		t.Fatalf("expected column picker enabled by default")
+	}
+	if got.StorageKey != "b2b.partners" {
+		t.Fatalf("expected storageKey from @table, got %q", got.StorageKey)
+	}
+	hidden := map[string]bool{}
+	for _, col := range got.Columns {
+		hidden[col.Field] = col.Hidden
+	}
+	for field, want := range map[string]bool{"id": true, "targetCompanyName": false, "priceListId": true, "roundingMode": true} {
+		if hidden[field] != want {
+			t.Fatalf("column %q hidden=%v, want %v (columns: %#v)", field, hidden[field], want, got.Columns)
+		}
+	}
+
+	optOut := normalizer.Method{
+		Name:       "ListThings",
+		Attributes: []normalizer.Attribute{{Name: "table", Args: map[string]any{"picker": "false"}}},
+	}
+	if buildTableData("Svc", optOut, nil, nil).ColumnPicker {
+		t.Fatalf("expected @table(picker=false) to disable the column picker")
+	}
+	if buildTableData("Svc", normalizer.Method{Name: "ListThings"}, nil, nil).StorageKey != "Thing" {
+		t.Fatalf("expected storage key to default to the table name")
+	}
+}
+
 func TestHasFrontendListEndpointRequiresGETEndpoint(t *testing.T) {
 	t.Parallel()
 
