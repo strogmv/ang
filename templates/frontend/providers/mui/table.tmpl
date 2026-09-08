@@ -16,12 +16,12 @@
 // ============================================================================
 import { useMemo, useState, type ReactNode } from 'react';
 import { keepPreviousData } from '@tanstack/react-query';
-import { Avatar, Box{{ if .ColumnPicker }}, Button{{ end }}, Chip, IconButton, Tooltip } from '@mui/material';
-import { DataGrid, useGridApiContext, useGridSelector, gridPageSelector, gridPageCountSelector{{ if .ColumnPicker }}, Toolbar, ColumnsPanelTrigger{{ end }}, type GridColDef, type GridColumnVisibilityModel, type GridPaginationModel, type GridRenderCellParams } from '@mui/x-data-grid';
-import { Edit as EditIcon, Delete as DeleteIcon, Visibility as ViewIcon{{ if .ColumnPicker }}, ViewColumn as ViewColumnIcon{{ end }} } from '@mui/icons-material';
+import { Avatar, Box, Chip, IconButton, Tooltip } from '@mui/material';
+import { DataGrid, type GridColDef, type GridColumnVisibilityModel, type GridPaginationModel, type GridRenderCellParams } from '@mui/x-data-grid';
+import { Edit as EditIcon, Delete as DeleteIcon, Visibility as ViewIcon } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { use{{ .QueryName }} } from '../../hooks';
-import { TablePagination, useTableLabels } from '../../@ui/tables';
+import { TableActionsHeader, TableFooter, useTableColumnVisibility, useTableLabels } from '../../@ui/tables';
 {{- range .CustomImports }}
 import { {{ .Component }} } from '{{ .Path }}';
 {{- end }}
@@ -62,12 +62,10 @@ export const {{ .Name }}TableColumnOptions = [
 ] as const;
 
 // ============================================================================
-// SECTION: Column Visibility
-// PURPOSE: CUE-declared defaults + per-user persistence of the column choice.
-// SOURCE: @ui(hidden) on output fields, @table(hidden=..., storageKey=...)
+// SECTION: Column Visibility Defaults
+// SOURCE: @ui(hidden) on output fields, @table(hidden=..., storageKey=...).
+// Persistence and the picker itself live in ../../@ui/tables.
 // ============================================================================
-const {{ .Name }}_COLUMNS_STORAGE_KEY = 'ang:table:{{ .StorageKey }}:columns';
-
 const {{ .Name }}_DEFAULT_COLUMN_VISIBILITY: GridColumnVisibilityModel = {
 {{- range $i, $col := .Columns }}
   {{- if $col.Hidden }}
@@ -75,72 +73,6 @@ const {{ .Name }}_DEFAULT_COLUMN_VISIBILITY: GridColumnVisibilityModel = {
   {{- end }}
 {{- end }}
 };
-
-function read{{ .Name }}ColumnVisibility(): GridColumnVisibilityModel {
-  if (typeof window === 'undefined') return {{ .Name }}_DEFAULT_COLUMN_VISIBILITY;
-  try {
-    const raw = window.localStorage.getItem({{ .Name }}_COLUMNS_STORAGE_KEY);
-    const parsed: unknown = raw ? JSON.parse(raw) : null;
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return parsed as GridColumnVisibilityModel;
-    }
-  } catch {
-    // Storage unavailable (private mode, quota, disabled): fall back to defaults.
-  }
-  return {{ .Name }}_DEFAULT_COLUMN_VISIBILITY;
-}
-
-function persist{{ .Name }}ColumnVisibility(model: GridColumnVisibilityModel) {
-  try {
-    window.localStorage.setItem({{ .Name }}_COLUMNS_STORAGE_KEY, JSON.stringify(model));
-  } catch {
-    // Best effort only; the in-memory model still applies for this session.
-  }
-}
-{{- if .ColumnPicker }}
-
-// Built-in toolbar: opens the MUI columns panel (checkbox per column).
-// Label and panel texts come from the grid locale (theme `localeText`),
-// so the app translates them centrally. Opt out in CUE with @table(picker=false).
-function {{ .Name }}TableToolbar() {
-  const apiRef = useGridApiContext();
-  const label = apiRef.current.getLocaleText('toolbarColumns');
-  return (
-    <Toolbar style={{"{{"}} justifyContent: 'flex-end', padding: '4px 0 8px' {{"}}"}}>
-      <ColumnsPanelTrigger
-        render={
-          <Button
-            size="small"
-            variant="outlined"
-            color="inherit"
-            startIcon={<ViewColumnIcon sx={{"{{"}} fontSize: 20 {{"}}"}} />}
-            sx={{"{{"}} textTransform: 'none', fontWeight: 500, minHeight: 36, px: 1.5, borderColor: 'divider' {{"}}"}}
-          />
-        }
-      >
-        {label}
-      </ColumnsPanelTrigger>
-    </Toolbar>
-  );
-}
-{{- end }}
-
-// Footer: page pills via the table UI registry (@ui/tables). The host app
-// swaps the look once with registerTablePagination(); tables stay generated.
-function {{ .Name }}TableFooter() {
-  const apiRef = useGridApiContext();
-  const page = useGridSelector(apiRef, gridPageSelector);
-  const pageCount = useGridSelector(apiRef, gridPageCountSelector);
-  return (
-    <Box sx={{"{{"}} px: 1, py: 1.5 {{"}}"}}>
-      <TablePagination
-        page={page + 1}
-        pageCount={pageCount}
-        onChange={(next) => apiRef.current.setPage(next - 1)}
-      />
-    </Box>
-  );
-}
 
 // ============================================================================
 // SECTION: Table Component
@@ -153,15 +85,12 @@ export function {{ .Name }}Table({ onView, onEdit, onDelete, columnVisibilityMod
     page: 0,
     pageSize: {{ .PageSize | default 25 }},
   });
-  const [storedColumnVisibility, setStoredColumnVisibility] = useState<GridColumnVisibilityModel>(read{{ .Name }}ColumnVisibility);
-  const effectiveColumnVisibility = columnVisibilityModel ?? storedColumnVisibility;
-  const handleColumnVisibilityChange = (model: GridColumnVisibilityModel) => {
-    if (columnVisibilityModel === undefined) {
-      setStoredColumnVisibility(model);
-      persist{{ .Name }}ColumnVisibility(model);
-    }
-    onColumnVisibilityModelChange?.(model);
-  };
+  const columnVisibility = useTableColumnVisibility(
+    '{{ .StorageKey }}',
+    {{ .Name }}_DEFAULT_COLUMN_VISIBILITY,
+    columnVisibilityModel,
+    onColumnVisibilityModelChange,
+  );
 
   // keepPreviousData: while the next page loads the grid keeps the current
   // rows and rowCount, otherwise MUI clamps the page back to 0 mid-fetch.
@@ -205,9 +134,13 @@ export function {{ .Name }}Table({ onView, onEdit, onDelete, columnVisibilityMod
     {
       field: 'actions',
       headerName: label('{{ .Name }}', 'actions', 'Действия'),
-      width: 120,
+      renderHeader: () => (
+        <TableActionsHeader label={label('{{ .Name }}', 'actions', 'Действия')} picker={ {{- if .ColumnPicker }}true{{ else }}false{{ end -}} } />
+      ),
+      width: 140,
       sortable: false,
       hideable: false,
+      disableColumnMenu: true,
       renderCell: (params: GridRenderCellParams) => (
         <Box>
           {onView && (
@@ -253,12 +186,9 @@ export function {{ .Name }}Table({ onView, onEdit, onDelete, columnVisibilityMod
         loading={isLoading}
         paginationModel={paginationModel}
         onPaginationModelChange={setPaginationModel}
-        columnVisibilityModel={effectiveColumnVisibility}
-        onColumnVisibilityModelChange={handleColumnVisibilityChange}
-{{- if .ColumnPicker }}
-        showToolbar
-{{- end }}
-        slots={{"{{"}} footer: {{ .Name }}TableFooter{{ if .ColumnPicker }}, toolbar: {{ .Name }}TableToolbar{{ end }} {{"}}"}}
+        columnVisibilityModel={columnVisibility.model}
+        onColumnVisibilityModelChange={columnVisibility.onChange}
+        slots={{"{{"}} footer: TableFooter {{"}}"}}
         pageSizeOptions={[10, 25, 50, 100]}
         disableRowSelectionOnClick
         autoHeight
