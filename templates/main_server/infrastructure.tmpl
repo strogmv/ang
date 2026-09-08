@@ -78,6 +78,9 @@
 	redisClient = cacheRedis.NewClient(cfg.RedisAddr)
 	log.Info("Redis initialized", "addr", cfg.RedisAddr)
 	transport.SetRedisClient(redisClient)
+	// Presence (online status) shares the Redis instance so it survives restarts
+	// and expires by TTL across replicas.
+	presence.SetRedisClient(redisClient)
 	_ = redisClient
 	{{ end }}
 

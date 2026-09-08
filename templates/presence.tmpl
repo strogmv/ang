@@ -16,12 +16,28 @@ type Status struct {
 
 const presenceKeyPrefix = "presence:"
 
+// memoryEntry keeps the wall-clock time of the last heartbeat so the
+// in-memory fallback expires entries exactly like the Redis keys do.
+type memoryEntry struct {
+	status Status
+	at     time.Time
+}
+
 var (
 	mu          sync.RWMutex
-	store       = map[string]Status{}
+	store       = map[string]memoryEntry{}
 	redisClient *redis.Client
 	ttl         = 60 * time.Second
 )
+
+// memoryGet returns a stored entry unless its heartbeat is older than the TTL.
+func memoryGet(userID string, now time.Time) (Status, bool) {
+	entry, ok := store[userID]
+	if !ok || now.Sub(entry.at) > ttl {
+		return Status{}, false
+	}
+	return entry.status, true
+}
 
 // SetRedisClient enables Redis-backed presence storage.
 func SetRedisClient(client *redis.Client) {
@@ -59,7 +75,7 @@ func Set(userID string, isOnline bool, at time.Time) Status {
 		IsOnline:   true,
 		LastSeenAt: at.UTC().Format(time.RFC3339),
 	}
-	store[userID] = status
+	store[userID] = memoryEntry{status: status, at: time.Now()}
 	return status
 }
 
@@ -76,8 +92,7 @@ func Get(userID string) (Status, bool) {
 
 	mu.RLock()
 	defer mu.RUnlock()
-	status, ok := store[userID]
-	return status, ok
+	return memoryGet(userID, time.Now())
 }
 
 // GetMany returns a map of statuses for the provided user IDs.
@@ -111,9 +126,10 @@ func GetMany(userIDs []string) map[string]Status {
 
 	mu.RLock()
 	defer mu.RUnlock()
+	now := time.Now()
 	out := make(map[string]Status, len(userIDs))
 	for _, id := range userIDs {
-		if status, ok := store[id]; ok {
+		if status, ok := memoryGet(id, now); ok {
 			out[id] = status
 		}
 	}

@@ -26,7 +26,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 	{{ end }}
 
-	{{ if or .HasCache (or (eq .AuthRefreshStore "redis") (eq .AuthRefreshStore "hybrid")) }}cacheRedis "{{.GoModule}}/internal/adapter/cache/redis"{{ end }}
+	{{ if or .HasCache (or (eq .AuthRefreshStore "redis") (eq .AuthRefreshStore "hybrid")) }}cacheRedis "{{.GoModule}}/internal/adapter/cache/redis"
+	"{{.GoModule}}/internal/pkg/presence"{{ end }}
 	{{ if .HasNats }}
 	"{{.GoModule}}/internal/adapter/events/nats"
 	"{{.GoModule}}/internal/domain"
