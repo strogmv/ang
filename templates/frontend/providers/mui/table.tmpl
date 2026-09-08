@@ -21,7 +21,7 @@ import { DataGrid, type GridColDef, type GridColumnVisibilityModel, type GridPag
 import { Edit as EditIcon, Delete as DeleteIcon, Visibility as ViewIcon } from '@mui/icons-material';
 import dayjs from 'dayjs';
 import { use{{ .QueryName }} } from '../../hooks';
-import { TableActionsHeader, TableFooter, useTableColumnVisibility, useTableLabels } from '../../@ui/tables';
+import { TableActionsHeader, TableFooter, getTableSlots, useTableColumnVisibility, useTableLabels } from '../../@ui/tables';
 {{- range .CustomImports }}
 import { {{ .Component }} } from '{{ .Path }}';
 {{- end }}
@@ -188,7 +188,7 @@ export function {{ .Name }}Table({ onView, onEdit, onDelete, columnVisibilityMod
         onPaginationModelChange={setPaginationModel}
         columnVisibilityModel={columnVisibility.model}
         onColumnVisibilityModelChange={columnVisibility.onChange}
-        slots={{"{{"}} footer: TableFooter {{"}}"}}
+        slots={{"{{"}} footer: TableFooter, ...getTableSlots() {{"}}"}}
         pageSizeOptions={[10, 25, 50, 100]}
         disableRowSelectionOnClick
         autoHeight

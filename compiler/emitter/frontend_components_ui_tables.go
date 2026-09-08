@@ -23,6 +23,7 @@ func (e *Emitter) emitBaseUITablesLayer() error {
 //   - useTableColumnVisibility                   — CUE defaults + localStorage
 //   - TableActionsHeader                         — actions header + column picker
 //   - TableFooter                                — footer slot with pagination
+//   - registerTableSlots / getTableSlots         — extra DataGrid slots (baseCheckbox, ...)
 // DO NOT EDIT - changes will be overwritten on next generation
 // ============================================================================
 import type { ComponentType } from 'react';
@@ -35,6 +36,7 @@ import {
   useGridApiContext,
   useGridSelector,
   type GridColumnVisibilityModel,
+  type GridSlotsComponent,
 } from '@mui/x-data-grid';
 import { ViewColumn as ViewColumnIcon } from '@mui/icons-material';
 
@@ -81,6 +83,23 @@ function subscribeLabels(listener: () => void) {
 export function useTableLabels(): TableLabelResolver {
   useSyncExternalStore(subscribeLabels, () => labelsVersion, () => labelsVersion);
   return labelResolver;
+}
+
+// ---------------------------------------------------------------------------
+// DataGrid slots (host-provided base components: baseCheckbox, baseButton, ...)
+// ---------------------------------------------------------------------------
+
+export type TableSlots = Partial<GridSlotsComponent>;
+
+let registeredSlots: TableSlots = {};
+
+/** Merge DataGrid slots into every generated table (e.g. a branded baseCheckbox). */
+export function registerTableSlots(slots: TableSlots) {
+  registeredSlots = { ...registeredSlots, ...slots };
+}
+
+export function getTableSlots(): TableSlots {
+  return registeredSlots;
 }
 
 // ---------------------------------------------------------------------------
