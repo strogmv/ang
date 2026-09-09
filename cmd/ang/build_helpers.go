@@ -50,7 +50,7 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 	projectDir := fs.String("project", "", "Project directory to generate (defaults to the positional argument or the current directory)")
 	backendDir := fs.String("backend-dir", ".", "Directory for generated backend code")
 	frontendDir := fs.String("frontend-dir", "sdk", "Directory for generated frontend SDK (relative to backend-dir if not absolute)")
-	frontendAppDir := fs.String("frontend-app-dir", "", "Directory to copy generated frontend SDK into app (optional)")
+	frontendAppDir := fs.String("frontend-app-dir", "", "SDK directory inside the app to replace with the generated SDK, e.g. <app>/src/@sdk (optional; the directory is wiped first)")
 	frontendAdminDir := fs.String("frontend-admin-dir", "", "Directory containing frontend admin source templates")
 	frontendAdminAppDir := fs.String("frontend-admin-app-dir", "", "Directory to copy generated frontend admin app into (optional)")
 	frontendEnvPath := fs.String("frontend-env-path", "", "Path to write frontend .env.example (defaults to <frontend-app-dir>/.env.example)")
@@ -370,6 +370,9 @@ func copyFrontendSDK(srcDir, appDir string) error {
 		return nil
 	}
 	// Copy files directly into appDir (caller specifies the exact target directory).
+	if err := ensureSDKTarget(appDir); err != nil {
+		return err
+	}
 	targetDir := appDir
 	if err := os.RemoveAll(targetDir); err != nil {
 		return fmt.Errorf("cleanup sdk target: %w", err)
