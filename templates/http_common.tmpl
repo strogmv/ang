@@ -168,8 +168,10 @@ func decodeJSONRequest(r *http.Request, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	if len(body) == 0 {
-		return io.EOF
+	if len(strings.TrimSpace(string(body))) == 0 {
+		// A request without a body (a DELETE whose inputs are all path params)
+		// reads as an empty object; validation still reports missing fields.
+		body = []byte("{}")
 	}
 	var obj map[string]interface{}
 	if err := json.Unmarshal(body, &obj); err == nil {
