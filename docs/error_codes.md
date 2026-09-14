@@ -49,5 +49,6 @@ Canonical source in code:
 
 - `EMITTER_OPTIONS_ERROR`
 - `EMITTER_STEP_ERROR`
+- `ANG_LOCK_MISMATCH` — the running binary is not the ang revision pinned in the project's `ang.lock`; generation stops before anything is written unless `--allow-lock-mismatch` is passed
 - `EMITTER_MCP_GENERATION_ERROR`
 - `EMITTER_CAPABILITY_RESOLVE_ERROR`

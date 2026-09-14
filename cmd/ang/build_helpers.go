@@ -40,6 +40,7 @@ type OutputOptions struct {
 	DryRunReport        string
 	WithOpenAPI         bool
 	AcceptContract      bool
+	AllowLockMismatch   bool
 	ExpertMode          string
 	ExpertBaseURL       string
 	ExpertPackIDs       []string
@@ -69,6 +70,7 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 	skipGoVerify := fs.Bool("skip-go-verify", false, "Skip post-build go verify (go build ./...)")
 	withOpenAPI := fs.Bool("openapi", false, "Also generate api/openapi.yaml after build")
 	acceptContract := fs.Bool("accept-contract", false, "accept breaking OpenAPI operation removals")
+	allowLockMismatch := fs.Bool("allow-lock-mismatch", false, "generate even if this binary is not the ang revision pinned in the project's ang.lock")
 	dryRunRoot := fs.String("dry-run-root", "", "internal: override dry-run temp root")
 	dryRunReport := fs.String("dry-run-report", "", "internal: write dry-run manifest json to path")
 	expertMode := fs.String("expert-mode", "off", "Expert integration mode: off|shadow|advise|gate")
@@ -120,6 +122,7 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 		DryRunReport:        strings.TrimSpace(*dryRunReport),
 		WithOpenAPI:         *withOpenAPI,
 		AcceptContract:      *acceptContract,
+		AllowLockMismatch:   *allowLockMismatch,
 		ExpertMode:          strings.ToLower(strings.TrimSpace(*expertMode)),
 		ExpertBaseURL:       strings.TrimSpace(*expertBaseURL),
 		ExpertPackIDs:       append([]string(nil), expertPackIDs...),

@@ -126,6 +126,15 @@ func runDraw(args []string) {
 
 func runVersion() {
 	fmt.Printf("ANG version %s (Schema v%s)\n", compiler.Version, compiler.SchemaVersion)
+	revision := runningCompilerRevision()
+	switch {
+	case revision.Revision == "":
+		fmt.Println("Built without VCS information")
+	case revision.Modified:
+		fmt.Printf("Built from %s with uncommitted changes\n", revision.Revision)
+	default:
+		fmt.Printf("Built from %s\n", revision.Revision)
+	}
 }
 
 func runRBAC(args []string) {

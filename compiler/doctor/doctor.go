@@ -546,6 +546,13 @@ func suggestionForCode(code, log string) Suggestion {
 			CanAutoApply: false,
 			Patch:        defaultPatchTemplate(compiler.ErrCodeCUEProjectLoad),
 		}
+	case compiler.ErrCodeANGLockMismatch:
+		return Suggestion{
+			Code:         code,
+			Fix:          "Build ang from the commit pinned in the project's ang.lock (make build-ang, or git checkout <commit> in the ang repo and go build ./cmd/ang). Pass --allow-lock-mismatch only when deliberately testing a different generator revision; do not commit its output without updating ang.lock.",
+			CanAutoApply: false,
+			Patch:        defaultPatchTemplate(compiler.ErrCodeCUEProjectLoad),
+		}
 	case compiler.ErrCodeEmitterStep:
 		return Suggestion{
 			Code:         code,

@@ -44,6 +44,7 @@ const (
 	// Emitters stage
 	ErrCodeEmitterOptions           = "EMITTER_OPTIONS_ERROR"
 	ErrCodeEmitterStep              = "EMITTER_STEP_ERROR"
+	ErrCodeANGLockMismatch          = "ANG_LOCK_MISMATCH"
 	ErrCodeEmitterMCPGen            = "EMITTER_MCP_GENERATION_ERROR"
 	ErrCodeEmitterCapabilityResolve = "EMITTER_CAPABILITY_RESOLVE_ERROR"
 )

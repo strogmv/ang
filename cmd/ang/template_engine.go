@@ -328,6 +328,9 @@ func runBuildDryRunSubprocess(projectPath string, opts OutputOptions) error {
 	if opts.SkipContractTests {
 		args = append(args, "--skip-contract-tests")
 	}
+	if opts.AllowLockMismatch {
+		args = append(args, "--allow-lock-mismatch")
+	}
 	cmd := exec.Command(exe, args...)
 	cmd.Env = os.Environ()
 	out, err := cmd.CombinedOutput()

@@ -50,6 +50,24 @@ func runBuild(args []string) error {
 			printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterOptions, "resolve project directory", err)
 			return
 		}
+		// Guard before anything is generated: the binary must be the revision the
+		// project pinned in ang.lock, or the committed API contract can silently
+		// change. This runs before the plan/apply phases branch off, so they are
+		// guarded too; warnings go to stderr so they never mix into the build event
+		// stream written to stdout.
+		if pin, pinned, err := readANGLock(projectPath); err != nil {
+			printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeANGLockMismatch, "read ang.lock", err)
+			return
+		} else if pinned {
+			warnings, lockErr := checkANGLock(pin, runningCompilerRevision(), output.AllowLockMismatch)
+			if lockErr != nil {
+				printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeANGLockMismatch, "verify compiler revision against ang.lock", lockErr)
+				return
+			}
+			for _, warning := range warnings {
+				fmt.Fprintf(os.Stderr, "Warning: %s\n", warning)
+			}
+		}
 		if output.Phase == "plan" || output.Phase == "apply" {
 			phase := compiler.PhaseAll
 			switch output.Phase {
