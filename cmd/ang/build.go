@@ -431,6 +431,7 @@ func runBuild(args []string) error {
 				fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "create staged project workspace", err)
 				return
 			}
+			transaction.SetConflictDir(projectPath, filepath.Join(projectPath, ".ang", "conflicts", time.Now().UTC().Format("20060102T150405Z")))
 			defer func() {
 				if rollbackErr := transaction.Rollback(); rollbackErr != nil {
 					printStageFailure("Build ROLLBACK FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterStep, "restore generated outputs", rollbackErr)
@@ -849,6 +850,9 @@ func runBuild(args []string) error {
 			return true
 		}
 		if transaction != nil {
+			if buildBeforeCommitHook != nil {
+				buildBeforeCommitHook(projectPath)
+			}
 			if buildWorkspace != "" {
 				if err := transaction.CaptureWorkspace(projectPath, buildWorkspace); err != nil {
 					printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterStep, "capture staged generated outputs", err)
@@ -858,6 +862,12 @@ func runBuild(args []string) error {
 			if err := transaction.Commit(); err != nil {
 				printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterStep, "commit generated outputs", err)
 				return
+			}
+			if conflicts := transaction.Conflicts(); len(conflicts) > 0 {
+				logText("Warning: %d file(s) were edited while the build ran and were also regenerated. The generated version was kept; your version is saved in %s:", len(conflicts), transaction.ConflictDir())
+				for _, path := range conflicts {
+					logText("  - %s", path)
+				}
 			}
 		}
 
