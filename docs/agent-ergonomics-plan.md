@@ -203,6 +203,17 @@
 
 ### P0.2 Копирование SDK во фронт — атомарно
 
+> **Закрыто P0.1, отдельного кода не потребовалось (2026-09-14).**
+> `copyFrontendSDK` вызывается только шагом сборки (`step_registry.go`), а
+> `build.go` заранее подменяет `--frontend-app-dir` на stage транзакции
+> (`targetOutput.FrontendAppDir = stagePath(...)`). `RemoveAll` и запись идут в
+> stage; реальный каталог SDK меняется только в `Commit` — пофайловым слиянием с
+> откатом. Копирование, упавшее посередине, роняет сборку, транзакция
+> откатывается, SDK приложения не тронут. Доказано тестами
+> `TestFrontendSDKCopyFailureDuringBuildLeavesAppSDKUntouched` и
+> `TestFrontendSDKCopyPublishesThroughMerge`. Если `copyFrontendSDK` когда-нибудь
+> позовут вне сборки, этот пункт снова актуален.
+
 **Проблема.** См. 0.3: `RemoveAll` перед записью.
 
 **Требуемое поведение.**
