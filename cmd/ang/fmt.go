@@ -8,12 +8,17 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	cueformat "cuelang.org/go/cue/format"
+	cueparser "cuelang.org/go/cue/parser"
 )
 
 type fmtResult struct {
-	FilesScanned int      `json:"files_scanned"`
-	FilesChanged int      `json:"files_changed"`
-	ChangedFiles []string `json:"changed_files,omitempty"`
+	FilesScanned        int              `json:"files_scanned"`
+	FilesChanged        int              `json:"files_changed"`
+	ChangedFiles        []string         `json:"changed_files,omitempty"`
+	EmbeddedGoFormatted int              `json:"embedded_go_formatted"`
+	EmbeddedGoSkipped   []embeddedGoSkip `json:"embedded_go_skipped,omitempty"`
 }
 
 func runFmt(args []string) {
@@ -22,6 +27,7 @@ func runFmt(args []string) {
 	check := fs.Bool("check", false, "check formatting/canonicalization; do not write changes")
 	jsonOut := fs.Bool("json", false, "emit machine-readable summary")
 	path := fs.String("path", "", "path to CUE directory (default: ./cue if present)")
+	goOnly := fs.Bool("go-only", false, "format only Go embedded in CUE strings; keep CUE layout and action names as they are")
 	if err := fs.Parse(args); err != nil {
 		fmt.Printf("Fmt FAILED: %v\n", err)
 		os.Exit(1)
@@ -33,7 +39,7 @@ func runFmt(args []string) {
 		os.Exit(1)
 	}
 
-	res, err := formatCueTree(targetRoot, *check)
+	res, err := formatCueTreeWith(targetRoot, *check, *goOnly)
 	if err != nil {
 		fmt.Printf("Fmt FAILED: %v\n", err)
 		os.Exit(1)
@@ -42,20 +48,22 @@ func runFmt(args []string) {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		_ = enc.Encode(map[string]any{
-			"schema": "ang/fmt/v1",
-			"check":  *check,
-			"path":   filepath.ToSlash(targetRoot),
-			"result": res,
+			"schema":  "ang/fmt/v1",
+			"check":   *check,
+			"go_only": *goOnly,
+			"path":    filepath.ToSlash(targetRoot),
+			"result":  res,
 		})
 	} else {
 		if *check {
-			fmt.Printf("Fmt check: files_scanned=%d files_changed=%d\n", res.FilesScanned, res.FilesChanged)
+			fmt.Printf("Fmt check: files_scanned=%d files_changed=%d embedded_go_formatted=%d\n", res.FilesScanned, res.FilesChanged, res.EmbeddedGoFormatted)
 		} else {
-			fmt.Printf("Fmt applied: files_changed=%d\n", res.FilesChanged)
+			fmt.Printf("Fmt applied: files_changed=%d embedded_go_formatted=%d\n", res.FilesChanged, res.EmbeddedGoFormatted)
 		}
 		for _, f := range res.ChangedFiles {
 			fmt.Printf("  - %s\n", f)
 		}
+		printEmbeddedGoSkips(res.EmbeddedGoSkipped)
 	}
 
 	if *check && res.FilesChanged > 0 {
@@ -63,7 +71,32 @@ func runFmt(args []string) {
 	}
 }
 
+// printEmbeddedGoSkips reports fragments left unformatted. They are warnings,
+// not failures: the Go is used as written. Fragments kept for their line count
+// are usually many and all alike, so they are summed up in one line; --json
+// lists each.
+func printEmbeddedGoSkips(skips []embeddedGoSkip) {
+	lineCount := 0
+	for _, skip := range skips {
+		if skip.Reason == embeddedGoLineCountReason {
+			lineCount++
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "warning: %s:%d %s: Go left unformatted: %s\n", filepath.ToSlash(skip.File), skip.Line, skip.Field, skip.Reason)
+	}
+	if lineCount > 0 {
+		fmt.Fprintf(os.Stderr, "note: %d Go fragments left unformatted: gofmt would change their number of lines, which generated // Source: comments refer to (see --json)\n", lineCount)
+	}
+}
+
 func formatCueTree(root string, checkOnly bool) (fmtResult, error) {
+	return formatCueTreeWith(root, checkOnly, false)
+}
+
+// formatCueTreeWith formats every CUE file under root. goOnly limits it to Go
+// embedded in strings, for projects whose CUE is not kept in cue fmt layout:
+// there a full pass would rewrite nearly every file.
+func formatCueTreeWith(root string, checkOnly, goOnly bool) (fmtResult, error) {
 	files, err := collectCueFiles(root)
 	if err != nil {
 		return fmtResult{}, err
@@ -79,10 +112,19 @@ func formatCueTree(root string, checkOnly bool) (fmtResult, error) {
 			return fmtResult{}, readErr
 		}
 		src := string(raw)
-		aliased, _ := rewriteCueActionAliases(src, rules)
-		formatted, fmtErr := cueFmtBuffer([]byte(aliased))
-		if fmtErr != nil {
-			return fmtResult{}, fmt.Errorf("cue fmt %s: %w", file, fmtErr)
+		input := src
+		if !goOnly {
+			input, _ = rewriteCueActionAliases(src, rules)
+		}
+		formatted, goChanged, goSkipped := formatEmbeddedGo(file, []byte(input))
+		res.EmbeddedGoFormatted += goChanged
+		res.EmbeddedGoSkipped = append(res.EmbeddedGoSkipped, goSkipped...)
+		if !goOnly {
+			var fmtErr error
+			formatted, fmtErr = cueFmtBuffer(formatted)
+			if fmtErr != nil {
+				return fmtResult{}, fmt.Errorf("cue fmt %s: %w", file, fmtErr)
+			}
 		}
 		next := string(formatted)
 		if next == src {
@@ -99,7 +141,17 @@ func formatCueTree(root string, checkOnly bool) (fmtResult, error) {
 	return res, nil
 }
 
+// cueFmtBuffer runs `cue fmt` when the CLI is installed. Without it, the same
+// formatter runs in process (cue fmt parses with comments and calls
+// format.Node), so ang fmt no longer fails on machines without cue.
 func cueFmtBuffer(src []byte) ([]byte, error) {
+	if _, err := exec.LookPath("cue"); err != nil {
+		file, parseErr := cueparser.ParseFile("-", src, cueparser.ParseComments)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		return cueformat.Node(file)
+	}
 	cmd := exec.Command("cue", "fmt", "-")
 	cmd.Stdin = bytes.NewReader(src)
 	var out bytes.Buffer
