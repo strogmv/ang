@@ -865,6 +865,39 @@ func runBuild(args []string) error {
 					return
 				}
 			}
+			if output.Check {
+				differences := dryRunDifferences(dryManifest, projectPath)
+				if len(differences) > 0 {
+					fmt.Fprintf(os.Stderr, "Check FAILED: %d of %d generated files differ from the project:\n", len(differences), dryManifest.TotalGenerated)
+					for _, difference := range differences {
+						marker := "~"
+						if difference.Action == "create" {
+							marker = "+"
+						}
+						fmt.Fprintf(os.Stderr, "  %s %s\n", marker, difference.Path)
+					}
+					fmt.Fprintln(os.Stderr, "Run ang build and commit the result.")
+					if jsonLogs {
+						logEvent(buildEvent{
+							Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+							Stage:     "check",
+							Status:    "error",
+							Message:   fmt.Sprintf("%d of %d generated files differ from the project", len(differences), dryManifest.TotalGenerated),
+						})
+					}
+					return false
+				}
+				logText("Check passed: all %d generated files match the project.", dryManifest.TotalGenerated)
+				if jsonLogs {
+					logEvent(buildEvent{
+						Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+						Stage:     "check",
+						Status:    "ok",
+						Message:   fmt.Sprintf("all %d generated files match the project", dryManifest.TotalGenerated),
+					})
+				}
+				return true
+			}
 			printDryRunManifest(dryManifest)
 			logText("\nBuild DRY-RUN SUCCESSFUL.")
 			if jsonLogs {

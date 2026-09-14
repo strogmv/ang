@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -13,6 +14,9 @@ import (
 // only in Commit. A copy that fails mid-way therefore fails the build, the
 // transaction rolls back, and the application's SDK is untouched.
 func TestFrontendSDKCopyFailureDuringBuildLeavesAppSDKUntouched(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("relies on a read-only directory refusing writes, which windows and root ignore")
+	}
 	appSDK := filepath.Join(t.TempDir(), "front", "src", "@sdk")
 	writeTestFile(t, filepath.Join(appSDK, sdkManifestName), "{\"old\":true}")
 	writeTestFile(t, filepath.Join(appSDK, "index.ts"), "old sdk")

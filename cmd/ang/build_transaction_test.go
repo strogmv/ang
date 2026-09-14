@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -274,6 +275,9 @@ func TestBuildTransactionCommitKeepsDirectoryCreatedDuringBuild(t *testing.T) {
 }
 
 func TestBuildTransactionCommitRestoresProjectWhenPublishFails(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("relies on a read-only directory refusing writes, which windows and root ignore")
+	}
 	root := t.TempDir()
 	first := filepath.Join(root, "api", "openapi.yaml")
 	second := filepath.Join(root, "internal", "locked", "x.gen.go")
