@@ -63,6 +63,7 @@ type buildTransaction struct {
 	conflictRoot string
 	conflictDir  string
 	conflicts    []string
+	swept        buildScratchSweep
 	keepWorkDirs bool
 	done         bool
 }
@@ -70,16 +71,26 @@ type buildTransaction struct {
 func beginBuildTransaction(paths []string) (*buildTransaction, error) {
 	tx := &buildTransaction{}
 	cleaned := compactTransactionPaths(paths)
+	sweptParents := map[string]struct{}{}
+	for _, path := range cleaned {
+		parent := filepath.Dir(path)
+		if _, done := sweptParents[parent]; !done {
+			sweptParents[parent] = struct{}{}
+			sweepAbandonedBuildScratch(parent, transactionScratchPrefix, time.Now(), &tx.swept)
+		}
+	}
 	for _, path := range cleaned {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			tx.cleanupWorkDirs()
 			return nil, fmt.Errorf("create transaction parent for %s: %w", path, err)
 		}
-		workDir, err := os.MkdirTemp(filepath.Dir(path), ".ang-build-transaction-*")
+		workDir, err := os.MkdirTemp(filepath.Dir(path), transactionScratchPrefix+"*")
 		if err != nil {
 			tx.cleanupWorkDirs()
 			return nil, fmt.Errorf("create build transaction for %s: %w", path, err)
 		}
+		// Best effort: without an owner the directory is only aged out.
+		_ = writeBuildScratchOwner(workDir, false)
 		entry := buildTransactionEntry{
 			path:    path,
 			base:    filepath.Join(workDir, "base"),
@@ -122,6 +133,15 @@ func (tx *buildTransaction) ConflictDir() string {
 		return ""
 	}
 	return tx.conflictDir
+}
+
+// Swept reports the abandoned scratch directories removed while this
+// transaction set up, and those kept because they hold originals.
+func (tx *buildTransaction) Swept() buildScratchSweep {
+	if tx == nil {
+		return buildScratchSweep{}
+	}
+	return tx.swept
 }
 
 // Conflicts lists, relative to the conflict root, every file whose in-project
@@ -365,6 +385,9 @@ func (tx *buildTransaction) undoJournal() error {
 	tx.journal = nil
 	if len(failures) != 0 {
 		tx.keepWorkDirs = true
+		for _, entry := range tx.entries {
+			_ = writeBuildScratchOwner(entry.workDir, true)
+		}
 		return fmt.Errorf("restore committed outputs: %s", strings.Join(failures, "; "))
 	}
 	return nil
@@ -547,10 +570,12 @@ func (tx *buildTransaction) CreateWorkspace(projectRoot string) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	workDir, err := os.MkdirTemp(filepath.Dir(root), ".ang-build-workspace-*")
+	sweepAbandonedBuildScratch(filepath.Dir(root), workspaceScratchPrefix, time.Now(), &tx.swept)
+	workDir, err := os.MkdirTemp(filepath.Dir(root), workspaceScratchPrefix+"*")
 	if err != nil {
 		return "", fmt.Errorf("create build workspace: %w", err)
 	}
+	_ = writeBuildScratchOwner(workDir, false)
 	tx.workspaces = append(tx.workspaces, workDir)
 	workspace := filepath.Join(workDir, "project")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {

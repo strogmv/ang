@@ -450,6 +450,16 @@ func runBuild(args []string) error {
 				return
 			}
 			transaction.SetConflictDir(projectPath, filepath.Join(projectPath, ".ang", "conflicts", time.Now().UTC().Format("20060102T150405Z")))
+			if swept := transaction.Swept(); swept.Removed > 0 {
+				noun := "directories"
+				if swept.Removed == 1 {
+					noun = "directory"
+				}
+				logText("Removed %d abandoned build scratch %s (%s).", swept.Removed, noun, formatScratchBytes(swept.Bytes))
+			}
+			for _, dir := range transaction.Swept().Kept {
+				logText("Warning: %s holds project originals from a rollback that failed; it was kept, inspect it and delete it yourself.", dir)
+			}
 			defer func() {
 				if rollbackErr := transaction.Rollback(); rollbackErr != nil {
 					printStageFailure("Build ROLLBACK FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterStep, "restore generated outputs", rollbackErr)
