@@ -187,9 +187,11 @@ func registerCoreTools(addTool toolAdder, deps coreToolDeps) {
 		mcp.WithDescription("Run `ang build --dry-run` and return preview output for AI-safe planning."),
 		mcp.WithString("project_path", mcp.Description("Project root path (default: current directory).")),
 		mcp.WithString("target", mcp.Description("Optional target name, same as --target.")),
+		mcp.WithBoolean("diff", mcp.Description("Also return a unified diff of every generated file that would be created or changed (each patch cut at 200 KB, 2 MB in total).")),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		projectPath := strings.TrimSpace(mcp.ParseString(request, "project_path", ""))
 		target := strings.TrimSpace(mcp.ParseString(request, "target", ""))
+		withDiff := mcp.ParseBoolean(request, "diff", false)
 		args := []string{"build"}
 		if projectPath != "" {
 			args = append(args, projectPath)
@@ -197,6 +199,17 @@ func registerCoreTools(addTool toolAdder, deps coreToolDeps) {
 		args = append(args, "--dry-run", "--log-format=json")
 		if target != "" {
 			args = append(args, "--target="+target)
+		}
+		patchDir, diffErr := "", ""
+		if withDiff {
+			dir, cleanup, err := newDryRunDiffDir()
+			if err != nil {
+				diffErr = err.Error()
+			} else {
+				defer cleanup()
+				patchDir = dir
+				args = append(args, "--diff-out", dir)
+			}
 		}
 		cmd := exec.Command(resolveANGExecutable(), args...)
 		out, err := cmd.CombinedOutput()
@@ -211,6 +224,13 @@ func registerCoreTools(addTool toolAdder, deps coreToolDeps) {
 			"project_path":   projectPath,
 			"target":         target,
 			"output_excerpt": truncate(text, 10000),
+		}
+		if withDiff {
+			if patchDir != "" {
+				resp["diffs"] = readDryRunPatches(patchDir, 200_000, 2_000_000)
+			} else {
+				resp["diff_error"] = diffErr
+			}
 		}
 		b, _ := json.MarshalIndent(resp, "", "  ")
 		return mcp.NewToolResultText(string(b)), nil

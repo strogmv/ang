@@ -12,6 +12,11 @@ import (
 type dryRunFileChange struct {
 	Path   string `json:"path"`
 	Action string `json:"action"` // create|update|unchanged
+	// Label is the path shown in a diff, relative to the project when possible.
+	Label string `json:"-"`
+	// Diff is a unified diff, filled only when --diff or --diff-out is set. It is
+	// kept out of the JSON manifest, which lists every generated file.
+	Diff string `json:"-"`
 }
 
 type dryRunTargetManifest struct {
@@ -35,6 +40,14 @@ type dryRunManifest struct {
 }
 
 func buildDryRunChanges(generatedRoot, intendedRoot string) ([]dryRunFileChange, error) {
+	return collectDryRunChanges(generatedRoot, intendedRoot, intendedRoot, false)
+}
+
+// collectDryRunChanges compares every file generation produced under
+// generatedRoot with the file at the same place under intendedRoot. With
+// withDiff, each created or changed file also carries a unified diff labelled
+// relative to labelRoot.
+func collectDryRunChanges(generatedRoot, intendedRoot, labelRoot string, withDiff bool) ([]dryRunFileChange, error) {
 	changes := make([]dryRunFileChange, 0)
 	info, err := os.Stat(generatedRoot)
 	if err != nil {
@@ -65,17 +78,23 @@ func buildDryRunChanges(generatedRoot, intendedRoot string) ([]dryRunFileChange,
 		}
 		dest := filepath.Join(intendedRoot, rel)
 		action := "create"
-		if existing, err := os.ReadFile(dest); err == nil {
+		existing, readErr := os.ReadFile(dest)
+		if readErr == nil {
 			if string(existing) == string(genBytes) {
 				action = "unchanged"
 			} else {
 				action = "update"
 			}
 		}
-		changes = append(changes, dryRunFileChange{
+		change := dryRunFileChange{
 			Path:   filepath.ToSlash(filepath.Clean(dest)),
 			Action: action,
-		})
+			Label:  dryRunDiffLabel(labelRoot, dest),
+		}
+		if withDiff && action != "unchanged" {
+			change.Diff = unifiedFileDiff(change.Label, existing, genBytes, readErr == nil)
+		}
+		changes = append(changes, change)
 		return nil
 	})
 	if err != nil {

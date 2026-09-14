@@ -722,12 +722,12 @@ func runBuild(args []string) error {
 			})
 
 			if output.DryRun {
-				backendChanges, err := buildDryRunChanges(backendDir, intendedBackendDir)
+				backendChanges, err := collectDryRunChanges(backendDir, intendedBackendDir, projectPath, output.DryRunDiff)
 				if err != nil {
 					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "collect dry-run backend changes", err)
 					return
 				}
-				frontendChanges, err := buildDryRunChanges(frontendDir, intendedFrontendDir)
+				frontendChanges, err := collectDryRunChanges(frontendDir, intendedFrontendDir, projectPath, output.DryRunDiff)
 				if err != nil {
 					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "collect dry-run frontend changes", err)
 					return
@@ -865,6 +865,21 @@ func runBuild(args []string) error {
 					return
 				}
 			}
+			diffsPrinted := false
+			if output.DryRunDiff {
+				diffs := dryRunDiffs(dryManifest)
+				if output.DryRunDiffOut != "" {
+					if err := writeDryRunDiffs(output.DryRunDiffOut, diffs); err != nil {
+						printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterOptions, "write dry-run diffs", err)
+						return
+					}
+					fmt.Fprintf(os.Stderr, "Wrote %d diff(s) to %s\n", len(diffs), output.DryRunDiffOut)
+				} else if !output.Check {
+					// With --check the diffs are printed after the failure list below.
+					printDryRunDiffs(os.Stdout, diffs)
+					diffsPrinted = true
+				}
+			}
 			if output.Check {
 				differences := dryRunDifferences(dryManifest, projectPath)
 				if len(differences) > 0 {
@@ -877,6 +892,10 @@ func runBuild(args []string) error {
 						fmt.Fprintf(os.Stderr, "  %s %s\n", marker, difference.Path)
 					}
 					fmt.Fprintln(os.Stderr, "Run ang build and commit the result.")
+					if output.DryRunDiff && output.DryRunDiffOut == "" {
+						fmt.Fprintln(os.Stderr)
+						printDryRunDiffs(os.Stderr, dryRunDiffs(dryManifest))
+					}
 					if jsonLogs {
 						logEvent(buildEvent{
 							Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
@@ -898,7 +917,9 @@ func runBuild(args []string) error {
 				}
 				return true
 			}
-			printDryRunManifest(dryManifest)
+			if !diffsPrinted {
+				printDryRunManifest(dryManifest)
+			}
 			logText("\nBuild DRY-RUN SUCCESSFUL.")
 			if jsonLogs {
 				logEvent(buildEvent{

@@ -42,6 +42,8 @@ type OutputOptions struct {
 	AcceptContract      bool
 	AllowLockMismatch   bool
 	Check               bool
+	DryRunDiff          bool
+	DryRunDiffOut       string
 	ExpertMode          string
 	ExpertBaseURL       string
 	ExpertPackIDs       []string
@@ -73,6 +75,8 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 	acceptContract := fs.Bool("accept-contract", false, "accept breaking OpenAPI operation removals")
 	allowLockMismatch := fs.Bool("allow-lock-mismatch", false, "generate even if this binary is not the ang revision pinned in the project's ang.lock")
 	check := fs.Bool("check", false, "write nothing; exit non-zero if generation would create or change any file in the project (implies --dry-run; files the generator no longer emits are not reported)")
+	diff := fs.Bool("diff", false, "with --dry-run or --check: print a unified diff of every generated file that would be created or changed")
+	diffOut := fs.String("diff-out", "", "with --dry-run or --check: write each diff to <dir>/<path>.patch instead of printing it (implies --diff)")
 	dryRunRoot := fs.String("dry-run-root", "", "internal: override dry-run temp root")
 	dryRunReport := fs.String("dry-run-report", "", "internal: write dry-run manifest json to path")
 	expertMode := fs.String("expert-mode", "off", "Expert integration mode: off|shadow|advise|gate")
@@ -126,12 +130,20 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 		AcceptContract:      *acceptContract,
 		AllowLockMismatch:   *allowLockMismatch,
 		Check:               *check,
+		DryRunDiff:          *diff,
+		DryRunDiffOut:       strings.TrimSpace(*diffOut),
 		ExpertMode:          strings.ToLower(strings.TrimSpace(*expertMode)),
 		ExpertBaseURL:       strings.TrimSpace(*expertBaseURL),
 		ExpertPackIDs:       append([]string(nil), expertPackIDs...),
 	}
 	if opts.Check {
 		opts.DryRun = true
+	}
+	if opts.DryRunDiffOut != "" {
+		opts.DryRunDiff = true
+	}
+	if opts.DryRunDiff && !opts.DryRun {
+		return OutputOptions{}, fmt.Errorf("--diff and --diff-out show what a dry run would change; add --dry-run or --check")
 	}
 	if err := validateExpertBuildOptions(opts); err != nil {
 		return OutputOptions{}, err
