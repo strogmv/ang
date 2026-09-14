@@ -22,6 +22,9 @@ import (
 
 var (
 	reSelectorID = regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9]*)Id\b`)
+	// reLoggerSelector matches the identifier l used as a logger, not the
+	// last letter of html., url. or model.
+	reLoggerSelector = regexp.MustCompile(`\bl\.`)
 
 	logicCallImportHints = []struct {
 		needle string
@@ -849,8 +852,12 @@ func cleanImplCode(code, outputName string) string {
 		}
 		// Generic selector normalization for common Go initialisms.
 		// Example: req.UserId -> req.UserID, item.CompanyId -> item.CompanyID.
-		line = reSelectorID.ReplaceAllString(line, ".$1ID")
-		line = strings.ReplaceAll(line, "l.", "slog.")
+		// ${1}, not $1: Go reads "$1ID" as the group named "1ID", which is
+		// empty, and req.UserId became "req.".
+		line = reSelectorID.ReplaceAllString(line, ".${1}ID")
+		// A logger named l becomes slog; only the identifier itself, so
+		// html.EscapeString and url.Parse stay intact.
+		line = reLoggerSelector.ReplaceAllString(line, "slog.")
 		filtered = append(filtered, line)
 	}
 	return strings.Join(filtered, "\n")

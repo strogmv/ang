@@ -964,6 +964,12 @@ P3.1), затем правка одной строки `impl_tender_get.cue` →
    идентификатора `l` (`\bl\.`). Тест: `html.EscapeString`, `url.Parse`,
    `model.Name` переживают `cleanImplCode`, `l.Info` по-прежнему становится
    `slog.Info`. `--check` на dealingi-back остаётся чистым.
+   > **Сделано 2026-09-15.** Баг был живым: на dealingi-back он портил 6
+   > файлов — действия аудита `company.address.additionaslog.created`,
+   > `company.address.postaslog.same_as_legaslog.updated` и UID набора фильтров
+   > поиска `catalog.generaslog.filters` (задумано `catalog.general.filters`).
+   > Тест поймал и соседний баг: `.$1ID` в Go читается как группа `1ID`, и
+   > `req.UserId` превращался в `req.`; исправлено на `.${1}ID`.
 2. `s.txManager` в Go-блоке без `tx.Block` в сервисе → сейчас падает `go build`
    («`s.txManager undefined`»), потому что поле инжектится только если
    `serviceImplNeedsTx` (`service_impl_ast.go:387`) находит `tx.Block`. Диагностика
