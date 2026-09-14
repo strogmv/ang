@@ -26,6 +26,12 @@ func runContractTest() {
 
 func runVet(args []string) {
 	if len(args) > 0 && args[0] == "logic" {
+		for _, arg := range args[1:] {
+			if arg == "--types" || arg == "-types" || strings.HasPrefix(arg, "--types=") {
+				runLogicVetTypes(args[1:])
+				return
+			}
+		}
 		runLogicVet()
 		return
 	}

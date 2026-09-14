@@ -146,7 +146,7 @@ func printUsage() {
 	fmt.Println("  ang contract-test  Run generated HTTP/WS contract tests")
 	fmt.Println("  ang test gen   Generate flow-derived test cases from CUE")
 	fmt.Println("  ang vet       Check architectural invariants and laws")
-	fmt.Println("  ang vet logic  Audit embedded Go snippets for syntax errors")
+	fmt.Println("  ang vet logic  Audit embedded Go snippets for syntax errors (--types: compile them, errors at CUE lines)")
 	fmt.Println("  ang rbac actions  List all registered RBAC actions (service.method)")
 	fmt.Println("  ang rbac inspect  Audit RBAC policies for holes and errors")
 	fmt.Println("  ang events map    Visualize end-to-end event journey (Pub/Sub)")

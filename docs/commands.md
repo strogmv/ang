@@ -253,6 +253,29 @@ Architecture invariants check.
 
 Validate embedded Go snippets in CUE.
 
+```bash
+ang vet logic                      # syntax only
+ang vet logic --types              # generate into a temp dir and compile
+ang vet logic --types --json
+ang vet logic --types --packages ./internal/service/...,./cmd/server
+```
+
+`--types` generates the project as a dry run, compiles the generated Go with
+`go build -overlay` (the project on disk is not touched; unchanged packages come
+from the build cache) and prints each compiler error at the CUE line the Go was
+written on, followed by the generated location:
+
+```
+cue/api/impl_tender_get.cue:46:41: s.TenderProductRepo.ListByTenderNope undefined (…)
+    generated: internal/service/tender__get_tender.gen.go:71:37
+```
+
+Generated files do not record source lines, so the CUE line is found by its
+text (and its neighbours). When the error is in generated scaffolding, or CUE
+escapes changed the text, the generated location is printed with the CUE files
+the file was generated from. `--packages` defaults to `./internal/service/...`;
+`--target` and `--allow-lock-mismatch` work as in `ang build`.
+
 ### `ang rbac`
 
 RBAC introspection.
