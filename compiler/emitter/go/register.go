@@ -85,6 +85,7 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 	registry.Register(generator.Step{Name: "Mongo Repos", Requires: goOnly, Run: func() error { return in.Em.EmitMongoRepoFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "Mongo Common", Requires: goOnly, Run: func() error { return in.Em.EmitMongoCommonFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "SQL Schema", Requires: goSQL, Run: func() error { return in.Em.EmitSQLFromIR(in.IRSchema) }})
+	registry.Register(generator.Step{Name: "Conventions Doc", Requires: goOnly, Run: func() error { return in.Em.EmitConventionsDoc(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "Infra Configs", Requires: goOnly, Run: func() error { return in.Em.EmitInfraConfigs() }})
 	registry.Register(generator.Step{Name: "Effect Middleware", Requires: goOnly, Run: func() error {
 		return in.Em.EmitEffectMiddleware(in.Ctx)

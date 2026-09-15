@@ -37,8 +37,27 @@ func runExplain(args []string) {
 	}
 
 	if len(positional) == 0 {
-		fmt.Println("Usage: ang explain <CODE|error-json|path-to-json> [--json]")
+		fmt.Println("Usage: ang explain <CODE|error-json|path-to-json> [--json]\n       ang explain action <name> [--json]")
 		os.Exit(1)
+	}
+	if positional[0] == "action" {
+		if len(positional) < 2 {
+			fmt.Println("Usage: ang explain action <name> [--json]")
+			os.Exit(1)
+		}
+		entry, ok := explainAction(positional[1])
+		if !ok {
+			fmt.Printf("Explain FAILED: unknown action %q (see ang actions)\n", positional[1])
+			os.Exit(1)
+		}
+		if jsonOut {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			_ = enc.Encode(entry)
+			return
+		}
+		fmt.Print(renderActionExplanation(entry))
+		return
 	}
 
 	rawInput := strings.TrimSpace(positional[0])
@@ -93,4 +112,31 @@ func runExplain(args []string) {
 			fmt.Println()
 		}
 	}
+}
+
+// explainAction returns the catalog entry of one action, the same as in
+// ang actions --json.
+func explainAction(name string) (documentedActionEntry, bool) {
+	for _, entry := range documentedActionCatalog(mergedActionCatalog()) {
+		if entry.Name == name {
+			return entry, true
+		}
+	}
+	return documentedActionEntry{}, false
+}
+
+func renderActionExplanation(entry documentedActionEntry) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s — %s\n", entry.Name, entry.Description)
+	for _, arg := range entry.Args {
+		required := ""
+		if arg.Required {
+			required = " (required)"
+		}
+		fmt.Fprintf(&b, "  %s: %s%s\n", arg.Name, arg.Type, required)
+	}
+	if entry.Example != "" {
+		fmt.Fprintf(&b, "Example:\n  %s\n", entry.Example)
+	}
+	return b.String()
 }

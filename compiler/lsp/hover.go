@@ -53,10 +53,10 @@ func HoverForSource(text string, pos Position) (*Hover, bool) {
 	if len(entry.NestedKeys) > 0 {
 		parts = append(parts, "Nested blocks: `"+strings.Join(entry.NestedKeys, "`, `")+"`")
 	}
-	if entry.Example != "" {
+	if example := actionExample(entry); example != "" {
 		parts = append(parts, "Example:")
 		parts = append(parts, "```cue")
-		parts = append(parts, entry.Example)
+		parts = append(parts, example)
 		parts = append(parts, "```")
 	}
 	return &Hover{
@@ -72,4 +72,13 @@ func catalogEntry(name string) (flowsem.ActionCatalogEntry, bool) {
 		}
 	}
 	return flowsem.ActionCatalogEntry{}, false
+}
+
+// actionExample prefers the Typed Flow IR example, a real step checked to
+// decode, over the placeholder form the semantic catalog builds.
+func actionExample(entry flowsem.ActionCatalogEntry) string {
+	if example, ok := flowir.ExampleCUE(entry.Name); ok {
+		return example
+	}
+	return entry.Example
 }

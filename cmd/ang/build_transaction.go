@@ -874,7 +874,7 @@ func copyTransactionFile(src, dst string, mode os.FileMode) error {
 func generatedTransactionPaths(projectPath, mode string, backendDirs, frontendDirs []string) []string {
 	projectAbs, _ := filepath.Abs(projectPath)
 	paths := make([]string, 0, len(backendDirs)+len(frontendDirs)+12)
-	for _, rel := range []string{"cmd/server", "internal", "api", "db", "deploy", "sdk", "scripts", "tests", ".ang/cache", ".env.example", "ang-manifest.json", "atlas.hcl", "sqlc.yaml"} {
+	for _, rel := range []string{"cmd/server", "internal", "api", "db", "deploy", "sdk", "scripts", "tests", "docs/ang", ".ang/cache", ".env.example", "ang-manifest.json", "atlas.hcl", "sqlc.yaml"} {
 		paths = append(paths, filepath.Join(projectAbs, rel))
 	}
 	for _, backend := range backendDirs {

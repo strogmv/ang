@@ -311,6 +311,15 @@ Output schema (`--json`):
 - `items[].hint`
 - `items[].doc_anchor`
 
+### `ang explain action <name>`
+
+One action from the catalog: description, arguments and an example step.
+
+```bash
+ang explain action repo.Query
+ang explain action repo.Query --json
+```
+
 ### `ang actions`
 
 Machine-readable flow action catalog (source-of-truth from `flowsem`).
@@ -319,6 +328,11 @@ Machine-readable flow action catalog (source-of-truth from `flowsem`).
 ang actions --json
 ang actions --cue
 ```
+
+`example` is a real CUE step for every action known to Typed Flow IR, taken from
+`compiler/flowir/examples.go`; a test decodes each one with the action's own
+decoder, so an example always matches what the compiler accepts. Editor hover
+shows the same example.
 
 ### `ang draw`
 

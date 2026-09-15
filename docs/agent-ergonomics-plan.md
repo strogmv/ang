@@ -1078,10 +1078,21 @@ P3.1), затем правка одной строки `impl_tender_get.cue` →
    `serviceImplNeedsTx` (`service_impl_ast.go:387`) находит `tx.Block`. Диагностика
    `E_TX_MANAGER_NOT_INJECTED` с подсказкой «оберните шаг в
    `{ action: "tx.Block", do: […] }`» — при рендере, по тексту блоков.
+   > **Сделано (2026-09-15).** Для шагов flow уже было: `flowStepUsesTxManager`
+   > инжектит поле, если в `func`/`code` шага есть `s.txManager` (f74d6af). Дыра
+   > оставалась в блоке `impl: code:` метода — он смотрел только на `tx: true`.
+   > ANG `cab7b02`: `implNeedsTx`/`irImplNeedsTx` видят `s.txManager` и там.
+   > Диагностика не понадобилась — поле просто инжектится. dealingi-back не
+   > изменился (`--check`: 2094 файла совпадают).
 3. Составные уникальные индексы из блока `indexes:` домена не попадают в
    `db/schema/schema.sql` (замечено 2026-06-27 на `ProductBalance`, `Chat`).
    Сначала воспроизвести тестом; потом либо эмитировать, либо предупреждать
    `W_INDEX_NOT_EMITTED`. Молчать нельзя.
+   > **Проверено (2026-09-15): уже исправлено** в ANG 24c91c7 — `sql_schema.go`
+   > выводит `entity.Indexes` как `CREATE [UNIQUE] INDEX uidx_<таблица>_<колонки>`,
+   > неизвестное поле или индекс без полей роняют сборку. В `schema.sql`
+   > dealingi-back 55 уникальных составных индексов, среди них `chatparticipants
+   > (chatid, userid)`. Заметка в памяти агента была устаревшей.
 4. Правила именования, которые нельзя менять, но нужно знать, — в
    **генерируемый** документ `docs/ang/conventions.md` (в транзакции сборки, как
    любой артефакт), собранный из кода, а не написанный руками: таблица —
@@ -1093,6 +1104,14 @@ P3.1), затем правка одной строки `impl_tender_get.cue` →
    пока блок не переведён в сырую строку (P5.1) — `\\n` вместо `\n` внутри
    `"""`. Шаблон `AGENTS.md` в `ang init`
    должен ссылаться на этот файл.
+   > **Сделано (2026-09-15).** Шаг сборки `Conventions Doc` пишет
+   > `docs/ang/conventions.md` (путь `docs/ang` добавлен во владение транзакции
+   > сборки): правила (таблицы `<entity>s`, имена типов элементов массивов,
+   > delete-finder `(int64, error)`, `body` → сырое тело, Go в сырых строках) и
+   > таблицы из IR — сущности → таблицы (как `EmitSQL`), поля-массивы операций →
+   > типы `port.*`, delete-finders. На dealingi-back — 330 строк, есть `countrys`,
+   > `BulkStockReceiveRequestLinesItem`, `AuditLogRepository.DeleteOlderThan`.
+   > Шаблона `AGENTS.md` в `ang init` нет — ссылаться пока неоткуда.
 5. Каталог действий: добавить `Example` в `flowir.ActionSpec` и **тест, что каждый
    пример декодируется собственным `Decode`** — тогда пример не может быть
    неверным. Примеры брать из матричных тестов
@@ -1100,6 +1119,15 @@ P3.1), затем правка одной строки `impl_tender_get.cue` →
    --json` печатает их вместо заглушек `<expr>`; `ang explain action repo.Query` —
    тот же ответ для одного действия. Это правка и в `ang-ir` (поле в каталоге), и
    здесь.
+   > **Сделано (2026-09-15).** `compiler/flowir/examples.go` — пример для каждого из
+   > 244 действий: 27 из `cue/GOLDEN_EXAMPLES.cue`, 127 из тестов, 69 из
+   > `cue/GOLDEN_ACTIONS_REFERENCE.cue`, 21 написан по декодерам (у справочного
+   > файла многие шаги не декодируются: `db.*` без `source`, `ratelimit.Check` без
+   > `rps` — он сгенерирован из заглушек). `TestActionExamplesDecode` декодирует
+   > каждый собственным `Decode`. `ang actions` печатает их вместо `<expr>`
+   > (осталось 0 заглушек), `ang explain action <name>` — одно действие, hover
+   > в LSP — тот же пример. Примеры живут в ANG (flowir), не в ang-ir: там только
+   > каталог семантики.
 
 **Приёмка.** Тест на каждый пункт. На dealingi-back: `ang actions --json | jq
 '.[]|select(.name=="repo.Query").example'` совпадает по форме с реальным

@@ -78,13 +78,18 @@ func mergedActionCatalogFrom(catalog []flowsem.ActionCatalogEntry) []flowsem.Act
 		for _, arg := range typed.Args {
 			args = append(args, flowsem.ActionArg{Name: arg.Name, Type: string(arg.Kind), Required: arg.Required})
 		}
+		// A real step that decodes (flowir tests check it) instead of placeholders.
+		example, hasExample := flowir.ExampleCUE(typed.Name)
 		if position, ok := index[typed.Name]; ok {
 			catalog[position].Description = typed.Description
 			catalog[position].Args = args
 			catalog[position].KnownBy = "typed-flowir"
+			if hasExample {
+				catalog[position].Example = example
+			}
 			continue
 		}
-		catalog = append(catalog, flowsem.ActionCatalogEntry{Name: typed.Name, Description: typed.Description, Args: args, KnownBy: "typed-flowir"})
+		catalog = append(catalog, flowsem.ActionCatalogEntry{Name: typed.Name, Description: typed.Description, Args: args, Example: example, KnownBy: "typed-flowir"})
 	}
 	sort.Slice(catalog, func(i, j int) bool { return catalog[i].Name < catalog[j].Name })
 	return catalog
