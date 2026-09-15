@@ -27,6 +27,14 @@ const (
 	CapabilityUsesRefreshStoreMemory Capability = "uses_refresh_store_memory"
 	CapabilityUsesRefreshStorePG     Capability = "uses_refresh_store_postgres"
 	CapabilityUsesRefreshStoreHybrid Capability = "uses_refresh_store_hybrid"
+	// Nothing in the generated runtime consumes these outputs today, so no
+	// project is granted them; the steps stay available for when one does.
+	CapabilityUsesDTO         Capability = "uses_dto"
+	CapabilityUsesRepoStubs   Capability = "uses_repo_stubs"
+	CapabilityUsesDIContainer Capability = "uses_di_container"
+	CapabilityUsesAIAct       Capability = "uses_ai_act"
+	CapabilityUsesNIS2        Capability = "uses_nis2"
+	CapabilityUsesSQLC        Capability = "uses_sqlc"
 
 	// Profile capabilities are explicit backend generation profiles.
 	CapabilityProfileGoLegacy      Capability = "profile_go_legacy"
