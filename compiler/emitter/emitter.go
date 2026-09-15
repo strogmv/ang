@@ -46,7 +46,10 @@ type Emitter struct {
 	SourceBackendDir string
 	// ServiceImplWorkers bounds how many service method files are rendered at
 	// once; 0 means one per CPU.
-	ServiceImplWorkers       int
+	ServiceImplWorkers int
+	// FrontendSDKSkip names frontend SDK modules the project does not use
+	// (target.frontend_sdk_skip); see frontendSDKModules.
+	FrontendSDKSkip          []string
 	FrontendDir              string
 	FrontendAdminDir         string
 	TemplatesDir             string // Путь к папке с шаблонами

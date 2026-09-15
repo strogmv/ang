@@ -54,6 +54,18 @@ func (e *Emitter) EmitConventionsDoc(schema *ir.Schema) error {
 		b.WriteString("\n")
 	}
 
+	b.WriteString("## Frontend SDK modules\n\n")
+	b.WriteString("Optional parts of the generated SDK. A module listed in `frontend_sdk_skip` of the target (cue/project) is not generated; remove it from the list to get it back.\n\n")
+	b.WriteString("| Module | Status | What it is |\n|---|---|---|\n")
+	for _, m := range frontendSDKModules {
+		status := "generated"
+		if !e.sdkModuleEnabled(m.Name) {
+			status = "skipped"
+		}
+		fmt.Fprintf(&b, "| `%s` | %s | %s |\n", m.Name, status, m.Description)
+	}
+	b.WriteString("\n")
+
 	b.WriteString("## Delete finders\n\n")
 	deletes := conventionDeleteFinders(schema.Repos)
 	if len(deletes) == 0 {

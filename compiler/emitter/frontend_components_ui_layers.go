@@ -11,9 +11,9 @@ func (e *Emitter) emitBaseUIFormsProxyLayer() error {
 		return nil
 	}
 
-	paths := []string{
-		filepath.Join(e.FrontendDir, "components", "ui", "forms"),
-		filepath.Join(e.FrontendDir, "@ui", "forms"),
+	paths := []string{filepath.Join(e.FrontendDir, "components", "ui", "forms")}
+	if e.sdkModuleEnabled("ui-forms-alias") {
+		paths = append(paths, filepath.Join(e.FrontendDir, "@ui", "forms"))
 	}
 
 	const indexTSX = `import type { ComponentType, FormEventHandler, ReactNode } from 'react';

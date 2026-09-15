@@ -9,13 +9,17 @@ export * from './endpoints';
 export * from './error-normalizer';
 export * from './forms';
 export * from './hooks';
+{{- if SDKModuleEnabled "prefetch" }}
 export * from './prefetch';
+{{- end }}
 export * from './providers';
 export * from './queries';
 export * from './query-keys';
 export * from './query-options';
 export * from './rbac';
+{{- if SDKModuleEnabled "routes" }}
 export * from './routes';
+{{- end }}
 export * from './schemas';
 export * from './stores';
 export * from './token-refresh';

@@ -538,6 +538,7 @@ func runBuild(args []string) error {
 				em.NatsPublishRetryDelayMS = 100
 			}
 			em.FrontendAdminDir = output.FrontendAdminDir
+			em.FrontendSDKSkip = td.FrontendSDKSkip
 			if projectDef != nil && strings.TrimSpace(projectDef.UIProvider) != "" {
 				em.UIProviderPath = strings.TrimSpace(projectDef.UIProvider)
 			}

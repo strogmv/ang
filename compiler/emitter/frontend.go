@@ -1198,6 +1198,8 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 
 	authCfg := normalizer.InfraAuth(e.InfraValues)
 	funcMap := template.FuncMap{
+		// SDKModuleEnabled: the module is not in target.frontend_sdk_skip.
+		"SDKModuleEnabled": e.sdkModuleEnabled,
 		// TSString emits a complete, quoted TypeScript string literal. Endpoint
 		// descriptions are user-authored CUE text and may contain apostrophes,
 		// quotes or line breaks, so templates must never interpolate them inside
@@ -1768,10 +1770,19 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		{"cookie-banner", "cookie-banner.tsx"},
 	}
 
+	if err := e.ValidateFrontendSDKSkip(); err != nil {
+		return err
+	}
 	for _, f := range files {
+		if module := sdkModuleOfTemplate(f.tmpl); module != "" && !e.sdkModuleEnabled(module) {
+			continue
+		}
 		if err := e.emitFrontendFile(f.tmpl, ctx, funcMap, f.out); err != nil {
 			return err
 		}
+	}
+	if err := e.removeSkippedSDKModules(); err != nil {
+		return err
 	}
 
 	for _, module := range ctx.EndpointModules {

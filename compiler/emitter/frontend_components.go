@@ -343,6 +343,9 @@ func (e *Emitter) EmitFrontendComponents(services []ir.Service, endpoints []ir.E
 
 // EmitCRUDPages generates full pages (List, Create, Edit) for CRUD-enabled entities.
 func (e *Emitter) EmitCRUDPages(entities []normalizer.Entity) error {
+	if !e.sdkModuleEnabled("pages") {
+		return nil
+	}
 	pagesDir := filepath.Join(e.FrontendDir, "pages")
 	if err := os.MkdirAll(pagesDir, 0755); err != nil {
 		return err
