@@ -524,6 +524,7 @@ func runBuild(args []string) error {
 			}
 
 			em := emitter.New(backendDir, frontendDir, tmplDir)
+			em.SourceBackendDir = intendedBackendDir
 			em.NatsWorkers = td.NatsWorkers
 			if em.NatsWorkers <= 0 {
 				em.NatsWorkers = 20

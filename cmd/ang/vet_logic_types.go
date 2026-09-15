@@ -34,9 +34,9 @@ import (
 
 type typeCheckError struct {
 	Message         string   `json:"message"`
-	GeneratedFile   string   `json:"generated_file"`
-	GeneratedLine   int      `json:"generated_line"`
-	GeneratedColumn int      `json:"generated_column"`
+	GeneratedFile   string   `json:"generated_file,omitempty"`
+	GeneratedLine   int      `json:"generated_line,omitempty"`
+	GeneratedColumn int      `json:"generated_column,omitempty"`
 	CUEFile         string   `json:"cue_file,omitempty"`
 	CUELine         int      `json:"cue_line,omitempty"`
 	CUEColumn       int      `json:"cue_column,omitempty"`
@@ -118,6 +118,10 @@ func printTypeCheckReport(report typeCheckReport) {
 				fmt.Printf("    from: %s (no matching CUE line)\n", strings.Join(e.From, ", "))
 			}
 		default:
+			if e.GeneratedFile == "" {
+				fmt.Printf("%s: %s\n", cueLocation(e), e.Message)
+				continue
+			}
 			fmt.Printf("%s:%d:%d: %s\n", e.CUEFile, e.CUELine, e.CUEColumn, e.Message)
 			note := ""
 			if e.Match == typeCheckMatchAmbiguous {
@@ -135,6 +139,26 @@ func printTypeCheckReport(report typeCheckReport) {
 		return
 	}
 	fmt.Printf("Type check FAILED: %d error(s) (%s)\n", len(report.Errors), timing)
+}
+
+// overlayRoots returns the directories an overlay maps onto each other: the
+// dry-run tree the generated files come from and the project they replace.
+func overlayRoots(replace map[string]string) (generated, project string) {
+	for projectFile, generatedFile := range replace {
+		p, g := filepath.Clean(projectFile), filepath.Clean(generatedFile)
+		for filepath.Base(p) == filepath.Base(g) && filepath.Dir(p) != p && filepath.Dir(g) != g {
+			p, g = filepath.Dir(p), filepath.Dir(g)
+		}
+		return g, p
+	}
+	return "", ""
+}
+
+func cueLocation(e typeCheckError) string {
+	if e.CUEColumn > 0 {
+		return fmt.Sprintf("%s:%d:%d", e.CUEFile, e.CUELine, e.CUEColumn)
+	}
+	return fmt.Sprintf("%s:%d", e.CUEFile, e.CUELine)
 }
 
 func typeCheckEmbeddedGo(projectPath string, patterns []string, target string, allowLockMismatch bool) (typeCheckReport, error) {
@@ -214,9 +238,12 @@ func typeCheckEmbeddedGo(projectPath string, patterns []string, target string, a
 		if buildErr != nil && len(errs) == 0 {
 			return report, fmt.Errorf("go build failed in %s:\n%s", backend, strings.TrimSpace(output))
 		}
+		// Code without //line directives (impl code blocks) is still found by text.
 		locator := newCUELineLocator(projectPath, cueRoot)
 		for i := range errs {
-			locator.locate(&errs[i])
+			if errs[i].Match == typeCheckMatchNone {
+				locator.locate(&errs[i])
+			}
 		}
 		report.Errors = append(report.Errors, errs...)
 		report.Notes = append(report.Notes, notes...)
@@ -316,7 +343,9 @@ func goBuildOutputFlag(dir, overlayPath string, patterns []string, binDir string
 	return "", nil
 }
 
-var reGoCompilerError = regexp.MustCompile(`^(.+?\.go):([0-9]+):([0-9]+):\s*(.+)$`)
+// Errors in flow steps come with the CUE position already: generated service
+// code carries //line directives. A directive without a column gives none.
+var reGoCompilerError = regexp.MustCompile(`^(.+?\.(?:go|cue)):([0-9]+):(?:([0-9]+):)?\s*(.+)$`)
 
 // parseTypeCheckOutput turns compiler output into errors named by their place
 // in the project; the dry-run copy is kept to read the generated line from.
@@ -327,6 +356,7 @@ func parseTypeCheckOutput(output, dir string, replace map[string]string) ([]type
 	for projectFile, generatedFile := range replace {
 		reverse[filepath.Clean(generatedFile)] = projectFile
 	}
+	generatedRoot, projectRoot := overlayRoots(replace)
 	var errs []typeCheckError
 	var notes []string
 	for _, line := range strings.Split(output, "\n") {
@@ -354,6 +384,25 @@ func parseTypeCheckOutput(output, dir string, replace map[string]string) ([]type
 		}
 		lineNo, _ := strconv.Atoi(m[2])
 		col, _ := strconv.Atoi(m[3])
+		if strings.HasSuffix(path, ".cue") {
+			// Go resolves a //line path against the file it compiled, which for
+			// an overlay is the dry-run copy; the CUE file is in the project.
+			if rest, ok := strings.CutPrefix(path, generatedRoot+string(filepath.Separator)); ok && generatedRoot != "" {
+				path = filepath.Join(projectRoot, rest)
+				display = path
+				if rel, err := filepath.Rel(dir, path); err == nil && !strings.HasPrefix(rel, "..") {
+					display = rel
+				}
+			}
+			errs = append(errs, typeCheckError{
+				Message:   strings.TrimSpace(m[4]),
+				CUEFile:   filepath.ToSlash(display),
+				CUELine:   lineNo,
+				CUEColumn: col,
+				Match:     typeCheckMatchExact,
+			})
+			continue
+		}
 		errs = append(errs, typeCheckError{
 			Message:         strings.TrimSpace(m[4]),
 			GeneratedFile:   filepath.ToSlash(display),

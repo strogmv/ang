@@ -559,12 +559,28 @@ func irFlowStepsToNormalizer(irSteps []ir.FlowStep) []normalizer.FlowStep {
 			args["_cases"] = cases
 		}
 		result = append(result, normalizer.FlowStep{
-			Action: step.Action,
-			Params: step.Params,
-			Args:   args,
+			Action:  step.Action,
+			Params:  step.Params,
+			Args:    args,
+			File:    step.File,
+			Line:    step.Line,
+			Column:  step.Column,
+			CUEPath: step.CUEPath,
+			ArgText: irTextPositionsToNormalizer(step.ArgText),
 		})
 	}
 	return result
+}
+
+func irTextPositionsToNormalizer(source map[string]ir.TextPos) map[string]normalizer.TextPos {
+	if len(source) == 0 {
+		return nil
+	}
+	out := make(map[string]normalizer.TextPos, len(source))
+	for name, pos := range source {
+		out[name] = normalizer.TextPos{File: pos.File, Line: pos.Line}
+	}
+	return out
 }
 
 // IREndpointsToNormalizer converts IR endpoints.

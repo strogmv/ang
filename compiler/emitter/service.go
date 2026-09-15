@@ -670,6 +670,7 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 				return err
 			}
 			methodPath := filepath.Join(targetDir, methodFile)
+			methodFormatted = finalizeLineDirectives(methodFormatted, e.sourceBackendPath("internal", "service", methodFile))
 			if err := writeFileAtomic(methodPath, methodFormatted, 0644); err != nil {
 				return err
 			}

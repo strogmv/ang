@@ -37,9 +37,13 @@ type MissingImpl struct {
 }
 
 type Emitter struct {
-	IRSchema                 *ir.Schema
-	WarningSink              func(normalizer.Warning)
-	OutputDir                string
+	IRSchema    *ir.Schema
+	WarningSink func(normalizer.Warning)
+	OutputDir   string
+	// SourceBackendDir is where the backend lives in the project, when output
+	// goes to a staging or dry-run directory; //line paths to CUE are relative
+	// to it, so they hold once the files are in place. Empty means OutputDir.
+	SourceBackendDir         string
 	FrontendDir              string
 	FrontendAdminDir         string
 	TemplatesDir             string // Путь к папке с шаблонами

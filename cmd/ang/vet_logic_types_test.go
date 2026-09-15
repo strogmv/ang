@@ -88,3 +88,31 @@ func TestGoBuildWithOverlayReportsProjectPaths(t *testing.T) {
 		t.Fatal("the project file must not change")
 	}
 }
+
+// Generated flow code carries //line directives: the compiler already names the
+// CUE line, and the report keeps it without looking for text.
+func TestParseTypeCheckOutputTakesCUEPositionsFromLineDirectives(t *testing.T) {
+	project := t.TempDir()
+	writeTestFile(t, filepath.Join(project, "go.mod"), "module example.com/linecheck\n\ngo 1.22\n")
+	writeTestFile(t, filepath.Join(project, "internal", "service", "thing.gen.go"), "package service\n\nfunc Thing() int { return 1 }\n")
+
+	generatedRoot := t.TempDir()
+	writeTestFile(t, filepath.Join(generatedRoot, "internal", "service", "thing.gen.go"),
+		"package service\n\nfunc Thing() int {\n//line ../../cue/api/impl_thing.cue:40\n\treturn missingHelper()\n//line thing.gen.go:6\n}\n")
+	replace, err := generatedGoOverlay(generatedRoot, project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, buildErr := goBuildWithOverlay(project, replace, []string{"./internal/service/..."}, t.TempDir())
+	if buildErr == nil {
+		t.Fatalf("the overlay file does not compile; go build succeeded:\n%s", output)
+	}
+	errs, _ := parseTypeCheckOutput(output, project, replace)
+	if len(errs) != 1 {
+		t.Fatalf("errors = %+v\noutput:\n%s", errs, output)
+	}
+	e := errs[0]
+	if e.CUEFile != "cue/api/impl_thing.cue" || e.CUELine != 40 || e.Match != typeCheckMatchExact || e.GeneratedFile != "" || !strings.Contains(e.Message, "missingHelper") {
+		t.Fatalf("error = %+v\noutput:\n%s", e, output)
+	}
+}

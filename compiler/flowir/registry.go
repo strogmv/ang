@@ -61,7 +61,7 @@ func (a ScalarArg) Source() string {
 }
 
 func SourceOf(step normalizer.FlowStep) Source {
-	return Source{File: step.File, Line: step.Line, Column: step.Column, CUEPath: step.CUEPath}
+	return Source{File: step.File, Line: step.Line, Column: step.Column, CUEPath: step.CUEPath, ArgText: step.ArgText}
 }
 
 var nestedStepKeys = []string{"_do", "_ifNew", "_ifExists", "_then", "_else", "_default", "_catch", "_fallback", "_onTimeout", "_onMissing", "_onMismatch"}

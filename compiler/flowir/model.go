@@ -2,6 +2,8 @@ package flowir
 
 import (
 	"go/token"
+
+	"github.com/strogmv/ang-ir/normalizer"
 )
 
 type TypeKind string
@@ -192,6 +194,8 @@ type Source struct {
 	Line    int
 	Column  int
 	CUEPath string
+	// ArgText: where the text of multi-line literal string arguments starts.
+	ArgText map[string]normalizer.TextPos
 }
 
 type CallOptions struct {

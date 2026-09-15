@@ -341,9 +341,7 @@ func flowBranchNames(st *flowRenderState, fallback map[string][]normalizer.FlowS
 func renderTypedFlowSteps(st *flowRenderState, steps []flowir.TypedStep, indent int) string {
 	var b strings.Builder
 	for i, typedStep := range steps {
-		if trace := flowStepTraceComment(typedStep.Source, *st.stepN+1, indent); trace != "" {
-			b.WriteString(trace)
-		}
+		b.WriteString(flowStepLineMarker(typedStep, indent))
 		code := ""
 		if typedStep.DecodeError == nil {
 			code = renderOneTypedFlowStep(st, typedStep, indent)
@@ -616,20 +614,22 @@ func decodeCurrentActionAs[T flowir.Action](st *flowRenderState, raw normalizer.
 	return zero, fmt.Errorf("action %q decoded as %T", raw.Action, st.currentTyped.Action)
 }
 
-func flowStepTraceComment(source flowir.Source, stepIdx int, indent int) string {
-	file := strings.TrimSpace(source.File)
-	if file == "" && strings.TrimSpace(source.CUEPath) != "" {
-		file = strings.TrimSpace(source.CUEPath)
+// flowStepLineMarker marks where the code of a step starts, for
+// finalizeLineDirectives to turn into a //line directive once the file is
+// formatted. Go copied from a multi-line literal (logic.Call func) maps to the
+// literal's lines one to one; any other step maps its first line to the step.
+func flowStepLineMarker(step flowir.TypedStep, indent int) string {
+	file, line, lines := strings.TrimSpace(step.Source.File), step.Source.Line, 1
+	if text, ok := step.Source.ArgText["func"]; ok && strings.TrimSpace(text.File) != "" && text.Line > 0 {
+		if call, ok := step.Action.(flowir.LogicCall); ok {
+			file, line = strings.TrimSpace(text.File), text.Line
+			lines = strings.Count(strings.TrimSpace(call.Function.Source), "\n") + 1
+		}
 	}
-	if file == "" {
+	if file == "" || line <= 0 {
 		return ""
 	}
-	ref := filepath.ToSlash(filepath.Clean(file))
-	if source.Line > 0 {
-		ref = fmt.Sprintf("%s:%d", ref, source.Line)
-	}
-	pad := strings.Repeat("\t", indent)
-	return fmt.Sprintf("%s// Generated from: %s (flow step %d)\n", pad, ref, stepIdx)
+	return fmt.Sprintf("%s%s %s:%d %d\n", strings.Repeat("\t", indent), lineMarkerPrefix, filepath.ToSlash(filepath.Clean(file)), line, lines)
 }
 
 func returnSuccess(st *flowRenderState, pad string) string {
