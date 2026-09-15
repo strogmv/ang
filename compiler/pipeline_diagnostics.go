@@ -104,13 +104,15 @@ func emitFileSizeDiagnostics(path string, opts PipelineOptions) {
 		if err != nil {
 			continue
 		}
-		lineCount := strings.Count(string(content), "\n") + 1
+		// Embedded Go and SQL are not what makes a CUE file hard to read;
+		// only CUE lines count toward the limit.
+		lineCount, totalLines := cueLinesOutsideMultilineStrings(filePath, content)
 		if lineCount > lineLimit {
 			diag := normalizer.Warning{
 				Kind:     "file-size",
 				Code:     "LARGE_CUE_FILE",
 				Severity: "warn",
-				Message:  fmt.Sprintf("CUE file has %d lines (recommended limit: %d)", lineCount, lineLimit),
+				Message:  fmt.Sprintf("CUE file has %d lines of CUE outside multi-line strings (%d in total; recommended limit: %d)", lineCount, totalLines, lineLimit),
 				File:     filePath,
 				Line:     1,
 				Hint:     "Split into multiple files in the same directory (CUE merges files with same package automatically)",

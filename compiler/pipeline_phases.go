@@ -88,10 +88,11 @@ func runSemanticPhases(basePath string, opts PipelineOptions) (NormalizePhaseOut
 	}, opts)
 
 	broadcastOnly, planned, compatAllowBreaking := loadEventAnnotations(basePath)
-	emitEventUsageDiagnostics(normalized.Services, normalized.Events, normalized.Schedules, broadcastOnly, planned, opts)
+	emitEventUsageDiagnostics(normalized.Services, normalized.Events, normalized.Schedules, normalized.Endpoints, broadcastOnly, planned, opts)
 	emitEventContractDiagnostics(basePath, normalized.Services, normalized.Events, compatAllowBreaking, opts)
 	emitReadModelDiagnostics(normalized.Entities, normalized.Events, opts)
 	emitSharedArchDiagnostics(normalized.Entities, normalized.Services, opts)
+	emitTautologicalConditionDiagnostics(normalized.Services, opts)
 	emitCanonicalPackDiagnostics(normalized.Entities, normalized.Services, normalized.Endpoints, opts)
 	emitRawBodyDiagnostics(normalized.Services, normalized.Endpoints, opts)
 

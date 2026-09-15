@@ -99,6 +99,25 @@ func runVet(args []string) {
 		}
 	}
 
+	// Entities marked shared_arch are architecture debt: each one lets other
+	// bounded contexts reach it directly instead of through a read model or
+	// events. The build no longer repeats this list on every run.
+	if register := compiler.SharedArchRegister(entities, services); len(register) > 0 {
+		fmt.Printf("\nArchitecture debt: %d entities marked shared_arch\n", len(register))
+		for _, entry := range register {
+			ctx := entry.Context
+			if ctx == "" {
+				ctx = "?"
+			}
+			fmt.Printf("  - %s (context %s): reason: %s", entry.Entity, ctx, entry.Reason)
+			if entry.Ticket != "" {
+				fmt.Printf(" (ticket: %s)", entry.Ticket)
+			}
+			fmt.Println()
+			fmt.Printf("      reached by flow steps from: %s; by Go blocks from: %s\n", listOrNone(entry.ForeignFlowUsers), listOrNone(entry.ForeignGoUsers))
+		}
+	}
+
 	if failed {
 		fmt.Println("\nInvariants check FAILED.")
 		os.Exit(1)

@@ -13,82 +13,190 @@ import (
 )
 
 // emitEventUsageDiagnostics surfaces dead/unused events as warnings (non-fatal).
-// - dead event: defined but never published or subscribed
-// - orphan publish: published but nobody subscribes
-// - missing publisher: subscribed but no publisher exists
-func emitEventUsageDiagnostics(services []normalizer.Service, events []normalizer.EventDef, schedules []normalizer.ScheduleDef, broadcastOnly map[string]struct{}, planned map[string]struct{}, opts PipelineOptions) {
-	defined := make(map[string]struct{})
+//   - dead event: defined but never published or consumed
+//   - orphan publish: published but nothing consumes it
+//   - missing publisher: subscribed but no publisher exists
+//   - undeclared publish: a flow step publishes an event its operation does not
+//     list in publishes:, so CUE contradicts itself
+//
+// An event is published when an operation declares it in publishes:, a
+// schedule publishes it, or a flow step (event.Publish, event.Outbox,
+// event.Broadcast) emits it. It is consumed by a subscriber, by websocket
+// clients when a websocket endpoint lists it in messages:, by an
+// event.Broadcast step, or when annotations mark it BroadcastOnly. Every
+// warning carries a position: the event definition, the first publishing step
+// or the subscribing operation.
+func emitEventUsageDiagnostics(services []normalizer.Service, events []normalizer.EventDef, schedules []normalizer.ScheduleDef, endpoints []normalizer.Endpoint, broadcastOnly map[string]struct{}, planned map[string]struct{}, opts PipelineOptions) {
+	defined := make(map[string]normalizer.EventDef)
 	for _, e := range events {
-		defined[e.Name] = struct{}{}
+		defined[e.Name] = e
 	}
-	emitScheduleDiagnostics(services, defined, schedules, opts)
+	definedNames := make(map[string]struct{}, len(defined))
+	for name := range defined {
+		definedNames[name] = struct{}{}
+	}
+	emitScheduleDiagnostics(services, definedNames, schedules, opts)
 
-	published := make(map[string]struct{})
-	subscribed := make(map[string]struct{})
+	type position struct {
+		file         string
+		line, column int
+	}
+	published := map[string]position{}
+	consumed := map[string]struct{}{}
+	subscribers := map[string]position{}
+	markPublished := func(name string, at position) {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return
+		}
+		if _, ok := published[name]; !ok || published[name].file == "" {
+			published[name] = at
+		}
+	}
+	methodPosition := func(m normalizer.Method) position {
+		file, line := parseSourcePos(m.Source)
+		return position{file: file, line: line}
+	}
 
 	for _, s := range services {
-		for _, evt := range s.Publishes {
-			published[evt] = struct{}{}
+		methodsByName := make(map[string]normalizer.Method, len(s.Methods))
+		for _, m := range s.Methods {
+			methodsByName[m.Name] = m
 		}
-		for evt := range s.Subscribes {
-			subscribed[evt] = struct{}{}
+		for _, evt := range s.Publishes {
+			markPublished(evt, position{})
+		}
+		for evt, handler := range s.Subscribes {
+			consumed[evt] = struct{}{}
+			if _, ok := subscribers[evt]; !ok {
+				subscribers[evt] = methodPosition(methodsByName[handler])
+			}
 		}
 		for _, m := range s.Methods {
+			declared := make(map[string]struct{}, len(m.Publishes))
 			for _, evt := range m.Publishes {
-				published[evt] = struct{}{}
+				declared[evt] = struct{}{}
+				markPublished(evt, methodPosition(m))
 			}
+			walkFlowSteps(m.Flow, func(step normalizer.FlowStep) {
+				name, _ := step.Args["name"].(string)
+				name = strings.TrimSpace(name)
+				if name == "" {
+					return
+				}
+				at := position{file: step.File, line: step.Line, column: step.Column}
+				switch step.Action {
+				case "event.Broadcast":
+					markPublished(name, at)
+					consumed[name] = struct{}{}
+				case "event.Publish", "event.Outbox":
+					markPublished(name, at)
+					if _, ok := declared[name]; !ok {
+						recordPipelineDiagnostic(normalizer.Warning{
+							Kind:     "undeclared-publish",
+							Code:     "EVENT_PUBLISH_UNDECLARED",
+							Severity: "warn",
+							Message:  fmt.Sprintf("%s.%s publishes %s but its operation does not list it in publishes:", s.Name, m.Name, name),
+							Hint:     fmt.Sprintf(`Add "%s" to publishes: of operation %s.`, name, m.Name),
+							File:     step.File,
+							Line:     step.Line,
+							Column:   step.Column,
+							CUEPath:  step.CUEPath,
+						}, opts)
+					}
+				}
+			})
 		}
 	}
 	for _, sch := range schedules {
-		if sch.Publish != "" {
-			published[sch.Publish] = struct{}{}
+		markPublished(sch.Publish, position{})
+	}
+	for _, ep := range endpoints {
+		for _, msg := range ep.Messages {
+			consumed[strings.TrimSpace(msg)] = struct{}{}
 		}
 	}
+	for name := range broadcastOnly {
+		consumed[name] = struct{}{}
+	}
+	definitionPosition := func(name string) position {
+		file, line := parseSourcePos(defined[name].Source)
+		return position{file: file, line: line}
+	}
+	firstKnown := func(candidates ...position) position {
+		for _, p := range candidates {
+			if p.file != "" {
+				return p
+			}
+		}
+		return position{}
+	}
 
-	for name := range defined {
-		if _, okPub := published[name]; okPub {
+	for _, name := range sortedNames(definedNames) {
+		_, isPublished := published[name]
+		_, isConsumed := consumed[name]
+		_, isPlanned := planned[name]
+		if isPublished || isConsumed || isPlanned {
 			continue
 		}
-		if _, okSub := subscribed[name]; okSub {
-			continue
-		}
-		if _, ok := planned[name]; ok {
-			continue
-		}
+		at := definitionPosition(name)
 		recordPipelineDiagnostic(normalizer.Warning{
 			Kind:     "dead-event",
 			Code:     "DEAD_EVENT",
 			Severity: "warn",
-			Message:  fmt.Sprintf("Event %s is defined but never published or subscribed", name),
+			Message:  fmt.Sprintf("Event %s is defined but never published or consumed", name),
+			File:     at.file,
+			Line:     at.line,
 		}, opts)
 	}
 
+	publishedNames := make(map[string]struct{}, len(published))
 	for name := range published {
-		if _, ok := subscribed[name]; ok {
+		publishedNames[name] = struct{}{}
+	}
+	for _, name := range sortedNames(publishedNames) {
+		if _, ok := consumed[name]; ok {
 			continue
 		}
-		if _, ok := broadcastOnly[name]; ok {
-			continue
-		}
+		at := firstKnown(published[name], definitionPosition(name))
 		recordPipelineDiagnostic(normalizer.Warning{
 			Kind:     "orphan-publish",
 			Code:     "ORPHAN_PUBLISH",
 			Severity: "warn",
-			Message:  fmt.Sprintf("Event %s is published but has no subscribers", name),
+			Message:  fmt.Sprintf("Event %s is published but nothing consumes it (no subscriber, websocket message or broadcast)", name),
+			File:     at.file,
+			Line:     at.line,
+			Column:   at.column,
 		}, opts)
 	}
 
-	for name := range subscribed {
+	subscribedNames := make(map[string]struct{}, len(subscribers))
+	for name := range subscribers {
+		subscribedNames[name] = struct{}{}
+	}
+	for _, name := range sortedNames(subscribedNames) {
 		if _, ok := published[name]; ok {
 			continue
 		}
+		at := firstKnown(subscribers[name], definitionPosition(name))
 		recordPipelineDiagnostic(normalizer.Warning{
 			Kind:     "missing-publisher",
 			Code:     "MISSING_PUBLISH",
 			Severity: "warn",
 			Message:  fmt.Sprintf("Event %s is subscribed but never published", name),
+			File:     at.file,
+			Line:     at.line,
 		}, opts)
 	}
+}
+
+func sortedNames(set map[string]struct{}) []string {
+	out := make([]string, 0, len(set))
+	for name := range set {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // emitScheduleDiagnostics rejects schedules that the generated runtime would

@@ -6,143 +6,93 @@ import (
 	"github.com/strogmv/ang-ir/normalizer"
 )
 
+func collectWarnings() (*[]normalizer.Warning, PipelineOptions) {
+	var got []normalizer.Warning
+	return &got, PipelineOptions{WarningSink: func(w normalizer.Warning) { got = append(got, w) }}
+}
+
+func hasCode(warnings []normalizer.Warning, code string) bool {
+	for _, w := range warnings {
+		if w.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func companyEntity(reason string) normalizer.Entity {
+	metadata := map[string]any{"shared_arch": true}
+	if reason != "" {
+		metadata["shared_arch_reason"] = reason
+	}
+	return normalizer.Entity{Name: "Company", Owner: "company", Source: "cue/domain/company.cue:10", Metadata: metadata}
+}
+
+func findCompany(service string, step normalizer.FlowStep) normalizer.Service {
+	return normalizer.Service{Name: service, Methods: []normalizer.Method{{Name: "GetCompany", Flow: []normalizer.FlowStep{step}}}}
+}
+
+var repoFindCompany = normalizer.FlowStep{Action: "repo.Find", Args: map[string]any{"source": "Company", "input": "req.CompanyID", "output": "company"}}
+
 func TestEmitSharedArchDiagnostics_RequiresReason(t *testing.T) {
 	t.Parallel()
-
-	var got []normalizer.Warning
-	opts := PipelineOptions{
-		WarningSink: func(w normalizer.Warning) {
-			got = append(got, w)
-		},
-	}
-
-	entities := []normalizer.Entity{
-		{
-			Name:     "Company",
-			Source:   "cue/domain/company.cue:10:1",
-			Metadata: map[string]any{"shared_arch": true},
-		},
-	}
-	services := []normalizer.Service{
-		{
-			Name: "Tender",
-			Methods: []normalizer.Method{
-				{
-					Name: "GetCompany",
-					Flow: []normalizer.FlowStep{
-						{Action: "repo.Find", Args: map[string]any{"source": "Company", "input": "req.CompanyID", "output": "company", "error": "Not found"}},
-					},
-				},
-			},
-		},
-	}
-
-	emitSharedArchDiagnostics(entities, services, opts)
-
-	hasMissingReason := false
-	for _, w := range got {
-		if w.Code == "SHARED_ARCH_REASON_REQUIRED" {
-			hasMissingReason = true
-			break
-		}
-	}
-	if !hasMissingReason {
-		t.Fatalf("expected SHARED_ARCH_REASON_REQUIRED, got: %#v", got)
+	got, opts := collectWarnings()
+	emitSharedArchDiagnostics([]normalizer.Entity{companyEntity("")}, []normalizer.Service{findCompany("Tender", repoFindCompany)}, opts)
+	if !hasCode(*got, "SHARED_ARCH_REASON_REQUIRED") {
+		t.Fatalf("expected SHARED_ARCH_REASON_REQUIRED, got: %#v", *got)
 	}
 }
 
-func TestEmitSharedArchDiagnostics_UnderusedWarns(t *testing.T) {
+// Every access from the entity's own context: nothing crosses a boundary.
+func TestEmitSharedArchDiagnostics_OwnContextOnlyIsUnderused(t *testing.T) {
 	t.Parallel()
-
-	var got []normalizer.Warning
-	opts := PipelineOptions{
-		WarningSink: func(w normalizer.Warning) {
-			got = append(got, w)
-		},
-	}
-
-	entities := []normalizer.Entity{
-		{
-			Name:     "Company",
-			Source:   "cue/domain/company.cue:10:1",
-			Metadata: map[string]any{"shared_arch": true, "shared_arch_reason": "legacy migration"},
-		},
-	}
-	services := []normalizer.Service{
-		{
-			Name: "Tender",
-			Methods: []normalizer.Method{
-				{
-					Name: "GetCompany",
-					Flow: []normalizer.FlowStep{
-						{Action: "repo.Find", Args: map[string]any{"source": "Company", "input": "req.CompanyID", "output": "company", "error": "Not found"}},
-					},
-				},
-			},
-		},
-	}
-
-	emitSharedArchDiagnostics(entities, services, opts)
-
-	hasUnderused := false
-	for _, w := range got {
-		if w.Code == "SHARED_ARCH_UNDERUSED" {
-			hasUnderused = true
-			break
-		}
-	}
-	if !hasUnderused {
-		t.Fatalf("expected SHARED_ARCH_UNDERUSED, got: %#v", got)
+	got, opts := collectWarnings()
+	emitSharedArchDiagnostics([]normalizer.Entity{companyEntity("legacy")}, []normalizer.Service{
+		findCompany("Company", repoFindCompany),
+		findCompany("Admin", repoFindCompany),
+	}, opts)
+	if !hasCode(*got, "SHARED_ARCH_UNDERUSED") {
+		t.Fatalf("expected SHARED_ARCH_UNDERUSED, got: %#v", *got)
 	}
 }
 
-func TestEmitSharedArchDiagnostics_MultiContextNoUnderused(t *testing.T) {
+// One foreign context is enough: removing the mark would fail the boundary
+// check. The old "fewer than two contexts" rule reported this as underused.
+func TestEmitSharedArchDiagnostics_SingleForeignFlowUserNeedsTheMark(t *testing.T) {
 	t.Parallel()
-
-	var got []normalizer.Warning
-	opts := PipelineOptions{
-		WarningSink: func(w normalizer.Warning) {
-			got = append(got, w)
-		},
+	got, opts := collectWarnings()
+	emitSharedArchDiagnostics([]normalizer.Entity{companyEntity("tender reads companies")}, []normalizer.Service{findCompany("Tender", repoFindCompany)}, opts)
+	if hasCode(*got, "SHARED_ARCH_UNDERUSED") {
+		t.Fatalf("a foreign flow user needs the mark, got: %#v", *got)
 	}
+}
 
-	entities := []normalizer.Entity{
-		{
-			Name:     "Company",
-			Source:   "cue/domain/company.cue:10:1",
-			Metadata: map[string]any{"shared_arch": true, "shared_arch_reason": "cross-context identity lookups"},
-		},
+// A repository call in Go written in CUE crosses the boundary as well.
+func TestEmitSharedArchDiagnostics_ForeignGoBlockUserCounts(t *testing.T) {
+	t.Parallel()
+	got, opts := collectWarnings()
+	logicCall := normalizer.FlowStep{Action: "logic.Call", Args: map[string]any{
+		"func": "(func(ctx context.Context, id string) error {\n\t_, err := s.CompanyRepo.FindByID(ctx, id)\n\treturn err\n})",
+	}}
+	emitSharedArchDiagnostics([]normalizer.Entity{companyEntity("search indexes companies")}, []normalizer.Service{
+		findCompany("Company", repoFindCompany),
+		findCompany("Search", logicCall),
+	}, opts)
+	if hasCode(*got, "SHARED_ARCH_UNDERUSED") {
+		t.Fatalf("a Go-block user from another context needs the mark, got: %#v", *got)
 	}
-	services := []normalizer.Service{
-		{
-			Name: "Tender",
-			Methods: []normalizer.Method{
-				{
-					Name: "GetCompany",
-					Flow: []normalizer.FlowStep{
-						{Action: "repo.Find", Args: map[string]any{"source": "Company", "input": "req.CompanyID", "output": "company", "error": "Not found"}},
-					},
-				},
-			},
-		},
-		{
-			Name: "Bids",
-			Methods: []normalizer.Method{
-				{
-					Name: "CheckCompany",
-					Flow: []normalizer.FlowStep{
-						{Action: "repo.Get", Args: map[string]any{"source": "Company", "input": "req.CompanyID", "output": "company", "error": "Not found"}},
-					},
-				},
-			},
-		},
+	register := SharedArchRegister([]normalizer.Entity{companyEntity("x")}, []normalizer.Service{findCompany("Search", logicCall)})
+	if len(register) != 1 || len(register[0].ForeignGoUsers) != 1 || register[0].ForeignGoUsers[0] != "search" || len(register[0].ForeignFlowUsers) != 0 {
+		t.Fatalf("register = %#v", register)
 	}
+}
 
-	emitSharedArchDiagnostics(entities, services, opts)
-
-	for _, w := range got {
-		if w.Code == "SHARED_ARCH_UNDERUSED" {
-			t.Fatalf("did not expect SHARED_ARCH_UNDERUSED for multi-context usage, got: %#v", got)
-		}
+// The register is architecture debt for ang vet, not a warning on every build.
+func TestEmitSharedArchDiagnostics_NoAuditWarningInBuild(t *testing.T) {
+	t.Parallel()
+	got, opts := collectWarnings()
+	emitSharedArchDiagnostics([]normalizer.Entity{companyEntity("tender reads companies")}, []normalizer.Service{findCompany("Tender", repoFindCompany)}, opts)
+	if hasCode(*got, "SHARED_ARCH_AUDIT") {
+		t.Fatalf("SHARED_ARCH_AUDIT must not be emitted by the build, got: %#v", *got)
 	}
 }

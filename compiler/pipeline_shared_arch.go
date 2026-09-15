@@ -2,93 +2,141 @@ package compiler
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/strogmv/ang-ir/normalizer"
 )
 
+// shared_arch lifts the "entity of another bounded context" check from flow
+// steps (ang-ir normalizer.validateFlowSteps). A mark is therefore needed
+// whenever a foreign context reaches the entity — even a single one — and is
+// unneeded only when every access comes from the entity's own context.
+//
+// Accesses are counted from flow steps (repo.*, db.*, list.Enrich) and from Go
+// written in CUE (func and code strings, impl code): s.<Entity>Repo.<Method>.
+// The boundary check itself only sees flow steps, but a repository call in Go
+// crosses the same boundary.
+
+var goRepoAccess = regexp.MustCompile(`\bs\.([A-Z][A-Za-z0-9_]*)Repo\.`)
+
+// SharedArchEntry describes one entity marked shared_arch: the architecture
+// debt `ang vet` lists.
+type SharedArchEntry struct {
+	Entity           string
+	Context          string
+	Reason           string
+	Ticket           string
+	File             string
+	Line             int
+	ForeignFlowUsers []string
+	ForeignGoUsers   []string
+}
+
 func emitSharedArchDiagnostics(entities []normalizer.Entity, services []normalizer.Service, opts PipelineOptions) {
-	usageByEntity := collectEntityContextUsage(services)
-	for _, ent := range entities {
-		if !isSharedArchEntity(ent) {
-			continue
-		}
-
-		file, line := parseSourcePos(ent.Source)
-		reason := strings.TrimSpace(toMetadataString(ent.Metadata["shared_arch_reason"]))
-		ticket := strings.TrimSpace(toMetadataString(ent.Metadata["shared_arch_ticket"]))
-		usageContexts := sortedSetKeys(usageByEntity[ent.Name])
-
-		usageSummary := "used by contexts: none"
-		if len(usageContexts) > 0 {
-			usageSummary = "used by contexts: " + strings.Join(usageContexts, ", ")
-		}
-		reasonSummary := "reason: <missing>"
-		if reason != "" {
-			reasonSummary = "reason: " + reason
-		}
-		if ticket != "" {
-			reasonSummary += " (ticket: " + ticket + ")"
-		}
-
-		recordPipelineDiagnostic(normalizer.Warning{
-			Kind:     "architecture",
-			Code:     "SHARED_ARCH_AUDIT",
-			Severity: "warn",
-			Message:  fmt.Sprintf("Entity '%s' is marked shared_arch (%s; %s)", ent.Name, reasonSummary, usageSummary),
-			File:     file,
-			Line:     line,
-			Hint:     "Keep shared_arch temporary. Prefer #ReadModel/event-driven integration for cross-context reads.",
-		}, opts)
-
-		if reason == "" {
+	for _, entry := range SharedArchRegister(entities, services) {
+		if entry.Reason == "" {
 			recordPipelineDiagnostic(normalizer.Warning{
 				Kind:     "architecture",
 				Code:     "SHARED_ARCH_REASON_REQUIRED",
 				Severity: "error",
-				Message:  fmt.Sprintf("Entity '%s' uses shared_arch but has no reason", ent.Name),
-				File:     file,
-				Line:     line,
+				Message:  fmt.Sprintf("Entity '%s' uses shared_arch but has no reason", entry.Entity),
+				File:     entry.File,
+				Line:     entry.Line,
 				Hint:     `Add explicit rationale: @shared_arch(reason="...") or shared_arch_reason: "..."`,
 			}, opts)
 		}
-
-		if len(usageContexts) < 2 {
+		if entry.Context != "" && len(entry.ForeignFlowUsers) == 0 && len(entry.ForeignGoUsers) == 0 {
 			recordPipelineDiagnostic(normalizer.Warning{
 				Kind:     "architecture",
 				Code:     "SHARED_ARCH_UNDERUSED",
 				Severity: "warn",
-				Message:  fmt.Sprintf("Entity '%s' is shared_arch but used by fewer than 2 bounded contexts", ent.Name),
-				File:     file,
-				Line:     line,
-				Hint:     "Remove shared_arch or prove cross-context need via explicit read model/events.",
+				Message:  fmt.Sprintf("Entity '%s' is shared_arch but every access comes from its own context '%s'", entry.Entity, entry.Context),
+				File:     entry.File,
+				Line:     entry.Line,
+				Hint:     "Remove shared_arch: no flow step or Go block reaches this entity from another bounded context.",
 			}, opts)
 		}
 	}
 }
 
-func collectEntityContextUsage(services []normalizer.Service) map[string]map[string]struct{} {
-	usage := make(map[string]map[string]struct{})
+// SharedArchRegister lists every shared_arch entity with the foreign contexts
+// that reach it, split by flow steps and Go blocks. admin and audit are left
+// out, as the boundary check leaves them out.
+func SharedArchRegister(entities []normalizer.Entity, services []normalizer.Service) []SharedArchEntry {
+	flowUsers, goUsers := collectEntityServiceAccess(services)
+	var out []SharedArchEntry
+	for _, ent := range entities {
+		if !isSharedArchEntity(ent) {
+			continue
+		}
+		file, line := parseSourcePos(ent.Source)
+		ctx := entityBoundedContext(ent)
+		out = append(out, SharedArchEntry{
+			Entity:           ent.Name,
+			Context:          ctx,
+			Reason:           strings.TrimSpace(toMetadataString(ent.Metadata["shared_arch_reason"])),
+			Ticket:           strings.TrimSpace(toMetadataString(ent.Metadata["shared_arch_ticket"])),
+			File:             file,
+			Line:             line,
+			ForeignFlowUsers: foreignContexts(flowUsers[ent.Name], ctx),
+			ForeignGoUsers:   foreignContexts(goUsers[ent.Name], ctx),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Entity < out[j].Entity })
+	return out
+}
+
+// collectEntityServiceAccess maps entity name → bounded contexts of the
+// services that access it, once for flow steps and once for Go blocks.
+func collectEntityServiceAccess(services []normalizer.Service) (flow, goBlocks map[string]map[string]struct{}) {
+	flow = map[string]map[string]struct{}{}
+	goBlocks = map[string]map[string]struct{}{}
+	add := func(target map[string]map[string]struct{}, entity, ctx string) {
+		if target[entity] == nil {
+			target[entity] = map[string]struct{}{}
+		}
+		target[entity][ctx] = struct{}{}
+	}
+	addGo := func(code, ctx string) {
+		for _, match := range goRepoAccess.FindAllStringSubmatch(code, -1) {
+			add(goBlocks, match[1], ctx)
+		}
+	}
 	for _, svc := range services {
-		ctx := inferServiceContextName(svc.Name)
+		ctx := serviceBoundedContext(svc.Name)
 		if ctx == "admin" || ctx == "audit" {
 			continue
 		}
 		for _, method := range svc.Methods {
 			walkFlowSteps(method.Flow, func(step normalizer.FlowStep) {
-				entity := strings.TrimSpace(stepEntityAccess(step))
-				if entity == "" {
-					return
+				if entity := strings.TrimSpace(stepEntityAccess(step)); entity != "" {
+					add(flow, entity, ctx)
 				}
-				if usage[entity] == nil {
-					usage[entity] = map[string]struct{}{}
+				for _, key := range []string{"func", "code"} {
+					if code, ok := step.Args[key].(string); ok {
+						addGo(code, ctx)
+					}
 				}
-				usage[entity][ctx] = struct{}{}
 			})
+			if method.Impl != nil {
+				addGo(method.Impl.Code, ctx)
+			}
 		}
 	}
-	return usage
+	return flow, goBlocks
+}
+
+func foreignContexts(users map[string]struct{}, own string) []string {
+	var out []string
+	for ctx := range users {
+		if ctx != own {
+			out = append(out, ctx)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func walkFlowSteps(steps []normalizer.FlowStep, fn func(step normalizer.FlowStep)) {
@@ -126,15 +174,28 @@ func stepEntityAccess(step normalizer.FlowStep) string {
 	return ""
 }
 
-func inferServiceContextName(service string) string {
-	s := strings.TrimSpace(strings.ToLower(service))
-	s = strings.TrimSuffix(s, "service")
-	s = strings.TrimSuffix(s, "services")
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return "unknown"
+// entityBoundedContext and serviceBoundedContext follow ang-ir's
+// inferBoundedContext, which the boundary check uses: the explicit
+// bounded_context, else the owner or service name up to the first _, - or .
+func entityBoundedContext(ent normalizer.Entity) string {
+	if ctx := strings.TrimSpace(strings.ToLower(ent.BoundedContext)); ctx != "" {
+		return ctx
 	}
-	return s
+	return boundedContextPrefix(ent.Owner)
+}
+
+func serviceBoundedContext(service string) string {
+	return boundedContextPrefix(service)
+}
+
+func boundedContextPrefix(name string) string {
+	name = strings.TrimSpace(strings.ToLower(name))
+	for _, sep := range []string{"_", "-", "."} {
+		if i := strings.Index(name, sep); i > 0 {
+			return name[:i]
+		}
+	}
+	return name
 }
 
 func isSharedArchEntity(ent normalizer.Entity) bool {
