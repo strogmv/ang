@@ -19,10 +19,16 @@ import (
 	"golang.org/x/tools/imports"
 )
 
+// formatOnlyOptions are goimports' defaults without import fixing. Fixing is
+// what starts a `go env` subprocess: the public imports.Process builds a fresh
+// environment on every call, so each generated file paid for one, and parallel
+// emitters spent their time waiting on those processes.
+var formatOnlyOptions = &imports.Options{Comments: true, TabIndent: true, TabWidth: 8, FormatOnly: true}
+
 // formatGoStrict formats generated Go source and fails fast on syntax issues.
 func formatGoStrict(src []byte, unit string) ([]byte, error) {
-	if hinted, ok := withPreviousImports(src, unit); ok {
-		if out, err := imports.Process(unit, hinted, nil); err == nil {
+	if fixed, ok := withPreviousImports(src, unit); ok {
+		if out, err := imports.Process(unit, fixed, formatOnlyOptions); err == nil {
 			return out, nil
 		}
 	}
@@ -43,10 +49,11 @@ func formatGoStrict(src []byte, unit string) ([]byte, error) {
 // The unit's previous output already names the imports goimports chose for it.
 // withPreviousImports adds exactly those that cover the source's unresolved
 // references, the way goimports applies its own fixes (unused imports removed,
-// then additions sorted by path), so goimports finishes on its first pass
-// without reading the directory. When the previous file is missing or does not
-// cover every reference, ok is false and the caller takes the full goimports
-// path, so new references are still resolved exactly as before.
+// then additions sorted by path), so the result only needs formatting. A file
+// with nothing to resolve gets the same treatment: only unused imports go.
+// When the previous file is missing or does not cover every reference, ok is
+// false and the caller takes the full goimports path, so new references are
+// still resolved exactly as before.
 //
 // The previous file is read from unit itself, relative to the working
 // directory — the same directory goimports reads siblings from.
@@ -67,34 +74,34 @@ func withPreviousImports(src []byte, unit string) ([]byte, bool) {
 			missing[name] = true
 		}
 	}
-	if len(missing) == 0 {
-		// goimports is already fast here: nothing to resolve.
-		return nil, false
-	}
-
-	previous, err := os.ReadFile(unit)
-	if err != nil {
-		return nil, false
-	}
-	previousFile, err := parser.ParseFile(token.NewFileSet(), unit, previous, parser.ImportsOnly)
-	if err != nil {
-		return nil, false
-	}
 	type namedImport struct{ name, path string }
 	var additions []namedImport
-	for _, spec := range previousFile.Imports {
-		id := importIdentifier(spec)
-		if !missing[id] {
-			continue
-		}
-		additions = append(additions, namedImport{name: importName(spec), path: importPath(spec)})
-		delete(missing, id)
-	}
 	if len(missing) != 0 {
-		return nil, false
+		previous, err := os.ReadFile(unit)
+		if err != nil {
+			return nil, false
+		}
+		previousFile, err := parser.ParseFile(token.NewFileSet(), unit, previous, parser.ImportsOnly)
+		if err != nil {
+			return nil, false
+		}
+		for _, spec := range previousFile.Imports {
+			id := importIdentifier(spec)
+			if !missing[id] {
+				continue
+			}
+			additions = append(additions, namedImport{name: importName(spec), path: importPath(spec)})
+			delete(missing, id)
+		}
+		if len(missing) != 0 {
+			return nil, false
+		}
 	}
 
 	for _, spec := range append([]*ast.ImportSpec(nil), file.Imports...) {
+		if keptWithoutReference(spec) {
+			continue
+		}
 		if !used[importIdentifier(spec)] {
 			astutil.DeleteNamedImport(fset, file, importName(spec), importPath(spec))
 		}
@@ -114,6 +121,13 @@ func withPreviousImports(src []byte, unit string) ([]byte, bool) {
 		return nil, false
 	}
 	return buf.Bytes(), true
+}
+
+// keptWithoutReference reports imports goimports never removes as unused:
+// blank and dot imports, and cgo's "C".
+func keptWithoutReference(spec *ast.ImportSpec) bool {
+	name := importName(spec)
+	return name == "_" || name == "." || importPath(spec) == "C"
 }
 
 // packageReferences mirrors goimports: X in X.Sel where X is not resolved in
