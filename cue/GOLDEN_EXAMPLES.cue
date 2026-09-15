@@ -289,7 +289,7 @@ UploadProductImage: schema.#Operation & {
 	flow: [
 		{action: "logic.Check", condition: "isSupportedImage(req.ContentType)", throw: "Unsupported image type"},
 		{action: "repo.Find", source: "Product", input: "req.ProductID", output: "product", error: "Product not found"},
-		{action: "storage.Upload", source: "s3", input: "req.Bytes", output: "fileURL"},
+		{action: "storage.Upload", key: "\"products/\" + product.ID", data: "req.Bytes", contentType: "req.ContentType", output: "fileURL"},
 		{action: "mapping.Assign", to: "product.ImageURL", value: "fileURL"},
 		{action: "repo.Save", source: "Product", input: "product"},
 		{action: "mapping.Assign", to: "resp.URL", value: "fileURL"},
@@ -343,7 +343,7 @@ CreateCheckoutSession: schema.#Operation & {
 		sessionURL: string
 	}
 	flow: [
-		{action: "rateLimit.Check", key: "req.UserID", rps: 2, burst: 4},
+		{action: "ratelimit.Check", key: "req.UserID", rps: 2, throw: "too many checkout attempts"},
 		{action: "repo.Find", source: "Order", input: "req.OrderID", output: "order", error: "Order not found"},
 		{action: "mapping.Assign", to: "resp.SessionURL", value: "createCheckoutURL(order)"},
 	]
@@ -401,7 +401,7 @@ NotifySellerOnOrderPaid: schema.#Operation & {
 	flow: [
 		{action: "repo.Find", source: "Order", input: "req.OrderID", output: "order"},
 		{action: "repo.Find", source: "User", input: "order.SellerID", output: "seller"},
-		{action: "mailer.Send", input: "seller.Email", template: "\"order_paid\""},
+		{action: "mail.Send", to: "seller.Email", subject: "\"Order paid\"", body: "\"Your order \" + order.ID + \" has been paid\""},
 		{action: "repo.Save", source: "NotificationLog", input: "domain.NotificationLog{OrderID: order.ID, Kind: \"order_paid\"}"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
@@ -500,7 +500,7 @@ PlaceOrderSaga: schema.#Operation & {
 				{action: "mapping.Assign", to: "order.Status", value: "\"paid\""},
 				{action: "repo.Save", source: "Order", input: "order"},
 			], else: [
-				{action: "logic.Call", name: "releaseInventory", args: ["order"]},
+				{action: "logic.Call", func: "releaseInventory", args: ["order"]},
 			]},
 		]},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
@@ -791,9 +791,7 @@ WaitForApprovalWithFallback: schema.#Operation & {
 	}
 	flow: [
 		{action: "approval.Request", approvalKey: "\"order:approve\"", title: "\"Order approval\"", requestedBy: "req.UserID", approvers: ["manager@company.com"], policy: "\"any\"", payload: "req", approvalId: "approvalID", status: "approvalStatus"},
-		{action: "approval.Wait", approvalId: "approvalID", timeout: "2 * time.Minute", onTimeout: "\"fallback\"", decision: "decision", status: "approvalStatus", onTimeout: [
-			{action: "notify.Send", channel: "\"email\"", to: "\"ops@company.com\"", text: "\"Approval timeout: fallback executed\""},
-		]},
+		{action: "approval.Wait", approvalId: "approvalID", timeout: "2 * time.Minute", onTimeout: "\"fallback\"", decision: "decision", status: "approvalStatus"},
 		{action: "logic.Check", condition: "decision == \"approved\"", throw: "approval rejected or timed out"},
 		{action: "mapping.Assign", to: "resp.Decision", value: "decision"},
 		{action: "mapping.Assign", to: "resp.Status", value: "approvalStatus"},

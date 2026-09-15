@@ -1,2595 +1,2376 @@
 // ============================================================================
-// GOLDEN ACTIONS REFERENCE (AUTO-GENERATED)
+// GOLDEN ACTIONS REFERENCE (GENERATED — DO NOT EDIT)
 // ============================================================================
-// This file provides one minimal reference operation per catalog action that
-// is not present in cue/GOLDEN_EXAMPLES.cue. It is contract-oriented guidance
-// for AI/codegen prompts, while executable edge cases stay in GOLDEN_EXAMPLES.
-// Source: ang actions --json
-// DO NOT hand-edit large sections; regenerate when catalog changes.
+// One minimal operation per Typed Flow IR action that cue/GOLDEN_EXAMPLES.cue
+// does not already show. Each step is the action's catalog example
+// (compiler/flowir/examples.go), which a test decodes with the action's own
+// decoder. Regenerate: ANG_UPDATE_GOLDEN=1 go test ./cmd/ang -run TestGoldenActionsReferenceInSync
 
 package examples
 
 import "github.com/strogmv/ang/cue/schema"
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1000: approval.Decide
-// ----------------------------------------------------------------------------
+// approval.Decide
 RefApprovalDecide: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "approval.Decide", actor: "req.ID", approvalId: "result", decision: "result"},
+		{action: "approval.Decide", actor: "req.UserID", approvalId: "approvalID", decision: "\"approved\"", status: "approvalStatus"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 10997: value.Coalesce
-// ----------------------------------------------------------------------------
-RefValueCoalesce: schema.#Operation & {
-	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "value.Coalesce", values: ["req.ID", "\"fallback\""], output: "result", into: "string"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 10996: map.Has
-// ----------------------------------------------------------------------------
-RefMapHas: schema.#Operation & {
-	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "map.Has", input: "labels", key: "\"sample\"", output: "exists"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "exists"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 10995: map.Set
-// ----------------------------------------------------------------------------
-RefMapSet: schema.#Operation & {
-	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "map.Set", input: "labels", key: "\"sample\"", value: "req.ID", output: "nextLabels"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 10994: map.Merge
-// ----------------------------------------------------------------------------
-RefMapMerge: schema.#Operation & {
-	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "map.Merge", left: "leftLabels", right: "rightLabels", output: "labels"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 10993: list.Find
-// ----------------------------------------------------------------------------
-RefListFind: schema.#Operation & {
-	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "list.Find", from: "items", as: "item", condition: "item.ID == req.ID", output: "result", found: "found"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "found"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 10992: list.Any
-// ----------------------------------------------------------------------------
-RefListAny: schema.#Operation & {
-	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "list.Any", from: "items", as: "item", condition: "item.ID == req.ID", output: "result"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "result"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 10991: list.All
-// ----------------------------------------------------------------------------
-RefListAll: schema.#Operation & {
-	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "list.All", from: "items", as: "item", condition: "item.ID != \"\"", output: "result"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "result"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 10990: time.Add
-// ----------------------------------------------------------------------------
-RefTimeAdd: schema.#Operation & {
-	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "time.Add", input: "issuedAt", duration: "15*time.Minute", output: "result"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 10989: time.Sub
-// ----------------------------------------------------------------------------
-RefTimeSub: schema.#Operation & {
-	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "time.Sub", a: "expiresAt", b: "issuedAt", output: "result"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 10988: time.Diff
-// ----------------------------------------------------------------------------
-RefTimeDiff: schema.#Operation & {
-	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "time.Diff", from: "issuedAt", to: "expiresAt", unit: "minutes", output: "result"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 10987: errors.Map
-// ----------------------------------------------------------------------------
-RefErrorsMap: schema.#Operation & {
-	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "errors.Map", input: "err", cases: {"no rows": {status: "http.StatusNotFound", code: "NOT_FOUND", message: "resource missing"}}, output: "mappedErr"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 10999: flow.Call
-// ----------------------------------------------------------------------------
-RefFlowCall: schema.#Operation & {
-	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
-	uses: ["Tender"]
-	flow: [
-		{action: "flow.Call", op: "Tender.GetTenderTemplate", args: {id: "req.ID"}, output: "result", ignoreErr: true},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 10998: notify.Email
-// ----------------------------------------------------------------------------
-RefNotifyEmail: schema.#Operation & {
-	service: "reference"
-	input: { email: string }
-	output: { ok: bool }
-	flow: [
-		{action: "notify.Email", to: "req.Email", text: "\"Hello\""},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1001: archive.ZipDir
-// ----------------------------------------------------------------------------
+// archive.ZipDir
 RefArchiveZipDir: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "archive.ZipDir", output: "result", path: "\"sample\""},
+		{action: "archive.ZipDir", output: "zipBytes", path: "\"./tmp\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1002: audit.Log
-// ----------------------------------------------------------------------------
+// audit.Log
 RefAuditLog: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "audit.Log", actor: "req.ID", company: "req.ID", event: "\"sample\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1003: auth.CheckRole
-// ----------------------------------------------------------------------------
+// auth.CheckRole
 RefAuthCheckRole: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "auth.CheckRole", roles: "req.ID", user: "req.ID"},
+		{action: "auth.CheckRole", companyID: "req.CompanyID", roles: "[]string{\"admin\"}", user: "currentUser"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1004: auth.RequireRole
-// ----------------------------------------------------------------------------
+// auth.RequireRole
 RefAuthRequireRole: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "auth.RequireRole", companyID: "req.ID", roles: "req.ID", userID: "req.ID"},
+		{action: "auth.RequireRole", companyID: "req.CompanyID", output: "currentUser", roles: "[]string{\"admin\"}", userID: "req.UserID"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1005: base64.Decode
-// ----------------------------------------------------------------------------
+// base64.Decode
 RefBase64Decode: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "base64.Decode", input: "req.ID", output: "result"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1006: base64.Encode
-// ----------------------------------------------------------------------------
+// base64.Encode
 RefBase64Encode: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "base64.Encode", input: "req.ID", output: "result"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1007: batch.Run
-// ----------------------------------------------------------------------------
+// batch.Run
 RefBatchRun: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "batch.Run", from: "items", size: 1, as: "batch", do: [{action: "logic.Check", condition: "true", throw: "\"noop\""}]},
+		{action: "batch.Run", do: [{action: "logic.Check", condition: "true", throw: "\"noop\""}], as: "batch", from: "items", size: 1},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1008: bulkhead.Acquire
-// ----------------------------------------------------------------------------
+// budget.Check
+RefBudgetCheck: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "budget.Check", key: "req.UserID", limit: 5000},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// budget.Consume
+RefBudgetConsume: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "budget.Consume", key: "req.UserID", tokens: "reply.TokensUsed"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// bulkhead.Acquire
 RefBulkheadAcquire: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "bulkhead.Acquire", name: "\"sample\""},
+		{action: "bulkhead.Acquire", max: 10, name: "\"payment-api\"", throw: "payment service is busy"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1009: bulkhead.Run
-// ----------------------------------------------------------------------------
+// bulkhead.Run
 RefBulkheadRun: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "bulkhead.Run", name: "\"sample\"", do: [{action: "logic.Check", condition: "true", throw: "\"noop\""}]},
+		{action: "bulkhead.Run", do: [{action: "logic.Check", condition: "true", throw: "ok"}], max: 12, name: "\"s3-upload\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1010: cache.Del
-// ----------------------------------------------------------------------------
+// cache.Del
 RefCacheDel: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "cache.Del", key: "req.ID"},
+		{action: "cache.Del", key: "\"k\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1011: circuit.Breaker
-// ----------------------------------------------------------------------------
+// cast.ToString
+RefCastToString: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "cast.ToString", input: "req.UserID", output: "userIDString"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// circuit.Breaker
 RefCircuitBreaker: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "circuit.Breaker", name: "\"sample\"", do: [{action: "logic.Check", condition: "true", throw: "\"noop\""}]},
+		{action: "circuit.Breaker", do: [{action: "http.Call", method: "GET", output: "body", url: "\"https://api.test\""}], name: "\"external-api\"", openTTL: "30*time.Second", threshold: 3},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1012: circuit.Check
-// ----------------------------------------------------------------------------
+// circuit.Check
 RefCircuitCheck: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "circuit.Check", name: "\"sample\""},
+		{action: "circuit.Check", name: "\"payments\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1013: circuit.RecordFailure
-// ----------------------------------------------------------------------------
+// circuit.RecordFailure
 RefCircuitRecordFailure: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "circuit.RecordFailure", name: "\"sample\""},
+		{action: "circuit.RecordFailure", name: "\"payments\"", threshold: 3},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1014: circuit.RecordSuccess
-// ----------------------------------------------------------------------------
+// circuit.RecordSuccess
 RefCircuitRecordSuccess: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "circuit.RecordSuccess", name: "\"sample\""},
+		{action: "circuit.RecordSuccess", name: "\"payments\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1015: concurrency.Limit
-// ----------------------------------------------------------------------------
+// claude.Chat
+RefClaudeChat: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "claude.Chat", output: "reply", user_message: "\"hello\""},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// concurrency.Limit
 RefConcurrencyLimit: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "concurrency.Limit", key: "req.ID"},
+		{action: "concurrency.Limit", key: "req.CompanyID", max: 4},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1016: concurrency.Run
-// ----------------------------------------------------------------------------
+// concurrency.Run
 RefConcurrencyRun: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "concurrency.Run", key: "req.ID", do: [{action: "logic.Check", condition: "true", throw: "\"noop\""}]},
+		{action: "concurrency.Run", do: [{action: "logic.Check", condition: "true", throw: "ok"}], key: "\"build\"", max: 8},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1017: config.Get
-// ----------------------------------------------------------------------------
+// config.Get
 RefConfigGet: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "config.Get", key: "req.ID", output: "result"},
+		{action: "config.Get", default: "\"dev\"", key: "\"APP_ENV\"", output: "env"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1018: model.Resolve
-// ----------------------------------------------------------------------------
-RefModelResolve: schema.#Operation & {
+// context.Trim
+RefContextTrim: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "model.Resolve", name: "\"Cheap\"", output: "result"},
+		{action: "context.Trim", input: "project.CueContent", max_bytes: 12000, output: "trimmedCue"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1019: crypto.Decrypt
-// ----------------------------------------------------------------------------
+// convert.ToFloat
+RefConvertToFloat: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "convert.ToFloat", input: "req.Count", output: "countFloat"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// convert.ToInt
+RefConvertToInt: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "convert.ToInt", input: "req.Count", output: "countInt"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// crypto.Decrypt
 RefCryptoDecrypt: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "crypto.Decrypt", input: "req.ID", output: "result"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1019: crypto.Encrypt
-// ----------------------------------------------------------------------------
+// crypto.Encrypt
 RefCryptoEncrypt: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "crypto.Encrypt", input: "req.ID", output: "result"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1020: db.Delete
-// ----------------------------------------------------------------------------
+// cue.EmitProject
+RefCueEmitProject: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "cue.EmitProject", micro_plan: "microPlanDoc", output: "projectFiles", usecases: "usecasesDoc"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// cue.ValidateProject
+RefCueValidateProject: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "cue.ValidateProject", files: "projectFiles", output: "validation"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// cue.WriteProjectFiles
+RefCueWriteProjectFiles: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "cue.WriteProjectFiles", files: "projectFiles", output: "writeResult", root: "\"/tmp/project\""},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// db.Delete
 RefDbDelete: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "db.Delete"},
+		{action: "db.Delete", input: "req.ID", source: "Order"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1021: db.Get
-// ----------------------------------------------------------------------------
+// db.Get
 RefDbGet: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "db.Get"},
+		{action: "db.Get", input: "req.UserID", output: "user", source: "User"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1022: db.Insert
-// ----------------------------------------------------------------------------
+// db.Insert
 RefDbInsert: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "db.Insert", input: "req.ID", source: "req.ID"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1023: db.List
-// ----------------------------------------------------------------------------
+// db.List
 RefDbList: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "db.List"},
+		{action: "db.List", input: "req.UserID", method: "ListByUser", output: "orders", source: "Order"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1024: db.Lock
-// ----------------------------------------------------------------------------
+// db.Lock
 RefDbLock: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "db.Lock"},
+		{action: "db.Lock", error: "order not found", input: "req.ID", output: "order", source: "Order"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1025: db.Query
-// ----------------------------------------------------------------------------
+// db.Query
 RefDbQuery: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "db.Query", method: "\"sample\""},
+		{action: "db.Query", input: "req.UserID", method: "ListOpenByUser", output: "orders", source: "Order"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1026: db.SelectForUpdate
-// ----------------------------------------------------------------------------
+// db.SelectForUpdate
 RefDbSelectForUpdate: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "db.SelectForUpdate"},
+		{action: "db.SelectForUpdate", input: "req.ID", output: "order", source: "Order"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1027: db.Update
-// ----------------------------------------------------------------------------
+// db.Update
 RefDbUpdate: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "db.Update", input: "req.ID", source: "req.ID"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1028: db.Upsert
-// ----------------------------------------------------------------------------
+// db.Upsert
 RefDbUpsert: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "db.Upsert", input: "req.ID", source: "req.ID"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1029: dedupe.Once
-// ----------------------------------------------------------------------------
+// dedupe.Once
 RefDedupeOnce: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "dedupe.Once", key: "req.ID"},
+		{action: "dedupe.Once", do: [{action: "flow.SuggestNext", options: ["done"]}], key: "\"job:1\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1030: dlq.Publish
-// ----------------------------------------------------------------------------
+// dlq.Publish
 RefDlqPublish: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "dlq.Publish", payload: "req.ID", subject: "\"sample\""},
+		{action: "dlq.Publish", payload: "msg", reason: "\"decode failed\"", subject: "\"events.test\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1031: entity.PatchNonZero
-// ----------------------------------------------------------------------------
+// entity.PatchNonZero
 RefEntityPatchNonZero: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "entity.PatchNonZero", fields: "req.ID", from: "req.ID", target: "req.ID"},
+		{action: "entity.PatchNonZero", fields: "Name,Email", from: "req", target: "user"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1032: entity.PatchValidated
-// ----------------------------------------------------------------------------
+// entity.PatchValidated
 RefEntityPatchValidated: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "entity.PatchValidated", from: "req.ID", target: "req.ID"},
+		{action: "entity.PatchValidated", fields: {Email: {format: "email", normalize: "lower"}, TaxID: {normalize: "trim", unique: "FindByTaxID"}}, from: "req", source: "Company", target: "company"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1033: enum.Validate
-// ----------------------------------------------------------------------------
+// enum.Validate
 RefEnumValidate: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "enum.Validate", allowed: "req.ID", throw: "\"sample\"", value: "req.ID"},
+		{action: "enum.Validate", allowed: "draft,published", throw: "invalid status", value: "req.Status"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1034: event.Broadcast
-// ----------------------------------------------------------------------------
+// errors.Map
+RefErrorsMap: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "errors.Map", cases: {"duplicate key": {code: "conflict", message: "order already exists", status: "409"}, "not found": {code: "not_found", message: "order not found", status: "404"}}, input: "err", mode: "contains", output: "mappedErr"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// errors.New
+RefErrorsNew: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "errors.New", code: "\"NOT_FOUND\"", message: "\"boom\"", output: "errObj", status: "404"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// errors.ThrowIf
+RefErrorsThrowIf: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "errors.ThrowIf", code: "NOT_FOUND", condition: "user == nil", status: "404", throw: "user missing"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// errors.Wrap
+RefErrorsWrap: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "errors.Wrap", err: "err", message: "\"save failed\""},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// event.Broadcast
 RefEventBroadcast: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "event.Broadcast", name: "\"sample\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1035: event.Match
-// ----------------------------------------------------------------------------
+// event.EmitIf
+RefEventEmitIf: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "event.EmitIf", condition: "req.Notify", name: "UserRegistered", payloadMap: {UserID: "user.ID"}},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// event.Match
 RefEventMatch: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "event.Match", event: "\"sample\"", match: "req.ID"},
+		{action: "event.Match", event: "evt", match: "\"order.created\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1036: event.Subscribe
-// ----------------------------------------------------------------------------
+// event.Subscribe
 RefEventSubscribe: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "event.Subscribe", match: "req.ID", name: "\"sample\"", do: [{action: "logic.Check", condition: "true", throw: "\"noop\""}]},
+		{action: "event.Subscribe", do: [{action: "flow.SuggestNext", options: ["seen"]}], match: "\"tenant=acme\"", name: "\"OrderCreated\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1037: event.Wait
-// ----------------------------------------------------------------------------
+// event.Wait
 RefEventWait: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "event.Wait", name: "\"sample\""},
+		{action: "event.Wait", into: "map[string]any", name: "\"OrderCreated\"", output: "evt"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1038: exec.Run
-// ----------------------------------------------------------------------------
+// exec.Run
 RefExecRun: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "exec.Run", cmd: "req.ID"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1038a: exec.Stream
-// ----------------------------------------------------------------------------
+// exec.Stream
 RefExecStream: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "exec.Stream", cmd: "req.ID", timeout: "120 * time.Second", output: "streamOut"},
+		{action: "exec.Stream", cmd: "req.ID", output: "streamOut", timeout: "120 * time.Second"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1039: field.CopyNonEmpty
-// ----------------------------------------------------------------------------
+// field.CopyNonEmpty
 RefFieldCopyNonEmpty: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "field.CopyNonEmpty", from: "req.ID", to: "\"sample\""},
+		{action: "field.CopyNonEmpty", fields: "Name,Email", from: "req", to: "user"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1040: flow.Block
-// ----------------------------------------------------------------------------
+// flow.Block
 RefFlowBlock: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "flow.Block", do: [{action: "logic.Check", condition: "true", throw: "\"noop\""}]},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1041: flow.Catch
-// ----------------------------------------------------------------------------
+// flow.Call
+RefFlowCall: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "flow.Call", args: {id: "requestID"}, op: "Profile.Get", output: "profile"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// flow.Catch
 RefFlowCatch: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "flow.Catch", do: [{action: "logic.Check", condition: "true", throw: "\"noop\""}]},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1042: flow.Checkpoint
-// ----------------------------------------------------------------------------
+// flow.Checkpoint
 RefFlowCheckpoint: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "flow.Checkpoint", name: "\"sample\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1043: flow.Cron
-// ----------------------------------------------------------------------------
+// flow.Cron
 RefFlowCron: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "flow.Cron", window: "\"sample\""},
+		{action: "flow.Cron", do: [{action: "flow.SuggestNext", options: ["inside"]}], window: "Mon-Fri 09:00-17:00"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1044: flow.Delay
-// ----------------------------------------------------------------------------
+// flow.Defer
+RefFlowDefer: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "flow.Defer", do: [{action: "fs.Remove", path: "workDir"}]},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// flow.Delay
 RefFlowDelay: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "flow.Delay", duration: "5 * time.Second"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1045: flow.ExplainError
-// ----------------------------------------------------------------------------
+// flow.ExplainError
 RefFlowExplainError: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "flow.ExplainError"},
+		{action: "flow.ExplainError", hint: "check that the order is still open", output: "explanation"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1046: flow.Fallback
-// ----------------------------------------------------------------------------
+// flow.Fallback
 RefFlowFallback: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "flow.Fallback", do: [{action: "logic.Check", condition: "true", throw: "\"noop\""}], fallback: [{action: "logic.Check", condition: "true", throw: "\"noop\""}]},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1047: flow.History.Get
-// ----------------------------------------------------------------------------
+// flow.History.Get
 RefFlowHistoryGet: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "flow.History.Get", output: "result"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1048: flow.Join
-// ----------------------------------------------------------------------------
+// flow.Join
 RefFlowJoin: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "flow.Join", branches: {a: [{action: "logic.Check", condition: "true", throw: "\"noop\""}], b: [{action: "logic.Check", condition: "true", throw: "\"noop\""}]}},
+		{action: "flow.Join", branches: {company: [{action: "repo.Get", input: "req.CompanyID", output: "company", source: "Company"}], orders: [{action: "repo.List", input: "req.CompanyID", method: "ListByCompany", output: "orders", source: "Order"}]}},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1049: flow.Parallel
-// ----------------------------------------------------------------------------
+// flow.Parallel
 RefFlowParallel: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "flow.Parallel", branches: {a: [{action: "logic.Check", condition: "true", throw: "\"noop\""}], b: [{action: "logic.Check", condition: "true", throw: "\"noop\""}]}},
+		{action: "flow.Parallel", branches: {company: [{action: "repo.Get", input: "req.CompanyID", output: "company", source: "Company"}], orders: [{action: "repo.List", input: "req.CompanyID", method: "ListByCompany", output: "orders", source: "Order"}]}},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1050: flow.RecordEvent
-// ----------------------------------------------------------------------------
+// flow.RecordEvent
 RefFlowRecordEvent: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "flow.RecordEvent", name: "\"sample\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1051: flow.Replay
-// ----------------------------------------------------------------------------
+// flow.Replay
 RefFlowReplay: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "flow.Replay", history: "req.ID"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1052: flow.Resume
-// ----------------------------------------------------------------------------
+// flow.Resume
 RefFlowResume: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "flow.Resume", name: "\"sample\""},
+		{action: "flow.Resume", into: "map[string]any", name: "\"draft\"", output: "draft"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1053: flow.Retry
-// ----------------------------------------------------------------------------
+// flow.Retry
 RefFlowRetry: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "flow.Retry", do: [{action: "logic.Check", condition: "true", throw: "\"noop\""}]},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1054: flow.Schedule
-// ----------------------------------------------------------------------------
+// flow.Return
+RefFlowReturn: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "flow.Return", set: "resp.Status", value: "\"ok\""},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// flow.Schedule
 RefFlowSchedule: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "flow.Schedule", at: "\"sample\""},
+		{action: "flow.Schedule", at: "deadline"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1055: flow.SuggestNext
-// ----------------------------------------------------------------------------
+// flow.SuggestNext
 RefFlowSuggestNext: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "flow.SuggestNext"},
+		{action: "flow.SuggestNext", options: ["\"retry\"", "\"contact support\""], output: "nextSteps"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1056: flow.Switch
-// ----------------------------------------------------------------------------
+// flow.Switch
 RefFlowSwitch: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "flow.Switch", value: "req.Mode", cases: {ok: [{action: "logic.Check", condition: "true", throw: "\"noop\""}], fail: [{action: "logic.Check", condition: "true", throw: "\"noop\""}]}, default: [{action: "logic.Check", condition: "true", throw: "\"noop\""}]},
+		{action: "flow.Switch", cases: {fail: [{action: "logic.Check", condition: "true", throw: "\"noop\""}], ok: [{action: "logic.Check", condition: "true", throw: "\"noop\""}]}, default: [{action: "logic.Check", condition: "true", throw: "\"noop\""}], value: "req.Mode"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1057: flow.Tag
-// ----------------------------------------------------------------------------
+// flow.Tag
 RefFlowTag: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "flow.Tag", name: "\"sample\""},
+		{action: "flow.Tag", name: "\"stage\"", value: "\"validate\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1058: flow.Timeout
-// ----------------------------------------------------------------------------
+// flow.Timeout
 RefFlowTimeout: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "flow.Timeout", duration: "2 * time.Second", do: [{action: "logic.Check", condition: "true", throw: "\"noop\""}], onTimeout: [{action: "logic.Check", condition: "true", throw: "\"noop\""}]},
+		{action: "flow.Timeout", do: [{action: "logic.Check", condition: "true", throw: "\"noop\""}], onTimeout: [{action: "logic.Check", condition: "true", throw: "\"noop\""}], duration: "2 * time.Second"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1059: flow.Try
-// ----------------------------------------------------------------------------
+// flow.Try
 RefFlowTry: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "flow.Try", do: [{action: "logic.Check", condition: "true", throw: "\"noop\""}], catch: [{action: "logic.Check", condition: "true", throw: "\"noop\""}]},
+		{action: "flow.Try", catch: [{action: "logic.Check", condition: "true", throw: "\"noop\""}], do: [{action: "logic.Check", condition: "true", throw: "\"noop\""}]},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1060: flow.Validate
-// ----------------------------------------------------------------------------
+// flow.Validate
 RefFlowValidate: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "flow.Validate", condition: "true"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1061: fs.ReadFile
-// ----------------------------------------------------------------------------
+// flow.While
+RefFlowWhile: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "flow.While", do: [{action: "mapping.Assign", to: "i", value: "i + 1"}], condition: "i < 1"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// fs.ReadFile
 RefFsReadFile: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "fs.ReadFile", output: "result", path: "\"sample\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1062: fs.Remove
-// ----------------------------------------------------------------------------
+// fs.Remove
 RefFsRemove: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "fs.Remove", path: "\"sample\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1063: fs.TempDir
-// ----------------------------------------------------------------------------
+// fs.TempDir
 RefFsTempDir: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "fs.TempDir", output: "result"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1064: fs.WriteFile
-// ----------------------------------------------------------------------------
+// fs.WriteFile
 RefFsWriteFile: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "fs.WriteFile", data: "req.ID", path: "\"sample\""},
+		{action: "fs.WriteFile", data: "\"hello\"", path: "\"/tmp/out.txt\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1065: hash.HMAC
-// ----------------------------------------------------------------------------
-RefHashHMAC: schema.#Operation & {
+// hash.HMAC
+RefHashHmac: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "hash.HMAC", input: "req.ID", key: "req.ID", output: "result"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1066: hash.Sum
-// ----------------------------------------------------------------------------
+// hash.Sum
 RefHashSum: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "hash.Sum", input: "req.ID", output: "result"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1067: http.Call
-// ----------------------------------------------------------------------------
-RefHttpCall: schema.#Operation & {
+// http.Call
+RefHTTPCall: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "http.Call", method: "\"sample\"", url: "\"sample\""},
+		{action: "http.Call", body: "\"{}\"", method: "POST", output: "httpBody", statusVar: "httpStatus", url: "\"https://example.com\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1068: http.Paginate
-// ----------------------------------------------------------------------------
-RefHttpPaginate: schema.#Operation & {
+// http.Paginate
+RefHTTPPaginate: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "http.Paginate", as: "req.ID", cursor_expr: "req.ID", into: "req.ID", url: "\"sample\""},
+		{action: "http.Paginate", as: "page", cursor_expr: "page.NextCursor", into: "PagedResponse", items_expr: "page.Items", output: "items", output_type: "[]Item", url: "\"https://example.com/items\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1069: http.Request
-// ----------------------------------------------------------------------------
-RefHttpRequest: schema.#Operation & {
+// http.Request
+RefHTTPRequest: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "http.Request", method: "\"sample\"", url: "\"sample\""},
+		{action: "http.Request", method: "GET", output: "body", statusVar: "status", url: "\"https://example.com\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1070: http.RetryPolicy
-// ----------------------------------------------------------------------------
-RefHttpRetryPolicy: schema.#Operation & {
+// http.RetryPolicy
+RefHTTPRetryPolicy: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "http.RetryPolicy", method: "\"sample\"", url: "\"sample\""},
+		{action: "http.RetryPolicy", attempts: 3, body: "\"{}\"", method: "POST", output: "body", url: "\"https://example.com\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1071: idem.Check
-// ----------------------------------------------------------------------------
+// http.SOAP
+RefHTTPSoap: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "http.SOAP", into: "VIESResponse", namespace: "\"urn:test\"", operation: "\"CheckVat\"", output: "soapResp", request: {countryCode: "\"DE\"", vatNumber: "req.VAT"}, statusVar: "soapStatus", url: "\"https://example.com/soap\""},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// idem.Check
 RefIdemCheck: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "idem.Check", key: "req.ID"},
+		{action: "idem.Check", key: "idemKey"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1072: idem.DeriveKey
-// ----------------------------------------------------------------------------
+// idem.DeriveKey
 RefIdemDeriveKey: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "idem.DeriveKey", output: "result"},
+		{action: "idem.DeriveKey", from: ["req.UserID", "req.OrderID"], output: "idemKey"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1073: idem.SaveResult
-// ----------------------------------------------------------------------------
+// idem.SaveResult
 RefIdemSaveResult: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "idem.SaveResult", key: "req.ID"},
+		{action: "idem.SaveResult", key: "idemKey", ttl: "24*time.Hour"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1074: idempotency.Check
-// ----------------------------------------------------------------------------
+// idempotency.Check
 RefIdempotencyCheck: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "idempotency.Check", key: "req.ID"},
+		{action: "idempotency.Check", key: "idemKey"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1075: idempotency.DeriveKey
-// ----------------------------------------------------------------------------
+// idempotency.DeriveKey
 RefIdempotencyDeriveKey: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "idempotency.DeriveKey", output: "result"},
+		{action: "idempotency.DeriveKey", from: ["req.UserID", "req.OrderID"], output: "idemKey"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1076: idempotency.SaveResult
-// ----------------------------------------------------------------------------
+// idempotency.SaveResult
 RefIdempotencySaveResult: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "idempotency.SaveResult", key: "req.ID"},
+		{action: "idempotency.SaveResult", key: "idemKey", ttl: "24*time.Hour"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1077: json.Marshal
-// ----------------------------------------------------------------------------
-RefJsonMarshal: schema.#Operation & {
+// json.Marshal
+RefJSONMarshal: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "json.Marshal", input: "req.ID", output: "result"},
+		{action: "json.Marshal", input: "req.Payload", output: "rawJSON"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1078: json.Parse
-// ----------------------------------------------------------------------------
-RefJsonParse: schema.#Operation & {
+// json.Parse
+RefJSONParse: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "json.Parse", input: "req.ID", into: "req.ID", output: "result"},
+		{action: "json.Parse", input: "req.Raw", into: "map[string]any", output: "parsed"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1079: jsonpath.Get
-// ----------------------------------------------------------------------------
+// json.Stringify
+RefJSONStringify: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "json.Stringify", input: "resp", output: "raw"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// jsonpath.Get
 RefJsonpathGet: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "jsonpath.Get", input: "req.ID", output: "result", path: "\"sample\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1080: jsonpath.Set
-// ----------------------------------------------------------------------------
+// jsonpath.Set
 RefJsonpathSet: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "jsonpath.Set", input: "req.ID", output: "result", path: "\"sample\"", value: "req.ID"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1081: jwt.Sign
-// ----------------------------------------------------------------------------
-RefJwtSign: schema.#Operation & {
+// jwt.Sign
+RefJWTSign: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "jwt.Sign", claims: "req.ID", output: "result"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1082: jwt.Verify
-// ----------------------------------------------------------------------------
-RefJwtVerify: schema.#Operation & {
+// jwt.Verify
+RefJWTVerify: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "jwt.Verify", output: "result", token: "req.ID"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1083: list.Append
-// ----------------------------------------------------------------------------
+// list.All
+RefListAll: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "list.All", as: "item", condition: "item.Active", from: "items", output: "allActive"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// list.Any
+RefListAny: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "list.Any", as: "item", condition: "item.Active", from: "items", output: "hasActive"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// list.Append
 RefListAppend: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "list.Append", item: "req.ID", to: "\"sample\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1084: list.Chunk
-// ----------------------------------------------------------------------------
-RefListChunk: schema.#Operation & {
+// list.Avg
+RefListAvg: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "list.Chunk", from: "req.ID", output: "result"},
+		{action: "list.Avg", field: "Price", input: "items", output: "avgPrice"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1085: list.Distinct
-// ----------------------------------------------------------------------------
+// list.Chunk
+RefListChunk: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "list.Chunk", from: "items", output: "batches", size: 100},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// list.Distinct
 RefListDistinct: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "list.Distinct", from: "req.ID", output: "result"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1086: list.Enrich
-// ----------------------------------------------------------------------------
+// list.Enrich
 RefListEnrich: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "list.Enrich", items: "req.ID", lookupInput: "req.ID", lookupSource: "req.ID", set: "req.ID"},
+		{action: "list.Enrich", items: "items", lookupInput: "_item.UserID", lookupSource: "User", set: "AuthorName=Name"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1087: list.Filter
-// ----------------------------------------------------------------------------
+// list.Filter
 RefListFilter: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "list.Filter", condition: "true", from: "req.ID", output: "result"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1088: list.GroupBy
-// ----------------------------------------------------------------------------
+// list.Find
+RefListFind: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "list.Find", as: "item", condition: "item.ID == req.ID", found: "matchFound", from: "items", into: "Item", output: "match"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// list.GroupBy
 RefListGroupBy: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "list.GroupBy", from: "req.ID", key: "req.ID", output: "result"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1089: list.Map
-// ----------------------------------------------------------------------------
+// list.Len
+RefListLen: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "list.Len", input: "items", output: "itemCount"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// list.Map
 RefListMap: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "list.Map", expr: "req.ID", from: "req.ID", output: "result"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1090: list.Paginate
-// ----------------------------------------------------------------------------
+// list.New
+RefListNew: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "list.New", cap: "16", output: "ids", type: "[]string"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// list.Paginate
 RefListPaginate: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "list.Paginate", input: "req.ID", limit: "req.ID", offset: "req.ID", output: "result"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1091: list.Reduce
-// ----------------------------------------------------------------------------
+// list.Reduce
 RefListReduce: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "list.Reduce", expr: "req.ID", from: "req.ID", output: "result"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1092: list.Sort
-// ----------------------------------------------------------------------------
+// list.Sort
 RefListSort: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "list.Sort", by: "req.ID", items: "req.ID"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1093: log.Emit
-// ----------------------------------------------------------------------------
+// list.Sum
+RefListSum: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "list.Sum", input: "nums", output: "total"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// locale.Resolve
+RefLocaleResolve: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "locale.Resolve", default: "\"en\"", output: "locale", sources: "req.Locale, user.Locale"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// log.Emit
 RefLogEmit: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "log.Emit", message: "\"sample\""},
+		{action: "log.Emit", level: "\"info\"", message: "\"created project\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1094: mail.Send
-// ----------------------------------------------------------------------------
-RefMailSend: schema.#Operation & {
-	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "mail.Send", body: "req.ID", subject: "\"sample\"", to: "\"sample\""},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1095: map.Build
-// ----------------------------------------------------------------------------
+// map.Build
 RefMapBuild: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "map.Build", from: "req.ID", key: "req.ID", output: "result", value: "req.ID"},
+		{action: "map.Build", as: "item", from: "items", key: "item.ID", output: "byID", value: "item.Name", valueType: "string"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1096: math.Op
-// ----------------------------------------------------------------------------
+// map.Get
+RefMapGet: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "map.Get", default: "\"unknown\"", found: "ok", input: "byID", into: "string", key: "req.ID", output: "name"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// map.Has
+RefMapHas: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "map.Has", input: "byID", key: "req.ID", output: "exists"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// map.Merge
+RefMapMerge: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "map.Merge", left: "baseLabels", output: "mergedLabels", right: "extraLabels"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// map.New
+RefMapNew: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "map.New", output: "labels", type: "map[string]string"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// map.Set
+RefMapSet: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "map.Set", input: "labels", key: "\"status\"", output: "nextLabels", value: "\"ready\""},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// math.Op
 RefMathOp: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "math.Op", op: "req.ID", output: "result"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1097: metric.Emit
-// ----------------------------------------------------------------------------
+// metric.Emit
 RefMetricEmit: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "metric.Emit", name: "\"sample\""},
+		{action: "metric.Emit", kind: "\"counter\"", name: "\"project.created\"", value: "1"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1098: notification.Dispatch
-// ----------------------------------------------------------------------------
+// model.Resolve
+RefModelResolve: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "model.Resolve", name: "\"Cheap\"", output: "result"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// mutex.With
+RefMutexWith: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "mutex.With", do: [{action: "log.Emit", message: "\"inside lock\""}], key: "\"jobs:sync\"", poll: "25 * time.Millisecond", wait: "2 * time.Second"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// notification.Dispatch
 RefNotificationDispatch: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "notification.Dispatch"},
+		{action: "notification.Dispatch", event: "\"invite.sent\"", payload: "req", userID: "req.UserID"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1099: notify.Dispatch
-// ----------------------------------------------------------------------------
+// notify.Dispatch
 RefNotifyDispatch: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "notify.Dispatch"},
+		{action: "notify.Dispatch", entityID: "order.ID", event: "\"order.shipped\"", payload: "order", userID: "order.UserID"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1100: oauth2.Refresh
-// ----------------------------------------------------------------------------
+// notify.Email
+RefNotifyEmail: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "notify.Email", output: "notificationID", text: "\"Hello\"", to: "req.Email"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// notify.Send
+RefNotifySend: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "notify.Send", channel: "\"email\"", text: "\"Approval timeout: fallback executed\"", to: "\"ops@company.com\""},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// num.Add
+RefNumAdd: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "num.Add", a: "req.A", b: "req.B", output: "sum"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// num.Div
+RefNumDiv: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "num.Div", a: "req.A", b: "req.B", output: "ratio"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// num.Mul
+RefNumMul: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "num.Mul", a: "req.A", b: "req.B", output: "prod"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// num.Sub
+RefNumSub: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "num.Sub", a: "req.A", b: "req.B", output: "diff"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// oauth.Google.Exchange
+RefOauthGoogleExchange: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "oauth.Google.Exchange", clientID: "cfg.GoogleClientID", clientSecret: "cfg.GoogleClientSecret", code: "req.Code", output: "googleToken", redirectURL: "cfg.GoogleRedirectURL"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// oauth.Google.GetURL
+RefOauthGoogleGetURL: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "oauth.Google.GetURL", clientID: "cfg.GoogleClientID", output: "authURL", redirectURL: "cfg.GoogleRedirectURL", state: "req.State"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// oauth.Google.UserInfo
+RefOauthGoogleUserInfo: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "oauth.Google.UserInfo", output: "googleUser", token: "googleToken"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// oauth2.Refresh
 RefOauth2Refresh: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "oauth2.Refresh", output: "result", refreshToken: "req.ID", tokenURL: "req.ID"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1101: oauth2.Token
-// ----------------------------------------------------------------------------
+// oauth2.Token
 RefOauth2Token: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "oauth2.Token", output: "result", tokenURL: "req.ID"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1102: parallel.Run
-// ----------------------------------------------------------------------------
+// openai.Chat
+RefOpenaiChat: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "openai.Chat", max_rounds: 4, output: "reply", output_tool_calls: "toolCalls", output_usage: "usage", tool_choice: "\"auto\"", tools: ["LookupPost"], user_message: "req.Message"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// openai.Embed
+RefOpenaiEmbed: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "openai.Embed", dimensions: 256, input: "req.Query", output: "embedding", output_usage: "usage"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// openai.Stream
+RefOpenaiStream: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "openai.Stream", output: "reply", user_message: "req.ID"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// parallel.Run
 RefParallelRun: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "parallel.Run", branches: {a: [{action: "logic.Check", condition: "true", throw: "\"noop\""}], b: [{action: "logic.Check", condition: "true", throw: "\"noop\""}]}},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1103: pdf.Render
-// ----------------------------------------------------------------------------
+// path.Base
+RefPathBase: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "path.Base", input: "trimmed", output: "base"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// pdf.Render
 RefPdfRender: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "pdf.Render", data: "req.ID", output: "result", template: "\"sample\""},
+		{action: "pdf.Render", data: "req.ReportData", output: "pdfBytes", template: "\"t\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1104: policy.Decide
-// ----------------------------------------------------------------------------
+// plan.BuildAutomata
+RefPlanBuildAutomata: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "plan.BuildAutomata", input: "usecasesDoc", output: "automataDoc"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// plan.BuildMicroPlan
+RefPlanBuildMicroPlan: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "plan.BuildMicroPlan", automata: "automataDoc", output: "microPlanDoc", usecases: "usecasesDoc"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// policy.Check
+RefPolicyCheck: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "policy.Check", policyAllowAdminOverride: true, policyResolved: true, policyRoles: ["owner", "admin"], policySameCompany: true, companyID: "req.CompanyID", policy: "\"CompanyAdminOnly\"", user: "currentUser"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// policy.Decide
 RefPolicyDecide: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "policy.Decide", output: "result", policyKey: "req.ID"},
+		{action: "policy.Decide", operation: "\"create\"", output: "decisionObj", policyKey: "\"project.create\"", subject: "req.UserID"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1105: policy.Evaluate
-// ----------------------------------------------------------------------------
+// policy.Evaluate
 RefPolicyEvaluate: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "policy.Evaluate", policyKey: "req.ID"},
+		{action: "policy.Evaluate", decision: "policyDecision", effects: "policyEffects", operation: "\"create\"", output: "policyResult", policyKey: "\"project.create\"", reason: "policyReason", subject: "req.UserID"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1106: policy.Require
-// ----------------------------------------------------------------------------
+// policy.Require
 RefPolicyRequire: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "policy.Require", policyKey: "req.ID"},
+		{action: "policy.Require", operation: "\"create\"", policyKey: "\"project.create\"", subject: "req.UserID", throw: "\"forbidden\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1107: query.Decode
-// ----------------------------------------------------------------------------
+// profile.Require
+RefProfileRequire: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "profile.Require", key: "req.UserID", tier: "\"ops\""},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// query.Decode
 RefQueryDecode: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "query.Decode", input: "req.ID", output: "result"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1108: query.Encode
-// ----------------------------------------------------------------------------
+// query.Encode
 RefQueryEncode: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "query.Encode", input: "req.ID", output: "result"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1109: queue.Ack
-// ----------------------------------------------------------------------------
+// queue.Ack
 RefQueueAck: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "queue.Ack", messageID: "req.ID", subject: "\"sample\""},
+		{action: "queue.Ack", messageID: "msgID", subject: "\"events.test\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1110: queue.Dequeue
-// ----------------------------------------------------------------------------
+// queue.Dequeue
 RefQueueDequeue: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "queue.Dequeue", output: "result", subject: "\"sample\""},
+		{action: "queue.Dequeue", ackToken: "msgID", attempts: 3, backoffMs: 50, jitterMs: 10, output: "msg", subject: "\"events.test\"", timeout: "2*time.Second"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1111: queue.Enqueue
-// ----------------------------------------------------------------------------
+// queue.Enqueue
 RefQueueEnqueue: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "queue.Enqueue", payload: "req.ID", subject: "\"sample\""},
+		{action: "queue.Enqueue", payload: "req.Payload", subject: "\"events.test\"", timeout: "2*time.Second"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1112: queue.Nack
-// ----------------------------------------------------------------------------
+// queue.Nack
 RefQueueNack: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "queue.Nack", messageID: "req.ID", subject: "\"sample\""},
+		{action: "queue.Nack", messageID: "msgID", reason: "\"decode failed\"", subject: "\"events.test\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1113: rand.Code
-// ----------------------------------------------------------------------------
+// quota.Check
+RefQuotaCheck: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "quota.Check", key: "req.UserID", limit: 100, window: "\"day\""},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// rand.Code
 RefRandCode: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "rand.Code", output: "result"},
+		{action: "rand.Code", length: 6, output: "otp"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1114: rand.Token
-// ----------------------------------------------------------------------------
+// rand.Token
 RefRandToken: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "rand.Token", output: "result"},
+		{action: "rand.Token", bytes: 16, output: "token"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1115: ratelimit.Check
-// ----------------------------------------------------------------------------
-RefRatelimitCheck: schema.#Operation & {
-	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "ratelimit.Check", key: "req.ID"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1116: ratelimit.Limit
-// ----------------------------------------------------------------------------
+// ratelimit.Limit
 RefRatelimitLimit: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "ratelimit.Limit", key: "req.ID"},
+		{action: "ratelimit.Limit", key: "req.UserID", rps: 20},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1117: rbac.CheckPermission
-// ----------------------------------------------------------------------------
+// rbac.CheckPermission
 RefRbacCheckPermission: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "rbac.CheckPermission", permission: "req.ID", user: "req.ID"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1118: regex.Match
-// ----------------------------------------------------------------------------
+// regex.Match
 RefRegexMatch: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "regex.Match", input: "req.ID", output: "result", pattern: "req.ID"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1119: regex.Replace
-// ----------------------------------------------------------------------------
+// regex.Replace
 RefRegexReplace: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "regex.Replace", input: "req.ID", output: "result", pattern: "req.ID", repl: "req.ID"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1120: repo.GetForUpdate
-// ----------------------------------------------------------------------------
+// repo.Count
+RefRepoCount: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "repo.Count", input: "req.AuthorID", method: "CountByAuthorID", output: "count", source: "Post"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// repo.Exists
+RefRepoExists: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "repo.Exists", input: "req.Email", method: "ExistsByEmail", output: "exists", source: "User"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// repo.Get
+RefRepoGet: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "repo.Get", input: "req.ID", output: "item", source: "Tender"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// repo.GetForUpdate
 RefRepoGetForUpdate: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "repo.GetForUpdate"},
+		{action: "repo.GetForUpdate", error: "order not found", input: "req.ID", output: "order", source: "Order"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1121: repo.Upsert
-// ----------------------------------------------------------------------------
+// repo.Upsert
 RefRepoUpsert: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "repo.Upsert", find: "req.ID", input: "req.ID", output: "result", source: "req.ID", ifNew: [{action: "logic.Check", condition: "true", throw: "\"noop\""}], ifExists: [{action: "logic.Check", condition: "true", throw: "\"noop\""}]},
+		{action: "repo.Upsert", ifNew: [{action: "flow.SuggestNext", options: ["created"]}], find: "req.ID", input: "reqUser", output: "user", source: "User"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1122: secret.Get
-// ----------------------------------------------------------------------------
+// secret.Get
 RefSecretGet: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "secret.Get", key: "req.ID", output: "result"},
+		{action: "secret.Get", key: "\"SMTP_PASSWORD\"", output: "smtpPassword"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1123: session.Get
-// ----------------------------------------------------------------------------
+// service.Call
+RefServiceCall: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "service.Call", args: ["missingRequest"], method: "Get", output: "profile", service: "Profile"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// session.Get
 RefSessionGet: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "session.Get", output: "result"},
+		{action: "session.Get", output: "sessionID"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1124: slo.Budget
-// ----------------------------------------------------------------------------
-RefStreamEmit: schema.#Operation & {
-	service: "reference"
-	stream:  true
-	input: { id: string }
-	output: {}
-	flow: [
-		{action: "stream.Emit", data: "\"{\\\"type\\\":\\\"stage\\\"}\""},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1125: slo.Budget
-// ----------------------------------------------------------------------------
+// slo.Budget
 RefSloBudget: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "slo.Budget", duration: "5 * time.Second", do: [{action: "logic.Check", condition: "true", throw: "\"noop\""}]},
+		{action: "slo.Budget", do: [{action: "logic.Check", condition: "true", throw: "ok"}], duration: "2*time.Second", name: "\"build\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1125: state.Delete
-// ----------------------------------------------------------------------------
+// state.Delete
 RefStateDelete: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "state.Delete", key: "req.ID"},
+		{action: "state.Delete", key: "\"draft:1\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1126: state.Get
-// ----------------------------------------------------------------------------
+// state.Get
 RefStateGet: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "state.Get", key: "req.ID", output: "result"},
+		{action: "state.Get", default: "map[string]any{}", into: "map[string]any", key: "\"draft:1\"", output: "result"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1127: state.Set
-// ----------------------------------------------------------------------------
+// state.Set
 RefStateSet: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "state.Set", key: "req.ID", value: "req.ID"},
+		{action: "state.Set", key: "\"draft:1\"", ttl: "time.Minute", value: "req"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1128: storage.Delete
-// ----------------------------------------------------------------------------
+// storage.Delete
 RefStorageDelete: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "storage.Delete", key: "req.ID"},
+		{action: "storage.Delete", key: "\"path/file\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1129: storage.Download
-// ----------------------------------------------------------------------------
+// storage.Download
 RefStorageDownload: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "storage.Download", key: "req.ID", output: "result"},
+		{action: "storage.Download", key: "\"path/file\"", output: "blob"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1130: storage.GetURL
-// ----------------------------------------------------------------------------
+// storage.GetURL
 RefStorageGetURL: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "storage.GetURL", key: "req.ID", output: "result"},
+		{action: "storage.GetURL", key: "\"path/file\"", output: "publicURL"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1131: storage.List
-// ----------------------------------------------------------------------------
+// storage.List
 RefStorageList: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "storage.List", output: "result", prefix: "req.ID"},
+		{action: "storage.List", output: "keys", prefix: "\"path/\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1132: str.Format
-// ----------------------------------------------------------------------------
+// str.Concat
+RefStrConcat: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "str.Concat", output: "line", parts: ["\"id=\"", "req.ID"]},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// str.Format
 RefStrFormat: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "str.Format", output: "result", template: "\"sample\""},
+		{action: "str.Format", args: ["req.UserID", "req.CompanyID"], output: "resp.RedirectURL", template: "\"u:%s/%s\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1132b: str.ReplaceAll / str.TrimSpace / path.Base
-// ----------------------------------------------------------------------------
-RefStrPathHelpers: schema.#Operation & {
-	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "str.ReplaceAll", input: "req.ID", old: "\"\\\\\"", new: "\"/\"", output: "norm"},
-		{action: "str.TrimSpace", input: "norm", output: "trimmed"},
-		{action: "path.Base", input: "trimmed", output: "base"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1133: str.Normalize
-// ----------------------------------------------------------------------------
+// str.Normalize
 RefStrNormalize: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "str.Normalize", input: "req.ID", output: "result"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1134: time.CheckExpiry
-// ----------------------------------------------------------------------------
+// str.ReplaceAll
+RefStrReplaceAll: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "str.ReplaceAll", input: "req.Path", new: "\"/\"", old: "\"\\\\\"", output: "normPath"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// str.StripMarkdown
+RefStrStripMarkdown: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "str.StripMarkdown", input: "req.Content", output: "plain"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// str.TrimSpace
+RefStrTrimSpace: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "str.TrimSpace", input: "req.Name", output: "trimName"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// stream.Emit
+RefStreamEmit: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "stream.Emit", data: "\"{\\\"type\\\":\\\"stage\\\"}\""},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// template.Render
+RefTemplateRender: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "template.Render", data: "map[string]any{\"Name\": req.Name}", output: "body", template: "\"Hello {{.Name}}\""},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// time.Add
+RefTimeAdd: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "time.Add", duration: "15*time.Minute", input: "expiresAt", output: "extendedAt"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// time.CheckExpiry
 RefTimeCheckExpiry: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "time.CheckExpiry", throw: "\"sample\"", value: "req.ID"},
+		{action: "time.CheckExpiry", throw: "\"expired\"", value: "req.ExpiresAt"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1135: trace.Span
-// ----------------------------------------------------------------------------
+// time.Diff
+RefTimeDiff: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "time.Diff", from: "issuedAt", output: "ttlMinutes", to: "expiresAt", unit: "minutes"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// time.Format
+RefTimeFormat: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "time.Format", input: "createdAt", output: "formatted", zero: "empty"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// time.InZone
+RefTimeInZone: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "time.InZone", input: "order.CreatedAt", output: "createdLocal", timezone: "\"Europe/Berlin\""},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// time.Now
+RefTimeNow: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "time.Now", output: "now"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// time.Sub
+RefTimeSub: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "time.Sub", a: "expiresAt", b: "issuedAt", output: "ttl"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// token.Generate
+RefTokenGenerate: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "token.Generate", claims: "map[string]any{\"email\": user.Email}", output: "token", purpose: "\"verify_email\"", secret: "\"secret\"", subject: "user.ID", ttl: "\"30m\""},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// token.Verify
+RefTokenVerify: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "token.Verify", output: "claims", purpose: "\"verify_email\"", secret: "\"secret\"", token: "req.Token"},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// trace.Span
 RefTraceSpan: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "trace.Span", name: "\"sample\"", do: [{action: "logic.Check", condition: "true", throw: "\"noop\""}]},
+		{action: "trace.Span", do: [{action: "logic.Check", condition: "true", throw: "ok"}], name: "\"BuildProject\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1136: ulid.New
-// ----------------------------------------------------------------------------
+// ulid.New
 RefUlidNew: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "ulid.New", output: "result"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1137: url.Build
-// ----------------------------------------------------------------------------
-RefUrlBuild: schema.#Operation & {
+// url.Build
+RefURLBuild: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "url.Build", base: "\"sample\"", output: "result"},
+		{action: "url.Build", base: "\"https://example.com/base\"", output: "link", segments: ["\"verify\"", "req.Token"]},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1138: url.Parse
-// ----------------------------------------------------------------------------
-RefUrlParse: schema.#Operation & {
+// url.Parse
+RefURLParse: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
 		{action: "url.Parse", input: "req.ID", output: "result"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1139: uuid.New
-// ----------------------------------------------------------------------------
-RefUuidNew: schema.#Operation & {
+// uuid.New
+RefUUIDNew: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "uuid.New", output: "result"},
+		{action: "uuid.New", output: "id"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1140: webhook.Ack
-// ----------------------------------------------------------------------------
+// value.Coalesce
+RefValueCoalesce: schema.#Operation & {
+	service: "reference"
+	input: {id: string}
+	output: {ok: bool}
+	flow: [
+		{action: "value.Coalesce", into: "string", output: "displayName", values: ["req.DisplayName", "req.Email", "\"anonymous\""]},
+		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+	]
+}
+
+// webhook.Ack
 RefWebhookAck: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "webhook.Ack"},
+		{action: "webhook.Ack", body: "\"accepted\"", status: 202},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1141: webhook.Send
-// ----------------------------------------------------------------------------
+// webhook.Send
 RefWebhookSend: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "webhook.Send", payload: "req.ID", url: "\"sample\""},
+		{action: "webhook.Send", event: "\"evt\"", payload: "req.Payload", url: "\"https://hook.example\""},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 1142: webhook.VerifySignature
-// ----------------------------------------------------------------------------
+// webhook.VerifySignature
 RefWebhookVerifySignature: schema.#Operation & {
 	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
+	input: {id: string}
+	output: {ok: bool}
 	flow: [
-		{action: "webhook.VerifySignature", payload: "req.ID", signature: "req.ID"},
+		{action: "webhook.VerifySignature", output: "sigOK", payload: "req.Body", signature: "req.Signature"},
 		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2000: policy.Check
-// ----------------------------------------------------------------------------
-RefPolicyCheck: schema.#Operation & {
-	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "policy.Check", policy: "\"CompanyAdminOnly\"", user: "currentUser", companyID: "req.CompanyID", output: "policyOK"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2001: service.Call
-// ----------------------------------------------------------------------------
-RefServiceCall: schema.#Operation & {
-	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "service.Call", service: "company", method: "GetCompany", args: ["ctx", "req.ID"], output: "company"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2002: time.Now
-// ----------------------------------------------------------------------------
-RefTimeNow: schema.#Operation & {
-	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "time.Now", output: "now"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2003: time.Format
-// ----------------------------------------------------------------------------
-RefTimeFormat: schema.#Operation & {
-	service: "reference"
-	input: { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "time.Now", output: "now"},
-		{action: "time.Format", input: "now", output: "nowRFC3339", format: "time.RFC3339"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2004: list.Len
-// ----------------------------------------------------------------------------
-RefListLen: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "list.New", output: "items", type: "[]string"},
-		{action: "list.Len", input: "items", output: "count"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2005: list.New
-// ----------------------------------------------------------------------------
-RefListNew: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "list.New", output: "items", type: "[]string"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2006: map.New
-// ----------------------------------------------------------------------------
-RefMapNew: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "map.New", output: "bag", type: "map[string]string"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2007: str.Concat
-// ----------------------------------------------------------------------------
-RefStrConcat: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "str.Concat", parts: ["\"id=\"", "req.ID"], output: "line"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2008: cast.ToString
-// ----------------------------------------------------------------------------
-RefCastToString: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "cast.ToString", input: "req.ID", output: "s"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2009: num.Add/num.Sub/num.Mul/num.Div
-// ----------------------------------------------------------------------------
-RefNumOps: schema.#Operation & {
-	service: "reference"
-	input: {
-		a: int
-		b: int
-	}
-	output: { ok: bool }
-	flow: [
-		{action: "num.Add", a: "req.A", b: "req.B", output: "sum"},
-		{action: "num.Sub", a: "req.A", b: "req.B", output: "diff"},
-		{action: "num.Mul", a: "req.A", b: "req.B", output: "prod"},
-		{action: "num.Div", a: "req.A", b: "req.B", output: "ratio"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2010: flow.While
-// ----------------------------------------------------------------------------
-RefFlowWhile: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "mapping.Assign", to: "i", declare: true, value: "0"},
-		{action: "flow.While", condition: "i < 1", do: [
-			{action: "mapping.Assign", to: "i", value: "i + 1"},
-		]},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2011: repo.Get
-// ----------------------------------------------------------------------------
-RefRepoGet: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "repo.Get", source: "Tender", input: "req.ID", output: "item"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "item != nil"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2012: quota.Check
-// ----------------------------------------------------------------------------
-RefQuotaCheck: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "quota.Check", key: "req.ID", limit: 100, window: "day"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2013: budget.Check
-// ----------------------------------------------------------------------------
-RefBudgetCheck: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "budget.Check", key: "req.ID", limit: 10000},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2014: budget.Consume
-// ----------------------------------------------------------------------------
-RefBudgetConsume: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "budget.Consume", key: "req.ID", tokens: "5"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2015: context.Trim
-// ----------------------------------------------------------------------------
-RefContextTrim: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "context.Trim", input: "\"line1\\nline2\\nline3\\n\"", output: "trimmed", max_bytes: 8},
-		{action: "mapping.Assign", to: "resp.Ok", value: "len(trimmed) > 0"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2016: profile.Require
-// ----------------------------------------------------------------------------
-RefProfileRequire: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "profile.Require", key: "req.ID", tier: "ops"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2017: claude.Chat
-// ----------------------------------------------------------------------------
-RefClaudeChat: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "claude.Chat", user_message: "req.ID", output: "reply"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "len(reply) >= 0"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2018: openai.Chat
-// ----------------------------------------------------------------------------
-RefOpenAIChat: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "openai.Chat", user_message: "req.ID", output: "reply"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "len(reply) >= 0"},
-	]
-}
-
-RefOpenAIChatWithTools: schema.#Operation & {
-	service: "reference"
-	input: {
-		message: string
-	}
-	output: {
-		ok: bool
-	}
-	flow: [
-		{action: "openai.Chat", user_message: "req.Message", tools: ["LookupPost"], tool_choice: "\"auto\"", max_rounds: 4, output: "reply", output_usage: "usage", output_tool_calls: "toolCalls"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "reply.TotalTokens >= 0"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2018b: openai.Stream
-// ----------------------------------------------------------------------------
-RefOpenAIStream: schema.#Operation & {
-	service: "reference"
-	stream:  true
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "openai.Stream", user_message: "req.ID", output: "reply"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "len(reply) >= 0"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2019: flow.Defer
-// ----------------------------------------------------------------------------
-RefFlowDefer: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "mapping.Assign", to: "workDir", declare: true, value: "\"\""},
-		{action: "flow.Defer", do: [
-			{action: "fs.Remove", path: "workDir"},
-		]},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2020: str.StripMarkdown
-// ----------------------------------------------------------------------------
-RefStrStripMarkdown: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "str.StripMarkdown", input: "\"```cue\\nfoo: 1\\n```\"", output: "plain"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "len(plain) > 0"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2021: list.Sum
-// ----------------------------------------------------------------------------
-RefListSum: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "mapping.Assign", to: "nums", value: "[]int{1, 2, 3}"},
-		{action: "list.Sum", input: "nums", output: "total"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "total == 6"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2022: list.Avg
-// ----------------------------------------------------------------------------
-RefListAvg: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "mapping.Assign", to: "nums", value: "[]int{2, 4, 6}"},
-		{action: "list.Avg", input: "nums", output: "avg"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "avg > 0"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2023: flow.Return
-// ----------------------------------------------------------------------------
-RefFlowReturn: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "flow.Return", set: "resp.Ok", value: "true"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2024: convert.ToFloat
-// ----------------------------------------------------------------------------
-RefConvertToFloat: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "convert.ToFloat", input: "\"3.14\"", output: "flt"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "flt > 0"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2025: convert.ToInt
-// ----------------------------------------------------------------------------
-RefConvertToInt: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "convert.ToInt", input: "\"42\"", output: "num"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "num > 0"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2026: plan.BuildAutomata
-// ----------------------------------------------------------------------------
-RefPlanBuildAutomata: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "plan.BuildAutomata", input: "req.ID", output: "automata"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "automata != nil"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2027: plan.BuildMicroPlan
-// ----------------------------------------------------------------------------
-RefPlanBuildMicroPlan: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "plan.BuildMicroPlan", usecases: "req.ID", automata: "req.ID", output: "microPlan"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "microPlan != nil"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2028: cue.EmitProject
-// ----------------------------------------------------------------------------
-RefCueEmitProject: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "cue.EmitProject", usecases: "req.ID", micro_plan: "req.ID", output: "projectFiles"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "projectFiles != nil"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2029: cue.ValidateProject
-// ----------------------------------------------------------------------------
-RefCueValidateProject: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "cue.ValidateProject", files: "req.ID", output: "validation"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "validation != nil"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2030: cue.WriteProjectFiles
-// ----------------------------------------------------------------------------
-RefCueWriteProjectFiles: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "cue.WriteProjectFiles", root: "\"/tmp/project\"", files: "req.ID", output: "writeResult"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "writeResult != nil"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2031: errors.New
-// ----------------------------------------------------------------------------
-RefErrorsNew: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "errors.New", message: "\"boom\"", status: 404, code: "\"NOT_FOUND\"", output: "errObj"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "errObj != nil"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2032: token.Generate
-// ----------------------------------------------------------------------------
-RefTokenGenerate: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "token.Generate", subject: "req.ID", purpose: "\"verify_email\"", ttl: "\"30m\"", output: "token"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "token != \"\""},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2033: token.Verify
-// ----------------------------------------------------------------------------
-RefTokenVerify: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "token.Verify", token: "req.ID", purpose: "\"verify_email\"", output: "claims"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "claims != nil"},
-	]
-}
-
-// ----------------------------------------------------------------------------
-// REF EXAMPLE 2034: mutex.With
-// ----------------------------------------------------------------------------
-RefMutexWith: schema.#Operation & {
-	service: "reference"
-	input:  { id: string }
-	output: { ok: bool }
-	flow: [
-		{action: "mutex.With", key: "\"jobs:sync\"", do: [
-			{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-		]},
 	]
 }
