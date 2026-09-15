@@ -13,6 +13,10 @@ import (
 	cueparser "cuelang.org/go/cue/parser"
 )
 
+// maxFmtPasses bounds the repeat-until-stable loop in formatCueTreeWith; on
+// dealingi-back two passes were needed and the third changed nothing.
+const maxFmtPasses = 4
+
 type fmtResult struct {
 	FilesScanned        int              `json:"files_scanned"`
 	FilesChanged        int              `json:"files_changed"`
@@ -112,20 +116,34 @@ func formatCueTreeWith(root string, checkOnly, goOnly bool) (fmtResult, error) {
 			return fmtResult{}, readErr
 		}
 		src := string(raw)
-		input := src
-		if !goOnly {
-			input, _ = rewriteCueActionAliases(src, rules)
+		// One pass is not always enough: cue fmt can re-indent a string so
+		// that Go it skipped for its line count becomes formattable. Repeat
+		// until nothing changes, so ang fmt --check passes right after ang fmt.
+		formatted := []byte(src)
+		var goChanged int
+		var goSkipped []embeddedGoSkip
+		for pass := 0; pass < maxFmtPasses; pass++ {
+			input := string(formatted)
+			if !goOnly {
+				input, _ = rewriteCueActionAliases(input, rules)
+			}
+			passResult, changed, skipped := formatEmbeddedGo(file, []byte(input))
+			goChanged += changed
+			goSkipped = skipped
+			if !goOnly {
+				var fmtErr error
+				passResult, fmtErr = cueFmtBuffer(passResult)
+				if fmtErr != nil {
+					return fmtResult{}, fmt.Errorf("cue fmt %s: %w", file, fmtErr)
+				}
+			}
+			if bytes.Equal(passResult, formatted) {
+				break
+			}
+			formatted = passResult
 		}
-		formatted, goChanged, goSkipped := formatEmbeddedGo(file, []byte(input))
 		res.EmbeddedGoFormatted += goChanged
 		res.EmbeddedGoSkipped = append(res.EmbeddedGoSkipped, goSkipped...)
-		if !goOnly {
-			var fmtErr error
-			formatted, fmtErr = cueFmtBuffer(formatted)
-			if fmtErr != nil {
-				return fmtResult{}, fmt.Errorf("cue fmt %s: %w", file, fmtErr)
-			}
-		}
 		next := string(formatted)
 		if next == src {
 			continue
