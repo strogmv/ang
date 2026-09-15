@@ -119,7 +119,9 @@ export const use{{ $ep.RPC }} = (params?: Types.{{ $ep.RPC }}Request, options?: 
         queryKey: {{ $listPref }},
       });
       for (const [, listData] of cachedLists) {
-        const found = (listData as { data?: Record<string, unknown>[] } | undefined)?.data?.find(
+        // The list and detail responses are different types; look the item up
+        // structurally, through unknown, since TypeScript cannot relate them.
+        const found = (listData as unknown as { data?: Record<string, unknown>[] } | undefined)?.data?.find(
           (item: Record<string, unknown>) => item['{{ QueryOptionsDetailParam $ep.RPC }}'] === id,
         );
         if (found) return { data: found } as unknown as Types.{{ $ep.RPC }}Response;

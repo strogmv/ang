@@ -1202,6 +1202,34 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		// descriptions are user-authored CUE text and may contain apostrophes,
 		// quotes or line breaks, so templates must never interpolate them inside
 		// handwritten quote delimiters.
+		// RequestParam declares an endpoint's params argument. A request whose
+		// every field is optional defaults to {} (no cast needed); one with a
+		// required field has no default, so a call without it does not compile.
+		"RequestParam": func(rpc string) string {
+			decl := "params: Types." + rpc + "Request"
+			if frontendRequestAllOptional(servicesNorm, rpc) {
+				return decl + " = {}"
+			}
+			return decl
+		},
+		// EmptyRequest is an omitted params object: {} when the request has no
+		// required field; otherwise the old explicit cast remains, so existing
+		// callers keep compiling until their call sites pass the fields.
+		"EmptyRequest": func(rpc string) string {
+			if frontendRequestAllOptional(servicesNorm, rpc) {
+				return "{}"
+			}
+			return "{} as Types." + rpc + "Request"
+		},
+		// RequestAllOptional: a request a caller may send without any field.
+		"RequestAllOptional": func(rpc string) bool {
+			return frontendRequestAllOptional(servicesNorm, rpc)
+		},
+		// PageListField names the array field of a paginated response (data
+		// when present); "" when the response has no list to page through.
+		"PageListField": func(rpc string) string {
+			return frontendPageListField(servicesNorm, rpc)
+		},
 		"TSString":   strconv.Quote,
 		"TrimSpace":  strings.TrimSpace,
 		"ToLower":    strings.ToLower,

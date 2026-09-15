@@ -104,7 +104,7 @@ const parseSSEEvent = (rawEvent: string): { event: string; data: string } | null
 {{- $argList := PathArgNames .Path }}
 {{- if eq .Method "WS" }}
 export const {{ LowerFirst .RPC }}Url = (
-  params: Types.{{ .RPC }}Request = {} as Types.{{ .RPC }}Request
+  {{ RequestParam .RPC }}
 ) => {
   {{- if gt (len $argList) 0 }}
   const paramsRecord = toParamRecord(params);
@@ -121,7 +121,7 @@ export const {{ LowerFirst .RPC }}Url = (
 {{- else }}
 {{- if .IsStreaming }}
 export async function* {{ LowerFirst .RPC }}Stream(
-  params: Types.{{ .RPC }}Request = {} as Types.{{ .RPC }}Request,
+  {{ RequestParam .RPC }},
   init: RequestInit = {}
 ): AsyncGenerator<string, void, unknown> {
   {{- if gt (len $argList) 0 }}
@@ -206,13 +206,13 @@ export async function* {{ LowerFirst .RPC }}Stream(
 }
 
 export const {{ LowerFirst .RPC }} = (
-  params: Types.{{ .RPC }}Request = {} as Types.{{ .RPC }}Request,
+  {{ RequestParam .RPC }},
   init: RequestInit = {}
 ) => {{ LowerFirst .RPC }}Stream(params, init);
 
 {{- else }}
 export const {{ LowerFirst .RPC }} = (
-  params: Types.{{ .RPC }}Request = {} as Types.{{ .RPC }}Request,
+  {{ RequestParam .RPC }},
   requestOptions: ApiRequestOptions = {}
 ) => {
   {{- if gt (len $argList) 0 }}

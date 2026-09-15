@@ -6,7 +6,7 @@ import * as api from '../endpoints';
 
 {{- range .Endpoints }}
 {{- if eq .Method "GET" }}
-export const {{ LowerFirst .RPC }}QueryOptions = (params: Types.{{ .RPC }}Request = {} as Types.{{ .RPC }}Request) => {
+export const {{ LowerFirst .RPC }}QueryOptions = ({{ RequestParam .RPC }}) => {
   return queryOptions({
     queryKey: queryKeys.endpoint.{{ .ServiceName }}.{{ .RPC }}(params),
     queryFn: async ({ signal }) => {
@@ -16,10 +16,10 @@ export const {{ LowerFirst .RPC }}QueryOptions = (params: Types.{{ .RPC }}Reques
 };
 
 {{- if .Pagination }}
-export const {{ LowerFirst .RPC }}InfiniteQueryOptions = (params: Types.{{ .RPC }}Request = {} as Types.{{ .RPC }}Request) => {
+export const {{ LowerFirst .RPC }}InfiniteQueryOptions = ({{ RequestParam .RPC }}) => {
   return infiniteQueryOptions({
     queryKey: queryKeys.endpoint.{{ .ServiceName }}.{{ .RPC }}(params),
-    queryFn: async ({ pageParam, signal }: { pageParam: any; signal: AbortSignal }) => {
+    queryFn: async ({ pageParam, signal }: { pageParam: {{ if eq .Pagination.Type "offset" }}number{{ else }}string | null{{ end }}; signal: AbortSignal }) => {
       const p: Record<string, unknown> = { ...((params ?? {}) as Record<string, unknown>) };
       {{- if eq .Pagination.Type "offset" }}
       p.offset = pageParam;
@@ -30,14 +30,21 @@ export const {{ LowerFirst .RPC }}InfiniteQueryOptions = (params: Types.{{ .RPC 
       return api.{{ LowerFirst .RPC }}(p as unknown as Types.{{ .RPC }}Request, { signal });
     },
     initialPageParam: {{ if eq .Pagination.Type "offset" }}0{{ else }}null{{ end }},
-    getNextPageParam: (lastPage: any, allPages: any[]) => {
+    getNextPageParam: (lastPage: Types.{{ .RPC }}Response, allPages: Types.{{ .RPC }}Response[]) => {
       {{- if eq .Pagination.Type "offset" }}
-      if (!lastPage.data || lastPage.data.length < (params.limit ?? {{ if .Pagination.DefaultLimit }}{{ .Pagination.DefaultLimit }}{{ else }}20{{ end }})) {
+      {{- $list := PageListField .RPC }}
+      {{- if $list }}
+      if (!lastPage.{{ $list }} || lastPage.{{ $list }}.length < (params.limit ?? {{ if .Pagination.DefaultLimit }}{{ .Pagination.DefaultLimit }}{{ else }}20{{ end }})) {
         return undefined;
       }
       return allPages.length * (params.limit ?? {{ if .Pagination.DefaultLimit }}{{ .Pagination.DefaultLimit }}{{ else }}20{{ end }});
       {{- else }}
-      return lastPage.nextCursor || undefined;
+      void lastPage;
+      void allPages;
+      return undefined;
+      {{- end }}
+      {{- else }}
+      return (lastPage as { nextCursor?: string | null }).nextCursor || undefined;
       {{- end }}
     },
   });

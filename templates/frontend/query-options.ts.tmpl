@@ -55,7 +55,7 @@ export const endpointQueryOptions = {
 {{- range .Endpoints }}
 {{- if eq .Method "GET" }}
 {{- $profile := EndpointQueryProfile . }}
-  {{ LowerFirst .RPC }}: (params: Types.{{ .RPC }}Request = {} as Types.{{ .RPC }}Request) =>
+  {{ LowerFirst .RPC }}: ({{ RequestParam .RPC }}) =>
     queryOptions({
       queryKey: queryKeys.endpoint.{{ .ServiceName }}.{{ .RPC }}(params),
       queryFn: ({ signal }) => api.{{ LowerFirst .RPC }}(params, { signal }),

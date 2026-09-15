@@ -134,3 +134,35 @@ func TestEnsureRuntimeConfigFields_DatabaseURLMatchesComposeDefaults(t *testing.
 		t.Fatalf("unexpected DatabaseURL default: got %q want %q", got.Default, want)
 	}
 }
+
+// Slow clients must not hold connections forever; read/write timeouts stay
+// unset because they would cut SSE streams and hijacked WebSockets.
+func TestRuntimeConfigBoundsHTTPHeaderAndIdleTime(t *testing.T) {
+	cfg := ensureRuntimeConfigFields(&normalizer.ConfigDef{})
+	want := map[string]string{"HTTPReadHeaderTimeout": "10s", "HTTPIdleTimeout": "120s"}
+	for _, f := range cfg.Fields {
+		if def, ok := want[f.Name]; ok {
+			if f.Default != def || f.Type != "string" {
+				t.Fatalf("%s = %+v", f.Name, f)
+			}
+			delete(want, f.Name)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing config fields: %v", want)
+	}
+	tmpl, err := os.ReadFile(filepath.Join("..", "..", "templates", "main_server", "graceful_shutdown.tmpl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{"ReadHeaderTimeout:", "IdleTimeout:", "cfg.HTTPReadHeaderTimeout", "cfg.HTTPIdleTimeout"} {
+		if !strings.Contains(string(tmpl), s) {
+			t.Fatalf("graceful_shutdown.tmpl lacks %q", s)
+		}
+	}
+	for _, s := range []string{"ReadTimeout:", "WriteTimeout:"} {
+		if strings.Contains(string(tmpl), s) {
+			t.Fatalf("graceful_shutdown.tmpl must not set %q", s)
+		}
+	}
+}

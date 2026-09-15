@@ -103,8 +103,10 @@ func TestEmitFrontendSDK_GeneratesHardenedClientAndEndpoints(t *testing.T) {
 			t.Fatalf("expected %q in endpoints/tender.ts, got:\n%s", expected, e)
 		}
 	}
-	if !strings.Contains(e, "params: Types.UpdateTenderRequest = {} as Types.UpdateTenderRequest") {
-		t.Fatalf("expected mutation endpoint params default in endpoints/tender.ts, got:\n%s", e)
+	// A request without required fields defaults to {}; one with them has no
+	// default. Neither needs a cast that would hide missing fields.
+	if !strings.Contains(e, "params: Types.UpdateTenderRequest") || strings.Contains(e, "{} as Types.UpdateTenderRequest") {
+		t.Fatalf("expected mutation endpoint params without a cast in endpoints/tender.ts, got:\n%s", e)
 	}
 	if strings.Contains(e, "// @ts-ignore") {
 		t.Fatalf("did not expect ts-ignore path param extraction in endpoints/tender.ts, got:\n%s", e)

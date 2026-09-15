@@ -54,7 +54,7 @@ export async function prefetch{{ .Key | Title }}(
   await Promise.all([
     {{- if .HasList }}
     queryClient.prefetchQuery({
-      queryKey: queryKeys.endpoint.{{ ServiceNameForGETRPC .ListRPC }}.{{ .ListRPC }}(listFilters ?? {} as Types.{{ .ListRPC }}Request),
+      queryKey: queryKeys.endpoint.{{ ServiceNameForGETRPC .ListRPC }}.{{ .ListRPC }}(listFilters ?? {{ EmptyRequest .ListRPC }}),
       queryFn: () => fetch{{ .Key | Title }}List(listFilters),
       {{- if .ListCacheTTL }}
       staleTime: {{ CacheTTLToMs .ListCacheTTL }},

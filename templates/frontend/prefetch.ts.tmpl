@@ -10,7 +10,7 @@ import type * as Types from '../types';
 {{- $name := ExportName .Key }}
 {{- if .HasList }}
 export const prefetch{{ $name }}List = (queryClient: QueryClient, filters?: Types.{{ .ListRPC }}Request) =>
-  queryClient.prefetchQuery(Options.endpointQueryOptions.{{ LowerFirst .ListRPC }}(filters ?? {} as Types.{{ .ListRPC }}Request));
+  queryClient.prefetchQuery(Options.endpointQueryOptions.{{ LowerFirst .ListRPC }}(filters ?? {{ EmptyRequest .ListRPC }}));
 
 export const create{{ $name }}ListLoader = (queryClient: QueryClient) =>
   async ({ request }: LoaderFunctionArgs) => {

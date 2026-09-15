@@ -14,12 +14,15 @@ export const createRouteDefinitions = (queryClient: QueryClient) => [
     method: {{ TSString .Method }},
     rpc: {{ TSString .RPC }},
     {{- if eq .Method "GET" }}
-    loader: async ({ params }: { params: any }) => {
+    loader: async ({ params }: { params: Record<string, string> }) => {
       {{- $args := ParamsFromRouter . }}
       {{- if ne $args "" }}
       await queryClient.ensureQueryData(Queries.{{ LowerFirst .RPC }}QueryOptions({{ $args }}));
-      {{- else }}
+      {{- else if RequestAllOptional .RPC }}
       await queryClient.ensureQueryData(Queries.{{ LowerFirst .RPC }}QueryOptions());
+      {{- else }}
+      // Required request fields are not in the route; nothing to prefetch.
+      void params;
       {{- end }}
     },
     {{- end }}

@@ -116,3 +116,50 @@ func applyFrontendAuthInjectFilters(services []normalizer.Service, entities []no
 
 	return filteredServices, filteredEntities
 }
+
+// frontendRequestAllOptional reports whether a client may omit every field of
+// rpc's request (after auth-injected fields are removed from it). Unknown RPCs
+// count as all-optional, keeping their previous {} default.
+func frontendRequestAllOptional(services []normalizer.Service, rpc string) bool {
+	for _, svc := range services {
+		for _, m := range svc.Methods {
+			if m.Name != rpc {
+				continue
+			}
+			for _, f := range m.Input.Fields {
+				if !f.IsOptional || parseValidateTag(f.ValidateTag).Required {
+					return false
+				}
+			}
+			return true
+		}
+	}
+	return true
+}
+
+// frontendPageListField returns the JSON name of the list field an offset
+// page is counted by: "data" when the response has it, otherwise its only list
+// field; "" when there is none or the choice is ambiguous.
+func frontendPageListField(services []normalizer.Service, rpc string) string {
+	for _, svc := range services {
+		for _, m := range svc.Methods {
+			if m.Name != rpc {
+				continue
+			}
+			var lists []string
+			for _, f := range m.Output.Fields {
+				if f.IsList || strings.HasPrefix(strings.TrimSpace(f.Type), "[]") {
+					if f.Name == "data" {
+						return JSONName(f.Name)
+					}
+					lists = append(lists, JSONName(f.Name))
+				}
+			}
+			if len(lists) == 1 {
+				return lists[0]
+			}
+			return ""
+		}
+	}
+	return ""
+}

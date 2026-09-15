@@ -9,7 +9,7 @@ export const queryKeys = {
     {{ .Name }}: {
       {{- range ServiceEndpoints .Name }}
       {{- if eq .Method "GET" }}
-      {{ .RPC }}: (params: Types.{{ .RPC }}Request = {} as Types.{{ .RPC }}Request) =>
+      {{ .RPC }}: ({{ RequestParam .RPC }}) =>
         ['{{ .ServiceName }}', '{{ .RPC }}', params] as const,
       {{- end }}
       {{- end }}

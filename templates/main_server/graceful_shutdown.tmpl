@@ -2,6 +2,16 @@
 	srv := &http.Server{
 		Addr:    ":" + cfg.HTTPPort,
 		Handler: r,
+		// Only header reads and idle keep-alives are bounded: read and write
+		// timeouts would also cut SSE streams and hijacked WebSockets.
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+	if d, err := time.ParseDuration(cfg.HTTPReadHeaderTimeout); err == nil && d > 0 {
+		srv.ReadHeaderTimeout = d
+	}
+	if d, err := time.ParseDuration(cfg.HTTPIdleTimeout); err == nil && d > 0 {
+		srv.IdleTimeout = d
 	}
 
 	go func() {

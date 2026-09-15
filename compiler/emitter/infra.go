@@ -180,6 +180,10 @@ func ensureRuntimeConfigFields(config *normalizer.ConfigDef) *normalizer.ConfigD
 
 	// JWT defaults required by auth/http templates.
 	add("HTTPPort", "string", "HTTP_PORT", "8080", false)
+	// Slow clients may not hold connections open forever. Read and write
+	// timeouts stay unset: they would cut SSE streams and hijacked WebSockets.
+	add("HTTPReadHeaderTimeout", "string", "HTTP_READ_HEADER_TIMEOUT", "10s", false)
+	add("HTTPIdleTimeout", "string", "HTTP_IDLE_TIMEOUT", "120s", false)
 	add("DatabaseURL", "string", "DATABASE_URL", "postgres://app:app@localhost:5439/app?sslmode=disable", false)
 	add("PGMaxConns", "int", "PG_MAX_CONNS", "25", false)
 	add("PGMinConns", "int", "PG_MIN_CONNS", "5", false)
