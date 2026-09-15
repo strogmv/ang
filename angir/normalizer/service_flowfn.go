@@ -3,7 +3,7 @@ package normalizer
 import (
 	"fmt"
 
-	"github.com/strogmv/ang-ir/flowfn"
+	"github.com/strogmv/ang/angir/flowfn"
 )
 
 func (n *Normalizer) parseFlowFn(src string) ([]FlowStep, error) {

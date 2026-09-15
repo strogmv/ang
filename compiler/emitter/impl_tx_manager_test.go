@@ -3,8 +3,8 @@ package emitter
 import (
 	"testing"
 
-	"github.com/strogmv/ang-ir/ir"
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/ir"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 // An impl code block that uses s.txManager needs the field as much as a flow

@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"reflect"
 
-	"github.com/strogmv/ang-ir/normalizer"
-	"github.com/strogmv/ang-ir/parser"
+	"github.com/strogmv/ang/angir/normalizer"
+	"github.com/strogmv/ang/angir/parser"
 )
 
 // InfraBundle contains project-level infrastructure intent extracted from

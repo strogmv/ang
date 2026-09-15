@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 func TestBuildMiddlewareList_UsesPolicyLayer(t *testing.T) {

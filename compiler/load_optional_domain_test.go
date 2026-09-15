@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"cuelang.org/go/cue"
-	"github.com/strogmv/ang-ir/parser"
+	"github.com/strogmv/ang/angir/parser"
 )
 
 func TestLoadOptionalDomain_PartialSyntaxFallback(t *testing.T) {

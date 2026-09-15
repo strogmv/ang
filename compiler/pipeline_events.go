@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
-	"github.com/strogmv/ang-ir/parser"
+	"github.com/strogmv/ang/angir/normalizer"
+	"github.com/strogmv/ang/angir/parser"
 )
 
 // emitEventUsageDiagnostics surfaces dead/unused events as warnings (non-fatal).

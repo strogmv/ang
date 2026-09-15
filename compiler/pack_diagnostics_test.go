@@ -3,7 +3,7 @@ package compiler
 import (
 	"testing"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 func TestCollectCanonicalPackDiagnostics_AuthMissingSelfProfileRoute(t *testing.T) {

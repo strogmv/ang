@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 type TypedStep struct {

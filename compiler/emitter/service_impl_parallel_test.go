@@ -6,8 +6,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/strogmv/ang-ir/ir"
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/ir"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 // Method files rendered in parallel must be the same bytes, and their flow

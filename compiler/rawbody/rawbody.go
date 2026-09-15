@@ -8,7 +8,7 @@ package rawbody
 import (
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 // Attribute marks an operation whose HTTP body is captured verbatim into the

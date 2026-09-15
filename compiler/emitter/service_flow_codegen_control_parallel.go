@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 // renderFlowParallel emits errgroup-style concurrent code for flow.Parallel.

@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"cuelang.org/go/cue"
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 func resolveGoSidecarImpls(projectRoot string, api cue.Value, services []normalizer.Service) ([]normalizer.Service, error) {

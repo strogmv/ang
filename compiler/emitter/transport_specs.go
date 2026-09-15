@@ -11,8 +11,8 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/strogmv/ang-ir/ir"
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/ir"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 // EmitOpenAPI generates the Swagger specification.

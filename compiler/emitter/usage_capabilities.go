@@ -3,7 +3,7 @@ package emitter
 import (
 	"strings"
 
-	"github.com/strogmv/ang-ir/ir"
+	"github.com/strogmv/ang/angir/ir"
 )
 
 // UsageCapabilities names the infrastructure a project actually needs, as

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 func TestEntityIntegrity_PartialSelectProducesErrorDiagnostic(t *testing.T) {

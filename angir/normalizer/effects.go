@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	sharedeffects "github.com/strogmv/ang-ir/effects"
+	sharedeffects "github.com/strogmv/ang/angir/effects"
 )
 
 type ValidationError struct {

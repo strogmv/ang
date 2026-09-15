@@ -7,7 +7,7 @@ import (
 	gotoken "go/token"
 	"go/types"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 // emitTautologicalConditionDiagnostics reports conditions that cannot change

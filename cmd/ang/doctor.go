@@ -12,9 +12,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/strogmv/ang-ir/flowsem"
-	"github.com/strogmv/ang-ir/normalizer"
-	"github.com/strogmv/ang-ir/parser"
+	"github.com/strogmv/ang/angir/flowsem"
+	"github.com/strogmv/ang/angir/normalizer"
+	"github.com/strogmv/ang/angir/parser"
 	"github.com/strogmv/ang/compiler"
 	"github.com/strogmv/ang/compiler/doctor"
 )

@@ -3,7 +3,7 @@ package emitter
 import (
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 func cookieAuthEnabled(auth *normalizer.AuthDef) bool {

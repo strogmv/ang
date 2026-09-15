@@ -6,8 +6,8 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/strogmv/ang-ir/ir"
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/ir"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 func (e *Emitter) getSharedFuncMap() template.FuncMap {

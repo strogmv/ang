@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 // ConvertFromNormalizer converts legacy normalizer types to new IR.

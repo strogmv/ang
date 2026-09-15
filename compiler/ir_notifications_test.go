@@ -3,8 +3,8 @@ package compiler
 import (
 	"testing"
 
-	"github.com/strogmv/ang-ir/ir"
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/ir"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 func TestAttachNotificationInfra(t *testing.T) {

@@ -9,23 +9,23 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/strogmv/ang-ir/ir"
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/ir"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 type GDPREntityData struct {
-	Entity             normalizer.Entity
-	Receiver           string
-	RepoField          string
-	OwnerField         string
-	OwnerFieldGo       string
-	OwnerFieldType     string
-	GDPRFields         []normalizer.Field
-	SupportsErase      bool
-	SupportsExport     bool
-	SupportsRetention  bool
-	EraseSkipReason    string
-	ExportSkipReason   string
+	Entity              normalizer.Entity
+	Receiver            string
+	RepoField           string
+	OwnerField          string
+	OwnerFieldGo        string
+	OwnerFieldType      string
+	GDPRFields          []normalizer.Field
+	SupportsErase       bool
+	SupportsExport      bool
+	SupportsRetention   bool
+	EraseSkipReason     string
+	ExportSkipReason    string
 	RetentionSkipReason string
 }
 

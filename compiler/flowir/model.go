@@ -3,7 +3,7 @@ package flowir
 import (
 	"go/token"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 type TypeKind string

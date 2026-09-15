@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/strogmv/ang-ir/ir"
+	"github.com/strogmv/ang/angir/ir"
 	"github.com/strogmv/ang/compiler"
 )
 

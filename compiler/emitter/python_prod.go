@@ -1,7 +1,7 @@
 package emitter
 
 import (
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 	pyemitter "github.com/strogmv/ang/compiler/emitter/python"
 )
 

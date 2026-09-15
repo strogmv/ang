@@ -8,7 +8,7 @@ import (
 	"go/token"
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 func renderServiceImplMethodSignature(serviceName string, m normalizer.Method) (string, error) {

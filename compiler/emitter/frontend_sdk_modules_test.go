@@ -8,7 +8,7 @@ import (
 	"testing"
 	"text/template"
 
-	"github.com/strogmv/ang-ir/ir"
+	"github.com/strogmv/ang/angir/ir"
 )
 
 func TestFrontendSDKSkipValidatesNames(t *testing.T) {

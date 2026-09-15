@@ -3,7 +3,7 @@ package flowir
 import (
 	"testing"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 func TestDecodeStepsBuildsTypedTree(t *testing.T) {

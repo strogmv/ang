@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/strogmv/ang-ir/ir"
+	"github.com/strogmv/ang/angir/ir"
 )
 
 const buildFingerprintSchema = "compiler-fingerprint/v1"

@@ -11,8 +11,8 @@ import (
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/strogmv/ang-ir/normalizer"
-	parserpkg "github.com/strogmv/ang-ir/parser"
+	"github.com/strogmv/ang/angir/normalizer"
+	parserpkg "github.com/strogmv/ang/angir/parser"
 	"github.com/strogmv/ang/compiler"
 )
 

@@ -3,27 +3,27 @@ package main
 import (
 	"strings"
 
-	"github.com/strogmv/ang-ir/ir"
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/ir"
+	"github.com/strogmv/ang/angir/normalizer"
 	"github.com/strogmv/ang/compiler/emitter"
 	"github.com/strogmv/ang/compiler/generator"
 	"github.com/strogmv/ang/compiler/targets"
 )
 
 type buildStepRegistryInput struct {
-	em               *emitter.Emitter
-	irSchema         *ir.Schema
-	ctx              emitter.MainContext
-	scenarios        []normalizer.ScenarioDef
-	cfgDef           *normalizer.ConfigDef
-	authDef          *normalizer.AuthDef
-	sessionDef       *normalizer.SessionDef
-	rbacDef          *normalizer.RBACDef
-	infraValues      map[string]any
-	emailTemplates   []normalizer.EmailTemplateDef
-	projectDef       *normalizer.ProjectDef
-	targetOutput     OutputOptions
-	isMicroservice   bool
+	em             *emitter.Emitter
+	irSchema       *ir.Schema
+	ctx            emitter.MainContext
+	scenarios      []normalizer.ScenarioDef
+	cfgDef         *normalizer.ConfigDef
+	authDef        *normalizer.AuthDef
+	sessionDef     *normalizer.SessionDef
+	rbacDef        *normalizer.RBACDef
+	infraValues    map[string]any
+	emailTemplates []normalizer.EmailTemplateDef
+	projectDef     *normalizer.ProjectDef
+	targetOutput   OutputOptions
+	isMicroservice bool
 }
 
 func buildStepRegistry(in buildStepRegistryInput) (*generator.StepRegistry, []string, error) {

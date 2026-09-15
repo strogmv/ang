@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 func method(attrs []string, fields ...string) normalizer.Method {

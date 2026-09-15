@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 func renderServiceImplTypeDecl(svc normalizer.Service, entities []normalizer.Entity, auth *normalizer.AuthDef) (string, error) {

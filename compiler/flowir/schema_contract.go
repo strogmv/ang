@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/strogmv/ang-ir/flowsem"
+	"github.com/strogmv/ang/angir/flowsem"
 )
 
 // ValidateSchemaContract keeps the typed registry aligned with the public

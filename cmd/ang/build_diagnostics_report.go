@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 const diagnosticMessageLimit = 300

@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"text/template"
 
-	"github.com/strogmv/ang-ir/ir"
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/ir"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 // NIS2TemplateData is the top-level context for nis2.tmpl.

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/strogmv/ang-ir/ir"
+	"github.com/strogmv/ang/angir/ir"
 )
 
 // SystemManifest represents the compact architectural map of the system.

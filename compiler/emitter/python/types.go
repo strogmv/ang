@@ -3,7 +3,7 @@ package python
 import (
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 func BuildEntityNameSet(entities []normalizer.Entity) map[string]struct{} {

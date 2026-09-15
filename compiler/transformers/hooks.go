@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/strogmv/ang-ir/ir"
+	"github.com/strogmv/ang/angir/ir"
 )
 
 // Hook is called when an attribute is found.

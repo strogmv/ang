@@ -8,7 +8,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/strogmv/ang-ir/ir"
+	"github.com/strogmv/ang/angir/ir"
 )
 
 func TestDeterministicCoreAcrossTenRuns(t *testing.T) {

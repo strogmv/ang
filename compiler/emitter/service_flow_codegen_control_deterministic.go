@@ -5,7 +5,7 @@ import (
 	"go/ast"
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 	"github.com/strogmv/ang/compiler/flowir"
 )
 

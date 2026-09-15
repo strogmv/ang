@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/strogmv/ang-ir/ir"
+	"github.com/strogmv/ang/angir/ir"
 )
 
 func TestEmitFrontendSDK_GeneratesStreamingHelpersForStreamingEndpoints(t *testing.T) {
@@ -55,7 +55,7 @@ func TestEmitFrontendSDK_GeneratesStreamingHelpersForStreamingEndpoints(t *testi
 		"AsyncGenerator<string, void, unknown>",
 		"const token = useAuthStore.getState().token;",
 		") => streamAIEditStream(params, init);",
-			}
+	}
 	for _, expected := range mustContain {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("expected %q in split endpoints module, got:\n%s", expected, text)

@@ -3,7 +3,7 @@ package ir
 import (
 	"testing"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 func TestConvertFlowStepsKeepsPositionsOfNestedSteps(t *testing.T) {

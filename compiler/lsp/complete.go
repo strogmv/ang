@@ -5,9 +5,9 @@ import (
 	"regexp"
 	"strings"
 
-	sharedeffects "github.com/strogmv/ang-ir/effects"
-	"github.com/strogmv/ang-ir/flowfn"
-	"github.com/strogmv/ang-ir/flowsem"
+	sharedeffects "github.com/strogmv/ang/angir/effects"
+	"github.com/strogmv/ang/angir/flowfn"
+	"github.com/strogmv/ang/angir/flowsem"
 	"github.com/strogmv/ang/compiler/flowir"
 )
 

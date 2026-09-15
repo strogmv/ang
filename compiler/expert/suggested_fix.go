@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 // ProposalFromSuggestedFixes adapts the existing normalizer.Fix contract to

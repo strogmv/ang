@@ -202,7 +202,7 @@ ANG не должен становиться недетерминированн�
 - Существующий формат извлечённых данных — `ang/facts/v1`; его Go-модели сейчас находятся в `cmd/ang/extract.go` (`FactsEnvelope`, `FactEntity`, `FactOp`, `FactField` и другие).
 - `FactField`, `FactOp` и `FactEndpoint` уже содержат часть provenance: `source`, `source_line`, `extractor`, `evidence`.
 - Typed Flow IR находится в `compiler/flowir`. `ActionSpec`, `TypedStep`, `Action`, `TypeRef` и `checker` должны использоваться как семантическая граница flow, а не копироваться в экспертный слой.
-- Семантика эффектов и допустимости flow уже реализована пакетами `github.com/strogmv/ang-ir/flowsem` и `github.com/strogmv/ang-ir/effects`. В текущем workspace `go.mod` заменяет `github.com/strogmv/ang-ir` на `../deal/ang-ir`. Документация иногда называет их `compiler/flowsem`/`compiler/effects`, но создавать такие новые локальные пакеты в ANG нельзя: это породит второй semantic catalog. Экспертные правила могут ссылаться на результаты `ang-ir`, но не должны заново определять эти правила.
+- Семантика эффектов и допустимости flow уже реализована пакетами `github.com/strogmv/ang/angir/flowsem` и `github.com/strogmv/ang/angir/effects` (с 2026-09-15 бывший модуль ang-ir лежит в `angir/` этого репозитория). Документация иногда называет их `compiler/flowsem`/`compiler/effects`, но создавать такие новые локальные пакеты в ANG нельзя: это породит второй semantic catalog. Экспертные правила могут ссылаться на результаты `ang-ir`, но не должны заново определять эти правила.
 - CUE pack schema уже начата в `cue/schema/packs.cue`; активные примеры находятся в `cue/policies/packs.cue`.
 - Структурированные diagnostics и `SuggestedFix` уже создаются, например, в `compiler/pack_diagnostics.go`.
 - Пользовательское объяснение diagnostics уже доступно через `ang explain` (`cmd/ang/explain.go`).
@@ -338,7 +338,7 @@ ANG не должен становиться недетерминированн�
 Целевая ответственность:
 
 ```text
-github.com/strogmv/ang-ir/flowsem.ActionCatalogEntry
+github.com/strogmv/ang/angir/flowsem.ActionCatalogEntry
     → каноническая семантика, args/outputs/errors/effects/nested rules
 
 compiler/flowir.ActionSpec
@@ -671,7 +671,7 @@ ang advise --goal security.audit --json
 
 `project.audit` должен переиспользовать:
 
-- diagnostics семантики `github.com/strogmv/ang-ir/flowsem`, уже подключённые к compiler pipeline;
+- diagnostics семантики `github.com/strogmv/ang/angir/flowsem`, уже подключённые к compiler pipeline;
 - Flow IR checker issues;
 - effects prerequisite diagnostics;
 - canonical pack diagnostics из `compiler/pack_diagnostics.go`;

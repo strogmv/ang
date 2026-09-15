@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 func resolveEmailTemplates(projectPath string, defs []normalizer.EmailTemplateDef) ([]normalizer.EmailTemplateDef, error) {

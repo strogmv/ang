@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/strogmv/ang-ir/ir"
+	"github.com/strogmv/ang/angir/ir"
 )
 
 func TestEmitHTTP_StreamingEndpointUsesSSE(t *testing.T) {
@@ -63,7 +63,6 @@ func TestEmitHTTP_StreamingEndpointUsesSSE(t *testing.T) {
 	}
 }
 
-
 func TestEmitHTTP_StreamingGetSkipsTimeoutAndPreservesCamelCaseQueryParams(t *testing.T) {
 	t.Parallel()
 
@@ -76,7 +75,7 @@ func TestEmitHTTP_StreamingGetSkipsTimeoutAndPreservesCamelCaseQueryParams(t *te
 					{
 						Name:        "StreamMyUserAvatarStatus",
 						IsStreaming: true,
-						Input: &ir.Entity{Name: "StreamMyUserAvatarStatusRequest", Fields: []ir.Field{{Name: "assetId", Type: ir.TypeRef{Kind: ir.KindString}}}},
+						Input:       &ir.Entity{Name: "StreamMyUserAvatarStatusRequest", Fields: []ir.Field{{Name: "assetId", Type: ir.TypeRef{Kind: ir.KindString}}}},
 						Output:      &ir.Entity{Name: "StreamMyUserAvatarStatusResponse"},
 					},
 				},

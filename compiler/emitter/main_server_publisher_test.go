@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/strogmv/ang-ir/ir"
+	"github.com/strogmv/ang/angir/ir"
 )
 
 func TestMainServerTemplate_UsesPublisherInterfaceForRuntimeContainer(t *testing.T) {

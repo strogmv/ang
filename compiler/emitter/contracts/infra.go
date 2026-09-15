@@ -1,6 +1,6 @@
 package contracts
 
-import "github.com/strogmv/ang-ir/normalizer"
+import "github.com/strogmv/ang/angir/normalizer"
 
 func InfraStepsForValuesGo(values map[string]any) []InfraResolved {
 	return normalizer.NewInfraRegistry().StepsForValues(normalizer.InfraLanguageGo, values)

@@ -1,8 +1,8 @@
 package compiler
 
 import (
-	"github.com/strogmv/ang-ir/ir"
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/ir"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 // IRPhaseInput is the explicit contract accepted by the IR phase.

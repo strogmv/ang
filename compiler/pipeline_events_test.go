@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 func eventWarnings(t *testing.T, services []normalizer.Service, events []normalizer.EventDef, endpoints []normalizer.Endpoint, broadcastOnly map[string]struct{}) []normalizer.Warning {

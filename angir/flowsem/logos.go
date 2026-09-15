@@ -4,7 +4,7 @@ package flowsem
 // The canonical registry lives in compiler/effects so flow semantics, flowfn,
 // and normalizer do not drift apart.
 
-import sharedeffects "github.com/strogmv/ang-ir/effects"
+import sharedeffects "github.com/strogmv/ang/angir/effects"
 
 type EffectKind = sharedeffects.EffectKind
 type SafetyTag = sharedeffects.SafetyTag

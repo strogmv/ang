@@ -1,6 +1,6 @@
 package emitter
 
-import "github.com/strogmv/ang-ir/normalizer"
+import "github.com/strogmv/ang/angir/normalizer"
 
 // renderFlowStepControlLegacy remains only for the historical raw-step
 // compatibility path. Typed actions are dispatched by renderTypedStepControl.

@@ -1,6 +1,6 @@
 package flowir
 
-import "github.com/strogmv/ang-ir/normalizer"
+import "github.com/strogmv/ang/angir/normalizer"
 
 // actionExamples holds one real step per action for the action catalog
 // (ang actions). They were collected from cue/GOLDEN_EXAMPLES.cue, the flow

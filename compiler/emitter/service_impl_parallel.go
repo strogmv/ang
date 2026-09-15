@@ -7,7 +7,7 @@ import (
 	"sync"
 	"text/template"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 // serviceImplMethodJob is one generated service method file.

@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 // shared_arch lifts the "entity of another bounded context" check from flow

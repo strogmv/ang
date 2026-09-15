@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"text/template"
 
-	"github.com/strogmv/ang-ir/ir"
+	"github.com/strogmv/ang/angir/ir"
 )
 
 // Provider is the interface for template bundles.

@@ -3,7 +3,7 @@ package emitter
 import (
 	"testing"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 func TestAuthCookieFields(t *testing.T) {
@@ -24,10 +24,10 @@ func TestAuthCookieFields(t *testing.T) {
 	}
 
 	cases := []struct {
-		rpc            string
-		wantAccess     string
-		wantRefresh    string
-		wantOK         bool
+		rpc         string
+		wantAccess  string
+		wantRefresh string
+		wantOK      bool
 	}{
 		{"LoginUser", "accessToken", "refreshToken", true},
 		{"RegisterUser", "accessToken", "refreshToken", true},

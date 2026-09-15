@@ -3,7 +3,7 @@ package policy
 import (
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 // EndpointPolicy is a single policy source used by backend and SDK emitters.

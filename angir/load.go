@@ -8,9 +8,9 @@ import (
 
 	"cuelang.org/go/cue"
 	cueparser "cuelang.org/go/cue/parser"
-	"github.com/strogmv/ang-ir/ir"
-	"github.com/strogmv/ang-ir/normalizer"
-	"github.com/strogmv/ang-ir/parser"
+	"github.com/strogmv/ang/angir/ir"
+	"github.com/strogmv/ang/angir/normalizer"
+	"github.com/strogmv/ang/angir/parser"
 )
 
 type Result struct {

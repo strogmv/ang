@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/strogmv/ang-ir/ir"
+	"github.com/strogmv/ang/angir/ir"
 	"github.com/strogmv/ang/compiler"
 )
 

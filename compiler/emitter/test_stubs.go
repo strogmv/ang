@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"text/template"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 // EmitTestStubs generates vitest stubs for provided endpoints into a specific file.

@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	sharedeffects "github.com/strogmv/ang-ir/effects"
+	sharedeffects "github.com/strogmv/ang/angir/effects"
 )
 
 // ActionArg describes one action argument for machine-readable catalogs.

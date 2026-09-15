@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"text/template"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 func (e *Emitter) EmitE2ETests(scenarios []normalizer.ScenarioDef) error {

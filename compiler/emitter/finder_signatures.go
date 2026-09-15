@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/strogmv/ang-ir/ir"
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/ir"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 // FinderSignature is shared finder method metadata used by repository emitters.

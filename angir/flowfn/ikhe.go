@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/strogmv/ang-ir/flowsem"
+	"github.com/strogmv/ang/angir/flowsem"
 )
 
 type Diagnostic struct {

@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	"cuelang.org/go/cue"
-	"github.com/strogmv/ang-ir/flowsem"
-	"github.com/strogmv/ang-ir/normalizer"
-	"github.com/strogmv/ang-ir/parser"
+	"github.com/strogmv/ang/angir/flowsem"
+	"github.com/strogmv/ang/angir/normalizer"
+	"github.com/strogmv/ang/angir/parser"
 	"github.com/strogmv/ang/compiler/flowir"
 	"github.com/strogmv/ang/compiler/policy"
 )

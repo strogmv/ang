@@ -10,7 +10,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/strogmv/ang-ir/ir"
+	"github.com/strogmv/ang/angir/ir"
 )
 
 type notificationChannelTemplate struct {

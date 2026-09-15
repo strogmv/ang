@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/strogmv/ang-ir/ir"
+	"github.com/strogmv/ang/angir/ir"
 )
 
 // EmitConventionsDoc writes docs/ang/conventions.md: the names and signatures

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 func BenchmarkRenderLargeFlow(b *testing.B) {

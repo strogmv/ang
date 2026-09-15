@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/strogmv/ang-ir/ir"
+	"github.com/strogmv/ang/angir/ir"
 )
 
 // Transformer is the interface that all transformers must implement.

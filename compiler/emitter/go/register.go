@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/strogmv/ang-ir/ir"
+	"github.com/strogmv/ang/angir/ir"
 	"github.com/strogmv/ang/compiler"
 	"github.com/strogmv/ang/compiler/emitter"
 	"github.com/strogmv/ang/compiler/emitter/contracts"

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"text/template"
 
-	angir "github.com/strogmv/ang-ir"
-	"github.com/strogmv/ang-ir/normalizer"
+	angir "github.com/strogmv/ang/angir"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 func TestEmitAssistantChatWithTools_MethodTemplateFormats(t *testing.T) {

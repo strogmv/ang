@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 )
 
 // ExampleCUE returns the example step of an action written as a CUE flow step,

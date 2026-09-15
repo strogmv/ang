@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/strogmv/ang-ir/ir"
+	"github.com/strogmv/ang/angir/ir"
 )
 
 func TestUsageCapabilitiesFollowWhatTheProjectUses(t *testing.T) {

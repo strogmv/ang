@@ -9,7 +9,7 @@ import (
 	"cuelang.org/go/cue/ast"
 	"cuelang.org/go/cue/literal"
 	"cuelang.org/go/cue/parser"
-	"github.com/strogmv/ang-ir/normalizer"
+	"github.com/strogmv/ang/angir/normalizer"
 	"github.com/strogmv/ang/compiler/emitter"
 	"github.com/strogmv/ang/compiler/flowir"
 )

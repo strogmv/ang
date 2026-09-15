@@ -6,7 +6,6 @@ import (
 	"go/token"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -33,31 +32,31 @@ func TestCompilerPhaseBoundaries_NoReverseImports(t *testing.T) {
 		{
 			name:         "parser",
 			dir:          filepath.Join(angIRRoot, "parser"),
-			modulePrefix: "github.com/strogmv/ang-ir",
+			modulePrefix: "github.com/strogmv/ang/angir",
 			forbid:       []string{"normalizer", "flowsem", "ir"},
 		},
 		{
 			name:         "normalizer",
 			dir:          filepath.Join(angIRRoot, "normalizer"),
-			modulePrefix: "github.com/strogmv/ang-ir",
+			modulePrefix: "github.com/strogmv/ang/angir",
 			forbid:       []string{"flowsem", "ir"},
 		},
 		{
 			name:         "flowsem",
 			dir:          filepath.Join(angIRRoot, "flowsem"),
-			modulePrefix: "github.com/strogmv/ang-ir",
+			modulePrefix: "github.com/strogmv/ang/angir",
 			forbid:       []string{"ir"},
 		},
 		{
 			name:         "ir",
 			dir:          filepath.Join(angIRRoot, "ir"),
-			modulePrefix: "github.com/strogmv/ang-ir",
+			modulePrefix: "github.com/strogmv/ang/angir",
 			forbid:       nil,
 		},
 		{
 			name:         "emitter",
 			dir:          filepath.Join(root, "compiler", "emitter"),
-			modulePrefix: "github.com/strogmv/ang-ir",
+			modulePrefix: "github.com/strogmv/ang/angir",
 			forbid:       []string{"parser", "flowsem"},
 		},
 	}
@@ -120,22 +119,9 @@ func repoRootForPhaseBoundaryTest(t *testing.T) string {
 func angIRRootForPhaseBoundaryTest(t *testing.T) (string, error) {
 	t.Helper()
 
-	// Try using go list first
-	cmd := exec.Command("go", "list", "-m", "-f", "{{.Dir}}", "github.com/strogmv/ang-ir")
-	out, err := cmd.Output()
-	if err == nil {
-		dir := strings.TrimSpace(string(out))
-		if dir != "" {
-			return dir, nil
-		}
+	dir := filepath.Join(repoRootForPhaseBoundaryTest(t), "angir")
+	if _, err := os.Stat(dir); err != nil {
+		return "", fmt.Errorf("could not find angir: %w", err)
 	}
-
-	// Fallback to relative path
-	root := repoRootForPhaseBoundaryTest(t)
-	dir := filepath.Clean(filepath.Join(root, "..", "ang-ir"))
-	if _, err := os.Stat(dir); err == nil {
-		return dir, nil
-	}
-
-	return "", fmt.Errorf("could not find ang-ir root")
+	return dir, nil
 }
