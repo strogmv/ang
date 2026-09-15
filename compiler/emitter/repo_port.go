@@ -374,7 +374,13 @@ func (e *Emitter) EmitRepository(repos []ir.Repository, entities []ir.Entity) er
 		filename := fmt.Sprintf("%s.go", strings.ToLower(repo.Name))
 		path := filepath.Join(targetDir, filename)
 		keep[filename] = struct{}{}
-		if err := WriteFileIfChanged(path, rendered, 0644); err != nil {
+		// The rendered source is not gofmt'ed (blank lines around the package
+		// clause and the type comment); format it like every other port file.
+		formatted, err := formatGoStrict(rendered, "internal/port/"+filename)
+		if err != nil {
+			return fmt.Errorf("format repository %s: %w", repo.Name, err)
+		}
+		if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 			return fmt.Errorf("write file: %w", err)
 		}
 		logGenerated("Generated Repository: %s\n", path)
