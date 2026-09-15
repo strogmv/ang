@@ -87,7 +87,15 @@ func (n *Normalizer) rawParseFlowSteps(val cue.Value) ([]FlowStep, error) {
 		file := ""
 		line := 0
 		column := 0
-		if pos := stepVal.Pos(); pos.IsValid() {
+		pos := stepVal.Pos()
+		if !pos.IsValid() {
+			// A step assembled by evaluation (for example one whose func string
+			// interpolates a definition) can lose its own position; the literal
+			// action field next to it keeps one. Without a position, warnings
+			// have no place and //ang:nolint above the step cannot be found.
+			pos = stepVal.LookupPath(cue.ParsePath("action")).Pos()
+		}
+		if pos.IsValid() {
 			file = pos.Filename()
 			line = pos.Line()
 			column = pos.Column()
