@@ -43,7 +43,10 @@ type Emitter struct {
 	// SourceBackendDir is where the backend lives in the project, when output
 	// goes to a staging or dry-run directory; //line paths to CUE are relative
 	// to it, so they hold once the files are in place. Empty means OutputDir.
-	SourceBackendDir         string
+	SourceBackendDir string
+	// ServiceImplWorkers bounds how many service method files are rendered at
+	// once; 0 means one per CPU.
+	ServiceImplWorkers       int
 	FrontendDir              string
 	FrontendAdminDir         string
 	TemplatesDir             string // Путь к папке с шаблонами
