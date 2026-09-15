@@ -55,8 +55,10 @@ func scanGoTokens(src string) ([]goTokenText, bool) {
 			break
 		}
 		if tok == gotoken.SEMICOLON {
-			// Written ";" and one inserted at a line end are the same token.
-			lit = ";"
+			// Semicolons are inserted at line ends, so gofmt splitting
+			// `if x { return }` over three lines adds some without changing the
+			// program; only the other tokens say whether a string changed.
+			continue
 		}
 		tokens = append(tokens, goTokenText{tok: tok, lit: lit})
 	}

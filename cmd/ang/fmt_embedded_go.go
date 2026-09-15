@@ -16,9 +16,9 @@ import (
 	cuetoken "cuelang.org/go/cue/token"
 )
 
-// Go written inside CUE ("""…""" strings) was never formatted: cue fmt treats
-// it as text, and the generated file is gofmt'ed only after generation. ang
-// fmt now formats the fields the generator reads as Go:
+// Go written inside CUE ("""…""" or #"""…"""# strings) was never formatted:
+// cue fmt treats it as text, and the generated file is gofmt'ed only after
+// generation. ang fmt formats the fields the generator reads as Go:
 //
 //   - func: an expression, the logic.Call function literal;
 //   - code: statements, a whole method body;
@@ -28,16 +28,24 @@ import (
 // Only a field whose value is a single multi-line string is touched; a value
 // built from several strings and definitions is not Go on its own. CUE
 // interpolations are masked with identifiers of the same length while gofmt
-// runs. A fragment that does not parse, or whose formatting would add or
-// remove lines, is left as it is and reported: generated files carry
-// "// Source: file.cue:LINE" comments, so the line count of a block must not
-// change.
+// runs. A fragment that does not parse is left as it is and reported.
+//
+// With keepLines, a fragment whose formatting would add or remove lines is
+// also left alone: generated files carry "// Source: file.cue:LINE" comments,
+// so a formatted block shifts them. With rawGo, a """ string is first rewritten
+// as #"""…"""# with the same value (toRawCUEString), so the Go reads as it
+// would in a .go file.
 
 type embeddedGoSkip struct {
 	File   string `json:"file"`
 	Line   int    `json:"line"`
 	Field  string `json:"field"`
 	Reason string `json:"reason"`
+}
+
+type embeddedGoOptions struct {
+	keepLines bool
+	rawGo     bool
 }
 
 // embeddedGoLineCountReason marks the common, harmless skip: gofmt would split
@@ -63,10 +71,16 @@ func embeddedGoShapeOf(label string) (embeddedGoShape, bool) {
 	return 0, false
 }
 
-// formatEmbeddedGo returns src with its embedded Go formatted, the number of
-// fragments it changed and the fragments it had to leave alone. A file that
-// does not parse as CUE is returned unchanged; cue fmt reports it.
+// formatEmbeddedGo formats embedded Go keeping every block's line count, as
+// ang fmt did when it was introduced.
 func formatEmbeddedGo(filename string, src []byte) ([]byte, int, []embeddedGoSkip) {
+	return formatEmbeddedGoWith(filename, src, embeddedGoOptions{keepLines: true})
+}
+
+// formatEmbeddedGoWith returns src with its embedded Go rewritten, the number
+// of fragments it changed and the fragments it had to leave alone. A file that
+// does not parse as CUE is returned unchanged; cue fmt reports it.
+func formatEmbeddedGoWith(filename string, src []byte, opts embeddedGoOptions) ([]byte, int, []embeddedGoSkip) {
 	file, err := cueparser.ParseFile(filename, src, cueparser.ParseComments)
 	if err != nil {
 		return src, 0, nil
@@ -102,7 +116,8 @@ func formatEmbeddedGo(filename string, src []byte) ([]byte, int, []embeddedGoSki
 			return true
 		}
 		literal := string(src[start:end])
-		if !strings.HasPrefix(literal, `"""`) || !strings.HasSuffix(literal, `"""`) {
+		raw := strings.HasPrefix(literal, `#"""`) && strings.HasSuffix(literal, `"""#`)
+		if !raw && !(strings.HasPrefix(literal, `"""`) && strings.HasSuffix(literal, `"""`)) {
 			return true
 		}
 		label, _, err := cueast.LabelName(field.Label)
@@ -113,11 +128,36 @@ func formatEmbeddedGo(filename string, src []byte) ([]byte, int, []embeddedGoSki
 		if !ok {
 			return true
 		}
-		next, reason := formatEmbeddedGoLiteral(literal, shape, strings.HasPrefix(label, "#"))
-		switch {
-		case reason != "":
-			skips = append(skips, embeddedGoSkip{File: filename, Line: field.Value.Pos().Line(), Field: label, Reason: reason})
-		case next != literal:
+		definition := strings.HasPrefix(label, "#")
+		report := func(reason string) {
+			if reason != "" && !definition {
+				skips = append(skips, embeddedGoSkip{File: filename, Line: field.Value.Pos().Line(), Field: label, Reason: reason})
+			}
+		}
+
+		candidate := literal
+		if opts.rawGo && !raw {
+			closing := strings.LastIndexByte(literal, '\n')
+			indent := literal[closing+1 : len(literal)-len(`"""`)]
+			// Only Go the generator reads: a definition must hold a function literal.
+			if definition {
+				if _, isFunc := goSourceOfLiteral(literal); !isFunc {
+					return true
+				}
+			}
+			if converted, ok, reason := toRawCUEString(src, field.Value, indent); ok {
+				candidate = converted
+			} else {
+				report(reason)
+			}
+		}
+
+		next, reason := formatEmbeddedGoLiteral(candidate, shape, definition, opts.keepLines)
+		if reason != "" {
+			report(reason)
+			next = candidate
+		}
+		if next != literal {
 			edits = append(edits, edit{start: start, end: end, text: next})
 		}
 		return true
@@ -134,12 +174,45 @@ func formatEmbeddedGo(filename string, src []byte) ([]byte, int, []embeddedGoSki
 	return out, len(edits), skips
 }
 
-// formatEmbeddedGoLiteral formats one """ literal. A non-empty reason means
-// the fragment was left alone and should be reported. A definition that is
-// not a function literal is not Go the generator reads: it is left alone
+// goSourceOfLiteral returns the masked Go text of a """ literal and whether it
+// is a function literal.
+func goSourceOfLiteral(literal string) (string, bool) {
+	q := stringQuotes(literal)
+	open := strings.IndexByte(literal, '\n')
+	closing := strings.LastIndexByte(literal, '\n')
+	if open != len(q.open) || closing <= open {
+		return "", false
+	}
+	indent := literal[closing+1 : len(literal)-len(q.close)]
+	lines := strings.Split(literal[open+1:closing], "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimPrefix(line, indent)
+	}
+	masked, _, ok := maskCueInterpolations(strings.Join(lines, "\n"), q.raw)
+	if !ok {
+		return "", false
+	}
+	return masked, isGoFuncLiteral(masked)
+}
+
+type literalQuotes struct {
+	open, close string
+	raw         bool
+}
+
+func stringQuotes(literal string) literalQuotes {
+	if strings.HasPrefix(literal, `#"""`) {
+		return literalQuotes{open: `#"""`, close: `"""#`, raw: true}
+	}
+	return literalQuotes{open: `"""`, close: `"""`}
+}
+
+// formatEmbeddedGoLiteral formats one multi-line literal. A non-empty reason
+// means the fragment was left alone and should be reported. A definition that
+// is not a function literal is not Go the generator reads: it is left alone
 // silently.
-func formatEmbeddedGoLiteral(value string, shape embeddedGoShape, definition bool) (string, string) {
-	const quotes = `"""`
+func formatEmbeddedGoLiteral(value string, shape embeddedGoShape, definition, keepLines bool) (string, string) {
+	q := stringQuotes(value)
 	skip := func(reason string) (string, string) {
 		if definition {
 			return value, ""
@@ -148,10 +221,10 @@ func formatEmbeddedGoLiteral(value string, shape embeddedGoShape, definition boo
 	}
 	open := strings.IndexByte(value, '\n')
 	closing := strings.LastIndexByte(value, '\n')
-	if open != len(quotes) || closing <= open {
+	if open != len(q.open) || closing <= open {
 		return value, ""
 	}
-	indent := value[closing+1 : len(value)-len(quotes)]
+	indent := value[closing+1 : len(value)-len(q.close)]
 	if strings.Trim(indent, " \t") != "" {
 		return value, ""
 	}
@@ -167,7 +240,7 @@ func formatEmbeddedGoLiteral(value string, shape embeddedGoShape, definition boo
 	}
 	source := strings.Join(lines, "\n")
 
-	masked, holes, ok := maskCueInterpolations(source)
+	masked, holes, ok := maskCueInterpolations(source, q.raw)
 	if !ok {
 		return skip("an interpolation could not be masked")
 	}
@@ -184,20 +257,20 @@ func formatEmbeddedGoLiteral(value string, shape embeddedGoShape, definition boo
 		formatted, reason = gofmtExpression(masked)
 	}
 	if reason != "" {
-		if strings.Contains(source, `\`) {
+		if !q.raw && strings.Contains(source, `\`) {
 			// gofmt parses the CUE source text; \" there is still an escape,
 			// so Go that is valid once decoded can fail here.
 			reason += " (as written in CUE, before escapes such as \\\" are decoded)"
 		}
 		return skip(reason)
 	}
-	if strings.Count(formatted, "\n") != strings.Count(masked, "\n") {
+	if keepLines && strings.Count(formatted, "\n") != strings.Count(masked, "\n") {
 		return skip(embeddedGoLineCountReason)
 	}
-	// gofmt saw the CUE source text, where \" and \\ are still escapes; the
-	// generator reads the decoded string. Keep the result only if the decoded
-	// Go is the same token for token.
-	if !sameDecodedGoTokens(quotes+"\n"+masked+"\n"+quotes, quotes+"\n"+formatted+"\n"+quotes) {
+	// gofmt saw the CUE source text; in a """ string \" and \\ are still
+	// escapes and the generator reads the decoded string. Keep the result only
+	// if the decoded Go is the same token for token.
+	if !sameDecodedGoTokens(q.open+"\n"+masked+"\n"+q.close, q.open+"\n"+formatted+"\n"+q.close) {
 		return skip("CUE escapes make the decoded Go read differently; formatting it could change a string")
 	}
 	for _, hole := range holes {
@@ -213,34 +286,38 @@ func formatEmbeddedGoLiteral(value string, shape embeddedGoShape, definition boo
 			out[i] = indent + line
 		}
 	}
-	return quotes + "\n" + strings.Join(out, "\n") + "\n" + indent + quotes, ""
+	return q.open + "\n" + strings.Join(out, "\n") + "\n" + indent + q.close, ""
 }
 
 type cueInterpolationHole struct {
 	mask, original string
 }
 
-// maskCueInterpolations replaces every \( … ) with an identifier of the same
-// length, so gofmt aligns the text exactly as it will be read back.
-func maskCueInterpolations(text string) (string, []cueInterpolationHole, bool) {
+// maskCueInterpolations replaces every interpolation — \( … ) in a """ string,
+// \#( … ) in a raw one — with an identifier of the same length, so gofmt aligns
+// the text exactly as it will be read back.
+func maskCueInterpolations(text string, raw bool) (string, []cueInterpolationHole, bool) {
+	marker := `\(`
+	if raw {
+		marker = `\#(`
+	}
 	var b strings.Builder
 	var holes []cueInterpolationHole
 	for i := 0; i < len(text); i++ {
-		c := text[i]
-		if c != '\\' || i+1 >= len(text) {
-			b.WriteByte(c)
-			continue
-		}
-		if text[i+1] != '(' {
-			// An escape such as \\ or \n: keep both bytes together so \\( is
-			// not taken for an interpolation.
-			b.WriteByte(c)
-			b.WriteByte(text[i+1])
-			i++
+		if !strings.HasPrefix(text[i:], marker) {
+			if !raw && text[i] == '\\' && i+1 < len(text) {
+				// An escape such as \\ or \n: keep both bytes together so \\( is
+				// not taken for an interpolation.
+				b.WriteByte(text[i])
+				b.WriteByte(text[i+1])
+				i++
+				continue
+			}
+			b.WriteByte(text[i])
 			continue
 		}
 		depth := 0
-		j := i + 1
+		j := i + len(marker) - 1
 		for ; j < len(text); j++ {
 			if text[j] == '\n' {
 				return "", nil, false

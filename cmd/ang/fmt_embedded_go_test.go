@@ -111,6 +111,20 @@ func TestFormatEmbeddedGoReportsWhatItCannotFormat(t *testing.T) {
 	}
 }
 
+// Full formatting splits one-line blocks; the scanner then inserts semicolons at
+// the new line ends. That is the same Go and must not count as a change.
+func TestSameDecodedGoTokensIgnoresInsertedSemicolons(t *testing.T) {
+	quote := func(body string) string { return "#\"\"\"\n" + body + "\n\"\"\"#" }
+	oneLine := `if err != nil { return out, err }`
+	split := "if err != nil {\n\treturn out, err\n}"
+	if !sameDecodedGoTokens(quote(oneLine), quote(split)) {
+		t.Fatal("splitting a one-line block must count as the same Go")
+	}
+	if sameDecodedGoTokens(quote(`s := "a  b"`), quote(`s := "a b"`)) {
+		t.Fatal("a change inside a string must still count as a change")
+	}
+}
+
 func TestSameDecodedGoTokens(t *testing.T) {
 	quote := func(body string) string { return "\"\"\"\n" + body + "\n\"\"\"" }
 	// Only whitespace between tokens changes: the same program.

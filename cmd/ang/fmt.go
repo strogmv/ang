@@ -32,6 +32,8 @@ func runFmt(args []string) {
 	jsonOut := fs.Bool("json", false, "emit machine-readable summary")
 	path := fs.String("path", "", "path to CUE directory (default: ./cue if present)")
 	goOnly := fs.Bool("go-only", false, "format only Go embedded in CUE strings; keep CUE layout and action names as they are")
+	rawGo := fs.Bool("raw-go", false, "rewrite embedded Go as raw #\"\"\"…\"\"\"# strings, so it reads as in a .go file (same value)")
+	keepLines := fs.Bool("keep-lines", false, "leave embedded Go whose formatting would add or remove lines as it is")
 	if err := fs.Parse(args); err != nil {
 		fmt.Printf("Fmt FAILED: %v\n", err)
 		os.Exit(1)
@@ -43,7 +45,7 @@ func runFmt(args []string) {
 		os.Exit(1)
 	}
 
-	res, err := formatCueTreeWith(targetRoot, *check, *goOnly)
+	res, err := formatCueTreeOptions(targetRoot, *check, *goOnly, embeddedGoOptions{keepLines: *keepLines, rawGo: *rawGo})
 	if err != nil {
 		fmt.Printf("Fmt FAILED: %v\n", err)
 		os.Exit(1)
@@ -101,6 +103,12 @@ func formatCueTree(root string, checkOnly bool) (fmtResult, error) {
 // embedded in strings, for projects whose CUE is not kept in cue fmt layout:
 // there a full pass would rewrite nearly every file.
 func formatCueTreeWith(root string, checkOnly, goOnly bool) (fmtResult, error) {
+	return formatCueTreeOptions(root, checkOnly, goOnly, embeddedGoOptions{keepLines: true})
+}
+
+// formatCueTreeOptions is formatCueTreeWith with control over embedded Go:
+// whether its line count must be kept and whether it becomes a raw string.
+func formatCueTreeOptions(root string, checkOnly, goOnly bool, goOpts embeddedGoOptions) (fmtResult, error) {
 	files, err := collectCueFiles(root)
 	if err != nil {
 		return fmtResult{}, err
@@ -127,7 +135,7 @@ func formatCueTreeWith(root string, checkOnly, goOnly bool) (fmtResult, error) {
 			if !goOnly {
 				input, _ = rewriteCueActionAliases(input, rules)
 			}
-			passResult, changed, skipped := formatEmbeddedGo(file, []byte(input))
+			passResult, changed, skipped := formatEmbeddedGoWith(file, []byte(input), goOpts)
 			goChanged += changed
 			goSkipped = skipped
 			if !goOnly {
