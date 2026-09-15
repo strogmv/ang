@@ -351,6 +351,15 @@ ang hash --artifacts
 
 Run MVP language server.
 
+- Diagnostics from the semantic phases on open, change and save.
+- On save, embedded Go is type-checked in the background (the `ang vet logic
+  --types` engine: dry run + `go build -overlay`, the project is not touched);
+  errors appear on the CUE lines with `source: "ang-types"`.
+- Hover on a flow action shows its catalog entry and example; inside Go blocks,
+  hover on `s.<Name>Repo.<Method>`, `port.<Type>` or `domain.<Type>` shows the
+  signature or declaration from the generated `internal/port` and
+  `internal/domain`.
+
 ### `ang mcp`
 
 Run ANG MCP server over stdio.

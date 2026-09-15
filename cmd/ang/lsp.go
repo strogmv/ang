@@ -59,6 +59,14 @@ type lspServer struct {
 	pendingTimer     *time.Timer
 	cacheFingerprint string
 	cacheByURI       map[string][]map[string]any
+
+	// Type errors of embedded Go, from the last finished check on save.
+	typeCheck      func(workspaceRoot string) (typeCheckReport, error)
+	typeDiags      map[string][]map[string]any
+	typeGeneration int
+	typeRunning    bool
+	typeRerun      bool
+	typeDone       chan struct{} // closed when a check finishes; for tests
 }
 
 func runLSP(args []string) {
@@ -81,6 +89,7 @@ func runLSP(args []string) {
 		openDocs:      map[string]string{},
 		lastDiagHash:  map[string]string{},
 		debounce:      250 * time.Millisecond,
+		typeCheck:     lspTypeCheck,
 	}
 	if err := s.serve(context.Background()); err != nil {
 		fmt.Printf("LSP FAILED: %v\n", err)
@@ -224,6 +233,7 @@ func (s *lspServer) handle(req lspRequest) error {
 			s.mu.Unlock()
 			s.invalidateCache()
 		}
+		s.scheduleTypeCheck()
 		return s.publishAllDiagnostics()
 	case "textDocument/didClose":
 		var p struct {
@@ -367,7 +377,7 @@ func (s *lspServer) hoverForURI(uri string, pos complsp.Position) map[string]any
 	}
 	hover, ok := complsp.HoverForSource(text, pos)
 	if !ok || hover == nil {
-		return nil
+		return s.goHoverForText(uri, text, pos)
 	}
 	result := map[string]any{
 		"contents": map[string]any{
@@ -453,6 +463,7 @@ func (s *lspServer) publishAllDiagnostics() error {
 	for k, v := range s.lastDiagHash {
 		prev[k] = v
 	}
+	byURI = mergeDiagnostics(byURI, s.typeDiags)
 	s.mu.Unlock()
 
 	for uri, list := range byURI {
@@ -808,4 +819,30 @@ func copyDir(src, dst string) error {
 		}
 		return os.WriteFile(target, data, 0o644)
 	})
+}
+
+// goHoverForText shows generated Go declarations for symbols inside Go blocks
+// of a CUE file (see lsp_go_hover.go).
+func (s *lspServer) goHoverForText(uri, text string, pos complsp.Position) map[string]any {
+	if strings.ToLower(filepath.Ext(uriToPath(uri))) != ".cue" {
+		return nil
+	}
+	lines := strings.Split(text, "\n")
+	if pos.Line < 0 || pos.Line >= len(lines) {
+		return nil
+	}
+	s.mu.Lock()
+	root := s.workspaceRoot
+	s.mu.Unlock()
+	value, start, end, ok := goHoverAt(root, lines[pos.Line], pos.Character)
+	if !ok {
+		return nil
+	}
+	return map[string]any{
+		"contents": map[string]any{"kind": "markdown", "value": value},
+		"range": map[string]any{
+			"start": map[string]int{"line": pos.Line, "character": start},
+			"end":   map[string]int{"line": pos.Line, "character": end},
+		},
+	}
 }
