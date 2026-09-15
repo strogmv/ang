@@ -8,6 +8,7 @@ import (
 	"unicode"
 
 	"cuelang.org/go/cue"
+	"cuelang.org/go/cue/ast"
 )
 
 func formatPos(v cue.Value) string {
@@ -317,6 +318,13 @@ func (n *Normalizer) detectType(fieldName string, v cue.Value) string {
 		}
 	}
 
+	// A field written as domain.X or [...domain.X] names its entity in the
+	// syntax even when the loader leaves the imported value unresolved (its
+	// kind is then top, and the checks below would fall back to any).
+	if goType := domainReferenceType(v); goType != "" {
+		return goType
+	}
+
 	// 1. Check if type is explicitly mapped in Codegen CUE
 	_, path := v.ReferencePath()
 	pathStr := path.String()
@@ -499,4 +507,50 @@ func mapDeclaredCueTypeToGo(raw string) string {
 	default:
 		return ""
 	}
+}
+
+// domainReferenceType returns domain.X or []domain.X for a field whose value is
+// written as the selector domain.X or the list [...domain.X]; "" otherwise.
+func domainReferenceType(v cue.Value) string {
+	node := v.Source()
+	if field, ok := node.(*ast.Field); ok {
+		node = field.Value
+	}
+	if list, ok := node.(*ast.ListLit); ok {
+		if len(list.Elts) != 1 {
+			return ""
+		}
+		ellipsis, ok := list.Elts[0].(*ast.Ellipsis)
+		if !ok {
+			return ""
+		}
+		if name := domainSelectorName(ellipsis.Type); name != "" {
+			return "[]domain." + name
+		}
+		return ""
+	}
+	if name := domainSelectorName(node); name != "" {
+		return "domain." + name
+	}
+	return ""
+}
+
+func domainSelectorName(node ast.Node) string {
+	sel, ok := node.(*ast.SelectorExpr)
+	if !ok {
+		return ""
+	}
+	pkg, ok := sel.X.(*ast.Ident)
+	if !ok || pkg.Name != "domain" {
+		return ""
+	}
+	name := ""
+	if ident, ok := sel.Sel.(*ast.Ident); ok {
+		name = ident.Name
+	}
+	name = strings.TrimPrefix(name, "#")
+	if name == "" || !isExportedName(name) {
+		return ""
+	}
+	return exportName(name)
 }
