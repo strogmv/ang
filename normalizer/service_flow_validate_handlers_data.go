@@ -294,19 +294,9 @@ func handleFlowDataAndCalls(
 			addWarn(stepNum, step.Action, "MISSING_FUNC", "logic.Call missing 'func'", "{action: \"logic.Call\", func: \"DoThing\", args: [\"a\", \"b\"]}", step.File, step.Line, step.Column)
 		}
 		funcExpr := strings.TrimSpace(fmt.Sprint(step.Args["func"]))
-		if strings.Contains(funcExpr, "fmt.Errorf(") {
-			addWarnWithSeverity(
-				stepNum,
-				step.Action,
-				"LAMBDA_BARE_ERROR",
-				"warn",
-				"logic.Call uses fmt.Errorf; this propagates as HTTP 500 by default",
-				"Use errors.New(http.StatusXxx, \"Code\", \"Message\") for business errors.",
-				step.File,
-				step.Line,
-				step.Column,
-			)
-		}
+		// LAMBDA_BARE_ERROR moved to ANG (compiler/pipeline_bare_error.go): only
+		// operations served over HTTP have a status to get wrong, and endpoints
+		// are not known here.
 		// Detect one-liner inline lambda: has func( but no real newlines (triple-quote produces \n).
 		// Semicolons are used to join statements in one-liner style.
 		isInlineLambda := strings.Contains(funcExpr, "func(")

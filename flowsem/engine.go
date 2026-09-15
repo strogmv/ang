@@ -967,10 +967,45 @@ func isSafeMappingAssignValue(value string) bool {
 	if err != nil {
 		return false
 	}
-	if isDotPathOrIdentExpr(expr) || isLiteralExpr(expr) {
+	return isSafeAssignExpr(expr)
+}
+
+// isSafeAssignExpr accepts what the normalizer already accepts for call
+// arguments and payloadMap values: refs, literals, composite literals built from
+// them (port.ReleaseTenderStockRequest{AwardID: award.ID}, time.Time{}), and
+// comparisons and boolean logic over them (a || b). Calls and other imperative
+// Go still count as raw code.
+func isSafeAssignExpr(expr ast.Expr) bool {
+	switch x := expr.(type) {
+	case *ast.ParenExpr:
+		return isSafeAssignExpr(x.X)
+	case *ast.CompositeLit:
+		if x.Type == nil || !isDotPathOrIdentExpr(x.Type) {
+			return false
+		}
+		for _, elt := range x.Elts {
+			value := elt
+			if kv, ok := elt.(*ast.KeyValueExpr); ok {
+				if _, ok := kv.Key.(*ast.Ident); !ok {
+					return false
+				}
+				value = kv.Value
+			}
+			if !isSafeAssignExpr(value) {
+				return false
+			}
+		}
 		return true
+	case *ast.UnaryExpr:
+		return (x.Op == token.NOT || x.Op == token.SUB || x.Op == token.AND) && isSafeAssignExpr(x.X)
+	case *ast.BinaryExpr:
+		switch x.Op {
+		case token.LAND, token.LOR, token.EQL, token.NEQ, token.LSS, token.LEQ, token.GTR, token.GEQ:
+			return isSafeAssignExpr(x.X) && isSafeAssignExpr(x.Y)
+		}
+		return false
 	}
-	return false
+	return isDotPathOrIdentExpr(expr) || isLiteralExpr(expr)
 }
 
 func isDotPathOrIdentExpr(expr ast.Expr) bool {
