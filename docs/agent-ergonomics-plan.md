@@ -755,6 +755,19 @@ Go внутри. 1 665 строк содержат экранированные 
 
 ### P5.3 Предупреждения: исправить причины, а вывод сделать читаемым
 
+> **Сделано в ANG и ang-ir (2026-09-15), коммиты `da15749` и следующий; ang-ir
+> ветка `agent-ergonomics-p5`, `cf05929`.** Проверки исправлены: LARGE_CUE_FILE,
+> shared_arch (правило и Go-блоки; реестр — в `ang vet`), события (шаги
+> публикации, WebSocket-потребители, EVENT_PUBLISH_UNDECLARED, места),
+> RAW_GO_EXPR_IN_ASSIGN (согласовано с normalizer), LAMBDA_BARE_ERROR (перенесена
+> в ANG, только HTTP-операции, место операции как запасное), новая
+> TAUTOLOGICAL_CHECK. На dealingi-back было 153 предупреждения — стало 124, у всех
+> есть место: 90 TAUTOLOGICAL_CHECK, 14 LARGE_CUE_FILE, 8
+> EVENT_PUBLISH_UNDECLARED, 4 ORPHAN_PUBLISH, 4 SHARED_ARCH_UNDERUSED, 2
+> EVENT_PUBLISH_RAW_PAYLOAD_FORBIDDEN, 1 LAMBDA_INLINE_ESCAPE, 1 LAMBDA_BARE_ERROR
+> (`Tender.CreateTender`). Всё оставшееся — настоящие правки CUE. Вывод сборки
+> (пункты «Вывод сборки» ниже) — ещё не сделан.
+
 > **Решение пользователя (2026-09-15).** Предупреждения не гасить — они скорее
 > всего не просто так. Подавление на уровне проекта (`ang.yaml`) **не делать**.
 > Существующий построчный `//ang:nolint КОД` оставить как есть.
@@ -783,32 +796,45 @@ dealingi-back (с `make generate`, просмотром диффа генера�
 - CUE: разрезать 14 файлов по операциям в том же пакете. Разрезка сдвигает
   `// Source:`-комментарии в генерате — отдельный коммит, после P5.4.
 
-**SHARED_ARCH_UNDERUSED — 27.** `collectEntityContextUsage`
-(`compiler/pipeline_shared_arch.go`) видит только шаги `repo.*`/`db.*` с `source`
-и `list.Enrich`, но не обращения `s.<Entity>Repo.…` внутри Go-блоков. По
-сгенерированному коду (контексты `admin` и `audit` проверка исключает
-намеренно — так и считать) одним контекстом пользуются только 8 сущностей:
-`Consent` (auth), `DataExportJob` и `DataEraseRequest` (user), `SearchDocument`
-(search), `TenderTemplate` и `TenderTemplateCategory` (tender),
-`EmailVerificationToken` (auth), `NegotiationSearchQuery` (company). Остальные 19
-действительно общие.
-- ANG: учитывать обращения к репозиториям из Go-блоков (`func`, `code`, `#…Func`
-  после развёртывания): по тексту `s\.(\w+)Repo\.` — достаточно, имя репозитория
-  совпадает с сущностью.
-- CUE: снять `@shared_arch` с этих 8 сущностей. Проверено: пометка читается
-  только этой проверкой (`ang-ir/normalizer/entity.go` кладёт её в `Metadata`,
-  больше её никто не использует; `AllowCrossService` — отдельный механизм).
-  Выход сборки не должен измениться — подтвердить `--check`.
+**SHARED_ARCH_UNDERUSED — 27 и SHARED_ARCH_AUDIT — 37.** Пометка `shared_arch`
+не только для отчёта: в ang-ir `validateFlowSteps` (`normalizer/service_flow_validate.go:144`)
+она снимает ошибку «доступ к сущности чужого контекста» с шагов потока. Контекст —
+`bounded_context` сущности или часть имени владельца до `_`/`-`/`.`
+(`inferBoundedContext`); `admin` и `audit` исключены. Поэтому правило проверки
+«используется меньше чем двумя контекстами — пометка лишняя» неверно: сущность,
+которой пользуется один, но **чужой** контекст, пометку требует.
 
-**SHARED_ARCH_AUDIT — 37.** Не ошибка, а реестр архитектурного долга: на каждой
-сборке перечисляет каждую помеченную сущность с подсказкой «Keep shared_arch
-temporary». После снятия 8 лишних пометок останется 29 общих сущностей — это
-текущая архитектура. «Исправить» каждую можно только переделкой на read model или
-события; это отдельное решение пользователя, не часть P5.
-- ANG: перенести реестр из вывода сборки в `ang vet` (раздел «архитектурный
-  долг»: сущность, reason, ticket, реальные контексты). В сборке оставить только
-  нарушения: нет reason (уже ошибка `SHARED_ARCH_REASON_REQUIRED`) и
-  недоиспользование.
+Разбор всех 37 через `compiler.RunSemanticPhases` (кто обращается шагами потока,
+кто — `s.<Entity>Repo.` из Go-блоков), 2026-09-15:
+- **Пометка лишняя — 4:** `NegotiationSearchQuery`, `SearchDocument`,
+  `TenderTemplate`, `TenderTemplateCategory` — все обращения из собственного
+  контекста. CUE: снять `@shared_arch`, `--check` должен остаться чистым.
+- **Пометку требует проверка границ — 15:** чужие контексты обращаются шагами
+  потока (`Attachment`, `AuditLog`, `CategoryValue`, `Company`, `CompanyAddress`,
+  `CompanyCountry`, `CompanyInvite`, `Consent`, `Counterparty`, `Country`,
+  `DataEraseRequest`, `DataExportJob`, `EmailVerificationToken`, `Product`,
+  `User`). У семи контекст выведен из имени владельца, которому не соответствует
+  ни один сервис: `consent`, `data` (два), `email`, `category`, `counterparty`,
+  `product`. CUE: задать им явный `bounded_context` по смыслу (например,
+  `EmailVerificationToken` → `auth`, `DataExportJob`/`DataEraseRequest` →
+  `user`, `Product` → `company`) и пересчитать — часть пометок станет лишней.
+- **Чужие обращения только из Go-блоков — 18:** `APIKey`, `Application`,
+  `B2BQuoteRequest`, `B2BQuoteRequestLine`, `B2BShareLink`, `Bid`, `BlockOrder`,
+  `CatalogShareQuantity`, `CompanyCategoryScore`, `Market`, `Notification`,
+  `OperationalGroup`, `PriceList`, `ProductPackage`, `ProductPackageItem`,
+  `ProductPrice`, `ProductVariant`, `ProductVariantPrice`. Проверка границ Go-блоки
+  не видит, но связь настоящая; пометка честная.
+
+ANG (`compiler/pipeline_shared_arch.go`):
+- считать обращения и из Go-блоков (`func`, `code` шагов и `Impl.Code` метода,
+  регэксп `s\.([A-Z]\w*)Repo\.`);
+- `SHARED_ARCH_UNDERUSED` → «пометка лишняя»: все обращающиеся контексты (поток и
+  Go, кроме `admin`/`audit`) совпадают с контекстом сущности. Сущности без
+  обращений тоже сюда;
+- `SHARED_ARCH_AUDIT` — реестр долга, а не проблема сборки: убрать из вывода
+  сборки, показывать в `ang vet` (сущность, контекст, reason, ticket, чужие
+  контексты по потоку и по Go). Переделка общих сущностей на read model —
+  отдельное решение пользователя, не часть P5.
 
 **RAW_GO_EXPR_IN_ASSIGN — 10.** Три литерала структур из ссылок
 (`port.ReleaseTenderStockRequest{CompanyID: award.WinnerCompanyID, AwardID:
@@ -819,13 +845,18 @@ _webhookSeller`. Для `payloadMap` и аргументов вызовов ang-
 (`isSafeMappingAssignValue`, `flowsem/engine.go`).
 - ang-ir: в `isSafeMappingAssignValue` переиспользовать `isSafeCallArgExpr` и
   разрешить `&&`, `||`, `!` над безопасными операндами. Все 10 уходят законно.
-- **Настоящая ошибка, найденная попутно:** `cue/api/impl_b2b_offers.cue` около
-  строки 1613 — `{action: "logic.Check", condition: "reservationWebhookSeller ||
-  !reservationWebhookSeller", …}`. Условие всегда истинно, проверка никогда не
-  срабатывает. Выяснить намерение по соседним шагам (скорее всего «не падать,
-  если вебхук не ушёл») и либо удалить шаг, либо проверять настоящее условие.
-  ANG: предупреждение `TAUTOLOGICAL_CHECK` для условий вида `x || !x` /
-  `x && !x` (по `go/ast`, одинаковые операнды).
+- **Попутно — идиома, а не одна ошибка.** Проверка `TAUTOLOGICAL_CHECK` (сделана,
+  коммит `da15749`) нашла на dealingi-back **90** шагов вида
+  `{action: "logic.Check", condition: "auditWritten || !auditWritten", throw: "audit
+  log write failed"}` сразу после `logic.Call … output: "auditWritten"`. Условие
+  всегда истинно, `throw` никогда не сработает. Так гасят Go-ошибку «declared and
+  not used», хотя штатный способ есть: `logic.Call` без `output:` рендерится как
+  `if _, err := call; err != nil { return … }` (`renderTypedCallResult`,
+  `compiler/emitter/service_flow_codegen_typed_core.go:242`) — результат
+  отбрасывается, ошибка проверяется. CUE: удалить 90 шагов-тавтологий и
+  `output:` у порождающего вызова, если переменная больше нигде не используется
+  (где используется, как `_webhookBuyer` в `resp.Ok`, — удалить только проверку).
+  Проверять генерацией, `ang vet logic --types` и `go build`, а не по тексту.
 
 **LAMBDA_BARE_ERROR — 5.** «`fmt.Errorf` в `logic.Call` даст HTTP 500». Все четыре
 с местом — не HTTP: три обработчика событий (`ReindexCompanyProductCatalog`,
@@ -928,6 +959,12 @@ WS-списке.
   `go test ./...` зелёный; `make generate | tail -8` читается без grep.
 
 ### P5.4 Правка одной строки CUE — изменение одного сервиса, а не 306 файлов
+
+> **Сделано (2026-09-15).** Строки `// InputHash:` убраны из 11 шаблонов и
+> `x-ang-input-hash` — из openapi и asyncapi; `aiact.tmpl` не тронут (там
+> `input_hash` — поле журнала ИИ-вызовов). Хеш входа остаётся в
+> `ang-manifest.json`. На dealingi-back — 271 файл, все изменённые строки — эти
+> хеши. Никто (фронт, SDK) их не читал.
 
 **Проблема.** Хеш *всего* входа стоит в шапке 269 файлов и в двух спецификациях
 (P5.0). Правка одного символа в любом `.cue` → в git и в `--dry-run --diff` 306

@@ -31,7 +31,7 @@ func emitTautologicalConditionDiagnostics(services []normalizer.Service, opts Pi
 					Code:     "TAUTOLOGICAL_CHECK",
 					Severity: "warn",
 					Message:  fmt.Sprintf("%s.%s: %s condition %q is %s", svc.Name, method.Name, step.Action, condition, verdict),
-					Hint:     "Check the intended condition; a check that cannot fail (or a branch that cannot run) is dead code.",
+					Hint:     "A check that cannot fail (or a branch that cannot run) is dead code. If it only exists to use a call's output, drop output: from the call instead — the call's error is still checked.",
 					File:     step.File,
 					Line:     step.Line,
 					Column:   step.Column,
