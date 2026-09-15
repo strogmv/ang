@@ -598,21 +598,21 @@ type FileMeta struct {
 
 // TargetDef describes the code generation target stack.
 type TargetDef struct {
-	Name                     string // "go-core", "python-api"
-	Lang                     string // "go", "python", "rust", "typescript"
-	Framework                string // "chi", "echo", "fiber", "axum", "fastapi"
-	DB                       string // "postgres", "mysql", "mongodb"
-	Cache                    string // "redis", "memcached", "none"
-	Queue                    string // "nats", "kafka", "rabbitmq"
-	Storage                  string // "s3", "gcs", "minio"
-	OutputDir                string // generated backend output root for this target
-	FrontendAppDir           string // optional: copy generated SDK into this frontend directory
+	Name           string // "go-core", "python-api"
+	Lang           string // "go", "python", "rust", "typescript"
+	Framework      string // "chi", "echo", "fiber", "axum", "fastapi"
+	DB             string // "postgres", "mysql", "mongodb"
+	Cache          string // "redis", "memcached", "none"
+	Queue          string // "nats", "kafka", "rabbitmq"
+	Storage        string // "s3", "gcs", "minio"
+	OutputDir      string // generated backend output root for this target
+	FrontendAppDir string // optional: copy generated SDK into this frontend directory
 	// FrontendSDKSkip names frontend SDK modules this project does not use;
 	// ANG skips generating them (see docs/ang/conventions.md of a project).
-	FrontendSDKSkip []string
-	NatsWorkers              int    // max concurrent NATS handlers per subscriber; 0 = default (20)
-	NatsPublishRetryAttempts int    // retry attempts on publish failure; default 3
-	NatsPublishRetryDelayMS  int    // initial backoff in ms; doubles each attempt; default 100
+	FrontendSDKSkip          []string
+	NatsWorkers              int // max concurrent NATS handlers per subscriber; 0 = default (20)
+	NatsPublishRetryAttempts int // retry attempts on publish failure; default 3
+	NatsPublishRetryDelayMS  int // initial backoff in ms; doubles each attempt; default 100
 }
 
 // NotificationMutingDef describes automatic notification muting via repository decorator.
