@@ -214,6 +214,6 @@ func (e *Emitter) EmitGDPR(entities []ir.Entity) error {
 	if err := writeFileAtomic(outPath, formatted, 0644); err != nil {
 		return fmt.Errorf("gdpr: write: %w", err)
 	}
-	fmt.Printf("Generated: %s\n", outPath)
+	logGenerated("Generated: %s\n", outPath)
 	return nil
 }

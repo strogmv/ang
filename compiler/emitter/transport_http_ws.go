@@ -279,7 +279,7 @@ func Register%sRoutes(r chi.Router, svc port.%s) {
 			if err := WriteFileIfChanged(path, []byte(stub), 0o644); err != nil {
 				return fmt.Errorf("write http stub: %w", err)
 			}
-			fmt.Printf("Generated HTTP stub: %s\n", path)
+			logGenerated("Generated HTTP stub: %s\n", path)
 			continue
 		}
 		if err := t.Execute(&buf, httpOnly); err != nil {
@@ -297,7 +297,7 @@ func Register%sRoutes(r chi.Router, svc port.%s) {
 		if err := WriteFileIfChanged(path, formatted, 0o644); err != nil {
 			return fmt.Errorf("write file: %w", err)
 		}
-		fmt.Printf("Generated HTTP: %s\n", path)
+		logGenerated("Generated HTTP: %s\n", path)
 	}
 
 	if err := e.EmitHTTPCommon(auth); err != nil {
@@ -533,7 +533,7 @@ func (e *Emitter) EmitWebSocket(irEndpoints []ir.Endpoint, irServices []ir.Servi
 		if err := WriteFileIfChanged(path, formatted, 0o644); err != nil {
 			return fmt.Errorf("write file: %w", err)
 		}
-		fmt.Printf("Generated WebSocket: %s\n", path)
+		logGenerated("Generated WebSocket: %s\n", path)
 	}
 
 	return nil

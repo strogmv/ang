@@ -50,7 +50,7 @@ func (e *Emitter) EmitRedisClient() error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Redis Client: %s\n", path)
+	logGenerated("Generated Redis Client: %s\n", path)
 	return nil
 }
 
@@ -90,7 +90,7 @@ func (e *Emitter) EmitRedisStateStore() error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Redis StateStore: %s\n", path)
+	logGenerated("Generated Redis StateStore: %s\n", path)
 	return nil
 }
 
@@ -181,7 +181,7 @@ func (e *Emitter) EmitMongoSchema(entities []ir.Entity) error {
 		if err := WriteFileIfChanged(path, []byte(jsonStr), 0644); err != nil {
 			return fmt.Errorf("write file: %w", err)
 		}
-		fmt.Printf("Generated Mongo Schema: %s\n", path)
+		logGenerated("Generated Mongo Schema: %s\n", path)
 	}
 
 	return nil
@@ -277,7 +277,7 @@ func (e *Emitter) EmitPublisherInterface(services []ir.Service, schedules []ir.S
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Publisher Interface: %s\n", path)
+	logGenerated("Generated Publisher Interface: %s\n", path)
 	return nil
 }
 
@@ -346,6 +346,6 @@ func (e *Emitter) EmitNatsAdapter(services []ir.Service, schedules []ir.Schedule
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated NATS Adapter: %s\n", path)
+	logGenerated("Generated NATS Adapter: %s\n", path)
 	return nil
 }

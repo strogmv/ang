@@ -1,7 +1,6 @@
 package emitter
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -260,7 +259,7 @@ export function Actions({
 		if err := WriteFileIfChanged(filepath.Join(baseDir, "index.tsx"), []byte(indexTSX), 0o644); err != nil {
 			return err
 		}
-		fmt.Printf("Generated Base UI Forms Layer: %s\n", filepath.Join(baseDir, "index.tsx"))
+		logGenerated("Generated Base UI Forms Layer: %s\n", filepath.Join(baseDir, "index.tsx"))
 	}
 	return nil
 }
@@ -427,7 +426,7 @@ export type { AutoFormProps, FieldSchema, FormSchema, UIHints } from './types';
 			return err
 		}
 	}
-	fmt.Printf("Generated AutoForm UI Layer: %s\n", baseDir)
+	logGenerated("Generated AutoForm UI Layer: %s\n", baseDir)
 	return nil
 }
 
@@ -457,6 +456,6 @@ func (e *Emitter) emitFrontendTSConfig() error {
 	if err := WriteFileIfChanged(path, []byte(content), 0o644); err != nil {
 		return err
 	}
-	fmt.Printf("Generated Frontend TSConfig: %s\n", path)
+	logGenerated("Generated Frontend TSConfig: %s\n", path)
 	return nil
 }

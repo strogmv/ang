@@ -1902,6 +1902,6 @@ func (e *Emitter) emitFrontendTemplate(tmplPath string, data interface{}, funcs 
 		return err
 	}
 
-	fmt.Printf("Generated SDK: %s\n", path)
+	logGenerated("Generated SDK: %s\n", path)
 	return nil
 }

@@ -51,6 +51,6 @@ func (e *Emitter) EmitE2ETests(scenarios []normalizer.ScenarioDef) error {
 		return fmt.Errorf("execute template: %w", err)
 	}
 
-	fmt.Printf("Generated E2E Behavioral Tests: %s\n", path)
+	logGenerated("Generated E2E Behavioral Tests: %s\n", path)
 	return nil
 }

@@ -61,6 +61,6 @@ func (e *Emitter) EmitNIS2(services []ir.Service) error {
 	if err := writeFileAtomic(outPath, formatted, 0644); err != nil {
 		return fmt.Errorf("nis2: write: %w", err)
 	}
-	fmt.Printf("Generated: %s\n", outPath)
+	logGenerated("Generated: %s\n", outPath)
 	return nil
 }

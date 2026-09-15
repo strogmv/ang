@@ -124,7 +124,7 @@ func (e *Emitter) EmitConfig(config *normalizer.ConfigDef) error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Config: %s\n", path)
+	logGenerated("Generated Config: %s\n", path)
 	if err := e.emitBackendEnvExample(config); err != nil {
 		return fmt.Errorf("emit backend .env.example: %w", err)
 	}
@@ -155,7 +155,7 @@ func (e *Emitter) emitBackendEnvExample(config *normalizer.ConfigDef) error {
 	if err := WriteFileIfChanged(path, []byte(b.String()), 0644); err != nil {
 		return err
 	}
-	fmt.Printf("Generated Env Example: %s\n", path)
+	logGenerated("Generated Env Example: %s\n", path)
 	return nil
 }
 
@@ -262,7 +262,7 @@ func (e *Emitter) EmitLogger() error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Logger: %s\n", path)
+	logGenerated("Generated Logger: %s\n", path)
 	return nil
 }
 
@@ -298,7 +298,7 @@ func (e *Emitter) EmitTracing() error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Tracing: %s\n", path)
+	logGenerated("Generated Tracing: %s\n", path)
 	return nil
 }
 
@@ -335,7 +335,7 @@ func (e *Emitter) EmitErrors(errors []ir.Error) error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Errors: %s\n", path)
+	logGenerated("Generated Errors: %s\n", path)
 
 	// 2. Generate codes.go (the registry)
 	tmplPathCodes := "templates/error_codes.tmpl"
@@ -365,7 +365,7 @@ func (e *Emitter) EmitErrors(errors []ir.Error) error {
 	if err := WriteFileIfChanged(pathCodes, formattedCodes, 0644); err != nil {
 		return fmt.Errorf("write codes file: %w", err)
 	}
-	fmt.Printf("Generated Error Codes: %s\n", pathCodes)
+	logGenerated("Generated Error Codes: %s\n", pathCodes)
 
 	return nil
 }
@@ -406,7 +406,7 @@ func (e *Emitter) EmitViews(views []ir.View) error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Views: %s\n", path)
+	logGenerated("Generated Views: %s\n", path)
 	return nil
 }
 
@@ -507,7 +507,7 @@ func (e *Emitter) EmitScheduler(schedules []ir.Schedule) error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Scheduler: %s\n", path)
+	logGenerated("Generated Scheduler: %s\n", path)
 	return nil
 }
 
@@ -525,7 +525,7 @@ func (e *Emitter) EmitInfraConfigs() error {
 	if err := WriteFileIfChanged(e.outDir("atlas.hcl"), []byte(atlasContent), 0644); err != nil {
 		return err
 	}
-	fmt.Printf("Generated Atlas Config: atlas.hcl\n")
+	logGenerated("Generated Atlas Config: atlas.hcl\n")
 
 	// SQLC
 	sqlcContent := `version: "2"
@@ -542,7 +542,7 @@ sql:
 	if err := WriteFileIfChanged(e.outDir("sqlc.yaml"), []byte(sqlcContent), 0644); err != nil {
 		return err
 	}
-	fmt.Printf("Generated SQLC Config: sqlc.yaml\n")
+	logGenerated("Generated SQLC Config: sqlc.yaml\n")
 
 	if err := os.MkdirAll(e.outDir("db", "queries"), 0755); err != nil {
 		return err
@@ -638,7 +638,7 @@ func (e *Emitter) EmitHealth() error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Health Probes: %s\n", path)
+	logGenerated("Generated Health Probes: %s\n", path)
 	return nil
 }
 
@@ -664,7 +664,7 @@ func (e *Emitter) EmitHelpers() error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Helpers: %s\n", path)
+	logGenerated("Generated Helpers: %s\n", path)
 	return nil
 }
 
@@ -690,7 +690,7 @@ func (e *Emitter) EmitReqCtx() error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated ReqCtx: %s\n", path)
+	logGenerated("Generated ReqCtx: %s\n", path)
 	return nil
 }
 
@@ -733,7 +733,7 @@ func (e *Emitter) EmitSessionMiddleware(session *normalizer.SessionDef) error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Session Middleware: %s\n", path)
+	logGenerated("Generated Session Middleware: %s\n", path)
 	return nil
 }
 
@@ -759,7 +759,7 @@ func (e *Emitter) EmitCircuitBreaker() error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Circuit Breaker: %s\n", path)
+	logGenerated("Generated Circuit Breaker: %s\n", path)
 	return nil
 }
 
@@ -785,7 +785,7 @@ func (e *Emitter) EmitPresence() error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Presence: %s\n", path)
+	logGenerated("Generated Presence: %s\n", path)
 	return nil
 }
 
@@ -821,7 +821,7 @@ func (e *Emitter) EmitReportPDF() error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Report PDF: %s\n", path)
+	logGenerated("Generated Report PDF: %s\n", path)
 	return nil
 }
 
@@ -906,7 +906,7 @@ func (e *Emitter) EmitNotificationMuting(def *normalizer.NotificationMutingDef, 
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Notification Muting Decorator: %s\n", path)
+	logGenerated("Generated Notification Muting Decorator: %s\n", path)
 	return nil
 }
 
@@ -914,7 +914,7 @@ func writeExecutable(path string, content []byte) error {
 	if err := WriteFileIfChanged(path, content, 0755); err != nil {
 		return err
 	}
-	fmt.Printf("Generated Script: %s\n", path)
+	logGenerated("Generated Script: %s\n", path)
 	return nil
 }
 
@@ -998,7 +998,7 @@ func (e *Emitter) EmitMermaid(ctx MainContext) error {
 	if err := WriteFileIfChanged(path, buf.Bytes(), 0644); err != nil {
 		return err
 	}
-	fmt.Printf("Generated Architecture Map: %s\n", path)
+	logGenerated("Generated Architecture Map: %s\n", path)
 	return nil
 }
 
@@ -1085,7 +1085,7 @@ func (e *Emitter) emitK8sFiles(baseDir string, ctx K8sContext) error {
 		if err := WriteFileIfChanged(path, buf.Bytes(), 0644); err != nil {
 			return err
 		}
-		fmt.Printf("Generated K8s Manifest: %s\n", path)
+		logGenerated("Generated K8s Manifest: %s\n", path)
 	}
 	return nil
 }

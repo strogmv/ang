@@ -363,7 +363,7 @@ func (e *Emitter) EmitOpenAPIFromNormalizerTypes(endpoints []normalizer.Endpoint
 	if err := WriteFileIfChanged(outPath, buf.Bytes(), 0o644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated OpenAPI Spec: %s\n", outPath)
+	logGenerated("Generated OpenAPI Spec: %s\n", outPath)
 	return nil
 }
 
@@ -435,7 +435,7 @@ func (e *Emitter) EmitAsyncAPI(irEvents []ir.Event, project *normalizer.ProjectD
 	if err := WriteFileIfChanged(path, buf.Bytes(), 0o644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated AsyncAPI Spec: %s\n", path)
+	logGenerated("Generated AsyncAPI Spec: %s\n", path)
 	return nil
 }
 

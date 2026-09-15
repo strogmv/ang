@@ -1,7 +1,6 @@
 package emitter
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 )
@@ -18,7 +17,7 @@ func (e *Emitter) EmitEffectMiddleware(ctx MainContext) error {
 	if err := WriteFileIfChanged(target, formatted, 0o644); err != nil {
 		return err
 	}
-	fmt.Printf("Generated Effect Middleware: %s\n", target)
+	logGenerated("Generated Effect Middleware: %s\n", target)
 	return nil
 }
 

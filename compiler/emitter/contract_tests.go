@@ -295,6 +295,6 @@ func (e *Emitter) EmitContractTests(irEndpoints []ir.Endpoint, irServices []ir.S
 	if err := WriteFileIfChanged(path, buf.Bytes(), 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Contract Tests: %s\n", path)
+	logGenerated("Generated Contract Tests: %s\n", path)
 	return nil
 }

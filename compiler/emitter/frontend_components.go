@@ -945,7 +945,7 @@ func (e *Emitter) emitMUIForm(data FormData, funcMap template.FuncMap, outPath s
 		return err
 	}
 
-	fmt.Printf("Generated Component: %s\n", path)
+	logGenerated("Generated Component: %s\n", path)
 	return nil
 }
 
@@ -983,7 +983,7 @@ export const {{ .Name }}FormSchema: FormSchema<{{ .InputType }}> = {
 	if err := WriteFileIfChanged(path, buf.Bytes(), 0644); err != nil {
 		return err
 	}
-	fmt.Printf("Generated Component Schema: %s\n", path)
+	logGenerated("Generated Component Schema: %s\n", path)
 	return nil
 }
 
@@ -1146,7 +1146,7 @@ func (e *Emitter) emitGeneratedFormsRuntime(formDefs []FormData) error {
 	if err := WriteFileIfChanged(filepath.Join(formsDir, "index.ts"), []byte(idx.String()), 0644); err != nil {
 		return err
 	}
-	fmt.Printf("Generated Forms Runtime: %s\n", filepath.Join(formsDir, "FormRenderer.tsx"))
+	logGenerated("Generated Forms Runtime: %s\n", filepath.Join(formsDir, "FormRenderer.tsx"))
 	return nil
 }
 
@@ -1173,7 +1173,7 @@ func (e *Emitter) emitMUITable(data TableData, funcMap template.FuncMap, outPath
 		return err
 	}
 
-	fmt.Printf("Generated Component: %s\n", path)
+	logGenerated("Generated Component: %s\n", path)
 	return nil
 }
 

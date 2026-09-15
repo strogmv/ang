@@ -1,7 +1,6 @@
 package emitter
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -275,6 +274,6 @@ export function TableActionsHeader({ label, picker = true }: TableActionsHeaderP
 	if err := WriteFileIfChanged(path, []byte(indexTSX), 0o644); err != nil {
 		return err
 	}
-	fmt.Printf("Generated Table UI Layer: %s\n", path)
+	logGenerated("Generated Table UI Layer: %s\n", path)
 	return nil
 }

@@ -72,7 +72,7 @@ func (e *Emitter) EmitRepoMocks(repos []ir.Repository) error {
 		if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 			return err
 		}
-		fmt.Printf("Generated Repo Mock: %s\n", path)
+		logGenerated("Generated Repo Mock: %s\n", path)
 	}
 
 	if err := pruneGeneratedFiles(

@@ -100,6 +100,6 @@ func (e *Emitter) EmitManifest(schema *ir.Schema) error {
 		return fmt.Errorf("failed to write manifest: %w", err)
 	}
 
-	fmt.Printf("Generated System Manifest: %s\n", path)
+	logGenerated("Generated System Manifest: %s\n", path)
 	return nil
 }

@@ -121,7 +121,7 @@ func (e *Emitter) EmitDTO(entities []ir.Entity) error {
 		if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 			return fmt.Errorf("failed to write file %s: %w", path, err)
 		}
-		fmt.Printf("Generated DTO: %s\n", path)
+		logGenerated("Generated DTO: %s\n", path)
 	}
 
 	if err := pruneGeneratedFiles(

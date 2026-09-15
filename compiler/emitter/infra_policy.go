@@ -74,6 +74,6 @@ var _ port.PolicyEngine = (*Engine)(nil)
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Policy Runtime: %s\n", path)
+	logGenerated("Generated Policy Runtime: %s\n", path)
 	return nil
 }

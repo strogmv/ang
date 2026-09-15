@@ -50,7 +50,7 @@ func (e *Emitter) emitWSCommon() error {
 	if err := WriteFileIfChanged(path, formatted, 0o644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated WebSocket Common: %s\n", path)
+	logGenerated("Generated WebSocket Common: %s\n", path)
 	return nil
 }
 
@@ -93,7 +93,7 @@ func (e *Emitter) EmitHTTPCommon(auth *normalizer.AuthDef) error {
 	if err := WriteFileIfChanged(path, formatted, 0o644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated HTTP Common: %s\n", path)
+	logGenerated("Generated HTTP Common: %s\n", path)
 	return nil
 }
 
@@ -129,7 +129,7 @@ func (e *Emitter) EmitMetrics() error {
 	if err := WriteFileIfChanged(path, formatted, 0o644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Metrics Middleware: %s\n", path)
+	logGenerated("Generated Metrics Middleware: %s\n", path)
 	return nil
 }
 
@@ -162,6 +162,6 @@ func (e *Emitter) EmitLoggingMiddleware() error {
 	if err := WriteFileIfChanged(path, formatted, 0o644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Logging Middleware: %s\n", path)
+	logGenerated("Generated Logging Middleware: %s\n", path)
 	return nil
 }

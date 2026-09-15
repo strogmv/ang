@@ -54,7 +54,7 @@ func (e *Emitter) EmitAuthPackage(auth *normalizer.AuthDef) error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Auth Package: %s\n", path)
+	logGenerated("Generated Auth Package: %s\n", path)
 	return nil
 }
 
@@ -94,7 +94,7 @@ func (e *Emitter) EmitRefreshTokenStorePort() error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Refresh Store Port: %s\n", path)
+	logGenerated("Generated Refresh Store Port: %s\n", path)
 	return nil
 }
 
@@ -134,7 +134,7 @@ func (e *Emitter) EmitRefreshTokenStoreMemory() error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Memory Refresh Store: %s\n", path)
+	logGenerated("Generated Memory Refresh Store: %s\n", path)
 	return nil
 }
 
@@ -174,7 +174,7 @@ func (e *Emitter) EmitRefreshTokenStoreRedis() error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Redis Refresh Store: %s\n", path)
+	logGenerated("Generated Redis Refresh Store: %s\n", path)
 	return nil
 }
 
@@ -214,7 +214,7 @@ func (e *Emitter) EmitRefreshTokenStorePostgres() error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Postgres Refresh Store: %s\n", path)
+	logGenerated("Generated Postgres Refresh Store: %s\n", path)
 	return nil
 }
 
@@ -254,6 +254,6 @@ func (e *Emitter) EmitRefreshTokenStoreHybrid() error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Hybrid Refresh Store: %s\n", path)
+	logGenerated("Generated Hybrid Refresh Store: %s\n", path)
 	return nil
 }

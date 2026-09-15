@@ -53,6 +53,6 @@ func (e *Emitter) EmitRBAC(rbac *normalizer.RBACDef) error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated RBAC: %s\n", path)
+	logGenerated("Generated RBAC: %s\n", path)
 	return nil
 }

@@ -246,7 +246,7 @@ func (e *Emitter) emitAdminConfig(data AdminConfigData) error {
 	}
 
 	path := filepath.Join(e.FrontendAdminDir, "adminConfig.ts")
-	fmt.Printf("Generated Admin Config: %s\n", path)
+	logGenerated("Generated Admin Config: %s\n", path)
 	return WriteFileIfChanged(path, buf.Bytes(), 0644)
 }
 
@@ -258,7 +258,7 @@ func (e *Emitter) emitUniversalAdminPage() error {
 	}
 
 	path := filepath.Join(e.FrontendAdminDir, "AdminPage.tsx")
-	fmt.Printf("Generated Admin Page: %s\n", path)
+	logGenerated("Generated Admin Page: %s\n", path)
 	return WriteFileIfChanged(path, tmplContent, 0644)
 }
 
@@ -280,7 +280,7 @@ func (e *Emitter) emitAdminRoutes(data AdminRoutesData) error {
 	}
 
 	path := filepath.Join(e.FrontendAdminDir, "routes.tsx")
-	fmt.Printf("Generated Admin Routes: %s\n", path)
+	logGenerated("Generated Admin Routes: %s\n", path)
 	return WriteFileIfChanged(path, buf.Bytes(), 0644)
 }
 
@@ -302,7 +302,7 @@ func (e *Emitter) emitAdminNavigation(data AdminNavData) error {
 	}
 
 	path := filepath.Join(e.FrontendAdminDir, "navigation.ts")
-	fmt.Printf("Generated Admin Navigation: %s\n", path)
+	logGenerated("Generated Admin Navigation: %s\n", path)
 	return WriteFileIfChanged(path, buf.Bytes(), 0644)
 }
 

@@ -294,9 +294,19 @@ func parseFSMLocation(log string) (path string, line int, entity string, state s
 		entity = m[1]
 		state = m[2]
 	}
-	if m := regexp.MustCompile(`at (cue/[^:\s]+):(\d+):\d+`).FindStringSubmatch(log); len(m) == 3 {
-		path = m[1]
-		line, _ = strconv.Atoi(m[2])
+	// Build logs place a diagnostic as "at cue/x.cue:3:0" (warnings, older
+	// builds), "❌ cue/x.cue:3:1: ERROR [CODE]" (errors) or, in JSON logs,
+	// "cueFile":"cue/x.cue","line":3.
+	for _, pattern := range []string{
+		`at (cue/[^:\s]+):(\d+):\d+`,
+		`(?m)^❌ (cue/[^:\s]+):(\d+)`,
+		`"cueFile":"(cue/[^"]+)","line":(\d+)`,
+	} {
+		if m := regexp.MustCompile(pattern).FindStringSubmatch(log); len(m) == 3 {
+			path = m[1]
+			line, _ = strconv.Atoi(m[2])
+			break
+		}
 	}
 	if state == "" {
 		if m := regexp.MustCompile(`undefined state '([^']+)'`).FindStringSubmatch(log); len(m) == 2 {

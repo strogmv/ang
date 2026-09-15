@@ -100,6 +100,6 @@ func (e *Emitter) EmitSDKManifest(endpoints []normalizer.Endpoint) error {
 		return fmt.Errorf("failed to write SDK manifest: %w", err)
 	}
 
-	fmt.Printf("Generated SDK Manifest: %s\n", path)
+	logGenerated("Generated SDK Manifest: %s\n", path)
 	return nil
 }

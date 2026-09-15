@@ -100,7 +100,11 @@ func runBuild(args []string) error {
 			}
 			return true
 		}
-		jsonLogs := output.LogFormat == "json" || output.PlanJSON || !stdoutIsTerminal()
+		// Piped output defaults to JSON events; an explicit --log-format text
+		// keeps text for tools and agents that read it.
+		jsonLogs := output.LogFormat == "json" || output.PlanJSON || (!stdoutIsTerminal() && !output.LogFormatExplicit)
+		emitter.VerboseGenerated = output.Verbose && !jsonLogs
+		buildStarted := time.Now()
 		logText := func(format string, args ...any) {
 			if !jsonLogs {
 				fmt.Printf(format+"\n", args...)
@@ -354,14 +358,7 @@ func runBuild(args []string) error {
 			fail(compiler.StageCUE, compiler.ErrCodeCUEPipeline, "compile for emit", err)
 			return
 		}
-		hasDiagnosticErrors := false
-		if jsonLogs {
-			hasDiagnosticErrors = emitBuildDiagnostics(compiler.LatestDiagnostics)
-		} else {
-			hasDiagnosticErrors = emitDiagnostics(os.Stderr, compiler.LatestDiagnostics)
-		}
-		if hasDiagnosticErrors {
-			fmt.Println("Build FAILED due to diagnostic errors.")
+		if reportBuildDiagnostics(jsonLogs, output.Verbose, compiler.LatestDiagnostics) {
 			return
 		}
 		postEmitDiagStart := len(compiler.LatestDiagnostics)
@@ -744,14 +741,7 @@ func runBuild(args []string) error {
 		}
 
 		newEmitterDiagnostics := compiler.LatestDiagnostics[postEmitDiagStart:]
-		hasEmitterErrors := false
-		if jsonLogs {
-			hasEmitterErrors = emitBuildDiagnostics(newEmitterDiagnostics)
-		} else {
-			hasEmitterErrors = emitDiagnostics(os.Stderr, newEmitterDiagnostics)
-		}
-		if hasEmitterErrors {
-			fmt.Println("Build FAILED due to diagnostic errors.")
+		if reportBuildDiagnostics(jsonLogs, output.Verbose, newEmitterDiagnostics) {
 			return
 		}
 		if !output.DryRun {
@@ -953,7 +943,7 @@ func runBuild(args []string) error {
 			}
 		}
 
-		logText("\nBuild SUCCESSFUL.")
+		logText("\nBuild SUCCESSFUL in %s.", time.Since(buildStarted).Round(100*time.Millisecond))
 		logText("Build Report:")
 		for _, s := range summaries {
 			logText("  - target=%s mode=%s backend=%s plugins=%s self-check=%s", s.Name, s.Mode, s.Backend, s.Plugins, s.SelfCheck)

@@ -171,7 +171,7 @@ func (e *Emitter) EmitService(services []ir.Service) error {
 		if err := writeFileAtomic(path, formatted, 0644); err != nil {
 			return err
 		}
-		fmt.Printf("Generated Service Port: %s\n", path)
+		logGenerated("Generated Service Port: %s\n", path)
 	}
 
 	return nil
@@ -634,7 +634,7 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 		if err := writeFileAtomic(scaffoldPath, scaffoldFormatted, 0644); err != nil {
 			return err
 		}
-		fmt.Printf("Generated Service Impl Scaffold: %s\n", scaffoldPath)
+		logGenerated("Generated Service Impl Scaffold: %s\n", scaffoldPath)
 
 		for _, m := range svc.Methods {
 			if overrides[m.Name] {
@@ -673,7 +673,7 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 			if err := writeFileAtomic(methodPath, methodFormatted, 0644); err != nil {
 				return err
 			}
-			fmt.Printf("Generated Service Impl Method: %s\n", methodPath)
+			logGenerated("Generated Service Impl Method: %s\n", methodPath)
 		}
 
 		if err := pruneGeneratedFiles(
@@ -900,7 +900,7 @@ func (e *Emitter) EmitCachedService(services []ir.Service) error {
 		if err := writeFileAtomic(path, formatted, 0644); err != nil {
 			return err
 		}
-		fmt.Printf("Generated Cached Service: %s\n", path)
+		logGenerated("Generated Cached Service: %s\n", path)
 	}
 
 	return nil

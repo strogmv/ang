@@ -176,7 +176,7 @@ func (e *Emitter) EmitStubRepo(repos []ir.Repository, entities []ir.Entity) erro
 		if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 			return fmt.Errorf("write file: %w", err)
 		}
-		fmt.Printf("Generated Repo Stub: %s\n", path)
+		logGenerated("Generated Repo Stub: %s\n", path)
 	}
 
 	if err := pruneGeneratedFiles(

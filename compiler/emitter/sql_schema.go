@@ -152,7 +152,7 @@ CREATE INDEX IF NOT EXISTS idx_kv_store_expires ON kv_store (expires_at) WHERE e
 	if err := WriteFileIfChanged(path, fullSchema.Bytes(), 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated SQL Schema: %s\n", path)
+	logGenerated("Generated SQL Schema: %s\n", path)
 	return nil
 }
 
@@ -267,6 +267,6 @@ func (e *Emitter) EmitSQLQueries(entities []ir.Entity) error {
 	if err := WriteFileIfChanged(path, buf.Bytes(), 0644); err != nil {
 		return err
 	}
-	fmt.Printf("Generated SQL Queries: %s\n", path)
+	logGenerated("Generated SQL Queries: %s\n", path)
 	return nil
 }

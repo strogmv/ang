@@ -74,7 +74,7 @@ func (e *Emitter) EmitNotificationDispatchPorts(cfg *ir.NotificationsConfig) err
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Notification Dispatch Ports: %s\n", path)
+	logGenerated("Generated Notification Dispatch Ports: %s\n", path)
 	return nil
 }
 
@@ -131,7 +131,7 @@ func (e *Emitter) EmitNotificationDispatcherRuntime(cfg *ir.NotificationsConfig)
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Notification Dispatcher Runtime: %s\n", path)
+	logGenerated("Generated Notification Dispatcher Runtime: %s\n", path)
 	return nil
 }
 

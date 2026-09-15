@@ -190,7 +190,7 @@ func (e *Emitter) EmitDomain(entities []ir.Entity) error {
 		if err := writeFileAtomic(path, formatted, 0644); err != nil {
 			return fmt.Errorf("failed to write file %s: %w", path, err)
 		}
-		fmt.Printf("Generated: %s\n", path)
+		logGenerated("Generated: %s\n", path)
 	}
 
 	if err := e.emitProjections(targetDir, projections); err != nil {
@@ -280,7 +280,7 @@ func (e *Emitter) emitProjections(targetDir string, projections []DomainTemplate
 	if err := writeFileAtomic(path, formatted, 0644); err != nil {
 		return fmt.Errorf("failed to write projections file %s: %w", path, err)
 	}
-	fmt.Printf("Generated Projections: %s\n", path)
+	logGenerated("Generated Projections: %s\n", path)
 	return nil
 }
 
@@ -318,6 +318,6 @@ func (e *Emitter) EmitEvents(events []ir.Event) error {
 	if err := writeFileAtomic(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Events: %s\n", path)
+	logGenerated("Generated Events: %s\n", path)
 	return nil
 }

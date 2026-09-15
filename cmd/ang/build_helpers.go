@@ -29,6 +29,7 @@ type OutputOptions struct {
 	TargetSelector      string
 	DryRun              bool
 	LogFormat           string
+	LogFormatExplicit   bool
 	Mode                string
 	Phase               string
 	PlanFile            string
@@ -47,6 +48,7 @@ type OutputOptions struct {
 	ExpertMode          string
 	ExpertBaseURL       string
 	ExpertPackIDs       []string
+	Verbose             bool
 }
 
 func parseOutputOptions(args []string) (OutputOptions, error) {
@@ -80,6 +82,7 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 	dryRunRoot := fs.String("dry-run-root", "", "internal: override dry-run temp root")
 	dryRunReport := fs.String("dry-run-report", "", "internal: write dry-run manifest json to path")
 	expertMode := fs.String("expert-mode", "off", "Expert integration mode: off|shadow|advise|gate")
+	verbose := fs.Bool("verbose", false, "print every diagnostic in full and every generated file")
 	expertBaseURL := fs.String("expert-base-url", "", "Expert Runtime base URL (required for shadow/advise/gate)")
 	var expertPackIDs []string
 	fs.Func("expert-pack", "Expert Runtime pack ID (repeatable; default payment-provider.core for payment providers)", func(value string) error {
@@ -117,6 +120,7 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 		TargetSelector:      strings.TrimSpace(*targetSelector),
 		DryRun:              *dryRun,
 		LogFormat:           strings.ToLower(strings.TrimSpace(*logFormat)),
+		LogFormatExplicit:   flagPassed(args, "--log-format") || flagPassed(args, "-log-format"),
 		Mode:                modeVal,
 		Phase:               phaseVal,
 		PlanFile:            strings.TrimSpace(*planFile),
@@ -135,6 +139,7 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 		ExpertMode:          strings.ToLower(strings.TrimSpace(*expertMode)),
 		ExpertBaseURL:       strings.TrimSpace(*expertBaseURL),
 		ExpertPackIDs:       append([]string(nil), expertPackIDs...),
+		Verbose:             *verbose,
 	}
 	if opts.Check {
 		opts.DryRun = true

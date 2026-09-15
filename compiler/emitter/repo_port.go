@@ -47,7 +47,7 @@ func (e *Emitter) EmitTransactionPort() error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Transaction Port: %s\n", path)
+	logGenerated("Generated Transaction Port: %s\n", path)
 	return nil
 }
 
@@ -78,7 +78,7 @@ type IdempotencyStore interface {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Idempotency Port: %s\n", path)
+	logGenerated("Generated Idempotency Port: %s\n", path)
 	return nil
 }
 
@@ -114,7 +114,7 @@ type StateStore interface {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated State Store Port: %s\n", path)
+	logGenerated("Generated State Store Port: %s\n", path)
 	return nil
 }
 
@@ -160,7 +160,7 @@ type PolicyEngine interface {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Policy Port: %s\n", path)
+	logGenerated("Generated Policy Port: %s\n", path)
 	return nil
 }
 
@@ -200,7 +200,7 @@ type OutboxRepository interface {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Outbox Port: %s\n", path)
+	logGenerated("Generated Outbox Port: %s\n", path)
 	return nil
 }
 
@@ -340,7 +340,7 @@ var _ port.StateStore = (*SystemRepository)(nil)
 	if err := WriteFileIfChanged(path, goFmt, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated System Repository: %s\n", path)
+	logGenerated("Generated System Repository: %s\n", path)
 	return nil
 }
 
@@ -377,7 +377,7 @@ func (e *Emitter) EmitRepository(repos []ir.Repository, entities []ir.Entity) er
 		if err := WriteFileIfChanged(path, rendered, 0644); err != nil {
 			return fmt.Errorf("write file: %w", err)
 		}
-		fmt.Printf("Generated Repository: %s\n", path)
+		logGenerated("Generated Repository: %s\n", path)
 	}
 
 	if err := pruneGeneratedFiles(

@@ -181,7 +181,7 @@ func (e *Emitter) EmitMongoRepo(repos []ir.Repository, entities []ir.Entity) err
 		if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 			return fmt.Errorf("write file: %w", err)
 		}
-		fmt.Printf("Generated Mongo Repo: %s\n", path)
+		logGenerated("Generated Mongo Repo: %s\n", path)
 	}
 
 	if err := pruneGeneratedFiles(
@@ -248,6 +248,6 @@ func (e *Emitter) EmitMongoCommon(entities []ir.Entity) error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Mongo Helpers: %s\n", path)
+	logGenerated("Generated Mongo Helpers: %s\n", path)
 	return nil
 }

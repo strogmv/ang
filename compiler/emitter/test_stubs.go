@@ -47,6 +47,6 @@ func (e *Emitter) EmitTestStubs(endpoints []normalizer.Endpoint, filename string
 		return fmt.Errorf("write test stubs file: %w", err)
 	}
 
-	fmt.Printf("Generated Test Stubs: %s\n", path)
+	logGenerated("Generated Test Stubs: %s\n", path)
 	return nil
 }

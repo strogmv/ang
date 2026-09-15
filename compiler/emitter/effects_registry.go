@@ -21,7 +21,7 @@ func (e *Emitter) EmitEffectRegistry(ctx MainContext, infraValues map[string]any
 	if err := WriteFileIfChanged(target, formatted, 0o644); err != nil {
 		return err
 	}
-	fmt.Printf("Generated Effect Registry: %s\n", target)
+	logGenerated("Generated Effect Registry: %s\n", target)
 	return nil
 }
 

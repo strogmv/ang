@@ -41,6 +41,6 @@ func (e *Emitter) EmitTemplateRenderer() error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Template Renderer: %s\n", path)
+	logGenerated("Generated Template Renderer: %s\n", path)
 	return nil
 }

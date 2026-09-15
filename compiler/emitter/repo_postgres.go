@@ -501,7 +501,7 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 		if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 			return fmt.Errorf("write file: %w", err)
 		}
-		fmt.Printf("Generated Postgres Repo: %s\n", path)
+		logGenerated("Generated Postgres Repo: %s\n", path)
 	}
 
 	if err := pruneGeneratedFiles(
@@ -740,7 +740,7 @@ func (e *Emitter) EmitPostgresCommon() error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Postgres Common: %s\n", path)
+	logGenerated("Generated Postgres Common: %s\n", path)
 	return nil
 }
 

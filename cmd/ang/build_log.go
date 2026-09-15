@@ -33,38 +33,52 @@ type buildEvent struct {
 	Column         int              `json:"column,omitempty"`
 	SuggestedFix   []normalizer.Fix `json:"suggestedFix,omitempty"`
 	DocsURL        string           `json:"docsURL,omitempty"`
+	// Detail is the full message when Message holds only its first line.
+	Detail string `json:"detail,omitempty"`
 }
 
 func emitBuildDiagnostics(diagnostics []normalizer.Warning) bool {
-	hasErrors := false
-	seen := map[string]struct{}{}
-	for _, diagnostic := range diagnostics {
-		key := fmt.Sprintf("%s|%s|%d|%s|%s", diagnostic.Code, diagnostic.File, diagnostic.Line, diagnostic.CUEPath, diagnostic.Message)
-		if _, ok := seen[key]; ok || diagnosticSuppressed(diagnostic) {
-			continue
-		}
-		seen[key] = struct{}{}
-		status := strings.ToLower(strings.TrimSpace(diagnostic.Severity))
-		if status == "" {
-			status = "warn"
-		}
-		if status == "error" {
-			hasErrors = true
-		}
-		emitBuildEvent(buildEvent{
+	return len(emitBuildDiagnosticEvents(diagnostics)) > 0
+}
+
+// emitBuildDiagnosticEvents writes one event per visible diagnostic, warnings
+// first and errors last, and returns the errors. message is the first line of
+// the diagnostic, at most 300 characters; detail carries the full text when
+// that shortened it (an invalid Go expression used to put a whole function on
+// one line).
+func emitBuildDiagnosticEvents(diagnostics []normalizer.Warning) []normalizer.Warning {
+	visible, _ := visibleDiagnostics(diagnostics)
+	emit := func(diagnostic normalizer.Warning) {
+		short, cut := shortDiagnosticMessage(diagnostic.Message)
+		event := buildEvent{
 			Timestamp:    time.Now().UTC().Format(time.RFC3339Nano),
 			Stage:        "diagnostic",
-			Status:       status,
+			Status:       strings.ToLower(diagnosticSeverity(diagnostic)),
 			Code:         diagnostic.Code,
 			CUEFile:      diagnostic.File,
 			Line:         diagnostic.Line,
 			Column:       diagnostic.Column,
-			Message:      diagnostic.Message,
+			Message:      short,
 			SuggestedFix: diagnostic.SuggestedFix,
 			DocsURL:      firstNonEmpty(diagnostic.DocsURL, compiler.DiagnosticDocsURL(diagnostic.Code)),
-		})
+		}
+		if cut {
+			event.Detail = diagnostic.Message
+		}
+		emitBuildEvent(event)
 	}
-	return hasErrors
+	var errs []normalizer.Warning
+	for _, diagnostic := range visible {
+		if diagnosticSeverity(diagnostic) == "ERROR" {
+			errs = append(errs, diagnostic)
+			continue
+		}
+		emit(diagnostic)
+	}
+	for _, diagnostic := range errs {
+		emit(diagnostic)
+	}
+	return errs
 }
 
 func emitBuildEvent(ev buildEvent) {

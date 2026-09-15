@@ -45,7 +45,7 @@ func (e *Emitter) EmitMailerPort() error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Mailer Port: %s\n", path)
+	logGenerated("Generated Mailer Port: %s\n", path)
 	return nil
 }
 
@@ -87,7 +87,7 @@ func (e *Emitter) EmitMailerAdapter() error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated SMTP Mailer Adapter: %s\n", path)
+	logGenerated("Generated SMTP Mailer Adapter: %s\n", path)
 	return nil
 }
 
@@ -129,6 +129,6 @@ func (e *Emitter) EmitNoopMailerAdapter() error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Noop Mailer Adapter: %s\n", path)
+	logGenerated("Generated Noop Mailer Adapter: %s\n", path)
 	return nil
 }

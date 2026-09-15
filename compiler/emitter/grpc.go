@@ -93,7 +93,7 @@ func (e *Emitter) EmitGRPCProto(schema *ir.Schema) error {
 	if err := WriteFileIfChanged(path, []byte(b.String()), 0o644); err != nil {
 		return fmt.Errorf("write grpc proto: %w", err)
 	}
-	fmt.Printf("Generated gRPC Proto: %s\n", path)
+	logGenerated("Generated gRPC Proto: %s\n", path)
 	return nil
 }
 
@@ -167,7 +167,7 @@ func (e *Emitter) EmitGRPCTransport(schema *ir.Schema) error {
 		return fmt.Errorf("write grpc readme: %w", err)
 	}
 
-	fmt.Printf("Generated gRPC Transport: %s\n", filepath.Dir(goPath))
+	logGenerated("Generated gRPC Transport: %s\n", filepath.Dir(goPath))
 	return nil
 }
 

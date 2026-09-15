@@ -41,7 +41,7 @@ func (e *Emitter) EmitStoragePort() error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated Storage Port: %s\n", path)
+	logGenerated("Generated Storage Port: %s\n", path)
 	return nil
 }
 
@@ -77,6 +77,6 @@ func (e *Emitter) EmitS3Client() error {
 	if err := WriteFileIfChanged(path, formatted, 0644); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
-	fmt.Printf("Generated S3 Client: %s\n", path)
+	logGenerated("Generated S3 Client: %s\n", path)
 	return nil
 }
