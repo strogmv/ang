@@ -274,6 +274,7 @@ func parseTargetDef(targetVal cue.Value, defaultName string) TargetDef {
 	if strings.TrimSpace(outputDir) == "" {
 		outputDir = getStringWithDefault(targetVal, "outputDir", "")
 	}
+	frontendSDKSkip := getOptionalStringListField(targetVal, "frontend_sdk_skip")
 	frontendAppDir := getOptionalStringField(targetVal, "frontend_app_dir")
 	if strings.TrimSpace(frontendAppDir) == "" {
 		frontendAppDir = getOptionalStringField(targetVal, "frontendAppDir")
@@ -305,8 +306,46 @@ func parseTargetDef(targetVal cue.Value, defaultName string) TargetDef {
 		Storage:                  getStringWithDefault(targetVal, "storage", "s3"),
 		OutputDir:                strings.TrimSpace(outputDir),
 		FrontendAppDir:           strings.TrimSpace(frontendAppDir),
+		FrontendSDKSkip:          frontendSDKSkip,
 		NatsWorkers:              natsWorkers,
 		NatsPublishRetryAttempts: natsPublishRetryAttempts,
 		NatsPublishRetryDelayMS:  natsPublishRetryDelayMS,
 	}
+}
+
+// getOptionalStringListField reads a list of strings that may be optional in a
+// CUE definition; like getOptionalStringField it falls back to JSON export.
+func getOptionalStringListField(v cue.Value, path string) []string {
+	var out []string
+	add := func(s string) {
+		if s = strings.TrimSpace(s); s != "" {
+			out = append(out, s)
+		}
+	}
+	if list := v.LookupPath(cue.ParsePath(path)); list.Exists() {
+		if it, err := list.List(); err == nil {
+			for it.Next() {
+				if s, err := it.Value().String(); err == nil {
+					add(s)
+				}
+			}
+			return out
+		}
+	}
+	data, err := v.MarshalJSON()
+	if err != nil {
+		return nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil
+	}
+	if items, ok := m[path].([]any); ok {
+		for _, item := range items {
+			if s, ok := item.(string); ok {
+				add(s)
+			}
+		}
+	}
+	return out
 }
