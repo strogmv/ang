@@ -422,7 +422,7 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 				if scanSteps(m.Flow) {
 					return true
 				}
-				if m.Impl != nil && m.Impl.RequiresTx {
+				if implNeedsTx(m.Impl) {
 					return true
 				}
 			}

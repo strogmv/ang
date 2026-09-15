@@ -423,11 +423,17 @@ func serviceImplNeedsTx(s normalizer.Service) bool {
 		if scanSteps(m.Flow) {
 			return true
 		}
-		if m.Impl != nil && m.Impl.RequiresTx {
+		if implNeedsTx(m.Impl) {
 			return true
 		}
 	}
 	return false
+}
+
+// implNeedsTx reports whether an impl code block needs the TxManager field:
+// declared with tx, or using s.txManager itself, as a raw logic.Call may.
+func implNeedsTx(impl *normalizer.MethodImpl) bool {
+	return impl != nil && (impl.RequiresTx || strings.Contains(impl.Code, "s.txManager"))
 }
 
 // flowStepUsesTxManager keeps dependency injection aligned with an explicitly

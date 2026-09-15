@@ -150,7 +150,7 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		}
 		for _, svc := range services {
 			for _, m := range svc.Methods {
-				if (m.Impl != nil && m.Impl.RequiresTx) || hasTx(m.Flow) {
+				if irImplNeedsTx(m.Impl) || hasTx(m.Flow) {
 					return true
 				}
 			}
@@ -236,7 +236,7 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 			return false
 		}
 		for _, m := range s.Methods {
-			if (m.Impl != nil && m.Impl.RequiresTx) || hasTx(m.Flow) {
+			if irImplNeedsTx(m.Impl) || hasTx(m.Flow) {
 				return true
 			}
 		}
@@ -743,7 +743,7 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 				return false
 			}
 			for _, m := range svc.Methods {
-				if (m.Impl != nil && m.Impl.RequiresTx) || hasTx(m.Flow) {
+				if implNeedsTx(m.Impl) || hasTx(m.Flow) {
 					return true
 				}
 			}
@@ -962,6 +962,11 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 	}
 
 	return appFuncs
+}
+
+// irImplNeedsTx mirrors implNeedsTx for the normalized IR.
+func irImplNeedsTx(impl *ir.Impl) bool {
+	return impl != nil && (impl.RequiresTx || strings.Contains(impl.Code, "s.txManager"))
 }
 
 // irFlowStepUsesTxManager mirrors flowStepUsesTxManager for the runtime
