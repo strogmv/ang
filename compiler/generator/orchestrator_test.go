@@ -1,6 +1,7 @@
 package generator
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -112,5 +113,22 @@ func TestStepRegistry_Execute(t *testing.T) {
 	}
 	if !called {
 		t.Fatalf("expected registered step to run")
+	}
+}
+
+// A step skipped only for a usage capability is reported as unused, not as a
+// target that cannot generate it.
+func TestExecute_ReportsUnusedStepsAsNotUsed(t *testing.T) {
+	var logged string
+	err := Execute(normalizer.TargetDef{Name: "go"}, compiler.CapabilitySet{compiler.CapabilityProfileGoLegacy: true}, []Step{{
+		Name:     "Redis Client",
+		Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilityUsesRedisClient},
+		Run:      func() error { t.Fatal("must not run"); return nil },
+	}}, func(format string, args ...interface{}) { logged = fmt.Sprintf(format, args...) }, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(logged, "not used by the project") {
+		t.Fatalf("log = %q", logged)
 	}
 }

@@ -579,6 +579,11 @@ func runBuild(args []string) error {
 				fail(compiler.StageEmitters, compiler.ErrCodeEmitterCapabilityResolve, fmt.Sprintf("resolve capabilities for target=%s", td.Name), err)
 				return
 			}
+			// Infrastructure the project does not use is not generated: steps
+			// that require a usage capability run only when it is granted here.
+			for _, usage := range emitter.UsageCapabilities(ctx, irSchema) {
+				caps[compiler.Capability(usage)] = true
+			}
 
 			targetOutput := output
 			targetOutput.BackendDir = backendDir

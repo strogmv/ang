@@ -95,14 +95,7 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		}
 		return "sql"
 	}
-	appFuncs["HasMongoRepoEntitiesIR"] = func(entities []ir.Entity) bool {
-		for _, ent := range entities {
-			if v, ok := ent.Metadata["storage"].(string); ok && strings.EqualFold(v, "mongo") {
-				return true
-			}
-		}
-		return false
-	}
+	appFuncs["HasMongoRepoEntitiesIR"] = hasMongoRepoEntitiesIR
 	appFuncs["AllRepoEntitiesIR"] = func(entities []ir.Entity) []string {
 		var res []string
 		for _, ent := range entities {
@@ -267,41 +260,8 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		}
 		return false
 	}
-	appFuncs["ServiceHasStorageIR"] = func(s ir.Service) bool {
-		var hasStorage func([]ir.FlowStep) bool
-		hasStorage = func(steps []ir.FlowStep) bool {
-			for _, step := range steps {
-				switch step.Action {
-				case "storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List":
-					return true
-				}
-				if hasStorage(step.Steps) || hasStorage(step.IfNew) || hasStorage(step.IfExists) || hasStorage(step.Then) || hasStorage(step.Else) || hasStorage(step.Default) {
-					return true
-				}
-				for _, branch := range step.Cases {
-					if hasStorage(branch) {
-						return true
-					}
-				}
-			}
-			return false
-		}
-		for _, m := range s.Methods {
-			if hasStorage(m.Flow) {
-				return true
-			}
-		}
-		return false
-	}
-	appFuncs["AnyServiceHasStorageIR"] = func(services []ir.Service) bool {
-		hasStorage := appFuncs["ServiceHasStorageIR"].(func(ir.Service) bool)
-		for _, svc := range services {
-			if hasStorage(svc) {
-				return true
-			}
-		}
-		return false
-	}
+	appFuncs["ServiceHasStorageIR"] = serviceHasStorageIR
+	appFuncs["AnyServiceHasStorageIR"] = anyServiceHasStorageIR
 	appFuncs["ServiceHasNotificationDispatchIR"] = func(s ir.Service) bool {
 		var hasDispatch func([]ir.FlowStep) bool
 		hasDispatch = func(steps []ir.FlowStep) bool {
@@ -387,46 +347,8 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		}
 		return false
 	}
-	appFuncs["ServiceHasStateActionsIR"] = func(s ir.Service) bool {
-		var hasState func([]ir.FlowStep) bool
-		hasState = func(steps []ir.FlowStep) bool {
-			for _, step := range steps {
-				switch step.Action {
-				case "state.Get", "state.Set", "state.Delete":
-					return true
-				}
-				for _, prefix := range []string{"idem.", "idempotency.", "dedupe.", "ratelimit.", "quota.", "budget.", "profile.", "concurrency.", "circuit.", "bulkhead.", "approval."} {
-					if strings.HasPrefix(step.Action, prefix) {
-						return true
-					}
-				}
-				if hasState(step.Steps) || hasState(step.IfNew) || hasState(step.IfExists) || hasState(step.Then) || hasState(step.Else) || hasState(step.Default) {
-					return true
-				}
-				for _, branch := range step.Cases {
-					if hasState(branch) {
-						return true
-					}
-				}
-			}
-			return false
-		}
-		for _, m := range s.Methods {
-			if hasState(m.Flow) {
-				return true
-			}
-		}
-		return false
-	}
-	appFuncs["AnyServiceHasStateActionsIR"] = func(services []ir.Service) bool {
-		hasState := appFuncs["ServiceHasStateActionsIR"].(func(ir.Service) bool)
-		for _, svc := range services {
-			if hasState(svc) {
-				return true
-			}
-		}
-		return false
-	}
+	appFuncs["ServiceHasStateActionsIR"] = serviceHasStateActionsIR
+	appFuncs["AnyServiceHasStateActionsIR"] = anyServiceHasStateActionsIR
 	appFuncs["ServiceHasPolicyActionsIR"] = func(s ir.Service) bool {
 		var hasPolicy func([]ir.FlowStep) bool
 		hasPolicy = func(steps []ir.FlowStep) bool {
@@ -983,3 +905,94 @@ func irFlowStepUsesTxManager(step ir.FlowStep) bool {
 }
 
 // EmitServiceMain generates main.go for a specific service.
+
+// Predicates shared by the runtime templates and the build: a step is needed
+// exactly when the template that imports its output would import it.
+
+func hasMongoRepoEntitiesIR(entities []ir.Entity) bool {
+	for _, ent := range entities {
+		if v, ok := ent.Metadata["storage"].(string); ok && strings.EqualFold(v, "mongo") {
+			return true
+		}
+	}
+	return false
+}
+
+func serviceHasStorageIR(s ir.Service) bool {
+	var hasStorage func([]ir.FlowStep) bool
+	hasStorage = func(steps []ir.FlowStep) bool {
+		for _, step := range steps {
+			switch step.Action {
+			case "storage.Upload", "storage.Download", "storage.GetURL", "storage.Delete", "storage.List":
+				return true
+			}
+			if hasStorage(step.Steps) || hasStorage(step.IfNew) || hasStorage(step.IfExists) || hasStorage(step.Then) || hasStorage(step.Else) || hasStorage(step.Default) {
+				return true
+			}
+			for _, branch := range step.Cases {
+				if hasStorage(branch) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	for _, m := range s.Methods {
+		if hasStorage(m.Flow) {
+			return true
+		}
+	}
+	return false
+}
+
+func anyServiceHasStorageIR(services []ir.Service) bool {
+	hasStorage := serviceHasStorageIR
+	for _, svc := range services {
+		if hasStorage(svc) {
+			return true
+		}
+	}
+	return false
+}
+
+func serviceHasStateActionsIR(s ir.Service) bool {
+	var hasState func([]ir.FlowStep) bool
+	hasState = func(steps []ir.FlowStep) bool {
+		for _, step := range steps {
+			switch step.Action {
+			case "state.Get", "state.Set", "state.Delete":
+				return true
+			}
+			for _, prefix := range []string{"idem.", "idempotency.", "dedupe.", "ratelimit.", "quota.", "budget.", "profile.", "concurrency.", "circuit.", "bulkhead.", "approval."} {
+				if strings.HasPrefix(step.Action, prefix) {
+					return true
+				}
+			}
+			if hasState(step.Steps) || hasState(step.IfNew) || hasState(step.IfExists) || hasState(step.Then) || hasState(step.Else) || hasState(step.Default) {
+				return true
+			}
+			for _, branch := range step.Cases {
+				if hasState(branch) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	for _, m := range s.Methods {
+		if hasState(m.Flow) {
+			return true
+		}
+	}
+	return false
+}
+
+func anyServiceHasStateActionsIR(services []ir.Service) bool {
+	hasState := serviceHasStateActionsIR
+	for _, svc := range services {
+		if hasState(svc) {
+			return true
+		}
+	}
+	return false
+}

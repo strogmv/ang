@@ -18,6 +18,16 @@ const (
 	CapabilityEvents  Capability = "events"
 	CapabilityAuth    Capability = "auth"
 
+	// Usage capabilities are granted per project by what its IR actually uses
+	// (see emitter.UsageCapabilities). A step that requires one is skipped as
+	// "not used by the project" when the project does not need its output.
+	CapabilityUsesRedisClient        Capability = "uses_redis_client"
+	CapabilityUsesMongo              Capability = "uses_mongo"
+	CapabilityUsesS3                 Capability = "uses_s3"
+	CapabilityUsesRefreshStoreMemory Capability = "uses_refresh_store_memory"
+	CapabilityUsesRefreshStorePG     Capability = "uses_refresh_store_postgres"
+	CapabilityUsesRefreshStoreHybrid Capability = "uses_refresh_store_hybrid"
+
 	// Profile capabilities are explicit backend generation profiles.
 	CapabilityProfileGoLegacy      Capability = "profile_go_legacy"
 	CapabilityProfilePythonFastAPI Capability = "profile_python_fastapi"
@@ -106,4 +116,10 @@ func ResolveTargetCapabilities(td normalizer.TargetDef) (CapabilitySet, error) {
 	}
 
 	return caps, nil
+}
+
+// IsUsageCapability reports whether cap is granted by project usage rather than
+// by the target profile.
+func IsUsageCapability(cap Capability) bool {
+	return strings.HasPrefix(string(cap), "uses_")
 }

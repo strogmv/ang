@@ -162,10 +162,18 @@ func executeStep(td normalizer.TargetDef, caps compiler.CapabilitySet, step Step
 		missing := caps.Missing(step.Requires...)
 		if len(missing) > 0 && logger != nil {
 			missingNames := make([]string, 0, len(missing))
+			usageOnly := true
 			for _, c := range missing {
 				missingNames = append(missingNames, string(c))
+				if !compiler.IsUsageCapability(c) {
+					usageOnly = false
+				}
 			}
-			logger("Skipping %s for target %s: missing capabilities [%s]", step.Name, td.Name, strings.Join(missingNames, ", "))
+			if usageOnly {
+				logger("Skipping %s for target %s: not used by the project [%s]", step.Name, td.Name, strings.Join(missingNames, ", "))
+			} else {
+				logger("Skipping %s for target %s: missing capabilities [%s]", step.Name, td.Name, strings.Join(missingNames, ", "))
+			}
 		}
 		events = append(events, StepEvent{
 			Stage:       "emitters",
