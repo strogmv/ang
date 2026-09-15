@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"cuelang.org/go/cue"
+	"cuelang.org/go/cue/ast"
+	"cuelang.org/go/cue/token"
 )
 
 func (n *Normalizer) parseFlowSteps(val cue.Value) ([]FlowStep, error) {
@@ -96,16 +98,9 @@ func (n *Normalizer) rawParseFlowSteps(val cue.Value) ([]FlowStep, error) {
 			pos = stepVal.LookupPath(cue.ParsePath("action")).Pos()
 		}
 		if pos.IsValid() {
-			file = pos.Filename()
+			file = relativeToWorkingDir(pos.Filename())
 			line = pos.Line()
 			column = pos.Column()
-			if file != "" {
-				if cwd, err := os.Getwd(); err == nil {
-					if rel, err := filepath.Rel(cwd, file); err == nil && !strings.HasPrefix(rel, "..") {
-						file = rel
-					}
-				}
-			}
 		}
 		step := FlowStep{
 			Action:     action,
@@ -170,6 +165,12 @@ func (n *Normalizer) rawParseFlowSteps(val cue.Value) ([]FlowStep, error) {
 			case cue.StringKind:
 				if s, err := v.String(); err == nil {
 					step.Args[label] = s
+					if text, ok := multilineLiteralText(v); ok {
+						if step.ArgText == nil {
+							step.ArgText = map[string]TextPos{}
+						}
+						step.ArgText[label] = text
+					}
 					if strings.HasPrefix(label, "_") {
 						step.Args[strings.TrimPrefix(label, "_")] = s
 					}
@@ -396,4 +397,35 @@ func (n *Normalizer) rawParseFlowSteps(val cue.Value) ([]FlowStep, error) {
 	}
 
 	return steps, nil
+}
+
+func relativeToWorkingDir(file string) string {
+	if file == "" {
+		return file
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		if rel, err := filepath.Rel(cwd, file); err == nil && !strings.HasPrefix(rel, "..") {
+			return rel
+		}
+	}
+	return file
+}
+
+// multilineLiteralText reports where the text of v starts when v is written as
+// one multi-line string literal. Interpolated or concatenated strings are not:
+// their lines do not follow the source lines.
+func multilineLiteralText(v cue.Value) (TextPos, bool) {
+	node := v.Source()
+	if field, isField := node.(*ast.Field); isField {
+		node = field.Value
+	}
+	lit, ok := node.(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING || !strings.HasPrefix(strings.TrimLeft(lit.Value, "#"), `"""`) {
+		return TextPos{}, false
+	}
+	pos := lit.Pos()
+	if !pos.IsValid() || pos.Filename() == "" {
+		return TextPos{}, false
+	}
+	return TextPos{File: relativeToWorkingDir(pos.Filename()), Line: pos.Line() + 1}, true
 }

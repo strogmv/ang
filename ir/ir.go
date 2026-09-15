@@ -422,6 +422,20 @@ type FlowStep struct {
 	Cases      map[string][]FlowStep `json:"cases,omitempty"`
 	Default    []FlowStep            `json:"default,omitempty"`
 	Attributes []Attribute           `json:"attributes,omitempty"`
+	// Where the step is written in CUE. Build-time only: kept out of the
+	// serialized IR so moving a step to another line does not change it.
+	File    string `json:"-"`
+	Line    int    `json:"-"`
+	Column  int    `json:"-"`
+	CUEPath string `json:"-"`
+	// ArgText: where the text of multi-line literal string arguments starts.
+	ArgText map[string]TextPos `json:"-"`
+}
+
+// TextPos is a line in a CUE file.
+type TextPos struct {
+	File string
+	Line int
 }
 
 // Source describes where method data comes from.

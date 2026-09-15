@@ -884,9 +884,25 @@ func ConvertFlowSteps(source []normalizer.FlowStep) []FlowStep {
 			Cases:      caseSteps,
 			Default:    defaultSteps,
 			Attributes: ConvertAttributes(step.Attributes),
+			File:       step.File,
+			Line:       step.Line,
+			Column:     step.Column,
+			CUEPath:    step.CUEPath,
+			ArgText:    convertTextPositions(step.ArgText),
 		})
 	}
 	return steps
+}
+
+func convertTextPositions(source map[string]normalizer.TextPos) map[string]TextPos {
+	if len(source) == 0 {
+		return nil
+	}
+	out := make(map[string]TextPos, len(source))
+	for name, pos := range source {
+		out[name] = TextPos{File: pos.File, Line: pos.Line}
+	}
+	return out
 }
 
 func ConvertAttributes(attrs []normalizer.Attribute) []Attribute {

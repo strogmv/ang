@@ -262,6 +262,16 @@ type FlowStep struct {
 	Line       int
 	Column     int
 	CUEPath    string
+	// ArgText says where the text of each string argument written as one
+	// multi-line literal starts: the line after the opening quotes. Go copied
+	// from such a literal keeps its lines, so it maps to CUE line by line.
+	ArgText map[string]TextPos
+}
+
+// TextPos is a line in a CUE file.
+type TextPos struct {
+	File string
+	Line int
 }
 
 type Attribute struct {
