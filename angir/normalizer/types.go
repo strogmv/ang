@@ -607,6 +607,9 @@ type TargetDef struct {
 	Storage        string // "s3", "gcs", "minio"
 	OutputDir      string // generated backend output root for this target
 	FrontendAppDir string // optional: copy generated SDK into this frontend directory
+	// FrontendDir is where the frontend SDK is generated: relative to the
+	// project or absolute. Empty means the default, "sdk" in the backend.
+	FrontendDir string
 	// FrontendSDKSkip names frontend SDK modules this project does not use;
 	// ANG skips generating them (see docs/ang/conventions.md of a project).
 	FrontendSDKSkip          []string

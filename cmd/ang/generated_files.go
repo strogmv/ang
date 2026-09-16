@@ -13,16 +13,20 @@ import (
 )
 
 // generatedFilesName is the committed list of every file the last build
-// generated in the project.
+// generated for this project.
 //
 // Generation writes into an empty directory, so a build knows exactly what it
 // produced. What it cannot see from the output alone is the difference between
 // a file it no longer produces and a hand-written file next to generated ones:
 // neither is in the output. The list tells them apart. A listed file that is not
 // produced any more is removed; anything never listed is left alone.
+//
+// Entries are slash paths relative to the project root. They may lead out of it
+// (`../app/src/@sdk/index.ts`) because the frontend SDK is generated into the
+// application repository; only directories the build owns are ever deleted from.
 const generatedFilesName = "ang-generated.txt"
 
-const generatedFilesHeader = "# Files ANG generated in this project, one per line. Do not edit: ang build\n" +
+const generatedFilesHeader = "# Files ANG generated for this project, one per line. Do not edit: ang build\n" +
 	"# rewrites the list and removes a listed file once the project no longer generates it.\n"
 
 // generatedFilesSync reports what syncGeneratedFiles did.
@@ -32,9 +36,13 @@ type generatedFilesSync struct {
 	// Removed lists files that are no longer generated and were removed.
 	Removed []string
 	// Outside lists files that are no longer generated but lie outside the
-	// directories a build manages, so they were kept (and stay listed).
+	// directories a build owns, so they were kept (and stay listed).
 	Outside []string
 }
+
+// stagedPathFunc maps a path in the project to where the running build stages
+// it, so a build changes its own workspace and not the project.
+type stagedPathFunc func(path string) string
 
 // readGeneratedFiles returns the paths in the project's list and whether the
 // list exists.
@@ -55,7 +63,7 @@ func readGeneratedFiles(projectRoot string) (map[string]struct{}, bool, error) {
 		}
 		rel, ok := cleanGeneratedRel(line)
 		if !ok {
-			return nil, true, fmt.Errorf("%s: %q is not a path inside the project", generatedFilesName, line)
+			return nil, true, fmt.Errorf("%s: %q is not a path relative to the project", generatedFilesName, line)
 		}
 		paths[rel] = struct{}{}
 	}
@@ -77,18 +85,18 @@ func renderGeneratedFiles(paths map[string]struct{}) []byte {
 	return b.Bytes()
 }
 
-// cleanGeneratedRel normalizes a project-relative path to slash form and
-// rejects paths that leave the project.
+// cleanGeneratedRel normalizes a path to slash form. Absolute paths are
+// rejected; a path that leaves the project is not, since generated output may
+// live in a sibling repository.
 func cleanGeneratedRel(p string) (string, bool) {
 	p = path.Clean(filepath.ToSlash(strings.TrimSpace(p)))
-	if p == "." || p == ".." || strings.HasPrefix(p, "../") || path.IsAbs(p) {
+	if p == "." || p == ".." || path.IsAbs(p) || strings.HasPrefix(p, "/") {
 		return "", false
 	}
 	return p, true
 }
 
-// projectRelativePath returns p relative to projectAbs in slash form, or false
-// when p lies outside the project.
+// projectRelativePath returns p relative to projectAbs in slash form.
 func projectRelativePath(projectAbs, p string) (string, bool) {
 	abs, err := filepath.Abs(p)
 	if err != nil {
@@ -101,22 +109,20 @@ func projectRelativePath(projectAbs, p string) (string, bool) {
 	return cleanGeneratedRel(rel)
 }
 
-// ownedRelRoots turns the paths a build transaction owns into project-relative
-// roots; owned paths outside the project are dropped.
-func ownedRelRoots(projectAbs string, ownedPaths []string) []string {
-	roots := make([]string, 0, len(ownedPaths))
-	for _, owned := range ownedPaths {
-		if rel, ok := projectRelativePath(projectAbs, owned); ok {
-			roots = append(roots, rel)
-		}
-	}
-	return roots
+// generatedAbsPath is the inverse of projectRelativePath.
+func generatedAbsPath(projectAbs, rel string) string {
+	return filepath.Clean(filepath.Join(projectAbs, filepath.FromSlash(rel)))
 }
 
-func ownedRootOf(rel string, roots []string) (string, bool) {
-	for _, root := range roots {
-		if rel == root || strings.HasPrefix(rel, root+"/") {
-			return root, true
+// ownedRootOf names the build-owned directory (or file) holding abs, if any.
+// Only these are ever deleted from: elsewhere a build has no claim, and the
+// staged project links straight into the real one.
+func ownedRootOf(abs string, ownedPaths []string) (string, bool) {
+	abs = filepath.Clean(abs)
+	for _, owned := range ownedPaths {
+		owned = filepath.Clean(owned)
+		if abs == owned || strings.HasPrefix(abs, owned+string(filepath.Separator)) {
+			return owned, true
 		}
 	}
 	return "", false
@@ -201,7 +207,7 @@ func applyGeneratedOutput(genRoot, destRoot, intendedRoot, projectRoot string, p
 // build generated and this one did not, then writes the new list there. A
 // partial build (some targets or parts skipped) removes nothing and only adds
 // to the list, since what it did not produce may belong to what it skipped.
-func syncGeneratedFiles(projectRoot, workspace string, ownedPaths []string, produced map[string]struct{}, partial bool) (generatedFilesSync, error) {
+func syncGeneratedFiles(projectRoot string, staged stagedPathFunc, ownedPaths []string, produced map[string]struct{}, partial bool) (generatedFilesSync, error) {
 	var result generatedFilesSync
 	projectAbs, err := filepath.Abs(projectRoot)
 	if err != nil {
@@ -218,17 +224,17 @@ func syncGeneratedFiles(projectRoot, workspace string, ownedPaths []string, prod
 			next[p] = struct{}{}
 		}
 	} else {
-		roots := ownedRelRoots(projectAbs, ownedPaths)
 		for _, rel := range staleGeneratedFiles(previous, produced) {
-			owner, owned := ownedRootOf(rel, roots)
+			abs := generatedAbsPath(projectAbs, rel)
+			owner, owned := ownedRootOf(abs, ownedPaths)
 			if !owned {
-				if _, err := os.Lstat(filepath.Join(projectAbs, filepath.FromSlash(rel))); err == nil {
+				if _, err := os.Lstat(abs); err == nil {
 					result.Outside = append(result.Outside, rel)
 					next[rel] = struct{}{}
 				}
 				continue
 			}
-			removed, err := removeFromWorkspace(workspace, rel, owner)
+			removed, err := removeStagedFile(staged(abs), staged(owner))
 			if err != nil {
 				return result, fmt.Errorf("remove %s: %w", rel, err)
 			}
@@ -237,17 +243,21 @@ func syncGeneratedFiles(projectRoot, workspace string, ownedPaths []string, prod
 			}
 		}
 	}
-	if err := os.WriteFile(filepath.Join(workspace, generatedFilesName), renderGeneratedFiles(next), 0o644); err != nil {
+	listPath := staged(filepath.Join(projectAbs, generatedFilesName))
+	if err := os.MkdirAll(filepath.Dir(listPath), 0o755); err != nil {
+		return result, fmt.Errorf("create directory for %s: %w", generatedFilesName, err)
+	}
+	if err := os.WriteFile(listPath, renderGeneratedFiles(next), 0o644); err != nil {
 		return result, fmt.Errorf("write %s: %w", generatedFilesName, err)
 	}
 	return result, nil
 }
 
-// removeFromWorkspace deletes rel from the staged project and the directories
-// that removal emptied, up to the owned root. Owned roots are real copies in
-// the workspace; a path that resolves elsewhere through a symlink is refused.
-func removeFromWorkspace(workspace, rel, owner string) (bool, error) {
-	target := filepath.Join(workspace, filepath.FromSlash(rel))
+// removeStagedFile deletes one staged file and the directories its removal
+// emptied, up to the staged owned root. An owned root is a real copy in the
+// build's workspace; a path that resolves out of it through a symlink is
+// refused rather than followed into the project.
+func removeStagedFile(target, ownerRoot string) (bool, error) {
 	info, err := os.Lstat(target)
 	if os.IsNotExist(err) {
 		return false, nil
@@ -258,9 +268,8 @@ func removeFromWorkspace(workspace, rel, owner string) (bool, error) {
 	if info.IsDir() {
 		return false, nil
 	}
-	stop := filepath.Join(workspace, filepath.FromSlash(owner))
-	if rel != owner {
-		realStop, err := filepath.EvalSymlinks(stop)
+	if target != ownerRoot {
+		realRoot, err := filepath.EvalSymlinks(ownerRoot)
 		if err != nil {
 			return false, err
 		}
@@ -268,14 +277,14 @@ func removeFromWorkspace(workspace, rel, owner string) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		if realParent != realStop && !strings.HasPrefix(realParent, realStop+string(filepath.Separator)) {
-			return false, fmt.Errorf("%s resolves outside %s", rel, owner)
+		if realParent != realRoot && !strings.HasPrefix(realParent, realRoot+string(filepath.Separator)) {
+			return false, fmt.Errorf("%s resolves outside %s", target, ownerRoot)
 		}
 	}
 	if err := os.Remove(target); err != nil {
 		return false, err
 	}
-	for dir := filepath.Dir(target); strings.HasPrefix(dir, stop+string(filepath.Separator)); dir = filepath.Dir(dir) {
+	for dir := filepath.Dir(target); strings.HasPrefix(dir, ownerRoot+string(filepath.Separator)); dir = filepath.Dir(dir) {
 		if os.Remove(dir) != nil {
 			break
 		}
@@ -309,14 +318,13 @@ func planGeneratedFiles(projectRoot string, ownedPaths []string, man *dryRunMani
 			next[p] = struct{}{}
 		}
 	} else {
-		roots := ownedRelRoots(projectAbs, ownedPaths)
 		for _, rel := range staleGeneratedFiles(previous, produced) {
-			abs := filepath.Join(projectAbs, filepath.FromSlash(rel))
+			abs := generatedAbsPath(projectAbs, rel)
 			info, err := os.Lstat(abs)
 			if err != nil || info.IsDir() {
 				continue
 			}
-			if _, owned := ownedRootOf(rel, roots); !owned {
+			if _, owned := ownedRootOf(abs, ownedPaths); !owned {
 				next[rel] = struct{}{}
 				continue
 			}

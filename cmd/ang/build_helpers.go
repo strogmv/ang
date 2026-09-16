@@ -19,6 +19,7 @@ type OutputOptions struct {
 	BackendDir          string
 	BackendDirExplicit  bool
 	FrontendDir         string
+	FrontendDirExplicit bool
 	FrontendAppDir      string
 	FrontendAdminDir    string
 	FrontendAdminAppDir string
@@ -109,6 +110,7 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 		ProjectDir:          strings.TrimSpace(*projectDir),
 		BackendDir:          normalizeBackendDir(*backendDir),
 		BackendDirExplicit:  flagPassed(args, "--backend-dir"),
+		FrontendDirExplicit: flagPassed(args, "--frontend-dir"),
 		FrontendDir:         strings.TrimSpace(*frontendDir),
 		FrontendAppDir:      strings.TrimSpace(*frontendAppDir),
 		FrontendAdminDir:    strings.TrimSpace(*frontendAdminDir),
@@ -375,6 +377,18 @@ func resolveFrontendDirForTarget(baseFrontendDir, backendDir string, td normaliz
 		return filepath.Join(backendDir, trimmed)
 	}
 	return trimmed
+}
+
+// frontendDirOptionForTarget decides where the frontend SDK is generated:
+// the --frontend-dir flag when it was passed, otherwise the target's
+// frontend_dir from CUE, otherwise the built-in default. A project whose SDK
+// lives in the application repository says so once, in CUE, instead of in
+// every command that builds it.
+func frontendDirOptionForTarget(opts OutputOptions, td normalizer.TargetDef) string {
+	if !opts.FrontendDirExplicit && strings.TrimSpace(td.FrontendDir) != "" {
+		return strings.TrimSpace(td.FrontendDir)
+	}
+	return opts.FrontendDir
 }
 
 func safeTargetDirName(name string) string {

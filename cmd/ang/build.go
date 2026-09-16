@@ -399,7 +399,7 @@ func runBuild(args []string) error {
 			multiTarget := len(selectedTargets) > 1
 			for _, td := range selectedTargets {
 				backend := resolveBackendDirForTarget(effectiveMode, output.BackendDir, td, multiTarget)
-				frontend := resolveFrontendDirForTarget(output.FrontendDir, backend, td, multiTarget)
+				frontend := resolveFrontendDirForTarget(frontendDirOptionForTarget(output, td), backend, td, multiTarget)
 				if !filepath.IsAbs(backend) {
 					backend = filepath.Join(projectPath, backend)
 				}
@@ -499,10 +499,11 @@ func runBuild(args []string) error {
 		summaries := make([]buildTargetSummary, 0, len(selectedTargets))
 		frontendTypecheckDirs := make([]string, 0, len(selectedTargets))
 		intendedBackends := make([]string, 0, len(selectedTargets))
+		intendedFrontends := make([]string, 0, len(selectedTargets))
 		producedFiles := map[string]struct{}{}
 		for _, td := range selectedTargets {
 			intendedBackendDir := resolveBackendDirForTarget(effectiveMode, output.BackendDir, td, multiTarget)
-			intendedFrontendDir := resolveFrontendDirForTarget(output.FrontendDir, intendedBackendDir, td, multiTarget)
+			intendedFrontendDir := resolveFrontendDirForTarget(frontendDirOptionForTarget(output, td), intendedBackendDir, td, multiTarget)
 			if !filepath.IsAbs(intendedBackendDir) {
 				intendedBackendDir = filepath.Join(projectPath, intendedBackendDir)
 			}
@@ -519,6 +520,7 @@ func runBuild(args []string) error {
 				frontendTypecheckDirs = append(frontendTypecheckDirs, frontendDir)
 			}
 			intendedBackends = append(intendedBackends, intendedBackendDir)
+			intendedFrontends = append(intendedFrontends, intendedFrontendDir)
 			// Generation starts from empty directories, so everything under them
 			// afterwards is exactly what this build produced.
 			emitBackendDir, emitFrontendDir := backendDir, frontendDir
@@ -772,14 +774,14 @@ func runBuild(args []string) error {
 		// A build that skipped targets or parts did not produce their files, so
 		// it must not treat them as no longer generated.
 		partialBuild := output.SkipFrontend || output.SkipContractTests || len(selectedTargets) != len(targetDefs)
-		ownedPaths := generatedTransactionPaths(projectPath, effectiveMode, intendedBackends, nil)
+		ownedPaths := generatedTransactionPaths(projectPath, effectiveMode, intendedBackends, intendedFrontends)
 		if output.DryRun {
 			if err := planGeneratedFiles(projectPath, ownedPaths, &dryManifest, partialBuild); err != nil {
 				fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "plan "+generatedFilesName, err)
 				return
 			}
 		} else if generationRoot != "" {
-			synced, err := syncGeneratedFiles(projectPath, buildWorkspace, ownedPaths, producedFiles, partialBuild)
+			synced, err := syncGeneratedFiles(projectPath, stagePath, ownedPaths, producedFiles, partialBuild)
 			if err != nil {
 				fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "update "+generatedFilesName, err)
 				return

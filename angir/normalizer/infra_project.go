@@ -279,6 +279,10 @@ func parseTargetDef(targetVal cue.Value, defaultName string) TargetDef {
 	if strings.TrimSpace(frontendAppDir) == "" {
 		frontendAppDir = getOptionalStringField(targetVal, "frontendAppDir")
 	}
+	frontendDir := getOptionalStringField(targetVal, "frontend_dir")
+	if strings.TrimSpace(frontendDir) == "" {
+		frontendDir = getOptionalStringField(targetVal, "frontendDir")
+	}
 	name := getStringWithDefault(targetVal, "name", defaultName)
 	if strings.TrimSpace(name) == "" {
 		name = defaultName
@@ -306,6 +310,7 @@ func parseTargetDef(targetVal cue.Value, defaultName string) TargetDef {
 		Storage:                  getStringWithDefault(targetVal, "storage", "s3"),
 		OutputDir:                strings.TrimSpace(outputDir),
 		FrontendAppDir:           strings.TrimSpace(frontendAppDir),
+		FrontendDir:              strings.TrimSpace(frontendDir),
 		FrontendSDKSkip:          frontendSDKSkip,
 		NatsWorkers:              natsWorkers,
 		NatsPublishRetryAttempts: natsPublishRetryAttempts,
