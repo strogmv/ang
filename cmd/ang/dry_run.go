@@ -28,15 +28,20 @@ type dryRunTargetManifest struct {
 }
 
 type dryRunManifest struct {
-	Status               string                 `json:"status"`
-	TotalTargets         int                    `json:"total_targets"`
-	TotalGenerated       int                    `json:"total_generated_files"`
-	TotalCreate          int                    `json:"total_create"`
-	TotalUpdate          int                    `json:"total_update"`
-	TotalUnchanged       int                    `json:"total_unchanged"`
-	Targets              []dryRunTargetManifest `json:"targets"`
-	Notes                []string               `json:"notes"`
-	OptionalStepsSkipped []string               `json:"optional_steps_skipped,omitempty"`
+	Status         string                 `json:"status"`
+	TotalTargets   int                    `json:"total_targets"`
+	TotalGenerated int                    `json:"total_generated_files"`
+	TotalCreate    int                    `json:"total_create"`
+	TotalUpdate    int                    `json:"total_update"`
+	TotalUnchanged int                    `json:"total_unchanged"`
+	TotalDelete    int                    `json:"total_delete"`
+	Targets        []dryRunTargetManifest `json:"targets"`
+	// Deletions are files ang-generated.txt lists that are no longer generated.
+	Deletions []dryRunFileChange `json:"deletions,omitempty"`
+	// GeneratedList is ang-generated.txt itself.
+	GeneratedList        *dryRunFileChange `json:"generated_list,omitempty"`
+	Notes                []string          `json:"notes"`
+	OptionalStepsSkipped []string          `json:"optional_steps_skipped,omitempty"`
 }
 
 func buildDryRunChanges(generatedRoot, intendedRoot string) ([]dryRunFileChange, error) {
@@ -117,6 +122,18 @@ func printDryRunManifest(man dryRunManifest) {
 
 func summarizeDryRunManifest(man *dryRunManifest) {
 	man.TotalTargets = len(man.Targets)
+	man.TotalDelete = len(man.Deletions)
+	if list := man.GeneratedList; list != nil {
+		man.TotalGenerated++
+		switch strings.ToLower(list.Action) {
+		case "create":
+			man.TotalCreate++
+		case "update":
+			man.TotalUpdate++
+		default:
+			man.TotalUnchanged++
+		}
+	}
 	for _, t := range man.Targets {
 		for _, c := range t.Changes {
 			man.TotalGenerated++

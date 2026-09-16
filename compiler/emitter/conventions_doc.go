@@ -66,6 +66,9 @@ func (e *Emitter) EmitConventionsDoc(schema *ir.Schema) error {
 	}
 	b.WriteString("\n")
 
+	b.WriteString("## Generated files\n\n")
+	b.WriteString("`ang-generated.txt` lists every file ANG generates in this project. Do not edit a listed file: the next build overwrites it. A listed file the project stops generating is removed by the next build; a file that was never listed is left alone.\n\n")
+
 	b.WriteString("## Delete finders\n\n")
 	deletes := conventionDeleteFinders(schema.Repos)
 	if len(deletes) == 0 {

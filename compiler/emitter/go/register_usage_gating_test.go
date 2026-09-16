@@ -7,9 +7,9 @@ import (
 	"github.com/strogmv/ang/compiler/generator"
 )
 
-// Steps whose output a project may not use require a usage capability and
-// remove their earlier output when skipped.
-func TestRegisterGatesUnusedOutputAndCleansItUp(t *testing.T) {
+// Steps whose output a project may not use require a usage capability. Their
+// earlier output is removed by the build through ang-generated.txt.
+func TestRegisterGatesUnusedOutput(t *testing.T) {
 	registry := generator.NewStepRegistry()
 	Register(registry, RegisterInput{})
 	byName := map[string]generator.Step{}
@@ -34,9 +34,6 @@ func TestRegisterGatesUnusedOutputAndCleansItUp(t *testing.T) {
 		}
 		if !gated {
 			t.Errorf("%s requires no usage capability: %v", name, step.Requires)
-		}
-		if step.OnSkip == nil {
-			t.Errorf("%s has no OnSkip cleanup", name)
 		}
 	}
 	// http_common imports these unconditionally.

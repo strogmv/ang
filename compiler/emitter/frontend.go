@@ -1028,7 +1028,9 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		}
 	}
 
-	namedEnums := extractFrontendNamedEnums(resolveFrontendProjectRoot(e.OutputDir, e.FrontendDir))
+	// The CUE domain is looked up from the project, not from the output
+	// directory: a build generates into an empty directory outside it.
+	namedEnums := extractFrontendNamedEnums(resolveFrontendProjectRoot(e.sourceBackendPath(), e.FrontendDir))
 	namedEnumSet := namedEnumNameSet(namedEnums)
 	fieldEnums := extractFrontendFieldEnums(entitiesNorm, namedEnums)
 
@@ -1781,9 +1783,7 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 			return err
 		}
 	}
-	if err := e.removeSkippedSDKModules(); err != nil {
-		return err
-	}
+	e.logSkippedSDKModules()
 
 	for _, module := range ctx.EndpointModules {
 		if err := e.emitFrontendFile("endpoints-domain", module, funcMap, filepath.Join("endpoints", module.ModuleName+".ts")); err != nil {

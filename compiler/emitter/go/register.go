@@ -56,11 +56,6 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 	uses := func(capability compiler.Capability) []compiler.Capability {
 		return []compiler.Capability{compiler.CapabilityProfileGoLegacy, capability}
 	}
-	// removeUnused takes a skipped step's earlier output with it; only files
-	// carrying the ANG generated marker are removed.
-	removeUnused := func(paths ...string) func() error {
-		return func() error { return in.Em.RemoveGeneratedOutput(paths...) }
-	}
 
 	registry.Register(generator.Step{Name: "Config", ParallelSafe: true, Requires: goOnly, Run: func() error { return in.Em.EmitConfig(in.CfgDef) }})
 	registry.Register(generator.Step{Name: "Logger", ParallelSafe: true, Requires: goOnly, Run: func() error { return in.Em.EmitLogger() }})
@@ -71,12 +66,12 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 	registry.Register(generator.Step{Name: "Circuit Breaker", ParallelSafe: true, Requires: goHTTP, Run: func() error { return in.Em.EmitCircuitBreaker() }})
 	registry.Register(generator.Step{Name: "Presence", ParallelSafe: true, Requires: goOnly, Run: func() error { return in.Em.EmitPresence() }})
 	registry.Register(generator.Step{Name: "Report PDF", ParallelSafe: true, Requires: goOnly, Run: func() error { return in.Em.EmitReportPDF() }})
-	registry.Register(generator.Step{Name: "DI Container", ArtifactKey: "go:di_container", ParallelSafe: true, Requires: uses(compiler.CapabilityUsesDIContainer), Run: func() error { return in.Em.EmitContainer() }, OnSkip: removeUnused("internal/app/container.go")})
+	registry.Register(generator.Step{Name: "DI Container", ArtifactKey: "go:di_container", ParallelSafe: true, Requires: uses(compiler.CapabilityUsesDIContainer), Run: func() error { return in.Em.EmitContainer() }})
 	registry.Register(generator.Step{Name: "Domain Entities", Requires: goOnly, Run: func() error { return in.Em.EmitDomain(in.IRSchema.Entities) }})
 	registry.Register(generator.Step{Name: "GDPR Compliance", Requires: goOnly, Run: func() error { return in.Em.EmitGDPR(in.IRSchema.Entities) }})
-	registry.Register(generator.Step{Name: "EU AI Act Compliance", Requires: uses(compiler.CapabilityUsesAIAct), Run: func() error { return in.Em.EmitAIAct(in.IRSchema.Services) }, OnSkip: removeUnused("internal/compliance/aiact.gen.go")})
-	registry.Register(generator.Step{Name: "NIS2 Compliance", Requires: uses(compiler.CapabilityUsesNIS2), Run: func() error { return in.Em.EmitNIS2(in.IRSchema.Services) }, OnSkip: removeUnused("internal/compliance/nis2.gen.go")})
-	registry.Register(generator.Step{Name: "DTOs", Requires: uses(compiler.CapabilityUsesDTO), Run: func() error { return in.Em.EmitDTO(in.IRSchema.Entities) }, OnSkip: removeUnused("internal/dto")})
+	registry.Register(generator.Step{Name: "EU AI Act Compliance", Requires: uses(compiler.CapabilityUsesAIAct), Run: func() error { return in.Em.EmitAIAct(in.IRSchema.Services) }})
+	registry.Register(generator.Step{Name: "NIS2 Compliance", Requires: uses(compiler.CapabilityUsesNIS2), Run: func() error { return in.Em.EmitNIS2(in.IRSchema.Services) }})
+	registry.Register(generator.Step{Name: "DTOs", Requires: uses(compiler.CapabilityUsesDTO), Run: func() error { return in.Em.EmitDTO(in.IRSchema.Entities) }})
 	registry.Register(generator.Step{Name: "Service Ports", Requires: goOnly, Run: func() error { return in.Em.EmitServiceFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "HTTP Handlers", ArtifactKey: "go:http_handlers", Requires: goHTTP, Run: func() error { return in.Em.EmitHTTPFromIR(in.IRSchema, in.AuthDef) }})
 	registry.Register(generator.Step{Name: "gRPC Proto", ArtifactKey: "go:grpc_proto", Requires: goGRPC, Run: func() error { return in.Em.EmitGRPCProtoFromIR(in.IRSchema) }})
@@ -90,35 +85,35 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 	registry.Register(generator.Step{Name: "Outbox Port", Requires: goOnly, Run: func() error { return in.Em.EmitOutboxPort() }})
 	registry.Register(generator.Step{Name: "System Repository", Requires: goSQL, Run: func() error { return in.Em.EmitSystemRepository() }})
 	registry.Register(generator.Step{Name: "Storage Port", Requires: goOnly, Run: func() error { return in.Em.EmitStoragePort() }})
-	registry.Register(generator.Step{Name: "S3 Client", Requires: goS3, Run: func() error { return in.Em.EmitS3Client() }, OnSkip: removeUnused("internal/adapter/storage/s3")})
+	registry.Register(generator.Step{Name: "S3 Client", Requires: goS3, Run: func() error { return in.Em.EmitS3Client() }})
 	registry.Register(generator.Step{Name: "Postgres Repos", Requires: goSQL, Run: func() error { return in.Em.EmitPostgresRepoFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "Postgres Common", Requires: goSQL, Run: func() error { return in.Em.EmitPostgresCommon() }})
-	registry.Register(generator.Step{Name: "Mongo Repos", Requires: goMongo, Run: func() error { return in.Em.EmitMongoRepoFromIR(in.IRSchema) }, OnSkip: removeUnused("internal/adapter/repository/mongo")})
-	registry.Register(generator.Step{Name: "Mongo Common", Requires: goMongo, Run: func() error { return in.Em.EmitMongoCommonFromIR(in.IRSchema) }, OnSkip: removeUnused("internal/adapter/repository/mongo")})
+	registry.Register(generator.Step{Name: "Mongo Repos", Requires: goMongo, Run: func() error { return in.Em.EmitMongoRepoFromIR(in.IRSchema) }})
+	registry.Register(generator.Step{Name: "Mongo Common", Requires: goMongo, Run: func() error { return in.Em.EmitMongoCommonFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "SQL Schema", Requires: goSQL, Run: func() error { return in.Em.EmitSQLFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "Conventions Doc", Requires: goOnly, Run: func() error { return in.Em.EmitConventionsDoc(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "Infra Configs", Requires: goOnly, Run: func() error { return in.Em.EmitInfraConfigs() }})
-	registry.Register(generator.Step{Name: "SQLC Config", Requires: uses(compiler.CapabilityUsesSQLC), Run: func() error { return in.Em.EmitSQLCConfig() }, OnSkip: removeUnused("sqlc.yaml")})
+	registry.Register(generator.Step{Name: "SQLC Config", Requires: uses(compiler.CapabilityUsesSQLC), Run: func() error { return in.Em.EmitSQLCConfig() }})
 	registry.Register(generator.Step{Name: "Effect Middleware", Requires: goOnly, Run: func() error {
 		return in.Em.EmitEffectMiddleware(in.Ctx)
 	}})
 	registry.Register(generator.Step{Name: "Effect Registry", Requires: goOnly, Run: func() error {
 		return in.Em.EmitEffectRegistry(in.Ctx, in.InfraValues)
 	}})
-	registry.Register(generator.Step{Name: "SQL Queries", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilitySQLRepo, compiler.CapabilityUsesSQLC}, Run: func() error { return in.Em.EmitSQLQueriesFromIR(in.IRSchema) }, OnSkip: removeUnused("db/queries/query.sql")})
-	registry.Register(generator.Step{Name: "Mongo Schemas", Requires: goMongo, Run: func() error { return in.Em.EmitMongoSchemaFromIR(in.IRSchema) }, OnSkip: removeUnused("db/mongo/schemas")})
-	registry.Register(generator.Step{Name: "Repo Stubs", Requires: uses(compiler.CapabilityUsesRepoStubs), Run: func() error { return in.Em.EmitStubRepoFromIR(in.IRSchema) }, OnSkip: removeUnused("internal/adapter/repository/memory")})
+	registry.Register(generator.Step{Name: "SQL Queries", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilitySQLRepo, compiler.CapabilityUsesSQLC}, Run: func() error { return in.Em.EmitSQLQueriesFromIR(in.IRSchema) }})
+	registry.Register(generator.Step{Name: "Mongo Schemas", Requires: goMongo, Run: func() error { return in.Em.EmitMongoSchemaFromIR(in.IRSchema) }})
+	registry.Register(generator.Step{Name: "Repo Stubs", Requires: uses(compiler.CapabilityUsesRepoStubs), Run: func() error { return in.Em.EmitStubRepoFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "Repository Mocks", Requires: goOnly, Run: func() error { return in.Em.EmitRepoMocks(in.IRSchema.Repos) }})
 
 	registerInfraGoSteps(registry, in)
-	registry.Register(generator.Step{Name: "Redis Client", Requires: goRedis, Run: func() error { return in.Em.EmitRedisClient() }, OnSkip: removeUnused("internal/adapter/cache/redis")})
+	registry.Register(generator.Step{Name: "Redis Client", Requires: goRedis, Run: func() error { return in.Em.EmitRedisClient() }})
 	registry.Register(generator.Step{Name: "Redis StateStore", Requires: goOnly, Run: func() error { return in.Em.EmitRedisStateStore() }})
 	registry.Register(generator.Step{Name: "Auth Package", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilityAuth}, Run: func() error { return in.Em.EmitAuthPackage(in.AuthDef) }})
 	registry.Register(generator.Step{Name: "Refresh Store Port", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilityAuth}, Run: func() error { return in.Em.EmitRefreshTokenStorePort() }})
-	registry.Register(generator.Step{Name: "Refresh Store Memory", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilityAuth, compiler.CapabilityUsesRefreshStoreMemory}, Run: func() error { return in.Em.EmitRefreshTokenStoreMemory() }, OnSkip: removeUnused("internal/adapter/auth/memory")})
+	registry.Register(generator.Step{Name: "Refresh Store Memory", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilityAuth, compiler.CapabilityUsesRefreshStoreMemory}, Run: func() error { return in.Em.EmitRefreshTokenStoreMemory() }})
 	registry.Register(generator.Step{Name: "Refresh Store Redis", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilityAuth}, Run: func() error { return in.Em.EmitRefreshTokenStoreRedis() }})
-	registry.Register(generator.Step{Name: "Refresh Store Postgres", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilityAuth, compiler.CapabilitySQLRepo, compiler.CapabilityUsesRefreshStorePG}, Run: func() error { return in.Em.EmitRefreshTokenStorePostgres() }, OnSkip: removeUnused("internal/adapter/auth/postgres")})
-	registry.Register(generator.Step{Name: "Refresh Store Hybrid", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilityAuth, compiler.CapabilitySQLRepo, compiler.CapabilityUsesRefreshStoreHybrid}, Run: func() error { return in.Em.EmitRefreshTokenStoreHybrid() }, OnSkip: removeUnused("internal/adapter/auth/hybrid")})
+	registry.Register(generator.Step{Name: "Refresh Store Postgres", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilityAuth, compiler.CapabilitySQLRepo, compiler.CapabilityUsesRefreshStorePG}, Run: func() error { return in.Em.EmitRefreshTokenStorePostgres() }})
+	registry.Register(generator.Step{Name: "Refresh Store Hybrid", Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilityAuth, compiler.CapabilitySQLRepo, compiler.CapabilityUsesRefreshStoreHybrid}, Run: func() error { return in.Em.EmitRefreshTokenStoreHybrid() }})
 	registry.Register(generator.Step{Name: "Notification Dispatch Ports", Requires: goOnly, Run: func() error { return in.Em.EmitNotificationDispatchPortsFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "Notification Dispatcher Runtime", Requires: goOnly, Run: func() error { return in.Em.EmitNotificationDispatcherRuntimeFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "Template Renderer", Requires: goOnly, Run: func() error { return in.Em.EmitTemplateRenderer() }})

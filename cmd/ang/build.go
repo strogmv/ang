@@ -391,6 +391,7 @@ func runBuild(args []string) error {
 
 		var transaction *buildTransaction
 		var buildWorkspace string
+		var generationRoot string
 		contractBaselines := map[string][]byte{}
 		if !output.DryRun {
 			backendDirs := make([]string, 0, len(selectedTargets))
@@ -446,6 +447,9 @@ func runBuild(args []string) error {
 				fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "create staged project workspace", err)
 				return
 			}
+			// Emitters write into empty directories here; their output is then
+			// applied to the workspace. See ang-generated.txt.
+			generationRoot = filepath.Join(filepath.Dir(buildWorkspace), "generated")
 			transaction.SetConflictDir(projectPath, filepath.Join(projectPath, ".ang", "conflicts", time.Now().UTC().Format("20060102T150405Z")))
 			if swept := transaction.Swept(); swept.Removed > 0 {
 				noun := "directories"
@@ -494,6 +498,8 @@ func runBuild(args []string) error {
 		}
 		summaries := make([]buildTargetSummary, 0, len(selectedTargets))
 		frontendTypecheckDirs := make([]string, 0, len(selectedTargets))
+		intendedBackends := make([]string, 0, len(selectedTargets))
+		producedFiles := map[string]struct{}{}
 		for _, td := range selectedTargets {
 			intendedBackendDir := resolveBackendDirForTarget(effectiveMode, output.BackendDir, td, multiTarget)
 			intendedFrontendDir := resolveFrontendDirForTarget(output.FrontendDir, intendedBackendDir, td, multiTarget)
@@ -512,6 +518,14 @@ func runBuild(args []string) error {
 			} else {
 				frontendTypecheckDirs = append(frontendTypecheckDirs, frontendDir)
 			}
+			intendedBackends = append(intendedBackends, intendedBackendDir)
+			// Generation starts from empty directories, so everything under them
+			// afterwards is exactly what this build produced.
+			emitBackendDir, emitFrontendDir := backendDir, frontendDir
+			if generationRoot != "" {
+				emitBackendDir = filepath.Join(generationRoot, "backend", safeTargetDirName(td.Name))
+				emitFrontendDir = filepath.Join(generationRoot, "frontend", safeTargetDirName(td.Name))
+			}
 			logText("Generating target %s (%s/%s/%s) -> %s", td.Name, td.Lang, td.Framework, td.DB, backendDir)
 			if jsonLogs {
 				logEvent(buildEvent{
@@ -523,7 +537,7 @@ func runBuild(args []string) error {
 				})
 			}
 
-			em := emitter.New(backendDir, frontendDir, tmplDir)
+			em := emitter.New(emitBackendDir, emitFrontendDir, tmplDir)
 			em.SourceBackendDir = intendedBackendDir
 			em.NatsWorkers = td.NatsWorkers
 			if em.NatsWorkers <= 0 {
@@ -587,8 +601,8 @@ func runBuild(args []string) error {
 			}
 
 			targetOutput := output
-			targetOutput.BackendDir = backendDir
-			targetOutput.FrontendDir = frontendDir
+			targetOutput.BackendDir = emitBackendDir
+			targetOutput.FrontendDir = emitFrontendDir
 			// CUE target.frontend_app_dir is used as default when CLI flag is not set.
 			// ANG_FRONTEND_APP_DIR env var overrides both CLI flag and CUE value.
 			if strings.TrimSpace(targetOutput.FrontendAppDir) == "" && strings.TrimSpace(td.FrontendAppDir) != "" {
@@ -668,6 +682,14 @@ func runBuild(args []string) error {
 				fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "run capability matrix steps", executeErr)
 				return
 			}
+			if generationRoot != "" {
+				for _, out := range [][3]string{{emitBackendDir, backendDir, intendedBackendDir}, {emitFrontendDir, frontendDir, intendedFrontendDir}} {
+					if err := applyGeneratedOutput(out[0], out[1], out[2], projectPath, producedFiles); err != nil {
+						fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "apply generated output", err)
+						return
+					}
+				}
+			}
 			if strings.EqualFold(td.Lang, "go") {
 				if err := emitter.ValidateGeneratedDI(backendDir, ctx, authDef); err != nil {
 					fail(compiler.StageEmitters, compiler.ErrCodeEmitterCapabilityResolve, "validate generated dependency injection", err)
@@ -744,6 +766,41 @@ func runBuild(args []string) error {
 					Frontend: filepath.ToSlash(filepath.Clean(intendedFrontendDir)),
 					Changes:  combined,
 				})
+			}
+		}
+
+		// A build that skipped targets or parts did not produce their files, so
+		// it must not treat them as no longer generated.
+		partialBuild := output.SkipFrontend || output.SkipContractTests || len(selectedTargets) != len(targetDefs)
+		ownedPaths := generatedTransactionPaths(projectPath, effectiveMode, intendedBackends, nil)
+		if output.DryRun {
+			if err := planGeneratedFiles(projectPath, ownedPaths, &dryManifest, partialBuild); err != nil {
+				fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "plan "+generatedFilesName, err)
+				return
+			}
+		} else if generationRoot != "" {
+			synced, err := syncGeneratedFiles(projectPath, buildWorkspace, ownedPaths, producedFiles, partialBuild)
+			if err != nil {
+				fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "update "+generatedFilesName, err)
+				return
+			}
+			if synced.Created {
+				logText("Wrote %s: from the next build on, files ANG stops generating are removed from the project.", generatedFilesName)
+			}
+			if len(synced.Removed) > 0 {
+				logText("Removing %d file(s) ANG no longer generates:", len(synced.Removed))
+				for _, rel := range synced.Removed {
+					logText("  - %s", rel)
+				}
+				logEvent(buildEvent{
+					Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+					Stage:     "emitters",
+					Status:    "ok",
+					Message:   fmt.Sprintf("removing %d file(s) ANG no longer generates: %s", len(synced.Removed), strings.Join(synced.Removed, ", ")),
+				})
+			}
+			for _, rel := range synced.Outside {
+				logText("Warning: %s is no longer generated but lies outside the directories ANG manages; remove it yourself.", rel)
 			}
 		}
 
@@ -885,6 +942,8 @@ func runBuild(args []string) error {
 						marker := "~"
 						if difference.Action == "create" {
 							marker = "+"
+						} else if difference.Action == "delete" {
+							marker = "-"
 						}
 						fmt.Fprintf(os.Stderr, "  %s %s\n", marker, difference.Path)
 					}

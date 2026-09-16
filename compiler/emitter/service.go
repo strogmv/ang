@@ -891,7 +891,9 @@ func (e *Emitter) EmitCachedService(services []ir.Service) error {
 
 func (e *Emitter) getManualMethods(serviceName string) map[string]bool {
 	overrides := make(map[string]bool)
-	manualFile := e.outDir("internal/service", strings.ToLower(serviceName)+".manual.go")
+	// Hand-written overrides live in the project; the output directory of a
+	// build starts empty.
+	manualFile := e.sourceBackendPath("internal", "service", strings.ToLower(serviceName)+".manual.go")
 
 	if _, err := os.Stat(manualFile); os.IsNotExist(err) {
 		return overrides

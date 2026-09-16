@@ -76,7 +76,7 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 	withOpenAPI := fs.Bool("openapi", false, "Also generate api/openapi.yaml after build")
 	acceptContract := fs.Bool("accept-contract", false, "accept breaking OpenAPI operation removals")
 	allowLockMismatch := fs.Bool("allow-lock-mismatch", false, "generate even if this binary is not the ang revision pinned in the project's ang.lock")
-	check := fs.Bool("check", false, "write nothing; exit non-zero if generation would create or change any file in the project (implies --dry-run; files the generator no longer emits are not reported)")
+	check := fs.Bool("check", false, "write nothing; exit non-zero if generation would create or change any file in the project, or remove a file ang-generated.txt lists that is no longer generated (implies --dry-run)")
 	diff := fs.Bool("diff", false, "with --dry-run or --check: print a unified diff of every generated file that would be created or changed")
 	diffOut := fs.String("diff-out", "", "with --dry-run or --check: write each diff to <dir>/<path>.patch instead of printing it (implies --diff)")
 	dryRunRoot := fs.String("dry-run-root", "", "internal: override dry-run temp root")

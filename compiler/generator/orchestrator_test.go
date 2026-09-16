@@ -132,29 +132,3 @@ func TestExecute_ReportsUnusedStepsAsNotUsed(t *testing.T) {
 		t.Fatalf("log = %q", logged)
 	}
 }
-
-// OnSkip removes a step's old output only when the project does not use it;
-// a target that cannot generate the step leaves files alone.
-func TestExecute_RunsOnSkipOnlyForUnusedSteps(t *testing.T) {
-	var removed []string
-	steps := []Step{
-		{
-			Name:     "DTOs",
-			Requires: []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilityUsesDTO},
-			Run:      func() error { t.Fatal("must not run"); return nil },
-			OnSkip:   func() error { removed = append(removed, "DTOs"); return nil },
-		},
-		{
-			Name:     "gRPC Proto",
-			Requires: []compiler.Capability{compiler.CapabilityGRPC},
-			Run:      func() error { t.Fatal("must not run"); return nil },
-			OnSkip:   func() error { removed = append(removed, "gRPC Proto"); return nil },
-		},
-	}
-	if err := Execute(normalizer.TargetDef{Name: "go"}, compiler.CapabilitySet{compiler.CapabilityProfileGoLegacy: true}, steps, func(string, ...interface{}) {}, nil); err != nil {
-		t.Fatal(err)
-	}
-	if len(removed) != 1 || removed[0] != "DTOs" {
-		t.Fatalf("OnSkip ran for %v", removed)
-	}
-}

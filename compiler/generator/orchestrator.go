@@ -20,10 +20,6 @@ type Step struct {
 	// ParallelSafe allows adjacent independent steps to execute concurrently.
 	// Steps touching shared emitter state or depending on previous artifacts must leave this false.
 	ParallelSafe bool
-	// OnSkip runs when the step is skipped only because the project does not
-	// use its output (usage capabilities). It removes that output left by
-	// earlier builds; skipping alone keeps previous files in the project.
-	OnSkip func() error
 }
 
 type StepEvent struct {
@@ -175,11 +171,6 @@ func executeStep(td normalizer.TargetDef, caps compiler.CapabilitySet, step Step
 			}
 			if usageOnly {
 				logger("Skipping %s for target %s: not used by the project [%s]", step.Name, td.Name, strings.Join(missingNames, ", "))
-				if step.OnSkip != nil {
-					if err := step.OnSkip(); err != nil {
-						return events, fmt.Errorf("remove unused output of %s: %w", step.Name, err)
-					}
-				}
 			} else {
 				logger("Skipping %s for target %s: missing capabilities [%s]", step.Name, td.Name, strings.Join(missingNames, ", "))
 			}

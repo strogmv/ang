@@ -108,6 +108,7 @@ func buildArtifactHashManifest(projectRoot string, targets []artifactManifestTar
 			addRoot(filepath.Join(rootAbs, "deploy"))
 			addRoot(filepath.Join(rootAbs, "sdk"))
 			addRoot(filepath.Join(rootAbs, "ang-manifest.json"))
+			addRoot(filepath.Join(rootAbs, generatedFilesName))
 			addRoot(filepath.Join(rootAbs, "atlas.hcl"))
 			addRoot(filepath.Join(rootAbs, "sqlc.yaml"))
 			addRoot(frontend)

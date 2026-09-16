@@ -71,17 +71,12 @@ func (e *Emitter) ValidateFrontendSDKSkip() error {
 	return nil
 }
 
-// removeSkippedSDKModules logs each skipped module and removes the files an
-// earlier build generated for it (only files carrying an ANG banner).
-func (e *Emitter) removeSkippedSDKModules() error {
+// logSkippedSDKModules names each skipped module in the build log. Files an
+// earlier build generated for it are removed through ang-generated.txt.
+func (e *Emitter) logSkippedSDKModules() {
 	for _, m := range frontendSDKModules {
-		if e.sdkModuleEnabled(m.Name) {
-			continue
-		}
-		fmt.Printf("Skipping SDK module %s: listed in frontend_sdk_skip\n", m.Name)
-		if err := removeGeneratedUnder(e.FrontendDir, m.Outputs...); err != nil {
-			return err
+		if !e.sdkModuleEnabled(m.Name) {
+			fmt.Printf("Skipping SDK module %s: listed in frontend_sdk_skip\n", m.Name)
 		}
 	}
-	return nil
 }
