@@ -1139,7 +1139,12 @@ func decodeNotifyEmail(s normalizer.FlowStep) (Action, error) {
 	}
 	t, x, e := requireNotifyContent(s)
 	o, _ := optionalString(s, "output")
-	return NotifyEmail{to, t, x, optionalExpression(s, "subject"), optionalExpression(s, "html"), optionalExpression(s, "data"), optionalExpression(s, "locale"), o}, e
+	ignore, ignoreErr := optionalBool(s, "ignoreErr")
+	if ignoreErr != nil {
+		return nil, ignoreErr
+	}
+	reason, _ := optionalString(s, "ignoreErrReason")
+	return NotifyEmail{to, t, x, optionalExpression(s, "subject"), optionalExpression(s, "html"), optionalExpression(s, "data"), optionalExpression(s, "locale"), o, ignore, reason}, e
 }
 func decodeNotificationDispatch(s normalizer.FlowStep, alias string) (Action, error) {
 	e := optionalExpression(s, "event")

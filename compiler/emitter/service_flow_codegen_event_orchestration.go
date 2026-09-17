@@ -88,6 +88,7 @@ func renderTypedStepEventOrchestration(st *flowRenderState, step flowir.TypedSte
 	switch step.Name {
 	case "notify.Send", "notify.Email":
 		var channel, to, templateExpr, textExpr, subjectExpr, htmlExpr, dataExpr, localeExpr, output string
+		ignoreDeliveryError, ignoreDeliveryReason := false, ""
 		if step.Name == "notify.Send" {
 			typed, err := typedActionAs[flowir.NotifySend](step)
 			if err != nil {
@@ -100,6 +101,7 @@ func renderTypedStepEventOrchestration(st *flowRenderState, step flowir.TypedSte
 				return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 			}
 			to, templateExpr, textExpr, subjectExpr, htmlExpr, dataExpr, localeExpr, output = normalizeFlowExpr(typed.To.Source), normalizeFlowExpr(typed.Template.Source), normalizeFlowExpr(typed.Text.Source), normalizeFlowExpr(typed.Subject.Source), normalizeFlowExpr(typed.HTML.Source), normalizeFlowExpr(typed.Data.Source), normalizeFlowExpr(typed.Locale.Source), typed.Output
+			ignoreDeliveryError, ignoreDeliveryReason = typed.IgnoreError, typed.IgnoreErrReason
 		}
 		declareOutput := output != "" && !st.declared[output]
 		if declareOutput {
@@ -155,7 +157,17 @@ func renderTypedStepEventOrchestration(st *flowRenderState, step flowir.TypedSte
 		}
 		b.WriteString(fmt.Sprintf("%s\t}\n", pad))
 		b.WriteString(fmt.Sprintf("%s\tif _notifyErr%s := s.dispatcher.Dispatch(ctx, _notifyMsg%s); _notifyErr%s != nil {\n", pad, sfx, sfx, sfx))
-		if step.Name == "notify.Email" {
+		if ignoreDeliveryError {
+			// Delivery is best-effort here: the caller asked for the flow to continue.
+			if ignoreDeliveryReason == "" {
+				emitFlowWarning(st, "FLOW_IGNORE_ERR", "warn", step.Name+" ignores a delivery failure explicitly", "Document intent with ignoreErrReason")
+			}
+			reason := ignoreDeliveryReason
+			if reason == "" {
+				reason = "delivery is best-effort"
+			}
+			b.WriteString(fmt.Sprintf("%s\t\tslog.Warn(%q, \"error\", _notifyErr%s)\n", pad, step.Name+" failed: "+reason, sfx))
+		} else if step.Name == "notify.Email" {
 			b.WriteString(errReturn(st, pad+"\t\t", fmt.Sprintf("fmt.Errorf(\"notify.Email: %%w\", _notifyErr%s)", sfx)))
 		} else {
 			b.WriteString(errReturn(st, pad+"\t\t", fmt.Sprintf("fmt.Errorf(\"notify.Send: %%w\", _notifyErr%s)", sfx)))

@@ -1584,6 +1584,11 @@ func (a NotifySend) DeclaredVariables() []Variable {
 type NotifyEmail struct {
 	To, Template, Text, Subject, HTML, Data, Locale Expression
 	Output                                          string
+	// IgnoreError keeps the flow going when the message cannot be delivered:
+	// the failure is logged, not returned. For mail that must not take the
+	// whole operation down with it (a confirmation code, a notice).
+	IgnoreError     bool
+	IgnoreErrReason string
 }
 
 func (NotifyEmail) ActionName() string { return "notify.Email" }
