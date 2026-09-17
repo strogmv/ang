@@ -778,6 +778,7 @@ func ConvertAuth(a *normalizer.AuthDef) *Auth {
 			RefreshRefreshField:     a.RefreshRefreshField,
 			LogoutOp:                a.LogoutOp,
 			LogoutTokenField:        a.LogoutTokenField,
+			LogoutAllOp:             a.LogoutAllOp,
 		},
 		Provenance: &Provenance{
 			Origin: OriginExplicit,

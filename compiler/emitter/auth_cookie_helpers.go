@@ -44,6 +44,20 @@ func authCookieFuncMap(auth *normalizer.AuthDef) map[string]any {
 			}
 			return access
 		},
+		// AuthLogoutTokenField names the request field of the logout operation
+		// that carries the refresh token; empty for every other operation.
+		"AuthLogoutTokenField": func(rpc string) string {
+			if auth == nil || strings.TrimSpace(auth.LogoutOp) == "" || strings.TrimSpace(rpc) != strings.TrimSpace(auth.LogoutOp) {
+				return ""
+			}
+			if field := strings.TrimSpace(auth.LogoutTokenField); field != "" {
+				return field
+			}
+			return "refreshToken"
+		},
+		"AuthIsLogoutAll": func(rpc string) bool {
+			return auth != nil && strings.TrimSpace(auth.LogoutAllOp) != "" && strings.TrimSpace(rpc) == strings.TrimSpace(auth.LogoutAllOp)
+		},
 		"AuthCookieRefreshField": func(rpc string) string {
 			_, refresh, ok := authCookieFields(auth, rpc)
 			if !ok {

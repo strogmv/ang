@@ -451,6 +451,8 @@ type AuthDef struct {
 	RefreshRefreshField     string
 	LogoutOp                string
 	LogoutTokenField        string
+	// LogoutAllOp ends every session of the calling user.
+	LogoutAllOp string
 }
 
 // SessionDef describes anonymous cookie-session configuration.

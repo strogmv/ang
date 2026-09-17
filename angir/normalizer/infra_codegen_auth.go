@@ -102,6 +102,7 @@ func (n *Normalizer) ExtractAuth(val cue.Value) (*AuthDef, error) {
 	refreshRefresh, _ := jwtVal.LookupPath(cue.ParsePath("ops.refresh.refresh_field")).String()
 	logoutOp, _ := jwtVal.LookupPath(cue.ParsePath("ops.logout.op")).String()
 	logoutTokenField, _ := jwtVal.LookupPath(cue.ParsePath("ops.logout.token_field")).String()
+	logoutAllOp, _ := jwtVal.LookupPath(cue.ParsePath("ops.logout_all.op")).String()
 
 	return &AuthDef{
 		Mode:                    mode,
@@ -133,6 +134,7 @@ func (n *Normalizer) ExtractAuth(val cue.Value) (*AuthDef, error) {
 		RefreshRefreshField:     strings.TrimSpace(refreshRefresh),
 		LogoutOp:                strings.TrimSpace(logoutOp),
 		LogoutTokenField:        strings.TrimSpace(logoutTokenField),
+		LogoutAllOp:             strings.TrimSpace(logoutAllOp),
 	}, nil
 }
 

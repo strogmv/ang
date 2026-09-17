@@ -48,3 +48,26 @@ func TestAuthCookieFields(t *testing.T) {
 		t.Fatal("expected cookie auth enabled for opaque_session_cookie mode")
 	}
 }
+
+func TestAuthLogoutHelpers(t *testing.T) {
+	funcs := authCookieFuncMap(&normalizer.AuthDef{
+		Mode:        "opaque_session_cookie",
+		LogoutOp:    "LogoutUser",
+		LogoutAllOp: "LogoutAllSessions",
+	})
+	tokenField := funcs["AuthLogoutTokenField"].(func(string) string)
+	isLogoutAll := funcs["AuthIsLogoutAll"].(func(string) bool)
+
+	if got := tokenField("LogoutUser"); got != "refreshToken" {
+		t.Fatalf("AuthLogoutTokenField(LogoutUser) = %q, want the default refreshToken", got)
+	}
+	if got := tokenField("LoginUser"); got != "" {
+		t.Fatalf("AuthLogoutTokenField(LoginUser) = %q, want empty", got)
+	}
+	if !isLogoutAll("LogoutAllSessions") || isLogoutAll("LogoutUser") {
+		t.Fatal("AuthIsLogoutAll must match only the logout_all operation")
+	}
+	if authCookieFuncMap(nil)["AuthIsLogoutAll"].(func(string) bool)("LogoutAllSessions") {
+		t.Fatal("AuthIsLogoutAll must be false without auth config")
+	}
+}

@@ -663,6 +663,7 @@ type AuthOps struct {
 	RefreshRefreshField     string `json:"refresh_refresh_field"`
 	LogoutOp                string `json:"logout_op"`
 	LogoutTokenField        string `json:"logout_token_field"`
+	LogoutAllOp             string `json:"logout_all_op,omitempty"`
 }
 
 // RBAC describes role-based access control.

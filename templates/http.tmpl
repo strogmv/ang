@@ -165,6 +165,15 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 		req.Timezone = CurrentTimezone(r)
 		{{- end }}
 		{{- end }}
+		{{- if CookieAuthEnabled }}
+		{{- $logoutToken := AuthLogoutTokenField .RPC }}
+		{{- if $logoutToken }}
+		// A browser session carries its refresh token server-side, not in the body.
+		if req.{{ $logoutToken | ExportName }} == "" {
+			req.{{ $logoutToken | ExportName }} = sessionRefreshToken(r)
+		}
+		{{- end }}
+		{{- end }}
 		if err := validate.Struct(&req); err != nil {
 			errors.WriteError(w, r, errors.NewValidationError(err.Error(), nil))
 			return
@@ -246,6 +255,13 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 			errors.WriteError(w, r, err)
 			return
 		}
+		{{- if CookieAuthEnabled }}
+		{{- if AuthLogoutTokenField .RPC }}
+		clearAuthCookies(w, r)
+		{{- else if AuthIsLogoutAll .RPC }}
+		RevokeAllUserSessions(r.Context(), w, r, CurrentUserID(r))
+		{{- end }}
+		{{- end }}
 		{{- $hasRedirect := false }}
 		{{- if .Input.Name }}
 		{{- range .Input.Fields }}

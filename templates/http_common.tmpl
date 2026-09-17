@@ -786,6 +786,25 @@ func writeAuthCookies(w http.ResponseWriter, r *http.Request, accessToken, refre
 	}
 }
 
+// sessionRefreshToken returns the refresh token behind the request's session
+// cookie (or the legacy refresh cookie), so logout can revoke it.
+func sessionRefreshToken(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	if opaqueSessionEnabled() {
+		if cookie, err := r.Cookie(authSessionCookieName); err == nil && strings.TrimSpace(cookie.Value) != "" {
+			if payload, _ := findOpaqueSession(r.Context(), cookie.Value); payload != nil {
+				return payload.RefreshToken
+			}
+		}
+	}
+	if cookie, err := r.Cookie(authRefreshCookieName); err == nil {
+		return strings.TrimSpace(cookie.Value)
+	}
+	return ""
+}
+
 func clearAuthCookies(w http.ResponseWriter, r *http.Request) {
 	if opaqueSessionEnabled() && r != nil {
 		if cookie, err := r.Cookie(authSessionCookieName); err == nil && strings.TrimSpace(cookie.Value) != "" {
