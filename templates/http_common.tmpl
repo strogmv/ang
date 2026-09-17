@@ -1324,11 +1324,16 @@ func CacheMiddleware(ttl string) func(http.Handler) http.Handler {
 
 // realClientIP extracts the real client IP honoring reverse-proxy headers.
 func realClientIP(r *http.Request) string {
+	// The ingress appends the address it saw to X-Forwarded-For, so only the
+	// last entry is trustworthy; earlier entries are whatever the client sent
+	// and would let it pick a fresh rate-limit bucket per request.
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if i := strings.Index(xff, ","); i != -1 {
-			return strings.TrimSpace(xff[:i])
+		parts := strings.Split(xff, ",")
+		for i := len(parts) - 1; i >= 0; i-- {
+			if ip := strings.TrimSpace(parts[i]); ip != "" {
+				return ip
+			}
 		}
-		return strings.TrimSpace(xff)
 	}
 	if xri := r.Header.Get("X-Real-IP"); xri != "" {
 		return strings.TrimSpace(xri)
@@ -1402,7 +1407,12 @@ func RateLimitMiddleware(rps, burst, windowSecs, windowLimit int) func(http.Hand
 					ctx := context.Background()
 					count, err := redisClient.Incr(ctx, key).Result()
 					if err == nil {
-						_ = redisClient.Expire(ctx, key, time.Second).Err()
+						// Start the one-second window on its first request only;
+						// refreshing the expiry on every hit kept a busy counter
+						// alive, so the limit became "N requests without a pause".
+						if count == 1 {
+							_ = redisClient.Expire(ctx, key, time.Second).Err()
+						}
 						if int(count) > max {
 							errors.WriteError(w, r, errors.New(http.StatusTooManyRequests, "Too Many Requests", "Rate limit exceeded"))
 							return
