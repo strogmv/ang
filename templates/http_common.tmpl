@@ -24,6 +24,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sync/singleflight"
@@ -1353,6 +1354,8 @@ type windowState struct {
 var (
 	rateMu       sync.Mutex
 	rateByIP     = map[string]*rateState{}
+	// rateLimitScopes numbers RateLimitMiddleware instances, one per route.
+	rateLimitScopes atomic.Int64
 	windowByKey  sync.Map
 	redisClient  *redis.Client
 )
@@ -1376,20 +1379,26 @@ func SetRedisClient(c *redis.Client) {
 //   - rps/burst : per-second token-bucket (Redis when available, in-memory fallback)
 //   - windowSecs/windowLimit : fixed-window quota (e.g. 10 builds/hour)
 //     windowLimit=0 disables the window check.
+//
+// Every call gets its own counters: routes register in a fixed order, so the
+// scope number is the same in every replica, and a strict limit on one route
+// never spends the allowance of another route from the same client.
 func RateLimitMiddleware(rps, burst, windowSecs, windowLimit int) func(http.Handler) http.Handler {
 	max := rps
 	if burst > max {
 		max = burst
 	}
+	scope := rateLimitScopes.Add(1)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ip := realClientIP(r)
+			clientKey := fmt.Sprintf("%d:%s", scope, ip)
 			now := time.Now()
 
 			// ---- per-second RPS check ----
 			if max > 0 {
 				if redisClient != nil {
-					key := fmt.Sprintf("rate:rps:%d:%s", max, ip)
+					key := fmt.Sprintf("rate:rps:%d:%s", max, clientKey)
 					ctx := context.Background()
 					count, err := redisClient.Incr(ctx, key).Result()
 					if err == nil {
@@ -1401,10 +1410,10 @@ func RateLimitMiddleware(rps, burst, windowSecs, windowLimit int) func(http.Hand
 					}
 				} else {
 					rateMu.Lock()
-					state, ok := rateByIP[ip]
+					state, ok := rateByIP[clientKey]
 					if !ok {
 						state = &rateState{windowStart: now}
-						rateByIP[ip] = state
+						rateByIP[clientKey] = state
 					}
 					if now.Sub(state.windowStart) >= time.Second {
 						state.windowStart = now
@@ -1423,7 +1432,7 @@ func RateLimitMiddleware(rps, burst, windowSecs, windowLimit int) func(http.Hand
 			// ---- fixed-window quota check (e.g. hourly build limit) ----
 			if windowSecs > 0 && windowLimit > 0 {
 				windowDur := time.Duration(windowSecs) * time.Second
-				wkey := fmt.Sprintf("rate:win:%d:%s", windowSecs, ip)
+				wkey := fmt.Sprintf("rate:win:%d:%s", windowSecs, clientKey)
 				if redisClient != nil {
 					ctx := context.Background()
 					count, err := redisClient.Incr(ctx, wkey).Result()
