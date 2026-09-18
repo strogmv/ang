@@ -42,6 +42,26 @@
 	})
 	{{- end }}
 
+	{{- /* A project can gate whole parts of itself per company: when a service
+	       exposes CheckCompanyModuleAccess, the HTTP layer asks it before every
+	       authenticated handler runs. */}}
+	{{- $moduleGateSvc := "" }}
+	{{- range .ServicesIR }}
+		{{- $svc := . }}
+		{{- range .Methods }}
+			{{- if eq .Name "CheckCompanyModuleAccess" }}{{ $moduleGateSvc = $svc.Name }}{{ end }}
+		{{- end }}
+	{{- end }}
+	{{- if ne $moduleGateSvc "" }}
+	transport.SetModuleAccessChecker(func(ctx context.Context, companyID, path string) (bool, string, error) {
+		out, err := runtimeContainer.Svc{{ $moduleGateSvc }}.CheckCompanyModuleAccess(ctx, port.CheckCompanyModuleAccessRequest{CompanyID: companyID, Path: path})
+		if err != nil {
+			return false, "", err
+		}
+		return out.Allowed, out.Module, nil
+	})
+	{{- end }}
+
 	{{- if and .NotificationMuting (or .HasNotificationsService .HasNotificationDispatch) (HasEntityByNameIR .EntitiesIR "User") }}
 	notificationDispatcher.UserMuteChecker = func(ctx context.Context, userID string, msg port.NotificationMessage) (bool, error) {
 		user, err := runtimeContainer.RepoUser.FindByID(ctx, userID)

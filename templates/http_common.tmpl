@@ -92,6 +92,10 @@ var (
 	authRefreshStore    port.RefreshTokenStore
 	authSessionStore    port.StateStore
 	verifiedUserChecker func(ctx context.Context, userID string) (bool, error)
+	// A deployment can switch parts of the product off per company; the checker
+	// says whether the company the caller belongs to runs the module that owns
+	// this path. Unset means every path is open.
+	moduleAccessChecker func(ctx context.Context, companyID, path string) (allowed bool, module string, err error)
 	authSessionMu       sync.Mutex
 	authSessionMemory   = map[string]opaqueSessionPayload{}
 	authSessionByUser   = map[string]map[string]struct{}{} // userID → set of SIDs (memory fallback)
@@ -151,6 +155,10 @@ func SetAuthConfigFromConfig(cfg *config.Config) error {
 
 func SetVerifiedUserChecker(checker func(ctx context.Context, userID string) (bool, error)) {
 	verifiedUserChecker = checker
+}
+
+func SetModuleAccessChecker(checker func(ctx context.Context, companyID, path string) (bool, string, error)) {
+	moduleAccessChecker = checker
 }
 
 func SetAuthRefreshStore(store port.RefreshTokenStore) {
@@ -951,6 +959,19 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			}
 			if !ok {
 				errors.WriteError(w, r, errors.New(http.StatusForbidden, "EMAIL_NOT_VERIFIED", "email is not verified"))
+				return
+			}
+		}
+		if moduleAccessChecker != nil && ac.CompanyID != "" {
+			allowed, module, err := moduleAccessChecker(r.Context(), ac.CompanyID, r.URL.Path)
+			if err != nil {
+				errors.WriteError(w, r, errors.New(http.StatusInternalServerError, "Internal Server Error", "module check failed"))
+				return
+			}
+			if !allowed {
+				// Named, because support reads this: the company switched the
+				// module off, nobody lost a permission.
+				errors.WriteError(w, r, errors.New(http.StatusForbidden, "MODULE_DISABLED", "the "+module+" module is switched off for this company"))
 				return
 			}
 		}
