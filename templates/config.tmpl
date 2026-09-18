@@ -25,7 +25,21 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("config error: %w", err)
 	}
 	if envPath != "" {
+		// cleanenv loads a .env file by overwriting the process environment, so
+		// a value set on the command line (EMAIL_DRY_RUN=true go run ...) would
+		// silently lose to the file. The file is a default: put the real
+		// environment back and read again, so whatever the process was started
+		// with wins.
+		started := os.Environ()
 		if err := cleanenv.ReadConfig(envPath, &cfg); err != nil {
+			return nil, fmt.Errorf("config error: %w", err)
+		}
+		for _, entry := range started {
+			if key, value, ok := strings.Cut(entry, "="); ok && key != "" {
+				_ = os.Setenv(key, value)
+			}
+		}
+		if err := cleanenv.ReadEnv(&cfg); err != nil {
 			return nil, fmt.Errorf("config error: %w", err)
 		}
 	} else {
