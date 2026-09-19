@@ -26,23 +26,36 @@ var (
 	// last letter of html., url. or model.
 	reLoggerSelector = regexp.MustCompile(`\bl\.`)
 
+	// Packages that embedded Go bodies reach for but no flow action implies, so
+	// nothing else in the scan would add them. moduleRelative paths are joined
+	// to the project's own module path.
 	logicCallImportHints = []struct {
-		needle string
-		path   string
+		needle         string
+		path           string
+		moduleRelative bool
 	}{
 		{needle: "excelize.", path: "github.com/xuri/excelize/v2"},
+		{needle: "reqctx.", path: "internal/pkg/reqctx", moduleRelative: true},
 	}
 )
 
-func addLogicCallImports(fn string, importMap map[string]string) {
+func addLogicCallImports(fn string, goModule string, importMap map[string]string) {
 	fn = strings.TrimSpace(fn)
 	if fn == "" {
 		return
 	}
 	for _, hint := range logicCallImportHints {
-		if strings.Contains(fn, hint.needle) {
-			importMap[hint.path] = ""
+		if !strings.Contains(fn, hint.needle) {
+			continue
 		}
+		path := hint.path
+		if hint.moduleRelative {
+			if goModule == "" {
+				continue
+			}
+			path = goModule + "/" + path
+		}
+		importMap[path] = ""
 	}
 }
 
@@ -536,7 +549,7 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 						importMap["strings"] = ""
 					case "logic.Call":
 						if fn, ok := step.Args["func"].(string); ok {
-							addLogicCallImports(fn, importMap)
+							addLogicCallImports(fn, e.GoModule, importMap)
 						}
 						if imports, ok := step.Args["_funcRefImports"].([]string); ok {
 							for _, path := range imports {
