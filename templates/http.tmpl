@@ -315,6 +315,52 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 		{{- end }}
 		{{- end }}
 
+		{{- /* A response that carries a file writes the bytes instead of JSON.
+		       Recognised the same way as redirectURL is: by the names of the
+		       output fields. Serving a file through the service rather than a
+		       signed storage link is what lets every fetch be authorised,
+		       recorded and revoked. */}}
+		{{- $hasRawContent := false }}
+		{{- $hasRawType := false }}
+		{{- $hasRawDisposition := false }}
+		{{- $hasRawETag := false }}
+		{{- if .Output.Name }}
+		{{- range .Output.Fields }}
+		{{- if eq .Name "rawContent" }}{{ $hasRawContent = true }}{{ end }}
+		{{- if eq .Name "rawContentType" }}{{ $hasRawType = true }}{{ end }}
+		{{- if eq .Name "rawDisposition" }}{{ $hasRawDisposition = true }}{{ end }}
+		{{- if eq .Name "rawETag" }}{{ $hasRawETag = true }}{{ end }}
+		{{- end }}
+		{{- end }}
+		{{- if and $hasRawContent $hasRawType }}
+		if resp.RawContentType != "" {
+			w.Header().Set("Content-Type", resp.RawContentType)
+			{{- if $hasRawDisposition }}
+			if resp.RawDisposition != "" {
+				w.Header().Set("Content-Disposition", resp.RawDisposition)
+			}
+			{{- end }}
+			{{- if $hasRawETag }}
+			// Without this every image in a catalogue is fetched again on every
+			// view, and the traffic that used to go straight to storage now goes
+			// through this process.
+			if resp.RawETag != "" {
+				w.Header().Set("ETag", resp.RawETag)
+				if match := r.Header.Get("If-None-Match"); match == resp.RawETag {
+					w.WriteHeader(http.StatusNotModified)
+					return
+				}
+			}
+			{{- end }}
+			// private: the answer depended on who asked, so a shared cache must
+			// not keep it for the next person.
+			w.Header().Set("Cache-Control", "private, max-age=300")
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(resp.RawContent)))
+			_, _ = w.Write([]byte(resp.RawContent))
+			return
+		}
+		{{- end }}
+
 		{{ if .Output.Name }}
 		w.Header().Set("Content-Type", "application/json")
 {{- if CookieAuthEnabled }}
