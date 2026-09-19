@@ -62,6 +62,26 @@
 	})
 	{{- end }}
 
+	{{- /* Same idea one level along: a privileged role can carry a condition
+	       beyond holding it. When a service exposes CheckRoleAccess, the HTTP
+	       layer asks it before letting a role-gated handler run. */}}
+	{{- $roleGateSvc := "" }}
+	{{- range .ServicesIR }}
+		{{- $svc := . }}
+		{{- range .Methods }}
+			{{- if eq .Name "CheckRoleAccess" }}{{ $roleGateSvc = $svc.Name }}{{ end }}
+		{{- end }}
+	{{- end }}
+	{{- if ne $roleGateSvc "" }}
+	transport.SetRoleAccessChecker(func(ctx context.Context, userID, role string) (bool, string, error) {
+		out, err := runtimeContainer.Svc{{ $roleGateSvc }}.CheckRoleAccess(ctx, port.CheckRoleAccessRequest{UserID: userID, Role: role})
+		if err != nil {
+			return false, "", err
+		}
+		return out.Allowed, out.Reason, nil
+	})
+	{{- end }}
+
 	{{- if and .NotificationMuting (or .HasNotificationsService .HasNotificationDispatch) (HasEntityByNameIR .EntitiesIR "User") }}
 	notificationDispatcher.UserMuteChecker = func(ctx context.Context, userID string, msg port.NotificationMessage) (bool, error) {
 		user, err := runtimeContainer.RepoUser.FindByID(ctx, userID)

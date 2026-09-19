@@ -98,6 +98,10 @@ var (
 	// says whether the company the caller belongs to runs the module that owns
 	// this path. Unset means every path is open.
 	moduleAccessChecker func(ctx context.Context, companyID, path string) (allowed bool, module string, err error)
+	// A role can carry a further condition beyond holding it — the usual one
+	// being that a privileged role must have a second factor before it does
+	// anything privileged. Unset means the role alone is enough.
+	roleAccessChecker func(ctx context.Context, userID, role string) (allowed bool, reason string, err error)
 	authSessionMu       sync.Mutex
 	authSessionMemory   = map[string]opaqueSessionPayload{}
 	authSessionByUser   = map[string]map[string]struct{}{} // userID → set of SIDs (memory fallback)
@@ -161,6 +165,10 @@ func SetVerifiedUserChecker(checker func(ctx context.Context, userID string) (bo
 
 func SetModuleAccessChecker(checker func(ctx context.Context, companyID, path string) (bool, string, error)) {
 	moduleAccessChecker = checker
+}
+
+func SetRoleAccessChecker(checker func(ctx context.Context, userID, role string) (bool, string, error)) {
+	roleAccessChecker = checker
 }
 
 func SetAuthRefreshStore(store port.RefreshTokenStore) {
@@ -1088,10 +1096,23 @@ func RequireRoles(roles []string) func(http.Handler) http.Handler {
 			}
 			for _, allowed := range roles {
 				for _, role := range current {
-					if role == allowed {
-						next.ServeHTTP(w, r)
-						return
+					if role != allowed {
+						continue
 					}
+					// Holding the role is necessary, not always sufficient.
+					if roleAccessChecker != nil {
+						ok, reason, err := roleAccessChecker(r.Context(), CurrentUserID(r), role)
+						if err != nil {
+							errors.WriteError(w, r, errors.New(http.StatusInternalServerError, "Internal Server Error", "role check failed"))
+							return
+						}
+						if !ok {
+							errors.WriteError(w, r, errors.New(http.StatusForbidden, "ROLE_CONDITION_UNMET", reason))
+							return
+						}
+					}
+					next.ServeHTTP(w, r)
+					return
 				}
 			}
 			errors.WriteError(w, r, errors.New(http.StatusForbidden, "Forbidden", "Insufficient role"))
