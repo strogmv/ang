@@ -421,6 +421,12 @@ func (e *Emitter) renderEffectMiddlewareSource(ctx MainContext) string {
 	b.WriteString("\t\treturn m.next.PresignGet(ctx, key, expiresIn)\n")
 	b.WriteString("\t})\n")
 	b.WriteString("}\n\n")
+	b.WriteString("func (m *fileStorageMiddleware) PresignGetWithDisposition(ctx context.Context, key string, expiresIn time.Duration, disposition string) (string, error) {\n")
+	b.WriteString("\tcacheKey := fmt.Sprintf(\"storage:PresignGet:%s:%s:%s\", key, expiresIn.String(), disposition)\n")
+	b.WriteString("\treturn runValue[string](ctx, m.policy, \"storage\", \"PresignGet\", cacheKey, func(ctx context.Context) (string, error) {\n")
+	b.WriteString("\t\treturn m.next.PresignGetWithDisposition(ctx, key, expiresIn, disposition)\n")
+	b.WriteString("\t})\n")
+	b.WriteString("}\n\n")
 
 	b.WriteString("type stateStoreMiddleware struct {\n")
 	b.WriteString("\tnext port.StateStore\n")

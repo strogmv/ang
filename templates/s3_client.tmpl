@@ -153,3 +153,23 @@ func (s *S3Client) PresignGet(ctx context.Context, key string, expiresIn time.Du
 	}
 	return out.URL, nil
 }
+
+// PresignGetWithDisposition is PresignGet plus a say in how a browser treats
+// the file when the link is opened directly. Without it the storage origin
+// decides, from a content type that originally came from whoever uploaded the
+// file — which is how an uploaded document becomes a page on that origin.
+// An empty disposition behaves exactly like PresignGet.
+func (s *S3Client) PresignGetWithDisposition(ctx context.Context, key string, expiresIn time.Duration, disposition string) (string, error) {
+	input := &s3.GetObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	}
+	if strings.TrimSpace(disposition) != "" {
+		input.ResponseContentDisposition = aws.String(disposition)
+	}
+	out, err := s.presigner.PresignGetObject(ctx, input, s3.WithPresignExpires(expiresIn))
+	if err != nil {
+		return "", fmt.Errorf("s3 presign get: %w", err)
+	}
+	return out.URL, nil
+}

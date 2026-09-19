@@ -13,4 +13,9 @@ type FileStorage interface {
 	GetURL(ctx context.Context, key string) (string, error)
 	List(ctx context.Context, prefix string) ([]string, error)
 	PresignGet(ctx context.Context, key string, expiresIn time.Duration) (string, error)
+	// PresignGetWithDisposition adds a Content-Disposition to the signed link,
+	// so the caller decides whether a file is shown or downloaded rather than
+	// leaving it to a content type that came from whoever uploaded it. An
+	// empty disposition behaves exactly like PresignGet.
+	PresignGetWithDisposition(ctx context.Context, key string, expiresIn time.Duration, disposition string) (string, error)
 }
