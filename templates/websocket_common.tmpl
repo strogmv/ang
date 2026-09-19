@@ -12,6 +12,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -19,12 +21,49 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// The session travels in a cookie, and a cookie is attached to a WebSocket
+// handshake no matter which page opened it. So the origin is the only thing
+// standing between a visitor's session and any site they happen to visit:
+// accepting every origin would let that site talk to this API as them.
+//
+// The allowlist is the one CORS already uses. With none configured we fall
+// back to the host the request arrived on, which is what a browser sends when
+// the app and the API sit together. A handshake with no Origin at all is not a
+// browser — a Go or CLI client — and carries no ambient cookie, so it passes.
+func wsOriginAllowed(r *http.Request) bool {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		return true
+	}
+
+	parsed, err := url.Parse(origin)
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+
+	if raw := strings.TrimSpace(os.Getenv("CORS_ORIGINS")); raw != "" {
+		for _, allowed := range strings.Split(raw, ",") {
+			allowed = strings.TrimSpace(allowed)
+			if allowed == "" {
+				continue
+			}
+			if allowed == "*" || strings.EqualFold(allowed, origin) {
+				return true
+			}
+			if candidate, cerr := url.Parse(allowed); cerr == nil && candidate.Host != "" && strings.EqualFold(candidate.Host, parsed.Host) {
+				return true
+			}
+		}
+		return false
+	}
+
+	return strings.EqualFold(parsed.Host, r.Host)
+}
+
 var wsUpgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
 	WriteBufferSize: 4096,
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
+	CheckOrigin:     wsOriginAllowed,
 }
 
 type wsEnvelope struct {

@@ -5,6 +5,7 @@
 	r.Use(transport.MetricsMiddleware)
 	r.Use(transport.LoggingMiddleware)
 	r.Use(transport.TestHeadersMiddleware)
+	r.Use(transport.SecurityHeadersMiddleware)
 	r.Use(middleware.Recoverer)
 
 	corsAllowedOrigins := []string{"*"}

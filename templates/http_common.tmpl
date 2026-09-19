@@ -1549,6 +1549,22 @@ func (w *statusResponseWriter) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
+// The headers that cost nothing and close off whole classes of attack: no
+// MIME sniffing (an uploaded file that claims to be a PNG cannot be run as a
+// script), no framing (clickjacking), and no full URL handed to third parties
+// in the Referer. HSTS is deliberately absent — it belongs to whatever
+// terminates TLS in front of this process, which is the only thing that knows
+// the deployment really is HTTPS-only.
+func SecurityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		header := w.Header()
+		header.Set("X-Content-Type-Options", "nosniff")
+		header.Set("X-Frame-Options", "DENY")
+		header.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		next.ServeHTTP(w, r)
+	})
+}
+
 func MaxBodySizeMiddleware(limit int64) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
