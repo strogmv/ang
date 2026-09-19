@@ -13,6 +13,14 @@ import (
 	"github.com/strogmv/ang/angir/normalizer"
 )
 
+// GDPRErasure is one field cleared by an erase, with the expression that
+// replaces its value. Most become the zero value; a unique column cannot,
+// because a second erased row would collide with the first on that index.
+type GDPRErasure struct {
+	FieldGo string
+	Expr    string
+}
+
 type GDPREntityData struct {
 	Entity              normalizer.Entity
 	Receiver            string
@@ -21,6 +29,11 @@ type GDPREntityData struct {
 	OwnerFieldGo        string
 	OwnerFieldType      string
 	GDPRFields          []normalizer.Field
+	Erasures            []GDPRErasure
+	// Fields an export must not carry out of the system even to their owner:
+	// a password hash in a downloadable file is a hash someone can work on
+	// offline at their leisure.
+	ExportRedactions    []GDPRErasure
 	SupportsErase       bool
 	SupportsExport      bool
 	SupportsRetention   bool
@@ -46,6 +59,28 @@ func HasAnyGDPRPolicy(entities []normalizer.Entity) bool {
 	return false
 }
 
+// ZeroLiteral is the empty value for a Go type, written as source.
+func ZeroLiteral(goType string) string {
+	switch {
+	case goType == "string":
+		return `""`
+	case goType == "bool":
+		return "false"
+	case goType == "any" || goType == "interface{}":
+		return "nil"
+	case strings.HasPrefix(goType, "int"), strings.HasPrefix(goType, "float"), strings.HasPrefix(goType, "uint"):
+		return "0"
+	case goType == "time.Time":
+		return "time.Time{}"
+	case strings.HasPrefix(goType, "*"), strings.HasPrefix(goType, "[]"), strings.HasPrefix(goType, "map["):
+		return "nil"
+	case strings.Contains(goType, "."):
+		return goType + "{}"
+	default:
+		return goType + "{}"
+	}
+}
+
 func buildGDPREntityData(entities []normalizer.Entity) []GDPREntityData {
 	out := make([]GDPREntityData, 0, len(entities))
 	for _, e := range entities {
@@ -60,8 +95,22 @@ func buildGDPREntityData(entities []normalizer.Entity) []GDPREntityData {
 		}
 
 		for _, f := range e.Fields {
-			if isGDPRManagedField(f) {
-				item.GDPRFields = append(item.GDPRFields, f)
+			if !isGDPRManagedField(f) {
+				continue
+			}
+			item.GDPRFields = append(item.GDPRFields, f)
+
+			fieldGo := ExportName(f.Name)
+			expr := ZeroLiteral(f.Type)
+			if f.DB.Unique && !f.IsList && strings.HasSuffix(f.Type, "string") {
+				// A tombstone that is still unique per row, and obviously not a
+				// real value to anyone reading the table later.
+				expr = fmt.Sprintf("\"erased-\" + item.%s + \"@invalid\"", ExportName(e.GDPRPolicy.OwnerField))
+			}
+			item.Erasures = append(item.Erasures, GDPRErasure{FieldGo: fieldGo, Expr: expr})
+
+			if f.IsSecret {
+				item.ExportRedactions = append(item.ExportRedactions, GDPRErasure{FieldGo: fieldGo, Expr: ZeroLiteral(f.Type)})
 			}
 		}
 
@@ -163,26 +212,7 @@ func (e *Emitter) EmitGDPR(entities []ir.Entity) error {
 	}
 
 	funcMap := e.getSharedFuncMap()
-	funcMap["ZeroLiteral"] = func(goType string) string {
-		switch {
-		case goType == "string":
-			return `""`
-		case goType == "bool":
-			return "false"
-		case goType == "any" || goType == "interface{}":
-			return "nil"
-		case strings.HasPrefix(goType, "int"), strings.HasPrefix(goType, "float"), strings.HasPrefix(goType, "uint"):
-			return "0"
-		case goType == "time.Time":
-			return "time.Time{}"
-		case strings.HasPrefix(goType, "*"), strings.HasPrefix(goType, "[]"), strings.HasPrefix(goType, "map["):
-			return "nil"
-		case strings.Contains(goType, "."):
-			return goType + "{}"
-		default:
-			return goType + "{}"
-		}
-	}
+	funcMap["ZeroLiteral"] = ZeroLiteral
 	funcMap["ToLower"] = strings.ToLower
 
 	t, err := template.New("gdpr").Funcs(funcMap).Parse(string(tmplContent))

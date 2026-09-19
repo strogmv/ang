@@ -61,8 +61,8 @@ func (s *{{ $e.Receiver }}) Erase{{ $e.Entity.Name }}PersonalData(ctx context.Co
 			if item.{{ $e.OwnerFieldGo }} != ownerID {
 				continue
 			}
-			{{- range $e.GDPRFields }}
-			item.{{ ExportName .Name }} = {{ ZeroLiteral .Type }}
+			{{- range $e.Erasures }}
+			item.{{ .FieldGo }} = {{ .Expr }}
 			{{- end }}
 			if err := s.{{ $e.RepoField }}.Save(ctx, item); err != nil {
 				return fmt.Errorf("gdpr erase: save: %w", err)
@@ -98,6 +98,10 @@ func (s *{{ $e.Receiver }}) Export{{ $e.Entity.Name }}PersonalData(ctx context.C
 			if item.{{ $e.OwnerFieldGo }} != ownerID {
 				continue
 			}
+			{{- range $e.ExportRedactions }}
+			// Never leaves the system, not even to the person it belongs to.
+			item.{{ .FieldGo }} = {{ .Expr }}
+			{{- end }}
 			itemsForOwner = append(itemsForOwner, item)
 		}
 		if len(items) < pageSize {
