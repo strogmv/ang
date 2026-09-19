@@ -15,7 +15,9 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
+	"os"
 	"path/filepath"
 	"math/big"
 	"math/rand"
@@ -1409,6 +1411,22 @@ func SetRedisClient(c *redis.Client) {
 // Every call gets its own counters: routes register in a fixed order, so the
 // scope number is the same in every replica, and a strict limit on one route
 // never spends the allowance of another route from the same client.
+// A whole test suite, or a developer's own machine, is one address making the
+// requests of a hundred users, so limits meant to stop an attacker stop the
+// run instead. Setting RATE_LIMIT_DISABLED=true turns them off for that case.
+// It is read once, at startup, and it belongs nowhere near production: the
+// limits are the only thing standing between the login route and a password
+// guesser.
+var rateLimitDisabled = strings.EqualFold(strings.TrimSpace(os.Getenv("RATE_LIMIT_DISABLED")), "true")
+
+func init() {
+	if rateLimitDisabled {
+		// Said loudly, every start, so that a setting meant for a test run
+		// cannot sit unnoticed in a deployment.
+		slog.Warn("RATE_LIMIT_DISABLED is set: every rate limit is off, including the ones protecting login. This must never be set in production.")
+	}
+}
+
 func RateLimitMiddleware(rps, burst, windowSecs, windowLimit int) func(http.Handler) http.Handler {
 	max := rps
 	if burst > max {
@@ -1417,6 +1435,10 @@ func RateLimitMiddleware(rps, burst, windowSecs, windowLimit int) func(http.Hand
 	scope := rateLimitScopes.Add(1)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if rateLimitDisabled {
+				next.ServeHTTP(w, r)
+				return
+			}
 			ip := realClientIP(r)
 			clientKey := fmt.Sprintf("%d:%s", scope, ip)
 			now := time.Now()
