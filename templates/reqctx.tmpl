@@ -9,6 +9,8 @@ const (
 	sessionIDKey
 	localeKey
 	timezoneKey
+	clientIPKey
+	userAgentKey
 )
 
 // WithSkipAutoVerify returns a new context with the skip-auto-verify flag set.
@@ -55,5 +57,33 @@ func WithTimezone(ctx context.Context, tz string) context.Context {
 // Timezone retrieves the timezone from the context. Returns empty string if not set.
 func Timezone(ctx context.Context) string {
 	v, _ := ctx.Value(timezoneKey).(string)
+	return v
+}
+
+// WithClient stores the caller's address and User-Agent in the context. Only
+// the transport layer knows them, and only the service layer writes the audit
+// trail, so without this the entry recording a login says nothing about where
+// it came from — which is exactly what anyone investigating an incident asks
+// first.
+func WithClient(ctx context.Context, ip string, userAgent string) context.Context {
+	if ip != "" {
+		ctx = context.WithValue(ctx, clientIPKey, ip)
+	}
+	if userAgent != "" {
+		ctx = context.WithValue(ctx, userAgentKey, userAgent)
+	}
+	return ctx
+}
+
+// ClientIP retrieves the caller's address. Empty when the call did not arrive
+// over HTTP — a background worker, say.
+func ClientIP(ctx context.Context) string {
+	v, _ := ctx.Value(clientIPKey).(string)
+	return v
+}
+
+// UserAgent retrieves the caller's User-Agent, empty when there was none.
+func UserAgent(ctx context.Context) string {
+	v, _ := ctx.Value(userAgentKey).(string)
 	return v
 }

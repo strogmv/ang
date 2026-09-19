@@ -1565,6 +1565,16 @@ func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// Carries the caller's address and User-Agent into the context so the service
+// layer can record them. It runs before authentication, because a failed login
+// is exactly the event worth knowing the address of.
+func ClientContextMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := reqctx.WithClient(r.Context(), realClientIP(r), r.UserAgent())
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
 func MaxBodySizeMiddleware(limit int64) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
