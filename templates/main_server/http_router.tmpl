@@ -7,19 +7,26 @@
 	r.Use(transport.TestHeadersMiddleware)
 	r.Use(transport.SecurityHeadersMiddleware)
 	r.Use(transport.ClientContextMiddleware)
+	r.Use(transport.SameOriginMiddleware)
 	r.Use(middleware.Recoverer)
 
-	corsAllowedOrigins := []string{"*"}
+	// No origins configured means no cross-origin caller is trusted, rather
+	// than every one of them. The old default was "*", which is harmless only
+	// for as long as credentials stay off — and one day somebody turns them on
+	// without noticing what the other half of the setting says.
+	corsAllowedOrigins := []string{}
 	corsAllowCredentials := false
 	if raw := strings.TrimSpace(os.Getenv("CORS_ORIGINS")); raw != "" {
 		parts := strings.Split(raw, ",")
-		corsAllowedOrigins = corsAllowedOrigins[:0]
 		for _, p := range parts {
 			if p = strings.TrimSpace(p); p != "" {
 				corsAllowedOrigins = append(corsAllowedOrigins, p)
 			}
 		}
 		corsAllowCredentials = true
+	}
+	if len(corsAllowedOrigins) == 0 {
+		log.Warn("CORS_ORIGINS is not set: no cross-origin browser request will be accepted. Set it to the app's origin.")
 	}
 	corsMiddleware := cors.New(cors.Options{
 		AllowedOrigins:   corsAllowedOrigins,

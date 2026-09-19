@@ -24,6 +24,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1606,6 +1607,79 @@ func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 		header.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		next.ServeHTTP(w, r)
 	})
+}
+
+// SameOriginMiddleware refuses a state-changing request that a browser made
+// from somewhere else, when the only thing authenticating it is a cookie.
+//
+// SameSite=Lax already stops the classic form post, and it is doing real work.
+// But it is one setting, in the browser, decided by defaults that vary and
+// change; it says nothing about a sibling subdomain; and if the session cookie
+// ever has to relax to SameSite=None for an embed, the whole defence is gone
+// with no other line behind it. This is that other line, on our side, where we
+// can see it.
+//
+// It deliberately does not apply to requests carrying an Authorization header:
+// those are API clients and integrations, which send no ambient cookie and so
+// cannot be made to act on somebody else's behalf by a web page. A request
+// with no Origin at all is likewise not a browser doing this.
+func SameOriginMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet, http.MethodHead, http.MethodOptions:
+			next.ServeHTTP(w, r)
+			return
+		}
+		if strings.TrimSpace(r.Header.Get("Authorization")) != "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		origin := strings.TrimSpace(r.Header.Get("Origin"))
+		if origin == "" {
+			// Fall back to the Referer: older browsers omit Origin on some
+			// same-origin requests, and a cross-site post carries one either way.
+			if referer := strings.TrimSpace(r.Header.Get("Referer")); referer != "" {
+				if parsed, err := url.Parse(referer); err == nil && parsed.Host != "" {
+					origin = parsed.Scheme + "://" + parsed.Host
+				}
+			}
+		}
+		if origin == "" || originIsAllowed(origin, r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		errors.WriteError(w, r, errors.New(http.StatusForbidden, "CROSS_ORIGIN_REFUSED", "this request came from another site"))
+	})
+}
+
+// originIsAllowed accepts the origins CORS accepts, plus the host the request
+// arrived on — which is what a same-origin request looks like when the app and
+// the API are served together.
+func originIsAllowed(origin string, r *http.Request) bool {
+	parsed, err := url.Parse(origin)
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+	if strings.EqualFold(parsed.Host, r.Host) {
+		return true
+	}
+	raw := strings.TrimSpace(os.Getenv("CORS_ORIGINS"))
+	if raw == "" {
+		return false
+	}
+	for _, allowed := range strings.Split(raw, ",") {
+		allowed = strings.TrimSpace(allowed)
+		if allowed == "" {
+			continue
+		}
+		if allowed == "*" || strings.EqualFold(allowed, origin) {
+			return true
+		}
+		if candidate, cerr := url.Parse(allowed); cerr == nil && candidate.Host != "" && strings.EqualFold(candidate.Host, parsed.Host) {
+			return true
+		}
+	}
+	return false
 }
 
 // Carries the caller's address and User-Agent into the context so the service
