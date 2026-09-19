@@ -1634,6 +1634,14 @@ func SameOriginMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		// Only a request carrying ambient credentials can be forged this way.
+		// A public endpoint holding its own token in the body — a shop cart, a
+		// share link — sends no cookie, so a page elsewhere gains nothing by
+		// making the call, and refusing it would break embeds for no reason.
+		if !hasAmbientSessionCookie(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		origin := strings.TrimSpace(r.Header.Get("Origin"))
 		if origin == "" {
 			// Fall back to the Referer: older browsers omit Origin on some
@@ -1650,6 +1658,21 @@ func SameOriginMiddleware(next http.Handler) http.Handler {
 		}
 		errors.WriteError(w, r, errors.New(http.StatusForbidden, "CROSS_ORIGIN_REFUSED", "this request came from another site"))
 	})
+}
+
+// hasAmbientSessionCookie reports whether the browser would attach credentials
+// to this request by itself — which is the only situation a cross-site write
+// can exploit.
+func hasAmbientSessionCookie(r *http.Request) bool {
+	for _, name := range []string{authSessionCookieName, authAccessCookieName, authRefreshCookieName} {
+		if name == "" {
+			continue
+		}
+		if c, err := r.Cookie(name); err == nil && strings.TrimSpace(c.Value) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // originIsAllowed accepts the origins CORS accepts, plus the host the request

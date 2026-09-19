@@ -49,7 +49,11 @@ func Render(name string, data any) (Template, error) {
 	if err != nil {
 		return Template{}, err
 	}
-	html, err := templaterender.RenderString(tpl.HTML, data)
+	// The HTML body goes through the HTML engine, which escapes each value for
+	// the place it lands. These values are company names, tender titles and
+	// people's own words — rendered as text, a name containing markup becomes
+	// markup in somebody else's inbox.
+	html, err := templaterender.RenderHTML(tpl.HTML, data)
 	if err != nil {
 		return Template{}, err
 	}
