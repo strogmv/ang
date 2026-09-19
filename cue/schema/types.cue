@@ -2743,6 +2743,10 @@ import "github.com/strogmv/ang/cue/project"
 	response_json_strict?: bool
 	// Optional variable receiving parsed final JSON as map[string]any.
 	output_json?: string
+	// Reasoning budget for a model that has one: "none", "minimal", "low",
+	// "medium", "high". Unset keeps the historical "minimal", which the first
+	// gpt-5 models wanted and the later ones in that family reject.
+	reasoning_effort?: string
 }
 
 #OpenAIEmbedStep: {

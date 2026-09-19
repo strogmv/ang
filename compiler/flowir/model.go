@@ -794,6 +794,10 @@ type OpenAIChat struct {
 	Tools                                                          []string
 	MaxTokens, MaxRounds                                           int
 	ResponseJSONStrict                                             bool
+	// ReasoningEffort is the reasoning budget for a model that has one. Empty
+	// keeps the historical default, which suits the first generation of gpt-5;
+	// later models in that family reject it and need a value here.
+	ReasoningEffort string
 }
 type OpenAIEmbed struct {
 	Input, Model        Expression

@@ -7,6 +7,17 @@ import (
 	"github.com/strogmv/ang/compiler/flowir"
 )
 
+// reasoningEffort keeps the historical default for a step that says nothing.
+// "minimal" is what the first gpt-5 models wanted; the later ones in that
+// family reject it, and on a small extraction task it measurably degrades the
+// answer, so a step that cares says so.
+func reasoningEffort(value string) string {
+	if value == "" {
+		return "minimal"
+	}
+	return value
+}
+
 // renderTypedStepOpenAI handles OpenAI actions directly from TypedStep.
 func renderTypedStepOpenAI(st *flowRenderState, step flowir.TypedStep, indent int, sfx string) (string, bool) {
 	pad := strings.Repeat("\t", indent)
@@ -105,7 +116,7 @@ func renderTypedStepOpenAI(st *flowRenderState, step flowir.TypedStep, indent in
 			b.WriteString(fmt.Sprintf("%s%s := map[string]any{\"model\": %s, \"messages\": %s}\n", pad, payloadVar, model, msgsVar))
 			b.WriteString(fmt.Sprintf("%sif strings.HasPrefix(strings.TrimSpace(fmt.Sprint(%s)), \"gpt-5\") {\n", pad, model))
 			b.WriteString(fmt.Sprintf("%s\t%s[\"max_completion_tokens\"] = %d\n", pad, payloadVar, maxTokens))
-			b.WriteString(fmt.Sprintf("%s\t%s[\"reasoning_effort\"] = \"minimal\"\n", pad, payloadVar))
+			b.WriteString(fmt.Sprintf("%s\t%s[\"reasoning_effort\"] = %q\n", pad, payloadVar, reasoningEffort(typed.ReasoningEffort)))
 			b.WriteString(fmt.Sprintf("%s} else {\n", pad))
 			b.WriteString(fmt.Sprintf("%s\t%s[\"max_tokens\"] = %d\n", pad, payloadVar, maxTokens))
 			b.WriteString(fmt.Sprintf("%s}\n", pad))
@@ -236,7 +247,7 @@ func renderTypedStepOpenAI(st *flowRenderState, step flowir.TypedStep, indent in
 		}
 		b.WriteString(fmt.Sprintf("%s\tif strings.HasPrefix(strings.TrimSpace(fmt.Sprint(%s)), \"gpt-5\") {\n", pad, model))
 		b.WriteString(fmt.Sprintf("%s\t\t%s[\"max_completion_tokens\"] = %d\n", pad, payloadVar, maxTokens))
-		b.WriteString(fmt.Sprintf("%s\t\t%s[\"reasoning_effort\"] = \"minimal\"\n", pad, payloadVar))
+		b.WriteString(fmt.Sprintf("%s\t\t%s[\"reasoning_effort\"] = %q\n", pad, payloadVar, reasoningEffort(typed.ReasoningEffort)))
 		b.WriteString(fmt.Sprintf("%s\t} else {\n", pad))
 		b.WriteString(fmt.Sprintf("%s\t\t%s[\"max_tokens\"] = %d\n", pad, payloadVar, maxTokens))
 		b.WriteString(fmt.Sprintf("%s\t}\n", pad))

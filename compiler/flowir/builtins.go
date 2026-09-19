@@ -1744,7 +1744,7 @@ func registerListActions() {
 	}})
 	Register(ActionSpec{Name: "archive.ZipDir", Args: []ArgSpec{{Name: "path", Kind: ArgExpression, Required: true}, {Name: "output", Kind: ArgIdentifier, Required: true}}, Decode: decodeArchiveZipDir})
 	Register(ActionSpec{Name: "claude.Chat", Args: aiChatArgs(), Decode: decodeClaudeChat})
-	Register(ActionSpec{Name: "openai.Chat", Args: append(aiChatArgs(), ArgSpec{Name: "tools", Kind: ArgExpressions}, ArgSpec{Name: "tool_choice", Kind: ArgExpression}, ArgSpec{Name: "max_rounds", Kind: ArgInt}, ArgSpec{Name: "output_usage", Kind: ArgIdentifier}, ArgSpec{Name: "output_tool_calls", Kind: ArgIdentifier}, ArgSpec{Name: "response_json_schema", Kind: ArgExpression}, ArgSpec{Name: "response_json_name", Kind: ArgExpression}, ArgSpec{Name: "response_json_strict", Kind: ArgBool}, ArgSpec{Name: "output_json", Kind: ArgIdentifier}), Decode: decodeOpenAIChat})
+	Register(ActionSpec{Name: "openai.Chat", Args: append(aiChatArgs(), ArgSpec{Name: "tools", Kind: ArgExpressions}, ArgSpec{Name: "tool_choice", Kind: ArgExpression}, ArgSpec{Name: "max_rounds", Kind: ArgInt}, ArgSpec{Name: "output_usage", Kind: ArgIdentifier}, ArgSpec{Name: "output_tool_calls", Kind: ArgIdentifier}, ArgSpec{Name: "response_json_schema", Kind: ArgExpression}, ArgSpec{Name: "response_json_name", Kind: ArgExpression}, ArgSpec{Name: "response_json_strict", Kind: ArgBool}, ArgSpec{Name: "output_json", Kind: ArgIdentifier}, ArgSpec{Name: "reasoning_effort", Kind: ArgString}), Decode: decodeOpenAIChat})
 	Register(ActionSpec{Name: "openai.Embed", Args: []ArgSpec{{Name: "input", Kind: ArgExpression, Required: true}, {Name: "output", Kind: ArgIdentifier, Required: true}, {Name: "model", Kind: ArgExpression}, {Name: "dimensions", Kind: ArgInt}, {Name: "output_usage", Kind: ArgIdentifier}}, Decode: decodeOpenAIEmbed})
 	Register(ActionSpec{Name: "openai.Stream", Args: aiChatArgs(), Decode: decodeOpenAIStream})
 	Register(ActionSpec{Name: "plan.BuildAutomata", Args: []ArgSpec{{Name: "input", Kind: ArgExpression, Required: true}, {Name: "output", Kind: ArgIdentifier, Required: true}}, Decode: decodePlanBuildAutomata})
@@ -2250,7 +2250,8 @@ func decodeOpenAIChat(s normalizer.FlowStep) (Action, error) {
 	if e != nil {
 		return nil, e
 	}
-	return OpenAIChat{optionalExpression(s, "system"), optionalExpression(s, "system_context"), u, optionalExpression(s, "history"), m, optionalExpression(s, "tool_choice"), optionalExpression(s, "response_json_schema"), rn, o, ou, ot, oj, tools, mt, mr, strict}, decodeErr
+	effort, _ := s.Args["reasoning_effort"].(string)
+	return OpenAIChat{optionalExpression(s, "system"), optionalExpression(s, "system_context"), u, optionalExpression(s, "history"), m, optionalExpression(s, "tool_choice"), optionalExpression(s, "response_json_schema"), rn, o, ou, ot, oj, tools, mt, mr, strict, strings.TrimSpace(effort)}, decodeErr
 }
 func decodeOpenAIEmbed(s normalizer.FlowStep) (Action, error) {
 	i, e := requiredExpression(s, "input")
