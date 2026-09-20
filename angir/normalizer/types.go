@@ -445,12 +445,18 @@ type AuthDef struct {
 	DemoSessionOp           string
 	DemoSessionAccessField  string
 	DemoSessionRefreshField string
-	RefreshOp               string
-	RefreshTokenField       string
-	RefreshAccessField      string
-	RefreshRefreshField     string
-	LogoutOp                string
-	LogoutTokenField        string
+	// MfaVerifyOp finishes a login that stopped at the second factor. It is a
+	// session-issuing operation like login and register: without it the
+	// cookie is never written and a two-factor login cannot reach the app.
+	MfaVerifyOp           string
+	MfaVerifyAccessField  string
+	MfaVerifyRefreshField string
+	RefreshOp             string
+	RefreshTokenField     string
+	RefreshAccessField    string
+	RefreshRefreshField   string
+	LogoutOp              string
+	LogoutTokenField      string
 	// LogoutAllOp ends every session of the calling user.
 	LogoutAllOp string
 }

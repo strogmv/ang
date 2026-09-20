@@ -96,6 +96,9 @@ func (n *Normalizer) ExtractAuth(val cue.Value) (*AuthDef, error) {
 	demoSessionOp, _ := jwtVal.LookupPath(cue.ParsePath("ops.demo_session.op")).String()
 	demoSessionAccess, _ := jwtVal.LookupPath(cue.ParsePath("ops.demo_session.access_field")).String()
 	demoSessionRefresh, _ := jwtVal.LookupPath(cue.ParsePath("ops.demo_session.refresh_field")).String()
+	mfaVerifyOp, _ := jwtVal.LookupPath(cue.ParsePath("ops.mfa_verify.op")).String()
+	mfaVerifyAccess, _ := jwtVal.LookupPath(cue.ParsePath("ops.mfa_verify.access_field")).String()
+	mfaVerifyRefresh, _ := jwtVal.LookupPath(cue.ParsePath("ops.mfa_verify.refresh_field")).String()
 	refreshOp, _ := jwtVal.LookupPath(cue.ParsePath("ops.refresh.op")).String()
 	refreshTokenField, _ := jwtVal.LookupPath(cue.ParsePath("ops.refresh.token_field")).String()
 	refreshAccess, _ := jwtVal.LookupPath(cue.ParsePath("ops.refresh.access_field")).String()
@@ -128,6 +131,9 @@ func (n *Normalizer) ExtractAuth(val cue.Value) (*AuthDef, error) {
 		DemoSessionOp:           strings.TrimSpace(demoSessionOp),
 		DemoSessionAccessField:  strings.TrimSpace(demoSessionAccess),
 		DemoSessionRefreshField: strings.TrimSpace(demoSessionRefresh),
+		MfaVerifyOp:             strings.TrimSpace(mfaVerifyOp),
+		MfaVerifyAccessField:    strings.TrimSpace(mfaVerifyAccess),
+		MfaVerifyRefreshField:   strings.TrimSpace(mfaVerifyRefresh),
 		RefreshOp:               strings.TrimSpace(refreshOp),
 		RefreshTokenField:       strings.TrimSpace(refreshTokenField),
 		RefreshAccessField:      strings.TrimSpace(refreshAccess),

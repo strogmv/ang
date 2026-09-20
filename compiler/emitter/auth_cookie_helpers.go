@@ -25,6 +25,8 @@ func authCookieFields(auth *normalizer.AuthDef, rpc string) (accessField, refres
 		return auth.RegisterAccessField, auth.RegisterRefreshField, auth.RegisterAccessField != "" && auth.RegisterRefreshField != ""
 	case strings.TrimSpace(auth.DemoSessionOp):
 		return auth.DemoSessionAccessField, auth.DemoSessionRefreshField, auth.DemoSessionAccessField != "" && auth.DemoSessionRefreshField != ""
+	case strings.TrimSpace(auth.MfaVerifyOp):
+		return auth.MfaVerifyAccessField, auth.MfaVerifyRefreshField, auth.MfaVerifyAccessField != "" && auth.MfaVerifyRefreshField != ""
 	case strings.TrimSpace(auth.RefreshOp):
 		return auth.RefreshAccessField, auth.RefreshRefreshField, auth.RefreshAccessField != "" && auth.RefreshRefreshField != ""
 	default:
