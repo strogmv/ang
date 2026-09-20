@@ -3,6 +3,8 @@ package smtp
 import (
 	"context"
 	"fmt"
+	"mime"
+	"net/mail"
 	"net/smtp"
 	"strings"
 
@@ -42,10 +44,22 @@ func (c *Client) Send(ctx context.Context, msg port.EmailMessage) error {
 		return fmt.Errorf("smtp from not configured")
 	}
 
+	// A header ends at a newline, so anything carrying one into a header value
+	// writes headers of its own: a Bcc that copies the mail somewhere else, a
+	// second body. These values are not the application's — a subject can hold
+	// a name somebody typed into a form — so they are checked, not trusted.
+	recipient, err := mail.ParseAddress(strings.TrimSpace(msg.To))
+	if err != nil {
+		return fmt.Errorf("smtp: refusing to send to %q: %w", msg.To, err)
+	}
+
 	headers := []string{
 		fmt.Sprintf("From: %s", from),
-		fmt.Sprintf("To: %s", msg.To),
-		fmt.Sprintf("Subject: %s", msg.Subject),
+		fmt.Sprintf("To: %s", recipient.Address),
+		// Encoded, not merely stripped: a subject legitimately holds non-ASCII
+		// and a raw UTF-8 header arrives as mojibake. Encoding also removes any
+		// newline, because the result is a single token by construction.
+		fmt.Sprintf("Subject: %s", mime.QEncoding.Encode("utf-8", mailHeaderOneLine(msg.Subject))),
 		"MIME-Version: 1.0",
 	}
 
@@ -63,5 +77,14 @@ func (c *Client) Send(ctx context.Context, msg port.EmailMessage) error {
 	if c.Username != "" || c.Password != "" {
 		auth = smtp.PlainAuth("", c.Username, c.Password, c.Host)
 	}
-	return smtp.SendMail(addr, auth, from, []string{msg.To}, []byte(data))
+	return smtp.SendMail(addr, auth, from, []string{recipient.Address}, []byte(data))
+}
+
+// mailHeaderOneLine collapses the line breaks a header cannot carry. Encoding
+// would hide them anyway; removing them first means the subject reads as one
+// line rather than as an encoded word wrapped around a stray newline.
+func mailHeaderOneLine(value string) string {
+	return strings.Join(strings.FieldsFunc(value, func(r rune) bool {
+		return r == '\r' || r == '\n'
+	}), " ")
 }
