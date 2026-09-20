@@ -103,11 +103,14 @@ export function formatTableCurrency(value: unknown, currencyCode?: unknown): str
   if (!Number.isFinite(amount)) return TABLE_EMPTY_CELL;
   const code = typeof currencyCode === 'string' ? currencyCode.trim().toUpperCase() : '';
   const locale = tableLocale();
-  if (code.length !== 3) return new Intl.NumberFormat(locale).format(amount);
+  // Two decimals even without a currency: a money column that prints 1.234,5
+  // in one row and 1.234,50 in the next is not a column anyone adds up.
+  const plain = { minimumFractionDigits: 2, maximumFractionDigits: 2 };
+  if (code.length !== 3) return new Intl.NumberFormat(locale, plain).format(amount);
   try {
     return new Intl.NumberFormat(locale, { style: 'currency', currency: code }).format(amount);
   } catch {
-    return new Intl.NumberFormat(locale).format(amount) + ' ' + code;
+    return new Intl.NumberFormat(locale, plain).format(amount) + ' ' + code;
   }
 }
 
