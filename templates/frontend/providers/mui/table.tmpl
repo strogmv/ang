@@ -143,17 +143,22 @@ export function {{ .Name }}Table({ onView, onEdit, onDelete, columnVisibilityMod
       disableColumnMenu: true,
       renderCell: (params: GridRenderCellParams) => (
         <Box>
+          {/* An action icon has to be visible to be an action. Without a
+              colour these inherit the cell's text colour, which in a data grid
+              is deliberately faint, and the control reads as decoration —
+              delete was the only one anybody could see, because it was the
+              only one that said what colour it was. */}
           {onView && (
             <Tooltip title={label('{{ .Name }}', 'actions.view', 'Просмотр')}>
               <IconButton size="small" onClick={() => onView(params.row)}>
-                <ViewIcon fontSize="small" />
+                <ViewIcon fontSize="small" color="action" />
               </IconButton>
             </Tooltip>
           )}
           {onEdit && (
             <Tooltip title={label('{{ .Name }}', 'actions.edit', 'Редактировать')}>
               <IconButton size="small" onClick={() => onEdit(params.row)}>
-                <EditIcon fontSize="small" />
+                <EditIcon fontSize="small" color="action" />
               </IconButton>
             </Tooltip>
           )}
