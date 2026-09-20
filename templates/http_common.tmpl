@@ -707,6 +707,16 @@ func authClaimsFromCookieSession(r *http.Request) (map[string]any, error) {
 	return nil, fmt.Errorf("missing access token cookie")
 }
 
+// Secure is the default, and plaintext is the exception that has to be asked
+// for. It used to be the other way round: the cookie was Secure when the
+// request said so, through r.TLS or an X-Forwarded-Proto header. Behind a
+// TLS-terminating proxy r.TLS is always nil, so the whole thing rested on a
+// header the proxy happens to set by default — and a proxy that stopped
+// setting it would quietly start issuing session cookies without Secure over
+// what is still HTTPS, with nothing failing to say so.
+//
+// Development over http://localhost still needs the cookie to work, so
+// DEV_MODE keeps the old behaviour and nothing else does.
 func authCookieSecure(r *http.Request) bool {
 	if r != nil && r.TLS != nil {
 		return true
@@ -716,7 +726,10 @@ func authCookieSecure(r *http.Request) bool {
 			return true
 		}
 	}
-	return false
+	if authCfg != nil && authCfg.DevMode {
+		return false
+	}
+	return true
 }
 
 func authCookieMaxAge(ttl string, fallback time.Duration) int {
