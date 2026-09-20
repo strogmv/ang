@@ -896,7 +896,12 @@ func inferColumnRender(f normalizer.Field) (string, string) {
 	case isDateColumn(f.Name, lower):
 		return "date", "formatTableDate(params.value)"
 	case lower == "status":
-		return "status", "<Chip label={params.value} size=\"small\" />"
+		return "status", "<Chip label={formatTableValue(params.field, params.value)} size=\"small\" />"
+	case f.Constraints != nil && len(f.Constraints.Enum) > 0:
+		// Any other closed set — a scope, a mode, a kind — is a contract
+		// constant too, and printing it raw is how a Russian table ends up
+		// saying "revoked" and "markup".
+		return "enum", "formatTableValue(params.field, params.value)"
 	case isMoneyColumn(f, lower):
 		return "currency", "formatTableCurrency(params.value, params.row?.currencyCode)"
 	case strings.Contains(lower, "avatar") || strings.Contains(lower, "image") || strings.Contains(lower, "logo"):

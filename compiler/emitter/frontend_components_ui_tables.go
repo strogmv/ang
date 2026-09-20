@@ -74,6 +74,32 @@ export function formatTableCurrency(value: unknown, currencyCode?: unknown): str
   }
 }
 
+/**
+ * Enum cell. A status column printed whatever the API sent — "pending",
+ * "revoked", "markup" — in every language, so a table in Russian told the
+ * reader their invitation was "pending". The value is a contract constant, so
+ * it stays what it is in the data and only what is shown goes through here.
+ * Without a registered formatter the raw value is used, exactly as before.
+ */
+export type TableValueFormatter = (field: string, value: string) => string;
+
+const defaultValueFormatter: TableValueFormatter = (_field, value) => value;
+
+let valueFormatter: TableValueFormatter = defaultValueFormatter;
+
+/** Replace how generated tables render enum values (status, scope, mode...). */
+export function registerTableValueFormatter(formatter: TableValueFormatter) {
+  valueFormatter = formatter;
+  notifyLabelsChanged();
+}
+
+export function formatTableValue(field: unknown, value: unknown): string {
+  if (value === null || value === undefined || value === '') return TABLE_EMPTY_CELL;
+  const raw = String(value);
+  const name = typeof field === 'string' ? field : '';
+  return valueFormatter(name, raw);
+}
+
 // ---------------------------------------------------------------------------
 // Column / action labels
 // ---------------------------------------------------------------------------
