@@ -25,7 +25,17 @@ type {{ ExportName .Name }} struct {
 	{{- if .Source }}
 	// Source: {{ .Source }}
 	{{- end }}
-	{{ ExportName .Name }} {{ GoType .Type | TrimDomain }} `json:"{{ JSONName .Name }}"`
+	{{- /* A field marked @secret / @gdpr("sensitive") is kept out of JSON
+	       entirely. Handlers that answer with a whole entity — an admin lookup
+	       returning *domain.APIKey through an `any` field, say — otherwise put
+	       the password hash, the bot token or the key hash on the wire, and no
+	       reviewer can see it happening at the call site. The generated
+	       TypeScript already declares these fields absent, so this is the Go
+	       side agreeing with the contract the client was given. It also means
+	       an entity cannot be round-tripped through JSON with its secret
+	       intact; nothing here does that (Postgres binds columns, Mongo uses
+	       bson), and a store that needs one should read the field explicitly. */}}
+	{{ ExportName .Name }} {{ GoType .Type | TrimDomain }} `json:"{{ if .IsSecret }}-{{ else }}{{ JSONName .Name }}{{ end }}"`
 	{{- end }}
 	{{- end }}
 }
