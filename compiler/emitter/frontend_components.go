@@ -705,6 +705,14 @@ func buildTableData(serviceName string, m normalizer.Method, entities []normaliz
 					if isInternalField(itemField.Name) && itemField.Name != "id" {
 						continue
 					}
+					// A secret never becomes a column. The server does not send
+					// it (the domain struct tags it `json:"-"`), so the column
+					// could only ever be empty — and the admin user grid was
+					// offering "Mfa Secret" and "Mfa Recovery Codes" as things
+					// to switch on.
+					if itemField.IsSecret {
+						continue
+					}
 
 					col := TableColumnData{
 						Field:    JSONName(itemField.Name),

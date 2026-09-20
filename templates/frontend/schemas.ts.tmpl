@@ -14,7 +14,12 @@ export type {{ .Name }} = z.infer<typeof {{ .Name }}Schema>;
 {{- if not (IsNamedEnumEntity .Name) }}
 export const {{ .Name }}Schema = z.object({
   {{- range .Fields }}
+  {{- /* Secret fields are not in the responses — the server tags them
+         `json:"-"` — so requiring one here would fail every parse. The
+         generated types.ts leaves them out for the same reason. */}}
+  {{- if not .IsSecret }}
   {{ JSONName .Name }}: {{ ZodFieldType . }}{{ ZodRules . }}{{ if not (IsRequired .) }}.optional(){{ end }},
+  {{- end }}
   {{- end }}
 });
 export type {{ .Name }} = z.infer<typeof {{ .Name }}Schema>;
