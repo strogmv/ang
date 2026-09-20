@@ -48,12 +48,48 @@ import dayjs from 'dayjs';
 /** Empty placeholder for cells with no value. */
 export const TABLE_EMPTY_CELL = '—';
 
+/**
+ * Which locale a cell is written in.
+ *
+ * Dates were formatted with a hard-coded DD.MM.YYYY and money with the
+ * browser's own locale, so a German reader on an English Chrome was shown
+ * 1,234.56 where their accountant reads 1.234,56 — a thousands separator that
+ * reads as a decimal point is not a cosmetic difference. Neither followed the
+ * language the reader had actually chosen, because the SDK cannot see the
+ * app's i18n. The app registers it; without one, the browser's locale is used
+ * exactly as before.
+ */
+let localeSource: () => string = () => {
+  if (typeof navigator !== 'undefined' && navigator.language) return navigator.language;
+  return 'en';
+};
+
+export function registerTableLocale(source: () => string) {
+  localeSource = source;
+  notifyLabelsChanged();
+}
+
+function tableLocale(): string {
+  try {
+    return localeSource() || 'en';
+  } catch {
+    return 'en';
+  }
+}
+
 /** Date cell: never renders "Invalid Date" for empty or unparsable values. */
 export function formatTableDate(value: unknown, withTime = true): string {
   if (value === null || value === undefined || value === '') return TABLE_EMPTY_CELL;
   const parsed = dayjs(value as string | number | Date);
   if (!parsed.isValid()) return TABLE_EMPTY_CELL;
-  return parsed.format(withTime ? 'DD.MM.YYYY HH:mm' : 'DD.MM.YYYY');
+  try {
+    return new Intl.DateTimeFormat(tableLocale(), {
+      dateStyle: 'short',
+      ...(withTime ? { timeStyle: 'short' } : {}),
+    }).format(parsed.toDate());
+  } catch {
+    return parsed.format(withTime ? 'DD.MM.YYYY HH:mm' : 'DD.MM.YYYY');
+  }
 }
 
 /**
@@ -66,11 +102,12 @@ export function formatTableCurrency(value: unknown, currencyCode?: unknown): str
   const amount = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(amount)) return TABLE_EMPTY_CELL;
   const code = typeof currencyCode === 'string' ? currencyCode.trim().toUpperCase() : '';
-  if (code.length !== 3) return new Intl.NumberFormat().format(amount);
+  const locale = tableLocale();
+  if (code.length !== 3) return new Intl.NumberFormat(locale).format(amount);
   try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency: code }).format(amount);
+    return new Intl.NumberFormat(locale, { style: 'currency', currency: code }).format(amount);
   } catch {
-    return new Intl.NumberFormat().format(amount) + ' ' + code;
+    return new Intl.NumberFormat(locale).format(amount) + ' ' + code;
   }
 }
 
