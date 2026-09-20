@@ -889,6 +889,26 @@ func isMoneyColumn(f normalizer.Field, lower string) bool {
 	return true
 }
 
+// A column whose values come from a closed set. The declared enum is the
+// reliable signal, but an operation's own output often types the field as a
+// plain string even where the entity behind it is an enum, so the names that
+// always mean a state are included. Nothing is lost by being wrong: a value
+// with no translation renders as itself.
+func isEnumColumn(f normalizer.Field, lower string) bool {
+	if f.Constraints != nil && len(f.Constraints.Enum) > 0 {
+		return true
+	}
+	if f.Type != "string" {
+		return false
+	}
+	for _, suffix := range []string{"status", "scope", "mode", "state", "kind"} {
+		if strings.HasSuffix(lower, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
 func inferColumnRender(f normalizer.Field) (string, string) {
 	lower := strings.ToLower(f.Name)
 
@@ -897,7 +917,7 @@ func inferColumnRender(f normalizer.Field) (string, string) {
 		return "date", "formatTableDate(params.value)"
 	case lower == "status":
 		return "status", "<Chip label={formatTableValue(params.field, params.value)} size=\"small\" />"
-	case f.Constraints != nil && len(f.Constraints.Enum) > 0:
+	case isEnumColumn(f, lower):
 		// Any other closed set — a scope, a mode, a kind — is a contract
 		// constant too, and printing it raw is how a Russian table ends up
 		// saying "revoked" and "markup".
