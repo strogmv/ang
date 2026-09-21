@@ -39,10 +39,15 @@ const noopWebSocketLogger: Required<WebSocketLogger> = {
   error: () => undefined,
 };
 
+// Vite replaces `import.meta.env` at build time only where the expression is
+// written out as it is. Reading it through a variable (`const m = import.meta;
+// m.env`) survives into the bundle untouched, finds nothing at runtime, and
+// the socket falls back to ws://localhost:8080 — which is how every chat,
+// presence and notification socket in production ended up dialling the
+// visitor's own machine while the REST client, written the direct way, worked.
 export const getWebSocketBaseUrl = (): string => {
   try {
-    const maybeImportMeta = import.meta as ImportMeta | undefined;
-    const viteBase = maybeImportMeta?.env?.VITE_API_URL;
+    const viteBase = (import.meta.env as { VITE_API_URL?: string } | undefined)?.VITE_API_URL;
     if (typeof viteBase === 'string' && viteBase.trim() !== '') {
       return viteBase.replace(/^http/, 'ws');
     }
