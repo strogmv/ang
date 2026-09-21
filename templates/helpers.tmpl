@@ -1,6 +1,7 @@
 package helpers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -134,7 +135,43 @@ func Assign(dst interface{}, src interface{}) error {
 	if err != nil {
 		return err
 	}
+	// An unset time.Time marshals as "0001-01-01T00:00:00Z", and a response
+	// field typed string carried that out as if it were a date: every client
+	// had to learn to read year one as "none". The key is dropped instead, so
+	// the destination keeps its own zero — "" for a string, the zero time for
+	// a time — which is what "not set" already means on either side.
+	if bytes.Contains(b, []byte(zeroTimeJSON)) {
+		var generic any
+		if json.Unmarshal(b, &generic) == nil {
+			if cleaned, marshalErr := json.Marshal(dropZeroTimes(generic)); marshalErr == nil {
+				b = cleaned
+			}
+		}
+	}
 	return json.Unmarshal(b, dst)
+}
+
+const zeroTimeJSON = `"0001-01-01T00:00:00Z"`
+
+func dropZeroTimes(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		for k, item := range x {
+			if s, ok := item.(string); ok && s == "0001-01-01T00:00:00Z" {
+				delete(x, k)
+				continue
+			}
+			x[k] = dropZeroTimes(item)
+		}
+		return x
+	case []any:
+		for i, item := range x {
+			x[i] = dropZeroTimes(item)
+		}
+		return x
+	default:
+		return v
+	}
 }
 
 // JSONPathGet resolves a minimal dot/index JSONPath like $.user.email or $.items[0].id.
