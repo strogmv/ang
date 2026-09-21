@@ -98,9 +98,13 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 			svc.RequiresS3 = true
 		}
 
+		// The operation's own description. It was left behind here, so every
+		// consumer downstream saw an empty one — most visibly the AI tools built
+		// from operations, which reached the model described only by their name.
 		method := Method{
-			Name:   opName,
-			Source: formatPos(value),
+			Name:        opName,
+			Description: getString(value, "description"),
+			Source:      formatPos(value),
 		}
 		method.PrimaryOperationKind = parseOperationKind(value)
 		method.Capabilities = parseCapabilities(value)
