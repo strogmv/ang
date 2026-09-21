@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
+	"strings"
 )
 
 // ProblemDetail implements RFC 9457 (Problem Details for HTTP APIs).
@@ -39,8 +41,35 @@ type ProblemDetail struct {
 	Intent string `json:"intent,omitempty"`
 }
 
+// Error says what went wrong, not only which kind of wrong. It used to stop at
+// the title, so every refusal read "error 400: Validation Error" to whoever
+// held the error rather than the HTTP response: a log line, a caller matching
+// on the text, and an AI assistant whose tool had refused and which then had
+// to guess why. The detail and the per-field messages are the answer; they go
+// in, fields in a stable order.
 func (e *ProblemDetail) Error() string {
-	return fmt.Sprintf("error %d: %s (code=%d, message_code=%s)", e.Status, e.Title, e.Code, e.MessageCode)
+	var b strings.Builder
+	fmt.Fprintf(&b, "error %d: %s", e.Status, e.Title)
+	if detail := strings.TrimSpace(e.Detail); detail != "" && detail != e.Title {
+		b.WriteString(": ")
+		b.WriteString(detail)
+	}
+	if len(e.Errors) > 0 {
+		keys := make([]string, 0, len(e.Errors))
+		for k := range e.Errors {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		parts := make([]string, 0, len(keys))
+		for _, k := range keys {
+			parts = append(parts, k+": "+e.Errors[k])
+		}
+		b.WriteString(" [")
+		b.WriteString(strings.Join(parts, "; "))
+		b.WriteString("]")
+	}
+	fmt.Fprintf(&b, " (code=%d, message_code=%s)", e.Code, e.MessageCode)
+	return b.String()
 }
 
 func New(status int, title, detail string) *ProblemDetail {
