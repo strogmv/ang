@@ -164,9 +164,21 @@ func buildOpenAIToolSchemaJSON(ent normalizer.Entity) (string, error) {
 		if fieldName == "" {
 			continue
 		}
-		properties[fieldName] = map[string]any{
+		prop := map[string]any{
 			"type": openAIJSONType(field),
 		}
+		// The allowed values are the most useful thing a model can be told
+		// about a field: without them it invents a plausible one ("open"
+		// where the contract says "taxesOrNot") and the call fails.
+		if field.Constraints != nil && len(field.Constraints.Enum) > 0 {
+			prop["enum"] = append([]string(nil), field.Constraints.Enum...)
+		}
+		// A JSON Schema array says what it holds; without items the model
+		// has to guess, and strict validators reject the schema outright.
+		if prop["type"] == "array" {
+			prop["items"] = map[string]any{"type": openAIJSONType(normalizer.Field{Type: strings.TrimPrefix(strings.TrimSpace(field.Type), "[]")})}
+		}
+		properties[fieldName] = prop
 		if !field.IsOptional {
 			required = append(required, fieldName)
 		}

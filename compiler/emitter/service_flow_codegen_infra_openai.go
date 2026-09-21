@@ -46,7 +46,7 @@ func renderTypedStepOpenAI(st *flowRenderState, step flowir.TypedStep, indent in
 		}
 		var systemExpr string
 		if system != "" && systemContext != "" {
-			systemExpr = fmt.Sprintf(`%s + "\n\n== Current project CUE content ==\n" + %s`, system, systemContext)
+			systemExpr = fmt.Sprintf(`%s + "\n\n== Context ==\n" + %s`, system, systemContext)
 		} else if system != "" {
 			systemExpr = system
 		} else if systemContext != "" {
@@ -338,27 +338,48 @@ func renderTypedStepOpenAI(st *flowRenderState, step flowir.TypedStep, indent in
 			reqVarName := "_toolReq" + sfx + ExportName(spec.Method.Name)
 			respVarName := "_toolResp" + sfx + ExportName(spec.Method.Name)
 			rawRespVar := "_toolRespRaw" + sfx + ExportName(spec.Method.Name)
+			// A tool that fails answers the model, not the caller. The model
+			// asked for something the tool refused — a missing field, a date in
+			// the past, a limit reached — and it is the one that can put it
+			// right or say so in the user's words. Aborting the whole turn
+			// instead leaves the user with silence after "one moment".
+			toolErrVar := "_toolErr" + sfx + ExportName(spec.Method.Name)
+			toolContentVar := "_toolContent" + sfx + ExportName(spec.Method.Name)
 			b.WriteString(fmt.Sprintf("%s\t\t\tcase %q:\n", pad, spec.ToolName))
 			b.WriteString(fmt.Sprintf("%s\t\t\t\tvar %s %s\n", pad, reqVarName, spec.RequestType))
+			b.WriteString(fmt.Sprintf("%s\t\t\t\tvar %s error\n", pad, toolErrVar))
+			b.WriteString(fmt.Sprintf("%s\t\t\t\t%s := \"\"\n", pad, toolContentVar))
 			b.WriteString(fmt.Sprintf("%s\t\t\t\tif strings.TrimSpace(_tc%s.Function.Arguments) != \"\" {\n", pad, sfx))
 			b.WriteString(fmt.Sprintf("%s\t\t\t\t\tif err := json.Unmarshal([]byte(_tc%s.Function.Arguments), &%s); err != nil {\n", pad, sfx, reqVarName))
-			b.WriteString(errReturn(st, pad+"\t\t\t\t\t\t", fmt.Sprintf("fmt.Errorf(\"openai.Chat tool %s args: %%w\", err)", spec.Method.Name)))
+			b.WriteString(fmt.Sprintf("%s\t\t\t\t\t\t%s = fmt.Errorf(\"the arguments do not match the tool's parameters: %%w\", err)\n", pad, toolErrVar))
 			b.WriteString(fmt.Sprintf("%s\t\t\t\t\t}\n", pad))
 			b.WriteString(fmt.Sprintf("%s\t\t\t\t}\n", pad))
+			b.WriteString(fmt.Sprintf("%s\t\t\t\tif %s == nil {\n", pad, toolErrVar))
 			if strings.EqualFold(strings.TrimSpace(spec.ServiceName), strings.TrimSpace(st.serviceName)) {
-				b.WriteString(fmt.Sprintf("%s\t\t\t\t%s, err := s.%s(ctx, %s)\n", pad, respVarName, ExportName(spec.Method.Name), reqVarName))
+				b.WriteString(fmt.Sprintf("%s\t\t\t\t\t%s, err := s.%s(ctx, %s)\n", pad, respVarName, ExportName(spec.Method.Name), reqVarName))
 			} else {
-				b.WriteString(fmt.Sprintf("%s\t\t\t\t%s, err := s.%sService.%s(ctx, %s)\n", pad, respVarName, ExportName(spec.ServiceName), ExportName(spec.Method.Name), reqVarName))
+				b.WriteString(fmt.Sprintf("%s\t\t\t\t\t%s, err := s.%sService.%s(ctx, %s)\n", pad, respVarName, ExportName(spec.ServiceName), ExportName(spec.Method.Name), reqVarName))
 			}
-			b.WriteString(fmt.Sprintf("%s\t\t\t\tif err != nil {\n", pad))
-			b.WriteString(errReturn(st, pad+"\t\t\t\t\t", fmt.Sprintf("fmt.Errorf(\"openai.Chat tool %s: %%w\", err)", spec.Method.Name)))
+			b.WriteString(fmt.Sprintf("%s\t\t\t\t\tif err != nil {\n", pad))
+			b.WriteString(fmt.Sprintf("%s\t\t\t\t\t\t%s = err\n", pad, toolErrVar))
+			b.WriteString(fmt.Sprintf("%s\t\t\t\t\t} else {\n", pad))
+			b.WriteString(fmt.Sprintf("%s\t\t\t\t\t\t%s, _ := json.Marshal(%s)\n", pad, rawRespVar, respVarName))
+			b.WriteString(fmt.Sprintf("%s\t\t\t\t\t\t%s = string(%s)\n", pad, toolContentVar, rawRespVar))
+			b.WriteString(fmt.Sprintf("%s\t\t\t\t\t}\n", pad))
 			b.WriteString(fmt.Sprintf("%s\t\t\t\t}\n", pad))
-			b.WriteString(fmt.Sprintf("%s\t\t\t\t%s, _ := json.Marshal(%s)\n", pad, rawRespVar, respVarName))
-			b.WriteString(fmt.Sprintf("%s\t\t\t\t%s = append(%s, map[string]any{\"role\": \"tool\", \"tool_call_id\": _tc%s.ID, \"content\": string(%s)})\n", pad, msgsVar, msgsVar, sfx, rawRespVar))
+			b.WriteString(fmt.Sprintf("%s\t\t\t\tif %s != nil {\n", pad, toolErrVar))
+			b.WriteString(fmt.Sprintf("%s\t\t\t\t\t_toolErrRaw, _ := json.Marshal(map[string]string{\"error\": %s.Error()})\n", pad, toolErrVar))
+			b.WriteString(fmt.Sprintf("%s\t\t\t\t\t%s = string(_toolErrRaw)\n", pad, toolContentVar))
+			b.WriteString(fmt.Sprintf("%s\t\t\t\t}\n", pad))
+			b.WriteString(fmt.Sprintf("%s\t\t\t\t%s = append(%s, map[string]any{\"role\": \"tool\", \"tool_call_id\": _tc%s.ID, \"content\": %s})\n", pad, msgsVar, msgsVar, sfx, toolContentVar))
 			b.WriteString(fmt.Sprintf("%s\t\t\t\t%s = true\n", pad, handledVar))
 		}
+		// A tool the model invented gets the same answer: it is told the name
+		// does not exist, and the turn goes on.
 		b.WriteString(fmt.Sprintf("%s\t\t\tdefault:\n", pad))
-		b.WriteString(errReturn(st, pad+"\t\t\t\t", fmt.Sprintf("fmt.Errorf(\"openai.Chat unknown tool: %%s\", _tc%s.Function.Name)", sfx)))
+		b.WriteString(fmt.Sprintf("%s\t\t\t\t_toolUnknownRaw, _ := json.Marshal(map[string]string{\"error\": \"there is no tool named \" + _tc%s.Function.Name})\n", pad, sfx))
+		b.WriteString(fmt.Sprintf("%s\t\t\t\t%s = append(%s, map[string]any{\"role\": \"tool\", \"tool_call_id\": _tc%s.ID, \"content\": string(_toolUnknownRaw)})\n", pad, msgsVar, msgsVar, sfx))
+		b.WriteString(fmt.Sprintf("%s\t\t\t\t%s = true\n", pad, handledVar))
 		b.WriteString(fmt.Sprintf("%s\t\t\t}\n", pad))
 		b.WriteString(fmt.Sprintf("%s\t\t}\n", pad))
 		b.WriteString(fmt.Sprintf("%s\tif !%s {\n", pad, handledVar))
@@ -478,7 +499,7 @@ func renderTypedStepOpenAI(st *flowRenderState, step flowir.TypedStep, indent in
 		output, maxTokens := typed.Output, typed.MaxTokens
 		var systemExpr string
 		if system != "" && systemContext != "" {
-			systemExpr = fmt.Sprintf(`%s + "\n\n== Current project CUE content ==\n" + %s`, system, systemContext)
+			systemExpr = fmt.Sprintf(`%s + "\n\n== Context ==\n" + %s`, system, systemContext)
 		} else if system != "" {
 			systemExpr = system
 		} else if systemContext != "" {

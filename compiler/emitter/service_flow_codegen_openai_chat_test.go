@@ -174,3 +174,62 @@ func TestRenderFlow_OpenAIChat_StructuredOutput(t *testing.T) {
 		}
 	}
 }
+
+// A tool that refuses must answer the model rather than end the turn, and the
+// schema must tell the model which values a field accepts.
+func TestRenderFlow_OpenAIChat_ToolErrorsGoBackToTheModel(t *testing.T) {
+	t.Parallel()
+
+	services := []normalizer.Service{{
+		Name: "Tender",
+		Methods: []normalizer.Method{{
+			Name:        "CreateDraft",
+			Description: "Create a draft",
+			Input: normalizer.Entity{
+				Name: "CreateDraftRequest",
+				Fields: []normalizer.Field{
+					{Name: "participate", Type: "string", IsOptional: true, Constraints: &normalizer.Constraints{Enum: []string{"onlyTaxes", "taxesOrNot"}}},
+					{Name: "attachmentIDs", Type: "[]string", IsOptional: true},
+				},
+			},
+			Output: normalizer.Entity{Name: "CreateDraftResponse"},
+		}},
+	}}
+	steps := []normalizer.FlowStep{{
+		Action: "openai.Chat",
+		Args: map[string]any{
+			"user_message":   "req.Message",
+			"system":         `"sys"`,
+			"system_context": "ctxLine",
+			"model":          `"gpt-5-mini"`,
+			"tools":          []string{"CreateDraft"},
+			"max_rounds":     4,
+			"output":         "reply",
+		},
+	}}
+	got := renderFlowForServiceWithSchemaAndSinkModeWithInfra("Tender", "Chat", false, steps, nil, nil, nil,
+		map[string]any{flowInfraKeyServicesCatalog: services})
+
+	for _, needle := range []string{
+		`\"enum\":[\"onlyTaxes\",\"taxesOrNot\"]`,
+		`\"items\":{\"type\":\"string\"}`,
+		`_toolErr_0CreateDraft = err`,
+		`map[string]string{"error": _toolErr_0CreateDraft.Error()}`,
+		`the arguments do not match the tool's parameters`,
+		`"there is no tool named " + _tc`,
+		`"\n\n== Context ==\n" + ctxLine`,
+	} {
+		if !strings.Contains(got, needle) {
+			t.Fatalf("expected %q in generated code, got:\n%s", needle, got)
+		}
+	}
+	for _, banned := range []string{
+		`fmt.Errorf("openai.Chat tool CreateDraft: %w", err)`,
+		`openai.Chat unknown tool`,
+		`Current project CUE content`,
+	} {
+		if strings.Contains(got, banned) {
+			t.Fatalf("generated code still contains %q", banned)
+		}
+	}
+}
