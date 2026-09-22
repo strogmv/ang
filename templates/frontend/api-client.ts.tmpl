@@ -68,6 +68,34 @@ export const setResponseValidationReporter = (reporter: ResponseValidationReport
   responseValidationReporter = reporter;
 };
 
+export type ApiClientRequestInfo = { url: string; method: string };
+
+/**
+ * Hooks the app installs around every request: marking background requests
+ * with a header, reading session headers, reacting to an ended session. Every
+ * beforeRequest is followed by exactly one afterResponse (response is
+ * undefined when the request never got one). A throwing hook is logged and
+ * never breaks the request.
+ */
+export type ApiClientHooks = {
+  beforeRequest?: (headers: Headers, request: ApiClientRequestInfo) => void;
+  afterResponse?: (response: Response | undefined, request: ApiClientRequestInfo, data: unknown) => void;
+};
+
+let apiClientHooks: ApiClientHooks = {};
+
+export const setApiClientHooks = (hooks: ApiClientHooks) => {
+  apiClientHooks = hooks;
+};
+
+const runHook = (name: string, run: () => void) => {
+  try {
+    run();
+  } catch (hookError) {
+    apiLogger.error(`[ANG SDK] ${name} hook failed`, hookError);
+  }
+};
+
 /**
  * Interface for Client-Side Encryption.
  * If provided, SDK will use it to handle fields marked as Encrypted<T>.
@@ -308,6 +336,8 @@ class KyApiClient {
         headers.set('Pragma', 'no-cache');
       }
       if (endpoint?.idempotent && config.method !== 'GET' && !headers.has('Idempotency-Key')) headers.set('Idempotency-Key', hex(32));
+      const requestInfo: ApiClientRequestInfo = { url: config.url, method: config.method };
+      runHook('beforeRequest', () => apiClientHooks.beforeRequest?.(headers, requestInfo));
 
       const kyOptions: Parameters<typeof ky>[1] = {
         method: config.method,
@@ -335,6 +365,7 @@ class KyApiClient {
         response = await ky(requestUrl, kyOptions);
         data = await readResponseBody(response);
       } catch (cause) {
+        runHook('afterResponse', () => apiClientHooks.afterResponse?.(undefined, requestInfo, undefined));
         if (config.signal?.aborted) throw cause;
         const error = makeError(cause instanceof Error ? cause.message : 'Network request failed', config, meta, undefined, undefined, true);
         if (shouldRetry(meta, undefined, true)) {
@@ -346,6 +377,7 @@ class KyApiClient {
         throw normalizeError(error);
       }
 
+      runHook('afterResponse', () => apiClientHooks.afterResponse?.(response, requestInfo, data));
       if (response.ok) {
         return { data: data as T, status: response.status, statusText: response.statusText, headers: response.headers, config };
       }

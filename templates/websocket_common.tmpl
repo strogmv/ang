@@ -9,6 +9,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -85,6 +86,27 @@ type wsClient struct {
 	send              chan []byte
 	rooms             map[string]struct{}
 	allowDynamicRooms bool
+	// sessionID is the cookie session the socket was opened with. The socket
+	// lives only as long as that session: when it ends (idle, expired, signed
+	// out elsewhere) the server closes it with code 4401.
+	sessionID string
+}
+
+// wsSessionCloseCode tells the client the socket closed because its session
+// ended, so it stops reconnecting and goes to sign-in.
+const wsSessionCloseCode = 4401
+
+// wsWatchedSessionID returns the cookie session behind a socket that was
+// authenticated by it, or "" when a token authenticated it.
+func wsWatchedSessionID(r *http.Request) string {
+	if !opaqueSessionEnabled() || r.URL.Query().Get("token") != "" {
+		return ""
+	}
+	payload, err := resolveOpaqueSession(r, false)
+	if err != nil || payload == nil {
+		return ""
+	}
+	return payload.ID
 }
 
 // wsMessage is a message to be broadcasted to a specific room.
@@ -239,6 +261,12 @@ func (c *wsClient) writePump() {
 			}
 		case <-ticker.C:
 			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if c.sessionID != "" {
+				if alive, _ := opaqueSessionAlive(context.Background(), c.sessionID); !alive {
+					c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(wsSessionCloseCode, "session ended"))
+					return
+				}
+			}
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}

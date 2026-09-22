@@ -67,6 +67,19 @@ export const setWebSocketLogger = (logger: WebSocketLogger) => {
   };
 };
 
+/** Close code the server uses when the socket's session ended (idle, expired, signed out elsewhere). */
+export const WS_SESSION_ENDED_CLOSE_CODE = 4401;
+
+let sessionEndedListener: (() => void) | null = null;
+
+/**
+ * Called once per socket the server closed because its session ended. Such a
+ * socket does not reconnect: without a session it would only be refused again.
+ */
+export const setWebSocketSessionEndedListener = (listener: (() => void) | null) => {
+  sessionEndedListener = listener;
+};
+
 export class WebSocketClient<T = WSMessage> {
   private ws: WebSocket | null = null;
   private readonly url: string;
@@ -219,6 +232,14 @@ export class WebSocketClient<T = WSMessage> {
         this.connectPromise = null;
         if (!opened) {
           rejectOnce(new Error(`WebSocket closed before open (${event.code})`));
+        }
+        if (event.code === WS_SESSION_ENDED_CLOSE_CODE) {
+          this.shouldReconnect = false;
+          try {
+            sessionEndedListener?.();
+          } catch (listenerError) {
+            wsLogger.error('WS session-ended listener failed', listenerError);
+          }
         }
         if (this.shouldReconnect) {
           this.scheduleReconnect();

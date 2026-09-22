@@ -207,6 +207,9 @@ func ensureRuntimeConfigFields(config *normalizer.ConfigDef) *normalizer.ConfigD
 	// refresh token. An empty value keeps the feature disabled for existing
 	// applications until their CUE config opts in.
 	add("AuthSessionIdleTTL", "string", "AUTH_SESSION_IDLE_TTL", "", false)
+	// The absolute lifetime of an opaque browser session, however active.
+	// Empty keeps the refresh-token lifetime as the only limit.
+	add("AuthSessionMaxTTL", "string", "AUTH_SESSION_MAX_TTL", "", false)
 	// Tracing may contain request metadata. Do not create an OTLP exporter
 	// unless an explicit collector URL is configured; the upstream default is
 	// localhost:4318, which is unsuitable for production by default.

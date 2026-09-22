@@ -70,7 +70,51 @@ type opaqueSessionPayload struct {
 	Locale       string   `json:"locale,omitempty"`
 	Timezone     string   `json:"timezone,omitempty"`
 	ExpiresAt    int64    `json:"exp,omitempty"`
+	// LastActiveAt is the last request that counted as the person using the
+	// app (unix seconds). The idle deadline is LastActiveAt plus
+	// AUTH_SESSION_IDLE_TTL; requests marked passive leave it alone.
+	LastActiveAt int64 `json:"act,omitempty"`
+	// Ended is set once the server has closed the session ("idle" or
+	// "expired"). The record stays for a while as a tombstone so that every
+	// tab still holding the cookie gets the same answer.
+	Ended string `json:"ended,omitempty"`
 }
+
+// sessionEndedError: the cookie names a session that no longer admits
+// requests. Reason is "idle", "expired" or "ended" (logged out elsewhere,
+// revoked, or long gone).
+type sessionEndedError struct {
+	reason string
+}
+
+func (e *sessionEndedError) Error() string { return "opaque session " + e.reason }
+
+// sessionStoreError: the session could not be read or written. Nothing is
+// known about the session, so the answer is 503 and the cookie is kept.
+type sessionStoreError struct {
+	err error
+}
+
+func (e *sessionStoreError) Error() string { return "session store: " + e.err.Error() }
+
+func (e *sessionStoreError) Unwrap() error { return e.err }
+
+const (
+	// A request carrying "X-Session-Activity: passive" is answered normally
+	// but does not count as the person using the app: background polling,
+	// presence heartbeats and requests sent while the tab is idle say so, and
+	// only real activity moves the idle deadline.
+	sessionActivityHeader  = "X-Session-Activity"
+	sessionActivityPassive = "passive"
+	// Response headers that let the client show a warning before the server
+	// ends the session. Remaining times are relative, so client clock skew
+	// does not matter.
+	sessionIdleTimeoutHeader   = "X-Session-Idle-Timeout"
+	sessionIdleRemainingHeader = "X-Session-Idle-Remaining"
+	sessionRemainingHeader     = "X-Session-Remaining"
+	// How long an ended session keeps its tombstone.
+	sessionEndedGrace = time.Hour
+)
 
 var (
 	authMode         = "{{ .Mode }}"
@@ -422,34 +466,72 @@ func authSessionKey(sessionID string) string {
 	return "auth_session:" + strings.TrimSpace(sessionID)
 }
 
+func parsePositiveDuration(raw string) time.Duration {
+	d, err := time.ParseDuration(strings.TrimSpace(raw))
+	if err != nil || d <= 0 {
+		return 0
+	}
+	return d
+}
+
+// authSessionIdleTTL is how long a browser session survives without user
+// activity (AUTH_SESSION_IDLE_TTL). Zero switches the idle deadline off.
 func authSessionIdleTTL() time.Duration {
 	if authCfg == nil {
 		return 0
 	}
-	ttl, err := time.ParseDuration(strings.TrimSpace(authCfg.AuthSessionIdleTTL))
-	if err != nil || ttl <= 0 {
-		return 0
+	return parsePositiveDuration(authCfg.AuthSessionIdleTTL)
+}
+
+// authSessionAbsoluteTTL is the longest a browser session lives after sign-in,
+// however active: AUTH_SESSION_MAX_TTL, never longer than the refresh token.
+func authSessionAbsoluteTTL() time.Duration {
+	ttl := 7 * 24 * time.Hour
+	if authCfg != nil {
+		if d := parsePositiveDuration(authCfg.JWTRefreshTTL); d > 0 {
+			ttl = d
+		}
+		if d := parsePositiveDuration(authCfg.AuthSessionMaxTTL); d > 0 && d < ttl {
+			ttl = d
+		}
 	}
 	return ttl
 }
 
+// authSessionTouchInterval: an active request rewrites the session at most
+// this often, so a busy page does not turn every request into a Redis write.
+func authSessionTouchInterval(idle time.Duration) time.Duration {
+	interval := 15 * time.Second
+	if idle > 0 && idle/4 < interval {
+		interval = idle / 4
+	}
+	return interval
+}
+
+// authSessionTTL is the Redis expiry of a live session: its absolute
+// deadline or its idle deadline, whichever comes first, plus the tombstone
+// grace. The idle check itself reads LastActiveAt, so
+// the key outliving the idle deadline is what lets the server answer "idle".
 func authSessionTTL(payload opaqueSessionPayload) time.Duration {
-	maxTTL := 7 * 24 * time.Hour
+	if payload.Ended != "" {
+		return sessionEndedGrace
+	}
+	// The record outlives its absolute deadline by the grace period, so a
+	// request just after it is answered "expired" rather than "unknown".
+	ttl := authSessionAbsoluteTTL() + sessionEndedGrace
 	if payload.ExpiresAt > 0 {
-		if ttl := time.Until(time.Unix(payload.ExpiresAt, 0)); ttl > 0 {
-			maxTTL = ttl
-		} else {
+		ttl = time.Until(time.Unix(payload.ExpiresAt, 0).Add(sessionEndedGrace))
+		if ttl <= 0 {
 			return time.Second
 		}
-	} else if authCfg != nil {
-		if d, err := time.ParseDuration(strings.TrimSpace(authCfg.JWTRefreshTTL)); err == nil && d > 0 {
-			maxTTL = d
+	}
+	if idle := authSessionIdleTTL(); idle > 0 && payload.LastActiveAt > 0 {
+		idleTTL := time.Until(time.Unix(payload.LastActiveAt, 0).Add(idle + sessionEndedGrace))
+		if idleTTL > 0 && idleTTL < ttl {
+			ttl = idleTTL
 		}
 	}
-	if idleTTL := authSessionIdleTTL(); idleTTL > 0 && idleTTL < maxTTL {
-		return idleTTL
-	}
-	return maxTTL
+	return ttl
 }
 
 func generateOpaqueSessionID() (string, error) {
@@ -477,11 +559,55 @@ func saveOpaqueSession(ctx context.Context, payload opaqueSessionPayload) error 
 	return nil
 }
 
-// touchOpaqueSession renews the Redis expiry after an authenticated request.
-// The payload keeps its original refresh-token expiry, so frequent requests
-// cannot extend a session beyond that maximum lifetime.
-func touchOpaqueSession(ctx context.Context, payload opaqueSessionPayload) error {
-	return saveOpaqueSession(ctx, payload)
+// requestCountsAsActivity: does this request mean the person is using the
+// app? Requests marked passive and WebSocket handshakes (reconnect loops) do
+// not.
+func requestCountsAsActivity(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(r.Header.Get(sessionActivityHeader)), sessionActivityPassive) {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(r.Header.Get("Upgrade")), "websocket") {
+		return false
+	}
+	return true
+}
+
+// endOpaqueSession closes a session for good: its refresh token is revoked,
+// it leaves the user's session index, and a tombstone keeps the reason for
+// the other tabs that still send the cookie.
+func endOpaqueSession(ctx context.Context, payload opaqueSessionPayload, reason string) {
+	if authRefreshStore != nil && strings.TrimSpace(payload.RefreshToken) != "" {
+		_ = authRefreshStore.Revoke(ctx, payload.RefreshToken)
+	}
+	unregisterSessionForUser(ctx, payload.UserID, payload.ID)
+	_ = saveOpaqueSession(ctx, opaqueSessionPayload{ID: payload.ID, UserID: payload.UserID, Ended: reason})
+}
+
+// writeSessionHeaders tells the client how long the session has left, so it
+// can warn before the idle deadline instead of guessing it.
+func writeSessionHeaders(w http.ResponseWriter, payload *opaqueSessionPayload) {
+	if w == nil || payload == nil {
+		return
+	}
+	now := time.Now()
+	if payload.ExpiresAt > 0 {
+		w.Header().Set(sessionRemainingHeader, fmt.Sprintf("%d", sessionMaxInt64(0, payload.ExpiresAt-now.Unix())))
+	}
+	if idle := authSessionIdleTTL(); idle > 0 && payload.LastActiveAt > 0 {
+		remaining := int64(time.Unix(payload.LastActiveAt, 0).Add(idle).Sub(now) / time.Second)
+		w.Header().Set(sessionIdleTimeoutHeader, fmt.Sprintf("%d", int64(idle/time.Second)))
+		w.Header().Set(sessionIdleRemainingHeader, fmt.Sprintf("%d", sessionMaxInt64(0, remaining)))
+	}
+}
+
+func sessionMaxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func deleteOpaqueSession(ctx context.Context, sessionID string) error {
@@ -643,15 +769,18 @@ func buildOpaqueSessionPayload(accessToken, refreshToken string) (*opaqueSession
 		Locale:       ac.Locale,
 		Timezone:     ac.Timezone,
 	}
-	if authCfg != nil {
-		if d, err := time.ParseDuration(strings.TrimSpace(authCfg.JWTRefreshTTL)); err == nil && d > 0 {
-			payload.ExpiresAt = time.Now().Add(d).Unix()
-		}
-	}
+	now := time.Now()
+	payload.ExpiresAt = now.Add(authSessionAbsoluteTTL()).Unix()
+	payload.LastActiveAt = now.Unix()
 	return payload, nil
 }
 
-func readOpaqueSessionPayload(r *http.Request) (*opaqueSessionPayload, error) {
+// resolveOpaqueSession returns the live session behind the request's cookie.
+// Errors are typed: *sessionEndedError when the cookie names a session that
+// is over (idle, expired, ended), *sessionStoreError when the store cannot
+// answer, a plain error when there is no session cookie at all. With renew,
+// a request that counts as activity moves the idle deadline.
+func resolveOpaqueSession(r *http.Request, renew bool) (*opaqueSessionPayload, error) {
 	if !opaqueSessionEnabled() {
 		return nil, fmt.Errorf("opaque session mode is disabled")
 	}
@@ -659,27 +788,85 @@ func readOpaqueSessionPayload(r *http.Request) (*opaqueSessionPayload, error) {
 	if err != nil || strings.TrimSpace(cookie.Value) == "" {
 		return nil, fmt.Errorf("missing session cookie")
 	}
-	payload, err := findOpaqueSession(r.Context(), cookie.Value)
+	ctx := r.Context()
+	payload, err := findOpaqueSession(ctx, cookie.Value)
 	if err != nil {
-		return nil, err
+		return nil, &sessionStoreError{err: err}
 	}
 	if payload == nil {
-		return nil, fmt.Errorf("opaque session not found")
+		return nil, &sessionEndedError{reason: "ended"}
 	}
 	if strings.TrimSpace(payload.ID) == "" {
 		payload.ID = strings.TrimSpace(cookie.Value)
 	}
-	if payload == nil || strings.TrimSpace(payload.RefreshToken) == "" || strings.TrimSpace(payload.UserID) == "" {
-		return nil, fmt.Errorf("invalid opaque session payload")
+	if payload.Ended != "" {
+		return nil, &sessionEndedError{reason: payload.Ended}
 	}
-	if payload.ExpiresAt > 0 && time.Now().Unix() > payload.ExpiresAt {
-		_ = deleteOpaqueSession(r.Context(), payload.ID)
-		return nil, fmt.Errorf("opaque session expired")
+	if strings.TrimSpace(payload.RefreshToken) == "" || strings.TrimSpace(payload.UserID) == "" {
+		_ = deleteOpaqueSession(ctx, payload.ID)
+		return nil, &sessionEndedError{reason: "ended"}
 	}
-	if err := touchOpaqueSession(r.Context(), *payload); err != nil {
-		return nil, fmt.Errorf("renew opaque session: %w", err)
+	now := time.Now()
+	if payload.ExpiresAt > 0 && now.Unix() >= payload.ExpiresAt {
+		endOpaqueSession(ctx, *payload, "expired")
+		return nil, &sessionEndedError{reason: "expired"}
+	}
+	idle := authSessionIdleTTL()
+	if idle > 0 && payload.LastActiveAt > 0 && !now.Before(time.Unix(payload.LastActiveAt, 0).Add(idle)) {
+		endOpaqueSession(ctx, *payload, "idle")
+		return nil, &sessionEndedError{reason: "idle"}
+	}
+	if authRefreshStore == nil {
+		return nil, &sessionStoreError{err: fmt.Errorf("opaque session store is not configured")}
+	}
+	rec, err := authRefreshStore.Find(ctx, payload.RefreshToken)
+	if err != nil {
+		return nil, &sessionStoreError{err: err}
+	}
+	if rec == nil || rec.Revoked || (!rec.ExpiresAt.IsZero() && now.After(rec.ExpiresAt)) || rec.UserID != payload.UserID {
+		// Revoked by logout-all or a password reset, or simply gone.
+		unregisterSessionForUser(ctx, payload.UserID, payload.ID)
+		_ = deleteOpaqueSession(ctx, payload.ID)
+		return nil, &sessionEndedError{reason: "ended"}
+	}
+	// Sessions written before the idle deadline existed start their clock now.
+	touch := payload.LastActiveAt == 0
+	if renew && requestCountsAsActivity(r) && now.Sub(time.Unix(payload.LastActiveAt, 0)) >= authSessionTouchInterval(idle) {
+		touch = true
+	}
+	if touch {
+		payload.LastActiveAt = now.Unix()
+		if err := saveOpaqueSession(ctx, *payload); err != nil {
+			return nil, &sessionStoreError{err: err}
+		}
 	}
 	return payload, nil
+}
+
+// readOpaqueSessionPayload is resolveOpaqueSession for a request that may
+// renew the session.
+func readOpaqueSessionPayload(r *http.Request) (*opaqueSessionPayload, error) {
+	return resolveOpaqueSession(r, true)
+}
+
+// opaqueSessionAlive checks, without renewing anything, whether a session
+// still admits requests. Long-lived connections poll it.
+func opaqueSessionAlive(ctx context.Context, sessionID string) (alive bool, known bool) {
+	payload, err := findOpaqueSession(ctx, sessionID)
+	if err != nil {
+		return true, false
+	}
+	if payload == nil || payload.Ended != "" {
+		return false, true
+	}
+	now := time.Now()
+	if payload.ExpiresAt > 0 && now.Unix() >= payload.ExpiresAt {
+		return false, true
+	}
+	if idle := authSessionIdleTTL(); idle > 0 && payload.LastActiveAt > 0 && !now.Before(time.Unix(payload.LastActiveAt, 0).Add(idle)) {
+		return false, true
+	}
+	return true, true
 }
 
 func authRefreshTokenFromRequest(r *http.Request) (string, error) {
@@ -697,39 +884,51 @@ func authRefreshTokenFromRequest(r *http.Request) (string, error) {
 	return c.Value, nil
 }
 
+func claimsFromOpaqueSession(payload *opaqueSessionPayload) map[string]any {
+	return authClaimsFromContext(authContext{
+		UserID:    payload.UserID,
+		CompanyID: payload.CompanyID,
+		Roles:     payload.Roles,
+		Perms:     payload.Perms,
+		Scopes:    payload.Scopes,
+		Locale:    payload.Locale,
+		Timezone:  payload.Timezone,
+	})
+}
+
 func authClaimsFromCookieSession(r *http.Request) (map[string]any, error) {
 	if opaqueSessionEnabled() {
 		payload, err := readOpaqueSessionPayload(r)
 		if err != nil {
 			return nil, err
 		}
-		if authRefreshStore == nil {
-			return nil, fmt.Errorf("opaque session store is not configured")
-		}
-		rec, err := authRefreshStore.Find(r.Context(), payload.RefreshToken)
-		if err != nil {
-			return nil, err
-		}
-		if rec == nil || rec.Revoked || (!rec.ExpiresAt.IsZero() && time.Now().After(rec.ExpiresAt)) {
-			return nil, fmt.Errorf("opaque session is invalid")
-		}
-		if rec.UserID != payload.UserID {
-			return nil, fmt.Errorf("opaque session user mismatch")
-		}
-		return authClaimsFromContext(authContext{
-			UserID:    payload.UserID,
-			CompanyID: payload.CompanyID,
-			Roles:     payload.Roles,
-			Perms:     payload.Perms,
-			Scopes:    payload.Scopes,
-			Locale:    payload.Locale,
-			Timezone:  payload.Timezone,
-		}), nil
+		return claimsFromOpaqueSession(payload), nil
 	}
 	if c, cookieErr := r.Cookie(authAccessCookieName); cookieErr == nil && strings.TrimSpace(c.Value) != "" {
 		return parseAndVerifyJWT(c.Value)
 	}
 	return nil, fmt.Errorf("missing access token cookie")
+}
+
+// writeSessionFailure answers a request whose cookie session could not be
+// used. An ended session gets a code the client can tell apart from "never
+// signed in"; the cookie stays so that other tabs get the same answer. A
+// store failure is 503: nothing is known, so nothing is cleared.
+func writeSessionFailure(w http.ResponseWriter, r *http.Request, err error) bool {
+	switch e := err.(type) {
+	case *sessionStoreError:
+		slog.Warn("auth: session store unavailable", "error", e.err)
+		errors.WriteError(w, r, errors.New(http.StatusServiceUnavailable, "SESSION_STORE_UNAVAILABLE", "The session could not be checked. Try again in a moment."))
+		return true
+	case *sessionEndedError:
+		if e.reason == "idle" {
+			errors.WriteError(w, r, errors.New(http.StatusUnauthorized, "SESSION_IDLE_TIMEOUT", "The session ended after a period of inactivity"))
+		} else {
+			errors.WriteError(w, r, errors.New(http.StatusUnauthorized, "SESSION_EXPIRED", "The session has ended"))
+		}
+		return true
+	}
+	return false
 }
 
 // Secure is the default, and plaintext is the exception that has to be asked
@@ -802,7 +1001,9 @@ func writeAuthCookies(w http.ResponseWriter, r *http.Request, accessToken, refre
 			Name:     authSessionCookieName,
 			Value:    payload.ID,
 			Path:     "/",
-			MaxAge:   authCookieMaxAge(refreshTTL, 7*time.Hour*24),
+			// The cookie outlives the session by the grace period so that the
+			// server can still say why the session ended.
+			MaxAge:   int((authSessionAbsoluteTTL() + sessionEndedGrace) / time.Second),
 			HttpOnly: true,
 			Secure:   authCookieSecure(r),
 			SameSite: http.SameSiteLaxMode,
@@ -946,9 +1147,16 @@ func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var claims map[string]any
 		var err error
+		var sessionErr error
 		if cookieAuthEnabled() {
 			if opaqueSessionEnabled() {
-				claims, err = authClaimsFromCookieSession(r)
+				var session *opaqueSessionPayload
+				session, sessionErr = readOpaqueSessionPayload(r)
+				if sessionErr == nil {
+					claims = claimsFromOpaqueSession(session)
+					writeSessionHeaders(w, session)
+				}
+				err = sessionErr
 			} else {
 				if c, cookieErr := r.Cookie(authAccessCookieName); cookieErr == nil && strings.TrimSpace(c.Value) != "" {
 					claims, err = parseAndVerifyJWT(c.Value)
@@ -972,6 +1180,9 @@ func AuthMiddleware(next http.Handler) http.Handler {
 {{- end }}
 			}
 			if err != nil || claims == nil {
+				if writeSessionFailure(w, r, sessionErr) {
+					return
+				}
 				clearAuthCookies(w, r)
 				errors.WriteError(w, r, errors.New(http.StatusUnauthorized, "Unauthorized", "Valid session cookie required"))
 				return

@@ -175,6 +175,7 @@ func handler{{ .RPC }}WS(svc port.{{ $.Name }}) http.HandlerFunc {
 			send:              make(chan []byte, 256),
 			rooms:             initialRooms,
 			allowDynamicRooms: {{ if .AllowDynamicRooms }}true{{ else }}false{{ end }},
+			sessionID:         wsWatchedSessionID(r),
 		}
 		client.hub.register <- client
 

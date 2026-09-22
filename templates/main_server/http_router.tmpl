@@ -28,11 +28,13 @@
 	if len(corsAllowedOrigins) == 0 {
 		log.Warn("CORS_ORIGINS is not set: no cross-origin browser request will be accepted. Set it to the app's origin.")
 	}
+	// X-Session-* response headers let the app warn before an idle sign-out,
+	// so a cross-origin app must be allowed to read them.
 	corsMiddleware := cors.New(cors.Options{
 		AllowedOrigins:   corsAllowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"*"},
-		ExposedHeaders:   []string{"Link", "X-Total-Count"},
+		ExposedHeaders:   []string{"Link", "X-Total-Count", "X-Session-Idle-Timeout", "X-Session-Idle-Remaining", "X-Session-Remaining"},
 		AllowCredentials: corsAllowCredentials,
 		MaxAge:           300,
 	})
