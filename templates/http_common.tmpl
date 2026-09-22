@@ -422,19 +422,34 @@ func authSessionKey(sessionID string) string {
 	return "auth_session:" + strings.TrimSpace(sessionID)
 }
 
+func authSessionIdleTTL() time.Duration {
+	if authCfg == nil {
+		return 0
+	}
+	ttl, err := time.ParseDuration(strings.TrimSpace(authCfg.AuthSessionIdleTTL))
+	if err != nil || ttl <= 0 {
+		return 0
+	}
+	return ttl
+}
+
 func authSessionTTL(payload opaqueSessionPayload) time.Duration {
+	maxTTL := 7 * 24 * time.Hour
 	if payload.ExpiresAt > 0 {
 		if ttl := time.Until(time.Unix(payload.ExpiresAt, 0)); ttl > 0 {
-			return ttl
+			maxTTL = ttl
+		} else {
+			return time.Second
 		}
-		return time.Second
-	}
-	if authCfg != nil {
+	} else if authCfg != nil {
 		if d, err := time.ParseDuration(strings.TrimSpace(authCfg.JWTRefreshTTL)); err == nil && d > 0 {
-			return d
+			maxTTL = d
 		}
 	}
-	return 7 * 24 * time.Hour
+	if idleTTL := authSessionIdleTTL(); idleTTL > 0 && idleTTL < maxTTL {
+		return idleTTL
+	}
+	return maxTTL
 }
 
 func generateOpaqueSessionID() (string, error) {
@@ -460,6 +475,13 @@ func saveOpaqueSession(ctx context.Context, payload opaqueSessionPayload) error 
 	defer authSessionMu.Unlock()
 	authSessionMemory[payload.ID] = payload
 	return nil
+}
+
+// touchOpaqueSession renews the Redis expiry after an authenticated request.
+// The payload keeps its original refresh-token expiry, so frequent requests
+// cannot extend a session beyond that maximum lifetime.
+func touchOpaqueSession(ctx context.Context, payload opaqueSessionPayload) error {
+	return saveOpaqueSession(ctx, payload)
 }
 
 func deleteOpaqueSession(ctx context.Context, sessionID string) error {
@@ -653,6 +675,9 @@ func readOpaqueSessionPayload(r *http.Request) (*opaqueSessionPayload, error) {
 	if payload.ExpiresAt > 0 && time.Now().Unix() > payload.ExpiresAt {
 		_ = deleteOpaqueSession(r.Context(), payload.ID)
 		return nil, fmt.Errorf("opaque session expired")
+	}
+	if err := touchOpaqueSession(r.Context(), *payload); err != nil {
+		return nil, fmt.Errorf("renew opaque session: %w", err)
 	}
 	return payload, nil
 }

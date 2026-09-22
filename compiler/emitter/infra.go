@@ -203,6 +203,10 @@ func ensureRuntimeConfigFields(config *normalizer.ConfigDef) *normalizer.ConfigD
 	add("JWTAudience", "string", "JWT_AUDIENCE", "ang-api", false)
 	add("JWTAccessTTL", "string", "JWT_ACCESS_TTL", "15m", false)
 	add("JWTRefreshTTL", "string", "JWT_REFRESH_TTL", "168h", false)
+	// The idle deadline belongs to the opaque server-side session, not to the
+	// refresh token. An empty value keeps the feature disabled for existing
+	// applications until their CUE config opts in.
+	add("AuthSessionIdleTTL", "string", "AUTH_SESSION_IDLE_TTL", "", false)
 	// Referenced unconditionally by templates/http_common.tmpl (authCfg.JWTRotation).
 	// Must be emitted or fresh projects without a legacy config field fail to compile.
 	add("JWTRotation", "bool", "JWT_ROTATION", "true", false)

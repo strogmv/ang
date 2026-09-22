@@ -58,6 +58,22 @@ func TestEnsureRuntimeConfigFields_JWTPublicKeyIsOptional(t *testing.T) {
 	t.Fatalf("JWTPublicKey field was not injected")
 }
 
+func TestEnsureRuntimeConfigFields_AuthSessionIdleTimeoutDefaultsDisabled(t *testing.T) {
+	t.Parallel()
+
+	cfg := ensureRuntimeConfigFields(&normalizer.ConfigDef{})
+	for _, field := range cfg.Fields {
+		if field.Name != "AuthSessionIdleTTL" {
+			continue
+		}
+		if field.Type != "string" || field.EnvVar != "AUTH_SESSION_IDLE_TTL" || field.Default != "" {
+			t.Fatalf("unexpected AuthSessionIdleTTL field: %+v", field)
+		}
+		return
+	}
+	t.Fatal("AuthSessionIdleTTL field was not injected")
+}
+
 func TestEnsureRuntimeConfigFields_EmailProviderDefaultsToNoop(t *testing.T) {
 	t.Parallel()
 
