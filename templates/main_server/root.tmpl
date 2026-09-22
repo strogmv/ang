@@ -33,10 +33,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	tp, err := tracing.Init("ang-service")
+	tp, err := tracing.Init("ang-service", cfg.OTELExporterOTLPTracesEndpoint)
 	if err != nil {
 		log.Error("Failed to init tracing", "error", err)
-	} else {
+	} else if tp != nil {
 		log.Info("Tracing initialized")
 		defer func() {
 			if err := tp.Shutdown(ctx); err != nil {

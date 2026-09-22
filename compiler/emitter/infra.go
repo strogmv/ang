@@ -207,6 +207,10 @@ func ensureRuntimeConfigFields(config *normalizer.ConfigDef) *normalizer.ConfigD
 	// refresh token. An empty value keeps the feature disabled for existing
 	// applications until their CUE config opts in.
 	add("AuthSessionIdleTTL", "string", "AUTH_SESSION_IDLE_TTL", "", false)
+	// Tracing may contain request metadata. Do not create an OTLP exporter
+	// unless an explicit collector URL is configured; the upstream default is
+	// localhost:4318, which is unsuitable for production by default.
+	add("OTELExporterOTLPTracesEndpoint", "string", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "", false)
 	// Referenced unconditionally by templates/http_common.tmpl (authCfg.JWTRotation).
 	// Must be emitted or fresh projects without a legacy config field fail to compile.
 	add("JWTRotation", "bool", "JWT_ROTATION", "true", false)

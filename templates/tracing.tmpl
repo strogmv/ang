@@ -3,6 +3,7 @@ package tracing
 import (
 	"context"
 	"fmt"
+	"strings"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -10,11 +11,21 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
 )
 
-func Init(serviceName string) (*sdktrace.TracerProvider, error) {
+// Init configures OTLP export only when endpoint is explicitly set. A nil
+// provider means tracing remains disabled and the global OpenTelemetry no-op
+// provider is left in place.
+func Init(serviceName, endpoint string) (*sdktrace.TracerProvider, error) {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return nil, nil
+	}
+
 	ctx := context.Background()
-	
-	// TODO: Connect to Jaeger/OTEL Collector via Config
-	exporter, err := otlptracehttp.New(ctx, otlptracehttp.WithInsecure())
+
+	// Endpoint is a complete, signal-specific OTLP/HTTP URL, for example
+	// https://collector.example.com/v1/traces. Its scheme controls TLS; do not
+	// force plaintext transport here.
+	exporter, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(endpoint))
 	if err != nil {
 		return nil, fmt.Errorf("creating OTLP exporter: %w", err)
 	}

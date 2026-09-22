@@ -74,6 +74,22 @@ func TestEnsureRuntimeConfigFields_AuthSessionIdleTimeoutDefaultsDisabled(t *tes
 	t.Fatal("AuthSessionIdleTTL field was not injected")
 }
 
+func TestEnsureRuntimeConfigFields_TracingEndpointDefaultsDisabled(t *testing.T) {
+	t.Parallel()
+
+	cfg := ensureRuntimeConfigFields(&normalizer.ConfigDef{})
+	for _, field := range cfg.Fields {
+		if field.Name != "OTELExporterOTLPTracesEndpoint" {
+			continue
+		}
+		if field.Type != "string" || field.EnvVar != "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT" || field.Default != "" {
+			t.Fatalf("unexpected OTELExporterOTLPTracesEndpoint field: %+v", field)
+		}
+		return
+	}
+	t.Fatal("OTELExporterOTLPTracesEndpoint field was not injected")
+}
+
 func TestEnsureRuntimeConfigFields_EmailProviderDefaultsToNoop(t *testing.T) {
 	t.Parallel()
 
