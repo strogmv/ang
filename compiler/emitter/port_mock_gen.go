@@ -255,6 +255,9 @@ func qualifyPortExpr(expr ast.Expr, localTypes map[string]struct{}) string {
 func renderPortMockSource(goModule string, spec portInterfaceSpec, importPaths map[string]string) (string, error) {
 	importSet := map[string]string{
 		"port": filepath.ToSlash(strings.TrimSpace(goModule) + "/internal/port"),
+		// Recorded calls are guarded by a mutex, so a mock shared by
+		// goroutines passes under -race.
+		"sync": "sync",
 	}
 	for _, m := range spec.Methods {
 		for _, field := range append(append([]portFieldSpec{}, m.Params...), m.Results...) {
@@ -297,6 +300,10 @@ func renderPortMockSource(goModule string, spec portInterfaceSpec, importPaths m
 		b.WriteString("\t" + method.Name + "Func func(" + renderFieldSignature(method.Params) + ")" + renderResultSignature(method.Results) + "\n")
 		b.WriteString("\t" + method.Name + "Calls []" + mockType + method.Name + "Call\n")
 	}
+	b.WriteString("\n\t// callsMu guards every <Method>Calls slice: a call appends under it and\n")
+	b.WriteString("\t// <Method>CallsSnapshot reads under it. The slices stay exported so a\n")
+	b.WriteString("\t// single-goroutine test can still read them directly.\n")
+	b.WriteString("\tcallsMu sync.Mutex\n")
 	b.WriteString("}\n\n")
 	b.WriteString("var _ port." + spec.Name + " = (*" + mockType + ")(nil)\n\n")
 	b.WriteString("func New" + spec.Name + "() *" + mockType + " {\n")
@@ -314,6 +321,7 @@ func renderPortMockSource(goModule string, spec portInterfaceSpec, importPaths m
 		b.WriteString("}\n\n")
 
 		b.WriteString("func (m *" + mockType + ") " + method.Name + "(" + renderFieldSignature(method.Params) + ")" + renderResultSignature(method.Results) + " {\n")
+		b.WriteString("\tm.callsMu.Lock()\n")
 		b.WriteString("\tm." + method.Name + "Calls = append(m." + method.Name + "Calls, " + callType + "{")
 		for i, field := range method.Params {
 			if i > 0 {
@@ -322,6 +330,7 @@ func renderPortMockSource(goModule string, spec portInterfaceSpec, importPaths m
 			b.WriteString(ExportName(field.Name) + ": " + field.Name)
 		}
 		b.WriteString("})\n")
+		b.WriteString("\tm.callsMu.Unlock()\n")
 		b.WriteString("\tif m." + method.Name + "Func != nil {\n")
 		if len(method.Results) == 0 {
 			b.WriteString("\t\tm." + method.Name + "Func(" + renderFieldNames(method.Params) + ")\n")
@@ -345,6 +354,14 @@ func renderPortMockSource(goModule string, spec portInterfaceSpec, importPaths m
 			}
 			b.WriteString("\n")
 		}
+		b.WriteString("}\n\n")
+
+		b.WriteString("// " + method.Name + "CallsSnapshot returns a copy of the recorded " + method.Name + " calls,\n")
+		b.WriteString("// safe to read while other goroutines still call the mock.\n")
+		b.WriteString("func (m *" + mockType + ") " + method.Name + "CallsSnapshot() []" + callType + " {\n")
+		b.WriteString("\tm.callsMu.Lock()\n")
+		b.WriteString("\tdefer m.callsMu.Unlock()\n")
+		b.WriteString("\treturn append([]" + callType + "(nil), m." + method.Name + "Calls...)\n")
 		b.WriteString("}\n\n")
 	}
 	return b.String(), nil
