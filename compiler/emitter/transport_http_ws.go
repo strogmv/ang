@@ -469,11 +469,22 @@ func (e *Emitter) EmitWebSocket(irEndpoints []ir.Endpoint, irServices []ir.Servi
 			return fmt.Errorf("missing method %s for service %s", ep.RPC, ep.ServiceName)
 		}
 		authCheckHasCompanyID := false
+		var authCheckInput normalizer.Entity
+		authCheckCompanyField, authCheckUserField := "", ""
 		if ep.AuthCheck != "" {
-			if authMethod, ok := methods[ep.AuthCheck]; ok {
-				authCheckHasCompanyID = hasField(authMethod.Input, "companyId")
+			authMethod, ok := methods[ep.AuthCheck]
+			if !ok {
+				return fmt.Errorf("websocket %s %s: auth.check %q is not a method of service %s", ep.Method, ep.Path, ep.AuthCheck, ep.ServiceName)
 			}
+			authCheckInput = authMethod.Input
+			authCheckHasCompanyID = hasField(authMethod.Input, "companyId")
+			authCheckCompanyField = exportedFieldName(authMethod.Input, "companyId")
+			authCheckUserField = exportedFieldName(authMethod.Input, "userId")
+			groups[ep.ServiceName].HasAuthCheck = true
 		}
+		// A per-room check guards the room in the path. Dynamic subscribe
+		// frames would let the socket join other rooms without it.
+		allowDynamicRooms := ep.AuthCheck == "" && hasDynamicRoomSiblings(ep, endpoints)
 		var broadcasts []normalizer.Entity
 		for _, evt := range ep.Messages {
 			if ent, ok := eventMap[evt]; ok {
@@ -489,8 +500,11 @@ func (e *Emitter) EmitWebSocket(irEndpoints []ir.Endpoint, irServices []ir.Servi
 			Input:                 method.Input,
 			RoomParam:             roomParam,
 			RoomField:             roomField,
-			AllowDynamicRooms:     hasDynamicRoomSiblings(ep, endpoints),
+			AllowDynamicRooms:     allowDynamicRooms,
 			AuthCheckHasCompanyID: authCheckHasCompanyID,
+			AuthCheckInput:        authCheckInput,
+			AuthCheckCompanyField: authCheckCompanyField,
+			AuthCheckUserField:    authCheckUserField,
 		})
 	}
 
@@ -537,6 +551,17 @@ func (e *Emitter) EmitWebSocket(irEndpoints []ir.Endpoint, irServices []ir.Servi
 	}
 
 	return nil
+}
+
+// exportedFieldName returns the Go name of ent's field matching name
+// case-insensitively (companyId matches companyID), or "" when there is none.
+func exportedFieldName(ent normalizer.Entity, name string) string {
+	for _, f := range ent.Fields {
+		if strings.EqualFold(f.Name, name) {
+			return ExportName(f.Name)
+		}
+	}
+	return ""
 }
 
 func firstPathParam(path string) string {

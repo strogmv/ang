@@ -38,6 +38,13 @@ type WsEndpointView struct {
 	RoomField             string
 	AllowDynamicRooms     bool
 	AuthCheckHasCompanyID bool
+	// AuthCheckInput is the request of the auth.check operation. Its fields
+	// named after path params are filled from the path; AuthCheckCompanyField
+	// and AuthCheckUserField (Go names, "" when absent) take the caller's
+	// company and user from the handshake. The check runs before the upgrade.
+	AuthCheckInput        normalizer.Entity
+	AuthCheckCompanyField string
+	AuthCheckUserField    string
 }
 
 type WsServiceGroup struct {
@@ -45,6 +52,7 @@ type WsServiceGroup struct {
 	Endpoints    []WsEndpointView
 	HasBroadcast bool
 	HasRooms     bool
+	HasAuthCheck bool
 }
 
 func buildRequireRoles(roles []string) string {

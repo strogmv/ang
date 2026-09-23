@@ -378,6 +378,42 @@ func wsReadAuthToken(conn *websocket.Conn) (userID string, companyID string, err
 	return getStringClaim(claims, authUserClaim), getStringClaim(claims, authCompanyClaim), nil
 }
 
+// wsIdentity is the caller behind a WebSocket handshake.
+type wsIdentity struct {
+	UserID    string
+	CompanyID string
+}
+
+// wsHandshakeIdentity authenticates the handshake request itself, before the
+// upgrade: a JWT in ?token=, else the session cookie. An endpoint with a
+// per-room access check needs it, because the check has to refuse the caller
+// with a status code, and after the upgrade there is none to send. Clients
+// that authenticate with the post-upgrade auth frame cannot open such rooms.
+// A session that ended comes back as the session store's error, so the
+// caller can answer it like any other request.
+func wsHandshakeIdentity(r *http.Request) (wsIdentity, error) {
+	if raw := r.URL.Query().Get("token"); raw != "" {
+		claims, err := parseAndVerifyJWT(raw)
+		if err != nil {
+			return wsIdentity{}, fmt.Errorf("ws auth: %w", err)
+		}
+		ident := wsIdentity{UserID: getStringClaim(claims, authUserClaim), CompanyID: getStringClaim(claims, authCompanyClaim)}
+		if ident.UserID == "" {
+			return wsIdentity{}, fmt.Errorf("ws auth: token has no user")
+		}
+		return ident, nil
+	}
+	claims, err := authClaimsFromCookieSession(r)
+	if err != nil {
+		return wsIdentity{}, err
+	}
+	ac := authContextFromClaims(claims)
+	if ac.UserID == "" {
+		return wsIdentity{}, fmt.Errorf("ws auth: session has no user")
+	}
+	return wsIdentity{UserID: ac.UserID, CompanyID: ac.CompanyID}, nil
+}
+
 // wsReadAuthTokenOrQuery authenticates a WebSocket connection using the same
 // credentials as the HTTP API. It first checks for a JWT in the ?token= query
 // parameter, then the configured auth cookie (including opaque sid sessions),

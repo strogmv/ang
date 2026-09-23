@@ -16,6 +16,9 @@ import (
 	{{- if .HasBroadcast }}
 	"{{GoModule}}/internal/domain"
 	{{- end }}
+	{{- if .HasAuthCheck }}
+	"{{GoModule}}/internal/pkg/errors"
+	{{- end }}
 	"{{GoModule}}/internal/port"
 )
 
@@ -106,35 +109,6 @@ func handler{{ .RPC }}WS(svc port.{{ $.Name }}) http.HandlerFunc {
 		{{- end }}
 		_ = req // silence unused warning if no params extracted
 		{{- end }}
-		{{- if .AuthCheck }}
-		{{- $ep := . }}
-		var authReq port.{{ .AuthCheck }}Request
-		{{- range .Input.Fields }}
-		{{- $param := ParamForField $ep.Path .Name }}
-		{{- if ne $param "" }}
-		authReq.{{ .Name | ExportName }} = chi.URLParam(r, "{{ $param }}")
-		{{- end }}
-		{{- end }}
-		{{- if .AuthCheckHasCompanyID }}
-		authReq.CompanyId = CurrentCompanyID(r)
-		{{- end }}
-		authResp, err := svc.{{ .AuthCheck }}(r.Context(), authReq)
-		if err != nil {
-			http.Error(w, "access check failed", http.StatusInternalServerError)
-			return
-		}
-		if !authResp.Allowed {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
-		{{- end }}
-		conn, err := wsUpgrader.Upgrade(w, r, nil)
-		if err != nil {
-			return
-		}
-
-		// Auth happens post-upgrade: client sends { type: "auth", token: "<jwt>" } as first message.
-		// This keeps JWT out of the URL (access logs, browser history, Referer headers).
 		{{- $needsUserID := false }}
 		{{- if .RoomParam }}
 		{{- $roomParam := ParamForField .Path .RoomParam }}
@@ -144,6 +118,58 @@ func handler{{ .RPC }}WS(svc port.{{ $.Name }}) http.HandlerFunc {
 		{{- else if HasInputField .Input "userId" }}
 		{{- $needsUserID = true }}
 		{{- end }}
+		{{- if .AuthCheck }}
+		// auth.check {{ .AuthCheck }} guards this room. It runs before the
+		// upgrade, on the identity the handshake itself carries (?token= or the
+		// session cookie), so a caller it refuses gets a plain 401/403 and never
+		// a socket. The post-upgrade auth frame cannot be used here.
+		{{- if or .AuthCheckUserField .AuthCheckCompanyField $needsUserID }}
+		wsIdent, wsIdentErr := wsHandshakeIdentity(r)
+		{{- else }}
+		_, wsIdentErr := wsHandshakeIdentity(r)
+		{{- end }}
+		if wsIdentErr != nil {
+			if !writeSessionFailure(w, r, wsIdentErr) {
+				errors.WriteError(w, r, errors.New(http.StatusUnauthorized, "Unauthorized", "Sign in to open this stream"))
+			}
+			return
+		}
+		var authReq port.{{ .AuthCheck }}Request
+		{{- range .AuthCheckInput.Fields }}
+		{{- $param := ParamForField $ep.Path .Name }}
+		{{- if ne $param "" }}
+		authReq.{{ .Name | ExportName }} = chi.URLParam(r, "{{ $param }}")
+		{{- end }}
+		{{- end }}
+		{{- if .AuthCheckCompanyField }}
+		authReq.{{ .AuthCheckCompanyField }} = wsIdent.CompanyID
+		{{- end }}
+		{{- if .AuthCheckUserField }}
+		authReq.{{ .AuthCheckUserField }} = wsIdent.UserID
+		{{- end }}
+		authResp, err := svc.{{ .AuthCheck }}(r.Context(), authReq)
+		if err != nil {
+			errors.WriteError(w, r, err)
+			return
+		}
+		if !authResp.Allowed {
+			errors.WriteError(w, r, errors.New(http.StatusForbidden, "Forbidden", "Insufficient access"))
+			return
+		}
+		{{- end }}
+		conn, err := wsUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+
+		{{- if .AuthCheck }}
+		{{- if $needsUserID }}
+		wsUserID := wsIdent.UserID
+		{{- end }}
+		{{- else }}
+
+		// Auth happens post-upgrade: client sends { type: "auth", token: "<jwt>" } as first message.
+		// This keeps JWT out of the URL (access logs, browser history, Referer headers).
 		{{- if $needsUserID }}
 		wsUserID, _, wsAuthErr := wsReadAuthTokenOrQuery(conn, r)
 		{{- else }}
@@ -152,6 +178,7 @@ func handler{{ .RPC }}WS(svc port.{{ $.Name }}) http.HandlerFunc {
 		if wsAuthErr != nil {
 			return
 		}
+		{{- end }}
 
 		roomID := ""
 		{{- if .RoomParam }}
