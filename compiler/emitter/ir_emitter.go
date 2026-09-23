@@ -621,12 +621,7 @@ func IREndpointsToNormalizer(irEndpoints []ir.Endpoint) []normalizer.Endpoint {
 			endpoint.AuthInject = ep.Auth.Inject
 		}
 
-		if ep.RateLimit != nil {
-			endpoint.RateLimit = &normalizer.RateLimitDef{
-				RPS:   ep.RateLimit.RPS,
-				Burst: ep.RateLimit.Burst,
-			}
-		}
+		endpoint.RateLimit, endpoint.RateLimits = rateLimitsFromIR(ep.RateLimit, ep.RateLimits)
 
 		if ep.CircuitBreaker != nil {
 			endpoint.CircuitBreaker = &normalizer.CircuitBreakerDef{

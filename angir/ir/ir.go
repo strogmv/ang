@@ -516,6 +516,7 @@ type Endpoint struct {
 	Invalidate       []string        `json:"invalidate"`
 	OptimisticUpdate string          `json:"optimistic_update"`
 	RateLimit        *RateLimit      `json:"rate_limit,omitempty"`
+	RateLimits       []RateLimit     `json:"rate_limits,omitempty"` // every stacked limit; [0] == *RateLimit
 	CircuitBreaker   *CircuitBreaker `json:"circuit_breaker,omitempty"`
 	Retry            *RetryPolicy    `json:"retry,omitempty"`
 	Timeout          string          `json:"timeout"`        // Request timeout (e.g. "5s", "30s")
@@ -557,8 +558,11 @@ type Scope struct {
 
 // RateLimit describes rate limiting.
 type RateLimit struct {
-	RPS   int `json:"rps"`
-	Burst int `json:"burst"`
+	RPS         int    `json:"rps"`
+	Burst       int    `json:"burst"`
+	Window      string `json:"window,omitempty"` // fixed-window quota duration, e.g. "1h"
+	WindowLimit int    `json:"limit,omitempty"`  // max requests per window
+	Key         string `json:"key,omitempty"`    // "", "ip", "user" or "company"
 }
 
 type CircuitBreaker struct {

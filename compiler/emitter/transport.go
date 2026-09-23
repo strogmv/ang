@@ -80,6 +80,20 @@ func formatIntSlice(ints []int) string {
 	return "[]int{" + strings.Join(strs, ", ") + "}"
 }
 
+// buildRateLimitMiddleware renders one rate limit. An address-keyed limit keeps
+// the historical RateLimitMiddleware call; user/company limits go through
+// RateLimitByMiddleware, which reads the identity AuthMiddleware stored (it
+// runs earlier in the chain) and falls back to the address without one.
+func buildRateLimitMiddleware(rl normalizer.RateLimitDef) string {
+	windowSecs := rateLimitWindowSeconds(rl.Window)
+	if key := rl.KeyOrIP(); key != normalizer.RateLimitKeyIP {
+		return fmt.Sprintf("RateLimitByMiddleware(%q, %d, %d, %d, %d)",
+			key, rl.RPS, rl.Burst, windowSecs, rl.WindowLimit)
+	}
+	return fmt.Sprintf("RateLimitMiddleware(%d, %d, %d, %d)",
+		rl.RPS, rl.Burst, windowSecs, rl.WindowLimit)
+}
+
 func buildMiddlewareList(ep normalizer.Endpoint, includeCache, includeIdempotency bool) string {
 	return buildMiddlewareListFull(ep, includeCache, includeIdempotency, false)
 }
@@ -107,10 +121,8 @@ func buildMiddlewareListFull(ep normalizer.Endpoint, includeCache, includeIdempo
 	if includeCache && p.CacheTTL != "" {
 		parts = append(parts, fmt.Sprintf("CacheMiddleware(%q)", p.CacheTTL))
 	}
-	if p.RateLimit != nil {
-		windowSecs := rateLimitWindowSeconds(p.RateLimit.Window)
-		parts = append(parts, fmt.Sprintf("RateLimitMiddleware(%d, %d, %d, %d)",
-			p.RateLimit.RPS, p.RateLimit.Burst, windowSecs, p.RateLimit.WindowLimit))
+	for _, rl := range p.RateLimits {
+		parts = append(parts, buildRateLimitMiddleware(rl))
 	}
 	if ep.Coalesce {
 		parts = append(parts, "SingleflightMiddleware()")

@@ -23,19 +23,7 @@ func (n *Normalizer) ExtractEndpoints(val cue.Value) ([]Endpoint, error) {
 	var defaultRateLimit *RateLimitDef
 	defaultRLVal := httpVal.LookupPath(cue.ParsePath("default_rate_limit"))
 	if defaultRLVal.Exists() {
-		defaultRateLimit = &RateLimitDef{}
-		if v, err := defaultRLVal.LookupPath(cue.ParsePath("rps")).Int64(); err == nil {
-			defaultRateLimit.RPS = int(v)
-		}
-		if v, err := defaultRLVal.LookupPath(cue.ParsePath("burst")).Int64(); err == nil {
-			defaultRateLimit.Burst = int(v)
-		}
-		if v, err := defaultRLVal.LookupPath(cue.ParsePath("window")).String(); err == nil {
-			defaultRateLimit.Window = v
-		}
-		if v, err := defaultRLVal.LookupPath(cue.ParsePath("limit")).Int64(); err == nil {
-			defaultRateLimit.WindowLimit = int(v)
-		}
+		defaultRateLimit = parseRateLimitDef(defaultRLVal)
 	}
 
 	// Extract default_timeout if defined
@@ -328,27 +316,21 @@ func (n *Normalizer) ExtractEndpoints(val cue.Value) ([]Endpoint, error) {
 
 		rlVal := epVal.LookupPath(cue.ParsePath("rate_limit"))
 		if rlVal.Exists() {
-			rl := &RateLimitDef{}
-			if v, err := rlVal.LookupPath(cue.ParsePath("rps")).Int64(); err == nil {
-				rl.RPS = int(v)
+			limits, err := parseRateLimits(rlVal)
+			if err != nil {
+				return nil, fmt.Errorf("HTTP endpoint %s: %w", epName, err)
 			}
-			if v, err := rlVal.LookupPath(cue.ParsePath("burst")).Int64(); err == nil {
-				rl.Burst = int(v)
-			}
-			if v, err := rlVal.LookupPath(cue.ParsePath("window")).String(); err == nil {
-				rl.Window = v
-			}
-			if v, err := rlVal.LookupPath(cue.ParsePath("limit")).Int64(); err == nil {
-				rl.WindowLimit = int(v)
-			}
-			if rl.RPS > 0 || rl.Burst > 0 || rl.WindowLimit > 0 {
-				ep.RateLimit = rl
+			if len(limits) > 0 {
+				ep.RateLimits = limits
+				ep.RateLimit = &ep.RateLimits[0]
 			}
 		}
 
 		// Apply default rate limit if endpoint doesn't have explicit one
 		if ep.RateLimit == nil && defaultRateLimit != nil {
-			ep.RateLimit = defaultRateLimit
+			rl := *defaultRateLimit
+			ep.RateLimits = []RateLimitDef{rl}
+			ep.RateLimit = &ep.RateLimits[0]
 		}
 
 		// Parse max_concurrent (backpressure via semaphore)
@@ -485,4 +467,55 @@ func mergeJSONMaps(dst, src map[string]any) {
 		}
 		dst[k] = v
 	}
+}
+
+// parseRateLimitDef reads one rate_limit entry.
+func parseRateLimitDef(v cue.Value) *RateLimitDef {
+	rl := &RateLimitDef{}
+	if x, err := v.LookupPath(cue.ParsePath("rps")).Int64(); err == nil {
+		rl.RPS = int(x)
+	}
+	if x, err := v.LookupPath(cue.ParsePath("burst")).Int64(); err == nil {
+		rl.Burst = int(x)
+	}
+	if x, err := v.LookupPath(cue.ParsePath("window")).String(); err == nil {
+		rl.Window = x
+	}
+	if x, err := v.LookupPath(cue.ParsePath("limit")).Int64(); err == nil {
+		rl.WindowLimit = int(x)
+	}
+	if x, err := v.LookupPath(cue.ParsePath("key")).String(); err == nil {
+		rl.Key = strings.TrimSpace(x)
+	}
+	return rl
+}
+
+// parseRateLimits reads rate_limit as one entry or a list of entries. Entries
+// that limit nothing are dropped; the order is kept, so the first entry is the
+// endpoint's primary limit (the one OpenAPI and the SDK describe).
+func parseRateLimits(v cue.Value) ([]RateLimitDef, error) {
+	var raw []*RateLimitDef
+	if v.IncompleteKind() == cue.ListKind {
+		it, err := v.List()
+		if err != nil {
+			return nil, fmt.Errorf("rate_limit: %w", err)
+		}
+		for it.Next() {
+			raw = append(raw, parseRateLimitDef(it.Value()))
+		}
+	} else {
+		raw = append(raw, parseRateLimitDef(v))
+	}
+	var out []RateLimitDef
+	for _, rl := range raw {
+		switch rl.Key {
+		case "", RateLimitKeyIP, RateLimitKeyUser, RateLimitKeyCompany:
+		default:
+			return nil, fmt.Errorf("rate_limit key %q: want \"ip\", \"user\" or \"company\"", rl.Key)
+		}
+		if rl.RPS > 0 || rl.Burst > 0 || rl.WindowLimit > 0 {
+			out = append(out, *rl)
+		}
+	}
+	return out, nil
 }

@@ -1674,7 +1674,8 @@ func SetRedisClient(c *redis.Client) {
 	}
 }
 
-// RateLimitMiddleware enforces per-IP rate limiting at two levels:
+// RateLimitMiddleware enforces per-IP rate limiting at two levels
+// (RateLimitByMiddleware does the same per user or company):
 //   - rps/burst : per-second token-bucket (Redis when available, in-memory fallback)
 //   - windowSecs/windowLimit : fixed-window quota (e.g. 10 builds/hour)
 //     windowLimit=0 disables the window check.
@@ -1699,6 +1700,40 @@ func init() {
 }
 
 func RateLimitMiddleware(rps, burst, windowSecs, windowLimit int) func(http.Handler) http.Handler {
+	return rateLimitMiddleware(rps, burst, windowSecs, windowLimit, realClientIP)
+}
+
+// RateLimitByMiddleware is RateLimitMiddleware with a budget per identity
+// instead of per address, so colleagues behind one office NAT do not share
+// (and cannot exhaust) each other's allowance. key is "user" (the
+// authenticated user id) or "company" (the company id, then the user id).
+// It must run after AuthMiddleware; a request without an identity falls back
+// to its address. Counters live where RateLimitMiddleware's do: Redis when
+// SetRedisClient was called (shared by every replica), process memory
+// otherwise.
+func RateLimitByMiddleware(key string, rps, burst, windowSecs, windowLimit int) func(http.Handler) http.Handler {
+	return rateLimitMiddleware(rps, burst, windowSecs, windowLimit, rateLimitIdentity(key))
+}
+
+// rateLimitIdentity returns the bucket name for a keyed limit. Identity
+// buckets carry a "u:" / "c:" prefix so they can never meet an address.
+func rateLimitIdentity(key string) func(*http.Request) string {
+	return func(r *http.Request) string {
+		if key == "company" {
+			if id := CurrentCompanyID(r); id != "" {
+				return "c:" + id
+			}
+		}
+		if key == "user" || key == "company" {
+			if id := CurrentUserID(r); id != "" {
+				return "u:" + id
+			}
+		}
+		return realClientIP(r)
+	}
+}
+
+func rateLimitMiddleware(rps, burst, windowSecs, windowLimit int, bucketOf func(*http.Request) string) func(http.Handler) http.Handler {
 	max := rps
 	if burst > max {
 		max = burst
@@ -1710,8 +1745,7 @@ func RateLimitMiddleware(rps, burst, windowSecs, windowLimit int) func(http.Hand
 				next.ServeHTTP(w, r)
 				return
 			}
-			ip := realClientIP(r)
-			clientKey := fmt.Sprintf("%d:%s", scope, ip)
+			clientKey := fmt.Sprintf("%d:%s", scope, bucketOf(r))
 			now := time.Now()
 
 			// ---- per-second RPS check ----

@@ -1441,7 +1441,18 @@ import "github.com/strogmv/ang/cue/project"
 	burst?:  int
 	window?: string // duration, e.g. "1h", "30m" — enables fixed-window quota
 	limit?:  int    // max requests per window (requires window)
+	// Whose budget a request spends. "ip" (default): the client address, so
+	// everyone behind one NAT shares it. "user": the authenticated user id,
+	// falling back to the address when the request carries no identity.
+	// "company": the authenticated company id (then user id, then address).
+	// "user" and "company" need endpoint auth.
+	key?: *"ip" | "user" | "company"
 }
+
+// #RateLimitSpec is one limit or a stack of them; every entry is enforced on its
+// own counters, e.g. [{key: "user", rps: 10}, {key: "ip", rps: 100}] gives each
+// user a budget and still caps what one address can send in total.
+#RateLimitSpec: #RateLimitDef | [#RateLimitDef, ...#RateLimitDef]
 
 #CircuitBreaker: {
 	threshold:     int | *5      // сбоев до открытия
@@ -1481,7 +1492,7 @@ import "github.com/strogmv/ang/cue/project"
 		}
 		invalidate?: [...string] // RPC methods to invalidate after this mutation
 		optimistic_update?: string // GET RPC method to update optimistically
-		rate_limit?:      #RateLimitDef
+		rate_limit?:      #RateLimitSpec
 		circuit_breaker?: #CircuitBreaker
 		retry?:           #RetryPolicy
 		timeout?:         string // Request timeout (e.g. "5s", "30s", "1m")

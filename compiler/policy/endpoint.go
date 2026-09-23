@@ -16,6 +16,7 @@ type EndpointPolicy struct {
 	Idempotency    bool
 	MaxBodySize    int64
 	RateLimit      *normalizer.RateLimitDef
+	RateLimits     []normalizer.RateLimitDef // every stacked limit, primary first
 	CircuitBreaker *normalizer.CircuitBreakerDef
 	Retry          RetryPolicy
 	Validation     ValidationPolicy
@@ -51,6 +52,10 @@ func FromEndpoint(ep normalizer.Endpoint) EndpointPolicy {
 	if ep.RateLimit != nil {
 		rl := *ep.RateLimit
 		p.RateLimit = &rl
+		p.RateLimits = append([]normalizer.RateLimitDef{}, ep.RateLimits...)
+		if len(p.RateLimits) == 0 {
+			p.RateLimits = []normalizer.RateLimitDef{rl}
+		}
 	}
 	if ep.CircuitBreaker != nil {
 		cb := *ep.CircuitBreaker

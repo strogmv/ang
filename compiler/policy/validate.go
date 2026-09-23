@@ -27,9 +27,24 @@ func ValidateEndpoint(ep normalizer.Endpoint) error {
 	if ep.MaxBodySize < 0 {
 		return fmt.Errorf("max_body_size cannot be negative")
 	}
-	if ep.RateLimit != nil {
-		if ep.RateLimit.RPS < 0 || ep.RateLimit.Burst < 0 {
+	limits := ep.RateLimits
+	if len(limits) == 0 && ep.RateLimit != nil {
+		limits = []normalizer.RateLimitDef{*ep.RateLimit}
+	}
+	for _, rl := range limits {
+		if rl.RPS < 0 || rl.Burst < 0 || rl.WindowLimit < 0 {
 			return fmt.Errorf("rate_limit values cannot be negative")
+		}
+		switch rl.KeyOrIP() {
+		case normalizer.RateLimitKeyIP:
+		case normalizer.RateLimitKeyUser, normalizer.RateLimitKeyCompany:
+			// Without auth there is no identity to key by; every request
+			// would silently fall back to the address.
+			if ep.AuthType == "" || ep.AuthType == "none" {
+				return fmt.Errorf("rate_limit key %q needs endpoint auth", rl.Key)
+			}
+		default:
+			return fmt.Errorf("rate_limit key %q: want \"ip\", \"user\" or \"company\"", rl.Key)
 		}
 	}
 	if ep.RetryPolicy != nil {

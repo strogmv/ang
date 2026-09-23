@@ -339,12 +339,7 @@ func (e *Emitter) AnalyzeContextFromIR(schema *ir.Schema) MainContext {
 			n.AuthCheck = ep.Auth.Check
 			n.AuthInject = append([]string{}, ep.Auth.Inject...)
 		}
-		if ep.RateLimit != nil {
-			n.RateLimit = &normalizer.RateLimitDef{
-				RPS:   ep.RateLimit.RPS,
-				Burst: ep.RateLimit.Burst,
-			}
-		}
+		n.RateLimit, n.RateLimits = rateLimitsFromIR(ep.RateLimit, ep.RateLimits)
 		if ep.CircuitBreaker != nil {
 			n.CircuitBreaker = &normalizer.CircuitBreakerDef{
 				Threshold:   ep.CircuitBreaker.Threshold,

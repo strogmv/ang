@@ -451,3 +451,27 @@ func rateLimitWindowSeconds(window string) int {
 	}
 	return int(d.Seconds())
 }
+
+// rateLimitsFromIR turns an IR endpoint's limits back into the normalizer
+// shape: the primary limit plus the full stack (primary first). Window, quota
+// and key are carried; losing them here once dropped every declared hourly
+// quota from the generated routes.
+func rateLimitsFromIR(primary *ir.RateLimit, stack []ir.RateLimit) (*normalizer.RateLimitDef, []normalizer.RateLimitDef) {
+	if primary == nil && len(stack) == 0 {
+		return nil, nil
+	}
+	if len(stack) == 0 {
+		stack = []ir.RateLimit{*primary}
+	}
+	out := make([]normalizer.RateLimitDef, 0, len(stack))
+	for _, rl := range stack {
+		out = append(out, normalizer.RateLimitDef{
+			RPS:         rl.RPS,
+			Burst:       rl.Burst,
+			Window:      rl.Window,
+			WindowLimit: rl.WindowLimit,
+			Key:         rl.Key,
+		})
+	}
+	return &out[0], out
+}

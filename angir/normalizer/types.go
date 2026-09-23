@@ -352,7 +352,8 @@ type Endpoint struct {
 	CacheTags        []string
 	Invalidate       []string
 	OptimisticUpdate string
-	RateLimit        *RateLimitDef
+	RateLimit        *RateLimitDef  // primary limit, = &RateLimits[0]
+	RateLimits       []RateLimitDef // every stacked limit, each on its own counters
 	CircuitBreaker   *CircuitBreakerDef
 	RetryPolicy      *RetryPolicyDef
 	Timeout          string // Request timeout (e.g. "5s", "30s")
@@ -394,6 +395,24 @@ type RateLimitDef struct {
 	Burst       int
 	Window      string // duration string, e.g. "1h"
 	WindowLimit int    // max requests per window (0 = disabled)
+	// Key selects whose budget a request spends: "" or "ip" (client address),
+	// "user" (authenticated user id, address as fallback) or "company".
+	Key string
+}
+
+// Rate-limit keys accepted by RateLimitDef.Key.
+const (
+	RateLimitKeyIP      = "ip"
+	RateLimitKeyUser    = "user"
+	RateLimitKeyCompany = "company"
+)
+
+// KeyOrIP returns the limit's key with the empty default spelled out.
+func (rl RateLimitDef) KeyOrIP() string {
+	if rl.Key == "" {
+		return RateLimitKeyIP
+	}
+	return rl.Key
 }
 
 type CircuitBreakerDef struct {

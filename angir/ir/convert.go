@@ -651,9 +651,13 @@ func ConvertEndpoint(ep normalizer.Endpoint) Endpoint {
 
 	// Convert rate limit
 	if ep.RateLimit != nil {
-		endpoint.RateLimit = &RateLimit{
-			RPS:   ep.RateLimit.RPS,
-			Burst: ep.RateLimit.Burst,
+		rl := rateLimitFromNormalizer(*ep.RateLimit)
+		endpoint.RateLimit = &rl
+		for _, def := range ep.RateLimits {
+			endpoint.RateLimits = append(endpoint.RateLimits, rateLimitFromNormalizer(def))
+		}
+		if len(endpoint.RateLimits) == 0 {
+			endpoint.RateLimits = []RateLimit{rl}
 		}
 	}
 
@@ -942,5 +946,15 @@ func convertConstraints(c *normalizer.Constraints) *Constraints {
 		MaxLen: c.MaxLen,
 		Regex:  c.Regex,
 		Enum:   c.Enum,
+	}
+}
+
+func rateLimitFromNormalizer(rl normalizer.RateLimitDef) RateLimit {
+	return RateLimit{
+		RPS:         rl.RPS,
+		Burst:       rl.Burst,
+		Window:      rl.Window,
+		WindowLimit: rl.WindowLimit,
+		Key:         rl.Key,
 	}
 }
