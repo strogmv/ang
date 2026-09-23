@@ -1994,13 +1994,25 @@ func CircuitBreakerMiddleware(threshold int, timeout string, halfOpenMax int) fu
 			sw := &statusResponseWriter{ResponseWriter: w}
 			next.ServeHTTP(sw, r)
 
-			if sw.status >= 500 {
+			if breakerCountsFailure(sw.status) {
 				breaker.RecordFailure()
 			} else {
 				breaker.RecordSuccess()
 			}
 		})
 	}
+}
+
+// breakerCountsFailure says whether a response is the kind of failure a
+// circuit breaker exists for: the route broke (500), a dependency answered
+// badly (502) or took too long (504). A 503 is the service itself saying a
+// dependency is unavailable or unconfigured (a malware scanner without
+// CLAMD_ADDR, a full concurrency limit): it already fails fast with its own
+// code, so counting it would only replace that code with "Circuit breaker is
+// open" and keep the route closed for everyone after the dependency is back.
+// It counts as a success so a half-open breaker still closes.
+func breakerCountsFailure(status int) bool {
+	return status >= 500 && status != http.StatusServiceUnavailable
 }
 
 // ConcurrencyMiddleware limits simultaneous in-flight requests via a buffered-channel semaphore.
