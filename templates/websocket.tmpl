@@ -120,9 +120,9 @@ func handler{{ .RPC }}WS(svc port.{{ $.Name }}) http.HandlerFunc {
 		{{- end }}
 		{{- if .AuthCheck }}
 		// auth.check {{ .AuthCheck }} guards this room. It runs before the
-		// upgrade, on the identity the handshake itself carries (?token= or the
-		// session cookie), so a caller it refuses gets a plain 401/403 and never
-		// a socket. The post-upgrade auth frame cannot be used here.
+		// upgrade, on the identity the handshake itself carries (a Bearer header,
+		// ?token= or the session cookie), so a caller it refuses gets a plain
+		// 401/403 and never a socket. The post-upgrade auth frame is not read.
 		{{- if or .AuthCheckUserField .AuthCheckCompanyField $needsUserID }}
 		wsIdent, wsIdentErr := wsHandshakeIdentity(r)
 		{{- else }}
