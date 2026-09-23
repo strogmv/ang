@@ -17,6 +17,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -90,6 +91,9 @@ type wsClient struct {
 	// lives only as long as that session: when it ends (idle, expired, signed
 	// out elsewhere) the server closes it with code 4401.
 	sessionID string
+	// closed is owned by the hub goroutine: send is closed exactly once, no
+	// matter how many paths (slow-consumer eviction, readPump exit) ask for it.
+	closed bool
 }
 
 // wsSessionCloseCode tells the client the socket closed because its session
@@ -108,6 +112,9 @@ func wsWatchedSessionID(r *http.Request) string {
 	}
 	return payload.ID
 }
+
+// wsDroppedBroadcasts counts messages a saturated hub refused (see Broadcast*WS).
+var wsDroppedBroadcasts atomic.Int64
 
 // wsMessage is a message to be broadcasted to a specific room.
 type wsMessage struct {
@@ -180,7 +187,43 @@ func (h *wsHub) removeClientFromAllRooms(client *wsClient) {
 	}
 }
 
+// evict drops a client from every room and closes its send queue once. Only
+// the hub goroutine calls it, with h.mu held. writePump then sees the closed
+// queue, sends a close frame and closes the connection; readPump's own
+// unregister arrives later and is a no-op.
+func (h *wsHub) evict(client *wsClient) {
+	h.removeClientFromAllRooms(client)
+	if client.closed {
+		return
+	}
+	client.closed = true
+	close(client.send)
+}
+
+// deliver queues data for a client without ever blocking the hub. A client
+// whose queue is full is too slow for the room (a frozen tab, a dead mobile
+// link): it is evicted and resynchronises from REST after it reconnects.
+func (h *wsHub) deliver(client *wsClient, data []byte, slow *[]*wsClient) {
+	if client.closed {
+		return
+	}
+	select {
+	case client.send <- data:
+	default:
+		*slow = append(*slow, client)
+	}
+}
+
 func (h *wsHub) run() {
+	// A panic here would take every socket of the process with it (and, being
+	// an unrecovered goroutine panic, the process itself). Log it and keep the
+	// hub serving instead.
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("websocket hub panic recovered:", r)
+			go h.run()
+		}
+	}()
 	for {
 		select {
 		case client := <-h.register:
@@ -191,8 +234,7 @@ func (h *wsHub) run() {
 			h.mu.Unlock()
 		case client := <-h.unregister:
 			h.mu.Lock()
-			h.removeClientFromAllRooms(client)
-			close(client.send)
+			h.evict(client)
 			h.mu.Unlock()
 		case sub := <-h.subscribe:
 			h.mu.Lock()
@@ -203,7 +245,8 @@ func (h *wsHub) run() {
 			h.removeClientFromRoom(sub.client, sub.room)
 			h.mu.Unlock()
 		case message := <-h.broadcast:
-			h.mu.RLock()
+			h.mu.Lock()
+			var slow []*wsClient
 			if message.room == "" {
 				delivered := make(map[*wsClient]bool)
 				for _, conns := range h.rooms {
@@ -212,23 +255,18 @@ func (h *wsHub) run() {
 							continue
 						}
 						delivered[client] = true
-						select {
-						case client.send <- message.data:
-						default:
-							go func(c *wsClient) { h.unregister <- c }(client)
-						}
+						h.deliver(client, message.data, &slow)
 					}
 				}
 			} else if conns, ok := h.rooms[message.room]; ok {
 				for client := range conns {
-					select {
-					case client.send <- message.data:
-					default:
-						go func(c *wsClient) { h.unregister <- c }(client)
-					}
+					h.deliver(client, message.data, &slow)
 				}
 			}
-			h.mu.RUnlock()
+			for _, client := range slow {
+				h.evict(client)
+			}
+			h.mu.Unlock()
 		case <-h.stop:
 			h.mu.Lock()
 			for _, conns := range h.rooms {

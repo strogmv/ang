@@ -47,7 +47,14 @@ func Broadcast{{ .Name }}WS(roomID string, messageType string, payload interface
 	if err != nil {
 		return
 	}
-	{{ .Name | ToLower }}Hub.broadcast <- wsMessage{room: roomID, data: data}
+	// Never block the caller (the NATS relay): when the hub is saturated the
+	// message is dropped. Clients detect the gap from the event versions and
+	// resynchronise over REST, which beats stalling every room of the process.
+	select {
+	case {{ .Name | ToLower }}Hub.broadcast <- wsMessage{room: roomID, data: data}:
+	default:
+		wsDroppedBroadcasts.Add(1)
+	}
 }
 
 {{- $uniqueMessages := makeMap }}
