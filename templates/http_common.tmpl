@@ -1665,6 +1665,70 @@ var (
 	redisClient  *redis.Client
 )
 
+// rateLimitIncr counts a hit and makes sure the counter expires, in one
+// script: INCR followed by a separate EXPIRE left a key without a TTL whenever
+// the second call failed or the process stopped in between, and such a key
+// never reset — the client stayed limited for good. The TTL is (re)set
+// whenever the key has none, which also heals keys left behind that way.
+var rateLimitIncr = redis.NewScript(`
+local count = redis.call('INCR', KEYS[1])
+if redis.call('PTTL', KEYS[1]) < 0 then
+	redis.call('PEXPIRE', KEYS[1], ARGV[1])
+end
+return count
+`)
+
+// rateLimitSweepAt is when the in-memory limiter state was last swept.
+var rateLimitSweepAt atomic.Int64
+
+// sweepRateLimitState forgets in-memory counters whose window has ended, at
+// most once a minute. Without it every client key the process ever saw kept
+// its entry (and, for the window quotas, its mutex) for the life of the
+// process.
+func sweepRateLimitState(now time.Time) {
+	last := rateLimitSweepAt.Load()
+	if now.UnixNano()-last < int64(time.Minute) || !rateLimitSweepAt.CompareAndSwap(last, now.UnixNano()) {
+		return
+	}
+	SweepRateLimitState(now)
+}
+
+// SweepRateLimitState forgets every in-memory limiter entry whose window has
+// ended by now. The middleware calls it at most once a minute.
+func SweepRateLimitState(now time.Time) {
+	rateMu.Lock()
+	for key, state := range rateByIP {
+		if now.Sub(state.windowStart) >= time.Second {
+			delete(rateByIP, key)
+		}
+	}
+	rateMu.Unlock()
+	windowByKey.Range(func(key, value any) bool {
+		if ws, ok := value.(*windowState); ok {
+			ws.mu.Lock()
+			expired := now.After(ws.resetAt)
+			ws.mu.Unlock()
+			if expired {
+				windowByKey.CompareAndDelete(key, value)
+			}
+		}
+		return true
+	})
+}
+
+// RateLimitStateSize reports how many in-memory limiter entries exist, for
+// tests and diagnostics.
+func RateLimitStateSize() int {
+	rateMu.Lock()
+	n := len(rateByIP)
+	rateMu.Unlock()
+	windowByKey.Range(func(any, any) bool {
+		n++
+		return true
+	})
+	return n
+}
+
 func SetRedisClient(c *redis.Client) {
 	redisClient = c
 	// authMode is "opaque_session_cookie": wire the session + refresh stores from the
@@ -1753,20 +1817,20 @@ func rateLimitMiddleware(rps, burst, windowSecs, windowLimit int, bucketOf func(
 			}
 			clientKey := fmt.Sprintf("%d:%s", scope, bucketOf(r))
 			now := time.Now()
+			if redisClient == nil {
+				sweepRateLimitState(now)
+			}
 
 			// ---- per-second RPS check ----
 			if max > 0 {
 				if redisClient != nil {
 					key := fmt.Sprintf("rate:rps:%d:%s", max, clientKey)
 					ctx := context.Background()
-					count, err := redisClient.Incr(ctx, key).Result()
+					// Start the one-second window on its first request only;
+					// refreshing the expiry on every hit kept a busy counter
+					// alive, so the limit became "N requests without a pause".
+					count, err := rateLimitIncr.Run(ctx, redisClient, []string{key}, time.Second.Milliseconds()).Int64()
 					if err == nil {
-						// Start the one-second window on its first request only;
-						// refreshing the expiry on every hit kept a busy counter
-						// alive, so the limit became "N requests without a pause".
-						if count == 1 {
-							_ = redisClient.Expire(ctx, key, time.Second).Err()
-						}
 						if int(count) > max {
 							errors.WriteError(w, r, errors.New(http.StatusTooManyRequests, "Too Many Requests", "Rate limit exceeded"))
 							return
@@ -1799,11 +1863,8 @@ func rateLimitMiddleware(rps, burst, windowSecs, windowLimit int, bucketOf func(
 				wkey := fmt.Sprintf("rate:win:%d:%s", windowSecs, clientKey)
 				if redisClient != nil {
 					ctx := context.Background()
-					count, err := redisClient.Incr(ctx, wkey).Result()
+					count, err := rateLimitIncr.Run(ctx, redisClient, []string{wkey}, windowDur.Milliseconds()).Int64()
 					if err == nil {
-						if count == 1 {
-							_ = redisClient.Expire(ctx, wkey, windowDur).Err()
-						}
 						if int(count) > windowLimit {
 							errors.WriteError(w, r, errors.New(http.StatusTooManyRequests, "Too Many Requests", "Rate limit exceeded"))
 							return

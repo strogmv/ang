@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/go-playground/validator/v10"
 )
@@ -320,3 +321,93 @@ func IsOneOf(v string, allowed []string) bool {
 
 // _ is a compile guard to ensure strings is used.
 var _ = strings.ToLower
+
+// KeyedMutexes hands out one mutex per key — a tender, an image source — and
+// forgets the key as soon as nobody holds or waits for it. The registries it
+// replaces kept every key they ever saw, so a process that locked per tender
+// grew by one mutex per tender for as long as it ran. The zero value is ready
+// to use.
+type KeyedMutexes struct {
+	mu      sync.Mutex
+	entries map[string]*keyedMutexEntry
+}
+
+type keyedMutexEntry struct {
+	mu   sync.Mutex
+	refs int // holders and waiters; guarded by KeyedMutexes.mu
+}
+
+// KeyedMutex is one caller's handle on a key's mutex. Lock (or a successful
+// TryLock) must be paired with Unlock, as with sync.Mutex.
+type KeyedMutex struct {
+	set   *KeyedMutexes
+	key   string
+	entry *keyedMutexEntry
+}
+
+// For returns a handle on key's mutex. Nothing is registered until the handle
+// locks.
+func (k *KeyedMutexes) For(key string) *KeyedMutex {
+	return &KeyedMutex{set: k, key: key}
+}
+
+// Len is the number of keys currently held or waited for.
+func (k *KeyedMutexes) Len() int {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return len(k.entries)
+}
+
+func (k *KeyedMutexes) acquire(key string) *keyedMutexEntry {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.entries == nil {
+		k.entries = map[string]*keyedMutexEntry{}
+	}
+	entry := k.entries[key]
+	if entry == nil {
+		entry = &keyedMutexEntry{}
+		k.entries[key] = entry
+	}
+	entry.refs++
+	return entry
+}
+
+func (k *KeyedMutexes) release(key string, entry *keyedMutexEntry) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	entry.refs--
+	if entry.refs <= 0 && k.entries[key] == entry {
+		delete(k.entries, key)
+	}
+}
+
+// Lock waits for the key's mutex.
+func (m *KeyedMutex) Lock() {
+	entry := m.set.acquire(m.key)
+	entry.mu.Lock()
+	m.entry = entry
+}
+
+// TryLock takes the key's mutex if it is free.
+func (m *KeyedMutex) TryLock() bool {
+	entry := m.set.acquire(m.key)
+	if !entry.mu.TryLock() {
+		m.set.release(m.key, entry)
+		return false
+	}
+	m.entry = entry
+	return true
+}
+
+// Unlock releases the key's mutex and, when it was the last one interested,
+// the key itself.
+func (m *KeyedMutex) Unlock() {
+	entry := m.entry
+	if entry == nil {
+		panic("helpers: unlock of an unlocked KeyedMutex")
+	}
+	m.entry = nil
+	entry.mu.Unlock()
+	m.set.release(m.key, entry)
+}

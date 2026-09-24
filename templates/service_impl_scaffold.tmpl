@@ -7,23 +7,15 @@ import (
 {{- end }}
 )
 
-var _{{ .Service.Name }}FlowMutexRegistry sync.Map
+// The per-key mutexes of mutex.With steps. A key is forgotten once nobody
+// holds or waits for it, so locking per tender does not grow the process.
+var _{{ .Service.Name }}FlowMutexRegistry helpers.KeyedMutexes
 
-func _{{ .Service.Name }}FlowMutexForKey(key string) *sync.Mutex {
+func _{{ .Service.Name }}FlowMutexForKey(key string) *helpers.KeyedMutex {
 	if key == "" {
 		key = "__default__"
 	}
-	if existing, ok := _{{ .Service.Name }}FlowMutexRegistry.Load(key); ok {
-		if mu, ok := existing.(*sync.Mutex); ok && mu != nil {
-			return mu
-		}
-	}
-	mu := &sync.Mutex{}
-	actual, _ := _{{ .Service.Name }}FlowMutexRegistry.LoadOrStore(key, mu)
-	if existing, ok := actual.(*sync.Mutex); ok && existing != nil {
-		return existing
-	}
-	return mu
+	return _{{ .Service.Name }}FlowMutexRegistry.For(key)
 }
 
 {{ ServiceImplTypeDecl .Service .Entities .Auth }}
