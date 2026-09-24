@@ -8,7 +8,7 @@
 	r.Use(transport.SecurityHeadersMiddleware)
 	r.Use(transport.ClientContextMiddleware)
 	r.Use(transport.SameOriginMiddleware)
-	r.Use(middleware.Recoverer)
+	r.Use(transport.RecoverMiddleware)
 
 	// No origins configured means no cross-origin caller is trusted, rather
 	// than every one of them. The old default was "*", which is harmless only

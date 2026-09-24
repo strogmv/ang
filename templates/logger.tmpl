@@ -2,9 +2,12 @@ package logger
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
+	"runtime/debug"
 	"strings"
+	"sync/atomic"
 
 	"go.opentelemetry.io/otel/trace"
 )
@@ -45,4 +48,69 @@ func From(ctx context.Context) *slog.Logger {
 	}
 	
 	return logger
+}
+// ── Safety nets ─────────────────────────────────────────────────────────────
+//
+// Every goroutine the generated code starts (HTTP handlers, event handlers,
+// WebSocket pumps, scheduler ticks, live-room timers) recovers a panic through
+// Recovered, so one bad request or message is logged with its stack and
+// counted instead of taking the whole process down. The metrics package hooks
+// the counters into Prometheus (ang_panics_recovered_total,
+// ang_event_handler_errors_total).
+
+var (
+	panicHook        atomic.Pointer[func(component, name string)]
+	handlerErrorHook atomic.Pointer[func(component, name string)]
+	// PanicsRecovered and HandlerErrors count what the safety nets caught.
+	PanicsRecovered atomic.Int64
+	HandlerErrors   atomic.Int64
+)
+
+// SetPanicHook registers a function called for every recovered panic.
+func SetPanicHook(fn func(component, name string)) { panicHook.Store(&fn) }
+
+// SetHandlerErrorHook registers a function called for every failed background handler.
+func SetHandlerErrorHook(fn func(component, name string)) { handlerErrorHook.Store(&fn) }
+
+// Recovered logs a panic caught by a safety net, with the goroutine's stack,
+// and counts it. component says which kind of goroutine it was ("http",
+// "nats", "ws", "scheduler", …), name which handler.
+func Recovered(component, name string, recovered any) {
+	PanicsRecovered.Add(1)
+	if hook := panicHook.Load(); hook != nil {
+		(*hook)(component, name)
+	}
+	slog.Error("panic recovered", "component", component, "name", name, "panic", fmt.Sprint(recovered), "stack", string(debug.Stack()))
+}
+
+// HandlerFailed logs an error a background handler returned (nobody else
+// would see it: an event has no caller to answer) and counts it.
+func HandlerFailed(component, name string, err error) {
+	if err == nil {
+		return
+	}
+	HandlerErrors.Add(1)
+	if hook := handlerErrorHook.Load(); hook != nil {
+		(*hook)(component, name)
+	}
+	slog.Error("background handler failed", "component", component, "name", name, "error", err)
+}
+
+// Go runs fn in its own goroutine; a panic in fn is recovered and logged.
+func Go(component, name string, fn func()) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				Recovered(component, name, r)
+			}
+		}()
+		fn()
+	}()
+}
+
+// PanicError turns a recovered panic into an error (for handlers that report
+// failures through their return value), logging and counting it on the way.
+func PanicError(component, name string, recovered any) error {
+	Recovered(component, name, recovered)
+	return fmt.Errorf("panic in %s %s: %v", component, name, recovered)
 }

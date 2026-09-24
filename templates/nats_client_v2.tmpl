@@ -11,6 +11,7 @@ import (
 {{- if .Events }}
 	"{{GoModule}}/internal/domain"
 {{- end }}
+	"{{GoModule}}/internal/pkg/logger"
 )
 
 type Client struct {
@@ -46,13 +47,17 @@ func (c *Client) IsConnected() bool {
 
 func (c *Client) SubscribeRaw(subject string, handler func(data []byte) error) (*natspkg.Subscription, error) {
 	return c.nc.Subscribe(subject, func(msg *natspkg.Msg) {
-		_ = handler(msg.Data)
+		// Core NATS has no redelivery: an event handler's error has no caller to
+		// reach, so it is logged and counted here rather than dropped.
+		logger.HandlerFailed("nats", subject, handler(msg.Data))
 	})
 }
 
 func (c *Client) SubscribeQueueRaw(subject string, queue string, handler func(data []byte) error) (*natspkg.Subscription, error) {
 	return c.nc.QueueSubscribe(subject, queue, func(msg *natspkg.Msg) {
-		_ = handler(msg.Data)
+		// Core NATS has no redelivery: an event handler's error has no caller to
+		// reach, so it is logged and counted here rather than dropped.
+		logger.HandlerFailed("nats", subject, handler(msg.Data))
 	})
 }
 
@@ -149,14 +154,14 @@ func (c *Client) Subscribe{{ . }}(handler func(context.Context, domain.{{ Export
 			defer func() { <-sem }()
 			defer func() {
 				if r := recover(); r != nil {
-					fmt.Printf("NATS handler panic recovered [{{ . }}]: %v\n", r)
+					logger.Recovered("nats", "{{ . }}", r)
 				}
 			}()
 			var event domain.{{ ExportName . }}
 			if err := json.Unmarshal(msg.Data, &event); err != nil {
 				return
 			}
-			_ = handler(context.Background(), event)
+			logger.HandlerFailed("nats", "{{ . }}", handler(context.Background(), event))
 		}()
 	})
 }
@@ -193,7 +198,7 @@ func (c *Client) Subscribe(ctx context.Context, name string, match string, handl
 		if jErr := json.Unmarshal(msg.Data, &payload); jErr != nil {
 			return
 		}
-		go handler(ctx, payload)
+		logger.Go("nats", name, func() { handler(ctx, payload) })
 	})
 	return err
 }

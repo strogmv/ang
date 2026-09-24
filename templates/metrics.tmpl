@@ -3,6 +3,7 @@ package http
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -11,6 +12,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	"{{GoModule}}/internal/pkg/errors"
+	"{{GoModule}}/internal/pkg/logger"
 )
 
 var (
@@ -40,7 +42,55 @@ var (
 		Name: "http_concurrency_shed_total",
 		Help: "Requests dropped by concurrency limiter (503).",
 	}, []string{"path"})
+
+	// panicsRecovered counts panics the safety nets caught (logger.Recovered):
+	// any non-zero rate is a bug to fix, even though the process survived it.
+	panicsRecovered = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "ang_panics_recovered_total",
+		Help: "Panics recovered by the generated safety nets, by goroutine kind and handler.",
+	}, []string{"component", "name"})
+
+	// eventHandlerErrors counts errors returned by background handlers (event
+	// subscribers), which have no caller that would otherwise see them.
+	eventHandlerErrors = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "ang_event_handler_errors_total",
+		Help: "Errors returned by background (event) handlers.",
+	}, []string{"component", "name"})
 )
+
+func init() {
+	logger.SetPanicHook(func(component, name string) { panicsRecovered.WithLabelValues(component, name).Inc() })
+	logger.SetHandlerErrorHook(func(component, name string) { eventHandlerErrors.WithLabelValues(component, name).Inc() })
+}
+
+// RecoverMiddleware answers a request whose handler panicked with a 500
+// problem response and logs the panic with its stack (logger.Recovered), so
+// one bad request never takes the process down. http.ErrAbortHandler keeps
+// its meaning (abort the response silently).
+func RecoverMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			rec := recover()
+			if rec == nil {
+				return
+			}
+			if rec == http.ErrAbortHandler {
+				panic(rec)
+			}
+			route := r.URL.Path
+			if rctx := chi.RouteContext(r.Context()); rctx != nil && rctx.RoutePattern() != "" {
+				route = rctx.RoutePattern()
+			}
+			logger.Recovered("http", r.Method+" "+route, rec)
+			// A hijacked (WebSocket) connection has no response to write.
+			if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+				return
+			}
+			errors.WriteError(w, r, errors.New(http.StatusInternalServerError, "Internal Server Error", "internal error"))
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
 
 // MetricsMiddleware records RED metrics + inflight gauge (for latency budget monitoring).
 func MetricsMiddleware(next http.Handler) http.Handler {

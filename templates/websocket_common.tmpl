@@ -21,6 +21,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"{{GoModule}}/internal/pkg/logger"
 )
 
 // The session travels in a cookie, and a cookie is attached to a WebSocket
@@ -254,87 +256,106 @@ func (h *wsHub) deliver(client *wsClient, data []byte, slow *[]*wsClient) {
 	}
 }
 
+// run serves the hub until stop. A panic while handling one message is
+// logged (logger.Recovered) and the hub goes on serving: every branch holds
+// h.mu through a deferred unlock, so a panic can never leave the hub locked
+// (a restarted hub would otherwise block on its first message, and with it
+// every socket and every readPump waiting to unregister).
 func (h *wsHub) run() {
-	// A panic here would take every socket of the process with it (and, being
-	// an unrecovered goroutine panic, the process itself). Log it and keep the
-	// hub serving instead.
+	for !h.serve() {
+	}
+}
+
+// serve handles messages until stop (true) or a recovered panic (false).
+func (h *wsHub) serve() (stopped bool) {
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Println("websocket hub panic recovered:", r)
-			go h.run()
+			logger.Recovered("ws", "hub", r)
+			stopped = false
 		}
 	}()
 	for {
-		select {
-		case client := <-h.register:
-			h.mu.Lock()
-			for room := range client.rooms {
-				h.addClientToRoom(client, room)
-			}
-			h.mu.Unlock()
-		case client := <-h.unregister:
-			h.mu.Lock()
-			h.evict(client)
-			h.mu.Unlock()
-		case sub := <-h.subscribe:
-			h.mu.Lock()
-			h.addClientToRoom(sub.client, sub.room)
-			h.mu.Unlock()
-		case sub := <-h.unsubscribe:
-			h.mu.Lock()
-			h.removeClientFromRoom(sub.client, sub.room)
-			h.mu.Unlock()
-		case message := <-h.broadcast:
-			h.mu.Lock()
-			var slow []*wsClient
-			if message.room == "" {
-				delivered := make(map[*wsClient]bool)
-				for _, conns := range h.rooms {
-					for client := range conns {
-						if delivered[client] || client.live != nil {
-							continue
-						}
-						delivered[client] = true
-						h.deliver(client, message.data, &slow)
-					}
-				}
-			} else if conns, ok := h.rooms[message.room]; ok {
+		if h.handleOne() {
+			return true
+		}
+	}
+}
+
+// handleOne handles one hub message; true once the hub is stopped.
+func (h *wsHub) handleOne() bool {
+	select {
+	case client := <-h.register:
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		for room := range client.rooms {
+			h.addClientToRoom(client, room)
+		}
+	case client := <-h.unregister:
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		h.evict(client)
+	case sub := <-h.subscribe:
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		h.addClientToRoom(sub.client, sub.room)
+	case sub := <-h.unsubscribe:
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		h.removeClientFromRoom(sub.client, sub.room)
+	case message := <-h.broadcast:
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		var slow []*wsClient
+		if message.room == "" {
+			delivered := make(map[*wsClient]bool)
+			for _, conns := range h.rooms {
 				for client := range conns {
-					// A live socket gets the room as snapshots, not raw events.
-					if client.live != nil {
+					if delivered[client] || client.live != nil {
 						continue
 					}
+					delivered[client] = true
 					h.deliver(client, message.data, &slow)
 				}
 			}
-			for _, client := range slow {
-				h.evict(client)
-			}
-			h.mu.Unlock()
-		case d := <-h.direct:
-			h.mu.Lock()
-			var slow []*wsClient
-			h.deliver(d.client, d.data, &slow)
-			for _, client := range slow {
-				h.evict(client)
-			}
-			h.mu.Unlock()
-		case <-h.stop:
-			h.mu.Lock()
-			for _, conns := range h.rooms {
-				for client := range conns {
-					client.conn.Close()
+		} else if conns, ok := h.rooms[message.room]; ok {
+			for client := range conns {
+				// A live socket gets the room as snapshots, not raw events.
+				if client.live != nil {
+					continue
 				}
+				h.deliver(client, message.data, &slow)
 			}
-			h.mu.Unlock()
-			return
 		}
+		for _, client := range slow {
+			h.evict(client)
+		}
+	case d := <-h.direct:
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		var slow []*wsClient
+		h.deliver(d.client, d.data, &slow)
+		for _, client := range slow {
+			h.evict(client)
+		}
+	case <-h.stop:
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		for _, conns := range h.rooms {
+			for client := range conns {
+				client.conn.Close()
+			}
+		}
+		return true
 	}
+	return false
 }
 
 func (c *wsClient) writePump() {
 	ticker := time.NewTicker(54 * time.Second)
 	defer func() {
+		if r := recover(); r != nil {
+			logger.Recovered("ws", "writePump", r)
+		}
 		ticker.Stop()
 		c.conn.Close()
 	}()
@@ -370,6 +391,9 @@ func (c *wsClient) writePump() {
 
 func (c *wsClient) readPump() {
 	defer func() {
+		if r := recover(); r != nil {
+			logger.Recovered("ws", "readPump", r)
+		}
 		c.hub.unregister <- c
 		c.conn.Close()
 	}()
@@ -396,11 +420,11 @@ func (c *wsClient) readPump() {
 			if err != nil {
 				continue
 			}
-			select {
-			case c.send <- pong:
-			default:
-				return
-			}
+			// Through the hub, never straight into c.send: the hub closes
+			// c.send when it evicts a slow client, and a send on the closed
+			// channel from here panicked (a client that stopped reading and
+			// then sent a ping took the whole process down).
+			c.hub.sendDirect(c, pong)
 		case "subscribe":
 			if !c.allowDynamicRooms {
 				continue

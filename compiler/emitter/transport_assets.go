@@ -23,6 +23,7 @@ func (e *Emitter) emitWSCommon() error {
 		"ANGVersion":   func() string { return e.Version },
 		"InputHash":    func() string { return e.InputHash },
 		"CompilerHash": func() string { return e.CompilerHash },
+		"GoModule":     func() string { return e.GoModule },
 	}
 
 	t, err := template.New("ws_common").Funcs(funcMap).Parse(string(tmplContent))

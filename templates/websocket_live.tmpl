@@ -46,6 +46,8 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+
+	"{{GoModule}}/internal/pkg/logger"
 )
 
 const (
@@ -251,7 +253,7 @@ func liveSetup(ctx context.Context, nc *nats.Conn, log *slog.Logger, eps []*live
 		if _, err := cons.Consume(func(msg jetstream.Msg) {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Error("live room consumer panic recovered", "endpoint", ep.name, "panic", r)
+					logger.Recovered("live", ep.name+" consumer", r)
 				}
 			}()
 			meta, err := msg.Metadata()
@@ -268,6 +270,13 @@ func liveSetup(ctx context.Context, nc *nats.Conn, log *slog.Logger, eps []*live
 		for event, roomOf := range ep.triggers {
 			roomOf := roomOf
 			if _, err := nc.QueueSubscribe(event, "ang-live-"+ep.name, func(m *nats.Msg) {
+				// A panic in a NATS callback is not recovered by the client
+				// library: it would end the process.
+				defer func() {
+					if r := recover(); r != nil {
+						logger.Recovered("live", ep.name+" trigger "+m.Subject, r)
+					}
+				}()
 				if room := roomOf(m.Data); liveRoomToken(room) {
 					ep.trigger(rt, room)
 				}
@@ -319,7 +328,14 @@ func (ep *liveEndpoint) room(id string) *liveRoom {
 	if r == nil {
 		r = &liveRoom{clients: map[*wsClient]struct{}{}, touched: time.Now()}
 		ep.rooms[id] = r
+		return r
 	}
+	// Handing a room out counts as using it: the sweep (which holds ep.mu,
+	// then r.mu) must not forget a room a socket is attaching to right now,
+	// or that socket would sit in an orphaned room that no state reaches.
+	r.mu.Lock()
+	r.touched = time.Now()
+	r.mu.Unlock()
 	return r
 }
 
@@ -398,7 +414,7 @@ func (ep *liveEndpoint) trigger(rt *liveRuntime, room string) {
 func (ep *liveEndpoint) buildAndPublish(rt *liveRuntime, room string) {
 	defer func() {
 		if r := recover(); r != nil {
-			rt.log.Error("live room build panic recovered", "endpoint", ep.name, "room", room, "panic", r)
+			logger.Recovered("live", ep.name+" build", r)
 		}
 	}()
 	r := ep.room(room)
@@ -586,6 +602,13 @@ func (ep *liveEndpoint) scheduleRefreshLocked(rt *liveRuntime, room string, r *l
 		delay = 20 * time.Millisecond
 	}
 	r.timer = time.AfterFunc(delay, func() {
+		// The timer runs on its own goroutine: the view op must not be able
+		// to end the process with a panic.
+		defer func() {
+			if rec := recover(); rec != nil {
+				logger.Recovered("live", ep.name+" refresh", rec)
+			}
+		}()
 		r.mu.Lock()
 		defer r.mu.Unlock()
 		r.timer = nil

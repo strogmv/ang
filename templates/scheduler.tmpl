@@ -11,6 +11,7 @@ import (
 	{{- if .HasPublish }}
 	"{{GoModule}}/internal/domain"
 	{{- end }}
+	"{{GoModule}}/internal/pkg/logger"
 	"{{GoModule}}/internal/port"
 )
 
@@ -54,7 +55,7 @@ func (s *Scheduler) Start(ctx context.Context) {
 				defer ticker.Stop()
 				for {
 				if s.Publisher != nil && sc.Publish != "" {
-					if err := publishEvent(s.Publisher, sc); err != nil {
+					if err := safePublish(s.Publisher, sc); err != nil {
 						fmt.Println("scheduler publish error:", err)
 					}
 				}
@@ -76,7 +77,7 @@ func (s *Scheduler) Start(ctx context.Context) {
 				}
 			}
 			if s.Publisher != nil && sc.Publish != "" {
-				if err := publishEvent(s.Publisher, sc); err != nil {
+				if err := safePublish(s.Publisher, sc); err != nil {
 					fmt.Println("scheduler publish error:", err)
 				}
 			}
@@ -166,4 +167,15 @@ func publishEvent(publisher port.Publisher, sc Schedule) error {
 	default:
 		return nil
 	}
+}
+
+// safePublish publishes one tick; a panic becomes an error, so one bad tick
+// neither ends the process nor stops the schedule.
+func safePublish(publisher port.Publisher, sc Schedule) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = logger.PanicError("scheduler", sc.Name, r)
+		}
+	}()
+	return publishEvent(publisher, sc)
 }

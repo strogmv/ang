@@ -701,6 +701,7 @@ func (e *Emitter) emitWSLive(targetDir string) error {
 	t, err := template.New("ws_live").Funcs(template.FuncMap{
 		"ANGVersion":   func() string { return e.Version },
 		"CompilerHash": func() string { return e.CompilerHash },
+		"GoModule":     func() string { return e.GoModule },
 	}).Parse(string(tmplContent))
 	if err != nil {
 		return fmt.Errorf("parse ws live template: %w", err)

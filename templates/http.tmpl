@@ -27,6 +27,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"{{GoModule}}/internal/pkg/errors"
+	{{- if .HasStreaming }}
+	"{{GoModule}}/internal/pkg/logger"
+	{{- end }}
 	{{- if .HasViews }}
 	"{{GoModule}}/internal/pkg/views"
 	{{- end }}
@@ -223,8 +226,16 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 		chunks := make(chan string, 32)
 		errCh := make(chan error, 1)
 		go func() {
+			// The stream runs on its own goroutine, out of reach of the
+			// request's recover middleware: a panic ends the stream with an
+			// error event instead of the process.
+			defer close(chunks)
+			defer func() {
+				if rec := recover(); rec != nil {
+					errCh <- logger.PanicError("sse", "{{ .RPC }}", rec)
+				}
+			}()
 			errCh <- svc.{{ .RPC }}(r.Context(), {{ if .Input.Name }}req{{ else }}struct{}{}{{ end }}, chunks)
-			close(chunks)
 		}()
 
 		for {
