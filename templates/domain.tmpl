@@ -43,28 +43,37 @@ type {{ ExportName .Name }} struct {
 func (e *{{ ExportName .Name }}) Validate() error {
 	{{- range .Fields }}
 	{{- if and (not .SkipDomain) .Constraints }}
+	{{- /* An optional field left unset holds its zero value; a lower bound
+	       or an enum applies to a value that was given, not to the absence of
+	       one (an optional `incoterms?: "EXW" | ...` used to refuse every
+	       offer without incoterms). Failures are FieldValidationError, which
+	       the HTTP layer answers with 400 VALIDATION_FAILED instead of 500. */}}
 	{{- if .Constraints.Min }}
-	if e.{{ ExportName .Name }} < {{ .Constraints.Min }} {
-		return fmt.Errorf("field {{ JSONName .Name }} must be >= %v", {{ .Constraints.Min }})
+	if {{ if .Optional }}e.{{ ExportName .Name }} != 0 && {{ end }}e.{{ ExportName .Name }} < {{ .Constraints.Min }} {
+		return &FieldValidationError{Field: "{{ JSONName .Name }}", Message: fmt.Sprintf("must be >= %v", {{ .Constraints.Min }})}
 	}
 	{{- end }}
 	{{- if .Constraints.Max }}
 	if e.{{ ExportName .Name }} > {{ .Constraints.Max }} {
-		return fmt.Errorf("field {{ JSONName .Name }} must be <= %v", {{ .Constraints.Max }})
+		return &FieldValidationError{Field: "{{ JSONName .Name }}", Message: fmt.Sprintf("must be <= %v", {{ .Constraints.Max }})}
 	}
 	{{- end }}
 	{{- if .Constraints.MinLen }}
-	if len(e.{{ ExportName .Name }}) < {{ .Constraints.MinLen }} {
-		return fmt.Errorf("field {{ JSONName .Name }} length must be >= %v", {{ .Constraints.MinLen }})
+	if {{ if .Optional }}len(e.{{ ExportName .Name }}) > 0 && {{ end }}len(e.{{ ExportName .Name }}) < {{ .Constraints.MinLen }} {
+		return &FieldValidationError{Field: "{{ JSONName .Name }}", Message: fmt.Sprintf("length must be >= %v", {{ .Constraints.MinLen }})}
 	}
 	{{- end }}
 	{{- if .Constraints.MaxLen }}
 	if len(e.{{ ExportName .Name }}) > {{ .Constraints.MaxLen }} {
-		return fmt.Errorf("field {{ JSONName .Name }} length must be <= %v", {{ .Constraints.MaxLen }})
+		return &FieldValidationError{Field: "{{ JSONName .Name }}", Message: fmt.Sprintf("length must be <= %v", {{ .Constraints.MaxLen }})}
 	}
 	{{- end }}
 	{{- if .Constraints.Enum }}
+	{{- if .Optional }}
+	if e.{{ ExportName .Name }} != "" {
+	{{- else }}
 	{
+	{{- end }}
 		valid := false
 		allowed := []string{ {{- range $i, $v := .Constraints.Enum }}{{ if $i }}, {{ end }}"{{ $v }}"{{ end }} }
 		for _, v := range allowed {
@@ -74,7 +83,7 @@ func (e *{{ ExportName .Name }}) Validate() error {
 			}
 		}
 		if !valid {
-			return fmt.Errorf("field {{ JSONName .Name }} must be one of %v", allowed)
+			return &FieldValidationError{Field: "{{ JSONName .Name }}", Message: fmt.Sprintf("must be one of %v", allowed)}
 		}
 	}
 	{{- end }}

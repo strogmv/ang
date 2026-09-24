@@ -146,6 +146,30 @@ func NewValidationError(detail string, errs map[string]string) *ProblemDetail {
 	}
 }
 
+// fieldValidationError is what an entity's Validate() returns for a value
+// outside its declared constraints (domain.FieldValidationError). It reaches
+// the handler from deep inside a repository Save — an enum value the request
+// carried, say — and is the caller's mistake, so it answers 400
+// VALIDATION_FAILED with the field named, not 500. Matched by method set so
+// this package need not import the domain package.
+type fieldValidationError interface {
+	error
+	ValidationField() string
+	ValidationMessage() string
+}
+
+func asFieldValidation(err error) (fieldValidationError, bool) {
+	var fe fieldValidationError
+	if err != nil && errors.As(err, &fe) {
+		return fe, true
+	}
+	return nil, false
+}
+
+func fieldValidationProblem(fe fieldValidationError) *ProblemDetail {
+	return NewValidationError(fe.Error(), map[string]string{fe.ValidationField(): fe.ValidationMessage()})
+}
+
 // WithIntent wraps an error with CUE source location information.
 func WithIntent(err error, intent string) error {
 	if err == nil {
@@ -153,6 +177,11 @@ func WithIntent(err error, intent string) error {
 	}
 	var pd *ProblemDetail
 	if errors.As(err, &pd) {
+		pd.Intent = intent
+		return pd
+	}
+	if fe, ok := asFieldValidation(err); ok {
+		pd = fieldValidationProblem(fe)
 		pd.Intent = intent
 		return pd
 	}
@@ -219,6 +248,9 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 				"intent", pd.Intent,
 			)
 		}
+	} else if fe, ok := asFieldValidation(err); ok {
+		pd = fieldValidationProblem(fe)
+		pd.Instance = r.URL.Path
 	} else if errors.Is(err, context.DeadlineExceeded) {
 		// A server-side deadline ran out (the route timeout, a database wait for
 		// a free pooled connection): the service is overloaded, not broken.
