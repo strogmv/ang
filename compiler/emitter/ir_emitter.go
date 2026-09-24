@@ -596,6 +596,7 @@ func IREndpointsToNormalizer(irEndpoints []ir.Endpoint) []normalizer.Endpoint {
 			Description:      ep.Description,
 			Messages:         ep.Messages,
 			RoomParam:        ep.RoomParam,
+			Live:             ir.LiveRoomToNormalizer(ep.Live),
 			CacheTTL:         ep.Cache,
 			CacheTags:        initializeSlice(ep.CacheTags),
 			Invalidate:       initializeSlice(ep.Invalidate),

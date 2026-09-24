@@ -26,6 +26,10 @@
 		}
 		{{- end }}
 		{{- end }}
+		{{- if HasLiveRoomsIR $.EndpointsIR }}
+		// Live rooms: per-viewer snapshots from JetStream (see ws_live.go).
+		transport.StartLiveRooms(ctx, natsClient.Conn(), log)
+		{{- end }}
 	}
 	{{- end }}
 {{ end }}

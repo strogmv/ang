@@ -445,6 +445,7 @@ func (e *Emitter) EmitWebSocket(irEndpoints []ir.Endpoint, irServices []ir.Servi
 	}
 
 	groups := make(map[string]*WsServiceGroup)
+	hasLive := false
 	for _, ep := range endpoints {
 		if strings.ToUpper(ep.Method) != "WS" {
 			continue
@@ -494,7 +495,7 @@ func (e *Emitter) EmitWebSocket(irEndpoints []ir.Endpoint, irServices []ir.Servi
 		if len(broadcasts) > 0 {
 			groups[ep.ServiceName].HasBroadcast = true
 		}
-		groups[ep.ServiceName].Endpoints = append(groups[ep.ServiceName].Endpoints, WsEndpointView{
+		view := WsEndpointView{
 			Endpoint:              ep,
 			Broadcasts:            broadcasts,
 			Input:                 method.Input,
@@ -505,11 +506,25 @@ func (e *Emitter) EmitWebSocket(irEndpoints []ir.Endpoint, irServices []ir.Servi
 			AuthCheckInput:        authCheckInput,
 			AuthCheckCompanyField: authCheckCompanyField,
 			AuthCheckUserField:    authCheckUserField,
-		})
+		}
+		if ep.Live != nil {
+			if err := resolveWSLiveRoom(&view, methods, eventMap); err != nil {
+				return err
+			}
+			groups[ep.ServiceName].HasLive = true
+			hasLive = true
+		}
+		groups[ep.ServiceName].Endpoints = append(groups[ep.ServiceName].Endpoints, view)
 	}
 
 	wsGroupNames := make([]string, 0, len(groups))
 	desiredWSFiles := map[string]struct{}{"ws_common.go": {}}
+	if hasLive {
+		desiredWSFiles["ws_live.go"] = struct{}{}
+		if err := e.emitWSLive(targetDir); err != nil {
+			return err
+		}
+	}
 	for name := range groups {
 		wsGroupNames = append(wsGroupNames, name)
 		desiredWSFiles[fmt.Sprintf("ws_%s.go", strings.ToLower(name))] = struct{}{}
@@ -591,4 +606,117 @@ func pathParams(path string) []string {
 		}
 	}
 	return params
+}
+
+// resolveWSLiveRoom checks a live room against its operations and records the
+// Go field names the generated code uses. The contract:
+//
+//	state op: request has the room field (e.g. tenderId); response has `state` (JSON string)
+//	view op:  request has `state`, `companyIds` ([]string), `now` (RFC3339Nano);
+//	          response has `snapshots` ([]string, JSON per company), `denied` ([]string,
+//	          the companies that lost access)
+//	          and `refreshAt` (RFC3339Nano, "" = never)
+func resolveWSLiveRoom(view *WsEndpointView, methods map[string]normalizer.Method, events map[string]normalizer.Entity) error {
+	ep := view.Endpoint
+	where := fmt.Sprintf("websocket %s %s: live", ep.Method, ep.Path)
+	if ep.AuthCheck == "" || view.AuthCheckCompanyField == "" {
+		return fmt.Errorf("%s needs auth.check with a companyId input (the viewer comes from the handshake)", where)
+	}
+	if view.RoomParam == "" {
+		return fmt.Errorf("%s needs a room", where)
+	}
+	stateOp, ok := methods[ep.Live.State]
+	if !ok {
+		return fmt.Errorf("%s: state %q is not a method of service %s", where, ep.Live.State, ep.ServiceName)
+	}
+	viewOp, ok := methods[ep.Live.View]
+	if !ok {
+		return fmt.Errorf("%s: view %q is not a method of service %s", where, ep.Live.View, ep.ServiceName)
+	}
+	need := func(ent normalizer.Entity, name, op string) (string, error) {
+		f := exportedFieldName(ent, name)
+		if f == "" {
+			return "", fmt.Errorf("%s: %s has no field %q", where, op, name)
+		}
+		return f, nil
+	}
+	var err error
+	if view.LiveStateRoomField, err = need(stateOp.Input, view.RoomParam, ep.Live.State+" request"); err != nil {
+		return err
+	}
+	if _, err = need(stateOp.Output, "state", ep.Live.State+" response"); err != nil {
+		return err
+	}
+	if view.LiveViewStateField, err = need(viewOp.Input, "state", ep.Live.View+" request"); err != nil {
+		return err
+	}
+	if view.LiveViewCompaniesField, err = need(viewOp.Input, "companyIds", ep.Live.View+" request"); err != nil {
+		return err
+	}
+	if view.LiveViewNowField, err = need(viewOp.Input, "now", ep.Live.View+" request"); err != nil {
+		return err
+	}
+	if view.LiveViewSnapshotsField, err = need(viewOp.Output, "snapshots", ep.Live.View+" response"); err != nil {
+		return err
+	}
+	if view.LiveViewDeniedField, err = need(viewOp.Output, "denied", ep.Live.View+" response"); err != nil {
+		return err
+	}
+	if view.LiveViewRefreshField, err = need(viewOp.Output, "refreshAt", ep.Live.View+" response"); err != nil {
+		return err
+	}
+	if len(ep.Live.Triggers) == 0 {
+		return fmt.Errorf("%s needs at least one trigger event", where)
+	}
+	seen := map[string]bool{}
+	for _, name := range ep.Live.Triggers {
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		evt, ok := events[name]
+		if !ok {
+			return fmt.Errorf("%s: trigger %q is not an event", where, name)
+		}
+		roomField := exportedFieldName(evt, view.RoomParam)
+		if roomField == "" {
+			return fmt.Errorf("%s: trigger %q has no field %q naming the room", where, name, view.RoomParam)
+		}
+		view.LiveTriggers = append(view.LiveTriggers, WsLiveTrigger{Event: name, GoType: ExportName(name), RoomField: roomField})
+	}
+	view.IsLive = true
+	view.LiveState = ep.Live.State
+	view.LiveView = ep.Live.View
+	view.LiveName = strings.ToLower(ep.RPC)
+	return nil
+}
+
+// emitWSLive writes ws_live.go: the live-room runtime shared by every live
+// WebSocket endpoint.
+func (e *Emitter) emitWSLive(targetDir string) error {
+	tmplContent, err := ReadTemplateByPath("templates/websocket_live.tmpl")
+	if err != nil {
+		return fmt.Errorf("read ws live template: %w", err)
+	}
+	t, err := template.New("ws_live").Funcs(template.FuncMap{
+		"ANGVersion":   func() string { return e.Version },
+		"CompilerHash": func() string { return e.CompilerHash },
+	}).Parse(string(tmplContent))
+	if err != nil {
+		return fmt.Errorf("parse ws live template: %w", err)
+	}
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, nil); err != nil {
+		return fmt.Errorf("execute ws live template: %w", err)
+	}
+	formatted, err := format.Source(buf.Bytes())
+	if err != nil {
+		return fmt.Errorf("format ws_live.go: %w", err)
+	}
+	path := filepath.Join(targetDir, "ws_live.go")
+	if err := WriteFileIfChanged(path, formatted, 0o644); err != nil {
+		return fmt.Errorf("write file: %w", err)
+	}
+	logGenerated("Generated WebSocket Live Rooms: %s\n", path)
+	return nil
 }

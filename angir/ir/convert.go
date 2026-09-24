@@ -620,6 +620,7 @@ func ConvertEndpoint(ep normalizer.Endpoint) Endpoint {
 		Description:      ep.Description,
 		Messages:         ep.Messages,
 		RoomParam:        ep.RoomParam,
+		Live:             liveRoomToIR(ep.Live),
 		Cache:            ep.CacheTTL,
 		CacheTags:        initializeSlice(ep.CacheTags),
 		Invalidate:       initializeSlice(ep.Invalidate),
@@ -957,4 +958,19 @@ func rateLimitFromNormalizer(rl normalizer.RateLimitDef) RateLimit {
 		WindowLimit: rl.WindowLimit,
 		Key:         rl.Key,
 	}
+}
+
+func liveRoomToIR(l *normalizer.LiveRoomDef) *LiveRoom {
+	if l == nil {
+		return nil
+	}
+	return &LiveRoom{State: l.State, View: l.View, Triggers: append([]string(nil), l.Triggers...)}
+}
+
+// LiveRoomToNormalizer is the reverse of the IR conversion of a live room.
+func LiveRoomToNormalizer(l *LiveRoom) *normalizer.LiveRoomDef {
+	if l == nil {
+		return nil
+	}
+	return &normalizer.LiveRoomDef{State: l.State, View: l.View, Triggers: append([]string(nil), l.Triggers...)}
 }

@@ -335,14 +335,16 @@ type ErrorDef struct {
 
 // Endpoint описывает HTTP эндпоинт.
 type Endpoint struct {
-	Method           string
-	Path             string
-	IsStreaming      bool
-	ServiceName      string
-	RPC              string
-	Description      string
-	Messages         []string
-	RoomParam        string
+	Method      string
+	Path        string
+	IsStreaming bool
+	ServiceName string
+	RPC         string
+	Description string
+	Messages    []string
+	RoomParam   string
+	// Live turns a WS room into a server-pushed snapshot room (see LiveRoomDef).
+	Live             *LiveRoomDef
 	AuthType         string
 	Permission       string
 	AuthRoles        []string
@@ -370,6 +372,16 @@ type Endpoint struct {
 	TestHints        *TestHints
 	Metadata         map[string]any
 	Source           string
+}
+
+// LiveRoomDef makes a WebSocket room "live": on every trigger event one
+// replica builds the room state (State op), publishes it to the JetStream
+// stream LIVE_ROOMS, and every replica pushes each socket the View op's answer
+// for its viewer, replaying missed states on reconnect.
+type LiveRoomDef struct {
+	State    string   // op: {<room field>} -> {state: string}
+	View     string   // op: {state, companyIds, now} -> {snapshots, denied, refreshAt}
+	Triggers []string // events that may change the room
 }
 
 // ScopeDef represents a scope entry from CUE registry.

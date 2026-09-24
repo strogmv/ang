@@ -317,6 +317,7 @@ func (e *Emitter) AnalyzeContextFromIR(schema *ir.Schema) MainContext {
 			Description:      ep.Description,
 			Messages:         append([]string{}, ep.Messages...),
 			RoomParam:        ep.RoomParam,
+			Live:             ir.LiveRoomToNormalizer(ep.Live),
 			CacheTTL:         ep.Cache,
 			CacheTags:        initializeSlice(ep.CacheTags),
 			Invalidate:       initializeSlice(ep.Invalidate),

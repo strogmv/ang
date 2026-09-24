@@ -22,8 +22,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	redisv9 "github.com/redis/go-redis/v9"
 	{{ if .HasMongo }}
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	{{ end }}
 
 	{{ if or .HasCache (or (eq .AuthRefreshStore "redis") (eq .AuthRefreshStore "hybrid")) }}cacheRedis "{{.GoModule}}/internal/adapter/cache/redis"

@@ -197,6 +197,7 @@ func (n *Normalizer) ExtractEndpoints(val cue.Value) ([]Endpoint, error) {
 		}
 		sort.Strings(ep.Invalidate)
 
+		ep.Live = parseLiveRoomDef(epVal)
 		msgsVal := epVal.LookupPath(cue.ParsePath("messages"))
 		if msgsVal.Exists() {
 			list, _ := msgsVal.List()
@@ -412,6 +413,7 @@ func (n *Normalizer) ExtractEndpoints(val cue.Value) ([]Endpoint, error) {
 			ep.RetryPolicy = rp
 		}
 
+		ep.Live = parseLiveRoomDef(epVal)
 		msgVal := epVal.LookupPath(cue.ParsePath("messages"))
 		if msgVal.Exists() {
 			switch msgVal.IncompleteKind() {
@@ -518,4 +520,21 @@ func parseRateLimits(v cue.Value) ([]RateLimitDef, error) {
 		}
 	}
 	return out, nil
+}
+
+// parseLiveRoomDef reads an endpoint's `live: {state, view, triggers}` block.
+func parseLiveRoomDef(epVal cue.Value) *LiveRoomDef {
+	v := epVal.LookupPath(cue.ParsePath("live"))
+	if !v.Exists() {
+		return nil
+	}
+	def := &LiveRoomDef{State: strings.TrimSpace(getString(v, "state")), View: strings.TrimSpace(getString(v, "view"))}
+	if list, err := v.LookupPath(cue.ParsePath("triggers")).List(); err == nil {
+		for list.Next() {
+			if s, err := list.Value().String(); err == nil && strings.TrimSpace(s) != "" {
+				def.Triggers = append(def.Triggers, strings.TrimSpace(s))
+			}
+		}
+	}
+	return def
 }

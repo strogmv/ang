@@ -62,7 +62,7 @@
 	{{ if .HasMongo }}
 	// Untyped (any) fields decode into maps, not ordered key/value pairs, so a
 	// map written by the service reads back as the same JSON object.
-	mongoClient, err := mongo.Connect(ctx, options.Client().ApplyURI(cfg.MongoURL).SetBSONOptions(&options.BSONOptions{DefaultDocumentM: true}))
+	mongoClient, err := mongo.Connect(options.Client().ApplyURI(cfg.MongoURL).SetBSONOptions(&options.BSONOptions{DefaultDocumentM: true}))
 	if err != nil {
 		log.Error("Mongo init failed", "error", err)
 	} else {

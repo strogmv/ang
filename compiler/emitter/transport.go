@@ -45,6 +45,28 @@ type WsEndpointView struct {
 	AuthCheckInput        normalizer.Entity
 	AuthCheckCompanyField string
 	AuthCheckUserField    string
+	// Live room (endpoint `live` block): the Go names of the fields the
+	// generated code fills on the state and view operations.
+	IsLive                 bool
+	LiveName               string // JetStream subject token: live.<LiveName>.<room>
+	LiveState              string
+	LiveView               string
+	LiveStateRoomField     string
+	LiveViewStateField     string
+	LiveViewCompaniesField string
+	LiveViewNowField       string
+	LiveViewSnapshotsField string
+	LiveViewDeniedField    string
+	LiveViewRefreshField   string
+	LiveTriggers           []WsLiveTrigger
+}
+
+// WsLiveTrigger is an event that may change a live room, and the field of its
+// payload that names the room.
+type WsLiveTrigger struct {
+	Event     string
+	GoType    string
+	RoomField string
 }
 
 type WsServiceGroup struct {
@@ -53,6 +75,7 @@ type WsServiceGroup struct {
 	HasBroadcast bool
 	HasRooms     bool
 	HasAuthCheck bool
+	HasLive      bool
 }
 
 func buildRequireRoles(roles []string) string {

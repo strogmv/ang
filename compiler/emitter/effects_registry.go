@@ -58,7 +58,7 @@ func (e *Emitter) renderEffectRegistrySource(ctx MainContext, infraValues map[st
 		b.WriteString("\t\"github.com/jackc/pgx/v5/pgxpool\"\n")
 	}
 	if ctx.HasMongo {
-		b.WriteString("\t\"go.mongodb.org/mongo-driver/mongo\"\n")
+		b.WriteString("\t\"go.mongodb.org/mongo-driver/v2/mongo\"\n")
 	}
 	if needsRedis {
 		b.WriteString("\t\"github.com/redis/go-redis/v9\"\n")

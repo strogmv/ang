@@ -571,6 +571,14 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		}
 		return false
 	}
+	appFuncs["HasLiveRoomsIR"] = func(endpoints []ir.Endpoint) bool {
+		for _, ep := range endpoints {
+			if ep.Live != nil && strings.EqualFold(ep.Method, "WS") {
+				return true
+			}
+		}
+		return false
+	}
 	appFuncs["RoomFieldForEventIR"] = func(endpoints []ir.Endpoint, services []ir.Service, serviceName, eventName string) string {
 		var methods map[string]ir.Method
 		for _, svc := range services {

@@ -94,6 +94,28 @@ type wsClient struct {
 	// closed is owned by the hub goroutine: send is closed exactly once, no
 	// matter how many paths (slow-consumer eviction, readPump exit) ask for it.
 	closed bool
+	// live is set on a socket of a live room (see ws_live.go): it gets
+	// per-viewer snapshots instead of the room's raw events.
+	live *wsLiveClient
+	// closeCode, when set, is sent in the close frame once the hub drops the
+	// socket (e.g. 4403 when a live room's viewer lost access).
+	closeCode atomic.Int32
+}
+
+// wsLiveClient is the live side of a socket: its room, its viewer company and
+// the hash of the last view it was sent.
+type wsLiveClient struct {
+	room      string
+	companyID string
+	lastHash  uint64
+	hasHash   bool
+	detach    func()
+}
+
+// wsDirect is a frame for one socket (a live room's per-viewer snapshot).
+type wsDirect struct {
+	client *wsClient
+	data   []byte
 }
 
 // wsSessionCloseCode tells the client the socket closed because its session
@@ -135,6 +157,7 @@ type wsHub struct {
 	unregister chan *wsClient
 	subscribe  chan wsRoomSubscription
 	unsubscribe chan wsRoomSubscription
+	direct     chan wsDirect
 	stop       chan struct{}
 	mu         sync.RWMutex
 }
@@ -147,6 +170,20 @@ func newWSHub() *wsHub {
 		unregister: make(chan *wsClient),
 		subscribe:  make(chan wsRoomSubscription),
 		unsubscribe: make(chan wsRoomSubscription),
+		direct:      make(chan wsDirect, 1024),
+	}
+}
+
+// sendDirect queues a frame for one socket without blocking; false when the
+// hub is saturated (the frame is dropped and the caller does not count it as
+// sent).
+func (h *wsHub) sendDirect(client *wsClient, data []byte) bool {
+	select {
+	case h.direct <- wsDirect{client: client, data: data}:
+		return true
+	default:
+		wsDroppedBroadcasts.Add(1)
+		return false
 	}
 }
 
@@ -198,6 +235,9 @@ func (h *wsHub) evict(client *wsClient) {
 	}
 	client.closed = true
 	close(client.send)
+	if client.live != nil && client.live.detach != nil {
+		go client.live.detach()
+	}
 }
 
 // deliver queues data for a client without ever blocking the hub. A client
@@ -251,7 +291,7 @@ func (h *wsHub) run() {
 				delivered := make(map[*wsClient]bool)
 				for _, conns := range h.rooms {
 					for client := range conns {
-						if delivered[client] {
+						if delivered[client] || client.live != nil {
 							continue
 						}
 						delivered[client] = true
@@ -260,9 +300,21 @@ func (h *wsHub) run() {
 				}
 			} else if conns, ok := h.rooms[message.room]; ok {
 				for client := range conns {
+					// A live socket gets the room as snapshots, not raw events.
+					if client.live != nil {
+						continue
+					}
 					h.deliver(client, message.data, &slow)
 				}
 			}
+			for _, client := range slow {
+				h.evict(client)
+			}
+			h.mu.Unlock()
+		case d := <-h.direct:
+			h.mu.Lock()
+			var slow []*wsClient
+			h.deliver(d.client, d.data, &slow)
 			for _, client := range slow {
 				h.evict(client)
 			}
@@ -291,7 +343,11 @@ func (c *wsClient) writePump() {
 		case message, ok := <-c.send:
 			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if !ok {
-				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				if code := c.closeCode.Load(); code != 0 {
+					c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(int(code), "access revoked"))
+				} else {
+					c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				}
 				return
 			}
 			if err := c.conn.WriteMessage(websocket.TextMessage, message); err != nil {

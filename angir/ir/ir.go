@@ -509,6 +509,7 @@ type Endpoint struct {
 	Description      string          `json:"description"`
 	Messages         []string        `json:"messages"`
 	RoomParam        string          `json:"room_param"`
+	Live             *LiveRoom       `json:"live,omitempty"`
 	Auth             *EndpointAuth   `json:"auth,omitempty"`
 	RequiredScopes   []string        `json:"required_scopes,omitempty"`
 	Cache            string          `json:"cache"`
@@ -533,6 +534,13 @@ type Endpoint struct {
 	Metadata         map[string]any  `json:"metadata"`
 	Source           string          `json:"source"`
 	Provenance       *Provenance     `json:"provenance,omitempty"`
+}
+
+// LiveRoom is a WS room pushed as per-viewer snapshots (see normalizer.LiveRoomDef).
+type LiveRoom struct {
+	State    string   `json:"state"`
+	View     string   `json:"view"`
+	Triggers []string `json:"triggers,omitempty"`
 }
 
 type TestHints struct {

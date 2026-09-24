@@ -32,6 +32,14 @@ func (c *Client) Close() {
 	c.nc.Close()
 }
 
+// Conn is the underlying connection (JetStream users: live rooms).
+func (c *Client) Conn() *natspkg.Conn {
+	if c == nil {
+		return nil
+	}
+	return c.nc
+}
+
 func (c *Client) IsConnected() bool {
 	return c.nc != nil && c.nc.Status() == natspkg.CONNECTED
 }

@@ -32,7 +32,7 @@ func ValidateGeneratedDI(backendDir string, ctx MainContext, auth *normalizer.Au
 		requireMain("bootstrap.NewRuntimeContainer(", "SQL capability requires runtime-container wiring")
 	}
 	if ctx.HasMongo {
-		requireMain("mongo.Connect(ctx, options.Client().ApplyURI(cfg.MongoURL)", "Mongo capability requires a Mongo client")
+		requireMain("mongo.Connect(options.Client().ApplyURI(cfg.MongoURL)", "Mongo capability requires a Mongo client")
 		requireMain("mongoClient,", "Mongo capability requires runtime-container wiring")
 	}
 	if ctx.HasNats {

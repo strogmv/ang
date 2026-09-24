@@ -25,9 +25,9 @@ import (
 	"time"
 	{{- end }}
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"{{GoModule}}/internal/domain"
 )
@@ -63,7 +63,7 @@ func (r *{{ ExportName .Name }}) Save(ctx context.Context, entity *domain.{{ Exp
 		ctx,
 		entity.ID,
 		bson.M{"$set": doc},
-		options.Update().SetUpsert(true),
+		options.UpdateOne().SetUpsert(true),
 	)
 	return err
 }

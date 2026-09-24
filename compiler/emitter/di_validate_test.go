@@ -41,7 +41,7 @@ func TestValidateGeneratedDICapabilityMatrix(t *testing.T) {
 	}
 	complete := `
 pgxpool.NewWithConfig(ctx, poolCfg)
-mongo.Connect(ctx, options.Client().ApplyURI(cfg.MongoURL))
+mongo.Connect(options.Client().ApplyURI(cfg.MongoURL))
 nats.NewClient(cfg.NatsURL)
 publisher = natsClient
 s3.New(ctx, cfg.AWSRegion, cfg.S3Bucket, cfg.S3Endpoint)

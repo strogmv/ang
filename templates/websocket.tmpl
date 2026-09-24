@@ -9,11 +9,19 @@
 package http
 
 import (
+	{{- if .HasLive }}
+	"context"
+	"strconv"
+	"time"
+	{{- end }}
 	"encoding/json"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	{{- if .HasBroadcast }}
+	{{- if .HasLive }}
+	"github.com/gorilla/websocket"
+	{{- end }}
+	{{- if or .HasBroadcast .HasLive }}
 	"{{GoModule}}/internal/domain"
 	{{- end }}
 	{{- if .HasAuthCheck }}
@@ -29,6 +37,7 @@ var {{ .Name | ToLower }}Hub = &wsHub{
 	unregister: make(chan *wsClient),
 	subscribe:  make(chan wsRoomSubscription),
 	unsubscribe: make(chan wsRoomSubscription),
+	direct:      make(chan wsDirect, 1024),
 	stop:       make(chan struct{}),
 }
 
@@ -83,6 +92,46 @@ func Broadcast{{ . }}({{ if $.HasRooms }}roomID string, {{ end }}payload domain.
 
 func Register{{ .Name }}WSRoutes(r chi.Router, svc port.{{ .Name }}) {
 {{- range .Endpoints }}
+	{{- if .IsLive }}
+	// {{ .RPC }} is a live room: see ws_live.go.
+	registerLiveEndpoint(&liveEndpoint{
+		name: "{{ .LiveName }}",
+		hub:  {{ $.Name | ToLower }}Hub,
+		build: func(ctx context.Context, room string) (string, error) {
+			resp, err := svc.{{ .LiveState }}(ctx, port.{{ .LiveState }}Request{ {{ .LiveStateRoomField }}: room })
+			if err != nil {
+				return "", err
+			}
+			return resp.State, nil
+		},
+		view: func(ctx context.Context, state string, companies []string, now time.Time) ([]string, []string, time.Time, error) {
+			resp, err := svc.{{ .LiveView }}(ctx, port.{{ .LiveView }}Request{
+				{{ .LiveViewStateField }}:     state,
+				{{ .LiveViewCompaniesField }}: companies,
+				{{ .LiveViewNowField }}:       now.UTC().Format(time.RFC3339Nano),
+			})
+			if err != nil {
+				return nil, nil, time.Time{}, err
+			}
+			var refreshAt time.Time
+			if resp.{{ .LiveViewRefreshField }} != "" {
+				refreshAt, _ = time.Parse(time.RFC3339Nano, resp.{{ .LiveViewRefreshField }})
+			}
+			return resp.{{ .LiveViewSnapshotsField }}, resp.{{ .LiveViewDeniedField }}, refreshAt, nil
+		},
+		triggers: map[string]func([]byte) string{
+			{{- range .LiveTriggers }}
+			"{{ .Event }}": func(data []byte) string {
+				var event domain.{{ .GoType }}
+				if json.Unmarshal(data, &event) != nil {
+					return ""
+				}
+				return event.{{ .RoomField }}
+			},
+			{{- end }}
+		},
+	})
+	{{- end }}
 	{{- $mw := WSMiddlewareList . }}
 	{{- if $mw }}
 	r.With({{ $mw }}).
@@ -211,6 +260,23 @@ func handler{{ .RPC }}WS(svc port.{{ $.Name }}) http.HandlerFunc {
 			allowDynamicRooms: {{ if .AllowDynamicRooms }}true{{ else }}false{{ end }},
 			sessionID:         wsWatchedSessionID(r),
 		}
+		{{- if .IsLive }}
+		// ?live=1 asks for the room as per-viewer snapshots; ?since=<seq> is
+		// the last one the page applied (the missed ones are replayed). Without
+		// JetStream the socket gets the plain event relay.
+		if r.URL.Query().Get("live") == "1" && roomID != "" {
+			if liveEP, liveRT := liveEndpointNamed("{{ .LiveName }}"), liveActive(); liveEP != nil && liveRT != nil {
+				since, _ := strconv.ParseUint(r.URL.Query().Get("since"), 10, 64)
+				client.live = &wsLiveClient{room: roomID, companyID: wsIdent.CompanyID}
+				client.live.detach = func() { liveEP.detach(client) }
+				if !liveEP.attach(liveRT, client, since) {
+					conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(liveAccessRevoked, "access revoked"))
+					conn.Close()
+					return
+				}
+			}
+		}
+		{{- end }}
 		client.hub.register <- client
 
 		go client.writePump()

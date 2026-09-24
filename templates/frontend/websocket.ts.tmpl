@@ -70,6 +70,9 @@ export const setWebSocketLogger = (logger: WebSocketLogger) => {
 /** Close code the server uses when the socket's session ended (idle, expired, signed out elsewhere). */
 export const WS_SESSION_ENDED_CLOSE_CODE = 4401;
 
+/** Close code of a live room whose viewer lost access to it (application withdrawn or rejected). */
+export const WS_ACCESS_REVOKED_CLOSE_CODE = 4403;
+
 let sessionEndedListener: (() => void) | null = null;
 
 /**

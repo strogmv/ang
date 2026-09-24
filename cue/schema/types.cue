@@ -1483,6 +1483,15 @@ import "github.com/strogmv/ang/cue/project"
 		method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "WS"
 		path:   string
 		room?:  string
+		// A live room: server-pushed per-viewer snapshots with JetStream replay.
+		// state: op {<room field>} -> {state: string}; view: op {state, companyIds,
+		// now} -> {snapshots, denied (company ids), refreshAt}; triggers: events that may change
+		// the room (their payload never reaches a socket). Needs auth.check.
+		live?: {
+			state: string
+			view:  string
+			triggers: [...string]
+		}
 		description?: string
 		view?:        string
 		messages?: [...string] | {[string]: _}
