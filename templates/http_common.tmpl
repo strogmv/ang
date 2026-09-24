@@ -917,6 +917,12 @@ func authClaimsFromCookieSession(r *http.Request) (map[string]any, error) {
 func writeSessionFailure(w http.ResponseWriter, r *http.Request, err error) bool {
 	switch e := err.(type) {
 	case *sessionStoreError:
+		if errors.ClientGone(r) {
+			// The lookup failed because the client left, not because the store
+			// is down: nothing to report, nobody to answer (logged as 499).
+			errors.WriteError(w, r, e.err)
+			return true
+		}
 		slog.Warn("auth: session store unavailable", "error", e.err)
 		errors.WriteError(w, r, errors.New(http.StatusServiceUnavailable, "SESSION_STORE_UNAVAILABLE", "The session could not be checked. Try again in a moment."))
 		return true
@@ -1827,15 +1833,40 @@ func rateLimitMiddleware(rps, burst, windowSecs, windowLimit int, bucketOf func(
 }
 
 // TimeoutMiddleware wraps handler with a timeout context.
-// Uses Go's http.TimeoutHandler for proper timeout handling.
+// Uses Go's http.TimeoutHandler for proper timeout handling. The stdlib answers
+// 503 in two different cases: the route's deadline ran out (a real timeout,
+// with the body below) and the client went away (an empty 503 nobody
+// receives). The second is recorded as 499 instead, and a real timeout tells
+// the client when to retry.
 func TimeoutMiddleware(timeout string) func(http.Handler) http.Handler {
 	d, err := time.ParseDuration(timeout)
 	if err != nil || d <= 0 {
 		d = 30 * time.Second // default timeout
 	}
 	return func(next http.Handler) http.Handler {
-		return http.TimeoutHandler(next, d, `{"type":"about:blank","title":"Gateway Timeout","status":504,"detail":"Request timed out"}`)
+		th := http.TimeoutHandler(next, d, `{"type":"about:blank","title":"Gateway Timeout","status":504,"detail":"Request timed out"}`)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			th.ServeHTTP(&timeoutStatusWriter{ResponseWriter: w, r: r}, r)
+		})
 	}
+}
+
+// timeoutStatusWriter sits between http.TimeoutHandler and the real writer
+// (TimeoutHandler only calls Header, WriteHeader and Write on it).
+type timeoutStatusWriter struct {
+	http.ResponseWriter
+	r *http.Request
+}
+
+func (tw *timeoutStatusWriter) WriteHeader(code int) {
+	if code == http.StatusServiceUnavailable {
+		if errors.ClientGone(tw.r) {
+			code = errors.StatusClientClosedRequest
+		} else if tw.Header().Get("Retry-After") == "" {
+			tw.Header().Set("Retry-After", errors.RetryAfterSeconds)
+		}
+	}
+	tw.ResponseWriter.WriteHeader(code)
 }
 
 func IdempotencyMiddleware() func(http.Handler) http.Handler {

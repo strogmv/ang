@@ -2,6 +2,7 @@
 package errors
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,58 @@ import (
 	"sort"
 	"strings"
 )
+
+// StatusClientClosedRequest is nginx's 499: the client went away before the
+// server answered. Nobody receives a response with this status; it exists so
+// that access logs and metrics tell a closed tab from a server failure.
+const StatusClientClosedRequest = 499
+
+// ClientGone reports whether the client of r has already gone: its request
+// context was cancelled (the connection closed, the HTTP/2 stream was reset).
+// A server-side deadline is context.DeadlineExceeded, not Canceled, and stays
+// a timeout.
+func ClientGone(r *http.Request) bool {
+	return r != nil && errors.Is(r.Context().Err(), context.Canceled)
+}
+
+// ObservedStatus is the status an access log or a metric records for a
+// request that ended with status: a failure produced for a client that had
+// already gone is 499, not the 5xx (or 4xx) some layer wrote into the void.
+// Answers that succeeded stay what they were.
+func ObservedStatus(r *http.Request, status int) int {
+	if (status == 0 || status >= 400) && ClientGone(r) {
+		return StatusClientClosedRequest
+	}
+	return status
+}
+
+// RetryAfterSeconds is what a 503 tells the client to wait before retrying.
+const RetryAfterSeconds = "2"
+
+// sqlStater is implemented by the Postgres driver's error (pgconn.PgError).
+type sqlStater interface{ SQLState() string }
+
+// isDatabaseOverloaded reports a database that refuses work because it has no
+// room for it: no free connection slot (53300 too_many_connections, 53000
+// insufficient_resources, 53400 configuration_limit_exceeded) or it is still
+// starting / shutting down (57P03 cannot_connect_now). Such a request may
+// succeed a moment later, so it is a 503 with Retry-After, not a 500.
+func isDatabaseOverloaded(err error) bool {
+	var st sqlStater
+	if errors.As(err, &st) {
+		switch st.SQLState() {
+		case "53300", "53000", "53400", "57P03":
+			return true
+		}
+	}
+	msg := err.Error()
+	for _, code := range []string{"SQLSTATE 53300", "SQLSTATE 53000", "SQLSTATE 53400", "SQLSTATE 57P03"} {
+		if strings.Contains(msg, code) {
+			return true
+		}
+	}
+	return strings.Contains(msg, "too many clients already") || strings.Contains(msg, "remaining connection slots are reserved")
+}
 
 // ProblemDetail implements RFC 9457 (Problem Details for HTTP APIs).
 type ProblemDetail struct {
@@ -133,6 +186,20 @@ func New{{ .Name }}() *ProblemDetail {
 {{- end }}
 
 func WriteError(w http.ResponseWriter, r *http.Request, err error) {
+	// The client has gone: whatever failed (usually because of it — a query
+	// cancelled with the request context), nobody will read the answer. It is
+	// not a server error; log it quietly and record 499.
+	if ClientGone(r) {
+		slog.Debug("Client closed request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", StatusClientClosedRequest,
+			"error", err,
+		)
+		w.WriteHeader(StatusClientClosedRequest)
+		return
+	}
+
 	var pd *ProblemDetail
 	
 	// Use errors.As to support wrapped errors.
@@ -152,6 +219,26 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 				"intent", pd.Intent,
 			)
 		}
+	} else if errors.Is(err, context.DeadlineExceeded) {
+		// A server-side deadline ran out (the route timeout, a database wait for
+		// a free pooled connection): the service is overloaded, not broken.
+		slog.Warn("Request deadline exceeded",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"error", err,
+		)
+		pd = New(http.StatusServiceUnavailable, "SERVICE_BUSY", "The request timed out. Try again in a moment.")
+		pd.MessageCode = "SERVICE_BUSY"
+		pd.Instance = r.URL.Path
+	} else if isDatabaseOverloaded(err) {
+		slog.Warn("Database has no free connection",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"error", err,
+		)
+		pd = New(http.StatusServiceUnavailable, "SERVICE_BUSY", "The service is busy. Try again in a moment.")
+		pd.MessageCode = "SERVICE_BUSY"
+		pd.Instance = r.URL.Path
 	} else {
 		// Hide internal error details from the client, but keep full details in server logs.
 		slog.Error("Unhandled application error",
@@ -163,6 +250,9 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 		pd.Instance = r.URL.Path
 	}
 
+	if pd.Status == http.StatusServiceUnavailable && w.Header().Get("Retry-After") == "" {
+		w.Header().Set("Retry-After", RetryAfterSeconds)
+	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(pd.Status)
 	_ = json.NewEncoder(w).Encode(pd)

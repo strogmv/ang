@@ -9,6 +9,8 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+
+	"{{GoModule}}/internal/pkg/errors"
 )
 
 var (
@@ -60,7 +62,9 @@ func MetricsMiddleware(next http.Handler) http.Handler {
 			path = routeCtx.RoutePattern()
 		}
 
-		status := strconv.Itoa(ww.Status())
+		// A client that left mid-request is 499, never a 5xx: a browser leaving a
+		// page must not move the error rate.
+		status := strconv.Itoa(errors.ObservedStatus(r, ww.Status()))
 		httpDuration.WithLabelValues(path, r.Method, status).Observe(time.Since(start).Seconds())
 		httpRequests.WithLabelValues(path, r.Method, status).Inc()
 	})

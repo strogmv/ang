@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 	"github.com/go-chi/chi/v5/middleware"
+	"{{GoModule}}/internal/pkg/errors"
 	"{{GoModule}}/internal/pkg/logger"
 )
 
@@ -56,10 +57,23 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(ww, r)
 
-		// Always log failures; skip only successful excluded (health/metrics) requests.
-		if !excluded || ww.Status() >= 400 {
+		// A request whose client left is 499 (nginx's "client closed request"),
+		// whatever some layer wrote into the closed connection, and it is not a
+		// failure of the server: an INFO line, never a 5xx.
+		status := errors.ObservedStatus(r, ww.Status())
+		if status == errors.StatusClientClosedRequest {
 			log.Info("HTTP Response",
-				"status", ww.Status(),
+				"status", status,
+				"duration", time.Since(start).String(),
+				"bytes", ww.BytesWritten(),
+				"client_closed", true,
+			)
+			return
+		}
+		// Always log failures; skip only successful excluded (health/metrics) requests.
+		if !excluded || status >= 400 {
+			log.Info("HTTP Response",
+				"status", status,
 				"duration", time.Since(start).String(),
 				"bytes", ww.BytesWritten(),
 			)
