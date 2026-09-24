@@ -108,6 +108,8 @@ func (e *Emitter) EmitContractTests(irEndpoints []ir.Endpoint, irServices []ir.S
 					body[nameLower] = "test1234"
 				} else if nameLower == "companyname" {
 					body[nameLower] = "Test Company"
+				} else if nameLower == "countrycode" {
+					body[nameLower] = "DE"
 				} else {
 					body[nameLower] = "test"
 				}

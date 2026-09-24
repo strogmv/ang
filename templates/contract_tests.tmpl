@@ -106,6 +106,9 @@ func ensureAuth(t *testing.T) authState {
 			"email": email,
 			"password": password,
 			"companyname": "Test Company",
+			// Founding a company names its country; a server may refuse
+			// registration without one (400 COUNTRY_REQUIRED).
+			"countryCode": "DE",
 		}
 		payload, _ := json.Marshal(body)
 		req, err := http.NewRequest("{{ .Auth.RegisterMethod }}", baseURL+fillPathParams("{{ .Auth.RegisterPath }}"), bytes.NewBuffer(payload))
@@ -221,7 +224,7 @@ func TestContractHTTPPositive(t *testing.T) {
 		url := baseURL + fillPathParamsRequired(t, "{{ .Endpoint.Path }}"){{ if .QueryParams }} + "{{ .QueryParams }}"{{ end }}
 		{{- if eq .Endpoint.RPC "RegisterUser" }}
 		email := fmt.Sprintf("user+%d@example.com", rand.New(rand.NewSource(time.Now().UnixNano())).Int())
-		payload := fmt.Sprintf(`{"companyname":"Test Company","email":"%s","password":"test1234"}`, email)
+		payload := fmt.Sprintf(`{"companyname":"Test Company","countryCode":"DE","email":"%s","password":"test1234"}`, email)
 		{{- else if eq .Endpoint.RPC "LoginUser" }}
 		auth := ensureAuth(t)
 		if auth.email == "" || auth.password == "" {
