@@ -83,7 +83,7 @@ type liveState struct {
 type liveRoom struct {
 	mu        sync.Mutex
 	latest    *liveState
-	fromLive  bool // latest came through this replica's consumer or publish
+	fromLive  bool // latest came through this replica's consumer or publish, or a build confirmed it
 	clients   map[*wsClient]struct{}
 	touched   time.Time
 	timer     *time.Timer
@@ -433,6 +433,11 @@ func (ep *liveEndpoint) buildAndPublish(rt *liveRuntime, room string) {
 		hash := liveHash(data)
 		if last != nil && last.hash == hash && last.data == data {
 			LiveUnchanged.Add(1)
+			// The stream is up to date with the database: later sockets of this
+			// room need no check build.
+			r.mu.Lock()
+			r.fromLive = true
+			r.mu.Unlock()
 			return
 		}
 		var lastSeq uint64
