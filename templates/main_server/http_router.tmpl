@@ -34,7 +34,7 @@
 		AllowedOrigins:   corsAllowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"*"},
-		ExposedHeaders:   []string{"Link", "X-Total-Count", "X-Session-Idle-Timeout", "X-Session-Idle-Remaining", "X-Session-Remaining"},
+		ExposedHeaders:   []string{"Link", "X-Total-Count", "X-Session-Idle-Timeout", "X-Session-Idle-Remaining", "X-Session-Remaining", "Retry-After"},
 		AllowCredentials: corsAllowCredentials,
 		MaxAge:           300,
 	})

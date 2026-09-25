@@ -27,6 +27,8 @@ func authCookieFields(auth *normalizer.AuthDef, rpc string) (accessField, refres
 		return auth.DemoSessionAccessField, auth.DemoSessionRefreshField, auth.DemoSessionAccessField != "" && auth.DemoSessionRefreshField != ""
 	case strings.TrimSpace(auth.MfaVerifyOp):
 		return auth.MfaVerifyAccessField, auth.MfaVerifyRefreshField, auth.MfaVerifyAccessField != "" && auth.MfaVerifyRefreshField != ""
+	case strings.TrimSpace(auth.PasswordChangeOp):
+		return auth.PasswordChangeAccessField, auth.PasswordChangeRefreshField, auth.PasswordChangeAccessField != "" && auth.PasswordChangeRefreshField != ""
 	case strings.TrimSpace(auth.RefreshOp):
 		return auth.RefreshAccessField, auth.RefreshRefreshField, auth.RefreshAccessField != "" && auth.RefreshRefreshField != ""
 	default:
@@ -59,6 +61,12 @@ func authCookieFuncMap(auth *normalizer.AuthDef) map[string]any {
 		},
 		"AuthIsLogoutAll": func(rpc string) bool {
 			return auth != nil && strings.TrimSpace(auth.LogoutAllOp) != "" && strings.TrimSpace(rpc) == strings.TrimSpace(auth.LogoutAllOp)
+		},
+		// AuthIsPasswordChange: the operation that changes the password of
+		// the signed-in user. The handler ends the user's other sessions
+		// before writing the fresh one it returns.
+		"AuthIsPasswordChange": func(rpc string) bool {
+			return auth != nil && strings.TrimSpace(auth.PasswordChangeOp) != "" && strings.TrimSpace(rpc) == strings.TrimSpace(auth.PasswordChangeOp)
 		},
 		"AuthCookieRefreshField": func(rpc string) string {
 			_, refresh, ok := authCookieFields(auth, rpc)

@@ -71,3 +71,26 @@ func TestAuthLogoutHelpers(t *testing.T) {
 		t.Fatal("AuthIsLogoutAll must be false without auth config")
 	}
 }
+
+// A password change hands back a fresh pair for the device that made it, so
+// its handler writes the session cookie like a login does, and only that
+// operation ends the other sessions first.
+func TestAuthPasswordChangeHelpers(t *testing.T) {
+	auth := &normalizer.AuthDef{
+		Mode:                       "opaque_session_cookie",
+		PasswordChangeOp:           "ChangePassword",
+		PasswordChangeAccessField:  "accessToken",
+		PasswordChangeRefreshField: "refreshToken",
+	}
+	access, refresh, ok := authCookieFields(auth, "ChangePassword")
+	if !ok || access != "accessToken" || refresh != "refreshToken" {
+		t.Fatalf("authCookieFields(ChangePassword) = (%q, %q, %v)", access, refresh, ok)
+	}
+	isChange := authCookieFuncMap(auth)["AuthIsPasswordChange"].(func(string) bool)
+	if !isChange("ChangePassword") || isChange("LoginUser") {
+		t.Fatal("AuthIsPasswordChange must match only the password_change operation")
+	}
+	if authCookieFuncMap(nil)["AuthIsPasswordChange"].(func(string) bool)("ChangePassword") {
+		t.Fatal("AuthIsPasswordChange must be false without auth config")
+	}
+}

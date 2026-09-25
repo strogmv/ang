@@ -38,7 +38,16 @@
 		if u == nil {
 			return false, nil
 		}
-		return strings.EqualFold(strings.TrimSpace(u.Status), "active"), nil
+		switch strings.ToLower(strings.TrimSpace(u.Status)) {
+		case "active":
+			return true, nil
+		case "", "unverified":
+			return false, nil
+		case "suspended", "blocked":
+			return false, transport.ErrAccountSuspended
+		default:
+			return false, transport.ErrAccountClosed
+		}
 	})
 	{{- end }}
 

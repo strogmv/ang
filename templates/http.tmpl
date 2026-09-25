@@ -271,6 +271,10 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 		clearAuthCookies(w, r)
 		{{- else if AuthIsLogoutAll .RPC }}
 		RevokeAllUserSessions(r.Context(), w, r, CurrentUserID(r))
+		{{- else if AuthIsPasswordChange .RPC }}
+		// Every other device is signed out; this one gets the fresh session
+		// written below.
+		revokeUserSessionIndex(r.Context(), CurrentUserID(r))
 		{{- end }}
 		{{- end }}
 		{{- $hasRedirect := false }}

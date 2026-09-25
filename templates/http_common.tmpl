@@ -204,6 +204,16 @@ func SetAuthConfigFromConfig(cfg *config.Config) error {
 	return nil
 }
 
+// ErrAccountSuspended is what a verified-user checker returns for an account
+// an operator has suspended: the session is genuine, the address confirmed,
+// and still nothing may be done with it. A distinct code, so the client does
+// not send the person to confirm an address that is already confirmed.
+var ErrAccountSuspended = errors.New(http.StatusForbidden, "ACCOUNT_SUSPENDED", "this account is suspended")
+
+// ErrAccountClosed is returned for an account that no longer exists (deleted):
+// the session outlived it, so it is answered like no session at all.
+var ErrAccountClosed = errors.New(http.StatusUnauthorized, "Unauthorized", "this account is closed")
+
 func SetVerifiedUserChecker(checker func(ctx context.Context, userID string) (bool, error)) {
 	verifiedUserChecker = checker
 }
@@ -727,6 +737,18 @@ func RevokeAllUserSessions(ctx context.Context, w http.ResponseWriter, r *http.R
 	if userID == "" {
 		return
 	}
+	revokeUserSessionIndex(ctx, userID)
+	clearAuthCookies(w, r)
+}
+
+// revokeUserSessionIndex ends every opaque session of the user without
+// touching the cookies of the current response. A password change uses it
+// before writing the fresh session of the device that made the change, so
+// every other device is signed out and this one is not.
+func revokeUserSessionIndex(ctx context.Context, userID string) {
+	if userID == "" {
+		return
+	}
 	if authSessionStore != nil {
 		raw, _ := authSessionStore.Get(ctx, userSessionsIndexKey(userID))
 		if len(raw) > 0 {
@@ -746,7 +768,6 @@ func RevokeAllUserSessions(ctx context.Context, w http.ResponseWriter, r *http.R
 		delete(authSessionByUser, userID)
 		authSessionMu.Unlock()
 	}
-	clearAuthCookies(w, r)
 }
 
 func buildOpaqueSessionPayload(accessToken, refreshToken string) (*opaqueSessionPayload, error) {
@@ -1220,6 +1241,13 @@ func AuthMiddleware(next http.Handler) http.Handler {
 		if verifiedUserChecker != nil {
 			ok, err := verifiedUserChecker(r.Context(), ac.UserID)
 			if err != nil {
+				// A checker that knows why the account may not proceed
+				// (ErrAccountSuspended, ErrAccountClosed) says so; anything
+				// else is a failure of the check itself.
+				if pd, isProblem := err.(*errors.ProblemDetail); isProblem {
+					errors.WriteError(w, r, pd)
+					return
+				}
 				errors.WriteError(w, r, errors.New(http.StatusInternalServerError, "Internal Server Error", "verification check failed"))
 				return
 			}
@@ -1803,6 +1831,17 @@ func rateLimitIdentity(key string) func(*http.Request) string {
 	}
 }
 
+// writeRateLimited answers 429 with Retry-After in whole seconds (at least
+// one), so a client can say "try again in 12 minutes" instead of guessing.
+func writeRateLimited(w http.ResponseWriter, r *http.Request, wait time.Duration) {
+	seconds := int((wait + time.Second - 1) / time.Second)
+	if seconds < 1 {
+		seconds = 1
+	}
+	w.Header().Set("Retry-After", fmt.Sprintf("%d", seconds))
+	errors.WriteError(w, r, errors.New(http.StatusTooManyRequests, "Too Many Requests", "Rate limit exceeded"))
+}
+
 func rateLimitMiddleware(rps, burst, windowSecs, windowLimit int, bucketOf func(*http.Request) string) func(http.Handler) http.Handler {
 	max := rps
 	if burst > max {
@@ -1832,7 +1871,7 @@ func rateLimitMiddleware(rps, burst, windowSecs, windowLimit int, bucketOf func(
 					count, err := rateLimitIncr.Run(ctx, redisClient, []string{key}, time.Second.Milliseconds()).Int64()
 					if err == nil {
 						if int(count) > max {
-							errors.WriteError(w, r, errors.New(http.StatusTooManyRequests, "Too Many Requests", "Rate limit exceeded"))
+							writeRateLimited(w, r, time.Second)
 							return
 						}
 					}
@@ -1851,7 +1890,7 @@ func rateLimitMiddleware(rps, burst, windowSecs, windowLimit int, bucketOf func(
 					over := state.count > max
 					rateMu.Unlock()
 					if over {
-						errors.WriteError(w, r, errors.New(http.StatusTooManyRequests, "Too Many Requests", "Rate limit exceeded"))
+						writeRateLimited(w, r, time.Second)
 						return
 					}
 				}
@@ -1866,7 +1905,14 @@ func rateLimitMiddleware(rps, burst, windowSecs, windowLimit int, bucketOf func(
 					count, err := rateLimitIncr.Run(ctx, redisClient, []string{wkey}, windowDur.Milliseconds()).Int64()
 					if err == nil {
 						if int(count) > windowLimit {
-							errors.WriteError(w, r, errors.New(http.StatusTooManyRequests, "Too Many Requests", "Rate limit exceeded"))
+							// The client is told how long the window still runs,
+							// not how long it is: an hour-long quota tripped at
+							// minute 50 lifts in ten minutes.
+							wait := windowDur
+							if ttl, ttlErr := redisClient.PTTL(ctx, wkey).Result(); ttlErr == nil && ttl > 0 {
+								wait = ttl
+							}
+							writeRateLimited(w, r, wait)
 							return
 						}
 					}
@@ -1880,9 +1926,10 @@ func rateLimitMiddleware(rps, burst, windowSecs, windowLimit int, bucketOf func(
 					}
 					ws.count++
 					over := ws.count > windowLimit
+					wait := ws.resetAt.Sub(now)
 					ws.mu.Unlock()
 					if over {
-						errors.WriteError(w, r, errors.New(http.StatusTooManyRequests, "Too Many Requests", "Rate limit exceeded"))
+						writeRateLimited(w, r, wait)
 						return
 					}
 				}

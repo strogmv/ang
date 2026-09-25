@@ -490,6 +490,12 @@ type AuthDef struct {
 	LogoutTokenField      string
 	// LogoutAllOp ends every session of the calling user.
 	LogoutAllOp string
+	// PasswordChangeOp changes the password of the signed-in user and hands
+	// back a fresh token pair: every other session of the user ends, and the
+	// device that made the change keeps working on the new pair.
+	PasswordChangeOp           string
+	PasswordChangeAccessField  string
+	PasswordChangeRefreshField string
 }
 
 // SessionDef describes anonymous cookie-session configuration.
