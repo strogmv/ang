@@ -5,8 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/ilyakaznacheev/cleanenv"
+	"github.com/joho/godotenv"
 )
 
 type Config struct {
@@ -25,27 +27,12 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("config error: %w", err)
 	}
 	if envPath != "" {
-		// cleanenv loads a .env file by overwriting the process environment, so
-		// a value set on the command line (EMAIL_DRY_RUN=true go run ...) would
-		// silently lose to the file. The file is a default: put the real
-		// environment back and read again, so whatever the process was started
-		// with wins.
-		started := os.Environ()
-		if err := cleanenv.ReadConfig(envPath, &cfg); err != nil {
+		if err := applyDotEnvDefaults(envPath); err != nil {
 			return nil, fmt.Errorf("config error: %w", err)
 		}
-		for _, entry := range started {
-			if key, value, ok := strings.Cut(entry, "="); ok && key != "" {
-				_ = os.Setenv(key, value)
-			}
-		}
-		if err := cleanenv.ReadEnv(&cfg); err != nil {
-			return nil, fmt.Errorf("config error: %w", err)
-		}
-	} else {
-		if err := cleanenv.ReadEnv(&cfg); err != nil {
-			return nil, fmt.Errorf("config error: %w", err)
-		}
+	}
+	if err := cleanenv.ReadEnv(&cfg); err != nil {
+		return nil, fmt.Errorf("config error: %w", err)
 	}
 
 	if err := validateJWTConfig(&cfg); err != nil {
@@ -53,6 +40,34 @@ func Load() (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+// dotEnvMu serializes applyDotEnvDefaults: Load runs from many goroutines at
+// once (every request that reads the mail settings).
+var dotEnvMu sync.Mutex
+
+// applyDotEnvDefaults treats the .env file as defaults: a key the process
+// environment already has (EMAIL_DRY_RUN=true go run ..., t.Setenv in a test)
+// is never touched, only missing keys are added. It used to load the file over
+// the environment and put the old values back afterwards; a Load running at the
+// same time could snapshot the file's values in that window and "restore" them
+// for good, so a request or test briefly (or permanently) saw the file instead
+// of what the process was started with.
+func applyDotEnvDefaults(path string) error {
+	values, err := godotenv.Read(path)
+	if err != nil {
+		return err
+	}
+	dotEnvMu.Lock()
+	defer dotEnvMu.Unlock()
+	for key, value := range values {
+		if _, set := os.LookupEnv(key); !set {
+			if err := os.Setenv(key, value); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func findDotEnv() (string, error) {
