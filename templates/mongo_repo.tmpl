@@ -189,9 +189,15 @@ func (r *{{ ExportName $.Name }}) {{ .Name }}(ctx context.Context{{ if .ParamsSi
 	{{- if eq $w.Op "=" }}
 	filter["{{ MongoBsonName $w.Field }}"] = {{ $w.Param }}
 	{{- else if eq $w.Op "<" }}
-	filter["{{ MongoBsonName $w.Field }}"] = bson.M{"$lt": {{ $w.Param }}}
+	mongoCmp(filter, "{{ MongoBsonName $w.Field }}", "$lt", {{ $w.Param }})
+	{{- else if eq $w.Op "<=" }}
+	mongoCmp(filter, "{{ MongoBsonName $w.Field }}", "$lte", {{ $w.Param }})
 	{{- else if eq $w.Op ">" }}
-	filter["{{ MongoBsonName $w.Field }}"] = bson.M{"$gt": {{ $w.Param }}}
+	mongoCmp(filter, "{{ MongoBsonName $w.Field }}", "$gt", {{ $w.Param }})
+	{{- else if eq $w.Op ">=" }}
+	mongoCmp(filter, "{{ MongoBsonName $w.Field }}", "$gte", {{ $w.Param }})
+	{{- else if or (eq $w.Op "!=") (eq $w.Op "<>") }}
+	mongoCmp(filter, "{{ MongoBsonName $w.Field }}", "$ne", {{ $w.Param }})
 	{{- else }}
 	filter["{{ MongoBsonName $w.Field }}"] = {{ $w.Param }}
 	{{- end }}

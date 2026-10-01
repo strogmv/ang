@@ -15,7 +15,22 @@
 
 package mongo
 
-import "time"
+import (
+	"time"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
+)
+
+// mongoCmp merges one comparison ($gt, $gte, $lt, $lte, $ne) into the filter of
+// a field, so two bounds on the same field (>= and <=) both apply instead of
+// the later one replacing the earlier.
+func mongoCmp(filter bson.M, field, op string, value any) {
+	if current, ok := filter[field].(bson.M); ok {
+		current[op] = value
+		return
+	}
+	filter[field] = bson.M{op: value}
+}
 
 func normalizeTime(value string) string {
 	if value == "" {
