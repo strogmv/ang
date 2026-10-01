@@ -64,6 +64,27 @@ func isDatabaseOverloaded(err error) bool {
 	return strings.Contains(msg, "too many clients already") || strings.Contains(msg, "remaining connection slots are reserved")
 }
 
+// isMalformedInput reports a value the database refused to read because of its
+// FORMAT: a path or query id that is not a UUID ("/api/tenders/2": 22P02
+// invalid_text_representation), a date or time the database cannot parse
+// (22007, 22008). That is the caller's mistake, a 400, not a server failure.
+func isMalformedInput(err error) bool {
+	var st sqlStater
+	if errors.As(err, &st) {
+		switch st.SQLState() {
+		case "22P02", "22007", "22008":
+			return true
+		}
+	}
+	msg := err.Error()
+	for _, code := range []string{"SQLSTATE 22P02", "SQLSTATE 22007", "SQLSTATE 22008"} {
+		if strings.Contains(msg, code) {
+			return true
+		}
+	}
+	return false
+}
+
 // ProblemDetail implements RFC 9457 (Problem Details for HTTP APIs).
 type ProblemDetail struct {
 	// Type - A URI reference that identifies the problem type.
@@ -270,6 +291,15 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 		)
 		pd = New(http.StatusServiceUnavailable, "SERVICE_BUSY", "The service is busy. Try again in a moment.")
 		pd.MessageCode = "SERVICE_BUSY"
+		pd.Instance = r.URL.Path
+	} else if isMalformedInput(err) {
+		slog.Info("Malformed value in a request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"error", err,
+		)
+		pd = New(http.StatusBadRequest, "INVALID_INPUT", "A value in the request has the wrong format.")
+		pd.MessageCode = "INVALID_INPUT"
 		pd.Instance = r.URL.Path
 	} else {
 		// Hide internal error details from the client, but keep full details in server logs.
