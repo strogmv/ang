@@ -103,6 +103,9 @@ func namedEnumNameSet(namedEnums []NamedEnum) map[string]struct{} {
 // Used by both ZodFieldType (field-level, handles enums separately) and ZodType (plain type string).
 func zodGoType(goType string, entitiesNorm []normalizer.Entity) string {
 	if strings.HasPrefix(goType, "[]") {
+		if elem := strings.TrimPrefix(goType, "[]"); strings.HasPrefix(elem, "[]") || strings.HasPrefix(elem, "map[string]") {
+			return fmt.Sprintf("z.array(%s)", zodGoType(elem, entitiesNorm))
+		}
 		elem := strings.TrimPrefix(strings.TrimPrefix(goType, "[]"), "domain.")
 		switch elem {
 		case "string":
@@ -121,6 +124,12 @@ func zodGoType(goType string, entitiesNorm []normalizer.Entity) string {
 			}
 			return "z.array(z.any())"
 		}
+	}
+	if elem := strings.TrimPrefix(goType, "map[string]"); elem != goType {
+		if elem == "any" || elem == "interface{}" {
+			return "z.any()"
+		}
+		return fmt.Sprintf("z.record(z.string(), %s)", zodGoType(elem, entitiesNorm))
 	}
 	base := strings.TrimPrefix(goType, "domain.")
 	switch base {
@@ -1086,7 +1095,8 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		return err
 	}
 
-	tsType := func(goType string) string {
+	var tsType func(goType string) string
+	tsType = func(goType string) string {
 		if strings.HasPrefix(goType, "[]domain.") {
 			return strings.TrimPrefix(goType, "[]domain.") + "[]"
 		}
@@ -1110,7 +1120,18 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 			return "string"
 		default:
 			if strings.HasPrefix(goType, "[]") {
-				return strings.TrimPrefix(goType, "[]") + "[]"
+				elem := strings.TrimPrefix(goType, "[]")
+				if strings.HasPrefix(elem, "[]") || strings.HasPrefix(elem, "map[string]") {
+					return tsType(elem) + "[]"
+				}
+				return elem + "[]"
+			}
+			if elem := strings.TrimPrefix(goType, "map[string]"); elem != goType {
+				return "Record<string, " + tsType(elem) + ">"
+			}
+			// An inline object of an operation input/output has its own interface.
+			if entityExists(entitiesNorm, goType) {
+				return goType
 			}
 			return "any"
 		}
@@ -1886,22 +1907,7 @@ func entityExists(entities []normalizer.Entity, name string) bool {
 }
 
 func nestedEntitiesFromEntity(ent normalizer.Entity) []normalizer.Entity {
-	seen := make(map[string]struct{})
-	var out []normalizer.Entity
-	for _, f := range ent.Fields {
-		if f.ItemTypeName == "" || len(f.ItemFields) == 0 {
-			continue
-		}
-		if _, ok := seen[f.ItemTypeName]; ok {
-			continue
-		}
-		seen[f.ItemTypeName] = struct{}{}
-		out = append(out, normalizer.Entity{
-			Name:   f.ItemTypeName,
-			Fields: f.ItemFields,
-		})
-	}
-	return out
+	return normalizer.CollectNestedTypes(ent.Fields)
 }
 
 func (e *Emitter) emitFrontendFile(tmplName string, data interface{}, funcs template.FuncMap, outName string) error {

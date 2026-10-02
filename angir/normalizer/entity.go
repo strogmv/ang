@@ -417,28 +417,8 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 			}
 			field.FileMeta = &FileMeta{Kind: kind, Thumbnail: thumb}
 		}
-		if val.IncompleteKind() == cue.ListKind {
-			field.IsList = true
-			if strings.HasPrefix(field.Type, "[]domain.") {
-				field.ItemTypeName = strings.TrimPrefix(field.Type, "[]domain.")
-			}
-
-			anyElem := val.LookupPath(cue.MakePath(cue.AnyIndex))
-			if anyElem.Exists() && anyElem.IncompleteKind() == cue.StructKind {
-				_, path := anyElem.ReferencePath()
-				if len(path.Selectors()) == 0 {
-					itemName := exportName(name) + exportName(fLabel) + "Item"
-					if strings.EqualFold(fLabel, "data") {
-						itemName = exportName(name) + "Data"
-					}
-					itemFields, err := n.parseInlineFields(anyElem)
-					if err == nil && len(itemFields) > 0 {
-						field.Type = "[]" + itemName
-						field.ItemTypeName = itemName
-						field.ItemFields = itemFields
-					}
-				}
-			}
+		if err := n.typeNestedField(nestedTypeOwner{name: exportName(name), dto: isDTOName(name), top: true}, fLabel, val, &field); err != nil {
+			return entity, err
 		}
 		entity.Fields = append(entity.Fields, field)
 	}

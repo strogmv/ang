@@ -162,6 +162,11 @@ components:
       properties:
       {{- range .Fields }}
         {{ .Name | ToLower }}:
+          {{- if OpenAPIStructured . }}
+          {{- range OpenAPIFieldSchema . }}
+          {{ . }}
+          {{- end }}
+          {{- else }}
           type: {{ OpenAPIType .Type }}
           {{- if OpenAPIFormat .Type }}
           format: {{ OpenAPIFormat .Type }}
@@ -172,6 +177,7 @@ components:
             {{- if OpenAPIFormat (OpenAPIItemsType .Type) }}
             format: {{ OpenAPIFormat (OpenAPIItemsType .Type) }}
             {{- end }}
+          {{- end }}
           {{- end }}
           {{- if and .Constraints .Constraints.Enum }}
           enum:

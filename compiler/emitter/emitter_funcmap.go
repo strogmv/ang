@@ -640,9 +640,15 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 		},
 		"HasDomainTypes": func(s normalizer.Service) bool {
 			hasDomain := func(ent normalizer.Entity) bool {
-				for _, f := range ent.Fields {
-					if strings.HasPrefix(f.Type, "domain.") || strings.HasPrefix(f.ItemTypeName, "domain.") {
-						return true
+				fieldSets := [][]normalizer.Field{ent.Fields}
+				for _, nested := range normalizer.CollectNestedTypes(ent.Fields) {
+					fieldSets = append(fieldSets, nested.Fields)
+				}
+				for _, fields := range fieldSets {
+					for _, f := range fields {
+						if strings.Contains(f.Type, "domain.") || strings.HasPrefix(f.ItemTypeName, "domain.") {
+							return true
+						}
 					}
 				}
 				return false
@@ -657,14 +663,10 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 		"ServiceNestedTypes": func(s normalizer.Service) []normalizer.Entity {
 			typeMap := make(map[string]normalizer.Entity)
 			addNested := func(ent normalizer.Entity) {
-				for _, f := range ent.Fields {
-					if f.ItemTypeName == "" || len(f.ItemFields) == 0 {
-						continue
+				for _, nested := range normalizer.CollectNestedTypes(ent.Fields) {
+					if _, ok := typeMap[nested.Name]; !ok {
+						typeMap[nested.Name] = nested
 					}
-					if _, ok := typeMap[f.ItemTypeName]; ok {
-						continue
-					}
-					typeMap[f.ItemTypeName] = normalizer.Entity{Name: f.ItemTypeName, Fields: f.ItemFields}
 				}
 			}
 			for _, m := range s.Methods {

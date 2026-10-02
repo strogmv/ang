@@ -321,6 +321,13 @@ func inferTypeRef(f normalizer.Field) TypeRef {
 	// Parse the Go type string and convert to TypeRef
 	goType := strings.TrimSpace(f.Type)
 
+	// A composite type ([][]X, []map[string]T, map[string][]X,
+	// map[string]map[string]T): parsed recursively; the one named inline type
+	// of the chain, if any, carries the fields.
+	if isCompositeGoType(goType) {
+		return compositeTypeRef(goType, f)
+	}
+
 	// Handle list types
 	if f.IsList || strings.HasPrefix(goType, "[]") {
 		itemType := goType
@@ -343,6 +350,11 @@ func inferTypeRef(f normalizer.Field) TypeRef {
 		return ref
 	}
 
+	// An inline object of an operation input/output (its own named type).
+	if f.ItemTypeName != "" && len(f.ItemFields) > 0 {
+		return TypeRef{Kind: KindObject, Name: f.ItemTypeName, InlineFields: ConvertFields(f.ItemFields)}
+	}
+
 	kind := inferKind(goType)
 	ref := TypeRef{Kind: kind}
 
@@ -350,6 +362,37 @@ func inferTypeRef(f normalizer.Field) TypeRef {
 		ref.Name = cleanTypeName(goType)
 	}
 
+	return ref
+}
+
+// isCompositeGoType reports a typed map or a list whose items are lists or
+// maps. map[string]any stays any, as before.
+func isCompositeGoType(goType string) bool {
+	if elem := strings.TrimPrefix(goType, "map[string]"); elem != goType {
+		return elem != "any" && elem != "interface{}"
+	}
+	if elem := strings.TrimPrefix(goType, "[]"); elem != goType {
+		return strings.HasPrefix(elem, "[]") || isCompositeGoType(elem)
+	}
+	return false
+}
+
+func compositeTypeRef(goType string, f normalizer.Field) TypeRef {
+	if elem := strings.TrimPrefix(goType, "map[string]"); elem != goType {
+		item := compositeTypeRef(elem, f)
+		return TypeRef{Kind: KindMap, KeyType: &TypeRef{Kind: KindString}, ItemType: &item}
+	}
+	if elem := strings.TrimPrefix(goType, "[]"); elem != goType {
+		item := compositeTypeRef(elem, f)
+		return TypeRef{Kind: KindList, ItemType: &item}
+	}
+	if f.ItemTypeName != "" && goType == f.ItemTypeName && len(f.ItemFields) > 0 {
+		return TypeRef{Kind: KindObject, Name: f.ItemTypeName, InlineFields: ConvertFields(f.ItemFields)}
+	}
+	ref := TypeRef{Kind: inferKind(goType)}
+	if ref.Kind == KindEntity {
+		ref.Name = cleanTypeName(goType)
+	}
 	return ref
 }
 

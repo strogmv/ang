@@ -186,6 +186,21 @@ func IRFieldToNormalizer(f ir.Field) normalizer.Field {
 			field.ItemFields = IRFieldsToNormalizer(f.Type.InlineFields)
 		}
 	}
+	// An inline object (or the object value of a map) keeps its own named type and fields.
+	if f.Type.Kind == ir.KindObject {
+		field.ItemTypeName = f.Type.Name
+		field.ItemFields = IRFieldsToNormalizer(f.Type.InlineFields)
+	}
+	if f.Type.Kind == ir.KindMap || (f.Type.Kind == ir.KindList && len(f.Type.InlineFields) == 0) {
+		// A composite type: the named inline object at the end of the chain.
+		for t := f.Type.ItemType; t != nil; t = t.ItemType {
+			if t.Kind == ir.KindObject {
+				field.ItemTypeName = t.Name
+				field.ItemFields = IRFieldsToNormalizer(t.InlineFields)
+				break
+			}
+		}
+	}
 
 	if f.Default != nil {
 		switch v := f.Default.(type) {
@@ -294,6 +309,11 @@ func IRTypeRefToGoType(t ir.TypeRef) string {
 	case ir.KindEntity:
 		if t.Name != "" {
 			return "domain." + t.Name
+		}
+		return "any"
+	case ir.KindObject:
+		if t.Name != "" {
+			return t.Name
 		}
 		return "any"
 	case ir.KindEnum:

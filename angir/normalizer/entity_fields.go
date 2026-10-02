@@ -8,7 +8,7 @@ import (
 	"cuelang.org/go/cue"
 )
 
-func (n *Normalizer) parseInlineFields(val cue.Value) ([]Field, error) {
+func (n *Normalizer) parseInlineFields(owner nestedTypeOwner, val cue.Value) ([]Field, error) {
 	var fields []Field
 	iter, err := val.Fields(cue.All())
 	if err != nil {
@@ -62,6 +62,9 @@ func (n *Normalizer) parseInlineFields(val cue.Value) ([]Field, error) {
 				field.Metadata = make(map[string]any)
 			}
 			field.Metadata["redact"] = true
+		}
+		if err := n.typeNestedField(owner, fLabel, fVal, &field); err != nil {
+			return nil, err
 		}
 		fields = append(fields, field)
 	}

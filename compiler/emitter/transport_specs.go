@@ -236,6 +236,50 @@ func (e *Emitter) EmitOpenAPIFromNormalizerTypes(endpoints []normalizer.Endpoint
 	funcMap["IsRequiredField"] = func(f normalizer.Field) bool {
 		return requiredField(f)
 	}
+	// A field with a nested shape (an inline object, a list of them, a typed
+	// map, a list of lists or maps) is written as a schema of its own:
+	// $ref to the nested type, additionalProperties for maps.
+	typedMapValue := func(goType string) string {
+		elem := strings.TrimPrefix(goType, "map[string]")
+		if elem == goType || elem == "any" || elem == "interface{}" {
+			return ""
+		}
+		return elem
+	}
+	var schemaLines func(goType, named, indent string) []string
+	schemaLines = func(goType, named, indent string) []string {
+		if elem := typedMapValue(goType); elem != "" {
+			return append([]string{indent + "type: object", indent + "additionalProperties:"}, schemaLines(elem, named, indent+"  ")...)
+		}
+		if elem := strings.TrimPrefix(goType, "[]"); elem != goType {
+			return append([]string{indent + "type: array", indent + "items:"}, schemaLines(elem, named, indent+"  ")...)
+		}
+		if named != "" && goType == named {
+			return []string{indent + "$ref: '#/components/schemas/" + named + "'"}
+		}
+		lines := []string{indent + "type: " + funcMap["OpenAPIType"].(func(string) string)(goType)}
+		if format := funcMap["OpenAPIFormat"].(func(string) string)(goType); format != "" {
+			lines = append(lines, indent+"format: "+format)
+		}
+		return lines
+	}
+	funcMap["OpenAPIStructured"] = func(f normalizer.Field) bool {
+		if f.ItemTypeName != "" && len(f.ItemFields) > 0 {
+			return true
+		}
+		if typedMapValue(f.Type) != "" {
+			return true
+		}
+		elem := strings.TrimPrefix(f.Type, "[]")
+		return elem != f.Type && (strings.HasPrefix(elem, "[]") || typedMapValue(elem) != "")
+	}
+	funcMap["OpenAPIFieldSchema"] = func(f normalizer.Field) []string {
+		named := ""
+		if len(f.ItemFields) > 0 {
+			named = f.ItemTypeName
+		}
+		return schemaLines(f.Type, named, "")
+	}
 	funcMap["OpenAPIItemsType"] = func(goType string) string {
 		if strings.HasPrefix(goType, "[]") {
 			return strings.TrimPrefix(goType, "[]")

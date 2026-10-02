@@ -248,7 +248,7 @@ type TypeRef struct {
 	Name         string   `json:"name"`                    // For entity references: "User", "Order"
 	ItemType     *TypeRef `json:"item_type,omitempty"`     // For List/Map: the element type
 	KeyType      *TypeRef `json:"key_type,omitempty"`      // For Map: the key type
-	InlineFields []Field  `json:"inline_fields,omitempty"` // For inline struct definitions in lists
+	InlineFields []Field  `json:"inline_fields,omitempty"` // For inline struct definitions in lists and inline objects
 }
 
 // TypeKind represents the fundamental data kinds.
@@ -266,6 +266,7 @@ const (
 	KindList   TypeKind = "list"
 	KindMap    TypeKind = "map"
 	KindEntity TypeKind = "entity" // Reference to another entity
+	KindObject TypeKind = "object" // Inline object of an operation input/output: Name + InlineFields
 	KindEnum   TypeKind = "enum"
 	KindFile   TypeKind = "file"
 	KindAny    TypeKind = "any"

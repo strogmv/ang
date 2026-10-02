@@ -588,6 +588,14 @@ func validateTypeRef(errs *[]string, entities map[string]ir.Entity, where string
 			return
 		}
 		validateTypeRef(errs, entities, where+"[]", *ref.ItemType)
+	case ir.KindObject:
+		if strings.TrimSpace(ref.Name) == "" || len(ref.InlineFields) == 0 {
+			*errs = append(*errs, fmt.Sprintf("%s has an inline object type without name or fields", where))
+			return
+		}
+		for _, f := range ref.InlineFields {
+			validateTypeRef(errs, entities, where+"."+f.Name, f.Type)
+		}
 	case ir.KindMap:
 		if ref.KeyType == nil || ref.ItemType == nil {
 			*errs = append(*errs, fmt.Sprintf("%s map type has nil key/item type", where))
