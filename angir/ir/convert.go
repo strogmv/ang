@@ -321,6 +321,16 @@ func inferTypeRef(f normalizer.Field) TypeRef {
 	// Parse the Go type string and convert to TypeRef
 	goType := strings.TrimSpace(f.Type)
 
+	// An inline object or map of an operation input/output: loose in Go
+	// (any), with its exact shape in Metadata["shape"] and its fields here.
+	if shape, _ := f.Metadata["shape"].(string); shape != "" {
+		ref := TypeRef{Kind: KindAny, Name: f.ItemTypeName}
+		if len(f.ItemFields) > 0 {
+			ref.InlineFields = ConvertFields(f.ItemFields)
+		}
+		return ref
+	}
+
 	// A composite type ([][]X, []map[string]T, map[string][]X,
 	// map[string]map[string]T): parsed recursively; the one named inline type
 	// of the chain, if any, carries the fields.

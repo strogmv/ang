@@ -30,17 +30,17 @@ func nestedToursService() normalizer.Service {
 		ItemTypeName: "GetToursResponsePagesItem",
 		ItemFields: []normalizer.Field{
 			{Name: "pageKey", Type: "string"},
-			{Name: "labels", Type: "map[string]string"},
-			{Name: "flags", Type: "map[string]map[string]bool"},
+			{Name: "labels", Type: "map[string]any", Metadata: map[string]any{"shape": "map[string]string"}},
+			{Name: "flags", Type: "map[string]any", Metadata: map[string]any{"shape": "map[string]map[string]bool"}},
 			{Name: "grid", Type: "[][]GetToursResponsePagesItemGridItemItem", IsList: true,
 				ItemTypeName: "GetToursResponsePagesItemGridItemItem",
 				ItemFields:   []normalizer.Field{{Name: "x", Type: "int"}}},
-			{Name: "byLang", Type: "map[string]GetToursResponsePagesItemByLangValue",
+			{Name: "byLang", Type: "map[string]any", Metadata: map[string]any{"shape": "map[string]GetToursResponsePagesItemByLangValue"},
 				ItemTypeName: "GetToursResponsePagesItemByLangValue",
 				ItemFields:   []normalizer.Field{{Name: "title", Type: "string"}}},
 			steps,
 		}}
-	settings := normalizer.Field{Name: "settings", Type: "GetToursResponseSettings",
+	settings := normalizer.Field{Name: "settings", Type: "map[string]any", Metadata: map[string]any{"shape": "GetToursResponseSettings"},
 		ItemTypeName: "GetToursResponseSettings",
 		ItemFields:   []normalizer.Field{{Name: "remind", Type: "bool"}}}
 	return normalizer.Service{
@@ -53,8 +53,9 @@ func nestedToursService() normalizer.Service {
 	}
 }
 
-// Three levels of inline objects survive the IR round trip and every level
-// is declared in Go, TypeScript, Zod and OpenAPI.
+// Three levels of lists of objects survive the IR round trip and are typed
+// in Go, TypeScript, Zod and OpenAPI. Objects and maps stay any in Go and
+// are typed exactly in TypeScript, Zod and OpenAPI.
 func TestNestedInlineTypesAreEmittedAtEveryLevel(t *testing.T) {
 	svc := ir.ConvertService(nestedToursService())
 
@@ -79,23 +80,26 @@ func TestNestedInlineTypesAreEmittedAtEveryLevel(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"Settings GetToursResponseSettings",
+		"Settings any",
 		"Pages    []GetToursResponsePagesItem",
-		"type GetToursResponseSettings struct",
 		"type GetToursResponsePagesItem struct",
-		"Labels  map[string]string",
+		"Labels  any",
 		"Steps   []GetToursResponsePagesItemStepsItem",
 		"type GetToursResponsePagesItemStepsItem struct",
 		"Hints  []GetToursResponsePagesItemStepsItemHintsItem",
 		"type GetToursResponsePagesItemStepsItemHintsItem struct",
-		"ByLang  map[string]GetToursResponsePagesItemByLangValue",
-		"type GetToursResponsePagesItemByLangValue struct",
-		"Flags   map[string]map[string]bool",
+		"ByLang  any",
+		"Flags   any",
 		"Grid    [][]GetToursResponsePagesItemGridItemItem",
 		"type GetToursResponsePagesItemGridItemItem struct",
 	} {
 		if !strings.Contains(goSrc, want) {
 			t.Errorf("Go port lacks %q:\n%s", want, goSrc)
+		}
+	}
+	for _, unwanted := range []string{"type GetToursResponseSettings struct", "type GetToursResponsePagesItemByLangValue struct"} {
+		if strings.Contains(goSrc, unwanted) {
+			t.Errorf("Go declares the shape of a loose object: %s", unwanted)
 		}
 	}
 	if strings.Contains(goSrc, "[]string `json:\"steps\"`") {

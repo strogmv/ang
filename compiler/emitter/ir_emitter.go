@@ -186,6 +186,11 @@ func IRFieldToNormalizer(f ir.Field) normalizer.Field {
 			field.ItemFields = IRFieldsToNormalizer(f.Type.InlineFields)
 		}
 	}
+	// A loose object or map (Go any) keeps the fields of its shape.
+	if f.Type.Kind == ir.KindAny && f.Type.Name != "" && len(f.Type.InlineFields) > 0 {
+		field.ItemTypeName = f.Type.Name
+		field.ItemFields = IRFieldsToNormalizer(f.Type.InlineFields)
+	}
 	// An inline object (or the object value of a map) keeps its own named type and fields.
 	if f.Type.Kind == ir.KindObject {
 		field.ItemTypeName = f.Type.Name

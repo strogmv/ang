@@ -264,21 +264,22 @@ func (e *Emitter) EmitOpenAPIFromNormalizerTypes(endpoints []normalizer.Endpoint
 		return lines
 	}
 	funcMap["OpenAPIStructured"] = func(f normalizer.Field) bool {
+		shape := normalizer.FieldShape(f)
 		if f.ItemTypeName != "" && len(f.ItemFields) > 0 {
 			return true
 		}
-		if typedMapValue(f.Type) != "" {
+		if typedMapValue(shape) != "" {
 			return true
 		}
-		elem := strings.TrimPrefix(f.Type, "[]")
-		return elem != f.Type && (strings.HasPrefix(elem, "[]") || typedMapValue(elem) != "")
+		elem := strings.TrimPrefix(shape, "[]")
+		return elem != shape && (strings.HasPrefix(elem, "[]") || typedMapValue(elem) != "")
 	}
 	funcMap["OpenAPIFieldSchema"] = func(f normalizer.Field) []string {
 		named := ""
 		if len(f.ItemFields) > 0 {
 			named = f.ItemTypeName
 		}
-		return schemaLines(f.Type, named, "")
+		return schemaLines(normalizer.FieldShape(f), named, "")
 	}
 	funcMap["OpenAPIItemsType"] = func(goType string) string {
 		if strings.HasPrefix(goType, "[]") {

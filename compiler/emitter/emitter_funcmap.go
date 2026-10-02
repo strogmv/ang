@@ -641,7 +641,7 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 		"HasDomainTypes": func(s normalizer.Service) bool {
 			hasDomain := func(ent normalizer.Entity) bool {
 				fieldSets := [][]normalizer.Field{ent.Fields}
-				for _, nested := range normalizer.CollectNestedTypes(ent.Fields) {
+				for _, nested := range normalizer.CollectGoNestedTypes(ent.Fields) {
 					fieldSets = append(fieldSets, nested.Fields)
 				}
 				for _, fields := range fieldSets {
@@ -663,7 +663,7 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 		"ServiceNestedTypes": func(s normalizer.Service) []normalizer.Entity {
 			typeMap := make(map[string]normalizer.Entity)
 			addNested := func(ent normalizer.Entity) {
-				for _, nested := range normalizer.CollectNestedTypes(ent.Fields) {
+				for _, nested := range normalizer.CollectGoNestedTypes(ent.Fields) {
 					if _, ok := typeMap[nested.Name]; !ok {
 						typeMap[nested.Name] = nested
 					}

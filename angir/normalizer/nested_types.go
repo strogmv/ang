@@ -12,10 +12,10 @@ import (
 // A field written inline in CUE gets its own named type at any depth:
 //
 //	output: {
-//	    settings: {remind: bool}                    // GetXResponseSettings
+//	    settings: {remind: bool}                    // shape GetXResponseSettings
 //	    pages: [...{                                // []GetXResponsePagesItem
 //	        steps: [...{anchor: string}]            // []GetXResponsePagesItemStepsItem
-//	        labels: [string]: string                // map[string]string
+//	        labels: [string]: string                // shape map[string]string
 //	    }]
 //	}
 //
@@ -23,6 +23,52 @@ import (
 // object and, because the printed list mentions "string", []string for a list
 // of objects. A shape that still has no type here is a build error that names
 // the CUE field; it is never left to degrade silently.
+//
+// Lists are typed in Go too: their old type ([]string) was wrong. An object
+// or a map keeps its Go type map[string]any (the flows fill these from loose
+// domain JSON and map literals), and carries its exact shape in
+// Metadata["shape"] for TypeScript, Zod and OpenAPI; see FieldShape.
+
+// FieldShape answers the exact type of a field for the API description and
+// the SDK: the shape of an inline object or map, else its Go type.
+func FieldShape(f Field) string {
+	if shape, ok := f.Metadata["shape"].(string); ok && shape != "" {
+		return shape
+	}
+	return f.Type
+}
+
+// setShape keeps the Go type of an object or map field loose and records its shape.
+func setShape(field *Field, shape string) {
+	field.Type = "map[string]any"
+	if field.Metadata == nil {
+		field.Metadata = map[string]any{}
+	}
+	field.Metadata["shape"] = shape
+}
+
+// CollectGoNestedTypes is CollectNestedTypes limited to the types a Go
+// declaration uses: the item types of lists, not the shapes of loose objects.
+func CollectGoNestedTypes(fields []Field) []Entity {
+	seen := map[string]struct{}{}
+	var out []Entity
+	var walk func([]Field)
+	walk = func(fs []Field) {
+		for _, f := range fs {
+			if f.ItemTypeName == "" || len(f.ItemFields) == 0 || !strings.Contains(f.Type, f.ItemTypeName) {
+				continue
+			}
+			if _, ok := seen[f.ItemTypeName]; ok {
+				continue
+			}
+			seen[f.ItemTypeName] = struct{}{}
+			out = append(out, Entity{Name: f.ItemTypeName, Fields: f.ItemFields})
+			walk(f.ItemFields)
+		}
+	}
+	walk(fields)
+	return out
+}
 
 // nestedTypeOwner is the prefix of the type names made for fields of owner.
 type nestedTypeOwner struct {
@@ -132,21 +178,22 @@ func (n *Normalizer) typeNestedObject(owner nestedTypeOwner, label string, val c
 		return err
 	}
 	if len(fields) > 0 {
-		field.Type = typeName
+		setShape(field, typeName)
 		field.ItemTypeName = typeName
 		field.ItemFields = fields
 		return nil
 	}
 	// No named fields: a map ([string]: T) or an open object ({...}).
 	elem := val.LookupPath(cue.MakePath(cue.AnyString))
-	if !elem.Exists() {
+	if !elem.Exists() || isTopValue(elem) {
+		// {...}: an open object of anything stays loose everywhere.
 		return nil
 	}
 	goType, named, namedFields, err := n.mapValueType(owner, typeName+"Value", label, elem)
 	if err != nil {
 		return err
 	}
-	field.Type = "map[string]" + goType
+	setShape(field, "map[string]"+goType)
 	if named != "" {
 		field.ItemTypeName = named
 		field.ItemFields = namedFields

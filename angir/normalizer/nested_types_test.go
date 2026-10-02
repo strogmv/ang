@@ -65,7 +65,7 @@ output: {
 	}
 
 	settings := fieldByName(t, ent.Fields, "settings")
-	if settings.Type != "GetToursResponseSettings" || len(settings.ItemFields) != 2 || settings.IsList {
+	if settings.Type != "map[string]any" || FieldShape(settings) != "GetToursResponseSettings" || len(settings.ItemFields) != 2 || settings.IsList {
 		t.Fatalf("settings = %q list=%v fields=%d", settings.Type, settings.IsList, len(settings.ItemFields))
 	}
 
@@ -84,16 +84,16 @@ output: {
 	if got := fieldByName(t, hints.ItemFields, "text").Type; got != "string" {
 		t.Fatalf("hints[].text = %q", got)
 	}
-	if got := fieldByName(t, pages.ItemFields, "labels").Type; got != "map[string]string" {
+	if got := FieldShape(fieldByName(t, pages.ItemFields, "labels")); got != "map[string]string" {
 		t.Fatalf("pages[].labels = %q", got)
 	}
-	if got := fieldByName(t, pages.ItemFields, "counts").Type; got != "map[string]int" {
+	if got := FieldShape(fieldByName(t, pages.ItemFields, "counts")); got != "map[string]int" {
 		t.Fatalf("pages[].counts = %q", got)
 	}
-	if got := fieldByName(t, pages.ItemFields, "flags").Type; got != "map[string]map[string]bool" {
+	if got := FieldShape(fieldByName(t, pages.ItemFields, "flags")); got != "map[string]map[string]bool" {
 		t.Fatalf("pages[].flags = %q", got)
 	}
-	if got := fieldByName(t, pages.ItemFields, "tagsBy").Type; got != "map[string][]string" {
+	if got := FieldShape(fieldByName(t, pages.ItemFields, "tagsBy")); got != "map[string][]string" {
 		t.Fatalf("pages[].tagsBy = %q", got)
 	}
 	grid := fieldByName(t, pages.ItemFields, "grid")
@@ -104,8 +104,8 @@ output: {
 		t.Fatalf("pages[].rows = %q", got)
 	}
 	rowsBy := fieldByName(t, pages.ItemFields, "rowsBy")
-	if rowsBy.Type != "map[string][]GetToursResponsePagesItemRowsByValueItem" || len(rowsBy.ItemFields) != 1 {
-		t.Fatalf("pages[].rowsBy = %q", rowsBy.Type)
+	if FieldShape(rowsBy) != "map[string][]GetToursResponsePagesItemRowsByValueItem" || len(rowsBy.ItemFields) != 1 {
+		t.Fatalf("pages[].rowsBy = %q", FieldShape(rowsBy))
 	}
 
 	// Unchanged shapes.
@@ -120,6 +120,14 @@ output: {
 	}
 	if got := fieldByName(t, ent.Fields, "open").Type; got != "map[string]any" {
 		t.Fatalf("open = %q", got)
+	}
+
+	goNames := []string{}
+	for _, nested := range CollectGoNestedTypes(ent.Fields) {
+		goNames = append(goNames, nested.Name)
+	}
+	if strings.Join(goNames, ",") != "GetToursResponsePagesItem,GetToursResponsePagesItemStepsItem,GetToursResponsePagesItemStepsItemHintsItem,GetToursResponsePagesItemGridItemItem,GetToursResponseData" {
+		t.Fatalf("Go nested types = %v", goNames)
 	}
 
 	names := []string{}
@@ -199,8 +207,8 @@ output: {
 	}
 	data := fieldByName(t, ent.Fields, "data")
 	columns := fieldByName(t, data.ItemFields, "columns")
-	if columns.Type != "map[string]ListTemplatesResponseDataColumnsValue" || columns.ItemTypeName != "ListTemplatesResponseDataColumnsValue" {
-		t.Fatalf("columns = %q / %q", columns.Type, columns.ItemTypeName)
+	if FieldShape(columns) != "map[string]ListTemplatesResponseDataColumnsValue" || columns.ItemTypeName != "ListTemplatesResponseDataColumnsValue" {
+		t.Fatalf("columns = %q / %q", FieldShape(columns), columns.ItemTypeName)
 	}
 	transforms := fieldByName(t, columns.ItemFields, "transforms")
 	if transforms.Type != "[]ListTemplatesResponseDataColumnsValueTransformsItem" || !transforms.IsOptional {

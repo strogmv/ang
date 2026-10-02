@@ -686,7 +686,8 @@ func buildTableData(serviceName string, m normalizer.Method, entities []normaliz
 
 	// Find the Data field in output
 	for _, f := range m.Output.Fields {
-		if strings.ToLower(f.Name) == "data" {
+		// Only a list makes a table; an object named data (a loose shape) does not.
+		if strings.ToLower(f.Name) == "data" && (f.IsList || strings.HasPrefix(f.Type, "[]")) {
 			itemFields := f.ItemFields
 
 			// If fields are empty but we have a type name, look it up in global entities

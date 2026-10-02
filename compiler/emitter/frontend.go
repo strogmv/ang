@@ -1297,7 +1297,7 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		},
 		"TSType": tsType,
 		"TSFieldType": func(f normalizer.Field) string {
-			base := tsType(f.Type)
+			base := tsType(normalizer.FieldShape(f))
 			if enumName := matchFieldNamedEnum(f, namedEnums, namedEnumSet); enumName != "" {
 				base = enumName
 				if f.IsList || strings.HasPrefix(strings.TrimSpace(f.Type), "[]") {
@@ -1329,7 +1329,7 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 					return "z.array(z.string().email())"
 				}
 			}
-			return zodGoType(f.Type, entitiesNorm)
+			return zodGoType(normalizer.FieldShape(f), entitiesNorm)
 		},
 		"ZodType": func(goType string) string {
 			return zodGoType(goType, entitiesNorm)
