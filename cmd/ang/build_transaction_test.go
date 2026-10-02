@@ -454,3 +454,41 @@ func TestRunBuildRollsBackGeneratedTreeWhenPostVerifyFails(t *testing.T) {
 		t.Fatalf("generated file survived failed build: %v", err)
 	}
 }
+
+func TestBuildTransactionLeavesNodeModulesAlone(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "tests", "e2e", "spec.ts"), "old")
+	writeTestFile(t, filepath.Join(root, "tests", "node_modules", "pkg", "index.js"), "dep")
+
+	var sawLink bool
+	var snapshotted []string
+	tx := runWorkspaceBuild(t, root, []string{"tests"}, func(workspace string) {
+		// The start-of-build snapshot holds generated files only.
+		matches, _ := filepath.Glob(filepath.Join(root, transactionScratchPrefix+"*", "base", "node_modules"))
+		if bases, _ := filepath.Glob(filepath.Join(root, transactionScratchPrefix+"*", "base")); len(bases) == 0 {
+			t.Fatal("snapshot not found; the assertion below would prove nothing")
+		}
+		snapshotted = append(snapshotted, matches...)
+		// The workspace still sees the install, as a link to the original.
+		info, err := os.Lstat(filepath.Join(workspace, "tests", "node_modules"))
+		sawLink = err == nil && info.Mode()&os.ModeSymlink != 0
+		assertTestFile(t, filepath.Join(workspace, "tests", "node_modules", "pkg", "index.js"), "dep")
+		writeTestFile(t, filepath.Join(workspace, "tests", "e2e", "spec.ts"), "new")
+	}, nil)
+
+	if !sawLink {
+		t.Fatal("workspace node_modules is not a symlink to the project's install")
+	}
+	if len(snapshotted) != 0 {
+		t.Fatalf("node_modules copied into the snapshot: %v", snapshotted)
+	}
+	assertTestFile(t, filepath.Join(root, "tests", "e2e", "spec.ts"), "new")
+	info, err := os.Lstat(filepath.Join(root, "tests", "node_modules"))
+	if err != nil || !info.IsDir() {
+		t.Fatalf("project node_modules replaced: info=%v err=%v", info, err)
+	}
+	assertTestFile(t, filepath.Join(root, "tests", "node_modules", "pkg", "index.js"), "dep")
+	if conflicts := tx.Conflicts(); len(conflicts) != 0 {
+		t.Fatalf("node_modules reported as a conflict: %v", conflicts)
+	}
+}

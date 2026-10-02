@@ -410,6 +410,9 @@ func pruneEmptyTransactionDirs(entry *buildTransactionEntry) error {
 			return walkErr
 		}
 		if d.IsDir() {
+			if path != entry.path && transactionSkippedDir(d.Name()) {
+				return fs.SkipDir
+			}
 			dirs = append(dirs, path)
 		}
 		return nil
@@ -456,6 +459,12 @@ func collectTransactionLeaves(root string, into map[string]struct{}) error {
 	return filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
+		}
+		if path != root && transactionSkippedDir(d.Name()) {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
 		}
 		if d.IsDir() {
 			return nil
@@ -721,7 +730,7 @@ func materializeWorkspacePath(sourceRoot, workspace, rel string) error {
 				return err
 			}
 			if _, err := os.Lstat(source); err == nil {
-				return copyTransactionPath(source, destination)
+				return copyTransactionTree(source, destination, true)
 			} else if os.IsNotExist(err) {
 				return nil
 			} else {
@@ -806,7 +815,23 @@ func compactTransactionPaths(paths []string) []string {
 	return compacted
 }
 
+// transactionSkippedDir reports directories that are never generated output:
+// package-manager installs and VCS metadata. tests/node_modules alone is ~90 MB
+// in 5 000 files; snapshotting, staging and comparing it on every build cost
+// more disk I/O than all generated files together.
+func transactionSkippedDir(name string) bool {
+	return name == "node_modules" || name == ".git"
+}
+
+// copyTransactionPath copies src to dst, leaving out transactionSkippedDir trees.
 func copyTransactionPath(src, dst string) error {
+	return copyTransactionTree(src, dst, false)
+}
+
+// copyTransactionTree copies src to dst. A transactionSkippedDir below src is
+// left out, or, with linkSkipped, replaced by a symlink to the original so a
+// workspace still sees it.
+func copyTransactionTree(src, dst string, linkSkipped bool) error {
 	info, err := os.Lstat(src)
 	if err != nil {
 		return err
@@ -839,6 +864,19 @@ func copyTransactionPath(src, dst string) error {
 			return err
 		}
 		target := filepath.Join(dst, rel)
+		// By name, whatever the entry is: a workspace holds these as symlinks,
+		// and capturing one back must not turn into a "generated" symlink.
+		if transactionSkippedDir(entry.Name()) {
+			if linkSkipped {
+				if err := os.Symlink(path, target); err != nil {
+					return err
+				}
+			}
+			if entry.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
 		if entry.IsDir() {
 			info, err := entry.Info()
 			if err != nil {
@@ -846,7 +884,7 @@ func copyTransactionPath(src, dst string) error {
 			}
 			return os.MkdirAll(target, info.Mode().Perm())
 		}
-		return copyTransactionPath(path, target)
+		return copyTransactionTree(path, target, linkSkipped)
 	})
 }
 

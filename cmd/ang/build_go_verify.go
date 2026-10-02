@@ -36,7 +36,11 @@ func runGeneratedGoVerify(backends []string) error {
 		}
 
 		fmt.Printf("Running go verify: go build ./... (dir=%s)\n", cleaned)
-		cmd := exec.Command("go", "build", "./...")
+		// -trimpath keeps the workspace directory out of the build cache key.
+		// Every build verifies in a fresh .ang-build-workspace-*/project, so
+		// without it each verify recompiled the whole module cold; with it only
+		// the packages whose sources changed are compiled again.
+		cmd := exec.Command("go", "build", "-trimpath", "./...")
 		cmd.Dir = cleaned
 		cmd.Env = append(os.Environ(), "GOWORK=off")
 		configureBuildSubprocess(cmd)
