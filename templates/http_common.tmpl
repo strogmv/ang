@@ -1,6 +1,7 @@
 package http
 
 import (
+	"bufio"
 	"context"
 	"crypto"
 	crand "crypto/rand"
@@ -25,6 +26,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -147,6 +149,11 @@ var (
 	// being that a privileged role must have a second factor before it does
 	// anything privileged. Unset means the role alone is enough.
 	roleAccessChecker func(ctx context.Context, userID, role string) (allowed bool, reason string, err error)
+	// A project can stop requests before any route runs (a platform-wide
+	// maintenance window, say) and watch how chosen routes answer. Unset means
+	// every request passes and nothing is watched.
+	requestGate            func(ctx context.Context, method, path string) (RequestGateRule, error)
+	requestOutcomeRecorder func(ctx context.Context, outcome RequestOutcome)
 	authSessionMu       sync.Mutex
 	authSessionMemory   = map[string]opaqueSessionPayload{}
 	authSessionByUser   = map[string]map[string]struct{}{} // userID → set of SIDs (memory fallback)
@@ -225,6 +232,205 @@ func SetModuleAccessChecker(checker func(ctx context.Context, companyID, path st
 func SetRoleAccessChecker(checker func(ctx context.Context, userID, role string) (bool, string, error)) {
 	roleAccessChecker = checker
 }
+
+// RequestGateRule is a project's answer for one request, asked before any
+// route runs. Blocked requests get Status (503 by default) with Code and
+// Message, and Retry-After when RetryAfter > 0 — unless the caller holds one
+// of BypassRoles. Observe asks for the final status of the request to be
+// reported to the outcome recorder.
+type RequestGateRule struct {
+	Blocked     bool
+	Status      int
+	Code        string
+	Message     string
+	RetryAfter  int
+	BypassRoles []string
+	Observe     bool
+}
+
+func SetRequestGate(gate func(ctx context.Context, method, path string) (RequestGateRule, error)) {
+	requestGate = gate
+}
+
+// RequestOutcome is how a watched request ended. Fault says why a 5xx
+// happened: errors.FaultDependency (a database, cache, broker or storage
+// failed or timed out), errors.FaultBug (an error nothing outside explains),
+// "panic", or "" when the handler wrote the status itself. The caller's ids
+// are read only for a 5xx (they cost a session lookup).
+type RequestOutcome struct {
+	Method        string
+	Path          string
+	Status        int
+	Fault         string
+	Authenticated bool
+	UserID        string
+	CompanyID     string
+	IP            string
+}
+
+func SetRequestOutcomeRecorder(recorder func(ctx context.Context, outcome RequestOutcome)) {
+	requestOutcomeRecorder = recorder
+}
+
+// RequestGateMiddleware asks the project's gate about every request. A gate
+// that fails is ignored (fail open): it must never take the API down itself.
+func RequestGateMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requestGate == nil || r.Method == http.MethodOptions {
+			next.ServeHTTP(w, r)
+			return
+		}
+		rule, err := requestGate(r.Context(), r.Method, r.URL.Path)
+		if err != nil {
+			slog.Warn("request gate failed; request let through", "path", r.URL.Path, "error", err)
+			next.ServeHTTP(w, r)
+			return
+		}
+		if rule.Blocked && !requestGateBypass(r, rule.BypassRoles) {
+			status := rule.Status
+			if status == 0 {
+				status = http.StatusServiceUnavailable
+			}
+			if rule.RetryAfter > 0 {
+				w.Header().Set("Retry-After", strconv.Itoa(rule.RetryAfter))
+			}
+			errors.WriteError(w, r, errors.New(status, rule.Code, rule.Message))
+			return
+		}
+		if !rule.Observe || requestOutcomeRecorder == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		authenticated := requestHasCredentials(r)
+		sw := &gateStatusWriter{ResponseWriter: w}
+		report := func(status int, fault string) {
+			outcome := RequestOutcome{Method: r.Method, Path: r.URL.Path, Status: status, Fault: fault, Authenticated: authenticated, IP: realClientIP(r)}
+			if status >= http.StatusInternalServerError && authenticated {
+				if ac, ok := requestGateCaller(r); ok {
+					outcome.UserID, outcome.CompanyID = ac.UserID, ac.CompanyID
+				}
+			}
+			requestOutcomeRecorder(r.Context(), outcome)
+		}
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				report(http.StatusInternalServerError, "panic")
+				panic(recovered)
+			}
+			status := sw.status
+			if status == 0 {
+				status = http.StatusOK
+			}
+			report(errors.ObservedStatus(r, status), sw.fault)
+		}()
+		next.ServeHTTP(sw, r)
+	})
+}
+
+// requestGateCaller reads who is calling without renewing the session.
+func requestGateCaller(r *http.Request) (authContext, bool) {
+	var claims map[string]any
+	if cookieAuthEnabled() {
+		if opaqueSessionEnabled() {
+			if session, err := resolveOpaqueSession(r, false); err == nil {
+				claims = claimsFromOpaqueSession(session)
+			}
+		} else if c, err := r.Cookie(authAccessCookieName); err == nil && strings.TrimSpace(c.Value) != "" {
+			claims, _ = parseAndVerifyJWT(c.Value)
+		}
+	}
+	if claims == nil {
+		token := strings.TrimSpace(r.Header.Get("Authorization"))
+		if strings.HasPrefix(strings.ToLower(token), "bearer ") {
+			token = strings.TrimSpace(token[7:])
+		}
+		if token != "" {
+			claims, _ = parseAndVerifyJWT(token)
+		}
+	}
+	if claims == nil {
+		return authContext{}, false
+	}
+	return authContextFromClaims(claims), true
+}
+
+// requestGateBypass says whether the caller holds one of roles.
+func requestGateBypass(r *http.Request, roles []string) bool {
+	if len(roles) == 0 {
+		return false
+	}
+	ac, ok := requestGateCaller(r)
+	if !ok {
+		return false
+	}
+	for _, have := range ac.Roles {
+		for _, want := range roles {
+			if strings.EqualFold(strings.TrimSpace(have), strings.TrimSpace(want)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// requestHasCredentials tells a signed-in caller from an anonymous one
+// without resolving the session: a bearer token or an auth cookie is enough.
+func requestHasCredentials(r *http.Request) bool {
+	if strings.TrimSpace(r.Header.Get("Authorization")) != "" {
+		return true
+	}
+	for _, name := range []string{authSessionCookieName, authAccessCookieName} {
+		if c, err := r.Cookie(name); err == nil && strings.TrimSpace(c.Value) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// gateStatusWriter remembers the status; it stays a Hijacker and a Flusher so
+// WebSocket upgrades and streams behind an observed route keep working.
+type gateStatusWriter struct {
+	http.ResponseWriter
+	status int
+	fault  string
+}
+
+// NoteFault is how errors.WriteError says why it wrote a 5xx.
+func (w *gateStatusWriter) NoteFault(kind string) {
+	if w.fault == "" {
+		w.fault = kind
+	}
+}
+
+func (w *gateStatusWriter) WriteHeader(code int) {
+	if w.status == 0 {
+		w.status = code
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *gateStatusWriter) Write(b []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+func (w *gateStatusWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (w *gateStatusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("response writer does not support hijacking")
+	}
+	return h.Hijack()
+}
+
+func (w *gateStatusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 func SetAuthRefreshStore(store port.RefreshTokenStore) {
 	authRefreshStore = store

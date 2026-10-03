@@ -39,6 +39,9 @@
 		MaxAge:           300,
 	})
 	r.Use(corsMiddleware.Handler)
+	// After CORS, so a refused request still carries the CORS headers the app
+	// needs to read the refusal.
+	r.Use(transport.RequestGateMiddleware)
 	{{- if .HasSession }}
 	r.Use(transport.SessionMiddleware)
 	{{- end }}

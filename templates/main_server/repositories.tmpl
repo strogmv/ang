@@ -71,6 +71,33 @@
 	})
 	{{- end }}
 
+	{{- /* A project can stop requests before any route runs (a maintenance
+	       window) and watch chosen routes: when a service exposes
+	       CheckRequestGate (and RecordRequestOutcome), every request asks it. */}}
+	{{- $requestGateSvc := "" }}
+	{{- $requestOutcomeSvc := "" }}
+	{{- range .ServicesIR }}
+		{{- $svc := . }}
+		{{- range .Methods }}
+			{{- if eq .Name "CheckRequestGate" }}{{ $requestGateSvc = $svc.Name }}{{ end }}
+			{{- if eq .Name "RecordRequestOutcome" }}{{ $requestOutcomeSvc = $svc.Name }}{{ end }}
+		{{- end }}
+	{{- end }}
+	{{- if ne $requestGateSvc "" }}
+	transport.SetRequestGate(func(ctx context.Context, method, path string) (transport.RequestGateRule, error) {
+		out, err := runtimeContainer.Svc{{ $requestGateSvc }}.CheckRequestGate(ctx, port.CheckRequestGateRequest{Method: method, Path: path})
+		if err != nil {
+			return transport.RequestGateRule{}, err
+		}
+		return transport.RequestGateRule{Blocked: out.Blocked, Status: out.Status, Code: out.Code, Message: out.Message, RetryAfter: out.RetryAfter, BypassRoles: out.BypassRoles, Observe: out.Observe}, nil
+	})
+	{{- end }}
+	{{- if ne $requestOutcomeSvc "" }}
+	transport.SetRequestOutcomeRecorder(func(ctx context.Context, o transport.RequestOutcome) {
+		_, _ = runtimeContainer.Svc{{ $requestOutcomeSvc }}.RecordRequestOutcome(ctx, port.RecordRequestOutcomeRequest{Method: o.Method, Path: o.Path, Status: o.Status, Fault: o.Fault, Authenticated: o.Authenticated, UserID: o.UserID, CompanyID: o.CompanyID, IP: o.IP})
+	})
+	{{- end }}
+
 	{{- /* Same idea one level along: a privileged role can carry a condition
 	       beyond holding it. When a service exposes CheckRoleAccess, the HTTP
 	       layer asks it before letting a role-gated handler run. */}}

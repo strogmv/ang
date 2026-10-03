@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"sort"
 	"strings"
@@ -79,6 +80,65 @@ func isMalformedInput(err error) bool {
 	msg := err.Error()
 	for _, code := range []string{"SQLSTATE 22P02", "SQLSTATE 22007", "SQLSTATE 22008"} {
 		if strings.Contains(msg, code) {
+			return true
+		}
+	}
+	return false
+}
+
+// Fault kinds a 5xx is noted with (see NoteFault): a dependency that failed or
+// timed out, or an error nothing outside the code explains.
+const (
+	FaultDependency = "dependency"
+	FaultBug        = "bug"
+)
+
+// FaultNoter is a response writer that wants to know why a request failed on
+// the server side (the request gate's outcome watcher).
+type FaultNoter interface{ NoteFault(kind string) }
+
+func noteFault(w http.ResponseWriter, kind string) {
+	for w != nil {
+		if n, ok := w.(FaultNoter); ok {
+			n.NoteFault(kind)
+			return
+		}
+		u, ok := w.(interface{ Unwrap() http.ResponseWriter })
+		if !ok {
+			return
+		}
+		w = u.Unwrap()
+	}
+}
+
+// IsDependencyFailure reports an error that comes from something the service
+// depends on rather than from its own code or its caller: a timeout, a
+// database that refuses or lost the connection (SQLSTATE classes 08, 53, 57P,
+// 58), a network error, a closed cache or broker connection.
+func IsDependencyFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) || isDatabaseOverloaded(err) {
+		return true
+	}
+	var st sqlStater
+	if errors.As(err, &st) {
+		code := st.SQLState()
+		for _, class := range []string{"08", "53", "57P", "58"} {
+			if strings.HasPrefix(code, class) {
+				return true
+			}
+		}
+		return false
+	}
+	var ne net.Error
+	if errors.As(err, &ne) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	for _, sign := range []string{"connection refused", "connection reset", "broken pipe", "no such host", "i/o timeout", "unexpected eof", "server closed", "connection closed", "failed to connect", "circuit breaker", "nats: "} {
+		if strings.Contains(msg, sign) {
 			return true
 		}
 	}
@@ -258,6 +318,11 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 			pd.Instance = r.URL.Path
 		}
 		if pd.Status >= http.StatusInternalServerError {
+			if IsDependencyFailure(err) {
+				noteFault(w, FaultDependency)
+			} else {
+				noteFault(w, FaultBug)
+			}
 			slog.Error("Application error response",
 				"method", r.Method,
 				"path", r.URL.Path,
@@ -280,6 +345,7 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 			"path", r.URL.Path,
 			"error", err,
 		)
+		noteFault(w, FaultDependency)
 		pd = New(http.StatusServiceUnavailable, "SERVICE_BUSY", "The request timed out. Try again in a moment.")
 		pd.MessageCode = "SERVICE_BUSY"
 		pd.Instance = r.URL.Path
@@ -289,6 +355,7 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 			"path", r.URL.Path,
 			"error", err,
 		)
+		noteFault(w, FaultDependency)
 		pd = New(http.StatusServiceUnavailable, "SERVICE_BUSY", "The service is busy. Try again in a moment.")
 		pd.MessageCode = "SERVICE_BUSY"
 		pd.Instance = r.URL.Path
@@ -303,6 +370,11 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 		pd.Instance = r.URL.Path
 	} else {
 		// Hide internal error details from the client, but keep full details in server logs.
+		if IsDependencyFailure(err) {
+			noteFault(w, FaultDependency)
+		} else {
+			noteFault(w, FaultBug)
+		}
 		slog.Error("Unhandled application error",
 			"method", r.Method,
 			"path", r.URL.Path,
