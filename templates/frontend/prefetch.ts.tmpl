@@ -10,7 +10,7 @@ import type * as Types from '../types';
 {{- $name := ExportName .Key }}
 {{- if .HasList }}
 export const prefetch{{ $name }}List = (queryClient: QueryClient, filters?: Types.{{ .ListRPC }}Request) =>
-  queryClient.prefetchQuery(Options.endpointQueryOptions.{{ LowerFirst .ListRPC }}(filters ?? {{ EmptyRequest .ListRPC }}));
+  queryClient.prefetchQuery(Options.{{ LowerFirst .ListRPC }}EndpointQueryOptions(filters ?? {{ EmptyRequest .ListRPC }}));
 
 export const create{{ $name }}ListLoader = (queryClient: QueryClient) =>
   async ({ request }: LoaderFunctionArgs) => {
@@ -23,7 +23,7 @@ export const create{{ $name }}ListLoader = (queryClient: QueryClient) =>
 {{- end }}
 {{- if .HasDetail }}
 export const prefetch{{ $name }}Detail = (queryClient: QueryClient, {{ .DetailParamName }}: string) =>
-  queryClient.prefetchQuery(Options.endpointQueryOptions.{{ LowerFirst .DetailRPC }}({ {{ .DetailParamName }} } as Types.{{ .DetailRPC }}Request));
+  queryClient.prefetchQuery(Options.{{ LowerFirst .DetailRPC }}EndpointQueryOptions({ {{ .DetailParamName }} } as Types.{{ .DetailRPC }}Request));
 
 export const create{{ $name }}DetailLoader = (queryClient: QueryClient) =>
   async ({ params }: LoaderFunctionArgs) => {
@@ -38,7 +38,7 @@ export const create{{ $name }}DetailLoader = (queryClient: QueryClient) =>
 {{- end }}
 {{- if .HasMe }}
 export const prefetch{{ $name }}Me = (queryClient: QueryClient) =>
-  queryClient.prefetchQuery(Options.endpointQueryOptions.{{ LowerFirst .MeRPC }}());
+  queryClient.prefetchQuery(Options.{{ LowerFirst .MeRPC }}EndpointQueryOptions());
 
 {{- end }}
 {{- end }}

@@ -124,10 +124,11 @@ func TestEmitFrontendSDK_UsesEndpointFrontendMetadataProfiles(t *testing.T) {
 		"realtime:",
 		"refetchOnMount: 'always'",
 		"export const endpointQueryOptions = {",
-		"listPresenceFeed: (params: Types.ListPresenceFeedRequest",
+		"export const listPresenceFeedEndpointQueryOptions = (params: Types.ListPresenceFeedRequest",
+		"listPresenceFeed: listPresenceFeedEndpointQueryOptions,",
 		"queryKey: queryKeys.endpoint.Realtime.ListPresenceFeed(params)",
 		"...(queryProfiles['realtime'] || {})",
-		"getPresenceRoom: (params: Types.GetPresenceRoomRequest",
+		"export const getPresenceRoomEndpointQueryOptions = (params: Types.GetPresenceRoomRequest",
 	} {
 		if !strings.Contains(q, expected) {
 			t.Fatalf("expected %q in query-options.ts, got:\n%s", expected, q)
@@ -140,8 +141,8 @@ func TestEmitFrontendSDK_UsesEndpointFrontendMetadataProfiles(t *testing.T) {
 	}
 	h := string(hooksText)
 	for _, expected := range []string{
-		"...QueryOptions.endpointQueryOptions.listPresenceFeed((params ?? {}) as Types.ListPresenceFeedRequest)",
-		"...QueryOptions.endpointQueryOptions.getPresenceRoom((params ?? {}) as Types.GetPresenceRoomRequest)",
+		"...QueryOptions.listPresenceFeedEndpointQueryOptions((params ?? {}) as Types.ListPresenceFeedRequest)",
+		"...QueryOptions.getPresenceRoomEndpointQueryOptions((params ?? {}) as Types.GetPresenceRoomRequest)",
 	} {
 		if !strings.Contains(h, expected) {
 			t.Fatalf("expected %q in hooks/index.ts, got:\n%s", expected, h)

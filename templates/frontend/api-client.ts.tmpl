@@ -1,6 +1,6 @@
 import ky from 'ky';
 import { useAuthStore } from './auth-store';
-import { endpointMeta } from './endpoints/meta';
+import { retryDefaults, retryOverrides, retryStrategies, type RetryStrategy } from './endpoints/retry-policy';
 import { ErrorCode, ProblemDetail } from './types';
 import * as Types from './types';
 import { isProblemDetailLike, normalizeApiError } from './error-normalizer';
@@ -121,14 +121,29 @@ const hex = (len: number) => {
   return Array.from(arr, (byte) => byte.toString(16).padStart(2, '0')).join('');
 };
 
-const findEndpointMeta = (url: string | undefined) => {
+type CompiledRetryOverride = { method: string; pattern: RegExp; literalLength: number; strategy: number };
+let compiledRetryOverrides: CompiledRetryOverride[] | null = null;
+
+// The retry rule of a request: its operation's own rule when it differs from the
+// method's default, else the default. Matched on method and path, the most
+// literal path winning, so a POST never inherits the GET rule of the same path.
+const findRetryStrategy = (method: string | undefined, url: string | undefined): RetryStrategy | undefined => {
   if (!url) return undefined;
+  const verb = (method || 'GET').toUpperCase();
   const pathOnly = url.split('?')[0] || url;
-  for (const meta of Object.values(endpointMeta)) {
-    const pattern = meta.path.replace(/\{[^}]+\}/g, '[^/]+');
-    if (new RegExp(`^${pattern}$`).test(pathOnly)) return meta;
+  compiledRetryOverrides ??= retryOverrides.map(([m, path, strategy]) => ({
+    method: m,
+    pattern: new RegExp(`^${path.replace(/\{[^}]+\}/g, '[^/]+')}$`),
+    literalLength: path.replace(/\{[^}]+\}/g, '').length,
+    strategy,
+  }));
+  let best: CompiledRetryOverride | undefined;
+  for (const override of compiledRetryOverrides) {
+    if (override.method !== verb || !override.pattern.test(pathOnly)) continue;
+    if (!best || override.literalLength > best.literalLength) best = override;
   }
-  return undefined;
+  const index = best ? best.strategy : retryDefaults[verb];
+  return index === undefined || index < 0 ? undefined : retryStrategies[index];
 };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -139,7 +154,7 @@ type AuthStoreUserLike = {
 
 type ApiClientRequestMeta = {
   traceId: string;
-  endpointMeta?: ReturnType<typeof findEndpointMeta>;
+  retryStrategy?: RetryStrategy;
   retryAttempt: number;
 };
 
@@ -225,14 +240,14 @@ const makeError = (message: string, config: ApiRequestConfig, meta: ApiClientReq
 };
 
 const shouldRetry = (meta: ApiClientRequestMeta, status?: number, networkError = false) => {
-  const strategy = meta.endpointMeta?.retryStrategy;
+  const strategy = meta.retryStrategy;
   if (!strategy || meta.retryAttempt >= Number(strategy.maxAttempts || 0)) return false;
   if (networkError) return Boolean(strategy.retryNetworkErrors);
   return typeof status === 'number' && Array.isArray(strategy.retryOnStatuses) && strategy.retryOnStatuses.includes(status);
 };
 
 const retryDelay = (meta: ApiClientRequestMeta) => {
-  const baseDelay = Math.max(0, Number(meta.endpointMeta?.retryStrategy?.baseDelayMs || 0));
+  const baseDelay = Math.max(0, Number(meta.retryStrategy?.baseDelayMs || 0));
   return baseDelay * Math.pow(2, meta.retryAttempt);
 };
 
@@ -314,10 +329,9 @@ class KyApiClient {
 
     while (true) {
       const attempt = Number(config.retryAttempt || 0);
-      const endpoint = findEndpointMeta(config.url);
       const meta: ApiClientRequestMeta = {
         traceId: `${hex(32)}-${hex(16)}`,
-        endpointMeta: endpoint,
+        retryStrategy: findRetryStrategy(config.method, config.url),
         retryAttempt: attempt,
       };
       const headers = new Headers(config.headers);

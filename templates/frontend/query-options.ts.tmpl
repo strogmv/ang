@@ -51,25 +51,32 @@ export const queryProfiles: Record<string, QueryProfileOptions> = {
 };
 
 // Canonical React Query options for every GET RPC (single key-space: queryKeys.endpoint.*).
-export const endpointQueryOptions = {
+// One export per operation so a bundle keeps only the ones it uses; endpointQueryOptions
+// below gathers them for callers that pick an operation by name.
 {{- range .Endpoints }}
 {{- if eq .Method "GET" }}
 {{- $profile := EndpointQueryProfile . }}
-  {{ LowerFirst .RPC }}: ({{ RequestParam .RPC }}) =>
-    queryOptions({
-      queryKey: queryKeys.endpoint.{{ .ServiceName }}.{{ .RPC }}(params),
-      queryFn: ({ signal }) => api.{{ LowerFirst .RPC }}(params, { signal }),
-      {{- if $profile }}
-      ...(queryProfiles['{{ $profile }}'] || {}),
-      {{- else }}
-      {{- if .CacheTTL }}
-      staleTime: {{ CacheTTLToMs .CacheTTL }},
-      {{- else }}
-      ...(queryProfiles.standard || {}),
-      {{- end }}
-      {{- end }}
-    }),
+export const {{ LowerFirst .RPC }}EndpointQueryOptions = ({{ RequestParam .RPC }}) =>
+  queryOptions({
+    queryKey: queryKeys.endpoint.{{ .ServiceName }}.{{ .RPC }}(params),
+    queryFn: ({ signal }) => api.{{ LowerFirst .RPC }}(params, { signal }),
+    {{- if $profile }}
+    ...(queryProfiles['{{ $profile }}'] || {}),
+    {{- else }}
+    {{- if .CacheTTL }}
+    staleTime: {{ CacheTTLToMs .CacheTTL }},
+    {{- else }}
+    ...(queryProfiles.standard || {}),
+    {{- end }}
+    {{- end }}
+  });
+{{- end }}
+{{- end }}
 
+export const endpointQueryOptions = {
+{{- range .Endpoints }}
+{{- if eq .Method "GET" }}
+  {{ LowerFirst .RPC }}: {{ LowerFirst .RPC }}EndpointQueryOptions,
 {{- end }}
 {{- end }}
 };

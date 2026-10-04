@@ -163,14 +163,14 @@ func TestEmitFrontendSDK_GeneratesHardenedClientAndEndpoints(t *testing.T) {
 	}
 	h := string(hooksText)
 	for _, expected := range []string{
-		"import { endpointMeta } from '../endpoints/meta';",
 		"const invalidateGeneratedTargets = (",
+		"targets: readonly MutationInvalidateTarget[],",
 		"service?: string;",
 		"rpc?: string;",
 		"if (serviceName && rpcName) {",
 		"String(key[0] || '') !== serviceName",
 		"String(key[1] || '') !== rpcName",
-		"invalidateGeneratedTargets(queryClient, 'updateTender', (_variables ?? {}) as Record<string, unknown>);",
+		"invalidateGeneratedTargets(queryClient, [{ store: 'tender', mode: 'list' }], (_variables ?? {}) as Record<string, unknown>);",
 		"throw missingRequiredParamsError('useGetTenderSuspense');",
 	} {
 		if !strings.Contains(h, expected) {
@@ -179,5 +179,28 @@ func TestEmitFrontendSDK_GeneratesHardenedClientAndEndpoints(t *testing.T) {
 	}
 	if strings.Contains(h, "// @ts-ignore") {
 		t.Fatalf("did not expect ts-ignore in hooks/index.ts, got:\n%s", h)
+	}
+	// The hooks and the client are in every page's bundle: neither may pull the
+	// metadata registry of every operation (endpoints/meta.ts).
+	if strings.Contains(h, "endpoints/meta") {
+		t.Fatalf("hooks/index.ts must not import endpoints/meta, got:\n%s", h)
+	}
+	clientText, err := os.ReadFile(filepath.Join(tmp, "api-client.ts"))
+	if err != nil {
+		t.Fatalf("read api-client.ts: %v", err)
+	}
+	c := string(clientText)
+	if strings.Contains(c, "endpoints/meta") || !strings.Contains(c, "from './endpoints/retry-policy'") {
+		t.Fatalf("api-client.ts must read retry rules from endpoints/retry-policy, not endpoints/meta, got:\n%s", c)
+	}
+	retryText, err := os.ReadFile(filepath.Join(tmp, "endpoints", "retry-policy.ts"))
+	if err != nil {
+		t.Fatalf("read endpoints/retry-policy.ts: %v", err)
+	}
+	r := string(retryText)
+	for _, expected := range []string{"export const retryStrategies", "export const retryDefaults", "export const retryOverrides"} {
+		if !strings.Contains(r, expected) {
+			t.Fatalf("expected %q in endpoints/retry-policy.ts, got:\n%s", expected, r)
+		}
 	}
 }

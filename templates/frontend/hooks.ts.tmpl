@@ -16,7 +16,6 @@ import * as Types from '../types';
 import * as QueryOptions from '../query-options';
 import * as LegacyQueries from '../queries';
 import * as api from '../endpoints';
-import { endpointMeta } from '../endpoints/meta';
 import { appWsClient, useWebsocketSubscription, useAutoInvalidation, useAppWebsocketSubscription } from './websocket-hooks';
 import { WebSocketClient, getWebSocketBaseUrl } from '../websocket';
 import { queryKeys } from '../query-keys';
@@ -44,12 +43,13 @@ type AuthMutationPayload = {
   refreshToken?: string;
 };
 
+// Each mutation hook carries its own targets, so a page holds the invalidation
+// rules of the hooks it uses and not the metadata of every operation.
 const invalidateGeneratedTargets = (
   queryClient: ReturnType<typeof useQueryClient>,
-  mutationName: string,
+  targets: readonly MutationInvalidateTarget[],
   variables: Record<string, unknown>,
 ) => {
-  const targets = (endpointMeta as Record<string, { invalidateTargets?: MutationInvalidateTarget[] }>)[mutationName]?.invalidateTargets || [];
   for (const target of targets) {
     const storeName = String(target.store || '').toLowerCase();
     const serviceName = String(target.service || '');
@@ -129,7 +129,7 @@ export const use{{ $ep.RPC }} = (params?: Types.{{ $ep.RPC }}Request, options?: 
       return undefined;
     },
     {{- end }}
-    ...QueryOptions.endpointQueryOptions.{{ LowerFirst $ep.RPC }}((params ?? {}) as Types.{{ $ep.RPC }}Request),
+    ...QueryOptions.{{ LowerFirst $ep.RPC }}EndpointQueryOptions((params ?? {}) as Types.{{ $ep.RPC }}Request),
     ...options,
     enabled: hasRequiredParams && (options?.enabled ?? true),
   });
@@ -143,7 +143,7 @@ export const use{{ $ep.RPC }}Suspense = (
   >,
 ) => {
   const hasRequiredParams = {{- if gt (len $argList) 0 -}} !!({{- range $i, $a := $argList -}}{{ if $i }} && {{ end }}((params as Types.{{ $ep.RPC }}Request | undefined)?.{{ JSONName $a }}){{- end -}}) {{- else -}} true {{- end }};
-  const baseOptions = QueryOptions.endpointQueryOptions.{{ LowerFirst $ep.RPC }}((params ?? {}) as Types.{{ $ep.RPC }}Request);
+  const baseOptions = QueryOptions.{{ LowerFirst $ep.RPC }}EndpointQueryOptions((params ?? {}) as Types.{{ $ep.RPC }}Request);
   if (!hasRequiredParams) {
     throw missingRequiredParamsError('use{{ $ep.RPC }}Suspense');
   }
@@ -282,7 +282,9 @@ export const use{{ .RPC }} = (options?: UseMutationOptions<Types.{{ .RPC }}Respo
         if (context?.queryKey) {
             queryClient.invalidateQueries({ queryKey: context.queryKey });
         }
-        invalidateGeneratedTargets(queryClient, '{{ LowerFirst .RPC }}', (_variables ?? {}) as Record<string, unknown>);
+        invalidateGeneratedTargets(queryClient, [
+      {{- range $i, $t := MutationInvalidateTargets . }}{{ if $i }}, {{ end }}{ store: '{{ $t.Store }}'{{ if $t.Service }}, service: '{{ $t.Service }}'{{ end }}{{ if $t.RPC }}, rpc: '{{ $t.RPC }}'{{ end }}{{ if $t.ScopeParam }}, scopeParam: '{{ $t.ScopeParam }}'{{ end }}{{ if $t.Mode }}, mode: '{{ $t.Mode }}'{{ end }} }{{ end -}}
+    ], (_variables ?? {}) as Record<string, unknown>);
     },
     ...options,
   });
@@ -306,7 +308,9 @@ export const use{{ .RPC }} = (options?: UseMutationOptions<Types.{{ .RPC }}Respo
     {{- end }}
     {{- if .Invalidate }}
     onSettled: (_data: unknown, _error: Error | null, _variables: Types.{{ .RPC }}Request) => {
-        invalidateGeneratedTargets(queryClient, '{{ LowerFirst .RPC }}', (_variables ?? {}) as Record<string, unknown>);
+        invalidateGeneratedTargets(queryClient, [
+      {{- range $i, $t := MutationInvalidateTargets . }}{{ if $i }}, {{ end }}{ store: '{{ $t.Store }}'{{ if $t.Service }}, service: '{{ $t.Service }}'{{ end }}{{ if $t.RPC }}, rpc: '{{ $t.RPC }}'{{ end }}{{ if $t.ScopeParam }}, scopeParam: '{{ $t.ScopeParam }}'{{ end }}{{ if $t.Mode }}, mode: '{{ $t.Mode }}'{{ end }} }{{ end -}}
+    ], (_variables ?? {}) as Record<string, unknown>);
     },
     {{- end }}
     ...options,
