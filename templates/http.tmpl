@@ -101,18 +101,18 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 		{{- else }}
 		{{- if .HasBodyField }}
 		if err := decodeJSONRequest(r, &req.Body); err != nil {
-			errors.WriteError(w, r, errors.NewValidationError("Invalid JSON", map[string]string{"body": err.Error()}))
+			errors.WriteError(w, r, errors.NewDecodeError(err))
 			return
 		}
 		{{- else }}
 		{{- if eq (RequestBodyEncoding .) "multipart_form" }}
 		if err := decodeMultipartOrJSONUpload(r, &req); err != nil {
-			errors.WriteError(w, r, errors.NewValidationError("Invalid request body", map[string]string{"body": err.Error()}))
+			errors.WriteError(w, r, errors.NewDecodeError(err))
 			return
 		}
 		{{- else }}
 		if err := decodeJSONRequest(r, &req); err != nil {
-			errors.WriteError(w, r, errors.NewValidationError("Invalid JSON", map[string]string{"body": err.Error()}))
+			errors.WriteError(w, r, errors.NewDecodeError(err))
 			return
 		}
 		{{- end }}

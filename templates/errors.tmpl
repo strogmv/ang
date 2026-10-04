@@ -227,6 +227,28 @@ func NewValidationError(detail string, errs map[string]string) *ProblemDetail {
 	}
 }
 
+// NewDecodeError answers a request body that could not be decoded: 400
+// INVALID_INPUT naming the field when the decoder knows it ("price": a string
+// where a number belongs, or a number too large for the field's type). Go's
+// own message (types, offsets) never reaches the client.
+func NewDecodeError(err error) *ProblemDetail {
+	pd := New(http.StatusBadRequest, "INVALID_INPUT", "The request body is not valid JSON.")
+	pd.MessageCode = "INVALID_INPUT"
+	pd.Code = 40011
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &typeErr) {
+		field := strings.TrimSpace(typeErr.Field)
+		if field == "" {
+			field = "body"
+		}
+		pd.Detail = "A value in the request has the wrong type or is out of range."
+		pd.Errors = map[string]string{field: "invalid"}
+		return pd
+	}
+	pd.Errors = map[string]string{"body": "invalid"}
+	return pd
+}
+
 // fieldValidationError is what an entity's Validate() returns for a value
 // outside its declared constraints (domain.FieldValidationError). It reaches
 // the handler from deep inside a repository Save — an enum value the request
