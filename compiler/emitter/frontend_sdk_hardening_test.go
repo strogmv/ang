@@ -190,17 +190,17 @@ func TestEmitFrontendSDK_GeneratesHardenedClientAndEndpoints(t *testing.T) {
 		t.Fatalf("read api-client.ts: %v", err)
 	}
 	c := string(clientText)
-	if strings.Contains(c, "endpoints/meta") || !strings.Contains(c, "from './endpoints/retry-policy'") {
-		t.Fatalf("api-client.ts must read retry rules from endpoints/retry-policy, not endpoints/meta, got:\n%s", c)
+	if strings.Contains(c, "endpoints/meta") || !strings.Contains(c, "from './endpoints/request-policy'") {
+		t.Fatalf("api-client.ts must read retry rules from endpoints/request-policy, not endpoints/meta, got:\n%s", c)
 	}
-	retryText, err := os.ReadFile(filepath.Join(tmp, "endpoints", "retry-policy.ts"))
+	retryText, err := os.ReadFile(filepath.Join(tmp, "endpoints", "request-policy.ts"))
 	if err != nil {
-		t.Fatalf("read endpoints/retry-policy.ts: %v", err)
+		t.Fatalf("read endpoints/request-policy.ts: %v", err)
 	}
 	r := string(retryText)
-	for _, expected := range []string{"export const retryStrategies", "export const retryDefaults", "export const retryOverrides"} {
+	for _, expected := range []string{"export const retryStrategies", "export const requestDefaults", "export const requestOverrides"} {
 		if !strings.Contains(r, expected) {
-			t.Fatalf("expected %q in endpoints/retry-policy.ts, got:\n%s", expected, r)
+			t.Fatalf("expected %q in endpoints/request-policy.ts, got:\n%s", expected, r)
 		}
 	}
 }

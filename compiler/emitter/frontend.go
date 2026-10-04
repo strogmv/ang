@@ -1817,7 +1817,7 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 	if err := e.emitFrontendFile("endpoints-meta", ctx, funcMap, filepath.Join("endpoints", "meta.ts")); err != nil {
 		return err
 	}
-	if err := e.emitFrontendFile("endpoints-retry-policy", buildFrontendRetryPolicyTable(endpointsNorm), funcMap, filepath.Join("endpoints", "retry-policy.ts")); err != nil {
+	if err := e.emitFrontendFile("endpoints-request-policy", buildFrontendRequestPolicyTable(endpointsNorm), funcMap, filepath.Join("endpoints", "request-policy.ts")); err != nil {
 		return err
 	}
 

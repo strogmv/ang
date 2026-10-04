@@ -171,7 +171,7 @@ func TestEmitFrontendSDK_UsesEndpointFrontendMetadataProfiles(t *testing.T) {
 	}
 	c := string(clientText)
 	for _, expected := range []string{
-		"endpoint?.cachePolicy === 'realtime'",
+		"if (policy.noStore && config.method === 'GET')",
 		"_rt: Date.now().toString()",
 		"headers.set('Cache-Control', 'no-store, no-cache, max-age=0, must-revalidate')",
 		"headers.set('Pragma', 'no-cache')",
@@ -179,5 +179,13 @@ func TestEmitFrontendSDK_UsesEndpointFrontendMetadataProfiles(t *testing.T) {
 		if !strings.Contains(c, expected) {
 			t.Fatalf("expected %q in api-client.ts, got:\n%s", expected, c)
 		}
+	}
+	// The realtime operations reach the client through the compact request policy.
+	policyText, err := os.ReadFile(filepath.Join(tmp, "endpoints", "request-policy.ts"))
+	if err != nil {
+		t.Fatalf("read endpoints/request-policy.ts: %v", err)
+	}
+	if !strings.Contains(string(policyText), "true, false]") {
+		t.Fatalf("expected a no-store rule for the realtime GET in endpoints/request-policy.ts, got:\n%s", policyText)
 	}
 }
