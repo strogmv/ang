@@ -116,14 +116,38 @@ export class WebSocketClient<T = WSMessage> {
     if (typeof document === 'undefined' || document.visibilityState !== 'visible') {
       return;
     }
+    this.resume();
+  };
+
+  // Back from the bfcache (iOS Safari restores the page instead of reloading it).
+  private readonly handlePageShow = (event: PageTransitionEvent) => {
+    if (event.persisted) {
+      this.resume();
+    }
+  };
+
+  /**
+   * The tab is in front again. A phone that slept with the app in the background
+   * often keeps a socket that still says OPEN but is dead: probe it at once
+   * instead of waiting for the next heartbeat, and skip any pending backoff.
+   */
+  private resume() {
     if (!this.shouldReconnect) {
       return;
     }
-    if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      if (this.rawSend({ type: 'ping', ts: Date.now() })) {
+        this.scheduleHeartbeatTimeout();
+      }
       return;
     }
+    if (this.ws?.readyState === WebSocket.CONNECTING) {
+      return;
+    }
+    this.clearReconnectTimer();
+    this.reconnectAttempts = 0;
     void this.connect().catch(() => {});
-  };
+  }
 
   constructor(url: string, tokenOrOptions?: string | WebSocketClientOptions, options?: WebSocketClientOptions) {
     this.url = url;
@@ -493,6 +517,7 @@ export class WebSocketClient<T = WSMessage> {
     }
     window.addEventListener('online', this.handleOnline);
     document.addEventListener('visibilitychange', this.handleVisibilityChange);
+    window.addEventListener('pageshow', this.handlePageShow);
     this.browserHooksInstalled = true;
   }
 
@@ -502,6 +527,7 @@ export class WebSocketClient<T = WSMessage> {
     }
     if (typeof window !== 'undefined') {
       window.removeEventListener('online', this.handleOnline);
+      window.removeEventListener('pageshow', this.handlePageShow);
     }
     if (typeof document !== 'undefined') {
       document.removeEventListener('visibilitychange', this.handleVisibilityChange);
