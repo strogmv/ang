@@ -321,7 +321,7 @@ func RequestGateMiddleware(next http.Handler) http.Handler {
 			if status == 0 {
 				status = http.StatusOK
 			}
-			report(errors.ObservedStatus(r, status), sw.fault)
+			report(errors.ObservedStatus(r, status), sw.Fault())
 		}()
 		next.ServeHTTP(sw, r)
 	})
@@ -392,14 +392,26 @@ func requestHasCredentials(r *http.Request) bool {
 type gateStatusWriter struct {
 	http.ResponseWriter
 	status int
-	fault  string
+	// A route behind TimeoutHandler may note its fault after the answer went
+	// out, from its own goroutine.
+	faultMu sync.Mutex
+	fault   string
 }
 
 // NoteFault is how errors.WriteError says why it wrote a 5xx.
 func (w *gateStatusWriter) NoteFault(kind string) {
+	w.faultMu.Lock()
+	defer w.faultMu.Unlock()
 	if w.fault == "" {
 		w.fault = kind
 	}
+}
+
+// Fault is the noted fault kind ("" for none).
+func (w *gateStatusWriter) Fault() string {
+	w.faultMu.Lock()
+	defer w.faultMu.Unlock()
+	return w.fault
 }
 
 func (w *gateStatusWriter) WriteHeader(code int) {
