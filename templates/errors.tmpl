@@ -161,12 +161,23 @@ func IsDependencyFailure(err error) bool {
 		return true
 	}
 	msg := strings.ToLower(err.Error())
-	for _, sign := range []string{"connection refused", "connection reset", "broken pipe", "no such host", "i/o timeout", "unexpected eof", "server closed", "connection closed", "failed to connect", "circuit breaker", "nats: "} {
+	for _, sign := range []string{"connection refused", "connection reset", "broken pipe", "no such host", "i/o timeout", "unexpected eof", "server closed", "connection closed", "conn closed", "closed pool", "terminating connection", "database system is shutting down", "failed to connect", "circuit breaker", "nats: "} {
 		if strings.Contains(msg, sign) {
 			return true
 		}
 	}
 	return false
+}
+
+// serviceBusy is the answer to a request a failed dependency could not serve:
+// 503 SERVICE_BUSY (WriteError adds Retry-After).
+func serviceBusy(r *http.Request) *ProblemDetail {
+	pd := New(http.StatusServiceUnavailable, "SERVICE_BUSY", "The service is busy. Try again in a moment.")
+	pd.MessageCode = "SERVICE_BUSY"
+	if r != nil {
+		pd.Instance = r.URL.Path
+	}
+	return pd
 }
 
 // ProblemDetail implements RFC 9457 (Problem Details for HTTP APIs).
@@ -364,7 +375,8 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 			pd.Instance = r.URL.Path
 		}
 		if pd.Status >= http.StatusInternalServerError {
-			if IsDependencyFailure(err) {
+			dependency := IsDependencyFailure(err)
+			if dependency {
 				NoteFault(w, r, FaultDependency)
 			} else {
 				NoteFault(w, r, FaultBug)
@@ -379,6 +391,11 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 				"message_code", pd.MessageCode,
 				"intent", pd.Intent,
 			)
+			if dependency && pd.Status == http.StatusInternalServerError {
+				// A dependency failed (a dropped database connection, a shut-down
+				// server): try again in a moment — a 503 with Retry-After, not a 500.
+				pd = serviceBusy(r)
+			}
 		}
 	} else if fe, ok := asFieldValidation(err); ok {
 		pd = fieldValidationProblem(fe)
@@ -414,13 +431,20 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 		pd = New(http.StatusBadRequest, "INVALID_INPUT", "A value in the request has the wrong format.")
 		pd.MessageCode = "INVALID_INPUT"
 		pd.Instance = r.URL.Path
+	} else if IsDependencyFailure(err) {
+		// A dependency failed or dropped the connection (the database restarted,
+		// a pooled connection was reset, the broker is gone): the request may
+		// succeed a moment later — a 503 with Retry-After, not a 500.
+		NoteFault(w, r, FaultDependency)
+		slog.Error("Dependency failure",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"error", err,
+		)
+		pd = serviceBusy(r)
 	} else {
 		// Hide internal error details from the client, but keep full details in server logs.
-		if IsDependencyFailure(err) {
-			NoteFault(w, r, FaultDependency)
-		} else {
-			NoteFault(w, r, FaultBug)
-		}
+		NoteFault(w, r, FaultBug)
 		slog.Error("Unhandled application error",
 			"method", r.Method,
 			"path", r.URL.Path,
