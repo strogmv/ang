@@ -3,6 +3,7 @@ package presence
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -41,6 +42,23 @@ func redisCtx() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), redisOpTimeout)
 }
 
+// After a failed Redis call presence stays in memory for redisBackoff: a
+// frozen Redis costs one timeout per few seconds, not one per call (a live
+// room fans out on every bid).
+const redisBackoff = 5 * time.Second
+
+var redisDownUntil atomic.Int64
+
+func useRedis() bool {
+	return redisClient != nil && time.Now().UnixNano() >= redisDownUntil.Load()
+}
+
+func noteRedis(err error) {
+	if err != nil && err != redis.Nil {
+		redisDownUntil.Store(time.Now().Add(redisBackoff).UnixNano())
+	}
+}
+
 func memorySet(userID string, isOnline bool, at time.Time) Status {
 	mu.Lock()
 	defer mu.Unlock()
@@ -77,14 +95,14 @@ func SetTTL(d time.Duration) {
 // Set updates the presence for a user and returns the stored status.
 func Set(userID string, isOnline bool, at time.Time) Status {
 	status := memorySet(userID, isOnline, at)
-	if redisClient != nil {
+	if useRedis() {
 		ctx, cancel := redisCtx()
 		defer cancel()
 		key := presenceKeyPrefix + userID
 		if !isOnline {
-			_ = redisClient.Del(ctx, key).Err()
+			noteRedis(redisClient.Del(ctx, key).Err())
 		} else {
-			_ = redisClient.Set(ctx, key, status.LastSeenAt, ttl).Err()
+			noteRedis(redisClient.Set(ctx, key, status.LastSeenAt, ttl).Err())
 		}
 	}
 	return status
@@ -101,7 +119,7 @@ func SetMany(userIDs []string, at time.Time) {
 	for _, id := range userIDs {
 		memorySet(id, true, at)
 	}
-	if redisClient == nil {
+	if !useRedis() {
 		return
 	}
 	ctx, cancel := redisCtx()
@@ -110,12 +128,13 @@ func SetMany(userIDs []string, at time.Time) {
 	for _, id := range userIDs {
 		pipe.Set(ctx, presenceKeyPrefix+id, ts, ttl)
 	}
-	_, _ = pipe.Exec(ctx)
+	_, err := pipe.Exec(ctx)
+	noteRedis(err)
 }
 
 // Get returns the stored status for a user.
 func Get(userID string) (Status, bool) {
-	if redisClient != nil {
+	if useRedis() {
 		ctx, cancel := redisCtx()
 		defer cancel()
 		val, err := redisClient.Get(ctx, presenceKeyPrefix+userID).Result()
@@ -125,6 +144,7 @@ func Get(userID string) (Status, bool) {
 		if err == redis.Nil {
 			return Status{}, false
 		}
+		noteRedis(err)
 		// Redis slow or down: what this process saw is better than nothing.
 	}
 
@@ -135,7 +155,7 @@ func Get(userID string) (Status, bool) {
 
 // GetMany returns a map of statuses for the provided user IDs.
 func GetMany(userIDs []string) map[string]Status {
-	if redisClient != nil && len(userIDs) > 0 {
+	if useRedis() && len(userIDs) > 0 {
 		ctx, cancel := redisCtx()
 		defer cancel()
 		keys := make([]string, 0, len(userIDs))
@@ -146,6 +166,7 @@ func GetMany(userIDs []string) map[string]Status {
 		values, err := redisClient.MGet(ctx, keys...).Result()
 		if err != nil {
 			// Redis slow or down: fall back to this process's own view below.
+			noteRedis(err)
 			return memoryGetMany(userIDs)
 		}
 		for i, v := range values {

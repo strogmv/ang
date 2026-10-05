@@ -6,8 +6,13 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// NewClient connects to Redis. ContextTimeoutEnabled makes every call honour
+// its context deadline (request deadlines, the 250 ms presence budget):
+// without it go-redis waits for its own dial/read timeouts whatever the
+// context says, so a frozen Redis held a live-room fan-out for ~10 s per call.
 func NewClient(addr string) *redis.Client {
 	return redis.NewClient(&redis.Options{
-		Addr: addr,
+		Addr:                  addr,
+		ContextTimeoutEnabled: true,
 	})
 }
