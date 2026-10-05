@@ -97,17 +97,41 @@ const (
 // the server side (the request gate's outcome watcher).
 type FaultNoter interface{ NoteFault(kind string) }
 
-func noteFault(w http.ResponseWriter, kind string) {
+type faultNoterKey struct{}
+
+// WithFaultNoter carries the outcome watcher in the request context, for
+// writers that cannot be unwrapped to it: http.TimeoutHandler (every route)
+// buffers the answer in a writer of its own.
+func WithFaultNoter(ctx context.Context, n FaultNoter) context.Context {
+	return context.WithValue(ctx, faultNoterKey{}, n)
+}
+
+// FindFaultNoter walks the writer chain to the outcome watcher, if any.
+func FindFaultNoter(w http.ResponseWriter) FaultNoter {
 	for w != nil {
 		if n, ok := w.(FaultNoter); ok {
-			n.NoteFault(kind)
-			return
+			return n
 		}
 		u, ok := w.(interface{ Unwrap() http.ResponseWriter })
 		if !ok {
-			return
+			return nil
 		}
 		w = u.Unwrap()
+	}
+	return nil
+}
+
+// NoteFault tells the request's outcome watcher why it failed: through the
+// writer chain, else through the request context.
+func NoteFault(w http.ResponseWriter, r *http.Request, kind string) {
+	if n := FindFaultNoter(w); n != nil {
+		n.NoteFault(kind)
+		return
+	}
+	if r != nil {
+		if n, ok := r.Context().Value(faultNoterKey{}).(FaultNoter); ok && n != nil {
+			n.NoteFault(kind)
+		}
 	}
 }
 
@@ -341,9 +365,9 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 		}
 		if pd.Status >= http.StatusInternalServerError {
 			if IsDependencyFailure(err) {
-				noteFault(w, FaultDependency)
+				NoteFault(w, r, FaultDependency)
 			} else {
-				noteFault(w, FaultBug)
+				NoteFault(w, r, FaultBug)
 			}
 			slog.Error("Application error response",
 				"method", r.Method,
@@ -367,7 +391,7 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 			"path", r.URL.Path,
 			"error", err,
 		)
-		noteFault(w, FaultDependency)
+		NoteFault(w, r, FaultDependency)
 		pd = New(http.StatusServiceUnavailable, "SERVICE_BUSY", "The request timed out. Try again in a moment.")
 		pd.MessageCode = "SERVICE_BUSY"
 		pd.Instance = r.URL.Path
@@ -377,7 +401,7 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 			"path", r.URL.Path,
 			"error", err,
 		)
-		noteFault(w, FaultDependency)
+		NoteFault(w, r, FaultDependency)
 		pd = New(http.StatusServiceUnavailable, "SERVICE_BUSY", "The service is busy. Try again in a moment.")
 		pd.MessageCode = "SERVICE_BUSY"
 		pd.Instance = r.URL.Path
@@ -393,9 +417,9 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	} else {
 		// Hide internal error details from the client, but keep full details in server logs.
 		if IsDependencyFailure(err) {
-			noteFault(w, FaultDependency)
+			NoteFault(w, r, FaultDependency)
 		} else {
-			noteFault(w, FaultBug)
+			NoteFault(w, r, FaultBug)
 		}
 		slog.Error("Unhandled application error",
 			"method", r.Method,

@@ -137,7 +137,10 @@ func TestEmitHTTPCommon_ClientClosedRequestIsNot5xx(t *testing.T) {
 	}
 	common := read("common.go")
 	for _, want := range []string{
-		"th.ServeHTTP(&timeoutStatusWriter{ResponseWriter: w, r: r}, r)",
+		"th.ServeHTTP(&timeoutStatusWriter{ResponseWriter: w, r: r, deadline: deadline}, r)",
+		// The watchdog's fault kind crosses TimeoutHandler's writer, and its own 503 is a dependency fault.
+		"r = r.WithContext(errors.WithFaultNoter(r.Context(), n))",
+		"errors.NoteFault(tw.ResponseWriter, tw.r, errors.FaultDependency)",
 		"code = errors.StatusClientClosedRequest",
 		`tw.Header().Set("Retry-After", errors.RetryAfterSeconds)`,
 	} {

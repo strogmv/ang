@@ -2273,7 +2273,13 @@ func TimeoutMiddleware(timeout string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		th := http.TimeoutHandler(next, d, `{"type":"about:blank","title":"Gateway Timeout","status":504,"detail":"Request timed out"}`)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			th.ServeHTTP(&timeoutStatusWriter{ResponseWriter: w, r: r}, r)
+			deadline := time.Now().Add(d)
+			// The handler writes into TimeoutHandler's buffer, which cannot be
+			// unwrapped: the outcome watcher travels in the context instead.
+			if n := errors.FindFaultNoter(w); n != nil {
+				r = r.WithContext(errors.WithFaultNoter(r.Context(), n))
+			}
+			th.ServeHTTP(&timeoutStatusWriter{ResponseWriter: w, r: r, deadline: deadline}, r)
 		})
 	}
 }
@@ -2283,14 +2289,23 @@ func TimeoutMiddleware(timeout string) func(http.Handler) http.Handler {
 type timeoutStatusWriter struct {
 	http.ResponseWriter
 	r *http.Request
+	// After it, a 503 is TimeoutHandler's own: the route never answered in time.
+	deadline time.Time
 }
 
 func (tw *timeoutStatusWriter) WriteHeader(code int) {
 	if code == http.StatusServiceUnavailable {
 		if errors.ClientGone(tw.r) {
 			code = errors.StatusClientClosedRequest
-		} else if tw.Header().Get("Retry-After") == "" {
-			tw.Header().Set("Retry-After", errors.RetryAfterSeconds)
+		} else {
+			if !tw.deadline.IsZero() && !time.Now().Before(tw.deadline) {
+				// The route's deadline ran out while it still waited (a stalled
+				// database, a lock): a dependency fault for the watchdog.
+				errors.NoteFault(tw.ResponseWriter, tw.r, errors.FaultDependency)
+			}
+			if tw.Header().Get("Retry-After") == "" {
+				tw.Header().Set("Retry-After", errors.RetryAfterSeconds)
+			}
 		}
 	}
 	tw.ResponseWriter.WriteHeader(code)
