@@ -3,15 +3,50 @@ package redis
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
+// opTimeout bounds every call whatever the caller's deadline: the state store
+// is a cache and a session index in front of request handlers, and a frozen
+// Redis used to hold each request for its whole route timeout (2026-10-05:
+// bids in a live auction waited ~10 s on the company-modules cache). After a
+// failure the store answers ErrUnavailable at once for backoff, so callers
+// fall back (cache miss, session grace) without paying the timeout again.
+const (
+	opTimeout = 250 * time.Millisecond
+	backoff   = 5 * time.Second
+)
+
+// ErrUnavailable: Redis failed recently; the call was not tried.
+var ErrUnavailable = errors.New("state store unavailable")
+
 // Store implements port.StateStore using Redis.
 // TTL=0 means no expiry.
 type Store struct {
-	client *redis.Client
+	client    *redis.Client
+	downUntil atomic.Int64
+}
+
+func (s *Store) begin(ctx context.Context) (context.Context, context.CancelFunc, error) {
+	if time.Now().UnixNano() < s.downUntil.Load() {
+		return nil, nil, ErrUnavailable
+	}
+	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < opTimeout {
+		ctx, cancel := context.WithCancel(ctx)
+		return ctx, cancel, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, opTimeout)
+	return ctx, cancel, nil
+}
+
+func (s *Store) note(err error) error {
+	if err != nil && !errors.Is(err, redis.Nil) && !errors.Is(err, context.Canceled) {
+		s.downUntil.Store(time.Now().Add(backoff).UnixNano())
+	}
+	return err
 }
 
 func New(client *redis.Client) *Store {
@@ -19,17 +54,32 @@ func New(client *redis.Client) *Store {
 }
 
 func (s *Store) Get(ctx context.Context, key string) ([]byte, error) {
+	ctx, cancel, err := s.begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
 	val, err := s.client.Get(ctx, key).Bytes()
 	if errors.Is(err, redis.Nil) {
 		return nil, nil
 	}
-	return val, err
+	return val, s.note(err)
 }
 
 func (s *Store) Set(ctx context.Context, key string, value []byte, ttl time.Duration) error {
-	return s.client.Set(ctx, key, value, ttl).Err()
+	ctx, cancel, err := s.begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer cancel()
+	return s.note(s.client.Set(ctx, key, value, ttl).Err())
 }
 
 func (s *Store) Delete(ctx context.Context, key string) error {
-	return s.client.Del(ctx, key).Err()
+	ctx, cancel, err := s.begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer cancel()
+	return s.note(s.client.Del(ctx, key).Err())
 }
