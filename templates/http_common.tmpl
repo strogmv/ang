@@ -795,6 +795,7 @@ func requestCountsAsActivity(r *http.Request) bool {
 // it leaves the user's session index, and a tombstone keeps the reason for
 // the other tabs that still send the cookie.
 func endOpaqueSession(ctx context.Context, payload opaqueSessionPayload, reason string) {
+	forgetValidSession(payload.ID)
 	if authRefreshStore != nil && strings.TrimSpace(payload.RefreshToken) != "" {
 		_ = authRefreshStore.Revoke(ctx, payload.RefreshToken)
 	}
@@ -831,6 +832,7 @@ func deleteOpaqueSession(ctx context.Context, sessionID string) error {
 	if sessionID == "" {
 		return nil
 	}
+	forgetValidSession(sessionID)
 	if authSessionStore != nil {
 		return authSessionStore.Delete(ctx, authSessionKey(sessionID))
 	}
@@ -1002,6 +1004,64 @@ func buildOpaqueSessionPayload(accessToken, refreshToken string) (*opaqueSession
 	return payload, nil
 }
 
+// sessionStoreTimeout bounds each session-store call of a request.
+const sessionStoreTimeout = 500 * time.Millisecond
+
+// sessionGrace: when the session store cannot answer, a session this process
+// verified in full (store record, refresh token, deadlines) at most this long
+// ago is admitted. A short Redis outage then does not sign everybody out in
+// the middle of an auction; a session revoked during the outage is refused
+// once the store answers again (at most sessionGrace later).
+const sessionGrace = 60 * time.Second
+
+type verifiedSession struct {
+	payload opaqueSessionPayload
+	at      time.Time
+}
+
+var (
+	verifiedSessionsMu sync.Mutex
+	verifiedSessions   = map[string]verifiedSession{}
+)
+
+func rememberValidSession(sessionID string, payload *opaqueSessionPayload) {
+	if payload == nil {
+		return
+	}
+	now := time.Now()
+	verifiedSessionsMu.Lock()
+	defer verifiedSessionsMu.Unlock()
+	verifiedSessions[sessionID] = verifiedSession{payload: *payload, at: now}
+	if len(verifiedSessions) > 50000 {
+		for id, v := range verifiedSessions {
+			if now.Sub(v.at) > sessionGrace {
+				delete(verifiedSessions, id)
+			}
+		}
+	}
+}
+
+func forgetValidSession(sessionID string) {
+	verifiedSessionsMu.Lock()
+	delete(verifiedSessions, sessionID)
+	verifiedSessionsMu.Unlock()
+}
+
+func recentValidSession(sessionID string, now time.Time) (*opaqueSessionPayload, bool) {
+	verifiedSessionsMu.Lock()
+	v, ok := verifiedSessions[sessionID]
+	verifiedSessionsMu.Unlock()
+	if !ok || now.Sub(v.at) > sessionGrace {
+		return nil, false
+	}
+	if v.payload.ExpiresAt > 0 && now.Unix() >= v.payload.ExpiresAt {
+		return nil, false
+	}
+	payload := v.payload
+	slog.Warn("auth: session store unavailable; admitting a recently verified session", "age", now.Sub(v.at).Round(time.Second).String())
+	return &payload, true
+}
+
 // resolveOpaqueSession returns the live session behind the request's cookie.
 // Errors are typed: *sessionEndedError when the cookie names a session that
 // is over (idle, expired, ended), *sessionStoreError when the store cannot
@@ -1015,12 +1075,21 @@ func resolveOpaqueSession(r *http.Request, renew bool) (*opaqueSessionPayload, e
 	if err != nil || strings.TrimSpace(cookie.Value) == "" {
 		return nil, fmt.Errorf("missing session cookie")
 	}
-	ctx := r.Context()
+	// The session store gets sessionStoreTimeout, not the request's whole
+	// deadline: a frozen Redis used to hold every signed-in request (a bid in
+	// a live auction included) until the route timed out.
+	ctx, cancelStore := context.WithTimeout(r.Context(), sessionStoreTimeout)
+	defer cancelStore()
+	now := time.Now()
 	payload, err := findOpaqueSession(ctx, cookie.Value)
 	if err != nil {
+		if recent, ok := recentValidSession(cookie.Value, now); ok {
+			return recent, nil
+		}
 		return nil, &sessionStoreError{err: err}
 	}
 	if payload == nil {
+		forgetValidSession(cookie.Value)
 		return nil, &sessionEndedError{reason: "ended"}
 	}
 	if strings.TrimSpace(payload.ID) == "" {
@@ -1033,7 +1102,6 @@ func resolveOpaqueSession(r *http.Request, renew bool) (*opaqueSessionPayload, e
 		_ = deleteOpaqueSession(ctx, payload.ID)
 		return nil, &sessionEndedError{reason: "ended"}
 	}
-	now := time.Now()
 	if payload.ExpiresAt > 0 && now.Unix() >= payload.ExpiresAt {
 		endOpaqueSession(ctx, *payload, "expired")
 		return nil, &sessionEndedError{reason: "expired"}
@@ -1048,6 +1116,9 @@ func resolveOpaqueSession(r *http.Request, renew bool) (*opaqueSessionPayload, e
 	}
 	rec, err := authRefreshStore.Find(ctx, payload.RefreshToken)
 	if err != nil {
+		if recent, ok := recentValidSession(cookie.Value, now); ok {
+			return recent, nil
+		}
 		return nil, &sessionStoreError{err: err}
 	}
 	if rec == nil || rec.Revoked || (!rec.ExpiresAt.IsZero() && now.After(rec.ExpiresAt)) || rec.UserID != payload.UserID {
@@ -1064,9 +1135,12 @@ func resolveOpaqueSession(r *http.Request, renew bool) (*opaqueSessionPayload, e
 	if touch {
 		payload.LastActiveAt = now.Unix()
 		if err := saveOpaqueSession(ctx, *payload); err != nil {
-			return nil, &sessionStoreError{err: err}
+			// The activity is not recorded this time; the session itself was
+			// just verified, so the request goes on.
+			slog.Warn("auth: session activity not saved", "error", err)
 		}
 	}
+	rememberValidSession(cookie.Value, payload)
 	return payload, nil
 }
 
@@ -1912,6 +1986,31 @@ end
 return count
 `)
 
+// Redis counters are shared by the replicas, but a limiter must never be the
+// reason a request waits: each call gets rateRedisTimeout, and after a failure
+// the limiter counts in process memory for rateRedisBackoff (per replica, so
+// the limits are looser for a moment, never stricter). Without it a frozen
+// Redis held every request for the client's own read timeouts — bids hung for
+// ~10 s and live auctions closed for want of bids (2026-10-05 resilience run).
+const (
+	rateRedisTimeout = 100 * time.Millisecond
+	rateRedisBackoff = 5 * time.Second
+)
+
+var rateRedisDownUntil atomic.Int64
+
+func rateRedisUsable() bool {
+	return redisClient != nil && time.Now().UnixNano() >= rateRedisDownUntil.Load()
+}
+
+func noteRateRedisFailure() {
+	rateRedisDownUntil.Store(time.Now().Add(rateRedisBackoff).UnixNano())
+}
+
+func rateRedisCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), rateRedisTimeout)
+}
+
 // rateLimitSweepAt is when the in-memory limiter state was last swept.
 var rateLimitSweepAt atomic.Int64
 
@@ -2062,26 +2161,33 @@ func rateLimitMiddleware(rps, burst, windowSecs, windowLimit int, bucketOf func(
 			}
 			clientKey := fmt.Sprintf("%d:%s", scope, bucketOf(r))
 			now := time.Now()
-			if redisClient == nil {
+			useRedis := rateRedisUsable()
+			if !useRedis {
 				sweepRateLimitState(now)
 			}
 
 			// ---- per-second RPS check ----
 			if max > 0 {
-				if redisClient != nil {
+				counted := false
+				if useRedis {
 					key := fmt.Sprintf("rate:rps:%d:%s", max, clientKey)
-					ctx := context.Background()
+					ctx, cancel := rateRedisCtx()
 					// Start the one-second window on its first request only;
 					// refreshing the expiry on every hit kept a busy counter
 					// alive, so the limit became "N requests without a pause".
 					count, err := rateLimitIncr.Run(ctx, redisClient, []string{key}, time.Second.Milliseconds()).Int64()
+					cancel()
 					if err == nil {
+						counted = true
 						if int(count) > max {
 							writeRateLimited(w, r, time.Second)
 							return
 						}
+					} else {
+						noteRateRedisFailure()
 					}
-				} else {
+				}
+				if !counted {
 					rateMu.Lock()
 					state, ok := rateByIP[clientKey]
 					if !ok {
@@ -2106,10 +2212,12 @@ func rateLimitMiddleware(rps, burst, windowSecs, windowLimit int, bucketOf func(
 			if windowSecs > 0 && windowLimit > 0 {
 				windowDur := time.Duration(windowSecs) * time.Second
 				wkey := fmt.Sprintf("rate:win:%d:%s", windowSecs, clientKey)
-				if redisClient != nil {
-					ctx := context.Background()
+				counted := false
+				if useRedis && rateRedisUsable() {
+					ctx, cancel := rateRedisCtx()
 					count, err := rateLimitIncr.Run(ctx, redisClient, []string{wkey}, windowDur.Milliseconds()).Int64()
 					if err == nil {
+						counted = true
 						if int(count) > windowLimit {
 							// The client is told how long the window still runs,
 							// not how long it is: an hour-long quota tripped at
@@ -2118,11 +2226,16 @@ func rateLimitMiddleware(rps, burst, windowSecs, windowLimit int, bucketOf func(
 							if ttl, ttlErr := redisClient.PTTL(ctx, wkey).Result(); ttlErr == nil && ttl > 0 {
 								wait = ttl
 							}
+							cancel()
 							writeRateLimited(w, r, wait)
 							return
 						}
+					} else {
+						noteRateRedisFailure()
 					}
-				} else {
+					cancel()
+				}
+				if !counted {
 					v, _ := windowByKey.LoadOrStore(wkey, &windowState{resetAt: now.Add(windowDur)})
 					ws := v.(*windowState)
 					ws.mu.Lock()
@@ -2191,10 +2304,13 @@ func IdempotencyMiddleware() func(http.Handler) http.Handler {
 				errors.WriteError(w, r, errors.New(http.StatusBadRequest, "Bad Request", "Idempotency-Key required"))
 				return
 			}
-			if redisClient != nil {
-				ctx := context.Background()
+			if rateRedisUsable() {
+				ctx, cancel := rateRedisCtx()
 				ok, err := redisClient.SetNX(ctx, "idem:"+key, "1", time.Hour).Result()
-				if err == nil && !ok {
+				cancel()
+				if err != nil {
+					noteRateRedisFailure()
+				} else if !ok {
 					errors.WriteError(w, r, errors.New(http.StatusConflict, "Conflict", "Duplicate request"))
 					return
 				}
