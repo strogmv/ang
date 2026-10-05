@@ -30,6 +30,29 @@ var (
 	ttl         = 60 * time.Second
 )
 
+// redisOpTimeout bounds every Redis call. Presence is decoration (an
+// "online" dot): it runs inside request handlers and the live-room fan-out,
+// and a slow or unreachable Redis must cost at most this long, never the
+// client's default read timeouts per call. Writes also land in memory, so a
+// failed read falls back to what this process knows.
+const redisOpTimeout = 250 * time.Millisecond
+
+func redisCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), redisOpTimeout)
+}
+
+func memorySet(userID string, isOnline bool, at time.Time) Status {
+	mu.Lock()
+	defer mu.Unlock()
+	if !isOnline {
+		delete(store, userID)
+		return Status{IsOnline: false, LastSeenAt: ""}
+	}
+	status := Status{IsOnline: true, LastSeenAt: at.UTC().Format(time.RFC3339)}
+	store[userID] = memoryEntry{status: status, at: time.Now()}
+	return status
+}
+
 // memoryGet returns a stored entry unless its heartbeat is older than the TTL.
 func memoryGet(userID string, now time.Time) (Status, bool) {
 	entry, ok := store[userID]
@@ -53,41 +76,56 @@ func SetTTL(d time.Duration) {
 
 // Set updates the presence for a user and returns the stored status.
 func Set(userID string, isOnline bool, at time.Time) Status {
+	status := memorySet(userID, isOnline, at)
 	if redisClient != nil {
-		ctx := context.Background()
+		ctx, cancel := redisCtx()
+		defer cancel()
 		key := presenceKeyPrefix + userID
 		if !isOnline {
 			_ = redisClient.Del(ctx, key).Err()
-			return Status{IsOnline: false, LastSeenAt: ""}
+		} else {
+			_ = redisClient.Set(ctx, key, status.LastSeenAt, ttl).Err()
 		}
-		ts := at.UTC().Format(time.RFC3339)
-		_ = redisClient.Set(ctx, key, ts, ttl).Err()
-		return Status{IsOnline: true, LastSeenAt: ts}
 	}
-
-	mu.Lock()
-	defer mu.Unlock()
-	if !isOnline {
-		delete(store, userID)
-		return Status{IsOnline: false, LastSeenAt: ""}
-	}
-	status := Status{
-		IsOnline:   true,
-		LastSeenAt: at.UTC().Format(time.RFC3339),
-	}
-	store[userID] = memoryEntry{status: status, at: time.Now()}
 	return status
+}
+
+// SetMany marks every id online at once: one Redis round trip (pipeline)
+// instead of one per id, for callers that touch many keys per event (a live
+// room marking all its viewers).
+func SetMany(userIDs []string, at time.Time) {
+	if len(userIDs) == 0 {
+		return
+	}
+	ts := at.UTC().Format(time.RFC3339)
+	for _, id := range userIDs {
+		memorySet(id, true, at)
+	}
+	if redisClient == nil {
+		return
+	}
+	ctx, cancel := redisCtx()
+	defer cancel()
+	pipe := redisClient.Pipeline()
+	for _, id := range userIDs {
+		pipe.Set(ctx, presenceKeyPrefix+id, ts, ttl)
+	}
+	_, _ = pipe.Exec(ctx)
 }
 
 // Get returns the stored status for a user.
 func Get(userID string) (Status, bool) {
 	if redisClient != nil {
-		ctx := context.Background()
+		ctx, cancel := redisCtx()
+		defer cancel()
 		val, err := redisClient.Get(ctx, presenceKeyPrefix+userID).Result()
-		if err != nil {
+		if err == nil {
+			return Status{IsOnline: true, LastSeenAt: val}, true
+		}
+		if err == redis.Nil {
 			return Status{}, false
 		}
-		return Status{IsOnline: true, LastSeenAt: val}, true
+		// Redis slow or down: what this process saw is better than nothing.
 	}
 
 	mu.RLock()
@@ -97,19 +135,18 @@ func Get(userID string) (Status, bool) {
 
 // GetMany returns a map of statuses for the provided user IDs.
 func GetMany(userIDs []string) map[string]Status {
-	if redisClient != nil {
-		ctx := context.Background()
+	if redisClient != nil && len(userIDs) > 0 {
+		ctx, cancel := redisCtx()
+		defer cancel()
 		keys := make([]string, 0, len(userIDs))
 		for _, id := range userIDs {
 			keys = append(keys, presenceKeyPrefix+id)
 		}
 		out := make(map[string]Status, len(userIDs))
-		if len(keys) == 0 {
-			return out
-		}
 		values, err := redisClient.MGet(ctx, keys...).Result()
 		if err != nil {
-			return out
+			// Redis slow or down: fall back to this process's own view below.
+			return memoryGetMany(userIDs)
 		}
 		for i, v := range values {
 			if v == nil {
@@ -124,6 +161,10 @@ func GetMany(userIDs []string) map[string]Status {
 		return out
 	}
 
+	return memoryGetMany(userIDs)
+}
+
+func memoryGetMany(userIDs []string) map[string]Status {
 	mu.RLock()
 	defer mu.RUnlock()
 	now := time.Now()
