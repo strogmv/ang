@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -202,6 +203,10 @@ type ProblemDetail struct {
 	// Code - Custom business error code.
 	Code int `json:"code,omitempty"`
 	MessageCode string `json:"message_code,omitempty"`
+
+	// RetryAfter - seconds the client should wait before trying again (429/503);
+	// WriteError sends it as the Retry-After header too.
+	RetryAfter int `json:"retryAfter,omitempty"`
 	
 	// Errors - Validation details (field -> message).
 	Errors map[string]string `json:"errors,omitempty"`
@@ -454,6 +459,9 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 		pd.Instance = r.URL.Path
 	}
 
+	if pd.RetryAfter > 0 && w.Header().Get("Retry-After") == "" {
+		w.Header().Set("Retry-After", strconv.Itoa(pd.RetryAfter))
+	}
 	if pd.Status == http.StatusServiceUnavailable && w.Header().Get("Retry-After") == "" {
 		w.Header().Set("Retry-After", RetryAfterSeconds)
 	}
