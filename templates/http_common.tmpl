@@ -2476,12 +2476,13 @@ func originIsAllowed(origin string, r *http.Request) bool {
 	return false
 }
 
-// Carries the caller's address and User-Agent into the context so the service
+// Carries the caller's address, User-Agent and Accept header into the context so the service
 // layer can record them. It runs before authentication, because a failed login
 // is exactly the event worth knowing the address of.
 func ClientContextMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := reqctx.WithClient(r.Context(), realClientIP(r), r.UserAgent())
+		ctx = reqctx.WithAccept(ctx, r.Header.Get("Accept"))
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

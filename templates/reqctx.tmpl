@@ -11,6 +11,7 @@ const (
 	timezoneKey
 	clientIPKey
 	userAgentKey
+	acceptKey
 )
 
 // WithSkipAutoVerify returns a new context with the skip-auto-verify flag set.
@@ -85,5 +86,20 @@ func ClientIP(ctx context.Context) string {
 // UserAgent retrieves the caller's User-Agent, empty when there was none.
 func UserAgent(ctx context.Context) string {
 	v, _ := ctx.Value(userAgentKey).(string)
+	return v
+}
+
+// WithAccept stores the request's Accept header. A service that can answer in
+// more than one format (an image as AVIF, WebP or JPEG) chooses by it.
+func WithAccept(ctx context.Context, accept string) context.Context {
+	if accept == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, acceptKey, accept)
+}
+
+// Accept retrieves the request's Accept header, empty outside HTTP.
+func Accept(ctx context.Context) string {
+	v, _ := ctx.Value(acceptKey).(string)
 	return v
 }
