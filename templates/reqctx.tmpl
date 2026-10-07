@@ -12,6 +12,8 @@ const (
 	clientIPKey
 	userAgentKey
 	acceptKey
+	rawBodyKey
+	webhookSignatureKey
 )
 
 // WithSkipAutoVerify returns a new context with the skip-auto-verify flag set.
@@ -101,5 +103,35 @@ func WithAccept(ctx context.Context, accept string) context.Context {
 // Accept retrieves the request's Accept header, empty outside HTTP.
 func Accept(ctx context.Context) string {
 	v, _ := ctx.Value(acceptKey).(string)
+	return v
+}
+
+// WithRawBody keeps the exact bytes of a raw-body request (@rawBody): a
+// webhook sender signs those bytes, and the decoded value cannot reproduce
+// them.
+func WithRawBody(ctx context.Context, body []byte) context.Context {
+	return context.WithValue(ctx, rawBodyKey, body)
+}
+
+// RawBody returns the exact request bytes of a raw-body operation, nil
+// elsewhere.
+func RawBody(ctx context.Context) []byte {
+	v, _ := ctx.Value(rawBodyKey).([]byte)
+	return v
+}
+
+// WithWebhookSignature stores the signature header a webhook sender put on the
+// request (Stripe-Signature, X-Hub-Signature-256).
+func WithWebhookSignature(ctx context.Context, signature string) context.Context {
+	if signature == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, webhookSignatureKey, signature)
+}
+
+// WebhookSignature returns the request's webhook signature header, empty when
+// it carries none.
+func WebhookSignature(ctx context.Context) string {
+	v, _ := ctx.Value(webhookSignatureKey).(string)
 	return v
 }

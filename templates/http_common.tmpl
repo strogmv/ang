@@ -2,6 +2,7 @@ package http
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto"
 	crand "crypto/rand"
@@ -450,6 +451,33 @@ func SetAuthRefreshStore(store port.RefreshTokenStore) {
 
 func SetAuthSessionStore(store port.StateStore) {
 	authSessionStore = store
+}
+
+// webhookSignatureHeader is the signature a webhook sender puts on its
+// request, whichever of the usual headers it uses.
+func webhookSignatureHeader(r *http.Request) string {
+	for _, name := range []string{"Stripe-Signature", "X-Hub-Signature-256", "X-Signature"} {
+		if v := r.Header.Get(name); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// captureRawBody reads a raw-body operation's request once, keeps the exact
+// bytes in the context (reqctx.RawBody — what a webhook signature covers) and
+// puts them back for decoding.
+func captureRawBody(r *http.Request) *http.Request {
+	if r.Body == nil {
+		return r
+	}
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		return r
+	}
+	_ = r.Body.Close()
+	r.Body = io.NopCloser(bytes.NewReader(raw))
+	return r.WithContext(reqctx.WithRawBody(r.Context(), raw))
 }
 
 func decodeJSONRequest(r *http.Request, out interface{}) error {
@@ -2483,6 +2511,7 @@ func ClientContextMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := reqctx.WithClient(r.Context(), realClientIP(r), r.UserAgent())
 		ctx = reqctx.WithAccept(ctx, r.Header.Get("Accept"))
+		ctx = reqctx.WithWebhookSignature(ctx, webhookSignatureHeader(r))
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
