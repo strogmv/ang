@@ -18,7 +18,7 @@ import * as LegacyQueries from '../queries';
 import * as api from '../endpoints';
 import { appWsClient, useWebsocketSubscription, useAutoInvalidation, useAppWebsocketSubscription } from './websocket-hooks';
 import { WebSocketClient, getWebSocketBaseUrl } from '../websocket';
-import { queryKeys } from '../query-keys';
+import * as Keys from '../query-keys';
 import { useAuthStore } from '../auth-store';
 import { useEffect, useRef, useLayoutEffect } from 'react';
 
@@ -261,7 +261,7 @@ export const use{{ .RPC }} = (options?: UseMutationOptions<Types.{{ .RPC }}Respo
         // Detail Update
         {{- if $relSvc }}
         if (!id) return;
-        const queryKey = queryKeys.endpoint.{{ $relSvc }}.{{ $relatedRPC }}(variables as Types.{{ $relatedRPC }}Request);
+        const queryKey = Keys.{{ LowerFirst $relatedRPC }}QueryKey(variables as Types.{{ $relatedRPC }}Request);
         await queryClient.cancelQueries({ queryKey });
         const previousData = queryClient.getQueryData(queryKey);
         queryClient.setQueryData(queryKey, (old: unknown) => {

@@ -6,7 +6,7 @@ import { useTransition } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import * as api from '../endpoints';
 import type * as Types from '../types';
-import { queryKeys } from '../query-keys';
+import * as Keys from '../query-keys';
 {{- range UniqueQueryResourceStoreImports .QueryResources }}
 import { {{ . }} } from '../stores';
 {{- end }}
@@ -83,7 +83,7 @@ export const useOptimisticUpdate{{ .Key | Title }} = <T extends object & Partial
 
   const updateOptimistically = (id: string, patch: Partial<T>, req: TReq) => {
     startTransition(async () => {
-      const detailKey = queryKeys.endpoint.{{ $dsvc }}.{{ .DetailRPC }}({ {{ .DetailParamName }}: id } as Types.{{ .DetailRPC }}Request);
+      const detailKey = Keys.{{ LowerFirst .DetailRPC }}QueryKey({ {{ .DetailParamName }}: id } as Types.{{ .DetailRPC }}Request);
       const listPrefix = ['{{ $lsvc }}', '{{ .ListRPC }}'] as const;
       const snapshotDetail = queryClient.getQueryData<unknown>(detailKey);
       const snapshotLists = queryClient.getQueriesData<unknown>({ queryKey: listPrefix });

@@ -3,14 +3,24 @@
 import type * as Types from './types';
 
 {{- end }}
+// One key builder per GET operation, so a bundle keeps only the keys it uses;
+// queryKeys below gathers them for callers that pick an operation by path.
+{{- range .Services }}
+{{- range ServiceEndpoints .Name }}
+{{- if eq .Method "GET" }}
+export const {{ LowerFirst .RPC }}QueryKey = ({{ RequestParam .RPC }}) =>
+  ['{{ .ServiceName }}', '{{ .RPC }}', params] as const;
+{{- end }}
+{{- end }}
+{{- end }}
+
 export const queryKeys = {
   endpoint: {
 {{- range .Services }}
     {{ .Name }}: {
       {{- range ServiceEndpoints .Name }}
       {{- if eq .Method "GET" }}
-      {{ .RPC }}: ({{ RequestParam .RPC }}) =>
-        ['{{ .ServiceName }}', '{{ .RPC }}', params] as const,
+      {{ .RPC }}: {{ LowerFirst .RPC }}QueryKey,
       {{- end }}
       {{- end }}
     },

@@ -105,9 +105,12 @@ func TestEmitFrontendSDK_UsesEndpointFrontendMetadataProfiles(t *testing.T) {
 	for _, expected := range []string{
 		"endpoint: {",
 		"Realtime: {",
-		"ListPresenceFeed: (params: Types.ListPresenceFeedRequest",
+		"export const listPresenceFeedQueryKey = (params: Types.ListPresenceFeedRequest",
 		"['Realtime', 'ListPresenceFeed', params] as const",
-		"GetPresenceRoom: (params: Types.GetPresenceRoomRequest",
+		"export const getPresenceRoomQueryKey = (params: Types.GetPresenceRoomRequest",
+		// The aggregate keeps the old path for callers that pick a key by name.
+		"ListPresenceFeed: listPresenceFeedQueryKey,",
+		"GetPresenceRoom: getPresenceRoomQueryKey,",
 	} {
 		if !strings.Contains(keys, expected) {
 			t.Fatalf("expected %q in query-keys.ts, got:\n%s", expected, keys)
@@ -126,7 +129,7 @@ func TestEmitFrontendSDK_UsesEndpointFrontendMetadataProfiles(t *testing.T) {
 		"export const endpointQueryOptions = {",
 		"export const listPresenceFeedEndpointQueryOptions = (params: Types.ListPresenceFeedRequest",
 		"listPresenceFeed: listPresenceFeedEndpointQueryOptions,",
-		"queryKey: queryKeys.endpoint.Realtime.ListPresenceFeed(params)",
+		"queryKey: Keys.listPresenceFeedQueryKey(params)",
 		"...(queryProfiles['realtime'] || {})",
 		"export const getPresenceRoomEndpointQueryOptions = (params: Types.GetPresenceRoomRequest",
 	} {
