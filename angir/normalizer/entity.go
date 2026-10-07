@@ -301,6 +301,9 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 		}
 
 		val := iter.Value()
+		if err := checkShadowedType(fLabel, val); err != nil {
+			return entity, err
+		}
 		var defVal string
 
 		dVal, _ := val.Default()

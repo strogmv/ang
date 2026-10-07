@@ -20,6 +20,9 @@ func (n *Normalizer) parseInlineFields(owner nestedTypeOwner, val cue.Value) ([]
 			continue
 		}
 		fVal := iter.Value()
+		if err := checkShadowedType(fLabel, fVal); err != nil {
+			return nil, err
+		}
 		var defVal string
 		dVal, _ := fVal.Default()
 		if dVal.IsConcrete() && (dVal.IncompleteKind() != cue.StructKind && dVal.IncompleteKind() != cue.ListKind) {
