@@ -21,6 +21,10 @@ func TestAuthCookieFields(t *testing.T) {
 		RefreshOp:               "RefreshToken",
 		RefreshAccessField:      "accessToken",
 		RefreshRefreshField:     "refreshToken",
+		SessionOps: []normalizer.AuthSessionOp{
+			{Op: "CompleteGoogleAuth", AccessField: "accessToken", RefreshField: "refreshToken"},
+			{Op: "HalfConfigured", AccessField: "accessToken"},
+		},
 	}
 
 	cases := []struct {
@@ -33,6 +37,8 @@ func TestAuthCookieFields(t *testing.T) {
 		{"RegisterUser", "accessToken", "refreshToken", true},
 		{"CreateDemoSession", "accessToken", "refreshToken", true},
 		{"RefreshToken", "accessToken", "refreshToken", true},
+		{"CompleteGoogleAuth", "accessToken", "refreshToken", true},
+		{"HalfConfigured", "accessToken", "", false},
 		{"LogoutUser", "", "", false},
 	}
 

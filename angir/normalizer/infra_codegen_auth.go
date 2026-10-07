@@ -110,6 +110,19 @@ func (n *Normalizer) ExtractAuth(val cue.Value) (*AuthDef, error) {
 	passwordChangeAccess, _ := jwtVal.LookupPath(cue.ParsePath("ops.password_change.access_field")).String()
 	passwordChangeRefresh, _ := jwtVal.LookupPath(cue.ParsePath("ops.password_change.refresh_field")).String()
 
+	var sessionOps []AuthSessionOp
+	if it, err := jwtVal.LookupPath(cue.ParsePath("ops.sessions")).Fields(); err == nil {
+		for it.Next() {
+			op, _ := it.Value().LookupPath(cue.ParsePath("op")).String()
+			access, _ := it.Value().LookupPath(cue.ParsePath("access_field")).String()
+			refresh, _ := it.Value().LookupPath(cue.ParsePath("refresh_field")).String()
+			if strings.TrimSpace(op) == "" {
+				continue
+			}
+			sessionOps = append(sessionOps, AuthSessionOp{Op: strings.TrimSpace(op), AccessField: strings.TrimSpace(access), RefreshField: strings.TrimSpace(refresh)})
+		}
+	}
+
 	return &AuthDef{
 		Mode:                       mode,
 		BearerFallback:             bearerFallback,
@@ -147,6 +160,7 @@ func (n *Normalizer) ExtractAuth(val cue.Value) (*AuthDef, error) {
 		PasswordChangeOp:           strings.TrimSpace(passwordChangeOp),
 		PasswordChangeAccessField:  strings.TrimSpace(passwordChangeAccess),
 		PasswordChangeRefreshField: strings.TrimSpace(passwordChangeRefresh),
+		SessionOps:                 sessionOps,
 	}, nil
 }
 

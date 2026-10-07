@@ -496,6 +496,18 @@ type AuthDef struct {
 	PasswordChangeOp           string
 	PasswordChangeAccessField  string
 	PasswordChangeRefreshField string
+	// SessionOps are further operations that end in a signed-in session (a
+	// sign-in through an identity provider, the step that finishes such a
+	// sign-up): their token pair is written as the session cookie like a
+	// login's. CUE: ops.sessions: <name>: {op, access_field, refresh_field}.
+	SessionOps []AuthSessionOp
+}
+
+// AuthSessionOp is one operation that issues a session.
+type AuthSessionOp struct {
+	Op           string
+	AccessField  string
+	RefreshField string
 }
 
 // SessionDef describes anonymous cookie-session configuration.

@@ -32,6 +32,11 @@ func authCookieFields(auth *normalizer.AuthDef, rpc string) (accessField, refres
 	case strings.TrimSpace(auth.RefreshOp):
 		return auth.RefreshAccessField, auth.RefreshRefreshField, auth.RefreshAccessField != "" && auth.RefreshRefreshField != ""
 	default:
+		for _, so := range auth.SessionOps {
+			if strings.TrimSpace(so.Op) == strings.TrimSpace(rpc) {
+				return so.AccessField, so.RefreshField, so.AccessField != "" && so.RefreshField != ""
+			}
+		}
 		return "", "", false
 	}
 }
