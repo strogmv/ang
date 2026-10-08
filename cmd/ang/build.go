@@ -14,6 +14,7 @@ import (
 	"github.com/strogmv/ang/compiler"
 	"github.com/strogmv/ang/compiler/emitter"
 	"github.com/strogmv/ang/compiler/generator"
+	"github.com/strogmv/ang/compiler/golit"
 	"github.com/strogmv/ang/compiler/paymentprovider"
 )
 
@@ -885,6 +886,18 @@ func runBuild(args []string) error {
 			for _, s := range summaries {
 				if strings.EqualFold(strings.TrimSpace(s.Lang), "go") {
 					goBackends = append(goBackends, s.StagedBackend)
+				}
+			}
+			// A literal CUE pasted into many operations is declared once: the
+			// service package compiles in a third of the time.
+			for _, backend := range goBackends {
+				st, hErr := golit.HoistTree(backend)
+				if hErr != nil {
+					printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterStep, "hoist repeated literals", hErr)
+					return
+				}
+				if st.Hoisted > 0 {
+					logText("Hoisted %d repeated literals (%d copies): generated Go %d KB → %d KB", st.Hoisted, st.Replaced, st.Before/1024, st.After/1024)
 				}
 			}
 			if !output.SkipGoVerify {

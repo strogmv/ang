@@ -15,6 +15,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/strogmv/ang/compiler/golit"
 	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/imports"
 )
@@ -81,17 +82,25 @@ func withPreviousImports(src []byte, unit string) ([]byte, bool) {
 		if err != nil {
 			return nil, false
 		}
-		previousFile, err := parser.ParseFile(token.NewFileSet(), unit, previous, parser.ImportsOnly)
-		if err != nil {
-			return nil, false
+		// The previous output may have lost imports to golit: a literal it
+		// hoisted took them along into the package's literals file.
+		sources := [][]byte{previous}
+		if lits, err := os.ReadFile(path.Join(path.Dir(unit), golit.File)); err == nil {
+			sources = append(sources, lits)
 		}
-		for _, spec := range previousFile.Imports {
-			id := importIdentifier(spec)
-			if !missing[id] {
-				continue
+		for _, src := range sources {
+			previousFile, err := parser.ParseFile(token.NewFileSet(), unit, src, parser.ImportsOnly)
+			if err != nil {
+				return nil, false
 			}
-			additions = append(additions, namedImport{name: importName(spec), path: importPath(spec)})
-			delete(missing, id)
+			for _, spec := range previousFile.Imports {
+				id := importIdentifier(spec)
+				if !missing[id] {
+					continue
+				}
+				additions = append(additions, namedImport{name: importName(spec), path: importPath(spec)})
+				delete(missing, id)
+			}
 		}
 		if len(missing) != 0 {
 			return nil, false
