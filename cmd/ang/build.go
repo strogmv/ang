@@ -394,6 +394,9 @@ func runBuild(args []string) error {
 		var buildWorkspace string
 		var generationRoot string
 		contractBaselines := map[string][]byte{}
+		// Repository interfaces of the previous generation, by backend dir:
+		// a build that removes methods is refused without --accept-removals.
+		repoBaselines := map[string]repositoryMethods{}
 		if !output.DryRun {
 			backendDirs := make([]string, 0, len(selectedTargets))
 			frontendDirs := make([]string, 0, len(selectedTargets))
@@ -415,6 +418,11 @@ func runBuild(args []string) error {
 				} else if !os.IsNotExist(readErr) {
 					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "read previous OpenAPI contract", readErr)
 					return
+				}
+				if previousRepos, repoErr := collectRepositoryMethods(backend); repoErr != nil {
+					logText("Warning: cannot read the previous repository interfaces in %s, the removed-methods check is skipped: %v", backend, repoErr)
+				} else if len(previousRepos) > 0 {
+					repoBaselines[backend] = previousRepos
 				}
 
 				frontendAppDir := strings.TrimSpace(output.FrontendAppDir)
@@ -831,6 +839,22 @@ func runBuild(args []string) error {
 					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "OpenAPI breaking change gate", fmt.Errorf("%s; rerun with --accept-contract to confirm", strings.Join(diff.BreakingChanges, "; ")))
 					return
 				}
+			}
+			for backend, previous := range repoBaselines {
+				current, repoErr := collectRepositoryMethods(stagePath(backend))
+				if repoErr != nil {
+					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "read generated repository interfaces", repoErr)
+					return
+				}
+				removed := diffRepositoryRemovals(previous, current)
+				if len(removed) == 0 {
+					continue
+				}
+				if !output.AcceptRemovals {
+					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "repository removal gate", repositoryRemovalError(backend, removed))
+					return
+				}
+				logText("repositories: %d method(s) removed, accepted by --accept-removals", len(removed))
 			}
 		}
 

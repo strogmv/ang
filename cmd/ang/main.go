@@ -581,6 +581,7 @@ db/schema/, or db/queries/ files directly. Use ang build --log-format json
 for machine-readable diagnostics and ang doctor --code <CODE> for guidance.
 Failed generation is staged and leaves the previous generated tree unchanged.
 Breaking OpenAPI changes require explicit ang build --accept-contract.
+Removing methods from generated repository interfaces requires --accept-removals.
 `
 
 	modFile := filepath.Join(root, "cue.mod", "module.cue")

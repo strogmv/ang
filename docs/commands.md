@@ -51,8 +51,13 @@ ang lint [--json] [--check-test-coverage] [--test-dir tests] [--min-coverage 80]
 Compile CUE intent into code and artifacts.
 
 ```bash
-ang build [--mode in_place|release] [--backend-dir .] [--target go] [--dry-run] [--log-format json] [--accept-contract]
+ang build [--mode in_place|release] [--backend-dir .] [--target go] [--dry-run] [--log-format json] [--accept-contract] [--accept-removals]
 ```
+
+A build that removes methods from a generated repository interface
+(`internal/port/*Repository`) that the previous generation had is refused and
+lists them; pass `--accept-removals` when the finders were deleted on purpose.
+A mass removal usually means a file of `cue/repo` is broken.
 
 Planning mode:
 
