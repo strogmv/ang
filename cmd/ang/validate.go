@@ -80,6 +80,13 @@ func runValidate(args []string) {
 		os.Exit(1)
 	}
 
+	// The vendored schema is compared before compiling: a compile error may
+	// well come from a stale or missing one.
+	schemaDiags := schemaDiagnostics(projectPath, loadProjectConfig(projectPath).CueRoot)
+	withSchema := func(diags []normalizer.Warning) []normalizer.Warning {
+		return append(append([]normalizer.Warning(nil), diags...), schemaDiags...)
+	}
+
 	if !*asJSON {
 		if len(opFilters) > 0 {
 			fmt.Printf("Validating operation(s): %s...\n", strings.Join(opFilters, ", "))
@@ -96,7 +103,7 @@ func runValidate(args []string) {
 	})
 
 	if *asJSON {
-		diags := machineReadableDiagnostics(filterDiags(append([]normalizer.Warning(nil), compiler.LatestDiagnostics...)))
+		diags := machineReadableDiagnostics(filterDiags(withSchema(compiler.LatestDiagnostics)))
 		hasErrors := false
 		if compileErr != nil {
 			var ce *compiler.ContractError
@@ -140,6 +147,7 @@ func runValidate(args []string) {
 	}
 
 	if compileErr != nil {
+		emitDiagnostics(os.Stderr, schemaDiags)
 		if ce, ok := compileErr.(*compiler.ContractError); ok {
 			printBootstrapGuidanceIfNeeded(projectPath, ce.Stage, ce.Code, ce.Err)
 			printStageFailure("Validation FAILED", ce.Stage, ce.Code, ce.Op, ce.Err)
@@ -150,7 +158,7 @@ func runValidate(args []string) {
 		os.Exit(1)
 	}
 
-	hasErrors := emitDiagnostics(os.Stderr, filterDiags(compiler.LatestDiagnostics))
+	hasErrors := emitDiagnostics(os.Stderr, filterDiags(withSchema(compiler.LatestDiagnostics)))
 	if hasErrors {
 		fmt.Println("Validation FAILED due to diagnostic errors.")
 		os.Exit(1)

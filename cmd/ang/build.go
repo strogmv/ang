@@ -14,6 +14,7 @@ import (
 	"github.com/strogmv/ang/angir/normalizer"
 	"github.com/strogmv/ang/angir/parser"
 	"github.com/strogmv/ang/compiler"
+	"github.com/strogmv/ang/compiler/schemavendor"
 	"github.com/strogmv/ang/compiler/emitter"
 	"github.com/strogmv/ang/compiler/generator"
 	"github.com/strogmv/ang/compiler/golit"
@@ -68,6 +69,23 @@ func runBuild(args []string) error {
 			}
 			for _, warning := range warnings {
 				fmt.Fprintf(os.Stderr, "Warning: %s\n", warning)
+			}
+		}
+		// The project's vendored CUE schema is this binary's (the revision the
+		// lock pins): a build writes it, a dry run compares and --check fails
+		// on a difference (docs/schema.md).
+		schemaStatus, err := syncSchemaForBuild(projectPath, loadProjectConfig(projectPath).CueRoot, output.DryRun)
+		if err != nil {
+			printStageFailure("Build FAILED", compiler.StageCUE, compiler.ErrCodeCUEPipeline, "vendor the CUE schema", err)
+			return
+		}
+		if schemaStatus.Applies && !schemaStatus.InSync() {
+			if output.DryRun {
+				if !output.Check {
+					fmt.Fprintf(os.Stderr, "Warning [%s]: %s differs from this ANG's schema in %d files; ang build (or ang schema sync) rewrites it.\n", codeSchemaStale, schemaStatus.Dir, len(schemaStatus.Changes))
+				}
+			} else {
+				fmt.Fprintf(os.Stderr, "Schema: %s synced with this ANG (%d files).\n", schemaStatus.Dir, len(schemaStatus.Changes))
 			}
 		}
 		if output.Phase == "plan" || output.Phase == "apply" {
@@ -279,10 +297,17 @@ func runBuild(args []string) error {
 			}}
 		}
 
-		if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, cueRoot, "schema")); err == nil && ok {
+		// #Codegen comes from the schema the project imports: its own
+		// cue/schema (the layout before vendoring), else the vendored one.
+		for _, schemaDir := range []string{filepath.Join(projectPath, cueRoot, "schema"), schemavendor.Dir(projectPath)} {
+			val, ok, err := compiler.LoadOptionalDomain(p, schemaDir)
+			if err != nil || !ok || !val.LookupPath(cue.ParsePath("#Codegen")).Exists() {
+				continue
+			}
 			if err := n.LoadCodegenConfig(val); err != nil {
 				fmt.Printf("Warning: failed to load codegen config: %v\n", err)
 			}
+			break
 		}
 
 		inputHash, err := calculateHash([]string{filepath.Join(projectPath, cueRoot)})
@@ -961,6 +986,9 @@ func runBuild(args []string) error {
 			}
 			if output.Check {
 				differences := dryRunDifferences(dryManifest, projectPath)
+				for _, change := range schemaStatus.Changes {
+					differences = append(differences, dryRunFileChange{Path: change.Path, Action: change.Action})
+				}
 				if len(differences) > 0 {
 					fmt.Fprintf(os.Stderr, "Check FAILED: %d of %d generated files differ from the project:\n", len(differences), dryManifest.TotalGenerated)
 					for _, difference := range differences {
