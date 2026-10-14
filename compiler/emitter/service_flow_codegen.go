@@ -322,7 +322,7 @@ func renderFlowBranchSteps(st *flowRenderState, name string, fallback []normaliz
 }
 
 func flowBranchNames(st *flowRenderState, fallback map[string][]normalizer.FlowStep) []string {
-	keys := make([]string, 0)
+	var keys []string
 	if st != nil && st.currentTyped != nil {
 		keys = make([]string, 0, len(st.currentTyped.Branches))
 		for key := range st.currentTyped.Branches {

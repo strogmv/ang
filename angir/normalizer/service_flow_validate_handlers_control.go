@@ -710,7 +710,7 @@ func handleFlowControlAndInfra(
 					if hintTarget == "" {
 						hintTarget = "target"
 					}
-					addWarnWithSeverity(stepNum, step.Action, "ARCHITECTURE_VIOLATION", archSeverity, fmt.Sprintf("Service '%s' is not allowed to directly access entity '%s' (%s)", svcName, lookupSource, reason), fmt.Sprintf("Use events or call %sService", strings.Title(hintTarget)), step.File, step.Line, step.Column)
+					addWarnWithSeverity(stepNum, step.Action, "ARCHITECTURE_VIOLATION", archSeverity, fmt.Sprintf("Service '%s' is not allowed to directly access entity '%s' (%s)", svcName, lookupSource, reason), fmt.Sprintf("Use events or call %sService", exportName(hintTarget)), step.File, step.Line, step.Column)
 				}
 			}
 		}

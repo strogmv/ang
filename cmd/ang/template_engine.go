@@ -247,7 +247,7 @@ func parseTemplateCommonFlags(name string, args []string) (string, OutputOptions
 	skipFrontend := fs.Bool("skip-frontend", false, "skip frontend generation while diffing")
 	skipContractTests := fs.Bool("skip-contract-tests", false, "skip contract test generation while diffing")
 	if err := fs.Parse(args); err != nil {
-		fmt.Printf("%s FAILED: %v\n", strings.Title(name), err)
+		fmt.Printf("%s FAILED: %v\n", titleWords(name), err)
 		os.Exit(1)
 	}
 	projectPath := "."

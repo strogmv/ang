@@ -45,8 +45,6 @@ func TestFormatCueTreeIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	if res.FilesChanged != 0 {
-		second, _ := os.ReadFile(path)
 		t.Fatalf("a second ang fmt would still change the file:\n--- after one run\n%s", first)
-		_ = second
 	}
 }

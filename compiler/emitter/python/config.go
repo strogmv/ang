@@ -65,7 +65,7 @@ func pythonConfigDefault(f normalizer.Field) string {
 		case "bool":
 			ls := strings.ToLower(s)
 			if ls == "true" || ls == "false" {
-				return strings.Title(ls)
+				return strings.ToUpper(ls[:1]) + ls[1:] // Python: True / False
 			}
 		}
 		return fmt.Sprintf("%q", s)

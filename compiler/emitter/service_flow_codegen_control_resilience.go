@@ -623,7 +623,7 @@ func renderFlowTimeoutAST(st *flowRenderState, step flowir.TypedStep, action flo
 		},
 	})
 
-	timeoutBranch := []ast.Stmt{}
+	var timeoutBranch []ast.Stmt
 	if len(onTimeout) > 0 {
 		timeoutBranch, parseErr = parseFlowStmtList(renderTypedFlowSteps(cloneFlowState(st), onTimeout, 1))
 		if parseErr != nil {

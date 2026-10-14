@@ -785,7 +785,7 @@ func renderFlowStepDomain(st *flowRenderState, step normalizer.FlowStep, indent 
 		if unit == "" || unit == "duration" {
 			return renderFlowAssignTarget(st, pad, output, fmt.Sprintf("%s.Sub(%s)", to, from), "time.Duration"), true
 		}
-		expr := fmt.Sprintf("%s.Sub(%s).Hours()", to, from)
+		var expr string
 		switch unit {
 		case "milliseconds":
 			expr = fmt.Sprintf("float64(%s.Sub(%s).Milliseconds())", to, from)

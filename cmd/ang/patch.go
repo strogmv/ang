@@ -192,7 +192,7 @@ func parsePatchCommonFlags(name string, args []string) (string, bool) {
 	fs.SetOutput(os.Stderr)
 	jsonOut := fs.Bool("json", false, "emit machine-readable output")
 	if err := fs.Parse(args); err != nil {
-		fmt.Printf("%s FAILED: %v\n", strings.Title(name), err)
+		fmt.Printf("%s FAILED: %v\n", titleWords(name), err)
 		os.Exit(1)
 	}
 	patchFile := "-"
