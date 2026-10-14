@@ -8,6 +8,7 @@ This folder is organized so both humans and AI agents can find the right entry p
 - [Commands](./commands.md): CLI reference with practical examples.
 - [Config](./config.md): `.env` contract, precedence, and validation workflow.
 - [Troubleshooting](./troubleshooting.md): common failures and fast recovery paths.
+- [Runtime](./runtime.md): schedules, process roles (`SERVER_ROLE`), lifecycle hooks, queues.
 - [AI Playbook](./ai-playbook.md): MCP-first workflow and safe edit rules for coding agents.
 - [Improvement Backlog](./improvements.md): prioritized engineering hardening tasks.
 

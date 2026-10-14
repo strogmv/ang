@@ -1543,13 +1543,30 @@ import "github.com/strogmv/ang/cue/project"
 	}
 }
 
+// Schedules run an operation on a timer. One declaration is enough:
+//
+//   Schedules: DailyDigest: {action: "SendDailyDigest", at: "06:00"}
+//
+// creates the trigger event DailyDigestRequested and subscribes the action to
+// it. With publish: the schedule only publishes that event, and the event
+// (cue/events) and the subscription (subscribes:) are declared by hand.
 #Schedules: {
 	[string]: {
-		service: string
+		// The operation to run.
 		action: string
-		at: string
-		publish?: string
+		// Its service; optional when only one service has the action.
+		service?: string
+		// "06:00": every day at that time (SCHEDULER_TIMEZONE); with every:
+		// the first run, then every interval; an RFC 3339 time runs once.
+		at?: string
+		// An interval: "15m", "24h".
 		every?: string
+		// Five fields: minute hour day-of-month month day-of-week. Excludes
+		// at: and every:.
+		cron?: string
+		// The trigger event of the three-part form.
+		publish?: string
+		// Input of the action; integers, bools and strings.
 		payload?: [string]: _
 	}
 }

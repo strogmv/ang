@@ -250,6 +250,10 @@ func LoadWithOptions(basePath string, opts LoadOptions) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("extract schedules: %w", err)
 	}
+	services, events, schedules, err = normalizer.ExpandSchedules(services, events, schedules)
+	if err != nil {
+		return nil, fmt.Errorf("expand schedules: %w", err)
+	}
 	scenarios, err := n.ExtractScenarios(valAPI)
 	if err != nil {
 		return nil, fmt.Errorf("extract scenarios: %w", err)

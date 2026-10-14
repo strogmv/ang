@@ -724,6 +724,8 @@ type Schedule struct {
 	Every   string  `json:"every"`   // duration
 	Publish string  `json:"publish"` // event to publish
 	Payload []Field `json:"payload"`
+	// Cron is a five-field cron expression; it excludes At and Every.
+	Cron string `json:"cron,omitempty"`
 }
 
 // View describes field visibility rules.

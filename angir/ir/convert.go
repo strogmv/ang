@@ -879,6 +879,7 @@ func ConvertSchedule(s normalizer.ScheduleDef) Schedule {
 		At:      s.At,
 		Every:   s.Every,
 		Publish: s.Publish,
+		Cron:    s.Cron,
 	}
 
 	for _, p := range s.Payload {

@@ -641,7 +641,15 @@ type ScheduleDef struct {
 	At      string
 	Publish string
 	Every   string
+	// Cron is a five-field cron expression (minute hour day-of-month month
+	// day-of-week) evaluated in SCHEDULER_TIMEZONE.
+	Cron    string
 	Payload []SchedulePayloadField
+	// Generated is set by ExpandSchedules on a one-declaration schedule
+	// (no publish:): its trigger event and subscription were created for it.
+	Generated bool
+	// Source is the file:line of the declaration.
+	Source string
 }
 
 type SchedulePayloadField struct {

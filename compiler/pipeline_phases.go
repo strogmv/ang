@@ -436,6 +436,10 @@ func runNormalizePhase(basePath string, parsed ParsePhaseOutput, opts PipelineOp
 	if err != nil {
 		return out, WrapContractError(StageCUE, ErrCodeCUEScheduleNormalize, "extract schedules", err)
 	}
+	services, events, schedules, err = normalizer.ExpandSchedules(services, events, schedules)
+	if err != nil {
+		return out, WrapContractError(StageCUE, ErrCodeCUEScheduleNormalize, "expand schedules", err)
+	}
 
 	scenarios, _ := n.ExtractScenarios(parsed.API)
 	scopes, _ := n.ExtractScopes(parsed.Domain)

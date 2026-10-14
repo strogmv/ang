@@ -304,6 +304,8 @@ func (n *Normalizer) ExtractSchedules(val cue.Value) ([]ScheduleDef, error) {
 			At:      getString(v, "at"),
 			Publish: getString(v, "publish"),
 			Every:   getString(v, "every"),
+			Cron:    strings.TrimSpace(getString(v, "cron")),
+			Source:  formatPos(v),
 		}
 		payloadVal := v.LookupPath(cue.ParsePath("payload"))
 		if payloadVal.Exists() {
@@ -344,6 +346,12 @@ func (n *Normalizer) ExtractSchedules(val cue.Value) ([]ScheduleDef, error) {
 						Type:  "string",
 						Value: sVal,
 					})
+					continue
+				}
+				// The three-part form (publish:) has always dropped such a
+				// value; a one-declaration schedule refuses it instead.
+				if strings.TrimSpace(s.Publish) == "" {
+					return nil, fmt.Errorf("%s: schedule %s: payload.%s must be an integer, a bool or a string", formatPos(fv), name, key)
 				}
 			}
 		}

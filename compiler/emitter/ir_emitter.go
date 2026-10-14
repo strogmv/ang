@@ -812,6 +812,7 @@ func IRSchedulesToNormalizer(irSchedules []ir.Schedule) []normalizer.ScheduleDef
 			At:      s.At,
 			Every:   s.Every,
 			Publish: s.Publish,
+			Cron:    s.Cron,
 		}
 
 		for _, p := range s.Payload {

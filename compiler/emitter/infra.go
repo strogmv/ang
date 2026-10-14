@@ -462,9 +462,11 @@ func (e *Emitter) EmitScheduler(schedules []ir.Schedule) error {
 		At      string
 		Publish string
 		Every   string
+		Cron    string
 		Payload []normalizer.SchedulePayloadField
 	}
 	var out []scheduleOut
+	hasCron := false
 	for _, s := range schedules {
 		payload := make([]normalizer.SchedulePayloadField, 0, len(s.Payload))
 		for _, p := range s.Payload {
@@ -494,8 +496,12 @@ func (e *Emitter) EmitScheduler(schedules []ir.Schedule) error {
 			At:      s.At,
 			Publish: s.Publish,
 			Every:   s.Every,
+			Cron:    s.Cron,
 			Payload: payload,
 		})
+		if s.Cron != "" {
+			hasCron = true
+		}
 	}
 
 	hasPublish := false
@@ -509,9 +515,11 @@ func (e *Emitter) EmitScheduler(schedules []ir.Schedule) error {
 	data := struct {
 		Schedules  []scheduleOut
 		HasPublish bool
+		HasCron    bool
 	}{
 		Schedules:  out,
 		HasPublish: hasPublish,
+		HasCron:    hasCron,
 	}
 	if err := t.Execute(&buf, data); err != nil {
 		return fmt.Errorf("execute template: %w", err)
@@ -527,6 +535,15 @@ func (e *Emitter) EmitScheduler(schedules []ir.Schedule) error {
 		return fmt.Errorf("write file: %w", err)
 	}
 	logGenerated("Generated Scheduler: %s\n", path)
+	if hasCron {
+		cron, err := ReadTemplateByPath("templates/scheduler_cron.tmpl")
+		if err != nil {
+			return fmt.Errorf("read template: %w", err)
+		}
+		if err := WriteFileIfChanged(filepath.Join(targetDir, "cron.go"), cron, 0644); err != nil {
+			return fmt.Errorf("write file: %w", err)
+		}
+	}
 	return nil
 }
 

@@ -23,6 +23,11 @@ type Schedule struct {
 	Publish string
 	Every   time.Duration
 	Payload map[string]any
+	{{- if .HasCron }}
+	// Cron, when set, fires the schedule at every minute it matches, in
+	// SCHEDULER_TIMEZONE; At and Every are then unused.
+	Cron *CronSpec
+	{{- end }}
 }
 
 type Scheduler struct {
@@ -37,6 +42,12 @@ func New(publisher port.Publisher, schedules []Schedule) *Scheduler {
 func (s *Scheduler) Start(ctx context.Context) {
 	for _, sc := range s.Schedules {
 		sc := sc
+		{{- if .HasCron }}
+		if sc.Cron != nil {
+			go s.runCron(ctx, sc)
+			continue
+		}
+		{{- end }}
 		go func() {
 			if sc.Every > 0 {
 				if !sc.At.IsZero() {
@@ -94,6 +105,9 @@ var DefaultSchedules = []Schedule{
 		At: mustParseTime("{{ .At }}"),
 		Publish: "{{ .Publish }}",
 		Every: mustParseDuration("{{ .Every }}"),
+		{{- if .Cron }}
+		Cron: mustParseCron("{{ .Cron }}"),
+		{{- end }}
 		{{- if .Payload }}
 		Payload: map[string]any{
 			{{- range .Payload }}
@@ -105,7 +119,38 @@ var DefaultSchedules = []Schedule{
 {{- end }}
 }
 
-func mustParseTime(v string) time.Time {
+{{ if .HasCron }}// runCron publishes the schedule at each time its cron expression matches.
+func (s *Scheduler) runCron(ctx context.Context, sc Schedule) {
+	location := schedulerLocation()
+	for {
+		next := sc.Cron.Next(time.Now().In(location))
+		if next.IsZero() {
+			return
+		}
+		timer := time.NewTimer(time.Until(next))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		if s.Publisher != nil && sc.Publish != "" {
+			if err := safePublish(s.Publisher, sc); err != nil {
+				fmt.Println("scheduler publish error:", err)
+			}
+		}
+	}
+}
+
+func mustParseCron(v string) *CronSpec {
+	spec, err := ParseCron(v)
+	if err != nil {
+		panic(fmt.Sprintf("scheduler: cron %q: %v", v, err))
+	}
+	return spec
+}
+
+{{ end }}func mustParseTime(v string) time.Time {
 	if v == "" {
 		return time.Time{}
 	}
