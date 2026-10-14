@@ -24,6 +24,11 @@ Code families:
   has a repository (unknown name or a DTO). A repository of a real entity
   needs no `sources` entry: the service implementation gets every repository
   its operations' Go reaches.
+- `SQL_INDEX_NAME_TRUNCATED` (warning): a generated index name is longer than
+  63 bytes and Postgres stores its first 63. Pin that name with `name:` in the
+  index, or use `target.sql_index_names: "hashed"` (docs/sql-schema.md).
+- `SQL_INDEX_NAME_COLLISION` (build error): two different indexes, or an index
+  and a table, would be stored under the same name; give one a `name:`.
 - `IR_*`: canonical IR conversion, migration, or semantic validation.
 - `TRANSFORMER_*` and `HOOK_*`: extension execution failures.
 - `EMITTER_*`: capability resolution, output validation, or generation failure.

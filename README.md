@@ -334,8 +334,8 @@ cd tests && npm install && npm run test:e2e
 *   `ang lint` — Deep semantic linting for flow and embedded logic
 *   `ang build` — Compile CUE intent into code/infra (`--mode`, `--phase=all|plan|apply`, `--out-plan`, `--plan-file`)
 *   `ang up` — One-command local bootstrap (`doctor start` + compose + build + smoke)
-*   `ang db sync` — Sync DB schema with current CUE intent
-*   `ang migrate diff <name>` / `ang migrate apply` — Atlas migration workflow
+*   `ang db sync` — Apply what the database lacks from schema.sql (additions only)
+*   `ang migrate diff <name>` / `ang migrate apply` — additive-only migrations planned by Atlas (docs/sql-schema.md)
 *   `ang api-diff` — Compare OpenAPI snapshots and suggest semver bump
 *   `ang contract-test` — Run generated HTTP/WS contract tests
 *   `ang test gen` — Generate flow-derived test scenarios

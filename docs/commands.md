@@ -192,7 +192,9 @@ ang api-diff --write-base
 
 ### `ang db`
 
-Database schema utility commands.
+Compare a database with `db/schema/schema.sql`. `status` lists what the
+database lacks; `sync` applies only additive, idempotent statements and prints
+a warning for each drop or type change it leaves alone.
 
 ```bash
 ang db status
@@ -201,10 +203,12 @@ ang db sync
 
 ### `ang migrate`
 
-Atlas migration workflow.
+`diff` writes a migration with additive, idempotent statements only (Atlas
+plans, ANG writes; drops and type changes become warnings). See
+[sql-schema.md](sql-schema.md).
 
 ```bash
-ang migrate diff add_users_table
+ang migrate diff add_users_table [--dev-url URL] [--dir db/migrations] [--to db/schema/schema.sql] [--dry-run]
 ang migrate apply
 ```
 
@@ -212,6 +216,7 @@ Environment:
 
 - `DB_URL` for `migrate apply`
 - `DATABASE_URL` (or `DB_URL`) for `db status` / `db sync`
+- `ANG_ATLAS_DEV_URL` overrides the Atlas dev database of `atlas.hcl`
 
 ### `ang contract-test`
 
