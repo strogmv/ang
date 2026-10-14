@@ -87,6 +87,25 @@ func TestEmitSharedArchDiagnostics_ForeignGoBlockUserCounts(t *testing.T) {
 	}
 }
 
+// A repository call in a method helper the operation reaches counts too: the
+// helper's Go used to be pasted into the operation (item 37).
+func TestEmitSharedArchDiagnostics_ForeignHelperUserCounts(t *testing.T) {
+	t.Parallel()
+	got, opts := collectWarnings()
+	viaHelper := normalizer.Service{Name: "Search", Methods: []normalizer.Method{{
+		Name:       "IndexCompany",
+		Helpers:    []string{"loadCompany"},
+		HelperCode: "func (s *Service) loadCompany(ctx context.Context, id string) error {\n\t_, err := s.CompanyRepo.FindByID(ctx, id)\n\treturn err\n}\n",
+	}}}
+	emitSharedArchDiagnostics([]normalizer.Entity{companyEntity("search indexes companies")}, []normalizer.Service{
+		findCompany("Company", repoFindCompany),
+		viaHelper,
+	}, opts)
+	if hasCode(*got, "SHARED_ARCH_UNDERUSED") {
+		t.Fatalf("a helper user from another context needs the mark, got: %#v", *got)
+	}
+}
+
 // The register is architecture debt for ang vet, not a warning on every build.
 func TestEmitSharedArchDiagnostics_NoAuditWarningInBuild(t *testing.T) {
 	t.Parallel()

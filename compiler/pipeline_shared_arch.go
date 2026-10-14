@@ -123,6 +123,8 @@ func collectEntityServiceAccess(services []normalizer.Service) (flow, goBlocks m
 			if method.Impl != nil {
 				addGo(method.Impl.Code, ctx)
 			}
+			// A method helper reaches repositories for every service that calls it.
+			addGo(method.HelperCode, ctx)
 		}
 	}
 	return flow, goBlocks
