@@ -23,9 +23,6 @@ type Config struct {
 	// to the data's PackageName field when present. When empty, the caller
 	// owns the file layout.
 	Outputs map[string]string
-
-	ExpertKnowledgeID string
-	ExpertRoot        string
 }
 
 // LoadConfig reads ang.yaml from projectPath. Missing or unreadable files
@@ -37,13 +34,11 @@ func LoadConfig(projectPath string) Config {
 		base = "."
 	}
 	type angYAML struct {
-		CueRoot           string            `yaml:"cue_root"`
-		TemplatesDir      string            `yaml:"templates_dir"`
-		SchemaDir         string            `yaml:"schema_dir"`
-		ModuleDirs        []string          `yaml:"module_dirs"`
-		Outputs           map[string]string `yaml:"outputs"`
-		ExpertKnowledgeID string            `yaml:"expert_knowledge_id"`
-		ExpertRoot        string            `yaml:"expert_root"`
+		CueRoot      string            `yaml:"cue_root"`
+		TemplatesDir string            `yaml:"templates_dir"`
+		SchemaDir    string            `yaml:"schema_dir"`
+		ModuleDirs   []string          `yaml:"module_dirs"`
+		Outputs      map[string]string `yaml:"outputs"`
 	}
 	defaults := Config{
 		CueRoot:      compiler.DefaultCueRoot,
@@ -58,13 +53,11 @@ func LoadConfig(projectPath string) Config {
 		return defaults
 	}
 	pc := Config{
-		CueRoot:           strings.TrimSpace(cfg.CueRoot),
-		TemplatesDir:      strings.TrimSpace(cfg.TemplatesDir),
-		SchemaDir:         strings.TrimSpace(cfg.SchemaDir),
-		ModuleDirs:        trimAll(cfg.ModuleDirs),
-		Outputs:           cfg.Outputs,
-		ExpertKnowledgeID: strings.TrimSpace(cfg.ExpertKnowledgeID),
-		ExpertRoot:        strings.TrimSpace(cfg.ExpertRoot),
+		CueRoot:      strings.TrimSpace(cfg.CueRoot),
+		TemplatesDir: strings.TrimSpace(cfg.TemplatesDir),
+		SchemaDir:    strings.TrimSpace(cfg.SchemaDir),
+		ModuleDirs:   trimAll(cfg.ModuleDirs),
+		Outputs:      cfg.Outputs,
 	}
 	if pc.CueRoot == "" {
 		pc.CueRoot = compiler.DefaultCueRoot

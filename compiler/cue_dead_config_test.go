@@ -10,7 +10,7 @@ import (
 
 func TestEmitDeadCUEDirectoryDiagnostics(t *testing.T) {
 	root := t.TempDir()
-	for _, path := range []string{"cue/api/http.cue", "cue/events_meta/annotations.cue", "cue/expert/security.cue", "cue/schedules/jobs.cue"} {
+	for _, path := range []string{"cue/api/http.cue", "cue/events_meta/annotations.cue", "cue/schedules/jobs.cue"} {
 		full := filepath.Join(root, path)
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			t.Fatal(err)
