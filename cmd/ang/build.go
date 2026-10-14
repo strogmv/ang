@@ -14,10 +14,10 @@ import (
 	"github.com/strogmv/ang/angir/normalizer"
 	"github.com/strogmv/ang/angir/parser"
 	"github.com/strogmv/ang/compiler"
-	"github.com/strogmv/ang/compiler/schemavendor"
 	"github.com/strogmv/ang/compiler/emitter"
 	"github.com/strogmv/ang/compiler/generator"
 	"github.com/strogmv/ang/compiler/golit"
+	"github.com/strogmv/ang/compiler/schemavendor"
 )
 
 func runBuild(args []string) error {
