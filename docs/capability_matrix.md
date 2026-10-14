@@ -23,11 +23,13 @@ This keeps pipeline logic extensible as new targets are added.
 
 Source: `compiler/capabilities.go`
 
-- `go/*/*` => `profile_go_legacy`
-- DB `postgres|mysql|sqlite` => `sql_repo`
-- Queue not `none` => `events`
-- Go target => `ws`
-- Go target => `auth`
+- Only the stacks in `SupportedTargetValues` are accepted: lang `go`; framework `chi` or `grpc`;
+  db `postgres`; cache `redis|none`; queue `nats|none`; storage `s3|none` (empty = default).
+  Anything else fails with "unsupported target".
+- `go` => `profile_go_legacy`, `ws`, `auth`
+- framework `chi|grpc` => `http`; `grpc` => `grpc`
+- db `postgres` => `sql_repo` (MongoDB repositories are a usage capability, chosen per entity)
+- queue not `none` => `events`
 
 ## Build Integration
 

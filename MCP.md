@@ -7,25 +7,32 @@ The ANG compiler includes a built-in MCP server that enforces a strict **Intent-
 > **Agent writes only CUE. ANG writes code. Agent reads code and runs tests.**
 
 ### Repository Zones
-1. `/cue/**` — **Read/Write**. The agent is allowed to modify CUE intent files here.
-2. `/**` (Other) — **Read-Only**. Generated Go code, SQL, and manifests can only be read, never modified directly by the agent.
+1. `cue/**` — **Read/Write**. The agent edits CUE intent here.
+2. Everything else in a generated project — **Read-Only**. Generated Go, SQL and manifests are read, never edited directly.
 
 ## Tools
 
-### CUE Intent (Write)
-- `cue_read(path)`: Read CUE files from `/cue`.
-- `cue_apply_patch(path, content)`: Update CUE file content (restricted to `/cue`).
-- `cue_fmt(path)`: Format CUE files.
+`ang_list_tools` prints every registered tool. The ones an agent uses most:
 
-### Generation (ANG)
-- `ang_generate()`: The **only** way to update the codebase. Runs `ang build` and returns a manifest of changed files.
+### Session and schema
+- `ang_mcp_health`: profile, limits, bootstrap state (bootstrap-exempt).
+- `ang_schema`: the operation schema for AI; `ang_ops_context`: schema + actions + diagnostics + proof in one call.
+- `ang_status`, `ang_snapshot`: project state.
 
-### Code Analysis (Read-Only)
-- `repo_read_file(path)`: Read generated code or artifacts.
-- `repo_diff()`: Get a git-powered diff of changes (token-efficient).
+### CUE intent (write)
+- `cue_apply_patch`, `cue_set_field`, `cue_add_endpoint`: structured CUE edits (restricted to `cue/`).
+- `cue_history`, `cue_undo`: edit history and rollback.
 
-### Runtime & Tests
-- `run_tests(target)`: Runs `go test` and returns structured results.
+### Planning and generation
+- `ang_plan`, `ang_do`: plan and apply an intent ("fix: …", "add: …").
+- `ang_validate`, `ang_validate_logic`: validate CUE / a Go snippet before inserting it.
+- `ang_dry_run`: validate and return the diff a build would make, writing nothing.
+- `run_preset`: `build` (runs `ang build`), `unit` (go test), `lint`.
+
+### Analysis (read-only)
+- `ang_search`, `repo_read_symbol`: find and read code without loading whole files.
+- `ang_doctor`, `ang_explain_error`: diagnose a failed build, explain a diagnostic code.
+- `ang_event_map`, `ang_rbac_inspector`, `ang_diff_architecture`, `ang_model_diff`, `ang_template_diff`.
 
 ## Resources
 
@@ -38,11 +45,12 @@ The ANG compiler includes a built-in MCP server that enforces a strict **Intent-
 
 ## Walkthrough: The Loop
 
-1. **Modify**: Agent edits `cue/domain/user.cue` via `cue_apply_patch`.
-2. **Generate**: Agent calls `ang_generate()`.
-3. **Inspect**: Agent calls `repo_diff()` to see how Go code changed.
-4. **Verify**: Agent calls `run_tests()` to ensure the generated code works.
-5. **Iterate**: If tests fail, agent goes back to step 1 (editing CUE).
+1. **Modify**: edit `cue/domain/user.cue` via `cue_apply_patch`.
+2. **Preview**: `ang_dry_run` shows the generated diff without writing.
+3. **Generate**: `run_preset('build')`.
+4. **Verify**: `run_preset('unit')`.
+5. **Iterate**: if anything fails, `ang_doctor` / `ang_explain_error`, then back to step 1 (editing CUE).
+
 ## Response Format Compatibility
 
 ANG MCP now supports a unified tool response envelope (default on) and a compatibility mode.

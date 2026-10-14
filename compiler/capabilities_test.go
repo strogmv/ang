@@ -28,11 +28,31 @@ func TestResolveTargetCapabilities_Go(t *testing.T) {
 	}
 }
 
-func TestResolveTargetCapabilities_RejectsOtherLanguages(t *testing.T) {
-	for _, lang := range []string{"python", "rust", "typescript"} {
-		if _, err := ResolveTargetCapabilities(normalizer.TargetDef{Lang: lang, Framework: "chi", DB: "postgres"}); err == nil {
-			t.Fatalf("lang %q: expected an unsupported target error", lang)
+func TestResolveTargetCapabilities_RejectsStacksANGDoesNotGenerate(t *testing.T) {
+	base := normalizer.TargetDef{Lang: "go", Framework: "chi", DB: "postgres", Cache: "redis", Queue: "nats", Storage: "s3"}
+	for _, tc := range []struct {
+		name string
+		edit func(*normalizer.TargetDef)
+	}{
+		{"python", func(td *normalizer.TargetDef) { td.Lang = "python" }},
+		{"rust", func(td *normalizer.TargetDef) { td.Lang = "rust" }},
+		{"echo", func(td *normalizer.TargetDef) { td.Framework = "echo" }},
+		{"mysql", func(td *normalizer.TargetDef) { td.DB = "mysql" }},
+		{"memcached", func(td *normalizer.TargetDef) { td.Cache = "memcached" }},
+		{"kafka", func(td *normalizer.TargetDef) { td.Queue = "kafka" }},
+		{"gcs", func(td *normalizer.TargetDef) { td.Storage = "gcs" }},
+	} {
+		td := base
+		tc.edit(&td)
+		if _, err := ResolveTargetCapabilities(td); err == nil {
+			t.Fatalf("%s: expected an unsupported target error", tc.name)
 		}
+	}
+	if _, err := ResolveTargetCapabilities(base); err != nil {
+		t.Fatalf("supported stack rejected: %v", err)
+	}
+	if _, err := ResolveTargetCapabilities(normalizer.TargetDef{Lang: "go", Queue: "none", Cache: "none", Storage: "none"}); err != nil {
+		t.Fatalf("defaults with none rejected: %v", err)
 	}
 }
 

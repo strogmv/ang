@@ -5,7 +5,6 @@ This folder is organized so both humans and AI agents can find the right entry p
 ## Start Here
 
 - [Getting Started](./getting-started.md): first run, bootstrap flow, and generated project layout.
-- [Project Understanding Guide](./project-understanding.md): architecture map and recommended reading order before writing docs.
 - [Commands](./commands.md): CLI reference with practical examples.
 - [Config](./config.md): `.env` contract, precedence, and validation workflow.
 - [Troubleshooting](./troubleshooting.md): common failures and fast recovery paths.
@@ -27,3 +26,9 @@ This folder is organized so both humans and AI agents can find the right entry p
 ## Release Notes
 
 - [2026-03-01: Init DX + Startup Reliability](./changelog/2026-03-01-init-dx-and-startup.md)
+
+## Archive
+
+Superseded or off-topic material kept for history in [archive/](./archive/): the product vision,
+the July 2026 refactoring/direction note (expert planner, since removed), the Java import
+reading guide and a LinkedIn article draft.

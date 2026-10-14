@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/strogmv/ang/angir/normalizer"
 	"github.com/strogmv/ang/compiler"
 	"github.com/strogmv/ang/tool/mcp"
 	"gopkg.in/yaml.v3"
@@ -380,6 +381,10 @@ func runInit(args []string) {
 
 	if fs.NArg() > 0 {
 		targetDir = fs.Arg(0)
+	}
+	if err := compiler.ValidateTargetDef(normalizer.TargetDef{Lang: *lang, DB: *db}); err != nil {
+		printCommandFailure("Init", err.Error(), "ANG generates lang go with db postgres")
+		os.Exit(1)
 	}
 	targetDir = filepath.Clean(targetDir)
 	projectName := filepath.Base(targetDir)

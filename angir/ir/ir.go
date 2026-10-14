@@ -131,12 +131,12 @@ type Project struct {
 
 // Target describes the generation target.
 type Target struct {
-	Lang       string      `json:"lang"`      // "go", "rust", "typescript"
-	Framework  string      `json:"framework"` // "chi", "echo", "fiber", "axum"
-	DB         string      `json:"db"`        // "postgres", "mysql", "mongodb"
-	Cache      string      `json:"cache"`     // "redis", "memcached"
-	Queue      string      `json:"queue"`     // "nats", "kafka", "rabbitmq"
-	Storage    string      `json:"storage"`   // "s3", "gcs", "minio"
+	Lang       string      `json:"lang"`      // "go" (see compiler.SupportedTargetValues)
+	Framework  string      `json:"framework"` // "chi", "grpc"
+	DB         string      `json:"db"`        // "postgres"
+	Cache      string      `json:"cache"`     // "redis", "none"
+	Queue      string      `json:"queue"`     // "nats", "none"
+	Storage    string      `json:"storage"`   // "s3", "none"
 	Provenance *Provenance `json:"provenance,omitempty"`
 }
 

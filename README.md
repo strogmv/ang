@@ -39,13 +39,11 @@ ANG is designed from the ground up to work seamlessly with AI coding agents:
 - **Validation at Compile Time:** Errors caught early, before runtime — AI gets immediate feedback
 
 ### What’s new (0.1.127)
-- **`ang gen` — AI Migration Loop:** reads `ang/facts/v1` JSON (from `ang extract`) and calls Claude API to generate CUE operations directly into `cue/api/`. Closes the extract→AI→CUE pipeline.
 - **`ang openapi` — Standalone OpenAPI:** generates `openapi.yaml` without a full build — useful in CI docs pipelines and frontend integration.
 - **`ang sdk version|patch|minor|major` — Version management:** bump semver in `cue/project/project.cue` from CLI, ready for CI/CD automation.
 - **`ang ops vet --fix` — Auto-fix:** applies safe structured fixes (typos in action names, missing timeout, etc.) to `cue/api/*.cue` automatically.
 - **`ang ops vet --explain` — Inline explain:** outputs `ang/diags/v2` with embedded Fix/ActionRef/SchemaRef per diagnostic for AI consumption.
 - **`ang ops vet --proof` — Proof report:** outputs `ang/proof/v1` per-operation security/correctness properties (auth_before_write, validation_before_write, etc.).
-- **`ang extract` — Java extractor:** adds Java/Spring Boot source extraction alongside Go/OpenAPI/SQL.
 - **impl_steps → Go emitter:** load/assert/call/emit steps now render into service implementations (opt-in via `impl_steps` in CUE).
 - **Scope middleware:** `auth.scope` in CUE attaches `RequireScopeMiddleware` automatically to routes.
 - **Enum-driven consts:** CUE disjunctions generate Go/OpenAPI enums and DB CHECK constraints.
@@ -150,10 +148,7 @@ type Provider interface {
 }
 ```
 
-**To add Rust/Axum support:**
-1. Create `templates/rust-axum/` with `.tmpl` files
-2. Implement `RustAxumProvider`
-3. In `project.cue`: `target: { lang: "rust", framework: "axum" }`
+The only bundle ANG ships is Go (`go-chi-postgres`, plus the gRPC emitter for `framework: "grpc"`).
 
 ### Type Mapping in CUE
 
@@ -166,7 +161,6 @@ Type mappings are defined in CUE, not hardcoded in Go:
         go:   { type: "time.Time", pkg: "time", null_helper: "sql.NullTime" }
         ts:   { type: "string", zod: "z.string().datetime()" }
         sql:  { type: "TIMESTAMPTZ" }
-        rust: { type: "chrono::DateTime<chrono::Utc>", pkg: "chrono" }
     }
     // ...
 }
@@ -177,14 +171,14 @@ Type mappings are defined in CUE, not hardcoded in Go:
 Configure your target stack in `project.cue`:
 
 ```cue
-// cue/project.cue
-#Target: {
-    lang:      "go"       // "go", "rust", "typescript"
-    framework: "chi"      // "chi", "echo", "fiber", "axum"
-    db:        "postgres" // "postgres", "mysql", "mongodb"
-    cache:     "redis"    // "redis", "memcached", "none"
-    queue:     "nats"     // "nats", "kafka", "rabbitmq"
-    storage:   "s3"       // "s3", "gcs", "minio"
+// cue/project/project.cue
+state: target: {
+    lang:      "go"       // the only language ANG generates
+    framework: "chi"      // "chi" (HTTP) or "grpc"
+    db:        "postgres" // the only SQL database; MongoDB repositories are chosen per entity
+    cache:     "redis"    // "redis" | "none"
+    queue:     "nats"     // "nats" | "none"
+    storage:   "s3"       // "s3" | "none"
 }
 
 #Transformers: {
@@ -197,41 +191,21 @@ Configure your target stack in `project.cue`:
 
 ## Project Structure
 
+This repository is the generator; a generated project looks like the layout below
+("Build Output Layout Contract").
+
 ```
-ANG/
-├── cue/                    ← Input intent models
-│   ├── domain/             ← Entities, fields, types
-│   ├── api/                ← Endpoints, contracts
-│   ├── policies/           ← Auth, cache, rate limits
-│   ├── invariants/         ← System laws
-│   ├── architecture/       ← Services, boundaries
-│   ├── schema/             ← Type mappings, codegen config
-│   └── project.cue         ← Project config + target
-├── compiler/
-│   ├── parser/             ← CUE loading
-│   ├── normalizer/         ← CUE → legacy types
-│   ├── ir/                 ← Universal IR + converter
-│   ├── transformers/       ← IR enrichment plugins
-│   ├── providers/          ← Template bundles
-│   ├── validator/          ← Architecture validation
-│   ├── emitter/            ← Code generation
-│   └── pipeline.go         ← Orchestrator
-├── templates/              ← Go templates
-│   ├── *.tmpl              ← Backend templates
-│   ├── frontend/           ← SDK templates
-│   └── k8s/                ← Kubernetes manifests
-├── cmd/
-│   ├── ang/                ← CLI
-│   └── server/             ← Generated server
-├── internal/               ← Generated application code
-├── sdk/                    ← Generated frontend SDK
-├── tests/                  ← Test suites
-│   ├── contract/           ← API contract tests
-│   ├── integration/        ← Business logic tests
-│   └── tests/e2e/          ← End-to-end tests
-└── db/
-    ├── schema/             ← SQL schema
-    └── queries/            ← SQLC queries
+ang/
+├── cmd/ang/                ← CLI
+├── angir/                  ← CUE loading, normalizer, IR, flow semantics
+├── compiler/               ← pipeline, emitters (emitter/, emitter/go), targets, sqlmigrate
+├── templates/              ← Go/SDK/k8s templates (embedded into the binary)
+├── cue/schema/             ← the CUE schema projects import (github.com/strogmv/ang/cue/schema)
+├── cue/GOLDEN_*.cue        ← action and flow references for agents
+├── tool/mcp/               ← MCP server (`ang mcp`)
+├── tool/explain/           ← diagnostic explanations (`ang explain`)
+├── examples/blog/          ← sample project with its own go.mod (generated in place)
+└── docs/
 ```
 
 ## Build Output Layout Contract
@@ -355,51 +329,21 @@ cd tests && npm install && npm run test:e2e
 *   `ang openapi [--out file] [--stdout]` — Generate OpenAPI spec without a full build (fast, CI-friendly)
 *   `ang sdk version` — Show current version from `cue/project/project.cue`
 *   `ang sdk patch|minor|major` — Bump semver in `cue/project/project.cue`
-*   `ang extract [path] [--from go|java|openapi|sql|auto] [--out facts.json]` — Extract facts for AI migration pipeline
-*   `ang gen --facts file [--service name] [--out cue/api] [--dry-run]` — Generate CUE operations from `ang/facts/v1` via Claude API
 
-## Release Preparation (Go + Python)
+## Release Preparation
 
-Use this flow to prepare a release build and run the same sanity checks as in CI.
+Use this flow to run the same sanity checks as CI before tagging a release.
 
 ```bash
-# 1) Validate CUE/architecture (fast)
-./ang validate
-
-# 2) Generate standalone release artifacts
-./ang build --mode=release
-
-# 3) Run release smoke (Go tests + artifact checks + OpenAPI parity + Python smoke)
+# generator tests, the blog sample (validate + build + test its module),
+# and plan/apply/all determinism on a scratch copy of the sample
 ./scripts/release-smoke.sh
 ```
 
 Optional environment variables:
 
-- `SKIP_PIP_SMOKE=1` — skip installing/importing the Python SDK (useful for local runs)
 - `ANG_EVENT_COMPAT_BASE_REF=<git-ref>` — override baseline ref for the event-compat gate
   (example: `origin/main` if you see `EVENT_COMPAT_BASE_LOAD_FAILED`)
-
-## Release Demo: Python SDK Generation
-
-Show Python code generation in release demos with the Phase 1 flag:
-
-```bash
-ANG_PY_SDK=1 go run ./cmd/ang build
-```
-
-Expected generated files:
-
-- `sdk/python/pyproject.toml`
-- `sdk/python/README.md`
-- `sdk/python/ang_sdk/__init__.py`
-- `sdk/python/ang_sdk/client.py`
-
-Quick smoke:
-
-```bash
-python -m pip install -e sdk/python
-python -c "from ang_sdk import AngClient; print('ok')"
-```
 
 ## Features
 
@@ -448,27 +392,8 @@ python -c "from ang_sdk import AngClient; print('ok')"
 *   **MCP server (`ang mcp`):** intent-first operations for AI agents with envelope compatibility modes.
 *   **Doctor and explain tools:** build-log diagnosis and diagnostic-code explanation.
 *   **Flow references for agents:** `cue/GOLDEN_EXAMPLES.cue`, Flow DSL schema/helpers, and strict CUE-first workflow policy.
-*   **`ang extract` → `ang gen` migration pipeline:** deterministic fact extraction from existing code (Go/Java/OpenAPI/SQL) → AI-generated CUE intent (via Claude API) → validate with `ang ops vet` → compile with `ang build`.
 *   **`ang ops vet --proof`:** per-operation correctness proof (auth_before_write, validation_before_write, external_call_compensated) — machine-readable `ang/proof/v1` for AI agents to verify their work.
 *   **`ang ops vet --fix`:** auto-applies safe structured fixes to CUE files — agents can call vet+fix in a loop without human intervention.
-
-#### AI Migration Pipeline (Extract → Gen → Vet → Build)
-
-```bash
-# Step 1: extract facts from existing codebase (deterministic, no AI)
-ang extract ./src --from auto --out facts.json
-
-# Step 2: generate CUE intent from facts (AI, requires ANTHROPIC_API_KEY)
-ANTHROPIC_API_KEY=... ang gen --facts facts.json --service users --dry-run
-ANTHROPIC_API_KEY=... ang gen --facts facts.json --out cue/api
-
-# Step 3: validate + auto-fix
-ang ops vet --fix
-ang ops vet --proof --json   # machine-readable correctness proof
-
-# Step 4: compile
-ang build
-```
 
 ## Validation Pipeline
 
@@ -531,32 +456,9 @@ pipeline.RegisterHook(&StripeHook{})
 
 ### Add New Provider
 
-```go
-type RustAxumProvider struct{}
-
-func (p *RustAxumProvider) Name() string { return "rust-axum-postgres" }
-
-func (p *RustAxumProvider) Supports(target ir.Target) bool {
-    return target.Lang == "rust" && target.Framework == "axum"
-}
-
-func (p *RustAxumProvider) Templates() fs.FS {
-    return os.DirFS("templates/rust-axum")
-}
-
-func (p *RustAxumProvider) TypeMapping() providers.TypeMap {
-    return providers.TypeMap{
-        Mappings: map[ir.TypeKind]providers.TypeInfo{
-            ir.KindString: {Type: "String"},
-            ir.KindInt:    {Type: "i32"},
-            ir.KindTime:   {Type: "chrono::DateTime<chrono::Utc>", Package: "chrono"},
-        },
-    }
-}
-
-// Register
-pipeline.RegisterProvider(&RustAxumProvider{})
-```
+`compiler/providers` defines the `Provider` interface (name, `Supports(ir.Target)`, templates,
+func map, type mapping). The only provider and target plugin ANG ships is Go; a new one also needs
+its stack values added to `compiler.SupportedTargetValues`, which rejects everything else.
 
 ## AI-Friendly Resources
 
@@ -918,15 +820,15 @@ ANG is built from the ground up to be **AI-Native**. It includes a sophisticated
 To ensure system integrity and prevent hallucinations, all AI agents must follow this protocol:
 1. **Agent writes ONLY CUE**: All business logic and architecture must be defined in the `cue/` directory.
 2. **ANG generates ALL code**: Implementation in `internal/`, `api/`, and `sdk/` is managed by the compiler. **NEVER** modify these files manually.
-3. **Agent verifies via MCP**: Use `repo_diff` and `run_preset('unit')` to verify the generated implementation.
+3. **Agent verifies via MCP**: Use `ang_dry_run` (validate + diff without writing) and `run_preset('unit')` to verify the generated implementation.
 
 ### Agent Quickstart (For AI)
 
 If you are an AI agent, follow these steps to start:
-1. **Bootstrap**: Always call `ang_bootstrap` first to load workflows and policies.
+1. **Bootstrap**: Call `ang_mcp_health`, then `ang_schema` and `ang_validate`.
 2. **Plan**: Call `ang_plan(goal="...")` to get a step-by-step architectural plan.
 3. **Navigate**: Use `ang_search` and `repo_read_symbol` to find relevant logic without reading large files.
-4. **Iterate**: Patch CUE -> `run_preset('build')` -> `repo_diff` -> `run_preset('unit')`.
+4. **Iterate**: `cue_apply_patch` -> `ang_dry_run` -> `run_preset('build')` -> `run_preset('unit')`.
 
 ### Setup for Claude Desktop
 

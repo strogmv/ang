@@ -19,9 +19,6 @@ package schema
 		sql: {
 			type: "TEXT"
 		}
-		rust: {
-			type: "String"
-		}
 	}
 
 	int: #TypeInfo & {
@@ -36,9 +33,6 @@ package schema
 		}
 		sql: {
 			type: "INTEGER"
-		}
-		rust: {
-			type: "i32"
 		}
 	}
 
@@ -55,9 +49,6 @@ package schema
 		sql: {
 			type: "BIGINT"
 		}
-		rust: {
-			type: "i64"
-		}
 	}
 
 	float64: #TypeInfo & {
@@ -73,9 +64,6 @@ package schema
 		sql: {
 			type: "DOUBLE PRECISION"
 		}
-		rust: {
-			type: "f64"
-		}
 	}
 
 	bool: #TypeInfo & {
@@ -90,9 +78,6 @@ package schema
 		}
 		sql: {
 			type: "BOOLEAN"
-		}
-		rust: {
-			type: "bool"
 		}
 	}
 
@@ -111,10 +96,6 @@ package schema
 		sql: {
 			type: "TIMESTAMPTZ"
 		}
-		rust: {
-			type: "chrono::DateTime<chrono::Utc>"
-			pkg:  "chrono"
-		}
 	}
 
 	UUID: #TypeInfo & {
@@ -129,10 +110,6 @@ package schema
 		}
 		sql: {
 			type: "UUID"
-		}
-		rust: {
-			type: "uuid::Uuid"
-			pkg:  "uuid"
 		}
 	}
 
@@ -150,9 +127,6 @@ package schema
 		sql: {
 			type: "TEXT"
 		}
-		rust: {
-			type: "String"
-		}
 	}
 
 	url: #TypeInfo & {
@@ -169,10 +143,6 @@ package schema
 		sql: {
 			type: "TEXT"
 		}
-		rust: {
-			type: "url::Url"
-			pkg:  "url"
-		}
 	}
 
 	json: #TypeInfo & {
@@ -187,10 +157,6 @@ package schema
 		}
 		sql: {
 			type: "JSONB"
-		}
-		rust: {
-			type: "serde_json::Value"
-			pkg:  "serde_json"
 		}
 	}
 
@@ -208,9 +174,6 @@ package schema
 		}
 		sql: {
 			type: "BIGINT"
-		}
-		rust: {
-			type: "i64"
 		}
 	}
 }
@@ -232,17 +195,12 @@ package schema
 	sql?: {
 		type: string
 	}
-	rust?: {
-		type: string
-		pkg?: string
-	}
 }
 
 // ListMapping defines how list types are constructed
 #ListMapping: {
 	go:   "[]{{.ItemType}}"
 	ts:   "{{.ItemType}}[]"
-	rust: "Vec<{{.ItemType}}>"
 	sql:  "{{.ItemType}}[]" // Postgres array syntax
 }
 
@@ -250,7 +208,6 @@ package schema
 #MapMapping: {
 	go:   "map[{{.KeyType}}]{{.ValueType}}"
 	ts:   "Record<{{.KeyType}}, {{.ValueType}}>"
-	rust: "HashMap<{{.KeyType}}, {{.ValueType}}>"
 	sql:  "JSONB" // Maps are stored as JSONB in SQL
 }
 
@@ -258,12 +215,10 @@ package schema
 #OptionalMapping: {
 	go:   "*{{.Type}}" // Go uses pointers for optional
 	ts:   "{{.Type}} | null"
-	rust: "Option<{{.Type}}>"
 }
 
 // EntityRefMapping defines how entity references are written
 #EntityRefMapping: {
 	go:   "domain.{{.EntityName}}"
 	ts:   "{{.EntityName}}"
-	rust: "{{.EntityName}}"
 }

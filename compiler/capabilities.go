@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/strogmv/ang/angir/normalizer"
@@ -76,8 +77,43 @@ func (s CapabilitySet) StringSlice() []string {
 	return out
 }
 
+// SupportedTargetValues lists the target stack values ANG generates. An empty
+// value takes the default (the first entry). Anything else is rejected instead
+// of being generated as Go/chi/Postgres anyway.
+var SupportedTargetValues = []struct {
+	Field  string
+	Values []string
+}{
+	{"lang", []string{"go"}},
+	{"framework", []string{"chi", "grpc"}},
+	{"db", []string{"postgres"}},
+	{"cache", []string{"redis", "none"}},
+	{"queue", []string{"nats", "none"}},
+	{"storage", []string{"s3", "none"}},
+}
+
+// ValidateTargetDef reports the first target field set to a stack ANG does not
+// generate.
+func ValidateTargetDef(td normalizer.TargetDef) error {
+	got := map[string]string{
+		"lang": td.Lang, "framework": td.Framework, "db": td.DB,
+		"cache": td.Cache, "queue": td.Queue, "storage": td.Storage,
+	}
+	for _, field := range SupportedTargetValues {
+		value := strings.ToLower(strings.TrimSpace(got[field.Field]))
+		if value == "" || slices.Contains(field.Values, value) {
+			continue
+		}
+		return fmt.Errorf("unsupported target %s %q (supported: %s)", field.Field, got[field.Field], strings.Join(field.Values, ", "))
+	}
+	return nil
+}
+
 // ResolveTargetCapabilities derives a stable capability matrix from target settings.
 func ResolveTargetCapabilities(td normalizer.TargetDef) (CapabilitySet, error) {
+	if err := ValidateTargetDef(td); err != nil {
+		return nil, err
+	}
 	caps := CapabilitySet{}
 
 	lang := strings.ToLower(strings.TrimSpace(td.Lang))
@@ -86,15 +122,14 @@ func ResolveTargetCapabilities(td normalizer.TargetDef) (CapabilitySet, error) {
 	queue := strings.ToLower(strings.TrimSpace(td.Queue))
 
 	switch framework {
-	case "chi", "echo", "fiber", "gin", "fastapi", "axum", "actix", "express", "fastify", "grpc":
+	case "chi", "grpc":
 		caps[CapabilityHTTP] = true
 	}
 	if framework == "grpc" {
 		caps[CapabilityGRPC] = true
 	}
 
-	switch db {
-	case "postgres", "mysql", "sqlite":
+	if db == "postgres" {
 		caps[CapabilitySQLRepo] = true
 	}
 
@@ -109,7 +144,7 @@ func ResolveTargetCapabilities(td normalizer.TargetDef) (CapabilitySet, error) {
 	}
 
 	if lang != "go" {
-		return nil, fmt.Errorf("unsupported target profile: %s/%s/%s", td.Lang, td.Framework, td.DB)
+		return nil, fmt.Errorf("unsupported target profile: %s/%s/%s (ANG generates Go only)", td.Lang, td.Framework, td.DB)
 	}
 	caps[CapabilityAuth] = true
 	caps[CapabilityProfileGoLegacy] = true

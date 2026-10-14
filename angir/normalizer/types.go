@@ -698,10 +698,10 @@ type TargetDef struct {
 	Name           string // "go-core"
 	Lang           string // "go" (the only language ANG generates)
 	Framework      string // "chi" (HTTP) or "grpc"
-	DB             string // "postgres", "mysql", "mongodb"
-	Cache          string // "redis", "memcached", "none"
-	Queue          string // "nats", "kafka", "rabbitmq"
-	Storage        string // "s3", "gcs", "minio"
+	DB             string // "postgres"
+	Cache          string // "redis", "none"
+	Queue          string // "nats", "none"
+	Storage        string // "s3", "none"
 	OutputDir      string // generated backend output root for this target
 	FrontendAppDir string // optional: copy generated SDK into this frontend directory
 	// FrontendDir is where the frontend SDK is generated: relative to the

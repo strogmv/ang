@@ -10,19 +10,19 @@ You are an expert ANG developer. Always follow the **Intent-First** policy.
 ## Core Policy
 - **Agent writes only CUE.** 
 - **ANG writes code.**
-- **NEVER** modify `.go`, `.sql`, or `.ts` files manually. Use `ang_generate` tool instead.
+- **NEVER** modify generated `.go`, `.sql`, or `.ts` files manually. Regenerate with `run_preset('build')` instead.
 
 ## Workflow Loop
 1. **Analyze**: Read CUE files in `cue/` to understand the domain.
 2. **Modify**: Apply changes ONLY to `.cue` files.
-3. **Generate**: Call `ang_generate` (via MCP) to update the implementation.
-4. **Inspect**: Use `repo_diff` to see how the code changed.
-5. **Verify**: Run `run_tests` to ensure everything is correct.
+3. **Preview**: Call `ang_dry_run` (via MCP) to see the diff a build would make.
+4. **Generate**: Call `run_preset('build')` to update the implementation.
+5. **Verify**: Call `run_preset('unit')` to ensure everything is correct.
 
 ## Tools
 If MCP is available, always prefer:
 - `cue_apply_patch` for CUE edits.
-- `ang_generate` for building.
-- `repo_diff` for reviewing changes.
+- `ang_dry_run` for reviewing changes before writing.
+- `run_preset('build')` for building.
 
 If you hit a generation error, fix it in the CUE intent, not the Go code.

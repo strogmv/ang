@@ -45,8 +45,8 @@ Do not manually edit generated artifacts unless explicitly required:
 | `ang_schema` | Get operation CUE schema for AI |
 | `ang_validate` | Fast CUE validation |
 | `ang_dry_run` | Validate + diff without writing files |
-| `ang_generate` | Full build (CUE → Go) |
-| `ang_ops_vet` | Semantic linting (`fix`, `proof`, `explain` flags) |
+| `run_preset` | `build` runs `ang build`; `unit` runs go test; `lint` |
+| `ang_ops_context` | Schema + actions + diagnostics + proof for ops work |
 | `ang_openapi` | Generate OpenAPI spec without full build |
 | `ang_sdk_version` | Show current project semver |
 | `ang_sdk_bump` | Bump `patch`/`minor`/`major` in `project.cue` |
@@ -54,8 +54,8 @@ Do not manually edit generated artifacts unless explicitly required:
 | `ang_rbac_inspector` | RBAC policy audit |
 | `ang_validate_logic` | Syntax-check Go snippet before inserting |
 | `ang_search` | Search across CUE/generated/templates |
-| `ang_cue_apply_patch` | Apply structured CUE edit |
-| `repo_diff` | Token-efficient diff of generated Go |
+| `cue_apply_patch` | Apply structured CUE edit |
+| `ang_list_tools` | Every registered tool |
 
 ## Fast Local Startup Loop
 
