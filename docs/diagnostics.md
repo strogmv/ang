@@ -44,6 +44,12 @@ Code families:
   index, or use `target.sql_index_names: "hashed"` (docs/sql-schema.md).
 - `SQL_INDEX_NAME_COLLISION` (build error): two different indexes, or an index
   and a table, would be stored under the same name; give one a `name:`.
+- `SCHEMA_STALE`: the vendored schema
+  (`cue.mod/pkg/github.com/strogmv/ang/cue/schema`) differs from the schema of
+  the ANG ang.lock pins: run `ang schema sync` (`ang build` does it) and commit
+  (docs/schema.md). A warning when the running binary is another revision.
+- `SCHEMA_PROJECT_COPY` (warning): the project keeps its own copy of ANG's
+  schema in `cue/schema`; import `github.com/strogmv/ang/cue/schema` instead.
 - `AUTH_PUBLIC_MUTATION` (warning): an endpoint without `auth` changes state
   (POST/PUT/PATCH/DELETE, or a GET whose operation writes) and anyone can call
   it. Require a caller (`auth: {required: true}`) or say it is public on

@@ -10,7 +10,8 @@ cmd/ang/        CLI (`ang build`, `validate`, `fmt`, `migrate`, `mcp`, `lsp`, �
 compiler/       pipeline, emitters (compiler/emitter, compiler/emitter/go), targets, sqlmigrate — hand-written
 angir/          CUE loading, normalizer, IR, flow semantics — hand-written
 templates/      Go templates the emitters render (embedded into the binary)
-cue/schema/     the canonical CUE schema projects import as github.com/strogmv/ang/cue/schema
+cue/schema/     the canonical CUE schema projects import as github.com/strogmv/ang/cue/schema;
+                embedded in the binary and vendored into a project's cue.mod/pkg (docs/schema.md)
 cue/*.cue|md    action/flow references used by tests and docs
 tool/mcp/       the MCP server behind `ang mcp` — hand-written
 tool/explain/   diagnostic explanations for `ang explain` and MCP — hand-written

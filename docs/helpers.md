@@ -8,7 +8,7 @@ from a `logic.Call` func or from a flow expression.
 ```cue
 package api
 
-import "github.com/acme/app/cue/schema"
+import "github.com/strogmv/ang/cue/schema"
 
 Helpers: schema.#Helpers // once per project: the shape of every entry
 

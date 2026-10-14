@@ -38,6 +38,15 @@ Common flags:
 
 Validate CUE and architecture model.
 
+### `ang schema sync|check`
+
+```bash
+ang schema sync [project]    # vendor the pinned ANG's CUE schema into cue.mod/pkg
+ang schema check [project]   # exit 1 when the vendored schema differs (--json)
+```
+
+Projects import `github.com/strogmv/ang/cue/schema`; see docs/schema.md.
+
 ### `ang lint`
 
 Semantic linting and optional test-coverage checks.
@@ -65,6 +74,11 @@ with `CONTRACT_BREAKING_CHANGE`, one change per line, and writes nothing; it is
 refused again on every run until `--accept-contract`, after which the new
 contract is the baseline. `--dry-run` and `--check` apply both gates too, so
 they fail where the real build would.
+
+The build first vendors ANG's CUE schema into
+`cue.mod/pkg/github.com/strogmv/ang/cue/schema` when it differs; `--dry-run`
+only warns and `--check` lists those files among the differences
+(docs/schema.md).
 
 Planning mode:
 

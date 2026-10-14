@@ -200,7 +200,7 @@ ang/
 ├── angir/                  ← CUE loading, normalizer, IR, flow semantics
 ├── compiler/               ← pipeline, emitters (emitter/, emitter/go), targets, sqlmigrate
 ├── templates/              ← Go/SDK/k8s templates (embedded into the binary)
-├── cue/schema/             ← the CUE schema projects import (github.com/strogmv/ang/cue/schema)
+├── cue/schema/             ← the CUE schema projects import (github.com/strogmv/ang/cue/schema), vendored into their cue.mod/pkg (docs/schema.md)
 ├── cue/GOLDEN_*.cue        ← action and flow references for agents
 ├── tool/mcp/               ← MCP server (`ang mcp`)
 ├── tool/explain/           ← diagnostic explanations (`ang explain`)

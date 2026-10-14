@@ -181,6 +181,5 @@ a nested call joins the outer one as a savepoint):
   the field (the older private name `s.txManager` works too). Use the `ctx`
   of the closure for every repository call.
 
-Projects keep their own copy of `cue/schema/types.cue`: add
-`transactional?: bool` to `#Operation` there to use the key under the
-schema.
+`#Operation` in the vendored schema has `transactional?: bool`
+(docs/schema.md).
