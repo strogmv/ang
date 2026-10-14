@@ -44,7 +44,9 @@ type Entity struct {
 	// DDL is raw SQL emitted into db/schema/schema.sql after the entity's
 	// table, indexes and checks (triggers, trigger functions), from the
 	// entity key ddl: """…""". ANG does not parse it.
-	DDL        []string
+	DDL []string
+	// Queue makes the entity a job queue (@queue(handler="…", …)).
+	Queue      *QueueDef
 	UI         *EntityUIDef
 	GDPRPolicy *GDPRPolicy    // Non-nil when entity has @gdpr annotation
 	Metadata   map[string]any // Универсальное хранилище для плагинов

@@ -48,6 +48,14 @@ import (
 	{{ if .HasScheduler }}
 	"{{.GoModule}}/internal/scheduler"
 	{{ end }}
+	{{- if .HasQueues }}
+	"sync"
+	"{{.GoModule}}/internal/jobqueue"
+	pgrepo "{{.GoModule}}/internal/adapter/repository/postgres"
+	{{- if not .HasNats }}
+	"{{.GoModule}}/internal/domain"
+	{{- end }}
+	{{- end }}
 	"{{.GoModule}}/internal/port"
 	transport "{{.GoModule}}/internal/transport/http"
 	{{- if .NotificationMuting }}

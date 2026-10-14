@@ -34,6 +34,7 @@ type MainServerImportsContext struct {
 	HasNotificationDispatch bool
 	ServicesIR              []ir.Service
 	EntitiesIR              []ir.Entity
+	HasQueues               bool
 }
 
 type MainServerInfrastructureContext struct {
@@ -150,6 +151,7 @@ func buildMainServerTemplateData(ctx MainContext) MainServerTemplateData {
 			HasNotificationDispatch: ctx.HasNotificationDispatch,
 			ServicesIR:              ctx.ServicesIR,
 			EntitiesIR:              ctx.EntitiesIR,
+			HasQueues:               len(rt.Queues) > 0,
 		},
 		Infrastructure: MainServerInfrastructureContext{
 			HasSQL:                  ctx.HasSQL,

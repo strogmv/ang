@@ -107,8 +107,8 @@ FlushPriceCache: schema.#Operation & {
 
 A hook is an operation with an empty input that the main calls:
 
-- `OnStart` after the services, subscriptions and queue workers are set up and
-  before the HTTP server listens, with a context that ends on SIGTERM (a hook
+- `OnStart` after the services and subscriptions are set up, before queue workers start and
+  the HTTP server listens, with a context that ends on SIGTERM (a hook
   may start a loop on it). An error exits the process.
 - `OnShutdown` on SIGTERM/SIGINT after the drain, in reverse service order,
   with its own `shutdownTimeout` budget; errors are logged.
@@ -120,3 +120,76 @@ HTTP server stops taking requests (`srv.Shutdown`), the run context ends
 `shutdownTimeout` (default 30s), then the `OnShutdown` hooks run. Set the pod's
 `terminationGracePeriodSeconds` above twice that. Without any of these the
 main keeps its old 5-second HTTP shutdown.
+
+## Queues
+
+`@queue` on an entity makes its rows jobs that a generated worker runs:
+
+```cue
+// cue/domain
+ProductImportJob: {
+	@owner(catalog)
+	@queue(handler="RunProductImport", key="companyId", attempts=3, backoff="30s", stale="15m", heartbeat="1m", unique="companyId,sourceHash", when="cfg.JobsEnabled")
+	id:         string @db(type="UUID", primary_key=true)
+	companyId:  string @db(type="UUID")
+	sourceHash: string
+	sourceKey:  string
+	createdAt:  time.Time
+	updatedAt:  time.Time
+}
+
+// cue/api: one job; input fields are filled from the job's fields of the same name
+RunProductImport: schema.#Operation & {
+	service: "catalog"
+	input: {jobId: string, companyId: string, sourceKey: string, attempts: int}
+	output: {ok: bool}
+	flow: [...]
+}
+```
+
+| key | default | meaning |
+|---|---|---|
+| `handler` | required | the operation that runs one job; `jobId` is the job's id, other inputs match job fields by name and type |
+| `key`, `perKey` | none, 1 | at most `perKey` running jobs per value of `key` (a company's imports one at a time) |
+| `attempts` | 5 | runs before the job goes `dead` (the dead letter) |
+| `backoff`, `maxBackoff` | 30s, 1h | delay before a retry: `backoff`, doubled each attempt, capped, plus up to 20% jitter |
+| `heartbeat`, `stale` | 30s, 5m | a running job's row is touched every `heartbeat`; one untouched for `stale` (its process died) is requeued, or buried after its last attempt; `stale` ≥ 2 × `heartbeat` |
+| `concurrency`, `poll` | 1, 2s | jobs one process runs at once; how long an idle worker waits |
+| `unique` | none | fields of a partial unique index over the active (queued, running) jobs |
+| `when` | none | Go condition over `cfg`; with `server_roles` the worker also runs only in `worker`/`all` |
+
+ANG adds the fields the queue needs unless the entity declares them with the
+same types: `status` (`queued`, `running`, `done`, `dead`; default `queued`),
+`priority` (int, higher first), `attempts`, `runAt` (not before), `lockedBy`,
+`heartbeatAt`, `lastError`, `finishedAt`. It adds these indexes, written in the
+entity index syntax of [sql-schema.md](./sql-schema.md):
+
+```cue
+{name: "idx_<table>_queue_ready",   expr: "priority DESC, runat, id", where: "status = 'queued'"}
+{name: "idx_<table>_queue_running", fields: ["heartbeatAt"], where: "status = 'running'"}
+{name: "idx_<table>_queue_key",     fields: [key], where: "status = 'running'", unique: perKey == 1}  // with key
+{name: "uq_<table>_queue_active",   fields: unique, unique: true, where: "status IN ('queued', 'running')"}  // with unique
+```
+
+Generated: `internal/jobqueue` — `Run` (the worker loop), `<Entity>Store`
+(claim, heartbeat, complete, retry, bury, release, stale requeue, `Requeue` of
+a dead job) and `Enqueue<Entity>(ctx, repo, job)`, which inserts a queued job
+and returns false when an active job with the same `unique` fields exists.
+A flow enqueues with a `logic.Call` (add the package to `imports:`):
+
+```go
+(func(ctx context.Context) (bool, error) {
+	return jobqueue.EnqueueProductImportJob(ctx, s.ProductImportJobRepo, &domain.ProductImportJob{CompanyID: req.CompanyID, ...})
+})
+```
+
+The claim is one statement: `SELECT … ORDER BY priority DESC, runat FOR UPDATE
+SKIP LOCKED` inside an `UPDATE … SET status = 'running', attempts = attempts + 1`;
+with `key` the claims of all workers are serialized by an advisory lock so the
+running count per key is exact. A handler error retries the job; a
+`jobqueue.Permanent(err)` buries it at once; a panic is an error. A worker that
+loses a job to the stale requeue cancels its handler and writes nothing. On
+SIGTERM the worker stops claiming and waits for its jobs within
+`shutdownTimeout`; jobs still running then are cancelled and released (queued
+again, the attempt not counted). A handler must not write the queue fields
+itself.

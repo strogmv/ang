@@ -52,7 +52,7 @@ func buildMainRuntime(ctx MainContext) MainRuntimeContext {
 	rt := MainRuntimeContext{
 		Roles:           ctx.ServerRoles,
 		ShutdownTimeout: ctx.ShutdownTimeout,
-		Queues:          ctx.Queues,
+		Queues:          mainQueues(ctx.EntitiesIR),
 	}
 	for _, svc := range ctx.ServicesIR {
 		for _, m := range svc.Methods {
@@ -180,9 +180,53 @@ func validateMainRuntime(ctx MainContext, rt MainRuntimeContext, config *ir.Conf
 	return nil
 }
 
-// MainQueue is a queue entity's worker started by the main (see EmitQueues).
+// MainQueue is a queue entity's worker started by the main (EmitQueuesFromIR
+// writes its store).
 type MainQueue struct {
-	Entity string
-	When   string
-	Source string
+	Entity      string
+	Type        string
+	Service     string
+	Handler     string
+	Inputs      []MainQueueInput
+	When        string
+	Source      string
+	Concurrency int
+	Attempts    int
+	Poll        string
+	Heartbeat   string
+	Stale       string
+	Backoff     string
+	MaxBackoff  string
+}
+
+// MainQueueInput fills the handler request field Request from job.Job.
+type MainQueueInput struct {
+	Request string
+	Job     string
+}
+
+// Cond is the Go condition the worker starts under.
+func (q MainQueue) Cond() string {
+	return runtimeCondition(normalizer.RoleWorker, q.When)
+}
+
+// goDuration writes a duration string ("90s") as a Go expression
+// ("90 * time.Second"); the normalizer has checked that it parses.
+func goDuration(v string) string {
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return "0"
+	}
+	for _, u := range []struct {
+		unit time.Duration
+		name string
+	}{{time.Hour, "time.Hour"}, {time.Minute, "time.Minute"}, {time.Second, "time.Second"}, {time.Millisecond, "time.Millisecond"}} {
+		if d%u.unit == 0 {
+			if d == u.unit {
+				return u.name
+			}
+			return fmt.Sprintf("%d * %s", d/u.unit, u.name)
+		}
+	}
+	return fmt.Sprintf("time.Duration(%d)", int64(d))
 }

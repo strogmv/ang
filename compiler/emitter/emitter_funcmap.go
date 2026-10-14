@@ -895,8 +895,6 @@ type MainContext struct {
 	ServerRoles bool
 	// ShutdownTimeout is target.shutdown_timeout (a Go duration).
 	ShutdownTimeout string
-	// Queues are the queue entities whose workers the main starts.
-	Queues []MainQueue
 }
 
 // AnalyzeContext checks which infrastructure dependencies are required.

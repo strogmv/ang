@@ -525,6 +525,12 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 	}
 	entity.DDL = ddl
 
+	queue, err := parseEntityQueue(val)
+	if err != nil {
+		return entity, err
+	}
+	entity.Queue = queue
+
 	entity.UI = parseEntityUI(entityVal)
 
 	return entity, nil

@@ -81,3 +81,57 @@ func TestSemanticPhasesRejectBadRuntimeKeys(t *testing.T) {
 		})
 	}
 }
+
+// Item 26: a queue entity in cue/domain and its handler in cue/api come out
+// of the normalize phase with the queue fields, the indexes, the handler's
+// input mapped to job fields, and a repository.
+func TestSemanticPhasesQueueEntity(t *testing.T) {
+	base := copyMinimalProject(t)
+	writeFixtureFile(t, filepath.Join(base, "cue", "domain", "jobs.cue"), `package domain
+
+ExportJob: {
+	@queue(handler="RunExport", key="userId", unique="userId,format")
+	id:     string
+	userId: string
+	format: string
+}
+`)
+	writeFixtureFile(t, filepath.Join(base, "cue", "api", "jobs.cue"), `package api
+
+RunExport: {
+	service: "user"
+	input: {jobId: string, format: string}
+	output: {ok: bool}
+}
+`)
+	out, err := RunSemanticPhasesWithOptions(base, PipelineOptions{WarningSink: func(normalizer.Warning) {}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var job *normalizer.Entity
+	for i := range out.Entities {
+		if out.Entities[i].Name == "ExportJob" {
+			job = &out.Entities[i]
+		}
+	}
+	if job == nil || job.Queue == nil {
+		t.Fatalf("no queue entity in %v", out.Entities)
+	}
+	if job.Queue.Service != "User" || len(job.Queue.Inputs) != 2 || job.Queue.Inputs[0].Field != "id" {
+		t.Fatalf("queue = %+v", *job.Queue)
+	}
+	fields := map[string]bool{}
+	for _, f := range job.Fields {
+		fields[f.Name] = true
+	}
+	if !fields["status"] || !fields["heartbeatAt"] || len(job.Indexes) != 4 {
+		t.Fatalf("fields %v indexes %v", fields, job.Indexes)
+	}
+	hasRepo := false
+	for _, r := range out.Repos {
+		hasRepo = hasRepo || r.Entity == "ExportJob"
+	}
+	if !hasRepo {
+		t.Fatal("the queue entity has no repository")
+	}
+}

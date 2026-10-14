@@ -123,6 +123,7 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 	registry.Register(generator.Step{Name: "Noop Mailer Client", Requires: goOnly, Run: func() error { return in.Em.EmitNoopMailerAdapter() }})
 	registry.Register(generator.Step{Name: "Events", Requires: goEvents, Run: func() error { return in.Em.EmitEventsFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "Scheduler", Requires: goOnly, Run: func() error { return in.Em.EmitSchedulerFromIR(in.IRSchema) }})
+	registry.Register(generator.Step{Name: "Queues", Requires: goOnly, Run: func() error { return in.Em.EmitQueuesFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "Publisher Interface", Requires: goEvents, Run: func() error { return in.Em.EmitPublisherInterfaceFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "NATS Adapter", Requires: goEvents, Run: func() error { return in.Em.EmitNatsAdapterFromIR(in.IRSchema) }})
 	registry.Register(generator.Step{Name: "Metrics Middleware", Requires: goHTTP, Run: func() error { return in.Em.EmitMetrics() }})

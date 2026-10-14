@@ -162,11 +162,38 @@ type Entity struct {
 	Indexes        []Index        `json:"indexes"`
 	Checks         []Check        `json:"checks,omitempty"`
 	DDL            []string       `json:"ddl,omitempty"`
+	Queue          *Queue         `json:"queue,omitempty"`
 	UI             EntityUI       `json:"ui"`
 	GDPRPolicy     *GDPRPolicy    `json:"gdpr_policy,omitempty"`
 	Metadata       map[string]any `json:"metadata"`
 	Source         string         `json:"source"`
 	Provenance     *Provenance    `json:"provenance,omitempty"`
+}
+
+// Queue makes an entity a job queue (@queue on the entity): rows are jobs a
+// generated worker claims, heartbeats, retries and dead-letters.
+type Queue struct {
+	Handler     string       `json:"handler"`
+	Service     string       `json:"service"`
+	Key         string       `json:"key,omitempty"`
+	PerKey      int          `json:"per_key,omitempty"`
+	Attempts    int          `json:"attempts"`
+	Backoff     string       `json:"backoff"`
+	MaxBackoff  string       `json:"max_backoff"`
+	Heartbeat   string       `json:"heartbeat"`
+	Stale       string       `json:"stale"`
+	Concurrency int          `json:"concurrency"`
+	Poll        string       `json:"poll"`
+	Unique      []string     `json:"unique,omitempty"`
+	When        string       `json:"when,omitempty"`
+	Inputs      []QueueInput `json:"inputs,omitempty"`
+	Source      string       `json:"-"`
+}
+
+// QueueInput fills one handler input field from a job field.
+type QueueInput struct {
+	Input string `json:"input"`
+	Field string `json:"field"`
 }
 
 type ReadModel struct {

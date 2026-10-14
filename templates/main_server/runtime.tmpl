@@ -44,6 +44,41 @@
 	}
 	{{- end }}
 	{{- end }}
+	{{- if .Queues }}
+	// Queue workers: claim ready jobs (SELECT … FOR UPDATE SKIP LOCKED), keep a
+	// heartbeat, retry with backoff, dead-letter after the last attempt.
+	// jobsCtx is cancelled only when the drain runs out of time.
+	var queueWorkers sync.WaitGroup
+	jobsCtx, abortJobs := context.WithCancel(context.Background())
+	defer abortJobs()
+	{{- range .Queues }}
+	if {{ .Cond }} {
+		queueWorkers.Add(1)
+		go func() {
+			defer queueWorkers.Done()
+			store := jobqueue.New{{ .Type }}Store(pgPool, pgrepo.New{{ .Type }}Repository(pgPool))
+			jobqueue.Run(runCtx, jobsCtx, store, jobqueue.Options{
+				Name:        "{{ .Entity }}",
+				Concurrency: {{ .Concurrency }},
+				Poll:        {{ GoDuration .Poll }},
+				Heartbeat:   {{ GoDuration .Heartbeat }},
+				Stale:       {{ GoDuration .Stale }},
+				MaxAttempts: {{ .Attempts }},
+				Backoff:     {{ GoDuration .Backoff }},
+				MaxBackoff:  {{ GoDuration .MaxBackoff }},
+				Logger:      log,
+			}, func(job *domain.{{ .Type }}) int { return job.Attempts }, func(ctx context.Context, job *domain.{{ .Type }}) error {
+				_, err := runtimeContainer.Svc{{ .Service }}.{{ .Handler }}(ctx, port.{{ .Handler }}Request{
+					{{- range .Inputs }}
+					{{ .Request }}: job.{{ .Job }},
+					{{- end }}
+				})
+				return err
+			})
+		}()
+	}
+	{{- end }}
+	{{- end }}
 {{ end }}
 
 {{ define "main_server_runtime_drain" }}
@@ -55,6 +90,26 @@
 		log.Error("Server shutdown failed", "error", err)
 	}
 	stopRun()
+	{{- if .Queues }}
+	// Jobs in flight finish; past the timeout they are cancelled and given
+	// back to the queue.
+	queuesDone := make(chan struct{})
+	go func() {
+		queueWorkers.Wait()
+		close(queuesDone)
+	}()
+	select {
+	case <-queuesDone:
+	case <-shutdownCtx.Done():
+		log.Warn("Shutdown timeout: cancelling queue jobs still running")
+		abortJobs()
+		select {
+		case <-queuesDone:
+		case <-time.After(5 * time.Second):
+			log.Error("Queue jobs did not stop after cancel")
+		}
+	}
+	{{- end }}
 	{{- if .ShutdownHooks }}
 	// OnShutdown hooks, in reverse service order, each phase within shutdownTimeout.
 	hookCtx, hookCancel := context.WithTimeout(context.Background(), shutdownTimeout)

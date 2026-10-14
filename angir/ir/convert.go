@@ -179,6 +179,17 @@ func ConvertEntity(e normalizer.Entity) Entity {
 		}
 	}
 
+	if q := e.Queue; q != nil {
+		entity.Queue = &Queue{
+			Handler: q.Handler, Service: q.Service, Key: q.Key, PerKey: q.PerKey, Attempts: q.Attempts,
+			Backoff: q.Backoff, MaxBackoff: q.MaxBackoff, Heartbeat: q.Heartbeat, Stale: q.Stale,
+			Concurrency: q.Concurrency, Poll: q.Poll, Unique: append([]string(nil), q.Unique...), When: q.When, Source: q.Source,
+		}
+		for _, in := range q.Inputs {
+			entity.Queue.Inputs = append(entity.Queue.Inputs, QueueInput{Input: in.Input, Field: in.Field})
+		}
+	}
+
 	if e.FSM != nil {
 		entity.FSM = &FSM{
 			Field:       e.FSM.Field,

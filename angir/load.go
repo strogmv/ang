@@ -203,6 +203,9 @@ func LoadWithOptions(basePath string, opts LoadOptions) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("extract entities: %w", err)
 	}
+	if err := n.AddQueueFields(entities); err != nil {
+		return nil, fmt.Errorf("queue entities: %w", err)
+	}
 	services, err := n.ExtractServices(valAPI, entities)
 	if err != nil {
 		return nil, fmt.Errorf("extract services: %w", err)
@@ -253,6 +256,10 @@ func LoadWithOptions(basePath string, opts LoadOptions) (*Result, error) {
 	services, events, schedules, err = normalizer.ExpandSchedules(services, events, schedules)
 	if err != nil {
 		return nil, fmt.Errorf("expand schedules: %w", err)
+	}
+	repos, err = normalizer.ResolveQueueHandlers(entities, services, repos)
+	if err != nil {
+		return nil, fmt.Errorf("queue handlers: %w", err)
 	}
 	scenarios, err := n.ExtractScenarios(valAPI)
 	if err != nil {

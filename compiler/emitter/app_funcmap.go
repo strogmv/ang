@@ -12,6 +12,7 @@ import (
 func (e *Emitter) getAppFuncMap() template.FuncMap {
 	appFuncs := e.getSharedFuncMap()
 	appFuncs["subscribeWhenIR"] = subscribeWhen
+	appFuncs["GoDuration"] = goDuration
 	appFuncs["subscriptionDeliveryIR"] = func(service ir.Service, event string) string {
 		if service.Metadata != nil {
 			switch values := service.Metadata["subscriptionDelivery"].(type) {

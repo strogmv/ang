@@ -263,6 +263,9 @@ func runNormalizePhase(basePath string, parsed ParsePhaseOutput, opts PipelineOp
 	if err != nil {
 		return out, WrapContractError(StageCUE, ErrCodeCUEEntityNormalize, "extract entities", err)
 	}
+	if err := n.AddQueueFields(entities); err != nil {
+		return out, WrapContractError(StageCUE, ErrCodeCUEEntityNormalize, "queue entities", err)
+	}
 	if parsed.HasProjections {
 		projectionEntities, err := n.ExtractEntities(parsed.Projections)
 		if err != nil {
@@ -439,6 +442,10 @@ func runNormalizePhase(basePath string, parsed ParsePhaseOutput, opts PipelineOp
 	services, events, schedules, err = normalizer.ExpandSchedules(services, events, schedules)
 	if err != nil {
 		return out, WrapContractError(StageCUE, ErrCodeCUEScheduleNormalize, "expand schedules", err)
+	}
+	repos, err = normalizer.ResolveQueueHandlers(entities, services, repos)
+	if err != nil {
+		return out, WrapContractError(StageCUE, ErrCodeCUEEntityNormalize, "queue handlers", err)
 	}
 
 	scenarios, _ := n.ExtractScenarios(parsed.API)
