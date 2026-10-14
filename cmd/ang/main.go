@@ -117,8 +117,6 @@ func main() {
 		runSDKBump(os.Args[2:])
 	case "gen":
 		runAIGen(os.Args[2:])
-	case "pp":
-		runPP(os.Args[2:])
 	case "mcp":
 		mcp.Run()
 	case "version":
@@ -188,8 +186,6 @@ func printUsage() {
 	fmt.Println("  ang sdk bump [patch|minor|major]  Bump version in cue/project/project.cue")
 	fmt.Println("  ang sdk version                   Show current version from project.cue")
 	fmt.Println("  ang gen       Generate CUE operations from ang/facts/v1 via AI (--facts, --service, --out, --dry-run)")
-	fmt.Println("  ang pp schema sync|check|list  Payment-provider schema bundle")
-	fmt.Println("  ang pp vet [path]              Semantic validation of provider CUE intent")
 }
 
 func runHash(args []string) {

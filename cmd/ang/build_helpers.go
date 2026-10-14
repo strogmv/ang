@@ -9,7 +9,6 @@ import (
 
 	"cuelang.org/go/cue"
 	"github.com/strogmv/ang/angir/normalizer"
-	"github.com/strogmv/ang/compiler/paymentprovider"
 )
 
 type OutputOptions struct {
@@ -47,9 +46,6 @@ type OutputOptions struct {
 	Check               bool
 	DryRunDiff          bool
 	DryRunDiffOut       string
-	ExpertMode          string
-	ExpertBaseURL       string
-	ExpertPackIDs       []string
 	Verbose             bool
 }
 
@@ -84,14 +80,7 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 	diffOut := fs.String("diff-out", "", "with --dry-run or --check: write each diff to <dir>/<path>.patch instead of printing it (implies --diff)")
 	dryRunRoot := fs.String("dry-run-root", "", "internal: override dry-run temp root")
 	dryRunReport := fs.String("dry-run-report", "", "internal: write dry-run manifest json to path")
-	expertMode := fs.String("expert-mode", "off", "Expert integration mode: off|shadow|advise|gate")
 	verbose := fs.Bool("verbose", false, "print every diagnostic in full and every generated file")
-	expertBaseURL := fs.String("expert-base-url", "", "Expert Runtime base URL (required for shadow/advise/gate)")
-	var expertPackIDs []string
-	fs.Func("expert-pack", "Expert Runtime pack ID (repeatable; default payment-provider.core for payment providers)", func(value string) error {
-		expertPackIDs = append(expertPackIDs, value)
-		return nil
-	})
 	if err := fs.Parse(args); err != nil {
 		return OutputOptions{}, err
 	}
@@ -141,9 +130,6 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 		Check:               *check,
 		DryRunDiff:          *diff,
 		DryRunDiffOut:       strings.TrimSpace(*diffOut),
-		ExpertMode:          strings.ToLower(strings.TrimSpace(*expertMode)),
-		ExpertBaseURL:       strings.TrimSpace(*expertBaseURL),
-		ExpertPackIDs:       append([]string(nil), expertPackIDs...),
 		Verbose:             *verbose,
 	}
 	if opts.Check {
@@ -154,9 +140,6 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 	}
 	if opts.DryRunDiff && !opts.DryRun {
 		return OutputOptions{}, fmt.Errorf("--diff and --diff-out show what a dry run would change; add --dry-run or --check")
-	}
-	if err := validateExpertBuildOptions(opts); err != nil {
-		return OutputOptions{}, err
 	}
 	if opts.FrontendDir == "" {
 		opts.FrontendDir = "sdk"
@@ -286,35 +269,6 @@ func resolveBuildMode(cliMode string, projectVal cue.Value, backendDirExplicit b
 		return m
 	}
 	return "in_place"
-}
-
-// resolvePaymentProviderProjectPath returns projectPath or --backend-dir when that
-// directory is a payment-provider ANG project (has .cue/provider.cue).
-func resolvePaymentProviderProjectPath(projectPath string, opts OutputOptions) string {
-	candidates := []string{projectPath}
-	if opts.BackendDirExplicit {
-		bd := opts.BackendDir
-		if !filepath.IsAbs(bd) {
-			bd = filepath.Join(projectPath, bd)
-		}
-		candidates = append([]string{filepath.Clean(bd)}, candidates...)
-	}
-	seen := make(map[string]struct{}, len(candidates))
-	for _, p := range candidates {
-		p = filepath.Clean(p)
-		if p == "" {
-			continue
-		}
-		if _, ok := seen[p]; ok {
-			continue
-		}
-		seen[p] = struct{}{}
-		cfg := loadProjectConfig(p)
-		if paymentprovider.IsProject(p, cfg.CueRoot) {
-			return p
-		}
-	}
-	return projectPath
 }
 
 func validateBuildMode(mode string, opts OutputOptions, targets []normalizer.TargetDef) error {

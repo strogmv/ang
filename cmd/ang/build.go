@@ -3,11 +3,12 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/strogmv/ang/compiler/sqlmigrate"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/strogmv/ang/compiler/sqlmigrate"
 
 	"cuelang.org/go/cue"
 	"github.com/strogmv/ang/angir/normalizer"
@@ -16,7 +17,6 @@ import (
 	"github.com/strogmv/ang/compiler/emitter"
 	"github.com/strogmv/ang/compiler/generator"
 	"github.com/strogmv/ang/compiler/golit"
-	"github.com/strogmv/ang/compiler/paymentprovider"
 )
 
 func runBuild(args []string) error {
@@ -174,41 +174,9 @@ func runBuild(args []string) error {
 		var templatesCatalog []normalizer.TemplateDef
 		var infraValues map[string]any
 		var infraContextPatch normalizer.InfraContextPatch
-		projPath := resolvePaymentProviderProjectPath(projectPath, output)
-		projCfg := loadProjectConfig(projPath)
+		projCfg := loadProjectConfig(projectPath)
 		cueRoot := projCfg.CueRoot
 		tmplDir := projCfg.TemplatesDir
-
-		if paymentprovider.IsProject(projPath, cueRoot) {
-			logText("Building payment provider from CUE intent...")
-			result := runPaymentProviderBuild(projPath, cueRoot, tmplDir, dryRunTmpRoot, output)
-			if result.Err != nil {
-				fail(compiler.StageCUE, compiler.ErrCodeCUEPipeline, "build payment provider", result.Err)
-				return
-			}
-			if output.DryRun {
-				logText("\nBuild DRY-RUN SUCCESSFUL (payment provider).")
-				if jsonLogs {
-					logEvent(buildEvent{
-						Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
-						Stage:     "build",
-						Status:    "ok",
-						Message:   "Payment provider dry-run successful",
-					})
-				}
-				return
-			}
-			logText("\nBuild SUCCESSFUL (payment provider).")
-			if jsonLogs {
-				logEvent(buildEvent{
-					Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
-					Stage:     "build",
-					Status:    "ok",
-					Message:   "Payment provider build successful",
-				})
-			}
-			return true
-		}
 
 		infraBundle, err := compiler.LoadInfraBundleWithRoot(projectPath, cueRoot)
 		if err != nil {
