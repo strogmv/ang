@@ -83,14 +83,7 @@ CREATE INDEX IF NOT EXISTS idx_kv_store_expires ON kv_store (expires_at) WHERE e
 	for _, entity := range entitiesNorm {
 		entity = ensurePrimaryKey(entity)
 
-		isMongo := false
-		for _, f := range entity.Fields {
-			if strings.EqualFold(f.DB.Type, "ObjectId") {
-				isMongo = true
-				break
-			}
-		}
-		if isMongo {
+		if !hasSQLTable(entity) {
 			continue
 		}
 
@@ -156,6 +149,26 @@ CREATE INDEX IF NOT EXISTS idx_kv_store_expires ON kv_store (expires_at) WHERE e
 	return nil
 }
 
+// hasSQLTable says whether an entity is stored in PostgreSQL. It is not when it is
+// declared @storage("mongo") (or has an ObjectId field), or when it is a DTO
+// (@dto(only="true") / _dto: true): a shape of an answer or a projection that
+// nothing saves. Such entities get no table, no SQL queries and no Postgres
+// repository.
+func hasSQLTable(entity normalizer.Entity) bool {
+	if storage, ok := entity.Metadata["storage"].(string); ok && strings.EqualFold(storage, "mongo") {
+		return false
+	}
+	if dto, ok := entity.Metadata["dto"].(bool); ok && dto {
+		return false
+	}
+	for _, f := range entity.Fields {
+		if strings.EqualFold(f.DB.Type, "ObjectId") {
+			return false
+		}
+	}
+	return true
+}
+
 func ensurePrimaryKey(entity normalizer.Entity) normalizer.Entity {
 	hasPrimary := false
 	for _, f := range entity.Fields {
@@ -216,18 +229,13 @@ func (e *Emitter) EmitSQLQueries(entities []ir.Entity) error {
 	var buf bytes.Buffer
 
 	for _, entity := range entitiesNorm {
-		isSQL := false
 		hasID := false
 		for _, f := range entity.Fields {
 			if strings.EqualFold(f.Name, "id") {
 				hasID = true
-				if f.DB.Type != "ObjectId" {
-					isSQL = true
-				}
 			}
 		}
-
-		if !hasID || !isSQL {
+		if !hasID || !hasSQLTable(entity) {
 			continue
 		}
 

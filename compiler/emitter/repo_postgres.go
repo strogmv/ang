@@ -58,8 +58,8 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 			continue
 		}
 
-		// Skip DTO-only entities — they have no database table.
-		if dto, ok := ent.Metadata["dto"].(bool); ok && dto {
+		// DTOs and MongoDB entities have no table here; Mongo ones get repo_mongo.
+		if !hasSQLTable(ent) {
 			continue
 		}
 
