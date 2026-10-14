@@ -100,12 +100,29 @@ GetInterest: {
 
 GetCounts: {
 	service: "stats"
-	input: {companyId: string}
+	input: {
+		companyId: string
+		message?: {chat?: {id?: int}}
+	}
 	output: {
 		counts: {open: int}
+		rows: [...{badge: {label: string}}]
 	}
 	flow: [
 		{action: "mapping.Assign", to: "resp.Counts.Open", value: "1"},
+		{
+			action: "logic.Call"
+			func: """
+				(func(req port.GetCountsRequest, resp *port.GetCountsResponse) {
+					var msg struct{ Chat struct{ ID int } }
+					_ = msg.Chat.ID
+					for _, row := range resp.Rows {
+						_ = row.Badge.Label
+					}
+				})
+				"""
+			args: ["req", "&resp"]
+		},
 	]
 }
 `,
@@ -124,12 +141,15 @@ GetCounts: {
 		"Extra    any",
 		"Counts GetCountsResponseCounts",
 		"type GetCountsResponseCounts struct",
+		"Message   any",
+		"Badge GetCountsResponseRowsItemBadge",
 	} {
 		if !strings.Contains(port, want) {
 			t.Errorf("port lacks %q:\n%s", want, port)
 		}
 	}
-	for _, unwanted := range []string{"type GetInterestResponseLoose struct", "type GetInterestResponsePagesItemExtra struct"} {
+	// msg.Chat.ID selects a local struct, not req.Message.
+	for _, unwanted := range []string{"type GetInterestResponseLoose struct", "type GetInterestResponsePagesItemExtra struct", "type GetCountsRequestMessage struct"} {
 		if strings.Contains(port, unwanted) {
 			t.Errorf("port declares a struct for an object no code reaches into: %s", unwanted)
 		}

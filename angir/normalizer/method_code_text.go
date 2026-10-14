@@ -1,16 +1,14 @@
-package compiler
+package normalizer
 
 import (
 	"sort"
 	"strings"
-
-	"github.com/strogmv/ang/angir/normalizer"
 )
 
-// methodCodeText is every piece of Go an operation carries: its impl code and
+// MethodCodeText is every piece of Go an operation carries: its impl code and
 // each string argument of its flow steps (logic.Call funcs, values,
 // conditions, targets), nested branches included, one per line.
-func methodCodeText(m normalizer.Method) string {
+func MethodCodeText(m Method) string {
 	var b strings.Builder
 	if m.Impl != nil {
 		b.WriteString(m.Impl.Code)
@@ -22,7 +20,7 @@ func methodCodeText(m normalizer.Method) string {
 	return b.String()
 }
 
-func writeFlowStepText(b *strings.Builder, step normalizer.FlowStep) {
+func writeFlowStepText(b *strings.Builder, step FlowStep) {
 	keys := make([]string, 0, len(step.Args))
 	for k := range step.Args {
 		keys = append(keys, k)
@@ -66,11 +64,11 @@ func writeFlowArgText(b *strings.Builder, v any) {
 			b.WriteString(value[k])
 			b.WriteByte('\n')
 		}
-	case []normalizer.FlowStep:
+	case []FlowStep:
 		for _, step := range value {
 			writeFlowStepText(b, step)
 		}
-	case map[string][]normalizer.FlowStep:
+	case map[string][]FlowStep:
 		keys := make([]string, 0, len(value))
 		for k := range value {
 			keys = append(keys, k)
