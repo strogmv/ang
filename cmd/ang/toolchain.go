@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -505,6 +506,9 @@ func runToolchain(args []string) {
 		fmt.Fprintln(os.Stderr, "Environment: ANG_TOOLCHAIN=auto|local, ANG_SRC=<local ANG clone>, XDG_CACHE_HOME")
 	}
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return
+		}
 		os.Exit(2)
 	}
 	project := "."
