@@ -18,7 +18,7 @@ ListOrders: {
 		at:        string @query(type="time", format="2006-01-02 15:04")
 		page:      int @query(required=true)
 		ids:       [...string] @query()
-		tags:      string @query(type="[]string", format="csv", name="tag")
+		tags:      string @query(type="[]string", format="csv")
 	}
 	output: {total: int}
 }`)
@@ -30,18 +30,18 @@ ListOrders: {
 		fields[f.Name] = f
 	}
 	for name, want := range map[string]struct {
-		goType, kind, format, key string
-		required                  bool
+		goType, kind, format string
+		required             bool
 	}{
-		"from": {"time.Time", QueryTypeDate, "2006-01-02", "", false},
-		"at":   {"time.Time", QueryTypeTime, "2006-01-02 15:04", "", false},
-		"page": {"int", QueryTypeInt, "", "", true},
-		"ids":  {"[]string", QueryTypeStrings, "", "", false},
-		"tags": {"[]string", QueryTypeStrings, "csv", "tag", false},
+		"from": {"time.Time", QueryTypeDate, "2006-01-02", false},
+		"at":   {"time.Time", QueryTypeTime, "2006-01-02 15:04", false},
+		"page": {"int", QueryTypeInt, "", true},
+		"ids":  {"[]string", QueryTypeStrings, "", false},
+		"tags": {"[]string", QueryTypeStrings, "csv", false},
 	} {
 		f := fields[name]
 		spec := FieldQueryParam(f.Metadata)
-		if spec == nil || f.Type != want.goType || spec.Type != want.kind || spec.Format != want.format || spec.Name != want.key || spec.Required != want.required {
+		if spec == nil || f.Type != want.goType || spec.Type != want.kind || spec.Format != want.format || spec.Required != want.required {
 			t.Fatalf("%s: type %q spec %+v, want %+v", name, f.Type, spec, want)
 		}
 	}
@@ -60,6 +60,7 @@ func TestExtractServicesRejectsBadQueryParams(t *testing.T) {
 		"format on int":     `x: int @query(format="2006")`,
 		"bad list format":   `x: [...string] @query(format="pipes")`,
 		"bad required flag": `x: string @query(required=yes)`,
+		"own key":           `x: string @query(name="y")`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := extractTestServices(t, `List: {service: "orders", input: {`+field+`}, output: {n: int}}`)

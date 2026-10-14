@@ -11,8 +11,8 @@ import (
 	"github.com/strogmv/ang/angir/normalizer"
 )
 
-func queryMeta(typ, format, name string, required bool) map[string]any {
-	return map[string]any{normalizer.FieldMetaQuery: map[string]any{"type": typ, "format": format, "name": name, "required": required}}
+func queryMeta(typ, format string, required bool) map[string]any {
+	return map[string]any{normalizer.FieldMetaQuery: map[string]any{"type": typ, "format": format, "required": required}}
 }
 
 func queryParamSchema() *ir.Schema {
@@ -25,9 +25,9 @@ func queryParamSchema() *ir.Schema {
 					Name: "ListOrders",
 					Input: &ir.Entity{Name: "ListOrdersRequest", Fields: []ir.Field{
 						{Name: "status", Type: str},
-						{Name: "from", Type: ir.TypeRef{Kind: ir.KindTime}, Metadata: queryMeta("date", "2006-01-02", "", false)},
-						{Name: "page", Type: ir.TypeRef{Kind: ir.KindInt}, Metadata: queryMeta("int", "", "", true)},
-						{Name: "ids", Type: ir.TypeRef{Kind: ir.KindList, ItemType: &str}, Metadata: queryMeta("[]string", "", "id", false)},
+						{Name: "from", Type: ir.TypeRef{Kind: ir.KindTime}, Metadata: queryMeta("date", "2006-01-02", false)},
+						{Name: "page", Type: ir.TypeRef{Kind: ir.KindInt}, Metadata: queryMeta("int", "", true)},
+						{Name: "ids", Type: ir.TypeRef{Kind: ir.KindList, ItemType: &str}, Metadata: queryMeta("[]string", "", false)},
 					}},
 					Output: &ir.Entity{Name: "ListOrdersResponse", Fields: []ir.Field{{Name: "total", Type: ir.TypeRef{Kind: ir.KindInt}}}},
 				},
@@ -35,7 +35,7 @@ func queryParamSchema() *ir.Schema {
 					Name: "CloseOrders",
 					Input: &ir.Entity{Name: "CloseOrdersRequest", Fields: []ir.Field{
 						{Name: "reason", Type: str},
-						{Name: "before", Type: ir.TypeRef{Kind: ir.KindTime}, Metadata: queryMeta("time", "2006-01-02T15:04:05Z07:00", "", true)},
+						{Name: "before", Type: ir.TypeRef{Kind: ir.KindTime}, Metadata: queryMeta("time", "2006-01-02T15:04:05Z07:00", true)},
 					}},
 					Output: &ir.Entity{Name: "CloseOrdersResponse", Fields: []ir.Field{{Name: "closed", Type: ir.TypeRef{Kind: ir.KindInt}}}},
 				},
@@ -72,7 +72,7 @@ func TestEmitHTTPParsesTypedQueryParams(t *testing.T) {
 		`writeQueryParamError(w, r, "from", "must be a date like 2006-01-02")`,
 		`queryParamInt(r, "page")`,
 		`writeQueryParamError(w, r, "page", "is required")`,
-		`queryParamStrings(r, "id", "")`,
+		`queryParamStrings(r, "ids", "")`,
 		`req.IDs = v`,
 		`queryParamTime(r, "before", "2006-01-02T15:04:05Z07:00")`, // POST: read after the body
 	} {
@@ -98,11 +98,11 @@ func TestTypedQueryParamsAnswerOneProblemShape(t *testing.T) {
 		return normalizer.Field{Name: name, Type: goType, Metadata: meta}
 	}
 	code := strings.Join([]string{
-		renderQueryParamCode(field("from", "time.Time", queryMeta("date", "2006-01-02", "", false))),
-		renderQueryParamCode(field("page", "int", queryMeta("int", "", "", true))),
-		renderQueryParamCode(field("ids", "[]string", queryMeta("[]string", "", "id", false))),
-		renderQueryParamCode(field("tags", "[]string", queryMeta("[]string", "csv", "", false))),
-		renderQueryParamCode(field("debug", "bool", queryMeta("bool", "", "", false))),
+		renderQueryParamCode(field("from", "time.Time", queryMeta("date", "2006-01-02", false))),
+		renderQueryParamCode(field("page", "int", queryMeta("int", "", true))),
+		renderQueryParamCode(field("ids", "[]string", queryMeta("[]string", "", false))),
+		renderQueryParamCode(field("tags", "[]string", queryMeta("[]string", "csv", false))),
+		renderQueryParamCode(field("debug", "bool", queryMeta("bool", "", false))),
 	}, "\n")
 	dir := t.TempDir()
 	files := map[string]string{
@@ -163,7 +163,7 @@ func call(query string) (int, string) {
 
 func TestQuery(t *testing.T) {
 	cases := []struct{ query string; code int; body string }{
-		{"page=2&from=2026-10-14&id=a&id=b,c&tags=x,y&tags=z&debug=true", 200, "2026-10-14|2|a,b,c|x,y|true"},
+		{"page=2&from=2026-10-14&ids=a&ids=b,c&tags=x,y&tags=z&debug=true", 200, "2026-10-14|2|a,b,c|x,y|true"},
 		{"page=1", 200, "0001-01-01|1|||false"},
 		{"page=1&from=14.10.2026", 400, ` + "`" + `{"title":"Invalid query","errors":{"from":"must be a date like 2006-01-02"}}` + "`" + `},
 		{"from=2026-10-14", 400, ` + "`" + `{"title":"Invalid query","errors":{"page":"is required"}}` + "`" + `},
@@ -213,7 +213,7 @@ func TestOpenAPIDescribesTypedQueryParams(t *testing.T) {
 	for _, want := range []string{
 		"        - in: query\n          name: from\n          schema:\n            type: string\n            format: date",
 		"        - in: query\n          name: page\n          required: true\n          schema:\n            type: integer",
-		"        - in: query\n          name: id\n          style: form\n          explode: true\n          schema:\n            type: array\n            items:\n              type: string",
+		"        - in: query\n          name: ids\n          style: form\n          explode: true\n          schema:\n            type: array\n            items:\n              type: string",
 		"      parameters:\n        - in: query\n          name: before\n          required: true\n          schema:\n            type: string\n            format: date-time\n      requestBody:",
 	} {
 		if !strings.Contains(spec, want) {

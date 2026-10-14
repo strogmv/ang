@@ -137,7 +137,8 @@ The older convention — output fields named `rawContent`/`rawContentType`
 A GET handler reads its request from the query string. Without `@query` a
 field is read as before: `int`, `float64` and `bool` fields are parsed, every
 other field is copied as a string. `@query` on an input field makes it a typed
-parameter, field by field:
+parameter, field by field. The query key is the field's JSON name, the key the
+TypeScript SDK sends:
 
 ```cue
 ListOrders: schema.#Operation & {
@@ -147,7 +148,7 @@ ListOrders: schema.#Operation & {
 		from:      string      @query(type="date")               // ?from=2026-10-14 -> time.Time
 		at:        string      @query(type="time", format="2006-01-02 15:04")
 		page:      int         @query(required=true)             // missing -> 400
-		ids:       [...string] @query(name="id")                 // ?id=a&id=b or ?id=a,b
+		ids:       [...string] @query()                          // ?ids=a&ids=b or ?ids=a,b
 		tags:      [...string] @query(format="csv")              // ?tags=a,b only
 	}
 	output: {...}
@@ -158,7 +159,6 @@ ListOrders: schema.#Operation & {
 |---|---|
 | `type` | `string`, `int`, `int64`, `float`, `bool`, `date`, `time`, `[]string`. Default: the field's CUE type. `date` and `time` make the field `time.Time`. |
 | `format` | A Go time layout for `date` (default `2006-01-02`) and `time` (default RFC 3339); for `[]string`, `"multi"` (repeated keys), `"csv"` (one comma-separated value) or unset (both). |
-| `name` | The query key; default the field's JSON name. |
 | `required` | `true`: a missing or blank value is a 400. |
 
 A value that does not parse, or a missing required one, gets one answer shape,

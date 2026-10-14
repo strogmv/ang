@@ -7,11 +7,9 @@ import (
 	"github.com/strogmv/ang/angir/normalizer"
 )
 
-// queryParamName is the query key of a typed parameter.
-func queryParamName(f normalizer.Field, spec *normalizer.QueryParamSpec) string {
-	if spec.Name != "" {
-		return spec.Name
-	}
+// queryParamName is the query key of a typed parameter: the field's JSON
+// name, the key the TypeScript SDK sends.
+func queryParamName(f normalizer.Field, _ *normalizer.QueryParamSpec) string {
 	return JSONName(f.Name)
 }
 

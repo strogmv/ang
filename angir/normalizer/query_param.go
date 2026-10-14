@@ -29,15 +29,14 @@ const (
 //	at:     string   @query(type="time", format="2006-01-02 15:04")
 //	limit:  int      @query(required=true)
 //	ids:    [...string] @query()                            // ?ids=a&ids=b or ?ids=a,b
-//	tags:   [...string] @query(format="csv", name="tag")
+//	tags:   [...string] @query(format="csv")                // ?tags=a,b
 //
-// The field gets the Go type of its kind (time.Time for date and time). A
+// The query key is the field's JSON name. The field gets the Go type of its kind (time.Time for date and time). A
 // value that does not parse is a 400 problem+json answer naming the
 // parameter; required=true makes a missing one a 400 too.
 type QueryParamSpec struct {
 	Type     string
 	Format   string // time layout for date/time; "csv", "multi" or "" (both) for []string
-	Name     string // query key; "" means the field's JSON name
 	Required bool
 }
 
@@ -67,8 +66,9 @@ func parseQueryAttr(v cue.Value, field *Field) (bool, error) {
 	if s, found, _ := attr.Lookup(0, "format"); found {
 		spec.Format = strings.TrimSpace(s)
 	}
-	if s, found, _ := attr.Lookup(0, "name"); found {
-		spec.Name = strings.TrimSpace(s)
+	if _, found, _ := attr.Lookup(0, "name"); found {
+		// The key is the field's JSON name: the TypeScript SDK sends that one.
+		return true, fmt.Errorf("field %s: @query has no name; the query key is the field's JSON name", field.Name)
 	}
 	if s, found, _ := attr.Lookup(0, "required"); found {
 		switch strings.TrimSpace(s) {
@@ -125,7 +125,7 @@ func parseQueryAttr(v cue.Value, field *Field) (bool, error) {
 		field.Metadata = map[string]any{}
 	}
 	field.Metadata[FieldMetaQuery] = map[string]any{
-		"type": spec.Type, "format": spec.Format, "name": spec.Name, "required": spec.Required,
+		"type": spec.Type, "format": spec.Format, "required": spec.Required,
 	}
 	return true, nil
 }
@@ -140,7 +140,6 @@ func FieldQueryParam(meta map[string]any) *QueryParamSpec {
 	spec := &QueryParamSpec{}
 	spec.Type, _ = raw["type"].(string)
 	spec.Format, _ = raw["format"].(string)
-	spec.Name, _ = raw["name"].(string)
 	spec.Required, _ = raw["required"].(bool)
 	if spec.Type == "" {
 		return nil
