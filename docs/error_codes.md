@@ -58,5 +58,6 @@ evaluate; the message names `file:line:col`. A folder is loaded strictly: no fil
 - `EMITTER_OPTIONS_ERROR`
 - `EMITTER_STEP_ERROR`
 - `ANG_LOCK_MISMATCH` — the running binary is not the ang revision pinned in the project's `ang.lock`; generation stops before anything is written unless `--allow-lock-mismatch` is passed
+- `CONTRACT_BREAKING_CHANGE` — the generated OpenAPI contract removes an operation, a schema or a required field the previous generation had; nothing is written; rerun with `--accept-contract` after reviewing the list (`--dry-run` and `--check` report it too)
 - `EMITTER_MCP_GENERATION_ERROR`
 - `EMITTER_CAPABILITY_RESOLVE_ERROR`

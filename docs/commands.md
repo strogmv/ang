@@ -59,6 +59,13 @@ A build that removes methods from a generated repository interface
 lists them; pass `--accept-removals` when the finders were deleted on purpose.
 A mass removal usually means a file of `cue/repo` is broken.
 
+A build whose OpenAPI contract (`api/openapi.yaml`) loses an operation, a
+schema or a required field compared with the previous generation is refused
+with `CONTRACT_BREAKING_CHANGE`, one change per line, and writes nothing; it is
+refused again on every run until `--accept-contract`, after which the new
+contract is the baseline. `--dry-run` and `--check` apply both gates too, so
+they fail where the real build would.
+
 Planning mode:
 
 ```bash

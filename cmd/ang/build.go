@@ -759,6 +759,12 @@ func runBuild(args []string) error {
 			})
 
 			if output.DryRun {
+				// Predict the gates of a real build: a dry run that reports
+				// success for a build ang build would refuse misleads.
+				if refusal := dryRunGates(intendedBackendDir, backendDir, output.AcceptContract, output.AcceptRemovals, logText); refusal != nil {
+					fail(compiler.StageEmitters, refusal.code, refusal.op, refusal.err)
+					return
+				}
 				backendChanges, err := collectDryRunChanges(backendDir, intendedBackendDir, projectPath, output.DryRunDiff)
 				if err != nil {
 					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "collect dry-run backend changes", err)
@@ -826,35 +832,16 @@ func runBuild(args []string) error {
 					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "read generated OpenAPI contract", readErr)
 					return
 				}
-				diff, recoveredBaseline, diffErr := diffOpenAPIContractsWithRecovery(previous, current)
-				if diffErr != nil {
-					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "compare OpenAPI contract", diffErr)
-					return
-				}
-				if recoveredBaseline {
-					logText("openapi: previous generated contract is invalid; replacing it with the valid regenerated contract")
-				}
-				logText("openapi: +%d operations, -%d operations, %d breaking", len(diff.AddedOperations), len(diff.RemovedOperations), len(diff.BreakingChanges))
-				if len(diff.BreakingChanges) > 0 && !output.AcceptContract {
-					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "OpenAPI breaking change gate", fmt.Errorf("%s; rerun with --accept-contract to confirm", strings.Join(diff.BreakingChanges, "; ")))
+				if refusal := checkContractGate(contractPath, previous, current, output.AcceptContract, logText); refusal != nil {
+					fail(compiler.StageEmitters, refusal.code, refusal.op, refusal.err)
 					return
 				}
 			}
 			for backend, previous := range repoBaselines {
-				current, repoErr := collectRepositoryMethods(stagePath(backend))
-				if repoErr != nil {
-					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "read generated repository interfaces", repoErr)
+				if refusal := checkRepositoryGate(backend, previous, stagePath(backend), output.AcceptRemovals, logText); refusal != nil {
+					fail(compiler.StageEmitters, refusal.code, refusal.op, refusal.err)
 					return
 				}
-				removed := diffRepositoryRemovals(previous, current)
-				if len(removed) == 0 {
-					continue
-				}
-				if !output.AcceptRemovals {
-					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "repository removal gate", repositoryRemovalError(backend, removed))
-					return
-				}
-				logText("repositories: %d method(s) removed, accepted by --accept-removals", len(removed))
 			}
 		}
 

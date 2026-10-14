@@ -51,6 +51,7 @@ const (
 	ErrCodeEmitterOptions           = "EMITTER_OPTIONS_ERROR"
 	ErrCodeEmitterStep              = "EMITTER_STEP_ERROR"
 	ErrCodeANGLockMismatch          = "ANG_LOCK_MISMATCH"
+	ErrCodeContractBreaking         = "CONTRACT_BREAKING_CHANGE"
 	ErrCodeEmitterMCPGen            = "EMITTER_MCP_GENERATION_ERROR"
 	ErrCodeEmitterCapabilityResolve = "EMITTER_CAPABILITY_RESOLVE_ERROR"
 )
@@ -97,6 +98,7 @@ var StableErrorCodes = []string{
 	ErrCodeHookProcess,
 	ErrCodeEmitterOptions,
 	ErrCodeEmitterStep,
+	ErrCodeContractBreaking,
 	ErrCodeEmitterMCPGen,
 	ErrCodeEmitterCapabilityResolve,
 }
