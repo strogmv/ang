@@ -1318,11 +1318,6 @@ func containsFold(values []string, wanted string) bool {
 	return false
 }
 
-func repoHasFinder(repo normalizer.Repository, method string) bool {
-	_, ok := repositoryFinder(repo, method)
-	return ok
-}
-
 func repositoryFinder(repo normalizer.Repository, method string) (normalizer.RepositoryFinder, bool) {
 	for _, finder := range repo.Finders {
 		if strings.EqualFold(finder.Name, method) {

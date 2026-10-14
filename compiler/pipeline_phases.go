@@ -689,34 +689,6 @@ func cueStringListAt(v cue.Value, path string) []string {
 	return out
 }
 
-func cueStringMapAt(v cue.Value, path string) map[string]string {
-	p := v.LookupPath(cue.ParsePath(path))
-	if !p.Exists() || p.Err() != nil {
-		return nil
-	}
-	it, err := p.Fields(cue.All())
-	if err != nil {
-		return nil
-	}
-	out := map[string]string{}
-	for it.Next() {
-		key := strings.Trim(strings.TrimSpace(it.Selector().String()), "\"")
-		val, err := it.Value().String()
-		if err != nil {
-			continue
-		}
-		key = strings.TrimSpace(key)
-		val = strings.TrimSpace(val)
-		if key != "" && val != "" {
-			out[key] = val
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
 func runFlowSemPhase(in FlowSemPhaseInput, opts PipelineOptions) {
 	events := toFlowSemEvents(in.Events)
 	for _, svc := range in.Services {

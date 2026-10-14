@@ -49,7 +49,7 @@ type Emitter struct {
 	ServiceImplWorkers int
 	// FrontendSDKSkip names frontend SDK modules the project does not use
 	// (target.frontend_sdk_skip); see frontendSDKModules.
-	FrontendSDKSkip          []string
+	FrontendSDKSkip []string
 	// SQLIndexNames is target.sql_index_names: how a generated index name
 	// longer than 63 bytes is emitted ("" or "truncate": as is, "hashed").
 	SQLIndexNames string
@@ -61,7 +61,7 @@ type Emitter struct {
 	ServiceConfig bool
 	// OperationMetrics is target.operation_metrics: metrics and spans per
 	// operation and per repository query (see emitOperationMetrics).
-	OperationMetrics bool
+	OperationMetrics         bool
 	FrontendDir              string
 	FrontendAdminDir         string
 	TemplatesDir             string // Путь к папке с шаблонами

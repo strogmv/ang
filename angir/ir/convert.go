@@ -654,10 +654,6 @@ func convertPlannerFromNormalizer(hints *normalizer.PlannerHints) *PlannerHints 
 	return out
 }
 
-func canonicalIRMediaFieldName(name string) string {
-	return strings.TrimSpace(name)
-}
-
 func convertImplSteps(steps []normalizer.ImplStep) []ImplStep {
 	result := make([]ImplStep, 0, len(steps))
 	for _, s := range steps {

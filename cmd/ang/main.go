@@ -319,10 +319,6 @@ func readGoModuleAt(projectPath string) string {
 	return strings.TrimSpace(cfg.Go.Module)
 }
 
-func readGoModule() string {
-	return readGoModuleAt(".")
-}
-
 // ProjectConfig holds optional overrides loaded from ang.yaml.
 type ProjectConfig struct {
 	CueRoot      string // CUE intent directory (default: "cue", e.g. ".cue" for hidden)

@@ -436,32 +436,3 @@ func writeEnvExample(opts OutputOptions) error {
 	}
 	return os.WriteFile(envPath, content, 0644)
 }
-
-func firstPathParam(path string) string {
-	params := pathParams(path)
-	if len(params) == 0 {
-		return ""
-	}
-	return params[0]
-}
-
-func pathParams(path string) []string {
-	var params []string
-	start := strings.Index(path, "{")
-	for start != -1 {
-		end := strings.Index(path[start:], "}")
-		if end == -1 {
-			break
-		}
-		param := path[start+1 : start+end]
-		if param != "" {
-			params = append(params, param)
-		}
-		next := start + end + 1
-		start = strings.Index(path[next:], "{")
-		if start != -1 {
-			start += next
-		}
-	}
-	return params
-}

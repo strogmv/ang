@@ -68,10 +68,6 @@ func completionContext(text string, pos Position) CompletionContext {
 	return ctx
 }
 
-func isActionAvailable(entry flowsem.ActionCatalogEntry, ctx CompletionContext) bool {
-	return actionUnavailableReason(entry, ctx) == ""
-}
-
 func actionUnavailableReason(entry flowsem.ActionCatalogEntry, ctx CompletionContext) string {
 	if entry.RequiresTx && !ctx.InTx {
 		return "requires tx.Block"

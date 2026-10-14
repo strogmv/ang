@@ -540,10 +540,6 @@ func irPlannerToNormalizer(hints *ir.PlannerHints) *normalizer.PlannerHints {
 	return out
 }
 
-func canonicalEmitterMediaFieldName(name string) string {
-	return strings.TrimSpace(name)
-}
-
 func irImplStepsToNormalizer(irSteps []ir.ImplStep) []normalizer.ImplStep {
 	var result []normalizer.ImplStep
 	for _, s := range irSteps {

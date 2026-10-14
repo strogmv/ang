@@ -37,10 +37,6 @@ type buildEvent struct {
 	Detail string `json:"detail,omitempty"`
 }
 
-func emitBuildDiagnostics(diagnostics []normalizer.Warning) bool {
-	return len(emitBuildDiagnosticEvents(diagnostics)) > 0
-}
-
 // emitBuildDiagnosticEvents writes one event per visible diagnostic, warnings
 // first and errors last, and returns the errors. message is the first line of
 // the diagnostic, at most 300 characters; detail carries the full text when

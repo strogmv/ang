@@ -3,7 +3,6 @@ package emitter
 import (
 	"bytes"
 	"fmt"
-	"github.com/strogmv/ang/compiler/sqlmigrate"
 	"go/format"
 	"os"
 	"path/filepath"
@@ -11,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+
+	"github.com/strogmv/ang/compiler/sqlmigrate"
 
 	"github.com/strogmv/ang/angir/ir"
 	"github.com/strogmv/ang/angir/normalizer"

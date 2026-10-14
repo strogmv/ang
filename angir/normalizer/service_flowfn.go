@@ -1,8 +1,6 @@
 package normalizer
 
 import (
-	"fmt"
-
 	"github.com/strogmv/ang/angir/flowfn"
 )
 
@@ -33,13 +31,4 @@ func convertFlowFnSteps(steps []flowfn.Step) []FlowStep {
 		})
 	}
 	return out
-}
-
-func parseFlowFnString(value string, svcName, opName string) ([]FlowStep, error) {
-	n := New()
-	steps, err := n.parseFlowFn(value)
-	if err != nil {
-		return nil, fmt.Errorf("parse flowfn for %s.%s: %w", svcName, opName, err)
-	}
-	return steps, nil
 }

@@ -115,7 +115,6 @@ type DirProvider struct {
 	name    string
 	typeMap TypeMap
 	funcMap template.FuncMap
-	target  ir.Target
 }
 
 func (p *DirProvider) Name() string { return p.name }

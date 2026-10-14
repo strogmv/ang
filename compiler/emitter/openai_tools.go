@@ -216,33 +216,3 @@ func openAIJSONType(field normalizer.Field) string {
 		return "string"
 	}
 }
-
-func parseOpenAIToolNames(step normalizer.FlowStep) []string {
-	if step.Args == nil {
-		return nil
-	}
-	raw, ok := step.Args["tools"]
-	if !ok {
-		return nil
-	}
-	switch x := raw.(type) {
-	case []string:
-		out := make([]string, 0, len(x))
-		for _, s := range x {
-			if t := strings.TrimSpace(s); t != "" {
-				out = append(out, t)
-			}
-		}
-		return out
-	case []any:
-		out := make([]string, 0, len(x))
-		for _, item := range x {
-			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
-				out = append(out, strings.TrimSpace(s))
-			}
-		}
-		return out
-	default:
-		return nil
-	}
-}

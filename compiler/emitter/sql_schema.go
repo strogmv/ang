@@ -139,8 +139,7 @@ func entityHasID(entity normalizer.Entity) bool {
 
 // hasSQLTable says whether an entity is stored in PostgreSQL. It is not when it is
 // declared @storage("mongo") (or has an ObjectId field), or when it is a DTO
-// (@dto(only="true") / _dto: true): a shape of an answer or a projection that
-// nothing saves. Such entities get no table, no SQL queries and no Postgres
+// (@dto(only="true")): a shape of an answer or a projection that nothing saves. Such entities get no table, no SQL queries and no Postgres
 // repository.
 func hasSQLTable(entity normalizer.Entity) bool {
 	if storage, ok := entity.Metadata["storage"].(string); ok && strings.EqualFold(storage, "mongo") {

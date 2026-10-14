@@ -216,15 +216,3 @@ func toMetadataString(v any) string {
 		return ""
 	}
 }
-
-func sortedSetKeys(set map[string]struct{}) []string {
-	if len(set) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(set))
-	for k := range set {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}

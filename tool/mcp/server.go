@@ -18,18 +18,12 @@ import (
 )
 
 var (
-	projectLocks sync.Map // map[string]*sync.Mutex
 	sessionState = struct {
 		sync.Mutex
 		LastAction   string
 		Bootstrapped bool
 	}{}
 )
-
-func getLock(path string) *sync.Mutex {
-	lock, _ := projectLocks.LoadOrStore(path, &sync.Mutex{})
-	return lock.(*sync.Mutex)
-}
 
 // ANGReport - Unified response structure
 type ANGReport struct {

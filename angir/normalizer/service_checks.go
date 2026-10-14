@@ -101,29 +101,6 @@ func cuePosition(v cue.Value) (file string, line int, col int) {
 	return "", 0, 0
 }
 
-func wrappedNodePosition(fset *token.FileSet, pos token.Pos) (line int, col int, ok bool) {
-	if !pos.IsValid() {
-		return 0, 0, false
-	}
-	p := fset.Position(pos)
-	if p.Line <= 0 {
-		return 0, 0, false
-	}
-	return p.Line, p.Column, true
-}
-
-func wrappedToCueLine(cueBaseLine int, wrappedLine int) int {
-	// Wrapped body is:
-	// 1: package lint
-	// 2: func _() ...
-	// 3+: original impl code
-	// so wrapped line 3 maps to cueBaseLine.
-	if wrappedLine <= 3 {
-		return cueBaseLine
-	}
-	return cueBaseLine + (wrappedLine - 3)
-}
-
 func isFlowFirstCandidate(methodName string) bool {
 	name := strings.ToLower(strings.TrimSpace(methodName))
 	prefixes := []string{
@@ -405,55 +382,6 @@ func isSafeMappingAssignExpr(expr ast.Expr) bool {
 	}
 }
 
-// isSafeAllowedCallExpr returns true for a curated list of safe stdlib calls that
-// are commonly used in mapping.Assign values (len, string, make, fmt.Sprintf, strings.*).
-func isSafeAllowedCallExpr(x *ast.CallExpr) bool {
-	allowedFuncs := map[string]bool{
-		"len": true, "string": true, "int": true, "int64": true, "float64": true,
-		"bool": true, "byte": true, "rune": true,
-	}
-	allowedPkgFuncs := map[string]map[string]bool{
-		"strings": {"TrimPrefix": true, "TrimSuffix": true, "TrimSpace": true, "Trim": true,
-			"Contains": true, "HasPrefix": true, "HasSuffix": true, "ToLower": true, "ToUpper": true,
-			"Replace": true, "ReplaceAll": true, "Split": true, "Join": true, "Count": true},
-		"fmt":     {"Sprintf": true},
-		"uuid":    {"NewString": true},
-		"time":    {"Now": true, "Since": true, "Until": true},
-		"strconv": {"Itoa": true, "Atoi": true, "FormatInt": true, "FormatFloat": true, "ParseInt": true, "ParseFloat": true},
-	}
-	switch fn := x.Fun.(type) {
-	case *ast.Ident:
-		if fn.Name == "make" {
-			// make(Type, len, cap?) — first arg is a type, not an expression; skip it.
-			for _, arg := range x.Args[1:] {
-				if !isSafeMappingAssignExpr(arg) {
-					return false
-				}
-			}
-			return true
-		}
-		if !allowedFuncs[fn.Name] {
-			return false
-		}
-	case *ast.SelectorExpr:
-		pkgIdent, ok := fn.X.(*ast.Ident)
-		if !ok {
-			return false
-		}
-		if funcs, ok := allowedPkgFuncs[pkgIdent.Name]; !ok || !funcs[fn.Sel.Name] {
-			return false
-		}
-	default:
-		return false
-	}
-	for _, arg := range x.Args {
-		if !isSafeMappingAssignExpr(arg) {
-			return false
-		}
-	}
-	return true
-}
-
 func flowStringMap(v any) map[string]string {
 	if v == nil {
 		return nil
@@ -510,24 +438,6 @@ func isSafeMappingAssignIndex(expr ast.Expr) bool {
 	default:
 		return false
 	}
-}
-
-func validateGoSnippet(code string, file string, line int, col int) string {
-	if code == "" || strings.Contains(code, "{{") {
-		return "" // Skip templates for now
-	}
-	// Wrap code in a function block
-	wrapped := fmt.Sprintf("package dummy\nfunc _() { _ = %s }", code)
-	if strings.Contains(code, ";") || strings.Contains(code, "for ") || strings.Contains(code, "if ") {
-		wrapped = fmt.Sprintf("package dummy\nfunc _() {\n%s\n}", code)
-	}
-
-	fset := token.NewFileSet()
-	_, err := parser.ParseFile(fset, "", wrapped, 0)
-	if err != nil {
-		return fmt.Sprintf("Invalid Go syntax: %v", err)
-	}
-	return ""
 }
 
 func isCrossServiceAllowed(allow map[string]map[string]struct{}, serviceName, entityName string) bool {

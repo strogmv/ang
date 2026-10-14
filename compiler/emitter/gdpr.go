@@ -22,14 +22,14 @@ type GDPRErasure struct {
 }
 
 type GDPREntityData struct {
-	Entity              normalizer.Entity
-	Receiver            string
-	RepoField           string
-	OwnerField          string
-	OwnerFieldGo        string
-	OwnerFieldType      string
-	GDPRFields          []normalizer.Field
-	Erasures            []GDPRErasure
+	Entity         normalizer.Entity
+	Receiver       string
+	RepoField      string
+	OwnerField     string
+	OwnerFieldGo   string
+	OwnerFieldType string
+	GDPRFields     []normalizer.Field
+	Erasures       []GDPRErasure
 	// Fields an export must not carry out of the system even to their owner:
 	// a password hash in a downloadable file is a hash someone can work on
 	// offline at their leisure.
