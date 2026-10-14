@@ -457,13 +457,19 @@ func buildArgsProject(args []string) string {
 	return "."
 }
 
-// handOverToPinnedToolchain runs before `ang build`: when the project pins
-// another revision, it builds that one if needed and replaces this process
-// with it. It returns only when this binary should do the build itself.
-func handOverToPinnedToolchain(args []string) {
+// handOverToPinnedToolchain runs before `ang build` and `ang schema`: when the
+// project pins another revision, it builds that one if needed and replaces
+// this process with it, running the same command. command is the command
+// words ("build", or "schema" and its subcommand), args what follows them. It
+// returns only when this binary should do the work itself.
+func handOverToPinnedToolchain(command, args []string) {
+	failure := "Build FAILED"
+	if len(command) > 0 && command[0] != "build" {
+		failure = "Schema FAILED"
+	}
 	h, err := decideToolchain(args, os.Getenv, runningCompilerRevision())
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Build FAILED: %v\n", err)
+		fmt.Fprintf(os.Stderr, "%s: %v\n", failure, err)
 		os.Exit(1)
 	}
 	if !h.Switch {
@@ -478,11 +484,11 @@ func handOverToPinnedToolchain(args []string) {
 		bin, err = ensureToolchain(cache, h.Pin, os.Stderr)
 		if err == nil {
 			env := append(os.Environ(), toolchainActiveEnv+"="+h.Pin.Commit)
-			err = execToolchain(bin, append([]string{"build"}, args...), env)
+			err = execToolchain(bin, append(append([]string{}, command...), args...), env)
 		}
 	}
-	fmt.Fprintf(os.Stderr, "Build FAILED: cannot run the ang toolchain pinned in %s: %v\n", angLockFileName, err)
-	fmt.Fprintf(os.Stderr, "To build with this binary anyway: %s=local ang build --allow-lock-mismatch (do not commit that output without updating %s)\n", toolchainEnv, angLockFileName)
+	fmt.Fprintf(os.Stderr, "%s: cannot run the ang toolchain pinned in %s: %v\n", failure, angLockFileName, err)
+	fmt.Fprintf(os.Stderr, "To use this binary anyway: %s=local ang %s --allow-lock-mismatch (do not commit that output without updating %s)\n", toolchainEnv, strings.Join(command, " "), angLockFileName)
 	os.Exit(1)
 }
 

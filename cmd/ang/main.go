@@ -13,6 +13,7 @@ import (
 
 	"github.com/strogmv/ang/angir/normalizer"
 	"github.com/strogmv/ang/compiler"
+	"github.com/strogmv/ang/compiler/schemavendor"
 	"github.com/strogmv/ang/tool/mcp"
 	"gopkg.in/yaml.v3"
 )
@@ -37,7 +38,11 @@ func main() {
 
 	if cmd == "build" {
 		// A project pinned to another revision is built by that revision.
-		handOverToPinnedToolchain(os.Args[2:])
+		handOverToPinnedToolchain([]string{"build"}, os.Args[2:])
+	}
+	if cmd == "schema" && len(os.Args) > 2 && (os.Args[2] == "sync" || os.Args[2] == "check") {
+		// The vendored schema is the pinned revision's, so that revision writes it.
+		handOverToPinnedToolchain([]string{"schema", os.Args[2]}, os.Args[3:])
 	}
 	applyBuildProcessLimitsIfNeeded(cmd)
 
@@ -116,6 +121,8 @@ func main() {
 		runVersion()
 	case "toolchain":
 		runToolchain(os.Args[2:])
+	case "schema":
+		runSchema(os.Args[2:])
 	default:
 		fmt.Printf("Unknown command: %s\n", cmd)
 		printUsage()
@@ -130,6 +137,7 @@ func printUsage() {
 	fmt.Println("  ang validate  Validate CUE models and architecture")
 	fmt.Println("  ang lint      Perform deep semantic linting of flows and logic")
 	fmt.Println("  ang build     Compile CUE intent into code and infra configs (--mode=in_place|release, --backend-dir, --dry-run, --run-tests, --skip-frontend, --skip-contract-tests, --log-format=json, --phase=all|plan|apply, --out-plan, --plan-file)")
+	fmt.Println("  ang schema [sync|check] [project]  Vendor ANG's CUE schema (the pinned revision's) into cue.mod/pkg; check fails on a difference")
 	fmt.Println("  ang toolchain [status|install|path|list]  The ang revision ang.lock pins, built once into a cache; ang build runs it (ANG_TOOLCHAIN=local opts out)")
 	fmt.Println("  ang up        Local one-command bootstrap (doctor start + compose up + build + smoke; --frontend starts UI)")
 	fmt.Println("  ang first-run Guided first launch (env bootstrap + infra/build + smoke)")
@@ -445,7 +453,6 @@ func initLegacyScaffold(root, modulePath, lang, db string) error {
 		filepath.Join(root, cr, "invariants"),
 		filepath.Join(root, cr, "architecture"),
 		filepath.Join(root, cr, "repo"),
-		filepath.Join(root, cr, "schema"),
 		filepath.Join(root, cr, "project"),
 	}
 	for _, dir := range dirs {
@@ -617,6 +624,15 @@ Removing methods from generated repository interfaces requires --accept-removals
 		if err := writeIfMissing(path, content); err != nil {
 			return err
 		}
+	}
+	return vendorInitSchema(root)
+}
+
+// vendorInitSchema gives a new project this binary's CUE schema in
+// cue.mod/pkg, so its imports of github.com/strogmv/ang/cue/schema resolve.
+func vendorInitSchema(root string) error {
+	if _, err := schemavendor.Sync(root, schemavendor.Options{Always: true}); err != nil {
+		return fmt.Errorf("vendor the CUE schema: %w", err)
 	}
 	return nil
 }

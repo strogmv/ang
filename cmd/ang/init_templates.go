@@ -60,8 +60,7 @@ func initFromTemplate(opts initTemplateOptions) error {
 	if err := ensureInitGoMod(opts.TargetDir, opts.ModulePath); err != nil {
 		return err
 	}
-
-	return nil
+	return vendorInitSchema(opts.TargetDir)
 }
 
 func ensureTargetDir(dir string, force bool) error {
