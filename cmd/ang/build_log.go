@@ -60,7 +60,7 @@ func emitBuildDiagnosticEvents(diagnostics []normalizer.Warning) []normalizer.Wa
 			Column:       diagnostic.Column,
 			Message:      short,
 			SuggestedFix: diagnostic.SuggestedFix,
-			DocsURL:      firstNonEmpty(diagnostic.DocsURL, compiler.DiagnosticDocsURL(diagnostic.Code)),
+			DocsURL:      firstNonEmptyString(diagnostic.DocsURL, compiler.DiagnosticDocsURL(diagnostic.Code)),
 		}
 		if cut {
 			event.Detail = diagnostic.Message

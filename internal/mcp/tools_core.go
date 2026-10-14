@@ -240,14 +240,10 @@ func registerCoreTools(addTool toolAdder, deps coreToolDeps) {
 		mcp.WithDescription("Unified AI context for ops work: schema + actions + diagnostics + proof."),
 		mcp.WithString("project_path", mcp.Description("Project root path (default: current directory).")),
 		mcp.WithString("profile", mcp.Description("Lint profile: mini|saas|prod (default: mini).")),
-		mcp.WithBoolean("migration_mode", mcp.Description("Enable facts-driven migration checks (requires facts_path).")),
-		mcp.WithString("facts_path", mcp.Description("Path to ang/facts/v1 JSON from `ang extract ...`.")),
 	), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		projectPath := strings.TrimSpace(mcp.ParseString(request, "project_path", ""))
 		profile := strings.TrimSpace(mcp.ParseString(request, "profile", "mini"))
-		migrationMode := mcp.ParseBoolean(request, "migration_mode", false)
-		factsPath := strings.TrimSpace(mcp.ParseString(request, "facts_path", ""))
-		args := buildOpsContextArgs(projectPath, profile, migrationMode, factsPath)
+		args := buildOpsContextArgs(projectPath, profile)
 		return runANGJSONCommand(args)
 	})
 
@@ -560,7 +556,7 @@ func registerCoreTools(addTool toolAdder, deps coreToolDeps) {
 	})
 }
 
-func buildOpsContextArgs(projectPath, profile string, migrationMode bool, factsPath string) []string {
+func buildOpsContextArgs(projectPath, profile string) []string {
 	args := []string{"ops", "context"}
 	if strings.TrimSpace(projectPath) != "" {
 		args = append(args, projectPath)
@@ -568,12 +564,6 @@ func buildOpsContextArgs(projectPath, profile string, migrationMode bool, factsP
 	args = append(args, "--json")
 	if strings.TrimSpace(profile) != "" {
 		args = append(args, "--profile="+strings.TrimSpace(profile))
-	}
-	if migrationMode {
-		args = append(args, "--migration-mode")
-	}
-	if strings.TrimSpace(factsPath) != "" {
-		args = append(args, "--facts="+strings.TrimSpace(factsPath))
 	}
 	return args
 }

@@ -539,7 +539,7 @@ func buildTemplateRebasePlan(report templateDiffReport) templateRebasePlan {
 			continue
 		}
 		if f.AutoApplicable {
-			plan.Steps = append(plan.Steps, templateRebasePlanStep{Path: f.Path, Action: f.Action, MergeStrategy: firstNonEmpty(f.MergeStrategy, "write_desired"), Reason: f.Reason})
+			plan.Steps = append(plan.Steps, templateRebasePlanStep{Path: f.Path, Action: f.Action, MergeStrategy: firstNonEmptyString(f.MergeStrategy, "write_desired"), Reason: f.Reason})
 			switch f.Action {
 			case "create":
 				plan.Summary.ApplyCreate++

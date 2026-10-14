@@ -429,8 +429,6 @@ func runOpsContext(args []string) {
 	fs.SetOutput(os.Stderr)
 	asJSON := fs.Bool("json", false, "output unified AI context as JSON")
 	profileRaw := fs.String("profile", string(lintProfileMini), "lint profile: mini|saas|prod")
-	migrationMode := fs.Bool("migration-mode", false, "enable facts-driven migration checks (requires --facts)")
-	factsPath := fs.String("facts", "", "path to ang/facts/v1 JSON (from `ang extract ...`)")
 	if err := fs.Parse(args); err != nil {
 		fmt.Printf("Ops context FAILED: %v\n", err)
 		os.Exit(1)
@@ -451,7 +449,7 @@ func runOpsContext(args []string) {
 		projectPath = fs.Arg(0)
 	}
 
-	vetRes := collectVetDiagnostics(projectPath, profile, *migrationMode, *factsPath)
+	vetRes := collectVetDiagnostics(projectPath, profile)
 	diagsV2 := make([]vetDiagWithExplain, 0, len(vetRes.Diags))
 	for _, d := range vetRes.Diags {
 		diagsV2 = append(diagsV2, vetDiagWithExplain{
@@ -487,8 +485,6 @@ func runOpsVet(args []string) {
 	withProof := fs.Bool("proof", false, "output per-operation proof report (ang/proof/v1)")
 	withFix := fs.Bool("fix", false, "apply safe structured suggested fixes and re-run vet")
 	profileRaw := fs.String("profile", string(lintProfileMini), "lint profile: mini|saas|prod")
-	migrationMode := fs.Bool("migration-mode", false, "enable facts-driven migration checks (requires --facts)")
-	factsPath := fs.String("facts", "", "path to ang/facts/v1 JSON (from `ang extract ...`)")
 	if err := fs.Parse(args); err != nil {
 		fmt.Printf("Ops vet FAILED: %v\n", err)
 		os.Exit(1)
@@ -507,7 +503,7 @@ func runOpsVet(args []string) {
 		projectPath = fs.Arg(0)
 	}
 
-	vetRes := collectVetDiagnostics(projectPath, profile, *migrationMode, *factsPath)
+	vetRes := collectVetDiagnostics(projectPath, profile)
 	fixReport := []string(nil)
 	if *withFix {
 		report, err := applyVetFixes(projectPath, vetRes.Diags)
@@ -516,7 +512,7 @@ func runOpsVet(args []string) {
 			os.Exit(1)
 		}
 		fixReport = report
-		vetRes = collectVetDiagnostics(projectPath, profile, *migrationMode, *factsPath)
+		vetRes = collectVetDiagnostics(projectPath, profile)
 	}
 
 	if *withProof {
@@ -578,32 +574,11 @@ func runOpsVet(args []string) {
 	fmt.Println("Vet OK.")
 }
 
-func collectVetDiagnostics(projectPath string, profile lintProfile, migrationMode bool, factsPath string) vetRunResult {
+func collectVetDiagnostics(projectPath string, profile lintProfile) vetRunResult {
 	semantic, pipelineErr := compiler.RunSemanticPhases(projectPath)
 	diags := append([]normalizer.Warning(nil), compiler.LatestDiagnostics...)
 
 	diags = append(diags, runSemanticLints(semantic.Services, semantic.Endpoints, profile)...)
-	if migrationMode {
-		if strings.TrimSpace(factsPath) == "" {
-			diags = append(diags, normalizer.Warning{
-				Kind:     "migration",
-				Code:     codeMigrationFactsRequired,
-				Severity: "error",
-				Message:  "--migration-mode requires --facts <path-to-ang-facts-v1.json>",
-				Hint:     "Generate facts via `ang extract <src> --from auto --out migration.facts.json` and rerun `ang ops vet --migration-mode --facts migration.facts.json`.",
-			})
-		} else if facts, err := loadFactsEnvelope(factsPath); err != nil {
-			diags = append(diags, normalizer.Warning{
-				Kind:     "migration",
-				Code:     codeMigrationFactsLoadFailed,
-				Severity: "error",
-				Message:  fmt.Sprintf("failed to load facts file %q: %v", factsPath, err),
-				Hint:     "Ensure file exists, is valid JSON, and has schema ang/facts/v1.",
-			})
-		} else {
-			diags = append(diags, runMigrationLints(semantic.Services, facts, profile)...)
-		}
-	}
 
 	diags = rewriteDiagnosticSources(diags, semantic.Services)
 	diags = enrichUnknownActionDiags(diags)

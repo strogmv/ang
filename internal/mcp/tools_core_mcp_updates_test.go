@@ -52,8 +52,8 @@ func TestRegisterCoreToolsIncludesNewWrappers(t *testing.T) {
 }
 
 func TestBuildOpsContextArgs(t *testing.T) {
-	args := buildOpsContextArgs(".", "prod", true, "tmp/facts.json")
-	want := []string{"ops", "context", ".", "--json", "--profile=prod", "--migration-mode", "--facts=tmp/facts.json"}
+	args := buildOpsContextArgs(".", "prod")
+	want := []string{"ops", "context", ".", "--json", "--profile=prod"}
 	if !slices.Equal(args, want) {
 		t.Fatalf("buildOpsContextArgs()=%v want %v", args, want)
 	}

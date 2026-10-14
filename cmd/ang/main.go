@@ -105,16 +105,10 @@ func main() {
 		runContext(os.Args[2:])
 	case "template":
 		runTemplate(os.Args[2:])
-	case "extract":
-		runExtract(os.Args[2:])
-	case "import":
-		runImport(os.Args[2:])
 	case "openapi":
 		runOpenAPI(os.Args[2:])
 	case "sdk":
 		runSDKBump(os.Args[2:])
-	case "gen":
-		runAIGen(os.Args[2:])
 	case "mcp":
 		mcp.Run()
 	case "version":
@@ -164,9 +158,6 @@ func printUsage() {
 	fmt.Println("  ang patch     Patch-first workflow: lint/plan/apply for structured CUE edits")
 	fmt.Println("  ang fmt       Canonical format for CUE + flow alias normalization")
 	fmt.Println("  ang fix       Rewrite deprecated flow aliases to canonical names")
-	fmt.Println("  ang extract   Extract facts from Go/Java/OpenAPI/SQL for AI migration (--from=go|java|openapi|sql|auto, --out)")
-	fmt.Println("  ang import java  Normalize Java sources into import IR and generate contract-layer CUE (--report --diff --update)")
-	fmt.Println("  ang import openapi  Import OpenAPI spec into cue/api/http.cue + operations_*.cue + cue/domain/entities.cue (--report --diff --update)")
 	fmt.Println("  ang template diff    Compare emitted project against current files and classify drift")
 	fmt.Println("  ang template rebase  Plan/apply safe template deltas while preserving supported custom edits")
 	fmt.Println("  ang config doctor  Validate runtime env against generated config schema")
@@ -182,7 +173,6 @@ func printUsage() {
 	fmt.Println("  ang openapi   Generate OpenAPI spec without full build (--out, --stdout)")
 	fmt.Println("  ang sdk bump [patch|minor|major]  Bump version in cue/project/project.cue")
 	fmt.Println("  ang sdk version                   Show current version from project.cue")
-	fmt.Println("  ang gen       Generate CUE operations from ang/facts/v1 via AI (--facts, --service, --out, --dry-run)")
 }
 
 func runHash(args []string) {
