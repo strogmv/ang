@@ -13,7 +13,6 @@ Core capabilities:
 Profile capabilities:
 
 - `profile_go_legacy`
-- `profile_python_fastapi`
 
 ## Why
 
@@ -25,11 +24,10 @@ This keeps pipeline logic extensible as new targets are added.
 Source: `compiler/capabilities.go`
 
 - `go/*/*` => `profile_go_legacy`
-- `python/fastapi/postgres` => `profile_python_fastapi`
 - DB `postgres|mysql|sqlite` => `sql_repo`
 - Queue not `none` => `events`
 - Go target => `ws`
-- Go and Python/FastAPI targets => `auth`
+- Go target => `auth`
 
 ## Build Integration
 

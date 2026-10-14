@@ -695,9 +695,9 @@ type FileMeta struct {
 
 // TargetDef describes the code generation target stack.
 type TargetDef struct {
-	Name           string // "go-core", "python-api"
-	Lang           string // "go", "python", "rust", "typescript"
-	Framework      string // "chi", "echo", "fiber", "axum", "fastapi"
+	Name           string // "go-core"
+	Lang           string // "go" (the only language ANG generates)
+	Framework      string // "chi" (HTTP) or "grpc"
 	DB             string // "postgres", "mysql", "mongodb"
 	Cache          string // "redis", "memcached", "none"
 	Queue          string // "nats", "kafka", "rabbitmq"

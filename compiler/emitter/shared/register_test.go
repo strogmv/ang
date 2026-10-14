@@ -11,7 +11,7 @@ func TestRegisterSharedSteps_Smoke(t *testing.T) {
 	reg := generator.NewStepRegistry()
 	Register(reg, RegisterInput{})
 	steps := reg.Steps()
-	// Python SDK step removed from shared steps; now 3 steps: OpenAPI, AsyncAPI, System Manifest.
+	// Shared steps: OpenAPI, AsyncAPI, System Manifest.
 	if len(steps) < 3 {
 		t.Fatalf("expected at least 3 shared steps, got %d", len(steps))
 	}

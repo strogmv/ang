@@ -37,8 +37,7 @@ const (
 	CapabilityUsesSQLC        Capability = "uses_sqlc"
 
 	// Profile capabilities are explicit backend generation profiles.
-	CapabilityProfileGoLegacy      Capability = "profile_go_legacy"
-	CapabilityProfilePythonFastAPI Capability = "profile_python_fastapi"
+	CapabilityProfileGoLegacy Capability = "profile_go_legacy"
 )
 
 // CapabilitySet is the resolved capability matrix for a target.
@@ -109,19 +108,11 @@ func ResolveTargetCapabilities(td normalizer.TargetDef) (CapabilitySet, error) {
 		caps[CapabilityEvents] = true
 	}
 
-	// Auth is supported in current generated backends for Go and Python profiles.
-	if lang == "go" || (lang == "python" && framework == "fastapi") {
-		caps[CapabilityAuth] = true
-	}
-
-	switch {
-	case lang == "go":
-		caps[CapabilityProfileGoLegacy] = true
-	case lang == "python" && framework == "fastapi" && db == "postgres":
-		caps[CapabilityProfilePythonFastAPI] = true
-	default:
+	if lang != "go" {
 		return nil, fmt.Errorf("unsupported target profile: %s/%s/%s", td.Lang, td.Framework, td.DB)
 	}
+	caps[CapabilityAuth] = true
+	caps[CapabilityProfileGoLegacy] = true
 
 	return caps, nil
 }

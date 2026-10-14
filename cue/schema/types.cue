@@ -65,9 +65,6 @@ import "github.com/strogmv/ang/cue/project"
 	}
 	impls?: {
 		go?: #CodeBlock & { lang: "go" }
-		python?: #CodeBlock & { lang: "python" }
-		rust?: #CodeBlock & { lang: "rust" }
-		ts?: #CodeBlock & { lang: "ts" }
 	}
 	// Explicit implementation block (used when a target-specific resolver is not available)
 	impl?: #CodeBlock
@@ -81,15 +78,6 @@ import "github.com/strogmv/ang/cue/project"
 
 	if project.state.target.lang == "go" {
 		_impl: impls.go
-	}
-	if project.state.target.lang == "python" {
-		_impl: impls.python
-	}
-	if project.state.target.lang == "rust" {
-		_impl: impls.rust
-	}
-	if project.state.target.lang == "ts" {
-		_impl: impls.ts
 	}
 
 	// VALIDATION: If flow uses events, they must be declared in publishes

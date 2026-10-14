@@ -28,8 +28,7 @@ const (
 type InfraLanguage string
 
 const (
-	InfraLanguageGo     InfraLanguage = "go"
-	InfraLanguagePython InfraLanguage = "python"
+	InfraLanguageGo InfraLanguage = "go"
 )
 
 type InfraExtractor func(*Normalizer, cue.Value) (any, error)
@@ -259,12 +258,6 @@ func init() {
 			if strings.EqualFold(store, "hybrid") {
 				patch.ForceHasSQL = true
 			}
-		},
-		Steps: map[InfraLanguage]InfraStepSpec{
-			InfraLanguagePython: {
-				Name:     "Python Auth Stores",
-				Requires: []string{"profile_python_fastapi", "auth"},
-			},
 		},
 	})
 

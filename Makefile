@@ -40,7 +40,7 @@ mcp-gen:
 	@echo "--- Generating MCP server ---"
 	./scripts/gen_mcp_server.sh
 
-# Run release smoke checks (Go+Python outputs)
+# Run release smoke checks (Go output)
 release-smoke:
 	@echo "--- Release Smoke ---"
 	./scripts/release-smoke.sh

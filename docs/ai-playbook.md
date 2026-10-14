@@ -45,7 +45,7 @@ Do not manually edit generated artifacts unless explicitly required:
 | `ang_schema` | Get operation CUE schema for AI |
 | `ang_validate` | Fast CUE validation |
 | `ang_dry_run` | Validate + diff without writing files |
-| `ang_generate` | Full build (CUE → Go/Python) |
+| `ang_generate` | Full build (CUE → Go) |
 | `ang_ops_vet` | Semantic linting (`fix`, `proof`, `explain` flags) |
 | `ang_openapi` | Generate OpenAPI spec without full build |
 | `ang_sdk_version` | Show current project semver |

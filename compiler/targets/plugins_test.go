@@ -12,7 +12,6 @@ import (
 func TestBuiltinPlugins_OrderAndNames(t *testing.T) {
 	t.Parallel()
 
-	// PythonPlugin is excluded from the release build.
 	plugins := BuiltinPlugins()
 	if len(plugins) != 2 {
 		t.Fatalf("expected 2 builtin plugins (shared + go_legacy), got %d", len(plugins))

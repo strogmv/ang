@@ -44,7 +44,6 @@ func TestServiceImplTemplateSingleSource(t *testing.T) {
 
 	alternatives := []string{
 		filepath.Join(root, "templates", "go", "service_impl.tmpl"),
-		filepath.Join(root, "templates", "python", "service_impl.tmpl"),
 	}
 	for _, alt := range alternatives {
 		if _, err := os.Stat(alt); err == nil {

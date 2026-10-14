@@ -10,7 +10,6 @@ import (
 	cueformat "cuelang.org/go/cue/format"
 	cueparser "cuelang.org/go/cue/parser"
 	"github.com/strogmv/ang/compiler/emitter"
-	pyemitter "github.com/strogmv/ang/compiler/emitter/python"
 )
 
 func tryTemplatePreserveMerge(relPath, desired, current string) (string, string, bool) {
@@ -19,9 +18,6 @@ func tryTemplatePreserveMerge(relPath, desired, current string) (string, string,
 		if merged, ok := mergeCueTopLevelDecls(desired, current); ok {
 			return merged, "cue_ast_top_level_merge", true
 		}
-	}
-	if strings.HasSuffix(normalized, ".py") && pyemitter.ShouldPreserveCustomBlocks(normalized) && strings.Contains(current, "ANG:BEGIN_CUSTOM") {
-		return pyemitter.MergeCustomBlocks(desired, current), "python_custom_blocks", true
 	}
 	if strings.HasSuffix(normalized, ".go") && strings.Contains(current, "ANG:BEGIN_CUSTOM") {
 		return emitter.MergeGoCustomBlocksCompat(desired, current, normalized)

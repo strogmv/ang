@@ -279,7 +279,6 @@ func init() {
 }
 
 // BuiltinPlugins returns default in-process plugins in deterministic order.
-// PythonPlugin is excluded from the release build (failing); re-add when stable.
 func BuiltinPlugins() []TargetPlugin {
 	return []TargetPlugin{
 		SharedPlugin{},

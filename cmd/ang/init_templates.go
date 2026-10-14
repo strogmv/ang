@@ -147,12 +147,7 @@ func sanitizeProjectName(s string) string {
 }
 
 func defaultFrameworkForLang(lang string) string {
-	switch strings.ToLower(strings.TrimSpace(lang)) {
-	case "python":
-		return "fastapi"
-	default:
-		return "chi"
-	}
+	return "chi"
 }
 
 func ensureInitGoMod(targetDir, modulePath string) error {

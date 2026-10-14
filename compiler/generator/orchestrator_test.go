@@ -90,11 +90,10 @@ func TestStepRegistry_DuplicateArtifactKeyFailsFast(t *testing.T) {
 }
 
 func TestStepRegistry_Execute(t *testing.T) {
-	td := normalizer.TargetDef{Name: "python"}
+	td := normalizer.TargetDef{Name: "go"}
 	caps := compiler.CapabilitySet{
-		compiler.CapabilityHTTP:                 true,
-		compiler.CapabilityProfileGoLegacy:      false,
-		compiler.CapabilityProfilePythonFastAPI: true,
+		compiler.CapabilityHTTP:            true,
+		compiler.CapabilityProfileGoLegacy: false,
 	}
 
 	reg := NewStepRegistry()

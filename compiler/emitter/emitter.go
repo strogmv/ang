@@ -136,9 +136,8 @@ func ReadTemplateByPath(tmplPath string) ([]byte, error) {
 	}
 
 	candidates := []string{name}
-	if !strings.HasPrefix(name, "go/") && !strings.HasPrefix(name, "python/") {
+	if !strings.HasPrefix(name, "go/") {
 		candidates = append(candidates, filepath.ToSlash(filepath.Join("go", name)))
-		candidates = append(candidates, filepath.ToSlash(filepath.Join("python", name)))
 	}
 
 	// Try embedded FS first

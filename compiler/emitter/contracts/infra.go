@@ -6,10 +6,6 @@ func InfraStepsForValuesGo(values map[string]any) []InfraResolved {
 	return normalizer.NewInfraRegistry().StepsForValues(normalizer.InfraLanguageGo, values)
 }
 
-func InfraStepsForValuesPython(values map[string]any) []InfraResolved {
-	return normalizer.NewInfraRegistry().StepsForValues(normalizer.InfraLanguagePython, values)
-}
-
 func InfraEffectHandlers(values map[string]any) *normalizer.EffectHandlersDef {
 	return normalizer.InfraEffectHandlers(values)
 }
