@@ -131,3 +131,45 @@ no base64 (a third larger), and the file is not held in memory twice.
 
 The older convention — output fields named `rawContent`/`rawContentType`
 (+ `rawDisposition`, `rawETag`) — keeps working unchanged.
+
+## Typed query parameters
+
+A GET handler reads its request from the query string. Without `@query` a
+field is read as before: `int`, `float64` and `bool` fields are parsed, every
+other field is copied as a string. `@query` on an input field makes it a typed
+parameter, field by field:
+
+```cue
+ListOrders: schema.#Operation & {
+	service: "orders"
+	input: {
+		companyId: string                                        // unchanged: a string
+		from:      string      @query(type="date")               // ?from=2026-10-14 -> time.Time
+		at:        string      @query(type="time", format="2006-01-02 15:04")
+		page:      int         @query(required=true)             // missing -> 400
+		ids:       [...string] @query(name="id")                 // ?id=a&id=b or ?id=a,b
+		tags:      [...string] @query(format="csv")              // ?tags=a,b only
+	}
+	output: {...}
+}
+```
+
+| Key | Meaning |
+|---|---|
+| `type` | `string`, `int`, `int64`, `float`, `bool`, `date`, `time`, `[]string`. Default: the field's CUE type. `date` and `time` make the field `time.Time`. |
+| `format` | A Go time layout for `date` (default `2006-01-02`) and `time` (default RFC 3339); for `[]string`, `"multi"` (repeated keys), `"csv"` (one comma-separated value) or unset (both). |
+| `name` | The query key; default the field's JSON name. |
+| `required` | `true`: a missing or blank value is a 400. |
+
+A value that does not parse, or a missing required one, gets one answer shape,
+the same problem+json the handlers already use for an `int` that is not one:
+
+```json
+{"status": 400, "title": "Invalid query", "errors": {"from": "must be a date like 2006-01-02"}}
+```
+
+`@query` works on POST/PUT/PATCH/DELETE too: the field is filled from the query
+string after the JSON body is decoded. The parsing helpers live in
+`internal/transport/http/query_params.go`, generated with the first `@query`
+field. OpenAPI lists each one as a query parameter with its type (`format:
+date`, `date-time`, `int64`; arrays with `style: form` and `explode`).

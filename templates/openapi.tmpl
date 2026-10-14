@@ -20,7 +20,11 @@ paths:
       {{- $ep := .Endpoint }}
       parameters:
         {{- range .Input.Fields }}
-        {{- if and $ep.Pagination (or (eq .Name "limit") (eq .Name "offset") (eq .Name "cursor")) }}
+        {{- if QueryParam . }}
+        {{- range OpenAPIQueryParam . }}
+        {{ . }}
+        {{- end }}
+        {{- else if and $ep.Pagination (or (eq .Name "limit") (eq .Name "offset") (eq .Name "cursor")) }}
         {{- else }}
         - in: query
           name: {{ .Name | ToLower }}
@@ -76,6 +80,15 @@ paths:
       {{- end }}
       {{- $m := .Endpoint.Method | Lower }}
       {{- if and (ne $m "get") (ne $m "ws") }}
+      {{- $qp := QueryParamFields .Input }}
+      {{- if $qp }}
+      parameters:
+        {{- range $qp }}
+        {{- range OpenAPIQueryParam . }}
+        {{ . }}
+        {{- end }}
+        {{- end }}
+      {{- end }}
       {{- if .Input.Name }}
       requestBody:
         required: true

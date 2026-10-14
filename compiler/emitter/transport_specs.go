@@ -194,6 +194,19 @@ func (e *Emitter) EmitOpenAPIFromNormalizerTypes(endpoints []normalizer.Endpoint
 	funcMap["IsArray"] = func(goType string) bool {
 		return strings.HasPrefix(goType, "[]")
 	}
+	funcMap["QueryParam"] = func(f normalizer.Field) *normalizer.QueryParamSpec {
+		return normalizer.FieldQueryParam(f.Metadata)
+	}
+	funcMap["QueryParamFields"] = func(ent normalizer.Entity) []normalizer.Field {
+		var out []normalizer.Field
+		for _, f := range ent.Fields {
+			if normalizer.FieldQueryParam(f.Metadata) != nil {
+				out = append(out, f)
+			}
+		}
+		return out
+	}
+	funcMap["OpenAPIQueryParam"] = openAPIQueryParamLines
 	funcMap["OpenAPIType"] = func(goType string) string {
 		if strings.HasPrefix(goType, "[]") {
 			return "array"
@@ -522,4 +535,48 @@ func rateLimitsFromIR(primary *ir.RateLimit, stack []ir.RateLimit) (*normalizer.
 		})
 	}
 	return &out[0], out
+}
+
+// openAPIQueryParamLines describes a typed query parameter (@query) as an
+// OpenAPI parameter, one YAML line each, relative to the list item.
+func openAPIQueryParamLines(f normalizer.Field) []string {
+	spec := normalizer.FieldQueryParam(f.Metadata)
+	if spec == nil {
+		return nil
+	}
+	lines := []string{"- in: query", "  name: " + queryParamName(f, spec)}
+	if spec.Required {
+		lines = append(lines, "  required: true")
+	}
+	switch spec.Type {
+	case normalizer.QueryTypeStrings:
+		lines = append(lines, "  style: form", fmt.Sprintf("  explode: %v", spec.Format != "csv"),
+			"  schema:", "    type: array", "    items:", "      type: string")
+		return lines
+	case normalizer.QueryTypeInt:
+		lines = append(lines, "  schema:", "    type: integer")
+	case normalizer.QueryTypeInt64:
+		lines = append(lines, "  schema:", "    type: integer", "    format: int64")
+	case normalizer.QueryTypeFloat:
+		lines = append(lines, "  schema:", "    type: number")
+	case normalizer.QueryTypeBool:
+		lines = append(lines, "  schema:", "    type: boolean")
+	case normalizer.QueryTypeDate:
+		lines = append(lines, "  schema:", "    type: string")
+		if spec.Format == "2006-01-02" {
+			lines = append(lines, "    format: date")
+		} else {
+			lines = append(lines, "    x-go-time-layout: "+strconv.Quote(spec.Format))
+		}
+	case normalizer.QueryTypeTime:
+		lines = append(lines, "  schema:", "    type: string")
+		if spec.Format == "2006-01-02T15:04:05Z07:00" {
+			lines = append(lines, "    format: date-time")
+		} else {
+			lines = append(lines, "    x-go-time-layout: "+strconv.Quote(spec.Format))
+		}
+	default:
+		lines = append(lines, "  schema:", "    type: string")
+	}
+	return lines
 }

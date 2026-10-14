@@ -426,6 +426,11 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 		if err := n.typeNestedField(nestedTypeOwner{name: exportName(name), dto: isDTOName(name), top: true}, fLabel, val, &field); err != nil {
 			return entity, err
 		}
+		if strings.HasSuffix(name, "Request") {
+			if _, err := parseQueryAttr(val, &field); err != nil {
+				return entity, err
+			}
+		}
 		entity.Fields = append(entity.Fields, field)
 	}
 
