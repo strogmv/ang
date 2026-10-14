@@ -1,0 +1,75 @@
+# ANG tech-debt backlog
+
+Started 2026-10-14 from two sources: what broke while building dealingi-back and another project on ANG
+69f11a7 (items marked **[field]**), and a review of the ANG repo (go vet, go test, staticcheck; **[review]**).
+Each item: what happens, what to add, how to prove it. Close an item with the test that reproduces it.
+
+Status: `done` · `next` · `open` · `decide` (needs the founder's call).
+
+## P0 — silent breakage
+
+| # | Status | Item |
+|---|---|---|
+| 1 | open | **[field] An invalid string in `sql: """…"""` drops every custom finder of every entity.** `'\s+'` inside a finder: `ang validate` and `ang build` say OK, the ports lose all custom finders (162 files of diff), only `go build` of the output fails. Add: CUE string validation with file:line; a guard "a generated interface lost methods" against the previous generation, refused without `--accept-removals`. Test: a finder with `\s` fails the build with file:line. |
+| 2 | open | **[field] A nested object in `output` becomes `any`.** `interest: {signs30d: int}` → `resp.Interest any`. Arrays get `port.XItem`, objects do not. Add: a struct `port.<Op>Response<Field>`, or a validation error. |
+| 3 | open | **[field] A repository is missing from `<Service>Impl` when its entity is not in the operation's `sources`.** `s.RunCandidateRepo undefined`. Add: inject every repository of the service by default, or a check "code uses `s.XRepo`, X not in sources". |
+| 4 | open | **[field] `imports:` of raw Go are only checked by the compiler.** Add: missing/unused import check in `validate`. |
+| 5 | done | **[review] MongoDB and DTO entities got PostgreSQL tables and repositories.** `EmitSQL` ignored `@storage("mongo")` and `@dto`; `repo_postgres` ignored mongo. Fixed in c5be4df (`hasSQLTable`, test `TestEmitSQLSkipsMongoAndDTOEntities`); dealingi-back lost 41 dead tables and 6 dead repositories. |
+| 6 | next | **[review] The outbox has four definitions that disagree.** DDL in `sql_schema.go` (`event_type NOT NULL`, no `topic`), the repository template `repo_port.go:264,272` (`INSERT (id, topic, payload)`, `ORDER BY id` = random UUID order), the migrations (`topic`, `sequence_no`), and dealingi-back's worker (`ORDER BY sequence_no`). In dealingi-back the generated `ListPending` has no caller, so it is latent. Add: one DDL in the template with `topic` + `sequence_no`, `ORDER BY sequence_no`; a test that runs the generated INSERT against the generated DDL. |
+| 7 | next | **[review] `ang patch` list splitting:** `cmd/ang/patch.go:951` `break` leaves the `switch`, not the loop (staticcheck SA4011). Test with a 3-item list, labelled break. Also SA4006 at `service_flow_codegen_control_resilience.go:626`, `service_flow_codegen.go:325`. |
+
+## P1 — toolchain
+
+| # | Status | Item |
+|---|---|---|
+| 8 | done | **[review] The golit speed-up sat unpushed while `ang.lock` pinned an older commit**, so `make precheck`/`generate` refused the checkout. Landed as d91c178 on top of c5be4df; dealingi-back regenerated on it. |
+| 9 | open | **[field] `ang toolchain`** like `go toolchain`: build the revision from `ang.lock` into a cache and have `ang build` / `make generate` use it, so a checkout on another revision never blocks a project and nobody makes worktrees by hand. |
+| 10 | open | **[field] Generation side files change on every build** (`ang-generated.txt`, `ang-manifest.json`, `docs/ang/conventions.md`): deterministic output, no timestamps, or `--no-manifest`. |
+| 11 | open | **[field] Raw Go leaks template internals:** no `err :=` (named result), no variable `l`. Emit impl code as its own function with a clean scope; reserved names only a warning with a hint. |
+| 12 | next | **[review] Dead code ~3.5k lines** (staticcheck U1000: 125 symbols): `renderFlowStepControl` has no callers, so `renderFlowStepDomain` (959 lines), `renderFlowStepControlFlow`, the `*_legacy_dispatch.go` no-ops, `cmd/ang/import.go` (724) are dead. Delete, rename the live `*Legacy` functions, add `staticcheck -checks U1000,SA*` to precheck. Deprecated `strings.Title`, `parser.ParseDir`. |
+| 13 | open | **[field] Repeated `ang build` without `--accept-contract` after a contract change** — behaviour never checked. |
+
+## P1 — repositories and SQL
+
+| # | Status | Item |
+|---|---|---|
+| 14 | open | **[field] First-class finder params:** `params: [{name: "ids", type: "[]string"}]` for `sql:` finders instead of fake `where` fields (a time field ignores `param_type` and becomes `time.Time`). Types string, int, float, bool, time, []string, uuid[]. |
+| 15 | open | **[field] One `limit`/`offset` rule:** explicit `paged: true`, documented positional `$n` (today `limit:` adds (limit, offset), `sql:` without it does not, extra args fail "too many arguments"). |
+| 16 | open | **[field] Rows are scanned in CUE field order:** check SELECT column count/order against the entity at generate time, or `select: auto`; move the "uuid via ::text" rule into the generator. |
+| 17 | open | **[field] `SaveBatch` does not chunk** (65535 parameters / columns): automatic chunking. **Upsert only by id:** `onConflict: [fields]` or finder `kind: "upsert"` on a unique index. |
+| 18 | open | **[field] No transactions from an operation's code:** `TxManager.WithTx` exists in common.go but is not wired into `<Service>Impl`. Add `s.Tx.WithTx(ctx, fn)` in every service and `transactional: true`. |
+| 19 | open | **[field][review] Indexes only plain/composite:** add `expr`, `where`, `using: "gin"`, `opclass`, `concurrently`; `@check(name, expr)`; an escape hatch for triggers. dealingi-back has 76 indexes (24 partial/GIN/expression) and 3 trigger functions only in migrations. Then a test: schema.sql == baseline (`pg_dump` of both). |
+| 20 | open | **[field][review] Migration generation:** `ang migrate diff` emitting only idempotent additions (`ADD COLUMN IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`), warning on type change or drop. Until 19 is done, `ang migrate` / `scripts/atlas-diff.sh` must refuse (today it would drop 76 indexes and the outbox columns). Atlas dev image is hard-coded `postgres/15` (`infra.go:556`, `cmd/ang/ops.go:265,288`); prod is 18. |
+| 21 | open | **[review] Index names over 63 characters** are silently truncated by Postgres (5 in dealingi-back, longest 84): `prefix_<hash8>` and a collision check. |
+| 22 | decide | **[review] Table names = lower(entity) + "s"** in 5 places (`sql_schema.go:112,234`, `repo_postgres.go:446`, `repo_mongo.go:162`, `conventions_doc.go:109`): `companys`, `countrys`, `companyaddresss` … (23–25). One `TableName()` + optional `@table(name=…)`; rename with hand-written `ALTER TABLE … RENAME` while prod has no data. |
+
+## P1 — schedules, processes, lifecycle
+
+| # | Status | Item |
+|---|---|---|
+| 23 | open | **[field] A schedule takes three declarations** (Schedules, `#XRequested` event, `subscribes`); a missing event fails only on build. `Schedules.X: {action: "Op", at: "06:00"}` creates both. |
+| 24 | open | **[field] No process role:** a replica with `JOBS_ENABLED=false` still joins the queue group and eats ticks; no worker without HTTP because `cmd/server` is generated. `SERVER_ROLE=api|worker|all`; subscriptions only where the role fits; `subscribe: {when: "cfg.JobsEnabled"}`. |
+| 25 | open | **[field] No lifecycle hooks:** `OnStart` / `OnShutdown` for impl packages (drain on SIGTERM). |
+| 26 | open | **[field] No queue primitive:** claim with priority and a per-key limit (SKIP LOCKED), heartbeat, requeue stale, retry/backoff, dead letter, partial unique index — hand-written in three places today. |
+
+## P2 — config, HTTP, security, observability
+
+| # | Status | Item |
+|---|---|---|
+| 27 | open | **[field] Config injected only into auth;** other services call `engine.Cfg()` (a second `config.Load()`), defaults duplicated for tests. `s.Cfg` everywhere, `config.Default()` from CUE. |
+| 28 | open | **[field] JSON-only responses:** `output: {kind: "file", contentType, filename}` with Content-Disposition and streaming. |
+| 29 | open | **[field] Untyped query params:** time, date, int, bool, []string with `format:` and one 400 shape. |
+| 30 | open | **[field] Authorization open by default:** default-deny, `auth: {required, scope}`, a warning for public mutating operations, optional automatic `ownerId` filter. Check how dealingi-back is configured first. |
+| 31 | open | **[field] Observability:** metrics and spans per operation and finder (duration, rows, errors), queue counters. |
+
+## P2 — repo hygiene (decide)
+
+| # | Status | Item |
+|---|---|---|
+| 32 | open | **[review] Project copies of `cue/schema` drift from ANG's** (dealingi-back lacks ~26 flow step types). Publish the schema as a module pinned with `ang.lock`, or fail `ang build --check` on a stale copy. |
+| 33 | decide | **[review] ANG mixes the tool with a generated blog demo:** root `cue/`, `internal/` (demo next to the hand-written `internal/mcp`, `internal/explain`), `api/`, `db/`, `sdk/`, `python/`; go.mod pulls s3/redis/otel/nats/pgx for the demo. Move tool code to its own package, the demo to `examples/blog`. |
+| 34 | decide | **[review] Unused subsystems ~22k lines:** payment providers (10.7k), Java import (6.4k, cgo tree-sitter), expert (4.3k), Python/FastAPI target, gRPC emitter. Keep, freeze behind a build tag, or delete. |
+| 35 | open | **[review] Docs contradict code:** README and `#Target` advertise rust/ts/mysql/kafka (only Go and Python/FastAPI exist); CLAUDE.md names MCP tools that don't exist (`ang_generate`, `repo_diff`, `ang_ops_vet`). Restrict the enums, fix names, archive off-topic docs. |
+| 36 | open | **[review] Two DTO markers** (`@dto(only="true")`, `_dto: true`): keep one, `ang fmt --fix` rewrites the other; lint id-less entities without a marker. |
+| 37 | open | **[review] Generated code pastes CUE helpers into every operation** (11k-line funcs, `\(#XFunc)` interpolation); golit dedupes after the fact. A first-class shared helper emitted once. Huge functions: `runBuild` 1047 lines, `getSharedFuncMap` 935. |
+| 38 | open | **[review] Minor:** 7 stale local branches, a stale `deal/ang-ir` clone, `compiler/emitter/go/tests/contract/contract_test.go` stray copy. |
