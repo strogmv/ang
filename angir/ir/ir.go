@@ -633,14 +633,28 @@ type Finder struct {
 	CustomSQL  string        `json:"custom_sql"` // New field
 	Source     string        `json:"source"`
 	Provenance *Provenance   `json:"provenance,omitempty"`
+	// Params, Paged, Kind, OnConflict, SelectAuto: see normalizer.RepositoryFinder.
+	Params     []FinderParam `json:"params,omitempty"`
+	Paged      *bool         `json:"paged,omitempty"`
+	Kind       string        `json:"kind,omitempty"`
+	OnConflict []string      `json:"on_conflict,omitempty"`
+	SelectAuto bool          `json:"select_auto,omitempty"`
+}
+
+// FinderParam is one declared parameter of a sql: finder.
+type FinderParam struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+	Spec string `json:"spec,omitempty"`
 }
 
 // WhereClause describes a query condition.
 type WhereClause struct {
-	Field     string `json:"field"`
-	Op        string `json:"op"` // "eq", "ne", "gt", "lt", "in", "like"
-	Param     string `json:"param"`
-	ParamType string `json:"param_type"`
+	Field             string `json:"field"`
+	Op                string `json:"op"` // "eq", "ne", "gt", "lt", "in", "like"
+	Param             string `json:"param"`
+	ParamType         string `json:"param_type"`
+	ParamTypeExplicit bool   `json:"param_type_explicit,omitempty"`
 }
 
 // Config describes application configuration.

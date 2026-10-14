@@ -594,6 +594,26 @@ type RepositoryFinder struct {
 	CustomSQL  string // New field for hand-written complex SQL
 	SumField   string // field to use in SUM() when Returns == "sum"
 	Source     string
+	// Params are the method parameters of a sql: finder, bound to $1..$n in
+	// this order (params: [{name, type}]). Where and Params never both.
+	Params []FinderParam
+	// Paged is the explicit paged: true/false. nil keeps the legacy rule:
+	// limit: > 0 or a name containing "paginate" (FinderPaged).
+	Paged *bool
+	// Kind "upsert" makes the finder an INSERT … ON CONFLICT (OnConflict)
+	// DO UPDATE of a batch of entities.
+	Kind       string
+	OnConflict []string
+	// SelectAuto (select: "auto" on a sql: finder): ANG replaces the * of the
+	// SELECT with the columns the method scans, in scan order.
+	SelectAuto bool
+}
+
+// FinderParam is one declared parameter of a sql: finder.
+type FinderParam struct {
+	Name string
+	Type string // Go type
+	Spec string // the type as written in CUE (uuid, []uuid, time …)
 }
 
 type FinderWhere struct {
@@ -601,6 +621,9 @@ type FinderWhere struct {
 	Op        string
 	Param     string
 	ParamType string
+	// ParamTypeExplicit is set when the CUE wrote param_type; only an
+	// unwritten type takes the type of the entity field.
+	ParamTypeExplicit bool
 }
 
 type ViewDef struct {

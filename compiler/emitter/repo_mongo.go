@@ -95,6 +95,9 @@ func (e *Emitter) EmitMongoRepo(repos []ir.Repository, entities []ir.Entity) err
 
 		var finders []finderOut
 		for _, f := range repo.Finders {
+			if f.Kind == "upsert" || len(f.Params) > 0 || f.SelectAuto {
+				return fmt.Errorf("%s: finder %s.%s: kind: \"upsert\", params: and select: \"auto\" need a Postgres entity; %s is stored in MongoDB", f.Source, repo.Entity, f.Name, repo.Entity)
+			}
 			fo := finderOut{
 				RepositoryFinder: f,
 				SelectEntity:     true,

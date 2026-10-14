@@ -59,6 +59,13 @@ func (e *Emitter) renderRepositoryPortAST(repo normalizer.Repository, hasID bool
 	))
 
 	for _, f := range repo.Finders {
+		if f.Kind == "upsert" {
+			methods = append(methods, buildMethodField(ExportName(f.Name),
+				[]methodParam{{name: "ctx", typ: "context.Context"}, {name: "entities", typ: "[]*domain." + entityName}},
+				[]string{"error"},
+			))
+			continue
+		}
 		sig := ComputeFinderSignature(repo.Entity, f, "")
 		hasTime = hasTime || sig.HasTime
 		if ExportName(f.Name) == "ListAll" {
@@ -77,8 +84,13 @@ func (e *Emitter) renderRepositoryPortAST(repo normalizer.Repository, hasID bool
 			}
 			params = append(params, methodParam{name: paramName, typ: goType})
 		}
-		// Inject pagination params when finder defines Limit (for List-style finders)
-		if f.Limit > 0 || strings.Contains(strings.ToLower(f.Name), "paginate") {
+		for _, p := range f.Params {
+			goType, isTime := finderParamType(p.Type)
+			hasTime = hasTime || isTime
+			params = append(params, methodParam{name: p.Name, typ: goType})
+		}
+		// paged: true (or the legacy limit: > 0 / "paginate" name) appends limit, offset.
+		if normalizer.FinderPaged(f) {
 			params = append(params, methodParam{name: "limit", typ: "int"})
 			params = append(params, methodParam{name: "offset", typ: "int"})
 		}

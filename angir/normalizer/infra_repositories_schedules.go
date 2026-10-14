@@ -191,17 +191,19 @@ func (n *Normalizer) ExtractRepoFinders(val cue.Value) (map[string][]RepositoryF
 					if strings.TrimSpace(param) == "" {
 						param = field
 					}
-					if strings.TrimSpace(paramType) == "" {
+					explicit := strings.TrimSpace(paramType) != ""
+					if !explicit {
 						paramType = "string" // Default
 					}
 					if paramType == "time" {
 						paramType = "time.Time"
 					}
 					wheres = append(wheres, FinderWhere{
-						Field:     field,
-						Op:        op,
-						Param:     param,
-						ParamType: paramType,
+						Field:             field,
+						Op:                op,
+						Param:             param,
+						ParamType:         paramType,
+						ParamTypeExplicit: explicit,
 					})
 				}
 			}
@@ -222,6 +224,13 @@ func (n *Normalizer) ExtractRepoFinders(val cue.Value) (map[string][]RepositoryF
 				return nil, err
 			}
 			sumField = strings.TrimSpace(sumField)
+			ext, err := extractFinderExtensions(fv, strings.TrimSpace(customSQL) != "", len(wheres) > 0, selectFields)
+			if err != nil {
+				return nil, fmt.Errorf("%s: repository %s, finder %q: %w", formatPos(fv), entity, name, err)
+			}
+			if ext.SelectAuto {
+				selectFields = nil
+			}
 			result[entity] = append(result[entity], RepositoryFinder{
 				Name:       name,
 				Action:     action,
@@ -249,13 +258,28 @@ func (n *Normalizer) ExtractRepoFinders(val cue.Value) (map[string][]RepositoryF
 					}
 					return false
 				}(),
-				CustomSQL: strings.TrimSpace(customSQL),
-				SumField:  sumField,
-				Source:    formatPos(fv),
+				CustomSQL:  strings.TrimSpace(customSQL),
+				SumField:   sumField,
+				Source:     formatPos(fv),
+				Params:     ext.Params,
+				Paged:      ext.Paged,
+				Kind:       ext.Kind,
+				OnConflict: ext.OnConflict,
+				SelectAuto: ext.SelectAuto,
 			})
 		}
 	}
 	return result, nil
+}
+
+// FinderPaged reports whether a finder takes (limit int, offset int) after
+// its other parameters: paged: true; or, with no paged: at all, the legacy
+// rule — limit: > 0 or a name containing "paginate".
+func FinderPaged(f RepositoryFinder) bool {
+	if f.Paged != nil {
+		return *f.Paged
+	}
+	return f.Limit > 0 || strings.Contains(strings.ToLower(f.Name), "paginate")
 }
 
 func (n *Normalizer) ExtractSchedules(val cue.Value) ([]ScheduleDef, error) {

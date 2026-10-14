@@ -794,6 +794,11 @@ func ConvertRepository(r normalizer.Repository) Repository {
 			Where:      ConvertWhereClauses(f.Where),
 			Source:     f.Source,
 			Provenance: explicitProvenance(f.Source),
+			Params:     convertFinderParams(f.Params),
+			Paged:      f.Paged,
+			Kind:       f.Kind,
+			OnConflict: f.OnConflict,
+			SelectAuto: f.SelectAuto,
 		})
 	}
 
@@ -804,13 +809,22 @@ func ConvertWhereClauses(clauses []normalizer.FinderWhere) []WhereClause {
 	var result []WhereClause
 	for _, c := range clauses {
 		result = append(result, WhereClause{
-			Field:     c.Field,
-			Op:        c.Op,
-			Param:     c.Param,
-			ParamType: c.ParamType,
+			Field:             c.Field,
+			Op:                c.Op,
+			Param:             c.Param,
+			ParamType:         c.ParamType,
+			ParamTypeExplicit: c.ParamTypeExplicit,
 		})
 	}
 	return result
+}
+
+func convertFinderParams(params []normalizer.FinderParam) []FinderParam {
+	var out []FinderParam
+	for _, p := range params {
+		out = append(out, FinderParam{Name: p.Name, Type: p.Type, Spec: p.Spec})
+	}
+	return out
 }
 
 func ConvertAuth(a *normalizer.AuthDef) *Auth {

@@ -739,14 +739,22 @@ func IRReposToNormalizer(irRepos []ir.Repository) []normalizer.Repository {
 				ForUpdate:  f.ForUpdate,
 				CustomSQL:  f.CustomSQL,
 				Source:     f.Source,
+				Paged:      f.Paged,
+				Kind:       f.Kind,
+				OnConflict: f.OnConflict,
+				SelectAuto: f.SelectAuto,
+			}
+			for _, p := range f.Params {
+				finder.Params = append(finder.Params, normalizer.FinderParam{Name: p.Name, Type: p.Type, Spec: p.Spec})
 			}
 
 			for _, w := range f.Where {
 				finder.Where = append(finder.Where, normalizer.FinderWhere{
-					Field:     w.Field,
-					Op:        w.Op,
-					Param:     w.Param,
-					ParamType: w.ParamType,
+					Field:             w.Field,
+					Op:                w.Op,
+					Param:             w.Param,
+					ParamType:         w.ParamType,
+					ParamTypeExplicit: w.ParamTypeExplicit,
 				})
 			}
 

@@ -438,7 +438,7 @@ func enrichRepoFinders(n *normalizer.Normalizer, entities []normalizer.Entity, r
 		for fi := range finders {
 			for wi := range finders[fi].Where {
 				w := finders[fi].Where[wi]
-				if (w.ParamType == "string" || w.ParamType == "") && entityFieldMap[ent] != nil {
+				if (w.ParamType == "string" || w.ParamType == "") && !w.ParamTypeExplicit && entityFieldMap[ent] != nil {
 					if t, ok := entityFieldMap[ent][strings.ToLower(w.Field)]; ok {
 						finders[fi].Where[wi].ParamType = t
 					}

@@ -12,6 +12,7 @@ const (
 	ErrCodeDTOFieldUnknown         = "DTO_FIELD_UNKNOWN"
 	ErrCodeRepoRefUnknown          = "REPO_REF_UNKNOWN"
 	ErrCodeRawGoImport             = "RAW_GO_IMPORT_ERROR"
+	ErrCodeRepoFinderInvalid       = "REPO_FINDER_INVALID"
 	ErrCodeCUEEndpointNormalize    = "CUE_ENDPOINT_NORMALIZE_ERROR"
 	ErrCodeCUERepoNormalize        = "CUE_REPO_NORMALIZE_ERROR"
 	ErrCodeCUERepoLoad             = "CUE_REPO_LOAD_ERROR"
@@ -66,6 +67,7 @@ var StableErrorCodes = []string{
 	ErrCodeDTOFieldUnknown,
 	ErrCodeRepoRefUnknown,
 	ErrCodeRawGoImport,
+	ErrCodeRepoFinderInvalid,
 	ErrCodeCUEEndpointNormalize,
 	ErrCodeCUERepoNormalize,
 	ErrCodeCUERepoLoad,

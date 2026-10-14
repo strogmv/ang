@@ -72,6 +72,7 @@ func (e *Emitter) EmitStubRepo(repos []ir.Repository, entities []ir.Entity) erro
 			OrderByField string
 			OrderByDesc  bool
 			IsCustomType bool // True for custom types that can't be handled in memory
+			IsUpsert     bool // kind: "upsert": stored like SaveBatch
 		}
 
 		var finders []finderOut
@@ -90,7 +91,7 @@ func (e *Emitter) EmitStubRepo(repos []ir.Repository, entities []ir.Entity) erro
 			fo.ReturnSlice = sig.ReturnSlice
 			fo.ParamsSig = sig.ParamsSig
 			// add pagination params to signature if finder implies pagination
-			if f.Limit > 0 || strings.Contains(strings.ToLower(f.Name), "paginate") {
+			if normalizer.FinderPaged(f) {
 				if fo.ParamsSig != "" {
 					fo.ParamsSig += ", "
 				}
@@ -99,7 +100,10 @@ func (e *Emitter) EmitStubRepo(repos []ir.Repository, entities []ir.Entity) erro
 			hasTime = hasTime || sig.HasTime
 
 			// Check for explicit ReturnType first (custom types like *domain.TenderReportInfo)
-			if f.ReturnType != "" {
+			if f.Kind == "upsert" {
+				fo.IsUpsert = true
+				fo.SelectEntity = false
+			} else if f.ReturnType != "" || len(f.Params) > 0 {
 				fo.SelectEntity = false
 				fo.IsCustomType = true // Custom types can't be handled in memory repos
 			} else if f.Action == "delete" {

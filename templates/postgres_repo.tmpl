@@ -81,10 +81,34 @@ func (r *{{ ExportName .Name }}) Save(ctx context.Context, entity *domain.{{ Exp
 
 // ============================================================================
 // METHOD: SaveBatch
-// PURPOSE: Persist multiple entities with one PostgreSQL upsert statement
-// PATTERN: Preserves the transaction in ctx; callers choose a safe batch size
+// PURPOSE: Persist multiple entities with PostgreSQL upsert statements
+// PATTERN: Preserves the transaction in ctx; see writeBatch for large batches
 // ============================================================================
 func (r *{{ ExportName .Name }}) SaveBatch(ctx context.Context, entities []*domain.{{ ExportName .Entity }}) error {
+	return r.writeBatch(ctx, entities, `
+		ON CONFLICT (id) DO UPDATE
+		SET {{ .UpdateSet }}`)
+}
+{{- range .Upserts }}
+
+// ============================================================================
+// METHOD: {{ .Name }}
+// PURPOSE: Insert a batch, or update the rows that already hold its unique key
+// SQL: INSERT ... ON CONFLICT {{ .ConflictTarget }} {{ if .UpdateSet }}DO UPDATE{{ else }}DO NOTHING{{ end }}
+// SOURCE: {{ .Source }}
+// ============================================================================
+func (r *{{ ExportName $.Name }}) {{ .Name }}(ctx context.Context, entities []*domain.{{ ExportName $.Entity }}) error {
+	return r.writeBatch(ctx, entities, `
+		ON CONFLICT {{ .ConflictTarget }} {{ if .UpdateSet }}DO UPDATE
+		SET {{ .UpdateSet }}{{ else }}DO NOTHING{{ end }}`)
+}
+{{- end }}
+
+// writeBatch inserts entities with one multi-row INSERT ending in onConflict.
+// Postgres binds at most 65535 parameters per statement, so a batch of more
+// than maxBatchRows entities is written in chunks inside one transaction
+// (the one in ctx, when there is one).
+func (r *{{ ExportName .Name }}) writeBatch(ctx context.Context, entities []*domain.{{ ExportName .Entity }}, onConflict string) error {
 	if r.DB == nil {
 		return fmt.Errorf("db not configured")
 	}
@@ -92,13 +116,7 @@ func (r *{{ ExportName .Name }}) SaveBatch(ctx context.Context, entities []*doma
 		return nil
 	}
 	const columnsPerEntity = {{ .BatchColumnCount }}
-	const maxPostgresParameters = 65535
-	if len(entities) > maxPostgresParameters/columnsPerEntity {
-		return fmt.Errorf("batch is too large: max %d {{ .Entity }} entities", maxPostgresParameters/columnsPerEntity)
-	}
-	exec := getExecutor(ctx, r.DB)
-	values := make([]string, 0, len(entities))
-	args := make([]any, 0, len(entities)*columnsPerEntity)
+	const maxBatchRows = 65535 / columnsPerEntity
 	for _, entity := range entities {
 		if entity == nil {
 			return fmt.Errorf("entity is required")
@@ -106,6 +124,30 @@ func (r *{{ ExportName .Name }}) SaveBatch(ctx context.Context, entities []*doma
 		if err := entity.Validate(); err != nil {
 			return fmt.Errorf("invalid entity: %w", err)
 		}
+	}
+	if len(entities) <= maxBatchRows {
+		return r.writeBatchChunk(ctx, entities, onConflict)
+	}
+	return NewTxManager(r.DB).WithTx(ctx, func(ctx context.Context) error {
+		for start := 0; start < len(entities); start += maxBatchRows {
+			end := start + maxBatchRows
+			if end > len(entities) {
+				end = len(entities)
+			}
+			if err := r.writeBatchChunk(ctx, entities[start:end], onConflict); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (r *{{ ExportName .Name }}) writeBatchChunk(ctx context.Context, entities []*domain.{{ ExportName .Entity }}, onConflict string) error {
+	const columnsPerEntity = {{ .BatchColumnCount }}
+	exec := getExecutor(ctx, r.DB)
+	values := make([]string, 0, len(entities))
+	args := make([]any, 0, len(entities)*columnsPerEntity)
+	for _, entity := range entities {
 		firstPlaceholder := len(args) + 1
 		placeholders := make([]string, columnsPerEntity)
 		for index := range placeholders {
@@ -116,9 +158,7 @@ func (r *{{ ExportName .Name }}) SaveBatch(ctx context.Context, entities []*doma
 	}
 	query := `
 		INSERT INTO {{ .Table }} ({{ .Columns }})
-		VALUES ` + strings.Join(values, ", ") + `
-		ON CONFLICT (id) DO UPDATE
-		SET {{ .UpdateSet }}`
+		VALUES ` + strings.Join(values, ", ") + onConflict
 	_, err := exec.Exec(ctx, query, args...)
 	return err
 }

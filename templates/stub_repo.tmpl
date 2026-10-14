@@ -133,6 +133,11 @@ func (r *{{ ExportName .Entity }}RepositoryStub) ListAll(ctx context.Context, of
 {{- end }}
 
 {{- range .Finders }}
+{{- if .IsUpsert }}
+func (r *{{ ExportName $.Entity }}RepositoryStub) {{ .Name }}(ctx context.Context, entities []*domain.{{ ExportName $.Entity }}) error {
+	return r.SaveBatch(ctx, entities)
+}
+{{- else }}
 func (r *{{ ExportName $.Entity }}RepositoryStub) {{ .Name }}(ctx context.Context{{ if .ParamsSig }}, {{ .ParamsSig }}{{ end }}) ({{ .ReturnType }}, error) {
 	{{- if .IsCustomType }}
 	// Custom type - not supported in memory repository stub
@@ -260,6 +265,7 @@ func (r *{{ ExportName $.Entity }}RepositoryStub) {{ .Name }}(ctx context.Contex
 	{{- end }}
 	{{- end }}
 }
+{{- end }}
 {{- end }}
 
 func matchesOp{{ ExportName .Entity }}(left, right any, op string) bool {

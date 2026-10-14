@@ -37,6 +37,14 @@ func ComputeFinderSignature(entity string, finder normalizer.RepositoryFinder, f
 		params = append(params, fmt.Sprintf("%s %s", w.Param, pType))
 		args = append(args, w.Param)
 	}
+	for _, p := range finder.Params {
+		pType, isTime := finderParamType(p.Type)
+		if isTime {
+			sig.HasTime = true
+		}
+		params = append(params, fmt.Sprintf("%s %s", p.Name, pType))
+		args = append(args, p.Name)
+	}
 	sig.ParamsSig = strings.Join(params, ", ")
 	sig.ArgsCSV = strings.Join(args, ", ")
 	sig.ArgNames = sig.ArgsCSV
@@ -60,6 +68,14 @@ func ComputeIRFinderSignature(entity string, finder ir.Finder, fallbackReturnTyp
 		}
 		params = append(params, fmt.Sprintf("%s %s", w.Param, pType))
 		args = append(args, w.Param)
+	}
+	for _, p := range finder.Params {
+		pType, isTime := finderParamType(p.Type)
+		if isTime {
+			sig.HasTime = true
+		}
+		params = append(params, fmt.Sprintf("%s %s", p.Name, pType))
+		args = append(args, p.Name)
 	}
 	sig.ParamsSig = strings.Join(params, ", ")
 	sig.ArgsCSV = strings.Join(args, ", ")

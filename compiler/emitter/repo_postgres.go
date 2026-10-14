@@ -134,291 +134,16 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 		findByIDPlan.ColList = strings.Join(findByIDPlan.Columns, ", ")
 		listAllPlan := findByIDPlan
 
-		type finderOut struct {
-			normalizer.RepositoryFinder
-			ParamsSig          string
-			Args               string
-			ArgsSuffix         string
-			ReturnType         string
-			ReturnZero         string
-			ReturnSlice        bool
-			SelectCols         string
-			WhereClause        string
-			WhereSQL           string
-			OrderBySQL         string
-			SelectEntity       bool
-			SelectCustomEntity bool   // For custom domain types like TenderReportInfo
-			CustomEntityName   string // The entity name for custom types
-			SelectFields       []normalizer.Field
-			ScanPlan           planner.ScanPlan
-			HasPagination      bool
-			LimitPlaceholder   int
-			OffsetPlaceholder  int
+		finders, findersHaveTime := buildPgFinders(repo, ent, entMap, dbFields, allSelectCols)
+		hasTime = hasTime || findersHaveTime
+		for _, fo := range finders {
+			if fo.selectAutoErr != nil {
+				return fmt.Errorf("%s: finder %s.%s: %w", fo.Source, repo.Entity, fo.Name, fo.selectAutoErr)
+			}
 		}
-
-		var finders []finderOut
-		seenMethods := map[string]bool{
-			"Save":     true,
-			"FindByID": true,
-			"Delete":   true,
-		}
-
-		for _, f := range repo.Finders {
-			if seenMethods[f.Name] {
-				continue
-			}
-			seenMethods[f.Name] = true
-
-			fo := finderOut{
-				RepositoryFinder: f,
-				SelectEntity:     true,
-			}
-
-			// Smart Projection Logic (Stage 48)
-			if len(f.Select) > 0 {
-				selectedFields := selectFieldsInEntityOrder(ent.Fields, f.Select)
-				if len(selectedFields) > 0 {
-					fo.SelectFields = selectedFields
-					fo.ScanPlan = buildScanPlan(selectedFields, "entity")
-					fo.SelectCols = fo.ScanPlan.ColList
-				} else {
-					var mapped []string
-					for _, s := range f.Select {
-						mapped = append(mapped, DBName(s))
-					}
-					fo.SelectCols = strings.Join(mapped, ", ")
-				}
-				if len(f.Select) < len(dbFields) {
-					fo.SelectEntity = false
-				}
-			} else {
-				// Default: List ALL columns explicitly (No SELECT *)
-				fo.SelectCols = strings.Join(allSelectCols, ", ")
-				fo.SelectFields = append([]normalizer.Field{}, dbFields...)
-				fo.ScanPlan = buildScanPlan(fo.SelectFields, "entity")
-			}
-
-			// If explicit ReturnType is set, use it directly
-			if f.ReturnType != "" {
-				fo.ReturnType = f.ReturnType
-				fo.ReturnZero = "nil"
-				fo.SelectEntity = false
-				// Reset fields/plan from the Smart Projection block above;
-				// custom-return finders need their own field list.
-				fo.SelectFields = nil
-				fo.ScanPlan = planner.ScanPlan{}
-
-				// Parse return type to determine if slice and entity name
-				retType := f.ReturnType
-				isSlice := strings.HasPrefix(retType, "[]")
-				if isSlice {
-					retType = strings.TrimPrefix(retType, "[]")
-					fo.ReturnSlice = true
-				}
-				retType = strings.TrimPrefix(retType, "*")
-				retType = strings.TrimPrefix(retType, "domain.")
-
-				// Try to find matching entity for custom struct types
-				if customEnt, ok := entMap[retType]; ok {
-					fo.SelectCustomEntity = true
-					fo.CustomEntityName = retType
-
-					// If scan_fields is specified, use that order
-					if len(f.ScanFields) > 0 {
-						entFieldsMap := make(map[string]normalizer.Field)
-						for _, field := range customEnt.Fields {
-							entFieldsMap[strings.ToLower(field.Name)] = field
-						}
-						for _, sf := range f.ScanFields {
-							if field, ok := entFieldsMap[strings.ToLower(sf)]; ok {
-								fo.SelectFields = append(fo.SelectFields, field)
-							}
-						}
-					} else {
-						// Use all non-complex fields by default
-						for _, field := range customEnt.Fields {
-							if field.Name == "DTO" || strings.HasPrefix(field.Type, "[]") {
-								continue
-							}
-							fo.SelectFields = append(fo.SelectFields, field)
-						}
-					}
-				} else if len(f.ScanFields) > 0 {
-					// Entity not in entMap (likely a DTO), create fields from scan_fields
-					fo.SelectCustomEntity = true
-					fo.CustomEntityName = retType
-					for _, sf := range f.ScanFields {
-						// Infer type from field name pattern or default to string
-						fieldType := "string"
-						sfLower := strings.ToLower(sf)
-						if strings.HasSuffix(sfLower, "id") || strings.HasSuffix(sfLower, "amount") ||
-							strings.HasSuffix(sfLower, "price") || strings.HasSuffix(sfLower, "number") ||
-							strings.HasSuffix(sfLower, "bids") || strings.HasSuffix(sfLower, "drops") {
-							fieldType = "int"
-						} else if strings.HasSuffix(sfLower, "savings") || strings.HasSuffix(sfLower, "rating") {
-							fieldType = "float64"
-						}
-						fo.SelectFields = append(fo.SelectFields, normalizer.Field{
-							Name: sf,
-							Type: fieldType,
-						})
-					}
-				}
-			} else if f.Action == "delete" {
-				fo.ReturnType = "int64"
-				fo.ReturnZero = "0"
-				fo.SelectEntity = false
-			} else if f.Returns == "one" {
-				fo.ReturnType = "*domain." + repo.Entity
-				fo.ReturnZero = "nil"
-				fo.SelectEntity = true
-				if len(fo.SelectFields) == 0 {
-					fo.SelectFields = append([]normalizer.Field{}, dbFields...)
-					fo.ScanPlan = buildScanPlan(fo.SelectFields, "entity")
-				}
-			} else if f.Returns == "many" {
-				fo.ReturnType = "[]domain." + repo.Entity
-				fo.ReturnZero = "nil"
-				fo.ReturnSlice = true
-				fo.SelectEntity = true
-				if len(fo.SelectFields) == 0 {
-					fo.SelectFields = append([]normalizer.Field{}, dbFields...)
-					fo.ScanPlan = buildScanPlan(fo.SelectFields, "entity")
-				}
-			} else if f.Returns == "count" {
-				fo.ReturnType = "int64"
-				fo.ReturnZero = "0"
-				fo.SelectEntity = false
-				fo.SelectCols = "COUNT(*)"
-				fo.SelectFields = []normalizer.Field{{Name: "count", Type: "int64"}}
-			} else if f.Returns == "sum" {
-				fo.ReturnType = "int64"
-				fo.ReturnZero = "0"
-				fo.SelectEntity = false
-				field := strings.TrimSpace(f.SumField)
-				if field == "" {
-					field = "id"
-				}
-				fo.SelectCols = fmt.Sprintf("COALESCE(SUM(%s), 0)", DBName(field))
-				fo.SelectFields = []normalizer.Field{{Name: "sum", Type: "int64"}}
-			} else if f.Returns == "[]"+repo.Entity {
-				fo.ReturnType = "[]domain." + repo.Entity
-				fo.ReturnZero = "nil"
-				fo.ReturnSlice = true
-				fo.SelectFields = append([]normalizer.Field{}, dbFields...)
-				fo.ScanPlan = buildScanPlan(fo.SelectFields, "entity")
-			} else if f.Returns == repo.Entity || f.Returns == "*"+repo.Entity {
-				fo.ReturnType = "*domain." + repo.Entity
-				fo.ReturnZero = "nil"
-				fo.SelectFields = append([]normalizer.Field{}, dbFields...)
-				fo.ScanPlan = buildScanPlan(fo.SelectFields, "entity")
-			} else {
-				fo.ReturnType = f.Returns
-				fo.ReturnZero = "nil" // Default
-				fo.SelectEntity = false
-				fo.SelectCols = strings.Join(f.Select, ", ")
-				if fo.SelectCols == "" {
-					fo.SelectCols = strings.Join(allSelectCols, ", ")
-				}
-
-				// Check if return type is a custom domain entity (e.g., *domain.TenderReportInfo or []domain.TenderBidHistoryItem)
-				retType := f.Returns
-				isSlice := strings.HasPrefix(retType, "[]")
-				if isSlice {
-					retType = strings.TrimPrefix(retType, "[]")
-					fo.ReturnSlice = true
-				}
-				retType = strings.TrimPrefix(retType, "*")
-				retType = strings.TrimPrefix(retType, "domain.")
-
-				// Try to find matching entity for custom struct types
-				if customEnt, ok := entMap[retType]; ok {
-					fo.SelectCustomEntity = true
-					fo.CustomEntityName = retType
-
-					// If scan_fields is specified, use that order and filter entity fields
-					if len(f.ScanFields) > 0 {
-						// Build a map of entity fields by lowercase name
-						entFieldsMap := make(map[string]normalizer.Field)
-						for _, field := range customEnt.Fields {
-							entFieldsMap[strings.ToLower(field.Name)] = field
-						}
-						// Iterate in scan_fields order
-						for _, sf := range f.ScanFields {
-							if field, ok := entFieldsMap[strings.ToLower(sf)]; ok {
-								fo.SelectFields = append(fo.SelectFields, field)
-							}
-						}
-					} else {
-						// Use all non-complex fields by default
-						for _, field := range customEnt.Fields {
-							// Skip DTO field, slice fields, and nested struct types
-							if field.Name == "DTO" || strings.HasPrefix(field.Type, "[]") {
-								continue
-							}
-							fo.SelectFields = append(fo.SelectFields, field)
-						}
-					}
-					fo.ScanPlan = buildScanPlan(fo.SelectFields, "entity")
-				} else {
-					// Map select column names back to Field objects
-					for _, col := range f.Select {
-						for _, field := range ent.Fields {
-							if strings.EqualFold(field.Name, col) {
-								fo.SelectFields = append(fo.SelectFields, field)
-								break
-							}
-						}
-					}
-					// If still empty but we have a return type, create a dummy field for the template
-					if len(fo.SelectFields) == 0 && fo.ReturnType != "" {
-						fo.SelectFields = []normalizer.Field{
-							{Name: "v", Type: fo.ReturnType},
-						}
-					}
-				}
-			}
-
-			if (fo.SelectEntity || fo.SelectCustomEntity) && len(fo.ScanPlan.Variables) == 0 && len(fo.SelectFields) > 0 {
-				fo.ScanPlan = buildScanPlan(fo.SelectFields, "entity")
-				if fo.SelectCols == "" {
-					fo.SelectCols = fo.ScanPlan.ColList
-				}
-			}
-
-			sig := ComputeFinderSignature(repo.Entity, f, "")
-			fo.Name = sig.Name
-			hasTime = hasTime || sig.HasTime
-			var wheres []string
-			for idx, w := range f.Where {
-				wheres = append(wheres, fmt.Sprintf("%s %s $%d", strings.ToLower(w.Field), w.Op, idx+1))
-			}
-			fo.ParamsSig = sig.ParamsSig
-			fo.Args = sig.ArgsCSV
-			if fo.Args != "" {
-				fo.ArgsSuffix = ", " + fo.Args
-			}
-			if f.Limit > 0 || strings.Contains(strings.ToLower(f.Name), "paginate") {
-				fo.HasPagination = true
-				fo.LimitPlaceholder = len(f.Where) + 1
-				fo.OffsetPlaceholder = len(f.Where) + 2
-				if fo.ParamsSig != "" {
-					fo.ParamsSig += ", "
-				}
-				fo.ParamsSig += "limit int, offset int"
-				if fo.Args != "" {
-					fo.Args += ", "
-				}
-				fo.Args += "limit, offset"
-				fo.ArgsSuffix = ", " + fo.Args
-			}
-			fo.WhereClause = strings.Join(wheres, " AND ")
-			if fo.WhereClause != "" {
-				fo.WhereSQL = " WHERE " + fo.WhereClause
-			}
-			fo.OrderBySQL = f.OrderBy
-
-			finders = append(finders, fo)
+		upserts, upsertProblems := buildPgUpserts(repo, ent, dbFields)
+		if len(upsertProblems) > 0 {
+			return fmt.Errorf("%s", upsertProblems[0].String())
 		}
 
 		data := struct {
@@ -432,7 +157,8 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 			BatchColumnCount   int
 			SelectColumns      string
 			Fields             []normalizer.Field
-			Finders            []finderOut
+			Finders            []pgFinder
+			Upserts            []pgUpsert
 			HasTime            bool
 			HasID              bool
 			FindByIDPlan       planner.ScanPlan
@@ -452,6 +178,7 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 			SelectColumns:      strings.Join(allSelectCols, ", "),
 			Fields:             ent.Fields,
 			Finders:            finders,
+			Upserts:            upserts,
 			HasTime:            hasTime,
 			HasID:              hasIDField,
 			FindByIDPlan:       findByIDPlan,
@@ -475,6 +202,7 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 				"SelectColumns":      data.SelectColumns,
 				"Fields":             data.Fields,
 				"Finders":            data.Finders,
+				"Upserts":            data.Upserts,
 				"HasTime":            data.HasTime,
 				"HasID":              data.HasID,
 				"FindByIDPlan":       data.FindByIDPlan,
@@ -518,6 +246,304 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 	}
 
 	return nil
+}
+
+type pgFinder struct {
+	normalizer.RepositoryFinder
+	ParamsSig          string
+	Args               string
+	ArgsSuffix         string
+	ReturnType         string
+	ReturnZero         string
+	ReturnSlice        bool
+	SelectCols         string
+	WhereClause        string
+	WhereSQL           string
+	OrderBySQL         string
+	SelectEntity       bool
+	SelectCustomEntity bool   // For custom domain types like TenderReportInfo
+	CustomEntityName   string // The entity name for custom types
+	SelectFields       []normalizer.Field
+	ScanPlan           planner.ScanPlan
+	HasPagination      bool
+	LimitPlaceholder   int
+	OffsetPlaceholder  int
+	selectAutoErr      error
+}
+
+// buildPgFinders plans the custom finder methods of one Postgres repository:
+// signature, SELECT list, scan plan. The emitter renders them and
+// ValidatePostgresFinders checks their hand-written SQL against the same plan.
+func buildPgFinders(repo normalizer.Repository, ent normalizer.Entity, entMap map[string]normalizer.Entity, dbFields []normalizer.Field, allSelectCols []string) ([]pgFinder, bool) {
+	hasTime := false
+	var finders []pgFinder
+	seenMethods := map[string]bool{
+		"Save":     true,
+		"FindByID": true,
+		"Delete":   true,
+	}
+
+	for _, f := range repo.Finders {
+		if seenMethods[f.Name] || f.Kind == "upsert" {
+			continue
+		}
+		seenMethods[f.Name] = true
+
+		fo := pgFinder{
+			RepositoryFinder: f,
+			SelectEntity:     true,
+		}
+
+		// Smart Projection Logic (Stage 48)
+		if len(f.Select) > 0 {
+			selectedFields := selectFieldsInEntityOrder(ent.Fields, f.Select)
+			if len(selectedFields) > 0 {
+				fo.SelectFields = selectedFields
+				fo.ScanPlan = buildScanPlan(selectedFields, "entity")
+				fo.SelectCols = fo.ScanPlan.ColList
+			} else {
+				var mapped []string
+				for _, s := range f.Select {
+					mapped = append(mapped, DBName(s))
+				}
+				fo.SelectCols = strings.Join(mapped, ", ")
+			}
+			if len(f.Select) < len(dbFields) {
+				fo.SelectEntity = false
+			}
+		} else {
+			// Default: List ALL columns explicitly (No SELECT *)
+			fo.SelectCols = strings.Join(allSelectCols, ", ")
+			fo.SelectFields = append([]normalizer.Field{}, dbFields...)
+			fo.ScanPlan = buildScanPlan(fo.SelectFields, "entity")
+		}
+
+		// If explicit ReturnType is set, use it directly
+		if f.ReturnType != "" {
+			fo.ReturnType = f.ReturnType
+			fo.ReturnZero = "nil"
+			fo.SelectEntity = false
+			// Reset fields/plan from the Smart Projection block above;
+			// custom-return finders need their own field list.
+			fo.SelectFields = nil
+			fo.ScanPlan = planner.ScanPlan{}
+
+			// Parse return type to determine if slice and entity name
+			retType := f.ReturnType
+			isSlice := strings.HasPrefix(retType, "[]")
+			if isSlice {
+				retType = strings.TrimPrefix(retType, "[]")
+				fo.ReturnSlice = true
+			}
+			retType = strings.TrimPrefix(retType, "*")
+			retType = strings.TrimPrefix(retType, "domain.")
+
+			// Try to find matching entity for custom struct types
+			if customEnt, ok := entMap[retType]; ok {
+				fo.SelectCustomEntity = true
+				fo.CustomEntityName = retType
+
+				// If scan_fields is specified, use that order
+				if len(f.ScanFields) > 0 {
+					entFieldsMap := make(map[string]normalizer.Field)
+					for _, field := range customEnt.Fields {
+						entFieldsMap[strings.ToLower(field.Name)] = field
+					}
+					for _, sf := range f.ScanFields {
+						if field, ok := entFieldsMap[strings.ToLower(sf)]; ok {
+							fo.SelectFields = append(fo.SelectFields, field)
+						}
+					}
+				} else {
+					// Use all non-complex fields by default
+					for _, field := range customEnt.Fields {
+						if field.Name == "DTO" || strings.HasPrefix(field.Type, "[]") {
+							continue
+						}
+						fo.SelectFields = append(fo.SelectFields, field)
+					}
+				}
+			} else if len(f.ScanFields) > 0 {
+				// Entity not in entMap (likely a DTO), create fields from scan_fields
+				fo.SelectCustomEntity = true
+				fo.CustomEntityName = retType
+				for _, sf := range f.ScanFields {
+					// Infer type from field name pattern or default to string
+					fieldType := "string"
+					sfLower := strings.ToLower(sf)
+					if strings.HasSuffix(sfLower, "id") || strings.HasSuffix(sfLower, "amount") ||
+						strings.HasSuffix(sfLower, "price") || strings.HasSuffix(sfLower, "number") ||
+						strings.HasSuffix(sfLower, "bids") || strings.HasSuffix(sfLower, "drops") {
+						fieldType = "int"
+					} else if strings.HasSuffix(sfLower, "savings") || strings.HasSuffix(sfLower, "rating") {
+						fieldType = "float64"
+					}
+					fo.SelectFields = append(fo.SelectFields, normalizer.Field{
+						Name: sf,
+						Type: fieldType,
+					})
+				}
+			}
+		} else if f.Action == "delete" {
+			fo.ReturnType = "int64"
+			fo.ReturnZero = "0"
+			fo.SelectEntity = false
+		} else if f.Returns == "one" {
+			fo.ReturnType = "*domain." + repo.Entity
+			fo.ReturnZero = "nil"
+			fo.SelectEntity = true
+			if len(fo.SelectFields) == 0 {
+				fo.SelectFields = append([]normalizer.Field{}, dbFields...)
+				fo.ScanPlan = buildScanPlan(fo.SelectFields, "entity")
+			}
+		} else if f.Returns == "many" {
+			fo.ReturnType = "[]domain." + repo.Entity
+			fo.ReturnZero = "nil"
+			fo.ReturnSlice = true
+			fo.SelectEntity = true
+			if len(fo.SelectFields) == 0 {
+				fo.SelectFields = append([]normalizer.Field{}, dbFields...)
+				fo.ScanPlan = buildScanPlan(fo.SelectFields, "entity")
+			}
+		} else if f.Returns == "count" {
+			fo.ReturnType = "int64"
+			fo.ReturnZero = "0"
+			fo.SelectEntity = false
+			fo.SelectCols = "COUNT(*)"
+			fo.SelectFields = []normalizer.Field{{Name: "count", Type: "int64"}}
+		} else if f.Returns == "sum" {
+			fo.ReturnType = "int64"
+			fo.ReturnZero = "0"
+			fo.SelectEntity = false
+			field := strings.TrimSpace(f.SumField)
+			if field == "" {
+				field = "id"
+			}
+			fo.SelectCols = fmt.Sprintf("COALESCE(SUM(%s), 0)", DBName(field))
+			fo.SelectFields = []normalizer.Field{{Name: "sum", Type: "int64"}}
+		} else if f.Returns == "[]"+repo.Entity {
+			fo.ReturnType = "[]domain." + repo.Entity
+			fo.ReturnZero = "nil"
+			fo.ReturnSlice = true
+			fo.SelectFields = append([]normalizer.Field{}, dbFields...)
+			fo.ScanPlan = buildScanPlan(fo.SelectFields, "entity")
+		} else if f.Returns == repo.Entity || f.Returns == "*"+repo.Entity {
+			fo.ReturnType = "*domain." + repo.Entity
+			fo.ReturnZero = "nil"
+			fo.SelectFields = append([]normalizer.Field{}, dbFields...)
+			fo.ScanPlan = buildScanPlan(fo.SelectFields, "entity")
+		} else {
+			fo.ReturnType = f.Returns
+			fo.ReturnZero = "nil" // Default
+			fo.SelectEntity = false
+			fo.SelectCols = strings.Join(f.Select, ", ")
+			if fo.SelectCols == "" {
+				fo.SelectCols = strings.Join(allSelectCols, ", ")
+			}
+
+			// Check if return type is a custom domain entity (e.g., *domain.TenderReportInfo or []domain.TenderBidHistoryItem)
+			retType := f.Returns
+			isSlice := strings.HasPrefix(retType, "[]")
+			if isSlice {
+				retType = strings.TrimPrefix(retType, "[]")
+				fo.ReturnSlice = true
+			}
+			retType = strings.TrimPrefix(retType, "*")
+			retType = strings.TrimPrefix(retType, "domain.")
+
+			// Try to find matching entity for custom struct types
+			if customEnt, ok := entMap[retType]; ok {
+				fo.SelectCustomEntity = true
+				fo.CustomEntityName = retType
+
+				// If scan_fields is specified, use that order and filter entity fields
+				if len(f.ScanFields) > 0 {
+					// Build a map of entity fields by lowercase name
+					entFieldsMap := make(map[string]normalizer.Field)
+					for _, field := range customEnt.Fields {
+						entFieldsMap[strings.ToLower(field.Name)] = field
+					}
+					// Iterate in scan_fields order
+					for _, sf := range f.ScanFields {
+						if field, ok := entFieldsMap[strings.ToLower(sf)]; ok {
+							fo.SelectFields = append(fo.SelectFields, field)
+						}
+					}
+				} else {
+					// Use all non-complex fields by default
+					for _, field := range customEnt.Fields {
+						// Skip DTO field, slice fields, and nested struct types
+						if field.Name == "DTO" || strings.HasPrefix(field.Type, "[]") {
+							continue
+						}
+						fo.SelectFields = append(fo.SelectFields, field)
+					}
+				}
+				fo.ScanPlan = buildScanPlan(fo.SelectFields, "entity")
+			} else {
+				// Map select column names back to Field objects
+				for _, col := range f.Select {
+					for _, field := range ent.Fields {
+						if strings.EqualFold(field.Name, col) {
+							fo.SelectFields = append(fo.SelectFields, field)
+							break
+						}
+					}
+				}
+				// If still empty but we have a return type, create a dummy field for the template
+				if len(fo.SelectFields) == 0 && fo.ReturnType != "" {
+					fo.SelectFields = []normalizer.Field{
+						{Name: "v", Type: fo.ReturnType},
+					}
+				}
+			}
+		}
+
+		if (fo.SelectEntity || fo.SelectCustomEntity) && len(fo.ScanPlan.Variables) == 0 && len(fo.SelectFields) > 0 {
+			fo.ScanPlan = buildScanPlan(fo.SelectFields, "entity")
+			if fo.SelectCols == "" {
+				fo.SelectCols = fo.ScanPlan.ColList
+			}
+		}
+
+		sig := ComputeFinderSignature(repo.Entity, f, "")
+		fo.Name = sig.Name
+		hasTime = hasTime || sig.HasTime
+		var wheres []string
+		for idx, w := range f.Where {
+			wheres = append(wheres, fmt.Sprintf("%s %s $%d", strings.ToLower(w.Field), w.Op, idx+1))
+		}
+		fo.ParamsSig = sig.ParamsSig
+		fo.Args = sig.ArgsCSV
+		if fo.Args != "" {
+			fo.ArgsSuffix = ", " + fo.Args
+		}
+		if normalizer.FinderPaged(f) {
+			fo.HasPagination = true
+			fo.LimitPlaceholder = len(f.Where) + len(f.Params) + 1
+			fo.OffsetPlaceholder = len(f.Where) + len(f.Params) + 2
+			if fo.ParamsSig != "" {
+				fo.ParamsSig += ", "
+			}
+			fo.ParamsSig += "limit int, offset int"
+			if fo.Args != "" {
+				fo.Args += ", "
+			}
+			fo.Args += "limit, offset"
+			fo.ArgsSuffix = ", " + fo.Args
+		}
+		fo.WhereClause = strings.Join(wheres, " AND ")
+		if fo.WhereClause != "" {
+			fo.WhereSQL = " WHERE " + fo.WhereClause
+		}
+		fo.OrderBySQL = f.OrderBy
+		if f.SelectAuto {
+			fo.CustomSQL, fo.selectAutoErr = expandSelectAuto(fo)
+		}
+
+		finders = append(finders, fo)
+	}
+	return finders, hasTime
 }
 
 func selectFieldsInEntityOrder(entityFields []normalizer.Field, selected []string) []normalizer.Field {
