@@ -30,6 +30,13 @@ Code families:
   order), a timestamp/date/bool column scanned into a Go string without
   `::text`, a `select: "auto"` without `*`, an upsert whose `on_conflict`
   is not a unique index (docs/repositories.md).
+- `HELPER_INVALID`: a shared helper (`Helpers:` in cue/api) that cannot work.
+  This covers code that is not one declaration named after its key, a method
+  not written `func (s *Service) name`, a name the code leaves undeclared, an
+  operation that calls a method helper without `s.`, and two helpers that would
+  write the same file (docs/helpers.md).
+- `HELPER_UNUSED` (warning): no operation reaches the helper. An unused method
+  helper is not generated at all.
 - `REPO_FINDER_PAGED_IMPLICIT` (warning): `limit:` > 0 or a name containing
   `paginate` adds `(limit int, offset int)` to a finder; write `paged: true`.
 - `SQL_INDEX_NAME_TRUNCATED` (warning): a generated index name is longer than

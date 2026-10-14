@@ -25,6 +25,7 @@ This folder is organized so both humans and AI agents can find the right entry p
 - [Error Codes](./error_codes.md)
 - [SQL Schema](./sql-schema.md): indexes, checks, raw DDL, migrations.
 - [Repositories](./repositories.md): finder `params:`, `paged:`, SQL checks, `select: "auto"`, `SaveBatch` chunks, upserts, `transactional: true`.
+- [Helpers](./helpers.md): Go declared once in `Helpers:` and called by name from any operation, generated once.
 
 ## Release Notes
 

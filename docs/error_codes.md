@@ -41,6 +41,7 @@ evaluate; the message names `file:line:col`. A folder is loaded strictly: no fil
 - `CUE_POLICY_LOAD_ERROR` — `cue/policy` (or the legacy `cue/policies`) does not load
 - `CUE_TEST_COVERAGE_PIPELINE_ERROR`
 - `RAW_GO_IMPORT_ERROR` — an `imports:` entry of raw Go (`impls: go:` or a `logic.Call`) that the code does not use, a package an `impls: go:` block uses without listing it, or a `logic.Call` lambda using `name.Sel` that two standard packages export (`rand.Read`: crypto/rand and math/rand) with nothing importing it; one line per problem: `file:line: Service.Method: …`
+- `HELPER_INVALID` — a shared helper (`Helpers:` in cue/api) whose code is not one top-level declaration of its own name, a method helper not written `func (s *Service) name(…)`, a func helper using `s`, a name the code leaves undeclared (not a helper, a package or a predeclared name; `req`/`resp` of an operation), `s.x(…)` where x is no method helper, a method helper called without `s.`, or two helpers that would share a file; one line per problem: `file:line: helper name: …` (docs/helpers.md). Helpers' `imports:` are checked under `RAW_GO_IMPORT_ERROR`
 - `REPO_FINDER_INVALID` — a finder whose hand-written `sql:` disagrees with its generated method (the `$n` it uses against the arguments, the select list against the scan, a `::text` a timestamp/date/bool column needs), a `select: "auto"` without `*`, or an upsert whose `on_conflict` is not a unique index; one line per problem: `file:line: finder Entity.Name: …` (docs/repositories.md)
 
 ## IR
