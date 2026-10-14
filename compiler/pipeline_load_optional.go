@@ -50,6 +50,22 @@ func LoadOptionalDomain(p *parser.Parser, path string) (cue.Value, bool, error) 
 	return val, true, nil
 }
 
+// LoadOptionalDomainStrict loads a CUE directory like LoadOptionalDomain but
+// never skips a file that does not parse. Use it where a skipped file silently
+// changes the generated code: a skipped file of cue/repo drops its finders from
+// the repository interfaces, and only go build of the output notices.
+func LoadOptionalDomainStrict(p *parser.Parser, path string) (cue.Value, bool, error) {
+	matches, _ := filepath.Glob(filepath.Join(path, "*.cue"))
+	if len(matches) == 0 {
+		return cue.Value{}, false, nil
+	}
+	val, err := p.LoadDomain(path)
+	if err != nil {
+		return cue.Value{}, false, err
+	}
+	return val, true, nil
+}
+
 func filterValidCUEFiles(files []string) (valid []string, skipped map[string]error, err error) {
 	valid = make([]string, 0, len(files))
 	skipped = make(map[string]error)

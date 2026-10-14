@@ -152,7 +152,12 @@ func runParsePhase(basePath string, opts PipelineOptions) (ParsePhaseOutput, err
 			okPolicy = true
 		}
 	}
-	valRepo, okRepo, _ := LoadOptionalDomain(p, filepath.Join(basePath, cr, "repo"))
+	valRepo, okRepo, err := LoadOptionalDomainStrict(p, filepath.Join(basePath, cr, "repo"))
+	if err != nil {
+		return out, WrapContractError(
+			StageCUE, ErrCodeCUERepoLoad, "load "+cr+"/repo", normalizer.DescribeRepoLoadError(err),
+		)
+	}
 	valEvents, _, _ := LoadOptionalDomain(p, filepath.Join(basePath, cr, "events"))
 	valErrors, _, _ := LoadOptionalDomain(p, filepath.Join(basePath, cr, "errors"))
 	valProject, okProject, _ := LoadOptionalDomain(p, filepath.Join(basePath, cr, "project"))
@@ -291,8 +296,14 @@ func runNormalizePhase(basePath string, parsed ParsePhaseOutput, opts PipelineOp
 		return out, WrapContractError(StageCUE, ErrCodeCUERepoNormalize, "extract repositories", err)
 	}
 
-	if parsed.HasRepo && parsed.Repo.Err() == nil {
-		finderMap, _ := n.ExtractRepoFinders(parsed.Repo)
+	if parsed.HasRepo {
+		if repoErr := parsed.Repo.Err(); repoErr != nil {
+			return out, WrapContractError(StageCUE, ErrCodeCUERepoLoad, "evaluate repositories", normalizer.DescribeRepoLoadError(repoErr))
+		}
+		finderMap, finderErr := n.ExtractRepoFinders(parsed.Repo)
+		if finderErr != nil {
+			return out, WrapContractError(StageCUE, ErrCodeCUERepoNormalize, "extract repository finders", finderErr)
+		}
 		if len(finderMap) > 0 {
 			entityFieldMap := make(map[string]map[string]string)
 			entityByName := make(map[string]normalizer.Entity)

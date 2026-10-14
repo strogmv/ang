@@ -137,9 +137,11 @@ func LoadWithOptions(basePath string, opts LoadOptions) (*Result, error) {
 			okPolicy = true
 		}
 	}
-	valRepo, okRepo, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/repo"), opts.Strict || isIgnored("repo"))
-	if err != nil {
-		return nil, fmt.Errorf("load cue/repo: %w", err)
+	// cue/repo is always loaded strictly: skipping a file that does not parse
+	// drops its finders from the repository interfaces without a word.
+	valRepo, okRepo, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/repo"), true)
+	if err != nil && !isIgnored("repo") {
+		return nil, fmt.Errorf("load cue/repo: %w", normalizer.DescribeRepoLoadError(err))
 	}
 	if isIgnored("repo") {
 		okRepo = false
@@ -210,8 +212,13 @@ func LoadWithOptions(basePath string, opts LoadOptions) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("extract repositories: %w", err)
 	}
-	if okRepo && valRepo.Err() == nil {
-		enrichRepoFinders(n, entities, &repos, valRepo)
+	if okRepo {
+		if repoErr := valRepo.Err(); repoErr != nil {
+			return nil, fmt.Errorf("evaluate cue/repo: %w", normalizer.DescribeRepoLoadError(repoErr))
+		}
+		if err := enrichRepoFinders(n, entities, &repos, valRepo); err != nil {
+			return nil, fmt.Errorf("extract repository finders: %w", err)
+		}
 	}
 
 	events := []normalizer.EventDef{}
@@ -404,10 +411,13 @@ func LoadSchemaWithOptions(basePath string, opts LoadOptions) (*ir.Schema, error
 	return result.Schema, nil
 }
 
-func enrichRepoFinders(n *normalizer.Normalizer, entities []normalizer.Entity, repos *[]normalizer.Repository, valRepo cue.Value) {
+func enrichRepoFinders(n *normalizer.Normalizer, entities []normalizer.Entity, repos *[]normalizer.Repository, valRepo cue.Value) error {
 	finderMap, err := n.ExtractRepoFinders(valRepo)
-	if err != nil || len(finderMap) == 0 {
-		return
+	if err != nil {
+		return err
+	}
+	if len(finderMap) == 0 {
+		return nil
 	}
 	entityFieldMap := make(map[string]map[string]string)
 	for _, e := range entities {
@@ -450,6 +460,7 @@ func enrichRepoFinders(n *normalizer.Normalizer, entities []normalizer.Entity, r
 		*repos = append(*repos, normalizer.Repository{Name: ent + "Repository", Entity: ent, Finders: finders})
 		repoByEntity[ent] = len(*repos) - 1
 	}
+	return nil
 }
 
 func convertTemplates(templates []normalizer.TemplateDef, emailTemplates []normalizer.EmailTemplateDef) []ir.Template {
