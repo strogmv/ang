@@ -143,6 +143,13 @@ package schema
 	action: "event.Publish", name: _event, payload: _payload
 }
 
+// #PublishMap publishes an event whose payload is a map of event field to Go
+// expression (event.Publish payloadMap), instead of one struct literal.
+#PublishMap: {
+	_event: string, _payload: [string]: string
+	action: "event.Publish", name: _event, payloadMap: _payload
+}
+
 #Outbox: {
 	_event: string, _payload: string, _id?: string
 	action: "event.Outbox", name: _event, payload: _payload
