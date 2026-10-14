@@ -215,31 +215,5 @@ func renderContextMarkdown_UNUSED(
 }
 
 func renderFinderSignature(entity string, f normalizer.RepositoryFinder) string {
-	// Build param list from Where clauses
-	var params []string
-	params = append(params, "ctx context.Context")
-	for _, w := range f.Where {
-		paramType := w.ParamType
-		if paramType == "" {
-			paramType = "string"
-		}
-		params = append(params, w.Param+" "+paramType)
-	}
-
-	ret := "*domain." + entity
-	switch f.Returns {
-	case "list":
-		ret = "[]domain." + entity
-	case "count":
-		ret = "int64"
-	case "bool":
-		ret = "bool"
-	case "sum":
-		ret = "float64"
-	}
-	if f.ReturnType != "" {
-		ret = f.ReturnType
-	}
-
-	return fmt.Sprintf("%s(%s) (%s, error)", f.Name, strings.Join(params, ", "), ret)
+	return compiler.RenderFinderSignature(entity, f)
 }

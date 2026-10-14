@@ -199,3 +199,20 @@ Repositories: {
 		t.Errorf("second warning = %+v", diags[1])
 	}
 }
+
+func TestRenderFinderSignatureShowsParamsPagingAndUpsert(t *testing.T) {
+	paged := true
+	got := RenderFinderSignature("Event", normalizer.RepositoryFinder{
+		Name:       "Page",
+		ReturnType: "[]domain.Event",
+		Params:     []normalizer.FinderParam{{Name: "ids", Type: "[]string"}},
+		Paged:      &paged,
+	})
+	if want := "Page(ctx context.Context, ids []string, limit int, offset int) ([]domain.Event, error)"; got != want {
+		t.Errorf("signature = %q, want %q", got, want)
+	}
+	got = RenderFinderSignature("Event", normalizer.RepositoryFinder{Name: "UpsertByDay", Kind: "upsert"})
+	if want := "UpsertByDay(ctx context.Context, entities []*domain.Event) error"; got != want {
+		t.Errorf("signature = %q, want %q", got, want)
+	}
+}

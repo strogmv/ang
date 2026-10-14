@@ -184,6 +184,9 @@ func RenderContextMarkdown(
 
 // RenderFinderSignature builds a human-readable repo finder method signature.
 func RenderFinderSignature(entity string, f normalizer.RepositoryFinder) string {
+	if f.Kind == "upsert" {
+		return fmt.Sprintf("%s(ctx context.Context, entities []*domain.%s) error", f.Name, entity)
+	}
 	var params []string
 	params = append(params, "ctx context.Context")
 	for _, w := range f.Where {
@@ -192,6 +195,12 @@ func RenderFinderSignature(entity string, f normalizer.RepositoryFinder) string 
 			paramType = "string"
 		}
 		params = append(params, w.Param+" "+paramType)
+	}
+	for _, p := range f.Params {
+		params = append(params, p.Name+" "+p.Type)
+	}
+	if normalizer.FinderPaged(f) {
+		params = append(params, "limit int", "offset int")
 	}
 
 	ret := "*domain." + entity
