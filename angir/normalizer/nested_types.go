@@ -27,7 +27,9 @@ import (
 // Lists are typed in Go too: their old type ([]string) was wrong. An object
 // or a map keeps its Go type map[string]any (the flows fill these from loose
 // domain JSON and map literals), and carries its exact shape in
-// Metadata["shape"] for TypeScript, Zod and OpenAPI; see FieldShape.
+// Metadata["shape"] for TypeScript, Zod and OpenAPI; see FieldShape. An
+// object the operation's code reaches into (resp.Interest.Signs30d) becomes
+// its named struct later, in compiler.typeObjectsTheCodeReachesInto.
 
 // FieldShape answers the exact type of a field for the API description and
 // the SDK: the shape of an inline object or map, else its Go type.
