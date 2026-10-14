@@ -44,6 +44,13 @@ Code families:
 - `LOGIC_CALL_OUTER_ERR` (warning): a `logic.Call` function literal uses `err`
   without declaring it, so it sets the error variable of the generated method.
   Declare `err` in the literal (docs/raw-go.md).
+- `DTO_MARKER_DEPRECATED` (warning): a `_dto: true` field. ANG does not read
+  it, and as a hidden field it would pass to every entity that embeds its
+  struct. The DTO marker is `@dto(only="true")` on the entity. `ang fix dto`
+  rewrites the field.
+- `ENTITY_WITHOUT_ID` (warning): a struct entity stored in PostgreSQL that has
+  neither an `id` field nor `@dto(only="true")`. The SQL emitter gives it no
+  table. Mark a shape that nothing stores as a DTO, or add an `id`.
 - `REPO_FINDER_PAGED_IMPLICIT` (warning): `limit:` > 0 or a name containing
   `paginate` adds `(limit int, offset int)` to a finder; write `paged: true`.
 - `SQL_INDEX_NAME_TRUNCATED` (warning): a generated index name is longer than

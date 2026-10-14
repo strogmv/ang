@@ -87,6 +87,25 @@ ang build --phase plan --out-plan .ang/build.plan.json --json
 ang build --phase apply --plan-file .ang/build.plan.json
 ```
 
+### `ang fix dto`
+
+Rewrites the old DTO marker. A `_dto: true` field of a top-level declaration
+is removed. The declaration gets `@dto(only="true")` if it does not have it.
+
+```bash
+ang fix dto [--check] [--json] [--path cue]
+```
+
+The attribute is the only DTO marker. A DTO is a shape that nothing stores,
+so it gets no table and no repository. An attribute stays on the declaration
+it is written on. A hidden `_dto` field would pass to every entity that embeds
+the declaration, and ANG does not read it at all. A declaration that had only
+`_dto: true` becomes a DTO here, and the command lists it, because its
+generated code changes. A `_dto` field anywhere else is left as it is and
+listed. `ang validate` warns about each `_dto` field (`DTO_MARKER_DEPRECATED`).
+It also warns about a struct entity that has no `id` and no marker, which gets
+no table (`ENTITY_WITHOUT_ID`).
+
 ## Startup Diagnostics
 
 ### `ang doctor`

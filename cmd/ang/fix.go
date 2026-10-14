@@ -9,6 +9,10 @@ import (
 )
 
 func runFix(args []string) {
+	if len(args) > 0 && args[0] == "dto" {
+		runFixDTO(args[1:])
+		return
+	}
 	fs := flag.NewFlagSet("fix", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	check := fs.Bool("check", false, "check only; do not write changes")
@@ -51,6 +55,55 @@ func runFix(args []string) {
 		}
 	}
 
+	if *check && res.FilesChanged > 0 {
+		os.Exit(1)
+	}
+}
+
+// runFixDTO is `ang fix dto`: `_dto: true` fields become the DTO marker
+// @dto(only="true") on their declaration (fixDTOMarkers).
+func runFixDTO(args []string) {
+	fs := flag.NewFlagSet("fix dto", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	check := fs.Bool("check", false, "check only; do not write changes")
+	jsonOut := fs.Bool("json", false, "emit machine-readable summary")
+	path := fs.String("path", "", "path to CUE directory (default: ./cue if present)")
+	if err := fs.Parse(args); err != nil {
+		fmt.Printf("Fix dto FAILED: %v\n", err)
+		os.Exit(1)
+	}
+	targetRoot, err := resolveCueRoot(*path)
+	if err != nil {
+		fmt.Printf("Fix dto FAILED: %v\n", err)
+		os.Exit(1)
+	}
+	res, err := fixDTOMarkers(targetRoot, *check)
+	if err != nil {
+		fmt.Printf("Fix dto FAILED: %v\n", err)
+		os.Exit(1)
+	}
+	if *jsonOut {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(map[string]any{
+			"schema": "ang/fix-dto/v1",
+			"check":  *check,
+			"path":   filepath.ToSlash(targetRoot),
+			"result": res,
+		})
+	} else {
+		verb := "applied"
+		if *check {
+			verb = "check"
+		}
+		fmt.Printf("Fix dto %s: files_changed=%d removed=%d marked=%d\n", verb, res.FilesChanged, len(res.Removed), len(res.Marked))
+		for _, m := range res.Marked {
+			fmt.Printf("  now a DTO (it had only _dto: true, which ANG does not read): %s\n", m)
+		}
+		for _, l := range res.Left {
+			fmt.Printf("  left as it is (not a _dto: true of a top-level declaration): %s\n", l)
+		}
+	}
 	if *check && res.FilesChanged > 0 {
 		os.Exit(1)
 	}
