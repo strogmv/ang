@@ -19,10 +19,10 @@ Every service method (except streaming ones, which return no named error)
 starts with
 
 ```go
-ctx, observeDone := observeOperation(ctx, "Orders", "ListOrders")
-defer func() { observeDone(err) }()
+defer observeOperation(&ctx, "Orders", "ListOrders")(&err)
 ```
 
+(one statement that declares no name, so the operation's own Go may use any),
 so an operation is measured whoever calls it: an HTTP handler, an event
 subscriber, a schedule or another service. `internal/service/operation_metrics.gen.go`:
 

@@ -558,6 +558,8 @@ func ConvertMethod(m normalizer.Method) Method {
 			Code:       m.Impl.Code,
 			Imports:    m.Impl.Imports,
 			RequiresTx: m.Impl.RequiresTx,
+			CodeFile:   m.Impl.CodeText.File,
+			CodeLine:   m.Impl.CodeText.Line,
 		}
 	}
 

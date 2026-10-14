@@ -350,9 +350,6 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 				impl.CodeText, _ = multilineLiteralText(codeVal)
 				impl.Imports, impl.ImportSources = parseImplImports(implVal.LookupPath(cue.ParsePath("imports")))
 				method.Impl = impl
-				for _, diag := range validateNamedReturnImplCode(svcName, opName, method, codeVal) {
-					n.Warn(diag)
-				}
 				for _, diag := range validateImplAntiPatterns(svcName, opName, method, codeVal) {
 					n.Warn(diag)
 				}

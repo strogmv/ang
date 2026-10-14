@@ -44,34 +44,3 @@ func wrapTransactionalOperations(services []normalizer.Service) error {
 	}
 	return nil
 }
-
-// transactionalImplCode wraps an operation's Go in s.txManager.WithTx: the
-// code runs as a closure with the method's named results, inside a
-// transaction that commits when it returns a nil error and rolls back
-// otherwise; ctx inside is the transaction's.
-func transactionalImplCode(m normalizer.Method) string {
-	respType := "error" // the signature of an operation without output
-	eventHandler := len(m.Publishes) > 0 && m.Input.Name == "" && m.Output.Name == ""
-	if m.Output.Name != "" && !eventHandler {
-		respType = "port." + m.Output.Name
-	}
-	body := cleanImplCode(m.Impl.Code, m.Output.Name)
-	var inner strings.Builder
-	for _, line := range strings.Split(strings.TrimRight(body, "\n"), "\n") {
-		if strings.TrimSpace(line) == "" {
-			inner.WriteString("\n")
-			continue
-		}
-		inner.WriteString("\t\t" + line + "\n")
-	}
-	return fmt.Sprintf(`if s.txManager == nil {
-	return resp, fmt.Errorf("transaction manager is not configured")
-}
-err = s.txManager.WithTx(ctx, func(ctx context.Context) error {
-	var txErr error
-	resp, txErr = func() (resp %s, err error) {
-%s	}()
-	return txErr
-})
-return resp, err`, respType, inner.String())
-}

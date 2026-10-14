@@ -5,7 +5,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"regexp"
 	"strings"
 
 	"cuelang.org/go/cue"
@@ -41,142 +40,6 @@ func addPaginationFields(method *Method) {
 	}
 }
 
-func validateNamedReturnImplCode(serviceName, methodName string, method Method, codeVal cue.Value) []Warning {
-	if method.Impl == nil || strings.TrimSpace(method.Impl.Code) == "" {
-		return nil
-	}
-
-	wrapped := "package lint\nfunc _() (resp any, err error) {\n" + method.Impl.Code + "\n}\n"
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "", wrapped, parser.AllErrors)
-	if err != nil || f == nil || len(f.Decls) == 0 {
-		return nil
-	}
-
-	decl, ok := f.Decls[0].(*ast.FuncDecl)
-	if !ok || decl.Body == nil {
-		return nil
-	}
-
-	warnFile, warnLine, warnCol := cuePosition(codeVal)
-
-	type violation struct {
-		code string
-		msg  string
-		hint string
-		pos  token.Pos
-	}
-
-	var out []Warning
-	emit := func(v violation) {
-		line := warnLine
-		col := warnCol
-		if nodeLine, nodeCol, ok := wrappedNodePosition(fset, v.pos); ok {
-			line = wrappedToCueLine(warnLine, nodeLine)
-			col = nodeCol
-		}
-		out = append(out, Warning{
-			Kind:     "impl",
-			Code:     v.code,
-			Severity: "error",
-			Message:  fmt.Sprintf("%s.%s: %s", serviceName, methodName, v.msg),
-			Hint:     v.hint,
-			File:     warnFile,
-			Line:     line,
-			Column:   col,
-			CUEPath:  codeVal.Path().String(),
-		})
-	}
-
-	ast.Inspect(decl.Body, func(node ast.Node) bool {
-		switch n := node.(type) {
-		case *ast.GenDecl:
-			if n.Tok != token.VAR {
-				return true
-			}
-			for _, spec := range n.Specs {
-				vs, ok := spec.(*ast.ValueSpec)
-				if !ok {
-					continue
-				}
-				for _, name := range vs.Names {
-					switch name.Name {
-					case "resp":
-						if method.Output.Name != "" {
-							emit(violation{
-								code: "IMPL_NAMED_RETURN_RESP_VAR",
-								msg:  "do not redeclare 'resp' in impls.go.code when method uses named return",
-								hint: "Use assignment 'resp = ...' instead of 'var resp ...'",
-								pos:  name.Pos(),
-							})
-						}
-					case "err":
-						if ident, ok := vs.Type.(*ast.Ident); ok && ident.Name == "error" {
-							emit(violation{
-								code: "IMPL_NAMED_RETURN_ERR_VAR",
-								msg:  "do not redeclare 'err' as local variable in impls.go.code when method uses named return",
-								hint: "Use assignment 'err = ...' instead of 'var err error'",
-								pos:  name.Pos(),
-							})
-						}
-					}
-				}
-			}
-		case *ast.AssignStmt:
-			if n.Tok != token.DEFINE {
-				return true
-			}
-			// Count how many LHS identifiers are named-return shadows vs truly new.
-			// In Go, `x, err := foo()` is valid when x is new — `:=` is required.
-			// Only flag when `err` (or `resp`) is the SOLE LHS variable,
-			// meaning the developer should use `=` instead of `:=`.
-			hasErr := false
-			hasResp := false
-			hasOther := false
-			var errIdent, respIdent *ast.Ident
-			for _, lhs := range n.Lhs {
-				id, ok := lhs.(*ast.Ident)
-				if !ok {
-					hasOther = true
-					continue
-				}
-				switch id.Name {
-				case "err":
-					hasErr = true
-					errIdent = id
-				case "resp":
-					hasResp = true
-					respIdent = id
-				case "_":
-					// blank identifier doesn't count as a new variable
-				default:
-					hasOther = true
-				}
-			}
-			// Only flag if no other new variables require `:=`
-			if hasErr && !hasOther && errIdent != nil {
-				emit(violation{
-					code: "IMPL_NAMED_RETURN_ERR_SHORT_DECL",
-					msg:  "do not use 'err :=' in impls.go.code when method uses named return",
-					hint: "Use assignment 'err = ...' instead of short declaration",
-					pos:  errIdent.Pos(),
-				})
-			}
-			if hasResp && !hasOther && method.Output.Name != "" && respIdent != nil {
-				emit(violation{
-					code: "IMPL_NAMED_RETURN_RESP_SHORT_DECL",
-					msg:  "do not use 'resp :=' in impls.go.code when method uses named return",
-					hint: "Use assignment 'resp = ...' instead of short declaration",
-					pos:  respIdent.Pos(),
-				})
-			}
-		}
-		return true
-	})
-
-	return out
-}
-
 func validateImplAntiPatterns(serviceName, methodName string, method Method, codeVal cue.Value) []Warning {
 	if method.Impl == nil || strings.TrimSpace(method.Impl.Code) == "" {
 		return nil
@@ -209,7 +72,6 @@ func validateImplAntiPatterns(serviceName, methodName string, method Method, cod
 		})
 	}
 
-	legacyLoggerRE := regexp.MustCompile(`\bl\.[A-Za-z_][A-Za-z0-9_]*`)
 	for i, raw := range lines {
 		line := strings.TrimSpace(raw)
 		if line == "" {
@@ -225,15 +87,6 @@ func validateImplAntiPatterns(serviceName, methodName string, method Method, cod
 				"Move URL to cue/infra config or template variables and inject via service logic.",
 				i,
 				baseCol+idx,
-			)
-		}
-		if loc := legacyLoggerRE.FindStringIndex(line); len(loc) == 2 {
-			appendWarning(
-				"IMPL_LEGACY_LOGGER_ALIAS",
-				"legacy logger alias 'l.' is not allowed in impls.go.code",
-				"Use slog.* directly (or injected logger variable) instead of legacy alias 'l'.",
-				i,
-				baseCol+loc[0],
 			)
 		}
 	}

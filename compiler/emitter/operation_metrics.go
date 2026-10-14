@@ -72,13 +72,21 @@ var (
 	operationTracer = otel.Tracer("ang/operations")
 )
 
-// observeOperation starts the span of an operation and returns the function
-// its deferred call ends with the operation's error. Without an OTLP endpoint
-// the tracer is OpenTelemetry's no-op one.
-func observeOperation(ctx context.Context, service, operation string) (context.Context, func(error)) {
+// observeOperation starts the span of an operation, points *ctx at the
+// span's context and returns the function that ends the span with the error
+// errp points at. A method calls it as
+// defer observeOperation(&ctx, service, operation)(&err), which declares no
+// name next to the operation's code. Without an OTLP endpoint the tracer is
+// OpenTelemetry's no-op one.
+func observeOperation(ctx *context.Context, service, operation string) func(*error) {
 	start := time.Now()
-	ctx, span := operationTracer.Start(ctx, service+"."+operation)
-	return ctx, func(err error) {
+	spanCtx, span := operationTracer.Start(*ctx, service+"."+operation)
+	*ctx = spanCtx
+	return func(errp *error) {
+		var err error
+		if errp != nil {
+			err = *errp
+		}
 		outcome := "ok"
 		if err != nil {
 			outcome = "error"

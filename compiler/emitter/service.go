@@ -10,7 +10,6 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -22,11 +21,6 @@ import (
 )
 
 var (
-	reSelectorID = regexp.MustCompile(`\.([A-Za-z][A-Za-z0-9]*)Id\b`)
-	// reLoggerSelector matches the identifier l used as a logger, not the
-	// last letter of html., url. or model.
-	reLoggerSelector = regexp.MustCompile(`\bl\.`)
-
 	// Packages that embedded Go bodies reach for but no flow action implies, so
 	// nothing else in the scan would add them. moduleRelative paths are joined
 	// to the project's own module path.
@@ -309,8 +303,7 @@ func (e *Emitter) emitServiceImpl(services []ir.Service, entities []ir.Entity, e
 	funcMapImpl["ServiceImplMethodSignature"] = func(serviceName string, m normalizer.Method) (string, error) {
 		return renderServiceImplMethodSignature(serviceName, m)
 	}
-	funcMapImpl["CleanImplCode"] = cleanImplCode
-	funcMapImpl["TransactionalImplCode"] = transactionalImplCode
+	funcMapImpl["ImplCode"] = implCode
 	funcMapImpl["FlowRenderable"] = flowRenderable
 	// renderFlowWith renders a method's flow, sending its warnings to sink; each
 	// parallel method job binds its own sink (see runServiceImplMethodJobs).
@@ -897,48 +890,6 @@ func (e *Emitter) renderGeneratedHeader(sourceRefs []string) string {
 	}
 	b.WriteString("// DO NOT EDIT.\n\n")
 	return b.String()
-}
-
-func cleanImplCode(code, outputName string) string {
-	cleaned := strings.TrimLeft(code, "\n")
-	out := strings.TrimSpace(outputName)
-	if cleaned == "" {
-		return cleaned
-	}
-
-	lines := strings.Split(cleaned, "\n")
-	filtered := make([]string, 0, len(lines))
-	removedRespDecl := false
-	respDecl := ""
-	if out != "" {
-		respDecl = "var resp port." + out
-	}
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if respDecl != "" && !removedRespDecl && trimmed == respDecl {
-			removedRespDecl = true
-			continue
-		}
-		if trimmed == "var err error" {
-			continue
-		}
-		if strings.HasPrefix(trimmed, "err := ") {
-			line = strings.Replace(line, "err :=", "err =", 1)
-		}
-		if out != "" && strings.HasPrefix(trimmed, "resp := port.") {
-			line = strings.Replace(line, "resp :=", "resp =", 1)
-		}
-		// Generic selector normalization for common Go initialisms.
-		// Example: req.UserId -> req.UserID, item.CompanyId -> item.CompanyID.
-		// ${1}, not $1: Go reads "$1ID" as the group named "1ID", which is
-		// empty, and req.UserId became "req.".
-		line = reSelectorID.ReplaceAllString(line, ".${1}ID")
-		// A logger named l becomes slog; only the identifier itself, so
-		// html.EscapeString and url.Parse stay intact.
-		line = reLoggerSelector.ReplaceAllString(line, "slog.")
-		filtered = append(filtered, line)
-	}
-	return strings.Join(filtered, "\n")
 }
 
 func (e *Emitter) EmitCachedService(services []ir.Service) error {

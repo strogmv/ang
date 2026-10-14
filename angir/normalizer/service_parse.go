@@ -187,9 +187,6 @@ func (n *Normalizer) parseService(name string, val cue.Value) (Service, error) {
 				impl.CodeText, _ = multilineLiteralText(codeVal)
 				impl.Imports, impl.ImportSources = parseImplImports(implVal.LookupPath(cue.ParsePath("imports")))
 				method.Impl = impl
-				for _, diag := range validateNamedReturnImplCode(name, methodName, method, codeVal) {
-					n.Warn(diag)
-				}
 				for _, diag := range validateImplAntiPatterns(name, methodName, method, codeVal) {
 					n.Warn(diag)
 				}

@@ -119,7 +119,7 @@ func TestTransactionalOperationsCompile(t *testing.T) {
 		"internal/service/billing__mark_invoice_paid.gen.go": {"if err := s.txManager.WithTx(ctx, func(ctx context.Context) error {"},
 		"internal/service/billing__void_invoice.gen.go": {
 			"err = s.txManager.WithTx(ctx, func(ctx context.Context) error {",
-			"resp, txErr = func() (resp port.VoidInvoiceResponse, err error) {",
+			"resp, err = func() (resp port.VoidInvoiceResponse, err error) {",
 		},
 		"internal/service/billing_impl.gen.go":    {"Tx          port.TxManager", "txManager: txManager, Tx: txManager}"},
 		"internal/bootstrap/runtime_container.go": {"repoInvoice,\n\t\ttxManager,"},
@@ -133,27 +133,6 @@ func TestTransactionalOperationsCompile(t *testing.T) {
 	}
 
 	// Compile what the operations generate, offline, with ANG's own
-	// dependency versions (the module cache has them).
-	repoRoot, _ := filepath.Abs("../..")
-	angMod, err := os.ReadFile(filepath.Join(repoRoot, "go.mod"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	requires := string(angMod)[strings.Index(string(angMod), "require"):]
-	writeTestFile(t, filepath.Join(projectDir, "go.mod"), "module github.com/example/txapp\n\ngo 1.27.0\n\n"+requires)
-	sum, err := os.ReadFile(filepath.Join(repoRoot, "go.sum"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeTestFile(t, filepath.Join(projectDir, "go.sum"), string(sum))
-	cmd := exec.Command("go", "vet", "./internal/service/", "./internal/adapter/repository/postgres/")
-	cmd.Dir = projectDir
-	cmd.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=-mod=mod", "GOPROXY=off")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		if strings.Contains(string(out), "module lookup disabled") {
-			t.Skipf("module cache lacks a dependency: %s", out)
-		}
-		t.Fatalf("generated packages do not compile: %v\n%s", err, out)
-	}
+	// dependency versions.
+	vetGeneratedPackagesOffline(t, projectDir, "github.com/example/txapp", "./internal/service/", "./internal/adapter/repository/postgres/")
 }

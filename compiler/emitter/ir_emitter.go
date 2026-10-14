@@ -448,6 +448,7 @@ func IRMethodToNormalizer(m ir.Method) normalizer.Method {
 			Code:       m.Impl.Code,
 			Imports:    m.Impl.Imports,
 			RequiresTx: m.Impl.RequiresTx,
+			CodeText:   normalizer.TextPos{File: m.Impl.CodeFile, Line: m.Impl.CodeLine},
 		}
 	}
 

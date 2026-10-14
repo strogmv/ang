@@ -59,7 +59,7 @@ func TestOperationMetricsWrapEveryOperation(t *testing.T) {
 		return string(data)
 	}
 	get := read("internal/service/orders__get_order.gen.go")
-	if !strings.Contains(get, `ctx, observeDone := observeOperation(ctx, "Orders", "GetOrder")`) || !strings.Contains(get, "defer func() { observeDone(err) }()") {
+	if !strings.Contains(get, `defer observeOperation(&ctx, "Orders", "GetOrder")(&err)`) {
 		t.Fatalf("GetOrder runs inside observeOperation:\n%s", get)
 	}
 	if stream := read("internal/service/orders__stream_orders.gen.go"); strings.Contains(stream, "observeOperation") {

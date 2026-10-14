@@ -526,6 +526,10 @@ type Impl struct {
 	Code       string   `json:"code"`
 	Imports    []string `json:"imports"`
 	RequiresTx bool     `json:"requires_tx"`
+	// CodeFile:CodeLine is where a multi-line `code` literal starts in CUE;
+	// the generated method maps the code there with //line directives.
+	CodeFile string `json:"code_file,omitempty"`
+	CodeLine int    `json:"code_line,omitempty"`
 }
 
 // ImplStep represents typed implementation step from impl_steps DSL.
