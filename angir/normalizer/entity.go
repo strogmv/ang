@@ -296,6 +296,9 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 		fLabel := iter.Selector().String()
 		fLabel = cleanName(fLabel)
 
+		if fLabel == "ddl" && isEntityDDLValue(iter.Value()) {
+			continue
+		}
 		if fLabel == "fsm" || fLabel == "indexes" || fLabel == "methods" || fLabel == "owner" || fLabel == "root" || fLabel == "owns" || fLabel == "bounded_context" || fLabel == "boundedContext" || fLabel == "read_model" || fLabel == "readModel" || fLabel == "refreshOn" {
 			continue
 		}
@@ -499,36 +502,23 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 		entity.FSM = fsm
 	}
 
-	indexVal := entityVal.LookupPath(cue.ParsePath("indexes"))
-	if indexVal.Exists() {
-		iter, _ := indexVal.List()
-		for iter.Next() {
-			iv := iter.Value()
-			var fields []string
-			fv := iv.LookupPath(cue.ParsePath("fields"))
-			if fv.Exists() {
-				fit, _ := fv.List()
-				for fit.Next() {
-					s, _ := fit.Value().String()
-					s = strings.TrimSpace(s)
-					if s != "" {
-						fields = append(fields, s)
-					}
-				}
-			}
-			if len(fields) == 0 {
-				continue
-			}
-			unique := false
-			if v, err := iv.LookupPath(cue.ParsePath("unique")).Bool(); err == nil {
-				unique = v
-			}
-			entity.Indexes = append(entity.Indexes, IndexDef{
-				Fields: fields,
-				Unique: unique,
-			})
-		}
+	indexes, err := parseEntityIndexes(entityVal)
+	if err != nil {
+		return entity, err
 	}
+	entity.Indexes = indexes
+
+	checks, err := parseEntityChecks(val)
+	if err != nil {
+		return entity, err
+	}
+	entity.Checks = checks
+
+	ddl, err := parseEntityDDL(entityVal)
+	if err != nil {
+		return entity, err
+	}
+	entity.DDL = ddl
 
 	entity.UI = parseEntityUI(entityVal)
 

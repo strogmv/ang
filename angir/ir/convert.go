@@ -198,10 +198,21 @@ func ConvertEntity(e normalizer.Entity) Entity {
 
 	for _, idx := range e.Indexes {
 		entity.Indexes = append(entity.Indexes, Index{
-			Fields: idx.Fields,
-			Unique: idx.Unique,
+			Fields:       idx.Fields,
+			Unique:       idx.Unique,
+			Name:         idx.Name,
+			Expr:         idx.Expr,
+			Where:        idx.Where,
+			Using:        idx.Using,
+			Opclass:      idx.Opclass,
+			Concurrently: idx.Concurrently,
+			Source:       idx.Source,
 		})
 	}
+	for _, c := range e.Checks {
+		entity.Checks = append(entity.Checks, Check{Name: c.Name, Expr: c.Expr, Source: c.Source})
+	}
+	entity.DDL = append(entity.DDL, e.DDL...)
 
 	return entity
 }

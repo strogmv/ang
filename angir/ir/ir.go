@@ -160,6 +160,8 @@ type Entity struct {
 	Fields         []Field        `json:"fields"`
 	FSM            *FSM           `json:"fsm,omitempty"`
 	Indexes        []Index        `json:"indexes"`
+	Checks         []Check        `json:"checks,omitempty"`
+	DDL            []string       `json:"ddl,omitempty"`
 	UI             EntityUI       `json:"ui"`
 	GDPRPolicy     *GDPRPolicy    `json:"gdpr_policy,omitempty"`
 	Metadata       map[string]any `json:"metadata"`
@@ -285,11 +287,24 @@ type FSM struct {
 	Transitions map[string][]string `json:"transitions"` // from -> []to
 }
 
-// Index describes a database index.
+// Index describes a database index (see normalizer.IndexDef).
 type Index struct {
-	Fields []string `json:"fields"`
-	Unique bool     `json:"unique"`
-	Name   string   `json:"name"`
+	Fields       []string `json:"fields"`
+	Unique       bool     `json:"unique"`
+	Name         string   `json:"name"`
+	Expr         string   `json:"expr,omitempty"`
+	Where        string   `json:"where,omitempty"`
+	Using        string   `json:"using,omitempty"`
+	Opclass      string   `json:"opclass,omitempty"`
+	Concurrently bool     `json:"concurrently,omitempty"`
+	Source       string   `json:"source,omitempty"`
+}
+
+// Check is a named CHECK constraint of an entity's table.
+type Check struct {
+	Name   string `json:"name"`
+	Expr   string `json:"expr"`
+	Source string `json:"source,omitempty"`
 }
 
 // Service represents a service/port interface.

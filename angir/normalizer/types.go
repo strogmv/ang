@@ -36,8 +36,15 @@ type Entity struct {
 	ReadModel      *ReadModelDef
 	Fields         []Field
 
-	FSM        *FSM
-	Indexes    []IndexDef
+	FSM     *FSM
+	Indexes []IndexDef
+	// Checks are named CHECK constraints of the entity's table, declared with
+	// @check(name="…", expr="…") on the entity.
+	Checks []CheckDef
+	// DDL is raw SQL emitted into db/schema/schema.sql after the entity's
+	// table, indexes and checks (triggers, trigger functions), from the
+	// entity key ddl: """…""". ANG does not parse it.
+	DDL        []string
 	UI         *EntityUIDef
 	GDPRPolicy *GDPRPolicy    // Non-nil when entity has @gdpr annotation
 	Metadata   map[string]any // Универсальное хранилище для плагинов
@@ -139,10 +146,36 @@ type DBMeta struct {
 	Index      bool
 }
 
-// IndexDef описывает составной индекс.
+// IndexDef describes an index of the entity's table, declared in the entity's
+// indexes: [...] list. Fields are entity field names; Expr replaces them with a
+// raw SQL key list ("lower(email)", "companyid, lower(btrim(externalid))").
+// Where, Using, Opclass and Expr are raw SQL and use column names, not field
+// names.
 type IndexDef struct {
 	Fields []string
 	Unique bool
+	// Name overrides the generated idx_<table>_<columns> name.
+	Name string
+	// Expr is the raw key list of an expression index; it excludes Fields.
+	Expr string
+	// Where makes a partial index.
+	Where string
+	// Using is the access method: btree, hash, gist, spgist, gin, brin.
+	Using string
+	// Opclass is the operator class applied to every column in Fields.
+	Opclass string
+	// Concurrently asks migrations to build the index with CREATE INDEX
+	// CONCURRENTLY. schema.sql builds an empty database and ignores it.
+	Concurrently bool
+	// Source is the file:line of the declaration.
+	Source string
+}
+
+// CheckDef is a named CHECK constraint; Expr is raw SQL over column names.
+type CheckDef struct {
+	Name   string
+	Expr   string
+	Source string
 }
 
 // Service описывает интерфейс (порт).
@@ -680,6 +713,13 @@ type TargetDef struct {
 	NatsWorkers              int // max concurrent NATS handlers per subscriber; 0 = default (20)
 	NatsPublishRetryAttempts int // retry attempts on publish failure; default 3
 	NatsPublishRetryDelayMS  int // initial backoff in ms; doubles each attempt; default 100
+	// SQLIndexNames is how a generated index name longer than Postgres' 63
+	// bytes is emitted: "" / "truncate" as is (Postgres keeps 63 bytes),
+	// "hashed" as its first 54 bytes + "_" + 8 hex digits of its SHA-256.
+	SQLIndexNames string
+	// PostgresVersion is the major version of the Atlas dev database used to
+	// plan migrations (atlas.hcl, ang migrate diff, ang db); "" means 18.
+	PostgresVersion string
 }
 
 // NotificationMutingDef describes automatic notification muting via repository decorator.

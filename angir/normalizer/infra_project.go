@@ -3,6 +3,7 @@ package normalizer
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"cuelang.org/go/cue"
@@ -315,7 +316,21 @@ func parseTargetDef(targetVal cue.Value, defaultName string) TargetDef {
 		NatsWorkers:              natsWorkers,
 		NatsPublishRetryAttempts: natsPublishRetryAttempts,
 		NatsPublishRetryDelayMS:  natsPublishRetryDelayMS,
+		SQLIndexNames:            getOptionalStringField(targetVal, "sql_index_names"),
+		PostgresVersion:          getOptionalScalarField(targetVal, "postgres_version"),
 	}
+}
+
+// getOptionalScalarField reads a string or integer field (postgres_version: 18
+// or "18") as a string; "" when it is absent.
+func getOptionalScalarField(v cue.Value, path string) string {
+	if s := getOptionalStringField(v, path); s != "" {
+		return s
+	}
+	if n, err := v.LookupPath(cue.ParsePath(path)).Int64(); err == nil {
+		return strconv.FormatInt(n, 10)
+	}
+	return ""
 }
 
 // getOptionalStringListField reads a list of strings that may be optional in a
