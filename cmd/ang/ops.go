@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/strogmv/ang/compiler/sqlmigrate"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -253,48 +254,50 @@ func runDB(args []string) {
 	}
 
 	switch args[0] {
-	case "status":
-		if dbURL == "" {
-			fmt.Println("Error: DATABASE_URL is not set. Cannot check drift.")
-			return
-		}
-		fmt.Println("Checking database schema drift...")
-		cmd := exec.Command("atlas", "schema", "diff",
-			"--from", dbURL,
-			"--to", "file://db/schema/schema.sql",
-			"--dev-url", "docker://postgres/15/dev",
-		)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			fmt.Printf("\n❌ DRIFT DETECTED:\n%s\n", string(out))
-			fmt.Println("💡 Hint: Run 'ang db sync' to apply these changes.")
-			os.Exit(1)
-		}
-		if len(strings.TrimSpace(string(out))) == 0 || strings.Contains(string(out), "Schemas are in sync") {
-			fmt.Println("✅ Database schema is in sync with CUE.")
-		} else {
-			fmt.Printf("\nPending changes:\n%s\n", string(out))
-		}
-
-	case "sync":
+	case "status", "sync":
 		if dbURL == "" {
 			fmt.Println("Error: DATABASE_URL is not set.")
 			return
 		}
-		fmt.Println("Synchronizing database schema with CUE...")
-		cmd := exec.Command("atlas", "schema", "apply",
-			"--url", dbURL,
-			"--to", "file://db/schema/schema.sql",
-			"--dev-url", "docker://postgres/15/dev",
-			"--auto-approve",
-		)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
+		fmt.Println("Comparing the database with db/schema/schema.sql...")
+		schemaSQL, err := os.ReadFile("db/schema/schema.sql")
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
+		desired, cleanup, err := desiredSchemaForAtlas(string(schemaSQL), os.Stdout)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
+		diff, err := atlasSchemaDiff(dbURL, "file://"+desired, atlasDevURL(""))
+		cleanup()
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
+		// Only additions are ever applied: what exists only in the database
+		// (hand-written indexes, constraints, triggers) is reported, not dropped.
+		plan := sqlmigrate.Safe(diff, sqlmigrate.ConcurrentIndexNames(string(schemaSQL)))
+		for _, w := range plan.Warnings {
+			fmt.Println("WARNING: " + w)
+		}
+		if len(plan.Statements) == 0 {
+			fmt.Println("The database has everything schema.sql declares.")
+			return
+		}
+		if args[0] == "status" {
+			fmt.Printf("\nMissing in the database (%d statement(s); ang db sync applies them):\n", len(plan.Statements))
+			for _, stmt := range plan.Statements {
+				fmt.Println(stmt)
+			}
+			os.Exit(1)
+		}
+		if err := applyStatements(dbURL, plan.Statements); err != nil {
 			fmt.Printf("\nDB Sync FAILED: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Println("\n✅ Database schema is now in sync with CUE.")
+		fmt.Printf("Applied %d additive statement(s).\n", len(plan.Statements))
 	default:
 		fmt.Printf("Unknown DB command: %s\n", args[0])
 	}
