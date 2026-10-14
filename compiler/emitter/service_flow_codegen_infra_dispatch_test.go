@@ -81,19 +81,9 @@ func TestRenderFlowStepInfra_DispatchHandlesKnownActions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			stNew := newInfraTestFlowState()
-			arg := infraTestArg(tc.step)
-			child := infraTestChild(tc.step)
-
-			got := renderOneFlowStep(stNew, tc.step, 1)
+			got := renderOneFlowStep(newInfraTestFlowState(), tc.step, 1)
 			if strings.TrimSpace(got) == "" {
 				t.Fatalf("dispatcher returned empty render for known infra action %q", tc.step.Action)
-			}
-
-			stLegacy := newInfraTestFlowState()
-			legacy := renderFlowStepInfraLegacy(stLegacy, tc.step, 1, "_x", arg, child)
-			if legacy != "" {
-				t.Fatalf("legacy fallback must stay empty; got:\n%s", legacy)
 			}
 		})
 	}

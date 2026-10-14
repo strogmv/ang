@@ -286,20 +286,6 @@ func renderFlowSteps(st *flowRenderState, steps []normalizer.FlowStep, indent in
 	return renderTypedFlowSteps(st, typed, indent)
 }
 
-func renderFlowChildSteps(st *flowRenderState, child func(string) []normalizer.FlowStep, key string, indent int) string {
-	if st != nil && st.currentTyped != nil {
-		return renderTypedFlowSteps(st, st.currentTyped.Children[key], indent)
-	}
-	return renderFlowSteps(st, child(key), indent)
-}
-
-func flowChildStepCount(st *flowRenderState, child func(string) []normalizer.FlowStep, key string) int {
-	if st != nil && st.currentTyped != nil {
-		return len(st.currentTyped.Children[key])
-	}
-	return len(child(key))
-}
-
 func renderFlowNestedSteps(st *flowRenderState, key string, fallback []normalizer.FlowStep, indent int) string {
 	if st != nil && st.currentTyped != nil {
 		return renderTypedFlowSteps(st, st.currentTyped.Children[key], indent)
@@ -595,23 +581,6 @@ func typedActionAs[T flowir.Action](step flowir.TypedStep) (T, error) {
 		return zero, fmt.Errorf("action %q decoded as %T", step.Name, step.Action)
 	}
 	return typed, nil
-}
-
-func decodeCurrentActionAs[T flowir.Action](st *flowRenderState, raw normalizer.FlowStep) (T, error) {
-	var zero T
-	if st == nil || st.currentTyped == nil {
-		return zero, fmt.Errorf("action %q has no typed Flow IR context", raw.Action)
-	}
-	if st.currentTyped.Name != raw.Action {
-		return zero, fmt.Errorf("typed Flow IR action %q does not match renderer action %q", st.currentTyped.Name, raw.Action)
-	}
-	if st.currentTyped.DecodeError != nil {
-		return zero, st.currentTyped.DecodeError
-	}
-	if typed, ok := st.currentTyped.Action.(T); ok {
-		return typed, nil
-	}
-	return zero, fmt.Errorf("action %q decoded as %T", raw.Action, st.currentTyped.Action)
 }
 
 // flowStepLineMarker marks where the code of a step starts, for

@@ -1072,25 +1072,6 @@ func TestRenderFlow_LogicCheckStatusForbiddenWord(t *testing.T) {
 	}
 }
 
-func TestRenderFlow_LogicCheckNoInterceptInRepoMapping(t *testing.T) {
-	step := normalizer.FlowStep{
-		Action: "logic.Check",
-		Args: map[string]any{
-			"condition": "req.CompanyID != \"\"",
-			"throw":     "companyId is required",
-			"status":    "403",
-		},
-	}
-	st := newDomainDispatchState()
-	out, ok := renderFlowStepDomainRepoMapping(st, step, 1, "_x", domainDispatchArg(step), domainDispatchChild(step))
-	if ok {
-		t.Fatalf("expected repo/mapping dispatcher to return ok=false for logic.Check, got handled output:\n%s", out)
-	}
-	if strings.TrimSpace(out) != "" {
-		t.Fatalf("expected empty output when logic.Check is passed to repo/mapping dispatcher, got:\n%s", out)
-	}
-}
-
 func TestRenderFlow_LogicCheck_Default400(t *testing.T) {
 	t.Parallel()
 
@@ -1155,27 +1136,6 @@ func TestRenderFlow_LogicCheck_Status401(t *testing.T) {
 	code := renderFlow(steps)
 	if !strings.Contains(code, "http.StatusUnauthorized") {
 		t.Fatalf("expected StatusUnauthorized for logic.Check status=401, got:\n%s", code)
-	}
-}
-
-func TestRenderFlow_LogicCheck_NoInterceptInRepoMapping(t *testing.T) {
-	t.Parallel()
-
-	step := normalizer.FlowStep{
-		Action: "logic.Check",
-		Args: map[string]any{
-			"condition": "req.CompanyID != \"\"",
-			"throw":     "companyId is required",
-		},
-	}
-	st := newDomainDispatchState()
-
-	out, ok := renderFlowStepDomainRepoMapping(st, step, 1, "_x", domainDispatchArg(step), domainDispatchChild(step))
-	if ok {
-		t.Fatalf("expected repo/mapping dispatcher to ignore logic.Check, got handled output:\n%s", out)
-	}
-	if strings.TrimSpace(out) != "" {
-		t.Fatalf("expected empty output when logic.Check is passed to repo/mapping dispatcher, got:\n%s", out)
 	}
 }
 
@@ -1285,33 +1245,5 @@ func newDomainDispatchState() *flowRenderState {
 		pointers: map[string]bool{},
 		types:    map[string]string{},
 		stepN:    &n,
-	}
-}
-
-func domainDispatchArg(step normalizer.FlowStep) func(string) string {
-	return func(name string) string {
-		v, ok := step.Args[name]
-		if !ok {
-			return ""
-		}
-		s, ok := v.(string)
-		if !ok {
-			return ""
-		}
-		return normalizeFlowExpr(strings.TrimSpace(s))
-	}
-}
-
-func domainDispatchChild(step normalizer.FlowStep) func(string) []normalizer.FlowStep {
-	return func(name string) []normalizer.FlowStep {
-		v, ok := step.Args[name]
-		if !ok {
-			return nil
-		}
-		steps, ok := v.([]normalizer.FlowStep)
-		if !ok {
-			return nil
-		}
-		return steps
 	}
 }

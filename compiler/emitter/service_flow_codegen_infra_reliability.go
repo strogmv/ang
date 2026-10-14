@@ -782,29 +782,3 @@ func renderStateSemaphore(st *flowRenderState, pad, sfx, action, prefix, key str
 	b.WriteString(fmt.Sprintf("%s}()\n", pad))
 	return b.String()
 }
-
-func flowMapStringArg(raw any) map[string]string {
-	out := map[string]string{}
-	m, ok := raw.(map[string]string)
-	if !ok {
-		return out
-	}
-	for k, v := range m {
-		key := strings.TrimSpace(k)
-		val := normalizeFlowExpr(strings.TrimSpace(v))
-		if key == "" || val == "" {
-			continue
-		}
-		out[key] = val
-	}
-	return out
-}
-
-func flowSortedKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}

@@ -257,29 +257,3 @@ func legacyNormalizePayloadField(fieldName, valueExpr string) string {
 	}
 	return valueExpr
 }
-
-func flowEventPayloadMap(v any) map[string]string {
-	if v == nil {
-		return nil
-	}
-	switch raw := v.(type) {
-	case map[string]string:
-		out := make(map[string]string, len(raw))
-		for k, val := range raw {
-			out[k] = val
-		}
-		return out
-	case map[string]any:
-		out := make(map[string]string, len(raw))
-		for k, val := range raw {
-			if s, ok := val.(string); ok {
-				out[k] = s
-				continue
-			}
-			out[k] = fmt.Sprint(val)
-		}
-		return out
-	default:
-		return nil
-	}
-}

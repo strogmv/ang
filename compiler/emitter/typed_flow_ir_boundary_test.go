@@ -45,9 +45,9 @@ func TestTypedEmitterDoesNotReadLegacyScalarArgs(t *testing.T) {
 	}
 }
 
-// TestTypedDispatchDoesNotCallLegacyRenderers makes the production boundary
-// explicit: compatibility renderers may remain while tests are migrated, but
-// renderTypedStepDispatch must never reach them.
+// TestTypedDispatchDoesNotCallLegacyRenderers keeps renderTypedStepDispatch
+// off the raw-step renderers (renderFlowStep*), which were removed; a new one
+// must not come back through the typed dispatcher.
 func TestTypedDispatchDoesNotCallLegacyRenderers(t *testing.T) {
 	t.Parallel()
 
@@ -67,15 +67,10 @@ func TestTypedDispatchDoesNotCallLegacyRenderers(t *testing.T) {
 	if dispatch == nil {
 		t.Fatal("renderTypedStepDispatch not found")
 	}
-	legacyNames := map[string]bool{
-		"decodeCurrentActionAs":    true,
-		"flowStepMetadata":         true,
-		"renderLegacyStepDispatch": true,
-	}
 	var offenders []string
 	ast.Inspect(dispatch.Body, func(node ast.Node) bool {
 		ident, ok := node.(*ast.Ident)
-		if ok && (legacyNames[ident.Name] || strings.HasPrefix(ident.Name, "renderFlowStep")) {
+		if ok && strings.HasPrefix(ident.Name, "renderFlowStep") {
 			offenders = append(offenders, ident.Name)
 		}
 		return true
@@ -156,52 +151,5 @@ func TestTypedControlFlowBasicDoesNotCallRawHelpers(t *testing.T) {
 	})
 	if len(offenders) > 0 {
 		t.Fatalf("typed control flow calls raw helper(s): %s", strings.Join(offenders, ", "))
-	}
-}
-
-func TestTypedControlFlowStatefulDoesNotCallLegacyFallbacks(t *testing.T) {
-	t.Parallel()
-
-	path := filepath.Join(repoRoot(t), "compiler", "emitter", "service_flow_codegen_control_flow_typed.go")
-	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
-	if err != nil {
-		t.Fatalf("parse typed control flow: %v", err)
-	}
-	var stateful *ast.FuncDecl
-	for _, decl := range file.Decls {
-		fn, ok := decl.(*ast.FuncDecl)
-		if ok && fn.Name.Name == "renderTypedStepControlFlowStateful" {
-			stateful = fn
-			break
-		}
-	}
-	if stateful == nil {
-		t.Fatal("renderTypedStepControlFlowStateful not found")
-	}
-	legacyNames := map[string]bool{
-		"renderFlowCheckpointAST":      true,
-		"renderFlowCheckpointLegacy":   true,
-		"renderFlowResumeLegacy":       true,
-		"renderFlowValidateAST":        true,
-		"renderFlowValidateLegacy":     true,
-		"renderFlowCatchAST":           true,
-		"renderFlowCatchLegacy":        true,
-		"renderFlowDeferAST":           true,
-		"renderFlowDeferLegacy":        true,
-		"renderFlowSuggestNextAST":     true,
-		"renderFlowSuggestNextLegacy":  true,
-		"renderFlowExplainErrorAST":    true,
-		"renderFlowExplainErrorLegacy": true,
-	}
-	var offenders []string
-	ast.Inspect(stateful.Body, func(node ast.Node) bool {
-		ident, ok := node.(*ast.Ident)
-		if ok && legacyNames[ident.Name] {
-			offenders = append(offenders, ident.Name)
-		}
-		return true
-	})
-	if len(offenders) > 0 {
-		t.Fatalf("typed stateful control flow calls legacy fallback(s): %s", strings.Join(offenders, ", "))
 	}
 }

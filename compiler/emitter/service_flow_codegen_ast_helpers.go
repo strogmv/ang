@@ -64,26 +64,6 @@ func indentFlowCode(code string, indent int) string {
 	return strings.Join(lines, "\n")
 }
 
-func flowIntArg(args map[string]any, key string, def int) int {
-	if args == nil {
-		return def
-	}
-	v, ok := args[key]
-	if !ok {
-		return def
-	}
-	switch n := v.(type) {
-	case int:
-		return n
-	case int64:
-		return int(n)
-	case float64:
-		return int(n)
-	default:
-		return def
-	}
-}
-
 func flowIntLit(n int) ast.Expr {
 	return &ast.BasicLit{Kind: token.INT, Value: strconv.Itoa(n)}
 }

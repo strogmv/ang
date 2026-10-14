@@ -7,40 +7,6 @@ import (
 	"github.com/strogmv/ang/compiler/flowir"
 )
 
-func flowStringOrListExpr(v any) string {
-	switch raw := v.(type) {
-	case string:
-		return normalizeFlowExpr(strings.TrimSpace(raw))
-	case []string:
-		if len(raw) == 0 {
-			return ""
-		}
-		parts := make([]string, 0, len(raw))
-		for _, item := range raw {
-			item = strings.TrimSpace(item)
-			if item == "" {
-				continue
-			}
-			parts = append(parts, flowQuoteOrExpr(item))
-		}
-		if len(parts) == 0 {
-			return ""
-		}
-		return "[]string{" + strings.Join(parts, ", ") + "}"
-	case []any:
-		if len(raw) == 0 {
-			return ""
-		}
-		parts := make([]string, 0, len(raw))
-		for _, item := range raw {
-			parts = append(parts, flowQuoteOrExpr(fmt.Sprint(item)))
-		}
-		return "[]string{" + strings.Join(parts, ", ") + "}"
-	default:
-		return ""
-	}
-}
-
 func flowQuoteOrExpr(v string) string {
 	s := normalizeFlowExpr(strings.TrimSpace(v))
 	if s == "" {

@@ -2,8 +2,9 @@ package emitter
 
 import (
 	"fmt"
-	"github.com/strogmv/ang/compiler/flowir"
 	"strings"
+
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 func renderTypedStepString(st *flowRenderState, step flowir.TypedStep, indent int, sfx string) (string, bool) {
