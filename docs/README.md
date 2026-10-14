@@ -26,6 +26,7 @@ This folder is organized so both humans and AI agents can find the right entry p
 - [SQL Schema](./sql-schema.md): indexes, checks, raw DDL, migrations.
 - [Repositories](./repositories.md): finder `params:`, `paged:`, SQL checks, `select: "auto"`, `SaveBatch` chunks, upserts, `transactional: true`.
 - [Helpers](./helpers.md): Go declared once in `Helpers:` and called by name from any operation, generated once.
+- [Raw Go](./raw-go.md): what `impls: go:` code and `logic.Call` literals see in the generated method; any Go name is legal.
 
 ## Release Notes
 

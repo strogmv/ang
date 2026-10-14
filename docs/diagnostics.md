@@ -37,6 +37,13 @@ Code families:
   write the same file (docs/helpers.md).
 - `HELPER_UNUSED` (warning): no operation reaches the helper. An unused method
   helper is not generated at all.
+- `IMPL_RESULT_SHADOWED` (warning): `impls: go:` code declares its own `resp`
+  or `err`, and then a naked `return` in its scope (Go refuses it) or a
+  deferred func that reads it (it sees the code's variable, not the returned
+  result). Return explicitly, or rename the variable (docs/raw-go.md).
+- `LOGIC_CALL_OUTER_ERR` (warning): a `logic.Call` function literal uses `err`
+  without declaring it, so it sets the error variable of the generated method.
+  Declare `err` in the literal (docs/raw-go.md).
 - `REPO_FINDER_PAGED_IMPLICIT` (warning): `limit:` > 0 or a name containing
   `paginate` adds `(limit int, offset int)` to a finder; write `paged: true`.
 - `SQL_INDEX_NAME_TRUNCATED` (warning): a generated index name is longer than

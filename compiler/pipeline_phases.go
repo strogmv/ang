@@ -343,6 +343,7 @@ func runNormalizePhase(basePath string, parsed ParsePhaseOutput, opts PipelineOp
 	if err := validateRawGoImports(services); err != nil {
 		return out, WrapContractError(StageCUE, ErrCodeRawGoImport, "validate imports of raw Go", err)
 	}
+	emitRawGoScopeDiagnostics(services, opts)
 	typeObjectsTheCodeReachesInto(services)
 	endpoints, err := n.ExtractEndpoints(parsed.API)
 	if err != nil {
