@@ -210,6 +210,13 @@ func LoadWithOptions(basePath string, opts LoadOptions) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("extract services: %w", err)
 	}
+	helpers, err := n.ExtractHelpers(valAPI)
+	if err != nil {
+		return nil, fmt.Errorf("extract helpers: %w", err)
+	}
+	if _, err := normalizer.ResolveHelpers(helpers, services); err != nil {
+		return nil, fmt.Errorf("resolve helpers: %w", err)
+	}
 	endpoints, err := n.ExtractEndpoints(valAPI)
 	if err != nil {
 		return nil, fmt.Errorf("extract endpoints: %w", err)
@@ -372,6 +379,7 @@ func LoadWithOptions(basePath string, opts LoadOptions) (*Result, error) {
 		projectDefVal,
 	)
 	schema.Templates = convertTemplates(templates, emailTemplates)
+	schema.Helpers = ir.ConvertHelpers(helpers)
 	schema.Notifications = convertNotifications(
 		normalizer.InfraNotificationChannels(infraValues),
 		normalizer.InfraNotificationPolicies(infraValues),

@@ -68,6 +68,7 @@ func RunIRPhase(in IRPhaseInput) (IRPhaseOutput, error) {
 		normalizer.InfraNotificationPolicies(in.InfraValues),
 	)
 	AttachTemplates(schema, in.Templates, in.BasePath)
+	schema.Helpers = ir.ConvertHelpers(in.Normalized.Helpers)
 	if err := ValidateIRSemantics(schema); err != nil {
 		return IRPhaseOutput{}, WrapContractError(StageIR, ErrCodeIRSemanticValidate, "validate IR semantics", err)
 	}

@@ -517,6 +517,8 @@ func ConvertMethod(m normalizer.Method) Method {
 		Metadata:             m.Metadata,
 		Source:               m.Source,
 		Provenance:           explicitProvenance(m.Source),
+		Helpers:              m.Helpers,
+		HelperCode:           m.HelperCode,
 	}
 
 	// Convert input
@@ -1064,4 +1066,26 @@ func LiveRoomToNormalizer(l *LiveRoom) *normalizer.LiveRoomDef {
 		return nil
 	}
 	return &normalizer.LiveRoomDef{State: l.State, View: l.View, Triggers: append([]string(nil), l.Triggers...)}
+}
+
+// ConvertHelpers converts the project's shared helpers.
+func ConvertHelpers(helpers []normalizer.Helper) []Helper {
+	if len(helpers) == 0 {
+		return nil
+	}
+	out := make([]Helper, 0, len(helpers))
+	for _, h := range helpers {
+		out = append(out, Helper{
+			Name:        h.Name,
+			Kind:        h.Kind,
+			Code:        h.Code,
+			Imports:     append([]string(nil), h.Imports...),
+			Description: h.Description,
+			Source:      h.Source,
+			CodeFile:    h.CodeText.File,
+			CodeLine:    h.CodeText.Line,
+			Uses:        append([]string(nil), h.Uses...),
+		})
+	}
+	return out
 }

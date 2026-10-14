@@ -13,7 +13,7 @@ import (
 // implementation gets every one its operations' Go reaches, sources or not
 // (emitter.serviceImplRepoEntities). Anything else would only fail later as
 // "s.XRepo undefined" in the generated Go.
-func validateGoRepoReferences(services []normalizer.Service, entities []normalizer.Entity) error {
+func validateGoRepoReferences(services []normalizer.Service, entities []normalizer.Entity, helpers []normalizer.Helper) error {
 	withRepo := map[string]string{}
 	dto := map[string]string{}
 	for _, ent := range entities {
@@ -38,6 +38,24 @@ func validateGoRepoReferences(services []normalizer.Service, entities []normaliz
 			return fmt.Errorf("%s: operation %s.%s uses s.%sRepo, but %s", where, svc.Name, method.Name, goName, reason)
 		}
 		return nil
+	}
+	// A method helper reaches the repositories of every service that calls it.
+	for _, h := range helpers {
+		if h.Kind != normalizer.HelperMethod {
+			continue
+		}
+		for _, goName := range normalizer.GoRepoReferences(h.Code) {
+			if _, ok := withRepo[goName]; ok {
+				continue
+			}
+			reason := fmt.Sprintf("no entity %s has a repository", goName)
+			if name, ok := dto[goName]; ok {
+				reason = fmt.Sprintf("%s is a DTO and has no repository", name)
+			} else if near := nearestField(goName, withRepo); near != "" && levenshteinDistance(goName, near) <= 3 {
+				reason += fmt.Sprintf("; did you mean s.%sRepo?", near)
+			}
+			return fmt.Errorf("%s: helper %s uses s.%sRepo, but %s", h.Source, h.Name, goName, reason)
+		}
 	}
 	for _, svc := range services {
 		for _, method := range svc.Methods {

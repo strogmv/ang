@@ -47,6 +47,8 @@ type NormalizePhaseOutput struct {
 	Scenarios []normalizer.ScenarioDef
 	Scopes    []normalizer.ScopeDef
 	Project   normalizer.ProjectDef
+	// Helpers: Go declared once in cue/api (Helpers:), emitted once.
+	Helpers []normalizer.Helper
 }
 
 // FlowSemPhaseInput is the explicit contract accepted by the flow semantics phase.
@@ -317,6 +319,18 @@ func runNormalizePhase(basePath string, parsed ParsePhaseOutput, opts PipelineOp
 	if err := validateImplDTOSelectors(services); err != nil {
 		return out, WrapContractError(StageCUE, ErrCodeDTOFieldUnknown, "validate embedded Go DTO selectors", err)
 	}
+	helpers, err := n.ExtractHelpers(parsed.API)
+	if err != nil {
+		return out, WrapContractError(StageCUE, ErrCodeHelperInvalid, "check helpers", err)
+	}
+	unusedHelpers, err := normalizer.ResolveHelpers(helpers, services)
+	if err != nil {
+		return out, WrapContractError(StageCUE, ErrCodeHelperInvalid, "resolve the helpers operations call", err)
+	}
+	emitUnusedHelperDiagnostics(unusedHelpers, opts)
+	if err := validateHelperImports(helpers); err != nil {
+		return out, WrapContractError(StageCUE, ErrCodeRawGoImport, "validate imports of helpers", err)
+	}
 	if err := validateRawGoImports(services); err != nil {
 		return out, WrapContractError(StageCUE, ErrCodeRawGoImport, "validate imports of raw Go", err)
 	}
@@ -451,7 +465,7 @@ func runNormalizePhase(basePath string, parsed ParsePhaseOutput, opts PipelineOp
 	scenarios, _ := n.ExtractScenarios(parsed.API)
 	scopes, _ := n.ExtractScopes(parsed.Domain)
 
-	if err := validateGoRepoReferences(services, entities); err != nil {
+	if err := validateGoRepoReferences(services, entities, helpers); err != nil {
 		return out, WrapContractError(StageCUE, ErrCodeRepoRefUnknown, "validate repositories reached from Go", err)
 	}
 	if err := validateRepoFinders(repos, entities); err != nil {
@@ -468,6 +482,7 @@ func runNormalizePhase(basePath string, parsed ParsePhaseOutput, opts PipelineOp
 	out.Schedules = schedules
 	out.Scenarios = scenarios
 	out.Scopes = scopes
+	out.Helpers = helpers
 	if projectDef != nil {
 		out.Project = *projectDef
 	}

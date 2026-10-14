@@ -25,7 +25,8 @@ func GoRepoReferences(code string) []string {
 
 // MethodCodeText is every piece of Go an operation carries: its impl code and
 // each string argument of its flow steps (logic.Call funcs, values,
-// conditions, targets), nested branches included, one per line.
+// conditions, targets), nested branches included, one per line, and the code
+// of the helpers it reaches (Method.HelperCode).
 func MethodCodeText(m Method) string {
 	var b strings.Builder
 	if m.Impl != nil {
@@ -34,6 +35,9 @@ func MethodCodeText(m Method) string {
 	}
 	for _, step := range m.Flow {
 		writeFlowStepText(&b, step)
+	}
+	if m.HelperCode != "" {
+		b.WriteString(m.HelperCode)
 	}
 	return b.String()
 }

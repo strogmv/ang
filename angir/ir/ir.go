@@ -22,6 +22,7 @@ type Schema struct {
 	Schedules  []Schedule   `json:"schedules"`
 	Views      []View       `json:"views"`
 	Templates  []Template   `json:"templates,omitempty"`
+	Helpers    []Helper     `json:"helpers,omitempty"`
 	Provenance *Provenance  `json:"provenance,omitempty"`
 	// Notifications stores declarative notification routing configuration
 	// normalized from cue/infra blocks.
@@ -446,6 +447,25 @@ type Method struct {
 	Metadata             map[string]any   `json:"metadata"`
 	Source               string           `json:"source"`
 	Provenance           *Provenance      `json:"provenance,omitempty"`
+	// Helpers are the shared helpers the method's Go reaches (normalizer.Method.Helpers).
+	Helpers []string `json:"helpers,omitempty"`
+	// HelperCode is their Go, for analyses of the method's code; never emitted with it.
+	HelperCode string `json:"helper_code,omitempty"`
+}
+
+// Helper is Go declared once in CUE (Helpers: in cue/api) and emitted once:
+// a func, type, var or const to internal/service/helper__<name>.gen.go, a
+// method helper (func (s *Service) name) once per service that reaches it.
+type Helper struct {
+	Name        string   `json:"name"`
+	Kind        string   `json:"kind"`
+	Code        string   `json:"code"`
+	Imports     []string `json:"imports,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Source      string   `json:"source,omitempty"`
+	CodeFile    string   `json:"code_file,omitempty"`
+	CodeLine    int      `json:"code_line,omitempty"`
+	Uses        []string `json:"uses,omitempty"`
 }
 
 // FlowStep represents a declarative step in a method's logic.

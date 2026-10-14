@@ -1582,6 +1582,32 @@ import "github.com/strogmv/ang/cue/project"
 	}
 }
 
+// #Helpers: Go written once and called by name from any operation's Go
+// (impls: go: code, logic.Call funcs, flow expressions). Declared in cue/api:
+//
+//	Helpers: countryMarkets: {
+//		code: """
+//			func countryMarkets() []countryMarket { … }
+//			"""
+//	}
+//
+// The code is one top-level Go declaration named after the key: a func, a
+// method `func (s *Service) name(…)` (it reads the service's repositories;
+// callers write s.name(…)), a type, a var or a const. ANG emits each helper
+// once, to internal/service/helper__<name>.gen.go with //line back to the CUE;
+// a method is emitted for each service whose operations reach it.
+#Helpers: {
+	[=~"^[a-z][A-Za-z0-9]*$"]: #Helper
+}
+
+#Helper: {
+	code: string
+	// Packages the code uses beyond the service base imports (as logic.Call's
+	// imports:): needed where goimports would have to guess (rand.Read).
+	imports?: [...string]
+	description?: string
+}
+
 #AppConfig: {
 	[string]: _
 	security_profile?: #SecurityProfile | *"baseline"

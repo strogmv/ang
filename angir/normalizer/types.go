@@ -288,6 +288,13 @@ type Method struct {
 	AIActPolicy          *AIActPolicy
 	Metadata             map[string]any
 	Source               string
+	// Helpers are the shared helpers (Helpers: in cue/api) the operation's Go
+	// reaches, directly or through other helpers, sorted.
+	Helpers []string
+	// HelperCode is the Go of those helpers. It is not emitted with the
+	// operation (each helper has its own file); MethodCodeText includes it so
+	// that what the operation reaches through a helper (s.XRepo, s.Tx) counts.
+	HelperCode string
 }
 
 type FlowStep struct {

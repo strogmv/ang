@@ -128,6 +128,12 @@ func FuncLiteralRefs(literal string) (refs []Ref, ok bool) {
 	return refsOf("package rawgo\nvar _ = "+literal+"\n", 1)
 }
 
+// DeclRefs parses top-level Go declarations (a helper's code) and returns the
+// selectors whose left side is not declared in them.
+func DeclRefs(code string) (refs []Ref, ok bool) {
+	return refsOf("package rawgo\n"+code+"\n", 1)
+}
+
 func refsOf(src string, headerLines int) ([]Ref, bool) {
 	fset := token.NewFileSet()
 	// Object resolution (the default) binds every identifier declared inside
