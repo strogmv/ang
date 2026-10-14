@@ -479,6 +479,8 @@ func contextServiceFromIR(s ir.Service) normalizer.Service {
 			Publishes:     append([]string{}, m.Publishes...),
 			Idempotency:   m.Idempotent,
 			Outbox:        m.Outbox,
+			Helpers:       m.Helpers,
+			HelperCode:    m.HelperCode,
 		}
 		if m.Impl != nil {
 			nm.Impl = &normalizer.MethodImpl{RequiresTx: m.Impl.RequiresTx}

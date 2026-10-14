@@ -499,7 +499,7 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 				return false
 			}
 			for _, m := range svc.Methods {
-				if implNeedsTx(m.Impl) || hasTx(m.Flow) {
+				if implNeedsTx(m.Impl) || helpersNeedTx(m) || hasTx(m.Flow) {
 					return true
 				}
 			}

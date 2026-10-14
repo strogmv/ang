@@ -335,7 +335,7 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 				if scanSteps(m.Flow) {
 					return true
 				}
-				if implNeedsTx(m.Impl) {
+				if implNeedsTx(m.Impl) || helpersNeedTx(m) {
 					return true
 				}
 			}

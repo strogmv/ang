@@ -278,6 +278,12 @@ func (e *Emitter) EmitService(services []ir.Service) error {
 }
 
 func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, events []ir.Event, auth *normalizer.AuthDef) error {
+	return e.emitServiceImpl(services, entities, events, auth, nil)
+}
+
+// emitServiceImpl writes the service implementations and the project's
+// shared helpers (emitHelpers).
+func (e *Emitter) emitServiceImpl(services []ir.Service, entities []ir.Entity, events []ir.Event, auth *normalizer.AuthDef, helpers []ir.Helper) error {
 	scaffoldTmplContent, err := ReadTemplateByPath(serviceImplScaffoldTemplatePath)
 	if err != nil {
 		return err
@@ -765,7 +771,7 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 			return err
 		}
 	}
-	return nil
+	return e.emitHelpers(targetDir, helpers, nServices)
 }
 
 func cloneInfraValues(src map[string]any) map[string]any {

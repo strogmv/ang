@@ -399,6 +399,8 @@ func IRMethodToNormalizer(m ir.Method) normalizer.Method {
 		Planner:              irPlannerToNormalizer(m.Planner),
 		Metadata:             m.Metadata,
 		Source:               m.Source,
+		Helpers:              m.Helpers,
+		HelperCode:           m.HelperCode,
 	}
 
 	// Operation-level CUE attributes (e.g. @table(...)) drive frontend emitters;

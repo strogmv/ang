@@ -478,7 +478,7 @@ func serviceImplNeedsTx(s normalizer.Service) bool {
 		if scanSteps(m.Flow) {
 			return true
 		}
-		if implNeedsTx(m.Impl) {
+		if implNeedsTx(m.Impl) || helpersNeedTx(m) {
 			return true
 		}
 		if m.Transactional || txFieldRE.MatchString(normalizer.MethodCodeText(m)) {
@@ -510,6 +510,13 @@ func serviceImplUsesTx(s normalizer.Service) bool {
 // declared with tx, or using s.txManager itself, as a raw logic.Call may.
 func implNeedsTx(impl *normalizer.MethodImpl) bool {
 	return impl != nil && (impl.RequiresTx || strings.Contains(impl.Code, "s.txManager"))
+}
+
+// helpersNeedTx reports whether a method helper the operation reaches uses
+// s.txManager: the service then needs the field, as when the helper's Go was
+// pasted into the operation.
+func helpersNeedTx(m normalizer.Method) bool {
+	return strings.Contains(m.HelperCode, "s.txManager")
 }
 
 // flowStepUsesTxManager keeps dependency injection aligned with an explicitly
