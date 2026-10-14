@@ -4,7 +4,6 @@ go 1.27.0
 
 require (
 	cuelang.org/go v0.17.1
-	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/mark3labs/mcp-go v0.43.2
 	github.com/pmezard/go-difflib v1.0.0
