@@ -32,7 +32,5 @@ func printBootstrapGuidanceIfNeeded(projectPath string, stage compiler.Stage, co
 		return
 	}
 	fmt.Println("Guided fix: missing CUE contract bootstrap for this project.")
-	fmt.Println("  1) If you have OpenAPI: ang import openapi src/main/resources/openapi.yml --update --report")
-	fmt.Println("  2) If you have Spring project: ang import java . --update --report")
-	fmt.Println("  3) Or initialize scaffold: ang init --template saas")
+	fmt.Println("  Initialize a scaffold: ang init --template saas (or write cue/api/http.cue and cue/domain/entities.cue)")
 }
