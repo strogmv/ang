@@ -292,6 +292,12 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 	}
 
 	for iter.Next() {
+		// A hidden field (_name) is not data: CUE does not export it. It
+		// used to become a Go field: `_dto: true` gave 47 dealingi-back
+		// structs a `DTO bool` field and the SDK a `dto: boolean`.
+		if iter.Selector().LabelType() == cue.HiddenLabel {
+			continue
+		}
 		fLabel := iter.Selector().String()
 		fLabel = cleanName(fLabel)
 

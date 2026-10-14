@@ -72,6 +72,11 @@ Archive: {
 	dto := map[string]bool{}
 	for _, e := range out.Entities {
 		dto[e.Name] = normalizer.IsDTO(e)
+		for _, f := range e.Fields {
+			if strings.Contains(strings.ToLower(f.Name), "dto") {
+				t.Errorf("entity %s has a field %s: a hidden field is not data", e.Name, f.Name)
+			}
+		}
 	}
 	// The attribute stays on #RowProj; Report embeds the struct but not the
 	// marker, and Settlement's hidden field marks nothing.
