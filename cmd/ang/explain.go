@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	explainpkg "github.com/strogmv/ang/internal/explain"
+	explainpkg "github.com/strogmv/ang/tool/explain"
 )
 
 type explainInput = explainpkg.Input

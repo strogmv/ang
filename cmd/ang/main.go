@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/strogmv/ang/compiler"
-	"github.com/strogmv/ang/internal/mcp"
+	"github.com/strogmv/ang/tool/mcp"
 	"gopkg.in/yaml.v3"
 )
 
