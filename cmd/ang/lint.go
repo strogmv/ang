@@ -73,9 +73,7 @@ func runLint(args []string) {
 				Message: formatStageFailure("Lint FAILED", compiler.StageCUE, compiler.ErrCodeCUELintLoad, "load cue/lint", lintErr),
 			})
 		}
-		for _, v := range violations {
-			report.Errors = append(report.Errors, v)
-		}
+		report.Errors = append(report.Errors, violations...)
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		if encErr := enc.Encode(report); encErr != nil {

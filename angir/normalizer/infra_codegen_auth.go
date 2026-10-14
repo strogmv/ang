@@ -285,9 +285,7 @@ func (n *Normalizer) extractRBACFromPolicy(val cue.Value) (*RBACDef, error) {
 				}
 				if strings.HasSuffix(pattern, ".*") {
 					resource := strings.TrimSuffix(pattern, ".*")
-					for _, perm := range actionByResource[resource] {
-						rbac.Roles[roleName] = append(rbac.Roles[roleName], perm)
-					}
+					rbac.Roles[roleName] = append(rbac.Roles[roleName], actionByResource[resource]...)
 					continue
 				}
 				rbac.Roles[roleName] = append(rbac.Roles[roleName], pattern)

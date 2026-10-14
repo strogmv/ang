@@ -694,7 +694,7 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 			path := ep.Path
 
 			// Action pattern: /api/.../{id}/{action}
-			if method == "POST" && strings.HasSuffix(path, "}") == false {
+			if method == "POST" && !strings.HasSuffix(path, "}") {
 				parts := strings.Split(path, "/")
 				if len(parts) >= 2 && strings.HasPrefix(parts[len(parts)-2], "{") {
 					return "action"

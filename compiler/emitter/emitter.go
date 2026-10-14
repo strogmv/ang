@@ -122,10 +122,7 @@ func ReadTemplateByPath(tmplPath string) ([]byte, error) {
 	// 🚀 QUICK WIN: Dynamic template loading for faster development
 	if customDir := os.Getenv("ANG_TEMPLATES_DIR"); customDir != "" {
 		// Try relative name first
-		name := tmplPath
-		if strings.HasPrefix(name, "templates/") {
-			name = strings.TrimPrefix(name, "templates/")
-		}
+		name := strings.TrimPrefix(tmplPath, "templates/")
 		fullPath := filepath.Join(customDir, name)
 		if data, err := os.ReadFile(fullPath); err == nil {
 			return data, nil

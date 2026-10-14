@@ -327,9 +327,7 @@ func goBuildOutputFlag(dir, overlayPath string, patterns []string, binDir string
 		return "", fmt.Errorf("go list %s: %w", strings.Join(patterns, " "), err)
 	}
 	var names []string
-	for _, name := range strings.Fields(string(out)) {
-		names = append(names, name)
-	}
+	names = append(names, strings.Fields(string(out))...)
 	switch {
 	case len(names) == 1:
 		return os.DevNull, nil

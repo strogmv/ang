@@ -2479,9 +2479,9 @@ func decodeListBoolean(s normalizer.FlowStep, all bool) (Action, error) {
 	}
 	v := f.(ListFilter)
 	if all {
-		return ListAll{v.From, v.As, v.Condition, v.Output}, nil
+		return ListAll(v), nil
 	}
-	return ListAny{v.From, v.As, v.Condition, v.Output}, nil
+	return ListAny(v), nil
 }
 func decodeListMap(s normalizer.FlowStep) (Action, error) {
 	f, e := requiredExpression(s, "from")

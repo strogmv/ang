@@ -23,7 +23,6 @@ func GetMergedContent(path string, selector string, patchContent string, force b
 
 	var origAST *ast.File
 	origLines := 0
-	origDecls := 0
 	if os.IsNotExist(err) {
 		origAST = &ast.File{}
 	} else {
@@ -32,7 +31,6 @@ func GetMergedContent(path string, selector string, patchContent string, force b
 			return nil, fmt.Errorf("parse original: %w", err)
 		}
 		origLines = bytes.Count(origContent, []byte("\n"))
-		origDecls = len(origAST.Decls)
 	}
 
 	// 2. Measure Target Node Size
@@ -64,16 +62,10 @@ func GetMergedContent(path string, selector string, patchContent string, force b
 	}
 
 	newLines := bytes.Count(res, []byte("\n"))
-	newDecls := len(origAST.Decls)
 
-	// 6. Refined Data Loss Guard
-	// 6a. Global Guard (Entity count)
-	if selector == "" && origDecls > 3 && newDecls < origDecls {
-		// If we lost root level declarations in a global merge, it's suspicious
-		// return nil, fmt.Errorf("GUARD: unexpected loss of root declarations (%d -> %d). Use selector for precise updates", origDecls, newDecls)
-	}
-
-	// 6b. Node Guard
+	// 6. Refined Data Loss Guard. A global merge that drops root declarations
+	// is not refused: only the line counts below guard it.
+	// 6a. Node Guard
 	if selector != "" && origTargetSize > 5 {
 		newTargetSize := countNodeLines(findNodeBySelector(origAST, selector))
 		if float64(newTargetSize) < float64(origTargetSize)*ReductionThreshold {
@@ -81,7 +73,7 @@ func GetMergedContent(path string, selector string, patchContent string, force b
 		}
 	}
 
-	// 6c. File Guard (Legacy)
+	// 6b. File Guard
 	if selector == "" && origLines > 20 && float64(newLines) < float64(origLines)*ReductionThreshold {
 		return nil, fmt.Errorf("CRITICAL_REDUCTION_DETECTED: file reduced from %d to %d lines", origLines, newLines)
 	}

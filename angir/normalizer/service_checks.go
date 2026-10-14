@@ -77,7 +77,7 @@ func validateImplAntiPatterns(serviceName, methodName string, method Method, cod
 		if line == "" {
 			continue
 		}
-		if idx := strings.Index(line, "http://"); idx >= 0 || strings.Index(line, "https://") >= 0 {
+		if idx := strings.Index(line, "http://"); idx >= 0 || strings.Contains(line, "https://") {
 			if idx < 0 {
 				idx = strings.Index(line, "https://")
 			}
