@@ -28,3 +28,31 @@ func TestEmitDeadCUEDirectoryDiagnostics(t *testing.T) {
 		t.Fatalf("unexpected dead CUE directory: %#v", got[0])
 	}
 }
+
+// A folder another CUE file imports holds a project's own definitions (such as
+// dealingi-back's cue/enums next to the vendored schema): it is loaded through
+// the import, so it is not dead.
+func TestImportedCUEDirectoryIsNotDead(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]string{
+		"cue.mod/module.cue":    "module: \"example.com/app\"\nlanguage: version: \"v0.9.0\"\n",
+		"cue/events/n.cue":      "package events\n\nimport \"example.com/app/cue/enums\"\n\n#N: {type: enums.#Kind}\n",
+		"cue/enums/kinds.cue":   "package enums\n\n#Kind: \"a\" | \"b\"\n",
+		"cue/leftovers/old.cue": "package leftovers\n",
+		"cue/api/other.cue":     "package api\n\n// \"example.com/other/cue/leftovers\" is another module\n",
+	}
+	for path, content := range files {
+		full := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var got []normalizer.Warning
+	emitDeadCUEDirectoryDiagnostics(root, "cue", PipelineOptions{WarningSink: func(w normalizer.Warning) { got = append(got, w) }})
+	if len(got) != 1 || got[0].File != filepath.Join(root, "cue/leftovers/old.cue") {
+		t.Fatalf("only cue/leftovers is dead: %#v", got)
+	}
+}

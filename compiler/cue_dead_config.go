@@ -1,8 +1,10 @@
 package compiler
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -22,6 +24,7 @@ func emitDeadCUEDirectoryDiagnostics(basePath, cueRoot string, opts PipelineOpti
 		"repo": {}, "events": {}, "events_meta": {}, "errors": {}, "project": {}, "projections": {},
 		"infra": {}, "effects": {}, "schema": {}, "views": {}, "lint": {},
 	}
+	imported := importedCUEDirectories(basePath, cueRoot)
 	var dead []string
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -29,6 +32,11 @@ func emitDeadCUEDirectoryDiagnostics(basePath, cueRoot string, opts PipelineOpti
 		}
 		name := entry.Name()
 		if _, ok := live[name]; ok || strings.HasPrefix(name, ".") {
+			continue
+		}
+		// A package other CUE files import is a library (a project's own
+		// definitions, next to ANG's vendored schema), not dead.
+		if _, ok := imported[name]; ok {
 			continue
 		}
 		files, _ := filepath.Glob(filepath.Join(root, name, "*.cue"))
@@ -54,4 +62,43 @@ func emitDeadCUEDirectoryDiagnostics(basePath, cueRoot string, opts PipelineOpti
 			opts.WarningSink(diag)
 		}
 	}
+}
+
+var cueModuleRe = regexp.MustCompile(`(?m)^\s*module:\s*"([^"@]+)`)
+
+// importedCUEDirectories returns the folders directly under the cue root that a
+// .cue file there imports as "<module>/<cueRoot>/<folder>[/…]".
+func importedCUEDirectories(basePath, cueRoot string) map[string]struct{} {
+	out := map[string]struct{}{}
+	data, err := os.ReadFile(filepath.Join(basePath, "cue.mod", "module.cue"))
+	if err != nil {
+		return out
+	}
+	m := cueModuleRe.FindSubmatch(data)
+	if m == nil {
+		return out
+	}
+	prefix := []byte(`"` + string(m[1]) + "/" + filepath.ToSlash(cueRoot) + "/")
+	_ = filepath.WalkDir(filepath.Join(basePath, cueRoot), func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(d.Name(), ".cue") {
+			return nil
+		}
+		src, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		for rest := src; ; {
+			i := bytes.Index(rest, prefix)
+			if i < 0 {
+				break
+			}
+			rest = rest[i+len(prefix):]
+			end := bytes.IndexAny(rest, "/\"")
+			if end > 0 {
+				out[string(rest[:end])] = struct{}{}
+			}
+		}
+		return nil
+	})
+	return out
 }
