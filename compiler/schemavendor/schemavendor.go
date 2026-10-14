@@ -52,9 +52,31 @@ type Status struct {
 // InSync reports whether the vendored schema needs no change.
 func (s Status) InSync() bool { return len(s.Changes) == 0 }
 
-// Dir returns the vendor directory of a project.
+// Dir returns the vendor directory of a project: in the cue.mod of the CUE
+// module the project belongs to (the project itself, or the nearest folder
+// above it with cue.mod/module.cue, as CUE resolves imports).
 func Dir(projectRoot string) string {
-	return filepath.Join(projectRoot, "cue.mod", "pkg", filepath.FromSlash(ImportPath))
+	return filepath.Join(moduleRoot(projectRoot), "cue.mod", "pkg", filepath.FromSlash(ImportPath))
+}
+
+// moduleRoot is the nearest folder from projectRoot up that has
+// cue.mod/module.cue, else projectRoot.
+func moduleRoot(projectRoot string) string {
+	abs, err := filepath.Abs(projectRoot)
+	if err != nil {
+		return projectRoot
+	}
+	for dir := abs; ; dir = filepath.Dir(dir) {
+		if _, err := os.Stat(filepath.Join(dir, "cue.mod", "module.cue")); err == nil {
+			if dir == abs {
+				return projectRoot
+			}
+			return dir
+		}
+		if filepath.Dir(dir) == dir {
+			return projectRoot
+		}
+	}
 }
 
 // Expected returns the vendored files by name: the binary's schema files, each
@@ -151,7 +173,10 @@ var moduleRe = regexp.MustCompile(`(?m)^\s*module:\s*"([^"]+)"`)
 // applies decides whether the project gets a vendored schema.
 func applies(projectRoot string, opts Options) (Status, error) {
 	status := Status{Dir: filepath.ToSlash(filepath.Join("cue.mod", "pkg", filepath.FromSlash(ImportPath)))}
-	data, err := os.ReadFile(filepath.Join(projectRoot, "cue.mod", "module.cue"))
+	if rel, err := filepath.Rel(projectRoot, Dir(projectRoot)); err == nil {
+		status.Dir = filepath.ToSlash(rel)
+	}
+	data, err := os.ReadFile(filepath.Join(moduleRoot(projectRoot), "cue.mod", "module.cue"))
 	if err != nil {
 		if os.IsNotExist(err) {
 			status.Reason = "no cue.mod/module.cue"

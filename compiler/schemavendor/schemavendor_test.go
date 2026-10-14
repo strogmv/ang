@@ -171,6 +171,27 @@ func TestWhenAProjectGetsAVendoredSchema(t *testing.T) {
 			t.Fatalf("status = %+v, err = %v", status, err)
 		}
 	})
+	t.Run("a project in a subfolder of ANG's module", func(t *testing.T) {
+		root := newProject(t, ModulePath)
+		blog := filepath.Join(root, "examples", "blog")
+		writeFile(t, filepath.Join(blog, "cue", "api", "a.cue"), "package api\n\nimport \"github.com/strogmv/ang/cue/schema\"\n")
+		status, err := Plan(blog, Options{Always: true})
+		if err != nil || status.Applies || !strings.Contains(status.Reason, "ANG's module") {
+			t.Fatalf("status = %+v, err = %v", status, err)
+		}
+	})
+	t.Run("a project in a subfolder of its CUE module vendors at the module root", func(t *testing.T) {
+		root := newProject(t, "example.com/mono")
+		svc := filepath.Join(root, "services", "billing")
+		writeFile(t, filepath.Join(svc, "cue", "api", "a.cue"), "package api\n\nimport \"github.com/strogmv/ang/cue/schema\"\n")
+		status, err := Sync(svc, Options{})
+		if err != nil || !status.Applies || status.Dir != "../../cue.mod/pkg/github.com/strogmv/ang/cue/schema" {
+			t.Fatalf("status = %+v, err = %v", status, err)
+		}
+		if _, err := os.Stat(filepath.Join(root, "cue.mod", "pkg", "github.com", "strogmv", "ang", "cue", "schema", "types.cue")); err != nil {
+			t.Fatal(err)
+		}
+	})
 	t.Run("no cue.mod", func(t *testing.T) {
 		status, err := Plan(t.TempDir(), Options{Always: true})
 		if err != nil || status.Applies {
