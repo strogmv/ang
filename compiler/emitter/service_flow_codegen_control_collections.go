@@ -95,7 +95,7 @@ func renderTypedStepCollections(st *flowRenderState, step flowir.TypedStep, inde
 		if out, ok := renderListFilterAST(st, indent, typedArg); ok {
 			return out, true
 		}
-		return renderListFilterLegacy(st, pad, typedArg), true
+		return renderListFilterText(st, pad, typedArg), true
 
 	case "list.Paginate":
 		typed, err := typedActionAs[flowir.ListPaginate](step)
@@ -105,7 +105,7 @@ func renderTypedStepCollections(st *flowRenderState, step flowir.TypedStep, inde
 		if out, ok := renderListPaginateAST(st, typed, indent, sfx); ok {
 			return out, true
 		}
-		return renderListPaginateLegacy(st, typed, pad, sfx), true
+		return renderListPaginateText(st, typed, pad, sfx), true
 
 	case "list.Append":
 		typed, err := typedActionAs[flowir.ListAppend](step)
@@ -180,35 +180,35 @@ func renderTypedStepCollections(st *flowRenderState, step flowir.TypedStep, inde
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		return renderListMapLegacy(st, pad, listMapArgs(typed)), true
+		return renderListMapText(st, pad, listMapArgs(typed)), true
 
 	case "list.Reduce":
 		typed, err := typedActionAs[flowir.ListReduce](step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		return renderListReduceLegacy(st, pad, sfx, listReduceArgs(typed)), true
+		return renderListReduceText(st, pad, sfx, listReduceArgs(typed)), true
 
 	case "list.GroupBy":
 		typed, err := typedActionAs[flowir.ListGroupBy](step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		return renderListGroupByLegacy(st, pad, sfx, listGroupByArgs(typed)), true
+		return renderListGroupByText(st, pad, sfx, listGroupByArgs(typed)), true
 
 	case "list.Distinct":
 		typed, err := typedActionAs[flowir.ListDistinct](step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		return renderListDistinctLegacy(st, pad, sfx, listDistinctArgs(typed)), true
+		return renderListDistinctText(st, pad, sfx, listDistinctArgs(typed)), true
 
 	case "list.Chunk":
 		typed, err := typedActionAs[flowir.ListChunk](step)
 		if err != nil {
 			return renderInvalidFlowStepConfig(st, pad, step.Name, err.Error()), true
 		}
-		return renderListChunkLegacy(st, typed, pad, sfx), true
+		return renderListChunkText(st, typed, pad, sfx), true
 
 	case "batch.Run":
 		typed, err := typedActionAs[flowir.BatchRun](step)
@@ -226,7 +226,7 @@ func renderTypedStepCollections(st *flowRenderState, step flowir.TypedStep, inde
 		if out, ok := renderListSortAST(indent, typedArg); ok {
 			return out, true
 		}
-		return renderListSortLegacy(pad, typedArg), true
+		return renderListSortText(pad, typedArg), true
 
 	case "str.Normalize":
 		typed, err := typedActionAs[flowir.StringNormalize](step)
@@ -237,7 +237,7 @@ func renderTypedStepCollections(st *flowRenderState, step flowir.TypedStep, inde
 		if out, ok := renderStrNormalizeAST(st, indent, typedArg); ok {
 			return out, true
 		}
-		return renderStrNormalizeLegacy(st, pad, typedArg), true
+		return renderStrNormalizeText(st, pad, typedArg), true
 
 	case "list.Sum":
 		typed, err := typedActionAs[flowir.ListAggregate](step)
@@ -558,7 +558,7 @@ func renderListFilterAST(st *flowRenderState, indent int, arg func(string) strin
 	asIdent := ast.NewIdent(as)
 	defineOut := !st.declared[out]
 	if defineOut {
-		// := requires plain identifier on LHS; fallback keeps legacy behavior for odd expressions.
+		// := needs a plain identifier on the left; other outputs go to the text renderer.
 		if _, ok := outExpr.(*ast.Ident); !ok {
 			return "", false
 		}
@@ -611,7 +611,11 @@ func renderListFilterAST(st *flowRenderState, indent int, arg func(string) strin
 	return renderFlowASTStmts([]ast.Stmt{initOut, rangeStmt}, indent), true
 }
 
-func renderListMapLegacy(st *flowRenderState, pad string, arg func(string) string) string {
+// renderListMapText and the other render*Text functions write the Go for a
+// step as text. list.Filter, list.Paginate, list.Sort and str.Normalize use
+// them when their *AST renderer cannot build the statements; list.Map,
+// list.Reduce, list.GroupBy, list.Distinct and list.Chunk have no AST renderer.
+func renderListMapText(st *flowRenderState, pad string, arg func(string) string) string {
 	from := arg("from")
 	as := arg("as")
 	expr := arg("expr")
@@ -638,7 +642,7 @@ func renderListMapLegacy(st *flowRenderState, pad string, arg func(string) strin
 	return b.String()
 }
 
-func renderListReduceLegacy(st *flowRenderState, pad, sfx string, arg func(string) string) string {
+func renderListReduceText(st *flowRenderState, pad, sfx string, arg func(string) string) string {
 	from := arg("from")
 	as := arg("as")
 	expr := arg("expr")
@@ -684,7 +688,7 @@ func renderListReduceLegacy(st *flowRenderState, pad, sfx string, arg func(strin
 	return b.String()
 }
 
-func renderListGroupByLegacy(st *flowRenderState, pad, sfx string, arg func(string) string) string {
+func renderListGroupByText(st *flowRenderState, pad, sfx string, arg func(string) string) string {
 	from := arg("from")
 	as := arg("as")
 	keyExpr := arg("key")
@@ -713,7 +717,7 @@ func renderListGroupByLegacy(st *flowRenderState, pad, sfx string, arg func(stri
 	return b.String()
 }
 
-func renderListDistinctLegacy(st *flowRenderState, pad, sfx string, arg func(string) string) string {
+func renderListDistinctText(st *flowRenderState, pad, sfx string, arg func(string) string) string {
 	from := arg("from")
 	as := arg("as")
 	out := arg("output")
@@ -752,7 +756,7 @@ func renderListDistinctLegacy(st *flowRenderState, pad, sfx string, arg func(str
 	return b.String()
 }
 
-func renderListChunkLegacy(st *flowRenderState, action flowir.ListChunk, pad, sfx string) string {
+func renderListChunkText(st *flowRenderState, action flowir.ListChunk, pad, sfx string) string {
 	from, out := normalizeFlowExpr(action.From.Source), action.Output
 	sizeExpr := normalizeFlowExpr(action.Size.Source)
 	if from == "" || out == "" || sizeExpr == "" {
@@ -907,7 +911,7 @@ func renderListPaginateAST(st *flowRenderState, action flowir.ListPaginate, inde
 	return renderFlowASTStmts(stmts, indent), true
 }
 
-func renderListFilterLegacy(st *flowRenderState, pad string, arg func(string) string) string {
+func renderListFilterText(st *flowRenderState, pad string, arg func(string) string) string {
 	from := arg("from")
 	as := arg("as")
 	cond := arg("condition")
@@ -931,7 +935,7 @@ func renderListFilterLegacy(st *flowRenderState, pad string, arg func(string) st
 		pad, pad)
 }
 
-func renderListPaginateLegacy(st *flowRenderState, action flowir.ListPaginate, pad, sfx string) string {
+func renderListPaginateText(st *flowRenderState, action flowir.ListPaginate, pad, sfx string) string {
 	in, off, lim, out := normalizeFlowExpr(action.Input.Source), normalizeFlowExpr(action.Offset.Source), normalizeFlowExpr(action.Limit.Source), action.Output
 	if in == "" || off == "" || lim == "" || out == "" {
 		return ""
@@ -957,7 +961,7 @@ func renderListPaginateLegacy(st *flowRenderState, action flowir.ListPaginate, p
 	return b.String()
 }
 
-func renderListSortLegacy(pad string, arg func(string) string) string {
+func renderListSortText(pad string, arg func(string) string) string {
 	items := arg("items")
 	by := arg("by")
 	order := arg("order")
@@ -982,7 +986,7 @@ func renderListSortLegacy(pad string, arg func(string) string) string {
 	return b.String()
 }
 
-func renderStrNormalizeLegacy(st *flowRenderState, pad string, arg func(string) string) string {
+func renderStrNormalizeText(st *flowRenderState, pad string, arg func(string) string) string {
 	in := arg("input")
 	mode := strings.ToLower(arg("mode"))
 	out := arg("output")

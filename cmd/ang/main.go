@@ -401,7 +401,7 @@ func runInit(args []string) {
 	}
 
 	if strings.TrimSpace(*templateName) == "" {
-		if err := initLegacyScaffold(targetDir, modulePath, *lang, *db); err != nil {
+		if err := initMinimalScaffold(targetDir, modulePath, *lang, *db); err != nil {
 			printCommandFailure("Init", err.Error(), "retry in an empty directory or use `--force`")
 			os.Exit(1)
 		}
@@ -427,7 +427,7 @@ func runInit(args []string) {
 	printInitOnboarding(projectName, targetDir, true, isFunEnabled(*fun))
 }
 
-func initLegacyScaffold(root, modulePath, lang, db string) error {
+func initMinimalScaffold(root, modulePath, lang, db string) error {
 	if strings.TrimSpace(modulePath) == "" {
 		modulePath = "github.com/example/" + sanitizeProjectName(filepath.Base(root))
 	}

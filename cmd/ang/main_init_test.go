@@ -7,12 +7,12 @@ import (
 	"testing"
 )
 
-func TestInitLegacyScaffoldCreatesMinimalFiles(t *testing.T) {
+func TestInitMinimalScaffoldCreatesMinimalFiles(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	if err := initLegacyScaffold(root, "github.com/acme/minapp", "go", "postgres"); err != nil {
-		t.Fatalf("initLegacyScaffold: %v", err)
+	if err := initMinimalScaffold(root, "github.com/acme/minapp", "go", "postgres"); err != nil {
+		t.Fatalf("initMinimalScaffold: %v", err)
 	}
 
 	goModPath := filepath.Join(root, "go.mod")
@@ -78,7 +78,7 @@ func TestInitLegacyScaffoldCreatesMinimalFiles(t *testing.T) {
 	}
 }
 
-func TestInitLegacyScaffoldDoesNotOverrideExistingFiles(t *testing.T) {
+func TestInitMinimalScaffoldDoesNotOverrideExistingFiles(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -91,8 +91,8 @@ func TestInitLegacyScaffoldDoesNotOverrideExistingFiles(t *testing.T) {
 		t.Fatalf("write custom file: %v", err)
 	}
 
-	if err := initLegacyScaffold(root, "github.com/acme/minapp", "go", "postgres"); err != nil {
-		t.Fatalf("initLegacyScaffold: %v", err)
+	if err := initMinimalScaffold(root, "github.com/acme/minapp", "go", "postgres"); err != nil {
+		t.Fatalf("initMinimalScaffold: %v", err)
 	}
 
 	got, err := os.ReadFile(target)

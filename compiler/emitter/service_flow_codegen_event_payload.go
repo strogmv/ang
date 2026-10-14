@@ -50,12 +50,12 @@ func coerceValueForEventField(
 	}
 
 	if !hasEvent {
-		return legacyNormalizePayloadField(fieldName, valueExpr)
+		return formatPayloadTimeByName(fieldName, valueExpr)
 	}
 
 	eventFieldType, hasField := eventFieldTypeByName(eventDef, fieldName)
 	if !hasField {
-		return legacyNormalizePayloadField(fieldName, valueExpr)
+		return formatPayloadTimeByName(fieldName, valueExpr)
 	}
 
 	var sourceVarType string
@@ -249,7 +249,10 @@ func canonicalFlowFieldName(s string) string {
 	return strings.ToLower(s)
 }
 
-func legacyNormalizePayloadField(fieldName, valueExpr string) string {
+// formatPayloadTimeByName is used when the event or its field is unknown: a
+// value whose name ends in At, put in a field whose name ends in At, is a
+// time.Time and is formatted as RFC 3339.
+func formatPayloadTimeByName(fieldName, valueExpr string) string {
 	fieldName = strings.TrimSpace(fieldName)
 	valueExpr = strings.TrimSpace(valueExpr)
 	if strings.HasSuffix(fieldName, "At") && strings.HasSuffix(valueExpr, "At") {

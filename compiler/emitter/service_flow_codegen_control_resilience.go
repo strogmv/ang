@@ -15,8 +15,9 @@ type flowCapturedVar struct {
 	isPtr bool
 }
 
-// collectFlowBranchNewVars is retained only for legacy renderer compatibility.
-// Typed renderers use collectTypedFlowBranchNewVars directly.
+// collectFlowBranchNewVars finds the variables the branches declare that the
+// outer scope does not, with their Go types, so renderFlowTryText can declare
+// them before the block. The AST renderers use collectTypedFlowBranchNewVars.
 func collectFlowBranchNewVars(st *flowRenderState, indent int, branches ...[]normalizer.FlowStep) map[string]flowCapturedVar {
 	outerDeclared := make(map[string]bool, len(st.declared))
 	for k, v := range st.declared {
@@ -54,7 +55,7 @@ func renderTypedStepControlResilience(st *flowRenderState, step flowir.TypedStep
 		if out, ok := renderFlowTryAST(st, step, typed, indent, sfx); ok {
 			return out, true
 		}
-		return renderFlowTryLegacy(st, typed, indent, sfx), true
+		return renderFlowTryText(st, typed, indent, sfx), true
 	case "flow.Retry":
 		typed, err := typedActionAs[flowir.FlowRetry](step)
 		if err != nil {
@@ -63,7 +64,7 @@ func renderTypedStepControlResilience(st *flowRenderState, step flowir.TypedStep
 		if out, ok := renderFlowRetryAST(st, step, typed, indent, sfx); ok {
 			return out, true
 		}
-		return renderFlowRetryLegacy(st, typed, indent, sfx), true
+		return renderFlowRetryText(st, typed, indent, sfx), true
 	case "flow.Timeout":
 		typed, err := typedActionAs[flowir.FlowTimeout](step)
 		if err != nil {
@@ -72,7 +73,7 @@ func renderTypedStepControlResilience(st *flowRenderState, step flowir.TypedStep
 		if out, ok := renderFlowTimeoutAST(st, step, typed, indent, sfx); ok {
 			return out, true
 		}
-		return renderFlowTimeoutLegacy(st, typed, indent, sfx), true
+		return renderFlowTimeoutText(st, typed, indent, sfx), true
 	case "flow.Fallback":
 		typed, err := typedActionAs[flowir.FlowFallback](step)
 		if err != nil {
@@ -81,7 +82,7 @@ func renderTypedStepControlResilience(st *flowRenderState, step flowir.TypedStep
 		if out, ok := renderFlowFallbackAST(st, step, typed, indent, sfx); ok {
 			return out, true
 		}
-		return renderFlowFallbackLegacy(st, typed, indent, sfx), true
+		return renderFlowFallbackText(st, typed, indent, sfx), true
 	}
 	return "", false
 }
@@ -113,8 +114,8 @@ func collectTypedFlowBranchNewVars(st *flowRenderState, indent int, branches ...
 	return newVars
 }
 
-// inferFlowCapturedVarType is a legacy test/renderer bridge. New production
-// code must use inferTypedCapturedVarType after the single Flow IR decode.
+// inferFlowCapturedVarType decodes raw steps and infers the Go type of
+// varName; code that already holds typed steps calls inferTypedCapturedVarType.
 func inferFlowCapturedVarType(varName string, steps []normalizer.FlowStep) string {
 	typed, _ := flowir.DecodeSteps(steps)
 	return inferTypedCapturedVarType(varName, typed)

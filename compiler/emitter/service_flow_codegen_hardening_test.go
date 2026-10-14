@@ -219,7 +219,7 @@ func TestRenderFlow_NotifyDispatchPropagatesDispatcherErrors(t *testing.T) {
 	}
 }
 
-func TestRenderFlowResumeLegacy_UsesIntoTypeAssertion(t *testing.T) {
+func TestRenderFlowResume_UsesIntoTypeAssertion(t *testing.T) {
 	t.Parallel()
 
 	step := normalizer.FlowStep{

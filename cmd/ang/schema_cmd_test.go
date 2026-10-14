@@ -32,14 +32,14 @@ func TestInitVendorsTheSchemaTheTemplatesImport(t *testing.T) {
 		t.Fatalf("cue/api must load with the vendored schema: %v", err)
 	}
 
-	legacy := filepath.Join(t.TempDir(), "legacy")
-	if err := initLegacyScaffold(legacy, "github.com/example/legacy", "go", "postgres"); err != nil {
+	minimal := filepath.Join(t.TempDir(), "minimal")
+	if err := initMinimalScaffold(minimal, "github.com/example/minimal", "go", "postgres"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(schemavendor.Dir(legacy), "types.cue")); err != nil {
+	if _, err := os.Stat(filepath.Join(schemavendor.Dir(minimal), "types.cue")); err != nil {
 		t.Fatalf("the minimal scaffold vendors the schema too: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(legacy, "cue", "schema")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(minimal, "cue", "schema")); !os.IsNotExist(err) {
 		t.Fatalf("the scaffold no longer creates an empty cue/schema to copy the schema into: %v", err)
 	}
 }

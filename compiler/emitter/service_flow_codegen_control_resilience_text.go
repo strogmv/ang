@@ -9,7 +9,10 @@ import (
 	"github.com/strogmv/ang/compiler/flowir"
 )
 
-func renderFlowTryLegacy(st *flowRenderState, action flowir.FlowTry, indent int, sfx string) string {
+// renderFlowTryText, renderFlowRetryText, renderFlowFallbackText and
+// renderFlowTimeoutText write the step as Go text when its *AST renderer
+// cannot build the statements.
+func renderFlowTryText(st *flowRenderState, action flowir.FlowTry, indent int, sfx string) string {
 	pad := strings.Repeat("\t", indent)
 	var doSteps, catchSteps []normalizer.FlowStep
 	if flowNestedStepCount(st, "_do", doSteps) == 0 {
@@ -66,7 +69,7 @@ func renderFlowTryLegacy(st *flowRenderState, action flowir.FlowTry, indent int,
 	return b.String()
 }
 
-func renderFlowRetryLegacy(st *flowRenderState, action flowir.FlowRetry, indent int, sfx string) string {
+func renderFlowRetryText(st *flowRenderState, action flowir.FlowRetry, indent int, sfx string) string {
 	pad := strings.Repeat("\t", indent)
 	var doSteps, catchSteps []normalizer.FlowStep
 	if flowNestedStepCount(st, "_do", doSteps) == 0 {
@@ -107,7 +110,7 @@ func renderFlowRetryLegacy(st *flowRenderState, action flowir.FlowRetry, indent 
 	return b.String()
 }
 
-func renderFlowFallbackLegacy(st *flowRenderState, action flowir.FlowFallback, indent int, sfx string) string {
+func renderFlowFallbackText(st *flowRenderState, action flowir.FlowFallback, indent int, sfx string) string {
 	pad := strings.Repeat("\t", indent)
 	var mainSteps, fallbackSteps []normalizer.FlowStep
 	if flowNestedStepCount(st, "_do", mainSteps) == 0 || flowNestedStepCount(st, "_fallback", fallbackSteps) == 0 {
@@ -131,7 +134,7 @@ func renderFlowFallbackLegacy(st *flowRenderState, action flowir.FlowFallback, i
 	return b.String()
 }
 
-func renderFlowTimeoutLegacy(st *flowRenderState, action flowir.FlowTimeout, indent int, sfx string) string {
+func renderFlowTimeoutText(st *flowRenderState, action flowir.FlowTimeout, indent int, sfx string) string {
 	pad := strings.Repeat("\t", indent)
 	duration := normalizeFlowExpr(action.Duration.Source)
 	var doSteps, onTimeout []normalizer.FlowStep
