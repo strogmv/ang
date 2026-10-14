@@ -9,8 +9,9 @@ import (
 	"github.com/strogmv/ang/angir/normalizer"
 )
 
+// Not parallel: it changes the working directory, which parallel tests that
+// read ../../templates (TestMainServerTracingOnlyInitializesWithConfiguredEndpoint) share.
 func TestEmitPythonSDK_IncludesAsyncAndRFC9457(t *testing.T) {
-	t.Parallel()
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
@@ -26,10 +27,7 @@ func TestEmitPythonSDK_IncludesAsyncAndRFC9457(t *testing.T) {
 		}
 		root = parent
 	}
-	if err := os.Chdir(root); err != nil {
-		t.Fatalf("chdir root: %v", err)
-	}
-	defer func() { _ = os.Chdir(wd) }()
+	t.Chdir(root)
 
 	tmp := t.TempDir()
 	em := New(tmp, "", "templates")
