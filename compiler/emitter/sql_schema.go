@@ -53,31 +53,7 @@ func (e *Emitter) EmitSQL(entities []ir.Entity) error {
 	var fullSchema bytes.Buffer
 
 	// System Tables
-	fullSchema.WriteString("-- System Tables for Outbox and Idempotency\n")
-	fullSchema.WriteString(`CREATE TABLE IF NOT EXISTS outbox_events (
-    id UUID PRIMARY KEY,
-    event_type TEXT NOT NULL,
-    payload JSONB NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    processed_at TIMESTAMPTZ
-);
-CREATE INDEX IF NOT EXISTS idx_outbox_unprocessed ON outbox_events (created_at) WHERE processed_at IS NULL;
-
-CREATE TABLE IF NOT EXISTS idempotency_keys (
-    key TEXT PRIMARY KEY,
-    response_payload JSONB,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    expires_at TIMESTAMPTZ
-);
-
-CREATE TABLE IF NOT EXISTS kv_store (
-    key TEXT PRIMARY KEY,
-    value BYTEA,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    expires_at TIMESTAMPTZ
-);
-CREATE INDEX IF NOT EXISTS idx_kv_store_expires ON kv_store (expires_at) WHERE expires_at IS NOT NULL;
-`)
+	fullSchema.WriteString(systemTablesDDL)
 	fullSchema.WriteString("\n\n")
 
 	for _, entity := range entitiesNorm {

@@ -205,7 +205,8 @@ type OutboxRepository interface {
 }
 
 // EmitSystemRepository generates a Postgres adapter that satisfies both
-// port.IdempotencyStore and port.OutboxRepository using two simple tables.
+// port.IdempotencyStore, port.OutboxRepository and port.StateStore on the
+// tables of systemTablesDDL (idempotency_keys, outbox_events, kv_store).
 func (e *Emitter) EmitSystemRepository() error {
 	targetDir := e.outDir("internal", "adapter", "repository", "postgres")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
@@ -238,7 +239,7 @@ func NewSystemRepository(pool *pgxpool.Pool) *SystemRepository {
 func (r *SystemRepository) Check(ctx context.Context, key string) (bool, []byte, error) {
 	exec := getExecutor(ctx, r.DB)
 	var data []byte
-	err := exec.QueryRow(ctx, "SELECT response FROM idempotency_keys WHERE key = $1", key).Scan(&data)
+	err := exec.QueryRow(ctx, "SELECT response_payload FROM idempotency_keys WHERE key = $1", key).Scan(&data)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil, nil
@@ -251,7 +252,7 @@ func (r *SystemRepository) Check(ctx context.Context, key string) (bool, []byte,
 func (r *SystemRepository) Save(ctx context.Context, key string, data []byte) error {
 	exec := getExecutor(ctx, r.DB)
 	_, err := exec.Exec(ctx,
-		"INSERT INTO idempotency_keys (key, response) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET response = $2",
+		"INSERT INTO idempotency_keys (key, response_payload) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET response_payload = $2",
 		key, data)
 	return err
 }
@@ -269,7 +270,7 @@ func (r *SystemRepository) SaveEvent(ctx context.Context, id, topic string, payl
 func (r *SystemRepository) ListPending(ctx context.Context, limit int) ([]port.OutboxMessage, error) {
 	exec := getExecutor(ctx, r.DB)
 	rows, err := exec.Query(ctx,
-		"SELECT id, topic, payload FROM outbox_events WHERE processed_at IS NULL ORDER BY id LIMIT $1", limit)
+		"SELECT id::text, topic, payload FROM outbox_events WHERE processed_at IS NULL ORDER BY sequence_no LIMIT $1", limit)
 	if err != nil {
 		return nil, err
 	}
@@ -287,7 +288,7 @@ func (r *SystemRepository) ListPending(ctx context.Context, limit int) ([]port.O
 
 func (r *SystemRepository) MarkProcessed(ctx context.Context, id string) error {
 	exec := getExecutor(ctx, r.DB)
-	_, err := exec.Exec(ctx, "UPDATE outbox_events SET processed_at = NOW() WHERE id = $1", id)
+	_, err := exec.Exec(ctx, "UPDATE outbox_events SET processed_at = NOW() WHERE id = $1 AND processed_at IS NULL", id)
 	return err
 }
 
