@@ -1,7 +1,5 @@
 package schema
 
-import "github.com/strogmv/ang/cue/project"
-
 #OperationKind: "create" | "get" | "list" | "update" | "delete" | "transition" | "notify" | "auth" | "message" | "upload"
 
 #CapabilityKind: "auth" | "profile" | "media" | "notify" | "messaging" | "moderation" | "search" | "commerce" | "catalog" | "payment"
@@ -87,12 +85,9 @@ import "github.com/strogmv/ang/cue/project"
 	// Declarative logic flow
 	flow?: [...#FlowStep]
 
-	// Resolved implementation for the current target language
-	_impl?: #CodeBlock
-
-	if project.state.target.lang == "go" {
-		_impl: impls.go
-	}
+	// impls.go is the implementation: Go is the only target. The schema
+	// imports nothing from the project, so a project can vendor it as is
+	// (docs/schema.md).
 
 	// VALIDATION: If flow uses events, they must be declared in publishes
 	// (This is informational - actual validation happens in compiler)
