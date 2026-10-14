@@ -387,6 +387,10 @@ func runNormalizePhase(basePath string, parsed ParsePhaseOutput, opts PipelineOp
 	scenarios, _ := n.ExtractScenarios(parsed.API)
 	scopes, _ := n.ExtractScopes(parsed.Domain)
 
+	if err := validateGoRepoReferences(services, entities); err != nil {
+		return out, WrapContractError(StageCUE, ErrCodeRepoRefUnknown, "validate repositories reached from Go", err)
+	}
+
 	out.Entities = entities
 	out.Services = services
 	out.Endpoints = endpoints

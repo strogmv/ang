@@ -20,6 +20,10 @@ Code families:
   referenced source below `cue/`, then run `ang validate`.
 - `DTO_FIELD_UNKNOWN`: a Go selector does not exist in the normalized DTO.
   Apply the `before`/`after` replacement from `suggestedFix`.
+- `REPO_REF_UNKNOWN`: Go in an operation reaches `s.<X>Repo`, but no entity `X`
+  has a repository (unknown name or a DTO). A repository of a real entity
+  needs no `sources` entry: the service implementation gets every repository
+  its operations' Go reaches.
 - `IR_*`: canonical IR conversion, migration, or semantic validation.
 - `TRANSFORMER_*` and `HOOK_*`: extension execution failures.
 - `EMITTER_*`: capability resolution, output validation, or generation failure.

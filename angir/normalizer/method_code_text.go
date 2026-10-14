@@ -1,9 +1,27 @@
 package normalizer
 
 import (
+	"regexp"
 	"sort"
 	"strings"
 )
+
+var goRepoReference = regexp.MustCompile(`\bs\.([A-Z][A-Za-z0-9_]*)Repo\b`)
+
+// GoRepoReferences lists, once each and in order of appearance, the entity
+// part of every repository field Go code reaches on the service: Ticket for
+// s.TicketRepo.
+func GoRepoReferences(code string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, match := range goRepoReference.FindAllStringSubmatch(code, -1) {
+		if !seen[match[1]] {
+			seen[match[1]] = true
+			out = append(out, match[1])
+		}
+	}
+	return out
+}
 
 // MethodCodeText is every piece of Go an operation carries: its impl code and
 // each string argument of its flow steps (logic.Call funcs, values,
@@ -20,13 +38,31 @@ func MethodCodeText(m Method) string {
 	return b.String()
 }
 
+// FlowStepText is the Go of one flow step's own arguments, without the steps
+// nested in its branches.
+func FlowStepText(step FlowStep) string {
+	var b strings.Builder
+	writeFlowStepArgs(&b, step, false)
+	return b.String()
+}
+
 func writeFlowStepText(b *strings.Builder, step FlowStep) {
+	writeFlowStepArgs(b, step, true)
+}
+
+func writeFlowStepArgs(b *strings.Builder, step FlowStep, nested bool) {
 	keys := make([]string, 0, len(step.Args))
 	for k := range step.Args {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
+		switch step.Args[k].(type) {
+		case []FlowStep, map[string][]FlowStep:
+			if !nested {
+				continue
+			}
+		}
 		writeFlowArgText(b, step.Args[k])
 	}
 }

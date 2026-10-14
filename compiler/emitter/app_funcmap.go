@@ -29,57 +29,18 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 
 	// Add app-specific functions
 	appFuncs["HasRepoEntitiesIR"] = func(services []ir.Service, entities []ir.Entity) bool {
-		dtoEntities := make(map[string]bool, len(entities))
 		mongoEntities := make(map[string]bool, len(entities))
 		for _, ent := range entities {
-			if dto, ok := ent.Metadata["dto"].(bool); ok && dto {
-				dtoEntities[ent.Name] = true
-			}
 			if storage, ok := ent.Metadata["storage"].(string); ok && strings.EqualFold(storage, "mongo") {
 				mongoEntities[ent.Name] = true
 			}
 		}
-
-		seen := make(map[string]bool)
-
-		var scanSteps func([]ir.FlowStep)
-		scanSteps = func(steps []ir.FlowStep) {
-			for _, step := range steps {
-				if strings.HasPrefix(step.Action, "repo.") || strings.HasPrefix(step.Action, "db.") {
-					if src, ok := step.Args["source"].(string); ok && src != "" && !dtoEntities[src] && !mongoEntities[src] {
-						seen[src] = true
-					}
-				}
-				if step.Action == "list.Enrich" {
-					if src, ok := step.Args["lookupSource"].(string); ok && src != "" && !dtoEntities[src] && !mongoEntities[src] {
-						seen[src] = true
-					}
-				}
-				scanSteps(step.Steps)
-				scanSteps(step.IfNew)
-				scanSteps(step.IfExists)
-				scanSteps(step.Then)
-				scanSteps(step.Else)
-				scanSteps(step.Default)
-				for _, branch := range step.Cases {
-					scanSteps(branch)
-				}
+		for _, name := range allServiceRepoEntitiesIR(services, entities) {
+			if !mongoEntities[name] {
+				return true
 			}
 		}
-
-		for _, svc := range services {
-			for _, m := range svc.Methods {
-				for _, src := range m.Sources {
-					if src.Entity == "" || dtoEntities[src.Entity] || mongoEntities[src.Entity] {
-						continue
-					}
-					seen[src.Entity] = true
-				}
-				scanSteps(m.Flow)
-			}
-		}
-
-		return len(seen) > 0
+		return false
 	}
 	appFuncs["EntityStorageByNameIR"] = func(entities []ir.Entity, name string) string {
 		for _, ent := range entities {
@@ -487,76 +448,7 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		return false
 	}
 	appFuncs["getRepoEntitiesIR"] = func(s ir.Service, entities []ir.Entity) []string {
-		dtoEntities := make(map[string]bool, len(entities))
-		for _, ent := range entities {
-			if dto, ok := ent.Metadata["dto"].(bool); ok && dto {
-				dtoEntities[ent.Name] = true
-			}
-		}
-		seen := make(map[string]bool)
-		var out []string
-
-		var scanSteps func([]ir.FlowStep)
-		scanSteps = func(steps []ir.FlowStep) {
-			for _, step := range steps {
-				if strings.HasPrefix(step.Action, "repo.") || strings.HasPrefix(step.Action, "db.") {
-					if src, ok := step.Args["source"].(string); ok && src != "" && !seen[src] && !dtoEntities[src] {
-						seen[src] = true
-						out = append(out, src)
-					}
-				}
-				if step.Action == "list.Enrich" {
-					if src, ok := step.Args["lookupSource"].(string); ok && src != "" && !seen[src] && !dtoEntities[src] {
-						seen[src] = true
-						out = append(out, src)
-					}
-				}
-				if step.Action == "entity.PatchValidated" {
-					hasUnique := false
-					if fields, ok := step.Args["fields"].(map[string]map[string]string); ok {
-						for _, cfg := range fields {
-							if strings.TrimSpace(cfg["unique"]) != "" {
-								hasUnique = true
-								break
-							}
-						}
-					}
-					if hasUnique {
-						repoEntity := ""
-						if src, ok := step.Args["source"].(string); ok {
-							repoEntity = strings.TrimSpace(src)
-						}
-						if repoEntity != "" && !seen[repoEntity] && !dtoEntities[repoEntity] {
-							seen[repoEntity] = true
-							out = append(out, repoEntity)
-						}
-					}
-				}
-				scanSteps(step.Steps)
-				scanSteps(step.IfNew)
-				scanSteps(step.IfExists)
-				scanSteps(step.Then)
-				scanSteps(step.Else)
-				scanSteps(step.Default)
-				for _, branch := range step.Cases {
-					scanSteps(branch)
-				}
-			}
-		}
-
-		for _, m := range s.Methods {
-			for _, src := range m.Sources {
-				if src.Entity == "" || seen[src.Entity] || dtoEntities[src.Entity] {
-					continue
-				}
-				seen[src.Entity] = true
-				out = append(out, src.Entity)
-			}
-			scanSteps(m.Flow)
-		}
-
-		sort.Strings(out)
-		return out
+		return serviceImplRepoEntities(IRServiceToNormalizer(s), IREntitiesToNormalizer(entities))
 	}
 	appFuncs["HasEventFieldIR"] = func(evtPayloads map[string]ir.Entity, evtName, fieldName string) bool {
 		if fieldName == "" {
@@ -753,57 +645,7 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		return res
 	}
 	appFuncs["AllUsedRepoEntitiesIR"] = func(services []ir.Service, entities []ir.Entity) []string {
-		dtoEntities := make(map[string]bool, len(entities))
-		for _, ent := range entities {
-			if dto, ok := ent.Metadata["dto"].(bool); ok && dto {
-				dtoEntities[ent.Name] = true
-			}
-		}
-
-		seen := make(map[string]bool)
-		var out []string
-
-		var scanSteps func([]ir.FlowStep)
-		scanSteps = func(steps []ir.FlowStep) {
-			for _, step := range steps {
-				if strings.HasPrefix(step.Action, "repo.") || strings.HasPrefix(step.Action, "db.") {
-					if src, ok := step.Args["source"].(string); ok && src != "" && !seen[src] && !dtoEntities[src] {
-						seen[src] = true
-						out = append(out, src)
-					}
-				}
-				if step.Action == "list.Enrich" {
-					if src, ok := step.Args["lookupSource"].(string); ok && src != "" && !seen[src] && !dtoEntities[src] {
-						seen[src] = true
-						out = append(out, src)
-					}
-				}
-				scanSteps(step.Steps)
-				scanSteps(step.IfNew)
-				scanSteps(step.IfExists)
-				scanSteps(step.Then)
-				scanSteps(step.Else)
-				scanSteps(step.Default)
-				for _, branch := range step.Cases {
-					scanSteps(branch)
-				}
-			}
-		}
-
-		for _, svc := range services {
-			for _, m := range svc.Methods {
-				for _, src := range m.Sources {
-					if src.Entity == "" || seen[src.Entity] || dtoEntities[src.Entity] {
-						continue
-					}
-					seen[src.Entity] = true
-					out = append(out, src.Entity)
-				}
-				scanSteps(m.Flow)
-			}
-		}
-		sort.Strings(out)
-		return out
+		return allServiceRepoEntitiesIR(services, entities)
 	}
 	appFuncs["UniqueRepoEntities"] = func(services []normalizer.Service) []string {
 		seen := make(map[string]bool)
@@ -1003,4 +845,22 @@ func anyServiceHasStateActionsIR(services []ir.Service) bool {
 		}
 	}
 	return false
+}
+
+// allServiceRepoEntitiesIR is every repository some New<Service>Impl takes:
+// the runtime container builds exactly these.
+func allServiceRepoEntitiesIR(services []ir.Service, entities []ir.Entity) []string {
+	nEntities := IREntitiesToNormalizer(entities)
+	seen := map[string]bool{}
+	var out []string
+	for _, svc := range services {
+		for _, name := range serviceImplRepoEntities(IRServiceToNormalizer(svc), nEntities) {
+			if !seen[name] {
+				seen[name] = true
+				out = append(out, name)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }

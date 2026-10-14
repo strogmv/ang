@@ -371,6 +371,26 @@ func serviceImplRepoEntities(s normalizer.Service, entities []normalizer.Entity)
 		scanSteps(m.Flow)
 	}
 
+	// Repositories the operations' Go reaches (impl code, logic.Call funcs):
+	// s.RunCandidateRepo needs the field whether or not an operation lists
+	// RunCandidate in sources.
+	entityByGoName := make(map[string]string, len(entities))
+	for _, ent := range entities {
+		if !dtoEntities[ent.Name] {
+			entityByGoName[ExportName(ent.Name)] = ent.Name
+		}
+	}
+	for _, m := range s.Methods {
+		for _, goName := range normalizer.GoRepoReferences(normalizer.MethodCodeText(m)) {
+			ent, ok := entityByGoName[goName]
+			if !ok || unique[ent] {
+				continue
+			}
+			unique[ent] = true
+			res = append(res, ent)
+		}
+	}
+
 	sort.Strings(res)
 	return res
 }
