@@ -206,14 +206,13 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 		}
 	}
 
-	// 5. Check for @dto(only="true") or _dto: true
+	// 5. The DTO marker: @dto(only="true") on the entity. A hidden
+	// `_dto: true` field is no marker (CUE paths cannot name hidden fields);
+	// LintEntityMarkers reports it.
 	if attr := val.Attribute("dto"); attr.Err() == nil {
 		if v, found, _ := attr.Lookup(0, "only"); found && v == "true" {
 			entity.Metadata["dto"] = true
 		}
-	}
-	if b, err := val.LookupPath(cue.ParsePath("_dto")).Bool(); err == nil && b {
-		entity.Metadata["dto"] = true
 	}
 
 	// 6a. Shared architecture flag: @shared_arch or shared_arch: true in CUE.

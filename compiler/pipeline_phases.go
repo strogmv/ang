@@ -274,6 +274,7 @@ func runNormalizePhase(basePath string, parsed ParsePhaseOutput, opts PipelineOp
 	if err != nil {
 		return out, WrapContractError(StageCUE, ErrCodeCUEEntityNormalize, "extract entities", err)
 	}
+	n.LintEntityMarkers(parsed.Domain, entities)
 	if err := n.AddQueueFields(entities); err != nil {
 		return out, WrapContractError(StageCUE, ErrCodeCUEEntityNormalize, "queue entities", err)
 	}
