@@ -1,6 +1,7 @@
 package normalizer
 
 import (
+	"fmt"
 	"strings"
 
 	"cuelang.org/go/cue"
@@ -134,16 +135,29 @@ func (n *Normalizer) ExtractErrors(val cue.Value) ([]ErrorDef, error) {
 		return nil, nil
 	}
 
-	iter, _ := errsVal.Fields()
+	iter, err := errsVal.Fields()
+	if err != nil {
+		return nil, err
+	}
 	for iter.Next() {
 		name := iter.Selector().String()
 		name = cleanName(name)
 		v := iter.Value()
 
-		code, _ := v.LookupPath(cue.ParsePath("code")).Int64()
-		httpStatus, _ := v.LookupPath(cue.ParsePath("http")).Int64()
-		msg, _ := v.LookupPath(cue.ParsePath("msg")).String()
-		msg = strings.Trim(msg, "")
+		// A field that is present must decode: a conflict or a wrong type
+		// used to be read as 0 or "".
+		code, err := optionalInt(v, "code")
+		if err != nil {
+			return nil, fmt.Errorf("error %s (%s): code: %w", name, formatPos(v), err)
+		}
+		httpStatus, err := optionalInt(v, "http")
+		if err != nil {
+			return nil, fmt.Errorf("error %s (%s): http: %w", name, formatPos(v), err)
+		}
+		msg, err := finderString(v, "msg")
+		if err != nil {
+			return nil, fmt.Errorf("error %s (%s): msg: %w", name, formatPos(v), err)
+		}
 
 		errs = append(errs, ErrorDef{
 			Name:       name,
@@ -154,4 +168,23 @@ func (n *Normalizer) ExtractErrors(val cue.Value) ([]ErrorDef, error) {
 		})
 	}
 	return errs, nil
+}
+
+// optionalInt reads an int field: missing or not yet concrete is 0, present
+// but an error (a conflict, a wrong type) is reported.
+func optionalInt(v cue.Value, path string) (int64, error) {
+	f := v.LookupPath(cue.ParsePath(path))
+	if !f.Exists() {
+		return 0, nil
+	}
+	if d, ok := f.Default(); ok {
+		f = d
+	}
+	if err := f.Err(); err != nil {
+		return 0, err
+	}
+	if !f.IsConcrete() {
+		return 0, nil
+	}
+	return f.Int64()
 }

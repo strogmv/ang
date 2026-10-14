@@ -31,6 +31,8 @@ type ParsePhaseOutput struct {
 	HasRepo        bool
 	HasProject     bool
 	HasProjections bool
+	HasEvents      bool
+	HasErrors      bool
 }
 
 // NormalizePhaseOutput is the explicit contract produced by the normalize phase.
@@ -106,23 +108,30 @@ func runParsePhase(basePath string, opts PipelineOptions) (ParsePhaseOutput, err
 	p := parser.New()
 	cr := opts.ResolveCueRoot()
 
-	valDomain, okDomain, err := LoadOptionalDomain(p, filepath.Join(basePath, cr, "domain"))
-	if err != nil {
-		return out, WrapContractError(
-			StageCUE, ErrCodeCUEDomainLoad, "load "+cr+"/domain", fmt.Errorf("%s", parser.FormatCUELocationError(err)),
-		)
+	// Every folder loads strictly: a file that does not parse or a package
+	// that does not evaluate fails with file:line, never skipped or read as
+	// empty (item 1 of docs/tech-debt-backlog.md).
+	load := func(folder, code string) (cue.Value, bool, error) {
+		val, ok, err := LoadOptionalDomain(p, filepath.Join(basePath, cr, folder))
+		if err != nil {
+			return cue.Value{}, false, WrapContractError(
+				StageCUE, code, "load "+filepath.ToSlash(filepath.Join(cr, folder)), normalizer.DescribeCUELoadError(err),
+			)
+		}
+		return val, ok, nil
 	}
-	valArch, _, err := LoadOptionalDomain(p, filepath.Join(basePath, cr, "architecture"))
+
+	valDomain, okDomain, err := load("domain", ErrCodeCUEDomainLoad)
 	if err != nil {
-		return out, WrapContractError(
-			StageCUE, ErrCodeCUEArchLoad, "load "+cr+"/architecture", fmt.Errorf("%s", parser.FormatCUELocationError(err)),
-		)
+		return out, err
 	}
-	valAPI, okAPI, err := LoadOptionalDomain(p, filepath.Join(basePath, cr, "api"))
+	valArch, _, err := load("architecture", ErrCodeCUEArchLoad)
 	if err != nil {
-		return out, WrapContractError(
-			StageCUE, ErrCodeCUEAPILoad, "load "+cr+"/api", fmt.Errorf("%s", parser.FormatCUELocationError(err)),
-		)
+		return out, err
+	}
+	valAPI, okAPI, err := load("api", ErrCodeCUEAPILoad)
+	if err != nil {
+		return out, err
 	}
 	legacyMainPath := filepath.Join(basePath, cr, "main.cue")
 	if !okDomain || !okAPI {
@@ -130,7 +139,7 @@ func runParsePhase(basePath string, opts PipelineOptions) (ParsePhaseOutput, err
 			legacyCue, legacyOK, legacyLoadErr := LoadOptionalDomain(p, filepath.Join(basePath, cr))
 			if legacyLoadErr != nil {
 				return out, WrapContractError(
-					StageCUE, ErrCodeCUEAPILoad, "load legacy "+cr+"/main.cue", fmt.Errorf("%s", parser.FormatCUELocationError(legacyLoadErr)),
+					StageCUE, ErrCodeCUEAPILoad, "load legacy "+cr+"/main.cue", normalizer.DescribeCUELoadError(legacyLoadErr),
 				)
 			}
 			if legacyOK {
@@ -146,23 +155,42 @@ func runParsePhase(basePath string, opts PipelineOptions) (ParsePhaseOutput, err
 			}
 		}
 	}
-	valPolicy, okPolicy, _ := LoadOptionalDomain(p, filepath.Join(basePath, cr, "policy"))
+	valPolicy, okPolicy, err := load("policy", ErrCodeCUEPolicyLoad)
+	if err != nil {
+		return out, err
+	}
 	if !okPolicy {
-		if legacyPolicy, legacyOK, _ := LoadOptionalDomain(p, filepath.Join(basePath, cr, "policies")); legacyOK {
+		legacyPolicy, legacyOK, err := load("policies", ErrCodeCUEPolicyLoad)
+		if err != nil {
+			return out, err
+		}
+		if legacyOK {
 			valPolicy = legacyPolicy
 			okPolicy = true
 		}
 	}
-	valRepo, okRepo, err := LoadOptionalDomainStrict(p, filepath.Join(basePath, cr, "repo"))
+	valRepo, okRepo, err := LoadOptionalDomain(p, filepath.Join(basePath, cr, "repo"))
 	if err != nil {
 		return out, WrapContractError(
 			StageCUE, ErrCodeCUERepoLoad, "load "+cr+"/repo", normalizer.DescribeRepoLoadError(err),
 		)
 	}
-	valEvents, _, _ := LoadOptionalDomain(p, filepath.Join(basePath, cr, "events"))
-	valErrors, _, _ := LoadOptionalDomain(p, filepath.Join(basePath, cr, "errors"))
-	valProject, okProject, _ := LoadOptionalDomain(p, filepath.Join(basePath, cr, "project"))
-	valProjections, okProjections, _ := LoadOptionalDomain(p, filepath.Join(basePath, cr, "projections"))
+	valEvents, okEvents, err := load("events", ErrCodeCUEEventsLoad)
+	if err != nil {
+		return out, err
+	}
+	valErrors, okErrors, err := load("errors", ErrCodeCUEErrorsLoad)
+	if err != nil {
+		return out, err
+	}
+	valProject, okProject, err := load("project", ErrCodeCUEProjectLoad)
+	if err != nil {
+		return out, err
+	}
+	valProjections, okProjections, err := load("projections", ErrCodeCUEProjectionsLoad)
+	if err != nil {
+		return out, err
+	}
 
 	emitFileSizeDiagnostics(filepath.Join(basePath, cr, "domain"), opts)
 	emitFileSizeDiagnostics(filepath.Join(basePath, cr, "architecture"), opts)
@@ -189,6 +217,8 @@ func runParsePhase(basePath string, opts PipelineOptions) (ParsePhaseOutput, err
 	out.HasRepo = okRepo
 	out.HasProject = okProject
 	out.HasProjections = okProjections
+	out.HasEvents = okEvents
+	out.HasErrors = okErrors
 	return out, nil
 }
 
@@ -205,8 +235,10 @@ func runNormalizePhase(basePath string, parsed ParsePhaseOutput, opts PipelineOp
 
 	archMode := strings.TrimSpace(opts.ArchitectureMode)
 	allowCross := opts.AllowCrossService
-	if parsed.HasProject && parsed.Project.Err() == nil {
-		projectDef, err := n.ExtractProject(parsed.Project)
+	var projectDef *normalizer.ProjectDef
+	if parsed.HasProject {
+		var err error
+		projectDef, err = n.ExtractProject(parsed.Project)
 		if err != nil {
 			return out, WrapContractError(StageCUE, ErrCodeCUEProjectParse, "extract project", err)
 		}
@@ -231,7 +263,7 @@ func runNormalizePhase(basePath string, parsed ParsePhaseOutput, opts PipelineOp
 	if err != nil {
 		return out, WrapContractError(StageCUE, ErrCodeCUEEntityNormalize, "extract entities", err)
 	}
-	if parsed.HasProjections && parsed.Projections.Err() == nil {
+	if parsed.HasProjections {
 		projectionEntities, err := n.ExtractEntities(parsed.Projections)
 		if err != nil {
 			return out, WrapContractError(StageCUE, ErrCodeCUEEntityNormalize, "extract projections", err)
@@ -259,7 +291,7 @@ func runNormalizePhase(basePath string, parsed ParsePhaseOutput, opts PipelineOp
 
 	emitFSMIntegrityDiagnostics(entities, opts)
 	n.Policies = map[string]normalizer.PolicyDef{}
-	if parsed.HasPolicy && parsed.Policy.Err() == nil {
+	if parsed.HasPolicy {
 		policies, err := n.ExtractPolicies(parsed.Policy)
 		if err != nil {
 			return out, WrapContractError(StageCUE, ErrCodeCUEPoliciesParse, "extract policies", err)
@@ -377,16 +409,25 @@ func runNormalizePhase(basePath string, parsed ParsePhaseOutput, opts PipelineOp
 	}
 
 	var events []normalizer.EventDef
-	if parsed.Events.Err() == nil {
-		events, _ = n.ExtractEvents(parsed.Events)
+	if parsed.HasEvents {
+		events, err = n.ExtractEvents(parsed.Events)
+		if err != nil {
+			return out, WrapContractError(StageCUE, ErrCodeCUEEventsLoad, "extract events", err)
+		}
 	}
 	if len(events) == 0 {
-		archEvents, _ := n.ExtractEventsFromArch(parsed.Arch)
+		archEvents, err := n.ExtractEventsFromArch(parsed.Arch)
+		if err != nil {
+			return out, WrapContractError(StageCUE, ErrCodeCUEEventsLoad, "extract events from architecture", err)
+		}
 		events = append(events, archEvents...)
 	}
 	var bizErrors []normalizer.ErrorDef
-	if parsed.Errors.Err() == nil {
-		bizErrors, _ = n.ExtractErrors(parsed.Errors)
+	if parsed.HasErrors {
+		bizErrors, err = n.ExtractErrors(parsed.Errors)
+		if err != nil {
+			return out, WrapContractError(StageCUE, ErrCodeCUEErrorsLoad, "extract errors", err)
+		}
 	}
 	schedules, err := n.ExtractSchedules(parsed.API)
 	if err != nil {
@@ -409,10 +450,8 @@ func runNormalizePhase(basePath string, parsed ParsePhaseOutput, opts PipelineOp
 	out.Schedules = schedules
 	out.Scenarios = scenarios
 	out.Scopes = scopes
-	if parsed.HasProject && parsed.Project.Err() == nil {
-		if pd, err := n.ExtractProject(parsed.Project); err == nil && pd != nil {
-			out.Project = *pd
-		}
+	if projectDef != nil {
+		out.Project = *projectDef
 	}
 	return out, nil
 }

@@ -8,6 +8,9 @@ Canonical source in code:
 
 ## CUE
 
+Every `*_LOAD_ERROR` of a CUE folder means a file there does not parse or the package does not
+evaluate; the message names `file:line:col`. A folder is loaded strictly: no file is skipped.
+
 - `CUE_DOMAIN_LOAD_ERROR`
 - `CUE_ARCH_LOAD_ERROR`
 - `CUE_API_LOAD_ERROR`
@@ -15,7 +18,10 @@ Canonical source in code:
 - `CUE_SERVICE_NORMALIZE_ERROR`
 - `CUE_ENDPOINT_NORMALIZE_ERROR`
 - `CUE_REPO_NORMALIZE_ERROR`
-- `CUE_REPO_LOAD_ERROR`
+- `CUE_REPO_LOAD_ERROR` — `cue/repo` does not load; the line also names the finder
+- `CUE_EVENTS_LOAD_ERROR` — `cue/events` does not load, or an event in it does not decode
+- `CUE_ERRORS_LOAD_ERROR` — `cue/errors` does not load, or an entry of `#Errors` does not decode (`code: "E404"`)
+- `CUE_PROJECTIONS_LOAD_ERROR` — `cue/projections` does not load
 - `CUE_SCHEDULE_NORMALIZE_ERROR`
 - `CUE_PIPELINE_ERROR`
 - `CUE_INFRA_LOAD_ERROR`
@@ -27,12 +33,12 @@ Canonical source in code:
 - `CUE_POLICIES_PARSE_ERROR`
 - `CUE_VIEWS_LOAD_ERROR`
 - `CUE_VIEWS_PARSE_ERROR`
-- `CUE_PROJECT_LOAD_ERROR`
+- `CUE_PROJECT_LOAD_ERROR` — `cue/project` does not load
 - `CUE_PROJECT_PARSE_ERROR`
 - `CUE_TARGETS_PARSE_ERROR`
 - `CUE_LINT_LOAD_ERROR`
 - `CUE_POLICY_VALIDATE_ERROR`
-- `CUE_POLICY_LOAD_ERROR`
+- `CUE_POLICY_LOAD_ERROR` — `cue/policy` (or the legacy `cue/policies`) does not load
 - `CUE_TEST_COVERAGE_PIPELINE_ERROR`
 
 ## IR

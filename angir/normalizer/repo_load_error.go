@@ -19,6 +19,22 @@ import (
 // be skipped, and every finder declared in it vanished from the generated
 // ports while validate and build said OK; the error must name where it is.
 func DescribeRepoLoadError(err error) error {
+	return describeCUEError(err, func(file string, line int) string {
+		if name := finderNameAt(file, line); name != "" {
+			return fmt.Sprintf(" (finder %q)", name)
+		}
+		return ""
+	})
+}
+
+// DescribeCUELoadError turns a CUE error from loading any cue/<folder> into
+// one line per problem: "file:line:col: message". A folder that fails to load
+// must stop validate and build, and the message must say where.
+func DescribeCUELoadError(err error) error {
+	return describeCUEError(err, nil)
+}
+
+func describeCUEError(err error, suffix func(file string, line int) string) error {
 	if err == nil {
 		return nil
 	}
@@ -44,8 +60,15 @@ func DescribeRepoLoadError(err error) error {
 		if len(positions) > 0 {
 			p := positions[0]
 			line = fmt.Sprintf("%s:%d:%d: %s", relToCwd(p.Filename()), p.Line(), p.Column(), msg)
-			if name := finderNameAt(p.Filename(), p.Line()); name != "" {
-				line += fmt.Sprintf(" (finder %q)", name)
+			if len(positions) > 1 {
+				others := make([]string, 0, len(positions)-1)
+				for _, o := range positions[1:] {
+					others = append(others, fmt.Sprintf("%s:%d:%d", relToCwd(o.Filename()), o.Line(), o.Column()))
+				}
+				line += " (also " + strings.Join(others, ", ") + ")"
+			}
+			if suffix != nil {
+				line += suffix(p.Filename(), p.Line())
 			}
 		}
 		if seen[line] {

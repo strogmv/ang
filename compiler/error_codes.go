@@ -14,6 +14,9 @@ const (
 	ErrCodeCUEEndpointNormalize    = "CUE_ENDPOINT_NORMALIZE_ERROR"
 	ErrCodeCUERepoNormalize        = "CUE_REPO_NORMALIZE_ERROR"
 	ErrCodeCUERepoLoad             = "CUE_REPO_LOAD_ERROR"
+	ErrCodeCUEEventsLoad           = "CUE_EVENTS_LOAD_ERROR"
+	ErrCodeCUEErrorsLoad           = "CUE_ERRORS_LOAD_ERROR"
+	ErrCodeCUEProjectionsLoad      = "CUE_PROJECTIONS_LOAD_ERROR"
 	ErrCodeCUEScheduleNormalize    = "CUE_SCHEDULE_NORMALIZE_ERROR"
 	ErrCodeCUEPipeline             = "CUE_PIPELINE_ERROR"
 	ErrCodeCUEInfraLoad            = "CUE_INFRA_LOAD_ERROR"
@@ -63,6 +66,9 @@ var StableErrorCodes = []string{
 	ErrCodeCUEEndpointNormalize,
 	ErrCodeCUERepoNormalize,
 	ErrCodeCUERepoLoad,
+	ErrCodeCUEEventsLoad,
+	ErrCodeCUEErrorsLoad,
+	ErrCodeCUEProjectionsLoad,
 	ErrCodeCUEScheduleNormalize,
 	ErrCodeCUEPipeline,
 	ErrCodeCUEInfraLoad,

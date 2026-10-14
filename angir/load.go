@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"cuelang.org/go/cue"
-	cueparser "cuelang.org/go/cue/parser"
 	"github.com/strogmv/ang/angir/ir"
 	"github.com/strogmv/ang/angir/normalizer"
 	"github.com/strogmv/ang/angir/parser"
@@ -74,24 +73,24 @@ func LoadWithOptions(basePath string, opts LoadOptions) (*Result, error) {
 		warnings = append(warnings, w)
 	}
 
-	valDomain, okDomain, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/domain"), opts.Strict || isIgnored("domain"))
+	valDomain, okDomain, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/domain"))
 	if err != nil {
-		return nil, fmt.Errorf("load cue/domain: %w", err)
+		return nil, fmt.Errorf("load cue/domain: %w", normalizer.DescribeCUELoadError(err))
 	}
 	if isIgnored("domain") {
 		okDomain = false
 		valDomain = cue.Value{}
 	}
-	valArch, _, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/architecture"), opts.Strict || isIgnored("architecture"))
+	valArch, _, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/architecture"))
 	if err != nil {
-		return nil, fmt.Errorf("load cue/architecture: %w", err)
+		return nil, fmt.Errorf("load cue/architecture: %w", normalizer.DescribeCUELoadError(err))
 	}
 	if isIgnored("architecture") {
 		valArch = cue.Value{}
 	}
-	valAPI, okAPI, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/api"), opts.Strict || isIgnored("api"))
+	valAPI, okAPI, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/api"))
 	if err != nil {
-		return nil, fmt.Errorf("load cue/api: %w", err)
+		return nil, fmt.Errorf("load cue/api: %w", normalizer.DescribeCUELoadError(err))
 	}
 	if isIgnored("api") {
 		okAPI = false
@@ -100,9 +99,9 @@ func LoadWithOptions(basePath string, opts LoadOptions) (*Result, error) {
 	legacyMainPath := filepath.Join(basePath, "cue", "main.cue")
 	if opts.AllowLegacyMain && (!okDomain || !okAPI) {
 		if _, statErr := os.Stat(legacyMainPath); statErr == nil {
-			legacyCue, legacyOK, legacyLoadErr := loadOptionalDomain(p, filepath.Join(basePath, "cue"), opts.Strict)
+			legacyCue, legacyOK, legacyLoadErr := loadOptionalDomain(p, filepath.Join(basePath, "cue"))
 			if legacyLoadErr != nil {
-				return nil, fmt.Errorf("load legacy cue/: %w", legacyLoadErr)
+				return nil, fmt.Errorf("load legacy cue/: %w", normalizer.DescribeCUELoadError(legacyLoadErr))
 			}
 			if legacyOK {
 				if !okDomain && !isIgnored("domain") {
@@ -123,23 +122,27 @@ func LoadWithOptions(basePath string, opts LoadOptions) (*Result, error) {
 		return nil, fmt.Errorf("missing required api cue/api (and no legacy cue/main.cue fallback enabled)")
 	}
 
-	valPolicy, okPolicy, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/policy"), opts.Strict || isIgnored("policy"))
+	valPolicy, okPolicy, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/policy"))
 	if err != nil {
-		return nil, fmt.Errorf("load cue/policy: %w", err)
+		return nil, fmt.Errorf("load cue/policy: %w", normalizer.DescribeCUELoadError(err))
 	}
 	if isIgnored("policy") {
 		okPolicy = false
 		valPolicy = cue.Value{}
 	}
 	if !okPolicy {
-		if legacyPolicy, legacyOK, legacyErr := loadOptionalDomain(p, filepath.Join(basePath, "cue/policies"), opts.Strict); legacyErr == nil && legacyOK {
+		legacyPolicy, legacyOK, legacyErr := loadOptionalDomain(p, filepath.Join(basePath, "cue/policies"))
+		if legacyErr != nil && !isIgnored("policy") {
+			return nil, fmt.Errorf("load cue/policies: %w", normalizer.DescribeCUELoadError(legacyErr))
+		}
+		if legacyOK && !isIgnored("policy") {
 			valPolicy = legacyPolicy
 			okPolicy = true
 		}
 	}
 	// cue/repo is always loaded strictly: skipping a file that does not parse
 	// drops its finders from the repository interfaces without a word.
-	valRepo, okRepo, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/repo"), true)
+	valRepo, okRepo, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/repo"))
 	if err != nil && !isIgnored("repo") {
 		return nil, fmt.Errorf("load cue/repo: %w", normalizer.DescribeRepoLoadError(err))
 	}
@@ -147,49 +150,49 @@ func LoadWithOptions(basePath string, opts LoadOptions) (*Result, error) {
 		okRepo = false
 		valRepo = cue.Value{}
 	}
-	valEvents, okEvents, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/events"), opts.Strict || isIgnored("events"))
+	valEvents, okEvents, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/events"))
 	if err != nil {
-		return nil, fmt.Errorf("load cue/events: %w", err)
+		return nil, fmt.Errorf("load cue/events: %w", normalizer.DescribeCUELoadError(err))
 	}
 	if isIgnored("events") {
 		okEvents = false
 		valEvents = cue.Value{}
 	}
-	valErrors, okErrors, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/errors"), opts.Strict || isIgnored("errors"))
+	valErrors, okErrors, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/errors"))
 	if err != nil {
-		return nil, fmt.Errorf("load cue/errors: %w", err)
+		return nil, fmt.Errorf("load cue/errors: %w", normalizer.DescribeCUELoadError(err))
 	}
 	if isIgnored("errors") {
 		okErrors = false
 		valErrors = cue.Value{}
 	}
-	valProject, okProject, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/project"), opts.Strict || isIgnored("project"))
+	valProject, okProject, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/project"))
 	if err != nil {
-		return nil, fmt.Errorf("load cue/project: %w", err)
+		return nil, fmt.Errorf("load cue/project: %w", normalizer.DescribeCUELoadError(err))
 	}
 	if isIgnored("project") {
 		okProject = false
 		valProject = cue.Value{}
 	}
-	valViews, okViews, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/views"), opts.Strict || isIgnored("views"))
+	valViews, okViews, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/views"))
 	if err != nil {
-		return nil, fmt.Errorf("load cue/views: %w", err)
+		return nil, fmt.Errorf("load cue/views: %w", normalizer.DescribeCUELoadError(err))
 	}
 	if isIgnored("views") {
 		okViews = false
 		valViews = cue.Value{}
 	}
-	valInfra, okInfra, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/infra"), opts.Strict || isIgnored("infra"))
+	valInfra, okInfra, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/infra"))
 	if err != nil {
-		return nil, fmt.Errorf("load cue/infra: %w", err)
+		return nil, fmt.Errorf("load cue/infra: %w", normalizer.DescribeCUELoadError(err))
 	}
 	if isIgnored("infra") {
 		okInfra = false
 		valInfra = cue.Value{}
 	}
-	valEffects, okEffects, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/effects"), opts.Strict || isIgnored("effects"))
+	valEffects, okEffects, err := loadOptionalDomain(p, filepath.Join(basePath, "cue/effects"))
 	if err != nil {
-		return nil, fmt.Errorf("load cue/effects: %w", err)
+		return nil, fmt.Errorf("load cue/effects: %w", normalizer.DescribeCUELoadError(err))
 	}
 	if isIgnored("effects") {
 		okEffects = false
@@ -541,59 +544,19 @@ func convertNotifications(ch *normalizer.NotificationChannelsDef, pol *normalize
 	return out
 }
 
-func loadOptionalDomain(p *parser.Parser, path string, strict bool) (cue.Value, bool, error) {
+// loadOptionalDomain loads the CUE package in path; a folder without .cue files
+// is absent. A file that does not parse is an error, never skipped: a skipped
+// file drops its declarations from the generated code without a word.
+func loadOptionalDomain(p *parser.Parser, path string) (cue.Value, bool, error) {
 	matches, _ := filepath.Glob(filepath.Join(path, "*.cue"))
 	if len(matches) == 0 {
 		return cue.Value{}, false, nil
 	}
 	val, err := p.LoadDomain(path)
 	if err != nil {
-		if strict {
-			return cue.Value{}, false, err
-		}
-		filtered, skipped, filterErr := filterValidCUEFiles(matches)
-		if filterErr != nil || len(skipped) == 0 || len(filtered) == 0 {
-			return cue.Value{}, false, err
-		}
-		tmpDir, mkErr := os.MkdirTemp("", "ang-ir-partial-cue-*")
-		if mkErr != nil {
-			return cue.Value{}, false, err
-		}
-		defer os.RemoveAll(tmpDir)
-		for _, src := range filtered {
-			data, readErr := os.ReadFile(src)
-			if readErr != nil {
-				return cue.Value{}, false, err
-			}
-			dst := filepath.Join(tmpDir, filepath.Base(src))
-			if writeErr := os.WriteFile(dst, data, 0o644); writeErr != nil {
-				return cue.Value{}, false, err
-			}
-		}
-		val2, err2 := p.LoadDomain(tmpDir)
-		if err2 != nil {
-			return cue.Value{}, false, err
-		}
-		return val2, true, nil
+		return cue.Value{}, false, err
 	}
 	return val, true, nil
-}
-
-func filterValidCUEFiles(files []string) (valid []string, skipped map[string]error, err error) {
-	valid = make([]string, 0, len(files))
-	skipped = make(map[string]error)
-	for _, file := range files {
-		src, readErr := os.ReadFile(file)
-		if readErr != nil {
-			return nil, nil, readErr
-		}
-		if _, parseErr := cueparser.ParseFile(file, src, cueparser.ParseComments); parseErr != nil {
-			skipped[file] = parseErr
-			continue
-		}
-		valid = append(valid, file)
-	}
-	return valid, skipped, nil
 }
 
 func mergeInfraValues(base map[string]any, overlay map[string]any) map[string]any {

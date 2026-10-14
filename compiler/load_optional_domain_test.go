@@ -3,13 +3,17 @@ package compiler
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
-	"cuelang.org/go/cue"
+	"github.com/strogmv/ang/angir/normalizer"
 	"github.com/strogmv/ang/angir/parser"
 )
 
-func TestLoadOptionalDomain_PartialSyntaxFallback(t *testing.T) {
+// One file that does not parse fails the whole folder. It used to be skipped
+// with a note on stderr and its declarations vanished from the generated code
+// (item 1 of docs/tech-debt-backlog.md).
+func TestLoadOptionalDomain_OneFileThatDoesNotParseFails(t *testing.T) {
 	base := t.TempDir()
 	dir := filepath.Join(base, "cue", "api")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -26,16 +30,15 @@ func TestLoadOptionalDomain_PartialSyntaxFallback(t *testing.T) {
 	}
 
 	p := parser.New()
-	val, ok, err := LoadOptionalDomain(p, dir)
-	if err != nil {
-		t.Fatalf("LoadOptionalDomain failed: %v", err)
+	_, ok, err := LoadOptionalDomain(p, dir)
+	if err == nil {
+		t.Fatalf("expected an error for broken.cue")
 	}
-	if !ok {
-		t.Fatalf("expected ok=true")
+	if ok {
+		t.Fatalf("expected ok=false on error")
 	}
-	got, err := val.LookupPath(cue.ParsePath("Good")).String()
-	if err != nil || got != "ok" {
-		t.Fatalf("expected Good=\"ok\", got %q err=%v", got, err)
+	if msg := normalizer.DescribeCUELoadError(err).Error(); !strings.Contains(msg, "broken.cue:2:") {
+		t.Fatalf("error does not name broken.cue:2: %s", msg)
 	}
 }
 
