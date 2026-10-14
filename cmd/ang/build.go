@@ -545,6 +545,17 @@ func runBuild(args []string) error {
 			}
 			em.SQLIndexNames = td.SQLIndexNames
 			em.PostgresVersion = td.PostgresVersion
+			// target.auth_default: under "deny" this target emits a copy of the
+			// schema in which every endpoint without auth needs a caller.
+			irSchema, authCheck, authErr := compiler.ApplyAuthDefault(irSchema, td.AuthDefault)
+			if authErr == nil {
+				authErr = authCheck.Err()
+			}
+			if authErr != nil {
+				fail(compiler.StageEmitters, compiler.ErrCodeEmitterCapabilityResolve, fmt.Sprintf("target=%s", td.Name), authErr)
+				return
+			}
+			compiler.LatestDiagnostics = append(compiler.LatestDiagnostics, authCheck.Warnings...)
 			if projectDef != nil && strings.TrimSpace(projectDef.UIProvider) != "" {
 				em.UIProviderPath = strings.TrimSpace(projectDef.UIProvider)
 			}

@@ -318,7 +318,28 @@ func parseTargetDef(targetVal cue.Value, defaultName string) TargetDef {
 		NatsPublishRetryDelayMS:  natsPublishRetryDelayMS,
 		SQLIndexNames:            getOptionalStringField(targetVal, "sql_index_names"),
 		PostgresVersion:          getOptionalScalarField(targetVal, "postgres_version"),
+		AuthDefault:              getOptionalStringField(targetVal, "auth_default"),
+		ServiceConfig:            getOptionalBoolField(targetVal, "service_config"),
+		OperationMetrics:         getOptionalBoolField(targetVal, "operation_metrics"),
 	}
+}
+
+// getOptionalBoolField reads a bool field that may be optional in a CUE
+// definition; false when it is absent.
+func getOptionalBoolField(v cue.Value, path string) bool {
+	if b, err := v.LookupPath(cue.ParsePath(path)).Bool(); err == nil {
+		return b
+	}
+	data, err := v.MarshalJSON()
+	if err != nil {
+		return false
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		return false
+	}
+	b, _ := m[path].(bool)
+	return b
 }
 
 // getOptionalScalarField reads a string or integer field (postgres_version: 18

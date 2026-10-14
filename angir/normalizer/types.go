@@ -746,6 +746,16 @@ type TargetDef struct {
 	// PostgresVersion is the major version of the Atlas dev database used to
 	// plan migrations (atlas.hcl, ang migrate diff, ang db); "" means 18.
 	PostgresVersion string
+	// AuthDefault is target.auth_default: "" or "allow" keeps an endpoint
+	// without auth public; "deny" makes it require a signed-in caller unless
+	// it says auth: {public: true}.
+	AuthDefault string
+	// ServiceConfig is target.service_config: every <Service>Impl gets the
+	// loaded configuration as s.Cfg, and config.Default() is generated.
+	ServiceConfig bool
+	// OperationMetrics is target.operation_metrics: Prometheus metrics and
+	// OpenTelemetry spans per operation and per repository query.
+	OperationMetrics bool
 }
 
 // NotificationMutingDef describes automatic notification muting via repository decorator.

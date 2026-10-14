@@ -282,6 +282,10 @@ func (n *Normalizer) ExtractEndpoints(val cue.Value) ([]Endpoint, error) {
 			}
 		}
 
+		if err := parseEndpointAuthIntent(epVal, &ep); err != nil {
+			return nil, fmt.Errorf("HTTP endpoint %s: %w", epName, err)
+		}
+
 		injectVal := epVal.LookupPath(cue.ParsePath("auth.inject"))
 		if injectVal.Exists() {
 			switch injectVal.IncompleteKind() {

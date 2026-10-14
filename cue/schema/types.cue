@@ -1505,14 +1505,22 @@ import "github.com/strogmv/ang/cue/project"
 		// Omit = JSON body. "multipart_form" = multipart/form-data with field "file" (+ optional ownerType, ownerId, folderId, name, mime) merged into the same DTO as fileBase64.
 		request_body?: string
 		idempotency?: bool
-                auth?: {
-                        type:    "jwt"
-                        action?: string
-                        check?:  string
-                        roles?: [...string]
-                        inject?: [...string] | string
-                        scope?:  string | [...string]
-                }
+		// Who may call. No auth block: public, unless the target sets
+		// auth_default: "deny" (then a signed-in caller is required).
+		// required: true is type "jwt"; public: true (or required: false)
+		// makes the endpoint public on purpose and says why in reason — an
+		// endpoint that changes state needs the reason (docs/http.md).
+		auth?: {
+			type?:     "jwt"
+			required?: bool
+			public?:   bool
+			reason?:   string
+			action?:   string
+			check?:    string
+			roles?: [...string]
+			inject?: [...string] | string
+			scope?: string | [...string]
+		}
 	}
 }
 

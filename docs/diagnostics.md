@@ -37,6 +37,15 @@ Code families:
   index, or use `target.sql_index_names: "hashed"` (docs/sql-schema.md).
 - `SQL_INDEX_NAME_COLLISION` (build error): two different indexes, or an index
   and a table, would be stored under the same name; give one a `name:`.
+- `AUTH_PUBLIC_MUTATION` (warning): an endpoint without `auth` changes state
+  (POST/PUT/PATCH/DELETE, or a GET whose operation writes) and anyone can call
+  it. Require a caller (`auth: {required: true}`) or say it is public on
+  purpose: `auth: {public: true, reason: "..."}` (docs/http.md).
+- `AUTH_PUBLIC_NO_REASON`: `auth: {public: true}` on an endpoint that changes
+  state, without a `reason`. A warning by default, a build error under
+  `target.auth_default: "deny"`.
+- `AUTH_DEFAULT_INVALID` (build error): `target.auth_default` is neither
+  `"allow"` nor `"deny"`.
 - `IR_*`: canonical IR conversion, migration, or semantic validation.
 - `TRANSFORMER_*` and `HOOK_*`: extension execution failures.
 - `EMITTER_*`: capability resolution, output validation, or generation failure.
