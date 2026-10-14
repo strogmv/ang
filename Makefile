@@ -19,10 +19,10 @@ test:
 	@echo "--- Testing Compiler ---"
 	go test -v ./compiler/...
 
-# Lint Go code
+# gofmt + staticcheck (unused code, SA*, S*); see scripts/lint.sh
 lint:
 	@echo "--- Linting ---"
-	golangci-lint run
+	./scripts/lint.sh
 
 # Clean build artifacts
 clean:

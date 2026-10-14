@@ -33,6 +33,7 @@ docs/           reference docs; docs/tech-debt-backlog.md is the backlog
 
 ```bash
 go build ./... && go vet ./... && go test ./... -count=1
+make lint                            # scripts/lint.sh: gofmt + staticcheck U1000,SA*,S* (pinned via go run)
 go run ./cmd/ang validate examples/blog
 (cd examples/blog && go build ./... && go test ./...)
 go run ./scripts/determinism_ci      # plan/apply/all determinism on a scratch copy of the sample

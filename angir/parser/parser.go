@@ -103,12 +103,11 @@ func stubFile(name string, src []byte) (*ast.File, error) {
 	}
 
 	stub := &ast.File{Filename: f.Filename}
-	// Copy preamble (package clause + imports — imports will be empty in stub)
+	// Copy the package clause of the preamble; imports are skipped, stubs have
+	// no deps.
 	for _, d := range f.Preamble() {
-		switch d.(type) {
-		case *ast.Package:
+		if _, ok := d.(*ast.Package); ok {
 			stub.Decls = append(stub.Decls, d)
-		// skip import declarations — stubs have no deps
 		}
 	}
 
@@ -154,7 +153,6 @@ func makeStubParseFile(targetDir string) func(string, interface{}, cueparser.Con
 		return stubFile(name, content)
 	}
 }
-
 
 // LoadDomain loads definitions from a specific path.
 //

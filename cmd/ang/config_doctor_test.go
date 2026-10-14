@@ -127,12 +127,12 @@ func TestEvaluateConfig_SESProviderConditional(t *testing.T) {
 	}
 
 	okSES, _ := evaluateConfig(fields, map[string]string{
-		"EMAIL_PROVIDER":         "ses",
-		"JWT_PRIVATE_KEY":        "secret",
-		"SES_REGION":             "eu-central-1",
-		"SES_ACCESS_KEY_ID":      "abc",
-		"SES_SECRET_ACCESS_KEY":  "def",
-		"SES_FROM":               "noreply@example.com",
+		"EMAIL_PROVIDER":        "ses",
+		"JWT_PRIVATE_KEY":       "secret",
+		"SES_REGION":            "eu-central-1",
+		"SES_ACCESS_KEY_ID":     "abc",
+		"SES_SECRET_ACCESS_KEY": "def",
+		"SES_FROM":              "noreply@example.com",
 	}, map[string]struct{}{}, getenv)
 	if len(okSES) != 0 {
 		t.Fatalf("expected no missing for ses provider, got %#v", okSES)

@@ -7,5 +7,8 @@ This is the ANG generator repository; read CLAUDE.md for the layout and checks.
 2. Generated code exists only in `examples/*` (everything there except `cue/` and `ang.yaml`). Never
    hand-edit it: change the CUE, templates or emitters and regenerate with
    `go run ./cmd/ang build --project examples/blog`.
-3. Before saying a change is done: `go build ./...`, `go vet ./...`, `go test ./... -count=1`.
+3. Before saying a change is done: `go build ./...`, `go vet ./...`, `go test ./... -count=1` and
+   `make lint` (gofmt + staticcheck `U1000,SA*,S*`: unused code, misuse, deprecated APIs). Delete
+   what U1000 reports instead of suppressing it; a func only templates call is used once it is
+   registered in a `template.FuncMap`.
 4. Prefer minimal, deterministic changes and preserve unrelated edits.
