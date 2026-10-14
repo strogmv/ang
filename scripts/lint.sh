@@ -20,7 +20,8 @@ STATICCHECK_VERSION="${STATICCHECK_VERSION:-v0.8.2}"
 CHECKS="${STATICCHECK_CHECKS:-U1000,SA*,S*}"
 
 echo "== gofmt =="
-unformatted="$(find . \( -path ./examples -o -path ./.git -o -name node_modules \) -prune -o -name '*.go' -print | xargs gofmt -l)"
+# Only files under version control: ignored build output (dist/, bin/) is not ours to format.
+unformatted="$(git ls-files -z -- '*.go' ':!:examples/**' | xargs -0 gofmt -l)"
 if [ -n "$unformatted" ]; then
 	echo "gofmt -w these files:"
 	echo "$unformatted"
