@@ -161,6 +161,9 @@ ListOrders: schema.#Operation & {
 | `format` | A Go time layout for `date` (default `2006-01-02`) and `time` (default RFC 3339); for `[]string`, `"multi"` (repeated keys), `"csv"` (one comma-separated value) or unset (both). |
 | `required` | `true`: a missing or blank value is a 400. |
 
+The TypeScript SDK sends a list as repeated keys (`?ids=a&ids=b`), which the
+default and `"multi"` read; `"csv"` is for clients that send one value.
+
 A value that does not parse, or a missing required one, gets one answer shape,
 the same problem+json the handlers already use for an `int` that is not one:
 

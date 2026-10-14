@@ -294,7 +294,6 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 	}
 
 	funcMapImpl := e.getSharedFuncMap()
-	funcMapImpl["OperationMetricsEnabled"] = func() bool { return e.OperationMetrics }
 	funcMapImpl["ServiceImplTypeDecl"] = func(svc normalizer.Service, entities []normalizer.Entity, auth *normalizer.AuthDef) (string, error) {
 		return renderServiceImplTypeDecl(svc, entities, auth, e.serviceImplOptions())
 	}

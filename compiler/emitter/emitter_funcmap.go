@@ -16,6 +16,10 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 		"InputHash":    func() string { return e.InputHash },
 		"CompilerHash": func() string { return e.CompilerHash },
 		"GoModule":     func() string { return e.GoModule },
+		// Target options templates branch on (target.service_config,
+		// target.operation_metrics); every template func map has them.
+		"ServiceConfigEnabled":    func() bool { return e.ServiceConfig },
+		"OperationMetricsEnabled": func() bool { return e.OperationMetrics },
 		"SafeAssign": func(scope map[string]bool, name string) string {
 			scope[name] = true
 			return name + ", err := "
