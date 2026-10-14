@@ -10,14 +10,11 @@ import (
 
 	"github.com/strogmv/ang/compiler/sqlmigrate"
 
-	"cuelang.org/go/cue"
 	"github.com/strogmv/ang/angir/normalizer"
-	"github.com/strogmv/ang/angir/parser"
 	"github.com/strogmv/ang/compiler"
 	"github.com/strogmv/ang/compiler/emitter"
 	"github.com/strogmv/ang/compiler/generator"
 	"github.com/strogmv/ang/compiler/golit"
-	"github.com/strogmv/ang/compiler/schemavendor"
 )
 
 func runBuild(args []string) error {
@@ -182,133 +179,17 @@ func runBuild(args []string) error {
 			printStageFailure("Build FAILED", stage, code, op, err)
 		}
 
-		p := parser.New()
-		n := normalizer.New()
-
-		var cfgDef *normalizer.ConfigDef
-		var authDef *normalizer.AuthDef
-		var sessionDef *normalizer.SessionDef
-		var emailTemplates []normalizer.EmailTemplateDef
-		var templatesCatalog []normalizer.TemplateDef
-		var infraValues map[string]any
-		var infraContextPatch normalizer.InfraContextPatch
-		projCfg := loadProjectConfig(projectPath)
-		cueRoot := projCfg.CueRoot
-		tmplDir := projCfg.TemplatesDir
-
-		infraBundle, err := compiler.LoadInfraBundleWithRoot(projectPath, cueRoot)
-		if err != nil {
-			if ce, ok := err.(*compiler.ContractError); ok {
-				fail(ce.Stage, ce.Code, ce.Op, ce.Err)
-				return
-			}
-			fail(compiler.StageCUE, compiler.ErrCodeCUEInfraConfigParse, "load infrastructure bundle", err)
+		in, failure := loadBuildInputs(projectPath)
+		if failure != nil {
+			fail(failure.stage, failure.code, failure.op, failure.err)
 			return
 		}
-		if infraBundle.Has {
-			infraValues = infraBundle.Values
-			cfgDef = infraBundle.Config
-			authDef = infraBundle.Auth
-			sessionDef = infraBundle.Session
-			infraContextPatch = infraBundle.ContextPatch
-			templatesCatalog = infraBundle.Templates
-			emailTemplates = infraBundle.EmailTemplates
-			templatesCatalog, err = resolveTemplates(projectPath, templatesCatalog)
-			if err != nil {
-				fail(compiler.StageCUE, compiler.ErrCodeCUEInfraConfigParse, "resolve templates", err)
-				return
-			}
-			if len(templatesCatalog) > 0 {
-				emailTemplates, err = templatesToEmail(templatesCatalog)
-				if err != nil {
-					fail(compiler.StageCUE, compiler.ErrCodeCUEInfraConfigParse, "map templates to email templates", err)
-					return
-				}
-			} else {
-				emailTemplates, err = resolveEmailTemplates(projectPath, emailTemplates)
-				if err != nil {
-					fail(compiler.StageCUE, compiler.ErrCodeCUEInfraConfigParse, "resolve email templates", err)
-					return
-				}
-			}
-		}
-
-		var rbacDef *normalizer.RBACDef
-		if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, cueRoot, "rbac")); err != nil {
-			fail(compiler.StageCUE, compiler.ErrCodeCUERBACLoad, "load "+cueRoot+"/rbac", err)
-			return
-		} else if ok {
-			rbacDef, err = n.ExtractRBAC(val)
-			if err != nil {
-				fail(compiler.StageCUE, compiler.ErrCodeCUERBACParse, "extract rbac", err)
-				return
-			}
-		} else if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, cueRoot, "policies")); err != nil {
-			fail(compiler.StageCUE, compiler.ErrCodeCUEPoliciesLoad, "load "+cueRoot+"/policies", err)
-			return
-		} else if ok {
-			rbacDef, err = n.ExtractRBAC(val)
-			if err != nil {
-				fail(compiler.StageCUE, compiler.ErrCodeCUEPoliciesParse, "extract policies as rbac", err)
-				return
-			}
-		}
-
-		var views []normalizer.ViewDef
-		if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, cueRoot, "views")); err != nil {
-			fail(compiler.StageCUE, compiler.ErrCodeCUEViewsLoad, "load "+cueRoot+"/views", err)
-			return
-		} else if ok {
-			views, err = n.ExtractViews(val)
-			if err != nil {
-				fail(compiler.StageCUE, compiler.ErrCodeCUEViewsParse, "extract views", err)
-				return
-			}
-		}
-
-		var projectDef *normalizer.ProjectDef
-		var targetDefs []normalizer.TargetDef
-		var projectVal cue.Value
-		if val, ok, err := compiler.LoadOptionalDomain(p, filepath.Join(projectPath, cueRoot, "project")); err != nil {
-			fail(compiler.StageCUE, compiler.ErrCodeCUEProjectLoad, "load "+cueRoot+"/project", err)
-			return
-		} else if ok {
-			projectVal = val
-			projectDef, err = n.ExtractProject(val)
-			if err != nil {
-				fail(compiler.StageCUE, compiler.ErrCodeCUEProjectParse, "extract project", err)
-				return
-			}
-			targetDefs, err = n.ExtractTargets(val)
-			if err != nil {
-				fail(compiler.StageCUE, compiler.ErrCodeCUETargetsParse, "extract targets", err)
-				return
-			}
-		}
-		if len(targetDefs) == 0 {
-			targetDefs = []normalizer.TargetDef{{
-				Name:      "default",
-				Lang:      "go",
-				Framework: "chi",
-				DB:        "postgres",
-				Cache:     "redis",
-				Queue:     "nats",
-				Storage:   "s3",
-			}}
-		}
-
-		// #Codegen comes from the schema the project imports: its own
-		// cue/schema (the layout before vendoring), else the vendored one.
-		for _, schemaDir := range []string{filepath.Join(projectPath, cueRoot, "schema"), schemavendor.Dir(projectPath)} {
-			val, ok, err := compiler.LoadOptionalDomain(p, schemaDir)
-			if err != nil || !ok || !val.LookupPath(cue.ParsePath("#Codegen")).Exists() {
-				continue
-			}
-			if err := n.LoadCodegenConfig(val); err != nil {
-				fmt.Printf("Warning: failed to load codegen config: %v\n", err)
-			}
-			break
-		}
+		cueRoot, tmplDir := in.cueRoot, in.tmplDir
+		cfgDef, authDef, sessionDef := in.cfgDef, in.authDef, in.sessionDef
+		emailTemplates, templatesCatalog := in.emailTemplates, in.templatesCatalog
+		infraValues, infraContextPatch := in.infraValues, in.infraContextPatch
+		rbacDef, views := in.rbacDef, in.views
+		projectDef, targetDefs, projectVal := in.projectDef, in.targetDefs, in.projectVal
 
 		inputHash, err := calculateHash([]string{filepath.Join(projectPath, cueRoot)})
 		if err != nil {
