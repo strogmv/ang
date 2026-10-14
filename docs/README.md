@@ -22,6 +22,8 @@ This folder is organized so both humans and AI agents can find the right entry p
 - [Generator Modules](./generator_modules.md)
 - [Universal Flow Actions](./universal-flow-actions.md)
 - [Error Codes](./error_codes.md)
+- [SQL Schema](./sql-schema.md): indexes, checks, raw DDL, migrations.
+- [Repositories](./repositories.md): finder `params:`, `paged:`, SQL checks, `select: "auto"`, `SaveBatch` chunks, upserts, `transactional: true`.
 
 ## Release Notes
 

@@ -24,6 +24,14 @@ Code families:
   has a repository (unknown name or a DTO). A repository of a real entity
   needs no `sources` entry: the service implementation gets every repository
   its operations' Go reaches.
+- `REPO_FINDER_INVALID`: a finder's hand-written `sql:` and its generated
+  method disagree — a `$n` without an argument or an argument the SQL never
+  uses, a select list with other columns than the method scans (count,
+  order), a timestamp/date/bool column scanned into a Go string without
+  `::text`, a `select: "auto"` without `*`, an upsert whose `on_conflict`
+  is not a unique index (docs/repositories.md).
+- `REPO_FINDER_PAGED_IMPLICIT` (warning): `limit:` > 0 or a name containing
+  `paginate` adds `(limit int, offset int)` to a finder; write `paged: true`.
 - `SQL_INDEX_NAME_TRUNCATED` (warning): a generated index name is longer than
   63 bytes and Postgres stores its first 63. Pin that name with `name:` in the
   index, or use `target.sql_index_names: "hashed"` (docs/sql-schema.md).

@@ -41,6 +41,7 @@ evaluate; the message names `file:line:col`. A folder is loaded strictly: no fil
 - `CUE_POLICY_LOAD_ERROR` — `cue/policy` (or the legacy `cue/policies`) does not load
 - `CUE_TEST_COVERAGE_PIPELINE_ERROR`
 - `RAW_GO_IMPORT_ERROR` — an `imports:` entry of raw Go (`impls: go:` or a `logic.Call`) that the code does not use, a package an `impls: go:` block uses without listing it, or a `logic.Call` lambda using `name.Sel` that two standard packages export (`rand.Read`: crypto/rand and math/rand) with nothing importing it; one line per problem: `file:line: Service.Method: …`
+- `REPO_FINDER_INVALID` — a finder whose hand-written `sql:` disagrees with its generated method (the `$n` it uses against the arguments, the select list against the scan, a `::text` a timestamp/date/bool column needs), a `select: "auto"` without `*`, or an upsert whose `on_conflict` is not a unique index; one line per problem: `file:line: finder Entity.Name: …` (docs/repositories.md)
 
 ## IR
 
