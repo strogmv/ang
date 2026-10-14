@@ -169,7 +169,7 @@ func (e *Emitter) EmitPostgresRepo(repos []ir.Repository, entities []ir.Entity) 
 		}{
 			Name:               repo.Name,
 			Entity:             repo.Entity,
-			Table:              strings.ToLower(repo.Entity) + "s",
+			Table:              ent.TableName(),
 			Columns:            strings.Join(cols, ", "),
 			Placeholders:       strings.Join(placeholders, ", "),
 			UpdateSet:          strings.Join(updateSets, ", "),

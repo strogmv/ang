@@ -159,6 +159,7 @@ type Entity struct {
 	Owns           []string       `json:"owns"`
 	ReadModel      *ReadModel     `json:"read_model,omitempty"`
 	Fields         []Field        `json:"fields"`
+	Table          string         `json:"table,omitempty"` // SQL table / Mongo collection (normalizer.TableName)
 	FSM            *FSM           `json:"fsm,omitempty"`
 	Indexes        []Index        `json:"indexes"`
 	Checks         []Check        `json:"checks,omitempty"`

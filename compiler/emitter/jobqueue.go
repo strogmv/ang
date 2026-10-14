@@ -26,7 +26,7 @@ type QueueSQL struct {
 
 // queueSQL builds the claim and stale-requeue statements of a queue entity.
 func queueSQL(e ir.Entity) QueueSQL {
-	table := strings.ToLower(e.Name) + "s"
+	table := e.TableName()
 	touch := ""
 	for _, f := range e.Fields {
 		if strings.EqualFold(f.Name, "updatedAt") {
@@ -136,7 +136,7 @@ func (e *Emitter) EmitQueuesFromIR(schema *ir.Schema) error {
 			"UniqueFields": strings.Join(ent.Queue.Unique, ", "),
 		}
 		if len(ent.Queue.Unique) > 0 {
-			data["UniqueIndex"] = normalizer.QueueUniqueIndexName(ent.Name)
+			data["UniqueIndex"] = normalizer.QueueUniqueIndexName(ent.TableName())
 		}
 		var buf bytes.Buffer
 		if err := t.Execute(&buf, data); err != nil {

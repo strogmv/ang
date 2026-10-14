@@ -60,7 +60,9 @@ func (e *Emitter) EmitSQL(entities []ir.Entity) error {
 	names := newSQLRelationNames()
 	for _, entity := range entitiesNorm {
 		if hasSQLTable(entity) && entityHasID(entity) {
-			names.addTable(strings.ToLower(entity.Name)+"s", entity.Source)
+			if err := names.addTable(entity.TableName(), entity.Name, entity.Source); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -78,7 +80,7 @@ func (e *Emitter) EmitSQL(entities []ir.Entity) error {
 			return fmt.Errorf("execute template: %w", err)
 		}
 
-		tableName := strings.ToLower(entity.Name) + "s"
+		tableName := entity.TableName()
 		for _, f := range entity.Fields {
 			if f.DB.Index {
 				colName := DBName(f.Name)
@@ -225,7 +227,7 @@ func (e *Emitter) EmitSQLQueries(entities []ir.Entity) error {
 			continue
 		}
 
-		tableName := strings.ToLower(entity.Name) + "s"
+		tableName := entity.TableName()
 
 		// Create
 		buf.WriteString(fmt.Sprintf("-- name: Create%s :one\n", entity.Name))

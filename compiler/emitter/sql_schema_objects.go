@@ -88,8 +88,12 @@ func (e *Emitter) sqlIndexName(generated, source string) string {
 // Postgres keeps them in one namespace per schema, and an index whose
 // (truncated) name is taken is skipped without an error by IF NOT EXISTS.
 type sqlRelationNames struct {
-	tables  map[string]string // name -> source
+	tables  map[string]sqlTableName
 	indexes map[string]sqlIndexSeen
+}
+
+type sqlTableName struct {
+	entity, source string
 }
 
 type sqlIndexSeen struct {
@@ -97,19 +101,25 @@ type sqlIndexSeen struct {
 }
 
 func newSQLRelationNames() *sqlRelationNames {
-	return &sqlRelationNames{tables: map[string]string{}, indexes: map[string]sqlIndexSeen{}}
+	return &sqlRelationNames{tables: map[string]sqlTableName{}, indexes: map[string]sqlIndexSeen{}}
 }
 
-func (n *sqlRelationNames) addTable(name, source string) {
-	n.tables[effectiveSQLName(name)] = source
+func (n *sqlRelationNames) addTable(name, entity, source string) error {
+	eff := effectiveSQLName(name)
+	if prev, ok := n.tables[eff]; ok && prev.entity != entity {
+		return fmt.Errorf("SQL_TABLE_NAME_COLLISION: entities %s (%s) and %s (%s) both have table %s; give one of them @db_table(name=\"…\")",
+			prev.entity, prev.source, entity, source, name)
+	}
+	n.tables[eff] = sqlTableName{entity: entity, source: source}
+	return nil
 }
 
 // addIndex records an index. The same statement twice is harmless (the second
 // is a no-op); a different index under the same stored name is an error.
 func (n *sqlRelationNames) addIndex(name, table, stmt, source string) error {
 	eff := effectiveSQLName(name)
-	if src, ok := n.tables[eff]; ok {
-		return fmt.Errorf("SQL_INDEX_NAME_COLLISION: index %s on %s (%s) has the name of a table (%s)", name, table, source, src)
+	if t, ok := n.tables[eff]; ok {
+		return fmt.Errorf("SQL_INDEX_NAME_COLLISION: index %s on %s (%s) has the name of a table (%s)", name, table, source, t.source)
 	}
 	if prev, ok := n.indexes[eff]; ok {
 		if prev.stmt == stmt {

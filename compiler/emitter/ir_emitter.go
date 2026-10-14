@@ -60,6 +60,7 @@ func IREntityToNormalizer(e ir.Entity) normalizer.Entity {
 		AggregateRoot:  e.AggregateRoot,
 		Owns:           append([]string(nil), e.Owns...),
 		Fields:         IRFieldsToNormalizer(e.Fields),
+		Table:          e.Table,
 		Metadata:       e.Metadata,
 		Source:         e.Source,
 	}

@@ -5,6 +5,46 @@ tables, then for each PostgreSQL entity its `CREATE TABLE IF NOT EXISTS`, its
 indexes, its CHECK constraints and its raw DDL. The file is re-runnable: every
 statement is idempotent. Entities stored in MongoDB and DTOs get no table.
 
+## Table names
+
+An entity's table — and, for an entity stored in MongoDB, its collection — is
+named by one function, `normalizer.TableName`, which every emitter uses
+(schema.sql, the Postgres and Mongo repositories, job queues, generated index
+names, docs/ang/conventions.md):
+
+1. `@db_table(name="…")` on the entity, when present: a lower-case SQL
+   identifier of at most 63 bytes. (`@table` is the SDK attribute of list
+   operations, so the entity attribute is `@db_table`.)
+2. `target.table_names: "plural"`: the lower-cased entity name in its English
+   plural — consonant + `y` → `ies` (`Company` → `companies`, but `APIKey` →
+   `apikeys`); `s`, `x`, `z`, `ch`, `sh` → `+es` (`CompanyAddress` →
+   `companyaddresses`, `OrderStatus` → `orderstatuses`); a consonant + `s`
+   is taken as already plural (`TenderOfferTerms` → `tenderofferterms`);
+   otherwise `+s`. Irregular words (`Person`) need `@db_table`.
+3. Default (`table_names` unset or `"legacy"`): lower-cased name + `s`
+   (`companys`, `companyaddresss`), so an existing database keeps its tables.
+
+```cue
+state: target: table_names: "plural" // every target of a project must agree
+
+Person: {
+	@db_table(name="people")
+	id: string @db(type="UUID", primary_key=true)
+}
+```
+
+Generated index names start with the table (`idx_<table>_<column>`,
+`uidx_<table>_…`, `idx_<table>_queue_ready`), and Postgres names the primary
+key, inline `UNIQUE` and inline enum `CHECK` constraints after it
+(`<table>_pkey`, `<table>_<column>_key`, `<table>_<column>_check`). Switching
+an existing project to `"plural"` therefore needs a hand-written migration
+that renames each table, those indexes and those constraints
+(`ALTER TABLE … RENAME TO …`, `ALTER INDEX … RENAME TO …`,
+`ALTER TABLE … RENAME CONSTRAINT …`), plus every hand-written SQL (finders,
+`ddl:` triggers, scripts) that names the old tables; `ang migrate diff` writes
+no renames. Explicit names (`name:` of an index, `@check`) are not touched.
+Two entities with one table fail with `SQL_TABLE_NAME_COLLISION`.
+
 ## Indexes
 
 A field index: `@db(index=true)` → `idx_<table>_<column>`. Everything else goes
@@ -169,7 +209,8 @@ database, recreated for every run: Atlas cleans tables but not functions.
 state: target: {
 	postgres_version: "18"       // Atlas dev image
 	sql_index_names:  "truncate" // or "hashed"
+	table_names:      "legacy"   // or "plural"
 }
 ```
 
-If the project's own `#Target` definition is closed, add both keys to it first.
+If the project's own `#Target` definition is closed, add these keys to it first.

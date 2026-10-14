@@ -162,7 +162,7 @@ func (e *Emitter) EmitMongoRepo(repos []ir.Repository, entities []ir.Entity) err
 		}{
 			Name:       repo.Name,
 			Entity:     repo.Entity,
-			Collection: strings.ToLower(repo.Entity) + "s",
+			Collection: ent.TableName(),
 			Fields:     ent.Fields,
 			Finders:    finders,
 			HasID:      hasIDField,

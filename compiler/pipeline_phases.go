@@ -260,6 +260,15 @@ func runNormalizePhase(basePath string, parsed ParsePhaseOutput, opts PipelineOp
 	if len(allowCross) > 0 {
 		n.ArchitectureAllowCross = allowCross
 	}
+	if parsed.HasProject {
+		targets, err := n.ExtractTargets(parsed.Project)
+		if err != nil {
+			return out, WrapContractError(StageCUE, ErrCodeCUETargetsParse, "extract targets", err)
+		}
+		if n.TableNames, err = normalizer.ProjectTableNames(targets); err != nil {
+			return out, WrapContractError(StageCUE, ErrCodeCUETargetsParse, "target table_names", err)
+		}
+	}
 
 	entities, err := n.ExtractEntities(parsed.Domain)
 	if err != nil {

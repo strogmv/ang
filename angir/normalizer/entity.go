@@ -533,5 +533,11 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 
 	entity.UI = parseEntityUI(entityVal)
 
+	override, err := parseEntityDBTable(val)
+	if err != nil {
+		return entity, err
+	}
+	entity.Table = TableName(entity.Name, override, n.TableNames)
+
 	return entity, nil
 }

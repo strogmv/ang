@@ -199,6 +199,15 @@ func LoadWithOptions(basePath string, opts LoadOptions) (*Result, error) {
 		valEffects = cue.Value{}
 	}
 
+	if okProject {
+		targets, err := n.ExtractTargets(valProject)
+		if err != nil {
+			return nil, fmt.Errorf("extract targets: %w", err)
+		}
+		if n.TableNames, err = normalizer.ProjectTableNames(targets); err != nil {
+			return nil, fmt.Errorf("target table_names: %w", err)
+		}
+	}
 	entities, err := n.ExtractEntities(valDomain)
 	if err != nil {
 		return nil, fmt.Errorf("extract entities: %w", err)

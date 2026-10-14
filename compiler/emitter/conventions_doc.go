@@ -24,7 +24,7 @@ func (e *Emitter) EmitConventionsDoc(schema *ir.Schema) error {
 	b.WriteString("tables are in the production database, the types are in the API contract.\n\n")
 
 	b.WriteString("## Rules\n\n")
-	b.WriteString("- Table name = lower-case entity name + `s` (`Country` → `countrys`, `Company` → `companys`).\n")
+	b.WriteString("- Table name (and MongoDB collection) = `@db_table(name=\"…\")` of the entity; otherwise, with `target.table_names: \"plural\"`, the lower-case entity name in its English plural (`Country` → `countries`, `CompanyAddress` → `companyaddresses`), and by default the lower-case entity name + `s` (`Country` → `countrys`). The list below is what this project gets.\n")
 	b.WriteString("- Array item type of an operation field: `data` → `<Op>ResponseData`; any other field → `<Op>Response<Field>Item`, in the input `<Op>Request<Field>Item`.\n")
 	b.WriteString("- A repository finder with `action: \"delete\"` returns `(int64, error)` — the number of rows removed.\n")
 	b.WriteString("- An input field named `body` receives the raw HTTP body (reported as `W_RAW_BODY_IMPLICIT`); declare `@rawBody()` when that is meant, otherwise name the field `text` or `message`.\n")
@@ -106,7 +106,7 @@ func conventionTables(entities []ir.Entity) [][2]string {
 			}
 		}
 		if hasID && !isMongo {
-			rows = append(rows, [2]string{entity.Name, strings.ToLower(entity.Name) + "s"})
+			rows = append(rows, [2]string{entity.Name, entity.TableName()})
 		}
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i][0] < rows[j][0] })

@@ -270,7 +270,7 @@ func (n *Normalizer) AddQueueFields(entities []Entity) error {
 		}
 
 		// Indexes, in the entity's index syntax (docs/sql-schema.md).
-		table := strings.ToLower(e.Name) + "s"
+		table := e.TableName()
 		e.Indexes = append(e.Indexes,
 			IndexDef{Name: "idx_" + table + "_queue_ready", Expr: "priority DESC, runat, id", Where: "status = '" + QueueStatusQueued + "'", Source: q.Source},
 			IndexDef{Name: "idx_" + table + "_queue_running", Fields: []string{"heartbeatAt"}, Where: "status = '" + QueueStatusRunning + "'", Source: q.Source},
@@ -280,7 +280,7 @@ func (n *Normalizer) AddQueueFields(entities []Entity) error {
 			e.Indexes = append(e.Indexes, IndexDef{Name: "idx_" + table + "_queue_key", Fields: []string{q.Key}, Unique: q.PerKey == 1, Where: "status = '" + QueueStatusRunning + "'", Source: q.Source})
 		}
 		if len(q.Unique) > 0 {
-			e.Indexes = append(e.Indexes, IndexDef{Name: QueueUniqueIndexName(e.Name), Fields: append([]string(nil), q.Unique...), Unique: true,
+			e.Indexes = append(e.Indexes, IndexDef{Name: QueueUniqueIndexName(table), Fields: append([]string(nil), q.Unique...), Unique: true,
 				Where: fmt.Sprintf("status IN ('%s', '%s')", QueueStatusQueued, QueueStatusRunning), Source: q.Source})
 		}
 	}
@@ -364,8 +364,8 @@ func ResolveQueueHandlers(entities []Entity, services []Service, repos []Reposit
 
 // QueueUniqueIndexName is the partial unique index over the active jobs of a
 // queue entity; Enqueue treats a violation of it as "already queued".
-func QueueUniqueIndexName(entity string) string {
-	return "uq_" + strings.ToLower(entity) + "s_queue_active"
+func QueueUniqueIndexName(table string) string {
+	return "uq_" + table + "_queue_active"
 }
 
 func (n *Normalizer) queueSystemFields(source string) ([]Field, error) {

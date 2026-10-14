@@ -159,6 +159,7 @@ func ConvertEntity(e normalizer.Entity) Entity {
 		AggregateRoot:  e.AggregateRoot,
 		Owns:           append([]string(nil), e.Owns...),
 		Fields:         ConvertFields(e.Fields),
+		Table:          e.Table,
 		Metadata:       e.Metadata,
 		Source:         e.Source,
 		Provenance:     explicitProvenance(e.Source),
@@ -1088,4 +1089,13 @@ func ConvertHelpers(helpers []normalizer.Helper) []Helper {
 		})
 	}
 	return out
+}
+
+// TableName is the entity's SQL table (MongoDB collection): Table as resolved
+// by the normalizer, or the legacy name for an entity built elsewhere.
+func (e Entity) TableName() string {
+	if e.Table != "" {
+		return e.Table
+	}
+	return normalizer.TableName(e.Name, "", "")
 }

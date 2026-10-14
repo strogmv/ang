@@ -56,6 +56,9 @@ type Normalizer struct {
 
 	ArchitectureMode       string
 	ArchitectureAllowCross map[string]map[string]struct{}
+	// TableNames is target.table_names (see ProjectTableNames): how
+	// ExtractEntities names the tables of entities without @db_table.
+	TableNames string
 }
 
 type TypeConfig struct {

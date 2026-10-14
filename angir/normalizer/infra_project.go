@@ -317,6 +317,7 @@ func parseTargetDef(targetVal cue.Value, defaultName string) TargetDef {
 		NatsPublishRetryAttempts: natsPublishRetryAttempts,
 		NatsPublishRetryDelayMS:  natsPublishRetryDelayMS,
 		SQLIndexNames:            getOptionalStringField(targetVal, "sql_index_names"),
+		TableNames:               getOptionalStringField(targetVal, "table_names"),
 		PostgresVersion:          getOptionalScalarField(targetVal, "postgres_version"),
 		AuthDefault:              getOptionalStringField(targetVal, "auth_default"),
 		ServiceConfig:            getOptionalBoolField(targetVal, "service_config"),

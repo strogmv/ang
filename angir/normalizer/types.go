@@ -35,6 +35,10 @@ type Entity struct {
 	Owns           []string
 	ReadModel      *ReadModelDef
 	Fields         []Field
+	// Table is the entity's SQL table (MongoDB collection), resolved by
+	// ExtractEntities from @db_table(name="…") or target.table_names. Read it
+	// through TableName(), which falls back for entities built elsewhere.
+	Table string
 
 	FSM     *FSM
 	Indexes []IndexDef
@@ -760,6 +764,9 @@ type TargetDef struct {
 	// bytes is emitted: "" / "truncate" as is (Postgres keeps 63 bytes),
 	// "hashed" as its first 54 bytes + "_" + 8 hex digits of its SHA-256.
 	SQLIndexNames string
+	// TableNames is target.table_names: "" / "legacy" names a table
+	// lower(Entity) + "s" (companys), "plural" by English rules (companies).
+	TableNames string
 	// PostgresVersion is the major version of the Atlas dev database used to
 	// plan migrations (atlas.hcl, ang migrate diff, ang db); "" means 18.
 	PostgresVersion string
