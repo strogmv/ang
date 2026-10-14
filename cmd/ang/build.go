@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/strogmv/ang/compiler/sqlmigrate"
 	"os"
 	"path/filepath"
 	"strings"
@@ -564,6 +565,18 @@ func runBuild(args []string) error {
 			}
 			em.FrontendAdminDir = output.FrontendAdminDir
 			em.FrontendSDKSkip = td.FrontendSDKSkip
+			if !emitter.ValidSQLIndexNames(td.SQLIndexNames) {
+				fail(compiler.StageEmitters, compiler.ErrCodeEmitterCapabilityResolve, fmt.Sprintf("target=%s", td.Name),
+					fmt.Errorf("sql_index_names must be %q or %q, got %q", emitter.SQLIndexNamesTruncate, emitter.SQLIndexNamesHashed, td.SQLIndexNames))
+				return
+			}
+			if !sqlmigrate.ValidPostgresVersion(td.PostgresVersion) {
+				fail(compiler.StageEmitters, compiler.ErrCodeEmitterCapabilityResolve, fmt.Sprintf("target=%s", td.Name),
+					fmt.Errorf("postgres_version must be a major version such as \"18\", got %q", td.PostgresVersion))
+				return
+			}
+			em.SQLIndexNames = td.SQLIndexNames
+			em.PostgresVersion = td.PostgresVersion
 			if projectDef != nil && strings.TrimSpace(projectDef.UIProvider) != "" {
 				em.UIProviderPath = strings.TrimSpace(projectDef.UIProvider)
 			}

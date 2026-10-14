@@ -10,6 +10,7 @@ import (
 
 	"github.com/strogmv/ang/angir/ir"
 	"github.com/strogmv/ang/angir/normalizer"
+	"github.com/strogmv/ang/compiler/sqlmigrate"
 )
 
 // EmitSQL генерирует SQL схему
@@ -56,21 +57,20 @@ func (e *Emitter) EmitSQL(entities []ir.Entity) error {
 	fullSchema.WriteString(systemTablesDDL)
 	fullSchema.WriteString("\n\n")
 
+	names := newSQLRelationNames()
+	for _, entity := range entitiesNorm {
+		if hasSQLTable(entity) && entityHasID(entity) {
+			names.addTable(strings.ToLower(entity.Name)+"s", entity.Source)
+		}
+	}
+
 	for _, entity := range entitiesNorm {
 		entity = ensurePrimaryKey(entity)
 
 		if !hasSQLTable(entity) {
 			continue
 		}
-
-		hasID := false
-		for _, f := range entity.Fields {
-			if strings.ToLower(f.Name) == "id" {
-				hasID = true
-				break
-			}
-		}
-		if !hasID {
+		if !entityHasID(entity) {
 			continue
 		}
 
@@ -82,36 +82,37 @@ func (e *Emitter) EmitSQL(entities []ir.Entity) error {
 		for _, f := range entity.Fields {
 			if f.DB.Index {
 				colName := DBName(f.Name)
-				idxName := fmt.Sprintf("idx_%s_%s", tableName, colName)
-				fullSchema.WriteString(fmt.Sprintf("\nCREATE INDEX IF NOT EXISTS %s ON %s (%s);", idxName, tableName, colName))
+				idxName := e.sqlIndexName(fmt.Sprintf("idx_%s_%s", tableName, colName), entity.Source)
+				stmt := fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s ON %s (%s);", idxName, tableName, colName)
+				if err := names.addIndex(idxName, tableName, stmt, entity.Source); err != nil {
+					return err
+				}
+				fullSchema.WriteString("\n" + stmt)
 			}
 		}
 		for _, index := range entity.Indexes {
-			if len(index.Fields) == 0 {
-				return fmt.Errorf("entity %s declares an index without fields", entity.Name)
+			stmt, err := e.sqlIndexStatement(entity, tableName, index, names)
+			if err != nil {
+				return err
 			}
-			columns := make([]string, 0, len(index.Fields))
-			for _, fieldName := range index.Fields {
-				found := false
-				for _, field := range entity.Fields {
-					if strings.EqualFold(field.Name, fieldName) {
-						columns = append(columns, DBName(field.Name))
-						found = true
-						break
-					}
-				}
-				if !found {
-					return fmt.Errorf("entity %s index references unknown field %s", entity.Name, fieldName)
-				}
+			fullSchema.WriteString("\n" + stmt)
+		}
+		checkNames := map[string]bool{}
+		for _, check := range entity.Checks {
+			stmt, err := sqlCheckStatement(entity, tableName, check, checkNames)
+			if err != nil {
+				return err
 			}
-			kind := "INDEX"
-			prefix := "idx"
-			if index.Unique {
-				kind = "UNIQUE INDEX"
-				prefix = "uidx"
+			fullSchema.WriteString("\n" + stmt)
+		}
+		if len(entity.DDL) > 0 {
+			// The markers let ang migrate diff leave raw SQL out of what it
+			// hands to Atlas (which neither inspects nor plans it).
+			fullSchema.WriteString("\n" + sqlmigrate.DDLBeginMarker + " " + entity.Name)
+			for _, ddl := range entity.DDL {
+				fullSchema.WriteString("\n" + ddl)
 			}
-			idxName := fmt.Sprintf("%s_%s_%s", prefix, tableName, strings.Join(columns, "_"))
-			fullSchema.WriteString(fmt.Sprintf("\nCREATE %s IF NOT EXISTS %s ON %s (%s);", kind, idxName, tableName, strings.Join(columns, ", ")))
+			fullSchema.WriteString("\n" + sqlmigrate.DDLEndMarker)
 		}
 
 		fullSchema.WriteString("\n\n")
@@ -123,6 +124,15 @@ func (e *Emitter) EmitSQL(entities []ir.Entity) error {
 	}
 	logGenerated("Generated SQL Schema: %s\n", path)
 	return nil
+}
+
+func entityHasID(entity normalizer.Entity) bool {
+	for _, f := range entity.Fields {
+		if strings.ToLower(f.Name) == "id" {
+			return true
+		}
+	}
+	return false
 }
 
 // hasSQLTable says whether an entity is stored in PostgreSQL. It is not when it is

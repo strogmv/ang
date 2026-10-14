@@ -3,6 +3,7 @@ package emitter
 import (
 	"bytes"
 	"fmt"
+	"github.com/strogmv/ang/compiler/sqlmigrate"
 	"go/format"
 	"os"
 	"path/filepath"
@@ -551,9 +552,10 @@ sql:
 // EmitInfraConfigs generates the Atlas config and migration helper scripts.
 func (e *Emitter) EmitInfraConfigs() error {
 	// Atlas
+	// The dev database plans migrations; its version is target.postgres_version.
 	atlasContent := `env "local" {
   src = "file://db/schema/schema.sql"
-  dev = "docker://postgres/15/dev"
+  dev = "` + sqlmigrate.DevURL(e.PostgresVersion) + `"
   migration {
     dir = "file://db/migrations"
   }
@@ -572,6 +574,8 @@ func (e *Emitter) EmitInfraConfigs() error {
 	}
 
 	// Migration helper scripts
+	// atlas migrate diff would write DROP statements for everything that
+	// exists only in the database; ang migrate diff writes only additions.
 	diffScript := `#!/usr/bin/env bash
 set -euo pipefail
 
@@ -581,20 +585,14 @@ if [[ -z "${NAME}" ]]; then
   exit 1
 fi
 
-atlas migrate diff "${NAME}" --env local --to file://db/schema/schema.sql --dir file://db/migrations
-
-LATEST="$(ls -t db/migrations/*.sql 2>/dev/null | head -n 1 || true)"
-if [[ -z "${LATEST}" ]]; then
-  exit 0
+# Writes db/migrations/<timestamp>_<name>.sql with additive, idempotent
+# statements only (CREATE TABLE/INDEX IF NOT EXISTS, ADD COLUMN IF NOT EXISTS);
+# drops and type changes are printed as warnings, never written.
+ANG_BIN="${ANG:-}"
+if [[ -z "${ANG_BIN}" ]]; then
+  if [[ -x ./bin/ang ]]; then ANG_BIN=./bin/ang; else ANG_BIN=ang; fi
 fi
-
-if grep -nE "DROP TABLE|DROP COLUMN" "${LATEST}" >/dev/null; then
-  echo "Detected destructive statements in ${LATEST}."
-  echo "Review the migration. Re-run with ALLOW_DROP=1 to accept."
-  if [[ "${ALLOW_DROP:-}" != "1" ]]; then
-    exit 1
-  fi
-fi
+exec "${ANG_BIN}" migrate diff "${NAME}"
 `
 
 	applyScript := `#!/usr/bin/env bash
