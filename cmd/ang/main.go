@@ -34,6 +34,10 @@ func main() {
 
 	cmd := os.Args[1]
 
+	if cmd == "build" {
+		// A project pinned to another revision is built by that revision.
+		handOverToPinnedToolchain(os.Args[2:])
+	}
 	applyBuildProcessLimitsIfNeeded(cmd)
 
 	switch cmd {
@@ -119,6 +123,8 @@ func main() {
 		mcp.Run()
 	case "version":
 		runVersion()
+	case "toolchain":
+		runToolchain(os.Args[2:])
 	default:
 		fmt.Printf("Unknown command: %s\n", cmd)
 		printUsage()
@@ -133,6 +139,7 @@ func printUsage() {
 	fmt.Println("  ang validate  Validate CUE models and architecture")
 	fmt.Println("  ang lint      Perform deep semantic linting of flows and logic")
 	fmt.Println("  ang build     Compile CUE intent into code and infra configs (--mode=in_place|release, --backend-dir, --dry-run, --run-tests, --skip-frontend, --skip-contract-tests, --log-format=json, --phase=all|plan|apply, --out-plan, --plan-file)")
+	fmt.Println("  ang toolchain [status|install|path|list]  The ang revision ang.lock pins, built once into a cache; ang build runs it (ANG_TOOLCHAIN=local opts out)")
 	fmt.Println("  ang up        Local one-command bootstrap (doctor start + compose up + build + smoke; --frontend starts UI)")
 	fmt.Println("  ang first-run Guided first launch (env bootstrap + infra/build + smoke)")
 	fmt.Println("  ang status    Show local runtime/dev status (checks + health + compose)")

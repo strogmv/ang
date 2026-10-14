@@ -559,7 +559,7 @@ func suggestionForCode(code, log string) Suggestion {
 	case compiler.ErrCodeANGLockMismatch:
 		return Suggestion{
 			Code:         code,
-			Fix:          "Build ang from the commit pinned in the project's ang.lock (make build-ang, or git checkout <commit> in the ang repo and go build ./cmd/ang). Pass --allow-lock-mismatch only when deliberately testing a different generator revision; do not commit its output without updating ang.lock.",
+			Fix:          "Let ang build run the revision pinned in the project's ang.lock: it builds that revision once into its cache (`ang toolchain install` does it ahead) unless ANG_TOOLCHAIN=local is set. Pass --allow-lock-mismatch only when deliberately testing a different generator revision; do not commit its output without updating ang.lock.",
 			CanAutoApply: false,
 			Patch:        defaultPatchTemplate(compiler.ErrCodeCUEProjectLoad),
 		}

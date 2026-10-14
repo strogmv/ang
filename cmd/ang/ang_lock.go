@@ -74,6 +74,7 @@ func runningCompilerRevision() compilerRevision {
 	var revision compilerRevision
 	info, ok := debug.ReadBuildInfo()
 	if !ok {
+		revision.Revision = strings.ToLower(strings.TrimSpace(buildRevision))
 		return revision
 	}
 	for _, setting := range info.Settings {
@@ -83,6 +84,11 @@ func runningCompilerRevision() compilerRevision {
 		case "vcs.modified":
 			revision.Modified = setting.Value == "true"
 		}
+	}
+	if revision.Revision == "" {
+		// Built without VCS information but told its revision by -ldflags
+		// (ang toolchain does this).
+		revision.Revision = strings.ToLower(strings.TrimSpace(buildRevision))
 	}
 	return revision
 }
@@ -106,8 +112,8 @@ func checkANGLock(pin angLockPin, running compilerRevision, allowMismatch bool) 
 		)
 		if !allowMismatch {
 			return nil, errors.New(mismatch + fmt.Sprintf(
-				". Rebuild from the pinned revision (make build-ang, or git -C <ang checkout> checkout %s && go build ./cmd/ang), or pass --allow-lock-mismatch to generate anyway",
-				pin.Commit,
+				". `ang build` runs the pinned revision %s itself unless %s=local (`ang toolchain install` builds it ahead); pass --allow-lock-mismatch to generate with this binary anyway",
+				pin.Commit, toolchainEnv,
 			))
 		}
 		warnings = append(warnings, mismatch+" (--allow-lock-mismatch is set)")
