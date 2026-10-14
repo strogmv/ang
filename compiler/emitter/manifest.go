@@ -3,6 +3,7 @@ package emitter
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/strogmv/ang/angir/ir"
@@ -43,9 +44,11 @@ func (e *Emitter) EmitManifest(schema *ir.Schema) error {
 
 	for _, svc := range schema.Services {
 		sSummary := ServiceSummary{
-			Name:       svc.Name,
-			Methods:    make([]string, 0),
-			Publishes:  svc.Publishes,
+			Name:    svc.Name,
+			Methods: make([]string, 0),
+			// A copy (nil stays nil): sorting it below must not reorder the
+			// IR every later emitter reads.
+			Publishes:  slices.Clone(svc.Publishes),
 			Subscribes: svc.Subscribes,
 			DependsOn:  make([]string, 0),
 		}

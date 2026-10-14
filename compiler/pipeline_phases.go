@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"cuelang.org/go/cue"
@@ -321,7 +322,15 @@ func runNormalizePhase(basePath string, parsed ParsePhaseOutput, opts PipelineOp
 			for i := range repos {
 				repoByEntity[repos[i].Entity] = i
 			}
-			for ent, finders := range finderMap {
+			// Entities in name order: repositories and synthesized projections are
+			// appended in this order, and a map's order changes from run to run.
+			finderEntities := make([]string, 0, len(finderMap))
+			for ent := range finderMap {
+				finderEntities = append(finderEntities, ent)
+			}
+			sort.Strings(finderEntities)
+			for _, ent := range finderEntities {
+				finders := finderMap[ent]
 				finders, projections := synthesizeImplicitProjections(ent, finders, entityByName, projNameByKey)
 				for _, p := range projections {
 					if _, ok := entityByName[p.Name]; ok {
