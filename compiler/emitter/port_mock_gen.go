@@ -74,31 +74,17 @@ func readPortInterfaces(dir string) ([]portInterfaceSpec, map[string]string, err
 		return nil, nil, err
 	}
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, func(fi os.FileInfo) bool {
-		name := fi.Name()
-		if strings.HasSuffix(name, "_test.go") {
-			return false
-		}
-		return strings.HasSuffix(name, ".go")
-	}, parser.ParseComments)
+	files, err := parseGoPackageFiles(fset, dir, "port", parser.ParseComments)
 	if err != nil {
 		return nil, nil, err
 	}
-	pkg := pkgs["port"]
-	if pkg == nil {
+	if len(files) == 0 {
 		return nil, map[string]string{}, nil
 	}
 
 	localTypes := map[string]struct{}{}
 	importPaths := map[string]string{}
-	fileOrder := make([]string, 0, len(pkg.Files))
-	for name := range pkg.Files {
-		fileOrder = append(fileOrder, name)
-	}
-	sort.Strings(fileOrder)
-
-	for _, name := range fileOrder {
-		file := pkg.Files[name]
+	for _, file := range files {
 		for _, imp := range file.Imports {
 			path, _ := strconv.Unquote(imp.Path.Value)
 			alias := ""
@@ -127,8 +113,7 @@ func readPortInterfaces(dir string) ([]portInterfaceSpec, map[string]string, err
 	}
 
 	var out []portInterfaceSpec
-	for _, name := range fileOrder {
-		file := pkg.Files[name]
+	for _, file := range files {
 		for _, decl := range file.Decls {
 			gen, ok := decl.(*ast.GenDecl)
 			if !ok || gen.Tok != token.TYPE {
