@@ -107,7 +107,9 @@ func TestMainServerTracesQueriesUnderOperationMetrics(t *testing.T) {
 		if err := infra.Execute(&b, ctx); err != nil {
 			t.Fatal(err)
 		}
-		if err := imports.Execute(&b, ctx); err != nil {
+		// Each block runs on its own context in app.go: the imports on
+		// MainServerImportsContext (which carries HasQueues and friends).
+		if err := imports.Execute(&b, MainServerImportsContext{HasSQL: true, GoModule: "example.com/shop"}); err != nil {
 			t.Fatal(err)
 		}
 		src := b.String()
