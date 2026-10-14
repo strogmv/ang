@@ -32,9 +32,13 @@ HTTP: schema.#HTTP & {
 		method: "POST"
 		path:   "/notifications/password-reset"
 	}
-	SendEmailVerification: {
+	SendInvitationEmail: {
 		method: "POST"
-		path:   "/notifications/email-verification"
+		path:   "/notifications/invitation"
+	}
+	ChatWithAssistant: {
+		method: "POST"
+		path:   "/assistant/chat"
 	}
 
 	// Tags

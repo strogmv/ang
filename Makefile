@@ -1,4 +1,4 @@
-.PHONY: build install test lint clean check all mcp-gen release-smoke benchmark-3iter determinism-plan-apply determinism-matrix
+.PHONY: build install test lint clean check all release-smoke benchmark-3iter determinism-matrix
 
 # Build the ang CLI
 build:
@@ -35,11 +35,6 @@ check: lint test
 all: build test
 	@echo "--- Build SUCCESSFUL ---"
 
-# Generate MCP server from template
-mcp-gen:
-	@echo "--- Generating MCP server ---"
-	./scripts/gen_mcp_server.sh
-
 # Run release smoke checks (Go output)
 release-smoke:
 	@echo "--- Release Smoke ---"
@@ -50,12 +45,7 @@ benchmark-3iter: build
 	@echo "--- 3-Iteration Backend Benchmark ---"
 	./benchmarks/three_iteration_marketplace/run.sh
 
-# Verify deterministic output across plan/apply phases (release mode)
-determinism-plan-apply:
-	@echo "--- Determinism Plan/Apply ---"
-	bash ./scripts/ci_determinism_plan_apply.sh
-
-# Cross-platform-friendly determinism check for phases plan/apply/all
+# Determinism check for phases plan/apply/all on a scratch copy of examples/blog
 determinism-matrix:
 	@echo "--- Determinism Matrix (plan/apply/all) ---"
 	go run ./scripts/determinism_ci

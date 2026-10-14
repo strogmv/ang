@@ -1,8 +1,32 @@
 package infra
 
-_appName:      "ANG Blog Example"
-_supportEmail: "blog-support@ang.local"
-_loginURL:     "https://blog.ang.local/login"
+_appName:      "ANG"
+_supportEmail: "support@ang.local"
+_loginURL:     "https://app.ang.local/login"
+
+_textSignature: """
+
+--
+\(_appName) Team
+Support: \(_supportEmail)
+"""
+
+_htmlFrameStart: """
+<html>
+  <body style="font-family:Arial,sans-serif;background:#f6f8fb;padding:24px;">
+    <table width="100%%" cellspacing="0" cellpadding="0" style="max-width:640px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;">
+      <tr>
+        <td style="padding:32px;">
+"""
+
+_htmlFrameEnd: """
+          <p style="margin:0;color:#475569;">Support: \(_supportEmail)</p>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+"""
 
 _welcomeSubject: "Welcome to \(_appName), {{ .Name }}"
 _welcomeText: """
@@ -13,55 +37,26 @@ Welcome to \(_appName). Your account is ready.
 Sign in: {{ if .LoginURL }}{{ .LoginURL }}{{ else }}\(_loginURL){{ end }}
 
 If you need help, reply to \(_supportEmail).
-
---
-\(_appName) Team
-"""
-_welcomeHTML: """
-<html>
-  <body style="font-family:Arial,sans-serif;background:#f6f8fb;padding:24px;">
-    <table width="100%%" cellspacing="0" cellpadding="0" style="max-width:640px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;">
-      <tr>
-        <td style="padding:32px;">
+""" + _textSignature
+_welcomeHTML: _htmlFrameStart + """
           <h1 style="margin:0 0 16px 0;">Welcome to \(_appName), {{ .Name }}</h1>
-          <p style="margin:0 0 12px 0;">Your author account is ready.</p>
+          <p style="margin:0 0 12px 0;">Your account is ready and you can start using the system immediately.</p>
           <p style="margin:0 0 20px 0;">
-            <a href="{{ if .LoginURL }}{{ .LoginURL }}{{ else }}\(_loginURL){{ end }}" style="display:inline-block;padding:12px 18px;background:#0f766e;color:#ffffff;text-decoration:none;border-radius:10px;">Open blog</a>
+            <a href="{{ if .LoginURL }}{{ .LoginURL }}{{ else }}\(_loginURL){{ end }}" style="display:inline-block;padding:12px 18px;background:#0f766e;color:#ffffff;text-decoration:none;border-radius:10px;">Open \(_appName)</a>
           </p>
-          <p style="margin:0;color:#475569;">Need help? Contact \(_supportEmail).</p>
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>
-"""
+""" + _htmlFrameEnd
 
 _noticeSubject: "{{ .Title }} · \(_appName)"
 _noticeText: """
 {{ if .Name }}Hi {{ .Name }},{{ else }}Hello,{{ end }}
 
 {{ .Body }}
-
---
-\(_appName) Team
-Support: \(_supportEmail)
-"""
-_noticeHTML: """
-<html>
-  <body style="font-family:Arial,sans-serif;background:#f6f8fb;padding:24px;">
-    <table width="100%%" cellspacing="0" cellpadding="0" style="max-width:640px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;">
-      <tr>
-        <td style="padding:32px;">
+""" + _textSignature
+_noticeHTML: _htmlFrameStart + """
           <h1 style="margin:0 0 16px 0;">{{ .Title }}</h1>
           <p style="margin:0 0 16px 0;">{{ if .Name }}Hi {{ .Name }},{{ else }}Hello,{{ end }}</p>
           <div style="margin:0 0 20px 0;color:#0f172a;">{{ .Body }}</div>
-          <p style="margin:0;color:#475569;">Support: \(_supportEmail)</p>
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>
-"""
+""" + _htmlFrameEnd
 
 _resetSubject: "Reset your \(_appName) password"
 _resetText: """
@@ -71,62 +66,49 @@ We received a request to reset your \(_appName) password.
 
 Reset link: {{ .ResetURL }}
 
-If this was not you, ignore this email.
-
---
-\(_appName) Team
-Support: \(_supportEmail)
-"""
-_resetHTML: """
-<html>
-  <body style="font-family:Arial,sans-serif;background:#f6f8fb;padding:24px;">
-    <table width="100%%" cellspacing="0" cellpadding="0" style="max-width:640px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;">
-      <tr>
-        <td style="padding:32px;">
+If you did not request this, you can ignore this message.
+""" + _textSignature
+_resetHTML: _htmlFrameStart + """
           <h1 style="margin:0 0 16px 0;">Reset your password</h1>
           <p style="margin:0 0 16px 0;">Hi {{ if .Name }}{{ .Name }}{{ else }}there{{ end }},</p>
-          <p style="margin:0 0 20px 0;">Use the link below to reset your \(_appName) password.</p>
+          <p style="margin:0 0 20px 0;">We received a request to reset your \(_appName) password.</p>
           <p style="margin:0 0 20px 0;">
             <a href="{{ .ResetURL }}" style="display:inline-block;padding:12px 18px;background:#0f766e;color:#ffffff;text-decoration:none;border-radius:10px;">Reset password</a>
           </p>
-          <p style="margin:0;color:#475569;">Support: \(_supportEmail)</p>
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>
-"""
+""" + _htmlFrameEnd
 
 _verifySubject: "Verify your \(_appName) email address"
 _verifyText: """
 Hi {{ if .Name }}{{ .Name }}{{ else }}there{{ end }},
 
-Please verify your email address to activate your \(_appName) account.
+Please verify your email address to continue using \(_appName).
 
 Verification link: {{ .VerifyURL }}
-
---
-\(_appName) Team
-Support: \(_supportEmail)
-"""
-_verifyHTML: """
-<html>
-  <body style="font-family:Arial,sans-serif;background:#f6f8fb;padding:24px;">
-    <table width="100%%" cellspacing="0" cellpadding="0" style="max-width:640px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;">
-      <tr>
-        <td style="padding:32px;">
+""" + _textSignature
+_verifyHTML: _htmlFrameStart + """
           <h1 style="margin:0 0 16px 0;">Verify your email address</h1>
-          <p style="margin:0 0 20px 0;">Finish setting up your \(_appName) account.</p>
+          <p style="margin:0 0 16px 0;">Hi {{ if .Name }}{{ .Name }}{{ else }}there{{ end }},</p>
+          <p style="margin:0 0 20px 0;">Confirm your email to finish setting up your \(_appName) account.</p>
           <p style="margin:0 0 20px 0;">
             <a href="{{ .VerifyURL }}" style="display:inline-block;padding:12px 18px;background:#0f766e;color:#ffffff;text-decoration:none;border-radius:10px;">Verify email</a>
           </p>
-          <p style="margin:0;color:#475569;">Support: \(_supportEmail)</p>
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>
-"""
+""" + _htmlFrameEnd
+
+_inviteSubject: "{{ .InviterName }} invited you to \(_appName)"
+_inviteText: """
+Hi {{ if .Name }}{{ .Name }}{{ else }}there{{ end }},
+
+{{ .InviterName }} invited you to join \(_appName).
+
+Accept invitation: {{ .InviteURL }}
+""" + _textSignature
+_inviteHTML: _htmlFrameStart + """
+          <h1 style="margin:0 0 16px 0;">You are invited to \(_appName)</h1>
+          <p style="margin:0 0 16px 0;">{{ .InviterName }} wants you to join.</p>
+          <p style="margin:0 0 20px 0;">
+            <a href="{{ .InviteURL }}" style="display:inline-block;padding:12px 18px;background:#0f766e;color:#ffffff;text-decoration:none;border-radius:10px;">Accept invitation</a>
+          </p>
+""" + _htmlFrameEnd
 
 #Templates: [
 	{
@@ -169,6 +151,16 @@ _verifyHTML: """
 		requiredVars: ["VerifyURL"]
 		optionalVars: ["Name", "AppName", "SupportEmail"]
 	},
+	{
+		id:      "invitation_email"
+		kind:    "email"
+		channel: "email"
+		subject: _inviteSubject
+		text:    _inviteText
+		html:    _inviteHTML
+		requiredVars: ["InviterName", "InviteURL"]
+		optionalVars: ["Name", "AppName", "SupportEmail"]
+	},
 ]
 
 #EmailTemplates: [
@@ -195,6 +187,12 @@ _verifyHTML: """
 		subject: _verifySubject
 		text:    _verifyText
 		html:    _verifyHTML
+	},
+	{
+		name:    "invitation_email"
+		subject: _inviteSubject
+		text:    _inviteText
+		html:    _inviteHTML
 	},
 ]
 
@@ -242,6 +240,14 @@ _verifyHTML: """
 			channels: ["email_primary", "email_fallback"]
 			template: "email_verification"
 			muteKey:  "auth.email_verification"
+		},
+		{
+			enabled:  true
+			type:     "user.invitation"
+			audience: "user"
+			channels: ["email_primary", "email_fallback"]
+			template: "invitation_email"
+			muteKey:  "user.invitation"
 		},
 	]
 }

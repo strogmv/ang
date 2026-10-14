@@ -7,6 +7,8 @@ import (
 type Auth interface {
 	GetProfile(ctx context.Context, req GetProfileRequest) (GetProfileResponse, error)
 	Login(ctx context.Context, req LoginRequest) (LoginResponse, error)
+	OnUserLoggedInAudit(ctx context.Context, req OnUserLoggedInAuditRequest) (OnUserLoggedInAuditResponse, error)
+	OnUserRegisteredAudit(ctx context.Context, req OnUserRegisteredAuditRequest) (OnUserRegisteredAuditResponse, error)
 	Register(ctx context.Context, req RegisterRequest) (RegisterResponse, error)
 	UpdateProfile(ctx context.Context, req UpdateProfileRequest) (UpdateProfileResponse, error)
 }
@@ -21,7 +23,7 @@ func (d *GetProfileRequest) Validate() error {
 }
 
 type GetProfileResponse struct {
-	ID        string `json:"ID"`
+	ID        string `json:"id"`
 	Email     string `json:"email"`
 	Name      string `json:"name"`
 	Role      string `json:"role"`
@@ -52,6 +54,39 @@ func (d *LoginResponse) Validate() error {
 	return nil
 }
 
+type OnUserLoggedInAuditRequest struct {
+	UserID string `json:"userId"`
+}
+
+func (d *OnUserLoggedInAuditRequest) Validate() error {
+	return nil
+}
+
+type OnUserLoggedInAuditResponse struct {
+	Ok bool `json:"ok"`
+}
+
+func (d *OnUserLoggedInAuditResponse) Validate() error {
+	return nil
+}
+
+type OnUserRegisteredAuditRequest struct {
+	UserID string `json:"userId"`
+	Email  string `json:"email"`
+}
+
+func (d *OnUserRegisteredAuditRequest) Validate() error {
+	return nil
+}
+
+type OnUserRegisteredAuditResponse struct {
+	Ok bool `json:"ok"`
+}
+
+func (d *OnUserRegisteredAuditResponse) Validate() error {
+	return nil
+}
+
 type RegisterRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
@@ -63,7 +98,7 @@ func (d *RegisterRequest) Validate() error {
 }
 
 type RegisterResponse struct {
-	ID    string `json:"ID"`
+	ID    string `json:"id"`
 	Email string `json:"email"`
 	Name  string `json:"name"`
 }

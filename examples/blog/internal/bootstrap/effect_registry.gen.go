@@ -4,11 +4,13 @@ package bootstrap
 import (
 	"context"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+	redisclient "github.com/example/blog/internal/adapter/cache/redis"
 	effectmw "github.com/example/blog/internal/adapter/middleware"
 	"github.com/example/blog/internal/adapter/repository/postgres"
+	redistore "github.com/example/blog/internal/adapter/statestore/redis"
 	"github.com/example/blog/internal/config"
 	"github.com/example/blog/internal/port"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type EffectHandler struct {
@@ -69,6 +71,11 @@ func NewEffectRegistry(
 	reg.RepoPostTag = postgres.NewPostTagRepository(pgPool)
 	reg.RepoTag = postgres.NewTagRepository(pgPool)
 	reg.RepoUser = postgres.NewUserRepository(pgPool)
+	repoSystem := postgres.NewSystemRepository(pgPool)
+	reg.StateStore = repoSystem
+	if cfg.RedisAddr != "" {
+		reg.StateStore = redistore.New(redisclient.NewClient(cfg.RedisAddr))
+	}
 	reg.TxManager = postgres.NewTxManager(pgPool)
 	reg.StateStore = effectmw.WrapStateStore(reg.StateStore, reg.Runtime.Chain("state"))
 	return reg, nil

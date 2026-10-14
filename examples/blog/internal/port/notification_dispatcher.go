@@ -12,6 +12,7 @@ type NotificationMessage struct {
 	Payload  any
 	Channels []string
 	Template string
+	Locale   string
 	MuteKey  string
 	Metadata map[string]any
 }

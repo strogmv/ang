@@ -33,13 +33,13 @@ CreateComment: schema.#Operation & {
 		{action: "mapping.Assign", to: "newComment.AuthorID", value: "req.UserID"},
 		{action: "mapping.Assign", to: "newComment.Content", value: "req.Content"},
 
-		{action: "repo.Save", source: "Comment", input: "newComment"},
-		{action: "event.Publish", name: "CommentCreated", payloadMap: {
-			CommentID: "newComment.ID"
-			PostID:    "newComment.PostID"
-			AuthorID:  "newComment.AuthorID"
-		}},
-		{action: "mapping.Assign", to: "resp.ID", value: "newComment.ID"},
+			{action: "repo.Save", source: "Comment", input: "newComment"},
+			{action: "event.Publish", name: "CommentCreated", payloadMap: {
+				CommentID: "newComment.ID"
+				PostID:    "newComment.PostID"
+				AuthorID:  "newComment.AuthorID"
+			}},
+			{action: "mapping.Assign", to: "resp.ID", value: "newComment.ID"},
 	]
 }
 
@@ -66,7 +66,7 @@ ListComments: schema.#Operation & {
 
 	flow: [
 		{action: "repo.List", source: "Comment", method: "ListByPost", input: "req.PostID", output: "comments"},
-		{action: "repo.Find", source: "Comment", method: "CountByPost", input: "req.PostID", output: "totalCount"},
+		{action: "repo.Query", source: "Comment", method: "CountByPost", input: "req.PostID", output: "totalCount"},
 
 		{action: "mapping.Assign", to: "resp.Data", value: "comments"},
 		{action: "mapping.Assign", to: "resp.Total", value: "totalCount"},

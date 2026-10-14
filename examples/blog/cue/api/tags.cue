@@ -47,13 +47,13 @@ CreateTag: schema.#Operation & {
 
 	flow: [
 		// Generate slug from name
-		{action: "str.Normalize", input: "req.Name", mode: "lower", output: "slug"},
-		{action: "regex.Replace", input: "slug", pattern: "\"[^a-z0-9]+\"", repl: "\"-\"", output: "slug"},
-		{action: "regex.Replace", input: "slug", pattern: "\"(^-|-$)\"", repl: "\"\"", output: "slug"},
-		{action: "logic.Check", condition: "slug != \"\"", throw: "Unable to derive slug from name"},
+		{action: "str.Normalize", input: "req.Name", mode: "lower", output: "slugSource"},
+		{action: "regex.Replace", input: "slugSource", pattern: "\"[^a-z0-9]+\"", repl: "\"-\"", output: "slugTrimmed"},
+		{action: "regex.Replace", input: "slugTrimmed", pattern: "\"(^-+|-+$)\"", repl: "\"\"", output: "slug"},
+		{action: "logic.Check", condition: "slug != \"\"", throw: "Tag slug cannot be empty"},
 
 		// Check if tag already exists
-		{action: "repo.Find", source: "Tag", method: "FindBySlug", input: "slug", output: "existing"},
+		{action: "repo.Query", source: "Tag", method: "FindBySlug", input: "slug", output: "existing"},
 		{action: "logic.Check", condition: "existing == nil", throw: "Tag already exists"},
 
 		// Create tag
@@ -89,10 +89,9 @@ UpdateTag: schema.#Operation & {
 
 		{action: "flow.If", condition: "req.Name != \"\"", then: [
 			{action: "mapping.Assign", to: "tag.Name", value: "req.Name"},
-			{action: "str.Normalize", input: "req.Name", mode: "lower", output: "slug"},
-			{action: "regex.Replace", input: "slug", pattern: "\"[^a-z0-9]+\"", repl: "\"-\"", output: "slug"},
-			{action: "regex.Replace", input: "slug", pattern: "\"(^-|-$)\"", repl: "\"\"", output: "slug"},
-			{action: "logic.Check", condition: "slug != \"\"", throw: "Unable to derive slug from name"},
+			{action: "str.Normalize", input: "req.Name", mode: "lower", output: "slugSource"},
+			{action: "regex.Replace", input: "slugSource", pattern: "\"[^a-z0-9]+\"", repl: "\"-\"", output: "slugTrimmed"},
+			{action: "regex.Replace", input: "slugTrimmed", pattern: "\"(^-+|-+$)\"", repl: "\"\"", output: "slug"},
 			{action: "mapping.Assign", to: "tag.Slug", value: "slug"},
 		]},
 		{action: "flow.If", condition: "req.Description != \"\"", then: [

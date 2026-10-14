@@ -5,26 +5,27 @@ import (
 )
 
 type Notifications interface {
-	SendEmailVerification(ctx context.Context, req SendEmailVerificationRequest) (SendEmailVerificationResponse, error)
+	SendInvitationEmail(ctx context.Context, req SendInvitationEmailRequest) (SendInvitationEmailResponse, error)
 	SendPasswordResetEmail(ctx context.Context, req SendPasswordResetEmailRequest) (SendPasswordResetEmailResponse, error)
 }
 
 // Request/Response DTOs
-type SendEmailVerificationRequest struct {
-	Email     string `json:"email"`
-	Name      string `json:"name"`
-	VerifyURL string `json:"verifyUrl"`
+type SendInvitationEmailRequest struct {
+	Email       string `json:"email"`
+	Name        string `json:"name"`
+	InviterName string `json:"inviterName"`
+	InviteURL   string `json:"inviteUrl"`
 }
 
-func (d *SendEmailVerificationRequest) Validate() error {
+func (d *SendInvitationEmailRequest) Validate() error {
 	return nil
 }
 
-type SendEmailVerificationResponse struct {
+type SendInvitationEmailResponse struct {
 	Ok bool `json:"ok"`
 }
 
-func (d *SendEmailVerificationResponse) Validate() error {
+func (d *SendInvitationEmailResponse) Validate() error {
 	return nil
 }
 

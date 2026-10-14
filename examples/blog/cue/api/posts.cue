@@ -13,6 +13,12 @@ CreatePost: schema.#Operation & {
 	service:   "blog"
 	description: "Create a new blog post in draft status"
 	publishes: ["PostCreated"]
+	subscribes: {
+		PostCreated:   "OnPostCreatedProjection"
+		PostUpdated:   "OnPostUpdatedProjection"
+		PostPublished: "OnPostPublishedProjection"
+		CommentCreated:"OnCommentCreatedProjection"
+	}
 
 	input: {
 		title:   string @validate("required,min=5,max=200")
@@ -27,36 +33,36 @@ CreatePost: schema.#Operation & {
 	}
 
 	flow: [
-		{action: "flow.Tag", name: "\"action\"", value: "\"create_post\""},
-		{action: "flow.Tag", name: "\"user_id\"", value: "req.UserID"},
-
 		// Generate slug and check availability
-		{action: "str.Normalize", input: "req.Title", mode: "lower", output: "slug"},
-		{action: "regex.Replace", input: "slug", pattern: "\"[^a-z0-9]+\"", repl: "\"-\"", output: "slug"},
-		{action: "regex.Replace", input: "slug", pattern: "\"(^-|-$)\"", repl: "\"\"", output: "slug"},
-		{action: "logic.Check", condition: "slug != \"\"", throw: "Unable to derive slug from title"},
-		{action: "repo.Find", source: "Post", method: "FindBySlug", input: "slug", output: "existing"},
+		{action: "str.Normalize", input: "req.Title", mode: "lower", output: "slugSource"},
+		{action: "regex.Replace", input: "slugSource", pattern: "\"[^a-z0-9]+\"", repl: "\"-\"", output: "slugTrimmed"},
+		{action: "regex.Replace", input: "slugTrimmed", pattern: "\"(^-+|-+$)\"", repl: "\"\"", output: "slug"},
+		{action: "logic.Check", condition: "slug != \"\"", throw: "Post slug cannot be empty"},
+		{action: "repo.Query", source: "Post", method: "FindBySlug", input: "slug", output: "existing"},
 		{action: "logic.Check", condition: "existing == nil", throw: "Post slug already exists"},
 
-		{action: "tx.Block", do: [
-			// Create post
-			{action: "mapping.Map", output: "newPost", entity: "Post"},
-			{action: "mapping.Assign", to: "newPost.Title", value: "req.Title"},
-			{action: "mapping.Assign", to: "newPost.Content", value: "req.Content"},
-			{action: "mapping.Assign", to: "newPost.Slug", value: "slug"},
-			{action: "mapping.Assign", to: "newPost.AuthorID", value: "req.UserID"},
-			{action: "mapping.Assign", to: "newPost.Status", value: "\"draft\""},
+		// Build the entity outside tx.Block so it is also available for the response.
+		// The save and the tag association writes remain atomic below.
+		{action: "mapping.Map", output: "newPost", entity: "Post"},
+		{action: "mapping.Assign", to: "newPost.Title", value: "req.Title"},
+		{action: "mapping.Assign", to: "newPost.Content", value: "req.Content"},
+		{action: "mapping.Assign", to: "newPost.Slug", value: "slug"},
+		{action: "mapping.Assign", to: "newPost.AuthorID", value: "req.UserID"},
+		{action: "mapping.Assign", to: "newPost.Status", value: "\"draft\""},
 
-			{action: "repo.Save", source: "Post", input: "newPost"},
-			{action: "event.Publish", name: "PostCreated", payloadMap: {
-				PostID:   "newPost.ID"
-				AuthorID: "newPost.AuthorID"
-				Title:    "newPost.Title"
-			}},
+		{action: "tx.Block", do: [
+			// Persist post and its tag associations atomically.
+
+				{action: "repo.Save", source: "Post", input: "newPost"},
+				{action: "event.Publish", name: "PostCreated", payloadMap: {
+					PostID:   "newPost.ID"
+					AuthorID: "newPost.AuthorID"
+					Title:    "newPost.Title"
+				}},
 
 			// Handle tags
 			{action: "flow.For", each: "req.Tags", as: "tagName", do: [
-				{action: "repo.Find", source: "Tag", method: "FindBySlug", input: "tagName", output: "tag"},
+				{action: "repo.Query", source: "Tag", method: "FindBySlug", input: "tagName", output: "tag"},
 				{action: "flow.If", condition: "tag != nil", then: [
 					{action: "mapping.Map", output: "assoc", entity: "PostTag"},
 					{action: "uuid.New", output: "assoc.ID"},
@@ -85,6 +91,8 @@ GetPost: schema.#Operation & {
 		id:        string
 		title:     string
 		content:   string
+		status?:   string
+		excerpt?:  string
 		authorId:  string
 		createdAt: string
 		tags: [...{
@@ -101,6 +109,8 @@ GetPost: schema.#Operation & {
 		{action: "mapping.Assign", to: "resp.ID", value: "post.ID"},
 		{action: "mapping.Assign", to: "resp.Title", value: "post.Title"},
 		{action: "mapping.Assign", to: "resp.Content", value: "post.Content"},
+		{action: "mapping.Assign", to: "resp.Status", value: "post.Status"},
+		{action: "mapping.Assign", to: "resp.Excerpt", value: "post.Excerpt"},
 		{action: "mapping.Assign", to: "resp.AuthorID", value: "post.AuthorID"},
 		{action: "mapping.Assign", to: "resp.CreatedAt", value: "post.CreatedAt"},
 		{action: "mapping.Assign", to: "resp.Tags", value: "tags"},
@@ -131,13 +141,13 @@ ListPosts: schema.#Operation & {
 
 	flow: [
 		{action: "flow.If", condition: "req.Tag != \"\"", then: [
-			{action: "repo.List", source: "Post", method: "ListPublishedByTag", input: "\"published\", req.Tag", output: "posts"},
-			{action: "repo.Find", source: "Post", method: "CountPublishedByTag", input: "\"published\", req.Tag", output: "totalCount"},
+			{action: "repo.Query", source: "Post", method: "ListPublishedByTag", args: ["\"published\"", "req.Tag"], output: "posts", list: true},
+			{action: "repo.Query", source: "Post", method: "CountPublishedByTag", args: ["\"published\"", "req.Tag"], output: "totalCount"},
 			{action: "mapping.Assign", to: "resp.Data", value: "posts"},
 			{action: "mapping.Assign", to: "resp.Total", value: "totalCount"},
 		], else: [
 			{action: "repo.List", source: "Post", method: "ListPublished", input: "\"published\"", output: "posts"},
-			{action: "repo.Find", source: "Post", method: "CountPublished", input: "\"published\"", output: "totalCount"},
+			{action: "repo.Query", source: "Post", method: "CountPublished", input: "\"published\"", output: "totalCount"},
 			{action: "mapping.Assign", to: "resp.Data", value: "posts"},
 			{action: "mapping.Assign", to: "resp.Total", value: "totalCount"},
 		]},
@@ -167,7 +177,7 @@ ListMyPosts: schema.#Operation & {
 
 	flow: [
 		{action: "flow.If", condition: "req.Status != \"\"", then: [
-			{action: "repo.List", source: "Post", method: "ListByAuthorAndStatus", input: "req.UserID, req.Status", output: "posts"},
+			{action: "repo.Query", source: "Post", method: "ListByAuthorAndStatus", args: ["req.UserID", "req.Status"], output: "posts", list: true},
 			{action: "mapping.Assign", to: "resp.Data", value: "posts"},
 		], else: [
 			{action: "repo.List", source: "Post", method: "ListByAuthor", input: "req.UserID", output: "posts"},
@@ -180,6 +190,7 @@ ListMyPosts: schema.#Operation & {
 UpdatePost: schema.#Operation & {
 	service:   "blog"
 	description: "Update an existing post"
+	publishes: ["PostUpdated"]
 
 	input: {
 		id:       string @validate("required,uuid")
@@ -201,11 +212,11 @@ UpdatePost: schema.#Operation & {
 			{action: "mapping.Assign", to: "post.Content", value: "req.Content"},
 		]},
 
-		{action: "repo.Save", source: "Post", input: "post"},
-		{action: "event.Publish", name: "PostUpdated", payloadMap: {
-			PostID: "post.ID"
-		}},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+			{action: "repo.Save", source: "Post", input: "post"},
+			{action: "event.Publish", name: "PostUpdated", payloadMap: {
+				PostID: "post.ID"
+			}},
+			{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }
 
@@ -234,6 +245,7 @@ SubmitPost: schema.#Operation & {
 PublishPost: schema.#Operation & {
 	service:   "blog"
 	description: "Approve and publish a post"
+	publishes: ["PostPublished"]
 
 	input: {
 		id: string @validate("required,uuid")
@@ -244,14 +256,7 @@ PublishPost: schema.#Operation & {
 	}
 
 	flow: [
-		{action: "flow.Tag", name: "\"action\"", value: "\"publish_post\""},
-		{action: "flow.Tag", name: "\"post_id\"", value: "req.ID"},
-
-		{action: "flow.Saga", do: [
-			{action: "repo.Find", source: "Post", input: "req.ID", output: "post", error: "Post not found"},
-			{action: "flow.Compensate", do: [
-				{action: "flow.Tag", name: "\"rollback\"", value: "\"publish_failed\""},
-			]},
+		{action: "repo.Find", source: "Post", input: "req.ID", output: "post", error: "Post not found"},
 			{action: "fsm.Transition", entity: "post", to: "\"published\""},
 			{action: "repo.Save", source: "Post", input: "post"},
 			{action: "event.Publish", name: "PostPublished", payloadMap: {
@@ -260,53 +265,6 @@ PublishPost: schema.#Operation & {
 				Title:    "post.Title"
 				Slug:     "post.Slug"
 			}},
-		]},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// Archive post
-ArchivePost: schema.#Operation & {
-	service:   "blog"
-	description: "Archive a published post"
-
-	input: {
-		id: string @validate("required,uuid")
-	}
-
-	output: {
-		ok: bool
-	}
-
-	flow: [
-		{action: "repo.Find", source: "Post", input: "req.ID", output: "post", error: "Post not found"},
-		{action: "fsm.Transition", entity: "post", to: "\"archived\""},
-		{action: "repo.Save", source: "Post", input: "post"},
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
-	]
-}
-
-// Delete post
-DeletePost: schema.#Operation & {
-	service:   "blog"
-	description: "Delete a post and its associations"
-
-	input: {
-		id: string @validate("required,uuid")
-	}
-
-	output: {
-		ok: bool
-	}
-
-	flow: [
-		{action: "repo.Find", source: "Post", input: "req.ID", output: "post", error: "Post not found"},
-
-		{action: "tx.Block", do: [
-			{action: "repo.Delete", source: "PostTag", method: "DeleteByPost", input: "post.ID"},
-			{action: "repo.Delete", source: "Post", input: "post.ID"},
-		]},
-
-		{action: "mapping.Assign", to: "resp.Ok", value: "true"},
+			{action: "mapping.Assign", to: "resp.Ok", value: "true"},
 	]
 }

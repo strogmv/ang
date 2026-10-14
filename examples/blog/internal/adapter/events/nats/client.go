@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/example/blog/internal/domain"
 	natspkg "github.com/nats-io/nats.go"
+	"github.com/example/blog/internal/domain"
 	"time"
 )
 
@@ -34,6 +34,12 @@ func (c *Client) IsConnected() bool {
 
 func (c *Client) SubscribeRaw(subject string, handler func(data []byte) error) (*natspkg.Subscription, error) {
 	return c.nc.Subscribe(subject, func(msg *natspkg.Msg) {
+		_ = handler(msg.Data)
+	})
+}
+
+func (c *Client) SubscribeQueueRaw(subject string, queue string, handler func(data []byte) error) (*natspkg.Subscription, error) {
+	return c.nc.QueueSubscribe(subject, queue, func(msg *natspkg.Msg) {
 		_ = handler(msg.Data)
 	})
 }

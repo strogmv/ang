@@ -3,17 +3,18 @@ package bootstrap
 import (
 	"context"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/example/blog/internal/adapter/repository/postgres"
 	"github.com/example/blog/internal/config"
 	"github.com/example/blog/internal/port"
 	"github.com/example/blog/internal/service"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type RuntimeContainer struct {
 	Effects          *EffectRegistry
 	SvcAuth          port.Auth
 	SvcBlog          port.Blog
+	SvcAssistant     port.Assistant
 	SvcNotifications port.Notifications
 }
 
@@ -53,10 +54,16 @@ func NewRuntimeContainer(
 		repoPost,
 		repoPostTag,
 		repoTag,
+		c.SvcAuth,
 		txManager,
 		effects.Publisher,
 	)
+	c.SvcAssistant = service.NewAssistantImpl(
+		c.SvcBlog,
+		effects.StateStore,
+	)
 	c.SvcNotifications = service.NewNotificationsImpl(
+		c.SvcAuth,
 		notificationDispatcher,
 	)
 

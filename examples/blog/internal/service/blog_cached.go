@@ -49,6 +49,18 @@ func (c *BlogCached) ListPosts(ctx context.Context, req port.ListPostsRequest) (
 func (c *BlogCached) ListTags(ctx context.Context, req port.ListTagsRequest) (port.ListTagsResponse, error) {
 	return c.base.ListTags(ctx, req)
 }
+func (c *BlogCached) OnCommentCreatedProjection(ctx context.Context, req port.OnCommentCreatedProjectionRequest) (port.OnCommentCreatedProjectionResponse, error) {
+	return c.base.OnCommentCreatedProjection(ctx, req)
+}
+func (c *BlogCached) OnPostCreatedProjection(ctx context.Context, req port.OnPostCreatedProjectionRequest) (port.OnPostCreatedProjectionResponse, error) {
+	return c.base.OnPostCreatedProjection(ctx, req)
+}
+func (c *BlogCached) OnPostPublishedProjection(ctx context.Context, req port.OnPostPublishedProjectionRequest) (port.OnPostPublishedProjectionResponse, error) {
+	return c.base.OnPostPublishedProjection(ctx, req)
+}
+func (c *BlogCached) OnPostUpdatedProjection(ctx context.Context, req port.OnPostUpdatedProjectionRequest) (port.OnPostUpdatedProjectionResponse, error) {
+	return c.base.OnPostUpdatedProjection(ctx, req)
+}
 func (c *BlogCached) PublishPost(ctx context.Context, req port.PublishPostRequest) (port.PublishPostResponse, error) {
 	return c.base.PublishPost(ctx, req)
 }

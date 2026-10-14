@@ -7,4 +7,5 @@ export * from './post';
 export * from './posttag';
 export * from './tag';
 export * from './user';
+export * from './uservault';
 export * from './getpostresponsetagsitem';

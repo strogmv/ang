@@ -5,28 +5,28 @@ import { queryKeys } from '../query-keys';
 import * as api from '../endpoints';
 export const getProfileQueryOptions = (params: Types.GetProfileRequest = {} as Types.GetProfileRequest) => {
   return queryOptions({
-    queryKey: ['Auth', 'GetProfile', params],
-    queryFn: async () => {
-      return api.getProfile(params);
+    queryKey: queryKeys.endpoint.Auth.GetProfile(params),
+    queryFn: async ({ signal }) => {
+      return api.getProfile(params, { signal });
     },
   });
 };
 export const listMyPostsQueryOptions = (params: Types.ListMyPostsRequest = {} as Types.ListMyPostsRequest) => {
   return queryOptions({
-    queryKey: ['Blog', 'ListMyPosts', params],
-    queryFn: async () => {
-      return api.listMyPosts(params);
+    queryKey: queryKeys.endpoint.Blog.ListMyPosts(params),
+    queryFn: async ({ signal }) => {
+      return api.listMyPosts(params, { signal });
     },
   });
 };
 export const listMyPostsInfiniteQueryOptions = (params: Types.ListMyPostsRequest = {} as Types.ListMyPostsRequest) => {
   return infiniteQueryOptions({
-    queryKey: ['Blog', 'ListMyPosts', params],
-    queryFn: async ({ pageParam }: { pageParam: any }) => {
-      const p = { ...(params as any) };
+    queryKey: queryKeys.endpoint.Blog.ListMyPosts(params),
+    queryFn: async ({ pageParam, signal }: { pageParam: any; signal: AbortSignal }) => {
+      const p: Record<string, unknown> = { ...((params ?? {}) as Record<string, unknown>) };
       p.offset = pageParam;
       p.limit = p.limit ?? 20;
-      return api.listMyPosts(p);
+      return api.listMyPosts(p as unknown as Types.ListMyPostsRequest, { signal });
     },
     initialPageParam: 0,
     getNextPageParam: (lastPage: any, allPages: any[]) => {
@@ -39,20 +39,20 @@ export const listMyPostsInfiniteQueryOptions = (params: Types.ListMyPostsRequest
 };
 export const listPostsQueryOptions = (params: Types.ListPostsRequest = {} as Types.ListPostsRequest) => {
   return queryOptions({
-    queryKey: queryKeys.posts.list(params),
-    queryFn: async () => {
-      return api.listPosts(params);
+    queryKey: queryKeys.endpoint.Blog.ListPosts(params),
+    queryFn: async ({ signal }) => {
+      return api.listPosts(params, { signal });
     },
   });
 };
 export const listPostsInfiniteQueryOptions = (params: Types.ListPostsRequest = {} as Types.ListPostsRequest) => {
   return infiniteQueryOptions({
-    queryKey: queryKeys.posts.list(params),
-    queryFn: async ({ pageParam }: { pageParam: any }) => {
-      const p = { ...(params as any) };
+    queryKey: queryKeys.endpoint.Blog.ListPosts(params),
+    queryFn: async ({ pageParam, signal }: { pageParam: any; signal: AbortSignal }) => {
+      const p: Record<string, unknown> = { ...((params ?? {}) as Record<string, unknown>) };
       p.offset = pageParam;
       p.limit = p.limit ?? 20;
-      return api.listPosts(p);
+      return api.listPosts(p as unknown as Types.ListPostsRequest, { signal });
     },
     initialPageParam: 0,
     getNextPageParam: (lastPage: any, allPages: any[]) => {
@@ -65,20 +65,20 @@ export const listPostsInfiniteQueryOptions = (params: Types.ListPostsRequest = {
 };
 export const listCommentsQueryOptions = (params: Types.ListCommentsRequest = {} as Types.ListCommentsRequest) => {
   return queryOptions({
-    queryKey: ['Blog', 'ListComments', params],
-    queryFn: async () => {
-      return api.listComments(params);
+    queryKey: queryKeys.endpoint.Blog.ListComments(params),
+    queryFn: async ({ signal }) => {
+      return api.listComments(params, { signal });
     },
   });
 };
 export const listCommentsInfiniteQueryOptions = (params: Types.ListCommentsRequest = {} as Types.ListCommentsRequest) => {
   return infiniteQueryOptions({
-    queryKey: ['Blog', 'ListComments', params],
-    queryFn: async ({ pageParam }: { pageParam: any }) => {
-      const p = { ...(params as any) };
+    queryKey: queryKeys.endpoint.Blog.ListComments(params),
+    queryFn: async ({ pageParam, signal }: { pageParam: any; signal: AbortSignal }) => {
+      const p: Record<string, unknown> = { ...((params ?? {}) as Record<string, unknown>) };
       p.offset = pageParam;
       p.limit = p.limit ?? 20;
-      return api.listComments(p);
+      return api.listComments(p as unknown as Types.ListCommentsRequest, { signal });
     },
     initialPageParam: 0,
     getNextPageParam: (lastPage: any, allPages: any[]) => {
@@ -91,20 +91,20 @@ export const listCommentsInfiniteQueryOptions = (params: Types.ListCommentsReque
 };
 export const getPostQueryOptions = (params: Types.GetPostRequest = {} as Types.GetPostRequest) => {
   return queryOptions({
-    queryKey: queryKeys.posts.detail(params.slug),
-    queryFn: async () => {
-      return api.getPost(params);
+    queryKey: queryKeys.endpoint.Blog.GetPost(params),
+    queryFn: async ({ signal }) => {
+      return api.getPost(params, { signal });
     },
   });
 };
 export const getPostInfiniteQueryOptions = (params: Types.GetPostRequest = {} as Types.GetPostRequest) => {
   return infiniteQueryOptions({
-    queryKey: queryKeys.posts.detail(params.slug),
-    queryFn: async ({ pageParam }: { pageParam: any }) => {
-      const p = { ...(params as any) };
+    queryKey: queryKeys.endpoint.Blog.GetPost(params),
+    queryFn: async ({ pageParam, signal }: { pageParam: any; signal: AbortSignal }) => {
+      const p: Record<string, unknown> = { ...((params ?? {}) as Record<string, unknown>) };
       p.offset = pageParam;
       p.limit = p.limit ?? 20;
-      return api.getPost(p);
+      return api.getPost(p as unknown as Types.GetPostRequest, { signal });
     },
     initialPageParam: 0,
     getNextPageParam: (lastPage: any, allPages: any[]) => {
@@ -117,20 +117,20 @@ export const getPostInfiniteQueryOptions = (params: Types.GetPostRequest = {} as
 };
 export const listTagsQueryOptions = (params: Types.ListTagsRequest = {} as Types.ListTagsRequest) => {
   return queryOptions({
-    queryKey: queryKeys.tags.list(params),
-    queryFn: async () => {
-      return api.listTags(params);
+    queryKey: queryKeys.endpoint.Blog.ListTags(params),
+    queryFn: async ({ signal }) => {
+      return api.listTags(params, { signal });
     },
   });
 };
 export const listTagsInfiniteQueryOptions = (params: Types.ListTagsRequest = {} as Types.ListTagsRequest) => {
   return infiniteQueryOptions({
-    queryKey: queryKeys.tags.list(params),
-    queryFn: async ({ pageParam }: { pageParam: any }) => {
-      const p = { ...(params as any) };
+    queryKey: queryKeys.endpoint.Blog.ListTags(params),
+    queryFn: async ({ pageParam, signal }: { pageParam: any; signal: AbortSignal }) => {
+      const p: Record<string, unknown> = { ...((params ?? {}) as Record<string, unknown>) };
       p.offset = pageParam;
       p.limit = p.limit ?? 20;
-      return api.listTags(p);
+      return api.listTags(p as unknown as Types.ListTagsRequest, { signal });
     },
     initialPageParam: 0,
     getNextPageParam: (lastPage: any, allPages: any[]) => {

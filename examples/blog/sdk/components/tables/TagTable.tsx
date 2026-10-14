@@ -53,10 +53,9 @@ export function TagTable({ onView, onEdit, onDelete }: TagTableProps) {
 
   const columns = useMemo<GridColDef[]>(() => [
     {
-      field: 'ID',
+      field: 'id',
       headerName: 'Id',
-      minWidth: 120,
-      flex: 1,
+      width: 100,
       sortable: true,
     },
     {

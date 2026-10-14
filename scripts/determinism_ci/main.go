@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,8 +41,10 @@ func main() {
 	fmt.Println("OK: determinism checks passed for phases plan/apply/all")
 }
 
+// run builds a scratch copy of examples/blog (with the repository's cue.mod and
+// cue/schema, which its CUE imports) so the tracked sample is never rewritten.
 func run() error {
-	projectRoot, err := os.Getwd()
+	repoRoot, err := os.Getwd()
 	if err != nil {
 		return err
 	}
@@ -51,24 +54,32 @@ func run() error {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	manifestPath := filepath.Join(projectRoot, ".ang", "cache", "manifest.json")
-
-	// phase=all determinism
-	if err := os.RemoveAll(filepath.Join(projectRoot, "dist")); err != nil {
+	angBin := filepath.Join(tmpDir, "ang")
+	if err := runCmd(repoRoot, "go", "build", "-o", angBin, "./cmd/ang"); err != nil {
 		return err
 	}
-	if err := runCmd(projectRoot, "go", "run", "./cmd/ang", "build", "--mode=release", "--phase=all"); err != nil {
+	sampleRoot := filepath.Join(tmpDir, "sample")
+	for _, rel := range []string{"cue.mod", filepath.Join("cue", "schema"), filepath.Join("examples", "blog")} {
+		if err := copyTree(filepath.Join(repoRoot, rel), filepath.Join(sampleRoot, rel)); err != nil {
+			return err
+		}
+	}
+	project := filepath.Join(sampleRoot, "examples", "blog")
+	build := func(args ...string) error {
+		base := []string{"build", "--project", project, "--accept-contract", "--accept-removals", "--skip-go-verify"}
+		return runCmd(project, angBin, append(base, args...)...)
+	}
+	manifestPath := filepath.Join(project, ".ang", "cache", "manifest.json")
+
+	// phase=all determinism
+	if err := build("--phase=all"); err != nil {
 		return err
 	}
 	m1, err := readManifest(manifestPath)
 	if err != nil {
 		return err
 	}
-
-	if err := os.RemoveAll(filepath.Join(projectRoot, "dist")); err != nil {
-		return err
-	}
-	if err := runCmd(projectRoot, "go", "run", "./cmd/ang", "build", "--mode=release", "--phase=all"); err != nil {
+	if err := build("--phase=all"); err != nil {
 		return err
 	}
 	m2, err := readManifest(manifestPath)
@@ -82,10 +93,10 @@ func run() error {
 	// phase=plan determinism
 	plan1 := filepath.Join(tmpDir, "plan1.json")
 	plan2 := filepath.Join(tmpDir, "plan2.json")
-	if err := runCmd(projectRoot, "go", "run", "./cmd/ang", "build", "--mode=release", "--phase=plan", "--out-plan", plan1); err != nil {
+	if err := build("--phase=plan", "--out-plan", plan1); err != nil {
 		return err
 	}
-	if err := runCmd(projectRoot, "go", "run", "./cmd/ang", "build", "--mode=release", "--phase=plan", "--out-plan", plan2); err != nil {
+	if err := build("--phase=plan", "--out-plan", plan2); err != nil {
 		return err
 	}
 	p1, err := readPlan(plan1)
@@ -103,14 +114,14 @@ func run() error {
 	}
 
 	// phase=apply determinism
-	if err := runCmd(projectRoot, "go", "run", "./cmd/ang", "build", "--mode=release", "--phase=apply", "--plan-file", plan1); err != nil {
+	if err := build("--phase=apply", "--plan-file", plan1); err != nil {
 		return err
 	}
 	ma, err := readManifest(manifestPath)
 	if err != nil {
 		return err
 	}
-	if err := runCmd(projectRoot, "go", "run", "./cmd/ang", "build", "--mode=release", "--phase=apply", "--plan-file", plan1); err != nil {
+	if err := build("--phase=apply", "--plan-file", plan1); err != nil {
 		return err
 	}
 	mb, err := readManifest(manifestPath)
@@ -122,6 +133,27 @@ func run() error {
 	}
 
 	return nil
+}
+
+func copyTree(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0o644)
+	})
 }
 
 func runCmd(dir string, name string, args ...string) error {

@@ -8,8 +8,8 @@ import (
 )
 
 type MockNotifications struct {
-	SendEmailVerificationFunc   func(ctx context.Context, req port.SendEmailVerificationRequest) (port.SendEmailVerificationResponse, error)
-	SendEmailVerificationCalls  []MockNotificationsSendEmailVerificationCall
+	SendInvitationEmailFunc     func(ctx context.Context, req port.SendInvitationEmailRequest) (port.SendInvitationEmailResponse, error)
+	SendInvitationEmailCalls    []MockNotificationsSendInvitationEmailCall
 	SendPasswordResetEmailFunc  func(ctx context.Context, req port.SendPasswordResetEmailRequest) (port.SendPasswordResetEmailResponse, error)
 	SendPasswordResetEmailCalls []MockNotificationsSendPasswordResetEmailCall
 }
@@ -20,17 +20,17 @@ func NewNotifications() *MockNotifications {
 	return &MockNotifications{}
 }
 
-type MockNotificationsSendEmailVerificationCall struct {
+type MockNotificationsSendInvitationEmailCall struct {
 	Ctx context.Context
-	Req port.SendEmailVerificationRequest
+	Req port.SendInvitationEmailRequest
 }
 
-func (m *MockNotifications) SendEmailVerification(ctx context.Context, req port.SendEmailVerificationRequest) (port.SendEmailVerificationResponse, error) {
-	m.SendEmailVerificationCalls = append(m.SendEmailVerificationCalls, MockNotificationsSendEmailVerificationCall{Ctx: ctx, Req: req})
-	if m.SendEmailVerificationFunc != nil {
-		return m.SendEmailVerificationFunc(ctx, req)
+func (m *MockNotifications) SendInvitationEmail(ctx context.Context, req port.SendInvitationEmailRequest) (port.SendInvitationEmailResponse, error) {
+	m.SendInvitationEmailCalls = append(m.SendInvitationEmailCalls, MockNotificationsSendInvitationEmailCall{Ctx: ctx, Req: req})
+	if m.SendInvitationEmailFunc != nil {
+		return m.SendInvitationEmailFunc(ctx, req)
 	}
-	var ret0 port.SendEmailVerificationResponse
+	var ret0 port.SendInvitationEmailResponse
 	var ret1 error
 	return ret0, ret1
 }

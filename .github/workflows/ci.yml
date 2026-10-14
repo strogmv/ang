@@ -51,8 +51,12 @@ jobs:
       - name: Run Compiler Tests
         run: go test ./compiler/... ./cmd/ang
 
-      - name: Validate Intent
-        run: go run ./cmd/ang validate
+      - name: Validate the blog sample
+        run: go run ./cmd/ang validate examples/blog
+
+      - name: Build the blog sample module
+        working-directory: examples/blog
+        run: go build ./... && go test ./... -count=1
 
   architecture-invariants:
     runs-on: ubuntu-latest
@@ -83,30 +87,3 @@ jobs:
       - name: Policy Parity Gate (backend ↔ OpenAPI ↔ SDK)
         run: go test ./compiler/emitter -run TestPolicyParity_BackendMiddlewareAndSDKMeta
 
-      - name: Build Release (Go)
-        env:
-          ANG_FRONTEND_TSC: "1"
-        run: go run ./cmd/ang build --mode=release
-
-      - name: Generated Artifacts Are Committed
-        run: |
-          git diff --exit-code
-          git diff --cached --exit-code
-          test -z "$(git ls-files --others --exclude-standard)"
-
-      - name: Deterministic Release Output (hash parity)
-        env:
-          ANG_FRONTEND_TSC: "1"
-        run: |
-          rm -rf dist
-          go run ./cmd/ang build --mode=release
-          find dist/release -type f -print0 | sort -z | xargs -0 sha256sum > /tmp/ang-release-hash-1.txt
-          go run ./cmd/ang build --mode=release
-          find dist/release -type f -print0 | sort -z | xargs -0 sha256sum > /tmp/ang-release-hash-2.txt
-          diff -u /tmp/ang-release-hash-1.txt /tmp/ang-release-hash-2.txt
-
-      - name: Deterministic Build Phases (plan/apply)
-        env:
-          ANG_FRONTEND_TSC: "1"
-        run: |
-          bash ./scripts/ci_determinism_plan_apply.sh

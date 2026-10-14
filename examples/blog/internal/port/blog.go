@@ -17,6 +17,10 @@ type Blog interface {
 	ListMyPosts(ctx context.Context, req ListMyPostsRequest) (ListMyPostsResponse, error)
 	ListPosts(ctx context.Context, req ListPostsRequest) (ListPostsResponse, error)
 	ListTags(ctx context.Context, req ListTagsRequest) (ListTagsResponse, error)
+	OnCommentCreatedProjection(ctx context.Context, req OnCommentCreatedProjectionRequest) (OnCommentCreatedProjectionResponse, error)
+	OnPostCreatedProjection(ctx context.Context, req OnPostCreatedProjectionRequest) (OnPostCreatedProjectionResponse, error)
+	OnPostPublishedProjection(ctx context.Context, req OnPostPublishedProjectionRequest) (OnPostPublishedProjectionResponse, error)
+	OnPostUpdatedProjection(ctx context.Context, req OnPostUpdatedProjectionRequest) (OnPostUpdatedProjectionResponse, error)
 	PublishPost(ctx context.Context, req PublishPostRequest) (PublishPostResponse, error)
 	SubmitPost(ctx context.Context, req SubmitPostRequest) (SubmitPostResponse, error)
 	UpdateComment(ctx context.Context, req UpdateCommentRequest) (UpdateCommentResponse, error)
@@ -26,7 +30,7 @@ type Blog interface {
 
 // Request/Response DTOs
 type ArchivePostRequest struct {
-	ID string `json:"ID"`
+	ID string `json:"id"`
 }
 
 func (d *ArchivePostRequest) Validate() error {
@@ -52,7 +56,7 @@ func (d *CreateCommentRequest) Validate() error {
 }
 
 type CreateCommentResponse struct {
-	ID string `json:"ID"`
+	ID string `json:"id"`
 }
 
 func (d *CreateCommentResponse) Validate() error {
@@ -71,7 +75,7 @@ func (d *CreatePostRequest) Validate() error {
 }
 
 type CreatePostResponse struct {
-	ID   string `json:"ID"`
+	ID   string `json:"id"`
 	Slug string `json:"slug"`
 }
 
@@ -89,7 +93,7 @@ func (d *CreateTagRequest) Validate() error {
 }
 
 type CreateTagResponse struct {
-	ID   string `json:"ID"`
+	ID   string `json:"id"`
 	Slug string `json:"slug"`
 }
 
@@ -98,7 +102,7 @@ func (d *CreateTagResponse) Validate() error {
 }
 
 type DeleteCommentRequest struct {
-	ID     string `json:"ID"`
+	ID     string `json:"id"`
 	UserID string `json:"userId"`
 }
 
@@ -115,7 +119,7 @@ func (d *DeleteCommentResponse) Validate() error {
 }
 
 type DeletePostRequest struct {
-	ID string `json:"ID"`
+	ID string `json:"id"`
 }
 
 func (d *DeletePostRequest) Validate() error {
@@ -131,7 +135,7 @@ func (d *DeletePostResponse) Validate() error {
 }
 
 type DeleteTagRequest struct {
-	ID string `json:"ID"`
+	ID string `json:"id"`
 }
 
 func (d *DeleteTagRequest) Validate() error {
@@ -157,9 +161,11 @@ func (d *GetPostRequest) Validate() error {
 }
 
 type GetPostResponse struct {
-	ID        string                    `json:"ID"`
+	ID        string                    `json:"id"`
 	Title     string                    `json:"title"`
 	Content   string                    `json:"content"`
+	Status    string                    `json:"status"`
+	Excerpt   string                    `json:"excerpt"`
 	AuthorID  string                    `json:"authorId"`
 	CreatedAt string                    `json:"createdAt"`
 	Tags      []GetPostResponseTagsItem `json:"tags"`
@@ -243,8 +249,79 @@ func (d *ListTagsResponse) Validate() error {
 	return nil
 }
 
+type OnCommentCreatedProjectionRequest struct {
+	CommentID string `json:"commentId"`
+	PostID    string `json:"postId"`
+	AuthorID  string `json:"authorId"`
+}
+
+func (d *OnCommentCreatedProjectionRequest) Validate() error {
+	return nil
+}
+
+type OnCommentCreatedProjectionResponse struct {
+	Ok bool `json:"ok"`
+}
+
+func (d *OnCommentCreatedProjectionResponse) Validate() error {
+	return nil
+}
+
+type OnPostCreatedProjectionRequest struct {
+	PostID   string `json:"postId"`
+	AuthorID string `json:"authorId"`
+	Title    string `json:"title"`
+}
+
+func (d *OnPostCreatedProjectionRequest) Validate() error {
+	return nil
+}
+
+type OnPostCreatedProjectionResponse struct {
+	Ok bool `json:"ok"`
+}
+
+func (d *OnPostCreatedProjectionResponse) Validate() error {
+	return nil
+}
+
+type OnPostPublishedProjectionRequest struct {
+	PostID   string `json:"postId"`
+	AuthorID string `json:"authorId"`
+	Title    string `json:"title"`
+	Slug     string `json:"slug"`
+}
+
+func (d *OnPostPublishedProjectionRequest) Validate() error {
+	return nil
+}
+
+type OnPostPublishedProjectionResponse struct {
+	Ok bool `json:"ok"`
+}
+
+func (d *OnPostPublishedProjectionResponse) Validate() error {
+	return nil
+}
+
+type OnPostUpdatedProjectionRequest struct {
+	PostID string `json:"postId"`
+}
+
+func (d *OnPostUpdatedProjectionRequest) Validate() error {
+	return nil
+}
+
+type OnPostUpdatedProjectionResponse struct {
+	Ok bool `json:"ok"`
+}
+
+func (d *OnPostUpdatedProjectionResponse) Validate() error {
+	return nil
+}
+
 type PublishPostRequest struct {
-	ID string `json:"ID"`
+	ID string `json:"id"`
 }
 
 func (d *PublishPostRequest) Validate() error {
@@ -260,7 +337,7 @@ func (d *PublishPostResponse) Validate() error {
 }
 
 type SubmitPostRequest struct {
-	ID string `json:"ID"`
+	ID string `json:"id"`
 }
 
 func (d *SubmitPostRequest) Validate() error {
@@ -276,7 +353,7 @@ func (d *SubmitPostResponse) Validate() error {
 }
 
 type UpdateCommentRequest struct {
-	ID      string `json:"ID"`
+	ID      string `json:"id"`
 	Content string `json:"content"`
 	UserID  string `json:"userId"`
 }
@@ -294,7 +371,7 @@ func (d *UpdateCommentResponse) Validate() error {
 }
 
 type UpdatePostRequest struct {
-	ID      string `json:"ID"`
+	ID      string `json:"id"`
 	Title   string `json:"title"`
 	Content string `json:"content"`
 }
@@ -312,7 +389,7 @@ func (d *UpdatePostResponse) Validate() error {
 }
 
 type UpdateTagRequest struct {
-	ID          string `json:"ID"`
+	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
 }
@@ -330,7 +407,7 @@ func (d *UpdateTagResponse) Validate() error {
 }
 
 type GetPostResponseTagsItem struct {
-	ID   string `json:"ID"`
+	ID   string `json:"id"`
 	Name string `json:"name"`
 	Slug string `json:"slug"`
 }
@@ -340,7 +417,7 @@ func (d *GetPostResponseTagsItem) Validate() error {
 }
 
 type ListCommentsResponseData struct {
-	ID        string `json:"ID"`
+	ID        string `json:"id"`
 	Content   string `json:"content"`
 	UserID    string `json:"userId"`
 	CreatedAt string `json:"createdAt"`
@@ -351,7 +428,7 @@ func (d *ListCommentsResponseData) Validate() error {
 }
 
 type ListMyPostsResponseData struct {
-	ID        string `json:"ID"`
+	ID        string `json:"id"`
 	Title     string `json:"title"`
 	Status    string `json:"status"`
 	CreatedAt string `json:"createdAt"`
@@ -362,7 +439,7 @@ func (d *ListMyPostsResponseData) Validate() error {
 }
 
 type ListPostsResponseData struct {
-	ID        string `json:"ID"`
+	ID        string `json:"id"`
 	Title     string `json:"title"`
 	Slug      string `json:"slug"`
 	AuthorID  string `json:"authorId"`
@@ -374,7 +451,7 @@ func (d *ListPostsResponseData) Validate() error {
 }
 
 type ListTagsResponseData struct {
-	ID          string `json:"ID"`
+	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Slug        string `json:"slug"`
 	Description string `json:"description"`

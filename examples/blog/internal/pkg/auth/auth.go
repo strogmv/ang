@@ -18,8 +18,16 @@ import (
 )
 
 // IssueAccessToken builds and signs an access JWT.
-func IssueAccessToken(cfg *config.Config, userID, companyID string, roles, perms []string) (string, error) {
+// Optional extra is a single map[string]string of additional claims (e.g. {"locale": "ru", "timezone": "Europe/Moscow"}).
+func IssueAccessToken(cfg *config.Config, userID, companyID string, roles, perms []string, extra ...map[string]string) (string, error) {
 	claims := buildClaims(cfg, userID, companyID, roles, perms, "access")
+	if len(extra) > 0 {
+		for k, v := range extra[0] {
+			if v != "" {
+				claims[k] = v
+			}
+		}
+	}
 	return signToken(cfg, claims, cfg.JWTAccessTTL)
 }
 

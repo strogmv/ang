@@ -12,7 +12,8 @@ import (
 )
 
 func TestEmitAssistantChatWithTools_MethodTemplateFormats(t *testing.T) {
-	root := filepath.Clean(filepath.Join("..", ".."))
+	// The blog sample declares the Assistant service with ai.Chat tools.
+	root := filepath.Clean(filepath.Join("..", "..", "examples", "blog"))
 	result, err := angir.Load(root)
 	if err != nil {
 		t.Fatalf("load schema: %v", err)

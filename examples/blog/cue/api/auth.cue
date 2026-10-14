@@ -13,6 +13,13 @@ Register: schema.#Operation & {
 	service:   "auth"
 	description: "Register a new user account"
 	publishes: ["UserRegistered"]
+	subscribes: {
+		UserRegistered: "OnUserRegisteredAudit"
+		UserLoggedIn:   "OnUserLoggedInAudit"
+	}
+	testHints: {
+		happyPath: "Register a new user with valid data"
+	}
 
 	input: {
 		email:    string @validate("required,email")
@@ -28,7 +35,7 @@ Register: schema.#Operation & {
 
 	flow: [
 		// Check if email already exists
-		{action: "repo.Find", source: "User", method: "FindByEmail", input: "req.Email", output: "existing"},
+		{action: "repo.Query", source: "User", method: "FindByEmail", input: "req.Email", output: "existing"},
 		{action: "logic.Check", condition: "existing == nil", throw: "Email already registered"},
 
 		// Create new user
@@ -41,11 +48,11 @@ Register: schema.#Operation & {
 
 		// Save and respond
 		{action: "repo.Save", source: "User", input: "newUser"},
-		{action: "event.Publish", name: "UserRegistered", payloadMap: {
-			UserID: "newUser.ID"
-			Email:  "newUser.Email"
-		}},
-		{action: "notify.Email", to: "newUser.Email", template: "\"welcome_email\"", data: "map[string]any{\"Name\": newUser.Name, \"LoginURL\": \"https://blog.ang.local/login\", \"AppName\": \"ANG Blog Example\", \"SupportEmail\": \"blog-support@ang.local\"}"},
+			{action: "event.Publish", name: "UserRegistered", payloadMap: {
+				UserID: "newUser.ID"
+				Email:  "newUser.Email"
+			}},
+		{action: "notify.Email", to: "newUser.Email", template: "\"welcome_email\"", data: "map[string]any{\"Name\": newUser.Name, \"LoginURL\": \"https://app.ang.local/login\", \"AppName\": \"ANG\", \"SupportEmail\": \"support@ang.local\"}"},
 
 		{action: "mapping.Assign", to: "resp.ID", value: "newUser.ID"},
 		{action: "mapping.Assign", to: "resp.Email", value: "newUser.Email"},
@@ -88,13 +95,18 @@ Login: schema.#Operation & {
 		{action: "jwt.Sign", claims: "map[string]any{\"sub\": user.ID, \"type\": \"refresh\"}", ttl: "\"168h\"", output: "refreshToken"},
 
 		// Publish event and respond
-		{action: "event.Publish", name: "UserLoggedIn", payloadMap: {
-			UserID: "user.ID"
-		}},
+			{action: "event.Publish", name: "UserLoggedIn", payloadMap: {
+				UserID: "user.ID"
+			}},
 
 		{action: "mapping.Assign", to: "resp.AccessToken", value: "accessToken"},
 		{action: "mapping.Assign", to: "resp.RefreshToken", value: "refreshToken"},
-		{action: "mapping.Assign", to: "resp.User", value: "map[string]any{\"id\": user.ID, \"email\": user.Email, \"name\": user.Name, \"role\": user.Role}"},
+		{action: "map.New", output: "userProfile", type: "map[string]any"},
+		{action: "map.Set", input: "userProfile", key: "\"id\"", value: "user.ID"},
+		{action: "map.Set", input: "userProfile", key: "\"email\"", value: "user.Email"},
+		{action: "map.Set", input: "userProfile", key: "\"name\"", value: "user.Name"},
+		{action: "map.Set", input: "userProfile", key: "\"role\"", value: "user.Role"},
+		{action: "mapping.Assign", to: "resp.User", value: "userProfile"},
 	]
 }
 

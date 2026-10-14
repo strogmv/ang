@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/example/blog/internal/domain"
-	"github.com/example/blog/internal/port"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/example/blog/internal/domain"
+	"github.com/example/blog/internal/port"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	oteltrace "go.opentelemetry.io/otel/trace"

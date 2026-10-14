@@ -3,27 +3,87 @@ import { queryOptions } from '@tanstack/react-query';
 import { queryKeys } from './query-keys';
 import * as api from './endpoints';
 import type * as Types from './types';
-export const authOptions = {
+
+export type QueryProfileOptions = {
+  staleTime?: number;
+  gcTime?: number;
+  refetchOnMount?: 'always' | boolean;
+  refetchOnWindowFocus?: boolean;
+  refetchOnReconnect?: boolean;
+  retry?: number | boolean;
 };
-export const myOptions = {
+
+export const queryProfiles: Record<string, QueryProfileOptions> = {
+  realtime: {
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    retry: 1,
+  },
+  fresh: {
+    staleTime: 0,
+    gcTime: 5 * 60 * 1000,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    retry: 1,
+  },
+  standard: {
+    staleTime: 30 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
+    retry: 1,
+  },
+  admin: {
+    staleTime: 5 * 1000,
+    gcTime: 2 * 60 * 1000,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    retry: 1,
+  },
 };
-export const postsOptions = {
-  list: (filters?: Types.ListPostsRequest) =>
+
+// Canonical React Query options for every GET RPC (single key-space: queryKeys.endpoint.*).
+export const endpointQueryOptions = {
+  getProfile: (params: Types.GetProfileRequest = {} as Types.GetProfileRequest) =>
     queryOptions({
-      queryKey: queryKeys.posts.list(filters),
-      queryFn: () => api.listPosts(filters),
+      queryKey: queryKeys.endpoint.Auth.GetProfile(params),
+      queryFn: ({ signal }) => api.getProfile(params, { signal }),
+      ...(queryProfiles.standard || {}),
     }),
-  detail: (slug: string) =>
+  listMyPosts: (params: Types.ListMyPostsRequest = {} as Types.ListMyPostsRequest) =>
     queryOptions({
-      queryKey: queryKeys.posts.detail(slug),
-      queryFn: () => api.getPost({ slug } as Types.GetPostRequest),
-      enabled: !!slug,
+      queryKey: queryKeys.endpoint.Blog.ListMyPosts(params),
+      queryFn: ({ signal }) => api.listMyPosts(params, { signal }),
+      ...(queryProfiles.standard || {}),
     }),
-};
-export const tagsOptions = {
-  list: (filters?: Types.ListTagsRequest) =>
+  listPosts: (params: Types.ListPostsRequest = {} as Types.ListPostsRequest) =>
     queryOptions({
-      queryKey: queryKeys.tags.list(filters),
-      queryFn: () => api.listTags(filters),
+      queryKey: queryKeys.endpoint.Blog.ListPosts(params),
+      queryFn: ({ signal }) => api.listPosts(params, { signal }),
+      ...(queryProfiles.standard || {}),
+    }),
+  listComments: (params: Types.ListCommentsRequest = {} as Types.ListCommentsRequest) =>
+    queryOptions({
+      queryKey: queryKeys.endpoint.Blog.ListComments(params),
+      queryFn: ({ signal }) => api.listComments(params, { signal }),
+      ...(queryProfiles.standard || {}),
+    }),
+  getPost: (params: Types.GetPostRequest = {} as Types.GetPostRequest) =>
+    queryOptions({
+      queryKey: queryKeys.endpoint.Blog.GetPost(params),
+      queryFn: ({ signal }) => api.getPost(params, { signal }),
+      ...(queryProfiles.standard || {}),
+    }),
+  listTags: (params: Types.ListTagsRequest = {} as Types.ListTagsRequest) =>
+    queryOptions({
+      queryKey: queryKeys.endpoint.Blog.ListTags(params),
+      queryFn: ({ signal }) => api.listTags(params, { signal }),
+      ...(queryProfiles.standard || {}),
     }),
 };

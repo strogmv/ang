@@ -7,7 +7,7 @@
 export type Encrypted<T> = string & { __encrypted?: T };
 export interface Comment {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   postId: string;
   /**  */
@@ -23,7 +23,7 @@ export interface Comment {
 }
 export interface Post {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   authorId: string;
   /**  */
@@ -47,7 +47,7 @@ export interface Post {
 }
 export interface PostTag {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   postId: string;
   /**  */
@@ -55,7 +55,7 @@ export interface PostTag {
 }
 export interface Tag {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   name: string;
   /**  */
@@ -67,7 +67,7 @@ export interface Tag {
 }
 export interface User {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   email: string;
   /**  */
@@ -81,13 +81,243 @@ export interface User {
   /**  */
   updatedAt: string;
 }
+export interface UserVault {
+  /**  */
+  id: string;
+  /**  */
+  personalKey: Encrypted<string>;
+  /**  */
+  bio?: Encrypted<string>;
+}
+export interface ChatWithAssistantRequest {
+  /**  */
+  userId: string;
+  /**  */
+  message: string;
+  /**  */
+  messages?: ChatWithAssistantRequestMessagesItem[];
+}
+export interface LookupPostForAssistantRequest {
+  /**  */
+  slug: string;
+}
 export interface GetProfileRequest {
+}
+export interface LoginRequest {
+  /**  */
+  email: string;
+  /**  */
+  password: string;
+}
+export interface OnUserLoggedInAuditRequest {
   /**  */
   userId: string;
 }
+export interface OnUserRegisteredAuditRequest {
+  /**  */
+  userId: string;
+  /**  */
+  email: string;
+}
+export interface RegisterRequest {
+  /**  */
+  email: string;
+  /**  */
+  password: string;
+  /**  */
+  name: string;
+}
+export interface UpdateProfileRequest {
+  /**  */
+  name?: string;
+  /**  */
+  avatarUrl?: string;
+}
+export interface ArchivePostRequest {
+  /**  */
+  id: string;
+}
+export interface CreateCommentRequest {
+  /**  */
+  postId: string;
+  /**  */
+  content: string;
+}
+export interface CreatePostRequest {
+  /**  */
+  title: string;
+  /**  */
+  content: string;
+  /**  */
+  tags?: string[];
+}
+export interface CreateTagRequest {
+  /**  */
+  name: string;
+  /**  */
+  description?: string;
+}
+export interface DeleteCommentRequest {
+  /**  */
+  id: string;
+}
+export interface DeletePostRequest {
+  /**  */
+  id: string;
+}
+export interface DeleteTagRequest {
+  /**  */
+  id: string;
+}
+export interface GetPostRequest {
+  /**  */
+  slug: string;
+  /**  */
+  limit?: number;
+  /**  */
+  offset?: number;
+}
+export interface ListCommentsRequest {
+  /**  */
+  postId: string;
+  /**  */
+  limit: number;
+  /**  */
+  offset: number;
+}
+export interface ListMyPostsRequest {
+  /**  */
+  status?: string;
+  /**  */
+  limit: number;
+  /**  */
+  offset: number;
+}
+export interface ListPostsRequest {
+  /**  */
+  tag?: string;
+  /**  */
+  limit: number;
+  /**  */
+  offset: number;
+}
+export interface ListTagsRequest {
+  /**  */
+  limit?: number;
+  /**  */
+  offset?: number;
+}
+export interface OnCommentCreatedProjectionRequest {
+  /**  */
+  commentId: string;
+  /**  */
+  postId: string;
+  /**  */
+  authorId: string;
+}
+export interface OnPostCreatedProjectionRequest {
+  /**  */
+  postId: string;
+  /**  */
+  authorId: string;
+  /**  */
+  title: string;
+}
+export interface OnPostPublishedProjectionRequest {
+  /**  */
+  postId: string;
+  /**  */
+  authorId: string;
+  /**  */
+  title: string;
+  /**  */
+  slug: string;
+}
+export interface OnPostUpdatedProjectionRequest {
+  /**  */
+  postId: string;
+}
+export interface PublishPostRequest {
+  /**  */
+  id: string;
+}
+export interface SubmitPostRequest {
+  /**  */
+  id: string;
+}
+export interface UpdateCommentRequest {
+  /**  */
+  id: string;
+  /**  */
+  content: string;
+}
+export interface UpdatePostRequest {
+  /**  */
+  id: string;
+  /**  */
+  title?: string;
+  /**  */
+  content?: string;
+}
+export interface UpdateTagRequest {
+  /**  */
+  id: string;
+  /**  */
+  name?: string;
+  /**  */
+  description?: string;
+}
+export interface SendInvitationEmailRequest {
+  /**  */
+  email: string;
+  /**  */
+  name?: string;
+  /**  */
+  inviterName: string;
+  /**  */
+  inviteUrl: string;
+}
+export interface SendPasswordResetEmailRequest {
+  /**  */
+  email: string;
+  /**  */
+  name?: string;
+  /**  */
+  resetUrl: string;
+}
+export interface ChatWithAssistantResponse {
+  /**  */
+  content: string;
+  /**  */
+  finishReason?: string;
+  /**  */
+  toolCalls?: number;
+  /**  */
+  promptTokens?: number;
+  /**  */
+  completionTokens?: number;
+  /**  */
+  totalTokens?: number;
+}
+export interface ChatWithAssistantRequestMessagesItem {
+  /**  */
+  role: string;
+  /**  */
+  content: string;
+}
+export interface LookupPostForAssistantResponse {
+  /**  */
+  id: string;
+  /**  */
+  title: string;
+  /**  */
+  status?: string;
+  /**  */
+  excerpt?: string;
+}
 export interface GetProfileResponse {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   email: string;
   /**  */
@@ -99,12 +329,6 @@ export interface GetProfileResponse {
   /**  */
   createdAt: string;
 }
-export interface LoginRequest {
-  /**  */
-  email: string;
-  /**  */
-  password: string;
-}
 export interface LoginResponse {
   /**  */
   accessToken: string;
@@ -113,123 +337,69 @@ export interface LoginResponse {
   /**  */
   user: any;
 }
-export interface RegisterRequest {
+export interface OnUserLoggedInAuditResponse {
   /**  */
-  email: string;
+  ok: boolean;
+}
+export interface OnUserRegisteredAuditResponse {
   /**  */
-  password: string;
-  /**  */
-  name: string;
+  ok: boolean;
 }
 export interface RegisterResponse {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   email: string;
   /**  */
   name: string;
-}
-export interface UpdateProfileRequest {
-  /**  */
-  userId: string;
-  /**  */
-  name?: string;
-  /**  */
-  avatarUrl?: string;
 }
 export interface UpdateProfileResponse {
   /**  */
   ok: boolean;
 }
-export interface ArchivePostRequest {
-  /**  */
-  ID: string;
-}
 export interface ArchivePostResponse {
   /**  */
   ok: boolean;
 }
-export interface CreateCommentRequest {
-  /**  */
-  postId: string;
-  /**  */
-  content: string;
-  /**  */
-  userId: string;
-}
 export interface CreateCommentResponse {
   /**  */
-  ID: string;
-}
-export interface CreatePostRequest {
-  /**  */
-  title: string;
-  /**  */
-  content: string;
-  /**  */
-  userId: string;
-  /**  */
-  tags?: string[];
+  id: string;
 }
 export interface CreatePostResponse {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   slug: string;
-}
-export interface CreateTagRequest {
-  /**  */
-  name: string;
-  /**  */
-  description?: string;
 }
 export interface CreateTagResponse {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   slug: string;
-}
-export interface DeleteCommentRequest {
-  /**  */
-  ID: string;
-  /**  */
-  userId: string;
 }
 export interface DeleteCommentResponse {
   /**  */
   ok: boolean;
 }
-export interface DeletePostRequest {
-  /**  */
-  ID: string;
-}
 export interface DeletePostResponse {
   /**  */
   ok: boolean;
-}
-export interface DeleteTagRequest {
-  /**  */
-  ID: string;
 }
 export interface DeleteTagResponse {
   /**  */
   ok: boolean;
 }
-export interface GetPostRequest {
-  /**  */
-  slug: string;
-  /**  */
-  limit?: number;
-  /**  */
-  offset?: number;
-}
 export interface GetPostResponse {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   title: string;
   /**  */
   content: string;
+  /**  */
+  status?: string;
+  /**  */
+  excerpt?: string;
   /**  */
   authorId: string;
   /**  */
@@ -239,19 +409,11 @@ export interface GetPostResponse {
 }
 export interface GetPostResponseTagsItem {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   name: string;
   /**  */
   slug: string;
-}
-export interface ListCommentsRequest {
-  /**  */
-  postId: string;
-  /**  */
-  limit: number;
-  /**  */
-  offset: number;
 }
 export interface ListCommentsResponse {
   /**  */
@@ -261,7 +423,7 @@ export interface ListCommentsResponse {
 }
 export interface ListCommentsResponseData {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   content: string;
   /**  */
@@ -269,37 +431,19 @@ export interface ListCommentsResponseData {
   /**  */
   createdAt: string;
 }
-export interface ListMyPostsRequest {
-  /**  */
-  userId: string;
-  /**  */
-  status?: string;
-  /**  */
-  limit: number;
-  /**  */
-  offset: number;
-}
 export interface ListMyPostsResponse {
   /**  */
   data: ListMyPostsResponseData[];
 }
 export interface ListMyPostsResponseData {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   title: string;
   /**  */
   status: string;
   /**  */
   createdAt: string;
-}
-export interface ListPostsRequest {
-  /**  */
-  tag?: string;
-  /**  */
-  limit: number;
-  /**  */
-  offset: number;
 }
 export interface ListPostsResponse {
   /**  */
@@ -309,7 +453,7 @@ export interface ListPostsResponse {
 }
 export interface ListPostsResponseData {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   title: string;
   /**  */
@@ -319,19 +463,13 @@ export interface ListPostsResponseData {
   /**  */
   createdAt: string;
 }
-export interface ListTagsRequest {
-  /**  */
-  limit?: number;
-  /**  */
-  offset?: number;
-}
 export interface ListTagsResponse {
   /**  */
   data: ListTagsResponseData[];
 }
 export interface ListTagsResponseData {
   /**  */
-  ID: string;
+  id: string;
   /**  */
   name: string;
   /**  */
@@ -339,77 +477,45 @@ export interface ListTagsResponseData {
   /**  */
   description?: string;
 }
-export interface PublishPostRequest {
+export interface OnCommentCreatedProjectionResponse {
   /**  */
-  ID: string;
+  ok: boolean;
+}
+export interface OnPostCreatedProjectionResponse {
+  /**  */
+  ok: boolean;
+}
+export interface OnPostPublishedProjectionResponse {
+  /**  */
+  ok: boolean;
+}
+export interface OnPostUpdatedProjectionResponse {
+  /**  */
+  ok: boolean;
 }
 export interface PublishPostResponse {
   /**  */
   ok: boolean;
 }
-export interface SubmitPostRequest {
-  /**  */
-  ID: string;
-}
 export interface SubmitPostResponse {
   /**  */
   ok: boolean;
-}
-export interface UpdateCommentRequest {
-  /**  */
-  ID: string;
-  /**  */
-  content: string;
-  /**  */
-  userId: string;
 }
 export interface UpdateCommentResponse {
   /**  */
   ok: boolean;
 }
-export interface UpdatePostRequest {
-  /**  */
-  ID: string;
-  /**  */
-  title?: string;
-  /**  */
-  content?: string;
-}
 export interface UpdatePostResponse {
   /**  */
   ok: boolean;
-}
-export interface UpdateTagRequest {
-  /**  */
-  ID: string;
-  /**  */
-  name?: string;
-  /**  */
-  description?: string;
 }
 export interface UpdateTagResponse {
   /**  */
   ok: boolean;
 }
-export interface SendEmailVerificationRequest {
-  /**  */
-  email: string;
-  /**  */
-  name?: string;
-  /**  */
-  verifyUrl: string;
-}
-export interface SendEmailVerificationResponse {
+export interface SendInvitationEmailResponse {
   /**  */
   ok: boolean;
-}
-export interface SendPasswordResetEmailRequest {
-  /**  */
-  email: string;
-  /**  */
-  name?: string;
-  /**  */
-  resetUrl: string;
 }
 export interface SendPasswordResetEmailResponse {
   /**  */

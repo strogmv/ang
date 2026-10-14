@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/example/blog/internal/port"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/example/blog/internal/port"
 )
 
 type Store struct {

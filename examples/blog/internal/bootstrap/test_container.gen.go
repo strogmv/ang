@@ -28,10 +28,14 @@ type TestContainer struct {
 	publisherImpl              port.Publisher
 	NotificationDispatcher     *mock.MockNotificationDispatcher
 	notificationDispatcherImpl port.NotificationDispatcher
+	StateStore                 *mock.MockStateStore
+	stateStoreImpl             port.StateStore
 	SvcAuth                    port.Auth
 	svcAuthOverride            port.Auth
 	SvcBlog                    port.Blog
 	svcBlogOverride            port.Blog
+	SvcAssistant               port.Assistant
+	svcAssistantOverride       port.Assistant
 	SvcNotifications           port.Notifications
 	svcNotificationsOverride   port.Notifications
 }
@@ -55,12 +59,14 @@ func NewTestContainer(opts ...TestOption) *TestContainer {
 	c.publisherImpl = c.Publisher
 	c.NotificationDispatcher = mock.NewNotificationDispatcher()
 	c.notificationDispatcherImpl = c.NotificationDispatcher
+	c.StateStore = mock.NewStateStore()
+	c.stateStoreImpl = c.StateStore
 	for _, opt := range opts {
 		if opt != nil {
 			opt(c)
 		}
 	}
-	c.Effects = NewTestEffectRegistry(c.publisherImpl, nil, nil)
+	c.Effects = NewTestEffectRegistry(c.publisherImpl, nil, c.stateStoreImpl)
 	if c.svcAuthOverride != nil {
 		c.SvcAuth = c.svcAuthOverride
 	} else {
@@ -78,14 +84,24 @@ func NewTestContainer(opts ...TestOption) *TestContainer {
 			c.postRepositoryImpl,
 			c.postTagRepositoryImpl,
 			c.tagRepositoryImpl,
+			c.SvcAuth,
 			c.txManagerImpl,
 			c.Effects.Publisher,
+		)
+	}
+	if c.svcAssistantOverride != nil {
+		c.SvcAssistant = c.svcAssistantOverride
+	} else {
+		c.SvcAssistant = service.NewAssistantImpl(
+			c.SvcBlog,
+			c.Effects.StateStore,
 		)
 	}
 	if c.svcNotificationsOverride != nil {
 		c.SvcNotifications = c.svcNotificationsOverride
 	} else {
 		c.SvcNotifications = service.NewNotificationsImpl(
+			c.SvcAuth,
 			c.notificationDispatcherImpl,
 		)
 	}
@@ -172,6 +188,17 @@ func WithNotificationDispatcher(v port.NotificationDispatcher) TestOption {
 	}
 }
 
+func WithStateStore(v port.StateStore) TestOption {
+	return func(c *TestContainer) {
+		if v != nil {
+			c.stateStoreImpl = v
+			if c.Effects != nil {
+				c.Effects.StateStore = v
+			}
+		}
+	}
+}
+
 func WithAuthService(v port.Auth) TestOption {
 	return func(c *TestContainer) {
 		if v != nil {
@@ -186,6 +213,15 @@ func WithBlogService(v port.Blog) TestOption {
 		if v != nil {
 			c.svcBlogOverride = v
 			c.SvcBlog = v
+		}
+	}
+}
+
+func WithAssistantService(v port.Assistant) TestOption {
+	return func(c *TestContainer) {
+		if v != nil {
+			c.svcAssistantOverride = v
+			c.SvcAssistant = v
 		}
 	}
 }

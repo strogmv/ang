@@ -1,11 +1,36 @@
 openapi: 3.0.3
 info:
-  title: ANG API
-  version: 0.1.0
-  x-ang-version: 0.1.127
-  x-ang-input-hash: 2280e6dff5bcac137d5e4ca79079af522793ed3c7f1301a7955910011cd5b7e5
-  x-ang-compiler-hash: 294b50c17c5868adf98ff6e7e34d9b0ddcf67156d863f2f508ad57df44889164
+  title: "ANG API"
+  version: "0.1.0"
+  x-ang-version: 0.2.2
+  x-ang-input-hash: 2296caed74fdde9812254e75795150a89ee654796273fcb9ef6ddb9c5d768fd5
+  x-ang-compiler-hash: c6ff969c4f849a3d43096b736ea8243bff5fb2015fae31865c80a26ea3379894
 paths:
+  /assistant/chat:
+    post:
+      summary: ChatWithAssistant
+      operationId: ChatWithAssistant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatWithAssistantRequest'
+      responses:
+        '200':
+          description: OK
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatWithAssistantResponse'
+        '401':
+          description: Unauthorized
+        '400':
+          description: Bad Request
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
   /auth/login:
     post:
       summary: Login
@@ -58,7 +83,6 @@ paths:
                 $ref: '#/components/schemas/ProblemDetail'
       security:
         - bearerAuth: []
-  /auth/profile:
     put:
       summary: UpdateProfile
       operationId: UpdateProfile
@@ -137,7 +161,6 @@ paths:
                 $ref: '#/components/schemas/ProblemDetail'
       security:
         - bearerAuth: []
-  /comments/{id}:
     put:
       summary: UpdateComment
       operationId: UpdateComment
@@ -242,7 +265,6 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetail'
-  /posts:
     post:
       summary: CreatePost
       operationId: CreatePost
@@ -302,7 +324,6 @@ paths:
                 $ref: '#/components/schemas/ProblemDetail'
       security:
         - bearerAuth: []
-  /posts/{id}:
     put:
       summary: UpdatePost
       operationId: UpdatePost
@@ -456,7 +477,6 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetail'
-  /posts/{postID}/comments:
     post:
       summary: CreateComment
       operationId: CreateComment
@@ -548,7 +568,6 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetail'
-  /tags:
     post:
       summary: CreateTag
       operationId: CreateTag
@@ -606,7 +625,6 @@ paths:
                 $ref: '#/components/schemas/ProblemDetail'
       security:
         - bearerAuth: []
-  /tags/{id}:
     put:
       summary: UpdateTag
       operationId: UpdateTag
@@ -635,23 +653,23 @@ paths:
                 $ref: '#/components/schemas/ProblemDetail'
       security:
         - bearerAuth: []
-  /notifications/email-verification:
+  /notifications/invitation:
     post:
-      summary: SendEmailVerification
-      operationId: SendEmailVerification
+      summary: SendInvitationEmail
+      operationId: SendInvitationEmail
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SendEmailVerificationRequest'
+              $ref: '#/components/schemas/SendInvitationEmailRequest'
       responses:
         '200':
           description: OK
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SendEmailVerificationResponse'
+              $ref: '#/components/schemas/SendInvitationEmailResponse'
         '401':
           description: Unauthorized
         '400':
@@ -719,6 +737,45 @@ components:
           type: boolean
       required:
         - ok
+    ChatWithAssistantRequest:
+      type: object
+      properties:
+        userid:
+          type: string
+          minLength: 2
+          maxLength: 120
+        message:
+          type: string
+          minLength: 2
+          maxLength: 4000
+        messages:
+          type: array
+          items:
+            type: string
+      required:
+        - userid
+        - message
+    ChatWithAssistantResponse:
+      type: object
+      properties:
+        content:
+          type: string
+        finishreason:
+          type: string
+        toolcalls:
+          type: integer
+          format: int64
+        prompttokens:
+          type: integer
+          format: int64
+        completiontokens:
+          type: integer
+          format: int64
+        totaltokens:
+          type: integer
+          format: int64
+      required:
+        - content
     CreateCommentRequest:
       type: object
       properties:
@@ -857,6 +914,10 @@ components:
         title:
           type: string
         content:
+          type: string
+        status:
+          type: string
+        excerpt:
           type: string
         authorid:
           type: string
@@ -1067,21 +1128,26 @@ components:
         - id
         - email
         - name
-    SendEmailVerificationRequest:
+    SendInvitationEmailRequest:
       type: object
       properties:
         email:
           type: string
         name:
           type: string
-        verifyurl:
+        invitername:
+          type: string
+          minLength: 2
+          maxLength: 120
+        inviteurl:
           type: string
           minLength: 12
           maxLength: 500
       required:
         - email
-        - verifyurl
-    SendEmailVerificationResponse:
+        - invitername
+        - inviteurl
+    SendInvitationEmailResponse:
       type: object
       properties:
         ok:
@@ -1205,6 +1271,16 @@ components:
           type: boolean
       required:
         - ok
+    ChatWithAssistantRequestMessagesItem:
+      type: object
+      properties:
+        role:
+          type: string
+        content:
+          type: string
+      required:
+        - role
+        - content
     GetPostResponseTagsItem:
       type: object
       properties:

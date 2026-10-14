@@ -3,3 +3,4 @@ export { CommentTable } from './CommentTable';
 export { MyPostTable } from './MyPostTable';
 export { PostTable } from './PostTable';
 export { TagTable } from './TagTable';
+export { UserTable } from './UserTable';
