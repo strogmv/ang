@@ -21,7 +21,8 @@ import (
 // generation. ang fmt formats the fields the generator reads as Go:
 //
 //   - func: an expression, the logic.Call function literal;
-//   - code: statements, a whole method body;
+//   - code: statements, a whole method body; under Helpers, top-level
+//     declarations (a helper's func, method, type, var or const);
 //   - #Definitions holding a function literal, interpolated into other Go as
 //     \(#Name)(args).
 //
@@ -57,6 +58,7 @@ type embeddedGoShape int
 const (
 	embeddedGoExpression embeddedGoShape = iota
 	embeddedGoStatements
+	embeddedGoDeclarations
 )
 
 func embeddedGoShapeOf(label string) (embeddedGoShape, bool) {
@@ -91,11 +93,17 @@ func formatEmbeddedGoWith(filename string, src []byte, opts embeddedGoOptions) (
 	}
 	var edits []edit
 	var skips []embeddedGoSkip
+	// The labels of the fields around the current one: a helper's code is
+	// Helpers: <name>: code.
+	var labels []string
 	cueast.Walk(file, func(node cueast.Node) bool {
 		field, ok := node.(*cueast.Field)
 		if !ok {
 			return true
 		}
+		fieldLabel, _, _ := cueast.LabelName(field.Label)
+		labels = append(labels, fieldLabel)
+		inHelper := len(labels) >= 3 && labels[len(labels)-3] == "Helpers"
 		// A string with \( … ) parses as an Interpolation, not a BasicLit;
 		// both are one literal in the source.
 		var start, end int
@@ -127,6 +135,9 @@ func formatEmbeddedGoWith(filename string, src []byte, opts embeddedGoOptions) (
 		shape, ok := embeddedGoShapeOf(label)
 		if !ok {
 			return true
+		}
+		if inHelper && label == "code" {
+			shape = embeddedGoDeclarations
 		}
 		definition := strings.HasPrefix(label, "#")
 		report := func(reason string) {
@@ -161,7 +172,11 @@ func formatEmbeddedGoWith(filename string, src []byte, opts embeddedGoOptions) (
 			edits = append(edits, edit{start: start, end: end, text: next})
 		}
 		return true
-	}, nil)
+	}, func(node cueast.Node) {
+		if _, ok := node.(*cueast.Field); ok {
+			labels = labels[:len(labels)-1]
+		}
+	})
 
 	if len(edits) == 0 {
 		return src, 0, skips
@@ -253,6 +268,8 @@ func formatEmbeddedGoLiteral(value string, shape embeddedGoShape, definition, ke
 	switch shape {
 	case embeddedGoStatements:
 		formatted, reason = gofmtStatements(masked)
+	case embeddedGoDeclarations:
+		formatted, reason = gofmtDeclarations(masked)
 	default:
 		formatted, reason = gofmtExpression(masked)
 	}
@@ -409,6 +426,20 @@ func gofmtStatements(text string) (string, string) {
 		body[i] = line[1:]
 	}
 	return strings.Join(body, "\n"), ""
+}
+
+// gofmtDeclarations formats top-level declarations: the code of a helper.
+func gofmtDeclarations(text string) (string, string) {
+	const prefix = "package p\n\n"
+	formatted, err := goformat.Source([]byte(prefix + text + "\n"))
+	if err != nil {
+		return "", "not Go declarations: " + firstErrorLine(err)
+	}
+	out := string(formatted)
+	if !strings.HasPrefix(out, prefix) {
+		return "", "gofmt moved text around the declarations"
+	}
+	return strings.TrimSuffix(out[len(prefix):], "\n"), ""
 }
 
 func spansLinesInsideToken(src string) bool {

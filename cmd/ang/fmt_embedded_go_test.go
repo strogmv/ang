@@ -62,6 +62,17 @@ func TestFormatEmbeddedGoCodeStatements(t *testing.T) {
 	}
 }
 
+// The code of a helper (Helpers: <name>: code) is top-level declarations,
+// both written as the shorthand Helpers: name: code: and as nested structs.
+func TestFormatEmbeddedGoHelperDeclarations(t *testing.T) {
+	src := "package api\n\nHelpers: label: code: \"\"\"\n\tfunc label(id string,n int) string {\n\treturn id+fmt.Sprint(n)\n\t}\n\t\"\"\"\n\nHelpers: {\n\trow: {\n\t\tcode: \"\"\"\n\t\t\ttype row struct {\n\t\t\tID string\n\t\t\tN int\n\t\t\t}\n\t\t\t\"\"\"\n\t}\n}\n"
+	want := "package api\n\nHelpers: label: code: \"\"\"\n\tfunc label(id string, n int) string {\n\t\treturn id + fmt.Sprint(n)\n\t}\n\t\"\"\"\n\nHelpers: {\n\trow: {\n\t\tcode: \"\"\"\n\t\t\ttype row struct {\n\t\t\t\tID string\n\t\t\t\tN  int\n\t\t\t}\n\t\t\t\"\"\"\n\t}\n}\n"
+	got, changed, skips := formatEmbeddedGo("helpers.cue", []byte(src))
+	if changed != 2 || len(skips) != 0 || string(got) != want {
+		t.Fatalf("changed=%d skips=%+v\ngot:\n%s\nwant:\n%s", changed, skips, got, want)
+	}
+}
+
 func TestFormatEmbeddedGoDefinitionFuncLiteral(t *testing.T) {
 	src := "package api\n\n#AddOneFunc: \"\"\"\n\t(func(a int) int {\n\treturn a+1\n\t})\n\t\"\"\"\n\n#Caption: \"\"\"\n\tHello,   buyer\n\t\"\"\"\n"
 	want := "package api\n\n#AddOneFunc: \"\"\"\n\t(func(a int) int {\n\t\treturn a + 1\n\t})\n\t\"\"\"\n\n#Caption: \"\"\"\n\tHello,   buyer\n\t\"\"\"\n"
