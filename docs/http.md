@@ -165,7 +165,8 @@ A value that does not parse, or a missing required one, gets one answer shape,
 the same problem+json the handlers already use for an `int` that is not one:
 
 ```json
-{"status": 400, "title": "Invalid query", "errors": {"from": "must be a date like 2006-01-02"}}
+{"type": "validation-error", "title": "VALIDATION_FAILED", "status": 400, "detail": "Invalid query",
+ "code": 40010, "errors": {"from": "must be a date like 2006-01-02"}}
 ```
 
 `@query` works on POST/PUT/PATCH/DELETE too: the field is filled from the query
