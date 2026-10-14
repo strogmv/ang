@@ -13,7 +13,11 @@ import (
 {{- end }}
 {{ ServiceImplMethodSignature .Service.Name .Method }} {
 	{{- if and .Method.Impl .Method.Impl.Code }}
+	{{- if .Method.Transactional }}
+{{ Indent (TransactionalImplCode .Method) 1 }}
+	{{- else }}
 {{ Indent (CleanImplCode .Method.Impl.Code .Method.Output.Name) 1 }}
+	{{- end }}
 	{{- else if .Method.ImplSteps }}
 {{ Indent (RenderImplSteps .Service .Method.ImplSteps .Service.Name .Method.Name) 1 }}
 	{{- else if .Method.Flow }}

@@ -216,3 +216,42 @@ func TestRenderFinderSignatureShowsParamsPagingAndUpsert(t *testing.T) {
 		t.Errorf("signature = %q, want %q", got, want)
 	}
 }
+
+// Item 18: transactional: is read per operation; a value that is not a
+// bool, or a streaming operation, fails with the file:line.
+func TestSemanticPhasesReadTransactional(t *testing.T) {
+	op := func(extra string) string {
+		return "package api\n\nMoveUser: {\n\tservice: \"user\"\n\t" + extra + "\n\tinput: {id: string}\n\toutput: {ok: bool}\n\tflow: [{action: \"mapping.Assign\", to: \"resp.Ok\", value: \"true\"}]\n}\n"
+	}
+	run := func(extra string) (NormalizePhaseOutput, error) {
+		base := copyMinimalProject(t)
+		if err := os.WriteFile(filepath.Join(base, "cue", "api", "move.cue"), []byte(op(extra)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return RunSemanticPhasesWithOptions(base, PipelineOptions{})
+	}
+	out, err := run("transactional: true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, svc := range out.Services {
+		for _, m := range svc.Methods {
+			if m.Name == "MoveUser" {
+				found = m.Transactional
+			}
+		}
+	}
+	if !found {
+		t.Fatal("transactional: true not read")
+	}
+	for extra, want := range map[string]string{
+		`transactional: "yes"`:                "transactional: must be true or false",
+		"stream: true\n\ttransactional: true": "transactional: true does not apply to a streaming operation",
+	} {
+		_, err := run(extra)
+		if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "move.cue:") {
+			t.Errorf("%s: error = %v, want %q with move.cue:line", extra, err, want)
+		}
+	}
+}

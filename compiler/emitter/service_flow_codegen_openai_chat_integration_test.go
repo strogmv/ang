@@ -61,6 +61,7 @@ func TestEmitAssistantChatWithTools_MethodTemplateFormats(t *testing.T) {
 		return renderServiceImplMethodSignature(serviceName, m)
 	}
 	funcMap["CleanImplCode"] = cleanImplCode
+	funcMap["TransactionalImplCode"] = transactionalImplCode
 	funcMap["FlowRenderable"] = flowRenderable
 	funcMap["RenderFlow"] = func(args ...any) string {
 		serviceName, _ := args[0].(string)

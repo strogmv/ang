@@ -85,57 +85,14 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		return false
 	}
 	appFuncs["HasTxServicesIR"] = func(services []ir.Service) bool {
-		var hasTx func([]ir.FlowStep) bool
-		hasTx = func(steps []ir.FlowStep) bool {
-			for _, step := range steps {
-				if step.Action == "tx.Block" || irFlowStepUsesTxManager(step) {
-					return true
-				}
-				if hasTx(step.Steps) || hasTx(step.IfNew) || hasTx(step.IfExists) || hasTx(step.Then) || hasTx(step.Else) || hasTx(step.Default) {
-					return true
-				}
-				for _, branch := range step.Cases {
-					if hasTx(branch) {
-						return true
-					}
-				}
-			}
-			return false
-		}
 		for _, svc := range services {
-			for _, m := range svc.Methods {
-				if irImplNeedsTx(m.Impl) || hasTx(m.Flow) {
-					return true
-				}
-			}
-		}
-		return false
-	}
-	appFuncs["ServiceNeedsTxIR"] = func(s ir.Service) bool {
-		var hasTx func([]ir.FlowStep) bool
-		hasTx = func(steps []ir.FlowStep) bool {
-			for _, step := range steps {
-				if step.Action == "tx.Block" || irFlowStepUsesTxManager(step) {
-					return true
-				}
-				if hasTx(step.Steps) || hasTx(step.IfNew) || hasTx(step.IfExists) || hasTx(step.Then) || hasTx(step.Else) || hasTx(step.Default) {
-					return true
-				}
-				for _, branch := range step.Cases {
-					if hasTx(branch) {
-						return true
-					}
-				}
-			}
-			return false
-		}
-		for _, m := range s.Methods {
-			if hasTx(m.Flow) {
+			if serviceNeedsTxIR(svc) {
 				return true
 			}
 		}
 		return false
 	}
+	appFuncs["ServiceNeedsTxIR"] = serviceNeedsTxIR
 	appFuncs["AnyServiceHasIdempotencyOrOutboxIR"] = func(services []ir.Service) bool {
 		var hasOutboxAction func([]ir.FlowStep) bool
 		hasOutboxAction = func(steps []ir.FlowStep) bool {
@@ -170,31 +127,6 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 		deps := append([]string{}, s.Uses...)
 		sort.Strings(deps)
 		return deps
-	}
-	appFuncs["ServiceNeedsTxIR"] = func(s ir.Service) bool {
-		var hasTx func([]ir.FlowStep) bool
-		hasTx = func(steps []ir.FlowStep) bool {
-			for _, step := range steps {
-				if step.Action == "tx.Block" || irFlowStepUsesTxManager(step) {
-					return true
-				}
-				if hasTx(step.Steps) || hasTx(step.IfNew) || hasTx(step.IfExists) || hasTx(step.Then) || hasTx(step.Else) || hasTx(step.Default) {
-					return true
-				}
-				for _, branch := range step.Cases {
-					if hasTx(branch) {
-						return true
-					}
-				}
-			}
-			return false
-		}
-		for _, m := range s.Methods {
-			if irImplNeedsTx(m.Impl) || hasTx(m.Flow) {
-				return true
-			}
-		}
-		return false
 	}
 	appFuncs["ServiceHasPublishesIR"] = func(s ir.Service) bool {
 		var hasPublish func([]ir.FlowStep) bool
@@ -736,22 +668,11 @@ func (e *Emitter) getAppFuncMap() template.FuncMap {
 	return appFuncs
 }
 
-// irImplNeedsTx mirrors implNeedsTx for the normalized IR.
-func irImplNeedsTx(impl *ir.Impl) bool {
-	return impl != nil && (impl.RequiresTx || strings.Contains(impl.Code, "s.txManager"))
-}
-
-// irFlowStepUsesTxManager mirrors flowStepUsesTxManager for the runtime
-// container templates, which receive the normalized IR rather than Flow IR.
-// Explicit raw transaction ownership still needs TxManager constructor wiring.
-func irFlowStepUsesTxManager(step ir.FlowStep) bool {
-	for _, key := range []string{"func", "code"} {
-		value, ok := step.Args[key].(string)
-		if ok && strings.Contains(value, "s.txManager") {
-			return true
-		}
-	}
-	return false
+// serviceNeedsTxIR is serviceImplNeedsTx for the IR the runtime templates
+// receive: the container passes a TxManager exactly when the service's
+// constructor takes one.
+func serviceNeedsTxIR(s ir.Service) bool {
+	return serviceImplNeedsTx(IRServiceToNormalizer(s))
 }
 
 // EmitServiceMain generates main.go for a specific service.

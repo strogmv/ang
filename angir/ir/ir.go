@@ -393,6 +393,7 @@ type Method struct {
 	Name                 string           `json:"name"`
 	Description          string           `json:"description"`
 	IsStreaming          bool             `json:"is_streaming,omitempty"`
+	Transactional        bool             `json:"transactional,omitempty"`
 	Input                *Entity          `json:"input,omitempty"`
 	Output               *Entity          `json:"output,omitempty"`
 	Sources              []Source         `json:"sources"`

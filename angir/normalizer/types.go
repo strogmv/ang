@@ -256,6 +256,9 @@ type Method struct {
 
 	Description string
 	IsStreaming bool
+	// Transactional (transactional: true) runs the whole operation — its
+	// flow or its impl code — in one database transaction.
+	Transactional bool
 
 	Input Entity
 

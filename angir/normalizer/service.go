@@ -116,6 +116,16 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 				method.IsStreaming = b
 			}
 		}
+		if txVal := value.LookupPath(cue.MakePath(cue.Str("transactional"))); txVal.Exists() {
+			b, err := txVal.Bool()
+			if err != nil {
+				return nil, fmt.Errorf("%s: operation %s: transactional: must be true or false: %w", formatPos(txVal), method.Name, err)
+			}
+			method.Transactional = b
+			if b && method.IsStreaming {
+				return nil, fmt.Errorf("%s: operation %s: transactional: true does not apply to a streaming operation", formatPos(txVal), method.Name)
+			}
+		}
 		if info, ok := cacheByOp[opName]; ok {
 			method.CacheTTL = info.ttl
 			method.CacheTags = info.tags

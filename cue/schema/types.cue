@@ -44,6 +44,9 @@ import "github.com/strogmv/ang/cue/project"
 	}
 	requiresS3?: bool
 	stream?:     bool
+	// Run the whole operation (its flow or its impls.go code) in one database
+	// transaction: every repository call joins it, an error rolls it back.
+	transactional?: bool
 	input:  _
 	output: _
 	throws?: [...string]

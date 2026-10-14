@@ -489,6 +489,7 @@ func ConvertMethod(m normalizer.Method) Method {
 		Name:                 m.Name,
 		Description:          m.Description,
 		IsStreaming:          m.IsStreaming,
+		Transactional:        m.Transactional,
 		CacheTTL:             m.CacheTTL,
 		CacheTags:            initializeSlice(m.CacheTags),
 		Throws:               m.Throws,

@@ -466,12 +466,13 @@ func contextServiceFromIR(s ir.Service) normalizer.Service {
 	out.Methods = make([]normalizer.Method, 0, len(s.Methods))
 	for _, m := range s.Methods {
 		nm := normalizer.Method{
-			Name:        m.Name,
-			IsStreaming: m.IsStreaming,
-			CacheTTL:    m.CacheTTL,
-			Publishes:   append([]string{}, m.Publishes...),
-			Idempotency: m.Idempotent,
-			Outbox:      m.Outbox,
+			Name:          m.Name,
+			IsStreaming:   m.IsStreaming,
+			Transactional: m.Transactional,
+			CacheTTL:      m.CacheTTL,
+			Publishes:     append([]string{}, m.Publishes...),
+			Idempotency:   m.Idempotent,
+			Outbox:        m.Outbox,
 		}
 		if m.Impl != nil {
 			nm.Impl = &normalizer.MethodImpl{RequiresTx: m.Impl.RequiresTx}

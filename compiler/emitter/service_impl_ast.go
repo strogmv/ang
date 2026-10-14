@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/format"
 	"go/token"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -34,6 +35,12 @@ func renderServiceImplTypeDecl(svc normalizer.Service, entities []normalizer.Ent
 			Names: []*ast.Ident{ast.NewIdent("txManager")},
 			Type:  mustParseExpr("port.TxManager"),
 		})
+		if serviceImplUsesTx(svc) {
+			fields = append(fields, &ast.Field{
+				Names: []*ast.Ident{ast.NewIdent("Tx")},
+				Type:  mustParseExpr("port.TxManager"),
+			})
+		}
 	}
 	if auth != nil && auth.Service == svc.Name {
 		fields = append(fields, &ast.Field{
@@ -156,6 +163,9 @@ func renderServiceImplConstructorDecl(svc normalizer.Service, entities []normali
 			Type:  mustParseExpr("port.TxManager"),
 		})
 		elts = append(elts, &ast.KeyValueExpr{Key: ast.NewIdent("txManager"), Value: ast.NewIdent("txManager")})
+		if serviceImplUsesTx(svc) {
+			elts = append(elts, &ast.KeyValueExpr{Key: ast.NewIdent("Tx"), Value: ast.NewIdent("txManager")})
+		}
 	}
 	if auth != nil && auth.Service == svc.Name {
 		params = append(params, &ast.Field{
@@ -444,6 +454,27 @@ func serviceImplNeedsTx(s normalizer.Service) bool {
 			return true
 		}
 		if implNeedsTx(m.Impl) {
+			return true
+		}
+		if m.Transactional || txFieldRE.MatchString(normalizer.MethodCodeText(m)) {
+			return true
+		}
+	}
+	return false
+}
+
+// txFieldRE finds s.Tx — the transaction manager under its public name — in
+// an operation's Go.
+var txFieldRE = regexp.MustCompile(`\bs\.Tx\b`)
+
+// serviceImplUsesTx reports whether an operation's Go reaches s.Tx: the
+// service then gets the field Tx, the same port.TxManager as the txManager
+// the generated tx.Block and transactional: true use (one constructor
+// argument, two names). s.Tx.WithTx(ctx, func(ctx context.Context) error {
+// … }) runs the closure in a transaction, or joins the one in ctx.
+func serviceImplUsesTx(s normalizer.Service) bool {
+	for _, m := range s.Methods {
+		if txFieldRE.MatchString(normalizer.MethodCodeText(m)) {
 			return true
 		}
 	}

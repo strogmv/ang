@@ -383,6 +383,7 @@ func IRMethodToNormalizer(m ir.Method) normalizer.Method {
 		Name:                 m.Name,
 		Description:          m.Description,
 		IsStreaming:          m.IsStreaming,
+		Transactional:        m.Transactional,
 		CacheTTL:             m.CacheTTL,
 		CacheTags:            initializeSlice(m.CacheTags),
 		Throws:               m.Throws,

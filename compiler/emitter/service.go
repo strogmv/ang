@@ -278,6 +278,9 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 	nServices := IRServicesToNormalizer(services)
 	nEntities := IREntitiesToNormalizer(entities)
 	nEvents := IREventsToNormalizer(events)
+	if err := wrapTransactionalOperations(nServices); err != nil {
+		return err
+	}
 
 	funcMapImpl := e.getSharedFuncMap()
 	funcMapImpl["ServiceImplTypeDecl"] = func(svc normalizer.Service, entities []normalizer.Entity, auth *normalizer.AuthDef) (string, error) {
@@ -290,6 +293,7 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 		return renderServiceImplMethodSignature(serviceName, m)
 	}
 	funcMapImpl["CleanImplCode"] = cleanImplCode
+	funcMapImpl["TransactionalImplCode"] = transactionalImplCode
 	funcMapImpl["FlowRenderable"] = flowRenderable
 	// renderFlowWith renders a method's flow, sending its warnings to sink; each
 	// parallel method job binds its own sink (see runServiceImplMethodJobs).

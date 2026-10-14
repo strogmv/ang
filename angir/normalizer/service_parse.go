@@ -43,6 +43,16 @@ func (n *Normalizer) parseService(name string, val cue.Value) (Service, error) {
 				method.IsStreaming = b
 			}
 		}
+		if txVal := methodVal.LookupPath(cue.MakePath(cue.Str("transactional"))); txVal.Exists() {
+			b, err := txVal.Bool()
+			if err != nil {
+				return Service{}, fmt.Errorf("%s: operation %s: transactional: must be true or false: %w", formatPos(txVal), method.Name, err)
+			}
+			method.Transactional = b
+			if b && method.IsStreaming {
+				return Service{}, fmt.Errorf("%s: operation %s: transactional: true does not apply to a streaming operation", formatPos(txVal), method.Name)
+			}
+		}
 
 		inVal := methodVal.LookupPath(cue.ParsePath("in"))
 		if inVal.Exists() {
