@@ -902,6 +902,7 @@ func findTopLevelListItems(body string) [][2]int {
 		var quote byte
 		escaped := false
 		itemDone := false
+	scan:
 		for i < n {
 			ch := body[i]
 			if quote != 0 {
@@ -948,7 +949,7 @@ func findTopLevelListItems(body string) [][2]int {
 					items = append(items, [2]int{start, end})
 					i++
 					itemDone = true
-					break
+					break scan // leave the scan, not just the switch
 				}
 			}
 			i++
