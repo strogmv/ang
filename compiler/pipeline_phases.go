@@ -314,6 +314,9 @@ func runNormalizePhase(basePath string, parsed ParsePhaseOutput, opts PipelineOp
 	if err := validateImplDTOSelectors(services); err != nil {
 		return out, WrapContractError(StageCUE, ErrCodeDTOFieldUnknown, "validate embedded Go DTO selectors", err)
 	}
+	if err := validateRawGoImports(services); err != nil {
+		return out, WrapContractError(StageCUE, ErrCodeRawGoImport, "validate imports of raw Go", err)
+	}
 	typeObjectsTheCodeReachesInto(services)
 	endpoints, err := n.ExtractEndpoints(parsed.API)
 	if err != nil {

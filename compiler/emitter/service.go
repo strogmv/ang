@@ -18,6 +18,7 @@ import (
 
 	"github.com/strogmv/ang/angir/ir"
 	"github.com/strogmv/ang/angir/normalizer"
+	"github.com/strogmv/ang/compiler/rawgo"
 )
 
 var (
@@ -38,6 +39,81 @@ var (
 		{needle: "reqctx.", path: "internal/pkg/reqctx", moduleRelative: true},
 	}
 )
+
+// methodImports is the import list of one method file: the service's list,
+// plus what the method's logic.Call steps name in `imports:`. A step import
+// replaces a service import of the same package name (crypto/rand over
+// math/rand), so it stays local to its method: another file of the service
+// that means math/rand is not forced onto crypto/rand.
+func methodImports(serviceMap map[string]string, serviceList []string, flow []normalizer.FlowStep) []string {
+	var own [][2]string // alias, path
+	var visit func([]normalizer.FlowStep)
+	visit = func(steps []normalizer.FlowStep) {
+		for _, step := range steps {
+			if step.Action == "logic.Call" {
+				var entries []string
+				switch v := step.Args["imports"].(type) {
+				case []string:
+					entries = v
+				case string:
+					entries = []string{v}
+				}
+				for _, entry := range entries {
+					if alias, path := rawgo.NormalizeImport(entry); path != "" {
+						own = append(own, [2]string{alias, path})
+					}
+				}
+			}
+			for _, key := range []string{"_do", "_then", "_else", "_ifNew", "_ifExists", "_default", "_catch", "_fallback", "_onTimeout", "_onMissing", "_onMismatch"} {
+				if sub, ok := step.Args[key].([]normalizer.FlowStep); ok {
+					visit(sub)
+				}
+			}
+			for _, key := range []string{"_cases", "_branches"} {
+				if groups, ok := step.Args[key].(map[string][]normalizer.FlowStep); ok {
+					for _, branch := range groups {
+						visit(branch)
+					}
+				}
+			}
+		}
+	}
+	visit(flow)
+	if len(own) == 0 {
+		return serviceList
+	}
+	merged := make(map[string]string, len(serviceMap)+len(own))
+	for path, alias := range serviceMap {
+		merged[path] = alias
+	}
+	for _, imp := range own {
+		alias, path := imp[0], imp[1]
+		name := alias
+		if name == "" {
+			name = rawgo.PackageName(path)
+		}
+		for other, otherAlias := range merged {
+			otherName := otherAlias
+			if otherName == "" {
+				otherName = rawgo.PackageName(other)
+			}
+			if other != path && otherName == name {
+				delete(merged, other)
+			}
+		}
+		merged[path] = alias
+	}
+	out := make([]string, 0, len(merged))
+	for path, alias := range merged {
+		if alias == "" {
+			out = append(out, fmt.Sprintf("%q", path))
+		} else {
+			out = append(out, fmt.Sprintf("%s %q", alias, path))
+		}
+	}
+	sort.Strings(out)
+	return out
+}
 
 func addLogicCallImports(fn string, goModule string, importMap map[string]string) {
 	fn = strings.TrimSpace(fn)
@@ -246,29 +322,9 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 		// Collect all imports for this service
 		importMap := make(map[string]string) // path → alias (empty = no alias)
 
-		// Base imports that every service needs
-		baseImports := []string{
-			"context",
-			"encoding/json",
-			"fmt",
-			"log/slog",
-			"net/http",
-			"os",
-			"sort",
-			"strings",
-			"sync",
-			"time",
-			"github.com/google/uuid",
-			"golang.org/x/crypto/bcrypt",
-			e.GoModule + "/internal/config",
-			e.GoModule + "/internal/domain",
-			e.GoModule + "/internal/pkg/auth",
-			e.GoModule + "/internal/pkg/errors",
-			e.GoModule + "/internal/pkg/helpers",
-			e.GoModule + "/internal/pkg/logger",
-			e.GoModule + "/internal/pkg/presence",
-			e.GoModule + "/internal/port",
-		}
+		// Base imports that every service needs (raw Go may use them
+		// without listing them; compiler.validateRawGoImports reads the same list).
+		baseImports := rawgo.ServiceBaseImports(e.GoModule)
 		for _, imp := range baseImports {
 			importMap[imp] = ""
 		}
@@ -651,7 +707,7 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 					Method:           &method,
 					Entities:         nEntities,
 					Auth:             a,
-					Imports:          allImports,
+					Imports:          methodImports(importMap, allImports, method.Flow),
 					GoModule:         e.GoModule,
 					Overrides:        overrides,
 					ProvenanceHeader: e.renderGeneratedHeader(methodSources),

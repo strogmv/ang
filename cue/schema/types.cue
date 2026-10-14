@@ -1065,6 +1065,11 @@ import "github.com/strogmv/ang/cue/project"
 	// Reference to a real Go function, relative to this CUE file.
 	// The function is embedded as an inline literal: "impl/helpers.go#normalizeName".
 	funcRef?: string
+	// Packages a func literal uses beyond the service's imports, added to this
+	// operation's file only. Needed where goimports would have to guess:
+	// rand.Read is in crypto/rand and math/rand. validate fails on an entry the
+	// func does not use.
+	imports?: [...string] | string
 	// Arguments as single string or array
 	// SAFE expression subset in strict validator (no function calls)
 	// Example: "ctx, req" or ["ctx", "req", "options"]

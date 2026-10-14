@@ -284,6 +284,13 @@ type MethodImpl struct {
 	Code       string
 	Imports    []string
 	RequiresTx bool
+	// CodeSource is file:line of `code` in CUE; empty when the code comes
+	// from a Go sidecar (funcRef), whose imports the Go parser already read.
+	CodeSource string
+	// CodeText is where the text of a multi-line `code` string starts.
+	CodeText TextPos
+	// ImportSources[i] is file:line of Imports[i].
+	ImportSources []string
 }
 
 // ImplStep is a typed instruction inside impl_steps DSL.

@@ -11,6 +11,7 @@ const (
 	ErrCodeCUEServiceNormalize     = "CUE_SERVICE_NORMALIZE_ERROR"
 	ErrCodeDTOFieldUnknown         = "DTO_FIELD_UNKNOWN"
 	ErrCodeRepoRefUnknown          = "REPO_REF_UNKNOWN"
+	ErrCodeRawGoImport             = "RAW_GO_IMPORT_ERROR"
 	ErrCodeCUEEndpointNormalize    = "CUE_ENDPOINT_NORMALIZE_ERROR"
 	ErrCodeCUERepoNormalize        = "CUE_REPO_NORMALIZE_ERROR"
 	ErrCodeCUERepoLoad             = "CUE_REPO_LOAD_ERROR"
@@ -63,6 +64,7 @@ var StableErrorCodes = []string{
 	ErrCodeCUEServiceNormalize,
 	ErrCodeDTOFieldUnknown,
 	ErrCodeRepoRefUnknown,
+	ErrCodeRawGoImport,
 	ErrCodeCUEEndpointNormalize,
 	ErrCodeCUERepoNormalize,
 	ErrCodeCUERepoLoad,

@@ -554,3 +554,31 @@ func domainSelectorName(node ast.Node) string {
 	}
 	return exportName(name)
 }
+
+// parseImplImports reads `imports:` of a raw Go block (a list or a single
+// string) with the position of every entry.
+func parseImplImports(v cue.Value) (imports, sources []string) {
+	if !v.Exists() {
+		return nil, nil
+	}
+	add := func(item cue.Value) {
+		s, err := item.String()
+		if err != nil || strings.TrimSpace(s) == "" {
+			return
+		}
+		imports = append(imports, strings.TrimSpace(s))
+		sources = append(sources, formatPos(item))
+	}
+	if v.IncompleteKind() == cue.ListKind {
+		list, err := v.List()
+		if err != nil {
+			return nil, nil
+		}
+		for list.Next() {
+			add(list.Value())
+		}
+		return imports, sources
+	}
+	add(v)
+	return imports, sources
+}

@@ -326,23 +326,9 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 				if v, err := implVal.LookupPath(cue.ParsePath("tx")).Bool(); err == nil {
 					impl.RequiresTx = v
 				}
-				importsVal := implVal.LookupPath(cue.ParsePath("imports"))
-				if importsVal.Exists() {
-					switch importsVal.IncompleteKind() {
-					case cue.ListKind:
-						list, _ := importsVal.List()
-						for list.Next() {
-							s, _ := list.Value().String()
-							if strings.TrimSpace(s) != "" {
-								impl.Imports = append(impl.Imports, strings.TrimSpace(s))
-							}
-						}
-					default:
-						if s, err := importsVal.String(); err == nil && strings.TrimSpace(s) != "" {
-							impl.Imports = append(impl.Imports, strings.TrimSpace(s))
-						}
-					}
-				}
+				impl.CodeSource = formatPos(codeVal)
+				impl.CodeText, _ = multilineLiteralText(codeVal)
+				impl.Imports, impl.ImportSources = parseImplImports(implVal.LookupPath(cue.ParsePath("imports")))
 				method.Impl = impl
 				for _, diag := range validateNamedReturnImplCode(svcName, opName, method, codeVal) {
 					n.Warn(diag)
