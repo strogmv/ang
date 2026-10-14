@@ -210,6 +210,11 @@ func NewRuntimeContainer(
 		policyEngine,
 		{{- end }}
 	)
+	{{- if ServiceConfigEnabled }}
+	if impl, ok := c.Svc{{ .Name }}.(*service.{{ .Name }}Impl); ok {
+		impl.Cfg = cfg
+	}
+	{{- end }}
 	{{- end }}
 
 	{{- if and .AuthService (HasEntityByNameIR .EntitiesIR "User") }}

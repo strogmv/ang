@@ -7,6 +7,36 @@ ANG generates runtime config schema in:
 
 Use this as the source of truth for required runtime values.
 
+## Configuration in services (`target.service_config`)
+
+By default only the auth service receives the loaded configuration; other
+operations that need a setting call `config.Load()` (which reads the
+environment and `.env` again on every call) or `os.Getenv`.
+
+```cue
+state: target: service_config: true   // add service_config?: bool to a closed #Target
+```
+
+turns on, for that target:
+
+- `s.Cfg *config.Config` in every `<Service>Impl`. Constructors keep their
+  parameters and set it to `config.Default()` (the auth service: to its `cfg`
+  argument); the runtime container then gives every service the configuration
+  the server loaded at start, so `s.Cfg` in production is what `cmd/server`
+  read, once.
+- `config.Default()`: every field at its CUE default (`env-default`), nothing
+  read from the environment or `.env`; `config.OrDefault(cfg)`. The test
+  container starts from `config.Default()` (it used to be `&config.Config{}`,
+  all zero values) and hands its `Config` to every service it builds, so
+  `WithConfig(...)` reaches `s.Cfg`.
+- `config.Get` with a literal key the config declares (e.g. `"SMTP_HOST"`)
+  reads `s.Cfg.SMTPHost` instead of `os.Getenv`.
+- `CONFIG_LOAD_IN_OPERATION` (warning): an operation's Go still calls
+  `config.Load()`; use `s.Cfg`.
+
+Raw Go in operations reads settings as `s.Cfg.SMTPHost`. A test that needs
+other values builds one: `cfg := config.Default(); cfg.EmailDryRun = true`.
+
 ## Resolution Order
 
 For `ang config doctor`, value resolution follows:

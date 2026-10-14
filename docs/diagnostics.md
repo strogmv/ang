@@ -46,6 +46,9 @@ Code families:
   `target.auth_default: "deny"`.
 - `AUTH_DEFAULT_INVALID` (build error): `target.auth_default` is neither
   `"allow"` nor `"deny"`.
+- `CONFIG_LOAD_IN_OPERATION` (warning, `target.service_config` only): an
+  operation's Go calls `config.Load()`; the service holds the loaded
+  configuration as `s.Cfg` (docs/config.md).
 - `IR_*`: canonical IR conversion, migration, or semantic validation.
 - `TRANSFORMER_*` and `HOOK_*`: extension execution failures.
 - `EMITTER_*`: capability resolution, output validation, or generation failure.

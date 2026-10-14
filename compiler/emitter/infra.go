@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"text/template"
 
@@ -90,6 +91,8 @@ func (e *Emitter) EmitConfig(config *normalizer.ConfigDef) error {
 				return fmt.Sprintf("getEnv(%q, %s)", f.EnvVar, def)
 			}
 		},
+		"ServiceConfigEnabled": func() bool { return e.ServiceConfig },
+		"ConfigDefaultLiteral": configDefaultLiteral,
 		"HasType": func(fields []normalizer.Field, typ string) bool {
 			for _, f := range fields {
 				if strings.EqualFold(f.Type, typ) {
@@ -1103,4 +1106,30 @@ func (e *Emitter) emitK8sFiles(baseDir string, ctx K8sContext) error {
 		logGenerated("Generated K8s Manifest: %s\n", path)
 	}
 	return nil
+}
+
+// configDefaultLiteral is a field's CUE default as a Go literal of its config
+// type, "" when it has none (the zero value) or the type has no literal form.
+func configDefaultLiteral(f normalizer.Field) string {
+	def := strings.TrimSpace(f.Default)
+	if def == "" {
+		return ""
+	}
+	switch f.Type {
+	case "", "string":
+		return strconv.Quote(strings.Trim(def, "\""))
+	case "int", "int64", "int32":
+		if _, err := strconv.ParseInt(def, 10, 64); err == nil {
+			return def
+		}
+	case "float64", "float32":
+		if _, err := strconv.ParseFloat(def, 64); err == nil {
+			return def
+		}
+	case "bool":
+		if b, err := strconv.ParseBool(def); err == nil {
+			return strconv.FormatBool(b)
+		}
+	}
+	return ""
 }

@@ -42,6 +42,30 @@ func Load() (*Config, error) {
 	return &cfg, nil
 }
 
+{{ if ServiceConfigEnabled -}}
+// Default is the configuration with every value at its CUE default and
+// nothing read from the environment or a .env file: what a service holds as
+// s.Cfg until the container gives it the loaded one, and what tests start from.
+func Default() *Config {
+	return &Config{
+		{{- range .Fields }}
+		{{- $lit := ConfigDefaultLiteral . }}
+		{{- if $lit }}
+		{{ FieldName . }}: {{ $lit }},
+		{{- end }}
+		{{- end }}
+	}
+}
+
+// OrDefault returns cfg, or Default() when cfg is nil.
+func OrDefault(cfg *Config) *Config {
+	if cfg != nil {
+		return cfg
+	}
+	return Default()
+}
+
+{{ end -}}
 // dotEnvMu serializes applyDotEnvDefaults: Load runs from many goroutines at
 // once (every request that reads the mail settings).
 var dotEnvMu sync.Mutex

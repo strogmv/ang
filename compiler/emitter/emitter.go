@@ -56,6 +56,9 @@ type Emitter struct {
 	// PostgresVersion is target.postgres_version, the major version of the
 	// Atlas dev database ("" means DefaultPostgresVersion).
 	PostgresVersion string
+	// ServiceConfig is target.service_config: s.Cfg in every service and
+	// config.Default() (see EmitConfig and the service impl emitters).
+	ServiceConfig bool
 	FrontendDir              string
 	FrontendAdminDir         string
 	TemplatesDir             string // Путь к папке с шаблонами

@@ -129,3 +129,23 @@ func TestApplyAuthDefaultDenyRefusesPublicMutationWithoutReason(t *testing.T) {
 		t.Fatalf("an unknown auth_default must fail, got %v", err)
 	}
 }
+
+func TestCheckConfigLoadsNamesOperationsThatReloadConfig(t *testing.T) {
+	t.Parallel()
+
+	schema := &ir.Schema{Services: []ir.Service{{
+		Name: "Mail",
+		Methods: []ir.Method{
+			{Name: "Send", Source: "cue/api/mail.cue:3:1", Impl: &ir.Impl{Code: "cfg, err := config.Load()\n_ = cfg"}},
+			{Name: "Notify", Flow: []ir.FlowStep{{Action: "flow.If", Then: []ir.FlowStep{{Action: "logic.Call", Args: map[string]any{"func": "if c, e := config.Load(); e == nil { _ = c }"}}}}}},
+			{Name: "Quiet", Impl: &ir.Impl{Code: "cfg := s.Cfg\n_ = cfg"}},
+		},
+	}}}
+	ws := CheckConfigLoads(schema)
+	if len(ws) != 2 {
+		t.Fatalf("want Send and Notify, got %+v", ws)
+	}
+	if ws[0].Code != CodeConfigLoadInOperation || ws[0].Op != "Send" || ws[0].Path != "cue/api/mail.cue:3:1" || ws[1].Op != "Notify" {
+		t.Fatalf("got %+v", ws)
+	}
+}

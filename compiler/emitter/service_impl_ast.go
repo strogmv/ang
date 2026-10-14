@@ -13,7 +13,19 @@ import (
 	"github.com/strogmv/ang/angir/normalizer"
 )
 
-func renderServiceImplTypeDecl(svc normalizer.Service, entities []normalizer.Entity, auth *normalizer.AuthDef) (string, error) {
+// serviceImplOptions are target options that change every <Service>Impl.
+type serviceImplOptions struct {
+	// ServiceConfig (target.service_config): an exported Cfg *config.Config
+	// field, set by the constructor to config.Default() (the auth service:
+	// to its cfg argument) and by the runtime container to the loaded config.
+	ServiceConfig bool
+}
+
+func (e *Emitter) serviceImplOptions() serviceImplOptions {
+	return serviceImplOptions{ServiceConfig: e.ServiceConfig}
+}
+
+func renderServiceImplTypeDecl(svc normalizer.Service, entities []normalizer.Entity, auth *normalizer.AuthDef, opts ...serviceImplOptions) (string, error) {
 	repoEntities := serviceImplRepoEntities(svc, entities)
 	deps := serviceImplServiceDeps(svc)
 
@@ -50,6 +62,12 @@ func renderServiceImplTypeDecl(svc normalizer.Service, entities []normalizer.Ent
 		fields = append(fields, &ast.Field{
 			Names: []*ast.Ident{ast.NewIdent("refreshStore")},
 			Type:  mustParseExpr("port.RefreshTokenStore"),
+		})
+	}
+	if implOptions(opts).ServiceConfig {
+		fields = append(fields, &ast.Field{
+			Names: []*ast.Ident{ast.NewIdent("Cfg")},
+			Type:  mustParseExpr("*config.Config"),
 		})
 	}
 	if serviceImplHasPublishes(svc) {
@@ -132,7 +150,7 @@ func renderServiceImplTypeDecl(svc normalizer.Service, entities []normalizer.Ent
 	return buf.String(), nil
 }
 
-func renderServiceImplConstructorDecl(svc normalizer.Service, entities []normalizer.Entity, auth *normalizer.AuthDef) (string, error) {
+func renderServiceImplConstructorDecl(svc normalizer.Service, entities []normalizer.Entity, auth *normalizer.AuthDef, opts ...serviceImplOptions) (string, error) {
 	repoEntities := serviceImplRepoEntities(svc, entities)
 	deps := serviceImplServiceDeps(svc)
 
@@ -178,6 +196,13 @@ func renderServiceImplConstructorDecl(svc normalizer.Service, entities []normali
 		})
 		elts = append(elts, &ast.KeyValueExpr{Key: ast.NewIdent("cfg"), Value: ast.NewIdent("cfg")})
 		elts = append(elts, &ast.KeyValueExpr{Key: ast.NewIdent("refreshStore"), Value: ast.NewIdent("refreshStore")})
+	}
+	if implOptions(opts).ServiceConfig {
+		value := "config.Default()"
+		if auth != nil && auth.Service == svc.Name {
+			value = "config.OrDefault(cfg)"
+		}
+		elts = append(elts, &ast.KeyValueExpr{Key: ast.NewIdent("Cfg"), Value: mustParseExpr(value)})
 	}
 	if serviceImplHasPublishes(svc) {
 		params = append(params, &ast.Field{
@@ -715,4 +740,11 @@ func serviceImplHasFlowActionWithPrefix(s normalizer.Service, prefix string) boo
 		}
 	}
 	return false
+}
+
+func implOptions(opts []serviceImplOptions) serviceImplOptions {
+	if len(opts) == 0 {
+		return serviceImplOptions{}
+	}
+	return opts[0]
 }

@@ -102,7 +102,12 @@ func (e *Emitter) EmitTestContainerFromIR(ctx MainContext, schema *ir.Schema, au
 
 	buf.WriteString("// NewTestContainer creates a mock-first bootstrap container for unit tests.\n")
 	buf.WriteString("func NewTestContainer(opts ...TestOption) *TestContainer {\n")
-	buf.WriteString("\tc := &TestContainer{Config: &config.Config{}}\n")
+	if e.ServiceConfig {
+		// target.service_config: tests start from the CUE defaults.
+		buf.WriteString("\tc := &TestContainer{Config: config.Default()}\n")
+	} else {
+		buf.WriteString("\tc := &TestContainer{Config: &config.Config{}}\n")
+	}
 	for _, repoName := range repoNames {
 		field := repoName
 		impl := lowerFirst(repoName) + "Impl"
@@ -221,6 +226,11 @@ func (e *Emitter) EmitTestContainerFromIR(ctx MainContext, schema *ir.Schema, au
 			buf.WriteString(",\n")
 		}
 		buf.WriteString("\t\t)\n")
+		if e.ServiceConfig {
+			buf.WriteString("\t\tif impl, ok := c.Svc" + svc.Name + ".(*service." + svc.Name + "Impl); ok {\n")
+			buf.WriteString("\t\t\timpl.Cfg = c.Config\n")
+			buf.WriteString("\t\t}\n")
+		}
 		buf.WriteString("\t}\n")
 	}
 	buf.WriteString("\treturn c\n")

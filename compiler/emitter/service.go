@@ -221,10 +221,10 @@ func (e *Emitter) EmitService(services []ir.Service) error {
 		return renderServiceInterfaceDecl(svc)
 	}
 	funcMap["ServiceImplTypeDecl"] = func(svc normalizer.Service, entities []normalizer.Entity, auth *normalizer.AuthDef) (string, error) {
-		return renderServiceImplTypeDecl(svc, entities, auth)
+		return renderServiceImplTypeDecl(svc, entities, auth, e.serviceImplOptions())
 	}
 	funcMap["ServiceImplConstructorDecl"] = func(svc normalizer.Service, entities []normalizer.Entity, auth *normalizer.AuthDef) (string, error) {
-		return renderServiceImplConstructorDecl(svc, entities, auth)
+		return renderServiceImplConstructorDecl(svc, entities, auth, e.serviceImplOptions())
 	}
 
 	t, err := template.New("service").Funcs(funcMap).Parse(string(tmplContent))
@@ -284,10 +284,10 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 
 	funcMapImpl := e.getSharedFuncMap()
 	funcMapImpl["ServiceImplTypeDecl"] = func(svc normalizer.Service, entities []normalizer.Entity, auth *normalizer.AuthDef) (string, error) {
-		return renderServiceImplTypeDecl(svc, entities, auth)
+		return renderServiceImplTypeDecl(svc, entities, auth, e.serviceImplOptions())
 	}
 	funcMapImpl["ServiceImplConstructorDecl"] = func(svc normalizer.Service, entities []normalizer.Entity, auth *normalizer.AuthDef) (string, error) {
-		return renderServiceImplConstructorDecl(svc, entities, auth)
+		return renderServiceImplConstructorDecl(svc, entities, auth, e.serviceImplOptions())
 	}
 	funcMapImpl["ServiceImplMethodSignature"] = func(serviceName string, m normalizer.Method) (string, error) {
 		return renderServiceImplMethodSignature(serviceName, m)
@@ -297,9 +297,10 @@ func (e *Emitter) EmitServiceImpl(services []ir.Service, entities []ir.Entity, e
 	funcMapImpl["FlowRenderable"] = flowRenderable
 	// renderFlowWith renders a method's flow, sending its warnings to sink; each
 	// parallel method job binds its own sink (see runServiceImplMethodJobs).
+	flowInfra := e.flowInfraValues()
 	renderFlowWith := func(sink func(normalizer.Warning)) func(args ...any) string {
 		return func(args ...any) string {
-			return renderFlowTemplateArgs(args, e.InfraValues, nServices, nEntities, nEvents, sink)
+			return renderFlowTemplateArgs(args, flowInfra, nServices, nEntities, nEvents, sink)
 		}
 	}
 	funcMapImpl["RenderFlow"] = renderFlowWith(e.WarningSink)
@@ -987,4 +988,34 @@ func (e *Emitter) getManualMethods(serviceName string) map[string]bool {
 		}
 	}
 	return overrides
+}
+
+// flowInfraValues is e.InfraValues plus what flow rendering needs from target
+// options: under target.service_config, the string config fields by env var.
+func (e *Emitter) flowInfraValues() map[string]any {
+	if !e.ServiceConfig {
+		return e.InfraValues
+	}
+	cfg := &normalizer.ConfigDef{}
+	if e.IRSchema != nil {
+		cfg.Fields = IRFieldsToNormalizer(e.IRSchema.Config.Fields)
+	}
+	cfg = ensureRuntimeConfigFields(cfg)
+	fields := map[string]string{}
+	for _, f := range cfg.Fields {
+		if f.EnvVar == "" || (f.Type != "" && f.Type != "string") {
+			continue
+		}
+		name := f.Name
+		if name == "" {
+			continue
+		}
+		if name[0] < 'A' || name[0] > 'Z' {
+			name = ExportName(name)
+		}
+		fields[f.EnvVar] = name
+	}
+	out := cloneInfraValues(e.InfraValues)
+	out[flowInfraKeyServiceConfig] = fields
+	return out
 }

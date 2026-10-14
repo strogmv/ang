@@ -2,6 +2,7 @@ package emitter
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/strogmv/ang/angir/normalizer"
@@ -58,9 +59,38 @@ func renderTypedStepSecretConfig(st *flowRenderState, step flowir.TypedStep, ind
 	st.pointers[output] = false
 	st.types[output] = "string"
 	var b strings.Builder
+	// target.service_config: a config.Get of a key the generated config
+	// declares reads the loaded configuration, the one the server started
+	// with (env, .env and CUE defaults), instead of the process environment.
+	if field := flowServiceConfigField(st.infraValues, key); step.Name == "config.Get" && field != "" {
+		b.WriteString(fmt.Sprintf("%svar %s string = s.Cfg.%s\n", pad, output, field))
+		if defVal != "" {
+			b.WriteString(fmt.Sprintf("%sif %s == \"\" {\n%s\t%s = %s\n%s}\n", pad, output, pad, output, defVal, pad))
+		}
+		return b.String(), true
+	}
 	b.WriteString(fmt.Sprintf("%svar %s string = os.Getenv(%s)\n", pad, output, key))
 	if defVal != "" {
 		b.WriteString(fmt.Sprintf("%sif %s == \"\" {\n%s\t%s = %s\n%s}\n", pad, output, pad, output, defVal, pad))
 	}
 	return b.String(), true
+}
+
+// flowInfraKeyServiceConfig holds, when target.service_config is on, the Go
+// names of the string fields of the generated config by their env var.
+const flowInfraKeyServiceConfig = "emitter.service_config_fields"
+
+// flowServiceConfigField is the config field a literal config.Get key names,
+// "" when service_config is off, the key is not a literal or no string field
+// has that env var.
+func flowServiceConfigField(infraValues map[string]any, key string) string {
+	fields, _ := infraValues[flowInfraKeyServiceConfig].(map[string]string)
+	if len(fields) == 0 {
+		return ""
+	}
+	name, err := strconv.Unquote(strings.TrimSpace(key))
+	if err != nil {
+		return ""
+	}
+	return fields[name]
 }
