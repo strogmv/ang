@@ -217,6 +217,17 @@ func (e *Emitter) EmitService(services []ir.Service) error {
 		}
 		return false
 	}
+	funcMap["FileOutput"] = func(m normalizer.Method) *normalizer.FileOutputSpec {
+		return normalizer.MethodFileOutput(m.Metadata)
+	}
+	funcMap["ServiceHasFileOutput"] = func(svc *normalizer.Service) bool {
+		for _, m := range svc.Methods {
+			if normalizer.MethodFileOutput(m.Metadata) != nil {
+				return true
+			}
+		}
+		return false
+	}
 	funcMap["ServiceInterfaceDecl"] = func(svc normalizer.Service) (string, error) {
 		return renderServiceInterfaceDecl(svc)
 	}

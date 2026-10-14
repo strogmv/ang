@@ -21,6 +21,8 @@ type OpenAPIEndpoint struct {
 	ErrorDefs []normalizer.ErrorDef
 	Input     normalizer.Entity
 	Output    normalizer.Entity
+	// File is a file output: the 200 answer is the bytes, not a schema.
+	File *normalizer.FileOutputSpec
 }
 
 type OpenAPIContext struct {
@@ -326,7 +328,7 @@ func (e *Emitter) EmitOpenAPIFromNormalizerTypes(endpoints []normalizer.Endpoint
 					nestedMap[nested.Name] = nested
 				}
 			}
-			if method.Output.Name != "" {
+			if method.Output.Name != "" && normalizer.MethodFileOutput(method.Metadata) == nil {
 				schemaMap[method.Output.Name] = method.Output
 				for _, nested := range nestedEntitiesFromEntity(method.Output) {
 					nestedMap[nested.Name] = nested
@@ -347,6 +349,7 @@ func (e *Emitter) EmitOpenAPIFromNormalizerTypes(endpoints []normalizer.Endpoint
 		if ok {
 			oe.Input = method.Input
 			oe.Output = method.Output
+			oe.File = normalizer.MethodFileOutput(method.Metadata)
 		}
 		apiEndpoints = append(apiEndpoints, oe)
 	}

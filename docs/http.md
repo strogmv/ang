@@ -77,3 +77,57 @@ API key in the body, a rate limit.
    write `auth: {public: true, reason: "..."}`; read-only public endpoints need
    only `public: true`.
 3. Set `auth_default: "deny"`. Everything else now needs a caller.
+
+## File responses
+
+An operation whose output is `kind: "file"` answers with the bytes of a file,
+not with a JSON object:
+
+```cue
+ExportCustomersCSV: schema.#Operation & {
+	service: "customers"
+	input: {companyId: string}
+	output: {kind: "file", contentType: "text/csv; charset=utf-8", filename: "customers.csv"}
+	// or: output: schema.#FileOutput & {contentType: "application/pdf", disposition: "inline"}
+}
+```
+
+| Key | Meaning |
+|---|---|
+| `contentType` | `Content-Type` unless the operation sets `resp.ContentType`; `application/octet-stream` when neither does. |
+| `filename` | The name in `Content-Disposition` unless the operation sets `resp.Filename`. |
+| `disposition` | `"attachment"` (default: the browser saves the file) or `"inline"` (it shows it, e.g. a PDF). |
+
+The response type in `internal/port` is fixed:
+
+```go
+type ExportCustomersCSVResponse struct {
+	Body        io.ReadCloser // streamed to the client and closed; when nil, Content is written
+	Content     []byte
+	ContentType string // replaces the declared one when set
+	Filename    string // replaces the declared one when set
+	Size        int64  // length of Body when known (Content-Length)
+}
+```
+
+so the operation's Go sets `resp.Content = csvBytes` (or `resp.Body = object`
+for a file read from storage, never held in memory) and, for a name that
+depends on the data, `resp.Filename = "invoice-" + number + ".pdf"`.
+
+The handler (`writeFileResponse` in `internal/transport/http/file_response.go`,
+generated with the first file endpoint) sets `Content-Type`,
+`X-Content-Type-Options: nosniff`, `Cache-Control: private`, `Content-Length`
+when known, and `Content-Disposition` per RFC 6266: an ASCII stand-in in
+`filename="..."` and the real name in `filename*=UTF-8''...` when it is not
+ASCII (`Rechnung März.pdf`). Quotes, slashes and line breaks in a name never
+reach the header. Errors before the first byte are the usual problem+json
+answers. OpenAPI describes the 200 answer as `format: binary` in that content
+type, and no JSON schema is generated for the response.
+
+The TypeScript SDK still reads every answer as text, so download a file
+endpoint by its URL (a link or `window.open`); the browser sends the session
+cookie. This replaces the JSON `{fileName, contentType, contentBase64}` shape:
+no base64 (a third larger), and the file is not held in memory twice.
+
+The older convention — output fields named `rawContent`/`rawContentType`
+(+ `rawDisposition`, `rawETag`) — keeps working unchanged.

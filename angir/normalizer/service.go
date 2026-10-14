@@ -199,11 +199,21 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 			outVal = value.LookupPath(cue.ParsePath("out"))
 		}
 		if outVal.Exists() {
-			ent, err := n.parseEntity(opName+"Response", outVal)
-			if err != nil {
+			if ent, spec, ok, err := parseFileOutput(opName+"Response", outVal); err != nil {
 				return nil, fmt.Errorf("failed to parse output for %s: %w", opName, err)
+			} else if ok {
+				method.Output = ent
+				if method.Metadata == nil {
+					method.Metadata = make(map[string]any)
+				}
+				method.Metadata[MethodMetaOutputFile] = spec.metadata()
+			} else {
+				ent, err := n.parseEntity(opName+"Response", outVal)
+				if err != nil {
+					return nil, fmt.Errorf("failed to parse output for %s: %w", opName, err)
+				}
+				method.Output = ent
 			}
-			method.Output = ent
 		}
 
 		// Analyze sources

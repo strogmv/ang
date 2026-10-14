@@ -10,7 +10,9 @@
 package http
 
 import (
+	{{- if not .NoJSON }}
 	"encoding/json"
+	{{- end }}
 	"net/http"
 	{{- if .HasETag }}
 	"crypto/sha256"
@@ -267,6 +269,15 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 			errors.WriteError(w, r, err)
 			return
 		}
+		{{- if .File }}
+		writeFileResponse(w, resp.Body, resp.Content, resp.Size, fileResponseHeaders{
+			ContentType:        resp.ContentType,
+			Filename:           resp.Filename,
+			DefaultContentType: {{ printf "%q" .File.ContentType }},
+			DefaultFilename:    {{ printf "%q" .File.Filename }},
+			Disposition:        {{ printf "%q" .File.Disposition }},
+		})
+		{{- else }}
 		{{- if CookieAuthEnabled }}
 		{{- if AuthLogoutTokenField .RPC }}
 		clearAuthCookies(w, r)
@@ -418,6 +429,7 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 		{{ else }}
 		w.WriteHeader(http.StatusNoContent)
 		{{ end }}
+		{{- end }}
 		{{- end }}
 	}
 }

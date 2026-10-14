@@ -17,6 +17,8 @@ type HttpEndpointView struct {
 	RoomField             string
 	AuthCheckHasCompanyID bool
 	HasBodyField          bool
+	// File is the endpoint's file output (output: {kind: "file"}), nil for JSON.
+	File *normalizer.FileOutputSpec
 }
 
 type HttpServiceGroup struct {
@@ -28,6 +30,9 @@ type HttpServiceGroup struct {
 	HasStreaming   bool
 	HasBroadcast   bool
 	HasDomainUsage bool
+	// NoJSON: every endpoint of the group answers with a file, so nothing
+	// in it encodes JSON.
+	NoJSON bool
 }
 
 type WsEndpointView struct {

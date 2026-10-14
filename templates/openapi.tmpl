@@ -108,7 +108,13 @@ paths:
       responses:
         '200':
           description: OK
-        {{- if and .Endpoint.RPC (ne $m "ws") }}
+        {{- if .File }}
+          content:
+            {{ if .File.ContentType }}{{ YAMLQuote .File.ContentType }}{{ else }}application/octet-stream{{ end }}:
+              schema:
+                type: string
+                format: binary
+        {{- else if and .Endpoint.RPC (ne $m "ws") }}
         content:
           application/json:
             schema:

@@ -173,6 +173,7 @@ func (e *Emitter) EmitHTTP(irEndpoints []ir.Endpoint, irServices []ir.Service, i
 			Broadcasts:            broadcasts,
 			AuthCheckHasCompanyID: authCheckHasCompanyID,
 			HasBodyField:          rawbody.Passthrough(method, ep.Path),
+			File:                  normalizer.MethodFileOutput(method.Metadata),
 			RoomField: func() string {
 				roomField := wsRoomFieldByService[ep.ServiceName]
 				if roomField == "" {
@@ -215,7 +216,7 @@ func (e *Emitter) EmitHTTP(irEndpoints []ir.Endpoint, irServices []ir.Service, i
 				}
 			}
 		}
-		if strings.ToUpper(ep.Method) == "GET" && method.Output.Name != "" {
+		if strings.ToUpper(ep.Method) == "GET" && method.Output.Name != "" && normalizer.MethodFileOutput(method.Metadata) == nil {
 			groups[ep.ServiceName].HasETag = true
 		}
 		if ep.IsStreaming {
@@ -226,6 +227,7 @@ func (e *Emitter) EmitHTTP(irEndpoints []ir.Endpoint, irServices []ir.Service, i
 		}
 	}
 
+	hasFileOutput := false
 	groupNames := make([]string, 0, len(groups))
 	for name := range groups {
 		groupNames = append(groupNames, name)
@@ -255,9 +257,19 @@ func (e *Emitter) EmitHTTP(irEndpoints []ir.Endpoint, irServices []ir.Service, i
 			HasBroadcast:   hasBroadcastInGroup,
 			HasDomainUsage: hasDomainUsageInGroup,
 		}
+		onlyFiles := true
 		for _, ep := range group.Endpoints {
 			if strings.ToUpper(ep.Method) != "WS" {
 				httpOnly.Endpoints = append(httpOnly.Endpoints, ep)
+				if ep.File == nil || ep.IsStreaming {
+					onlyFiles = false
+				}
+			}
+		}
+		httpOnly.NoJSON = onlyFiles && !hasBroadcastInGroup && len(httpOnly.Endpoints) > 0
+		for _, ep := range httpOnly.Endpoints {
+			if ep.File != nil {
+				hasFileOutput = true
 			}
 		}
 		if len(httpOnly.Endpoints) == 0 {
@@ -296,6 +308,13 @@ func Register%sRoutes(r chi.Router, svc port.%s) {
 		path := filepath.Join(targetDir, filename)
 		if err := WriteFileIfChanged(path, formatted, 0o644); err != nil {
 			return fmt.Errorf("write file: %w", err)
+		}
+		logGenerated("Generated HTTP: %s\n", path)
+	}
+	if hasFileOutput {
+		path := filepath.Join(targetDir, "file_response.go")
+		if err := WriteFileIfChanged(path, []byte(fileResponseSource), 0o644); err != nil {
+			return fmt.Errorf("write file response helper: %w", err)
 		}
 		logGenerated("Generated HTTP: %s\n", path)
 	}

@@ -116,6 +116,17 @@ import "github.com/strogmv/ang/cue/project"
 	imports?: [...string] | string
 }
 
+// #FileOutput makes an operation answer with a file instead of JSON
+// (docs/http.md): output: schema.#FileOutput & {contentType: "text/csv"}.
+// The operation sets resp.Content ([]byte) or resp.Body (io.ReadCloser,
+// streamed and closed), and may override resp.ContentType / resp.Filename.
+#FileOutput: {
+	kind:         "file"
+	contentType?: string
+	filename?:    string
+	disposition?: *"attachment" | "inline"
+}
+
 // Typed authorization policy registry (place in cue/policy/*.cue).
 #Policy: {
 	description?: string

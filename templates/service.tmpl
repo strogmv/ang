@@ -4,6 +4,9 @@ import (
         "context"
         "log/slog"
         "fmt"
+        {{- if ServiceHasFileOutput .Service }}
+        "io"
+        {{- end }}
         {{- if or (HasEventMethods .Service) (HasDomainTypes .Service) }}
         "{{ .GoModule }}/internal/domain"
         {{- end }}
@@ -27,7 +30,20 @@ type {{ .Input.Name }} struct {
 }
 {{ template "validator" .Input }}
 {{- end }}
-{{- if and .Output.Name (not (EventForMethod $.Service .)) }}
+{{- if and .Output.Name (not (EventForMethod $.Service .)) (FileOutput .) }}
+// {{ .Output.Name }} is a file: the handler writes it as is, not as JSON.
+type {{ .Output.Name }} struct {
+        // Body is streamed to the client and closed; when nil, Content is written.
+        Body io.ReadCloser
+        Content []byte
+        // ContentType and Filename replace the declared ones when set.
+        ContentType string
+        Filename string
+        // Size is the length of Body when known (Content-Length).
+        Size int64
+}
+{{ template "validator" .Output }}
+{{- else if and .Output.Name (not (EventForMethod $.Service .)) }}
 type {{ .Output.Name }} struct {
         {{- range .Output.Fields }}
         {{ .Name | ExportName }} {{ .Type }} `json:"{{ JSONName .Name }}"`
