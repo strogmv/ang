@@ -103,15 +103,40 @@ func (n *Normalizer) ExtractRepoFinders(val cue.Value) (map[string][]RepositoryF
 		if !findersVal.Exists() {
 			continue
 		}
-		list, _ := findersVal.List()
-		for list.Next() {
+		list, err := findersVal.List()
+		if err != nil {
+			return nil, fmt.Errorf("repository %s (%s): finders: %w", entity, formatPos(findersVal), err)
+		}
+		for idx := 0; list.Next(); idx++ {
 			fv := list.Value()
-			name, _ := fv.LookupPath(cue.ParsePath("name")).String()
+			name, err := finderString(fv, "name")
+			if err != nil {
+				return nil, fmt.Errorf("repository %s, finder #%d (%s): name: %w", entity, idx+1, formatPos(fv), err)
+			}
 			if strings.TrimSpace(name) == "" {
 				continue
 			}
-			action, _ := fv.LookupPath(cue.ParsePath("action")).String()
-			returns, _ := fv.LookupPath(cue.ParsePath("returns")).String()
+			// Every field that is present must decode: a value that fails
+			// (a conflict, a wrong type) used to be read as "" and the finder
+			// was generated without it.
+			fieldErr := func(field string, err error) error {
+				return fmt.Errorf("repository %s, finder %q (%s): %s: %w", entity, name, formatPos(fv), field, err)
+			}
+			str := func(field string) (string, error) {
+				s, err := finderString(fv, field)
+				if err != nil {
+					return "", fieldErr(field, err)
+				}
+				return s, nil
+			}
+			action, err := str("action")
+			if err != nil {
+				return nil, err
+			}
+			returns, err := str("returns")
+			if err != nil {
+				return nil, err
+			}
 			var selectFields []string
 			selVal := fv.LookupPath(cue.ParsePath("select"))
 			if selVal.Exists() {
@@ -145,13 +170,21 @@ func (n *Normalizer) ExtractRepoFinders(val cue.Value) (map[string][]RepositoryF
 			var wheres []FinderWhere
 			whereVal := fv.LookupPath(cue.ParsePath("where"))
 			if whereVal.Exists() {
-				whereIter, _ := whereVal.List()
+				whereIter, err := whereVal.List()
+				if err != nil {
+					return nil, fieldErr("where", err)
+				}
 				for whereIter.Next() {
 					wv := whereIter.Value()
-					field, _ := wv.LookupPath(cue.ParsePath("field")).String()
-					op, _ := wv.LookupPath(cue.ParsePath("op")).String()
-					param, _ := wv.LookupPath(cue.ParsePath("param")).String()
-					paramType, _ := wv.LookupPath(cue.ParsePath("param_type")).String()
+					var parts [4]string
+					for i, key := range []string{"field", "op", "param", "param_type"} {
+						s, err := finderString(wv, key)
+						if err != nil {
+							return nil, fieldErr("where."+key, err)
+						}
+						parts[i] = s
+					}
+					field, op, param, paramType := parts[0], parts[1], parts[2], parts[3]
 					if strings.TrimSpace(field) == "" {
 						continue
 					}
@@ -172,11 +205,23 @@ func (n *Normalizer) ExtractRepoFinders(val cue.Value) (map[string][]RepositoryF
 					})
 				}
 			}
-			returnType, _ := fv.LookupPath(cue.ParsePath("return_type")).String()
-			if returnType != "" {
+			returnType, err := str("return_type")
+			if err != nil {
+				return nil, err
 			}
-
-			sumField := strings.TrimSpace(getString(fv, "sum_field"))
+			orderBy, err := str("order_by")
+			if err != nil {
+				return nil, err
+			}
+			customSQL, err := str("sql")
+			if err != nil {
+				return nil, err
+			}
+			sumField, err := str("sum_field")
+			if err != nil {
+				return nil, err
+			}
+			sumField = strings.TrimSpace(sumField)
 			result[entity] = append(result[entity], RepositoryFinder{
 				Name:       name,
 				Action:     action,
@@ -185,7 +230,7 @@ func (n *Normalizer) ExtractRepoFinders(val cue.Value) (map[string][]RepositoryF
 				Select:     selectFields,
 				ScanFields: scanFields,
 				Where:      wheres,
-				OrderBy:    strings.TrimSpace(getString(fv, "order_by")),
+				OrderBy:    strings.TrimSpace(orderBy),
 				Limit: func() int {
 					limitVal := fv.LookupPath(cue.ParsePath("limit"))
 					if limitVal.Exists() {
@@ -204,7 +249,7 @@ func (n *Normalizer) ExtractRepoFinders(val cue.Value) (map[string][]RepositoryF
 					}
 					return false
 				}(),
-				CustomSQL: strings.TrimSpace(getString(fv, "sql")),
+				CustomSQL: strings.TrimSpace(customSQL),
 				SumField:  sumField,
 				Source:    formatPos(fv),
 			})
