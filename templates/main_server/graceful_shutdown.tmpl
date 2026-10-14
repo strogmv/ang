@@ -1,4 +1,7 @@
 {{ define "main_server_graceful_shutdown" }}
+	{{- if .Lifecycle }}
+	{{ template "main_server_runtime_start" . }}
+	{{- end }}
 	srv := &http.Server{
 		Addr:    ":" + cfg.HTTPPort,
 		Handler: r,
@@ -25,12 +28,15 @@
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	log.Info("Shutting down server...")
-
+{{ if .Lifecycle }}
+	{{ template "main_server_runtime_drain" . }}
+{{- else }}
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error("Server shutdown failed", "error", err)
 	}
+{{- end }}
 
 	{{- range $name, $enabled := .WebSocketServices }}
 	{{- if $enabled }}

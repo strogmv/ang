@@ -529,6 +529,10 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 			}
 		}
 
+		if err := parseOperationRuntime(value, opName, &method); err != nil {
+			return nil, err
+		}
+
 		subVal := value.LookupPath(cue.ParsePath("subscribes"))
 		if subVal.Exists() {
 			subIter, _ := subVal.Fields()

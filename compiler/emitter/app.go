@@ -48,6 +48,7 @@ type MainServerInfrastructureContext struct {
 	HasNotificationDispatch bool
 	ServicesIR              []ir.Service
 	EntitiesIR              []ir.Entity
+	Lifecycle               bool
 }
 
 type MainServerRepositoriesContext struct {
@@ -89,6 +90,8 @@ type MainServerServicesContext struct {
 	HasNotificationsService bool
 	HasNotificationDispatch bool
 	WebSocketServices       map[string]bool
+	Lifecycle               bool
+	Roles                   bool
 }
 
 type MainServerHTTPRouterContext struct {
@@ -101,10 +104,12 @@ type MainServerWebSocketsContext struct {
 	EndpointsIR   []ir.Endpoint
 	ServicesIR    []ir.Service
 	EventPayloads map[string]ir.Entity
+	Roles         bool
 }
 
 type MainServerGracefulShutdownContext struct {
 	WebSocketServices map[string]bool
+	MainRuntimeContext
 }
 
 type MainServerTemplateData struct {
@@ -117,10 +122,13 @@ type MainServerTemplateData struct {
 	HTTPRouter       MainServerHTTPRouterContext
 	WebSockets       MainServerWebSocketsContext
 	GracefulShutdown MainServerGracefulShutdownContext
+	Runtime          MainRuntimeContext
 }
 
 func buildMainServerTemplateData(ctx MainContext) MainServerTemplateData {
+	rt := buildMainRuntime(ctx)
 	return MainServerTemplateData{
+		Runtime: rt,
 		Header: MainServerHeaderContext{
 			ServicesIR:   ctx.ServicesIR,
 			ANGVersion:   ctx.ANGVersion,
@@ -155,6 +163,7 @@ func buildMainServerTemplateData(ctx MainContext) MainServerTemplateData {
 			HasNotificationDispatch: ctx.HasNotificationDispatch,
 			ServicesIR:              ctx.ServicesIR,
 			EntitiesIR:              ctx.EntitiesIR,
+			Lifecycle:               rt.Lifecycle,
 		},
 		Repositories: MainServerRepositoriesContext{
 			AuthService:             ctx.AuthService,
@@ -193,6 +202,8 @@ func buildMainServerTemplateData(ctx MainContext) MainServerTemplateData {
 			HasNotificationsService: ctx.HasNotificationsService,
 			HasNotificationDispatch: ctx.HasNotificationDispatch,
 			WebSocketServices:       ctx.WebSocketServices,
+			Lifecycle:               rt.Lifecycle,
+			Roles:                   rt.Roles,
 		},
 		HTTPRouter: MainServerHTTPRouterContext{
 			HasSession: ctx.HasSession,
@@ -203,9 +214,11 @@ func buildMainServerTemplateData(ctx MainContext) MainServerTemplateData {
 			EndpointsIR:   ctx.EndpointsIR,
 			ServicesIR:    ctx.ServicesIR,
 			EventPayloads: ctx.EventPayloadsIR,
+			Roles:         rt.Roles,
 		},
 		GracefulShutdown: MainServerGracefulShutdownContext{
-			WebSocketServices: ctx.WebSocketServices,
+			WebSocketServices:  ctx.WebSocketServices,
+			MainRuntimeContext: rt,
 		},
 	}
 }
@@ -221,6 +234,7 @@ func (e *Emitter) parseMainServerTemplate() (*template.Template, error) {
 		"templates/main_server/websockets.tmpl",
 		"templates/main_server/graceful_shutdown.tmpl",
 		"templates/main_server/runtime_container.tmpl",
+		"templates/main_server/runtime.tmpl",
 	}
 	t := template.New("main_server").Funcs(e.getAppFuncMap())
 	for _, p := range paths {
@@ -283,8 +297,12 @@ func (e *Emitter) EmitServiceMain(svcName string, ctx MainContext) error {
 		return fmt.Errorf("create directory: %w", err)
 	}
 
+	data := buildMainServerTemplateData(ctx)
+	if err := validateMainRuntime(ctx, data.Runtime, e.irConfig()); err != nil {
+		return err
+	}
 	var buf bytes.Buffer
-	if err := t.ExecuteTemplate(&buf, "main_server_root", buildMainServerTemplateData(ctx)); err != nil {
+	if err := t.ExecuteTemplate(&buf, "main_server_root", data); err != nil {
 		return err
 	}
 	formatted, err := formatGoStrict(buf.Bytes(), "cmd/services/"+strings.ToLower(svcName)+"/main.go")
@@ -309,8 +327,12 @@ func (e *Emitter) EmitMain(ctx MainContext) error {
 		return fmt.Errorf("create directory: %w", err)
 	}
 
+	data := buildMainServerTemplateData(ctx)
+	if err := validateMainRuntime(ctx, data.Runtime, e.irConfig()); err != nil {
+		return err
+	}
 	var buf bytes.Buffer
-	if err := t.ExecuteTemplate(&buf, "main_server_root", buildMainServerTemplateData(ctx)); err != nil {
+	if err := t.ExecuteTemplate(&buf, "main_server_root", data); err != nil {
 		return err
 	}
 	formatted, err := formatGoStrict(buf.Bytes(), "cmd/server/main.go")
@@ -347,4 +369,12 @@ func (e *Emitter) EmitRuntimeContainer(ctx MainContext) error {
 		}
 	}
 	return WriteFileIfChanged(path, formatted, 0644)
+}
+
+// irConfig is the project's config from the IR, nil when the emitter has none.
+func (e *Emitter) irConfig() *ir.Config {
+	if e.IRSchema == nil {
+		return nil
+	}
+	return &e.IRSchema.Config
 }

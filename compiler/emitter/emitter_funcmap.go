@@ -891,6 +891,12 @@ type MainContext struct {
 	NotificationMuting      bool   // Enable notification muting decorator
 	HasNotificationsService bool
 	HasNotificationDispatch bool
+	// ServerRoles is target.server_roles: SERVER_ROLE=api|worker|all.
+	ServerRoles bool
+	// ShutdownTimeout is target.shutdown_timeout (a Go duration).
+	ShutdownTimeout string
+	// Queues are the queue entities whose workers the main starts.
+	Queues []MainQueue
 }
 
 // AnalyzeContext checks which infrastructure dependencies are required.

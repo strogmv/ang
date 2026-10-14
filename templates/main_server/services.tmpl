@@ -1,10 +1,15 @@
 {{ define "main_server_services" }}
 	{{- range .ServicesIR }}
 	{{ if .Subscribes }}
-	if natsClient != nil {
+	if natsClient != nil{{ if $.Lifecycle }} && runWorkers{{ end }} {
 	{{- $svc := . }}
 	{{- range $evtName := sortedKeys $svc.Subscribes }}
 	{{- $method := mapGet $svc.Subscribes $evtName }}
+	{{- $when := subscribeWhenIR $svc $method }}
+	{{- if $when }}
+		// subscribe.when: a replica where it is false stays out of the queue group.
+		if {{ $when }} {
+	{{- end }}
 		if _, err := natsClient.{{ if eq (subscriptionDeliveryIR $svc $evtName) "broadcast" }}SubscribeRaw("{{ $evtName }}"{{ else }}SubscribeQueueRaw("{{ $evtName }}", "ang-{{ $svc.Name | ToLower }}-{{ $evtName | ToLower }}"{{ end }}, func(data []byte) (handlerErr error) {
 			// A panic becomes the handler's error: logged with its stack and
 			// counted (ang_panics_recovered_total) instead of killing the process.
@@ -24,13 +29,24 @@
 		}); err != nil {
 			log.Error("Failed to subscribe to {{ $evtName }}", "error", err)
 		}
+	{{- if $when }}
+		}
+	{{- end }}
 	{{- end }}
 	}
 	{{ end }}
-
+{{ if $.Roles }}
+	if serveAPI {
+		transport.Register{{ .Name }}Routes(r, runtimeContainer.Svc{{ .Name }})
+		{{- if index $.WebSocketServices .Name }}
+		transport.Register{{ .Name }}WSRoutes(r, runtimeContainer.Svc{{ .Name }})
+		{{- end }}
+	}
+{{- else }}
 	transport.Register{{ .Name }}Routes(r, runtimeContainer.Svc{{ .Name }})
 	{{- if index $.WebSocketServices .Name }}
 	transport.Register{{ .Name }}WSRoutes(r, runtimeContainer.Svc{{ .Name }})
 	{{- end }}
+{{- end }}
 	{{- end }}
 {{ end }}

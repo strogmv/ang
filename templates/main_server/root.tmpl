@@ -32,6 +32,9 @@ func main() {
 		log.Error("Failed to init auth", "error", err)
 		os.Exit(1)
 	}
+	{{- if .Runtime.Lifecycle }}
+	{{ template "main_server_runtime_setup" .Runtime }}
+	{{- end }}
 
 	tp, err := tracing.Init("ang-service", cfg.OTELExporterOTLPTracesEndpoint)
 	if err != nil {

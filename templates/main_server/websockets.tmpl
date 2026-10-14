@@ -1,6 +1,6 @@
 {{ define "main_server_websockets" }}
 	{{- if .HasNats }}
-	if natsClient != nil {
+	if natsClient != nil{{ if .Roles }} && serveAPI{{ end }} {
 		{{- range $svcName, $events := .WSEventMap }}
 		{{- range $evtName, $evtFields := $events }}
 		{{- $roomField := RoomFieldForEventIR $.EndpointsIR $.ServicesIR $svcName $evtName }}

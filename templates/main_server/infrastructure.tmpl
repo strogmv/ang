@@ -121,7 +121,14 @@
 	{{ end }}
 
 	{{ if .HasScheduler }}
+	{{- if .Lifecycle }}
+	if runWorkers {
+		sched := scheduler.New(publisher, scheduler.DefaultSchedules)
+		sched.Start(runCtx)
+	}
+	{{- else }}
 	sched := scheduler.New(publisher, scheduler.DefaultSchedules)
 	sched.Start(ctx)
+	{{- end }}
 	{{ end }}
 {{ end }}

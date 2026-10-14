@@ -764,6 +764,14 @@ type TargetDef struct {
 	// OperationMetrics is target.operation_metrics: Prometheus metrics and
 	// OpenTelemetry spans per operation and per repository query.
 	OperationMetrics bool
+	// ServerRoles (target.server_roles: true) makes the generated
+	// cmd/server read SERVER_ROLE=api|worker|all: HTTP routes only for
+	// api|all, subscriptions, schedules and queue workers only for
+	// worker|all. Off, the server runs everything as before.
+	ServerRoles bool
+	// ShutdownTimeout (target.shutdown_timeout, e.g. "30s") bounds the
+	// graceful drain on SIGTERM; SHUTDOWN_TIMEOUT overrides it at run time.
+	ShutdownTimeout string
 }
 
 // NotificationMutingDef describes automatic notification muting via repository decorator.

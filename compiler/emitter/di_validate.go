@@ -45,7 +45,7 @@ func ValidateGeneratedDI(backendDir string, ctx MainContext, auth *normalizer.Au
 	}
 	if ctx.HasScheduler {
 		requireMain("scheduler.New(publisher, scheduler.DefaultSchedules)", "scheduler capability requires scheduler construction")
-		requireMain("sched.Start(ctx)", "scheduler capability requires startup wiring")
+		requireMain("sched.Start(", "scheduler capability requires startup wiring")
 	}
 	if ctx.HasSession {
 		requireMain("r.Use(transport.SessionMiddleware)", "session capability requires HTTP middleware wiring")

@@ -53,6 +53,17 @@ import "github.com/strogmv/ang/cue/project"
 	publishes?: [...string]
 	broadcasts?: [...string]
 	subscribes?: [string]: string
+	// The operation's subscriptions are made only when this Go bool
+	// expression holds at start (cfg is the loaded config), so a replica with
+	// the jobs switched off does not join the queue group.
+	subscribe?: {when: string}
+	// Run the operation (empty input) when the process starts or stops; see
+	// docs/runtime.md.
+	hook?: "OnStart" | "OnShutdown" | {
+		on:    "OnStart" | "OnShutdown"
+		role?: "all" | "api" | "worker"
+		when?: string
+	}
 	uses?: [...string]
 	pagination?: {
 		type: "offset" | "cursor"

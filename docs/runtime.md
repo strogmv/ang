@@ -46,3 +46,77 @@ schedule only publishes that event, and the event (`cue/events`) and the
 subscription (`subscribes:` on the operation) are declared by hand.
 `cron:` works there too.
 
+## Process roles: `SERVER_ROLE`
+
+```cue
+// cue/project
+state: target: {
+	server_roles:     true
+	shutdown_timeout: "30s" // optional; SHUTDOWN_TIMEOUT overrides it at run time
+}
+```
+
+The generated `cmd/server` then reads `SERVER_ROLE`:
+
+| `SERVER_ROLE` | HTTP routes | subscriptions, schedules, queue workers |
+|---|---|---|
+| `all` (default, also when unset) | yes | yes |
+| `api` | yes | no |
+| `worker` | no (`/health`, `/health/ready`, `/metrics` only) | yes |
+
+Any other value exits with an error. WebSocket fan-out subscriptions belong to
+the API. One image serves both: deploy it twice with different
+`SERVER_ROLE`, and a worker no longer needs its own hand-written `cmd/`.
+
+### `subscribe.when`
+
+```cue
+SweepExpiredOffers: schema.#Operation & {
+	service: "b2b"
+	subscribes: {SweepExpiredOffersRequested: "SweepExpiredOffers"}
+	subscribe: {when: "cfg.JobsEnabled"}
+	...
+}
+```
+
+The operation's subscriptions are made only when the Go expression holds at
+start (`cfg` is the loaded config): a replica with `JOBS_ENABLED=false` does
+not join the queue group, so it cannot take ticks it would then skip. It works
+without `server_roles`. Every `cfg.<Field>` must be a config field (cue/infra
+`#AppConfig`), checked when the main is generated.
+
+## Lifecycle hooks
+
+```cue
+WarmPriceCache: schema.#Operation & {
+	service: "pricing"
+	hook:    "OnStart"
+	input: {}
+	output: {ok: bool}
+	flow: [...]
+}
+
+FlushPriceCache: schema.#Operation & {
+	service: "pricing"
+	hook: {on: "OnShutdown", role: "worker", when: "cfg.JobsEnabled"}
+	input: {}
+	output: {ok: bool}
+	flow: [...]
+}
+```
+
+A hook is an operation with an empty input that the main calls:
+
+- `OnStart` after the services, subscriptions and queue workers are set up and
+  before the HTTP server listens, with a context that ends on SIGTERM (a hook
+  may start a loop on it). An error exits the process.
+- `OnShutdown` on SIGTERM/SIGINT after the drain, in reverse service order,
+  with its own `shutdownTimeout` budget; errors are logged.
+- `role` (`all` default, `api`, `worker`) and `when` limit where it runs.
+
+With roles, hooks, queues or `shutdown_timeout` the shutdown is a drain: the
+HTTP server stops taking requests (`srv.Shutdown`), the run context ends
+(schedules and queue claims stop), jobs in flight finish, all within
+`shutdownTimeout` (default 30s), then the `OnShutdown` hooks run. Set the pod's
+`terminationGracePeriodSeconds` above twice that. Without any of these the
+main keeps its old 5-second HTTP shutdown.

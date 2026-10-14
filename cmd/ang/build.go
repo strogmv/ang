@@ -575,6 +575,8 @@ func runBuild(args []string) error {
 
 			ctx := em.AnalyzeContextFromIR(irSchema)
 			ctx.HasScheduler = len(irSchema.Schedules) > 0
+			ctx.ServerRoles = td.ServerRoles
+			ctx.ShutdownTimeout = td.ShutdownTimeout
 			ctx.InputHash = inputHash
 			ctx.CompilerHash = compilerFingerprint
 			ctx.ANGVersion = compiler.Version

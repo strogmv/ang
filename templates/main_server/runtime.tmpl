@@ -1,0 +1,74 @@
+{{ define "main_server_runtime_setup" }}
+	{{- if .Roles }}
+	// SERVER_ROLE: "api" serves the HTTP routes, "worker" runs subscriptions,
+	// schedules and queue workers (its HTTP port answers /health and /metrics
+	// only), "all" (the default) runs both.
+	serverRole := os.Getenv("SERVER_ROLE")
+	if serverRole == "" {
+		serverRole = "all"
+	}
+	if serverRole != "all" && serverRole != "api" && serverRole != "worker" {
+		log.Error("SERVER_ROLE must be api, worker or all", "value", serverRole)
+		os.Exit(1)
+	}
+	serveAPI := serverRole != "worker"
+	runWorkers := serverRole != "api"
+	log.Info("Server role", "role", serverRole, "http", serveAPI, "workers", runWorkers)
+	{{- else }}
+	serveAPI, runWorkers := true, true
+	_, _ = serveAPI, runWorkers
+	{{- end }}
+	// runCtx ends on SIGTERM: schedules, queue claims and the loops of start
+	// hooks stop, and work in flight drains within shutdownTimeout
+	// (SHUTDOWN_TIMEOUT overrides it).
+	runCtx, stopRun := context.WithCancel(ctx)
+	defer stopRun()
+	_ = runCtx
+	shutdownTimeout, _ := {{ .ShutdownTimeoutGo }}
+	if d, err := time.ParseDuration(os.Getenv("SHUTDOWN_TIMEOUT")); err == nil && d > 0 {
+		shutdownTimeout = d
+	}
+{{ end }}
+
+{{ define "main_server_runtime_start" }}
+	{{- range .StartHooks }}
+	{{- if .Cond }}
+	if {{ .Cond }} {
+	{{- end }}
+	// OnStart hook: the process does not serve until it succeeds.
+	if _, err := runtimeContainer.Svc{{ .Service }}.{{ .Method }}(runCtx, port.{{ .Method }}Request{}); err != nil {
+		log.Error("OnStart hook failed", "hook", "{{ .Service }}.{{ .Method }}", "error", err)
+		os.Exit(1)
+	}
+	{{- if .Cond }}
+	}
+	{{- end }}
+	{{- end }}
+{{ end }}
+
+{{ define "main_server_runtime_drain" }}
+	// Graceful drain: HTTP stops taking requests, schedules and queue claims
+	// stop, and work in flight finishes, within shutdownTimeout.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Error("Server shutdown failed", "error", err)
+	}
+	stopRun()
+	{{- if .ShutdownHooks }}
+	// OnShutdown hooks, in reverse service order, each phase within shutdownTimeout.
+	hookCtx, hookCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer hookCancel()
+	{{- range .ShutdownHooks }}
+	{{- if .Cond }}
+	if {{ .Cond }} {
+	{{- end }}
+	if _, err := runtimeContainer.Svc{{ .Service }}.{{ .Method }}(hookCtx, port.{{ .Method }}Request{}); err != nil {
+		log.Error("OnShutdown hook failed", "hook", "{{ .Service }}.{{ .Method }}", "error", err)
+	}
+	{{- if .Cond }}
+	}
+	{{- end }}
+	{{- end }}
+	{{- end }}
+{{ end }}

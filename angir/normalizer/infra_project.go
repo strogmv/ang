@@ -321,14 +321,18 @@ func parseTargetDef(targetVal cue.Value, defaultName string) TargetDef {
 		AuthDefault:              getOptionalStringField(targetVal, "auth_default"),
 		ServiceConfig:            getOptionalBoolField(targetVal, "service_config"),
 		OperationMetrics:         getOptionalBoolField(targetVal, "operation_metrics"),
+		ServerRoles:              getOptionalBoolField(targetVal, "server_roles"),
+		ShutdownTimeout:          getOptionalStringField(targetVal, "shutdown_timeout"),
 	}
 }
 
 // getOptionalBoolField reads a bool field that may be optional in a CUE
-// definition; false when it is absent.
+// definition (see getOptionalStringField); false when it is absent.
 func getOptionalBoolField(v cue.Value, path string) bool {
-	if b, err := v.LookupPath(cue.ParsePath(path)).Bool(); err == nil {
-		return b
+	if res := v.LookupPath(cue.ParsePath(path)); res.Exists() {
+		if b, err := res.Bool(); err == nil {
+			return b
+		}
 	}
 	data, err := v.MarshalJSON()
 	if err != nil {
