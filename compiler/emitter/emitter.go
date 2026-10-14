@@ -59,6 +59,9 @@ type Emitter struct {
 	// ServiceConfig is target.service_config: s.Cfg in every service and
 	// config.Default() (see EmitConfig and the service impl emitters).
 	ServiceConfig bool
+	// OperationMetrics is target.operation_metrics: metrics and spans per
+	// operation and per repository query (see emitOperationMetrics).
+	OperationMetrics bool
 	FrontendDir              string
 	FrontendAdminDir         string
 	TemplatesDir             string // Путь к папке с шаблонами

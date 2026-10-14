@@ -546,6 +546,7 @@ func runBuild(args []string) error {
 			em.SQLIndexNames = td.SQLIndexNames
 			em.PostgresVersion = td.PostgresVersion
 			em.ServiceConfig = td.ServiceConfig
+			em.OperationMetrics = td.OperationMetrics
 			// target.auth_default: under "deny" this target emits a copy of the
 			// schema in which every endpoint without auth needs a caller.
 			irSchema, authCheck, authErr := compiler.ApplyAuthDefault(irSchema, td.AuthDefault)

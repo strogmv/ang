@@ -38,6 +38,9 @@ import (
 	{{ if or .HasNotificationsService .HasNotificationDispatch }}
 	"{{.GoModule}}/internal/adapter/notifications"
 	{{ end }}
+	{{- if and OperationMetricsEnabled $needsPG }}
+	"{{.GoModule}}/internal/pkg/dbobserve"
+	{{- end }}
 	"{{.GoModule}}/internal/bootstrap"
 	"{{.GoModule}}/internal/config"
 	"{{.GoModule}}/internal/pkg/logger"

@@ -12,6 +12,10 @@ import (
 // Generated from: {{ .Method.Source }}
 {{- end }}
 {{ ServiceImplMethodSignature .Service.Name .Method }} {
+	{{- if and OperationMetricsEnabled (not .Method.IsStreaming) }}
+	ctx, observeDone := observeOperation(ctx, "{{ .Service.Name }}", "{{ .Method.Name }}")
+	defer func() { observeDone(err) }()
+	{{- end }}
 	{{- if and .Method.Impl .Method.Impl.Code }}
 	{{- if .Method.Transactional }}
 {{ Indent (TransactionalImplCode .Method) 1 }}

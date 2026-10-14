@@ -33,6 +33,10 @@
 		poolCfg.MinConns = int32(pgMinConns)
 		poolCfg.MaxConnLifetime = pgMaxConnLifetime
 		poolCfg.MaxConnIdleTime = pgMaxConnIdleTime
+		{{- if OperationMetricsEnabled }}
+		// target.operation_metrics: metrics and a span for every query.
+		poolCfg.ConnConfig.Tracer = dbobserve.QueryTracer{}
+		{{- end }}
 
 		pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 		if err != nil {
