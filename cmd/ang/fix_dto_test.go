@@ -29,8 +29,14 @@ Settlement: {
 
 Inline: {_dto: true, a: int}
 
-Order: {
+// _dto was the longest label: the others align again.
+#IDProj: {
+	_dto: true
 	id:   string
+} @dto(only="true")
+
+Order: {
+	id: string
 	meta: {_dto: true, note: string}
 }
 `
@@ -68,8 +74,13 @@ Settlement: {
 
 Inline: {a: int} @dto(only="true")
 
+// _dto was the longest label: the others align again.
+#IDProj: {
+	id: string
+} @dto(only="true")
+
 Order: {
-	id:   string
+	id: string
 	meta: {_dto: true, note: string}
 }
 `
@@ -84,10 +95,10 @@ Order: {
 	if wantMarked := []string{file + ":11 Settlement", file + ":17 Inline"}; !reflect.DeepEqual(res.Marked, wantMarked) {
 		t.Errorf("marked = %v, want %v", res.Marked, wantMarked)
 	}
-	if len(res.Removed) != 3 {
+	if len(res.Removed) != 4 {
 		t.Errorf("removed = %v", res.Removed)
 	}
-	if wantLeft := []string{file + ":21"}; !reflect.DeepEqual(res.Left, wantLeft) {
+	if wantLeft := []string{file + ":27"}; !reflect.DeepEqual(res.Left, wantLeft) {
 		t.Errorf("left = %v, want %v", res.Left, wantLeft)
 	}
 

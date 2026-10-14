@@ -31,7 +31,8 @@ type dtoFixResult struct {
 // docs/tech-debt-backlog.md). A top-level declaration whose struct has a
 // `_dto: true` field loses the field and gets the attribute
 // @dto(only="true") unless it has it already. The edit is textual: every
-// other byte of the file stays as it is.
+// other byte of the file stays as it is, except that a file kept in cue fmt
+// layout is formatted again.
 func fixDTOMarkers(root string, checkOnly bool) (dtoFixResult, error) {
 	files, err := collectCueFiles(root)
 	if err != nil {
@@ -46,6 +47,15 @@ func fixDTOMarkers(root string, checkOnly bool) (dtoFixResult, error) {
 		out, removed, marked, left, err := fixDTOMarkersInFile(file, src)
 		if err != nil {
 			return res, err
+		}
+		// A file kept in cue fmt layout stays in it: a removed `_dto` may
+		// have been the longest label its neighbours were aligned to.
+		if string(out) != string(src) {
+			if formatted, fmtErr := cueFmtBuffer(src); fmtErr == nil && string(formatted) == string(src) {
+				if out, err = cueFmtBuffer(out); err != nil {
+					return res, fmt.Errorf("cue fmt %s: %w", file, err)
+				}
+			}
 		}
 		res.Removed = append(res.Removed, removed...)
 		res.Marked = append(res.Marked, marked...)
