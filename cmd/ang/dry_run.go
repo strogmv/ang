@@ -36,8 +36,12 @@ type dryRunManifest struct {
 	TotalUnchanged int                    `json:"total_unchanged"`
 	TotalDelete    int                    `json:"total_delete"`
 	Targets        []dryRunTargetManifest `json:"targets"`
-	// Deletions are files ang-generated.txt lists that are no longer generated.
+	// Deletions are files ang-generated.txt lists that are no longer generated,
+	// and literals files hoisting no longer needs (see dryRunHoist).
 	Deletions []dryRunFileChange `json:"deletions,omitempty"`
+	// Rewrites are project files a build keeps without generating them that
+	// its literal hoisting changes (see dryRunHoist).
+	Rewrites []dryRunFileChange `json:"rewrites,omitempty"`
 	// GeneratedList is ang-generated.txt itself.
 	GeneratedList        *dryRunFileChange `json:"generated_list,omitempty"`
 	Notes                []string          `json:"notes"`
@@ -123,6 +127,7 @@ func printDryRunManifest(man dryRunManifest) {
 func summarizeDryRunManifest(man *dryRunManifest) {
 	man.TotalTargets = len(man.Targets)
 	man.TotalDelete = len(man.Deletions)
+	man.TotalUpdate += len(man.Rewrites)
 	if list := man.GeneratedList; list != nil {
 		man.TotalGenerated++
 		switch strings.ToLower(list.Action) {

@@ -35,6 +35,9 @@ func dryRunDifferences(man dryRunManifest, projectPath string) []dryRunFileChang
 	for _, change := range man.Deletions {
 		add(change)
 	}
+	for _, change := range man.Rewrites {
+		add(change)
+	}
 	sort.Slice(differences, func(i, j int) bool { return differences[i].Path < differences[j].Path })
 	return differences
 }

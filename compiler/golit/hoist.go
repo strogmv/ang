@@ -46,6 +46,10 @@ type Stats struct {
 	Replaced int // copies replaced by a name
 	Before   int // bytes of the package's generated files before
 	After    int // and after (including File)
+	// Retired lists the packages (relative to the root HoistTreeFrom walked,
+	// "." for HoistDirFrom) whose previous File this pass leaves without a
+	// successor: a build deletes it, a dry run reports it.
+	Retired []string
 }
 
 type span struct{ start, end int } // byte offsets, end exclusive
@@ -69,6 +73,16 @@ type candidate struct {
 // HoistDir hoists the repeated literals of the Go package in dir. It reads
 // every *.gen.go file of the package (tests excluded) and rewrites only those.
 func HoistDir(dir string) (Stats, error) {
+	return HoistDirFrom(dir, dir)
+}
+
+// HoistDirFrom is HoistDir for a package whose previous pass is not in dir:
+// the literals File the last build left is read from previousDir. A dry run
+// renders the package into a scratch directory and passes the project's
+// package here, so it rewrites the files exactly as a build over the project
+// would (the previous File decides, among others, whether files nothing was
+// hoisted from are tidied too).
+func HoistDirFrom(dir, previousDir string) (Stats, error) {
 	var st Stats
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -76,10 +90,12 @@ func HoistDir(dir string) (Stats, error) {
 	}
 	// A package this pass already rewrote: put its literals back first, so
 	// the result depends only on the operations (and a second pass is a no-op).
-	prev, prevImports, err := readPrevious(filepath.Join(dir, File))
+	prev, prevImports, err := readPrevious(filepath.Join(previousDir, File))
 	if err != nil {
 		return st, err
 	}
+	_, statErr := os.Stat(filepath.Join(previousDir, File))
+	hadPrevious := statErr == nil
 	var files []*source
 	for _, e := range entries {
 		name := e.Name()
@@ -108,6 +124,9 @@ func HoistDir(dir string) (Stats, error) {
 	}
 	_ = os.Remove(filepath.Join(dir, File)) // a stale one from the previous build
 	if len(files) == 0 {
+		if hadPrevious {
+			st.Retired = append(st.Retired, ".")
+		}
 		return st, nil
 	}
 
@@ -159,6 +178,9 @@ func HoistDir(dir string) (Stats, error) {
 		chosen[k] = c
 	}
 	if len(chosen) == 0 {
+		if hadPrevious {
+			st.Retired = append(st.Retired, ".")
+		}
 		for _, f := range files {
 			if len(prev) > 0 {
 				out, err := tidy(f.path, f.src)
@@ -527,6 +549,12 @@ func packageName(src []byte) (string, error) {
 // HoistTree runs HoistDir on every package under root that has generated
 // files (vendor, node_modules and dot directories skipped).
 func HoistTree(root string) (Stats, error) {
+	return HoistTreeFrom(root, root)
+}
+
+// HoistTreeFrom is HoistTree with each package's previous literals File read
+// from the same package under previousRoot (see HoistDirFrom).
+func HoistTreeFrom(root, previousRoot string) (Stats, error) {
 	var total Stats
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -543,7 +571,11 @@ func HoistTree(root string) (Stats, error) {
 		if len(matches) == 0 {
 			return nil
 		}
-		st, err := HoistDir(path)
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		st, err := HoistDirFrom(path, filepath.Join(previousRoot, rel))
 		if err != nil {
 			return fmt.Errorf("golit %s: %w", path, err)
 		}
@@ -551,6 +583,9 @@ func HoistTree(root string) (Stats, error) {
 		total.Replaced += st.Replaced
 		total.Before += st.Before
 		total.After += st.After
+		for _, pkg := range st.Retired {
+			total.Retired = append(total.Retired, filepath.ToSlash(filepath.Join(rel, pkg)))
+		}
 		return nil
 	})
 	return total, err

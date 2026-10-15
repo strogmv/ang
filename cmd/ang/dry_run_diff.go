@@ -82,6 +82,11 @@ func dryRunDiffs(man dryRunManifest) []dryRunFileChange {
 			}
 		}
 	}
+	for _, change := range man.Rewrites {
+		if change.Diff != "" {
+			out = append(out, change)
+		}
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Label < out[j].Label })
 	return out
 }

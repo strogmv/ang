@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/strogmv/ang/compiler/golit"
 )
 
 // generatedFilesName is the committed list of every file the last build
@@ -303,6 +305,11 @@ func planGeneratedFiles(projectRoot string, ownedPaths []string, man *dryRunMani
 	produced := map[string]struct{}{}
 	for _, target := range man.Targets {
 		for _, change := range target.Changes {
+			// Hoisting writes the literals file after the emitters, so a
+			// build never lists it (applyGeneratedOutput does not see it).
+			if filepath.Base(filepath.FromSlash(change.Path)) == golit.File {
+				continue
+			}
 			if rel, ok := projectRelativePath(projectAbs, filepath.FromSlash(change.Path)); ok {
 				produced[rel] = struct{}{}
 			}

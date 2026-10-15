@@ -14,7 +14,6 @@ import (
 	"github.com/strogmv/ang/compiler"
 	"github.com/strogmv/ang/compiler/emitter"
 	"github.com/strogmv/ang/compiler/generator"
-	"github.com/strogmv/ang/compiler/golit"
 )
 
 func runBuild(args []string) error {
@@ -385,6 +384,9 @@ func runBuild(args []string) error {
 		intendedBackends := make([]string, 0, len(selectedTargets))
 		intendedFrontends := make([]string, 0, len(selectedTargets))
 		producedFiles := map[string]struct{}{}
+		// A build that skipped targets or parts did not produce their files, so
+		// it must not treat them as no longer generated.
+		partialBuild := output.SkipFrontend || output.SkipContractTests || len(selectedTargets) != len(targetDefs)
 		for _, td := range selectedTargets {
 			intendedBackendDir := resolveBackendDirForTarget(effectiveMode, output.BackendDir, td, multiTarget)
 			intendedFrontendDir := resolveFrontendDirForTarget(frontendDirOptionForTarget(output, td), intendedBackendDir, td, multiTarget)
@@ -670,6 +672,27 @@ func runBuild(args []string) error {
 					fail(compiler.StageEmitters, refusal.code, refusal.op, refusal.err)
 					return
 				}
+				// The rewrite a build makes after its gates: compare what a
+				// build would write, not the emitters' output before it.
+				if strings.EqualFold(td.Lang, "go") {
+					projectAbs, _ := filepath.Abs(projectPath)
+					previousList, _, listErr := readGeneratedFiles(projectAbs)
+					if listErr != nil {
+						fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "read "+generatedFilesName, listErr)
+						return
+					}
+					owned := generatedTransactionPaths(projectPath, effectiveMode, []string{intendedBackendDir}, nil)
+					kept := func(abs string) bool {
+						return keptUngeneratedFile(projectAbs, abs, previousList, owned, partialBuild)
+					}
+					hoisted, hErr := dryRunHoist(backendDir, intendedBackendDir, projectPath, kept, output.DryRunDiff, logText)
+					if hErr != nil {
+						fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "hoist repeated literals", hErr)
+						return
+					}
+					dryManifest.Rewrites = append(dryManifest.Rewrites, hoisted.Rewrites...)
+					dryManifest.Deletions = append(dryManifest.Deletions, hoisted.Deletions...)
+				}
 				backendChanges, err := collectDryRunChanges(backendDir, intendedBackendDir, projectPath, output.DryRunDiff)
 				if err != nil {
 					fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "collect dry-run backend changes", err)
@@ -691,9 +714,6 @@ func runBuild(args []string) error {
 			}
 		}
 
-		// A build that skipped targets or parts did not produce their files, so
-		// it must not treat them as no longer generated.
-		partialBuild := output.SkipFrontend || output.SkipContractTests || len(selectedTargets) != len(targetDefs)
 		ownedPaths := generatedTransactionPaths(projectPath, effectiveMode, intendedBackends, intendedFrontends)
 		if output.DryRun {
 			if err := planGeneratedFiles(projectPath, ownedPaths, &dryManifest, partialBuild); err != nil {
@@ -805,15 +825,12 @@ func runBuild(args []string) error {
 				}
 			}
 			// A literal CUE pasted into many operations is declared once: the
-			// service package compiles in a third of the time.
+			// service package compiles in a third of the time. A dry run does
+			// the same per target before it compares (see hoistGoLiterals).
 			for _, backend := range goBackends {
-				st, hErr := golit.HoistTree(backend)
-				if hErr != nil {
+				if _, hErr := hoistGoLiterals(backend, backend, logText); hErr != nil {
 					printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterStep, "hoist repeated literals", hErr)
 					return
-				}
-				if st.Hoisted > 0 {
-					logText("Hoisted %d repeated literals (%d copies): generated Go %d KB → %d KB", st.Hoisted, st.Replaced, st.Before/1024, st.After/1024)
 				}
 			}
 			if !output.SkipGoVerify {
