@@ -9,6 +9,7 @@ import (
 
 	"github.com/strogmv/ang/angir/ir"
 	"github.com/strogmv/ang/angir/normalizer"
+	"gopkg.in/yaml.v3"
 )
 
 func fileOutputSchema() *ir.Schema {
@@ -203,5 +204,52 @@ func TestOpenAPIDescribesFileOutputsAsBinary(t *testing.T) {
 	}
 	if !strings.Contains(spec, "    GetOrderResponse:") {
 		t.Fatalf("JSON outputs keep their schema:\n%s", spec)
+	}
+}
+
+// The JSON answer belongs to the 200 response; it used to be written two
+// spaces short, as a response named "content" next to '200'.
+func TestOpenAPIPutsTheJSONAnswerUnderTheOKResponse(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	em := New(root, filepath.Join(root, "sdk"), "templates")
+	schema := fileOutputSchema()
+	if err := em.EmitOpenAPI(schema.Endpoints, schema.Services, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "api", "openapi.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Paths map[string]map[string]struct {
+			OperationID string                    `yaml:"operationId"`
+			Responses   map[string]map[string]any `yaml:"responses"`
+		} `yaml:"paths"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for path, item := range doc.Paths {
+		for method, op := range item {
+			if _, bad := op.Responses["content"]; bad {
+				t.Fatalf("%s %s has a response named content:\n%s", method, path, data)
+			}
+			if op.OperationID != "GetOrder" {
+				continue
+			}
+			found = true
+			content, _ := op.Responses["200"]["content"].(map[string]any)
+			body, _ := content["application/json"].(map[string]any)
+			schemaRef, _ := body["schema"].(map[string]any)
+			if schemaRef["$ref"] != "#/components/schemas/GetOrderResponse" {
+				t.Fatalf("GetOrder's 200 must carry its JSON schema, got %#v", op.Responses["200"])
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("no GetOrder operation:\n%s", data)
 	}
 }

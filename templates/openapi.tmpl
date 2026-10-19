@@ -128,10 +128,10 @@ paths:
                 type: string
                 format: binary
         {{- else if and .Endpoint.RPC (ne $m "ws") }}
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/{{ .Output.Name }}'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/{{ .Output.Name }}'
         {{- end }}
         '401':
           description: Unauthorized
