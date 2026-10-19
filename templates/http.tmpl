@@ -71,7 +71,7 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 		{{- else if eq .Type "int" }}
 		if v := r.URL.Query().Get("{{ $fname }}"); v != "" {
 			if i, err := strconv.Atoi(v); err == nil {
-				req.{{ .Name | ExportName }} = i
+				req.{{ .Name | ExportName }} = {{ if Nullable . }}&{{ end }}i
 			} else {
 				errors.WriteError(w, r, errors.NewValidationError("Invalid query", map[string]string{"{{ $fname }}": "must be integer"}))
 				return
@@ -80,7 +80,7 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 		{{- else if eq .Type "float64" }}
 		if v := r.URL.Query().Get("{{ $fname }}"); v != "" {
 			if f, err := strconv.ParseFloat(v, 64); err == nil {
-				req.{{ .Name | ExportName }} = f
+				req.{{ .Name | ExportName }} = {{ if Nullable . }}&{{ end }}f
 			} else {
 				errors.WriteError(w, r, errors.NewValidationError("Invalid query", map[string]string{"{{ $fname }}": "must be number"}))
 				return
@@ -89,7 +89,7 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 		{{- else if eq .Type "bool" }}
 		if v := r.URL.Query().Get("{{ $fname }}"); v != "" {
 			if b, err := strconv.ParseBool(v); err == nil {
-				req.{{ .Name | ExportName }} = b
+				req.{{ .Name | ExportName }} = {{ if Nullable . }}&{{ end }}b
 			} else {
 				errors.WriteError(w, r, errors.NewValidationError("Invalid query", map[string]string{"{{ $fname }}": "must be boolean"}))
 				return
@@ -97,7 +97,7 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 		}
 		{{- else }}
 		if v := r.URL.Query().Get("{{ $fname }}"); v != "" {
-			req.{{ .Name | ExportName }} = v
+			req.{{ .Name | ExportName }} = {{ if Nullable . }}&{{ end }}v
 		}
 		{{- end }}
 		{{- end }}
@@ -135,7 +135,7 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 		{{- if eq .Type "int" }}
 		if v := chi.URLParam(r, "{{ $param }}"); v != "" {
 			if i, err := strconv.Atoi(v); err == nil {
-				req.{{ .Name | ExportName }} = i
+				req.{{ .Name | ExportName }} = {{ if Nullable . }}&{{ end }}i
 			} else {
 				errors.WriteError(w, r, errors.NewValidationError("Invalid path", map[string]string{"{{ $param }}": "must be integer"}))
 				return
@@ -144,7 +144,7 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 		{{- else if eq .Type "float64" }}
 		if v := chi.URLParam(r, "{{ $param }}"); v != "" {
 			if f, err := strconv.ParseFloat(v, 64); err == nil {
-				req.{{ .Name | ExportName }} = f
+				req.{{ .Name | ExportName }} = {{ if Nullable . }}&{{ end }}f
 			} else {
 				errors.WriteError(w, r, errors.NewValidationError("Invalid path", map[string]string{"{{ $param }}": "must be number"}))
 				return
@@ -153,7 +153,7 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 		{{- else if eq .Type "bool" }}
 		if v := chi.URLParam(r, "{{ $param }}"); v != "" {
 			if b, err := strconv.ParseBool(v); err == nil {
-				req.{{ .Name | ExportName }} = b
+				req.{{ .Name | ExportName }} = {{ if Nullable . }}&{{ end }}b
 			} else {
 				errors.WriteError(w, r, errors.NewValidationError("Invalid path", map[string]string{"{{ $param }}": "must be boolean"}))
 				return
@@ -161,7 +161,7 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 		}
 		{{- else }}
 		if v := chi.URLParam(r, "{{ $param }}"); v != "" {
-			req.{{ .Name | ExportName }} = v
+			req.{{ .Name | ExportName }} = {{ if Nullable . }}&{{ end }}v
 		}
 		{{- end }}
 		{{- end }}

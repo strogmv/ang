@@ -25,6 +25,15 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 			return name + ", err := "
 		},
 
+		// GoFieldType is a port struct field's Go type: *T for a three-state
+		// field (@nullable()).
+		"GoFieldType": func(f normalizer.Field) string {
+			if normalizer.IsNullable(f) {
+				return "*" + f.Type
+			}
+			return f.Type
+		},
+		"Nullable":   normalizer.IsNullable,
 		"Title":      ToTitle,
 		"ExportName": ExportName,
 		"JSONName":   JSONName,

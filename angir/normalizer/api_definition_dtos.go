@@ -65,6 +65,9 @@ func (n *Normalizer) ExtractAPIDefinitionDTOs(api cue.Value, services []Service,
 		if err != nil {
 			return nil, err
 		}
+		if err := rejectNullableFields(ent); err != nil {
+			return nil, err
+		}
 		if ent.Metadata == nil {
 			ent.Metadata = map[string]any{}
 		}

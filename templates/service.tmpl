@@ -25,7 +25,7 @@ func (d *{{ .Name }}) Validate() error {
 {{- if not (EventForMethod $.Service .) }}
 type {{ .Input.Name }} struct {
         {{- range .Input.Fields }}
-        {{ .Name | ExportName }} {{ .Type }} `json:"{{ JSONName .Name }}"`
+        {{ .Name | ExportName }} {{ GoFieldType . }} `json:"{{ JSONName .Name }}"`
         {{- end }}
 }
 {{ template "validator" .Input }}
@@ -46,7 +46,7 @@ type {{ .Output.Name }} struct {
 {{- else if and .Output.Name (not (EventForMethod $.Service .)) }}
 type {{ .Output.Name }} struct {
         {{- range .Output.Fields }}
-        {{ .Name | ExportName }} {{ .Type }} `json:"{{ JSONName .Name }}"`
+        {{ .Name | ExportName }} {{ GoFieldType . }} `json:"{{ JSONName .Name }}"`
         {{- end }}
 }
 {{ template "validator" .Output }}
@@ -56,7 +56,7 @@ type {{ .Output.Name }} struct {
 {{- range ServiceNestedTypes .Service }}
 type {{ .Name }} struct {
         {{- range .Fields }}
-        {{ .Name | ExportName }} {{ .Type }} `json:"{{ JSONName .Name }}"`
+        {{ .Name | ExportName }} {{ GoFieldType . }} `json:"{{ JSONName .Name }}"`
         {{- end }}
 }
 {{ template "validator" . }}

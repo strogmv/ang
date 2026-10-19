@@ -1221,6 +1221,13 @@ func (c checker) inferAST(expr ast.Expr, method normalizer.Method, env map[strin
 }
 
 func fieldType(field normalizer.Field) TypeRef {
+	if normalizer.IsNullable(field) {
+		// @nullable(): the port struct field is a pointer.
+		plain := field
+		plain.Metadata = nil
+		elem := fieldType(plain)
+		return TypeRef{Kind: TypePointer, Elem: &elem}
+	}
 	name := strings.ToLower(strings.TrimSpace(field.Type))
 	if strings.Contains(name, "time.time") || name == "time" || name == "date" || name == "datetime" {
 		return TypeRef{Kind: TypeUnknown, Name: field.Type}

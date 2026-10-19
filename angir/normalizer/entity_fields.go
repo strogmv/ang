@@ -47,6 +47,9 @@ func (n *Normalizer) parseInlineFields(owner nestedTypeOwner, val cue.Value) ([]
 		// Note: no auto-detect by field name here; parseInlineFields is used
 		// for nested data fields inside operations where password/token fields
 		// are part of the API contract. Use @secret explicitly if needed.
+		if err := applyNullable(&field, fVal); err != nil {
+			return nil, err
+		}
 		if attr := fVal.Attribute("pii"); attr.Err() == nil {
 			field.IsPII = true
 		}

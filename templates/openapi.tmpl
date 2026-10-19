@@ -38,6 +38,9 @@ paths:
             {{- else if OpenAPIFormat .Type }}
             format: {{ OpenAPIFormat .Type }}
             {{- end }}
+            {{- if Nullable . }}
+            nullable: true
+            {{- end }}
             {{- range OpenAPIRules . }}
             {{ . }}
             {{- end }}
@@ -189,6 +192,9 @@ components:
           type: {{ OpenAPIType .Type }}
           {{- if OpenAPIFormat .Type }}
           format: {{ OpenAPIFormat .Type }}
+          {{- end }}
+          {{- if Nullable . }}
+          nullable: true
           {{- end }}
           {{- if IsArray .Type }}
           items:

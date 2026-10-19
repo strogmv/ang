@@ -177,3 +177,30 @@ string after the JSON body is decoded. The parsing helpers live in
 `internal/transport/http/query_params.go`, generated with the first `@query`
 field. OpenAPI lists each one as a query parameter with its type (`format:
 date`, `date-time`, `int64`; arrays with `style: form` and `explode`).
+
+## Three-state inputs: `@nullable()`
+
+An optional `bool` is `false` when the client leaves it out, so a PATCH
+cannot tell "leave it" from "set it to false" (dealingi-back worked around it
+with `clearX?: bool` flags and "only true is applied"). Mark such a field:
+
+```cue
+UpdateTender: schema.#Operation & {
+    input: {
+        id:         string
+        openEntry?: bool @nullable()   // absent/null = unchanged, true, false
+    }
+}
+```
+
+- The port struct field is a pointer: `OpenEntry *bool`. JSON `null` or an
+  absent key is `nil`; GET query and path parameters (plain or `@query`) store
+  the parsed value's address. Code reads it as
+  `if req.OpenEntry != nil { tender.OpenEntry = *req.OpenEntry }`; the flow
+  checker types `req.OpenEntry` as a pointer.
+- TypeScript `openEntry?: boolean | null`, Zod `.nullable().optional()`,
+  OpenAPI `nullable: true`. The SDK drops `null`/`undefined` query values and
+  sends `false` as `false`, so GET filters work the same way.
+- Allowed on optional `bool`, `int`, `int64`, `float`, `string` and time fields
+  of operation inputs and outputs. A required field, another type, or a field
+  of a cue/domain entity is an error. Fields without the marker do not change.

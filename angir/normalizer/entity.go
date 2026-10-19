@@ -41,6 +41,9 @@ func (n *Normalizer) ExtractEntities(val cue.Value) ([]Entity, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse entity %s: %w", label, err)
 		}
+		if err := rejectNullableFields(entity); err != nil {
+			return nil, err
+		}
 		entities = append(entities, entity)
 	}
 
@@ -359,6 +362,9 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 			}
 		}
 
+		if err := applyNullable(&field, val); err != nil {
+			return Entity{}, err
+		}
 		if attr := val.Attribute("pii"); attr.Err() == nil {
 			field.IsPII = true
 			if cls, found, _ := attr.Lookup(0, "classification"); found {

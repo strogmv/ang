@@ -54,7 +54,11 @@ func renderQueryParamCode(f normalizer.Field) string {
 	} else {
 		b.WriteString("\t\t} else if ok {\n")
 	}
-	b.WriteString("\t\t\treq." + field + " = v\n")
+	if normalizer.IsNullable(f) {
+		b.WriteString("\t\t\treq." + field + " = &v\n")
+	} else {
+		b.WriteString("\t\t\treq." + field + " = v\n")
+	}
 	b.WriteString("\t\t}")
 	return b.String()
 }

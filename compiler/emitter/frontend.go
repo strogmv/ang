@@ -1219,6 +1219,28 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		return nil
 	}
 
+	zodFieldType := func(f normalizer.Field) string {
+		if enumName := matchFieldNamedEnum(f, namedEnums, namedEnumSet); enumName != "" {
+			if f.IsList || strings.HasPrefix(strings.TrimSpace(f.Type), "[]") {
+				return fmt.Sprintf("z.array(%sSchema)", enumName)
+			}
+			return fmt.Sprintf("%sSchema", enumName)
+		}
+		// Zod's .url() and .email() are string methods. Apply them to
+		// each item for []string rather than appending them to z.array(...),
+		// which produces invalid runtime code such as z.array(z.string()).url().
+		isStringList := (f.IsList || strings.HasPrefix(strings.TrimSpace(f.Type), "[]")) && strings.TrimPrefix(strings.TrimSpace(f.Type), "[]") == "string"
+		if isStringList {
+			rules := parseValidateTag(f.ValidateTag)
+			if rules.URL {
+				return "z.array(z.string().url())"
+			}
+			if rules.Email {
+				return "z.array(z.string().email())"
+			}
+		}
+		return zodGoType(normalizer.FieldShape(f), entitiesNorm)
+	}
 	authCfg := normalizer.InfraAuth(e.InfraValues)
 	funcMap := template.FuncMap{
 		// SDKModuleEnabled: the module is not in target.frontend_sdk_skip.
@@ -1307,29 +1329,16 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 			if f.Metadata != nil && f.Metadata["client_side_encryption"] == true {
 				return "Encrypted<" + base + ">"
 			}
+			if normalizer.IsNullable(f) {
+				return base + " | null"
+			}
 			return base
 		},
 		"ZodFieldType": func(f normalizer.Field) string {
-			if enumName := matchFieldNamedEnum(f, namedEnums, namedEnumSet); enumName != "" {
-				if f.IsList || strings.HasPrefix(strings.TrimSpace(f.Type), "[]") {
-					return fmt.Sprintf("z.array(%sSchema)", enumName)
-				}
-				return fmt.Sprintf("%sSchema", enumName)
+			if normalizer.IsNullable(f) {
+				return zodFieldType(f) + ".nullable()"
 			}
-			// Zod's .url() and .email() are string methods. Apply them to
-			// each item for []string rather than appending them to z.array(...),
-			// which produces invalid runtime code such as z.array(z.string()).url().
-			isStringList := (f.IsList || strings.HasPrefix(strings.TrimSpace(f.Type), "[]")) && strings.TrimPrefix(strings.TrimSpace(f.Type), "[]") == "string"
-			if isStringList {
-				rules := parseValidateTag(f.ValidateTag)
-				if rules.URL {
-					return "z.array(z.string().url())"
-				}
-				if rules.Email {
-					return "z.array(z.string().email())"
-				}
-			}
-			return zodGoType(normalizer.FieldShape(f), entitiesNorm)
+			return zodFieldType(f)
 		},
 		"ZodType": func(goType string) string {
 			return zodGoType(goType, entitiesNorm)
