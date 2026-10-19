@@ -54,7 +54,7 @@ export const queryProfiles: Record<string, QueryProfileOptions> = {
 // One export per operation so a bundle keeps only the ones it uses; endpointQueryOptions
 // below gathers them for callers that pick an operation by name.
 {{- range .Endpoints }}
-{{- if eq .Method "GET" }}
+{{- if IsRead . }}
 {{- $profile := EndpointQueryProfile . }}
 export const {{ LowerFirst .RPC }}EndpointQueryOptions = ({{ RequestParam .RPC }}) =>
   queryOptions({
@@ -75,7 +75,7 @@ export const {{ LowerFirst .RPC }}EndpointQueryOptions = ({{ RequestParam .RPC }
 
 export const endpointQueryOptions = {
 {{- range .Endpoints }}
-{{- if eq .Method "GET" }}
+{{- if IsRead . }}
   {{ LowerFirst .RPC }}: {{ LowerFirst .RPC }}EndpointQueryOptions,
 {{- end }}
 {{- end }}

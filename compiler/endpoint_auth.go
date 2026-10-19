@@ -28,6 +28,9 @@ const (
 	// CodeAuthPublicNoReason: auth: {public: true} on an endpoint that changes
 	// state, without a reason. An error under auth_default "deny".
 	CodeAuthPublicNoReason = "AUTH_PUBLIC_NO_REASON"
+	// CodeReadEndpointWrites: an endpoint marked read: true whose operation
+	// writes (a write flow action, a repository write or event publish).
+	CodeReadEndpointWrites = "READ_ENDPOINT_WRITES"
 	// CodeAuthDefaultInvalid: target.auth_default is neither "allow" nor "deny".
 	CodeAuthDefaultInvalid = "AUTH_DEFAULT_INVALID"
 )
@@ -90,6 +93,19 @@ func ApplyAuthDefault(schema *ir.Schema, mode string) (*ir.Schema, AuthCheckResu
 	}
 	for i := range out.Endpoints {
 		ep := &out.Endpoints[i]
+		if ep.Read {
+			if writes, why := EndpointMutates(*ep, methods[ep.Service+"."+ep.RPC]); writes {
+				res.Warnings = append(res.Warnings, normalizer.Warning{
+					Kind:     "http",
+					Code:     CodeReadEndpointWrites,
+					Severity: "warn",
+					Op:       ep.RPC,
+					Message:  fmt.Sprintf("%s is marked read: true but %s: the front caches it as a query and invalidates nothing after it", endpointLabel(*ep), why),
+					Hint:     "drop read: true, or move the write out of this operation",
+					Path:     ep.Source,
+				})
+			}
+		}
 		explicit := normalizer.EndpointIsExplicitlyPublic(ep.Metadata)
 		if !explicit && !endpointIsPublic(*ep) {
 			continue
@@ -183,16 +199,19 @@ var writeActions = map[string]bool{
 var rawGoWrite = regexp.MustCompile(`Repo\.(Save|SaveBatch|Delete|Insert|Update|Upsert)[A-Za-z]*\(|\.Publish[A-Z][A-Za-z0-9]*\(|\bpublisher\.Publish\(`)
 
 // EndpointMutates reports whether calling an endpoint changes state, and why:
-// a POST/PUT/PATCH/DELETE does; a GET does when its operation writes (a write
-// flow action, or a repository write or event publish in its Go). WebSocket
-// streams are not requests that mutate.
+// a POST/PUT/PATCH/DELETE does unless it is marked read: true; a GET or a
+// read does when its operation writes (a write flow action, or a repository
+// write or event publish in its Go). WebSocket streams are not requests that
+// mutate.
 func EndpointMutates(ep ir.Endpoint, m *ir.Method) (bool, string) {
 	method := strings.ToUpper(strings.TrimSpace(ep.Method))
 	switch method {
 	case "WS":
 		return false, ""
 	case "POST", "PUT", "PATCH", "DELETE":
-		return true, "is a " + method
+		if !ep.Read {
+			return true, "is a " + method
+		}
 	}
 	if m == nil {
 		return false, ""

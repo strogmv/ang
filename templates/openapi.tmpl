@@ -115,6 +115,9 @@ paths:
       {{- if .Endpoint.Idempotency }}
       x-idempotency: true
       {{- end }}
+      {{- if .Endpoint.Read }}
+      x-ang-read: true
+      {{- end }}
       {{- if .Endpoint.AuthRoles }}
       x-auth-roles:
         {{- range .Endpoint.AuthRoles }}

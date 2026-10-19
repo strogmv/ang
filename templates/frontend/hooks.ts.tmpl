@@ -99,7 +99,7 @@ const invalidateGeneratedTargets = (
 const missingRequiredParamsError = (hookName: string) => new Error(`${hookName} requires all path params before suspense execution`);
 
 {{- range .Endpoints }}
-{{- if eq .Method "GET" }}
+{{- if IsRead . }}
 {{- $ep := . }}
 {{- $argList := PathArgNames .Path }}
 {{- $optRes := QueryOptionsResource .RPC }}

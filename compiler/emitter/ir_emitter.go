@@ -644,6 +644,7 @@ func IREndpointsToNormalizer(irEndpoints []ir.Endpoint) []normalizer.Endpoint {
 			MaxConcurrent:    ep.MaxConcurrent,
 			Coalesce:         ep.Coalesce,
 			Idempotency:      ep.Idempotent,
+			Read:             ep.Read,
 			DedupeKey:        ep.DedupeKey,
 			Errors:           ep.Errors,
 			View:             ep.View,

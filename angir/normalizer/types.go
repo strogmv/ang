@@ -417,17 +417,19 @@ type Endpoint struct {
 	Timeout          string // Request timeout (e.g. "5s", "30s")
 	MaxBodySize      int64  // Request body size limit in bytes
 	Idempotency      bool
-	MaxConcurrent    int  // max simultaneous in-flight requests; 0 = unlimited
-	Coalesce         bool // deduplicate identical in-flight GET requests via singleflight
-	RequiredScopes   []string
-	DedupeKey        string
-	Errors           []string
-	Pagination       *PaginationDef
-	View             string
-	SLO              SLODef
-	TestHints        *TestHints
-	Metadata         map[string]any
-	Source           string
+	// Read: a non-GET endpoint that only reads (http read: true).
+	Read           bool
+	MaxConcurrent  int  // max simultaneous in-flight requests; 0 = unlimited
+	Coalesce       bool // deduplicate identical in-flight GET requests via singleflight
+	RequiredScopes []string
+	DedupeKey      string
+	Errors         []string
+	Pagination     *PaginationDef
+	View           string
+	SLO            SLODef
+	TestHints      *TestHints
+	Metadata       map[string]any
+	Source         string
 }
 
 // LiveRoomDef makes a WebSocket room "live": on every trigger event one

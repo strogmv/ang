@@ -149,3 +149,43 @@ func TestCheckConfigLoadsNamesOperationsThatReloadConfig(t *testing.T) {
 		t.Fatalf("got %+v", ws)
 	}
 }
+
+// A POST marked read: true is no mutation unless its operation writes; one
+// that writes is reported (backlog 49).
+func TestReadEndpointsDoNotMutateUnlessTheyWrite(t *testing.T) {
+	t.Parallel()
+	schema := &ir.Schema{
+		Services: []ir.Service{{
+			Name: "Catalog",
+			Methods: []ir.Method{
+				{Name: "SearchProducts", Flow: []ir.FlowStep{{Action: "repo.List"}}},
+				{Name: "PreviewImport", Flow: []ir.FlowStep{{Action: "repo.Save"}}},
+			},
+		}},
+		Endpoints: []ir.Endpoint{
+			{Method: "POST", Path: "/search", Service: "Catalog", RPC: "SearchProducts", Read: true},
+			{Method: "POST", Path: "/preview", Service: "Catalog", RPC: "PreviewImport", Read: true, Source: "cue/api/catalog.cue:9:2"},
+		},
+	}
+	methods := methodIndex(schema)
+	if mutates, why := EndpointMutates(schema.Endpoints[0], methods["Catalog.SearchProducts"]); mutates {
+		t.Fatalf("a read POST that only lists does not mutate (%s)", why)
+	}
+	if mutates, _ := EndpointMutates(schema.Endpoints[1], methods["Catalog.PreviewImport"]); !mutates {
+		t.Fatal("a read POST whose flow saves mutates")
+	}
+	_, res, err := ApplyAuthDefault(schema, AuthDefaultAllow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	codes := map[string][]string{}
+	for _, w := range res.Warnings {
+		codes[w.Op] = append(codes[w.Op], w.Code)
+	}
+	if strings.Join(codes["PreviewImport"], ",") != CodeReadEndpointWrites+","+CodeAuthPublicMutation {
+		t.Fatalf("PreviewImport warnings = %v", codes["PreviewImport"])
+	}
+	if len(codes["SearchProducts"]) != 0 {
+		t.Fatalf("a public read POST is no public mutation: %v", codes["SearchProducts"])
+	}
+}

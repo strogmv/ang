@@ -204,3 +204,24 @@ UpdateTender: schema.#Operation & {
 - Allowed on optional `bool`, `int`, `int64`, `float`, `string` and time fields
   of operation inputs and outputs. A required field, another type, or a field
   of a cue/domain entity is an error. Fields without the marker do not change.
+
+## Reads that are not GET: `read: true`
+
+A search or a preview often goes out as POST (a large body, a file). The SDK
+decided query or mutation by the method only, so such a read got a
+`useMutation` hook, no query key, no cache, and invalidated lists after it.
+Mark it:
+
+```cue
+HTTP: SearchProductsCatalog: {method: "POST", path: "/api/catalog/search", read: true}
+```
+
+- SDK: `use<Op>` / `use<Op>Suspense` query hooks, `<op>QueryKey`, query
+  options and cache profile as for a GET; the request still goes as a POST
+  with a JSON body. No mutation hook, no list invalidation after it. Forms
+  and route loaders keep following the method.
+- Backend: it does not count as changing state (`AUTH_PUBLIC_MUTATION`) unless
+  its operation writes; a read whose flow or Go writes is reported as
+  `READ_ENDPOINT_WRITES` (warning). OpenAPI: `x-ang-read: true`.
+- Marking an endpoint changes its hook from a mutation to a query, so its
+  callers in the front change with it. Not allowed on WS.

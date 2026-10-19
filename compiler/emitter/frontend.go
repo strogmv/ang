@@ -499,7 +499,7 @@ func queryKeyPrefixForGETRPC(rpc string, endpoints []normalizer.Endpoint) []stri
 		if strings.TrimSpace(ep.RPC) != rpc {
 			continue
 		}
-		if strings.ToUpper(strings.TrimSpace(ep.Method)) != "GET" {
+		if !endpointIsRead(ep) {
 			continue
 		}
 		svc := strings.TrimSpace(ep.ServiceName)
@@ -607,8 +607,16 @@ func buildWSInvalidateRules(events []normalizer.EventDef, endpoints []normalizer
 	return out
 }
 
+// endpointIsRead: the SDK treats the endpoint as a query (hooks, keys,
+// options, cache policy, no invalidation after it): a GET, or another HTTP
+// method marked read: true.
+func endpointIsRead(ep normalizer.Endpoint) bool {
+	method := strings.ToUpper(strings.TrimSpace(ep.Method))
+	return method == "GET" || (ep.Read && method != "WS")
+}
+
 func endpointQueryProfile(ep normalizer.Endpoint) string {
-	if strings.ToUpper(strings.TrimSpace(ep.Method)) != "GET" {
+	if !endpointIsRead(ep) {
 		return ""
 	}
 	// Aliases for cache/query behavior (documented for frontend intent).
@@ -631,7 +639,7 @@ func serviceNamesWithGET(endpoints []normalizer.Endpoint) []string {
 	seen := make(map[string]struct{})
 	var out []string
 	for _, ep := range endpoints {
-		if strings.ToUpper(strings.TrimSpace(ep.Method)) != "GET" {
+		if !endpointIsRead(ep) {
 			continue
 		}
 		svc := strings.TrimSpace(ep.ServiceName)
@@ -649,7 +657,7 @@ func serviceNamesWithGET(endpoints []normalizer.Endpoint) []string {
 }
 
 func endpointCachePolicy(ep normalizer.Endpoint) string {
-	if strings.ToUpper(strings.TrimSpace(ep.Method)) != "GET" {
+	if !endpointIsRead(ep) {
 		return ""
 	}
 	if v := metadataString(ep.Metadata, "frontend", "cachePolicy"); v != "" {
@@ -665,7 +673,7 @@ func buildQueryResources(endpoints []normalizer.Endpoint) ([]QueryResource, bool
 	resources := map[string]*resourceEntry{}
 
 	for _, ep := range endpoints {
-		if strings.ToUpper(ep.Method) != "GET" {
+		if !endpointIsRead(ep) {
 			continue
 		}
 		segs := pathSegments(ep.Path)
@@ -865,7 +873,7 @@ func firstPathParamName(path string) string {
 }
 
 func endpointMode(ep normalizer.Endpoint) string {
-	if strings.ToUpper(ep.Method) != "GET" {
+	if !endpointIsRead(ep) {
 		return "list"
 	}
 	if firstPathParamName(ep.Path) != "" {
@@ -876,7 +884,7 @@ func endpointMode(ep normalizer.Endpoint) string {
 
 func mutationInvalidateTargetsForEndpoint(ep normalizer.Endpoint, all []normalizer.Endpoint, entities []normalizer.Entity) []frontendInvalidateTarget {
 	method := strings.ToUpper(strings.TrimSpace(ep.Method))
-	if method == "" || method == "GET" || method == "WS" {
+	if method == "" || method == "WS" || endpointIsRead(ep) {
 		return nil
 	}
 
@@ -1243,6 +1251,7 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 	}
 	authCfg := normalizer.InfraAuth(e.InfraValues)
 	funcMap := template.FuncMap{
+		"IsRead": endpointIsRead,
 		// SDKModuleEnabled: the module is not in target.frontend_sdk_skip.
 		"SDKModuleEnabled": e.sdkModuleEnabled,
 		// TSString emits a complete, quoted TypeScript string literal. Endpoint
@@ -1441,7 +1450,7 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 				if strings.TrimSpace(ep.RPC) != rpc {
 					continue
 				}
-				if strings.ToUpper(strings.TrimSpace(ep.Method)) != "GET" {
+				if !endpointIsRead(ep) {
 					continue
 				}
 				return true
@@ -1596,7 +1605,7 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 				if ep.RPC != rpc {
 					continue
 				}
-				if strings.ToUpper(strings.TrimSpace(ep.Method)) != "GET" {
+				if !endpointIsRead(ep) {
 					continue
 				}
 				return ep.ServiceName
@@ -1609,7 +1618,7 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 				if ep.RPC != rpc {
 					continue
 				}
-				if strings.ToUpper(strings.TrimSpace(ep.Method)) != "GET" {
+				if !endpointIsRead(ep) {
 					continue
 				}
 				return fmt.Sprintf("['%s', '%s'] as const", ep.ServiceName, ep.RPC)
@@ -1627,7 +1636,7 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 				if ep.RPC != listRPC {
 					continue
 				}
-				if strings.ToUpper(strings.TrimSpace(ep.Method)) != "GET" {
+				if !endpointIsRead(ep) {
 					continue
 				}
 				return fmt.Sprintf("['%s', '%s'] as const", ep.ServiceName, ep.RPC)
@@ -1636,7 +1645,7 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 		},
 		"HasGETEndpoints": func() bool {
 			for _, ep := range endpointsNorm {
-				if strings.ToUpper(strings.TrimSpace(ep.Method)) == "GET" {
+				if endpointIsRead(ep) {
 					return true
 				}
 			}

@@ -708,6 +708,7 @@ func ConvertEndpoint(ep normalizer.Endpoint) Endpoint {
 		MaxConcurrent:    ep.MaxConcurrent,
 		Coalesce:         ep.Coalesce,
 		Idempotent:       ep.Idempotency,
+		Read:             ep.Read,
 		DedupeKey:        ep.DedupeKey,
 		Errors:           ep.Errors,
 		View:             ep.View,

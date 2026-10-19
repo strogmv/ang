@@ -5,7 +5,7 @@ import * as Keys from '../query-keys';
 import * as api from '../endpoints';
 
 {{- range .Endpoints }}
-{{- if eq .Method "GET" }}
+{{- if IsRead . }}
 export const {{ LowerFirst .RPC }}QueryOptions = ({{ RequestParam .RPC }}) => {
   return queryOptions({
     queryKey: Keys.{{ LowerFirst .RPC }}QueryKey(params),

@@ -66,7 +66,7 @@ func (e *Emitter) EmitSDKManifest(endpoints []normalizer.Endpoint) error {
 	}
 
 	for _, ep := range endpoints {
-		if strings.ToUpper(strings.TrimSpace(ep.Method)) != "GET" {
+		if !endpointIsRead(ep) {
 			continue
 		}
 		svc := strings.TrimSpace(ep.ServiceName)

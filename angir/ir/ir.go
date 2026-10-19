@@ -594,6 +594,7 @@ type Endpoint struct {
 	MaxConcurrent    int             `json:"max_concurrent"` // max simultaneous in-flight requests; 0 = unlimited
 	Coalesce         bool            `json:"coalesce"`       // deduplicate identical in-flight GET requests via singleflight
 	Idempotent       bool            `json:"idempotent"`
+	Read             bool            `json:"read,omitempty"` // a non-GET endpoint that only reads
 	DedupeKey        string          `json:"dedupe_key"`
 	Errors           []string        `json:"errors"`
 	Pagination       *Pagination     `json:"pagination,omitempty"`

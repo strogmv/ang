@@ -1522,6 +1522,12 @@ package schema
 		// Omit = JSON body. "multipart_form" = multipart/form-data with field "file" (+ optional ownerType, ownerId, folderId, name, mime) merged into the same DTO as fileBase64.
 		request_body?: string
 		idempotency?: bool
+		// read: true marks a non-GET endpoint (POST for a search or a preview
+		// with a large body) as a read: the front SDK gives it query hooks
+		// (useQuery, keys, options) instead of a mutation hook, nothing is
+		// invalidated after it, and it does not count as changing state
+		// (AUTH_PUBLIC_MUTATION) unless its flow writes.
+		read?: bool
 		// Who may call. No auth block: public, unless the target sets
 		// auth_default: "deny" (then a signed-in caller is required).
 		// required: true is type "jwt"; public: true (or required: false)

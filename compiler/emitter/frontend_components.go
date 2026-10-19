@@ -420,7 +420,7 @@ func hasFrontendListEndpoint(serviceName, rpc string, endpoints []normalizer.End
 	for _, endpoint := range endpoints {
 		if strings.EqualFold(endpoint.ServiceName, serviceName) &&
 			strings.EqualFold(endpoint.RPC, rpc) &&
-			strings.EqualFold(endpoint.Method, "GET") {
+			endpointIsRead(endpoint) {
 			return true
 		}
 	}

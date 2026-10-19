@@ -98,6 +98,12 @@ func (n *Normalizer) ExtractEndpoints(val cue.Value) ([]Endpoint, error) {
 		if rb := strings.TrimSpace(getString(epVal, "request_body")); rb != "" {
 			ep.Metadata["request_body"] = rb
 		}
+		if read, err := epVal.LookupPath(cue.ParsePath("read")).Bool(); err == nil && read {
+			if strings.EqualFold(method, "WS") {
+				return nil, fmt.Errorf("%s: endpoint %s: read: true is for HTTP endpoints, not WS", ep.Source, epName)
+			}
+			ep.Read = true
+		}
 		mergeEndpointMetadata(ep.Metadata, opInfo.value)
 		mergeEndpointMetadata(ep.Metadata, epVal)
 		if len(ep.Metadata) == 0 {
@@ -178,7 +184,7 @@ func (n *Normalizer) ExtractEndpoints(val cue.Value) ([]Endpoint, error) {
 
 		// Smart Defaults: Auto-invalidate related list on mutations.
 		// Only invalidate the list endpoint(s) whose entity matches this mutation's entity.
-		if ep.Method != "GET" && ep.Method != "WS" && len(ep.Invalidate) == 0 {
+		if ep.Method != "GET" && ep.Method != "WS" && !ep.Read && len(ep.Invalidate) == 0 {
 			mutationEntity := strings.ToLower(rpcEntityBase(ep.RPC))
 			svc := getString(opInfo.value, "service")
 			for _, other := range ops {
