@@ -317,6 +317,11 @@ func runNormalizePhase(basePath string, parsed ParsePhaseOutput, opts PipelineOp
 	if err != nil {
 		return out, WrapContractError(StageCUE, ErrCodeCUEServiceNormalize, "extract services", err)
 	}
+	apiDTOs, err := n.ExtractAPIDefinitionDTOs(parsed.API, services, entities)
+	if err != nil {
+		return out, WrapContractError(StageCUE, ErrCodeCUEServiceNormalize, "extract api definitions used as types", err)
+	}
+	entities = append(entities, apiDTOs...)
 	services = mergeArchitectureServiceMetadata(services, parsed.Arch)
 	services, err = resolveGoSidecarImpls(basePath, parsed.API, services)
 	if err != nil {

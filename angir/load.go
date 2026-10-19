@@ -219,6 +219,11 @@ func LoadWithOptions(basePath string, opts LoadOptions) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("extract services: %w", err)
 	}
+	apiDTOs, err := n.ExtractAPIDefinitionDTOs(valAPI, services, entities)
+	if err != nil {
+		return nil, fmt.Errorf("extract api definitions used as types: %w", err)
+	}
+	entities = append(entities, apiDTOs...)
 	helpers, err := n.ExtractHelpers(valAPI)
 	if err != nil {
 		return nil, fmt.Errorf("extract helpers: %w", err)

@@ -138,3 +138,63 @@ GetQuote: {
 		t.Fatalf("expected an error naming domain.#QuoteViw, got %v", err)
 	}
 }
+
+// A definition of cue/api used as a field type is a DTO of its own; it used
+// to be "unknown entity type" unless moved to cue/domain (backlog 45).
+func TestPipelineRegistersAPIDefinitionsUsedAsTypes(t *testing.T) {
+	entities, services, err := runPipelineFiles(t, map[string]string{
+		"cue/domain/quote.cue": "package domain\n\nQuote: {\n\tid: string\n}\n",
+		"cue/api/quotes.cue": `package api
+
+#QuoteLine: {
+	sku: string
+	qty: int
+	tax?: #TaxLine
+}
+
+#TaxLine: {
+	rate: float
+}
+
+#Unused: {x: string}
+
+SubmitQuote: {
+	service: "quotes"
+	input: {
+		quoteId: string
+		lines: [...#QuoteLine]
+	}
+	output: {ok: bool}
+}
+`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]normalizer.Entity{}
+	for _, e := range entities {
+		byName[e.Name] = e
+	}
+	for name, want := range map[string]string{
+		"QuoteLine": "sku:string,qty:int,tax:domain.TaxLine",
+		"TaxLine":   "rate:float64",
+	} {
+		e, ok := byName[name]
+		if !ok {
+			t.Fatalf("%s is not registered; entities: %v", name, entities)
+		}
+		if dto, _ := e.Metadata["dto"].(bool); !dto {
+			t.Errorf("%s must be a DTO (no table)", name)
+		}
+		if got := fieldNames(e); got != want {
+			t.Errorf("%s fields = %s, want %s", name, got, want)
+		}
+	}
+	if _, ok := byName["Unused"]; ok {
+		t.Error("a definition no operation uses stays out")
+	}
+	m := methodByName(services, "SubmitQuote")
+	if got := fieldNames(m.Input); got != "quoteId:string,lines:[]domain.QuoteLine" {
+		t.Errorf("SubmitQuote input = %s", got)
+	}
+}
