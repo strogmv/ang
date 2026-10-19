@@ -313,7 +313,7 @@ func (r *buildRun) targetOutputOptions(td normalizer.TargetDef, emitBackendDir, 
 func (r *buildRun) dryRunTarget(td normalizer.TargetDef, backendDir, frontendDir, intendedBackendDir, intendedFrontendDir string) bool {
 	output, projectPath := r.output, r.projectPath
 	// A dry run that reports success for a build ang build would refuse misleads.
-	if refusal := dryRunGates(intendedBackendDir, backendDir, output.AcceptContract, output.AcceptRemovals, r.logText); refusal != nil {
+	if refusal := dryRunGates(intendedBackendDir, backendDir, resolveReleaseBaseline(output.ReleaseRef), output.AcceptContract, output.AcceptRemovals, r.logText); refusal != nil {
 		r.fail(compiler.StageEmitters, refusal.code, refusal.op, refusal.err)
 		return false
 	}

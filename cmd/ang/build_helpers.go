@@ -42,6 +42,7 @@ type OutputOptions struct {
 	WithOpenAPI         bool
 	AcceptContract      bool
 	AcceptRemovals      bool
+	ReleaseRef          string
 	AllowLockMismatch   bool
 	Check               bool
 	DryRunDiff          bool
@@ -74,6 +75,7 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 	withOpenAPI := fs.Bool("openapi", false, "Also generate api/openapi.yaml after build")
 	acceptContract := fs.Bool("accept-contract", false, "accept breaking OpenAPI operation removals")
 	acceptRemovals := fs.Bool("accept-removals", false, "accept that generated repository interfaces lose methods the previous generation had")
+	releaseRef := fs.String("release-ref", "", "git revision whose generated contract and repositories count as released (default $ANG_RELEASE_REF, else HEAD; none = the previous generation only): changes to what it does not have pass the contract and removal gates")
 	allowLockMismatch := fs.Bool("allow-lock-mismatch", false, "generate even if this binary is not the ang revision pinned in the project's ang.lock")
 	check := fs.Bool("check", false, "write nothing; exit non-zero if generation would create or change any file in the project, or remove a file ang-generated.txt lists that is no longer generated (implies --dry-run)")
 	diff := fs.Bool("diff", false, "with --dry-run or --check: print a unified diff of every generated file that would be created or changed")
@@ -126,6 +128,7 @@ func parseOutputOptions(args []string) (OutputOptions, error) {
 		WithOpenAPI:         *withOpenAPI,
 		AcceptContract:      *acceptContract,
 		AcceptRemovals:      *acceptRemovals,
+		ReleaseRef:          strings.TrimSpace(*releaseRef),
 		AllowLockMismatch:   *allowLockMismatch,
 		Check:               *check,
 		DryRunDiff:          *diff,

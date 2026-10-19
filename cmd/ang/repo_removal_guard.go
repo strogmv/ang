@@ -27,14 +27,36 @@ func collectRepositoryMethods(backendDir string) (repositoryMethods, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := repositoryMethods{}
-	fset := token.NewFileSet()
+	files := map[string][]byte{}
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		file, err := parser.ParseFile(fset, filepath.Join(portDir, name), nil, parser.SkipObjectResolution)
+		data, err := os.ReadFile(filepath.Join(portDir, name))
+		if err != nil {
+			return nil, err
+		}
+		files[name] = data
+	}
+	return parseRepositoryMethods(portDir, files)
+}
+
+// parseRepositoryMethods reads the *Repository interfaces of the port files
+// (by base name; dir only names them in errors).
+func parseRepositoryMethods(dir string, files map[string][]byte) (repositoryMethods, error) {
+	out := repositoryMethods{}
+	fset := token.NewFileSet()
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, filepath.Join(dir, name), files[name], parser.SkipObjectResolution)
 		if err != nil {
 			return nil, err
 		}

@@ -11,7 +11,16 @@ import (
 type openAPIContractDiff struct {
 	AddedOperations   []string
 	RemovedOperations []string
-	BreakingChanges   []string
+	// BreakingChanges are the messages of Breaking, sorted.
+	BreakingChanges []string
+	Breaking        []contractChange
+}
+
+// contractChange is one breaking change: At names what it touches (an
+// operation, a schema, or schema.field), Message describes it.
+type contractChange struct {
+	At      string
+	Message string
 }
 
 // diffOpenAPIContractsWithRecovery lets a fixed generator replace a malformed
@@ -47,7 +56,7 @@ func diffOpenAPIContracts(previous, current []byte) (openAPIContractDiff, error)
 	for operation := range before {
 		if _, exists := after[operation]; !exists {
 			diff.RemovedOperations = append(diff.RemovedOperations, operation)
-			diff.BreakingChanges = append(diff.BreakingChanges, "removed operation "+operation)
+			diff.Breaking = append(diff.Breaking, contractChange{At: operation, Message: "removed operation " + operation})
 		}
 	}
 	beforeSchemas, err := openAPISchemas(previous)
@@ -58,10 +67,24 @@ func diffOpenAPIContracts(previous, current []byte) (openAPIContractDiff, error)
 	if err != nil {
 		return openAPIContractDiff{}, fmt.Errorf("parse generated OpenAPI schemas: %w", err)
 	}
-	diff.BreakingChanges = append(diff.BreakingChanges, diffOpenAPISchemas(beforeSchemas, afterSchemas)...)
+	uses, err := openAPISchemaUses(previous)
+	if err != nil {
+		return openAPIContractDiff{}, fmt.Errorf("parse previous OpenAPI schemas: %w", err)
+	}
+	afterUses, err := openAPISchemaUses(current)
+	if err != nil {
+		return openAPIContractDiff{}, fmt.Errorf("parse generated OpenAPI schemas: %w", err)
+	}
+	for name, use := range afterUses {
+		uses[name] |= use
+	}
+	diff.Breaking = append(diff.Breaking, diffOpenAPISchemas(beforeSchemas, afterSchemas, uses)...)
 	sort.Strings(diff.AddedOperations)
 	sort.Strings(diff.RemovedOperations)
-	sort.Strings(diff.BreakingChanges)
+	sort.Slice(diff.Breaking, func(i, j int) bool { return diff.Breaking[i].Message < diff.Breaking[j].Message })
+	for _, change := range diff.Breaking {
+		diff.BreakingChanges = append(diff.BreakingChanges, change.Message)
+	}
 	return diff, nil
 }
 
@@ -107,36 +130,151 @@ func openAPISchemas(data []byte) (map[string]openAPIContractSchema, error) {
 	return out, nil
 }
 
-func diffOpenAPISchemas(before, after map[string]openAPIContractSchema) []string {
-	var breaking []string
+// schemaUse says where a schema travels: in requests (body, parameters), in
+// responses, or both.
+type schemaUse uint8
+
+const (
+	useRequest schemaUse = 1 << iota
+	useResponse
+)
+
+// openAPISchemaUses finds, for every component schema an operation reaches
+// (through $ref, at any depth), whether it is read from a request or written
+// in a response.
+func openAPISchemaUses(data []byte) (map[string]schemaUse, error) {
+	uses := map[string]schemaUse{}
+	if len(strings.TrimSpace(string(data))) == 0 {
+		return uses, nil
+	}
+	var doc struct {
+		Paths      map[string]map[string]any `yaml:"paths"`
+		Components struct {
+			Schemas map[string]any `yaml:"schemas"`
+		} `yaml:"components"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, err
+	}
+	var queue []string
+	mark := func(name string, use schemaUse) {
+		if uses[name]&use != use {
+			uses[name] |= use
+			queue = append(queue, name)
+		}
+	}
+	for _, item := range doc.Paths {
+		for key, operation := range item {
+			if key == "parameters" {
+				for _, ref := range openAPIRefs(operation) {
+					mark(ref, useRequest)
+				}
+				continue
+			}
+			fields, ok := operation.(map[string]any)
+			if !ok {
+				continue
+			}
+			for _, ref := range openAPIRefs(fields["requestBody"]) {
+				mark(ref, useRequest)
+			}
+			for _, ref := range openAPIRefs(fields["parameters"]) {
+				mark(ref, useRequest)
+			}
+			for _, ref := range openAPIRefs(fields["responses"]) {
+				mark(ref, useResponse)
+			}
+		}
+	}
+	for len(queue) > 0 {
+		name := queue[0]
+		queue = queue[1:]
+		for _, ref := range openAPIRefs(doc.Components.Schemas[name]) {
+			mark(ref, uses[name])
+		}
+	}
+	return uses, nil
+}
+
+// openAPIRefs lists the component schemas `$ref`erenced anywhere under node.
+func openAPIRefs(node any) []string {
+	var refs []string
+	var walk func(any)
+	walk = func(n any) {
+		switch v := n.(type) {
+		case map[string]any:
+			if ref, ok := v["$ref"].(string); ok {
+				if name, found := strings.CutPrefix(ref, "#/components/schemas/"); found {
+					refs = append(refs, name)
+				}
+			}
+			for _, child := range v {
+				walk(child)
+			}
+		case []any:
+			for _, child := range v {
+				walk(child)
+			}
+		}
+	}
+	walk(node)
+	return refs
+}
+
+// diffOpenAPISchemas lists the changes that break a client built against the
+// previous contract. A field a response gains (required or not) breaks no
+// client; one a request must now carry does. A schema no operation reaches
+// is judged by its name (<Op>Request, <Op>Response), else both ways.
+func diffOpenAPISchemas(before, after map[string]openAPIContractSchema, uses map[string]schemaUse) []contractChange {
+	var breaking []contractChange
+	add := func(at, format string, args ...any) {
+		breaking = append(breaking, contractChange{At: at, Message: fmt.Sprintf(format, args...)})
+	}
 	for name, oldSchema := range before {
 		newSchema, exists := after[name]
 		if !exists {
-			breaking = append(breaking, "removed schema "+name)
+			add(name, "removed schema %s", name)
 			continue
+		}
+		use := uses[name]
+		if use == 0 {
+			// GET inputs are inline query parameters, so no operation
+			// references their <Op>Request schema; ANG names both ends.
+			switch {
+			case strings.HasSuffix(name, "Request"):
+				use = useRequest
+			case strings.HasSuffix(name, "Response"):
+				use = useResponse
+			default:
+				use = useRequest | useResponse
+			}
 		}
 		for field, oldType := range oldSchema.Properties {
 			newType, exists := newSchema.Properties[field]
 			if !exists {
-				breaking = append(breaking, fmt.Sprintf("removed field %s.%s", name, field))
+				add(name+"."+field, "removed field %s.%s", name, field)
 				continue
 			}
 			if oldType != newType {
-				breaking = append(breaking, fmt.Sprintf("changed field type %s.%s (%s -> %s)", name, field, oldType, newType))
+				add(name+"."+field, "changed field type %s.%s (%s -> %s)", name, field, oldType, newType)
 			}
-			if _, wasRequired := oldSchema.Required[field]; !wasRequired {
-				if _, nowRequired := newSchema.Required[field]; nowRequired {
-					breaking = append(breaking, fmt.Sprintf("field became required %s.%s", name, field))
+			_, wasRequired := oldSchema.Required[field]
+			_, nowRequired := newSchema.Required[field]
+			if !wasRequired && nowRequired && use&useRequest != 0 {
+				add(name+"."+field, "field became required %s.%s", name, field)
+			}
+			if wasRequired && !nowRequired && use&useResponse != 0 {
+				add(name+"."+field, "response field no longer required %s.%s", name, field)
+			}
+		}
+		if use&useRequest != 0 {
+			for field := range newSchema.Required {
+				if _, existed := oldSchema.Properties[field]; !existed {
+					add(name+"."+field, "added required field %s.%s", name, field)
 				}
 			}
 		}
-		for field := range newSchema.Required {
-			if _, existed := oldSchema.Properties[field]; !existed {
-				breaking = append(breaking, fmt.Sprintf("added required field %s.%s", name, field))
-			}
-		}
 	}
-	sort.Strings(breaking)
 	return breaking
 }
 

@@ -58,19 +58,20 @@ func (r *buildRun) checkGates() bool {
 	if r.output.DryRun {
 		return true
 	}
+	release := resolveReleaseBaseline(r.output.ReleaseRef)
 	for contractPath, previous := range r.contractBaselines {
 		current, readErr := os.ReadFile(r.stagePath(contractPath))
 		if readErr != nil {
 			r.fail(compiler.StageEmitters, compiler.ErrCodeEmitterStep, "read generated OpenAPI contract", readErr)
 			return false
 		}
-		if refusal := checkContractGate(contractPath, previous, current, r.output.AcceptContract, r.logText); refusal != nil {
+		if refusal := checkContractGate(contractPath, previous, current, release, r.output.AcceptContract, r.logText); refusal != nil {
 			r.fail(compiler.StageEmitters, refusal.code, refusal.op, refusal.err)
 			return false
 		}
 	}
 	for backend, previous := range r.repoBaselines {
-		if refusal := checkRepositoryGate(backend, previous, r.stagePath(backend), r.output.AcceptRemovals, r.logText); refusal != nil {
+		if refusal := checkRepositoryGate(backend, previous, r.stagePath(backend), release, r.output.AcceptRemovals, r.logText); refusal != nil {
 			r.fail(compiler.StageEmitters, refusal.code, refusal.op, refusal.err)
 			return false
 		}

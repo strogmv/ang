@@ -60,7 +60,7 @@ ang lint [--json] [--check-test-coverage] [--test-dir tests] [--min-coverage 80]
 Compile CUE intent into code and artifacts.
 
 ```bash
-ang build [--mode in_place|release] [--backend-dir .] [--target go] [--dry-run] [--log-format json] [--accept-contract] [--accept-removals]
+ang build [--mode in_place|release] [--backend-dir .] [--target go] [--dry-run] [--log-format json] [--accept-contract] [--accept-removals] [--release-ref HEAD]
 ```
 
 A build that removes methods from a generated repository interface
@@ -68,12 +68,29 @@ A build that removes methods from a generated repository interface
 lists them; pass `--accept-removals` when the finders were deleted on purpose.
 A mass removal usually means a file of `cue/repo` is broken.
 
-A build whose OpenAPI contract (`api/openapi.yaml`) loses an operation, a
-schema or a required field compared with the previous generation is refused
-with `CONTRACT_BREAKING_CHANGE`, one change per line, and writes nothing; it is
-refused again on every run until `--accept-contract`, after which the new
-contract is the baseline. `--dry-run` and `--check` apply both gates too, so
-they fail where the real build would.
+A build whose OpenAPI contract (`api/openapi.yaml`) breaks a client of the
+previous generation is refused with `CONTRACT_BREAKING_CHANGE`, one change per
+line, and writes nothing; it is refused again on every run until
+`--accept-contract`, after which the new contract is the baseline. Breaking
+is: a removed operation, schema or field; a changed field type; a field a
+request must now carry (new required, or optional → required); a field a
+response no longer promises (required → optional). A response that gains
+fields, required or not, breaks no client. Schemas are judged by where the
+operations use them (request body or parameters, response, both); one no
+operation references by its name (`<Op>Request` — GET inputs are query
+parameters —, `<Op>Response`), else both ways. `--dry-run` and `--check` apply
+both gates too, so they fail where the real build would.
+
+Both gates only guard what was released. The release baseline is the
+generated files as committed at `--release-ref` (default `$ANG_RELEASE_REF`,
+else `HEAD`): a change that touches only an operation, schema or field — or a
+repository method — that this revision does not have passes, with a note
+(`… (unreleased), not gated`). So adding an operation, building, and changing
+its output again before the commit needs no flag. Name the branch or tag that
+is deployed (`--release-ref main`, `--release-ref v1.4.0`) to treat everything
+newer as unreleased; `--release-ref none` compares with the previous
+generation only. Outside a git work tree, or when the revision is unknown, the
+previous generation is the baseline.
 
 The build first vendors ANG's CUE schema into
 `cue.mod/pkg/github.com/strogmv/ang/cue/schema` when it differs; `--dry-run`

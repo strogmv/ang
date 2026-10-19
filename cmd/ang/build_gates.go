@@ -34,8 +34,10 @@ func contractGateError(contractPath string, breaking []string) error {
 }
 
 // checkContractGate compares the previous contract with the one this build
-// generated. logf reports the summary line.
-func checkContractGate(contractPath string, previous, current []byte, accept bool, logf func(string, ...any)) *buildGateRefusal {
+// generated. Only what the release baseline has can break: the changes of this
+// build that touch an operation, schema or field the release does not have
+// pass. logf reports the summary line.
+func checkContractGate(contractPath string, previous, current []byte, release releaseBaseline, accept bool, logf func(string, ...any)) *buildGateRefusal {
 	diff, recoveredBaseline, err := diffOpenAPIContractsWithRecovery(previous, current)
 	if err != nil {
 		return &buildGateRefusal{code: compiler.ErrCodeEmitterStep, op: "compare OpenAPI contract", err: err}
@@ -43,16 +45,37 @@ func checkContractGate(contractPath string, previous, current []byte, accept boo
 	if recoveredBaseline {
 		logf("openapi: previous generated contract is invalid; replacing it with the valid regenerated contract")
 	}
-	logf("openapi: +%d operations, -%d operations, %d breaking", len(diff.AddedOperations), len(diff.RemovedOperations), len(diff.BreakingChanges))
-	if len(diff.BreakingChanges) > 0 && !accept {
-		return &buildGateRefusal{code: compiler.ErrCodeContractBreaking, op: "OpenAPI breaking change gate", err: contractGateError(contractPath, diff.BreakingChanges)}
+	breaking := diff.Breaking
+	if len(breaking) > 0 {
+		if released, present, ok := release.file(filepath.Dir(contractPath), filepath.Base(contractPath)); ok {
+			if present {
+				sinceRelease, _, relErr := diffOpenAPIContractsWithRecovery(released, current)
+				if relErr == nil {
+					breaking = contractChangesSinceRelease(diff.Breaking, sinceRelease.Breaking)
+				}
+			} else {
+				breaking = nil
+			}
+			if unreleased := len(diff.Breaking) - len(breaking); unreleased > 0 {
+				logf("openapi: %d change(s) touch only what %s does not have (unreleased), not gated", unreleased, release.ref)
+			}
+		}
+	}
+	logf("openapi: +%d operations, -%d operations, %d breaking", len(diff.AddedOperations), len(diff.RemovedOperations), len(breaking))
+	if len(breaking) > 0 && !accept {
+		messages := make([]string, 0, len(breaking))
+		for _, change := range breaking {
+			messages = append(messages, change.Message)
+		}
+		return &buildGateRefusal{code: compiler.ErrCodeContractBreaking, op: "OpenAPI breaking change gate", err: contractGateError(contractPath, messages)}
 	}
 	return nil
 }
 
 // checkRepositoryGate compares the repository interfaces of the previous
-// generation with this build's.
-func checkRepositoryGate(backend string, previous repositoryMethods, generatedBackend string, accept bool, logf func(string, ...any)) *buildGateRefusal {
+// generation with this build's. A method the release baseline does not have
+// was never released and may go.
+func checkRepositoryGate(backend string, previous repositoryMethods, generatedBackend string, release releaseBaseline, accept bool, logf func(string, ...any)) *buildGateRefusal {
 	current, err := collectRepositoryMethods(generatedBackend)
 	if err != nil {
 		return &buildGateRefusal{code: compiler.ErrCodeEmitterStep, op: "read generated repository interfaces", err: err}
@@ -60,6 +83,19 @@ func checkRepositoryGate(backend string, previous repositoryMethods, generatedBa
 	removed := diffRepositoryRemovals(previous, current)
 	if len(removed) == 0 {
 		return nil
+	}
+	if files, ok := release.tree(backend, "internal/port"); ok {
+		released, parseErr := parseRepositoryMethods(filepath.Join(backend, "internal", "port"), files)
+		if parseErr == nil {
+			kept := removalsSinceRelease(removed, released)
+			if unreleased := len(removed) - len(kept); unreleased > 0 {
+				logf("repositories: %d removed method(s) %s does not have (unreleased), not gated", unreleased, release.ref)
+			}
+			removed = kept
+		}
+		if len(removed) == 0 {
+			return nil
+		}
 	}
 	if !accept {
 		return &buildGateRefusal{code: compiler.ErrCodeEmitterStep, op: "repository removal gate", err: repositoryRemovalError(backend, removed)}
@@ -72,7 +108,7 @@ func checkRepositoryGate(backend string, previous repositoryMethods, generatedBa
 // `--dry-run` and `--check` refuse what `ang build` would refuse instead of
 // reporting success. backend is the project's backend directory, generated
 // the dry run's copy of it.
-func dryRunGates(backend, generated string, acceptContract, acceptRemovals bool, logf func(string, ...any)) *buildGateRefusal {
+func dryRunGates(backend, generated string, release releaseBaseline, acceptContract, acceptRemovals bool, logf func(string, ...any)) *buildGateRefusal {
 	contractPath := filepath.Join(backend, "api", "openapi.yaml")
 	previous, err := os.ReadFile(contractPath)
 	switch {
@@ -82,7 +118,7 @@ func dryRunGates(backend, generated string, acceptContract, acceptRemovals bool,
 			return &buildGateRefusal{code: compiler.ErrCodeEmitterStep, op: "read generated OpenAPI contract", err: readErr}
 		}
 		if readErr == nil {
-			if refusal := checkContractGate(contractPath, previous, current, acceptContract, logf); refusal != nil {
+			if refusal := checkContractGate(contractPath, previous, current, release, acceptContract, logf); refusal != nil {
 				return refusal
 			}
 		}
@@ -97,5 +133,5 @@ func dryRunGates(backend, generated string, acceptContract, acceptRemovals bool,
 	if len(previousRepos) == 0 {
 		return nil
 	}
-	return checkRepositoryGate(backend, previousRepos, generated, acceptRemovals, logf)
+	return checkRepositoryGate(backend, previousRepos, generated, release, acceptRemovals, logf)
 }
