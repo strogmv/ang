@@ -191,6 +191,9 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse input for %s: %w", opName, err)
 			}
+			if ent, err = withDomainFields(ent, inVal, entities, opName, "input"); err != nil {
+				return nil, err
+			}
 			method.Input = ent
 		}
 
@@ -211,6 +214,9 @@ func (n *Normalizer) ExtractServices(val cue.Value, entities []Entity) ([]Servic
 				ent, err := n.parseEntity(opName+"Response", outVal)
 				if err != nil {
 					return nil, fmt.Errorf("failed to parse output for %s: %w", opName, err)
+				}
+				if ent, err = withDomainFields(ent, outVal, entities, opName, "output"); err != nil {
+					return nil, err
 				}
 				method.Output = ent
 			}
