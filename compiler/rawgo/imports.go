@@ -205,3 +205,19 @@ func exports(path, sel string) bool {
 	}
 	return false
 }
+
+// StdlibExports reports whether `name.sel` reads as a use of a standard
+// package (utf8.RuneCountInString): a package named name exports sel. Only
+// packages whose name is shared have their exports listed; for the others an
+// exported sel is enough.
+func StdlibExports(name, sel string) bool {
+	if sel == "" || sel[0] < 'A' || sel[0] > 'Z' {
+		return false
+	}
+	for _, path := range stdlibByName[name] {
+		if _, listed := stdlibExports[path]; !listed || exports(path, sel) {
+			return true
+		}
+	}
+	return false
+}

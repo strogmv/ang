@@ -199,7 +199,7 @@ func validateSafeConditionExpr(value string) string {
 	if isSafeConditionExpr(expr) {
 		return ""
 	}
-	return fmt.Sprintf("Unsafe condition expression %q: only refs/literals and boolean comparisons (==, !=, <, <=, >, >=, &&, ||, !) are allowed", value)
+	return fmt.Sprintf("Unsafe condition expression %q: only refs, literals, calls of functions and methods (no repository or transaction), arithmetic and boolean comparisons (==, !=, <, <=, >, >=, &&, ||, !) are allowed", value)
 }
 
 func validateValueExpr(value string) string {
@@ -255,13 +255,72 @@ func isSafeConditionExpr(expr ast.Expr) bool {
 }
 
 func isSafeConditionValueExpr(expr ast.Expr) bool {
-	if id, ok := expr.(*ast.Ident); ok {
-		switch id.Name {
+	switch x := expr.(type) {
+	case *ast.Ident:
+		switch x.Name {
 		case "true", "false", "nil":
 			return true
 		}
+	case *ast.CallExpr:
+		return isSafeConditionCall(x)
+	case *ast.ParenExpr:
+		return isSafeConditionExpr(x.X)
+	case *ast.BinaryExpr:
+		switch x.Op {
+		case token.ADD, token.SUB, token.MUL, token.QUO, token.REM:
+			return isSafeConditionValueExpr(x.X) && isSafeConditionValueExpr(x.Y)
+		}
 	}
 	return isSafeMappingAssignExpr(expr)
+}
+
+// conditionBuiltinsWithEffects are the builtins a condition must not call.
+var conditionBuiltinsWithEffects = map[string]bool{
+	"append": true, "clear": true, "close": true, "copy": true, "delete": true,
+	"panic": true, "print": true, "println": true, "recover": true,
+}
+
+// isSafeConditionCall accepts a call in a condition — a helper, a builtin
+// such as len, pkg.Func, a method of a value (t.IsZero(), time.Now().After(x)),
+// s.Method or s.OtherService.Method — whose arguments are safe condition
+// expressions. What would write, a repository (s.XRepo…) or the transaction
+// manager (s.Tx, s.txManager), and function literals stay out: a condition
+// must not hide effects the flow's analysis does not see.
+func isSafeConditionCall(call *ast.CallExpr) bool {
+	if !isSafeConditionCallee(call.Fun) {
+		return false
+	}
+	for _, arg := range call.Args {
+		if !isSafeConditionExpr(arg) {
+			return false
+		}
+	}
+	return true
+}
+
+func isSafeConditionCallee(fun ast.Expr) bool {
+	switch f := fun.(type) {
+	case *ast.ParenExpr:
+		return isSafeConditionCallee(f.X)
+	case *ast.Ident:
+		return !conditionBuiltinsWithEffects[f.Name]
+	case *ast.SelectorExpr:
+		name := f.Sel.Name
+		if strings.HasSuffix(name, "Repo") || name == "Tx" || name == "txManager" {
+			return false
+		}
+		switch x := f.X.(type) {
+		case *ast.Ident:
+			return true
+		case *ast.SelectorExpr, *ast.ParenExpr:
+			return isSafeConditionCallee(x)
+		case *ast.CallExpr:
+			return isSafeConditionCall(x)
+		case *ast.IndexExpr:
+			return isSafeMappingAssignExpr(x)
+		}
+	}
+	return false
 }
 
 func validateSafeCallArgExpr(value string) string {

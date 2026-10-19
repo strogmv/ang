@@ -284,7 +284,7 @@ func handleFlowDataAndCalls(
 		}
 		if cond != "" {
 			if errStr := validateSafeConditionExpr(cond); errStr != "" {
-				addWarn(stepNum, step.Action, "UNSAFE_CONDITION_EXPR", "logic.Check condition: "+errStr, "Use safe boolean refs/comparisons only; avoid calls and Go-specific constructs.", step.File, step.Line, step.Column)
+				addWarn(stepNum, step.Action, "UNSAFE_CONDITION_EXPR", "logic.Check condition: "+errStr, "Calls of helpers, builtins, packages and methods are fine; a call into a repository or the transaction manager, a func literal or a statement is not: compute it with logic.Call first and check the result.", step.File, step.Line, step.Column)
 			}
 		}
 		return true

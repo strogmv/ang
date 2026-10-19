@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/strogmv/ang/angir/normalizer"
+	"github.com/strogmv/ang/compiler/rawgo"
 )
 
 type Issue struct {
@@ -1080,7 +1081,11 @@ func (c checker) checkExpressionVariables(step StepMeta, label string, expressio
 			switch typed := current.(type) {
 			case *ast.CallExpr:
 				if selector, ok := typed.Fun.(*ast.SelectorExpr); ok {
-					inspect(selector.X)
+					// pkg.Func(…) of a standard package the generated file
+					// imports (goimports) is no variable.
+					if root, isIdent := selector.X.(*ast.Ident); !isIdent || !standardPackageCall(root.Name, selector.Sel.Name, env) {
+						inspect(selector.X)
+					}
 				}
 				for _, argument := range typed.Args {
 					inspect(argument)
@@ -1134,6 +1139,15 @@ func checkExpressionVariableRoot(name string, env map[string]TypeRef, unknown ma
 		return
 	}
 	unknown[name] = struct{}{}
+}
+
+// standardPackageCall: name is no flow variable and names a standard package
+// that exports sel.
+func standardPackageCall(name, sel string, env map[string]TypeRef) bool {
+	if _, isVariable := env[name]; isVariable {
+		return false
+	}
+	return rawgo.StdlibExports(name, sel)
 }
 
 func knownExpressionRoot(name string) bool {

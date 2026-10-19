@@ -64,3 +64,16 @@ _ = n
 		t.Errorf("strconv on line %d, want 4", refs[0].Line)
 	}
 }
+
+func TestStdlibExports(t *testing.T) {
+	for _, ref := range [][2]string{{"utf8", "RuneCountInString"}, {"slices", "Contains"}, {"rand", "Read"}, {"strconv", "Itoa"}} {
+		if !StdlibExports(ref[0], ref[1]) {
+			t.Errorf("%s.%s is a standard package call", ref[0], ref[1])
+		}
+	}
+	for _, ref := range [][2]string{{"rand", "NoSuchFunc"}, {"utf8", "lower"}, {"quote", "Total"}} {
+		if StdlibExports(ref[0], ref[1]) {
+			t.Errorf("%s.%s is no standard package call", ref[0], ref[1])
+		}
+	}
+}

@@ -590,9 +590,23 @@ func flowExprRoots(expr string) []string {
 		}
 		if parent != nil {
 			switch p := parent.(type) {
+			case *ast.CallExpr:
+				// helper(…), len(…): a function, not a flow variable; an
+				// undefined one fails go build with its name.
+				if p.Fun == id {
+					return true
+				}
 			case *ast.SelectorExpr:
 				if p.Sel == id {
 					return true
+				}
+				// pkg.Func(…) of a package the generated file imports
+				// (utf8.RuneCountInString): the root of a call of an exported
+				// name; a use of the same name as a value still counts.
+				if p.X == id && len(stack) >= 3 && ast.IsExported(p.Sel.Name) {
+					if call, isCall := stack[len(stack)-3].(*ast.CallExpr); isCall && call.Fun == p {
+						return true
+					}
 				}
 			case *ast.KeyValueExpr:
 				if p.Key == id {

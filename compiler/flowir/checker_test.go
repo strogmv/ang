@@ -236,3 +236,25 @@ func requireCheckerCode(t *testing.T, issues []Issue, wanted string) {
 	}
 	t.Fatalf("expected issue code %q, got %#v", wanted, issues)
 }
+
+func TestCheckAcceptsStandardPackageCallsInConditions(t *testing.T) {
+	service := normalizer.Service{Methods: []normalizer.Method{{
+		Name:   "Run",
+		Input:  normalizer.Entity{Name: "RunRequest", Fields: []normalizer.Field{{Name: "name", Type: "string"}}},
+		Output: normalizer.Entity{Name: "RunResponse"},
+		Flow: []normalizer.FlowStep{
+			{Action: "logic.Check", Args: map[string]any{"condition": "utf8.RuneCountInString(req.Name) <= 80 && !slices.Contains([]string{\"x\"}, req.Name)", "throw": "bad name"}},
+			{Action: "logic.Check", Args: map[string]any{"condition": "unknownpkg.Thing(req.Name)", "throw": "bad"}},
+		},
+	}}}
+	issues := Check(Program{Services: []normalizer.Service{service}})
+	var unknown []string
+	for _, issue := range issues {
+		if issue.Code == "FLOW_VARIABLE_UNKNOWN" {
+			unknown = append(unknown, issue.Message)
+		}
+	}
+	if len(unknown) != 1 || !strings.Contains(unknown[0], `"unknownpkg"`) {
+		t.Fatalf("only unknownpkg is unknown; utf8 and slices are standard packages: %#v", unknown)
+	}
+}
