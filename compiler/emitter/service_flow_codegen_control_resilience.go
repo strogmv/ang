@@ -6,43 +6,12 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/strogmv/ang/angir/normalizer"
 	"github.com/strogmv/ang/compiler/flowir"
 )
 
 type flowCapturedVar struct {
 	typ   string
 	isPtr bool
-}
-
-// collectFlowBranchNewVars finds the variables the branches declare that the
-// outer scope does not, with their Go types, so renderFlowTryText can declare
-// them before the block. The AST renderers use collectTypedFlowBranchNewVars.
-func collectFlowBranchNewVars(st *flowRenderState, indent int, branches ...[]normalizer.FlowStep) map[string]flowCapturedVar {
-	outerDeclared := make(map[string]bool, len(st.declared))
-	for k, v := range st.declared {
-		outerDeclared[k] = v
-	}
-	newVars := make(map[string]flowCapturedVar)
-	for _, branch := range branches {
-		probeState := cloneFlowState(st)
-		probeState.returnErrOnly = true
-		_ = renderFlowSteps(probeState, branch, indent+1)
-		for varName := range probeState.declared {
-			if outerDeclared[varName] {
-				continue
-			}
-			goType := probeState.types[varName]
-			if goType == "" {
-				goType = inferFlowCapturedVarType(varName, branch)
-			}
-			if goType == "" {
-				goType = "any"
-			}
-			newVars[varName] = flowCapturedVar{typ: goType, isPtr: probeState.pointers[varName]}
-		}
-	}
-	return newVars
 }
 
 func renderTypedStepControlResilience(st *flowRenderState, step flowir.TypedStep, indent int, sfx string) (string, bool) {
@@ -55,7 +24,7 @@ func renderTypedStepControlResilience(st *flowRenderState, step flowir.TypedStep
 		if out, ok := renderFlowTryAST(st, step, typed, indent, sfx); ok {
 			return out, true
 		}
-		return renderFlowTryText(st, typed, indent, sfx), true
+		return renderFlowTryText(st, step, typed, indent, sfx), true
 	case "flow.Retry":
 		typed, err := typedActionAs[flowir.FlowRetry](step)
 		if err != nil {
@@ -87,6 +56,9 @@ func renderTypedStepControlResilience(st *flowRenderState, step flowir.TypedStep
 	return "", false
 }
 
+// collectTypedFlowBranchNewVars finds the variables the branches declare that
+// the outer scope does not, with their Go types. flow.Try declares them before
+// its block (declareFlowCapturedVars), so the steps after the try see them.
 func collectTypedFlowBranchNewVars(st *flowRenderState, indent int, branches ...[]flowir.TypedStep) map[string]flowCapturedVar {
 	outerDeclared := make(map[string]bool, len(st.declared))
 	for key, declared := range st.declared {
@@ -112,13 +84,6 @@ func collectTypedFlowBranchNewVars(st *flowRenderState, indent int, branches ...
 		}
 	}
 	return newVars
-}
-
-// inferFlowCapturedVarType decodes raw steps and infers the Go type of
-// varName; code that already holds typed steps calls inferTypedCapturedVarType.
-func inferFlowCapturedVarType(varName string, steps []normalizer.FlowStep) string {
-	typed, _ := flowir.DecodeSteps(steps)
-	return inferTypedCapturedVarType(varName, typed)
 }
 
 func inferTypedCapturedVarType(varName string, steps []flowir.TypedStep) string {
@@ -191,7 +156,7 @@ func flowIRTypeRefGoType(typ flowir.TypeRef) string {
 	return ""
 }
 
-func renderFlowTryAST(st *flowRenderState, step flowir.TypedStep, action flowir.FlowTry, indent int, sfx string) (string, bool) {
+func renderFlowTryAST(st *flowRenderState, step flowir.TypedStep, action flowir.FlowTry, indent int, sfx string) (out string, ok bool) {
 	doSteps, catchSteps := step.Children["_do"], step.Children["_catch"]
 	if len(doSteps) == 0 {
 		return "", true
@@ -200,20 +165,14 @@ func renderFlowTryAST(st *flowRenderState, step flowir.TypedStep, action flowir.
 	retries, backoffMs := action.Retries, action.BackoffMS
 
 	newVars := collectTypedFlowBranchNewVars(st, indent, doSteps, catchSteps)
-
-	stmts := make([]ast.Stmt, 0, 12+len(newVars))
-	newVarNames := make([]string, 0, len(newVars))
-	for n := range newVars {
-		newVarNames = append(newVarNames, n)
-	}
-	sort.Strings(newVarNames)
+	newVarNames := sortedFlowCapturedVarNames(newVars)
+	varDecls := make([]ast.Stmt, 0, len(newVarNames))
 	for _, varName := range newVarNames {
-		v := newVars[varName]
-		typExpr, err := parseFlowExprSafe(v.typ)
+		typExpr, err := parseFlowExprSafe(newVars[varName].typ)
 		if err != nil {
 			return "", false
 		}
-		stmts = append(stmts, &ast.DeclStmt{
+		varDecls = append(varDecls, &ast.DeclStmt{
 			Decl: &ast.GenDecl{
 				Tok: token.VAR,
 				Specs: []ast.Spec{
@@ -224,11 +183,17 @@ func renderFlowTryAST(st *flowRenderState, step flowir.TypedStep, action flowir.
 				},
 			},
 		})
-		st.declared[varName] = true
-		st.pointers[varName] = v.isPtr
-		st.types[varName] = v.typ
 	}
+	// The body and the catch are rendered with the variables declared; when
+	// this renderer gives up, renderFlowTryText starts from the state as it was.
+	undo := declareFlowCapturedVars(st, newVars)
+	defer func() {
+		if !ok {
+			undo()
+		}
+	}()
 
+	stmts := make([]ast.Stmt, 0, 12)
 	tryRunV, tryErrV, tryMaxV, tryBackoffV := "_tryRun"+sfx, "_tryErr"+sfx, "_tryMax"+sfx, "_tryBackoff"+sfx
 	stmts = append(stmts, &ast.AssignStmt{
 		Lhs: []ast.Expr{ast.NewIdent(tryMaxV)},
@@ -392,7 +357,55 @@ func renderFlowTryAST(st *flowRenderState, step flowir.TypedStep, action flowir.
 		Body: &ast.BlockStmt{List: errBody},
 	})
 
-	return renderFlowASTStmt(&ast.BlockStmt{List: stmts}, indent), true
+	return renderFlowASTStmts(varDecls, indent) + renderFlowASTStmt(&ast.BlockStmt{List: stmts}, indent), true
+}
+
+func sortedFlowCapturedVarNames(vars map[string]flowCapturedVar) []string {
+	names := make([]string, 0, len(vars))
+	for name := range vars {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// declareFlowCapturedVars marks vars declared in st and returns the function
+// that restores st as it was.
+func declareFlowCapturedVars(st *flowRenderState, vars map[string]flowCapturedVar) (undo func()) {
+	type previous struct {
+		declared, hadDeclared, isPtr, hadPtr, hadType bool
+		typ                                           string
+	}
+	saved := make(map[string]previous, len(vars))
+	for name, v := range vars {
+		var p previous
+		p.declared, p.hadDeclared = st.declared[name]
+		p.isPtr, p.hadPtr = st.pointers[name]
+		p.typ, p.hadType = st.types[name]
+		saved[name] = p
+		st.declared[name] = true
+		st.pointers[name] = v.isPtr
+		st.types[name] = v.typ
+	}
+	return func() {
+		for name, p := range saved {
+			if p.hadDeclared {
+				st.declared[name] = p.declared
+			} else {
+				delete(st.declared, name)
+			}
+			if p.hadPtr {
+				st.pointers[name] = p.isPtr
+			} else {
+				delete(st.pointers, name)
+			}
+			if p.hadType {
+				st.types[name] = p.typ
+			} else {
+				delete(st.types, name)
+			}
+		}
+	}
 }
 
 func renderFlowRetryAST(st *flowRenderState, step flowir.TypedStep, action flowir.FlowRetry, indent int, sfx string) (string, bool) {

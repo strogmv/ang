@@ -5,12 +5,13 @@ import (
 	"testing"
 
 	"github.com/strogmv/ang/angir/normalizer"
+	"github.com/strogmv/ang/compiler/flowir"
 )
 
 func TestInferFlowCapturedVarType_OpenAIChatWithToolsReturnsStructuredReply(t *testing.T) {
 	t.Parallel()
 
-	got := inferFlowCapturedVarType("reply", []normalizer.FlowStep{
+	typed, _ := flowir.DecodeSteps([]normalizer.FlowStep{
 		{
 			Action: "openai.Chat",
 			Args: map[string]any{
@@ -19,6 +20,7 @@ func TestInferFlowCapturedVarType_OpenAIChatWithToolsReturnsStructuredReply(t *t
 			},
 		},
 	})
+	got := inferTypedCapturedVarType("reply", typed)
 	want := "struct{ Content string; FinishReason string; ToolCalls int; PromptTokens int; CompletionTokens int; TotalTokens int }"
 	if got != want {
 		t.Fatalf("expected structured captured type %q, got %q", want, got)

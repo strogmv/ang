@@ -2,7 +2,6 @@ package emitter
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/strogmv/ang/angir/normalizer"
@@ -12,30 +11,23 @@ import (
 // renderFlowTryText, renderFlowRetryText, renderFlowFallbackText and
 // renderFlowTimeoutText write the step as Go text when its *AST renderer
 // cannot build the statements.
-func renderFlowTryText(st *flowRenderState, action flowir.FlowTry, indent int, sfx string) string {
+func renderFlowTryText(st *flowRenderState, step flowir.TypedStep, action flowir.FlowTry, indent int, sfx string) string {
 	pad := strings.Repeat("\t", indent)
-	var doSteps, catchSteps []normalizer.FlowStep
-	if flowNestedStepCount(st, "_do", doSteps) == 0 {
+	doSteps, catchSteps := step.Children["_do"], step.Children["_catch"]
+	if len(doSteps) == 0 {
 		return ""
 	}
 	retries, backoffMs := action.Retries, action.BackoffMS
 
-	newVars := collectFlowBranchNewVars(st, indent, doSteps, catchSteps)
-
+	// Variables the block declares are declared before it, so the steps after
+	// the try can read them.
+	newVars := collectTypedFlowBranchNewVars(st, indent, doSteps, catchSteps)
 	var b strings.Builder
+	for _, varName := range sortedFlowCapturedVarNames(newVars) {
+		b.WriteString(fmt.Sprintf("%svar %s %s\n", pad, varName, newVars[varName].typ))
+	}
+	declareFlowCapturedVars(st, newVars)
 	b.WriteString(fmt.Sprintf("%s{\n", pad))
-	newVarNames := make([]string, 0, len(newVars))
-	for n := range newVars {
-		newVarNames = append(newVarNames, n)
-	}
-	sort.Strings(newVarNames)
-	for _, varName := range newVarNames {
-		v := newVars[varName]
-		b.WriteString(fmt.Sprintf("%s\tvar %s %s\n", pad, varName, v.typ))
-		st.declared[varName] = true
-		st.pointers[varName] = v.isPtr
-		st.types[varName] = v.typ
-	}
 
 	tryRunV, tryErrV, tryMaxV, tryBackoffV := "_tryRun"+sfx, "_tryErr"+sfx, "_tryMax"+sfx, "_tryBackoff"+sfx
 	b.WriteString(fmt.Sprintf("%s\t%s := %d\n", pad, tryMaxV, retries))
@@ -44,7 +36,7 @@ func renderFlowTryText(st *flowRenderState, action flowir.FlowTry, indent int, s
 	b.WriteString(fmt.Sprintf("%s\t%s := func() error {\n", pad, tryRunV))
 	tryState := cloneFlowState(st)
 	tryState.returnErrOnly = true
-	b.WriteString(renderFlowNestedSteps(tryState, "_do", doSteps, indent+2))
+	b.WriteString(renderTypedFlowSteps(tryState, doSteps, indent+2))
 	b.WriteString(fmt.Sprintf("%s\t\treturn nil\n", pad))
 	b.WriteString(fmt.Sprintf("%s\t}\n", pad))
 	b.WriteString(fmt.Sprintf("%s\tvar %s error\n", pad, tryErrV))
@@ -59,8 +51,8 @@ func renderFlowTryText(st *flowRenderState, action flowir.FlowTry, indent int, s
 	b.WriteString(fmt.Sprintf("%s\t}\n", pad))
 	b.WriteString(fmt.Sprintf("%s\tif %s != nil {\n", pad, tryErrV))
 	b.WriteString(fmt.Sprintf("%s\t\t_flowLastError = %s\n", pad, tryErrV))
-	if flowNestedStepCount(st, "_catch", catchSteps) > 0 {
-		b.WriteString(renderFlowNestedSteps(cloneFlowState(st), "_catch", catchSteps, indent+2))
+	if len(catchSteps) > 0 {
+		b.WriteString(renderTypedFlowSteps(cloneFlowState(st), catchSteps, indent+2))
 	} else {
 		b.WriteString(errReturn(st, pad+"\t\t", tryErrV))
 	}
