@@ -89,24 +89,25 @@ type flowRenderState struct {
 
 func cloneFlowState(st *flowRenderState) *flowRenderState {
 	cp := &flowRenderState{
-		declared:         make(map[string]bool, len(st.declared)),
-		pointers:         make(map[string]bool, len(st.pointers)),
-		types:            make(map[string]string, len(st.types)),
-		goroutineMode:    st.goroutineMode,
-		stepN:            st.stepN, // share counter across all clones
-		returnErrOnly:    st.returnErrOnly,
-		deferMode:        st.deferMode,
-		concurrMode:      st.concurrMode,
-		concurrVarPfx:    st.concurrVarPfx,
-		sagaCompVar:      st.sagaCompVar,
-		serviceName:      st.serviceName,
-		opName:           st.opName,
-		warningSink:      st.warningSink,
-		eventDefsByName:  st.eventDefsByName,
-		entityDefsByName: st.entityDefsByName,
-		isStreaming:      st.isStreaming,
-		infraValues:      st.infraValues,
-		currentTyped:     st.currentTyped,
+		declared:          make(map[string]bool, len(st.declared)),
+		pointers:          make(map[string]bool, len(st.pointers)),
+		types:             make(map[string]string, len(st.types)),
+		goroutineMode:     st.goroutineMode,
+		stepN:             st.stepN, // share counter across all clones
+		returnErrOnly:     st.returnErrOnly,
+		deferMode:         st.deferMode,
+		concurrMode:       st.concurrMode,
+		concurrVarPfx:     st.concurrVarPfx,
+		sagaCompVar:       st.sagaCompVar,
+		serviceName:       st.serviceName,
+		opName:            st.opName,
+		warningSink:       st.warningSink,
+		eventDefsByName:   st.eventDefsByName,
+		entityDefsByName:  st.entityDefsByName,
+		serviceDefsByName: st.serviceDefsByName,
+		isStreaming:       st.isStreaming,
+		infraValues:       st.infraValues,
+		currentTyped:      st.currentTyped,
 	}
 	for k, v := range st.declared {
 		cp.declared[k] = v

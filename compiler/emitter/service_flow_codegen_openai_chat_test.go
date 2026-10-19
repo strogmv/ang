@@ -233,3 +233,37 @@ func TestRenderFlow_OpenAIChat_ToolErrorsGoBackToTheModel(t *testing.T) {
 		}
 	}
 }
+
+// A nested block renders with a clone of the flow state; the clone used to
+// drop the service catalog, so openai.Chat with tools failed inside flow.If.
+func TestRenderFlow_OpenAIChatToolsInsideNestedBlock(t *testing.T) {
+	t.Parallel()
+
+	services := []normalizer.Service{{
+		Name: "Assistant",
+		Methods: []normalizer.Method{{
+			Name:   "LookupPostForAssistant",
+			Input:  normalizer.Entity{Name: "LookupPostForAssistantRequest", Fields: []normalizer.Field{{Name: "Slug", Type: "string"}}},
+			Output: normalizer.Entity{Name: "LookupPostForAssistantResponse"},
+		}},
+	}}
+	steps := []normalizer.FlowStep{{
+		Action: "flow.If",
+		Args: map[string]any{
+			"condition": `req.Message != ""`,
+			"_then": []normalizer.FlowStep{{
+				Action: "openai.Chat",
+				Args: map[string]any{
+					"user_message": "req.Message",
+					"tools":        []string{"LookupPostForAssistant"},
+					"output":       "reply",
+				},
+			}},
+		},
+	}}
+	got := renderFlowForServiceWithSchemaAndSinkModeWithInfra("Assistant", "ChatWithAssistant", false, steps, nil, nil, nil,
+		map[string]any{flowInfraKeyServicesCatalog: services})
+	if strings.Contains(got, "service catalog") || !strings.Contains(got, "s.LookupPostForAssistant(ctx, _toolReq") {
+		t.Fatalf("expected the tool loop inside flow.If, got:\n%s", got)
+	}
+}
