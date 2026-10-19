@@ -7,6 +7,7 @@ import (
 	"go/scanner"
 	gotoken "go/token"
 	"go/types"
+	"regexp"
 	"sort"
 	"strings"
 	"unicode"
@@ -519,6 +520,7 @@ func ResolveHelpers(helpers []Helper, services []Service) (unused []Helper, err 
 			m.HelperCode = b.String()
 		}
 	}
+	problems = append(problems, helperServiceCallProblems(byName, services)...)
 	if len(problems) > 0 {
 		sort.Strings(problems)
 		return nil, &HelperError{Problems: problems}
@@ -543,4 +545,77 @@ func ServiceMethodHelpers(svc Service, kinds map[string]string) []string {
 		}
 	}
 	return sortedKeys(set)
+}
+
+var (
+	helperOperationCall = regexp.MustCompile(`\bs\.([A-Z][A-Za-z0-9_]*)\s*\(`)
+	helperServiceField  = regexp.MustCompile(`\bs\.([A-Z][A-Za-z0-9_]*)Service\.`)
+)
+
+// helperServiceCallProblems checks what a method helper calls on s against
+// every service that gets a copy of it (the services whose operations reach
+// it): s.Op(…) must be an operation of that service — an operation of
+// another service is s.<Other>Service.Op(…) —, and s.<Other>Service needs
+// uses: [<Other>] in that service. Both used to fail only in go build of
+// one of the copies.
+func helperServiceCallProblems(byName map[string]*Helper, services []Service) []string {
+	owners := map[string][]string{} // operation → services that declare it
+	for _, svc := range services {
+		for _, m := range svc.Methods {
+			owners[m.Name] = append(owners[m.Name], svc.Name)
+		}
+	}
+	var problems []string
+	for _, svc := range services {
+		own := map[string]bool{}
+		for _, m := range svc.Methods {
+			own[m.Name] = true
+		}
+		uses := map[string]bool{}
+		for _, dep := range svc.Uses {
+			uses[exportName(dep)] = true
+		}
+		via := map[string]string{} // helper → an operation of svc that reaches it
+		for _, m := range svc.Methods {
+			for _, name := range m.Helpers {
+				if h := byName[name]; h != nil && h.Kind == HelperMethod {
+					if _, seen := via[name]; !seen {
+						via[name] = m.Name
+					}
+				}
+			}
+		}
+		for _, name := range sortedKeys(boolKeys(via)) {
+			h := byName[name]
+			reachedBy := fmt.Sprintf("%s.%s reaches it", svc.Name, via[name])
+			seen := map[string]bool{}
+			for _, call := range helperOperationCall.FindAllStringSubmatch(h.Code, -1) {
+				op := call[1]
+				if own[op] || seen[op] || len(owners[op]) == 0 {
+					continue
+				}
+				seen[op] = true
+				problems = append(problems, fmt.Sprintf("%s: helper %s calls s.%s(…), an operation of %s, not of %s (%s): call s.%sService.%s(…) and add uses: [%q] to an operation of %s",
+					h.Source, h.Name, op, strings.Join(owners[op], ", "), svc.Name, reachedBy, exportName(owners[op][0]), op, owners[op][0], svc.Name))
+			}
+			for _, field := range helperServiceField.FindAllStringSubmatch(h.Code, -1) {
+				dep := field[1]
+				if uses[dep] || seen["Service:"+dep] {
+					continue
+				}
+				seen["Service:"+dep] = true
+				problems = append(problems, fmt.Sprintf("%s: helper %s uses s.%sService, but service %s does not use %s (%s): add uses: [%q] to an operation of %s",
+					h.Source, h.Name, dep, svc.Name, dep, reachedBy, dep, svc.Name))
+			}
+		}
+	}
+	return problems
+}
+
+func boolKeys(m map[string]string) map[string]bool {
+	out := make(map[string]bool, len(m))
+	for k := range m {
+		out[k] = true
+	}
+	return out
 }

@@ -58,7 +58,9 @@ ListCountryMarkets: schema.#Operation & {
   `s.txManager`. ANG puts each service's type in place of `*Service`. The file
   has one copy for each service whose operations reach the helper, directly or
   through another helper. Callers write `s.name(…)`, or use `s.name` as a
-  value.
+  value. It may call the operations of that service (`s.SubmitQuote(ctx, req)`)
+  and those of the services it uses (`s.StockService.Reserve(…)`, with
+  `uses: ["Stock"]` on one of its operations).
 - A repository that a method helper uses becomes a field of every service
   that reaches the helper. `s.Tx` and `s.txManager` work the same way.
 - A helper sees only its parameters, packages and other helpers. It cannot see
@@ -81,7 +83,9 @@ ListCountryMarkets: schema.#Operation & {
 | a method helper not written `func (s *Service) name(…)`; a func helper that uses `s` | `HELPER_INVALID` |
 | a name the code leaves undeclared: not a helper, a package (`name.Sel`) or a predeclared name (with a did-you-mean) | `HELPER_INVALID` |
 | `req` / `resp` inside a helper | `HELPER_INVALID` |
-| `s.x(…)` in a method helper where `x` is no method helper | `HELPER_INVALID` |
+| `s.x(…)` in a method helper where `x` (lower case) is no method helper | `HELPER_INVALID` |
+| `s.Op(…)` in a method helper where `Op` is an operation of another service than one that reaches the helper (each reaching service gets its own copy: call `s.<Other>Service.Op(…)` there) | `HELPER_INVALID` |
+| `s.<Other>Service` in a method helper reached by a service without `uses: ["<Other>"]` | `HELPER_INVALID` |
 | a method helper called without `s.`, from a helper or an operation | `HELPER_INVALID` |
 | two helpers that would write the same file (`fooBar`, `foo_bar`) | `HELPER_INVALID` |
 | an `imports:` entry the code does not use; `name.Sel` that two standard packages export with nothing importing `name` | `RAW_GO_IMPORT_ERROR` |
