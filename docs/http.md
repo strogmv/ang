@@ -201,6 +201,27 @@ string after the JSON body is decoded. The parsing helpers live in
 field. OpenAPI lists each one as a query parameter with its type (`format:
 date`, `date-time`, `int64`; arrays with `style: form` and `explode`).
 
+## A body mapped onto a row: `@secret` and `@managed()` fields stay
+
+The generic row write — `repo.Find` the row, then
+`{action: "mapping.Map", input: "req.Data", output: "item", entity: "User"}`
+— used to copy the whole body onto it: a console role could write its own
+`adminRoles`, and a body of the entity's own type wiped the password hash.
+`mapping.Map` onto a variable that already holds the entity now renders
+`helpers.AssignKeeping(&item, req.Data, "PasswordHash", "AdminRoles", …)`:
+the row keeps every field marked `@secret()` / `@gdpr("sensitive")` (the
+body never carries them) and every field marked `@managed()`:
+
+```cue
+User: {
+	adminRoles?: [...string] @managed()   // only AdminSetPlatformAdminRoles writes it
+}
+```
+
+A new variable (`mapping.Map` that declares it, a create) is mapped as
+before. A field the operation should refuse to change (say, a status that
+needs a second person) is not `@managed()`: compare and refuse in the flow.
+
 ## Inputs from a header: `@header`
 
 A credential the caller sends as a header — a webhook secret, an API key —

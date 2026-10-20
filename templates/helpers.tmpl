@@ -106,6 +106,73 @@ func Unmarshal(data []byte, v interface{}) error {
 	return json.Unmarshal(data, v)
 }
 
+// AssignKeeping is Assign onto a loaded struct (dst points at it through any
+// number of pointers) that leaves the named fields as they were: the fields
+// a request body must not write onto a row — secrets, which the body never
+// carries, and @managed() service fields (roles, statuses).
+func AssignKeeping(dst interface{}, src interface{}, keep ...string) error {
+	before, loaded := structBehind(reflect.ValueOf(dst))
+	saved := make([]reflect.Value, len(keep))
+	if loaded {
+		for i, name := range keep {
+			if f := before.FieldByName(name); f.IsValid() {
+				saved[i] = copyValue(f)
+			}
+		}
+	}
+	if err := Assign(dst, src); err != nil {
+		return err
+	}
+	after, ok := structBehind(reflect.ValueOf(dst))
+	if !loaded || !ok {
+		return nil
+	}
+	for i, name := range keep {
+		if f := after.FieldByName(name); saved[i].IsValid() && f.IsValid() && f.CanSet() {
+			f.Set(saved[i])
+		}
+	}
+	return nil
+}
+
+// structBehind follows pointers to a struct; ok is false at a nil pointer or
+// a value that is no struct.
+func structBehind(v reflect.Value) (reflect.Value, bool) {
+	for v.Kind() == reflect.Ptr || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return reflect.Value{}, false
+		}
+		v = v.Elem()
+	}
+	return v, v.Kind() == reflect.Struct
+}
+
+// copyValue copies a field so that decoding into the original (which reuses
+// a slice's backing array) cannot change the copy.
+func copyValue(f reflect.Value) reflect.Value {
+	out := reflect.New(f.Type()).Elem()
+	switch f.Kind() {
+	case reflect.Slice:
+		if !f.IsNil() {
+			cp := reflect.MakeSlice(f.Type(), f.Len(), f.Len())
+			reflect.Copy(cp, f)
+			out.Set(cp)
+		}
+	case reflect.Map:
+		if !f.IsNil() {
+			cp := reflect.MakeMapWithSize(f.Type(), f.Len())
+			iter := f.MapRange()
+			for iter.Next() {
+				cp.SetMapIndex(iter.Key(), iter.Value())
+			}
+			out.Set(cp)
+		}
+	default:
+		out.Set(f)
+	}
+	return out
+}
+
 // Assign copies src into dst pointer.
 // If types are directly assignable/convertible, it uses reflection.
 // Otherwise falls back to JSON roundtrip for structurally compatible payloads.

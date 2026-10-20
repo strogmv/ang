@@ -362,6 +362,13 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 			}
 		}
 
+		if attr := val.Attribute("managed"); attr.Err() == nil {
+			if field.Metadata == nil {
+				field.Metadata = make(map[string]any)
+			}
+			field.Metadata[FieldMetaManaged] = true
+		}
+
 		if err := applyNullable(&field, val); err != nil {
 			return Entity{}, err
 		}
