@@ -28,6 +28,9 @@
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	log.Info("Shutting down server...")
+	{{- if .GRPC }}
+	grpcSrv.GracefulStop()
+	{{- end }}
 {{ if .Lifecycle }}
 	{{ template "main_server_runtime_drain" . }}
 {{- else }}

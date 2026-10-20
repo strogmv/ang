@@ -4,6 +4,11 @@
 import (
 	"context"
 	"net/http"
+	{{- if .GRPC }}
+	"net"
+	grpctransport "{{ .GRPC.TransportImport }}"
+	grpcimpl "{{ .GRPC.HandlersImport }}"
+	{{- end }}
 	"os"
 	"os/signal"
 	"syscall"

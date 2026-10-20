@@ -23,6 +23,7 @@ evaluate; the message names `file:line:col`. A folder is loaded strictly: no fil
 - `CUE_ERRORS_LOAD_ERROR` — `cue/errors` does not load, or an entry of `#Errors` does not decode (`code: "E404"`)
 - `CUE_PROJECTIONS_LOAD_ERROR` — `cue/projections` does not load
 - `CUE_SCHEDULE_NORMALIZE_ERROR`
+- `CUE_GRPC_NORMALIZE_ERROR`
 - `CUE_PIPELINE_ERROR`
 - `CUE_INFRA_LOAD_ERROR`
 - `CUE_INFRA_CONFIG_PARSE_ERROR`

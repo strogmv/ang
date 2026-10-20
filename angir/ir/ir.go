@@ -3,27 +3,31 @@
 // It's a pure architectural description that can be transformed to any target.
 package ir
 
+import "github.com/strogmv/ang/angir/normalizer"
+
 // Schema is the root of the IR tree.
 // It contains everything needed to generate a complete application.
 type Schema struct {
 	IRVersion string `json:"ir_version"`
 
-	Project    Project      `json:"project"`
-	Entities   []Entity     `json:"entities"`
-	Services   []Service    `json:"services"`
-	Events     []Event      `json:"events"`
-	Errors     []Error      `json:"errors"`
-	Endpoints  []Endpoint   `json:"endpoints"`
-	Scopes     []Scope      `json:"scopes"`
-	Repos      []Repository `json:"repos"`
-	Config     Config       `json:"config"`
-	Auth       *Auth        `json:"auth,omitempty"`
-	RBAC       *RBAC        `json:"rbac,omitempty"`
-	Schedules  []Schedule   `json:"schedules"`
-	Views      []View       `json:"views"`
-	Templates  []Template   `json:"templates,omitempty"`
-	Helpers    []Helper     `json:"helpers,omitempty"`
-	Provenance *Provenance  `json:"provenance,omitempty"`
+	Project   Project      `json:"project"`
+	Entities  []Entity     `json:"entities"`
+	Services  []Service    `json:"services"`
+	Events    []Event      `json:"events"`
+	Errors    []Error      `json:"errors"`
+	Endpoints []Endpoint   `json:"endpoints"`
+	Scopes    []Scope      `json:"scopes"`
+	Repos     []Repository `json:"repos"`
+	Config    Config       `json:"config"`
+	Auth      *Auth        `json:"auth,omitempty"`
+	RBAC      *RBAC        `json:"rbac,omitempty"`
+	Schedules []Schedule   `json:"schedules"`
+	// GRPC is the contract declared by `GRPC:` in cue/api (schema.#GRPC); nil when absent.
+	GRPC       *GRPC       `json:"grpc,omitempty"`
+	Views      []View      `json:"views"`
+	Templates  []Template  `json:"templates,omitempty"`
+	Helpers    []Helper    `json:"helpers,omitempty"`
+	Provenance *Provenance `json:"provenance,omitempty"`
 	// Notifications stores declarative notification routing configuration
 	// normalized from cue/infra blocks.
 	Notifications *NotificationsConfig `json:"notifications,omitempty"`
@@ -787,3 +791,16 @@ type View struct {
 	Name  string              `json:"name"`
 	Roles map[string][]string `json:"roles"` // role -> visible fields
 }
+
+// GRPC is the normalized gRPC contract; IR consumers read it as-is.
+type GRPC = normalizer.GRPCDef
+
+type (
+	GRPCEnum      = normalizer.GRPCEnum
+	GRPCEnumValue = normalizer.GRPCEnumValue
+	GRPCMessage   = normalizer.GRPCMessage
+	GRPCOneof     = normalizer.GRPCOneof
+	GRPCField     = normalizer.GRPCField
+	GRPCService   = normalizer.GRPCService
+	GRPCMethod    = normalizer.GRPCMethod
+)

@@ -36,9 +36,13 @@ func (e *Emitter) EmitTestContainerFromIR(ctx MainContext, schema *ir.Schema, au
 	var buf bytes.Buffer
 	buf.WriteString("package bootstrap\n\n")
 	buf.WriteString("import (\n")
-	buf.WriteString("\t")
-	buf.WriteString(strconvQuote(e.GoModule + "/internal/adapter/mock"))
-	buf.WriteString("\n")
+	// A project without repositories has no mocks to build, and Go refuses an
+	// unused import.
+	if len(repoNames) > 0 || len(flags.extraDeps) > 0 {
+		buf.WriteString("\t")
+		buf.WriteString(strconvQuote(e.GoModule + "/internal/adapter/mock"))
+		buf.WriteString("\n")
+	}
 	buf.WriteString("\t")
 	buf.WriteString(strconvQuote(e.GoModule + "/internal/config"))
 	buf.WriteString("\n")

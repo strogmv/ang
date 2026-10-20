@@ -35,6 +35,14 @@ type MainServerImportsContext struct {
 	ServicesIR              []ir.Service
 	EntitiesIR              []ir.Entity
 	HasQueues               bool
+	GRPC                    *MainServerGRPCContext
+}
+
+// MainServerGRPCContext wires the hand-written gRPC handlers into main.
+type MainServerGRPCContext struct {
+	HandlersImport  string // <module>/<handlers dir>
+	TransportImport string // <module>/internal/transport/grpc
+	Listen          string
 }
 
 type MainServerInfrastructureContext struct {
@@ -109,6 +117,7 @@ type MainServerWebSocketsContext struct {
 }
 
 type MainServerGracefulShutdownContext struct {
+	GRPC              bool
 	WebSocketServices map[string]bool
 	MainRuntimeContext
 }
@@ -122,14 +131,29 @@ type MainServerTemplateData struct {
 	Services         MainServerServicesContext
 	HTTPRouter       MainServerHTTPRouterContext
 	WebSockets       MainServerWebSocketsContext
+	GRPC             *MainServerGRPCContext
 	GracefulShutdown MainServerGracefulShutdownContext
 	Runtime          MainRuntimeContext
 }
 
+func buildMainServerGRPC(ctx MainContext) *MainServerGRPCContext {
+	g := ctx.IRSchema
+	if g == nil || g.GRPC == nil || g.GRPC.Handlers == "" {
+		return nil
+	}
+	return &MainServerGRPCContext{
+		HandlersImport:  ctx.GoModule + "/" + g.GRPC.Handlers,
+		TransportImport: ctx.GoModule + "/internal/transport/grpc",
+		Listen:          g.GRPC.Listen,
+	}
+}
+
 func buildMainServerTemplateData(ctx MainContext) MainServerTemplateData {
 	rt := buildMainRuntime(ctx)
+	grpcCtx := buildMainServerGRPC(ctx)
 	return MainServerTemplateData{
 		Runtime: rt,
+		GRPC:    grpcCtx,
 		Header: MainServerHeaderContext{
 			ServicesIR:   ctx.ServicesIR,
 			ANGVersion:   ctx.ANGVersion,
@@ -152,6 +176,7 @@ func buildMainServerTemplateData(ctx MainContext) MainServerTemplateData {
 			ServicesIR:              ctx.ServicesIR,
 			EntitiesIR:              ctx.EntitiesIR,
 			HasQueues:               len(rt.Queues) > 0,
+			GRPC:                    grpcCtx,
 		},
 		Infrastructure: MainServerInfrastructureContext{
 			HasSQL:                  ctx.HasSQL,
@@ -219,6 +244,7 @@ func buildMainServerTemplateData(ctx MainContext) MainServerTemplateData {
 			Roles:         rt.Roles,
 		},
 		GracefulShutdown: MainServerGracefulShutdownContext{
+			GRPC:               grpcCtx != nil,
 			WebSocketServices:  ctx.WebSocketServices,
 			MainRuntimeContext: rt,
 		},
@@ -234,6 +260,7 @@ func (e *Emitter) parseMainServerTemplate() (*template.Template, error) {
 		"templates/main_server/services.tmpl",
 		"templates/main_server/http_router.tmpl",
 		"templates/main_server/websockets.tmpl",
+		"templates/main_server/grpc.tmpl",
 		"templates/main_server/graceful_shutdown.tmpl",
 		"templates/main_server/runtime_container.tmpl",
 		"templates/main_server/runtime.tmpl",

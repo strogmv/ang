@@ -158,6 +158,10 @@ func (r *buildRun) finishStaged() bool {
 			return false
 		}
 	}
+	if err := r.copyGRPCProtos(); err != nil {
+		printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterStep, "copy gRPC proto", err)
+		return false
+	}
 	return true
 }
 

@@ -63,6 +63,11 @@ func (r *buildRun) generateTarget(td normalizer.TargetDef) bool {
 	for _, usage := range emitter.UsageCapabilities(ctx, em.IRSchema) {
 		caps[compiler.Capability(usage)] = true
 	}
+	// A `GRPC:` declaration in cue/api grants the gRPC steps whatever the target
+	// framework says: the contract is CUE-first, the framework only picks HTTP.
+	if em.IRSchema != nil && em.IRSchema.GRPC != nil {
+		caps[compiler.CapabilityGRPC] = true
+	}
 
 	targetOutput := r.targetOutputOptions(td, emitBackendDir, emitFrontendDir)
 

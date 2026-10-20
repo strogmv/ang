@@ -1559,6 +1559,83 @@ package schema
 	}
 }
 
+// #GRPC declares the gRPC contract once, in CUE. ANG writes the .proto from it
+// (api/grpc/<package>.proto), so server, clients and the contract cannot drift.
+// Field numbers are explicit and part of the wire contract: never renumber or
+// reuse one; put a retired number or name in reserved.
+//
+//	GRPC: schema.#GRPC & {
+//		package: "game.v1"
+//		services: GameService: Play: {stream: "bidi", request: "ClientMessage", response: "ServerMessage"}
+//		messages: Hello: fields: player_name: {n: 1, type: "string"}
+//	}
+#GRPC: {
+	// Proto package, e.g. "game.v1". The last element must be a version (v1, v2…).
+	package: =~"^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*\\.v[0-9]+$"
+	// Go package path of the generated pb code; default <module>/internal/transport/grpc/pb/<package dirs>.
+	go_package?: string
+	// C# namespace for Unity / .NET clients.
+	csharp_namespace?: string
+	// Extra directories (relative to the project) that also receive a copy of the
+	// generated .proto, e.g. a Unity client's Assets/Proto.
+	copy_proto_to?: [...string]
+	// Listen address of the generated server; default ":50051" (env GRPC_ADDR overrides).
+	listen?: string
+	// Module-relative directory of the hand-written package that implements the
+	// services, e.g. "internal/game". It must export
+	//   func New(ctx context.Context, rt *bootstrap.RuntimeContainer) (grpc.Handlers, error)
+	// where grpc is <module>/internal/transport/grpc. The generated main starts the
+	// server with it and stops it on shutdown.
+	handlers?: string
+	reflection?: bool | *true
+
+	enums?: [Name=string]: #GRPCEnum
+	messages?: [Name=string]: #GRPCMessage
+	services: [Name=string]: [Method=string]: #GRPCMethod
+}
+
+#GRPCEnum: {
+	description?: string
+	// The zero value <NAME>_UNSPECIFIED = 0 is added by ANG; numbers here start at 1.
+	values: [...{name: string, n: int & >0, description?: string}]
+	reserved?: [...int]
+	reserved_names?: [...string]
+}
+
+#GRPCField: {
+	// Wire field number, 1..536870911 (19000-19999 are reserved by protobuf).
+	n: int & >=1 & <=536870911
+	// double float int32 int64 uint32 uint64 bool string bytes, or a message/enum name
+	// of this #GRPC.
+	type: string
+	repeated?: bool
+	// With map_key set the field is map<map_key, type>.
+	map_key?: "string" | "int32" | "int64" | "uint32" | "uint64" | "bool"
+	// proto3 presence ("optional"), for scalars/enums that need "unset".
+	optional?: bool
+	description?: string
+	deprecated?: bool
+}
+
+#GRPCMessage: {
+	description?: string
+	fields?: [Name=string]: #GRPCField
+	// oneof groups: exactly one member is set. Member numbers share the message's
+	// number space with fields.
+	oneofs?: [Name=string]: [Member=string]: #GRPCField
+	reserved?: [...int]
+	reserved_names?: [...string]
+}
+
+#GRPCMethod: {
+	description?: string
+	// unary | server (server streaming) | client | bidi
+	stream: "none" | "server" | "client" | "bidi" | *"none"
+	// message names declared in messages:
+	request:  string
+	response: string
+}
+
 // Schedules run an operation on a timer. One declaration is enough:
 //
 //   Schedules: DailyDigest: {action: "SendDailyDigest", at: "06:00"}

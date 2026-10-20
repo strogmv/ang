@@ -1,0 +1,29 @@
+{{ define "main_server_grpc" }}
+	// gRPC: the contract and the server are generated from the GRPC declaration;
+	// the handlers are the hand-written package {{ .HandlersImport }}.
+	grpcHandlers, err := grpcimpl.New(ctx, runtimeContainer)
+	if err != nil {
+		log.Error("Failed to build gRPC handlers", "error", err)
+		os.Exit(1)
+	}
+	grpcSrv, err := grpctransport.NewServer(grpcHandlers)
+	if err != nil {
+		log.Error("Failed to build gRPC server", "error", err)
+		os.Exit(1)
+	}
+	grpcAddr := strings.TrimSpace(os.Getenv("GRPC_ADDR"))
+	if grpcAddr == "" {
+		grpcAddr = grpctransport.DefaultListen
+	}
+	grpcLis, err := net.Listen("tcp", grpcAddr)
+	if err != nil {
+		log.Error("gRPC listen failed", "addr", grpcAddr, "error", err)
+		os.Exit(1)
+	}
+	go func() {
+		log.Info("Starting gRPC server", "addr", grpcAddr)
+		if err := grpcSrv.Serve(grpcLis); err != nil {
+			log.Error("gRPC serve failed", "error", err)
+		}
+	}()
+{{ end }}

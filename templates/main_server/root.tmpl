@@ -53,6 +53,9 @@ func main() {
 	{{ template "main_server_repositories" .Repositories }}
 	{{ template "main_server_services" .Services }}
 	{{ template "main_server_websockets" .WebSockets }}
+	{{- if .GRPC }}
+	{{ template "main_server_grpc" .GRPC }}
+	{{- end }}
 
 	// Health & Readiness probes
 	r.Get("/health", transport.HealthHandler())

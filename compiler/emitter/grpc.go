@@ -14,6 +14,9 @@ func (e *Emitter) EmitGRPCProto(schema *ir.Schema) error {
 	if schema == nil {
 		schema = &ir.Schema{}
 	}
+	if schema.GRPC != nil {
+		return e.emitGRPCContract(schema.GRPC)
+	}
 
 	module := strings.TrimSpace(e.GoModule)
 	if module == "" {
@@ -100,6 +103,9 @@ func (e *Emitter) EmitGRPCProto(schema *ir.Schema) error {
 func (e *Emitter) EmitGRPCTransport(schema *ir.Schema) error {
 	if schema == nil {
 		schema = &ir.Schema{}
+	}
+	if schema.GRPC != nil {
+		return e.emitGRPCServer(schema.GRPC)
 	}
 
 	services := append([]ir.Service(nil), schema.Services...)

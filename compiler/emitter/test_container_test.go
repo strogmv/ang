@@ -62,3 +62,23 @@ func TestEmitTestContainerFromIR(t *testing.T) {
 		}
 	}
 }
+
+func TestEmitTestContainerWithoutRepositoriesDoesNotImportMock(t *testing.T) {
+	t.Parallel()
+
+	tmp := t.TempDir()
+	em := &Emitter{OutputDir: tmp, GoModule: "example.com/project"}
+	schema := &ir.Schema{Services: []ir.Service{{Name: "System", Methods: []ir.Method{{Name: "Health"}}}}}
+	ctx := em.AnalyzeContextFromIR(schema)
+
+	if err := em.EmitTestContainerFromIR(ctx, schema, nil, nil); err != nil {
+		t.Fatalf("EmitTestContainerFromIR failed: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(tmp, "internal", "bootstrap", "test_container.gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "internal/adapter/mock") {
+		t.Fatalf("unused mock import in a project without repositories:\n%s", data)
+	}
+}

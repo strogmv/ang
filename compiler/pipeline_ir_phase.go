@@ -69,6 +69,7 @@ func RunIRPhase(in IRPhaseInput) (IRPhaseOutput, error) {
 	)
 	AttachTemplates(schema, in.Templates, in.BasePath)
 	schema.Helpers = ir.ConvertHelpers(in.Normalized.Helpers)
+	schema.GRPC = in.Normalized.GRPC
 	if err := ValidateIRSemantics(schema); err != nil {
 		return IRPhaseOutput{}, WrapContractError(StageIR, ErrCodeIRSemanticValidate, "validate IR semantics", err)
 	}

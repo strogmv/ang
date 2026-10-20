@@ -64,9 +64,8 @@ func (e *Emitter) EmitEmailTemplates(templates []normalizer.EmailTemplateDef) er
 
 func (e *Emitter) EmitEmailTemplatesFromIR(schema *ir.Schema, templates []normalizer.EmailTemplateDef) error {
 	models := buildEmailTemplateRenderModels(schema, templates)
-	if len(models) == 0 {
-		return nil
-	}
+	// Always emitted, even with no template: the notification dispatcher
+	// imports the package unconditionally and an empty one still compiles.
 	tmplPath := "templates/email_templates.tmpl"
 	tmplContent, err := ReadTemplateByPath(tmplPath)
 	if err != nil {

@@ -44,6 +44,8 @@ type NormalizePhaseOutput struct {
 	Events    []normalizer.EventDef
 	Errors    []normalizer.ErrorDef
 	Schedules []normalizer.ScheduleDef
+	// GRPC is the `GRPC:` contract of cue/api; nil when the project declares none.
+	GRPC      *normalizer.GRPCDef
 	Scenarios []normalizer.ScenarioDef
 	Scopes    []normalizer.ScopeDef
 	Project   normalizer.ProjectDef
@@ -473,6 +475,10 @@ func runNormalizePhase(basePath string, parsed ParsePhaseOutput, opts PipelineOp
 	if err != nil {
 		return out, WrapContractError(StageCUE, ErrCodeCUEScheduleNormalize, "expand schedules", err)
 	}
+	grpcDef, err := n.ExtractGRPC(parsed.API)
+	if err != nil {
+		return out, WrapContractError(StageCUE, ErrCodeCUEGRPCNormalize, "extract grpc", err)
+	}
 	repos, err = normalizer.ResolveQueueHandlers(entities, services, repos)
 	if err != nil {
 		return out, WrapContractError(StageCUE, ErrCodeCUEEntityNormalize, "queue handlers", err)
@@ -496,6 +502,7 @@ func runNormalizePhase(basePath string, parsed ParsePhaseOutput, opts PipelineOp
 	out.Events = events
 	out.Errors = bizErrors
 	out.Schedules = schedules
+	out.GRPC = grpcDef
 	out.Scenarios = scenarios
 	out.Scopes = scopes
 	out.Helpers = helpers

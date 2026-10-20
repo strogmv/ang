@@ -513,6 +513,7 @@ HTTP: {
 
 Health: {
 	service: "system"
+	input: {}
 	output: {
 		status: string
 	}
