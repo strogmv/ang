@@ -2841,6 +2841,22 @@ package schema
 	// "medium", "high". Unset keeps the historical "minimal", which the first
 	// gpt-5 models wanted and the later ones in that family reject.
 	reasoning_effort?: string
+	// Go expression of type helpers.LLMBudget: Reserve(ctx, helpers.LLMRound)
+	// runs before every request (an error stops the step, nothing is sent),
+	// Settle(ctx, round, helpers.LLMUsage, callErr) after it, whatever the
+	// outcome. With tools and max_rounds: 8 that is up to eight of each.
+	budget?: string
+	// Optional variable receiving []helpers.LLMRoundUsage: every request with
+	// its usage (input, cached input, output and reasoning tokens).
+	output_rounds?: string
+	// Where system_context goes: "system" (default) appends it to the system
+	// prompt; "before_user" sends it as its own system message right before
+	// the user's message, so the system prompt, the tools and the history are
+	// a byte-identical prefix the provider's prompt cache can match.
+	system_context_position?: "system" | "before_user"
+	// Go expression sent as prompt_cache_key (helps the provider route calls
+	// with the same prefix to the same cache).
+	prompt_cache_key?: string
 }
 
 #OpenAIEmbedStep: {

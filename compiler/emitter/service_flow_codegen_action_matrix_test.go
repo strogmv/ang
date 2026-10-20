@@ -786,7 +786,7 @@ func TestRenderFlowActionMatrix_NewPrimitives(t *testing.T) {
 			name: "openai.Embed",
 			step: normalizer.FlowStep{Action: "openai.Embed", Args: map[string]any{"input": "req.Query", "output": "embedding", "output_usage": "usage", "dimensions": 256}},
 			wants: []string{
-				`"https://api.openai.com/v1/embeddings"`,
+				`helpers.OpenAIURL("/embeddings")`,
 				`"dimensions"] = 256`,
 				"embedding := _oaiEmbedParsed",
 				"usage.PromptTokens = _oaiEmbedParsed",

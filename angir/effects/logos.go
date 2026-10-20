@@ -457,7 +457,9 @@ func requiredVarArgs(action string) []string {
 		return []string{"key", "tier", "throw"}
 	case "context.Trim":
 		return []string{"input", "strategy"}
-	case "openai.Chat", "openai.Stream", "claude.Chat":
+	case "openai.Chat":
+		return []string{"system", "system_context", "user_message", "history", "model", "budget", "prompt_cache_key"}
+	case "openai.Stream", "claude.Chat":
 		return []string{"system", "system_context", "user_message", "history", "model"}
 	case "concurrency.Limit", "concurrency.Run":
 		return []string{"key", "throw"}

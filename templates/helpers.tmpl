@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -477,4 +478,62 @@ func (m *KeyedMutex) Unlock() {
 	m.entry = nil
 	entry.mu.Unlock()
 	m.set.release(m.key, entry)
+}
+
+// ── Model calls (openai.Chat) ────────────────────────────────────────────────
+
+// LLMRound is one request of an openai.Chat step, as its budget hook sees it
+// before the request is sent.
+type LLMRound struct {
+	// Provider is "openai".
+	Provider string
+	// Model is the model the request names.
+	Model string
+	// Round counts the requests of one step from 0 (a tool loop makes several).
+	Round int
+	// MaxOutputTokens is the most the provider may answer with, reasoning
+	// included (max_completion_tokens / max_tokens).
+	MaxOutputTokens int
+	// RequestBytes is the size of the JSON body. A token is at least one byte
+	// of it, so this bounds the input tokens from above.
+	RequestBytes int
+}
+
+// LLMUsage is what the provider reported for one request; zero when the
+// request failed before an answer.
+type LLMUsage struct {
+	// InputTokens are the prompt tokens, CachedInputTokens included.
+	InputTokens       int
+	CachedInputTokens int
+	// OutputTokens are the completion tokens, ReasoningTokens included.
+	OutputTokens    int
+	ReasoningTokens int
+	TotalTokens     int
+}
+
+// LLMRoundUsage pairs a request with its usage (openai.Chat output_rounds).
+type LLMRoundUsage struct {
+	Round LLMRound
+	Usage LLMUsage
+}
+
+// LLMBudget is the budget hook of an openai.Chat step (budget:). Reserve runs
+// before every request; an error stops the step with that error and the
+// request is not sent. Settle runs after every request that was reserved,
+// with the usage and the request's error (nil on success), so a reservation
+// is always closed; an error from Settle fails a step whose request succeeded.
+type LLMBudget interface {
+	Reserve(ctx context.Context, round LLMRound) error
+	Settle(ctx context.Context, round LLMRound, usage LLMUsage, callErr error) error
+}
+
+// OpenAIURL is the OpenAI API address of path ("/chat/completions"):
+// OPENAI_BASE_URL (for example a test double, "http://127.0.0.1:8164/v1"),
+// else https://api.openai.com/v1.
+func OpenAIURL(path string) string {
+	base := strings.TrimRight(strings.TrimSpace(os.Getenv("OPENAI_BASE_URL")), "/")
+	if base == "" {
+		base = "https://api.openai.com/v1"
+	}
+	return base + path
 }
