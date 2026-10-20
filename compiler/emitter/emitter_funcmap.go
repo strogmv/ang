@@ -22,6 +22,10 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 		"OperationMetricsEnabled": func() bool { return e.OperationMetrics },
 		// RBACUsed: internal/pkg/rbac is generated (see RBACUsed).
 		"RBACUsed": func() bool { return RBACUsed(e.RBACDef, e.IRSchema) },
+		// SecurityHeaders: target.security_headers over the defaults.
+		"SecurityHeaders": func() SecurityHeaders { return e.SecurityHeaders },
+		// MetricsPort: target.metrics_port ("" = the API port).
+		"MetricsPort": func() string { return e.MetricsPort },
 		"SafeAssign": func(scope map[string]bool, name string) string {
 			scope[name] = true
 			return name + ", err := "

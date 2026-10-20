@@ -324,7 +324,63 @@ func parseTargetDef(targetVal cue.Value, defaultName string) TargetDef {
 		OperationMetrics:         getOptionalBoolField(targetVal, "operation_metrics"),
 		ServerRoles:              getOptionalBoolField(targetVal, "server_roles"),
 		ShutdownTimeout:          getOptionalStringField(targetVal, "shutdown_timeout"),
+		SecurityHeaders:          parseSecurityHeadersDef(targetVal),
+		MetricsPort:              getOptionalScalarField(targetVal, "metrics_port"),
+		RouteRights:              parseRouteRightsDef(targetVal),
 	}
+}
+
+// targetObjectField reads an object-valued target field (optional fields of a
+// definition are only visible through the JSON export, see
+// getOptionalStringField); nil when it is absent.
+func targetObjectField(v cue.Value, path string) map[string]any {
+	data, err := v.MarshalJSON()
+	if err != nil {
+		return nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil
+	}
+	obj, _ := m[path].(map[string]any)
+	return obj
+}
+
+// parseSecurityHeadersDef reads target.security_headers: {csp?, coop?,
+// permissions_policy?}; a key left out keeps the default, "" turns it off.
+func parseSecurityHeadersDef(v cue.Value) *SecurityHeadersDef {
+	obj := targetObjectField(v, "security_headers")
+	if obj == nil {
+		return nil
+	}
+	pick := func(key string) *string {
+		s, ok := obj[key].(string)
+		if !ok {
+			return nil
+		}
+		s = strings.TrimSpace(s)
+		return &s
+	}
+	return &SecurityHeadersDef{CSP: pick("csp"), COOP: pick("coop"), PermissionsPolicy: pick("permissions_policy")}
+}
+
+// parseRouteRightsDef reads target.route_rights: {roles: [...], rights: [...]}.
+func parseRouteRightsDef(v cue.Value) *RouteRightsDef {
+	obj := targetObjectField(v, "route_rights")
+	if obj == nil {
+		return nil
+	}
+	list := func(key string) []string {
+		raw, _ := obj[key].([]any)
+		var out []string
+		for _, item := range raw {
+			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+				out = append(out, strings.TrimSpace(s))
+			}
+		}
+		return out
+	}
+	return &RouteRightsDef{Roles: list("roles"), Rights: list("rights")}
 }
 
 // getOptionalBoolField reads a bool field that may be optional in a CUE

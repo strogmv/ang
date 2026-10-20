@@ -208,6 +208,8 @@ func (r *buildRun) targetEmitter(td normalizer.TargetDef, emitBackendDir, emitFr
 	em.PostgresVersion = td.PostgresVersion
 	em.ServiceConfig = td.ServiceConfig
 	em.OperationMetrics = td.OperationMetrics
+	em.SecurityHeaders = emitter.ResolveSecurityHeaders(td.SecurityHeaders)
+	em.MetricsPort = td.MetricsPort
 	// target.auth_default: under "deny" this target emits a copy of the
 	// schema in which every endpoint without auth needs a caller.
 	irSchema, authCheck, authErr := compiler.ApplyAuthDefault(r.irSchema, td.AuthDefault)

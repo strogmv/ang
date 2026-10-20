@@ -790,6 +790,32 @@ type TargetDef struct {
 	// ShutdownTimeout (target.shutdown_timeout, e.g. "30s") bounds the
 	// graceful drain on SIGTERM; SHUTDOWN_TIMEOUT overrides it at run time.
 	ShutdownTimeout string
+	// SecurityHeaders is target.security_headers: the API's
+	// Content-Security-Policy (csp), Cross-Origin-Opener-Policy (coop) and
+	// Permissions-Policy (permissions_policy). nil keeps the defaults.
+	SecurityHeaders *SecurityHeadersDef
+	// MetricsPort is target.metrics_port: /metrics is served on this port
+	// only, not on the API port (METRICS_PORT overrides it at run time).
+	MetricsPort string
+	// RouteRights is target.route_rights: routes gated by one of its roles
+	// must declare auth.right, one of its rights.
+	RouteRights *RouteRightsDef
+}
+
+// SecurityHeadersDef is target.security_headers; a nil field keeps the
+// default, a pointer to "" switches the header off.
+type SecurityHeadersDef struct {
+	CSP               *string
+	COOP              *string
+	PermissionsPolicy *string
+}
+
+// RouteRightsDef is target.route_rights: {roles: ["admin"], rights: [...]}.
+// Every HTTP route whose auth.roles names one of Roles must say which right
+// it needs (auth.right); with Rights given, the right must be one of them.
+type RouteRightsDef struct {
+	Roles  []string
+	Rights []string
 }
 
 // NotificationMutingDef describes automatic notification muting via repository decorator.

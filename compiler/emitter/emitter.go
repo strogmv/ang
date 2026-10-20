@@ -64,7 +64,13 @@ type Emitter struct {
 	OperationMetrics bool
 	// RBACDef is the project's role/permission table (cue/policies); with
 	// IRSchema it decides whether internal/pkg/rbac is generated (RBACUsed).
-	RBACDef                  *normalizer.RBACDef
+	RBACDef *normalizer.RBACDef
+	// SecurityHeaders is target.security_headers resolved against the
+	// defaults: what SecurityHeadersMiddleware sets (ResolveSecurityHeaders).
+	SecurityHeaders SecurityHeaders
+	// MetricsPort is target.metrics_port: the port /metrics is served on
+	// instead of the API port ("" = the API port, behind METRICS_TOKEN).
+	MetricsPort              string
 	FrontendDir              string
 	FrontendAdminDir         string
 	TemplatesDir             string // Путь к папке с шаблонами
@@ -90,10 +96,11 @@ func New(outputDir, frontendDir, templatesDir string) *Emitter {
 		templatesDir = "templates"
 	}
 	return &Emitter{
-		OutputDir:      outputDir,
-		FrontendDir:    frontendDir,
-		TemplatesDir:   templatesDir,
-		UIProviderPath: DefaultUIProviderPath,
+		SecurityHeaders: ResolveSecurityHeaders(nil),
+		OutputDir:       outputDir,
+		FrontendDir:     frontendDir,
+		TemplatesDir:    templatesDir,
+		UIProviderPath:  DefaultUIProviderPath,
 	}
 }
 
