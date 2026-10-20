@@ -200,13 +200,16 @@ func (e *Emitter) EmitOpenAPIFromNormalizerTypes(endpoints []normalizer.Endpoint
 	funcMap["QueryParamFields"] = func(ent normalizer.Entity) []normalizer.Field {
 		var out []normalizer.Field
 		for _, f := range ent.Fields {
-			if normalizer.FieldQueryParam(f.Metadata) != nil {
+			if normalizer.FieldQueryParam(f.Metadata) != nil || normalizer.FieldHeaderName(f.Metadata) != "" {
 				out = append(out, f)
 			}
 		}
 		return out
 	}
 	funcMap["OpenAPIQueryParam"] = openAPIQueryParamLines
+	funcMap["HeaderParam"] = func(f normalizer.Field) string {
+		return normalizer.FieldHeaderName(f.Metadata)
+	}
 	funcMap["OpenAPIType"] = func(goType string) string {
 		if strings.HasPrefix(goType, "[]") {
 			return "array"
@@ -540,6 +543,13 @@ func rateLimitsFromIR(primary *ir.RateLimit, stack []ir.RateLimit) (*normalizer.
 // openAPIQueryParamLines describes a typed query parameter (@query) as an
 // OpenAPI parameter, one YAML line each, relative to the list item.
 func openAPIQueryParamLines(f normalizer.Field) []string {
+	if header := normalizer.FieldHeaderName(f.Metadata); header != "" {
+		lines := []string{"- in: header", "  name: " + header}
+		if !f.IsOptional {
+			lines = append(lines, "  required: true")
+		}
+		return append(lines, "  schema:", "    type: string")
+	}
 	spec := normalizer.FieldQueryParam(f.Metadata)
 	if spec == nil {
 		return nil

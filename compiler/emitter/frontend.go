@@ -1278,6 +1278,11 @@ func (e *Emitter) EmitFrontendSDK(entities []ir.Entity, services []ir.Service, e
 			return "{} as Types." + rpc + "Request"
 		},
 		// RequestAllOptional: a request a caller may send without any field.
+		// HeaderParams: input fields the request carries as headers
+		// (@header), not in the body or the query.
+		"HeaderParams": func(rpc string) []frontendHeaderParam {
+			return frontendHeaderParams(servicesNorm, rpc)
+		},
 		"RequestAllOptional": func(rpc string) bool {
 			return frontendRequestAllOptional(servicesNorm, rpc)
 		},

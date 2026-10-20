@@ -441,6 +441,9 @@ func (n *Normalizer) parseEntity(name string, val cue.Value) (Entity, error) {
 			if _, err := parseQueryAttr(val, &field); err != nil {
 				return entity, err
 			}
+			if err := parseHeaderAttr(val, &field); err != nil {
+				return entity, err
+			}
 		}
 		entity.Fields = append(entity.Fields, field)
 	}

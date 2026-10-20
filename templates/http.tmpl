@@ -64,7 +64,7 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 		var req port.{{ .Input.Name }}
 		{{- if eq .Method "GET" }}
 		{{- range .Input.Fields }}
-		{{- if not (HasAuthInject $ep.Endpoint .Name) }}
+		{{- if and (not (HasAuthInject $ep.Endpoint .Name)) (not (HeaderParam .)) }}
 		{{- $fname := .Name | JSONName }}
 		{{- if QueryParam . }}
 {{ QueryParamCode . }}
@@ -165,6 +165,13 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 		}
 		{{- end }}
 		{{- end }}
+		{{- end }}
+		{{- end }}
+		{{- range .Input.Fields }}
+		{{- $header := HeaderParam . }}
+		{{- if $header }}
+		// From the {{ $header }} header only: a body or query value never counts.
+		req.{{ .Name | ExportName }} = r.Header.Get({{ printf "%q" $header }})
 		{{- end }}
 		{{- end }}
 		{{- range .AuthInject }}

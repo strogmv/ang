@@ -221,9 +221,17 @@ export const {{ LowerFirst .RPC }} = (
   const {{ . }} = getPathParamValue(paramsRecord, '{{ . }}'{{- if ne . (JSONName .) }}, ['{{ JSONName . }}']{{- else }}, []{{- end }});
   {{- end }}
   {{- end }}
+  {{- $headers := HeaderParams .RPC }}
+  {{- if $headers }}
+  // Sent as headers (@header), never in the body or the query.
+  const headers: Record<string, string> = {};
+  {{- range $headers }}
+  if (params.{{ .Field }} != null) headers[{{ TSString .Header }}] = String(params.{{ .Field }});
+  {{- end }}
+  {{- end }}
   {{- if eq .Method "GET" }}
-  const queryParams = omitKeys(toParamRecord(params), [{{- range $i, $arg := $argList }}{{ if $i }}, {{ end }}'{{ $arg }}'{{- if ne $arg (JSONName $arg) }}, '{{ JSONName $arg }}'{{- end }}{{- end }}]);
-  return apiClient.get<Types.{{ .RPC }}Response>(`{{ PathTemplate .Path }}`, { params: queryParams, signal: requestOptions.signal }).then((r) => {
+  const queryParams = omitKeys(toParamRecord(params), [{{- range $i, $arg := $argList }}{{ if $i }}, {{ end }}'{{ $arg }}'{{- if ne $arg (JSONName $arg) }}, '{{ JSONName $arg }}'{{- end }}{{- end }}{{- range $i, $h := $headers }}{{ if or $i (gt (len $argList) 0) }}, {{ end }}'{{ $h.Field }}'{{- end }}]);
+  return apiClient.get<Types.{{ .RPC }}Response>(`{{ PathTemplate .Path }}`, { params: queryParams, {{ if $headers }}headers, {{ end }}signal: requestOptions.signal }).then((r) => {
     const data = r.data;
     if (import.meta.env.DEV) {
       validateResponse('{{ .RPC }}ResponseSchema', data, '{{ .RPC }}');
@@ -231,7 +239,7 @@ export const {{ LowerFirst .RPC }} = (
     return data;
   });
   {{- else if eq .Method "DELETE" }}
-  return apiClient.delete<Types.{{ .RPC }}Response>(`{{ PathTemplate .Path }}`, { data: params, signal: requestOptions.signal }).then((r) => {
+  return apiClient.delete<Types.{{ .RPC }}Response>(`{{ PathTemplate .Path }}`, { data: {{ if $headers }}omitKeys(toParamRecord(params), [{{ range $i, $h := $headers }}{{ if $i }}, {{ end }}'{{ $h.Field }}'{{ end }}]){{ else }}params{{ end }}, {{ if $headers }}headers, {{ end }}signal: requestOptions.signal }).then((r) => {
     const data = r.data;
     if (import.meta.env.DEV) {
       validateResponse('{{ .RPC }}ResponseSchema', data, '{{ .RPC }}');
@@ -239,7 +247,7 @@ export const {{ LowerFirst .RPC }} = (
     return data;
   });
   {{- else }}
-  return apiClient.{{ .Method | ToLower }}<Types.{{ .RPC }}Response>(`{{ PathTemplate .Path }}`, params, { signal: requestOptions.signal }).then((r) => {
+  return apiClient.{{ .Method | ToLower }}<Types.{{ .RPC }}Response>(`{{ PathTemplate .Path }}`, {{ if $headers }}omitKeys(toParamRecord(params), [{{ range $i, $h := $headers }}{{ if $i }}, {{ end }}'{{ $h.Field }}'{{ end }}]){{ else }}params{{ end }}, { {{ if $headers }}headers, {{ end }}signal: requestOptions.signal }).then((r) => {
     const data = r.data;
     if (import.meta.env.DEV) {
       validateResponse('{{ .RPC }}ResponseSchema', data, '{{ .RPC }}');

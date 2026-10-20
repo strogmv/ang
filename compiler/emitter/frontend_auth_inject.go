@@ -163,3 +163,27 @@ func frontendPageListField(services []normalizer.Service, rpc string) string {
 	}
 	return ""
 }
+
+// frontendHeaderParam is an input field sent as a request header (@header).
+type frontendHeaderParam struct {
+	Field  string // JSON name in the request type
+	Header string
+}
+
+func frontendHeaderParams(services []normalizer.Service, rpc string) []frontendHeaderParam {
+	for _, svc := range services {
+		for _, m := range svc.Methods {
+			if m.Name != rpc {
+				continue
+			}
+			var out []frontendHeaderParam
+			for _, f := range m.Input.Fields {
+				if h := normalizer.FieldHeaderName(f.Metadata); h != "" {
+					out = append(out, frontendHeaderParam{Field: JSONName(f.Name), Header: h})
+				}
+			}
+			return out
+		}
+	}
+	return nil
+}

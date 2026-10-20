@@ -178,6 +178,31 @@ string after the JSON body is decoded. The parsing helpers live in
 field. OpenAPI lists each one as a query parameter with its type (`format:
 date`, `date-time`, `int64`; arrays with `style: form` and `explode`).
 
+## Inputs from a header: `@header`
+
+A credential the caller sends as a header — a webhook secret, an API key —
+does not belong in the path (it ends up in access logs, proxies and the
+sender's dashboards) or the body. `@header` on an input field binds it to a
+request header:
+
+```cue
+TelegramWebhook: {
+	input: {
+		secretToken: string @header(name="X-Telegram-Bot-Api-Secret-Token")
+		message?: {...}
+	}
+}
+```
+
+- The handler sets the field from the header after reading the body, path and
+  query, always: an absent header is `""`, and a body or query value with the
+  same name never counts. A GET does not read the field from the query.
+- Only `string` fields; `@header("X-Name")` is the short form; `@header` and
+  `@query` exclude each other.
+- OpenAPI lists it as `in: header` (required unless the field is optional);
+  the TypeScript SDK sends it as that header and leaves it out of the body
+  and query.
+
 ## Three-state inputs: `@nullable()`
 
 An optional `bool` is `false` when the client leaves it out, so a PATCH

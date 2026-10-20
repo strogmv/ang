@@ -20,7 +20,7 @@ paths:
       {{- $ep := .Endpoint }}
       parameters:
         {{- range .Input.Fields }}
-        {{- if QueryParam . }}
+        {{- if or (QueryParam .) (HeaderParam .) }}
         {{- range OpenAPIQueryParam . }}
         {{ . }}
         {{- end }}

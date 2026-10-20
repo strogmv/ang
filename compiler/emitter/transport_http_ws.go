@@ -66,6 +66,9 @@ func (e *Emitter) EmitHTTP(irEndpoints []ir.Endpoint, irServices []ir.Service, i
 		return normalizer.FieldQueryParam(f.Metadata)
 	}
 	funcMap["QueryParamCode"] = renderQueryParamCode
+	funcMap["HeaderParam"] = func(f normalizer.Field) string {
+		return normalizer.FieldHeaderName(f.Metadata)
+	}
 	funcMap["RequestBodyEncoding"] = func(ep HttpEndpointView) string {
 		if ep.Metadata == nil {
 			return ""
