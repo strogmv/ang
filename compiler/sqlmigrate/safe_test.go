@@ -34,9 +34,10 @@ func TestSafeKeepsOnlyAdditiveIdempotentStatements(t *testing.T) {
 		`CREATE TABLE IF NOT EXISTS "widgets" ("id" text NOT NULL, "label" text NOT NULL DEFAULT 'a;b', PRIMARY KEY ("id"));`,
 		`CREATE INDEX IF NOT EXISTS "idx_widgets_label" ON "widgets" ("label");`,
 		`CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "idx_widgets_big" ON "widgets" ("id", "label") WHERE (label <> ''::text);`,
-		`DO $ang$ BEGIN ALTER TABLE "widgets" ADD CONSTRAINT "widgets_label_valid" CHECK (label <> 'x'); EXCEPTION WHEN duplicate_object OR duplicate_table THEN NULL; END $ang$;`,
 		`CREATE OR REPLACE FUNCTION f() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END; $$;`,
 		`CREATE EXTENSION IF NOT EXISTS "pg_trgm";`,
+		// Constraints last: after the columns, tables and functions they use.
+		`DO $ang$ BEGIN ALTER TABLE "widgets" ADD CONSTRAINT "widgets_label_valid" CHECK (label <> 'x'); EXCEPTION WHEN duplicate_object OR duplicate_table THEN NULL; END $ang$;`,
 	}
 	if !reflect.DeepEqual(p.Statements, want) {
 		t.Fatalf("statements:\n%s\nwant:\n%s", strings.Join(p.Statements, "\n"), strings.Join(want, "\n"))
@@ -114,5 +115,31 @@ func TestStripRawDDL(t *testing.T) {
 	}
 	if !reflect.DeepEqual(entities, []string{"AuditLog"}) {
 		t.Fatalf("%v", entities)
+	}
+}
+
+// Atlas writes a new column and its CHECK into one ALTER TABLE, constraint
+// first; the file then failed on "column does not exist" (dealingi-back,
+// make migrate-diff of an @check on a new field).
+func TestSafePutsConstraintsAfterTheirColumns(t *testing.T) {
+	diff := `ALTER TABLE "public"."orders" ADD CONSTRAINT "orders_qty_positive" CHECK (qty > 0), ADD COLUMN "qty" integer NOT NULL DEFAULT 1;
+CREATE TABLE "public"."lines" ("id" uuid NOT NULL, "order_id" uuid NOT NULL);
+ALTER TABLE "public"."lines" ADD CONSTRAINT "lines_order_fk" FOREIGN KEY ("order_id") REFERENCES "public"."orders" ("id");
+CREATE INDEX "idx_lines_order" ON "public"."lines" ("order_id");`
+	p := Safe(diff, nil)
+	index := func(sub string) int {
+		for i, s := range p.Statements {
+			if strings.Contains(s, sub) {
+				return i
+			}
+		}
+		t.Fatalf("no statement with %q in %v", sub, p.Statements)
+		return -1
+	}
+	if index(`ADD COLUMN IF NOT EXISTS "qty"`) > index(`"orders_qty_positive"`) {
+		t.Fatalf("the CHECK precedes its column:\n%s", strings.Join(p.Statements, "\n"))
+	}
+	if index(`"lines_order_fk"`) < index(`idx_lines_order`) || index(`"lines_order_fk"`) < index(`CREATE TABLE IF NOT EXISTS "public"."lines"`) {
+		t.Fatalf("constraints come after the tables, columns and indexes:\n%s", strings.Join(p.Statements, "\n"))
 	}
 }

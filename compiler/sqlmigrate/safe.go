@@ -61,6 +61,10 @@ func Safe(diffSQL string, concurrent map[string]bool) Plan {
 	skip := func(stmt, why string) {
 		p.Warnings = append(p.Warnings, fmt.Sprintf("skipped (%s): %s", why, oneLine(stmt)))
 	}
+	// Constraints come after every column and index of the plan: Atlas puts
+	// ADD CONSTRAINT … CHECK (col …) into the same ALTER TABLE as ADD COLUMN
+	// col, and a CHECK written before its column fails.
+	var constraints []string
 	for _, stmt := range SplitStatements(diffSQL) {
 		body := strings.TrimSuffix(strings.TrimSpace(stmt), ";")
 		switch {
@@ -98,7 +102,7 @@ func Safe(diffSQL string, concurrent map[string]bool) Plan {
 				clause = strings.TrimSpace(clause)
 				switch {
 				case reAddConstraint.MatchString(clause):
-					p.Statements = append(p.Statements, ignoreDuplicate("ALTER TABLE "+table+" "+clause))
+					constraints = append(constraints, ignoreDuplicate("ALTER TABLE "+table+" "+clause))
 				case reAddColumn.MatchString(clause):
 					cm := reAddColumn.FindStringSubmatch(clause)
 					if reNotNull.MatchString(cm[2]) && !reDefault.MatchString(cm[2]) {
@@ -120,6 +124,7 @@ func Safe(diffSQL string, concurrent map[string]bool) Plan {
 			skip(body+";", why)
 		}
 	}
+	p.Statements = append(p.Statements, constraints...)
 	return p
 }
 
