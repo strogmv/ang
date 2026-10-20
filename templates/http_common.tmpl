@@ -1312,7 +1312,48 @@ func authCookieMaxAge(ttl string, fallback time.Duration) int {
 	return int(fallback.Seconds())
 }
 
-func writeAuthCookies(w http.ResponseWriter, r *http.Request, accessToken, refreshToken string) {
+// ErrSessionNotSaved answers a sign-in whose session the store did not take.
+// The tokens were issued, but without a stored session the browser would get
+// no cookie: answering 200 then looks like a sign-in that worked, and the next
+// request is a silent 401. A 503 says what happened and the client tries again.
+var ErrSessionNotSaved = errors.New(http.StatusServiceUnavailable, "SESSION_STORE_UNAVAILABLE", "the session could not be saved; please sign in again")
+
+// sessionSaveAttempts and sessionSaveBackoff: a busy store gets three tries,
+// 50 and 150 ms apart, each within sessionStoreTimeout.
+var (
+	sessionSaveAttempts = 3
+	sessionSaveBackoff  = []time.Duration{50 * time.Millisecond, 150 * time.Millisecond}
+)
+
+// saveNewOpaqueSession stores a new session, retrying a failing store.
+func saveNewOpaqueSession(ctx context.Context, payload opaqueSessionPayload) error {
+	var err error
+	for attempt := 0; attempt < sessionSaveAttempts; attempt++ {
+		if attempt > 0 {
+			wait := sessionSaveBackoff[len(sessionSaveBackoff)-1]
+			if attempt-1 < len(sessionSaveBackoff) {
+				wait = sessionSaveBackoff[attempt-1]
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(wait):
+			}
+		}
+		storeCtx, cancel := context.WithTimeout(ctx, sessionStoreTimeout)
+		err = saveOpaqueSession(storeCtx, payload)
+		cancel()
+		if err == nil {
+			return nil
+		}
+	}
+	return err
+}
+
+// writeAuthCookies puts the signed-in session on the response. A non-nil
+// error means no cookie was set although tokens were issued: the caller must
+// answer the error, never the success it was about to send.
+func writeAuthCookies(w http.ResponseWriter, r *http.Request, accessToken, refreshToken string) error {
 	accessTTL := "15m"
 	refreshTTL := "168h"
 	if authCfg != nil {
@@ -1324,28 +1365,41 @@ func writeAuthCookies(w http.ResponseWriter, r *http.Request, accessToken, refre
 		}
 	}
 	if opaqueSessionEnabled() {
+		// An answer without both tokens (a second-factor challenge, say)
+		// signs nobody in: there is no session to write.
+		if strings.TrimSpace(accessToken) == "" || strings.TrimSpace(refreshToken) == "" {
+			return nil
+		}
 		payload, err := buildOpaqueSessionPayload(accessToken, refreshToken)
 		if err != nil {
-			return
-		}
-		// SID rotation: always invalidate the old session and issue a fresh SID.
-		// Prevents session fixation and ensures refresh-token rotation is reflected
-		// in the session store immediately.
-		if existing, cookieErr := r.Cookie(authSessionCookieName); cookieErr == nil && strings.TrimSpace(existing.Value) != "" {
-			oldSID := strings.TrimSpace(existing.Value)
-			if oldPayload, _ := findOpaqueSession(r.Context(), oldSID); oldPayload != nil {
-				unregisterSessionForUser(r.Context(), oldPayload.UserID, oldSID)
-			}
-			_ = deleteOpaqueSession(r.Context(), oldSID)
+			slog.Error("auth: session not written: the issued access token does not verify", "error", err)
+			return errors.New(http.StatusInternalServerError, "SESSION_NOT_WRITTEN", "the session could not be created")
 		}
 		payload.ID, err = generateOpaqueSessionID()
 		if err != nil {
-			return
+			slog.Error("auth: session not written: no session id", "error", err)
+			return errors.New(http.StatusInternalServerError, "SESSION_NOT_WRITTEN", "the session could not be created")
 		}
-		if err := saveOpaqueSession(r.Context(), *payload); err != nil {
-			return
+		// The new session is stored first: when the store fails, the old one
+		// (if any) is still there and nothing is lost.
+		if err := saveNewOpaqueSession(r.Context(), *payload); err != nil {
+			slog.Error("auth: session store did not save a new session; answering 503 instead of a sign-in without a cookie",
+				"user_id", payload.UserID, "attempts", sessionSaveAttempts, "error", err)
+			return ErrSessionNotSaved
 		}
 		registerSessionForUser(r.Context(), payload.UserID, payload.ID)
+		// SID rotation: the session the request came with ends, the fresh SID
+		// replaces it. Prevents session fixation and reflects refresh-token
+		// rotation in the session store immediately.
+		if existing, cookieErr := r.Cookie(authSessionCookieName); cookieErr == nil && strings.TrimSpace(existing.Value) != "" {
+			oldSID := strings.TrimSpace(existing.Value)
+			if oldSID != payload.ID {
+				if oldPayload, _ := findOpaqueSession(r.Context(), oldSID); oldPayload != nil {
+					unregisterSessionForUser(r.Context(), oldPayload.UserID, oldSID)
+				}
+				_ = deleteOpaqueSession(r.Context(), oldSID)
+			}
+		}
 		http.SetCookie(w, &http.Cookie{
 			Name:     authSessionCookieName,
 			Value:    payload.ID,
@@ -1368,7 +1422,7 @@ func writeAuthCookies(w http.ResponseWriter, r *http.Request, accessToken, refre
 				SameSite: http.SameSiteLaxMode,
 			})
 		}
-		return
+		return nil
 	}
 	if strings.TrimSpace(accessToken) != "" {
 		http.SetCookie(w, &http.Cookie{
@@ -1392,6 +1446,7 @@ func writeAuthCookies(w http.ResponseWriter, r *http.Request, accessToken, refre
 			SameSite: http.SameSiteLaxMode,
 		})
 	}
+	return nil
 }
 
 // sessionRefreshToken returns the refresh token behind the request's session
@@ -1488,7 +1543,9 @@ func tryRefreshCookieSession(w http.ResponseWriter, r *http.Request) (map[string
 			return nil, err
 		}
 	}
-	writeAuthCookies(w, r, accessToken, newRefreshToken)
+	if err := writeAuthCookies(w, r, accessToken, newRefreshToken); err != nil {
+		return nil, err
+	}
 	return parseAndVerifyJWT(accessToken)
 }
 

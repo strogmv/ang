@@ -128,6 +128,14 @@ func TestRawGoCodeRunsInItsOwnScope(t *testing.T) {
 // lacks a module.
 func vetGeneratedPackagesOffline(t *testing.T, projectDir, module string, pkgs ...string) {
 	t.Helper()
+	runGoOffline(t, projectDir, module, append([]string{"vet"}, pkgs...)...)
+}
+
+// runGoOffline runs a go command (vet, test …) in a generated project with
+// ANG's own requirements and the module cache as the only proxy, pinning a
+// module ANG's go.mod lacks to its newest cached version.
+func runGoOffline(t *testing.T, projectDir, module string, goArgs ...string) {
+	t.Helper()
 	repoRoot, _ := filepath.Abs("../..")
 	angMod, err := os.ReadFile(filepath.Join(repoRoot, "go.mod"))
 	if err != nil {
@@ -149,7 +157,7 @@ func vetGeneratedPackagesOffline(t *testing.T, projectDir, module string, pkgs .
 	missingPackage := regexp.MustCompile(`cannot find module providing package ([^\s:]+)`)
 	missingZip := regexp.MustCompile(`([^\s:@]+)@(v[^\s:]+): reading file:[^\s]*\.zip: no such file`)
 	for attempt := 0; ; attempt++ {
-		cmd := exec.Command("go", append([]string{"vet"}, pkgs...)...)
+		cmd := exec.Command("go", goArgs...)
 		cmd.Dir = projectDir
 		cmd.Env = env
 		out, err := cmd.CombinedOutput()
@@ -175,7 +183,7 @@ func vetGeneratedPackagesOffline(t *testing.T, projectDir, module string, pkgs .
 			}
 		}
 		if len(pins) == 0 {
-			t.Fatalf("generated packages do not compile: %v\n%s", err, out)
+			t.Fatalf("go %s in the generated project: %v\n%s", strings.Join(goArgs, " "), err, out)
 		}
 		if attempt > 20 {
 			t.Skipf("module cache cannot satisfy the dependencies: %s", out)

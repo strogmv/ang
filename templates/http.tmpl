@@ -396,14 +396,19 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 		{{- end }}
 
 		{{ if .Output.Name }}
-		w.Header().Set("Content-Type", "application/json")
 {{- if CookieAuthEnabled }}
 {{- $access := AuthCookieAccessField .RPC }}
 {{- $refresh := AuthCookieRefreshField .RPC }}
 {{- if and $access $refresh }}
-		writeAuthCookies(w, r, resp.{{ $access | ExportName }}, resp.{{ $refresh | ExportName }})
+		// No stored session, no cookie: the sign-in fails loudly instead of
+		// answering 200 that the next request turns into a 401.
+		if err := writeAuthCookies(w, r, resp.{{ $access | ExportName }}, resp.{{ $refresh | ExportName }}); err != nil {
+			errors.WriteError(w, r, err)
+			return
+		}
 {{- end }}
 {{- end }}
+		w.Header().Set("Content-Type", "application/json")
 		{{- if eq .Method "GET" }}
 		var out any
 		{{- if .View }}
