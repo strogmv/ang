@@ -83,6 +83,13 @@ type opaqueSessionPayload struct {
 	// "expired"). The record stays for a while as a tombstone so that every
 	// tab still holding the cookie gets the same answer.
 	Ended string `json:"ended,omitempty"`
+	// Attrs are the access-token claims auth.jwt.session_claims lists, kept
+	// for the session's whole life (reqctx.SessionAttrs).
+	Attrs map[string]string `json:"attrs,omitempty"`
+	// Credential is "header" for a session presented in X-Auth-Session; such
+	// a session is never accepted as the cookie, nor a cookie one as the
+	// header.
+	Credential string `json:"cred,omitempty"`
 }
 
 // sessionEndedError: the cookie names a session that no longer admits
@@ -119,6 +126,20 @@ const (
 	sessionRemainingHeader     = "X-Session-Remaining"
 	// How long an ended session keeps its tombstone.
 	sessionEndedGrace = time.Hour
+	// A header session (credential: "header") travels in this request
+	// header, read before the session cookie; a WebSocket handshake, which
+	// cannot carry headers from a browser, sends it as this query parameter.
+	authSessionHeaderName = "X-Auth-Session"
+	authSessionQueryParam = "auth_session"
+	authSessionCredentialHeader = "header"
+)
+
+// authSessionClaims are the access-token claims a session keeps
+// (auth.jwt.session_claims); authSessionExpiryClaim, when set, names the claim
+// (unix seconds) that ends the session early (auth.jwt.session_expiry_claim).
+var (
+	authSessionClaims = []string{ {{- range .SessionClaims }}"{{ . }}", {{ end -}} }
+	authSessionExpiryClaim = "{{ .SessionExpiryClaim }}"
 )
 
 var (
@@ -274,6 +295,28 @@ type RequestOutcome struct {
 
 func SetRequestOutcomeRecorder(recorder func(ctx context.Context, outcome RequestOutcome)) {
 	requestOutcomeRecorder = recorder
+}
+
+// SessionWrite is one state-changing request (not GET, HEAD or OPTIONS) made
+// in a session that carries attributes (auth.jwt.session_claims): support
+// access, a delegated session. The recorder's context has the session's
+// attributes (reqctx.SessionAttrs) and handle; Status is the final answer.
+type SessionWrite struct {
+	Method        string
+	Path          string
+	Status        int
+	UserID        string
+	CompanyID     string
+	SessionHandle string
+}
+
+var sessionWriteRecorder func(ctx context.Context, write SessionWrite)
+
+// SetSessionWriteRecorder: every write of a session with attributes is
+// reported once it has been answered. Sessions without attributes are not
+// watched, so ordinary traffic pays nothing for it.
+func SetSessionWriteRecorder(recorder func(ctx context.Context, write SessionWrite)) {
+	sessionWriteRecorder = recorder
 }
 
 // RequestGateMiddleware asks the project's gate about every request. A gate
@@ -1044,7 +1087,175 @@ func buildOpaqueSessionPayload(accessToken, refreshToken string) (*opaqueSession
 	now := time.Now()
 	payload.ExpiresAt = now.Add(authSessionAbsoluteTTL()).Unix()
 	payload.LastActiveAt = now.Unix()
+	payload.Attrs = sessionAttrsFromClaims(claims)
+	if exp := sessionExpiryFromClaims(claims); exp > 0 && exp < payload.ExpiresAt {
+		payload.ExpiresAt = exp
+	}
 	return payload, nil
+}
+
+// sessionAttrsFromClaims picks the claims auth.jwt.session_claims lists.
+func sessionAttrsFromClaims(claims map[string]any) map[string]string {
+	if len(authSessionClaims) == 0 {
+		return nil
+	}
+	attrs := map[string]string{}
+	for _, name := range authSessionClaims {
+		if v := strings.TrimSpace(getStringClaim(claims, name)); v != "" {
+			attrs[name] = v
+		}
+	}
+	if len(attrs) == 0 {
+		return nil
+	}
+	return attrs
+}
+
+// sessionExpiryFromClaims reads the session-expiry claim (unix seconds, as a
+// number or a string); 0 when there is none.
+func sessionExpiryFromClaims(claims map[string]any) int64 {
+	if authSessionExpiryClaim == "" {
+		return 0
+	}
+	switch v := claims[authSessionExpiryClaim].(type) {
+	case float64:
+		return int64(v)
+	case json.Number:
+		n, _ := v.Int64()
+		return n
+	case string:
+		n, _ := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+		return n
+	}
+	return 0
+}
+
+// sessionCredential returns the session id the request presents and whether
+// it came as the header session. The header wins over the cookie and, once
+// present, is the only thing looked at: a tab whose own session ended must
+// not quietly carry on as whoever owns the cookie.
+func sessionCredential(r *http.Request) (string, bool) {
+	if r == nil {
+		return "", false
+	}
+	if v := strings.TrimSpace(r.Header.Get(authSessionHeaderName)); v != "" {
+		return v, true
+	}
+	if strings.EqualFold(strings.TrimSpace(r.Header.Get("Upgrade")), "websocket") {
+		if v := strings.TrimSpace(r.URL.Query().Get(authSessionQueryParam)); v != "" {
+			return v, true
+		}
+	}
+	if cookie, err := r.Cookie(authSessionCookieName); err == nil && strings.TrimSpace(cookie.Value) != "" {
+		return strings.TrimSpace(cookie.Value), false
+	}
+	return "", false
+}
+
+// requestHasHeaderSession: does the request present a header session?
+func requestHasHeaderSession(r *http.Request) bool {
+	_, header := sessionCredential(r)
+	return header
+}
+
+// writeHeaderSession starts a header session for the token pair and returns
+// its opaque id. No cookie is written or touched: the cookie session the
+// other tabs of this browser share goes on as it was.
+func writeHeaderSession(ctx context.Context, accessToken, refreshToken string) (string, error) {
+	if !opaqueSessionEnabled() {
+		return "", fmt.Errorf("header sessions need opaque sessions")
+	}
+	payload, err := buildOpaqueSessionPayload(accessToken, refreshToken)
+	if err != nil {
+		return "", err
+	}
+	payload.Credential = authSessionCredentialHeader
+	payload.ID, err = generateOpaqueSessionID()
+	if err != nil {
+		return "", err
+	}
+	if err := saveOpaqueSession(ctx, *payload); err != nil {
+		return "", err
+	}
+	registerSessionForUser(ctx, payload.UserID, payload.ID)
+	return payload.ID, nil
+}
+
+// endSessionByHandle ends the session of userID whose handle
+// (auth.SessionHandle) is handle; auth.EndSession calls it.
+func endSessionByHandle(ctx context.Context, userID, handle string) (bool, error) {
+	for _, sid := range userSessionIDs(ctx, userID) {
+		payload, err := findOpaqueSession(ctx, sid)
+		if err != nil {
+			return false, err
+		}
+		if payload == nil || payload.Ended != "" || auth.SessionHandle(payload.RefreshToken) != handle {
+			continue
+		}
+		if strings.TrimSpace(payload.ID) == "" {
+			payload.ID = sid
+		}
+		endOpaqueSession(ctx, *payload, "ended")
+		return true, nil
+	}
+	return false, nil
+}
+
+// userSessionIDs lists the session ids filed for userID.
+func userSessionIDs(ctx context.Context, userID string) []string {
+	if strings.TrimSpace(userID) == "" {
+		return nil
+	}
+	if authSessionStore != nil {
+		raw, err := authSessionStore.Get(ctx, userSessionsIndexKey(userID))
+		if err != nil || len(raw) == 0 {
+			return nil
+		}
+		var sids []string
+		_ = json.Unmarshal(raw, &sids)
+		return sids
+	}
+	authSessionMu.Lock()
+	defer authSessionMu.Unlock()
+	sids := make([]string, 0, len(authSessionByUser[userID]))
+	for sid := range authSessionByUser[userID] {
+		sids = append(sids, sid)
+	}
+	return sids
+}
+
+// sessionLiveByHandle: is the session of userID named handle still live
+// (not ended, not past its deadlines, its refresh token valid)?
+func sessionLiveByHandle(ctx context.Context, userID, handle string) (bool, error) {
+	for _, sid := range userSessionIDs(ctx, userID) {
+		payload, err := findOpaqueSession(ctx, sid)
+		if err != nil {
+			return false, err
+		}
+		if payload == nil || auth.SessionHandle(payload.RefreshToken) != handle {
+			continue
+		}
+		alive, known := opaqueSessionAlive(ctx, sid)
+		if !known || !alive {
+			return false, nil
+		}
+		if authRefreshStore != nil {
+			rec, err := authRefreshStore.Find(ctx, payload.RefreshToken)
+			if err != nil {
+				return false, err
+			}
+			if rec == nil || rec.Revoked || (!rec.ExpiresAt.IsZero() && time.Now().After(rec.ExpiresAt)) {
+				return false, nil
+			}
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func init() {
+	auth.RegisterSessionEnder(endSessionByHandle)
+	auth.RegisterSessionProbe(sessionLiveByHandle)
 }
 
 // sessionStoreTimeout bounds each session-store call of a request.
@@ -1114,8 +1325,8 @@ func resolveOpaqueSession(r *http.Request, renew bool) (*opaqueSessionPayload, e
 	if !opaqueSessionEnabled() {
 		return nil, fmt.Errorf("opaque session mode is disabled")
 	}
-	cookie, err := r.Cookie(authSessionCookieName)
-	if err != nil || strings.TrimSpace(cookie.Value) == "" {
+	sid, viaHeader := sessionCredential(r)
+	if sid == "" {
 		return nil, fmt.Errorf("missing session cookie")
 	}
 	// The session store gets sessionStoreTimeout, not the request's whole
@@ -1124,22 +1335,27 @@ func resolveOpaqueSession(r *http.Request, renew bool) (*opaqueSessionPayload, e
 	ctx, cancelStore := context.WithTimeout(r.Context(), sessionStoreTimeout)
 	defer cancelStore()
 	now := time.Now()
-	payload, err := findOpaqueSession(ctx, cookie.Value)
+	payload, err := findOpaqueSession(ctx, sid)
 	if err != nil {
-		if recent, ok := recentValidSession(cookie.Value, now); ok {
+		if recent, ok := recentValidSession(sid, now); ok && (recent.Credential == authSessionCredentialHeader) == viaHeader {
 			return recent, nil
 		}
 		return nil, &sessionStoreError{err: err}
 	}
 	if payload == nil {
-		forgetValidSession(cookie.Value)
+		forgetValidSession(sid)
 		return nil, &sessionEndedError{reason: "ended"}
 	}
 	if strings.TrimSpace(payload.ID) == "" {
-		payload.ID = strings.TrimSpace(cookie.Value)
+		payload.ID = sid
 	}
 	if payload.Ended != "" {
 		return nil, &sessionEndedError{reason: payload.Ended}
+	}
+	// A header session is only ever presented as the header, a cookie
+	// session only as the cookie.
+	if (payload.Credential == authSessionCredentialHeader) != viaHeader {
+		return nil, &sessionEndedError{reason: "ended"}
 	}
 	if strings.TrimSpace(payload.RefreshToken) == "" || strings.TrimSpace(payload.UserID) == "" {
 		_ = deleteOpaqueSession(ctx, payload.ID)
@@ -1159,7 +1375,7 @@ func resolveOpaqueSession(r *http.Request, renew bool) (*opaqueSessionPayload, e
 	}
 	rec, err := authRefreshStore.Find(ctx, payload.RefreshToken)
 	if err != nil {
-		if recent, ok := recentValidSession(cookie.Value, now); ok {
+		if recent, ok := recentValidSession(sid, now); ok {
 			return recent, nil
 		}
 		return nil, &sessionStoreError{err: err}
@@ -1183,7 +1399,7 @@ func resolveOpaqueSession(r *http.Request, renew bool) (*opaqueSessionPayload, e
 			slog.Warn("auth: session activity not saved", "error", err)
 		}
 	}
-	rememberValidSession(cookie.Value, payload)
+	rememberValidSession(sid, payload)
 	return payload, nil
 }
 
@@ -1457,9 +1673,14 @@ func sessionRefreshToken(r *http.Request) string {
 		return ""
 	}
 	if opaqueSessionEnabled() {
-		if cookie, err := r.Cookie(authSessionCookieName); err == nil && strings.TrimSpace(cookie.Value) != "" {
-			if payload, _ := findOpaqueSession(r.Context(), cookie.Value); payload != nil {
+		// A tab with a header session signs out of that session, never the
+		// cookie one.
+		if sid, viaHeader := sessionCredential(r); sid != "" {
+			if payload, _ := findOpaqueSession(r.Context(), sid); payload != nil && (payload.Credential == authSessionCredentialHeader) == viaHeader {
 				return payload.RefreshToken
+			}
+			if viaHeader {
+				return ""
 			}
 		}
 	}
@@ -1470,6 +1691,19 @@ func sessionRefreshToken(r *http.Request) string {
 }
 
 func clearAuthCookies(w http.ResponseWriter, r *http.Request) {
+	// A request with a header session ends that session and leaves the
+	// cookies alone: they belong to the browser's other tabs.
+	if opaqueSessionEnabled() && r != nil {
+		if sid, viaHeader := sessionCredential(r); viaHeader {
+			if payload, _ := findOpaqueSession(r.Context(), sid); payload != nil && payload.Credential == authSessionCredentialHeader && payload.Ended == "" {
+				if strings.TrimSpace(payload.ID) == "" {
+					payload.ID = sid
+				}
+				endOpaqueSession(r.Context(), *payload, "ended")
+			}
+			return
+		}
+	}
 	if opaqueSessionEnabled() && r != nil {
 		if cookie, err := r.Cookie(authSessionCookieName); err == nil && strings.TrimSpace(cookie.Value) != "" {
 			sid := strings.TrimSpace(cookie.Value)
@@ -1555,6 +1789,10 @@ func AuthMiddleware(next http.Handler) http.Handler {
 		var claims map[string]any
 		var err error
 		var sessionErr error
+		// The session behind the request, for reqctx.WithAuthSession. A bearer
+		// token has no handle; its attributes are its own claims.
+		var sessionHandle string
+		var sessionAttrs map[string]string
 		if cookieAuthEnabled() {
 			if opaqueSessionEnabled() {
 				var session *opaqueSessionPayload
@@ -1562,6 +1800,8 @@ func AuthMiddleware(next http.Handler) http.Handler {
 				if sessionErr == nil {
 					claims = claimsFromOpaqueSession(session)
 					writeSessionHeaders(w, session)
+					sessionHandle = auth.SessionHandle(session.RefreshToken)
+					sessionAttrs = session.Attrs
 				}
 				err = sessionErr
 			} else {
@@ -1664,8 +1904,22 @@ func AuthMiddleware(next http.Handler) http.Handler {
 		if ac.Timezone != "" {
 			rCtx = reqctx.WithTimezone(rCtx, ac.Timezone)
 		}
+		if sessionHandle == "" && sessionAttrs == nil {
+			sessionAttrs = sessionAttrsFromClaims(claims)
+		}
+		rCtx = reqctx.WithAuthSession(rCtx, sessionHandle, sessionAttrs)
 		ctx := context.WithValue(rCtx, authContextKey{}, ac)
-		next.ServeHTTP(w, r.WithContext(ctx))
+		if sessionWriteRecorder == nil || len(sessionAttrs) == 0 || r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+		sw := &gateStatusWriter{ResponseWriter: w}
+		next.ServeHTTP(sw, r.WithContext(ctx))
+		status := sw.status
+		if status == 0 {
+			status = http.StatusOK
+		}
+		sessionWriteRecorder(ctx, SessionWrite{Method: r.Method, Path: r.URL.Path, Status: errors.ObservedStatus(r, status), UserID: ac.UserID, CompanyID: ac.CompanyID, SessionHandle: sessionHandle})
 	})
 }
 

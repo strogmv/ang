@@ -98,6 +98,22 @@
 	})
 	{{- end }}
 
+	{{- /* A session issued with attributes (support access, a delegated
+	       session) has its writes recorded: when a service exposes
+	       RecordSessionWrite, the HTTP layer reports each one. */}}
+	{{- $sessionWriteSvc := "" }}
+	{{- range .ServicesIR }}
+		{{- $svc := . }}
+		{{- range .Methods }}
+			{{- if eq .Name "RecordSessionWrite" }}{{ $sessionWriteSvc = $svc.Name }}{{ end }}
+		{{- end }}
+	{{- end }}
+	{{- if ne $sessionWriteSvc "" }}
+	transport.SetSessionWriteRecorder(func(ctx context.Context, o transport.SessionWrite) {
+		_, _ = runtimeContainer.Svc{{ $sessionWriteSvc }}.RecordSessionWrite(ctx, port.RecordSessionWriteRequest{Method: o.Method, Path: o.Path, Status: o.Status, UserID: o.UserID, CompanyID: o.CompanyID, SessionHandle: o.SessionHandle})
+	})
+	{{- end }}
+
 	{{- /* Same idea one level along: a privileged role can carry a condition
 	       beyond holding it. When a service exposes CheckRoleAccess, the HTTP
 	       layer asks it before letting a role-gated handler run. */}}

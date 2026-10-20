@@ -41,8 +41,31 @@ func authCookieFields(auth *normalizer.AuthDef, rpc string) (accessField, refres
 	}
 }
 
+// authHeaderSessionOp returns the session operation rpc names when it issues
+// a header session (credential: "header").
+func authHeaderSessionOp(auth *normalizer.AuthDef, rpc string) (normalizer.AuthSessionOp, bool) {
+	if auth == nil {
+		return normalizer.AuthSessionOp{}, false
+	}
+	for _, so := range auth.SessionOps {
+		if strings.TrimSpace(so.Op) == strings.TrimSpace(rpc) && so.HeaderCredential() {
+			return so, true
+		}
+	}
+	return normalizer.AuthSessionOp{}, false
+}
+
 func authCookieFuncMap(auth *normalizer.AuthDef) map[string]any {
 	return map[string]any{
+		// AuthHeaderSessionField names the response field that carries the
+		// opaque id of a header session; empty for every other operation.
+		"AuthHeaderSessionField": func(rpc string) string {
+			so, ok := authHeaderSessionOp(auth, rpc)
+			if !ok {
+				return ""
+			}
+			return so.SessionField
+		},
 		"CookieAuthEnabled": func() bool {
 			return cookieAuthEnabled(auth)
 		},
