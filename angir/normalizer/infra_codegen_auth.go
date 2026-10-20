@@ -1,6 +1,7 @@
 package normalizer
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -110,16 +111,49 @@ func (n *Normalizer) ExtractAuth(val cue.Value) (*AuthDef, error) {
 	passwordChangeAccess, _ := jwtVal.LookupPath(cue.ParsePath("ops.password_change.access_field")).String()
 	passwordChangeRefresh, _ := jwtVal.LookupPath(cue.ParsePath("ops.password_change.refresh_field")).String()
 
+	var sessionClaims []string
+	if it, err := jwtVal.LookupPath(cue.ParsePath("session_claims")).List(); err == nil {
+		for it.Next() {
+			if claim, err := it.Value().String(); err == nil && strings.TrimSpace(claim) != "" {
+				sessionClaims = append(sessionClaims, strings.TrimSpace(claim))
+			}
+		}
+	}
+	sessionExpiryClaim, _ := jwtVal.LookupPath(cue.ParsePath("session_expiry_claim")).String()
+
 	var sessionOps []AuthSessionOp
 	if it, err := jwtVal.LookupPath(cue.ParsePath("ops.sessions")).Fields(); err == nil {
 		for it.Next() {
 			op, _ := it.Value().LookupPath(cue.ParsePath("op")).String()
 			access, _ := it.Value().LookupPath(cue.ParsePath("access_field")).String()
 			refresh, _ := it.Value().LookupPath(cue.ParsePath("refresh_field")).String()
+			credential, _ := it.Value().LookupPath(cue.ParsePath("credential")).String()
+			sessionField, _ := it.Value().LookupPath(cue.ParsePath("session_field")).String()
 			if strings.TrimSpace(op) == "" {
 				continue
 			}
-			sessionOps = append(sessionOps, AuthSessionOp{Op: strings.TrimSpace(op), AccessField: strings.TrimSpace(access), RefreshField: strings.TrimSpace(refresh)})
+			sessionOps = append(sessionOps, AuthSessionOp{
+				Op:           strings.TrimSpace(op),
+				AccessField:  strings.TrimSpace(access),
+				RefreshField: strings.TrimSpace(refresh),
+				Credential:   strings.TrimSpace(credential),
+				SessionField: strings.TrimSpace(sessionField),
+			})
+		}
+	}
+
+	for _, so := range sessionOps {
+		switch so.Credential {
+		case "", "cookie":
+		case "header":
+			if mode != "opaque_session_cookie" {
+				return nil, fmt.Errorf("auth.jwt.ops.sessions: %s has credential \"header\", which needs mode \"opaque_session_cookie\"", so.Op)
+			}
+			if so.SessionField == "" {
+				return nil, fmt.Errorf("auth.jwt.ops.sessions: %s has credential \"header\" but no session_field to return the session in", so.Op)
+			}
+		default:
+			return nil, fmt.Errorf("auth.jwt.ops.sessions: %s has credential %q; use \"header\" or leave it out", so.Op, so.Credential)
 		}
 	}
 
@@ -161,6 +195,8 @@ func (n *Normalizer) ExtractAuth(val cue.Value) (*AuthDef, error) {
 		PasswordChangeAccessField:  strings.TrimSpace(passwordChangeAccess),
 		PasswordChangeRefreshField: strings.TrimSpace(passwordChangeRefresh),
 		SessionOps:                 sessionOps,
+		SessionClaims:              sessionClaims,
+		SessionExpiryClaim:         strings.TrimSpace(sessionExpiryClaim),
 	}, nil
 }
 

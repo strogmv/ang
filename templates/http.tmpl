@@ -59,6 +59,15 @@ func Register{{ .Name }}Routes(r chi.Router, svc port.{{ .Name }}) {
 {{- end }}
 func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		{{- if and CookieAuthEnabled (AuthCookieAccessField .RPC) (AuthCookieRefreshField .RPC) (not (AuthHeaderSessionField .RPC)) }}
+		// A tab that holds a header session of its own must not sign in over
+		// the cookie: that would replace the cookie session every other tab
+		// of this browser shares.
+		if requestHasHeaderSession(r) {
+			errors.WriteError(w, r, errors.New(http.StatusConflict, "AUTH_SESSION_HEADER_PRESENT", "This tab holds a session of its own; end it before signing in"))
+			return
+		}
+		{{- end }}
 		{{- if .Input.Name }}
 		{{- $ep := . }}
 		var req port.{{ .Input.Name }}
@@ -406,7 +415,19 @@ func handler{{ .RPC }}(svc port.{{ $.Name }}) http.HandlerFunc {
 {{- if CookieAuthEnabled }}
 {{- $access := AuthCookieAccessField .RPC }}
 {{- $refresh := AuthCookieRefreshField .RPC }}
-{{- if and $access $refresh }}
+{{- $headerSession := AuthHeaderSessionField .RPC }}
+{{- if and $access $refresh $headerSession }}
+		// A header session: no cookie. The client keeps the opaque id for
+		// this tab and sends it as X-Auth-Session; neither token leaves.
+		headerSessionID, err := writeHeaderSession(r.Context(), resp.{{ $access | ExportName }}, resp.{{ $refresh | ExportName }})
+		if err != nil {
+			errors.WriteError(w, r, errors.New(http.StatusServiceUnavailable, "SESSION_STORE_UNAVAILABLE", "The session could not be started. Try again in a moment."))
+			return
+		}
+		resp.{{ $headerSession | ExportName }} = headerSessionID
+		resp.{{ $access | ExportName }} = ""
+		resp.{{ $refresh | ExportName }} = ""
+{{- else if and $access $refresh }}
 		// No stored session, no cookie: the sign-in fails loudly instead of
 		// answering 200 that the next request turns into a 401.
 		if err := writeAuthCookies(w, r, resp.{{ $access | ExportName }}, resp.{{ $refresh | ExportName }}); err != nil {

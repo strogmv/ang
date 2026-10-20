@@ -1,5 +1,5 @@
 import ky from 'ky';
-import { useAuthStore } from './auth-store';
+import { AUTH_SESSION_HEADER, getHeaderAuthSession, useAuthStore } from './auth-store';
 import { requestDefaults, requestOverrides, retryStrategies, type RequestRule, type RetryStrategy } from './endpoints/request-policy';
 import { ErrorCode, ProblemDetail } from './types';
 import * as Types from './types';
@@ -336,6 +336,8 @@ class KyApiClient {
         retryAttempt: attempt,
       };
       const headers = new Headers(config.headers);
+      const headerSession = getHeaderAuthSession();
+      if (headerSession) headers.set(AUTH_SESSION_HEADER, headerSession);
       const token = useAuthStore.getState().token;
       const hasExplicitAuthorization = Boolean(getHeaderValue(config.headers, 'Authorization'));
       if (token && !hasExplicitAuthorization) headers.set('Authorization', `Bearer ${token}`);

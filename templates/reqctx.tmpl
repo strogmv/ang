@@ -14,7 +14,48 @@ const (
 	acceptKey
 	rawBodyKey
 	webhookSignatureKey
+	authSessionKey
 )
+
+type authSessionInfo struct {
+	handle string
+	attrs  map[string]string
+}
+
+// WithAuthSession stores the signed-in session behind the request: its handle
+// (auth.SessionHandle) and the attributes it was issued with (the access-token
+// claims auth.jwt.session_claims lists). Set by the auth middleware.
+func WithAuthSession(ctx context.Context, handle string, attrs map[string]string) context.Context {
+	copied := make(map[string]string, len(attrs))
+	for k, v := range attrs {
+		copied[k] = v
+	}
+	return context.WithValue(ctx, authSessionKey, authSessionInfo{handle: handle, attrs: copied})
+}
+
+// AuthSessionHandle names the signed-in session of the request ("" when the
+// request was not authenticated by a session, e.g. by a bearer token).
+func AuthSessionHandle(ctx context.Context) string {
+	v, _ := ctx.Value(authSessionKey).(authSessionInfo)
+	return v.handle
+}
+
+// SessionAttrs returns a copy of the attributes the request's session was
+// issued with; empty, never nil, when there are none.
+func SessionAttrs(ctx context.Context) map[string]string {
+	v, _ := ctx.Value(authSessionKey).(authSessionInfo)
+	out := make(map[string]string, len(v.attrs))
+	for k, val := range v.attrs {
+		out[k] = val
+	}
+	return out
+}
+
+// SessionAttr returns one attribute of the request's session ("" when unset).
+func SessionAttr(ctx context.Context, name string) string {
+	v, _ := ctx.Value(authSessionKey).(authSessionInfo)
+	return v.attrs[name]
+}
 
 // WithSkipAutoVerify returns a new context with the skip-auto-verify flag set.
 // Used by TestHeadersMiddleware to bypass JWT verification in tests.

@@ -1,5 +1,5 @@
 // This file is auto-generated. Do not edit.
-import { useAuthStore } from './auth-store';
+import { useAuthStore, withHeaderAuthSession } from './auth-store';
 import type * as Types from './types';
 
 export type EventMap = {
@@ -219,7 +219,7 @@ export class WebSocketClient<T = WSMessage> {
         resolve();
       };
 
-      this.ws = new WebSocket(this.url);
+      this.ws = new WebSocket(withHeaderAuthSession(this.url));
 
       this.ws.onopen = () => {
         opened = true;

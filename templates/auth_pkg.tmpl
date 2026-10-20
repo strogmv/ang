@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/hmac"
@@ -9,13 +10,70 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"strings"
 	"time"
 
 	"{{GoModule}}/internal/config"
 )
+
+// SessionHandle names one signed-in session without being a credential for
+// it: a one-way hash of the session's refresh token. The operation that issues
+// a session can work it out from the refresh token it issued; every request of
+// the session finds it in reqctx.AuthSessionHandle. Pass it to EndSession to
+// end exactly that session.
+func SessionHandle(refreshToken string) string {
+	refreshToken = strings.TrimSpace(refreshToken)
+	if refreshToken == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte("session-handle:" + refreshToken))
+	return hex.EncodeToString(sum[:16])
+}
+
+var sessionEnder func(ctx context.Context, userID, handle string) (bool, error)
+
+// RegisterSessionEnder is called by the HTTP transport, which owns the
+// session store.
+func RegisterSessionEnder(fn func(ctx context.Context, userID, handle string) (bool, error)) {
+	sessionEnder = fn
+}
+
+var sessionProbe func(ctx context.Context, userID, handle string) (bool, error)
+
+// RegisterSessionProbe is called by the HTTP transport (see SessionLive).
+func RegisterSessionProbe(fn func(ctx context.Context, userID, handle string) (bool, error)) {
+	sessionProbe = fn
+}
+
+// SessionLive reports whether the session of userID that handle names still
+// admits requests: not ended (signed out, ended elsewhere, revoked), not past
+// its deadlines.
+func SessionLive(ctx context.Context, userID, handle string) (bool, error) {
+	if sessionProbe == nil {
+		return false, fmt.Errorf("auth: no session store to look the session up in")
+	}
+	if strings.TrimSpace(userID) == "" || strings.TrimSpace(handle) == "" {
+		return false, nil
+	}
+	return sessionProbe(ctx, userID, handle)
+}
+
+// EndSession ends the one session of userID that handle names, presented as a
+// cookie or as a header. It reports whether such a session was found; the
+// other sessions of the user go on.
+func EndSession(ctx context.Context, userID, handle string) (bool, error) {
+	if sessionEnder == nil {
+		return false, fmt.Errorf("auth: no session store to end the session in")
+	}
+	if strings.TrimSpace(userID) == "" || strings.TrimSpace(handle) == "" {
+		return false, nil
+	}
+	return sessionEnder(ctx, userID, handle)
+}
 
 // IssueAccessToken builds and signs an access JWT.
 // Optional extra is a single map[string]string of additional claims (e.g. {"locale": "ru", "timezone": "Europe/Moscow"}).

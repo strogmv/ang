@@ -562,6 +562,17 @@ type AuthDef struct {
 	// sign-up): their token pair is written as the session cookie like a
 	// login's. CUE: ops.sessions: <name>: {op, access_field, refresh_field}.
 	SessionOps []AuthSessionOp
+	// SessionClaims are access-token claims an opaque session keeps for its
+	// whole life (CUE: jwt.session_claims: [...string]). The operation that
+	// issues the session puts them into the access token; the server copies
+	// them into the session record, and every request of that session finds
+	// them in reqctx.SessionAttrs. Only the server signs the token, so a
+	// client cannot add or change one.
+	SessionClaims []string
+	// SessionExpiryClaim names an access-token claim (unix seconds) that ends
+	// the session earlier than its usual absolute lifetime (CUE:
+	// jwt.session_expiry_claim). The session is never renewed past it.
+	SessionExpiryClaim string
 }
 
 // AuthSessionOp is one operation that issues a session.
@@ -569,6 +580,19 @@ type AuthSessionOp struct {
 	Op           string
 	AccessField  string
 	RefreshField string
+	// Credential "header": the session is not written as the cookie. Its
+	// opaque id comes back in SessionField and the client presents it in the
+	// X-Auth-Session header (a WebSocket handshake: ?auth_session=), which
+	// the server reads before the cookie. One browser tab can then hold a
+	// session of its own without replacing the cookie session every other
+	// tab of the same API host shares. The response carries neither token.
+	Credential   string
+	SessionField string
+}
+
+// HeaderCredential reports whether the operation issues a header session.
+func (o AuthSessionOp) HeaderCredential() bool {
+	return o.Credential == "header"
 }
 
 // SessionDef describes anonymous cookie-session configuration.

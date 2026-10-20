@@ -38,3 +38,42 @@ export const useAuthStore = create<AuthState>()(
     }
   )
 );
+
+/**
+ * A header session belongs to one browser tab: an operation with
+ * credential: "header" returns its opaque id instead of setting the session
+ * cookie. The id lives in this tab's sessionStorage, every request of the SDK
+ * sends it as the X-Auth-Session header (a WebSocket: ?auth_session=), and the
+ * server reads it before the cookie, so the cookie session the browser's other
+ * tabs share goes on untouched.
+ */
+export const AUTH_SESSION_HEADER = 'X-Auth-Session';
+export const AUTH_SESSION_QUERY_PARAM = 'auth_session';
+const AUTH_SESSION_STORAGE_KEY = 'ang.authSession';
+
+export const getHeaderAuthSession = (): string | null => {
+  try {
+    if (typeof window === 'undefined' || !window.sessionStorage) return null;
+    const value = window.sessionStorage.getItem(AUTH_SESSION_STORAGE_KEY);
+    return value && value.trim() ? value.trim() : null;
+  } catch {
+    return null;
+  }
+};
+
+export const setHeaderAuthSession = (sessionId: string | null) => {
+  try {
+    if (typeof window === 'undefined' || !window.sessionStorage) return;
+    if (sessionId && sessionId.trim()) window.sessionStorage.setItem(AUTH_SESSION_STORAGE_KEY, sessionId.trim());
+    else window.sessionStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+  } catch {
+    // storage unavailable: the tab simply has no header session
+  }
+};
+
+/** Adds this tab's header session to a WebSocket URL (browsers cannot set headers on the handshake). */
+export const withHeaderAuthSession = (url: string): string => {
+  const sessionId = getHeaderAuthSession();
+  if (!sessionId) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}${AUTH_SESSION_QUERY_PARAM}=${encodeURIComponent(sessionId)}`;
+};
