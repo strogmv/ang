@@ -13,6 +13,27 @@ every Postgres query. Without it nothing below is generated and nothing runs.
 state: target: operation_metrics: true   // add operation_metrics?: bool to a closed #Target
 ```
 
+## Where /metrics is served
+
+`/metrics` is not for the internet: it names every route, error rate and the
+process' internals.
+
+| Setting | /metrics |
+|---|---|
+| `target.metrics_port: "9090"` or `METRICS_PORT=9090` | its own listener on `:9090`, none on the API port |
+| `METRICS_PORT=off` | back on the API port (overrides the target) |
+| no port, `METRICS_TOKEN=…` | on the API port, `Authorization: Bearer …` required (401 otherwise) |
+| neither | on the API port, open — the server logs a warning at start |
+
+With a port, the token (if set) is asked there too. Generated k8s manifests
+(`deploy/k8s`) list the port as `metrics` and probe liveness on `/health`.
+A Prometheus `ServiceMonitor` selects the Service port named `metrics`.
+
+Labels of the HTTP metrics are route patterns (`/api/items/{id}`), never raw
+paths; a request no route matches is `unmatched`. Request logs mask path
+segments and query values of parameters named like `*token*`, `*secret*`,
+`*session*`, `*password*`, `*signature*`, `*apikey*`, and write no headers.
+
 ## Operations
 
 Every service method (except streaming ones, which return no named error)

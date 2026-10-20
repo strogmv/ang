@@ -14,7 +14,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	{{/* pgPool is always declared (a nil *pgxpool.Pool for ReadinessHandler when
 	     there is no SQL), so pin the v5 import unconditionally — otherwise goimports

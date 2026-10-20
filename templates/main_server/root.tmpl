@@ -57,8 +57,36 @@ func main() {
 	// Health & Readiness probes
 	r.Get("/health", transport.HealthHandler())
 	r.Get("/health/ready", transport.ReadinessHandler(pgPool, redisClient, natsClient))
-	r.Handle("/metrics", promhttp.Handler())
+	// /metrics is not for the internet. METRICS_PORT (default: target.metrics_port)
+	// serves it on a port of its own, which only the cluster reaches, and
+	// the API port has none; otherwise it is on the API port and asks for
+	// METRICS_TOKEN as a bearer token when that is set.
+	metricsPort := strings.TrimSpace(os.Getenv("METRICS_PORT"))
+	if metricsPort == "" {
+		metricsPort = {{ printf "%q" MetricsPort }}
+	}
+	metricsToken := strings.TrimSpace(os.Getenv("METRICS_TOKEN"))
+	var metricsSrv *http.Server
+	if metricsPort != "" && metricsPort != "off" {
+		metricsMux := http.NewServeMux()
+		metricsMux.Handle("/metrics", transport.MetricsHandler(metricsToken))
+		metricsSrv = &http.Server{Addr: ":" + metricsPort, Handler: metricsMux, ReadHeaderTimeout: 10 * time.Second}
+		go func() {
+			log.Info("Serving /metrics on its own port", "addr", metricsSrv.Addr)
+			if err := metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Error("metrics listen failed", "error", err)
+			}
+		}()
+	} else {
+		if metricsToken == "" {
+			log.Warn("/metrics is open on the API port: set METRICS_PORT (a port only the cluster reaches) or METRICS_TOKEN")
+		}
+		r.Handle("/metrics", transport.MetricsHandler(metricsToken))
+	}
 
 	{{ template "main_server_graceful_shutdown" .GracefulShutdown }}
+	if metricsSrv != nil {
+		_ = metricsSrv.Close()
+	}
 }
 {{ end }}

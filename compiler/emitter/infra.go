@@ -1104,7 +1104,8 @@ func (e *Emitter) emitK8sFiles(baseDir string, ctx K8sContext) error {
 		}
 
 		t, err := template.New(file).Funcs(template.FuncMap{
-			"ToLower": strings.ToLower,
+			"ToLower":     strings.ToLower,
+			"MetricsPort": func() string { return e.MetricsPort },
 		}).Parse(string(tmplContent))
 		if err != nil {
 			return fmt.Errorf("parse template %s: %w", file, err)
