@@ -357,6 +357,19 @@ func New{{ .Name }}() *ProblemDetail {
 }
 {{- end }}
 
+// pathForLog is how a failed request's path is written to the log. The HTTP
+// layer sets it (SetPathForLog) to the path with every credential it carries
+// masked — share-link tokens, webhook secrets — so a 4xx on such a link does
+// not put the link in the log.
+var pathForLog = func(r *http.Request) string { return r.URL.Path }
+
+// SetPathForLog replaces how WriteError writes a request's path to the log.
+func SetPathForLog(f func(*http.Request) string) {
+	if f != nil {
+		pathForLog = f
+	}
+}
+
 func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	// The client has gone: whatever failed (usually because of it — a query
 	// cancelled with the request context), nobody will read the answer. It is
@@ -364,7 +377,7 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	if ClientGone(r) {
 		slog.Debug("Client closed request",
 			"method", r.Method,
-			"path", r.URL.Path,
+			"path", pathForLog(r),
 			"status", StatusClientClosedRequest,
 			"error", err,
 		)
@@ -388,7 +401,7 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 			}
 			slog.Error("Application error response",
 				"method", r.Method,
-				"path", r.URL.Path,
+				"path", pathForLog(r),
 				"status", pd.Status,
 				"title", pd.Title,
 				"detail", pd.Detail,
@@ -410,7 +423,7 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 		// a free pooled connection): the service is overloaded, not broken.
 		slog.Warn("Request deadline exceeded",
 			"method", r.Method,
-			"path", r.URL.Path,
+			"path", pathForLog(r),
 			"error", err,
 		)
 		NoteFault(w, r, FaultDependency)
@@ -420,7 +433,7 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	} else if isDatabaseOverloaded(err) {
 		slog.Warn("Database has no free connection",
 			"method", r.Method,
-			"path", r.URL.Path,
+			"path", pathForLog(r),
 			"error", err,
 		)
 		NoteFault(w, r, FaultDependency)
@@ -430,7 +443,7 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	} else if isMalformedInput(err) {
 		slog.Info("Malformed value in a request",
 			"method", r.Method,
-			"path", r.URL.Path,
+			"path", pathForLog(r),
 			"error", err,
 		)
 		pd = New(http.StatusBadRequest, "INVALID_INPUT", "A value in the request has the wrong format.")
@@ -443,7 +456,7 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 		NoteFault(w, r, FaultDependency)
 		slog.Error("Dependency failure",
 			"method", r.Method,
-			"path", r.URL.Path,
+			"path", pathForLog(r),
 			"error", err,
 		)
 		pd = serviceBusy(r)
@@ -452,7 +465,7 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 		NoteFault(w, r, FaultBug)
 		slog.Error("Unhandled application error",
 			"method", r.Method,
-			"path", r.URL.Path,
+			"path", pathForLog(r),
 			"error", err,
 		)
 		pd = New(http.StatusInternalServerError, "Internal Server Error", "An unexpected error occurred.")

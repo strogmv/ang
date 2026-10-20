@@ -77,9 +77,9 @@ func RecoverMiddleware(next http.Handler) http.Handler {
 			if rec == http.ErrAbortHandler {
 				panic(rec)
 			}
-			route := r.URL.Path
-			if rctx := chi.RouteContext(r.Context()); rctx != nil && rctx.RoutePattern() != "" {
-				route = rctx.RoutePattern()
+			route, safePath := requestRoute(r)
+			if route == "" {
+				route = safePath
 			}
 			logger.Recovered("http", r.Method+" "+route, rec)
 			// A hijacked (WebSocket) connection has no response to write.
@@ -98,17 +98,20 @@ func MetricsMiddleware(next http.Handler) http.Handler {
 		start := time.Now()
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 
-		// Track in-flight using raw path before routing resolves the pattern.
-		// This is intentional: inflight gauge is incremented before the handler runs.
-		httpInflight.WithLabelValues(r.URL.Path, r.Method).Inc()
-		defer httpInflight.WithLabelValues(r.URL.Path, r.Method).Dec()
+		// The route is resolved up front: a label is the route pattern, never
+		// the raw path, which would carry ids (unbounded series) and the
+		// tokens of share links into /metrics. No route: "unmatched".
+		route, _ := requestRoute(r)
+		if route == "" {
+			route = "unmatched"
+		}
+		httpInflight.WithLabelValues(route, r.Method).Inc()
+		defer httpInflight.WithLabelValues(route, r.Method).Dec()
 
 		next.ServeHTTP(ww, r)
 
-		// After handler: use resolved route pattern for stable cardinality.
-		routeCtx := chi.RouteContext(r.Context())
-		path := r.URL.Path
-		if routeCtx != nil && routeCtx.RoutePattern() != "" {
+		path := route
+		if routeCtx := chi.RouteContext(r.Context()); routeCtx != nil && routeCtx.RoutePattern() != "" {
 			path = routeCtx.RoutePattern()
 		}
 

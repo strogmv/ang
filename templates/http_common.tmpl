@@ -285,7 +285,7 @@ func RequestGateMiddleware(next http.Handler) http.Handler {
 		}
 		rule, err := requestGate(r.Context(), r.Method, r.URL.Path)
 		if err != nil {
-			slog.Warn("request gate failed; request let through", "path", r.URL.Path, "error", err)
+			slog.Warn("request gate failed; request let through", "path", safeRequestPath(r), "error", err)
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -2652,7 +2652,12 @@ func ConcurrencyMiddleware(n int) func(http.Handler) http.Handler {
 				defer func() { <-sem }()
 				next.ServeHTTP(w, r)
 			default:
-				concurrencyShed.WithLabelValues(r.URL.Path).Inc()
+				concurrencyShed.WithLabelValues(func() string {
+					if route, _ := requestRoute(r); route != "" {
+						return route
+					}
+					return "unmatched"
+				}()).Inc()
 				errors.WriteError(w, r, errors.New(http.StatusServiceUnavailable,
 					"Service Unavailable", "Server is at capacity, please retry later"))
 			}

@@ -1,11 +1,14 @@
 package http
 
 import (
+	"context"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
 	"time"
+	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"{{GoModule}}/internal/pkg/errors"
 	"{{GoModule}}/internal/pkg/logger"
@@ -40,21 +43,143 @@ func accessLogExcluded(path string) bool {
 	return false
 }
 
+// sensitiveName reports whether a path parameter or query parameter is named
+// like something that grants access by itself — a share-link or signing token,
+// a webhook secret, a session id — and must never reach a log line or a
+// metric label. The request log writes no headers at all.
+func sensitiveName(name string) bool {
+	n := strings.ToLower(name)
+	for _, word := range []string{"token", "secret", "session", "password", "signature", "apikey", "api_key"} {
+		if strings.Contains(n, word) {
+			return true
+		}
+	}
+	return false
+}
+
+const maskedValue = "***"
+
+// opaqueSegment: a path segment of an unmatched request that looks like a
+// credential (32+ URL-safe characters), masked since no route names it.
+func opaqueSegment(seg string) bool {
+	if len(seg) < 32 {
+		return false
+	}
+	for _, c := range seg {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_' || c == '.' || c == '~' || c == '%') {
+			return false
+		}
+	}
+	return true
+}
+
+// requestRoute is the route a request takes, resolved before the router runs
+// it (the access log and the in-flight gauge come first): its pattern, "" when
+// no route matches, and the path with every segment that holds a sensitive
+// parameter masked ({token} → ***).
+func requestRoute(r *http.Request) (pattern, safePath string) {
+	path := r.URL.Path
+	rctx := chi.RouteContext(r.Context())
+	if rctx != nil && rctx.RoutePattern() != "" {
+		pattern = rctx.RoutePattern()
+	} else if rctx != nil && rctx.Routes != nil {
+		tctx := chi.NewRouteContext()
+		if rctx.Routes.Match(tctx, r.Method, path) {
+			pattern = tctx.RoutePattern()
+		}
+	}
+	segs := strings.Split(path, "/")
+	if pattern == "" {
+		for i, seg := range segs {
+			if opaqueSegment(seg) {
+				segs[i] = maskedValue
+			}
+		}
+		return "", strings.Join(segs, "/")
+	}
+	for i, pseg := range strings.Split(pattern, "/") {
+		if i >= len(segs) || pseg == "*" {
+			break
+		}
+		for rest := pseg; strings.Contains(rest, "{"); {
+			open := strings.Index(rest, "{")
+			end := strings.Index(rest[open:], "}")
+			if end < 0 {
+				break
+			}
+			name := rest[open+1 : open+end]
+			if colon := strings.Index(name, ":"); colon >= 0 {
+				name = name[:colon]
+			}
+			if sensitiveName(name) {
+				segs[i] = maskedValue
+				break
+			}
+			rest = rest[open+end+1:]
+		}
+	}
+	return pattern, strings.Join(segs, "/")
+}
+
+// safeQuery is the query string with the values of sensitive parameters
+// masked; "" for none.
+func safeQuery(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	values, err := url.ParseQuery(raw)
+	if err != nil {
+		return maskedValue
+	}
+	for key, vals := range values {
+		if sensitiveName(key) {
+			for i := range vals {
+				vals[i] = maskedValue
+			}
+		}
+	}
+	return values.Encode()
+}
+
+type safePathKey struct{}
+
+// safeRequestPath is the path a log line may carry (see requestRoute); the
+// errors package logs failures with it (errors.SetPathForLog).
+func safeRequestPath(r *http.Request) string {
+	if v, ok := r.Context().Value(safePathKey{}).(string); ok {
+		return v
+	}
+	_, safe := requestRoute(r)
+	return safe
+}
+
+func init() {
+	errors.SetPathForLog(safeRequestPath)
+}
+
 func LoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 		excluded := accessLogExcluded(r.URL.Path)
+		route, safePath := requestRoute(r)
+		r = r.WithContext(context.WithValue(r.Context(), safePathKey{}, safePath))
 
 		log := logger.From(r.Context())
 		if !excluded {
-			log.Info("HTTP Request",
+			attrs := []any{
 				"method", r.Method,
-				"path", r.URL.Path,
+				"path", safePath,
 				"request_id", middleware.GetReqID(r.Context()),
-			)
+			}
+			if route != "" {
+				attrs = append(attrs, "route", route)
+			}
+			if q := safeQuery(r.URL.RawQuery); q != "" {
+				attrs = append(attrs, "query", q)
+			}
+			log.Info("HTTP Request", attrs...)
 		}
-
 		next.ServeHTTP(ww, r)
 
 		// A request whose client left is 499 (nginx's "client closed request"),
