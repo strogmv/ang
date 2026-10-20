@@ -2,17 +2,56 @@ package emitter
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"go/format"
 	"os"
 	"path/filepath"
+	"regexp"
 	"text/template"
 
+	"github.com/strogmv/ang/angir/ir"
 	"github.com/strogmv/ang/angir/normalizer"
 )
 
-// EmitRBAC generates the RBAC logic based on roles and permissions.
+// rbacReference matches Go code (or a flow action) naming the generated
+// package: rbac.CheckPermission, rbac.Roles, rbac.Permissions.
+var rbacReference = regexp.MustCompile(`\brbac\.[A-Z]`)
+
+// RBACUsed reports whether the project needs internal/pkg/rbac: it declares
+// roles or permissions, an endpoint requires a permission (auth.action), or
+// an operation's flow or Go names the package. Otherwise the package would be
+// an empty role table nothing reads, and it is not generated.
+func RBACUsed(rbac *normalizer.RBACDef, schema *ir.Schema) bool {
+	if rbac != nil && (len(rbac.Roles) > 0 || len(rbac.Permissions) > 0) {
+		return true
+	}
+	if schema == nil {
+		return false
+	}
+	for _, ep := range schema.Endpoints {
+		if ep.Auth != nil && ep.Auth.Permission != "" {
+			return true
+		}
+	}
+	for _, svc := range schema.Services {
+		raw, err := json.Marshal(svc.Methods)
+		if err != nil {
+			return true
+		}
+		if bytes.Contains(raw, []byte(`"rbac.CheckPermission"`)) || rbacReference.Match(raw) {
+			return true
+		}
+	}
+	return false
+}
+
+// EmitRBAC generates the RBAC logic based on roles and permissions, when the
+// project uses it (RBACUsed).
 func (e *Emitter) EmitRBAC(rbac *normalizer.RBACDef) error {
+	if !RBACUsed(rbac, e.IRSchema) {
+		return nil
+	}
 	if rbac == nil {
 		rbac = &normalizer.RBACDef{
 			Roles:       make(map[string][]string),

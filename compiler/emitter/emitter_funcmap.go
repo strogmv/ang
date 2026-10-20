@@ -20,6 +20,8 @@ func (e *Emitter) getSharedFuncMap() template.FuncMap {
 		// target.operation_metrics); every template func map has them.
 		"ServiceConfigEnabled":    func() bool { return e.ServiceConfig },
 		"OperationMetricsEnabled": func() bool { return e.OperationMetrics },
+		// RBACUsed: internal/pkg/rbac is generated (see RBACUsed).
+		"RBACUsed": func() bool { return RBACUsed(e.RBACDef, e.IRSchema) },
 		"SafeAssign": func(scope map[string]bool, name string) string {
 			scope[name] = true
 			return name + ", err := "

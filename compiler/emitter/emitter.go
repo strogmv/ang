@@ -61,7 +61,10 @@ type Emitter struct {
 	ServiceConfig bool
 	// OperationMetrics is target.operation_metrics: metrics and spans per
 	// operation and per repository query (see emitOperationMetrics).
-	OperationMetrics         bool
+	OperationMetrics bool
+	// RBACDef is the project's role/permission table (cue/policies); with
+	// IRSchema it decides whether internal/pkg/rbac is generated (RBACUsed).
+	RBACDef                  *normalizer.RBACDef
 	FrontendDir              string
 	FrontendAdminDir         string
 	TemplatesDir             string // Путь к папке с шаблонами

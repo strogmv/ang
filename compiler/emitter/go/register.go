@@ -44,6 +44,7 @@ func Register(registry *generator.StepRegistry, in RegisterInput) {
 		in.Em = emitter.New(smokeRoot, filepath.Join(smokeRoot, "sdk"), "")
 	}
 	in.Em.InfraValues = in.InfraValues
+	in.Em.RBACDef = in.RBACDef
 
 	goOnly := []compiler.Capability{compiler.CapabilityProfileGoLegacy}
 	goHTTP := []compiler.Capability{compiler.CapabilityProfileGoLegacy, compiler.CapabilityHTTP}

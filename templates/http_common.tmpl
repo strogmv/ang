@@ -41,7 +41,9 @@ import (
 	"{{GoModule}}/internal/pkg/auth"
 	"{{GoModule}}/internal/pkg/circuitbreaker"
 	"{{GoModule}}/internal/pkg/errors"
+	{{- if RBACUsed }}
 	"{{GoModule}}/internal/pkg/rbac"
+	{{- end }}
 	"{{GoModule}}/internal/pkg/reqctx"
 	authredis "{{GoModule}}/internal/adapter/auth/redis"
 	statestoreredis "{{GoModule}}/internal/adapter/statestore/redis"
@@ -1669,21 +1671,22 @@ func CurrentTimezone(r *http.Request) string {
 func RequirePermission(perm string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			role := CurrentRole(r)
-			perms := CurrentPermissions(r)
-			if len(perms) > 0 {
-				for _, p := range perms {
-					if p == perm {
-						next.ServeHTTP(w, r)
-						return
-					}
+			for _, p := range CurrentPermissions(r) {
+				if p == perm {
+					next.ServeHTTP(w, r)
+					return
 				}
 			}
-			if role == "" || !rbac.CheckPermission(role, perm) {
-				errors.WriteError(w, r, errors.New(http.StatusForbidden, "Forbidden", "Insufficient permissions"))
+			{{- if RBACUsed }}
+			if role := CurrentRole(r); role != "" && rbac.CheckPermission(role, perm) {
+				next.ServeHTTP(w, r)
 				return
 			}
-			next.ServeHTTP(w, r)
+			{{- else }}
+			// No role table is declared (cue/policies): only a permission the
+			// token carries counts.
+			{{- end }}
+			errors.WriteError(w, r, errors.New(http.StatusForbidden, "Forbidden", "Insufficient permissions"))
 		})
 	}
 }
