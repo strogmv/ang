@@ -250,3 +250,23 @@ func TestSDKSendsHeaderSession(t *testing.T) {
 		t.Fatal("the socket must carry the header session")
 	}
 }
+
+// The WebSocket's ?auth_session= is a session-named parameter: the request
+// log masks it (sensitiveName), and logs no headers at all.
+func TestRequestLogMasksTheHeaderSessionQuery(t *testing.T) {
+	t.Parallel()
+
+	logging := readTemplateFile(t, "logging_middleware.tmpl")
+	start := strings.Index(logging, "func sensitiveName(")
+	if start < 0 {
+		t.Fatal("no sensitiveName in logging_middleware.tmpl")
+	}
+	body := logging[start:]
+	body = body[:strings.Index(body, "\n}\n")]
+	if !strings.Contains(body, `"session"`) {
+		t.Fatalf("sensitiveName must cover session-named parameters (auth_session):\n%s", body)
+	}
+	if strings.Contains(logging, "r.Header") && strings.Contains(logging, `"headers"`) {
+		t.Fatal("the request log must not write request headers")
+	}
+}

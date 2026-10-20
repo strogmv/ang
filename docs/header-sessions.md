@@ -38,10 +38,11 @@ the console's own session.
   refresh and the other `sessions` ops) refuse a request that carries a header
   session: 409 `AUTH_SESSION_HEADER_PRESENT`. Signing in over the cookie from
   such a tab would replace the other tabs' session.
-- CORS allows the header (`AllowedHeaders: *`). The access log records only
-  the method and path, never headers or the query, so neither form of the id
-  is logged. A reverse proxy that logs full URLs would see the WebSocket's
-  `auth_session`; mask it there.
+- CORS allows the header (`AllowedHeaders: *`). The request log never writes
+  headers, and it masks the value of every query parameter named like a
+  session (`sensitiveName`), `auth_session` included. A reverse proxy that
+  logs full URLs would still see the WebSocket's `auth_session`, so mask it
+  there too.
 - The id sits in `sessionStorage` of one tab for the session's life. Script on
   the page can read it, so a header session is only for short sessions
   (support access: an hour) of an app with a strict CSP.
