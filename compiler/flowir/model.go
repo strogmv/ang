@@ -798,6 +798,20 @@ type OpenAIChat struct {
 	// keeps the historical default, which suits the first generation of gpt-5;
 	// later models in that family reject it and need a value here.
 	ReasoningEffort string
+	// Budget is an expression of type helpers.LLMBudget: Reserve runs before
+	// every model round (a refusal stops the step with that error, no call is
+	// made), Settle after it with the provider's usage. Empty: no hook.
+	Budget Expression
+	// OutputRounds names a []helpers.LLMRoundUsage variable that receives the
+	// usage of every round.
+	OutputRounds string
+	// SystemContextPosition: "system" (default) appends SystemContext to the
+	// system prompt; "before_user" sends it as its own system message right
+	// before the user's message, so the system prompt, the tools and the
+	// history stay a byte-identical prefix the provider can cache.
+	SystemContextPosition string
+	// PromptCacheKey is sent as prompt_cache_key (provider-side cache routing).
+	PromptCacheKey Expression
 }
 type OpenAIEmbed struct {
 	Input, Model        Expression
@@ -1066,7 +1080,8 @@ func (a ClaudeChat) DeclaredVariables() []Variable {
 }
 func (OpenAIChat) ActionName() string { return "openai.Chat" }
 func (a OpenAIChat) DeclaredVariables() []Variable {
-	return outputVariable(a.Output, TypeRef{Kind: TypeString})
+	v := outputVariable(a.Output, TypeRef{Kind: TypeString})
+	return append(v, outputVariable(a.OutputRounds, TypeRef{Kind: TypeUnknown})...)
 }
 func (OpenAIEmbed) ActionName() string { return "openai.Embed" }
 func (a OpenAIEmbed) DeclaredVariables() []Variable {

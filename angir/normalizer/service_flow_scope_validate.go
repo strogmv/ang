@@ -357,7 +357,9 @@ func flowStepReferenceExprs(step FlowStep) []flowRefExpr {
 		addArgs("key", "tier", "throw")
 	case "context.Trim":
 		addArgs("input", "strategy")
-	case "openai.Chat", "openai.Stream":
+	case "openai.Chat":
+		addArgs("system", "system_context", "user_message", "history", "model", "budget", "prompt_cache_key")
+	case "openai.Stream":
 		addArgs("system", "system_context", "user_message", "history", "model")
 	case "stream.Emit":
 		addArg("data")
