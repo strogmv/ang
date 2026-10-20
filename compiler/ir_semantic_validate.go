@@ -264,6 +264,11 @@ func collectTemplateVarsNode(n parse.Node, used map[string]bool) {
 	}
 	switch x := n.(type) {
 	case *parse.ListNode:
+		// An {{if}} without {{else}} has a nil ElseList, which arrives here
+		// as a non-nil interface holding a nil *ListNode.
+		if x == nil {
+			return
+		}
 		for _, node := range x.Nodes {
 			collectTemplateVarsNode(node, used)
 		}
