@@ -78,6 +78,29 @@ API key in the body, a rate limit.
    only `public: true`.
 3. Set `auth_default: "deny"`. Everything else now needs a caller.
 
+### Rights beyond the role: `auth.right`
+
+A role that opens a whole console (`admin`) usually comes in grades: billing,
+maintenance, reference data. The right a route needs is part of its binding:
+
+```cue
+HTTP: AdminListInvoices: {method: "GET", path: "/api/admin/billing/invoices",
+	auth: {type: "jwt", roles: ["admin"], right: "billing"}}
+```
+
+- The route is wrapped in `RequireRolesRight(roles, right)`; the role gate
+  calls the project's `CheckRoleAccess` with `right` in its input (add a
+  `right: string` input field) and refuses with its reason (403
+  `ROLE_CONDITION_UNMET`). Routes without a right keep `RequireRoles`.
+- `internal/transport/http/route_rights.go` has `RouteRight(method, pattern)`
+  for tests and tools that check a gate without the router.
+- `target.route_rights: {roles: ["admin"], rights: ["view", "billing", …]}`
+  makes the right mandatory: a route whose `auth.roles` names one of `roles`
+  without `right` fails the build (`AUTH_RIGHT_MISSING`, file:line per route),
+  a right outside `rights` is `AUTH_RIGHT_UNKNOWN`. Any `auth.right` without a
+  `CheckRoleAccess` that takes a right is `AUTH_RIGHT_UNCHECKED`.
+- `right` needs `roles`, and is refused on public and WebSocket routes.
+
 ## File responses
 
 An operation whose output is `kind: "file"` answers with the bytes of a file,

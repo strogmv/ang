@@ -269,6 +269,20 @@ func (n *Normalizer) ExtractEndpoints(val cue.Value) ([]Endpoint, error) {
 			}
 		}
 
+		if v := epVal.LookupPath(cue.ParsePath("auth.right")); v.Exists() {
+			s, err := v.String()
+			if err != nil || strings.TrimSpace(s) == "" {
+				return nil, fmt.Errorf("HTTP endpoint %s: auth.right must name a right", epName)
+			}
+			ep.AuthRight = strings.TrimSpace(s)
+			if len(ep.AuthRoles) == 0 {
+				return nil, fmt.Errorf("HTTP endpoint %s: auth.right %q is checked for a role; add auth.roles", epName, ep.AuthRight)
+			}
+			if strings.EqualFold(strings.TrimSpace(getString(epVal, "method")), "WS") {
+				return nil, fmt.Errorf("HTTP endpoint %s: auth.right is not checked on a WebSocket route", epName)
+			}
+		}
+
 		// Read auth.scope or auth.scopes — required API key scopes for this endpoint
 		scopeVal := epVal.LookupPath(cue.ParsePath("auth.scope"))
 		if scopeVal.Exists() {

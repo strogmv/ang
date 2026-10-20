@@ -91,6 +91,16 @@ func buildRequireRoles(roles []string) string {
 	return fmt.Sprintf("RequireRoles([]string{%s})", strings.Join(quoted, ", "))
 }
 
+// buildRequireRolesRight: the role gate that also hands the route's right
+// (auth.right) to the project's CheckRoleAccess.
+func buildRequireRolesRight(roles []string, right string) string {
+	quoted := make([]string, 0, len(roles))
+	for _, role := range roles {
+		quoted = append(quoted, fmt.Sprintf("%q", role))
+	}
+	return fmt.Sprintf("RequireRolesRight([]string{%s}, %q)", strings.Join(quoted, ", "), right)
+}
+
 func buildRequireScopes(scopes []string) string {
 	quoted := make([]string, 0, len(scopes))
 	for _, s := range scopes {
@@ -136,7 +146,9 @@ func buildMiddlewareListFull(ep normalizer.Endpoint, includeCache, includeIdempo
 	}
 	if p.AuthType != "" && !skipAuth {
 		parts = append(parts, "AuthMiddleware")
-		if len(p.AuthRoles) > 0 {
+		if len(p.AuthRoles) > 0 && p.AuthRight != "" {
+			parts = append(parts, buildRequireRolesRight(p.AuthRoles, p.AuthRight))
+		} else if len(p.AuthRoles) > 0 {
 			parts = append(parts, buildRequireRoles(p.AuthRoles))
 		}
 		if p.Permission != "" {

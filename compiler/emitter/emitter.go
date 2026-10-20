@@ -355,6 +355,7 @@ func (e *Emitter) AnalyzeContextFromIR(schema *ir.Schema) MainContext {
 			n.AuthType = ep.Auth.Type
 			n.Permission = ep.Auth.Permission
 			n.AuthRoles = append([]string{}, ep.Auth.Roles...)
+			n.AuthRight = ep.Auth.Right
 			n.AuthCheck = ep.Auth.Check
 			n.AuthInject = append([]string{}, ep.Auth.Inject...)
 		}

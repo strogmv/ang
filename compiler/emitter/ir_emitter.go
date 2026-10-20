@@ -656,6 +656,7 @@ func IREndpointsToNormalizer(irEndpoints []ir.Endpoint) []normalizer.Endpoint {
 			endpoint.AuthType = ep.Auth.Type
 			endpoint.Permission = ep.Auth.Permission
 			endpoint.AuthRoles = ep.Auth.Roles
+			endpoint.AuthRight = ep.Auth.Right
 			endpoint.AuthCheck = ep.Auth.Check
 			endpoint.AuthInject = ep.Auth.Inject
 		}

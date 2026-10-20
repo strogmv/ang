@@ -221,6 +221,10 @@ func (r *buildRun) targetEmitter(td normalizer.TargetDef, emitBackendDir, emitFr
 		return nil, emitter.MainContext{}, false
 	}
 	compiler.LatestDiagnostics = append(compiler.LatestDiagnostics, authCheck.Warnings...)
+	if err := compiler.CheckRouteRights(irSchema, td.RouteRights); err != nil {
+		r.fail(compiler.StageEmitters, compiler.ErrCodeEmitterCapabilityResolve, fmt.Sprintf("target=%s", td.Name), err)
+		return nil, emitter.MainContext{}, false
+	}
 	if td.ServiceConfig {
 		compiler.LatestDiagnostics = append(compiler.LatestDiagnostics, compiler.CheckConfigLoads(irSchema)...)
 	}

@@ -400,10 +400,13 @@ type Endpoint struct {
 	Messages    []string
 	RoomParam   string
 	// Live turns a WS room into a server-pushed snapshot room (see LiveRoomDef).
-	Live             *LiveRoomDef
-	AuthType         string
-	Permission       string
-	AuthRoles        []string
+	Live       *LiveRoomDef
+	AuthType   string
+	Permission string
+	AuthRoles  []string
+	// AuthRight is auth.right: the right (beyond the role) a role-gated
+	// route needs, handed to the project's CheckRoleAccess.
+	AuthRight        string
 	AuthCheck        string
 	AuthInject       []string
 	CacheTTL         string

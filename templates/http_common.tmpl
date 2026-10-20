@@ -151,7 +151,8 @@ var (
 	// A role can carry a further condition beyond holding it — the usual one
 	// being that a privileged role must have a second factor before it does
 	// anything privileged. Unset means the role alone is enough.
-	roleAccessChecker func(ctx context.Context, userID, role string) (allowed bool, reason string, err error)
+	// right is the route's auth.right ("" for a route without one).
+	roleAccessChecker func(ctx context.Context, userID, role, right string) (allowed bool, reason string, err error)
 	// A project can stop requests before any route runs (a platform-wide
 	// maintenance window, say) and watch how chosen routes answer. Unset means
 	// every request passes and nothing is watched.
@@ -232,7 +233,7 @@ func SetModuleAccessChecker(checker func(ctx context.Context, companyID, path st
 	moduleAccessChecker = checker
 }
 
-func SetRoleAccessChecker(checker func(ctx context.Context, userID, role string) (bool, string, error)) {
+func SetRoleAccessChecker(checker func(ctx context.Context, userID, role, right string) (bool, string, error)) {
 	roleAccessChecker = checker
 }
 
@@ -1749,6 +1750,13 @@ func RequirePermission(perm string) func(http.Handler) http.Handler {
 }
 
 func RequireRoles(roles []string) func(http.Handler) http.Handler {
+	return RequireRolesRight(roles, "")
+}
+
+// RequireRolesRight is RequireRoles for a route that also needs a right
+// (auth.right, e.g. a console right): the project's role access checker
+// (CheckRoleAccess) gets it and decides.
+func RequireRolesRight(roles []string, right string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			current := CurrentRoles(r)
@@ -1765,7 +1773,7 @@ func RequireRoles(roles []string) func(http.Handler) http.Handler {
 					}
 					// Holding the role is necessary, not always sufficient.
 					if roleAccessChecker != nil {
-						ok, reason, err := roleAccessChecker(r.Context(), CurrentUserID(r), role)
+						ok, reason, err := roleAccessChecker(r.Context(), CurrentUserID(r), role, right)
 						if err != nil {
 							errors.WriteError(w, r, errors.New(http.StatusInternalServerError, "Internal Server Error", "role check failed"))
 							return

@@ -86,6 +86,9 @@ func parseEndpointAuthIntent(epVal cue.Value, ep *Endpoint) error {
 	if ep.Permission != "" {
 		needsCaller = append(needsCaller, "permission")
 	}
+	if ep.AuthRight != "" {
+		needsCaller = append(needsCaller, "right")
+	}
 	if v := authVal.LookupPath(cue.ParsePath("inject")); v.Exists() {
 		needsCaller = append(needsCaller, "inject")
 	}

@@ -723,6 +723,7 @@ func ConvertEndpoint(ep normalizer.Endpoint) Endpoint {
 			Type:       ep.AuthType,
 			Permission: ep.Permission,
 			Roles:      ep.AuthRoles,
+			Right:      ep.AuthRight,
 			Check:      ep.AuthCheck,
 			Inject:     ep.AuthInject,
 		}

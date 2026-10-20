@@ -623,8 +623,9 @@ type EndpointAuth struct {
 	Type       string   `json:"type"` // "jwt", "api_key", "none"
 	Permission string   `json:"permission"`
 	Roles      []string `json:"roles"`
-	Check      string   `json:"check"`  // Custom auth check expression
-	Inject     []string `json:"inject"` // Fields to inject from token
+	Right      string   `json:"right,omitempty"` // console right beyond the role (auth.right)
+	Check      string   `json:"check"`           // Custom auth check expression
+	Inject     []string `json:"inject"`          // Fields to inject from token
 }
 
 // Scope represents an API scope entry defined in CUE registry.

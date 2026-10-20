@@ -102,15 +102,23 @@
 	       beyond holding it. When a service exposes CheckRoleAccess, the HTTP
 	       layer asks it before letting a role-gated handler run. */}}
 	{{- $roleGateSvc := "" }}
+	{{- $roleGateRight := false }}
 	{{- range .ServicesIR }}
 		{{- $svc := . }}
 		{{- range .Methods }}
-			{{- if eq .Name "CheckRoleAccess" }}{{ $roleGateSvc = $svc.Name }}{{ end }}
+			{{- if eq .Name "CheckRoleAccess" }}{{ $roleGateSvc = $svc.Name }}
+			{{- if .Input }}{{ range .Input.Fields }}{{ if eq .Name "right" }}{{ $roleGateRight = true }}{{ end }}{{ end }}{{ end }}
+			{{- end }}
 		{{- end }}
 	{{- end }}
 	{{- if ne $roleGateSvc "" }}
-	transport.SetRoleAccessChecker(func(ctx context.Context, userID, role string) (bool, string, error) {
+	transport.SetRoleAccessChecker(func(ctx context.Context, userID, role, right string) (bool, string, error) {
+		{{- if $roleGateRight }}
+		out, err := runtimeContainer.Svc{{ $roleGateSvc }}.CheckRoleAccess(ctx, port.CheckRoleAccessRequest{UserID: userID, Role: role, Right: right})
+		{{- else }}
+		_ = right // no auth.right is declared: CheckRoleAccess takes no right
 		out, err := runtimeContainer.Svc{{ $roleGateSvc }}.CheckRoleAccess(ctx, port.CheckRoleAccessRequest{UserID: userID, Role: role})
+		{{- end }}
 		if err != nil {
 			return false, "", err
 		}

@@ -1541,6 +1541,10 @@ package schema
 			action?:   string
 			check?:    string
 			roles?: [...string]
+			// right: what the route needs beyond the role (a console right),
+			// handed to the project's CheckRoleAccess (input field right).
+			// Under target.route_rights every route of its roles declares one.
+			right?: string
 			inject?: [...string] | string
 			scope?: string | [...string]
 		}

@@ -344,6 +344,14 @@ func Register%sRoutes(r chi.Router, svc port.%s) {
 		logGenerated("Generated HTTP: %s\n", path)
 	}
 
+	if src := routeRightsSource(irEndpoints); src != "" {
+		path := filepath.Join(targetDir, "route_rights.go")
+		if err := WriteFileIfChanged(path, []byte(src), 0o644); err != nil {
+			return fmt.Errorf("write route rights: %w", err)
+		}
+		logGenerated("Generated HTTP: %s\n", path)
+	}
+
 	if err := e.EmitHTTPCommon(auth); err != nil {
 		return err
 	}

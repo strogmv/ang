@@ -11,6 +11,7 @@ type EndpointPolicy struct {
 	AuthType       string
 	Permission     string
 	AuthRoles      []string
+	AuthRight      string
 	CacheTTL       string
 	Timeout        string
 	Idempotency    bool
@@ -41,6 +42,7 @@ func FromEndpoint(ep normalizer.Endpoint) EndpointPolicy {
 	p := EndpointPolicy{
 		AuthType:    ep.AuthType,
 		Permission:  ep.Permission,
+		AuthRight:   ep.AuthRight,
 		CacheTTL:    ep.CacheTTL,
 		Timeout:     ep.Timeout,
 		Idempotency: ep.Idempotency,
