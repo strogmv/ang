@@ -178,3 +178,75 @@ func handlerBody(t *testing.T, src, name string) string {
 	}
 	return src[start : start+end]
 }
+
+func readTemplateFile(t *testing.T, name string) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "templates", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+// Writes of a session with attributes are reported, ordinary traffic is not
+// wrapped at all; a service with RecordSessionWrite is wired to hear them;
+// auth.EndSession and auth.SessionLive reach the transport's session store.
+func TestSessionWriteRecorderAndSessionHandles(t *testing.T) {
+	t.Parallel()
+
+	tmp := t.TempDir()
+	em := New(tmp, "", "templates")
+	if err := em.EmitHTTPCommon(headerSessionAuth()); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(tmp, "internal", "transport", "http", "common.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	common := string(data)
+	for _, want := range []string{
+		"func SetSessionWriteRecorder(recorder func(ctx context.Context, write SessionWrite))",
+		"if sessionWriteRecorder == nil || len(sessionAttrs) == 0 || r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {",
+		"auth.RegisterSessionProbe(sessionLiveByHandle)",
+		// Logging out of a header session ends that one and leaves the cookies.
+		"if sid, viaHeader := sessionCredential(r); viaHeader {",
+	} {
+		if !strings.Contains(common, want) {
+			t.Fatalf("generated common.go is missing %q", want)
+		}
+	}
+	wiring := readTemplateFile(t, "main_server/repositories.tmpl")
+	if !strings.Contains(wiring, `{{- if eq .Name "RecordSessionWrite" }}`) || !strings.Contains(wiring, "transport.SetSessionWriteRecorder(") {
+		t.Fatal("main must wire a service's RecordSessionWrite to the transport")
+	}
+	authPkg := readTemplateFile(t, "auth_pkg.tmpl")
+	for _, want := range []string{"func SessionHandle(refreshToken string) string", "func EndSession(ctx context.Context, userID, handle string) (bool, error)", "func SessionLive(ctx context.Context, userID, handle string) (bool, error)"} {
+		if !strings.Contains(authPkg, want) {
+			t.Fatalf("auth package is missing %q", want)
+		}
+	}
+	reqctx := readTemplateFile(t, "reqctx.tmpl")
+	for _, want := range []string{"func WithAuthSession(", "func AuthSessionHandle(ctx context.Context) string", "func SessionAttrs(ctx context.Context) map[string]string", "func SessionAttr(ctx context.Context, name string) string"} {
+		if !strings.Contains(reqctx, want) {
+			t.Fatalf("reqctx is missing %q", want)
+		}
+	}
+}
+
+// The SDK sends this tab's header session on every request and socket.
+func TestSDKSendsHeaderSession(t *testing.T) {
+	t.Parallel()
+
+	store := readTemplateFile(t, "frontend/auth-store.ts.tmpl")
+	for _, want := range []string{"export const AUTH_SESSION_HEADER = 'X-Auth-Session';", "window.sessionStorage", "export const withHeaderAuthSession"} {
+		if !strings.Contains(store, want) {
+			t.Fatalf("auth-store.ts is missing %q", want)
+		}
+	}
+	if client := readTemplateFile(t, "frontend/api-client.ts.tmpl"); !strings.Contains(client, "if (headerSession) headers.set(AUTH_SESSION_HEADER, headerSession);") {
+		t.Fatal("the API client must send the header session")
+	}
+	if ws := readTemplateFile(t, "frontend/websocket.ts.tmpl"); !strings.Contains(ws, "new WebSocket(withHeaderAuthSession(this.url))") {
+		t.Fatal("the socket must carry the header session")
+	}
+}
