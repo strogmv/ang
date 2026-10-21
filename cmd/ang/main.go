@@ -13,6 +13,7 @@ import (
 
 	"github.com/strogmv/ang/angir/normalizer"
 	"github.com/strogmv/ang/compiler"
+	"github.com/strogmv/ang/compiler/gamepoc"
 	"github.com/strogmv/ang/compiler/schemavendor"
 	"github.com/strogmv/ang/tool/mcp"
 	"gopkg.in/yaml.v3"
@@ -47,6 +48,15 @@ func main() {
 	applyBuildProcessLimitsIfNeeded(cmd)
 
 	switch cmd {
+	case "game-poc":
+		project := "."
+		if len(os.Args) > 2 {
+			project = os.Args[2]
+		}
+		if err := gamepoc.Generate(project); err != nil {
+			fmt.Fprintln(os.Stderr, "game-poc:", err)
+			os.Exit(1)
+		}
 	case "init":
 		runInit(os.Args[2:])
 	case "validate":
@@ -135,6 +145,7 @@ func printUsage() {
 	fmt.Println("\nUsage:")
 	fmt.Println("  ang init [dir] [--template saas|ecommerce|marketplace] [--lang go] [--db postgres]")
 	fmt.Println("  ang validate  Validate CUE models and architecture")
+	fmt.Println("  ang game-poc <backend>  Generate a CUE-driven local Go/Unity proof of concept")
 	fmt.Println("  ang lint      Perform deep semantic linting of flows and logic")
 	fmt.Println("  ang build     Compile CUE intent into code and infra configs (--mode=in_place|release, --backend-dir, --dry-run, --run-tests, --skip-frontend, --skip-contract-tests, --log-format=json, --phase=all|plan|apply, --out-plan, --plan-file)")
 	fmt.Println("  ang schema [sync|check] [project]  Vendor ANG's CUE schema (the pinned revision's) into cue.mod/pkg; check fails on a difference")
