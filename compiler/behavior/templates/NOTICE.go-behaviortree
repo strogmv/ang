@@ -1,0 +1,10 @@
+ANG reactive behavior adaptation
+Upstream: https://github.com/joeycumines/go-behaviortree
+Revision: 9294b2727760b7fee1717cd9e6a5bc86ba08b0a8
+Copyright 2026 Joseph Cumines
+License: Apache-2.0 (full text: LICENSE.go-behaviortree)
+Original files consulted: behaviortree.go, selector.go, sequence.go.
+Adapted ordered Selector / Sequence control flow for CUE reaction tables.
+Changes: indexed rule state, per-observer memory, fixed node budget,
+server-owned execution and durable state; no per-agent timers/goroutines.
+Group and crowd coordination are ANG code, not supplied by upstream.
