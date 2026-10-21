@@ -46,6 +46,7 @@ GRPC: schema.#GRPC & {
 | `internal/transport/grpc/server.gen.go` | `Handlers`, `NewServer`, `ListenAndServe`, recovery/logging interceptors, reflection |
 | `cmd/server/main.go` | starts the gRPC server next to HTTP and stops it on shutdown |
 | `copy_proto_to` dirs | a copy of the `.proto`, for clients that build from it |
+| `csharp_out` dir | the C# client (below) |
 
 A `GRPC:` declaration enables these steps whatever `target.framework` says.
 
@@ -67,3 +68,32 @@ with `grpc` = `<module>/internal/transport/grpc`. Embed
 number in protobuf's 19000-19999 range, unknown type, request/response that is not a
 declared message, repeated or map inside `oneof`, a name that is not
 lower_snake_case (fields) or PascalCase (types).
+
+## C# client (Unity / .NET)
+
+`csharp_out: "../client-unity/Assets/Generated/MyGame"` makes `ang build` write, after the
+staged build is promoted (so the directory may lie outside the project):
+
+| File | Content |
+|---|---|
+| `Messages/<Name>.cs` | message classes: `protoc --csharp_out` (protoc must be on PATH; the build fails with a clear message otherwise) |
+| `Grpc/<Service>Grpc.cs` | method descriptors and `<Service>Client` for all four rpc kinds, written against `Grpc.Core.Api`'s `CallInvoker` |
+| `Sessions/<Service><Rpc>Session.cs` | for every **bidi** rpc whose request and response are each a single `oneof`: a typed session |
+| `ang-generated.txt` | the files of the last build; a file the contract no longer produces is removed, nothing else is touched |
+
+The session has no `UnityEngine` dependency. Network work runs on pool threads; every event is
+raised from `Pump()`, which the game calls once per frame (`Update()`):
+
+```csharp
+var s = new GameServicePlaySession(channel.CreateCallInvoker(),
+    () => new ClientMessage { Hello = new Hello { PlayerName = "Hero" } }); // first message of every (re)connect
+s.OnWelcome += w => ...;   // one On<Member> event per member of the response oneof
+s.OnSnapshot += snap => ...;
+s.Start();                 // reconnects with exponential backoff (s.Reconnect)
+s.SendMoveTo(new MoveTo { X = 3, Y = 4 });   // one Send<Member> per member of the request oneof
+// in Update(): s.Pump();
+```
+
+Needs `Google.Protobuf` and `Grpc.Core.Api` (and `Grpc.Net.Client` + an HTTP/2 handler such as
+`Cysharp/YetAnotherHttpHandler` for Unity's `GrpcChannel`). Verified: the generated sources compile
+with `netstandard2.1`, and a .NET client built on the session plays against the generated Go server.

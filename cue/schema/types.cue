@@ -1579,6 +1579,12 @@ package schema
 	// Extra directories (relative to the project) that also receive a copy of the
 	// generated .proto, e.g. a Unity client's Assets/Proto.
 	copy_proto_to?: [...string]
+	// Directory (relative to the project, may leave it, e.g. a Unity project's
+	// Assets/Generated) that receives the generated C# client: the message classes
+	// (protoc --csharp_out, protoc must be installed), gRPC stubs written against
+	// Grpc.Core.Api's CallInvoker, and one typed <Service>Session per bidi rpc whose
+	// request and response messages are a single oneof (see docs/grpc.md).
+	csharp_out?: string
 	// Listen address of the generated server; default ":50051" (env GRPC_ADDR overrides).
 	listen?: string
 	// Module-relative directory of the hand-written package that implements the

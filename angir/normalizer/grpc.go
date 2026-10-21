@@ -17,6 +17,7 @@ type GRPCDef struct {
 	CopyProtoTo     []string      `json:"copy_proto_to,omitempty"`
 	Listen          string        `json:"listen,omitempty"`
 	Handlers        string        `json:"handlers,omitempty"`
+	CSharpOut       string        `json:"csharp_out,omitempty"`
 	Reflection      bool          `json:"reflection,omitempty"`
 	Enums           []GRPCEnum    `json:"enums,omitempty"`
 	Messages        []GRPCMessage `json:"messages,omitempty"`
@@ -102,6 +103,7 @@ func (n *Normalizer) ExtractGRPC(val cue.Value) (*GRPCDef, error) {
 		CopyProtoTo:     getStringList(g, "copy_proto_to"),
 		Listen:          getStringWithDefault(g, "listen", ":50051"),
 		Handlers:        strings.Trim(getString(g, "handlers"), "/ "),
+		CSharpOut:       strings.TrimSpace(getString(g, "csharp_out")),
 		Reflection:      true,
 		Source:          formatPos(g),
 	}

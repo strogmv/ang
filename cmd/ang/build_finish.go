@@ -162,6 +162,10 @@ func (r *buildRun) finishStaged() bool {
 		printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterStep, "copy gRPC proto", err)
 		return false
 	}
+	if err := r.emitCSharp(); err != nil {
+		printStageFailure("Build FAILED", compiler.StageEmitters, compiler.ErrCodeEmitterStep, "generate C# client", err)
+		return false
+	}
 	return true
 }
 
