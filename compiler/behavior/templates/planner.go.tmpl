@@ -23,10 +23,40 @@ type Limits struct {
  MaxPending int `json:"max_pending_tasks"`
  WorkTargetUS int `json:"work_us_target"`
 }
+// Duty is role data: pressure weight, cost of abandoning the post, training damping per emotion.
+type Duty struct {
+ Weight float64 `json:"weight"`
+ AbandonPenalty float64 `json:"abandon_penalty"`
+ Training map[string]float64 `json:"training"`
+}
 type Profile struct {
  ID string `json:"id"`
  SceneGoals []string `json:"scene_goals"`
  ForbidActions []string `json:"forbid_actions"`
+ Duty Duty `json:"duty"`
+ HearingMul float64 `json:"hearing_mul"`
+}
+// DangerLevel is one rung of policy.danger.levels.
+type DangerLevel struct {
+ Name string `json:"name"`
+ Pressure float64 `json:"pressure"`
+ Avoidance struct { Allowed bool `json:"allowed"`; Cost float64 `json:"cost"` } `json:"avoidance"`
+ ExtraAssignees int `json:"extra_assignees"`
+ RefusalCost float64 `json:"refusal_cost"`
+ CallRadius int `json:"call_radius_cells"`
+}
+type DangerPolicy struct {
+ Levels []DangerLevel `json:"levels"`
+ AlarmLevel int `json:"alarm_level"`
+ StalledAfterTicks int64 `json:"stalled_after_ticks"`
+ StalledLevel int `json:"stalled_level"`
+}
+func(p DangerPolicy) Level(i int)DangerLevel{if len(p.Levels)==0{return DangerLevel{}};if i<0{i=0};if i>=len(p.Levels){i=len(p.Levels)-1};return p.Levels[i]}
+func(p DangerPolicy) Max()int{if len(p.Levels)==0{return 0};return len(p.Levels)-1}
+type PerceptionPolicy struct {
+ MemoryTTLTicks int64 `json:"memory_ttl_ticks"`
+ Hearing HearingPolicy `json:"hearing"`
+ OffenceVisibleTicks int64 `json:"offence_visible_ticks"`
 }
 type Program struct {
  Roles map[string]Role `json:"roles"`
@@ -42,6 +72,8 @@ type Program struct {
   Social SocialPolicy `json:"social"`
   Utility UtilityPolicy `json:"utility"`
   Memory MemoryPolicy `json:"memory"`
+  Danger DangerPolicy `json:"danger"`
+  Perception PerceptionPolicy `json:"perception"`
   Group struct { CohesionDistance int `json:"cohesion_distance_cells"`; StandoffDistance int `json:"standoff_distance_cells"`; MaxSearchCells int `json:"max_search_cells"` } `json:"group"`
  } `json:"policy"`
 }

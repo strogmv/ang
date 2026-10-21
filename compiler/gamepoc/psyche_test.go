@@ -50,7 +50,7 @@ func TestPsycheIsDerivedByCUEAndMoralUnlessIsCompiledOrRejected(t *testing.T) {
 	if err != nil || law.AffinityMul != 1.25 || law.Stress.Threshold != 0.7 {
 		t.Fatalf("law not read from CUE: %+v %v", law, err)
 	}
-	p, err := c.actorPsyche("arch.a", cue.Value{}, nil, []string{"flee"})
+	p, err := c.actorPsyche("arch.a", cue.Value{}, cue.Value{}, nil, []string{"flee"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,14 +60,14 @@ func TestPsycheIsDerivedByCUEAndMoralUnlessIsCompiledOrRejected(t *testing.T) {
 	if len(p.Forbid) != 1 || p.Forbid[0].Action != "flee" || !p.Forbid[0].HasUnless || p.Forbid[0].UnlessEmotion != "fear" || p.Forbid[0].UnlessAbove != 0.9 || p.ProfileForbid[0] != "flee" {
 		t.Fatalf("moral not compiled: %+v", p.Forbid)
 	}
-	demo, err := c.actorPsyche("", cue.Value{}, []string{"anal", "skin"}, nil)
+	demo, err := c.actorPsyche("", cue.Value{}, cue.Value{}, []string{"anal", "skin"}, nil)
 	if err != nil || demo.StressResponse != "freeze" || demo.NeedBias["order"] != (1.2+1.7)/2 || len(demo.Forbid) != 0 {
 		t.Fatalf("vector-only psyche wrong: %+v %v", demo, err)
 	}
-	if _, err := c.actorPsyche("arch.bad", cue.Value{}, nil, nil); err == nil || !strings.Contains(err.Error(), "unsupported `unless`") {
+	if _, err := c.actorPsyche("arch.bad", cue.Value{}, cue.Value{}, nil, nil); err == nil || !strings.Contains(err.Error(), "unsupported `unless`") {
 		t.Fatalf("unsupported moral expression was not rejected: %v", err)
 	}
-	if _, err := c.actorPsyche("arch.missing", cue.Value{}, nil, nil); err == nil {
+	if _, err := c.actorPsyche("arch.missing", cue.Value{}, cue.Value{}, nil, nil); err == nil {
 		t.Fatal("unknown archetype accepted")
 	}
 	vocab := c.vocabulary()

@@ -64,7 +64,24 @@ type Entity struct {
 	Position Point    `json:"position"`
 	Faction  string   `json:"faction"`
 }
+
+// Camera is a level sensor: it produces observations for the monitoring post only.
+type Camera struct {
+	ID       string `json:"id"`
+	Position Point  `json:"position"`
+	Range    int    `json:"range_cells"`
+	Online   bool   `json:"online"`
+}
+
+// Scene carries the level's hearing-related data: ambient noise and per-tile noise sources.
+type Scene struct {
+	Cameras      []Camera       `json:"cameras"`
+	AmbientNoise int            `json:"ambient_noise"`
+	TileNoise    map[string]int `json:"tile_noise"`
+}
+
 type Compiled struct {
+	Scene       Scene           `json:"scene"`
 	AI          json.RawMessage `json:"ai"`
 	AIScenarios json.RawMessage `json:"-"`
 	AIUtility   json.RawMessage `json:"-"`
@@ -165,6 +182,27 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if err := validateAIFixtureFacts(out.AI, out.Config.CaptureDemo.KnownFacts); err != nil {
 		return out, nil, err
 	}
+	var hearingCatalog struct {
+		Policy struct {
+			Perception struct {
+				Hearing struct {
+					Sounds map[string]json.RawMessage `json:"sounds"`
+				} `json:"hearing"`
+			} `json:"perception"`
+			Danger struct {
+				Levels []json.RawMessage `json:"levels"`
+			} `json:"danger"`
+		} `json:"policy"`
+	}
+	if err := json.Unmarshal(out.AI, &hearingCatalog); err != nil {
+		return out, nil, err
+	}
+	if _, ok := hearingCatalog.Policy.Perception.Hearing.Sounds[out.Config.CaptureDemo.HeroAction.Sound]; !ok {
+		return out, nil, fmt.Errorf("hero_action.sound %q is not a declared sound kind", out.Config.CaptureDemo.HeroAction.Sound)
+	}
+	if levels := len(hearingCatalog.Policy.Danger.Levels); out.Config.CaptureDemo.DangerLevel >= levels || out.Config.CaptureDemo.HeroAction.WitnessLevel >= levels {
+		return out, nil, fmt.Errorf("capture demo danger levels exceed policy.danger.levels")
+	}
 	psyche := psycheCompiler{root: w, world: world}
 	aiValue := world.LookupPath(cue.ParsePath("ai"))
 	if errs := behavior.ValidateUtility(out.AI, psyche.vocabulary()); len(errs) > 0 {
@@ -188,7 +226,7 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	}
 	out.Psyche.Actors = map[string]psycheData{}
 	for _, a := range out.Config.CaptureDemo.Agents {
-		if out.Psyche.Actors[a.ID], err = psyche.actorPsyche("", cue.Value{}, a.Vectors, profileCatalog.Profiles[out.Config.CaptureDemo.ResponderProfile].ForbidActions); err != nil {
+		if out.Psyche.Actors[a.ID], err = psyche.actorPsyche("", cue.Value{}, cue.Value{}, a.Vectors, profileCatalog.Profiles[out.Config.CaptureDemo.ResponderProfile].ForbidActions); err != nil {
 			return out, nil, fmt.Errorf("demo agent %s: %w", a.ID, err)
 		}
 	}
@@ -237,6 +275,24 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	}
 	out.Walkable = map[string]bool{}
 	out.MoveCost = map[string]int{}
+	out.Scene.TileNoise = map[string]int{}
+	if noise, err := level.LookupPath(cue.ParsePath("ambient.noise_default")).Int64(); err == nil {
+		out.Scene.AmbientNoise = int(noise)
+	}
+	var cameras []struct {
+		ID    string `json:"id"`
+		At    Point  `json:"at"`
+		Range int    `json:"range_cells"`
+		State string `json:"state"`
+	}
+	if effective := level.LookupPath(cue.ParsePath("effective_cameras")); effective.Exists() {
+		if err := effective.Decode(&cameras); err != nil {
+			return out, nil, fmt.Errorf("level cameras: %w", err)
+		}
+	}
+	for _, c := range cameras {
+		out.Scene.Cameras = append(out.Scene.Cameras, Camera{ID: c.ID, Position: c.At, Range: c.Range, Online: c.State == "online"})
+	}
 	legendID, _ := level.LookupPath(cue.ParsePath("legend")).String()
 	tiles, err := world.LookupPath(cue.MakePath(cue.Str("legends"), cue.Str(legendID), cue.Str("tiles"))).Fields()
 	if err != nil {
@@ -247,6 +303,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		out.Walkable[key], _ = tiles.Value().LookupPath(cue.ParsePath("walk")).Bool()
 		cost, _ := tiles.Value().LookupPath(cue.ParsePath("move_cost")).Int64()
 		out.MoveCost[key] = int(cost)
+		if noise, err := tiles.Value().LookupPath(cue.ParsePath("noise")).Int64(); err == nil && noise > 0 {
+			out.Scene.TileNoise[key] = int(noise)
+		}
 	}
 	sites := level.LookupPath(cue.ParsePath("sites"))
 	persons, err := world.LookupPath(cue.ParsePath("persons")).Fields()
@@ -281,10 +340,21 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		if err := vectors.Decode(&e.Vectors); err != nil {
 			return out, nil, fmt.Errorf("person %s vectors: %w", e.ID, err)
 		}
-		if out.Psyche.Actors[e.ID], err = psyche.actorPsyche(arch, p.LookupPath(cue.ParsePath("overrides")), e.Vectors, profileCatalog.Profiles[out.Config.CaptureDemo.ResidentProfile].ForbidActions); err != nil {
+		if out.Psyche.Actors[e.ID], err = psyche.actorPsyche(arch, p.LookupPath(cue.ParsePath("overrides")), p.LookupPath(cue.ParsePath("relations")), e.Vectors, profileCatalog.Profiles[out.Config.CaptureDemo.ResidentProfile].ForbidActions); err != nil {
 			return out, nil, fmt.Errorf("person %s: %w", e.ID, err)
 		}
 		out.Entities = append(out.Entities, e)
+	}
+	if operator := out.Config.CaptureDemo.Monitoring.Operator; operator != "" {
+		found := false
+		for _, e := range out.Entities {
+			if e.ID == operator {
+				found = true
+			}
+		}
+		if !found {
+			return out, nil, fmt.Errorf("monitoring.operator %s is not a scene resident", operator)
+		}
 	}
 	for i := range out.Entities {
 		e := &out.Entities[i]

@@ -36,13 +36,14 @@ func RenderWith(catalog []byte, fixtures Fixtures) (map[string][]byte, error) {
 		}
 		files[name] = data
 	}
-	templates := map[string]string{"planner.go.tmpl": "planner.gen.go", "reactions.go.tmpl": "reactions.gen.go", "progress.go.tmpl": "progress.gen.go", "memory.go.tmpl": "memory.gen.go", "utility.go.tmpl": "utility.gen.go"}
+	templates := map[string]string{"planner.go.tmpl": "planner.gen.go", "reactions.go.tmpl": "reactions.gen.go", "progress.go.tmpl": "progress.gen.go", "memory.go.tmpl": "memory.gen.go", "utility.go.tmpl": "utility.gen.go", "perception.go.tmpl": "perception.gen.go"}
 	if len(fixtures.Planning) > 0 {
 		templates["planner_test.go.tmpl"] = "planner_generated_test.go"
 		templates["reactions_test.go.tmpl"] = "reactions_generated_test.go"
 		templates["progress_test.go.tmpl"] = "progress_generated_test.go"
 		templates["memory_test.go.tmpl"] = "memory_generated_test.go"
 		templates["utility_test.go.tmpl"] = "utility_generated_test.go"
+		templates["perception_test.go.tmpl"] = "perception_generated_test.go"
 		files["catalog.json"] = catalog
 		files["planning_scenarios.json"] = fixtures.Planning
 		utility := fixtures.Utility

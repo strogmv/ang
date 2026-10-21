@@ -44,9 +44,12 @@ type configuration struct{
 }
 // Psyche is derived by CUE (#VectorPsyche/#Archetype) on build; the law is law.psyche_vector_basic.
 type psycheTable struct{ Law behavior.PsycheLaw `json:"law"`; Actors map[string]behavior.Psyche `json:"actors"` }
+type sceneCamera struct{ ID string `json:"id"`; Position point `json:"position"`; Range int `json:"range_cells"`; Online bool `json:"online"` }
+type sceneData struct{ Cameras []sceneCamera `json:"cameras"`; AmbientNoise int `json:"ambient_noise"`; TileNoise map[string]int `json:"tile_noise"` }
 type worldData struct{
  AI behavior.Program `json:"ai"`
  Psyche psycheTable `json:"psyche"`
+ Scene sceneData `json:"scene"`
  Config configuration `json:"config"`
  ContentHash string `json:"content_hash"`
  Terrain []string `json:"terrain"`
@@ -248,7 +251,7 @@ func(r *Runtime) command(in input){
  r.receipts[id]=&receipt{digest:digest}
  switch action{
  case "new":v:=m.GetNewGame();seed:=v.Seed;if seed==0{seed=r.world.Config.Seed};name:=v.PlayerName;if name==""{name="Герой"};if len(name)>128{r.action(c,id,action,slot,errors.New("player name too long"));return}
-  r.state=state{Active:true,Epoch:newEpoch(),Seed:seed,PlayerName:name,Player:r.world.Spawn,Speed:1};r.initDemo(v.RunCaptureDemo);r.action(c,id,action,slot,nil);r.sendState(c)
+  r.state=state{Active:true,Epoch:newEpoch(),Seed:seed,PlayerName:name,Player:r.world.Spawn,Speed:1};scenario:=v.Scenario;if scenario==""&&!v.RunCaptureDemo{scenario="none"};r.initDemo(scenario);r.action(c,id,action,slot,nil);r.sendState(c)
  case "options":v:=m.GetGameOptions();if v.Speed!=1&&v.Speed!=3&&v.Speed!=10{r.action(c,id,action,slot,errors.New("unsupported speed"));return};r.state.Paused=v.Paused;r.state.Speed=v.Speed;r.action(c,id,action,slot,nil);r.sendState(c)
  case "save","load":if action=="save"&&!r.state.Active{r.action(c,id,action,slot,errors.New("start a game first"));return};if !r.validSlot(slot){r.action(c,id,action,slot,errors.New("unknown save slot"));return};copyState:=r.snapshotState();r.queueDisk(diskJob{client:c,id:id,action:action,slot:slot,epoch:epoch,state:copyState})
  }

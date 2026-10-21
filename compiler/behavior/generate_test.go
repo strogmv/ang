@@ -13,7 +13,7 @@ func TestRenderIndependentBehaviorPackage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(files) != 7 {
+	if len(files) != 8 {
 		t.Fatalf("unexpected outputs: %v", files)
 	}
 	for _, name := range []string{"memory.gen.go", "utility.gen.go"} {
@@ -38,7 +38,7 @@ func TestRenderIndependentBehaviorPackage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(withTests) != 15 || string(withTests["catalog.json"]) != string(catalog) || string(withTests["utility_scenarios.json"]) != `{"law":{},"cases":[]}` {
+	if len(withTests) != 17 || string(withTests["catalog.json"]) != string(catalog) || string(withTests["utility_scenarios.json"]) != `{"law":{},"cases":[]}` {
 		t.Fatalf("standalone fixtures missing: %d", len(withTests))
 	}
 	for _, name := range []string{"utility.gen.go", "memory.gen.go", "utility_generated_test.go"} {

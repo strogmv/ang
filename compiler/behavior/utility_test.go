@@ -15,8 +15,11 @@ const validUtilityCatalog = `{
   "goal.safety":{"id":"goal.safety","intent":"withdraw","action":"flee","applicable":[{"fact":"danger.immediate","is":true}],"considerations":[{"input":"signal.near","curve":"curve.linear","weight":1}],"base":2,"hold_ticks":2,"interrupt":true},
   "goal.watch":{"id":"goal.watch","intent":"gather_watch","action":"investigate","plan":"task.root","applicable":[{"fact":"danger.known","is":true}],"considerations":[{"input":"signal.near","curve":"curve.linear","weight":0.5}],"base":1,"hold_ticks":10}
  },
- "profiles":{"profile.a":{"id":"profile.a","scene_goals":["goal.flee","goal.watch","goal.safety"],"forbid_actions":["flee"]}},
+ "profiles":{"profile.a":{"id":"profile.a","scene_goals":["goal.flee","goal.watch","goal.safety"],"forbid_actions":["flee"],"duty":{"weight":1,"abandon_penalty":0.6,"training":{"fear":0.4}},"hearing_mul":1.2}},
  "policy":{
+  "social":{"sight_range_cells":12},
+  "danger":{"levels":[{"name":"calm","pressure":0,"avoidance":{"allowed":true,"cost":0},"extra_assignees":0,"refusal_cost":0,"call_radius_cells":0},{"name":"critical","pressure":1,"avoidance":{"allowed":false,"cost":1},"extra_assignees":2,"refusal_cost":0.6,"call_radius_cells":64}],"alarm_level":1,"stalled_after_ticks":300,"stalled_level":1},
+  "perception":{"hearing":{"range_cells":24,"min_audible":0.08,"wall_attenuation":0.6,"ambient_mask":0.03,"location_error_per_cell":0.25,"max_sounds_per_tick":16,"max_listeners_per_sound":32,"sound_ttl_ticks":60,"sounds":{"alarm":{"loudness":1},"siren":{"loudness":1},"drop":{"loudness":0.8}}}},
   "utility":{"min_hold_ticks":5,"max_hold_ticks":100,"switch_margin":0.1,"max_goals_per_pass":8,"explain_top":3,"interrupt_facts":["danger.immediate"],"unknown_signal_value":0,"stress":{"signal":"signal.near","emotion":"fear"},"emotion_proxies":{"fear":"signal.near"}},
   "memory":{"capacity":4,"merge_window_ticks":5,"default_ttl_ticks":50,"priorities":{"incident":3},"unknown_threat_value":0.5}
  }
@@ -51,6 +54,13 @@ func TestUtilityValidatorAcceptsCatalogAndRejectsEachBrokenReference(t *testing.
 		{"memory capacity", `"capacity":4`, `"capacity":0`, `memory.capacity`},
 		{"memory ttl", `"default_ttl_ticks":50`, `"default_ttl_ticks":0`, `default_ttl_ticks`},
 		{"unknown stress response", `"stress_responses":["flight"]`, `"stress_responses":["panic"]`, `stress_responses[0]`},
+		{"alarm level unknown", `"alarm_level":1`, `"alarm_level":5`, `alarm_level`},
+		{"danger pressure falls", `"name":"critical","pressure":1`, `"name":"critical","pressure":-0.5`, `levels[1]`},
+		{"hearing not beyond sight", `"range_cells":24`, `"range_cells":12`, `hearing.range_cells`},
+		{"missing siren sound", `"siren":{"loudness":1},`, ``, `sounds.siren`},
+		{"training out of range", `"training":{"fear":0.4}`, `"training":{"fear":4}`, `duty.training.fear`},
+		{"unknown training emotion", `"training":{"fear":0.4}`, `"training":{"calm":0.4}`, `duty.training.calm`},
+		{"abandon penalty above one", `"abandon_penalty":0.6`, `"abandon_penalty":6`, `.duty`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -216,7 +216,7 @@ namespace AngelsDemons.Poc
         {
             if (!CanSend()) return;
             busy = "Начинаем новую партию…";
-            session.SendNewGame(new PocNewGameRequest { Seed = seed, PlayerName = playerName, RunCaptureDemo = !verify || verifyCapture, Epoch = state.Epoch, RequestId = Guid.NewGuid().ToString("N") });
+            session.SendNewGame(new PocNewGameRequest { Seed = seed, PlayerName = playerName, RunCaptureDemo = !verify || verifyCapture, Scenario = verifyCapture ? "test_hook" : verify ? "none" : "", Epoch = state.Epoch, RequestId = Guid.NewGuid().ToString("N") });
         }
         bool CanSend() => connected && state != null && session != null && string.IsNullOrEmpty(busy);
         void Options(bool paused, int speed)

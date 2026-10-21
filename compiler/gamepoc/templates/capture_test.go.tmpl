@@ -7,13 +7,13 @@ import (
 )
 func demoFixture(t *testing.T)*Runtime{
  t.Helper();r,err:=New(t.TempDir(),"token");if err!=nil{t.Fatal(err)}
- r.state.Active=true;r.state.Player=r.world.Spawn;r.initDemo(true);return r
+ r.state.Active=true;r.state.Player=r.world.Spawn;r.initDemo("test_hook");return r
 }
 func selectedDemo(r *Runtime)int{n:=0;for _,c:=range r.state.Demo.Candidates{if c.Selected{n++}};return n}
 func assertDemoNoOverlap(t *testing.T,r *Runtime){t.Helper();positions:=map[point]bool{};for _,a:=range r.state.Demo.Agents{if positions[a.Position]{t.Fatalf("NPC overlap at tick %d: %+v",r.state.Tick,a.Position)};positions[a.Position]=true}}
 func TestNPCInboxFreezeDecisionAndReplacement(t *testing.T){
  r:=demoFixture(t);cfg:=r.world.Config.CaptureDemo
- due:=cfg.DelaySeconds*int64(r.world.Config.TickHz)
+ due:=cfg.TestHook.CallAtSeconds*int64(r.world.Config.TickHz)
  for r.state.Tick<due-1{r.step();assertDemoNoOverlap(t,r)}
  if r.state.Demo.Issued{t.Fatal("call sent early")}
  r.step();d:=&r.state.Demo
@@ -38,13 +38,13 @@ func TestNPCInboxFreezeDecisionAndReplacement(t *testing.T){
 }
 func TestNPCDecisionChangesWithCUEPriority(t *testing.T){
  r:=demoFixture(t);r.world.Config.CaptureDemo.CapturePriority=r.world.Config.CaptureDemo.ExtraWorkPriority+1
- deadline:=r.world.Config.CaptureDemo.DelaySeconds*int64(r.world.Config.TickHz)+r.world.Config.CaptureDemo.ThinkTicks
+ deadline:=r.world.Config.CaptureDemo.TestHook.CallAtSeconds*int64(r.world.Config.TickHz)+r.world.Config.CaptureDemo.ThinkTicks
  for r.state.Tick<deadline{r.step()}
  if selectedDemo(r)!=3||!r.state.Demo.Candidates[1].Selected||r.state.Demo.Candidates[3].Requested{t.Fatal("actor decision ignored request/current-task priorities")}
 }
 func TestDemoSaveDuringThinkingAndPursuit(t *testing.T){
  r:=demoFixture(t);cfg:=r.world.Config.CaptureDemo
- for r.state.Tick<cfg.DelaySeconds*int64(r.world.Config.TickHz)+1{r.step()}
+ for r.state.Tick<cfg.TestHook.CallAtSeconds*int64(r.world.Config.TickHz)+1{r.step()}
  slot:=r.world.Config.SaveSlots[0];before:=r.snapshotState()
  if err:=r.writeSave(slot,before);err!=nil{t.Fatal(err)}
  loaded,_,err:=r.readSave(slot);if err!=nil{t.Fatal(err)}

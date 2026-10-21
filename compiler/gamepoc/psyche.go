@@ -31,6 +31,7 @@ type psycheData struct {
 	Forbid         []moralForbid      `json:"forbid"`
 	ProfileForbid  []string           `json:"profile_forbid"`
 	Passionality   int                `json:"passionality"`
+	Relations      map[string]float64 `json:"relations"`
 }
 type psycheLaw struct {
 	AffinityMul float64 `json:"affinity_mul"`
@@ -165,8 +166,9 @@ func (c psycheCompiler) vocabulary() *behavior.Vocabulary {
 
 // actorPsyche derives one scene actor: a person via its archetype (caste layer, moral, chip,
 // passionality, person overrides) or a demo agent that only declares vectors.
-func (c psycheCompiler) actorPsyche(archetype string, personOverrides cue.Value, vectors []string, profileForbid []string) (psycheData, error) {
+func (c psycheCompiler) actorPsyche(archetype string, personOverrides, personRelations cue.Value, vectors []string, profileForbid []string) (psycheData, error) {
 	var casteBias, adjust, moral, chip cue.Value
+	var out psycheData
 	passionality := 0
 	if archetype != "" {
 		arch := c.world.LookupPath(cue.MakePath(cue.Str("archetypes"), cue.Str(archetype)))
@@ -190,11 +192,31 @@ func (c psycheCompiler) actorPsyche(archetype string, personOverrides cue.Value,
 				passionality = int(p)
 			}
 		}
+		if personRelations.Exists() {
+			var relations []struct {
+				To       string  `json:"to"`
+				Kind     string  `json:"kind"`
+				Strength float64 `json:"strength"`
+			}
+			if err := personRelations.Decode(&relations); err != nil {
+				return psycheData{}, err
+			}
+			for _, rel := range relations {
+				if rel.Strength > 0 && (rel.Kind == "trust" || rel.Kind == "mentorship") {
+					if out.Relations == nil {
+						out.Relations = map[string]float64{}
+					}
+					out.Relations[rel.To] = rel.Strength
+				}
+			}
+		}
 	}
-	out, err := c.derive(vectors, casteBias, adjust)
+	derived, err := c.derive(vectors, casteBias, adjust)
 	if err != nil {
-		return out, err
+		return derived, err
 	}
+	derived.Relations = out.Relations
+	out = derived
 	if chip.Exists() {
 		if err := chip.Decode(&out.ChipSuppress); err != nil {
 			return out, err

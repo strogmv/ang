@@ -17,10 +17,14 @@ type MemoryPolicy struct {
 }
 // Fact is one bounded observation: subject, kind, source, time and validity.
 // Absence of a fact means "unknown"; a stored Value=false means "known false".
+// A heard fact carries an uncertain location (Radius cells around Position) and an unknown
+// Cause until someone sees the source; a seen fact has Radius 0.
 type Fact struct {
- Subject,Kind,Source string
+ Subject,Kind,Source,Cause string
  Value bool
  Position Cell
+ Radius int
+ Strength float64
  ObservedTick,ExpiresTick int64
  Priority,Count int
 }

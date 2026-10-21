@@ -68,13 +68,16 @@ func(r *Runtime) actorProfile(a demoAgent)behavior.Profile{id:=r.world.Config.Ca
 // recordSceneMemory writes what this observer could actually perceive into its bounded memory:
 // the heard call, the seen incident (plus whether the target is seen unarmed), a message to a
 // group member and visible responders. Hidden inventory never becomes a fact.
+func(r *Runtime) offenceVisible()bool{d:=&r.state.Demo;return d.HeroOffenceUntil>0&&r.state.Tick<d.HeroOffenceUntil&&!d.Captured&&d.TargetAlive}
 func(r *Runtime) recordSceneMemory(a *demoAgent,observation behavior.Observation)(seen bool){
  d:=&r.state.Demo;p:=r.world.AI.Policy.Social;mp:=r.world.AI.Policy.Memory;tick:=r.state.Tick
- if !d.Issued{return false}
- if tick==d.IssuedTick&&behavior.Distance(cell(a.Position),cell(d.Call))<=p.HearingRange{a.Memory.Record(behavior.Fact{Subject:observation.SubjectID,Kind:"incident",Source:"hearing",Value:observation.Active,Position:cell(d.Call),ObservedTick:tick},mp)}
+ if !d.Issued&&!r.offenceVisible(){return false}
+ if d.Issued&&tick==d.IssuedTick&&behavior.Distance(cell(a.Position),cell(d.Call))<=p.HearingRange{a.Memory.Record(behavior.Fact{Subject:observation.SubjectID,Kind:"incident",Source:"hearing",Cause:d.CallCause,Value:observation.Active,Position:cell(d.Call),ObservedTick:tick},mp)}
  seen=behavior.Distance(cell(a.Position),observation.Position)<=p.SightRange&&r.sceneVisible(cell(a.Position),observation.Position)
  if seen{
-  a.Memory.Record(behavior.Fact{Subject:observation.SubjectID,Kind:"incident",Source:"sight",Value:observation.Active,Position:observation.Position,ObservedTick:tick},mp)
+  // A witness who sees the hero during the offence window knows an incident even before any call.
+  cause:="call";if !d.Issued{cause="offence"}
+  a.Memory.Record(behavior.Fact{Subject:observation.SubjectID,Kind:"incident",Source:"sight",Cause:cause,Value:observation.Active||r.offenceVisible(),Position:observation.Position,ObservedTick:tick},mp)
   known:=r.world.Config.CaptureDemo.KnownFacts
   if armed,ok:=known["observation.target_armed"];ok&&armed{a.Memory.Record(behavior.Fact{Subject:observation.SubjectID,Kind:"armed",Source:"sight",Value:true,Position:observation.Position,ObservedTick:tick},mp)}else if unarmed,ok:=known["observation.target_unarmed"];ok&&unarmed{a.Memory.Record(behavior.Fact{Subject:observation.SubjectID,Kind:"armed",Source:"sight",Value:false,Position:observation.Position,ObservedTick:tick},mp)}
  }
@@ -84,16 +87,92 @@ func(r *Runtime) recordSceneMemory(a *demoAgent,observation behavior.Observation
 }
 // sceneFacts derives applicability facts and 0..1 signals from this observer's memory only.
 // "unknown whether armed" and "known unarmed" give different signals and different facts.
+func(r *Runtime) requestedActor(id string)bool{c:=r.candidate(id);return c!=nil&&c.Requested}
+func(r *Runtime) isOperator(a *demoAgent)bool{return a.ID!=""&&a.ID==r.world.Config.CaptureDemo.Monitoring.Operator}
+// networkKnown: the actor knows the network is engaged — it was asked by the dispatcher, heard the
+// post's siren, or is the operator who issued the call. Nothing is broadcast globally.
+func(r *Runtime) networkKnown(a *demoAgent)bool{
+ if r.requestedActor(a.ID)||r.selectedActor(a.ID){return true}
+ if r.isOperator(a)&&r.state.Demo.Issued{return true}
+ return a.Memory.Count("siren")>0
+}
 func(r *Runtime) sceneFacts(a *demoAgent,seen bool)(map[string]bool,map[string]float64){
- p:=r.world.AI.Policy.Social;mp:=r.world.AI.Policy.Memory
- incident,knowledge:=a.Memory.Lookup("poc.hero","incident");known:=knowledge==behavior.KnowledgeTrue
+ p:=r.world.AI.Policy.Social;mp:=r.world.AI.Policy.Memory;cfg:=r.world.Config.CaptureDemo;d:=&r.state.Demo;hearing:=r.world.AI.Policy.Perception.Hearing
+ incident,knowledge:=a.Memory.Lookup("poc.hero","incident");known:=knowledge==behavior.KnowledgeTrue;dangerAt:=incident.Position
+ alarm,alarmHeard:=a.Memory.Best("alarm")
+ if !known&&alarmHeard{known=true;dangerAt=alarm.Position}
  proximity:=0.0;immediate:=false
- if known{distance:=behavior.Distance(cell(a.Position),incident.Position);immediate=distance<=p.PanicDistance;proximity=1-float64(distance)/float64(p.SightRange);if proximity<0{proximity=0}}
+ if known{distance:=behavior.Distance(cell(a.Position),dangerAt);immediate=distance<=p.PanicDistance;proximity=1-float64(distance)/float64(p.SightRange);if proximity<0{proximity=0}}
  _,armedKnowledge:=a.Memory.Lookup("poc.hero","armed");armed:=mp.UnknownThreatValue
- facts:=map[string]bool{"danger.known":known,"danger.immediate":immediate,"group.assigned":r.selectedActor(a.ID),"work.assigned":true,"duty.patrol":r.demoAgentIndex(a.ID)>=0}
+ // The danger level an actor acts on: the network's level once it knows about the call, the witness level before.
+ levelIndex:=0;if r.networkKnown(a)&&d.Issued{levelIndex=d.DangerLevel}else if known{levelIndex=cfg.HeroAction.WitnessLevel}
+ level:=r.world.AI.Policy.Danger.Level(levelIndex);maxLevel:=r.world.AI.Policy.Danger.Max();profile:=r.actorProfile(*a)
+ pressure:=level.Pressure*profile.Duty.Weight;if pressure>1{pressure=1};dutyWeight:=profile.Duty.Weight;if dutyWeight>1{dutyWeight=1}
+ reinforcements:=false;for _,other:=range d.Agents{if other.ID!=a.ID&&!r.requestedActor(other.ID){reinforcements=true;break}}
+ obligation:=0.0;if a.Task=="considering"&&a.ResumeTask=="extra_work"&&a.BusyUntil>r.state.Tick{obligation=float64(cfg.ExtraWorkPriority)/float64(cfg.ExtraWorkPriority+cfg.CapturePriority)}
+ sound,soundHeard:=a.Memory.Best("sound");soundDistance:=0.0
+ if soundHeard{reach:=float64(hearing.RangeCells)*profile.HearingMul;if reach<=0{reach=1};soundDistance=1-float64(behavior.Distance(cell(a.Position),sound.Position))/reach;if soundDistance<0{soundDistance=0}}
+ facts:=map[string]bool{"danger.known":known,"danger.immediate":immediate,"group.assigned":r.selectedActor(a.ID),"work.assigned":true,"duty.patrol":r.demoAgentIndex(a.ID)>=0,
+  "danger.avoidable":level.Avoidance.Allowed,"request.pending":a.Task=="considering","sound.heard":soundHeard,"alarm.heard":alarmHeard,"alarm.raised":a.AlarmRaisedTick>0,"network.called":r.networkKnown(a),"post.operator":r.isOperator(a)}
  switch armedKnowledge{case behavior.KnowledgeTrue:armed=1;facts["observation.target_armed"]=true;case behavior.KnowledgeFalse:armed=0;facts["observation.target_armed"]=false}
- signals:=map[string]float64{"signal.danger_known":boolSignal(known),"signal.danger_proximity":proximity,"signal.threat_armed":armed,"signal.incident_visible":boolSignal(seen&&known),"signal.responders_visible":boolSignal(a.Memory.Count("responder")>0),"signal.work_pending":boolSignal(a.Task!="blocked"),"signal.duty_assigned":boolSignal(r.selectedActor(a.ID))}
+ levelSignal:=0.0;if maxLevel>0{levelSignal=float64(levelIndex)/float64(maxLevel)}
+ signals:=map[string]float64{"signal.danger_known":boolSignal(known),"signal.danger_proximity":proximity,"signal.threat_armed":armed,"signal.incident_visible":boolSignal(seen&&known),"signal.responders_visible":boolSignal(a.Memory.Count("responder")>0),"signal.work_pending":boolSignal(a.Task!="blocked"),"signal.duty_assigned":boolSignal(r.selectedActor(a.ID)),
+  "signal.danger_level":levelSignal,"signal.duty_pressure":pressure,"signal.duty_weight":dutyWeight,"signal.avoidance_cost":level.Avoidance.Cost,"signal.refusal_cost":level.RefusalCost,"signal.reinforcements_available":boolSignal(reinforcements),"signal.obligation":obligation,"signal.offender_trust":r.world.Psyche.Actors[a.ID].Relations["char.hero"],
+  "signal.sound_loudness":sound.Strength,"signal.sound_distance":soundDistance,"signal.alarm_heard":boolSignal(alarmHeard)}
  return facts,signals
+}
+// --- Sounds: emitted by world actions, heard through the CUE hearing model -------------------------
+func(r *Runtime) cellNoise(p point)int{
+ if !r.walkable(p){return r.world.Scene.AmbientNoise};tile:=string(r.world.Terrain[p.Y][p.X]);noise:=r.world.Scene.AmbientNoise
+ if n,ok:=r.world.Scene.TileNoise[tile];ok&&n>noise{noise=n};return noise
+}
+func(r *Runtime) emitSound(kind string,origin point,sourceID,cause string){
+ d:=&r.state.Demo;hearing:=r.world.AI.Policy.Perception.Hearing;loudness:=hearing.Loudness(kind,false,1);if loudness<=0{return}
+ d.SoundSeq++;d.Sounds=append(d.Sounds,behavior.Sound{ID:fmt.Sprintf("sound.%d",d.SoundSeq),Kind:kind,SourceID:sourceID,Cause:cause,Loudness:loudness,Origin:cell(origin),Tick:r.state.Tick})
+ if limit:=hearing.MaxSoundsPerTick*2;len(d.Sounds)>limit{drop:=len(d.Sounds)-limit;d.Sounds=append([]behavior.Sound(nil),d.Sounds[drop:]...);d.HeardCursor-=drop;if d.HeardCursor<0{d.HeardCursor=0}}
+}
+func(r *Runtime) expireSounds(){
+ d:=&r.state.Demo;ttl:=r.world.AI.Policy.Perception.Hearing.SoundTTLTicks;kept:=0
+ for kept<len(d.Sounds)&&r.state.Tick-d.Sounds[kept].Tick>=ttl{kept++}
+ if kept>0{d.Sounds=append([]behavior.Sound(nil),d.Sounds[kept:]...);d.HeardCursor-=kept;if d.HeardCursor<0{d.HeardCursor=0}}
+}
+// hearSounds delivers each new sound to its nearest bounded set of listeners. A heard sound is a
+// memory fact with an uncertain place and unknown cause; alarms and sirens keep their kind so a
+// hearer can relay or know the network is engaged.
+func(r *Runtime) hearSounds(){
+ d:=&r.state.Demo;hearing:=r.world.AI.Policy.Perception.Hearing;mp:=r.world.AI.Policy.Memory;space:=r.sceneSpace(nil)
+ for ;d.HeardCursor<len(d.Sounds);d.HeardCursor++{
+  snd:=d.Sounds[d.HeardCursor];var candidates []behavior.Listener
+  for _,a:=range r.sceneActors(){if a.ID==snd.SourceID{continue};candidates=append(candidates,behavior.Listener{ID:a.ID,Position:cell(a.Position)})}
+  for _,l:=range hearing.Listeners(snd,candidates){
+   a:=r.sceneActor(l.ID);if a==nil{continue}
+   heard,ok:=hearing.Hear(snd,l.Position,r.actorProfile(*a).HearingMul,space.Blockers(snd.Origin,l.Position),r.cellNoise(a.Position));if !ok{continue}
+   kind,subject,cause:="sound",snd.ID,"unknown"
+   switch snd.Kind{case "alarm","shout":kind,subject,cause="alarm",snd.SourceID,snd.Cause;case "siren":kind,subject,cause="siren",snd.SourceID,snd.Cause}
+   a.Memory.Record(behavior.Fact{Subject:subject,Kind:kind,Source:"hearing",Cause:cause,Value:true,Position:heard.Estimate,Radius:heard.Radius,Strength:heard.Intensity,ObservedTick:r.state.Tick,ExpiresTick:r.state.Tick+hearing.SoundTTLTicks},mp)
+  }
+ }
+}
+func(r *Runtime) sceneActor(id string)*demoAgent{for _,a:=range r.sceneActors(){if a.ID==id{return a}};return nil}
+// cameraStep: cameras are sensors. Their observations reach the monitoring post only; without an
+// operator nobody decides anything, so a camera alone never raises an alarm.
+func(r *Runtime) cameraStep(){
+ cfg:=r.world.Config.CaptureDemo;if cfg.Monitoring.Operator==""||!r.offenceVisible(){return}
+ i:=r.residentIndex(cfg.Monitoring.Operator);if i<0{return};operator:=&r.state.Demo.Residents[i]
+ for _,cam:=range r.world.Scene.Cameras{
+  if !cam.Online||manhattan(cam.Position,r.state.Player)>cam.Range||!r.sceneVisible(cell(cam.Position),cell(r.state.Player)){continue}
+  operator.Memory.Record(behavior.Fact{Subject:"poc.hero",Kind:"incident",Source:"camera",Cause:"camera:"+cam.ID,Value:true,Position:cell(r.state.Player),ObservedTick:r.state.Tick},r.world.AI.Policy.Memory);break
+ }
+}
+// raiseAlarm is an NPC decision: the operator calls the network, anyone else emits an audible alarm.
+func(r *Runtime) raiseAlarm(a *demoAgent){
+ d:=&r.state.Demo;cause:="incident";if f,k:=a.Memory.Lookup("poc.hero","incident");k==behavior.KnowledgeTrue&&f.Cause!=""{cause=f.Cause}else if alarm,ok:=a.Memory.Best("alarm");ok{cause="relay:"+alarm.Subject}
+ a.AlarmRaisedTick=r.state.Tick
+ if r.isOperator(a){if !d.Issued{r.issueDemoCall(cause)};return}
+ kind:="shout";if r.demoAgentIndex(a.ID)>=0{kind="alarm"}
+ r.emitSound(kind,a.Position,a.ID,cause)
+ d.AlarmLog=append(d.AlarmLog,alarmRecord{Tick:r.state.Tick,ActorID:a.ID,Cause:cause,Kind:kind,At:a.Position});if len(d.AlarmLog)>32{d.AlarmLog=d.AlarmLog[len(d.AlarmLog)-32:]}
+ r.demoEvent(fmt.Sprintf("%s: поднимает тревогу (%s) в (%d,%d)",a.Name,cause,a.Position.X,a.Position.Y))
 }
 func(r *Runtime) updateSceneAwareness(){
  d:=&r.state.Demo;p:=r.world.AI.Policy.Social
@@ -110,8 +189,8 @@ func(r *Runtime) updateSceneAwareness(){
   roleID:=r.world.Config.CaptureDemo.ResidentRole;if r.demoAgentIndex(a.ID)>=0{roleID=r.world.Config.CaptureDemo.ResponderRole}
   a.Reaction.Decide(r.world.AI.Roles[roleID],facts,r.state.Tick,p.ReactionNodeBudget)
   previous:=a.Personal.GoalID
-  a.Personal.Select(r.world.AI,r.world.Psyche.Law,r.world.Psyche.Actors[a.ID],r.actorProfile(*a).SceneGoals,facts,signals,r.state.Tick)
-  if a.Personal.GoalID!=previous&&known{r.demoEvent(a.Name+": "+a.Personal.Reason)}
+  a.Personal.Select(r.world.AI,r.world.Psyche.Law,r.world.Psyche.Actors[a.ID],r.actorProfile(*a),facts,signals,r.state.Tick)
+  if a.Personal.GoalID!=previous&&(known||facts["sound.heard"]||facts["alarm.heard"]){r.demoEvent(a.Name+": "+a.Personal.Reason)}
   a.Reaction.HasLookTarget=false;a.Reaction.WatchSubjectID=""
   if known&&!r.selectedActor(a.ID){
    nearest:=1<<30
@@ -121,32 +200,54 @@ func(r *Runtime) updateSceneAwareness(){
   }
  }
 }
+// socialStep: perception and personal decisions run every pass, before any network call exists;
+// group coordination starts only once the dispatcher has issued the call.
 func(r *Runtime) socialStep(){
  d:=&r.state.Demo;r.updateSceneAwareness()
- if !d.Issued{return}
+ controlled:=map[string]bool{}
+ if d.Issued{
  members:=r.squadMembers();previousLeader:=d.Coordination.LeaderID;previousMode:=d.Coordination.Mode
  d.Coordination.Assign(r.world.AI.Policy.Coordination,members);members=r.squadMembers()
  if len(members)>0&&(previousLeader!=d.Coordination.LeaderID||previousMode!=d.Coordination.Mode){if d.Coordination.LeaderID!=""{r.demoEvent("Лидер группы: "+d.Agents[r.demoAgentIndex(d.Coordination.LeaderID)].Name)}else{r.demoEvent("Группа: общий шаблон без лидера")}}
  canAddress:=false
  if i:=r.demoAgentIndex(d.Coordination.SpeakerID);i>=0{a:=d.Agents[i];canAddress=a.Reaction.Awareness.Known&&a.Reaction.Awareness.Active&&manhattan(a.Position,r.state.Player)<=r.world.AI.Policy.Social.HearingRange&&r.sceneVisible(cell(a.Position),cell(r.state.Player))}
  if !d.Captured&&d.Coordination.TryOpening(r.world.AI.Policy.Coordination,r.state.Tick,canAddress,d.TargetAlive){r.demoEvent(d.Agents[r.demoAgentIndex(d.Coordination.OfferedBy)].Name+": «"+d.Coordination.Utterance+"»")}
- controlled:=map[string]bool{};for _,m:=range members{controlled[m.ID]=true}
+ for _,m:=range members{controlled[m.ID]=true}
  if !d.Captured&&d.Plan.Status!="failed"{
   target:=cell(d.Call);latest:=int64(-1)
   for _,a:=range d.Agents{if controlled[a.ID]&&a.Reaction.Awareness.Known&&a.Reaction.Awareness.ObservedTick>latest{target=a.Reaction.Awareness.Position;latest=a.Reaction.Awareness.ObservedTick}}
-  previous:=d.Squad.Phase;orders:=d.Squad.Update(r.sceneSpace(controlled),r.groupPolicy(),members,target,r.state.Tick)
+  // Bystanders are not obstacles for assembly planning: a member whose route meets one asks it
+  // to step aside (existing yield rule); only the hero, the group itself and immovable actors block.
+  space:=r.sceneSpace(controlled)
+  for _,b:=range r.sceneActors(){if controlled[b.ID]{continue};switch b.Task{case "considering","capturing","transporting","delivered","blocked":continue};delete(space.Blocked,cell(b.Position));if len(b.Path)>0{delete(space.Blocked,cell(b.Path[0]))}}
+  previous:=d.Squad.Phase;orders:=d.Squad.Update(space,r.groupPolicy(),members,target,r.state.Tick)
   d.TeamReady=d.Squad.Assembled
   if d.Squad.Phase!=previous{r.demoEvent("Группа: "+d.Squad.Phase+" — "+d.Squad.Reason)}
   for _,m:=range members{a:=&d.Agents[r.demoAgentIndex(m.ID)];a.Role="Поддержка";if m.ID==d.Coordination.LeaderID{a.Role="Лидер"};if m.ID==d.Coordination.SpeakerID{if m.ID==d.Coordination.LeaderID{a.Role="Лидер, переговорщик"}else{a.Role="Переговорщик"}}}
   for _,order:=range orders{r.applySocialOrder(&d.Agents[r.demoAgentIndex(order.ActorID)],order,target)}
+ }
  }
  var crowd []behavior.Member;crowdIDs:=map[string]bool{};var focus behavior.Cell;haveFocus:=false
  for _,a:=range r.sceneActors(){
   if a.YieldUntil>0&&r.state.Tick>=a.YieldUntil{a.YieldUntil=0;if a.Task=="yielding"{a.Task=a.YieldResumeTask;a.Goal=a.YieldResumeGoal;a.Path=nil}}
   if controlled[a.ID]||a.Task=="considering"{continue}
   intent:=r.actorIntent(*a);observed:=a.Reaction.Awareness.Position
-  if f,k:=a.Memory.Lookup("poc.hero","incident");k==behavior.KnowledgeTrue{observed=f.Position}
+  if f,k:=a.Memory.Lookup("poc.hero","incident");k==behavior.KnowledgeTrue{observed=f.Position}else if f,ok:=a.Memory.Best("alarm");ok{observed=f.Position}
+  if a.Task=="investigating"&&len(a.Path)==0&&a.Position==a.Goal{r.finishInvestigation(a)}
   switch intent{
+  case "hold":
+   r.suspendRoutine(a,"удерживает позицию");a.Task="holding_post";a.Path=nil;a.Goal=a.Position
+  case "alarm":
+   if a.AlarmRaisedTick==0{r.raiseAlarm(a)}
+  case "avoid":
+   r.suspendRoutine(a,"держится в стороне")
+   if goal,ok:=r.sceneSpace(map[string]bool{a.ID:true}).Escape(cell(a.Position),observed,r.world.AI.Policy.Social.SafeDistance);ok{r.applySocialOrder(a,behavior.Order{ActorID:a.ID,Goal:goal,Mode:"avoiding"},observed)}
+  case "investigate":
+   if snd,ok:=a.Memory.Best("sound");ok{
+    r.suspendRoutine(a,"идёт проверить звук");a.Investigating=snd.Subject
+    space:=r.sceneSpace(map[string]bool{a.ID:true})
+    if _,goals,ok:=space.Rally(snd.Position,[]behavior.Member{{ID:a.ID,Position:cell(a.Position),Available:true}},0);ok{r.applySocialOrder(a,behavior.Order{ActorID:a.ID,Goal:goals[a.ID],Mode:"investigating"},snd.Position)}else{r.finishInvestigation(a)}
+   }
   case "gather_watch","withdraw":
    r.suspendRoutine(a,"отходит к наблюдателям")
    if !haveFocus{focus=observed;haveFocus=true}
@@ -173,6 +274,11 @@ func(r *Runtime) socialStep(){
   orders:=d.Crowd.Update(r.sceneSpace(crowdIDs),r.world.AI.Policy.Social,crowd,focus)
   for _,order:=range orders{for _,a:=range r.sceneActors(){if a.ID==order.ActorID{r.applySocialOrder(a,order,focus);break}}}
  }
+}
+// finishInvestigation resolves a checked sound: nothing found means the fact is forgotten and the
+// routine resumes with the same remaining work; a seen source already produced visual facts.
+func(r *Runtime) finishInvestigation(a *demoAgent){
+ if a.Investigating!=""{a.Memory.Forget(a.Investigating,"sound");r.demoEvent(a.Name+": проверил источник звука");a.Investigating=""}
 }
 // suspendRoutine parks the interrupted work once; the remaining work time is restored on return.
 func(r *Runtime) suspendRoutine(a *demoAgent,event string){
@@ -257,7 +363,7 @@ func(r *Runtime) observeMovement(a *demoAgent,mode string,goal point){
 func(r *Runtime) sceneProgressStep(){
  policy:=r.world.AI.Policy.Recovery.Movement
  for _,a:=range r.sceneActors(){
-  switch a.Task{case "patrol","joining","assembling","approaching","committing","responding","transporting","yielding","gather_watch","withdraw","returning","fleeing","assisting":default:a.Progress.Pause(r.state.Tick);continue}
+  switch a.Task{case "patrol","joining","assembling","approaching","committing","responding","transporting","yielding","gather_watch","withdraw","returning","fleeing","assisting","avoiding","investigating":default:a.Progress.Pause(r.state.Tick);continue}
   r.observeMovement(a,a.Task,a.Goal)
   if a.Position==a.Goal&&len(a.Path)==0{a.Progress.Complete();continue}
   if len(a.Path)==0&&a.Progress.Status=="running"{a.Progress.Block("route_unavailable","positions_changed",r.state.Tick,policy)}

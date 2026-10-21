@@ -97,7 +97,7 @@ func ValidateCatalog(data []byte, roots ...string) error {
 	return nil
 }
 
-var utilityIntents = []string{"routine", "withdraw", "gather_watch", "group_order", "flee", "assist"}
+var utilityIntents = []string{"routine", "withdraw", "gather_watch", "group_order", "flee", "assist", "hold", "alarm", "avoid", "investigate"}
 var stressResponses = []string{"fight", "flight", "freeze", "appease", "analyze", "withdraw"}
 
 func member(list []string, s string) bool {
@@ -137,6 +137,7 @@ func ValidateUtility(data []byte, vocab *Vocabulary) []CatalogError {
 			} `json:"considerations"`
 			Base            float64  `json:"base"`
 			HoldTicks       int64    `json:"hold_ticks"`
+			DutyCost        float64  `json:"duty_cost"`
 			Interrupt       bool     `json:"interrupt"`
 			StressResponses []string `json:"stress_responses"`
 		} `json:"goals"`
@@ -144,8 +145,46 @@ func ValidateUtility(data []byte, vocab *Vocabulary) []CatalogError {
 			ID            string   `json:"id"`
 			SceneGoals    []string `json:"scene_goals"`
 			ForbidActions []string `json:"forbid_actions"`
+			Duty          *struct {
+				Weight         float64            `json:"weight"`
+				AbandonPenalty float64            `json:"abandon_penalty"`
+				Training       map[string]float64 `json:"training"`
+			} `json:"duty"`
+			HearingMul float64 `json:"hearing_mul"`
 		} `json:"profiles"`
 		Policy struct {
+			Social *struct {
+				SightRange int `json:"sight_range_cells"`
+			} `json:"social"`
+			Danger *struct {
+				Levels []struct {
+					Name      string  `json:"name"`
+					Pressure  float64 `json:"pressure"`
+					Avoidance struct {
+						Allowed bool    `json:"allowed"`
+						Cost    float64 `json:"cost"`
+					} `json:"avoidance"`
+					ExtraAssignees int     `json:"extra_assignees"`
+					RefusalCost    float64 `json:"refusal_cost"`
+					CallRadius     int     `json:"call_radius_cells"`
+				} `json:"levels"`
+				AlarmLevel        int   `json:"alarm_level"`
+				StalledAfterTicks int64 `json:"stalled_after_ticks"`
+				StalledLevel      int   `json:"stalled_level"`
+			} `json:"danger"`
+			Perception *struct {
+				Hearing *struct {
+					RangeCells           int                                   `json:"range_cells"`
+					MinAudible           float64                               `json:"min_audible"`
+					WallAttenuation      float64                               `json:"wall_attenuation"`
+					AmbientMask          float64                               `json:"ambient_mask"`
+					LocationErrorPerCell float64                               `json:"location_error_per_cell"`
+					MaxSoundsPerTick     int                                   `json:"max_sounds_per_tick"`
+					MaxListenersPerSound int                                   `json:"max_listeners_per_sound"`
+					SoundTTLTicks        int64                                 `json:"sound_ttl_ticks"`
+					Sounds               map[string]struct{ Loudness float64 } `json:"sounds"`
+				} `json:"hearing"`
+			} `json:"perception"`
 			Utility *struct {
 				MinHoldTicks       int64             `json:"min_hold_ticks"`
 				MaxHoldTicks       int64             `json:"max_hold_ticks"`
@@ -240,6 +279,48 @@ func ValidateUtility(data []byte, vocab *Vocabulary) []CatalogError {
 			}
 		}
 	}
+	if d := c.Policy.Danger; d != nil {
+		if len(d.Levels) < 2 {
+			fail("policy.danger.levels", "need at least calm and one danger level")
+		}
+		for i, l := range d.Levels {
+			lp := fmt.Sprintf("policy.danger.levels[%d]", i)
+			if l.Pressure < 0 || l.Pressure > 1 || l.Avoidance.Cost < 0 || l.Avoidance.Cost > 1 || l.RefusalCost < 0 || l.RefusalCost > 1 {
+				fail(lp, "pressure, avoidance.cost and refusal_cost must be in [0,1]")
+			}
+			if l.ExtraAssignees < 0 || l.CallRadius < 0 {
+				fail(lp, "extra_assignees and call_radius_cells must not be negative")
+			}
+			if i > 0 && l.Pressure < d.Levels[i-1].Pressure {
+				fail(lp+".pressure", "danger pressure must not fall as the level rises")
+			}
+		}
+		if d.AlarmLevel < 0 || d.AlarmLevel >= len(d.Levels) {
+			fail("policy.danger.alarm_level", "not a declared level")
+		}
+		if d.StalledLevel < 0 || d.StalledLevel >= len(d.Levels) || d.StalledAfterTicks < 1 {
+			fail("policy.danger.stalled_level", "not a declared level or non-positive delay")
+		}
+	}
+	if pc := c.Policy.Perception; pc != nil && pc.Hearing != nil {
+		h := pc.Hearing
+		if h.RangeCells < 1 || h.MinAudible < 0 || h.MinAudible > 1 || h.WallAttenuation < 0 || h.WallAttenuation > 1 || h.AmbientMask < 0 || h.LocationErrorPerCell < 0 || h.MaxSoundsPerTick < 1 || h.MaxListenersPerSound < 1 || h.SoundTTLTicks < 1 {
+			fail("policy.perception.hearing", "ranges, attenuation, masks and limits must be positive and within [0,1] where fractional")
+		}
+		if c.Policy.Social != nil && h.RangeCells <= c.Policy.Social.SightRange {
+			fail("policy.perception.hearing.range_cells", "hearing must reach farther than sight (%d <= %d)", h.RangeCells, c.Policy.Social.SightRange)
+		}
+		for kind, sk := range h.Sounds {
+			if sk.Loudness <= 0 || sk.Loudness > 1 {
+				fail("policy.perception.hearing.sounds."+kind, "loudness must be in (0,1]")
+			}
+		}
+		for _, kind := range []string{"alarm", "siren"} {
+			if _, ok := h.Sounds[kind]; !ok {
+				fail("policy.perception.hearing.sounds."+kind, "alarm propagation needs this sound kind")
+			}
+		}
+	}
 	goalIDs := make([]string, 0, len(c.Goals))
 	for id := range c.Goals {
 		goalIDs = append(goalIDs, id)
@@ -298,6 +379,9 @@ func ValidateUtility(data []byte, vocab *Vocabulary) []CatalogError {
 		if g.HoldTicks < 0 {
 			fail(path+".hold_ticks", "must not be negative")
 		}
+		if g.DutyCost < 0 || g.DutyCost > 1 {
+			fail(path+".duty_cost", "must be in [0,1]")
+		}
 		if maxHold >= 0 && g.HoldTicks > maxHold {
 			fail(path+".hold_ticks", "%d exceeds policy max_hold_ticks %d", g.HoldTicks, maxHold)
 		}
@@ -340,6 +424,22 @@ func ValidateUtility(data []byte, vocab *Vocabulary) []CatalogError {
 			if vocab != nil && vocab.Actions != nil && !member(vocab.Actions, a) {
 				fail(fmt.Sprintf("%s.forbid_actions[%d]", path, i), "unknown action tag %q", a)
 			}
+		}
+		if p.Duty != nil {
+			if p.Duty.Weight < 0 || p.Duty.AbandonPenalty < 0 || p.Duty.AbandonPenalty > 1 {
+				fail(path+".duty", "weight must not be negative and abandon_penalty must be in [0,1]")
+			}
+			for e, v := range p.Duty.Training {
+				if v < 0 || v > 1 {
+					fail(path+".duty.training."+e, "training damping must be in [0,1]")
+				}
+				if vocab != nil && vocab.Emotions != nil && !member(vocab.Emotions, e) {
+					fail(path+".duty.training."+e, "unknown emotion %q", e)
+				}
+			}
+		}
+		if p.HearingMul < 0 {
+			fail(path+".hearing_mul", "must not be negative")
 		}
 	}
 	return errs

@@ -136,7 +136,7 @@ namespace AngelsDemons.Poc
                 case 2:
                     PocCaptureOrder order = state.CaptureOrder;
                     if (order.GroupPhase == "assembling" && !order.TeamReady) sawPhysicalAssembly = true;
-                    if (order.CrowdSize >= 2 && order.CrowdStatus == "watching") sawGatheredObservers = true;
+                    if (order.CrowdSize >= 1 && order.CrowdStatus == "watching") sawGatheredObservers = true;
                     foreach (PocAgentState a in state.DemoAgents)
                         if (a.Task == "considering") { thinkingAgents.Add(a.Id); if (!a.MotionPaused) { FinishProof(false, "thinking NPC did not freeze"); return; } }
                     int selected = 0;

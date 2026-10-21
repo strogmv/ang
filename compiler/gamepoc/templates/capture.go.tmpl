@@ -21,7 +21,10 @@ type demoPolicy struct {
  Medblock point `json:"medblock"`
  InitialTargetDead bool `json:"initial_target_dead"`
  Enabled bool `json:"enabled"`
- DelaySeconds int64 `json:"delay_seconds"`
+ TestHook struct{ Enabled bool `json:"enabled"`; CallAtSeconds int64 `json:"call_at_seconds"` } `json:"test_hook"`
+ HeroAction struct{ AtSeconds int64 `json:"at_seconds"`; Sound string `json:"sound"`; WitnessLevel int `json:"witness_level"` } `json:"hero_action"`
+ Monitoring struct{ Operator string `json:"operator"`; CameraSource string `json:"camera_source"` } `json:"monitoring"`
+ DangerLevel int `json:"danger_level"`
  ExtraWorkAtSeconds int64 `json:"extra_work_at_seconds"`
  ExtraWorkDurationSeconds int64 `json:"extra_work_duration_seconds"`
  BusyActorIDs []string `json:"busy_actor_ids"`
@@ -44,6 +47,10 @@ type demoAgent struct {
  // Bounded observation memory and the personal goal chosen from the actor's psyche.
  Memory behavior.Memory
  Personal behavior.GoalState
+ // Civic-duty bookkeeping: refusal costs paid, the alarm this actor raised, the sound it is checking.
+ RefusalPenalty float64
+ AlarmRaisedTick int64
+ Investigating string
  RoutineTask string
  RoutineGoal point
  RoutineSuspended bool
@@ -55,7 +62,17 @@ type demoAgent struct {
  Inbox []npcRequest
 }
 type demoCandidate struct { AgentID string; Rank,Distance int; Requested,Selected bool; Reason string }
+// alarmRecord is an NPC-originated world event: who raised it, where, when and why.
+type alarmRecord struct { Tick int64; ActorID,Cause,Kind string; At point }
 type demoState struct {
+ // Scenario start: "" emergent (hero action), "test_hook" scripted call, "none" no incident.
+ Scenario string
+ DangerLevel int
+ Sounds []behavior.Sound
+ SoundSeq,HeardCursor int
+ HeroActionTick,HeroOffenceUntil int64
+ AlarmLog []alarmRecord
+ CallCause string
  Progress behavior.Progress
  Coordination behavior.CoordinationState
  Squad behavior.GroupState
@@ -72,8 +89,8 @@ type demoState struct {
  Candidates []demoCandidate
  Events []string
 }
-func(r *Runtime) initDemo(run bool){
- d:=&r.state.Demo;*d=demoState{Enabled:run&&r.world.Config.CaptureDemo.Enabled,TargetAlive:!r.world.Config.CaptureDemo.InitialTargetDead}
+func(r *Runtime) initDemo(scenario string){
+ d:=&r.state.Demo;*d=demoState{Scenario:scenario,Enabled:scenario!="none"&&r.world.Config.CaptureDemo.Enabled,TargetAlive:!r.world.Config.CaptureDemo.InitialTargetDead}
  d.Squad=behavior.GroupState{ID:"poc.detention_group",SubjectID:"poc.hero"}
  for _,v:=range r.world.Entities{d.Residents=append(d.Residents,demoAgent{ID:v.ID,Name:v.Name,Task:"working",Position:v.Position,Goal:v.Position})}
  for _,v:=range r.world.Config.CaptureDemo.Agents{
@@ -89,20 +106,31 @@ func(r *Runtime) demoEvent(s string){
 func(r *Runtime) demoAgentIndex(id string)int{for i:=range r.state.Demo.Agents{if r.state.Demo.Agents[i].ID==id{return i}};return -1}
 func(r *Runtime) candidate(id string)*demoCandidate{for i:=range r.state.Demo.Candidates{if r.state.Demo.Candidates[i].AgentID==id{return &r.state.Demo.Candidates[i]}};return nil}
 
-func(r *Runtime) issueDemoCall(){
- d:=&r.state.Demo;d.Issued=true;d.Call=r.state.Player;d.IssuedTick=r.state.Tick
- r.demoEvent(fmt.Sprintf("Сеть: захват героя, вызов (%d,%d)",d.Call.X,d.Call.Y))
+// The network call is issued by the staffed post (operator) after a received alarm/report or a
+// camera observation, or by the explicit test hook. It sets the danger level and sounds the siren,
+// which other NPCs hear through the same hearing model instead of a global broadcast.
+func(r *Runtime) issueDemoCall(cause string){
+ d:=&r.state.Demo;cfg:=r.world.Config.CaptureDemo;d.Issued=true;d.Call=r.state.Player;d.IssuedTick=r.state.Tick;d.CallCause=cause
+ if cfg.DangerLevel>d.DangerLevel{d.DangerLevel=cfg.DangerLevel}
+ r.demoEvent(fmt.Sprintf("Сеть: захват героя, вызов (%d,%d), причина: %s, уровень %d",d.Call.X,d.Call.Y,cause,d.DangerLevel))
+ origin:=d.Call;if i:=r.residentIndex(cfg.Monitoring.Operator);i>=0{origin=d.Residents[i].Position}
+ r.emitSound("siren",origin,cfg.Monitoring.Operator,cause)
  for _,a:=range d.Agents{route:=r.path(a.Position,d.Call);distance:=len(route);if a.Position!=d.Call&&distance==0{distance=1<<30};d.Candidates=append(d.Candidates,demoCandidate{AgentID:a.ID,Distance:distance,Reason:"Резерв"})}
  sort.Slice(d.Candidates,func(i,j int)bool{a,b:=d.Candidates[i],d.Candidates[j];if a.Distance!=b.Distance{return a.Distance<b.Distance};return a.AgentID<b.AgentID})
  for i:=range d.Candidates{d.Candidates[i].Rank=i+1}
  r.requestResponders()
 }
 // The dispatcher delivers requests. It cannot accept on an actor's behalf.
+func(r *Runtime) residentIndex(id string)int{for i:=range r.state.Demo.Residents{if r.state.Demo.Residents[i].ID==id{return i}};return -1}
+func(r *Runtime) dangerLevel()behavior.DangerLevel{return r.world.AI.Policy.Danger.Level(r.state.Demo.DangerLevel)}
+// The dispatcher widens the call with the danger level: more people are asked in parallel
+// (extra_assignees) and farther away (call_radius_cells); surplus volunteers are released.
 func(r *Runtime) requestResponders(){
- d:=&r.state.Demo;cfg:=r.world.Config.CaptureDemo;pending:=0
+ d:=&r.state.Demo;cfg:=r.world.Config.CaptureDemo;pending:=0;level:=r.dangerLevel()
  for _,c:=range d.Candidates{if c.Selected||c.Reason=="Запрос отправлен"||c.Reason=="Обдумывает"{pending++}}
  for i:=range d.Candidates{
-  if pending>=cfg.RequiredResponders{break};c:=&d.Candidates[i];if c.Requested{continue}
+  if pending>=cfg.RequiredResponders+level.ExtraAssignees{break};c:=&d.Candidates[i];if c.Requested{continue}
+  if level.CallRadius>0&&c.Distance>level.CallRadius{continue}
   a:=&d.Agents[r.demoAgentIndex(c.AgentID)];a.Inbox=append(a.Inbox,npcRequest{Kind:"capture",Priority:cfg.CapturePriority})
   c.Requested=true;c.Reason="Запрос отправлен";pending++
   r.demoEvent(fmt.Sprintf("Запрос → %s, ранг %d, путь %d",a.Name,c.Rank,c.Distance))
@@ -116,11 +144,20 @@ func(r *Runtime) thinkAgent(i int){
   paused:=now-a.PausedAtNS;a.MoveStartNS+=paused
   c:=r.candidate(a.ID)
   priority:=0;if a.ResumeTask=="extra_work"&&a.BusyUntil>r.state.Tick{priority=cfg.ExtraWorkPriority}
-  request:=a.Inbox[0];a.Inbox=a.Inbox[1:]
-  if priority>request.Priority{
-   a.Task=a.ResumeTask;a.BusyUntil+=cfg.ThinkTicks;c.Reason="Отказ: дополнительная работа важнее"
-   r.demoEvent(a.Name+": отказ — дополнительная работа")
-  }else{
+  request:=a.Inbox[0];a.Inbox=a.Inbox[1:];level:=r.dangerLevel();selected:=0
+  for _,other:=range r.state.Demo.Candidates{if other.Selected{selected++}}
+  switch{
+  case priority>request.Priority:
+   // Obligation to an already accepted job outranks the request (CUE priorities); refusing still costs.
+   a.Task=a.ResumeTask;a.BusyUntil+=cfg.ThinkTicks;c.Reason="Отказ: дополнительная работа важнее";a.RefusalPenalty+=level.RefusalCost
+   r.demoEvent(fmt.Sprintf("%s: отказ — дополнительная работа (цена отказа %.1f)",a.Name,level.RefusalCost))
+  case a.Personal.GoalID!="goal.scene.duty_detain":
+   // The psyche decided against the assignment: fear, danger or other motives outweighed duty and the refusal cost.
+   a.Task=a.ResumeTask;a.BusyUntil+=cfg.ThinkTicks;c.Reason="Отказ: "+a.Personal.GoalID;a.RefusalPenalty+=level.RefusalCost
+   r.demoEvent(fmt.Sprintf("%s: отказ по решению (%s), цена отказа %.1f",a.Name,a.Personal.GoalID,level.RefusalCost))
+  case selected>=cfg.RequiredResponders:
+   a.Task=a.ResumeTask;c.Reason="Резерв: состав набран";r.demoEvent(a.Name+": согласен, но состав уже набран")
+  default:
    c.Selected=true;c.Reason="Согласился";a.Task="await_team";a.BusyUntil=0
    if len(a.Path)>0{a.Path=a.Path[:1];a.Task="joining"}
    r.demoEvent(a.Name+": согласен, жду группу")
@@ -190,7 +227,14 @@ func(r *Runtime) demoStep(){
  if d.Enabled&&!d.WorkIssued&&r.state.Tick>=cfg.ExtraWorkAtSeconds*int64(r.world.Config.TickHz){
   d.WorkIssued=true;for _,id:=range cfg.BusyActorIDs{a:=&d.Agents[r.demoAgentIndex(id)];a.Inbox=append(a.Inbox,npcRequest{Kind:"extra_work",Priority:cfg.ExtraWorkPriority})}
  }
- if d.Enabled&&!d.Issued&&r.state.Tick>=cfg.DelaySeconds*int64(r.world.Config.TickHz){r.issueDemoCall()}
+ hook:=d.Scenario=="test_hook"||cfg.TestHook.Enabled
+ if d.Enabled&&hook&&!d.Issued&&r.state.Tick>=cfg.TestHook.CallAtSeconds*int64(r.world.Config.TickHz){r.issueDemoCall("test_hook")}
+ if d.Enabled&&!hook&&d.HeroActionTick==0&&r.state.Tick>=cfg.HeroAction.AtSeconds*int64(r.world.Config.TickHz){
+  d.HeroActionTick=r.state.Tick;d.HeroOffenceUntil=r.state.Tick+r.world.AI.Policy.Perception.OffenceVisibleTicks
+  r.emitSound(cfg.HeroAction.Sound,r.state.Player,"poc.hero","offence");r.demoEvent(fmt.Sprintf("Герой: %s в (%d,%d) — звук слышен в округе",cfg.HeroAction.Sound,r.state.Player.X,r.state.Player.Y))
+ }
+ if d.Issued&&!d.Captured{dp:=r.world.AI.Policy.Danger;if r.state.Tick-d.IssuedTick>=dp.StalledAfterTicks&&d.DangerLevel<dp.StalledLevel{d.DangerLevel=dp.StalledLevel;r.demoEvent(fmt.Sprintf("Сеть: происшествие затянулось, уровень %d",d.DangerLevel))}}
+ r.expireSounds();r.hearSounds();r.cameraStep()
  for i:=range d.Agents{
   a:=&d.Agents[i];if a.Task=="extra_work"&&r.state.Tick>=a.BusyUntil{a.Task="patrol";r.demoEvent(a.Name+": дополнительная работа закончена")}
   r.thinkAgent(i)
@@ -203,10 +247,11 @@ func(r *Runtime) demoStep(){
  r.requestResponders();r.missionStep();r.missionProgressStep()
 }
 
+func(r *Runtime) scenarioDueTick()int64{cfg:=r.world.Config.CaptureDemo;if r.state.Demo.Scenario=="test_hook"||cfg.TestHook.Enabled{return cfg.TestHook.CallAtSeconds*int64(r.world.Config.TickHz)};return cfg.HeroAction.AtSeconds*int64(r.world.Config.TickHz)}
 func manhattan(a,b point)int{x,y:=a.X-b.X,a.Y-b.Y;if x<0{x=-x};if y<0{y=-y};return x+y}
 func(r *Runtime) appendDemo(msg *pb.PocGameState){
  d:=r.state.Demo;cfg:=r.world.Config.CaptureDemo
- msg.CaptureOrder=&pb.PocCaptureOrder{Enabled:d.Enabled,Issued:d.Issued,CallX:int32(d.Call.X),CallY:int32(d.Call.Y),IssuedTick:d.IssuedTick,Captured:d.Captured,CapturedTick:d.CapturedTick,TeamReady:d.TeamReady,Required:int32(cfg.RequiredResponders),DueTick:cfg.DelaySeconds*int64(r.world.Config.TickHz),Events:append([]string(nil),d.Events...)}
+ msg.CaptureOrder=&pb.PocCaptureOrder{Enabled:d.Enabled,Issued:d.Issued,CallX:int32(d.Call.X),CallY:int32(d.Call.Y),IssuedTick:d.IssuedTick,Captured:d.Captured,CapturedTick:d.CapturedTick,TeamReady:d.TeamReady,Required:int32(cfg.RequiredResponders),DueTick:r.scenarioDueTick(),Events:append([]string(nil),d.Events...)}
  msg.CaptureOrder.PlannerWorkUs=r.aiWorkUS;msg.CaptureOrder.PlannerPeakWorkUs=r.aiPeakWorkUS;msg.CaptureOrder.PlannerOverBudget=r.aiPeakWorkUS>float64(r.world.AI.Policy.Planning.WorkTargetUS)
  msg.CaptureOrder.PlanRoot=d.Plan.Root;msg.CaptureOrder.PlanAction=d.Plan.Current;msg.CaptureOrder.PlanStatus=d.Plan.Status;msg.CaptureOrder.PlanReason=d.Plan.Reason
  msg.CaptureOrder.Delivered=d.Delivered;msg.CaptureOrder.DeliveredTick=d.DeliveredTick;msg.CaptureOrder.MedblockX=int32(cfg.Medblock.X);msg.CaptureOrder.MedblockY=int32(cfg.Medblock.Y);msg.CaptureOrder.CarrierId=d.CarrierID;msg.CaptureOrder.TargetAlive=d.TargetAlive
@@ -225,6 +270,7 @@ func(r *Runtime) snapshotState()state{
  for i:=range s.Demo.Agents{a:=&s.Demo.Agents[i];a.Path=append([]point(nil),a.Path...);a.Inbox=append([]npcRequest(nil),a.Inbox...);a.Memory=a.Memory.Clone();a.Personal=a.Personal.Clone()}
  s.Demo.Plan.Pending=append([]behavior.Frame(nil),s.Demo.Plan.Pending...);s.Demo.Plan.Trace=append([]string(nil),s.Demo.Plan.Trace...)
  s.Demo.Candidates=append([]demoCandidate(nil),s.Demo.Candidates...);s.Demo.Events=append([]string(nil),s.Demo.Events...)
+ s.Demo.Sounds=append([]behavior.Sound(nil),s.Demo.Sounds...);s.Demo.AlarmLog=append([]alarmRecord(nil),s.Demo.AlarmLog...)
  return s
 }
 func(r *Runtime) validateDemoSave(s state)error{
@@ -234,7 +280,7 @@ func(r *Runtime) validateDemoSave(s state)error{
  if len(s.Demo.Agents)!=len(cfg.Agents)||len(s.Demo.Candidates)>len(cfg.Agents)||len(s.Demo.Events)>32{return errors.New("invalid demo save")}
  for i,a:=range s.Demo.Agents{
   if a.ID!=cfg.Agents[i].ID||!r.walkable(a.Position)||len(a.Path)>len(r.world.Terrain)*len(r.world.Terrain[0])||len(a.Inbox)>4{return errors.New("invalid demo actor")}
-  switch a.Task{case "blocked","patrol","extra_work","considering","joining","await_team","responding","holding","capturing","transporting","delivered","working","assembling","approaching","committing","gather_watch","withdraw","returning","yielding","fleeing","assisting":default:return errors.New("invalid demo task")}
+  switch a.Task{case "blocked","patrol","extra_work","considering","joining","await_team","responding","holding","capturing","transporting","delivered","working","assembling","approaching","committing","gather_watch","withdraw","returning","yielding","fleeing","assisting","avoiding","holding_post","investigating":default:return errors.New("invalid demo task")}
   if a.Task=="considering"&&(len(a.Inbox)==0||a.Inbox[0].Kind!="capture"){return errors.New("invalid actor inbox")}
   previous:=a.Position;for _,p:=range a.Path{if !r.walkable(p)||manhattan(previous,p)!=1{return errors.New("invalid demo route")};previous=p}
  }
@@ -243,6 +289,11 @@ func(r *Runtime) validateDemoSave(s state)error{
  if s.Demo.Issued&&len(ids)!=len(cfg.Agents){return errors.New("incomplete dispatch save")}
  if s.Demo.CarrierID!=""{found:=false;for _,a:=range s.Demo.Agents{if a.ID==s.Demo.CarrierID{found=true}};if !found{return errors.New("invalid carrier")}}
  if len(s.Demo.Plan.Pending)>r.world.AI.Policy.Planning.MaxPending||len(s.Demo.Plan.Trace)>32{return errors.New("invalid saved plan")}
+ hearing:=r.world.AI.Policy.Perception.Hearing
+ if s.Demo.DangerLevel<0||s.Demo.DangerLevel>r.world.AI.Policy.Danger.Max()||len(s.Demo.Sounds)>hearing.MaxSoundsPerTick*2||s.Demo.HeardCursor<0||s.Demo.HeardCursor>len(s.Demo.Sounds)||len(s.Demo.AlarmLog)>32{return errors.New("invalid saved danger or sound state")}
+ switch s.Demo.Scenario{case "","test_hook","none":default:return errors.New("invalid saved scenario")}
+ for _,snd:=range s.Demo.Sounds{if snd.Tick<0||snd.Tick>s.Tick||snd.Loudness<=0||snd.Loudness>1||!r.walkable(location(snd.Origin)){return errors.New("invalid saved sound")}}
+ for _,actors:=range [][]demoAgent{s.Demo.Agents,s.Demo.Residents}{for _,a:=range actors{if a.RefusalPenalty<0||a.AlarmRaisedTick<0||a.AlarmRaisedTick>s.Tick{return errors.New("invalid civic duty state")}}}
  if s.Demo.Plan.Root!=""{
   if _,ok:=r.world.AI.Tasks[s.Demo.Plan.Root];!ok{return errors.New("unknown saved root")}
   if s.Demo.Plan.Current!=""{if _,ok:=r.world.AI.Actions[s.Demo.Plan.Current];!ok{return errors.New("unknown saved action")}}
