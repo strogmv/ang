@@ -45,6 +45,7 @@ func RenderWith(catalog []byte, fixtures Fixtures) (map[string][]byte, error) {
 		templates["maintenance_test.go.tmpl"] = "maintenance_generated_test.go"
 		templates["life_test.go.tmpl"] = "life_generated_test.go"
 		templates["courtesy_test.go.tmpl"] = "courtesy_generated_test.go"
+		templates["navigation_knowledge_test.go.tmpl"] = "navigation_knowledge_generated_test.go"
 		templates["approach_test.go.tmpl"] = "approach_generated_test.go"
 		templates["gestures_test.go.tmpl"] = "gestures_generated_test.go"
 		templates["planner_test.go.tmpl"] = "planner_generated_test.go"

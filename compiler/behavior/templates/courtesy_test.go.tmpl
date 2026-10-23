@@ -27,7 +27,7 @@ func courtesyFixture() (LifeModel, LifeState) {
 }
 
 // Host admission and later replanning share MoveRoute. Preserve the durable
-// target even when admission returns only the free prefix before a friend.
+// target even when the first physical step must wait. Later points are intent.
 func courtesyAccept(t *testing.T, m LifeModel, s *LifeState, target Cell) {
 	t.Helper()
 	hero := s.Actor("hero")
@@ -40,9 +40,9 @@ func courtesyAccept(t *testing.T, m LifeModel, s *LifeState, target Cell) {
 		t.Fatal("route admission changed physical state")
 	}
 	previous := hero.Position
-	for _, at := range path {
-		if Distance(previous, at) != 1 || !m.Walks(hero.Level, at) || s.occupied(hero.Level, at, hero.ID) {
-			t.Fatalf("admitted prefix includes an occupied, solid or non-neighbor cell: %v", path)
+	for i, at := range path {
+		if Distance(previous, at) != 1 || !m.Walks(hero.Level, at) || (i == 0 && s.occupied(hero.Level, at, hero.ID)) {
+			t.Fatalf("invalid route or occupied immediate physical step: %v", path)
 		}
 		previous = at
 	}
@@ -113,8 +113,9 @@ func TestLifeCourtesyOnlyPositiveDirectedAttitudeGrantsStationaryPassage(t *test
 				m.Actors[0].Relations = []LifeRelation{{To: "friend", Strength: 1}}
 			}
 			before := s.Clone()
-			if path, ok := s.MoveRoute(m, "hero", "hall", Cell{1, 2}, Cell{5, 2}, 0); ok || len(path) != 0 {
-				t.Fatalf("stationary nonfriend or unauthorized requester admitted: %v", path)
+			authorized := kind != "wrong_control" && kind != "missing_control"
+			if path, ok := s.MoveRoute(m, "hero", "hall", Cell{1, 2}, Cell{5, 2}, 0); ok != authorized || (authorized && len(path) != 4) {
+				t.Fatalf("intent used a private relation or an unauthorized route: %v", path)
 			}
 			if s.yieldPopulationFor(m, "hall", Cell{3, 2}, 0, "hero", Cell{2, 2}, Cell{3, 2}, Cell{4, 2}, Cell{5, 2}) {
 				t.Fatal("stationary nonfriend or unauthorized requester enlisted")
@@ -145,8 +146,8 @@ func TestLifeCourtesyProtectsBusyNamedActors(t *testing.T) {
 				friend.Activity = kind
 			}
 			before := s.Clone()
-			if _, ok := s.MoveRoute(m, "hero", "hall", Cell{1, 2}, Cell{5, 2}, 0); ok != (kind == "segment") {
-				t.Fatal("admission must wait for an accepted friendly segment, and reject active duties")
+			if _, ok := s.MoveRoute(m, "hero", "hall", Cell{1, 2}, Cell{5, 2}, 0); !ok {
+				t.Fatal("intent predicted a distant person's job or willingness")
 			}
 			if s.yieldPopulationFor(m, "hall", friend.Position, 0, "hero", Cell{2, 2}, Cell{3, 2}, Cell{4, 2}, Cell{5, 2}) {
 				t.Fatal("friendly relation displaced a protected task or accepted segment")

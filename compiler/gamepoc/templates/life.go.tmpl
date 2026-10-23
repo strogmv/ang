@@ -47,19 +47,18 @@ func(r *Runtime)lifeCommand(q *pb.PocLifeCommand)error{
  case "fault":
   if !r.world.Config.DebugPerception||r.state.Paused{return errors.New("Отладка поломки недоступна")};err:=r.state.Life.MaintenanceFault(q.Destination);if err==nil{if r.state.Life.PracticeExcluded==nil{r.state.Life.PracticeExcluded=map[string]bool{}};r.state.Life.PracticeExcluded[q.Destination]=true};return err
  case "rate":if q.SecondsPerTick!=1&&q.SecondsPerTick!=10&&q.SecondsPerTick!=30{return errors.New("Неизвестный масштаб времени")};r.state.Life.SecondsPerTick=int64(q.SecondsPerTick)
- case "auto":hero.Manual=false;hero.OverrideLevel="";hero.OverrideEdge="";hero.Arrived=false;hero.Path=nil
+ case "auto":hero.PendingPath=nil;hero.Manual=false;hero.OverrideLevel="";hero.OverrideEdge="";hero.Arrived=false;hero.Path=nil
  case "enter":
   edge:=r.world.Life.Edge(q.Destination);if hero.Trip!=nil||edge==nil||edge.From!=hero.Level||!r.lifeExitKnown(*edge){return errors.New("Этот выход сейчас недоступен")}
-  hero.Manual=true;hero.OverrideLevel=edge.To;hero.OverrideAt=edge.Entry;hero.OverrideEdge=edge.ID;hero.Arrived=false;hero.WaitingDeparture=0
+  hero.PendingPath=nil;hero.Manual=true;hero.OverrideLevel=edge.To;hero.OverrideAt=edge.Entry;hero.OverrideEdge=edge.ID;hero.Arrived=false;hero.WaitingDeparture=0
   // Plan immediately for responsive input; finish any already accepted segment.
   from:=hero.Position;moving:=len(hero.Path)>0;if moving{from=hero.Path[0]}
-  blocked:=r.state.Life.BlockedCells(hero.Level,hero.ID)
-  space:=r.world.Life.Space(hero.Level,blocked);route:=space.Path(from,edge.Exit,behavior.Cell{},0)
+  route,_:=r.state.Life.MoveRoute(r.world.Life,hero.ID,hero.Level,from,edge.Exit,r.state.Tick)
   if moving{route=append([]behavior.Cell{from},route...)}else{hero.MoveStartTick=r.state.Tick};hero.Path=route;hero.Goal=edge.Exit;hero.Activity="walking";hero.Label="Идёт к выходу: "+r.world.Life.Locations[edge.To].Name
  case "goto":
   if hero.Trip!=nil{return errors.New("Дождитесь прибытия")};location,ok:=r.world.Life.Locations[q.Destination];if !ok{return errors.New("Неизвестная локация")};_ = location
   var goal behavior.Cell;found:=false;for _,e:=range r.world.Life.Edges{if e.To==q.Destination{goal=e.Entry;found=true;break}};if !found{return errors.New("Нет входа")}
-  hero.Manual=true;hero.OverrideLevel=q.Destination;hero.OverrideEdge="";hero.OverrideAt=goal;hero.Arrived=false;hero.Path=nil;hero.WaitingDeparture=0
+  hero.PendingPath=nil;hero.Manual=true;hero.OverrideLevel=q.Destination;hero.OverrideEdge="";hero.OverrideAt=goal;hero.Arrived=false;hero.Path=nil;hero.WaitingDeparture=0
  default:return errors.New("Неизвестное действие")
  };r.syncLifeHero();return nil
 }
@@ -68,7 +67,7 @@ func(r *Runtime)lifeMove(c *connection,m *pb.MoveTo){
  switch{case r.state.Life.PopulationFailure!="":result.Reason="Симуляция остановлена; загрузите сохранение";case m.Epoch!=r.state.Epoch:result.Reason="Локация изменилась";case m.InputSeq==0||m.InputSeq<=c.lastMoveSeq:result.Reason="Устаревшая команда";case r.state.Paused:result.Reason="Мир на паузе";case hero.Trip!=nil:result.Reason="Дождитесь прибытия";default:
   c.lastMoveSeq=m.InputSeq;target:=behavior.Cell{X:int(m.X),Y:int(m.Y)};from:=hero.Position;moving:=len(hero.Path)>0;if moving{from=hero.Path[0]}
   route,allowed:=r.state.Life.MoveRoute(r.world.Life,hero.ID,hero.Level,from,target,r.state.Tick)
-  if !allowed{result.Reason="Сюда нельзя пройти"}else{if moving{route=append([]behavior.Cell{from},route...)}else{hero.MoveStartTick=r.state.Tick};hero.Path=route;hero.Goal=target;hero.Manual=true;hero.OverrideLevel="";hero.OverrideEdge="";hero.Arrived=false;hero.Activity="walking";hero.Label="Свободное движение";r.state.LastMoveSeq=m.InputSeq;result.Ok=true;r.syncLifeHero()}
+  if !allowed{result.Reason="Сюда нельзя пройти"}else{if moving{route=append([]behavior.Cell{from},route...)}else{hero.MoveStartTick=r.state.Tick};hero.Path=route;hero.PendingPath=nil;hero.Goal=target;hero.PendingPath=nil;hero.Manual=true;hero.OverrideLevel="";hero.OverrideEdge="";hero.Arrived=false;hero.Activity="walking";hero.Label="Свободное движение";r.state.LastMoveSeq=m.InputSeq;result.Ok=true;r.syncLifeHero()}
  };r.send(c,&pb.ServerMessage{Msg:&pb.ServerMessage_MoveResult{MoveResult:result}});r.sendState(c)
 }
 func(r *Runtime)validateLifeSave(s state)error{

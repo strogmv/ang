@@ -49,27 +49,53 @@ func(s LifeState)courtesyAware(m LifeModel,requester,level string,at Cell)bool{
  };return true
 }
 
-// MoveRoute may accept a route through willing friends, but only returns its
-// currently free prefix. The durable goal is retried while the friend steps aside.
-// Merely planning a route never moves a body or reserves an occupied cell.
+// MoveRoute accepts an intent through the familiar static layout. Distant
+// people, their jobs and their private attitudes do not change this route.
+// Only the first physical step is reserved; every later step is checked again.
 func(s LifeState)MoveRoute(m LifeModel,requester,level string,from,target Cell,tick int64)([]Cell,bool){
- blocked:=s.blocked(level,requester);space:=m.Space(level,blocked)
- if !m.Walks(level,target){return nil,false}
- if from==target&&!blocked[target]{return nil,true}
- normal:=space.Path(from,target,Cell{},0)
- if !s.courtesyRequester(requester){return normal,len(normal)>0}
- changed:=false
- for _,a:=range s.Actors{
-  candidate:=a;candidate.Path=nil // Intent may wait; an accepted segment still completes normally.
-  if a.Level==level&&s.courtesyNamed(m,candidate,requester,tick){delete(blocked,a.Position);if len(a.Path)>0{delete(blocked,a.Path[0])};changed=true}
- }
- for _,a:=range s.Population.Actors{if a.Materialized&&a.Trip==nil&&a.Level==level&&tick>=a.YieldUntil&&s.RelationTo(m,a.ID,requester)>0{
-  switch a.Activity{case "rest","market","waiting","walking","":delete(blocked,a.Position);if len(a.Path)>0{delete(blocked,a.Path[0])};changed=true}
- }}
- if !changed{return normal,len(normal)>0}
- route:=m.Space(level,blocked).Path(from,target,Cell{},0)
- if len(route)==0{return normal,len(normal)>0}
- if len(normal)>0&&len(normal)<=len(route){return normal,true}
- for i,at:=range route{if s.occupied(level,at,requester){return route[:i],true}}
+ blocked:=map[Cell]bool(nil)
+ if !s.courtesyRequester(requester){blocked=s.blocked(level,requester)}
+ space:=m.Space(level,blocked)
+ if !space.CanStand(target){return nil,false}
+ if from==target{return nil,true}
+ route:=space.Path(from,target,Cell{},0);if len(route)==0{return nil,false}
+ // On a redirect `from` can be the end of an already accepted segment.
+ // Its following steps remain intent, even if someone unseen occupies one.
+ actor:=s.Actor(requester)
+ if s.courtesyRequester(requester)&&actor!=nil&&from==actor.Position&&s.occupied(level,route[0],requester){return nil,true}
  return route,true
+}
+
+// observedTraffic is local contact information, never the occupancy of a room
+// hidden by fog. Attitude is deliberately absent from obstacle classification.
+func(s LifeState)observedTraffic(m LifeModel,requester,level string)map[Cell]bool{
+ blocked:=map[Cell]bool{}
+ mark:=func(id,place string,at Cell,path []Cell){
+  if id==requester||place!=level||!s.courtesyAware(m,requester,level,at){return}
+  blocked[at]=true
+  if len(path)>0&&s.courtesyAware(m,requester,level,path[0]){blocked[path[0]]=true}
+ }
+ for _,a:=range s.Actors{if a.Trip==nil{mark(a.ID,a.Level,a.Position,a.Path)}}
+ for _,a:=range s.Population.Actors{if a.Materialized&&a.Trip==nil{mark(a.ID,a.Level,a.Position,a.Path)}}
+ return blocked
+}
+
+// Contact is resolved only after reaching a blocked physical next step. A
+// friendly person can yield; otherwise a local detour is attempted. The goal
+// remains accepted when there is no room, so a later opening resumes movement.
+func(s *LifeState)controlledRoute(m LifeModel,a *LifeActor,destination Cell,tick int64,yieldBudget *int)[]Cell{
+ route:=a.PendingPath
+ if len(route)==0{route=m.Space(a.Level,nil).Path(a.Position,destination,Cell{},0)}
+ if len(route)==0{return nil}
+ next:=route[0]
+ if !s.occupied(a.Level,next,a.ID){a.PendingPath=nil;return route}
+ a.PendingPath=route
+ // A visible person already walking across the next step is a short wait,
+ // rather than a reason to discard the route and circle the whole room.
+ for _,other:=range s.Actors{if other.ID!=a.ID&&other.Level==a.Level&&other.Trip==nil&&len(other.Path)>0&&(other.Position==next||other.Path[0]==next)&&s.courtesyAware(m,a.ID,a.Level,other.Position){return nil}}
+ for _,other:=range s.Population.Actors{if other.Materialized&&other.Level==a.Level&&other.Trip==nil&&len(other.Path)>0&&(other.Position==next||other.Path[0]==next)&&s.courtesyAware(m,a.ID,a.Level,other.Position){return nil}}
+ if *yieldBudget>0&&s.courtesyAware(m,a.ID,a.Level,next)&&s.yieldPopulationFor(m,a.Level,next,tick,a.ID,route...){*yieldBudget = *yieldBudget - 1;return nil}
+ route=m.Space(a.Level,s.observedTraffic(m,a.ID,a.Level)).Path(a.Position,destination,Cell{},0)
+ if len(route)>0&&!s.occupied(a.Level,route[0],a.ID){a.PendingPath=nil;return route}
+ return nil
 }

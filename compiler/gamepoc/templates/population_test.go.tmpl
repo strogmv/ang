@@ -130,6 +130,7 @@ func TestPopulationRuntimeHeroCannotClaimReservedStep(t *testing.T) {
 	r := populationRuntimeFixture(t, 100)
 	hero := r.state.Life.Actor(playerActorID)
 	var target behavior.Cell
+	var residentID string
 	found := false
 	for i := range r.state.Life.Population.Actors {
 		a := &r.state.Life.Population.Actors[i]
@@ -142,6 +143,7 @@ func TestPopulationRuntimeHeroCannotClaimReservedStep(t *testing.T) {
 				a.Path = []behavior.Cell{at}
 				a.Goal = at
 				target = at
+				residentID = a.ID
 				found = true
 				break
 			}
@@ -157,9 +159,14 @@ func TestPopulationRuntimeHeroCannotClaimReservedStep(t *testing.T) {
 	before := hero.Position
 	r.lifeMove(c, &pb.MoveTo{Epoch: r.state.Epoch, InputSeq: 1, X: int32(target.X), Y: int32(target.Y)})
 	result := (<-c.out).GetMoveResult()
-	if result == nil || result.Ok || hero.Position != before {
-		t.Fatal("hero claimed population reservation")
+	// A future intention can be accepted, but cannot claim somebody else's
+	// physical next step. Rejecting the whole command would reveal unseen traffic.
+	if result == nil || !result.Ok || hero.Position != before || (len(hero.Path)>0 && hero.Path[0]==target) {
+		t.Fatal("intent rejected hidden traffic or claimed population reservation")
 	}
+	for _,a:=range r.state.Life.Population.Actors{if a.ID==residentID&&(len(a.Path)==0||a.Path[0]!=target){t.Fatal("input cancelled the resident's accepted segment")}}
+	r.state.Life.SecondsPerTick=1
+	for i:=0;i<24;i++{r.step();if err:=r.validateLifeSave(r.snapshotState());err!=nil{t.Fatalf("tick %d: %v",r.state.Tick,err)}}
 }
 func TestPopulationRuntimeViewFiltersHiddenResidents(t *testing.T) {
 	r := populationRuntimeFixture(t, 300)
