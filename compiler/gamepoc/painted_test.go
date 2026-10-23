@@ -262,3 +262,75 @@ class Proof {
 		t.Log(strings.TrimSpace(string(out)))
 	}
 }
+
+func TestPaintedControlledHeroCutawayNative(t *testing.T) {
+	mono, err := exec.LookPath("mono")
+	if err != nil {
+		matches, _ := filepath.Glob("/Applications/Unity/Hub/Editor/*/Unity.app/Contents/Resources/Scripting/MonoBleedingEdge/bin/mono")
+		if len(matches) == 0 {
+			t.Skip("Mono unavailable")
+		}
+		mono = matches[len(matches)-1]
+	}
+	csc := filepath.Join(filepath.Dir(mono), "../lib/mono/4.5/csc.exe")
+	if _, err := os.Stat(csc); err != nil {
+		t.Skip("Mono compiler unavailable")
+	}
+	types := sceneTemplateSection(t, "painted.cs.tmpl", "  struct PaintedOpaqueRun {", "  readonly List<PaintedFragment> paintedFragmentsA=")
+	cold := sceneTemplateSection(t, "painted.cs.tmpl", "  static Rect[] BuildPaintedOpaqueRects(", "  void UpdatePaintedFog(")
+	math := sceneTemplateSection(t, "painted.cs.tmpl", "  static bool PaintedLowerEdgeAtX(", "  void DrawPaintedFragment(")
+	draw := sceneTemplateSection(t, "painted.cs.tmpl", "  void DrawPaintedFragment(", "  void HandlePaintedInput(")
+	compare := sceneTemplateSection(t, "painted.cs.tmpl", "  static int ComparePaintedDraw(", "  static Vector2 PaintedPoint(")
+	for _, bad := range []string{"new Texture2D", "SetPixels", "GetPixels", "new List", "paintedDraws.Add", "SceneActors(", "state.", "cut.texture"} {
+		if strings.Contains(math+draw, bad) {
+			t.Fatalf("sprite clipping mutates masks or replays foreground over prior actors: %s", bad)
+		}
+	}
+	harness := `using System;using System.Collections.Generic;
+struct Color32 {public byte a;public Color32(byte alpha){a=alpha;}}
+struct Rect {public float x,y,width,height;public Rect(float left,float top,float w,float h){x=left;y=top;width=w;height=h;}public float xMin{get{return x;}}public float xMax{get{return x+width;}}public float yMin{get{return y;}}public float yMax{get{return y+height;}}public bool Overlaps(Rect b){return xMin<b.xMax&&xMax>b.xMin&&yMin<b.yMax&&yMax>b.yMin;}}
+class PocPaintedPoint {public float x,y;public PocPaintedPoint(float xx,float yy){x=xx;y=yy;}}
+struct PaintedDraw {public string id;public int kind;public float depth;}
+class Proof {
+` + types + cold + math + compare + `
+ static bool Contains(Rect r,float x,float y){return r.width>0&&r.height>0&&x>=r.xMin&&x<r.xMax&&y>=r.yMin&&y<r.yMax;}
+ static List<PaintedFragment> Partition(Rect actor,Rect[] masks,bool hero,List<PaintedFragment> a,List<PaintedFragment> b){a.Clear();AddPaintedFragment(a,actor,1);int work=0;foreach(var mask in masks){if(!mask.Overlaps(actor))continue;if(!ClipPaintedFragments(a,b,mask,hero,ref work,PaintedClipWorkLimit))throw new Exception("normal fixture exceeded fragment bounds");var swap=a;a=b;b=swap;}return a;}
+ static float OpacityAt(List<PaintedFragment> fragments,float x,float y){float result=0;int coverage=0;foreach(var f in fragments)if(Contains(f.rect,x,y)){coverage++;result+=f.opacity;}if(coverage>1)throw new Exception("fragment replay overlaps");return result;}
+ static void UV(Rect full,Rect region,float x,float y){var uv=PaintedRegionUV(full,new Rect(.1f,.2f,.7f,.6f),region);float a=.1f+(x-full.x)*.7f/full.width,b=uv.x+(x-region.x)*uv.width/region.width,c=.2f+(1-(y-full.y)/full.height)*.6f,d=uv.y+(1-(y-region.y)/region.height)*uv.height;if(Math.Abs(a-b)>.00001f||Math.Abs(c-d)>.00001f)throw new Exception("clipping changed sprite UV");}
+ public static void Main(){
+  var polygon=new[]{new PocPaintedPoint(0,0),new PocPaintedPoint(100,0),new PocPaintedPoint(100,150),new PocPaintedPoint(0,50)};float lower;
+  if(!PaintedLowerEdgeAtX(polygon,20,out lower)||Math.Abs(lower-70)>.001f)throw new Exception("local slanted base not interpolated");
+  if(PaintedMaskInFrontOfFoot(polygon,20,70)||PaintedMaskInFrontOfFoot(polygon,-1,5)||!PaintedMaskInFrontOfFoot(polygon,40,80)||!PaintedMaskInFrontOfFoot(polygon,20,50))throw new Exception("side/front/rear classification broken");
+  if(!PaintedHeroCutawayEligible("char.hero",1,"char.hero",true)||PaintedHeroCutawayEligible("npc",1,"char.hero",true)||PaintedHeroCutawayEligible("char.hero",1,"npc",true)||PaintedHeroCutawayEligible("char.hero",1,"char.hero",false))throw new Exception("hidden or other actor enabled hero reveal");
+  const int width=100,height=150;var pixels=new Color32[width*height];for(int y=0;y<height;y++)for(int x=0;x<width;x++)pixels[(height-y-1)*width+x]=new Color32((byte)(y+.5f<50+x+.5f?255:0));
+  var masks=BuildPaintedOpaqueRects(pixels,width,height,new Rect(0,0,width,height));
+  for(int y=0;y<height;y++)for(int x=0;x<width;x++){int hits=0;foreach(var m in masks)if(Contains(m,x+.5f,y+.5f))hits++;if(hits!=(pixels[(height-y-1)*width+x].a==0?0:1))throw new Exception("cold silhouette runs differ from source alpha");}
+  var a=new List<PaintedFragment>(PaintedFragmentLimit);var b=new List<PaintedFragment>(PaintedFragmentLimit);var actorFront=new Rect(0,20,40,50);var actorBehind=new Rect(20,30,40,50);
+  if(ComparePaintedDraw(new PaintedDraw{id="front",kind=1,depth=70},new PaintedDraw{id="behind",kind=1,depth=80})>=0)throw new Exception("ordinary feet ordering changed");
+  var behind=Partition(actorBehind,masks,false,a,b);if(OpacityAt(behind,30,50)!=0)throw new Exception("rear actor painted through facade");
+  // Front A is drawn first. Behind B has a later foot depth and an overlapping
+  // screen rectangle, but contributes no pixel in the wall-covered overlap.
+  float frontA=1,afterB=OpacityAt(behind,30,50);if(frontA*(1-afterB)!=1)throw new Exception("behind B erased front A");
+  var other=new Rect(130,20,20,50);var unchanged=Partition(other,masks,false,a,b);if(unchanged.Count!=1||OpacityAt(unchanged,140,40)!=1)throw new Exception("nonintersecting NPC modified");
+  var revealed=Partition(actorBehind,masks,true,a,b);float head=OpacityAt(revealed,30,40);if(head<.45f||head>.60f)throw new Exception("rear hero must be distinct translucent local silhouette");
+  for(float y=30.37f;y<80;y+=1.37f)for(float x=20.29f;x<60;x+=1.19f){float value=OpacityAt(revealed,x,y);if(value<=0||value>1.00001f)throw new Exception("hero lost a fragment");foreach(var f in revealed)if(Contains(f.rect,x,y))UV(actorBehind,f.rect,x,y);}
+  int work=0;var smallA=new List<PaintedFragment>(1);var smallB=new List<PaintedFragment>(1);AddPaintedFragment(smallA,new Rect(0,0,20,20),1);if(ClipPaintedFragments(smallA,smallB,new Rect(5,5,5,5),false,ref work,PaintedClipWorkLimit))throw new Exception("fragment capacity was allowed to grow");work=0;if(ClipPaintedFragments(smallA,smallB,new Rect(5,5,5,5),false,ref work,0)||work!=0)throw new Exception("work budget exceeded");
+  var counter=typeof(GC).GetMethod("GetAllocatedBytesForCurrentThread",Type.EmptyTypes);if(counter!=null){var bytes=(Func<long>)Delegate.CreateDelegate(typeof(Func<long>),counter);Partition(actorBehind,masks,true,a,b);long before=bytes();for(int i=0;i<100;i++)Partition(actorBehind,masks,true,a,b);if(bytes()-before!=0)throw new Exception("sprite clipping allocated on frame path");}
+  Console.WriteLine("local slanted base; front/rear/side; cached source-alpha runs; front A not erased by behind B; normal feet order; controlled 55% rear silhouette; hidden/NPC gates; bounded work and zero frame allocations PASS");
+ }
+}`
+	dir := t.TempDir()
+	source := filepath.Join(dir, "OcclusionProof.cs")
+	binary := filepath.Join(dir, "OcclusionProof.exe")
+	if err := os.WriteFile(source, []byte(harness), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(mono, csc, "/nologo", "/out:"+binary, source).CombinedOutput(); err != nil {
+		t.Fatalf("compile occlusion proof: %v\n%s", err, out)
+	}
+	if out, err := exec.Command(mono, binary).CombinedOutput(); err != nil {
+		t.Fatalf("occlusion proof: %v\n%s", err, out)
+	} else {
+		t.Log(strings.TrimSpace(string(out)))
+	}
+}

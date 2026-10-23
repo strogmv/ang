@@ -51,6 +51,8 @@ type sceneCamera struct{ ID string `json:"id"`; Position point `json:"position"`
 type sceneData struct{ Cameras []sceneCamera `json:"cameras"`; AmbientNoise int `json:"ambient_noise"`; TileNoise map[string]int `json:"tile_noise"` }
 type visibilityPolicy struct {PlayerRange int `json:"player_range_cells"`; HearingSound string `json:"debug_hearing_sound"`}
 type worldData struct{PaintedInventoryAnchors map[string]map[string]inv.Cell `json:"painted_inventory_anchors"`;
+ Localization localizationCatalog `json:"localization"`
+ Region regionCatalog `json:"region_map"`
  Life behavior.LifeModel `json:"life"`
  Visibility visibilityPolicy `json:"visibility"`
  Opaque map[string]bool `json:"opaque"`
@@ -67,6 +69,7 @@ type worldData struct{PaintedInventoryAnchors map[string]map[string]inv.Cell `js
  Entities []actor `json:"entities"`
 }
 type state struct{
+ Region regionKnowledge
  Life behavior.LifeState
  LifeExploration map[string]map[int]seenCell
  Exploration map[string]map[int]seenCell
@@ -92,7 +95,7 @@ type saveFile struct{
  CreatedUnixMS int64
  State json.RawMessage
 }
-type connection struct{out chan *pb.ServerMessage;stop chan struct{};closed bool;lastMoveSeq uint64}
+type connection struct{out chan *pb.ServerMessage;stop chan struct{};closed bool;lastMoveSeq uint64;locale string}
 type input struct{client *connection;msg *pb.ClientMessage;join bool;leave bool}
 type diskJob struct{client *connection;id,action,slot,epoch string;state state}
 type diskResult struct{job diskJob;loaded state;err error;slots []*pb.PocSaveSlot}
@@ -134,7 +137,7 @@ func(r *Runtime) Play(stream pb.GameService_PlayServer)error{
  first,err:=stream.Recv();if err!=nil{return err}
  hello:=first.GetHello();if hello==nil || subtle.ConstantTimeCompare([]byte(hello.GetSessionToken()),[]byte(r.token))!=1{return status.Error(codes.Unauthenticated,"invalid local session")}
  if !r.connected.CompareAndSwap(false,true){return status.Error(codes.ResourceExhausted,"one local player supported")};defer r.connected.Store(false)
- c:=&connection{out:make(chan *pb.ServerMessage,r.world.Config.QueueCapacity),stop:make(chan struct{})}
+ c:=&connection{out:make(chan *pb.ServerMessage,r.world.Config.QueueCapacity),stop:make(chan struct{}),locale:r.validLocale(hello.Locale)}
  select{case r.input<-input{client:c,join:true}:case <-stream.Context().Done():return stream.Context().Err()}
  defer func(){select{case r.input<-input{client:c,leave:true}:default:}}()
  incoming:=make(chan error,1)
@@ -249,12 +252,13 @@ func(r *Runtime) sendState(c *connection){
 }
 func(r *Runtime) action(c *connection,id,action,slot string,err error){
  result:=&pb.PocActionResult{RequestId:id,Action:action,Slot:slot,Ok:err==nil}
- if err!=nil{result.Message=err.Error()}
+ if err!=nil{result.Message=r.localError(c.locale,err)}
  if rec:=r.receipts[id];rec!=nil{rec.result=result}
  r.send(c,&pb.ServerMessage{Msg:&pb.ServerMessage_ActionResult{ActionResult:result}})
 }
 func(r *Runtime) command(in input){
  m,c:=in.msg,in.client
+ if request:=m.GetLocale();request!=nil{c.locale=r.validLocale(request.Locale);r.sendState(c);return}
  if p:=m.GetPing();p!=nil{r.send(c,&pb.ServerMessage{Msg:&pb.ServerMessage_Pong{Pong:&pb.Pong{ClientTimeMs:p.ClientTimeMs,ServerTimeMs:time.Now().UnixMilli()}}});return}
  if m.GetListSaves()!=nil{r.queueDisk(diskJob{client:c,action:"list"});return}
  if q:=m.GetInventoryCommand();q!=nil{r.inventoryCommand(c,q);return}

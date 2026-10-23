@@ -345,3 +345,168 @@ func TestLifeManualGoalRetriesAfterAcceptedRouteIsBlockedAndSaved(t *testing.T){
  }
  hero=s.Actor("one");if hero.Position!=(Cell{3,1})||len(hero.Path)!=0||!hero.Arrived||!hero.Manual||hero.Step!=0||hero.Level!="a"||hero.Goal!=(Cell{3,1}){t.Fatalf("manual goal was lost or daily routine resumed: %+v",hero)}
 }
+
+// Two ordinary workers choose their next jobs from the clock. There is no
+// controlled actor, client, population actor or manually injected movement.
+func autonomousTrafficFixture() LifeModel {
+	return LifeModel{
+		StartSeconds: 59, SecondsPerTick: 1, MoveTicks: 3,
+		Courtesy: LifeCourtesyPolicy{NoticeCells: 2},
+		Walkable: map[string]bool{".": true},
+		Locations: map[string]LifeLocation{"hall": {Name: "Hall", Terrain: []string{
+			"#######", "####.##", "#.....#", "#######", "#######",
+		}}},
+		Actors: []LifePerson{
+			{ID: "worker_a", Name: "Worker A", Steps: []LifeStep{
+				{AtMinute: 0, Level: "hall", At: Cell{1, 2}, Activity: "rest"},
+				{AtMinute: 1, Level: "hall", At: Cell{5, 2}, Activity: "work"},
+			}},
+			{ID: "worker_b", Name: "Worker B", Steps: []LifeStep{
+				{AtMinute: 0, Level: "hall", At: Cell{5, 2}, Activity: "rest"},
+				{AtMinute: 1, Level: "hall", At: Cell{1, 2}, Activity: "work"},
+			}},
+		},
+	}
+}
+
+func autonomousTrafficAdvance(t *testing.T, m LifeModel, s *LifeState, tick int64) {
+	t.Helper()
+	before := s.Clone()
+	s.Advance(m, tick)
+	if err := s.Validate(m, tick); err != nil {
+		t.Fatalf("tick %d: %v", tick, err)
+	}
+	for i, a := range s.Actors {
+		old := before.Actors[i]
+		if a.Position != old.Position && (Distance(old.Position, a.Position) != 1 || tick < old.MoveStartTick+m.MoveTicks) {
+			t.Fatalf("tick %d: autonomous negotiation accelerated or teleported %s", tick, a.ID)
+		}
+	}
+}
+
+func TestLifeAutonomousWorkersPassAndResumeJobsWithoutHeroOrPopulation(t *testing.T) {
+	m := autonomousTrafficFixture()
+	if err := m.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	s := m.Start()
+	yielded, saved := false, false
+	var restored LifeState
+	for tick := int64(1); tick <= 120; tick++ {
+		autonomousTrafficAdvance(t, m, &s, tick)
+		if s.ControlledActorID != "" || s.Population.Count != 0 {
+			t.Fatal("autonomous traffic invented a hero or population dependency")
+		}
+		for i, a := range s.Actors {
+			if a.Manual || a.OverrideLevel != "" || a.Step != 1 || a.Goal != m.Actors[i].Steps[1].At {
+				t.Fatalf("worker's own scheduled task was replaced: %+v", a)
+			}
+			yielded = yielded || a.YieldUntil > tick
+		}
+		if saved {
+			autonomousTrafficAdvance(t, m, &restored, tick)
+			if !reflect.DeepEqual(s.Clone(), restored.Clone()) {
+				t.Fatal("autonomous work/save replay diverged")
+			}
+		} else if yielded {
+			raw, err := json.Marshal(s)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(raw, &restored); err != nil {
+				t.Fatal(err)
+			}
+			if err := restored.Validate(m, tick); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(s.Clone(), restored.Clone()) {
+				t.Fatal("mid-yield save lost an autonomous worker's goal")
+			}
+			saved = true
+		}
+	}
+	if !yielded || !saved {
+		t.Fatal("workers never negotiated and saved a real side step")
+	}
+	for i, a := range s.Actors {
+		if !a.Arrived || a.Activity != "work" || a.WorkedSeconds == 0 || a.Position != m.Actors[i].Steps[1].At || len(a.Path) != 0 {
+			t.Fatalf("worker did not resume its own job after passing: %+v", a)
+		}
+	}
+}
+
+func autonomousWaitingWorkers(m LifeModel) LifeState {
+	s := m.Start()
+	for i := range s.Actors {
+		a := &s.Actors[i]
+		a.Step, a.Goal, a.Arrived, a.Activity = 1, m.Actors[i].Steps[1].At, false, "walking"
+	}
+	return s
+}
+
+func TestLifeAutonomousNegotiationRequiresLocalAwareness(t *testing.T) {
+	for _, kind := range []string{"distant", "wall", "closed_corner"} {
+		t.Run(kind, func(t *testing.T) {
+			m := autonomousTrafficFixture()
+			switch kind {
+			case "wall":
+				m.Locations["hall"] = LifeLocation{Name: "Hall", Terrain: []string{"#######", "###..##", "#.#...#", "#######", "#######"}}
+				m.Actors[1].Steps[0].At = Cell{3, 2}
+			case "closed_corner":
+				m.Locations["hall"] = LifeLocation{Name: "Hall", Terrain: []string{"#######", "##....#", "#..####", "#######", "#######"}}
+				m.Actors[0].Steps[0].At, m.Actors[0].Steps[1].At = Cell{2, 2}, Cell{5, 1}
+				m.Actors[1].Steps[0].At = Cell{3, 1}
+			}
+			if err := m.Validate(); err != nil {
+				t.Fatal(err)
+			}
+			s := autonomousWaitingWorkers(m)
+			before := s.Clone()
+			if s.yieldPopulationFor(m, "hall", s.Actor("worker_b").Position, 0, "worker_a") {
+				t.Fatal("autonomous worker moved an unseen colleague")
+			}
+			if !reflect.DeepEqual(before, s.Clone()) {
+				t.Fatal("rejected remote negotiation mutated either task")
+			}
+		})
+	}
+}
+
+func TestLifeAutonomousTrafficProtectsManualActorAndAnonymousLegacyCall(t *testing.T) {
+	m := autonomousTrafficFixture()
+	s := autonomousWaitingWorkers(m)
+	a, b := s.Actor("worker_a"), s.Actor("worker_b")
+	a.Position, b.Position = Cell{3, 2}, Cell{4, 2}
+	before := s.Clone()
+	if s.yieldPopulation(m, "hall", b.Position, 0) || !reflect.DeepEqual(before, s.Clone()) {
+		t.Fatal("anonymous legacy call guessed a controlled actor identity")
+	}
+	b.Manual, b.Arrived, b.Goal, b.Activity = true, true, b.Position, "rest"
+	before = s.Clone()
+	if s.yieldPopulationFor(m, "hall", b.Position, 0, "worker_a", Cell{4, 2}, Cell{5, 2}) || !reflect.DeepEqual(before, s.Clone()) {
+		t.Fatal("autonomous requester commandeered a manually controlled actor")
+	}
+	for tick := int64(1); tick <= 30; tick++ {
+		autonomousTrafficAdvance(t, m, &s, tick)
+		if b.Position != (Cell{4, 2}) || len(b.Path) != 0 || b.YieldUntil != 0 || !b.Manual || a.Position != (Cell{3, 2}) {
+			t.Fatal("autonomous traffic forced a manual actor aside or crossed its body")
+		}
+	}
+}
+
+func TestLifeAutonomousTrafficCannotInventPocketInFullCorridor(t *testing.T) {
+	m := autonomousTrafficFixture()
+	m.Locations["hall"] = LifeLocation{Name: "Hall", Terrain: []string{"#######", "#######", "#.....#", "#######", "#######"}}
+	s := m.Start()
+	for tick := int64(1); tick <= 90; tick++ {
+		autonomousTrafficAdvance(t, m, &s, tick)
+		for i, a := range s.Actors {
+			if a.Goal != m.Actors[i].Steps[1].At || a.YieldUntil != 0 || a.Manual {
+				t.Fatal("full corridor invented a side step or discarded a worker's task")
+			}
+		}
+	}
+	if s.Actor("worker_a").Arrived || s.Actor("worker_b").Arrived {
+		t.Fatal("opposing workers passed through each other without room")
+	}
+}

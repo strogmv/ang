@@ -28,7 +28,7 @@ namespace AngelsDemons.Poc {
     playableMarketPhase=0;Debug.Log("POC_PLAYABLE_MARKET_READY manual=true calendar=1 content="+resource.content_hash);
    }
   }
-  sealed class PaintedCutout {public string id;public Texture2D texture;public Rect rect;public float depth;public Color32[] pixels,shadedPixels;public PaintedFogAxis[] fogX,fogY;public PaintedFogSamples fogSamples;}
+  sealed class PaintedCutout {public string id;public Texture2D texture;public Rect rect;public float depth;public Color32[] pixels,shadedPixels;public PaintedFogAxis[] fogX,fogY;public PaintedFogSamples fogSamples;public PocPaintedPoint[] polygon;public Rect[] opaqueRects;}
   struct PaintedFogAxis {public int a,b,weight;}
   struct PaintedFogPixel {public int source,a;public ushort row,wx,wy;public byte column;}
   struct PaintedFogBucket {public int offset,count,left,bottom,right,top;}
@@ -38,9 +38,14 @@ namespace AngelsDemons.Poc {
    public readonly Dictionary<string,PocPaintedActor> actors=new Dictionary<string,PocPaintedActor>();
    public readonly List<PaintedCutout> cutouts=new List<PaintedCutout>();
   }
-  struct PaintedDraw {public string id;public Texture2D texture;public Rect rect,uv;public float depth;public Color tint;public int kind;}
+  struct PaintedDraw {public string id;public Texture2D texture;public Rect rect,uv;public float depth,footX;public Color tint;public int kind;}
   readonly Dictionary<string,PaintedCache> paintedCaches=new Dictionary<string,PaintedCache>();
   readonly List<PaintedDraw> paintedDraws=new List<PaintedDraw>(384);
+  struct PaintedOpaqueRun {public int left,right,top,bottom;}
+  struct PaintedFragment {public Rect rect;public float opacity;}
+  const int PaintedFragmentLimit=512,PaintedClipWorkLimit=16384;
+  const float PaintedHeroOccludedOpacity=.55f;
+  readonly List<PaintedFragment> paintedFragmentsA=new List<PaintedFragment>(PaintedFragmentLimit),paintedFragmentsB=new List<PaintedFragment>(PaintedFragmentLimit);
   Texture2D paintedHeroRing;
   Texture2D PaintedHeroRing(){
    if(paintedHeroRing!=null)return paintedHeroRing;
@@ -88,12 +93,32 @@ namespace AngelsDemons.Poc {
      int w=right-left,h=bottom-top;var cut=new Color32[w*h];
      for(int y=0;y<h;y++)for(int x=0;x<w;x++)if(PaintedPolygonContains(occluder.polygon,(left+x+.5f)*scene.width/bw,(top+y+.5f)*scene.height/bh))cut[(h-y-1)*w+x]=pixels[(bh-top-y-1)*bw+left+x];
      var texture=new Texture2D(w,h,TextureFormat.RGBA32,true){filterMode=FilterMode.Bilinear,wrapMode=TextureWrapMode.Clamp};texture.SetPixels32(cut);texture.Apply(true,false);
-     cache.cutouts.Add(new PaintedCutout{id=occluder.id,texture=texture,rect=new Rect((float)left*scene.width/bw,(float)top*scene.height/bh,(float)w*scene.width/bw,(float)h*scene.height/bh),depth=occluder.depth_y,pixels=cut,shadedPixels=(Color32[])cut.Clone()});
+     var canvasRect=new Rect((float)left*scene.width/bw,(float)top*scene.height/bh,(float)w*scene.width/bw,(float)h*scene.height/bh);
+     cache.cutouts.Add(new PaintedCutout{id=occluder.id,texture=texture,rect=canvasRect,depth=occluder.depth_y,polygon=occluder.polygon,pixels=cut,shadedPixels=(Color32[])cut.Clone(),opaqueRects=BuildPaintedOpaqueRects(cut,w,h,canvasRect)});
     }
    }
    paintedCaches[scene.level_id]=cache;
    if(verifyPainted)RecordPaintedColdPrepareTiming((float)((System.Diagnostics.Stopwatch.GetTimestamp()-prepareStarted)*1000d/System.Diagnostics.Stopwatch.Frequency));
    return cache;
+  }
+  static Rect[] BuildPaintedOpaqueRects(Color32[] pixels,int width,int height,Rect canvas){
+   // Rasterize no geometry on a render frame. Cold-built row runs retain the
+   // actual source-alpha silhouette and merge identical neighboring spans.
+   var runs=new List<PaintedOpaqueRun>();var active=new Dictionary<long,int>();var next=new Dictionary<long,int>();
+   for(int y=0;y<height;y++){
+    next.Clear();int x=0;
+    while(x<width){
+     while(x<width&&pixels[(height-y-1)*width+x].a==0)x++;if(x==width)break;int left=x;
+     while(x<width&&pixels[(height-y-1)*width+x].a!=0)x++;int right=x,index;long key=((long)left<<32)|(uint)right;
+     if(active.TryGetValue(key,out index)){var run=runs[index];run.bottom=y+1;runs[index]=run;}
+     else {index=runs.Count;runs.Add(new PaintedOpaqueRun{left=left,right=right,top=y,bottom=y+1});}
+     next[key]=index;
+    }
+    var swap=active;active=next;next=swap;
+   }
+   var result=new Rect[runs.Count];float sx=canvas.width/width,sy=canvas.height/height;
+   for(int i=0;i<runs.Count;i++){var r=runs[i];result[i]=new Rect(canvas.x+r.left*sx,canvas.y+r.top*sy,(r.right-r.left)*sx,(r.bottom-r.top)*sy);}
+   return result;
   }
   void UpdatePaintedFog(PocPaintedScene scene,PaintedCache cache,PocObserverView view){
    const int maxWidth=512;
@@ -284,7 +309,61 @@ namespace AngelsDemons.Poc {
     if(frame!=null&&frame.flip_x){feetX=w-feetX;uv.x+=uv.width;uv.width=-uv.width;}
    }
    float factor=height/h;var at=PaintedPoint(scene,position);
-   draw=new PaintedDraw{id=id,texture=texture,rect=new Rect(at.x-feetX*factor,at.y-feetY*factor,w*factor,height),uv=uv,depth=at.y,tint=Color.white,kind=1};return true;
+   draw=new PaintedDraw{id=id,texture=texture,rect=new Rect(at.x-feetX*factor,at.y-feetY*factor,w*factor,height),uv=uv,depth=at.y,footX=at.x,tint=Color.white,kind=1};return true;
+  }
+  static bool PaintedLowerEdgeAtX(PocPaintedPoint[] polygon,float x,out float lower){
+   lower=float.NegativeInfinity;if(polygon==null||polygon.Length<3)return false;bool found=false;
+   for(int i=0,j=polygon.Length-1;i<polygon.Length;j=i++){
+    var a=polygon[j];var b=polygon[i];float dx=b.x-a.x,y;
+    if(Math.Abs(dx)<.0001f){if(Math.Abs(x-a.x)>.0001f)continue;y=Math.Max(a.y,b.y);}
+    else {if(x<Math.Min(a.x,b.x)||x>Math.Max(a.x,b.x))continue;float fraction=(x-a.x)/dx;y=a.y+(b.y-a.y)*fraction;}
+    lower=Math.Max(lower,y);found=true;
+   }
+   return found;
+  }
+  static bool PaintedMaskInFrontOfFoot(PocPaintedPoint[] polygon,float footX,float footY){float lower;return PaintedLowerEdgeAtX(polygon,footX,out lower)&&footY+.5f<lower;}
+  static bool PaintedHeroCutawayEligible(string actorID,int kind,string observerID,bool alreadyVisible){return alreadyVisible&&kind==1&&actorID=="char.hero"&&observerID=="char.hero";}
+  static Rect PaintedIntersect(Rect a,Rect b){float left=Math.Max(a.xMin,b.xMin),top=Math.Max(a.yMin,b.yMin),right=Math.Min(a.xMax,b.xMax),bottom=Math.Min(a.yMax,b.yMax);return new Rect(left,top,Math.Max(0,right-left),Math.Max(0,bottom-top));}
+  static Rect PaintedRingPart(Rect outer,Rect inner,int part){
+   if(part==0)return new Rect(outer.xMin,outer.yMin,outer.width,inner.yMin-outer.yMin);
+   if(part==1)return new Rect(outer.xMin,inner.yMax,outer.width,outer.yMax-inner.yMax);
+   if(part==2)return new Rect(outer.xMin,inner.yMin,inner.xMin-outer.xMin,inner.height);
+   return new Rect(inner.xMax,inner.yMin,outer.xMax-inner.xMax,inner.height);
+  }
+  static Rect PaintedRegionUV(Rect target,Rect uv,Rect region){return new Rect(uv.x+(region.x-target.x)*uv.width/target.width,uv.y+(1-(region.yMax-target.y)/target.height)*uv.height,region.width*uv.width/target.width,region.height*uv.height/target.height);}
+  static bool AddPaintedFragment(List<PaintedFragment> result,Rect rect,float opacity){if(rect.width<=0||rect.height<=0)return true;if(result.Count==result.Capacity)return false;result.Add(new PaintedFragment{rect=rect,opacity=opacity});return true;}
+  static bool ClipPaintedFragments(List<PaintedFragment> source,List<PaintedFragment> result,Rect mask,bool readableHero,ref int work,int workLimit){
+   result.Clear();
+   for(int i=0;i<source.Count;i++){
+    if(work>=workLimit)return false;work++;
+    var fragment=source[i];Rect overlap=PaintedIntersect(fragment.rect,mask);
+    if(overlap.width<=0||overlap.height<=0||(readableHero&&fragment.opacity<1)){if(!AddPaintedFragment(result,fragment.rect,fragment.opacity))return false;continue;}
+    for(int side=0;side<4;side++)if(!AddPaintedFragment(result,PaintedRingPart(fragment.rect,overlap,side),fragment.opacity))return false;
+    if(readableHero&&!AddPaintedFragment(result,overlap,PaintedHeroOccludedOpacity))return false;
+   }
+   return true;
+  }
+  void DrawPaintedFragment(PaintedDraw draw,Rect fragment,float opacity,Rect fit,float scale,Rect viewport){
+   Rect full=PaintedTarget(draw.rect,fit,scale),part=PaintedTarget(fragment,fit,scale);full.position-=viewport.position;part.position-=viewport.position;
+   part=PaintedIntersect(part,new Rect(0,0,viewport.width,viewport.height));if(part.width<=0||part.height<=0)return;
+   Color tint=draw.tint;tint.a*=opacity;GUI.color=tint;GUI.DrawTextureWithTexCoords(part,draw.texture,PaintedRegionUV(full,draw.uv,part),true);
+  }
+  void DrawPaintedWorldSprite(PaintedDraw draw,PaintedCache cache,bool readableHero,Rect fit,float scale,Rect viewport){
+   var current=paintedFragmentsA;var other=paintedFragmentsB;current.Clear();AddPaintedFragment(current,draw.rect,1);int work=0;
+   foreach(var cut in cache.cutouts){
+    if(!cut.rect.Overlaps(draw.rect)||!PaintedMaskInFrontOfFoot(cut.polygon,draw.footX,draw.depth))continue;
+    foreach(var mask in cut.opaqueRects){
+     if(work>=PaintedClipWorkLimit){if(readableHero)DrawPaintedFragment(draw,draw.rect,PaintedHeroOccludedOpacity,fit,scale,viewport);return;}work++;
+     if(!mask.Overlaps(draw.rect))continue;
+     if(!ClipPaintedFragments(current,other,mask,readableHero,ref work,PaintedClipWorkLimit)){
+      // A bounded conservative fallback never reveals an NPC through a wall.
+      // Only the already visible controlled hero retains a readable silhouette.
+      if(readableHero)DrawPaintedFragment(draw,draw.rect,PaintedHeroOccludedOpacity,fit,scale,viewport);return;
+     }
+     var swap=current;current=other;other=swap;if(current.Count==0)return;
+    }
+   }
+   for(int i=0;i<current.Count;i++)DrawPaintedFragment(draw,current[i].rect,current[i].opacity,fit,scale,viewport);
   }
   void HandlePaintedInput(PocPaintedScene scene,Rect viewport,Rect fit,float scale){
    // Automatic verification drives the shared pointer helper explicitly. A real
@@ -331,12 +410,12 @@ namespace AngelsDemons.Poc {
     int x=Mathf.RoundToInt(prop.at.x),y=Mathf.RoundToInt(prop.at.y);char seen=ViewCell(view,x,y);if(seen=='0')continue;
     var at=PaintedPoint(scene,new Vector2(prop.at.x,prop.at.y));var rect=new Rect(at.x-prop.foot_x,at.y-prop.foot_y,prop.width,prop.height);
     if(!visibleCanvas.Overlaps(rect))continue;var texture=ArtSceneTexture(prop.image);
-    paintedDraws.Add(new PaintedDraw{id=prop.id,texture=texture,rect=rect,uv=ArtSceneUV(prop.source_rect,texture),depth=at.y,tint=seen=='1'?new Color(.35f,.35f,.35f):Color.white,kind=0});
+    paintedDraws.Add(new PaintedDraw{id=prop.id,texture=texture,rect=rect,uv=ArtSceneUV(prop.source_rect,texture),depth=at.y,footX=at.x,tint=seen=='1'?new Color(.35f,.35f,.35f):Color.white,kind=0});
    }
    foreach(var actor in SceneActors()){if(!ViewSees(actor.X,actor.Y))continue;QueuePaintedActor(scene,cache,actor.Id,SampleNPC(actor),visibleCanvas);}
    if(!state.Life.Transit&&ViewSees(state.PlayerX,state.PlayerY)){
     var feet=PaintedPoint(scene,shownPosition);
-    paintedDraws.Add(new PaintedDraw{id="hero.selection",texture=PaintedHeroRing(),rect=new Rect(feet.x-50,feet.y-17,100,36),uv=new Rect(0,0,1,1),depth=feet.y-.1f,tint=Color.white,kind=0});
+    paintedDraws.Add(new PaintedDraw{id="hero.selection",texture=PaintedHeroRing(),rect=new Rect(feet.x-50,feet.y-17,100,36),uv=new Rect(0,0,1,1),depth=feet.y-.1f,footX=feet.x,tint=Color.white,kind=0});
     QueuePaintedActor(scene,cache,"char.hero",shownPosition,visibleCanvas);
    }
    foreach(var cut in cache.cutouts)if(visibleCanvas.Overlaps(cut.rect))paintedDraws.Add(new PaintedDraw{id=cut.id,texture=cut.texture,rect=cut.rect,uv=new Rect(0,0,1,1),depth=cut.depth,tint=Color.white,kind=2});
@@ -345,7 +424,11 @@ namespace AngelsDemons.Poc {
    GUI.BeginGroup(viewport);
    var localFit=fit;localFit.position-=viewport.position;
    GUI.color=Color.white;GUI.DrawTexture(localFit,cache.background,ScaleMode.StretchToFill,true);GUI.DrawTexture(localFit,cache.fog,ScaleMode.StretchToFill,true);
-   foreach(var draw in paintedDraws){var target=PaintedTarget(draw.rect,fit,scale);target.position-=viewport.position;if(!new Rect(0,0,viewport.width,viewport.height).Overlaps(target))continue;GUI.color=draw.tint;GUI.DrawTextureWithTexCoords(target,draw.texture,draw.uv,true);}
+   Rect localViewport=new Rect(0,0,viewport.width,viewport.height);
+   // Architecture is composed once. Clipping each later sprite, rather than
+   // replaying foreground inside its rectangle, cannot erase an earlier actor.
+   foreach(var draw in paintedDraws)if(draw.kind==2){var target=PaintedTarget(draw.rect,fit,scale);target.position-=viewport.position;if(!localViewport.Overlaps(target))continue;GUI.color=draw.tint;GUI.DrawTextureWithTexCoords(target,draw.texture,draw.uv,true);}
+   foreach(var draw in paintedDraws)if(draw.kind!=2){bool readable=view!=null&&PaintedHeroCutawayEligible(draw.id,draw.kind,view.ActorId,true);DrawPaintedWorldSprite(draw,cache,readable,fit,scale,viewport);}
    // Ground fog precedes actors. Foreground textures already sample the same
    // shaded field, so visible actor heads stay whole and polygon edges agree.
    GUI.EndGroup();GUI.color=before;

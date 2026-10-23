@@ -50,14 +50,14 @@ namespace AngelsDemons.Poc {
    int count;var bag=HudBag(out count);
    if(count==1)SendInventory("drop",bag);else if(count>1)page="inventory";
   }
-  bool HudHasMap(){return state!=null&&state.PlayerView!=null&&state.PlayerView.Cells.Count>0;}
+  bool HudHasMap(){return HudHasRegionMap()||(state!=null&&state.PlayerView!=null&&state.PlayerView.Cells.Count>0);}
   bool HudHasJournal(){return state!=null&&state.Life!=null&&state.Life.Enabled;}
   bool HudCharacterPage(){return page=="game"||page=="inventory"||page=="development"||page=="map"||page=="journal";}
   void UpdateHudKeys(){
    if(loadingActive||state==null||!state.Active||!HudCharacterPage())return;
    if(Input.GetKeyDown(KeyCode.I)&&state.Inventory!=null)page=page=="inventory"?"game":"inventory";
    if(Input.GetKeyDown(KeyCode.C)&&DevelopmentView()!=null)page=page=="development"?"game":"development";
-   if(Input.GetKeyDown(KeyCode.M)&&HudHasMap())page=page=="map"?"game":"map";
+   if(Input.GetKeyDown(KeyCode.M)&&HudHasMap()){if(page=="map")page="game";else OpenHudMap();}
    if(Input.GetKeyDown(KeyCode.J)&&HudHasJournal())page=page=="journal"?"game":"journal";
    if(page!="game")return;
    if(Input.GetKeyDown(KeyCode.F3))hudDebugOpen=!hudDebugOpen;
@@ -100,10 +100,10 @@ namespace AngelsDemons.Poc {
    HudFrame(new Rect(18,706,358,80));HudFrame(new Rect(24,678,83,102));DrawHudFigure(new Rect(31,685,69,88));
    GUI.Label(new Rect(119,713,245,27),state.PlayerName,hudHeading);GUI.Label(new Rect(119,740,245,18),HudActivity(),hudSmall);GUI.Label(new Rect(119,758,245,26),HudMass(),hudBody);
    if(DevelopmentView()!=null&&Event.current.type==EventType.MouseDown&&Event.current.button==0&&new Rect(24,678,83,102).Contains(Event.current.mousePosition)){page="development";Event.current.Use();}
-   if(state.Inventory!=null&&HudButton(new Rect(827,730,100,56),"Вещи\n[I]"))page="inventory";
-   if(DevelopmentView()!=null&&HudButton(new Rect(933,730,115,56),"Развитие\n[C]"))page="development";
-   if(HudHasMap()&&HudButton(new Rect(1054,730,98,56),"Карта\n[M]"))page="map";
-   if(HudHasJournal()&&HudButton(new Rect(1158,730,104,56),"Журнал\n[J]"))page="journal";
+   if(state.Inventory!=null&&HudButton(new Rect(827,730,100,56),L("ui.tab.inventory")+"\n[I]"))page="inventory";
+   if(DevelopmentView()!=null&&HudButton(new Rect(933,730,115,56),L("ui.tab.development")+"\n[C]"))page="development";
+   if(HudHasMap()&&HudButton(new Rect(1054,730,98,56),L("ui.tab.map")+"\n[M]"))OpenHudMap();
+   if(HudHasJournal()&&HudButton(new Rect(1158,730,104,56),L("ui.tab.journal")+"\n[J]"))page="journal";
    int bagCount;var bag=HudBag(out bagCount);
    if(bagCount>0&&HudButton(new Rect(982,687,280,36),bagCount==1?"Сбросить: "+bag.Name+" [B]":"Выбрать сумку для сброса [B]",CanSend()&&!inventoryPending&&!state.Paused&&!loadingActive))HudDropBag();
    string notice=!string.IsNullOrEmpty(busy)?busy:clock.Elapsed.TotalSeconds<markerUntil?moveStatus:message;
@@ -133,23 +133,23 @@ namespace AngelsDemons.Poc {
    if(state.Inventory!=null)GUI.Label(new Rect(63,488,205,23),"Вместимость "+((decimal)state.Inventory.CapacityMassG/1000).ToString("0.##")+" кг",hudSmall);
    if(DevelopmentView()!=null&&DevelopmentView().Pending)GUI.Label(new Rect(63,532,205,68),DevelopmentView().Activity+"\n"+PracticeDuration(DevelopmentView().RemainingTicks),hudWrap);
    if(HudButton(new Rect(63,688,205,43),state.Paused?"Продолжить время":"Пауза",CanSend()))Options(!state.Paused,1);
-   string[] ids={"inventory","development","map","journal"};string[] names={"Вещи [I]","Развитие [C]","Карта [M]","Журнал [J]"};
+   string[] ids={"inventory","development","map","journal"};string[] names={L("ui.tab.inventory")+" [I]",L("ui.tab.development")+" [C]",L("ui.tab.map")+" [M]",L("ui.tab.journal")+" [J]"};
    for(int i=0;i<4;i++){
     bool available=i==0?state.Inventory!=null:i==1?DevelopmentView()!=null:i==2?HudHasMap():HudHasJournal();
     Rect tab=new Rect(302+i*232,115,222,43);if(page==ids[i])Fill(new Rect(tab.x,tab.y-3,tab.width,3),hudBrass);
-    if(HudButton(tab,names[i],available))page=ids[i];
+    if(HudButton(tab,names[i],available)){if(ids[i]=="map")OpenHudMap();else page=ids[i];}
    }
    HudFrame(new Rect(302,172,930,532),false);
    if(page=="inventory")DrawInventory();else if(page=="development")DrawDevelopment();else if(page=="map")DrawHudMap();else if(page=="journal")DrawHudJournal();
    GUI.Label(new Rect(318,719,896,27),string.IsNullOrEmpty(busy)?message:busy,hudSmall);
   }
-  void DrawHudMap(){
+  void DrawHudLocalMap(){
    var view=state.PlayerView;if(view==null)return;
-   GUI.Label(new Rect(324,190,880,27),"Карта текущей локации",hudHeading);
-   GUI.Label(new Rect(324,223,880,22),"Светлое — видно сейчас. Серое — запомнено. Неизвестное скрыто.",hudSmall);
+   GUI.Label(new Rect(324,190,880,27),L("ui.map.local_title"),hudHeading);
+   GUI.Label(new Rect(324,223,880,22),L("ui.map.legend"),hudSmall);
    int minX=int.MaxValue,minY=int.MaxValue,maxX=-1,maxY=-1;
    for(int y=0;y<view.Cells.Count;y++)for(int x=0;x<view.Cells[y].Length;x++)if(ViewCell(view,x,y)!='0'){minX=Math.Min(minX,x);minY=Math.Min(minY,y);maxX=Math.Max(maxX,x);maxY=Math.Max(maxY,y);}
-   if(maxX<0){GUI.Label(new Rect(324,270,880,30),"Пока нет наблюдений.",hudBody);return;}
+   if(maxX<0){GUI.Label(new Rect(324,270,880,30),L("ui.map.no_observations"),hudBody);return;}
    Rect area=new Rect(326,263,880,414);float size=Mathf.Min(22f,Mathf.Min(area.width/(maxX-minX+1),area.height/(maxY-minY+1)));Vector2 origin=new Vector2(area.center.x-(maxX-minX+1)*size/2,area.center.y-(maxY-minY+1)*size/2);
    for(int y=minY;y<=maxY;y++)for(int x=minX;x<=maxX;x++){
     char seen=ViewCell(view,x,y);if(seen=='0'||y>=view.Terrain.Count||x>=view.Terrain[y].Length)continue;

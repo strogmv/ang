@@ -178,6 +178,8 @@ type Menu struct {
 }
 
 type Compiled struct {
+	Localization            LocalizationCatalog            `json:"localization,omitempty"`
+	Region                  RegionCatalog                  `json:"region_map,omitempty"`
 	PaintedInventoryAnchors map[string]map[string]inv.Cell `json:"painted_inventory_anchors,omitempty"`
 	Clothing                clothingRuntime.Model          `json:"clothing"`
 	Spatial                 SpatialCatalog                 `json:"spatial"`
@@ -281,6 +283,22 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if life := world.LookupPath(cue.ParsePath("life")); life.Exists() {
 		out.Life, err = life.MarshalJSON()
 		if err != nil {
+			return out, nil, err
+		}
+	}
+	if region := world.LookupPath(cue.ParsePath("region_map")); region.Exists() {
+		if err := region.Decode(&out.Region); err != nil {
+			return out, nil, err
+		}
+		if err := out.Region.validate(out.Life); err != nil {
+			return out, nil, err
+		}
+	}
+	if localization := world.LookupPath(cue.ParsePath("localization")); localization.Exists() {
+		if err := localization.Decode(&out.Localization); err != nil {
+			return out, nil, err
+		}
+		if err := out.Localization.Validate(); err != nil {
 			return out, nil, err
 		}
 	}
@@ -677,6 +695,11 @@ func Generate(project string) error {
 	}
 
 	for name, dest := range map[string]string{
+		"localization.go.tmpl":     filepath.Join(project, "internal/poc/localization.gen.go"),
+		"localization.cs.tmpl":     filepath.Join(unity, "Assets/Generated/Poc/PocLocalization.cs"),
+		"region.go.tmpl":           filepath.Join(project, "internal/poc/region.gen.go"),
+		"region_test.go.tmpl":      filepath.Join(project, "internal/poc/region_generated_test.go"),
+		"region.cs.tmpl":           filepath.Join(unity, "Assets/Generated/Poc/PocRegionMap.cs"),
 		"spatial.cs.tmpl":          filepath.Join(unity, "Assets/Generated/Poc/PocSpatialView.cs"),
 		"hud.cs.tmpl":              filepath.Join(unity, "Assets/Generated/Poc/PocHudView.cs"),
 		"sdk_proof.cs.tmpl":        filepath.Join(unity, "Assets/Generated/Poc/PocSdkProof.cs"),

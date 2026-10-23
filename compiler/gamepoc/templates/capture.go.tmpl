@@ -285,7 +285,7 @@ func(r *Runtime) appendDemo(msg *pb.PocGameState){
  r.appendResidentStates(msg);r.projectNPCMotion(msg)
 }
 func(r *Runtime) snapshotState()state{
- s:=r.state;s.Life=s.Life.Clone();s.LifeExploration=cloneExploration(s.LifeExploration);s.Exploration=cloneExploration(s.Exploration);s.HeroHearing=s.HeroHearing.Clone();s.Poses=map[string]actorPose{};for id,p:=range r.state.Poses{s.Poses[id]=p};s.Inventory=s.Inventory.Clone();s.Path=append([]point(nil),s.Path...)
+ s:=r.state;s.Region=s.Region.clone();s.Life=s.Life.Clone();s.LifeExploration=cloneExploration(s.LifeExploration);s.Exploration=cloneExploration(s.Exploration);s.HeroHearing=s.HeroHearing.Clone();s.Poses=map[string]actorPose{};for id,p:=range r.state.Poses{s.Poses[id]=p};s.Inventory=s.Inventory.Clone();s.Path=append([]point(nil),s.Path...)
  s.Demo.Shadow=s.Demo.Shadow.Clone();s.Demo.Supply=s.Demo.Supply.Clone();s.Demo.Squad=s.Demo.Squad.Clone();s.Demo.Crowd=s.Demo.Crowd.Clone()
  s.Demo.Residents=append([]demoAgent(nil),s.Demo.Residents...)
  for i:=range s.Demo.Residents{a:=&s.Demo.Residents[i];a.Path=append([]point(nil),a.Path...);a.Memory=a.Memory.Clone();a.Personal=a.Personal.Clone()}

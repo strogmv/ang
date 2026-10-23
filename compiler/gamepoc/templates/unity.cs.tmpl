@@ -27,11 +27,19 @@ namespace AngelsDemons.Poc
     [Serializable] public sealed class PocLoadingScreen { public string id, image, context; }
     [Serializable] public sealed class PocLoading { public string caption; public int min_ms; public PocLoadingScreen[] screens; }
     [Serializable] public sealed class PocMenu { public string background; }
-    [Serializable] public sealed class PocResource { public PocConfiguration config; public string content_hash; public PocArt art; public PocLoading loading; public PocMenu menu; public PocSpatialModel spatial; }
+    [Serializable] public sealed class PocResource { public PocLocalization localization; public PocConfiguration config; public string content_hash; public PocArt art; public PocLoading loading; public PocMenu menu; public PocSpatialModel spatial; }
     [Serializable] public sealed class HostReady { public string address, host_id; }
 
     public sealed partial class AngelsDemonsPoc : MonoBehaviour
     {
+		volatile string preferredWireLocale;
+		void SendLocalePreference(){preferredWireLocale=CurrentLocale();if(connected&&session!=null)session.SendLocale(new PocLocaleRequest{Locale=preferredWireLocale});}
+		void DrawLocaleSelector(){
+			if(resource.localization==null||resource.localization.locales==null)return;
+			GUILayout.Label(L("ui.language.label"),textStyle);GUILayout.BeginHorizontal();
+			foreach(string locale in resource.localization.locales)if(GUILayout.Button((CurrentLocale()==locale?"● ":"")+L("ui.language."+locale),GUILayout.Width(180),GUILayout.Height(35)))SetLocale(locale);
+			GUILayout.EndHorizontal();GUILayout.Space(18);
+		}
         PocResource resource;
         Process host;
         GrpcChannel channel;
@@ -246,7 +254,8 @@ namespace AngelsDemons.Poc
         string Pref(string key) => (verify ? "ang-poc-proof." : "ang-poc.") + key;
         void Connect()
         {
-            session = new GameServicePlaySession(channel.CreateCallInvoker(), () => new ClientMessage { Hello = new Hello { PlayerName = playerName, ClientVersion = "poc-1", SessionToken = token } });
+            preferredWireLocale = CurrentLocale();
+            session = new GameServicePlaySession(channel.CreateCallInvoker(), () => new ClientMessage { Hello = new Hello { PlayerName = playerName, ClientVersion = "poc-1", SessionToken = token, Locale = preferredWireLocale } });
             session.MaxQueuedResponses = resource.config.queue_capacity;
             session.MaxQueuedCommands = 32;
             session.ResetQueuesOnReconnect = true;
@@ -506,12 +515,12 @@ namespace AngelsDemons.Poc
         {
             if (menuTexture != null) Fill(new Rect(52, 163, 390, 520), new Color(ink.r, ink.g, ink.b, .74f));
             GUILayout.BeginArea(new Rect(72, 179, 350, 500));
-            if (state != null && state.Active && Button(resource.config.labels.continue_game, connected)) page = "game";
-            if(state!=null&&state.Active&&Button(resource.config.labels.save_game,connected)){saving=true;page="slots";session.SendListSaves(new PocListSavesRequest());}
-            if (Button(resource.config.labels.new_game, connected)) StartPlayableMarket(resource.config.seed);
-            if (Button(resource.config.labels.load_game, connected)) { saving = false; page = "slots"; session.SendListSaves(new PocListSavesRequest()); }
-            if (Button(resource.config.labels.options)) page = "options";
-            if (Button(resource.config.labels.quit)) Quit();
+            if (state != null && state.Active && Button(L("ui.menu.continue_game"), connected)) page = "game";
+            if(state!=null&&state.Active&&Button(L("ui.menu.save_game"),connected)){saving=true;page="slots";session.SendListSaves(new PocListSavesRequest());}
+            if (Button(L("ui.menu.new_game"), connected)) StartPlayableMarket(resource.config.seed);
+            if (Button(L("ui.menu.load_game"), connected)) { saving = false; page = "slots"; session.SendListSaves(new PocListSavesRequest()); }
+            if (Button(L("ui.menu.options"))) page = "options";
+            if (Button(L("ui.menu.quit"))) Quit();
             GUILayout.EndArea();
             if (menuTexture != null) return;
             GUI.Label(new Rect(485, 222, 660, 55), "Под куполом наступает утро.", titleStyle);
@@ -526,7 +535,7 @@ namespace AngelsDemons.Poc
         void DrawSlots()
         {
             GUILayout.BeginArea(new Rect(75, 176, 1090, 480));
-            GUILayout.Label(saving ? resource.config.labels.save_game : resource.config.labels.load_game, titleStyle); GUILayout.Space(25);
+            GUILayout.Label(saving ? L("ui.menu.save_game") : L("ui.menu.load_game"), titleStyle); GUILayout.Space(25);
             if (slots == null) GUILayout.Label("Читаем сохранения…", textStyle);
             else foreach (PocSaveSlot slot in slots.Slots)
             {
@@ -541,23 +550,24 @@ namespace AngelsDemons.Poc
         }
         void DrawOptions()
         {
-            GUILayout.BeginArea(new Rect(75, 176, 1090, 480));
-            GUILayout.Label(resource.config.labels.options, titleStyle); GUILayout.Space(20);
-            GUILayout.Label("Громкость: " + Mathf.RoundToInt(volume * 100) + "%", textStyle);
+            GUILayout.BeginArea(new Rect(75, 176, 1090, 570));
+            GUILayout.Label(L("ui.menu.options"), titleStyle); GUILayout.Space(20);
+            DrawLocaleSelector();
+            GUILayout.Label(L("ui.options.volume").Replace("{value}",Mathf.RoundToInt(volume * 100).ToString()), textStyle);
             float next = GUILayout.HorizontalSlider(volume, 0, 1, GUILayout.Width(550));
             if (!Mathf.Approximately(next, volume)) { volume = next; ApplyDisplay(); }
-            GUILayout.Space(22); GUILayout.Label("Частота кадров", textStyle); GUILayout.BeginHorizontal();
+            GUILayout.Space(22); GUILayout.Label(L("ui.options.frame_rate"), textStyle); GUILayout.BeginHorizontal();
             foreach (int choice in new[] { 15, 30, 40, 60, 144 }) if (GUILayout.Button((fps == choice ? "● " : "") + choice + " FPS", GUILayout.Width(130), GUILayout.Height(35))) { fps = choice; ApplyDisplay(); }
             GUILayout.EndHorizontal(); GUILayout.Space(18);
-            bool full = GUILayout.Toggle(fullscreen, " Полноэкранный режим", GUILayout.Height(30)); if (full != fullscreen) { fullscreen = full; ApplyDisplay(); }
+            bool full = GUILayout.Toggle(fullscreen, L("ui.options.fullscreen"), GUILayout.Height(30)); if (full != fullscreen) { fullscreen = full; ApplyDisplay(); }
             if (state != null && state.Active)
             {
-                GUILayout.Space(18); GUILayout.Label("Скорость мира", textStyle); GUILayout.BeginHorizontal();
+                GUILayout.Space(18); GUILayout.Label(L("ui.options.world_speed"), textStyle); GUILayout.BeginHorizontal();
                 foreach (int speed in (state.Life != null && state.Life.Enabled ? new[] {1} : new[] { 1, 3, 10 })) if (GUILayout.Button("×" + speed, GUILayout.Width(130), GUILayout.Height(35))) Options(state.Paused, speed);
-                if (GUILayout.Button(state.Paused ? "Продолжить время" : "Пауза", GUILayout.Width(190), GUILayout.Height(35))) Options(!state.Paused, state.Speed);
+                if (GUILayout.Button(L(state.Paused ? "ui.options.resume" : "ui.options.pause"), GUILayout.Width(190), GUILayout.Height(35))) Options(!state.Paused, state.Speed);
                 GUILayout.EndHorizontal();
             }
-            GUILayout.Space(28); if (Button("Назад")) page = state != null && state.Active ? "game" : "menu";
+            GUILayout.Space(28); if (Button(L("ui.menu.back"))) page = state != null && state.Active ? "game" : "menu";
             GUILayout.EndArea();
         }
         enum SceneDrawKind { Block, Entity, Agent, Hero }

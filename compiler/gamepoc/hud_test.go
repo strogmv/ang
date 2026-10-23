@@ -30,7 +30,7 @@ func TestHudUsesPortraitAndAuthoritativeStatus(t *testing.T) {
 	}
 }
 func TestHudMapUsesOnlyPlayerObservations(t *testing.T) {
-	s := sceneTemplateSection(t, "hud.cs.tmpl", "  void DrawHudMap(){", "  void DrawHudJournal(){")
+	s := sceneTemplateSection(t, "hud.cs.tmpl", "  void DrawHudLocalMap(){", "  void DrawHudJournal(){")
 	for _, want := range []string{"var view=state.PlayerView", "ViewCell(view,x,y)!='0'", "seen=='0'", "view.Terrain[y][x]", "if(seen=='1')", "ViewCell(view,state.PlayerX,state.PlayerY)=='2'"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("missing observed-map guard %q", want)

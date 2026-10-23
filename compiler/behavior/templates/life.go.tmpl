@@ -164,12 +164,16 @@ func(s *LifeState)AdvanceWithMaintenance(m LifeModel,tick int64,install Maintena
    continue
   }
   if a.Goal!=destination||len(a.Path)==0{a.Goal=destination;if !s.routes.connected(a.Level,a.Position,destination){a.Path=nil;a.Label="Ждёт проход";continue};space:=m.Space(a.Level,s.blocked(a.Level,a.ID));path:=space.Path(a.Position,destination,Cell{},0);a.Goal=destination;
-   if len(path)==0&&(s.Population.Count>0||a.ID==s.ControlledActorID){
+   if len(path)==0&&(s.Population.Count>0||a.ID==s.ControlledActorID||s.autonomousTrafficRequester(a.ID)){
     // Route through stationary traffic that can negotiate a side step, while
     // preserving active duties, controlled actors and accepted next segments.
     // A static shortest path can repeatedly hit the same protected actor even
     // when another lane has movable residents and a free pocket.
     route:=s.yieldRoute(m,a.Level,a.Position,destination,tick,a.ID)
+    // A civilian still approaches its own destination when a distant body
+    // prevents a complete route. Only the free neighboring step is accepted;
+    // negotiation starts locally, never by moving an unseen colleague.
+    if len(route)==0&&s.autonomousTrafficRequester(a.ID){route=m.Space(a.Level,nil).Path(a.Position,destination,Cell{},0)}
     if len(route)>0{next:=route[0];if !s.occupied(a.Level,next,a.ID){path=[]Cell{next}}else if yieldBudget>0&&s.yieldPopulationFor(m,a.Level,next,tick,a.ID,route...){yieldBudget--}}
    }
    if len(path)>0{a.Path=path;a.MoveStartTick=tick}else{a.Label="Ждёт проход"}}
@@ -263,10 +267,16 @@ func(c *lifeRouteConnectivity)connected(levelID string,from,to Cell)bool{
 // Actual positions change only by Advance, with normal MoveTicks and collision
 // checks, and the existing eight-step hold covers the whole short manoeuvre.
 type lifeYieldResident struct{index int;named bool;courtesy bool}
+// An explicit autonomous requester is enough for NPC-to-NPC traffic. No hero,
+// client connection or synthetic population is required. The legacy anonymous
+// wrapper still cannot guess which actor is controlled.
+func(s LifeState)autonomousTrafficRequester(id string)bool{
+ a:=s.Actor(id);return a!=nil&&a.ID!=s.ControlledActorID&&!a.Manual&&a.Trip==nil&&!a.Arrived&&a.Activity=="walking"&&a.Goal!=a.Position
+}
 func(s *LifeState)yieldTraffic(m LifeModel,level string,tick int64,requester ...string)(map[Cell]bool,map[Cell]lifeYieldResident){
- hard:=map[Cell]bool{};residents:=map[Cell]lifeYieldResident{};who:="";if len(requester)>0{who=requester[0]}
+ hard:=map[Cell]bool{};residents:=map[Cell]lifeYieldResident{};who:="";if len(requester)>0{who=requester[0]};autonomous:=s.autonomousTrafficRequester(who)
  for i,a:=range s.Actors{if a.Level!=level||a.Trip!=nil{continue};repairStep,repairing:=s.maintenanceStep(m,a.ID);atWorkplace:=repairing&&a.Level==repairStep.Level&&a.Position==repairStep.At
-  eligible:=s.ControlledActorID!=""&&a.ID!=s.ControlledActorID&&!a.Manual&&!a.Arrived&&a.Activity=="walking"&&a.Goal!=a.Position&&len(a.Path)==0&&tick>=a.YieldUntil&&!atWorkplace
+  eligible:=(s.ControlledActorID!=""||autonomous)&&a.ID!=s.ControlledActorID&&a.ID!=who&&!a.Manual&&!a.Arrived&&a.Activity=="walking"&&a.Goal!=a.Position&&len(a.Path)==0&&tick>=a.YieldUntil&&!atWorkplace
   courteous:=s.courtesyNamed(m,a,who,tick);if eligible||courteous{residents[a.Position]=lifeYieldResident{i,true,!eligible&&courteous}}else{hard[a.Position]=true;if len(a.Path)>0{hard[a.Path[0]]=true}}
  }
  for i,a:=range s.Population.Actors{if !a.Materialized||a.Level!=level||a.Trip!=nil{continue};if len(a.Path)>0||tick<a.YieldUntil{hard[a.Position]=true;if len(a.Path)>0{hard[a.Path[0]]=true}}else{residents[a.Position]=lifeYieldResident{i,false,false}}}
@@ -279,6 +289,8 @@ func(s *LifeState)yieldPopulation(m LifeModel,level string,wanted Cell,tick int6
  return s.yieldPopulationFor(m,level,wanted,tick,"",avoid...)
 }
 func(s *LifeState)yieldPopulationFor(m LifeModel,level string,wanted Cell,tick int64,requester string,avoid ...Cell)bool{
+ autonomous:=s.autonomousTrafficRequester(requester)
+ if autonomous&&!s.courtesyAware(m,requester,level,wanted){return false}
  hard,residents:=s.yieldTraffic(m,level,tick,requester)
  if _,ok:=residents[wanted];!ok||hard[wanted]{return false}
  queue:=[]Cell{wanted};seen:=map[Cell]bool{wanted:true};parent:=map[Cell]Cell{}
@@ -290,7 +302,7 @@ func(s *LifeState)yieldPopulationFor(m LifeModel,level string,wanted Cell,tick i
     if forbidden{if len(queue)<128{queue=append(queue,next)};continue}
     move:=[]Cell{next};previous:=parent[next];r,ok:=residents[previous]
     for !ok&&previous!=wanted&&len(move)<7{move=append(move,previous);previous=parent[previous];r,ok=residents[previous]}
-    if !ok{continue};if r.courtesy&&!s.courtesyAware(m,requester,level,previous){continue};for i,j:=0,len(move)-1;i<j;i,j=i+1,j-1{move[i],move[j]=move[j],move[i]}
+    if !ok{continue};if (r.courtesy||autonomous)&&!s.courtesyAware(m,requester,level,previous){continue};for i,j:=0,len(move)-1;i<j;i,j=i+1,j-1{move[i],move[j]=move[j],move[i]}
     if r.named{a:=&s.Actors[r.index];if r.courtesy{a.Arrived=false};a.Path=move;a.MoveStartTick=tick;a.YieldUntil=tick+8*m.MoveTicks;a.Activity="yielding";a.Label="Уступает проход"}else{a:=&s.Population.Actors[r.index];a.Path=move;a.MoveStartTick=tick;a.YieldUntil=tick+8*m.Population.MoveTicks;a.Arrived=false;a.Activity="yielding"};return true
    }
    if len(queue)<128{queue=append(queue,next)}

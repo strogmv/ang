@@ -7,7 +7,9 @@ using UnityEngine;
 namespace AngelsDemons.Poc {
  public sealed partial class AngelsDemonsPoc {
   bool verifySdk,sdkCapturing,sdkCaptureDone;
-  int sdkLevelIndex,sdkPanelIndex;
+  int sdkLevelIndex,sdkPanelIndex,sdkExtraMapIndex;
+  string sdkOriginalLocale,sdkRussianRegionTitle;
+  bool sdkEnglishRequested;
   object sdkSessionIdentity;
   double sdkCaptureStarted,sdkLogAt=-10;
   string sdkLogLevel,sdkLogBusy,sdkLogActivity,sdkLogEpoch;
@@ -30,7 +32,7 @@ namespace AngelsDemons.Poc {
   readonly List<SdkViewRecord> sdkViews=new List<SdkViewRecord>();
   readonly Dictionary<string,SdkActorRecord> sdkActors=new Dictionary<string,SdkActorRecord>();
   [Serializable] sealed class SdkActorRecord {public string id,sheet,image;public bool default_binding;}
-  [Serializable] sealed class SdkViewRecord {public string file,page,level,epoch;public long tick;public double capture_elapsed_seconds;public int visible_npcs,width,height;}
+  [Serializable] sealed class SdkViewRecord {public string file,page,level,epoch,locale,map_mode;public long tick;public double capture_elapsed_seconds;public int visible_npcs,width,height;}
   [Serializable] sealed class SdkVisualReport {public string content_hash,kind;public int requested_population,unique_npcs,default_bound_npcs;public bool one_session;public SdkViewRecord[] views;public SdkActorRecord[] actors;}
   string SdkReportJSON(){
    var ids=new List<string>(sdkActors.Keys);ids.Sort(StringComparer.Ordinal);var actors=new List<SdkActorRecord>();int defaults=0;
@@ -72,7 +74,7 @@ namespace AngelsDemons.Poc {
     capture=ScreenCapture.CaptureScreenshotAsTexture();
     if(capture==null||capture.width<640||capture.height<400)throw new InvalidOperationException("missing rendered Player image");
     string directory=ProofDirectory();Directory.CreateDirectory(directory);byte[] png=capture.EncodeToPNG();if(png==null||png.Length==0)throw new InvalidOperationException("empty PNG");File.WriteAllBytes(Path.Combine(directory,filename),png);
-    sdkViews.Add(new SdkViewRecord{file=filename,page=page,level=state.Life.LevelId,epoch=state.Epoch,tick=state.Tick,capture_elapsed_seconds=clock.Elapsed.TotalSeconds-sdkCaptureStarted,visible_npcs=state.SceneAgents.Count,width=capture.width,height=capture.height});
+    sdkViews.Add(new SdkViewRecord{file=filename,page=page,level=state.Life.LevelId,epoch=state.Epoch,locale=CurrentLocale(),map_mode=page=="map"?(hudMapFloor?"floor":"local"):"",tick=state.Tick,capture_elapsed_seconds=clock.Elapsed.TotalSeconds-sdkCaptureStarted,visible_npcs=state.SceneAgents.Count,width=capture.width,height=capture.height});
     sdkCaptureDone=true;Debug.Log("SDK captured "+filename+" elapsed="+(clock.Elapsed.TotalSeconds-sdkCaptureStarted).ToString("F2")+" tick="+state.Tick+" level="+state.Life.LevelId);
    }catch(Exception e){FinishProof(false,"SDK screenshot failed: "+e.Message);}
    finally{if(capture!=null)Destroy(capture);sdkCapturing=false;}
@@ -85,7 +87,7 @@ namespace AngelsDemons.Poc {
    if(sdkSessionIdentity!=null&&(!ReferenceEquals(sdkSessionIdentity,session)||state.Seed!=777)){FinishProof(false,"SDK session changed during capture");return;}
    if(!SdkAuditCharacters())return;
    switch(proofPhase){
-    case 0:fps=40;ApplyDisplay();hudDebugOpen=false;observedActor="char.hero";NewGame(777,"life100");proofPhase=1;break;
+    case 0:fps=40;ApplyDisplay();hudDebugOpen=false;observedActor="char.hero";sdkOriginalLocale=CurrentLocale();SetLocale("ru");SetHudMapMode("floor");NewGame(777,"life100");proofPhase=1;break;
     case 1:
      if(state.Seed!=777||state.Life==null||!state.Life.Enabled||state.Tick<10)break;
      sdkSessionIdentity=session; // Location changes legitimately rotate the world epoch.
@@ -100,10 +102,20 @@ namespace AngelsDemons.Poc {
     case 4:
      if(!sdkCaptureDone)break;
      if(sdkLevelIndex==0&&sdkPanelIndex<sdkPanels.Length){string panel=sdkPanels[sdkPanelIndex];if(!SdkPanelAvailable(panel)){FinishProof(false,"SDK missing real state for "+panel);return;}page=panel;SdkBeginCapture("panel-"+panel+".png");sdkPanelIndex++;break;}
+     if(sdkLevelIndex==0&&sdkExtraMapIndex==0){
+      if(state.Life.RegionMap==null||state.Life.RegionMap.Nodes.Count==0){FinishProof(false,"SDK floor map missing authoritative knowledge");return;}
+      sdkRussianRegionTitle=state.Life.RegionMap.Name;SetHudMapMode("local");page="map";SdkBeginCapture("panel-map-local.png");sdkExtraMapIndex=1;break;
+     }
+     if(sdkLevelIndex==0&&sdkExtraMapIndex==1){
+      if(!sdkEnglishRequested){SetLocale("en");sdkEnglishRequested=true;break;}
+      if(state.Life.RegionMap==null||state.Life.RegionMap.Name==sdkRussianRegionTitle)break;
+      SetHudMapMode("floor");page="map";SdkBeginCapture("panel-map-en.png");sdkExtraMapIndex=2;break;
+     }
+     if(sdkLevelIndex==0)SetLocale(sdkOriginalLocale);
      sdkLevelIndex++;if(sdkLevelIndex==sdkLevels.Length){
       bool defaults=false;foreach(var a in sdkActors.Values)defaults|=a.default_binding;
-      if(sdkViews.Count!=8||!defaults){FinishProof(false,"SDK requires 8 real views and an observed NPC using default sheet");return;}
-      FinishProof(true,"SDK: four Life locations and inventory/development/map/journal; one life100 session; ordinary goto travel; observed NPC textures resolved; visual capture, not GUI click coverage");return;
+      if(sdkViews.Count!=10||!defaults){FinishProof(false,"SDK requires 10 real views including local/floor maps and English localization");return;}
+      FinishProof(true,"SDK: four Life locations, four panels, local/floor map and English locale; one life100 session; ordinary goto travel; visual capture, not GUI click coverage");return;
      }
      page="game";Options(false,1);proofPhase=5;break;
     case 5:if(!state.Paused){LifeCommand("goto",sdkLevels[sdkLevelIndex]);proofPhase=2;}break;
