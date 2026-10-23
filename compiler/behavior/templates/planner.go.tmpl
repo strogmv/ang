@@ -30,6 +30,7 @@ type Duty struct {
  Training map[string]float64 `json:"training"`
 }
 type Profile struct {
+ Skills []string `json:"skills"`
  ID string `json:"id"`
  SceneGoals []string `json:"scene_goals"`
  ForbidActions []string `json:"forbid_actions"`
@@ -54,6 +55,7 @@ type DangerPolicy struct {
 func(p DangerPolicy) Level(i int)DangerLevel{if len(p.Levels)==0{return DangerLevel{}};if i<0{i=0};if i>=len(p.Levels){i=len(p.Levels)-1};return p.Levels[i]}
 func(p DangerPolicy) Max()int{if len(p.Levels)==0{return 0};return len(p.Levels)-1}
 type PerceptionPolicy struct {
+ Reports struct {RefreshTicks int64 `json:"refresh_after_ticks"`;CooldownTicks int64 `json:"cooldown_ticks"`;MinChangeCells int `json:"min_position_change_cells"`;Intents []string `json:"allowed_intents"`} `json:"reports"`
  MemoryTTLTicks int64 `json:"memory_ttl_ticks"`
  Hearing HearingPolicy `json:"hearing"`
  OffenceVisibleTicks int64 `json:"offence_visible_ticks"`
@@ -67,6 +69,8 @@ type Program struct {
  Curves map[string]Curve `json:"curves"`
  Policy struct {
   Recovery struct {Movement RecoveryPolicy `json:"movement"`; Group RecoveryPolicy `json:"group"`} `json:"recovery"`
+  Approach ApproachPolicy `json:"approach"`
+  Gestures GesturePolicy `json:"gestures"`
   Coordination CoordinationPolicy `json:"coordination"`
   Planning Limits `json:"planning"`
   Social SocialPolicy `json:"social"`
@@ -74,7 +78,9 @@ type Program struct {
   Memory MemoryPolicy `json:"memory"`
   Danger DangerPolicy `json:"danger"`
   Perception PerceptionPolicy `json:"perception"`
-  Group struct { CohesionDistance int `json:"cohesion_distance_cells"`; StandoffDistance int `json:"standoff_distance_cells"`; MaxSearchCells int `json:"max_search_cells"` } `json:"group"`
+  Group struct { Movement string `json:"movement"`
+  LocalApproach struct{Radius int `json:"radius_cells"`; MaxRoute int `json:"max_route_cells"`} `json:"local_approach"`
+  WaypointHandoff string `json:"waypoint_handoff"`; ShadowDistance int `json:"shadow_distance_cells"`; MaxFormationNodes int `json:"max_formation_nodes"`; Search SearchPolicy `json:"search"`; CohesionDistance int `json:"cohesion_distance_cells"`; StandoffDistance int `json:"standoff_distance_cells"`; MaxSearchCells int `json:"max_search_cells"` } `json:"group"`
  } `json:"policy"`
 }
 type Frame struct { ID string; Depth int }

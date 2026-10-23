@@ -15,8 +15,19 @@ using Debug = UnityEngine.Debug;
 namespace AngelsDemons.Poc
 {
     [Serializable] public sealed class PocLabels { public string new_game, load_game, save_game, options, continue_game, main_menu, quit; }
-    [Serializable] public sealed class PocConfiguration { public string title, subtitle; public long seed; public int tick_hz, queue_capacity, input_ack_budget_ms, min_client_fps, presentation_lead_ms, presentation_horizon_ms; public PocLabels labels; }
-    [Serializable] public sealed class PocResource { public PocConfiguration config; public string content_hash; }
+    [Serializable] public sealed class PocConfiguration { public string title, subtitle; public long seed; public int tick_hz, queue_capacity, input_ack_budget_ms, min_client_fps, presentation_lead_ms, presentation_horizon_ms, capture_min_contact_members, capture_support_distance_cells; public PocLabels labels; }
+    [Serializable] public sealed class PocTile { public string glyph, sprite; }
+    [Serializable] public sealed class PocSprite { public string name, shape, style; public int height, variants; public int[] weights; }
+    [Serializable] public sealed class PocCharacterFrame { public int row,column,x,y,w,h,feet_x,feet_y,body_height_px; public bool flip_x; }
+    [Serializable] public sealed class PocCharacterSheet { public PocCharacterFrame[] frames; public bool smooth_filter; public string id, image, idle_image; public int frame_w, frame_h, draw_size, feet_y, idle, height_mm, body_height_px; public int[] walk, rows; }
+    [Serializable] public sealed class PocCharacterBinding { public string id, sheet; }
+    [Serializable] public sealed class PocCharacterArt { public string[] default_sheets; public float fps, rate_variation; public PocCharacterSheet[] sheets; public PocCharacterBinding[] actors; }
+    [Serializable] public sealed class PocPresentationCamera { public float zoom_default,zoom_min,zoom_max; }
+    [Serializable] public sealed class PocArt { public PocFloorMaterial floor; public PocHudArt hud; public PocArtScene[] scenes; public PocPaintedScene[] painted; public PocPresentationCamera camera; public PocCharacterArt characters; public int tile_w, tile_h; public PocTile[] tiles; public PocSprite[] sprites; }
+    [Serializable] public sealed class PocLoadingScreen { public string id, image, context; }
+    [Serializable] public sealed class PocLoading { public string caption; public int min_ms; public PocLoadingScreen[] screens; }
+    [Serializable] public sealed class PocMenu { public string background; }
+    [Serializable] public sealed class PocResource { public PocConfiguration config; public string content_hash; public PocArt art; public PocLoading loading; public PocMenu menu; public PocSpatialModel spatial; }
     [Serializable] public sealed class HostReady { public string address, host_id; }
 
     public sealed partial class AngelsDemonsPoc : MonoBehaviour
@@ -29,7 +40,7 @@ namespace AngelsDemons.Poc
         readonly ConcurrentQueue<Action> notices = new ConcurrentQueue<Action>();
         PocGameState state;
         PocSaveSlots slots;
-        string token, root, dataDirectory, page = "menu", message = "Запускаем мир…", busy = "", playerName = "Герой", seedText;
+        string token, root, dataDirectory, page = "menu", message = "Запускаем мир…", busy = "", playerName = "Герой";
         bool connected, saving, closing, disposed, verify, openGame;
         Vector2 shownPosition, clickedTile, clickStartPosition;
         ulong moveSequence, pendingMove;
@@ -47,6 +58,98 @@ namespace AngelsDemons.Poc
         int fps;
         bool fullscreen;
         Texture2D diamond, disc;
+        // Sprites from CUE art tokens: Resources/Sprites/<file>.png (hand-made) wins over Resources/Sprites/generated/<file>.png.
+        readonly Dictionary<char, PocSprite> glyphSprites = new Dictionary<char, PocSprite>();
+        readonly Dictionary<string, Texture2D[]> spriteTextures = new Dictionary<string, Texture2D[]>();
+        Texture2D loadingTexture, menuTexture; GUIStyle loadingStyle; bool loadingActive, menuTried; double loadingShownAt;
+        PocSprite floorSprite;
+        readonly Dictionary<string, PocCharacterSheet> characterSheets = new Dictionary<string, PocCharacterSheet>();
+        readonly Dictionary<string, Texture2D> characterTextures = new Dictionary<string, Texture2D>();
+        readonly Dictionary<string, Texture2D> characterIdleTextures = new Dictionary<string, Texture2D>();
+        readonly Dictionary<string, string> characterBindings = new Dictionary<string, string>();
+        readonly Dictionary<string, Dictionary<long,PocCharacterFrame>> characterFrames = new Dictionary<string, Dictionary<long,PocCharacterFrame>>();
+        readonly Dictionary<string, int> characterDirections = new Dictionary<string, int>();
+        static uint GaitHash(string id)
+        {
+            unchecked { uint h = 2166136261u; foreach (char c in id) { h ^= c; h *= 16777619u; } h ^= h >> 16; h *= 0x7feb352du; h ^= h >> 15; h *= 0x846ca68bu; return h ^ (h >> 16); }
+        }
+        static double GaitPhase(string id) { return (GaitHash(id) & 65535u) / 65536.0; }
+        double GaitRate(string id) { return 1 + (((GaitHash(id) >> 16) & 65535u) / 65535.0 * 2 - 1) * resource.art.characters.rate_variation; }
+        int WalkFrame(string id, PocCharacterSheet sheet, double ns)
+        {
+            double cycles = ns / 1e9 * resource.art.characters.fps * GaitRate(id) + GaitPhase(id) * sheet.walk.Length;
+            return sheet.walk[(int)(Math.Floor(cycles) % sheet.walk.Length)];
+        }
+        bool CharacterCatalogProof()
+        {
+            if (characterBindings.Count == 0) return false;
+            var phases = new HashSet<uint>();
+            var patterns = new HashSet<string>();
+            foreach (string id in characterBindings.Keys)
+            {
+                if (!phases.Add(GaitHash(id))) return false;
+                string key = characterBindings[id];
+                if (!characterSheets.ContainsKey(key) || !characterTextures.ContainsKey(key) || characterTextures[key] == null) return false;
+                PocCharacterSheet sheet = characterSheets[key];
+                if (sheet.walk.Length < 2 || GaitRate(id) < .85 || GaitRate(id) > 1.15) return false;
+                var frames = new HashSet<int>(); for (long ns = 0; ns < 1000000000; ns += 25000000) frames.Add(WalkFrame(id, sheet, ns));
+                if (frames.Count < 2) return false;
+                string pattern = ""; for (long ns = 0; ns < 2000000000; ns += 50000000) pattern += WalkFrame(id, sheet, ns) + ",";
+                if (!patterns.Add(pattern)) return false;
+            }
+            return true;
+        }
+        void DrawCharacter(Vector2 origin, float tw, float th, Vector2 position, string id, string name, Color color, Vector2 start, IList<PocPoint> path, long startNS, long durationNS, bool paused, Vector2 look)
+        {
+            string key; PocCharacterSheet sheet; Texture2D texture;
+            if (!ResolveCharacterSheet(id, out key) || !characterSheets.TryGetValue(key, out sheet) || !characterTextures.TryGetValue(key, out texture) || texture == null) { DrawActor(origin, tw, th, position, name, color); return; }
+            Vector2 direction = look;
+            bool walking = false;
+            if (path.Count > 0 && durationNS > 0)
+            {
+                double progress = Math.Max(0, (renderedSimNS - startNS) / durationNS);
+                int index = Math.Min((int)progress, path.Count - 1);
+                Vector2 from = index == 0 ? start : new Vector2(path[index-1].X, path[index-1].Y);
+                direction = new Vector2(path[index].X, path[index].Y) - from;
+                walking = !paused && !state.Paused && renderedSimNS >= startNS && progress < path.Count;
+            }
+            int row; if (!characterDirections.TryGetValue(id, out row)) row = 0;
+            if (direction.sqrMagnitude > .001f)
+            {
+                float angle = Mathf.Atan2((direction.x - direction.y) * tw, (direction.x + direction.y) * th) * Mathf.Rad2Deg;
+                int octant = ((int)Mathf.Round(-angle / 45) + 8) % 8;
+                row = sheet.rows[octant]; characterDirections[id] = row;
+            }
+            int frame = walking ? WalkFrame(id, sheet, renderedSimNS) : sheet.idle;
+            Texture2D idleTexture;if(!walking&&characterIdleTextures.TryGetValue(key,out idleTexture)&&idleTexture!=null)texture=idleTexture;
+            Vector2 at = origin + new Vector2((position.x-position.y)*tw/2+tw/2, (position.x+position.y)*th/2+th/2);
+            PocCharacterFrame crop=null;Dictionary<long,PocCharacterFrame> frames;
+            if(characterFrames.TryGetValue(key,out frames))frames.TryGetValue(((long)row<<32)|(uint)frame,out crop);
+            float frameW=crop!=null?crop.w:sheet.frame_w,frameH=crop!=null?crop.h:sheet.frame_h;
+            float feetX=crop!=null?crop.feet_x:frameW/2,feetY=crop!=null?crop.feet_y:sheet.feet_y;
+            float body=crop!=null?crop.body_height_px:sheet.body_height_px;
+            float pixelScale=sheet.draw_size*SpatialSpriteScale(tw)/frameW;
+            if(sheet.height_mm>0&&body>0)pixelScale=sheet.height_mm/1000f*SpatialVerticalPixelsPerMeter(tw)/body;
+            bool flip=crop!=null&&crop.flip_x;if(flip)feetX=frameW-feetX;
+            Rect target=new Rect(at.x-feetX*pixelScale,at.y-feetY*pixelScale,frameW*pixelScale,frameH*pixelScale);
+            if(!SpatialDrawVisible(new Rect(target.x,target.y-25,target.width+100,target.height+30)))return;
+            float sourceX=crop!=null?crop.x:frame*sheet.frame_w,sourceY=crop!=null?crop.y:row*sheet.frame_h;
+            Rect uv=new Rect(sourceX/texture.width,1f-(sourceY+frameH)/texture.height,frameW/texture.width,frameH/texture.height);
+            if(flip){uv.x+=uv.width;uv.width=-uv.width;}
+            Color before=GUI.color;GUI.color=Color.white;
+            GUI.DrawTextureWithTexCoords(target,texture,uv,true);
+            if(hudDebugOpen){GUI.color=color;GUI.Label(new Rect(at.x-60,target.y-22,160,24),name,smallStyle);}
+            GUI.color=before;
+        }
+        bool ResolveCharacterSheet(string id,out string key)
+        {
+            if(characterBindings.TryGetValue(id,out key))return true;
+            var defaults=resource.art.characters.default_sheets;
+            if(defaults==null||defaults.Length==0)return false;
+            key=defaults[(int)(GaitHash(id)%(uint)defaults.Length)];
+            return characterSheets.ContainsKey(key);
+        }
+
         GUIStyle titleStyle, subStyle, textStyle, smallStyle, buttonStyle, fieldStyle;
         readonly Color ink = new Color(.055f, .07f, .085f), panel = new Color(.09f, .115f, .13f), amber = new Color(.83f, .64f, .32f);
         readonly Stopwatch clock = Stopwatch.StartNew();
@@ -79,13 +182,27 @@ namespace AngelsDemons.Poc
                 new GameObject("Angels & Demons").AddComponent<AngelsDemonsPoc>();
         }
 
+        bool startMarketPending;
         async void Start()
         {
             Application.runInBackground = true;
             verifyCapture = Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-capture-verify") >= 0;
-            verify = verifyCapture || Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-verify") >= 0;
+            verifyInventory = Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-inventory-verify") >= 0;
+            verifyMaintenance = Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-maintenance-verify") >= 0;
+            verifySdk=Array.IndexOf(Environment.GetCommandLineArgs(),"--poc-sdk-verify")>=0;
+            verifySpatial = Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-spatial-verify") >= 0;
+            verifyDoors = Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-doors-verify") >= 0;
+            verifyInspection = Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-inspection-verify") >= 0;
+            verifyDevelopment = Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-development-verify") >= 0;
+            startMarketPending = Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-start-market") >= 0;
+            InitPaintedProof();
+            verifyLife = verifyPainted || verifySdk || verifySpatial || verifyDevelopment || verifyInspection || verifyMaintenance || verifyDoors || Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-life-verify") >= 0;
+            verify = verifyLife || verifyInventory || verifyCapture || Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-verify") >= 0;
             resource = JsonUtility.FromJson<PocResource>(Resources.Load<TextAsset>("PocConfig").text);
-            seedText = resource.config.seed.ToString();
+            if (TryStartArtPreview()) return;
+            LoadSprites();
+            LoadSpatialCatalog();
+            LoadCharacters();
             root = Path.GetFullPath(Path.Combine(Application.dataPath, "../.."));
 #if UNITY_EDITOR
             dataDirectory = Path.Combine(root, ".local", verify ? "poc-verification/saves" : "poc-saves");
@@ -147,13 +264,15 @@ namespace AngelsDemons.Poc
             session.OnActionResult += result =>
             {
                 busy = "";
-                if (!result.Ok) { message = "Действие не выполнено: " + result.Message; openGame = false; return; }
+                if (!result.Ok) { PracticeActionResult(result); message = "Действие не выполнено: " + result.Message; openGame = false; return; }
                 if (result.Action == "save") { message = "Игра сохранена"; saveConfirmed = true; }
                 else if (result.Action == "load") { message = "Игра загружена"; openGame = true; }
                 else if (result.Action == "new") { message = "Партия началась"; openGame = true; }
                 else message = "Опции применены";
+                PracticeActionResult(result);
             };
-            session.Error += e => { connected = false; busy = ""; message = "Связь прервана. Переподключаемся…"; Debug.LogWarning(e.Message); };
+            session.Error += e => { practiceRequestId=""; inventoryPending=false; connected = false; busy = ""; message = "Связь прервана. Переподключаемся…"; Debug.LogWarning(e.Message); };
+            session.OnInventoryResult += v => {inventoryPending=false;message=v.Message;};
             session.Start();
         }
 
@@ -162,6 +281,7 @@ namespace AngelsDemons.Poc
             if (value.ContentHash != resource.content_hash) { message = "Версии мира клиента и сервера различаются"; connected = false; session.Dispose(); return; }
             if (state == null || state.Epoch != value.Epoch)
             {
+                inventoryPending=false; practiceRequestId="";
                 shownPosition = new Vector2(value.PlayerX, value.PlayerY);
                 renderedSimNS = value.SimTimeNs; pendingMove = 0; beginPending = false; markerUntil = 0;
             }
@@ -181,6 +301,10 @@ namespace AngelsDemons.Poc
             for (int i = 0; i < 32 && notices.TryDequeue(out notice); i++) notice();
             if (session != null) session.Pump(32);
             UpdateMotion();
+            if (!verify && startMarketPending && CanSend()) { startMarketPending=false; StartPlayableMarket(resource.config.seed); }
+            if (!verify) AdvancePlayableMarket();
+            if (!verify) AdvanceSpatialPreview();
+            if (!verify) UpdateHudKeys();
             if (!verify && Input.GetKeyDown(KeyCode.Escape)) page = page == "game" ? "menu" : state != null && state.Active ? "game" : "menu";
             if (verify && !closing) ProofStep();
         }
@@ -212,11 +336,74 @@ namespace AngelsDemons.Poc
             return true;
         }
 
-        void NewGame(long seed)
+        void NewGame(long seed, string scenario = "")
         {
             if (!CanSend()) return;
             busy = "Начинаем новую партию…";
-            session.SendNewGame(new PocNewGameRequest { Seed = seed, PlayerName = playerName, RunCaptureDemo = !verify || verifyCapture, Scenario = verifyCapture ? "test_hook" : verify ? "none" : "", Epoch = state.Epoch, RequestId = Guid.NewGuid().ToString("N") });
+            BeginLoading("new_game");
+            session.SendNewGame(new PocNewGameRequest { Seed = seed, PlayerName = playerName, RunCaptureDemo = scenario != "life" && scenario != "life100" && scenario != "life300" && (!verify || verifyCapture), Scenario = !string.IsNullOrEmpty(scenario) ? scenario : verifyCapture ? "" : verify ? "none" : "", Epoch = state.Epoch, RequestId = Guid.NewGuid().ToString("N") });
+        }
+        // Loading screen (world.loading): a picture over the whole window until the server answers, but not shorter than min_ms.
+        // The picture is loaded on demand and released afterwards, so it costs no memory during play. Skipped in automatic checks.
+        void BeginLoading(string context)
+        {
+            if (verify || resource.loading == null || resource.loading.screens == null) return;
+            var fits = new List<PocLoadingScreen>();
+            foreach (PocLoadingScreen screen in resource.loading.screens) if (screen.context == "any" || screen.context == context) fits.Add(screen);
+            if (fits.Count == 0) return;
+            ReleaseLoading();
+            loadingTexture = Resources.Load<Texture2D>(fits[UnityEngine.Random.Range(0, fits.Count)].image);
+            if (loadingTexture == null) return;
+            loadingTexture.filterMode = FilterMode.Bilinear; loadingTexture.wrapMode = TextureWrapMode.Clamp;
+            loadingActive = true; loadingShownAt = clock.Elapsed.TotalSeconds;
+        }
+        void ReleaseLoading()
+        {
+            loadingActive = false;
+            if (loadingTexture != null) { Resources.UnloadAsset(loadingTexture); loadingTexture = null; }
+        }
+        // A picture filling the whole window, cropped to keep its proportions; call with the identity GUI matrix.
+        void DrawCover(Texture2D texture)
+        {
+            float sw = Screen.width, sh = Screen.height, texAspect = (float)texture.width / texture.height, screenAspect = sw / sh;
+            Rect uv = screenAspect > texAspect ? new Rect(0, (1 - texAspect / screenAspect) / 2, 1, texAspect / screenAspect) : new Rect((1 - screenAspect / texAspect) / 2, 0, screenAspect / texAspect, 1);
+            GUI.DrawTextureWithTexCoords(new Rect(0, 0, sw, sh), texture, uv);
+        }
+        // Main-menu backdrop (world.menu): shown behind the menu, new-game, slots and options pages, released during play.
+        void DrawMenuBackground()
+        {
+            bool wanted = page == "menu" || page == "slots" || page == "options";
+            if (!wanted || resource.menu == null || string.IsNullOrEmpty(resource.menu.background)) { ReleaseMenu(); return; }
+            if (menuTexture == null)
+            {
+                if (menuTried) return;
+                menuTried = true;
+                menuTexture = Resources.Load<Texture2D>(resource.menu.background);
+                if (menuTexture == null) return;
+                menuTexture.filterMode = FilterMode.Bilinear; menuTexture.wrapMode = TextureWrapMode.Clamp;
+            }
+            Matrix4x4 matrix = GUI.matrix; GUI.matrix = Matrix4x4.identity;
+            DrawCover(menuTexture);
+            GUI.matrix = matrix;
+        }
+        void ReleaseMenu()
+        {
+            menuTried = false;
+            if (menuTexture != null) { Resources.UnloadAsset(menuTexture); menuTexture = null; }
+        }
+        void DrawLoading()
+        {
+            if (!loadingActive) return;
+            if (string.IsNullOrEmpty(busy) && (clock.Elapsed.TotalSeconds - loadingShownAt) * 1000 >= resource.loading.min_ms) { ReleaseLoading(); return; }
+            float sw = Screen.width, sh = Screen.height;
+            DrawCover(loadingTexture);
+            if (loadingStyle == null) loadingStyle = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold, alignment = TextAnchor.LowerRight };
+            loadingStyle.fontSize = Mathf.Max(14, Mathf.RoundToInt(sh * .04f));
+            Rect caption = new Rect(sw * .5f, sh * .9f, sw * .46f, sh * .08f);
+            loadingStyle.normal.textColor = new Color(.96f, .90f, .74f, .85f);
+            GUI.Label(new Rect(caption.x + 2, caption.y + 2, caption.width, caption.height), resource.loading.caption, loadingStyle);
+            loadingStyle.normal.textColor = new Color(.30f, .18f, .10f);
+            GUI.Label(caption, resource.loading.caption, loadingStyle);
         }
         bool CanSend() => connected && state != null && session != null && string.IsNullOrEmpty(busy);
         void Options(bool paused, int speed)
@@ -229,6 +416,7 @@ namespace AngelsDemons.Poc
         {
             if (!CanSend()) return;
             busy = save ? "Сохраняем…" : "Загружаем…";
+            if (!save) BeginLoading("load_game");
             string request = Guid.NewGuid().ToString("N");
             if (save) session.SendSaveGame(new PocSaveRequest { Slot = id, Epoch = state.Epoch, RequestId = request });
             else session.SendLoadGame(new PocLoadRequest { Slot = id, Epoch = state.Epoch, RequestId = request });
@@ -271,10 +459,18 @@ namespace AngelsDemons.Poc
         {
             if (verify && (Event.current.isMouse || Event.current.isKey || Event.current.type == EventType.ScrollWheel)) { Event.current.Use(); return; }
             if (resource == null) return;
+            if (Event.current.type == EventType.Layout && session != null) { session.Pump(32); UpdateMotion(); }
+            if (loadingActive && (Event.current.isMouse || Event.current.isKey || Event.current.type == EventType.ScrollWheel)) Event.current.Use();
             PrepareStyles();
+            if(page=="art_scene"){DrawArtScene();return;}
             float scale = Mathf.Min(Screen.width / 1280f, Screen.height / 800f);
             GUI.matrix = Matrix4x4.TRS(new Vector3((Screen.width - 1280 * scale) / 2, (Screen.height - 800 * scale) / 2), Quaternion.identity, new Vector3(scale, scale, 1));
             Fill(new Rect(-1000, -1000, 4000, 3000), ink);
+            if(page=="game"&&state!=null&&state.Active){
+                DrawGame();DrawGameHud();GUI.matrix=Matrix4x4.identity;DrawLoading();return;
+            }
+            if(page=="development"||page=="inventory"||page=="map"||page=="journal"){DrawHudPage();GUI.matrix=Matrix4x4.identity;DrawLoading();return;}
+            DrawMenuBackground();
             Fill(new Rect(0, 0, 1280, 5), amber);
             string metrics = "UNITY  " + measuredFps.ToString("0") + " FPS";
             if (state != null) metrics += "    |    GO  " + state.ServerTickHz.ToString("0.0") + " Hz    |    TICK  " + state.Tick + "    |    STEP  " + (state.ServerStepUs / 1000).ToString("0.000") + " ms    |    LAG  " + state.ServerLagMs.ToString("0.0") + " ms";
@@ -288,10 +484,13 @@ namespace AngelsDemons.Poc
             if (state != null && state.Active)
             {
                 long minutes = state.GameSeconds / 60;
-                GUI.Label(new Rect(852, 48, 360, 55), "День " + (minutes / 1440 + 1) + "  ·  " + ((minutes / 60) % 24).ToString("00") + ":" + (minutes % 60).ToString("00") + "  ·  " + (state.Paused ? "Пауза" : "×" + state.Speed), textStyle);
+                GUI.Label(new Rect(852, 48, 360, 55), "День " + (minutes / 1440 + 1) + "  ·  " + ((minutes / 60) % 24).ToString("00") + ":" + (minutes % 60).ToString("00") + "  ·  " + (state.Paused ? "Пауза" : "×" + (state.Life != null && state.Life.Enabled ? state.Life.SecondsPerTick * resource.config.tick_hz : state.Speed)), textStyle);
             }
-            Fill(new Rect(40, 145, 1200, 555), panel);
-            if (page == "game") DrawGame();
+            if (verify) GUI.Label(new Rect(790, 99, 440, 30), "АВТОПРОВЕРКА · ручной ввод отключён", smallStyle);
+            Fill(new Rect(40, 145, 1200, 555), menuTexture != null ? new Color(panel.r, panel.g, panel.b, page == "menu" ? 0f : .92f) : panel);
+            if (page == "development") DrawDevelopment();
+            else if (page == "inventory") DrawInventory();
+            else if (page == "game") DrawGame();
             else if (page == "options") DrawOptions();
             else if (page == "slots") DrawSlots();
             else DrawMenu();
@@ -300,33 +499,24 @@ namespace AngelsDemons.Poc
             if (state != null && state.Active) detail += "  ·  Тик " + state.Tick + "  ·  Seed " + state.Seed;
             GUI.Label(new Rect(55, 766, 1160, 24), detail, smallStyle);
             GUI.matrix = Matrix4x4.identity;
+            DrawLoading();
         }
 
         void DrawMenu()
         {
+            if (menuTexture != null) Fill(new Rect(52, 163, 390, 520), new Color(ink.r, ink.g, ink.b, .74f));
             GUILayout.BeginArea(new Rect(72, 179, 350, 500));
             if (state != null && state.Active && Button(resource.config.labels.continue_game, connected)) page = "game";
-            if (Button(resource.config.labels.new_game, connected)) page = "new";
+            if(state!=null&&state.Active&&Button(resource.config.labels.save_game,connected)){saving=true;page="slots";session.SendListSaves(new PocListSavesRequest());}
+            if (Button(resource.config.labels.new_game, connected)) StartPlayableMarket(resource.config.seed);
             if (Button(resource.config.labels.load_game, connected)) { saving = false; page = "slots"; session.SendListSaves(new PocListSavesRequest()); }
             if (Button(resource.config.labels.options)) page = "options";
             if (Button(resource.config.labels.quit)) Quit();
             GUILayout.EndArea();
-            if (page == "new") { DrawNew(); return; }
+            if (menuTexture != null) return;
             GUI.Label(new Rect(485, 222, 660, 55), "Под куполом наступает утро.", titleStyle);
             GUI.Label(new Rect(490, 308, 600, 130), "Рынок Коридора 7 открывается. За переборками гудят насосы, и среди синтетической еды пахнет живой землёй.", textStyle);
             DrawSilhouette(new Rect(570, 450, 470, 170));
-        }
-        void DrawNew()
-        {
-            Fill(new Rect(470, 170, 730, 490), panel);
-            GUILayout.BeginArea(new Rect(510, 195, 600, 430));
-            GUILayout.Label("Новая партия", titleStyle); GUILayout.Space(24);
-            GUILayout.Label("Имя героя", textStyle); playerName = GUILayout.TextField(playerName, 40, fieldStyle, GUILayout.Height(39)); GUILayout.Space(18);
-            GUILayout.Label("Зерно мира", textStyle); seedText = GUILayout.TextField(seedText, 18, fieldStyle, GUILayout.Height(39)); GUILayout.Space(26);
-            long seed; bool valid = long.TryParse(seedText, out seed);
-            if (Button("Начать игру", connected && valid)) NewGame(seed);
-            if (Button("Назад")) page = "menu";
-            GUILayout.EndArea();
         }
         void DrawSilhouette(Rect area)
         {
@@ -363,52 +553,123 @@ namespace AngelsDemons.Poc
             if (state != null && state.Active)
             {
                 GUILayout.Space(18); GUILayout.Label("Скорость мира", textStyle); GUILayout.BeginHorizontal();
-                foreach (int speed in new[] { 1, 3, 10 }) if (GUILayout.Button("×" + speed, GUILayout.Width(130), GUILayout.Height(35))) Options(state.Paused, speed);
+                foreach (int speed in (state.Life != null && state.Life.Enabled ? new[] {1} : new[] { 1, 3, 10 })) if (GUILayout.Button("×" + speed, GUILayout.Width(130), GUILayout.Height(35))) Options(state.Paused, speed);
                 if (GUILayout.Button(state.Paused ? "Продолжить время" : "Пауза", GUILayout.Width(190), GUILayout.Height(35))) Options(!state.Paused, state.Speed);
                 GUILayout.EndHorizontal();
             }
             GUILayout.Space(28); if (Button("Назад")) page = state != null && state.Active ? "game" : "menu";
             GUILayout.EndArea();
         }
+        enum SceneDrawKind { Block, Entity, Agent, Hero }
+        struct SceneDrawItem
+        {
+            public SceneDrawKind Kind;
+            public Vector2 Position;
+            public string ID;
+            public Texture2D Texture;
+            public Entity Entity;
+            public PocAgentState Agent;
+            // Blocks end at their front footprint corner; actors stand at cell centres.
+            // The shared +1 centre offset is omitted from both coordinate systems.
+            public float Depth { get { return Position.x + Position.y + (Kind == SceneDrawKind.Block ? 1f : 0f); } }
+        }
+        readonly List<SceneDrawItem> sceneDrawItems = new List<SceneDrawItem>(512);
+        static readonly Comparison<SceneDrawItem> sceneDrawComparison = CompareSceneDrawItems;
+        static int CompareSceneDrawItems(SceneDrawItem a, SceneDrawItem b)
+        {
+            int order = a.Depth.CompareTo(b.Depth); if (order != 0) return order;
+            // At a shared footprint edge the actor is in front of the block.
+            int aLayer = a.Kind == SceneDrawKind.Block ? 0 : 1, bLayer = b.Kind == SceneDrawKind.Block ? 0 : 1;
+            order = aLayer.CompareTo(bLayer); if (order != 0) return order;
+            order = a.Position.x.CompareTo(b.Position.x); if (order != 0) return order;
+            order = string.CompareOrdinal(a.ID, b.ID); if (order != 0) return order;
+            return ((int)a.Kind).CompareTo((int)b.Kind);
+        }
+        void DrawSceneItems(Vector2 origin, float tw, float th)
+        {
+            sceneDrawItems.Sort(sceneDrawComparison);
+            foreach (SceneDrawItem item in sceneDrawItems)
+            {
+                Vector2 position = item.Position;
+                switch (item.Kind)
+                {
+                    case SceneDrawKind.Block:
+                        DrawSprite(item.Texture, origin + new Vector2((position.x-position.y)*tw/2, (position.x+position.y)*th/2), tw, th);
+                        break;
+                    case SceneDrawKind.Entity:
+                        DrawActor(origin, tw, th, position, item.Entity.Name, new Color(.61f,.68f,.57f));
+                        break;
+                    case SceneDrawKind.Agent:
+                        DrawDemoAgent(origin, tw, th, item.Agent, position);
+                        break;
+                    case SceneDrawKind.Hero:
+                        DrawCharacter(origin,tw,th,position,"char.hero",state.PlayerName,amber,new Vector2(state.PlayerX,state.PlayerY),state.Path,state.MotionStartNs,state.MovementStepNs,state.CaptureOrder!=null&&state.CaptureOrder.Captured,Vector2.zero);
+                        break;
+                }
+            }
+            // Release snapshot references while retaining the command buffer capacity.
+            sceneDrawItems.Clear();
+        }
         void DrawGame()
         {
             if (state == null || !state.Active) { page = "menu"; return; }
-            Fill(new Rect(1015, 145, 225, 555), new Color(.075f, .09f, .10f));
-            GUILayout.BeginArea(new Rect(1035, 173, 185, 490));
-            GUILayout.Label(state.PlayerName, textStyle); GUILayout.Space(22);
-            if (Button("Сохранить", connected)) { saving = true; page = "slots"; session.SendListSaves(new PocListSavesRequest()); }
-            if (Button("Загрузить", connected)) { saving = false; page = "slots"; session.SendListSaves(new PocListSavesRequest()); }
-            if (Button("Опции")) page = "options";
-            if (Button("Меню")) page = "menu";
-            GUILayout.Space(10); DrawCaptureSidebar();
-            GUILayout.EndArea();
-            Vector2 origin = new Vector2(400, 185); float tw = 54, th = 27;
-            for (int sum = 0; sum < state.Width + state.Height; sum++) for (int y = 0; y < state.Height; y++)
+            if (DrawPaintedGame()) return;
+            UpdateMotion();
+            Vector2 origin;float tw,th;GetSpatialProjection(out origin,out tw,out th);
+            if(!HudBlocksWorldInput(Event.current.mousePosition))HandleSpatialInput(ref origin,ref tw,ref th);
+            int minX,maxX,minY,maxY;SpatialCellBounds(origin,tw,th,out minX,out maxX,out minY,out maxY);
+            Rect viewport=SpatialViewport();var drawOrigin=origin-viewport.position;
+            GUI.BeginGroup(viewport);spatialClipped=true;
+            PocObserverView view=ObserverView();
+            sceneDrawItems.Clear();
+            // Floors first; queue only authoritative observed blocks for the shared depth pass.
+            // One bounded cell traversal, with no actor search inside the terrain loop.
+            for(int sum=minX+minY;sum<=maxX+maxY;sum++)for(int y=minY;y<=maxY;y++)
             {
-                int x = sum - y; if (x < 0 || x >= state.Width) continue;
-                char cell = state.Terrain[y][x]; Vector2 at = origin + new Vector2((x - y) * tw / 2, (x + y) * th / 2);
-                Color color = cell == '#' ? new Color(.19f, .24f, .26f) : cell == 'S' || cell == 'T' ? new Color(.28f, .34f, .22f) : cell == 'D' ? new Color(.45f, .36f, .20f) : new Color(.18f + ((x + y) % 2) * .015f, .24f, .25f);
-                Color before = GUI.color; GUI.color = color;
-                if (cell == '#') GUI.DrawTexture(new Rect(at.x, at.y - 14, tw - 1, th), diamond);
-                GUI.DrawTexture(new Rect(at.x, at.y, tw - 1, th - 1), diamond); GUI.color = before;
-                Vector2 mouse = Event.current.mousePosition;
-                if (Event.current.type == EventType.MouseDown && Event.current.button == 0 && mouse.x < 1000 && Mathf.Abs((mouse.x - at.x - tw / 2) / (tw / 2)) + Mathf.Abs((mouse.y - at.y - th / 2) / (th / 2)) <= 1 && CanSend())
+                int x=sum-y;if(x<minX||x>maxX)continue;
+                char visibility=ViewCell(view,x,y);if(visibility=='0'||view==null||y>=view.Terrain.Count||x>=view.Terrain[y].Length)continue;
+                char cell=view.Terrain[y][x];Vector2 at=drawOrigin+new Vector2((x-y)*tw/2,(x+y)*th/2);
+                if(!SpatialDrawVisible(new Rect(at.x,at.y-180*SpatialSpriteScale(tw),tw,th+180*SpatialSpriteScale(tw))))continue;
+                PocSprite sprite;glyphSprites.TryGetValue(cell,out sprite);
+                bool block=sprite!=null&&sprite.shape=="block";
+                Texture2D texture=SpriteTexture(sprite,x,y);if(block)texture=SpatialPropTexture(x,y,cell,texture);
                 {
-                    ClickMove(x, y); Event.current.Use();
+                    Texture2D floor=block?SpriteTexture(floorSprite,x,y):texture;
+                    // Zone palette/asset substitution applies to real floor, never to an opaque wall.
+                    bool ordinaryFloor=cell!='#'&&(block||sprite==null||sprite.style=="floor");
+                    if(ordinaryFloor)floor=SpatialFloorTexture(x,y,floor);
+                    if(visibility=='1')floor=RememberedTexture(floor);
+                    if(floor!=null)DrawSprite(floor,at,tw,th,SpatialFloorColor(x,y,visibility=='1'));
+                    else {Color before=GUI.color;GUI.color=visibility=='1'?new Color(.15f,.15f,.15f):new Color(.22f,.28f,.25f);GUI.DrawTexture(new Rect(at.x,at.y,tw,th),diamond);GUI.color=before;}
+                    if(ordinaryFloor)DrawSpatialFloorLight(x,y,at,tw,th,visibility=='1');
+                    if(!block&&cell!='#')DrawSpatialFloorMarks(x,y,at,tw,th,visibility=='1');
+                }
+                if(block&&texture!=null)
+                {
+                    if(visibility=='1')texture=RememberedTexture(texture);
+                    sceneDrawItems.Add(new SceneDrawItem { Kind=SceneDrawKind.Block, Position=new Vector2(x,y), Texture=texture });
                 }
             }
-            foreach (Entity e in state.Entities) DrawActor(origin, tw, th, new Vector2(e.X, e.Y), e.Name, new Color(.61f, .68f, .57f));
-            if (clock.Elapsed.TotalSeconds < markerUntil)
+            if(hudDebugOpen)DrawPerceptionOverlay(drawOrigin,tw,th);
+            foreach(Entity e in state.Entities)if(ViewSees(e.X,e.Y))
+                sceneDrawItems.Add(new SceneDrawItem { Kind=SceneDrawKind.Entity, Position=new Vector2(e.X,e.Y), ID=e.Id, Entity=e });
+            QueueDemoAgents();
+            if(ViewSees(state.PlayerX,state.PlayerY))
+                sceneDrawItems.Add(new SceneDrawItem { Kind=SceneDrawKind.Hero, Position=shownPosition+(state.CaptureOrder!=null&&!state.CaptureOrder.Delivered&&!string.IsNullOrEmpty(state.CaptureOrder.CarrierId)?new Vector2(0,.35f):Vector2.zero), ID="char.hero" });
+            DrawSceneItems(drawOrigin,tw,th);
+            if(clock.Elapsed.TotalSeconds<markerUntil)
             {
-                Vector2 at = origin + new Vector2((clickedTile.x - clickedTile.y) * tw / 2 + tw / 2, (clickedTile.x + clickedTile.y) * th / 2 + th / 2);
-                Color before = GUI.color; GUI.color = ackMS < 0 ? amber : moveAccepted ? new Color(.35f, .85f, .5f) : new Color(.95f, .35f, .3f);
-                GUI.DrawTexture(new Rect(at.x - 5, at.y - 5, 10, 10), disc); GUI.color = before;
-                GUI.Label(new Rect(68, 668, 920, 24), moveStatus, smallStyle);
+                Vector2 at=CellScreen(drawOrigin,tw,th,clickedTile.x,clickedTile.y);Color before=GUI.color;
+                GUI.color=ackMS<0?amber:moveAccepted?new Color(.35f,.85f,.5f):new Color(.95f,.35f,.3f);
+                GUI.DrawTexture(new Rect(at.x-5,at.y-5,10,10),disc);GUI.color=before;
             }
-            UpdateMotion();
-            DrawDemoAgents(origin, tw, th);
-            DrawActor(origin, tw, th, shownPosition + (state.CaptureOrder != null && !state.CaptureOrder.Delivered && !string.IsNullOrEmpty(state.CaptureOrder.CarrierId) ? new Vector2(0, .35f) : Vector2.zero), state.PlayerName, amber);
-            DrawCaptureEvents();
+            DrawCaptureMarkers(drawOrigin,tw,th);
+            spatialClipped=false;GUI.EndGroup();
+            if(hudDebugOpen&&LifeSpatialCamera())GUI.Label(new Rect(68,592,520,24),"Колесо: масштаб "+Mathf.RoundToInt(spatialZoom*100)+"% · клетка 1 м · камера следует за героем",smallStyle);
+
+            if (state.Life != null && state.Life.Enabled) DrawLifeOverlay(origin,tw,th); else if(hudDebugOpen)DrawCaptureEvents();
+            if(hudDebugOpen)DrawPerceptionControls();
+            if(state.Life!=null&&state.Life.Enabled&&(inspectionProofPointer.HasValue||(SpatialViewport().Contains(Event.current.mousePosition)&&!HudBlocksWorldInput(Event.current.mousePosition))))DrawLifeInspection(origin,tw,th);
             // This timestamp is taken on a real repaint, after drawing the hero,
             // at >= one screen pixel of displacement, not when a packet arrives.
             if (Event.current.type == EventType.Repaint && beginPending && moveAccepted && state.LastMoveSeq == pendingMove)
@@ -421,18 +682,89 @@ namespace AngelsDemons.Poc
                 }
             }
         }
+        void LoadSprites()
+        {
+            if (resource.art == null || resource.art.sprites == null) return;
+            var byName = new Dictionary<string, PocSprite>();
+            foreach (PocSprite sprite in resource.art.sprites)
+            {
+                byName[sprite.name] = sprite;
+                var textures = new Texture2D[Math.Max(1, sprite.variants)];
+                for (int v = 0; v < textures.Length; v++)
+                {
+                    string file = textures.Length == 1 ? sprite.name : sprite.name + "_" + v;
+                    Texture2D texture = Resources.Load<Texture2D>("Sprites/" + file) ?? Resources.Load<Texture2D>("Sprites/generated/" + file);
+                    if (texture != null) { texture.filterMode = FilterMode.Point; texture.wrapMode = TextureWrapMode.Clamp; }
+                    textures[v] = texture; if (texture != null) RememberedTexture(texture);
+                }
+                spriteTextures[sprite.name] = textures;
+                if (floorSprite == null && sprite.style == "floor") floorSprite = sprite;
+            }
+            foreach (PocTile tile in resource.art.tiles) if (!string.IsNullOrEmpty(tile.glyph) && byName.ContainsKey(tile.sprite)) glyphSprites[tile.glyph[0]] = byName[tile.sprite];
+        }
+
+        void LoadCharacters()
+        {
+            PocCharacterArt characters = resource.art == null ? null : resource.art.characters;
+            if (characters == null || characters.sheets == null || characters.actors == null) return;
+            foreach (PocCharacterSheet sheet in characters.sheets)
+            {
+                characterSheets[sheet.id] = sheet;
+                Texture2D texture = Resources.Load<Texture2D>(sheet.image);
+                if (texture != null) { texture.filterMode = sheet.smooth_filter?FilterMode.Bilinear:FilterMode.Point; texture.wrapMode = TextureWrapMode.Clamp; }
+                characterTextures[sheet.id] = texture;
+                if(sheet.frames!=null&&sheet.frames.Length>0){
+                    var lookup=new Dictionary<long,PocCharacterFrame>();
+                    foreach(var crop in sheet.frames)lookup[((long)crop.row<<32)|(uint)crop.column]=crop;
+                    characterFrames[sheet.id]=lookup;
+                }
+                if(!string.IsNullOrEmpty(sheet.idle_image)){
+                    Texture2D idle=Resources.Load<Texture2D>(sheet.idle_image);
+                    if(idle!=null){idle.filterMode=FilterMode.Point;idle.wrapMode=TextureWrapMode.Clamp;}
+                    characterIdleTextures[sheet.id]=idle;
+                }
+            }
+            foreach (PocCharacterBinding binding in characters.actors) characterBindings[binding.id] = binding.sheet;
+        }
+
+        // Variant choice is visual only and deterministic from seed and cell, so every launch draws the same floor.
+        Texture2D SpriteTexture(PocSprite sprite, int x, int y)
+        {
+            Texture2D[] textures;
+            if (sprite == null || !spriteTextures.TryGetValue(sprite.name, out textures)) return null;
+            uint h = (uint)x * 0x9e3779b1u ^ (uint)y * 0x85ebca6bu ^ (uint)resource.config.seed * 0xc2b2ae35u;
+            h ^= h >> 15; h *= 0x2c1b3c6du; h ^= h >> 12; h *= 0x297a2d39u; h ^= h >> 15;
+            int total = 0; foreach (int w in sprite.weights) total += Math.Max(1, w);
+            int pick = (int)(h % (uint)Math.Max(1, total)), index = 0;
+            for (int i = 0; i < sprite.weights.Length; i++) { int w = Math.Max(1, sprite.weights[i]); if (pick < w) { index = i; break; } pick -= w; }
+            return textures[Math.Min(index, textures.Length - 1)];
+        }
+
+        void DrawSprite(Texture2D texture, Vector2 at, float tw, float th, Color? tint=null)
+        {
+            Color before = GUI.color; GUI.color = tint??Color.white;float height=texture.height*tw/texture.width;
+            GUI.DrawTexture(new Rect(at.x, at.y + th - height, tw, height), texture); GUI.color = before;
+        }
+
         void DrawActor(Vector2 origin, float tw, float th, Vector2 position, string name, Color color)
         {
             Vector2 at = origin + new Vector2((position.x - position.y) * tw / 2 + tw / 2, (position.x + position.y) * th / 2 + th / 2);
-            Color before = GUI.color; GUI.color = color; GUI.DrawTexture(new Rect(at.x - 8, at.y - 23, 16, 23), disc); GUI.color = before;
+            float scale=SpatialSpriteScale(tw);if(!SpatialDrawVisible(new Rect(at.x-65,at.y-49*scale,170,60*scale)))return;
+            Color before = GUI.color; GUI.color = color; GUI.DrawTexture(new Rect(at.x - 8*scale, at.y - 23*scale, 16*scale, 23*scale), disc); GUI.color = before;
             GUI.Label(new Rect(at.x - 65, at.y - 49, 170, 25), name, smallStyle);
         }
 
         void ProofStep()
         {
             double now = clock.Elapsed.TotalSeconds;
-            if (now > 120) { FinishProof(false, "proof timeout, phase=" + proofPhase + ", status=" + message); return; }
+            if (verifySdk) SdkProofDiagnostics(now);
+            if (verifyPainted) PaintedProofDiagnostics(now);
+            if (now > (verifyLife ? 420 : 120)) { FinishProof(false, "proof timeout, phase=" + proofPhase + ", status=" + message); return; }
             if (!connected || state == null || !string.IsNullOrEmpty(busy)) return;
+            if (verifySdk) { SdkProofStep(now); return; }
+            if (verifyPainted) { PaintedProofStep(now); return; }
+            if (verifyLife) { LifeProofStep(now); return; }
+            if (verifyInventory) { InventoryProofStep(); return; }
             if (verifyCapture) { CaptureProofStep(now); return; }
             switch (proofPhase)
             {
@@ -519,14 +851,18 @@ namespace AngelsDemons.Poc
             string json = "{\"pass\":" + (ok ? "true" : "false") + ",\"detail\":\"" + detail.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", " ").Replace("\r", " ") + "\",\"saved_tick\":" + savedTick + ",\"final_tick\":" + (state == null ? 0 : state.Tick) + ",\"low_fps_observed\":" + proofLowFps.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + ",\"high_fps_observed\":" + measuredFps.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + ",\"server_hz\":" + (state == null ? "0" : state.ServerTickHz.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)) + ",\"content_hash\":\"" + resource.content_hash + "\"}";
             if (latencyJSON.EndsWith("]")) json = json.Substring(0, json.Length - 1) + ",\"input_latency\":" + latencyJSON + "}";
             if (verifyCapture) json = json.Substring(0, json.Length - 1) + ",\"capture_demo\":" + CaptureReportJSON() + "}";
+            if (verifySdk) json=json.Substring(0,json.Length-1)+",\"sdk\":"+SdkReportJSON()+"}";
+            if (verifyLife) json = json.Substring(0,json.Length-1) + ",\"life\":" + LifeReportJSON() + "}";
+            if (verifyPainted) json=json.Substring(0,json.Length-1)+",\"painted\":"+PaintedProofReportJSON()+"}";
             File.WriteAllText(Path.Combine(destination, "report.json"), json);
             Debug.Log("POC_PROOF " + json); closing = true;
             if (!Application.isBatchMode) StartCoroutine(CaptureAndExit(ok, destination)); else ExitProof(ok);
         }
         string ProofDirectory()
         {
+            if (verifyPainted) return paintedProofDirectory;
             string result = Environment.GetEnvironmentVariable("ANG_POC_VERIFY_DIR");
-            return string.IsNullOrEmpty(result) ? Path.GetDirectoryName(dataDirectory) : result;
+            return string.IsNullOrEmpty(result) ? (verifySdk?Path.Combine(root,".local/sdk-visual"):Path.GetDirectoryName(dataDirectory)) : result;
         }
         IEnumerator CaptureAndExit(bool ok, string destination)
         {

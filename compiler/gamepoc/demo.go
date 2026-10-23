@@ -30,6 +30,7 @@ type Monitoring struct {
 }
 
 type DemoConfig struct {
+	TargetActor              string                `json:"target_actor"`
 	TestHook                 TestHook              `json:"test_hook"`
 	HeroAction               HeroAction            `json:"hero_action"`
 	Monitoring               Monitoring            `json:"monitoring"`

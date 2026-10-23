@@ -3,14 +3,38 @@ package poc
 
 import (
  "testing"
+ "fmt"
+ "angelsdemons/server/internal/behavior"
  pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
 )
 func demoFixture(t *testing.T)*Runtime{
  t.Helper();r,err:=New(t.TempDir(),"token");if err!=nil{t.Fatal(err)}
- r.state.Active=true;r.state.Player=r.world.Spawn;r.initDemo("test_hook");return r
+ // This fixture keeps the original no-center dispatch/replacement scenario.
+ r.world.Inventory.IssuePoints=nil;r.state.Active=true;r.state.Player=r.world.Spawn;r.initDemo("test_hook");return r
 }
 func selectedDemo(r *Runtime)int{n:=0;for _,c:=range r.state.Demo.Candidates{if c.Selected{n++}};return n}
-func assertDemoNoOverlap(t *testing.T,r *Runtime){t.Helper();positions:=map[point]bool{};for _,a:=range r.state.Demo.Agents{if positions[a.Position]{t.Fatalf("NPC overlap at tick %d: %+v",r.state.Tick,a.Position)};positions[a.Position]=true}}
+// Every physical actor, including spectators and the hero, owns one cell.
+// Custody currently represents the carried subject at its carrier's cell.
+func sceneOccupancyError(r *Runtime)error{
+ positions:=map[point][]string{r.state.Player:{playerActorID}};ids:=map[string]bool{playerActorID:true};d:=r.state.Demo
+ for _,a:=range r.sceneActors(){if ids[a.ID]{return fmt.Errorf("duplicate actor %s",a.ID)};ids[a.ID]=true
+  for _,other:=range positions[a.Position]{carried:=d.Captured&&d.CarrierID!=""&&((a.ID==d.CarrierID&&other==r.missionActor())||(other==d.CarrierID&&a.ID==r.missionActor()));if !carried{return fmt.Errorf("overlap at tick %d cell %v: %s and %s phase=%s",r.state.Tick,a.Position,other,a.ID,d.Squad.Phase)}}
+  positions[a.Position]=append(positions[a.Position],a.ID)
+ };return nil
+}
+func assertDemoNoOverlap(t *testing.T,r *Runtime){t.Helper();if err:=sceneOccupancyError(r);err!=nil{t.Fatal(err)}}
+// Position variation is fixture setup, not an in-game teleport onto another actor.
+func placeHeroForScenario(r *Runtime,at point){
+ r.state.Player=at
+ for _,a:=range r.sceneActors(){if a.Position!=at{continue};for _,d:=range []point{{1,0},{0,1},{-1,0},{0,-1}}{p:=point{at.X+d.X,at.Y+d.Y};if r.walkable(p)&&!r.sceneOccupied(p,a.ID){a.Position=p;a.Goal=p;a.Path=nil;break}}}
+}
+func TestOccupancyGuardIncludesSpectatorsHeroAndOnlyTheCarriedPair(t *testing.T){
+ r:=demoFixture(t);assertDemoNoOverlap(t,r);resident:=&r.state.Demo.Residents[0];resident.Position=r.state.Demo.Agents[0].Position;if sceneOccupancyError(r)==nil{t.Fatal("spectator/guard collision was ignored")}
+ resident.Position=r.state.Player;if sceneOccupancyError(r)==nil{t.Fatal("spectator/hero collision was ignored")}
+ resident.Position=point{5,7};carrier:=&r.state.Demo.Agents[0];r.state.Demo.Captured=true;r.state.Demo.CarrierID=carrier.ID;carrier.Position=r.state.Player;assertDemoNoOverlap(t,r)
+ r.state.Demo.Agents[1].Position=r.state.Player;if sceneOccupancyError(r)==nil{t.Fatal("custody exemption also admitted a third actor")}
+}
+
 func TestNPCInboxFreezeDecisionAndReplacement(t *testing.T){
  r:=demoFixture(t);cfg:=r.world.Config.CaptureDemo
  due:=cfg.TestHook.CallAtSeconds*int64(r.world.Config.TickHz)
@@ -30,8 +54,9 @@ func TestNPCInboxFreezeDecisionAndReplacement(t *testing.T){
  if d.Candidates[3].Distance<=d.Candidates[1].Distance{t.Fatal("replacement is not farther away")}
  for i:=0;i<300&&!d.Captured;i++{r.step();assertDemoNoOverlap(t,r)}
  if !d.Captured||selectedDemo(r)!=3||!d.Candidates[3].Selected||d.Candidates[4].Requested{t.Fatalf("capture/replacement failed: %+v",d)}
- cells:=map[point]bool{}
- for _,c:=range d.Candidates{if !c.Selected{continue};a:=d.Agents[r.demoAgentIndex(c.AgentID)];if cells[a.Position]||manhattan(a.Position,r.state.Player)!=1||a.Role==""{t.Fatal("NPCs did not cooperate on distinct approaches")};cells[a.Position]=true}
+ cells:=map[point]bool{};contacts:=0
+ for _,c:=range d.Candidates{if !c.Selected{continue};a:=d.Agents[r.demoAgentIndex(c.AgentID)];distance:=manhattan(a.Position,r.state.Player);if cells[a.Position]||distance<1||distance>r.world.Inventory.Preparation.SupportDistance||cell(a.Position)!=d.Squad.ContactGoals[a.ID]||a.Role==""{t.Fatal("NPCs did not cooperate on distinct reserved approaches")};if distance==1{contacts++};cells[a.Position]=true}
+ if contacts<r.world.Inventory.Preparation.MinContactMembers{t.Fatal("not enough physical contact members for capture")}
  c:=&connection{out:make(chan *pb.ServerMessage,8),stop:make(chan struct{})}
  r.move(c,&pb.MoveTo{X:3,Y:2,Epoch:r.state.Epoch,InputSeq:1})
  if (<-c.out).GetMoveResult().Ok{t.Fatal("captured hero can move")}
@@ -67,11 +92,79 @@ func TestCaptureTeamReplansForMovingHero(t *testing.T){
  // A new authoritative position simulates movement after the network call.
  r.state.Player=point{8,2}
  for i:=0;i<400&&!r.state.Demo.Captured;i++{r.step();assertDemoNoOverlap(t,r)}
- if !r.state.Demo.Captured||r.state.Demo.Call!=originalCall{t.Fatalf("moving target failed tick=%d squad=%+v agents=%+v",r.state.Tick,r.state.Demo.Squad,r.state.Demo.Agents)}
+ if !r.state.Demo.Captured||r.state.Demo.Call!=originalCall{t.Logf("residents=%+v events=%v",r.state.Demo.Residents,r.state.Demo.Events);t.Fatalf("moving target failed tick=%d squad=%+v agents=%+v",r.state.Tick,r.state.Demo.Squad,r.state.Demo.Agents)}
 }
 func TestCaptureStateIsIndependentOfClient(t *testing.T){
  r:=demoFixture(t)
  if r.client!=nil{t.Fatal("fixture has a client")}
  for i:=0;i<500&&!r.state.Demo.Captured;i++{r.step()}
  if !r.state.Demo.Captured{t.Fatal("NPC behavior depended on Unity")}
+}
+
+func TestNPCsCompetingForOneCellNeverStack(t *testing.T){
+ for _,resident:=range []bool{false,true}{t.Run(fmt.Sprintf("resident_%t",resident),func(t *testing.T){
+  r:=demoFixture(t);r.state.Tick=3;first:=&r.state.Demo.Agents[0];first.Position=point{8,7};first.Goal=point{9,7};first.Path=[]point{{9,7}};first.Task="approaching";first.MoveStartNS=0
+  second:=&r.state.Demo.Agents[1];if resident{second=&r.state.Demo.Residents[0]};second.Position=point{10,7};second.Goal=point{9,7};second.Path=[]point{{9,7}};second.Task="approaching";second.MoveStartNS=0
+  assertDemoNoOverlap(t,r);r.advanceAgent(0);assertDemoNoOverlap(t,r)
+  if resident{r.advanceResident(second)}else{r.advanceAgent(1)};assertDemoNoOverlap(t,r)
+  if first.Position!=(point{9,7})||second.Position!=(point{10,7}){t.Fatal("the cell was not reserved by the first physical entrant")}
+ })}
+}
+
+func TestNPCPresentationStopsAtOccupiedAndContestedCells(t *testing.T){
+ for _,occupied:=range []bool{false,true}{t.Run(fmt.Sprintf("occupied_%t",occupied),func(t *testing.T){
+  r:=demoFixture(t);first,second:=&r.state.Demo.Agents[0],&r.state.Demo.Agents[1];first.Position=point{8,7};first.Path=[]point{{9,7},{10,7},{11,7}};first.Task="approaching"
+  second.Position=point{10,7};second.Path=[]point{{9,7},{8,7}};second.Task="approaching";if occupied{second.Position=point{9,7};second.Path=nil}
+  before:=stateDigest(t,r.snapshotState());msg:=&pb.PocGameState{PlayerX:int32(r.state.Player.X),PlayerY:int32(r.state.Player.Y)};r.appendDemo(msg)
+  if before!=stateDigest(t,r.snapshotState()){t.Fatal("presentation changed world routes")}
+  a,b:=msg.DemoAgents[0],msg.DemoAgents[1]
+  if occupied{if len(a.Path)!=0||!a.MotionPaused{t.Fatal("client was allowed to render into an occupied cell")}}else{if len(a.Path)!=1||len(b.Path)!=0||!b.MotionPaused{t.Fatal("client received multiple future segments or two previews into one cell")}}
+ })}
+}
+
+func assertNPCProjectionIsPureAndExclusive(t *testing.T,r *Runtime){
+ t.Helper();before:=stateDigest(t,r.snapshotState());msg:=&pb.PocGameState{PlayerX:int32(r.state.Player.X),PlayerY:int32(r.state.Player.Y)};r.appendDemo(msg)
+ if stateDigest(t,r.snapshotState())!=before{t.Fatal("building NPC motion changed authoritative world state")}
+ endpoints:=map[point]string{}
+ for _,a:=range append(msg.DemoAgents,msg.SceneAgents...){if len(a.Path)>1{t.Fatal("NPC received speculative future route")};if len(a.Path)==0{continue};at:=point{int(a.Path[0].X),int(a.Path[0].Y)};if other:=endpoints[at];other!=""{t.Fatalf("two NPC presentation steps share %v: %s and %s",at,other,a.Id)};if r.sceneOccupied(at,a.Id){vacated:=false;for _,other:=range append(msg.DemoAgents,msg.SceneAgents...){if int(other.X)==at.X&&int(other.Y)==at.Y&&len(other.Path)>0&&other.MotionStartNs==a.MotionStartNs&&(other.Path[0].X!=a.X||other.Path[0].Y!=a.Y){vacated=true}};if !vacated{t.Fatalf("presentation steps into stationary occupied cell %v",at)}};endpoints[at]=a.Id}
+}
+
+func TestGroupMovementCommitsThreeCompatibleStepsTogether(t *testing.T){
+ r:=demoFixture(t);d:=&r.state.Demo;d.Issued=true;d.IssuedTick=1;d.CallObservedTick=1;d.Squad.Phase="approaching";d.Squad.Target=behavior.Cell{X:17,Y:1};r.state.Tick=3
+ for i:=0;i<3;i++{a:=&d.Agents[i];a.Position=point{8+i,7};a.Goal=point{9+i,7};a.Path=[]point{a.Goal};a.Task="approaching";a.MoveStartNS=0;d.Candidates=append(d.Candidates,demoCandidate{AgentID:a.ID,Selected:true,Requested:true})}
+ assertNPCProjectionIsPureAndExclusive(t,r);r.advanceGroupMovement();assertDemoNoOverlap(t,r)
+ for i:=0;i<3;i++{a:=d.Agents[i];if a.Position!=(point{9+i,7})||a.MoveStartNS!=r.agentDurationNS(){t.Fatalf("member did not advance on shared tick: %+v",a)}}
+}
+
+func TestQuietMovementKeepsAcceptedRouteAndClock(t *testing.T){
+ r:=demoFixture(t);a:=&r.state.Demo.Agents[0];a.Position=point{7,7};a.Goal=point{11,7};a.Task="patrol";a.Path=[]point{{8,7},{9,7},{10,7},{11,7}};a.MoveStartNS=0
+ for tick:=int64(1);tick<=12;tick++{r.state.Tick=tick;before:=a.MoveStartNS;r.applySocialOrder(a,behavior.Order{ActorID:a.ID,Goal:cell(a.Goal),Mode:"patrol"},behavior.Cell{});if a.MoveStartNS!=before{t.Fatal("routine monitoring restarted movement clock")};r.advanceAgent(0);if a.Task=="considering"{t.Fatal("walking without an event entered consideration")}}
+ if a.Position!=(point{11,7}){t.Fatalf("free route acquired artificial pauses: %v",a.Position)}
+}
+
+func TestNextTravelLegKeepsEveryAcceptedStepAndItsClock(t *testing.T){
+ r:=demoFixture(t);a:=&r.state.Demo.Agents[0];a.Position=point{7,7};a.Goal=point{10,7};a.Task="approaching";a.Path=[]point{{8,7},{9,7},{10,7}};a.MoveStartNS=123;r.state.Tick=1
+ r.applySocialOrder(a,behavior.Order{ActorID:a.ID,Goal:behavior.Cell{X:13,Y:7},Mode:"approaching",Via:behavior.Cell{X:10,Y:7},HasVia:true},behavior.Cell{X:17,Y:7})
+ if a.MoveStartNS!=123||len(a.Path)<4||a.Path[0]!=(point{8,7})||a.Path[1]!=(point{9,7})||a.Path[2]!=(point{10,7}){t.Fatalf("monitoring cut or restarted the accepted route: %+v",a)}
+}
+
+func TestJointRoutePlanningDoesNotRejectAValidMovingColumn(t *testing.T){
+ r:=demoFixture(t);d:=&r.state.Demo;d.Issued=true;d.TeamReady=true;d.Squad.Phase="approaching";d.Squad.Target=behavior.Cell{X:10,Y:1};r.state.Player=point{10,1};r.state.Tick=0;r.world.AI.Policy.Group.CohesionDistance=2
+ d.Candidates=nil
+ for i:=0;i<3;i++{a:=&d.Agents[i];a.Position=point{6-i,1};a.Path=nil;a.Task="approaching";a.Goal=a.Position;a.YieldUntil=0;d.Candidates=append(d.Candidates,demoCandidate{AgentID:a.ID,Selected:true})}
+ for i:=0;i<3;i++{a:=&d.Agents[i];goal:=behavior.Cell{X:a.Position.X+1,Y:1};r.applySocialOrder(a,behavior.Order{ActorID:a.ID,Goal:goal,Mode:"approaching",MinTargetDistance:2},d.Squad.Target);if len(a.Path)==0||a.Path[0]!=location(goal){t.Fatalf("column path waited for stationary teammates: %s %v",a.ID,a.Path)}}
+ r.state.Tick=r.world.Config.CaptureDemo.MoveEveryTicks;r.advanceGroupMovement()
+ for i:=0;i<3;i++{if d.Agents[i].Position!=(point{7-i,1}){t.Fatalf("valid atomic column did not advance: %+v",d.Agents[i])}}
+ assertDemoNoOverlap(t,r)
+}
+
+func TestStationaryTeammatesExchangeSlotsOnFirstBlockedStep(t *testing.T){
+ r:=demoFixture(t);d:=&r.state.Demo;d.Issued=true;d.TeamReady=true;d.Squad.Phase="approaching";d.Squad.Target=behavior.Cell{X:11,Y:1};r.state.Player=point{11,1};r.state.Tick=10;d.Candidates=nil
+ a,b:=&d.Agents[0],&d.Agents[1];a.Position=point{6,1};a.Goal=point{8,1};a.Path=[]point{{7,1},{8,1}};a.Task="approaching";b.Position=point{7,1};b.Goal=b.Position;b.Path=nil;b.Task="approaching"
+ d.Candidates=[]demoCandidate{{AgentID:a.ID,Selected:true},{AgentID:b.ID,Selected:true}}
+ d.Squad.StageGoals=map[string]behavior.Cell{a.ID:cell(a.Goal),b.ID:cell(b.Goal)};d.Squad.ContactGoals=map[string]behavior.Cell{a.ID:{X:9,Y:1},b.ID:{X:9,Y:2}}
+ r.sceneBlocked(a,b.Position)
+ if d.Squad.StageGoals[a.ID]!=cell(b.Position)||d.Squad.StageGoals[b.ID]!=(behavior.Cell{X:8,Y:1}){t.Fatal("known slot conflict waited for repeated failures")}
+ if a.Position!=(point{6,1})||b.Position!=(point{7,1}){t.Fatal("slot reassignment moved an actor without a physical step")}
+ if len(a.Path)>0||len(b.Path)>0{t.Fatal("old routes survived slot exchange")}
 }

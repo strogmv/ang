@@ -3,6 +3,7 @@ package poc
 
 import (
  "angelsdemons/server/internal/behavior"
+ inv "angelsdemons/server/internal/inventory"
  "context"
  "crypto/rand"
  "crypto/sha256"
@@ -30,6 +31,8 @@ var compiledJSON []byte
 type point struct{X,Y int}
 type actor struct{ID,Name,Faction string;Position point;Vectors []string}
 type configuration struct{
+ DebugPerception bool `json:"debug_perception"`
+ LevelID string `json:"level_id"`
  CaptureDemo demoPolicy `json:"capture_demo"`
  SchedulerHz int `json:"scheduler_hz"`
  TickHz int `json:"tick_hz"`
@@ -46,7 +49,12 @@ type configuration struct{
 type psycheTable struct{ Law behavior.PsycheLaw `json:"law"`; Actors map[string]behavior.Psyche `json:"actors"` }
 type sceneCamera struct{ ID string `json:"id"`; Position point `json:"position"`; Range int `json:"range_cells"`; Online bool `json:"online"` }
 type sceneData struct{ Cameras []sceneCamera `json:"cameras"`; AmbientNoise int `json:"ambient_noise"`; TileNoise map[string]int `json:"tile_noise"` }
-type worldData struct{
+type visibilityPolicy struct {PlayerRange int `json:"player_range_cells"`; HearingSound string `json:"debug_hearing_sound"`}
+type worldData struct{PaintedInventoryAnchors map[string]map[string]inv.Cell `json:"painted_inventory_anchors"`;
+ Life behavior.LifeModel `json:"life"`
+ Visibility visibilityPolicy `json:"visibility"`
+ Opaque map[string]bool `json:"opaque"`
+ Inventory inv.Model `json:"inventory"`
  AI behavior.Program `json:"ai"`
  Psyche psycheTable `json:"psyche"`
  Scene sceneData `json:"scene"`
@@ -59,6 +67,12 @@ type worldData struct{
  Entities []actor `json:"entities"`
 }
 type state struct{
+ Life behavior.LifeState
+ LifeExploration map[string]map[int]seenCell
+ Exploration map[string]map[int]seenCell
+ HeroHearing behavior.Memory
+ Poses map[string]actorPose
+ Inventory inv.State
  Demo demoState
  Active bool
  Epoch string
@@ -85,6 +99,7 @@ type diskResult struct{job diskJob;loaded state;err error;slots []*pb.PocSaveSlo
 type receipt struct{digest [32]byte;result *pb.PocActionResult}
 
 type Runtime struct{
+ openStore string
  pb.UnimplementedGameServiceServer
  world worldData
  state state
@@ -105,9 +120,12 @@ type Runtime struct{
 func New(data,token string)(*Runtime,error){
  r:=&Runtime{data:data,token:token,receipts:map[string]*receipt{},started:time.Now()}
  if err:=json.Unmarshal(compiledJSON,&r.world);err!=nil{return nil,err}
+ r.world.Life.Walkable=r.world.Walkable
+ if len(r.world.Life.Actors)>0{if err:=r.world.Life.Validate();err!=nil{return nil,err};for id,l:=range r.world.Life.Locations{r.world.Inventory.Levels[id]=inv.Cell{X:len(l.Terrain[0]),Y:len(l.Terrain)}}}
  if err:=os.MkdirAll(data,0700);err!=nil{return nil,err}
  r.input=make(chan input,r.world.Config.QueueCapacity);r.jobs=make(chan diskJob,16);r.done=make(chan diskResult,16)
- r.state=state{Epoch:newEpoch(),Speed:1}
+ initialItems,err:=inv.New(r.world.Inventory,r.world.Config.Seed);if err!=nil{return nil,err}
+ r.state=state{Epoch:newEpoch(),Speed:1,Inventory:initialItems}
  return r,nil
 }
 func newEpoch()string{var b [16]byte;if _,err:=rand.Read(b[:]);err!=nil{panic(err)};return hex.EncodeToString(b[:])}
@@ -177,22 +195,25 @@ func(r *Runtime) simNS()int64{
 }
 func(r *Runtime) moveDurationNS()int64{return int64(time.Second)/int64(r.world.Config.TickHz)*r.world.Config.MoveEveryTicks}
 func(r *Runtime) step(){
- if !r.state.Active || r.state.Paused{return};r.state.Tick++
+ defer r.updateExploration()
+ if !r.state.Active || r.state.Paused{return};r.state.Tick++;if err:=r.state.Inventory.Advance(r.state.Tick);err!=nil{panic(err)}
+ if r.state.Life.Enabled{if err:=r.lifeStep();err!=nil{r.stopPopulation(err)};return}
  now:=r.state.Tick*(int64(time.Second)/int64(r.world.Config.TickHz))
  for len(r.state.Path)>0&&now>=r.state.MoveStartNS+r.moveDurationNS(){
   blocked:=false;for _,a:=range r.sceneActors(){if a.Position==r.state.Path[0]{blocked=true;break}}
   if blocked{r.state.MoveStartNS+=r.tickNS();break}
-  r.state.Player=r.state.Path[0];r.state.Path=r.state.Path[1:];r.state.MoveStartNS+=r.moveDurationNS()
+  r.setActorFacing(playerActorID,r.state.Player,r.state.Path[0]);r.state.Player=r.state.Path[0];r.state.Path=r.state.Path[1:];r.state.MoveStartNS+=r.moveDurationNS()
  }
  r.demoStep()
 }
 func(r *Runtime) move(c *connection,m *pb.MoveTo){
+ if r.state.Life.Enabled{r.lifeMove(c,m);return}
  result:=&pb.PocMoveResult{Epoch:r.state.Epoch,InputSeq:m.InputSeq}
  switch{
  case m.Epoch!=r.state.Epoch:result.Reason="Мир изменился. Повторите команду"
  case m.InputSeq==0||m.InputSeq<=c.lastMoveSeq:result.Reason="Устаревшая команда движения"
- case r.state.Demo.Enabled&&!r.state.Demo.TargetAlive:result.Reason="Герой погиб"
- case r.state.Demo.Captured:result.Reason="Герой захвачен"
+ case r.missionActor()==playerActorID&&r.state.Demo.Enabled&&!r.state.Demo.TargetAlive:result.Reason="Герой погиб"
+ case r.missionActor()==playerActorID&&r.state.Demo.Captured:result.Reason="Герой захвачен"
  case !r.state.Active:result.Reason="Сначала начните игру"
  case r.state.Paused:result.Reason="Мир на паузе"
  default:
@@ -215,13 +236,15 @@ func(r *Runtime) move(c *connection,m *pb.MoveTo){
 func(r *Runtime) close(c *connection){if !c.closed{c.closed=true;close(c.stop)}}
 func(r *Runtime) send(c *connection,m *pb.ServerMessage){if c==nil||c.closed{return};select{case c.out<-m:default:r.close(c)}}
 func(r *Runtime) sendState(c *connection){
+ if r.state.Life.Enabled{r.sendLifeState(c);return}
  s:=r.state;msg:=&pb.PocGameState{Epoch:s.Epoch,Tick:s.Tick,GameSeconds:s.Tick*r.world.Config.GameSecondsPerTick,Seed:s.Seed,Paused:s.Paused,Speed:s.Speed,PlayerX:int32(s.Player.X),PlayerY:int32(s.Player.Y),PlayerName:s.PlayerName,Width:int32(len(r.world.Terrain[0])),Height:int32(len(r.world.Terrain)),Terrain:r.world.Terrain,Active:s.Active,ContentHash:r.world.ContentHash}
- r.appendDemo(msg)
+ r.appendDemo(msg);r.appendInventory(msg)
  msg.SimTimeNs=r.simNS();msg.MotionStartNs=s.MoveStartNS;msg.MovementStepNs=r.moveDurationNS();msg.LastMoveSeq=s.LastMoveSeq
  for _,p:=range s.Path{msg.Path=append(msg.Path,&pb.PocPoint{X:int32(p.X),Y:int32(p.Y)})}
  r.appendMissionMotion(msg)
  msg.ServerTickHz=r.tickHz;msg.ServerStepUs=r.stepUS;msg.ServerUptimeMs=time.Since(r.started).Milliseconds();msg.ServerLagMs=r.lagMS
  if len(s.Demo.Residents)==0{for _,e:=range r.world.Entities{msg.Entities=append(msg.Entities,&pb.Entity{Id:e.ID,Name:e.Name,Kind:"npc",FactionId:e.Faction,X:int32(e.Position.X),Y:int32(e.Position.Y)})}}
+ r.appendPerception(msg)
  r.send(c,&pb.ServerMessage{Msg:&pb.ServerMessage_GameState{GameState:msg}})
 }
 func(r *Runtime) action(c *connection,id,action,slot string,err error){
@@ -234,9 +257,11 @@ func(r *Runtime) command(in input){
  m,c:=in.msg,in.client
  if p:=m.GetPing();p!=nil{r.send(c,&pb.ServerMessage{Msg:&pb.ServerMessage_Pong{Pong:&pb.Pong{ClientTimeMs:p.ClientTimeMs,ServerTimeMs:time.Now().UnixMilli()}}});return}
  if m.GetListSaves()!=nil{r.queueDisk(diskJob{client:c,action:"list"});return}
+ if q:=m.GetInventoryCommand();q!=nil{r.inventoryCommand(c,q);return}
  if move:=m.GetMoveTo();move!=nil{r.move(c,move);return}
  var id,action,epoch,slot string
  switch{
+ case m.GetLifeCommand()!=nil:v:=m.GetLifeCommand();id,action,epoch=v.RequestId,"life",v.Epoch
  case m.GetNewGame()!=nil:v:=m.GetNewGame();id,action,epoch=v.RequestId,"new",v.Epoch
  case m.GetSaveGame()!=nil:v:=m.GetSaveGame();id,action,epoch,slot=v.RequestId,"save",v.Epoch,v.Slot
  case m.GetLoadGame()!=nil:v:=m.GetLoadGame();id,action,epoch,slot=v.RequestId,"load",v.Epoch,v.Slot
@@ -250,10 +275,14 @@ func(r *Runtime) command(in input){
  if len(r.receipts)>=4096{r.action(c,id,action,slot,errors.New("request limit; restart host after saving"));return}
  r.receipts[id]=&receipt{digest:digest}
  switch action{
+ case "life":err:=r.lifeCommand(m.GetLifeCommand());r.action(c,id,action,slot,err);r.sendState(c)
  case "new":v:=m.GetNewGame();seed:=v.Seed;if seed==0{seed=r.world.Config.Seed};name:=v.PlayerName;if name==""{name="Герой"};if len(name)>128{r.action(c,id,action,slot,errors.New("player name too long"));return}
-  r.state=state{Active:true,Epoch:newEpoch(),Seed:seed,PlayerName:name,Player:r.world.Spawn,Speed:1};scenario:=v.Scenario;if scenario==""&&!v.RunCaptureDemo{scenario="none"};r.initDemo(scenario);r.action(c,id,action,slot,nil);r.sendState(c)
- case "options":v:=m.GetGameOptions();if v.Speed!=1&&v.Speed!=3&&v.Speed!=10{r.action(c,id,action,slot,errors.New("unsupported speed"));return};r.state.Paused=v.Paused;r.state.Speed=v.Speed;r.action(c,id,action,slot,nil);r.sendState(c)
- case "save","load":if action=="save"&&!r.state.Active{r.action(c,id,action,slot,errors.New("start a game first"));return};if !r.validSlot(slot){r.action(c,id,action,slot,errors.New("unknown save slot"));return};copyState:=r.snapshotState();r.queueDisk(diskJob{client:c,id:id,action:action,slot:slot,epoch:epoch,state:copyState})
+  scenario:=v.Scenario;if scenario==""&&!v.RunCaptureDemo{scenario="none"};count,isLife:=lifeScenarioPopulation(scenario)
+  items,err:=inv.New(r.inventoryModelFor(isLife),seed);if err!=nil{r.action(c,id,action,slot,err);return};r.openStore=""
+  var life behavior.LifeState;if isLife{life,err=r.world.Life.StartWithPopulation(count,playerActorID);if err!=nil{r.action(c,id,action,slot,err);return}}
+  r.state=state{Inventory:items,Active:true,Epoch:newEpoch(),Seed:seed,PlayerName:name,Player:r.world.Spawn,Speed:1};if isLife{r.initLifeState(life)}else{r.initDemo(scenario)};r.updateExploration();r.action(c,id,action,slot,nil);r.sendState(c)
+ case "options":v:=m.GetGameOptions();if r.state.Life.PopulationFailure!=""&&!v.Paused{r.action(c,id,action,slot,errors.New("Симуляция остановлена после ошибки населения; загрузите сохранение или начните заново"));return};if r.state.Life.Enabled&&v.Speed!=1{r.action(c,id,action,slot,errors.New("В режиме жизни меняйте масштаб календаря"));return};if v.Speed!=1&&v.Speed!=3&&v.Speed!=10{r.action(c,id,action,slot,errors.New("unsupported speed"));return};r.state.Paused=v.Paused;r.state.Speed=v.Speed;r.action(c,id,action,slot,nil);r.sendState(c)
+ case "save","load":if action=="save"&&r.state.Life.PopulationFailure!=""{r.action(c,id,action,slot,errors.New("Нельзя сохранять остановленную после ошибки симуляцию"));return};if action=="save"&&!r.state.Active{r.action(c,id,action,slot,errors.New("start a game first"));return};if !r.validSlot(slot){r.action(c,id,action,slot,errors.New("unknown save slot"));return};copyState:=r.snapshotState();r.queueDisk(diskJob{client:c,id:id,action:action,slot:slot,epoch:epoch,state:copyState})
  }
 }
 func(r *Runtime) queueDisk(j diskJob){select{case r.jobs<-j:default:r.action(j.client,j.id,j.action,j.slot,errors.New("storage busy; retry"))}}
@@ -268,6 +297,7 @@ func(r *Runtime) diskComplete(result diskResult){
 func(r *Runtime) validSlot(s string)bool{for _,slot:=range r.world.Config.SaveSlots{if slot==s{return true}};return false}
 func(r *Runtime) writeSave(slot string,s state)error{
  if !r.validSlot(slot){return errors.New("unknown save slot")}
+ if s.Life.PopulationFailure!=""{return errors.New("cannot save failed population simulation")}
  b,err:=json.Marshal(s);if err!=nil{return err};sum:=sha256.Sum256(b)
  data,err:=json.Marshal(saveFile{Version:r.world.Config.SaveVersion,ContentHash:r.world.ContentHash,Checksum:hex.EncodeToString(sum[:]),CreatedUnixMS:time.Now().UnixMilli(),State:b});if err!=nil{return err}
  if int64(len(data))>r.world.Config.MaxSaveBytes{return errors.New("save too large")}
@@ -284,12 +314,15 @@ func(r *Runtime) readSave(slot string)(state,int64,error){
  if envelope.Version!=r.world.Config.SaveVersion||envelope.ContentHash!=r.world.ContentHash{return s,0,errors.New("incompatible save version or content")}
  sum:=sha256.Sum256(envelope.State);if envelope.Checksum!=hex.EncodeToString(sum[:]){return s,0,errors.New("save checksum mismatch")}
  if err=json.Unmarshal(envelope.State,&s);err!=nil{return s,0,err}
+ if s.Life.Enabled{if err:=r.validateLifeSave(s);err!=nil{return s,0,err};return s,envelope.CreatedUnixMS,nil}
  if !s.Active||s.Tick<0||s.Tick>(int64(^uint64(0)>>1)/int64(time.Second))-1||!r.walkable(s.Player)||(s.Speed!=1&&s.Speed!=3&&s.Speed!=10)||len(s.PlayerName)>128{return s,0,errors.New("invalid save state")}
  if s.PhaseNS<0||s.PhaseNS>=int64(time.Second)/int64(r.world.Config.TickHz)||s.MoveStartNS<0||len(s.Path)>len(r.world.Terrain)*len(r.world.Terrain[0]){return s,0,errors.New("invalid motion state")}
  now:=s.Tick*(int64(time.Second)/int64(r.world.Config.TickHz))+s.PhaseNS
  if len(s.Path)>0&&(s.MoveStartNS>now||now-s.MoveStartNS>=r.moveDurationNS()+int64(time.Second)/int64(r.world.Config.TickHz)){return s,0,errors.New("invalid motion time")}
  previous:=s.Player
  for _,p:=range s.Path{dx,dy:=p.X-previous.X,p.Y-previous.Y;if dx<0{dx=-dx};if dy<0{dy=-dy};if !r.walkable(p)||dx+dy!=1{return s,0,errors.New("invalid saved route")};previous=p}
+ if err:=r.validateExploration(s);err!=nil{return s,0,err}
+ if err:=r.validateInventory(s);err!=nil{return s,0,err}
  if err:=r.validateDemoSave(s);err!=nil{return s,0,err}
  return s,envelope.CreatedUnixMS,nil
 }

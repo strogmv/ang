@@ -95,30 +95,67 @@ func(s *ReactionState) Decide(role Role,facts map[string]bool,tick int64,budget 
  s.Nodes=budget-left;s.EvaluatedTick=tick
 }
 
-type Member struct { ID string; Position Cell; Moving,Available bool; Vectors []string; DecisionWeight int }
+type Member struct {
+ Approach ApproachChoice
+ ID string; Position Cell; Moving,Available bool; Vectors []string; DecisionWeight int }
 type GroupPolicy struct {
+ LocalApproachRadius,MaxLocalRoute int
+ RollingWaypoints bool
  Required int
  HoldContact bool
+ HoldApproach bool
+ MinContactMembers,SupportDistance int
+ PreparingMinDistance,RallyDistanceWeight,MaxRallyDistance int
+ ContactSide Cell
  Standoff int `json:"standoff_distance_cells"`
  Cohesion int `json:"cohesion_distance_cells"`
  MaxSearchCells int `json:"max_search_cells"`
 }
+// TargetTrack keeps a received lead separate from navigation and supply destinations.
+// A place must actually be inspected empty before an unrefreshed lead becomes a search.
+type TargetTrack struct {
+ Known bool
+ Position Cell
+ Source string
+ ObservedTick,CheckedTick int64
+}
+func(t *TargetTrack) Observe(position Cell,source string,tick int64)bool{
+ if t.Known&&(tick<t.ObservedTick||(tick==t.ObservedTick&&position!=t.Position)){return false}
+ changed:=!t.Known||t.Position!=position||t.ObservedTick!=tick
+ if !t.Known||t.Position!=position{t.CheckedTick=0}
+ t.Known=true;t.Position=position;t.Source=source;t.ObservedTick=tick;return changed
+}
+func(t *TargetTrack) InspectEmpty(tick int64){if t.Known&&tick>=t.ObservedTick{t.CheckedTick=tick}}
+func(t TargetTrack) Pursue(tick,grace int64)bool{return t.Known&&(t.CheckedTick==0||t.CheckedTick<t.ObservedTick||tick-t.ObservedTick<=grace)}
 type GroupState struct {
+ Track TargetTrack
+ Search SearchState
+ LastSeenTick int64
+ HadSight bool
  ID,SubjectID,Phase,Reason,MemberKey string
  Target,Rally Cell
  RallyValid,Assembled bool
- RallyGoals,StageGoals,ContactGoals map[string]Cell
+ LocalApproach bool
+ Approaches map[string]ApproachChoice
+ RallyGoals,StageGoals,ContactGoals,TravelGoals map[string]Cell
  ReadyCount,Revision int
  CommitTick int64
 }
-type Order struct { ActorID,Mode string; Goal Cell; MinTargetDistance int }
+type Order struct { ActorID,Mode string; Goal Cell; MinTargetDistance int; Via Cell; HasVia bool }
 
 // Space is a bounded view of the authoritative server world. Its closures are
 // transient adapter operations; GroupState and ReactionState remain plain data.
 type Space struct {
+ ApproachBias bool
+ MaxFormationNodes int
+ MinContactMembers,SupportDistance int
+ PreparingMinDistance,RallyDistanceWeight,MaxRallyDistance int
+ ContactSide Cell
  Width,Height,MaxSearchCells int
  Walkable func(Cell)bool
  Blocked map[Cell]bool
+ // Resting bystanders keep their standing slots; a route may still request passage.
+ AvoidGoals map[Cell]bool
  Visible func(Cell,Cell)bool
  // Dynamic formation constraints apply to the next step. Future steps are
  // checked again as teammates move, rather than freezing their positions.
@@ -143,6 +180,32 @@ func(s Space) Path(from,to,target Cell,minDistance int)[]Cell {
  return nil
 }
 func(s Space) routeCost(from,to,target Cell,min int)(int,bool){path:=s.Path(from,to,target,min);return len(path),from==to||len(path)>0}
+// routeCosts evaluates a set of destinations with one bounded BFS. The frontier
+// order, escape rule and first-step constraint match Path. Results live only for
+// this planning invocation: no stale navigation cache survives moving obstacles.
+func(s Space) routeCosts(from Cell,goals []Cell,target Cell,minDistance int)map[Cell]int{
+ result:=make(map[Cell]int);wanted:=make(map[Cell]bool)
+ for _,to:=range goals{
+  if from==to{result[to]=0;continue}
+  if s.CanStand(to)&&Distance(to,target)>=minDistance{wanted[to]=true}
+ }
+ if len(wanted)==0{return result}
+ queue:=[]Cell{from};distance:=map[Cell]int{from:0}
+ limit:=s.MaxSearchCells;if limit<=0{limit=256}
+ for head:=0;head<len(queue)&&head<limit;head++{
+  at:=queue[head]
+  for _,d:=range cardinal{
+   next:=Cell{at.X+d.X,at.Y+d.Y}
+   if _,seen:=distance[next];seen||!s.CanStand(next)||(Distance(next,target)<minDistance&&Distance(next,target)<=Distance(at,target)){continue}
+   if at==from&&s.FirstStepAllowed!=nil&&!s.FirstStepAllowed(next){continue}
+   n:=distance[at]+1;distance[next]=n
+   if wanted[next]{result[next]=n;delete(wanted,next);if len(wanted)==0{return result}}
+   queue=append(queue,next)
+  }
+ }
+ return result
+}
+
 // Escape finds the nearest reachable cell at least wantDistance away from the threat,
 // or the farthest reachable cell within the bounded search. Breadth-first order and the
 // fixed cardinal order make the choice deterministic.
@@ -168,25 +231,26 @@ func(s Space) ChooseCompactSlots(center,target Cell,members []Member,minDistance
  cells:=[]Cell{center};for _,d:=range cardinal{cells=append(cells,Cell{center.X+d.X,center.Y+d.Y})}
  for _,m:=range members{
   found:=false;best:=1<<30;var goal Cell
-  for _,cell:=range cells{if reserved[cell]||!s.CanStand(cell)||Distance(cell,target)<minDistance||(s.RequireGoalView&&s.Visible!=nil&&!s.Visible(cell,target)){continue};cost,ok:=s.routeCost(m.Position,cell,target,minDistance);if ok&&cost<best{best=cost;goal=cell;found=true}}
+  for _,cell:=range cells{if reserved[cell]||s.AvoidGoals[cell]||!s.CanStand(cell)||Distance(cell,target)<minDistance||(s.RequireGoalView&&s.Visible!=nil&&!s.Visible(cell,target)){continue};cost,ok:=s.routeCost(m.Position,cell,target,minDistance);if ok&&cost<best{best=cost;goal=cell;found=true}}
   if !found{return nil,0,false};goals[m.ID]=goal;reserved[goal]=true;total+=best*decisionWeight(m)
  }
  return goals,total,true
 }
 func(s Space) Rally(target Cell,members []Member,minDistance int)(Cell,map[string]Cell,bool){
  best:=1<<30;var result Cell;var goals map[string]Cell
+ weight:=s.RallyDistanceWeight;if weight<1{weight=1}
  type candidate struct{cell Cell;cost int};var candidates []candidate
  // Small local stencil around the incident, not an unbounded world scan.
- radius:=minDistance+3
+ radius:=minDistance+3;if s.MaxRallyDistance>0&&s.MaxRallyDistance<radius{radius=s.MaxRallyDistance}
  for y:=target.Y-radius;y<=target.Y+radius;y++{for x:=target.X-radius;x<=target.X+radius;x++{
   cell:=Cell{x,y};distance:=Distance(cell,target);if distance<minDistance+1||distance>radius||!s.CanStand(cell)||(s.RequireGoalView&&s.Visible!=nil&&!s.Visible(cell,target)){continue}
-  cost:=distance;for _,m:=range members{cost+=Distance(m.Position,cell)*decisionWeight(m)};candidates=append(candidates,candidate{cell,cost})
+  cost:=distance*weight;for _,m:=range members{cost+=Distance(m.Position,cell)*decisionWeight(m)};candidates=append(candidates,candidate{cell,cost})
  }}
  sort.SliceStable(candidates,func(i,j int)bool{return candidates[i].cost<candidates[j].cost})
  // Bound expensive reachability checks to eight local candidates.
  if len(candidates)>8{candidates=candidates[:8]}
  for _,c:=range candidates{
-  cell:=c.cell;slots,cost,ok:=s.ChooseCompactSlots(cell,target,members,minDistance);if !ok{continue};cost+=Distance(cell,target)
+  cell:=c.cell;slots,cost,ok:=s.ChooseCompactSlots(cell,target,members,minDistance);if !ok{continue};cost+=Distance(cell,target)*weight
   if cost<best{best=cost;result=cell;goals=slots}
  }
  return result,goals,goals!=nil
@@ -194,6 +258,7 @@ func(s Space) Rally(target Cell,members []Member,minDistance int)(Cell,map[strin
 func(s Space) Staging(target Cell,members []Member,cohesion int)(map[string]Cell,map[string]Cell,bool){
  bestTotal:=1<<30;var bestStages,bestContacts map[string]Cell
  for _,side:=range cardinal{
+  if s.ContactSide!=(Cell{})&&s.ContactSide!=side{continue}
   perpendicular:=Cell{-side.Y,side.X}
   contacts:=[]Cell{{target.X+side.X,target.Y+side.Y},{target.X+perpendicular.X,target.Y+perpendicular.Y},{target.X-perpendicular.X,target.Y-perpendicular.Y},{target.X-side.X,target.Y-side.Y}}
   stages:=[]Cell{{target.X+2*side.X,target.Y+2*side.Y},{target.X+side.X+perpendicular.X,target.Y+side.Y+perpendicular.Y},{target.X+side.X-perpendicular.X,target.Y+side.Y-perpendicular.Y},{target.X-2*side.X,target.Y-2*side.Y}}
@@ -211,6 +276,9 @@ func(s Space) Staging(target Cell,members []Member,cohesion int)(map[string]Cell
    for j:=range stages{if used[j]||costs[index][j]>=1<<25{continue};used[j]=true;assignment[index]=j;choose(index+1,total+costs[index][j]);used[j]=false}
   };choose(0,0)
  }
+ alternativeStages,alternativeContacts,ok:=s.supportedStaging(target,members,cohesion)
+ if ok{cost:=0;for _,m:=range members{n,_:=s.routeCost(m.Position,alternativeStages[m.ID],target,2);cost+=n*decisionWeight(m);if Distance(alternativeContacts[m.ID],target)>1{cost+=100000}};if cost<bestTotal{return alternativeStages,alternativeContacts,true}}
+ if bestStages==nil{return nil,nil,false}
  return bestStages,bestContacts,bestStages!=nil
 }
 func memberKey(members []Member)string{key:="";for _,m:=range members{key+=m.ID+";"};return key}
@@ -220,18 +288,39 @@ func(g *GroupState) Update(space Space,p GroupPolicy,members []Member,target Cel
  for _,m:=range members{if !m.Available{g.Phase="regroup";g.Reason="participant unavailable";g.Assembled=false;return nil}}
  key:=memberKey(members)
  if len(members)==0{g.Phase="awaiting";g.Assembled=false;return nil}
+ if g.RallyValid&&g.MemberKey==key&&g.Target!=target&&g.Assembled{
+  compact:=true;for _,m:=range members{if !SupportedStep(m.ID,m.Position,members,p.Cohesion){compact=false}}
+  if compact{g.Target=target;g.RallyGoals=map[string]Cell{};for _,m:=range members{g.RallyGoals[m.ID]=m.Position};g.Phase="assembling";g.StageGoals=nil;g.ContactGoals=nil;g.TravelGoals=nil;g.LocalApproach=false;g.Approaches=nil;g.Revision++}
+ }
  if !g.RallyValid||g.MemberKey!=key||g.Target!=target{
-  rally,goals,ok:=space.Rally(target,members,p.Standoff)
-  g.Target=target;g.MemberKey=key;g.Assembled=false;g.Phase="assembling";g.Revision++;g.RallyValid=ok;g.Rally=rally;g.RallyGoals=goals;g.StageGoals=nil;g.ContactGoals=nil
+  space.RallyDistanceWeight=p.RallyDistanceWeight;space.MaxRallyDistance=p.MaxRallyDistance;rally,goals,ok:=space.Rally(target,members,p.Standoff)
+  g.Target=target;g.MemberKey=key;g.Assembled=false;g.Phase="assembling";g.Revision++;g.RallyValid=ok;g.Rally=rally;g.RallyGoals=goals;g.StageGoals=nil;g.ContactGoals=nil;g.TravelGoals=nil;g.LocalApproach=false;g.Approaches=nil
   if !ok{g.Reason="no safe reachable assembly positions";return nil}
  }
+ if g.Phase=="preparing"{g.Phase="assembling"}
  if g.Phase=="assembling"||g.Phase=="regroup"{
   g.ReadyCount=goalsReady(members,g.RallyGoals)
   if len(members)<p.Required||g.ReadyCount<len(members){g.Reason="waiting for physical assembly";return ordersFor(members,g.RallyGoals,"assembling",p.Standoff)}
-  stages,contacts,ok:=space.Staging(target,members,p.Cohesion);if !ok{g.Reason="no supported approach positions";return nil}
+  g.Assembled=true;if p.HoldApproach{g.Phase="preparing";g.Reason="physical team assembled; awaiting preparation";return ordersFor(members,g.RallyGoals,"assembling",p.Standoff)}
+  staging:=space;staging.MinContactMembers=p.MinContactMembers;staging.SupportDistance=p.SupportDistance;staging.ContactSide=p.ContactSide;stages,contacts,ok:=staging.Staging(target,members,p.Cohesion);if !ok{g.Reason="no supported approach positions";return nil}
   g.Assembled=true;g.Phase="approaching";g.StageGoals=stages;g.ContactGoals=contacts;g.Reason="advance with mutual support"
  }
  if g.Phase=="approaching"{
+  if !g.LocalApproach&&p.LocalApproachRadius>0&&p.ContactSide==(Cell{}){
+   local:=space;local.MinContactMembers=p.MinContactMembers;local.SupportDistance=p.SupportDistance
+   if stages,contacts,ok:=local.LocalStaging(target,members,p.LocalApproachRadius,p.MaxLocalRoute);ok{g.StageGoals=stages;g.ContactGoals=contacts;g.TravelGoals=nil;g.LocalApproach=true;g.Approaches=map[string]ApproachChoice{};for _,m:=range members{g.Approaches[m.ID]=m.Approach};g.Revision++;g.Reason="independent visible approaches to distinct sides"}
+  }
+  if !g.LocalApproach{
+  // A common short waypoint keeps the squad on the same side of a wall.
+  // Final contact slots are used only when their routes fit inside cohesion.
+  if len(g.TravelGoals)>0&&goalsReady(members,g.StageGoals)<len(members)&&goalsReady(members,g.TravelGoals)<len(members){
+   if p.RollingWaypoints&&RollingWaypointReady(space,members,g.TravelGoals,p.Cohesion){travel:=space;walkable:=space.Walkable;travel.Walkable=func(c Cell)bool{return walkable(c)&&Distance(c,target)>=2};if next,ok:=travel.NextWaypoint(members,g.TravelGoals,g.StageGoals[members[0].ID]);ok{old:=g.TravelGoals;g.TravelGoals=next;return rollingOrders(members,next,old,"approaching",2)}}
+   return ordersFor(members,g.TravelGoals,"approaching",2)
+  }
+  g.TravelGoals=nil;far:=false
+  for _,m:=range members{goal:=g.StageGoals[m.ID];route:=space.Path(m.Position,goal,target,2);if len(route)>p.Cohesion{for _,at:=range route{if !SupportedStep(m.ID,at,members,p.Cohesion){far=true;break}}}}
+  if far{travel:=space;walkable:=space.Walkable;travel.Walkable=func(c Cell)bool{return walkable(c)&&Distance(c,target)>=2};destination:=g.StageGoals[members[0].ID];if goals,ok:=travel.CompactWaypoint(members,destination);ok{g.TravelGoals=goals;return ordersFor(members,goals,"approaching",2)}}
+  }
   g.ReadyCount=goalsReady(members,g.StageGoals)
   if g.ReadyCount<len(members){return ordersFor(members,g.StageGoals,"approaching",2)}
   if p.HoldContact{g.Reason="waiting for the negotiation response window";return ordersFor(members,g.StageGoals,"approaching",2)}
@@ -247,22 +336,23 @@ func(g *GroupState) Update(space Space,p GroupPolicy,members []Member,target Cel
 // Contact is forbidden until the shared readiness barrier opens. During the
 // approach a member may not stretch the group's diameter beyond policy.
 func(g GroupState) CanStep(id string,next Cell,members []Member,p GroupPolicy)bool{
+ if g.Phase=="supplying"{at:=next;for _,m:=range members{if m.ID==id{at=m.Position}};return (Distance(next,g.Target)>=p.PreparingMinDistance||Distance(next,g.Target)>Distance(at,g.Target))&&SupportedStep(id,next,members,p.Cohesion)};if g.Phase=="search_assembling"{return true};if g.Phase=="searching"{return SupportedStep(id,next,members,p.Cohesion)}
  if Distance(next,g.Target)<2&&g.Phase!="committing"&&g.Phase!="in_position"{return false}
- if g.Phase=="approaching"&&!SupportedStep(id,next,members,p.Cohesion){return false}
+ if g.Phase=="approaching"{if g.LocalApproach{return Distance(next,g.Target)<=p.LocalApproachRadius};if !SupportedStep(id,next,members,p.Cohesion){return false}}
  return true
 }
 func SupportedStep(id string,next Cell,members []Member,maxDistance int)bool{for _,m:=range members{if m.ID!=id&&Distance(next,m.Position)>maxDistance{return false}};return true}
 func(g *GroupState) ExchangeSlots(waiter,blocker string)bool{
  var goals map[string]Cell
- switch g.Phase{case "assembling","regroup":goals=g.RallyGoals;case "approaching":goals=g.StageGoals;default:return false}
+ switch g.Phase{case "searching","search_assembling":goals=g.Search.Goals;case "assembling","regroup":goals=g.RallyGoals;case "approaching":goals=g.StageGoals;if len(g.TravelGoals)>0{goals=g.TravelGoals};default:return false}
  a,okA:=goals[waiter];b,okB:=goals[blocker];if !okA||!okB||a==b{return false}
  goals[waiter],goals[blocker]=b,a
- if g.Phase=="approaching"{g.ContactGoals[waiter],g.ContactGoals[blocker]=g.ContactGoals[blocker],g.ContactGoals[waiter]}
+ if g.Phase=="approaching"&&len(g.TravelGoals)==0{g.ContactGoals[waiter],g.ContactGoals[blocker]=g.ContactGoals[blocker],g.ContactGoals[waiter]}
  g.Revision++;g.Reason="exchanged positions to clear a shared route";return true
 }
 func(s Space) YieldRoute(from,target Cell,minDistance int,avoid map[Cell]bool)[]Cell{
- for radius:=1;radius<=2;radius++{for _,d:=range cardinal{
-  to:=Cell{from.X+d.X*radius,from.Y+d.Y*radius};if avoid[to]||!s.CanStand(to)||Distance(to,target)<minDistance{continue}
+ for radius:=1;radius<=2;radius++{deltas:=[]Cell{{radius,0},{0,radius},{-radius,0},{0,-radius}};if radius==2{deltas=append(deltas,Cell{1,1},Cell{-1,1},Cell{-1,-1},Cell{1,-1})};for _,d:=range deltas{
+  to:=Cell{from.X+d.X,from.Y+d.Y};if avoid[to]||!s.CanStand(to)||Distance(to,target)<minDistance{continue}
   route:=s.Path(from,to,target,minDistance);if len(route)>0&&len(route)<=radius+2{return route}
  }}
  return nil
@@ -270,7 +360,7 @@ func(s Space) YieldRoute(from,target Cell,minDistance int,avoid map[Cell]bool)[]
 
 type CrowdState struct { ID,SubjectID,Status string; Anchor,Focus Cell; Goals map[string]Cell; MemberKey string; Revision int }
 func cloneGoals(goals map[string]Cell)map[string]Cell{if goals==nil{return nil};copy:=make(map[string]Cell,len(goals));for id,p:=range goals{copy[id]=p};return copy}
-func(g GroupState) Clone()GroupState{g.RallyGoals=cloneGoals(g.RallyGoals);g.StageGoals=cloneGoals(g.StageGoals);g.ContactGoals=cloneGoals(g.ContactGoals);return g}
+func(g GroupState) Clone()GroupState{g.Approaches=cloneApproaches(g.Approaches);g.Search=g.Search.Clone();g.TravelGoals=cloneGoals(g.TravelGoals);g.RallyGoals=cloneGoals(g.RallyGoals);g.StageGoals=cloneGoals(g.StageGoals);g.ContactGoals=cloneGoals(g.ContactGoals);return g}
 func(c CrowdState) Clone()CrowdState{c.Goals=cloneGoals(c.Goals);return c}
 func(c *CrowdState) Update(space Space,p SocialPolicy,members []Member,focus Cell)[]Order{
  space.RequireGoalView=true
@@ -289,6 +379,7 @@ func(c *CrowdState) Update(space Space,p SocialPolicy,members []Member,focus Cel
 // Coordination is scoped to accepted, available members. Personality selects
 // responsibilities; it never grants control over unrelated observers.
 type CoordinationPolicy struct {
+ PublicCall struct{CooldownTicks int64 `json:"cooldown_ticks"`; DisplayTicks int64 `json:"display_ticks"`; Line string `json:"line"`} `json:"public_call"`
  LeaderVector string `json:"leader_vector"`
  SpeakerVector string `json:"speaker_vector"`
  LeaderWeight int `json:"leader_route_weight"`
@@ -328,3 +419,86 @@ func(c *CoordinationState) TryOpening(p CoordinationPolicy,tick int64,canAddress
 }
 func(c CoordinationState) HoldContact(tick int64)bool{return c.Offered&&c.OfferStatus=="pending"&&tick<c.ReplyUntil}
 func decisionWeight(m Member)int{if m.DecisionWeight<1{return 1};return m.DecisionWeight}
+
+// supportedStaging handles corners and narrow doors: contact members approach
+// distinct adjacent cells, with the rest holding nearby support positions.
+func(s Space) supportedStaging(target Cell,members []Member,cohesion int)(map[string]Cell,map[string]Cell,bool){
+ minimum:=s.MinContactMembers;if minimum<1||minimum>len(members){minimum=len(members)}
+ support:=s.SupportDistance;if support<2{support=2}
+ type option struct{stage,contact Cell;direct bool}
+ var options []option
+ for _,side:=range cardinal{contact:=Cell{target.X+side.X,target.Y+side.Y};if !s.CanStand(contact){continue};for _,delta:=range cardinal{stage:=Cell{contact.X+delta.X,contact.Y+delta.Y};if Distance(stage,target)!=2||!s.CanStand(stage){continue};options=append(options,option{stage,contact,true})}}
+ for y:=target.Y-support;y<=target.Y+support;y++{for x:=target.X-support;x<=target.X+support;x++{p:=Cell{x,y};if Distance(p,target)<2||Distance(p,target)>support||!s.CanStand(p)||(s.Visible!=nil&&!s.Visible(p,target)){continue};options=append(options,option{p,p,false})}}
+ goals:=make([]Cell,len(options));for j,o:=range options{goals[j]=o.stage}
+ costs:=make([][]int,len(members));lengths:=make([][]int,len(members));for i,m:=range members{distances:=s.routeCosts(m.Position,goals,target,2);costs[i]=make([]int,len(options));lengths[i]=make([]int,len(options));for j,o:=range options{cost,ok:=distances[o.stage];if !ok{cost=1<<25};lengths[i][j]=cost;costs[i][j]=cost*decisionWeight(m)}}
+ best:=1<<30;assignment:=make([]int,len(members));var stages,contacts map[string]Cell;pairCosts:=map[Cell]map[Cell]int{}
+ nodes:=0;budget:=s.MaxFormationNodes;if budget<1{budget=4096}
+ var choose func(int,int,int)
+ choose=func(index,total,direct int){
+  if nodes>=budget{return};nodes++
+  if total>=best||direct+len(members)-index<minimum{return}
+  if index==len(members){if direct<minimum{return};local:=true;for i:=range members{if lengths[i][assignment[i]]>2{local=false}}
+   if !local{for i:=range members{for j:=0;j<i;j++{from:=options[assignment[i]].stage;distances,known:=pairCosts[from];if !known{distances=s.routeCosts(from,goals,target,2);pairCosts[from]=distances};n,ok:=distances[options[assignment[j]].stage];if !ok||n>cohesion{return}}}}
+   best=total;stages=map[string]Cell{};contacts=map[string]Cell{};for i,m:=range members{o:=options[assignment[i]];stages[m.ID]=o.stage;contacts[m.ID]=o.contact};return}
+  for j,o:=range options{if costs[index][j]>=1<<25{continue};if index==0&&s.ContactSide!=(Cell{})&&(!o.direct||o.contact!=(Cell{target.X+s.ContactSide.X,target.Y+s.ContactSide.Y})){continue};valid:=true
+   for i:=0;i<index;i++{other:=options[assignment[i]];if o.stage==other.stage||o.contact==other.contact||Distance(o.stage,other.stage)>cohesion{valid=false;break}}
+   if !valid{continue};assignment[index]=j;n:=direct;if o.direct{n++};penalty:=0;if !o.direct{penalty=100000}
+   if s.ApproachBias&&members[index].Approach.ID!=""{c:=members[index].Approach;penalty=c.positionCost(members[index].Position,o.stage,o.contact,target,o.direct);if index>0{penalty+=c.BuddyWeight*Distance(o.stage,options[assignment[0]].stage)}}
+   choose(index+1,total+costs[index][j]+penalty,n)
+  }
+ };choose(0,0,0);return stages,contacts,stages!=nil
+}
+
+// JointSteps chooses the largest compatible subset (groups are bounded to eight).
+// Followers may enter cells vacated by the same batch. Shared destinations,
+// stationary occupants and opposite traversal of an edge remain forbidden.
+func(g GroupState) JointSteps(p GroupPolicy,members []Member,proposals map[string]Cell,blocked map[Cell]bool)map[string]Cell{
+ if len(members)>8{return nil}
+ var destinations [8]Cell
+ eligible:=0;relaxed:=p;relaxed.Cohesion=1<<20
+ for i,m:=range members {
+  at,ok:=proposals[m.ID]
+  if !ok||!m.Available||Distance(m.Position,at)!=1||blocked[at] {continue}
+  if g.Phase!="escorting"&&!g.CanStep(m.ID,at,members,relaxed){continue}
+  destinations[i]=at;eligible|=1<<i
+ }
+ needsCohesion:=false
+ switch g.Phase {case "approaching","supplying","searching","in_position":needsCohesion=!(g.Phase=="approaching"&&g.LocalApproach)}
+ bestMask,bestCount:=0,0
+ // Ascending masks retain the existing deterministic tie break. Scratch state
+ // stays on the stack; only the chosen result becomes a map.
+ for mask:=1;mask<(1<<len(members));mask++{
+  if mask & ^eligible !=0 {continue}
+  count:=0;for bits:=mask;bits!=0;bits&=bits-1{count++}
+  if count<=bestCount{continue}
+  valid:=true
+  for i,m:=range members {
+   if mask&(1<<i)==0{continue};at:=destinations[i]
+   for j,other:=range members{
+    if i==j{continue};moving:=mask&(1<<j)!=0
+    end:=other.Position;if moving{end=destinations[j]}
+    if at==end || (at==other.Position && (!moving||end==m.Position)) || (needsCohesion&&Distance(at,end)>p.Cohesion) {valid=false;break}
+   }
+   if !valid{break}
+  }
+  if valid{bestMask,bestCount=mask,count}
+ }
+ if bestMask==0{return nil};result:=make(map[string]Cell,bestCount)
+ for i,m:=range members{if bestMask&(1<<i)!=0{result[m.ID]=destinations[i]}}
+ return result
+}
+
+// LocalSpace keeps informal encirclement in a small visible area. It cannot
+// route a worker through an unseen room or allow a distant solo pursuit.
+func(s Space) LocalSpace(target Cell,radius int)Space{
+ walkable:=s.Walkable;visible:=s.Visible;allowed:=map[Cell]bool{}
+ for y:=target.Y-radius;y<=target.Y+radius;y++{for x:=target.X-radius;x<=target.X+radius;x++{at:=Cell{x,y};if x>=0&&y>=0&&x<s.Width&&y<s.Height&&Distance(at,target)<=radius&&walkable(at)&&(visible==nil||visible(at,target)){allowed[at]=true}}}
+ s.Walkable=func(at Cell)bool{return allowed[at]};return s
+}
+func(s Space) LocalStaging(target Cell,members []Member,radius,maxRoute int)(map[string]Cell,map[string]Cell,bool){
+ if len(members)<2||len(members)>8||radius<2{return nil,nil,false}
+ for _,m:=range members{if !m.Available||Distance(m.Position,target)>radius||(s.Visible!=nil&&!s.Visible(m.Position,target)){return nil,nil,false}}
+ local:=s.LocalSpace(target,radius);local.ApproachBias=true;stages,contacts,ok:=local.supportedStaging(target,members,2*radius);if !ok{return nil,nil,false}
+ for _,m:=range members{path:=local.Path(m.Position,stages[m.ID],target,2);if maxRoute>0&&len(path)>maxRoute{return nil,nil,false}}
+ return stages,contacts,true
+}

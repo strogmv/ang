@@ -51,3 +51,27 @@ func TestAIFixtureFactsCannotInventKnowledgeOrCompleteMission(t *testing.T) {
 		}
 	}
 }
+
+func TestUnityCaptureProofPolicyComesFromCompiledCUE(t *testing.T) {
+	for _, policy := range [][2]int{{1, 2}, {2, 5}} {
+		c := Compiled{}
+		c.Inventory.Preparation.MinContactMembers = policy[0]
+		c.Inventory.Preparation.SupportDistance = policy[1]
+		data, err := clientResource(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got struct {
+			Config struct {
+				Min      int `json:"capture_min_contact_members"`
+				Distance int `json:"capture_support_distance_cells"`
+			} `json:"config"`
+		}
+		if err := json.Unmarshal(data, &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Config.Min != policy[0] || got.Config.Distance != policy[1] {
+			t.Fatalf("capture proof used stale constants: %s", data)
+		}
+	}
+}

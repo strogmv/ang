@@ -12,7 +12,7 @@ import (
 
 func TestSaveRestoresAndRejectsDamage(t *testing.T){
  r,err:=New(t.TempDir(),"token");if err!=nil{t.Fatal(err)}
- original:=state{Active:true,Epoch:newEpoch(),Tick:17,Seed:777,Player:r.world.Spawn,PlayerName:"Герой",Paused:true,Speed:3}
+ original:=state{Inventory:r.state.Inventory.Clone(),Active:true,Epoch:newEpoch(),Tick:17,Seed:777,Player:r.world.Spawn,PlayerName:"Герой",Paused:true,Speed:3}
  slot:=r.world.Config.SaveSlots[0]
  if err:=r.writeSave(slot,original);err!=nil{t.Fatal(err)}
  got,_,err:=r.readSave(slot);if err!=nil{t.Fatal(err)}
@@ -45,7 +45,7 @@ func TestTicksWithoutClient(t *testing.T){
 
 func TestContentMismatchDoesNotLoad(t *testing.T){
  r,err:=New(t.TempDir(),"token");if err!=nil{t.Fatal(err)}
- slot:=r.world.Config.SaveSlots[0];s:=state{Active:true,Epoch:newEpoch(),Player:r.world.Spawn,Speed:1}
+ slot:=r.world.Config.SaveSlots[0];s:=state{Inventory:r.state.Inventory.Clone(),Active:true,Epoch:newEpoch(),Player:r.world.Spawn,Speed:1}
  if err:=r.writeSave(slot,s);err!=nil{t.Fatal(err)}
  r.world.ContentHash="another-build"
  if _,_,err:=r.readSave(slot);err==nil{t.Fatal("accepted save from different content")}
@@ -97,7 +97,7 @@ func TestClockPauseSpeedAndEpoch(t *testing.T){
  if r.state.PhaseNS!=int64(50*time.Millisecond){t.Fatal("pause consumed simulation time")}
  r.state.Paused=false;r.state.Speed=3;r.advance(start.Add(time.Second+50*time.Millisecond))
  if r.state.Tick!=2||r.state.PhaseNS!=0{t.Fatalf("wrong speed accounting: %+v",r.state)}
- r.state=state{Active:true,Epoch:newEpoch(),Speed:1,Player:r.world.Spawn}
+ r.state=state{Inventory:r.state.Inventory.Clone(),Active:true,Epoch:newEpoch(),Speed:1,Player:r.world.Spawn}
  r.advance(start.Add(time.Second+75*time.Millisecond))
  if r.state.Tick!=0||r.state.PhaseNS!=int64(25*time.Millisecond){t.Fatal("previous epoch leaked time")}
 }
@@ -105,7 +105,7 @@ func TestClockPauseSpeedAndEpoch(t *testing.T){
 func TestSaveRestoresInFlightRoute(t *testing.T){
  r,err:=New(t.TempDir(),"token");if err!=nil{t.Fatal(err)}
  step:=int64(time.Second)/int64(r.world.Config.TickHz)
- r.state=state{Active:true,Epoch:newEpoch(),Tick:3,Player:r.world.Spawn,Speed:1,PhaseNS:step/2,MoveStartNS:3*step,Path:[]point{{r.world.Spawn.X+1,r.world.Spawn.Y}}}
+ r.state=state{Inventory:r.state.Inventory.Clone(),Active:true,Epoch:newEpoch(),Tick:3,Player:r.world.Spawn,Speed:1,PhaseNS:step/2,MoveStartNS:3*step,Path:[]point{{r.world.Spawn.X+1,r.world.Spawn.Y}}}
  slot:=r.world.Config.SaveSlots[0]
  if err:=r.writeSave(slot,r.state);err!=nil{t.Fatal(err)}
  got,_,err:=r.readSave(slot);if err!=nil{t.Fatal(err)}

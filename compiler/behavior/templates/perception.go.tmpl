@@ -45,7 +45,9 @@ func(p HearingPolicy) Hear(sound Sound,listener Cell,rangeMul float64,walls,ambi
  intensity:=sound.Loudness*(1-distance/reach)*math.Pow(p.WallAttenuation,float64(walls))-float64(ambient)*p.AmbientMask
  if intensity<p.MinAudible{return Heard{},false}
  radius:=int(math.Ceil(distance*p.LocationErrorPerCell))
- return Heard{Estimate:sound.Origin,Radius:radius,Intensity:intensity},true
+ estimate:=sound.Origin
+ if radius>0{span:=radius;estimate=Cell{int(math.Floor(float64(sound.Origin.X)/float64(span)+0.5))*span,int(math.Floor(float64(sound.Origin.Y)/float64(span)+0.5))*span}}
+ return Heard{Estimate:estimate,Radius:radius,Intensity:intensity},true
 }
 // Blockers counts opaque cells strictly between two cells on the Bresenham line.
 func(s Space) Blockers(from,to Cell)int{

@@ -12,6 +12,7 @@ import (
 
 type demoDefinition struct { ID,Name string; Vectors []string; At point; PatrolTo point `json:"patrol_to"` }
 type demoPolicy struct {
+ TargetActor string `json:"target_actor"`
  ResponderRole string `json:"responder_role"`
  ResidentRole string `json:"resident_role"`
  ResponderProfile string `json:"responder_profile"`
@@ -39,6 +40,14 @@ type demoPolicy struct {
 }
 type npcRequest struct { Kind string; Priority int }
 type demoAgent struct {
+ PerceivedFear float64
+ Speech string
+ SpeechUntil,LastGroupCallTick int64
+ Gesture behavior.Gesture
+ GestureAttention behavior.GestureAttention
+ GestureReceivedSequence int64
+ GestureReceivedFrom string
+
  Progress behavior.Progress
  BlockedTicks,YieldUntil int64
  YieldResumeTask string
@@ -50,6 +59,8 @@ type demoAgent struct {
  // Civic-duty bookkeeping: refusal costs paid, the alarm this actor raised, the sound it is checking.
  RefusalPenalty float64
  AlarmRaisedTick int64
+ LastReportTick int64
+ LastReportAt point
  Investigating string
  RoutineTask string
  RoutineGoal point
@@ -63,8 +74,14 @@ type demoAgent struct {
 }
 type demoCandidate struct { AgentID string; Rank,Distance int; Requested,Selected bool; Reason string }
 // alarmRecord is an NPC-originated world event: who raised it, where, when and why.
-type alarmRecord struct { Tick int64; ActorID,Cause,Kind string; At point }
+type alarmRecord struct { HasTarget bool;KnownTarget point;ObservedTick int64;Tick int64; ActorID,Cause,Kind string; At point }
 type demoState struct {
+ TargetActor string
+ RelayedTick int64
+ Shadow behavior.CrowdState
+ RearMode bool
+ ObservedFacing point
+ Supply behavior.SupplyState
  // Scenario start: "" emergent (hero action), "test_hook" scripted call, "none" no incident.
  Scenario string
  DangerLevel int
@@ -84,17 +101,19 @@ type demoState struct {
  DeliveredTick int64
  Enabled,WorkIssued,Issued,TeamReady,Captured bool
  Call point
- IssuedTick,CapturedTick int64
+ IssuedTick,CapturedTick,CallObservedTick int64
  Agents []demoAgent
  Candidates []demoCandidate
  Events []string
 }
 func(r *Runtime) initDemo(scenario string){
- d:=&r.state.Demo;*d=demoState{Scenario:scenario,Enabled:scenario!="none"&&r.world.Config.CaptureDemo.Enabled,TargetAlive:!r.world.Config.CaptureDemo.InitialTargetDead}
- d.Squad=behavior.GroupState{ID:"poc.detention_group",SubjectID:"poc.hero"}
+ d:=&r.state.Demo;*d=demoState{Scenario:scenario,Enabled:scenario!="none"&&r.world.Config.CaptureDemo.Enabled,TargetActor:r.world.Config.CaptureDemo.TargetActor,TargetAlive:!r.world.Config.CaptureDemo.InitialTargetDead}
+ r.state.Poses=map[string]actorPose{playerActorID:{Facing:point{1,0}}}
+ d.Squad=behavior.GroupState{ID:"poc.detention_group",SubjectID:r.missionSubject()}
  for _,v:=range r.world.Entities{d.Residents=append(d.Residents,demoAgent{ID:v.ID,Name:v.Name,Task:"working",Position:v.Position,Goal:v.Position})}
+ for _,a:=range d.Residents{r.state.Poses[a.ID]=actorPose{Facing:point{1,0}}}
  for _,v:=range r.world.Config.CaptureDemo.Agents{
-  d.Agents=append(d.Agents,demoAgent{ID:v.ID,Name:v.Name,Task:"patrol",Position:v.At,Goal:v.PatrolTo,Path:r.path(v.At,v.PatrolTo)})
+  r.state.Poses[v.ID]=actorPose{Facing:point{1,0}};d.Agents=append(d.Agents,demoAgent{ID:v.ID,Name:v.Name,Task:"patrol",Position:v.At,Goal:v.PatrolTo,Path:r.path(v.At,v.PatrolTo)})
  }
 }
 func(r *Runtime) tickNS()int64{return int64(time.Second)/int64(r.world.Config.TickHz)}
@@ -110,12 +129,18 @@ func(r *Runtime) candidate(id string)*demoCandidate{for i:=range r.state.Demo.Ca
 // camera observation, or by the explicit test hook. It sets the danger level and sounds the siren,
 // which other NPCs hear through the same hearing model instead of a global broadcast.
 func(r *Runtime) issueDemoCall(cause string){
- d:=&r.state.Demo;cfg:=r.world.Config.CaptureDemo;d.Issued=true;d.Call=r.state.Player;d.IssuedTick=r.state.Tick;d.CallCause=cause
+ d:=&r.state.Demo;cfg:=r.world.Config.CaptureDemo
+ call:=r.targetPosition();observed:=r.state.Tick
+ if cause!="test_hook"{
+  index:=r.residentIndex(cfg.Monitoring.Operator);if index<0{return};operator:=d.Residents[index]
+  if known,k:=operator.Memory.Lookup(r.missionSubject(),"incident");k==behavior.KnowledgeTrue{call=location(known.Position);observed=known.ObservedTick}else if alarm,ok:=operator.Memory.Best("alarm");ok{call=location(alarm.Position);observed=alarm.ObservedTick}else{return}
+ }
+ d.Issued=true;d.Call=call;d.CallObservedTick=observed;d.IssuedTick=r.state.Tick;d.CallCause=cause
  if cfg.DangerLevel>d.DangerLevel{d.DangerLevel=cfg.DangerLevel}
  r.demoEvent(fmt.Sprintf("Сеть: захват героя, вызов (%d,%d), причина: %s, уровень %d",d.Call.X,d.Call.Y,cause,d.DangerLevel))
  origin:=d.Call;if i:=r.residentIndex(cfg.Monitoring.Operator);i>=0{origin=d.Residents[i].Position}
  r.emitSound("siren",origin,cfg.Monitoring.Operator,cause)
- for _,a:=range d.Agents{route:=r.path(a.Position,d.Call);distance:=len(route);if a.Position!=d.Call&&distance==0{distance=1<<30};d.Candidates=append(d.Candidates,demoCandidate{AgentID:a.ID,Distance:distance,Reason:"Резерв"})}
+ for _,a:=range d.Agents{if a.ID==r.missionActor(){continue};route:=r.path(a.Position,d.Call);distance:=len(route);if a.Position!=d.Call&&distance==0{distance=1<<30};d.Candidates=append(d.Candidates,demoCandidate{AgentID:a.ID,Distance:distance,Reason:"Резерв"})}
  sort.Slice(d.Candidates,func(i,j int)bool{a,b:=d.Candidates[i],d.Candidates[j];if a.Distance!=b.Distance{return a.Distance<b.Distance};return a.AgentID<b.AgentID})
  for i:=range d.Candidates{d.Candidates[i].Rank=i+1}
  r.requestResponders()
@@ -180,16 +205,16 @@ func(r *Runtime) demoBlocked(except int)map[point]bool{
  return blocked
 }
 func(r *Runtime) advanceAgent(i int){
- a:=&r.state.Demo.Agents[i];if a.Task=="blocked"||a.Task=="considering"||a.Task=="extra_work"||a.Task=="await_team"||a.Task=="capturing"||a.Task=="delivered"{return}
+ a:=&r.state.Demo.Agents[i];if r.groupMovesTogether()&&r.selectedActor(a.ID){return};if r.state.Demo.Captured&&a.ID==r.missionActor(){return};if a.Task=="blocked"||a.Task=="considering"||a.Task=="extra_work"||a.Task=="await_team"||a.Task=="capturing"||a.Task=="delivered"{return}
  now:=r.state.Tick*r.tickNS()
  for len(a.Path)>0&&now>=a.MoveStartNS+r.agentDurationNS(){
   next:=a.Path[0];occupied:=r.sceneOccupied(next,a.ID)
-  if r.state.Demo.Captured&&a.ID==r.state.Demo.CarrierID&&!behavior.SupportedStep(a.ID,cell(next),r.squadMembers(),r.groupPolicy().Cohesion){r.observeMovement(a,a.Task,a.Goal);a.Progress.Block("awaiting_escort","positions_changed",r.state.Tick,r.world.AI.Policy.Recovery.Movement);a.MoveStartNS+=r.tickNS();return}
+  if r.state.Demo.Captured&&a.ID==r.state.Demo.CarrierID&&!behavior.SupportedStep(a.ID,cell(next),r.squadMembers(),r.groupPolicy().Cohesion){r.observeMovement(a,a.Task,a.Goal);a.Progress.Block("awaiting_escort","positions_changed",r.state.Tick,r.world.AI.Policy.Recovery.Movement);a.Progress.Pause(r.state.Tick);a.PausedAtNS=a.MoveStartNS;a.MoveStartNS+=r.tickNS();return}
   if r.selectedActor(a.ID)&&!r.state.Demo.Captured&&!r.state.Demo.Squad.CanStep(a.ID,cell(next),r.squadMembers(),r.groupPolicy()){r.sceneBlocked(a,next);a.MoveStartNS+=r.tickNS();return}
   for j,other:=range r.state.Demo.Agents{if i!=j&&other.Position==next{occupied=true;break}}
   if occupied{r.sceneBlocked(a,next);a.MoveStartNS+=r.tickNS();return}
-  a.Position=next;a.BlockedTicks=0;a.Path=a.Path[1:];a.MoveStartNS+=r.agentDurationNS()
-  if a.ID==r.state.Demo.CarrierID{r.state.Player=a.Position}
+  r.setActorFacing(a.ID,a.Position,next);a.Position=next;a.BlockedTicks=0;a.Path=a.Path[1:];a.MoveStartNS+=r.agentDurationNS()
+  if a.ID==r.state.Demo.CarrierID{r.setTargetPosition(a.Position)}
  }
  r.finishSocialMotion(a)
  if a.Task=="joining"&&len(a.Path)==0{a.Task="await_team"}
@@ -202,24 +227,19 @@ func(r *Runtime) planDemoTeam(){
  // The shared coordinator owns approach positions and readiness barriers.
  return
 }
-func(r *Runtime) planTeamAround(hero point,exclude string){
- d:=&r.state.Demo;reserved:=map[point]bool{};now:=r.state.Tick*r.tickNS()
- for _,candidate:=range d.Candidates{
-  if !candidate.Selected||candidate.AgentID==exclude{continue};i:=r.demoAgentIndex(candidate.AgentID);a:=&d.Agents[i]
-  from:=a.Position;moving:=len(a.Path)>0;if moving{from=a.Path[0]}
-  blocked:=r.demoBlocked(i);bestLen:=1<<30;var best []point;var goal point;found:=false
-  // Four approach slots are shared resources; each member reserves a distinct one.
-  for _,delta:=range []point{{1,0},{0,1},{-1,0},{0,-1}}{
-   p:=point{hero.X+delta.X,hero.Y+delta.Y};if reserved[p]||blocked[p]||!r.walkable(p){continue}
-   route:=r.pathAvoid(from,p,blocked);if from!=p&&len(route)==0{continue}
-   if len(route)<bestLen{bestLen=len(route);best=route;goal=p;found=true}
-  }
-  if !found{continue};reserved[goal]=true
-  if moving{best=append([]point{from},best...)}else{a.MoveStartNS=now}
-  a.Path=best;a.Goal=goal;a.Task="responding"
-  if len(best)==0&&a.Position==goal{a.Task="holding"}
+func(r *Runtime) planTeamAround(center point,exclude string){
+ controlled:=map[string]bool{};for _,m:=range r.squadMembers(){controlled[m.ID]=true};space:=r.sceneSpace(controlled);space.Blocked[cell(center)]=true
+ reserved:=map[behavior.Cell]bool{};future:=map[behavior.Cell]bool{};if a:=r.sceneActor(exclude);a!=nil{for i,p:=range a.Path{if i>=3{break};future[cell(p)]=true}}
+ // A resting escort already owns its clear support cell. Do not reassign that
+ // cell to a walking teammate merely because the monitoring pass ran again.
+ settled:=map[string]bool{}
+ for _,m:=range r.squadMembers(){if m.ID==exclude{continue};a:=r.sceneActor(m.ID);at:=cell(a.Position);distance:=behavior.Distance(at,cell(center));if a.Task=="escorting"&&len(a.Path)==0&&a.Position==a.Goal&&distance>=1&&distance<=2&&!future[at]{settled[a.ID]=true;reserved[at]=true;space.Blocked[at]=true}}
+ for _,m:=range r.squadMembers(){if m.ID==exclude||settled[m.ID]{continue};a:=r.sceneActor(m.ID);best:=int(^uint(0)>>1);var goal behavior.Cell;found:=false
+  for y:=center.Y-2;y<=center.Y+2;y++{for x:=center.X-2;x<=center.X+2;x++{p:=behavior.Cell{X:x,Y:y};distance:=behavior.Distance(p,cell(center));if distance<1||distance>2||reserved[p]||!space.CanStand(p){continue};route:=space.Path(cell(a.Position),p,cell(center),0);if cell(a.Position)!=p&&len(route)==0{continue};cost:=len(route)*4+distance;if a.Task=="escorting"&&p==cell(a.Goal){cost-=3};if future[p]{cost+=1000};if cost<best{best=cost;goal=p;found=true}}}
+  if !found{continue};reserved[goal]=true;space.Blocked[goal]=true;r.applySocialOrder(a,behavior.Order{ActorID:a.ID,Goal:goal,Mode:"escorting"},cell(center))
  }
 }
+
 func(r *Runtime) demoStep(){
  before:=time.Now();defer func(){r.aiWorkUS=float64(time.Since(before).Nanoseconds())/1000;if r.aiWorkUS>r.aiPeakWorkUS{r.aiPeakWorkUS=r.aiWorkUS}}()
  cfg:=r.world.Config.CaptureDemo;d:=&r.state.Demo
@@ -231,7 +251,7 @@ func(r *Runtime) demoStep(){
  if d.Enabled&&hook&&!d.Issued&&r.state.Tick>=cfg.TestHook.CallAtSeconds*int64(r.world.Config.TickHz){r.issueDemoCall("test_hook")}
  if d.Enabled&&!hook&&d.HeroActionTick==0&&r.state.Tick>=cfg.HeroAction.AtSeconds*int64(r.world.Config.TickHz){
   d.HeroActionTick=r.state.Tick;d.HeroOffenceUntil=r.state.Tick+r.world.AI.Policy.Perception.OffenceVisibleTicks
-  r.emitSound(cfg.HeroAction.Sound,r.state.Player,"poc.hero","offence");r.demoEvent(fmt.Sprintf("Герой: %s в (%d,%d) — звук слышен в округе",cfg.HeroAction.Sound,r.state.Player.X,r.state.Player.Y))
+  r.emitSound(cfg.HeroAction.Sound,r.targetPosition(),r.missionSubject(),"offence");r.demoEvent(fmt.Sprintf("Герой: %s в (%d,%d) — звук слышен в округе",cfg.HeroAction.Sound,r.targetPosition().X,r.targetPosition().Y))
  }
  if d.Issued&&!d.Captured{dp:=r.world.AI.Policy.Danger;if r.state.Tick-d.IssuedTick>=dp.StalledAfterTicks&&d.DangerLevel<dp.StalledLevel{d.DangerLevel=dp.StalledLevel;r.demoEvent(fmt.Sprintf("Сеть: происшествие затянулось, уровень %d",d.DangerLevel))}}
  r.expireSounds();r.hearSounds();r.cameraStep()
@@ -239,7 +259,7 @@ func(r *Runtime) demoStep(){
   a:=&d.Agents[i];if a.Task=="extra_work"&&r.state.Tick>=a.BusyUntil{a.Task="patrol";r.demoEvent(a.Name+": дополнительная работа закончена")}
   r.thinkAgent(i)
  }
- r.socialStep()
+ r.socialStep();r.gestureStep();r.groupCallStep();r.advanceGroupMovement()
  for i:=range d.Agents{r.advanceAgent(i)}
  for i:=range d.Residents{r.advanceResident(&d.Residents[i])}
  r.sceneProgressStep()
@@ -253,17 +273,20 @@ func(r *Runtime) appendDemo(msg *pb.PocGameState){
  d:=r.state.Demo;cfg:=r.world.Config.CaptureDemo
  msg.CaptureOrder=&pb.PocCaptureOrder{Enabled:d.Enabled,Issued:d.Issued,CallX:int32(d.Call.X),CallY:int32(d.Call.Y),IssuedTick:d.IssuedTick,Captured:d.Captured,CapturedTick:d.CapturedTick,TeamReady:d.TeamReady,Required:int32(cfg.RequiredResponders),DueTick:r.scenarioDueTick(),Events:append([]string(nil),d.Events...)}
  msg.CaptureOrder.PlannerWorkUs=r.aiWorkUS;msg.CaptureOrder.PlannerPeakWorkUs=r.aiPeakWorkUS;msg.CaptureOrder.PlannerOverBudget=r.aiPeakWorkUS>float64(r.world.AI.Policy.Planning.WorkTargetUS)
- msg.CaptureOrder.PlanRoot=d.Plan.Root;msg.CaptureOrder.PlanAction=d.Plan.Current;msg.CaptureOrder.PlanStatus=d.Plan.Status;msg.CaptureOrder.PlanReason=d.Plan.Reason
+ msg.CaptureOrder.PlanRoot=d.Plan.Root;msg.CaptureOrder.PlanAction=d.Plan.Current;msg.CaptureOrder.PlanStatus=d.Plan.Status;msg.CaptureOrder.PlanReason=d.Plan.Reason;msg.CaptureOrder.CallCause=d.CallCause;msg.CaptureOrder.AlarmCount=int32(len(d.AlarmLog))
+ msg.CaptureOrder.LeadKnown=d.Squad.Track.Known;msg.CaptureOrder.LeadX=int32(d.Squad.Track.Position.X);msg.CaptureOrder.LeadY=int32(d.Squad.Track.Position.Y);msg.CaptureOrder.LeadObservedTick=d.Squad.Track.ObservedTick;msg.CaptureOrder.LeadSource=d.Squad.Track.Source
+ msg.CaptureOrder.SupplyStatus=d.Supply.Status;msg.CaptureOrder.SupplyReason=d.Supply.Reason;msg.CaptureOrder.TargetActorId=r.missionActor();msg.CaptureOrder.EquippedCount=0;for _,m:=range r.squadMembers(){if _,ok:=r.equippedItem(m.ID);ok{msg.CaptureOrder.EquippedCount++}}
  msg.CaptureOrder.Delivered=d.Delivered;msg.CaptureOrder.DeliveredTick=d.DeliveredTick;msg.CaptureOrder.MedblockX=int32(cfg.Medblock.X);msg.CaptureOrder.MedblockY=int32(cfg.Medblock.Y);msg.CaptureOrder.CarrierId=d.CarrierID;msg.CaptureOrder.TargetAlive=d.TargetAlive
  for _,c:=range d.Candidates{msg.CaptureOrder.Candidates=append(msg.CaptureOrder.Candidates,&pb.PocDispatchCandidate{AgentId:c.AgentID,Rank:int32(c.Rank),Distance:int32(c.Distance),Requested:c.Requested,Selected:c.Selected,Reason:c.Reason})}
+ msg.CaptureOrder.LocalApproach=d.Squad.LocalApproach
  msg.CaptureOrder.LeaderId=d.Coordination.LeaderID;msg.CaptureOrder.SpeakerId=d.Coordination.SpeakerID;msg.CaptureOrder.CoordinationMode=d.Coordination.Mode;msg.CaptureOrder.NegotiationStatus=d.Coordination.OfferStatus;msg.CaptureOrder.NegotiationLine=d.Coordination.Utterance;msg.CaptureOrder.NegotiationReplyUntil=d.Coordination.ReplyUntil
  msg.CaptureOrder.GroupPhase=d.Squad.Phase;msg.CaptureOrder.GroupReadyCount=int32(d.Squad.ReadyCount);msg.CaptureOrder.CrowdStatus=d.Crowd.Status;msg.CaptureOrder.CrowdSize=int32(len(d.Crowd.Goals))
  for _,a:=range d.Agents{msg.DemoAgents=append(msg.DemoAgents,r.sceneAgentMessage(a))}
- r.appendResidentStates(msg)
+ r.appendResidentStates(msg);r.projectNPCMotion(msg)
 }
 func(r *Runtime) snapshotState()state{
- s:=r.state;s.Path=append([]point(nil),s.Path...)
- s.Demo.Squad=s.Demo.Squad.Clone();s.Demo.Crowd=s.Demo.Crowd.Clone()
+ s:=r.state;s.Life=s.Life.Clone();s.LifeExploration=cloneExploration(s.LifeExploration);s.Exploration=cloneExploration(s.Exploration);s.HeroHearing=s.HeroHearing.Clone();s.Poses=map[string]actorPose{};for id,p:=range r.state.Poses{s.Poses[id]=p};s.Inventory=s.Inventory.Clone();s.Path=append([]point(nil),s.Path...)
+ s.Demo.Shadow=s.Demo.Shadow.Clone();s.Demo.Supply=s.Demo.Supply.Clone();s.Demo.Squad=s.Demo.Squad.Clone();s.Demo.Crowd=s.Demo.Crowd.Clone()
  s.Demo.Residents=append([]demoAgent(nil),s.Demo.Residents...)
  for i:=range s.Demo.Residents{a:=&s.Demo.Residents[i];a.Path=append([]point(nil),a.Path...);a.Memory=a.Memory.Clone();a.Personal=a.Personal.Clone()}
  s.Demo.Agents=append([]demoAgent(nil),s.Demo.Agents...)
@@ -280,13 +303,13 @@ func(r *Runtime) validateDemoSave(s state)error{
  if len(s.Demo.Agents)!=len(cfg.Agents)||len(s.Demo.Candidates)>len(cfg.Agents)||len(s.Demo.Events)>32{return errors.New("invalid demo save")}
  for i,a:=range s.Demo.Agents{
   if a.ID!=cfg.Agents[i].ID||!r.walkable(a.Position)||len(a.Path)>len(r.world.Terrain)*len(r.world.Terrain[0])||len(a.Inbox)>4{return errors.New("invalid demo actor")}
-  switch a.Task{case "blocked","patrol","extra_work","considering","joining","await_team","responding","holding","capturing","transporting","delivered","working","assembling","approaching","committing","gather_watch","withdraw","returning","yielding","fleeing","assisting","avoiding","holding_post","investigating":default:return errors.New("invalid demo task")}
+  switch a.Task{case "shadowing","escorting","supplying","equipping","searching","search_assembling","search_report","blocked","patrol","extra_work","considering","joining","await_team","responding","holding","capturing","transporting","delivered","working","assembling","approaching","committing","gather_watch","withdraw","returning","yielding","fleeing","assisting","avoiding","holding_post","investigating":default:return errors.New("invalid demo task")}
   if a.Task=="considering"&&(len(a.Inbox)==0||a.Inbox[0].Kind!="capture"){return errors.New("invalid actor inbox")}
   previous:=a.Position;for _,p:=range a.Path{if !r.walkable(p)||manhattan(previous,p)!=1{return errors.New("invalid demo route")};previous=p}
  }
  ids:=map[string]bool{}
  for _,c:=range s.Demo.Candidates{found:=false;for _,a:=range s.Demo.Agents{if a.ID==c.AgentID{found=true;break}};if !found||ids[c.AgentID]{return errors.New("invalid dispatch candidate")};ids[c.AgentID]=true}
- if s.Demo.Issued&&len(ids)!=len(cfg.Agents){return errors.New("incomplete dispatch save")}
+ expected:=len(cfg.Agents);if r.demoAgentIndex(s.Demo.TargetActor)>=0{expected--};if s.Demo.Issued&&len(ids)!=expected{return errors.New("incomplete dispatch save")}
  if s.Demo.CarrierID!=""{found:=false;for _,a:=range s.Demo.Agents{if a.ID==s.Demo.CarrierID{found=true}};if !found{return errors.New("invalid carrier")}}
  if len(s.Demo.Plan.Pending)>r.world.AI.Policy.Planning.MaxPending||len(s.Demo.Plan.Trace)>32{return errors.New("invalid saved plan")}
  hearing:=r.world.AI.Policy.Perception.Hearing

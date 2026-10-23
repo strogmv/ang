@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	inventoryRuntime "github.com/strogmv/ang/compiler/inventory/runtime"
 	goformat "go/format"
 	"os"
 	"os/exec"
@@ -23,13 +24,26 @@ import (
 	"cuelang.org/go/cue/load"
 	"github.com/strogmv/ang/angir/normalizer"
 	"github.com/strogmv/ang/compiler/behavior"
+	"github.com/strogmv/ang/compiler/clothing"
+	clothingRuntime "github.com/strogmv/ang/compiler/clothing/runtime"
 	"github.com/strogmv/ang/compiler/emitter"
+	"github.com/strogmv/ang/compiler/inventory"
+	inv "github.com/strogmv/ang/compiler/inventory/runtime"
 )
 
 //go:embed templates/*
 var sources embed.FS
 
+type Visibility struct {
+	PlayerRange  int    `json:"player_range_cells"`
+	Field        string `json:"field"`
+	Remember     string `json:"remember"`
+	UnknownGlyph string `json:"unknown_glyph"`
+	HearingSound string `json:"debug_hearing_sound"`
+}
+
 type Config struct {
+	DebugPerception       bool              `json:"debug_perception"`
 	CaptureDemo           DemoConfig        `json:"capture_demo"`
 	WorldDir              string            `json:"world_dir"`
 	LevelID               string            `json:"level_id"`
@@ -80,19 +94,113 @@ type Scene struct {
 	TileNoise    map[string]int `json:"tile_noise"`
 }
 
+// ArtSprite is one sprite recipe from CUE (world.art.sprites). Colors map a role to a palette key.
+type ArtSprite struct {
+	Shape    string            `json:"shape"`
+	Style    string            `json:"style"`
+	Height   int               `json:"height"`
+	Variants int               `json:"variants"`
+	Weights  []int             `json:"weights"`
+	Colors   map[string]string `json:"colors"`
+}
+
+// Art carries the style tokens (docs/art/00-art-bible.md) used to draw sprites and by the Unity view.
+// CharacterFrame uses top-left atlas coordinates and local feet coordinates.
+type CharacterFrame struct {
+	FlipX        bool `json:"flip_x,omitempty"`
+	Row          int  `json:"row"`
+	Column       int  `json:"column"`
+	X            int  `json:"x"`
+	Y            int  `json:"y"`
+	W            int  `json:"w"`
+	H            int  `json:"h"`
+	FeetX        int  `json:"feet_x"`
+	FeetY        int  `json:"feet_y"`
+	BodyHeightPX int  `json:"body_height_px"`
+}
+type CharacterSheet struct {
+	Frames       []CharacterFrame `json:"frames,omitempty"`
+	SmoothFilter bool             `json:"smooth_filter,omitempty"`
+	Image        string           `json:"image"`
+	IdleImage    string           `json:"idle_image,omitempty"`
+	HeightMM     int              `json:"height_mm,omitempty"`
+	BodyHeightPX int              `json:"body_height_px,omitempty"`
+	FrameW       int              `json:"frame_w"`
+	FrameH       int              `json:"frame_h"`
+	DrawSize     int              `json:"draw_size"`
+	FeetY        int              `json:"feet_y"`
+	Idle         int              `json:"idle"`
+	Walk         []int            `json:"walk"`
+	Rows         []int            `json:"rows"`
+}
+type CharacterArt struct {
+	DefaultSheets []string                  `json:"default_sheets,omitempty"`
+	FPS           float64                   `json:"fps"`
+	RateVariation float64                   `json:"rate_variation"`
+	Sheets        map[string]CharacterSheet `json:"sheets"`
+	Actors        map[string]string         `json:"actors"`
+}
+type PresentationCamera struct {
+	ZoomDefault float64 `json:"zoom_default"`
+	ZoomMin     float64 `json:"zoom_min"`
+	ZoomMax     float64 `json:"zoom_max"`
+}
+type Art struct {
+	HUD        *HudArt              `json:"hud,omitempty"`
+	Floor      *FloorMaterial       `json:"floor,omitempty"`
+	Scenes     []ArtScene           `json:"scenes"`
+	Painted    []PaintedScene       `json:"painted"`
+	Camera     PresentationCamera   `json:"camera"`
+	Characters CharacterArt         `json:"characters"`
+	Tile       struct{ W, H int }   `json:"tile"`
+	Palette    map[string]string    `json:"palette"`
+	Sprites    map[string]ArtSprite `json:"sprites"`
+}
+
+// LoadingScreen is a full-screen picture shown while the server answers a new game or load request (world.loading).
+type LoadingScreen struct {
+	Image   string `json:"image"`
+	Context string `json:"context"`
+	Note    string `json:"note"`
+}
+
+// Loading carries the loading-screen set; the caption is drawn by Unity so it can be translated.
+type Loading struct {
+	Caption string                   `json:"caption"`
+	MinMS   int                      `json:"min_ms"`
+	Screens map[string]LoadingScreen `json:"screens"`
+}
+
+// Menu is the main-menu backdrop picture (world.menu); buttons and title are drawn by Unity.
+type Menu struct {
+	Background string `json:"background"`
+	Note       string `json:"note"`
+}
+
 type Compiled struct {
-	Scene       Scene           `json:"scene"`
-	AI          json.RawMessage `json:"ai"`
-	AIScenarios json.RawMessage `json:"-"`
-	AIUtility   json.RawMessage `json:"-"`
-	Psyche      PsycheTable     `json:"psyche"`
-	Config      Config          `json:"config"`
-	ContentHash string          `json:"content_hash"`
-	Terrain     []string        `json:"terrain"`
-	Walkable    map[string]bool `json:"walkable"`
-	MoveCost    map[string]int  `json:"move_cost"`
-	Spawn       Point           `json:"spawn"`
-	Entities    []Entity        `json:"entities"`
+	PaintedInventoryAnchors map[string]map[string]inv.Cell `json:"painted_inventory_anchors,omitempty"`
+	Clothing                clothingRuntime.Model          `json:"clothing"`
+	Spatial                 SpatialCatalog                 `json:"spatial"`
+	Life                    json.RawMessage                `json:"life"`
+	Visibility              Visibility                     `json:"visibility"`
+	Opaque                  map[string]bool                `json:"opaque"`
+	Inventory               inv.Model                      `json:"inventory"`
+	Scene                   Scene                          `json:"scene"`
+	AI                      json.RawMessage                `json:"ai"`
+	AIScenarios             json.RawMessage                `json:"-"`
+	AIUtility               json.RawMessage                `json:"-"`
+	Psyche                  PsycheTable                    `json:"psyche"`
+	Config                  Config                         `json:"config"`
+	ContentHash             string                         `json:"content_hash"`
+	Terrain                 []string                       `json:"terrain"`
+	Walkable                map[string]bool                `json:"walkable"`
+	MoveCost                map[string]int                 `json:"move_cost"`
+	TileSprites             map[string]string              `json:"-"`
+	Art                     Art                            `json:"-"`
+	Loading                 Loading                        `json:"-"`
+	Menu                    Menu                           `json:"-"`
+	Spawn                   Point                          `json:"spawn"`
+	Entities                []Entity                       `json:"entities"`
 }
 
 func (c Config) validate() error {
@@ -150,6 +258,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if err := d.Decode(&out.Config); err != nil {
 		return out, nil, err
 	}
+	if out.Config.CaptureDemo.TargetActor == "" {
+		out.Config.CaptureDemo.TargetActor = "char.hero"
+	}
 	if err := out.Config.validate(); err != nil {
 		return out, nil, err
 	}
@@ -160,6 +271,18 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	world := w.LookupPath(cue.ParsePath("world"))
 	if err := world.Validate(cue.Concrete(true)); err != nil {
 		return out, nil, fmt.Errorf("world: %s", errors.Details(err, nil))
+	}
+	if err := world.LookupPath(cue.ParsePath("visibility")).Decode(&out.Visibility); err != nil {
+		return out, nil, err
+	}
+	if out.Visibility.PlayerRange < 1 || out.Visibility.PlayerRange > 64 || out.Visibility.Field != "omnidirectional" || out.Visibility.Remember != "observed_geometry_only" || out.Visibility.UnknownGlyph != "?" {
+		return out, nil, fmt.Errorf("invalid visibility policy")
+	}
+	if life := world.LookupPath(cue.ParsePath("life")); life.Exists() {
+		out.Life, err = life.MarshalJSON()
+		if err != nil {
+			return out, nil, err
+		}
 	}
 	out.AI, err = world.LookupPath(cue.ParsePath("ai")).MarshalJSON()
 	if err != nil {
@@ -273,8 +396,10 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 			return out, nil, fmt.Errorf("unequal terrain rows")
 		}
 	}
+	out.Opaque = map[string]bool{}
 	out.Walkable = map[string]bool{}
 	out.MoveCost = map[string]int{}
+	out.TileSprites = map[string]string{}
 	out.Scene.TileNoise = map[string]int{}
 	if noise, err := level.LookupPath(cue.ParsePath("ambient.noise_default")).Int64(); err == nil {
 		out.Scene.AmbientNoise = int(noise)
@@ -300,11 +425,55 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	}
 	for tiles.Next() {
 		key := tiles.Selector().Unquoted()
+		out.Opaque[key], _ = tiles.Value().LookupPath(cue.ParsePath("opaque")).Bool()
 		out.Walkable[key], _ = tiles.Value().LookupPath(cue.ParsePath("walk")).Bool()
 		cost, _ := tiles.Value().LookupPath(cue.ParsePath("move_cost")).Int64()
 		out.MoveCost[key] = int(cost)
+		out.TileSprites[key], _ = tiles.Value().LookupPath(cue.ParsePath("sprite")).String()
 		if noise, err := tiles.Value().LookupPath(cue.ParsePath("noise")).Int64(); err == nil && noise > 0 {
 			out.Scene.TileNoise[key] = int(noise)
+		}
+	}
+	if out.Spatial, err = compileSpatial(world.LookupPath(cue.ParsePath("spatial")), out.Walkable); err != nil {
+		return out, nil, fmt.Errorf("world.spatial: %w", err)
+	}
+	if garments := world.LookupPath(cue.ParsePath("clothing")); garments.Exists() {
+		if err := garments.Decode(&out.Clothing); err != nil {
+			return out, nil, fmt.Errorf("world.clothing: %w", err)
+		}
+	}
+	if err := out.Clothing.Validate(); err != nil {
+		return out, nil, fmt.Errorf("world.clothing: %w", err)
+	}
+	if art := world.LookupPath(cue.ParsePath("art")); art.Exists() {
+		if err := art.Decode(&out.Art); err != nil {
+			return out, nil, fmt.Errorf("world.art: %w", err)
+		}
+	}
+	if err := checkArtScenes(out.Art.Scenes); err != nil {
+		return out, nil, err
+	}
+	if anchors := world.LookupPath(cue.ParsePath("painted_inventory_anchors")); anchors.Exists() {
+		if err := anchors.Decode(&out.PaintedInventoryAnchors); err != nil {
+			return out, nil, fmt.Errorf("world.painted_inventory_anchors: %w", err)
+		}
+	}
+	if err := checkPresentationCamera(out.Art.Camera); err != nil {
+		return out, nil, err
+	}
+	if loading := world.LookupPath(cue.ParsePath("loading")); loading.Exists() {
+		if err := loading.Decode(&out.Loading); err != nil {
+			return out, nil, fmt.Errorf("world.loading: %w", err)
+		}
+	}
+	if menu := world.LookupPath(cue.ParsePath("menu")); menu.Exists() {
+		if err := menu.Decode(&out.Menu); err != nil {
+			return out, nil, fmt.Errorf("world.menu: %w", err)
+		}
+	}
+	for glyph, sprite := range out.TileSprites {
+		if _, ok := out.Art.Sprites[sprite]; !ok {
+			return out, nil, fmt.Errorf("legend tile %q: sprite %q has no recipe in world.art.sprites", glyph, sprite)
 		}
 	}
 	sites := level.LookupPath(cue.ParsePath("sites"))
@@ -366,6 +535,40 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 			return out, nil, fmt.Errorf("resident %s requires a walkable CUE standing position", e.ID)
 		}
 	}
+	if out.Inventory, err = inventoryModel(world, level, out.Config.LevelID); err != nil {
+		return out, nil, err
+	}
+	if err := checkPaintedScenes(out); err != nil {
+		return out, nil, err
+	}
+	// Demonstration actors use the same inventory registry as canonical scene actors.
+	for _, a := range out.Config.CaptureDemo.Agents {
+		if out.Inventory.Actors[a.ID] {
+			return out, nil, fmt.Errorf("duplicate actor %s", a.ID)
+		}
+		out.Inventory.Actors[a.ID] = true
+		out.Inventory.Owners[a.ID] = true
+		sid := inventoryRuntime.ActorStore(a.ID)
+		capacity := out.Inventory.Stores[inventoryRuntime.ActorStore("char.hero")].Capacity
+		out.Inventory.Stores[sid] = inventoryRuntime.Store{ID: sid, Name: a.Name, Kind: "actor", Anchor: inventoryRuntime.Anchor{Kind: "actor", Actor: a.ID}, Owner: a.ID, Capacity: capacity}
+	}
+	target := out.Config.CaptureDemo.TargetActor
+	if target != "char.hero" {
+		found := false
+		for _, a := range out.Entities {
+			if a.ID == target {
+				found = true
+			}
+		}
+		for _, a := range out.Config.CaptureDemo.Agents {
+			if a.ID == target {
+				found = true
+			}
+		}
+		if !found {
+			return out, nil, fmt.Errorf("mission target %s is not on the scene", target)
+		}
+	}
 	if err := out.validateDemoTerrain(); err != nil {
 		return out, nil, err
 	}
@@ -419,6 +622,49 @@ func Generate(project string) error {
 		filepath.Join(project, "internal/poc/world.json"):       worldJSON,
 		filepath.Join(unity, "Assets/Resources/PocConfig.json"): viewJSON,
 	}
+	if err := checkArtSceneImages(unity, compiled.Art.Scenes); err != nil {
+		return err
+	}
+	if err := checkPaintedImages(unity, compiled.Art.Painted); err != nil {
+		return err
+	}
+	if err := checkHudImage(unity, compiled.Art.HUD); err != nil {
+		return err
+	}
+	if err := checkCharacterImages(unity, compiled.Art.Characters); err != nil {
+		return err
+	}
+	if err := checkLoadingImages(unity, compiled.Loading); err != nil {
+		return err
+	}
+	if err := checkMenuImage(unity, compiled.Menu); err != nil {
+		return err
+	}
+	sprites, err := SpriteFiles(compiled.Art)
+	if err != nil {
+		return err
+	}
+	for name, data := range sprites {
+		files[filepath.Join(unity, "Assets/Resources/Sprites/generated", name)] = data
+	}
+	clothingJSON, err := json.MarshalIndent(compiled.Clothing, "", "  ")
+	if err != nil {
+		return err
+	}
+	clothingFiles, err := clothing.Render(clothingJSON)
+	if err != nil {
+		return err
+	}
+	for name, data := range clothingFiles {
+		files[filepath.Join(project, "internal/clothing", name)] = data
+	}
+	inventoryFiles, err := inventory.Render()
+	if err != nil {
+		return err
+	}
+	for name, data := range inventoryFiles {
+		files[filepath.Join(project, "internal/inventory", name)] = data
+	}
 	behaviorFiles, err := behavior.RenderWith(compiled.AI, behavior.Fixtures{Planning: compiled.AIScenarios, Utility: compiled.AIUtility})
 	if err != nil {
 		return err
@@ -431,18 +677,48 @@ func Generate(project string) error {
 	}
 
 	for name, dest := range map[string]string{
-		"social.go.tmpl":       filepath.Join(project, "internal/poc/social.gen.go"),
-		"social_test.go.tmpl":  filepath.Join(project, "internal/poc/social_generated_test.go"),
-		"mission_test.go.tmpl": filepath.Join(project, "internal/poc/mission_generated_test.go"),
-		"capture.go.tmpl":      filepath.Join(project, "internal/poc/capture.gen.go"),
-		"capture_test.go.tmpl": filepath.Join(project, "internal/poc/capture_generated_test.go"),
-		"capture.cs.tmpl":      filepath.Join(unity, "Assets/Generated/Poc/PocCaptureView.cs"),
-		"mission.go.tmpl":      filepath.Join(project, "internal/poc/mission.gen.go"),
-		"runtime.go.tmpl":      filepath.Join(project, "internal/poc/runtime.gen.go"),
-		"runtime_test.go.tmpl": filepath.Join(project, "internal/poc/runtime_generated_test.go"),
-		"main.go.tmpl":         filepath.Join(project, "cmd/game-server/main.go"),
-		"unity.cs.tmpl":        filepath.Join(unity, "Assets/Generated/Poc/AngelsDemonsPoc.cs"),
-		"editor.cs.tmpl":       filepath.Join(unity, "Assets/Generated/Poc/Editor/PocBuild.cs"),
+		"spatial.cs.tmpl":          filepath.Join(unity, "Assets/Generated/Poc/PocSpatialView.cs"),
+		"hud.cs.tmpl":              filepath.Join(unity, "Assets/Generated/Poc/PocHudView.cs"),
+		"sdk_proof.cs.tmpl":        filepath.Join(unity, "Assets/Generated/Poc/PocSdkProof.cs"),
+		"spatial_proof.cs.tmpl":    filepath.Join(unity, "Assets/Generated/Poc/PocSpatialProof.cs"),
+		"population.go.tmpl":       filepath.Join(project, "internal/poc/population.gen.go"),
+		"population_test.go.tmpl":  filepath.Join(project, "internal/poc/population_generated_test.go"),
+		"development.go.tmpl":      filepath.Join(project, "internal/poc/development.gen.go"),
+		"development_test.go.tmpl": filepath.Join(project, "internal/poc/development_generated_test.go"),
+		"development.cs.tmpl":      filepath.Join(unity, "Assets/Generated/Poc/PocDevelopmentView.cs"),
+		"life.go.tmpl":             filepath.Join(project, "internal/poc/life.gen.go"),
+		"inspection.go.tmpl":       filepath.Join(project, "internal/poc/inspection.gen.go"),
+		"inspection_test.go.tmpl":  filepath.Join(project, "internal/poc/inspection_generated_test.go"),
+		"inspection.cs.tmpl":       filepath.Join(unity, "Assets/Generated/Poc/PocInspectionView.cs"),
+		"life_test.go.tmpl":        filepath.Join(project, "internal/poc/life_generated_test.go"),
+		"life.cs.tmpl":             filepath.Join(unity, "Assets/Generated/Poc/PocLifeView.cs"),
+		"gestures.go.tmpl":         filepath.Join(project, "internal/poc/gestures.gen.go"),
+		"gestures_test.go.tmpl":    filepath.Join(project, "internal/poc/gestures_generated_test.go"),
+		"visibility.go.tmpl":       filepath.Join(project, "internal/poc/visibility.gen.go"),
+		"visibility_test.go.tmpl":  filepath.Join(project, "internal/poc/visibility_generated_test.go"),
+		"visibility.cs.tmpl":       filepath.Join(unity, "Assets/Generated/Poc/PocPerceptionView.cs"),
+		"inventory_test.go.tmpl":   filepath.Join(project, "internal/poc/inventory_generated_test.go"),
+		"reports.go.tmpl":          filepath.Join(project, "internal/poc/reports.gen.go"),
+		"tactics.go.tmpl":          filepath.Join(project, "internal/poc/tactics.gen.go"),
+		"equipment.go.tmpl":        filepath.Join(project, "internal/poc/equipment.gen.go"),
+		"equipment_test.go.tmpl":   filepath.Join(project, "internal/poc/equipment_generated_test.go"),
+		"inventory.go.tmpl":        filepath.Join(project, "internal/poc/inventory.gen.go"),
+		"inventory.cs.tmpl":        filepath.Join(unity, "Assets/Generated/Poc/PocInventoryView.cs"),
+		"social.go.tmpl":           filepath.Join(project, "internal/poc/social.gen.go"),
+		"social_test.go.tmpl":      filepath.Join(project, "internal/poc/social_generated_test.go"),
+		"mission_test.go.tmpl":     filepath.Join(project, "internal/poc/mission_generated_test.go"),
+		"capture.go.tmpl":          filepath.Join(project, "internal/poc/capture.gen.go"),
+		"capture_test.go.tmpl":     filepath.Join(project, "internal/poc/capture_generated_test.go"),
+		"capture.cs.tmpl":          filepath.Join(unity, "Assets/Generated/Poc/PocCaptureView.cs"),
+		"mission.go.tmpl":          filepath.Join(project, "internal/poc/mission.gen.go"),
+		"runtime.go.tmpl":          filepath.Join(project, "internal/poc/runtime.gen.go"),
+		"runtime_test.go.tmpl":     filepath.Join(project, "internal/poc/runtime_generated_test.go"),
+		"main.go.tmpl":             filepath.Join(project, "cmd/game-server/main.go"),
+		"art_scene.cs.tmpl":        filepath.Join(unity, "Assets/Generated/Poc/ArtScene.cs"),
+		"painted.cs.tmpl":          filepath.Join(unity, "Assets/Generated/Poc/PocPaintedView.cs"),
+		"painted_proof.cs.tmpl":    filepath.Join(unity, "Assets/Generated/Poc/PocPaintedProof.cs"),
+		"unity.cs.tmpl":            filepath.Join(unity, "Assets/Generated/Poc/AngelsDemonsPoc.cs"),
+		"editor.cs.tmpl":           filepath.Join(unity, "Assets/Generated/Poc/Editor/PocBuild.cs"),
 	} {
 		data, err := sources.ReadFile("templates/" + name)
 		if err != nil {

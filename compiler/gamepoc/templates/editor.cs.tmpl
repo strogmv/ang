@@ -13,6 +13,24 @@ public static class PocBuild
     [MenuItem("Angels & Demons/Prepare proof of concept")]
     public static void Prepare()
     {
+        PocResource resource = JsonUtility.FromJson<PocResource>(File.ReadAllText("Assets/Resources/PocConfig.json"));
+        if (resource.art != null && resource.art.characters != null)
+            foreach (PocCharacterSheet sheet in resource.art.characters.sheets)
+            {
+                var importer = AssetImporter.GetAtPath("Assets/Resources/" + sheet.image + ".png") as TextureImporter;
+                if (importer != null && PocCharacterTextureImporter.Configure(importer)) importer.SaveAndReimport();
+            }
+        foreach (string guid in AssetDatabase.FindAssets("t:Texture2D", new[] { "Assets/Resources/Sprites" }))
+        {
+            var importer = AssetImporter.GetAtPath(AssetDatabase.GUIDToAssetPath(guid)) as TextureImporter;
+            if (importer != null && PocCharacterTextureImporter.Configure(importer, true)) importer.SaveAndReimport();
+        }
+        if (AssetDatabase.IsValidFolder("Assets/Resources/MarketArt"))
+            foreach (string guid in AssetDatabase.FindAssets("t:Texture2D", new[] { "Assets/Resources/MarketArt" }))
+            {
+                var importer = AssetImporter.GetAtPath(AssetDatabase.GUIDToAssetPath(guid)) as TextureImporter;
+                if (importer != null && PocCharacterTextureImporter.ConfigureArtScene(importer)) importer.SaveAndReimport();
+            }
         Directory.CreateDirectory("Assets/Scenes");
         Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
         new GameObject("Angels & Demons").AddComponent<AngelsDemonsPoc>();
@@ -43,5 +61,47 @@ public static class PocBuild
         var report = BuildPipeline.BuildPlayer(new[] { "Assets/Scenes/Poc.unity" }, destination, BuildTarget.StandaloneOSX, BuildOptions.None);
         if (report.summary.result != UnityEditor.Build.Reporting.BuildResult.Succeeded) throw new Exception("POC player build failed: " + report.summary.result);
         Debug.Log("POC_PLAYER_READY " + destination);
+    }
+}
+
+// Preserve the original sheet grid. Unity's default NPOT resize changes 768px
+// sheets to 1024px and corrupts frame UVs; compression also damages small pixels.
+public sealed class PocCharacterTextureImporter : AssetPostprocessor
+{
+    public override uint GetVersion() { return 5; }
+    void OnPreprocessTexture()
+    {
+        if (assetPath.StartsWith("Assets/Resources/MarketArt/", StringComparison.Ordinal)) ConfigureArtScene((TextureImporter)assetImporter);
+        if (assetPath.StartsWith("Assets/Resources/Characters/", StringComparison.Ordinal)) Configure((TextureImporter)assetImporter);
+        if (assetPath.StartsWith("Assets/Resources/Sprites/", StringComparison.Ordinal)) Configure((TextureImporter)assetImporter, true);
+    }
+    static bool IsPaintedBackground(string path)
+    {
+        const string config = "Assets/Resources/PocConfig.json";
+        if (!File.Exists(config)) return false;
+        var resource = JsonUtility.FromJson<PocResource>(File.ReadAllText(config));
+        if (resource == null || resource.art == null || resource.art.painted == null) return false;
+        foreach (var scene in resource.art.painted)
+            if (path == "Assets/Resources/" + scene.background + ".png") return true;
+        return false;
+    }
+    public static bool ConfigureArtScene(TextureImporter t)
+    {
+        // Art atlases are reduced substantially in the assembly; mipmaps average
+        // fine source strokes instead of undersampling them into checkerboard patterns.
+        bool readable=IsPaintedBackground(t.assetPath);
+        bool changed=t.isReadable!=readable||t.maxTextureSize!=4096||t.npotScale!=TextureImporterNPOTScale.None||!t.mipmapEnabled||t.filterMode!=FilterMode.Bilinear||t.textureCompression!=TextureImporterCompression.Uncompressed||t.wrapMode!=TextureWrapMode.Clamp||!t.alphaIsTransparency;
+        t.isReadable=readable;t.maxTextureSize=4096;t.npotScale=TextureImporterNPOTScale.None;t.mipmapEnabled=true;t.filterMode=FilterMode.Bilinear;
+        t.textureCompression=TextureImporterCompression.Uncompressed;t.wrapMode=TextureWrapMode.Clamp;t.alphaIsTransparency=true;
+        return changed;
+    }
+    public static bool Configure(TextureImporter t, bool readable = false)
+    {
+        if(t.assetPath.StartsWith("Assets/Resources/Characters/Reference/",StringComparison.Ordinal))return ConfigureArtScene(t);
+        bool changed = t.isReadable != readable || t.npotScale != TextureImporterNPOTScale.None || t.mipmapEnabled || t.filterMode != FilterMode.Point || t.textureCompression != TextureImporterCompression.Uncompressed || t.wrapMode != TextureWrapMode.Clamp || !t.alphaIsTransparency;
+        t.isReadable = readable;
+        t.npotScale = TextureImporterNPOTScale.None; t.mipmapEnabled = false; t.filterMode = FilterMode.Point;
+        t.textureCompression = TextureImporterCompression.Uncompressed; t.wrapMode = TextureWrapMode.Clamp; t.alphaIsTransparency = true;
+        return changed;
     }
 }

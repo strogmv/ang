@@ -16,7 +16,7 @@ func TestLoudSoundsReachFartherThanQuietOnesAndWallsAttenuate(t *testing.T){
  if ok&&!(walled.Intensity<heard.Intensity){t.Fatal("walls did not attenuate")}
  if _,ok:=p.Hear(loud,far,1,6,0);ok{t.Fatal("six walls still audible")}
  if _,ok:=p.Hear(quiet,Cell{6,2},1,0,9);ok{t.Fatal("ambient noise did not mask a quiet sound")}
- if heard.Radius!=3||heard.Estimate!=origin{t.Fatalf("location estimate should be uncertain with distance: %+v",heard)}
+ if heard.Radius!=3||Distance(heard.Estimate,origin)>heard.Radius{t.Fatalf("location estimate should be uncertain with distance: %+v",heard)}
  sneak:=Sound{Kind:"step",Loudness:p.Loudness("step",true,1),Origin:origin}
  if _,ok:=p.Hear(sneak,Cell{6,2},1,0,0);ok{t.Fatal("sneaking did not lower loudness")}
  if p.Loudness("step",false,2)<=p.Loudness("step",false,1){t.Fatal("a noisy surface did not raise loudness")}
@@ -28,4 +28,10 @@ func TestBlockersCountOpaqueCells(t *testing.T){
  s:=Space{Width:20,Height:10,Walkable:func(c Cell)bool{return c.X!=5&&c.X!=7},Blocked:map[Cell]bool{}}
  if n:=s.Blockers(Cell{2,2},Cell{9,2});n!=2{t.Fatalf("expected two walls, got %d",n)}
  if n:=s.Blockers(Cell{2,2},Cell{4,2});n!=0{t.Fatal("counted walls outside the segment")}
+}
+
+func TestHeardEstimateIsCoarseAndDoesNotIdentifyTheEmitter(t *testing.T) {
+ p:=hearingPolicy();sound:=Sound{Origin:Cell{4,3},Loudness:1};heard,ok:=p.Hear(sound,Cell{15,3},1,0,0)
+ if !ok || heard.Radius==0 || heard.Estimate==sound.Origin || Distance(heard.Estimate,sound.Origin)>heard.Radius {t.Fatalf("invalid uncertain estimate: %+v",heard)}
+ other:=sound;other.SourceID="secret";other.Cause="secret cause";same,_:=p.Hear(other,Cell{15,3},1,0,0);if same!=heard{t.Fatal("hidden emitter identity affected hearing")}
 }

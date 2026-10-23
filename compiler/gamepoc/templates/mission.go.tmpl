@@ -8,14 +8,20 @@ import (
 )
 
 func(r *Runtime) missionFacts()map[string]bool{
- d:=&r.state.Demo;ready:=0
- for _,c:=range d.Candidates{if c.Selected{a:=d.Agents[r.demoAgentIndex(c.AgentID)];if manhattan(a.Position,r.state.Player)<=r.world.Config.CaptureDemo.CaptureDistance&&len(a.Path)==0{ready++}}}
+ d:=&r.state.Demo;ready,direct:=0,0
+ for _,c:=range d.Candidates{if c.Selected{a:=d.Agents[r.demoAgentIndex(c.AgentID)];goal,assigned:=d.Squad.ContactGoals[a.ID];distance:=manhattan(a.Position,r.targetPosition());if d.Squad.Phase=="in_position"&&assigned&&cell(a.Position)==goal&&r.sceneVisible(cell(a.Position),cell(r.targetPosition()))&&distance<=r.world.Inventory.Preparation.SupportDistance&&len(a.Path)==0{ready++;if distance<=r.world.Config.CaptureDemo.CaptureDistance{direct++}}}}
+
  facts:=map[string]bool{}
- for k,v:=range r.world.Config.CaptureDemo.KnownFacts{facts[k]=v}
+ // Facts are observations or verified resource state, never scenario shortcuts.
+ latest:=int64(-1)
+ for _,m:=range r.squadMembers(){a:=r.sceneActor(m.ID);if f,k:=a.Memory.Lookup(r.missionSubject(),"armed");k!=behavior.KnowledgeUnknown&&f.ObservedTick>latest{latest=f.ObservedTick;facts["observation.target_armed"]=k==behavior.KnowledgeTrue;facts["observation.target_unarmed"]=k==behavior.KnowledgeFalse}}
+ _,_,available,_:=r.availableSupply();facts["security.available"]=available;facts["security.absent"]=len(r.knownSupplyPoints())==0
+ facts["group.equipped"]=r.groupEquipped();facts["group.unarmed"]=!r.groupEquipped();facts["group.at_security"]=r.atSupply()
+ facts["equipment.reserved"]=r.supplyOwnsMovement();facts["group.rear_ready"]=r.rearStageReady();back,focused:=r.observedRear();facts["observation.facing_away"]=back;facts["observation.distracted"]=focused
  for k,v:=range map[string]bool{
   "target.alive":d.TargetAlive,"target.dead":!d.TargetAlive,
   "group.formed":d.TeamReady,
-  "group.in_position":ready>=r.world.Config.CaptureDemo.RequiredResponders,
+  "group.in_position":(ready>=r.world.Config.CaptureDemo.RequiredResponders&&direct>=r.world.Inventory.Preparation.MinContactMembers)||r.rearStageReady(),
   "custody.captured":d.Captured,"custody.held":d.Held,
   "custody.at_medblock":d.AtMedblock,"custody.handed_over":d.Delivered,
  }{facts[k]=v}
@@ -23,7 +29,7 @@ func(r *Runtime) missionFacts()map[string]bool{
 }
 func(r *Runtime) missionStep(){
 
- d:=&r.state.Demo;if d.Plan.Root==""{d.Plan.Reset(r.world.Config.CaptureDemo.MissionRoot)}
+ d:=&r.state.Demo;r.preparationStep();if d.Plan.Status=="failed"{return};if d.Plan.Root==""{d.Plan.Reset(r.world.Config.CaptureDemo.MissionRoot)}
  previousAction,previousStatus:=d.Plan.Current,d.Plan.Status
  d.Plan.Advance(r.world.AI,r.missionFacts(),r.state.Tick,r.executeMissionAction)
  if d.Plan.Current!=previousAction&&d.Plan.Current!=""{r.demoEvent("План: "+d.Plan.Current)}
@@ -33,12 +39,19 @@ func(r *Runtime) executeMissionAction(a behavior.Action)(string,string){
  d:=&r.state.Demo
  switch a.Operator{
  case "form_group":return "running","ожидаем ответы и сбор участников"
+ case "follow_neutrally":return "running","нейтральное сопровождение вооружённой цели"
+ case "approach_from_rear":return "running","согласованный подход с тыла"
+ case "wait_opportunity":return "running","ожидание наблюдаемого отвлечения"
+ case "reserve_equipment":return r.reserveEquipment()
+ case "visit_security_center":if r.atSupply(){return "done",""};return "running","совместный переход к зарезервированному запасу"
+ case "equip_group":return r.equipGroup()
  case "approach_target":
   return "running","ожидание общей готовности и согласованного подхода"
  case "capture_target":
-  d.Captured=true;d.Squad.Phase="in_position";d.CapturedTick=r.state.Tick;r.state.Path=nil
+  if d.Squad.Phase!="in_position"||!r.missionFacts()["group.in_position"]{return "running","ожидание контакта всех участников"};if r.neutralRequired(){if primary:=r.sceneActor(r.primaryMember());primary!=nil&&r.sceneVisible(cell(primary.Position),cell(r.targetPosition()))&&manhattan(primary.Position,r.targetPosition())<=r.world.AI.Policy.Social.SightRange{r.observeTactics(primary)};back,focus:=r.observedRear();if a.ID!="action.capture_opportunity"||!back||!focus{d.Plan.Restart("event.threat_changed");return "running","переоценка угрозы"}};if err:=r.useCaptureEquipment();err!=nil{return "blocked",err.Error()}
+  d.Captured=true;d.Squad.Phase="in_position";d.CapturedTick=r.state.Tick;r.stopTarget()
   for _,c:=range d.Candidates{if c.Selected{agent:=&d.Agents[r.demoAgentIndex(c.AgentID)];agent.Task="capturing";agent.Path=nil}}
-  r.demoEvent("Герой захвачен: все участники группы заняли подходы");return "done",""
+  r.demoEvent("Цель задержана: все участники группы заняли подходы");return "done",""
  case "hold_target":d.Held=true;r.demoEvent("Цель удерживается, готовим доставку в медблок");return "done",""
  case "escort_target","carry_body":
   if a.Operator=="carry_body"&&!d.Captured&&!r.missionFacts()["group.in_position"]{r.planDemoTeam();return "running","подход переносчиков к телу"}
@@ -59,15 +72,15 @@ func(r *Runtime) transportMissionTarget()(string,string){
  if d.CarrierID==""{
   for _,c:=range d.Candidates{if c.Selected{d.CarrierID=c.AgentID;break}}
   if d.CarrierID==""{return "blocked","нет участника для сопровождения"}
-  carrier:=&d.Agents[r.demoAgentIndex(d.CarrierID)];r.state.Player=carrier.Position;r.state.Path=nil
+  carrier:=&d.Agents[r.demoAgentIndex(d.CarrierID)];r.setTargetPosition(carrier.Position);r.stopTarget()
   r.demoEvent(fmt.Sprintf("Группа доставляет цель в медблок (%d,%d)",med.X,med.Y))
  }
  i:=r.demoAgentIndex(d.CarrierID);carrier:=&d.Agents[i];carrier.Task="transporting"
  if len(carrier.Path)==0&&carrier.Position!=med{
-  carrier.Path=r.pathAvoid(carrier.Position,med,r.demoBlocked(i));carrier.MoveStartNS=r.state.Tick*r.tickNS();carrier.Goal=med
+  controlled:=map[string]bool{};for _,m:=range r.squadMembers(){controlled[m.ID]=true};route:=r.sceneSpace(controlled).Path(cell(carrier.Position),cell(med),behavior.Cell{},0);carrier.Path=nil;for _,p:=range route{carrier.Path=append(carrier.Path,location(p))};carrier.MoveStartNS=r.state.Tick*r.tickNS();carrier.Goal=med
   if len(carrier.Path)==0{return "blocked","маршрут доставки временно заблокирован"}
  }
- r.state.Player=carrier.Position
+ r.setTargetPosition(carrier.Position)
  if r.state.Tick%r.world.Config.CaptureDemo.ReplanEveryTicks==0{r.planTeamAround(carrier.Position,d.CarrierID)}
  nearby:=true
  for _,c:=range d.Candidates{if c.Selected&&c.AgentID!=d.CarrierID{a:=d.Agents[r.demoAgentIndex(c.AgentID)];if manhattan(a.Position,carrier.Position)>r.world.AI.Policy.Group.CohesionDistance{nearby=false}}}
@@ -75,8 +88,9 @@ func(r *Runtime) transportMissionTarget()(string,string){
  return "running","доставка цели"
 }
 func(r *Runtime) appendMissionMotion(msg *pb.PocGameState){
- d:=r.state.Demo;if d.CarrierID==""||d.Delivered{return};i:=r.demoAgentIndex(d.CarrierID);if i<0{return};a:=d.Agents[i]
+ d:=r.state.Demo;if r.missionActor()!=playerActorID{return};if d.CarrierID==""||d.Delivered{return};i:=r.demoAgentIndex(d.CarrierID);if i<0{return};a:=d.Agents[i]
  msg.PlayerX=int32(a.Position.X);msg.PlayerY=int32(a.Position.Y);msg.Path=nil
- for _,p:=range a.Path{msg.Path=append(msg.Path,&pb.PocPoint{X:int32(p.X),Y:int32(p.Y)})}
+ // The carried hero follows the same projected segment as its carrier.
+ for _,view:=range msg.DemoAgents{if view.Id==a.ID{if !view.MotionPaused{for _,p:=range view.Path{msg.Path=append(msg.Path,&pb.PocPoint{X:p.X,Y:p.Y})}};break}}
  msg.MotionStartNs=a.MoveStartNS;msg.MovementStepNs=r.agentDurationNS()
 }

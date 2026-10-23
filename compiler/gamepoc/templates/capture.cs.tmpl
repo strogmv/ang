@@ -8,7 +8,11 @@ namespace AngelsDemons.Poc
 {
     public sealed partial class AngelsDemonsPoc
     {
-        bool verifyCapture, sawPartialTeam, sawPhysicalAssembly, sawGatheredObservers;
+        bool verifyCapture, sawPartialTeam, sawPhysicalAssembly, sawGatheredObservers, sawReturnToConfirmedPoint, sawConcurrentGroupMotion;
+        int captureOccupancySamples;
+        int captureFixtureX=16,captureFixtureY=2;
+        bool sawLocalApproach;
+        bool sawFoggedGeometry, sawRememberedGeometry, sawSoundArea, sawRaisedHand, sawWave;
         readonly HashSet<string> thinkingAgents = new HashSet<string>();
 
         static Vector2 SamplePath(Vector2 start, IList<PocPoint> path, long startNS, long durationNS, double nowNS)
@@ -28,8 +32,16 @@ namespace AngelsDemons.Poc
                 case "blocked": return "нет прогресса: " + a.ActionReason;
                 case "yielding": return "уступает проход";
                 case "working": return "за работой";
+                case "shadowing": return "нейтрально сопровождает";
+                case "escorting": return "сопровождает задержанного";
+                case "supplying": return "идёт за снаряжением";
+                case "equipping": return "получает снаряжение";
+                case "search_assembling": return "сбор для поиска";
+                case "searching": return "обыскивает помещение";
+                case "search_report": return "доклад: цель не найдена";
                 case "assembling": return "идёт на общий сбор";
-                case "approaching": return "подход с поддержкой";
+                case "market": case "work": case "eat": case "sleep": case "rest": case "post": case "walking": case "waiting": case "transit": return a.Role;
+                case "approaching": return string.IsNullOrEmpty(a.ApproachLabel)?"подход с поддержкой":a.ApproachLabel;
                 case "committing": return "совместный захват";
                 case "gather_watch": return "собирается / наблюдает";
                 case "withdraw": return "отходит от угрозы";
@@ -54,10 +66,46 @@ namespace AngelsDemons.Poc
             foreach (PocAgentState a in state.DemoAgents) yield return a;
             foreach (PocAgentState a in state.SceneAgents) yield return a;
         }
-        void DrawDemoAgents(Vector2 origin, float tw, float th)
+        Vector2 SampleNPC(PocAgentState a)
+        {
+            double ns = a.MotionPaused ? a.MotionSampleNs : renderedSimNS;
+            return SamplePath(new Vector2(a.X, a.Y), a.Path, a.MotionStartNs, a.MovementStepNs, ns);
+        }
+        static bool CarriedTogether(PocCaptureOrder order, string first, string second)
+        {
+            return order != null && order.Captured && !string.IsNullOrEmpty(order.CarrierId) && ((first == order.CarrierId && second == order.TargetActorId) || (second == order.CarrierId && first == order.TargetActorId));
+        }
+        void QueueDemoAgents()
+        {
+            foreach (PocAgentState a in SceneActors())
+            {
+                if (!ViewSees(a.X,a.Y)) continue;
+                sceneDrawItems.Add(new SceneDrawItem { Kind=SceneDrawKind.Agent, Position=SampleNPC(a), ID=a.Id, Agent=a });
+            }
+        }
+        void DrawDemoAgent(Vector2 origin, float tw, float th, PocAgentState a, Vector2 position)
+        {
+            Color color = a.Task == "considering" ? new Color(1f, .86f, .25f) : a.Task == "extra_work" ? new Color(.65f, .45f, .9f) : a.Task == "patrol" ? new Color(.4f, .7f, .9f) : new Color(.95f, .4f, .3f);
+            if (a.Intent == "gather_watch" || a.Intent == "withdraw") color = new Color(.4f, .85f, .7f);
+            if (a.Intent == "flee") color = new Color(.9f, .75f, .35f);
+            if (a.Intent == "assist") color = new Color(.55f, .8f, .95f);
+            string label = a.Id.StartsWith("demo.") ? "№" + a.Id.Substring(a.Id.LastIndexOf('.') + 1) : a.Name;
+            if (a.Task == "considering") label += " ?";
+            DrawCharacter(origin, tw, th, position, a.Id, label, color, new Vector2(a.X, a.Y), a.Path, a.MotionStartNs, a.MovementStepNs, a.MotionPaused, a.HasLookTarget ? new Vector2(a.LookX-position.x, a.LookY-position.y) : Vector2.zero);
+            DrawGesture(origin,tw,th,position,a);
+            if (!string.IsNullOrEmpty(a.Speech) && state.Tick<a.SpeechUntilTick) { Vector2 speechAt=CellScreen(origin,tw,th,position.x,position.y); GUI.Label(new Rect(speechAt.x-100,speechAt.y-76,300,26),a.Speech,smallStyle); }
+
+            if (a.HasLookTarget)
+            {
+                Vector2 direction = new Vector2(((a.LookX - position.x) - (a.LookY - position.y)) * tw / 2, ((a.LookX - position.x) + (a.LookY - position.y)) * th / 2).normalized;
+                Vector2 at = origin + new Vector2((position.x - position.y) * tw / 2 + tw / 2, (position.x + position.y) * th / 2 + th / 2);
+                Fill(new Rect(at.x + direction.x * 12 - 2, at.y - 13 + direction.y * 12 - 2, 4, 4), Color.white);
+            }
+        }
+        void DrawCaptureMarkers(Vector2 origin, float tw, float th)
         {
             PocCaptureOrder medical = state.CaptureOrder;
-            if (medical != null)
+            if (medical != null && ViewCell(ObserverView(),medical.MedblockX,medical.MedblockY) != '0')
             {
                 Vector2 at = origin + new Vector2((medical.MedblockX - medical.MedblockY) * tw / 2 + tw / 2, (medical.MedblockX + medical.MedblockY) * th / 2 + th / 2);
                 Fill(new Rect(at.x - 9, at.y - 17, 18, 18), new Color(.25f, .7f, .55f));
@@ -65,37 +113,31 @@ namespace AngelsDemons.Poc
                 Fill(new Rect(at.x - 1.5f, at.y - 13.5f, 3, 10), Color.white);
                 GUI.Label(new Rect(at.x - 44, at.y - 42, 150, 23), "Медблок", smallStyle);
             }
-            foreach (PocAgentState a in SceneActors())
-            {
-                double ns = a.MotionPaused ? a.MotionSampleNs : renderedSimNS;
-                Vector2 position = SamplePath(new Vector2(a.X, a.Y), a.Path, a.MotionStartNs, a.MovementStepNs, ns);
-                Color color = a.Task == "considering" ? new Color(1f, .86f, .25f) : a.Task == "extra_work" ? new Color(.65f, .45f, .9f) : a.Task == "patrol" ? new Color(.4f, .7f, .9f) : new Color(.95f, .4f, .3f);
-                if (a.Intent == "gather_watch" || a.Intent == "withdraw") color = new Color(.4f, .85f, .7f);
-                if (a.Intent == "flee") color = new Color(.9f, .75f, .35f);
-                if (a.Intent == "assist") color = new Color(.55f, .8f, .95f);
-                string label = a.Id.StartsWith("demo.") ? "№" + a.Id.Substring(a.Id.LastIndexOf('.') + 1) : a.Name;
-                if (a.Task == "considering") label += " ?";
-                DrawActor(origin, tw, th, position, label, color);
-                if (a.HasLookTarget)
-                {
-                    Vector2 direction = new Vector2(((a.LookX - position.x) - (a.LookY - position.y)) * tw / 2, ((a.LookX - position.x) + (a.LookY - position.y)) * th / 2).normalized;
-                    Vector2 at = origin + new Vector2((position.x - position.y) * tw / 2 + tw / 2, (position.x + position.y) * th / 2 + th / 2);
-                    Fill(new Rect(at.x + direction.x * 12 - 2, at.y - 13 + direction.y * 12 - 2, 4, 4), Color.white);
-                }
-            }
             PocCaptureOrder order = state.CaptureOrder;
-            if (order != null && order.Issued)
+            if (order != null && order.Issued && state.DebugPerception)
             {
                 Vector2 at = origin + new Vector2((order.CallX - order.CallY) * tw / 2 + tw / 2, (order.CallX + order.CallY) * th / 2 + th / 2);
                 Fill(new Rect(at.x - 10, at.y - 1, 20, 2), new Color(1f, .3f, .2f));
                 Fill(new Rect(at.x - 1, at.y - 10, 2, 20), new Color(1f, .3f, .2f));
             }
         }
+        void DrawGesture(Vector2 origin, float tw, float th, Vector2 position, PocAgentState a)
+        {
+            if (string.IsNullOrEmpty(a.Gesture) || state.Tick >= a.GesturePhaseUntilTick) return;
+            Vector2 at=CellScreen(origin,tw,th,position.x,position.y)-new Vector2(0,34);
+            double tick=renderedSimNS*resource.config.tick_hz/1000000000.0;
+            float sway=a.Gesture=="wave"?Mathf.Sin((float)(tick-a.GestureStartedTick)*.85f)*7f:0f;
+            Color ink=new Color(1f,.9f,.45f,1f);
+            SenseLine(at+new Vector2(7,8),at+new Vector2(10,-1),ink);
+            SenseLine(at+new Vector2(10,-1),at+new Vector2(10+sway,-14),ink);
+            Fill(new Rect(at.x+7+sway,at.y-18,6,5),ink);
+            GUI.Label(new Rect(at.x+16,at.y-19,100,22),a.Gesture=="raise_hand"?"Внимание":"Сюда",smallStyle);
+        }
         void DrawCaptureSidebar()
         {
             GUILayout.Label("Клик — идти. ESC — меню.", smallStyle);
             foreach (PocAgentState a in state.DemoAgents)
-                GUILayout.Label("№" + a.Id.Substring(a.Id.LastIndexOf('.') + 1) + "  " + TaskLabel(a), smallStyle, GUILayout.Height(20));
+                GUILayout.Label("№" + a.Id.Substring(a.Id.LastIndexOf('.') + 1) + "  " + TaskLabel(a)+(string.IsNullOrEmpty(a.Equipment)?"":" · "+a.Equipment), smallStyle, GUILayout.Height(20));
             foreach (PocAgentState a in state.SceneAgents)
                 GUILayout.Label((a.Name.StartsWith("Бабушка") ? "Варя" : a.Name) + ": " + TaskLabel(a), smallStyle, GUILayout.Height(20));
             PocCaptureOrder order = state.CaptureOrder;
@@ -105,11 +147,22 @@ namespace AngelsDemons.Poc
             else if (order.Delivered) status = "ПЕРЕДАН В МЕДБЛОК";
             else if (!string.IsNullOrEmpty(order.CarrierId)) status = "Доставка в медблок";
             else if (order.Captured) status = "Герой удерживается";
+            else if (order.GroupPhase == "shadowing") status = "Нейтральное сопровождение";
+            else if (order.GroupPhase == "supplying") status = "Подготовка: " + order.SupplyStatus;
+            else if (order.LocalApproach && order.GroupPhase == "approaching") status = "Обход с разных сторон";
+            else if (order.GroupPhase == "preparing") status = "Подготовка группы";
+            else if (order.GroupPhase == "searching") status = "Поиск по залу";
+            else if (order.GroupPhase == "search_assembling") status = "Сбор для поиска: " + order.GroupReadyCount + "/" + order.Required;
             else if (order.TeamReady) status = "Совместный подход: " + order.Required;
             else if (order.GroupPhase == "assembling") status = "Сбор: готовы " + order.GroupReadyCount + "/" + order.Required;
             else if (order.Issued) status = "Сеть ждёт ответы NPC";
             else status = "Вызов через " + Math.Max(0, (order.DueTick - state.Tick) / (double)resource.config.tick_hz).ToString("0.0") + " с";
             GUILayout.Label(status, smallStyle);
+            if (order.LeadKnown && !order.Captured)
+            {
+                string source = order.LeadSource == "camera" ? "камера" : order.LeadSource == "sight" ? "наблюдение" : order.LeadSource == "call" ? "вызов" : "доклад";
+                GUILayout.Label("Цель: (" + order.LeadX + "," + order.LeadY + ") · " + source + " · " + Math.Max(0, (state.Tick - order.LeadObservedTick) / (double)resource.config.tick_hz).ToString("0.0") + " с назад", smallStyle);
+            }
             if (order.Issued) GUILayout.Label((order.CoordinationMode == "led" ? "Лидер: " + order.LeaderId : "Группа: общий шаблон"), smallStyle);
             if (order.NegotiationStatus == "pending") GUILayout.Label("Переговорщик: «" + order.NegotiationLine + "»", smallStyle);
             if (order.Issued) GUILayout.Label("Наблюдатели: " + order.CrowdSize + " · " + order.CrowdStatus, smallStyle);
@@ -126,15 +179,66 @@ namespace AngelsDemons.Poc
         void CaptureProofStep(double now)
         {
             if (state == null || !connected || !string.IsNullOrEmpty(busy)) return;
+            if (state.Active)
+            {
+                if (state.PlayerView == null || state.PlayerView.Cells.Count != state.Height || state.DebugViews.Count != 7) { FinishProof(false, "per-observer perception missing"); return; }
+                foreach (string row in state.PlayerView.Cells) { if (row.IndexOf('0') >= 0) sawFoggedGeometry = true; if (row.IndexOf('1') >= 0) sawRememberedGeometry = true; }
+                if (state.PlayerView.Sounds.Count > 0) sawSoundArea = true;
+                foreach (PocAgentState actor in SceneActors()) { if (actor.Gesture=="raise_hand") sawRaisedHand=true; if(actor.Gesture=="wave") sawWave=true; }
+                var cells = new Dictionary<string, List<string>> { { state.PlayerX + ":" + state.PlayerY, new List<string> { "char.hero" } } };
+                PocCaptureOrder custody = state.CaptureOrder;
+                var visual = new List<KeyValuePair<string, Vector2>> { new KeyValuePair<string, Vector2>("char.hero", shownPosition) };
+                var actorIds = new HashSet<string> { "char.hero" };
+                foreach (PocAgentState a in SceneActors())
+                {
+                    if (!actorIds.Add(a.Id)) { FinishProof(false, "duplicate actor id: " + a.Id); return; }
+                    Vector2 drawn = SampleNPC(a);
+                    foreach (var other in visual)
+                        if (!CarriedTogether(custody, a.Id, other.Key) && Mathf.Abs(drawn.x - other.Value.x) + Mathf.Abs(drawn.y - other.Value.y) < .5f) { FinishProof(false, "rendered actors overlap: " + a.Id + " and " + other.Key); return; }
+                    visual.Add(new KeyValuePair<string, Vector2>(a.Id, drawn));
+                    string key = a.X + ":" + a.Y;
+                    if (!cells.TryGetValue(key, out List<string> occupants)) { occupants = new List<string>(); cells.Add(key, occupants); }
+                    foreach (string other in occupants)
+                    {
+                        bool carried = CarriedTogether(custody, a.Id, other);
+                        if (!carried) { FinishProof(false, "actor cell overlap: " + other + " and " + a.Id + " at " + key); return; }
+                    }
+                    occupants.Add(a.Id);
+                }
+                var movingTogether = new Dictionary<long, int>();
+                foreach (PocAgentState a in state.DemoAgents)
+                {
+                    if (a.MotionPaused || a.Path.Count == 0 || a.MovementStepNs <= 0 || renderedSimNS < a.MotionStartNs || renderedSimNS >= a.MotionStartNs + a.MovementStepNs) continue;
+                    bool selectedMember = false; foreach (PocDispatchCandidate c in custody.Candidates) if (c.Selected && c.AgentId == a.Id) selectedMember = true;
+                    if (!selectedMember) continue;
+                    int count; movingTogether.TryGetValue(a.MotionStartNs, out count); movingTogether[a.MotionStartNs] = count + 1;
+                    if (count >= 1) sawConcurrentGroupMotion = true;
+                }
+                captureOccupancySamples++;
+            }
             switch (proofPhase)
             {
                 case 0: fps = resource.config.min_client_fps; ApplyDisplay(); NewGame(777); proofPhase = 1; break;
                 case 1:
                     if (!state.Active || state.Seed != 777) break;
+                    if (!CharacterCatalogProof()) { FinishProof(false, "character assets or independent gait configuration invalid"); return; }
                     if (state.DemoAgents.Count != 5) { FinishProof(false, "expected five demo agents"); return; }
-                    proofPhase = 2; break;
+                    if (Environment.GetEnvironmentVariable("ANG_POC_CAPTURE_CRATES") == "1") { captureFixtureX=17;captureFixtureY=1;ClickMove(captureFixtureX,captureFixtureY);proofPhase=8; }
+                    else if (Environment.GetEnvironmentVariable("ANG_POC_CAPTURE_NEAR_SERVICE") == "1") { ClickMove(captureFixtureX,captureFixtureY); proofPhase = 8; }
+                    else proofPhase = 2;
+                    break;
+                case 8:
+                    if (state.PlayerX == captureFixtureX && state.PlayerY == captureFixtureY && state.Path.Count == 0) proofPhase = 2;
+                    else if (now > 10) FinishProof(false, "near-service fixture did not reach the target before the incident");
+                    break;
                 case 2:
                     PocCaptureOrder order = state.CaptureOrder;
+                    if(order.LocalApproach && order.GroupPhase=="approaching") sawLocalApproach=true;
+                    if (order.SupplyStatus == "equipped" && !order.Captured)
+                    {
+                        if (!order.LeadKnown || order.LeadX != order.CallX || order.LeadY != order.CallY || order.GroupPhase == "searching" || order.GroupPhase == "search_assembling") { FinishProof(false, "equipped squad searched instead of returning to confirmed stationary target"); return; }
+                        sawReturnToConfirmedPoint = true;
+                    }
                     if (order.GroupPhase == "assembling" && !order.TeamReady) sawPhysicalAssembly = true;
                     if (order.CrowdSize >= 1 && order.CrowdStatus == "watching") sawGatheredObservers = true;
                     foreach (PocAgentState a in state.DemoAgents)
@@ -145,17 +249,13 @@ namespace AngelsDemons.Poc
                     if (!order.TeamReady)
                         foreach (PocAgentState a in state.DemoAgents)
                             if (a.Task == "responding" || a.Task == "capturing") { FinishProof(false, "NPC acted before team formation"); return; }
-                    if (!order.Captured) { if (now > 50) FinishProof(false, "NPC capture timed out"); break; }
-                    bool rejectedSecond = false, fourthSelected = false;
-                    foreach (PocDispatchCandidate c in order.Candidates)
-                    {
-                        if (c.Rank == 2 && c.Requested && !c.Selected && c.Reason.StartsWith("Отказ")) rejectedSecond = true;
-                        if (c.Rank == 4 && c.Selected) fourthSelected = true;
-                    }
-                    var occupied = new HashSet<string>();
-                    foreach (PocAgentState a in state.DemoAgents)
-                        if (a.Task == "capturing" && (!occupied.Add(a.X + ":" + a.Y) || Math.Abs(a.X - state.PlayerX) + Math.Abs(a.Y - state.PlayerY) != 1)) { FinishProof(false, "team approach overlap"); return; }
-                    if (selected != 3 || !rejectedSecond || !fourthSelected || thinkingAgents.Count < 4 || !sawPartialTeam || !sawPhysicalAssembly || !sawGatheredObservers || order.CallX != 2 || order.CallY != 2) { FinishProof(false, "dispatch decisions mismatch"); return; }
+                    if (!order.Captured) { if (now > 75) FinishProof(false, "NPC capture timed out"); break; }
+                    string formationProblem=CaptureFormationProblem(order);
+                    if(formationProblem!=null){FinishProof(false,formationProblem);return;}
+                    bool sawNpcAlarm=order.AlarmCount>0&&!string.IsNullOrEmpty(order.CallCause)&&order.CallCause!="test_hook";
+                    if (order.EquippedCount != order.Required || order.SupplyStatus != "equipped") { FinishProof(false, "capture did not consume real map stock"); return; }
+                    if (!sawConcurrentGroupMotion) { FinishProof(false, "no simultaneous group movement observed"); return; }
+                    if (selected != order.Required || thinkingAgents.Count < order.Required || !sawPhysicalAssembly || !sawNpcAlarm || !sawReturnToConfirmedPoint) { FinishProof(false, "emergent alarm/group decisions mismatch"); return; }
                     ClickMove(3, 2); proofPhase = 6; break;
                 case 6:
                     if (!latencyResultReady) { if (now - clickAt > 1) FinishProof(false, "capture lock response timeout"); break; }
@@ -168,15 +268,48 @@ namespace AngelsDemons.Poc
                     if (!state.CaptureOrder.Captured || state.Epoch == savedEpoch || state.DemoAgents.Count != 5) { FinishProof(false, "NPC state did not survive save/load"); return; }
                     proofPhase = 7; break;
                 case 7:
-                    if (!state.CaptureOrder.Delivered || state.CaptureOrder.PlanStatus != "completed") { if (now > 80) FinishProof(false, "medical delivery timeout: " + state.CaptureOrder.PlanAction); break; }
+                    if (!state.CaptureOrder.Delivered || state.CaptureOrder.PlanStatus != "completed") { if (now > 110) FinishProof(false, "medical delivery timeout: " + state.CaptureOrder.PlanAction); break; }
                     if (state.PlayerX != state.CaptureOrder.MedblockX || state.PlayerY != state.CaptureOrder.MedblockY || state.CaptureOrder.DeliveredTick <= state.CaptureOrder.CapturedTick) { FinishProof(false, "medical handoff mismatch"); break; }
-                    FinishProof(true, "physical assembly, supported group capture, gathered observers, saved behavior and medical handoff passed"); break;
+                    FinishProof(true, "NPC alarm, physical stock reservation/issue/use, return to confirmed point, coordinated capture, saved state and medical handoff passed"); break;
             }
+        }
+        string CaptureFormationProblem(PocCaptureOrder order)
+        {
+            int minimum=resource.config.capture_min_contact_members,maximum=resource.config.capture_support_distance_cells;
+            if(minimum<1||maximum<1||minimum>order.Required)return "invalid projected capture policy";
+            var occupied=new HashSet<string>();int participants=0,contacts=0;PocAgentState carrier=null;
+            foreach(PocDispatchCandidate candidate in order.Candidates)
+            {
+                if(!candidate.Selected)continue;PocAgentState member=null;
+                foreach(PocAgentState actor in state.DemoAgents)if(actor.Id==candidate.AgentId){member=actor;break;}
+                if(member==null)return "selected capture member missing: "+candidate.AgentId;
+                participants++;
+                if(!occupied.Add(member.X+":"+member.Y))return "capture members share cell: "+member.Id;
+                if(string.IsNullOrEmpty(member.Role))return "capture member role missing: "+member.Id;
+                if(member.Id==order.CarrierId)carrier=member;
+                // Before transport, the server permits support roles beyond direct
+                // contact. The exact bounds are projected from the CUE policy.
+                if(string.IsNullOrEmpty(order.CarrierId))
+                {
+                    int distance=Math.Abs(member.X-state.PlayerX)+Math.Abs(member.Y-state.PlayerY);
+                    if(distance<1||distance>maximum)return "capture support distance invalid: "+member.Id+" distance="+distance+" max="+maximum;
+                    if(member.X!=member.GoalX||member.Y!=member.GoalY)return "capture member has not reached reserved goal: "+member.Id;
+                    if(distance==1)contacts++;
+                }
+            }
+            if(participants!=order.Required)return "capture participant count mismatch";
+            if(string.IsNullOrEmpty(order.CarrierId))return contacts<minimum?"capture physical contacts="+contacts+" required="+minimum:null;
+            // A received snapshot may already begin transport. The earlier frame
+            // occupancy guard permits only this explicitly named carried pair.
+            return carrier==null||carrier.X!=state.PlayerX||carrier.Y!=state.PlayerY?"captured target is detached from designated carrier":null;
         }
         [Serializable] sealed class CaptureProofReport
         {
-            public int agents, call_x, call_y;
-            public bool issued, team_ready, captured, delivered, partial_team_observed, physical_assembly_observed, gathered_observers_observed;
+            public bool local_approach;
+            public bool fogged_geometry, remembered_geometry, sound_area, raised_hand, wave;
+            public int agents, call_x, call_y, occupancy_samples, animated_characters;
+            public bool independent_gaits, simultaneous_group_motion;
+            public bool issued, team_ready, captured, delivered, partial_team_observed, physical_assembly_observed, gathered_observers_observed, confirmed_point_pursuit_observed;
             public long issued_tick, captured_tick, delivered_tick;
             public string plan_status;
             public double peak_planner_work_us;
@@ -188,7 +321,7 @@ namespace AngelsDemons.Poc
             PocCaptureOrder o = state.CaptureOrder;var selected = new List<string>();var events = new List<string>(o.Events);
             foreach (PocDispatchCandidate c in o.Candidates) if (c.Selected) selected.Add(c.AgentId);
             var thinking = new List<string>(thinkingAgents);thinking.Sort();
-            return JsonUtility.ToJson(new CaptureProofReport { agents = state.DemoAgents.Count, call_x = o.CallX, call_y = o.CallY, issued = o.Issued, team_ready = o.TeamReady, captured = o.Captured, delivered = o.Delivered, delivered_tick = o.DeliveredTick, plan_status = o.PlanStatus, peak_planner_work_us = o.PlannerPeakWorkUs, partial_team_observed = sawPartialTeam, physical_assembly_observed = sawPhysicalAssembly, gathered_observers_observed = sawGatheredObservers, issued_tick = o.IssuedTick, captured_tick = o.CapturedTick, selected = selected.ToArray(), observed_thinking = thinking.ToArray(), events = events.ToArray() });
+            return JsonUtility.ToJson(new CaptureProofReport { local_approach = sawLocalApproach, raised_hand = sawRaisedHand, wave = sawWave, fogged_geometry = sawFoggedGeometry, remembered_geometry = sawRememberedGeometry, sound_area = sawSoundArea, agents = state.DemoAgents.Count, animated_characters = characterBindings.Count, independent_gaits = CharacterCatalogProof(), simultaneous_group_motion = sawConcurrentGroupMotion, occupancy_samples = captureOccupancySamples, call_x = o.CallX, call_y = o.CallY, issued = o.Issued, team_ready = o.TeamReady, captured = o.Captured, delivered = o.Delivered, delivered_tick = o.DeliveredTick, plan_status = o.PlanStatus, peak_planner_work_us = o.PlannerPeakWorkUs, partial_team_observed = sawPartialTeam, physical_assembly_observed = sawPhysicalAssembly, gathered_observers_observed = sawGatheredObservers, confirmed_point_pursuit_observed = sawReturnToConfirmedPoint, issued_tick = o.IssuedTick, captured_tick = o.CapturedTick, selected = selected.ToArray(), observed_thinking = thinking.ToArray(), events = events.ToArray() });
         }
     }
 }
