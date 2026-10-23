@@ -4,14 +4,14 @@ import(inv "angelsdemons/server/internal/inventory";"errors";"fmt";"sort";"time"
 func(r *Runtime)currentLevel()string{if r.state.Life.Enabled{if a:=r.state.Life.Actor(playerActorID);a!=nil{return a.Level}};return r.world.Config.LevelID}
 func(r *Runtime)currentTerrain()[]string{if r.state.Life.Enabled{return r.world.Life.Locations[r.currentLevel()].Terrain};return r.world.Terrain}
 func(r *Runtime)initLife(){r.initLifeState(r.world.Life.Start())}
-func(r *Runtime)initLifeState(life behavior.LifeState){r.state.Life=life;r.initLifeInventory();r.state.LifeExploration=map[string]map[int]seenCell{};r.seedLifeKnownLayouts();r.state.Demo=demoState{TargetAlive:true};r.syncLifeHero();r.updateLifeExploration()}
+func(r *Runtime)initLifeState(life behavior.LifeState){life.ControlledActorID=playerActorID;r.state.Life=life;r.initLifeInventory();r.state.LifeExploration=map[string]map[int]seenCell{};r.seedLifeKnownLayouts();r.state.Demo=demoState{TargetAlive:true};r.syncLifeHero();r.updateLifeExploration()}
 // Explicit initial map knowledge is memory of fixed geometry only. Live actors,
 // custody and sensory fragments still require a current server observation.
 func(r *Runtime)seedLifeKnownLayouts(){
  for id,l:=range r.world.Life.Locations{if !l.InitialLayoutKnown{continue};known:=map[int]seenCell{};width:=len(l.Terrain[0]);for y,row:=range l.Terrain{for x:=range len(row){known[y*width+x]=seenCell{Glyph:string(row[x]),Tick:r.state.Tick}}};r.state.LifeExploration[id]=known}
 }
 func(r *Runtime)syncLifeHero(){a:=r.state.Life.Actor(playerActorID);if a==nil{return};r.state.Player=location(a.Position);r.state.Path=nil;for _,at:=range a.Path{r.state.Path=append(r.state.Path,location(at))};r.state.MoveStartNS=a.MoveStartTick*r.tickNS()}
-func(r *Runtime)lifeStep()error{old:=r.currentLevel();previous:=r.state.Life.Maintenance.Clone().Units;r.checkLifeEquipment();r.state.Life.AdvanceWithMaintenance(r.world.Life,r.state.Tick,r.installLifePart);if err:=r.state.Life.AdvancePopulation(r.world.Life,playerActorID);err!=nil{return err};r.awardRepairPractice(previous);r.advancePractice();r.syncLifeHero();if old!=r.currentLevel(){r.state.Epoch=newEpoch();r.openStore=""};return nil}
+func(r *Runtime)lifeStep()error{r.state.Life.ControlledActorID=playerActorID;old:=r.currentLevel();previous:=r.state.Life.Maintenance.Clone().Units;r.checkLifeEquipment();r.state.Life.AdvanceWithMaintenance(r.world.Life,r.state.Tick,r.installLifePart);if err:=r.state.Life.AdvancePopulation(r.world.Life,playerActorID);err!=nil{return err};r.awardRepairPractice(previous);r.advancePractice();r.syncLifeHero();if old!=r.currentLevel(){r.state.Epoch=newEpoch();r.openStore=""};return nil}
 func(r *Runtime)lifeViewRuntime()*Runtime{
  a:=r.state.Life.Actor(playerActorID);if a==nil{return nil}
  v:=&Runtime{world:r.world,state:state{Active:true,Tick:r.state.Tick,Player:location(a.Position),Exploration:map[string]map[int]seenCell{playerActorID:r.state.LifeExploration[a.Level]}}}
@@ -67,8 +67,8 @@ func(r *Runtime)lifeMove(c *connection,m *pb.MoveTo){
  result:=&pb.PocMoveResult{Epoch:r.state.Epoch,InputSeq:m.InputSeq};hero:=r.state.Life.Actor(playerActorID)
  switch{case r.state.Life.PopulationFailure!="":result.Reason="Симуляция остановлена; загрузите сохранение";case m.Epoch!=r.state.Epoch:result.Reason="Локация изменилась";case m.InputSeq==0||m.InputSeq<=c.lastMoveSeq:result.Reason="Устаревшая команда";case r.state.Paused:result.Reason="Мир на паузе";case hero.Trip!=nil:result.Reason="Дождитесь прибытия";default:
   c.lastMoveSeq=m.InputSeq;target:=behavior.Cell{X:int(m.X),Y:int(m.Y)};from:=hero.Position;moving:=len(hero.Path)>0;if moving{from=hero.Path[0]}
-  blocked:=r.state.Life.BlockedCells(hero.Level,hero.ID);space:=r.world.Life.Space(hero.Level,blocked);route:=space.Path(from,target,behavior.Cell{},0)
-  if !space.CanStand(target)||(from!=target&&len(route)==0){result.Reason="Сюда нельзя пройти"}else{if moving{route=append([]behavior.Cell{from},route...)}else{hero.MoveStartTick=r.state.Tick};hero.Path=route;hero.Goal=target;hero.Manual=true;hero.OverrideLevel="";hero.OverrideEdge="";hero.Arrived=false;hero.Activity="walking";hero.Label="Свободное движение";r.state.LastMoveSeq=m.InputSeq;result.Ok=true;r.syncLifeHero()}
+  route,allowed:=r.state.Life.MoveRoute(r.world.Life,hero.ID,hero.Level,from,target,r.state.Tick)
+  if !allowed{result.Reason="Сюда нельзя пройти"}else{if moving{route=append([]behavior.Cell{from},route...)}else{hero.MoveStartTick=r.state.Tick};hero.Path=route;hero.Goal=target;hero.Manual=true;hero.OverrideLevel="";hero.OverrideEdge="";hero.Arrived=false;hero.Activity="walking";hero.Label="Свободное движение";r.state.LastMoveSeq=m.InputSeq;result.Ok=true;r.syncLifeHero()}
  };r.send(c,&pb.ServerMessage{Msg:&pb.ServerMessage_MoveResult{MoveResult:result}});r.sendState(c)
 }
 func(r *Runtime)validateLifeSave(s state)error{

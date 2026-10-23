@@ -7,8 +7,8 @@ type LifeMarker struct{Name string `json:"name"`;At Cell `json:"at"`}
 type LifeLocation struct{InitialLayoutKnown bool `json:"initial_layout_known"`;Name string `json:"name"`;Terrain []string `json:"terrain"`;Markers []LifeMarker `json:"markers"`}
 type LifeEdge struct{ID string `json:"id"`;From string `json:"from"`;To string `json:"to"`;Exit Cell `json:"exit"`;Entry Cell `json:"entry"`;Mode string `json:"mode"`;TravelSeconds int64 `json:"travel_seconds"`;PeriodSeconds int64 `json:"period_seconds"`;Seats int `json:"seats"`}
 type LifeStep struct{AtMinute int64 `json:"at_minute"`;Level string `json:"level"`;At Cell `json:"at"`;Activity string `json:"activity"`;Label string `json:"label"`;MinSeconds int64 `json:"min_seconds"`}
-type LifePerson struct{ID string `json:"id"`;Name string `json:"name"`;Source string `json:"source"`;Steps []LifeStep `json:"steps"`}
-type LifeModel struct{Population PopulationModel `json:"population"`;Development PracticeModel `json:"development"`;PracticeStations []LifePracticeStation `json:"practice_stations"`;Inspection InspectionModel `json:"inspection"`;Maintenance MaintenanceModel `json:"maintenance"`;StartSeconds int64 `json:"start_seconds"`;SecondsPerTick int64 `json:"seconds_per_tick"`;MoveTicks int64 `json:"move_ticks"`;Locations map[string]LifeLocation `json:"locations"`;Edges []LifeEdge `json:"edges"`;Actors []LifePerson `json:"actors"`;Walkable map[string]bool `json:"-"`}
+type LifePerson struct{Relations []LifeRelation `json:"relations,omitempty"`;ID string `json:"id"`;Name string `json:"name"`;Source string `json:"source"`;Steps []LifeStep `json:"steps"`}
+type LifeModel struct{Courtesy LifeCourtesyPolicy `json:"courtesy"`;Population PopulationModel `json:"population"`;Development PracticeModel `json:"development"`;PracticeStations []LifePracticeStation `json:"practice_stations"`;Inspection InspectionModel `json:"inspection"`;Maintenance MaintenanceModel `json:"maintenance"`;StartSeconds int64 `json:"start_seconds"`;SecondsPerTick int64 `json:"seconds_per_tick"`;MoveTicks int64 `json:"move_ticks"`;Locations map[string]LifeLocation `json:"locations"`;Edges []LifeEdge `json:"edges"`;Actors []LifePerson `json:"actors"`;Walkable map[string]bool `json:"-"`}
 type LifeTrip struct{Edge string;Departure,Arrival int64}
 type LifeActor struct{
  ID,Level,Activity,Label string
@@ -28,10 +28,11 @@ type LifeActor struct{
  WorkedSeconds,SleptSeconds int64
  Meals int
 }
-type LifeState struct{ControlledActorID string `json:"controlled_actor_id,omitempty"`;Population PopulationState `json:"population"`;PopulationFailure string `json:"population_failure,omitempty"`;Development PracticeState `json:"development"`;PracticePending *LifePracticeAttempt `json:"practice_pending,omitempty"`;PracticeLog []string `json:"practice_log,omitempty"`;PracticeExcluded map[string]bool `json:"practice_excluded,omitempty"`;routes *lifeRouteConnectivity `json:"-"`;Observer InspectionObserver `json:"observer"`;Maintenance MaintenanceState;Enabled bool;Seconds,SecondsPerTick,Tick int64;Actors []LifeActor;Events []string}
+type LifeState struct{RelationOverrides map[string]map[string]float64 `json:"relation_overrides,omitempty"`;ControlledActorID string `json:"controlled_actor_id,omitempty"`;Population PopulationState `json:"population"`;PopulationFailure string `json:"population_failure,omitempty"`;Development PracticeState `json:"development"`;PracticePending *LifePracticeAttempt `json:"practice_pending,omitempty"`;PracticeLog []string `json:"practice_log,omitempty"`;PracticeExcluded map[string]bool `json:"practice_excluded,omitempty"`;routes *lifeRouteConnectivity `json:"-"`;Observer InspectionObserver `json:"observer"`;Maintenance MaintenanceState;Enabled bool;Seconds,SecondsPerTick,Tick int64;Actors []LifeActor;Events []string}
 func(m LifeModel)Walks(level string,at Cell)bool{l,ok:=m.Locations[level];return ok&&at.Y>=0&&at.Y<len(l.Terrain)&&at.X>=0&&at.X<len(l.Terrain[at.Y])&&m.Walkable[string(l.Terrain[at.Y][at.X])]}
 func(m LifeModel)Space(level string,blocked map[Cell]bool)Space{l:=m.Locations[level];width:=0;if len(l.Terrain)>0{width=len(l.Terrain[0])};return Space{Width:width,Height:len(l.Terrain),MaxSearchCells:width*len(l.Terrain),Walkable:func(at Cell)bool{return m.Walks(level,at)},Blocked:blocked}}
 func(m LifeModel)Validate()error{
+ if m.Courtesy.NoticeCells<0||m.Courtesy.NoticeCells>8{return fmt.Errorf("invalid courtesy range")};for _,person:=range m.Actors{for _,relation:=range person.Relations{if relation.To==""||!(relation.Strength>=-1&&relation.Strength<=1){return fmt.Errorf("invalid life relation")}}}
  if m.StartSeconds<0||m.StartSeconds>=86400||m.SecondsPerTick<1||m.SecondsPerTick>120||m.MoveTicks<1||len(m.Locations)==0||len(m.Actors)==0{return fmt.Errorf("invalid life clock/catalog")}
  for id,l:=range m.Locations{if len(l.Terrain)==0||len(l.Terrain[0])==0{return fmt.Errorf("empty life level %s",id)};for _,row:=range l.Terrain{if len(row)!=len(l.Terrain[0]){return fmt.Errorf("uneven life level %s",id)}};for _,mark:=range l.Markers{if !m.Walks(id,mark.At){return fmt.Errorf("blocked life marker %s",mark.Name)}}}
  edgeIDs:=map[string]bool{};for _,e:=range m.Edges{if e.ID==""||edgeIDs[e.ID]||!m.Walks(e.From,e.Exit)||!m.Walks(e.To,e.Entry)||e.TravelSeconds<=0||e.Seats<1||(e.Mode!="walk"&&e.Mode!="rail")||(e.Mode=="rail"&&e.PeriodSeconds<=0){return fmt.Errorf("invalid life edge %s",e.ID)};edgeIDs[e.ID]=true}
@@ -158,21 +159,22 @@ func(s *LifeState)AdvanceWithMaintenance(m LifeModel,tick int64,install Maintena
    a.Trip=&LifeTrip{Edge:edge.ID,Departure:a.WaitingDeparture,Arrival:a.WaitingDeparture+edge.TravelSeconds};a.Activity="transit";a.Label="Переход";if edge.Mode=="rail"{a.Label="Едет на монорельсе"};s.note(person.Name+": "+a.Label+" → "+m.Locations[edge.To].Name);continue
   }
   if a.Goal!=destination||len(a.Path)==0{a.Goal=destination;if !s.routes.connected(a.Level,a.Position,destination){a.Path=nil;a.Label="Ждёт проход";continue};space:=m.Space(a.Level,s.blocked(a.Level,a.ID));path:=space.Path(a.Position,destination,Cell{},0);a.Goal=destination;
-   if len(path)==0&&s.Population.Count>0{
+   if len(path)==0&&(s.Population.Count>0||a.ID==s.ControlledActorID){
     // Route through stationary traffic that can negotiate a side step, while
     // preserving active duties, controlled actors and accepted next segments.
     // A static shortest path can repeatedly hit the same protected actor even
     // when another lane has movable residents and a free pocket.
-    route:=s.yieldRoute(m,a.Level,a.Position,destination,tick)
-    if len(route)>0{next:=route[0];if !s.occupied(a.Level,next,a.ID){path=[]Cell{next}}else if yieldBudget>0&&s.yieldPopulation(m,a.Level,next,tick,route...){yieldBudget--}}
+    route:=s.yieldRoute(m,a.Level,a.Position,destination,tick,a.ID)
+    if len(route)>0{next:=route[0];if !s.occupied(a.Level,next,a.ID){path=[]Cell{next}}else if yieldBudget>0&&s.yieldPopulationFor(m,a.Level,next,tick,a.ID,route...){yieldBudget--}}
    }
    if len(path)>0{a.Path=path;a.MoveStartTick=tick}else{a.Label="Ждёт проход"}}
  }
  s.finishMaintenanceTick(m,delta,install)
 }
-func(s LifeState)Clone()LifeState{out:=s;out.routes=nil;out.Population=s.Population.Clone();out.Development=s.Development.Clone();out.PracticeLog=append([]string(nil),s.PracticeLog...);if s.PracticePending!=nil{copy:=*s.PracticePending;out.PracticePending=&copy};out.PracticeExcluded=nil;if len(s.PracticeExcluded)>0{out.PracticeExcluded=map[string]bool{};for k,v:=range s.PracticeExcluded{out.PracticeExcluded[k]=v}};out.Observer=s.Observer.Clone();out.Maintenance=s.Maintenance.Clone();out.Events=append([]string(nil),s.Events...);out.Actors=append([]LifeActor(nil),s.Actors...);for i:=range out.Actors{a:=&out.Actors[i];a.Path=append([]Cell(nil),a.Path...);if a.Trip!=nil{trip:=*a.Trip;a.Trip=&trip};a.Visits=map[string]int{};for k,v:=range s.Actors[i].Visits{a.Visits[k]=v}};return out}
+func(s LifeState)Clone()LifeState{out:=s;out.routes=nil;out.RelationOverrides=s.cloneRelations();out.Population=s.Population.Clone();out.Development=s.Development.Clone();out.PracticeLog=append([]string(nil),s.PracticeLog...);if s.PracticePending!=nil{copy:=*s.PracticePending;out.PracticePending=&copy};out.PracticeExcluded=nil;if len(s.PracticeExcluded)>0{out.PracticeExcluded=map[string]bool{};for k,v:=range s.PracticeExcluded{out.PracticeExcluded[k]=v}};out.Observer=s.Observer.Clone();out.Maintenance=s.Maintenance.Clone();out.Events=append([]string(nil),s.Events...);out.Actors=append([]LifeActor(nil),s.Actors...);for i:=range out.Actors{a:=&out.Actors[i];a.Path=append([]Cell(nil),a.Path...);if a.Trip!=nil{trip:=*a.Trip;a.Trip=&trip};a.Visits=map[string]int{};for k,v:=range s.Actors[i].Visits{a.Visits[k]=v}};return out}
 func(s LifeState)Validate(m LifeModel,tick int64)error{
  if s.PopulationFailure!=""{return fmt.Errorf("population stopped: %s",s.PopulationFailure)}
+ if err:=s.validateRelations();err!=nil{return err}
  if err:=s.validatePopulation(m,tick);err!=nil{return err}
  if err:=s.validateDevelopment(m,tick);err!=nil{return err}
  if err:=s.Observer.Validate();err!=nil{return fmt.Errorf("invalid life observer: %w",err)}
@@ -253,21 +255,24 @@ func(c *lifeRouteConnectivity)connected(levelID string,from,to Cell)bool{
 // free corridor cells to that pocket; only the first step is reserved now.
 // Actual positions change only by Advance, with normal MoveTicks and collision
 // checks, and the existing eight-step hold covers the whole short manoeuvre.
-type lifeYieldResident struct{index int;named bool}
-func(s *LifeState)yieldTraffic(m LifeModel,level string,tick int64)(map[Cell]bool,map[Cell]lifeYieldResident){
- hard:=map[Cell]bool{};residents:=map[Cell]lifeYieldResident{}
+type lifeYieldResident struct{index int;named bool;courtesy bool}
+func(s *LifeState)yieldTraffic(m LifeModel,level string,tick int64,requester ...string)(map[Cell]bool,map[Cell]lifeYieldResident){
+ hard:=map[Cell]bool{};residents:=map[Cell]lifeYieldResident{};who:="";if len(requester)>0{who=requester[0]}
  for i,a:=range s.Actors{if a.Level!=level||a.Trip!=nil{continue};repairStep,repairing:=s.maintenanceStep(m,a.ID);atWorkplace:=repairing&&a.Level==repairStep.Level&&a.Position==repairStep.At
   eligible:=s.ControlledActorID!=""&&a.ID!=s.ControlledActorID&&!a.Manual&&!a.Arrived&&a.Activity=="walking"&&a.Goal!=a.Position&&len(a.Path)==0&&tick>=a.YieldUntil&&!atWorkplace
-  if eligible{residents[a.Position]=lifeYieldResident{i,true}}else{hard[a.Position]=true;if len(a.Path)>0{hard[a.Path[0]]=true}}
+  courteous:=s.courtesyNamed(m,a,who,tick);if eligible||courteous{residents[a.Position]=lifeYieldResident{i,true,!eligible&&courteous}}else{hard[a.Position]=true;if len(a.Path)>0{hard[a.Path[0]]=true}}
  }
- for i,a:=range s.Population.Actors{if !a.Materialized||a.Level!=level||a.Trip!=nil{continue};if len(a.Path)>0||tick<a.YieldUntil{hard[a.Position]=true;if len(a.Path)>0{hard[a.Path[0]]=true}}else{residents[a.Position]=lifeYieldResident{i,false}}}
+ for i,a:=range s.Population.Actors{if !a.Materialized||a.Level!=level||a.Trip!=nil{continue};if len(a.Path)>0||tick<a.YieldUntil{hard[a.Position]=true;if len(a.Path)>0{hard[a.Path[0]]=true}}else{residents[a.Position]=lifeYieldResident{i,false,false}}}
  return hard,residents
 }
-func(s *LifeState)yieldRoute(m LifeModel,level string,from,to Cell,tick int64)[]Cell{
- hard,_:=s.yieldTraffic(m,level,tick);return m.Space(level,hard).Path(from,to,Cell{},0)
+func(s *LifeState)yieldRoute(m LifeModel,level string,from,to Cell,tick int64,requester ...string)[]Cell{
+ hard,_:=s.yieldTraffic(m,level,tick,requester...);return m.Space(level,hard).Path(from,to,Cell{},0)
 }
 func(s *LifeState)yieldPopulation(m LifeModel,level string,wanted Cell,tick int64,avoid ...Cell)bool{
- hard,residents:=s.yieldTraffic(m,level,tick)
+ return s.yieldPopulationFor(m,level,wanted,tick,"",avoid...)
+}
+func(s *LifeState)yieldPopulationFor(m LifeModel,level string,wanted Cell,tick int64,requester string,avoid ...Cell)bool{
+ hard,residents:=s.yieldTraffic(m,level,tick,requester)
  if _,ok:=residents[wanted];!ok||hard[wanted]{return false}
  queue:=[]Cell{wanted};seen:=map[Cell]bool{wanted:true};parent:=map[Cell]Cell{}
  for head:=0;head<len(queue)&&head<128;head++{at:=queue[head];for _,d:=range []Cell{{0,-1},{1,0},{0,1},{-1,0}}{next:=Cell{at.X+d.X,at.Y+d.Y};if seen[next]||hard[next]||!m.Walks(level,next)||Distance(wanted,next)>12{continue};seen[next]=true;parent[next]=at
@@ -278,8 +283,8 @@ func(s *LifeState)yieldPopulation(m LifeModel,level string,wanted Cell,tick int6
     if forbidden{if len(queue)<128{queue=append(queue,next)};continue}
     move:=[]Cell{next};previous:=parent[next];r,ok:=residents[previous]
     for !ok&&previous!=wanted&&len(move)<7{move=append(move,previous);previous=parent[previous];r,ok=residents[previous]}
-    if !ok{continue};for i,j:=0,len(move)-1;i<j;i,j=i+1,j-1{move[i],move[j]=move[j],move[i]}
-    if r.named{a:=&s.Actors[r.index];a.Path=move;a.MoveStartTick=tick;a.YieldUntil=tick+8*m.MoveTicks;a.Activity="yielding";a.Label="Уступает проход"}else{a:=&s.Population.Actors[r.index];a.Path=move;a.MoveStartTick=tick;a.YieldUntil=tick+8*m.Population.MoveTicks;a.Arrived=false;a.Activity="yielding"};return true
+    if !ok{continue};if r.courtesy&&!s.courtesyAware(m,requester,level,previous){continue};for i,j:=0,len(move)-1;i<j;i,j=i+1,j-1{move[i],move[j]=move[j],move[i]}
+    if r.named{a:=&s.Actors[r.index];if r.courtesy{a.Arrived=false};a.Path=move;a.MoveStartTick=tick;a.YieldUntil=tick+8*m.MoveTicks;a.Activity="yielding";a.Label="Уступает проход"}else{a:=&s.Population.Actors[r.index];a.Path=move;a.MoveStartTick=tick;a.YieldUntil=tick+8*m.Population.MoveTicks;a.Arrived=false;a.Activity="yielding"};return true
    }
    if len(queue)<128{queue=append(queue,next)}
  }};return false
