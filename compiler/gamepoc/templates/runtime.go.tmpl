@@ -105,6 +105,7 @@ type diskResult struct{job diskJob;loaded state;err error;slots []*pb.PocSaveSlo
 type receipt struct{digest [32]byte;result *pb.PocActionResult}
 
 type Runtime struct{
+ instantTravelStalled,instantTravelEpoch string
  wayfinding wayfindingSession
  openStore string
  pb.UnimplementedGameServiceServer
@@ -296,7 +297,7 @@ func(r *Runtime) command(in input){
   items,err:=inv.New(candidate.inventoryModelFor(isLife),seed);if err!=nil{r.action(c,id,action,slot,err);return}
   var life behavior.LifeState;if isLife{life,err=world.Life.StartWithPopulation(count,playerActorID);if err!=nil{r.action(c,id,action,slot,err);return};if layout!=""{life.ControlledActorID=playerActorID;life.Actor(playerActorID).Manual=true}}
   r.world=world;r.openStore="";r.state=state{SDKLayout:layout,Inventory:items,Active:true,Epoch:newEpoch(),Seed:seed,PlayerName:name,Player:world.Spawn,Speed:1};if isLife{r.initLifeState(life)}else{r.initDemo(scenario)};r.updateExploration();r.action(c,id,action,slot,nil);r.sendState(c)
- case "options":v:=m.GetGameOptions();if r.state.Life.PopulationFailure!=""&&!v.Paused{r.action(c,id,action,slot,errors.New("Симуляция остановлена после ошибки населения; загрузите сохранение или начните заново"));return};if r.state.Life.Enabled&&v.Speed!=1{r.action(c,id,action,slot,errors.New("В режиме жизни меняйте масштаб календаря"));return};if v.Speed!=1&&v.Speed!=3&&v.Speed!=10{r.action(c,id,action,slot,errors.New("unsupported speed"));return};r.state.Paused=v.Paused;r.state.Speed=v.Speed;r.action(c,id,action,slot,nil);r.sendState(c)
+ case "options":v:=m.GetGameOptions();if r.state.Life.PopulationFailure!=""&&!v.Paused{r.action(c,id,action,slot,errors.New("Симуляция остановлена после ошибки населения; загрузите сохранение или начните заново"));return};if r.state.Life.Enabled&&v.Speed!=1{r.action(c,id,action,slot,errors.New("В режиме жизни меняйте масштаб календаря"));return};if v.Speed!=1&&v.Speed!=3&&v.Speed!=10{r.action(c,id,action,slot,errors.New("unsupported speed"));return};r.state.Paused=v.Paused;r.state.Speed=v.Speed;if !v.Paused&&r.state.Life.Enabled{if err:=r.completeHeroTravel();err!=nil{r.stopPopulation(err)}};r.action(c,id,action,slot,nil);r.sendState(c)
  case "save","load":if action=="save"&&r.state.Life.PopulationFailure!=""{r.action(c,id,action,slot,errors.New("Нельзя сохранять остановленную после ошибки симуляцию"));return};if action=="save"&&!r.state.Active{r.action(c,id,action,slot,errors.New("start a game first"));return};if !r.validSlot(slot){r.action(c,id,action,slot,errors.New("unknown save slot"));return};copyState:=r.snapshotState();r.queueDisk(diskJob{client:c,id:id,action:action,slot:slot,epoch:epoch,state:copyState})
  }
 }
@@ -304,7 +305,7 @@ func(r *Runtime) queueDisk(j diskJob){select{case r.jobs<-j:default:r.action(j.c
 func(r *Runtime) diskComplete(result diskResult){
  j:=result.job
  if j.action=="list"{r.send(j.client,&pb.ServerMessage{Msg:&pb.ServerMessage_SaveSlots{SaveSlots:&pb.PocSaveSlots{Slots:result.slots}}});return}
- if j.action=="load"&&result.err==nil{if r.state.Epoch!=j.epoch{result.err=errors.New("game changed while loading")}else{var world worldData;world,result.err=r.savedWorld(result.loaded.SDKLayout);if result.err==nil{r.world=world;r.state=result.loaded;r.state.Epoch=newEpoch();r.state.LastMoveSeq=0;r.openStore=""}}}
+ if j.action=="load"&&result.err==nil{if r.state.Epoch!=j.epoch{result.err=errors.New("game changed while loading")}else{var world worldData;world,result.err=r.savedWorld(result.loaded.SDKLayout);if result.err==nil{r.world=world;r.state=result.loaded;r.state.Epoch=newEpoch();r.state.LastMoveSeq=0;r.openStore="";if r.state.Life.Enabled&&!r.state.Paused{result.err=r.completeHeroTravel()}}}}
  r.action(j.client,j.id,j.action,j.slot,result.err)
  if r.client!=nil{r.sendState(r.client)}
  r.queueDisk(diskJob{client:j.client,action:"list"})

@@ -38,6 +38,7 @@ func RenderWith(catalog []byte, fixtures Fixtures) (map[string][]byte, error) {
 	}
 	templates := map[string]string{"population.go.tmpl": "population.gen.go", "practice.go.tmpl": "practice.gen.go", "development_life.go.tmpl": "development_life.gen.go", "inspection.go.tmpl": "inspection.gen.go", "maintenance.go.tmpl": "maintenance.gen.go", "life.go.tmpl": "life.gen.go", "approach.go.tmpl": "approach.gen.go", "gestures.go.tmpl": "gestures.gen.go", "supply.go.tmpl": "supply.gen.go", "search.go.tmpl": "search.gen.go", "planner.go.tmpl": "planner.gen.go", "reactions.go.tmpl": "reactions.gen.go", "progress.go.tmpl": "progress.gen.go", "memory.go.tmpl": "memory.gen.go", "utility.go.tmpl": "utility.gen.go", "perception.go.tmpl": "perception.gen.go"}
 	templates["courtesy.go.tmpl"] = "courtesy.gen.go"
+	templates["life_travel.go.tmpl"] = "life_travel.gen.go"
 	if len(fixtures.Planning) > 0 {
 		templates["population_test.go.tmpl"] = "population_generated_test.go"
 		templates["practice_test.go.tmpl"] = "practice_generated_test.go"

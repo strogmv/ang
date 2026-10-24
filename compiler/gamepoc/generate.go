@@ -747,6 +747,8 @@ func Generate(project string) error {
 	for name, dest := range map[string]string{
 		"localization.go.tmpl":                  filepath.Join(project, "internal/poc/localization.gen.go"),
 		"localization.cs.tmpl":                  filepath.Join(unity, "Assets/Generated/Poc/PocLocalization.cs"),
+		"instant_travel.go.tmpl":                filepath.Join(project, "internal/poc/instant_travel.gen.go"),
+		"instant_travel_test.go.tmpl":           filepath.Join(project, "internal/poc/instant_travel_test.go"),
 		"transit_fare.go.tmpl":                  filepath.Join(project, "internal/poc/transit_fare.gen.go"),
 		"transit_fare_test.go.tmpl":             filepath.Join(project, "internal/poc/transit_fare_test.go"),
 		"wayfinding.go.tmpl":                    filepath.Join(project, "internal/poc/wayfinding.gen.go"),

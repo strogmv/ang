@@ -75,16 +75,12 @@ func TestRegionLearnsOnlyActuallyCompletedPhysicalConnectionAndSavesIt(t *testin
  if r.regionCanGoto(target){t.Fatal("unvisited unknown passage advertised as travel")}
  if err:=r.lifeCommand(&pb.PocLifeCommand{Action:"enter",Destination:edgeID});err!=nil{t.Fatal(err)}
  if r.state.Region.KnownNodes["next"]||r.state.Region.KnownLinks["actually.crossed"]{t.Fatal("accepting a command learned the destination before crossing")}
- saved,arrived:=false,false
- for tick:=0;tick<500;tick++{
-  r.step();hero=r.state.Life.Actor(playerActorID)
-  if hero.Trip!=nil&&!saved{
-   if r.state.Region.KnownNodes["next"]||r.state.Region.KnownLinks["actually.crossed"]{t.Fatal("transit exposed the unseen destination")}
-   slot:=r.world.Config.SaveSlots[0];if err:=r.writeSave(slot,r.snapshotState());err!=nil{t.Fatal(err)};loaded,_,err:=r.readSave(slot);if err!=nil{t.Fatal(err)};r.state=loaded;saved=true
-  }
-  if hero.Level==target&&hero.Trip==nil{arrived=true;break}
- }
- if !saved||!arrived||!r.state.Region.KnownNodes["next"]||!r.state.Region.KnownLinks["actually.crossed"]{t.Fatal("real saved crossing did not teach its destination and connection")}
+ // Save the accepted physical approach; controlled transit now completes
+ // inside one host response, while legacy mid-trip saves have separate tests.
+ slotBefore:=r.world.Config.SaveSlots[0];if err:=r.writeSave(slotBefore,r.snapshotState());err!=nil{t.Fatal(err)};approach,_,err:=r.readSave(slotBefore);if err!=nil{t.Fatal(err)};r.state=approach
+ arrived:=false
+ for tick:=0;tick<500;tick++{r.step();hero=r.state.Life.Actor(playerActorID);if hero.Trip!=nil{t.Fatal("controlled crossing exposed a realtime transit")};if hero.Level==target{arrived=true;break}}
+ if !arrived||!r.state.Region.KnownNodes["next"]||!r.state.Region.KnownLinks["actually.crossed"]{t.Fatal("real saved crossing did not teach its destination and connection")}
  if r.state.Region.KnownLinks["unused.parallel"]||r.state.Region.KnownLinks["hidden.adjacent"]||r.state.Region.KnownNodes["hidden.neighbour"]{t.Fatal("crossing taught an untravelled private passage")}
  if !r.regionCanGoto(origin){t.Fatal("discovered physical connection did not enable a normal return route")}
  slot:=r.world.Config.SaveSlots[0];before:=r.snapshotState();if err:=r.writeSave(slot,before);err!=nil{t.Fatal(err)};loaded,_,err:=r.readSave(slot);if err!=nil{t.Fatal(err)}

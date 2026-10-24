@@ -10,7 +10,8 @@ namespace AngelsDemons.Poc
  {
   bool verifyDoors,verifyMaintenance,maintenanceSaved,maintenanceFaultSent;
   int maintenanceReportedPhase=-1;
-  bool verifyLife, lifeTransitSeen, lifeSaveRestored, lifeOffscreenWork;
+  bool verifyLife, lifeArrivalSeen, lifeSaveRestored, lifeOffscreenWork,lifeProofEnterSent;
+  string lifeProofSource,lifeProofSavedLevel,lifeProofSavedInventory;int lifeProofSavedX,lifeProofSavedY;long lifeProofDepartureSeconds,lifeProofTravelSeconds;
   readonly HashSet<string> lifeVisited = new HashSet<string>();
   int lifeOccupancySamples;
   long savedLifeSeconds;
@@ -82,18 +83,18 @@ namespace AngelsDemons.Poc
    if(lifeDoorStyle==null)lifeDoorStyle=new GUIStyle(smallStyle){alignment=TextAnchor.MiddleCenter,fontSize=11};lifeDoorStyle.normal.textColor=color;GUI.Label(label,"Войти → "+marker.Name,lifeDoorStyle);
   }
   bool LifeDoorOnScreen(PocLifeMarker marker,Vector2 origin,float tw,float th){var box=LifeDoorRect(marker,origin,tw,th);var label=LifeDoorLabel(marker,origin,tw,th);var viewport=SpatialViewport();return viewport.Contains(box.min)&&viewport.Contains(box.max)&&viewport.Contains(label.min)&&viewport.Contains(label.max);}
-  bool doorOutbound,doorReturn,doorTransit;
+  bool doorOutbound,doorReturn;CopperRouteLegAudit doorLeg;
   void DoorProofStep(){
-   if(state.Life!=null)doorTransit|=state.Life.Transit;
+   if(doorLeg!=null&&state.Life!=null){var error=doorLeg.Observe(state.Life.LevelId,state.Life.Transit,state.Tick,state.GameSeconds,state.Life.TravelRemainingSeconds,state.PlayerX,state.PlayerY);if(error!=null){FinishProof(false,"door proof: "+error);return;}}
    switch(proofPhase){
     case 0:NewGame(777,"life");proofPhase=1;break;
     case 1:if(state.Life!=null&&state.Life.Enabled){LifeCommand("goto","level.c7_market");proofPhase=2;}break;
     case 2:if(state.Life.LevelId=="level.c7_market"&&!state.Life.Transit&&state.Path.Count==0){foreach(var m in state.Life.Markers)if(m.EdgeId=="market_station"&&SpatialDoorProofReady(m)){
      Vector2 origin;float tw,th;GetSpatialProjection(out origin,out tw,out th);var rect=LifeDoorRect(m,origin,tw,th);if(!LifeDoorOnScreen(m,origin,tw,th)||!SpatialProjectionProof(m.X,m.Y)){FinishProof(false,"door outside viewport or projection mismatch");return;}
-     if(!ClickLifeDoor(rect.center,origin,tw,th)){FinishProof(false,"door hit target failed");return;}doorOutbound=true;proofPhase=3;break;}}break;
-    case 3:if(state.Life.LevelId=="level.poc_monorail"&&!state.Life.Transit){foreach(var m in state.Life.Markers)if(m.EdgeId=="station_market"){
-     Vector2 origin;float tw,th;GetSpatialProjection(out origin,out tw,out th);if(!ClickLifeDoor(LifeDoorLabel(m,origin,tw,th).center,origin,tw,th)){FinishProof(false,"return door label failed");return;}doorReturn=true;proofPhase=4;break;}}break;
-    case 4:if(state.Life.LevelId=="level.c7_market"&&!state.Life.Transit){FinishProof(doorOutbound&&doorReturn&&doorTransit,"shared projection and zoom, door frame/label clicks, physical exit and return; viewport clear of HUD");}break;
+     doorLeg=new CopperRouteLegAudit(m.EdgeId,state.Life.LevelId,"level.poc_monorail",state.Tick,state.GameSeconds,m.TravelSeconds,state.PlayerX,state.PlayerY,m.X,m.Y);if(!ClickLifeDoor(rect.center,origin,tw,th)){FinishProof(false,"door hit target failed");return;}proofPhase=3;break;}}break;
+    case 3:if(state.Life.LevelId=="level.poc_monorail"&&!state.Life.Transit&&doorLeg!=null&&doorLeg.record.completed){doorOutbound=true;foreach(var m in state.Life.Markers)if(m.EdgeId=="station_market"){
+     Vector2 origin;float tw,th;GetSpatialProjection(out origin,out tw,out th);doorLeg=new CopperRouteLegAudit(m.EdgeId,state.Life.LevelId,"level.c7_market",state.Tick,state.GameSeconds,m.TravelSeconds,state.PlayerX,state.PlayerY,m.X,m.Y);if(!ClickLifeDoor(LifeDoorLabel(m,origin,tw,th).center,origin,tw,th)){FinishProof(false,"return door label failed");return;}proofPhase=4;break;}}break;
+    case 4:if(state.Life.LevelId=="level.c7_market"&&!state.Life.Transit&&doorLeg!=null&&doorLeg.record.completed){doorReturn=true;FinishProof(doorOutbound&&doorReturn,"shared projection and zoom, door frame/label clicks, physical approach and instant arrival with advertised elapsed time; viewport clear of HUD");}break;
    }
   }
   void LifeProofStep(double now) {
@@ -104,7 +105,7 @@ namespace AngelsDemons.Poc
    if(verifyMaintenance){MaintenanceProofStep();return;}
    if(state.Life!=null&&state.Life.Enabled){var life=state.Life;
     if(!life.Transit&&lifeVisited.Add(life.LevelId)&&!Application.isBatchMode){Directory.CreateDirectory(ProofDirectory());ScreenCapture.CaptureScreenshot(Path.Combine(ProofDirectory(),life.LevelId+".png"));}
-    lifeTransitSeen|=life.Transit;
+    if(life.Transit){FinishProof(false,"normal life proof exposed a travel countdown");return;}
     foreach(var p in life.People)if(p.Id=="char.roommate_senya"&&p.LevelName.Contains("Техцех")&&life.LevelId!="level.poc_work"&&(p.Activity.StartsWith("Проверяет")||p.Activity.StartsWith("Замена модуля")||p.Activity.StartsWith("Проверка после замены")))lifeOffscreenWork=true;
     var occupied=new HashSet<string>();if(!life.Transit)occupied.Add(state.PlayerX+","+state.PlayerY);
     foreach(var a in state.SceneAgents)if(!occupied.Add(a.X+","+a.Y)){FinishProof(false,"life actors overlap");return;}
@@ -113,12 +114,14 @@ namespace AngelsDemons.Poc
    switch(proofPhase){
     case 0:NewGame(777,"life");proofPhase=1;break;
     case 1:if(state.Life!=null&&state.Life.Enabled){fps=40;ApplyDisplay();LifeCommand("rate","",30);proofPhase=2;}break;
-    case 2:if(state.Life.Transit){Options(true,1);proofPhase=3;}break;
-    case 3:if(state.Paused){savedTick=state.Tick;savedLifeSeconds=state.GameSeconds;saveConfirmed=false;SaveOrLoad("slot3",true);proofPhase=4;}break;
+    case 2:
+     if(!lifeProofEnterSent){foreach(var exit in state.Life.Markers)if(LifeDoorVisible(exit)&&exit.TravelSeconds>0){lifeProofSource=state.Life.LevelId;lifeProofDepartureSeconds=state.GameSeconds;lifeProofTravelSeconds=exit.TravelSeconds;lifeProofEnterSent=true;LifeCommand("enter",exit.EdgeId);break;}}
+     else if(state.Life.LevelId!=lifeProofSource&&state.Path.Count==0){if(state.GameSeconds-lifeProofDepartureSeconds<lifeProofTravelSeconds){FinishProof(false,"life arrival skipped advertised game time");return;}lifeArrivalSeen=true;Options(true,1);proofPhase=3;}break;
+    case 3:if(state.Paused){savedTick=state.Tick;savedLifeSeconds=state.GameSeconds;lifeProofSavedLevel=state.Life.LevelId;lifeProofSavedX=state.PlayerX;lifeProofSavedY=state.PlayerY;lifeProofSavedInventory=CopperRouteInventory();saveConfirmed=false;SaveOrLoad("slot3",true);proofPhase=4;}break;
     case 4:if(saveConfirmed){NewGame(999,"life");proofPhase=5;}break;
     case 5:if(state.Seed==999){SaveOrLoad("slot3",false);proofPhase=6;}break;
-    case 6:if(state.Seed==777){if(!state.Paused||state.Tick!=savedTick||state.GameSeconds!=savedLifeSeconds||!state.Life.Transit){FinishProof(false,"life save/load lost trip or calendar");return;}lifeSaveRestored=true;Options(false,1);proofPhase=7;}break;
-    case 7:if(lifeVisited.Count==4&&state.Life.WorkSeconds>=1800&&state.Life.SleepSeconds>=21600&&state.Life.Meals>=2){FinishProof(lifeTransitSeen&&lifeSaveRestored&&lifeOffscreenWork,"four locations, monorail, work, meals, night, offscreen NPC and transit save/load");}break;
+    case 6:if(state.Seed==777){if(!state.Paused||state.Tick!=savedTick||state.GameSeconds!=savedLifeSeconds||state.Life.Transit||state.Life.LevelId!=lifeProofSavedLevel||state.PlayerX!=lifeProofSavedX||state.PlayerY!=lifeProofSavedY||CopperRouteInventory()!=lifeProofSavedInventory){FinishProof(false,"life save/load lost arrived level, position, inventory or calendar");return;}lifeSaveRestored=true;Options(false,1);LifeCommand("auto");proofPhase=7;}break;
+    case 7:if(lifeVisited.Count==4&&state.Life.WorkSeconds>=1800&&state.Life.SleepSeconds>=21600&&state.Life.Meals>=2){FinishProof(lifeArrivalSeen&&lifeSaveRestored&&lifeOffscreenWork,"four locations, monorail, work, meals, night, offscreen NPC and arrival state save/load");}break;
    }
   }
   void MaintenanceProofStep(){
@@ -137,6 +140,6 @@ namespace AngelsDemons.Poc
    }
    if(state.Life!=null&&state.Life.Enabled){var occupied=new HashSet<string>();if(!state.Life.Transit)occupied.Add(state.PlayerX+","+state.PlayerY);foreach(var a in state.SceneAgents)if(!occupied.Add(a.X+","+a.Y)){FinishProof(false,"repair crew overlaps");return;}}
   }
-  string LifeReportJSON(){var l=state.Life;if(l==null)return "null";return "{\"locations\":"+lifeVisited.Count+",\"transit\":"+(lifeTransitSeen?"true":"false")+",\"save_restored\":"+(lifeSaveRestored?"true":"false")+",\"offscreen_work\":"+(lifeOffscreenWork?"true":"false")+",\"occupancy_samples\":"+lifeOccupancySamples+",\"work_seconds\":"+l.WorkSeconds+",\"sleep_seconds\":"+l.SleepSeconds+",\"meals\":"+l.Meals+"}";}
+  string LifeReportJSON(){var l=state.Life;if(l==null)return "null";return "{\"locations\":"+lifeVisited.Count+",\"instant_arrival\":"+(lifeArrivalSeen?"true":"false")+",\"save_restored\":"+(lifeSaveRestored?"true":"false")+",\"offscreen_work\":"+(lifeOffscreenWork?"true":"false")+",\"occupancy_samples\":"+lifeOccupancySamples+",\"work_seconds\":"+l.WorkSeconds+",\"sleep_seconds\":"+l.SleepSeconds+",\"meals\":"+l.Meals+"}";}
  }
 }

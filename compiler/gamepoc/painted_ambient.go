@@ -121,8 +121,8 @@ func checkPaintedAmbient(s PaintedScene, walkable map[string]bool) error {
 			return bad("empty/duplicate identity")
 		}
 		ids[p.ID] = true
-		if s.FloorElevationM == nil || !finitePainted(*s.FloorElevationM, p.ElevationM) || p.ElevationM >= *s.FloorElevationM {
-			return bad("passage must be explicitly below the floor")
+		if s.FloorElevationM == nil || !finitePainted(*s.FloorElevationM, p.ElevationM) || p.ElevationM > *s.FloorElevationM {
+			return bad("passage elevation must be explicitly at or below the floor")
 		}
 		if !ambientImage(p.Image, p.SourceRect) || !finitePainted(p.Width, p.Height, p.FeetX, p.FeetY) || p.Width <= 0 || p.Height <= 0 || p.Width > 4096 || p.Height > 4096 || p.FeetX < 0 || p.FeetX > p.Width || p.FeetY < 0 || p.FeetY > p.Height {
 			return bad("invalid sprite/image feet")

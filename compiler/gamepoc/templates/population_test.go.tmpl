@@ -449,7 +449,7 @@ func TestPopulationRuntimeWarmupMixedQueueProgressBeforeScheduleRelease(t *testi
   if err:=r.lifeCommand(&pb.PocLifeCommand{Action:"goto",Destination:destination});err!=nil{t.Fatal(err)}
   arrived:=false
   for i:=0;i<600;i++{
-   previous:=r.state.Life.Clone();r.step()
+   previous:=r.state.Life.Clone();stepLifeFrameForAudit(t,r)
    if r.state.Paused{t.Fatalf("simulation paused: %s",r.state.Life.PopulationFailure)}
    if err:=r.state.Life.Validate(r.world.Life,r.state.Tick);err!=nil{t.Fatalf("tick %d: %v",r.state.Tick,err)}
    if r.state.Life.Actor(playerActorID).YieldUntil!=0{t.Fatal("hero was enlisted in traffic negotiation")}

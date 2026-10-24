@@ -16,6 +16,9 @@ func(r *Runtime)lifeEdgeName(locale string,edge behavior.LifeEdge)string{
 }
 // Kernel invokes this only for the controlled actor once exit, timetable and
 // capacity are satisfied. Other residents' ticket accounting is not simulated.
+func(r *Runtime)lifeFareAvailable(actorID string,edge behavior.LifeEdge)bool{
+ if edge.Fare==nil{return true};fare:=edge.Fare;receiver,ok:=r.state.Inventory.Accounts[fare.ReceiverAccount];if !ok||receiver.Currency!=fare.Currency||receiver.Owner==actorID{return false};for _,payer:=range r.state.Inventory.Accounts{if payer.Owner==actorID&&payer.Currency==fare.Currency&&payer.Balance>=fare.AmountMinor{return true}};return false
+}
 func(r *Runtime)admitLifeTravel(actorID string,edge behavior.LifeEdge)bool{
  if edge.Fare==nil{return true};hero:=r.state.Life.Actor(actorID)
  if actorID!=playerActorID||hero==nil||hero.Trip!=nil||hero.Level!=edge.From||hero.Position!=edge.Exit||len(hero.Path)!=0{return false}

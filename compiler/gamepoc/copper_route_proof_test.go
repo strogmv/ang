@@ -153,22 +153,19 @@ class Proof {
 ` + methods + `
  static void Good(string error){if(error!=null)throw new Exception(error);}
  static void Bad(string error,string expected){if(error==null||!error.Contains(expected))throw new Exception("wrong rejection: "+error+" expected "+expected);}
- static CopperRouteLegAudit Leg(bool multiple=true){return new CopperRouteLegAudit("edge","a","b",100,1000,multiple);}
+ static CopperRouteLegAudit Leg(long duration=30){return new CopperRouteLegAudit("edge","a","b",100,1000,duration);}
  public static void Main(){
-  var stair=Leg();Good(stair.Observe("a",false,100,1000,0));Good(stair.Observe("a",true,101,1001,30));Good(stair.Observe("a",true,101,1001,30));Good(stair.Observe("a",true,111,1011,20));Good(stair.Observe("a",true,121,1021,10));Good(stair.Observe("b",false,131,1031,0));
-  if(!stair.record.completed||stair.record.distinct_transit_samples!=3||!stair.record.remaining_decreased||stair.record.arrival_game_seconds-stair.record.first_transit_seconds!=30)throw new Exception("real timed stair flight not retained");
-  var teleport=Leg();Bad(teleport.Observe("b",false,101,1001,0),"without observed physical transit");
-  var instant=Leg();Good(instant.Observe("a",true,101,1001,30));Bad(instant.Observe("b",false,102,1002,0),"before the advertised travel time");
-  var missing=Leg();Good(missing.Observe("a",true,101,1001,30));Bad(missing.Observe("b",false,131,1031,0),"distinct countdown");
-  var rail=Leg(false);Good(rail.Observe("a",true,101,1001,300));Good(rail.Observe("b",false,111,1301,0));if(!rail.record.completed)throw new Exception("ordinary accelerated rail rejected");
-  var wrong=Leg();Bad(wrong.Observe("c",false,101,1001,0),"unexpected level");
+  var stair=Leg();Good(stair.Observe("a",false,100,1000,0));Good(stair.Observe("b",false,130,1030,0));
+  if(!stair.record.completed||!stair.record.instant_arrival||stair.record.elapsed_game_seconds!=30||stair.record.minimum_travel_seconds!=30)throw new Exception("advertised stair time not retained by instant arrival");
+  var early=Leg();Bad(early.Observe("b",false,125,1025,0),"before the advertised physical travel time");
+  var rail=Leg(120);Good(rail.Observe("b",false,3819,4719,0));if(!rail.record.completed||rail.record.elapsed_game_seconds!=3719)throw new Exception("night wait plus ride skipped no game time");
+  var countdown=Leg();Bad(countdown.Observe("a",true,101,1001,30),"intermediate countdown");
+  var wrong=Leg();Bad(wrong.Observe("c",false,130,1030,0),"unexpected level");
   var rewind=Leg();Bad(rewind.Observe("a",false,99,1000,0),"clock moved backwards");
-  var reset=Leg();Good(reset.Observe("a",true,101,1001,30));Bad(reset.Observe("a",true,102,1002,31),"remaining travel time increased");
-  var vanished=Leg();Good(vanished.Observe("a",true,101,1001,30));Bad(vanished.Observe("a",false,102,1002,0),"disappeared");
-  var empty=Leg();Bad(empty.Observe("a",true,101,1001,0),"without positive travel time");
-  var jumped=new CopperRouteLegAudit("edge","a","b",100,1000,true,0,0,10,0);Bad(jumped.Observe("a",true,101,1001,30,10,0),"approach jumped");
-  var wrongDoor=new CopperRouteLegAudit("edge","a","b",100,1000,true,0,0,1,0);Bad(wrongDoor.Observe("a",true,101,1001,30,0,0),"away from its discovered exit");
-  var walked=new CopperRouteLegAudit("edge","a","b",100,1000,true,0,0,3,0);Good(walked.Observe("a",false,101,1001,0,1,0));Good(walked.Observe("a",false,102,1002,0,2,0));Good(walked.Observe("a",true,103,1003,30,3,0));Good(walked.Observe("a",true,113,1013,20,3,0));Good(walked.Observe("b",false,133,1033,0,99,99));if(walked.record.approach_position_samples!=3||!walked.record.completed)throw new Exception("physical approach or per-level arrival lost");
+  var missing=Leg(0);Bad(missing.Observe("b",false,130,1030,0),"no advertised physical travel duration");
+  var jumped=new CopperRouteLegAudit("edge","a","b",100,1000,30,0,0,10,0);Bad(jumped.Observe("a",false,101,1001,0,10,0),"approach jumped");
+  var skipped=new CopperRouteLegAudit("edge","a","b",100,1000,30,0,0,10,0);Bad(skipped.Observe("b",false,101,1030,0,20,20),"skipped the discovered exit approach");
+  var walked=new CopperRouteLegAudit("edge","a","b",100,1000,30,0,0,3,0);Good(walked.Observe("a",false,101,1001,0,1,0));Good(walked.Observe("a",false,102,1002,0,2,0));Good(walked.Observe("b",false,133,1033,0,99,99));if(walked.record.approach_position_samples!=2||!walked.record.completed)throw new Exception("physical approach or per-level arrival lost");
   int x,y;var attempted=new HashSet<int>();
   // The visible far cell must never be reached through an unknown middle cell.
   if(CopperRouteExploreCell(new[]{".?."},new[]{"202"},0,0,attempted,false,out x,out y))throw new Exception("exploration routed through hidden floor");
@@ -187,7 +184,7 @@ class Proof {
   if(!capture.Observe(true,"e","market",4,1000,1,1)||capture.stable_frames!=3)throw new Exception("stable paused scene never captured");
   if(capture.Observe(true,"e","market",5,1000,1,1)||capture.Observe(true,"e","market",5,1001,1,1)||capture.Observe(true,"new","market",5,1001,1,1)||capture.Observe(true,"new","work",5,1001,1,1)||capture.Observe(true,"new","work",5,1001,2,1))throw new Exception("capture ignored changing authoritative scene tuple");
   if(capture.Observe(false,"new","work",5,1001,2,1)||capture.Observe(true,"new","work",5,1001,2,1)||capture.Observe(true,"new","work",5,1001,2,1)||!capture.Observe(true,"new","work",5,1001,2,1))throw new Exception("invalid intermediate frame did not reset capture stability");
-  Console.WriteLine("timed forward/return route audit, no teleport, countdown samples, clock/level guards, observed-only discovery and save disturbance: PASS");
+  Console.WriteLine("instant forward/return route audit, advertised skipped time, physical approach, clock/level guards, observed-only discovery and save disturbance: PASS");
  }
 }`
 	dir := t.TempDir()
@@ -202,5 +199,19 @@ class Proof {
 		t.Fatalf("copper-route execution: %v\n%s", err, out)
 	} else {
 		t.Log(strings.TrimSpace(string(out)))
+	}
+}
+
+func TestLegacyLifeAndDoorProofRequireAdvertisedInstantArrival(t *testing.T) {
+	s := hudTemplate(t, "life.cs.tmpl")
+	for _, token := range []string{`new CopperRouteLegAudit(m.EdgeId`, `m.TravelSeconds`, `doorLeg.record.completed`, `state.GameSeconds-lifeProofDepartureSeconds<lifeProofTravelSeconds`, `lifeProofSavedLevel=state.Life.LevelId`, `lifeProofSavedX=state.PlayerX`, `lifeProofSavedInventory=CopperRouteInventory()`, `CopperRouteInventory()!=lifeProofSavedInventory`, `LifeCommand("auto")`} {
+		if !strings.Contains(s, token) {
+			t.Errorf("missing legacy instant arrival/save contract %q", token)
+		}
+	}
+	for _, obsolete := range []string{`doorTransit`, `lifeTransitSeen`, `case 2:if(state.Life.Transit)`, `!state.Life.Transit){FinishProof(false,"life save/load lost trip`} {
+		if strings.Contains(s, obsolete) {
+			t.Errorf("obsolete countdown gate %q", obsolete)
+		}
 	}
 }

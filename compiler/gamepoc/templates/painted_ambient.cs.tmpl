@@ -71,6 +71,15 @@ namespace AngelsDemons.Poc {
    foreach(var p in polygon){left=Math.Min(left,p.x);right=Math.Max(right,p.x);top=Math.Min(top,p.y);bottom=Math.Max(bottom,p.y);}
    return new Rect(left,top,right-left,bottom-top);
   }
+  static void PaintedAmbientRasterSize(Rect bounds,out int width,out int height){
+   // Keep one texel per authored canvas pixel when possible. The old 512-wide
+   // target reduced a two-car sprite to ~270 pixels before enlarging it over a
+   // thousand screen pixels. Both clip and color share this bounded cold cache.
+   const int maximum=2048;
+   double density=Math.Min(1,maximum/(double)Math.Max(bounds.width,bounds.height));
+   width=Math.Max(1,Math.Min(maximum,(int)Math.Ceiling(bounds.width*density)));
+   height=Math.Max(1,Math.Min(maximum,(int)Math.Ceiling(bounds.height*density)));
+  }
   static Rect PaintedPassageRect(PocAmbientPassage passage,Vector2 feet){return new Rect(feet.x-passage.feet_x,feet.y-passage.feet_y,passage.width,passage.height);}
   static int PaintedNearestObservation(PocPaintedScene scene,PocAmbientPassage passage,Vector2 canvas){
    int nearest=0;double best=double.MaxValue;
@@ -108,8 +117,7 @@ namespace AngelsDemons.Poc {
    if(scene.ambient_passages==null||scene.ambient_passages.Length==0)return;
    var shader=Resources.Load<Shader>("Generated/PocPaintedPassage");if(shader==null||!shader.isSupported)throw new InvalidOperationException("Painted passage shader unavailable");
    foreach(var passage in scene.ambient_passages){
-    var bounds=PaintedAmbientBounds(passage.visible_strip);float density=Math.Min(1,512f/Math.Max(bounds.width,bounds.height));
-    int width=Math.Max(1,(int)Math.Ceiling(bounds.width*density)),height=Math.Max(1,(int)Math.Ceiling(bounds.height*density));var pixels=new Color32[width*height];
+    var bounds=PaintedAmbientBounds(passage.visible_strip);int width,height;PaintedAmbientRasterSize(bounds,out width,out height);var pixels=new Color32[width*height];
     for(int y=0;y<height;y++)for(int x=0;x<width;x++){
      float px=bounds.x+(x+.5f)*bounds.width/width,py=bounds.y+(height-y-.5f)*bounds.height/height;
      bool allowed=PaintedPolygonContains(passage.visible_strip,px,py);Vector2 grid;

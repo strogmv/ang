@@ -8,36 +8,25 @@ namespace AngelsDemons.Poc {
  public sealed partial class AngelsDemonsPoc {
   [Serializable] sealed class CopperRouteLegRecord {
    public string edge,from,to;
-   public long command_tick,command_game_seconds,first_transit_tick,first_transit_seconds,first_remaining_seconds,arrival_tick,arrival_game_seconds;
-   public int distinct_transit_samples,approach_position_samples,exit_x,exit_y;
-   public bool remaining_decreased,completed;
+   public long command_tick,command_game_seconds,arrival_tick,arrival_game_seconds,minimum_travel_seconds,elapsed_game_seconds;
+   public int approach_position_samples,exit_x,exit_y;
+   public bool completed,instant_arrival;
   }
   sealed class CopperRouteLegAudit {
    public readonly CopperRouteLegRecord record;
-   readonly bool requireMultipleSamples;
-   long previousTick=-1,previousSeconds=-1,lastRemaining=-1;
-   int previousX,previousY;
-   bool seenTransit;
-   public CopperRouteLegAudit(string edge,string from,string to,long tick,long seconds,bool multiple,int startX=0,int startY=0,int exitX=0,int exitY=0){record=new CopperRouteLegRecord{edge=edge,from=from,to=to,command_tick=tick,command_game_seconds=seconds,exit_x=exitX,exit_y=exitY};requireMultipleSamples=multiple;previousTick=tick;previousSeconds=seconds;previousX=startX;previousY=startY;}
+   long previousTick,previousSeconds;int previousX,previousY;
+   public CopperRouteLegAudit(string edge,string from,string to,long tick,long seconds,long travelSeconds,int startX=0,int startY=0,int exitX=0,int exitY=0){record=new CopperRouteLegRecord{edge=edge,from=from,to=to,command_tick=tick,command_game_seconds=seconds,minimum_travel_seconds=travelSeconds,exit_x=exitX,exit_y=exitY};previousTick=tick;previousSeconds=seconds;previousX=startX;previousY=startY;}
    public string Observe(string level,bool transit,long tick,long seconds,long remaining,int x=0,int y=0){
-    if(record.completed)return null;
+    if(record.completed)return null;if(record.minimum_travel_seconds<=0)return "discovered exit has no advertised physical travel duration";
     if(tick<previousTick||seconds<previousSeconds)return "route clock moved backwards during a leg";
     if(level!=record.from&&level!=record.to)return "route entered an unexpected level";
+    if(transit)return "normal transition exposed an intermediate countdown";
     if(level==record.from){long steps=Math.Abs((long)x-previousX)+Math.Abs((long)y-previousY);if(steps>tick-previousTick)return "approach jumped faster than physical ticks";if(steps>0)record.approach_position_samples++;}
-    if(transit){
-     if(level!=record.from)return "transit source level changed before arrival";
-     if(x!=record.exit_x||y!=record.exit_y)return "transit departed away from its discovered exit";
-     if(remaining<0)return "negative remaining travel time";
-     if(!seenTransit){if(remaining<=0)return "transit first appeared without positive travel time";seenTransit=true;record.first_transit_tick=tick;record.first_transit_seconds=seconds;record.first_remaining_seconds=remaining;}
-     if(lastRemaining>=0&&remaining>lastRemaining)return "remaining travel time increased";
-     if(record.distinct_transit_samples==0||tick!=previousTick){record.distinct_transit_samples++;if(lastRemaining>=0&&remaining<lastRemaining)record.remaining_decreased=true;}
-     lastRemaining=remaining;
-    }else if(level==record.to){
-     if(!seenTransit)return "arrival without observed physical transit";
-     if(tick<=record.first_transit_tick||seconds-record.first_transit_seconds<record.first_remaining_seconds)return "arrival before the advertised travel time elapsed";
-     if(requireMultipleSamples&&(record.distinct_transit_samples<2||!record.remaining_decreased))return "stair flight lacks distinct countdown observations";
-     record.arrival_tick=tick;record.arrival_game_seconds=seconds;record.completed=true;
-    }else if(seenTransit)return "transit disappeared before reaching its destination";
+    else{
+     long approach=Math.Abs((long)previousX-record.exit_x)+Math.Abs((long)previousY-record.exit_y);if(tick-previousTick<approach)return "arrival skipped the discovered exit approach";
+     if(seconds-previousSeconds<record.minimum_travel_seconds)return "arrival before the advertised physical travel time elapsed";
+     record.arrival_tick=tick;record.arrival_game_seconds=seconds;record.elapsed_game_seconds=seconds-record.command_game_seconds;record.instant_arrival=true;record.completed=true;
+    }
     previousTick=tick;previousSeconds=seconds;previousX=x;previousY=y;return null;
    }
   }
@@ -104,7 +93,7 @@ namespace AngelsDemons.Poc {
    string[] args=Environment.GetCommandLineArgs();int i=Array.IndexOf(args,"--poc-verify-copper-route");if(i<0)return;verifyCopperRoute=true;
    if(i+1>=args.Length||!Path.IsPathRooted(args[i+1])){Debug.LogError("--poc-verify-copper-route requires an absolute report directory");closing=true;Application.Quit(2);return;}copperRouteProofDirectory=args[i+1];
   }
-  string CopperRouteProofReportJSON(){return JsonUtility.ToJson(new CopperRouteReport{kind="authoritative_go_discovered_copper_route",command_path="ordinary initial goto market; six enter commands selected from discovered server markers; shared ClickMove over observed connected floor",scope="one life100 session; ordinary accelerated calendar, then rate 1 on the four stair flights; ward save/load followed by observed-floor traversal to an authored courtyard waypoint and ten real Player images; no OS mouse injection, latency or hardware guarantee",one_session=copperRouteSession!=null&&ReferenceEquals(copperRouteSession,session),save_restored=copperRouteSaveRestored,inventory_restored=copperRouteInventoryRestored,ward_explored=copperRouteWardExplored,ward_goal_x=copperRouteWardGoalX,ward_goal_y=copperRouteWardGoalY,ward_observed_steps=copperRouteWardObservedSteps,exploration_moves=copperRouteExplorationMoves,legs=copperRouteLegs.ToArray(),captures=copperRouteCaptures.ToArray()});}
+  string CopperRouteProofReportJSON(){return JsonUtility.ToJson(new CopperRouteReport{kind="authoritative_go_discovered_copper_route",command_path="ordinary initial goto market; six enter commands selected from discovered server markers; shared ClickMove over observed connected floor",scope="one life100 session; ordinary accelerated calendar, authoritative skipped wait/trip time from each discovered exit; ward save/load followed by observed-floor traversal to an authored courtyard waypoint and ten real Player images; no OS mouse injection, latency or hardware guarantee",one_session=copperRouteSession!=null&&ReferenceEquals(copperRouteSession,session),save_restored=copperRouteSaveRestored,inventory_restored=copperRouteInventoryRestored,ward_explored=copperRouteWardExplored,ward_goal_x=copperRouteWardGoalX,ward_goal_y=copperRouteWardGoalY,ward_observed_steps=copperRouteWardObservedSteps,exploration_moves=copperRouteExplorationMoves,legs=copperRouteLegs.ToArray(),captures=copperRouteCaptures.ToArray()});}
   void CopperRouteProofDiagnostics(double now){
    if(!verifyCopperRoute||state==null)return;
    if(copperRouteAudit!=null&&state.Life!=null){string error=copperRouteAudit.Observe(state.Life.LevelId,state.Life.Transit,state.Tick,state.GameSeconds,state.Life.TravelRemainingSeconds,state.PlayerX,state.PlayerY);if(error!=null){FinishProof(false,"copper route: "+error);return;}}
@@ -199,7 +188,7 @@ namespace AngelsDemons.Poc {
      if(copperRouteIndex>=2&&state.Life.SecondsPerTick!=1){LifeCommand("rate","",1);break;}
      AngelsDemons.Game.V1.PocLifeMarker exit=null;foreach(var marker in state.Life.Markers)if(marker.EdgeId==copperRouteEdges[copperRouteIndex]&&LifeDoorVisible(marker)){exit=marker;break;}
      if(exit==null){CopperRouteExplore(true);break;}
-     copperRouteAudit=new CopperRouteLegAudit(exit.EdgeId,copperRouteLevels[copperRouteIndex],copperRouteLevels[copperRouteIndex+1],state.Tick,state.GameSeconds,copperRouteIndex>=2,state.PlayerX,state.PlayerY,exit.X,exit.Y);LifeCommand("enter",exit.EdgeId);proofPhase=7;break;
+     copperRouteAudit=new CopperRouteLegAudit(exit.EdgeId,copperRouteLevels[copperRouteIndex],copperRouteLevels[copperRouteIndex+1],state.Tick,state.GameSeconds,exit.TravelSeconds,state.PlayerX,state.PlayerY,exit.X,exit.Y);LifeCommand("enter",exit.EdgeId);proofPhase=7;break;
     case 7:if(copperRouteAudit!=null&&copperRouteAudit.record.completed&&CopperRouteSettled()){copperRouteLegs.Add(copperRouteAudit.record);copperRouteAudit=null;copperRouteIndex++;copperRouteAttempted.Clear();proofPhase=3;}break;
     case 40:if(saveConfirmed){CopperRouteBeginCapture(copperRouteCaptureFiles[4]);proofPhase=41;}break;
     case 41:if(copperRouteCaptureDone){Options(false,1);proofPhase=42;}break;

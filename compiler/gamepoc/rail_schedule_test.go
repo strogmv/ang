@@ -90,16 +90,20 @@ func TestAuthoredC7PassengerAndPaintedSchedulesAgree(t *testing.T) {
 	for _, scene := range world.Art.Painted {
 		for _, passage := range scene.Passages {
 			id, _ := passage["id"].(string)
-			if id == "market.lower_rail" || id == "housing.lower_rail" || id == "station.lower_rail" {
+			if id == "market.lower_rail" || id == "housing.lower_rail" || id == "station.back_rail" {
 				check("painted passage", passage)
-				if passage["duration_seconds"] != float64(15) || passage["elevation_m"] != float64(12) {
+				berthElevation := float64(12)
+				if id == "station.back_rail" {
+					berthElevation = 18
+				}
+				if passage["duration_seconds"] != float64(15) || passage["elevation_m"] != berthElevation {
 					t.Fatal("shared timetable changed visual duration/elevation")
 				}
 				found[id] = true
 			}
 		}
 	}
-	for _, id := range []string{"station_work", "work_station", "market.lower_rail", "housing.lower_rail", "station.lower_rail"} {
+	for _, id := range []string{"station_work", "work_station", "market.lower_rail", "housing.lower_rail", "station.back_rail"} {
 		if !found[id] {
 			t.Errorf("missing real service/presentation %s", id)
 		}

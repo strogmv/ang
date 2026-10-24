@@ -13,10 +13,10 @@ func TestRenderIndependentBehaviorPackage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(files) != 19 {
+	if len(files) != 20 {
 		t.Fatalf("unexpected output count: %d", len(files))
 	}
-	for _, name := range []string{"courtesy.gen.go", "population.gen.go", "practice.gen.go", "development_life.gen.go", "inspection.gen.go", "maintenance.gen.go", "life.gen.go", "approach.gen.go", "memory.gen.go", "utility.gen.go", "gestures.gen.go"} {
+	for _, name := range []string{"courtesy.gen.go", "population.gen.go", "practice.gen.go", "development_life.gen.go", "inspection.gen.go", "maintenance.gen.go", "life.gen.go", "life_travel.gen.go", "approach.gen.go", "memory.gen.go", "utility.gen.go", "gestures.gen.go"} {
 		if _, ok := files[name]; !ok {
 			t.Fatalf("missing %s", name)
 		}
@@ -38,10 +38,10 @@ func TestRenderIndependentBehaviorPackage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(withTests) != 38 || string(withTests["catalog.json"]) != string(catalog) || string(withTests["utility_scenarios.json"]) != `{"law":{},"cases":[]}` {
+	if len(withTests) != 39 || string(withTests["catalog.json"]) != string(catalog) || string(withTests["utility_scenarios.json"]) != `{"law":{},"cases":[]}` {
 		t.Fatalf("standalone fixtures missing: %d", len(withTests))
 	}
-	for _, name := range []string{"utility.gen.go", "memory.gen.go", "utility_generated_test.go", "gestures.gen.go", "gestures_generated_test.go"} {
+	for _, name := range []string{"utility.gen.go", "memory.gen.go", "life_travel.gen.go", "utility_generated_test.go", "gestures.gen.go", "gestures_generated_test.go"} {
 		if strings.Contains(string(withTests[name]), "angelsdemons/") || strings.Contains(string(withTests[name]), "Poc") {
 			t.Fatalf("%s depends on the game host", name)
 		}

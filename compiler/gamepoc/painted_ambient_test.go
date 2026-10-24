@@ -35,7 +35,7 @@ func TestPaintedAmbientRejectsInvalidLayerGeometryAndSchedule(t *testing.T) {
 		reason string
 	}{
 		"missing floor elevation": {func(s *PaintedScene) { s.FloorElevationM = nil }, "below the floor"},
-		"same floor train":        {func(s *PaintedScene) { s.AmbientPassages[0].ElevationM = 18 }, "below the floor"},
+		"above floor train":       {func(s *PaintedScene) { s.AmbientPassages[0].ElevationM = 18.001 }, "at or below the floor"},
 		"nonfinite floor":         {func(s *PaintedScene) { v := math.NaN(); s.FloorElevationM = &v }, "below the floor"},
 		"duplicate identity":      {func(s *PaintedScene) { s.AmbientPassages = append(s.AmbientPassages, s.AmbientPassages[0]) }, "duplicate identity"},
 		"zero period":             {func(s *PaintedScene) { s.AmbientPassages[0].PeriodSeconds = 0 }, "authoritative schedule"},
@@ -75,6 +75,54 @@ func TestPaintedAmbientRejectsInvalidLayerGeometryAndSchedule(t *testing.T) {
 				t.Fatalf("wanted %q rejection, got %v", tc.reason, err)
 			}
 		})
+	}
+}
+
+// A station berth may have the platform's elevation while its rail remains
+// outside every navigable cell. Height never replaces the horizontal clip rule.
+func TestPaintedAmbientCoplanarStationStillRequiresDisjointFloor(t *testing.T) {
+	c := paintedAmbientFixture()
+	s := &c.Art.Painted[0]
+	s.AmbientPassages[0].ElevationM = *s.FloorElevationM
+	if err := checkPaintedScenes(c); err != nil {
+		t.Fatalf("coplanar but separated station rail: %v", err)
+	}
+	s.AmbientPassages[0].VisibleStrip = []PaintedPoint{{100, 50}, {300, 50}, {300, 180}, {100, 180}}
+	if err := checkPaintedScenes(c); err == nil || !strings.Contains(err.Error(), "intersects playable floor") {
+		t.Fatalf("coplanar train may not enter public floor: %v", err)
+	}
+	c = paintedAmbientFixture()
+	c.Art.Painted[0].AmbientPassages[0].ElevationM = *c.Art.Painted[0].FloorElevationM + .001
+	if err := checkPaintedScenes(c); err == nil || !strings.Contains(err.Error(), "at or below the floor") {
+		t.Fatalf("above-floor decorative rail accepted: %v", err)
+	}
+}
+
+func TestPaintedAmbientRasterRetainsTrainDetailWithinColdCacheBudgetNative(t *testing.T) {
+	size := sceneTemplateSection(t, "painted_ambient.cs.tmpl", "  static void PaintedAmbientRasterSize(", "  static Rect PaintedPassageRect(")
+	runPaintedTextureNative(t, "AmbientRasterBudget", `using System;
+struct Rect{public float width,height;public Rect(float w,float h){width=w;height=h;}}
+class Proof{
+`+size+`
+ static void Need(bool b,string why){if(!b)throw new Exception(why);}
+ public static void Main(){int w,h;
+  PaintedAmbientRasterSize(new Rect(2560,872),out w,out h);
+  Need(w==2048&&h==698,"station strip was reduced to a blurry small target");
+  Need(1350d*w/2560>=1080,"two-car train loses native detail before GUI composition");
+  Need((long)w*h*8<12L*1024*1024,"actual station mask+RGBA target exceed cold-cache budget");
+  PaintedAmbientRasterSize(new Rect(1672,520),out w,out h);Need(w==1672&&h==520,"native housing canvas unnecessarily resampled or upscaled");
+  PaintedAmbientRasterSize(new Rect(4096,4096),out w,out h);Need(w==2048&&h==2048&&(long)w*h*8==32L*1024*1024,"maximum per-passage cache is unbounded");
+  PaintedAmbientRasterSize(new Rect(4096,2048),out w,out h);Need(w==2048&&h==1024,"aspect ratio lost");
+  PaintedAmbientRasterSize(new Rect(17,13),out w,out h);Need(w==17&&h==13,"small authored target upscaled");
+  PaintedAmbientRasterSize(new Rect(.1f,.2f),out w,out h);Need(w==1&&h==1,"tiny legal strip has zero-sized target");
+  Console.WriteLine("2048 bounded shared color/clip raster, station train1080px, native canvases unscaled PASS");
+ }
+}`)
+	prepare := sceneTemplateSection(t, "painted_ambient.cs.tmpl", "  void PreparePaintedAmbient(", "  readonly PaintedAmbientClockCursor ")
+	for _, required := range []string{"PaintedAmbientRasterSize(bounds,out width,out height)", "new Texture2D(width,height", "new RenderTexture(width,height", "filterMode=FilterMode.Point", "PaintedPolygonContains(passage.visible_strip,px,py)"} {
+		if !strings.Contains(prepare, required) {
+			t.Errorf("color target and exact clip must share the cold raster: %s", required)
+		}
 	}
 }
 

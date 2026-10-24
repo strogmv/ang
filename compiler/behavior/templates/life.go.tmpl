@@ -150,15 +150,14 @@ func(s LifeState)occupied(level string,at Cell,except string)bool{for _,a:=range
 func(s LifeState)blocked(level,id string)map[Cell]bool{result:=map[Cell]bool{};for _,a:=range s.Population.Actors{if a.Materialized&&a.Trip==nil&&a.Level==level{result[a.Position]=true;if len(a.Path)>0{result[a.Path[0]]=true}}};for _,a:=range s.Actors{if a.ID!=id&&a.Trip==nil&&a.Level==level{result[a.Position]=true;if len(a.Path)>0{result[a.Path[0]]=true}}};return result}
 func(s *LifeState)Advance(m LifeModel,tick int64){s.AdvanceWithMaintenance(m,tick,nil)}
 func(s *LifeState)AdvanceWithMaintenance(m LifeModel,tick int64,install MaintenanceInstall){s.AdvanceWithTravel(m,tick,install,nil)}
-func(s *LifeState)AdvanceWithTravel(m LifeModel,tick int64,install MaintenanceInstall,admit LifeAdmission){
- if !s.Enabled{return};delta:=s.SecondsPerTick;s.Seconds+=delta;s.Tick=tick;s.planMaintenance(m,delta);s.ensureLifeRoutes(m);yieldBudget:=4
+func(s *LifeState)AdvanceWithTravel(m LifeModel,tick int64,install MaintenanceInstall,admit LifeAdmission){s.AdvanceWithTravelBy(m,tick,s.SecondsPerTick,install,admit)}
+// Explicit positive calendar delta permits an exact final travel boundary while
+// keeping the configured clock rate and movement cadence unchanged.
+func(s *LifeState)AdvanceWithTravelBy(m LifeModel,tick,delta int64,install MaintenanceInstall,admit LifeAdmission){
+ if !s.Enabled{return};if delta<1||delta>120{panic("invalid life calendar delta")};s.Seconds+=delta;s.Tick=tick;s.planMaintenance(m,delta);s.ensureLifeRoutes(m);yieldBudget:=4
  for i:=range s.Actors{
   a:=&s.Actors[i];person:=m.Person(a.ID);if person==nil{continue}
-  if a.Trip!=nil{e:=m.Edge(a.Trip.Edge);entry,free:=Cell{},false;if e!=nil{entry,free=s.lifeArrivalCell(m,*e,a.ID)};if e!=nil&&s.Seconds>=a.Trip.Arrival&&free{a.Level=e.To;a.Position=entry;a.Goal=entry;
-   // Enter/goto-to-entry completes on the actual free landing. A routine's
-   // destination (or a goto deeper inside the room) remains unchanged.
-   if a.OverrideLevel==e.To&&a.OverrideAt==e.Entry{a.OverrideAt=entry;a.OverrideEdge=""}
-   a.Trip=nil;a.Path=nil;a.PendingPath=nil;a.MoveStartTick=tick;a.WaitingDeparture=0;a.Visits[e.To]++;s.note(person.Name+": прибыл — "+m.Locations[e.To].Name)};continue}
+  if a.Trip!=nil{s.tryLifeArrival(m,a,tick);continue}
   if a.Arrived{switch a.Activity{case "work":a.WorkedSeconds+=delta;case "sleep":a.SleptSeconds+=delta}}
   if len(a.Path)>0&&tick>=a.MoveStartTick+m.MoveTicks{
    next:=a.Path[0];if !s.occupied(a.Level,next,a.ID){a.Position=next;a.Path=a.Path[1:];a.MoveStartTick+=m.MoveTicks;if len(a.Path)>0&&s.occupied(a.Level,a.Path[0],a.ID){if a.ID==s.ControlledActorID{a.PendingPath=a.Path};a.Path=nil;a.MoveStartTick=tick}}else{a.MoveStartTick=tick;if a.ID==s.ControlledActorID{a.PendingPath=a.Path};a.Path=nil}
@@ -195,16 +194,7 @@ func(s *LifeState)AdvanceWithTravel(m LifeModel,tick int64,install MaintenanceIn
   a.Activity="walking";a.Label=lifeWalkingPrefix+step.Label;if a.OverrideLevel!=""{a.Label=lifeWalkingPrefix+m.Locations[goalLevel].Name}
   if a.AdmissionDeniedEdge!=""&&(edge==nil||a.AdmissionDeniedEdge!=edge.ID){a.AdmissionDeniedEdge=""}
   if edge!=nil&&a.Position==edge.Exit&&len(a.Path)==0{
-   if a.AdmissionDeniedEdge==edge.ID{a.Activity="waiting";a.Label="transit.fare_denied";continue}
-   // Preserve an already queued day/night slot when the accelerated calendar
-   // steps across its departure. Legacy constant-period edges keep old timing.
-   if a.WaitingDeparture==0||(a.WaitingDeparture<s.Seconds&&(edge.NightPeriodSeconds==0||edge.PeriodSeconds==0)){a.WaitingDeparture=edge.NextDeparture(s.Seconds)}
-   if s.Seconds<a.WaitingDeparture{a.Activity="waiting";a.Label="Ждёт монорельс";continue}
-   seated:=0;for _,other:=range s.Actors{if other.Trip!=nil&&other.Trip.Edge==edge.ID&&other.Trip.Departure==a.WaitingDeparture{seated++}}
-   for _,other:=range s.Population.Actors{if other.Trip!=nil&&other.Trip.Edge==edge.ID&&other.Trip.Departure==a.WaitingDeparture{seated++}}
-   if seated>=edge.Seats{if edge.PeriodSeconds>0{a.WaitingDeparture=edge.NextDeparture(a.WaitingDeparture+1)};a.Activity="waiting";a.Label="Ждёт свободный рейс";continue}
-   if edge.Fare!=nil&&a.ID==s.ControlledActorID&&(admit==nil||!admit(a.ID,*edge)){a.AdmissionDeniedEdge=edge.ID;a.Activity="waiting";a.Label="transit.fare_denied";continue}
-   a.AdmissionDeniedEdge="";a.Trip=&LifeTrip{Edge:edge.ID,Departure:a.WaitingDeparture,Arrival:a.WaitingDeparture+edge.TravelSeconds};a.Activity="transit";a.Label="Переход";if edge.Mode=="rail"{a.Label="Едет на монорельсе"};s.note(person.Name+": "+a.Label+" → "+m.Locations[edge.To].Name);continue
+   s.beginLifeTrip(m,a,edge,admit);continue
   }
   if a.ID==s.ControlledActorID{
    if a.Goal!=destination||len(a.Path)==0{if a.Goal!=destination{a.PendingPath=nil};a.Goal=destination;a.Path=s.controlledRoute(m,a,destination,tick,&yieldBudget);a.MoveStartTick=tick;if len(a.Path)==0{a.Label="Ждёт проход"}}
