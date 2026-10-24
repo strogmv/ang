@@ -7,7 +7,23 @@ type LifeRelation struct {
  To string `json:"to"`
  Strength float64 `json:"strength"`
 }
-type LifeCourtesyPolicy struct { NoticeCells int `json:"notice_cells"` }
+type LifeCourtesyPolicy struct {
+ NoticeCells int `json:"notice_cells"`
+ // Maximum extra walking cells admitted for a locally observed body detour,
+ // compared with a fresh shortest route through the familiar static layout.
+ // Zero preserves the default of four cells; it does not disable collisions.
+ MaxDetourExtraCells int `json:"max_detour_extra_cells,omitempty"`
+}
+
+func(m LifeModel)courtesyDetourBudget()int{if m.Courtesy.MaxDetourExtraCells>0{return m.Courtesy.MaxDetourExtraCells};return 4}
+
+// Keep short selected flanks through brief waits, but do not let a saved or
+// interrupted whole-room loop become the baseline for another longer loop.
+// This consults fixed layout only, never distant people or their intentions.
+func(m LifeModel)controlledIntent(level string,from,to Cell,pending []Cell)[]Cell{
+ baseline:=m.Space(level,nil).Path(from,to,Cell{},0)
+ if len(pending)==0||len(pending)>len(baseline)+m.courtesyDetourBudget(){return baseline};return pending
+}
 
 // Relations are directed: the NPC's attitude to the controlled actor matters.
 // No edge means neutral. Runtime overrides persist for named and population NPCs.
@@ -80,12 +96,47 @@ func(s LifeState)observedTraffic(m LifeModel,requester,level string)map[Cell]boo
  return blocked
 }
 
+// Ask only about the next two points of our own accepted intent. A positive
+// directed relation and the existing local line-of-sight gate are required;
+// accepted NPC segments, duties and people beyond that range stay untouched.
+func(s *LifeState)anticipateControlledTraffic(m LifeModel,a *LifeActor,tick int64,yieldBudget *int){
+ if a==nil||!s.courtesyRequester(a.ID)||!a.Manual||a.Trip!=nil||a.Arrived||*yieldBudget<=0{return}
+ route:=a.Path;if len(route)==0{route=a.PendingPath}
+ for i,at:=range route{if i>=2||*yieldBudget<=0{break};if !s.courtesyAware(m,a.ID,a.Level,at){continue}
+  eligible:=false
+  for _,other:=range s.Actors{if other.Level==a.Level&&other.Position==at&&s.courtesyNamed(m,other,a.ID,tick){eligible=true;break}}
+  if !eligible{for _,other:=range s.Population.Actors{if other.Materialized&&other.Level==a.Level&&other.Position==at&&other.Trip==nil&&len(other.Path)==0&&tick>=other.YieldUntil&&s.RelationTo(m,other.ID,a.ID)>0{switch other.Activity{case "rest","market","waiting","waiting_departure","waiting_seat":eligible=true}}}}
+  if !eligible{continue}
+  // A direct empty side pocket avoids propagating an early request through an
+  // unseen queue. Ordinary contact negotiation retains its existing behavior.
+  pocket:=false;for _,d:=range []Cell{{0,-1},{1,0},{0,1},{-1,0}}{next:=Cell{at.X+d.X,at.Y+d.Y};if !m.Walks(a.Level,next)||s.occupied(a.Level,next,a.ID){continue};onRoute:=next==a.Position;for _,point:=range route{if point==next{onRoute=true;break}};if !onRoute{pocket=true;break}}
+  if pocket&&s.yieldPopulationFor(m,a.Level,at,tick,a.ID,route...){*yieldBudget = *yieldBudget - 1}
+ }
+}
+
+// Refill intent only after the blocking body has actually moved this tick.
+// No second position update occurs; a new segment begins at the current tick.
+func(s *LifeState)resumeControlledAfterTraffic(m LifeModel,tick int64){
+ a:=s.Actor(s.ControlledActorID);if a==nil||!a.Manual||a.Trip!=nil||a.Arrived||len(a.Path)>0||len(a.PendingPath)==0{return}
+ route:=m.controlledIntent(a.Level,a.Position,a.Goal,a.PendingPath);a.PendingPath=route;if len(route)==0||route[len(route)-1]!=a.Goal||Distance(a.Position,route[0])!=1||!m.Walks(a.Level,route[0])||s.occupied(a.Level,route[0],a.ID){return}
+ a.Path=route;a.PendingPath=nil;a.MoveStartTick=tick;a.Activity="walking";a.Label=lifeManualMoveLabel;if a.OverrideLevel!=""{a.Label=lifeWalkingPrefix+m.Locations[a.OverrideLevel].Name}
+}
+
+// A pocket lease can be renewed briefly for the same moving visible requester,
+// but never past its original hard deadline. A stopped/cancelled intent and
+// a requester that already passed the contact do not renew the lease.
+func(s LifeState)courtesyPocketUntil(m LifeModel,requester,level string,origin Cell,limit,tick,moveTicks int64)int64{
+ if !s.courtesyRequester(requester)||limit<=tick{return 0};a:=s.Actor(requester)
+ if a==nil||!a.Manual||a.Trip!=nil||a.Arrived||a.Level!=level||len(a.Path)==0||!s.courtesyAware(m,requester,level,origin){return 0}
+ passing:=a.Position==origin;for i,at:=range a.Path{if i>=2{break};if at==origin{passing=true;break}}
+ if !passing{return 0};until:=tick+2*moveTicks;if until>limit{until=limit};return until
+}
+
 // Contact is resolved only after reaching a blocked physical next step. A
 // friendly person can yield; otherwise a local detour is attempted. The goal
 // remains accepted when there is no room, so a later opening resumes movement.
 func(s *LifeState)controlledRoute(m LifeModel,a *LifeActor,destination Cell,tick int64,yieldBudget *int)[]Cell{
- route:=a.PendingPath
- if len(route)==0{route=m.Space(a.Level,nil).Path(a.Position,destination,Cell{},0)}
+ route:=m.controlledIntent(a.Level,a.Position,destination,a.PendingPath)
  if len(route)==0{return nil}
  next:=route[0]
  if !s.occupied(a.Level,next,a.ID){a.PendingPath=nil;return route}
@@ -96,6 +147,10 @@ func(s *LifeState)controlledRoute(m LifeModel,a *LifeActor,destination Cell,tick
  for _,other:=range s.Population.Actors{if other.Materialized&&other.Level==a.Level&&other.Trip==nil&&len(other.Path)>0&&(other.Position==next||other.Path[0]==next)&&s.courtesyAware(m,a.ID,a.Level,other.Position){return nil}}
  if *yieldBudget>0&&s.courtesyAware(m,a.ID,a.Level,next)&&s.yieldPopulationFor(m,a.Level,next,tick,a.ID,route...){*yieldBudget = *yieldBudget - 1;return nil}
  route=m.Space(a.Level,s.observedTraffic(m,a.ID,a.Level)).Path(a.Position,destination,Cell{},0)
+ // A nearby stationary body cannot justify circling the whole room. Retain
+ // the accepted goal and wait when no proportionate local bypass is free.
+ baseline:=m.Space(a.Level,nil).Path(a.Position,destination,Cell{},0)
+ if len(route)>len(baseline)+m.courtesyDetourBudget(){return nil}
  if len(route)>0&&!s.occupied(a.Level,route[0],a.ID){a.PendingPath=nil;return route}
  return nil
 }

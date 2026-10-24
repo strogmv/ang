@@ -54,3 +54,41 @@ func TestRegionUnknownDestinationAndTamperedMemoryRejected(t *testing.T){
  bad:=r.snapshotState();bad.Region.KnownNodes["unknown.secret.id"]=true;if r.validateLifeSave(bad)==nil{t.Fatal("unknown saved region ID accepted")}
  bad=r.snapshotState();bad.Region.KnownLinks["unknown.secret.link"]=true;if r.validateLifeSave(bad)==nil{t.Fatal("unknown saved region link accepted")}
 }
+
+func TestRegionLearnsOnlyActuallyCompletedPhysicalConnectionAndSavesIt(t *testing.T){
+ r:=lifeRuntimeFixture(t);hero:=r.state.Life.Actor(playerActorID);origin:=hero.Level
+ var edgeID,reverseID,target string
+ for _,edge:=range r.world.Life.Edges{if edge.From==origin{edgeID,target=edge.ID,edge.To;break}}
+ if edgeID==""{t.Fatal("fixture needs an actual exit")}
+ for _,edge:=range r.world.Life.Edges{if edge.From==target&&edge.To==origin{reverseID=edge.ID;break}}
+ if reverseID==""{t.Fatal("fixture needs an actual reverse transition")}
+ r.world.Region=regionCatalog{ID:"test.discovery",Name:"Discovery",Decks:[]regionDeck{{ID:"deck",Name:"Deck"}},Nodes:[]regionNode{
+  {ID:"here",Name:"Here",DeckID:"deck",Width:20,Height:20,LevelID:origin,InitialKnowledge:"visited"},
+  {ID:"next",Name:"Next",DeckID:"deck",X:30,Width:20,Height:20,LevelID:target,InitialKnowledge:"unknown"},
+  {ID:"hidden.neighbour",Name:"PRIVATE_NEIGHBOUR",DeckID:"deck",X:60,Width:20,Height:20,InitialKnowledge:"unknown"},
+ },Links:[]regionLink{
+  {ID:"actually.crossed",FromNode:"here",ToNode:"next",Mode:"stairs",LifeEdges:[]string{edgeID,reverseID}},
+  {ID:"unused.parallel",FromNode:"here",ToNode:"next",Mode:"lift"},
+  {ID:"hidden.adjacent",FromNode:"next",ToNode:"hidden.neighbour",Mode:"corridor"},
+ }}
+ r.state.Region=regionKnowledge{};r.syncRegionKnowledge()
+ if r.regionCanGoto(target){t.Fatal("unvisited unknown passage advertised as travel")}
+ if err:=r.lifeCommand(&pb.PocLifeCommand{Action:"enter",Destination:edgeID});err!=nil{t.Fatal(err)}
+ if r.state.Region.KnownNodes["next"]||r.state.Region.KnownLinks["actually.crossed"]{t.Fatal("accepting a command learned the destination before crossing")}
+ saved,arrived:=false,false
+ for tick:=0;tick<500;tick++{
+  r.step();hero=r.state.Life.Actor(playerActorID)
+  if hero.Trip!=nil&&!saved{
+   if r.state.Region.KnownNodes["next"]||r.state.Region.KnownLinks["actually.crossed"]{t.Fatal("transit exposed the unseen destination")}
+   slot:=r.world.Config.SaveSlots[0];if err:=r.writeSave(slot,r.snapshotState());err!=nil{t.Fatal(err)};loaded,_,err:=r.readSave(slot);if err!=nil{t.Fatal(err)};r.state=loaded;saved=true
+  }
+  if hero.Level==target&&hero.Trip==nil{arrived=true;break}
+ }
+ if !saved||!arrived||!r.state.Region.KnownNodes["next"]||!r.state.Region.KnownLinks["actually.crossed"]{t.Fatal("real saved crossing did not teach its destination and connection")}
+ if r.state.Region.KnownLinks["unused.parallel"]||r.state.Region.KnownLinks["hidden.adjacent"]||r.state.Region.KnownNodes["hidden.neighbour"]{t.Fatal("crossing taught an untravelled private passage")}
+ if !r.regionCanGoto(origin){t.Fatal("discovered physical connection did not enable a normal return route")}
+ slot:=r.world.Config.SaveSlots[0];before:=r.snapshotState();if err:=r.writeSave(slot,before);err!=nil{t.Fatal(err)};loaded,_,err:=r.readSave(slot);if err!=nil{t.Fatal(err)}
+ if !reflect.DeepEqual(before.Region,loaded.Region){t.Fatal("discovered transition knowledge lost in save")}
+ view:=&pb.PocLifeView{};r.appendRegionMap(view);raw,err:=proto.Marshal(view.RegionMap);if err!=nil{t.Fatal(err)}
+ for _,secret:=range []string{"unused.parallel","hidden.adjacent","hidden.neighbour","PRIVATE_NEIGHBOUR"}{if bytes.Contains(raw,[]byte(secret)){t.Fatalf("untravelled connection leaked: %s",secret)}}
+}

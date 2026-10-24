@@ -2,7 +2,6 @@
 package poc
 
 import (
- "errors"
  "sort"
  "angelsdemons/server/internal/behavior"
  pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
@@ -10,7 +9,8 @@ import (
 
 // Only the server evaluates capabilities, knowledge, live facts and perception.
 // Unity receives already filtered prose, so hovering never requires a round trip.
-func(r *Runtime)appendLifeInspection(msg *pb.PocGameState,v *Runtime,hero *behavior.LifeActor){
+func(r *Runtime)appendLifeInspection(msg *pb.PocGameState,v *Runtime,hero *behavior.LifeActor,locales ...string){
+ locale:="";if len(locales)>0{locale=locales[0]}
  if r.world.Config.DebugPerception{
   keys:=make([]string,0,len(r.state.Life.Observer.Attributes));for key:=range r.state.Life.Observer.Attributes{keys=append(keys,key)};sort.Strings(keys)
   for _,key:=range keys{msg.Life.InspectionAttributes=append(msg.Life.InspectionAttributes,&pb.PocInspectionAttribute{Id:key,Value:int32(r.state.Life.Observer.Attributes[key])})}
@@ -23,14 +23,19 @@ func(r *Runtime)appendLifeInspection(msg *pb.PocGameState,v *Runtime,hero *behav
   if phase,ok:=phases[obj.ID];ok{facts["equipment_phase"]=phase}
   evidence:=behavior.InspectionEvidence{Visible:true,Distance:behavior.Distance(hero.Position,obj.At),SmellReachable:v.sightLine(location(hero.Position),location(obj.At)),Facts:facts}
   description,ok:=obj.Describe(r.state.Life.Observer,evidence);if !ok{continue}
-  item:=&pb.PocInspectionObject{Id:obj.ID,Name:description.Name,LevelId:obj.Level,X:int32(obj.At.X),Y:int32(obj.At.Y),TextKey:description.TextKey,BaseText:description.BaseText}
-  for _,line:=range description.Fragments{item.Fragments=append(item.Fragments,&pb.PocInspectionLine{Id:line.ID,TextKey:line.TextKey,Text:line.Text,Sense:line.Sense})}
-  msg.Life.Inspections=append(msg.Life.Inspections,item)
+  msg.Life.Inspections=append(msg.Life.Inspections,r.localizedInspection(obj,description,locale))
  }
 }
+// Translate only the already authorized description. Never enumerate authored
+// fragments here: their keys/texts and translator context can be private facts.
+func(r *Runtime)localizedInspection(obj behavior.InspectionObject,description behavior.InspectionDescription,locale string)*pb.PocInspectionObject{
+ item:=&pb.PocInspectionObject{Id:obj.ID,Name:r.localText(locale,obj.ID+".name",description.Name),LevelId:obj.Level,X:int32(obj.At.X),Y:int32(obj.At.Y),TextKey:description.TextKey,BaseText:r.localText(locale,description.TextKey,description.BaseText)}
+ for _,line:=range description.Fragments{item.Fragments=append(item.Fragments,&pb.PocInspectionLine{Id:line.ID,TextKey:line.TextKey,Text:r.localText(locale,line.TextKey,line.Text),Sense:line.Sense})}
+ return item
+}
 func(r *Runtime)setInspectionAttribute(key string,value int)error{
- if !r.world.Config.DebugPerception{return errors.New("Изменение способностей доступно только в отладке")}
- if _,ok:=r.world.Life.Inspection.Observer.Attributes[key];!ok||value<0||value>100{return errors.New("Неизвестная способность или значение вне 0–100")}
- if r.state.Life.Observer.Attributes==nil{return errors.New("Профиль восприятия отсутствует")}
+ if !r.world.Config.DebugPerception{return textError{Key:"error.inspection.debug_only"}}
+ if _,ok:=r.world.Life.Inspection.Observer.Attributes[key];!ok||value<0||value>100{return textError{Key:"error.inspection.attribute_invalid"}}
+ if r.state.Life.Observer.Attributes==nil{return textError{Key:"error.inspection.observer_missing"}}
  r.state.Life.Observer.Attributes[key]=value;return nil
 }

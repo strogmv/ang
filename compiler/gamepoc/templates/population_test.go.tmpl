@@ -32,6 +32,50 @@ func populationRuntimeFixture(t *testing.T, count int) *Runtime {
 	r.state.Life.SecondsPerTick = 30
 	return r
 }
+// The native life100 regression approached the public exit after observing a
+// passing train, then circled the whole market when a local queue blocked it.
+// Exercise the same real market, population, accelerated clock and ordinary
+// commands. The observation point records the native test scene; exits and
+// every route are derived from actual CUE terrain, never an invented corridor.
+func TestPopulationRuntimeC7HousingGotoDoesNotCircleLocalQueue(t *testing.T){
+ r:=lifeRuntimeFixture(t);life,err:=r.world.Life.StartWithPopulation(100,playerActorID);if err!=nil{t.Fatal(err)};r.state.Tick=0;r.initLifeState(life)
+ hero:=func()*behavior.LifeActor{return r.state.Life.Actor(playerActorID)}
+ command:=func(action,destination string,rate int32){t.Helper();if err:=r.lifeCommand(&pb.PocLifeCommand{Action:action,Destination:destination,SecondsPerTick:rate});err!=nil{t.Fatal(err)}}
+ m:=r.world.Life;market:=hero().Level;edge:=m.NextEdge(market,"level.poc_housing");if edge==nil{t.Fatal("C7 housing route missing")}
+ target:=behavior.Cell{X:30,Y:10};if !m.Walks(market,target)||!m.Locations[market].InitialLayoutKnown{t.Fatal("native observation fixture no longer matches authored familiar market")}
+ for i:=0;i<3;i++{r.step()};command("rate","",30);command("goto",market,0)
+ for i:=0;i<450&&!hero().Arrived;i++{r.step()};if !hero().Arrived{t.Fatal("initial public market goto failed")}
+ command("rate","",1);c:=&connection{out:make(chan *pb.ServerMessage,10000),stop:make(chan struct{}),locale:"ru"}
+ for n:=0;n<200&&hero().Position!=target;n++{
+  h:=hero();blocked:=map[behavior.Cell]bool{};view:=r.lifeViewRuntime().observerView(playerActorID,r.state.Player,false)
+  for _,a:=range r.state.Life.Actors{if a.ID!=h.ID&&a.Level==h.Level&&a.Trip==nil&&viewSees(view,int32(a.Position.X),int32(a.Position.Y)){blocked[a.Position]=true;if len(a.Path)>0&&viewSees(view,int32(a.Path[0].X),int32(a.Path[0].Y)){blocked[a.Path[0]]=true}}}
+  for _,a:=range r.state.Life.Population.Actors{if a.Materialized&&a.Level==h.Level&&a.Trip==nil&&viewSees(view,int32(a.Position.X),int32(a.Position.Y)){blocked[a.Position]=true;if len(a.Path)>0&&viewSees(view,int32(a.Path[0].X),int32(a.Path[0].Y)){blocked[a.Path[0]]=true}}}
+  path:=m.Space(market,blocked).Path(h.Position,target,behavior.Cell{},0);if len(path)==0{r.step();continue};at:=path[0]
+  r.lifeMove(c,&pb.MoveTo{Epoch:r.state.Epoch,InputSeq:c.lastMoveSeq+1,X:int32(at.X),Y:int32(at.Y)})
+  for i:=0;i<12&&(hero().Position!=at||!hero().Arrived);i++{r.step()}
+ }
+ if !hero().Arrived||hero().Position!=target{t.Fatal("ordinary public observation approach never settled")}
+ for r.state.Life.Seconds<m.StartSeconds+3611{r.step()}
+ command("rate","",30);command("goto","level.poc_housing",0)
+ visits:=map[behavior.Cell]int{};repeated,moves:=0,0;saved:=false
+ for i:=0;i<1200&&!hero().Arrived;i++{
+  h:=hero();before,level,oldPath:=h.Position,h.Level,append([]behavior.Cell{},h.Path...);r.step();h=hero()
+  if err:=r.state.Life.Validate(m,r.state.Tick);err!=nil{t.Fatal(err)}
+  if level==h.Level&&before!=h.Position&&behavior.Distance(before,h.Position)!=1{t.Fatal("nonlocal player step")}
+  if h.Level==market&&level==market{
+   if before!=h.Position{moves++;if visits[h.Position]>0{repeated++};visits[h.Position]++}
+   remaining:=len(oldPath);if before!=h.Position{remaining--};if remaining<0{remaining=0}
+   if len(h.Path)>remaining{
+    baseline:=m.Space(market,nil).Path(h.Position,h.Goal,behavior.Cell{},0);extra:=m.Courtesy.MaxDetourExtraCells;if extra==0{extra=4}
+    if len(h.Path)>len(baseline)+extra{t.Fatalf("committed whole-market detour: static%d actual%d at%v",len(baseline),len(h.Path),h.Position)}
+   }
+  }
+  if !saved&&i>=80{snapshot:=r.snapshotState();slot:=r.world.Config.SaveSlots[0];if err:=r.writeSave(slot,snapshot);err!=nil{t.Fatal(err)};restored,_,err:=r.readSave(slot);if err!=nil{t.Fatal(err)};if !reflect.DeepEqual(snapshot.Life.Clone(),restored.Life.Clone()){t.Fatal("queue intent changed during save/load")};r.state=restored;saved=true}
+ }
+ if !hero().Arrived||hero().Level!="level.poc_housing"||repeated>8||moves>24||!saved{t.Fatalf("queue did not make bounded progress: arrived%t level%s repeated%d moves%d saved%t",hero().Arrived,hero().Level,repeated,moves,saved)}
+ t.Logf("actual C7 population100: %d market moves, %d repeats, housing arrived after saved wait",moves,repeated)
+}
+
 func TestPopulationRuntime100And300ShiftTravelSave(t *testing.T) {
 	for _, count := range []int{100, 300} {
 		t.Run(fmt.Sprint(count), func(t *testing.T) {
@@ -376,10 +420,29 @@ func TestPopulationRuntimeHeroGotoThroughCrowd(t *testing.T) {
  if !yielded||!saved{t.Fatal("fixture did not exercise negotiated yield/save")}
 }
 
+// A layout/timetable revision can remove the incidental encounter this test
+// used to rely on. Arrange one real local contact on the current first leg,
+// using an existing idle friend and an empty off-route pocket. YieldUntil and
+// movement remain entirely the runtime's responsibility.
+func prepareWarmupMixedTrafficContact(t *testing.T,r *Runtime){
+ t.Helper();hero:=r.state.Life.Actor(playerActorID);edge:=r.world.Life.NextEdge(hero.Level,"level.poc_housing");if edge==nil{t.Fatal("mixed fixture lacks the housing route")}
+ route:=r.world.Life.Space(hero.Level,nil).Path(hero.Position,edge.Exit,behavior.Cell{},0);if len(route)==0{t.Fatal("mixed fixture lacks a physical first step")};contact:=route[0]
+ avoid:=map[behavior.Cell]bool{hero.Position:true};for _,at:=range route{avoid[at]=true}
+ heroIndex:=-1;for i,a:=range r.state.Life.Actors{if a.ID==hero.ID{heroIndex=i;break}}
+ for i:=heroIndex+1;i<len(r.state.Life.Actors);i++{a:=&r.state.Life.Actors[i]
+  if a.Level!=hero.Level||a.Trip!=nil||a.Manual||!a.Arrived||len(a.Path)>0||a.YieldUntil>r.state.Tick||(a.Activity!="rest"&&a.Activity!="market")||r.state.Life.RelationTo(r.world.Life,a.ID,hero.ID)<=0{continue}
+  occupied:=r.state.Life.BlockedCells(hero.Level,a.ID);if occupied[contact]{continue};pocket:=false
+  for _,d:=range []behavior.Cell{{X:0,Y:-1},{X:1,Y:0},{X:0,Y:1},{X:-1,Y:0}}{next:=behavior.Cell{X:contact.X+d.X,Y:contact.Y+d.Y};if r.world.Life.Walks(hero.Level,next)&&!occupied[next]&&!avoid[next]{pocket=true;break}}
+  if !pocket{continue};a.Position=contact;a.Goal=contact;a.PendingPath=nil;a.MoveStartTick=r.state.Tick
+  if err:=r.state.Life.Validate(r.world.Life,r.state.Tick);err!=nil{t.Fatalf("invalid mixed contact fixture: %v",err)};return
+ }
+ t.Fatal("mixed fixture needs an existing idle friend, a free current-route contact and an off-route pocket")
+}
 func TestPopulationRuntimeWarmupMixedQueueProgressBeforeScheduleRelease(t *testing.T){
  r:=lifeRuntimeFixture(t);life,err:=r.world.Life.StartWithPopulation(100,playerActorID);if err!=nil{t.Fatal(err)}
  r.state.Tick=0;r.initLifeState(life)
  for i:=0;i<10;i++{r.step()}
+ prepareWarmupMixedTrafficContact(t,r)
  if err:=r.lifeCommand(&pb.PocLifeCommand{Action:"rate",SecondsPerTick:30});err!=nil{t.Fatal(err)}
  namedYield,saved:=false,false
  for _,destination:=range []string{"level.poc_housing","level.poc_monorail","level.poc_work"}{

@@ -7,7 +7,7 @@ using UnityEngine;
 namespace AngelsDemons.Poc {
  public sealed partial class AngelsDemonsPoc {
   bool verifySdk,sdkCapturing,sdkCaptureDone;
-  int sdkLevelIndex,sdkPanelIndex,sdkExtraMapIndex;
+  int sdkLevelIndex,sdkPanelIndex,sdkExtraMapIndex,sdkHousingX,sdkHousingY;
   string sdkOriginalLocale,sdkRussianRegionTitle;
   bool sdkEnglishRequested;
   object sdkSessionIdentity;
@@ -32,7 +32,7 @@ namespace AngelsDemons.Poc {
   readonly List<SdkViewRecord> sdkViews=new List<SdkViewRecord>();
   readonly Dictionary<string,SdkActorRecord> sdkActors=new Dictionary<string,SdkActorRecord>();
   [Serializable] sealed class SdkActorRecord {public string id,sheet,image;public bool default_binding;}
-  [Serializable] sealed class SdkViewRecord {public string file,page,level,epoch,locale,map_mode;public long tick;public double capture_elapsed_seconds;public int visible_npcs,width,height;}
+  [Serializable] sealed class SdkViewRecord {public string file,page,level,epoch,locale,map_mode;public long tick;public double capture_elapsed_seconds;public int visible_npcs,width,height,hero_x,hero_y;}
   [Serializable] sealed class SdkVisualReport {public string content_hash,kind;public int requested_population,unique_npcs,default_bound_npcs;public bool one_session;public SdkViewRecord[] views;public SdkActorRecord[] actors;}
   string SdkReportJSON(){
    var ids=new List<string>(sdkActors.Keys);ids.Sort(StringComparer.Ordinal);var actors=new List<SdkActorRecord>();int defaults=0;
@@ -57,6 +57,7 @@ namespace AngelsDemons.Poc {
    if(name=="journal")return HudHasJournal();
    return false;
   }
+  static bool SdkPoseReached(string level,string expected,bool transit,bool automatic,int pathCount,string activity,int x,int y,int goalX,int goalY){return level==expected&&!transit&&!automatic&&pathCount==0&&activity=="На месте"&&x==goalX&&y==goalY;}
   void SdkBeginCapture(string filename){sdkCapturing=true;sdkCaptureDone=false;sdkCaptureStarted=clock.Elapsed.TotalSeconds;StartCoroutine(SdkCaptureView(filename));}
   IEnumerator SdkCaptureView(string filename){
    string captureEpoch=state!=null?state.Epoch:"";
@@ -71,10 +72,14 @@ namespace AngelsDemons.Poc {
    try{
     if(state==null||!state.Active||state.Epoch!=captureEpoch||!state.Paused||state.Life==null||state.Life.Transit)throw new InvalidOperationException("capture lost settled authoritative state");
     if(!SdkAuditCharacters()){sdkCapturing=false;yield break;}
+    if(state.Life.LevelId=="level.poc_housing"||state.Life.LevelId=="level.poc_monorail"){
+     PaintedCache cache;if(CurrentPaintedScene()==null||!paintedCaches.TryGetValue(state.Life.LevelId,out cache)||cache.background==null)throw new InvalidOperationException("new housing/station scene did not render its painted background");
+     bool hero=false;foreach(var draw in paintedDraws)if(draw.kind==1&&draw.id=="char.hero")hero=true;if(!hero||!ViewSees(state.PlayerX,state.PlayerY))throw new InvalidOperationException("new housing/station scene has no authoritative visible hero");
+    }
     capture=ScreenCapture.CaptureScreenshotAsTexture();
     if(capture==null||capture.width<640||capture.height<400)throw new InvalidOperationException("missing rendered Player image");
     string directory=ProofDirectory();Directory.CreateDirectory(directory);byte[] png=capture.EncodeToPNG();if(png==null||png.Length==0)throw new InvalidOperationException("empty PNG");File.WriteAllBytes(Path.Combine(directory,filename),png);
-    sdkViews.Add(new SdkViewRecord{file=filename,page=page,level=state.Life.LevelId,epoch=state.Epoch,locale=CurrentLocale(),map_mode=page=="map"?(hudMapFloor?"floor":"local"):"",tick=state.Tick,capture_elapsed_seconds=clock.Elapsed.TotalSeconds-sdkCaptureStarted,visible_npcs=state.SceneAgents.Count,width=capture.width,height=capture.height});
+    sdkViews.Add(new SdkViewRecord{file=filename,page=page,level=state.Life.LevelId,epoch=state.Epoch,locale=CurrentLocale(),map_mode=page=="map"?(hudMapFloor?"floor":"local"):"",tick=state.Tick,capture_elapsed_seconds=clock.Elapsed.TotalSeconds-sdkCaptureStarted,visible_npcs=state.SceneAgents.Count,width=capture.width,height=capture.height,hero_x=state.PlayerX,hero_y=state.PlayerY});
     sdkCaptureDone=true;Debug.Log("SDK captured "+filename+" elapsed="+(clock.Elapsed.TotalSeconds-sdkCaptureStarted).ToString("F2")+" tick="+state.Tick+" level="+state.Life.LevelId);
    }catch(Exception e){FinishProof(false,"SDK screenshot failed: "+e.Message);}
    finally{if(capture!=null)Destroy(capture);sdkCapturing=false;}
@@ -95,7 +100,14 @@ namespace AngelsDemons.Poc {
      LifeCommand("rate","",30);if(state.Life.LevelId!=sdkLevels[0])LifeCommand("goto",sdkLevels[0]);proofPhase=2;break;
     case 2:
      if(state.Life.LevelId!=sdkLevels[sdkLevelIndex]||state.Life.Transit||(sdkLevelIndex>0&&state.Life.Automatic)||state.Path.Count!=0)break;
+     if(sdkLevelIndex>0&&state.Life.Activity!="Прибыл")break;
      if(ObserverView()==null||state.Width<1||state.Height<1){FinishProof(false,"SDK arrived without observed map state");return;}
+     if(state.Life.LevelId=="level.poc_housing"){
+      var scene=CurrentPaintedScene();if(scene==null||scene.proof_waypoints==null||scene.proof_waypoints.Length==0){FinishProof(false,"SDK shared housing has no authored courtyard viewpoint");return;}
+      var point=scene.proof_waypoints[0];sdkHousingX=Mathf.RoundToInt(point.x);sdkHousingY=Mathf.RoundToInt(point.y);
+      if(ViewCell(ObserverView(),sdkHousingX,sdkHousingY)=='0'){FinishProof(false,"SDK housing viewpoint is not yet known to its resident observer");return;}
+      if(!ClickMove(sdkHousingX,sdkHousingY)){FinishProof(false,"SDK housing courtyard move was not sent");return;}proofPhase=6;break;
+     }
      Options(true,1);proofPhase=3;break;
     case 3:
      if(!state.Paused)break;page="game";spatialZoom=SpatialZoomDefault();SdkBeginCapture("location-"+sdkLevelNames[sdkLevelIndex]+".png");proofPhase=4;break;
@@ -115,10 +127,13 @@ namespace AngelsDemons.Poc {
      sdkLevelIndex++;if(sdkLevelIndex==sdkLevels.Length){
       bool defaults=false;foreach(var a in sdkActors.Values)defaults|=a.default_binding;
       if(sdkViews.Count!=10||!defaults){FinishProof(false,"SDK requires 10 real views including local/floor maps and English localization");return;}
-      FinishProof(true,"SDK: four Life locations, four panels, local/floor map and English locale; one life100 session; ordinary goto travel; visual capture, not GUI click coverage");return;
+      FinishProof(true,"SDK: four Life locations including painted housing courtyard traversal and painted station, four panels, local/floor map and English locale; one life100 session; ordinary goto and MoveTo travel; visual capture, not GUI click coverage");return;
      }
      page="game";Options(false,1);proofPhase=5;break;
     case 5:if(!state.Paused){LifeCommand("goto",sdkLevels[sdkLevelIndex]);proofPhase=2;}break;
+    case 6:
+     if(ackMS>=0&&!moveAccepted){FinishProof(false,"SDK shared-housing move rejected: "+moveStatus);return;}
+     if(ackMS>=0&&moveAccepted&&SdkPoseReached(state.Life.LevelId,"level.poc_housing",state.Life.Transit,state.Life.Automatic,state.Path.Count,state.Life.Activity,state.PlayerX,state.PlayerY,sdkHousingX,sdkHousingY)){Options(true,1);proofPhase=3;}break;
    }
   }
  }

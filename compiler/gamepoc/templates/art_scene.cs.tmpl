@@ -64,9 +64,11 @@ namespace AngelsDemons.Poc
             artScene=scene;page="art_scene";
             Debug.Log("POC_ART_PREVIEW scene="+scene.id+" mode=visual_assembly");
         }
+        static bool ArtSceneHasCrop(PocArtSceneSourceRect crop){return crop!=null&&crop.w>0&&crop.h>0;}
         static Rect ArtSceneUV(PocArtSceneSourceRect crop,Texture2D texture)
         {
-            if(crop==null)return new Rect(0,0,1,1);
+            // JsonUtility may materialize absent nested DTOs as zero-filled objects.
+            if(!ArtSceneHasCrop(crop))return new Rect(0,0,1,1);
             // Authored crop origin is top-left; Unity UV origin is bottom-left.
             return new Rect((float)crop.x/texture.width,1f-(float)(crop.y+crop.h)/texture.height,(float)crop.w/texture.width,(float)crop.h/texture.height);
         }

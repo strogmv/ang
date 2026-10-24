@@ -132,6 +132,70 @@ func TestPaintedNativeProofUsesSharedInputAndRealGoState(t *testing.T) {
 	}
 }
 
+func TestPaintedKnownExitMarkersNative(t *testing.T) {
+	mono, err := exec.LookPath("mono")
+	if err != nil {
+		matches, _ := filepath.Glob("/Applications/Unity/Hub/Editor/*/Unity.app/Contents/Resources/Scripting/MonoBleedingEdge/bin/mono")
+		if len(matches) == 0 {
+			t.Skip("Mono unavailable")
+		}
+		mono = matches[len(matches)-1]
+	}
+	csc := filepath.Join(filepath.Dir(mono), "../lib/mono/4.5/csc.exe")
+	if _, err := os.Stat(csc); err != nil {
+		t.Skip("Mono compiler unavailable")
+	}
+	queue := sceneTemplateSection(t, "painted.cs.tmpl", "  void QueuePaintedExitMarkers(", "  bool DrawPaintedGame()")
+	point := sceneTemplateSection(t, "painted.cs.tmpl", "  static Vector2 PaintedPoint(", "  static bool PaintedInverse(")
+	gate := sceneTemplateSection(t, "life.cs.tmpl", "  bool LifeDoorVisible(", "  bool ClickLifeDoor(")
+	cell := sceneTemplateSection(t, "visibility.cs.tmpl", "        static char ViewCell(", "        bool ViewSees(")
+	harness := `using System;
+using System.Collections.Generic;
+struct Vector2 {public float x,y;public Vector2(float a,float b){x=a;y=b;}}
+struct Rect {public float x,y,width,height;public Rect(float a,float b,float c,float d){x=a;y=b;width=c;height=d;}public bool Overlaps(Rect b){return x<b.x+b.width&&x+width>b.x&&y<b.y+b.height&&y+height>b.y;}}
+struct Color {public float a;public Color(float r,float g,float b,float alpha){a=alpha;}}
+class PocPaintedScene {public Vector2 origin=new Vector2(100,100),axis_x=new Vector2(40,0),axis_y=new Vector2(0,40);}
+class PocLifeMarker {public string EdgeId;public int X,Y;}
+class PocObserverView {public List<string> Cells=new List<string>();}
+class Life {public bool Transit;public readonly List<PocLifeMarker> Markers=new List<PocLifeMarker>();}
+class State {public readonly Life Life=new Life();}
+struct PaintedDraw {public string id;public object texture;public Rect rect,uv;public float depth,footX;public Color tint;public int kind;}
+class Proof {
+ readonly State state=new State();readonly List<PaintedDraw> paintedDraws=new List<PaintedDraw>();readonly object ring=new object();PocObserverView view;
+ object PaintedHeroRing(){return ring;}PocObserverView ObserverView(){return view;}
+` + queue + point + gate + cell + `
+ public static void Main(){
+  var p=new Proof{view=new PocObserverView{Cells=new List<string>{"02122"}}};var s=new PocPaintedScene();var visible=new Rect(90,90,130,30);
+  p.state.Life.Markers.Add(new PocLifeMarker{EdgeId="hidden",X=0});p.state.Life.Markers.Add(new PocLifeMarker{EdgeId="visible",X=1});p.state.Life.Markers.Add(new PocLifeMarker{EdgeId="memory",X=2});p.state.Life.Markers.Add(new PocLifeMarker{EdgeId="",X=3});p.state.Life.Markers.Add(new PocLifeMarker{EdgeId="offscreen",X=4});
+  p.QueuePaintedExitMarkers(s,p.view,visible);if(p.paintedDraws.Count!=2)throw new Exception("unknown/nonexit/offscreen markers disclosed");
+  var first=p.paintedDraws[0];var memory=p.paintedDraws[1];if(first.id!="visible"||memory.id!="memory"||memory.tint.a>=first.tint.a)throw new Exception("known versus remembered exit styling");
+  if(first.rect.x+first.rect.width/2!=140||first.rect.y+7!=100||first.footX!=140||Math.Abs(first.depth-99.75f)>.001f||first.kind!=0)throw new Exception("exit mark drifted from published floor cell");
+  p.paintedDraws.Clear();p.state.Life.Transit=true;p.QueuePaintedExitMarkers(s,p.view,visible);if(p.paintedDraws.Count!=0)throw new Exception("exit markers rendered during transit");
+  p.state.Life.Transit=false;p.view.Cells[0]="00000";p.QueuePaintedExitMarkers(s,p.view,visible);if(p.paintedDraws.Count!=0)throw new Exception("unknown exits rendered");
+  Console.WriteLine("published exit position, current/memory knowledge, transit and viewport privacy gates: PASS");
+ }
+}`
+	dir := t.TempDir()
+	source, binary := filepath.Join(dir, "proof.cs"), filepath.Join(dir, "proof.exe")
+	if err := os.WriteFile(source, []byte(harness), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(mono, csc, "/nologo", "/out:"+binary, source).CombinedOutput(); err != nil {
+		t.Fatalf("exit marker compile: %v\n%s", err, out)
+	}
+	if out, err := exec.Command(mono, binary).CombinedOutput(); err != nil {
+		t.Fatalf("exit marker execution: %v\n%s", err, out)
+	} else {
+		t.Log(strings.TrimSpace(string(out)))
+	}
+	painted := hudTemplate(t, "painted.cs.tmpl")
+	for _, want := range []string{`message=L("ui.exit.walk_notice",marker.Name)`, `L("ui.exit.enter_hint",marker.Name)`, `QueuePaintedExitMarkers(scene,view,visibleCanvas)`, `LifeTravelLabel()`} {
+		if !strings.Contains(painted, want) {
+			t.Errorf("missing localized known-exit integration %s", want)
+		}
+	}
+}
+
 func TestPaintedPublicArchitectureNeverPromotesUnknownPlayableFloor(t *testing.T) {
 	mono, err := exec.LookPath("mono")
 	if err != nil {

@@ -204,7 +204,9 @@ namespace AngelsDemons.Poc
             verifyDevelopment = Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-development-verify") >= 0;
             startMarketPending = Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-start-market") >= 0;
             InitPaintedProof();
-            verifyLife = verifyPainted || verifySdk || verifySpatial || verifyDevelopment || verifyInspection || verifyMaintenance || verifyDoors || Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-life-verify") >= 0;
+            InitCopperRouteProof();
+            InitAmbientProof();
+            verifyLife = verifyCopperRoute || verifyAmbient || verifyPainted || verifySdk || verifySpatial || verifyDevelopment || verifyInspection || verifyMaintenance || verifyDoors || Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-life-verify") >= 0;
             verify = verifyLife || verifyInventory || verifyCapture || Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-verify") >= 0;
             resource = JsonUtility.FromJson<PocResource>(Resources.Load<TextAsset>("PocConfig").text);
             if (TryStartArtPreview()) return;
@@ -769,8 +771,12 @@ namespace AngelsDemons.Poc
             double now = clock.Elapsed.TotalSeconds;
             if (verifySdk) SdkProofDiagnostics(now);
             if (verifyPainted) PaintedProofDiagnostics(now);
+            if (verifyCopperRoute) CopperRouteProofDiagnostics(now);
+            if (verifyAmbient) AmbientProofDiagnostics(now);
             if (now > (verifyLife ? 420 : 120)) { FinishProof(false, "proof timeout, phase=" + proofPhase + ", status=" + message); return; }
             if (!connected || state == null || !string.IsNullOrEmpty(busy)) return;
+            if (verifyAmbient) { AmbientProofStep(now); return; }
+            if (verifyCopperRoute) { CopperRouteProofStep(now); return; }
             if (verifySdk) { SdkProofStep(now); return; }
             if (verifyPainted) { PaintedProofStep(now); return; }
             if (verifyLife) { LifeProofStep(now); return; }
@@ -864,12 +870,16 @@ namespace AngelsDemons.Poc
             if (verifySdk) json=json.Substring(0,json.Length-1)+",\"sdk\":"+SdkReportJSON()+"}";
             if (verifyLife) json = json.Substring(0,json.Length-1) + ",\"life\":" + LifeReportJSON() + "}";
             if (verifyPainted) json=json.Substring(0,json.Length-1)+",\"painted\":"+PaintedProofReportJSON()+"}";
+            if (verifyCopperRoute) json=json.Substring(0,json.Length-1)+",\"copper_route\":"+CopperRouteProofReportJSON()+"}";
+            if (verifyAmbient) json=json.Substring(0,json.Length-1)+",\"ambient\":"+AmbientProofReportJSON()+"}";
             File.WriteAllText(Path.Combine(destination, "report.json"), json);
             Debug.Log("POC_PROOF " + json); closing = true;
             if (!Application.isBatchMode) StartCoroutine(CaptureAndExit(ok, destination)); else ExitProof(ok);
         }
         string ProofDirectory()
         {
+            if (verifyAmbient) return ambientProofDirectory;
+            if (verifyCopperRoute) return copperRouteProofDirectory;
             if (verifyPainted) return paintedProofDirectory;
             string result = Environment.GetEnvironmentVariable("ANG_POC_VERIFY_DIR");
             return string.IsNullOrEmpty(result) ? (verifySdk?Path.Combine(root,".local/sdk-visual"):Path.GetDirectoryName(dataDirectory)) : result;

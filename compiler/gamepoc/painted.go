@@ -34,27 +34,51 @@ type PaintedProp struct {
 	Label      string              `json:"label"`
 }
 type PaintedOccluder struct {
-	ID      string         `json:"id"`
-	Polygon []PaintedPoint `json:"polygon"`
-	DepthY  float64        `json:"depth_y"`
+	ID               string         `json:"id"`
+	Polygon          []PaintedPoint `json:"polygon"`
+	DepthY           float64        `json:"depth_y"`
+	VisibilityAnchor *Point         `json:"visibility_anchor,omitempty"`
+}
+
+// Unity JsonUtility can materialize an omitted nested DTO as a zero-valued
+// object. Emit presence independently; (0,0) is a legitimate authored cell.
+func (o PaintedOccluder) MarshalJSON() ([]byte, error) {
+	type wire PaintedOccluder
+	return json.Marshal(struct {
+		wire
+		HasVisibilityAnchor bool `json:"has_visibility_anchor"`
+	}{wire(o), o.VisibilityAnchor != nil})
+}
+
+// PaintedInspectionHotspot is artwork geometry only. Prose and inspection
+// eligibility are projected separately by the authoritative server.
+type PaintedInspectionHotspot struct {
+	ObjectID string  `json:"object_id"`
+	X        float64 `json:"x"`
+	Y        float64 `json:"y"`
+	Radius   float64 `json:"radius"`
 }
 type PaintedScene struct {
-	LevelID           string            `json:"level_id"`
-	Background        string            `json:"background"`
-	Width             int               `json:"width"`
-	Height            int               `json:"height"`
-	ViewWidth         int               `json:"view_width,omitempty"`
-	Origin            PaintedPoint      `json:"origin"`
-	AxisX             PaintedPoint      `json:"axis_x"`
-	AxisY             PaintedPoint      `json:"axis_y"`
-	ActorHeight       float64           `json:"actor_height"`
-	KnownArchitecture bool              `json:"known_architecture"`
-	Navigation        []string          `json:"navigation"`
-	ProofWaypoints    []Point           `json:"proof_waypoints"`
-	ProofBlocked      Point             `json:"proof_blocked"`
-	Actors            []PaintedActor    `json:"actors"`
-	Props             []PaintedProp     `json:"props"`
-	Occluders         []PaintedOccluder `json:"occluders"`
+	LevelID            string                     `json:"level_id"`
+	Background         string                     `json:"background"`
+	Width              int                        `json:"width"`
+	Height             int                        `json:"height"`
+	ViewWidth          int                        `json:"view_width,omitempty"`
+	Origin             PaintedPoint               `json:"origin"`
+	AxisX              PaintedPoint               `json:"axis_x"`
+	AxisY              PaintedPoint               `json:"axis_y"`
+	ActorHeight        float64                    `json:"actor_height"`
+	KnownArchitecture  bool                       `json:"known_architecture"`
+	Navigation         []string                   `json:"navigation"`
+	ProofWaypoints     []Point                    `json:"proof_waypoints"`
+	ProofBlocked       Point                      `json:"proof_blocked"`
+	Actors             []PaintedActor             `json:"actors"`
+	Props              []PaintedProp              `json:"props"`
+	Occluders          []PaintedOccluder          `json:"occluders"`
+	InspectionHotspots []PaintedInspectionHotspot `json:"inspection_hotspots,omitempty"`
+	FloorElevationM    *float64                   `json:"floor_elevation_m,omitempty"`
+	AmbientPassages    []PaintedAmbientPassage    `json:"ambient_passages,omitempty"`
+	Daylight           *PaintedDaylight           `json:"daylight,omitempty"`
 }
 
 func (s PaintedScene) project(p Point) PaintedPoint {
@@ -76,12 +100,22 @@ func checkPaintedScenes(c Compiled) error {
 		Actors []struct {
 			ID string `json:"id"`
 		} `json:"actors"`
+		Inspection struct {
+			Objects []struct {
+				ID    string `json:"id"`
+				Level string `json:"level"`
+			} `json:"objects"`
+		} `json:"inspection"`
 	}
 	if len(c.Art.Painted) == 0 && len(c.PaintedInventoryAnchors) == 0 {
 		return nil
 	}
 	if err := json.Unmarshal(c.Life, &life); err != nil {
 		return fmt.Errorf("painted: Life catalog: %w", err)
+	}
+	inspectionLevels := make(map[string]string, len(life.Inspection.Objects))
+	for _, obj := range life.Inspection.Objects {
+		inspectionLevels[obj.ID] = obj.Level
 	}
 	if len(c.Art.Painted) > 32 {
 		return fmt.Errorf("art.painted: at most 32 scenes")
@@ -92,6 +126,9 @@ func checkPaintedScenes(c Compiled) error {
 	}
 	seen := map[string]bool{}
 	for _, s := range c.Art.Painted {
+		if err := checkPaintedAmbient(s, c.Walkable); err != nil {
+			return err
+		}
 		level, ok := life.Locations[s.LevelID]
 		if !ok || seen[s.LevelID] || len(level.Terrain) == 0 {
 			return fmt.Errorf("painted: duplicate or unknown Life level %q", s.LevelID)
@@ -130,8 +167,13 @@ func checkPaintedScenes(c Compiled) error {
 				return fmt.Errorf("painted %s: blocked proof waypoint", s.LevelID)
 			}
 		}
-		if len(s.Actors) > 512 || len(s.Props) > 512 || len(s.Occluders) > 32 {
+		if len(s.Actors) > 512 || len(s.Props) > 512 || len(s.Occluders) > 32 || len(s.InspectionHotspots) > 512 {
 			return fmt.Errorf("painted %s: too many presentation members", s.LevelID)
+		}
+		for _, hotspot := range s.InspectionHotspots {
+			if strings.TrimSpace(hotspot.ObjectID) == "" || inspectionLevels[hotspot.ObjectID] != s.LevelID || !finitePainted(hotspot.X, hotspot.Y, hotspot.Radius) || hotspot.X < 0 || hotspot.Y < 0 || hotspot.X >= float64(s.Width) || hotspot.Y >= float64(s.Height) || hotspot.Radius <= 0 || hotspot.Radius > math.Max(float64(s.Width), float64(s.Height)) {
+				return fmt.Errorf("painted %s: unbound/invalid inspection hotspot %q", s.LevelID, hotspot.ObjectID)
+			}
 		}
 		bound := map[string]bool{}
 		for _, a := range s.Actors {
@@ -152,6 +194,9 @@ func checkPaintedScenes(c Compiled) error {
 		for _, o := range s.Occluders {
 			if o.ID == "" || members[o.ID] || len(o.Polygon) < 3 || len(o.Polygon) > 64 || !finitePainted(o.DepthY) || o.DepthY < 0 || o.DepthY > float64(s.Height) {
 				return fmt.Errorf("painted %s: invalid foreground %q", s.LevelID, o.ID)
+			}
+			if o.VisibilityAnchor != nil && !stand(*o.VisibilityAnchor) {
+				return fmt.Errorf("painted %s: foreground %q visibility_anchor must be a walkable cell", s.LevelID, o.ID)
 			}
 			members[o.ID] = true
 			minX, minY, maxX, maxY := float64(s.Width), float64(s.Height), 0.0, 0.0
@@ -204,6 +249,12 @@ func checkPaintedImages(unity string, scenes []PaintedScene) error {
 		}
 		for i, p := range s.Props {
 			preview.Layers = append(preview.Layers, ArtSceneLayer{ID: fmt.Sprintf("prop.%d", i), Image: p.Image, Width: 1, Height: 1, SourceRect: p.SourceRect})
+		}
+		for i, p := range s.AmbientPassages {
+			preview.Layers = append(preview.Layers, ArtSceneLayer{ID: fmt.Sprintf("ambient.%d", i), Image: p.Image, Width: 1, Height: 1, SourceRect: p.SourceRect})
+			if p.Track != nil {
+				preview.Layers = append(preview.Layers, ArtSceneLayer{ID: fmt.Sprintf("ambient.track.%d", i), Image: p.Track.Image, Width: 1, Height: 1, SourceRect: p.Track.SourceRect})
+			}
 		}
 		if err := checkArtSceneImages(unity, []ArtScene{preview}); err != nil {
 			return err

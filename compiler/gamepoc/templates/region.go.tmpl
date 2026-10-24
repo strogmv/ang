@@ -8,9 +8,11 @@ import (
 
 type regionDeck struct {ID string `json:"id"`;Name string `json:"name"`;ElevationM float64 `json:"elevation_m"`}
 type regionNode struct {ID string `json:"id"`;Name string `json:"name"`;DeckID string `json:"deck_id"`;X float64 `json:"x"`;Y float64 `json:"y"`;Width float64 `json:"width"`;Height float64 `json:"height"`;LevelID string `json:"level_id"`;InitialKnowledge string `json:"initial_knowledge"`;Description string `json:"description"`}
-type regionLink struct {ID string `json:"id"`;FromNode string `json:"from_node"`;ToNode string `json:"to_node"`;Mode string `json:"mode"`;InitialKnown bool `json:"initial_known"`}
+type regionLink struct {ID string `json:"id"`;FromNode string `json:"from_node"`;ToNode string `json:"to_node"`;Mode string `json:"mode"`;InitialKnown bool `json:"initial_known"`;LifeEdges []string `json:"life_edges,omitempty"`}
 type regionCatalog struct {ID string `json:"id"`;Name string `json:"name"`;Decks []regionDeck `json:"decks"`;Nodes []regionNode `json:"nodes"`;Links []regionLink `json:"links"`}
-type regionKnowledge struct {Initialized bool `json:"initialized,omitempty"`;KnownNodes map[string]bool `json:"known_nodes,omitempty"`;KnownLinks map[string]bool `json:"known_links,omitempty"`;Visited map[string]int64 `json:"visited,omitempty"`}
+// Initialized empty maps are valid durable knowledge, not missing state. Keep
+// their JSON fields so a save before the first discovered link reloads as {}.
+type regionKnowledge struct {Initialized bool `json:"initialized,omitempty"`;KnownNodes map[string]bool `json:"known_nodes"`;KnownLinks map[string]bool `json:"known_links"`;Visited map[string]int64 `json:"visited"`}
 
 func(k regionKnowledge)clone()regionKnowledge{
  out:=k
@@ -30,6 +32,16 @@ func(r *Runtime)syncRegionKnowledge(){
  }
  hero:=r.state.Life.Actor(playerActorID);if hero==nil{return}
  for _,n:=range r.world.Region.Nodes{if n.LevelID!=""&&hero.Visits[n.LevelID]>0{k.KnownNodes[n.ID]=true;if _,ok:=k.Visited[n.ID];!ok{k.Visited[n.ID]=r.state.Life.Seconds}}}
+}
+// A real completed trip is evidence of this exact connection. Mere proximity,
+// knowledge of both rooms, or discovering an adjacent door is not evidence of
+// any parallel hidden passage. life_edges is private authoring data only.
+func(r *Runtime)learnRegionTraversal(edgeID string){
+ if edgeID==""||r.world.Region.ID==""{return};edge:=r.world.Life.Edge(edgeID);hero:=r.state.Life.Actor(playerActorID)
+ if edge==nil||hero==nil||hero.Trip!=nil||hero.Level!=edge.To||hero.Visits[edge.To]==0{return}
+ from,to:=r.regionNodeForLevel(edge.From),r.regionNodeForLevel(edge.To);if from==nil||to==nil{return}
+ k:=&r.state.Region;if !k.Initialized||!k.KnownNodes[from.ID]||!k.KnownNodes[to.ID]{return}
+ for _,link:=range r.world.Region.Links{matches:=(link.FromNode==from.ID&&link.ToNode==to.ID)||(link.FromNode==to.ID&&link.ToNode==from.ID);if !matches{continue};for _,id:=range link.LifeEdges{if id==edgeID{k.KnownLinks[link.ID]=true;break}}}
 }
 func(r *Runtime)validateRegionKnowledge(s state)error{
  k:=s.Region

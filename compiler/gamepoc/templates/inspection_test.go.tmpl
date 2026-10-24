@@ -12,27 +12,30 @@ func inspectionView(t *testing.T,r *Runtime)*pb.PocGameState{t.Helper();c:=&conn
 func inspected(msg *pb.PocGameState,id string)*pb.PocInspectionObject{for _,obj:=range msg.Life.Inspections{if obj.Id==id{return obj}};return nil}
 func inspectionLine(obj *pb.PocInspectionObject,id string)bool{if obj!=nil{for _,line:=range obj.Fragments{if line.Id==id{return true}}};return false}
 func placeInspectionHero(r *Runtime,level string,at behavior.Cell){hero:=r.state.Life.Actor(playerActorID);hero.Level=level;hero.Position=at;hero.Trip=nil;hero.Path=nil;hero.Manual=true;hero.OverrideLevel="";hero.OverrideEdge="";hero.Arrived=false;r.syncLifeHero();r.updateLifeExploration()}
+func inspectionAuthoredObject(t *testing.T,r *Runtime,id string)behavior.InspectionObject{t.Helper();for _,obj:=range r.world.Life.Inspection.Objects{if obj.ID==id{return obj}};t.Fatalf("missing authored inspection%s",id);return behavior.InspectionObject{}}
+func placeNextToInspection(t *testing.T,r *Runtime,id string){t.Helper();obj:=inspectionAuthoredObject(t,r,id);for _,d:=range []behavior.Cell{{X:-1},{X:1},{Y:-1},{Y:1}}{at:=behavior.Cell{X:obj.At.X+d.X,Y:obj.At.Y+d.Y};if r.world.Life.Walks(obj.Level,at){placeInspectionHero(r,obj.Level,at);return}};t.Fatalf("inspection%s has no walkable approach",id)}
+func inspectionTwoCellRay(t *testing.T,r *Runtime,id string)(behavior.Cell,behavior.Cell){t.Helper();obj:=inspectionAuthoredObject(t,r,id);for _,d:=range []behavior.Cell{{X:-1},{X:1},{Y:-1},{Y:1}}{near:=behavior.Cell{X:obj.At.X+d.X,Y:obj.At.Y+d.Y};far:=behavior.Cell{X:obj.At.X+2*d.X,Y:obj.At.Y+2*d.Y};if r.world.Life.Walks(obj.Level,near)&&r.world.Life.Walks(obj.Level,far){return far,near}};t.Fatalf("inspection%s needs a clear two-cell ray for the wall regression",id);return behavior.Cell{},behavior.Cell{} }
 func TestInspectionProjectionAttributesKnowledgeAndLiveFacts(t *testing.T){
- r:=lifeRuntimeFixture(t);placeInspectionHero(r,"level.poc_housing",behavior.Cell{X:3,Y:2})
+ r:=lifeRuntimeFixture(t);placeNextToInspection(t,r,"inspect.housing.mattress")
  for key:=range r.state.Life.Observer.Attributes{r.state.Life.Observer.Attributes[key]=0}
  weak:=inspected(inspectionView(t,r),"inspect.housing.mattress");if weak==nil||len(weak.Fragments)!=0{t.Fatalf("weak observer sees hidden detail: %+v",weak)}
  r.state.Life.Observer.Attributes["observation"]=80;r.state.Life.Observer.Attributes["smell_sensitivity"]=80
  strong:=inspected(inspectionView(t,r),"inspect.housing.mattress");if !inspectionLine(strong,"seam")||!inspectionLine(strong,"odor"){t.Fatalf("capabilities ignored: %+v",strong)}
- placeInspectionHero(r,"level.poc_work",behavior.Cell{X:3,Y:3});r.state.Life.Observer.Attributes["maintenance"]=80
+ placeNextToInspection(t,r,"inspect.work.idle_mechanism");r.state.Life.Observer.Attributes["maintenance"]=80
  old:=inspected(inspectionView(t,r),"inspect.work.idle_mechanism");if !inspectionLine(old,"age_inference")||inspectionLine(old,"local_history"){t.Fatalf("inference/knowledge gates: %+v",old)}
  r.state.Life.Observer.Knowledge=[]string{"history.work.old_line"};old=inspected(inspectionView(t,r),"inspect.work.idle_mechanism");if !inspectionLine(old,"local_history"){t.Fatal("learned knowledge ignored")}
- placeInspectionHero(r,"level.poc_work",behavior.Cell{X:14,Y:5});pump:=inspected(inspectionView(t,r),"pump_c7");if !inspectionLine(pump,"normal"){t.Fatalf("normal pump missing: %+v",pump)}
+ placeNextToInspection(t,r,"pump_c7");pump:=inspected(inspectionView(t,r),"pump_c7");if !inspectionLine(pump,"normal"){t.Fatalf("normal pump missing: %+v",pump)}
  if err:=r.lifeCommand(&pb.PocLifeCommand{Action:"fault",Destination:"pump_c7"});err!=nil{t.Fatal(err)};pump=inspected(inspectionView(t,r),"pump_c7");if inspectionLine(pump,"normal")||!inspectionLine(pump,"waiting"){t.Fatalf("stale authored facts leaked: %+v",pump)}
 }
 func TestInspectionCurrentVisionAndEquipmentRange(t *testing.T){
- r:=lifeRuntimeFixture(t);r.world.Config.DebugPerception=false;placeInspectionHero(r,"level.poc_work",behavior.Cell{X:14,Y:5})
+ r:=lifeRuntimeFixture(t);r.world.Config.DebugPerception=false;placeNextToInspection(t,r,"pump_c7")
  initial:=inspectionView(t,r);if inspected(initial,"pump_c7")==nil{t.Fatal("visible pump missing")}
  // Preserve remembered geometry, but shrink current sight to exclude the pump.
  r.world.Visibility.PlayerRange=0;hidden:=inspectionView(t,r);if inspected(hidden,"pump_c7")!=nil||len(hidden.Life.Equipment)!=0||len(hidden.Life.InspectionAttributes)!=0{t.Fatal("remembered/off-range equipment or capabilities leaked")}
  r.world.Config.DebugPerception=true;if inspected(inspectionView(t,r),"pump_c7")!=nil{t.Fatal("debug mode revealed hidden inspection")}
  r.world.Visibility.PlayerRange=12
  // Insert a wall between observer and object: neither sensory prose nor object name is projected.
- placeInspectionHero(r,"level.poc_work",behavior.Cell{X:14,Y:3});loc:=r.world.Life.Locations["level.poc_work"];loc.Terrain=append([]string(nil),loc.Terrain...);row:=[]byte(loc.Terrain[4]);row[14]='#';loc.Terrain[4]=string(row);r.world.Life.Locations["level.poc_work"]=loc
+ ray,wall:=inspectionTwoCellRay(t,r,"pump_c7");obj:=inspectionAuthoredObject(t,r,"pump_c7");placeInspectionHero(r,obj.Level,ray);if inspected(inspectionView(t,r),"pump_c7")==nil{t.Fatal("wall fixture was not initially visible")};loc:=r.world.Life.Locations[obj.Level];loc.Terrain=append([]string(nil),loc.Terrain...);row:=[]byte(loc.Terrain[wall.Y]);row[wall.X]='#';loc.Terrain[wall.Y]=string(row);r.world.Life.Locations[obj.Level]=loc
  if inspected(inspectionView(t,r),"pump_c7")!=nil{t.Fatal("inspection through opaque wall")}
  hero:=r.state.Life.Actor(playerActorID);hero.Trip=&behavior.LifeTrip{Edge:"work_station",Arrival:r.state.Life.Seconds+20}
  if len(inspectionView(t,r).Life.Inspections)!=0{t.Fatal("in-transit inspection leak")}
@@ -47,7 +50,7 @@ func TestInspectionDebugChangesAndSavedObserver(t *testing.T){
  if !reflect.DeepEqual(snapshot.Life.Observer,loaded.Life.Observer){t.Fatal("observer progression lost")};loaded.Life.Observer.Attributes["observation"]=0;if r.state.Life.Observer.Attributes["observation"]!=80{t.Fatal("saved observer alias")}
 }
 func TestInspectionProjectionDoesNotSerializeAuthoringContext(t *testing.T){
- r:=lifeRuntimeFixture(t);placeInspectionHero(r,"level.poc_housing",behavior.Cell{X:3,Y:2});r.state.Life.Observer.Attributes["observation"]=0;r.state.Life.Observer.Attributes["smell_sensitivity"]=0
+ r:=lifeRuntimeFixture(t);placeNextToInspection(t,r,"inspect.housing.mattress");r.state.Life.Observer.Attributes["observation"]=0;r.state.Life.Observer.Attributes["smell_sensitivity"]=0
  message:=inspectionView(t,r);raw,err:=json.Marshal(message.Life.Inspections);if err!=nil{t.Fatal(err)}
  for _,secret:=range []string{"author_note","original_use","requires","knowledge","condition","незваных соседей","тёмные точки","застоявшимся потом"}{if strings.Contains(string(raw),secret){t.Fatalf("private context leaked: %s",secret)}}
 }

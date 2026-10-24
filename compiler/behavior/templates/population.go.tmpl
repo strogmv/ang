@@ -30,6 +30,9 @@ type PopulationEnvironment struct {
 
 type PopulationActor struct {
  YieldUntil int64 `json:"yield_until,omitempty"`
+ YieldRequester string `json:"yield_requester,omitempty"`
+ YieldOrigin Cell `json:"yield_origin,omitempty"`
+ YieldHoldUntil int64 `json:"yield_hold_until,omitempty"`
 	ID               string          `json:"id"`
 	Name             string          `json:"name"`
 	Level            string          `json:"level"`
@@ -446,11 +449,8 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 				a.ColdReadyAt = seconds + p.ColdStepSeconds
 				continue
 			}
-			if a.WaitingDeparture == 0 || a.WaitingDeparture < seconds {
-				a.WaitingDeparture = seconds
-				if edge.PeriodSeconds > 0 {
-					a.WaitingDeparture = ((seconds + edge.PeriodSeconds - 1) / edge.PeriodSeconds) * edge.PeriodSeconds
-				}
+			if a.WaitingDeparture == 0 || (a.WaitingDeparture < seconds && (edge.NightPeriodSeconds == 0 || edge.PeriodSeconds == 0)) {
+				a.WaitingDeparture = edge.NextDeparture(seconds)
 			}
 			if seconds < a.WaitingDeparture {
 				a.Activity = "waiting_departure"
@@ -460,7 +460,7 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 			if seats[slot] >= edge.Seats {
 				a.Activity = "waiting_seat"
 				if edge.PeriodSeconds > 0 {
-					a.WaitingDeparture += edge.PeriodSeconds
+					a.WaitingDeparture = edge.NextDeparture(a.WaitingDeparture + 1)
 				}
 				continue
 			}
@@ -537,6 +537,9 @@ func (s PopulationState) Validate(p PopulationModel, l LifeModel, seconds, tick 
 	for i, a := range s.Actors {
 		if len(p.ShiftOffsets) == 0 || a.ID != fmt.Sprintf("population.%04d", i+1) || a.Name == "" || a.Stage < 0 || a.Stage >= len(p.Stages) || a.ShiftSeconds != p.ShiftOffsets[i%len(p.ShiftOffsets)] || !l.Walks(a.Level, a.Position) || !l.Walks(a.Level, a.Goal) || a.YieldUntil < 0 || a.YieldUntil > tick+8*p.MoveTicks || a.MoveStartTick < 0 || a.MoveStartTick > tick || a.WaitingDeparture < 0 || a.ColdReadyAt < 0 || a.Activity == "" || a.Visits == nil {
 			return fmt.Errorf("invalid population actor %s", a.ID)
+		}
+		if a.YieldRequester != "" && (a.YieldRequester == a.ID || l.Person(a.YieldRequester) == nil || !l.Walks(a.Level, a.YieldOrigin) || a.YieldHoldUntil < 0 || a.YieldHoldUntil > tick+16*p.MoveTicks) {
+			return fmt.Errorf("invalid population courtesy hold")
 		}
 		if l.Person(a.ID) != nil {
 			return fmt.Errorf("population identity collides with named actor")

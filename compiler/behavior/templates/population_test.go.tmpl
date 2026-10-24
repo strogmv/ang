@@ -242,6 +242,17 @@ func TestPopulationSharesTransportSeatsWithBaseActors(t *testing.T) {
 		t.Fatal("did not take next train")
 	}
 }
+func TestPopulationNightQueueUsesNextRealSlotAndSurvivesSave(t *testing.T){
+ p,l:=populationFixture();p.ShiftOffsets=[]int64{0};p.Stages=p.Stages[:2];p.Stages[1].AtSecond=70000
+ e:=&l.Edges[0];e.Mode="rail";e.TravelSeconds=300;e.PeriodSeconds=300;e.NightPeriodSeconds=3600;e.DayStartSecond=21600;e.DayEndSecond=79200;e.Seats=1;l.Edges=[]LifeEdge{*e,l.Edges[3]}
+ s,err:=p.Start(l,1,79200,0);if err!=nil{t.Fatal(err)};a:=&s.Actors[0];a.Stage=1;a.Level="a";a.Position=e.Exit;a.Goal=e.Exit;a.Arrived=false;a.Materialized=false;a.ColdReadyAt=0;a.Visits["a"]=1
+ env:=PopulationEnvironment{Trips:[]LifeTrip{{Edge:"ab",Departure:79200,Arrival:79500}}}
+ populationAdvance(t,&s,p,l,79200,1,"",env)
+ if s.Actors[0].Trip!=nil||s.Actors[0].WaitingDeparture!=82800||s.Actors[0].Activity!="waiting_seat"{t.Fatalf("night full train did not advance to hourly slot: %+v",s.Actors[0])}
+ raw,err:=json.Marshal(s);if err!=nil{t.Fatal(err)};var saved PopulationState;if err=json.Unmarshal(raw,&saved);err!=nil{t.Fatal(err)}
+ for _,state:=range []*PopulationState{&s,&saved}{populationAdvance(t,state,p,l,82799,2,"",PopulationEnvironment{});if state.Actors[0].Trip!=nil{t.Fatal("night passenger boarded at daytime frequency")};populationAdvance(t,state,p,l,82805,3,"",PopulationEnvironment{});trip:=state.Actors[0].Trip;if trip==nil||trip.Departure!=82800||trip.Arrival!=83100{t.Fatalf("coarse clock skipped population's reserved slot: %+v",state.Actors[0])}}
+ if !reflect.DeepEqual(s,saved){t.Fatal("population's saved night queue diverged")}
+}
 func TestPopulationVisibleWalkingUsesNeighborSteps(t *testing.T) {
 	p, l := populationFixture()
 	s, err := p.Start(l, 12, 0, 0)

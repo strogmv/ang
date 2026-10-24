@@ -34,11 +34,12 @@ type RegionNode struct {
 	Description      string  `json:"description"`
 }
 type RegionLink struct {
-	ID           string `json:"id"`
-	FromNode     string `json:"from_node"`
-	ToNode       string `json:"to_node"`
-	Mode         string `json:"mode"`
-	InitialKnown bool   `json:"initial_known"`
+	ID           string   `json:"id"`
+	FromNode     string   `json:"from_node"`
+	ToNode       string   `json:"to_node"`
+	Mode         string   `json:"mode"`
+	InitialKnown bool     `json:"initial_known"`
+	LifeEdges    []string `json:"life_edges,omitempty"`
 }
 
 func (r *RegionCatalog) validate(life json.RawMessage) error {
@@ -50,6 +51,11 @@ func (r *RegionCatalog) validate(life json.RawMessage) error {
 	}
 	var l struct {
 		Locations map[string]json.RawMessage `json:"locations"`
+		Edges     []struct {
+			ID   string `json:"id"`
+			From string `json:"from"`
+			To   string `json:"to"`
+		} `json:"edges"`
 	}
 	if err := json.Unmarshal(life, &l); err != nil {
 		return fmt.Errorf("region map needs Life locations: %w", err)
@@ -59,6 +65,11 @@ func (r *RegionCatalog) validate(life json.RawMessage) error {
 	nodes := map[string]RegionNode{}
 	levels := map[string]bool{}
 	links := map[string]bool{}
+	lifeEdges := map[string]struct{ from, to string }{}
+	for _, edge := range l.Edges {
+		lifeEdges[edge.ID] = struct{ from, to string }{edge.From, edge.To}
+	}
+	boundLifeEdges := map[string]bool{}
 	for _, d := range r.Decks {
 		if d.ID == "" || d.Name == "" || decks[d.ID] || !finite(d.ElevationM) {
 			return fmt.Errorf("invalid region deck %s", d.ID)
@@ -92,6 +103,13 @@ func (r *RegionCatalog) validate(life json.RawMessage) error {
 		}
 		if e.InitialKnown && (a.InitialKnowledge == "unknown" || b.InitialKnowledge == "unknown") {
 			return fmt.Errorf("known region link exposes unknown endpoint %s", e.ID)
+		}
+		for _, id := range e.LifeEdges {
+			edge, exists := lifeEdges[id]
+			if !exists || boundLifeEdges[id] || a.LevelID == "" || b.LevelID == "" || !((edge.from == a.LevelID && edge.to == b.LevelID) || (edge.from == b.LevelID && edge.to == a.LevelID)) {
+				return fmt.Errorf("invalid/duplicate region Life edge %s", id)
+			}
+			boundLifeEdges[id] = true
 		}
 		links[e.ID] = true
 	}

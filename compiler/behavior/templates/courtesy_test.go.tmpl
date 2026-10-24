@@ -68,6 +68,102 @@ func courtesyAdvance(t *testing.T, m LifeModel, s *LifeState, tick int64) {
 	}
 }
 
+func courtesyChainFixture(t *testing.T,mixed bool)(LifeModel,LifeState){
+ t.Helper();m:=LifeModel{StartSeconds:0,SecondsPerTick:1,MoveTicks:3,Courtesy:LifeCourtesyPolicy{NoticeCells:2},Walkable:map[string]bool{".":true},Locations:map[string]LifeLocation{"hall":{Name:"Hall",Terrain:[]string{"###############","####.##.##.####","#.............#","###############"}}},Actors:[]LifePerson{{ID:"hero",Name:"Hero",Steps:[]LifeStep{{Level:"hall",At:Cell{1,2},Activity:"rest"}}}}}
+ for i,x:=range []int{4,7,10}{if mixed&&i==1{continue};id:=[]string{"friend0","friend1","friend2"}[i];m.Actors=append(m.Actors,LifePerson{ID:id,Name:id,Relations:[]LifeRelation{{To:"hero",Strength:.5}},Steps:[]LifeStep{{Level:"hall",At:Cell{x,2},Activity:"rest"}}})}
+ if mixed{m.Population=PopulationModel{MaxActors:1,MaxActive:1,MoveTicks:3,ColdStepSeconds:10,ShiftOffsets:[]int64{0},Stages:[]PopulationStage{{ID:"market",Level:"hall",Activity:"market"}},Anchors:map[string][]Cell{"hall":{{7,2}}}};s,err:=m.StartWithPopulation(1,"hero");if err!=nil{t.Fatal(err)};if err=s.SetRelation("population.0001","hero",.5);err!=nil{t.Fatal(err)};return m,s}
+ if err:=m.Validate();err!=nil{t.Fatal(err)};s:=m.Start();s.ControlledActorID="hero";return m,s
+}
+
+func courtesyCrowdAdvance(t *testing.T,m LifeModel,s *LifeState,tick int64){
+ t.Helper();before:=s.Clone();s.Advance(m,tick);if err:=s.AdvancePopulation(m,"hero");err!=nil{t.Fatal(err)};if err:=s.Validate(m,tick);err!=nil{t.Fatalf("tick%d: %v",tick,err)}
+ for i,a:=range s.Actors{old:=before.Actors[i];if old.Position!=a.Position&&(Distance(old.Position,a.Position)!=1||tick<old.MoveStartTick+m.MoveTicks){t.Fatalf("accelerated/nonlocal named motion at tick%d",tick)}}
+ for i,a:=range s.Population.Actors{old:=before.Population.Actors[i];if old.Materialized&&a.Materialized&&old.Position!=a.Position&&(Distance(old.Position,a.Position)!=1||tick<old.MoveStartTick+m.Population.MoveTicks){t.Fatalf("accelerated/nonlocal resident motion at tick%d",tick)}}
+}
+
+func TestLifeCourtesyChainKeepsMotionInsteadOfThreeStopRestarts(t *testing.T){
+ for _,mixed:=range []bool{false,true}{m,s:=courtesyChainFixture(t,mixed);goal:=Cell{13,2};courtesyAccept(t,m,&s,goal);stops,arrival:=0,int64(0);seen:=map[string]bool{}
+  for tick:=int64(1);tick<=100;tick++{courtesyCrowdAdvance(t,m,&s,tick);hero:=s.Actor("hero");if hero.Goal!=goal||!hero.Manual{t.Fatal("crowd negotiation cancelled the player's accepted intent")};if len(hero.Path)>0&&hero.Label=="Ждёт проход"{t.Fatal("resumed movement retained the stale waiting status")};if len(hero.Path)==0&&!hero.Arrived{stops++}
+   for _,a:=range s.Actors{if a.ID=="hero"{continue};if a.Step!=0||a.Manual||a.Goal!=m.Person(a.ID).Steps[0].At{t.Fatal("courtesy replaced the NPC's own task")};if a.YieldRequester!=""{seen[a.ID]=true;if tick>=a.YieldHoldUntil{t.Fatal("pocket lease exceeded its hard limit")}}}
+   for _,a:=range s.Population.Actors{if a.YieldRequester!=""{seen[a.ID]=true}}
+   if hero.Arrived&&hero.Position==goal{arrival=tick;break}
+  }
+  // Twelve normal segments require36ticks. The previous emitted kernel took
+  //48ticks with12stopped frames/three restarts on this same three-body map.
+  if arrival==0||arrival>39||stops>1||len(seen)!=3{t.Fatalf("mixed=%v arrival=%d ideal36 stops=%d yielded=%v",mixed,arrival,stops,seen)}
+  t.Logf("mixed=%v three-body passage: arrival=%d ideal36 stopped=%d",mixed,arrival,stops)
+ }
+}
+
+func TestLifeCourtesyAnticipationDoesNotMoveNeutralOrDistantBodies(t *testing.T){
+ m,s:=courtesyChainFixture(t,false);m.Actors[2].Relations=nil;goal:=Cell{13,2};courtesyAccept(t,m,&s,goal);neutral,hidden:=*s.Actor("friend1"),*s.Actor("friend2")
+ for tick:=int64(1);tick<=90;tick++{courtesyCrowdAdvance(t,m,&s,tick);hero:=s.Actor("hero");if hero.Goal!=goal||!hero.Manual||hero.YieldUntil!=0{t.Fatal("neutral obstruction stole controlled intent")}}
+ if s.Actor("hero").Position!=(Cell{6,2})||len(s.Actor("hero").PendingPath)==0{t.Fatal("neutral body was passed through or waiting intent discarded")}
+ if !reflect.DeepEqual(neutral,*s.Actor("friend1"))||!reflect.DeepEqual(hidden,*s.Actor("friend2")){t.Fatal("neutral or locally unseen body was asked to move")}
+}
+
+func courtesyPocketFixture(t *testing.T)(LifeModel,LifeState){
+ t.Helper();m,_:=courtesyChainFixture(t,false);m.Actors=m.Actors[:2];s:=m.Start();s.ControlledActorID="hero";hero:=s.Actor("hero");hero.Position=Cell{2,2};hero.Goal=hero.Position;hero.Manual=true
+ route:=[]Cell{};for x:=3;x<=13;x++{route=append(route,Cell{x,2})};if !s.yieldPopulationFor(m,"hall",Cell{4,2},0,"hero",route...){t.Fatal("idle friend's initial courtesy failed")};return m,s
+}
+
+func TestLifeCourtesyPocketHoldExtendsForPassingAndSavesWithoutPingPong(t *testing.T){
+ m,s:=courtesyPocketFixture(t);origin:=Cell{4,2}
+ for tick:=int64(1);tick<=21;tick++{courtesyCrowdAdvance(t,m,&s,tick)}
+ courtesyAccept(t,m,&s,Cell{13,2});var restored LifeState;saved:=false;extended:=false
+ for tick:=int64(22);tick<=65;tick++{courtesyCrowdAdvance(t,m,&s,tick);friend:=s.Actor("friend0");if friend.YieldUntil>24{extended=true};if friend.YieldRequester!=""&&friend.YieldUntil>friend.YieldHoldUntil{t.Fatal("courtesy lease became unbounded")};if tick>=24&&tick<=30&&friend.Position==origin{t.Fatal("friend bounced back into the passing corridor")}
+  if tick==25{raw,err:=json.Marshal(s);if err!=nil{t.Fatal(err)};if err=json.Unmarshal(raw,&restored);err!=nil{t.Fatal(err)};if restored.Actor("friend0").YieldRequester!="hero"||restored.Actor("friend0").YieldOrigin!=origin{t.Fatal("saved pocket lost requester/contact")};saved=true
+  }else if tick>25{courtesyCrowdAdvance(t,m,&restored,tick);if !reflect.DeepEqual(s.Clone(),restored.Clone()){t.Fatal("saved side-pocket hold diverged")}}
+ }
+ friend:=s.Actor("friend0");if !saved||!extended||friend.Position!=origin||!friend.Arrived||friend.YieldRequester!=""||s.Actor("hero").Position!=(Cell{13,2}){t.Fatal("bounded passage did not restore the NPC's own task")}
+}
+
+func TestLifeCourtesyPocketDoesNotFreezeForCancelledNearbyIntent(t *testing.T){
+ m,s:=courtesyPocketFixture(t);hero:=s.Actor("hero");hero.Path=nil;hero.PendingPath=nil;hero.Goal=hero.Position;hero.Arrived=true
+ for tick:=int64(1);tick<=65;tick++{courtesyCrowdAdvance(t,m,&s,tick);if s.Actor("friend0").YieldUntil>24{t.Fatal("idle/cancelled requester renewed a pocket lease")}}
+ friend:=s.Actor("friend0");if friend.Position!=(Cell{4,2})||!friend.Arrived||friend.Activity!="rest"||friend.YieldRequester!=""{t.Fatal("cancelled nearby intent froze the yielding NPC")}
+}
+
+func courtesyLoopFixture()(LifeModel,LifeState){
+ m,_:=courtesyFixture();m.Locations["hall"]=LifeLocation{Name:"Hall",Terrain:[]string{
+  "#####################","#...................#","#.#################.#","#.#################.#","#...................#","#####################",
+ }};m.Actors[0].Steps[0].At=Cell{9,1};m.Actors[1].Steps[0].At=Cell{10,1};m.Actors[1].Relations=nil
+ s:=m.Start();s.ControlledActorID="hero";return m,s
+}
+
+func TestLifeCourtesyRejectsWholeRoomLoopAndKeepsSavedNeutralWait(t *testing.T){
+ m,s:=courtesyLoopFixture();goal:=Cell{11,1};courtesyAccept(t,m,&s,goal)
+ hero:=s.Actor("hero");origin:=hero.Position;neutral:=s.Actors[1]
+ baseline:=m.Space("hall",nil).Path(origin,goal,Cell{},0)
+ long:=m.Space("hall",map[Cell]bool{neutral.Position:true}).Path(origin,goal,Cell{},0)
+ if len(baseline)!=2||len(long)<=len(baseline)+m.courtesyDetourBudget(){t.Fatalf("fixture lacks a disproportionate loop: %d -> %d",len(baseline),len(long))}
+ // A formerly saved long detour must not enlarge the admission baseline.
+ hero.Path=nil;hero.PendingPath=long;s.resumeControlledAfterTraffic(m,0)
+ if len(hero.Path)!=0||!reflect.DeepEqual(hero.PendingPath,baseline){t.Fatal("stale saved loop bypassed the fresh static baseline")}
+ var restored LifeState
+ for tick:=int64(1);tick<=60;tick++{
+  courtesyAdvance(t,m,&s,tick);hero=s.Actor("hero")
+  if hero.Position!=origin||hero.Goal!=goal||!hero.Manual||len(hero.Path)>0||!reflect.DeepEqual(hero.PendingPath,baseline){t.Fatalf("tick%d: neutral contact cancelled intent or started a room circuit: %+v",tick,*hero)}
+  if !reflect.DeepEqual(s.Actors[1],neutral){t.Fatal("detour limit forced a neutral body to yield")}
+  if tick==30{raw,err:=json.Marshal(s);if err!=nil{t.Fatal(err)};if err=json.Unmarshal(raw,&restored);err!=nil{t.Fatal(err)};if err=restored.Validate(m,tick);err!=nil{t.Fatal(err)}}
+  if tick>30{courtesyAdvance(t,m,&restored,tick);if !reflect.DeepEqual(s.Clone(),restored.Clone()){t.Fatal("saved waiting intent diverged")}}
+ }
+ // The other person's independent accepted walk, not an involuntary side
+ // step, now clears the contact. Both bodies retain ordinary cadence.
+ for _,state:=range []*LifeState{&s,&restored}{a:=state.Actor("friend");a.Manual=true;a.Arrived=false;a.Goal=Cell{12,1};a.Path=[]Cell{{11,1},{12,1}};a.MoveStartTick=60;a.Activity="walking"}
+ for tick:=int64(61);tick<=85;tick++{courtesyAdvance(t,m,&s,tick);courtesyAdvance(t,m,&restored,tick);if !reflect.DeepEqual(s.Clone(),restored.Clone()){t.Fatal("released saved wait diverged")}}
+ if hero=s.Actor("hero");!hero.Arrived||hero.Position!=goal{t.Fatalf("clear contact did not resume original target: %+v",*hero)}
+}
+
+func TestLifeCourtesyKeepsShortNeutralFlankAndHonorsDetourPolicy(t *testing.T){
+ for _,extra:=range []int{0,1,2}{m,_:=courtesyFixture();m.Courtesy.MaxDetourExtraCells=extra;m.Locations["hall"]=LifeLocation{Name:"Hall",Terrain:[]string{"#########","##....###","#.......#","#########"}};m.Actors[0].Steps[0].At=Cell{2,2};m.Actors[1].Relations=nil;s:=m.Start();s.ControlledActorID="hero";goal:=Cell{4,2};courtesyAccept(t,m,&s,goal);neutral:=s.Actors[1]
+  for tick:=int64(1);tick<=20;tick++{courtesyAdvance(t,m,&s,tick)}
+  h:=s.Actor("hero");if extra==1{if h.Position!=(Cell{2,2})||h.Goal!=goal||len(h.PendingPath)!=2{t.Fatal("configured one-cell detour limit was ignored")}}else if !h.Arrived||h.Position!=goal{t.Fatalf("short two-extra-cell flank rejected for policy%d",extra)}
+  if !reflect.DeepEqual(neutral,s.Actors[1]){t.Fatal("ordinary flank changed neutral actor state")}
+ }
+ for _,extra:=range []int{-1,65}{m,_:=courtesyFixture();m.Courtesy.MaxDetourExtraCells=extra;if m.Validate()==nil{t.Fatal("invalid detour policy accepted")}}
+}
+
 func TestLifeCourtesyAcceptedGoalPassesIdleFriendAndRestoresTask(t *testing.T) {
 	m, s := courtesyFixture()
 	if err := m.Validate(); err != nil {

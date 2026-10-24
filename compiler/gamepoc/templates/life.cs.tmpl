@@ -20,6 +20,7 @@ namespace AngelsDemons.Poc
    if (!CanSend()) return;
    session.SendLifeCommand(new PocLifeCommand {RequestId=Guid.NewGuid().ToString("N"),Epoch=state.Epoch,Action=action,Destination=destination,SecondsPerTick=rate});
   }
+  string LifeTravelLabel(){return L("ui.travel.status",state.Life.TripDestination,state.Life.TravelRemainingSeconds);}
   bool LifeButton(string label) {if(lifeButtonStyle==null)lifeButtonStyle=new GUIStyle(buttonStyle){fontSize=12,wordWrap=true,padding=new RectOffset(6,6,3,3)};return GUILayout.Button(label,lifeButtonStyle,GUILayout.Width(163),GUILayout.Height(32));}
   void DrawLifeSidebar() {
    var life=state.Life;
@@ -27,7 +28,7 @@ namespace AngelsDemons.Poc
    GUILayout.BeginVertical(GUILayout.Width(163));
    GUILayout.Label(state.PlayerName, textStyle,GUILayout.Width(163));
    GUILayout.Label(life.LevelName,smallStyle,GUILayout.Width(163));
-   GUILayout.Label(life.Activity,smallStyle,GUILayout.Width(163));
+   GUILayout.Label(life.Transit?LifeTravelLabel():life.Activity,smallStyle,GUILayout.Width(163));
    if(LifeButton("Сохранить")){saving=true;page="slots";session.SendListSaves(new PocListSavesRequest());}
    if(LifeButton("Загрузить")){saving=false;page="slots";session.SendListSaves(new PocListSavesRequest());}
    if(LifeButton("Инвентарь"))page="inventory";
@@ -58,7 +59,7 @@ namespace AngelsDemons.Poc
     if(!string.IsNullOrEmpty(marker.EdgeId)){DrawLifeDoor(marker,origin,tw,th);continue;}
     if(!hudDebugOpen||!ViewSees(marker.X,marker.Y))continue;Vector2 at=CellScreen(origin,tw,th,marker.X,marker.Y);if(!SpatialWorldLabelVisible(at,300,28))continue;GUI.Label(new Rect(at.x-80,at.y-18,230,25),marker.Name,smallStyle);
    }
-   if(life.Transit){Fill(new Rect(140,300,730,155),new Color(.035f,.055f,.07f,.95f));GUI.Label(new Rect(170,320,660,45),life.Activity,titleStyle);GUI.Label(new Rect(170,377,650,30),"→ "+life.TripDestination+" · ещё "+life.TravelRemainingSeconds+" игровых сек.",textStyle);}
+   if(life.Transit){Fill(new Rect(140,300,730,155),new Color(.035f,.055f,.07f,.95f));GUI.Label(new Rect(170,320,660,100),LifeTravelLabel(),textStyle);}
    if(!hudDebugOpen)return;
    Fill(new Rect(62,618,935,75),new Color(.055f,.075f,.085f,.95f));
    if(life.Events.Count==0)GUI.Label(new Rect(72,630,910,28),life.Activity,smallStyle);

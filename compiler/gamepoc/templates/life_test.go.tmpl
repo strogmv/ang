@@ -81,7 +81,32 @@ func TestLifeNeutralAndHostileIntentReachesContactBeforeWaiting(t *testing.T){
  }
 }
 func lifeRuntimeFixture(t *testing.T)*Runtime{t.Helper();r,err:=New(t.TempDir(),"token");if err!=nil{t.Fatal(err)};r.state.Active=true;r.state.Speed=1;r.initLife();r.state.Life.SecondsPerTick=30;return r}
-func TestLifeFullDayAcrossFourLocations(t *testing.T){r:=lifeRuntimeFixture(t);offscreen:=false;for i:=0;i<3800;i++{r.step();if err:=r.state.Life.Validate(r.world.Life,r.state.Tick);err!=nil{t.Fatal(err)};hero:=r.state.Life.Actor(playerActorID);senya:=r.state.Life.Actor("char.roommate_senya");if senya!=nil&&(senya.Activity=="work"||senya.Activity=="maintenance")&&hero.Level!=senya.Level{offscreen=true};if len(hero.Visits)==4&&hero.WorkedSeconds>=1800&&hero.SleptSeconds>=21600&&hero.Meals>=2&&offscreen{return}};for _,a:=range r.state.Life.Actors{t.Logf("%+v",a)};t.Fatalf("day incomplete offscreen=%v events=%v",offscreen,r.state.Life.Events)}
+func TestLifeStoryLocationsHaveConnectedPhysicalPortsAndPreserveWorkRoutines(t *testing.T){
+ r:=lifeRuntimeFixture(t);m:=r.world.Life;if err:=m.Validate();err!=nil{t.Fatal(err)}
+ for _,id:=range []string{"level.poc_work","level.c7_service_stair","level.copper_ward"}{
+  l,ok:=m.Locations[id];if !ok{t.Fatalf("missing real story location%s",id)}
+  var origin behavior.Cell;found:=false;wanted:=0
+  for y,row:=range l.Terrain{for x:=range row{at:=behavior.Cell{X:x,Y:y};if m.Walks(id,at){wanted++;if !found{origin=at;found=true}}}}
+  if !found{t.Fatal("story location has no walkable floor")}
+  queue:=[]behavior.Cell{origin};seen:=map[behavior.Cell]bool{origin:true}
+  for head:=0;head<len(queue);head++{at:=queue[head];for _,d:=range []behavior.Cell{{X:1},{X:-1},{Y:1},{Y:-1}}{next:=behavior.Cell{X:at.X+d.X,Y:at.Y+d.Y};if !seen[next]&&m.Walks(id,next){seen[next]=true;queue=append(queue,next)}}}
+  if len(seen)!=wanted{t.Fatalf("story floor%s contains disconnected walkable islands: %d/%d",id,len(seen),wanted)}
+  entrances,exits:=0,0
+  for _,e:=range m.Edges{if e.From==id{exits++;if !seen[e.Exit]{t.Fatal("exit outside real connected floor")}};if e.To==id{entrances++;if !seen[e.Entry]{t.Fatal("arrival outside real connected floor")}}}
+  if entrances==0||exits==0{t.Fatal("story location has no real return route")}
+ }
+ for _,pair:=range [][2]string{{"work_service_stair","service_stair_work"},{"service_stair_copper","copper_service_stair"}}{
+  a,b:=m.Edge(pair[0]),m.Edge(pair[1]);if a==nil||b==nil||a.From!=b.To||a.To!=b.From||a.Mode!="walk"||b.Mode!="walk"||a.TravelSeconds<=0||b.TravelSeconds<=0{t.Fatal("missing timed bidirectional stair flight")}
+  if a.Exit==b.Entry||b.Exit==a.Entry{t.Fatal("stair flight reuses its outgoing door as an incoming landing")}
+ }
+ for _,id:=range []string{playerActorID,"char.roommate_senya","char.poc_repair_worker"}{
+  p:=m.Person(id);if p==nil{t.Fatalf("existing person%s removed",id)};work,meal:=false,false
+  for _,step:=range p.Steps{if step.Level=="level.poc_work"{if !m.Walks(step.Level,step.At){t.Fatal("work routine moved into equipment")};if step.Activity=="work"||step.Activity=="rest"{work=true};if step.Activity=="eat"{meal=true}}}
+  if !work||!meal{t.Fatalf("existing work/day routine lost for%s",id)}
+ }
+ for _,id:=range []string{"level.c7_service_stair","level.copper_ward"}{node:=r.regionNodeForLevel(id);if node==nil||node.InitialKnowledge!="unknown"||r.state.Region.KnownNodes[node.ID]{t.Fatal("new physical room was pre-revealed on the region map")}}
+}
+func TestLifeScheduledDayVisitsItsRoutineLevels(t *testing.T){r:=lifeRuntimeFixture(t);expected:=map[string]bool{};for _,step:=range r.world.Life.Person(playerActorID).Steps{expected[step.Level]=true};offscreen:=false;for i:=0;i<3800;i++{r.step();if err:=r.state.Life.Validate(r.world.Life,r.state.Tick);err!=nil{t.Fatal(err)};hero:=r.state.Life.Actor(playerActorID);senya:=r.state.Life.Actor("char.roommate_senya");if senya!=nil&&(senya.Activity=="work"||senya.Activity=="maintenance")&&hero.Level!=senya.Level{offscreen=true};visited:=true;for level:=range expected{if hero.Visits[level]==0{visited=false}};if visited&&hero.WorkedSeconds>=1800&&hero.SleptSeconds>=21600&&hero.Meals>=2&&offscreen{return}};for _,a:=range r.state.Life.Actors{t.Logf("%+v",a)};t.Fatalf("day incomplete offscreen=%v events=%v",offscreen,r.state.Life.Events)}
 func TestLifeTransitSaveAndContinue(t *testing.T){r:=lifeRuntimeFixture(t);for i:=0;i<600&&r.state.Life.Actor(playerActorID).Trip==nil;i++{r.step()};if r.state.Life.Actor(playerActorID).Trip==nil{t.Fatal("never boarded")};before:=r.snapshotState();slot:=r.world.Config.SaveSlots[0];if err:=r.writeSave(slot,before);err!=nil{t.Fatal(err)};restored,_,err:=r.readSave(slot);if err!=nil{t.Fatal(err)};if !reflect.DeepEqual(before.Life,restored.Life){t.Fatal("trip changed during load")};for tick:=before.Tick+1;tick<before.Tick+800;tick++{before.Life.Advance(r.world.Life,tick);restored.Life.Advance(r.world.Life,tick)};if !reflect.DeepEqual(before.Life,restored.Life){t.Fatal("loaded schedules diverged")}}
 func TestLifeCommandCalendarAndHiddenNPCs(t *testing.T){r:=lifeRuntimeFixture(t);if err:=r.lifeCommand(&pb.PocLifeCommand{Action:"rate",SecondsPerTick:30});err!=nil{t.Fatal(err)};if r.state.Speed!=1{t.Fatal("calendar changed simulation speed")};if err:=r.lifeCommand(&pb.PocLifeCommand{Action:"rate",SecondsPerTick:999});err==nil{t.Fatal("unbounded clock accepted")};r.world.Config.DebugPerception=false;c:=&connection{out:make(chan *pb.ServerMessage,8),stop:make(chan struct{})};r.sendState(c);msg:=(<-c.out).GetGameState();if msg.Life==nil||len(msg.Life.People)!=0||len(msg.Life.Events)!=0{t.Fatal("private schedules leaked")};for _,a:=range msg.SceneAgents{real:=r.state.Life.Actor(a.Id);if real==nil||real.Level!=r.currentLevel(){t.Fatal("offscreen actor leaked")}}}
 

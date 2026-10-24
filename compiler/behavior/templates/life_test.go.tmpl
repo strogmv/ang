@@ -2,6 +2,69 @@
 package behavior
 import("encoding/json";"fmt";"reflect";"strings";"testing")
 func lifeFixture()LifeModel{return LifeModel{StartSeconds:0,SecondsPerTick:1,MoveTicks:3,Walkable:map[string]bool{".":true},Locations:map[string]LifeLocation{"a":{Name:"A",Terrain:[]string{".....",".....","....."}},"b":{Name:"B",Terrain:[]string{".....",".....","....."}}},Edges:[]LifeEdge{{ID:"ab",From:"a",To:"b",Exit:Cell{4,1},Entry:Cell{0,1},Mode:"rail",TravelSeconds:20,PeriodSeconds:30,Seats:1},{ID:"ba",From:"b",To:"a",Exit:Cell{0,1},Entry:Cell{4,1},Mode:"rail",TravelSeconds:20,PeriodSeconds:30,Seats:1}},Actors:[]LifePerson{{ID:"one",Name:"One",Steps:[]LifeStep{{AtMinute:0,Level:"a",At:Cell{1,1},Activity:"rest"},{AtMinute:1,Level:"b",At:Cell{3,1},Activity:"work"}}},{ID:"two",Name:"Two",Steps:[]LifeStep{{AtMinute:0,Level:"a",At:Cell{1,2},Activity:"rest"},{AtMinute:1,Level:"b",At:Cell{3,2},Activity:"work"}}}}}}
+
+func scheduledLifeEdge()LifeEdge{return LifeEdge{ID:"ab",From:"a",To:"b",Exit:Cell{4,1},Entry:Cell{0,1},Mode:"rail",TravelSeconds:300,PeriodSeconds:300,NightPeriodSeconds:3600,DayStartSecond:21600,DayEndSecond:79200,Seats:4}}
+
+func TestLifeDepartureDayNightWindows(t *testing.T){
+ e:=scheduledLifeEdge()
+ for _,c:=range [][2]int64{{0,0},{1,3600},{21599,21600},{21600,21600},{21601,21900},{79199,79200},{79200,79200},{79201,82800},{86399,86400},{86400,86400},{86401,90000},{107999,108000},{108001,108300}}{if got:=e.NextDeparture(c[0]);got!=c[1]{t.Fatalf("next(%d)=%d want%d",c[0],got,c[1])}}
+ e.DayStartSecond=25000;e.DayEndSecond=79000;e.NightPeriodSeconds=5000;e.OffsetSeconds=100
+ if got:=e.NextDeparture(86399);got!=89100{t.Fatalf("night cadence restarted at midnight: %d",got)}
+ if got:=e.NextDeparture(25000);got!=25100{t.Fatalf("offset missing at day boundary: %d",got)}
+ if got:=e.NextDeparture(78999);got!=79100{t.Fatalf("old window produced an invalid departure: %d",got)}
+ legacy:=LifeEdge{PeriodSeconds:30};for _,c:=range [][2]int64{{0,0},{1,30},{29,30},{30,30},{31,60}}{if legacy.NextDeparture(c[0])!=c[1]{t.Fatal("constant schedule changed")}}
+ if (LifeEdge{}).NextDeparture(123)!=123{t.Fatal("walking edge gained a timetable")}
+}
+
+func TestLifeRejectsIncompleteOrImpossibleRailSchedule(t *testing.T){
+ for _,change:=range []func(*LifeEdge){
+  func(e *LifeEdge){e.NightPeriodSeconds=0},func(e *LifeEdge){e.DayStartSecond=-1},func(e *LifeEdge){e.DayEndSecond=e.DayStartSecond},func(e *LifeEdge){e.DayEndSecond=86400},func(e *LifeEdge){e.NightPeriodSeconds=-1},func(e *LifeEdge){e.PeriodSeconds=0},func(e *LifeEdge){e.OffsetSeconds=300},func(e *LifeEdge){e.Mode="walk"},func(e *LifeEdge){e.PeriodSeconds=60000;e.NightPeriodSeconds=60000;e.DayStartSecond=10000;e.DayEndSecond=53200;e.OffsetSeconds=50000},
+ }{m:=lifeFixture();m.Edges[0]=scheduledLifeEdge();change(&m.Edges[0]);if m.Validate()==nil{t.Fatalf("invalid rail schedule accepted: %+v",m.Edges[0])}}
+}
+
+func TestLifeScheduledWaitingAndTransitSurviveSaveAndCoarseClock(t *testing.T){
+ m:=lifeFixture();m.StartSeconds=79190;m.Actors=m.Actors[:1];m.Edges[0]=scheduledLifeEdge();s:=m.Start();a:=s.Actor("one");a.Level="a";a.Step=0;a.Visits=map[string]int{"a":1};a.Position=m.Edges[0].Exit;a.Goal=a.Position;a.Manual=true;a.Arrived=false;a.OverrideLevel="b";a.OverrideAt=m.Edges[0].Entry
+ s.Advance(m,1);if a=s.Actor("one");a.Trip!=nil||a.WaitingDeparture!=79200{t.Fatalf("wrong dusk waiting slot: %+v",a)}
+ roundtrip:=func(value LifeState)LifeState{t.Helper();data,err:=json.Marshal(value);if err!=nil{t.Fatal(err)};var restored LifeState;if err=json.Unmarshal(data,&restored);err!=nil{t.Fatal(err)};return restored}
+ restored:=roundtrip(s);s.SecondsPerTick=120;restored.SecondsPerTick=120
+ for _,state:=range []*LifeState{&s,&restored}{state.Advance(m,2);a=state.Actor("one");if a.Trip==nil||a.Trip.Departure!=79200||a.Trip.Arrival!=79500{t.Fatalf("coarse tick skipped reserved departure: %+v",a)};if err:=state.Validate(m,2);err!=nil{t.Fatal(err)}}
+ restored=roundtrip(restored)
+ for tick:=int64(3);tick<=8;tick++{s.Advance(m,tick);restored.Advance(m,tick);if err:=restored.Validate(m,tick);err!=nil{t.Fatal(err)}}
+ if !reflect.DeepEqual(s,restored)||s.Actor("one").Level!="b"||s.Actor("one").Trip!=nil{t.Fatal("save/load waiting or transit diverged")}
+}
+
+func TestLifeSixLevelRoundTripUsesEveryPhysicalExitAndSurvivesTransitSave(t *testing.T){
+ m:=lifeFixture();m.Locations=map[string]LifeLocation{};m.Edges=nil
+ levels:=[]string{"home","station","work","service_stair","copper_ward","branch"}
+ for _,id:=range levels{m.Locations[id]=LifeLocation{Name:id,Terrain:[]string{"#######","#.....#","#.....#","#.....#","#######"}}}
+ pairs:=[][2]string{{"home","station"},{"station","work"},{"work","service_stair"},{"service_stair","copper_ward"},{"work","branch"}}
+ for _,pair:=range pairs{m.Edges=append(m.Edges,
+  LifeEdge{ID:pair[0]+"_"+pair[1],From:pair[0],To:pair[1],Exit:Cell{5,1},Entry:Cell{1,2},Mode:"walk",TravelSeconds:7,Seats:2},
+  LifeEdge{ID:pair[1]+"_"+pair[0],From:pair[1],To:pair[0],Exit:Cell{1,1},Entry:Cell{5,2},Mode:"walk",TravelSeconds:7,Seats:2})}
+ m.Actors=[]LifePerson{{ID:"traveller",Name:"Traveller",Steps:[]LifeStep{{Level:"home",At:Cell{2,2},Activity:"rest"}}}}
+ if err:=m.Validate();err!=nil{t.Fatal(err)}
+ s:=m.Start();s.ControlledActorID="traveller";a:=s.Actor("traveller");a.Manual=true;a.Arrived=false;a.OverrideLevel="copper_ward";a.OverrideAt=Cell{3,2}
+ seen:=map[string]bool{};saved:=false;tick:=int64(0)
+ advanceUntil:=func(level string){
+  t.Helper()
+  for count:=0;count<400;count++{
+   tick++;before:=*s.Actor("traveller");s.Advance(m,tick);a=s.Actor("traveller")
+   if err:=s.Validate(m,tick);err!=nil{t.Fatalf("tick%d: %v",tick,err)}
+   if a.Trip!=nil{e:=m.Edge(a.Trip.Edge);if e==nil||a.Level!=e.From||a.Position!=e.Exit{t.Fatal("departure skipped its physical exit")};seen[e.ID]=true
+    if !saved{raw,err:=json.Marshal(s);if err!=nil{t.Fatal(err)};var restored LifeState;if err=json.Unmarshal(raw,&restored);err!=nil{t.Fatal(err)};if err=restored.Validate(m,tick);err!=nil{t.Fatal(err)};s=restored;saved=true}
+   }
+   a=s.Actor("traveller")
+   if a.Level!=before.Level{if before.Trip==nil||s.Seconds<before.Trip.Arrival{t.Fatal("level changed without completing transit")};e:=m.Edge(before.Trip.Edge);if a.Level!=e.To||a.Position!=e.Entry{t.Fatal("arrived outside the real destination landing")}}
+   if a.Level==level&&a.Trip==nil&&a.Arrived&&a.OverrideLevel==""{return}
+  }
+  t.Fatalf("route to%s stalled: %+v",level,*s.Actor("traveller"))
+ }
+ advanceUntil("copper_ward")
+ if !saved||s.Actor("traveller").Visits["branch"]!=0{t.Fatal("route skipped save or selected unrelated branch")}
+ a=s.Actor("traveller");a.Arrived=false;a.OverrideLevel="home";a.OverrideAt=Cell{2,2}
+ advanceUntil("home")
+ for _,pair:=range pairs[:4]{for _,id:=range []string{pair[0]+"_"+pair[1],pair[1]+"_"+pair[0]}{if !seen[id]{t.Fatalf("required physical transition%s was never crossed",id)}}}
+}
 func TestLifeTravelSeatsAndPhysicalOccupancy(t *testing.T){m:=lifeFixture();if err:=m.Validate();err!=nil{t.Fatal(err)};s:=m.Start();trips:=map[string]bool{};for tick:=int64(1);tick<=240;tick++{s.Advance(m,tick);if err:=s.Validate(m,tick);err!=nil{t.Fatalf("tick %d: %v",tick,err)};aboard:=map[int64]int{};for _,a:=range s.Actors{if a.Trip!=nil{trips[a.ID]=true;aboard[a.Trip.Departure]++;if aboard[a.Trip.Departure]>1{t.Fatal("exceeded train capacity")};if a.Level!="a"{t.Fatal("teleported before arrival")}}}};for _,a:=range s.Actors{if !trips[a.ID]||a.Level!="b"||a.Activity!="work"||a.WorkedSeconds==0{t.Fatalf("incomplete journey %+v",a)}}}
 func TestLifeClockDoesNotAccelerateMovement(t *testing.T){m:=lifeFixture();m.Actors=m.Actors[:1];slow:=m.Start();fast:=slow.Clone();slow.SecondsPerTick=1;fast.SecondsPerTick=120;for _,s:=range []*LifeState{&slow,&fast}{a:=&s.Actors[0];a.Manual=true;a.Arrived=false;a.Path=[]Cell{{2,1},{3,1}}};for tick:=int64(1);tick<=5;tick++{slow.Advance(m,tick);fast.Advance(m,tick);if slow.Actors[0].Position!=fast.Actors[0].Position{t.Fatal("calendar accelerated walking")}};if slow.Actors[0].Position!=(Cell{2,1}){t.Fatal("movement cadence changed")}}
 func TestLifeSaveCloneAndInvalidState(t *testing.T){m:=lifeFixture();s:=m.Start();for tick:=int64(1);tick<100;tick++{s.Advance(m,tick)};raw,err:=json.Marshal(s);if err!=nil{t.Fatal(err)};var restored LifeState;if err=json.Unmarshal(raw,&restored);err!=nil{t.Fatal(err)};for tick:=int64(100);tick<250;tick++{s.Advance(m,tick);restored.Advance(m,tick)};if !reflect.DeepEqual(s,restored){t.Fatal("save/load diverged")};clone:=s.Clone();clone.Actors[0].Visits["a"]=99;if s.Actors[0].Visits["a"]==99{t.Fatal("clone aliases visits")};clone.Actors[0].Visits=nil;if clone.Validate(m,250)==nil{t.Fatal("missing visits accepted")}}

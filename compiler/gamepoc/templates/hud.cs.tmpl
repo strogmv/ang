@@ -7,6 +7,8 @@ namespace AngelsDemons.Poc {
  public sealed partial class AngelsDemonsPoc {
   bool hudDebugOpen;
   GUIStyle hudBody,hudSmall,hudHeading,hudButton,hudWrap;
+  GUIStyle hudLocationHeading;
+  string hudLocationTitle;
   Texture2D hudPortraitTexture;
   string hudPortraitPath;
   Vector2 hudJournalScroll;
@@ -18,6 +20,19 @@ namespace AngelsDemons.Poc {
    hudHeading=new GUIStyle(hudBody){fontSize=21};
    hudWrap=new GUIStyle(hudBody){fontSize=14,wordWrap=true};
    hudButton=new GUIStyle(GUI.skin.label){fontSize=15,alignment=TextAnchor.MiddleCenter,wordWrap=true,richText=false,padding=new RectOffset(7,7,4,4),normal={textColor=hudPaper},hover={textColor=Color.white},active={textColor=hudPaper}};
+  }
+  void DrawHudLocationTitle(){
+   // The panel/occlusion stay fixed. Fit the complete localized title into at
+   // most two measured lines, leaving a separate lower row for the clock.
+   const int largest=21,smallest=14;var area=new Rect(34,38,308,40);string title=HudLocation()??"";
+   if(hudLocationHeading==null)hudLocationHeading=new GUIStyle(hudHeading){wordWrap=true,alignment=TextAnchor.MiddleLeft};
+   if(hudLocationTitle!=title){
+    var content=new GUIContent(title);for(int size=largest;size>=smallest;size--){
+     hudLocationHeading.fontSize=size;float height=hudLocationHeading.CalcHeight(content,area.width);
+     if(height<=area.height&&height<=hudLocationHeading.lineHeight*2+hudLocationHeading.padding.vertical+.1f)break;
+    }hudLocationTitle=title;
+   }
+   GUI.Label(area,title,hudLocationHeading);
   }
   void HudFrame(Rect rect,bool brass=true){
    Fill(new Rect(rect.x+2,rect.y+3,rect.width,rect.height),new Color(0,0,0,.65f));
@@ -76,7 +91,7 @@ namespace AngelsDemons.Poc {
   }
   string HudLocation(){return state.Life!=null&&state.Life.Enabled?state.Life.LevelName:resource.config.subtitle;}
   string HudTime(){long minutes=state.GameSeconds/60;return "День "+(minutes/1440+1)+" · "+((minutes/60)%24).ToString("00")+":"+(minutes%60).ToString("00")+(state.Paused?" · пауза":"");}
-  string HudActivity(){return state.Life!=null&&state.Life.Enabled?state.Life.Activity:state.Paused?"Пауза":state.Path.Count>0?"Движется":"На месте";}
+  string HudActivity(){return state.Life!=null&&state.Life.Enabled?(state.Life.Transit?LifeTravelLabel():state.Life.Activity):state.Paused?"Пауза":state.Path.Count>0?"Движется":"На месте";}
   string HudMass(){return state.Inventory==null?"":"С собой "+((decimal)state.Inventory.CarriedMassG/1000).ToString("0.##")+" кг";}
   void DrawHudNetwork(Rect rect){
    // No dome-coverage/chip-rights field exists in the snapshot. A live Go socket
@@ -92,7 +107,7 @@ namespace AngelsDemons.Poc {
    if(hudDebugOpen){telemetry+="  ·  шаг "+(state.ServerStepUs/1000).ToString("0.00")+" мс  ·  отставание "+state.ServerLagMs.ToString("0.0")+" мс";if(ackMS>=0)telemetry+="  ·  ACK "+ackMS.ToString("0.0")+" мс";}
    Fill(new Rect(0,0,1280,25),new Color(.025f,.032f,.038f,.92f));GUI.Label(new Rect(18,3,1070,20),telemetry,hudSmall);
    if(verify)GUI.Label(new Rect(1110,3,150,20),"АВТОПРОВЕРКА",hudSmall);
-   HudFrame(new Rect(18,31,340,76));GUI.Label(new Rect(34,40,308,28),HudLocation(),hudHeading);GUI.Label(new Rect(34,74,308,22),HudTime(),hudBody);
+   HudFrame(new Rect(18,31,340,76));DrawHudLocationTitle();GUI.Label(new Rect(34,80,308,22),HudTime(),hudBody);
    DrawHudNetwork(new Rect(1024,31,238,59));
    if(HudButton(new Rect(1160,94,102,29),"Отладка"))hudDebugOpen=!hudDebugOpen;
    if(HudButton(new Rect(1024,94,128,29),"Меню [Esc]"))page="menu";

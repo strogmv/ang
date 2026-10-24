@@ -182,11 +182,16 @@ namespace AngelsDemons.Poc {
    var catalog=new PocLocalization{default_locale="ru",fallback_locale="en",locales=new[]{"ru","en"},texts=new[]{
     new PocLocaleText{locale="ru",key="ui.label",text="RU_LABEL"},new PocLocaleText{locale="en",key="ui.label",text="EN_LABEL"},
     new PocLocaleText{locale="en",key="ui.fallback",text="EN_FALLBACK"},new PocLocaleText{locale="en",key="ui.number",text="Value {0}"},
-    new PocLocaleText{locale="en",key="region.node.secret.name",text="SECRET_NAME"}
+    new PocLocaleText{locale="en",key="region.node.secret.name",text="SECRET_NAME"},
+    new PocLocaleText{locale="ru",key="ui.exit.walk_notice",text="Идём к выходу: {0}"},new PocLocaleText{locale="en",key="ui.exit.walk_notice",text="Heading to exit: {0}"},
+    new PocLocaleText{locale="ru",key="ui.exit.enter_hint",text="Войти → {0}"},new PocLocaleText{locale="en",key="ui.exit.enter_hint",text="Enter → {0}"},
+    new PocLocaleText{locale="ru",key="ui.travel.status",text="Переход → {0}\nОсталось {1} игровых сек."},new PocLocaleText{locale="en",key="ui.travel.status",text="Travelling → {0}\n{1} game seconds remaining"}
    }};
    var app=new AngelsDemonsPoc{resource=new Resource{localization=catalog}};
    Equal(app.CurrentLocale(),"ru");Equal(app.L("ui.label"),"RU_LABEL");Equal(app.L("ui.fallback"),"EN_FALLBACK");
+   Equal(app.L("ui.exit.walk_notice","Б-7"),"Идём к выходу: Б-7");Equal(app.L("ui.travel.status","Медный квартал",30L),"Переход → Медный квартал\nОсталось 30 игровых сек.");
    app.SetLocale("en");if(app.sent!=1)throw new System.Exception("locale preference was not sent");Equal(app.L("ui.label"),"EN_LABEL");Equal(app.L("ui.number",1.5),"Value 1.5");
+   Equal(app.L("ui.exit.enter_hint","Copper ward"),"Enter → Copper ward");Equal(app.L("ui.travel.status","Copper ward",29L),"Travelling → Copper ward\n29 game seconds remaining");
    Equal(app.L("region.node.secret.name"),"region.node.secret.name");Equal(app.L("missing.key"),"missing.key");
    var restarted=new AngelsDemonsPoc{resource=new Resource{localization=catalog}};Equal(restarted.CurrentLocale(),"en");
    restarted.SetLocale("invalid");Equal(restarted.CurrentLocale(),"ru");Equal(restarted.L("ui.label"),"RU_LABEL");
