@@ -48,6 +48,11 @@ func main() {
 	applyBuildProcessLimitsIfNeeded(cmd)
 
 	switch cmd {
+	case "location-sdk":
+		if err := runLocationSDK(os.Args[2:], os.Stdout, os.Stderr); err != nil {
+			fmt.Fprintln(os.Stderr, "location-sdk:", err)
+			os.Exit(1)
+		}
 	case "game-poc":
 		project := "."
 		if len(os.Args) > 2 {
@@ -146,6 +151,7 @@ func printUsage() {
 	fmt.Println("  ang init [dir] [--template saas|ecommerce|marketplace] [--lang go] [--db postgres]")
 	fmt.Println("  ang validate  Validate CUE models and architecture")
 	fmt.Println("  ang game-poc <backend>  Generate a CUE-driven local Go/Unity proof of concept")
+	fmt.Println("  ang location-sdk -out <directory> <CUE package>  Compile reusable location modules and inspect geometry")
 	fmt.Println("  ang lint      Perform deep semantic linting of flows and logic")
 	fmt.Println("  ang build     Compile CUE intent into code and infra configs (--mode=in_place|release, --backend-dir, --dry-run, --run-tests, --skip-frontend, --skip-contract-tests, --log-format=json, --phase=all|plan|apply, --out-plan, --plan-file)")
 	fmt.Println("  ang schema [sync|check] [project]  Vendor ANG's CUE schema (the pinned revision's) into cue.mod/pkg; check fails on a difference")
