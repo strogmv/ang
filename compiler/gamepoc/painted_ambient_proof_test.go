@@ -36,7 +36,8 @@ func TestAmbientProofIsOptInAndReadsActualGPU(t *testing.T) {
 		t.Fatal("GPU proof must retain a single actual game session")
 	}
 	unity := hudTemplate(t, "unity.cs.tmpl")
-	for _, want := range []string{`InitAmbientProof();`, `verifyLife = verifyCopperRoute || verifyAmbient ||`, `if (verifyAmbient) AmbientProofDiagnostics(now);`, `if (verifyAmbient) { AmbientProofStep(now); return; }`, `AmbientProofReportJSON()`, `if (verifyAmbient) return ambientProofDirectory;`} {
+	assertNativeLifeProofFlags(t, unity)
+	for _, want := range []string{`InitAmbientProof();`, `if (verifyAmbient) AmbientProofDiagnostics(now);`, `if (verifyAmbient) { AmbientProofStep(now); return; }`, `AmbientProofReportJSON()`, `if (verifyAmbient) return ambientProofDirectory;`} {
 		if !strings.Contains(unity, want) {
 			t.Errorf("GPU proof has no native CLI/report dispatch: %s", want)
 		}

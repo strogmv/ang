@@ -179,6 +179,7 @@ type Menu struct {
 }
 
 type Compiled struct {
+	Wayfinding              WayfindingCatalog              `json:"wayfinding,omitempty"`
 	LocationSDK             *locationsdk.RuntimeBundle     `json:"location_sdk,omitempty"`
 	Localization            LocalizationCatalog            `json:"localization,omitempty"`
 	Region                  RegionCatalog                  `json:"region_map,omitempty"`
@@ -324,6 +325,11 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 			return out, nil, err
 		}
 		if err := out.Region.validate(out.Life); err != nil {
+			return out, nil, err
+		}
+	}
+	if ways := world.LookupPath(cue.ParsePath("wayfinding")); ways.Exists() {
+		if err := ways.Decode(&out.Wayfinding); err != nil {
 			return out, nil, err
 		}
 	}
@@ -485,6 +491,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 			out.Scene.TileNoise[key] = int(noise)
 		}
 	}
+	if err := out.Wayfinding.validate(out.Life, out.Walkable, out.Localization); err != nil {
+		return out, nil, err
+	}
 	if out.Spatial, err = compileSpatial(world.LookupPath(cue.ParsePath("spatial")), out.Walkable); err != nil {
 		return out, nil, fmt.Errorf("world.spatial: %w", err)
 	}
@@ -587,6 +596,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		}
 	}
 	if out.Inventory, err = inventoryModel(world, level, out.Config.LevelID); err != nil {
+		return out, nil, err
+	}
+	if err := validateTransitFares(out); err != nil {
 		return out, nil, err
 	}
 	if err := checkPaintedScenes(out); err != nil {
@@ -735,6 +747,10 @@ func Generate(project string) error {
 	for name, dest := range map[string]string{
 		"localization.go.tmpl":                  filepath.Join(project, "internal/poc/localization.gen.go"),
 		"localization.cs.tmpl":                  filepath.Join(unity, "Assets/Generated/Poc/PocLocalization.cs"),
+		"transit_fare.go.tmpl":                  filepath.Join(project, "internal/poc/transit_fare.gen.go"),
+		"transit_fare_test.go.tmpl":             filepath.Join(project, "internal/poc/transit_fare_test.go"),
+		"wayfinding.go.tmpl":                    filepath.Join(project, "internal/poc/wayfinding.gen.go"),
+		"wayfinding_test.go.tmpl":               filepath.Join(project, "internal/poc/wayfinding_test.go"),
 		"region.go.tmpl":                        filepath.Join(project, "internal/poc/region.gen.go"),
 		"region_test.go.tmpl":                   filepath.Join(project, "internal/poc/region_generated_test.go"),
 		"region.cs.tmpl":                        filepath.Join(unity, "Assets/Generated/Poc/PocRegionMap.cs"),
@@ -742,6 +758,7 @@ func Generate(project string) error {
 		"hud.cs.tmpl":                           filepath.Join(unity, "Assets/Generated/Poc/PocHudView.cs"),
 		"sdk_proof.cs.tmpl":                     filepath.Join(unity, "Assets/Generated/Poc/PocSdkProof.cs"),
 		"copper_route_proof.cs.tmpl":            filepath.Join(unity, "Assets/Generated/Poc/PocCopperRouteProof.cs"),
+		"transport_hub_proof.cs.tmpl":           filepath.Join(unity, "Assets/Generated/Poc/PocTransportHubProof.cs"),
 		"spatial_proof.cs.tmpl":                 filepath.Join(unity, "Assets/Generated/Poc/PocSpatialProof.cs"),
 		"population.go.tmpl":                    filepath.Join(project, "internal/poc/population.gen.go"),
 		"population_test.go.tmpl":               filepath.Join(project, "internal/poc/population_generated_test.go"),
@@ -754,6 +771,9 @@ func Generate(project string) error {
 		"inspection.cs.tmpl":                    filepath.Join(unity, "Assets/Generated/Poc/PocInspectionView.cs"),
 		"life_test.go.tmpl":                     filepath.Join(project, "internal/poc/life_generated_test.go"),
 		"life.cs.tmpl":                          filepath.Join(unity, "Assets/Generated/Poc/PocLifeView.cs"),
+		"wayfinding.cs.tmpl":                    filepath.Join(unity, "Assets/Generated/Poc/PocWayfindingView.cs"),
+		"wayfinding_proof.cs.tmpl":              filepath.Join(unity, "Assets/Generated/Poc/PocWayfindingProof.cs"),
+		"wayfinding.shader.tmpl":                filepath.Join(unity, "Assets/Resources/Generated/PocWayfinding.shader"),
 		"gestures.go.tmpl":                      filepath.Join(project, "internal/poc/gestures.gen.go"),
 		"gestures_test.go.tmpl":                 filepath.Join(project, "internal/poc/gestures_generated_test.go"),
 		"visibility.go.tmpl":                    filepath.Join(project, "internal/poc/visibility.gen.go"),

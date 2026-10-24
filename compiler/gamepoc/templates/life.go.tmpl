@@ -11,7 +11,7 @@ func(r *Runtime)seedLifeKnownLayouts(){
  for id,l:=range r.world.Life.Locations{if !l.InitialLayoutKnown{continue};known:=map[int]seenCell{};width:=len(l.Terrain[0]);for y,row:=range l.Terrain{for x:=range len(row){known[y*width+x]=seenCell{Glyph:string(row[x]),Tick:r.state.Tick}}};r.state.LifeExploration[id]=known}
 }
 func(r *Runtime)syncLifeHero(){a:=r.state.Life.Actor(playerActorID);if a==nil{return};r.state.Player=location(a.Position);r.state.Path=nil;for _,at:=range a.Path{r.state.Path=append(r.state.Path,location(at))};r.state.MoveStartNS=a.MoveStartTick*r.tickNS()}
-func(r *Runtime)lifeStep()error{r.state.Life.ControlledActorID=playerActorID;old:=r.currentLevel();previousEdge:="";if hero:=r.state.Life.Actor(playerActorID);hero!=nil&&hero.Trip!=nil{previousEdge=hero.Trip.Edge};previous:=r.state.Life.Maintenance.Clone().Units;r.checkLifeEquipment();r.state.Life.AdvanceWithMaintenance(r.world.Life,r.state.Tick,r.installLifePart);if err:=r.state.Life.AdvancePopulation(r.world.Life,playerActorID);err!=nil{return err};r.awardRepairPractice(previous);r.advancePractice();r.syncLifeHero();r.syncRegionKnowledge();if old!=r.currentLevel(){r.learnRegionTraversal(previousEdge);r.state.Epoch=newEpoch();r.openStore=""};return nil}
+func(r *Runtime)lifeStep()error{r.state.Life.ControlledActorID=playerActorID;old:=r.currentLevel();previousEdge:="";if hero:=r.state.Life.Actor(playerActorID);hero!=nil&&hero.Trip!=nil{previousEdge=hero.Trip.Edge};previous:=r.state.Life.Maintenance.Clone().Units;r.checkLifeEquipment();r.state.Life.AdvanceWithTravel(r.world.Life,r.state.Tick,r.installLifePart,r.admitLifeTravel);if err:=r.state.Life.AdvancePopulation(r.world.Life,playerActorID);err!=nil{return err};r.awardRepairPractice(previous);r.advancePractice();r.syncLifeHero();r.syncRegionKnowledge();if old!=r.currentLevel(){r.learnRegionTraversal(previousEdge);r.state.Epoch=newEpoch();r.openStore=""};return nil}
 func(r *Runtime)lifeViewRuntime()*Runtime{
  a:=r.state.Life.Actor(playerActorID);if a==nil{return nil}
  v:=&Runtime{world:r.world,state:state{Active:true,Tick:r.state.Tick,Player:location(a.Position),Exploration:map[string]map[int]seenCell{playerActorID:r.state.LifeExploration[a.Level]}}}
@@ -26,14 +26,14 @@ func(r *Runtime)sendLifeState(c *connection){
  s:=&r.state;hero:=s.Life.Actor(playerActorID);v:=r.lifeViewRuntime();if hero==nil||v==nil{return};terrain:=v.world.Terrain
  msg:=&pb.PocGameState{Epoch:s.Epoch,Tick:s.Tick,GameSeconds:s.Life.Seconds,Seed:s.Seed,Paused:s.Paused,Speed:s.Speed,PlayerX:int32(s.Player.X),PlayerY:int32(s.Player.Y),PlayerName:s.PlayerName,Width:int32(len(terrain[0])),Height:int32(len(terrain)),Terrain:terrain,Active:s.Active,ContentHash:r.world.ContentHash,SimTimeNs:r.simNS(),MotionStartNs:s.MoveStartNS,MovementStepNs:r.world.Life.MoveTicks*r.tickNS(),LastMoveSeq:s.LastMoveSeq,ServerTickHz:r.tickHz,ServerStepUs:r.stepUS,ServerUptimeMs:time.Since(r.started).Milliseconds(),ServerLagMs:r.lagMS}
  for _,at:=range s.Path{msg.Path=append(msg.Path,&pb.PocPoint{X:int32(at.X),Y:int32(at.Y)})}
- for _,agent:=range v.state.Demo.Residents{a:=&pb.PocAgentState{Id:agent.ID,Name:agent.Name,X:int32(agent.Position.X),Y:int32(agent.Position.Y),Task:agent.Task,Role:agent.Role,MotionStartNs:agent.MoveStartNS,MovementStepNs:r.lifeAgentMoveTicks(agent.ID)*r.tickNS()};for _,at:=range agent.Path{a.Path=append(a.Path,&pb.PocPoint{X:int32(at.X),Y:int32(at.Y)})};msg.SceneAgents=append(msg.SceneAgents,a)}
- view:=&pb.PocLifeView{Enabled:true,LevelId:hero.Level,LevelName:r.regionLevelName(c.locale,hero.Level),SecondsPerTick:int32(s.Life.SecondsPerTick),Activity:hero.Label,Transit:hero.Trip!=nil,Automatic:!hero.Manual,WorkSeconds:hero.WorkedSeconds,SleepSeconds:hero.SleptSeconds,Meals:int32(hero.Meals)}
+ for _,agent:=range v.state.Demo.Residents{a:=&pb.PocAgentState{Id:agent.ID,Name:r.localText(c.locale,"actor."+agent.ID+".name",agent.Name),X:int32(agent.Position.X),Y:int32(agent.Position.Y),Task:r.localText(c.locale,agent.Task,agent.Task),Role:agent.Role,MotionStartNs:agent.MoveStartNS,MovementStepNs:r.lifeAgentMoveTicks(agent.ID)*r.tickNS()};for _,at:=range agent.Path{a.Path=append(a.Path,&pb.PocPoint{X:int32(at.X),Y:int32(at.Y)})};msg.SceneAgents=append(msg.SceneAgents,a)}
+ view:=&pb.PocLifeView{Enabled:true,LevelId:hero.Level,LevelName:r.regionLevelName(c.locale,hero.Level),SecondsPerTick:int32(s.Life.SecondsPerTick),Activity:r.localText(c.locale,hero.Label,hero.Label),Transit:hero.Trip!=nil,Automatic:!hero.Manual,WorkSeconds:hero.WorkedSeconds,SleepSeconds:hero.SleptSeconds,Meals:int32(hero.Meals)}
  if hero.Trip!=nil{edge:=r.world.Life.Edge(hero.Trip.Edge);view.TripDestination=r.regionLevelName(c.locale,edge.To);view.TravelRemainingSeconds=hero.Trip.Arrival-s.Life.Seconds;if view.TravelRemainingSeconds<0{view.TravelRemainingSeconds=0}}
  ids:=make([]string,0,len(r.world.Life.Locations));for id:=range r.world.Life.Locations{ids=append(ids,id)};sort.Strings(ids);for _,id:=range ids{if !r.regionPlaceKnown(id){continue};view.Places=append(view.Places,&pb.PocLifePlace{Id:id,Name:r.regionLevelName(c.locale,id)});if hero.Visits[id]>0{view.VisitedLevels=append(view.VisitedLevels,id)}}
  if r.world.Config.DebugPerception{view.Events=append([]string(nil),s.Life.Events...);for _,a:=range s.Life.Actors{p:=r.world.Life.Person(a.ID);level:=r.world.Life.Locations[a.Level].Name;if a.Trip!=nil{level="В пути"};view.People=append(view.People,&pb.PocLifePerson{Id:a.ID,Name:p.Name,LevelName:level,Activity:a.Label})}}
  for _,marker:=range r.world.Life.Locations[hero.Level].Markers{exit:=false;for _,edge:=range r.world.Life.Edges{if edge.From==hero.Level&&edge.Exit==marker.At{exit=true;break}};if !exit{view.Markers=append(view.Markers,&pb.PocLifeMarker{Name:marker.Name,X:int32(marker.At.X),Y:int32(marker.At.Y)})}}
- for _,edge:=range r.world.Life.Edges{if edge.From==hero.Level&&r.lifeExitKnown(edge){view.Markers=append(view.Markers,&pb.PocLifeMarker{Name:r.regionLevelName(c.locale,edge.To),X:int32(edge.Exit.X),Y:int32(edge.Exit.Y),EdgeId:edge.ID})}}
- r.appendPopulationDebug(view);r.appendRegionMap(view,c.locale);msg.Life=view;r.appendInventory(msg);v.appendPerception(msg);r.appendLifeMaintenance(view,hero,msg.PlayerView);r.appendLifeInspection(msg,v,hero,c.locale);r.appendDevelopment(msg)
+ for _,edge:=range r.world.Life.Edges{if edge.From==hero.Level&&r.lifeExitKnown(edge){view.Markers=append(view.Markers,&pb.PocLifeMarker{Name:r.lifeEdgeName(c.locale,edge),X:int32(edge.Exit.X),Y:int32(edge.Exit.Y),EdgeId:edge.ID})}}
+ r.appendPopulationDebug(view);r.appendRegionMap(view,c.locale);r.appendWayfinding(view,c.locale);msg.Life=view;r.appendInventory(msg);v.appendPerception(msg);r.appendLifeMaintenance(view,hero,msg.PlayerView);r.appendLifeInspection(msg,v,hero,c.locale);r.appendDevelopment(msg)
  if !r.world.Config.DebugPerception{markers:=view.Markers;view.Markers=nil;for _,marker:=range markers{if marker.EdgeId!=""||viewSees(msg.PlayerView,marker.X,marker.Y){view.Markers=append(view.Markers,marker)}}}
  // No live geometry is gained while in a train or corridor between scenes.
  if hero.Trip!=nil{view.Markers=nil;msg.SceneAgents=nil;msg.DebugViews=nil;msg.PlayerView=&pb.PocObserverView{ActorId:playerActorID};for _,row:=range terrain{line:=make([]byte,len(row));mask:=make([]byte,len(row));for i:=range line{line[i]='?';mask[i]='0'};msg.PlayerView.Terrain=append(msg.PlayerView.Terrain,string(line));msg.PlayerView.Cells=append(msg.PlayerView.Cells,string(mask))};msg.Terrain=msg.PlayerView.Terrain}
@@ -42,15 +42,16 @@ func(r *Runtime)sendLifeState(c *connection){
 func(r *Runtime)lifeCommand(q *pb.PocLifeCommand)error{
  if !r.state.Life.Enabled{return errors.New("Сначала начните день в куполе")};if r.state.Life.PopulationFailure!=""{return errors.New("Симуляция остановлена после ошибки населения; загрузите сохранение или начните заново")};hero:=r.state.Life.Actor(playerActorID)
  switch q.Action{
+ case "route_preview","route_clear","route_go":return r.wayfindingCommand(q.Action,q.Destination)
  case "practice":return r.startPractice(q.Destination,q.PracticeRule)
  case "inspection_attribute":return r.setInspectionAttribute(q.InspectionAttribute,int(q.InspectionValue))
  case "fault":
   if !r.world.Config.DebugPerception||r.state.Paused{return errors.New("Отладка поломки недоступна")};err:=r.state.Life.MaintenanceFault(q.Destination);if err==nil{if r.state.Life.PracticeExcluded==nil{r.state.Life.PracticeExcluded=map[string]bool{}};r.state.Life.PracticeExcluded[q.Destination]=true};return err
  case "rate":if q.SecondsPerTick!=1&&q.SecondsPerTick!=10&&q.SecondsPerTick!=30{return errors.New("Неизвестный масштаб времени")};r.state.Life.SecondsPerTick=int64(q.SecondsPerTick)
- case "auto":hero.PendingPath=nil;hero.Manual=false;hero.OverrideLevel="";hero.OverrideEdge="";hero.Arrived=false;hero.Path=nil
+ case "auto":hero.AdmissionDeniedEdge="";hero.PendingPath=nil;hero.Manual=false;hero.OverrideLevel="";hero.OverrideEdge="";hero.Arrived=false;hero.Path=nil
  case "enter":
   edge:=r.world.Life.Edge(q.Destination);if hero.Trip!=nil||edge==nil||edge.From!=hero.Level||!r.lifeExitKnown(*edge){return errors.New("Этот выход сейчас недоступен")}
-  hero.PendingPath=nil;hero.Manual=true;hero.OverrideLevel=edge.To;hero.OverrideAt=edge.Entry;hero.OverrideEdge=edge.ID;hero.Arrived=false;hero.WaitingDeparture=0
+  hero.AdmissionDeniedEdge="";hero.PendingPath=nil;hero.Manual=true;hero.OverrideLevel=edge.To;hero.OverrideAt=edge.Entry;hero.OverrideEdge=edge.ID;hero.Arrived=false;hero.WaitingDeparture=0
   // Plan immediately for responsive input; finish any already accepted segment.
   from:=hero.Position;moving:=len(hero.Path)>0;if moving{from=hero.Path[0]}
   route,_:=r.state.Life.MoveRoute(r.world.Life,hero.ID,hero.Level,from,edge.Exit,r.state.Tick)
@@ -58,17 +59,23 @@ func(r *Runtime)lifeCommand(q *pb.PocLifeCommand)error{
  case "goto":
   if !r.regionCanGoto(q.Destination){return textError{Key:"error.route_unknown"}};if hero.Trip!=nil{return errors.New("Дождитесь прибытия")};location,ok:=r.world.Life.Locations[q.Destination];if !ok{return errors.New("Неизвестная локация")};_ = location
   var goal behavior.Cell;found:=false;for _,e:=range r.world.Life.Edges{if e.To==q.Destination{goal=e.Entry;found=true;break}};if !found{return errors.New("Нет входа")}
-  hero.PendingPath=nil;hero.Manual=true;hero.OverrideLevel=q.Destination;hero.OverrideEdge="";hero.OverrideAt=goal;hero.Arrived=false;hero.Path=nil;hero.WaitingDeparture=0
+  hero.AdmissionDeniedEdge="";hero.PendingPath=nil;hero.Manual=true;hero.OverrideLevel=q.Destination;hero.OverrideEdge="";hero.OverrideAt=goal;hero.Arrived=false;hero.Path=nil;hero.WaitingDeparture=0
  default:return errors.New("Неизвестное действие")
  };r.syncLifeHero();return nil
 }
 func(r *Runtime)lifeMove(c *connection,m *pb.MoveTo){
  result:=&pb.PocMoveResult{Epoch:r.state.Epoch,InputSeq:m.InputSeq};hero:=r.state.Life.Actor(playerActorID)
  switch{case r.state.Life.PopulationFailure!="":result.Reason="Симуляция остановлена; загрузите сохранение";case m.Epoch!=r.state.Epoch:result.Reason="Локация изменилась";case m.InputSeq==0||m.InputSeq<=c.lastMoveSeq:result.Reason="Устаревшая команда";case r.state.Paused:result.Reason="Мир на паузе";case hero.Trip!=nil:result.Reason="Дождитесь прибытия";default:
-  c.lastMoveSeq=m.InputSeq;target:=behavior.Cell{X:int(m.X),Y:int(m.Y)};from:=hero.Position;moving:=len(hero.Path)>0;if moving{from=hero.Path[0]}
-  route,allowed:=r.state.Life.MoveRoute(r.world.Life,hero.ID,hero.Level,from,target,r.state.Tick)
-  if !allowed{result.Reason="Сюда нельзя пройти"}else{if moving{route=append([]behavior.Cell{from},route...)}else{hero.MoveStartTick=r.state.Tick};hero.Path=route;hero.PendingPath=nil;hero.Goal=target;hero.PendingPath=nil;hero.Manual=true;hero.OverrideLevel="";hero.OverrideEdge="";hero.Arrived=false;hero.Activity="walking";hero.Label="Свободное движение";r.state.LastMoveSeq=m.InputSeq;result.Ok=true;r.syncLifeHero()}
+  c.lastMoveSeq=m.InputSeq;target:=behavior.Cell{X:int(m.X),Y:int(m.Y)}
+  if !r.lifeWalkTo(target){result.Reason="Сюда нельзя пройти"}else{r.state.LastMoveSeq=m.InputSeq;result.Ok=true}
  };r.send(c,&pb.ServerMessage{Msg:&pb.ServerMessage_MoveResult{MoveResult:result}});r.sendState(c)
+}
+// Shared ordinary movement intent: both MoveTo and explicit route Go use the
+// same planner, accepted-segment preservation and authoritative cadence.
+func(r *Runtime)lifeWalkTo(target behavior.Cell)bool{
+ hero:=r.state.Life.Actor(playerActorID);if hero==nil||hero.Trip!=nil||r.state.Paused{return false};from:=hero.Position;moving:=len(hero.Path)>0;if moving{from=hero.Path[0]}
+ route,allowed:=r.state.Life.MoveRoute(r.world.Life,hero.ID,hero.Level,from,target,r.state.Tick);if !allowed{return false}
+ if moving{route=append([]behavior.Cell{from},route...)}else{hero.MoveStartTick=r.state.Tick};hero.AdmissionDeniedEdge="";hero.Path=route;hero.PendingPath=nil;hero.Goal=target;hero.Manual=true;hero.OverrideLevel="";hero.OverrideEdge="";hero.Arrived=false;hero.Activity="walking";hero.Label="Свободное движение";r.syncLifeHero();return true
 }
 func(r *Runtime)validateLifeSave(s state)error{
  if !s.Active||s.Tick<0||s.Speed!=1||s.PhaseNS<0||s.PhaseNS>=r.tickNS(){return errors.New("invalid life clock")}

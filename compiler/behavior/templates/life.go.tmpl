@@ -8,7 +8,9 @@ const lifeWalkingPrefix="Идёт: "
 
 type LifeMarker struct{Name string `json:"name"`;At Cell `json:"at"`}
 type LifeLocation struct{InitialLayoutKnown bool `json:"initial_layout_known"`;Name string `json:"name"`;Terrain []string `json:"terrain"`;Markers []LifeMarker `json:"markers"`}
-type LifeEdge struct{ID string `json:"id"`;From string `json:"from"`;To string `json:"to"`;Exit Cell `json:"exit"`;Entry Cell `json:"entry"`;Mode string `json:"mode"`;TravelSeconds int64 `json:"travel_seconds"`;PeriodSeconds int64 `json:"period_seconds"`;NightPeriodSeconds int64 `json:"night_period_seconds,omitempty"`;DayStartSecond int64 `json:"day_start_second,omitempty"`;DayEndSecond int64 `json:"day_end_second,omitempty"`;OffsetSeconds int64 `json:"offset_seconds,omitempty"`;Seats int `json:"seats"`}
+type LifeFare struct{Currency string `json:"currency"`;AmountMinor int64 `json:"amount_minor"`;ReceiverAccount string `json:"receiver_account"`}
+type LifeAdmission func(actorID string,edge LifeEdge)bool
+type LifeEdge struct{NameKey string `json:"name_key,omitempty"`;Fare *LifeFare `json:"fare,omitempty"`;ID string `json:"id"`;From string `json:"from"`;To string `json:"to"`;Exit Cell `json:"exit"`;Entry Cell `json:"entry"`;Mode string `json:"mode"`;TravelSeconds int64 `json:"travel_seconds"`;PeriodSeconds int64 `json:"period_seconds"`;NightPeriodSeconds int64 `json:"night_period_seconds,omitempty"`;DayStartSecond int64 `json:"day_start_second,omitempty"`;DayEndSecond int64 `json:"day_end_second,omitempty"`;OffsetSeconds int64 `json:"offset_seconds,omitempty"`;Seats int `json:"seats"`}
 func(e LifeEdge)validSchedule()bool{
  if e.PeriodSeconds<0||e.OffsetSeconds<0||(e.OffsetSeconds>0&&(e.PeriodSeconds==0||e.OffsetSeconds>=e.PeriodSeconds)){return false}
  if e.NightPeriodSeconds==0&&e.DayStartSecond==0&&e.DayEndSecond==0{return true}
@@ -48,6 +50,7 @@ type LifeActor struct{
  Arrived bool
  Trip *LifeTrip
  WaitingDeparture int64
+ AdmissionDeniedEdge string `json:"admission_denied_edge,omitempty"`
  OverrideLevel,OverrideEdge string
  OverrideAt Cell
  Manual bool
@@ -62,7 +65,7 @@ func(m LifeModel)Validate()error{
  if m.Courtesy.NoticeCells<0||m.Courtesy.NoticeCells>8||m.Courtesy.MaxDetourExtraCells<0||m.Courtesy.MaxDetourExtraCells>64{return fmt.Errorf("invalid courtesy range or detour budget")};for _,person:=range m.Actors{for _,relation:=range person.Relations{if relation.To==""||!(relation.Strength>=-1&&relation.Strength<=1){return fmt.Errorf("invalid life relation")}}}
  if m.StartSeconds<0||m.StartSeconds>=86400||m.SecondsPerTick<1||m.SecondsPerTick>120||m.MoveTicks<1||len(m.Locations)==0||len(m.Actors)==0{return fmt.Errorf("invalid life clock/catalog")}
  for id,l:=range m.Locations{if len(l.Terrain)==0||len(l.Terrain[0])==0{return fmt.Errorf("empty life level %s",id)};for _,row:=range l.Terrain{if len(row)!=len(l.Terrain[0]){return fmt.Errorf("uneven life level %s",id)}};for _,mark:=range l.Markers{if !m.Walks(id,mark.At){return fmt.Errorf("blocked life marker %s",mark.Name)}}}
- edgeIDs:=map[string]bool{};for _,e:=range m.Edges{if e.ID==""||edgeIDs[e.ID]||!m.Walks(e.From,e.Exit)||!m.Walks(e.To,e.Entry)||e.TravelSeconds<=0||e.Seats<1||(e.Mode!="walk"&&e.Mode!="rail")||(e.Mode=="rail"&&e.PeriodSeconds<=0)||!e.validSchedule(){return fmt.Errorf("invalid life edge %s",e.ID)};edgeIDs[e.ID]=true}
+ edgeIDs:=map[string]bool{};for _,e:=range m.Edges{if e.ID==""||edgeIDs[e.ID]||!m.Walks(e.From,e.Exit)||!m.Walks(e.To,e.Entry)||e.TravelSeconds<=0||e.Seats<1||(e.Mode!="walk"&&e.Mode!="rail")||(e.Mode=="rail"&&e.PeriodSeconds<=0)||!e.validSchedule(){return fmt.Errorf("invalid life edge %s",e.ID)};if e.Fare!=nil&&(e.Mode!="rail"||e.Fare.Currency==""||e.Fare.AmountMinor<=0||e.Fare.AmountMinor>9000000000000000||e.Fare.ReceiverAccount==""){return fmt.Errorf("invalid life fare %s",e.ID)};edgeIDs[e.ID]=true}
  ids:=map[string]bool{};for _,a:=range m.Actors{if a.ID==""||ids[a.ID]||len(a.Steps)==0{return fmt.Errorf("invalid life person %s",a.ID)};ids[a.ID]=true;for i,s:=range a.Steps{if s.AtMinute<0||s.AtMinute>=1440||!m.Walks(s.Level,s.At)||s.MinSeconds<0||(i>0&&a.Steps[i-1].AtMinute>=s.AtMinute){return fmt.Errorf("invalid life agenda %s step %d",a.ID,i)};next:=a.Steps[(i+1)%len(a.Steps)];if s.Level!=next.Level&&m.NextEdge(s.Level,next.Level)==nil{return fmt.Errorf("unreachable life agenda %s",a.ID)}}}
  if err:=m.Population.Validate(m);err!=nil{return err}
  if err:=m.validateDevelopment();err!=nil{return err}
@@ -146,7 +149,8 @@ func(s *LifeState)note(text string){s.Events=append(s.Events,fmt.Sprintf("%02d:%
 func(s LifeState)occupied(level string,at Cell,except string)bool{for _,a:=range s.Population.Actors{if a.Materialized&&a.Trip==nil&&a.Level==level&&(a.Position==at||(len(a.Path)>0&&a.Path[0]==at)){return true}};for _,a:=range s.Actors{if a.ID!=except&&a.Trip==nil&&a.Level==level&&(a.Position==at||(len(a.Path)>0&&a.Path[0]==at)){return true}};return false}
 func(s LifeState)blocked(level,id string)map[Cell]bool{result:=map[Cell]bool{};for _,a:=range s.Population.Actors{if a.Materialized&&a.Trip==nil&&a.Level==level{result[a.Position]=true;if len(a.Path)>0{result[a.Path[0]]=true}}};for _,a:=range s.Actors{if a.ID!=id&&a.Trip==nil&&a.Level==level{result[a.Position]=true;if len(a.Path)>0{result[a.Path[0]]=true}}};return result}
 func(s *LifeState)Advance(m LifeModel,tick int64){s.AdvanceWithMaintenance(m,tick,nil)}
-func(s *LifeState)AdvanceWithMaintenance(m LifeModel,tick int64,install MaintenanceInstall){
+func(s *LifeState)AdvanceWithMaintenance(m LifeModel,tick int64,install MaintenanceInstall){s.AdvanceWithTravel(m,tick,install,nil)}
+func(s *LifeState)AdvanceWithTravel(m LifeModel,tick int64,install MaintenanceInstall,admit LifeAdmission){
  if !s.Enabled{return};delta:=s.SecondsPerTick;s.Seconds+=delta;s.Tick=tick;s.planMaintenance(m,delta);s.ensureLifeRoutes(m);yieldBudget:=4
  for i:=range s.Actors{
   a:=&s.Actors[i];person:=m.Person(a.ID);if person==nil{continue}
@@ -189,7 +193,9 @@ func(s *LifeState)AdvanceWithMaintenance(m LifeModel,tick int64,install Maintena
   destination:=goal
   if a.Level!=goalLevel{edge=m.NextEdge(a.Level,goalLevel);if a.OverrideEdge!=""{edge=m.Edge(a.OverrideEdge)};if edge==nil{a.Label="Нет маршрута";continue};destination=edge.Exit}
   a.Activity="walking";a.Label=lifeWalkingPrefix+step.Label;if a.OverrideLevel!=""{a.Label=lifeWalkingPrefix+m.Locations[goalLevel].Name}
+  if a.AdmissionDeniedEdge!=""&&(edge==nil||a.AdmissionDeniedEdge!=edge.ID){a.AdmissionDeniedEdge=""}
   if edge!=nil&&a.Position==edge.Exit&&len(a.Path)==0{
+   if a.AdmissionDeniedEdge==edge.ID{a.Activity="waiting";a.Label="transit.fare_denied";continue}
    // Preserve an already queued day/night slot when the accelerated calendar
    // steps across its departure. Legacy constant-period edges keep old timing.
    if a.WaitingDeparture==0||(a.WaitingDeparture<s.Seconds&&(edge.NightPeriodSeconds==0||edge.PeriodSeconds==0)){a.WaitingDeparture=edge.NextDeparture(s.Seconds)}
@@ -197,7 +203,8 @@ func(s *LifeState)AdvanceWithMaintenance(m LifeModel,tick int64,install Maintena
    seated:=0;for _,other:=range s.Actors{if other.Trip!=nil&&other.Trip.Edge==edge.ID&&other.Trip.Departure==a.WaitingDeparture{seated++}}
    for _,other:=range s.Population.Actors{if other.Trip!=nil&&other.Trip.Edge==edge.ID&&other.Trip.Departure==a.WaitingDeparture{seated++}}
    if seated>=edge.Seats{if edge.PeriodSeconds>0{a.WaitingDeparture=edge.NextDeparture(a.WaitingDeparture+1)};a.Activity="waiting";a.Label="Ждёт свободный рейс";continue}
-   a.Trip=&LifeTrip{Edge:edge.ID,Departure:a.WaitingDeparture,Arrival:a.WaitingDeparture+edge.TravelSeconds};a.Activity="transit";a.Label="Переход";if edge.Mode=="rail"{a.Label="Едет на монорельсе"};s.note(person.Name+": "+a.Label+" → "+m.Locations[edge.To].Name);continue
+   if edge.Fare!=nil&&a.ID==s.ControlledActorID&&(admit==nil||!admit(a.ID,*edge)){a.AdmissionDeniedEdge=edge.ID;a.Activity="waiting";a.Label="transit.fare_denied";continue}
+   a.AdmissionDeniedEdge="";a.Trip=&LifeTrip{Edge:edge.ID,Departure:a.WaitingDeparture,Arrival:a.WaitingDeparture+edge.TravelSeconds};a.Activity="transit";a.Label="Переход";if edge.Mode=="rail"{a.Label="Едет на монорельсе"};s.note(person.Name+": "+a.Label+" → "+m.Locations[edge.To].Name);continue
   }
   if a.ID==s.ControlledActorID{
    if a.Goal!=destination||len(a.Path)==0{if a.Goal!=destination{a.PendingPath=nil};a.Goal=destination;a.Path=s.controlledRoute(m,a,destination,tick,&yieldBudget);a.MoveStartTick=tick;if len(a.Path)==0{a.Label="Ждёт проход"}}
@@ -233,6 +240,7 @@ func(s LifeState)Validate(m LifeModel,tick int64)error{
  occupied:=map[string]map[Cell]bool{}
  for i,a:=range s.Actors{p:=m.Actors[i];if a.ID!=p.ID||a.Step<0||a.Step>=len(p.Steps)||!m.Walks(a.Level,a.Position)||a.YieldUntil<0||a.YieldUntil>tick+8*m.MoveTicks||a.MoveStartTick<0||a.MoveStartTick>tick||a.StartedAt<0||a.StartedAt>s.Seconds||a.Visits==nil||a.WorkedSeconds<0||a.SleptSeconds<0||a.Meals<0||len(a.Path)>10000||len(a.PendingPath)>10000{return fmt.Errorf("invalid life actor %s",a.ID)}
   if a.YieldRequester!=""&&(a.YieldRequester==a.ID||m.Person(a.YieldRequester)==nil||!m.Walks(a.Level,a.YieldOrigin)||a.YieldHoldUntil<0||a.YieldHoldUntil>tick+16*m.MoveTicks){return fmt.Errorf("invalid life courtesy hold")}
+  if a.AdmissionDeniedEdge!=""{e:=m.Edge(a.AdmissionDeniedEdge);if e==nil||e.Fare==nil||e.From!=a.Level||a.Trip!=nil||a.ID!=s.ControlledActorID{return fmt.Errorf("invalid life admission latch")}}
   if a.Trip!=nil{e:=m.Edge(a.Trip.Edge);if e==nil||e.From!=a.Level||a.Trip.Departure<0||a.Trip.Departure>s.Seconds||a.Position!=e.Exit||a.Trip.Arrival!=a.Trip.Departure+e.TravelSeconds||len(a.Path)>0{return fmt.Errorf("invalid life trip")}}else{if occupied[a.Level]==nil{occupied[a.Level]=map[Cell]bool{}};if occupied[a.Level][a.Position]{return fmt.Errorf("life actors overlap")};occupied[a.Level][a.Position]=true}
   for level,count:=range a.Visits{if _,ok:=m.Locations[level];!ok||count<1{return fmt.Errorf("invalid life visit")}}
   if len(a.PendingPath)>0&&(a.ID!=s.ControlledActorID||len(a.Path)>0||a.Trip!=nil){return fmt.Errorf("invalid pending life route")}

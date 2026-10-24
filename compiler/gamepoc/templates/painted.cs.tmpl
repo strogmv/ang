@@ -396,6 +396,7 @@ namespace AngelsDemons.Poc {
    // mouse must not replace the accepted proof route with an unrelated command.
    if(verify)return;
    var e=Event.current;if(e.type!=EventType.MouseDown||e.button!=0||!GUI.enabled)return;
+   if(SendWayfindingPointer(e.mousePosition)){e.Use();return;}
    if(SendPaintedScreenPointer(scene,e.mousePosition,viewport,fit,scale))e.Use();
   }
   bool SendPaintedScreenPointer(PocPaintedScene scene,Vector2 screen,Rect viewport,Rect fit,float scale){
@@ -408,6 +409,7 @@ namespace AngelsDemons.Poc {
    Vector2 grid;if(!PaintedInverse(scene,canvas,out grid))return false;
    int x=Mathf.FloorToInt(grid.x+.5f),y=Mathf.FloorToInt(grid.y+.5f);
    if(x<0||y<0||x>=state.Width||y>=state.Height||ViewCell(view,x,y)=='0')return false;
+   if(!verify&&WayfindingSelectCell(x,y,Vector2.zero)){var viewport=PaintedViewport();var fit=PaintedCameraFit(scene,viewport,PaintedPoint(scene,shownPosition));wayfindingChoiceAt=fit.position+PaintedPoint(scene,new Vector2(x,y))*(fit.width/scene.width);return true;}
    foreach(var marker in state.Life.Markers)if(marker.X==x&&marker.Y==y&&LifeDoorVisible(marker)){LifeCommand("enter",marker.EdgeId);message=L("ui.exit.walk_notice",marker.Name);return true;}
    return ClickMove(x,y);
   }
@@ -482,6 +484,7 @@ namespace AngelsDemons.Poc {
    GUI.BeginGroup(viewport);
    var localFit=fit;localFit.position-=viewport.position;
    GUI.color=Color.white;GUI.DrawTexture(localFit,cache.background,ScaleMode.StretchToFill,true);DrawPaintedAmbient(scene,fit,scale,viewport,visibleCanvas);GUI.DrawTexture(localFit,cache.fog,ScaleMode.StretchToFill,true);
+   DrawPaintedWayfinding(scene,fit,viewport);
    Rect localViewport=new Rect(0,0,viewport.width,viewport.height);
    // Architecture is composed once. Clipping each later sprite, rather than
    // replaying foreground inside its rectangle, cannot erase an earlier actor.

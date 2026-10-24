@@ -21,7 +21,7 @@ func TestRegionUIUsesOnlyChipKnowledgeAndServerTravel(t *testing.T) {
 		`L("ui.region.memory_caption")`,
 		`node.Knowledge=="known"||node.Knowledge=="visited"`,
 		`node.CanTravel&&!node.Current&&!string.IsNullOrEmpty(node.LevelId)`,
-		`LifeCommand("goto",node.LevelId)`, `GUI.BeginGroup(hudRegionCanvas)`,
+		`WayfindingSelect(nodes[i].LevelId)`, `WayfindingGo()`, `GUI.BeginGroup(hudRegionCanvas)`,
 		`RegionHandleMapInput(nodes,bounds)`, `RegionKnownDecks(map)`,
 		`RegionClipLine(canvas,ref from,ref to)`, `RegionClippedFill`, `RegionFocusNode(map,current)`,
 		`L("ui.region.landmark")`, `L("ui.region.tab_floor")`, `L("ui.region.tab_local")`,
@@ -69,6 +69,7 @@ namespace AngelsDemons.Poc {
   class State {public Life Life=new Life();public bool Paused;}
   class Life {public AngelsDemons.Game.V1.PocRegionMap RegionMap;}
   State state;bool loadingActive;string page="game",message="";
+  class Guidance {public string SelectedDestinationId;public bool Reachable;}bool wayfindingPending;Guidance WayfindingView(){return null;}bool WayfindingSelect(string id){return false;}void WayfindingClear(){}bool WayfindingGo(){return false;}
   UnityEngine.Color hudBrass,hudPaper;UnityEngine.GUIStyle hudSmall,hudBody,hudWrap,hudHeading;
   readonly System.Collections.Generic.List<UnityEngine.Rect> regionProofFills=new System.Collections.Generic.List<UnityEngine.Rect>();
   bool CanSend(){return false;}void Fill(UnityEngine.Rect r,UnityEngine.Color c){regionProofFills.Add(r);}void HudFrame(UnityEngine.Rect r,bool brass=true){}bool HudButton(UnityEngine.Rect r,string label,bool enabled=true){return false;}

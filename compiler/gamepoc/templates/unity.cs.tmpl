@@ -208,10 +208,12 @@ namespace AngelsDemons.Poc
             int sdkLaunch=Array.IndexOf(launchArgs,"--poc-start-sdk");
             if(sdkLaunch>=0&&sdkLaunch+1<launchArgs.Length){startLocationSDK=launchArgs[sdkLaunch+1];startMarketPending=false;}
             InitLocationSDKProof();
+            InitWayfindingProof();
             InitPaintedProof();
             InitCopperRouteProof();
+            InitTransportHubProof();
             InitAmbientProof();
-            verifyLife = verifyCopperRoute || verifyAmbient || verifyLocationSDK || verifyPainted || verifySdk || verifySpatial || verifyDevelopment || verifyInspection || verifyMaintenance || verifyDoors || Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-life-verify") >= 0;
+            verifyLife = verifyTransportHub || verifyWayfinding || verifyCopperRoute || verifyAmbient || verifyLocationSDK || verifyPainted || verifySdk || verifySpatial || verifyDevelopment || verifyInspection || verifyMaintenance || verifyDoors || Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-life-verify") >= 0;
             verify = verifyLife || verifyInventory || verifyCapture || Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-verify") >= 0;
             resource = JsonUtility.FromJson<PocResource>(Resources.Load<TextAsset>("PocConfig").text);
             if (TryStartArtPreview()) return;
@@ -484,7 +486,7 @@ namespace AngelsDemons.Poc
             GUI.matrix = Matrix4x4.TRS(new Vector3((Screen.width - 1280 * scale) / 2, (Screen.height - 800 * scale) / 2), Quaternion.identity, new Vector3(scale, scale, 1));
             Fill(new Rect(-1000, -1000, 4000, 3000), ink);
             if(page=="game"&&state!=null&&state.Active){
-                DrawGame();DrawGameHud();GUI.matrix=Matrix4x4.identity;DrawLoading();return;
+                DrawGame();DrawGameHud();DrawWayfindingUI();GUI.matrix=Matrix4x4.identity;DrawLoading();return;
             }
             if(page=="development"||page=="inventory"||page=="map"||page=="journal"){DrawHudPage();GUI.matrix=Matrix4x4.identity;DrawLoading();return;}
             DrawMenuBackground();
@@ -670,6 +672,7 @@ namespace AngelsDemons.Poc
                 }
             }
             if(hudDebugOpen)DrawPerceptionOverlay(drawOrigin,tw,th);
+            DrawLegacyWayfinding(drawOrigin,tw,th,viewport);
             foreach(Entity e in state.Entities)if(ViewSees(e.X,e.Y))
                 sceneDrawItems.Add(new SceneDrawItem { Kind=SceneDrawKind.Entity, Position=new Vector2(e.X,e.Y), ID=e.Id, Entity=e });
             QueueDemoAgents();
@@ -779,9 +782,12 @@ namespace AngelsDemons.Poc
             if (verifySdk) SdkProofDiagnostics(now);
             if (verifyPainted) PaintedProofDiagnostics(now);
             if (verifyCopperRoute) CopperRouteProofDiagnostics(now);
+            if (verifyTransportHub) TransportHubProofDiagnostics(now);
             if (verifyAmbient) AmbientProofDiagnostics(now);
             if (now > (verifyLife ? 420 : 120)) { FinishProof(false, "proof timeout, phase=" + proofPhase + ", status=" + message); return; }
             if (!connected || state == null || !string.IsNullOrEmpty(busy)) return;
+            if (verifyTransportHub) { TransportHubProofStep(now); return; }
+            if (verifyWayfinding) { WayfindingProofStep(now); return; }
             if (verifyLocationSDK) { LocationSDKProofStep(now); return; }
             if (verifyAmbient) { AmbientProofStep(now); return; }
             if (verifyCopperRoute) { CopperRouteProofStep(now); return; }
@@ -879,14 +885,18 @@ namespace AngelsDemons.Poc
             if (verifyLife) json = json.Substring(0,json.Length-1) + ",\"life\":" + LifeReportJSON() + "}";
             if (verifyPainted) json=json.Substring(0,json.Length-1)+",\"painted\":"+PaintedProofReportJSON()+"}";
             if (verifyCopperRoute) json=json.Substring(0,json.Length-1)+",\"copper_route\":"+CopperRouteProofReportJSON()+"}";
+            if (verifyTransportHub) json=json.Substring(0,json.Length-1)+",\"transport_hub\":"+TransportHubProofReportJSON()+"}";
             if (verifyAmbient) json=json.Substring(0,json.Length-1)+",\"ambient\":"+AmbientProofReportJSON()+"}";
             if (verifyLocationSDK) json=json.Substring(0,json.Length-1)+",\"location_sdk\":"+LocationSDKProofReportJSON()+"}";
+            if (verifyWayfinding) json=json.Substring(0,json.Length-1)+",\"wayfinding\":"+WayfindingProofReportJSON()+"}";
             File.WriteAllText(Path.Combine(destination, "report.json"), json);
             Debug.Log("POC_PROOF " + json); closing = true;
             if (!Application.isBatchMode) StartCoroutine(CaptureAndExit(ok, destination)); else ExitProof(ok);
         }
         string ProofDirectory()
         {
+            if (verifyTransportHub) return transportHubProofDirectory;
+            if (verifyWayfinding) return wayfindingProofDirectory;
             if (verifyLocationSDK) return locationSDKProofDirectory;
             if (verifyAmbient) return ambientProofDirectory;
             if (verifyCopperRoute) return copperRouteProofDirectory;
@@ -903,6 +913,7 @@ namespace AngelsDemons.Poc
         }
         void ExitProof(bool ok)
         {
+            if (verifyWayfinding) RestoreWayfindingProofLocale();
             DisposeHost();
 #if UNITY_EDITOR
             UnityEditor.EditorApplication.Exit(ok ? 0 : 1);
@@ -932,6 +943,6 @@ namespace AngelsDemons.Poc
             }
         }
         void OnApplicationQuit() { DisposeHost(); }
-        void OnDestroy() { ReleaseLocationSDK(); DisposeHost(); }
+        void OnDestroy() { ReleaseWayfindingCanvas(); ReleaseLocationSDK(); DisposeHost(); }
     }
 }

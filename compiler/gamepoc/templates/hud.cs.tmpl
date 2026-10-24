@@ -52,6 +52,7 @@ namespace AngelsDemons.Poc {
    GUI.enabled=before;return pressed;
   }
   bool HudBlocksWorldInput(Vector2 mouse){
+   if(WayfindingBlocksInput(mouse))return true;
    if(new Rect(18,31,340,76).Contains(mouse)||new Rect(1024,31,238,92).Contains(mouse)||new Rect(18,678,358,108).Contains(mouse)||new Rect(827,687,435,99).Contains(mouse))return true;
    return hudDebugOpen&&(new Rect(1015,110,245,570).Contains(mouse)||new Rect(48,140,950,64).Contains(mouse)||new Rect(48,610,950,83).Contains(mouse));
   }

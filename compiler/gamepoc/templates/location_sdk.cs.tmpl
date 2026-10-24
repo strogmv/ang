@@ -154,10 +154,12 @@ namespace AngelsDemons.Poc {
    if(locationSDKLevel==null||!viewport.Contains(mouse)||LocationSDKToolbar(viewport).Contains(mouse)||HudBlocksWorldInput(mouse)||!CanSend()||state.Paused)return false;
    var view=ObserverView();if(view!=null&&view.ActorId!="char.hero")return false;Vector3 hit;int x,y;
    if(!LocationSDKGroundAt(mouse,viewport,out hit)||!LocationSDKGroundCell(hit.x,hit.z,locationSDKLevel.cell_meters,state.Width,state.Height,out x,out y)||ViewCell(view,x,y)=='0')return false;
+   if(!verify&&WayfindingSelectCell(x,y,mouse))return true;
    return ClickMove(x,y);
   }
   void HandleLocationSDKInput(Rect viewport){
    var e=Event.current;if(!viewport.Contains(e.mousePosition)||LocationSDKToolbar(viewport).Contains(e.mousePosition)||HudBlocksWorldInput(e.mousePosition))return;
+   if(!verify&&e.type==EventType.MouseDown&&e.button==0&&SendWayfindingPointer(e.mousePosition)){e.Use();return;}
    if(e.type==EventType.ScrollWheel){locationSDKZoom=Mathf.Clamp(locationSDKZoom*Mathf.Pow(1.12f,-e.delta.y),.55f,3f);LocationSDKPlaceCamera();e.Use();return;}
    if(e.type==EventType.MouseDrag&&e.button==2){Vector3 before,after;if(LocationSDKGroundAt(e.mousePosition-e.delta,viewport,out before)&&LocationSDKGroundAt(e.mousePosition,viewport,out after)){locationSDKFocus+=before-after;LocationSDKPlaceCamera();e.Use();}return;}
    if(e.type==EventType.MouseDown&&e.button==0&&SendLocationSDKScreenPointer(e.mousePosition,viewport))e.Use();
@@ -187,7 +189,7 @@ namespace AngelsDemons.Poc {
    if(!string.IsNullOrEmpty(locationSDKFailure)||locationSDKCamera==null){HudFrame(new Rect(335,274,610,145),false);GUI.Label(new Rect(352,292,576,110),string.IsNullOrEmpty(locationSDKOverrideFailure)?L("ui.sdk.unavailable"):locationSDKOverrideFailure,hudWrap);return true;}
    var view=ObserverView();foreach(var floor in level.floor)if(floor==null||floor.at==null||ViewCell(view,floor.at.x,floor.at.y)=='0'){HudFrame(new Rect(335,300,610,80),false);GUI.Label(new Rect(352,318,576,46),L("ui.sdk.unavailable"),hudWrap);return true;}
    LocationSDKEnsureTarget(viewport);LocationSDKPlaceCamera();HandleLocationSDKInput(viewport);foreach(var part in locationSDKParts){bool known=true;foreach(var cell in part.cells)if(ViewCell(view,cell.x,cell.y)=='0'){known=false;break;}part.go.SetActive(known);}
-   UpdateLocationSDKOverrides(view);
+   UpdateLocationSDKOverrides(view);UpdateSDKWayfinding();
    LocationSDKUpdateActors();var presentation=LocationSDKPresentation();float light=presentation==null?1:Mathf.Clamp(presentation.brightness,.05f,1);Color accent=new Color(.61f,.55f,.4f);if(presentation!=null){Color supplied;if(ColorUtility.TryParseHtmlString(presentation.accent_color,out supplied))accent=supplied;}
    foreach(var decoration in locationSDKDecorations.Values)decoration.SetActive(false);if(presentation!=null&&presentation.decorations!=null)foreach(var decoration in presentation.decorations){GameObject go;if(decoration!=null&&decoration.anchor!=null&&ViewCell(view,decoration.anchor.x,decoration.anchor.y)!='0'&&locationSDKDecorations.TryGetValue(decoration.id,out go))go.SetActive(true);}
    for(int i=0;i<locationSDKMaterials.Count;i++){Color color=locationSDKColors[i];if(color.r>color.b*1.25f)color=Color.Lerp(color,accent,.6f);locationSDKMaterials[i].color=color*new Color(light,light,light,1);}
@@ -198,6 +200,7 @@ namespace AngelsDemons.Poc {
    GUI.Label(new Rect(viewport.x+12,viewport.yMax-28,750,22),L("ui.sdk.camera_hint"),hudSmall);return true;
   }
   void ReleaseLocationSDK(){
+   ReleaseSDKWayfinding();
    if(locationSDKCamera!=null)locationSDKCamera.targetTexture=null;if(locationSDKMain!=null)locationSDKMain.cullingMask=locationSDKMainMask;
    if(locationSDKTarget!=null){locationSDKTarget.Release();Destroy(locationSDKTarget);}foreach(var mesh in locationSDKMeshes)if(mesh!=null)Destroy(mesh);foreach(var material in locationSDKMaterials)if(material!=null)Destroy(material);foreach(var actor in locationSDKActors.Values)if(actor.material!=null)Destroy(actor.material);if(locationSDKRoot!=null)Destroy(locationSDKRoot);
    ReleaseLocationSDKOverrides();locationSDKMeshes.Clear();locationSDKMaterials.Clear();locationSDKColors.Clear();locationSDKMaterialCache.Clear();locationSDKSurfaceTextures.Clear();locationSDKParts.Clear();locationSDKActors.Clear();locationSDKDecorations.Clear();locationSDKVisibleActors.Clear();locationSDKRoot=null;locationSDKCamera=null;locationSDKMain=null;locationSDKTarget=null;locationSDKLevel=null;locationSDKFailure=null;

@@ -80,7 +80,7 @@ namespace AngelsDemons.Poc {
   void RegionHandleMapInput(List<PocRegionNode> nodes,Rect bounds){
    var e=Event.current;if(e==null)return;
    if(e.type==EventType.MouseUp&&hudRegionPointerDown){
-    if(!hudRegionDragging&&e.button==0&&hudRegionCanvas.Contains(e.mousePosition))for(int i=nodes.Count-1;i>=0;i--){Rect box=RegionNodeRect(nodes[i],bounds,hudRegionCanvas,hudRegionZoom,hudRegionPan),edge;string arrow;bool hit=box.Contains(e.mousePosition)||(RegionEdgeLabel(nodes[i],box,hudRegionCanvas,out edge,out arrow)&&edge.Contains(e.mousePosition));if(hit){hudRegionNodeID=nodes[i].Id;hudRegionDetailScroll=Vector2.zero;break;}}
+    if(!hudRegionDragging&&e.button==0&&hudRegionCanvas.Contains(e.mousePosition))for(int i=nodes.Count-1;i>=0;i--){Rect box=RegionNodeRect(nodes[i],bounds,hudRegionCanvas,hudRegionZoom,hudRegionPan),edge;string arrow;bool hit=box.Contains(e.mousePosition)||(RegionEdgeLabel(nodes[i],box,hudRegionCanvas,out edge,out arrow)&&edge.Contains(e.mousePosition));if(hit){hudRegionNodeID=nodes[i].Id;hudRegionDetailScroll=Vector2.zero;if(!nodes[i].Current&&!string.IsNullOrEmpty(nodes[i].LevelId))WayfindingSelect(nodes[i].LevelId);else WayfindingClear();break;}}
     hudRegionPointerDown=false;hudRegionDragging=false;e.Use();return;
    }
    if(e.type==EventType.MouseDrag&&hudRegionPointerDown){Vector2 offset=e.mousePosition-hudRegionPointerStart;if(offset.sqrMagnitude>9)hudRegionDragging=true;if(hudRegionDragging)hudRegionPan=hudRegionPanStart+offset;e.Use();return;}
@@ -161,7 +161,9 @@ namespace AngelsDemons.Poc {
    hudRegionDetailScroll=GUI.BeginScrollView(new Rect(946,395,248,196),hudRegionDetailScroll,new Rect(0,0,224,height));GUI.Label(new Rect(2,0,218,height),description,hudWrap);GUI.EndScrollView();
    bool destination=RegionNodeTravelAllowed(node);bool ready=destination&&CanSend()&&state!=null&&!state.Paused&&!loadingActive;
    if(destination){
-    if(HudButton(new Rect(948,605,244,39),L("ui.region.go_here"),ready)){LifeCommand("goto",node.LevelId);message=RegionRouteNotice(node.Name);page="game";}
+    var guidance=WayfindingView();bool selected=guidance!=null&&guidance.SelectedDestinationId==node.LevelId&&!wayfindingPending;
+    if(HudButton(new Rect(948,605,118,39),L("ui.wayfinding.show_floor"),selected&&guidance.Reachable))page="game";
+    if(HudButton(new Rect(1070,605,122,39),L("ui.wayfinding.go"),ready&&selected)){if(WayfindingGo())page="game";}
     GUI.Label(new Rect(948,650,244,17),state!=null&&state.Paused?L("ui.region.travel_paused"):L("ui.region.travel_known_connections"),hudSmall);
    }else GUI.Label(new Rect(948,609,244,48),node.Current?L("ui.region.current_place"):L("ui.region.landmark"),hudWrap);
   }

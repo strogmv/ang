@@ -573,3 +573,19 @@ func TestLifeAutonomousTrafficCannotInventPocketInFullCorridor(t *testing.T) {
 		t.Fatal("opposing workers passed through each other without room")
 	}
 }
+
+func paidLifeFixture()(LifeModel,LifeState){
+ m:=lifeFixture();m.Actors=m.Actors[:1];m.Edges[0].Fare=&LifeFare{Currency:"CRD",AmountMinor:100,ReceiverAccount:"transport"};m.StartSeconds=29;s:=m.Start();s.ControlledActorID="one";a:=s.Actor("one");a.Position=m.Edges[0].Exit;a.Path=nil;a.PendingPath=nil;a.Goal=a.Position;a.Manual=true;a.Arrived=false;a.OverrideLevel="b";a.OverrideAt=m.Edges[0].Entry;return m,s
+}
+func TestLifePaidAdmissionRunsOnlyAfterPhysicalTimeAndSeatGates(t *testing.T){
+ for _,kind:=range []string{"not_due","not_at_exit","full","nil","admitted"}{t.Run(kind,func(t *testing.T){m,s:=paidLifeFixture();a:=s.Actor("one");calls:=0;admit:=func(id string,edge LifeEdge)bool{calls++;if id!="one"||edge.ID!="ab"{t.Fatal("wrong boarding identity")};return true}
+  switch kind{case "not_due":s.Seconds=0;case "not_at_exit":a.Position=Cell{1,1};case "full":s.Actors=append(s.Actors,LifeActor{ID:"seated",Level:"a",Position:m.Edges[0].Exit,Trip:&LifeTrip{Edge:"ab",Departure:30,Arrival:50}});case "nil":admit=nil}
+  s.AdvanceWithTravel(m,1,nil,admit);a=s.Actor("one");if kind=="admitted"{if calls!=1||a.Trip==nil{t.Fatal("admission did not create exact trip")}}else if calls!=0||a.Trip!=nil{t.Fatalf("charged before %s gate",kind)}
+ })}
+}
+func TestLifeDeniedAdmissionLatchesAndPaidTripSurvivesSave(t *testing.T){
+ m,s:=paidLifeFixture();calls:=0;deny:=func(string,LifeEdge)bool{calls++;return false};s.AdvanceWithTravel(m,1,nil,deny);if calls!=1||s.Actor("one").AdmissionDeniedEdge!="ab"{t.Fatal("denial latch missing")}
+ data,_:=json.Marshal(s);var restored LifeState;if err:=json.Unmarshal(data,&restored);err!=nil{t.Fatal(err)};for tick:=int64(2);tick<12;tick++{restored.AdvanceWithTravel(m,tick,nil,deny)};if calls!=1||restored.Actor("one").Trip!=nil{t.Fatal("denied save retried payment each tick")}
+ a:=restored.Actor("one");a.AdmissionDeniedEdge="";a.WaitingDeparture=0;restored.Seconds=59;accept:=func(string,LifeEdge)bool{calls++;return true};restored.AdvanceWithTravel(m,12,nil,accept);if calls!=2||a.Trip==nil{t.Fatal("explicit retry failed")}
+ data,_=json.Marshal(restored);var tripSave LifeState;json.Unmarshal(data,&tripSave);for tick:=int64(13);tick<25;tick++{tripSave.AdvanceWithTravel(m,tick,nil,accept)};if calls!=2{t.Fatal("saved boarded trip charged again")}
+}

@@ -38,7 +38,7 @@ namespace AngelsDemons.Poc
    GUILayout.BeginHorizontal();foreach(int rate in new[]{1,10,30})if(GUILayout.Button("×"+(rate*resource.config.tick_hz),GUILayout.Width(51),GUILayout.Height(27)))LifeCommand("rate","",rate);GUILayout.EndHorizontal();
    if(LifeButton(life.Automatic?"Распорядок включён":"Вернуться к распорядку"))LifeCommand("auto");
    GUILayout.Label("Куда пойти",smallStyle);
-   foreach(var place in life.Places)if(LifeButton(place.Name))LifeCommand("goto",place.Id);
+   foreach(var place in life.Places)if(LifeButton(place.Name))WayfindingSelect(place.Id);
    if(life.Equipment.Count>0){GUILayout.Label("Оборудование",smallStyle);foreach(var unit in life.Equipment){
     GUILayout.Label(unit.Name+"\n"+unit.Status+"\nЗапас: "+unit.Spares+" · замен: "+unit.Replacements,smallStyle,GUILayout.Width(163));
     if(life.MaintenanceDebug&&unit.Phase=="normal"&&LifeButton("Отладка: поломка"))LifeCommand("fault",unit.Id);
@@ -71,7 +71,7 @@ namespace AngelsDemons.Poc
   bool ClickLifeDoor(Vector2 mouse,Vector2 origin,float tw,float th){
    if(state.Life==null||!state.Life.Enabled||state.Life.Transit||state.Paused||!CanSend())return false;
    if(!SpatialViewport().Contains(mouse))return false;
-   foreach(var marker in state.Life.Markers){if(!LifeDoorVisible(marker)||!LifeDoorOnScreen(marker,origin,tw,th))continue;if(!LifeDoorRect(marker,origin,tw,th).Contains(mouse)&&!LifeDoorLabel(marker,origin,tw,th).Contains(mouse))continue;LifeCommand("enter",marker.EdgeId);message="Идём к выходу: "+marker.Name;return true;}return false;
+   foreach(var marker in state.Life.Markers){if(!LifeDoorVisible(marker)||!LifeDoorOnScreen(marker,origin,tw,th))continue;if(!LifeDoorRect(marker,origin,tw,th).Contains(mouse)&&!LifeDoorLabel(marker,origin,tw,th).Contains(mouse))continue;if(!verify&&WayfindingSelectCell(marker.X,marker.Y,mouse))return true;LifeCommand("enter",marker.EdgeId);message="Идём к выходу: "+marker.Name;return true;}return false;
   }
   void HandleLifeDoorInput(Vector2 origin,float tw,float th){var e=Event.current;if(e.type==EventType.MouseDown&&e.button==0&&GUI.enabled&&ClickLifeDoor(e.mousePosition,origin,tw,th))e.Use();}
   void DrawLifeDoor(PocLifeMarker marker,Vector2 origin,float tw,float th){

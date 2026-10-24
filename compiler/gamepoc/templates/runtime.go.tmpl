@@ -54,6 +54,7 @@ type worldData struct{PaintedInventoryAnchors map[string]map[string]inv.Cell `js
  LocationSDK sdkBundle `json:"location_sdk"`
  Localization localizationCatalog `json:"localization"`
  Region regionCatalog `json:"region_map"`
+ Wayfinding wayfindingCatalog `json:"wayfinding"`
  Life behavior.LifeModel `json:"life"`
  Visibility visibilityPolicy `json:"visibility"`
  Opaque map[string]bool `json:"opaque"`
@@ -104,6 +105,7 @@ type diskResult struct{job diskJob;loaded state;err error;slots []*pb.PocSaveSlo
 type receipt struct{digest [32]byte;result *pb.PocActionResult}
 
 type Runtime struct{
+ wayfinding wayfindingSession
  openStore string
  pb.UnimplementedGameServiceServer
  world worldData

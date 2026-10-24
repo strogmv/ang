@@ -47,10 +47,39 @@ func TestCopperRouteProofUsesDiscoveredDoorsAndOneRealSession(t *testing.T) {
 		}
 	}
 	unity := hudTemplate(t, "unity.cs.tmpl")
-	for _, want := range []string{`InitCopperRouteProof();`, `verifyLife = verifyCopperRoute ||`, `if (verifyCopperRoute) CopperRouteProofDiagnostics(now);`, `if (verifyCopperRoute) { CopperRouteProofStep(now); return; }`, `CopperRouteProofReportJSON()`, `if (verifyCopperRoute) return copperRouteProofDirectory;`} {
+	assertNativeLifeProofFlags(t, unity)
+	for _, want := range []string{`InitCopperRouteProof();`, `if (verifyCopperRoute) CopperRouteProofDiagnostics(now);`, `if (verifyCopperRoute) { CopperRouteProofStep(now); return; }`, `CopperRouteProofReportJSON()`, `if (verifyCopperRoute) return copperRouteProofDirectory;`} {
 		if !strings.Contains(unity, want) {
 			t.Errorf("route proof is not connected to the native runtime: %s", want)
 		}
+	}
+}
+
+// Each proof is a direct OR operand of verifyLife; adding/reordering a proof
+// cannot silently remove an existing mode or break a positional string check.
+func assertNativeLifeProofFlags(t *testing.T, unity string) {
+	t.Helper()
+	start := strings.Index(unity, "verifyLife =")
+	if start < 0 {
+		t.Fatal("native runtime has no verifyLife assignment")
+	}
+	assignment := unity[start+len("verifyLife ="):]
+	end := strings.Index(assignment, ";")
+	if end < 0 {
+		t.Fatal("native runtime has an unterminated verifyLife assignment")
+	}
+	assignment = assignment[:end]
+	operands := make(map[string]bool)
+	for _, operand := range strings.Split(assignment, "||") {
+		operands[strings.TrimSpace(operand)] = true
+	}
+	for _, flag := range []string{"verifyCopperRoute", "verifyAmbient", "verifyLocationSDK", "verifyPainted", "verifySdk", "verifySpatial", "verifyDevelopment", "verifyInspection", "verifyMaintenance", "verifyDoors", "verifyWayfinding", "verifyTransportHub"} {
+		if !operands[flag] {
+			t.Errorf("verifyLife does not directly include native proof mode %s", flag)
+		}
+	}
+	if !strings.Contains(assignment, `"--poc-life-verify"`) {
+		t.Error("verifyLife lost its explicit standalone CLI mode")
 	}
 }
 
