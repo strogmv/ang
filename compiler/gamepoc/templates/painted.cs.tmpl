@@ -35,6 +35,7 @@ namespace AngelsDemons.Poc {
   struct PaintedFogBucket {public int offset,count,left,bottom,right,top;}
   sealed class PaintedFogSamples {public PaintedFogPixel[] pixels;public PaintedFogBucket[] buckets;}
   sealed class PaintedCache {
+   public string preparationError;
    public Texture2D background,fog;public Color32[] fogPixels,fogPrevious,fogRaw,fogScratch;public byte[] fogDistance,fogChanged;public int[] fogCells,fogDirty;public int gridWidth,gridHeight;public char[] visibility;public bool knownArchitecture,fogReady;public long fogVersion;public bool[] publicShell;
    public readonly Dictionary<string,PocPaintedActor> actors=new Dictionary<string,PocPaintedActor>();
    public readonly List<PaintedCutout> cutouts=new List<PaintedCutout>();
@@ -82,10 +83,12 @@ namespace AngelsDemons.Poc {
    long prepareStarted=verifyPainted?System.Diagnostics.Stopwatch.GetTimestamp():0;
    cache=new PaintedCache{background=ArtSceneTexture(scene.background)};
    if(scene.actors!=null)foreach(var actor in scene.actors)cache.actors[actor.actor_id]=actor;
-   // Read source pixels once per scene. Foreground masks are tightly cropped and
-   // cached, never rasterized or fetched from the GPU during the frame loop.
+   // Read source pixels once per texture during cold scene preparation. Existing
+   // GPU-only Editor imports use a safe copy; ordinary frames only use this cache.
    if(scene.occluders!=null&&scene.occluders.Length>0){
-    Color32[] pixels=cache.background.GetPixels32();int bw=cache.background.width,bh=cache.background.height;
+    var source=ArtScenePixels(cache.background);
+    if(source.error!=null){cache.preparationError=source.error;paintedCaches[scene.level_id]=cache;return cache;}
+    Color32[] pixels=source.pixels;int bw=cache.background.width,bh=cache.background.height;
     foreach(var occluder in scene.occluders){
      float minX=scene.width,minY=scene.height,maxX=0,maxY=0;
      foreach(var p in occluder.polygon){minX=Mathf.Min(minX,p.x);minY=Mathf.Min(minY,p.y);maxX=Mathf.Max(maxX,p.x);maxY=Mathf.Max(maxY,p.y);}
@@ -451,6 +454,9 @@ namespace AngelsDemons.Poc {
   bool DrawPaintedGame(){
    var scene=CurrentPaintedScene();if(scene==null){ReleasePaintedAmbient();return false;}
    UpdateMotion();PrepareHud();var cache=PreparePaintedScene(scene);var view=ObserverView();
+   // Fail visibly and closed if even the one-time GPU copy failed. Continuing
+   // without foreground masks could expose actors behind architecture.
+   if(cache.preparationError!=null){HudFrame(PaintedViewport(),false);GUI.Label(new Rect(50,160,1180,180),L("ui.scene.unavailable"),hudWrap);return true;}
    long fogVersion=cache.fogVersion,fogStarted=verifyPainted?System.Diagnostics.Stopwatch.GetTimestamp():0;
    UpdatePaintedFog(scene,cache,view);
    if(verifyPainted&&cache.fogVersion!=fogVersion)RecordPaintedFogTiming((float)((System.Diagnostics.Stopwatch.GetTimestamp()-fogStarted)*1000d/System.Diagnostics.Stopwatch.Frequency),fogVersion==0);

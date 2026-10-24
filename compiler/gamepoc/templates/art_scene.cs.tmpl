@@ -17,6 +17,8 @@ namespace AngelsDemons.Poc
         string artCapturePath;
         bool artCaptureStarted, artDiagnosticsLogged;
         readonly Dictionary<string,Texture2D> artSceneTextures = new Dictionary<string,Texture2D>();
+        sealed class ArtScenePixelData { public Color32[] pixels; public string error; }
+        readonly Dictionary<Texture2D,ArtScenePixelData> artScenePixels = new Dictionary<Texture2D,ArtScenePixelData>();
         bool HasArtScenes() { return resource.art!=null&&resource.art.scenes!=null&&resource.art.scenes.Length>0; }
         bool TryStartArtPreview()
         {
@@ -56,6 +58,52 @@ namespace AngelsDemons.Poc
             value.filterMode=FilterMode.Bilinear;value.wrapMode=TextureWrapMode.Clamp;
             Debug.Log("POC_ART_TEXTURE path="+path+" size="+value.width+"x"+value.height+" format="+value.graphicsFormat+" filter="+value.filterMode+" mipmaps="+value.mipmapCount);
             artSceneTextures[path]=value;return value;
+        }
+        ArtScenePixelData ArtScenePixels(Texture2D texture)
+        {
+            ArtScenePixelData data;
+            if(artScenePixels.TryGetValue(texture,out data))return data;
+            data=new ArtScenePixelData();
+            // Cold preparation only. Existing Editor imports can still be GPU-only
+            // after PocConfig changes; never mutate/reimport a live game's source.
+            try
+            {
+                data.pixels=ReadArtScenePixels(texture);
+                if(data.pixels==null||data.pixels.Length!=texture.width*texture.height)throw new InvalidOperationException("Incomplete pixel data");
+            }
+            catch(Exception error)
+            {
+                data.pixels=null;
+                data.error="Art texture preparation failed: "+texture.name+" ("+error.Message+")";
+                Debug.LogError("POC_ART_PIXELS_ERROR "+data.error);
+            }
+            // Cache failures too: a broken GPU resource must be reported visibly,
+            // not retried and thrown on every OnGUI frame.
+            artScenePixels[texture]=data;return data;
+        }
+        static Color32[] ReadArtScenePixels(Texture2D texture)
+        {
+            if(texture.isReadable)return texture.GetPixels32();
+            RenderTexture previous=RenderTexture.active,copy=null;bool previousSRGB=GL.sRGBWrite;
+            Texture2D readable=null;
+            try
+            {
+                // Keep the source sRGB bytes/alpha and bottom-left pixel order used
+                // by GetPixels32. Blit may otherwise inherit an IMGUI render target.
+                copy=RenderTexture.GetTemporary(texture.width,texture.height,0,RenderTextureFormat.ARGB32,RenderTextureReadWrite.sRGB);
+                GL.sRGBWrite=QualitySettings.activeColorSpace==ColorSpace.Linear;
+                Graphics.Blit(texture,copy);RenderTexture.active=copy;
+                readable=new Texture2D(texture.width,texture.height,TextureFormat.RGBA32,false,false);
+                readable.ReadPixels(new Rect(0,0,texture.width,texture.height),0,0,false);
+                readable.Apply(false,false);
+                return readable.GetPixels32();
+            }
+            finally
+            {
+                RenderTexture.active=previous;GL.sRGBWrite=previousSRGB;
+                if(readable!=null){if(Application.isPlaying)Destroy(readable);else DestroyImmediate(readable);}
+                if(copy!=null)RenderTexture.ReleaseTemporary(copy);
+            }
         }
         void OpenArtScene(PocArtScene scene)
         {

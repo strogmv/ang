@@ -71,6 +71,7 @@ func clientMenu(c Compiled) map[string]any {
 func clientResource(c Compiled) ([]byte, error) {
 	cfg := c.Config
 	return json.MarshalIndent(map[string]any{
+		"location_sdk": c.LocationSDK,
 		"localization": clientLocalization(c.Localization),
 		"content_hash": c.ContentHash,
 		"spatial":      clientSpatial(c.Spatial),

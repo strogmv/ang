@@ -29,6 +29,7 @@ import (
 	"github.com/strogmv/ang/compiler/emitter"
 	"github.com/strogmv/ang/compiler/inventory"
 	inv "github.com/strogmv/ang/compiler/inventory/runtime"
+	"github.com/strogmv/ang/compiler/locationsdk"
 )
 
 //go:embed templates/*
@@ -178,6 +179,7 @@ type Menu struct {
 }
 
 type Compiled struct {
+	LocationSDK             *locationsdk.RuntimeBundle     `json:"location_sdk,omitempty"`
 	Localization            LocalizationCatalog            `json:"localization,omitempty"`
 	Region                  RegionCatalog                  `json:"region_map,omitempty"`
 	PaintedInventoryAnchors map[string]map[string]inv.Cell `json:"painted_inventory_anchors,omitempty"`
@@ -285,6 +287,37 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		if err != nil {
 			return out, nil, err
 		}
+	}
+	if sdk := world.LookupPath(cue.ParsePath("location_sdk")); sdk.Exists() {
+		var input locationsdk.Input
+		raw, decodeErr := sdk.MarshalJSON()
+		if decodeErr != nil {
+			return out, nil, fmt.Errorf("location SDK: %w", decodeErr)
+		}
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&input); err != nil {
+			return out, nil, fmt.Errorf("location SDK: %w", err)
+		}
+		cadence := struct {
+			MoveTicks int64                      `json:"move_ticks"`
+			Locations map[string]json.RawMessage `json:"locations"`
+		}{MoveTicks: out.Config.MoveEveryTicks}
+		if len(out.Life) > 0 {
+			if err := json.Unmarshal(out.Life, &cadence); err != nil {
+				return out, nil, err
+			}
+		}
+		bundle, err := locationsdk.CompileRuntime(input, locationsdk.RuntimeOptions{TickHz: out.Config.TickHz, MoveEveryTicks: cadence.MoveTicks})
+		if err != nil {
+			return out, nil, fmt.Errorf("location SDK: %w", err)
+		}
+		for _, level := range bundle.Levels {
+			if _, exists := cadence.Locations[level.ID]; exists || level.ID == out.Config.LevelID {
+				return out, nil, fmt.Errorf("location SDK level %q conflicts with a story location", level.ID)
+			}
+		}
+		out.LocationSDK = &bundle
 	}
 	if region := world.LookupPath(cue.ParsePath("region_map")); region.Exists() {
 		if err := region.Decode(&out.Region); err != nil {
@@ -636,6 +669,11 @@ func Generate(project string) error {
 	if err != nil {
 		return err
 	}
+	if compiled.LocationSDK != nil {
+		if err := checkLocationSDKSurfaceImages(unity, *compiled.LocationSDK); err != nil {
+			return err
+		}
+	}
 	files := map[string][]byte{
 		filepath.Join(project, "internal/poc/world.json"):       worldJSON,
 		filepath.Join(unity, "Assets/Resources/PocConfig.json"): viewJSON,
@@ -695,57 +733,66 @@ func Generate(project string) error {
 	}
 
 	for name, dest := range map[string]string{
-		"localization.go.tmpl":          filepath.Join(project, "internal/poc/localization.gen.go"),
-		"localization.cs.tmpl":          filepath.Join(unity, "Assets/Generated/Poc/PocLocalization.cs"),
-		"region.go.tmpl":                filepath.Join(project, "internal/poc/region.gen.go"),
-		"region_test.go.tmpl":           filepath.Join(project, "internal/poc/region_generated_test.go"),
-		"region.cs.tmpl":                filepath.Join(unity, "Assets/Generated/Poc/PocRegionMap.cs"),
-		"spatial.cs.tmpl":               filepath.Join(unity, "Assets/Generated/Poc/PocSpatialView.cs"),
-		"hud.cs.tmpl":                   filepath.Join(unity, "Assets/Generated/Poc/PocHudView.cs"),
-		"sdk_proof.cs.tmpl":             filepath.Join(unity, "Assets/Generated/Poc/PocSdkProof.cs"),
-		"copper_route_proof.cs.tmpl":    filepath.Join(unity, "Assets/Generated/Poc/PocCopperRouteProof.cs"),
-		"spatial_proof.cs.tmpl":         filepath.Join(unity, "Assets/Generated/Poc/PocSpatialProof.cs"),
-		"population.go.tmpl":            filepath.Join(project, "internal/poc/population.gen.go"),
-		"population_test.go.tmpl":       filepath.Join(project, "internal/poc/population_generated_test.go"),
-		"development.go.tmpl":           filepath.Join(project, "internal/poc/development.gen.go"),
-		"development_test.go.tmpl":      filepath.Join(project, "internal/poc/development_generated_test.go"),
-		"development.cs.tmpl":           filepath.Join(unity, "Assets/Generated/Poc/PocDevelopmentView.cs"),
-		"life.go.tmpl":                  filepath.Join(project, "internal/poc/life.gen.go"),
-		"inspection.go.tmpl":            filepath.Join(project, "internal/poc/inspection.gen.go"),
-		"inspection_test.go.tmpl":       filepath.Join(project, "internal/poc/inspection_generated_test.go"),
-		"inspection.cs.tmpl":            filepath.Join(unity, "Assets/Generated/Poc/PocInspectionView.cs"),
-		"life_test.go.tmpl":             filepath.Join(project, "internal/poc/life_generated_test.go"),
-		"life.cs.tmpl":                  filepath.Join(unity, "Assets/Generated/Poc/PocLifeView.cs"),
-		"gestures.go.tmpl":              filepath.Join(project, "internal/poc/gestures.gen.go"),
-		"gestures_test.go.tmpl":         filepath.Join(project, "internal/poc/gestures_generated_test.go"),
-		"visibility.go.tmpl":            filepath.Join(project, "internal/poc/visibility.gen.go"),
-		"visibility_test.go.tmpl":       filepath.Join(project, "internal/poc/visibility_generated_test.go"),
-		"visibility.cs.tmpl":            filepath.Join(unity, "Assets/Generated/Poc/PocPerceptionView.cs"),
-		"inventory_test.go.tmpl":        filepath.Join(project, "internal/poc/inventory_generated_test.go"),
-		"reports.go.tmpl":               filepath.Join(project, "internal/poc/reports.gen.go"),
-		"tactics.go.tmpl":               filepath.Join(project, "internal/poc/tactics.gen.go"),
-		"equipment.go.tmpl":             filepath.Join(project, "internal/poc/equipment.gen.go"),
-		"equipment_test.go.tmpl":        filepath.Join(project, "internal/poc/equipment_generated_test.go"),
-		"inventory.go.tmpl":             filepath.Join(project, "internal/poc/inventory.gen.go"),
-		"inventory.cs.tmpl":             filepath.Join(unity, "Assets/Generated/Poc/PocInventoryView.cs"),
-		"social.go.tmpl":                filepath.Join(project, "internal/poc/social.gen.go"),
-		"social_test.go.tmpl":           filepath.Join(project, "internal/poc/social_generated_test.go"),
-		"mission_test.go.tmpl":          filepath.Join(project, "internal/poc/mission_generated_test.go"),
-		"capture.go.tmpl":               filepath.Join(project, "internal/poc/capture.gen.go"),
-		"capture_test.go.tmpl":          filepath.Join(project, "internal/poc/capture_generated_test.go"),
-		"capture.cs.tmpl":               filepath.Join(unity, "Assets/Generated/Poc/PocCaptureView.cs"),
-		"mission.go.tmpl":               filepath.Join(project, "internal/poc/mission.gen.go"),
-		"runtime.go.tmpl":               filepath.Join(project, "internal/poc/runtime.gen.go"),
-		"runtime_test.go.tmpl":          filepath.Join(project, "internal/poc/runtime_generated_test.go"),
-		"main.go.tmpl":                  filepath.Join(project, "cmd/game-server/main.go"),
-		"art_scene.cs.tmpl":             filepath.Join(unity, "Assets/Generated/Poc/ArtScene.cs"),
-		"painted.cs.tmpl":               filepath.Join(unity, "Assets/Generated/Poc/PocPaintedView.cs"),
-		"painted_ambient_proof.cs.tmpl": filepath.Join(unity, "Assets/Generated/Poc/PocAmbientProof.cs"),
-		"painted_ambient.cs.tmpl":       filepath.Join(unity, "Assets/Generated/Poc/PocPaintedAmbient.cs"),
-		"painted_passage.shader.tmpl":   filepath.Join(unity, "Assets/Resources/Generated/PocPaintedPassage.shader"),
-		"painted_proof.cs.tmpl":         filepath.Join(unity, "Assets/Generated/Poc/PocPaintedProof.cs"),
-		"unity.cs.tmpl":                 filepath.Join(unity, "Assets/Generated/Poc/AngelsDemonsPoc.cs"),
-		"editor.cs.tmpl":                filepath.Join(unity, "Assets/Generated/Poc/Editor/PocBuild.cs"),
+		"localization.go.tmpl":                  filepath.Join(project, "internal/poc/localization.gen.go"),
+		"localization.cs.tmpl":                  filepath.Join(unity, "Assets/Generated/Poc/PocLocalization.cs"),
+		"region.go.tmpl":                        filepath.Join(project, "internal/poc/region.gen.go"),
+		"region_test.go.tmpl":                   filepath.Join(project, "internal/poc/region_generated_test.go"),
+		"region.cs.tmpl":                        filepath.Join(unity, "Assets/Generated/Poc/PocRegionMap.cs"),
+		"spatial.cs.tmpl":                       filepath.Join(unity, "Assets/Generated/Poc/PocSpatialView.cs"),
+		"hud.cs.tmpl":                           filepath.Join(unity, "Assets/Generated/Poc/PocHudView.cs"),
+		"sdk_proof.cs.tmpl":                     filepath.Join(unity, "Assets/Generated/Poc/PocSdkProof.cs"),
+		"copper_route_proof.cs.tmpl":            filepath.Join(unity, "Assets/Generated/Poc/PocCopperRouteProof.cs"),
+		"spatial_proof.cs.tmpl":                 filepath.Join(unity, "Assets/Generated/Poc/PocSpatialProof.cs"),
+		"population.go.tmpl":                    filepath.Join(project, "internal/poc/population.gen.go"),
+		"population_test.go.tmpl":               filepath.Join(project, "internal/poc/population_generated_test.go"),
+		"development.go.tmpl":                   filepath.Join(project, "internal/poc/development.gen.go"),
+		"development_test.go.tmpl":              filepath.Join(project, "internal/poc/development_generated_test.go"),
+		"development.cs.tmpl":                   filepath.Join(unity, "Assets/Generated/Poc/PocDevelopmentView.cs"),
+		"life.go.tmpl":                          filepath.Join(project, "internal/poc/life.gen.go"),
+		"inspection.go.tmpl":                    filepath.Join(project, "internal/poc/inspection.gen.go"),
+		"inspection_test.go.tmpl":               filepath.Join(project, "internal/poc/inspection_generated_test.go"),
+		"inspection.cs.tmpl":                    filepath.Join(unity, "Assets/Generated/Poc/PocInspectionView.cs"),
+		"life_test.go.tmpl":                     filepath.Join(project, "internal/poc/life_generated_test.go"),
+		"life.cs.tmpl":                          filepath.Join(unity, "Assets/Generated/Poc/PocLifeView.cs"),
+		"gestures.go.tmpl":                      filepath.Join(project, "internal/poc/gestures.gen.go"),
+		"gestures_test.go.tmpl":                 filepath.Join(project, "internal/poc/gestures_generated_test.go"),
+		"visibility.go.tmpl":                    filepath.Join(project, "internal/poc/visibility.gen.go"),
+		"visibility_test.go.tmpl":               filepath.Join(project, "internal/poc/visibility_generated_test.go"),
+		"visibility.cs.tmpl":                    filepath.Join(unity, "Assets/Generated/Poc/PocPerceptionView.cs"),
+		"inventory_test.go.tmpl":                filepath.Join(project, "internal/poc/inventory_generated_test.go"),
+		"reports.go.tmpl":                       filepath.Join(project, "internal/poc/reports.gen.go"),
+		"tactics.go.tmpl":                       filepath.Join(project, "internal/poc/tactics.gen.go"),
+		"equipment.go.tmpl":                     filepath.Join(project, "internal/poc/equipment.gen.go"),
+		"equipment_test.go.tmpl":                filepath.Join(project, "internal/poc/equipment_generated_test.go"),
+		"inventory.go.tmpl":                     filepath.Join(project, "internal/poc/inventory.gen.go"),
+		"inventory.cs.tmpl":                     filepath.Join(unity, "Assets/Generated/Poc/PocInventoryView.cs"),
+		"social.go.tmpl":                        filepath.Join(project, "internal/poc/social.gen.go"),
+		"social_test.go.tmpl":                   filepath.Join(project, "internal/poc/social_generated_test.go"),
+		"mission_test.go.tmpl":                  filepath.Join(project, "internal/poc/mission_generated_test.go"),
+		"capture.go.tmpl":                       filepath.Join(project, "internal/poc/capture.gen.go"),
+		"capture_test.go.tmpl":                  filepath.Join(project, "internal/poc/capture_generated_test.go"),
+		"capture.cs.tmpl":                       filepath.Join(unity, "Assets/Generated/Poc/PocCaptureView.cs"),
+		"mission.go.tmpl":                       filepath.Join(project, "internal/poc/mission.gen.go"),
+		"runtime.go.tmpl":                       filepath.Join(project, "internal/poc/runtime.gen.go"),
+		"location_sdk.go.tmpl":                  filepath.Join(project, "internal/poc/location_sdk.gen.go"),
+		"location_sdk_test.go.tmpl":             filepath.Join(project, "internal/poc/location_sdk_generated_test.go"),
+		"runtime_test.go.tmpl":                  filepath.Join(project, "internal/poc/runtime_generated_test.go"),
+		"main.go.tmpl":                          filepath.Join(project, "cmd/game-server/main.go"),
+		"art_scene.cs.tmpl":                     filepath.Join(unity, "Assets/Generated/Poc/ArtScene.cs"),
+		"painted.cs.tmpl":                       filepath.Join(unity, "Assets/Generated/Poc/PocPaintedView.cs"),
+		"painted_ambient_proof.cs.tmpl":         filepath.Join(unity, "Assets/Generated/Poc/PocAmbientProof.cs"),
+		"painted_ambient.cs.tmpl":               filepath.Join(unity, "Assets/Generated/Poc/PocPaintedAmbient.cs"),
+		"painted_passage.shader.tmpl":           filepath.Join(unity, "Assets/Resources/Generated/PocPaintedPassage.shader"),
+		"painted_proof.cs.tmpl":                 filepath.Join(unity, "Assets/Generated/Poc/PocPaintedProof.cs"),
+		"unity.cs.tmpl":                         filepath.Join(unity, "Assets/Generated/Poc/AngelsDemonsPoc.cs"),
+		"location_sdk.cs.tmpl":                  filepath.Join(unity, "Assets/Generated/Poc/PocLocationSDK.cs"),
+		"location_sdk_overrides.cs.tmpl":        filepath.Join(unity, "Assets/Generated/Poc/AngelsDemonsLocationOverrideRegistry.cs"),
+		"location_sdk_overrides_editor.cs.tmpl": filepath.Join(unity, "Assets/Generated/Poc/Editor/AngelsDemonsLocationOverridesEditor.cs"),
+		"location_sdk_proof.cs.tmpl":            filepath.Join(unity, "Assets/Generated/Poc/PocLocationSDKProof.cs"),
+		"location_sdk_surface.shader.tmpl":      filepath.Join(unity, "Assets/Resources/LocationSDK/SDKSurface.shader"),
+		"location_sdk_actor.shader.tmpl":        filepath.Join(unity, "Assets/Resources/LocationSDK/SDKActor.shader"),
+		"texture_proof_editor.cs.tmpl":          filepath.Join(unity, "Assets/Generated/Poc/Editor/PocTextureProof.cs"),
+		"editor.cs.tmpl":                        filepath.Join(unity, "Assets/Generated/Poc/Editor/PocBuild.cs"),
 	} {
 		data, err := sources.ReadFile("templates/" + name)
 		if err != nil {

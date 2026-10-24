@@ -20,6 +20,7 @@ type preparedCatalog struct {
 	times      []TimeState
 	events     []EventState
 	decor      map[string]Decoration
+	surfaces   map[string]Surface
 }
 
 func issue(code, path, message string, refs ...string) *ValidationError {
@@ -187,6 +188,11 @@ func prepare(c Catalog) (preparedCatalog, *ValidationError) {
 	if len(c.Geometries) < 1 || len(c.Geometries) > 4096 || len(c.Modules) < 1 || len(c.Modules) > 4096 || len(c.Decorations) > 4096 {
 		return p, issue("catalog_budget", "catalog", "expected 1..4096 geometries/modules and at most 4096 decoration definitions")
 	}
+	var surfaceError *ValidationError
+	p.surfaces, surfaceError = prepareSurfaces(c)
+	if surfaceError != nil {
+		return p, surfaceError
+	}
 	totalCells := 0
 	for i, g := range c.Geometries {
 		totalCells += len(g.Footprint) + len(g.Blocked) + len(g.UseClearance) + len(g.MaintenanceClearance)
@@ -227,6 +233,11 @@ func prepare(c Catalog) (preparedCatalog, *ValidationError) {
 			seen[v.ID] = true
 			if v.ImageRef != "" {
 				return p, issue("unsupported_unverified_asset", vp+".image_ref", "raster binding needs a future validated projection/pivot/scale calibration contract; this compiler currently accepts geometry-only variants")
+			}
+			if v.SurfaceID != "" {
+				if _, ok := p.surfaces[v.SurfaceID]; !ok {
+					return p, issue("unknown_surface", vp+".surface_id", "visual variant references an unknown surface", v.SurfaceID)
+				}
 			}
 			if _, ok := p.geometries[v.GeometryID]; !ok {
 				return p, issue("unknown_geometry", vp+".geometry_id", "variant references an unknown geometry", v.GeometryID)

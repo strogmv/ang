@@ -27,7 +27,7 @@ namespace AngelsDemons.Poc
     [Serializable] public sealed class PocLoadingScreen { public string id, image, context; }
     [Serializable] public sealed class PocLoading { public string caption; public int min_ms; public PocLoadingScreen[] screens; }
     [Serializable] public sealed class PocMenu { public string background; }
-    [Serializable] public sealed class PocResource { public PocLocalization localization; public PocConfiguration config; public string content_hash; public PocArt art; public PocLoading loading; public PocMenu menu; public PocSpatialModel spatial; }
+    [Serializable] public sealed class PocResource { public PocLocationSDKBundle location_sdk; public PocLocalization localization; public PocConfiguration config; public string content_hash; public PocArt art; public PocLoading loading; public PocMenu menu; public PocSpatialModel spatial; }
     [Serializable] public sealed class HostReady { public string address, host_id; }
 
     public sealed partial class AngelsDemonsPoc : MonoBehaviour
@@ -191,6 +191,7 @@ namespace AngelsDemons.Poc
         }
 
         bool startMarketPending;
+        string startLocationSDK;
         async void Start()
         {
             Application.runInBackground = true;
@@ -203,10 +204,14 @@ namespace AngelsDemons.Poc
             verifyInspection = Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-inspection-verify") >= 0;
             verifyDevelopment = Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-development-verify") >= 0;
             startMarketPending = Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-start-market") >= 0;
+            var launchArgs=Environment.GetCommandLineArgs();
+            int sdkLaunch=Array.IndexOf(launchArgs,"--poc-start-sdk");
+            if(sdkLaunch>=0&&sdkLaunch+1<launchArgs.Length){startLocationSDK=launchArgs[sdkLaunch+1];startMarketPending=false;}
+            InitLocationSDKProof();
             InitPaintedProof();
             InitCopperRouteProof();
             InitAmbientProof();
-            verifyLife = verifyCopperRoute || verifyAmbient || verifyPainted || verifySdk || verifySpatial || verifyDevelopment || verifyInspection || verifyMaintenance || verifyDoors || Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-life-verify") >= 0;
+            verifyLife = verifyCopperRoute || verifyAmbient || verifyLocationSDK || verifyPainted || verifySdk || verifySpatial || verifyDevelopment || verifyInspection || verifyMaintenance || verifyDoors || Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-life-verify") >= 0;
             verify = verifyLife || verifyInventory || verifyCapture || Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-verify") >= 0;
             resource = JsonUtility.FromJson<PocResource>(Resources.Load<TextAsset>("PocConfig").text);
             if (TryStartArtPreview()) return;
@@ -312,6 +317,7 @@ namespace AngelsDemons.Poc
             for (int i = 0; i < 32 && notices.TryDequeue(out notice); i++) notice();
             if (session != null) session.Pump(32);
             UpdateMotion();
+            if (!verify && !string.IsNullOrEmpty(startLocationSDK) && CanSend()) { string selected=startLocationSDK;startLocationSDK=null;NewGame(resource.config.seed,"sdk:"+selected); }
             if (!verify && startMarketPending && CanSend()) { startMarketPending=false; StartPlayableMarket(resource.config.seed); }
             if (!verify) AdvancePlayableMarket();
             if (!verify) AdvanceSpatialPreview();
@@ -352,7 +358,7 @@ namespace AngelsDemons.Poc
             if (!CanSend()) return;
             busy = "Начинаем новую партию…";
             BeginLoading("new_game");
-            session.SendNewGame(new PocNewGameRequest { Seed = seed, PlayerName = playerName, RunCaptureDemo = scenario != "life" && scenario != "life100" && scenario != "life300" && (!verify || verifyCapture), Scenario = !string.IsNullOrEmpty(scenario) ? scenario : verifyCapture ? "" : verify ? "none" : "", Epoch = state.Epoch, RequestId = Guid.NewGuid().ToString("N") });
+            session.SendNewGame(new PocNewGameRequest { Seed = seed, PlayerName = playerName, RunCaptureDemo = !(scenario ?? "").StartsWith("sdk:",StringComparison.Ordinal) && scenario != "life" && scenario != "life100" && scenario != "life300" && (!verify || verifyCapture), Scenario = !string.IsNullOrEmpty(scenario) ? scenario : verifyCapture ? "" : verify ? "none" : "", Epoch = state.Epoch, RequestId = Guid.NewGuid().ToString("N") });
         }
         // Loading screen (world.loading): a picture over the whole window until the server answers, but not shorter than min_ms.
         // The picture is loaded on demand and released afterwards, so it costs no memory during play. Skipped in automatic checks.
@@ -625,6 +631,7 @@ namespace AngelsDemons.Poc
         void DrawGame()
         {
             if (state == null || !state.Active) { page = "menu"; return; }
+            if (DrawLocationSDKGame()) return;
             if (DrawPaintedGame()) return;
             UpdateMotion();
             Vector2 origin;float tw,th;GetSpatialProjection(out origin,out tw,out th);
@@ -775,6 +782,7 @@ namespace AngelsDemons.Poc
             if (verifyAmbient) AmbientProofDiagnostics(now);
             if (now > (verifyLife ? 420 : 120)) { FinishProof(false, "proof timeout, phase=" + proofPhase + ", status=" + message); return; }
             if (!connected || state == null || !string.IsNullOrEmpty(busy)) return;
+            if (verifyLocationSDK) { LocationSDKProofStep(now); return; }
             if (verifyAmbient) { AmbientProofStep(now); return; }
             if (verifyCopperRoute) { CopperRouteProofStep(now); return; }
             if (verifySdk) { SdkProofStep(now); return; }
@@ -872,12 +880,14 @@ namespace AngelsDemons.Poc
             if (verifyPainted) json=json.Substring(0,json.Length-1)+",\"painted\":"+PaintedProofReportJSON()+"}";
             if (verifyCopperRoute) json=json.Substring(0,json.Length-1)+",\"copper_route\":"+CopperRouteProofReportJSON()+"}";
             if (verifyAmbient) json=json.Substring(0,json.Length-1)+",\"ambient\":"+AmbientProofReportJSON()+"}";
+            if (verifyLocationSDK) json=json.Substring(0,json.Length-1)+",\"location_sdk\":"+LocationSDKProofReportJSON()+"}";
             File.WriteAllText(Path.Combine(destination, "report.json"), json);
             Debug.Log("POC_PROOF " + json); closing = true;
             if (!Application.isBatchMode) StartCoroutine(CaptureAndExit(ok, destination)); else ExitProof(ok);
         }
         string ProofDirectory()
         {
+            if (verifyLocationSDK) return locationSDKProofDirectory;
             if (verifyAmbient) return ambientProofDirectory;
             if (verifyCopperRoute) return copperRouteProofDirectory;
             if (verifyPainted) return paintedProofDirectory;
@@ -922,6 +932,6 @@ namespace AngelsDemons.Poc
             }
         }
         void OnApplicationQuit() { DisposeHost(); }
-        void OnDestroy() { DisposeHost(); }
+        void OnDestroy() { ReleaseLocationSDK(); DisposeHost(); }
     }
 }

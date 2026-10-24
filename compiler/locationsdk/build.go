@@ -147,7 +147,7 @@ func Build(catalog Catalog, layout Layout) (CompiledLevel, error) {
 		for _, at := range obstacles {
 			blocked[index(at)] = true
 		}
-		out.Instances = append(out.Instances, CompiledInstance{ID: instance.ID, ModuleID: module.ID, VariantID: variant.ID, ImageRef: variant.ImageRef, At: instance.At, Rotation: instance.Rotation, Width: w, Depth: d, Height: geometry.Height, GeometryHash: p.hashes[module.GeometryID], Footprint: physical, Blocked: obstacles, Reason: instance.Reason, OwnerRef: instance.OwnerRef, Fate: instance.Fate})
+		out.Instances = append(out.Instances, CompiledInstance{ID: instance.ID, ModuleID: module.ID, VariantID: variant.ID, ImageRef: variant.ImageRef, SurfaceID: variant.SurfaceID, At: instance.At, Rotation: instance.Rotation, Width: w, Depth: d, Height: geometry.Height, GeometryHash: p.hashes[module.GeometryID], Footprint: physical, Blocked: obstacles, Reason: instance.Reason, OwnerRef: instance.OwnerRef, Fate: instance.Fate})
 		for kind, cells := range map[string][]Cell{"use": geometry.UseClearance, "maintenance": geometry.MaintenanceClearance} {
 			if len(cells) > 0 {
 				out.Clearances = append(out.Clearances, CompiledClearance{InstanceID: instance.ID, Kind: kind, Cells: worldCells(cells, geometry, instance), Reason: kind + " access required by module " + module.ID})

@@ -1,0 +1,44 @@
+Shader "ANG/LocationSDKActor" {
+ Properties {
+  _MainTex ("Original actor atlas", 2D) = "white" {}
+  _Color ("Actor tint", Color) = (1,1,1,1)
+  _OccludedTint ("Observed actor behind opaque architecture", Color) = (.78,.55,.24,.23)
+ }
+ SubShader {
+  Tags { "RenderType"="Transparent" "Queue"="Transparent" }
+  CGINCLUDE
+  #include "UnityCG.cginc"
+  sampler2D _MainTex;
+  fixed4 _Color;
+  fixed4 _OccludedTint;
+  struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; };
+  struct v2f { float4 vertex : SV_POSITION; float2 uv : TEXCOORD0; };
+  v2f vert(appdata v) { v2f o;o.vertex=UnityObjectToClipPos(v.vertex);o.uv=v.uv;return o; }
+  fixed4 normalFrag(v2f i) : SV_Target { fixed4 body=tex2D(_MainTex,i.uv);clip(body.a-.02);return body*_Color; }
+  fixed4 occludedFrag(v2f i) : SV_Target { fixed4 body=tex2D(_MainTex,i.uv);clip(body.a-.02);return fixed4(_OccludedTint.rgb,_OccludedTint.a*body.a*_Color.a); }
+  ENDCG
+  Pass {
+   Name "ObservedOccludedSilhouette"
+   ZWrite Off
+   ZTest Greater
+   Cull Off
+   Blend SrcAlpha OneMinusSrcAlpha
+   CGPROGRAM
+   #pragma vertex vert
+   #pragma fragment occludedFrag
+   ENDCG
+  }
+  Pass {
+   Name "NormalDepthTestedBody"
+   ZWrite Off
+   ZTest LEqual
+   Cull Off
+   Blend SrcAlpha OneMinusSrcAlpha
+   CGPROGRAM
+   #pragma vertex vert
+   #pragma fragment normalFrag
+   ENDCG
+  }
+ }
+ Fallback Off
+}

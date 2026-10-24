@@ -51,6 +51,7 @@ type sceneCamera struct{ ID string `json:"id"`; Position point `json:"position"`
 type sceneData struct{ Cameras []sceneCamera `json:"cameras"`; AmbientNoise int `json:"ambient_noise"`; TileNoise map[string]int `json:"tile_noise"` }
 type visibilityPolicy struct {PlayerRange int `json:"player_range_cells"`; HearingSound string `json:"debug_hearing_sound"`}
 type worldData struct{PaintedInventoryAnchors map[string]map[string]inv.Cell `json:"painted_inventory_anchors"`;
+ LocationSDK sdkBundle `json:"location_sdk"`
  Localization localizationCatalog `json:"localization"`
  Region regionCatalog `json:"region_map"`
  Life behavior.LifeModel `json:"life"`
@@ -69,6 +70,7 @@ type worldData struct{PaintedInventoryAnchors map[string]map[string]inv.Cell `js
  Entities []actor `json:"entities"`
 }
 type state struct{
+ SDKLayout string `json:"sdk_layout,omitempty"`
  Region regionKnowledge
  Life behavior.LifeState
  LifeExploration map[string]map[int]seenCell
@@ -105,6 +107,8 @@ type Runtime struct{
  openStore string
  pb.UnimplementedGameServiceServer
  world worldData
+ canonicalWorld worldData
+ sdkWorlds map[string]worldData
  state state
  data,token string
  input chan input
@@ -125,6 +129,7 @@ func New(data,token string)(*Runtime,error){
  if err:=json.Unmarshal(compiledJSON,&r.world);err!=nil{return nil,err}
  r.world.Life.Walkable=r.world.Walkable
  if len(r.world.Life.Actors)>0{if err:=r.world.Life.Validate();err!=nil{return nil,err};for id,l:=range r.world.Life.Locations{r.world.Inventory.Levels[id]=inv.Cell{X:len(l.Terrain[0]),Y:len(l.Terrain)}}}
+ if err:=r.prepareLocationSDK();err!=nil{return nil,err}
  if err:=os.MkdirAll(data,0700);err!=nil{return nil,err}
  r.input=make(chan input,r.world.Config.QueueCapacity);r.jobs=make(chan diskJob,16);r.done=make(chan diskResult,16)
  initialItems,err:=inv.New(r.world.Inventory,r.world.Config.Seed);if err!=nil{return nil,err}
@@ -137,7 +142,10 @@ func(r *Runtime) Play(stream pb.GameService_PlayServer)error{
  first,err:=stream.Recv();if err!=nil{return err}
  hello:=first.GetHello();if hello==nil || subtle.ConstantTimeCompare([]byte(hello.GetSessionToken()),[]byte(r.token))!=1{return status.Error(codes.Unauthenticated,"invalid local session")}
  if !r.connected.CompareAndSwap(false,true){return status.Error(codes.ResourceExhausted,"one local player supported")};defer r.connected.Store(false)
- c:=&connection{out:make(chan *pb.ServerMessage,r.world.Config.QueueCapacity),stop:make(chan struct{}),locale:r.validLocale(hello.Locale)}
+ // Connection setup can overlap the simulation loop switching scenario worlds.
+ // Transport capacity/locales belong to immutable session content, not r.world.
+ transport:=r.storageRuntime()
+ c:=&connection{out:make(chan *pb.ServerMessage,transport.world.Config.QueueCapacity),stop:make(chan struct{}),locale:transport.validLocale(hello.Locale)}
  select{case r.input<-input{client:c,join:true}:case <-stream.Context().Done():return stream.Context().Err()}
  defer func(){select{case r.input<-input{client:c,leave:true}:default:}}()
  incoming:=make(chan error,1)
@@ -151,8 +159,9 @@ func(r *Runtime) Play(stream pb.GameService_PlayServer)error{
 }
 
 func(r *Runtime) Run(ctx context.Context){
+ storage:=r.storageRuntime()
  diskDone:=make(chan struct{});go func(){defer close(diskDone);for{select{case j:=<-r.jobs:
-  result:=diskResult{job:j};switch j.action{case "save":result.err=r.writeSave(j.slot,j.state);case "load":result.loaded,_,result.err=r.readSave(j.slot);case "list":result.slots=r.readSlots()}
+  result:=diskResult{job:j};switch j.action{case "save":result.err=storage.writeSave(j.slot,j.state);case "load":result.loaded,_,result.err=storage.readSave(j.slot);case "list":result.slots=storage.readSlots()}
   select{case r.done<-result:case <-ctx.Done():return}
  case <-ctx.Done():return}}}()
  defer func(){if r.client!=nil{r.close(r.client)};<-diskDone}()
@@ -280,11 +289,11 @@ func(r *Runtime) command(in input){
  r.receipts[id]=&receipt{digest:digest}
  switch action{
  case "life":err:=r.lifeCommand(m.GetLifeCommand());r.action(c,id,action,slot,err);r.sendState(c)
- case "new":v:=m.GetNewGame();seed:=v.Seed;if seed==0{seed=r.world.Config.Seed};name:=v.PlayerName;if name==""{name="Герой"};if len(name)>128{r.action(c,id,action,slot,errors.New("player name too long"));return}
-  scenario:=v.Scenario;if scenario==""&&!v.RunCaptureDemo{scenario="none"};count,isLife:=lifeScenarioPopulation(scenario)
-  items,err:=inv.New(r.inventoryModelFor(isLife),seed);if err!=nil{r.action(c,id,action,slot,err);return};r.openStore=""
-  var life behavior.LifeState;if isLife{life,err=r.world.Life.StartWithPopulation(count,playerActorID);if err!=nil{r.action(c,id,action,slot,err);return}}
-  r.state=state{Inventory:items,Active:true,Epoch:newEpoch(),Seed:seed,PlayerName:name,Player:r.world.Spawn,Speed:1};if isLife{r.initLifeState(life)}else{r.initDemo(scenario)};r.updateExploration();r.action(c,id,action,slot,nil);r.sendState(c)
+ case "new":v:=m.GetNewGame();scenario:=v.Scenario;if scenario==""&&!v.RunCaptureDemo{scenario="none"};world,layout,err:=r.newGameWorld(scenario);if err!=nil{r.action(c,id,action,slot,err);return};seed:=v.Seed;if seed==0{seed=world.Config.Seed};name:=v.PlayerName;if name==""{name="Герой"};if len(name)>128{r.action(c,id,action,slot,errors.New("player name too long"));return}
+  count,isLife:=lifeScenarioPopulation(scenario);if layout!=""{isLife=true};candidate:=&Runtime{world:world}
+  items,err:=inv.New(candidate.inventoryModelFor(isLife),seed);if err!=nil{r.action(c,id,action,slot,err);return}
+  var life behavior.LifeState;if isLife{life,err=world.Life.StartWithPopulation(count,playerActorID);if err!=nil{r.action(c,id,action,slot,err);return};if layout!=""{life.ControlledActorID=playerActorID;life.Actor(playerActorID).Manual=true}}
+  r.world=world;r.openStore="";r.state=state{SDKLayout:layout,Inventory:items,Active:true,Epoch:newEpoch(),Seed:seed,PlayerName:name,Player:world.Spawn,Speed:1};if isLife{r.initLifeState(life)}else{r.initDemo(scenario)};r.updateExploration();r.action(c,id,action,slot,nil);r.sendState(c)
  case "options":v:=m.GetGameOptions();if r.state.Life.PopulationFailure!=""&&!v.Paused{r.action(c,id,action,slot,errors.New("Симуляция остановлена после ошибки населения; загрузите сохранение или начните заново"));return};if r.state.Life.Enabled&&v.Speed!=1{r.action(c,id,action,slot,errors.New("В режиме жизни меняйте масштаб календаря"));return};if v.Speed!=1&&v.Speed!=3&&v.Speed!=10{r.action(c,id,action,slot,errors.New("unsupported speed"));return};r.state.Paused=v.Paused;r.state.Speed=v.Speed;r.action(c,id,action,slot,nil);r.sendState(c)
  case "save","load":if action=="save"&&r.state.Life.PopulationFailure!=""{r.action(c,id,action,slot,errors.New("Нельзя сохранять остановленную после ошибки симуляцию"));return};if action=="save"&&!r.state.Active{r.action(c,id,action,slot,errors.New("start a game first"));return};if !r.validSlot(slot){r.action(c,id,action,slot,errors.New("unknown save slot"));return};copyState:=r.snapshotState();r.queueDisk(diskJob{client:c,id:id,action:action,slot:slot,epoch:epoch,state:copyState})
  }
@@ -293,7 +302,7 @@ func(r *Runtime) queueDisk(j diskJob){select{case r.jobs<-j:default:r.action(j.c
 func(r *Runtime) diskComplete(result diskResult){
  j:=result.job
  if j.action=="list"{r.send(j.client,&pb.ServerMessage{Msg:&pb.ServerMessage_SaveSlots{SaveSlots:&pb.PocSaveSlots{Slots:result.slots}}});return}
- if j.action=="load"&&result.err==nil{if r.state.Epoch!=j.epoch{result.err=errors.New("game changed while loading")}else{r.state=result.loaded;r.state.Epoch=newEpoch();r.state.LastMoveSeq=0}}
+ if j.action=="load"&&result.err==nil{if r.state.Epoch!=j.epoch{result.err=errors.New("game changed while loading")}else{var world worldData;world,result.err=r.savedWorld(result.loaded.SDKLayout);if result.err==nil{r.world=world;r.state=result.loaded;r.state.Epoch=newEpoch();r.state.LastMoveSeq=0;r.openStore=""}}}
  r.action(j.client,j.id,j.action,j.slot,result.err)
  if r.client!=nil{r.sendState(r.client)}
  r.queueDisk(diskJob{client:j.client,action:"list"})
@@ -318,7 +327,10 @@ func(r *Runtime) readSave(slot string)(state,int64,error){
  if envelope.Version!=r.world.Config.SaveVersion||envelope.ContentHash!=r.world.ContentHash{return s,0,errors.New("incompatible save version or content")}
  sum:=sha256.Sum256(envelope.State);if envelope.Checksum!=hex.EncodeToString(sum[:]){return s,0,errors.New("save checksum mismatch")}
  if err=json.Unmarshal(envelope.State,&s);err!=nil{return s,0,err}
- if s.Life.Enabled{if err:=r.validateLifeSave(s);err!=nil{return s,0,err};return s,envelope.CreatedUnixMS,nil}
+ validator,err:=r.savedWorldRuntime(s.SDKLayout);if err!=nil{return s,0,err}
+ if err:=validator.validateSDKSave(s);err!=nil{return s,0,err}
+ r=validator
+ if s.Life.Enabled{if err:=validator.validateLifeSave(s);err!=nil{return s,0,err};return s,envelope.CreatedUnixMS,nil}
  if !s.Active||s.Tick<0||s.Tick>(int64(^uint64(0)>>1)/int64(time.Second))-1||!r.walkable(s.Player)||(s.Speed!=1&&s.Speed!=3&&s.Speed!=10)||len(s.PlayerName)>128{return s,0,errors.New("invalid save state")}
  if s.PhaseNS<0||s.PhaseNS>=int64(time.Second)/int64(r.world.Config.TickHz)||s.MoveStartNS<0||len(s.Path)>len(r.world.Terrain)*len(r.world.Terrain[0]){return s,0,errors.New("invalid motion state")}
  now:=s.Tick*(int64(time.Second)/int64(r.world.Config.TickHz))+s.PhaseNS
@@ -347,4 +359,4 @@ func(r *Runtime) pathAvoid(from,to point,blocked map[point]bool)[]point{
 }
 
 // Keep a generated diagnostic with the source content identity.
-func(r *Runtime) String()string{return fmt.Sprintf("CUE POC world %s",r.world.ContentHash)}
+func(r *Runtime) String()string{return fmt.Sprintf("CUE POC world %s",r.canonicalWorld.ContentHash)}

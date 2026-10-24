@@ -128,7 +128,7 @@ func TestBuildRotationTransformsPhysicalAndFrontServiceGeometry(t *testing.T) {
 
 func TestBuildIsOrderIndependentAndDoesNotAliasMutableInput(t *testing.T) {
 	c, l := testCatalog(), testLayouts()[0]
-	before, _ := json.Marshal(Input{c, []Layout{l}})
+	before, _ := json.Marshal(Input{Catalog: c, Layouts: []Layout{l}})
 	baseline := requireBuilt(t, c, l)
 	gold, _ := json.Marshal(baseline)
 	reorderedC, reorderedL := copyValue(t, c), copyValue(t, l)
@@ -156,7 +156,7 @@ func TestBuildIsOrderIndependentAndDoesNotAliasMutableInput(t *testing.T) {
 	baseline.Ports[0].Opening[0].X = 999
 	baseline.Clearances[0].Cells[0].X = 999
 	baseline.Views[0].ActivityTags[0] = "edited-output"
-	after, _ := json.Marshal(Input{c, []Layout{l}})
+	after, _ := json.Marshal(Input{Catalog: c, Layouts: []Layout{l}})
 	if string(before) != string(after) {
 		t.Fatal("Build or returned slices mutated caller inputs")
 	}

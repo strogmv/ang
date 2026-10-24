@@ -27,8 +27,16 @@ const (
 )
 
 type Input struct {
-	Catalog Catalog  `json:"catalog"`
-	Layouts []Layout `json:"layouts"`
+	Catalog Catalog      `json:"catalog"`
+	Layouts []Layout     `json:"layouts"`
+	Locks   []LayoutLock `json:"locks,omitempty"`
+}
+
+// A lock is an explicit author-approved expectation, not a stored scene or an
+// automatic acceptance policy. The CLI prints a candidate; the author updates it.
+type LayoutLock struct {
+	LayoutID     string `json:"layout_id"`
+	ExpectedHash string `json:"expected_hash"`
 }
 
 // Geometry is local to a module's unrotated origin. Footprint means physical
@@ -82,6 +90,25 @@ type Variant struct {
 	ID         string `json:"id"`
 	GeometryID string `json:"geometry_id"`
 	ImageRef   string `json:"image_ref,omitempty"`
+	SurfaceID  string `json:"surface_id,omitempty"`
+}
+
+// Surface textures repeat over authoritative top/side mesh faces; they carry no
+// silhouette, pivot, footprint or collision. Image names are extensionless Unity
+// Resources keys. File existence and import settings belong to the game adapter.
+type Surface struct {
+	ID           string          `json:"id"`
+	TopImage     string          `json:"top_image"`
+	SideImage    string          `json:"side_image"`
+	TopRepeatMM  SurfaceRepeatMM `json:"top_repeat_mm"`
+	SideRepeatMM SurfaceRepeatMM `json:"side_repeat_mm"`
+}
+
+// Repeat is the physical size of one complete texture tile, in millimetres.
+// Top X/Y map to horizontal mesh axes; side X/Y mean horizontal distance/height.
+type SurfaceRepeatMM struct {
+	X int `json:"x"`
+	Y int `json:"y"`
 }
 
 type TimeState struct {
@@ -106,12 +133,14 @@ type Decoration struct {
 }
 
 type Catalog struct {
-	UnitMM      int          `json:"unit_mm"`
-	Geometries  []Geometry   `json:"geometries"`
-	Modules     []Module     `json:"modules"`
-	Times       []TimeState  `json:"times"`
-	Events      []EventState `json:"events"`
-	Decorations []Decoration `json:"decorations,omitempty"`
+	UnitMM              int          `json:"unit_mm"`
+	Geometries          []Geometry   `json:"geometries"`
+	Modules             []Module     `json:"modules"`
+	Times               []TimeState  `json:"times"`
+	Events              []EventState `json:"events"`
+	Decorations         []Decoration `json:"decorations,omitempty"`
+	Surfaces            []Surface    `json:"surfaces,omitempty"`
+	DefaultFloorSurface string       `json:"default_floor_surface,omitempty"`
 }
 
 type FloorArea struct {
@@ -211,6 +240,7 @@ type CompiledInstance struct {
 	ModuleID     string   `json:"module_id"`
 	VariantID    string   `json:"variant_id"`
 	ImageRef     string   `json:"image_ref,omitempty"`
+	SurfaceID    string   `json:"surface_id,omitempty"`
 	At           Cell     `json:"at"`
 	Rotation     int      `json:"rotation"`
 	Width        int      `json:"width"`

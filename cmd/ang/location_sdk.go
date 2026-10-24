@@ -38,14 +38,15 @@ func runLocationSDK(args []string, stdout, stderr io.Writer) error {
 	fs.SetOutput(stderr)
 	out := fs.String("out", "", "generated JSON and interactive inspection directory")
 	check := fs.Bool("check", false, "validate and compile without writing files")
+	fingerprint := fs.String("fingerprint", "", "print one layout's candidate lock JSON to stdout without writing files or accepting it")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
 		return err
 	}
-	if fs.NArg() != 1 || (!*check && *out == "") {
-		return errors.New("usage: ang location-sdk [-check] [-out directory] <CUE package directory>")
+	if fs.NArg() != 1 || (*fingerprint == "" && !*check && *out == "") || (*fingerprint != "" && (*check || *out != "")) {
+		return errors.New("usage: ang location-sdk [-check] [-out directory] <CUE package directory>; or ang location-sdk -fingerprint <layout-id> <CUE package directory> (read-only candidate)")
 	}
 	dir, err := filepath.Abs(fs.Arg(0))
 	if err != nil {
@@ -75,6 +76,16 @@ func runLocationSDK(args []string, stdout, stderr io.Writer) error {
 	}
 	if len(input.Layouts) == 0 {
 		return errors.New("sdk.layouts must contain at least one layout")
+	}
+	if *fingerprint != "" {
+		hash, fingerprintErr := locationsdk.LayoutFingerprint(input, *fingerprint)
+		if fingerprintErr != nil {
+			return reportLocationSDKValidation(fingerprintErr, stderr)
+		}
+		return json.NewEncoder(stdout).Encode(locationsdk.LayoutLock{LayoutID: *fingerprint, ExpectedHash: hash})
+	}
+	if err := locationsdk.ValidateLocks(input); err != nil {
+		return reportLocationSDKValidation(err, stderr)
 	}
 	sort.Slice(input.Layouts, func(i, j int) bool { return input.Layouts[i].ID < input.Layouts[j].ID })
 	hash := sha256.Sum256(source)
@@ -126,6 +137,18 @@ func runLocationSDK(args []string, stdout, stderr io.Writer) error {
 		}
 	}
 	_, err = fmt.Fprintf(stdout, "Compiled %d location layouts. Inspection: %s\n", len(bundle.Levels), filepath.Join(*out, "index.html"))
+	return err
+}
+
+func reportLocationSDKValidation(err error, stderr io.Writer) error {
+	var invalid *locationsdk.ValidationError
+	if errors.As(err, &invalid) {
+		if encodeErr := json.NewEncoder(stderr).Encode(struct {
+			Diagnostics []locationsdk.Diagnostic `json:"diagnostics"`
+		}{invalid.Diagnostics}); encodeErr != nil {
+			return encodeErr
+		}
+	}
 	return err
 }
 

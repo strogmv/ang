@@ -13,7 +13,12 @@ public static class PocBuild
     [MenuItem("Angels & Demons/Prepare proof of concept")]
     public static void Prepare()
     {
+        if(EditorApplication.isPlayingOrWillChangePlaymode)throw new InvalidOperationException("Prepare is unavailable during Play mode; no scenes were changed.");
+        bool initialBuildList=EditorBuildSettings.scenes==null||EditorBuildSettings.scenes.Length==0;
+        bool created=PocSceneSetup.EnsureBootstrapScene();
         PocResource resource = JsonUtility.FromJson<PocResource>(File.ReadAllText("Assets/Resources/PocConfig.json"));
+        if(resource.location_sdk!=null&&resource.location_sdk.levels!=null&&resource.location_sdk.levels.Length>0)PreserveSDKShaders();
+        PocCharacterTextureImporter.PrepareSDKSurfaceImports(resource);
         if (resource.art != null && resource.art.characters != null)
             foreach (PocCharacterSheet sheet in resource.art.characters.sheets)
             {
@@ -31,25 +36,38 @@ public static class PocBuild
                 var importer = AssetImporter.GetAtPath(AssetDatabase.GUIDToAssetPath(guid)) as TextureImporter;
                 if (importer != null && PocCharacterTextureImporter.ConfigureArtScene(importer)) importer.SaveAndReimport();
             }
-        Directory.CreateDirectory("Assets/Scenes");
-        Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-        new GameObject("Angels & Demons").AddComponent<AngelsDemonsPoc>();
-        EditorSceneManager.SaveScene(scene, "Assets/Scenes/Poc.unity");
-        EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene("Assets/Scenes/Poc.unity", true) };
-        PlayerSettings.companyName = "AngelsDemons";
-        PlayerSettings.productName = "Angels & Demons — POC";
-        PlayerSettings.defaultScreenWidth = 1280;
-        PlayerSettings.defaultScreenHeight = 800;
-        PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
-        PlayerSettings.allowUnsafeCode = true;
-        PlayerSettings.runInBackground = true;
-        PlayerSettings.SetApiCompatibilityLevel(NamedBuildTarget.Standalone, ApiCompatibilityLevel.NET_Standard);
-        AssetDatabase.SaveAssets();
+        PocSceneSetup.InitializeBuildSettings(created);
+        if(created&&initialBuildList){
+            PlayerSettings.companyName = "AngelsDemons";
+            PlayerSettings.productName = "Angels & Demons — POC";
+            PlayerSettings.defaultScreenWidth = 1280;
+            PlayerSettings.defaultScreenHeight = 800;
+            PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
+            PlayerSettings.allowUnsafeCode = true;
+            PlayerSettings.runInBackground = true;
+            PlayerSettings.SetApiCompatibilityLevel(NamedBuildTarget.Standalone, ApiCompatibilityLevel.NET_Standard);
+        }
         Debug.Log("POC_SCENE_READY");
+    }
+    static void PreserveSDKShaders()
+    {
+        var assets=AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/GraphicsSettings.asset");
+        if(assets.Length==0)throw new InvalidOperationException("Missing GraphicsSettings");
+        var settings=new SerializedObject(assets[0]);var shaders=settings.FindProperty("m_AlwaysIncludedShaders");
+        foreach(string name in new[]{"Unlit/Color","Sprites/Default"}){
+            var shader=Shader.Find(name);if(shader==null)throw new InvalidOperationException("Missing SDK shader: "+name);
+            bool found=false;for(int i=0;i<shaders.arraySize;i++)if(shaders.GetArrayElementAtIndex(i).objectReferenceValue==shader){found=true;break;}
+            if(!found){int index=shaders.arraySize;shaders.InsertArrayElementAtIndex(index);shaders.GetArrayElementAtIndex(index).objectReferenceValue=shader;}
+        }
+        if(settings.ApplyModifiedPropertiesWithoutUndo())AssetDatabase.SaveAssetIfDirty(assets[0]);
     }
     public static void Verify()
     {
         Prepare();
+        PocSceneSetup.RequireCleanOpenScenes("verify");
+        // Verification is an explicit scene-entry action. Prepare itself never
+        // replaces the user's open scenes, and dirty scenes cannot reach here.
+        EditorSceneManager.OpenScene(PocSceneSetup.BootstrapPath,OpenSceneMode.Single);
         EditorApplication.EnterPlaymode();
     }
     [MenuItem("Angels & Demons/Build macOS proof of concept")]
@@ -58,28 +76,207 @@ public static class PocBuild
         Prepare();
         string root = Path.GetFullPath(Path.Combine(Application.dataPath, "../.."));
         string destination = Path.Combine(root, ".local", "AngelsDemonsPOC.app");
-        var report = BuildPipeline.BuildPlayer(new[] { "Assets/Scenes/Poc.unity" }, destination, BuildTarget.StandaloneOSX, BuildOptions.None);
+        var report = BuildPipeline.BuildPlayer(PocSceneSetup.BuildScenes(), destination, BuildTarget.StandaloneOSX, BuildOptions.None);
         if (report.summary.result != UnityEditor.Build.Reporting.BuildResult.Succeeded) throw new Exception("POC player build failed: " + report.summary.result);
         Debug.Log("POC_PLAYER_READY " + destination);
     }
 }
 
+// Opt-in acceptance only: run in a separate disposable Editor project, never in
+// the user's current session. This creates/deletes only its unique fixture folder.
+public static class PocScenePreservationProof
+{
+    [Serializable] sealed class Report {public bool pass,existing_bootstrap_preserved,dirty_scene_preserved,dirty_asset_preserved,manual_animation_preserved,build_settings_preserved,active_scene_preserved,missing_bootstrap_created,repeat_prepare_no_write,incompatible_rejected,dirty_build_rejected,open_scenes_preserved,startup_scene_restored;public int unity_errors;public string error,bootstrap;}
+    static string Digest(string path){if(!File.Exists(path))return "";using(var hash=System.Security.Cryptography.SHA256.Create())return Convert.ToBase64String(hash.ComputeHash(File.ReadAllBytes(path)));}
+    static bool SameBuild(EditorBuildSettingsScene[] a,EditorBuildSettingsScene[] b){if(a.Length!=b.Length)return false;for(int i=0;i<a.Length;i++)if(a[i].path!=b[i].path||a[i].enabled!=b[i].enabled)return false;return true;}
+    public static void Verify()
+    {
+        string output=Environment.GetEnvironmentVariable("ANG_SCENE_PROOF_DIR");
+        if(!Application.isBatchMode||Environment.GetEnvironmentVariable("ANG_SCENE_PROOF_STAGING")!="1"||string.IsNullOrEmpty(output)||!Path.IsPathRooted(output))throw new InvalidOperationException("Scene proof requires a disposable batch-mode staging Editor, ANG_SCENE_PROOF_STAGING=1 and absolute ANG_SCENE_PROOF_DIR.");
+        if(!File.Exists(PocSceneSetup.BootstrapPath))throw new InvalidOperationException("Prepare staging once before preservation proof");
+        Directory.CreateDirectory(output);
+        var report=new Report{bootstrap=PocSceneSetup.BootstrapPath};string bootstrap=Digest(PocSceneSetup.BootstrapPath),bootstrapMeta=Digest(PocSceneSetup.BootstrapPath+".meta");
+        var originalBuild=EditorBuildSettings.scenes;var originalActive=SceneManager.GetActiveScene();var originalSetup=EditorSceneManager.GetSceneManagerSetup();bool normalizedStartup=false;var owned=new System.Collections.Generic.List<Scene>();
+        string folder="Assets/ANGScenePreservation_"+Guid.NewGuid().ToString("N");
+        Application.LogCallback log=(message,stack,type)=>{if(type==LogType.Error||type==LogType.Exception||type==LogType.Assert)report.unity_errors++;};Application.logMessageReceived+=log;
+        try{
+            bool untitled=false;for(int i=0;i<SceneManager.sceneCount;i++)if(string.IsNullOrEmpty(SceneManager.GetSceneAt(i).path))untitled=true;
+            if(untitled){
+                // This exception is exclusively for the acknowledged disposable
+                // staging startup. Production Prepare never replaces untitled work.
+                if(SceneManager.sceneCount!=1||!originalActive.IsValid()||originalActive.isDirty||originalActive.GetRootGameObjects().Length!=0)throw new InvalidOperationException("Staging proof will not discard an authored or dirty untitled scene.");
+                EditorSceneManager.OpenScene(PocSceneSetup.BootstrapPath,OpenSceneMode.Single);normalizedStartup=true;
+            }
+            AssetDatabase.CreateFolder("Assets",Path.GetFileName(folder));
+            var manual=EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Additive);owned.Add(manual);SceneManager.SetActiveScene(manual);
+            var marker=new GameObject("Hand-authored scene marker");string manualPath=folder+"/Manual.unity";if(!EditorSceneManager.SaveScene(manual,manualPath))throw new InvalidOperationException("Cannot create manual-scene fixture");string manualDigest=Digest(manualPath);
+            marker.name="Unsaved artist edit";EditorSceneManager.MarkSceneDirty(manual);
+            var shader=Shader.Find("Sprites/Default");if(shader==null)throw new InvalidOperationException("Missing fixture shader");
+            var material=new Material(shader){name="Hand-authored material"};string materialPath=folder+"/Manual.mat";AssetDatabase.CreateAsset(material,materialPath);AssetDatabase.SaveAssetIfDirty(material);string materialDigest=Digest(materialPath);
+            var clip=new AnimationClip{name="Hand-authored animation",legacy=true};clip.SetCurve("",typeof(Transform),"m_LocalPosition.x",AnimationCurve.Linear(0,0,1,1));string clipPath=folder+"/Manual.anim";AssetDatabase.CreateAsset(clip,clipPath);AssetDatabase.SaveAssetIfDirty(clip);string clipDigest=Digest(clipPath);
+            string createdPath=folder+"/CreatedBootstrap.unity";report.missing_bootstrap_created=PocSceneSetup.EnsureBootstrapScene(createdPath)&&File.Exists(createdPath)&&manual.isDirty&&SceneManager.GetActiveScene()==manual;
+            var authored=EditorSceneManager.OpenScene(createdPath,OpenSceneMode.Additive);owned.Add(authored);SceneManager.SetActiveScene(authored);var prop=new GameObject("Hand-authored animated prop");var animation=prop.AddComponent<Animation>();animation.AddClip(clip,"manual");animation.clip=clip;if(!EditorSceneManager.SaveScene(authored,createdPath))throw new InvalidOperationException("Cannot save authored fixture");string authoredDigest=Digest(createdPath);prop.name="Unsaved prop keyframe edit";EditorSceneManager.MarkSceneDirty(authored);SceneManager.SetActiveScene(manual);
+            report.repeat_prepare_no_write=!PocSceneSetup.EnsureBootstrapScene(createdPath)&&Digest(createdPath)==authoredDigest&&authored.isDirty&&prop.name=="Unsaved prop keyframe edit";
+            var customBuild=new[]{new EditorBuildSettingsScene(manualPath,true),new EditorBuildSettingsScene(PocSceneSetup.BootstrapPath,false),new EditorBuildSettingsScene(createdPath,true)};EditorBuildSettings.scenes=customBuild;
+            int openCount=SceneManager.sceneCount;var scenes=new System.Collections.Generic.List<Scene>();var dirty=new System.Collections.Generic.List<bool>();for(int i=0;i<openCount;i++){var scene=SceneManager.GetSceneAt(i);scenes.Add(scene);dirty.Add(scene.isDirty);}
+            material.color=new Color(.23f,.41f,.57f,1);EditorUtility.SetDirty(material);clip.SetCurve("",typeof(Transform),"m_LocalPosition.x",AnimationCurve.Linear(0,0,1,3));EditorUtility.SetDirty(clip);
+            if(!EditorUtility.IsDirty(material)||!EditorUtility.IsDirty(clip)||Digest(materialPath)!=materialDigest||Digest(clipPath)!=clipDigest)throw new InvalidOperationException("Cannot create dirty asset preservation fixture");
+            PocBuild.Prepare();PocBuild.Prepare();
+            report.existing_bootstrap_preserved=Digest(PocSceneSetup.BootstrapPath)==bootstrap&&Digest(PocSceneSetup.BootstrapPath+".meta")==bootstrapMeta;
+            report.dirty_scene_preserved=manual.IsValid()&&manual.isLoaded&&manual.isDirty&&marker!=null&&marker.name=="Unsaved artist edit"&&Digest(manualPath)==manualDigest&&authored.isLoaded&&authored.isDirty&&Digest(createdPath)==authoredDigest;
+            report.dirty_asset_preserved=Digest(materialPath)==materialDigest&&EditorUtility.IsDirty(material);
+            report.manual_animation_preserved=Digest(clipPath)==clipDigest&&EditorUtility.IsDirty(clip)&&animation!=null&&animation.clip==clip;
+            report.build_settings_preserved=SameBuild(customBuild,EditorBuildSettings.scenes);report.active_scene_preserved=SceneManager.GetActiveScene()==manual;
+            report.open_scenes_preserved=SceneManager.sceneCount==openCount;for(int i=0;i<scenes.Count;i++)if(!scenes[i].IsValid()||!scenes[i].isLoaded||scenes[i].isDirty!=dirty[i])report.open_scenes_preserved=false;
+            try{PocSceneSetup.BuildScenes();}catch(InvalidOperationException){report.dirty_build_rejected=true;}
+            var invalid=EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Additive);owned.Add(invalid);SceneManager.SetActiveScene(invalid);new GameObject("User scene without a POC host");string invalidPath=folder+"/Incompatible.unity";if(!EditorSceneManager.SaveScene(invalid,invalidPath))throw new InvalidOperationException("Cannot save incompatible fixture");string invalidDigest=Digest(invalidPath);SceneManager.SetActiveScene(manual);
+            try{PocSceneSetup.EnsureBootstrapScene(invalidPath);}catch(InvalidOperationException){report.incompatible_rejected=Digest(invalidPath)==invalidDigest&&invalid.isLoaded&&SceneManager.GetActiveScene()==manual;}
+        }catch(Exception error){report.error=error.ToString();}
+        finally{
+            try{
+                EditorBuildSettings.scenes=originalBuild;if(originalActive.IsValid()&&originalActive.isLoaded)SceneManager.SetActiveScene(originalActive);foreach(var scene in owned)if(scene.IsValid()&&scene.isLoaded)EditorSceneManager.CloseScene(scene,true);if(AssetDatabase.IsValidFolder(folder))AssetDatabase.DeleteAsset(folder);
+                if(normalizedStartup){
+                    // Unity returns an empty setup for its clean empty untitled
+                    // startup and rejects RestoreSceneManagerSetup(empty).
+                    if(originalSetup.Length==0)EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);else EditorSceneManager.RestoreSceneManagerSetup(originalSetup);
+                    var restored=SceneManager.GetActiveScene();report.startup_scene_restored=restored.IsValid()&&string.IsNullOrEmpty(restored.path)&&!restored.isDirty&&restored.GetRootGameObjects().Length==0;
+                }else report.startup_scene_restored=originalActive.IsValid()&&originalActive.isLoaded&&SceneManager.GetActiveScene()==originalActive;
+            }
+            catch(Exception error){report.error=(report.error??"")+" Cleanup: "+error;}
+            Application.logMessageReceived-=log;
+        }
+        report.pass=string.IsNullOrEmpty(report.error)&&report.unity_errors==0&&report.existing_bootstrap_preserved&&report.dirty_scene_preserved&&report.dirty_asset_preserved&&report.manual_animation_preserved&&report.build_settings_preserved&&report.active_scene_preserved&&report.missing_bootstrap_created&&report.repeat_prepare_no_write&&report.incompatible_rejected&&report.dirty_build_rejected&&report.open_scenes_preserved&&report.startup_scene_restored;
+        File.WriteAllText(Path.Combine(output,"report.json"),JsonUtility.ToJson(report,true));
+        if(!report.pass)throw new InvalidOperationException("Native scene preservation proof failed: "+JsonUtility.ToJson(report));Debug.Log("POC_SCENE_PRESERVATION_PASS "+JsonUtility.ToJson(report));
+    }
+}
+
+// Only this new bootstrap is generator-owned. An existing scene is a user asset:
+// validate it without saving, replacing its objects, or changing open scene setup.
+public static class PocSceneSetup
+{
+    public const string BootstrapPath="Assets/Scenes/Poc.unity";
+    public static bool EnsureBootstrapScene(string path=BootstrapPath)
+    {
+        if(!path.StartsWith("Assets/",StringComparison.Ordinal)||!path.EndsWith(".unity",StringComparison.Ordinal)||path.Contains("..")||path.Contains("\\"))throw new InvalidOperationException("Invalid bootstrap scene path: "+path);
+        Scene loaded=SceneManager.GetSceneByPath(path);
+        if(File.Exists(path)){
+            if(loaded.IsValid()&&loaded.isLoaded){ValidateBootstrap(loaded,path);return false;}
+            Scene preview=default(Scene);Scene previous=SceneManager.GetActiveScene();
+            try{preview=EditorSceneManager.OpenPreviewScene(path);ValidateBootstrap(preview,path);}
+            finally{if(preview.IsValid())EditorSceneManager.ClosePreviewScene(preview);RestoreActive(previous);}
+            return false;
+        }
+        if(Directory.Exists(path)||(loaded.IsValid()&&loaded.isLoaded))throw new InvalidOperationException("Bootstrap scene is loaded without a saved file; save it explicitly: "+path);
+        // Unity rejects additive creation beside ANY untitled scene, even a
+        // clean startup scene. Do not replace or save that scene to work around it.
+        for(int i=0;i<SceneManager.sceneCount;i++){var open=SceneManager.GetSceneAt(i);if(open.isLoaded&&string.IsNullOrEmpty(open.path))throw new InvalidOperationException("Cannot create missing bootstrap while an untitled scene is open. Save the untitled scene explicitly, or start with a saved scene, then run Prepare again. No scenes were changed.");}
+        Directory.CreateDirectory(Path.GetDirectoryName(path));
+        Scene created=default(Scene);Scene active=SceneManager.GetActiveScene();
+        try{
+            created=EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Additive);
+            // Unity may already activate the new scene; SetActiveScene then
+            // returns false for a no-op. Check the state, not that return value.
+            if(SceneManager.GetActiveScene()!=created)SceneManager.SetActiveScene(created);
+            if(SceneManager.GetActiveScene()!=created)throw new InvalidOperationException("Cannot activate new bootstrap scene");
+            new GameObject("Angels & Demons").AddComponent<AngelsDemonsPoc>();
+            ValidateBootstrap(created,path);
+            if(File.Exists(path)||Directory.Exists(path))throw new InvalidOperationException("Bootstrap appeared during preparation; existing asset was not overwritten: "+path);
+            if(!EditorSceneManager.SaveScene(created,path))throw new InvalidOperationException("Cannot save new bootstrap scene: "+path);
+        }finally{RestoreActive(active);if(created.IsValid()&&created.isLoaded)EditorSceneManager.CloseScene(created,true);}
+        return true;
+    }
+    static void ValidateBootstrap(Scene scene,string path)
+    {
+        if(!scene.IsValid()||!scene.isLoaded)throw new InvalidOperationException("Cannot inspect bootstrap scene: "+path);
+        int total=0,enabled=0;
+        foreach(var root in scene.GetRootGameObjects())foreach(var host in root.GetComponentsInChildren<AngelsDemonsPoc>(true)){total++;if(host.enabled&&host.gameObject.activeInHierarchy)enabled++;}
+        if(total!=1||enabled!=1)throw new InvalidOperationException("Incompatible bootstrap "+path+": expected exactly one active AngelsDemonsPoc component; scene left unchanged.");
+    }
+    static void RestoreActive(Scene scene){if(scene.IsValid()&&scene.isLoaded)SceneManager.SetActiveScene(scene);}
+    public static void InitializeBuildSettings(bool createdBootstrap)
+    {
+        // Even an intentionally empty list is retained when the bootstrap already
+        // existed. Defaults belong only to a genuinely new empty setup.
+        if(createdBootstrap&&(EditorBuildSettings.scenes==null||EditorBuildSettings.scenes.Length==0))EditorBuildSettings.scenes=new[]{new EditorBuildSettingsScene(BootstrapPath,true)};
+    }
+    public static void RequireCleanOpenScenes(string action)
+    {
+        for(int i=0;i<SceneManager.sceneCount;i++){var scene=SceneManager.GetSceneAt(i);if(scene.isLoaded&&scene.isDirty)throw new InvalidOperationException("Cannot "+action+" with unsaved open scene: "+(string.IsNullOrEmpty(scene.path)?scene.name:scene.path)+". Save your changes explicitly; no scenes were saved or closed.");}
+    }
+    public static string[] BuildScenes()
+    {
+        RequireCleanOpenScenes("build");
+        var paths=new System.Collections.Generic.List<string>();var seen=new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+        foreach(var scene in EditorBuildSettings.scenes??new EditorBuildSettingsScene[0]){
+            if(!scene.enabled)continue;
+            if(string.IsNullOrEmpty(scene.path)||!File.Exists(scene.path)||!scene.path.EndsWith(".unity",StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("Enabled build scene does not exist: "+scene.path);
+            if(!seen.Add(scene.path))throw new InvalidOperationException("Repeated enabled build scene: "+scene.path);
+            paths.Add(scene.path);
+        }
+        if(paths.Count==0)throw new InvalidOperationException("No enabled build scenes. Configure Build Settings explicitly; existing settings were preserved.");
+        return paths.ToArray();
+    }
+}
+
 // Preserve the original sheet grid. Unity's default NPOT resize changes 768px
 // sheets to 1024px and corrupts frame UVs; compression also damages small pixels.
+[InitializeOnLoad]
 public sealed class PocCharacterTextureImporter : AssetPostprocessor
 {
+    const string PocConfigPath="Assets/Resources/PocConfig.json";
+    static bool repairQueued;
+    static PocCharacterTextureImporter()
+    {
+        if(Application.isBatchMode)return;
+        QueuePaintedBackgroundRepair();
+        EditorApplication.playModeStateChanged+=state=>{if(state==PlayModeStateChange.EnteredEditMode)QueuePaintedBackgroundRepair();};
+    }
+    // Config-driven targeted repair above also handles existing imports. Keep
+    // the global postprocessor version stable: no project-wide texture reimport.
     public override uint GetVersion() { return 5; }
+    static void QueuePaintedBackgroundRepair()
+    {
+        if(repairQueued)return;repairQueued=true;
+        EditorApplication.delayCall+=RepairPaintedBackgroundImports;
+    }
+    static void RepairPaintedBackgroundImports()
+    {
+        repairQueued=false;
+        // Leave a running game alone. Its cold GPU-copy path is safe; repair
+        // retained import settings once the user returns to Edit mode.
+        if(EditorApplication.isPlayingOrWillChangePlaymode||!File.Exists(PocConfigPath))return;
+        var resource=JsonUtility.FromJson<PocResource>(File.ReadAllText(PocConfigPath));
+        if(resource==null)return;
+        var seen=new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+        if(resource.art!=null&&resource.art.painted!=null)foreach(var scene in resource.art.painted)
+        {
+            if(string.IsNullOrEmpty(scene.background))continue;
+            string path="Assets/Resources/"+scene.background+".png";
+            if(!seen.Add(path))continue;
+            var importer=AssetImporter.GetAtPath(path) as TextureImporter;
+            if(importer!=null&&ConfigureArtScene(importer))importer.SaveAndReimport();
+        }
+        PrepareSDKSurfaceImports(resource);
+    }
+    static void OnPostprocessAllAssets(string[] imported,string[] deleted,string[] moved,string[] movedFrom)
+    {
+        // The JSON can change without its previously imported PNG changing.
+        // Repair just referenced backgrounds, not every asset in the project.
+        foreach(string path in imported)if(path==PocConfigPath){QueuePaintedBackgroundRepair();return;}
+        foreach(string path in moved)if(path==PocConfigPath){QueuePaintedBackgroundRepair();return;}
+    }
     void OnPreprocessTexture()
     {
+        if(IsSDKSurface(assetPath)){ConfigureSDKSurface((TextureImporter)assetImporter);return;}
         if (assetPath.StartsWith("Assets/Resources/MarketArt/", StringComparison.Ordinal)) ConfigureArtScene((TextureImporter)assetImporter);
         if (assetPath.StartsWith("Assets/Resources/Characters/", StringComparison.Ordinal)) Configure((TextureImporter)assetImporter);
         if (assetPath.StartsWith("Assets/Resources/Sprites/", StringComparison.Ordinal)) Configure((TextureImporter)assetImporter, true);
     }
     static bool IsPaintedBackground(string path)
     {
-        const string config = "Assets/Resources/PocConfig.json";
-        if (!File.Exists(config)) return false;
-        var resource = JsonUtility.FromJson<PocResource>(File.ReadAllText(config));
+        if (!File.Exists(PocConfigPath)) return false;
+        var resource = JsonUtility.FromJson<PocResource>(File.ReadAllText(PocConfigPath));
         if (resource == null || resource.art == null || resource.art.painted == null) return false;
         foreach (var scene in resource.art.painted)
             if (path == "Assets/Resources/" + scene.background + ".png") return true;
@@ -87,6 +284,7 @@ public sealed class PocCharacterTextureImporter : AssetPostprocessor
     }
     public static bool ConfigureArtScene(TextureImporter t)
     {
+        if(IsSDKSurface(t.assetPath))return ConfigureSDKSurface(t);
         // Art atlases are reduced substantially in the assembly; mipmaps average
         // fine source strokes instead of undersampling them into checkerboard patterns.
         bool readable=IsPaintedBackground(t.assetPath);
@@ -95,8 +293,48 @@ public sealed class PocCharacterTextureImporter : AssetPostprocessor
         t.textureCompression=TextureImporterCompression.Uncompressed;t.wrapMode=TextureWrapMode.Clamp;t.alphaIsTransparency=true;
         return changed;
     }
+    static string SDKSurfaceAssetPath(string key)
+    {
+        if(string.IsNullOrEmpty(key)||key.Length>256||!System.Text.RegularExpressions.Regex.IsMatch(key,@"\A[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*\z"))throw new InvalidOperationException("Invalid SDK surface Resources key: "+key);
+        return "Assets/Resources/"+key+".png";
+    }
+    static bool IsSDKSurface(string path)
+    {
+        if(!path.StartsWith("Assets/Resources/",StringComparison.Ordinal)||!File.Exists(PocConfigPath))return false;
+        var resource=JsonUtility.FromJson<PocResource>(File.ReadAllText(PocConfigPath));
+        if(resource==null||resource.location_sdk==null||resource.location_sdk.surfaces==null)return false;
+        foreach(var surface in resource.location_sdk.surfaces)
+            if(surface!=null&&(path==SDKSurfaceAssetPath(surface.top_image)||path==SDKSurfaceAssetPath(surface.side_image)))return true;
+        return false;
+    }
+    public static void PrepareSDKSurfaceImports(PocResource resource)
+    {
+        if(resource==null||resource.location_sdk==null||resource.location_sdk.surfaces==null)return;
+        var seen=new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+        foreach(var surface in resource.location_sdk.surfaces)
+        {
+            if(surface==null)continue;
+            foreach(string key in new[]{surface.top_image,surface.side_image})
+            {
+                string path=SDKSurfaceAssetPath(key);if(!seen.Add(path))continue;
+                var importer=AssetImporter.GetAtPath(path) as TextureImporter;
+                if(importer!=null&&ConfigureSDKSurface(importer))importer.SaveAndReimport();
+            }
+        }
+    }
+    public static bool ConfigureSDKSurface(TextureImporter t)
+    {
+        bool changed=t.isReadable||t.textureType!=TextureImporterType.Default||!t.sRGBTexture||t.maxTextureSize!=4096||t.npotScale!=TextureImporterNPOTScale.None||!t.mipmapEnabled||t.filterMode!=FilterMode.Trilinear||t.textureCompression!=TextureImporterCompression.Uncompressed||t.wrapMode!=TextureWrapMode.Repeat||t.alphaIsTransparency;
+        // A retained desktop override can otherwise silently compress/resize a
+        // tile despite the default settings below (macOS/Windows/Linux players).
+        if(t.GetPlatformTextureSettings("Standalone").overridden){t.ClearPlatformTextureSettings("Standalone");changed=true;}
+        t.isReadable=false;t.textureType=TextureImporterType.Default;t.sRGBTexture=true;t.maxTextureSize=4096;t.npotScale=TextureImporterNPOTScale.None;t.mipmapEnabled=true;t.filterMode=FilterMode.Trilinear;
+        t.textureCompression=TextureImporterCompression.Uncompressed;t.wrapMode=TextureWrapMode.Repeat;t.alphaIsTransparency=false;
+        return changed;
+    }
     public static bool Configure(TextureImporter t, bool readable = false)
     {
+        if(IsSDKSurface(t.assetPath))return ConfigureSDKSurface(t);
         if(t.assetPath.StartsWith("Assets/Resources/Characters/Reference/",StringComparison.Ordinal))return ConfigureArtScene(t);
         bool changed = t.isReadable != readable || t.npotScale != TextureImporterNPOTScale.None || t.mipmapEnabled || t.filterMode != FilterMode.Point || t.textureCompression != TextureImporterCompression.Uncompressed || t.wrapMode != TextureWrapMode.Clamp || !t.alphaIsTransparency;
         t.isReadable = readable;
