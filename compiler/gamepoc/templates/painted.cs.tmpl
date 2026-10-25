@@ -418,11 +418,16 @@ namespace AngelsDemons.Poc {
    var hotspotObject=PaintedInspectionHotspotAt(scene,mouse,fit,scale,view);if(hotspotObject!=null){DrawPaintedInspectionTooltip(hotspotObject,mouse);return;}
    Vector2 grid;if(!PaintedInverse(scene,PaintedScreenToCanvas(mouse,fit,scale),out grid))return;int x=Mathf.FloorToInt(grid.x+.5f),y=Mathf.FloorToInt(grid.y+.5f);
    if(ViewCell(view,x,y)=='0')return;
-   foreach(var marker in state.Life.Markers)if(marker.X==x&&marker.Y==y&&LifeDoorVisible(marker)){HudFrame(new Rect(mouse.x+12,mouse.y-34,290,30),false);GUI.Label(new Rect(mouse.x+20,mouse.y-31,270,25),L("ui.exit.enter_hint",marker.Name),smallStyle);return;}
+   string exitHint=PaintedKnownExitHint(x,y);if(exitHint!=null){HudFrame(new Rect(mouse.x+12,mouse.y-34,290,30),false);GUI.Label(new Rect(mouse.x+20,mouse.y-31,270,25),exitHint,smallStyle);return;}
    if(!ViewSees(x,y)||(view!=null&&view.ActorId!="char.hero"))return;
    foreach(var obj in state.Life.Inspections)if(obj.LevelId==state.Life.LevelId&&obj.X==x&&obj.Y==y){
     DrawPaintedInspectionTooltip(obj,mouse);return;
    }
+  }
+  string PaintedKnownExitHint(int x,int y){
+   PocLifeMarker marker=null;
+   foreach(var candidate in state.Life.Markers)if(candidate.X==x&&candidate.Y==y&&LifeDoorVisible(candidate)){if(marker!=null)return L("ui.wayfinding.choose");marker=candidate;}
+   return marker==null?null:L("ui.exit.enter_hint",marker.Name);
   }
   static bool PaintedInspectionFinite(float value){return !float.IsNaN(value)&&!float.IsInfinity(value);}
   static bool PaintedInspectionCircle(PocPaintedInspectionHotspot hotspot,Vector2 canvas,out float score){

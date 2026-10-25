@@ -26,6 +26,19 @@ type PopulationTrip struct {
 type PopulationEnvironment struct {
 	Occupied map[string]map[Cell]bool
 	Trips    []LifeTrip
+	// Read-only local traffic preference for future segments. Physical accepted
+	// first steps and collision occupancy remain authoritative and unchanged.
+	NewPathAvoid func(PopulationActor) map[Cell]bool
+	NewArrivalAvoid func(PopulationActor) map[Cell]bool
+}
+// A newly entering physical body sees the same nearby public passage as a
+// pedestrian already there. Reuse the existing bounded landing search without
+// claiming these preferred cells as actual occupants or moving an existing NPC.
+func(e PopulationEnvironment) landingTraffic(a PopulationActor,level string,entry Cell,occupied map[string]map[Cell]string)map[string]map[Cell]string{
+ if e.NewArrivalAvoid==nil{return occupied}
+ a.Level=level;a.Position=entry;a.Goal=entry;a.Trip=nil;a.Materialized=true;a.Arrived=false;a.Activity="walking"
+ avoid:=e.NewArrivalAvoid(a);if len(avoid)==0{return occupied}
+ result:=map[string]map[Cell]string{};for id,cells:=range occupied{result[id]=cells};cells:=map[Cell]string{};for at,id:=range occupied[level]{cells[at]=id};for at:=range avoid{if cells[at]==""{cells[at]="courtesy-arrival"}};result[level]=cells;return result
 }
 
 type PopulationActor struct {
@@ -33,6 +46,7 @@ type PopulationActor struct {
  YieldRequester string `json:"yield_requester,omitempty"`
  YieldOrigin Cell `json:"yield_origin,omitempty"`
  YieldHoldUntil int64 `json:"yield_hold_until,omitempty"`
+ YieldCooldownUntil int64 `json:"yield_cooldown_until,omitempty"`
 	ID               string          `json:"id"`
 	Name             string          `json:"name"`
 	Level            string          `json:"level"`
@@ -302,7 +316,7 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 			entry := edge.Entry
 			if edge.To == activeLevel {
 				var free bool
-				entry, free = populationLanding(l, edge.To, edge.Entry, occupied, a.ID)
+				entry, free = populationLanding(l, edge.To, edge.Entry, environment.landingTraffic(*a,edge.To,edge.Entry,occupied), a.ID)
 				if active >= p.MaxActive || !free {
 					a.Queued = true
 					a.QueueReason = "entry_occupied"
@@ -341,7 +355,7 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 				free = false
 				for _, edge := range l.Edges {
 					if edge.To == a.Level {
-						at, free = populationLanding(l, a.Level, edge.Entry, occupied, a.ID)
+						at, free = populationLanding(l, a.Level, edge.Entry, environment.landingTraffic(*a,a.Level,edge.Entry,occupied), a.ID)
 						if free {
 							break
 						}
@@ -387,7 +401,8 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 				a.Path = a.Path[1:]
 				a.MoveStartTick = tick
 				populationReserve(occupied, a.Level, next, a.ID)
-				if len(a.Path) > 0 && !populationCellFree(l, a.Level, a.Path[0], occupied, a.ID) {
+				avoid:=map[Cell]bool(nil);if environment.NewPathAvoid!=nil{avoid=environment.NewPathAvoid(*a)}
+				if len(a.Path) > 0 && (!populationCellFree(l, a.Level, a.Path[0], occupied, a.ID)||avoid[a.Path[0]]) {
 					a.Path = nil
 				}
 				if len(a.Path) > 0 {
@@ -498,6 +513,7 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 					blocked[at] = true
 				}
 			}
+			if environment.NewPathAvoid!=nil{for at:=range environment.NewPathAvoid(*a){blocked[at]=true}}
 			a.Path = l.Space(a.Level, blocked).Path(a.Position, goal, Cell{}, 0)
 			a.MoveStartTick = tick
 			if len(a.Path) > 0 {
@@ -541,6 +557,7 @@ func (s PopulationState) Validate(p PopulationModel, l LifeModel, seconds, tick 
 		if a.YieldRequester != "" && (a.YieldRequester == a.ID || l.Person(a.YieldRequester) == nil || !l.Walks(a.Level, a.YieldOrigin) || a.YieldHoldUntil < 0 || a.YieldHoldUntil > tick+16*p.MoveTicks) {
 			return fmt.Errorf("invalid population courtesy hold")
 		}
+		if a.YieldCooldownUntil < 0 || a.YieldCooldownUntil > tick+10*p.MoveTicks { return fmt.Errorf("invalid population courtesy cooldown") }
 		if l.Person(a.ID) != nil {
 			return fmt.Errorf("population identity collides with named actor")
 		}

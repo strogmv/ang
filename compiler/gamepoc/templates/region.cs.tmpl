@@ -11,7 +11,18 @@ namespace AngelsDemons.Poc {
   string hudRegionMapID="",hudRegionDeckID="",hudRegionNodeID="";
   float hudRegionZoom=1f;
   Vector2 hudRegionPan,hudRegionPointerStart,hudRegionPanStart,hudRegionDetailScroll;
-  readonly Rect hudRegionCanvas=new Rect(324,294,596,326);
+  readonly Rect hudRegionCanvas=new Rect(324,282,650,340);
+
+  GUIStyle hudRegionLabel;
+  sealed class RegionLabelHit {public Rect box;public string id;}
+  readonly List<RegionLabelHit> hudRegionLabelHits=new List<RegionLabelHit>();
+  sealed class RegionGeometryNode {public string Id,DeckId;public double X,Y,Width,Height;}
+  readonly List<RegionGeometryNode> regionConnectionNodes=new List<RegionGeometryNode>();
+  readonly Dictionary<string,List<Vector2>> regionConnectionRoutes=new Dictionary<string,List<Vector2>>(StringComparer.Ordinal);
+  void RegionPrepareConnections(List<PocRegionNode> nodes){
+   bool same=nodes.Count==regionConnectionNodes.Count;if(same)for(int i=0;i<nodes.Count;i++){var a=nodes[i];var b=regionConnectionNodes[i];if(a.Id!=b.Id||a.DeckId!=b.DeckId||a.X!=b.X||a.Y!=b.Y||a.Width!=b.Width||a.Height!=b.Height){same=false;break;}}
+   if(same)return;regionConnectionNodes.Clear();foreach(var node in nodes)regionConnectionNodes.Add(new RegionGeometryNode{Id=node.Id,DeckId=node.DeckId,X=node.X,Y=node.Y,Width=node.Width,Height=node.Height});regionConnectionRoutes.Clear();
+  }
 
   public void SetHudMapMode(string mode){
    if(mode!="floor"&&mode!="local")return;
@@ -21,10 +32,12 @@ namespace AngelsDemons.Poc {
   bool HudHasRegionMap(){return state!=null&&state.Life!=null&&state.Life.RegionMap!=null&&state.Life.RegionMap.Nodes.Count>0;}
   void DrawHudMap(){
    if(hudMapFloor)DrawRegionMap();else DrawHudLocalMap();
-   if(hudMapFloor)Fill(new Rect(970,187,106,3),hudBrass);else Fill(new Rect(1088,187,116,3),hudBrass);
-   if(HudButton(new Rect(970,190,106,32),L("ui.region.tab_floor")))SetHudMapMode("floor");
-   if(HudButton(new Rect(1088,190,116,32),L("ui.region.tab_local")))SetHudMapMode("local");
+   Rect local=new Rect(970,190,112,32),floor=new Rect(1090,190,114,32);
+   if(!hudMapFloor)Fill(new Rect(local.x,local.y-3,local.width,2),hudBrass);else Fill(new Rect(floor.x,floor.y-3,floor.width,2),hudBrass);
+   if(HudButton(local,L("ui.region.tab_local")))SetHudMapMode("local");
+   if(HudButton(floor,L("ui.region.tab_floor")))SetHudMapMode("floor");
   }
+
   static bool RegionNodeKnown(PocRegionNode node){return node!=null&&(node.Knowledge=="known"||node.Knowledge=="visited");}
   static bool RegionFinite(double value){return !double.IsNaN(value)&&!double.IsInfinity(value)&&Math.Abs(value)<100000000;}
   static bool RegionNodePlottable(PocRegionNode node){return RegionNodeKnown(node)&&RegionFinite(node.X)&&RegionFinite(node.Y)&&RegionFinite(node.Width)&&RegionFinite(node.Height)&&node.Width>0&&node.Height>0;}
@@ -39,25 +52,34 @@ namespace AngelsDemons.Poc {
   static List<PocRegionNode> RegionDeckNodes(PocRegionMap map,string deck){
    var result=new List<PocRegionNode>();if(map!=null)foreach(var node in map.Nodes)if(node.DeckId==deck&&RegionNodePlottable(node))result.Add(node);return result;
   }
+  // These are schematic display units supplied by the server, not room metres.
+  // Both drawing and picking use the same oblique projection.
+  static Vector2 RegionPlane(double x,double y){return new Vector2((float)(x*.92+y*.55),(float)(-x*.28+y*.52));}
   static Rect RegionModelBounds(IList<PocRegionNode> nodes){
    if(nodes.Count==0)return new Rect(-1,-1,2,2);
-   double left=double.MaxValue,top=double.MaxValue,right=double.MinValue,bottom=double.MinValue;
-   foreach(var node in nodes){left=Math.Min(left,node.X-node.Width/2);right=Math.Max(right,node.X+node.Width/2);top=Math.Min(top,node.Y-node.Height/2);bottom=Math.Max(bottom,node.Y+node.Height/2);}
-   return new Rect((float)left,(float)top,Mathf.Max(1f,(float)(right-left)),Mathf.Max(1f,(float)(bottom-top)));
+   float left=float.MaxValue,top=float.MaxValue,right=float.MinValue,bottom=float.MinValue;
+   foreach(var node in nodes)for(int i=0;i<4;i++){var p=RegionPlane(node.X+(i<2?-1:1)*node.Width/2,node.Y+(i%2==0?-1:1)*node.Height/2);left=Math.Min(left,p.x);right=Math.Max(right,p.x);top=Math.Min(top,p.y);bottom=Math.Max(bottom,p.y);}
+   return new Rect(left,top,Mathf.Max(1,right-left),Mathf.Max(1,bottom-top));
   }
-  static float RegionFitScale(Rect bounds,Rect canvas){return Mathf.Min(Mathf.Max(1,canvas.width-48)/Mathf.Max(1,bounds.width),Mathf.Max(1,canvas.height-54)/Mathf.Max(1,bounds.height));}
+  static float RegionFitScale(Rect bounds,Rect canvas){return Mathf.Min(Mathf.Max(1,canvas.width-60)/Mathf.Max(1,bounds.width),Mathf.Max(1,canvas.height-80)/Mathf.Max(1,bounds.height));}
   static Vector2 RegionMapPoint(double x,double y,Rect bounds,Rect canvas,float zoom,Vector2 pan){
-   float scale=RegionFitScale(bounds,canvas)*zoom;return canvas.center+pan+new Vector2(((float)x-bounds.center.x)*scale,((float)y-bounds.center.y)*scale);
+   float scale=RegionFitScale(bounds,canvas)*zoom;return canvas.center+pan+(RegionPlane(x,y)-bounds.center)*scale;
+  }
+  static float RegionBlockRise(PocRegionNode node,float zoom){return Mathf.Clamp((node.Kind=="junction"?1:node.Kind=="station"||node.Kind=="refuge"?4:10)*zoom,1,18);}
+  static Vector2[] RegionNodeCorners(PocRegionNode node,Rect bounds,Rect canvas,float zoom,Vector2 pan,float inset=0){
+   double w=Math.Max(1,node.Width/2-inset),h=Math.Max(1,node.Height/2-inset);
+   return new[]{RegionMapPoint(node.X-w,node.Y-h,bounds,canvas,zoom,pan),RegionMapPoint(node.X+w,node.Y-h,bounds,canvas,zoom,pan),RegionMapPoint(node.X+w,node.Y+h,bounds,canvas,zoom,pan),RegionMapPoint(node.X-w,node.Y+h,bounds,canvas,zoom,pan)};
   }
   static Rect RegionNodeRect(PocRegionNode node,Rect bounds,Rect canvas,float zoom,Vector2 pan){
-   Vector2 center=RegionMapPoint(node.X,node.Y,bounds,canvas,zoom,pan);float scale=RegionFitScale(bounds,canvas)*zoom;
-   float width=Mathf.Clamp((float)node.Width*scale,28,150),height=Mathf.Clamp((float)node.Height*scale,19,78);
-   return new Rect(center.x-width/2,center.y-height/2,width,height);
+   var points=RegionNodeCorners(node,bounds,canvas,zoom,pan);float left=points[0].x,right=left,top=points[0].y,bottom=top;
+   foreach(var point in points){left=Math.Min(left,point.x);right=Math.Max(right,point.x);top=Math.Min(top,point.y);bottom=Math.Max(bottom,point.y);}
+   float rise=RegionBlockRise(node,zoom);return new Rect(left-3,top-rise-3,right-left+6,bottom-top+rise+6);
   }
+
   static void RegionZoomAt(Vector2 pointer,Rect canvas,float factor,ref float zoom,ref Vector2 pan){
    float previous=zoom;zoom=Mathf.Clamp(zoom*factor,.65f,4.5f);Vector2 local=pointer-canvas.center;pan=local-(local-pan)*(zoom/previous);
   }
-  void RegionResetView(){hudRegionZoom=1;hudRegionPan=Vector2.zero;hudRegionPointerDown=false;hudRegionDetailScroll=Vector2.zero;}
+  void RegionResetView(){hudRegionLabelHits.Clear();hudRegionZoom=1;hudRegionPan=Vector2.zero;hudRegionPointerDown=false;hudRegionDetailScroll=Vector2.zero;}
   void RegionFocusNode(PocRegionMap map,PocRegionNode node){
    if(node==null||node.DeckId!=hudRegionDeckID)return;hudRegionZoom=2f;
    Rect bounds=RegionModelBounds(RegionDeckNodes(map,hudRegionDeckID));Vector2 target=RegionMapPoint(node.X,node.Y,bounds,hudRegionCanvas,hudRegionZoom,Vector2.zero);hudRegionPan=hudRegionCanvas.center-target;
@@ -73,14 +95,20 @@ namespace AngelsDemons.Poc {
    if(hudRegionFollowCurrent||!deckExists){
     string target=map.CurrentDeck;var current=RegionFindNode(map,map.CurrentNode);if(current!=null)target=current.DeckId;
     int index=0;for(int i=0;i<decks.Count;i++)if(decks[i].Id==target){index=i;break;}
-    RegionSelectDeck(decks,index,map);if(current!=null&&current.DeckId==hudRegionDeckID){hudRegionNodeID=current.Id;RegionFocusNode(map,current);}hudRegionFollowCurrent=false;
+    RegionSelectDeck(decks,index,map);if(current!=null&&current.DeckId==hudRegionDeckID){hudRegionNodeID=current.Id;}hudRegionFollowCurrent=false;
    }
    var selected=RegionFindNode(map,hudRegionNodeID);if(selected==null||selected.DeckId!=hudRegionDeckID){hudRegionNodeID="";foreach(var node in map.Nodes)if(node.DeckId==hudRegionDeckID&&RegionNodePlottable(node)){hudRegionNodeID=node.Id;break;}}
+  }
+  bool RegionSelectNode(PocRegionMap map,PocRegionNode node){
+   if(node==null||RegionFindNode(map,node.Id)!=node||!RegionNodePlottable(node))return false;
+   hudRegionNodeID=node.Id;hudRegionDetailScroll=Vector2.zero;
+   if(!node.Current&&!string.IsNullOrEmpty(node.LevelId))WayfindingSelect(node.LevelId);else WayfindingClear();return true;
   }
   void RegionHandleMapInput(List<PocRegionNode> nodes,Rect bounds){
    var e=Event.current;if(e==null)return;
    if(e.type==EventType.MouseUp&&hudRegionPointerDown){
-    if(!hudRegionDragging&&e.button==0&&hudRegionCanvas.Contains(e.mousePosition))for(int i=nodes.Count-1;i>=0;i--){Rect box=RegionNodeRect(nodes[i],bounds,hudRegionCanvas,hudRegionZoom,hudRegionPan),edge;string arrow;bool hit=box.Contains(e.mousePosition)||(RegionEdgeLabel(nodes[i],box,hudRegionCanvas,out edge,out arrow)&&edge.Contains(e.mousePosition));if(hit){hudRegionNodeID=nodes[i].Id;hudRegionDetailScroll=Vector2.zero;if(!nodes[i].Current&&!string.IsNullOrEmpty(nodes[i].LevelId))WayfindingSelect(nodes[i].LevelId);else WayfindingClear();break;}}
+    bool labelHit=false;if(!hudRegionDragging&&e.button==0&&hudRegionCanvas.Contains(e.mousePosition))for(int i=hudRegionLabelHits.Count-1;i>=0;i--)if(hudRegionLabelHits[i].box.Contains(e.mousePosition)){var node=RegionFindNode(state.Life.RegionMap,hudRegionLabelHits[i].id);if(node!=null&&node.DeckId==hudRegionDeckID)labelHit=RegionSelectNode(state.Life.RegionMap,node);break;}
+    if(!labelHit&&!hudRegionDragging&&e.button==0&&hudRegionCanvas.Contains(e.mousePosition))for(int i=nodes.Count-1;i>=0;i--){Rect box=RegionNodeRect(nodes[i],bounds,hudRegionCanvas,hudRegionZoom,hudRegionPan),edge;string arrow;bool hit=box.Contains(e.mousePosition)||(RegionEdgeLabel(nodes[i],box,hudRegionCanvas,out edge,out arrow)&&edge.Contains(e.mousePosition));if(hit){RegionSelectNode(map:state.Life.RegionMap,node:nodes[i]);break;}}
     hudRegionPointerDown=false;hudRegionDragging=false;e.Use();return;
    }
    if(e.type==EventType.MouseDrag&&hudRegionPointerDown){Vector2 offset=e.mousePosition-hudRegionPointerStart;if(offset.sqrMagnitude>9)hudRegionDragging=true;if(hudRegionDragging)hudRegionPan=hudRegionPanStart+offset;e.Use();return;}
@@ -121,30 +149,70 @@ namespace AngelsDemons.Poc {
   string RegionRouteNotice(string name){return L("ui.region.route_notice").Replace("{name}",name);}
   string RegionElevationLabel(double elevation){return L("ui.region.elevation").Replace("{elevation}",elevation.ToString("+0.#;-0.#;0",CultureInfo.InvariantCulture));}
   string RegionLinkName(string mode){return mode=="monorail"?L("ui.region.link_monorail"):mode=="stairs"?L("ui.region.link_stairs"):mode=="lift"?L("ui.region.link_lift"):L("ui.region.link_corridor");}
+  static bool RegionSegmentHitsBox(Vector2 a,Vector2 b,Rect box){return RegionClipLine(box,ref a,ref b);}
+  static List<Vector2> RegionConnectionPoints(PocRegionNode from,PocRegionNode to,IList<PocRegionNode> nodes){
+   var a=new Vector2((float)from.X,(float)(from.Y+from.Height/2+14));var b=new Vector2((float)to.X,(float)(to.Y+to.Height/2+14));
+   var candidates=new List<List<Vector2>>{new List<Vector2>{a,new Vector2(b.x,a.y),b},new List<Vector2>{a,new Vector2(a.x,b.y),b}};
+   float left=Math.Min(a.x,b.x),right=Math.Max(a.x,b.x),top=Math.Min(a.y,b.y),bottom=Math.Max(a.y,b.y);
+   foreach(var n in nodes){left=Math.Min(left,(float)(n.X-n.Width/2));right=Math.Max(right,(float)(n.X+n.Width/2));top=Math.Min(top,(float)(n.Y-n.Height/2));bottom=Math.Max(bottom,(float)(n.Y+n.Height/2));}
+   foreach(float y in new[]{top-16,bottom+16,(a.y+b.y)/2})candidates.Add(new List<Vector2>{a,new Vector2(a.x,y),new Vector2(b.x,y),b});
+   foreach(float x in new[]{left-16,right+16,(a.x+b.x)/2})candidates.Add(new List<Vector2>{a,new Vector2(x,a.y),new Vector2(x,b.y),b});
+   List<Vector2> best=null;float bestCost=float.MaxValue;
+   foreach(var route in candidates){float cost=route.Count*2;for(int i=1;i<route.Count;i++){cost+=Vector2.Distance(route[i-1],route[i]);foreach(var n in nodes){if(n.Id==from.Id||n.Id==to.Id)continue;var box=new Rect((float)(n.X-n.Width/2-5),(float)(n.Y-n.Height/2-5),(float)n.Width+10,(float)n.Height+10);if(RegionSegmentHitsBox(route[i-1],route[i],box))cost+=10000;}}if(cost<bestCost){bestCost=cost;best=route;}}
+   var result=new List<Vector2>();foreach(var point in best)if(result.Count==0||(point-result[result.Count-1]).sqrMagnitude>.001f)result.Add(point);return result;
+  }
+  void RegionPolygon(Rect canvas,Vector2[] points,Color color){
+   // Bounded scan conversion avoids rotating an IMGUI clipping group.
+   float top=canvas.yMax,bottom=canvas.yMin;foreach(var p in points){top=Math.Min(top,p.y);bottom=Math.Max(bottom,p.y);}int first=Math.Max((int)Math.Floor(canvas.yMin),(int)Math.Floor(top)),last=Math.Min((int)Math.Ceiling(canvas.yMax),(int)Math.Ceiling(bottom));
+   for(int y=first;y<last;y++){float scan=y+.5f,left=float.MaxValue,right=float.MinValue;for(int i=0;i<points.Length;i++){var a=points[i];var b=points[(i+1)%points.Length];if((a.y>scan)==(b.y>scan))continue;float x=a.x+(scan-a.y)*(b.x-a.x)/(b.y-a.y);left=Math.Min(left,x);right=Math.Max(right,x);}if(right>left)RegionClippedFill(new Rect(left,y,right-left,1),canvas,color);}
+  }
+  void RegionOutline(Rect canvas,Vector2[] points,Color color,float width){for(int i=0;i<points.Length;i++)RegionLine(canvas,points[i],points[(i+1)%points.Length],color,width);}
+  void RegionDashedLine(Rect canvas,Vector2 a,Vector2 b,Color color,float width){
+   if(!RegionClipLine(canvas,ref a,ref b))return;var d=b-a;float length=d.magnitude;if(length<.01f)return;
+   for(float at=0;at<length;at+=11)RegionLine(canvas,a+d*(at/length),a+d*(Math.Min(at+6,length)/length),color,width);
+  }
   void RegionDrawLinks(PocRegionMap map,Rect bounds,Rect canvas){
-   foreach(var link in map.Links){var from=RegionFindNode(map,link.FromNode);var to=RegionFindNode(map,link.ToNode);if(!RegionNodePlottable(from)||!RegionNodePlottable(to))continue;
-    if(from.DeckId!=hudRegionDeckID||to.DeckId!=hudRegionDeckID)continue;
-    Color color=link.Mode=="monorail"?new Color(.52f,.48f,.62f):new Color(.34f,.47f,.46f);
-    RegionLine(canvas,RegionMapPoint(from.X,from.Y,bounds,canvas,hudRegionZoom,hudRegionPan),RegionMapPoint(to.X,to.Y,bounds,canvas,hudRegionZoom,hudRegionPan),color,link.Mode=="monorail"?3:2);
+   var nodes=RegionDeckNodes(map,hudRegionDeckID);RegionPrepareConnections(nodes);var active=new HashSet<string>(map.SelectedLocalLinkIds,StringComparer.Ordinal);
+   for(int pass=0;pass<2;pass++)foreach(var link in map.Links){if(active.Contains(link.Id)!=(pass==1))continue;var from=RegionFindNode(map,link.FromNode);var to=RegionFindNode(map,link.ToNode);if(!RegionNodePlottable(from)||!RegionNodePlottable(to)||from.DeckId!=hudRegionDeckID||to.DeckId!=hudRegionDeckID)continue;
+    bool rail=link.Mode=="monorail",selected=active.Contains(link.Id);List<Vector2> route;string routeKey=link.Id+"/"+link.FromNode+"/"+link.ToNode+"/"+link.Mode;if(!regionConnectionRoutes.TryGetValue(routeKey,out route)){route=rail?new List<Vector2>{new Vector2((float)from.X,(float)from.Y),new Vector2((float)to.X,(float)to.Y)}:RegionConnectionPoints(from,to,nodes);regionConnectionRoutes[routeKey]=route;}
+    for(int i=1;i<route.Count;i++){var a=RegionMapPoint(route[i-1].x,route[i-1].y,bounds,canvas,hudRegionZoom,hudRegionPan);var b=RegionMapPoint(route[i].x,route[i].y,bounds,canvas,hudRegionZoom,hudRegionPan);var normal=new Vector2(-(b-a).y,(b-a).x).normalized;
+     if(rail){Color railColor=new Color(.43f,.58f,.60f,.85f);RegionLine(canvas,a-normal*2,b-normal*2,railColor,1);RegionLine(canvas,a+normal*2,b+normal*2,railColor,1);float length=Vector2.Distance(a,b);for(float t=9;t<length;t+=16){var at=Vector2.Lerp(a,b,t/length);RegionLine(canvas,at-normal*4,at+normal*4,new Color(.30f,.40f,.41f),1);}}
+     else{RegionLine(canvas,a,b,new Color(.15f,.19f,.19f),4);RegionDashedLine(canvas,a,b,new Color(.48f,.50f,.45f,.85f),1);}
+     if(selected)RegionDashedLine(canvas,a+(rail?normal*7:Vector2.zero),b+(rail?normal*7:Vector2.zero),new Color(.96f,.65f,.30f),3);
+    }
    }
+  }
+  void RegionRoofLine(PocRegionNode node,Rect bounds,Rect canvas,double x1,double y1,double x2,double y2,Color color){
+   var rise=new Vector2(0,RegionBlockRise(node,hudRegionZoom));RegionLine(canvas,RegionMapPoint(node.X+x1,node.Y+y1,bounds,canvas,hudRegionZoom,hudRegionPan)-rise,RegionMapPoint(node.X+x2,node.Y+y2,bounds,canvas,hudRegionZoom,hudRegionPan)-rise,color,1);
+  }
+  void RegionDrawBlock(PocRegionNode node,Rect bounds,Rect canvas){
+   var floor=RegionNodeCorners(node,bounds,canvas,hudRegionZoom,hudRegionPan);var top=(Vector2[])floor.Clone();float rise=RegionBlockRise(node,hudRegionZoom);for(int i=0;i<top.Length;i++)top[i].y-=rise;
+   bool selected=node.Id==hudRegionNodeID;Color roof=node.Knowledge=="visited"?new Color(.31f,.32f,.28f):new Color(.25f,.28f,.29f);if(selected)roof=new Color(.40f,.37f,.26f);
+   RegionPolygon(canvas,new[]{top[2],top[3],floor[3],floor[2]},new Color(.16f,.18f,.18f));RegionPolygon(canvas,new[]{top[3],top[0],floor[0],floor[3]},new Color(.20f,.22f,.21f));RegionPolygon(canvas,top,roof);RegionOutline(canvas,top,selected?hudBrass:new Color(.48f,.49f,.43f),selected?2:1);
+   RegionLine(canvas,top[3],floor[3],new Color(.38f,.40f,.35f),1);RegionLine(canvas,floor[0],floor[3],new Color(.32f,.34f,.31f),1);RegionLine(canvas,floor[3],floor[2],new Color(.32f,.34f,.31f),1);
+   var inset=RegionNodeCorners(node,bounds,canvas,hudRegionZoom,hudRegionPan,5);for(int i=0;i<inset.Length;i++)inset[i].y-=rise;RegionOutline(canvas,inset,new Color(.14f,.17f,.17f),1);
+   Color ink=new Color(.62f,.63f,.54f);double w=node.Width*.29,h=node.Height*.29;
+   if(node.Kind=="market"||node.Kind=="housing"){for(int i=-1;i<=1;i++)RegionRoofLine(node,bounds,canvas,w*i,-h,w*i,h,ink);}
+   else if(node.Kind=="station"||node.Kind=="transport_hub"){RegionRoofLine(node,bounds,canvas,-w,-h*.45,w,-h*.45,ink);RegionRoofLine(node,bounds,canvas,-w,h*.45,w,h*.45,ink);}
+   else if(node.Kind=="clinic"){RegionRoofLine(node,bounds,canvas,-w*.65,0,w*.65,0,ink);RegionRoofLine(node,bounds,canvas,0,-h*.8,0,h*.8,ink);}
+   else if(node.Kind=="repair_workshop"||node.Kind=="utility_air"){for(int i=-1;i<=1;i++)RegionRoofLine(node,bounds,canvas,-w,h*i*.6,w,h*i*.6,ink);}
+   else if(node.Kind=="control"||node.Kind=="controlled_reception"){RegionRoofLine(node,bounds,canvas,-w,0,w,0,ink);RegionRoofLine(node,bounds,canvas,0,-h,0,h,ink);}
+   if(node.Current){var c=RegionMapPoint(node.X,node.Y,bounds,canvas,hudRegionZoom,hudRegionPan)-new Vector2(0,rise);var diamond=new[]{c+new Vector2(0,-6),c+new Vector2(6,0),c+new Vector2(0,6),c+new Vector2(-6,0)};RegionPolygon(canvas,diamond,new Color(.97f,.62f,.26f));RegionOutline(canvas,diamond,new Color(.98f,.81f,.51f),1);}
   }
   void RegionDrawNodes(List<PocRegionNode> nodes,Rect bounds,Rect canvas){
-   foreach(var node in nodes){Rect box=RegionNodeRect(node,bounds,canvas,hudRegionZoom,hudRegionPan);if(!canvas.Overlaps(box))continue;
-    bool selected=node.Id==hudRegionNodeID;Fill(box,selected?hudBrass:node.Knowledge=="visited"?new Color(.34f,.44f,.43f):new Color(.30f,.33f,.34f));
-    Fill(new Rect(box.x+2,box.y+2,box.width-4,box.height-4),new Color(.12f,.17f,.18f));
-    if(node.Current){Fill(new Rect(box.center.x-5,box.center.y-5,10,10),hudPaper);Fill(new Rect(box.center.x-2,box.center.y-2,4,4),hudBrass);}
-   }
-   // Keep names readable without forcing every small landmark into an overlapping label.
+   hudRegionLabelHits.Clear();var ordered=new List<PocRegionNode>(nodes);ordered.Sort((a,b)=>RegionPlane(a.X,a.Y).y.CompareTo(RegionPlane(b.X,b.Y).y));foreach(var node in ordered)if(canvas.Overlaps(RegionNodeRect(node,bounds,canvas,hudRegionZoom,hudRegionPan)))RegionDrawBlock(node,bounds,canvas);
+   if(hudRegionLabel==null)hudRegionLabel=new GUIStyle(hudSmall){fontSize=12,wordWrap=true,alignment=TextAnchor.MiddleCenter,normal={textColor=hudPaper}};
    var labels=new List<Rect>();
-   for(int pass=0;pass<2;pass++)foreach(var node in nodes){bool priority=node.Current||node.Id==hudRegionNodeID;if((pass==0)!=priority)continue;
-    Rect box=RegionNodeRect(node,bounds,canvas,hudRegionZoom,hudRegionPan);if(!canvas.Overlaps(box)){Rect edge;string arrow;if(RegionEdgeLabel(node,box,canvas,out edge,out arrow)){labels.Add(edge);Fill(edge,new Color(.055f,.075f,.082f,.96f));GUI.Label(new Rect(edge.x+5,edge.y+1,edge.width-10,18),new GUIContent(arrow+" "+node.Name,node.Name),hudSmall);}continue;}
-    if(!priority&&string.IsNullOrEmpty(node.LevelId)&&box.width<65)continue;
-    float width=Mathf.Clamp(hudSmall.CalcSize(new GUIContent(node.Name)).x+12,72,188);Rect label=new Rect(box.center.x-width/2,box.yMax+4,width,20);
-    label.x=Mathf.Clamp(label.x,canvas.x+3,canvas.xMax-label.width-3);if(label.yMax>canvas.yMax-3)label.y=box.y-24;
-    bool collision=false;foreach(var occupied in labels)if(occupied.Overlaps(label)){collision=true;break;}if(collision&&!priority)continue;
-    if(label.y<canvas.y+2||label.yMax>canvas.yMax-2)continue;labels.Add(label);Fill(label,new Color(.055f,.075f,.082f,.96f));GUI.Label(new Rect(label.x+5,label.y+1,label.width-10,18),new GUIContent(node.Name,node.Name),hudSmall);
+   for(int pass=0;pass<3;pass++)foreach(var node in nodes){int priority=node.Current||node.Id==hudRegionNodeID?0:!string.IsNullOrEmpty(node.LevelId)||node.Kind=="hygiene"||node.Kind=="food"||node.Kind=="laundry"||node.Kind=="clinic"?1:2;if(pass!=priority)continue;
+    Rect box=RegionNodeRect(node,bounds,canvas,hudRegionZoom,hudRegionPan);if(!canvas.Overlaps(box)){Rect edge;string arrow;if(RegionEdgeLabel(node,box,canvas,out edge,out arrow)&&priority<2){labels.Add(edge);Fill(edge,new Color(.075f,.085f,.09f,.96f));GUI.Label(new Rect(edge.x+4,edge.y,edge.width-8,20),new GUIContent(arrow+" "+node.Name,node.Name),hudSmall);}continue;}
+    if(node.Kind=="junction"&&priority==2)continue;
+    string name=string.IsNullOrEmpty(node.Label)?node.Name:node.Label;float width=priority<2?112:96;float height=Math.Min(44,Math.Max(21,hudRegionLabel.CalcHeight(new GUIContent(name),width-8)));
+    Rect label=new Rect();bool found=false;var positions=new List<Vector2>();for(int ring=0;ring<3;ring++){float gap=5+ring*24;positions.Add(new Vector2(box.center.x-width/2,box.yMin-height-gap));positions.Add(new Vector2(box.center.x-width/2,box.yMax+gap));positions.Add(new Vector2(box.xMax+gap,box.center.y-height/2));positions.Add(new Vector2(box.xMin-width-gap,box.center.y-height/2));}foreach(var at in positions){var test=new Rect(Mathf.Clamp(at.x,canvas.x+3,canvas.xMax-width-3),Mathf.Clamp(at.y,canvas.y+3,canvas.yMax-height-3),width,height);bool collision=false;foreach(var other in labels)if(other.Overlaps(test)){collision=true;break;}if(!collision){label=test;found=true;break;}}
+    if(!found){if(priority==2)continue;label=new Rect(Mathf.Clamp(box.center.x-width/2,canvas.x+3,canvas.xMax-width-3),Mathf.Clamp(box.yMax+5,canvas.y+3,canvas.yMax-height-3),width,height);}
+    labels.Add(label);hudRegionLabelHits.Add(new RegionLabelHit{box=new Rect(label.x+hudRegionCanvas.x,label.y+hudRegionCanvas.y,label.width,label.height),id=node.Id});var edgePoint=new Vector2(Mathf.Clamp(box.center.x,label.xMin,label.xMax),Mathf.Clamp(box.center.y,label.yMin,label.yMax));RegionLine(canvas,box.center,edgePoint,new Color(.40f,.41f,.35f),1);RegionClippedFill(label,canvas,new Color(.085f,.095f,.098f,.94f));GUI.Label(new Rect(label.x+4,label.y,label.width-8,label.height),new GUIContent(name,name),hudRegionLabel);
    }
   }
+
   string RegionNodeDescription(PocRegionMap map,PocRegionNode selected){
    var text=new StringBuilder();if(!string.IsNullOrEmpty(selected.Description))text.Append(selected.Description);
    foreach(var link in map.Links){string id=link.FromNode==selected.Id?link.ToNode:link.ToNode==selected.Id?link.FromNode:"";if(id=="")continue;var other=RegionFindNode(map,id);if(other==null)continue;
@@ -153,20 +221,21 @@ namespace AngelsDemons.Poc {
    }return text.ToString();
   }
   void RegionDrawDetail(PocRegionMap map){
-   Rect panel=new Rect(934,294,272,383);HudFrame(panel,false);var node=RegionFindNode(map,hudRegionNodeID);
-   if(node==null){GUI.Label(new Rect(948,312,244,70),L("ui.region.select_place"),hudWrap);return;}
-   GUI.Label(new Rect(948,308,244,50),node.Name,hudWrap);
-   GUI.Label(new Rect(948,365,244,20),node.Current?L("ui.region.status_here"):node.Knowledge=="visited"?L("ui.region.status_visited"):L("ui.region.status_known"),hudSmall);
-   string description=RegionNodeDescription(map,node);float height=Mathf.Max(180,hudWrap.CalcHeight(new GUIContent(description),218)+8);
-   hudRegionDetailScroll=GUI.BeginScrollView(new Rect(946,395,248,196),hudRegionDetailScroll,new Rect(0,0,224,height));GUI.Label(new Rect(2,0,218,height),description,hudWrap);GUI.EndScrollView();
-   bool destination=RegionNodeTravelAllowed(node);bool ready=destination&&CanSend()&&state!=null&&!state.Paused&&!loadingActive;
+   Rect panel=new Rect(986,282,220,395);Fill(new Rect(panel.x-6,panel.y,1,panel.height),new Color(.39f,.36f,.28f));var node=RegionFindNode(map,hudRegionNodeID);
+   GUI.Label(new Rect(998,289,196,21),L("ui.region.selected_object"),hudSmall);
+   if(node==null){GUI.Label(new Rect(998,326,196,70),L("ui.region.select_place"),hudWrap);return;}
+   GUI.Label(new Rect(998,319,196,69),node.Name,hudWrap);
+   GUI.Label(new Rect(998,389,196,32),node.Current?L("ui.region.status_here"):node.Knowledge=="visited"?L("ui.region.status_visited"):L("ui.region.status_known"),hudWrap);
+   string description=RegionNodeDescription(map,node);float height=Mathf.Max(160,hudWrap.CalcHeight(new GUIContent(description),174)+8);
+   hudRegionDetailScroll=GUI.BeginScrollView(new Rect(996,429,202,153),hudRegionDetailScroll,new Rect(0,0,180,height));GUI.Label(new Rect(2,0,174,height),description,hudWrap);GUI.EndScrollView();
+   bool destination=RegionNodeTravelAllowed(node);var guidance=WayfindingView();bool selected=guidance!=null&&guidance.SelectedDestinationId==node.LevelId&&!wayfindingPending;
    if(destination){
-    var guidance=WayfindingView();bool selected=guidance!=null&&guidance.SelectedDestinationId==node.LevelId&&!wayfindingPending;
-    if(HudButton(new Rect(948,605,118,39),L("ui.wayfinding.show_floor"),selected&&guidance.Reachable))page="game";
-    if(HudButton(new Rect(1070,605,122,39),L("ui.wayfinding.go"),ready&&selected)){if(WayfindingGo())page="game";}
-    GUI.Label(new Rect(948,650,244,17),state!=null&&state.Paused?L("ui.region.travel_paused"):L("ui.region.travel_known_connections"),hudSmall);
-   }else GUI.Label(new Rect(948,609,244,48),node.Current?L("ui.region.current_place"):L("ui.region.landmark"),hudWrap);
+    if(HudButton(new Rect(998,596,196,34),L("ui.region.preview_route"),CanSend()))RegionSelectNode(map,node);
+    if(HudButton(new Rect(998,637,96,35),L("ui.region.show_floor"),selected&&guidance.Reachable))page="game";
+    if(HudButton(new Rect(1100,637,94,35),L("ui.wayfinding.go"),CanSend()&&state!=null&&!state.Paused&&!loadingActive&&selected&&guidance.Reachable)){if(WayfindingGo())page="game";}
+   }else GUI.Label(new Rect(998,601,196,60),node.Current?L("ui.region.current_place"):L("ui.region.landmark"),hudWrap);
   }
+
   void DrawRegionMap(){
    GUI.Label(new Rect(324,190,630,27),L("ui.region.map_title"),hudHeading);
    GUI.Label(new Rect(324,223,880,22),L("ui.region.memory_caption"),hudSmall);
@@ -174,20 +243,22 @@ namespace AngelsDemons.Poc {
    if(map==null||decks.Count==0){GUI.Label(new Rect(324,274,880,50),L("ui.region.empty_map"),hudWrap);return;}
    RegionRefreshSelection(map,decks);int deckIndex=0;for(int i=0;i<decks.Count;i++)if(decks[i].Id==hudRegionDeckID){deckIndex=i;break;}
    var deck=decks[deckIndex];GUI.Label(new Rect(324,253,420,25),deck.Name,hudBody);
-   GUI.Label(new Rect(744,254,162,22),RegionElevationLabel(deck.ElevationM),hudSmall);
-   if(HudButton(new Rect(934,250,130,32),L("ui.region.deck_lower"),deckIndex>0))RegionSelectDeck(decks,deckIndex-1,map);
-   if(HudButton(new Rect(1076,250,130,32),L("ui.region.deck_higher"),deckIndex+1<decks.Count))RegionSelectDeck(decks,deckIndex+1,map);
+   GUI.Label(new Rect(758,254,212,22),RegionElevationLabel(deck.ElevationM),hudSmall);
+   if(HudButton(new Rect(986,247,103,30),L("ui.region.deck_lower"),deckIndex>0))RegionSelectDeck(decks,deckIndex-1,map);
+   if(HudButton(new Rect(1097,247,109,30),L("ui.region.deck_higher"),deckIndex+1<decks.Count))RegionSelectDeck(decks,deckIndex+1,map);
    var nodes=RegionDeckNodes(map,hudRegionDeckID);Rect bounds=RegionModelBounds(nodes);RegionHandleMapInput(nodes,bounds);
-   Fill(hudRegionCanvas,new Color(.055f,.085f,.095f));
+   Fill(hudRegionCanvas,new Color(.075f,.085f,.09f));
    GUI.BeginGroup(hudRegionCanvas);Rect localCanvas=new Rect(0,0,hudRegionCanvas.width,hudRegionCanvas.height);
+   for(int y=14;y<localCanvas.height;y+=26)for(int x=14;x<localCanvas.width;x+=26){var ink=new Color(.21f,.22f,.20f);Fill(new Rect(x-2,y,5,1),ink);Fill(new Rect(x,y-2,1,5),ink);}
    RegionDrawLinks(map,bounds,localCanvas);RegionDrawNodes(nodes,bounds,localCanvas);GUI.EndGroup();
-   GUI.Label(new Rect(324,625,596,18),L("ui.region.legend"),hudSmall);
-   if(HudButton(new Rect(324,647,42,30),"−"))RegionZoomAt(hudRegionCanvas.center,hudRegionCanvas,1/1.2f,ref hudRegionZoom,ref hudRegionPan);
-   if(HudButton(new Rect(372,647,42,30),"+"))RegionZoomAt(hudRegionCanvas.center,hudRegionCanvas,1.2f,ref hudRegionZoom,ref hudRegionPan);
-   if(HudButton(new Rect(422,647,126,30),L("ui.region.fit_all")))RegionResetView();
-   if(HudButton(new Rect(556,647,106,30),L("ui.region.focus_hero"))){var current=RegionFindNode(map,map.CurrentNode);if(current!=null){for(int i=0;i<decks.Count;i++)if(decks[i].Id==current.DeckId){RegionSelectDeck(decks,i,map);break;}hudRegionNodeID=current.Id;RegionFocusNode(map,current);}}
-   GUI.Label(new Rect(675,653,245,20),L("ui.region.controls_hint"),hudSmall);
-   RegionDrawDetail(map);
+   GUI.Label(new Rect(324,628,650,20),L("ui.region.legend"),hudSmall);
+   if(HudButton(new Rect(324,654,36,30),"−"))RegionZoomAt(hudRegionCanvas.center,hudRegionCanvas,1/1.2f,ref hudRegionZoom,ref hudRegionPan);
+   if(HudButton(new Rect(365,654,36,30),"+"))RegionZoomAt(hudRegionCanvas.center,hudRegionCanvas,1.2f,ref hudRegionZoom,ref hudRegionPan);
+   if(HudButton(new Rect(409,654,112,30),L("ui.region.fit_all")))RegionResetView();
+   if(HudButton(new Rect(529,654,106,30),L("ui.region.focus_hero"))){var current=RegionFindNode(map,map.CurrentNode);if(current!=null){for(int i=0;i<decks.Count;i++)if(decks[i].Id==current.DeckId){RegionSelectDeck(decks,i,map);break;}hudRegionNodeID=current.Id;RegionFocusNode(map,current);}}
+   GUI.Label(new Rect(649,660,325,20),L("ui.region.controls_hint"),hudSmall);RegionDrawDetail(map);
   }
+
+
  }
 }

@@ -21,9 +21,9 @@ func TestRegionUIUsesOnlyChipKnowledgeAndServerTravel(t *testing.T) {
 		`L("ui.region.memory_caption")`,
 		`node.Knowledge=="known"||node.Knowledge=="visited"`,
 		`node.CanTravel&&!node.Current&&!string.IsNullOrEmpty(node.LevelId)`,
-		`WayfindingSelect(nodes[i].LevelId)`, `WayfindingGo()`, `GUI.BeginGroup(hudRegionCanvas)`,
+		`WayfindingSelect(node.LevelId)`, `WayfindingGo()`, `GUI.BeginGroup(hudRegionCanvas)`,
 		`RegionHandleMapInput(nodes,bounds)`, `RegionKnownDecks(map)`,
-		`RegionClipLine(canvas,ref from,ref to)`, `RegionClippedFill`, `RegionFocusNode(map,current)`,
+		`RegionClipLine(canvas,ref from,ref to)`, `RegionClippedFill`, `RegionFocusNode(map,current)`, `RegionSelectNode`, `RegionPlane`,
 		`L("ui.region.landmark")`, `L("ui.region.tab_floor")`, `L("ui.region.tab_local")`,
 	} {
 		if !strings.Contains(s, want) {
@@ -51,17 +51,18 @@ func TestRegionUINativeProjectionKnowledgeAndTravel(t *testing.T) {
 	managed := filepath.Join(editor, "Contents/Resources/Scripting/Managed/UnityEngine")
 	core := filepath.Join(managed, "UnityEngine.CoreModule.dll")
 	imgui := filepath.Join(managed, "UnityEngine.IMGUIModule.dll")
+	textRendering := filepath.Join(managed, "UnityEngine.TextRenderingModule.dll")
 	facade := filepath.Join(filepath.Dir(mono), "../lib/mono/4.8-api/Facades/netstandard.dll")
-	for _, path := range []string{mono, csc, core, imgui, facade} {
+	for _, path := range []string{mono, csc, core, imgui, textRendering, facade} {
 		if _, err := os.Stat(path); err != nil {
 			t.Skipf("Unity compile dependency unavailable: %s", path)
 		}
 	}
 	harness := `
 namespace AngelsDemons.Game.V1 {
- public class PocRegionMap {public string Id="",Name="",CurrentNode="",CurrentDeck="";public System.Collections.Generic.List<PocRegionDeck> Decks=new System.Collections.Generic.List<PocRegionDeck>();public System.Collections.Generic.List<PocRegionNode> Nodes=new System.Collections.Generic.List<PocRegionNode>();public System.Collections.Generic.List<PocRegionLink> Links=new System.Collections.Generic.List<PocRegionLink>();}
+ public class PocRegionMap {public string Id="",Name="",CurrentNode="",CurrentDeck="",SelectedDestinationId="";public System.Collections.Generic.List<string> SelectedLocalLinkIds=new System.Collections.Generic.List<string>();public System.Collections.Generic.List<PocRegionDeck> Decks=new System.Collections.Generic.List<PocRegionDeck>();public System.Collections.Generic.List<PocRegionNode> Nodes=new System.Collections.Generic.List<PocRegionNode>();public System.Collections.Generic.List<PocRegionLink> Links=new System.Collections.Generic.List<PocRegionLink>();}
  public class PocRegionDeck {public string Id="",Name="";public double ElevationM;}
- public class PocRegionNode {public string Id="",Name="",DeckId="",Knowledge="",LevelId="",Description="";public double X,Y,Width,Height;public bool Current,CanTravel;}
+ public class PocRegionNode {public string Id="",Name="",DeckId="",Knowledge="",LevelId="",Description="",Kind="",Label="";public double X,Y,Width,Height;public bool Current,CanTravel;}
  public class PocRegionLink {public string Id="",FromNode="",ToNode="",Mode="";}
 }
 namespace AngelsDemons.Poc {
@@ -76,6 +77,8 @@ namespace AngelsDemons.Poc {
   void DrawHudLocalMap(){}void LifeCommand(string action,string destination){}
   static readonly System.Collections.Generic.Dictionary<string,string> regionEnglish=new System.Collections.Generic.Dictionary<string,string> {
    {"ui.region.tab_floor","Floor"},
+   {"ui.region.selected_object","Selected place"},
+   {"ui.region.preview_route","Preview route"},
    {"ui.region.tab_local","Location"},
    {"ui.region.link_monorail","Monorail"},
    {"ui.region.link_stairs","Stairs"},
@@ -123,8 +126,8 @@ namespace AngelsDemons.Poc {
    Require(RegionKnownDecks(map).Count==1&&RegionKnownDecks(map)[0].Id=="low","empty/unknown-only decks are absent");
    Require(RegionFindNode(map,"hidden")==null,"unknown node cannot be selected");
    var nodes=RegionDeckNodes(map,"low");Require(nodes.Count==2,"unknown and nonfinite nodes cannot enter projection");
-   var bounds=RegionModelBounds(nodes);Require(bounds.width<120&&bounds.height<70,"unknown coordinates do not affect fit");
-   var canvas=new UnityEngine.Rect(324,294,596,326);float zoom=1;var pan=new UnityEngine.Vector2(18,-12);
+   var bounds=RegionModelBounds(nodes);Require(bounds.width<130&&bounds.height<70,"unknown coordinates do not affect fit");
+   var canvas=new UnityEngine.Rect(324,282,650,340);float zoom=1;var pan=new UnityEngine.Vector2(18,-12);
    var before=RegionMapPoint(known.X,known.Y,bounds,canvas,zoom,pan);
    RegionZoomAt(before,canvas,1.7f,ref zoom,ref pan);var after=RegionMapPoint(known.X,known.Y,bounds,canvas,zoom,pan);
    Near(before.x,after.x,"cursor anchor X");Near(before.y,after.y,"cursor anchor Y");
@@ -133,7 +136,7 @@ namespace AngelsDemons.Poc {
    var global=RegionMapPoint(visited.X,visited.Y,bounds,canvas,zoom,pan);var local=RegionMapPoint(visited.X,visited.Y,bounds,new UnityEngine.Rect(0,0,canvas.width,canvas.height),zoom,pan);
    Near(global.x,local.x+canvas.x,"clip-group/input X agreement");Near(global.y,local.y+canvas.y,"clip-group/input Y agreement");
    map.Links.Add(new AngelsDemons.Game.V1.PocRegionLink {FromNode="market",ToNode="hidden",Mode="lift"});
-   var ui=new AngelsDemonsPoc();Require(!ui.RegionNodeDescription(map,known).Contains("hidden"),"dangling/unknown connection is not described");
+   var ui=new AngelsDemonsPoc();ui.RegionPrepareConnections(nodes);ui.regionConnectionRoutes["probe"]=new System.Collections.Generic.List<UnityEngine.Vector2>();ui.RegionPrepareConnections(nodes);Require(ui.regionConnectionRoutes.Count==1,"unchanged known topology rebuilt its presentation routes");known.X+=1;ui.RegionPrepareConnections(nodes);Require(ui.regionConnectionRoutes.Count==0,"modified known geometry retained stale presentation routes");known.X-=1;Require(!ui.RegionNodeDescription(map,known).Contains("hidden"),"dangling/unknown connection is not described");
    var clip=new UnityEngine.Rect(0,0,596,326);var strokes=new[]{
     new[]{new UnityEngine.Vector2(-100,80),new UnityEngine.Vector2(700,80)},
     new[]{new UnityEngine.Vector2(40,-100),new UnityEngine.Vector2(40,500)},
@@ -151,7 +154,8 @@ namespace AngelsDemons.Poc {
    Require(ui.RegionNodeDescription(map,known).Contains("Monorail \u2192 home"),"localized connection format contains the known localized place name");
    ui.SetHudMapMode("local");Require(!ui.hudMapFloor,"local tab reachable");ui.OpenHudMap();Require(ui.hudMapFloor&&ui.page=="map"&&ui.hudRegionFollowCurrent,"M opens floor by default");
    ui.RegionRefreshSelection(map,RegionKnownDecks(map));Require(ui.hudRegionDeckID=="low"&&ui.hudRegionNodeID=="home","current place selected from wire only");
-   Near(ui.hudRegionZoom,2,"opening view focuses on the current neighborhood");
+   Near(ui.hudRegionZoom,1,"opening view shows all known destinations");
+   ui.RegionFocusNode(map,visited);
    var focused=RegionMapPoint(visited.X,visited.Y,RegionModelBounds(RegionDeckNodes(map,"low")),canvas,ui.hudRegionZoom,ui.hudRegionPan);Near(focused.x,canvas.center.x,"current place centered X");Near(focused.y,canvas.center.y,"current place centered Y");
    var work=Node("work","known");work.X=1120;work.Y=140;work.LevelId="level.poc_work";map.Nodes.Add(work);ui.RegionFocusNode(map,visited);
    UnityEngine.Rect edge;string arrow;Require(RegionEdgeLabel(work,RegionNodeRect(work,RegionModelBounds(RegionDeckNodes(map,"low")),canvas,ui.hudRegionZoom,ui.hudRegionPan),canvas,out edge,out arrow)&&arrow=="\u2192"&&canvas.Contains(edge.center),"distant B7 connection remains discoverable at the focused view edge");
@@ -168,7 +172,7 @@ namespace AngelsDemons.Poc {
 	if err := os.WriteFile(source, []byte(hudTemplate(t, "region.cs.tmpl")+harness), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := exec.Command(mono, csc, "/nologo", "/r:"+facade, "/r:"+core, "/r:"+imgui, "/out:"+output, source).CombinedOutput(); err != nil {
+	if out, err := exec.Command(mono, csc, "/nologo", "/r:"+facade, "/r:"+core, "/r:"+imgui, "/r:"+textRendering, "/out:"+output, source).CombinedOutput(); err != nil {
 		t.Fatalf("compile full region template against Unity: %v\n%s", err, out)
 	}
 	cmd := exec.Command(mono, output)

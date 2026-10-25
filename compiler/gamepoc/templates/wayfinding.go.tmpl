@@ -8,10 +8,11 @@ import (
  pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
 )
 
-type wayfindingDestination struct {MarkerNumber int `json:"marker_number,omitempty"`;ID string `json:"id"`;NameKey string `json:"name_key"`;Level string `json:"level"`;Color string `json:"color"`;Kind string `json:"kind"`;At behavior.Cell `json:"at"`;GuideFrom *behavior.Cell `json:"guide_from,omitempty"`;EdgeID string `json:"edge_id,omitempty"`}
+type wayfindingGuidePoint struct {X float64 `json:"x"`;Y float64 `json:"y"`}
+type wayfindingDestination struct {MarkerNumber int `json:"marker_number,omitempty"`;ID string `json:"id"`;NameKey string `json:"name_key"`;Level string `json:"level"`;Color string `json:"color"`;Kind string `json:"kind"`;At behavior.Cell `json:"at"`;GuideFrom *behavior.Cell `json:"guide_from,omitempty"`;GuideRoute []wayfindingGuidePoint `json:"guide_route,omitempty"`;GuideSupport []behavior.Cell `json:"guide_support,omitempty"`;EdgeID string `json:"edge_id,omitempty"`}
 type wayfindingCatalog struct {Destinations []wayfindingDestination `json:"destinations"`}
 // Selection and caches are transient UI state, intentionally outside saves.
-type wayfindingSession struct {Epoch,Level,Selected,Rejected,Memory string;Guides map[string][]behavior.Cell;From,To behavior.Cell;Route []behavior.Cell;RouteReady bool}
+type wayfindingSession struct {Epoch,Level,Selected,Rejected,Memory string;Guides map[string][]behavior.Cell;Shapes map[string][]*pb.PocWayfindingShapePoint;From,To behavior.Cell;Route []behavior.Cell;RouteReady bool}
 type wayfindingResolved struct {Number int;ID,Name,Color,Kind,EdgeID,Mode string;At behavior.Cell}
 
 func(r *Runtime)wayfindingContext()(*behavior.LifeActor,string){
@@ -19,7 +20,7 @@ func(r *Runtime)wayfindingContext()(*behavior.LifeActor,string){
  if r.wayfinding.Epoch!=r.state.Epoch||r.wayfinding.Level!=hero.Level{r.wayfinding=wayfindingSession{Epoch:r.state.Epoch,Level:hero.Level}}
  level:=r.world.Life.Locations[hero.Level];var key strings.Builder
  for y,row:=range level.Terrain{for x:=range len(row){seen,ok:=r.state.LifeExploration[hero.Level][y*len(row)+x];if ok{key.WriteString(seen.Glyph)}else{key.WriteByte('?')}}}
- memory:=key.String();if r.wayfinding.Memory!=memory{r.wayfinding.Memory=memory;r.wayfinding.Guides=map[string][]behavior.Cell{};r.wayfinding.RouteReady=false}
+ memory:=key.String();if r.wayfinding.Memory!=memory{r.wayfinding.Memory=memory;r.wayfinding.Guides=map[string][]behavior.Cell{};r.wayfinding.Shapes=map[string][]*pb.PocWayfindingShapePoint{};r.wayfinding.RouteReady=false}
  return hero,memory
 }
 func(r *Runtime)wayfindingWalks(level string,at behavior.Cell)bool{
@@ -45,19 +46,17 @@ func(r *Runtime)wayfindingLocal(locale string)[]wayfindingResolved{
 func(r *Runtime)wayfindingRegional(locale,target string)(wayfindingResolved,bool){
  hero:=r.state.Life.Actor(playerActorID);if hero==nil||hero.Trip!=nil||target==hero.Level||!r.regionCanGoto(target){return wayfindingResolved{},false}
  from,to:=r.regionNodeForLevel(hero.Level),r.regionNodeForLevel(target);if from==nil||to==nil{return wayfindingResolved{},false}
- type hop struct{node,first string};queue:=[]hop{{node:from.ID}};seen:=map[string]bool{from.ID:true};nextNode:=""
- for head:=0;head<len(queue)&&nextNode=="";head++{at:=queue[head];for _,link:=range r.world.Region.Links{if !r.state.Region.KnownLinks[link.ID]||!r.state.Region.KnownNodes[link.FromNode]||!r.state.Region.KnownNodes[link.ToNode]{continue};next:="";if link.FromNode==at.node{next=link.ToNode}else if link.ToNode==at.node{next=link.FromNode};if next==""||seen[next]{continue};seen[next]=true;first:=at.first;if first==""{first=next};if next==to.ID{nextNode=first;break};queue=append(queue,hop{node:next,first:first})}}
- // Schematic intermediate landmarks may have no Life scene. A physical exit
- // is eligible only if its known destination lies on that known route branch.
- var best wayfindingResolved;bestCost:=int(^uint(0)>>1)
- for _,e:=range r.world.Life.Edges{if e.From!=hero.Level||!r.lifeExitKnown(e)||!r.wayfindingWalks(hero.Level,e.Exit){continue};node:=r.regionNodeForLevel(e.To);if node==nil||!r.state.Region.KnownNodes[node.ID]{continue};branchOK:=node.ID==nextNode
-  if !branchOK&&nextNode!=""{branchOK=r.wayfindingRegionBranch(nextNode,node.ID,from.ID)};if !branchOK{continue}
+ // Reconstruct the known schematic route, then stop at its first playable
+ // room. A landmark can precede that room, but a route to the station must
+ // never continue through the station and offer an unrelated hub beyond it.
+ queue:=[]string{from.ID};seen:=map[string]bool{from.ID:true};previous:=map[string]string{};nextNode:=""
+ for head:=0;head<len(queue)&&!seen[to.ID];head++{at:=queue[head];for _,link:=range r.world.Region.Links{if !r.state.Region.KnownLinks[link.ID]||!r.state.Region.KnownNodes[link.FromNode]||!r.state.Region.KnownNodes[link.ToNode]{continue};next:="";if link.FromNode==at{next=link.ToNode}else if link.ToNode==at{next=link.FromNode};if next==""||seen[next]{continue};seen[next]=true;previous[next]=at;queue=append(queue,next)}}
+ if seen[to.ID]{var path []string;for at:=to.ID;at!=from.ID;at=previous[at]{path=append(path,at)};for i:=len(path)-1;i>=0&&nextNode=="";i--{for _,node:=range r.world.Region.Nodes{if node.ID==path[i]&&node.LevelID!=""{nextNode=node.ID;break}}}}
+ var best wayfindingResolved;bestCost:=int(^uint(0)>>1);bestDirect:=false
+ for _,e:=range r.world.Life.Edges{if e.From!=hero.Level||!r.lifeExitKnown(e)||!r.wayfindingWalks(hero.Level,e.Exit){continue};node:=r.regionNodeForLevel(e.To);if node==nil||!r.state.Region.KnownNodes[node.ID]{continue};direct:=e.To==target;if !direct&&node.ID!=nextNode{continue}
   bound,allowed:=false,false;for _,link:=range r.world.Region.Links{for _,id:=range link.LifeEdges{if id==e.ID{bound=true;allowed=allowed||r.state.Region.KnownLinks[link.ID]}}};if bound&&!allowed{continue}
-  cost:=len(r.wayfindingPath(hero.Level,hero.Position,e.Exit));if cost==0{cost=int(^uint(0)>>1)};if best.ID==""||cost<bestCost||(cost==bestCost&&e.ID<best.EdgeID){best=wayfindingResolved{ID:target,Name:r.regionLevelName(locale,target),Color:"#C5AD77",Kind:"exit",At:e.Exit,EdgeID:e.ID,Mode:e.Mode};bestCost=cost}
+  cost:=len(r.wayfindingPath(hero.Level,hero.Position,e.Exit));if cost==0{cost=int(^uint(0)>>1)};if best.ID==""||(direct&&!bestDirect)||(direct==bestDirect&&(cost<bestCost||(cost==bestCost&&e.ID<best.EdgeID))){bestDirect=direct;best=wayfindingResolved{ID:target,Name:r.regionLevelName(locale,target),Color:"#C5AD77",Kind:"exit",At:e.Exit,EdgeID:e.ID,Mode:e.Mode};bestCost=cost}
  };return best,best.ID!=""
-}
-func(r *Runtime)wayfindingRegionBranch(start,target,excluded string)bool{
- queue:=[]string{start};seen:=map[string]bool{excluded:true,start:true};for i:=0;i<len(queue);i++{if queue[i]==target{return true};for _,e:=range r.world.Region.Links{if !r.state.Region.KnownLinks[e.ID]||!r.state.Region.KnownNodes[e.FromNode]||!r.state.Region.KnownNodes[e.ToNode]{continue};next:="";if e.FromNode==queue[i]{next=e.ToNode}else if e.ToNode==queue[i]{next=e.FromNode};if next!=""&&!seen[next]{seen[next]=true;queue=append(queue,next)}}};return false
 }
 func(r *Runtime)resolveWayfinding(locale,id string)(wayfindingResolved,bool){for _,d:=range r.wayfindingLocal(locale){if d.ID==id{return d,true}};return r.wayfindingRegional(locale,id)}
 func(r *Runtime)wayfindingCommand(action,id string)error{
@@ -72,11 +71,21 @@ func(r *Runtime)wayfindingCommand(action,id string)error{
  };return textError{Key:"error.wayfinding.unknown"}
 }
 func wayfindingPoints(path []behavior.Cell)[]*pb.PocPoint{var out []*pb.PocPoint;for _,p:=range path{out=append(out,&pb.PocPoint{X:int32(p.X),Y:int32(p.Y)})};return out}
+// GuideSupport was computed and validated by ANG from the entire paint buffer.
+// Publish all points together or none: deleting an unknown middle point would
+// draw a false chord across unobserved architecture. The cache follows exact
+// remembered geometry, not simulation ticks, actor paths or live occupancy.
+func(r *Runtime)wayfindingShape(d wayfindingDestination)[]*pb.PocWayfindingShapePoint{
+ if shape,ok:=r.wayfinding.Shapes[d.ID];ok{return shape}
+ var shape []*pb.PocWayfindingShapePoint
+ if len(d.GuideRoute)>=2&&len(d.GuideSupport)>0{known:=true;for _,at:=range d.GuideSupport{if !r.wayfindingWalks(d.Level,at){known=false;break}};if known{shape=make([]*pb.PocWayfindingShapePoint,len(d.GuideRoute));for i,p:=range d.GuideRoute{shape[i]=&pb.PocWayfindingShapePoint{X:p.X,Y:p.Y}}}}
+ r.wayfinding.Shapes[d.ID]=shape;return shape
+}
 func(r *Runtime)appendWayfinding(view *pb.PocLifeView,locale string){
  hero,_:=r.wayfindingContext();if hero==nil{return};out:=&pb.PocWayfindingView{LevelId:hero.Level,Status:"none"};view.Wayfinding=out;if hero.Trip!=nil{out.Status="transit";r.wayfinding.Selected="";return}
  for _,d:=range r.wayfindingLocal(locale){out.Destinations=append(out.Destinations,&pb.PocWayfindingDestination{Id:d.ID,Name:d.Name,Color:d.Color,Kind:d.Kind,X:int32(d.At.X),Y:int32(d.At.Y),ServiceAvailable:d.EdgeID!="",TravelMode:d.Mode,Number:int32(d.Number)})}
  budget:=16384;for _,d:=range r.world.Wayfinding.Destinations{if d.Level!=hero.Level||d.GuideFrom==nil||!r.wayfindingWalks(hero.Level,d.At){continue};if d.EdgeID!=""{found:=false;for _,v:=range out.Destinations{if v.Id==d.ID{found=true;break}};if !found{continue}}
-  path,exists:=r.wayfinding.Guides[d.ID];if !exists{path=r.wayfindingPath(hero.Level,*d.GuideFrom,d.At);r.wayfinding.Guides[d.ID]=path};if len(path)<2||len(path)>budget{continue};budget-=len(path);out.Guides=append(out.Guides,&pb.PocWayfindingGuide{Id:d.ID,Color:d.Color,Path:wayfindingPoints(path)})
+  path,exists:=r.wayfinding.Guides[d.ID];if !exists{path=r.wayfindingPath(hero.Level,*d.GuideFrom,d.At);r.wayfinding.Guides[d.ID]=path};if len(path)<2||len(path)>budget{continue};budget-=len(path);out.Guides=append(out.Guides,&pb.PocWayfindingGuide{Id:d.ID,Color:d.Color,Path:wayfindingPoints(path),Shape:r.wayfindingShape(d)})
  }
  if r.wayfinding.Selected==""{if r.wayfinding.Rejected!=""{out.Status="unknown";out.RejectedDestinationId=r.wayfinding.Rejected};return};d,ok:=r.resolveWayfinding(locale,r.wayfinding.Selected);if !ok{r.wayfinding.Rejected=r.wayfinding.Selected;r.wayfinding.Selected="";r.wayfinding.RouteReady=false;out.Status="unknown";out.RejectedDestinationId=r.wayfinding.Rejected;return}
  out.SelectedDestinationId=d.ID;out.SelectedName=d.Name;out.SelectedColor=d.Color;out.LocalExitId=d.EdgeID;out.LocalExitMode=d.Mode;if edge:=r.world.Life.Edge(d.EdgeID);edge!=nil{out.LocalExitName=r.lifeEdgeName(locale,*edge)}

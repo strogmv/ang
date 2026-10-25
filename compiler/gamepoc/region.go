@@ -24,6 +24,8 @@ type RegionDeck struct {
 type RegionNode struct {
 	ID               string  `json:"id"`
 	Name             string  `json:"name"`
+	Label            string  `json:"label,omitempty"`
+	Kind             string  `json:"kind,omitempty"`
 	DeckID           string  `json:"deck_id"`
 	X                float64 `json:"x"`
 	Y                float64 `json:"y"`
@@ -82,6 +84,11 @@ func (r *RegionCatalog) validate(life json.RawMessage) error {
 		}
 		if n.InitialKnowledge != "unknown" && n.InitialKnowledge != "known" && n.InitialKnowledge != "visited" {
 			return fmt.Errorf("invalid region knowledge %s", n.ID)
+		}
+		switch n.Kind {
+		case "", "housing", "food", "hygiene", "laundry", "commons", "market", "station", "transport_hub", "clinic", "control", "junction", "refuge", "repair_workshop", "controlled_reception", "freight", "delivery_port", "maintenance_port", "robot_service", "utility_power", "utility_water", "utility_air", "utility_extract", "utility_sewer", "utility_waste", "stairs":
+		default:
+			return fmt.Errorf("invalid region node kind %s: %q", n.ID, n.Kind)
 		}
 		if n.LevelID != "" {
 			if _, ok := l.Locations[n.LevelID]; !ok || levels[n.LevelID] {

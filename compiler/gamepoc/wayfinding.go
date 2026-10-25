@@ -15,16 +15,27 @@ type WayfindingCell struct {
 	X int `json:"x"`
 	Y int `json:"y"`
 }
+
+// WayfindingPoint describes paint on the existing floor grid, not a movement
+// waypoint. Fractional coordinates do not change the authoritative cell route.
+type WayfindingPoint struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+}
 type WayfindingDestination struct {
-	MarkerNumber int             `json:"marker_number,omitempty"`
-	ID           string          `json:"id"`
-	NameKey      string          `json:"name_key"`
-	Level        string          `json:"level"`
-	Color        string          `json:"color"`
-	Kind         string          `json:"kind"`
-	At           WayfindingCell  `json:"at"`
-	GuideFrom    *WayfindingCell `json:"guide_from,omitempty"`
-	EdgeID       string          `json:"edge_id,omitempty"`
+	MarkerNumber int               `json:"marker_number,omitempty"`
+	ID           string            `json:"id"`
+	NameKey      string            `json:"name_key"`
+	Level        string            `json:"level"`
+	Color        string            `json:"color"`
+	Kind         string            `json:"kind"`
+	At           WayfindingCell    `json:"at"`
+	GuideFrom    *WayfindingCell   `json:"guide_from,omitempty"`
+	GuideRoute   []WayfindingPoint `json:"guide_route,omitempty"`
+	// GuideSupport is compiler-derived private geometry, never authored or sent
+	// to Unity. Remembering every buffered cell is required to publish the shape.
+	GuideSupport []WayfindingCell `json:"guide_support,omitempty"`
+	EdgeID       string           `json:"edge_id,omitempty"`
 }
 
 var wayfindingColorPattern = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
@@ -56,8 +67,10 @@ func (c WayfindingCatalog) validate(life json.RawMessage, walkable map[string]bo
 		return ok && p.Y >= 0 && p.Y < len(l.Terrain) && p.X >= 0 && p.X < len(l.Terrain[p.Y]) && walkable[string(l.Terrain[p.Y][p.X])]
 	}
 	guideCells := map[string]int{}
+	shapeCells := map[string]int{}
 	numbers := map[string]map[int]bool{}
-	for _, d := range c.Destinations {
+	for i, d := range c.Destinations {
+		c.Destinations[i].GuideSupport = nil
 		if d.ID == "" || seen[d.ID] || d.NameKey == "" || !knownText[d.NameKey] || !wayfindingColorPattern.MatchString(d.Color) {
 			return fmt.Errorf("invalid wayfinding identity/text/color %q", d.ID)
 		}
@@ -113,6 +126,17 @@ func (c WayfindingCatalog) validate(life json.RawMessage, walkable map[string]bo
 			if guideCells[d.Level] > 16384 {
 				return fmt.Errorf("wayfinding guides exceed 16384 cells %s", d.Level)
 			}
+		}
+		if len(d.GuideRoute) > 0 {
+			support, err := wayfindingGuideSupport(d, rows, func(at WayfindingCell) bool { return walks(d.Level, at) })
+			if err != nil {
+				return fmt.Errorf("wayfinding guide_route %s: %w", d.ID, err)
+			}
+			shapeCells[d.Level] += len(support)
+			if shapeCells[d.Level] > 16384 {
+				return fmt.Errorf("wayfinding guide_route support exceeds 16384 cells %s", d.Level)
+			}
+			c.Destinations[i].GuideSupport = support
 		}
 		if d.EdgeID != "" {
 			found := false

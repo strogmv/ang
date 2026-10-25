@@ -88,3 +88,40 @@ func TestRegionLearnsOnlyActuallyCompletedPhysicalConnectionAndSavesIt(t *testin
  view:=&pb.PocLifeView{};r.appendRegionMap(view);raw,err:=proto.Marshal(view.RegionMap);if err!=nil{t.Fatal(err)}
  for _,secret:=range []string{"unused.parallel","hidden.adjacent","hidden.neighbour","PRIVATE_NEIGHBOUR"}{if bytes.Contains(raw,[]byte(secret)){t.Fatalf("untravelled connection leaked: %s",secret)}}
 }
+
+func TestRegionKindsFollowKnownNodeProjectionAndRemainOptional(t *testing.T){
+ r:=lifeRuntimeFixture(t);r.syncRegionKnowledge();known,hidden:=0,0
+ for i:=range r.world.Region.Nodes{node:=&r.world.Region.Nodes[i];if r.state.Region.KnownNodes[node.ID]{node.Kind="housing";known++}else{node.Kind="utility_waste";node.Name="REGION_KIND_PRIVATE_NODE";hidden++}}
+ if known==0||hidden==0{t.Fatal("kind privacy fixture requires known and unknown nodes")}
+ before:=r.snapshotState();view:=&pb.PocLifeView{};r.appendRegionMap(view,"en");data,err:=proto.Marshal(view.RegionMap);if err!=nil{t.Fatal(err)};decoded:=&pb.PocRegionMap{};if err:=proto.Unmarshal(data,decoded);err!=nil{t.Fatal(err)}
+ if len(decoded.Nodes)!=known{t.Fatal("kind projection changed the known node boundary")};for _,node:=range decoded.Nodes{if !r.state.Region.KnownNodes[node.Id]||node.Kind!="housing"{t.Fatalf("private kind/node leaked or known kind lost: %s/%s",node.Id,node.Kind)}}
+ if bytes.Contains(data,[]byte("REGION_KIND_PRIVATE_NODE")){t.Fatal("private typed node entered wire")};for _,link:=range decoded.Links{if !r.state.Region.KnownLinks[link.Id]||!r.state.Region.KnownNodes[link.FromNode]||!r.state.Region.KnownNodes[link.ToNode]{t.Fatal("kind metadata exposed a hidden connection")}}
+ if !reflect.DeepEqual(before,r.snapshotState()){t.Fatal("kind projection changed simulation or durable knowledge")}
+ for i:=range r.world.Region.Nodes{r.world.Region.Nodes[i].Kind=""};view=&pb.PocLifeView{};r.appendRegionMap(view);for _,node:=range view.RegionMap.Nodes{if node.Kind!=""{t.Fatal("legacy generic node gained an inferred kind")}}
+}
+
+func TestRegionShortLabelsAreKnownOnlyLocalizedAndLegacyCompatible(t *testing.T){
+ r:=lifeRuntimeFixture(t);r.syncRegionKnowledge();var known,hidden *regionNode
+ for i:=range r.world.Region.Nodes{node:=&r.world.Region.Nodes[i];if r.state.Region.KnownNodes[node.ID]&&known==nil{known=node}else if !r.state.Region.KnownNodes[node.ID]&&hidden==nil{hidden=node}}
+ if known==nil||hidden==nil{t.Fatal("label test requires known and hidden nodes")};known.Label="Authored short fallback";hidden.Label="PRIVATE_SHORT_REGION_LABEL"
+ key:="region.node."+known.ID+".label";secretKey:="region.node."+hidden.ID+".label";messages:=r.world.Localization.Messages;r.world.Localization.Messages=nil;for _,message:=range messages{if message.Key!=key&&message.Key!=secretKey{r.world.Localization.Messages=append(r.world.Localization.Messages,message)}}
+ r.world.Localization.Messages=append(r.world.Localization.Messages,localizationMessage{Key:key,Texts:map[string]string{"ru":"Краткая подпись","en":"Short plan label"}},localizationMessage{Key:secretKey,Texts:map[string]string{"ru":"PRIVATE_TRANSLATED_LABEL","en":"PRIVATE_TRANSLATED_LABEL"}})
+ fullName:=r.localText("en","region.node."+known.ID+".name",known.Name);before:=r.snapshotState();view:=&pb.PocLifeView{};r.appendRegionMap(view,"en");wire,err:=proto.Marshal(view.RegionMap);if err!=nil{t.Fatal(err)};decoded:=&pb.PocRegionMap{};if err:=proto.Unmarshal(wire,decoded);err!=nil{t.Fatal(err)}
+ found:=false;for _,node:=range decoded.Nodes{if node.Id==known.ID{found=true;if node.Name!=fullName||node.Label!="Short plan label"{t.Fatal("short label lost localization or replaced full title")}}};if !found{t.Fatal("known label missing")}
+ for _,secret:=range []string{"PRIVATE_SHORT_REGION_LABEL","PRIVATE_TRANSLATED_LABEL"}{if bytes.Contains(wire,[]byte(secret)){t.Fatal("unknown short label leaked")}}
+ view=&pb.PocLifeView{};r.appendRegionMap(view,"ru");for _,node:=range view.RegionMap.Nodes{if node.Id==known.ID&&node.Label!="Краткая подпись"{t.Fatal("label ignored per-connection language")}}
+ r.world.Localization.Messages=r.world.Localization.Messages[:len(r.world.Localization.Messages)-2];view=&pb.PocLifeView{};r.appendRegionMap(view,"en");for _,node:=range view.RegionMap.Nodes{if node.Id==known.ID&&node.Label!=known.Label{t.Fatal("missing label translation lost authored fallback")}}
+ known.Label="";view=&pb.PocLifeView{};r.appendRegionMap(view,"en");for _,node:=range view.RegionMap.Nodes{if node.Id==known.ID&&(node.Label!=node.Name||node.Name!=fullName){t.Fatal("legacy empty label must fall back to localized full name")}}
+ if !reflect.DeepEqual(before,r.snapshotState()){t.Fatal("short labels changed gameplay or knowledge")}
+}
+
+func TestRegionSelectedFirstLinkIsPresentInImmediateNormalWireProjection(t *testing.T){
+ r:=lifeRuntimeFixture(t);hero:=r.state.Life.Actor(playerActorID);if hero==nil{t.Fatal("missing hero")};target:=""
+ for _,link:=range r.world.Region.Links{if !r.state.Region.KnownLinks[link.ID]{continue};for _,id:=range link.LifeEdges{edge:=r.world.Life.Edge(id);if edge!=nil&&edge.From==hero.Level&&r.lifeExitKnown(*edge)&&r.regionPlaceKnown(edge.To){target=edge.To;break}};if target!=""{break}}
+ if target==""{t.Fatal("fixture has no known bound physical exit")};r.wayfinding=wayfindingSession{};if err:=r.lifeCommand(&pb.PocLifeCommand{Action:"route_preview",Destination:target});err!=nil{t.Fatal(err)}
+ before:=r.snapshotState();c:=&connection{out:make(chan *pb.ServerMessage,8),stop:make(chan struct{}),locale:"en"};r.sendLifeState(c);msg:=(<-c.out).GetGameState()
+ if msg==nil||msg.Life==nil||msg.Life.RegionMap==nil||msg.Life.Wayfinding==nil{t.Fatal("missing normal player projection")};mapView,route:=msg.Life.RegionMap,msg.Life.Wayfinding
+ if mapView.SelectedDestinationId!=target||route.SelectedDestinationId!=target||route.LocalExitId==""||len(mapView.SelectedLocalLinkIds)==0{t.Fatalf("map-first projection omitted selected first link: map=%+v route=%+v",mapView,route)}
+ for _,id:=range mapView.SelectedLocalLinkIds{found:=false;for _,link:=range r.world.Region.Links{if link.ID!=id||!r.state.Region.KnownLinks[id]{continue};for _,edge:=range link.LifeEdges{if edge==route.LocalExitId{found=true}}};if !found{t.Fatal("map highlights a different or private physical connection")}}
+ if !reflect.DeepEqual(before,r.snapshotState()){t.Fatal("immediate projection changed actor or knowledge")}
+}

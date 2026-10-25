@@ -761,6 +761,7 @@ func Generate(project string) error {
 		"sdk_proof.cs.tmpl":                     filepath.Join(unity, "Assets/Generated/Poc/PocSdkProof.cs"),
 		"copper_route_proof.cs.tmpl":            filepath.Join(unity, "Assets/Generated/Poc/PocCopperRouteProof.cs"),
 		"transport_hub_proof.cs.tmpl":           filepath.Join(unity, "Assets/Generated/Poc/PocTransportHubProof.cs"),
+		"region_proof.cs.tmpl":                  filepath.Join(unity, "Assets/Generated/Poc/PocRegionMapProof.cs"),
 		"spatial_proof.cs.tmpl":                 filepath.Join(unity, "Assets/Generated/Poc/PocSpatialProof.cs"),
 		"population.go.tmpl":                    filepath.Join(project, "internal/poc/population.gen.go"),
 		"population_test.go.tmpl":               filepath.Join(project, "internal/poc/population_generated_test.go"),

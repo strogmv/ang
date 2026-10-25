@@ -15,7 +15,7 @@ func hudTemplate(t *testing.T, name string) string {
 }
 func TestHudUsesPortraitAndAuthoritativeStatus(t *testing.T) {
 	s := hudTemplate(t, "hud.cs.tmpl")
-	for _, want := range []string{"resource.art.hud.hero_portrait", "characterIdleTextures.TryGetValue", "state.PlayerName", "state.Inventory.CarriedMassG", "state.Inventory.CapacityMassG", "HudActivity()", "Нет данных о покрытии", "Связь с игровым сервером потеряна"} {
+	for _, want := range []string{"resource.art.hud.hero_portrait", "characterIdleTextures.TryGetValue", "state.PlayerName", "state.Inventory.CarriedMassG", "state.Inventory.CapacityMassG", "HudActivity()", `L("ui.hud.coverage_unknown")`, "Связь с игровым сервером потеряна"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("missing authoritative HUD contract %q", want)
 		}

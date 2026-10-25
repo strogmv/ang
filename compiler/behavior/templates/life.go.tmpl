@@ -44,6 +44,7 @@ type LifeActor struct{
  YieldRequester string `json:"yield_requester,omitempty"`
  YieldOrigin Cell `json:"yield_origin,omitempty"`
  YieldHoldUntil int64 `json:"yield_hold_until,omitempty"`
+ YieldCooldownUntil int64 `json:"yield_cooldown_until,omitempty"`
  MoveStartTick int64
  Step int
  Day,StartedAt int64
@@ -62,7 +63,7 @@ type LifeState struct{RelationOverrides map[string]map[string]float64 `json:"rel
 func(m LifeModel)Walks(level string,at Cell)bool{l,ok:=m.Locations[level];return ok&&at.Y>=0&&at.Y<len(l.Terrain)&&at.X>=0&&at.X<len(l.Terrain[at.Y])&&m.Walkable[string(l.Terrain[at.Y][at.X])]}
 func(m LifeModel)Space(level string,blocked map[Cell]bool)Space{l:=m.Locations[level];width:=0;if len(l.Terrain)>0{width=len(l.Terrain[0])};return Space{Width:width,Height:len(l.Terrain),MaxSearchCells:width*len(l.Terrain),Walkable:func(at Cell)bool{return m.Walks(level,at)},Blocked:blocked}}
 func(m LifeModel)Validate()error{
- if m.Courtesy.NoticeCells<0||m.Courtesy.NoticeCells>8||m.Courtesy.MaxDetourExtraCells<0||m.Courtesy.MaxDetourExtraCells>64{return fmt.Errorf("invalid courtesy range or detour budget")};for _,person:=range m.Actors{for _,relation:=range person.Relations{if relation.To==""||!(relation.Strength>=-1&&relation.Strength<=1){return fmt.Errorf("invalid life relation")}}}
+ if m.Courtesy.NoticeCells<0||m.Courtesy.NoticeCells>8||m.Courtesy.MaxDetourExtraCells<0||m.Courtesy.MaxDetourExtraCells>64||!(m.Courtesy.HostileAtOrBelow>=-1&&m.Courtesy.HostileAtOrBelow<=0){return fmt.Errorf("invalid courtesy range, hostility or detour budget")};for _,person:=range m.Actors{for _,relation:=range person.Relations{if relation.To==""||!(relation.Strength>=-1&&relation.Strength<=1){return fmt.Errorf("invalid life relation")}}}
  if m.StartSeconds<0||m.StartSeconds>=86400||m.SecondsPerTick<1||m.SecondsPerTick>120||m.MoveTicks<1||len(m.Locations)==0||len(m.Actors)==0{return fmt.Errorf("invalid life clock/catalog")}
  for id,l:=range m.Locations{if len(l.Terrain)==0||len(l.Terrain[0])==0{return fmt.Errorf("empty life level %s",id)};for _,row:=range l.Terrain{if len(row)!=len(l.Terrain[0]){return fmt.Errorf("uneven life level %s",id)}};for _,mark:=range l.Markers{if !m.Walks(id,mark.At){return fmt.Errorf("blocked life marker %s",mark.Name)}}}
  edgeIDs:=map[string]bool{};for _,e:=range m.Edges{if e.ID==""||edgeIDs[e.ID]||!m.Walks(e.From,e.Exit)||!m.Walks(e.To,e.Entry)||e.TravelSeconds<=0||e.Seats<1||(e.Mode!="walk"&&e.Mode!="rail")||(e.Mode=="rail"&&e.PeriodSeconds<=0)||!e.validSchedule(){return fmt.Errorf("invalid life edge %s",e.ID)};if e.Fare!=nil&&(e.Mode!="rail"||e.Fare.Currency==""||e.Fare.AmountMinor<=0||e.Fare.AmountMinor>9000000000000000||e.Fare.ReceiverAccount==""){return fmt.Errorf("invalid life fare %s",e.ID)};edgeIDs[e.ID]=true}
@@ -121,15 +122,16 @@ func(s *LifeState)AdvancePopulation(m LifeModel,observerID string)error{
  // supplies its authoritative controlled actor here, never a guessed ID.
  s.ControlledActorID=observerID
  for i:=range s.Population.Actors{a:=&s.Population.Actors[i];if a.YieldRequester==""{continue}
-  idle:=false;if a.Stage>=0&&a.Stage<len(m.Population.Stages){switch m.Population.Stages[a.Stage].Activity{case "rest","market","waiting":idle=true}}
-  if idle&&s.RelationTo(m,a.ID,a.YieldRequester)>0{if until:=s.courtesyPocketUntil(m,a.YieldRequester,a.Level,a.YieldOrigin,a.YieldHoldUntil,s.Tick,m.Population.MoveTicks);until>a.YieldUntil{a.YieldUntil=until}}
+  if s.courtesyPopulationWilling(m,*a,a.YieldRequester){if until:=s.courtesyPocketUntil(m,a.YieldRequester,a.Level,a.YieldOrigin,a.YieldHoldUntil,s.Tick,m.Population.MoveTicks);until>a.YieldUntil{a.YieldUntil=until}}
   if s.Tick>=a.YieldUntil{a.YieldRequester="";a.YieldOrigin=Cell{};a.YieldHoldUntil=0}
  }
  active:="";if observer.Trip==nil{active=observer.Level}
  // Immutable validated content guarantees the kernel's only mid-pass error
  // (an unknown trip edge) cannot occur. Preflight also protects direct callers.
  for _,a:=range s.Population.Actors{if a.Trip!=nil&&m.Edge(a.Trip.Edge)==nil{return fmt.Errorf("population trip references unknown edge")}}
- if err:=s.Population.Advance(m.Population,m,s.Seconds,s.Tick,active,s.PopulationEnvironment());err!=nil{return err}
+ environment:=s.PopulationEnvironment();environment.NewPathAvoid=func(a PopulationActor)map[Cell]bool{return s.courtesyPopulationPassage(m,a)}
+ environment.NewArrivalAvoid=func(a PopulationActor)map[Cell]bool{return s.courtesyPopulationArrival(m,a)}
+ if err:=s.Population.Advance(m.Population,m,s.Seconds,s.Tick,active,environment);err!=nil{return err}
  s.resumeControlledAfterTraffic(m,s.Tick);return nil
 }
 func(s LifeState)validatePopulation(m LifeModel,tick int64)error{
@@ -160,12 +162,11 @@ func(s *LifeState)AdvanceWithTravelBy(m LifeModel,tick,delta int64,install Maint
   if a.Trip!=nil{s.tryLifeArrival(m,a,tick);continue}
   if a.Arrived{switch a.Activity{case "work":a.WorkedSeconds+=delta;case "sleep":a.SleptSeconds+=delta}}
   if len(a.Path)>0&&tick>=a.MoveStartTick+m.MoveTicks{
-   next:=a.Path[0];if !s.occupied(a.Level,next,a.ID){a.Position=next;a.Path=a.Path[1:];a.MoveStartTick+=m.MoveTicks;if len(a.Path)>0&&s.occupied(a.Level,a.Path[0],a.ID){if a.ID==s.ControlledActorID{a.PendingPath=a.Path};a.Path=nil;a.MoveStartTick=tick}}else{a.MoveStartTick=tick;if a.ID==s.ControlledActorID{a.PendingPath=a.Path};a.Path=nil}
+   next:=a.Path[0];if !s.occupied(a.Level,next,a.ID){a.Position=next;a.Path=a.Path[1:];a.MoveStartTick+=m.MoveTicks;if len(a.Path)>0&&(s.occupied(a.Level,a.Path[0],a.ID)||s.courtesyNamedPassage(m,*a)[a.Path[0]]){if a.ID==s.ControlledActorID{a.PendingPath=a.Path};a.Path=nil;a.MoveStartTick=tick}}else{a.MoveStartTick=tick;if a.ID==s.ControlledActorID{a.PendingPath=a.Path};a.Path=nil}
   }
   if a.ID==s.ControlledActorID{s.anticipateControlledTraffic(m,a,tick,&yieldBudget)}
   if a.YieldRequester!=""{
-   idle:=false;switch person.Steps[a.Step].Activity{case "rest","market","waiting","walking":idle=true}
-   if idle&&s.RelationTo(m,a.ID,a.YieldRequester)>0{if _,assigned:=s.maintenanceStep(m,a.ID);!assigned{if until:=s.courtesyPocketUntil(m,a.YieldRequester,a.Level,a.YieldOrigin,a.YieldHoldUntil,tick,m.MoveTicks);until>a.YieldUntil{a.YieldUntil=until}}}
+   if s.courtesyNamedWilling(m,*a,a.YieldRequester){if until:=s.courtesyPocketUntil(m,a.YieldRequester,a.Level,a.YieldOrigin,a.YieldHoldUntil,tick,m.MoveTicks);until>a.YieldUntil{a.YieldUntil=until}}
    if tick>=a.YieldUntil{a.YieldRequester="";a.YieldOrigin=Cell{};a.YieldHoldUntil=0}
   }
   if tick<a.YieldUntil{a.Activity="yielding";a.Label="Уступает проход";continue}
@@ -200,7 +201,7 @@ func(s *LifeState)AdvanceWithTravelBy(m LifeModel,tick,delta int64,install Maint
    if a.Goal!=destination||len(a.Path)==0{if a.Goal!=destination{a.PendingPath=nil};a.Goal=destination;a.Path=s.controlledRoute(m,a,destination,tick,&yieldBudget);a.MoveStartTick=tick;if len(a.Path)==0{a.Label="Ждёт проход"}}
    continue
   }
-  if a.Goal!=destination||len(a.Path)==0{a.Goal=destination;if !s.routes.connected(a.Level,a.Position,destination){a.Path=nil;a.Label="Ждёт проход";continue};space:=m.Space(a.Level,s.blocked(a.Level,a.ID));path:=space.Path(a.Position,destination,Cell{},0);a.Goal=destination;
+  if a.Goal!=destination||len(a.Path)==0{a.Goal=destination;if !s.routes.connected(a.Level,a.Position,destination){a.Path=nil;a.Label="Ждёт проход";continue};blocked:=s.blocked(a.Level,a.ID);passage:=s.courtesyNamedPassage(m,*a);for at:=range passage{blocked[at]=true};space:=m.Space(a.Level,blocked);path:=space.Path(a.Position,destination,Cell{},0);a.Goal=destination;
    if len(path)==0&&(s.Population.Count>0||a.ID==s.ControlledActorID||s.autonomousTrafficRequester(a.ID)){
     // Route through stationary traffic that can negotiate a side step, while
     // preserving active duties, controlled actors and accepted next segments.
@@ -210,7 +211,7 @@ func(s *LifeState)AdvanceWithTravelBy(m LifeModel,tick,delta int64,install Maint
     // A civilian still approaches its own destination when a distant body
     // prevents a complete route. Only the free neighboring step is accepted;
     // negotiation starts locally, never by moving an unseen colleague.
-    if len(route)==0&&s.autonomousTrafficRequester(a.ID){route=m.Space(a.Level,nil).Path(a.Position,destination,Cell{},0)}
+    if len(route)==0&&s.autonomousTrafficRequester(a.ID){route=m.Space(a.Level,passage).Path(a.Position,destination,Cell{},0)}
     if len(route)>0{next:=route[0];if !s.occupied(a.Level,next,a.ID){path=[]Cell{next}}else if yieldBudget>0&&s.yieldPopulationFor(m,a.Level,next,tick,a.ID,route...){yieldBudget--}}
    }
    if len(path)>0{a.Path=path;a.MoveStartTick=tick}else{a.Label="Ждёт проход"}}
@@ -230,6 +231,7 @@ func(s LifeState)Validate(m LifeModel,tick int64)error{
  occupied:=map[string]map[Cell]bool{}
  for i,a:=range s.Actors{p:=m.Actors[i];if a.ID!=p.ID||a.Step<0||a.Step>=len(p.Steps)||!m.Walks(a.Level,a.Position)||a.YieldUntil<0||a.YieldUntil>tick+8*m.MoveTicks||a.MoveStartTick<0||a.MoveStartTick>tick||a.StartedAt<0||a.StartedAt>s.Seconds||a.Visits==nil||a.WorkedSeconds<0||a.SleptSeconds<0||a.Meals<0||len(a.Path)>10000||len(a.PendingPath)>10000{return fmt.Errorf("invalid life actor %s",a.ID)}
   if a.YieldRequester!=""&&(a.YieldRequester==a.ID||m.Person(a.YieldRequester)==nil||!m.Walks(a.Level,a.YieldOrigin)||a.YieldHoldUntil<0||a.YieldHoldUntil>tick+16*m.MoveTicks){return fmt.Errorf("invalid life courtesy hold")}
+  if a.YieldCooldownUntil<0||a.YieldCooldownUntil>tick+10*m.MoveTicks{return fmt.Errorf("invalid life courtesy cooldown")}
   if a.AdmissionDeniedEdge!=""{e:=m.Edge(a.AdmissionDeniedEdge);if e==nil||e.Fare==nil||e.From!=a.Level||a.Trip!=nil||a.ID!=s.ControlledActorID{return fmt.Errorf("invalid life admission latch")}}
   if a.Trip!=nil{e:=m.Edge(a.Trip.Edge);if e==nil||e.From!=a.Level||a.Trip.Departure<0||a.Trip.Departure>s.Seconds||a.Position!=e.Exit||a.Trip.Arrival!=a.Trip.Departure+e.TravelSeconds||len(a.Path)>0{return fmt.Errorf("invalid life trip")}}else{if occupied[a.Level]==nil{occupied[a.Level]=map[Cell]bool{}};if occupied[a.Level][a.Position]{return fmt.Errorf("life actors overlap")};occupied[a.Level][a.Position]=true}
   for level,count:=range a.Visits{if _,ok:=m.Locations[level];!ok||count<1{return fmt.Errorf("invalid life visit")}}
@@ -315,10 +317,11 @@ func(s LifeState)autonomousTrafficRequester(id string)bool{
 func(s *LifeState)yieldTraffic(m LifeModel,level string,tick int64,requester ...string)(map[Cell]bool,map[Cell]lifeYieldResident){
  hard:=map[Cell]bool{};residents:=map[Cell]lifeYieldResident{};who:="";if len(requester)>0{who=requester[0]};autonomous:=s.autonomousTrafficRequester(who)
  for i,a:=range s.Actors{if a.Level!=level||a.Trip!=nil{continue};repairStep,repairing:=s.maintenanceStep(m,a.ID);atWorkplace:=repairing&&a.Level==repairStep.Level&&a.Position==repairStep.At
-  eligible:=(s.ControlledActorID!=""||autonomous)&&a.ID!=s.ControlledActorID&&a.ID!=who&&!a.Manual&&!a.Arrived&&a.Activity=="walking"&&a.Goal!=a.Position&&len(a.Path)==0&&tick>=a.YieldUntil&&!atWorkplace
+  eligible:=(s.ControlledActorID!=""||autonomous)&&a.ID!=s.ControlledActorID&&a.ID!=who&&!a.Manual&&!a.Arrived&&a.Activity=="walking"&&a.Goal!=a.Position&&len(a.Path)==0&&tick>=a.YieldUntil&&tick>=a.YieldCooldownUntil&&!atWorkplace&&s.courtesyNamedWilling(m,a,who)&&!s.courtesyFinishingAhead(m,who,a.ID,a.Level,a.Position,a.Goal)
   courteous:=s.courtesyNamed(m,a,who,tick);if eligible||courteous{residents[a.Position]=lifeYieldResident{i,true,!eligible&&courteous}}else{hard[a.Position]=true;if len(a.Path)>0{hard[a.Path[0]]=true}}
  }
- for i,a:=range s.Population.Actors{if !a.Materialized||a.Level!=level||a.Trip!=nil{continue};if len(a.Path)>0||tick<a.YieldUntil{hard[a.Position]=true;if len(a.Path)>0{hard[a.Path[0]]=true}}else{residents[a.Position]=lifeYieldResident{i,false,false}}}
+ for i,a:=range s.Population.Actors{if !a.Materialized||a.Level!=level||a.Trip!=nil{continue};if !s.courtesyPopulation(m,a,who,tick){hard[a.Position]=true;if len(a.Path)>0{hard[a.Path[0]]=true}}else{residents[a.Position]=lifeYieldResident{i,false,false}}}
+ if actor:=s.Actor(who);actor!=nil{for at:=range s.courtesyNamedPassage(m,*actor){hard[at]=true}}
  return hard,residents
 }
 func(s *LifeState)yieldRoute(m LifeModel,level string,from,to Cell,tick int64,requester ...string)[]Cell{
@@ -329,7 +332,7 @@ func(s *LifeState)yieldPopulation(m LifeModel,level string,wanted Cell,tick int6
 }
 func(s *LifeState)yieldPopulationFor(m LifeModel,level string,wanted Cell,tick int64,requester string,avoid ...Cell)bool{
  autonomous:=s.autonomousTrafficRequester(requester)
- if autonomous&&!s.courtesyAware(m,requester,level,wanted){return false}
+ if (autonomous||s.courtesyRequester(requester))&&!s.courtesyAware(m,requester,level,wanted){return false}
  hard,residents:=s.yieldTraffic(m,level,tick,requester)
  if _,ok:=residents[wanted];!ok||hard[wanted]{return false}
  queue:=[]Cell{wanted};seen:=map[Cell]bool{wanted:true};parent:=map[Cell]Cell{}
@@ -341,8 +344,10 @@ func(s *LifeState)yieldPopulationFor(m LifeModel,level string,wanted Cell,tick i
     if forbidden{if len(queue)<128{queue=append(queue,next)};continue}
     move:=[]Cell{next};previous:=parent[next];r,ok:=residents[previous]
     for !ok&&previous!=wanted&&len(move)<7{move=append(move,previous);previous=parent[previous];r,ok=residents[previous]}
-    if !ok{continue};if (r.courtesy||autonomous)&&!s.courtesyAware(m,requester,level,previous){continue};for i,j:=0,len(move)-1;i<j;i,j=i+1,j-1{move[i],move[j]=move[j],move[i]}
-    if r.named{a:=&s.Actors[r.index];if r.courtesy{a.Arrived=false};a.YieldRequester="";a.YieldHoldUntil=0;a.YieldOrigin=Cell{};if s.courtesyRequester(requester){a.YieldRequester=requester;a.YieldOrigin=a.Position;a.YieldHoldUntil=tick+16*m.MoveTicks};a.Path=move;a.MoveStartTick=tick;a.YieldUntil=tick+8*m.MoveTicks;a.Activity="yielding";a.Label="Уступает проход"}else{a:=&s.Population.Actors[r.index];a.YieldRequester="";a.YieldHoldUntil=0;a.YieldOrigin=Cell{};if s.courtesyRequester(requester){a.YieldRequester=requester;a.YieldOrigin=a.Position;a.YieldHoldUntil=tick+16*m.Population.MoveTicks};a.Path=move;a.MoveStartTick=tick;a.YieldUntil=tick+8*m.Population.MoveTicks;a.Arrived=false;a.Activity="yielding"};return true
+    if !ok{continue};if (r.courtesy||autonomous||s.courtesyRequester(requester))&&!s.courtesyRelayAware(m,requester,level,wanted,previous,parent,residents){continue};for i,j:=0,len(move)-1;i<j;i,j=i+1,j-1{move[i],move[j]=move[j],move[i]}
+    passage:=map[Cell]bool(nil);if r.named{passage=s.courtesyNamedPassage(m,s.Actors[r.index])}else{passage=s.courtesyPopulationPassage(m,s.Population.Actors[r.index])};refills:=false;for _,at:=range move{if passage[at]{refills=true;break}};if refills{continue}
+    pauseMoves,cooldownMoves:=int64(8),int64(10);if s.courtesyRequester(requester)&&previous!=wanted{pauseMoves=int64(len(move))+1;cooldownMoves=pauseMoves+1}
+    if r.named{a:=&s.Actors[r.index];if r.courtesy{a.Arrived=false};a.YieldRequester="";a.YieldHoldUntil=0;a.YieldOrigin=Cell{};if s.courtesyRequester(requester){a.YieldRequester=requester;a.YieldOrigin=a.Position;a.YieldHoldUntil=tick+16*m.MoveTicks};a.Path=move;a.MoveStartTick=tick;a.YieldUntil=tick+pauseMoves*m.MoveTicks;a.YieldCooldownUntil=tick+cooldownMoves*m.MoveTicks;a.Activity="yielding";a.Label="Уступает проход"}else{a:=&s.Population.Actors[r.index];a.YieldRequester="";a.YieldHoldUntil=0;a.YieldOrigin=Cell{};if s.courtesyRequester(requester){a.YieldRequester=requester;a.YieldOrigin=a.Position;a.YieldHoldUntil=tick+16*m.Population.MoveTicks};a.Path=move;a.MoveStartTick=tick;a.YieldUntil=tick+pauseMoves*m.Population.MoveTicks;a.YieldCooldownUntil=tick+cooldownMoves*m.Population.MoveTicks;a.Arrived=false;a.Activity="yielding"};return true
    }
    if len(queue)<128{queue=append(queue,next)}
  }};return false

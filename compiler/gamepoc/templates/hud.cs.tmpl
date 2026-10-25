@@ -91,16 +91,16 @@ namespace AngelsDemons.Poc {
    GUI.DrawTextureWithTexCoords(new Rect(rect.center.x-width/2,rect.y,width,height),texture,new Rect((float)(sheet.idle*sheet.frame_w)/texture.width,1f-(float)((row+1)*sheet.frame_h)/texture.height,(float)sheet.frame_w/texture.width,(float)sheet.frame_h/texture.height),true);
   }
   string HudLocation(){return state.Life!=null&&state.Life.Enabled?state.Life.LevelName:resource.config.subtitle;}
-  string HudTime(){long minutes=state.GameSeconds/60;return "День "+(minutes/1440+1)+" · "+((minutes/60)%24).ToString("00")+":"+(minutes%60).ToString("00")+(state.Paused?" · пауза":"");}
+  string HudTime(){long minutes=state.GameSeconds/60;return L("ui.hud.time").Replace("{day}",(minutes/1440+1).ToString()).Replace("{time}",((minutes/60)%24).ToString("00")+":"+(minutes%60).ToString("00"))+(state.Paused?" · "+L("ui.options.pause"):"");}
   string HudActivity(){return state.Life!=null&&state.Life.Enabled?(state.Life.Transit?LifeTravelLabel():state.Life.Activity):state.Paused?"Пауза":state.Path.Count>0?"Движется":"На месте";}
-  string HudMass(){return state.Inventory==null?"":"С собой "+((decimal)state.Inventory.CarriedMassG/1000).ToString("0.##")+" кг";}
+  string HudMass(){return state.Inventory==null?"":L("ui.hud.carried").Replace("{mass}",((decimal)state.Inventory.CarriedMassG/1000).ToString("0.##"));}
   void DrawHudNetwork(Rect rect){
    // No dome-coverage/chip-rights field exists in the snapshot. A live Go socket
    // must never fabricate a green in-world network indicator.
    HudFrame(rect,false);
    Color neutral=new Color(.43f,.47f,.43f);Fill(new Rect(rect.x+13,rect.y+17,21,21),neutral);Fill(new Rect(rect.x+16,rect.y+20,15,15),hudGraphite);
-   GUI.Label(new Rect(rect.x+45,rect.y+9,rect.width-56,24),"Сеть купола",hudBody);
-   GUI.Label(new Rect(rect.x+45,rect.y+31,rect.width-56,20),"Нет данных о покрытии",hudSmall);
+   GUI.Label(new Rect(rect.x+45,rect.y+9,rect.width-56,24),L("ui.hud.network"),hudBody);
+   GUI.Label(new Rect(rect.x+45,rect.y+31,rect.width-56,20),L("ui.hud.coverage_unknown"),hudSmall);
   }
   void DrawGameHud(){
    PrepareHud();
@@ -142,13 +142,14 @@ namespace AngelsDemons.Poc {
   void DrawHudPage(){
    if(state==null||!state.Active){page="menu";return;}
    PrepareHud();Fill(new Rect(0,0,1280,800),new Color(.035f,.043f,.048f));HudFrame(new Rect(26,24,1228,752));
-   GUI.Label(new Rect(48,42,360,34),state.PlayerName,hudHeading);GUI.Label(new Rect(48,77,680,22),HudLocation()+" · "+HudTime(),hudSmall);
-   if(HudButton(new Rect(1095,42,137,43),"Вернуться [Esc]"))page="game";
+   GUI.Label(new Rect(48,42,742,34),HudLocation(),hudHeading);GUI.Label(new Rect(48,77,680,22),HudTime(),hudSmall);
+   DrawHudNetwork(new Rect(801,39,281,59));
+   if(HudButton(new Rect(1095,42,137,43),L("ui.hud.return")+" [Esc]"))page="game";
    HudFrame(new Rect(46,115,238,637),false);HudFrame(new Rect(71,133,188,224));DrawHudFigure(new Rect(78,140,174,210));
    GUI.Label(new Rect(63,372,205,30),state.PlayerName,hudHeading);GUI.Label(new Rect(63,407,205,46),HudActivity(),hudWrap);GUI.Label(new Rect(63,460,205,25),HudMass(),hudBody);
-   if(state.Inventory!=null)GUI.Label(new Rect(63,488,205,23),"Вместимость "+((decimal)state.Inventory.CapacityMassG/1000).ToString("0.##")+" кг",hudSmall);
+   if(state.Inventory!=null)GUI.Label(new Rect(63,488,205,23),L("ui.hud.capacity").Replace("{mass}",((decimal)state.Inventory.CapacityMassG/1000).ToString("0.##")),hudSmall);
    if(DevelopmentView()!=null&&DevelopmentView().Pending)GUI.Label(new Rect(63,532,205,68),DevelopmentView().Activity+"\n"+PracticeDuration(DevelopmentView().RemainingTicks),hudWrap);
-   if(HudButton(new Rect(63,688,205,43),state.Paused?"Продолжить время":"Пауза",CanSend()))Options(!state.Paused,1);
+   if(HudButton(new Rect(63,688,205,43),state.Paused?L("ui.options.resume"):L("ui.options.pause"),CanSend()))Options(!state.Paused,1);
    string[] ids={"inventory","development","map","journal"};string[] names={L("ui.tab.inventory")+" [I]",L("ui.tab.development")+" [C]",L("ui.tab.map")+" [M]",L("ui.tab.journal")+" [J]"};
    for(int i=0;i<4;i++){
     bool available=i==0?state.Inventory!=null:i==1?DevelopmentView()!=null:i==2?HudHasMap():HudHasJournal();

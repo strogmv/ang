@@ -7,7 +7,7 @@ import (
 )
 
 type regionDeck struct {ID string `json:"id"`;Name string `json:"name"`;ElevationM float64 `json:"elevation_m"`}
-type regionNode struct {ID string `json:"id"`;Name string `json:"name"`;DeckID string `json:"deck_id"`;X float64 `json:"x"`;Y float64 `json:"y"`;Width float64 `json:"width"`;Height float64 `json:"height"`;LevelID string `json:"level_id"`;InitialKnowledge string `json:"initial_knowledge"`;Description string `json:"description"`}
+type regionNode struct {ID string `json:"id"`;Name string `json:"name"`;Label string `json:"label,omitempty"`;Kind string `json:"kind,omitempty"`;DeckID string `json:"deck_id"`;X float64 `json:"x"`;Y float64 `json:"y"`;Width float64 `json:"width"`;Height float64 `json:"height"`;LevelID string `json:"level_id"`;InitialKnowledge string `json:"initial_knowledge"`;Description string `json:"description"`}
 type regionLink struct {ID string `json:"id"`;FromNode string `json:"from_node"`;ToNode string `json:"to_node"`;Mode string `json:"mode"`;InitialKnown bool `json:"initial_known"`;LifeEdges []string `json:"life_edges,omitempty"`}
 type regionCatalog struct {ID string `json:"id"`;Name string `json:"name"`;Decks []regionDeck `json:"decks"`;Nodes []regionNode `json:"nodes"`;Links []regionLink `json:"links"`}
 // Initialized empty maps are valid durable knowledge, not missing state. Keep
@@ -73,6 +73,14 @@ func(r *Runtime)regionCanGoto(level string)bool{
  from,to:=r.regionNodeForLevel(hero.Level),r.regionNodeForLevel(level)
  return from!=nil&&to!=nil&&r.state.Region.KnownNodes[to.ID]&&r.regionConnected(from.ID,to.ID)
 }
+// Highlight only the already selected actionable local connection. The full
+// private binding catalog and a speculative remote itinerary stay server-side.
+func(r *Runtime)appendRegionSelectedLeg(out *pb.PocRegionMap,locale string){
+ hero:=r.state.Life.Actor(playerActorID);if hero==nil||hero.Trip!=nil||r.wayfinding.Epoch!=r.state.Epoch||r.wayfinding.Level!=hero.Level||r.wayfinding.Selected==""{return}
+ selected:=r.regionNodeForLevel(r.wayfinding.Selected);if selected==nil||!r.state.Region.KnownNodes[selected.ID]{return};resolved,ok:=r.wayfindingRegional(locale,r.wayfinding.Selected);if !ok{return}
+ out.SelectedDestinationId=r.wayfinding.Selected
+ for _,link:=range r.world.Region.Links{if !r.state.Region.KnownLinks[link.ID]||!r.state.Region.KnownNodes[link.FromNode]||!r.state.Region.KnownNodes[link.ToNode]{continue};for _,edge:=range link.LifeEdges{if edge==resolved.EdgeID{out.SelectedLocalLinkIds=append(out.SelectedLocalLinkIds,link.ID);break}}}
+}
 func(r *Runtime)appendRegionMap(view *pb.PocLifeView,locales ...string){
  if r.world.Region.ID==""{return};r.syncRegionKnowledge();k:=r.state.Region;hero:=r.state.Life.Actor(playerActorID);if hero==nil{return}
  locale:="";if len(locales)>0{locale=locales[0]};result:=&pb.PocRegionMap{Id:r.world.Region.ID,Name:r.localText(locale,"region.map."+r.world.Region.ID+".name",r.world.Region.Name)};visibleDecks:=map[string]bool{}
@@ -82,9 +90,11 @@ func(r *Runtime)appendRegionMap(view *pb.PocLifeView,locales ...string){
  for _,n:=range r.world.Region.Nodes{
   if !k.KnownNodes[n.ID]{continue};knowledge:="known";if _,ok:=k.Visited[n.ID];ok{knowledge="visited"};current:=result.CurrentNode==n.ID
   canTravel:=false;if !current&&n.LevelID!=""&&hero.Trip==nil&&reachable[n.ID]{_,exists:=r.world.Life.Locations[n.LevelID];canTravel=exists&&r.world.Life.NextEdge(hero.Level,n.LevelID)!=nil}
-  result.Nodes=append(result.Nodes,&pb.PocRegionNode{Id:n.ID,Name:r.localText(locale,"region.node."+n.ID+".name",n.Name),DeckId:n.DeckID,X:n.X,Y:n.Y,Width:n.Width,Height:n.Height,Knowledge:knowledge,LevelId:n.LevelID,Current:current,CanTravel:canTravel,Description:r.localText(locale,"region.node."+n.ID+".description",n.Description)});visibleDecks[n.DeckID]=true
+  name:=r.localText(locale,"region.node."+n.ID+".name",n.Name);label:=n.Label;if label==""{label=name};label=r.localText(locale,"region.node."+n.ID+".label",label)
+  result.Nodes=append(result.Nodes,&pb.PocRegionNode{Id:n.ID,Name:name,Label:label,Kind:n.Kind,DeckId:n.DeckID,X:n.X,Y:n.Y,Width:n.Width,Height:n.Height,Knowledge:knowledge,LevelId:n.LevelID,Current:current,CanTravel:canTravel,Description:r.localText(locale,"region.node."+n.ID+".description",n.Description)});visibleDecks[n.DeckID]=true
  }
  for _,e:=range r.world.Region.Links{if k.KnownLinks[e.ID]&&k.KnownNodes[e.FromNode]&&k.KnownNodes[e.ToNode]{result.Links=append(result.Links,&pb.PocRegionLink{Id:e.ID,FromNode:e.FromNode,ToNode:e.ToNode,Mode:e.Mode})}}
  for _,d:=range r.world.Region.Decks{if visibleDecks[d.ID]{result.Decks=append(result.Decks,&pb.PocRegionDeck{Id:d.ID,Name:r.localText(locale,"region.deck."+d.ID+".name",d.Name),ElevationM:d.ElevationM})}}
+ r.appendRegionSelectedLeg(result,locale)
  view.RegionMap=result
 }
