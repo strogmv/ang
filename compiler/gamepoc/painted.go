@@ -14,12 +14,13 @@ type PaintedPoint struct {
 	Y float64 `json:"y"`
 }
 type PaintedActor struct {
-	ActorID    string              `json:"actor_id"`
-	Image      string              `json:"image"`
-	SourceRect *ArtSceneSourceRect `json:"source_rect,omitempty"`
-	FeetX      float64             `json:"feet_x"`
-	FeetY      float64             `json:"feet_y"`
-	Height     float64             `json:"height"`
+	ActorID        string              `json:"actor_id"`
+	Image          string              `json:"image"`
+	AnimationSheet string              `json:"animation_sheet,omitempty"`
+	SourceRect     *ArtSceneSourceRect `json:"source_rect,omitempty"`
+	FeetX          float64             `json:"feet_x"`
+	FeetY          float64             `json:"feet_y"`
+	Height         float64             `json:"height"`
 }
 type PaintedProp struct {
 	ID         string              `json:"id"`
@@ -181,6 +182,11 @@ func checkPaintedScenes(c Compiled) error {
 				return fmt.Errorf("painted %s: invalid actor binding %q", s.LevelID, a.ActorID)
 			}
 			bound[a.ActorID] = true
+			if a.AnimationSheet != "" {
+				if _, exists := c.Art.Characters.Sheets[a.AnimationSheet]; !exists {
+					return fmt.Errorf("painted %s: actor %q references unknown animation sheet %q", s.LevelID, a.ActorID, a.AnimationSheet)
+				}
+			}
 		}
 		members := map[string]bool{}
 		for _, p := range s.Props {

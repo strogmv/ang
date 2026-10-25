@@ -491,9 +491,6 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 			out.Scene.TileNoise[key] = int(noise)
 		}
 	}
-	if err := out.Wayfinding.validate(out.Life, out.Walkable, out.Localization); err != nil {
-		return out, nil, err
-	}
 	if out.Spatial, err = compileSpatial(world.LookupPath(cue.ParsePath("spatial")), out.Walkable); err != nil {
 		return out, nil, fmt.Errorf("world.spatial: %w", err)
 	}
@@ -517,6 +514,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		if err := anchors.Decode(&out.PaintedInventoryAnchors); err != nil {
 			return out, nil, fmt.Errorf("world.painted_inventory_anchors: %w", err)
 		}
+	}
+	if err := out.Wayfinding.validate(out.Life, out.Walkable, out.Localization, out.PaintedInventoryAnchors); err != nil {
+		return out, nil, err
 	}
 	if err := checkPresentationCamera(out.Art.Camera); err != nil {
 		return out, nil, err
@@ -805,6 +805,9 @@ func Generate(project string) error {
 		"painted.cs.tmpl":                       filepath.Join(unity, "Assets/Generated/Poc/PocPaintedView.cs"),
 		"painted_ambient_proof.cs.tmpl":         filepath.Join(unity, "Assets/Generated/Poc/PocAmbientProof.cs"),
 		"painted_ambient.cs.tmpl":               filepath.Join(unity, "Assets/Generated/Poc/PocPaintedAmbient.cs"),
+		"painted_motion.cs.tmpl":                filepath.Join(unity, "Assets/Generated/Poc/PocPaintedMotion.cs"),
+		"painted_motion_proof.cs.tmpl":          filepath.Join(unity, "Assets/Generated/Poc/PocPaintedMotionProof.cs"),
+		"station_berth_proof.cs.tmpl":           filepath.Join(unity, "Assets/Generated/Poc/PocStationBerthProof.cs"),
 		"painted_passage.shader.tmpl":           filepath.Join(unity, "Assets/Resources/Generated/PocPaintedPassage.shader"),
 		"painted_proof.cs.tmpl":                 filepath.Join(unity, "Assets/Generated/Poc/PocPaintedProof.cs"),
 		"unity.cs.tmpl":                         filepath.Join(unity, "Assets/Generated/Poc/AngelsDemonsPoc.cs"),

@@ -15,8 +15,17 @@ func wayfindingGuideSupport(d WayfindingDestination, rows []string, walks func(W
 		return nil, fmt.Errorf("requires guide_from and 2..64 points")
 	}
 	first, last := d.GuideRoute[0], d.GuideRoute[len(d.GuideRoute)-1]
-	if first != (WayfindingPoint{X: float64(d.GuideFrom.X), Y: float64(d.GuideFrom.Y)}) || last != (WayfindingPoint{X: float64(d.At.X), Y: float64(d.At.Y)}) {
+	from, to := WayfindingPoint{X: float64(d.GuideFrom.X), Y: float64(d.GuideFrom.Y)}, WayfindingPoint{X: float64(d.At.X), Y: float64(d.At.Y)}
+	if d.GuideFrame == nil && (first != from || last != to) {
 		return nil, fmt.Errorf("endpoints must equal guide_from and at")
+	}
+	if f := d.GuideFrame; f != nil {
+		if !finitePainted(f.U.X, f.U.Y, f.V.X, f.V.Y) || math.Abs(math.Hypot(f.U.X, f.U.Y)-1) > 1e-5 || math.Abs(math.Hypot(f.V.X, f.V.Y)-1) > 1e-5 || math.Abs(f.U.X*f.V.Y-f.U.Y*f.V.X) < .25 {
+			return nil, fmt.Errorf("guide_frame requires independent unit floor axes")
+		}
+		if math.Hypot(first.X-from.X, first.Y-from.Y) > 1+1e-8 || math.Hypot(last.X-to.X, last.Y-to.Y) > 1+1e-8 {
+			return nil, fmt.Errorf("paint endpoints must be within one cell of their semantic approaches")
+		}
 	}
 	for i, p := range d.GuideRoute {
 		if math.IsNaN(p.X) || math.IsNaN(p.Y) || math.IsInf(p.X, 0) || math.IsInf(p.Y, 0) || p.Y < 0 || p.Y > float64(len(rows)-1) || p.X < 0 || p.X > float64(len(rows[int(p.Y)])-1) {
@@ -25,10 +34,30 @@ func wayfindingGuideSupport(d WayfindingDestination, rows []string, walks func(W
 		if i > 0 && p == d.GuideRoute[i-1] {
 			return nil, fmt.Errorf("point %d duplicates the preceding point", i)
 		}
+		if i > 0 && d.GuideFrame != nil {
+			f := d.GuideFrame
+			dx, dy := p.X-d.GuideRoute[i-1].X, p.Y-d.GuideRoute[i-1].Y
+			u, v := dx*f.V.Y-dy*f.V.X, f.U.X*dy-f.U.Y*dx
+			if math.Min(math.Abs(u), math.Abs(v)) > math.Max(math.Abs(u), math.Abs(v))*.003 {
+				return nil, fmt.Errorf("segment %d is not aligned with its infrastructure floor frame", i-1)
+			}
+		}
 	}
 	seen := map[WayfindingCell]bool{}
+	var segments [][2]WayfindingPoint
 	for i := 1; i < len(d.GuideRoute); i++ {
-		a, b := d.GuideRoute[i-1], d.GuideRoute[i]
+		segments = append(segments, [2]WayfindingPoint{d.GuideRoute[i-1], d.GuideRoute[i]})
+	}
+	// Paint need not bend to a snapped nav centre, but the small endpoint
+	// approach must still be connected over real floor, never through a wall.
+	if first != from {
+		segments = append(segments, [2]WayfindingPoint{from, first})
+	}
+	if last != to {
+		segments = append(segments, [2]WayfindingPoint{last, to})
+	}
+	for i, segment := range segments {
+		a, b := segment[0], segment[1]
 		// Traverse only cells crossed by the centreline; a one-cell neighbourhood
 		// contains every square touched by the radius < .5 capsule. Exact distance
 		// tests below avoid both a huge segment bounding box and diagonal holes.
@@ -60,7 +89,7 @@ func wayfindingGuideSupport(d WayfindingDestination, rows []string, walks func(W
 						continue
 					}
 					if !walks(p) {
-						return nil, fmt.Errorf("segment %d buffered paint crosses blocked cell (%d,%d)", i-1, x, y)
+						return nil, fmt.Errorf("segment %d buffered paint crosses blocked cell (%d,%d)", i, x, y)
 					}
 					seen[p] = true
 					if len(seen) > 16384 {

@@ -53,7 +53,8 @@ func TestTransportHubProofHasPhysicalRoundtripAndNoSyntheticState(t *testing.T) 
 		}
 	}
 	u := hudTemplate(t, "unity.cs.tmpl")
-	for _, required := range []string{`InitTransportHubProof()`, `verifyLife = verifyRegionMap || verifyTransportHub ||`, `TransportHubProofDiagnostics(now)`, `TransportHubProofStep(now)`, `TransportHubProofReportJSON()`, `return transportHubProofDirectory`} {
+	assertNativeLifeProofFlags(t, u)
+	for _, required := range []string{`InitTransportHubProof()`, `TransportHubProofDiagnostics(now)`, `TransportHubProofStep(now)`, `TransportHubProofReportJSON()`, `return transportHubProofDirectory`} {
 		if !strings.Contains(u, required) {
 			t.Errorf("missing ordinary proof lifecycle hook %q", required)
 		}

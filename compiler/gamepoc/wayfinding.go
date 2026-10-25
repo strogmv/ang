@@ -3,13 +3,22 @@ package gamepoc
 import (
 	"encoding/json"
 	"fmt"
+	inv "github.com/strogmv/ang/compiler/inventory/runtime"
 	"regexp"
 )
 
 // WayfindingCatalog is private authoring. The wire projection is restricted to
 // remembered current-room architecture; Unity never receives this catalog.
 type WayfindingCatalog struct {
-	Destinations []WayfindingDestination `json:"destinations"`
+	Destinations []WayfindingDestination        `json:"destinations"`
+	Substrates   map[string]WayfindingSubstrate `json:"substrates,omitempty"`
+}
+type WayfindingSubstrate struct {
+	Terrain []string `json:"terrain"`
+}
+type WayfindingFrame struct {
+	U WayfindingPoint `json:"u"`
+	V WayfindingPoint `json:"v"`
 }
 type WayfindingCell struct {
 	X int `json:"x"`
@@ -23,15 +32,17 @@ type WayfindingPoint struct {
 	Y float64 `json:"y"`
 }
 type WayfindingDestination struct {
-	MarkerNumber int               `json:"marker_number,omitempty"`
-	ID           string            `json:"id"`
-	NameKey      string            `json:"name_key"`
-	Level        string            `json:"level"`
-	Color        string            `json:"color"`
-	Kind         string            `json:"kind"`
-	At           WayfindingCell    `json:"at"`
-	GuideFrom    *WayfindingCell   `json:"guide_from,omitempty"`
-	GuideRoute   []WayfindingPoint `json:"guide_route,omitempty"`
+	MarkerNumber   int               `json:"marker_number,omitempty"`
+	ID             string            `json:"id"`
+	NameKey        string            `json:"name_key"`
+	Level          string            `json:"level"`
+	Color          string            `json:"color"`
+	Kind           string            `json:"kind"`
+	At             WayfindingCell    `json:"at"`
+	GuideFrom      *WayfindingCell   `json:"guide_from,omitempty"`
+	GuideRoute     []WayfindingPoint `json:"guide_route,omitempty"`
+	GuideFrame     *WayfindingFrame  `json:"guide_frame,omitempty"`
+	GuideUnderlays []WayfindingCell  `json:"guide_underlays,omitempty"`
 	// GuideSupport is compiler-derived private geometry, never authored or sent
 	// to Unity. Remembering every buffered cell is required to publish the shape.
 	GuideSupport []WayfindingCell `json:"guide_support,omitempty"`
@@ -40,7 +51,7 @@ type WayfindingDestination struct {
 
 var wayfindingColorPattern = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
 
-func (c WayfindingCatalog) validate(life json.RawMessage, walkable map[string]bool, texts LocalizationCatalog) error {
+func (c WayfindingCatalog) validate(life json.RawMessage, walkable map[string]bool, texts LocalizationCatalog, inventories ...map[string]map[string]inv.Cell) error {
 	if len(c.Destinations) == 0 {
 		return nil
 	}
@@ -68,9 +79,44 @@ func (c WayfindingCatalog) validate(life json.RawMessage, walkable map[string]bo
 	}
 	guideCells := map[string]int{}
 	shapeCells := map[string]int{}
+	underlays := map[string]map[WayfindingCell]bool{}
+	for level, surface := range c.Substrates {
+		rows, ok := model.Locations[level]
+		if !ok || len(rows.Terrain) != len(surface.Terrain) {
+			return fmt.Errorf("wayfinding substrate dimensions %s", level)
+		}
+		underlays[level] = map[WayfindingCell]bool{}
+		stores := map[WayfindingCell]bool{}
+		for _, inventory := range inventories {
+			for _, at := range inventory[level] {
+				stores[WayfindingCell{X: at.X, Y: at.Y}] = true
+			}
+		}
+		for y, row := range surface.Terrain {
+			if len(row) != len(rows.Terrain[y]) {
+				return fmt.Errorf("wayfinding substrate width %s", level)
+			}
+			for x, glyph := range row {
+				at := WayfindingCell{X: x, Y: y}
+				if glyph != '.' && glyph != '#' {
+					return fmt.Errorf("wayfinding substrate glyph %s", level)
+				}
+				if glyph == '.' && !walks(level, at) {
+					if !stores[at] {
+						return fmt.Errorf("wayfinding substrate cannot turn architecture into floor %s (%d,%d)", level, x, y)
+					}
+					underlays[level][at] = true
+				}
+				if glyph == '#' && walks(level, at) {
+					return fmt.Errorf("wayfinding substrate removes existing floor %s (%d,%d)", level, x, y)
+				}
+			}
+		}
+	}
 	numbers := map[string]map[int]bool{}
 	for i, d := range c.Destinations {
 		c.Destinations[i].GuideSupport = nil
+		c.Destinations[i].GuideUnderlays = nil
 		if d.ID == "" || seen[d.ID] || d.NameKey == "" || !knownText[d.NameKey] || !wayfindingColorPattern.MatchString(d.Color) {
 			return fmt.Errorf("invalid wayfinding identity/text/color %q", d.ID)
 		}
@@ -127,8 +173,11 @@ func (c WayfindingCatalog) validate(life json.RawMessage, walkable map[string]bo
 				return fmt.Errorf("wayfinding guides exceed 16384 cells %s", d.Level)
 			}
 		}
+		if d.GuideFrame != nil && len(d.GuideRoute) == 0 {
+			return fmt.Errorf("wayfinding frame needs guide_route %s", d.ID)
+		}
 		if len(d.GuideRoute) > 0 {
-			support, err := wayfindingGuideSupport(d, rows, func(at WayfindingCell) bool { return walks(d.Level, at) })
+			support, err := wayfindingGuideSupport(d, rows, func(at WayfindingCell) bool { return walks(d.Level, at) || underlays[d.Level][at] })
 			if err != nil {
 				return fmt.Errorf("wayfinding guide_route %s: %w", d.ID, err)
 			}
@@ -137,6 +186,11 @@ func (c WayfindingCatalog) validate(life json.RawMessage, walkable map[string]bo
 				return fmt.Errorf("wayfinding guide_route support exceeds 16384 cells %s", d.Level)
 			}
 			c.Destinations[i].GuideSupport = support
+			for _, at := range support {
+				if underlays[d.Level][at] {
+					c.Destinations[i].GuideUnderlays = append(c.Destinations[i].GuideUnderlays, at)
+				}
+			}
 		}
 		if d.EdgeID != "" {
 			found := false

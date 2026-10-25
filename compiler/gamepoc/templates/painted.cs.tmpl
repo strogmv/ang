@@ -5,7 +5,7 @@ using AngelsDemons.Game.V1;
 using UnityEngine;
 namespace AngelsDemons.Poc {
  [Serializable] public sealed class PocPaintedPoint { public float x,y; }
- [Serializable] public sealed class PocPaintedActor { public string actor_id,image; public PocArtSceneSourceRect source_rect; public float feet_x,feet_y,height; }
+ [Serializable] public sealed class PocPaintedActor { public string actor_id,image,animation_sheet; public PocArtSceneSourceRect source_rect; public float feet_x,feet_y,height; }
  [Serializable] public sealed class PocPaintedProp { public string id,image,label; public PocPaintedPoint at; public PocArtSceneSourceRect source_rect; public float width,height,foot_x,foot_y; }
  [Serializable] public sealed class PocPaintedOccluder { public string id; public PocPaintedPoint[] polygon; public float depth_y; public PocPaintedPoint visibility_anchor; public bool has_visibility_anchor; }
  [Serializable] public sealed class PocPaintedInspectionHotspot { public string object_id; public float x,y,radius; }
@@ -40,7 +40,7 @@ namespace AngelsDemons.Poc {
    public readonly Dictionary<string,PocPaintedActor> actors=new Dictionary<string,PocPaintedActor>();
    public readonly List<PaintedCutout> cutouts=new List<PaintedCutout>();
   }
-  struct PaintedDraw {public string id;public Texture2D texture;public Rect rect,uv;public float depth,footX;public Color tint;public int kind;}
+  struct PaintedDraw {public string id;public Texture2D texture;public Rect rect,uv;public float depth,footX,idleLift;public Color tint;public int kind,animationFrame,animationRow;public bool walking;}
   readonly Dictionary<string,PaintedCache> paintedCaches=new Dictionary<string,PaintedCache>();
   readonly List<PaintedDraw> paintedDraws=new List<PaintedDraw>(384);
   struct PaintedOpaqueRun {public int left,right,top,bottom;}
@@ -320,22 +320,28 @@ namespace AngelsDemons.Poc {
   }
   bool TryPaintedActorDraw(PocPaintedScene scene,PaintedCache cache,string id,Vector2 position,out PaintedDraw draw){
    draw=default(PaintedDraw);
-   Texture2D texture;Rect uv;float w,h,feetX,feetY,height=scene.actor_height;
-   PocPaintedActor binding;
-   if(cache.actors.TryGetValue(id,out binding)){
+   Texture2D texture;Rect uv;float w,h,feetX,feetY,height=scene.actor_height,referenceHeight=0;
+   var motion=PaintedActorMotion(id);int animationFrame=0,animationRow=0;bool animated=false;
+   PocPaintedActor binding;cache.actors.TryGetValue(id,out binding);if(binding!=null&&binding.height>0)height=binding.height;
+   if(binding!=null&&string.IsNullOrEmpty(binding.animation_sheet)){
     texture=ArtSceneTexture(binding.image);uv=ArtSceneUV(binding.source_rect,texture);w=ArtSceneHasCrop(binding.source_rect)?binding.source_rect.w:texture.width;h=ArtSceneHasCrop(binding.source_rect)?binding.source_rect.h:texture.height;feetX=binding.feet_x;feetY=binding.feet_y;if(binding.height>0)height=binding.height;
    }else{
-    string key;PocCharacterSheet sheet;
-    if(!ResolveCharacterSheet(id,out key)||!characterSheets.TryGetValue(key,out sheet)||!characterTextures.TryGetValue(key,out texture)||texture==null)return false;
-    Texture2D idle;if(characterIdleTextures.TryGetValue(key,out idle)&&idle!=null)texture=idle;
-    int row=sheet.rows!=null&&sheet.rows.Length>0?sheet.rows[0]:0;PocCharacterFrame frame=null;Dictionary<long,PocCharacterFrame> frames;
-    if(characterFrames.TryGetValue(key,out frames))frames.TryGetValue(((long)row<<32)|(uint)sheet.idle,out frame);
+    string key=binding==null?null:binding.animation_sheet;PocCharacterSheet sheet;
+    if(string.IsNullOrEmpty(key)&&!ResolveCharacterSheet(id,out key))return false;
+    if(!characterSheets.TryGetValue(key,out sheet)||!characterTextures.TryGetValue(key,out texture)||texture==null)return false;
+    animated=true;int row;if(!characterDirections.TryGetValue(id,out row))row=sheet.rows!=null&&sheet.rows.Length>0?sheet.rows[0]:0;
+    row=PaintedMotionRow(scene,motion.direction,sheet.rows,row);characterDirections[id]=row;
+    animationFrame=motion.walking?PaintedMotionFrame(sheet.walk,motion.sampleNS,motion.stepNS,GaitPhase(id)):sheet.idle;animationRow=row;
+    Texture2D idle;if(!motion.walking&&characterIdleTextures.TryGetValue(key,out idle)&&idle!=null)texture=idle;
+    PocCharacterFrame frame=null;Dictionary<long,PocCharacterFrame> frames;
+    if(characterFrames.TryGetValue(key,out frames)){frames.TryGetValue(((long)row<<32)|(uint)animationFrame,out frame);PocCharacterFrame rest;if(frames.TryGetValue(((long)row<<32)|(uint)sheet.idle,out rest))referenceHeight=rest.h;}
     w=frame==null?sheet.frame_w:frame.w;h=frame==null?sheet.frame_h:frame.h;feetX=frame==null?w/2:frame.feet_x;feetY=frame==null?sheet.feet_y:frame.feet_y;
-    float sx=frame==null?sheet.idle*sheet.frame_w:frame.x,sy=frame==null?row*sheet.frame_h:frame.y;uv=new Rect(sx/texture.width,1f-(sy+h)/texture.height,w/texture.width,h/texture.height);
+    float sx=frame==null?animationFrame*sheet.frame_w:frame.x,sy=frame==null?row*sheet.frame_h:frame.y;uv=new Rect(sx/texture.width,1f-(sy+h)/texture.height,w/texture.width,h/texture.height);
     if(frame!=null&&frame.flip_x){feetX=w-feetX;uv.x+=uv.width;uv.width=-uv.width;}
    }
-   float factor=height/h;var at=PaintedPoint(scene,position);
-   draw=new PaintedDraw{id=id,texture=texture,rect=new Rect(at.x-feetX*factor,at.y-feetY*factor,w*factor,height),uv=uv,depth=at.y,footX=at.x,tint=Color.white,kind=1};return true;
+   float factor=height/(referenceHeight>0?referenceHeight:h);var at=PaintedPoint(scene,position);
+   float lift=motion.walking?0:PaintedIdleLift(motion.sampleNS,GaitPhase(id),height);
+   draw=new PaintedDraw{id=id,texture=texture,rect=new Rect(at.x-feetX*factor,at.y-feetY*factor-lift,w*factor,h*factor+lift),uv=uv,depth=at.y,footX=at.x,idleLift=lift,tint=Color.white,kind=1,animationFrame=animationFrame,animationRow=animationRow,walking=animated&&motion.walking};return true;
   }
   static bool PaintedLowerEdgeAtX(PocPaintedPoint[] polygon,float x,out float lower){
    lower=float.NegativeInfinity;if(polygon==null||polygon.Length<3)return false;bool found=false;
@@ -370,6 +376,7 @@ namespace AngelsDemons.Poc {
    return true;
   }
   void DrawPaintedFragment(PaintedDraw draw,Rect fragment,float opacity,Rect fit,float scale,Rect viewport){
+   if(draw.kind==1&&draw.idleLift>0){DrawPaintedBreathingFragment(draw,fragment,opacity,fit,scale,viewport);return;}
    Rect full=PaintedTarget(draw.rect,fit,scale),part=PaintedTarget(fragment,fit,scale);full.position-=viewport.position;part.position-=viewport.position;
    part=PaintedIntersect(part,new Rect(0,0,viewport.width,viewport.height));if(part.width<=0||part.height<=0)return;
    Color tint=draw.tint;tint.a*=opacity;GUI.color=tint;GUI.DrawTextureWithTexCoords(part,draw.texture,PaintedRegionUV(full,draw.uv,part),true);
@@ -460,7 +467,7 @@ namespace AngelsDemons.Poc {
   }
   bool DrawPaintedGame(){
    var scene=CurrentPaintedScene();if(scene==null){ReleasePaintedAmbient();return false;}
-   UpdateMotion();PrepareHud();var cache=PreparePaintedScene(scene);var view=ObserverView();
+   UpdateMotion();PrepareHud();PreparePaintedMotions(scene);var cache=PreparePaintedScene(scene);var view=ObserverView();
    // Fail visibly and closed if even the one-time GPU copy failed. Continuing
    // without foreground masks could expose actors behind architecture.
    if(cache.preparationError!=null){HudFrame(PaintedViewport(),false);GUI.Label(new Rect(50,160,1180,180),L("ui.scene.unavailable"),hudWrap);return true;}
@@ -485,6 +492,7 @@ namespace AngelsDemons.Poc {
    }
    foreach(var cut in cache.cutouts)if(visibleCanvas.Overlaps(cut.rect))paintedDraws.Add(new PaintedDraw{id=cut.id,texture=cut.texture,rect=cut.rect,uv=new Rect(0,0,1,1),depth=cut.depth,tint=Color.white,kind=2});
    paintedDraws.Sort(paintedComparison);
+   if(verifyCharacterMotion)ObserveCharacterMotion(scene);
    if(verifyPainted)AuditPaintedDraws();
    GUI.BeginGroup(viewport);
    var localFit=fit;localFit.position-=viewport.position;

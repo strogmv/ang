@@ -66,7 +66,7 @@ func TestAmbientProofNativeWindowTargetsAndRateController(t *testing.T) {
 struct Vector2 {public float x,y;public Vector2(float a,float b){x=a;y=b;}public static Vector2 zero {get{return new Vector2();}}}
 class PocPaintedPoint {public float x,y;public PocPaintedPoint(float a,float b){x=a;y=b;}}
 struct Color32 {public byte r,g,b,a;public Color32(byte red,byte green,byte blue,byte alpha){r=red;g=green;b=blue;a=alpha;}}
-class PocAmbientPassage {public PocPaintedPoint[] path=new[]{new PocPaintedPoint(-500,1257),new PocPaintedPoint(2172,363)};public double period_seconds=300,night_period_seconds=3600,day_start_second=21600,day_end_second=79200,offset_seconds,duration_seconds=15;}
+class PocAmbientPassage {public double stop_progress,approach_seconds,dwell_seconds;public PocPaintedPoint[] path=new[]{new PocPaintedPoint(-500,1257),new PocPaintedPoint(2172,363)};public double period_seconds=300,night_period_seconds=3600,day_start_second=21600,day_end_second=79200,offset_seconds,duration_seconds=15;}
 class Proof {
 ` + controller + phase + position + records + validator + `
  readonly List<AmbientFrameSample> ambientFrameSamples=new List<AmbientFrameSample>();readonly List<AmbientBodySample> ambientBodySamples=new List<AmbientBodySample>();long ambientProofTraceDeparture=1000,ambientProofTargetSeconds=1017;
@@ -83,6 +83,8 @@ class Proof {
   for(long now=0;now<172800;now+=137){for(int mode=0;mode<2;mode++){bool night=mode==1;long target=AmbientProofTarget(p,now,night,8);double progress;Need(target>=now+2&&target<now+86400,"target must leave command margin and exist within a day");Need(PaintedPassagePhase(p,target,out progress),"controller aimed into an inactive slot");double day=target%86400;Need(night?(day<21600||day>=79200):(day>=21600&&day<79200),"wrong requested day/night window");}}
   for(long gap=1;gap<4200;gap++){long left=gap;int count=0;while(left>0){int rate=AmbientProofRate(left);Need(rate==1||rate==30,"only existing normal rate commands are allowed");Need(rate<=left,"coarse rate skips requested pose");left-=rate;if(++count>1000)throw new Exception("rate controller failed to converge");}}
   bool rejected=false;try{AmbientProofTarget(p,0,false,15);}catch(ArgumentException){rejected=true;}Need(rejected,"pose outside passage rejected");
+  var berth=new PocAmbientPassage{stop_progress=.5,approach_seconds=8,dwell_seconds=20,duration_seconds=36};Need(AmbientProofPoseSecond(berth,429,false,false)==-10,"station capture should use a dwell pose before departure");
+  foreach(long current in new long[]{0,21570,21595,25171,25200,79196,86399,86400})foreach(bool night in new[]{false,true}){long aimed=AmbientProofTarget(berth,current,night,-10);double actual;Need(aimed>=current+2&&PaintedPassagePhase(berth,aimed,out actual)&&actual==.5,"ambient controller missed the station berth");double daytime=aimed%86400;Need(night?daytime<21600||daytime>=79200:daytime>=21600&&daytime<79200,"berth target escaped requested daylight window");}
   var terrain=new[]{"#######","#.....#","#.....#","#######"};var cells=new[]{"2222222","2222222","2222222","2222222"};var goals=new[]{new PocPaintedPoint(5,1),new PocPaintedPoint(2,2)};int x,y;var blocked=new HashSet<int>();
   Need(AmbientProofObservedEdgeStep(terrain,cells,1,1,goals,blocked,out x,out y)&&x==2&&y==1,"choose nearest reachable observation cell, not fixed array index");
   blocked.Add(9);Need(AmbientProofObservedEdgeStep(terrain,cells,1,1,goals,blocked,out x,out y)&&x==1&&y==2,"visible body on first step requires observed detour");

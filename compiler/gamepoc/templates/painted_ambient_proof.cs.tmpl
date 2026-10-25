@@ -9,14 +9,15 @@ namespace AngelsDemons.Poc {
   // Target a real departure inside the requested calendar window. No clock or
   // snapshot is written; the controller only selects ordinary rate/pause input.
   static long AmbientProofTarget(PocAmbientPassage p,long now,bool night,int poseSecond){
-   if(p==null||p.night_period_seconds<=0||poseSecond<0||poseSecond>=p.duration_seconds)throw new ArgumentException("invalid ambient proof schedule");
+   bool berth=p!=null&&p.stop_progress>0;
+   if(p==null||p.night_period_seconds<=0||(berth?poseSecond<-(p.approach_seconds+p.dwell_seconds)||poseSecond>=p.duration_seconds-p.approach_seconds-p.dwell_seconds:poseSecond<0||poseSecond>=p.duration_seconds))throw new ArgumentException("invalid ambient proof schedule");
    long midnight=(long)Math.Floor(now/86400d)*86400,period=(long)(night?p.night_period_seconds:p.period_seconds);
    for(int day=-1;day<4;day++){
     long start=midnight+day*86400+(long)(night?p.day_end_second:p.day_start_second);
     long end=midnight+day*86400+(long)(night?86400+p.day_start_second:p.day_end_second);
-    long first=start+(long)p.offset_seconds,earliest=now+2;
+    long first=start+(long)p.offset_seconds,earliest=Math.Max(now+2,start);
     long n=Math.Max(0,(long)Math.Ceiling((earliest-first-poseSecond)/(double)period)),departure=first+n*period,target=departure+poseSecond;
-    if(target>=earliest&&departure+(long)p.duration_seconds<=end)return target;
+    if(target>=earliest&&departure+(long)(berth?p.duration_seconds-p.approach_seconds-p.dwell_seconds:p.duration_seconds)<=end)return target;
    }
    throw new InvalidOperationException("no complete departure in requested window");
   }
@@ -36,6 +37,7 @@ namespace AngelsDemons.Poc {
    if(best<0)return false;while(best!=start&&parent[best]!=start)best=parent[best];x=best%w;y=best/w;return true;
   }
   static int AmbientProofPoseSecond(PocAmbientPassage passage,float observedCanvasX,bool market,bool second){
+   if(passage.stop_progress>0)return -(int)Math.Max(1,passage.dwell_seconds/2);
    int limit=Math.Max(1,(int)passage.duration_seconds-2),best=1;float score=float.MaxValue;
    for(int at=1;at<=limit;at++){float difference=Math.Abs(PaintedPassagePosition(passage,(double)at/passage.duration_seconds).x-observedCanvasX);if(difference<score){score=difference;best=at;}}
    return market&&!second?Math.Max(1,best-2):best;
@@ -44,7 +46,7 @@ namespace AngelsDemons.Poc {
    // Runtime uniforms need an explicit transfer. Do not depend on a material
    // asset/copy constructor serializing uniforms absent from Shader.Properties.
    var material=new Material(source.shader);
-   foreach(var name in new[]{"_LayerRect","_TrainRect","_TrainUV","_TrackRect","_TrackUV"})material.SetVector(name,source.GetVector(name));
+   foreach(var name in new[]{"_LayerRect","_TrainRect","_TrainUV","_TrackRect","_TrackUV","_TrainShear"})material.SetVector(name,source.GetVector(name));
    foreach(var name in new[]{"_TrainEnabled","_TrackEnabled","_ObservationWidth"})material.SetFloat(name,source.GetFloat(name));
    foreach(var name in new[]{"_MaskTex","_ObservationTex","_TrainTex","_TrackTex"})material.SetTexture(name,source.GetTexture(name));
    return material;

@@ -8,7 +8,7 @@ Shader "Hidden/AngelsDemons/PaintedPassage" {
    #pragma fragment frag
    #include "UnityCG.cginc"
    sampler2D _MaskTex,_TrainTex,_TrackTex,_ObservationTex;
-   float4 _LayerRect,_TrainRect,_TrainUV,_TrackRect,_TrackUV;
+   float4 _LayerRect,_TrainRect,_TrainUV,_TrackRect,_TrackUV,_TrainShear;
    float _TrainEnabled,_TrackEnabled,_ObservationWidth;
    fixed4 sampleSprite(sampler2D image,float4 rect,float4 uv,float2 canvas){
     if(rect.z<=0||rect.w<=0)return fixed4(0,0,0,0);
@@ -21,7 +21,7 @@ Shader "Hidden/AngelsDemons/PaintedPassage" {
     fixed4 track=fixed4(0,0,0,0),train=fixed4(0,0,0,0);
     if(_TrackEnabled>.5)track=sampleSprite(_TrackTex,_TrackRect,_TrackUV,canvas);
     fixed4 clip=tex2D(_MaskTex,input.uv);
-    if(_TrainEnabled>.5){train=sampleSprite(_TrainTex,_TrainRect,_TrainUV,canvas);float observation=(floor(clip.r*255+.5)+.5)/max(1,_ObservationWidth);train.a*=tex2D(_ObservationTex,float2(observation,.5)).a;}
+    if(_TrainEnabled>.5){float2 sourceCanvas=canvas;sourceCanvas.y-=_TrainShear.x*(canvas.x-_TrainRect.x-_TrainShear.y);train=sampleSprite(_TrainTex,_TrainRect,_TrainUV,sourceCanvas);float observation=(floor(clip.r*255+.5)+.5)/max(1,_ObservationWidth);train.a*=tex2D(_ObservationTex,float2(observation,.5)).a;}
     float alpha=train.a+track.a*(1-train.a);
     float3 rgb=(train.rgb*train.a+track.rgb*track.a*(1-train.a))/max(alpha,.00001);
     return fixed4(rgb,alpha*clip.a);

@@ -211,10 +211,12 @@ namespace AngelsDemons.Poc
             InitWayfindingProof();
             InitRegionMapProof();
             InitPaintedProof();
+            InitCharacterMotionProof();
+            InitStationBerthProof();
             InitCopperRouteProof();
             InitTransportHubProof();
             InitAmbientProof();
-            verifyLife = verifyRegionMap || verifyTransportHub || verifyWayfinding || verifyCopperRoute || verifyAmbient || verifyLocationSDK || verifyPainted || verifySdk || verifySpatial || verifyDevelopment || verifyInspection || verifyMaintenance || verifyDoors || Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-life-verify") >= 0;
+            verifyLife = verifyStationBerth || verifyCharacterMotion || verifyRegionMap || verifyTransportHub || verifyWayfinding || verifyCopperRoute || verifyAmbient || verifyLocationSDK || verifyPainted || verifySdk || verifySpatial || verifyDevelopment || verifyInspection || verifyMaintenance || verifyDoors || Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-life-verify") >= 0;
             verify = verifyLife || verifyInventory || verifyCapture || Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-verify") >= 0;
             resource = JsonUtility.FromJson<PocResource>(Resources.Load<TextAsset>("PocConfig").text);
             if (TryStartArtPreview()) return;
@@ -788,6 +790,8 @@ namespace AngelsDemons.Poc
             if (verifyRegionMap) RegionMapProofDiagnostics(now);
             if (now > (verifyLife ? 420 : 120)) { FinishProof(false, "proof timeout, phase=" + proofPhase + ", status=" + message); return; }
             if (!connected || state == null || !string.IsNullOrEmpty(busy)) return;
+            if (verifyCharacterMotion) { CharacterMotionProofStep(now); return; }
+            if (verifyStationBerth) { StationBerthProofStep(now); return; }
             if (verifyRegionMap) { RegionMapProofStep(now); return; }
             if (verifyTransportHub) { TransportHubProofStep(now); return; }
             if (verifyWayfinding) { WayfindingProofStep(now); return; }
@@ -887,6 +891,8 @@ namespace AngelsDemons.Poc
             if (verifySdk) json=json.Substring(0,json.Length-1)+",\"sdk\":"+SdkReportJSON()+"}";
             if (verifyLife) json = json.Substring(0,json.Length-1) + ",\"life\":" + LifeReportJSON() + "}";
             if (verifyPainted) json=json.Substring(0,json.Length-1)+",\"painted\":"+PaintedProofReportJSON()+"}";
+            if (verifyCharacterMotion) json=json.Substring(0,json.Length-1)+",\"character_motion\":"+CharacterMotionReportJSON()+"}";
+            if (verifyStationBerth) json=json.Substring(0,json.Length-1)+",\"station_berth\":"+StationBerthReportJSON()+"}";
             if (verifyCopperRoute) json=json.Substring(0,json.Length-1)+",\"copper_route\":"+CopperRouteProofReportJSON()+"}";
             if (verifyTransportHub) json=json.Substring(0,json.Length-1)+",\"transport_hub\":"+TransportHubProofReportJSON()+"}";
             if (verifyAmbient) json=json.Substring(0,json.Length-1)+",\"ambient\":"+AmbientProofReportJSON()+"}";
@@ -899,6 +905,8 @@ namespace AngelsDemons.Poc
         }
         string ProofDirectory()
         {
+            if (verifyCharacterMotion) return characterMotionDirectory;
+            if (verifyStationBerth) return stationBerthDirectory;
             if (verifyRegionMap) return regionProofDirectory;
             if (verifyTransportHub) return transportHubProofDirectory;
             if (verifyWayfinding) return wayfindingProofDirectory;

@@ -4,10 +4,12 @@ using System.Collections.Generic;
 using UnityEngine;
 namespace AngelsDemons.Poc {
  [Serializable] public sealed class PocAmbientTrack {public string image;public PocArtSceneSourceRect source_rect;public float x,y,width,height;}
+ [Serializable] public sealed class PocBerthDoor {public PocPaintedPoint train,platform;}
  [Serializable] public sealed class PocAmbientPassage {
-  public string id,image;public PocArtSceneSourceRect source_rect;public float width,height,feet_x,feet_y,elevation_m;
-  public double period_seconds,duration_seconds,offset_seconds,night_period_seconds,day_start_second,day_end_second;
+  public string id,image;public PocArtSceneSourceRect source_rect;public float width,height,feet_x,feet_y,elevation_m,shear_y;
+  public double period_seconds,duration_seconds,offset_seconds,night_period_seconds,day_start_second,day_end_second,stop_progress,approach_seconds,dwell_seconds;
   public PocPaintedPoint[] path,visible_strip,observation_cells;public PocAmbientTrack track;
+  public PocBerthDoor[] berth_doors;
  }
  [Serializable] public sealed class PocPaintedDaylight {public string source;public double sunrise_second,sunset_second,twilight_seconds;public float day_brightness,night_brightness;}
  public sealed partial class AngelsDemonsPoc {
@@ -16,8 +18,33 @@ namespace AngelsDemons.Poc {
    if(paused)return gameSeconds;
    return gameSeconds+Math.Max(0,sampledNS-calendarTickNS)/1e9*Math.Max(1,secondsPerTick)*Math.Max(1,tickHz);
   }
+  static bool PaintedBerthDeparture(PocAmbientPassage p,double seconds,out double departure){
+   double before=p.approach_seconds+p.dwell_seconds,after=p.duration_seconds-before;
+   departure=double.NaN;double best=double.MaxValue;
+   if(p.night_period_seconds<=0){double n=Math.Floor((seconds-p.offset_seconds)/p.period_seconds);for(int i=0;i<=1;i++){double candidate=p.offset_seconds+(n+i)*p.period_seconds,dt=seconds-candidate;if(dt>=-before&&dt<after&&Math.Abs(dt)<best){departure=candidate;best=Math.Abs(dt);}}}
+   else {
+    double today=Math.Floor(seconds/86400d)*86400d;
+    // Evaluate both adjacent operational windows. The next morning's first
+    // departure can be approached before sunrise, without a phase reset.
+    for(int day=-1;day<=1;day++)for(int window=0;window<2;window++){
+     double start=today+day*86400d+(window==0?p.day_start_second:p.day_end_second),end=today+day*86400d+(window==0?p.day_end_second:86400+p.day_start_second),period=window==0?p.period_seconds:p.night_period_seconds;
+     double first=start+p.offset_seconds;if(first>=end)continue;double maximum=Math.Ceiling((end-first)/period)-1,n=Math.Floor((seconds-first)/period);
+     for(int side=0;side<=1;side++){double index=Math.Max(0,Math.Min(maximum,n+side)),candidate=first+index*period,dt=seconds-candidate;if(dt>=-before&&dt<after&&Math.Abs(dt)<best){departure=candidate;best=Math.Abs(dt);}}
+    }
+   }
+   return !double.IsNaN(departure);
+  }
+  static double PaintedBerthProgress(PocAmbientPassage p,double relative){
+   if(relative<-p.dwell_seconds){double t=(relative+p.approach_seconds+p.dwell_seconds)/p.approach_seconds;return p.stop_progress*(1-(1-t)*(1-t));}
+   if(relative<=0)return p.stop_progress;
+   double after=p.duration_seconds-p.approach_seconds-p.dwell_seconds,fraction=relative/after;return p.stop_progress+(1-p.stop_progress)*fraction*fraction;
+  }
+  static bool PaintedBerthPhase(PocAmbientPassage p,double seconds,out double progress){
+   progress=0;double departure;if(!PaintedBerthDeparture(p,seconds,out departure))return false;progress=PaintedBerthProgress(p,seconds-departure);return true;
+  }
   static bool PaintedPassagePhase(PocAmbientPassage passage,double seconds,out double progress){
    progress=0;if(passage==null||passage.period_seconds<=0||passage.duration_seconds<=0||double.IsNaN(seconds)||double.IsInfinity(seconds))return false;
+   if(passage.stop_progress>0)return PaintedBerthPhase(passage,seconds,out progress);
    double period=passage.period_seconds,elapsed=seconds-passage.offset_seconds,windowDuration=0;
    if(passage.night_period_seconds>0){
     double day=seconds-Math.Floor(seconds/86400d)*86400d;
@@ -37,6 +64,13 @@ namespace AngelsDemons.Poc {
    // Authority starts/stops the train. Presentation lead can move it along an
    // already active passage, but can never flash the next train on prematurely.
    if(!PaintedPassagePhase(passage,gameSeconds,out progress))return false;
+   if(passage.stop_progress>0){
+    // Lead may finish only the currently authoritative service. It must never
+    // jump to the next arrival, even at accelerated calendar rates.
+    double departure;PaintedBerthDeparture(passage,gameSeconds,out departure);
+    double after=passage.duration_seconds-passage.approach_seconds-passage.dwell_seconds;
+    progress=PaintedBerthProgress(passage,Math.Min(after-.000001,Math.Max(gameSeconds,sampledSeconds)-departure));return true;
+   }
    progress=Math.Min(1-.000001,progress+Math.Max(0,sampledSeconds-gameSeconds)/passage.duration_seconds);return true;
   }
   sealed class PaintedAmbientClockCursor {
@@ -135,6 +169,7 @@ namespace AngelsDemons.Poc {
     var layer=new RenderTexture(width,height,0,RenderTextureFormat.ARGB32){filterMode=FilterMode.Bilinear,wrapMode=TextureWrapMode.Clamp};layer.Create();
     var material=new Material(shader){hideFlags=HideFlags.HideAndDontSave};material.SetTexture("_MaskTex",mask);material.SetTexture("_ObservationTex",observation);material.SetFloat("_ObservationWidth",observationPixels.Length);material.SetVector("_LayerRect",new Vector4(bounds.x,bounds.y,bounds.width,bounds.height));
     var image=ArtSceneTexture(passage.image);var uv=ArtSceneUV(passage.source_rect,image);material.SetTexture("_TrainTex",image);material.SetVector("_TrainUV",new Vector4(uv.x,uv.y,uv.width,uv.height));
+    material.SetVector("_TrainShear",new Vector4(passage.shear_y,passage.feet_x,0,0));
     material.SetFloat(AmbientTrainEnabled,0);material.SetVector(AmbientTrainRect,Vector4.zero);
     if(PaintedTrackPresent(passage.track)){var track=passage.track;var texture=ArtSceneTexture(track.image);var tuv=ArtSceneUV(track.source_rect,texture);material.SetTexture("_TrackTex",texture);material.SetVector("_TrackRect",new Vector4(track.x,track.y,track.width,track.height));material.SetVector("_TrackUV",new Vector4(tuv.x,tuv.y,tuv.width,tuv.height));material.SetFloat("_TrackEnabled",1);}
     else material.SetFloat("_TrackEnabled",0);

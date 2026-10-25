@@ -81,6 +81,7 @@ namespace AngelsDemons.Poc {
      if(wayfindingAuthoredGuides==0&&wayfindingProofReport.shared_color_backbones<1)throw new InvalidOperationException("parallel guide colors do not share a continuous corridor backbone");
      if(wayfindingAuthoredGuides>0){
       wayfindingProofReport.authored_guides=wayfindingAuthoredGuides;var floor=new HashSet<long>();var observer=ObserverView();for(int y=0;y<observer.Terrain.Count;y++)for(int x=0;x<observer.Terrain[y].Length;x++)if(WayfindingKnownFloor(x,y))floor.Add(WayfindingCell(x,y));
+      foreach(var guide in WayfindingView().Guides)foreach(var cell in guide.Underlays)if(WayfindingKnown(cell.X,cell.Y))floor.Add(WayfindingCell(cell.X,cell.Y));
       foreach(var guide in WayfindingView().Guides)for(int i=1;i<guide.Shape.Count;i++){var a=new Vector2((float)guide.Shape[i-1].X,(float)guide.Shape[i-1].Y);var b=new Vector2((float)guide.Shape[i].X,(float)guide.Shape[i].Y);if(!WayfindingSupported(a,b,floor,.07f))throw new InvalidOperationException("authored painted strip leaves known walkable support");bool found=false;foreach(var stroke in wayfindingStrokes)if(WayfindingStrokeAligned(stroke,(a+b)*.5f,b-a,WayfindingColor(guide.Color,false))){found=true;break;}if(!found)throw new InvalidOperationException("authored guide has no matching rendered floor segment");wayfindingProofReport.authored_segment_checks++;}
       if(wayfindingProofReport.authored_segment_checks<2)throw new InvalidOperationException("authored guide geometry was not verified");
      }

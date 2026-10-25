@@ -17,6 +17,13 @@ type PaintedAmbientTrack struct {
 	Height     float64             `json:"height"`
 }
 
+// Paired measured sill centres: train is local rendered sprite pixels before
+// shear; platform is the absolute scene canvas. They do not create doors.
+type PaintedBerthDoor struct {
+	Train    PaintedPoint `json:"train"`
+	Platform PaintedPoint `json:"platform"`
+}
+
 type PaintedAmbientPassage struct {
 	ID                 string               `json:"id"`
 	Image              string               `json:"image"`
@@ -34,6 +41,11 @@ type PaintedAmbientPassage struct {
 	DayEndSecond       int64                `json:"day_end_second,omitempty"`
 	DurationSeconds    int64                `json:"duration_seconds"`
 	OffsetSeconds      int64                `json:"offset_seconds"`
+	StopProgress       float64              `json:"stop_progress,omitempty"`
+	ApproachSeconds    int64                `json:"approach_seconds,omitempty"`
+	DwellSeconds       int64                `json:"dwell_seconds,omitempty"`
+	ShearY             float64              `json:"shear_y,omitempty"`
+	BerthDoors         []PaintedBerthDoor   `json:"berth_doors,omitempty"`
 	ElevationM         float64              `json:"elevation_m"`
 	Track              *PaintedAmbientTrack `json:"track,omitempty"`
 }
@@ -105,6 +117,26 @@ func ambientPolygonsOverlap(a, b []PaintedPoint) bool {
 func ambientImage(image string, r *ArtSceneSourceRect) bool {
 	return artSceneImagePath(image) && (r == nil || (r.X >= 0 && r.Y >= 0 && r.W > 0 && r.H > 0 && r.X <= 4096-r.W && r.Y <= 4096-r.H))
 }
+func paintedPassageAt(path []PaintedPoint, progress float64) PaintedPoint {
+	length := 0.0
+	for i := 1; i < len(path); i++ {
+		length += math.Hypot(path[i].X-path[i-1].X, path[i].Y-path[i-1].Y)
+	}
+	remaining := length * progress
+	for i := 1; i < len(path); i++ {
+		a, b := path[i-1], path[i]
+		leg := math.Hypot(b.X-a.X, b.Y-a.Y)
+		if leg <= 0 {
+			continue
+		}
+		if remaining <= leg {
+			ratio := remaining / leg
+			return PaintedPoint{a.X + (b.X-a.X)*ratio, a.Y + (b.Y-a.Y)*ratio}
+		}
+		remaining -= leg
+	}
+	return path[len(path)-1]
+}
 func checkPaintedAmbient(s PaintedScene, walkable map[string]bool) error {
 	if len(s.AmbientPassages) > 4 {
 		return fmt.Errorf("painted %s: at most four ambient passages", s.LevelID)
@@ -130,9 +162,30 @@ func checkPaintedAmbient(s PaintedScene, walkable map[string]bool) error {
 		if p.PeriodSeconds < 1 || p.PeriodSeconds > 86400 || p.DurationSeconds < 1 || p.DurationSeconds > p.PeriodSeconds || p.OffsetSeconds < 0 || p.OffsetSeconds >= p.PeriodSeconds {
 			return bad("invalid authoritative schedule")
 		}
+		if !finitePainted(p.ShearY, p.StopProgress) || math.Abs(p.ShearY) > .1 {
+			return bad("invalid calibrated sprite shear")
+		}
+		if p.StopProgress != 0 || p.ApproachSeconds != 0 || p.DwellSeconds != 0 {
+			if p.StopProgress < .05 || p.StopProgress > .95 || p.ApproachSeconds <= 0 || p.ApproachSeconds >= p.DurationSeconds || p.DwellSeconds <= 0 || p.DwellSeconds >= p.DurationSeconds || p.ApproachSeconds+p.DwellSeconds >= p.DurationSeconds {
+				return bad("invalid berth approach/dwell/departure")
+			}
+		}
 		if p.NightPeriodSeconds != 0 || p.DayStartSecond != 0 || p.DayEndSecond != 0 {
 			if p.NightPeriodSeconds < 1 || p.NightPeriodSeconds > 86400 || p.DurationSeconds > p.NightPeriodSeconds || p.OffsetSeconds >= p.NightPeriodSeconds || p.DayStartSecond < 0 || p.DayEndSecond <= p.DayStartSecond || p.DayEndSecond >= 86400 {
 				return bad("invalid day/night authoritative schedule")
+			}
+			if p.StopProgress > 0 {
+				dayLength := p.DayEndSecond - p.DayStartSecond
+				for _, window := range [][2]int64{{dayLength, p.PeriodSeconds}, {86400 - dayLength, p.NightPeriodSeconds}} {
+					if p.OffsetSeconds >= window[0] {
+						return bad("berth offset leaves an operational window without a departure")
+					}
+					lastIndex := (window[0] - 1 - p.OffsetSeconds) / window[1]
+					gap := window[0] - lastIndex*window[1]
+					if gap < p.DurationSeconds {
+						return bad("berth service intervals overlap at a day/night boundary")
+					}
+				}
 			}
 		}
 		if len(p.Path) < 2 || len(p.Path) > 64 {
@@ -149,6 +202,24 @@ func checkPaintedAmbient(s PaintedScene, walkable map[string]bool) error {
 		}
 		if length < 1 {
 			return bad("empty movement path")
+		}
+		if len(p.BerthDoors) > 0 {
+			if p.StopProgress <= 0 || len(p.BerthDoors) > 12 {
+				return bad("berth door datums require a stopping service and at most 12 pairs")
+			}
+			at := paintedPassageAt(p.Path, p.StopProgress)
+			seenDoors := map[PaintedPoint]bool{}
+			for _, door := range p.BerthDoors {
+				a, b := door.Train, door.Platform
+				if !finitePainted(a.X, a.Y, b.X, b.Y) || a.X < 0 || a.X > p.Width || a.Y < 0 || a.Y > p.Height || b.X < 0 || b.X > float64(s.Width) || b.Y < 0 || b.Y > float64(s.Height) || seenDoors[a] {
+					return bad("invalid or duplicate train/platform berth datum")
+				}
+				seenDoors[a] = true
+				x, y := at.X-p.FeetX+a.X, at.Y-p.FeetY+a.Y+p.ShearY*(a.X-p.FeetX)
+				if math.Hypot(x-b.X, y-b.Y) > .5 {
+					return bad("train sill misses its platform datum at the authored berth")
+				}
+			}
 		}
 		if len(p.VisibleStrip) < 3 || len(p.VisibleStrip) > 64 {
 			return bad("visible strip needs three to 64 points")

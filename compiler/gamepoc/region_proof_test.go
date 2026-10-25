@@ -76,7 +76,8 @@ func TestRegionNativeProofUsesOrdinaryUIAndExactStationExit(t *testing.T) {
 		t.Fatal("proof must preserve one real session and issue exactly one explicit Go")
 	}
 	u := hudTemplate(t, "unity.cs.tmpl")
-	for _, hook := range []string{`InitRegionMapProof()`, `verifyLife = verifyRegionMap ||`, `RegionMapProofDiagnostics(now)`, `RegionMapProofStep(now)`, `RegionMapProofReportJSON()`, `return regionProofDirectory`, `RestoreRegionMapProofLocale()`} {
+	assertNativeLifeProofFlags(t, u)
+	for _, hook := range []string{`InitRegionMapProof()`, `RegionMapProofDiagnostics(now)`, `RegionMapProofStep(now)`, `RegionMapProofReportJSON()`, `return regionProofDirectory`, `RestoreRegionMapProofLocale()`} {
 		if !strings.Contains(u, hook) {
 			t.Errorf("missing native region-map runner hook: %s", hook)
 		}

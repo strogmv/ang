@@ -73,7 +73,7 @@ func assertNativeLifeProofFlags(t *testing.T, unity string) {
 	for _, operand := range strings.Split(assignment, "||") {
 		operands[strings.TrimSpace(operand)] = true
 	}
-	for _, flag := range []string{"verifyCopperRoute", "verifyAmbient", "verifyLocationSDK", "verifyPainted", "verifySdk", "verifySpatial", "verifyDevelopment", "verifyInspection", "verifyMaintenance", "verifyDoors", "verifyWayfinding", "verifyTransportHub"} {
+	for _, flag := range []string{"verifyRegionMap", "verifyCharacterMotion", "verifyStationBerth", "verifyCopperRoute", "verifyAmbient", "verifyLocationSDK", "verifyPainted", "verifySdk", "verifySpatial", "verifyDevelopment", "verifyInspection", "verifyMaintenance", "verifyDoors", "verifyWayfinding", "verifyTransportHub"} {
 		if !operands[flag] {
 			t.Errorf("verifyLife does not directly include native proof mode %s", flag)
 		}

@@ -237,7 +237,7 @@ func TestPaintedAmbientNativeClockPathDaylightAndProjection(t *testing.T) {
 	harness := `using System;using UnityEngine;
 class PocPaintedPoint {public float x,y;public PocPaintedPoint(float px,float py){x=px;y=py;}}
 class PocPaintedScene {public PocPaintedPoint origin,axis_x,axis_y;public PocAmbientPassage[] ambient_passages;}
-class PocAmbientPassage {public double period_seconds=300,duration_seconds=15,offset_seconds,night_period_seconds,day_start_second,day_end_second;public float width=160,height=60,feet_x=80,feet_y=55;public PocPaintedPoint[] path,observation_cells,visible_strip;}
+class PocAmbientPassage {public double stop_progress,approach_seconds,dwell_seconds;public double period_seconds=300,duration_seconds=15,offset_seconds,night_period_seconds,day_start_second,day_end_second;public float width=160,height=60,feet_x=80,feet_y=55;public PocPaintedPoint[] path,observation_cells,visible_strip;}
 class PocPaintedDaylight {public string source="passive_lightguides";public double sunrise_second=21600,sunset_second=72000,twilight_seconds=3600;public float day_brightness=1,night_brightness=.6f;}
 class Proof {
 ` + mathCode + transform + point + target + polygon + strip + `

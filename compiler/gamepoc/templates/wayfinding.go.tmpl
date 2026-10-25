@@ -9,7 +9,8 @@ import (
 )
 
 type wayfindingGuidePoint struct {X float64 `json:"x"`;Y float64 `json:"y"`}
-type wayfindingDestination struct {MarkerNumber int `json:"marker_number,omitempty"`;ID string `json:"id"`;NameKey string `json:"name_key"`;Level string `json:"level"`;Color string `json:"color"`;Kind string `json:"kind"`;At behavior.Cell `json:"at"`;GuideFrom *behavior.Cell `json:"guide_from,omitempty"`;GuideRoute []wayfindingGuidePoint `json:"guide_route,omitempty"`;GuideSupport []behavior.Cell `json:"guide_support,omitempty"`;EdgeID string `json:"edge_id,omitempty"`}
+type wayfindingFrame struct {U wayfindingGuidePoint `json:"u"`;V wayfindingGuidePoint `json:"v"`}
+type wayfindingDestination struct {MarkerNumber int `json:"marker_number,omitempty"`;ID string `json:"id"`;NameKey string `json:"name_key"`;Level string `json:"level"`;Color string `json:"color"`;Kind string `json:"kind"`;At behavior.Cell `json:"at"`;GuideFrom *behavior.Cell `json:"guide_from,omitempty"`;GuideRoute []wayfindingGuidePoint `json:"guide_route,omitempty"`;GuideFrame *wayfindingFrame `json:"guide_frame,omitempty"`;GuideUnderlays []behavior.Cell `json:"guide_underlays,omitempty"`;GuideSupport []behavior.Cell `json:"guide_support,omitempty"`;EdgeID string `json:"edge_id,omitempty"`}
 type wayfindingCatalog struct {Destinations []wayfindingDestination `json:"destinations"`}
 // Selection and caches are transient UI state, intentionally outside saves.
 type wayfindingSession struct {Epoch,Level,Selected,Rejected,Memory string;Guides map[string][]behavior.Cell;Shapes map[string][]*pb.PocWayfindingShapePoint;From,To behavior.Cell;Route []behavior.Cell;RouteReady bool}
@@ -75,17 +76,20 @@ func wayfindingPoints(path []behavior.Cell)[]*pb.PocPoint{var out []*pb.PocPoint
 // Publish all points together or none: deleting an unknown middle point would
 // draw a false chord across unobserved architecture. The cache follows exact
 // remembered geometry, not simulation ticks, actor paths or live occupancy.
+func(r *Runtime)wayfindingPaintKnown(d wayfindingDestination,at behavior.Cell)bool{
+ if r.wayfindingWalks(d.Level,at){return true};for _,under:=range d.GuideUnderlays{if under!=at{continue};rows:=r.world.Life.Locations[d.Level].Terrain;if at.Y<0||at.Y>=len(rows)||at.X<0||at.X>=len(rows[at.Y]){return false};seen,ok:=r.state.LifeExploration[d.Level][at.Y*len(rows[at.Y])+at.X];return ok&&seen.Glyph==string(rows[at.Y][at.X])};return false
+}
 func(r *Runtime)wayfindingShape(d wayfindingDestination)[]*pb.PocWayfindingShapePoint{
  if shape,ok:=r.wayfinding.Shapes[d.ID];ok{return shape}
  var shape []*pb.PocWayfindingShapePoint
- if len(d.GuideRoute)>=2&&len(d.GuideSupport)>0{known:=true;for _,at:=range d.GuideSupport{if !r.wayfindingWalks(d.Level,at){known=false;break}};if known{shape=make([]*pb.PocWayfindingShapePoint,len(d.GuideRoute));for i,p:=range d.GuideRoute{shape[i]=&pb.PocWayfindingShapePoint{X:p.X,Y:p.Y}}}}
+ if len(d.GuideRoute)>=2&&len(d.GuideSupport)>0{known:=true;for _,at:=range d.GuideSupport{if !r.wayfindingPaintKnown(d,at){known=false;break}};if known{shape=make([]*pb.PocWayfindingShapePoint,len(d.GuideRoute));for i,p:=range d.GuideRoute{shape[i]=&pb.PocWayfindingShapePoint{X:p.X,Y:p.Y}}}}
  r.wayfinding.Shapes[d.ID]=shape;return shape
 }
 func(r *Runtime)appendWayfinding(view *pb.PocLifeView,locale string){
  hero,_:=r.wayfindingContext();if hero==nil{return};out:=&pb.PocWayfindingView{LevelId:hero.Level,Status:"none"};view.Wayfinding=out;if hero.Trip!=nil{out.Status="transit";r.wayfinding.Selected="";return}
  for _,d:=range r.wayfindingLocal(locale){out.Destinations=append(out.Destinations,&pb.PocWayfindingDestination{Id:d.ID,Name:d.Name,Color:d.Color,Kind:d.Kind,X:int32(d.At.X),Y:int32(d.At.Y),ServiceAvailable:d.EdgeID!="",TravelMode:d.Mode,Number:int32(d.Number)})}
  budget:=16384;for _,d:=range r.world.Wayfinding.Destinations{if d.Level!=hero.Level||d.GuideFrom==nil||!r.wayfindingWalks(hero.Level,d.At){continue};if d.EdgeID!=""{found:=false;for _,v:=range out.Destinations{if v.Id==d.ID{found=true;break}};if !found{continue}}
-  path,exists:=r.wayfinding.Guides[d.ID];if !exists{path=r.wayfindingPath(hero.Level,*d.GuideFrom,d.At);r.wayfinding.Guides[d.ID]=path};if len(path)<2||len(path)>budget{continue};budget-=len(path);out.Guides=append(out.Guides,&pb.PocWayfindingGuide{Id:d.ID,Color:d.Color,Path:wayfindingPoints(path),Shape:r.wayfindingShape(d)})
+  path,exists:=r.wayfinding.Guides[d.ID];if !exists{path=r.wayfindingPath(hero.Level,*d.GuideFrom,d.At);r.wayfinding.Guides[d.ID]=path};if len(path)<2||len(path)>budget{continue};budget-=len(path);guide:=&pb.PocWayfindingGuide{Id:d.ID,Color:d.Color,Path:wayfindingPoints(path),Shape:r.wayfindingShape(d),Authored:len(d.GuideRoute)>0};if len(guide.Shape)>1{guide.Underlays=wayfindingPoints(d.GuideUnderlays);if d.GuideFrame!=nil{guide.AxisU=&pb.PocWayfindingShapePoint{X:d.GuideFrame.U.X,Y:d.GuideFrame.U.Y};guide.AxisV=&pb.PocWayfindingShapePoint{X:d.GuideFrame.V.X,Y:d.GuideFrame.V.Y}}};out.Guides=append(out.Guides,guide)
  }
  if r.wayfinding.Selected==""{if r.wayfinding.Rejected!=""{out.Status="unknown";out.RejectedDestinationId=r.wayfinding.Rejected};return};d,ok:=r.resolveWayfinding(locale,r.wayfinding.Selected);if !ok{r.wayfinding.Rejected=r.wayfinding.Selected;r.wayfinding.Selected="";r.wayfinding.RouteReady=false;out.Status="unknown";out.RejectedDestinationId=r.wayfinding.Rejected;return}
  out.SelectedDestinationId=d.ID;out.SelectedName=d.Name;out.SelectedColor=d.Color;out.LocalExitId=d.EdgeID;out.LocalExitMode=d.Mode;if edge:=r.world.Life.Edge(d.EdgeID);edge!=nil{out.LocalExitName=r.lifeEdgeName(locale,*edge)}

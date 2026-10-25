@@ -44,6 +44,7 @@ namespace AngelsDemons.Poc {
   static Color WayfindingColor(string html,bool selected){Color c;if(!ColorUtility.TryParseHtmlString(html,out c))c=new Color(.45f,.69f,.76f);float gain=selected?.50f:.84f,lift=selected?.50f:.03f;c.r=c.r*gain+lift;c.g=c.g*gain+lift;c.b=c.b*gain+lift;c.a=selected?1:.72f;return c;}
   static ulong WayfindingMix(ulong h,long value){unchecked{return (h^(ulong)value)*1099511628211UL;}}
   static ulong WayfindingText(ulong h,string value){if(value!=null)foreach(char c in value)h=WayfindingMix(h,c);return WayfindingMix(h,0);}
+  static ulong WayfindingAxisHash(ulong hash,PocWayfindingShapePoint axis){return axis==null?WayfindingMix(hash,0):WayfindingMix(WayfindingMix(hash,BitConverter.DoubleToInt64Bits(axis.X)),BitConverter.DoubleToInt64Bits(axis.Y));}
   static string WayfindingEdge(int ax,int ay,int bx,int by){bool forward=ay<by||ay==by&&ax<bx;return forward?ax+","+ay+"/"+bx+","+by:bx+","+by+"/"+ax+","+ay;}
   static float WayfindingLaneSpacing(int count){return Mathf.Min(.18f,.68f/Math.Max(1,count));}
   static float WayfindingGuideHalfWidth(int count){return Mathf.Min(.038f,WayfindingLaneSpacing(count)*.34f);}
@@ -58,7 +59,7 @@ namespace AngelsDemons.Poc {
   void WayfindingSupportCell(HashSet<long> support,PocPoint cell){if(!WayfindingKnown(cell.X,cell.Y))return;support.Add(WayfindingCell(cell.X,cell.Y));for(int y=cell.Y-1;y<=cell.Y+1;y++)for(int x=cell.X-1;x<=cell.X+1;x++)if(WayfindingKnownFloor(x,y))support.Add(WayfindingCell(x,y));}
   ulong WayfindingSignature(PocWayfindingView view){
    ulong hash=WayfindingText(1469598103934665603UL,view.LevelId);hash=WayfindingText(hash,view.SelectedDestinationId);hash=WayfindingText(hash,view.SelectedColor);hash=WayfindingMix(hash,wayfindingProofHideSelected?1:0);
-   foreach(var guide in view.Guides){foreach(var p in guide.Shape){hash=WayfindingMix(WayfindingMix(hash,BitConverter.DoubleToInt64Bits(p.X)),BitConverter.DoubleToInt64Bits(p.Y));hash=WayfindingSupportHash(hash,new PocPoint{X=(int)Math.Floor(p.X+.5),Y=(int)Math.Floor(p.Y+.5)});}hash=WayfindingText(hash,guide.Id);hash=WayfindingText(hash,guide.Color);foreach(var p in guide.Path){hash=WayfindingMix(WayfindingMix(hash,p.X),p.Y);hash=WayfindingMix(hash,WayfindingKnown(p.X,p.Y)?1:0);hash=WayfindingSupportHash(hash,p);}}
+   foreach(var guide in view.Guides){hash=WayfindingMix(hash,guide.Authored?1:0);hash=WayfindingAxisHash(WayfindingAxisHash(hash,guide.AxisU),guide.AxisV);foreach(var p in guide.Underlays)hash=WayfindingMix(WayfindingMix(WayfindingMix(hash,p.X),p.Y),WayfindingKnown(p.X,p.Y)?1:0);foreach(var p in guide.Shape){hash=WayfindingMix(WayfindingMix(hash,BitConverter.DoubleToInt64Bits(p.X)),BitConverter.DoubleToInt64Bits(p.Y));hash=WayfindingSupportHash(hash,new PocPoint{X=(int)Math.Floor(p.X+.5),Y=(int)Math.Floor(p.Y+.5)});}hash=WayfindingText(hash,guide.Id);hash=WayfindingText(hash,guide.Color);foreach(var p in guide.Path){hash=WayfindingMix(WayfindingMix(hash,p.X),p.Y);hash=WayfindingMix(hash,WayfindingKnown(p.X,p.Y)?1:0);hash=WayfindingSupportHash(hash,p);}}
    foreach(var p in view.Path){hash=WayfindingMix(WayfindingMix(hash,p.X),p.Y);hash=WayfindingMix(hash,WayfindingKnown(p.X,p.Y)?1:0);hash=WayfindingSupportHash(hash,p);}
    foreach(var d in view.Destinations){hash=WayfindingText(WayfindingText(hash,d.Id),d.Color);hash=WayfindingMix(WayfindingMix(hash,d.X),d.Y);hash=WayfindingMix(hash,d.Number);hash=WayfindingMix(hash,WayfindingKnown(d.X,d.Y)?1:0);}
    if(view.Guides.Count>0){var observer=ObserverView();if(observer!=null)for(int y=0;y<observer.Terrain.Count;y++)for(int x=0;x<observer.Terrain[y].Length;x++)hash=WayfindingMix(hash,WayfindingKnownFloor(x,y)?1:0);}
@@ -176,9 +177,17 @@ namespace AngelsDemons.Poc {
     edge=finish+1;
    }
   }
-  static Vector2 WayfindingPaintSide(IList<Vector2> points,int index,float half){
+  static Vector2 WayfindingPaintNormal(Vector2 tangent,PocWayfindingGuide guide,float half){
+   if(guide==null||guide.AxisU==null||guide.AxisV==null)return new Vector2(-tangent.y,tangent.x).normalized*half;
+   var u=new Vector2((float)guide.AxisU.X,(float)guide.AxisU.Y);var v=new Vector2((float)guide.AxisV.X,(float)guide.AxisV.Y);float det=u.x*v.y-u.y*v.x;
+   if(Math.Abs(det)<.25f)return new Vector2(-tangent.y,tangent.x).normalized*half;
+   float x=(tangent.x*v.y-tangent.y*v.x)/det,y=(u.x*tangent.y-u.y*tangent.x)/det;
+   return Math.Abs(x)>Math.Abs(y)?v*(x>=0?half:-half):u*(y>=0?-half:half);
+  }
+  static Vector2 WayfindingPaintSide(IList<Vector2> points,int index,float half,PocWayfindingGuide guide=null){
    var before=(points[index==0?1:index]-points[index==0?0:index-1]).normalized;
    var after=(points[index==points.Count-1?index:index+1]-points[index]).normalized;if(index==points.Count-1)after=before;
+   if(guide!=null&&guide.AxisU!=null&&guide.AxisV!=null){var a=WayfindingPaintNormal(before,guide,half);var b=WayfindingPaintNormal(after,guide,half);var joined=(a-b).sqrMagnitude<.000001f?a:a+b;float length=(float)Math.Sqrt(joined.sqrMagnitude);return length>.09f?joined*(.09f/length):joined;}
    var normal=new Vector2(-(before.y+after.y),before.x+after.x).normalized;float dot=normal.x*(-after.y)+normal.y*after.x;
    return normal*(Math.Min(.09f,half/Math.Max(.25f,dot)));
   }
@@ -189,7 +198,7 @@ namespace AngelsDemons.Poc {
    wayfindingAuthoredGuides++;var color=WayfindingColor(guide.Color,false);const float half=.055f;
    for(int i=1;i<points.Count;i++){var a=points[i-1];var b=points[i];string key=guide.Color.ToUpperInvariant()+":"+Math.Round(a.x,4)+","+Math.Round(a.y,4)+":"+Math.Round(b.x,4)+","+Math.Round(b.y,4);if(!wayfindingPaintEdges.Add(key))continue;
     int count=wayfindingStrokes.Count;WayfindingEmitStroke(a,b,color,half);if(wayfindingStrokes.Count==count)continue;
-    var stroke=wayfindingStrokes[wayfindingStrokes.Count-1];stroke.joinedSides=true;stroke.startSide=WayfindingPaintSide(points,i-1,half);stroke.endSide=WayfindingPaintSide(points,i,half);wayfindingGuideSegments++;
+    var stroke=wayfindingStrokes[wayfindingStrokes.Count-1];stroke.joinedSides=true;stroke.startSide=WayfindingPaintSide(points,i-1,half,guide);stroke.endSide=WayfindingPaintSide(points,i,half,guide);wayfindingGuideSegments++;
    }
   }
   void PrepareWayfinding(){
@@ -201,7 +210,8 @@ namespace AngelsDemons.Poc {
    // Initial longest route wins, then stable ID. Later discoveries append to
    // the established ordering, independently of server/list presentation order.
    var guides=new List<PocWayfindingGuide>();var authoredFloor=new HashSet<long>();var remembered=ObserverView();if(remembered!=null)for(int y=0;y<remembered.Terrain.Count;y++)for(int x=0;x<remembered.Terrain[y].Length;x++)if(WayfindingKnownFloor(x,y))authoredFloor.Add(WayfindingCell(x,y));
-   foreach(var guide in view.Guides){if(guide.Shape.Count>1)WayfindingRenderAuthored(guide,authoredFloor);else guides.Add(guide);}
+   foreach(var guide in view.Guides)foreach(var p in guide.Underlays)if(WayfindingKnown(p.X,p.Y))authoredFloor.Add(WayfindingCell(p.X,p.Y));
+   foreach(var guide in view.Guides){if(guide.Shape.Count>1)WayfindingRenderAuthored(guide,authoredFloor);else if(!guide.Authored)guides.Add(guide);}
    guides.Sort((a,b)=>{int length=b.Path.Count.CompareTo(a.Path.Count);return length!=0?length:string.CompareOrdinal(a.Id,b.Id);});var ids=new HashSet<string>(StringComparer.Ordinal);var byID=new Dictionary<string,PocWayfindingGuide>(StringComparer.Ordinal);var hues=new List<string>();
    foreach(var guide in guides){ids.Add(guide.Id);byID[guide.Id]=guide;if(!wayfindingGuideOrder.Contains(guide.Id))wayfindingGuideOrder.Add(guide.Id);string hue=guide.Color.ToUpperInvariant();if(!hues.Contains(hue))hues.Add(hue);}wayfindingGuideOrder.RemoveAll(id=>!ids.Contains(id));hues.Sort(StringComparer.Ordinal);
    float radius=(hues.Count-1)*WayfindingLaneSpacing(hues.Count)*.5f+WayfindingGuideHalfWidth(hues.Count)+.002f;var edges=new Dictionary<string,WayfindingBinding>(StringComparer.Ordinal);var anchors=new Dictionary<long,WayfindingAnchor>();var used=new HashSet<string>(StringComparer.Ordinal);var ends=new Dictionary<string,WayfindingAnchor>(StringComparer.Ordinal);
@@ -220,11 +230,12 @@ namespace AngelsDemons.Poc {
   void WayfindingEndpoint(PocWayfindingDestination d,int number,bool selected){
    // A small painted stop bar marks the real approach. The stable number is
    // retained in selection data; large seven-segment boxes are not floor signs.
-   Color color=WayfindingColor(d.Color,selected);var center=new Vector2(d.X,d.Y);Vector2 tangent=new Vector2(1,0);
-   foreach(var guide in WayfindingView().Guides)if(guide.Id==d.Id&&guide.Shape.Count>1){var last=guide.Shape[guide.Shape.Count-1];var previous=guide.Shape[guide.Shape.Count-2];tangent=new Vector2((float)(last.X-previous.X),(float)(last.Y-previous.Y)).normalized;break;}
-   var side=new Vector2(-tangent.y,tangent.x);float width=selected?.28f:.18f;
-   WayfindingStrokeAdd(center-side*width,center+side*width,color,selected?.055f:.040f,d.X,d.Y,d.X,d.Y);
+   Color color=WayfindingColor(d.Color,selected);var center=new Vector2(d.X,d.Y);Vector2 tangent=new Vector2(1,0);PocWayfindingGuide physical=null;
+   foreach(var guide in WayfindingView().Guides)if(guide.Id==d.Id&&guide.Shape.Count>1){physical=guide;var last=guide.Shape[guide.Shape.Count-1];var previous=guide.Shape[guide.Shape.Count-2];center=new Vector2((float)last.X,(float)last.Y);tangent=new Vector2((float)(last.X-previous.X),(float)(last.Y-previous.Y)).normalized;break;}
+   var side=WayfindingPaintNormal(tangent,physical,selected?.22f:.14f);
+   WayfindingStrokeAdd(center-side,center+side,color,selected?.055f:.040f,d.X,d.Y,d.X,d.Y);
   }
+
   Mesh WayfindingMesh(Func<Vector2,Vector3> project,Mesh reuse=null){
    var vertices=wayfindingVertices;var colors=wayfindingColors;var triangles=wayfindingTriangles;vertices.Clear();colors.Clear();triangles.Clear();
    for(int pass=0;pass<3;pass++)foreach(var line in wayfindingStrokes){if((line.selected?(line.under?1:2):0)!=pass||!WayfindingKnown(line.ax,line.ay)||!WayfindingKnown(line.bx,line.by))continue;Vector2 direction=(line.b-line.a).normalized,side=new Vector2(-direction.y,direction.x)*line.half;int at=vertices.Count;
@@ -253,7 +264,7 @@ namespace AngelsDemons.Poc {
   }
   bool WayfindingMarkerScreen(PocWayfindingDestination d,out Vector2 screen){
    screen=Vector2.zero;if(!WayfindingKnown(d.X,d.Y))return false;var sdk=CurrentLocationSDK();if(sdk!=null)return LocationSDKCellScreen(d.X,d.Y,out screen);
-   var scene=CurrentPaintedScene();if(scene!=null){var viewport=PaintedViewport();var fit=PaintedCameraFit(scene,viewport,PaintedPoint(scene,shownPosition));var at=PaintedPoint(scene,new Vector2(d.X,d.Y));screen=fit.position+at*(fit.width/scene.width);return viewport.Contains(screen);}
+   var scene=CurrentPaintedScene();if(scene!=null){var viewport=PaintedViewport();var fit=PaintedCameraFit(scene,viewport,PaintedPoint(scene,shownPosition));var point=new Vector2(d.X,d.Y);foreach(var guide in WayfindingView().Guides)if(guide.Id==d.Id&&guide.Shape.Count>1){var last=guide.Shape[guide.Shape.Count-1];point=new Vector2((float)last.X,(float)last.Y);break;}var at=PaintedPoint(scene,point);screen=fit.position+at*(fit.width/scene.width);return viewport.Contains(screen);}
    Vector2 origin;float tw,th;GetSpatialProjection(out origin,out tw,out th);screen=CellScreen(origin,tw,th,d.X,d.Y);return SpatialViewport().Contains(screen);
   }
   bool SendWayfindingPointer(Vector2 mouse){
