@@ -129,6 +129,7 @@ func TestActualLocalizedRuntime(t *testing.T){
   {Key:"ui.fallback",Texts:map[string]string{"en":"EN_FALLBACK"}},
   {Key:"ui.default",Texts:map[string]string{"ru":"RU_DEFAULT"}},
   {Key:"error.route_unknown",Texts:map[string]string{"ru":"RU_ERROR","en":"EN_ERROR"}},
+  {Key:"life.activity.walking_to",Texts:map[string]string{"ru":"Идёт: {0}","en":"Walking: {0}"}},
  }}
  for _,test:=range []struct{locale,key,fallback,want string}{
   {"en","region.node.room.name","","EN_NAME"},{"ru","region.node.room.name","","RU_NAME"},
@@ -138,6 +139,7 @@ func TestActualLocalizedRuntime(t *testing.T){
  }{if got:=r.localText(test.locale,test.key,test.fallback);got!=test.want{t.Fatalf("%+v got %q",test,got)}}
  for _,locale:=range []string{"","invalid","ru"}{if r.validLocale(locale)!="ru"{t.Fatal("unknown locale did not use authored default")}}
  if r.validLocale("en")!="en"{t.Fatal("registered locale lost")}
+ for _,row:=range []struct{locale,label,want string}{{"en","Идёт: region.node.room.name","Walking: EN_NAME"},{"ru","Идёт: region.node.room.name","Идёт: RU_NAME"},{"en","region.node.room.name","EN_NAME"},{"en","legacy activity","legacy activity"}}{if got:=r.localActivity(row.locale,row.label);got!=row.want{t.Fatalf("activity %q got %q",row.label,got)}}
  for _,err:=range []error{textError{Key:"error.route_unknown"},&textError{Key:"error.route_unknown"},fmt.Errorf("wrapper: %w",textError{Key:"error.route_unknown"})}{if r.localError("en",err)!="EN_ERROR"{t.Fatal("keyed error did not localize")}}
  if r.localError("en",nil)!=""||r.localError("en",errors.New("legacy diagnostic"))!="legacy diagnostic"{t.Fatal("legacy/nil error fallback changed")}
  r.world.Localization=localizationCatalog{DefaultLocale:"en",FallbackLocale:"ru",Locales:[]string{"ru","en"},Messages:[]localizationMessage{{Key:"ui.label",Texts:map[string]string{"en":"EN_DEFAULT"}}}}

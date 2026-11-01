@@ -371,7 +371,7 @@ func(r *Runtime) validateSocialSave(s state)error{
  if s.Demo.Squad.LastSeenTick<0||s.Demo.Squad.LastSeenTick>s.Tick{return errors.New("invalid group observation time")}
  if err:=r.validatePreparation(s);err!=nil{return err}
  if err:=s.Demo.Squad.Search.Validate(r.sceneSpace(nil),r.world.AI.Policy.Group.Search,ids,s.Tick);err!=nil{return err}
- switch s.Demo.Squad.Phase{case "","awaiting","shadowing","preparing","supplying","assembling","regroup","approaching","committing","in_position","searching","search_assembling","search_exhausted":default:return errors.New("invalid saved squad phase")}
+ switch s.Demo.Squad.Phase{case "cancelled","","awaiting","shadowing","preparing","supplying","assembling","regroup","approaching","committing","in_position","searching","search_assembling","search_exhausted":default:return errors.New("invalid saved squad phase")}
  return nil
 }
 func(r *Runtime) sceneBlocked(waiter *demoAgent,next point,routes ...[]point){
@@ -431,7 +431,7 @@ func(r *Runtime) missionProgressStep(){
  if d.Plan.Status=="completed"{d.Progress.Complete();return}
  if d.Plan.Status=="failed"{return}
  mark:=fmt.Sprintf("%t/%t/%t",d.Captured,d.Held,d.AtMedblock)
- for _,c:=range d.Candidates{if c.Selected{a:=d.Agents[r.demoAgentIndex(c.AgentID)];if a.Progress.Status=="failed"{r.failMission(a.ID+": "+a.Progress.Reason);return};mark+=fmt.Sprintf("/%s:%d,%d",a.ID,a.Position.X,a.Position.Y)}}
+ for _,c:=range d.Candidates{if c.Selected{a:=d.Agents[r.demoAgentIndex(c.AgentID)];if a.Progress.Status=="failed"{r.replaceCaptureMember(a.ID);return};mark+=fmt.Sprintf("/%s:%d,%d",a.ID,a.Position.X,a.Position.Y)}}
  d.Progress.Observe(d.Plan.Root,mark,r.state.Tick,policy)
  reason:=d.Plan.Reason;if reason==""{reason=d.Squad.Reason};if reason==""{reason="awaiting_world_result"}
  d.Progress.Block(reason,"group_progress",r.state.Tick,policy)
@@ -446,7 +446,7 @@ func(r *Runtime) missionProgressStep(){
 func(r *Runtime) failMission(reason string){
  d:=&r.state.Demo
  if d.Progress.Key==""{d.Progress.Observe(r.world.Config.CaptureDemo.MissionRoot,"",r.state.Tick,r.world.AI.Policy.Recovery.Group)}
- r.state.Inventory.ReleasePurpose(d.Squad.ID);d.Plan.Status="failed";d.Plan.Reason=reason;d.Progress.Status="failed";d.Progress.Reason=reason
+ r.state.Inventory.ReleasePurpose(d.Squad.ID);if d.Squad.Phase!="search_exhausted"{d.Squad.Phase="cancelled"};d.Plan.Status="failed";d.Plan.Reason=reason;d.Progress.Status="failed";d.Progress.Reason=reason
  for i:=range d.Agents{a:=&d.Agents[i];if r.selectedActor(a.ID){a.Path=nil;a.Task="blocked";if d.Squad.Phase=="search_exhausted"{a.Task="search_report"}}}
  r.demoEvent("Задание остановлено: "+reason)
 }

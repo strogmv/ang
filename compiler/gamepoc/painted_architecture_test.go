@@ -78,7 +78,7 @@ func TestPaintedArchitectureAnchorPresenceDoesNotGuessZeroCoordinates(t *testing
 	}
 	// A real zero anchor must pass authoring validation when that cell is floor.
 	c := paintedArchitectureFixture()
-	c.Art.Painted[0].Navigation[0] = ".###"
+	c.Art.Painted[0].Navigation[0] = "..##"
 	c.Art.Painted[0].ProofBlocked = Point{3, 0}
 	c.Art.Painted[0].Occluders[0].VisibilityAnchor = &Point{0, 0}
 	var life map[string]any
@@ -86,7 +86,7 @@ func TestPaintedArchitectureAnchorPresenceDoesNotGuessZeroCoordinates(t *testing
 		t.Fatal(err)
 	}
 	market := life["locations"].(map[string]any)["market"].(map[string]any)
-	market["terrain"].([]any)[0] = ".###"
+	market["terrain"].([]any)[0] = "..##"
 	var err error
 	c.Life, err = json.Marshal(life)
 	if err != nil {

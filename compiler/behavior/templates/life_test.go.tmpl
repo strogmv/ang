@@ -3,6 +3,25 @@ package behavior
 import("encoding/json";"fmt";"reflect";"strings";"testing")
 func lifeFixture()LifeModel{return LifeModel{StartSeconds:0,SecondsPerTick:1,MoveTicks:3,Walkable:map[string]bool{".":true},Locations:map[string]LifeLocation{"a":{Name:"A",Terrain:[]string{".....",".....","....."}},"b":{Name:"B",Terrain:[]string{".....",".....","....."}}},Edges:[]LifeEdge{{ID:"ab",From:"a",To:"b",Exit:Cell{4,1},Entry:Cell{0,1},Mode:"rail",TravelSeconds:20,PeriodSeconds:30,Seats:1},{ID:"ba",From:"b",To:"a",Exit:Cell{0,1},Entry:Cell{4,1},Mode:"rail",TravelSeconds:20,PeriodSeconds:30,Seats:1}},Actors:[]LifePerson{{ID:"one",Name:"One",Steps:[]LifeStep{{AtMinute:0,Level:"a",At:Cell{1,1},Activity:"rest"},{AtMinute:1,Level:"b",At:Cell{3,1},Activity:"work"}}},{ID:"two",Name:"Two",Steps:[]LifeStep{{AtMinute:0,Level:"a",At:Cell{1,2},Activity:"rest"},{AtMinute:1,Level:"b",At:Cell{3,2},Activity:"work"}}}}}}
 
+// A route was legitimate when accepted. A later topology change must not let
+// its cached first segment carry a body into a newly closed cell.
+func TestLifeAcceptedStepRechecksFloorAndReplans(t *testing.T){
+ for _,controlled:=range []bool{false,true}{t.Run(fmt.Sprint(controlled),func(t *testing.T){
+  m:=lifeFixture();m.Actors=m.Actors[:1];s:=m.Start();a:=&s.Actors[0]
+  if controlled{s.ControlledActorID=a.ID};a.Manual=true;a.Arrived=false;a.Goal=Cell{3,1};a.Path=[]Cell{{2,1},{3,1}}
+  level:=m.Locations["a"];level.Terrain=[]string{".....","..#..","....."};m.Locations["a"]=level
+  previous:=a.Position
+  for tick:=int64(1);tick<=30;tick++{
+   s.Advance(m,tick)
+   if !m.Walks(a.Level,a.Position)||Distance(previous,a.Position)>1{t.Fatalf("cached route crossed invalid floor: tick=%d before=%v after=%v",tick,previous,a.Position)}
+   if err:=s.Validate(m,tick);err!=nil{t.Fatal(err)}
+   previous=a.Position
+   if a.Arrived{break}
+  }
+  if !a.Arrived||a.Position!=(Cell{3,1}){t.Fatalf("valid alternate corridor was not used: %+v",a)}
+ })}
+}
+
 func scheduledLifeEdge()LifeEdge{return LifeEdge{ID:"ab",From:"a",To:"b",Exit:Cell{4,1},Entry:Cell{0,1},Mode:"rail",TravelSeconds:300,PeriodSeconds:300,NightPeriodSeconds:3600,DayStartSecond:21600,DayEndSecond:79200,Seats:4}}
 
 func TestLifeDepartureDayNightWindows(t *testing.T){
@@ -31,6 +50,16 @@ func TestLifeScheduledWaitingAndTransitSurviveSaveAndCoarseClock(t *testing.T){
  restored=roundtrip(restored)
  for tick:=int64(3);tick<=8;tick++{s.Advance(m,tick);restored.Advance(m,tick);if err:=restored.Validate(m,tick);err!=nil{t.Fatal(err)}}
  if !reflect.DeepEqual(s,restored)||s.Actor("one").Level!="b"||s.Actor("one").Trip!=nil{t.Fatal("save/load waiting or transit diverged")}
+}
+
+func TestLifeMissedTrainWaitsForFutureDeparture(t *testing.T){
+ m:=lifeFixture();m.StartSeconds=28919;m.Actors=m.Actors[:1];m.Edges[0]=scheduledLifeEdge()
+ s:=m.Start();a:=s.Actor("one");a.Level="a";a.Position=m.Edges[0].Exit;a.Goal=a.Position;a.Step=0;a.Visits=map[string]int{"a":1};a.Manual=true;a.Arrived=false;a.OverrideLevel="b";a.OverrideAt=m.Edges[0].Entry;a.WaitingDeparture=28500
+ s.Advance(m,1);if a.Trip!=nil||a.WaitingDeparture!=29100{t.Fatalf("late physical arrival boarded a past train: %+v",a)}
+ raw,err:=json.Marshal(s);if err!=nil{t.Fatal(err)};var restored LifeState;if err=json.Unmarshal(raw,&restored);err!=nil{t.Fatal(err)}
+ s.SecondsPerTick=120;restored.SecondsPerTick=120
+ for tick:=int64(2);tick<=3;tick++{s.Advance(m,tick);restored.Advance(m,tick);if !reflect.DeepEqual(s.Clone(),restored.Clone()){t.Fatal("saved late passenger diverged")}}
+ if a.Trip==nil||a.Trip.Departure!=29100||a.Trip.Arrival!=29400{t.Fatalf("next real departure not used: %+v",a)}
 }
 
 func TestLifeSixLevelRoundTripUsesEveryPhysicalExitAndSurvivesTransitSave(t *testing.T){

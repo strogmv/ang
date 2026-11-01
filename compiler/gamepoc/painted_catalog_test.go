@@ -2,6 +2,7 @@ package gamepoc
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	inv "github.com/strogmv/ang/compiler/inventory/runtime"
@@ -43,6 +44,7 @@ func TestPaintedCatalogRejectsGeometryAndCustodyDrift(t *testing.T) {
 		"unknown layout store":          func(c *Compiled) { c.PaintedInventoryAnchors["market"]["missing"] = inv.Cell{X: 1, Y: 1} },
 		"blocked waypoint":              func(c *Compiled) { c.Art.Painted[0].ProofWaypoints[0] = Point{0, 0} },
 		"walkable negative fixture":     func(c *Compiled) { c.Art.Painted[0].ProofBlocked = Point{2, 1} },
+		"off-grid negative fixture":     func(c *Compiled) { c.Art.Painted[0].ProofBlocked = Point{4, 0} },
 		"texture budget": func(c *Compiled) {
 			for i := range 33 {
 				c.Art.Painted[0].Occluders = append(c.Art.Painted[0].Occluders, PaintedOccluder{ID: string(rune('a' + i)), DepthY: 400, Polygon: []PaintedPoint{{0, 0}, {500, 0}, {500, 500}}})
@@ -57,6 +59,27 @@ func TestPaintedCatalogRejectsGeometryAndCustodyDrift(t *testing.T) {
 				t.Fatal("invalid authored scene accepted")
 			}
 		})
+	}
+}
+
+func TestPaintedDisconnectedFloorCannotBecomeAnNPCSpawnIsland(t *testing.T) {
+	// Both ordinary proof targets remain connected; the orphaned floor sample
+	// would pass a check of proof paths alone and be eligible for random spawning.
+	c := paintedFixture()
+	c.Art.Painted[0].Navigation[0] = ".###"
+	c.Art.Painted[0].ProofBlocked = Point{3, 0}
+	var life map[string]any
+	if err := json.Unmarshal(c.Life, &life); err != nil {
+		t.Fatal(err)
+	}
+	life["locations"].(map[string]any)["market"].(map[string]any)["terrain"] = c.Art.Painted[0].Navigation
+	var err error
+	c.Life, err = json.Marshal(life)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = checkPaintedScenes(c); err == nil || !strings.Contains(err.Error(), "disconnected navigation") {
+		t.Fatalf("unreachable floor island accepted: %v", err)
 	}
 }
 

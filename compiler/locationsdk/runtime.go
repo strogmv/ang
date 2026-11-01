@@ -69,6 +69,12 @@ type RuntimeView struct {
 // (y+.5)*cell_meters). In Unity these horizontal coordinates map to X/Z;
 // floor Y is elevation*cell_meters and module height is height*cell_meters.
 type RuntimeLevel struct {
+	// Unity JsonUtility may instantiate a missing inline class as an empty object.
+	// Preserve omission for legacy payloads; explicit cameras always set this bit.
+	CameraAuthored     bool                `json:"camera_authored,omitempty"`
+	Camera             *LayoutCamera       `json:"camera,omitempty"`
+	DaylightAuthored   bool                `json:"daylight_authored,omitempty"`
+	Daylight           *LayoutDaylight     `json:"daylight,omitempty"`
 	ID                 string              `json:"id"`
 	Scenario           string              `json:"scenario"`
 	UnitMM             int                 `json:"unit_mm"`
@@ -96,6 +102,20 @@ type RuntimeLevel struct {
 	Views              []RuntimeView       `json:"views"`
 	Floor              []PreviewFloor      `json:"floor"`
 	Diagnostics        []Diagnostic        `json:"diagnostics"`
+	// Multi-deck only (document 80). Width/Depth/Terrain above then describe the
+	// whole navigation plane; Navigation maps it back to plan cells and heights.
+	// JsonUtility cannot tell an omitted object from an empty one: the bit says.
+	NavigationAuthored bool               `json:"navigation_authored,omitempty"`
+	Navigation         *Navigation        `json:"navigation,omitempty"`
+	Residents          []CompiledResident `json:"residents,omitempty"`
+	// Optional SDK scenario data (doc 85); omitted keeps earlier levels identical.
+	StartSecond int64         `json:"start_second,omitempty"`
+	Gates       []RuntimeGate `json:"gates,omitempty"`
+	Vistas      []Vista       `json:"vistas,omitempty"`
+	NearCut     *NearCut      `json:"near_cut,omitempty"`
+	// Actor presentation (demo-hub v3-people); JsonUtility cannot tell an omitted object from an empty one: the bit says.
+	ActorsAuthored bool          `json:"actors_authored,omitempty"`
+	Actors         *LayoutActors `json:"actors,omitempty"`
 }
 
 // RuntimeBundle describes an isolated SDK scenario: its static geometry is
@@ -168,7 +188,53 @@ func CompileRuntime(input Input, options RuntimeOptions) (RuntimeBundle, error) 
 		if viewError != nil {
 			return RuntimeBundle{}, viewError
 		}
-		level := RuntimeLevel{ID: compiled.ID, Scenario: "sdk:" + compiled.ID, UnitMM: compiled.UnitMM, CellMeters: bundle.CellMeters, Seed: source.Seed, Width: compiled.Width, Depth: compiled.Depth, Elevation: compiled.Elevation, Grounded: compiled.Grounded, Spawn: entries[0], Entries: entries, Terrain: compiled.Terrain, WalkableGlyphs: []string{"."}, OpaqueGlyphs: []string{"#", " "}, InitialLayoutKnown: true, MoveEveryTicks: options.MoveEveryTicks, MovementStepNS: stepNS, StructuralHash: compiled.StructuralHash, Instances: compiled.Instances, Ports: compiled.Ports, Clearances: compiled.Clearances, ReservedPaths: []RuntimePath{}, Barriers: compiled.Barriers, Drops: compiled.Drops, Views: views, Floor: compiled.Preview.Floor, Diagnostics: compiled.Diagnostics}
+		level := RuntimeLevel{CameraAuthored: compiled.Camera != nil, Camera: compiled.Camera, DaylightAuthored: compiled.Daylight != nil, Daylight: compiled.Daylight, ID: compiled.ID, Scenario: "sdk:" + compiled.ID, UnitMM: compiled.UnitMM, CellMeters: bundle.CellMeters, Seed: source.Seed, Width: compiled.Width, Depth: compiled.Depth, Elevation: compiled.Elevation, Grounded: compiled.Grounded, Spawn: entries[0], Entries: entries, Terrain: compiled.Terrain, WalkableGlyphs: []string{"."}, OpaqueGlyphs: []string{"#", " "}, InitialLayoutKnown: true, MoveEveryTicks: options.MoveEveryTicks, MovementStepNS: stepNS, StructuralHash: compiled.StructuralHash, Instances: compiled.Instances, Ports: compiled.Ports, Clearances: compiled.Clearances, ReservedPaths: []RuntimePath{}, Barriers: compiled.Barriers, Drops: compiled.Drops, Views: views, Floor: compiled.Preview.Floor, Diagnostics: compiled.Diagnostics}
+		if compiled.Navigation != nil {
+			nav := compiled.Navigation
+			if nav.NavWidth*nav.NavDepth > RuntimeCellBudget {
+				return RuntimeBundle{}, issue("runtime_area_budget", fmt.Sprintf("layouts[%d]", i), "the multi-deck navigation plane exceeds 65536 cells for the isolated Unity scene", source.ID)
+			}
+			level.Width, level.Depth = nav.NavWidth, nav.NavDepth
+			level.NavigationAuthored, level.Navigation = true, nav
+		}
+		level.Residents = compiled.Residents
+		if source.StartSecond < 0 || source.StartSecond >= 86400 {
+			return RuntimeBundle{}, issue("start_second", fmt.Sprintf("layouts[%d].start_second", i), "an SDK game starts within one day", source.ID)
+		}
+		level.StartSecond = int64(source.StartSecond)
+		gates, invalid := compileGates(input.Catalog, source, compiled, options.TickHz)
+		if invalid != nil {
+			for j := range invalid.Diagnostics {
+				invalid.Diagnostics[j].Path = strings.Replace(invalid.Diagnostics[j].Path, "layout.", fmt.Sprintf("layouts[%d].", i), 1)
+				invalid.Diagnostics[j].References = append(invalid.Diagnostics[j].References, source.ID)
+			}
+			return RuntimeBundle{}, invalid
+		}
+		if invalid := residentsOutsideGates(compiled.Residents, gates); invalid != nil {
+			for j := range invalid.Diagnostics {
+				invalid.Diagnostics[j].Path = strings.Replace(invalid.Diagnostics[j].Path, "layout.", fmt.Sprintf("layouts[%d].", i), 1)
+				invalid.Diagnostics[j].References = append(invalid.Diagnostics[j].References, source.ID)
+			}
+			return RuntimeBundle{}, invalid
+		}
+		level.Gates = gates
+		if invalid := validateVistas(source); invalid != nil {
+			for j := range invalid.Diagnostics {
+				invalid.Diagnostics[j].Path = strings.Replace(invalid.Diagnostics[j].Path, "layout.", fmt.Sprintf("layouts[%d].", i), 1)
+				invalid.Diagnostics[j].References = append(invalid.Diagnostics[j].References, source.ID)
+			}
+			return RuntimeBundle{}, invalid
+		}
+		level.Vistas = append([]Vista(nil), source.Vistas...)
+		level.NearCut = compiled.NearCut
+		actors, invalid := validateActors(source)
+		if invalid != nil {
+			for j := range invalid.Diagnostics {
+				invalid.Diagnostics[j].Path = strings.Replace(invalid.Diagnostics[j].Path, "layout.", fmt.Sprintf("layouts[%d].", i), 1)
+			}
+			return RuntimeBundle{}, invalid
+		}
+		level.ActorsAuthored, level.Actors = actors != nil, actors
 		pathSources := make(map[string]ReservedPath, len(source.ReservedPaths))
 		for _, path := range source.ReservedPaths {
 			pathSources[path.ID] = path

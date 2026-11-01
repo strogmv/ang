@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/strogmv/ang/compiler/determinism"
 	inventoryRuntime "github.com/strogmv/ang/compiler/inventory/runtime"
 	goformat "go/format"
 	"os"
@@ -44,6 +45,7 @@ type Visibility struct {
 }
 
 type Config struct {
+	Rendering             UnityRendering    `json:"rendering"`
 	DebugPerception       bool              `json:"debug_perception"`
 	CaptureDemo           DemoConfig        `json:"capture_demo"`
 	WorldDir              string            `json:"world_dir"`
@@ -180,6 +182,7 @@ type Menu struct {
 
 type Compiled struct {
 	Wayfinding              WayfindingCatalog              `json:"wayfinding,omitempty"`
+	ModularLocations        []ModularLocation              `json:"modular_locations,omitempty"`
 	LocationSDK             *locationsdk.RuntimeBundle     `json:"location_sdk,omitempty"`
 	Localization            LocalizationCatalog            `json:"localization,omitempty"`
 	Region                  RegionCatalog                  `json:"region_map,omitempty"`
@@ -209,6 +212,9 @@ type Compiled struct {
 }
 
 func (c Config) validate() error {
+	if err := c.Rendering.validate(); err != nil {
+		return err
+	}
 	if err := c.CaptureDemo.validate(); err != nil {
 		return err
 	}
@@ -263,6 +269,7 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if err := d.Decode(&out.Config); err != nil {
 		return out, nil, err
 	}
+	out.Config.Rendering = out.Config.Rendering.normalized()
 	if out.Config.CaptureDemo.TargetActor == "" {
 		out.Config.CaptureDemo.TargetActor = "char.hero"
 	}
@@ -319,6 +326,10 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 			}
 		}
 		out.LocationSDK = &bundle
+	}
+	out.Life, out.ModularLocations, err = compileModularLocations(out.Life, out.LocationSDK)
+	if err != nil {
+		return out, nil, err
 	}
 	if region := world.LookupPath(cue.ParsePath("region_map")); region.Exists() {
 		if err := region.Decode(&out.Region); err != nil {
@@ -595,7 +606,10 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 			return out, nil, fmt.Errorf("resident %s requires a walkable CUE standing position", e.ID)
 		}
 	}
-	if out.Inventory, err = inventoryModel(world, level, out.Config.LevelID); err != nil {
+	if out.Inventory, err = inventoryModel(world, level, out.Config.LevelID, out.Life); err != nil {
+		return out, nil, err
+	}
+	if err := validateCommerce(out); err != nil {
 		return out, nil, err
 	}
 	if err := validateTransitFares(out); err != nil {
@@ -764,17 +778,24 @@ func Generate(project string) error {
 		"region_proof.cs.tmpl":                  filepath.Join(unity, "Assets/Generated/Poc/PocRegionMapProof.cs"),
 		"spatial_proof.cs.tmpl":                 filepath.Join(unity, "Assets/Generated/Poc/PocSpatialProof.cs"),
 		"population.go.tmpl":                    filepath.Join(project, "internal/poc/population.gen.go"),
+		"world_report_test.go.tmpl":             filepath.Join(project, "internal/poc/world_report_generated_test.go"),
+		"npc_stage0_test.go.tmpl":               filepath.Join(project, "internal/poc/npc_stage0_generated_test.go"),
+		"capture_dropout.go.tmpl":               filepath.Join(project, "internal/poc/capture_dropout.gen.go"),
 		"population_test.go.tmpl":               filepath.Join(project, "internal/poc/population_generated_test.go"),
 		"development.go.tmpl":                   filepath.Join(project, "internal/poc/development.gen.go"),
 		"development_test.go.tmpl":              filepath.Join(project, "internal/poc/development_generated_test.go"),
 		"development.cs.tmpl":                   filepath.Join(unity, "Assets/Generated/Poc/PocDevelopmentView.cs"),
+		"npc_stage1_test.go.tmpl":               filepath.Join(project, "internal/poc/npc_stage1_generated_test.go"),
+		"life_economy.go.tmpl":                  filepath.Join(project, "internal/poc/life_economy.gen.go"),
 		"life.go.tmpl":                          filepath.Join(project, "internal/poc/life.gen.go"),
+		"storefront_inspection.go.tmpl":         filepath.Join(project, "internal/poc/storefront_inspection.gen.go"),
 		"inspection.go.tmpl":                    filepath.Join(project, "internal/poc/inspection.gen.go"),
 		"inspection_test.go.tmpl":               filepath.Join(project, "internal/poc/inspection_generated_test.go"),
 		"inspection.cs.tmpl":                    filepath.Join(unity, "Assets/Generated/Poc/PocInspectionView.cs"),
 		"life_test.go.tmpl":                     filepath.Join(project, "internal/poc/life_generated_test.go"),
 		"life.cs.tmpl":                          filepath.Join(unity, "Assets/Generated/Poc/PocLifeView.cs"),
 		"wayfinding.cs.tmpl":                    filepath.Join(unity, "Assets/Generated/Poc/PocWayfindingView.cs"),
+		"wayfinding_route.cs.tmpl":              filepath.Join(unity, "Assets/Generated/Poc/PocWayfindingRoute.cs"),
 		"wayfinding_proof.cs.tmpl":              filepath.Join(unity, "Assets/Generated/Poc/PocWayfindingProof.cs"),
 		"wayfinding.shader.tmpl":                filepath.Join(unity, "Assets/Resources/Generated/PocWayfinding.shader"),
 		"gestures.go.tmpl":                      filepath.Join(project, "internal/poc/gestures.gen.go"),
@@ -787,6 +808,8 @@ func Generate(project string) error {
 		"tactics.go.tmpl":                       filepath.Join(project, "internal/poc/tactics.gen.go"),
 		"equipment.go.tmpl":                     filepath.Join(project, "internal/poc/equipment.gen.go"),
 		"equipment_test.go.tmpl":                filepath.Join(project, "internal/poc/equipment_generated_test.go"),
+		"supply_test.go.tmpl":                   filepath.Join(project, "internal/poc/supply_generated_test.go"),
+		"supply.go.tmpl":                        filepath.Join(project, "internal/poc/supply.gen.go"),
 		"inventory.go.tmpl":                     filepath.Join(project, "internal/poc/inventory.gen.go"),
 		"inventory.cs.tmpl":                     filepath.Join(unity, "Assets/Generated/Poc/PocInventoryView.cs"),
 		"social.go.tmpl":                        filepath.Join(project, "internal/poc/social.gen.go"),
@@ -798,15 +821,24 @@ func Generate(project string) error {
 		"mission.go.tmpl":                       filepath.Join(project, "internal/poc/mission.gen.go"),
 		"runtime.go.tmpl":                       filepath.Join(project, "internal/poc/runtime.gen.go"),
 		"location_sdk.go.tmpl":                  filepath.Join(project, "internal/poc/location_sdk.gen.go"),
+		"gates.go.tmpl":                         filepath.Join(project, "internal/poc/gates.gen.go"),
+		"gates_test.go.tmpl":                    filepath.Join(project, "internal/poc/gates_generated_test.go"),
+		"location_sdk_gates.cs.tmpl":            filepath.Join(unity, "Assets/Generated/Poc/PocLocationSDKGates.cs"),
 		"location_sdk_test.go.tmpl":             filepath.Join(project, "internal/poc/location_sdk_generated_test.go"),
+		"multideck_test.go.tmpl":                filepath.Join(project, "internal/poc/multideck_generated_test.go"),
 		"runtime_test.go.tmpl":                  filepath.Join(project, "internal/poc/runtime_generated_test.go"),
 		"main.go.tmpl":                          filepath.Join(project, "cmd/game-server/main.go"),
 		"art_scene.cs.tmpl":                     filepath.Join(unity, "Assets/Generated/Poc/ArtScene.cs"),
 		"painted.cs.tmpl":                       filepath.Join(unity, "Assets/Generated/Poc/PocPaintedView.cs"),
+		"storefront.cs.tmpl":                    filepath.Join(unity, "Assets/Generated/Poc/PocStorefront.cs"),
+		"storefront_override.cs.tmpl":           filepath.Join(unity, "Assets/Generated/Poc/PocStorefrontVisualOverride.cs"),
+		"storefront_proof.cs.tmpl":              filepath.Join(unity, "Assets/Generated/Poc/PocStorefrontProof.cs"),
+		"storefront.shader.tmpl":                filepath.Join(unity, "Assets/Resources/Generated/PocStorefront.shader"),
 		"painted_ambient_proof.cs.tmpl":         filepath.Join(unity, "Assets/Generated/Poc/PocAmbientProof.cs"),
 		"painted_ambient.cs.tmpl":               filepath.Join(unity, "Assets/Generated/Poc/PocPaintedAmbient.cs"),
 		"painted_motion.cs.tmpl":                filepath.Join(unity, "Assets/Generated/Poc/PocPaintedMotion.cs"),
 		"painted_motion_proof.cs.tmpl":          filepath.Join(unity, "Assets/Generated/Poc/PocPaintedMotionProof.cs"),
+		"station_life_proof.cs.tmpl":            filepath.Join(unity, "Assets/Generated/Poc/PocStationLifeProof.cs"),
 		"station_berth_proof.cs.tmpl":           filepath.Join(unity, "Assets/Generated/Poc/PocStationBerthProof.cs"),
 		"painted_passage.shader.tmpl":           filepath.Join(unity, "Assets/Resources/Generated/PocPaintedPassage.shader"),
 		"painted_proof.cs.tmpl":                 filepath.Join(unity, "Assets/Generated/Poc/PocPaintedProof.cs"),
@@ -817,8 +849,19 @@ func Generate(project string) error {
 		"location_sdk_proof.cs.tmpl":            filepath.Join(unity, "Assets/Generated/Poc/PocLocationSDKProof.cs"),
 		"location_sdk_surface.shader.tmpl":      filepath.Join(unity, "Assets/Resources/LocationSDK/SDKSurface.shader"),
 		"location_sdk_actor.shader.tmpl":        filepath.Join(unity, "Assets/Resources/LocationSDK/SDKActor.shader"),
+		"location_sdk_depth_sprite.shader.tmpl": filepath.Join(unity, "Assets/Resources/LocationSDK/SDKDepthSprite.shader"),
+		"location_sdk_depth_proof.cs.tmpl":      filepath.Join(unity, "Assets/Generated/Poc/PocLocationSDKDepthProof.cs"),
 		"texture_proof_editor.cs.tmpl":          filepath.Join(unity, "Assets/Generated/Poc/Editor/PocTextureProof.cs"),
 		"editor.cs.tmpl":                        filepath.Join(unity, "Assets/Generated/Poc/Editor/PocBuild.cs"),
+		"urp_proof.cs.tmpl":                     filepath.Join(unity, "Assets/Generated/Poc/PocURPProof.cs"),
+		"urp.cs.tmpl":                           filepath.Join(unity, "Assets/Generated/Poc/PocRendering.cs"),
+		"urp_feature.cs.tmpl":                   filepath.Join(unity, "Assets/Generated/Poc/PocObservedActorFeature.cs"),
+		"urp_editor.cs.tmpl":                    filepath.Join(unity, "Assets/Generated/Poc/Editor/PocURPSetup.cs"),
+		"location_sdk_diagnostic.shader.tmpl":   filepath.Join(unity, "Assets/Resources/LocationSDK/SDKDiagnostic.shader"),
+		"location_sdk_glass.shader.tmpl":        filepath.Join(unity, "Assets/Resources/LocationSDK/SDKGlass.shader"),
+		"location_sdk_multideck.cs.tmpl":        filepath.Join(unity, "Assets/Generated/Poc/PocLocationSDKMultideck.cs"),
+		"location_sdk_humanoid.cs.tmpl":         filepath.Join(unity, "Assets/Generated/Poc/PocLocationSDKHumanoid.cs"),
+		"location_sdk_multideck_proof.cs.tmpl":  filepath.Join(unity, "Assets/Generated/Poc/PocLocationSDKMultideckProof.cs"),
 	} {
 		data, err := sources.ReadFile("templates/" + name)
 		if err != nil {
@@ -871,6 +914,11 @@ func Generate(project string) error {
 	for _, p := range names {
 		if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
 			return err
+		}
+		if strings.HasSuffix(p, ".go") {
+			if err := determinism.CheckImports(p, files[p]); err != nil {
+				return err
+			}
 		}
 		if err := os.WriteFile(p, files[p], 0644); err != nil {
 			return err

@@ -18,7 +18,7 @@ func(r *Runtime)completeHeroTravel()error{
  if hero.Trip!=nil&&r.state.Life.TryCompleteControlledArrival(r.world.Life){r.syncLifeHero();r.syncRegionKnowledge();r.learnRegionTraversal(edge.ID);r.state.Epoch=newEpoch();r.openStore="";if err:=r.state.Life.AdvancePopulation(r.world.Life,playerActorID);err!=nil{return err};r.state.Life.SettleControlledArrival();r.syncLifeHero();r.updateLifeExploration();r.resetInstantTravel();return nil}
  // Cheap refusal avoids spending a simulated hour just to discover an already
  // unaffordable fare. The only debit remains the real boarding callback.
- if hero.Trip==nil&&edge.Fare!=nil&&!r.lifeFareAvailable(playerActorID,*edge){hero.AdmissionDeniedEdge=edge.ID;hero.Activity="waiting";hero.Label="transit.fare_denied";return nil}
+ if hero.Trip==nil&&edge.Fare!=nil&&!r.lifeFareAvailable(playerActorID,*edge){hero.AdmissionDeniedEdge=edge.ID;hero.Activity="waiting";hero.Label="transit.fare_denied";r.state.Life.ObserveDecisions();return nil}
  r.state.Life.BeginControlledTravel(r.world.Life,r.admitLifeTravel)
  if err:=r.state.Life.AdvancePopulation(r.world.Life,playerActorID);err!=nil{return err}
  frames:=0

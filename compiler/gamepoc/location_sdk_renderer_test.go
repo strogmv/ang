@@ -15,7 +15,7 @@ func TestLocationSDKRendererUsesAuthoritativeMovementAndPublicGeometry(t *testin
 	}
 	s := string(source)
 	for _, required := range []string{
-		"level.id==state.Life.LevelId", "LocationSDKMatchesServer(level,state.Width,state.Height,state.Terrain)",
+		"binding.level_id==id", "id=binding.layout_id", "level.id==id", "LocationSDKMatchesServer(level,state.Width,state.Height,state.Terrain)",
 		"!resource.location_sdk.public_architecture||!level.initial_layout_known", "ViewCell(view,floor.at.x,floor.at.y)=='0'",
 		"ViewSees(actor.X,actor.Y)", "ViewSees(state.PlayerX,state.PlayerY)", "LocationSDKHeroHeightM=1.8f",
 		"instance.height*meters", "LocationSDKExtrusion(instance.footprint,meters", "LocationSDKCellCenter(position.x,locationSDKLevel.cell_meters)",
@@ -155,7 +155,7 @@ func TestLocationSDKSurfaceSamplingAndDepthAwareActorShaders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, required := range []string{"Shader \"ANG/LocationSDKSurface\"", "tex2D(_MainTex,i.uv)*_Color", "ZWrite On", "color.a=1"} {
+	for _, required := range []string{"Shader \"ANG/LocationSDKSurface\"", "SAMPLE_TEXTURE2D(_MainTex,sampler_MainTex,i.uv)*_Color", "ZWrite On", "color.a=1"} {
 		if !strings.Contains(string(surface), required) {
 			t.Errorf("opaque metric surface shader missing %q", required)
 		}
@@ -181,7 +181,7 @@ func TestLocationSDKProofUsesRealPointerStateAndWorldReadback(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(data)
-	for _, required := range []string{"NewGame(777,expected.scenario)", "SendLocationSDKScreenPointer(screen,SpatialViewport())", "state.LastMoveSeq!=pendingMove", "if(moveAccepted||!LocationSDKProofSettled()", "SaveOrLoad(\"slot3\",true)", "SaveOrLoad(\"slot3\",false)", "state.GameSeconds!=locationSDKProofSavedSeconds", "new WaitForEndOfFrame()", "RenderTexture.active=locationSDKTarget", "original SDK hero sprite made no actual GPU contribution", "presentation changed SDK structural mesh", "requiredCaptures+=level.views.Length", "locationSDKProofCaptures.Count!=requiredCaptures"} {
+	for _, required := range []string{"NewGame(777,scenario)", "SendLocationSDKScreenPointer(screen,SpatialViewport())", "state.LastMoveSeq!=pendingMove", "if(moveAccepted||!LocationSDKProofSettled()", "SaveOrLoad(\"slot3\",true)", "SaveOrLoad(\"slot3\",false)", "state.GameSeconds!=locationSDKProofSavedSeconds", "new WaitForEndOfFrame()", "RenderTexture.active=locationSDKTarget", "original SDK hero sprite made no actual GPU contribution", "presentation changed SDK structural mesh", "requiredCaptures+=locationSDKProofStory?1:level.views.Length", "locationSDKProofCaptures.Count!=requiredCaptures"} {
 		if !strings.Contains(s, required) {
 			t.Errorf("native SDK acceptance missing %s", required)
 		}

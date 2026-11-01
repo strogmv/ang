@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 )
 
 // The renderer uses the authored points without lane offsets or free curves.
@@ -25,6 +26,20 @@ func wayfindingGuideSupport(d WayfindingDestination, rows []string, walks func(W
 		}
 		if math.Hypot(first.X-from.X, first.Y-from.Y) > 1+1e-8 || math.Hypot(last.X-to.X, last.Y-to.Y) > 1+1e-8 {
 			return nil, fmt.Errorf("paint endpoints must be within one cell of their semantic approaches")
+		}
+	}
+	if w := d.GuideWidth; w != nil {
+		if d.GuideFrame == nil || !finitePainted(w.U, w.V) || w.U <= 0 || w.V <= 0 {
+			return nil, fmt.Errorf("guide_width requires a floor frame and positive finite half-widths")
+		}
+		u, v := d.GuideFrame.U, d.GuideFrame.V
+		// Both exact plan-space mitres must fit the existing checked paint radius.
+		for _, shape := range [][2]float64{{1, 1}, {1.5, .5}, {.5, 1.5}} {
+			for _, sign := range []float64{-1, 1} {
+				if math.Hypot(u.X*w.U*shape[0]+sign*v.X*w.V*shape[1], u.Y*w.U*shape[0]+sign*v.Y*w.V*shape[1]) > wayfindingGuideRadius-1e-6 {
+					return nil, fmt.Errorf("guide_width corner or stop bar exceeds checked paint radius")
+				}
+			}
 		}
 	}
 	for i, p := range d.GuideRoute {
@@ -158,4 +173,45 @@ func wayfindingSegmentSquareDistanceSquared(a, b WayfindingPoint, cell Wayfindin
 		best = math.Min(best, x*x+y*y)
 	}
 	return best
+}
+
+// Join topology is fixed once from the whole authored colour network. Publishing
+// another remembered destination may not reshape already visible floor paint.
+func (c WayfindingCatalog) compilePaintJunctions() {
+	type node struct {
+		level, color string
+		x, y         int64
+	}
+	key := func(d WayfindingDestination, p WayfindingPoint) node {
+		return node{d.Level, strings.ToUpper(d.Color), int64(math.Round(p.X * 1e4)), int64(math.Round(p.Y * 1e4))}
+	}
+	dirs := map[node]map[[2]int64]bool{}
+	for _, d := range c.Destinations {
+		for i, p := range d.GuideRoute {
+			k := key(d, p)
+			if dirs[k] == nil {
+				dirs[k] = map[[2]int64]bool{}
+			}
+			for _, j := range []int{i - 1, i + 1} {
+				if j < 0 || j >= len(d.GuideRoute) {
+					continue
+				}
+				q := d.GuideRoute[j]
+				dx, dy := q.X-p.X, q.Y-p.Y
+				n := math.Hypot(dx, dy)
+				if n == 0 {
+					continue
+				}
+				dirs[k][[2]int64{int64(math.Round(dx / n * 1e4)), int64(math.Round(dy / n * 1e4))}] = true
+			}
+		}
+	}
+	for i, d := range c.Destinations {
+		c.Destinations[i].GuideJunctions = nil
+		for j, p := range d.GuideRoute {
+			if len(dirs[key(d, p)]) > 2 {
+				c.Destinations[i].GuideJunctions = append(c.Destinations[i].GuideJunctions, j)
+			}
+		}
+	}
 }

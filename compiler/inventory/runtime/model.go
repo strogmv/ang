@@ -136,6 +136,8 @@ type ActionPolicy struct {
 	ConsentTicks int64 `json:"transfer_consent_ticks"`
 }
 type Model struct {
+	Deliveries      []Delivery             `json:"deliveries,omitempty"`
+	Shopfronts      []Shopfront            `json:"shopfronts,omitempty"`
 	Actions         ActionPolicy           `json:"actions"`
 	Preparation     PreparationPolicy      `json:"preparation"`
 	IssuePoints     map[string]IssuePoint  `json:"issue_points"`
@@ -167,15 +169,18 @@ type Cursor struct {
 	Result     Result
 }
 type State struct {
-	Clock        int64
-	Reservations map[string]Reservation
-	Version      int
-	Revision     uint64
-	Items        map[string]Item
-	Stores       map[string]Store
-	Accounts     map[string]Account
-	Entitlements map[string]Entitlement
-	Cursors      map[string]Cursor
+	CommerceVersion int
+	Deliveries      map[string]DeliveryProgress
+	Shopfronts      map[string]ShopProgress
+	Clock           int64
+	Reservations    map[string]Reservation
+	Version         int
+	Revision        uint64
+	Items           map[string]Item
+	Stores          map[string]Store
+	Accounts        map[string]Account
+	Entitlements    map[string]Entitlement
+	Cursors         map[string]Cursor
 }
 
 const moneyLimit int64 = 9000000000000000
@@ -199,7 +204,13 @@ func InstanceID(source string, roll, part int) string {
 func ItemStore(id string) string  { return "item/" + id }
 func ActorStore(id string) string { return "actor/" + id }
 func New(m Model, seed int64) (State, error) {
-	s := State{Reservations: map[string]Reservation{}, Version: m.Version, Items: map[string]Item{}, Stores: map[string]Store{}, Accounts: map[string]Account{}, Entitlements: map[string]Entitlement{}, Cursors: map[string]Cursor{}}
+	s := State{CommerceVersion: 1, Deliveries: map[string]DeliveryProgress{}, Shopfronts: map[string]ShopProgress{}, Reservations: map[string]Reservation{}, Version: m.Version, Items: map[string]Item{}, Stores: map[string]Store{}, Accounts: map[string]Account{}, Entitlements: map[string]Entitlement{}, Cursors: map[string]Cursor{}}
+	for _, d := range m.Deliveries {
+		s.Deliveries[d.ID] = DeliveryProgress{NextDue: d.FirstSecond}
+	}
+	for _, sh := range m.Shopfronts {
+		s.Shopfronts[sh.ID] = ShopProgress{}
+	}
 	for id, v := range m.Stores {
 		s.Stores[id] = v
 	}
@@ -295,6 +306,15 @@ func New(m Model, seed int64) (State, error) {
 }
 func (s State) Clone() State {
 	n := s
+	n.Deliveries = make(map[string]DeliveryProgress, len(s.Deliveries))
+	for k, v := range s.Deliveries {
+		v.Cargo = append([]Cargo(nil), v.Cargo...)
+		n.Deliveries[k] = v
+	}
+	n.Shopfronts = make(map[string]ShopProgress, len(s.Shopfronts))
+	for k, v := range s.Shopfronts {
+		n.Shopfronts[k] = v
+	}
 	n.Reservations = make(map[string]Reservation, len(s.Reservations))
 	for k, v := range s.Reservations {
 		n.Reservations[k] = v

@@ -153,6 +153,7 @@ type Space struct {
  ContactSide Cell
  Width,Height,MaxSearchCells int
  Walkable func(Cell)bool
+ Occupied func(Cell)bool
  Blocked map[Cell]bool
  // Resting bystanders keep their standing slots; a route may still request passage.
  AvoidGoals map[Cell]bool
@@ -161,16 +162,20 @@ type Space struct {
  // checked again as teammates move, rather than freezing their positions.
  FirstStepAllowed func(Cell)bool
  RequireGoalView bool
+ // Multi-deck links (document 80): extra undirected neighbours of a cell,
+ // e.g. a stair end and its landing in another band of the navigation plane.
+ // Nil for planar locations, which keeps their search order unchanged.
+ Links map[Cell][]Cell
 }
-func(s Space) CanStand(p Cell)bool{return p.X>=0&&p.Y>=0&&p.X<s.Width&&p.Y<s.Height&&s.Walkable(p)&&!s.Blocked[p]}
+func(s Space) CanStand(p Cell)bool{return p.X>=0&&p.Y>=0&&p.X<s.Width&&p.Y<s.Height&&s.Walkable(p)&&!s.Blocked[p]&&(s.Occupied==nil||!s.Occupied(p))}
 var cardinal=[]Cell{{1,0},{0,1},{-1,0},{0,-1}}
 func(s Space) Path(from,to,target Cell,minDistance int)[]Cell {
  if from==to{return nil};if !s.CanStand(to)||Distance(to,target)<minDistance{return nil}
  queue:=[]Cell{from};prev:=map[Cell]Cell{from:from};limit:=s.MaxSearchCells;if limit<=0{limit=256}
  for head:=0;head<len(queue)&&head<limit;head++{
-  at:=queue[head]
-  for _,d:=range cardinal{
-   next:=Cell{at.X+d.X,at.Y+d.Y};if _,seen:=prev[next];seen||!s.CanStand(next)||(Distance(next,target)<minDistance&&Distance(next,target)<=Distance(at,target)){continue}
+  at:=queue[head];links:=s.Links[at]
+  for k:=0;k<len(cardinal)+len(links);k++{
+   var next Cell;if k<len(cardinal){d:=cardinal[k];next=Cell{at.X+d.X,at.Y+d.Y}}else{next=links[k-len(cardinal)]};if _,seen:=prev[next];seen||!s.CanStand(next)||(Distance(next,target)<minDistance&&Distance(next,target)<=Distance(at,target)){continue}
    if at==from&&s.FirstStepAllowed!=nil&&!s.FirstStepAllowed(next){continue}
    prev[next]=at
    if next==to{var path []Cell;for next!=from{path=append(path,next);next=prev[next]};for i,j:=0,len(path)-1;i<j;i,j=i+1,j-1{path[i],path[j]=path[j],path[i]};return path}
@@ -193,9 +198,9 @@ func(s Space) routeCosts(from Cell,goals []Cell,target Cell,minDistance int)map[
  queue:=[]Cell{from};distance:=map[Cell]int{from:0}
  limit:=s.MaxSearchCells;if limit<=0{limit=256}
  for head:=0;head<len(queue)&&head<limit;head++{
-  at:=queue[head]
-  for _,d:=range cardinal{
-   next:=Cell{at.X+d.X,at.Y+d.Y}
+  at:=queue[head];links:=s.Links[at]
+  for k:=0;k<len(cardinal)+len(links);k++{
+   var next Cell;if k<len(cardinal){d:=cardinal[k];next=Cell{at.X+d.X,at.Y+d.Y}}else{next=links[k-len(cardinal)]}
    if _,seen:=distance[next];seen||!s.CanStand(next)||(Distance(next,target)<minDistance&&Distance(next,target)<=Distance(at,target)){continue}
    if at==from&&s.FirstStepAllowed!=nil&&!s.FirstStepAllowed(next){continue}
    n:=distance[at]+1;distance[next]=n

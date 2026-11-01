@@ -4,6 +4,8 @@ package behavior
 import "fmt"
 
 type PopulationModel struct {
+	ProfileRevision int `json:"profile_revision,omitempty"`
+	Profiles []PopulationProfileDefinition `json:"profiles,omitempty"`
 	MaxActors       int               `json:"max_actors"`
 	MaxActive       int               `json:"max_active"`
 	MoveTicks       int64             `json:"move_ticks"`
@@ -24,7 +26,14 @@ type PopulationTrip struct {
 	Arrival   int64  `json:"arrival"`
 }
 type PopulationEnvironment struct {
+ Seed int64
+ BrainServices LifeBrainServices
 	Occupied map[string]map[Cell]bool
+	// Autonomous named destination claims are shared only for authored platform
+	// waiting pockets. They are not physical occupancy or hero route knowledge.
+	GoalClaims map[string]map[Cell]bool
+	// Effective host calendar rate; zero preserves model-rate standalone callers.
+	SecondsPerTick int64
 	Trips    []LifeTrip
 	// Read-only local traffic preference for future segments. Physical accepted
 	// first steps and collision occupancy remain authoritative and unchanged.
@@ -42,6 +51,8 @@ func(e PopulationEnvironment) landingTraffic(a PopulationActor,level string,entr
 }
 
 type PopulationActor struct {
+ Brain LifeBrain `json:"brain"`
+	Profile *PopulationLifeProfile `json:"profile,omitempty"`
  YieldUntil int64 `json:"yield_until,omitempty"`
  YieldRequester string `json:"yield_requester,omitempty"`
  YieldOrigin Cell `json:"yield_origin,omitempty"`
@@ -67,6 +78,10 @@ type PopulationActor struct {
 	Visits           map[string]int  `json:"visits"`
 }
 type PopulationState struct {
+ Decisions DecisionJournal `json:"decisions"`
+ occupancy map[string]map[Cell]string
+ claims map[string]map[Cell]string
+ actorIndex map[string]int
 	Count       int               `json:"count"`
 	Actors      []PopulationActor `json:"actors"`
 	LastSeconds int64             `json:"last_seconds"`
@@ -76,7 +91,7 @@ type PopulationState struct {
 }
 
 func (p PopulationModel) Validate(l LifeModel) error {
-	if p.MaxActors == 0 && len(p.Stages) == 0 && len(p.Anchors) == 0 && len(p.ShiftOffsets) == 0 {
+	if p.MaxActors == 0 && len(p.Stages) == 0 && len(p.Anchors) == 0 && len(p.ShiftOffsets) == 0 && len(p.Profiles)==0 {
 		return nil
 	}
 	if p.MaxActors < 1 || p.MaxActive < 1 || p.MaxActive > p.MaxActors || p.MoveTicks < 1 || p.ColdStepSeconds < 1 || len(p.Stages) == 0 || len(p.ShiftOffsets) == 0 {
@@ -112,7 +127,7 @@ func (p PopulationModel) Validate(l LifeModel) error {
 			seen[at] = true
 		}
 	}
-	return nil
+	return p.validateProfiles(l)
 }
 func (p PopulationModel) stage(seconds, offset int64) int {
 	day := (seconds%86400 + offset) % 86400
@@ -148,20 +163,24 @@ func (p PopulationModel) Start(l LifeModel, count int, seconds, tick int64) (Pop
 	}
 	s := PopulationState{Count: count, LastSeconds: seconds, LastTick: tick}
 	for i := 0; i < count; i++ {
-		shift := p.ShiftOffsets[i%len(p.ShiftOffsets)]
+		shift := p.assignedShift(i)
 		stage := p.stage(seconds, shift)
-		cfg := p.Stages[stage]
-		at := p.anchor(i, cfg.Level)
-		s.Actors = append(s.Actors, PopulationActor{ID: fmt.Sprintf("population.%04d", i+1), Name: fmt.Sprintf("Житель %03d", i+1), Level: cfg.Level, Position: at, Goal: at, MoveStartTick: tick, Stage: stage, ShiftSeconds: shift, Arrived: true, Activity: cfg.Activity, ColdReadyAt: seconds, Visits: map[string]int{cfg.Level: 1}})
+		profile:=p.makeProfile(i)
+		cfg := p.profileStage(profile,stage)
+		at := p.profileAnchor(profile,stage,i,cfg.Level)
+		s.Actors = append(s.Actors, PopulationActor{Profile:profile,ID: fmt.Sprintf("population.%04d", i+1), Name: fmt.Sprintf("Житель %03d", i+1), Level: cfg.Level, Position: at, Goal: at, MoveStartTick: tick, Stage: stage, ShiftSeconds: shift, Arrived: true, Activity: cfg.Activity, ColdReadyAt: seconds, Visits: map[string]int{cfg.Level: 1}})
 	}
 	return s, nil
 }
 func (s PopulationState) Clone() PopulationState {
 	out := s
+ out.Decisions=s.Decisions.Clone()
 	out.routes = nil
+ out.occupancy=nil;out.claims=nil;out.actorIndex=nil
 	out.Actors = append([]PopulationActor(nil), s.Actors...)
 	for i := range out.Actors {
 		a := &out.Actors[i]
+		a.Profile=s.Actors[i].Profile.clone();a.Brain=a.Brain.Clone()
 		a.Path = append([]Cell(nil), a.Path...)
 		if a.Trip != nil {
 			trip := *a.Trip
@@ -201,7 +220,7 @@ func populationReserve(occupied map[string]map[Cell]string, level string, at Cel
 	if occupied[level] == nil {
 		occupied[level] = map[Cell]string{}
 	}
-	occupied[level][at] = id
+	if occupied[level][at]!=id{occupied[level][at] = id}
 }
 func populationUnreserve(occupied map[string]map[Cell]string, level string, at Cell, id string) {
 	if occupied[level][at] == id {
@@ -216,16 +235,46 @@ func populationLanding(l LifeModel, level string, entry Cell, occupied map[strin
 	}
 	return Cell{}, false
 }
-func (p PopulationModel) freeAnchor(l LifeModel, level string, index int, occupied map[string]map[Cell]string, id string) (Cell, bool) {
+func (p PopulationModel) freeAnchor(l LifeModel, level string, index int, occupied map[string]map[Cell]string, id string, reachable func(Cell) bool) (Cell, bool) {
 	anchors := p.Anchors[level]
 	step:=populationAnchorStride(len(anchors));first:=index/len(p.ShiftOffsets)
 	for n := range anchors {
 		at := anchors[((first+n)*step)%len(anchors)]
-		if populationCellFree(l, level, at, occupied, id) {
+		if populationCellFree(l, level, at, occupied, id) && (reachable==nil || reachable(at)) {
 			return at, true
 		}
 	}
 	return Cell{}, false
+}
+
+// Public waiting pockets are destinations, never invisible bodies. Existing
+// positions and first-step reservations still decide whether a step can start.
+// Cold residents use the timetable at the abstract exit without offscreen paths.
+func(s *PopulationState)platformDestination(p PopulationModel,l LifeModel,a *PopulationActor,edge *LifeEdge,occupied,claims map[string]map[Cell]string,seconds,secondsPerTick int64)(Cell,bool){
+ if !a.Materialized||len(edge.WaitingCells)==0{return edge.Exit,false}
+ // A free pocket may change while a pedestrian is walking. Complete the
+ // accepted first segment with its existing start tick before reconsidering.
+ if len(a.Path)>0{return a.Goal,false}
+ if a.WaitingDeparture>0&&a.Goal==edge.Exit{return edge.Exit,false}
+ free:=func(at Cell)bool{return populationCellFree(l,a.Level,at,occupied,a.ID)&&(claims[a.Level][at]==""||claims[a.Level][at]==a.ID)&&s.routes.connected(a.Level,a.Position,at)}
+ pocket,found:=Cell{},false
+ for _,at:=range edge.WaitingCells{if at==a.Goal&&free(at){pocket,found=at,true;break}}
+ if !found{
+  // Stable ID hashing avoids making every arriving resident try pocket zero.
+  start:=0;for _,r:=range a.ID{start=(start*31+int(r))%len(edge.WaitingCells)}
+  for n:=range len(edge.WaitingCells){at:=edge.WaitingCells[(start+n)%len(edge.WaitingCells)];if free(at){pocket,found=at,true;break}}
+ }
+ if !found{populationUnreserve(claims,a.Level,a.Goal,a.ID);return a.Position,true}
+ populationUnreserve(claims,a.Level,a.Goal,a.ID);populationReserve(claims,a.Level,pocket,a.ID)
+ route:=l.Space(a.Level,nil).Path(pocket,edge.Exit,Cell{},0)
+ if len(route)==0{populationUnreserve(claims,a.Level,pocket,a.ID);return a.Position,true}
+ lead:=int64(len(route))*p.MoveTicks*secondsPerTick+secondsPerTick
+ if a.WaitingDeparture==0{
+  if a.Position!=pocket{return pocket,false}
+  a.WaitingDeparture=edge.NextDeparture(seconds+lead+edge.BoardingLeadSeconds)
+ }
+ if seconds+lead>=a.WaitingDeparture-edge.BoardingWindowSeconds{populationUnreserve(claims,a.Level,pocket,a.ID);return edge.Exit,false}
+ return pocket,a.Position==pocket
 }
 
 // Advance keeps coarse identities alive without per-actor vision or offscreen
@@ -256,13 +305,28 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 			}
 		}
 	}
-	levelChanged := activeLevel != s.ActiveLevel
+	defer s.observeDecisions(tick,seconds)
+ levelChanged := activeLevel != s.ActiveLevel
 	s.ActiveLevel = activeLevel
+	secondsPerTick:=environment.SecondsPerTick;if secondsPerTick<1{secondsPerTick=l.SecondsPerTick};if secondsPerTick<1{secondsPerTick=1}
+	previousSeconds:=s.LastSeconds
 	s.LastSeconds, s.LastTick = seconds, tick
+ tick=l.MotionTick(tick,seconds);if l.Brain.Enabled{secondsPerTick=1}
+	frame:=seconds-previousSeconds;if frame<1{frame=1}
 	scratch := LifeState{routes: s.routes}
-	scratch.ensureLifeRoutes(l)
+	topologyChanged := scratch.ensureLifeRoutes(l)
 	s.routes = scratch.routes
-	occupied := map[string]map[Cell]string{}
+	// Reconcile retained cells rather than allocate/rebuild room maps each tick.
+ if s.occupancy==nil{s.occupancy=map[string]map[Cell]string{}}
+ if len(s.actorIndex)!=len(s.Actors){s.actorIndex=map[string]int{};for i,a:=range s.Actors{s.actorIndex[a.ID]=i}}
+ occupied:=s.occupancy
+ for level,cells:=range occupied{for at,id:=range cells{
+  keep:=false
+  if id=="external"{keep=environment.Occupied[level][at]}else if i,ok:=s.actorIndex[id];ok{a:=s.Actors[i];keep=a.Materialized&&a.Trip==nil&&a.Level==activeLevel&&a.Level==level&&(a.Position==at||len(a.Path)>0&&a.Path[0]==at)}
+  if !keep{delete(cells,at)}
+ }}
+ if s.claims==nil{s.claims=map[string]map[Cell]string{}};claims:=s.claims;for _,cells:=range claims{clear(cells)}
+	for level,cells:=range environment.GoalClaims{for at,claimed:=range cells{if claimed{populationReserve(claims,level,at,"external")}}}
 	for level, cells := range environment.Occupied {
 		for at, blocked := range cells {
 			if blocked {
@@ -273,6 +337,11 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 	active := 0
 	for i := range s.Actors {
 		a := &s.Actors[i]
+		p.migrateProfile(a,i,seconds)
+		if topologyChanged && len(a.Path)>0 {
+			supported:=l.supportedPath(a.Level,a.Position,a.Path)
+			if len(supported)!=len(a.Path){if len(supported)==0{populationUnreserve(occupied,a.Level,a.Path[0],a.ID)};a.Path=supported;if len(a.Path)==0{a.MoveStartTick=tick}}
+		}
 		if a.Materialized && (a.Level != activeLevel || a.Trip != nil) {
 			a.Materialized = false
 			a.Path = nil
@@ -280,6 +349,7 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 		}
 		if a.Materialized {
 			active++
+			if !a.Arrived&&claims[a.Level][a.Goal]==""{populationReserve(claims,a.Level,a.Goal,a.ID)}
 			populationReserve(occupied, a.Level, a.Position, a.ID)
 			if len(a.Path) > 0 {
 				populationReserve(occupied, a.Level, a.Path[0], a.ID)
@@ -305,6 +375,13 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 			a.Queued = false
 			a.QueueReason = ""
 		}
+        brainTarget:=LifeStep{}
+        if l.Brain.Enabled&&tick>0 {
+         stage:=p.seededStage(*a,seconds,environment.Seed);cfg:=p.profileStage(a.Profile,stage)
+         scheduled:=LifeStep{Level:cfg.Level,At:p.profileAnchor(a.Profile,stage,i,cfg.Level),Activity:cfg.Activity}
+         home:=LifeStep{};if a.Profile!=nil&&a.Profile.Home!=nil{home=LifeStep{Level:a.Profile.Home.Level,At:a.Profile.Home.At,Activity:"sleep"}}
+         brainTarget=a.Brain.advance(l.Brain,environment.BrainServices,a.ID,a.Level,a.Activity,a.Position,a.Arrived&&a.Trip==nil,a.Materialized,false,scheduled,home,(seconds+a.ShiftSeconds)/86400,seconds,environment.Seed)
+        }
 		if a.Trip != nil {
 			edge := l.Edge(a.Trip.Edge)
 			if edge == nil {
@@ -314,15 +391,12 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 				continue
 			}
 			entry := edge.Entry
-			if edge.To == activeLevel {
+			if edge.To == activeLevel && active < p.MaxActive {
 				var free bool
 				entry, free = populationLanding(l, edge.To, edge.Entry, environment.landingTraffic(*a,edge.To,edge.Entry,occupied), a.ID)
-				if active >= p.MaxActive || !free {
+				if !free {
 					a.Queued = true
 					a.QueueReason = "entry_occupied"
-					if active >= p.MaxActive {
-						a.QueueReason = "active_limit"
-					}
 					a.Activity = "waiting_entry"
 					continue
 				}
@@ -343,13 +417,8 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 			a.Arrived = false
 			a.Visits[edge.To]++
 		}
-		if !a.Materialized && a.Level == activeLevel {
-			if active >= p.MaxActive {
-				a.Queued = true
-				a.QueueReason = "active_limit"
-				a.Activity = "waiting_entry"
-				continue
-			}
+		if !a.Materialized && active>=p.MaxActive {a.Queued=false;a.QueueReason=""}
+        if !a.Materialized && a.Level == activeLevel && active < p.MaxActive {
 			at, free := a.Position, populationCellFree(l, a.Level, a.Position, occupied, a.ID)
 			if !levelChanged {
 				free = false
@@ -362,7 +431,7 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 					}
 				}
 			} else if !free {
-				at, free = p.freeAnchor(l, a.Level, i, occupied, a.ID)
+				at, free = p.freeAnchor(l, a.Level, i, occupied, a.ID, nil)
 			}
 			if !free {
 				a.Queued = true
@@ -383,7 +452,7 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 		if !a.Materialized && seconds < a.ColdReadyAt {
 			continue
 		}
-		stage := p.stage(seconds, a.ShiftSeconds)
+		stage := p.seededStage(*a,seconds,environment.Seed)
 		if stage != a.Stage {
 			a.Stage = stage
 			a.Arrived = false
@@ -392,14 +461,16 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 				a.Path = a.Path[:1]
 			}
 		}
-		target := p.Stages[a.Stage]
-		if a.Materialized && len(a.Path) > 0 && tick >= a.MoveStartTick+p.MoveTicks {
+		target := p.profileStage(a.Profile,a.Stage)
+        if l.Brain.Enabled&&brainTarget.Level!=""{target.Level=brainTarget.Level;target.Activity=brainTarget.Activity;if a.Level!=target.Level||a.Goal!=brainTarget.At||a.Activity!=target.Activity{a.Arrived=false}}
+		if l.Brain.Enabled && a.Materialized && len(a.Path) > 0 && a.MoveStartTick+p.MoveTicks < tick-frame+1 { a.MoveStartTick = tick-frame+1-p.MoveTicks }
+		for a.Materialized && len(a.Path) > 0 && tick >= a.MoveStartTick+p.MoveTicks {
 			next := a.Path[0]
-			if populationCellFree(l, a.Level, next, occupied, a.ID) {
+			if l.Adjacent(a.Level,a.Position,next) && populationCellFree(l, a.Level, next, occupied, a.ID) {
 				populationUnreserve(occupied, a.Level, a.Position, a.ID)
 				a.Position = next
 				a.Path = a.Path[1:]
-				a.MoveStartTick = tick
+				a.MoveStartTick += p.MoveTicks
 				populationReserve(occupied, a.Level, next, a.ID)
 				avoid:=map[Cell]bool(nil);if environment.NewPathAvoid!=nil{avoid=environment.NewPathAvoid(*a)}
 				if len(a.Path) > 0 && (!populationCellFree(l, a.Level, a.Path[0], occupied, a.ID)||avoid[a.Path[0]]) {
@@ -413,10 +484,12 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 				a.Path = nil
 				a.MoveStartTick = tick
 			}
+            if !l.Brain.Enabled{break}
 		}
 		// A negotiated side step holds its pocket briefly while the waiting actor passes.
 		if tick < a.YieldUntil { a.Activity = "yielding"; continue }
-		if a.Arrived && a.Level == target.Level && len(a.Path) == 0 {
+		if !l.Brain.Enabled&&s.profileWantsReturn(p,l,a,occupied,tick){a.Arrived=false}
+		if a.Arrived && a.Level == target.Level && len(a.Path) == 0 && (l.Brain.Enabled||p.atAssignedWork(a)) {
 			a.Activity = target.Activity
 			if !a.Materialized {
 				a.ColdReadyAt = seconds + p.ColdStepSeconds
@@ -432,18 +505,28 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 				a.ColdReadyAt = seconds + p.ColdStepSeconds
 				continue
 			}
-			goal = edge.Exit
-		} else if !a.Materialized {
-			goal = p.anchor(i, a.Level)
-		} else if a.Goal == a.Position || !populationCellFree(l, a.Level, a.Goal, occupied, a.ID) {
+			var waiting bool
+			goal,waiting=s.platformDestination(p,l,a,edge,occupied,claims,seconds,secondsPerTick)
+			if waiting{a.Goal=goal;a.Activity="waiting_platform";continue}
+		} else {
 			var free bool
-			goal, free = p.freeAnchor(l, a.Level, i, occupied, a.ID)
+			if l.Brain.Enabled&&brainTarget.Level!=""{goal=brainTarget.At;free=!a.Materialized||populationCellFree(l,a.Level,goal,occupied,a.ID)}else{goal, free = s.profileDestination(p,l,a,i,occupied)}
 			if !free {
+				// A preferred address may become closed after a local leg began.
+				// Keep the identity, but never save a wall as the physical Goal.
+				if !l.Walks(a.Level,a.Goal){a.Goal=a.Position;if len(a.Path)>0{a.Goal=a.Path[len(a.Path)-1]}}
 				a.Activity = "waiting_space"
+				if !a.Materialized{a.Activity="waiting_route";a.ColdReadyAt=seconds+p.ColdStepSeconds}
 				continue
 			}
 		}
 		if !a.Materialized {
+			// Coarse simulation may skip individual footsteps, never topology.
+			// The shared static component cache makes this O(1) per resident;
+			// blocked itineraries retry on the existing cold cadence.
+			if !s.routes.connected(a.Level,a.Position,goal){
+				a.Goal=goal;a.Activity="waiting_route";a.ColdReadyAt=seconds+p.ColdStepSeconds;continue
+			}
 			// A coarse local leg consumes one configured interval. Arrival is not a
 			// physical cell movement and never generates an offscreen walking path.
 			if a.Position != goal {
@@ -464,10 +547,10 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 				a.ColdReadyAt = seconds + p.ColdStepSeconds
 				continue
 			}
-			if a.WaitingDeparture == 0 || (a.WaitingDeparture < seconds && (edge.NightPeriodSeconds == 0 || edge.PeriodSeconds == 0)) {
-				a.WaitingDeparture = edge.NextDeparture(seconds)
-			}
-			if seconds < a.WaitingDeparture {
+			// Reaching a waiting pocket is never permission to board remotely.
+			if a.Position!=edge.Exit{a.Activity="waiting_platform";continue}
+			a.WaitingDeparture=edge.boardingDeparture(a.WaitingDeparture,seconds,previousSeconds)
+			if seconds < a.WaitingDeparture-edge.BoardingWindowSeconds {
 				a.Activity = "waiting_departure"
 				continue
 			}
@@ -482,6 +565,7 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 			seats[slot]++
 			if a.Materialized {
 				populationUnreserve(occupied, a.Level, a.Position, a.ID)
+				populationUnreserve(claims, a.Level, a.Goal, a.ID)
 				a.Materialized = false
 				active--
 			}
@@ -493,6 +577,7 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 			continue
 		}
 		if a.Materialized && (a.Goal != goal || len(a.Path) == 0) {
+            if l.Brain.Enabled&&a.Goal==goal&&seconds<a.Brain.PathRetrySecond{continue};a.Brain.PathRetrySecond=seconds+10
 			if len(a.Path) > 0 && tick < a.MoveStartTick+p.MoveTicks {
 				a.Path = a.Path[:1]
 				a.Activity = "walking"
@@ -507,14 +592,9 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 				a.Activity = "waiting_route"
 				continue
 			}
-			blocked := map[Cell]bool{}
-			for at, id := range occupied[a.Level] {
-				if id != a.ID {
-					blocked[at] = true
-				}
-			}
-			if environment.NewPathAvoid!=nil{for at:=range environment.NewPathAvoid(*a){blocked[at]=true}}
-			a.Path = l.Space(a.Level, blocked).Path(a.Position, goal, Cell{}, 0)
+			avoid:=map[Cell]bool(nil);if environment.NewPathAvoid!=nil{avoid=environment.NewPathAvoid(*a)}
+            space:=l.Space(a.Level,avoid);space.Occupied=func(at Cell)bool{id:=occupied[a.Level][at];return id!=""&&id!=a.ID}
+            a.Path=space.Path(a.Position,goal,Cell{},0)
 			a.MoveStartTick = tick
 			if len(a.Path) > 0 {
 				populationReserve(occupied, a.Level, a.Path[0], a.ID)
@@ -531,6 +611,7 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 // anchors intentionally do not occupy scene cells. Admission queues never count
 // as rendered/physical residents, and no queued actor may carry a walking path.
 func (s PopulationState) Validate(p PopulationModel, l LifeModel, seconds, tick int64) error {
+ if err:=s.Decisions.Validate(tick,seconds);err!=nil{return err};if len(s.Decisions.Last)>len(s.Actors){return fmt.Errorf("oversized population decision index")}
 	if err := p.Validate(l); err != nil {
 		return err
 	}
@@ -542,6 +623,9 @@ func (s PopulationState) Validate(p PopulationModel, l LifeModel, seconds, tick 
 			return fmt.Errorf("invalid population active level")
 		}
 	}
+	// Saved phases belong to the identity. New residents may use a reordered or
+	// extended authored pool without silently changing existing daily lives.
+	if err:=p.validateAssignments(s.Actors);err!=nil{return err}
 	positions := map[string]map[Cell]string{}
 	reserved := map[string]map[Cell]string{}
 	active := 0
@@ -551,13 +635,15 @@ func (s PopulationState) Validate(p PopulationModel, l LifeModel, seconds, tick 
 	}
 	seats := map[departure]int{}
 	for i, a := range s.Actors {
-		if len(p.ShiftOffsets) == 0 || a.ID != fmt.Sprintf("population.%04d", i+1) || a.Name == "" || a.Stage < 0 || a.Stage >= len(p.Stages) || a.ShiftSeconds != p.ShiftOffsets[i%len(p.ShiftOffsets)] || !l.Walks(a.Level, a.Position) || !l.Walks(a.Level, a.Goal) || a.YieldUntil < 0 || a.YieldUntil > tick+8*p.MoveTicks || a.MoveStartTick < 0 || a.MoveStartTick > tick || a.WaitingDeparture < 0 || a.ColdReadyAt < 0 || a.Activity == "" || a.Visits == nil {
+        if err:=a.Brain.Validate(l.Brain,seconds);err!=nil{return err}
+		if err:=p.validateProfile(a.Profile,l);err!=nil{return fmt.Errorf("population actor %s: %w",a.ID,err)}
+		if len(p.ShiftOffsets) == 0 || a.ID != fmt.Sprintf("population.%04d", i+1) || a.Name == "" || a.Stage < 0 || a.Stage >= len(p.Stages) || !p.profileShiftAllowed(a.Profile,a.ShiftSeconds) || !l.Walks(a.Level, a.Position) || !l.Walks(a.Level, a.Goal) || a.YieldUntil < 0 || a.YieldUntil > l.MotionTick(tick,seconds)+8*p.MoveTicks || a.MoveStartTick < 0 || a.MoveStartTick > l.MotionTick(tick,seconds) || a.WaitingDeparture < 0 || a.ColdReadyAt < 0 || a.Activity == "" || a.Visits == nil {
 			return fmt.Errorf("invalid population actor %s", a.ID)
 		}
-		if a.YieldRequester != "" && (a.YieldRequester == a.ID || l.Person(a.YieldRequester) == nil || !l.Walks(a.Level, a.YieldOrigin) || a.YieldHoldUntil < 0 || a.YieldHoldUntil > tick+16*p.MoveTicks) {
+		if a.YieldRequester != "" && (a.YieldRequester == a.ID || l.Person(a.YieldRequester) == nil || !l.Walks(a.Level, a.YieldOrigin) || a.YieldHoldUntil < 0 || a.YieldHoldUntil > l.MotionTick(tick,seconds)+16*p.MoveTicks) {
 			return fmt.Errorf("invalid population courtesy hold")
 		}
-		if a.YieldCooldownUntil < 0 || a.YieldCooldownUntil > tick+10*p.MoveTicks { return fmt.Errorf("invalid population courtesy cooldown") }
+		if a.YieldCooldownUntil < 0 || a.YieldCooldownUntil > l.MotionTick(tick,seconds)+10*p.MoveTicks { return fmt.Errorf("invalid population courtesy cooldown") }
 		if l.Person(a.ID) != nil {
 			return fmt.Errorf("population identity collides with named actor")
 		}
@@ -577,7 +663,7 @@ func (s PopulationState) Validate(p PopulationModel, l LifeModel, seconds, tick 
 		}
 		if a.Trip != nil {
 			edge := l.Edge(a.Trip.Edge)
-			if edge == nil || a.Level != edge.From || a.Position != edge.Exit || a.Trip.Departure < 0 || a.Trip.Departure > s.LastSeconds || a.Trip.Arrival != a.Trip.Departure+edge.TravelSeconds || len(a.Path) > 0 || a.Materialized {
+			if edge == nil || a.Level != edge.From || a.Position != edge.Exit || a.Trip.Departure < 0 || !edge.validBoardedDeparture(a.Trip.Departure,s.LastSeconds) || a.Trip.Arrival != a.Trip.Departure+edge.TravelSeconds || len(a.Path) > 0 || a.Materialized {
 				return fmt.Errorf("invalid population trip")
 			}
 			slot := departure{a.Trip.Edge, a.Trip.Departure}
@@ -607,7 +693,7 @@ func (s PopulationState) Validate(p PopulationModel, l LifeModel, seconds, tick 
 		}
 		previous := a.Position
 		for _, at := range a.Path {
-			if !l.Walks(a.Level, at) || Distance(previous, at) != 1 {
+			if !l.Walks(a.Level, at) || !l.Adjacent(a.Level, previous, at) {
 				return fmt.Errorf("invalid population walking path")
 			}
 			previous = at

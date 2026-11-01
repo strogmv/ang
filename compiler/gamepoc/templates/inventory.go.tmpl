@@ -31,7 +31,7 @@ func(r *Runtime) inventoryNear(a inv.Anchor)bool{
  if a.Kind=="actor"{return a.Actor==playerActorID};if r.state.Life.Enabled{if hero:=r.state.Life.Actor(playerActorID);hero!=nil&&hero.Trip!=nil{return false}}
  return a.Kind=="world"&&a.Level==r.currentLevel()&&manhattan(r.state.Player,point{a.At.X,a.At.Y})<=1&&r.sceneVisible(cell(r.state.Player),cell(point{a.At.X,a.At.Y}))
 }
-func(r *Runtime) inventoryReach(l inv.Location)bool{m:=r.inventoryModelFor(r.state.Life.Enabled);a,e:=r.state.Inventory.Root(m,l);return e==nil&&r.inventoryNear(a)&&r.state.Inventory.Accessible(m,l)==nil}
+func(r *Runtime) inventoryReach(l inv.Location)bool{if !r.commerceAccessible(playerActorID,l){return false};m:=r.inventoryModelFor(r.state.Life.Enabled);a,e:=r.state.Inventory.Root(m,l);return e==nil&&r.inventoryNear(a)&&r.state.Inventory.Accessible(m,l)==nil}
 func(r *Runtime) carried(i inv.Item)bool{root,e:=r.state.Inventory.Root(r.inventoryModelFor(r.state.Life.Enabled),i.Location);return e==nil&&root.Kind=="actor"&&root.Actor==playerActorID}
 func(r *Runtime) tradeAccounts(owner,unit string)(inv.Account,inv.Account,bool){from,to,err:=r.state.Inventory.TradeAccounts(r.inventoryModelFor(r.state.Life.Enabled),playerActorID,owner,r.currentLevel(),unit);return from,to,err==nil}
 func(r *Runtime) inventoryCommand(c *connection,q *pb.PocInventoryCommand){
@@ -48,18 +48,19 @@ func(r *Runtime) inventoryCommand(c *connection,q *pb.PocInventoryCommand){
  if _,err:=r.executeActorAction(action);err!=nil{reject("Не удалось выполнить действие: проверьте доступ, место и состояние вещи");return}
  result.Ok=true;result.Message="Готово"
 }
-func(r *Runtime) appendInventory(msg *pb.PocGameState){
+func(r *Runtime) appendInventory(msg *pb.PocGameState,locales ...string){
+ locale:="ru";if len(locales)>0{locale=locales[0]}
  if !r.state.Active{return};s:=r.state.Inventory;m:=r.inventoryModelFor(r.state.Life.Enabled);view:=&pb.PocInventoryView{Revision:s.Revision,NextSequence:s.Cursors[playerActorID].Sequence+1};load,_:=s.ActorLoad(m,playerActorID);view.CarriedMassG=load.Mass;view.CapacityMassG=m.Stores[inv.ActorStore(playerActorID)].Capacity.Mass
  ids:=make([]string,0,len(s.Stores));for id:=range s.Stores{ids=append(ids,id)};sort.Strings(ids)
- for _,id:=range ids{st:=s.Stores[id];if st.Kind=="actor"||st.Locked||!r.inventoryReach(inv.Location{Kind:"store",Store:id}){continue};view.Stores=append(view.Stores,&pb.PocStorageView{Id:id,Name:st.Name,Open:id==r.openStore})}
+ for _,id:=range ids{st:=s.Stores[id];if st.Kind=="actor"||st.Locked||!r.inventoryReach(inv.Location{Kind:"store",Store:id}){continue};view.Stores=append(view.Stores,&pb.PocStorageView{Id:id,Name:r.localText(locale,st.Name,st.Name),Open:id==r.openStore})}
  ids=ids[:0];for id:=range s.Items{ids=append(ids,id)};sort.Strings(ids)
  physical:=map[string]int64{}
  for _,id:=range ids{i:=s.Items[id];d:=m.Definitions[i.Definition];owned:=r.carried(i)
   if owned&&d.Currency!=""{physical[d.Currency]+=i.Quantity*d.Denomination}
   if i.Hidden||!r.inventoryReach(i.Location){continue}
   if !owned&&i.Location.Kind=="store"{st:=s.Stores[i.Location.Store];if st.Kind=="container"&&r.openStore!=st.ID{continue}}
-  location:="На земле";if i.Location.Kind=="store"{location=s.Stores[i.Location.Store].Name};if owned{if i.Location.Store==inv.ActorStore(playerActorID){location="У героя"}else{location+=" · с собой"}}
-  item:=&pb.PocStoredItem{Id:id,Name:d.Name,Quantity:i.Quantity,Owner:i.Owner,Location:location,Revision:i.Revision,Carried:owned,CanTake:(!owned&&(i.Owner==""||i.Owner==playerActorID))||(owned&&i.Location.Store!=inv.ActorStore(playerActorID)),CanDrop:owned}
+  location:="На земле";if i.Location.Kind=="store"{location=r.localText(locale,s.Stores[i.Location.Store].Name,s.Stores[i.Location.Store].Name)};if owned{if i.Location.Store==inv.ActorStore(playerActorID){location="У героя"}else{location+=" · с собой"}}
+  item:=&pb.PocStoredItem{Id:id,Name:r.localText(locale,d.Name,d.Name),Quantity:i.Quantity,Owner:i.Owner,Location:location,Revision:i.Revision,Carried:owned,CanTake:(!owned&&(i.Owner==""||i.Owner==playerActorID))||(owned&&i.Location.Store!=inv.ActorStore(playerActorID)),CanDrop:owned}
   if i.ForSale&&!owned{price,e:=inv.Quote(d,1);from,_,ok:=r.tradeAccounts(i.Owner,d.PriceUnit);if e==nil{item.Price=fmt.Sprintf("%s %s",inv.FormatMoney(price,m.Currencies[d.PriceUnit].Scale),d.PriceUnit);item.CanBuy=ok&&from.Balance>=price}}
   item.Container=d.ContainerVolume>0;item.Equipped=i.Location.Kind=="store"&&i.Location.Store==inv.ActorStore(playerActorID)&&i.Location.Slot!="";item.CanEquip=owned&&d.EquipSlot!=""&&!item.Equipped&&i.Quantity==1;item.CanUnequip=owned&&item.Equipped
   view.Items=append(view.Items,item)
@@ -69,10 +70,10 @@ func(r *Runtime) appendInventory(msg *pb.PocGameState){
  ids=ids[:0];for id:=range s.Entitlements{ids=append(ids,id)};sort.Strings(ids);for _,id:=range ids{e:=s.Entitlements[id];if e.Actor==playerActorID&&!e.Revoked{view.Entitlements=append(view.Entitlements,m.Definitions[e.Definition].Name)}}
  msg.Inventory=view
 }
-func(r *Runtime) validateInventory(s state)error{if s.Inventory.Clock>s.Tick{return errors.New("inventory clock exceeds world clock")};if err:=s.Inventory.Validate(r.inventoryModelFor(s.Life.Enabled));err!=nil{return errors.New("invalid saved inventory: "+err.Error())};return nil}
+func(r *Runtime) validateInventory(s state)error{if s.Life.Enabled{if err:=r.validateCommerceSave(s);err!=nil{return err}};if s.Inventory.Clock>s.Tick{return errors.New("inventory clock exceeds world clock")};if err:=s.Inventory.Validate(r.inventoryModelFor(s.Life.Enabled));err!=nil{return errors.New("invalid saved inventory: "+err.Error())};return nil}
 
 type actorPose struct { Facing point; FocusUntil int64; FocusID,AcceptFrom string; AcceptUntil int64 }
-func(r *Runtime) actorPosition(id string)(point,bool){if r.state.Life.Enabled{a:=r.state.Life.Actor(id);if a==nil||a.Trip!=nil||a.Level!=r.currentLevel(){return point{},false};return location(a.Position),true};if id==playerActorID{return r.state.Player,true};a:=r.sceneActor(id);if a==nil{return point{},false};return a.Position,true}
+func(r *Runtime) actorPosition(id string)(point,bool){if r.state.Life.Enabled{a:=r.state.Life.Actor(id);if a==nil||!a.OnFloor()||a.Level!=r.currentLevel(){return point{},false};return location(a.Position),true};if id==playerActorID{return r.state.Player,true};a:=r.sceneActor(id);if a==nil{return point{},false};return a.Position,true}
 func(r *Runtime) missionActor()string{if r.state.Demo.TargetActor==""{return playerActorID};return r.state.Demo.TargetActor}
 func(r *Runtime) missionSubject()string{if r.missionActor()==playerActorID{return "poc.hero"};return r.missionActor()}
 func(r *Runtime) targetPosition()point{p,_:=r.actorPosition(r.missionActor());return p}
@@ -91,14 +92,14 @@ func(r *Runtime) actorCanWithdraw(actor string,item inv.Item)bool{
 func(r *Runtime) actorAccess(actor string)inv.Access{
  at,exists:=r.actorPosition(actor);if !exists{return inv.Access{}}
  return inv.Access{Level:r.currentLevel(),At:inv.Cell{X:at.X,Y:at.Y},
-  Known:func(i inv.Item)bool{
+  Known:func(i inv.Item)bool{if !r.commerceAccessible(actor,i.Location){return false};
    root,e:=r.state.Inventory.Root(r.inventoryModelFor(r.state.Life.Enabled),i.Location);if e!=nil{return false};if root.Kind=="actor"{return root.Actor==actor};if i.Owner==actor{return true}
    for _,service:=range r.world.Inventory.IssuePoints{if i.Location.Kind=="store"&&i.Location.Store==service.Store&&r.issueAccess(actor,service)&&!i.Hidden{return true}}
    return !i.Hidden&&root.Level==r.currentLevel()&&manhattan(at,point{root.At.X,root.At.Y})<=r.world.AI.Policy.Social.SightRange&&r.sceneVisible(cell(at),cell(point{root.At.X,root.At.Y}))
   },
   Reach:func(root inv.Anchor)bool{if root.Kind=="actor"{return root.Actor==actor};return root.Kind=="world"&&root.Level==r.currentLevel()&&manhattan(at,point{root.At.X,root.At.Y})<=r.world.Inventory.Actions.ReachCells&&r.sceneVisible(cell(at),cell(point{root.At.X,root.At.Y}))},
   Withdraw:func(i inv.Item)bool{return r.actorCanWithdraw(actor,i)},
-  Deposit:func(st inv.Store)bool{for _,service:=range r.world.Inventory.IssuePoints{if service.Store==st.ID&&!r.issueAccess(actor,service){return false}};return !st.Locked},
+  Deposit:func(st inv.Store)bool{if !r.commerceAccessible(actor,inv.Location{Kind:"store",Store:st.ID}){return false};for _,service:=range r.world.Inventory.IssuePoints{if service.Store==st.ID&&!r.issueAccess(actor,service){return false}};return !st.Locked},
   Receive:func(receiver string,i inv.Item)bool{p,ok:=r.actorPosition(receiver);pose:=r.state.Poses[receiver];return ok&&pose.AcceptFrom==actor&&pose.AcceptUntil>r.state.Tick&&manhattan(at,p)<=r.world.Inventory.Actions.ReachCells&&r.sceneVisible(cell(at),cell(p))},
   Target:func(target string)(inv.Cell,bool){p,ok:=r.actorPosition(target);return inv.Cell{X:p.X,Y:p.Y},ok&&r.sceneVisible(cell(at),cell(p))&&manhattan(at,p)<=r.world.AI.Policy.Social.SightRange},
  }

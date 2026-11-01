@@ -15,8 +15,18 @@ func cloneExploration(src map[string]map[int]seenCell)map[string]map[int]seenCel
 }
 func(r *Runtime) inScene(p point)bool{terrain:=r.currentTerrain();return p.Y>=0&&p.Y<len(terrain)&&p.X>=0&&p.X<len(terrain[0])}
 func(r *Runtime) sightOpaque(p point)bool{return !r.inScene(p)||r.world.Opaque[string(r.currentTerrain()[p.Y][p.X])]}
+// deckVolume is the multi-deck sight model of the current location, or nil.
+// Only a Life level has decks: the legacy non-Life scenes reuse a story level ID with their own small terrain.
+func(r *Runtime) deckVolume()*behavior.DeckVolume{if len(r.world.Decks)==0||!r.state.Life.Enabled{return nil};return r.world.Decks[r.currentLevel()]}
+// sightWithin is the shared visibility predicate: planar Manhattan range plus
+// the planar ray, or plan range plus the 3D ray of a multi-deck location.
+func(r *Runtime) sightWithin(at,p point,radius int)bool{
+ if v:=r.deckVolume();v!=nil{return v.VisibleWithin(cell(at),cell(p),radius)}
+ return manhattan(at,p)<=radius&&r.sightLine(at,p)
+}
 // A ray ends on the near face of a wall. Two touching opaque corners never make a peephole.
 func(r *Runtime) sightLine(from,to point)bool{
+ if v:=r.deckVolume();v!=nil{return v.Sees(cell(from),cell(to))}
  if !r.inScene(from)||!r.inScene(to){return false}
  x,y:=from.X,from.Y;dx,dy:=to.X-from.X,to.Y-from.Y;sx,sy:=1,1
  if dx<0{dx=-dx;sx=-1};if dy<0{dy=-dy;sy=-1};err:=dx-dy
@@ -52,9 +62,11 @@ func(r *Runtime) updateExploration(){
  width:=len(r.world.Terrain[0])
  for id,at:=range r.observerPositions(){
   known:=r.state.Exploration[id];if known==nil{known=map[int]seenCell{};r.state.Exploration[id]=known}
-  radius:=r.sightRange(id)
-  for y:=max(0,at.Y-radius);y<min(len(r.world.Terrain),at.Y+radius+1);y++{for x:=max(0,at.X-radius);x<min(width,at.X+radius+1);x++{
-   p:=point{x,y};if manhattan(at,p)<=radius&&r.sightLine(at,p){known[y*width+x]=seenCell{string(r.world.Terrain[y][x]),r.state.Tick}}
+  radius:=r.sightRange(id);y0,y1,x0,x1:=max(0,at.Y-radius),min(len(r.world.Terrain),at.Y+radius+1),max(0,at.X-radius),min(width,at.X+radius+1)
+  // Other surfaces lie in other bands of the navigation plane: scan all of it.
+  if r.deckVolume()!=nil{y0,y1,x0,x1=0,len(r.world.Terrain),0,width}
+  for y:=y0;y<y1;y++{for x:=x0;x<x1;x++{
+   p:=point{x,y};if r.sightWithin(at,p,radius){known[y*width+x]=seenCell{string(r.world.Terrain[y][x]),r.state.Tick}}
   }}
  }
  r.state.HeroHearing.Expire(r.state.Tick)
@@ -76,7 +88,7 @@ func(r *Runtime) observerView(id string,at point,debug bool)*pb.PocObserverView{
   for x:=0;x<width;x++{
    p:=point{x,y}
    if old,ok:=known[y*width+x];ok{terrain[x]=old.Glyph[0];cells[x]='1'}
-   if manhattan(at,p)<=int(view.SightRange)&&r.sightLine(at,p){terrain[x]=r.world.Terrain[y][x];cells[x]='2'}
+   if r.sightWithin(at,p,int(view.SightRange)){terrain[x]=r.world.Terrain[y][x];cells[x]='2'}
    // Acoustic geometry is deliberately a debug-only overlay: its shape can reveal unseen walls.
    if debug{sound:=behavior.Sound{Origin:cell(p),Loudness:h.Loudness(view.HearingSound,false,1)};if _,ok:=h.Hear(sound,cell(at),mul,r.soundBlockers(sound.Origin,cell(at)),r.cellNoise(at));ok{heard[x]='1'}}
   }
@@ -102,7 +114,7 @@ func(r *Runtime) appendPerception(msg *pb.PocGameState){
  msg.Terrain=append([]string(nil),msg.PlayerView.Terrain...)
  filter:=func(src []*pb.PocAgentState)[]*pb.PocAgentState{
   var dst []*pb.PocAgentState;for _,a:=range src{if !viewSees(msg.PlayerView,a.X,a.Y){continue}
-   safe:=&pb.PocAgentState{Id:a.Id,Name:a.Name,X:a.X,Y:a.Y,MotionStartNs:a.MotionStartNs,MovementStepNs:a.MovementStepNs,MotionPaused:a.MotionPaused,MotionSampleNs:a.MotionSampleNs,Equipment:a.Equipment,Gesture:a.Gesture,GestureStartedTick:a.GestureStartedTick,GesturePhaseUntilTick:a.GesturePhaseUntilTick,Speech:a.Speech,SpeechUntilTick:a.SpeechUntilTick}
+   safe:=&pb.PocAgentState{Deck:a.Deck,Id:a.Id,Name:a.Name,X:a.X,Y:a.Y,MotionStartNs:a.MotionStartNs,MovementStepNs:a.MovementStepNs,MotionPaused:a.MotionPaused,MotionSampleNs:a.MotionSampleNs,Equipment:a.Equipment,Gesture:a.Gesture,GestureStartedTick:a.GestureStartedTick,GesturePhaseUntilTick:a.GesturePhaseUntilTick,Speech:a.Speech,SpeechUntilTick:a.SpeechUntilTick}
    for _,p:=range a.Path{if !viewSees(msg.PlayerView,p.X,p.Y){break};safe.Path=append(safe.Path,p)};dst=append(dst,safe)
   };return dst
  }

@@ -7,9 +7,10 @@ namespace AngelsDemons.Poc {
  [Serializable] public sealed class PocPaintedPoint { public float x,y; }
  [Serializable] public sealed class PocPaintedActor { public string actor_id,image,animation_sheet; public PocArtSceneSourceRect source_rect; public float feet_x,feet_y,height; }
  [Serializable] public sealed class PocPaintedProp { public string id,image,label; public PocPaintedPoint at; public PocArtSceneSourceRect source_rect; public float width,height,foot_x,foot_y; }
- [Serializable] public sealed class PocPaintedOccluder { public string id; public PocPaintedPoint[] polygon; public float depth_y; public PocPaintedPoint visibility_anchor; public bool has_visibility_anchor; }
+ [Serializable] public sealed class PocPaintedOccluder { public string id; public PocPaintedPoint[] polygon,depth_polygon; public float depth_y; public PocPaintedPoint visibility_anchor; public bool has_visibility_anchor; }
  [Serializable] public sealed class PocPaintedInspectionHotspot { public string object_id; public float x,y,radius; }
- [Serializable] public sealed class PocPaintedScene { public string level_id,background; public int width,height,view_width; public bool known_architecture; public string[] navigation; public PocPaintedPoint origin,axis_x,axis_y; public float actor_height,floor_elevation_m; public PocPaintedPoint[] proof_waypoints; public PocPaintedPoint proof_blocked; public PocPaintedActor[] actors; public PocPaintedProp[] props; public PocPaintedOccluder[] occluders; public PocPaintedInspectionHotspot[] inspection_hotspots; public PocAmbientPassage[] ambient_passages; public PocPaintedDaylight daylight; }
+ [Serializable] public sealed class PocPaintedSurfaceReplacement {public string id,asset_id,image,background_sha256,occluder_id;public PocPaintedPoint[] quad,solid_cells;}
+ [Serializable] public sealed class PocPaintedScene {public PocPaintedSurfaceReplacement[] surface_replacements; public string level_id,background; public int width,height,view_width; public bool known_architecture; public string[] navigation; public PocPaintedPoint origin,axis_x,axis_y; public float actor_height,floor_elevation_m; public PocPaintedPoint[] proof_waypoints; public PocPaintedPoint proof_blocked; public PocPaintedActor[] actors; public PocPaintedProp[] props; public PocPaintedOccluder[] occluders; public PocPaintedInspectionHotspot[] inspection_hotspots; public PocAmbientPassage[] ambient_passages; public PocPaintedDaylight daylight; public PocStorefront[] storefronts; }
  public sealed partial class AngelsDemonsPoc {
   int playableMarketPhase;
   string playableMarketEpoch;
@@ -29,7 +30,7 @@ namespace AngelsDemons.Poc {
     playableMarketPhase=0;Debug.Log("POC_PLAYABLE_MARKET_READY manual=true calendar=1 content="+resource.content_hash);
    }
   }
-  sealed class PaintedCutout {public string id;public Texture2D texture;public Rect rect;public float depth;public Color32[] pixels,shadedPixels;public PaintedFogAxis[] fogX,fogY;public PaintedFogSamples fogSamples;public PocPaintedPoint[] polygon;public Rect[] opaqueRects;public PocPaintedPoint visibilityAnchor;public char anchorVisibility;public bool anchorFogReady;}
+  sealed class PaintedCutout {public string id;public Texture2D texture;public Rect rect;public float depth;public Color32[] pixels,shadedPixels;public PaintedFogAxis[] fogX,fogY;public PaintedFogSamples fogSamples;public PocPaintedPoint[] polygon,depthPolygon;public Rect[] opaqueRects;public PocPaintedPoint visibilityAnchor;public char anchorVisibility;public bool anchorFogReady;}
   struct PaintedFogAxis {public int a,b,weight;}
   struct PaintedFogPixel {public int source,a;public ushort row,wx,wy;public byte column;}
   struct PaintedFogBucket {public int offset,count,left,bottom,right,top;}
@@ -82,6 +83,7 @@ namespace AngelsDemons.Poc {
    PaintedCache cache;if(paintedCaches.TryGetValue(scene.level_id,out cache))return cache;
    long prepareStarted=verifyPainted?System.Diagnostics.Stopwatch.GetTimestamp():0;
    cache=new PaintedCache{background=ArtSceneTexture(scene.background)};
+   try{cache.background=ComposePaintedSurfaces(scene,cache.background);}catch(Exception error){cache.preparationError=error.Message;paintedCaches[scene.level_id]=cache;Debug.LogError("PAINTED_SURFACE_ERROR "+error);return cache;}
    if(scene.actors!=null)foreach(var actor in scene.actors)cache.actors[actor.actor_id]=actor;
    // Read source pixels once per texture during cold scene preparation. Existing
    // GPU-only Editor imports use a safe copy; ordinary frames only use this cache.
@@ -101,12 +103,32 @@ namespace AngelsDemons.Poc {
      for(int y=0;y<h;y++)for(int x=0;x<w;x++)if(PaintedPolygonContains(occluder.polygon,(left+x+.5f)*scene.width/bw,(top+y+.5f)*scene.height/bh)&&!PaintedAmbientStripContains(scene,(left+x+.5f)*scene.width/bw,(top+y+.5f)*scene.height/bh))cut[(h-y-1)*w+x]=pixels[(bh-top-y-1)*bw+left+x];
      var texture=new Texture2D(w,h,TextureFormat.RGBA32,true){filterMode=FilterMode.Bilinear,wrapMode=TextureWrapMode.Clamp};texture.SetPixels32(cut);texture.Apply(true,false);
      var canvasRect=new Rect((float)left*scene.width/bw,(float)top*scene.height/bh,(float)w*scene.width/bw,(float)h*scene.height/bh);
-     cache.cutouts.Add(new PaintedCutout{id=occluder.id,texture=texture,rect=canvasRect,depth=occluder.depth_y,polygon=occluder.polygon,pixels=cut,shadedPixels=(Color32[])cut.Clone(),opaqueRects=BuildPaintedOpaqueRects(cut,w,h,canvasRect),visibilityAnchor=PaintedOccluderAnchor(occluder)});
+     cache.cutouts.Add(new PaintedCutout{id=occluder.id,texture=texture,rect=canvasRect,depth=occluder.depth_y,polygon=occluder.polygon,depthPolygon=occluder.depth_polygon,pixels=cut,shadedPixels=(Color32[])cut.Clone(),opaqueRects=BuildPaintedOpaqueRects(cut,w,h,canvasRect),visibilityAnchor=PaintedOccluderAnchor(occluder)});
     }
    }
    paintedCaches[scene.level_id]=cache;
    if(verifyPainted)RecordPaintedColdPrepareTiming((float)((System.Diagnostics.Stopwatch.GetTimestamp()-prepareStarted)*1000d/System.Diagnostics.Stopwatch.Frequency));
    return cache;
+  }
+  static bool PaintedSurfaceUV(PocPaintedPoint[] quad,float x,float y,out float u,out float v){
+   var a=quad[0];float bx=quad[1].x-a.x,by=quad[1].y-a.y,dx=quad[3].x-a.x,dy=quad[3].y-a.y,det=bx*dy-by*dx;
+   u=((x-a.x)*dy-(y-a.y)*dx)/det;v=(bx*(y-a.y)-by*(x-a.x))/det;return u>=0&&u<1&&v>=0&&v<1;
+  }
+  static Color32 PaintedSurfaceSample(Color32[] pixels,int width,int height,float u,float v){
+   float x=Mathf.Clamp(u*width-.5f,0,width-1),y=Mathf.Clamp((1-v)*height-.5f,0,height-1);int left=(int)x,bottom=(int)y,right=Math.Min(left+1,width-1),top=Math.Min(bottom+1,height-1);float tx=x-left,ty=y-bottom;
+   var a=pixels[bottom*width+left];var b=pixels[bottom*width+right];var c=pixels[top*width+left];var d=pixels[top*width+right];
+   return new Color32((byte)Mathf.RoundToInt(Mathf.Lerp(Mathf.Lerp(a.r,b.r,tx),Mathf.Lerp(c.r,d.r,tx),ty)),(byte)Mathf.RoundToInt(Mathf.Lerp(Mathf.Lerp(a.g,b.g,tx),Mathf.Lerp(c.g,d.g,tx),ty)),(byte)Mathf.RoundToInt(Mathf.Lerp(Mathf.Lerp(a.b,b.b,tx),Mathf.Lerp(c.b,d.b,tx),ty)),255);
+  }
+  Texture2D ComposePaintedSurfaces(PocPaintedScene scene,Texture2D original){
+   if(scene.surface_replacements==null||scene.surface_replacements.Length==0)return original;
+   var source=ArtScenePixels(original);if(source.error!=null)throw new InvalidOperationException(source.error);var pixels=(Color32[])source.pixels.Clone();int width=original.width,height=original.height;
+   foreach(var replacement in scene.surface_replacements){
+    var texture=ArtSceneTexture(replacement.image);var face=ArtScenePixels(texture);if(face.error!=null)throw new InvalidOperationException(face.error);
+    float minX=scene.width,minY=scene.height,maxX=0,maxY=0;foreach(var p in replacement.quad){minX=Mathf.Min(minX,p.x);minY=Mathf.Min(minY,p.y);maxX=Mathf.Max(maxX,p.x);maxY=Mathf.Max(maxY,p.y);}
+    int left=Math.Max(0,Mathf.FloorToInt(minX*width/scene.width)),right=Math.Min(width,Mathf.CeilToInt(maxX*width/scene.width)),top=Math.Max(0,Mathf.FloorToInt(minY*height/scene.height)),bottom=Math.Min(height,Mathf.CeilToInt(maxY*height/scene.height));
+    for(int y=top;y<bottom;y++)for(int x=left;x<right;x++){float u,v;if(PaintedSurfaceUV(replacement.quad,(x+.5f)*scene.width/width,(y+.5f)*scene.height/height,out u,out v))pixels[(height-y-1)*width+x]=PaintedSurfaceSample(face.pixels,texture.width,texture.height,u,v);}
+   }
+   var composed=new Texture2D(width,height,TextureFormat.RGBA32,false){name=original.name+" / CUE surface replacements",filterMode=FilterMode.Bilinear,wrapMode=TextureWrapMode.Clamp};composed.SetPixels32(pixels);composed.Apply(false,false);return composed;
   }
   static Rect[] BuildPaintedOpaqueRects(Color32[] pixels,int width,int height,Rect canvas){
    // Rasterize no geometry on a render frame. Cold-built row runs retain the
@@ -354,6 +376,7 @@ namespace AngelsDemons.Poc {
    return found;
   }
   static bool PaintedMaskInFrontOfFoot(PocPaintedPoint[] polygon,float footX,float footY){float lower;return PaintedLowerEdgeAtX(polygon,footX,out lower)&&footY+.5f<lower;}
+  static bool PaintedOccluderInFrontOfFoot(PocPaintedPoint[] silhouette,PocPaintedPoint[] depthPolygon,float footX,float footY){return PaintedMaskInFrontOfFoot(depthPolygon!=null&&depthPolygon.Length>=3?depthPolygon:silhouette,footX,footY);}
   static bool PaintedHeroCutawayEligible(string actorID,int kind,string observerID,bool alreadyVisible){return alreadyVisible&&kind==1&&actorID=="char.hero"&&observerID=="char.hero";}
   static Rect PaintedIntersect(Rect a,Rect b){float left=Math.Max(a.xMin,b.xMin),top=Math.Max(a.yMin,b.yMin),right=Math.Min(a.xMax,b.xMax),bottom=Math.Min(a.yMax,b.yMax);return new Rect(left,top,Math.Max(0,right-left),Math.Max(0,bottom-top));}
   static Rect PaintedRingPart(Rect outer,Rect inner,int part){
@@ -384,7 +407,7 @@ namespace AngelsDemons.Poc {
   void DrawPaintedWorldSprite(PaintedDraw draw,PaintedCache cache,bool readableHero,Rect fit,float scale,Rect viewport){
    var current=paintedFragmentsA;var other=paintedFragmentsB;current.Clear();AddPaintedFragment(current,draw.rect,1);int work=0;
    foreach(var cut in cache.cutouts){
-    if(!cut.rect.Overlaps(draw.rect)||!PaintedMaskInFrontOfFoot(cut.polygon,draw.footX,draw.depth))continue;
+    if(!cut.rect.Overlaps(draw.rect)||!PaintedOccluderInFrontOfFoot(cut.polygon,cut.depthPolygon,draw.footX,draw.depth))continue;
     foreach(var mask in cut.opaqueRects){
      if(work>=PaintedClipWorkLimit){if(readableHero)DrawPaintedFragment(draw,draw.rect,PaintedHeroOccludedOpacity,fit,scale,viewport);return;}work++;
      if(!mask.Overlaps(draw.rect))continue;
@@ -466,7 +489,7 @@ namespace AngelsDemons.Poc {
    }
   }
   bool DrawPaintedGame(){
-   var scene=CurrentPaintedScene();if(scene==null){ReleasePaintedAmbient();return false;}
+   var scene=CurrentPaintedScene();if(scene==null){ReleasePaintedAmbient();ReleaseStorefronts();return false;}
    UpdateMotion();PrepareHud();PreparePaintedMotions(scene);var cache=PreparePaintedScene(scene);var view=ObserverView();
    // Fail visibly and closed if even the one-time GPU copy failed. Continuing
    // without foreground masks could expose actors behind architecture.
@@ -502,6 +525,7 @@ namespace AngelsDemons.Poc {
    // Architecture is composed once. Clipping each later sprite, rather than
    // replaying foreground inside its rectangle, cannot erase an earlier actor.
    foreach(var draw in paintedDraws)if(draw.kind==2){var target=PaintedTarget(draw.rect,fit,scale);target.position-=viewport.position;if(!localViewport.Overlaps(target))continue;GUI.color=draw.tint;GUI.DrawTextureWithTexCoords(target,draw.texture,draw.uv,true);}
+   DrawStorefronts(scene,cache,fit,viewport);
    foreach(var draw in paintedDraws)if(draw.kind!=2){bool readable=view!=null&&PaintedHeroCutawayEligible(draw.id,draw.kind,view.ActorId,true);DrawPaintedWorldSprite(draw,cache,readable,fit,scale,viewport);}
    // Ground fog precedes actors. Foreground textures already sample the same
    // shaded field, so visible actor heads stay whole and polygon edges agree.

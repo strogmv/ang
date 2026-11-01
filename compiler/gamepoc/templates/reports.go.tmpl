@@ -12,11 +12,12 @@ func(r *Runtime) hearReport(listener *demoAgent,sound behavior.Sound){
 }
 func(r *Runtime) reportSighting(a *demoAgent){
  d:=&r.state.Demo;p:=r.world.AI.Policy.Perception.Reports
- if !d.Issued||d.Captured||r.selectedActor(a.ID)||!r.networkKnown(a)||!includesString(p.Intents,r.actorIntent(*a)){return}
+ if !d.Issued||d.Captured||d.Plan.Status=="failed"||d.Plan.Status=="completed"||r.selectedActor(a.ID)||!r.networkKnown(a)||!includesString(p.Intents,r.actorIntent(*a)){return}
  f,k:=a.Memory.Lookup(r.missionSubject(),"incident");if k!=behavior.KnowledgeTrue||f.Source!="sight"||f.ObservedTick<=a.LastReportTick||r.state.Tick-a.LastReportTick<p.CooldownTicks||(a.LastReportTick>0&&behavior.Distance(f.Position,cell(a.LastReportAt))<p.MinChangeCells&&r.state.Tick-a.LastReportTick<p.RefreshTicks){return}
  _,signals:=r.sceneFacts(a,true);if _,vetoed:=behavior.Veto(behavior.UtilityGoal{Action:"report"},r.world.Psyche.Actors[a.ID],r.world.AI.Policy.Utility,signals);vetoed{return}
+ changed:=a.LastReportTick==0||behavior.Distance(f.Position,cell(a.LastReportAt))>=p.MinChangeCells
  a.LastReportTick=f.ObservedTick;a.LastReportAt=location(f.Position)
- report:=alarmRecord{Tick:r.state.Tick,ActorID:a.ID,Cause:"sighting",Kind:"shout",At:a.Position};r.reportPayload(a,&report);d.AlarmLog=append(d.AlarmLog,report);if len(d.AlarmLog)>32{d.AlarmLog=d.AlarmLog[len(d.AlarmLog)-32:]};r.emitSound("shout",a.Position,a.ID,"sighting");r.demoEvent(a.Name+": сообщает, где видел цель")
+ report:=alarmRecord{Tick:r.state.Tick,ActorID:a.ID,Cause:"sighting",Kind:"shout",At:a.Position};r.reportPayload(a,&report);d.AlarmLog=append(d.AlarmLog,report);if len(d.AlarmLog)>32{d.AlarmLog=d.AlarmLog[len(d.AlarmLog)-32:]};r.emitSound("shout",a.Position,a.ID,"sighting");if changed{r.demoEvent(a.Name+": сообщает, где видел цель")}
 }
 func(r *Runtime) relayOperatorReport(){
  d:=&r.state.Demo;if !d.Issued||d.Captured{return};operator:=r.sceneActor(r.world.Config.CaptureDemo.Monitoring.Operator);if operator==nil||operator.ID==r.missionActor(){return}

@@ -71,13 +71,14 @@ func clientMenu(c Compiled) map[string]any {
 func clientResource(c Compiled) ([]byte, error) {
 	cfg := c.Config
 	return json.MarshalIndent(map[string]any{
-		"location_sdk": c.LocationSDK,
-		"localization": clientLocalization(c.Localization),
-		"content_hash": c.ContentHash,
-		"spatial":      clientSpatial(c.Spatial),
-		"art":          clientArt(c),
-		"loading":      clientLoading(c),
-		"menu":         clientMenu(c),
+		"location_sdk":      c.LocationSDK,
+		"modular_locations": c.ModularLocations,
+		"localization":      clientLocalization(c.Localization),
+		"content_hash":      c.ContentHash,
+		"spatial":           clientSpatial(c.Spatial),
+		"art":               clientArt(c),
+		"loading":           clientLoading(c),
+		"menu":              clientMenu(c),
 		"config": map[string]any{
 			"title": cfg.Title, "subtitle": cfg.Subtitle, "seed": cfg.Seed, "tick_hz": cfg.TickHz,
 			"queue_capacity": cfg.QueueCapacity, "input_ack_budget_ms": cfg.InputAckBudgetMS,

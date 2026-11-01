@@ -21,9 +21,9 @@ func TestPopulationAnchorPrefixSpreadsAcrossAuthoredLevel(t *testing.T){
 func TestPopulationFreeAnchorKeepsSpreadAndCollisionChecks(t *testing.T){
  p,l:=populationFixture();index:=12;first:=p.anchor(index,"a")
  occupied:=map[string]map[Cell]string{"a":{first:"other"}}
- next,ok:=p.freeAnchor(l,"a",index,occupied,"visitor");if !ok||next==first{t.Fatal("free anchor did not avoid real occupancy")}
+ next,ok:=p.freeAnchor(l,"a",index,occupied,"visitor",nil);if !ok||next==first{t.Fatal("free anchor did not avoid real occupancy")}
  expected:=p.anchor(index+len(p.ShiftOffsets),"a");if next!=expected{t.Fatalf("collision fallback lost stable spread order: got %v want %v",next,expected)}
- for _,at:=range p.Anchors["a"]{occupied["a"][at]="other"};if _,ok=p.freeAnchor(l,"a",index,occupied,"visitor");ok{t.Fatal("spread bypassed full level admission")}
+ for _,at:=range p.Anchors["a"]{occupied["a"][at]="other"};if _,ok=p.freeAnchor(l,"a",index,occupied,"visitor",nil);ok{t.Fatal("spread bypassed full level admission")}
 }
 
 func populationFixture() (PopulationModel, LifeModel) {
@@ -66,10 +66,11 @@ func populationAdvance(t *testing.T, s *PopulationState, p PopulationModel, l Li
 	}
 	populationCheck(t, *s, p, l, seconds, tick, env)
 }
-func TestPopulation100And300MaterializeWithoutOverlap(t *testing.T) {
-	for _, count := range []int{100, 300} {
+func TestPopulation100To500MaterializeWithoutOverlap(t *testing.T) {
+	for _, count := range []int{100, 300, 500} {
 		t.Run(fmt.Sprint(count), func(t *testing.T) {
 			p, l := populationFixture()
+			if count > p.MaxActors { p.MaxActors = count }
 			s, err := p.Start(l, count, 0, 0)
 			if err != nil {
 				t.Fatal(err)
@@ -97,6 +98,112 @@ func TestPopulation100And300MaterializeWithoutOverlap(t *testing.T) {
 			}
 		})
 	}
+}
+
+func populationSplitFloorFixture() (PopulationModel,LifeModel,PopulationState){
+ p,l:=populationFixture();p.ShiftOffsets=[]int64{0};p.Stages=[]PopulationStage{{ID:"rest",Level:"a",Activity:"rest"}}
+ p.Anchors=map[string][]Cell{"a":{{5,1},{2,1}}};l.Locations["a"]=LifeLocation{Name:"Split floor",Terrain:[]string{"...#...","...#...","...#..."}}
+ s,_:=p.Start(l,1,0,0);a:=&s.Actors[0];a.Position=Cell{0,1};a.Goal=a.Position;a.Arrived=false
+ return p,l,s
+}
+
+func TestPopulationSelectsReachableFreeAnchor(t *testing.T){
+ for _,oldGoal:=range []Cell{{0,1},{5,1}}{t.Run(fmt.Sprint(oldGoal),func(t *testing.T){
+  p,l,s:=populationSplitFloorFixture();s.ActiveLevel="a";a:=&s.Actors[0];a.Materialized=true;a.Goal=oldGoal
+  for tick:=int64(1);tick<=12;tick++{populationAdvance(t,&s,p,l,tick,tick,"a",PopulationEnvironment{});if a.Arrived{break}}
+  if !a.Arrived||a.Position!=(Cell{2,1}){t.Fatalf("ignored available reachable destination in favor of disconnected anchor: %+v",a)}
+ })}
+}
+
+// Offscreen simplification changes cadence, not which sides of a wall connect.
+// Reopening a passage and save/load must allow exactly the same eventual trip.
+func TestPopulationColdLegHonorsTopologyAndResumes(t *testing.T){
+ p,l,s:=populationSplitFloorFixture();p.Anchors["a"]=[]Cell{{5,1}}
+ for tick:=int64(1);tick<=3;tick++{
+  populationAdvance(t,&s,p,l,tick*10,tick,"",PopulationEnvironment{})
+  a:=s.Actors[0];if a.Position!=(Cell{0,1})||a.Materialized||len(a.Path)>0||a.Arrived||a.Activity!="waiting_route"{t.Fatalf("coarse resident crossed disconnected floor: %+v",a)}
+ }
+ raw,err:=json.Marshal(s);if err!=nil{t.Fatal(err)};var restored PopulationState;if err=json.Unmarshal(raw,&restored);err!=nil{t.Fatal(err)}
+ room:=l.Locations["a"];room.Terrain=[]string{"...#...",".......","...#..."};l.Locations["a"]=room
+ for tick:=int64(4);tick<=7;tick++{
+  populationAdvance(t,&s,p,l,tick*10,tick,"",PopulationEnvironment{})
+  populationAdvance(t,&restored,p,l,tick*10,tick,"",PopulationEnvironment{})
+  if !reflect.DeepEqual(s.Clone(),restored.Clone()){t.Fatal("reopened topology diverged after save/load")}
+ }
+ if !s.Actors[0].Arrived||s.Actors[0].Position!=(Cell{5,1}){t.Fatalf("reopened passage did not resume coarse itinerary: %+v",s.Actors[0])}
+}
+
+func TestPopulationAcceptedPathRechecksTopology(t *testing.T){
+ p,l,s:=populationSplitFloorFixture();p.Anchors["a"]=[]Cell{{2,1}};s.ActiveLevel="a";a:=&s.Actors[0]
+ a.Materialized=true;a.Goal=Cell{2,1};a.Path=[]Cell{{1,1},{2,1}}
+ room:=l.Locations["a"];room.Terrain=[]string{"...#...",".#.#...","...#..."};l.Locations["a"]=room
+ previous:=a.Position
+ for tick:=int64(1);tick<=20;tick++{
+  populationAdvance(t,&s,p,l,tick,tick,"a",PopulationEnvironment{})
+  if !l.Walks(a.Level,a.Position)||Distance(previous,a.Position)>1{t.Fatal("cached population segment crossed closed floor")};previous=a.Position
+  if a.Arrived{break}
+ }
+ if !a.Arrived||a.Position!=(Cell{2,1}){t.Fatalf("population did not take supported alternative path: %+v",a)}
+}
+
+func TestPopulation500CommuteRemainsDeterministicAndBounded(t *testing.T){
+ p,l:=populationFixture();p.MaxActors=500
+ s,err:=p.Start(l,500,0,0);if err!=nil{t.Fatal(err)}
+ populationAdvance(t,&s,p,l,1,1,"a",PopulationEnvironment{})
+ initial:=s.Clone();raw,err:=json.Marshal(s);if err!=nil{t.Fatal(err)};var saved PopulationState;if err=json.Unmarshal(raw,&saved);err!=nil{t.Fatal(err)}
+ moved:=false
+ for tick:=int64(2);tick<=64;tick++{
+  populationAdvance(t,&s,p,l,28800+tick,tick,"a",PopulationEnvironment{})
+  populationAdvance(t,&saved,p,l,28800+tick,tick,"a",PopulationEnvironment{})
+  if !reflect.DeepEqual(s.Clone(),saved.Clone()){t.Fatalf("500 residents diverged after save/load at tick %d",tick)}
+  active:=0;for i,a:=range s.Actors{if a.Materialized{active++;if initial.Actors[i].Materialized&&a.Position!=initial.Actors[i].Position{moved=true}}else if len(a.Path)>0{t.Fatal("coarse resident allocated physical route")}}
+  if len(s.Actors)!=500||active>p.MaxActive{t.Fatal("population identity or physical budget changed")}
+ }
+ if !moved{t.Fatal("500 resident scenario did not exercise actual local movement")}
+}
+
+// This is a server simulation measurement, not a Unity frame-rate claim.
+// Every 128 ticks replay a commuting burst, including bounded admission and
+// path work; do not measure only a settled room of sleeping residents.
+func BenchmarkPopulation500Commute(b *testing.B){
+ for _,level:=range []string{"","a"}{b.Run(fmt.Sprintf("active=%t",level!=""),func(b *testing.B){
+  p,l:=populationFixture();p.MaxActors=500;s,err:=p.Start(l,500,0,0);if err!=nil{b.Fatal(err)}
+  if err=s.Advance(p,l,1,1,level,PopulationEnvironment{});err!=nil{b.Fatal(err)};initial:=s.Clone()
+  b.ReportAllocs();b.ResetTimer()
+  for i:=0;i<b.N;i++{if i%128==0{s=initial.Clone()};tick:=int64(i%128+2);if err=s.Advance(p,l,28800+tick,tick,level,PopulationEnvironment{});err!=nil{b.Fatal(err)}}
+ })}
+}
+
+func populationPlatformFixture(t *testing.T)(PopulationModel,LifeModel,PopulationState){
+ t.Helper();p,l:=populationFixture();p.ShiftOffsets=[]int64{0};p.Stages=[]PopulationStage{{ID:"home",Level:"a",Activity:"rest"},{ID:"work",Level:"b",Activity:"work",AtSecond:100}}
+ p.Anchors=map[string][]Cell{"a":{{1,1},{1,3}},"b":{{3,2},{3,3}}}
+ edge:=&l.Edges[0];edge.Exit=Cell{7,2};edge.Entry=Cell{0,2};edge.Mode="rail";edge.PeriodSeconds=30;edge.TravelSeconds=10;edge.Seats=2;edge.WaitingCells=[]Cell{{4,1},{4,3}};edge.BoardingLeadSeconds=5
+ s,err:=p.Start(l,2,0,0);if err!=nil{t.Fatal(err)};populationAdvance(t,&s,p,l,1,1,"a",PopulationEnvironment{});return p,l,s
+}
+
+func TestPopulationPlatformWaitsBoardsAtGateAndReplays(t *testing.T){
+ p,l,s:=populationPlatformFixture(t);waiting:=map[string]bool{};trips:=map[string]bool{};var saved *PopulationState
+ for tick:=int64(2);tick<=180;tick++{
+  seconds:=100+tick;populationAdvance(t,&s,p,l,seconds,tick,"a",PopulationEnvironment{})
+  if saved!=nil{populationAdvance(t,saved,p,l,seconds,tick,"a",PopulationEnvironment{});if !reflect.DeepEqual(s.Clone(),saved.Clone()){t.Fatalf("platform save/load diverged at %d",tick)}}
+  for _,a:=range s.Actors{
+   if a.Activity=="waiting_platform"{waiting[a.ID]=true;if a.Position==l.Edges[0].Exit||len(a.Path)>0||a.Trip!=nil{t.Fatal("waiting body occupied boarding threshold or moved remotely")}}
+   if a.Trip!=nil{trips[a.ID]=true;if a.Position!=l.Edge(a.Trip.Edge).Exit{t.Fatal("population boarded from a waiting pocket")}}
+  }
+  if saved==nil&&len(waiting)>0{raw,err:=json.Marshal(s);if err!=nil{t.Fatal(err)};saved=&PopulationState{};if err=json.Unmarshal(raw,saved);err!=nil{t.Fatal(err)}}
+ }
+ if len(waiting)!=2||len(trips)!=2||saved==nil{t.Fatalf("passengers did not complete visible waiting/boarding: waits=%v trips=%v",waiting,trips)}
+ for _,a:=range s.Actors{if a.Level!="b"||!a.Arrived||a.Activity!="work"{t.Fatalf("passenger did not retain identity and finish work commute: %+v",a)}}
+}
+
+func TestPopulationPlatformPocketClaimCannotCancelAcceptedSegment(t *testing.T){
+ p,l,s:=populationPlatformFixture(t);populationAdvance(t,&s,p,l,102,2,"a",PopulationEnvironment{})
+ before:=s.Clone();if len(before.Actors[0].Path)==0{t.Fatal("fixture has no accepted approach")}
+ env:=PopulationEnvironment{GoalClaims:map[string]map[Cell]bool{"a":{{4,1}:true,{4,3}:true}}}
+ populationAdvance(t,&s,p,l,103,3,"a",env)
+ for i,a:=range s.Actors{old:=before.Actors[i];if a.Position!=old.Position||a.MoveStartTick!=old.MoveStartTick||len(a.Path)==0||a.Path[0]!=old.Path[0]{t.Fatal("waiting-slot claim revoked accepted movement")}}
+ populationAdvance(t,&s,p,l,104,4,"a",env)
+ for i,a:=range s.Actors{if a.Position!=before.Actors[i].Path[0]{t.Fatal("accepted approach missed its original step cadence")}}
 }
 func TestPopulationColdSchedulesTravelWithoutClientOrPaths(t *testing.T) {
 	p, l := populationFixture()
@@ -193,8 +300,8 @@ func TestPopulationAdmissionQueueAndExternalReservations(t *testing.T) {
 			}
 		}
 	}
-	if hot != 1 || waiting != 2 {
-		t.Fatal("excess population did not queue")
+	if hot != 1 || waiting != 0 {
+		t.Fatal("excess population must continue offscreen")
 	}
 	p.MaxActive = 3
 	entry := l.Edges[2].Entry
@@ -252,6 +359,18 @@ func TestPopulationNightQueueUsesNextRealSlotAndSurvivesSave(t *testing.T){
  raw,err:=json.Marshal(s);if err!=nil{t.Fatal(err)};var saved PopulationState;if err=json.Unmarshal(raw,&saved);err!=nil{t.Fatal(err)}
  for _,state:=range []*PopulationState{&s,&saved}{populationAdvance(t,state,p,l,82799,2,"",PopulationEnvironment{});if state.Actors[0].Trip!=nil{t.Fatal("night passenger boarded at daytime frequency")};populationAdvance(t,state,p,l,82805,3,"",PopulationEnvironment{});trip:=state.Actors[0].Trip;if trip==nil||trip.Departure!=82800||trip.Arrival!=83100{t.Fatalf("coarse clock skipped population's reserved slot: %+v",state.Actors[0])}}
  if !reflect.DeepEqual(s,saved){t.Fatal("population's saved night queue diverged")}
+}
+
+func TestPopulationMissedTrainDoesNotShortenTrip(t *testing.T){
+ p,l:=populationFixture();p.ShiftOffsets=[]int64{0};p.Stages=p.Stages[:2]
+ e:=&l.Edges[0];e.Mode="rail";e.TravelSeconds=300;e.PeriodSeconds=300;e.NightPeriodSeconds=3600;e.DayStartSecond=21600;e.DayEndSecond=79200;e.Seats=4
+ l.Edges=[]LifeEdge{*e,l.Edges[3]}
+ s,err:=p.Start(l,1,28810,0);if err!=nil{t.Fatal(err)};a:=&s.Actors[0];a.Stage=1;a.Level=e.From;a.Position=e.Exit;a.Goal=e.Exit;a.Arrived=false;a.Materialized=false;a.ColdReadyAt=0;a.Visits[e.From]=1;a.WaitingDeparture=28500
+ populationAdvance(t,&s,p,l,28811,1,"",PopulationEnvironment{})
+ if a.Trip!=nil||a.WaitingDeparture!=29100{t.Fatalf("late passenger boarded a stale slot: %+v",a)}
+ raw,err:=json.Marshal(s);if err!=nil{t.Fatal(err)};var saved PopulationState;if err=json.Unmarshal(raw,&saved);err!=nil{t.Fatal(err)}
+ for _,state:=range []*PopulationState{&s,&saved}{populationAdvance(t,state,p,l,29105,2,"",PopulationEnvironment{});trip:=state.Actors[0].Trip;if trip==nil||trip.Departure!=29100||trip.Arrival!=29400{t.Fatalf("future departure lost full travel time: %+v",state.Actors[0])}}
+ if !reflect.DeepEqual(s.Clone(),saved.Clone()){t.Fatal("saved missed departure diverged")}
 }
 func TestPopulationVisibleWalkingUsesNeighborSteps(t *testing.T) {
 	p, l := populationFixture()

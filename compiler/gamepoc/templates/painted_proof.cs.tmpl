@@ -6,10 +6,14 @@ using System.Collections.Generic;
 using UnityEngine;
 namespace AngelsDemons.Poc {
  public sealed partial class AngelsDemonsPoc {
+  bool verifyB7Floor,b7HasFrontier;
+  int b7FrontierX,b7FrontierY,b7LastX,b7LastY,b7Replans;
+  long b7ProgressTick,b7RetryTick;
+  readonly HashSet<int> b7AttemptedFrontiers=new HashSet<int>();
   bool verifyPainted,paintedProofCapturing,paintedProofCaptureDone,paintedBlockedRejected,paintedSaveRestored,paintedInventoryRestored,paintedCameraPanned;
   string paintedProofDirectory,paintedAuditError,paintedSavedInventory;
   PocPaintedScene paintedProofScene;
-  int paintedMoves,paintedAuditFrames,paintedVisibleNPCSamples,paintedOffscreenNPCSamples,paintedHiddenNPCSamples,paintedAbsentNPCSamples,paintedLogPhase=-1;
+  int paintedWaypointIndex=1,paintedMoves,paintedAuditFrames,paintedVisibleNPCSamples,paintedOffscreenNPCSamples,paintedHiddenNPCSamples,paintedAbsentNPCSamples,paintedLogPhase=-1;
   long paintedBlockedTick;
   double paintedDiagnosticAt=-2;
   int paintedExpectedX=-1,paintedExpectedY=-1;
@@ -19,8 +23,8 @@ namespace AngelsDemons.Poc {
   readonly HashSet<string> paintedRealIDs=new HashSet<string>();
   readonly HashSet<string> paintedPreviouslySeen=new HashSet<string>();
   readonly List<PaintedCaptureRecord> paintedCaptures=new List<PaintedCaptureRecord>();
-  [Serializable] sealed class PaintedCaptureRecord {public string file,page,level,epoch;public long tick;public int hero_x,hero_y,width,height;public float camera_x,camera_y,canvas_scale;}
-  [Serializable] sealed class PaintedProofReport {public string kind,level,pointer_path,profiling_scope;public int moves,visibility_audit_frames,visible_npc_samples,offscreen_visible_npc_samples,hidden_current_npc_samples,previously_seen_absent_samples;public bool blocked_rejected,save_restored,inventory_restored,camera_panned,animation_verified;public PaintedCaptureRecord[] captures;public PaintedTimingReport moving_frame_interval,fog_update_main_thread,initial_fog_update_main_thread,cold_scene_prepare_main_thread;}
+  [Serializable] sealed class PaintedCaptureRecord {public string file,page,level,epoch;public long tick;public int hero_x,hero_y,width,height;public float camera_x,camera_y,canvas_scale;public string[] hero_occluding_surfaces;}
+  [Serializable] sealed class PaintedProofReport {public PaintedSurfaceProof surface_replacements;public string kind,level,pointer_path,profiling_scope;public int observed_route_requests,moves,visibility_audit_frames,visible_npc_samples,offscreen_visible_npc_samples,hidden_current_npc_samples,previously_seen_absent_samples;public bool blocked_rejected,save_restored,inventory_restored,camera_panned,animation_verified;public PaintedCaptureRecord[] captures;public PaintedTimingReport moving_frame_interval,fog_update_main_thread,initial_fog_update_main_thread,cold_scene_prepare_main_thread;}
   sealed class PaintedTimingSamples {
    public readonly List<float> values=new List<float>(32768);public int count;public float max;
    public void Record(float value){if(float.IsNaN(value)||float.IsInfinity(value)||value<0)return;count++;if(value>max)max=value;if(values.Count<values.Capacity)values.Add(value);}
@@ -34,12 +38,12 @@ namespace AngelsDemons.Poc {
   void RecordPaintedFogTiming(float elapsed,bool initial){if(!verifyPainted||paintedFogUpdates==null)return;paintedFogUpdates.Record(elapsed);if(initial)paintedInitialFogUpdates.Record(elapsed);}
   void RecordPaintedColdPrepareTiming(float elapsed){if(verifyPainted&&paintedColdPrepares!=null)paintedColdPrepares.Record(elapsed);}
   void InitPaintedProof(){
-   string[] args=Environment.GetCommandLineArgs();int i=Array.IndexOf(args,"--poc-verify-painted");if(i<0)return;verifyPainted=true;
+   string[] args=Environment.GetCommandLineArgs();int i=Array.IndexOf(args,"--poc-verify-painted");if(i<0){i=Array.IndexOf(args,"--poc-verify-b7-floor");verifyB7Floor=i>=0;}if(i<0)return;verifyPainted=true;
    if(i+1>=args.Length||!Path.IsPathRooted(args[i+1])){Debug.LogError("--poc-verify-painted requires an absolute report directory");closing=true;Application.Quit(2);return;}
    paintedProofDirectory=args[i+1];
    paintedMovingFrames=new PaintedTimingSamples();paintedFogUpdates=new PaintedTimingSamples();paintedInitialFogUpdates=new PaintedTimingSamples();paintedColdPrepares=new PaintedTimingSamples();
   }
-  string PaintedProofReportJSON(){return JsonUtility.ToJson(new PaintedProofReport{kind="authoritative_go_painted_gameplay",level=paintedProofScene==null?"":paintedProofScene.level_id,pointer_path="shared screen pointer, panned camera inverse and HUD/viewport guards; no OS mouse injection",moves=paintedMoves,visibility_audit_frames=paintedAuditFrames,visible_npc_samples=paintedVisibleNPCSamples,offscreen_visible_npc_samples=paintedOffscreenNPCSamples,hidden_current_npc_samples=paintedHiddenNPCSamples,previously_seen_absent_samples=paintedAbsentNPCSamples,blocked_rejected=paintedBlockedRejected,save_restored=paintedSaveRestored,inventory_restored=paintedInventoryRestored,camera_panned=paintedCameraPanned,animation_verified=false,profiling_scope="Repaint frame intervals only while authoritative path is nonempty and unpaused; fog timings include main-thread CPU/upload scheduling, not GPU execution; cold preparation is separate; no latency or minimum-FPS guarantee",moving_frame_interval=PaintedTimingSummary(paintedMovingFrames),fog_update_main_thread=PaintedTimingSummary(paintedFogUpdates),initial_fog_update_main_thread=PaintedTimingSummary(paintedInitialFogUpdates),cold_scene_prepare_main_thread=PaintedTimingSummary(paintedColdPrepares),captures=paintedCaptures.ToArray()});}
+  string PaintedProofReportJSON(){return JsonUtility.ToJson(new PaintedProofReport{surface_replacements=paintedSurfaceProof,kind="authoritative_go_painted_gameplay",level=paintedProofScene==null?"":paintedProofScene.level_id,pointer_path="shared screen pointer, panned camera inverse and HUD/viewport guards; no OS mouse injection",observed_route_requests=b7Replans,moves=paintedMoves,visibility_audit_frames=paintedAuditFrames,visible_npc_samples=paintedVisibleNPCSamples,offscreen_visible_npc_samples=paintedOffscreenNPCSamples,hidden_current_npc_samples=paintedHiddenNPCSamples,previously_seen_absent_samples=paintedAbsentNPCSamples,blocked_rejected=paintedBlockedRejected,save_restored=paintedSaveRestored,inventory_restored=paintedInventoryRestored,camera_panned=paintedCameraPanned,animation_verified=false,profiling_scope="Repaint frame intervals only while authoritative path is nonempty and unpaused; fog timings include main-thread CPU/upload scheduling, not GPU execution; cold preparation is separate; no latency or minimum-FPS guarantee",moving_frame_interval=PaintedTimingSummary(paintedMovingFrames),fog_update_main_thread=PaintedTimingSummary(paintedFogUpdates),initial_fog_update_main_thread=PaintedTimingSummary(paintedInitialFogUpdates),cold_scene_prepare_main_thread=PaintedTimingSummary(paintedColdPrepares),captures=paintedCaptures.ToArray()});}
   string PaintedInventoryFingerprint(){return state.Inventory==null?null:Convert.ToBase64String(Google.Protobuf.MessageExtensions.ToByteArray(state.Inventory));}
   void PaintedProofDiagnostics(double now){
    if(!verifyPainted||now-paintedDiagnosticAt<2)return;paintedDiagnosticAt=now;
@@ -57,6 +61,7 @@ namespace AngelsDemons.Poc {
    Rect visibleCanvas=PaintedVisibleCanvas(viewport,fit,fit.width/paintedProofScene.width);
    foreach(var draw in paintedDraws)if(draw.kind==1&&!paintedDrawnIDs.Add(draw.id))paintedAuditError="duplicate rendered actor "+draw.id;
    foreach(var actor in SceneActors()){
+    if(actor.Y<0||actor.Y>=paintedProofScene.navigation.Length||actor.X<0||actor.X>=paintedProofScene.navigation[actor.Y].Length||paintedProofScene.navigation[actor.Y][actor.X]!='.')paintedAuditError="NPC occupies non-floor cell "+actor.Id+" at "+actor.X+","+actor.Y;
     if(!paintedOccupiedCells.Add(actor.X+","+actor.Y))paintedAuditError="authoritative actor cell overlap "+actor.Id;
     paintedRealIDs.Add(actor.Id);Vector2 p=SampleNPC(actor);
     bool visible=ViewSees(actor.X,actor.Y)&&ViewSees(Mathf.FloorToInt(p.x+.5f),Mathf.FloorToInt(p.y+.5f));
@@ -82,11 +87,96 @@ namespace AngelsDemons.Poc {
    paintedExpectedX=Mathf.RoundToInt(p.x);paintedExpectedY=Mathf.RoundToInt(p.y);
    if(!SendPaintedScreenPointer(paintedProofScene,screen,viewport,fit,scale)){FinishProof(false,"painted screen pointer target unavailable, unknown, offscreen or under HUD");return false;}paintedExpectedSequence=pendingMove;return true;
   }
+  // Input automation keeps the distant authored goal. Only currently observed
+  // bodies and their next visible step affect planning; Life remains responsible
+  // for accepting movement and negotiating any new contacts after the click.
+  static bool B7ObservedSegment(string[] terrain,string[] cells,int px,int py,int gx,int gy,out int x,out int y){
+   x=y=-1;int firstX,firstY;
+   if(!CopperRouteObservedStep(terrain,cells,px,py,gx,gy,out firstX,out firstY)||firstX==px&&firstY==py)return false;
+   int dx=firstX-px,dy=firstY-py;x=firstX;y=firstY;
+   for(int n=1;n<8;n++){int nx,ny;if(x==gx&&y==gy||!CopperRouteObservedStep(terrain,cells,x,y,gx,gy,out nx,out ny)||nx-x!=dx||ny-y!=dy)break;x=nx;y=ny;}
+   return true;
+  }
+  bool B7SendObserved(PocPaintedPoint goal){
+   if(state.Tick<b7RetryTick)return false;
+   var view=ObserverView();if(view==null){FinishProof(false,"B7 has no observed terrain");return false;}
+   var original=new List<string>(view.Terrain).ToArray();var terrain=(string[])original.Clone();var cells=new List<string>(view.Cells).ToArray();int x,y;
+   var occupied=new HashSet<int>();foreach(var actor in SceneActors()){
+    if(!ViewSees(actor.X,actor.Y))continue;occupied.Add(actor.Y*state.Width+actor.X);
+    foreach(var step in actor.Path){if(step.X==actor.X&&step.Y==actor.Y)continue;if(ViewSees(step.X,step.Y))occupied.Add(step.Y*state.Width+step.X);break;}
+   }
+   foreach(int index in occupied){int ox=index%state.Width,oy=index/state.Width;if(ox==state.PlayerX&&oy==state.PlayerY||oy<0||oy>=terrain.Length||ox<0||ox>=terrain[oy].Length)continue;var row=terrain[oy].ToCharArray();row[ox]='#';terrain[oy]=new string(row);}
+   int gx=Mathf.RoundToInt(goal.x),gy=Mathf.RoundToInt(goal.y);
+   if(!B7ObservedSegment(terrain,cells,state.PlayerX,state.PlayerY,gx,gy,out x,out y)){
+    // A temporary crowd is not evidence of an unknown corridor. Wait/replan
+    // without forcing a nearest occupied cell to become the movement goal.
+    int unusedX,unusedY;if(CopperRouteObservedStep(original,cells,state.PlayerX,state.PlayerY,gx,gy,out unusedX,out unusedY)){b7RetryTick=state.Tick+5;return false;}
+    if(b7HasFrontier&&state.PlayerX==b7FrontierX&&state.PlayerY==b7FrontierY){b7AttemptedFrontiers.Add(b7FrontierY*state.Width+b7FrontierX);b7HasFrontier=false;}
+    if(b7HasFrontier&&!B7ObservedSegment(terrain,cells,state.PlayerX,state.PlayerY,b7FrontierX,b7FrontierY,out x,out y))b7HasFrontier=false;
+    if(!b7HasFrontier){
+     if(!CopperRouteExploreCell(terrain,cells,state.PlayerX,state.PlayerY,b7AttemptedFrontiers,true,out b7FrontierX,out b7FrontierY,gx,gy)){b7RetryTick=state.Tick+5;return false;}
+     b7HasFrontier=true;
+    }
+    if(!B7ObservedSegment(terrain,cells,state.PlayerX,state.PlayerY,b7FrontierX,b7FrontierY,out x,out y)){b7RetryTick=state.Tick+5;return false;}
+   }
+   // A straight observed segment cannot shortcut across undiscovered geometry.
+   // Trim only for the actual camera/HUD, using the same screen-pointer guard.
+   Rect viewport=PaintedViewport(),fit=PaintedCameraFit(paintedProofScene,viewport,PaintedPoint(paintedProofScene,shownPosition));float scale=fit.width/paintedProofScene.width;
+   int dx=Math.Sign(x-state.PlayerX),dy=Math.Sign(y-state.PlayerY);
+   while(x!=state.PlayerX||y!=state.PlayerY){Vector2 screen=PaintedCanvasToScreen(PaintedPoint(paintedProofScene,new Vector2(x,y)),fit,scale);if(viewport.Contains(screen)&&fit.Contains(screen)&&!HudBlocksWorldInput(screen))break;x-=dx;y-=dy;}
+   if(x==state.PlayerX&&y==state.PlayerY){b7RetryTick=state.Tick+5;return false;}
+   bool sent=PaintedSend(new PocPaintedPoint{x=x,y=y});if(sent){b7LastX=state.PlayerX;b7LastY=state.PlayerY;b7ProgressTick=state.Tick;b7RetryTick=state.Tick+5;b7Replans++;}return sent;
+  }
+  bool B7ContinueObserved(PocPaintedPoint goal){
+   if(!verifyB7Floor||PaintedAt(goal))return false;
+   if(state.PlayerX!=b7LastX||state.PlayerY!=b7LastY){b7LastX=state.PlayerX;b7LastY=state.PlayerY;b7ProgressTick=state.Tick;}
+   if(ackMS<0||!moveAccepted)return false;
+   bool reachedSegment=state.Path.Count==0&&state.PlayerX==paintedExpectedX&&state.PlayerY==paintedExpectedY;
+   // A newly occupied segment may leave the server waiting with no path. Keep
+   // the real distant destination and ask for another ordinary observed route.
+   if(reachedSegment||state.Tick-b7ProgressTick>=20){B7SendObserved(goal);return true;}
+   return false;
+  }
+  string[] PaintedHeroOccludingSurfaces(){
+   var result=new List<string>();var cache=PreparePaintedScene(paintedProofScene);PaintedDraw hero;
+   if(TryPaintedActorDraw(paintedProofScene,cache,"char.hero",shownPosition,out hero))foreach(var cut in cache.cutouts){
+    if(!cut.rect.Overlaps(hero.rect)||!PaintedOccluderInFrontOfFoot(cut.polygon,cut.depthPolygon,hero.footX,hero.depth))continue;
+    foreach(var mask in cut.opaqueRects)if(mask.Overlaps(hero.rect)){result.Add(cut.id);break;}
+   }
+   return result.ToArray();
+  }
+  [Serializable] sealed class PaintedSurfaceProof {public int replacements,changed_source_pixels,outside_changed_pixels,foreground_changed_pixels,gpu_difference_pixels;public bool source_unchanged,restored;}
+  PaintedSurfaceProof paintedSurfaceProof;
+  bool PreparePaintedSurfaceProof(out PaintedCache accepted){
+   accepted=null;try{
+    accepted=PreparePaintedScene(paintedProofScene);var original=ArtSceneTexture(paintedProofScene.background);var before=ArtScenePixels(original).pixels;var after=ArtScenePixels(accepted.background).pixels;
+    var proof=new PaintedSurfaceProof{replacements=paintedProofScene.surface_replacements.Length,source_unchanged=original!=accepted.background};int w=original.width,h=original.height;
+    for(int y=0;y<h;y++)for(int x=0;x<w;x++){int at=(h-y-1)*w+x;var a=before[at];var b=after[at];if(a.r==b.r&&a.g==b.g&&a.b==b.b&&a.a==b.a)continue;proof.changed_source_pixels++;bool inside=false;foreach(var replacement in paintedProofScene.surface_replacements){float u,v;if(PaintedSurfaceUV(replacement.quad,(x+.5f)*paintedProofScene.width/w,(y+.5f)*paintedProofScene.height/h,out u,out v)){inside=true;break;}}if(!inside)proof.outside_changed_pixels++;}
+    foreach(var replacement in paintedProofScene.surface_replacements)foreach(var cut in accepted.cutouts)if(cut.id==replacement.occluder_id){int cw=cut.texture.width,ch=cut.texture.height,left=Mathf.RoundToInt(cut.rect.x*w/paintedProofScene.width),top=Mathf.RoundToInt(cut.rect.y*h/paintedProofScene.height);for(int y=0;y<ch;y++)for(int x=0;x<cw;x++){var p=cut.pixels[(ch-y-1)*cw+x];if(p.a==0)continue;int index=(h-top-y-1)*w+left+x;var basePixel=before[index];var composed=after[index];if(p.r!=composed.r||p.g!=composed.g||p.b!=composed.b)throw new InvalidOperationException("foreground replay differs from composed surface");if(p.r!=basePixel.r||p.g!=basePixel.g||p.b!=basePixel.b)proof.foreground_changed_pixels++;}}
+    if(proof.changed_source_pixels<100||proof.outside_changed_pixels!=0||proof.foreground_changed_pixels<100||!proof.source_unchanged)throw new InvalidOperationException("surface replacement did not preserve the source/outside/foreground contract");
+    Directory.CreateDirectory(paintedProofDirectory);File.WriteAllBytes(Path.Combine(paintedProofDirectory,"market-composed.png"),accepted.background.EncodeToPNG());paintedSurfaceProof=proof;return true;
+   }catch(Exception error){FinishProof(false,"surface replacement: "+error.Message);return false;}
+  }
+  IEnumerator VerifyPaintedSurfaceGPU(){
+   PaintedCache accepted;if(!PreparePaintedSurfaceProof(out accepted))yield break;
+   var scene=paintedProofScene;var replacements=scene.surface_replacements;Texture2D on=null,off=null;
+   try{
+    on=ScreenCapture.CaptureScreenshotAsTexture();scene.surface_replacements=null;paintedCaches.Remove(scene.level_id);PreparePaintedScene(scene);
+    yield return new WaitForEndOfFrame();yield return new WaitForEndOfFrame();
+    off=ScreenCapture.CaptureScreenshotAsTexture();var a=on.GetPixels32();var b=off.GetPixels32();Rect fit=PaintedCameraFit(scene,PaintedViewport(),PaintedPoint(scene,shownPosition));float scale=fit.width/scene.width;
+    float screenScaleX=(float)on.width/1280,screenScaleY=(float)on.height/800;
+    for(int y=0;y<on.height;y++)for(int x=0;x<on.width;x++){float canvasX=(x/screenScaleX-fit.x)/scale,canvasY=((on.height-y)/screenScaleY-fit.y)/scale;bool inside=false;foreach(var replacement in replacements){float u,v;if(PaintedSurfaceUV(replacement.quad,canvasX,canvasY,out u,out v)){inside=true;break;}}if(!inside)continue;int i=y*on.width+x;if(Math.Abs(a[i].r-b[i].r)+Math.Abs(a[i].g-b[i].g)+Math.Abs(a[i].b-b[i].b)>12)paintedSurfaceProof.gpu_difference_pixels++;}
+    File.WriteAllBytes(Path.Combine(paintedProofDirectory,"surface-enabled.png"),on.EncodeToPNG());File.WriteAllBytes(Path.Combine(paintedProofDirectory,"surface-original.png"),off.EncodeToPNG());
+   }finally{scene.surface_replacements=replacements;paintedCaches[scene.level_id]=accepted;paintedSurfaceProof.restored=true;if(on!=null)Destroy(on);if(off!=null)Destroy(off);}
+   yield return new WaitForEndOfFrame();yield return new WaitForEndOfFrame();
+   if(paintedSurfaceProof.gpu_difference_pixels<20)FinishProof(false,"surface replacement has no actual GPU contribution");
+  }
   void PaintedBeginCapture(string file){paintedProofCaptureDone=false;paintedProofCapturing=true;StartCoroutine(PaintedCapture(file));}
   IEnumerator PaintedCapture(string file){
    double deadline=clock.Elapsed.TotalSeconds+20;string epoch=state.Epoch,capturePage=page;
    while(loadingActive||!UnityEngine.Rendering.SplashScreen.isFinished){if(clock.Elapsed.TotalSeconds>deadline){paintedProofCapturing=false;FinishProof(false,"painted screenshot splash timeout");yield break;}yield return null;}
    yield return new WaitForEndOfFrame();yield return new WaitForEndOfFrame();
+   if(paintedSurfaceProof==null&&paintedProofScene.surface_replacements!=null&&paintedProofScene.surface_replacements.Length>0){yield return StartCoroutine(VerifyPaintedSurfaceGPU());if(paintedSurfaceProof==null||paintedSurfaceProof.gpu_difference_pixels<20){paintedProofCapturing=false;yield break;}}
    Texture2D capture=null;
    try{
     if(state.Epoch!=epoch||page!=capturePage||!state.Paused||state.Path.Count!=0||state.Life.Transit||CurrentPaintedScene()!=paintedProofScene)throw new InvalidOperationException("painted capture lost settled state");
@@ -96,7 +186,7 @@ namespace AngelsDemons.Poc {
     Rect camera=PaintedCameraFit(paintedProofScene,PaintedViewport(),PaintedPoint(paintedProofScene,shownPosition));
     if(paintedCaptures.Count>0&&(Mathf.Abs(camera.x-paintedCaptures[0].camera_x)>1||Mathf.Abs(camera.y-paintedCaptures[0].camera_y)>1))paintedCameraPanned=true;
     if(file=="painted-restored.png"&&paintedCaptures.Count>0&&(Mathf.Abs(camera.x-paintedCaptures[0].camera_x)>.05f||Mathf.Abs(camera.y-paintedCaptures[0].camera_y)>.05f))throw new InvalidOperationException("loaded hero did not restore camera framing");
-    paintedCaptures.Add(new PaintedCaptureRecord{file=file,page=capturePage,level=state.Life.LevelId,epoch=state.Epoch,tick=state.Tick,hero_x=state.PlayerX,hero_y=state.PlayerY,width=capture.width,height=capture.height,camera_x=camera.x,camera_y=camera.y,canvas_scale=camera.width/paintedProofScene.width});paintedProofCaptureDone=true;
+    paintedCaptures.Add(new PaintedCaptureRecord{file=file,page=capturePage,level=state.Life.LevelId,epoch=state.Epoch,tick=state.Tick,hero_x=state.PlayerX,hero_y=state.PlayerY,width=capture.width,height=capture.height,camera_x=camera.x,camera_y=camera.y,canvas_scale=camera.width/paintedProofScene.width,hero_occluding_surfaces=PaintedHeroOccludingSurfaces()});paintedProofCaptureDone=true;
    }catch(Exception error){FinishProof(false,"painted screenshot: "+error.Message);}
    finally{if(capture!=null)Destroy(capture);paintedProofCapturing=false;}
   }
@@ -108,17 +198,18 @@ namespace AngelsDemons.Poc {
    if(paintedProofCapturing)return;
    switch(proofPhase){
     case 0:
-     if(resource.art.painted!=null)foreach(var scene in resource.art.painted)if(scene.proof_waypoints!=null&&scene.proof_waypoints.Length>=2&&scene.proof_blocked!=null){paintedProofScene=scene;break;}
+     if(resource.art.painted!=null)foreach(var scene in resource.art.painted)if((!verifyB7Floor||scene.level_id=="level.poc_work")&&scene.proof_waypoints!=null&&scene.proof_waypoints.Length>=2&&scene.proof_blocked!=null){paintedProofScene=scene;break;}
      if(paintedProofScene==null){FinishProof(false,"no authored painted proof waypoints/blocked target");return;}
-     fps=40;ApplyDisplay();hudDebugOpen=false;observedActor="char.hero";NewGame(777,"life");proofPhase=110;break;
-    case 110:if(state.Seed==777&&state.Life!=null&&state.Life.Enabled){LifeCommand("goto",paintedProofScene.level_id);proofPhase=111;}break;
+     fps=40;ApplyDisplay();hudDebugOpen=false;observedActor="char.hero";if(verifyB7Floor)NewGame(777,"life100");else NewGame(777,"life");proofPhase=110;break;
+    case 110:if(state.Seed==777&&state.Life!=null&&state.Life.Enabled){if(verifyB7Floor)LifeCommand("rate","",30);LifeCommand("goto",paintedProofScene.level_id);proofPhase=111;}break;
     case 111:
      // The immediate goto acknowledgement is already manual with an empty path.
      // Only Go's arrival state proves that its scheduled route has finished.
      if(state.Life.LevelId!=paintedProofScene.level_id||state.Life.Transit||state.Life.Automatic||state.Path.Count!=0||state.Life.Activity!="Прибыл")break;
      if(PaintedAt(paintedProofScene.proof_waypoints[0])){FinishProof(false,"first waypoint must require actual movement from arrival");return;}
-     if(!PaintedSend(paintedProofScene.proof_waypoints[0]))return;proofPhase=112;break;
+     if(!(verifyB7Floor?B7SendObserved(paintedProofScene.proof_waypoints[0]):PaintedSend(paintedProofScene.proof_waypoints[0])))return;proofPhase=112;break;
     case 112:
+     if(B7ContinueObserved(paintedProofScene.proof_waypoints[0]))break;
      if(ackMS>=0&&!moveAccepted){FinishProof(false,"first ordinary move rejected: "+moveStatus);return;}
      if(ackMS>=0&&moveAccepted&&PaintedAt(paintedProofScene.proof_waypoints[0])){paintedMoves++;paintedBlockedTick=state.Tick;if(!PaintedSend(paintedProofScene.proof_blocked))return;proofPhase=113;}break;
     case 113:
@@ -129,25 +220,31 @@ namespace AngelsDemons.Poc {
     case 114:if(state.Paused){savedTick=state.Tick;savedEpoch=state.Epoch;paintedSavedInventory=PaintedInventoryFingerprint();if(paintedSavedInventory==null){FinishProof(false,"painted save has no inventory");return;}saveConfirmed=false;SaveOrLoad("slot3",true);proofPhase=115;}break;
     case 115:if(saveConfirmed){PaintedBeginCapture("painted-saved.png");proofPhase=116;}break;
     case 116:if(paintedProofCaptureDone){Options(false,1);proofPhase=117;}break;
-    case 117:if(!state.Paused){if(!PaintedSend(paintedProofScene.proof_waypoints[1]))return;proofPhase=118;}break;
+    case 117:if(!state.Paused){if(!(verifyB7Floor?B7SendObserved(paintedProofScene.proof_waypoints[paintedWaypointIndex]):PaintedSend(paintedProofScene.proof_waypoints[paintedWaypointIndex])))return;proofPhase=118;}break;
     case 118:
+     if(B7ContinueObserved(paintedProofScene.proof_waypoints[paintedWaypointIndex]))break;
      if(ackMS>=0&&!moveAccepted){FinishProof(false,"second ordinary move rejected: "+moveStatus);return;}
-     if(ackMS>=0&&moveAccepted&&PaintedAt(paintedProofScene.proof_waypoints[1])){paintedMoves++;Options(true,1);proofPhase=119;}break;
-    case 119:if(state.Paused){PaintedBeginCapture("painted-moved.png");proofPhase=120;}break;
-    case 120:if(paintedProofCaptureDone){SaveOrLoad("slot3",false);proofAt=now;proofPhase=121;}break;
+     if(ackMS>=0&&moveAccepted&&PaintedAt(paintedProofScene.proof_waypoints[paintedWaypointIndex])){paintedMoves++;Options(true,1);proofPhase=119;}break;
+    case 119:if(state.Paused){PaintedBeginCapture(paintedWaypointIndex==1?"painted-moved.png":"painted-waypoint-"+paintedWaypointIndex+".png");proofPhase=120;}break;
+    case 120:if(paintedProofCaptureDone){if(paintedWaypointIndex+1<paintedProofScene.proof_waypoints.Length){paintedWaypointIndex++;Options(false,1);proofPhase=117;break;}SaveOrLoad("slot3",false);proofAt=now;proofPhase=121;}break;
     case 121:
      if(state.Epoch==savedEpoch||!state.Paused||state.Tick!=savedTick||!PaintedAt(paintedProofScene.proof_waypoints[0])){if(now-proofAt<10)break;FinishProof(false,"painted save/load did not restore new epoch/tick/pose/pause");return;}
      if(PaintedInventoryFingerprint()!=paintedSavedInventory){FinishProof(false,"painted save/load changed visible item identity/storage/money");return;}
      paintedInventoryRestored=true;paintedSaveRestored=true;PaintedBeginCapture("painted-restored.png");proofPhase=122;break;
     case 122:if(paintedProofCaptureDone){
-     if(paintedMoves!=2||!paintedBlockedRejected||!paintedSaveRestored||!paintedInventoryRestored||paintedAuditFrames==0||paintedVisibleNPCSamples==0||paintedCaptures.Count!=3){FinishProof(false,"painted coverage incomplete");return;}
+     if(paintedMoves!=paintedProofScene.proof_waypoints.Length||!paintedBlockedRejected||!paintedSaveRestored||!paintedInventoryRestored||paintedAuditFrames==0||paintedVisibleNPCSamples==0||paintedCaptures.Count!=paintedProofScene.proof_waypoints.Length+1){FinishProof(false,"painted coverage incomplete");return;}
      if(paintedProofScene.view_width>0&&(paintedProofScene.width>paintedProofScene.view_width||(float)paintedProofScene.height*PaintedViewport().width/paintedProofScene.view_width>PaintedViewport().height)&&!paintedCameraPanned){FinishProof(false,"painted follow camera was not exercised by authored waypoints");return;}
+     if(verifyB7Floor){
+      bool behindDuct=false,clearOfDuct=false;
+      foreach(var capture in paintedCaptures){bool duct=false;if(capture.hero_occluding_surfaces!=null)foreach(string surface in capture.hero_occluding_surfaces)if(surface.StartsWith("duct_",StringComparison.Ordinal))duct=true;if(duct)behindDuct=true;else clearOfDuct=true;}
+      if(!behindDuct||!clearOfDuct){FinishProof(false,"B7 images did not exercise both behind-duct clipping and unobscured floor");return;}
+     }
      if(!state.Active){FinishProof(false,"painted pause menu requires an active saved game");return;}
      page="menu";PaintedBeginCapture("painted-menu.png");proofPhase=123;
     }break;
     case 123:if(paintedProofCaptureDone){
-     if(paintedCaptures.Count!=4||paintedCaptures[3].file!="painted-menu.png"||paintedCaptures[3].page!="menu"){FinishProof(false,"painted menu coverage incomplete");return;}
-     FinishProof(true,"painted real Life: shared affine pointer; two Go moves; blocked rejection; FOV queue audited against real actors; save/move/load; active pause menu; four post-splash Player images; static poses, animation not verified");return;
+     if(paintedCaptures.Count!=paintedProofScene.proof_waypoints.Length+2||paintedCaptures[paintedCaptures.Count-1].file!="painted-menu.png"||paintedCaptures[paintedCaptures.Count-1].page!="menu"){FinishProof(false,"painted menu coverage incomplete");return;}
+     FinishProof(true,"painted real Life: shared affine pointer; all authored Go waypoints; blocked rejection; FOV queue audited against real actors; save/move/load; active pause menu; post-splash Player images for all waypoints; static poses, animation not verified");return;
     }break;
    }
   }

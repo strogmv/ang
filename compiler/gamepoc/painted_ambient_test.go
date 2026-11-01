@@ -205,7 +205,7 @@ func TestPaintedAmbientProjectionIsPresentationOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(shader), "train.a*=tex2D(_ObservationTex") || !strings.Contains(string(shader), "alpha*clip.a") {
+	if !strings.Contains(string(shader), "train.a*=SAMPLE_TEXTURE2D(_ObservationTex,sampler_ObservationTex") || !strings.Contains(string(shader), "alpha*clip.a") {
 		t.Fatal("live train needs per-segment current observation and authored strip clipping")
 	}
 }

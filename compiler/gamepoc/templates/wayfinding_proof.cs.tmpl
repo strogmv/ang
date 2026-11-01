@@ -11,9 +11,10 @@ namespace AngelsDemons.Poc {
   bool verifyWayfinding,wayfindingProofCapturing,wayfindingProofCaptureDone,wayfindingProofHideSelected,wayfindingProofHideAll,wayfindingProofMarketRequested;
   string wayfindingProofDirectory,wayfindingProofID,wayfindingProofLevel;int wayfindingProofX,wayfindingProofY,wayfindingProofTargetX,wayfindingProofTargetY,wayfindingProofPreviousX,wayfindingProofPreviousY;
   long wayfindingProofStartTick,wayfindingProofPreviousTick;double wayfindingProofPhaseAt,wayfindingProofLogAt=-2;
-  [Serializable] sealed class WayfindingNativeReport {public string destination_id,level,scope="Ordinary painted market; server-filtered known floor guides, shared destination-marker selection, stationary real ticks, visible selected floor pixels, explicit Go and physical local arrival. No service-use, fare, NPC-capacity or FPS claim.";public bool pointer_selection,selection_stationary,manual_preserved,explicit_go,physical_arrival;public int authored_guides,authored_segment_checks,route_cells,guide_segments,selected_segments,overlay_pixels,selected_world_difference_pixels,projected_route_hits,continuous_diagonal_runs,foreground_samples,foreground_changed_samples,backbones,branch_backbones,shared_color_backbones,primary_source_cells,primary_source_turns,primary_rendered_bends,checked_bends,removable_bends,parallel_tangent_checks;public float longest_run_cells;public long stationary_ticks,go_tick,arrival_tick;}
+  [Serializable] sealed class WayfindingNativeReport {public string selected_guide_id;public int selected_paint_coincidence_checks;public bool progress_pause_stable,selected_mesh_reused;public float progress_origin,preview_progress,moving_progress,arrival_progress;public string destination_id,level,scope="Ordinary painted market; server-filtered known floor guides, shared destination-marker selection, stationary real ticks, visible selected floor pixels, explicit Go and physical local arrival. No service-use, fare, NPC-capacity or FPS claim.";public bool pointer_selection,selection_stationary,manual_preserved,explicit_go,physical_arrival;public int authored_guides,authored_segment_checks,route_cells,guide_segments,selected_segments,overlay_pixels,selected_world_difference_pixels,projected_route_hits,continuous_diagonal_runs,foreground_samples,foreground_changed_samples,backbones,branch_backbones,shared_color_backbones,primary_source_cells,primary_source_turns,primary_rendered_bends,checked_bends,removable_bends,parallel_tangent_checks;public float longest_run_cells;public long stationary_ticks,go_tick,arrival_tick;}
   readonly List<WayfindingStroke> wayfindingProofSelectedStrokes=new List<WayfindingStroke>();
   readonly WayfindingNativeReport wayfindingProofReport=new WayfindingNativeReport();
+  bool wayfindingProofProgressCaptured,wayfindingProofProgressDone;Mesh wayfindingProofProgressMesh;
   string wayfindingProofOriginalLocale;
   void BeginWayfindingProofLocale(){wayfindingProofOriginalLocale=CurrentLocale();localePreference=ValidClientLocale("ru");SendLocalePreference();}
   void RestoreWayfindingProofLocale(){if(wayfindingProofOriginalLocale==null)return;localePreference=wayfindingProofOriginalLocale;wayfindingProofOriginalLocale=null;}
@@ -33,7 +34,7 @@ namespace AngelsDemons.Poc {
     case 3:
      if(!state.Paused||!WayfindingProofStill()||!SplashScreen.isFinished)break;var view=WayfindingView();if(view==null||view.Destinations.Count==0)break;
      PocWayfindingDestination choice=null;int nearest=int.MaxValue;Vector2 pointer=Vector2.zero;
-     foreach(var d in view.Destinations){int distance=Math.Abs(d.X-state.PlayerX)+Math.Abs(d.Y-state.PlayerY);Vector2 at;if(d.ServiceAvailable||distance<3||distance>=nearest||!WayfindingMarkerScreen(d,out at)||HudBlocksWorldInput(at))continue;nearest=distance;choice=d;pointer=at;}
+     foreach(var d in view.Destinations){bool painted=false;foreach(var guide in view.Guides)if(guide.Id==d.Id&&guide.Shape.Count>1)painted=true;int distance=Math.Abs(d.X-state.PlayerX)+Math.Abs(d.Y-state.PlayerY);Vector2 at;if(!painted||d.ServiceAvailable||distance<3||distance>=nearest||!WayfindingMarkerScreen(d,out at)||HudBlocksWorldInput(at))continue;nearest=distance;choice=d;pointer=at;}
      if(choice==null){FinishProof(false,"market has no known local destination marker several cells away");return;}
      wayfindingProofID=choice.Id;wayfindingProofTargetX=choice.X;wayfindingProofTargetY=choice.Y;wayfindingProofReport.destination_id=choice.Id;wayfindingProofReport.level=wayfindingProofLevel;
      if(!SendWayfindingPointer(pointer)||wayfindingChoices.Count>1&&!WayfindingChoose(choice.Id)){FinishProof(false,"actual projected destination selection was not sent");return;}wayfindingProofReport.pointer_selection=true;WayfindingProofPhase(4,now);break;
@@ -48,8 +49,12 @@ namespace AngelsDemons.Poc {
     case 7:if(state.Paused)break;wayfindingProofReport.go_tick=state.Tick;wayfindingProofPreviousTick=state.Tick;wayfindingProofPreviousX=state.PlayerX;wayfindingProofPreviousY=state.PlayerY;if(!WayfindingGo()){FinishProof(false,"explicit shared Go action was not sent");return;}wayfindingProofReport.explicit_go=true;WayfindingProofPhase(8,now);break;
     case 8:
      if(state.Life.LevelId!=wayfindingProofLevel){FinishProof(false,"local destination unexpectedly changed level");return;}int moved=Math.Abs(state.PlayerX-wayfindingProofPreviousX)+Math.Abs(state.PlayerY-wayfindingProofPreviousY);long ticks=state.Tick-wayfindingProofPreviousTick;if(ticks<0||moved>ticks){FinishProof(false,"physical route exceeded authoritative tick movement bound");return;}wayfindingProofPreviousTick=state.Tick;wayfindingProofPreviousX=state.PlayerX;wayfindingProofPreviousY=state.PlayerY;
+     if(!wayfindingProofProgressCaptured&&wayfindingRoute!=null&&wayfindingRoute.progress>wayfindingProofReport.preview_progress+.25f){Options(true,1);WayfindingProofPhase(80,now);break;}
      if(!WayfindingProofSettled()||state.PlayerX!=wayfindingProofTargetX||state.PlayerY!=wayfindingProofTargetY)break;if(state.Tick<=wayfindingProofReport.go_tick){FinishProof(false,"arrival had no real travel ticks");return;}wayfindingProofReport.arrival_tick=state.Tick;wayfindingProofReport.physical_arrival=true;Options(true,1);WayfindingProofPhase(9,now);break;
-    case 9:if(!state.Paused||!WayfindingProofSettled())break;FinishProof(true,"known permanent floor guides; marker selection preserved hero/manual/path over real ticks; visible selected route and label before explicit Go; ordinary physical local arrival");break;
+    case 80:if(!state.Paused)break;wayfindingProofProgressDone=false;wayfindingProofCapturing=true;StartCoroutine(WayfindingProofProgressFrame("route-progress.png",false));WayfindingProofPhase(81,now);break;
+    case 81:if(!wayfindingProofProgressDone)break;wayfindingProofProgressCaptured=true;Options(false,1);WayfindingProofPhase(8,now);break;
+    case 9:if(!state.Paused||!WayfindingProofSettled())break;wayfindingProofProgressDone=false;wayfindingProofCapturing=true;StartCoroutine(WayfindingProofProgressFrame("route-arrived.png",true));WayfindingProofPhase(90,now);break;
+    case 90:if(!wayfindingProofProgressDone)break;if(wayfindingProofReport.arrival_progress<=wayfindingProofReport.preview_progress+.1f||!wayfindingProofReport.progress_pause_stable||!wayfindingProofReport.selected_mesh_reused){FinishProof(false,"painted route did not advance with actual hero position using stable paused GPU/resources");return;}FinishProof(true,"selected ribbon coincides with permanent paint, stationary preview before explicit Go, physical local arrival advances projected arc and paused progress preserves the actual GPU image/mesh");break;
    }
   }
   // Real hallway corners are allowed. A bend is unnecessary only when the
@@ -68,6 +73,9 @@ namespace AngelsDemons.Poc {
     try{
      if(!state.Paused||!WayfindingProofStill()||state.Tick!=tick||state.Epoch!=epoch||wayfindingCanvas==null||wayfindingRenderFailure!=null)throw new InvalidOperationException("capture lost settled authoritative preview or floor overlay");
      wayfindingProofReport.guide_segments=wayfindingGuideSegments;wayfindingProofReport.selected_segments=wayfindingSelectedSegments;wayfindingProofSelectedStrokes.Clear();foreach(var line in wayfindingStrokes)if(line.selected&&!line.under)wayfindingProofSelectedStrokes.Add(line);if(wayfindingGuideSegments<1||wayfindingSelectedSegments<1)throw new InvalidOperationException("missing permanent or selected geometry");
+     if(wayfindingRoute==null||WayfindingView().SelectedGuideId!=wayfindingRoute.guide.Id)throw new InvalidOperationException("selected floor ribbon has no published local guide");
+     wayfindingProofReport.selected_guide_id=wayfindingRoute.guide.Id;wayfindingProofReport.progress_origin=wayfindingRoute.origin;wayfindingProofReport.preview_progress=wayfindingRoute.progress;wayfindingProofProgressMesh=wayfindingCanvasMesh;
+     foreach(var line in wayfindingStrokes)if(line.selected){if(!line.routeFill||!WayfindingProofMatchesPaint(line,wayfindingStrokes))throw new InvalidOperationException("selected ribbon differs from permanent painted vertices/width/joins");wayfindingProofReport.selected_paint_coincidence_checks++;}
      wayfindingProofReport.backbones=wayfindingBackbones.Count;
      foreach(var backbone in wayfindingBackbones){if(backbone.start!=null||backbone.end!=null){wayfindingProofReport.branch_backbones++;continue;}if(backbone.source.Count>wayfindingProofReport.primary_source_cells){int turns=0;for(int i=2;i<backbone.source.Count;i++){var a=backbone.source[i-2];var b=backbone.source[i-1];var c=backbone.source[i];if(b.X-a.X!=c.X-b.X||b.Y-a.Y!=c.Y-b.Y)turns++;}wayfindingProofReport.primary_source_cells=backbone.source.Count;wayfindingProofReport.primary_source_turns=turns;wayfindingProofReport.primary_rendered_bends=Math.Max(0,backbone.points.Count-2);}}
      foreach(var backbone in wayfindingBackbones)if(backbone.colors.Count>1)wayfindingProofReport.shared_color_backbones++;
@@ -112,5 +120,26 @@ namespace AngelsDemons.Poc {
     }catch(Exception error){FinishProof(false,"wayfinding foreground comparison: "+error.Message);}
    }finally{wayfindingProofHideAll=false;wayfindingProofHideSelected=false;wayfindingHash=0;if(withRoute!=null)Destroy(withRoute);if(withoutRoute!=null)Destroy(withoutRoute);if(overlay!=null)Destroy(overlay);if(withoutGuidance!=null)Destroy(withoutGuidance);wayfindingProofCapturing=false;}
   }
+  static bool WayfindingProofMatchesPaint(WayfindingStroke line,IList<WayfindingStroke> strokes){
+   foreach(var paint in strokes)if(!paint.selected&&paint.joinedSides&&line.joinedSides&&Math.Abs(paint.half-line.half)<.000001f&&(paint.a-line.a).sqrMagnitude<.0000001f&&(paint.b-line.b).sqrMagnitude<.0000001f&&(paint.startSide-line.startSide).sqrMagnitude<.0000001f&&(paint.endSide-line.endSide).sqrMagnitude<.0000001f)return true;return false;
+  }
+  Texture2D WayfindingProofReadLayer(){var previous=RenderTexture.active;try{RenderTexture.active=wayfindingCanvas;var image=new Texture2D(wayfindingCanvas.width,wayfindingCanvas.height,TextureFormat.RGBA32,false);image.ReadPixels(new Rect(0,0,image.width,image.height),0,0);image.Apply(false);return image;}finally{RenderTexture.active=previous;}}
+  IEnumerator WayfindingProofProgressFrame(string file,bool arrived){
+   yield return new WaitForEndOfFrame();yield return new WaitForEndOfFrame();Texture2D before=null,after=null,screen=null;Vector4 uniform=Vector4.zero;long tick=state.Tick;ulong pixels=0;bool ready=false;
+   try{
+    if(!state.Paused||wayfindingRoute==null||wayfindingCanvas==null||wayfindingRenderFailure!=null)throw new InvalidOperationException("no actual paused selected floor progress");
+    uniform=wayfindingCanvasMaterial.GetVector("_RouteProgress");if(Math.Abs(uniform.y-wayfindingRoute.progress)>.00001f||Math.Abs(uniform.x-wayfindingRoute.origin)>.00001f)throw new InvalidOperationException("GPU route progress disagrees with accepted hero projection");
+    if(!ReferenceEquals(wayfindingCanvasMesh,wayfindingProofProgressMesh))throw new InvalidOperationException("walking progress recreated its mesh");
+    before=WayfindingProofReadLayer();pixels=AmbientProofPixelHash(before.GetPixels32());ready=true;
+   }catch(Exception error){FinishProof(false,"painted progress capture: "+error.Message);}
+   if(ready){double until=clock.Elapsed.TotalSeconds+.4;while(clock.Elapsed.TotalSeconds<until)yield return new WaitForEndOfFrame();
+    try{
+     after=WayfindingProofReadLayer();var repeat=wayfindingCanvasMaterial.GetVector("_RouteProgress");if(!state.Paused||state.Tick!=tick||(repeat-uniform).sqrMagnitude>.0000001f||AmbientProofPixelHash(after.GetPixels32())!=pixels)throw new InvalidOperationException("paused selected floor pixels/progress changed");
+     screen=ScreenCapture.CaptureScreenshotAsTexture();Directory.CreateDirectory(ProofDirectory());File.WriteAllBytes(Path.Combine(ProofDirectory(),file),screen.EncodeToPNG());wayfindingProofReport.progress_pause_stable=true;wayfindingProofReport.selected_mesh_reused=true;if(arrived)wayfindingProofReport.arrival_progress=uniform.y;else wayfindingProofReport.moving_progress=uniform.y;wayfindingProofProgressDone=true;
+    }catch(Exception error){FinishProof(false,"painted progress comparison: "+error.Message);}
+   }
+   if(before!=null)Destroy(before);if(after!=null)Destroy(after);if(screen!=null)Destroy(screen);wayfindingProofCapturing=false;
+  }
+
  }
 }

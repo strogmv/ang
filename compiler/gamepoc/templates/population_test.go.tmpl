@@ -35,14 +35,16 @@ func populationRuntimeFixture(t *testing.T, count int) *Runtime {
 // The native life100 regression approached the public exit after observing a
 // passing train, then circled the whole market when a local queue blocked it.
 // Exercise the same real market, population, accelerated clock and ordinary
-// commands. The observation point records the native test scene; exits and
+// commands. The observation approach follows eleven actual floor steps from the exit; exits and
 // every route are derived from actual CUE terrain, never an invented corridor.
 func TestPopulationRuntimeC7HousingGotoDoesNotCircleLocalQueue(t *testing.T){
  r:=lifeRuntimeFixture(t);life,err:=r.world.Life.StartWithPopulation(100,playerActorID);if err!=nil{t.Fatal(err)};r.state.Tick=0;r.initLifeState(life)
  hero:=func()*behavior.LifeActor{return r.state.Life.Actor(playerActorID)}
  command:=func(action,destination string,rate int32){t.Helper();if err:=r.lifeCommand(&pb.PocLifeCommand{Action:action,Destination:destination,SecondsPerTick:rate});err!=nil{t.Fatal(err)}}
  m:=r.world.Life;market:=hero().Level;edge:=m.NextEdge(market,"level.poc_housing");if edge==nil{t.Fatal("C7 housing route missing")}
- target:=behavior.Cell{X:30,Y:10};if !m.Walks(market,target)||!m.Locations[market].InitialLayoutKnown{t.Fatal("native observation fixture no longer matches authored familiar market")}
+ observationPath:=m.Space(market,nil).Path(edge.Exit,hero().Position,behavior.Cell{},0)
+ if len(observationPath)<11 {t.Fatal("familiar market needs an eleven-step observation approach")}
+ target:=observationPath[10];if !m.Walks(market,target)||!m.Locations[market].InitialLayoutKnown{t.Fatal("native observation fixture no longer matches authored familiar market")}
  for i:=0;i<3;i++{r.step()};command("rate","",30);command("goto",market,0)
  for i:=0;i<450&&!hero().Arrived;i++{r.step()};if !hero().Arrived{t.Fatal("initial public market goto failed")}
  command("rate","",1);c:=&connection{out:make(chan *pb.ServerMessage,10000),stop:make(chan struct{}),locale:"ru"}
@@ -411,7 +413,7 @@ func TestPopulationRuntimeHeroGotoThroughCrowd(t *testing.T) {
    if err:=r.state.Life.Validate(r.world.Life,r.state.Tick);err!=nil{t.Fatalf("tick %d: %v",r.state.Tick,err)}
    for j,a:=range r.state.Life.Population.Actors{
     old:=previous.Actors[j]
-    if old.Materialized&&a.Materialized&&old.Level==a.Level&&old.Trip==nil&&a.Trip==nil&&behavior.Distance(old.Position,a.Position)>1{t.Fatalf("resident teleported %s",a.ID)}
+    if old.Materialized&&a.Materialized&&old.Level==a.Level&&old.Trip==nil&&a.Trip==nil&&old.Position!=a.Position&&!r.world.Life.Adjacent(a.Level,old.Position,a.Position){t.Fatalf("resident teleported %s",a.ID)}
     if a.YieldUntil>r.state.Tick{yielded=true;if !saved{
      raw,err:=json.Marshal(r.state.Life);if err!=nil{t.Fatal(err)};var restored behavior.LifeState;if err=json.Unmarshal(raw,&restored);err!=nil{t.Fatal(err)}
      if !reflect.DeepEqual(r.state.Life.Clone(),restored.Clone()){t.Fatal("yield negotiation lost in save")};r.state.Life=restored;saved=true
@@ -443,7 +445,7 @@ func TestPopulationRuntimeC7CivilianCourtesyAcrossSeedsAndBusyTraffic(t *testing
    for i:=0;i<2400;i++{
     old:=r.state.Life.Clone();before:=old.Actor(playerActorID);r.step();totalTicks++;hero:=r.state.Life.Actor(playerActorID)
     if r.state.Paused{t.Fatal("courtesy paused the simulation")};if err=r.state.Life.Validate(r.world.Life,r.state.Tick);err!=nil{t.Fatal(err)}
-    if hero.Level==before.Level&&hero.Position!=before.Position{if behavior.Distance(hero.Position,before.Position)!=1{t.Fatal("controlled body skipped a local step")};totalMoves++;key:=fmt.Sprintf("%s:%d,%d",hero.Level,hero.Position.X,hero.Position.Y);if visited[key]>0{legRepeats++;totalRepeats++};visited[key]++}
+    if hero.Level==before.Level&&hero.Position!=before.Position{steps:=int64(1);if r.world.Life.Brain.Enabled{steps=(r.state.Life.SecondsPerTick+r.world.Life.MoveTicks-1)/r.world.Life.MoveTicks};if d:=int64(behavior.Distance(hero.Position,before.Position));d<1||d>steps{t.Fatal("controlled body skipped a local step")};totalMoves++;key:=fmt.Sprintf("%s:%d,%d",hero.Level,hero.Position.X,hero.Position.Y);if visited[key]>0{legRepeats++;totalRepeats++};visited[key]++}
     if !hero.Arrived&&len(hero.Path)==0&&hero.Trip==nil{totalWaits++;legWaits++;waitRun++;if waitRun>maxWaitRun{maxWaitRun=waitRun};if waitRun>=30&&!diagnosed{t.Logf("prolonged courtesy wait toward%s at tick%d",destination,r.state.Tick);logCrowdBlockage(t,r);diagnosed=true}}else{waitRun=0}
     for j,a:=range r.state.Life.Actors{if a.YieldCooldownUntil>old.Actors[j].YieldCooldownUntil{totalRequests++}}
     for j,a:=range r.state.Life.Population.Actors{if a.YieldCooldownUntil>old.Population.Actors[j].YieldCooldownUntil{totalRequests++}}
@@ -492,13 +494,13 @@ func TestPopulationRuntimeWarmupMixedQueueProgressBeforeScheduleRelease(t *testi
    if err:=r.state.Life.Validate(r.world.Life,r.state.Tick);err!=nil{t.Fatalf("tick %d: %v",r.state.Tick,err)}
    if r.state.Life.Actor(playerActorID).YieldUntil!=0{t.Fatal("hero was enlisted in traffic negotiation")}
    for j,a:=range r.state.Life.Actors{
-    old:=previous.Actors[j];if old.Trip==nil&&a.Trip==nil&&old.Level==a.Level&&behavior.Distance(old.Position,a.Position)>1{t.Fatalf("named actor teleported %s",a.ID)}
+    old:=previous.Actors[j];if old.Trip==nil&&a.Trip==nil&&old.Level==a.Level&&old.Position!=a.Position&&!r.world.Life.Adjacent(a.Level,old.Position,a.Position){t.Fatalf("named actor teleported %s",a.ID)}
     if a.YieldUntil>r.state.Tick{namedYield=true;if !saved{
      raw,err:=json.Marshal(r.state.Life);if err!=nil{t.Fatal(err)};var restored behavior.LifeState;if err=json.Unmarshal(raw,&restored);err!=nil{t.Fatal(err)}
      if !reflect.DeepEqual(r.state.Life.Clone(),restored.Clone()){t.Fatal("mixed queue save lost state")};r.state.Life=restored;saved=true
     }}
    }
-   for j,a:=range r.state.Life.Population.Actors{old:=previous.Population.Actors[j];if old.Materialized&&a.Materialized&&old.Level==a.Level&&old.Trip==nil&&a.Trip==nil&&behavior.Distance(old.Position,a.Position)>1{t.Fatalf("resident teleported %s",a.ID)}}
+   for j,a:=range r.state.Life.Population.Actors{old:=previous.Population.Actors[j];if old.Materialized&&a.Materialized&&old.Level==a.Level&&old.Trip==nil&&a.Trip==nil&&old.Position!=a.Position&&!r.world.Life.Adjacent(a.Level,old.Position,a.Position){t.Fatalf("resident teleported %s",a.ID)}}
    hero:=r.state.Life.Actor(playerActorID)
    if hero.Level==destination&&hero.Trip==nil&&len(hero.Path)==0{arrived=true;break}
    // Old mixed queue stayed on the market until tick1123. Enforce early
@@ -527,4 +529,39 @@ func TestPopulationRuntimeLoadsLegacyTrafficFields(t *testing.T){
  r.step()
  if r.state.Paused||r.state.Life.ControlledActorID!=playerActorID||r.state.Life.Actor(playerActorID).YieldUntil!=0{t.Fatal("legacy load failed safe controller restoration")}
  if err:=r.state.Life.Validate(r.world.Life,r.state.Tick);err!=nil{t.Fatal(err)}
+}
+
+// Native station proof must reach its observation point before the work shift:
+// a coarse/offscreen arrival legitimately has no physical pocket approach to film.
+// Exercise ordinary host commands and select evidence only from public snapshots.
+func TestPopulationRuntimeStationProofApproachPrecedesShiftAndObservesSamePassenger(t *testing.T){
+ r,err:=New(t.TempDir(),"token");if err!=nil{t.Fatal(err)}
+ // Fixed-schedule transport visibility fixture; autonomous choices have separate day coverage.
+ r.world.Life.Brain.Enabled=false;r.canonicalWorld.Life.Brain.Enabled=false
+ c:=&connection{out:make(chan *pb.ServerMessage,64),stop:make(chan struct{}),locale:"en"}
+ r.command(input{client:c,msg:&pb.ClientMessage{Msg:&pb.ClientMessage_NewGame{NewGame:&pb.PocNewGameRequest{Seed:777,Epoch:r.state.Epoch,RequestId:"station-proof",Scenario:"life100"}}}})
+ for i:=0;i<4;i++{r.step()}
+ if err=r.lifeCommand(&pb.PocLifeCommand{Action:"rate",SecondsPerTick:1});err!=nil{t.Fatal(err)}
+ if err=r.lifeCommand(&pb.PocLifeCommand{Action:"goto",Destination:"level.poc_monorail"});err!=nil{t.Fatal(err)}
+ settled:=func()bool{h:=r.state.Life.Actor(playerActorID);return h.Level=="level.poc_monorail"&&h.Trip==nil&&h.Arrived&&len(h.Path)==0&&h.OverrideLevel==""}
+ for i:=0;i<2400&&!settled();i++{r.step()};if !settled(){t.Fatal("ordinary station approach failed")}
+ r.lifeMove(c,&pb.MoveTo{Epoch:r.state.Epoch,InputSeq:1,X:18,Y:15})
+ for i:=0;i<500&&!settled();i++{r.step()};h:=r.state.Life.Actor(playerActorID)
+ if !settled()||h.Position!=(behavior.Cell{X:18,Y:15})||r.state.Life.Seconds>=8*3600{t.Fatal("observer missed the real shift before seeing its physical approach")}
+ t.Logf("physical observer ready at%d before shift%d",r.state.Life.Seconds,8*3600)
+ if err=r.lifeCommand(&pb.PocLifeCommand{Action:"rate",SecondsPerTick:30});err!=nil{t.Fatal(err)}
+ snapshot:=func()*pb.PocGameState{for len(c.out)>0{<-c.out};r.sendState(c);var state *pb.PocGameState;for len(c.out)>0{if v:=(<-c.out).GetGameState();v!=nil{state=v}};if state==nil{t.Fatal("no public station state")};return state}
+ visible:=func(v *pb.PocGameState,x,y int32)bool{return v.PlayerView!=nil&&y>=0&&int(y)<len(v.PlayerView.Cells)&&x>=0&&int(x)<len(v.PlayerView.Cells[y])&&v.PlayerView.Cells[y][x]=='2'}
+ id:="";phase:=0;gateSeen:=false;absent:=0
+ for i:=0;i<1200&&r.state.Life.Seconds<=13*3600;i++{
+  r.step();if r.state.Life.Seconds<8*3600{continue};v:=snapshot();var gate *pb.PocLifeMarker;for _,mark:=range v.Life.Markers{if mark.EdgeId=="station_work"{gate=mark}}
+  if gate==nil||!visible(v,gate.X,gate.Y){t.Fatal("boarding gate not publicly visible")}
+  var actor *pb.PocAgentState
+  if id==""{for _,a:=range v.SceneAgents{if !strings.HasPrefix(a.Id,"population.")||!visible(v,a.X,a.Y)||len(a.Path)==0{continue};last:=a.Path[len(a.Path)-1];if last.X==18&&last.Y==16{id=a.Id;phase=1;actor=a;break}}}else{for _,a:=range v.SceneAgents{if a.Id==id&&visible(v,a.X,a.Y){actor=a;break}}}
+  if actor==nil{if phase>=3&&gateSeen{absent++;if absent>=2{t.Logf("same public ID %s: approach/pocket/walk/gate exit observed at%d",id,r.state.Life.Seconds);return}};continue};absent=0
+  if phase>=2&&(actor.X==gate.X&&actor.Y==gate.Y||len(actor.Path)>0&&actor.Path[0].X==gate.X&&actor.Path[0].Y==gate.Y&&behavior.Distance(behavior.Cell{X:int(actor.X),Y:int(actor.Y)},behavior.Cell{X:int(gate.X),Y:int(gate.Y)})==1){gateSeen=true}
+  if phase==1&&actor.X==18&&actor.Y==16&&len(actor.Path)==0{phase=2;continue}
+  if phase==2&&len(actor.Path)>0&&(actor.X!=18||actor.Y!=16){phase=3}
+ }
+ t.Fatalf("ordinary approach did not yield a complete public same-ID chain: id%s phase%d gate%v",id,phase,gateSeen)
 }

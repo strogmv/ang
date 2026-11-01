@@ -30,6 +30,8 @@ func TestExpandedMarketActualAuthoring(t *testing.T) {
 			Anchors        map[string]Point `json:"anchors"`
 			Stores         map[string]Point `json:"store_anchors"`
 			ShopApproaches map[string]Point `json:"shop_approaches"`
+			ServiceAnchors map[string]Point `json:"service_anchors"`
+			BlockedProbes  []Point          `json:"blocked_probes"`
 			Landmarks      map[string]Point `json:"landmarks"`
 			Exit           struct {
 				At      Point `json:"at"`
@@ -51,6 +53,11 @@ func TestExpandedMarketActualAuthoring(t *testing.T) {
 	}
 	l := c.Levels[0]
 	floor := expandedAuditFloor(l.Terrain)
+	for _, at := range l.BlockedProbes {
+		if floor[at] {
+			t.Errorf("image-reviewed wall/door/rail probe became walkable: %+v", at)
+		}
+	}
 	if len(floor) <= 128 {
 		t.Fatalf("market has not expanded beyond the previous 128-cell aisle: %d", len(floor))
 	}
@@ -67,6 +74,26 @@ func TestExpandedMarketActualAuthoring(t *testing.T) {
 	for id, at := range l.ShopApproaches {
 		if !reached[at] {
 			t.Errorf("shop %s has no walkable customer approach: %+v", id, at)
+		}
+	}
+	if len(l.ServiceAnchors) > 0 {
+		customerFloor := expandedAuditFloor(l.Terrain)
+		occupiedServices := map[Point]string{}
+		for id, at := range l.ServiceAnchors {
+			if !floor[at] || l.ShopApproaches[id] == at {
+				t.Errorf("merchant %s has invalid or customer-occupied service anchor: %+v", id, at)
+			}
+			if other, exists := occupiedServices[at]; exists {
+				t.Errorf("merchant anchors overlap: %s and %s", other, id)
+			}
+			occupiedServices[at] = id
+			delete(customerFloor, at)
+		}
+		customerReach := expandedAuditReach(customerFloor, l.Exit.Landing)
+		for id, at := range l.ShopApproaches {
+			if !customerReach[at] {
+				t.Errorf("working merchants block customer approach %s", id)
+			}
 		}
 	}
 	for _, id := range []string{"rest", "loading", "sanitary", "firstaid"} {

@@ -127,15 +127,17 @@ func TestWayfindingServerPreviewAuthorityPrivacyAndInvalidationNative(t *testing
  func(m LifeModel)Edge(id string)*LifeEdge{for i:=range m.Edges{if m.Edges[i].ID==id{return &m.Edges[i]}};return nil}
  ` + lifeNavigation + `
  type LifeState struct{Actors []LifeActor;Seconds int64;Enabled bool}
+ // Causal recording is tested with the full Life kernel; this fixture isolates route privacy.
+ func(s *LifeState)ObserveDecisions(){}
  func(s *LifeState)Actor(id string)*LifeActor{for i:=range s.Actors{if s.Actors[i].ID==id{return &s.Actors[i]}};return nil}
  func(s *LifeState)MoveRoute(m LifeModel,id,level string,from,to Cell,tick int64)([]Cell,bool){rows:=m.Locations[level].Terrain;space:=Space{Width:len(rows[0]),Height:len(rows),MaxSearchCells:len(rows)*len(rows[0]),Walkable:func(c Cell)bool{return rows[c.Y][c.X]=='.'}};path:=space.Path(from,to,Cell{},0);return path,from==to||len(path)>0}
  `,
 		"internal/transport/grpc/pb/game/v1/wire.go": `package pb
  type PocPoint struct{X,Y int32};type PocLifeCommand struct{Action,Destination string}
  type PocLifeView struct{Wayfinding *PocWayfindingView;RegionMap *PocRegionMap}
- type PocWayfindingView struct{LevelId,SelectedDestinationId,SelectedName,SelectedColor,Status,LocalExitId,LocalExitMode,LocalExitName,RejectedDestinationId string;Destinations []*PocWayfindingDestination;Guides []*PocWayfindingGuide;Path []*PocPoint;Reachable bool}
+ type PocWayfindingView struct{LevelId,SelectedDestinationId,SelectedGuideId,SelectedName,SelectedColor,Status,LocalExitId,LocalExitMode,LocalExitName,RejectedDestinationId string;Destinations []*PocWayfindingDestination;Guides []*PocWayfindingGuide;Path []*PocPoint;Reachable bool}
  type PocWayfindingDestination struct{Id,Name,Color,Kind,TravelMode string;X,Y,Number int32;ServiceAvailable bool}
- type PocWayfindingShapePoint struct{X,Y float64};type PocWayfindingGuide struct{Id,Color string;Path []*PocPoint;Shape []*PocWayfindingShapePoint;AxisU,AxisV *PocWayfindingShapePoint;Underlays []*PocPoint;Authored bool}
+ type PocWayfindingShapePoint struct{X,Y float64;Junction bool};type PocWayfindingGuide struct{HalfWidthU,HalfWidthV float64;Id,Color string;Path []*PocPoint;Shape []*PocWayfindingShapePoint;AxisU,AxisV *PocWayfindingShapePoint;Underlays []*PocPoint;Authored bool}
  type PocRegionMap struct{Id,Name,CurrentNode,CurrentDeck,SelectedDestinationId string;SelectedLocalLinkIds []string;Nodes []*PocRegionNode;Links []*PocRegionLink;Decks []*PocRegionDeck}
  type PocRegionNode struct{Id,Name,DeckId,Knowledge,LevelId,Description,Kind,Label string;X,Y,Width,Height float64;Current,CanTravel bool}
  type PocRegionLink struct{Id,FromNode,ToNode,Mode string};type PocRegionDeck struct{Id,Name string;ElevationM float64}
@@ -174,6 +176,8 @@ func(r *Runtime)localText(locale,key,fallback string)string{if strings.HasPrefix
 func(r *Runtime)lifeExitKnown(e behavior.LifeEdge)bool{return r.wayfindingWalks(e.From,e.Exit)}
 func(r *Runtime)lifeEdgeName(locale string,e behavior.LifeEdge)string{return r.regionLevelName(locale,e.To)}
 func(r *Runtime)resetInstantTravel(){}
+// Game-time motion clock of the full host; route privacy does not depend on it.
+func(r *Runtime)lifeMotionTick()int64{return r.state.Tick}
 func(r *Runtime)syncLifeHero(){r.syncs++}
 func(r *Runtime)lifeCommand(q *pb.PocLifeCommand)error{if q.Action=="enter"{r.entered=q.Destination;return nil};return r.wayfindingCommand(q.Action,q.Destination)}
 func fixture()*Runtime{rows:=[]string{"#########","#.......#","#.###.#.#","#.....#.#","#######.#","#.......#","#########"};r:=&Runtime{};r.world.Walkable=map[string]bool{".":true};r.world.Life.Locations=map[string]behavior.LifeLocation{"hall":{Name:"Hall",Terrain:rows},"out":{Name:"Other room",Terrain:rows},"secret":{Name:"SECRET_ROOM",Terrain:rows}};r.world.Life.Edges=[]behavior.LifeEdge{{ID:"door",From:"hall",To:"out",Mode:"walk",Exit:behavior.Cell{7,1}},{ID:"SECRET_EDGE",From:"hall",To:"secret",Mode:"rail",Exit:behavior.Cell{1,1}}};r.state=hostState{Epoch:"epoch1",Tick:44,Life:behavior.LifeState{Enabled:true,Seconds:100,Actors:[]behavior.LifeActor{{ID:playerActorID,Level:"hall",Position:behavior.Cell{1,1},Goal:behavior.Cell{3,1},Path:[]behavior.Cell{{2,1},{3,1}},MoveStartTick:42,Visits:map[string]int{"hall":1}}}},LifeExploration:map[string]map[int]seenCell{"hall":{}}};for y,row:=range rows{for x:=range row{r.state.LifeExploration["hall"][y*9+x]=seenCell{string(row[x])}}};r.world.Wayfinding=wayfindingCatalog{Destinations:[]wayfindingDestination{{ID:"way.med",NameKey:"wayfinding.med",Color:"#79A99A",Kind:"medical",Level:"hall",At:behavior.Cell{7,5},GuideFrom:&behavior.Cell{1,1},MarkerNumber:7},{ID:"way.hidden",NameKey:"wayfinding.hidden",Color:"#83A7BD",Kind:"sanitary",Level:"hall",At:behavior.Cell{1,5},MarkerNumber:2}}};delete(r.state.LifeExploration["hall"],5*9+1);r.world.Region=regionCatalog{ID:"region",Nodes:[]regionNode{{ID:"node.hall",LevelID:"hall",InitialKnowledge:"visited"},{ID:"node.out",LevelID:"out",InitialKnowledge:"known"},{ID:"node.secret",Name:"SECRET_ROOM",LevelID:"secret",InitialKnowledge:"unknown"}},Links:[]regionLink{{ID:"link.out",FromNode:"node.hall",ToNode:"node.out",InitialKnown:true,LifeEdges:[]string{"door"}},{ID:"SECRET_LINK",FromNode:"node.hall",ToNode:"node.secret",LifeEdges:[]string{"SECRET_EDGE"}}}};r.state.Region=regionKnowledge{Initialized:true,KnownNodes:map[string]bool{"node.hall":true,"node.out":true},KnownLinks:map[string]bool{"link.out":true},Visited:map[string]int64{"node.hall":0}};return r}
@@ -196,6 +200,14 @@ func TestInfrastructurePaintUnderPropKeepsCollisionAndKnowledge(t *testing.T){
  r:=shapeFixture();at:=behavior.Cell{X:1,Y:3};rows:=r.world.Life.Locations["hall"].Terrain;rows[3]="##......#";r.state.LifeExploration["hall"][3*9+1]=seenCell{"#"};d:=&r.world.Wayfinding.Destinations[0];d.GuideUnderlays=[]behavior.Cell{at};d.GuideFrame=&wayfindingFrame{U:wayfindingGuidePoint{X:1},V:wayfindingGuidePoint{Y:1}};
  v:=project(r);if len(v.Guides[0].Shape)!=4||len(v.Guides[0].Underlays)!=1||v.Guides[0].AxisU==nil||!v.Guides[0].Authored{t.Fatal("known prop substrate was confused with movement floor")};if r.wayfindingWalks("hall",at){t.Fatal("floor paint made prop walkable")};delete(r.state.LifeExploration["hall"],3*9+1);v=project(r);if len(v.Guides[0].Shape)!=0||len(v.Guides[0].Underlays)!=0||v.Guides[0].AxisU!=nil||!v.Guides[0].Authored{t.Fatal("unknown covered-floor support leaked geometry or lost authored intent")}
 }
+func TestSelectedGuideBindsOnlyPublishedExactPhysicalEdge(t *testing.T){
+ r:=shapeFixture();r.wayfindingCommand("route_preview","way.med");if project(r).SelectedGuideId!="way.med"{t.Fatal("local authored selection has no known guide binding")}
+ d:=r.world.Wayfinding.Destinations[0];d.ID="way.station";d.EdgeID="door";d.At=behavior.Cell{7,1};d.Kind="exit";d.GuideRoute=[]wayfindingGuidePoint{{X:1,Y:1},{X:7,Y:1}};d.GuideSupport=nil;for x:=1;x<=7;x++{d.GuideSupport=append(d.GuideSupport,behavior.Cell{X:x,Y:1})};r.world.Wayfinding.Destinations=append(r.world.Wayfinding.Destinations,d)
+ if err:=r.wayfindingCommand("route_preview","out");err!=nil{t.Fatal(err)};v:=project(r);if v.SelectedGuideId!="way.station"||v.LocalExitId!="door"{t.Fatal("regional target did not select its precise published local edge guide")}
+ delete(r.state.LifeExploration["hall"],1*9+4);v=project(r);if v.SelectedGuideId!=""{t.Fatal("unknown guide interior leaked a selected guide ID")}
+ r.state.LifeExploration["hall"][1*9+4]=seenCell{"."};if project(r).SelectedGuideId!="way.station"{t.Fatal("discovered complete guide not bound")};r.state.Epoch="reload";if project(r).SelectedGuideId!=""{t.Fatal("selection survived reload")}
+}
+func TestFixedJoinMetadataPublishesOnlyWithKnownShape(t *testing.T){r:=shapeFixture();d:=&r.world.Wayfinding.Destinations[0];d.GuideJunctions=[]int{1};d.GuideWidth=&wayfindingWidth{U:.03,V:.04};v:=project(r);if !v.Guides[0].Shape[1].Junction||v.Guides[0].HalfWidthU!=.03||v.Guides[0].HalfWidthV!=.04{t.Fatal("fixed physical join/scale absent")};before:=v.Guides[0].Shape[1];r.state.Tick++;if project(r).Guides[0].Shape[1]!=before{t.Fatal("known fixed vertex changed with time")};delete(r.state.LifeExploration["hall"],3*9+1);v=project(r);if len(v.Guides[0].Shape)!=0||v.Guides[0].HalfWidthU!=0||v.Guides[0].HalfWidthV!=0{t.Fatal("hidden graph/scale metadata published without known shape")}}
 func TestAuthoredShapeFailsClosedWithoutDerivedSupport(t *testing.T){r:=shapeFixture();r.world.Wayfinding.Destinations[0].GuideSupport=nil;v:=project(r);if len(v.Guides)!=1||len(v.Guides[0].Shape)>0{t.Fatal("unsupported legacy private shape was trusted")};r.state.Epoch="loaded";if len(project(r).Guides[0].Shape)>0{t.Fatal("epoch reset trusted absent support")}}
 
 `

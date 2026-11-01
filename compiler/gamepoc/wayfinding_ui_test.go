@@ -1,12 +1,14 @@
 package gamepoc
 
 import (
+	"bytes"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"text/template"
 
 	"github.com/strogmv/ang/angir/normalizer"
 	"github.com/strogmv/ang/compiler/emitter"
@@ -15,6 +17,7 @@ import (
 func TestWayfindingLanesMergeClassTrunksAndNeverBridgeUnknownFloorNative(t *testing.T) {
 	methods := sceneTemplateSection(t, "wayfinding.cs.tmpl", "  static Color WayfindingColor(", "  Mesh WayfindingMesh(")
 	stroke := sceneTemplateSection(t, "wayfinding.cs.tmpl", "  sealed class WayfindingStroke ", "  ulong wayfindingHash;")
+	route := sceneTemplateSection(t, "wayfinding_route.cs.tmpl", "  static Vector2 WayfindingRouteMetric(", "  bool WayfindingUpdateProgress(")
 	// Keep the actual geometry/cache implementation; only unrelated wire and
 	// Unity primitives are supplied by this executable deterministic harness.
 	runPaintedTextureNative(t, "WayfindingGeometry", `using System;using System.Collections.Generic;
@@ -23,22 +26,31 @@ struct Color {public float r,g,b,a;public Color(float rr,float gg,float bb){r=rr
 static class ColorUtility {public static bool TryParseHtmlString(string s,out Color c){c=new Color(.4f,.6f,.7f);return s!=null;}}
 static class Mathf {public static float Sqrt(float f){return (float)Math.Sqrt(f);}public static float Min(float a,float b){return Math.Min(a,b);}public static int Clamp(int a,int b,int c){return Math.Max(b,Math.Min(c,a));}}
 class PocPoint {public int X,Y;public PocPoint(){}public PocPoint(int x,int y){X=x;Y=y;}}
-class PocWayfindingShapePoint {public double X,Y;public PocWayfindingShapePoint(double x,double y){X=x;Y=y;}}
-class PocWayfindingGuide {public string Id,Color;public bool Authored;public PocWayfindingShapePoint AxisU,AxisV;public List<PocPoint> Underlays=new List<PocPoint>();public List<PocPoint> Path=new List<PocPoint>();public List<PocWayfindingShapePoint> Shape=new List<PocWayfindingShapePoint>();}
+class PocWayfindingShapePoint {public bool Junction;public double X,Y;public PocWayfindingShapePoint(double x,double y){X=x;Y=y;}}
+class PocWayfindingGuide {public string Id,Color;public bool Authored;public double HalfWidthU,HalfWidthV;public PocWayfindingShapePoint AxisU,AxisV;public List<PocPoint> Underlays=new List<PocPoint>();public List<PocPoint> Path=new List<PocPoint>();public List<PocWayfindingShapePoint> Shape=new List<PocWayfindingShapePoint>();}
 class PocWayfindingDestination {public string Id,Color;public int X,Y,Number;}
-class PocWayfindingView {public string LevelId="public",SelectedDestinationId="",SelectedColor="#445566";public List<PocWayfindingGuide> Guides=new List<PocWayfindingGuide>();public List<PocPoint> Path=new List<PocPoint>();public List<PocWayfindingDestination> Destinations=new List<PocWayfindingDestination>();}
+class PocWayfindingView {public string LevelId="public",SelectedDestinationId="",SelectedGuideId="",SelectedColor="#445566";public List<PocWayfindingGuide> Guides=new List<PocWayfindingGuide>();public List<PocPoint> Path=new List<PocPoint>();public List<PocWayfindingDestination> Destinations=new List<PocWayfindingDestination>();}
 class Proof {
 `+strings.Replace(stroke, "  ulong wayfindingHash;", "", 1)+`
  string wayfindingEpoch="epoch";ulong wayfindingHash;int wayfindingGuideSegments,wayfindingSelectedSegments;bool wayfindingProofHideSelected,wayfindingProofHideAll;PocWayfindingView view=new PocWayfindingView();HashSet<string> hidden=new HashSet<string>();
- class Observer{public List<string> Terrain=new List<string>();public Observer(){for(int i=0;i<50;i++)Terrain.Add(new string('.',50));}}Observer observer=new Observer();PocWayfindingView WayfindingView(){return view;}Observer ObserverView(){return observer;}char ViewCell(object o,int x,int y){return hidden.Contains(x+","+y)?'0':'1';}
-`+methods+`
+ class Observer{public List<string> Terrain=new List<string>();public Observer(){for(int i=0;i<50;i++)Terrain.Add(new string('.',50));}}Observer observer=new Observer();object CurrentPaintedScene(){return null;}PocWayfindingView WayfindingView(){return view;}Observer ObserverView(){return observer;}char ViewCell(object o,int x,int y){return hidden.Contains(x+","+y)?'0':'1';}
+`+methods+route+`
  static void Need(bool v,string why){if(!v)throw new Exception(why);}
  static PocWayfindingGuide Guide(string id,string color,bool reverse=false){var g=new PocWayfindingGuide{Id=id,Color=color};for(int x=0;x<4;x++)g.Path.Add(new PocPoint(reverse?3-x:x,0));return g;}
  public static void Main(){
+
+ var net=new Proof();var networkBranch=new PocWayfindingGuide{Id="networkBranch",Color="#AA9977",Authored=true,AxisU=new PocWayfindingShapePoint(1,0),AxisV=new PocWayfindingShapePoint(.6,.8),HalfWidthU=.03,HalfWidthV=.06};networkBranch.Shape.Add(new PocWayfindingShapePoint(2,2));networkBranch.Shape.Add(new PocWayfindingShapePoint(6,2){Junction=true});networkBranch.Shape.Add(new PocWayfindingShapePoint(7.2,3.6));net.view.Guides.Add(networkBranch);net.view.SelectedDestinationId=networkBranch.Id;net.view.SelectedGuideId=networkBranch.Id;net.PrepareWayfinding();
+ var permanent=new List<WayfindingStroke>();foreach(var stroke in net.wayfindingStrokes)if(!stroke.selected)permanent.Add(stroke);Need(permanent.Count==2,"partial known networkBranch absent");Need(Math.Abs(permanent[0].endSide.x-.036)<.000001&&Math.Abs(permanent[0].endSide.y-.048)<.000001,"known T uses wrong physical half-width or a turning mitre");Need(Math.Abs(permanent[1].startSide.x+.03)<.000001&&Math.Abs(permanent[1].startSide.y)<.000001,"networkBranch thickness was measured in screen/grid normal");
+ var through=new PocWayfindingGuide{Id="through",Color=networkBranch.Color,Authored=true,AxisU=networkBranch.AxisU,AxisV=networkBranch.AxisV,HalfWidthU=networkBranch.HalfWidthU,HalfWidthV=networkBranch.HalfWidthV};through.Shape.Add(new PocWayfindingShapePoint(2,2));through.Shape.Add(new PocWayfindingShapePoint(6,2){Junction=true});through.Shape.Add(new PocWayfindingShapePoint(10,2));net.view.Guides.Insert(0,through);net.PrepareWayfinding();foreach(var old in permanent){bool found=false;foreach(var now in net.wayfindingStrokes)if(!now.selected&&(old.a-now.a).sqrMagnitude<.0000001&&(old.b-now.b).sqrMagnitude<.0000001&&(old.startSide-now.startSide).sqrMagnitude<.0000001&&(old.endSide-now.endSide).sqrMagnitude<.0000001)found=true;Need(found,"discovering another destination reshaped already-painted shared T");}
+ foreach(var chosen in net.wayfindingStrokes)if(chosen.selected){bool found=false;foreach(var paint in net.wayfindingStrokes)if(!paint.selected&&(paint.a-chosen.a).sqrMagnitude<.0000001&&(paint.b-chosen.b).sqrMagnitude<.0000001&&(paint.startSide-chosen.startSide).sqrMagnitude<.0000001&&(paint.endSide-chosen.endSide).sqrMagnitude<.0000001)found=true;Need(found,"selected T does not reuse fixed paint mesh");}
+ net.wayfindingStrokes.Clear();net.WayfindingEndpoint(new PocWayfindingDestination{Id="networkBranch",Color=networkBranch.Color,X=7,Y=4},1,false);var stop=net.wayfindingStrokes[net.wayfindingStrokes.Count-1];Need(stop.joinedSides&&Math.Abs(stop.startSide.x+.018)<.000001&&Math.Abs(stop.startSide.y+.024)<.000001,"terminal bar thickness lost the physical floor projection");
  var authored=new Proof();var shape=new PocWayfindingGuide{Id="paint",Color="#AA9977"};shape.Shape.Add(new PocWayfindingShapePoint(2,2));shape.Shape.Add(new PocWayfindingShapePoint(10,4));shape.Shape.Add(new PocWayfindingShapePoint(14,4));authored.view.Guides.Add(shape);authored.PrepareWayfinding();Need(authored.wayfindingAuthoredGuides==1&&authored.wayfindingGuideSegments==2,"authored corridor shape was replaced by cell routing");Need(authored.wayfindingStrokes[0].a.x==2&&authored.wayfindingStrokes[0].b.y==4&&authored.wayfindingStrokes[0].joinedSides,"paint geometry did not preserve its supplied points and joined ribbon");
  authored.view.Guides.Add(shape);authored.PrepareWayfinding();Need(authored.wayfindingGuideSegments==2,"shared same-color authored spine was overpainted twice");
  authored.hidden.Add("6,3");authored.PrepareWayfinding();Need(authored.wayfindingGuideSegments==0,"authored line bridged unknown floor between known endpoints");authored.hidden.Clear();authored.PrepareWayfinding();Need(authored.wayfindingGuideSegments==2,"discovered floor did not restore authored ribbon");
  var surface=new Proof();var physical=new PocWayfindingGuide{Id="painted.floor",Color="#AA9977",Authored=true,AxisU=new PocWayfindingShapePoint(1,0),AxisV=new PocWayfindingShapePoint(.6,.8)};physical.Path.Add(new PocPoint(2,2));physical.Path.Add(new PocPoint(3,2));surface.view.Guides.Add(physical);surface.PrepareWayfinding();Need(surface.wayfindingGuideSegments==0,"missing known authored shape was replaced by a procedural walking stripe");physical.Shape.Add(new PocWayfindingShapePoint(2,2));physical.Shape.Add(new PocWayfindingShapePoint(6,2));physical.Underlays.Add(new PocPoint(4,2));var row=surface.observer.Terrain[2].ToCharArray();row[4]='#';surface.observer.Terrain[2]=new string(row);surface.PrepareWayfinding();Need(surface.wayfindingAuthoredGuides==1,"known prop prevented underlying permanent paint");var lateral=WayfindingPaintNormal(new Vector2(1,0),physical,1);Need(Math.Abs(lateral.x-.6)<.00001&&Math.Abs(lateral.y-.8)<.00001,"paint width/terminal bar ignored physical floor frame");surface.hidden.Add("4,2");surface.PrepareWayfinding();Need(surface.wayfindingGuideSegments==0,"paint was exposed through unknown substrate");
+ var selectedPaint=new Proof();var selectedGuide=new PocWayfindingGuide{Id="actual.paint",Authored=true,Color="#AA9977",AxisU=new PocWayfindingShapePoint(1,0),AxisV=new PocWayfindingShapePoint(.6,.8)};selectedGuide.Shape.Add(new PocWayfindingShapePoint(2,2));selectedGuide.Shape.Add(new PocWayfindingShapePoint(8,2));selectedGuide.Shape.Add(new PocWayfindingShapePoint(9.2,3.6));selectedPaint.view.Guides.Add(selectedGuide);selectedPaint.view.SelectedDestinationId=selectedGuide.Id;selectedPaint.view.SelectedGuideId=selectedGuide.Id;selectedPaint.view.Path.Add(new PocPoint(3,8));selectedPaint.view.Path.Add(new PocPoint(4,8));selectedPaint.PrepareWayfinding();Need(selectedPaint.wayfindingSelectedSegments==2,"selected route did not reuse exact authored segments");foreach(var selected in selectedPaint.wayfindingStrokes)if(selected.selected){Need(selected.routeFill&&selected.joinedSides,"selected authored paint became a generic A* stripe");bool coincident=false;foreach(var paint in selectedPaint.wayfindingStrokes)if(!paint.selected&&(paint.a-selected.a).sqrMagnitude<.0000001f&&(paint.b-selected.b).sqrMagnitude<.0000001f&&(paint.startSide-selected.startSide).sqrMagnitude<.0000001f&&(paint.endSide-selected.endSide).sqrMagnitude<.0000001f&&paint.half==selected.half)coincident=true;Need(coincident,"selected ribbon leaves permanent paint geometry");}
+ var selectedCursor=selectedPaint.wayfindingRoute;var paintedStroke=selectedPaint.wayfindingStrokes[0];selectedCursor.Sample(new Vector2(3,2),false);selectedPaint.view.Path.Clear();selectedPaint.view.Path.Add(new PocPoint(14,14));selectedPaint.PrepareWayfinding();Need(Object.ReferenceEquals(selectedCursor,selectedPaint.wayfindingRoute)&&Object.ReferenceEquals(paintedStroke,selectedPaint.wayfindingStrokes[0]),"a new authoritative walking path rebuilt paint or reset progress");
+ selectedPaint.view.SelectedDestinationId="unpainted.target";selectedPaint.view.SelectedGuideId="";selectedPaint.PrepareWayfinding();Need(selectedPaint.wayfindingRoute==null&&selectedPaint.wayfindingSelectedSegments==0,"unpainted target drew an invented walking stripe in authored scene");selectedPaint.view.SelectedDestinationId=selectedGuide.Id;selectedPaint.view.SelectedGuideId=selectedGuide.Id;selectedPaint.PrepareWayfinding();Need(!Object.ReferenceEquals(selectedCursor,selectedPaint.wayfindingRoute)&&!selectedPaint.wayfindingRoute.initialized,"new selection retained old cursor");selectedPaint.wayfindingEpoch="loaded";selectedCursor=selectedPaint.wayfindingRoute;selectedPaint.PrepareWayfinding();Need(!Object.ReferenceEquals(selectedCursor,selectedPaint.wayfindingRoute),"epoch retained old progress");selectedGuide.Shape.Clear();selectedPaint.PrepareWayfinding();Need(selectedPaint.wayfindingRoute==null&&selectedPaint.wayfindingSelectedSegments==0,"unknown authored shape used walking path fallback");
  var p=new Proof();p.view.Guides.Add(Guide("shop.a","#AA9977"));p.view.Guides.Add(Guide("shop.b","#aa9977",true));p.PrepareWayfinding();Need(p.wayfindingGuideSegments==1,"same-hue shop trunk was duplicated into parallel lines");
  p.view.Guides.Add(Guide("medical","#6688CC"));p.PrepareWayfinding();Need(p.wayfindingGuideSegments==2,"different classes lost distinct parallel lanes");bool low=false,high=false;foreach(var s in p.wayfindingStrokes){if(s.a.y<-.01f)low=true;if(s.a.y>.01f)high=true;}Need(low&&high,"shared corridor classes lie on top of each other");
  float pixelsPerUnit=2496f/(float)Math.Sqrt(48*48+26*26)*.9375f;Need(2*WayfindingGuideHalfWidth(2)*pixelsPerUnit>=3&&2*.065f*pixelsPerUnit>=5,"reference 1920px floor strokes are below readable width");for(int lanes=2;lanes<=24;lanes++){float spacing=WayfindingLaneSpacing(lanes),half=WayfindingGuideHalfWidth(lanes);Need(2*half<spacing,"thicker parallel guide lanes merged");Need((lanes-1)*spacing/2+half<.5f,"guide stroke left known cell clearance");}var subdued=WayfindingColor("#AA9977",false);var bright=WayfindingColor("#AA9977",true);Need(bright.r>subdued.r&&bright.g>subdued.g&&bright.b>subdued.b&&bright.a==1,"selected tint has no raised luminance");
@@ -129,12 +141,13 @@ static class Graphics{public static int draws;public static bool fail;public sta
 static class GUI{public static Color color;public static void DrawTexture(Rect r,RenderTexture t,ScaleMode s,bool a){}}
 static class Debug{public static int errors;public static void LogError(string s){errors++;}}
 class PocPaintedScene{public string level_id="market";public int width=2560,height=1441;}
-class Proof{List<int> wayfindingStrokes=new List<int>{1};bool wayfindingProofHideAll;ulong wayfindingHash=1,wayfindingCanvasHash;string wayfindingCanvasScene,wayfindingRenderFailure;RenderTexture wayfindingCanvas;Mesh wayfindingCanvasMesh;Material wayfindingCanvasMaterial;int destroyed;void Destroy(object o){destroyed++;}void PrepareWayfinding(){}Vector2 PaintedPoint(PocPaintedScene s,Vector2 p){return p;}Mesh WayfindingMesh(Func<Vector2,Vector3> p,Mesh reuse=null){return reuse??new Mesh();}
+class Proof{List<int> wayfindingStrokes=new List<int>{1};bool wayfindingProofHideAll;ulong wayfindingHash=1,wayfindingCanvasHash;string wayfindingCanvasScene,wayfindingRenderFailure;RenderTexture wayfindingCanvas;Mesh wayfindingCanvasMesh;Material wayfindingCanvasMaterial;bool progressChange;int destroyed,meshBuilds,uniformUpdates;bool WayfindingUpdateProgress(){bool changed=progressChange;progressChange=false;return changed;}void WayfindingRouteUniform(Material m){uniformUpdates++;}void Destroy(object o){destroyed++;}void PrepareWayfinding(){}Vector2 PaintedPoint(PocPaintedScene s,Vector2 p){return p;}Mesh WayfindingMesh(Func<Vector2,Vector3> p,Mesh reuse=null){meshBuilds++;return reuse??new Mesh();}
 `+draw+release+`
  static void Need(bool v,string why){if(!v)throw new Exception(why);}public static void Main(){
  var p=new Proof();var scene=new PocPaintedScene();var sentinel=new RenderTexture(1,1,0,RenderTextureFormat.ARGB32);RenderTexture.active=sentinel;int initial=RenderTexture.made;
  p.DrawPaintedWayfinding(scene,new Rect(),new Rect());var texture=p.wayfindingCanvas;var mesh=p.wayfindingCanvasMesh;var material=p.wayfindingCanvasMaterial;
  for(int i=0;i<100;i++){p.wayfindingHash++;p.DrawPaintedWayfinding(scene,new Rect(),new Rect());Need(Object.ReferenceEquals(texture,p.wayfindingCanvas)&&Object.ReferenceEquals(mesh,p.wayfindingCanvasMesh)&&Object.ReferenceEquals(material,p.wayfindingCanvasMaterial),"route update recreated retained GPU resources");}
+ int builds=p.meshBuilds;for(int i=0;i<100;i++){p.progressChange=true;p.DrawPaintedWayfinding(scene,new Rect(),new Rect());}Need(p.meshBuilds==builds&&p.uniformUpdates==201,"actual position progress rebuilt the mesh or skipped uniforms");
  Need(RenderTexture.made==initial+1&&Material.made==1&&Mesh.made==1&&p.destroyed==0,"route churn allocated/destroyed scene-size targets");int draws=Graphics.draws;for(int i=0;i<100;i++)p.DrawPaintedWayfinding(scene,new Rect(),new Rect());Need(Graphics.draws==draws,"unchanged route rasterized on repaint");
  Graphics.fail=true;p.wayfindingHash++;p.DrawPaintedWayfinding(scene,new Rect(),new Rect());draws=Graphics.draws;for(int i=0;i<10;i++)p.DrawPaintedWayfinding(scene,new Rect(),new Rect());Need(Debug.errors==1&&Graphics.draws==draws&&RenderTexture.active==sentinel&&GL.sRGBWrite&&GL.pushes==0,"failed draw retried or corrupted active target/color/matrix state");
  Graphics.fail=false;scene.width++;p.DrawPaintedWayfinding(scene,new Rect(),new Rect());Need(RenderTexture.made==initial+2&&RenderTexture.released==1&&p.destroyed==3&&p.wayfindingRenderFailure==null,"actual canvas resize did not replace only its old resources");p.ReleaseWayfindingCanvas();Need(RenderTexture.released==2&&p.destroyed==6,"final scene cleanup leaked retained resources");Console.WriteLine("100 route updates+warm frames: RT/material/mesh retained; resize/error/cleanup bounded and GPU state restored PASS");}}
@@ -222,11 +235,21 @@ func TestWayfindingCSharpTemplatesCompileWithCurrentProtocol(t *testing.T) {
 	editor := editors[len(editors)-1]
 	mono := filepath.Join(editor, "Contents/Resources/Scripting/MonoBleedingEdge/bin/mono")
 	csc := filepath.Join(filepath.Dir(mono), "../lib/mono/4.5/csc.exe")
-	args := []string{csc, "/nologo", "/target:library", "/out:" + filepath.Join(tmp, "Wayfinding.dll")}
+	args := []string{csc, "/nologo", "/noconfig", "/nostdlib+", "/langversion:latest", "/target:library", "/out:" + filepath.Join(tmp, "Wayfinding.dll")}
 	refs, _ := filepath.Glob(filepath.Join(editor, "Contents/Resources/Scripting/Managed/UnityEngine/UnityEngine*.dll"))
-	refs = append(refs, filepath.Join(filepath.Dir(mono), "../lib/mono/4.8-api/Facades/netstandard.dll"), filepath.Join(filepath.Dir(mono), "../lib/mono/unityjit-macos/System.Net.Http.dll"), filepath.Join(filepath.Dir(mono), "../lib/mono/unityjit-macos/Facades/System.Memory.dll"))
+	// Use the same .NET Standard 2.1 reference surface as Unity 6/URP 17;
+	// Mono's older 4.8 facade resolves netstandard 2.0 and rejects URP itself.
+	standardRefs, _ := filepath.Glob(filepath.Join(editor, "Contents/Resources/Scripting/NetStandard/ref/2.1.0/*.dll"))
+	refs = append(refs, standardRefs...)
+	refs = append(refs, filepath.Join(editor, "Contents/Resources/Scripting/NetStandard/compat/2.1.0/shims/netstandard/System.Memory.dll"))
 	book := filepath.Dir(project)
-	transportRefs, _ := filepath.Glob(filepath.Join(book, "client-unity/Library/ScriptAssemblies/Cysharp*.dll"))
+	assemblies := os.Getenv("ANG_UNITY_ASSEMBLIES")
+	if assemblies == "" {
+		assemblies = filepath.Join(book, "client-unity/Library/ScriptAssemblies")
+	}
+	transportRefs, _ := filepath.Glob(filepath.Join(assemblies, "Cysharp*.dll"))
+	pipelineRefs, _ := filepath.Glob(filepath.Join(assemblies, "Unity.*.dll"))
+	refs = append(refs, pipelineRefs...)
 	refs = append(refs, transportRefs...)
 	if err := filepath.WalkDir(filepath.Join(book, "client-unity/Assets/Plugins/PocDependencies"), func(path string, d fs.DirEntry, err error) error {
 		if err == nil && !d.IsDir() && strings.HasSuffix(path, ".dll") {
@@ -239,6 +262,10 @@ func TestWayfindingCSharpTemplatesCompileWithCurrentProtocol(t *testing.T) {
 	for _, reference := range refs {
 		args = append(args, "/r:"+reference)
 	}
+	compiled, _, err := readCompiled(project)
+	if err != nil {
+		t.Fatal(err)
+	}
 	entries, err := sources.ReadDir("templates")
 	if err != nil {
 		t.Fatal(err)
@@ -249,6 +276,15 @@ func TestWayfindingCSharpTemplatesCompileWithCurrentProtocol(t *testing.T) {
 			continue
 		}
 		data, _ := sources.ReadFile("templates/" + name)
+		parsed, err := template.New(name).Delims("<<ANG", "ANG>>").Parse(string(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var rendered bytes.Buffer
+		if err := parsed.Execute(&rendered, compiled); err != nil {
+			t.Fatal(err)
+		}
+		data = rendered.Bytes()
 		dest := filepath.Join(tmp, strings.TrimSuffix(name, ".tmpl"))
 		if err := os.WriteFile(dest, data, 0600); err != nil {
 			t.Fatal(err)

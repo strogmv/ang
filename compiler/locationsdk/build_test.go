@@ -220,7 +220,7 @@ func TestBuildRejectsInvalidGeometryAccessAndUnsupportedFeatures(t *testing.T) {
 		edit       func(*Catalog, *Layout)
 	}{
 		{"units", "unsupported_units", func(c *Catalog, l *Layout) { l.UnitMM = 1000 }},
-		{"decks", "unsupported_decks", func(c *Catalog, l *Layout) { l.Decks = []Deck{{ID: "other", Elevation: 6}} }},
+		{"connector without decks", "multideck_without_decks", func(c *Catalog, l *Layout) { l.Connectors = []Connector{{ID: "other", Kind: "stair"}} }},
 		{"duplicate instances", "duplicate_or_invalid_instance", func(c *Catalog, l *Layout) { l.Instances = append(l.Instances, l.Instances[0]) }},
 		{"overlap", "physical_overlap", func(c *Catalog, l *Layout) { l.Instances[1].At = l.Instances[0].At }},
 		{"blocked use approach", "clearance_obstructed", func(c *Catalog, l *Layout) { l.Instances[1].At = Cell{3, 3} }},
@@ -391,5 +391,31 @@ func TestSocketEntireBoxMustFitModuleAndRotatesWithAttachment(t *testing.T) {
 				t.Fatalf("exact-fitting attachment did not follow rotation%d: %#v", tc.rotation, view.Decorations)
 			}
 		}
+	}
+}
+
+func TestSightClearSolidKeepsNavigationAndRevealsBehindIt(t *testing.T) {
+	input := Input{Catalog: testCatalog(), Layouts: []Layout{testLayouts()[0]}}
+	solid, err := CompileRuntime(input, RuntimeOptions{TickHz: 10, MoveEveryTicks: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.Catalog.Geometries[0].SightClear = true
+	clear, err := CompileRuntime(input, RuntimeOptions{TickHz: 10, MoveEveryTicks: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, b := solid.Levels[0], clear.Levels[0]
+	if a.Terrain[2][3] != '#' || b.Terrain[2][3] != '+' {
+		t.Fatal("sight-transparent obstacle lost its physical glyph")
+	}
+	if b.WalkableGlyphs[0] != "." || strings.Contains(strings.Join(b.OpaqueGlyphs, ""), "+") {
+		t.Fatal("counter became walkable or opaque")
+	}
+	if a.StructuralHash == b.StructuralHash {
+		t.Fatal("visibility contract change was not locked into structure")
+	}
+	if !reflect.DeepEqual(a.Instances[0].Blocked, b.Instances[0].Blocked) {
+		t.Fatal("visibility policy changed physical footprint")
 	}
 }

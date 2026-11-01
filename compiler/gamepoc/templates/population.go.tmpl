@@ -29,7 +29,10 @@ func (r *Runtime) appendPopulationResidents(v *Runtime, level string) {
 		if !a.Materialized || a.Trip != nil || a.Level != level {
 			continue
 		}
-		agent := demoAgent{ID: a.ID, Name: a.Name, Position: location(a.Position), Task: a.Activity, Role: "Статист POC", MoveStartNS: a.MoveStartTick * r.tickNS()}
+		task := a.Activity
+        if a.Brain.Place.ID!=""&&a.Activity==a.Brain.Target.Activity{task=a.Brain.Target.Label}
+		if task == "waiting_platform" { task = "life.activity.waiting_platform" }
+		agent := demoAgent{ID: a.ID, Name: a.Name, Position: location(a.Position), Task: task, Role: "life.role.resident", MoveStartNS: r.lifeMotionStartNS(a.MoveStartTick,r.state.Life,r.state.Tick)}
 		for _, at := range a.Path {
 			agent.Path = append(agent.Path, location(at))
 		}

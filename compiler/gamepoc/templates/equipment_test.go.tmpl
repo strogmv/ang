@@ -102,13 +102,14 @@ func TestContinuousCameraLeadRefreshesSameCellAndStopsSearch(t *testing.T){
  for i:=0;i<12;i++{r.state.Tick++;r.cameraStep();r.socialStep();if d.Squad.Track.Position!=cell(r.state.Player)||d.Squad.Track.ObservedTick!=r.state.Tick||d.Squad.Phase=="searching"||d.Squad.Phase=="search_assembling"{t.Fatalf("live camera was ignored: track=%+v phase=%s",d.Squad.Track,d.Squad.Phase)}}
  at,tick:=d.Squad.Track.Position,d.Squad.Track.ObservedTick;r.world.Scene.Cameras=nil;r.state.Player=point{18,8};r.state.Tick++;r.socialStep();if d.Squad.Track.Position!=at||d.Squad.Track.ObservedTick!=tick{t.Fatal("camera blackout leaked hidden current position or renewed its timestamp")}
 }
-func TestSpectatorRepeatsAStationarySightingWithoutSpamming(t *testing.T){
+func TestSpectatorOnlyRepeatsChangedSightings(t *testing.T){
  r:=reportedLeadFixture(t);r.world.Scene.Cameras=nil;r.state.Player=point{8,7};a:=r.sceneActor("char.market_granny");a.Position=point{7,7};a.Path=nil;a.Personal.GoalID="goal.scene.observe";a.Personal.Intent="gather_watch"
  a.Memory.Record(behavior.Fact{Subject:"post",Kind:"siren",Source:"hearing",Value:true,ObservedTick:r.state.Tick},r.world.AI.Policy.Memory)
  record:=func(){a.Memory.Record(behavior.Fact{Subject:r.missionSubject(),Kind:"incident",Source:"sight",Value:true,Position:cell(r.state.Player),ObservedTick:r.state.Tick},r.world.AI.Policy.Memory);r.reportSighting(a)}
  record();if len(r.state.Demo.AlarmLog)!=1{t.Fatal("spectator did not warn")};r.hearSounds();r.relayOperatorReport();r.refreshGroupLead(r.squadMembers());if r.state.Demo.Squad.Track.Position!=cell(r.state.Player){t.Fatal("audible spectator coordinates did not reach the group")}
- first:=a.LastReportTick;r.state.Tick+=r.world.AI.Policy.Perception.Reports.CooldownTicks;record();if len(r.state.Demo.AlarmLog)!=1{t.Fatal("unchanged sighting flooded listeners")}
- r.state.Tick=first+r.world.AI.Policy.Perception.Reports.RefreshTicks;record();if len(r.state.Demo.AlarmLog)!=2||a.LastReportTick!=r.state.Tick{t.Fatal("stationary sighting never refreshed")}
+ events:=len(r.state.Demo.Events);first:=a.LastReportTick;r.state.Tick+=r.world.AI.Policy.Perception.Reports.CooldownTicks;record();if len(r.state.Demo.AlarmLog)!=1{t.Fatal("unchanged sighting flooded listeners")}
+ r.state.Tick=first+r.world.AI.Policy.Perception.Reports.RefreshTicks;record();if len(r.state.Demo.AlarmLog)!=2||a.LastReportTick!=r.state.Tick||len(r.state.Demo.Events)!=events{t.Fatal("stationary report must refresh knowledge without repeating prose")}
+ r.state.Tick+=r.world.AI.Policy.Perception.Reports.CooldownTicks;r.state.Player=point{10,7};record();if len(r.state.Demo.AlarmLog)!=3{t.Fatal("changed sighting was suppressed")}
 }
 
 func TestEquippedSquadReturnsFromServiceAcrossNorthernCorridor(t *testing.T){

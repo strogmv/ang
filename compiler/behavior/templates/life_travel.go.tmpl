@@ -3,19 +3,26 @@ package behavior
 
 func(s *LifeState)ControlledTravelEdge(m LifeModel)*LifeEdge{
  a:=s.Actor(s.ControlledActorID);if a==nil{return nil};if a.Trip!=nil{return m.Edge(a.Trip.Edge)}
- if len(a.Path)>0||a.YieldUntil>s.Tick{return nil};person:=m.Person(a.ID);if person==nil||a.Step<0||a.Step>=len(person.Steps){return nil}
+ if len(a.Path)>0||a.YieldUntil>m.MotionTick(s.Tick,s.Seconds){return nil};person:=m.Person(a.ID);if person==nil||a.Step<0||a.Step>=len(person.Steps){return nil}
  target:=a.OverrideLevel;if target==""{if a.Manual||a.Arrived{return nil};target=person.Steps[a.Step].Level};if target==a.Level{return nil}
  edge:=m.NextEdge(a.Level,target);if a.OverrideEdge!=""{edge=m.Edge(a.OverrideEdge)};if edge==nil||edge.From!=a.Level||a.Position!=edge.Exit{return nil};return edge
 }
 func(s *LifeState)BeginControlledTravel(m LifeModel,admit LifeAdmission)*LifeEdge{
  edge:=s.ControlledTravelEdge(m);if edge==nil{return nil};a:=s.Actor(s.ControlledActorID);if a.Trip==nil{s.beginLifeTrip(m,a,edge,admit)};return edge
 }
-func(s *LifeState)beginLifeTrip(m LifeModel,a *LifeActor,edge *LifeEdge,admit LifeAdmission)bool{
+// A selected departure survives only the current elapsed interval. Congestion
+// cannot turn a missed train into a trip whose travel time has already passed.
+// Existing constant-period edges retain their strict next-slot semantics.
+func(e LifeEdge)boardingDeparture(selected,now,previousSeconds int64)int64{
+ if selected==0||selected<now&&(e.NightPeriodSeconds==0||e.PeriodSeconds==0||selected<previousSeconds){return e.NextDeparture(now)}
+ return selected
+}
+func(s *LifeState)beginLifeTrip(m LifeModel,a *LifeActor,edge *LifeEdge,admit LifeAdmission,elapsedFrom ...int64)bool{
+ defer s.ObserveDecisions()
    if a.AdmissionDeniedEdge==edge.ID{a.Activity="waiting";a.Label="transit.fare_denied";return false}
-   // Preserve an already queued day/night slot when the accelerated calendar
-   // steps across its departure. Legacy constant-period edges keep old timing.
-   if a.WaitingDeparture==0||(a.WaitingDeparture<s.Seconds&&(edge.NightPeriodSeconds==0||edge.PeriodSeconds==0)){a.WaitingDeparture=edge.NextDeparture(s.Seconds)}
-   if s.Seconds<a.WaitingDeparture{a.Activity="waiting";a.Label="Ждёт монорельс";return false}
+   previousSeconds:=s.Seconds;if len(elapsedFrom)>0{previousSeconds=elapsedFrom[0]}
+   a.WaitingDeparture=edge.boardingDeparture(a.WaitingDeparture,s.Seconds,previousSeconds)
+   if s.Seconds<a.WaitingDeparture-edge.BoardingWindowSeconds{a.Activity="waiting";a.Label="Ждёт монорельс";return false}
    seated:=0;for _,other:=range s.Actors{if other.Trip!=nil&&other.Trip.Edge==edge.ID&&other.Trip.Departure==a.WaitingDeparture{seated++}}
    for _,other:=range s.Population.Actors{if other.Trip!=nil&&other.Trip.Edge==edge.ID&&other.Trip.Departure==a.WaitingDeparture{seated++}}
    if seated>=edge.Seats{if edge.PeriodSeconds>0{a.WaitingDeparture=edge.NextDeparture(a.WaitingDeparture+1)};a.Activity="waiting";a.Label="Ждёт свободный рейс";return false}
@@ -23,13 +30,18 @@ func(s *LifeState)beginLifeTrip(m LifeModel,a *LifeActor,edge *LifeEdge,admit Li
    a.AdmissionDeniedEdge="";a.Trip=&LifeTrip{Edge:edge.ID,Departure:a.WaitingDeparture,Arrival:a.WaitingDeparture+edge.TravelSeconds};a.Activity="transit";a.Label="Переход";if edge.Mode=="rail"{a.Label="Едет на монорельсе"};s.note(m.Person(a.ID).Name+": "+a.Label+" → "+m.Locations[edge.To].Name);return true
 }
 func(s *LifeState)SettleControlledArrival(){
- a:=s.Actor(s.ControlledActorID);if a==nil||a.Trip!=nil{return};if a.OverrideLevel==a.Level&&a.OverrideAt==a.Position&&len(a.Path)==0{a.Arrived=true;a.StartedAt=s.Seconds;a.Activity="rest";a.Label="Прибыл";a.OverrideLevel="";a.OverrideEdge=""}
+ a:=s.Actor(s.ControlledActorID);if a==nil||a.Trip!=nil{return};if a.OverrideLevel==a.Level&&a.OverrideAt==a.Position&&len(a.Path)==0{a.Arrived=true;a.StartedAt=s.Seconds;a.Activity="rest";a.Label="Прибыл";a.OverrideLevel="";a.OverrideEdge="";s.ObserveDecisions()}
 }
 
 // Old saves may contain a due Trip whose landing became free later in the same
 // frame. Complete it at the already elapsed time rather than adding a fake second.
-func(s *LifeState)TryCompleteControlledArrival(m LifeModel)bool{a:=s.Actor(s.ControlledActorID);return a!=nil&&a.Trip!=nil&&s.tryLifeArrival(m,a,s.Tick)}
+func(s *LifeState)TryCompleteControlledArrival(m LifeModel)bool{a:=s.Actor(s.ControlledActorID);return a!=nil&&a.Trip!=nil&&s.tryLifeArrival(m,a,m.MotionTick(s.Tick,s.Seconds))}
 func(s *LifeState)tryLifeArrival(m LifeModel,a *LifeActor,tick int64)bool{
  e:=m.Edge(a.Trip.Edge);if e==nil||s.Seconds<a.Trip.Arrival{return false};entry,free:=s.lifeArrivalCell(m,*e,a.ID);if !free{return false};a.Level=e.To;a.Position=entry;a.Goal=entry
  if a.OverrideLevel==e.To&&a.OverrideAt==e.Entry{a.OverrideAt=entry;a.OverrideEdge=""};a.Trip=nil;a.Path=nil;a.PendingPath=nil;a.MoveStartTick=tick;a.WaitingDeparture=0;a.Visits[e.To]++;s.note(m.Person(a.ID).Name+": прибыл — "+m.Locations[e.To].Name);return true
 }
+
+// Future departures are valid only during an explicitly authored berth window.
+// Once aboard, a passenger reserves a seat and waits until Departure; Arrival
+// remains Departure + TravelSeconds, never boarding time + TravelSeconds.
+func(e LifeEdge)validBoardedDeparture(departure,now int64)bool{return departure<=now||(e.Mode=="rail"&&e.BoardingWindowSeconds>0&&departure-now<=e.BoardingWindowSeconds&&e.NextDeparture(departure)==departure)}

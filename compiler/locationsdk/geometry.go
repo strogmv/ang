@@ -89,6 +89,17 @@ func normalizeGeometry(g Geometry, path string) (Geometry, *ValidationError) {
 			return g, issue("blocked_without_footprint", path+".blocked", "blocked cells must belong to the physical footprint")
 		}
 	}
+	if len(g.SightClearCells) > 0 {
+		if g.SightClearCells, e = canonicalCells(g.SightClearCells, path+".sight_clear_cells", inside); e != nil {
+			return g, e
+		}
+		blocked := cellSet(g.Blocked)
+		for _, at := range g.SightClearCells {
+			if !blocked[at] {
+				return g, issue("sight_clear_without_blocked", path+".sight_clear_cells", "sight-clear cells are low blocked parts of the module")
+			}
+		}
+	}
 	for _, cells := range [][]Cell{g.UseClearance, g.MaintenanceClearance} {
 		for _, at := range cells {
 			if physical[at] {
@@ -113,12 +124,15 @@ func normalizeGeometry(g Geometry, path string) (Geometry, *ValidationError) {
 		if len(p.Opening) == 0 {
 			p.Opening = []Cell{p.At}
 		}
+		if len(p.Opening) > 512 {
+			return g, issue("port_opening_budget", pp+".opening", "opening exceeds 512 authored edge cells")
+		}
+		if len(p.Approach) > 65536 {
+			return g, issue("port_approach_budget", pp+".approach", "approach exceeds 65536 authored cells")
+		}
 		p.Opening, e = canonicalCells(p.Opening, pp+".opening", near)
 		if e != nil {
 			return g, e
-		}
-		if len(p.Opening) > 512 {
-			return g, issue("port_opening_budget", pp+".opening", "opening exceeds 512 authored edge cells")
 		}
 		containsAt := false
 		for j, at := range p.Opening {
@@ -149,20 +163,37 @@ func normalizeGeometry(g Geometry, path string) (Geometry, *ValidationError) {
 			}
 		}
 		front, _ := sideDelta(p.Side)
-		nearPort := false
 		for _, at := range p.Approach {
 			dx, dy := at.X-p.At.X, at.Y-p.At.Y
 			if dx*front.X+dy*front.Y < 0 {
 				return g, issue("port_approach_not_front", pp+".approach", "approach must be at or in front of the port's authored side")
 			}
-			for _, opening := range p.Opening {
-				if abs(at.X-opening.X)+abs(at.Y-opening.Y) <= 1 {
-					nearPort = true
+		}
+		// The opening can join separate frontage strips, but no authored
+		// approach cell may depend on unrelated floor to reach this port.
+		allowed, reached := cellSet(p.Approach), cellSet(p.Opening)
+		queue := append([]Cell{}, p.Opening...)
+		for head := 0; head < len(queue); head++ {
+			at := queue[head]
+			for _, step := range [...]Cell{{0, -1}, {1, 0}, {0, 1}, {-1, 0}} {
+				next := Cell{at.X + step.X, at.Y + step.Y}
+				if allowed[next] && !reached[next] {
+					reached[next] = true
+					queue = append(queue, next)
 				}
 			}
 		}
-		if !nearPort {
+		connected := 0
+		for _, at := range p.Approach {
+			if reached[at] {
+				connected++
+			}
+		}
+		if connected == 0 {
 			return g, issue("port_approach_too_far", pp+".approach", "at least one approach cell must touch its port")
+		}
+		if connected != len(p.Approach) {
+			return g, issue("port_approach_disconnected", pp+".approach", "every approach cell must connect cardinally to the opening through authored approach cells")
 		}
 		g.Ports[i] = p
 	}

@@ -27,7 +27,7 @@ namespace AngelsDemons.Poc
     [Serializable] public sealed class PocLoadingScreen { public string id, image, context; }
     [Serializable] public sealed class PocLoading { public string caption; public int min_ms; public PocLoadingScreen[] screens; }
     [Serializable] public sealed class PocMenu { public string background; }
-    [Serializable] public sealed class PocResource { public PocLocationSDKBundle location_sdk; public PocLocalization localization; public PocConfiguration config; public string content_hash; public PocArt art; public PocLoading loading; public PocMenu menu; public PocSpatialModel spatial; }
+    [Serializable] public sealed class PocResource { public PocModularLocation[] modular_locations; public PocLocationSDKBundle location_sdk; public PocLocalization localization; public PocConfiguration config; public string content_hash; public PocArt art; public PocLoading loading; public PocMenu menu; public PocSpatialModel spatial; }
     [Serializable] public sealed class HostReady { public string address, host_id; }
 
     public sealed partial class AngelsDemonsPoc : MonoBehaviour
@@ -65,6 +65,9 @@ namespace AngelsDemons.Poc
         float volume;
         int fps;
         bool fullscreen;
+        // Presentation only (0 economy, 1 full): never changes simulation, knowledge or saves.
+        int graphicsQuality = 1;
+        bool GraphicsFull => graphicsQuality != 0;
         Texture2D diamond, disc;
         // Sprites from CUE art tokens: Resources/Sprites/<file>.png (hand-made) wins over Resources/Sprites/generated/<file>.png.
         readonly Dictionary<char, PocSprite> glyphSprites = new Dictionary<char, PocSprite>();
@@ -194,6 +197,7 @@ namespace AngelsDemons.Poc
         string startLocationSDK;
         async void Start()
         {
+            PocRendering.RequireActive();
             Application.runInBackground = true;
             verifyCapture = Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-capture-verify") >= 0;
             verifyInventory = Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-inventory-verify") >= 0;
@@ -208,15 +212,18 @@ namespace AngelsDemons.Poc
             int sdkLaunch=Array.IndexOf(launchArgs,"--poc-start-sdk");
             if(sdkLaunch>=0&&sdkLaunch+1<launchArgs.Length){startLocationSDK=launchArgs[sdkLaunch+1];startMarketPending=false;}
             InitLocationSDKProof();
+            InitMultideckProof();
             InitWayfindingProof();
             InitRegionMapProof();
             InitPaintedProof();
             InitCharacterMotionProof();
             InitStationBerthProof();
+            InitStationLifeProof();
+            InitStorefrontProof();
             InitCopperRouteProof();
             InitTransportHubProof();
             InitAmbientProof();
-            verifyLife = verifyStationBerth || verifyCharacterMotion || verifyRegionMap || verifyTransportHub || verifyWayfinding || verifyCopperRoute || verifyAmbient || verifyLocationSDK || verifyPainted || verifySdk || verifySpatial || verifyDevelopment || verifyInspection || verifyMaintenance || verifyDoors || Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-life-verify") >= 0;
+            verifyLife = verifyStorefronts || verifyStationLife || verifyStationBerth || verifyCharacterMotion || verifyRegionMap || verifyTransportHub || verifyWayfinding || verifyCopperRoute || verifyAmbient || verifyLocationSDK || verifyMultideck || verifyPainted || verifySdk || verifySpatial || verifyDevelopment || verifyInspection || verifyMaintenance || verifyDoors || Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-life-verify") >= 0;
             verify = verifyLife || verifyInventory || verifyCapture || Array.IndexOf(Environment.GetCommandLineArgs(), "--poc-verify") >= 0;
             resource = JsonUtility.FromJson<PocResource>(Resources.Load<TextAsset>("PocConfig").text);
             if (TryStartArtPreview()) return;
@@ -235,6 +242,7 @@ namespace AngelsDemons.Poc
             volume = PlayerPrefs.GetFloat(Pref("volume"), .7f);
             fps = PlayerPrefs.GetInt(Pref("fps"), 60);
             fullscreen = PlayerPrefs.GetInt(Pref("fullscreen"), 0) != 0;
+            graphicsQuality = Mathf.Clamp(PlayerPrefs.GetInt(Pref("graphics"), 1), 0, 1);
             ApplyDisplay();
             token = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
             try
@@ -346,14 +354,15 @@ namespace AngelsDemons.Poc
             shownPosition = SamplePath(new Vector2(state.PlayerX, state.PlayerY), state.Path, state.MotionStartNs, state.MovementStepNs, ns);
         }
 
-        bool ClickMove(int x, int y)
+        // deck: surface index of a multi-deck location (document 80); 0 elsewhere.
+        bool ClickMove(int x, int y, int deck = 0)
         {
             if (!CanSend()) { message = connected ? "Дождитесь завершения текущего действия" : "Нет связи с сервером"; return false; }
             pendingMove = ++moveSequence;
             clickedTile = new Vector2(x, y); clickStartPosition = shownPosition;
             clickAt = clock.Elapsed.TotalSeconds; markerUntil = clickAt + 3;
             moveStatus = "Проверяем путь…"; moveAccepted = false; ackMS = -1; beginMS = -1; beginPending = true; latencyResultReady = false;
-            try { session.SendMoveTo(new MoveTo { X = x, Y = y, Epoch = state.Epoch, InputSeq = pendingMove }); }
+            try { session.SendMoveTo(new MoveTo { X = x, Y = y, Deck = deck, Epoch = state.Epoch, InputSeq = pendingMove }); }
             catch (Exception e) { beginPending = false; moveStatus = "Команда не отправлена"; message = e.Message; return false; }
             return true;
         }
@@ -451,8 +460,9 @@ namespace AngelsDemons.Poc
 #if !UNITY_EDITOR
             if (Screen.fullScreen != fullscreen) Screen.fullScreen = fullscreen;
 #endif
-            PlayerPrefs.SetInt(Pref("fps"), fps); PlayerPrefs.SetFloat(Pref("volume"), volume); PlayerPrefs.SetInt(Pref("fullscreen"), fullscreen ? 1 : 0); PlayerPrefs.Save();
+            PlayerPrefs.SetInt(Pref("fps"), fps); PlayerPrefs.SetFloat(Pref("volume"), volume); PlayerPrefs.SetInt(Pref("fullscreen"), fullscreen ? 1 : 0); PlayerPrefs.SetInt(Pref("graphics"), graphicsQuality); PlayerPrefs.Save();
         }
+        public void SetGraphicsQuality(int value) { graphicsQuality = Mathf.Clamp(value, 0, 1); ApplyDisplay(); }
 
         void PrepareStyles()
         {
@@ -573,6 +583,9 @@ namespace AngelsDemons.Poc
             foreach (int choice in new[] { 15, 30, 40, 60, 144 }) if (GUILayout.Button((fps == choice ? "● " : "") + choice + " FPS", GUILayout.Width(130), GUILayout.Height(35))) { fps = choice; ApplyDisplay(); }
             GUILayout.EndHorizontal(); GUILayout.Space(18);
             bool full = GUILayout.Toggle(fullscreen, L("ui.options.fullscreen"), GUILayout.Height(30)); if (full != fullscreen) { fullscreen = full; ApplyDisplay(); }
+            GUILayout.Space(12); GUILayout.Label(L("ui.options.graphics"), textStyle); GUILayout.BeginHorizontal();
+            foreach (int choice in new[] { 0, 1 }) if (GUILayout.Button((graphicsQuality == choice ? "● " : "") + L(choice == 0 ? "ui.options.graphics_economy" : "ui.options.graphics_full"), GUILayout.Width(270), GUILayout.Height(35))) SetGraphicsQuality(choice);
+            GUILayout.EndHorizontal();
             if (state != null && state.Active)
             {
                 GUILayout.Space(18); GUILayout.Label(L("ui.options.world_speed"), textStyle); GUILayout.BeginHorizontal();
@@ -792,10 +805,13 @@ namespace AngelsDemons.Poc
             if (!connected || state == null || !string.IsNullOrEmpty(busy)) return;
             if (verifyCharacterMotion) { CharacterMotionProofStep(now); return; }
             if (verifyStationBerth) { StationBerthProofStep(now); return; }
+            if (verifyStationLife) { StationLifeProofStep(now); return; }
+            if (verifyStorefronts) { StorefrontProofStep(now); return; }
             if (verifyRegionMap) { RegionMapProofStep(now); return; }
             if (verifyTransportHub) { TransportHubProofStep(now); return; }
             if (verifyWayfinding) { WayfindingProofStep(now); return; }
             if (verifyLocationSDK) { LocationSDKProofStep(now); return; }
+            if (verifyMultideck) { MultideckProofStep(now); return; }
             if (verifyAmbient) { AmbientProofStep(now); return; }
             if (verifyCopperRoute) { CopperRouteProofStep(now); return; }
             if (verifySdk) { SdkProofStep(now); return; }
@@ -878,6 +894,7 @@ namespace AngelsDemons.Poc
             // after Update sent input. Keep callbacks on the Unity main thread.
             if (session != null) session.Pump(32);
             UpdateMotion();
+            RenderLocationSDKFrame();
             if (verify && proofPhase == 9 && clock.Elapsed.TotalSeconds - proofAt > 1.2 && session == null) { proofPhase = 10; Connect(); }
         }
         void FinishProof(bool ok, string detail)
@@ -892,11 +909,14 @@ namespace AngelsDemons.Poc
             if (verifyLife) json = json.Substring(0,json.Length-1) + ",\"life\":" + LifeReportJSON() + "}";
             if (verifyPainted) json=json.Substring(0,json.Length-1)+",\"painted\":"+PaintedProofReportJSON()+"}";
             if (verifyCharacterMotion) json=json.Substring(0,json.Length-1)+",\"character_motion\":"+CharacterMotionReportJSON()+"}";
+            if (verifyStationLife) json=json.Substring(0,json.Length-1)+",\"station_life\":"+StationLifeReportJSON()+"}";
+            if (verifyStorefronts) json=json.Substring(0,json.Length-1)+",\"storefronts\":"+StorefrontProofReportJSON()+"}";
             if (verifyStationBerth) json=json.Substring(0,json.Length-1)+",\"station_berth\":"+StationBerthReportJSON()+"}";
             if (verifyCopperRoute) json=json.Substring(0,json.Length-1)+",\"copper_route\":"+CopperRouteProofReportJSON()+"}";
             if (verifyTransportHub) json=json.Substring(0,json.Length-1)+",\"transport_hub\":"+TransportHubProofReportJSON()+"}";
             if (verifyAmbient) json=json.Substring(0,json.Length-1)+",\"ambient\":"+AmbientProofReportJSON()+"}";
             if (verifyLocationSDK) json=json.Substring(0,json.Length-1)+",\"location_sdk\":"+LocationSDKProofReportJSON()+"}";
+            if (verifyMultideck) json=json.Substring(0,json.Length-1)+",\"multideck\":"+MultideckProofReportJSON()+"}";
             if (verifyWayfinding) json=json.Substring(0,json.Length-1)+",\"wayfinding\":"+WayfindingProofReportJSON()+"}";
             if (verifyRegionMap) json=json.Substring(0,json.Length-1)+",\"region_map\":"+RegionMapProofReportJSON()+"}";
             File.WriteAllText(Path.Combine(destination, "report.json"), json);
@@ -907,10 +927,13 @@ namespace AngelsDemons.Poc
         {
             if (verifyCharacterMotion) return characterMotionDirectory;
             if (verifyStationBerth) return stationBerthDirectory;
+            if (verifyStationLife) return stationLifeDirectory;
+            if (verifyStorefronts) return storefrontProofDirectory;
             if (verifyRegionMap) return regionProofDirectory;
             if (verifyTransportHub) return transportHubProofDirectory;
             if (verifyWayfinding) return wayfindingProofDirectory;
             if (verifyLocationSDK) return locationSDKProofDirectory;
+            if (verifyMultideck) return multideckProofDirectory;
             if (verifyAmbient) return ambientProofDirectory;
             if (verifyCopperRoute) return copperRouteProofDirectory;
             if (verifyPainted) return paintedProofDirectory;

@@ -34,4 +34,5 @@ if [ -n "${STATICCHECK:-}" ]; then
 else
 	go run "honnef.co/go/tools/cmd/staticcheck@${STATICCHECK_VERSION}" -checks "$CHECKS" ./...
 fi
+go run ./scripts/check_generated_rng
 echo "lint: ok"

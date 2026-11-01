@@ -40,6 +40,8 @@ type demoPolicy struct {
 }
 type npcRequest struct { Kind string; Priority int }
 type demoAgent struct {
+ SquadProgressTick int64
+ SquadProgressAt point
  PerceivedFear float64
  Speech string
  SpeechUntil,LastGroupCallTick int64
@@ -72,7 +74,7 @@ type demoAgent struct {
  MoveStartNS,ReplyAt,PausedAtNS,BusyUntil int64
  Inbox []npcRequest
 }
-type demoCandidate struct { AgentID string; Rank,Distance int; Requested,Selected bool; Reason string }
+type demoCandidate struct { Unavailable bool; AgentID string; Rank,Distance int; Requested,Selected bool; Reason string }
 // alarmRecord is an NPC-originated world event: who raised it, where, when and why.
 type alarmRecord struct { HasTarget bool;KnownTarget point;ObservedTick int64;Tick int64; ActorID,Cause,Kind string; At point }
 type demoState struct {
@@ -151,10 +153,10 @@ func(r *Runtime) dangerLevel()behavior.DangerLevel{return r.world.AI.Policy.Dang
 // The dispatcher widens the call with the danger level: more people are asked in parallel
 // (extra_assignees) and farther away (call_radius_cells); surplus volunteers are released.
 func(r *Runtime) requestResponders(){
- d:=&r.state.Demo;cfg:=r.world.Config.CaptureDemo;pending:=0;level:=r.dangerLevel()
+ d:=&r.state.Demo;if d.Plan.Status=="failed"||d.Plan.Status=="completed"{return};cfg:=r.world.Config.CaptureDemo;pending:=0;level:=r.dangerLevel()
  for _,c:=range d.Candidates{if c.Selected||c.Reason=="Запрос отправлен"||c.Reason=="Обдумывает"{pending++}}
  for i:=range d.Candidates{
-  if pending>=cfg.RequiredResponders+level.ExtraAssignees{break};c:=&d.Candidates[i];if c.Requested{continue}
+  if pending>=cfg.RequiredResponders+level.ExtraAssignees{break};c:=&d.Candidates[i];if c.Requested||c.Unavailable{continue}
   if level.CallRadius>0&&c.Distance>level.CallRadius{continue}
   a:=&d.Agents[r.demoAgentIndex(c.AgentID)];a.Inbox=append(a.Inbox,npcRequest{Kind:"capture",Priority:cfg.CapturePriority})
   c.Requested=true;c.Reason="Запрос отправлен";pending++
@@ -183,7 +185,7 @@ func(r *Runtime) thinkAgent(i int){
   case selected>=cfg.RequiredResponders:
    a.Task=a.ResumeTask;c.Reason="Резерв: состав набран";r.demoEvent(a.Name+": согласен, но состав уже набран")
   default:
-   c.Selected=true;c.Reason="Согласился";a.Task="await_team";a.BusyUntil=0
+   c.Selected=true;a.SquadProgressTick=r.state.Tick;a.SquadProgressAt=a.Position;c.Reason="Согласился";a.Task="await_team";a.BusyUntil=0
    if len(a.Path)>0{a.Path=a.Path[:1];a.Task="joining"}
    r.demoEvent(a.Name+": согласен, жду группу")
   }
@@ -262,7 +264,7 @@ func(r *Runtime) demoStep(){
  r.socialStep();r.gestureStep();r.groupCallStep();r.advanceGroupMovement()
  for i:=range d.Agents{r.advanceAgent(i)}
  for i:=range d.Residents{r.advanceResident(&d.Residents[i])}
- r.sceneProgressStep()
+ r.sceneProgressStep();r.recoverCaptureMember()
  if !d.Issued||d.Plan.Status=="failed"{return}
  r.requestResponders();r.missionStep();r.missionProgressStep()
 }
@@ -285,7 +287,7 @@ func(r *Runtime) appendDemo(msg *pb.PocGameState){
  r.appendResidentStates(msg);r.projectNPCMotion(msg)
 }
 func(r *Runtime) snapshotState()state{
- s:=r.state;s.Region=s.Region.clone();s.Life=s.Life.Clone();s.LifeExploration=cloneExploration(s.LifeExploration);s.Exploration=cloneExploration(s.Exploration);s.HeroHearing=s.HeroHearing.Clone();s.Poses=map[string]actorPose{};for id,p:=range r.state.Poses{s.Poses[id]=p};s.Inventory=s.Inventory.Clone();s.Path=append([]point(nil),s.Path...)
+ s:=r.state;s.NPCEconomy=r.state.NPCEconomy.clone();s.Region=s.Region.clone();s.Life=s.Life.Clone();s.LifeExploration=cloneExploration(s.LifeExploration);s.Exploration=cloneExploration(s.Exploration);s.HeroHearing=s.HeroHearing.Clone();s.Poses=map[string]actorPose{};for id,p:=range r.state.Poses{s.Poses[id]=p};s.Inventory=s.Inventory.Clone();s.Path=append([]point(nil),s.Path...)
  s.Demo.Shadow=s.Demo.Shadow.Clone();s.Demo.Supply=s.Demo.Supply.Clone();s.Demo.Squad=s.Demo.Squad.Clone();s.Demo.Crowd=s.Demo.Crowd.Clone()
  s.Demo.Residents=append([]demoAgent(nil),s.Demo.Residents...)
  for i:=range s.Demo.Residents{a:=&s.Demo.Residents[i];a.Path=append([]point(nil),a.Path...);a.Memory=a.Memory.Clone();a.Personal=a.Personal.Clone()}
@@ -301,6 +303,8 @@ func(r *Runtime) validateDemoSave(s state)error{
  cfg:=r.world.Config.CaptureDemo
  if err:=r.validateSocialSave(s);err!=nil{return err}
  if len(s.Demo.Agents)!=len(cfg.Agents)||len(s.Demo.Candidates)>len(cfg.Agents)||len(s.Demo.Events)>32{return errors.New("invalid demo save")}
+ for _,a:=range s.Demo.Agents{if a.SquadProgressTick<0||a.SquadProgressTick>s.Tick{return errors.New("invalid saved member progress")}}
+ for _,c:=range s.Demo.Candidates{if c.Unavailable&&c.Selected{return errors.New("unavailable member remains selected")}}
  for i,a:=range s.Demo.Agents{
   if a.ID!=cfg.Agents[i].ID||!r.walkable(a.Position)||len(a.Path)>len(r.world.Terrain)*len(r.world.Terrain[0])||len(a.Inbox)>4{return errors.New("invalid demo actor")}
   switch a.Task{case "shadowing","escorting","supplying","equipping","searching","search_assembling","search_report","blocked","patrol","extra_work","considering","joining","await_team","responding","holding","capturing","transporting","delivered","working","assembling","approaching","committing","gather_watch","withdraw","returning","yielding","fleeing","assisting","avoiding","holding_post","investigating":default:return errors.New("invalid demo task")}

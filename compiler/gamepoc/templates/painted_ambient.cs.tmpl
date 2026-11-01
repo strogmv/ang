@@ -145,7 +145,7 @@ namespace AngelsDemons.Poc {
    foreach(var c in paintedAmbientCaches){if(c.mask!=null)Destroy(c.mask);if(c.observation!=null)Destroy(c.observation);if(c.layer!=null){c.layer.Release();Destroy(c.layer);}if(c.material!=null)Destroy(c.material);}
    paintedAmbientCaches.Clear();paintedAmbientLevel=null;
   }
-  void OnDisable(){ReleasePaintedAmbient();}
+  void OnDisable(){ReleasePaintedAmbient();ReleaseStorefronts();}
   void PreparePaintedAmbient(PocPaintedScene scene){
    if(paintedAmbientLevel==scene.level_id)return;ReleasePaintedAmbient();paintedAmbientLevel=scene.level_id;
    if(scene.ambient_passages==null||scene.ambient_passages.Length==0)return;

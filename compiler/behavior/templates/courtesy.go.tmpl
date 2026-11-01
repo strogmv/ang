@@ -22,12 +22,32 @@ func(m LifeModel)courtesyDetourBudget()int{if m.Courtesy.MaxDetourExtraCells>0{r
 func(m LifeModel)courtesyHostileThreshold()float64{if m.Courtesy.HostileAtOrBelow<0{return m.Courtesy.HostileAtOrBelow};return -.5}
 func(m LifeModel)courtesyLookahead()int{n:=m.Courtesy.NoticeCells;if n==0{return 2};if n>3{return 3};return n}
 
-// Keep short selected flanks through brief waits, but do not let a saved or
-// interrupted whole-room loop become the baseline for another longer loop.
-// This consults fixed layout only, never distant people or their intentions.
-func(m LifeModel)controlledIntent(level string,from,to Cell,pending []Cell)[]Cell{
- baseline:=m.Space(level,nil).Path(from,to,Cell{},0)
- if len(pending)==0||len(pending)>len(baseline)+m.courtesyDetourBudget(){return baseline};return pending
+// A worker actually serving at an observed post is an occupied workplace,
+// not a negotiable queue. Keep ordinary civilians out of this obstacle set so
+// the short bypass can ask them to yield instead of choosing a room-sized loop.
+// Unseen people and private attitudes never alter the player's intention.
+func(s LifeState)observedDuties(m LifeModel,requester,level string)map[Cell]bool{
+ blocked:=map[Cell]bool{}
+ for _,a:=range s.Actors{if a.ID!=requester&&a.Level==level&&a.OnFloor()&&len(a.Path)==0&&s.courtesyAware(m,requester,level,a.Position)&&s.courtesyNamedDuty(m,a){blocked[a.Position]=true}}
+ for _,a:=range s.Population.Actors{if a.Materialized&&a.Level==level&&a.Trip==nil&&len(a.Path)==0&&s.courtesyAware(m,requester,level,a.Position)&&s.courtesyPopulationDuty(m,a){blocked[a.Position]=true}}
+ return blocked
+}
+func(s LifeState)controlledBaseline(m LifeModel,requester,level string,from,to Cell,blocked map[Cell]bool)[]Cell{
+ route:=m.Space(level,blocked).Path(from,to,Cell{},0)
+ // If there is no physical bypass, preserve the accepted goal and wait at
+ // contact. Knowing a post is occupied is not permission to move its worker.
+ if len(route)==0&&from!=to{return m.Space(level,nil).Path(from,to,Cell{},0)}
+ return route
+}
+// Keep short selected flanks through brief waits. A previously saved crowd
+// circuit cannot become the baseline for another longer circuit. Real observed
+// occupied workplaces are included before the civilian detour budget applies.
+func(s LifeState)controlledIntent(m LifeModel,requester,level string,from,to Cell,pending []Cell)[]Cell{
+ blocked:=s.observedDuties(m,requester,level)
+ baseline:=s.controlledBaseline(m,requester,level,from,to,blocked)
+ if len(pending)==0||len(pending)>len(baseline)+m.courtesyDetourBudget(){return baseline}
+ for _,at:=range pending{if blocked[at]{return baseline}}
+ return pending
 }
 
 // Relations are directed: the NPC's attitude to the controlled actor matters.
@@ -72,15 +92,19 @@ func(s LifeState)courtesyNamedDuty(m LifeModel,a LifeActor)bool{
  if p:=m.Person(a.ID);p!=nil&&a.Step>=0&&a.Step<len(p.Steps)&&a.OverrideLevel==""{step:=p.Steps[a.Step];return courtesyDutyActivity(step.Activity)&&a.Level==step.Level&&a.Position==step.At};return false
 }
 func(s LifeState)courtesyNamedWilling(m LifeModel,a LifeActor,requester string)bool{
- return a.ID!=requester&&!a.Manual&&a.Trip==nil&&s.courtesyCivilian(m,a.ID,requester,a.Activity)&&!s.courtesyNamedDuty(m,a)
+ // The controlled actor may follow a routine with Manual=false. Autonomous
+ // traffic still cannot commandeer that actor or replace its pending intent.
+ return a.ID!=requester&&a.ID!=s.ControlledActorID&&!a.Manual&&a.OnFloor()&&s.courtesyCivilian(m,a.ID,requester,a.Activity)&&!s.courtesyNamedDuty(m,a)
 }
 func(s LifeState)courtesyNamed(m LifeModel,a LifeActor,requester string,tick int64)bool{
- return s.courtesyRequester(requester)&&s.courtesyNamedWilling(m,a,requester)&&len(a.Path)==0&&tick>=a.YieldUntil&&tick>=a.YieldCooldownUntil&&!s.courtesyFinishingAhead(m,requester,a.ID,a.Level,a.Position,a.Goal)
+ return (s.courtesyRequester(requester)||s.Actor(requester)==nil&&s.autonomousTrafficRequester(requester))&&s.courtesyNamedWilling(m,a,requester)&&len(a.Path)==0&&tick>=a.YieldUntil&&tick>=a.YieldCooldownUntil&&!s.courtesyFinishingAhead(m,requester,a.ID,a.Level,a.Position,a.Goal)
+}
+func(s LifeState)courtesyPopulationDuty(m LifeModel,a PopulationActor)bool{
+ if a.Position==a.Goal&&courtesyDutyActivity(a.Activity){return true}
+ if a.Stage>=0&&a.Stage<len(m.Population.Stages){stage:=m.Population.profileStage(a.Profile,a.Stage);return a.Arrived&&a.Level==stage.Level&&a.Position==a.Goal&&courtesyDutyActivity(stage.Activity)};return false
 }
 func(s LifeState)courtesyPopulationWilling(m LifeModel,a PopulationActor,requester string)bool{
- if !a.Materialized||a.Trip!=nil||!s.courtesyCivilian(m,a.ID,requester,a.Activity){return false}
- if a.Position==a.Goal&&courtesyDutyActivity(a.Activity){return false}
- if a.Stage>=0&&a.Stage<len(m.Population.Stages){stage:=m.Population.Stages[a.Stage];if a.Arrived&&a.Level==stage.Level&&a.Position==a.Goal&&courtesyDutyActivity(stage.Activity){return false}};return true
+ return a.ID!=requester&&a.Materialized&&a.Trip==nil&&s.courtesyCivilian(m,a.ID,requester,a.Activity)&&!s.courtesyPopulationDuty(m,a)
 }
 func(s LifeState)courtesyPopulation(m LifeModel,a PopulationActor,requester string,tick int64)bool{
  return s.courtesyPopulationWilling(m,a,requester)&&len(a.Path)==0&&tick>=a.YieldUntil&&tick>=a.YieldCooldownUntil&&!s.courtesyFinishingAhead(m,requester,a.ID,a.Level,a.Position,a.Goal)
@@ -88,7 +112,7 @@ func(s LifeState)courtesyPopulation(m LifeModel,a PopulationActor,requester stri
 // Someone one free physical step from a goal ahead can clear the aisle by
 // finishing that step. Do not send them sideways and park them at the doorway.
 func(s LifeState)courtesyFinishingAhead(m LifeModel,requester,id,level string,at,goal Cell)bool{
- if !s.courtesyRequester(requester)||Distance(at,goal)!=1||s.occupied(level,goal,id){return false}
+ if !s.courtesyRequester(requester)||!m.Adjacent(level,at,goal)||s.occupied(level,goal,id){return false}
  hero:=s.Actor(requester);if hero==nil||hero.Level!=level||!s.courtesyAware(m,requester,level,at){return false}
  route:=hero.Path;if len(route)==0{route=hero.PendingPath};for i,cell:=range route{if i>=m.courtesyLookahead(){break};if cell==at&&i+1<len(route)&&route[i+1]==goal{return true}};return false
 }
@@ -127,12 +151,47 @@ func(s LifeState)courtesyPopulationArrival(m LifeModel,a PopulationActor)map[Cel
  radius:=m.courtesyLookahead();for y:=hero.Position.Y-radius;y<=hero.Position.Y+radius;y++{for x:=hero.Position.X-radius;x<=hero.Position.X+radius;x++{at:=Cell{x,y};if Distance(hero.Position,at)<=radius&&m.Walks(a.Level,at)&&s.courtesyAware(m,hero.ID,a.Level,at){avoid[at]=true}}};return avoid
 }
 func(s LifeState)courtesyAware(m LifeModel,requester,level string,at Cell)bool{
- actor:=s.Actor(requester);if actor==nil||actor.Trip!=nil||actor.Level!=level{return false}
+ origin:=Cell{};found:=false
+ if actor:=s.Actor(requester);actor!=nil{if !actor.OnFloor()||actor.Level!=level{return false};origin=actor.Position;found=true}else{for _,actor:=range s.Population.Actors{if actor.ID==requester&&actor.Materialized&&actor.Trip==nil&&actor.Level==level{origin=actor.Position;found=true;break}}}
+ if !found{return false}
  radius:=m.Courtesy.NoticeCells;if radius==0{radius=2}
- if Distance(actor.Position,at)>radius||m.Space(level,nil).Blockers(actor.Position,at)!=0{return false}
- if actor.Position.X!=at.X&&actor.Position.Y!=at.Y{
-  return m.Walks(level,Cell{actor.Position.X,at.Y})&&m.Walks(level,Cell{at.X,actor.Position.Y})
+ if m.courtesyNear(level,origin,at,radius){return true}
+ // Across a stair end the two sides are not grid neighbours: the contact is
+ // local if both legs to a link are short, visible and walkable.
+ for _,k:=range m.Locations[level].Links{for _,pair:=range [2][2]Cell{{k.A,k.B},{k.B,k.A}}{d:=Distance(origin,pair[0])+1+Distance(pair[1],at);if d<=radius&&(origin==pair[0]||m.courtesyNear(level,origin,pair[0],radius))&&(at==pair[1]||m.courtesyNear(level,pair[1],at,radius)){return true}}}
+ return false
+}
+func(m LifeModel)courtesyNear(level string,origin,at Cell,radius int)bool{
+ if Distance(origin,at)>radius||m.Space(level,nil).Blockers(origin,at)!=0{return false}
+ if origin.X!=at.X&&origin.Y!=at.Y{
+  return m.Walks(level,Cell{origin.X,at.Y})&&m.Walks(level,Cell{at.X,origin.Y})
  };return true
+}
+// courtesyReach bounds a local yield search: grid distance, or the shorter
+// distance through one link (multi-deck stair ends).
+func(m LifeModel)courtesyReach(level string,a,b Cell)int{
+ best:=Distance(a,b);for _,k:=range m.Locations[level].Links{if d:=Distance(a,k.A)+1+Distance(k.B,b);d<best{best=d};if d:=Distance(a,k.B)+1+Distance(k.A,b);d<best{best=d}};return best
+}
+
+// A materialized resident has the same local contact negotiation as a named
+// pedestrian. A path blocked at its distant goal must still make safe forward
+// progress until contact; occupied goals do not justify freezing at the entry.
+// Only one physical first step is accepted here, never a position update.
+// Rotate a bounded search budget by authoritative tick so a long queue cannot
+// permanently favour its lowest IDs. No new saved clock or random stream.
+func(s *LifeState)resumeAutonomousPopulationTraffic(m LifeModel,tick int64){
+ count:=len(s.Population.Actors);if count==0{return};attempts:=0
+ for offset:=0;offset<count&&attempts<8;offset++{
+  index:=(int(tick%int64(count))+offset)%count;a:=&s.Population.Actors[index]
+  if !a.Materialized||a.Trip!=nil||a.Arrived||a.Activity!="waiting_path"||len(a.Path)>0||a.Position==a.Goal||tick<a.YieldUntil{continue}
+  attempts++;route:=s.yieldRoute(m,a.Level,a.Position,a.Goal,tick,a.ID)
+  // A blocked distant goal must not freeze the free prefix of a local route.
+  // Only one free next cell is accepted; actual contact still negotiates below.
+  if len(route)==0{route=m.Space(a.Level,s.courtesyPopulationPassage(m,*a)).Path(a.Position,a.Goal,Cell{},0)}
+  if len(route)==0{continue}
+  next:=route[0];if !s.occupied(a.Level,next,a.ID){a.Path=[]Cell{next};a.MoveStartTick=tick;a.Activity="walking";s.syncTrafficBody(len(s.Actors)+index);continue}
+  s.yieldPopulationFor(m,a.Level,next,tick,a.ID,route...)
+ }
 }
 
 // A packed queue may pass a local request between physically adjacent willing
@@ -140,13 +199,13 @@ func(s LifeState)courtesyAware(m LifeModel,requester,level string,at Cell)bool{
 // empty/unseen gap, active duty or accepted segment breaks the chain. This does
 // not expose distant occupancy to the controlled route or reserve its future
 // steps. Only the queue's last person accepts an ordinary physical side step.
-func(s LifeState)courtesyRelayAware(m LifeModel,requester,level string,wanted,last Cell,parent map[Cell]Cell,residents map[Cell]lifeYieldResident)bool{
+func(s LifeState)courtesyRelayAware(m LifeModel,requester,level string,wanted,last Cell,parent map[Cell]Cell,residents func(Cell)(lifeYieldResident,bool))bool{
  if s.courtesyAware(m,requester,level,last){return true}
  if !s.courtesyAware(m,requester,level,wanted){return false}
  at:=last
  for hops:=0;hops<12;hops++{
-  if _,ok:=residents[at];!ok{return false};if at==wanted{return true}
-  previous,ok:=parent[at];if !ok||Distance(at,previous)!=1{return false};at=previous
+  if _,ok:=residents(at);!ok{return false};if at==wanted{return true}
+  previous,ok:=parent[at];if !ok||!m.Adjacent(level,at,previous){return false};at=previous
  };return false
 }
 
@@ -176,7 +235,7 @@ func(s LifeState)observedTraffic(m LifeModel,requester,level string)map[Cell]boo
   blocked[at]=true
   if len(path)>0&&s.courtesyAware(m,requester,level,path[0]){blocked[path[0]]=true}
  }
- for _,a:=range s.Actors{if a.Trip==nil{mark(a.ID,a.Level,a.Position,a.Path)}}
+ for _,a:=range s.Actors{if a.OnFloor(){mark(a.ID,a.Level,a.Position,a.Path)}}
  for _,a:=range s.Population.Actors{if a.Materialized&&a.Trip==nil{mark(a.ID,a.Level,a.Position,a.Path)}}
  return blocked
 }
@@ -194,7 +253,7 @@ func(s *LifeState)anticipateControlledTraffic(m LifeModel,a *LifeActor,tick int6
   if !eligible{continue}
   // A direct empty side pocket avoids propagating an early request through an
   // unseen queue. Ordinary contact negotiation retains its existing behavior.
-  pocket:=false;for _,d:=range []Cell{{0,-1},{1,0},{0,1},{-1,0}}{next:=Cell{at.X+d.X,at.Y+d.Y};if !m.Walks(a.Level,next)||s.occupied(a.Level,next,a.ID){continue};onRoute:=next==a.Position;for _,point:=range route{if point==next{onRoute=true;break}};if !onRoute{pocket=true;break}}
+  pocket:=false;for _,next:=range m.StepNeighbours(a.Level,at){if !m.Walks(a.Level,next)||s.occupied(a.Level,next,a.ID){continue};onRoute:=next==a.Position;for _,point:=range route{if point==next{onRoute=true;break}};if !onRoute{pocket=true;break}}
   if pocket&&s.yieldPopulationFor(m,a.Level,at,tick,a.ID,route...){*yieldBudget = *yieldBudget - 1}
  }
 }
@@ -203,8 +262,8 @@ func(s *LifeState)anticipateControlledTraffic(m LifeModel,a *LifeActor,tick int6
 // No second position update occurs; a new segment begins at the current tick.
 func(s *LifeState)resumeControlledAfterTraffic(m LifeModel,tick int64){
  a:=s.Actor(s.ControlledActorID);if a==nil||!a.Manual||a.Trip!=nil||a.Arrived||len(a.Path)>0||len(a.PendingPath)==0{return}
- route:=m.controlledIntent(a.Level,a.Position,a.Goal,a.PendingPath);a.PendingPath=route;if len(route)==0||route[len(route)-1]!=a.Goal||Distance(a.Position,route[0])!=1||!m.Walks(a.Level,route[0])||s.occupied(a.Level,route[0],a.ID){return}
- a.Path=route;a.PendingPath=nil;a.MoveStartTick=tick;a.Activity="walking";a.Label=lifeManualMoveLabel;if a.OverrideLevel!=""{a.Label=lifeWalkingPrefix+m.Locations[a.OverrideLevel].Name}
+ route:=s.controlledIntent(m,a.ID,a.Level,a.Position,a.Goal,a.PendingPath);a.PendingPath=route;if len(route)==0||route[len(route)-1]!=a.Goal||!m.Adjacent(a.Level,a.Position,route[0])||!m.Walks(a.Level,route[0])||s.occupied(a.Level,route[0],a.ID){return}
+ a.Path=route;a.PendingPath=nil;a.MoveStartTick=tick;a.Activity="walking";a.Label=lifeManualMoveLabel;if a.OverrideLevel!=""{a.Label=lifeWalkingPrefix+m.Locations[a.OverrideLevel].Name};if s.trafficActive{for i:=range s.Actors{if s.Actors[i].ID==a.ID{s.syncTrafficBody(i);break}}}
 }
 
 // A pocket lease can be renewed briefly for the same moving visible requester,
@@ -222,21 +281,38 @@ func(s LifeState)courtesyPocketUntil(m LifeModel,requester,level string,origin C
 // ordinary civilian can yield; otherwise a local detour is attempted. The goal
 // remains accepted when there is no room, so a later opening resumes movement.
 func(s *LifeState)controlledRoute(m LifeModel,a *LifeActor,destination Cell,tick int64,yieldBudget *int)[]Cell{
- route:=m.controlledIntent(a.Level,a.Position,destination,a.PendingPath)
+ route:=s.controlledIntent(m,a.ID,a.Level,a.Position,destination,a.PendingPath)
  if len(route)==0{return nil}
  next:=route[0]
  if !s.occupied(a.Level,next,a.ID){a.PendingPath=nil;return route}
  a.PendingPath=route
  // A visible person already walking across the next step is a short wait,
  // rather than a reason to discard the route and circle the whole room.
- for _,other:=range s.Actors{if other.ID!=a.ID&&other.Level==a.Level&&other.Trip==nil&&len(other.Path)>0&&(other.Position==next||other.Path[0]==next)&&s.courtesyAware(m,a.ID,a.Level,other.Position){return nil}}
+ for _,other:=range s.Actors{if other.ID!=a.ID&&other.Level==a.Level&&other.OnFloor()&&len(other.Path)>0&&(other.Position==next||other.Path[0]==next)&&s.courtesyAware(m,a.ID,a.Level,other.Position){return nil}}
  for _,other:=range s.Population.Actors{if other.Materialized&&other.Level==a.Level&&other.Trip==nil&&len(other.Path)>0&&(other.Position==next||other.Path[0]==next)&&s.courtesyAware(m,a.ID,a.Level,other.Position){return nil}}
  if *yieldBudget>0&&s.courtesyAware(m,a.ID,a.Level,next)&&s.yieldPopulationFor(m,a.Level,next,tick,a.ID,route...){*yieldBudget = *yieldBudget - 1;return nil}
  route=m.Space(a.Level,s.observedTraffic(m,a.ID,a.Level)).Path(a.Position,destination,Cell{},0)
  // A nearby stationary body cannot justify circling the whole room. Retain
  // the accepted goal and wait when no proportionate local bypass is free.
- baseline:=m.Space(a.Level,nil).Path(a.Position,destination,Cell{},0)
+ baseline:=s.controlledBaseline(m,a.ID,a.Level,a.Position,destination,s.observedDuties(m,a.ID,a.Level))
  if len(route)>len(baseline)+m.courtesyDetourBudget(){return nil}
  if len(route)>0&&!s.occupied(a.Level,route[0],a.ID){a.PendingPath=nil;return route}
  return nil
+}
+
+// A failed sidestep may stop in the very lane it was meant to clear. Such a
+// body is not yet parked in a side pocket and must be allowed to renegotiate.
+// This examines only the requester's locally visible accepted intention.
+func(s LifeState)courtesyBlocksRequester(m LifeModel,requester,level string,at Cell)bool{
+ if !s.courtesyRequester(requester)||!s.courtesyAware(m,requester,level,at){return false};hero:=s.Actor(requester)
+ if hero==nil||!hero.Manual||hero.Arrived||hero.Trip!=nil||hero.Level!=level{return false}
+ route:=hero.Path;if len(route)==0{route=hero.PendingPath};for i,cell:=range route{if i>=m.courtesyLookahead(){break};if cell==at{return true}};return false
+}
+
+// Preserve the normal short hold through repeated crossings. Release it early
+// only when another adjacent body now needs this pocket to clear the
+// requester's blocked lane. Occupancy still prevents returning into that body.
+func(s LifeState)courtesyPocketNeededByContact(m LifeModel,requester,level string,at Cell)bool{
+ hero:=s.Actor(requester);if hero==nil||!s.courtesyRequester(requester)||!hero.Manual||hero.Arrived||hero.Trip!=nil||hero.Level!=level||len(hero.Path)>0||len(hero.PendingPath)==0{return false}
+ contact:=hero.PendingPath[0];return m.Adjacent(level,at,contact)&&s.courtesyAware(m,requester,level,at)&&s.courtesyAware(m,requester,level,contact)&&s.occupied(level,contact,requester)
 }

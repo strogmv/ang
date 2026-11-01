@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,15 +25,70 @@ func Build(catalog Catalog, layout Layout) (CompiledLevel, error) {
 		err := issue(code, path, message, refs...)
 		return CompiledLevel{Diagnostics: err.Diagnostics}, err
 	}
+	var camera *LayoutCamera
+	if layout.Camera != nil {
+		authored := *layout.Camera
+		if authored.Projection != "orthographic" {
+			return fail("unsupported_camera_projection", "layout.camera.projection", "only orthographic layout cameras are supported")
+		}
+		if math.IsNaN(authored.ElevationDegrees) || math.IsInf(authored.ElevationDegrees, 0) || authored.ElevationDegrees < 15 || authored.ElevationDegrees > 75 {
+			return fail("camera_elevation", "layout.camera.elevation_degrees", "camera elevation must be finite and within 15..75 degrees above the floor")
+		}
+		if math.IsNaN(authored.AzimuthDegrees) || math.IsInf(authored.AzimuthDegrees, 0) || authored.AzimuthDegrees < 5 || authored.AzimuthDegrees > 85 {
+			return fail("camera_azimuth", "layout.camera.azimuth_degrees", "camera azimuth must be finite and within 5..85 degrees from +Z toward +X")
+		}
+		if math.IsNaN(authored.HeroViewHeightM) || math.IsInf(authored.HeroViewHeightM, 0) || authored.HeroViewHeightM != 0 && (authored.HeroViewHeightM < 6 || authored.HeroViewHeightM > 60) {
+			return fail("camera_hero_view_height", "layout.camera.hero_view_height_m", "hero view height must be omitted/zero or finite within 6..60 metres")
+		}
+		if cut := authored.NearCut; cut != nil {
+			if cut.HeightMM < 300 || cut.HeightMM > 3000 || len(cut.Obstacles) > 256 {
+				return fail("camera_near_cut", "layout.camera.near_cut", "near cut needs a height of 300..3000 mm and at most 256 listed obstacles")
+			}
+			if !layout.IsMultideck() {
+				return fail("camera_near_cut", "layout.camera.near_cut", "the near-cut rule needs a multi-deck layout (its walls are obstacles)")
+			}
+			base := layout.BaseSurfaceID
+			if base == "" {
+				base = "base"
+			}
+			seen := map[string]bool{}
+			for i, id := range cut.Obstacles {
+				found := false
+				for _, o := range layout.Obstacles {
+					found = found || o.ID == id && o.Surface == base
+				}
+				if seen[id] || !found {
+					return fail("camera_near_cut", fmt.Sprintf("layout.camera.near_cut.obstacles[%d]", i), "near cut lists unique obstacles of the base surface", id)
+				}
+				seen[id] = true
+			}
+			copied := *cut
+			copied.Obstacles = append([]string(nil), cut.Obstacles...)
+			authored.NearCut = &copied
+		}
+		camera = &authored
+	}
+	var daylight *LayoutDaylight
+	if layout.Daylight != nil {
+		d := *layout.Daylight
+		if d.Source != "passive_lightguides" {
+			return fail("unsupported_daylight_source", "layout.daylight.source", "only passive_lightguides daylight is supported")
+		}
+		if d.SunriseSecond < 0 || d.SunriseSecond >= 86400 || d.SunsetSecond <= d.SunriseSecond || d.SunsetSecond > 86400 || d.TwilightSeconds < 0 || d.TwilightSeconds > 7200 {
+			return fail("daylight_calendar", "layout.daylight", "sunrise < sunset within one day and twilight within 0..7200 s are required")
+		}
+		if math.IsNaN(d.DayBrightness) || math.IsNaN(d.NightBrightness) || d.NightBrightness <= 0 || d.NightBrightness > 1 || d.DayBrightness < d.NightBrightness || d.DayBrightness > 1 {
+			return fail("daylight_brightness", "layout.daylight", "0 < night_brightness <= day_brightness <= 1 is required")
+		}
+		daylight = &d
+	}
 	if !stableID.MatchString(layout.ID) {
 		return fail("invalid_id", "layout.id", "layout needs a stable identifier")
 	}
 	if layout.UnitMM != UnitMM {
 		return fail("unsupported_units", "layout.unit_mm", "layout must use the catalog's 500 mm units")
 	}
-	if len(layout.Decks) != 0 {
-		return fail("unsupported_decks", "layout.decks", "compile one planar deck at a time; inter-deck links are not implemented")
-	}
+	multideck := layout.IsMultideck()
 	if layout.Width < 1 || layout.Depth < 1 || layout.Width > 2048 || layout.Depth > 2048 || layout.Width*layout.Depth > 1048576 || layout.Elevation < -1000000 || layout.Elevation > 1000000 {
 		return fail("layout_bounds", "layout", "supported layout bounds are 1..2048 units per side, at most 1048576 cells, with bounded elevation")
 	}
@@ -68,7 +124,7 @@ func Build(catalog Catalog, layout Layout) (CompiledLevel, error) {
 			}
 		}
 	}
-	out := CompiledLevel{ID: layout.ID, UnitMM: UnitMM, Width: layout.Width, Depth: layout.Depth, Elevation: layout.Elevation, Grounded: layout.Grounded,
+	out := CompiledLevel{Camera: camera, Daylight: daylight, ID: layout.ID, UnitMM: UnitMM, Width: layout.Width, Depth: layout.Depth, Elevation: layout.Elevation, Grounded: layout.Grounded,
 		Instances: []CompiledInstance{}, Ports: []CompiledPort{}, Clearances: []CompiledClearance{}, ReservedPaths: []CompiledPath{}, Barriers: []Barrier{}, Drops: []DropAnnotation{}, Views: []PresentationView{}, Diagnostics: []Diagnostic{},
 		Preview: PreviewData{UnitMM: UnitMM, Width: layout.Width, Depth: layout.Depth, Floor: []PreviewFloor{}}}
 	material := make(map[Cell]string)
@@ -107,6 +163,9 @@ func Build(catalog Catalog, layout Layout) (CompiledLevel, error) {
 		}
 		geometry := p.geometries[module.GeometryID]
 		emittedCells += len(geometry.Footprint) + len(geometry.Blocked) + len(geometry.UseClearance) + len(geometry.MaintenanceClearance)
+		for _, port := range geometry.Ports {
+			emittedCells += len(port.Opening) + len(port.Approach)
+		}
 		if emittedCells > 4194304 {
 			return fail("layout_budget", path, "expanded instances exceed the supported 4194304 structural-cell budget")
 		}
@@ -144,10 +203,14 @@ func Build(catalog Catalog, layout Layout) (CompiledLevel, error) {
 			material[at] = instance.ID
 		}
 		obstacles := worldCells(geometry.Blocked, geometry, instance)
+		var lowCells []Cell
+		if len(geometry.SightClearCells) > 0 {
+			lowCells = worldCells(geometry.SightClearCells, geometry, instance)
+		}
 		for _, at := range obstacles {
 			blocked[index(at)] = true
 		}
-		out.Instances = append(out.Instances, CompiledInstance{ID: instance.ID, ModuleID: module.ID, VariantID: variant.ID, ImageRef: variant.ImageRef, SurfaceID: variant.SurfaceID, At: instance.At, Rotation: instance.Rotation, Width: w, Depth: d, Height: geometry.Height, GeometryHash: p.hashes[module.GeometryID], Footprint: physical, Blocked: obstacles, Reason: instance.Reason, OwnerRef: instance.OwnerRef, Fate: instance.Fate})
+		out.Instances = append(out.Instances, CompiledInstance{SightClear: geometry.SightClear, SightClearCells: lowCells, ID: instance.ID, ModuleID: module.ID, VariantID: variant.ID, ImageRef: variant.ImageRef, SurfaceID: variant.SurfaceID, At: instance.At, Rotation: instance.Rotation, Width: w, Depth: d, Height: geometry.Height, GeometryHash: p.hashes[module.GeometryID], Footprint: physical, Blocked: obstacles, Reason: instance.Reason, OwnerRef: instance.OwnerRef, Fate: instance.Fate})
 		for kind, cells := range map[string][]Cell{"use": geometry.UseClearance, "maintenance": geometry.MaintenanceClearance} {
 			if len(cells) > 0 {
 				out.Clearances = append(out.Clearances, CompiledClearance{InstanceID: instance.ID, Kind: kind, Cells: worldCells(cells, geometry, instance), Reason: kind + " access required by module " + module.ID})
@@ -258,7 +321,7 @@ func Build(catalog Catalog, layout Layout) (CompiledLevel, error) {
 		return fail("entry_required", "layout.entries", "provide at least one and at most 1024 real floor entry cells")
 	}
 	for i, entry := range layout.Entries {
-		if !walkable(entry) {
+		if !walkable(entry) || material[entry] != "" {
 			return fail("entry_obstructed", fmt.Sprintf("layout.entries[%d]", i), "entry must be a free supported floor cell")
 		}
 	}
@@ -275,8 +338,10 @@ func Build(catalog Catalog, layout Layout) (CompiledLevel, error) {
 			}
 		}
 	}
+	// A multi-deck base region may be reached through another surface; the
+	// navigation-plane check in compileMultideck replaces this planar one.
 	for n, supported := range support {
-		if supported && !blocked[n] && !reached[n] {
+		if !multideck && supported && !blocked[n] && !reached[n] {
 			return fail("floor_disconnected", "layout.floor", fmt.Sprintf("walkable floor (%d,%d) cannot be reached from the entry", n%layout.Width, n/layout.Width))
 		}
 	}
@@ -306,10 +371,14 @@ func Build(catalog Catalog, layout Layout) (CompiledLevel, error) {
 			continue
 		}
 		for _, port := range out.Ports {
-			if port.Kind == "door" && port.Side == drop.Side {
+			if (port.Kind == "door" || port.Kind == "connection") && port.Side == drop.Side {
 				for _, at := range port.Opening {
 					if at == drop.At {
-						return fail("barrier_across_door", dp, "an automatic barrier cannot cross any cell of an authored doorway", port.InstanceID, port.ID)
+						code := "barrier_across_door"
+						if port.Kind == "connection" {
+							code = "barrier_across_connection"
+						}
+						return fail(code, dp, "a barrier cannot cross any cell of an authored passage opening", port.InstanceID, port.ID)
 					}
 				}
 			}
@@ -318,6 +387,17 @@ func Build(catalog Catalog, layout Layout) (CompiledLevel, error) {
 	}
 	sort.Slice(out.Barriers, func(i, j int) bool { return out.Barriers[i].ID < out.Barriers[j].ID })
 	sort.Slice(out.Drops, func(i, j int) bool { return out.Drops[i].ID < out.Drops[j].ID })
+	sightClear := map[int]bool{}
+	for _, instance := range out.Instances {
+		if instance.SightClear {
+			for _, at := range instance.Blocked {
+				sightClear[at.Y*layout.Width+at.X] = true
+			}
+		}
+		for _, at := range instance.SightClearCells {
+			sightClear[at.Y*layout.Width+at.X] = true
+		}
+	}
 	for y := 0; y < layout.Depth; y++ {
 		row := make([]byte, layout.Width)
 		for x := 0; x < layout.Width; x++ {
@@ -330,9 +410,20 @@ func Build(catalog Catalog, layout Layout) (CompiledLevel, error) {
 			}
 			if blocked[n] {
 				row[x] = '#'
+				if sightClear[n] {
+					row[x] = '+'
+				}
 			}
 		}
 		out.Terrain = append(out.Terrain, string(row))
+	}
+	if multideck {
+		if err := compileMultideck(p, layout, &out, support, blocked, material, sightClear); err != nil {
+			return CompiledLevel{Diagnostics: err.Diagnostics}, err
+		}
+	}
+	if err := compileResidents(layout, &out); err != nil {
+		return CompiledLevel{Diagnostics: err.Diagnostics}, err
 	}
 	out.StructuralHash = structuralHash(out)
 	for _, time := range p.times {
@@ -406,7 +497,7 @@ func expandPath(path ReservedPath, width, depth int) ([]Cell, error) {
 }
 
 func structuralHash(level CompiledLevel) string {
-	// Appearance, purpose prose and seed are deliberately outside structural
+	// Camera, appearance, purpose prose and seed are deliberately outside structural
 	// identity. A visual replacement or presentation state cannot change it.
 	type instance struct {
 		ID           string
@@ -430,6 +521,8 @@ func structuralHash(level CompiledLevel) string {
 		Paths                           []CompiledPath
 		Barriers                        []barrier
 		Drops                           []DropAnnotation
+		// Omitted for planar layouts: their hash bytes are unchanged.
+		Navigation *Navigation `json:",omitempty"`
 	}{ID: level.ID, UnitMM: level.UnitMM, Width: level.Width, Depth: level.Depth, Elevation: level.Elevation, Grounded: level.Grounded, Terrain: level.Terrain, Instances: []instance{}, Ports: level.Ports, Clearances: append([]CompiledClearance{}, level.Clearances...), Paths: append([]CompiledPath{}, level.ReservedPaths...), Barriers: []barrier{}, Drops: append([]DropAnnotation{}, level.Drops...)}
 	for _, item := range level.Instances {
 		value.Instances = append(value.Instances, instance{item.ID, item.At, item.Rotation, item.GeometryHash})
@@ -446,6 +539,7 @@ func structuralHash(level CompiledLevel) string {
 	for i := range value.Drops {
 		value.Drops[i].Reason = ""
 	}
+	value.Navigation = structuralNavigation(level.Navigation)
 	b, _ := json.Marshal(value)
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])

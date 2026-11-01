@@ -14,6 +14,7 @@ public static class PocBuild
     public static void Prepare()
     {
         if(EditorApplication.isPlayingOrWillChangePlaymode)throw new InvalidOperationException("Prepare is unavailable during Play mode; no scenes were changed.");
+        PocURPSetup.RequireConfigured();
         bool initialBuildList=EditorBuildSettings.scenes==null||EditorBuildSettings.scenes.Length==0;
         bool created=PocSceneSetup.EnsureBootstrapScene();
         PocResource resource = JsonUtility.FromJson<PocResource>(File.ReadAllText("Assets/Resources/PocConfig.json"));
@@ -54,7 +55,7 @@ public static class PocBuild
         var assets=AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/GraphicsSettings.asset");
         if(assets.Length==0)throw new InvalidOperationException("Missing GraphicsSettings");
         var settings=new SerializedObject(assets[0]);var shaders=settings.FindProperty("m_AlwaysIncludedShaders");
-        foreach(string name in new[]{"Unlit/Color","Sprites/Default"}){
+        foreach(string name in new[]{"ANG/LocationSDKDiagnostic","ANG/LocationSDKSurface","ANG/LocationSDKActor","ANG/WayfindingFloor"}){
             var shader=Shader.Find(name);if(shader==null)throw new InvalidOperationException("Missing SDK shader: "+name);
             bool found=false;for(int i=0;i<shaders.arraySize;i++)if(shaders.GetArrayElementAtIndex(i).objectReferenceValue==shader){found=true;break;}
             if(!found){int index=shaders.arraySize;shaders.InsertArrayElementAtIndex(index);shaders.GetArrayElementAtIndex(index).objectReferenceValue=shader;}
@@ -78,7 +79,32 @@ public static class PocBuild
         string destination = Path.Combine(root, ".local", "AngelsDemonsPOC.app");
         var report = BuildPipeline.BuildPlayer(PocSceneSetup.BuildScenes(), destination, BuildTarget.StandaloneOSX, BuildOptions.None);
         if (report.summary.result != UnityEditor.Build.Reporting.BuildResult.Succeeded) throw new Exception("POC player build failed: " + report.summary.result);
+        // Unity can report Succeeded while serialising zero working programs
+        // for a shader rejected by the target graphics compiler.
+        PocShaderBuildGuard.RequireCompiledShaders();
         Debug.Log("POC_PLAYER_READY " + destination);
+    }
+}
+
+public static class PocShaderBuildGuard
+{
+    public static void RequireCompiledShaders()
+    {
+        var errors=new System.Collections.Generic.List<string>();
+        foreach(string folder in new[]{"Assets/Resources/Generated","Assets/Resources/LocationSDK"})
+        {
+            if(!AssetDatabase.IsValidFolder(folder))continue;
+            foreach(string guid in AssetDatabase.FindAssets("t:Shader",new[]{folder}))
+            {
+                string path=AssetDatabase.GUIDToAssetPath(guid);
+                var shader=AssetDatabase.LoadAssetAtPath<Shader>(path);
+                if(shader==null){errors.Add(path+": shader import is missing");continue;}
+                foreach(var message in ShaderUtil.GetShaderMessages(shader))
+                    if(message.severity==UnityEditor.Rendering.ShaderCompilerMessageSeverity.Error)
+                        errors.Add(path+"("+message.line+"): "+message.message);
+            }
+        }
+        if(errors.Count>0)throw new InvalidOperationException("POC shader compilation failed:\n"+string.Join("\n",errors));
     }
 }
 
@@ -111,7 +137,7 @@ public static class PocScenePreservationProof
             var manual=EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Additive);owned.Add(manual);SceneManager.SetActiveScene(manual);
             var marker=new GameObject("Hand-authored scene marker");string manualPath=folder+"/Manual.unity";if(!EditorSceneManager.SaveScene(manual,manualPath))throw new InvalidOperationException("Cannot create manual-scene fixture");string manualDigest=Digest(manualPath);
             marker.name="Unsaved artist edit";EditorSceneManager.MarkSceneDirty(manual);
-            var shader=Shader.Find("Sprites/Default");if(shader==null)throw new InvalidOperationException("Missing fixture shader");
+            var shader=Shader.Find("ANG/LocationSDKDiagnostic");if(shader==null)throw new InvalidOperationException("Missing fixture shader");
             var material=new Material(shader){name="Hand-authored material"};string materialPath=folder+"/Manual.mat";AssetDatabase.CreateAsset(material,materialPath);AssetDatabase.SaveAssetIfDirty(material);string materialDigest=Digest(materialPath);
             var clip=new AnimationClip{name="Hand-authored animation",legacy=true};clip.SetCurve("",typeof(Transform),"m_LocalPosition.x",AnimationCurve.Linear(0,0,1,1));string clipPath=folder+"/Manual.anim";AssetDatabase.CreateAsset(clip,clipPath);AssetDatabase.SaveAssetIfDirty(clip);string clipDigest=Digest(clipPath);
             string createdPath=folder+"/CreatedBootstrap.unity";report.missing_bootstrap_created=PocSceneSetup.EnsureBootstrapScene(createdPath)&&File.Exists(createdPath)&&manual.isDirty&&SceneManager.GetActiveScene()==manual;

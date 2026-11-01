@@ -627,3 +627,48 @@ func TestLifeCourtesyModelRejectsInvalidRangeAndRelation(t *testing.T) {
 		t.Fatal("empty relation target accepted")
 	}
 }
+
+func courtesyServiceBypassFixture()(LifeModel,LifeState){
+ m,_:=courtesyFixture();m.Locations["hall"]=LifeLocation{Name:"Service aisle",Terrain:[]string{"###########","###########","##....#####","#.........#","#.#######.#","#.........#","###########"}}
+ m.Actors[0].Steps[0].At=Cell{3,3};m.Actors[1].Steps[0].At=Cell{4,3};m.Actors[1].Steps[0].Activity="service"
+ m.Actors=append(m.Actors,LifePerson{ID:"civilian",Name:"Civilian",Steps:[]LifeStep{{Level:"hall",At:Cell{3,2},Activity:"rest"}}})
+ s:=m.Start();s.ControlledActorID="hero";return m,s
+}
+func TestLifeCourtesyObservedServicePostUsesCivilianBypassAndReplays(t *testing.T){
+ m,s:=courtesyServiceBypassFixture();goal:=Cell{6,3};worker:=*s.Actor("friend")
+ // Blocking both bodies produces the rejected whole-room loop. The physically
+ // necessary service bypass is short, and its civilian can use a side pocket.
+ baseline:=m.Space("hall",nil).Path(s.Actor("hero").Position,goal,Cell{},0)
+ allBodies:=m.Space("hall",s.observedTraffic(m,"hero","hall")).Path(s.Actor("hero").Position,goal,Cell{},0)
+ if len(allBodies)<=len(baseline)+m.courtesyDetourBudget(){t.Fatal("fixture does not reproduce protected-post plus negotiable-bypass deadlock")}
+ courtesyAccept(t,m,&s,goal);var saved *LifeState;yielded:=false;moves:=0
+ for tick:=int64(1);tick<=45;tick++{
+  before:=s.Actor("hero").Position;courtesyAdvance(t,m,&s,tick)
+  if before!=s.Actor("hero").Position{moves++}
+  if saved!=nil{courtesyAdvance(t,m,saved,tick);if !reflect.DeepEqual(s.Clone(),saved.Clone()){t.Fatal("service bypass save/replay diverged")}}
+  if !reflect.DeepEqual(worker,*s.Actor("friend")){t.Fatal("bypass displaced an active service worker")}
+  if s.Actor("civilian").YieldUntil>0{yielded=true}
+  if saved==nil&&len(s.Actor("hero").PendingPath)>0{raw,err:=json.Marshal(s);if err!=nil{t.Fatal(err)};copy:=LifeState{};if err=json.Unmarshal(raw,&copy);err!=nil{t.Fatal(err)};saved=&copy}
+  if s.Actor("hero").Arrived{break}
+ }
+ if !yielded||saved==nil||!s.Actor("hero").Arrived||s.Actor("hero").Position!=goal||moves>len(baseline)+m.courtesyDetourBudget(){t.Fatalf("short service bypass failed: yielded%v saved%v moves%d hero%+v",yielded,saved!=nil,moves,*s.Actor("hero"))}
+}
+func TestLifeCourtesyServiceClassificationDoesNotExposeDistantDuties(t *testing.T){
+ m,s:=courtesyServiceBypassFixture();hero:=s.Actor("hero");hero.Position=Cell{1,3};hero.Goal=hero.Position;goal:=Cell{6,3}
+ before:=s.Clone();route:=s.controlledIntent(m,"hero","hall",hero.Position,goal,nil);static:=m.Space("hall",nil).Path(hero.Position,goal,Cell{},0)
+ if !reflect.DeepEqual(route,static)||!reflect.DeepEqual(before,s.Clone()){t.Fatal("unseen distant workplace changed the route or physical state")}
+ // A profession walking to work is not already an occupied service post.
+ hero.Position=Cell{3,3};hero.Goal=hero.Position;a:=s.Actor("friend");a.Goal=Cell{5,3};a.Path=[]Cell{{5,3}};a.Activity="walking";a.Arrived=false
+ if s.observedDuties(m,"hero","hall")[a.Position]{t.Fatal("commuting worker was classified as a stationary post")}
+}
+
+func TestLifeCourtesyHeldPocketRelaysNewContactWithoutWaitingForOldLease(t *testing.T){
+ for _,population:=range []bool{false,true}{t.Run(fmt.Sprintf("population%v",population),func(t *testing.T){
+  m:=LifeModel{StartSeconds:0,SecondsPerTick:1,MoveTicks:3,Courtesy:LifeCourtesyPolicy{NoticeCells:2},Walkable:map[string]bool{".":true},Locations:map[string]LifeLocation{"hall":{Name:"Hall",Terrain:[]string{"#######","###.###","###.###","###..##","###.###","#######"}}},Actors:[]LifePerson{{ID:"hero",Name:"Hero",Steps:[]LifeStep{{Level:"hall",At:Cell{3,4},Activity:"rest"}}},{ID:"front",Name:"Front",Steps:[]LifeStep{{Level:"hall",At:Cell{3,3},Activity:"rest"}}}}}
+  if population{m.Population=PopulationModel{MaxActors:1,MaxActive:1,MoveTicks:3,ColdStepSeconds:10,ShiftOffsets:[]int64{0},Stages:[]PopulationStage{{ID:"rest",Level:"hall",Activity:"rest"}},Anchors:map[string][]Cell{"hall":{{3,2}}}}}else{m.Actors=append(m.Actors,LifePerson{ID:"held",Name:"Held",Steps:[]LifeStep{{Level:"hall",At:Cell{3,2},Activity:"rest"}}})}
+  s:=m.Start();s.ControlledActorID="hero";if population{var err error;s,err=m.StartWithPopulation(1,"hero");if err!=nil{t.Fatal(err)};a:=&s.Population.Actors[0];a.YieldRequester="hero";a.YieldOrigin=Cell{3,3};a.YieldUntil=24;a.YieldHoldUntil=48;a.YieldCooldownUntil=30;a.Activity="yielding";a.Arrived=false}else{a:=s.Actor("held");a.YieldRequester="hero";a.YieldOrigin=Cell{3,3};a.YieldUntil=24;a.YieldHoldUntil=48;a.YieldCooldownUntil=30;a.Activity="yielding";a.Arrived=false}
+  courtesyAccept(t,m,&s,Cell{4,3});var replay *LifeState;arrived:=false
+  for tick:=int64(1);tick<=15;tick++{courtesyCrowdAdvance(t,m,&s,tick);if replay!=nil{courtesyCrowdAdvance(t,m,replay,tick);if !reflect.DeepEqual(s.Clone(),replay.Clone()){t.Fatal("relayed pocket save changed motion or identities")}};if tick==2{raw,_:=json.Marshal(s);replay=&LifeState{};if err:=json.Unmarshal(raw,replay);err!=nil{t.Fatal(err)}};if s.Actor("hero").Arrived{arrived=true;break}}
+  if !arrived||replay==nil{t.Fatal("old side-pocket lease prevented a second civilian from clearing the visible corridor")}
+ })}
+}

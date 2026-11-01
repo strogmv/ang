@@ -2,6 +2,7 @@ package gamepoc
 
 import (
 	"cuelang.org/go/cue"
+	"encoding/json"
 	"fmt"
 	inv "github.com/strogmv/ang/compiler/inventory/runtime"
 	"math"
@@ -9,7 +10,7 @@ import (
 	"sort"
 )
 
-func inventoryModel(world, level cue.Value, levelID string) (inv.Model, error) {
+func inventoryModel(world, level cue.Value, levelID string, resolvedLife ...json.RawMessage) (inv.Model, error) {
 	m := inv.Model{Version: 1, Definitions: map[string]inv.Definition{}, Currencies: map[string]inv.Currency{}, Actors: map[string]bool{}, Owners: map[string]bool{}, Levels: map[string]inv.Cell{}, Stores: map[string]inv.Store{}, Accounts: map[string]inv.Account{}, Entitlements: map[string]inv.Entitlement{}}
 	readString := func(v cue.Value, p string) string { s, _ := v.LookupPath(cue.ParsePath(p)).String(); return s }
 	readInt := func(v cue.Value, p string) int64 { n, _ := v.LookupPath(cue.ParsePath(p)).Int64(); return n }
@@ -231,8 +232,14 @@ func inventoryModel(world, level cue.Value, levelID string) (inv.Model, error) {
 				}
 			} `json:"maintenance"`
 		}
-		if err := life.Decode(&data); err != nil {
-			return m, err
+		var lifeErr error
+		if len(resolvedLife) > 0 && len(resolvedLife[0]) > 0 {
+			lifeErr = json.Unmarshal(resolvedLife[0], &data)
+		} else {
+			lifeErr = life.Decode(&data)
+		}
+		if lifeErr != nil {
+			return m, lifeErr
 		}
 		for id, l := range data.Locations {
 			if len(l.Terrain) > 0 {
@@ -264,6 +271,33 @@ func inventoryModel(world, level cue.Value, levelID string) (inv.Model, error) {
 			}
 		}
 	}
+	// Commerce stock is finite initial inventory, separate from its movement schedule.
+	for path, target := range map[string]any{"deliveries": &m.Deliveries, "shopfronts": &m.Shopfronts} {
+		if v := policy.LookupPath(cue.ParsePath(path)); v.Exists() {
+			if err := v.Decode(target); err != nil {
+				return m, err
+			}
+		}
+	}
+	var businessStores []inv.Store
+	if v := policy.LookupPath(cue.ParsePath("business_stores")); v.Exists() {
+		if err := v.Decode(&businessStores); err != nil {
+			return m, err
+		}
+	}
+	for _, st := range businessStores {
+		if _, exists := m.Stores[st.ID]; exists {
+			return m, fmt.Errorf("duplicate business storage %s", st.ID)
+		}
+		m.Stores[st.ID] = st
+	}
+	var businessStock []inv.Source
+	if v := policy.LookupPath(cue.ParsePath("business_stock")); v.Exists() {
+		if err := v.Decode(&businessStock); err != nil {
+			return m, err
+		}
+	}
+	m.Sources = append(m.Sources, businessStock...)
 	sort.Slice(m.Sources, func(i, j int) bool { return m.Sources[i].ID < m.Sources[j].ID })
 	if _, err := inv.New(m, 425); err != nil {
 		return m, fmt.Errorf("inventory initial state: %w", err)

@@ -5,11 +5,14 @@ import("fmt";inv "angelsdemons/server/internal/inventory";"reflect";"testing";"a
 func TestLifeGreyCorridorWireIntentDoesNotRevealCrowd(t *testing.T){
  for _,mode:=range []string{"move","enter"}{t.Run(mode,func(t *testing.T){
   r:=lifeRuntimeFixture(t);r.world.Config.DebugPerception=false
+  // Exercise remembered-grey privacy even in rooms with a longer authored view.
+  locationSpec:=r.world.Life.Locations[r.currentLevel()];locationSpec.PlayerRangeCells=6;r.world.Life.Locations[r.currentLevel()]=locationSpec
   hero:=r.state.Life.Actor(playerActorID);bodyID:="char.poc_repair_worker"
   c:=&connection{out:make(chan *pb.ServerMessage,16),stop:make(chan struct{})};r.sendState(c);initial:=(<-c.out).GetGameState()
   body:=r.state.Life.Actor(bodyID);if body==nil||viewSees(initial.PlayerView,int32(body.Position.X),int32(body.Position.Y)){t.Fatal("fixture needs an initially unseen resident")}
-  target:=behavior.Cell{X:18,Y:8};edgeID:=""
-  if mode=="enter"{for _,edge:=range r.world.Life.Edges{if edge.From==hero.Level&&edge.To=="level.poc_monorail"{target=edge.Exit;edgeID=edge.ID;break}};if edgeID==""{t.Fatal("missing market door")}}
+  target:=behavior.Cell{};edgeID:=""
+  for _,edge:=range r.world.Life.Edges{if edge.From==hero.Level&&edge.To=="level.poc_monorail"{target=edge.Exit;edgeID=edge.ID;break}}
+  if edgeID==""{t.Fatal("missing market door")}
   path:=r.world.Life.Space(hero.Level,nil).Path(hero.Position,target,behavior.Cell{},0)
   var hidden behavior.Cell;found:=false
   blocked:=r.state.Life.BlockedCells(hero.Level,hero.ID)
@@ -82,7 +85,36 @@ func TestLifeHostileIntentReachesContactBeforeWaiting(t *testing.T){
   if !contact||hero.Position==target||hero.Goal!=target||!hero.Manual||friend.YieldUntil!=0{t.Fatal("did not wait at real local contact with accepted goal intact")}
  }
 }
-func lifeRuntimeFixture(t *testing.T)*Runtime{t.Helper();r,err:=New(t.TempDir(),"token");if err!=nil{t.Fatal(err)};r.state.Active=true;r.state.Speed=1;r.initLife();r.state.Life.SecondsPerTick=30;return r}
+// Isolate legacy motion/maintenance contracts from autonomous need choices.
+func lifeRuntimeFixture(t *testing.T)*Runtime{t.Helper();r,err:=New(t.TempDir(),"token");if err!=nil{t.Fatal(err)};r.world.Life.Brain.Enabled=false;r.canonicalWorld.Life.Brain.Enabled=false;r.state.Active=true;r.state.Speed=1;r.initLife();r.state.Life.SecondsPerTick=30;return r}
+
+func TestLifeMerchantRoleAndDebugActivityArePerClientTranslations(t *testing.T){
+ r:=lifeRuntimeFixture(t);r.world.Config.DebugPerception=true
+ const merchantID="char.market_zoya_lykova"
+ merchant:=r.state.Life.Actor(merchantID)
+ if merchant==nil||merchant.Level!=r.currentLevel()||merchant.Trip!=nil{t.Fatal("fixture needs the persistent merchant on the current market")}
+ key:=merchant.Label
+ ruText,enText:=r.localText("ru",key,key),r.localText("en",key,key)
+ if key==""||ruText==key||enText==key||ruText==enText{t.Fatal("merchant service label needs distinct authored RU/EN translations")}
+ ru:=&connection{locale:"ru",out:make(chan *pb.ServerMessage,8),stop:make(chan struct{})}
+ en:=&connection{locale:"en",out:make(chan *pb.ServerMessage,8),stop:make(chan struct{})}
+ before:=r.snapshotState()
+ // Revisit the RU client after EN: translation must not overwrite shared state.
+ for _,c:=range []*connection{ru,en,ru}{
+  r.sendState(c);view:=(<-c.out).GetGameState()
+  if view==nil||view.Life==nil{t.Fatal("missing actual life projection")}
+  want:=ruText;if c.locale=="en"{want=enText}
+  sceneFound,debugFound:=false,false
+  for _,actor:=range view.SceneAgents{if actor.Id==merchantID{
+   sceneFound=true
+   if actor.Role!=want||actor.X!=int32(merchant.Position.X)||actor.Y!=int32(merchant.Position.Y){t.Fatalf("%s merchant role/position: got %q (%d,%d), want %q",c.locale,actor.Role,actor.X,actor.Y,want)}
+  }}
+  for _,person:=range view.Life.People{if person.Id==merchantID{debugFound=true;if person.Activity!=want{t.Fatalf("%s debug activity leaked untranslated or other-client text: %q",c.locale,person.Activity)}}}
+  if !sceneFound||!debugFound{t.Fatal("localization removed the merchant identity from scene or debug projection")}
+  if !reflect.DeepEqual(before,r.snapshotState()){t.Fatal("client locale projection changed authoritative state, identity or knowledge")}
+ }
+}
+
 func TestLifeStoryLocationsHaveConnectedPhysicalPortsAndPreserveWorkRoutines(t *testing.T){
  r:=lifeRuntimeFixture(t);m:=r.world.Life;if err:=m.Validate();err!=nil{t.Fatal(err)}
  for _,id:=range []string{"level.poc_work","level.c7_service_stair","level.copper_ward"}{
@@ -108,14 +140,20 @@ func TestLifeStoryLocationsHaveConnectedPhysicalPortsAndPreserveWorkRoutines(t *
  }
  for _,id:=range []string{"level.c7_service_stair","level.copper_ward"}{node:=r.regionNodeForLevel(id);if node==nil||node.InitialKnowledge!="unknown"||r.state.Region.KnownNodes[node.ID]{t.Fatal("new physical room was pre-revealed on the region map")}}
 }
-func TestLifeScheduledDayVisitsItsRoutineLevels(t *testing.T){r:=lifeRuntimeFixture(t);expected:=map[string]bool{};for _,step:=range r.world.Life.Person(playerActorID).Steps{expected[step.Level]=true};offscreen:=false;for i:=0;i<3800;i++{stepLifeFrameForAudit(t,r);if err:=r.state.Life.Validate(r.world.Life,r.state.Tick);err!=nil{t.Fatal(err)};hero:=r.state.Life.Actor(playerActorID);senya:=r.state.Life.Actor("char.roommate_senya");if senya!=nil&&(senya.Activity=="work"||senya.Activity=="maintenance")&&hero.Level!=senya.Level{offscreen=true};visited:=true;for level:=range expected{if hero.Visits[level]==0{visited=false}};if visited&&hero.WorkedSeconds>=1800&&hero.SleptSeconds>=21600&&hero.Meals>=2&&offscreen{return}};for _,a:=range r.state.Life.Actors{t.Logf("%+v",a)};t.Fatalf("day incomplete offscreen=%v events=%v",offscreen,r.state.Life.Events)}
+func TestLifeScheduledDayVisitsItsRoutineLevels(t *testing.T){r:=lifeRuntimeFixture(t);expected:=map[string]bool{};for _,step:=range r.world.Life.Person(playerActorID).Steps{expected[step.Level]=true};offscreen:=false
+ background:=lifeRuntimeFixture(t);stationary:=background.state.Life.Actor(playerActorID);control:=&connection{out:make(chan *pb.ServerMessage,128),stop:make(chan struct{})}
+ background.lifeMove(control,&pb.MoveTo{Epoch:background.state.Epoch,InputSeq:1,X:int32(stationary.Position.X),Y:int32(stationary.Position.Y)})
+ if !background.state.Life.Actor(playerActorID).Manual {t.Fatal("stationary observer intent was not accepted")}
+ for i:=0;i<1800&&!offscreen;i++ {stepLifeFrameForAudit(t,background);worker:=background.state.Life.Actor("char.roommate_senya");observer:=background.state.Life.Actor(playerActorID);if worker!=nil&&(worker.Activity=="work"||worker.Activity=="maintenance")&&observer.Level!=worker.Level{offscreen=true}}
+ if !offscreen{t.Fatal("NPC failed to work while the observer remained in another location")}
+ for i:=0;i<3800;i++{stepLifeFrameForAudit(t,r);if err:=r.state.Life.Validate(r.world.Life,r.state.Tick);err!=nil{t.Fatal(err)};hero:=r.state.Life.Actor(playerActorID);senya:=r.state.Life.Actor("char.roommate_senya");if senya!=nil&&(senya.Activity=="work"||senya.Activity=="maintenance")&&hero.Level!=senya.Level{offscreen=true};visited:=true;for level:=range expected{if hero.Visits[level]==0{visited=false}};if visited&&hero.WorkedSeconds>=1800&&hero.SleptSeconds>=21600&&hero.Meals>=2&&offscreen{return}};for _,a:=range r.state.Life.Actors{t.Logf("%+v",a)};t.Fatalf("day incomplete offscreen=%v events=%v",offscreen,r.state.Life.Events)}
 func TestLifeTransitSaveAndContinue(t *testing.T){r:=lifeRuntimeFixture(t);for i:=0;i<600&&r.state.Life.Actor(playerActorID).Trip==nil;i++{r.state.Tick++;r.state.Inventory.Advance(r.state.Tick);if err:=r.advanceLifeFrameBy(r.state.Life.SecondsPerTick);err!=nil{t.Fatal(err)}};if r.state.Life.Actor(playerActorID).Trip==nil{t.Fatal("never boarded")};before:=r.snapshotState();slot:=r.world.Config.SaveSlots[0];if err:=r.writeSave(slot,before);err!=nil{t.Fatal(err)};restored,_,err:=r.readSave(slot);if err!=nil{t.Fatal(err)};if !reflect.DeepEqual(before.Life,restored.Life){t.Fatal("trip changed during load")};for tick:=before.Tick+1;tick<before.Tick+800;tick++{before.Life.Advance(r.world.Life,tick);restored.Life.Advance(r.world.Life,tick)};if !reflect.DeepEqual(before.Life,restored.Life){t.Fatal("loaded schedules diverged")}}
 func TestLifeCommandCalendarAndHiddenNPCs(t *testing.T){r:=lifeRuntimeFixture(t);if err:=r.lifeCommand(&pb.PocLifeCommand{Action:"rate",SecondsPerTick:30});err!=nil{t.Fatal(err)};if r.state.Speed!=1{t.Fatal("calendar changed simulation speed")};if err:=r.lifeCommand(&pb.PocLifeCommand{Action:"rate",SecondsPerTick:999});err==nil{t.Fatal("unbounded clock accepted")};r.world.Config.DebugPerception=false;c:=&connection{out:make(chan *pb.ServerMessage,8),stop:make(chan struct{})};r.sendState(c);msg:=(<-c.out).GetGameState();if msg.Life==nil||len(msg.Life.People)!=0||len(msg.Life.Events)!=0{t.Fatal("private schedules leaked")};for _,a:=range msg.SceneAgents{real:=r.state.Life.Actor(a.Id);if real==nil||real.Level!=r.currentLevel(){t.Fatal("offscreen actor leaked")}}}
 
-// Exact Go command sequence that stalled the expanded-market native proof with
-// zero statistical residents. Keep the authored first proof target: changing
-// the destination would hide the accepted-manual-goal retry regression.
-func TestLifeZeroPopulationNativeMarketMoveRetriesAfterInterruption(t *testing.T){
+// Replay the valid save boundary produced when an accepted manual route is
+// interrupted. Do not depend on an incidental NPC meeting at an old map cell;
+// real occupied-step interruption is exercised by the behavior runtime tests.
+func TestLifeZeroPopulationAcceptedGoalResumesFromSavedInterruption(t *testing.T){
  r:=lifeRuntimeFixture(t);r.state.Seed=777
  items,err:=inv.New(r.inventoryModelFor(true),777);if err!=nil{t.Fatal(err)};r.state.Inventory=items
  life,err:=r.world.Life.StartWithPopulation(0,playerActorID);if err!=nil{t.Fatal(err)};r.state.Tick=0;r.initLifeState(life)
@@ -123,22 +161,24 @@ func TestLifeZeroPopulationNativeMarketMoveRetriesAfterInterruption(t *testing.T
  arrived:=false;for i:=0;i<400;i++{r.step();hero:=r.state.Life.Actor(playerActorID);if hero.Label=="Прибыл"&&len(hero.Path)==0{arrived=true;break}}
  if !arrived{t.Fatal("never reached the real market landing")}
  c:=&connection{out:make(chan *pb.ServerMessage,128),stop:make(chan struct{})}
- r.lifeMove(c,&pb.MoveTo{Epoch:r.state.Epoch,InputSeq:1,X:18,Y:8})
+ target:=behavior.Cell{};found:=false
+ for _,d:=range r.world.Wayfinding.Destinations {if d.Level!=r.currentLevel(){continue};path:=r.world.Life.Space(d.Level,nil).Path(r.state.Life.Actor(playerActorID).Position,behavior.Cell{X:d.At.X,Y:d.At.Y},behavior.Cell{},0);if len(path)>=6 {target=path[5];found=true;break}}
+ if !found {t.Fatal("authored market needs a six-step public approach for interruption test")}
+ r.lifeMove(c,&pb.MoveTo{Epoch:r.state.Epoch,InputSeq:1,X:int32(target.X),Y:int32(target.Y)})
  accepted:=false;for len(c.out)>0{if result:=(<-c.out).GetMoveResult();result!=nil{accepted=result.Ok}}
- if !accepted{t.Fatal("native first proof target was not accepted")}
- interrupted,saved:=false,false
+ hero:=r.state.Life.Actor(playerActorID)
+ if !accepted||len(hero.Path)==0{t.Fatal("ordinary target did not produce an accepted route")}
+ hero.PendingPath=append([]behavior.Cell(nil),hero.Path...);hero.Path=nil;r.syncLifeHero()
+ if err:=r.validateLifeSave(r.snapshotState());err!=nil{t.Fatal(err)}
+ slot:=r.world.Config.SaveSlots[0];if err:=r.writeSave(slot,r.snapshotState());err!=nil{t.Fatal(err)}
+ loaded,_,err:=r.readSave(slot);if err!=nil{t.Fatal(err)};r.state=loaded
  for i:=0;i<120;i++{
-  before:=r.state.Life.Clone();old:=before.Actor(playerActorID);r.step();hero:=r.state.Life.Actor(playerActorID)
+  before:=r.state.Life.Clone();r.step();hero=r.state.Life.Actor(playerActorID)
   if err:=r.validateLifeSave(r.snapshotState());err!=nil{t.Fatalf("tick %d: %v",r.state.Tick,err)}
   for j,a:=range r.state.Life.Actors{oldActor:=before.Actors[j];if a.Level==oldActor.Level&&a.Trip==nil&&oldActor.Trip==nil&&manhattan(location(a.Position),location(oldActor.Position))>1{t.Fatal("native retry teleported an actor")}}
-  if len(old.Path)>0&&len(hero.Path)==0&&(hero.Position.X!=18||hero.Position.Y!=8){
-   interrupted=true
-   if !saved{slot:=r.world.Config.SaveSlots[0];if err:=r.writeSave(slot,r.snapshotState());err!=nil{t.Fatal(err)};loaded,_,err:=r.readSave(slot);if err!=nil{t.Fatal(err)};r.state=loaded;saved=true}
-  }
-  hero=r.state.Life.Actor(playerActorID)
-  if hero.Position.X==18&&hero.Position.Y==8&&len(hero.Path)==0{if !interrupted||!saved{t.Fatal("fixture did not exercise/save the interrupted accepted goal")};if hero.Goal!=hero.Position||!hero.Manual||r.state.LastMoveSeq!=1{t.Fatal("retry replaced the accepted command")};return}
+  if hero.Position==target&&len(hero.Path)==0{if hero.Goal!=hero.Position||!hero.Manual||r.state.LastMoveSeq!=1{t.Fatal("retry replaced the accepted command")};return}
  }
- t.Fatalf("accepted native move did not resume after blockage: %+v",*r.state.Life.Actor(playerActorID))
+ t.Fatalf("accepted native move did not resume from saved blockage: %+v",*r.state.Life.Actor(playerActorID))
 }
 
 func TestLifeDroppedBagKeepsItsAddressAcrossLocations(t *testing.T){
@@ -197,4 +237,23 @@ func TestMaintenanceNoMaterialAndPrivateView(t *testing.T){
  r.world.Config.DebugPerception=false;if err:=r.lifeCommand(&pb.PocLifeCommand{Action:"fault",Destination:"pump_c7"});err==nil{t.Fatal("debug fault exposed")}
  hero:=r.state.Life.Actor(playerActorID);hero.Level="level.c7_market";placed:=false;for _,step:=range r.world.Life.Person(playerActorID).Steps{if step.Level==hero.Level{hero.Position=step.At;placed=true;break}};if !placed{t.Fatal("missing authored market standing point")};hero.Trip=nil;hero.Path=nil;r.syncLifeHero()
  c:=&connection{out:make(chan *pb.ServerMessage,8),stop:make(chan struct{})};r.sendState(c);view:=(<-c.out).GetGameState().Life;if len(view.Equipment)!=0||view.MaintenanceDebug{t.Fatal("offscreen equipment leaked")}
+}
+
+func TestLifeResidencePrivateProjectionPauseAndSave(t *testing.T){
+ r:=lifeRuntimeFixture(t);r.world.Config.DebugPerception=false;r.world.Life.StartSeconds=0;r.initLife()
+ if len(r.world.Life.Residences)==0{t.Fatal("fixture needs authored residences")};home:=r.world.Life.Residences[0];id:=home.Residents[0]
+ body:=r.state.Life.Actor(id);if body==nil||body.ResidenceID!=home.ID{t.Fatal("night resident missing")}
+ hero:=r.state.Life.Actor(playerActorID);hero.Level=home.Level;hero.Position=home.ReturnAt;hero.Goal=hero.Position;hero.Path=nil;hero.Manual=true;hero.Arrived=true;r.syncLifeHero();r.updateLifeExploration()
+ c:=&connection{locale:"en",out:make(chan *pb.ServerMessage,8),stop:make(chan struct{})}
+ r.sendState(c);view:=(<-c.out).GetGameState()
+ if !viewSees(view.PlayerView,int32(home.Entry.X),int32(home.Entry.Y)){t.Fatal("fixture must actually see the residential threshold")}
+ for _,a:=range view.SceneAgents{if a.Id==id{t.Fatal("private resident appeared at the public threshold")}}
+ if len(view.Life.People)>0||len(view.DebugViews)>0{t.Fatal("private life data leaked into public view")}
+ if _,ok:=r.actorPosition(id);ok{t.Fatal("private occupant remains accessible to inventory interaction")}
+ // Positive control: the same visible cell can display a real outside actor.
+ body.ResidenceID="";r.sendState(c);outside:=(<-c.out).GetGameState();found:=false;for _,a:=range outside.SceneAgents{if a.Id==id{found=true}}
+ if !found{t.Fatal("privacy assertion passed only because the threshold was invisible")};body.ResidenceID=home.ID
+ r.state.Paused=true;before:=r.snapshotState();r.step();if !reflect.DeepEqual(before,r.snapshotState()){t.Fatal("pause advanced private residence")}
+ slot:=r.world.Config.SaveSlots[0];if err:=r.writeSave(slot,before);err!=nil{t.Fatal(err)};loaded,_,err:=r.readSave(slot);if err!=nil{t.Fatal(err)}
+ if loaded.Life.Actor(id).ResidenceID!=home.ID||!reflect.DeepEqual(before.Life,loaded.Life){t.Fatal("private identity changed across save")}
 }

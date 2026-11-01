@@ -7,10 +7,14 @@ const lifeManualMoveLabel="Свободное движение"
 const lifeWalkingPrefix="Идёт: "
 
 type LifeMarker struct{Name string `json:"name"`;At Cell `json:"at"`}
-type LifeLocation struct{InitialLayoutKnown bool `json:"initial_layout_known"`;Name string `json:"name"`;Terrain []string `json:"terrain"`;Markers []LifeMarker `json:"markers"`}
+// LifeLink joins two cells of one location that are not grid neighbours: the
+// end of a stair and its landing on another surface (document 80). Movement
+// across it is one ordinary step with the usual cadence and occupancy rules.
+type LifeLink struct{A Cell `json:"a"`;B Cell `json:"b"`}
+type LifeLocation struct{Links []LifeLink `json:"links,omitempty"`;Gates []LifeGate `json:"gates,omitempty"`;PlayerRangeCells int `json:"player_range_cells,omitempty"`;InitialLayoutKnown bool `json:"initial_layout_known"`;Name string `json:"name"`;Terrain []string `json:"terrain"`;Markers []LifeMarker `json:"markers"`}
 type LifeFare struct{Currency string `json:"currency"`;AmountMinor int64 `json:"amount_minor"`;ReceiverAccount string `json:"receiver_account"`}
 type LifeAdmission func(actorID string,edge LifeEdge)bool
-type LifeEdge struct{NameKey string `json:"name_key,omitempty"`;Fare *LifeFare `json:"fare,omitempty"`;ID string `json:"id"`;From string `json:"from"`;To string `json:"to"`;Exit Cell `json:"exit"`;Entry Cell `json:"entry"`;Mode string `json:"mode"`;TravelSeconds int64 `json:"travel_seconds"`;PeriodSeconds int64 `json:"period_seconds"`;NightPeriodSeconds int64 `json:"night_period_seconds,omitempty"`;DayStartSecond int64 `json:"day_start_second,omitempty"`;DayEndSecond int64 `json:"day_end_second,omitempty"`;OffsetSeconds int64 `json:"offset_seconds,omitempty"`;Seats int `json:"seats"`}
+type LifeEdge struct{BoardingWindowSeconds int64 `json:"boarding_window_seconds,omitempty"`;WaitingCells []Cell `json:"waiting_cells,omitempty"`;BoardingLeadSeconds int64 `json:"boarding_lead_seconds,omitempty"`;NameKey string `json:"name_key,omitempty"`;Fare *LifeFare `json:"fare,omitempty"`;ID string `json:"id"`;From string `json:"from"`;To string `json:"to"`;Exit Cell `json:"exit"`;Entry Cell `json:"entry"`;Mode string `json:"mode"`;TravelSeconds int64 `json:"travel_seconds"`;PeriodSeconds int64 `json:"period_seconds"`;NightPeriodSeconds int64 `json:"night_period_seconds,omitempty"`;DayStartSecond int64 `json:"day_start_second,omitempty"`;DayEndSecond int64 `json:"day_end_second,omitempty"`;OffsetSeconds int64 `json:"offset_seconds,omitempty"`;Seats int `json:"seats"`}
 func(e LifeEdge)validSchedule()bool{
  if e.PeriodSeconds<0||e.OffsetSeconds<0||(e.OffsetSeconds>0&&(e.PeriodSeconds==0||e.OffsetSeconds>=e.PeriodSeconds)){return false}
  if e.NightPeriodSeconds==0&&e.DayStartSecond==0&&e.DayEndSecond==0{return true}
@@ -31,11 +35,13 @@ func(e LifeEdge)NextDeparture(seconds int64)int64{
   next:=start+e.OffsetSeconds;if next<seconds{next+=((seconds-next+period-1)/period)*period};if next<end{return next};seconds=end
  }
 }
-type LifeStep struct{AtMinute int64 `json:"at_minute"`;Level string `json:"level"`;At Cell `json:"at"`;Activity string `json:"activity"`;Label string `json:"label"`;MinSeconds int64 `json:"min_seconds"`}
+type LifeStep struct{Obligation bool `json:"obligation,omitempty"`;AtMinute int64 `json:"at_minute"`;Level string `json:"level"`;At Cell `json:"at"`;Activity string `json:"activity"`;Label string `json:"label"`;MinSeconds int64 `json:"min_seconds"`}
 type LifePerson struct{Relations []LifeRelation `json:"relations,omitempty"`;ID string `json:"id"`;Name string `json:"name"`;Source string `json:"source"`;Steps []LifeStep `json:"steps"`}
-type LifeModel struct{Courtesy LifeCourtesyPolicy `json:"courtesy"`;Population PopulationModel `json:"population"`;Development PracticeModel `json:"development"`;PracticeStations []LifePracticeStation `json:"practice_stations"`;Inspection InspectionModel `json:"inspection"`;Maintenance MaintenanceModel `json:"maintenance"`;StartSeconds int64 `json:"start_seconds"`;SecondsPerTick int64 `json:"seconds_per_tick"`;MoveTicks int64 `json:"move_ticks"`;Locations map[string]LifeLocation `json:"locations"`;Edges []LifeEdge `json:"edges"`;Actors []LifePerson `json:"actors"`;Walkable map[string]bool `json:"-"`}
+type LifeModel struct{Brain LifeBrainModel `json:"brain"`;Residences []LifeResidence `json:"residences,omitempty"`;Courtesy LifeCourtesyPolicy `json:"courtesy"`;Population PopulationModel `json:"population"`;Development PracticeModel `json:"development"`;PracticeStations []LifePracticeStation `json:"practice_stations"`;Inspection InspectionModel `json:"inspection"`;Maintenance MaintenanceModel `json:"maintenance"`;StartSeconds int64 `json:"start_seconds"`;SecondsPerTick int64 `json:"seconds_per_tick"`;MoveTicks int64 `json:"move_ticks"`;Locations map[string]LifeLocation `json:"locations"`;Edges []LifeEdge `json:"edges"`;Actors []LifePerson `json:"actors"`;Walkable map[string]bool `json:"-"`}
 type LifeTrip struct{Edge string;Departure,Arrival int64}
 type LifeActor struct{
+ Brain LifeBrain `json:"brain"`
+ ResidenceID string `json:"residence_id,omitempty"`
  ID,Level,Activity,Label string
  Position,Goal Cell
  Path []Cell
@@ -59,15 +65,24 @@ type LifeActor struct{
  WorkedSeconds,SleptSeconds int64
  Meals int
 }
-type LifeState struct{RelationOverrides map[string]map[string]float64 `json:"relation_overrides,omitempty"`;ControlledActorID string `json:"controlled_actor_id,omitempty"`;Population PopulationState `json:"population"`;PopulationFailure string `json:"population_failure,omitempty"`;Development PracticeState `json:"development"`;PracticePending *LifePracticeAttempt `json:"practice_pending,omitempty"`;PracticeLog []string `json:"practice_log,omitempty"`;PracticeExcluded map[string]bool `json:"practice_excluded,omitempty"`;routes *lifeRouteConnectivity `json:"-"`;Observer InspectionObserver `json:"observer"`;Maintenance MaintenanceState;Enabled bool;Seconds,SecondsPerTick,Tick int64;Actors []LifeActor;Events []string}
+type LifeState struct{Gates map[string]LifeGateState `json:"gates,omitempty"`;BrainServices LifeBrainServices `json:"-"`;populationEnv *PopulationEnvironment;Seed int64 `json:"seed,omitempty"`;Decisions DecisionJournal `json:"decisions"`;traffic *lifeTraffic;trafficActive bool;RelationOverrides map[string]map[string]float64 `json:"relation_overrides,omitempty"`;ControlledActorID string `json:"controlled_actor_id,omitempty"`;Population PopulationState `json:"population"`;PopulationFailure string `json:"population_failure,omitempty"`;Development PracticeState `json:"development"`;PracticePending *LifePracticeAttempt `json:"practice_pending,omitempty"`;PracticeLog []string `json:"practice_log,omitempty"`;PracticeExcluded map[string]bool `json:"practice_excluded,omitempty"`;routes *lifeRouteConnectivity `json:"-"`;Observer InspectionObserver `json:"observer"`;Maintenance MaintenanceState;Enabled bool;Seconds,SecondsPerTick,Tick int64;Actors []LifeActor;Events []string}
 func(m LifeModel)Walks(level string,at Cell)bool{l,ok:=m.Locations[level];return ok&&at.Y>=0&&at.Y<len(l.Terrain)&&at.X>=0&&at.X<len(l.Terrain[at.Y])&&m.Walkable[string(l.Terrain[at.Y][at.X])]}
-func(m LifeModel)Space(level string,blocked map[Cell]bool)Space{l:=m.Locations[level];width:=0;if len(l.Terrain)>0{width=len(l.Terrain[0])};return Space{Width:width,Height:len(l.Terrain),MaxSearchCells:width*len(l.Terrain),Walkable:func(at Cell)bool{return m.Walks(level,at)},Blocked:blocked}}
+func(m LifeModel)Space(level string,blocked map[Cell]bool)Space{l:=m.Locations[level];width:=0;if len(l.Terrain)>0{width=len(l.Terrain[0])};return Space{Width:width,Height:len(l.Terrain),MaxSearchCells:width*len(l.Terrain),Walkable:func(at Cell)bool{return m.Walks(level,at)},Blocked:blocked,Links:m.LinkIndex(level)}}
+// LinkIndex returns the undirected link neighbours of a location, or nil.
+func(m LifeModel)LinkIndex(level string)map[Cell][]Cell{l:=m.Locations[level];if len(l.Links)==0{return nil};out:=make(map[Cell][]Cell,2*len(l.Links));for _,k:=range l.Links{out[k.A]=append(out[k.A],k.B);out[k.B]=append(out[k.B],k.A)};return out}
+// Adjacent is one ordinary step: a grid neighbour or an authored link.
+func(m LifeModel)Adjacent(level string,a,b Cell)bool{if Distance(a,b)==1{return true};for _,k:=range m.Locations[level].Links{if k.A==a&&k.B==b||k.A==b&&k.B==a{return true}};return false}
+// StepNeighbours lists the cardinal neighbours, then link neighbours, of at.
+func(m LifeModel)StepNeighbours(level string,at Cell)[]Cell{out:=[]Cell{{at.X,at.Y-1},{at.X+1,at.Y},{at.X,at.Y+1},{at.X-1,at.Y}};for _,k:=range m.Locations[level].Links{if k.A==at{out=append(out,k.B)}else if k.B==at{out=append(out,k.A)}};return out}
 func(m LifeModel)Validate()error{
+ if err:=m.Brain.Validate(m);err!=nil{return err}
  if m.Courtesy.NoticeCells<0||m.Courtesy.NoticeCells>8||m.Courtesy.MaxDetourExtraCells<0||m.Courtesy.MaxDetourExtraCells>64||!(m.Courtesy.HostileAtOrBelow>=-1&&m.Courtesy.HostileAtOrBelow<=0){return fmt.Errorf("invalid courtesy range, hostility or detour budget")};for _,person:=range m.Actors{for _,relation:=range person.Relations{if relation.To==""||!(relation.Strength>=-1&&relation.Strength<=1){return fmt.Errorf("invalid life relation")}}}
  if m.StartSeconds<0||m.StartSeconds>=86400||m.SecondsPerTick<1||m.SecondsPerTick>120||m.MoveTicks<1||len(m.Locations)==0||len(m.Actors)==0{return fmt.Errorf("invalid life clock/catalog")}
- for id,l:=range m.Locations{if len(l.Terrain)==0||len(l.Terrain[0])==0{return fmt.Errorf("empty life level %s",id)};for _,row:=range l.Terrain{if len(row)!=len(l.Terrain[0]){return fmt.Errorf("uneven life level %s",id)}};for _,mark:=range l.Markers{if !m.Walks(id,mark.At){return fmt.Errorf("blocked life marker %s",mark.Name)}}}
+ for id,l:=range m.Locations{if len(l.Terrain)==0||len(l.Terrain[0])==0{return fmt.Errorf("empty life level %s",id)};for _,k:=range l.Links{if k.A==k.B||Distance(k.A,k.B)==1||!m.Walks(id,k.A)||!m.Walks(id,k.B){return fmt.Errorf("invalid life link in %s",id)}};for _,row:=range l.Terrain{if len(row)!=len(l.Terrain[0]){return fmt.Errorf("uneven life level %s",id)}};for _,mark:=range l.Markers{if !m.Walks(id,mark.At){return fmt.Errorf("blocked life marker %s",mark.Name)}}}
  edgeIDs:=map[string]bool{};for _,e:=range m.Edges{if e.ID==""||edgeIDs[e.ID]||!m.Walks(e.From,e.Exit)||!m.Walks(e.To,e.Entry)||e.TravelSeconds<=0||e.Seats<1||(e.Mode!="walk"&&e.Mode!="rail")||(e.Mode=="rail"&&e.PeriodSeconds<=0)||!e.validSchedule(){return fmt.Errorf("invalid life edge %s",e.ID)};if e.Fare!=nil&&(e.Mode!="rail"||e.Fare.Currency==""||e.Fare.AmountMinor<=0||e.Fare.AmountMinor>9000000000000000||e.Fare.ReceiverAccount==""){return fmt.Errorf("invalid life fare %s",e.ID)};edgeIDs[e.ID]=true}
+ if err:=m.validateGates();err!=nil{return err};if err:=m.validatePlatforms();err!=nil{return err}
  ids:=map[string]bool{};for _,a:=range m.Actors{if a.ID==""||ids[a.ID]||len(a.Steps)==0{return fmt.Errorf("invalid life person %s",a.ID)};ids[a.ID]=true;for i,s:=range a.Steps{if s.AtMinute<0||s.AtMinute>=1440||!m.Walks(s.Level,s.At)||s.MinSeconds<0||(i>0&&a.Steps[i-1].AtMinute>=s.AtMinute){return fmt.Errorf("invalid life agenda %s step %d",a.ID,i)};next:=a.Steps[(i+1)%len(a.Steps)];if s.Level!=next.Level&&m.NextEdge(s.Level,next.Level)==nil{return fmt.Errorf("unreachable life agenda %s",a.ID)}}}
+ if err:=m.validateResidences();err!=nil{return err}
  if err:=m.Population.Validate(m);err!=nil{return err}
  if err:=m.validateDevelopment();err!=nil{return err}
  if err:=m.Inspection.Validate();err!=nil{return err}
@@ -78,18 +93,21 @@ func(m LifeModel)Person(id string)*LifePerson{for i:=range m.Actors{if m.Actors[
 func(m LifeModel)Edge(id string)*LifeEdge{for i:=range m.Edges{if m.Edges[i].ID==id{return &m.Edges[i]}};return nil}
 // Graph search is deterministic and minimizes configured travel time. Walking
 // inside each location is planned separately against current physical occupants.
-func(m LifeModel)NextEdge(from,to string)*LifeEdge{
- if from==to{return nil};dist:=map[string]int64{from:0};first:=map[string]int{};done:=map[string]bool{}
+func(m LifeModel)NextEdge(from,to string)*LifeEdge{if i,_,ok:=m.routePlan(from,to,"");ok&&i>=0{return &m.Edges[i]};return nil}
+// routePlan is the static timetable-average plan: first edge index and seconds.
+// A non-empty avoid level is never entered (no loop back through the origin).
+func(m LifeModel)routePlan(from,to,avoid string)(int,int64,bool){
+ if from==to{return -1,0,true};dist:=map[string]int64{from:0};first:=map[string]int{};done:=map[string]bool{}
  keys:=make([]string,0,len(m.Locations));for k:=range m.Locations{keys=append(keys,k)};sort.Strings(keys)
- for range keys{at:="";best:=int64(1<<62);for _,k:=range keys{d,ok:=dist[k];if ok&&!done[k]&&d<best{at,best=k,d}};if at==""{break};if at==to{i:=first[at];return &m.Edges[i]};done[at]=true
-  for i,e:=range m.Edges{if e.From!=at{continue};cost:=best+e.TravelSeconds+e.PeriodSeconds/2;old,ok:=dist[e.To];if !ok||cost<old{dist[e.To]=cost;if at==from{first[e.To]=i}else{first[e.To]=first[at]}}}
- };return nil
+ for range keys{at:="";best:=int64(1<<62);for _,k:=range keys{d,ok:=dist[k];if ok&&!done[k]&&d<best{at,best=k,d}};if at==""{break};if at==to{return first[at],best,true};done[at]=true
+  for i,e:=range m.Edges{if e.From!=at||e.To==avoid{continue};cost:=best+e.TravelSeconds+e.PeriodSeconds/2;old,ok:=dist[e.To];if !ok||cost<old{dist[e.To]=cost;if at==from{first[e.To]=i}else{first[e.To]=first[at]}}}
+ };return -1,0,false
 }
 func(m LifeModel)Start()LifeState{
  s:=LifeState{Development:m.Development.Start(),Observer:m.Inspection.Observer.Clone(),Maintenance:m.Maintenance.Start(),Enabled:true,Seconds:m.StartSeconds,SecondsPerTick:m.SecondsPerTick}
  for _,p:=range m.Actors{index:=len(p.Steps)-1;day:=s.Seconds/86400;minute:=s.Seconds%86400/60;found:=false;for i,step:=range p.Steps{if step.AtMinute<=minute{index=i;found=true}};if !found{day--};step:=p.Steps[index]
   a:=LifeActor{ID:p.ID,Level:step.Level,Position:step.At,Goal:step.At,Step:index,Day:day,StartedAt:s.Seconds,Arrived:true,Activity:step.Activity,Label:step.Label,Visits:map[string]int{step.Level:1}};if step.Activity=="eat"{a.Meals++};s.Actors=append(s.Actors,a)
- };return s
+ };for i:=range s.Actors{s.enterResidence(m,&s.Actors[i])};s.Gates=m.startGates(s.Seconds,m.MotionTick(0,s.Seconds));return s
 }
 // StartWithPopulation enables an explicit population scenario. Count zero keeps
 // the ordinary life state byte-for-byte compatible in its existing fields.
@@ -105,11 +123,13 @@ func(m LifeModel)StartWithPopulation(count int,observerID string)(LifeState,erro
 // positions/first-step reservations. It is also used for immediate hero input.
 func(s LifeState)BlockedCells(level,except string)map[Cell]bool{return s.blocked(level,except)}
 func(s LifeState)PopulationEnvironment()PopulationEnvironment{
- env:=PopulationEnvironment{Occupied:map[string]map[Cell]bool{}}
+ env:=PopulationEnvironment{Occupied:map[string]map[Cell]bool{},GoalClaims:map[string]map[Cell]bool{},SecondsPerTick:s.SecondsPerTick}
  for _,a:=range s.Actors{
+  if a.ResidenceID!=""{continue}
   if a.Trip!=nil{env.Trips=append(env.Trips,*a.Trip);continue}
   if env.Occupied[a.Level]==nil{env.Occupied[a.Level]=map[Cell]bool{}}
   env.Occupied[a.Level][a.Position]=true;if len(a.Path)>0{env.Occupied[a.Level][a.Path[0]]=true}
+  if a.ID!=s.ControlledActorID&&!a.Manual&&!a.Arrived{if env.GoalClaims[a.Level]==nil{env.GoalClaims[a.Level]=map[Cell]bool{}};env.GoalClaims[a.Level][a.Goal]=true}
  };return env
 }
 // Named actors advance first against the previous crowd reservations. The
@@ -117,22 +137,24 @@ func(s LifeState)PopulationEnvironment()PopulationEnvironment{
 func(s *LifeState)AdvancePopulation(m LifeModel,observerID string)error{
  if s.PopulationFailure!=""{return fmt.Errorf("population stopped: %s",s.PopulationFailure)}
  if s.Population.Count==0{return nil}
- observer:=s.Actor(observerID);if observer==nil{return fmt.Errorf("population observer missing")}
+ motion:=m.MotionTick(s.Tick,s.Seconds);observer:=s.Actor(observerID);if observer==nil{return fmt.Errorf("population observer missing")}
  // Old saves omit this field: no named yielding is allowed until the host
  // supplies its authoritative controlled actor here, never a guessed ID.
  s.ControlledActorID=observerID
  for i:=range s.Population.Actors{a:=&s.Population.Actors[i];if a.YieldRequester==""{continue}
-  if s.courtesyPopulationWilling(m,*a,a.YieldRequester){if until:=s.courtesyPocketUntil(m,a.YieldRequester,a.Level,a.YieldOrigin,a.YieldHoldUntil,s.Tick,m.Population.MoveTicks);until>a.YieldUntil{a.YieldUntil=until}}
-  if s.Tick>=a.YieldUntil{a.YieldRequester="";a.YieldOrigin=Cell{};a.YieldHoldUntil=0}
+  if s.courtesyPopulationWilling(m,*a,a.YieldRequester){until:=s.courtesyPocketUntil(m,a.YieldRequester,a.Level,a.YieldOrigin,a.YieldHoldUntil,motion,m.Population.MoveTicks);blocking:=s.courtesyBlocksRequester(m,a.YieldRequester,a.Level,a.Position);if len(a.Path)==0&&(s.courtesyPocketNeededByContact(m,a.YieldRequester,a.Level,a.Position)||blocking){a.YieldUntil=motion;a.YieldCooldownUntil=motion}else if until>a.YieldUntil{a.YieldUntil=until}}
+  if motion>=a.YieldUntil{a.YieldRequester="";a.YieldOrigin=Cell{};a.YieldHoldUntil=0}
  }
  active:="";if observer.Trip==nil{active=observer.Level}
  // Immutable validated content guarantees the kernel's only mid-pass error
  // (an unknown trip edge) cannot occur. Preflight also protects direct callers.
  for _,a:=range s.Population.Actors{if a.Trip!=nil&&m.Edge(a.Trip.Edge)==nil{return fmt.Errorf("population trip references unknown edge")}}
- environment:=s.PopulationEnvironment();environment.NewPathAvoid=func(a PopulationActor)map[Cell]bool{return s.courtesyPopulationPassage(m,a)}
+ defer s.ObserveDecisions();environment:=s.cachedPopulationEnvironment();environment.Seed=s.Seed;environment.BrainServices=s.BrainServices;environment.NewPathAvoid=func(a PopulationActor)map[Cell]bool{return s.courtesyPopulationPassage(m,a)}
  environment.NewArrivalAvoid=func(a PopulationActor)map[Cell]bool{return s.courtesyPopulationArrival(m,a)}
+ sameFrame:=s.Population.LastSeconds==s.Seconds&&s.Population.LastTick==s.Tick&&s.Population.ActiveLevel==active
  if err:=s.Population.Advance(m.Population,m,s.Seconds,s.Tick,active,environment);err!=nil{return err}
- s.resumeControlledAfterTraffic(m,s.Tick);return nil
+ owned:=s.beginTraffic();defer s.endTraffic(owned);if !sameFrame{s.resumeAutonomousPopulationTraffic(m,motion)}
+ s.resumeControlledAfterTraffic(m,motion);return nil
 }
 func(s LifeState)validatePopulation(m LifeModel,tick int64)error{
  if err:=s.Population.Validate(m.Population,m,s.Seconds,tick);err!=nil{return err}
@@ -148,25 +170,49 @@ func(s LifeState)validatePopulation(m LifeModel,tick int64)error{
 }
 func(s *LifeState)Actor(id string)*LifeActor{for i:=range s.Actors{if s.Actors[i].ID==id{return &s.Actors[i]}};return nil}
 func(s *LifeState)note(text string){s.Events=append(s.Events,fmt.Sprintf("%02d:%02d · %s",s.Seconds%86400/3600,s.Seconds%3600/60,text));if len(s.Events)>64{s.Events=append([]string(nil),s.Events[len(s.Events)-64:]...)}}
-func(s LifeState)occupied(level string,at Cell,except string)bool{for _,a:=range s.Population.Actors{if a.Materialized&&a.Trip==nil&&a.Level==level&&(a.Position==at||(len(a.Path)>0&&a.Path[0]==at)){return true}};for _,a:=range s.Actors{if a.ID!=except&&a.Trip==nil&&a.Level==level&&(a.Position==at||(len(a.Path)>0&&a.Path[0]==at)){return true}};return false}
-func(s LifeState)blocked(level,id string)map[Cell]bool{result:=map[Cell]bool{};for _,a:=range s.Population.Actors{if a.Materialized&&a.Trip==nil&&a.Level==level{result[a.Position]=true;if len(a.Path)>0{result[a.Path[0]]=true}}};for _,a:=range s.Actors{if a.ID!=id&&a.Trip==nil&&a.Level==level{result[a.Position]=true;if len(a.Path)>0{result[a.Path[0]]=true}}};return result}
+func(s LifeState)occupied(level string,at Cell,except string)bool{if s.trafficActive{return s.indexedOccupied(level,at,except)};for _,a:=range s.Population.Actors{if a.ID!=except&&a.Materialized&&a.Trip==nil&&a.Level==level&&(a.Position==at||(len(a.Path)>0&&a.Path[0]==at)){return true}};for _,a:=range s.Actors{if a.ID!=except&&a.OnFloor()&&a.Level==level&&(a.Position==at||(len(a.Path)>0&&a.Path[0]==at)){return true}};return false}
+func(s LifeState)blocked(level,id string)map[Cell]bool{result:=map[Cell]bool{};for _,a:=range s.Population.Actors{if a.ID!=id&&a.Materialized&&a.Trip==nil&&a.Level==level{result[a.Position]=true;if len(a.Path)>0{result[a.Path[0]]=true}}};for _,a:=range s.Actors{if a.ID!=id&&a.OnFloor()&&a.Level==level{result[a.Position]=true;if len(a.Path)>0{result[a.Path[0]]=true}}};return result}
 func(s *LifeState)Advance(m LifeModel,tick int64){s.AdvanceWithMaintenance(m,tick,nil)}
 func(s *LifeState)AdvanceWithMaintenance(m LifeModel,tick int64,install MaintenanceInstall){s.AdvanceWithTravel(m,tick,install,nil)}
 func(s *LifeState)AdvanceWithTravel(m LifeModel,tick int64,install MaintenanceInstall,admit LifeAdmission){s.AdvanceWithTravelBy(m,tick,s.SecondsPerTick,install,admit)}
 // Explicit positive calendar delta permits an exact final travel boundary while
 // keeping the configured clock rate and movement cadence unchanged.
 func(s *LifeState)AdvanceWithTravelBy(m LifeModel,tick,delta int64,install MaintenanceInstall,admit LifeAdmission){
- if !s.Enabled{return};if delta<1||delta>120{panic("invalid life calendar delta")};s.Seconds+=delta;s.Tick=tick;s.planMaintenance(m,delta);s.ensureLifeRoutes(m);yieldBudget:=4
+ if !s.Enabled{return};if delta<1||delta>120{panic("invalid life calendar delta")};defer s.ObserveDecisions();s.Seconds+=delta;s.Tick=tick;tick=m.MotionTick(tick,s.Seconds);s.advanceGates(m,tick);m=s.GateModel(m);s.planMaintenance(m,delta);owned:=s.beginTraffic();defer s.endTraffic(owned);topologyChanged:=s.ensureLifeRoutes(m);yieldBudget:=4;brainActiveLevel:="";if observer:=s.Actor(s.ControlledActorID);observer!=nil&&observer.Trip==nil{brainActiveLevel=observer.Level}
  for i:=range s.Actors{
-  a:=&s.Actors[i];person:=m.Person(a.ID);if person==nil{continue}
+  s.trafficActor(i);a:=&s.Actors[i];person:=m.Person(a.ID);if person==nil{continue}
+  brainStep:=person.Steps[a.Step]
+  if m.Brain.Enabled{
+   index,day:=m.namedSchedule(person,s.Seconds)
+   committed:=person.Steps[a.Step]
+   // A short duty such as receiving finite stock remains pending until actual
+   // arrival and its authored dwell. Utility can still choose an urgent need.
+   if committed.Obligation&&committed.MinSeconds>0&&s.Seconds>=a.Day*86400+committed.AtMinute*60&&(!a.Arrived||a.Level!=committed.Level||a.Position!=committed.At||a.Activity!=committed.Activity||s.Seconds-a.StartedAt<committed.MinSeconds){index=a.Step;day=a.Day}
+   if index!=a.Step&&person.Steps[index].Obligation&&a.Arrived{a.StartedAt=s.Seconds}
+   scheduled:=person.Steps[index];if repair,ok:=s.maintenanceStep(m,a.ID);ok{scheduled=repair;scheduled.Obligation=true}
+   brainStep=a.Brain.advance(m.Brain,s.BrainServices,a.ID,a.Level,a.Activity,a.Position,a.Arrived&&a.Trip==nil,a.Level==brainActiveLevel,a.ID==s.ControlledActorID||a.Manual,scheduled,m.namedHome(person),s.Seconds/86400,s.Seconds,s.Seed)
+   if a.ID!=s.ControlledActorID&&!a.Manual{a.Step=index;a.Day=day;_,repairing:=s.maintenanceStep(m,a.ID);if !repairing&&a.Brain.Target.Level!=""&&(a.Level!=brainStep.Level||a.Goal!=brainStep.At||a.Activity!=brainStep.Activity){a.Arrived=false}}
+  }
+  if s.advanceResidence(m,a,tick,delta){continue}
   if a.Trip!=nil{s.tryLifeArrival(m,a,tick);continue}
+  if topologyChanged{
+   // Preserve a valid committed prefix, but never carry stale reservations
+   // through a newly closed cell. The durable goal survives replanning.
+   supported:=m.supportedPath(a.Level,a.Position,a.Path)
+   if len(supported)!=len(a.Path){a.Path=supported;a.PendingPath=nil;if len(a.Path)==0{a.MoveStartTick=tick}}
+   if len(m.supportedPath(a.Level,a.Position,a.PendingPath))!=len(a.PendingPath){a.PendingPath=nil}
+  }
   if a.Arrived{switch a.Activity{case "work":a.WorkedSeconds+=delta;case "sleep":a.SleptSeconds+=delta}}
-  if len(a.Path)>0&&tick>=a.MoveStartTick+m.MoveTicks{
-   next:=a.Path[0];if !s.occupied(a.Level,next,a.ID){a.Position=next;a.Path=a.Path[1:];a.MoveStartTick+=m.MoveTicks;if len(a.Path)>0&&(s.occupied(a.Level,a.Path[0],a.ID)||s.courtesyNamedPassage(m,*a)[a.Path[0]]){if a.ID==s.ControlledActorID{a.PendingPath=a.Path};a.Path=nil;a.MoveStartTick=tick}}else{a.MoveStartTick=tick;if a.ID==s.ControlledActorID{a.PendingPath=a.Path};a.Path=nil}
+  // Game-time motion: steps due inside this frame only; a stale start (long
+  // wait) gets its first step now instead of a catch-up sprint.
+  if m.Brain.Enabled&&len(a.Path)>0&&a.MoveStartTick+m.MoveTicks<tick-delta+1{a.MoveStartTick=tick-delta+1-m.MoveTicks}
+  for len(a.Path)>0&&tick>=a.MoveStartTick+m.MoveTicks{
+   next:=a.Path[0];if m.Walks(a.Level,next)&&m.Adjacent(a.Level,a.Position,next)&&!s.occupied(a.Level,next,a.ID){a.Position=next;a.Path=a.Path[1:];a.MoveStartTick+=m.MoveTicks;if len(a.Path)>0&&(s.occupied(a.Level,a.Path[0],a.ID)||s.courtesyNamedPassage(m,*a)[a.Path[0]]){if a.ID==s.ControlledActorID{a.PendingPath=a.Path};a.Path=nil;a.MoveStartTick=tick}}else{a.MoveStartTick=tick;if a.ID==s.ControlledActorID{a.PendingPath=a.Path};a.Path=nil}
+   if !m.Brain.Enabled{break}
   }
   if a.ID==s.ControlledActorID{s.anticipateControlledTraffic(m,a,tick,&yieldBudget)}
   if a.YieldRequester!=""{
-   if s.courtesyNamedWilling(m,*a,a.YieldRequester){if until:=s.courtesyPocketUntil(m,a.YieldRequester,a.Level,a.YieldOrigin,a.YieldHoldUntil,tick,m.MoveTicks);until>a.YieldUntil{a.YieldUntil=until}}
+   if s.courtesyNamedWilling(m,*a,a.YieldRequester){until:=s.courtesyPocketUntil(m,a.YieldRequester,a.Level,a.YieldOrigin,a.YieldHoldUntil,tick,m.MoveTicks);blocking:=s.courtesyBlocksRequester(m,a.YieldRequester,a.Level,a.Position);if len(a.Path)==0&&(s.courtesyPocketNeededByContact(m,a.YieldRequester,a.Level,a.Position)||blocking){a.YieldUntil=tick;a.YieldCooldownUntil=tick}else if until>a.YieldUntil{a.YieldUntil=until}}
    if tick>=a.YieldUntil{a.YieldRequester="";a.YieldOrigin=Cell{};a.YieldHoldUntil=0}
   }
   if tick<a.YieldUntil{a.Activity="yielding";a.Label="Уступает проход";continue}
@@ -178,30 +224,31 @@ func(s *LifeState)AdvanceWithTravelBy(m LifeModel,tick,delta int64,install Maint
    if a.Position==a.Goal&&len(a.Path)==0{if !a.Arrived{a.Arrived=true;a.StartedAt=s.Seconds;a.Activity="rest";a.Label="На месте"};continue}
    if a.Arrived||len(a.Path)>0{continue}
   }
-  step:=person.Steps[a.Step];repairStep,repairing:=s.maintenanceStep(m,a.ID);if repairing{step=repairStep}
+  step:=person.Steps[a.Step];if m.Brain.Enabled&&a.ID!=s.ControlledActorID&&!a.Manual{step=brainStep};repairStep,repairing:=s.maintenanceStep(m,a.ID);if repairing{step=repairStep}
   if manualGoal{step=LifeStep{Level:a.Level,At:a.Goal,Activity:"rest",Label:lifeManualMoveLabel}}
-  if !manualGoal&&!repairing&&a.OverrideLevel==""&&a.Arrived&&len(person.Steps)>1{
+  if (!m.Brain.Enabled||a.ID==s.ControlledActorID)&&!manualGoal&&!repairing&&a.OverrideLevel==""&&a.Arrived&&len(person.Steps)>1{
    next:=(a.Step+1)%len(person.Steps);day:=a.Day;if next==0{day++};due:=day*86400+person.Steps[next].AtMinute*60
    if s.Seconds>=due&&s.Seconds-a.StartedAt>=step.MinSeconds{a.Step=next;a.Day=day;a.Arrived=false;a.Path=nil;a.WaitingDeparture=0;step=person.Steps[next];s.note(person.Name+": собирается — "+step.Label)}
   }
   goalLevel,goal:=step.Level,step.At;if a.OverrideLevel!=""{goalLevel,goal=a.OverrideLevel,a.OverrideAt}
   if a.Level==goalLevel&&a.Position==goal&&len(a.Path)==0{
-   if !a.Arrived{a.Arrived=true;a.StartedAt=s.Seconds;a.Activity=step.Activity;a.Label=step.Label;if a.OverrideLevel!=""{a.Activity="rest";a.Label="Прибыл";a.OverrideLevel="";a.OverrideEdge=""};if a.Activity=="eat"{a.Meals++};s.note(person.Name+": "+a.Label)};continue
+   if !a.Arrived{a.Arrived=true;a.StartedAt=s.Seconds;a.Activity=step.Activity;a.Label=step.Label;if a.OverrideLevel!=""{a.Activity="rest";a.Label="Прибыл";a.OverrideLevel="";a.OverrideEdge=""};if a.Activity=="eat"{a.Meals++};s.note(person.Name+": "+a.Label)};s.enterResidence(m,a);continue
   }
   if a.Arrived{continue}
   var edge *LifeEdge
   destination:=goal
-  if a.Level!=goalLevel{edge=m.NextEdge(a.Level,goalLevel);if a.OverrideEdge!=""{edge=m.Edge(a.OverrideEdge)};if edge==nil{a.Label="Нет маршрута";continue};destination=edge.Exit}
+  if a.Level!=goalLevel{edge=m.NextEdge(a.Level,goalLevel);if m.Brain.Enabled&&a.ID!=s.ControlledActorID&&!a.Manual&&a.OverrideEdge==""{edge=s.brainLegEdge(m,a,goalLevel)};if a.OverrideEdge!=""{edge=m.Edge(a.OverrideEdge)};if edge==nil{a.Label="Нет маршрута";continue};destination=edge.Exit}
   a.Activity="walking";a.Label=lifeWalkingPrefix+step.Label;if a.OverrideLevel!=""{a.Label=lifeWalkingPrefix+m.Locations[goalLevel].Name}
   if a.AdmissionDeniedEdge!=""&&(edge==nil||a.AdmissionDeniedEdge!=edge.ID){a.AdmissionDeniedEdge=""}
-  if edge!=nil&&a.Position==edge.Exit&&len(a.Path)==0{
-   s.beginLifeTrip(m,a,edge,admit);continue
+  if edge!=nil{var hold bool;destination,hold=s.platformDestination(m,a,edge);if hold{continue}}
+  if edge!=nil&&destination==edge.Exit&&a.Position==edge.Exit&&len(a.Path)==0{
+   s.beginLifeTrip(m,a,edge,admit,s.Seconds-delta);continue
   }
   if a.ID==s.ControlledActorID{
    if a.Goal!=destination||len(a.Path)==0{if a.Goal!=destination{a.PendingPath=nil};a.Goal=destination;a.Path=s.controlledRoute(m,a,destination,tick,&yieldBudget);a.MoveStartTick=tick;if len(a.Path)==0{a.Label="Ждёт проход"}}
    continue
   }
-  if a.Goal!=destination||len(a.Path)==0{a.Goal=destination;if !s.routes.connected(a.Level,a.Position,destination){a.Path=nil;a.Label="Ждёт проход";continue};blocked:=s.blocked(a.Level,a.ID);passage:=s.courtesyNamedPassage(m,*a);for at:=range passage{blocked[at]=true};space:=m.Space(a.Level,blocked);path:=space.Path(a.Position,destination,Cell{},0);a.Goal=destination;
+  if a.Goal!=destination||len(a.Path)==0{if m.Brain.Enabled&&a.Goal==destination&&s.Seconds<a.Brain.PathRetrySecond{continue};a.Brain.PathRetrySecond=s.Seconds+10;a.Goal=destination;if !s.routes.connected(a.Level,a.Position,destination){a.Path=nil;a.Label="Ждёт проход";continue};passage:=s.courtesyNamedPassage(m,*a);space:=m.Space(a.Level,passage);space.Occupied=func(at Cell)bool{return s.occupied(a.Level,at,a.ID)};path:=space.Path(a.Position,destination,Cell{},0);a.Goal=destination;
    if len(path)==0&&(s.Population.Count>0||a.ID==s.ControlledActorID||s.autonomousTrafficRequester(a.ID)){
     // Route through stationary traffic that can negotiate a side step, while
     // preserving active duties, controlled actors and accepted next segments.
@@ -216,11 +263,13 @@ func(s *LifeState)AdvanceWithTravelBy(m LifeModel,tick,delta int64,install Maint
    }
    if len(path)>0{a.Path=path;a.MoveStartTick=tick}else{a.Label="Ждёт проход"}}
  }
- s.resumeControlledAfterTraffic(m,tick);s.finishMaintenanceTick(m,delta,install)
+ s.trafficActor(-1);s.resumeControlledAfterTraffic(m,tick);s.finishMaintenanceTick(m,delta,install)
 }
-func(s LifeState)Clone()LifeState{out:=s;out.routes=nil;out.RelationOverrides=s.cloneRelations();out.Population=s.Population.Clone();out.Development=s.Development.Clone();out.PracticeLog=append([]string(nil),s.PracticeLog...);if s.PracticePending!=nil{copy:=*s.PracticePending;out.PracticePending=&copy};out.PracticeExcluded=nil;if len(s.PracticeExcluded)>0{out.PracticeExcluded=map[string]bool{};for k,v:=range s.PracticeExcluded{out.PracticeExcluded[k]=v}};out.Observer=s.Observer.Clone();out.Maintenance=s.Maintenance.Clone();out.Events=append([]string(nil),s.Events...);out.Actors=append([]LifeActor(nil),s.Actors...);for i:=range out.Actors{a:=&out.Actors[i];a.Path=append([]Cell(nil),a.Path...);a.PendingPath=append([]Cell(nil),a.PendingPath...);if a.Trip!=nil{trip:=*a.Trip;a.Trip=&trip};a.Visits=map[string]int{};for k,v:=range s.Actors[i].Visits{a.Visits[k]=v}};return out}
+func(s LifeState)Clone()LifeState{out:=s;out.Gates=cloneGates(s.Gates);out.BrainServices=LifeBrainServices{};out.populationEnv=nil;out.Decisions=s.Decisions.Clone();out.traffic=nil;out.trafficActive=false;out.routes=nil;out.RelationOverrides=s.cloneRelations();out.Population=s.Population.Clone();out.Development=s.Development.Clone();out.PracticeLog=append([]string(nil),s.PracticeLog...);if s.PracticePending!=nil{copy:=*s.PracticePending;out.PracticePending=&copy};out.PracticeExcluded=nil;if len(s.PracticeExcluded)>0{out.PracticeExcluded=map[string]bool{};for k,v:=range s.PracticeExcluded{out.PracticeExcluded[k]=v}};out.Observer=s.Observer.Clone();out.Maintenance=s.Maintenance.Clone();out.Events=append([]string(nil),s.Events...);out.Actors=append([]LifeActor(nil),s.Actors...);for i:=range out.Actors{a:=&out.Actors[i];a.Brain=a.Brain.Clone();a.Path=append([]Cell(nil),a.Path...);a.PendingPath=append([]Cell(nil),a.PendingPath...);if a.Trip!=nil{trip:=*a.Trip;a.Trip=&trip};a.Visits=map[string]int{};for k,v:=range s.Actors[i].Visits{a.Visits[k]=v}};return out}
 func(s LifeState)Validate(m LifeModel,tick int64)error{
+ if err:=s.Decisions.Validate(tick,s.Seconds);err!=nil{return err};if len(s.Decisions.Last)>len(s.Actors){return fmt.Errorf("oversized named decision index")};for id:=range s.Decisions.Last{if s.Actor(id)==nil{return fmt.Errorf("unknown named decision actor")}}
  if s.PopulationFailure!=""{return fmt.Errorf("population stopped: %s",s.PopulationFailure)}
+ if err:=s.validateResidenceState(m);err!=nil{return err}
  if err:=s.validateRelations();err!=nil{return err}
  if err:=s.validatePopulation(m,tick);err!=nil{return err}
  if err:=s.validateDevelopment(m,tick);err!=nil{return err}
@@ -229,18 +278,18 @@ func(s LifeState)Validate(m LifeModel,tick int64)error{
  if s.ControlledActorID!=""&&s.Actor(s.ControlledActorID)==nil{return fmt.Errorf("unknown controlled life actor")}
  if !s.Enabled{return nil};if s.Seconds<0||s.SecondsPerTick<1||s.SecondsPerTick>120||s.Tick<0||s.Tick!=tick||len(s.Events)>64||len(s.Actors)!=len(m.Actors){return fmt.Errorf("invalid life state")}
  occupied:=map[string]map[Cell]bool{}
- for i,a:=range s.Actors{p:=m.Actors[i];if a.ID!=p.ID||a.Step<0||a.Step>=len(p.Steps)||!m.Walks(a.Level,a.Position)||a.YieldUntil<0||a.YieldUntil>tick+8*m.MoveTicks||a.MoveStartTick<0||a.MoveStartTick>tick||a.StartedAt<0||a.StartedAt>s.Seconds||a.Visits==nil||a.WorkedSeconds<0||a.SleptSeconds<0||a.Meals<0||len(a.Path)>10000||len(a.PendingPath)>10000{return fmt.Errorf("invalid life actor %s",a.ID)}
-  if a.YieldRequester!=""&&(a.YieldRequester==a.ID||m.Person(a.YieldRequester)==nil||!m.Walks(a.Level,a.YieldOrigin)||a.YieldHoldUntil<0||a.YieldHoldUntil>tick+16*m.MoveTicks){return fmt.Errorf("invalid life courtesy hold")}
-  if a.YieldCooldownUntil<0||a.YieldCooldownUntil>tick+10*m.MoveTicks{return fmt.Errorf("invalid life courtesy cooldown")}
+ motion:=m.MotionTick(tick,s.Seconds);for i,a:=range s.Actors{if err:=a.Brain.Validate(m.Brain,s.Seconds);err!=nil{return err};p:=m.Actors[i];if a.ID!=p.ID||a.Step<0||a.Step>=len(p.Steps)||!m.Walks(a.Level,a.Position)||a.YieldUntil<0||a.YieldUntil>motion+8*m.MoveTicks||a.MoveStartTick<0||a.MoveStartTick>motion||a.StartedAt<0||a.StartedAt>s.Seconds||a.Visits==nil||a.WorkedSeconds<0||a.SleptSeconds<0||a.Meals<0||len(a.Path)>10000||len(a.PendingPath)>10000{return fmt.Errorf("invalid life actor %s",a.ID)}
+  if a.YieldRequester!=""&&(a.YieldRequester==a.ID||m.Person(a.YieldRequester)==nil||!m.Walks(a.Level,a.YieldOrigin)||a.YieldHoldUntil<0||a.YieldHoldUntil>motion+16*m.MoveTicks){return fmt.Errorf("invalid life courtesy hold")}
+  if a.YieldCooldownUntil<0||a.YieldCooldownUntil>motion+10*m.MoveTicks{return fmt.Errorf("invalid life courtesy cooldown")}
   if a.AdmissionDeniedEdge!=""{e:=m.Edge(a.AdmissionDeniedEdge);if e==nil||e.Fare==nil||e.From!=a.Level||a.Trip!=nil||a.ID!=s.ControlledActorID{return fmt.Errorf("invalid life admission latch")}}
-  if a.Trip!=nil{e:=m.Edge(a.Trip.Edge);if e==nil||e.From!=a.Level||a.Trip.Departure<0||a.Trip.Departure>s.Seconds||a.Position!=e.Exit||a.Trip.Arrival!=a.Trip.Departure+e.TravelSeconds||len(a.Path)>0{return fmt.Errorf("invalid life trip")}}else{if occupied[a.Level]==nil{occupied[a.Level]=map[Cell]bool{}};if occupied[a.Level][a.Position]{return fmt.Errorf("life actors overlap")};occupied[a.Level][a.Position]=true}
+  if a.Trip!=nil{e:=m.Edge(a.Trip.Edge);if e==nil||e.From!=a.Level||a.Trip.Departure<0||!e.validBoardedDeparture(a.Trip.Departure,s.Seconds)||a.Position!=e.Exit||a.Trip.Arrival!=a.Trip.Departure+e.TravelSeconds||len(a.Path)>0{return fmt.Errorf("invalid life trip")}}else if a.ResidenceID==""{if occupied[a.Level]==nil{occupied[a.Level]=map[Cell]bool{}};if occupied[a.Level][a.Position]{return fmt.Errorf("life actors overlap")};occupied[a.Level][a.Position]=true}
   for level,count:=range a.Visits{if _,ok:=m.Locations[level];!ok||count<1{return fmt.Errorf("invalid life visit")}}
   if len(a.PendingPath)>0&&(a.ID!=s.ControlledActorID||len(a.Path)>0||a.Trip!=nil){return fmt.Errorf("invalid pending life route")}
-  pendingFrom:=a.Position;for _,at:=range a.PendingPath{if !m.Walks(a.Level,at)||Distance(pendingFrom,at)!=1{return fmt.Errorf("invalid pending life path")};pendingFrom=at}
-  previous:=a.Position;for _,at:=range a.Path{if !m.Walks(a.Level,at)||Distance(previous,at)!=1{return fmt.Errorf("invalid life path")};previous=at}
+  pendingFrom:=a.Position;for _,at:=range a.PendingPath{if !m.Walks(a.Level,at)||!m.Adjacent(a.Level,pendingFrom,at){return fmt.Errorf("invalid pending life path")};pendingFrom=at}
+  previous:=a.Position;for _,at:=range a.Path{if !m.Walks(a.Level,at)||!m.Adjacent(a.Level,previous,at){return fmt.Errorf("invalid life path")};previous=at}
   if a.OverrideEdge!=""{e:=m.Edge(a.OverrideEdge);if e==nil||e.To!=a.OverrideLevel||e.Entry!=a.OverrideAt||(a.Level!=e.From&&a.Level!=e.To){return fmt.Errorf("invalid selected life exit")}}
   if a.OverrideLevel!=""&&!m.Walks(a.OverrideLevel,a.OverrideAt){return fmt.Errorf("invalid life destination")}
- };return s.Maintenance.Validate(m,s.Seconds)
+ };if err:=s.validateGates(m,motion);err!=nil{return err};return s.Maintenance.Validate(m,s.Seconds)
 }
 
 // A passenger may step onto a free adjacent landing cell, never across a wall.
@@ -256,14 +305,24 @@ func(s LifeState)lifeArrivalCell(m LifeModel,e LifeEdge,id string)(Cell,bool){
 type lifeRouteConnectivity struct {
  walkable map[string]bool
  levels map[string]lifeRouteLevel
+ travel map[lifeTravelKey]int64
+}
+type lifeTravelKey struct{level string;from,to Cell}
+// StaticTravelSeconds memoizes the body-free walking time between two cells in
+// game seconds (-1: unreachable). Rebuilt with the geometry cache; never saved.
+func(s *LifeState)StaticTravelSeconds(m LifeModel,level string,from,to Cell)int64{
+ if from==to{return 0};s.ensureLifeRoutes(m);k:=lifeTravelKey{level,from,to}
+ if v,ok:=s.routes.travel[k];ok{return v}
+ v:=int64(-1);if s.routes.connected(level,from,to){if path:=m.Space(level,nil).Path(from,to,Cell{},0);len(path)>0{v=int64(len(path))*m.MoveTicks}}
+ if s.routes.travel==nil{s.routes.travel=map[lifeTravelKey]int64{}};if len(s.routes.travel)<1<<16{s.routes.travel[k]=v};return v
 }
 type lifeRouteLevel struct {
  terrain []string
  width int
  components []int
 }
-func(s *LifeState)ensureLifeRoutes(m LifeModel){
- if s.routes!=nil&&s.routes.matches(m){return}
+func(s *LifeState)ensureLifeRoutes(m LifeModel)bool{
+ if s.routes!=nil&&s.routes.matches(m){return false}
  cache:=&lifeRouteConnectivity{walkable:make(map[string]bool,len(m.Walkable)),levels:make(map[string]lifeRouteLevel,len(m.Locations))}
  for glyph,walks:=range m.Walkable{cache.walkable[glyph]=walks}
  for id,location:=range m.Locations{
@@ -275,14 +334,21 @@ func(s *LifeState)ensureLifeRoutes(m LifeModel){
    origin:=Cell{X:x,Y:y};index:=y*level.width+x
    if level.components[index]!=0||!m.Walks(id,origin){continue}
    component++;level.components[index]=component;queue=append(queue[:0],origin)
-   for head:=0;head<len(queue);head++{at:=queue[head];for _,delta:=range cardinal{
-    next:=Cell{X:at.X+delta.X,Y:at.Y+delta.Y};if !m.Walks(id,next){continue};nextIndex:=next.Y*level.width+next.X
+   for head:=0;head<len(queue);head++{at:=queue[head];for _,next:=range m.StepNeighbours(id,at){
+    if !m.Walks(id,next){continue};nextIndex:=next.Y*level.width+next.X
     if level.components[nextIndex]==0{level.components[nextIndex]=component;queue=append(queue,next)}
    }}
   }}
   cache.levels[id]=level
  }
  s.routes=cache
+ return true
+}
+// Geometry changes may shorten a previously accepted route. Keep its safe
+// prefix and normal movement cadence; neither collision bypass nor teleport
+// is a recovery mechanism. Used only on topology refresh, not every frame.
+func(m LifeModel)supportedPath(level string,from Cell,path []Cell)[]Cell{
+ for i,at:=range path{if !m.Walks(level,at)||!m.Adjacent(level,from,at){return path[:i]};from=at};return path
 }
 // Compare structural inputs once per tick. Copied row headers and walkability
 // entries prevent shared mutable model maps/slices from hiding topology edits.
@@ -312,43 +378,49 @@ type lifeYieldResident struct{index int;named bool;courtesy bool}
 // client connection or synthetic population is required. The legacy anonymous
 // wrapper still cannot guess which actor is controlled.
 func(s LifeState)autonomousTrafficRequester(id string)bool{
- a:=s.Actor(id);return a!=nil&&a.ID!=s.ControlledActorID&&!a.Manual&&a.Trip==nil&&!a.Arrived&&a.Activity=="walking"&&a.Goal!=a.Position
+ if a:=s.Actor(id);a!=nil{return a.ID!=s.ControlledActorID&&!a.Manual&&a.OnFloor()&&!a.Arrived&&a.Activity=="walking"&&a.Goal!=a.Position}
+ for _,a:=range s.Population.Actors{if a.ID==id{return a.Materialized&&a.Trip==nil&&!a.Arrived&&(a.Activity=="walking"||a.Activity=="waiting_path")&&a.Goal!=a.Position}}
+ return false
 }
 func(s *LifeState)yieldTraffic(m LifeModel,level string,tick int64,requester ...string)(map[Cell]bool,map[Cell]lifeYieldResident){
- hard:=map[Cell]bool{};residents:=map[Cell]lifeYieldResident{};who:="";if len(requester)>0{who=requester[0]};autonomous:=s.autonomousTrafficRequester(who)
- for i,a:=range s.Actors{if a.Level!=level||a.Trip!=nil{continue};repairStep,repairing:=s.maintenanceStep(m,a.ID);atWorkplace:=repairing&&a.Level==repairStep.Level&&a.Position==repairStep.At
-  eligible:=(s.ControlledActorID!=""||autonomous)&&a.ID!=s.ControlledActorID&&a.ID!=who&&!a.Manual&&!a.Arrived&&a.Activity=="walking"&&a.Goal!=a.Position&&len(a.Path)==0&&tick>=a.YieldUntil&&tick>=a.YieldCooldownUntil&&!atWorkplace&&s.courtesyNamedWilling(m,a,who)&&!s.courtesyFinishingAhead(m,who,a.ID,a.Level,a.Position,a.Goal)
-  courteous:=s.courtesyNamed(m,a,who,tick);if eligible||courteous{residents[a.Position]=lifeYieldResident{i,true,!eligible&&courteous}}else{hard[a.Position]=true;if len(a.Path)>0{hard[a.Path[0]]=true}}
- }
- for i,a:=range s.Population.Actors{if !a.Materialized||a.Level!=level||a.Trip!=nil{continue};if !s.courtesyPopulation(m,a,who,tick){hard[a.Position]=true;if len(a.Path)>0{hard[a.Path[0]]=true}}else{residents[a.Position]=lifeYieldResident{i,false,false}}}
- if actor:=s.Actor(who);actor!=nil{for at:=range s.courtesyNamedPassage(m,*actor){hard[at]=true}}
- return hard,residents
+ owned:=s.beginTraffic();defer s.endTraffic(owned);hard:=map[Cell]bool{};residents:=map[Cell]lifeYieldResident{};who:="";if len(requester)>0{who=requester[0]};autonomous:=s.autonomousTrafficRequester(who)
+ for key:=range s.traffic.cells{if key.level!=level{continue};h,r,ok:=s.yieldCell(m,level,key.at,tick,who,autonomous);if h{hard[key.at]=true};if ok{residents[key.at]=r}}
+ for at:=range s.yieldPassage(m,who){hard[at]=true};return hard,residents
+}
+func(s *LifeState)yieldPassage(m LifeModel,who string)map[Cell]bool{
+ if actor:=s.Actor(who);actor!=nil{return s.courtesyNamedPassage(m,*actor)};for _,actor:=range s.Population.Actors{if actor.ID==who{return s.courtesyPopulationPassage(m,actor)}};return nil
 }
 func(s *LifeState)yieldRoute(m LifeModel,level string,from,to Cell,tick int64,requester ...string)[]Cell{
- hard,_:=s.yieldTraffic(m,level,tick,requester...);return m.Space(level,hard).Path(from,to,Cell{},0)
+ owned:=s.beginTraffic();defer s.endTraffic(owned);who:="";if len(requester)>0{who=requester[0]};autonomous:=s.autonomousTrafficRequester(who);passage:=s.yieldPassage(m,who)
+ space:=m.Space(level,passage);space.Occupied=func(at Cell)bool{hard,_,_:=s.yieldCell(m,level,at,tick,who,autonomous);return hard};return space.Path(from,to,Cell{},0)
 }
 func(s *LifeState)yieldPopulation(m LifeModel,level string,wanted Cell,tick int64,avoid ...Cell)bool{
  return s.yieldPopulationFor(m,level,wanted,tick,"",avoid...)
 }
 func(s *LifeState)yieldPopulationFor(m LifeModel,level string,wanted Cell,tick int64,requester string,avoid ...Cell)bool{
- autonomous:=s.autonomousTrafficRequester(requester)
+ owned:=s.beginTraffic();defer s.endTraffic(owned);autonomous:=s.autonomousTrafficRequester(requester)
  if (autonomous||s.courtesyRequester(requester))&&!s.courtesyAware(m,requester,level,wanted){return false}
- hard,residents:=s.yieldTraffic(m,level,tick,requester)
- if _,ok:=residents[wanted];!ok||hard[wanted]{return false}
+ passageAvoid:=s.yieldPassage(m,requester)
+ hard:=func(at Cell)bool{h,_,_:=s.yieldCell(m,level,at,tick,requester,autonomous);return h||passageAvoid[at]}
+ residents:=func(at Cell)(lifeYieldResident,bool){_,r,ok:=s.yieldCell(m,level,at,tick,requester,autonomous);return r,ok}
+ if _,ok:=residents(wanted);!ok||hard(wanted){return false}
  queue:=[]Cell{wanted};seen:=map[Cell]bool{wanted:true};parent:=map[Cell]Cell{}
- for head:=0;head<len(queue)&&head<128;head++{at:=queue[head];for _,d:=range []Cell{{0,-1},{1,0},{0,1},{-1,0}}{next:=Cell{at.X+d.X,at.Y+d.Y};if seen[next]||hard[next]||!m.Walks(level,next)||Distance(wanted,next)>12{continue};seen[next]=true;parent[next]=at
-   if _,occupied:=residents[next];!occupied{
+ for head:=0;head<len(queue)&&head<128;head++{at:=queue[head];for _,next:=range m.StepNeighbours(level,at){if seen[next]||hard(next)||!m.Walks(level,next)||m.courtesyReach(level,wanted,next)>12{continue};seen[next]=true;parent[next]=at
+   if _,occupied:=residents(next);!occupied{
     // A free cell in the requested corridor is a way through, not a place to
     // stop: holding it would obstruct the same passage we are trying to clear.
     forbidden:=false;for _,at:=range avoid{if at==next{forbidden=true;break}}
     if forbidden{if len(queue)<128{queue=append(queue,next)};continue}
-    move:=[]Cell{next};previous:=parent[next];r,ok:=residents[previous]
-    for !ok&&previous!=wanted&&len(move)<7{move=append(move,previous);previous=parent[previous];r,ok=residents[previous]}
+    move:=[]Cell{next};previous:=parent[next];r,ok:=residents(previous)
+    for !ok&&previous!=wanted&&len(move)<7{move=append(move,previous);previous=parent[previous];r,ok=residents(previous)}
     if !ok{continue};if (r.courtesy||autonomous||s.courtesyRequester(requester))&&!s.courtesyRelayAware(m,requester,level,wanted,previous,parent,residents){continue};for i,j:=0,len(move)-1;i<j;i,j=i+1,j-1{move[i],move[j]=move[j],move[i]}
     passage:=map[Cell]bool(nil);if r.named{passage=s.courtesyNamedPassage(m,s.Actors[r.index])}else{passage=s.courtesyPopulationPassage(m,s.Population.Actors[r.index])};refills:=false;for _,at:=range move{if passage[at]{refills=true;break}};if refills{continue}
     pauseMoves,cooldownMoves:=int64(8),int64(10);if s.courtesyRequester(requester)&&previous!=wanted{pauseMoves=int64(len(move))+1;cooldownMoves=pauseMoves+1}
-    if r.named{a:=&s.Actors[r.index];if r.courtesy{a.Arrived=false};a.YieldRequester="";a.YieldHoldUntil=0;a.YieldOrigin=Cell{};if s.courtesyRequester(requester){a.YieldRequester=requester;a.YieldOrigin=a.Position;a.YieldHoldUntil=tick+16*m.MoveTicks};a.Path=move;a.MoveStartTick=tick;a.YieldUntil=tick+pauseMoves*m.MoveTicks;a.YieldCooldownUntil=tick+cooldownMoves*m.MoveTicks;a.Activity="yielding";a.Label="Уступает проход"}else{a:=&s.Population.Actors[r.index];a.YieldRequester="";a.YieldHoldUntil=0;a.YieldOrigin=Cell{};if s.courtesyRequester(requester){a.YieldRequester=requester;a.YieldOrigin=a.Position;a.YieldHoldUntil=tick+16*m.Population.MoveTicks};a.Path=move;a.MoveStartTick=tick;a.YieldUntil=tick+pauseMoves*m.Population.MoveTicks;a.YieldCooldownUntil=tick+cooldownMoves*m.Population.MoveTicks;a.Arrived=false;a.Activity="yielding"};return true
+    if r.named{a:=&s.Actors[r.index];if r.courtesy{a.Arrived=false};a.YieldRequester="";a.YieldHoldUntil=0;a.YieldOrigin=Cell{};if s.courtesyRequester(requester){a.YieldRequester=requester;a.YieldOrigin=a.Position;a.YieldHoldUntil=tick+16*m.MoveTicks};a.Path=move;a.MoveStartTick=tick;a.YieldUntil=tick+pauseMoves*m.MoveTicks;a.YieldCooldownUntil=tick+cooldownMoves*m.MoveTicks;a.Activity="yielding";a.Label="Уступает проход"}else{a:=&s.Population.Actors[r.index];a.YieldRequester="";a.YieldHoldUntil=0;a.YieldOrigin=Cell{};if s.courtesyRequester(requester){a.YieldRequester=requester;a.YieldOrigin=a.Position;a.YieldHoldUntil=tick+16*m.Population.MoveTicks};a.Path=move;a.MoveStartTick=tick;a.YieldUntil=tick+pauseMoves*m.Population.MoveTicks;a.YieldCooldownUntil=tick+cooldownMoves*m.Population.MoveTicks;a.Arrived=false;a.Activity="yielding"};if r.named{s.syncTrafficBody(r.index)}else{s.syncTrafficBody(len(s.Actors)+r.index)};return true
    }
    if len(queue)<128{queue=append(queue,next)}
  }};return false
 }
+
+// MotionTick is elapsed game time for Life AI; transport frames stay separate.
+func(m LifeModel)MotionTick(tick,seconds int64)int64{if m.Brain.Enabled{return seconds-m.StartSeconds};return tick}

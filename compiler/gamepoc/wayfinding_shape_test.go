@@ -181,3 +181,62 @@ func TestWayfindingAuthoredShapePointAndSupportBudgets(t *testing.T) {
 		}
 	}
 }
+
+func TestInfrastructurePlanWidthsAndFixedSharedJunctions(t *testing.T) {
+	c, life, texts := wayfindingShapeFixture()
+	d := c.Destinations[0]
+	d.GuideRoute = []WayfindingPoint{{X: 1, Y: 1}, {X: 4, Y: 1}, {X: 4, Y: 5}}
+	d.At = WayfindingCell{X: 4, Y: 5}
+	d.GuideFrame = &WayfindingFrame{U: WayfindingPoint{X: 1}, V: WayfindingPoint{Y: 1}}
+	d.GuideWidth = &WayfindingWidth{U: .03, V: .06}
+	second := d
+	second.ID = "paint.through"
+	second.At = WayfindingCell{X: 7, Y: 1}
+	second.GuideRoute = []WayfindingPoint{{X: 1, Y: 1}, {X: 4, Y: 1}, {X: 7, Y: 1}}
+	c.Destinations = []WayfindingDestination{d, second}
+	if err := c.validate(life, map[string]bool{".": true}, texts); err != nil {
+		t.Fatal(err)
+	}
+	for _, route := range c.Destinations {
+		if !reflect.DeepEqual(route.GuideJunctions, []int{1}) {
+			t.Fatalf("join depends on a single route instead of the physical colour network: %+v", route.GuideJunctions)
+		}
+	}
+	// Changing catalogue enumeration or repeating compilation cannot reshape paint.
+	c.Destinations[0], c.Destinations[1] = c.Destinations[1], c.Destinations[0]
+	if err := c.validate(life, map[string]bool{".": true}, texts); err != nil {
+		t.Fatal(err)
+	}
+	for _, route := range c.Destinations {
+		if !reflect.DeepEqual(route.GuideJunctions, []int{1}) {
+			t.Fatal("join changed on reorder")
+		}
+	}
+	for name, change := range map[string]func(*WayfindingDestination){
+		"negative":       func(x *WayfindingDestination) { x.GuideWidth = &WayfindingWidth{U: -.01, V: .02} },
+		"nan":            func(x *WayfindingDestination) { x.GuideWidth = &WayfindingWidth{U: math.NaN(), V: .02} },
+		"no frame":       func(x *WayfindingDestination) { x.GuideFrame = nil },
+		"no route":       func(x *WayfindingDestination) { x.GuideRoute = nil },
+		"corner outside": func(x *WayfindingDestination) { x.GuideWidth = &WayfindingWidth{U: .08, V: .08} },
+		"stop outside":   func(x *WayfindingDestination) { x.GuideWidth = &WayfindingWidth{U: .02, V: .07} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			bad := d
+			change(&bad)
+			copy := WayfindingCatalog{Destinations: []WayfindingDestination{bad}}
+			if err := copy.validate(life, map[string]bool{".": true}, texts); err == nil {
+				t.Fatal("unchecked physical paint extent accepted")
+			}
+		})
+	}
+	// Different paint colours may cross; this is not a branch of either network.
+	c.Destinations[1].Color = "#000000"
+	if err := c.validate(life, map[string]bool{".": true}, texts); err != nil {
+		t.Fatal(err)
+	}
+	for _, route := range c.Destinations {
+		if len(route.GuideJunctions) != 0 {
+			t.Fatal("stale or cross-colour join")
+		}
+	}
+}

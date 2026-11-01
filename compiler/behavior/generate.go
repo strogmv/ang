@@ -3,6 +3,7 @@ package behavior
 import (
 	"embed"
 	"fmt"
+	"github.com/strogmv/ang/compiler/determinism"
 	"go/format"
 )
 
@@ -37,14 +38,31 @@ func RenderWith(catalog []byte, fixtures Fixtures) (map[string][]byte, error) {
 		files[name] = data
 	}
 	templates := map[string]string{"population.go.tmpl": "population.gen.go", "practice.go.tmpl": "practice.gen.go", "development_life.go.tmpl": "development_life.gen.go", "inspection.go.tmpl": "inspection.gen.go", "maintenance.go.tmpl": "maintenance.gen.go", "life.go.tmpl": "life.gen.go", "approach.go.tmpl": "approach.gen.go", "gestures.go.tmpl": "gestures.gen.go", "supply.go.tmpl": "supply.gen.go", "search.go.tmpl": "search.gen.go", "planner.go.tmpl": "planner.gen.go", "reactions.go.tmpl": "reactions.gen.go", "progress.go.tmpl": "progress.gen.go", "memory.go.tmpl": "memory.gen.go", "utility.go.tmpl": "utility.gen.go", "perception.go.tmpl": "perception.gen.go"}
+	templates["counter_rng.go.tmpl"] = "counter_rng.gen.go"
+	templates["life_brain.go.tmpl"] = "life_brain.gen.go"
+	templates["life_decisions.go.tmpl"] = "life_decisions.gen.go"
+	templates["life_traffic.go.tmpl"] = "life_traffic.gen.go"
 	templates["courtesy.go.tmpl"] = "courtesy.gen.go"
 	templates["life_travel.go.tmpl"] = "life_travel.gen.go"
+	templates["life_platform.go.tmpl"] = "life_platform.gen.go"
+	templates["life_residence.go.tmpl"] = "life_residence.gen.go"
+	templates["population_profile.go.tmpl"] = "population_profile.gen.go"
+	templates["multideck.go.tmpl"] = "multideck.gen.go"
+	templates["gates.go.tmpl"] = "gates.gen.go"
 	if len(fixtures.Planning) > 0 {
+		templates["npc_stage0_test.go.tmpl"] = "npc_stage0_generated_test.go"
+		templates["life_brain_test.go.tmpl"] = "life_brain_generated_test.go"
 		templates["population_test.go.tmpl"] = "population_generated_test.go"
+		templates["population_profile_test.go.tmpl"] = "population_profile_generated_test.go"
+		templates["autonomous_traffic_test.go.tmpl"] = "autonomous_traffic_generated_test.go"
 		templates["practice_test.go.tmpl"] = "practice_generated_test.go"
 		templates["inspection_test.go.tmpl"] = "inspection_generated_test.go"
 		templates["maintenance_test.go.tmpl"] = "maintenance_generated_test.go"
 		templates["life_test.go.tmpl"] = "life_generated_test.go"
+		templates["multideck_test.go.tmpl"] = "multideck_generated_test.go"
+		templates["life_platform_test.go.tmpl"] = "life_platform_generated_test.go"
+		templates["gates_test.go.tmpl"] = "gates_generated_test.go"
+		templates["life_residence_test.go.tmpl"] = "life_residence_generated_test.go"
 		templates["courtesy_test.go.tmpl"] = "courtesy_generated_test.go"
 		templates["navigation_knowledge_test.go.tmpl"] = "navigation_knowledge_generated_test.go"
 		templates["approach_test.go.tmpl"] = "approach_generated_test.go"
@@ -72,6 +90,9 @@ func RenderWith(catalog []byte, fixtures Fixtures) (map[string][]byte, error) {
 		data, err := format.Source(source)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", name, err)
+		}
+		if err := determinism.CheckImports(dest, data); err != nil {
+			return nil, err
 		}
 		files[dest] = data
 	}

@@ -31,7 +31,13 @@ type WayfindingPoint struct {
 	X float64 `json:"x"`
 	Y float64 `json:"y"`
 }
+type WayfindingWidth struct {
+	U float64 `json:"u"`
+	V float64 `json:"v"`
+}
 type WayfindingDestination struct {
+	GuideJunctions []int             `json:"guide_junctions,omitempty"`
+	GuideWidth     *WayfindingWidth  `json:"guide_width,omitempty"`
 	MarkerNumber   int               `json:"marker_number,omitempty"`
 	ID             string            `json:"id"`
 	NameKey        string            `json:"name_key"`
@@ -173,7 +179,7 @@ func (c WayfindingCatalog) validate(life json.RawMessage, walkable map[string]bo
 				return fmt.Errorf("wayfinding guides exceed 16384 cells %s", d.Level)
 			}
 		}
-		if d.GuideFrame != nil && len(d.GuideRoute) == 0 {
+		if (d.GuideFrame != nil || d.GuideWidth != nil) && len(d.GuideRoute) == 0 {
 			return fmt.Errorf("wayfinding frame needs guide_route %s", d.ID)
 		}
 		if len(d.GuideRoute) > 0 {
@@ -205,5 +211,6 @@ func (c WayfindingCatalog) validate(life json.RawMessage, walkable map[string]bo
 			}
 		}
 	}
+	c.compilePaintJunctions()
 	return nil
 }

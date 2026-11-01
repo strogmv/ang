@@ -9,6 +9,9 @@ import (
 )
 
 func (s State) Validate(m Model) error {
+	if err := s.validateDeliveries(m); err != nil {
+		return err
+	}
 	if err := s.validateReservations(m); err != nil {
 		return err
 	}

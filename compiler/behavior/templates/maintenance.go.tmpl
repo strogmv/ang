@@ -56,7 +56,7 @@ func(s *LifeState)resumeRoutine(m LifeModel,id string){
 func(s *LifeState)releaseMaintenance(m LifeModel,u *MaintenanceUnit){crew:=u.Crew;u.Crew=nil;for _,id:=range crew{s.resumeRoutine(m,id)}}
 func(s *LifeState)maintenanceCrewReady(cfg MaintenanceAsset,u MaintenanceUnit)bool{
  if len(u.Crew)!=len(cfg.Workplaces){return false}
- for k,id:=range u.Crew{a:=s.Actor(id);if a==nil||a.Trip!=nil||a.Level!=cfg.Level||a.Position!=cfg.Workplaces[k]||len(a.Path)>0||!a.Arrived{return false}}
+ for k,id:=range u.Crew{a:=s.Actor(id);if a==nil||!a.OnFloor()||a.Level!=cfg.Level||a.Position!=cfg.Workplaces[k]||len(a.Path)>0||!a.Arrived{return false}}
  return true
 }
 func(s *LifeState)planMaintenance(m LifeModel,delta int64){
@@ -76,7 +76,7 @@ func(s *LifeState)planMaintenance(m LifeModel,delta int64){
   if len(u.Crew)>0||s.Seconds<u.RetryAt{continue}
   var crew []string
   // Catalog order is a stable tie-break. Only available qualified people accept.
-  for _,w:=range m.Maintenance.Workers{a:=s.Actor(w.Actor);if a==nil||busy[a.ID]||a.Manual||a.OverrideLevel!=""||a.Trip!=nil||len(a.Path)>0||!a.Arrived||a.Activity=="sleep"||a.Activity=="eat"||a.Activity=="post"||!m.Maintenance.qualified(a.ID,cfg.Skill){continue}
+  for _,w:=range m.Maintenance.Workers{a:=s.Actor(w.Actor);if a==nil||busy[a.ID]||a.Manual||a.OverrideLevel!=""||!a.OnFloor()||len(a.Path)>0||!a.Arrived||a.Activity=="sleep"||a.Activity=="eat"||a.Activity=="post"||!m.Maintenance.qualified(a.ID,cfg.Skill){continue}
    if a.Level!=cfg.Level&&m.NextEdge(a.Level,cfg.Level)==nil{continue}
    crew=append(crew,a.ID);if len(crew)==len(cfg.Workplaces){break}
   }

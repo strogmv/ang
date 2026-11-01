@@ -1,0 +1,124 @@
+Shader "ANG/LocationSDKDepthSprite" {
+ Properties {
+  _MainTex ("Baked color and silhouette (albedo when lit)", 2D) = "white" {}
+  _DepthTex ("Linear eye depth in metres (RFloat)", 2D) = "black" {}
+  _Color ("Tint", Color) = (1,1,1,1)
+  _ImageRight ("Image right in local metres", Vector) = (1,0,0,0)
+  _ImageUp ("Image up in local metres", Vector) = (0,1,0,0)
+  _ImageForward ("Bake camera forward in local metres", Vector) = (0,0,1,0)
+  _BottomLeft ("Bottom left at target depth", Vector) = (0,0,0,0)
+  _ImageWidth ("Image span in metres", Float) = 1
+  _ImageHeight ("Image height in metres", Float) = 1
+  _TargetDepth ("Bake target depth in metres", Float) = 1
+  // Relightable painted background (doc 72): _MainTex is albedo; light = ambient + lamps.
+  _Lit ("Relight albedo with the location lamps (0 = baked colour)", Float) = 0
+  _NormalTex ("Geometric normal, local, n*0.5+0.5 (point)", 2D) = "bump" {}
+  _SurfaceTex ("R smoothness/wetness, G metallic, B emitter class (point)", 2D) = "black" {}
+  _AmbientGain ("Ambient gain", Float) = 1
+  _LightGain ("Lamp gain", Float) = 1
+  _SpecGain ("Wet-floor specular gain", Float) = 1
+  // Reflected light: soft omni bounce of each LIT lamp off floor/walls within a radius.
+  // Off lamps (closed stalls) upload nothing, so their surroundings stay unlit.
+  _BounceGain ("Lamp bounce gain", Float) = 0
+  _BounceRadius ("Lamp bounce radius, m", Float) = 6
+  _DaylightGlow ("Light-guide diffuser glow at full day", Color) = (.75,.85,1,1)
+  _FixtureGlow ("Other emissive fixture glow", Color) = (1,.75,.45,1)
+  // Reserved for the roof/no-roof "see-through aura" (not sampled yet): a second
+  // albedo+depth version without roofs/upper walls, blended inside a soft circle
+  // around the hero (global _PbAura = centre xyz, radius w; _PbAuraEdge = edge, rim).
+  _AltMainTex ("Reserved: albedo without roofs", 2D) = "black" {}
+  _AltDepthTex ("Reserved: depth without roofs", 2D) = "black" {}
+ }
+ SubShader {
+  Tags { "RenderType"="TransparentCutout" "Queue"="AlphaTest" "RenderPipeline"="UniversalPipeline" }
+  Cull Off
+  ZWrite On
+  ZTest LEqual
+  HLSLINCLUDE
+  #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+  #define PB_MAX_LIGHTS 32
+  TEXTURE2D(_MainTex); SAMPLER(sampler_MainTex);
+  TEXTURE2D(_DepthTex); SAMPLER(sampler_DepthTex);
+  TEXTURE2D(_NormalTex); SAMPLER(sampler_NormalTex);
+  TEXTURE2D(_SurfaceTex); SAMPLER(sampler_SurfaceTex);
+  CBUFFER_START(UnityPerMaterial)
+  float4 _Color,_ImageRight,_ImageUp,_ImageForward,_BottomLeft,_DaylightGlow,_FixtureGlow;
+  float _ImageWidth,_ImageHeight,_TargetDepth,_Lit,_AmbientGain,_LightGain,_SpecGain,_BounceGain,_BounceRadius;
+  CBUFFER_END
+  // Location lamps uploaded by the SDK runtime each frame (nearest to the camera
+  // focus first): pos.xyz + type (0 point, 1 spot); color*intensity + range;
+  // spot direction + cos(outer); x = 1/(cos(inner)-cos(outer)).
+  float4 _PbLightPos[PB_MAX_LIGHTS],_PbLightColor[PB_MAX_LIGHTS],_PbLightSpot[PB_MAX_LIGHTS],_PbLightParam[PB_MAX_LIGHTS];
+  float4 _PbAmbient,_PbViewDir;float _PbLightCount,_PbSpecular,_PbDaylight;
+  float4 _PbAura,_PbAuraEdge;
+  struct Attributes { float4 positionOS : POSITION; float2 uv : TEXCOORD0; };
+  struct Varyings { float4 positionCS : SV_POSITION; float2 uv : TEXCOORD0; };
+  Varyings vert(Attributes v) { Varyings o;o.positionCS=TransformObjectToHClip(v.positionOS.xyz);o.uv=v.uv;return o; }
+  float3 ReconstructedLocal(float2 uv) {
+   float depth=SAMPLE_TEXTURE2D(_DepthTex,sampler_DepthTex,uv).r;
+   clip(depth-.000001);
+   return _BottomLeft.xyz+_ImageRight.xyz*(uv.x*_ImageWidth)+_ImageUp.xyz*(uv.y*_ImageHeight)+_ImageForward.xyz*(depth-_TargetDepth);
+  }
+  float DeviceDepth(float3 local) {
+   float4 positionCS=TransformObjectToHClip(local);
+   float deviceDepth=positionCS.z/positionCS.w;
+   // Unity's GPU projection already includes reversed Z on Metal/D3D/Vulkan.
+   // GL clip coordinates alone need the [-1,1] to [0,1] device conversion.
+   #if defined(SHADER_API_GLCORE) || defined(SHADER_API_GLES) || defined(SHADER_API_GLES3)
+    deviceDepth=deviceDepth*.5+.5;
+   #endif
+   return deviceDepth;
+  }
+  float ReconstructedDepth(float2 uv) {return DeviceDepth(ReconstructedLocal(uv));}
+  // Same falloff as URP punctual lights (inverse square, smooth range cut, spot cone).
+  half3 Relight(half3 albedo,float3 world,float2 uv) {
+   float3 n=normalize(TransformObjectToWorldDir(SAMPLE_TEXTURE2D(_NormalTex,sampler_NormalTex,uv).rgb*2-1));
+   half4 surface=SAMPLE_TEXTURE2D(_SurfaceTex,sampler_SurfaceTex,uv);
+   float3 v=-_PbViewDir.xyz;half3 diffuse=_PbAmbient.rgb*_AmbientGain;half3 specular=0;
+   float smoothness=surface.r;float exponent=exp2(10*smoothness+1);float specWeight=_PbSpecular*_SpecGain*smoothness*smoothness*(exponent+8)/25.1327;
+   [loop] for(int i=0;i<PB_MAX_LIGHTS;i++){
+    if(i>=(int)_PbLightCount)break;
+    float4 p=_PbLightPos[i];float4 c=_PbLightColor[i];float4 s=_PbLightSpot[i];
+    float3 d=p.xyz-world;float d2=max(dot(d,d),1e-4);float3 l=d*rsqrt(d2);
+    float f=saturate(1-(d2/(c.w*c.w))*(d2/(c.w*c.w)));float atten=f*f/d2;
+    if(p.w>.5){float a=saturate((dot(-l,s.xyz)-s.w)*_PbLightParam[i].x);atten*=a*a;}
+    float ndl=saturate(dot(n,l));float3 light=c.rgb*atten*ndl*_LightGain;
+    float bounce=saturate(1-d2/(_BounceRadius*_BounceRadius));
+    diffuse+=light+c.rgb*bounce*bounce*_BounceGain;
+    if(specWeight>0){float3 h=normalize(l+v);specular+=light*pow(saturate(dot(n,h)),exponent)*specWeight;}
+   }
+   half3 glow=surface.b>.9?_DaylightGlow.rgb*_PbDaylight:(surface.b>.4?_FixtureGlow.rgb:0);
+   return albedo*diffuse+specular+glow*albedo;
+  }
+  struct FragmentOutput { half4 color : SV_Target; float depth : SV_Depth; };
+  FragmentOutput frag(Varyings i) {
+   half4 color=SAMPLE_TEXTURE2D(_MainTex,sampler_MainTex,i.uv);clip(color.a-.02);
+   float3 local=ReconstructedLocal(i.uv);
+   half3 rgb=color.rgb*_Color.rgb;
+   if(_Lit>.5)rgb=Relight(rgb,TransformObjectToWorld(local),i.uv);
+   FragmentOutput o;o.color=half4(rgb,1);o.depth=DeviceDepth(local);return o;
+  }
+  float fragDepth(Varyings i) : SV_Depth {clip(SAMPLE_TEXTURE2D(_MainTex,sampler_MainTex,i.uv).a-.02);return ReconstructedDepth(i.uv);}
+  ENDHLSL
+  Pass {
+   Name "Forward"
+   Tags { "LightMode"="UniversalForward" }
+   HLSLPROGRAM
+   #pragma target 3.5
+   #pragma vertex vert
+   #pragma fragment frag
+   ENDHLSL
+  }
+  Pass {
+   Name "DepthOnly"
+   Tags { "LightMode"="DepthOnly" }
+   ColorMask 0
+   HLSLPROGRAM
+   #pragma target 3.0
+   #pragma vertex vert
+   #pragma fragment fragDepth
+   ENDHLSL
+  }
+ }
+ Fallback Off
+}

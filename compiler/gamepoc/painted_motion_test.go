@@ -118,7 +118,7 @@ func TestPaintedProofCaptureDeclarationsCompileNative(t *testing.T) {
 	var declarations strings.Builder
 	types := regexp.MustCompile(`(?m)^  \[Serializable\] sealed class [^\n]+`)
 	methods := regexp.MustCompile(`(?m)^  (IEnumerator [^\n{]+)\{`)
-	for _, name := range []string{"painted_motion_proof.cs.tmpl", "station_berth_proof.cs.tmpl"} {
+	for _, name := range []string{"painted_motion_proof.cs.tmpl", "station_berth_proof.cs.tmpl", "station_life_proof.cs.tmpl"} {
 		s := hudTemplate(t, name)
 		for _, declaration := range types.FindAllString(s, -1) {
 			declarations.WriteString(declaration + "\n")

@@ -3,15 +3,89 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 namespace AngelsDemons.Poc {
+ [Serializable] public sealed class AngelsDemonsLocationLightBinding {
+  // Path is relative to the artist prefab root; omitted bindings keep legacy brightness.
+  // Optional min_quality "full" omits a supplementary light at economy graphics.
+  public string path;public string[] active_time_ids;public string min_quality;
+  // Passive light-guide outlet: intensity x the layout daylight calendar (0 night .. 1 day).
+  public bool daylight;
+  // Optional lens / diffuser renderers (paths from the prefab root) whose emission follows this light: emission x the
+  // light's current intensity / the strongest authored intensity of the lights bound to the same renderer (a sconce at
+  // 30 % at night has a 30 % lens, a light guide is dark at night, a light off at economy darkens its lens). Presentation only.
+  public string[] lens_paths;
+ }
+ [Serializable] public sealed class AngelsDemonsLocationStorefrontBinding {public string storefront_id,goods_path,closed_path,open_path;}
  [Serializable] public sealed class AngelsDemonsLocationOverrideEntry {
   public string layout_id,instance_id;
   public GameObject prefab;
+  [SerializeReference] public PocLocationSDKCamera baked_camera;
+  public AngelsDemonsLocationLightBinding[] light_bindings;
+  public AngelsDemonsLocationStorefrontBinding[] storefront_bindings;
+ }
+ [Serializable] public sealed class AngelsDemonsLocationSurfaceOverrideEntry {
+  public string layout_id,surface_id;
+  public Material material;
+ }
+ // Optional presentation of one layout: flat ambient fill (scaled by the view
+ // brightness), environment reflection strength and a post-processing profile
+ // used only at full graphics quality. Never physics, knowledge or saves.
+ // ambient_by_time (optional) gives the exact flat ambient of a view time (not
+ // scaled by its brightness), e.g. a lookdev light profile's day/night ambient;
+ // like every Unity Color it is sRGB: in Flat mode the engine lights with
+ // RenderSettings.ambientLight (linearised in Linear space), measured in lookdev-parity-v1;
+ // economy_profile (optional) is the post of the economy option (e.g. a colour
+ // LUT only); without it economy renders no post, as before.
+ [Serializable] public sealed class AngelsDemonsLocationTimeAmbient {public string time_id;public Color color=Color.black;}
+ [Serializable] public sealed class AngelsDemonsLocationPresentationEntry {
+  public string layout_id;
+  public Color ambient_color=Color.black;public float reflection_intensity=1;
+  public UnityEngine.Rendering.VolumeProfile full_quality_profile;
+  public AngelsDemonsLocationTimeAmbient[] ambient_by_time;
+  public UnityEngine.Rendering.VolumeProfile economy_profile;
+ }
+ // Optional painted background of one layout (doc 72): a prefab of depth-billboard
+ // tiles (ANG/LocationSDKDepthSprite) baked from the layout's static architecture
+ // with its camera. It is bound to the compiled structure, the camera and the
+ // geometry fingerprint of the static renderers; any difference keeps live 3D.
+ [Serializable] public sealed class AngelsDemonsLocationBackgroundEntry {
+  public string layout_id,bake_id,structural_hash,static_fingerprint;
+  [SerializeReference] public PocLocationSDKCamera baked_camera;
+  public GameObject prefab;
+  // Instances kept fully live 3D and therefore absent from the bake.
+  public string[] live_instance_ids;
+  // Relightable background: tiles carry albedo/normal/surface; the runtime lights
+  // them with the location's own lamps (stall state, daylight calendar) each frame.
+  public bool lit;
+ }
+ // Humanoid cast of the layouts whose CUE says actors.presentation "humanoid" (demo-hub v3-people). Presentation only:
+ // Go owns motion; the body follows the interpolated Go position. The body prefab carries an Animator with a humanoid
+ // avatar and a controller with the named states. walk_clip_speed_mps is the measured ground speed of the walk clip at
+ // speed 1 (stance foot backwards in the clip); the runtime scales the playback by the actor's real speed over it and locks
+ // the walk phase to the distance walked (+ a stable per-ID offset), so feet do not slide and a crowd does not step in
+ // unison. tint_slots: material names (substring, any case) recoloured by a stable per-ID tint (NPC) / hero_tint.
+ // A later body (artist, Mixamo) replaces body_prefab / states / measured speeds here; CUE keeps the cast ID.
+ [Serializable] public sealed class AngelsDemonsLocationActorCast {
+  public string cast_id;
+  public GameObject body_prefab,hero_prefab;
+  // Optional further NPC bodies (same Animator states): an NPC takes body_prefab or one of these by its stable ID hash.
+  public GameObject[] body_variants;
+  public string idle_state="idle",walk_state="walk",stairs_state;
+  public float walk_clip_speed_mps,walk_cycle_seconds,idle_cycle_seconds,stairs_clip_speed_mps,stairs_cycle_seconds;
+  public float walk_threshold_mps=.25f,turn_degrees_per_second=540,course_window_seconds=.35f;
+  // Distance matching (optional): cumulative ground travel of the planted foot (metres) at even phases of the walk clip,
+  // from 0 to one stride, measured by the importer. Omitted: phase = distance / (walk_clip_speed_mps x walk_cycle_seconds).
+  public float[] walk_distance_by_phase;
+  public string[] tint_slots;public Color[] tints;public Color hero_tint=new Color(1,1,1,1);public bool hero_marker=true;public bool contact_shadow=true;
  }
  [CreateAssetMenu(fileName="Registry",menuName="ANG/Location Overrides/Registry")]
  public sealed class AngelsDemonsLocationOverrideRegistry : ScriptableObject {
   public const int CurrentSchemaVersion=1;
   public int schema_version=CurrentSchemaVersion;
   public AngelsDemonsLocationOverrideEntry[] entries=new AngelsDemonsLocationOverrideEntry[0];
+  public AngelsDemonsLocationSurfaceOverrideEntry[] surface_entries=new AngelsDemonsLocationSurfaceOverrideEntry[0];
+  public AngelsDemonsLocationPresentationEntry[] presentation_entries=new AngelsDemonsLocationPresentationEntry[0];
+  public AngelsDemonsLocationBackgroundEntry[] background_entries=new AngelsDemonsLocationBackgroundEntry[0];
+  public AngelsDemonsLocationActorCast[] actor_casts=new AngelsDemonsLocationActorCast[0];
  }
  public sealed class LocationSDKOverrideError : Exception {
   public readonly string localization_key,id,component;
@@ -22,9 +96,105 @@ namespace AngelsDemons.Poc {
   // Field names and the ScriptableObject class/file name are serialized API.
   // A change requires an explicit asset migration, never renaming on rebuild.
   public static string Key(string layout,string instance){return layout+"\0"+instance;}
+  // Multi-deck elements (document 80) are addressed by their stable IDs too.
+  static void AddMultideckElementIDs(PocLocationSDKLevel level,HashSet<string> ids){
+   var n=level.navigation_authored?level.navigation:null;if(n==null)return;
+   if(n.surfaces!=null)foreach(var e in n.surfaces)if(e!=null&&e.id!=n.base_surface)ids.Add(e.id);if(n.connectors!=null)foreach(var e in n.connectors)if(e!=null)ids.Add(e.id);
+   if(n.obstacles!=null)foreach(var e in n.obstacles)if(e!=null)ids.Add(e.id);if(n.railings!=null)foreach(var e in n.railings)if(e!=null)ids.Add(e.id);if(n.supports!=null)foreach(var e in n.supports)if(e!=null)ids.Add(e.id);
+  }
+  public static Dictionary<string,Material> ValidateSurfaces(PocLocationSDKBundle bundle,IEnumerable<AngelsDemonsLocationOverrideRegistry> registries){
+   var result=new Dictionary<string,Material>(StringComparer.Ordinal);var layouts=new HashSet<string>(StringComparer.Ordinal);var surfaces=new HashSet<string>(StringComparer.Ordinal);
+   if(bundle!=null){if(bundle.levels!=null)foreach(var level in bundle.levels)if(level!=null)layouts.Add(level.id);if(bundle.surfaces!=null)foreach(var surface in bundle.surfaces)if(surface!=null)surfaces.Add(surface.id);}
+   if(registries==null)return result;
+   foreach(var registry in registries){if(registry==null||registry.schema_version!=AngelsDemonsLocationOverrideRegistry.CurrentSchemaVersion)throw new LocationSDKOverrideError("ui.sdk.override_registry",registry==null?"?":registry.name);
+    if(registry.surface_entries==null)continue;foreach(var entry in registry.surface_entries){string layout=entry==null?null:entry.layout_id,surface=entry==null?null:entry.surface_id,id=(layout??"?")+" :: "+(surface??"?");
+     if(layout==null||!layouts.Contains(layout))throw new LocationSDKOverrideError("ui.sdk.override_unknown_layout",layout??"?");
+     if(surface==null||!surfaces.Contains(surface))throw new LocationSDKOverrideError("ui.sdk.override_unknown_surface",id);
+     if(entry.material==null)throw new LocationSDKOverrideError("ui.sdk.override_missing_material",id);
+     string key=Key(layout,surface);if(result.ContainsKey(key))throw new LocationSDKOverrideError("ui.sdk.override_duplicate",id);result.Add(key,entry.material);
+    }
+   }return result;
+  }
+  public static Dictionary<string,AngelsDemonsLocationPresentationEntry> ValidatePresentation(PocLocationSDKBundle bundle,IEnumerable<AngelsDemonsLocationOverrideRegistry> registries){
+   var result=new Dictionary<string,AngelsDemonsLocationPresentationEntry>(StringComparer.Ordinal);var layouts=new HashSet<string>(StringComparer.Ordinal);
+   if(bundle!=null&&bundle.levels!=null)foreach(var level in bundle.levels)if(level!=null)layouts.Add(level.id);
+   if(registries==null)return result;
+   foreach(var registry in registries){if(registry==null||registry.schema_version!=AngelsDemonsLocationOverrideRegistry.CurrentSchemaVersion)throw new LocationSDKOverrideError("ui.sdk.override_registry",registry==null?"?":registry.name);
+    if(registry.presentation_entries==null)continue;foreach(var entry in registry.presentation_entries){string layout=entry==null?null:entry.layout_id;
+     if(layout==null||!layouts.Contains(layout))throw new LocationSDKOverrideError("ui.sdk.override_unknown_layout",layout??"?");
+     var c=entry.ambient_color;if(!Finite(c.r)||!Finite(c.g)||!Finite(c.b)||c.r<0||c.g<0||c.b<0||c.r>1||c.g>1||c.b>1||!Finite(entry.reflection_intensity)||entry.reflection_intensity<0||entry.reflection_intensity>1)throw new LocationSDKOverrideError("ui.sdk.override_unsupported",layout,"invalid presentation");
+     if(entry.ambient_by_time!=null){var times=new HashSet<string>(StringComparer.Ordinal);foreach(var level in bundle.levels)if(level!=null&&level.id==layout&&level.views!=null)foreach(var view in level.views)if(view!=null&&!string.IsNullOrEmpty(view.time_id))times.Add(view.time_id);
+      var seen=new HashSet<string>(StringComparer.Ordinal);foreach(var timed in entry.ambient_by_time){var t=timed==null?Color.clear:timed.color;
+       if(timed==null||string.IsNullOrEmpty(timed.time_id)||!times.Contains(timed.time_id)||!seen.Add(timed.time_id)||!Finite(t.r)||!Finite(t.g)||!Finite(t.b)||t.r<0||t.g<0||t.b<0||t.r>1||t.g>1||t.b>1)throw new LocationSDKOverrideError("ui.sdk.override_unsupported",layout,"invalid presentation ambient_by_time");}}
+     if(result.ContainsKey(layout))throw new LocationSDKOverrideError("ui.sdk.override_duplicate",layout);result.Add(layout,entry);
+    }
+   }return result;
+  }
+  static bool Finite(float value){return !float.IsNaN(value)&&!float.IsInfinity(value);}
+  // Flat ambient of a view: the exact colour of ambient_by_time for that time, else ambient_color x brightness.
+  public static Color PresentationAmbient(AngelsDemonsLocationPresentationEntry entry,string timeId,float brightness){
+   if(entry==null)return Color.black;Color c=entry.ambient_color*brightness;
+   if(entry.ambient_by_time!=null)foreach(var timed in entry.ambient_by_time)if(timed!=null&&timed.time_id==timeId){c=timed.color;break;}
+   c.a=1;return c;
+  }
+  // Post profile of the graphics option: full -> full_quality_profile, economy -> economy_profile (null = no post).
+  public static UnityEngine.Rendering.VolumeProfile PresentationProfile(AngelsDemonsLocationPresentationEntry entry,bool full){return entry==null?null:full?entry.full_quality_profile:entry.economy_profile;}
+  public static Dictionary<string,AngelsDemonsLocationBackgroundEntry> ValidateBackgrounds(PocLocationSDKBundle bundle,IEnumerable<AngelsDemonsLocationOverrideRegistry> registries,Action<AngelsDemonsLocationBackgroundEntry> validatePrefab=null){
+   var result=new Dictionary<string,AngelsDemonsLocationBackgroundEntry>(StringComparer.Ordinal);var levels=new Dictionary<string,PocLocationSDKLevel>(StringComparer.Ordinal);
+   if(bundle!=null&&bundle.levels!=null)foreach(var level in bundle.levels)if(level!=null)levels[level.id]=level;
+   if(registries==null)return result;
+   foreach(var registry in registries){if(registry==null||registry.schema_version!=AngelsDemonsLocationOverrideRegistry.CurrentSchemaVersion)throw new LocationSDKOverrideError("ui.sdk.override_registry",registry==null?"?":registry.name);
+    if(registry.background_entries==null)continue;foreach(var entry in registry.background_entries){string layout=entry==null?null:entry.layout_id;PocLocationSDKLevel level;
+     if(layout==null||!levels.TryGetValue(layout,out level))throw new LocationSDKOverrideError("ui.sdk.override_unknown_layout",layout??"?");
+     if(entry.prefab==null)throw new LocationSDKOverrideError("ui.sdk.override_missing_prefab",layout);
+     var baked=entry.baked_camera;if(baked==null||baked.projection!="orthographic"||!Finite(baked.elevation_degrees)||!Finite(baked.azimuth_degrees)||baked.elevation_degrees<15||baked.elevation_degrees>75||baked.azimuth_degrees<5||baked.azimuth_degrees>85||string.IsNullOrEmpty(entry.bake_id)||string.IsNullOrEmpty(entry.structural_hash)||string.IsNullOrEmpty(entry.static_fingerprint))throw new LocationSDKOverrideError("ui.sdk.override_unsupported",layout,"invalid painted background");
+     if(entry.live_instance_ids!=null){var ids=new HashSet<string>(StringComparer.Ordinal);if(level.instances!=null)foreach(var instance in level.instances)if(instance!=null)ids.Add(instance.id);foreach(var id in entry.live_instance_ids)if(id==null||!ids.Contains(id))throw new LocationSDKOverrideError("ui.sdk.override_unknown_instance",layout+" :: "+(id??"?"));}
+     if(result.ContainsKey(layout))throw new LocationSDKOverrideError("ui.sdk.override_duplicate",layout);
+     if(validatePrefab!=null)validatePrefab(entry);result.Add(layout,entry);
+    }
+   }return result;
+  }
+  // Why a valid background does not match the current layout (null = it does).
+  // A stale bake is never stretched or partly shown: live 3D stays authoritative.
+  public static string BackgroundStale(PocLocationSDKLevel level,AngelsDemonsLocationBackgroundEntry entry,string fingerprint){
+   if(level==null||entry==null||entry.baked_camera==null)return "missing";
+   if(entry.structural_hash!=level.structural_hash)return "structural hash differs";
+   PocLocationSDKCamera camera;try{camera=level.GetCamera();}catch(InvalidOperationException){return "invalid layout camera";}
+   float elevation=camera==null?30:camera.elevation_degrees,azimuth=camera==null?45:camera.azimuth_degrees;
+   if(camera!=null&&camera.projection!="orthographic"||Math.Abs(elevation-entry.baked_camera.elevation_degrees)>.001f||Math.Abs(azimuth-entry.baked_camera.azimuth_degrees)>.001f)return "camera differs";
+   if(!level.initial_layout_known)return "layout is not public architecture";
+   if(entry.static_fingerprint!=fingerprint)return "static geometry fingerprint differs";
+   return null;
+  }
+  // Order-independent SHA-256 over one line per static renderer (path, mesh,
+  // vertex/submesh count, layout-local AABB in mm). Shared with the bake capture.
+  public static string StaticFingerprint(IEnumerable<string> lines){
+   var sorted=new List<string>(lines);sorted.Sort(StringComparer.Ordinal);
+   using(var sha=System.Security.Cryptography.SHA256.Create()){var bytes=sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(string.Join("\n",sorted.ToArray())));var text=new System.Text.StringBuilder(64);foreach(var b in bytes)text.Append(b.ToString("x2"));return text.ToString();}
+  }
+  // Humanoid casts by ID: unique IDs, a body prefab, the idle / walk states and finite positive measured speeds / cycles.
+  public static Dictionary<string,AngelsDemonsLocationActorCast> ValidateActorCasts(IEnumerable<AngelsDemonsLocationOverrideRegistry> registries,Action<AngelsDemonsLocationActorCast> validatePrefab=null){
+   var result=new Dictionary<string,AngelsDemonsLocationActorCast>(StringComparer.Ordinal);if(registries==null)return result;
+   foreach(var registry in registries){if(registry==null||registry.schema_version!=AngelsDemonsLocationOverrideRegistry.CurrentSchemaVersion)throw new LocationSDKOverrideError("ui.sdk.override_registry",registry==null?"?":registry.name);
+    if(registry.actor_casts==null)continue;foreach(var cast in registry.actor_casts){string id=cast==null?null:cast.cast_id;
+     if(string.IsNullOrEmpty(id))throw new LocationSDKOverrideError("ui.sdk.override_unsupported","?","actor cast without cast_id");
+     if(cast.body_prefab==null)throw new LocationSDKOverrideError("ui.sdk.override_missing_prefab","cast "+id);
+     if(string.IsNullOrEmpty(cast.idle_state)||string.IsNullOrEmpty(cast.walk_state)||!Finite(cast.walk_clip_speed_mps)||cast.walk_clip_speed_mps<=.05f||!Finite(cast.walk_cycle_seconds)||cast.walk_cycle_seconds<=0||!Finite(cast.idle_cycle_seconds)||cast.idle_cycle_seconds<=0||
+      !string.IsNullOrEmpty(cast.stairs_state)&&(!Finite(cast.stairs_clip_speed_mps)||cast.stairs_clip_speed_mps<=.05f||!Finite(cast.stairs_cycle_seconds)||cast.stairs_cycle_seconds<=0)||
+      !Finite(cast.walk_threshold_mps)||cast.walk_threshold_mps<0||!Finite(cast.turn_degrees_per_second)||cast.turn_degrees_per_second<=0||!Finite(cast.course_window_seconds)||cast.course_window_seconds<0||cast.course_window_seconds>2||cast.tints==null||cast.tints.Length==0)
+      throw new LocationSDKOverrideError("ui.sdk.override_unsupported","cast "+id,"invalid actor cast");
+     if(cast.walk_distance_by_phase!=null&&cast.walk_distance_by_phase.Length>0){var c=cast.walk_distance_by_phase;bool ok=c.Length>=2&&c[0]==0&&Finite(c[c.Length-1])&&c[c.Length-1]>=.1f;for(int i=1;ok&&i<c.Length;i++)ok=Finite(c[i])&&c[i]>=c[i-1];
+      if(!ok)throw new LocationSDKOverrideError("ui.sdk.override_unsupported","cast "+id,"walk_distance_by_phase is not a rising curve from 0 to one stride");}
+     if(result.ContainsKey(id))throw new LocationSDKOverrideError("ui.sdk.override_duplicate","cast "+id);
+     if(validatePrefab!=null)validatePrefab(cast);result.Add(id,cast);
+    }
+   }return result;
+  }
+  // Economy graphics drops only lights explicitly marked as supplementary.
+  public static bool LightEnabled(string minQuality,bool fullQuality){return fullQuality||minQuality!="full";}
   public static Dictionary<string,AngelsDemonsLocationOverrideEntry> Validate(PocLocationSDKBundle bundle,IEnumerable<AngelsDemonsLocationOverrideRegistry> registries,Action<AngelsDemonsLocationOverrideEntry> validatePrefab=null){
    var known=new Dictionary<string,HashSet<string>>(StringComparer.Ordinal);
-   if(bundle!=null&&bundle.levels!=null)foreach(var level in bundle.levels)if(level!=null){var ids=new HashSet<string>(StringComparer.Ordinal);if(level.instances!=null)foreach(var instance in level.instances)if(instance!=null)ids.Add(instance.id);known[level.id]=ids;}
+   if(bundle!=null&&bundle.levels!=null)foreach(var level in bundle.levels)if(level!=null){var ids=new HashSet<string>(StringComparer.Ordinal);if(level.instances!=null)foreach(var instance in level.instances)if(instance!=null)ids.Add(instance.id);AddMultideckElementIDs(level,ids);known[level.id]=ids;}
    var result=new Dictionary<string,AngelsDemonsLocationOverrideEntry>(StringComparer.Ordinal);if(registries==null)return result;
    foreach(var registry in registries){if(registry==null||registry.schema_version!=AngelsDemonsLocationOverrideRegistry.CurrentSchemaVersion)throw new LocationSDKOverrideError("ui.sdk.override_registry",registry==null?"?":registry.name);
     if(registry.entries==null)continue;foreach(var entry in registry.entries){string layout=entry==null?null:entry.layout_id,instance=entry==null?null:entry.instance_id,identity=(layout??"?")+" :: "+(instance??"?");HashSet<string> ids;
@@ -32,9 +202,41 @@ namespace AngelsDemons.Poc {
      if(instance==null||!ids.Contains(instance))throw new LocationSDKOverrideError("ui.sdk.override_unknown_instance",identity);
      string key=Key(layout,instance);if(result.ContainsKey(key))throw new LocationSDKOverrideError("ui.sdk.override_duplicate",identity);
      if(entry.prefab==null)throw new LocationSDKOverrideError("ui.sdk.override_missing_prefab",identity);
+     ValidateBakedCamera(bundle,entry);
+     ValidateLightBindings(bundle,entry);
      if(validatePrefab!=null)validatePrefab(entry);result.Add(key,entry);
     }
    }return result;
+  }
+  static void ValidateBakedCamera(PocLocationSDKBundle bundle,AngelsDemonsLocationOverrideEntry entry){
+   var baked=entry.baked_camera;if(baked==null)return;string id=entry.layout_id+" :: "+entry.instance_id;
+   if(baked.projection!="orthographic"||float.IsNaN(baked.elevation_degrees)||float.IsInfinity(baked.elevation_degrees)||float.IsNaN(baked.azimuth_degrees)||float.IsInfinity(baked.azimuth_degrees)||baked.elevation_degrees<15||baked.elevation_degrees>75||baked.azimuth_degrees<5||baked.azimuth_degrees>85)throw new LocationSDKOverrideError("ui.sdk.override_unsupported",id,"invalid baked camera");
+   foreach(var level in bundle.levels)if(level.id==entry.layout_id){
+    PocLocationSDKCamera camera;try{camera=level.GetCamera();}catch(InvalidOperationException){throw new LocationSDKOverrideError("ui.sdk.override_unsupported",id,"invalid layout camera presence");}float elevation=camera==null?30:camera.elevation_degrees,azimuth=camera==null?45:camera.azimuth_degrees;
+    if(camera!=null&&camera.projection!="orthographic"||float.IsNaN(elevation)||float.IsInfinity(elevation)||float.IsNaN(azimuth)||float.IsInfinity(azimuth)||Math.Abs(elevation-baked.elevation_degrees)>.001f||Math.Abs(azimuth-baked.azimuth_degrees)>.001f)throw new LocationSDKOverrideError("ui.sdk.override_unsupported",id,"baked camera differs from layout camera");
+    foreach(var instance in level.instances)if(instance.id==entry.instance_id&&instance.rotation!=0)throw new LocationSDKOverrideError("ui.sdk.override_unsupported",id,"rotated depth sprite requires a separately reviewed bake");
+   }
+  }
+  static void ValidateLightBindings(PocLocationSDKBundle bundle,AngelsDemonsLocationOverrideEntry entry){
+   if(entry.light_bindings==null)return;string id=entry.layout_id+" :: "+entry.instance_id;
+   var times=new HashSet<string>(StringComparer.Ordinal);foreach(var level in bundle.levels)if(level.id==entry.layout_id&&level.views!=null)foreach(var view in level.views)times.Add(view.time_id);
+   var paths=new HashSet<string>(StringComparer.Ordinal);foreach(var binding in entry.light_bindings){
+    if(binding==null||string.IsNullOrEmpty(binding.path)||!paths.Add(binding.path)||binding.active_time_ids==null||binding.active_time_ids.Length==0||(!string.IsNullOrEmpty(binding.min_quality)&&binding.min_quality!="economy"&&binding.min_quality!="full"))throw new LocationSDKOverrideError("ui.sdk.override_unsupported",id,"invalid light binding");
+    var unique=new HashSet<string>(StringComparer.Ordinal);foreach(var time in binding.active_time_ids)if(time==null||!times.Contains(time)||!unique.Add(time))throw new LocationSDKOverrideError("ui.sdk.override_unsupported",id,"unknown or duplicate light time");
+   }
+  }
+  // 0 at night .. 1 in full day for passive light-guide delivery; twilight eased
+  // over twilight_seconds centred on sunrise/sunset (same curve as painted scenes).
+  public static float DaylightFactor(PocLocationSDKDaylight d,double seconds){
+   if(d==null||d.source!="passive_lightguides")return 0;
+   double day=seconds-Math.Floor(seconds/86400d)*86400d,half=d.twilight_seconds/2.0;
+   double dawn=DaylightSmooth(d.sunrise_second-half,d.sunrise_second+half,day),dusk=1-DaylightSmooth(d.sunset_second-half,d.sunset_second+half,day);
+   return (float)Math.Min(dawn,dusk);
+  }
+  static double DaylightSmooth(double low,double high,double v){if(high<=low)return v>=high?1:0;double t=Math.Max(0,Math.Min(1,(v-low)/(high-low)));return t*t*(3-2*t);}
+  public static float LightFactor(float brightness,string time,string[] activeTimes){
+   if(activeTimes==null)return brightness;
+   foreach(var active in activeTimes)if(active==time)return 1;return 0;
   }
   // Prefab root is the unrotated minimum X/Z corner at floor height. CUE's
   // positive quarter turn maps +X to +Z, hence Unity yaw is negative.
@@ -49,38 +251,212 @@ namespace AngelsDemons.Poc {
   sealed class LocationSDKOverrideVisual {
    public GameObject root;public PocLocationSDKCell[] cells;public Animator[] animators;public float[] speeds;public ParticleSystem[] particles;
    public readonly List<AnimationState> legacy=new List<AnimationState>();public readonly List<float> legacySpeeds=new List<float>();
+   public AngelsDemonsLocationStorefrontBinding[] storefrontBindings;public GameObject[] goods,closed,working;
+   public Light[] lights;public float[] intensities;public string[][] lightTimes;public string[] lightQualities;public LightShadows[] shadows;public bool[] lightDaylight;
+   public string instance;
+   // Lenses following their lights (light binding lens_paths): renderer, authored emission, bound light indices, reference.
+   public readonly List<LocationSDKLens> lenses=new List<LocationSDKLens>();
   }
+  sealed class LocationSDKLens {public Renderer renderer;public Color emission;public readonly List<int> lights=new List<int>();public float reference;public float applied=-1;}
+  static readonly int LocationSDKEmissionColor=Shader.PropertyToID("_EmissionColor");
+  static MaterialPropertyBlock locationSDKLensBlock;
   Dictionary<string,AngelsDemonsLocationOverrideEntry> locationSDKOverrides;
+  Dictionary<string,Material> locationSDKSurfaceMaterials;
+  AngelsDemonsLocationPresentationEntry locationSDKPresentationEntry;
+  // Painted background (doc 72); status is presentation diagnostics only.
+  AngelsDemonsLocationBackgroundEntry locationSDKBackgroundEntry;GameObject locationSDKBackground;
+  internal string LocationSDKBackgroundStatus="none";
+  bool locationSDKBackgroundOff=Array.IndexOf(Environment.GetCommandLineArgs(),"--poc-live-architecture")>=0;
   readonly List<LocationSDKOverrideVisual> locationSDKOverrideVisuals=new List<LocationSDKOverrideVisual>();
   string locationSDKOverrideFailure;
-  void LoadLocationSDKOverrides(){locationSDKOverrides=LocationSDKOverrideContract.Validate(resource.location_sdk,Resources.LoadAll<AngelsDemonsLocationOverrideRegistry>("LocationOverrides"),ValidateLocationSDKPrefab);}
+  void LoadLocationSDKOverrides(){var registries=Resources.LoadAll<AngelsDemonsLocationOverrideRegistry>("LocationOverrides");locationSDKOverrides=LocationSDKOverrideContract.Validate(resource.location_sdk,registries,ValidateLocationSDKPrefab);locationSDKSurfaceMaterials=LocationSDKOverrideContract.ValidateSurfaces(resource.location_sdk,registries);var presentations=LocationSDKOverrideContract.ValidatePresentation(resource.location_sdk,registries);locationSDKPresentationEntry=null;if(locationSDKLevel!=null)presentations.TryGetValue(locationSDKLevel.id,out locationSDKPresentationEntry);var backgrounds=LocationSDKOverrideContract.ValidateBackgrounds(resource.location_sdk,registries,ValidateLocationSDKBackgroundPrefab);locationSDKBackgroundEntry=null;if(locationSDKLevel!=null)backgrounds.TryGetValue(locationSDKLevel.id,out locationSDKBackgroundEntry);
+   var casts=LocationSDKOverrideContract.ValidateActorCasts(registries,ValidateLocationSDKActorCast);locationSDKHumanoidCast=null;string castId=locationSDKLevel==null?null:locationSDKLevel.HumanoidCast();
+   if(castId!=null&&!casts.TryGetValue(castId,out locationSDKHumanoidCast))throw new LocationSDKOverrideError("ui.sdk.override_missing_prefab",locationSDKLevel.id+" :: cast "+castId);}
+  // A cast body: an Animator with a valid humanoid avatar and a controller; renderers only (no scripts in artist prefabs).
+  static void ValidateLocationSDKActorCast(AngelsDemonsLocationActorCast cast){
+   var bodies=new List<GameObject>{cast.body_prefab,cast.hero_prefab};if(cast.body_variants!=null)foreach(var variant in cast.body_variants){if(variant==null)throw new LocationSDKOverrideError("ui.sdk.override_missing_prefab","cast "+cast.cast_id+" :: body variant");bodies.Add(variant);}
+   foreach(var prefab in bodies){if(prefab==null)continue;string id="cast "+cast.cast_id+" :: "+prefab.name;
+    var animator=prefab.GetComponentInChildren<Animator>(true);if(animator==null||animator.avatar==null||!animator.avatar.isValid||!animator.avatar.isHuman||animator.runtimeAnimatorController==null)throw new LocationSDKOverrideError("ui.sdk.override_unsupported",id,"cast body needs a humanoid Animator with a controller");
+    foreach(var component in prefab.GetComponentsInChildren<Component>(true)){if(component==null)throw new LocationSDKOverrideError("ui.sdk.override_unsupported",id,"Missing script");
+     if(!(component is Transform||component is Animator||component is SkinnedMeshRenderer||component is MeshFilter||component is MeshRenderer))throw new LocationSDKOverrideError("ui.sdk.override_unsupported",id,component.GetType().Name);}
+   }
+  }
+  static void ValidateLocationSDKBackgroundPrefab(AngelsDemonsLocationBackgroundEntry entry){
+   string id=entry.layout_id+" :: background "+entry.bake_id;var t=entry.prefab.transform;
+   if(t.localPosition.sqrMagnitude>.000001f||Quaternion.Angle(t.localRotation,Quaternion.identity)>.001f||(t.localScale-Vector3.one).sqrMagnitude>.000001f)throw new LocationSDKOverrideError("ui.sdk.override_transform",id);
+   int tiles=0;foreach(var component in entry.prefab.GetComponentsInChildren<Component>(true)){
+    if(component==null)throw new LocationSDKOverrideError("ui.sdk.override_unsupported",id,"Missing script");
+    if(!(component is Transform||component is MeshFilter||component is MeshRenderer))throw new LocationSDKOverrideError("ui.sdk.override_unsupported",id,component.GetType().Name);
+    var renderer=component as MeshRenderer;if(renderer==null)continue;tiles++;
+    foreach(var material in renderer.sharedMaterials)if(material==null||material.shader==null||material.shader.name!="ANG/LocationSDKDepthSprite")throw new LocationSDKOverrideError("ui.sdk.override_unsupported",id,"background tile is not a depth sprite");
+   }
+   if(tiles==0)throw new LocationSDKOverrideError("ui.sdk.override_empty",id);
+  }
+  // Development comparison only: rebuild the viewport with live 3D architecture.
+  public void SetLocationSDKBackground(bool enabled){if(locationSDKBackgroundOff==!enabled)return;locationSDKBackgroundOff=!enabled;ReleaseLocationSDK();}
+  // Static architecture = mesh renderers of authored parts, floor, barriers and
+  // extruded instances. Live 3D = storefront goods/closed/working nodes, animated
+  // or particle parts, listed live instances, decorations, actors and guides.
+  internal List<MeshRenderer> LocationSDKStaticRenderers(){
+   var result=new List<MeshRenderer>();if(locationSDKRoot==null)return result;var live=new HashSet<Transform>();
+   string[] liveIds=locationSDKBackgroundEntry==null?null:locationSDKBackgroundEntry.live_instance_ids;
+   foreach(var visual in locationSDKOverrideVisuals){
+    if(liveIds!=null&&Array.IndexOf(liveIds,visual.instance)>=0)live.Add(visual.root.transform);
+    foreach(var nodes in new[]{visual.goods,visual.closed,visual.working})if(nodes!=null)foreach(var node in nodes)if(node!=null)live.Add(node.transform);
+    foreach(var animator in visual.animators)if(animator!=null)live.Add(animator.transform);foreach(var particle in visual.particles)if(particle!=null)live.Add(particle.transform);
+    foreach(var animation in visual.root.GetComponentsInChildren<Animation>(true))live.Add(animation.transform);
+   }
+   foreach(var decoration in locationSDKDecorations.Values)if(decoration!=null)live.Add(decoration.transform);
+   foreach(var actor in locationSDKActors.Values)if(actor.go!=null)live.Add(actor.go.transform);
+   foreach(var person in locationSDKHumanoids.Values)if(person.go!=null)live.Add(person.go.transform);
+   if(wayfindingSDKRoot!=null)live.Add(wayfindingSDKRoot.transform);if(locationSDKBackground!=null)live.Add(locationSDKBackground.transform);
+   foreach(var renderer in locationSDKRoot.GetComponentsInChildren<MeshRenderer>(true)){
+    bool keep=false;for(var t=renderer.transform;t!=null&&t!=locationSDKRoot.transform;t=t.parent)if(live.Contains(t)){keep=true;break;}
+    var filter=renderer.GetComponent<MeshFilter>();if(!keep&&filter!=null&&filter.sharedMesh!=null)result.Add(renderer);
+   }
+   return result;
+  }
+  internal string LocationSDKRelativePath(Transform transform){var names=new List<string>();for(var t=transform;t!=null&&locationSDKRoot!=null&&t!=locationSDKRoot.transform;t=t.parent)names.Add(t.name);names.Reverse();return string.Join("/",names.ToArray());}
+  static string LocationSDKMillimetres(Vector3 v){return Mathf.RoundToInt(v.x*1000).ToString(System.Globalization.CultureInfo.InvariantCulture)+","+Mathf.RoundToInt(v.y*1000).ToString(System.Globalization.CultureInfo.InvariantCulture)+","+Mathf.RoundToInt(v.z*1000).ToString(System.Globalization.CultureInfo.InvariantCulture);}
+  // Layout-local AABB from the shared mesh bounds: valid for inactive parts too.
+  internal Bounds LocationSDKLocalBounds(MeshRenderer renderer){
+   var mesh=renderer.GetComponent<MeshFilter>().sharedMesh;var m=locationSDKRoot.transform.worldToLocalMatrix*renderer.localToWorldMatrix;var b=mesh.bounds;Vector3 lo=Vector3.positiveInfinity,hi=Vector3.negativeInfinity;
+   for(int i=0;i<8;i++){var p=m.MultiplyPoint3x4(b.center+Vector3.Scale(b.extents,new Vector3((i&1)==0?-1:1,(i&2)==0?-1:1,(i&4)==0?-1:1)));lo=Vector3.Min(lo,p);hi=Vector3.Max(hi,p);}
+   var result=new Bounds();result.SetMinMax(lo,hi);return result;
+  }
+  internal string LocationSDKStaticFingerprint(List<MeshRenderer> statics){
+   var lines=new List<string>();foreach(var renderer in statics){var mesh=renderer.GetComponent<MeshFilter>().sharedMesh;var b=LocationSDKLocalBounds(renderer);lines.Add(LocationSDKRelativePath(renderer.transform)+"|"+mesh.name+"|"+mesh.vertexCount+"|"+mesh.subMeshCount+"|"+LocationSDKMillimetres(b.min)+"|"+LocationSDKMillimetres(b.max));}
+   return LocationSDKOverrideContract.StaticFingerprint(lines);
+  }
+  // Static RGB comes from the baked tiles; static renderers keep shadow casting
+  // only (none at economy graphics, where lights cast no shadows).
+  void LocationSDKApplyBackground(PocLocationSDKLevel level){
+   LocationSDKBackgroundStatus="none";var entry=locationSDKBackgroundEntry;if(entry==null)return;
+   // Document 80: the painted/depth-billboard pipeline is single-surface; refuse it.
+   if(level.navigation_authored)throw new InvalidOperationException("painted background is not supported for multi-deck layout "+level.id);
+   if(locationSDKBackgroundOff){LocationSDKBackgroundStatus="disabled";return;}
+   var statics=LocationSDKStaticRenderers();string stale=LocationSDKOverrideContract.BackgroundStale(level,entry,LocationSDKStaticFingerprint(statics));
+   if(stale!=null){LocationSDKBackgroundStatus="stale: "+stale;Debug.LogWarning("ANG SDK painted background "+entry.bake_id+" not used; live 3D architecture kept: "+stale);return;}
+   locationSDKBackground=Instantiate(entry.prefab,locationSDKRoot.transform,false);locationSDKBackground.name="painted background / "+entry.bake_id;
+   foreach(var child in locationSDKBackground.GetComponentsInChildren<Transform>(true))child.gameObject.layer=LocationSDKLayer;
+   // A lit background is lit by the lamps, not dimmed by the view tint.
+   foreach(var renderer in locationSDKBackground.GetComponentsInChildren<MeshRenderer>(true)){renderer.shadowCastingMode=UnityEngine.Rendering.ShadowCastingMode.Off;renderer.receiveShadows=false;var slots=renderer.sharedMaterials;for(int i=0;i<slots.Length;i++){var copy=new Material(slots[i]);slots[i]=copy;if(entry.lit)locationSDKBackgroundOwned.Add(copy);else{locationSDKMaterials.Add(copy);locationSDKColors.Add(copy.color);}}renderer.sharedMaterials=slots;}
+   locationSDKBackgroundLit=entry.lit;if(entry.lit){LocationSDKCollectBackgroundLights();var tile=locationSDKBackground.GetComponentInChildren<MeshRenderer>(true).sharedMaterial;
+    // Live objects use the same gains as the imported background tiles.
+    locationSDKBackgroundGains=new Vector4(tile.GetFloat("_AmbientGain"),tile.GetFloat("_LightGain"),tile.HasProperty("_BounceGain")?tile.GetFloat("_BounceGain"):0,tile.HasProperty("_BounceRadius")?Mathf.Max(.5f,tile.GetFloat("_BounceRadius")):6);}
+   foreach(var renderer in statics){if(renderer.shadowCastingMode==UnityEngine.Rendering.ShadowCastingMode.Off)renderer.enabled=false;else renderer.shadowCastingMode=UnityEngine.Rendering.ShadowCastingMode.ShadowsOnly;}
+   LocationSDKBackgroundStatus="active";
+  }
   static void ValidateLocationSDKPrefab(AngelsDemonsLocationOverrideEntry entry){
    string id=entry.layout_id+" :: "+entry.instance_id;var t=entry.prefab.transform;
    if(t.localPosition.sqrMagnitude>.000001f||Quaternion.Angle(t.localRotation,Quaternion.identity)>.001f||(t.localScale-Vector3.one).sqrMagnitude>.000001f)throw new LocationSDKOverrideError("ui.sdk.override_transform",id);
    bool renderer=false;foreach(var component in entry.prefab.GetComponentsInChildren<Component>(true)){
     if(component==null)throw new LocationSDKOverrideError("ui.sdk.override_unsupported",id,"Missing script");
     if(component is Renderer)renderer=true;
-    if(!(component is Transform||component is Renderer||component is MeshFilter||component is Animator||component is Animation||component is ParticleSystem||component is LODGroup||component is Light))throw new LocationSDKOverrideError("ui.sdk.override_unsupported",id,component.GetType().Name);
-   }if(!renderer)throw new LocationSDKOverrideError("ui.sdk.override_empty",id);
+    if(!(component is Transform||component is Renderer||component is MeshFilter||component is Animator||component is Animation||component is ParticleSystem||component is LODGroup||component is Light||component is UnityEngine.Rendering.Universal.UniversalAdditionalLightData))throw new LocationSDKOverrideError("ui.sdk.override_unsupported",id,component.GetType().Name);
+   }
+   if(entry.light_bindings!=null)foreach(var binding in entry.light_bindings){var target=t.Find(binding.path);if(target==null||target.GetComponent<Light>()==null)throw new LocationSDKOverrideError("ui.sdk.override_unsupported",id,"missing light: "+binding.path);
+    if(binding.lens_paths!=null)foreach(var lens in binding.lens_paths){var l=string.IsNullOrEmpty(lens)?null:t.Find(lens);if(l==null||l.GetComponent<Renderer>()==null)throw new LocationSDKOverrideError("ui.sdk.override_unsupported",id,"missing lens renderer: "+lens);}}
+   if(entry.storefront_bindings!=null){var seen=new HashSet<string>(StringComparer.Ordinal);foreach(var b in entry.storefront_bindings){if(b==null||string.IsNullOrEmpty(b.storefront_id)||!seen.Add(b.storefront_id)||string.IsNullOrEmpty(b.goods_path)||string.IsNullOrEmpty(b.closed_path)||b.goods_path==b.closed_path||t.Find(b.goods_path)==null||t.Find(b.closed_path)==null||(!string.IsNullOrEmpty(b.open_path)&&(b.open_path==b.goods_path||b.open_path==b.closed_path||t.Find(b.open_path)==null)))throw new LocationSDKOverrideError("ui.sdk.override_unsupported",id,"invalid storefront node binding");}}
+   if(!renderer)throw new LocationSDKOverrideError("ui.sdk.override_empty",id);
   }
   bool TryLocationSDKOverride(PocLocationSDKLevel level,PocLocationSDKInstance instance,float floorMetres,out GameObject go){
    go=null;AngelsDemonsLocationOverrideEntry entry;if(locationSDKOverrides==null||!locationSDKOverrides.TryGetValue(LocationSDKOverrideContract.Key(level.id,instance.id),out entry))return false;
    var wrapper=new GameObject("visual override / "+instance.id){layer=LocationSDKLayer};wrapper.SetActive(false);wrapper.transform.SetParent(locationSDKRoot.transform,false);var pose=LocationSDKOverrideContract.Pose(instance,level.cell_meters,floorMetres);wrapper.transform.localPosition=new Vector3(pose.x,pose.y,pose.z);wrapper.transform.localRotation=Quaternion.Euler(0,pose.yaw_degrees,0);
    var clone=Instantiate(entry.prefab,wrapper.transform,false);clone.name=instance.id;foreach(var child in clone.GetComponentsInChildren<Transform>(true))child.gameObject.layer=LocationSDKLayer;foreach(var light in clone.GetComponentsInChildren<Light>(true))light.cullingMask=1<<LocationSDKLayer;
-   var visual=new LocationSDKOverrideVisual{root=wrapper,cells=instance.footprint!=null&&instance.footprint.Length>0?instance.footprint:new[]{instance.at},animators=clone.GetComponentsInChildren<Animator>(true),particles=clone.GetComponentsInChildren<ParticleSystem>(true)};visual.speeds=new float[visual.animators.Length];for(int i=0;i<visual.animators.Length;i++){visual.speeds[i]=visual.animators[i].speed;visual.animators[i].applyRootMotion=false;visual.animators[i].speed=0;}
+   // Baked RGB already includes its authored light. Clone its tint material so
+   // the existing day/night presentation and disposal never mutate artist assets.
+   // Prefab parts drawn with the SDK surface shader (a lintel over a gate, doc 85)
+   // follow the same presentation tint as the SDK walls next to them.
+   foreach(var renderer in clone.GetComponentsInChildren<Renderer>(true)){var slots=renderer.sharedMaterials;bool changed=false;for(int i=0;i<slots.Length;i++)if(slots[i]!=null&&(slots[i].shader.name=="ANG/LocationSDKDepthSprite"||slots[i].shader.name=="ANG/LocationSDKSurface")){var copy=new Material(slots[i]);slots[i]=copy;locationSDKMaterials.Add(copy);locationSDKColors.Add(copy.color);changed=true;}if(changed)renderer.sharedMaterials=slots;}
+   var visual=new LocationSDKOverrideVisual{root=wrapper,instance=instance.id,cells=instance.footprint!=null&&instance.footprint.Length>0?instance.footprint:new[]{instance.at},animators=clone.GetComponentsInChildren<Animator>(true),particles=clone.GetComponentsInChildren<ParticleSystem>(true)};visual.speeds=new float[visual.animators.Length];for(int i=0;i<visual.animators.Length;i++){visual.speeds[i]=visual.animators[i].speed;visual.animators[i].applyRootMotion=false;visual.animators[i].speed=0;}
    foreach(var animation in clone.GetComponentsInChildren<Animation>(true))foreach(AnimationState state in animation){visual.legacy.Add(state);visual.legacySpeeds.Add(state.speed);state.speed=0;}
+   visual.lights=clone.GetComponentsInChildren<Light>(true);visual.intensities=new float[visual.lights.Length];visual.shadows=new LightShadows[visual.lights.Length];for(int i=0;i<visual.lights.Length;i++){visual.intensities[i]=visual.lights[i].intensity;visual.shadows[i]=visual.lights[i].shadows;}
+   visual.lightTimes=new string[visual.lights.Length][];visual.lightQualities=new string[visual.lights.Length];visual.lightDaylight=new bool[visual.lights.Length];if(entry.light_bindings!=null)foreach(var binding in entry.light_bindings){var lamp=clone.transform.Find(binding.path).GetComponent<Light>();int index=Array.IndexOf(visual.lights,lamp);visual.lightTimes[index]=binding.active_time_ids;visual.lightQualities[index]=binding.min_quality;visual.lightDaylight[index]=binding.daylight;
+     if(binding.lens_paths!=null)foreach(var path in binding.lens_paths){var r=clone.transform.Find(path).GetComponent<Renderer>();var lens=visual.lenses.Find(x=>x.renderer==r);if(lens==null){lens=new LocationSDKLens{renderer=r,emission=r.sharedMaterial!=null&&r.sharedMaterial.HasProperty(LocationSDKEmissionColor)?r.sharedMaterial.GetColor(LocationSDKEmissionColor):Color.black};visual.lenses.Add(lens);}if(index>=0&&!lens.lights.Contains(index)){lens.lights.Add(index);lens.reference=Math.Max(lens.reference,visual.intensities[index]);}}}
+   visual.storefrontBindings=entry.storefront_bindings;if(entry.storefront_bindings!=null){visual.goods=new GameObject[entry.storefront_bindings.Length];visual.closed=new GameObject[entry.storefront_bindings.Length];visual.working=new GameObject[entry.storefront_bindings.Length];for(int i=0;i<entry.storefront_bindings.Length;i++){var b=entry.storefront_bindings[i];visual.goods[i]=clone.transform.Find(b.goods_path).gameObject;visual.closed[i]=clone.transform.Find(b.closed_path).gameObject;visual.goods[i].SetActive(false);visual.closed[i].SetActive(true);if(!string.IsNullOrEmpty(b.open_path)){visual.working[i]=clone.transform.Find(b.open_path).gameObject;visual.working[i].SetActive(false);}}}
    locationSDKOverrideVisuals.Add(visual);locationSDKParts.Add(new LocationSDKPart{go=wrapper,cells=visual.cells});go=wrapper;return true;
   }
   void UpdateLocationSDKOverrides(AngelsDemons.Game.V1.PocObserverView view){
-   foreach(var visual in locationSDKOverrideVisuals){bool observed=false;if(visual.root.activeInHierarchy)foreach(var cell in visual.cells)if(ViewCell(view,cell.x,cell.y)=='2'){observed=true;break;}
+   var presentation=LocationSDKPresentation();float brightness=presentation==null?1:Mathf.Clamp(presentation.brightness,.05f,1);float daylightNow=LocationSDKDaylightNow();
+   foreach(var visual in locationSDKOverrideVisuals){if(visual.storefrontBindings!=null&&state!=null&&state.Life!=null){for(int i=0;i<visual.storefrontBindings.Length;i++){var b=visual.storefrontBindings[i];foreach(var value in state.Life.Storefronts)if(value.Id==b.storefront_id){visual.goods[i].SetActive(value.Open&&value.Stocked);visual.closed[i].SetActive(!value.Open);if(visual.working[i]!=null)visual.working[i].SetActive(value.Open);break;}}}bool observed=false;if(visual.root.activeInHierarchy)foreach(var cell in visual.cells)if(ViewCell(view,cell.x,cell.y)=='2'){observed=true;break;}
+    for(int i=0;i<visual.lights.Length;i++){visual.lights[i].intensity=visual.intensities[i]*LocationSDKOverrideContract.LightFactor(brightness,locationSDKTime,visual.lightTimes[i])*(visual.lightDaylight[i]?daylightNow:1);visual.lights[i].enabled=LocationSDKOverrideContract.LightEnabled(visual.lightQualities[i],GraphicsFull);visual.lights[i].shadows=GraphicsFull?visual.shadows[i]:LightShadows.None;}
+    foreach(var lens in visual.lenses){float k=0;foreach(int i in lens.lights){var l=visual.lights[i];if(l.enabled&&lens.reference>0)k=Math.Max(k,l.intensity/lens.reference);}k=Mathf.Clamp01(k);if(Math.Abs(k-lens.applied)<.004f)continue;lens.applied=k;
+     if(locationSDKLensBlock==null)locationSDKLensBlock=new MaterialPropertyBlock();lens.renderer.GetPropertyBlock(locationSDKLensBlock);locationSDKLensBlock.SetColor(LocationSDKEmissionColor,lens.emission*k);lens.renderer.SetPropertyBlock(locationSDKLensBlock);}
     for(int i=0;i<visual.animators.Length;i++)visual.animators[i].speed=LocationSDKOverrideContract.PlaybackSpeed(visual.speeds[i],state.Paused,observed);
     for(int i=0;i<visual.legacy.Count;i++)visual.legacy[i].speed=LocationSDKOverrideContract.PlaybackSpeed(visual.legacySpeeds[i],state.Paused,observed);
     foreach(var particle in visual.particles){if(state.Paused||!observed){if(particle.isPlaying)particle.Pause(false);}else if(particle.isPaused)particle.Play(false);}
    }
   }
+  // ---- Relit background (doc 72): artificial light = stall work lamps by Go state and
+  // passage duty fixtures; light-guide outlets by the daylight calendar. Duty lamps of
+  // CLOSED stalls and directional fills never light the background (no general hall light).
+  // Full: every lamp of a market-size room fits (zoomed-out view included); economy: 12 nearest.
+  const int LocationSDKBackgroundMaxLights=32,LocationSDKBackgroundEconomyLights=12;
+  bool locationSDKBackgroundLit;readonly List<Material> locationSDKBackgroundOwned=new List<Material>();
+  readonly List<Light> locationSDKBackgroundLights=new List<Light>();
+  readonly Vector4[] pbLightPos=new Vector4[LocationSDKBackgroundMaxLights],pbLightColor=new Vector4[LocationSDKBackgroundMaxLights],pbLightSpot=new Vector4[LocationSDKBackgroundMaxLights],pbLightParam=new Vector4[LocationSDKBackgroundMaxLights];
+  internal int LocationSDKBackgroundLightCount;internal Color LocationSDKBackgroundAmbient;Vector4 locationSDKBackgroundGains=new Vector4(1,1,0,6);
+  static Texture2D locationSDKContactTexture;static Mesh locationSDKContactMesh;
+  void LocationSDKCollectBackgroundLights(){
+   locationSDKBackgroundLights.Clear();var duty=new HashSet<Transform>();
+   foreach(var visual in locationSDKOverrideVisuals)if(visual.closed!=null)foreach(var node in visual.closed)if(node!=null)duty.Add(node.transform);
+   foreach(var light in locationSDKRoot.GetComponentsInChildren<Light>(true)){
+    if(light.type!=LightType.Spot&&light.type!=LightType.Point)continue;bool closed=false;
+    for(var t=light.transform;t!=null&&t!=locationSDKRoot.transform;t=t.parent)if(duty.Contains(t)){closed=true;break;}
+    if(!closed)locationSDKBackgroundLights.Add(light);
+   }
+  }
+  static Color LocationSDKLightColor(Light light){Color c=light.color*light.intensity;if(light.useColorTemperature&&UnityEngine.Rendering.GraphicsSettings.lightsUseColorTemperature)c*=Mathf.CorrelatedColorTemperatureToRGB(light.colorTemperature);return c;}
+  // Nearest active lamps to the camera focus, up to 32 (full) or 12 (economy; no specular).
+  void LocationSDKUploadBackgroundLights(float brightness){
+   if(!locationSDKBackgroundLit)return;
+   var active=new List<Light>();foreach(var light in locationSDKBackgroundLights)if(light!=null&&light.isActiveAndEnabled&&light.intensity>0)active.Add(light);
+   var focus=locationSDKFocus;active.Sort((a,b)=>(a.transform.position-focus).sqrMagnitude.CompareTo((b.transform.position-focus).sqrMagnitude));
+   int count=Math.Min(active.Count,GraphicsFull?LocationSDKBackgroundMaxLights:LocationSDKBackgroundEconomyLights);
+   for(int i=0;i<LocationSDKBackgroundMaxLights;i++){
+    if(i>=count){pbLightPos[i]=pbLightColor[i]=pbLightSpot[i]=pbLightParam[i]=Vector4.zero;continue;}
+    var l=active[i];var c=LocationSDKLightColor(l);var p=l.transform.position;var f=l.transform.forward;
+    float outer=Mathf.Cos(.5f*l.spotAngle*Mathf.Deg2Rad),inner=Mathf.Cos(.5f*Mathf.Max(0,l.innerSpotAngle)*Mathf.Deg2Rad);
+    pbLightPos[i]=new Vector4(p.x,p.y,p.z,l.type==LightType.Spot?1:0);pbLightColor[i]=new Vector4(c.r,c.g,c.b,Mathf.Max(.01f,l.range));
+    pbLightSpot[i]=new Vector4(f.x,f.y,f.z,outer);pbLightParam[i]=new Vector4(1f/Mathf.Max(.001f,inner-outer),0,0,0);
+   }
+   var entry=locationSDKPresentationEntry;Color ambient=entry==null?new Color(.35f,.35f,.37f)*brightness:LocationSDKOverrideContract.PresentationAmbient(entry,locationSDKTime,brightness);ambient.a=1;
+   LocationSDKBackgroundLightCount=count;LocationSDKBackgroundAmbient=ambient;
+   Shader.SetGlobalVectorArray("_PbLightPos",pbLightPos);Shader.SetGlobalVectorArray("_PbLightColor",pbLightColor);Shader.SetGlobalVectorArray("_PbLightSpot",pbLightSpot);Shader.SetGlobalVectorArray("_PbLightParam",pbLightParam);
+   Shader.SetGlobalFloat("_PbLightCount",count);Shader.SetGlobalVector("_PbAmbient",ambient);Shader.SetGlobalFloat("_PbSpecular",GraphicsFull?1:0);Shader.SetGlobalFloat("_PbDaylight",LocationSDKDaylightNow());
+   if(locationSDKCamera!=null)Shader.SetGlobalVector("_PbViewDir",locationSDKCamera.transform.forward);
+  }
+  // Light at a live object's support point with the same lamps as the background
+  // (wrap-lit upright body), so people at a stall are warm and dark in a passage.
+  internal Color LocationSDKLightAt(Vector3 world,float ambientScale){
+   var k=locationSDKBackgroundGains;Color sum=LocationSDKBackgroundAmbient*(k.x*ambientScale);
+   for(int i=0;i<LocationSDKBackgroundLightCount;i++){
+    Vector3 d=(Vector3)pbLightPos[i]-world;float d2=Mathf.Max(d.sqrMagnitude,1e-4f);Vector3 l=d/Mathf.Sqrt(d2);float r=pbLightColor[i].w;
+    float f=Mathf.Clamp01(1-(d2/(r*r))*(d2/(r*r)));float atten=f*f/d2;
+    if(pbLightPos[i].w>.5f){float a=Mathf.Clamp01((Vector3.Dot(-l,(Vector3)pbLightSpot[i])-pbLightSpot[i].w)*pbLightParam[i].x);atten*=a*a;}
+    float wrap=Mathf.Clamp01(Vector3.Dot(Vector3.up,l)*.5f+.5f);float bounce=Mathf.Clamp01(1-d2/(k.w*k.w));
+    sum+=new Color(pbLightColor[i].x,pbLightColor[i].y,pbLightColor[i].z)*(atten*wrap*k.y+bounce*bounce*k.z);
+   }
+   return sum;
+  }
+  void LocationSDKLightActor(LocationSDKActor actor,Vector3 feet){
+   if(!locationSDKBackgroundLit){if(actor.contact!=null)actor.contact.SetActive(false);return;}
+   var light=LocationSDKLightAt(feet+Vector3.up*.9f,1);
+   float r=Mathf.Clamp(light.r,.4f,1.35f),g=Mathf.Clamp(light.g,.4f,1.35f),b=Mathf.Clamp(light.b,.4f,1.35f);actor.material.color=new Color(r,g,b,1);
+   if(actor.contact==null){
+    if(locationSDKContactTexture==null){var t=new Texture2D(64,64,TextureFormat.RGBA32,false){wrapMode=TextureWrapMode.Clamp,name="contact shadow"};var px=new Color32[64*64];for(int y=0;y<64;y++)for(int x=0;x<64;x++){float dx=(x+.5f)/32f-1,dy=(y+.5f)/32f-1;float a=Mathf.Clamp01(1-Mathf.Sqrt(dx*dx+dy*dy));px[y*64+x]=new Color32(0,0,0,(byte)(255*a*a*(3-2*a)));}t.SetPixels32(px);t.Apply(false,true);locationSDKContactTexture=t;}
+    if(locationSDKContactMesh==null){Vector3 right=locationSDKImageRight.normalized*.42f,depth=Vector3.Cross(right.normalized,Vector3.up)*.28f;locationSDKContactMesh=new Mesh{name="contact shadow",vertices=new[]{-right-depth,right-depth,right+depth,-right+depth},uv=new[]{Vector2.zero,Vector2.right,Vector2.one,Vector2.up},triangles=new[]{0,1,2,0,2,3,2,1,0,3,2,0}};locationSDKContactMesh.RecalculateBounds();}
+    var go=new GameObject("contact shadow"){layer=LocationSDKLayer};go.transform.SetParent(actor.go.transform,false);go.transform.localPosition=new Vector3(0,.003f,0);
+    go.AddComponent<MeshFilter>().sharedMesh=locationSDKContactMesh;var renderer=go.AddComponent<MeshRenderer>();renderer.shadowCastingMode=UnityEngine.Rendering.ShadowCastingMode.Off;
+    var m=new Material(Shader.Find("ANG/LocationSDKActor")){mainTexture=locationSDKContactTexture,color=new Color(0,0,0,.6f)};m.SetColor("_OccludedTint",new Color(0,0,0,0));m.renderQueue=2990;renderer.sharedMaterial=m;locationSDKBackgroundOwned.Add(m);actor.contact=go;
+   }
+   actor.contact.SetActive(true);
+  }
+  internal float LocationSDKDaylightNow(){var level=locationSDKLevel;return level!=null&&level.daylight_authored&&state!=null?LocationSDKOverrideContract.DaylightFactor(level.daylight,state.GameSeconds):0;}
   bool IsLocationSDKOverrideTransform(Transform transform){foreach(var visual in locationSDKOverrideVisuals)if(transform.IsChildOf(visual.root.transform))return true;return false;}
   void LocationSDKOverrideErrorLabel(Exception error){var issue=error as LocationSDKOverrideError;locationSDKOverrideFailure=issue==null?null:L(issue.localization_key).Replace("{id}",issue.id).Replace("{component}",issue.component);}
   public void ReloadLocationSDKVisuals(){ReleaseLocationSDK();}
-  void ReleaseLocationSDKOverrides(){locationSDKOverrideVisuals.Clear();locationSDKOverrides=null;locationSDKOverrideFailure=null;}
+  void ReleaseLocationSDKOverrides(){foreach(var m in locationSDKBackgroundOwned)if(m!=null)Destroy(m);locationSDKBackgroundOwned.Clear();locationSDKBackgroundLights.Clear();locationSDKBackgroundLit=false;LocationSDKBackgroundLightCount=0;Shader.SetGlobalFloat("_PbLightCount",0);locationSDKBackgroundEntry=null;locationSDKBackground=null;LocationSDKBackgroundStatus="none";locationSDKOverrideVisuals.Clear();locationSDKOverrides=null;locationSDKSurfaceMaterials=null;locationSDKPresentationEntry=null;locationSDKOverrideFailure=null;}
  }
 }
