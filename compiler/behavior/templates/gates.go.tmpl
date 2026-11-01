@@ -178,7 +178,7 @@ func(m LifeModel)startGates(seconds,now int64)map[string]LifeGateState{
 // gatePresence: bodies standing in or stepping into the opening, named or crowd.
 func(s LifeState)gatePresence(level string,d LifeGate)bool{
  cells:=make(map[Cell]bool,len(d.Opening));for _,c:=range d.Opening{cells[c]=true}
- for _,a:=range s.Actors{if a.Level==level&&a.OnFloor()&&(cells[a.Position]||len(a.Path)>0&&cells[a.Path[0]]){return true}}
+ for _,a:=range s.Actors{if a.Level==level&&a.OnFloor()&&(cells[a.Position]||len(a.Path)>0&&cells[a.Path[0]]){return true};if a.Level==level&&a.OnFloor()&&a.Body!=nil{for _,c:=range a.Body.Cells{if cells[c]{return true}}}}
  for _,a:=range s.Population.Actors{if a.Materialized&&a.Trip==nil&&a.Level==level&&(cells[a.Position]||len(a.Path)>0&&cells[a.Path[0]]){return true}}
  return false
 }

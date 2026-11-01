@@ -125,3 +125,85 @@ func TestNPC1LegUsesRealDepartureAndQueue(t *testing.T){
  s.Actors[0].Brain.LegEdge="rail";s.Actors[0].Brain.LegCheck=0;s.Actors[0].WaitingDeparture=6*3600+300;s.Actors[0].Goal=rail.Exit
  if e:=s.brainLegEdge(m,&s.Actors[0],"b");e.ID!="rail"{t.Fatal("boarding approach abandoned")}
 }
+// demo-hub v5-yatai: a seated counter — window + appetite bring a fed person, seats are reserved (no double booking),
+// the meal is bought on the seat, the body sits 10..25 min, rises on the seat and leaves; a full counter means the queue.
+func seatedFixture()LifeBrainModel{
+ m:=brainFixture();m.Goals["seated_food"]=UtilityGoal{ID:"seated_food",Intent:"eat_at_yatai",Action:"eat",Base:1.4,DutyCost:1,HoldTicks:300,Considerations:[]Consideration{{Input:"meal",Weight:1}}}
+ seats:=[]LifeSpot{{ID:"s1",At:Cell{1,5},Pose:"sit",YMM:2800,ZMM:450,Yaw:180},{ID:"s2",At:Cell{2,5},Pose:"sit",YMM:2800,ZMM:450,Yaw:180}}
+ m.Places=[]LifeAffordance{{ID:"yatai",Kind:"seated_food",Level:"market",At:Cell{1,5},Open:0,Close:86400,Store:"pot",Seating:&LifeSeating{Activity:"eat_at_yatai",Seats:seats,Queue:[]LifeSpot{{ID:"q1",At:Cell{1,7},Pose:"stand",Yaw:180}},
+  Windows:[]LifeMealWindow{{From:12*3600,To:14*3600,ChancePPM:1000000}},SitMin:600,SitMax:1500,SitDown:23,Rise:23,QueueMax:600,Relief:450000,MinFood:80000,Appetite:550000,Items:[]LifeServiceItem{{Definition:"porridge",Food:true,ChancePPM:1000000}}}}}
+ return m
+}
+func TestYataiSeatedMealReservesSitsAndRises(t *testing.T){
+ m:=seatedFixture();l:=LifeModel{Locations:map[string]LifeLocation{"market":{Terrain:[]string{"........","........","........","........","........","........","........","........"}}},Walkable:map[string]bool{".":true}}
+ if err:=m.Places[0].Seating.validate(l,m.Places[0]);err!=nil{t.Fatal(err)}
+ bad:=*m.Places[0].Seating;bad.Queue=[]LifeSpot{{ID:"q1",At:Cell{1,5},Pose:"stand"}};if bad.validate(l,m.Places[0])==nil{t.Fatal("a queue place on a seat cell was accepted")}
+ held:=map[string]Cell{};bought:=0
+ svc:=LifeBrainServices{Offers:func(_,kind,_ string)[]LifeAffordance{if kind!="seated_food"{return nil};return []LifeAffordance{{ID:"yatai",Kind:kind,Level:"market"}}},
+  Buy:func(_ string,p LifeAffordance,food bool)bool{bought++;return food&&p.Kind=="seated_food"},
+  SeatsTaken:func(_,_,self string)map[Cell]bool{out:=map[Cell]bool{};for id,at:=range held{if id!=self{out[at]=true}};return out},
+  TravelSeconds:func(string,Cell,Cell)int64{return 30}}
+ schedule:=LifeStep{Level:"market",At:Cell{6,6},Activity:"market"};home:=LifeStep{Level:"home",Activity:"sleep"}
+ // Late in the window (past every personal arrival delay) and only lightly hungry: the meal-time appetite decides.
+ noon:=int64(13*3600+59*60);people:=[]*LifeBrain{}
+ for i:=0;i<3;i++{b:=&LifeBrain{Initialized:true,RationOrder:"order.fixture",LastSecond:noon,Needs:[5]int64{150000,100000,0,0,0},WorkDays:map[int64]int64{}};id:=fmt.Sprintf("p%d",i)
+  target:=b.advance(m,svc,id,"market","rest",Cell{6,6},true,true,false,schedule,home,0,noon,42);people=append(people,b)
+  if b.Goal.GoalID!="seated_food"||b.Seat==""{t.Fatalf("%s did not choose the counter: %+v",id,b.Goal)};held[id]=target.At}
+ if people[0].Seat==people[1].Seat||people[0].SeatQueue||people[1].SeatQueue||!people[2].SeatQueue||people[2].Seat!="q1"{t.Fatalf("seats double booked or no queue: %s %s %s",people[0].Seat,people[1].Seat,people[2].Seat)}
+ b:=people[0];at:=held["p0"]
+ b.advance(m,svc,"p0","market","eat_at_yatai",at,true,true,false,schedule,home,0,noon+30,42)
+ if bought!=1||b.SeatedAt!=noon+30||b.SitUntil<noon+30+23+600||b.SitUntil>noon+30+23+1500||b.Needs[0]!=0{t.Fatalf("meal on the seat: bought %d %+v",bought,b)}
+ if err:=b.Validate(m,noon+30);err!=nil{t.Fatal(err)}
+ x,phase,_,ok:=b.SeatPresentation(m,"market",at);if !ok||phase!="sit"||x.ID!=b.Seat{t.Fatal("seated body not presented")}
+ b.advance(m,svc,"p0","market","eat_at_yatai",at,true,true,false,schedule,home,0,b.SitUntil,42)
+ if b.RiseAt!=b.SitUntil{t.Fatal("no rise at the end of the meal")}
+ rise:=b.RiseAt;target:=b.advance(m,svc,"p0","market","eat_at_yatai",at,true,true,false,schedule,home,0,rise+10,42)
+ if target.At!=at||b.Seat==""{t.Fatal("left the seat during the rise")}
+ b.advance(m,svc,"p0","market","eat_at_yatai",at,true,true,false,schedule,home,0,rise+23,42)
+ if b.Seat!=""||b.Place.Kind=="seated_food"{t.Fatalf("seat not released after the rise: %+v",b)}
+ // The queued person takes the freed seat at once (the host now reports it free).
+ delete(held,"p0");q:=people[2];target=q.advance(m,svc,"p2","market","eat_at_yatai",Cell{1,7},true,true,false,schedule,home,0,rise+24,42)
+ if q.SeatQueue||target.At!=at{t.Fatalf("queue did not move to the freed seat: %+v",q)}
+ // No second visit in the same window.
+ b.NextDecision=0;b.advance(m,svc,"p0","market","rest",Cell{6,6},true,true,false,schedule,home,0,rise+60,42)
+ if b.Goal.GoalID=="seated_food"{t.Fatal("came back in the same meal window")}
+}
+// demo-hub v11-text: occupancy windows - below min_seated anyone free comes at once (no delay, no chance roll, not even
+// hungry: then a mug of tea, no meal), at max_seated nobody new comes; regulars hold seats as posts and never queue.
+func TestYataiOccupancyWindowsTopUpAndCap(t *testing.T){
+ m:=seatedFixture();s:=m.Places[0].Seating;s.Windows=[]LifeMealWindow{{From:12*3600,To:14*3600,ChancePPM:0,MinSeated:1,MaxSeated:1,SitMin:1200,SitMax:1300}};s.Regulars=[]string{"r1"}
+ l:=LifeModel{Locations:map[string]LifeLocation{"market":{Terrain:[]string{"........","........","........","........","........","........","........","........"}}},Walkable:map[string]bool{".":true}}
+ if err:=s.validate(l,m.Places[0]);err!=nil{t.Fatal(err)}
+ for name,w:=range map[string]LifeMealWindow{"min over max":{From:0,To:3600,MinSeated:2,MaxSeated:1},"max over seats":{From:0,To:3600,MaxSeated:3},"short stay":{From:0,To:3600,SitMin:30,SitMax:60}}{bad:=*s;bad.Windows=[]LifeMealWindow{w};if bad.validate(l,m.Places[0])==nil{t.Fatalf("%s accepted",name)}}
+ held:=map[string]Cell{};meals:=map[string]bool{}
+ svc:=LifeBrainServices{Offers:func(_,kind,_ string)[]LifeAffordance{if kind!="seated_food"{return nil};return []LifeAffordance{{ID:"yatai",Kind:kind,Level:"market"}}},
+  Buy:func(id string,p LifeAffordance,meal bool)bool{meals[id]=meal;return p.Kind=="seated_food"},
+  SeatsTaken:func(_,_,self string)map[Cell]bool{out:=map[Cell]bool{};for id,at:=range held{if id!=self{out[at]=true}};return out},
+  TravelSeconds:func(string,Cell,Cell)int64{return 30}}
+ schedule:=LifeStep{Level:"market",At:Cell{6,6},Activity:"market"};home:=LifeStep{Level:"home",Activity:"sleep"}
+ at:=int64(12*3600+10)
+ fresh:=func()*LifeBrain{return &LifeBrain{Initialized:true,RationOrder:"order.fixture",LastSecond:at,Needs:[5]int64{10000,100000,0,0,0},WorkDays:map[int64]int64{}}}
+ r:=fresh();r.advance(m,svc,"r1","market","rest",Cell{6,6},true,true,false,schedule,home,0,at,42);if r.Goal.GoalID=="seated_food"{t.Fatal("a regular queued for its own counter")}
+ p0:=fresh();target:=p0.advance(m,svc,"p0","market","rest",Cell{6,6},true,true,false,schedule,home,0,at,42)
+ if p0.Goal.GoalID!="seated_food"||p0.SeatQueue||p0.Seat==""{t.Fatalf("not hungry, chance 0, start of the window, below min: must come and take a seat: %+v",p0.Goal)};held["p0"]=target.At
+ p1:=fresh();p1.Needs[0]=900000;p1.advance(m,svc,"p1","market","rest",Cell{6,6},true,true,false,schedule,home,0,at,42)
+ if p1.Goal.GoalID=="seated_food"{t.Fatal("came although the counter is at max_seated")}
+ p0.advance(m,svc,"p0","market","eat_at_yatai",target.At,true,true,false,schedule,home,0,at+30,42)
+ if p0.SeatedAt!=at+30||meals["p0"]||p0.Meals!=0||p0.Needs[0]<10000||p0.SitUntil<at+30+23+1200||p0.SitUntil>at+30+23+1300{t.Fatalf("tea visit with the window's stay: meal %v %+v",meals["p0"],p0)}
+}
+
+// Saving a valid late meal on day two must use the same stride as seatMarker.
+func TestYataiSeatWindowSaveAcrossDays(t *testing.T){
+ m:=seatedFixture()
+ m.Places[0].Seating.Windows=nil
+ for i:=int64(0);i<31;i++{m.Places[0].Seating.Windows=append(m.Places[0].Seating.Windows,LifeMealWindow{From:i*1800,To:(i+1)*1800,ChancePPM:1000000})}
+ for _,day:=range []int64{0,1,7}{
+  seconds:=day*86400+31*1800
+  b:=LifeBrain{Initialized:true,RationOrder:m.RationOrder,LastSecond:seconds,SeatWindow:seatMarker(seconds,30)}
+  raw,err:=json.Marshal(b);if err!=nil{t.Fatal(err)}
+  var loaded LifeBrain;if err=json.Unmarshal(raw,&loaded);err!=nil{t.Fatal(err)}
+  if err=loaded.Validate(m,seconds);err!=nil{t.Fatalf("day %d valid window rejected: %v",day,err)}
+  loaded.SeatWindow=seatMarker((day+1)*86400,0)
+  if loaded.Validate(m,seconds)==nil{t.Fatal("future-day window accepted")}
+ }
+}

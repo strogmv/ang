@@ -14,8 +14,8 @@ import (
 	"reflect"
 	goruntime "runtime"
 	"sort"
+	"strconv"
 	"strings"
-"strconv"
 	"testing"
 	"time"
 
@@ -55,58 +55,70 @@ type worldAuditHour struct {
 	WalkingMax int     `json:"max_walking_npcs"`
 }
 
-type worldCheckpoint struct { Seconds int64 `json:"seconds"`; SHA256 string `json:"sha256"` }
-type worldDayComparison struct { Day int `json:"day"`; Samples int `json:"samples"`; Identical float64 `json:"identical_to_day1"` }
+type worldCheckpoint struct {
+	Seconds int64  `json:"seconds"`
+	SHA256  string `json:"sha256"`
+}
+type worldDayComparison struct {
+	Day       int     `json:"day"`
+	Samples   int     `json:"samples"`
+	Identical float64 `json:"identical_to_day1"`
+}
 type worldAuditReport struct {
- CalendarRate int64 `json:"seconds_per_frame"`
- ShopUnexpectedClosed int64 `json:"shop_unexpected_closed_seconds"`
- ShopBreakSeconds map[string]int64 `json:"shop_break_seconds"`
- ShopLongestBreak map[string]int64 `json:"shop_longest_break_seconds"`
- ShopFailures []string `json:"shop_failure_examples,omitempty"`
- PurchasesPerDay []int64 `json:"purchases_per_day"`
- StockDelta int64 `json:"stock_delta_units"`
- NPCPurchases int64 `json:"npc_purchases"`
- WageSource int64 `json:"wage_source_minor"`
- MoneyDelta int64 `json:"money_delta_minor"`
- FoodConsumed int64 `json:"food_consumed"`
- PeakHunger int64 `json:"peak_hunger_ppm"`
- WorkersPerDay []int `json:"workers_attended_per_day"`
- ExpectedWorkers int `json:"expected_workers"`
+	CalendarRate            int64            `json:"seconds_per_frame"`
+	ShopUnexpectedClosed    int64            `json:"shop_unexpected_closed_seconds"`
+	ShopBreakSeconds        map[string]int64 `json:"shop_break_seconds"`
+	ShopLongestBreak        map[string]int64 `json:"shop_longest_break_seconds"`
+	ShopFailures            []string         `json:"shop_failure_examples,omitempty"`
+	PurchasesPerDay         []int64          `json:"purchases_per_day"`
+	StockDelta              int64            `json:"stock_delta_units"`
+	NPCPurchases            int64            `json:"npc_purchases"`
+	WageSource              int64            `json:"wage_source_minor"`
+	MoneyDelta              int64            `json:"money_delta_minor"`
+	FoodConsumed            int64            `json:"food_consumed"`
+	OtherConsumed           int64            `json:"other_consumed_units"`
+	RetainedPurchaseUnits   int64            `json:"retained_purchase_units"`
+	StockDeltasByDefinition map[string]int64 `json:"stock_deltas_by_definition"`
+	PeakHunger              int64            `json:"peak_hunger_ppm"`
+	WorkersPerDay           []int            `json:"workers_attended_per_day"`
+	ExpectedWorkers         int              `json:"expected_workers"`
+	ExpectedWorkerIDs       []string         `json:"expected_worker_ids"`
+	AttendedWorkerIDs       [][]string       `json:"attended_worker_ids_per_day"`
 
- Seed int64 `json:"seed"`
- MaxActive int `json:"max_active"`
- HeroAutomatic bool `json:"hero_automatic"`
- Checkpoints []worldCheckpoint `json:"checkpoints"`
- DaysCompared []worldDayComparison `json:"days_compared"`
- Interactions map[string]int64 `json:"interactions"`
- NamedDecisionCount uint64 `json:"named_decision_count"`
- PopulationDecisionCount uint64 `json:"population_decision_count"`
+	Seed                    int64                `json:"seed"`
+	MaxActive               int                  `json:"max_active"`
+	HeroAutomatic           bool                 `json:"hero_automatic"`
+	Checkpoints             []worldCheckpoint    `json:"checkpoints"`
+	DaysCompared            []worldDayComparison `json:"days_compared"`
+	Interactions            map[string]int64     `json:"interactions"`
+	NamedDecisionCount      uint64               `json:"named_decision_count"`
+	PopulationDecisionCount uint64               `json:"population_decision_count"`
 
-	Scope                  string                    `json:"scope"`
-	ContentHash            string                    `json:"content_hash"`
-	Population             int                       `json:"population_requested"`
-	NamedActors            int                       `json:"named_actors"`
-	GameSeconds            int64                     `json:"game_seconds"`
-	Ticks                  int64                     `json:"ticks"`
-	WallSeconds            float64                   `json:"wall_seconds"`
-	TickP50US              float64                   `json:"tick_p50_us"`
-	TickP95US              float64                   `json:"tick_p95_us"`
-	TickP99US              float64                   `json:"tick_p99_us"`
-	TickMaxUS              float64                   `json:"tick_max_us"`
-	TickMeanUS             float64                   `json:"tick_mean_us"`
-	Hours                  []worldAuditHour               `json:"hours"`
-	DistinctActivityCounts map[int]int               `json:"npcs_by_distinct_activity_count"`
-	ActivityTotals         map[string]int64          `json:"activity_seconds_total"`
-	NamedSummary           []worldAuditActor              `json:"named"`
-	PopulationSample       []worldAuditActor              `json:"population_sample"`
-	PopulationAggregates   map[string]float64        `json:"population_aggregates"`
-	LifeEventsTail         []string                  `json:"life_events_tail"`
-	InventoryRevisionStart uint64                    `json:"inventory_revision_start"`
-	InventoryRevisionEnd   uint64                    `json:"inventory_revision_end"`
-	AccountBalancesChanged int                       `json:"account_balances_changed"`
-	Day2IdenticalSamples   *float64                  `json:"day2_identical_activity_samples,omitempty"`
-	Day2Compared           int                       `json:"day2_compared_samples,omitempty"`
-	QueueReasons           map[string]int64          `json:"population_queue_reason_samples"`
+	Scope                  string                        `json:"scope"`
+	ContentHash            string                        `json:"content_hash"`
+	Population             int                           `json:"population_requested"`
+	NamedActors            int                           `json:"named_actors"`
+	GameSeconds            int64                         `json:"game_seconds"`
+	Ticks                  int64                         `json:"ticks"`
+	WallSeconds            float64                       `json:"wall_seconds"`
+	TickP50US              float64                       `json:"tick_p50_us"`
+	TickP95US              float64                       `json:"tick_p95_us"`
+	TickP99US              float64                       `json:"tick_p99_us"`
+	TickMaxUS              float64                       `json:"tick_max_us"`
+	TickMeanUS             float64                       `json:"tick_mean_us"`
+	Hours                  []worldAuditHour              `json:"hours"`
+	DistinctActivityCounts map[int]int                   `json:"npcs_by_distinct_activity_count"`
+	ActivityTotals         map[string]int64              `json:"activity_seconds_total"`
+	NamedSummary           []worldAuditActor             `json:"named"`
+	PopulationSample       []worldAuditActor             `json:"population_sample"`
+	PopulationAggregates   map[string]float64            `json:"population_aggregates"`
+	LifeEventsTail         []string                      `json:"life_events_tail"`
+	InventoryRevisionStart uint64                        `json:"inventory_revision_start"`
+	InventoryRevisionEnd   uint64                        `json:"inventory_revision_end"`
+	AccountBalancesChanged int                           `json:"account_balances_changed"`
+	Day2IdenticalSamples   *float64                      `json:"day2_identical_activity_samples,omitempty"`
+	Day2Compared           int                           `json:"day2_compared_samples,omitempty"`
+	QueueReasons           map[string]int64              `json:"population_queue_reason_samples"`
 	HeroRelationOverrides  map[string]map[string]float64 `json:"relation_overrides"`
 }
 
@@ -123,9 +135,15 @@ func worldAuditRuntime(t testing.TB, count int) *Runtime {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.state.Seed=r.world.Config.Seed
- if v:=os.Getenv("NPC_WORLD_REPORT_SEED");v!=""{seed,err:=strconv.ParseInt(v,10,64);if err!=nil{t.Fatal(err)};r.state.Seed=seed}
- r.state.Active = true
+	r.state.Seed = r.world.Config.Seed
+	if v := os.Getenv("NPC_WORLD_REPORT_SEED"); v != "" {
+		seed, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.state.Seed = seed
+	}
+	r.state.Active = true
 	r.state.Speed = 1
 	r.initLifeState(life)
 	r.state.Life.SecondsPerTick = 1
@@ -207,14 +225,120 @@ func (a *worldAcc) out(id string) worldAuditActor {
 }
 
 // coarse activity class (strip "Идёт:"-style labels; use Activity field)
+func worldStockByDefinition(r *Runtime) map[string]int64 {
+	out := map[string]int64{}
+	for _, item := range r.state.Inventory.Items {
+		out[item.Definition] += item.Quantity
+	}
+	return out
+}
+func worldNPCHeldUnits(r *Runtime) int64 {
+	var n int64
+	for _, item := range r.state.Inventory.Items {
+		if item.Location.Kind != "store" {
+			continue
+		}
+		store, ok := r.state.Inventory.Stores[item.Location.Store]
+		if ok && store.Kind == "actor" && store.Anchor.Actor != playerActorID {
+			n += item.Quantity
+		}
+	}
+	return n
+}
+func worldWorkerIDs(ids map[string]bool) []string {
+	out := make([]string, 0, len(ids))
+	for id := range ids {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}
+func worldCheckWorkerAttendance(t testing.TB, rep worldAuditReport, days int) {
+	t.Helper()
+	if rep.ExpectedWorkers < 1 || rep.ExpectedWorkers != len(rep.ExpectedWorkerIDs) || len(rep.WorkersPerDay) != days || len(rep.AttendedWorkerIDs) != days {
+		t.Fatalf("invalid authored duty roster or incomplete attendance: expected=%v attended=%v", rep.ExpectedWorkerIDs, rep.AttendedWorkerIDs)
+	}
+	for day, ids := range rep.AttendedWorkerIDs {
+		if rep.WorkersPerDay[day] != rep.ExpectedWorkers || !reflect.DeepEqual(ids, rep.ExpectedWorkerIDs) {
+			t.Fatalf("day %d duty attendance differs from authored obligations: got=%v expected=%v", day+1, ids, rep.ExpectedWorkerIDs)
+		}
+	}
+}
+func worldCheckStockAccounting(t testing.TB, rep worldAuditReport) {
+	t.Helper()
+	if rep.StockDelta != -(rep.FoodConsumed + rep.OtherConsumed) {
+		t.Fatalf("stock consumption mismatch: delta=%d food=%d other=%d by_definition=%v", rep.StockDelta, rep.FoodConsumed, rep.OtherConsumed, rep.StockDeltasByDefinition)
+	}
+	if rep.NPCPurchases != rep.FoodConsumed+rep.OtherConsumed+rep.RetainedPurchaseUnits {
+		t.Fatalf("purchased units neither consumed nor retained: purchases=%d food=%d other=%d retained=%d", rep.NPCPurchases, rep.FoodConsumed, rep.OtherConsumed, rep.RetainedPurchaseUnits)
+	}
+}
 func worldRunAuditDay(t testing.TB, count int, seconds int64, compareDay2 bool) worldAuditReport {
 	r := worldAuditRuntime(t, count)
-	rate:=int64(1);if v:=os.Getenv("NPC_WORLD_REPORT_RATE");v!=""{n,e:=strconv.ParseInt(v,10,64);if e!=nil||(n!=1&&n!=10&&n!=30){t.Fatal("rate must be 1,10,30")};rate=n};r.state.Life.SecondsPerTick=rate
- unexpectedClosed:=int64(0);breakSeconds:=map[string]int64{};longestBreak:=map[string]int64{};breakRuns:=map[string]int64{};failures:=[]string{}
- start := r.state.Life.Seconds
+	rate := int64(1)
+	if v := os.Getenv("NPC_WORLD_REPORT_RATE"); v != "" {
+		n, e := strconv.ParseInt(v, 10, 64)
+		if e != nil || (n != 1 && n != 10 && n != 30) {
+			t.Fatal("rate must be 1,10,30")
+		}
+		rate = n
+	}
+	r.state.Life.SecondsPerTick = rate
+	unexpectedClosed := int64(0)
+	breakSeconds := map[string]int64{}
+	longestBreak := map[string]int64{}
+	breakRuns := map[string]int64{}
+	failures := []string{}
+	start := r.state.Life.Seconds
 	invStart := r.state.Inventory.Revision
- stockStart:=commerceTotal(r.state.Inventory);moneyStart:=npcMoney(r);peakHunger:=int64(0);workers:=map[string]bool{};attended:=map[string]bool{};workersPerDay:=[]int{};purchasesPerDay:=[]int64{};previousPurchases:=int64(0)
- if r.world.Life.Brain.Enabled{for _,p:=range r.world.Life.Actors{if p.ID==playerActorID{continue};for _,step:=range p.Steps{if step.Activity=="work"||step.Activity=="service"||step.Activity=="post"||step.Obligation{workers[p.ID]=true}}};for _,a:=range r.state.Life.Population.Actors{if a.Profile!=nil&&a.Profile.Work!=nil{for _,p:=range r.world.Life.Population.Profiles{if p.ID==a.Profile.DefinitionID&&p.Work.Activity=="work"{workers[a.ID]=true}}}}}
+	stockStart := commerceTotal(r.state.Inventory)
+	moneyStart := npcMoney(r)
+	peakHunger := int64(0)
+	workers := map[string]bool{}
+	attended := map[string]bool{}
+	workersPerDay := []int{}
+	purchasesPerDay := []int64{}
+	previousPurchases := int64(0)
+	stockDefinitionsStart := worldStockByDefinition(r)
+	heldStart := worldNPCHeldUnits(r)
+	attendedIDs := [][]string{}
+	// Food counters deliberately exclude drinks (e.g. the yatai's food:false
+	// tea). Only definitions explicitly consumed by a brain service may vanish.
+	consumables := map[string]bool{}
+	for _, id := range r.world.Life.Brain.FoodDefinitions {
+		consumables[id] = true
+	}
+	for _, place := range r.world.Life.Brain.Places {
+		if place.Seating != nil {
+			for _, item := range place.Seating.Items {
+				if old, ok := consumables[item.Definition]; ok && old != item.Food {
+					t.Fatalf("inconsistent consumption contract for %s", item.Definition)
+				}
+				consumables[item.Definition] = item.Food
+			}
+		}
+	}
+	if r.world.Life.Brain.Enabled {
+		for _, p := range r.world.Life.Actors {
+			if p.ID == playerActorID {
+				continue
+			}
+			for _, step := range p.Steps {
+				if step.Activity == "work" || step.Activity == "service" || step.Activity == "post" || step.Obligation {
+					workers[p.ID] = true
+				}
+			}
+		}
+		for _, a := range r.state.Life.Population.Actors {
+			if a.Profile != nil && a.Profile.Work != nil {
+				for _, p := range r.world.Life.Population.Profiles {
+					if p.ID == a.Profile.DefinitionID && p.Work.Activity == "work" {
+						workers[a.ID] = true
+					}
+				}
+			}
+		}
+	}
 	balances := map[string]int64{}
 	for id, a := range r.state.Inventory.Accounts {
 		b, _ := json.Marshal(a)
@@ -231,8 +355,8 @@ func worldRunAuditDay(t testing.TB, count int, seconds int64, compareDay2 bool) 
 	queue := map[string]int64{}
 	// day1/day2 timelines: sample every 60s
 	timeline := map[string][]string{}
-	checkpoints:=[]worldCheckpoint{}
- began := time.Now()
+	checkpoints := []worldCheckpoint{}
+	began := time.Now()
 	for r.state.Life.Seconds < start+seconds {
 		r.state.Tick++
 		t0 := time.Now()
@@ -240,29 +364,80 @@ func worldRunAuditDay(t testing.TB, count int, seconds int64, compareDay2 bool) 
 			t.Fatal(err)
 		}
 		d := float64(time.Since(t0).Nanoseconds()) / 1000
-        for _,sh:=range r.world.Inventory.Shopfronts{
-         clock:=r.state.Life.Seconds%86400;status:=r.state.Inventory.Shopfronts[sh.ID];a:=r.state.Life.Actor(sh.Owner)
-         if clock>=7*3600&&clock<22*3600&&!status.Open{
-          if !status.Break{unexpectedClosed+=rate;if len(failures)<12{failures=append(failures,fmt.Sprintf("%d %s %s %s %s %v",r.state.Life.Seconds,sh.ID,a.Level,a.Activity,a.Brain.Goal.GoalID,a.Position))}}
-          if status.Break{breakSeconds[sh.ID]+=rate;breakRuns[sh.ID]+=rate;if breakRuns[sh.ID]>longestBreak[sh.ID]{longestBreak[sh.ID]=breakRuns[sh.ID]};limit:=int64(1800);if a.Brain.BreakKind=="hygiene"{limit=600};if r.state.Life.Seconds-a.Brain.BreakStarted>limit{unexpectedClosed+=rate}}
-         }else{breakRuns[sh.ID]=0}
-        }
+		for _, sh := range r.world.Inventory.Shopfronts {
+			clock := r.state.Life.Seconds % 86400
+			status := r.state.Inventory.Shopfronts[sh.ID]
+			a := r.state.Life.Actor(sh.Owner)
+			if clock >= 7*3600 && clock < 22*3600 && !status.Open {
+				if !status.Break {
+					unexpectedClosed += rate
+					if len(failures) < 12 {
+						failures = append(failures, fmt.Sprintf("%d %s %s %s %s %v", r.state.Life.Seconds, sh.ID, a.Level, a.Activity, a.Brain.Goal.GoalID, a.Position))
+					}
+				}
+				if status.Break {
+					breakSeconds[sh.ID] += rate
+					breakRuns[sh.ID] += rate
+					if breakRuns[sh.ID] > longestBreak[sh.ID] {
+						longestBreak[sh.ID] = breakRuns[sh.ID]
+					}
+					limit := r.world.Life.Brain.LunchSeconds
+					if a.Brain.BreakKind == "hygiene" {
+						limit = r.world.Life.Brain.HygieneSeconds
+					}
+					if r.state.Life.Seconds-a.Brain.BreakStarted > limit {
+						unexpectedClosed += rate
+						if len(failures) < 12 {
+							failures = append(failures, fmt.Sprintf("overlong break second=%d shop=%s actor=%s kind=%s started=%d until=%d return_at=%d returning=%t elapsed=%d budget=%d level=%s activity=%s goal=%s at=%v", r.state.Life.Seconds, sh.ID, a.ID, a.Brain.BreakKind, a.Brain.BreakStarted, a.Brain.BreakUntil, a.Brain.BreakReturnAt, a.Brain.Returning, r.state.Life.Seconds-a.Brain.BreakStarted, limit, a.Level, a.Activity, a.Brain.Goal.GoalID, a.Position))
+						}
+					}
+				}
+			} else {
+				breakRuns[sh.ID] = 0
+			}
+		}
 		dur = append(dur, d)
-        if (r.state.Life.Seconds-start)%3600==0{
-         if err:=r.state.Life.Validate(r.world.Life,r.state.Tick);err!=nil{t.Fatal(err)}
-         checkpoints=append(checkpoints,worldCheckpoint{r.state.Life.Seconds-start,worldLifeHash(r)})
-        }
+		if (r.state.Life.Seconds-start)%3600 == 0 {
+			if err := r.state.Life.Validate(r.world.Life, r.state.Tick); err != nil {
+				t.Fatal(err)
+			}
+			checkpoints = append(checkpoints, worldCheckpoint{r.state.Life.Seconds - start, worldLifeHash(r)})
+		}
 		hour := int((r.state.Life.Seconds % 86400) / 3600)
 		hourDur[hour] = append(hourDur[hour], d)
 		if r.state.Life.Seconds%10 != 0 {
 			continue
 		}
-		dt := int64(10);if rate>dt{dt=rate}
-        if r.world.Life.Brain.Enabled{
-         record:=func(id,activity string,arrived bool,b behavior.LifeBrain){if id==playerActorID{return};if b.Needs[0]>peakHunger{peakHunger=b.Needs[0]};if workers[id]&&arrived&&(activity=="work"||activity=="service"||activity=="post"||activity=="maintenance"||b.Target.Obligation&&b.Goal.GoalID=="schedule"){attended[id]=true}}
-         for _,a:=range r.state.Life.Actors{record(a.ID,a.Activity,a.Arrived,a.Brain)};for _,a:=range r.state.Life.Population.Actors{record(a.ID,a.Activity,a.Arrived,a.Brain)}
-         if (r.state.Life.Seconds-start)%86400==0{purchasesPerDay=append(purchasesPerDay,r.state.NPCEconomy.Purchases-previousPurchases);previousPurchases=r.state.NPCEconomy.Purchases;workersPerDay=append(workersPerDay,len(attended));attended=map[string]bool{}}
-        }
+		dt := int64(10)
+		if rate > dt {
+			dt = rate
+		}
+		if r.world.Life.Brain.Enabled {
+			record := func(id, activity string, arrived bool, b behavior.LifeBrain) {
+				if id == playerActorID {
+					return
+				}
+				if b.Needs[0] > peakHunger {
+					peakHunger = b.Needs[0]
+				}
+				if workers[id] && arrived && (activity == "work" || activity == "service" || activity == "post" || activity == "maintenance" || b.Target.Obligation && b.Goal.GoalID == "schedule") {
+					attended[id] = true
+				}
+			}
+			for _, a := range r.state.Life.Actors {
+				record(a.ID, a.Activity, a.Arrived, a.Brain)
+			}
+			for _, a := range r.state.Life.Population.Actors {
+				record(a.ID, a.Activity, a.Arrived, a.Brain)
+			}
+			if (r.state.Life.Seconds-start)%86400 == 0 {
+				purchasesPerDay = append(purchasesPerDay, r.state.NPCEconomy.Purchases-previousPurchases)
+				previousPurchases = r.state.NPCEconomy.Purchases
+				workersPerDay = append(workersPerDay, len(attended))
+				attendedIDs = append(attendedIDs, worldWorkerIDs(attended))
+				attended = map[string]bool{}
+			}
+		}
 		active, walking := 0, 0
 		for _, a := range r.state.Life.Actors {
 			if a.ID == playerActorID {
@@ -326,12 +501,12 @@ func worldRunAuditDay(t testing.TB, count int, seconds int64, compareDay2 bool) 
 			hourWalking[hour] = walking
 		}
 	}
-	rep := worldAuditReport{CalendarRate:rate,ShopUnexpectedClosed:unexpectedClosed,ShopBreakSeconds:breakSeconds,ShopLongestBreak:longestBreak,ShopFailures:failures,
- Seed:r.state.Seed,MaxActive:r.world.Life.Population.MaxActive,HeroAutomatic:os.Getenv("NPC_WORLD_REPORT_HERO_AUTO")!="",
-        Checkpoints:checkpoints, NamedDecisionCount:r.state.Life.Decisions.Total,PopulationDecisionCount:r.state.Life.Population.Decisions.Total,
-        Interactions:map[string]int64{"account_balance_changes":0},
-		Scope:       "real Runtime.advanceLifeFrameBy (Life + population + supply + practice), calendar 1 s/tick; wall time, single goroutine; observer mode in hero_automatic",
-		ContentHash: r.world.ContentHash, Population: count, GameSeconds: seconds, Ticks: int64(len(dur)),
+	rep := worldAuditReport{CalendarRate: rate, ShopUnexpectedClosed: unexpectedClosed, ShopBreakSeconds: breakSeconds, ShopLongestBreak: longestBreak, ShopFailures: failures,
+		Seed: r.state.Seed, MaxActive: r.world.Life.Population.MaxActive, HeroAutomatic: os.Getenv("NPC_WORLD_REPORT_HERO_AUTO") != "",
+		Checkpoints: checkpoints, NamedDecisionCount: r.state.Life.Decisions.Total, PopulationDecisionCount: r.state.Life.Population.Decisions.Total,
+		Interactions: map[string]int64{"account_balance_changes": 0},
+		Scope:        "real Runtime.advanceLifeFrameBy (Life + population + supply + practice), calendar 1 s/tick; wall time, single goroutine; observer mode in hero_automatic",
+		ContentHash:  r.world.ContentHash, Population: count, GameSeconds: seconds, Ticks: int64(len(dur)),
 		WallSeconds: time.Since(began).Seconds(),
 		TickP50US:   worldPct(dur, .5), TickP95US: worldPct(dur, .95), TickP99US: worldPct(dur, .99), TickMaxUS: worldPct(dur, 1), TickMeanUS: worldMean(dur),
 		DistinctActivityCounts: map[int]int{}, ActivityTotals: map[string]int64{}, PopulationAggregates: map[string]float64{},
@@ -340,7 +515,8 @@ func worldRunAuditDay(t testing.TB, count int, seconds int64, compareDay2 bool) 
 	}
 	accEnd, _ := json.Marshal(r.state.Inventory.Accounts)
 	if string(accStart) != string(accEnd) {
-		rep.AccountBalancesChanged = 1;rep.Interactions["account_balance_changes"]=1
+		rep.AccountBalancesChanged = 1
+		rep.Interactions["account_balance_changes"] = 1
 	}
 	for h := 0; h < 24; h++ {
 		xs := hourDur[h]
@@ -375,11 +551,61 @@ func worldRunAuditDay(t testing.TB, count int, seconds int64, compareDay2 bool) 
 			}
 		}
 	}
-	rep.PurchasesPerDay=purchasesPerDay;rep.StockDelta=commerceTotal(r.state.Inventory)-stockStart;rep.NPCPurchases=r.state.NPCEconomy.Purchases;rep.WageSource=r.state.NPCEconomy.WageSource;rep.MoneyDelta=npcMoney(r)-moneyStart;rep.FoodConsumed=r.state.NPCEconomy.FoodConsumed;rep.PeakHunger=peakHunger;rep.ExpectedWorkers=len(workers);rep.WorkersPerDay=workersPerDay
- rep.NamedActors = len(rep.NamedSummary)
-    rep.Interactions["population_yield_starts_sampled"]=int64(popYields)
-    rep.Interactions["inventory_revisions"]=int64(rep.InventoryRevisionEnd-rep.InventoryRevisionStart)
-    for _,actor:=range rep.NamedSummary{rep.Interactions["named_yield_starts_sampled"]+=int64(actor.Yields)}
+	rep.PurchasesPerDay = purchasesPerDay
+	rep.StockDelta = commerceTotal(r.state.Inventory) - stockStart
+	rep.NPCPurchases = r.state.NPCEconomy.Purchases
+	rep.WageSource = r.state.NPCEconomy.WageSource
+	rep.MoneyDelta = npcMoney(r) - moneyStart
+	rep.FoodConsumed = r.state.NPCEconomy.FoodConsumed
+	rep.PeakHunger = peakHunger
+	rep.ExpectedWorkers = len(workers)
+	rep.WorkersPerDay = workersPerDay
+	rep.ExpectedWorkerIDs = worldWorkerIDs(workers)
+	rep.AttendedWorkerIDs = attendedIDs
+	rep.RetainedPurchaseUnits = worldNPCHeldUnits(r) - heldStart
+	rep.StockDeltasByDefinition = map[string]int64{}
+	stockDefinitionsEnd := worldStockByDefinition(r)
+	for id := range stockDefinitionsEnd {
+		if _, ok := stockDefinitionsStart[id]; !ok {
+			stockDefinitionsStart[id] = 0
+		}
+	}
+	var consumedFood int64
+	for id, before := range stockDefinitionsStart {
+		delta := stockDefinitionsEnd[id] - before
+		if delta == 0 {
+			continue
+		}
+		rep.StockDeltasByDefinition[id] = delta
+		food, allowed := consumables[id]
+		if delta > 0 || !allowed {
+			t.Fatalf("inventory units appeared/disappeared outside an authored consumption contract: %s delta=%d", id, delta)
+		}
+		if food {
+			consumedFood -= delta
+		} else {
+			rep.OtherConsumed -= delta
+		}
+	}
+	if consumedFood != rep.FoodConsumed {
+		t.Fatalf("food counter differs from physical item depletion: physical=%d counter=%d by_definition=%v", consumedFood, rep.FoodConsumed, rep.StockDeltasByDefinition)
+	}
+	var soldUnits, sellerTurnover int64
+	for _, n := range r.state.NPCEconomy.UnitsBySeller {
+		soldUnits += n
+	}
+	for _, n := range r.state.NPCEconomy.BySeller {
+		sellerTurnover += n
+	}
+	if soldUnits != rep.NPCPurchases || sellerTurnover != r.state.NPCEconomy.Turnover {
+		t.Fatal("seller sales ledger differs from purchases/turnover")
+	}
+	rep.NamedActors = len(rep.NamedSummary)
+	rep.Interactions["population_yield_starts_sampled"] = int64(popYields)
+	rep.Interactions["inventory_revisions"] = int64(rep.InventoryRevisionEnd - rep.InventoryRevisionStart)
+	for _, actor := range rep.NamedSummary {
+		rep.Interactions["named_yield_starts_sampled"] += int64(actor.Yields)
+	}
 	if popN > 0 {
 		rep.PopulationAggregates = map[string]float64{"n": popN, "mean_meaningful_activities": popActs / popN, "mean_levels": popLevels / popN, "mean_cells_moved": popMoved / popN, "mean_yields": popYields / popN, "mean_activity_transitions": popTrans / popN}
 	}
@@ -388,13 +614,25 @@ func worldRunAuditDay(t testing.TB, count int, seconds int64, compareDay2 bool) 
 		ev = ev[len(ev)-30:]
 	}
 	rep.LifeEventsTail = ev
-	if compareDay2 && seconds>=2*86400{
-      for day:=2;day<=int(seconds/86400);day++{same,total:=0,0
-       for _,tl:=range timeline{for i:=0;i<1440&&(day-1)*1440+i<len(tl);i++{total++;if tl[i]==tl[(day-1)*1440+i]{same++}}}
-       fraction:=float64(same)/float64(total);rep.DaysCompared=append(rep.DaysCompared,worldDayComparison{day,total,fraction})
-       if day==2{rep.Day2IdenticalSamples=&fraction;rep.Day2Compared=total}
-      }
-    }
+	if compareDay2 && seconds >= 2*86400 {
+		for day := 2; day <= int(seconds/86400); day++ {
+			same, total := 0, 0
+			for _, tl := range timeline {
+				for i := 0; i < 1440 && (day-1)*1440+i < len(tl); i++ {
+					total++
+					if tl[i] == tl[(day-1)*1440+i] {
+						same++
+					}
+				}
+			}
+			fraction := float64(same) / float64(total)
+			rep.DaysCompared = append(rep.DaysCompared, worldDayComparison{day, total, fraction})
+			if day == 2 {
+				rep.Day2IdenticalSamples = &fraction
+				rep.Day2Compared = total
+			}
+		}
+	}
 	return rep
 }
 
@@ -526,7 +764,7 @@ func TestNPCWorldAudit500(t *testing.T) {
 		ms.read()
 		worldAuditWrite(t, fmt.Sprintf("life500-maxactive%d-day-hero-%s.json", active, map[bool]string{true: "routine", false: "market"}[os.Getenv("NPC_WORLD_REPORT_HERO_AUTO") != ""]), struct {
 			Report  worldAuditReport `json:"report"`
-			HeapMiB float64     `json:"heap_alloc_mib_after"`
+			HeapMiB float64          `json:"heap_alloc_mib_after"`
 		}{rep, ms.heapMiB})
 	}
 }
@@ -545,55 +783,158 @@ func TestNPCWorldAuditProfile500(t *testing.T) {
 
 // Full report and acceptance run as normal generated tests; -short may omit days.
 // NPC_WORLD_REPORT_DAYS extends N-versus-day-1 comparison without changing the kernel.
-func TestNPCWorldDayThresholds(t *testing.T){
- if testing.Short(){t.Skip("full world days")}
- days:=2;if v:=os.Getenv("NPC_WORLD_REPORT_DAYS");v!=""{n,err:=strconv.Atoi(v);if err!=nil||n<2||n>30{t.Fatal("days must be in [2,30]")};days=n}
- rep:=worldRunAuditDay(t,100,int64(days)*86400,true);worldAuditWrite(t,"world-days.json",rep)
- if rep.GameSeconds!=int64(days)*86400||rep.Ticks!=rep.GameSeconds||len(rep.Checkpoints)!=days*24||len(rep.DaysCompared)!=days-1{t.Fatal("incomplete world report")}
- total:=int64(0);for _,v:=range rep.ActivityTotals{total+=v};if total!=int64(rep.NamedActors+100)*rep.GameSeconds{t.Fatal("unaccounted actor time")}
- if rep.PopulationAggregates["mean_meaningful_activities"]<1.5||rep.NamedDecisionCount==0||rep.PopulationDecisionCount==0{t.Fatal("frozen world or missing reasons")}
- if rep.QueueReasons["active_limit"]!=0{t.Fatal("active budget stranded residents at entry")}
- for _,comparison:=range rep.DaysCompared{if comparison.Samples==0||comparison.Identical>=1{t.Fatal("days are identical or comparison empty")}}
- for _,n:=range rep.PurchasesPerDay{if n<=0{t.Fatal("a complete Life100 day had no NPC purchase")}}
- if rep.NPCPurchases<=0||rep.FoodConsumed<=0{t.Fatal("no NPC market purchases/food")}
- if rep.StockDelta != -rep.FoodConsumed{t.Fatal("market stock changed without consumption/delivery conservation")}
- if rep.MoneyDelta!=rep.WageSource{t.Fatal("money changed outside explicit wage source")}
- if rep.PeakHunger>=1000000{t.Fatal("starvation threshold reached")}
- if rep.ExpectedWorkers!=40{t.Fatalf("authored duty roster changed: expected 40, got %d",rep.ExpectedWorkers)}
- for _,n:=range rep.WorkersPerDay{if n!=rep.ExpectedWorkers{t.Fatalf("workers attended %d, expected %d",n,rep.ExpectedWorkers)}}
+func TestNPCWorldDayThresholds(t *testing.T) {
+	if testing.Short() {
+		t.Skip("full world days")
+	}
+	days := 2
+	if v := os.Getenv("NPC_WORLD_REPORT_DAYS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 2 || n > 30 {
+			t.Fatal("days must be in [2,30]")
+		}
+		days = n
+	}
+	rep := worldRunAuditDay(t, 100, int64(days)*86400, true)
+	worldAuditWrite(t, "world-days.json", rep)
+	if rep.GameSeconds != int64(days)*86400 || rep.Ticks != rep.GameSeconds || len(rep.Checkpoints) != days*24 || len(rep.DaysCompared) != days-1 {
+		t.Fatal("incomplete world report")
+	}
+	total := int64(0)
+	for _, v := range rep.ActivityTotals {
+		total += v
+	}
+	if total != int64(rep.NamedActors+100)*rep.GameSeconds {
+		t.Fatal("unaccounted actor time")
+	}
+	if rep.PopulationAggregates["mean_meaningful_activities"] < 1.5 || rep.NamedDecisionCount == 0 || rep.PopulationDecisionCount == 0 {
+		t.Fatal("frozen world or missing reasons")
+	}
+	if rep.QueueReasons["active_limit"] != 0 {
+		t.Fatal("active budget stranded residents at entry")
+	}
+	for _, comparison := range rep.DaysCompared {
+		if comparison.Samples == 0 || comparison.Identical >= 1 {
+			t.Fatal("days are identical or comparison empty")
+		}
+	}
+	for _, n := range rep.PurchasesPerDay {
+		if n <= 0 {
+			t.Fatal("a complete Life100 day had no NPC purchase")
+		}
+	}
+	if rep.NPCPurchases <= 0 || rep.FoodConsumed <= 0 {
+		t.Fatal("no NPC market purchases/food")
+	}
+	worldCheckStockAccounting(t, rep)
+	if rep.MoneyDelta != rep.WageSource {
+		t.Fatal("money changed outside explicit wage source")
+	}
+	if rep.PeakHunger >= 1000000 {
+		t.Fatal("starvation threshold reached")
+	}
+	worldCheckWorkerAttendance(t, rep, days)
 }
-func TestNPCWorldCrowdBudget(t *testing.T){
- if os.Getenv("NPC_WORLD_PERF")==""{t.Skip("set NPC_WORLD_PERF=1 on the reference machine")}
- t.Setenv("NPC_WORLD_REPORT_HERO_AUTO","1")
- old:=worldAuditRuntimeOverride;worldAuditRuntimeOverride=func(r *Runtime){r.world.Life.Population.MaxActors=500;r.world.Life.Population.MaxActive=200};defer func(){worldAuditRuntimeOverride=old}()
- rep:=worldRunAuditDay(t,500,86400,false);worldAuditWrite(t,"world-500-200.json",rep)
- active:=0;for _,h:=range rep.Hours{if h.MaxActive>active{active=h.MaxActive}}
- if active!=200{t.Fatalf("benchmark did not exercise exactly 200 physical residents: %d",active)}
- if rep.TickP99US>=5000{t.Fatalf("500/200 tick p99 %.1f us exceeds 5000 us",rep.TickP99US)}
- if rep.QueueReasons["active_limit"]!=0{t.Fatal("active budget created a queue")}
+func TestNPCWorldCrowdBudget(t *testing.T) {
+	if os.Getenv("NPC_WORLD_PERF") == "" {
+		t.Skip("set NPC_WORLD_PERF=1 on the reference machine")
+	}
+	t.Setenv("NPC_WORLD_REPORT_HERO_AUTO", "1")
+	old := worldAuditRuntimeOverride
+	worldAuditRuntimeOverride = func(r *Runtime) { r.world.Life.Population.MaxActors = 500; r.world.Life.Population.MaxActive = 200 }
+	defer func() { worldAuditRuntimeOverride = old }()
+	rep := worldRunAuditDay(t, 500, 86400, false)
+	worldAuditWrite(t, "world-500-200.json", rep)
+	active := 0
+	for _, h := range rep.Hours {
+		if h.MaxActive > active {
+			active = h.MaxActive
+		}
+	}
+	if active != 200 {
+		t.Fatalf("benchmark did not exercise exactly 200 physical residents: %d", active)
+	}
+	if rep.TickP99US >= 5000 {
+		t.Fatalf("500/200 tick p99 %.1f us exceeds 5000 us", rep.TickP99US)
+	}
+	if rep.QueueReasons["active_limit"] != 0 {
+		t.Fatal("active budget created a queue")
+	}
 }
-func BenchmarkNPCWorld500200(b *testing.B){
- old:=worldAuditRuntimeOverride;worldAuditRuntimeOverride=func(r *Runtime){r.world.Life.Population.MaxActors=500;r.world.Life.Population.MaxActive=200;r.world.Life.StartSeconds=22*3600};defer func(){worldAuditRuntimeOverride=old}()
- b.Setenv("NPC_WORLD_REPORT_HERO_AUTO","1");r:=worldAuditRuntime(b,500)
- for i:=0;i<300;i++{r.state.Tick++;if err:=r.advanceLifeFrameBy(1);err!=nil{b.Fatal(err)}}
- samples:=make([]float64,0,b.N);b.ReportAllocs();b.ResetTimer()
- for i:=0;i<b.N;i++{r.state.Tick++;start:=time.Now();if err:=r.advanceLifeFrameBy(1);err!=nil{b.Fatal(err)};samples=append(samples,float64(time.Since(start).Nanoseconds())/1000)}
- b.StopTimer();p99:=worldPct(samples,.99);b.ReportMetric(p99,"p99-us");if b.N>=1000&&p99>=5000{b.Fatalf("500/200 benchmark p99 %.1f us exceeds 5000 us",p99)}
+func BenchmarkNPCWorld500200(b *testing.B) {
+	old := worldAuditRuntimeOverride
+	worldAuditRuntimeOverride = func(r *Runtime) {
+		r.world.Life.Population.MaxActors = 500
+		r.world.Life.Population.MaxActive = 200
+		r.world.Life.StartSeconds = 22 * 3600
+	}
+	defer func() { worldAuditRuntimeOverride = old }()
+	b.Setenv("NPC_WORLD_REPORT_HERO_AUTO", "1")
+	r := worldAuditRuntime(b, 500)
+	for i := 0; i < 300; i++ {
+		r.state.Tick++
+		if err := r.advanceLifeFrameBy(1); err != nil {
+			b.Fatal(err)
+		}
+	}
+	samples := make([]float64, 0, b.N)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		r.state.Tick++
+		start := time.Now()
+		if err := r.advanceLifeFrameBy(1); err != nil {
+			b.Fatal(err)
+		}
+		samples = append(samples, float64(time.Since(start).Nanoseconds())/1000)
+	}
+	b.StopTimer()
+	p99 := worldPct(samples, .99)
+	b.ReportMetric(p99, "p99-us")
+	if b.N >= 1000 && p99 >= 5000 {
+		b.Fatalf("500/200 benchmark p99 %.1f us exceeds 5000 us", p99)
+	}
 }
 
 // Strict live acceptance: every observed working frame is open or a bounded
 // declared break. Being present once per day alone cannot satisfy this test.
-func TestNPC1CalendarRates(t *testing.T){
- if testing.Short(){t.Skip("two authored days per rate")}
- rates:=[]int64{1,10,30};if os.Getenv("NPC_RATE_ONLY")!=""{n,e:=strconv.ParseInt(os.Getenv("NPC_RATE_ONLY"),10,64);if e!=nil{t.Fatal(e)};rates=[]int64{n}}
- for _,rate:=range rates{t.Run(fmt.Sprint(rate),func(t *testing.T){
-  t.Setenv("NPC_WORLD_REPORT_RATE",fmt.Sprint(rate));rep:=worldRunAuditDay(t,100,2*86400,true);worldAuditWrite(t,fmt.Sprintf("world-rate-%d.json",rate),rep)
-  if rep.ShopUnexpectedClosed!=0{t.Errorf("unplanned/overlong closure: %d shop-seconds; %v",rep.ShopUnexpectedClosed,rep.ShopFailures)}
-  if rep.ExpectedWorkers!=40||len(rep.WorkersPerDay)!=2||rep.WorkersPerDay[0]!=40||rep.WorkersPerDay[1]!=40{t.Errorf("expected 40/40 both days: %v",rep.WorkersPerDay)}
-  if len(rep.PurchasesPerDay)!=2||rep.PurchasesPerDay[0]<=0||rep.PurchasesPerDay[1]<=0{t.Errorf("no daily purchases: %v",rep.PurchasesPerDay)}
-  if rep.MoneyDelta!=rep.WageSource||rep.StockDelta != -rep.FoodConsumed{t.Error("money/stock not conserved")}
-  if rep.PeakHunger>=1000000{t.Errorf("hunger saturated: %d",rep.PeakHunger)}
-  if len(rep.DaysCompared)!=1||rep.DaysCompared[0].Identical>=1{t.Error("identical/empty days")}
-  if os.Getenv("NPC_WORLD_PERF")!=""&&rep.TickP99US>=5000{t.Errorf("physical frame p99 %.1f us exceeds 5000 us",rep.TickP99US)}
- })}
+func TestNPC1CalendarRates(t *testing.T) {
+	if testing.Short() {
+		t.Skip("two authored days per rate")
+	}
+	rates := []int64{1, 10, 30}
+	if os.Getenv("NPC_RATE_ONLY") != "" {
+		n, e := strconv.ParseInt(os.Getenv("NPC_RATE_ONLY"), 10, 64)
+		if e != nil {
+			t.Fatal(e)
+		}
+		rates = []int64{n}
+	}
+	for _, rate := range rates {
+		t.Run(fmt.Sprint(rate), func(t *testing.T) {
+			t.Setenv("NPC_WORLD_REPORT_RATE", fmt.Sprint(rate))
+			rep := worldRunAuditDay(t, 100, 2*86400, true)
+			worldAuditWrite(t, fmt.Sprintf("world-rate-%d.json", rate), rep)
+			if rep.ShopUnexpectedClosed != 0 {
+				t.Errorf("unplanned/overlong closure: %d shop-seconds; %v", rep.ShopUnexpectedClosed, rep.ShopFailures)
+			}
+			worldCheckWorkerAttendance(t, rep, 2)
+			if len(rep.PurchasesPerDay) != 2 || rep.PurchasesPerDay[0] <= 0 || rep.PurchasesPerDay[1] <= 0 {
+				t.Errorf("no daily purchases: %v", rep.PurchasesPerDay)
+			}
+			if rep.MoneyDelta != rep.WageSource {
+				t.Error("money not conserved")
+			}
+			worldCheckStockAccounting(t, rep)
+			if rep.PeakHunger >= 1000000 {
+				t.Errorf("hunger saturated: %d", rep.PeakHunger)
+			}
+			if len(rep.DaysCompared) != 1 || rep.DaysCompared[0].Identical >= 1 {
+				t.Error("identical/empty days")
+			}
+			if os.Getenv("NPC_WORLD_PERF") != "" && rep.TickP99US >= 5000 {
+				t.Errorf("physical frame p99 %.1f us exceeds 5000 us", rep.TickP99US)
+			}
+		})
+	}
 }

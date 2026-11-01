@@ -84,7 +84,10 @@ func(s LifeState)courtesyCivilian(m LifeModel,id,requester,activity string)bool{
  switch activity{case "aggressive","hostile","combat","attack","attacking":return false};return true
 }
 func courtesyDutyActivity(activity string)bool{switch activity{case "work","service","maintenance","post":return true};return false}
+// A person seated at a counter (demo-hub v5-yatai) does not get up to make way: the seat is an occupied post.
+func courtesySeated(b LifeBrain,at Cell)bool{return b.Seat!=""&&!b.SeatQueue&&b.SeatedAt>0&&at==b.Target.At}
 func(s LifeState)courtesyNamedDuty(m LifeModel,a LifeActor)bool{
+ if courtesySeated(a.Brain,a.Position){return true}
  if repair,assigned:=s.maintenanceStep(m,a.ID);assigned&&a.Level==repair.Level&&a.Position==repair.At{return true}
  if courtesyDutyActivity(a.Activity)&&a.Position==a.Goal{return true}
  // The last normal segment can reach a workplace before the schedule loop
@@ -100,6 +103,7 @@ func(s LifeState)courtesyNamed(m LifeModel,a LifeActor,requester string,tick int
  return (s.courtesyRequester(requester)||s.Actor(requester)==nil&&s.autonomousTrafficRequester(requester))&&s.courtesyNamedWilling(m,a,requester)&&len(a.Path)==0&&tick>=a.YieldUntil&&tick>=a.YieldCooldownUntil&&!s.courtesyFinishingAhead(m,requester,a.ID,a.Level,a.Position,a.Goal)
 }
 func(s LifeState)courtesyPopulationDuty(m LifeModel,a PopulationActor)bool{
+ if courtesySeated(a.Brain,a.Position){return true}
  if a.Position==a.Goal&&courtesyDutyActivity(a.Activity){return true}
  if a.Stage>=0&&a.Stage<len(m.Population.Stages){stage:=m.Population.profileStage(a.Profile,a.Stage);return a.Arrived&&a.Level==stage.Level&&a.Position==a.Goal&&courtesyDutyActivity(stage.Activity)};return false
 }
@@ -261,7 +265,7 @@ func(s *LifeState)anticipateControlledTraffic(m LifeModel,a *LifeActor,tick int6
 // Refill intent only after the blocking body has actually moved this tick.
 // No second position update occurs; a new segment begins at the current tick.
 func(s *LifeState)resumeControlledAfterTraffic(m LifeModel,tick int64){
- a:=s.Actor(s.ControlledActorID);if a==nil||!a.Manual||a.Trip!=nil||a.Arrived||len(a.Path)>0||len(a.PendingPath)==0{return}
+ a:=s.Actor(s.ControlledActorID);if a==nil||a.Body!=nil||!a.Manual||a.Trip!=nil||a.Arrived||len(a.Path)>0||len(a.PendingPath)==0{return}
  route:=s.controlledIntent(m,a.ID,a.Level,a.Position,a.Goal,a.PendingPath);a.PendingPath=route;if len(route)==0||route[len(route)-1]!=a.Goal||!m.Adjacent(a.Level,a.Position,route[0])||!m.Walks(a.Level,route[0])||s.occupied(a.Level,route[0],a.ID){return}
  a.Path=route;a.PendingPath=nil;a.MoveStartTick=tick;a.Activity="walking";a.Label=lifeManualMoveLabel;if a.OverrideLevel!=""{a.Label=lifeWalkingPrefix+m.Locations[a.OverrideLevel].Name};if s.trafficActive{for i:=range s.Actors{if s.Actors[i].ID==a.ID{s.syncTrafficBody(i);break}}}
 }

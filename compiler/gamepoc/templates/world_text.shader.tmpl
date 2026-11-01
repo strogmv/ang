@@ -1,0 +1,87 @@
+// ANG world text (demo-hub v11-text): in-world lettering from a signed-distance glyph atlas, never a perfect vector.
+// _Params = (style 0 stencil / 1 chalk / 2 matrix, surface 0 pvc / 1 steel / 2 concrete / 3 board / 4 screen, wear 0..1,
+// seed); _Params2 = (matrix dot pitch mm, glow, -, -); uv1 = slot-space millimetres (stable noise per surface).
+// Stencil: sprayed paint - rough edge, faint overspray, worn by the surface (flexed PVC cracks across, steel chips in
+// patches, concrete loses it in its pores). Chalk: grainy strokes with wiped streaks and haze. Matrix: lit dots of a
+// grid with a glow (the bloom of the full graphics picks it up). _Light = lamps around the slot (CPU), ambient included.
+Shader "ANG/WorldText" {
+ Properties {
+  _MainTex ("Signed-distance atlas", 2D) = "black" {}
+  _Ink ("Ink", Color) = (0,0,0,1)
+  _Light ("Light at the slot", Color) = (1,1,1,1)
+  _Params ("style, surface, wear, seed", Vector) = (0,0,0,0)
+  _Params2 ("dot pitch mm, glow", Vector) = (8,0,0,0)
+  _Economy ("Economy graphics", Float) = 0
+ }
+ SubShader {
+  Tags { "RenderType"="Transparent" "Queue"="Transparent+5" "IgnoreProjector"="True" "RenderPipeline"="UniversalPipeline" }
+  Pass {
+   Tags { "LightMode"="UniversalForward" }
+   ZWrite Off
+   Cull Off
+   Blend SrcAlpha OneMinusSrcAlpha
+   HLSLPROGRAM
+   #pragma vertex vert
+   #pragma fragment frag
+   #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+   TEXTURE2D(_MainTex); SAMPLER(sampler_MainTex);
+   CBUFFER_START(UnityPerMaterial)
+   float4 _MainTex_ST;
+   half4 _Ink;
+   half4 _Light;
+   float4 _Params;
+   float4 _Params2;
+   float _Economy;
+   CBUFFER_END
+   struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; float2 slot : TEXCOORD1; };
+   struct v2f { float4 vertex : SV_POSITION; float2 uv : TEXCOORD0; float2 slot : TEXCOORD1; };
+   v2f vert(appdata v) { v2f o; o.vertex = TransformObjectToHClip(v.vertex.xyz); o.uv = v.uv; o.slot = v.slot; return o; }
+   float hash21(float2 p) { p = frac(p * float2(123.34, 456.21)); p += dot(p, p + 45.32); return frac(p.x * p.y); }
+   float vnoise(float2 p) {
+    float2 i = floor(p), f = frac(p); float2 w = f * f * (3 - 2 * f);
+    return lerp(lerp(hash21(i), hash21(i + float2(1, 0)), w.x), lerp(hash21(i + float2(0, 1)), hash21(i + 1), w.x), w.y);
+   }
+   float fbm(float2 p) { float s = 0, a = .5; for (int k = 0; k < 4; k++) { s += a * vnoise(p); p = p * 2.03 + 17.1; a *= .5; } return s; }
+   half4 frag(v2f i) : SV_Target {
+    float d = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, i.uv).r;
+    float aa = max(fwidth(d), 1e-4) * .8;
+    float style = _Params.x, surface = _Params.y, wear = _Params.z, seed = _Params.w;
+    float2 p = i.slot * .001 + seed;              // metres along the slot
+    float grain = vnoise(p * 220);                // ~4 mm
+    float patch = fbm(p * 11);                    // ~9 cm patches
+    half3 color = _Ink.rgb * _Light.rgb;
+    float alpha;
+    if (style < .5) {
+     float edge = .5 + (grain - .5) * .07;
+     float cov = smoothstep(edge - aa, edge + aa, d);
+     float spray = smoothstep(edge - .26, edge, d) * .16 * (.5 + .5 * vnoise(p * 60));
+     float loss;
+     if (surface < .5) { float crack = vnoise(float2(p.x * 25, p.y * 300)); loss = smoothstep(.60, .80, patch) * .85 + smoothstep(.80, .90, crack) * .9; }
+     else if (surface < 1.5) { loss = smoothstep(.56, .74, patch) * .95 + smoothstep(.9, .97, grain) * .5; }
+     else { loss = smoothstep(.50, .85, patch * .55 + grain * .45) * .95; }
+     loss = saturate(loss * saturate(wear * 1.7));
+     alpha = saturate(max(cov, spray) * (1 - loss));
+    } else if (style < 1.5) {
+     float edge = .5 + (grain - .5) * .14;
+     float cov = smoothstep(edge - aa * 1.6, edge + aa * 1.6, d);
+     float streak = vnoise(float2(p.x * 6, p.y * 80));
+     float fill = lerp(.5, 1, smoothstep(.2, .75, grain)) * (1 - .5 * smoothstep(.5, .8, streak) * saturate(wear * 2));
+     float haze = smoothstep(edge - .3, edge, d) * .10 * saturate(wear * 3);
+     alpha = saturate(max(cov * fill, haze));
+    } else {
+     float pitch = max(_Params2.x, 1);
+     float2 cell = frac(i.slot / pitch) - .5;
+     float dotm = smoothstep(.46, .30, length(cell));
+     float cov = smoothstep(.5 - aa, .5 + aa, d);
+     float halo = smoothstep(.22, .5, d) * .35;
+     float glow = _Params2.y * (1 - .55 * _Economy);
+     color = _Ink.rgb * (1 + glow * (cov * dotm));
+     alpha = saturate(max(cov * lerp(.35, 1, dotm), halo * (1 - .5 * _Economy)));
+    }
+    return half4(color, alpha * _Ink.a);
+   }
+   ENDHLSL
+  }
+ }
+ Fallback Off
+}

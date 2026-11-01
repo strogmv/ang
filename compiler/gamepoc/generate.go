@@ -181,9 +181,13 @@ type Menu struct {
 }
 
 type Compiled struct {
-	Wayfinding              WayfindingCatalog              `json:"wayfinding,omitempty"`
-	ModularLocations        []ModularLocation              `json:"modular_locations,omitempty"`
-	LocationSDK             *locationsdk.RuntimeBundle     `json:"location_sdk,omitempty"`
+	CombatRuntime    json.RawMessage            `json:"combat_runtime,omitempty"`
+	Wayfinding       WayfindingCatalog          `json:"wayfinding,omitempty"`
+	ModularLocations []ModularLocation          `json:"modular_locations,omitempty"`
+	LocationSDK      *locationsdk.RuntimeBundle `json:"location_sdk,omitempty"`
+	// World text (demo-hub v11-text): fonts of world.world_text; the per-locale layout is compiled with the Unity fonts.
+	WorldText               WorldTextCatalog               `json:"-"`
+	WorldTextDrawn          *WorldTextRuntime              `json:"-"`
 	Localization            LocalizationCatalog            `json:"localization,omitempty"`
 	Region                  RegionCatalog                  `json:"region_map,omitempty"`
 	PaintedInventoryAnchors map[string]map[string]inv.Cell `json:"painted_inventory_anchors,omitempty"`
@@ -290,6 +294,12 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if out.Visibility.PlayerRange < 1 || out.Visibility.PlayerRange > 64 || out.Visibility.Field != "omnidirectional" || out.Visibility.Remember != "observed_geometry_only" || out.Visibility.UnknownGlyph != "?" {
 		return out, nil, fmt.Errorf("invalid visibility policy")
 	}
+	if combat := world.LookupPath(cue.ParsePath("combat_runtime")); combat.Exists() {
+		out.CombatRuntime, err = combat.MarshalJSON()
+		if err != nil {
+			return out, nil, err
+		}
+	}
 	if life := world.LookupPath(cue.ParsePath("life")); life.Exists() {
 		out.Life, err = life.MarshalJSON()
 		if err != nil {
@@ -342,6 +352,17 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if ways := world.LookupPath(cue.ParsePath("wayfinding")); ways.Exists() {
 		if err := ways.Decode(&out.Wayfinding); err != nil {
 			return out, nil, err
+		}
+	}
+	if text := world.LookupPath(cue.ParsePath("world_text")); text.Exists() {
+		raw, err := text.MarshalJSON()
+		if err != nil {
+			return out, nil, err
+		}
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&out.WorldText); err != nil {
+			return out, nil, fmt.Errorf("world_text: %w", err)
 		}
 	}
 	if localization := world.LookupPath(cue.ParsePath("localization")); localization.Exists() {
@@ -691,6 +712,10 @@ func Generate(project string) error {
 	if err != nil {
 		return err
 	}
+	compiled.WorldTextDrawn, err = compileWorldText(unity, compiled)
+	if err != nil {
+		return err
+	}
 	viewJSON, err := clientResource(compiled)
 	if err != nil {
 		return err
@@ -805,6 +830,10 @@ func Generate(project string) error {
 		"visibility.cs.tmpl":                    filepath.Join(unity, "Assets/Generated/Poc/PocPerceptionView.cs"),
 		"inventory_test.go.tmpl":                filepath.Join(project, "internal/poc/inventory_generated_test.go"),
 		"reports.go.tmpl":                       filepath.Join(project, "internal/poc/reports.gen.go"),
+		"combat.go.tmpl":                        filepath.Join(project, "internal/poc/combat.gen.go"),
+		"combat_resources_test.go.tmpl":         filepath.Join(project, "internal/poc/combat_resources_generated_test.go"),
+		"combat_test.go.tmpl":                   filepath.Join(project, "internal/poc/combat_generated_test.go"),
+		"combat.cs.tmpl":                        filepath.Join(unity, "Assets/Generated/Poc/PocCombat.cs"),
 		"tactics.go.tmpl":                       filepath.Join(project, "internal/poc/tactics.gen.go"),
 		"equipment.go.tmpl":                     filepath.Join(project, "internal/poc/equipment.gen.go"),
 		"equipment_test.go.tmpl":                filepath.Join(project, "internal/poc/equipment_generated_test.go"),
@@ -826,6 +855,7 @@ func Generate(project string) error {
 		"location_sdk_gates.cs.tmpl":            filepath.Join(unity, "Assets/Generated/Poc/PocLocationSDKGates.cs"),
 		"location_sdk_test.go.tmpl":             filepath.Join(project, "internal/poc/location_sdk_generated_test.go"),
 		"multideck_test.go.tmpl":                filepath.Join(project, "internal/poc/multideck_generated_test.go"),
+		"hero_body_test.go.tmpl":                filepath.Join(project, "internal/poc/hero_body_generated_test.go"),
 		"runtime_test.go.tmpl":                  filepath.Join(project, "internal/poc/runtime_generated_test.go"),
 		"main.go.tmpl":                          filepath.Join(project, "cmd/game-server/main.go"),
 		"art_scene.cs.tmpl":                     filepath.Join(unity, "Assets/Generated/Poc/ArtScene.cs"),
@@ -859,8 +889,11 @@ func Generate(project string) error {
 		"urp_editor.cs.tmpl":                    filepath.Join(unity, "Assets/Generated/Poc/Editor/PocURPSetup.cs"),
 		"location_sdk_diagnostic.shader.tmpl":   filepath.Join(unity, "Assets/Resources/LocationSDK/SDKDiagnostic.shader"),
 		"location_sdk_glass.shader.tmpl":        filepath.Join(unity, "Assets/Resources/LocationSDK/SDKGlass.shader"),
+		"world_text.cs.tmpl":                    filepath.Join(unity, "Assets/Generated/Poc/PocWorldText.cs"),
+		"world_text.shader.tmpl":                filepath.Join(unity, "Assets/Resources/LocationSDK/SDKWorldText.shader"),
 		"location_sdk_multideck.cs.tmpl":        filepath.Join(unity, "Assets/Generated/Poc/PocLocationSDKMultideck.cs"),
 		"location_sdk_humanoid.cs.tmpl":         filepath.Join(unity, "Assets/Generated/Poc/PocLocationSDKHumanoid.cs"),
+		"hero_body.cs.tmpl":                     filepath.Join(unity, "Assets/Generated/Poc/PocHeroBody.cs"),
 		"location_sdk_multideck_proof.cs.tmpl":  filepath.Join(unity, "Assets/Generated/Poc/PocLocationSDKMultideckProof.cs"),
 	} {
 		data, err := sources.ReadFile("templates/" + name)

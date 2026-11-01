@@ -49,7 +49,12 @@ func RenderWith(catalog []byte, fixtures Fixtures) (map[string][]byte, error) {
 	templates["population_profile.go.tmpl"] = "population_profile.gen.go"
 	templates["multideck.go.tmpl"] = "multideck.gen.go"
 	templates["gates.go.tmpl"] = "gates.gen.go"
+	templates["life_body.go.tmpl"] = "life_body.gen.go"
+	templates["combat.go.tmpl"] = "combat.gen.go"
+	templates["combat_geometry.go.tmpl"] = "combat_geometry.gen.go"
 	if len(fixtures.Planning) > 0 {
+		templates["combat_test.go.tmpl"] = "combat_generated_test.go"
+		templates["combat_geometry_test.go.tmpl"] = "combat_geometry_generated_test.go"
 		templates["npc_stage0_test.go.tmpl"] = "npc_stage0_generated_test.go"
 		templates["life_brain_test.go.tmpl"] = "life_brain_generated_test.go"
 		templates["population_test.go.tmpl"] = "population_generated_test.go"

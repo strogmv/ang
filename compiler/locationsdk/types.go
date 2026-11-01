@@ -409,6 +409,8 @@ type Layout struct {
 	Residents []Resident `json:"residents,omitempty"`
 	// How the people of the layout are drawn (demo-hub v3-people): presentation only.
 	Actors *LayoutActors `json:"actors,omitempty"`
+	// In-world inscriptions (demo-hub v11-text, owner rule 31.10): presentation only, never baked into assets.
+	TextSlots []TextSlot `json:"text_slots,omitempty"`
 }
 
 type Diagnostic struct {

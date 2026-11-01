@@ -18,6 +18,14 @@
 //    frame matches its feet); only a 0.2 s cross-fade between states runs on the Animator clock at the simulation rate.
 // Light: Forward+ lamps of the hall light the skinned bodies per pixel (no baked GI or light probes in an SDK scene);
 // shadows only at full graphics (economy: no shadow casting by people); a soft contact blob grounds every body.
+// Seated activities (demo-hub v5-yatai): an agent snapshot with activity phase "sit" / "rise" at a spot seats the body —
+// Go decides the seat, when the body sits down and rises and for how long (sim-time transition lengths at the current
+// calendar); the body plays the cast's sit_down / sit_up states over those times (posed every frame, pause-safe), then
+// cycles the seated loop states (one per slot of 8..20 s, weighted pick from a stable hash of actor ID + activity start
+// + slot; "talk" only beside a seated neighbour, turned slightly to it; "drink" = mug in the right hand), cross-faded on the
+// Animator clock at the simulation rate. The pelvis is pinned on the seat anchor + the measured hips height above the
+// sitting surface, the feet held on the floor by foot IK; a bowl (and the mug) stand on the counter while seated.
+// "queue" / "post": the standing body turns to the spot's yaw (a post also stands on its anchor, not the cell centre).
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -27,12 +35,28 @@ namespace AngelsDemons.Poc {
    public string id,state;public bool hero,placed,hasYaw,walking,onStairs,shadows;
    public GameObject go;public Animator animator;public Renderer[] renderers;public Transform contact,marker;
    public Vector3 lastFeet,course;public double lastNS=double.NaN,stillSinceNS,distance;public float yaw,speed,rate,offset,drift,phase;public int resyncs,switches,tint;
+   // Seated activity: key = spot + start second; slot / variant of the seated loop; pin = pelvis offset of the last frame.
+   public int body;public Transform hips,hand,handTip;public LocationSDKHumanoidIK ik;
+   public bool seated;public string sitKey,sitState;public double sitStartNS;public int sitSlot=-1,sitVariant=-1;public float sitWeight,sitYawOffset;
+   public Vector3 sitAnchor,sitPin,sitApplied;public Transform bowl,mug;public bool drinking;public int sitClamps;
+  }
+  // Foot IK of a seated body: the feet stay on the floor while the pelvis is pinned on the seat (weight 0 = animation only).
+  internal sealed class LocationSDKHumanoidIK:MonoBehaviour{
+   internal Animator animator;internal float weight,floorY;
+   void OnAnimatorIK(int layer){
+    if(animator==null)return;
+    for(int i=0;i<2;i++){var goal=i==0?AvatarIKGoal.LeftFoot:AvatarIKGoal.RightFoot;if(weight<=0){animator.SetIKPositionWeight(goal,0);continue;}
+     var p=animator.GetIKPosition(goal);p.y=floorY+(i==0?animator.leftFeetBottomHeight:animator.rightFeetBottomHeight);animator.SetIKPosition(goal,p);animator.SetIKPositionWeight(goal,weight);}
+   }
   }
   AngelsDemonsLocationActorCast locationSDKHumanoidCast;
+  // Seat disc radius for the hips guard (demo-hub v11-text: yatai pipe stool, seat Ø 0.34 m).
+  internal float locationSDKSeatRadiusM=.17f;
   readonly Dictionary<string,LocationSDKHumanoid> locationSDKHumanoids=new Dictionary<string,LocationSDKHumanoid>(StringComparer.Ordinal);
   readonly Dictionary<Material,Dictionary<string,Material>> locationSDKHumanoidTints=new Dictionary<Material,Dictionary<string,Material>>();
   readonly List<UnityEngine.Object> locationSDKHumanoidOwned=new List<UnityEngine.Object>();
   Mesh locationSDKHumanoidBlob,locationSDKHumanoidRing;Material locationSDKHumanoidBlobMaterial,locationSDKHumanoidRingMaterial;
+  Mesh locationSDKHumanoidBowl,locationSDKHumanoidMug;Material[] locationSDKHumanoidBowlMaterials,locationSDKHumanoidMugMaterials;bool locationSDKHumanoidSitBroken;
   internal AngelsDemonsLocationActorCast LocationSDKHumanoidCast=>locationSDKHumanoidCast;
   internal ICollection<LocationSDKHumanoid> LocationSDKHumanoidActors=>locationSDKHumanoids.Values;
   internal bool LocationSDKHumanoidActive=>locationSDKHumanoidCast!=null;
@@ -74,8 +98,8 @@ namespace AngelsDemons.Poc {
   }
   LocationSDKHumanoid LocationSDKHumanoidFor(string id){
    LocationSDKHumanoid h;if(locationSDKHumanoids.TryGetValue(id,out h))return h;
-   var cast=locationSDKHumanoidCast;bool hero=id=="char.hero";uint hash=LocationSDKHumanoidHash(id);var prefab=hero&&cast.hero_prefab!=null?cast.hero_prefab:cast.body_prefab;
-   if(!hero&&cast.body_variants!=null&&cast.body_variants.Length>0){int pick=(int)((hash>>4)%(uint)(cast.body_variants.Length+1));if(pick>0&&cast.body_variants[pick-1]!=null)prefab=cast.body_variants[pick-1];}
+   var cast=locationSDKHumanoidCast;bool hero=id=="char.hero";uint hash=LocationSDKHumanoidHash(id);var prefab=hero&&cast.hero_prefab!=null?cast.hero_prefab:cast.body_prefab;int body=0;
+   if(!hero&&cast.body_variants!=null&&cast.body_variants.Length>0){int pick=(int)((hash>>4)%(uint)(cast.body_variants.Length+1));if(pick>0&&cast.body_variants[pick-1]!=null){prefab=cast.body_variants[pick-1];body=pick;}}
    var go=Instantiate(prefab,locationSDKRoot.transform,false);go.name="humanoid / "+id;
    foreach(var t in go.GetComponentsInChildren<Transform>(true))t.gameObject.layer=LocationSDKLayer;
    var an=go.GetComponentInChildren<Animator>(true);
@@ -91,13 +115,15 @@ namespace AngelsDemons.Poc {
     var skinned=r as SkinnedMeshRenderer;if(skinned!=null){skinned.updateWhenOffscreen=false;skinned.skinnedMotionVectors=false;}
     renderers.Add(r);
    }
-   h=new LocationSDKHumanoid{id=id,hero=hero,go=go,animator=an,renderers=renderers.ToArray(),offset=(hash>>8)/16777216f,tint=hero?-1:tint,shadows=!GraphicsFull};
+   h=new LocationSDKHumanoid{id=id,hero=hero,go=go,animator=an,renderers=renderers.ToArray(),offset=(hash>>8)/16777216f,tint=hero?-1:tint,shadows=!GraphicsFull,body=body};
+   if(cast.Seated&&!hero){h.hips=an.GetBoneTransform(HumanBodyBones.Hips);h.hand=an.GetBoneTransform(HumanBodyBones.RightHand);h.handTip=an.GetBoneTransform(HumanBodyBones.RightMiddleProximal);
+    if(h.hips!=null){h.ik=an.gameObject.AddComponent<LocationSDKHumanoidIK>();h.ik.animator=an;}}
    LocationSDKHumanoidDecals();
    if(cast.contact_shadow)h.contact=LocationSDKHumanoidDecal(go,"contact",locationSDKHumanoidBlob,locationSDKHumanoidBlobMaterial,.012f);
    if(hero&&cast.hero_marker)h.marker=LocationSDKHumanoidDecal(go,"hero ring",locationSDKHumanoidRing,locationSDKHumanoidRingMaterial,.016f);
    locationSDKHumanoids[id]=h;return h;
   }
-  void LocationSDKUpdateHumanoid(string id,Vector2 position,IList<AngelsDemons.Game.V1.PocPoint> path,long startNS,long durationNS,bool paused,Vector3? worldFeet,double nowNS,Vector2? navStart){
+  void LocationSDKUpdateHumanoid(string id,Vector2 position,IList<AngelsDemons.Game.V1.PocPoint> path,long startNS,long durationNS,bool paused,Vector3? worldFeet,double nowNS,Vector2? navStart,AngelsDemons.Game.V1.PocAgentState agent=null){
    var cast=locationSDKHumanoidCast;LocationSDKHumanoid h;
    try{h=LocationSDKHumanoidFor(id);}
    catch(Exception error){Debug.LogError("ANG humanoid cast "+cast.cast_id+" is unusable, character sheets kept: "+error.Message);ReleaseLocationSDKHumanoids();locationSDKHumanoidCast=null;return;}
@@ -112,6 +138,15 @@ namespace AngelsDemons.Poc {
    else if(dt>1e-6){h.speed=step.magnitude/(float)dt;h.distance+=step.magnitude;h.onStairs=Mathf.Abs(rise)/(float)dt>.05f;}
    float threshold=cast.walk_threshold_mps;
    if(h.speed>threshold&&!jump){h.walking=true;h.stillSinceNS=nowNS;}else if(h.walking&&(nowNS-h.stillSinceNS)/1e9>.18)h.walking=false;
+   // Seated activity: Go holds the body on the seat cell for the whole sit-down, meal and rise.
+   var spot=agent==null?null:agent.ActivitySpot;string activityPhase=spot==null?"":agent.ActivityPhase;
+   if((activityPhase=="sit"||activityPhase=="rise")&&!h.walking&&cast.Seated&&h.hips!=null&&!locationSDKHumanoidSitBroken){
+    if(!h.hasYaw){h.yaw=(float)spot.YawDeg;h.hasYaw=true;}
+    LocationSDKHumanoidSit(h,agent,feet,nowNS,dt,dreal,held,jump);h.lastFeet=feet;h.lastNS=nowNS;h.placed=true;return;
+   }
+   if(h.seated)LocationSDKHumanoidStand(h);
+   bool facing=(activityPhase=="queue"||activityPhase=="post")&&!h.walking;
+   Vector3 postOffset=Vector3.zero;if(facing&&activityPhase=="post"){float cm=locationSDKLevel.cell_meters;postOffset=new Vector3(spot.XMm/1000f-(spot.CellX+.5f)*cm,0,spot.YMm/1000f-(spot.CellY+.5f)*cm);}
    // Course from the Go path itself, sampled around now (only while walking).
    Vector3 course=Vector3.zero;
    if(h.walking&&locationSDKNav!=null&&navStart.HasValue&&path!=null&&path.Count>0&&durationNS>0){
@@ -122,7 +157,8 @@ namespace AngelsDemons.Poc {
    if(course.sqrMagnitude<.0025f&&h.walking&&step.sqrMagnitude>1e-8f)course=step;
    if(!h.hasYaw){h.yaw=LocationSDKHumanoidCameraYaw();h.hasYaw=true;}
    if(h.walking&&course.sqrMagnitude>=1e-8f){float target=Mathf.Atan2(course.x,course.z)*Mathf.Rad2Deg;h.course=course.normalized;h.yaw=jump?target:Mathf.MoveTowardsAngle(h.yaw,target,cast.turn_degrees_per_second*(float)Math.Max(0,dt));}
-   h.go.transform.SetPositionAndRotation(feet,Quaternion.Euler(0,h.yaw,0));
+   else if(facing)h.yaw=jump?(float)spot.YawDeg:Mathf.MoveTowardsAngle(h.yaw,(float)spot.YawDeg,cast.turn_degrees_per_second*.5f*(float)Math.Max(0,dt));
+   h.go.transform.SetPositionAndRotation(feet+postOffset,Quaternion.Euler(0,h.yaw,0));
    h.lastFeet=feet;h.lastNS=nowNS;h.placed=true;
    bool full=GraphicsFull;if(h.shadows!=full){foreach(var r in h.renderers)r.shadowCastingMode=full?UnityEngine.Rendering.ShadowCastingMode.On:UnityEngine.Rendering.ShadowCastingMode.Off;h.shadows=full;}
    // Animator: posed at the phase of the simulation every frame (speed 0: the pose stands while the clock stands).
@@ -146,13 +182,130 @@ namespace AngelsDemons.Poc {
    // turns frame-time jitter into foot creep. Update(0) evaluates the new time immediately (it adds no time).
    if(!fading)an.Update(0);
   }
+  static float LocationSDKHumanoidSmooth(float x){x=Mathf.Clamp01(x);return x*x*(3-2*x);}
+  static uint LocationSDKHumanoidMix(uint h,uint k){h^=k+0x9e3779b9u+(h<<6)+(h>>2);h*=0x85ebca6bu;h^=h>>13;return h;}
+  // Seated variant of slot k: weighted pick by a stable hash, never the previous variant, "talk" only beside a neighbour.
+  int LocationSDKHumanoidSitPick(uint seed,int k,int previous,bool neighbour){
+   var cast=locationSDKHumanoidCast;float total=0;for(int i=0;i<cast.sit_states.Length;i++)if(i!=previous&&(neighbour||cast.sit_roles[i]!="talk"))total+=cast.sit_weights[i];
+   if(total<=0)return Math.Max(0,previous);float x=LocationSDKHumanoidMix(seed,(uint)(2*k+1))/4294967296f*total;
+   for(int i=0;i<cast.sit_states.Length;i++){if(i==previous||!neighbour&&cast.sit_roles[i]=="talk")continue;x-=cast.sit_weights[i];if(x<0)return i;}
+   return previous>=0?previous:0;
+  }
+  Vector3 LocationSDKHumanoidSpotWorld(Vector3 feet,AngelsDemons.Game.V1.PocActivitySpot spot,int xmm,int ymm,int zmm){float m=locationSDKLevel.cell_meters;return feet+new Vector3(xmm/1000f-(spot.CellX+.5f)*m,zmm/1000f,ymm/1000f-(spot.CellY+.5f)*m);}
+  void LocationSDKHumanoidSit(LocationSDKHumanoid h,AngelsDemons.Game.V1.PocAgentState agent,Vector3 feet,double nowNS,double dt,float dreal,bool held,bool jump){
+   var cast=locationSDKHumanoidCast;var spot=agent.ActivitySpot;var an=h.animator;
+   Vector3 anchor=LocationSDKHumanoidSpotWorld(feet,spot,spot.XMm,spot.YMm,spot.ZMm);
+   string key=spot.Id+"|"+agent.ActivitySinceSeconds;
+   if(h.sitKey!=key){h.sitKey=key;h.sitStartNS=agent.ActivitySinceNs;h.sitSlot=-1;h.sitVariant=-1;h.sitPin=Vector3.zero;h.sitApplied=Vector3.zero;h.sitYawOffset=0;h.seated=true;h.drinking=false;}
+   h.sitAnchor=anchor;
+   bool rise=agent.ActivityPhase=="rise";
+   float trans=(float)Math.Max(.05,agent.ActivityTransitionNs/1e9),seatedFor=(float)((nowNS-h.sitStartNS)/1e9);
+   h.rate=held?0:jump?1:dreal>1e-5f?Mathf.Clamp((float)(dt/dreal),0,8):0;
+   string want;float phase=-1,len=1,w,props;
+   // demo-hub v11-text (owner 01.11: «очень криво садятся NPC … лавку на стульчики заменить»): the yatai seats are pipe
+   // stools; Go keeps the body on the aisle cell right behind its stool. Sitting down: the body turns to the counter while
+   // still standing (turn_seconds), then sit_down straight forward and down: the hips travel onto the anchor over the
+   // stool centre with the descent (horizontal and vertical pin weights apart), the legs end in front of the stool under
+   // the shelf, feet on the floor (IK). No turning on the seat. Rising: sit_up, the hips stay over the stool until the body
+   // is up, then go back onto the aisle cell; the walk turns it away. While over the seat the hips never sink below the
+   // seat top + the measured hips height (no capsule in the stool).
+   float seatYaw=(float)spot.YawDeg,yawTarget=seatYaw,wh,turn=Mathf.Clamp(.45f/trans,0,.3f);
+   if(rise){float p=Mathf.Clamp01((float)((nowNS-agent.ActivityPhaseNs)/1e9/trans));want=cast.sit_up_state;len=cast.sit_up_seconds;phase=p;w=1-LocationSDKHumanoidSmooth(Mathf.InverseLerp(.2f,.8f,p));wh=1-LocationSDKHumanoidSmooth(Mathf.InverseLerp(.45f,.95f,p));props=p<.35f?1:0;}
+   else if(seatedFor<trans){float p=Mathf.Clamp01(seatedFor/trans);
+    if(p<turn){want=cast.idle_state;phase=0;w=0;wh=0;props=0;}
+    else{float q=(p-turn)/(1-turn);want=cast.sit_down_state;len=cast.sit_down_seconds;phase=q;w=LocationSDKHumanoidSmooth(Mathf.InverseLerp(.15f,.85f,q));wh=LocationSDKHumanoidSmooth(Mathf.InverseLerp(.1f,.8f,q));props=q>.7f?1:0;}}
+   else{
+    // Seated loop: slot k of sit_switch_min..max seconds (stable hash), variant picked once per slot.
+    uint seed=LocationSDKHumanoidHash(agent.Id+"|"+agent.ActivitySinceSeconds);double e=seatedFor-trans,acc=0;int k=0;
+    while(k<500){float d=Mathf.Lerp(cast.sit_switch_min_seconds,cast.sit_switch_max_seconds,LocationSDKHumanoidMix(seed,(uint)(2*k))/4294967296f);if(e<acc+d)break;acc+=d;k++;}
+    // Neighbour: another seated body within 0.95 m (talk variants turn slightly to it).
+    LocationSDKHumanoid near=null;float best=.95f;foreach(var o in locationSDKHumanoids.Values){if(o==h||!o.seated||o.go==null||!o.go.activeSelf)continue;var d=o.sitAnchor-anchor;d.y=0;if(d.magnitude<best){best=d.magnitude;near=o;}}
+    if(k!=h.sitSlot){h.sitVariant=LocationSDKHumanoidSitPick(seed,k,h.sitVariant,near!=null);h.sitSlot=k;
+     h.sitYawOffset=0;if(near!=null&&cast.sit_roles[h.sitVariant]=="talk"){float yr=(float)spot.YawDeg*Mathf.Deg2Rad;var right=new Vector3(Mathf.Cos(yr),0,-Mathf.Sin(yr));h.sitYawOffset=Vector3.Dot(near.sitAnchor-anchor,right)>0?14:-14;}}
+    want=cast.sit_states[h.sitVariant];len=cast.sit_cycle_seconds[h.sitVariant];w=1;wh=1;props=1;
+   }
+   // Yaw: turn to the counter while still standing (about 180 degrees in the turn share), then a slow turn to a talk
+   // partner and back.
+   if(phase<0)yawTarget+=h.sitYawOffset;h.yaw=jump?yawTarget:Mathf.MoveTowardsAngle(h.yaw,yawTarget,(phase<0?60f:Mathf.Max(400f,180f/Mathf.Max(.05f,turn*trans)))*(float)Math.Max(0,dt));
+   var rot=Quaternion.Euler(0,h.yaw,0);h.go.transform.SetPositionAndRotation(feet+h.sitApplied,rot);
+   // Animator: transitions posed at Go's phase every frame (speed 0); seated loops run at the simulation rate.
+   int hash=Animator.StringToHash(want);if(!an.HasState(0,hash)){Debug.LogError("ANG humanoid cast "+cast.cast_id+" has no seated state "+want+"; bodies stand on seats");locationSDKHumanoidSitBroken=true;LocationSDKHumanoidStand(h);return;}
+   bool fading=an.IsInTransition(0);
+   if(h.sitState!=want){
+    if(phase>=0){if(h.sitState==null&&(h.state==null||jump||h.rate<=0))an.Play(hash,0,phase);else{an.CrossFadeInFixedTime(hash,.2f,0,phase*len);fading=true;}}
+    else{float start=LocationSDKHumanoidMix(LocationSDKHumanoidHash(agent.Id),(uint)(h.sitSlot+7))/4294967296f*len;if(h.sitState==null&&jump)an.Play(hash,0,start/len);else{an.CrossFadeInFixedTime(hash,h.sitState==null?.3f:cast.sit_crossfade_seconds,0,start);fading=true;}}
+    h.sitState=want;h.switches++;
+   }
+   else if(phase>=0&&!fading)an.Play(hash,0,phase);
+   an.speed=phase>=0?(fading?h.rate*len/trans:0):h.rate;
+   if(h.ik!=null){h.ik.weight=w;h.ik.floorY=feet.y;}
+   if(phase>=0&&!fading)an.Update(0);
+   h.state=null;h.walking=false;h.phase=phase;h.drift=fading?-1:0;
+   // Pelvis pin: the offset that puts the hips on the seat anchor this frame, applied by the seated weight.
+   float above=cast.sit_hips_above_seat_m[Mathf.Clamp(h.body,0,cast.sit_hips_above_seat_m.Length-1)];
+   var full=h.sitApplied+(anchor+Vector3.up*above-h.hips.position);
+   // horizontal and vertical weights apart (the hips reach the stool centre with the descent, leave it after rising)
+   var applied=new Vector3(full.x*wh,full.y*w,full.z*wh);
+   // no hips capsule in the stool: over the seat disc (radius + hips radius) the hips stay at least `above` over its top
+   var hipsNow=h.hips.position+(applied-h.sitApplied);var dh=hipsNow-anchor;dh.y=0;
+   if(dh.magnitude<locationSDKSeatRadiusM+.12f&&hipsNow.y<anchor.y+above){applied.y+=anchor.y+above-hipsNow.y;h.sitClamps++;}
+   h.sitPin=full;h.sitWeight=w;h.sitApplied=applied;h.go.transform.position=feet+applied;
+   // The contact blob stays on the floor under the pinned body.
+   if(h.contact!=null)h.contact.localPosition=new Vector3(0,.012f-applied.y,0);
+   bool full3=GraphicsFull;if(h.shadows!=full3){foreach(var r in h.renderers)r.shadowCastingMode=full3?UnityEngine.Rendering.ShadowCastingMode.On:UnityEngine.Rendering.ShadowCastingMode.Off;h.shadows=full3;}
+   // Props: the bowl on the counter in front of the seat; the mug beside it, in the right hand while drinking.
+   if(spot.TableZMm>0){
+    LocationSDKHumanoidProps(h);var table=LocationSDKHumanoidSpotWorld(feet,spot,spot.TableXMm,spot.TableYMm,spot.TableZMm);
+    h.bowl.gameObject.SetActive(props>0);h.bowl.SetPositionAndRotation(table,Quaternion.Euler(0,h.yaw,0));
+    bool drinking=phase<0&&cast.sit_roles[h.sitVariant]=="drink"&&(!fading||an.GetNextAnimatorStateInfo(0).shortNameHash==hash&&an.GetAnimatorTransitionInfo(0).normalizedTime>.5f);h.drinking=drinking;
+    var right=rot*Vector3.right;
+    if(drinking&&h.hand!=null){var grip=h.handTip!=null?Vector3.Lerp(h.hand.position,h.handTip.position,.9f):h.hand.position+h.hand.up*.07f;h.mug.SetPositionAndRotation(grip+Vector3.down*.03f,rot);}
+    else h.mug.SetPositionAndRotation(table+right*.15f,rot);
+    h.mug.gameObject.SetActive(props>0);
+   }
+  }
+  void LocationSDKHumanoidStand(LocationSDKHumanoid h){
+   h.seated=false;h.sitKey=null;h.sitPin=Vector3.zero;h.sitApplied=Vector3.zero;h.sitWeight=0;h.sitSlot=-1;h.sitVariant=-1;h.drinking=false;
+   if(h.contact!=null)h.contact.localPosition=new Vector3(0,.012f,0);
+   // The next idle / walk state cross-fades from the last seated pose.
+   if(h.sitState!=null){h.state=h.sitState;h.sitState=null;}
+   if(h.ik!=null)h.ik.weight=0;if(h.bowl!=null)h.bowl.gameObject.SetActive(false);if(h.mug!=null)h.mug.gameObject.SetActive(false);
+  }
+  // A lathe mesh (profile of radius / height pairs, outside then inside) with an optional food disc as submesh 1.
+  static Mesh LocationSDKHumanoidLathe(string name,Vector2[] profile,float discR,float discY){
+   const int n=20;var v=new List<Vector3>();var nr=new List<Vector3>();var t0=new List<int>();var t1=new List<int>();
+   for(int j=0;j<profile.Length;j++)for(int i=0;i<=n;i++){float a=i*Mathf.PI*2/n;var d=new Vector3(Mathf.Sin(a),0,Mathf.Cos(a));v.Add(d*profile[j].x+Vector3.up*profile[j].y);nr.Add((d+Vector3.up*.3f).normalized);}
+   for(int j=0;j+1<profile.Length;j++)for(int i=0;i<n;i++){int a=j*(n+1)+i,b=a+n+1;t0.AddRange(new[]{a,b,a+1,a+1,b,b+1});t0.AddRange(new[]{a,a+1,b,a+1,b+1,b});}
+   int c=v.Count;v.Add(Vector3.up*discY);nr.Add(Vector3.up);for(int i=0;i<=n;i++){float a=i*Mathf.PI*2/n;v.Add(new Vector3(Mathf.Sin(a)*discR,discY,Mathf.Cos(a)*discR));nr.Add(Vector3.up);}
+   for(int i=0;i<n;i++)t1.AddRange(new[]{c,c+1+i,c+2+i});
+   var m=new Mesh{name=name};m.SetVertices(v);m.SetNormals(nr);m.subMeshCount=2;m.SetTriangles(t0,0);m.SetTriangles(t1,1);m.RecalculateBounds();return m;
+  }
+  Material LocationSDKHumanoidPropMaterial(string name,Color color,float smoothness){var m=new Material(Shader.Find("Universal Render Pipeline/Lit")){name=name,enableInstancing=true};m.SetColor("_BaseColor",color);m.SetFloat("_Smoothness",smoothness);m.SetFloat("_Metallic",0);locationSDKHumanoidOwned.Add(m);return m;}
+  Transform LocationSDKHumanoidProp(string name,Mesh mesh,Material[] materials){
+   var go=new GameObject(name){layer=LocationSDKLayer};go.transform.SetParent(locationSDKRoot.transform,false);go.AddComponent<MeshFilter>().sharedMesh=mesh;var r=go.AddComponent<MeshRenderer>();r.sharedMaterials=materials;
+   r.shadowCastingMode=UnityEngine.Rendering.ShadowCastingMode.Off;r.lightProbeUsage=UnityEngine.Rendering.LightProbeUsage.Off;r.reflectionProbeUsage=UnityEngine.Rendering.ReflectionProbeUsage.Off;go.SetActive(false);return go.transform;
+  }
+  void LocationSDKHumanoidProps(LocationSDKHumanoid h){
+   var cast=locationSDKHumanoidCast;
+   if(locationSDKHumanoidBowl==null){
+    // Enamel bowl 150 mm with porridge; enamel mug 80 mm with tea (proposal props, no asset).
+    locationSDKHumanoidBowl=LocationSDKHumanoidLathe("yatai bowl",new[]{new Vector2(.035f,0),new Vector2(.06f,.02f),new Vector2(.075f,.055f),new Vector2(.07f,.055f),new Vector2(.055f,.022f),new Vector2(.03f,.008f)},.066f,.042f);
+    locationSDKHumanoidMug=LocationSDKHumanoidLathe("yatai mug",new[]{new Vector2(.036f,0),new Vector2(.04f,.004f),new Vector2(.04f,.09f),new Vector2(.035f,.09f),new Vector2(.035f,.008f)},.035f,.07f);
+    locationSDKHumanoidOwned.Add(locationSDKHumanoidBowl);locationSDKHumanoidOwned.Add(locationSDKHumanoidMug);
+    locationSDKHumanoidBowlMaterials=new[]{LocationSDKHumanoidPropMaterial("bowl enamel",cast.prop_bowl_color,.55f),LocationSDKHumanoidPropMaterial("porridge",new Color(.78f,.69f,.52f,1),.25f)};
+    locationSDKHumanoidMugMaterials=new[]{LocationSDKHumanoidPropMaterial("mug enamel",cast.prop_mug_color,.6f),LocationSDKHumanoidPropMaterial("tea",new Color(.30f,.16f,.06f,1),.8f)};
+   }
+   if(h.bowl==null)h.bowl=LocationSDKHumanoidProp("bowl / "+h.id,locationSDKHumanoidBowl,locationSDKHumanoidBowlMaterials);
+   if(h.mug==null)h.mug=LocationSDKHumanoidProp("mug / "+h.id,locationSDKHumanoidMug,locationSDKHumanoidMugMaterials);
+  }
   void LocationSDKHumanoidVisibility(){
-   foreach(var h in locationSDKHumanoids.Values){bool on=locationSDKVisibleActors.Contains(h.id);if(h.go.activeSelf!=on){h.go.SetActive(on);if(!on){h.placed=false;h.state=null;h.lastNS=double.NaN;}}}
+   foreach(var h in locationSDKHumanoids.Values){bool on=locationSDKVisibleActors.Contains(h.id);if(h.go.activeSelf!=on){h.go.SetActive(on);if(!on){h.placed=false;h.state=null;h.lastNS=double.NaN;if(h.seated)LocationSDKHumanoidStand(h);}}}
   }
   void ReleaseLocationSDKHumanoids(){
-   foreach(var h in locationSDKHumanoids.Values)if(h.go!=null)Destroy(h.go);locationSDKHumanoids.Clear();
+   foreach(var h in locationSDKHumanoids.Values){if(h.go!=null)Destroy(h.go);if(h.bowl!=null)Destroy(h.bowl.gameObject);if(h.mug!=null)Destroy(h.mug.gameObject);}locationSDKHumanoids.Clear();
    foreach(var o in locationSDKHumanoidOwned)if(o!=null)Destroy(o);locationSDKHumanoidOwned.Clear();locationSDKHumanoidTints.Clear();
    locationSDKHumanoidBlob=null;locationSDKHumanoidRing=null;locationSDKHumanoidBlobMaterial=null;locationSDKHumanoidRingMaterial=null;locationSDKHumanoidCast=null;
+   locationSDKHumanoidBowl=null;locationSDKHumanoidMug=null;locationSDKHumanoidBowlMaterials=null;locationSDKHumanoidMugMaterials=null;locationSDKHumanoidSitBroken=false;
   }
  }
 }

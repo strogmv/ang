@@ -8,6 +8,39 @@ type LifeAffordance struct {
  Actor string `json:"actor,omitempty"`
  Slots []Cell `json:"slots,omitempty"`
  Open int64 `json:"open"`; Close int64 `json:"close"`; Store string `json:"store,omitempty"`
+ // Kind "seated_food" (demo-hub v5-yatai): a staffed food counter with reserved seats. Model data only: a brain keeps
+ // the place by ID without it (saves stay small) and reads the seating from the model.
+ Seating *LifeSeating `json:"seating,omitempty"`
+}
+// A spot of a seated place: a seat ("sit"), a queue place ("stand") or a staff post ("post"). Cell = where Go keeps the
+// body; mm / yaw = the anchor Unity poses it on (plan mm, z from the floor; yaw = atan2(dx, dy) in plan axes).
+type LifeSpot struct {
+ ID string `json:"id"`; At Cell `json:"at"`; Pose string `json:"pose"`
+ XMM int64 `json:"x_mm"`; YMM int64 `json:"y_mm"`; ZMM int64 `json:"z_mm"`; Yaw float64 `json:"yaw_deg"`
+ TableXMM int64 `json:"table_x_mm,omitempty"`; TableYMM int64 `json:"table_y_mm,omitempty"`; TableZMM int64 `json:"table_z_mm,omitempty"`
+}
+// A meal window of the day [From, To) in game seconds; the share of people who come (counter RNG per person/day/window).
+// Occupancy (demo-hub v11-text, owner 01.11 «посади посетителей»): with MinSeated > 0, while fewer seats are held than
+// that, anyone free on the level comes at once - no personal delay, no chance roll, hungry or not, still
+// once per window; with MaxSeated > 0 nobody new comes while that many seats are held. 0 keeps the chance model only.
+// SitMin/SitMaxSeconds (optional) replace the seating's stay for a person who sits down in this window (people linger
+// over the evening bowl longer than over a morning one).
+type LifeMealWindow struct{From int64 `json:"from"`;To int64 `json:"to"`;ChancePPM int64 `json:"chance_ppm"`;DutyChancePPM int64 `json:"duty_chance_ppm"`;MinSeated int `json:"min_seated,omitempty"`;MaxSeated int `json:"max_seated,omitempty"`;SitMin int64 `json:"sit_min_seconds,omitempty"`;SitMax int64 `json:"sit_max_seconds,omitempty"`}
+// Goods bought on sitting down, in order: the first is the meal (food), the rest optional by chance.
+type LifeServiceItem struct{Definition string `json:"definition"`;Food bool `json:"food"`;ChancePPM int64 `json:"chance_ppm"`}
+type LifeSeating struct {
+ Activity string `json:"activity"`
+ Seats []LifeSpot `json:"seats"`; Queue []LifeSpot `json:"queue"`; Posts []LifeSpot `json:"posts,omitempty"`
+ Staff []string `json:"staff,omitempty"`
+ // Regulars (demo-hub v11-text): named actors whose routine post is a seat of this place (the night crew of a 24-hour
+ // yatai while the hall is locked). They hold the seat as a post: the presentation seats them; they never queue for it.
+ Regulars []string `json:"regulars,omitempty"`
+ Windows []LifeMealWindow `json:"windows"`
+ SitMin int64 `json:"sit_min_seconds"`; SitMax int64 `json:"sit_max_seconds"`; SitDown int64 `json:"sit_down_seconds"`; Rise int64 `json:"rise_seconds"`
+ QueueMax int64 `json:"queue_max_seconds"`; Relief int64 `json:"relief"`; MinFood int64 `json:"min_food"`
+ // Meal-time appetite: in a window the person comes in, the goal input "meal" is at least this (habit, not hunger alone).
+ Appetite int64 `json:"appetite"`
+ Items []LifeServiceItem `json:"items"`
 }
 type LifeBrainModel struct {
  Enabled bool `json:"enabled"`
@@ -41,6 +74,10 @@ type LifeBrain struct {
  Purchases, Meals, Wages int64
  BreakKind string; BreakStarted, BreakUntil, BreakReturnAt int64; Returning bool; BreakPost LifeStep
  LunchDay, HygieneAt int64; FatigueWorkSeconds, WorkRemainder int64
+ // Seated meal (kind "seated_food"): the reserved spot (seat or queue place), when the body sat down, the end of the
+ // meal, the start of the rise, the queue start and the meal window already used (day*lifeSeatWindowStride+window+1).
+ Seat string `json:"seat,omitempty"`; SeatQueue bool `json:"seat_queue,omitempty"`
+ SeatedAt int64 `json:"seated_at,omitempty"`; SitUntil int64 `json:"sit_until,omitempty"`; RiseAt int64 `json:"rise_at,omitempty"`; QueueSince int64 `json:"queue_since,omitempty"`; SeatWindow int64 `json:"seat_window,omitempty"`
  // Committed first transport edge of the current trip (named NPCs only).
  LegEdge, LegFrom, LegTo string; LegCheck int64
  WorkDays map[int64]int64
@@ -52,6 +89,8 @@ type LifeBrainServices struct {
  Buy func(string,LifeAffordance,bool)bool
  Pay func(string,int64)bool
  TravelSeconds func(string,Cell,Cell)int64
+ // Spots of a seated place held by others: reserved by another brain or physically occupied (level, place, self).
+ SeatsTaken func(string,string,string)map[Cell]bool
 }
 func(b LifeBrain)Clone()LifeBrain{b.Goal=b.Goal.Clone();if b.WorkDays!=nil{m:=map[int64]int64{};for k,v:=range b.WorkDays{m[k]=v};b.WorkDays=m};return b}
 func(m LifeBrainModel)program()Program {p:=Program{Goals:m.Goals};p.Policy.Utility=m.Policy;return p}
@@ -61,14 +100,56 @@ func(m LifeBrainModel)Validate(l LifeModel)error{
  if m.HotSeconds<1||m.ColdSeconds<m.HotSeconds||m.ColdSeconds>120||m.MealSeconds<1||m.MealRelief<1||m.MealRelief>1000000||m.RationDaily<1||m.RationOrder==""||m.FoodCritical<1||m.FoodCritical>=1000000||m.SleepCritical<1||m.SleepCritical>=1000000||m.WageWorkSeconds<1||m.Wage<1||m.MoneyTarget<1||m.PopulationAccounts<l.Population.MaxActors||m.PopulationAccounts>500||m.InitialBalance<0||m.DutyPenalty<0||m.DutyPenalty>=1||m.Policy.MinHoldTicks<1||m.Policy.MaxHoldTicks<m.Policy.MinHoldTicks{return fmt.Errorf("invalid life brain policy")}
  for i,r:=range m.Rates{if r<0||r>10000000||m.Initial[i]<0||m.Initial[i]>1000000{return fmt.Errorf("invalid life needs rate")}}
  for _,id:=range []string{"schedule","ration","market_food","market_goods","sleep","hygiene","social"}{g,ok:=m.Goals[id];if !ok||g.ID!=id||g.HoldTicks<1||g.HoldTicks>m.Policy.MaxHoldTicks{return fmt.Errorf("invalid life goal %s",id)}}
- seen:=map[string]bool{};for _,p:=range m.Places{if p.ID==""||seen[p.ID]||!l.Walks(p.Level,p.At)||p.Open<0||p.Close>86400||p.Close<=p.Open{return fmt.Errorf("invalid life affordance %s",p.ID)};seen[p.ID]=true;for _,at:=range p.Slots{if !l.Walks(p.Level,at){return fmt.Errorf("invalid service approach %s",p.ID)}}}
+ seen:=map[string]bool{};for _,p:=range m.Places{if p.ID==""||seen[p.ID]||!l.Walks(p.Level,p.At)||p.Open<0||p.Close>86400||p.Close<=p.Open{return fmt.Errorf("invalid life affordance %s",p.ID)};seen[p.ID]=true;for _,at:=range p.Slots{if !l.Walks(p.Level,at){return fmt.Errorf("invalid service approach %s",p.ID)}}
+  if (p.Kind=="seated_food")!=(p.Seating!=nil){return fmt.Errorf("invalid seated place %s",p.ID)}
+  if p.Seating!=nil{if err:=p.Seating.validate(l,p);err!=nil{return fmt.Errorf("invalid seated place %s: %w",p.ID,err)};if g,ok:=m.Goals["seated_food"];!ok||g.ID!="seated_food"||g.Intent!=p.Seating.Activity||g.HoldTicks<1||g.HoldTicks>m.Policy.MaxHoldTicks{return fmt.Errorf("invalid life goal seated_food")}}
+ }
  return nil
 }
+func(s *LifeSeating)validate(l LifeModel,p LifeAffordance)error{
+ if s.Activity==""||len(s.Seats)==0||len(s.Seats)>64||len(s.Queue)>64||len(s.Posts)>16||len(s.Windows)==0||len(s.Windows)>=int(lifeSeatWindowStride)||len(s.Items)==0||!s.Items[0].Food||p.Store==""{return fmt.Errorf("shape")}
+ if s.SitMin<60||s.SitMax<s.SitMin||s.SitMax>7200||s.SitDown<1||s.SitDown>120||s.Rise<1||s.Rise>120||s.QueueMax<0||s.QueueMax>3600||s.Relief<1||s.Relief>1000000||s.MinFood<0||s.MinFood>1000000||s.Appetite<0||s.Appetite>1000000{return fmt.Errorf("timing")}
+ ids:=map[string]bool{};cells:=map[Cell]bool{}
+ for _,group:=range [][]LifeSpot{s.Seats,s.Queue,s.Posts}{for _,x:=range group{if x.ID==""||ids[x.ID]||cells[x.At]||!l.Walks(p.Level,x.At)||(x.Pose!="sit"&&x.Pose!="stand"&&x.Pose!="post")||math.IsNaN(x.Yaw)||math.Abs(x.Yaw)>360||x.ZMM<0||x.ZMM>3000{return fmt.Errorf("spot %s",x.ID)};ids[x.ID]=true;cells[x.At]=true}}
+ for _,x:=range s.Seats{if x.Pose!="sit"{return fmt.Errorf("seat %s",x.ID)}}
+ for _,x:=range s.Queue{if x.Pose!="stand"{return fmt.Errorf("queue %s",x.ID)}}
+ for _,w:=range s.Windows{if w.From<0||w.To>86400||w.To<=w.From||w.ChancePPM<0||w.ChancePPM>1000000||w.DutyChancePPM<0||w.DutyChancePPM>1000000||w.MinSeated<0||w.MaxSeated<0||w.MaxSeated>len(s.Seats)||w.MaxSeated>0&&w.MinSeated>w.MaxSeated||w.MinSeated>len(s.Seats)||(w.SitMin!=0||w.SitMax!=0)&&(w.SitMin<60||w.SitMax<w.SitMin||w.SitMax>7200){return fmt.Errorf("window")}}
+ for i,id:=range s.Regulars{if id==""||s.staff(id){return fmt.Errorf("regular %q",id)};for _,other:=range s.Regulars[i+1:]{if other==id{return fmt.Errorf("regular %q",id)}}}
+ for i,a:=range s.Windows{for _,b:=range s.Windows[i+1:]{if a.From<b.To&&b.From<a.To{return fmt.Errorf("overlapping windows")}}}
+ for _,it:=range s.Items{if it.Definition==""||it.ChancePPM<0||it.ChancePPM>1000000{return fmt.Errorf("item")}}
+ return nil
+}
+// The model place of a seated meal by ID (the brain keeps the place without its seating).
+func(m LifeBrainModel)seating(id string)(LifeAffordance,bool){for _,p:=range m.Places{if p.ID==id&&p.Seating!=nil{return p,true}};return LifeAffordance{},false}
+func(s *LifeSeating)window(seconds int64)int{day:=seconds%86400;for i,w:=range s.Windows{if day>=w.From&&day<w.To{return i}};return -1}
+func(s *LifeSeating)staff(id string)bool{for _,x:=range s.Staff{if x==id{return true}};return false}
+func(s *LifeSeating)regular(id string)bool{for _,x:=range s.Regulars{if x==id{return true}};return false}
+// IsRegular: a named actor who holds a seat of this place as a routine post (presentation: seated).
+func(s *LifeSeating)IsRegular(id string)bool{return s.regular(id)}
+// SeatsHeld counts the seats of the place held now (reserved or under a body) in a SeatsTaken map.
+func(s *LifeSeating)SeatsHeld(taken map[Cell]bool)int{n:=0;for _,x:=range s.Seats{if taken[x.At]{n++}};return n}
+func(s *LifeSeating)spot(id string)(LifeSpot,bool){for _,group:=range [][]LifeSpot{s.Seats,s.Queue,s.Posts}{for _,x:=range group{if x.ID==id{return x,true}}};return LifeSpot{},false}
+// SpotAt is the spot of a seated place at a cell (presentation: queue / seat / post of the body standing there).
+func(s *LifeSeating)SpotAt(at Cell)(LifeSpot,bool){for _,group:=range [][]LifeSpot{s.Seats,s.Queue,s.Posts}{for _,x:=range group{if x.At==at{return x,true}}};return LifeSpot{},false}
+func(s *LifeSeating)Spot(id string)(LifeSpot,bool){return s.spot(id)}
+func(s *LifeSeating)IsStaff(id string)bool{return s.staff(id)}
+// Zero means unused; up to 31 authored windows share one save-format day stride.
+const lifeSeatWindowStride int64 = 32
+func seatMarker(seconds int64,window int)int64{return seconds/86400*lifeSeatWindowStride+int64(window)+1}
+// Free seat with the fewest taken neighbours on the bench (people spread out first), then the nearest, then the order.
+func pickSeatSpot(spots []LifeSpot,taken map[Cell]bool,at Cell,spread bool)(LifeSpot,bool){
+ best:=-1;bestN,bestD:=0,0
+ for i,x:=range spots{if taken[x.At]{continue};n:=0;if spread{for _,y:=range spots{if y.ID!=x.ID&&taken[y.At]&&Distance(x.At,y.At)<=2{n++}}};d:=Distance(at,x.At);if best<0||n<bestN||n==bestN&&d<bestD{best,bestN,bestD=i,n,d}}
+ if best<0{return LifeSpot{},false};return spots[best],true
+}
+func(b *LifeBrain)clearSeat(){b.Seat="";b.SeatQueue=false;b.SeatedAt=0;b.SitUntil=0;b.RiseAt=0;b.QueueSince=0}
 func(b LifeBrain)Validate(m LifeBrainModel,seconds int64)error{
  if !m.Enabled||!b.Initialized{return nil}
  if b.RationOrder!=m.RationOrder{return fmt.Errorf("invalid saved ration order")}
  if b.WorkRemainder<0||b.WorkRemainder>=1000000||b.FatigueWorkSeconds<0||b.PathRetrySecond<0||b.PathRetrySecond>seconds+10||b.LegCheck<0||b.LegCheck>seconds+brainLegRecheck||(b.LegEdge=="")!=(b.LegFrom==""){return fmt.Errorf("invalid saved work/motion clock")}
  if b.BreakKind!=""&&(b.BreakKind!="lunch"&&b.BreakKind!="hygiene"||b.BreakStarted>seconds||b.BreakUntil<=b.BreakStarted||b.BreakReturnAt>b.BreakUntil){return fmt.Errorf("invalid saved post break")}
+ if b.Seat!=""{p,ok:=m.seating(b.Place.ID);if !ok||b.Place.Kind!="seated_food"{return fmt.Errorf("invalid saved seat")};x,ok:=p.Seating.spot(b.Seat);if !ok||x.At!=b.Target.At||b.SeatQueue!=(x.Pose=="stand")||b.SeatedAt<0||b.SeatedAt>seconds||b.RiseAt<0||b.RiseAt>seconds||b.RiseAt>0&&b.SeatedAt==0||b.SitUntil<b.SeatedAt||b.QueueSince<0||b.QueueSince>seconds||b.SeatQueue&&b.SeatedAt!=0{return fmt.Errorf("invalid saved seat")}}else if b.SeatedAt!=0||b.RiseAt!=0||b.SitUntil!=0||b.SeatQueue{return fmt.Errorf("invalid saved seat")}
+ if b.SeatWindow<0||b.SeatWindow>seconds/86400*lifeSeatWindowStride+lifeSeatWindowStride-1{return fmt.Errorf("invalid saved seat window")}
  if b.RationDay>seconds/86400||b.GoodsDay>seconds/86400||b.ShiftWorked<0{return fmt.Errorf("invalid life daily counters")}
  for day,n:=range b.WorkDays{if day<0||day>seconds/86400||n<0||n>86400{return fmt.Errorf("invalid life attendance")}}
  if b.LastSecond<0||b.LastSecond>seconds||b.NextDecision<0||b.NextDecision>seconds+m.ColdSeconds||b.Rations<0||b.Rations>m.RationDaily||b.MealElapsed<0||b.WorkSeconds<0||b.MissedWorkSeconds<0||b.Purchases<0||b.Meals<0||b.Wages<0||len(b.WorkDays)>3{return fmt.Errorf("invalid life brain clock/counters")}
@@ -90,6 +171,8 @@ func(b *LifeBrain)advance(m LifeBrainModel,svc LifeBrainServices,id,level,activi
  if day:=seconds/86400;day!=b.RationDay{b.RationDay=day;b.Rations=0;for d:=range b.WorkDays{if d<day-1{delete(b.WorkDays,d)}}}
  rates:=m.Rates
  if arrived {switch activity{case "sleep":rates[1]-=m.SleepRecovery;case "hygiene":rates[2]-=m.HygieneRecovery;case "social","market":rates[3]-=m.SocialRecovery}}
+ // Eating at a shared counter is company too (seated, not in the queue).
+ if arrived&&b.SeatedAt>0&&b.RiseAt==0&&at==b.Target.At{rates[3]-=m.SocialRecovery}
  for i,rate:=range rates{n:=rate*dt+b.Remainder[i];b.Needs[i]=brainClamp(b.Needs[i]+n/86400);b.Remainder[i]=n%86400}
  if svc.Balance!=nil{pressure:=(m.MoneyTarget-svc.Balance(id))*1000000/m.MoneyTarget;if pressure>b.Needs[4]{b.Needs[4]=brainClamp(pressure)};if pressure<=0{b.Needs[4]=0}}
  if shift!=b.Shift{b.Shift=shift;b.ShiftWorked=0;b.Paid=false}
@@ -106,6 +189,8 @@ func(b *LifeBrain)advance(m LifeBrainModel,svc LifeBrainServices,id,level,activi
   if b.Returning&&atPost{b.BreakKind="";b.Returning=false;b.NextDecision=seconds}
  }
 
+ // Seated meal: hold the reserved seat (queue -> seat -> sit -> rise) until it is done or abandoned.
+ if b.Place.Kind=="seated_food"{if t,hold:=b.seated(m,svc,id,level,activity,at,arrived,hot,seconds,seed);hold{return t}}
  // Complete only at the selected service. No remote food/money transaction.
  if arrived&&b.Place.ID!=""&&level==b.Target.Level&&at==b.Target.At&&activity==b.Target.Activity{
   switch b.Place.Kind{
@@ -126,7 +211,7 @@ func(b *LifeBrain)advance(m LifeBrainModel,svc LifeBrainServices,id,level,activi
  if seconds<b.NextDecision&&validTarget&&!dutyChanged&&!scheduleChanged&&!forceReturn{return b.Target}
  period:=m.ColdSeconds;if hot{period=m.HotSeconds};b.NextDecision=seconds+period
  candidates:=map[string]LifeAffordance{}
- for _,p:=range m.Places{if p.Actor!=""&&p.Actor!=id{continue};if p.Kind=="market_food"||p.Kind=="market_goods"{continue};if len(p.Slots)>0{p.At=p.Slots[CounterRandom(seed,id,0,"life.service."+p.ID)%uint64(len(p.Slots))];p.Slots=nil};if seconds%86400<p.Open||seconds%86400>=p.Close{continue};if p.Kind=="ration"&&(b.Rations>=m.RationDaily||b.RationOrder!=m.RationOrder||b.Needs[0]<180000){continue}
+ for _,p:=range m.Places{if p.Actor!=""&&p.Actor!=id{continue};if p.Kind=="market_food"||p.Kind=="market_goods"||p.Kind=="seated_food"{continue};if len(p.Slots)>0{p.At=p.Slots[CounterRandom(seed,id,0,"life.service."+p.ID)%uint64(len(p.Slots))];p.Slots=nil};if seconds%86400<p.Open||seconds%86400>=p.Close{continue};if p.Kind=="ration"&&(b.Rations>=m.RationDaily||b.RationOrder!=m.RationOrder||b.Needs[0]<180000){continue}
   // Ordinary local services are familiar on the present level; hungry people
   // can return to their assigned home canteen when market stock runs out.
   if p.Actor!=""&&!duty{continue};if p.Level!=level&&!(p.Kind=="ration"&&b.Needs[0]>650000&&p.Level==home.Level){continue}
@@ -134,6 +219,24 @@ func(b *LifeBrain)advance(m LifeBrainModel,svc LifeBrainServices,id,level,activi
  }
  if home.Level!=""{candidates["sleep"]=LifeAffordance{ID:"home."+id,Kind:"sleep",Level:home.Level,At:home.At,Close:86400}}
  if svc.Offers!=nil&&!duty{for _,kind:=range []string{"market_food","market_goods"}{if kind=="market_food"&&b.Needs[0]<200000||kind=="market_goods"&&(b.GoodsDay==seconds/86400||b.Needs[4]>600000){continue};offers:=svc.Offers(id,kind,level);for _,p:=range offers{old,ok:=candidates[kind];if !ok||Distance(at,p.At)<Distance(at,old.At){candidates[kind]=p}}}}
+ // Seated meal: only in a meal window this person comes in (counter RNG per person, day and window), hungry enough,
+ // the counter staffed with stock the person can pay for, and a free seat (else a free queue place) right now.
+ var seatPick LifeSpot;appetite:=int64(0)
+ if svc.Offers!=nil&&svc.SeatsTaken!=nil&&(!duty||b.BreakKind==""&&atPost){for _,p:=range m.Places{
+  if p.Kind!="seated_food"||p.Level!=level||p.Seating==nil||p.Seating.staff(id)||p.Seating.regular(id){continue}
+  s:=p.Seating;w:=s.window(seconds);if w<0{continue};marker:=seatMarker(seconds,w);if b.SeatWindow>=marker{continue}
+  win:=s.Windows[w];var taken map[Cell]bool;short:=false
+  if win.MinSeated>0||win.MaxSeated>0{taken=svc.SeatsTaken(level,p.ID,id);held:=s.SeatsHeld(taken);if win.MaxSeated>0&&held>=win.MaxSeated{continue};short=!duty&&held<win.MinSeated}
+  if !short{
+   if b.Needs[0]<s.MinFood{continue}
+   // People do not all arrive at the stroke of the window: each comes after a personal delay in its first half.
+   if span:=(win.To-win.From)/2;span>0&&seconds%86400<win.From+int64(CounterRandom(seed,id,marker,"life.seated.arrival."+p.ID)%uint64(span)){continue}
+   chance:=win.ChancePPM;if duty{chance=win.DutyChancePPM};if int64(CounterRandom(seed,id,marker,"life.seated.window."+p.ID)%1000000)>=chance{continue}
+  }
+  live:=false;for _,o:=range svc.Offers(id,p.Kind,level){if o.ID==p.ID{live=true;break}};if !live{continue}
+  if taken==nil{taken=svc.SeatsTaken(level,p.ID,id)};spot,ok:=pickSeatSpot(s.Seats,taken,at,true);if !ok&&!short{spot,ok=pickSeatSpot(s.Queue,taken,at,false)};if !ok{continue}
+  c:=p;c.Seating=nil;c.At=spot.At;candidates["seated_food"]=c;seatPick=spot;appetite=s.Appetite;break
+ }}
  // A post admits only local, bounded lunch/washroom breaks. Fatigue is a
  // work penalty; it never admits a home/sleep candidate during a shift.
  if duty{
@@ -143,9 +246,11 @@ func(b *LifeBrain)advance(m LifeBrainModel,svc LifeBrainServices,id,level,activi
    if b.BreakKind==""&&atPost{
     // One lunch per day; a second bounded meal only at critical hunger
     // (24-hour posts). Each break still fits its whole budget with travel.
-    allowed=kind=="ration"&&(b.LunchDay!=seconds/86400&&b.Needs[0]>=500000||b.Needs[0]>=m.FoodCritical) || kind=="hygiene"&&seconds-b.HygieneAt>=7200&&b.Needs[2]>=650000
+    allowed=kind=="ration"&&(b.LunchDay!=seconds/86400&&b.Needs[0]>=500000||b.Needs[0]>=m.FoodCritical) || kind=="hygiene"&&seconds-b.HygieneAt>=7200&&b.Needs[2]>=650000 || kind=="seated_food"&&b.LunchDay!=seconds/86400&&b.Needs[0]>=500000
     if allowed{
      budget:=m.LunchSeconds;if kind=="hygiene"{budget=m.HygieneSeconds}
+     // A seated lunch break must fit the shortest meal, sitting down and getting up as well.
+     if kind=="seated_food"{if q,ok:=m.seating(p.ID);ok{budget-=q.Seating.SitMin+q.Seating.SitDown+q.Seating.Rise}}
      travel:=int64(-1);if p.Level==level&&svc.TravelSeconds!=nil{travel=svc.TravelSeconds(level,at,p.At)}
      allowed=travel>=0&&2*travel+180<=budget
     }
@@ -153,7 +258,7 @@ func(b *LifeBrain)advance(m LifeBrainModel,svc LifeBrainServices,id,level,activi
    if !allowed{delete(candidates,kind)}
   }
  }
- signals:=map[string]float64{"food":float64(b.Needs[0])/1e6,"sleep":float64(b.Needs[1])/1e6,"hygiene":float64(b.Needs[2])/1e6,"social":float64(b.Needs[3])/1e6,"goods":float64(1000000-b.Needs[4])/1e6}
+ signals:=map[string]float64{"meal":math.Max(float64(b.Needs[0]),float64(appetite))/1e6,"food":float64(b.Needs[0])/1e6,"sleep":float64(b.Needs[1])/1e6,"hygiene":float64(b.Needs[2])/1e6,"social":float64(b.Needs[3])/1e6,"goods":float64(1000000-b.Needs[4])/1e6}
  preference:=0.18+float64(CounterRandom(seed,id,seconds/86400,"life.preference.v1")%100)/1000
  if (schedule.Obligation||brainDuty(schedule.Activity)){preference=0.7+float64(b.Needs[4])/2e6};if schedule.Activity=="sleep"{preference=0.4+float64(b.Needs[1])/1e6}
  // Eating in a schedule is a preference for an available ration, never food creation.
@@ -161,7 +266,7 @@ func(b *LifeBrain)advance(m LifeBrainModel,svc LifeBrainServices,id,level,activi
  signals["schedule"]=preference
  profile:=Profile{SceneGoals:[]string{"schedule"}}
  if (schedule.Obligation||brainDuty(schedule.Activity)){profile.Duty.AbandonPenalty=m.DutyPenalty}
- for _,id:=range []string{"ration","market_food","market_goods","sleep","hygiene","social"}{if _,ok:=candidates[id];ok{profile.SceneGoals=append(profile.SceneGoals,id)}}
+ for _,id:=range []string{"ration","market_food","market_goods","seated_food","sleep","hygiene","social"}{if _,ok:=candidates[id];ok{profile.SceneGoals=append(profile.SceneGoals,id)}}
  // Off duty, critical needs remove the ordinary preference penalty.
  if !duty&&(b.Needs[0]>m.FoodCritical||b.Needs[1]>m.SleepCritical){profile.Duty.AbandonPenalty=0}
  if duty&&len(candidates)>0{profile.Duty.AbandonPenalty=0;signals["schedule"]=0.05}
@@ -169,6 +274,8 @@ func(b *LifeBrain)advance(m LifeBrainModel,svc LifeBrainServices,id,level,activi
  oldPlace:=b.Place.ID;oldGoal:=b.Goal.GoalID;oldTarget:=b.Target;b.Goal.Select(m.program(),PsycheLaw{},Psyche{},profile,nil,signals,seconds)
  b.Target=schedule;b.Place=LifeAffordance{}
  if p,ok:=candidates[b.Goal.GoalID];ok{b.Place=p;b.Target=LifeStep{Level:p.Level,At:p.At,Activity:m.Goals[b.Goal.GoalID].Intent,Label:"life.npc."+p.Kind}}
+ b.clearSeat()
+ if b.Place.Kind=="seated_food"{b.Seat=seatPick.ID;b.SeatQueue=seatPick.Pose=="stand";if b.SeatQueue{b.QueueSince=seconds;b.Target.Label="life.npc.seated_food_queue"}}
  if duty&&b.BreakKind==""&&b.Place.ID!=""{
   b.BreakKind="lunch";budget:=m.LunchSeconds
   if b.Place.Kind=="hygiene"{b.BreakKind="hygiene";budget=m.HygieneSeconds;b.HygieneAt=seconds}else{b.LunchDay=seconds/86400}
@@ -177,6 +284,59 @@ func(b *LifeBrain)advance(m LifeBrainModel,svc LifeBrainServices,id,level,activi
  }
  if oldPlace!=b.Place.ID{b.MealElapsed=0};if oldPlace!=b.Place.ID||oldGoal!=b.Goal.GoalID||oldTarget!=b.Target{b.DecisionPending=true}
  return b.Target
+}
+// Seated meal at a counter with reserved seats (demo-hub v5-yatai). The body walks to its spot; a queue place turns into
+// a seat as soon as one frees (the person gives up after QueueMax); on the seat the meal is bought at once through the
+// host's ordinary inventory purchase, the person sits SitDown + SitMin..SitMax (counter RNG), then rises for Rise seconds
+// on the same cell and leaves. A forced return to a post, a withdrawn offer or a lost spot ends it early.
+func(b *LifeBrain)seated(m LifeBrainModel,svc LifeBrainServices,id,level,activity string,at Cell,arrived,hot bool,seconds,seed int64)(LifeStep,bool){
+ leave:=func(){b.clearSeat();b.Place=LifeAffordance{};b.Target=LifeStep{};b.MealElapsed=0;b.NextDecision=seconds;b.Goal.HoldUntil=b.Goal.ChosenTick;b.DecisionPending=true}
+ used:=func(s *LifeSeating){if w:=s.window(seconds);w>=0&&b.SeatWindow<seatMarker(seconds,w){b.SeatWindow=seatMarker(seconds,w)}}
+ p,ok:=m.seating(b.Place.ID);if !ok||b.Seat==""{leave();return LifeStep{},false}
+ s:=p.Seating;spot,ok:=s.spot(b.Seat);if !ok{leave();return LifeStep{},false}
+ forced:=b.BreakKind!=""&&b.Returning
+ // Rising: the body stays on the seat cell for the whole rise, then the seat is free.
+ if b.RiseAt>0{if seconds<b.RiseAt+s.Rise&&at==spot.At{return b.Target,true};leave();return LifeStep{},false}
+ if b.SeatedAt>0{
+  if at!=spot.At||level!=p.Level{leave();return LifeStep{},false}
+  // The meal ends at SitUntil (or a forced return to the post), never inside the sit-down transition.
+  if (seconds>=b.SitUntil||forced)&&seconds>=b.SeatedAt+s.SitDown{b.RiseAt=seconds;b.DecisionPending=true}
+  return b.Target,true
+ }
+ if forced{leave();return LifeStep{},false}
+ // On the way or in the queue: the offer must stay live (staffed counter, stock, money) at the decision cadence.
+ if seconds>=b.NextDecision{period:=m.ColdSeconds;if hot{period=m.HotSeconds};b.NextDecision=seconds+period
+  live:=false;if svc.Offers!=nil&&level==p.Level{for _,o:=range svc.Offers(id,p.Kind,level){if o.ID==p.ID{live=true;break}}}
+  if !live{leave();return LifeStep{},false}
+ }
+ if b.SeatQueue{
+  if svc.SeatsTaken!=nil{if seat,ok:=pickSeatSpot(s.Seats,svc.SeatsTaken(level,p.ID,id),at,true);ok{b.Seat=seat.ID;b.SeatQueue=false;b.QueueSince=0;b.Target.At=seat.At;b.Target.Label="life.npc.seated_food";b.Place.At=seat.At;b.DecisionPending=true;return b.Target,true}}
+  if seconds-b.QueueSince>=s.QueueMax{used(s);leave();return LifeStep{},false}
+  return b.Target,true
+ }
+ here:=arrived&&level==b.Target.Level&&at==spot.At&&activity==b.Target.Activity
+ if !here{return b.Target,true}
+ // On the seat: the meal is bought at the counter now (inventory purchase); no stock or money -> leave without sitting.
+ // demo-hub v11-text: hungry -> the meal; not hungry (came to keep the counter company) -> a mug of tea, no relief.
+ meal:=b.Needs[0]>=s.MinFood
+ if svc.Buy==nil||!svc.Buy(id,b.Place,meal){used(s);leave();return LifeStep{},false}
+ b.SeatedAt=seconds;b.Purchases++;if meal{b.Meals++;b.Needs[0]=brainClamp(b.Needs[0]-s.Relief)};used(s)
+ sitMin,sitMax:=s.SitMin,s.SitMax;if w:=s.window(seconds);w>=0&&s.Windows[w].SitMax>0{sitMin,sitMax=s.Windows[w].SitMin,s.Windows[w].SitMax}
+ b.SitUntil=seconds+s.SitDown+sitMin+int64(CounterRandom(seed,id,seconds,"life.seated.duration."+p.ID)%uint64(sitMax-sitMin+1))
+ if b.BreakKind=="lunch"{b.LunchDay=seconds/86400}
+ b.DecisionPending=true
+ return b.Target,true
+}
+// SeatedPlace is the model place of a seated meal (host: purchase rules and presentation spots).
+func(m LifeBrainModel)SeatedPlace(id string)(LifeAffordance,bool){return m.seating(id)}
+// SeatPresentation: what an observer sees of a seated meal — the spot, "queue" / "sit" / "rise" and since when (game s).
+func(b LifeBrain)SeatPresentation(m LifeBrainModel,level string,at Cell)(LifeSpot,string,int64,bool){
+ if b.Seat==""||b.Place.Kind!="seated_food"{return LifeSpot{},"",0,false}
+ p,ok:=m.seating(b.Place.ID);if !ok||p.Level!=level{return LifeSpot{},"",0,false};x,ok:=p.Seating.spot(b.Seat);if !ok||x.At!=at{return LifeSpot{},"",0,false}
+ if b.SeatQueue{return x,"queue",b.QueueSince,true}
+ if b.RiseAt>0{return x,"rise",b.RiseAt,true}
+ if b.SeatedAt>0{return x,"sit",b.SeatedAt,true}
+ return LifeSpot{},"",0,false
 }
 func(b LifeBrain)alternatives()[3]string{var a [3]string;n:=0;for _,g:=range b.Goal.Top{if g.ID==b.Goal.GoalID{continue};a[n]=fmt.Sprintf("%s=%.3f",g.ID,g.Score);n++;if n==len(a){break}};return a}
 func(b LifeBrain)reason()string{return fmt.Sprintf("utility.%s=%.3f; hold=%d",b.Goal.GoalID,b.Goal.Score,b.Goal.HoldUntil)}

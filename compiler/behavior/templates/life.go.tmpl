@@ -11,7 +11,7 @@ type LifeMarker struct{Name string `json:"name"`;At Cell `json:"at"`}
 // end of a stair and its landing on another surface (document 80). Movement
 // across it is one ordinary step with the usual cadence and occupancy rules.
 type LifeLink struct{A Cell `json:"a"`;B Cell `json:"b"`}
-type LifeLocation struct{Links []LifeLink `json:"links,omitempty"`;Gates []LifeGate `json:"gates,omitempty"`;PlayerRangeCells int `json:"player_range_cells,omitempty"`;InitialLayoutKnown bool `json:"initial_layout_known"`;Name string `json:"name"`;Terrain []string `json:"terrain"`;Markers []LifeMarker `json:"markers"`}
+type LifeLocation struct{CellMM int `json:"cell_mm,omitempty"`;Links []LifeLink `json:"links,omitempty"`;Gates []LifeGate `json:"gates,omitempty"`;PlayerRangeCells int `json:"player_range_cells,omitempty"`;InitialLayoutKnown bool `json:"initial_layout_known"`;Name string `json:"name"`;Terrain []string `json:"terrain"`;Markers []LifeMarker `json:"markers"`}
 type LifeFare struct{Currency string `json:"currency"`;AmountMinor int64 `json:"amount_minor"`;ReceiverAccount string `json:"receiver_account"`}
 type LifeAdmission func(actorID string,edge LifeEdge)bool
 type LifeEdge struct{BoardingWindowSeconds int64 `json:"boarding_window_seconds,omitempty"`;WaitingCells []Cell `json:"waiting_cells,omitempty"`;BoardingLeadSeconds int64 `json:"boarding_lead_seconds,omitempty"`;NameKey string `json:"name_key,omitempty"`;Fare *LifeFare `json:"fare,omitempty"`;ID string `json:"id"`;From string `json:"from"`;To string `json:"to"`;Exit Cell `json:"exit"`;Entry Cell `json:"entry"`;Mode string `json:"mode"`;TravelSeconds int64 `json:"travel_seconds"`;PeriodSeconds int64 `json:"period_seconds"`;NightPeriodSeconds int64 `json:"night_period_seconds,omitempty"`;DayStartSecond int64 `json:"day_start_second,omitempty"`;DayEndSecond int64 `json:"day_end_second,omitempty"`;OffsetSeconds int64 `json:"offset_seconds,omitempty"`;Seats int `json:"seats"`}
@@ -37,10 +37,14 @@ func(e LifeEdge)NextDeparture(seconds int64)int64{
 }
 type LifeStep struct{Obligation bool `json:"obligation,omitempty"`;AtMinute int64 `json:"at_minute"`;Level string `json:"level"`;At Cell `json:"at"`;Activity string `json:"activity"`;Label string `json:"label"`;MinSeconds int64 `json:"min_seconds"`}
 type LifePerson struct{Relations []LifeRelation `json:"relations,omitempty"`;ID string `json:"id"`;Name string `json:"name"`;Source string `json:"source"`;Steps []LifeStep `json:"steps"`}
-type LifeModel struct{Brain LifeBrainModel `json:"brain"`;Residences []LifeResidence `json:"residences,omitempty"`;Courtesy LifeCourtesyPolicy `json:"courtesy"`;Population PopulationModel `json:"population"`;Development PracticeModel `json:"development"`;PracticeStations []LifePracticeStation `json:"practice_stations"`;Inspection InspectionModel `json:"inspection"`;Maintenance MaintenanceModel `json:"maintenance"`;StartSeconds int64 `json:"start_seconds"`;SecondsPerTick int64 `json:"seconds_per_tick"`;MoveTicks int64 `json:"move_ticks"`;Locations map[string]LifeLocation `json:"locations"`;Edges []LifeEdge `json:"edges"`;Actors []LifePerson `json:"actors"`;Walkable map[string]bool `json:"-"`}
+type LifeModel struct{HeroBody LifeHeroBodyModel `json:"hero_body"`;Decks map[string]*DeckVolume `json:"-"`;Brain LifeBrainModel `json:"brain"`;Residences []LifeResidence `json:"residences,omitempty"`;Courtesy LifeCourtesyPolicy `json:"courtesy"`;Population PopulationModel `json:"population"`;Development PracticeModel `json:"development"`;PracticeStations []LifePracticeStation `json:"practice_stations"`;Inspection InspectionModel `json:"inspection"`;Maintenance MaintenanceModel `json:"maintenance"`;StartSeconds int64 `json:"start_seconds"`;SecondsPerTick int64 `json:"seconds_per_tick"`;MoveTicks int64 `json:"move_ticks"`;Locations map[string]LifeLocation `json:"locations"`;Edges []LifeEdge `json:"edges"`;Actors []LifePerson `json:"actors"`;Walkable map[string]bool `json:"-"`}
 type LifeTrip struct{Edge string;Departure,Arrival int64}
 type LifeActor struct{
+ // Encounter participants and incapacitated people keep their physical position.
+ CombatHold bool `json:"combat_hold,omitempty"`
  Brain LifeBrain `json:"brain"`
+ // Continuous body of the controlled hero (life_body.go): nil elsewhere.
+ Body *LifeBody `json:"body,omitempty"`
  ResidenceID string `json:"residence_id,omitempty"`
  ID,Level,Activity,Label string
  Position,Goal Cell
@@ -80,7 +84,7 @@ func(m LifeModel)Validate()error{
  if m.StartSeconds<0||m.StartSeconds>=86400||m.SecondsPerTick<1||m.SecondsPerTick>120||m.MoveTicks<1||len(m.Locations)==0||len(m.Actors)==0{return fmt.Errorf("invalid life clock/catalog")}
  for id,l:=range m.Locations{if len(l.Terrain)==0||len(l.Terrain[0])==0{return fmt.Errorf("empty life level %s",id)};for _,k:=range l.Links{if k.A==k.B||Distance(k.A,k.B)==1||!m.Walks(id,k.A)||!m.Walks(id,k.B){return fmt.Errorf("invalid life link in %s",id)}};for _,row:=range l.Terrain{if len(row)!=len(l.Terrain[0]){return fmt.Errorf("uneven life level %s",id)}};for _,mark:=range l.Markers{if !m.Walks(id,mark.At){return fmt.Errorf("blocked life marker %s",mark.Name)}}}
  edgeIDs:=map[string]bool{};for _,e:=range m.Edges{if e.ID==""||edgeIDs[e.ID]||!m.Walks(e.From,e.Exit)||!m.Walks(e.To,e.Entry)||e.TravelSeconds<=0||e.Seats<1||(e.Mode!="walk"&&e.Mode!="rail")||(e.Mode=="rail"&&e.PeriodSeconds<=0)||!e.validSchedule(){return fmt.Errorf("invalid life edge %s",e.ID)};if e.Fare!=nil&&(e.Mode!="rail"||e.Fare.Currency==""||e.Fare.AmountMinor<=0||e.Fare.AmountMinor>9000000000000000||e.Fare.ReceiverAccount==""){return fmt.Errorf("invalid life fare %s",e.ID)};edgeIDs[e.ID]=true}
- if err:=m.validateGates();err!=nil{return err};if err:=m.validatePlatforms();err!=nil{return err}
+ if err:=m.validateGates();err!=nil{return err};if err:=m.validatePlatforms();err!=nil{return err};if err:=m.validateHeroBody();err!=nil{return err}
  ids:=map[string]bool{};for _,a:=range m.Actors{if a.ID==""||ids[a.ID]||len(a.Steps)==0{return fmt.Errorf("invalid life person %s",a.ID)};ids[a.ID]=true;for i,s:=range a.Steps{if s.AtMinute<0||s.AtMinute>=1440||!m.Walks(s.Level,s.At)||s.MinSeconds<0||(i>0&&a.Steps[i-1].AtMinute>=s.AtMinute){return fmt.Errorf("invalid life agenda %s step %d",a.ID,i)};next:=a.Steps[(i+1)%len(a.Steps)];if s.Level!=next.Level&&m.NextEdge(s.Level,next.Level)==nil{return fmt.Errorf("unreachable life agenda %s",a.ID)}}}
  if err:=m.validateResidences();err!=nil{return err}
  if err:=m.Population.Validate(m);err!=nil{return err}
@@ -128,7 +132,7 @@ func(s LifeState)PopulationEnvironment()PopulationEnvironment{
   if a.ResidenceID!=""{continue}
   if a.Trip!=nil{env.Trips=append(env.Trips,*a.Trip);continue}
   if env.Occupied[a.Level]==nil{env.Occupied[a.Level]=map[Cell]bool{}}
-  env.Occupied[a.Level][a.Position]=true;if len(a.Path)>0{env.Occupied[a.Level][a.Path[0]]=true}
+  env.Occupied[a.Level][a.Position]=true;if len(a.Path)>0{env.Occupied[a.Level][a.Path[0]]=true};if a.Body!=nil{for _,c:=range a.Body.Cells{env.Occupied[a.Level][c]=true}}
   if a.ID!=s.ControlledActorID&&!a.Manual&&!a.Arrived{if env.GoalClaims[a.Level]==nil{env.GoalClaims[a.Level]=map[Cell]bool{}};env.GoalClaims[a.Level][a.Goal]=true}
  };return env
 }
@@ -170,8 +174,8 @@ func(s LifeState)validatePopulation(m LifeModel,tick int64)error{
 }
 func(s *LifeState)Actor(id string)*LifeActor{for i:=range s.Actors{if s.Actors[i].ID==id{return &s.Actors[i]}};return nil}
 func(s *LifeState)note(text string){s.Events=append(s.Events,fmt.Sprintf("%02d:%02d · %s",s.Seconds%86400/3600,s.Seconds%3600/60,text));if len(s.Events)>64{s.Events=append([]string(nil),s.Events[len(s.Events)-64:]...)}}
-func(s LifeState)occupied(level string,at Cell,except string)bool{if s.trafficActive{return s.indexedOccupied(level,at,except)};for _,a:=range s.Population.Actors{if a.ID!=except&&a.Materialized&&a.Trip==nil&&a.Level==level&&(a.Position==at||(len(a.Path)>0&&a.Path[0]==at)){return true}};for _,a:=range s.Actors{if a.ID!=except&&a.OnFloor()&&a.Level==level&&(a.Position==at||(len(a.Path)>0&&a.Path[0]==at)){return true}};return false}
-func(s LifeState)blocked(level,id string)map[Cell]bool{result:=map[Cell]bool{};for _,a:=range s.Population.Actors{if a.ID!=id&&a.Materialized&&a.Trip==nil&&a.Level==level{result[a.Position]=true;if len(a.Path)>0{result[a.Path[0]]=true}}};for _,a:=range s.Actors{if a.ID!=id&&a.OnFloor()&&a.Level==level{result[a.Position]=true;if len(a.Path)>0{result[a.Path[0]]=true}}};return result}
+func(s LifeState)occupied(level string,at Cell,except string)bool{if s.trafficActive{return s.indexedOccupied(level,at,except)};for _,a:=range s.Population.Actors{if a.ID!=except&&a.Materialized&&a.Trip==nil&&a.Level==level&&(a.Position==at||(len(a.Path)>0&&a.Path[0]==at)){return true}};for _,a:=range s.Actors{if a.ID!=except&&a.OnFloor()&&a.Level==level&&(a.Position==at||(len(a.Path)>0&&a.Path[0]==at)||a.Body.holds(at)){return true}};return false}
+func(s LifeState)blocked(level,id string)map[Cell]bool{result:=map[Cell]bool{};for _,a:=range s.Population.Actors{if a.ID!=id&&a.Materialized&&a.Trip==nil&&a.Level==level{result[a.Position]=true;if len(a.Path)>0{result[a.Path[0]]=true}}};for _,a:=range s.Actors{if a.ID!=id&&a.OnFloor()&&a.Level==level{result[a.Position]=true;if len(a.Path)>0{result[a.Path[0]]=true};if a.Body!=nil{for _,c:=range a.Body.Cells{result[c]=true}}}};return result}
 func(s *LifeState)Advance(m LifeModel,tick int64){s.AdvanceWithMaintenance(m,tick,nil)}
 func(s *LifeState)AdvanceWithMaintenance(m LifeModel,tick int64,install MaintenanceInstall){s.AdvanceWithTravel(m,tick,install,nil)}
 func(s *LifeState)AdvanceWithTravel(m LifeModel,tick int64,install MaintenanceInstall,admit LifeAdmission){s.AdvanceWithTravelBy(m,tick,s.SecondsPerTick,install,admit)}
@@ -180,7 +184,7 @@ func(s *LifeState)AdvanceWithTravel(m LifeModel,tick int64,install MaintenanceIn
 func(s *LifeState)AdvanceWithTravelBy(m LifeModel,tick,delta int64,install MaintenanceInstall,admit LifeAdmission){
  if !s.Enabled{return};if delta<1||delta>120{panic("invalid life calendar delta")};defer s.ObserveDecisions();s.Seconds+=delta;s.Tick=tick;tick=m.MotionTick(tick,s.Seconds);s.advanceGates(m,tick);m=s.GateModel(m);s.planMaintenance(m,delta);owned:=s.beginTraffic();defer s.endTraffic(owned);topologyChanged:=s.ensureLifeRoutes(m);yieldBudget:=4;brainActiveLevel:="";if observer:=s.Actor(s.ControlledActorID);observer!=nil&&observer.Trip==nil{brainActiveLevel=observer.Level}
  for i:=range s.Actors{
-  s.trafficActor(i);a:=&s.Actors[i];person:=m.Person(a.ID);if person==nil{continue}
+  s.trafficActor(i);a:=&s.Actors[i];person:=m.Person(a.ID);if person==nil{continue};if a.CombatHold{a.Path=nil;a.PendingPath=nil;a.MoveStartTick=tick;continue}
   brainStep:=person.Steps[a.Step]
   if m.Brain.Enabled{
    index,day:=m.namedSchedule(person,s.Seconds)
@@ -195,7 +199,8 @@ func(s *LifeState)AdvanceWithTravelBy(m LifeModel,tick,delta int64,install Maint
   }
   if s.advanceResidence(m,a,tick,delta){continue}
   if a.Trip!=nil{s.tryLifeArrival(m,a,tick);continue}
-  if topologyChanged{
+  body:=a.Body!=nil&&a.ID==s.ControlledActorID&&a.Manual
+  if topologyChanged&&!body{
    // Preserve a valid committed prefix, but never carry stale reservations
    // through a newly closed cell. The durable goal survives replanning.
    supported:=m.supportedPath(a.Level,a.Position,a.Path)
@@ -205,12 +210,15 @@ func(s *LifeState)AdvanceWithTravelBy(m LifeModel,tick,delta int64,install Maint
   if a.Arrived{switch a.Activity{case "work":a.WorkedSeconds+=delta;case "sleep":a.SleptSeconds+=delta}}
   // Game-time motion: steps due inside this frame only; a stale start (long
   // wait) gets its first step now instead of a catch-up sprint.
-  if m.Brain.Enabled&&len(a.Path)>0&&a.MoveStartTick+m.MoveTicks<tick-delta+1{a.MoveStartTick=tick-delta+1-m.MoveTicks}
-  for len(a.Path)>0&&tick>=a.MoveStartTick+m.MoveTicks{
+  // The controlled body (life_body.go) moves continuously; its cells follow.
+  if body{s.advanceHeroBody(m,a,tick,&yieldBudget)}
+  if !body&&m.Brain.Enabled&&len(a.Path)>0&&a.MoveStartTick+m.MoveTicks<tick-delta+1{a.MoveStartTick=tick-delta+1-m.MoveTicks}
+  for !body&&len(a.Path)>0&&tick>=a.MoveStartTick+m.MoveTicks{
    next:=a.Path[0];if m.Walks(a.Level,next)&&m.Adjacent(a.Level,a.Position,next)&&!s.occupied(a.Level,next,a.ID){a.Position=next;a.Path=a.Path[1:];a.MoveStartTick+=m.MoveTicks;if len(a.Path)>0&&(s.occupied(a.Level,a.Path[0],a.ID)||s.courtesyNamedPassage(m,*a)[a.Path[0]]){if a.ID==s.ControlledActorID{a.PendingPath=a.Path};a.Path=nil;a.MoveStartTick=tick}}else{a.MoveStartTick=tick;if a.ID==s.ControlledActorID{a.PendingPath=a.Path};a.Path=nil}
    if !m.Brain.Enabled{break}
   }
   if a.ID==s.ControlledActorID{s.anticipateControlledTraffic(m,a,tick,&yieldBudget)}
+  if body&&a.OverrideLevel==""{continue}
   if a.YieldRequester!=""{
    if s.courtesyNamedWilling(m,*a,a.YieldRequester){until:=s.courtesyPocketUntil(m,a.YieldRequester,a.Level,a.YieldOrigin,a.YieldHoldUntil,tick,m.MoveTicks);blocking:=s.courtesyBlocksRequester(m,a.YieldRequester,a.Level,a.Position);if len(a.Path)==0&&(s.courtesyPocketNeededByContact(m,a.YieldRequester,a.Level,a.Position)||blocking){a.YieldUntil=tick;a.YieldCooldownUntil=tick}else if until>a.YieldUntil{a.YieldUntil=until}}
    if tick>=a.YieldUntil{a.YieldRequester="";a.YieldOrigin=Cell{};a.YieldHoldUntil=0}
@@ -245,6 +253,7 @@ func(s *LifeState)AdvanceWithTravelBy(m LifeModel,tick,delta int64,install Maint
    s.beginLifeTrip(m,a,edge,admit,s.Seconds-delta);continue
   }
   if a.ID==s.ControlledActorID{
+   if body{s.heroBodyGoal(m,a,destination);continue}
    if a.Goal!=destination||len(a.Path)==0{if a.Goal!=destination{a.PendingPath=nil};a.Goal=destination;a.Path=s.controlledRoute(m,a,destination,tick,&yieldBudget);a.MoveStartTick=tick;if len(a.Path)==0{a.Label="Ждёт проход"}}
    continue
   }
@@ -264,8 +273,10 @@ func(s *LifeState)AdvanceWithTravelBy(m LifeModel,tick,delta int64,install Maint
    if len(path)>0{a.Path=path;a.MoveStartTick=tick}else{a.Label="Ждёт проход"}}
  }
  s.trafficActor(-1);s.resumeControlledAfterTraffic(m,tick);s.finishMaintenanceTick(m,delta,install)
+ // A trip, a residence or the automatic routine leaves the body behind.
+ if h:=s.Actor(s.ControlledActorID);h!=nil&&h.Body!=nil&&(h.Trip!=nil||h.ResidenceID!=""||!h.Manual){h.Body=nil;if s.trafficActive{for i:=range s.Actors{if s.Actors[i].ID==h.ID{s.syncTrafficBody(i)}}}}
 }
-func(s LifeState)Clone()LifeState{out:=s;out.Gates=cloneGates(s.Gates);out.BrainServices=LifeBrainServices{};out.populationEnv=nil;out.Decisions=s.Decisions.Clone();out.traffic=nil;out.trafficActive=false;out.routes=nil;out.RelationOverrides=s.cloneRelations();out.Population=s.Population.Clone();out.Development=s.Development.Clone();out.PracticeLog=append([]string(nil),s.PracticeLog...);if s.PracticePending!=nil{copy:=*s.PracticePending;out.PracticePending=&copy};out.PracticeExcluded=nil;if len(s.PracticeExcluded)>0{out.PracticeExcluded=map[string]bool{};for k,v:=range s.PracticeExcluded{out.PracticeExcluded[k]=v}};out.Observer=s.Observer.Clone();out.Maintenance=s.Maintenance.Clone();out.Events=append([]string(nil),s.Events...);out.Actors=append([]LifeActor(nil),s.Actors...);for i:=range out.Actors{a:=&out.Actors[i];a.Brain=a.Brain.Clone();a.Path=append([]Cell(nil),a.Path...);a.PendingPath=append([]Cell(nil),a.PendingPath...);if a.Trip!=nil{trip:=*a.Trip;a.Trip=&trip};a.Visits=map[string]int{};for k,v:=range s.Actors[i].Visits{a.Visits[k]=v}};return out}
+func(s LifeState)Clone()LifeState{out:=s;out.Gates=cloneGates(s.Gates);out.BrainServices=LifeBrainServices{};out.populationEnv=nil;out.Decisions=s.Decisions.Clone();out.traffic=nil;out.trafficActive=false;out.routes=nil;out.RelationOverrides=s.cloneRelations();out.Population=s.Population.Clone();out.Development=s.Development.Clone();out.PracticeLog=append([]string(nil),s.PracticeLog...);if s.PracticePending!=nil{copy:=*s.PracticePending;out.PracticePending=&copy};out.PracticeExcluded=nil;if len(s.PracticeExcluded)>0{out.PracticeExcluded=map[string]bool{};for k,v:=range s.PracticeExcluded{out.PracticeExcluded[k]=v}};out.Observer=s.Observer.Clone();out.Maintenance=s.Maintenance.Clone();out.Events=append([]string(nil),s.Events...);out.Actors=append([]LifeActor(nil),s.Actors...);for i:=range out.Actors{a:=&out.Actors[i];a.Brain=a.Brain.Clone();a.Path=append([]Cell(nil),a.Path...);a.PendingPath=append([]Cell(nil),a.PendingPath...);a.Body=a.Body.clone();if a.Trip!=nil{trip:=*a.Trip;a.Trip=&trip};a.Visits=map[string]int{};for k,v:=range s.Actors[i].Visits{a.Visits[k]=v}};return out}
 func(s LifeState)Validate(m LifeModel,tick int64)error{
  if err:=s.Decisions.Validate(tick,s.Seconds);err!=nil{return err};if len(s.Decisions.Last)>len(s.Actors){return fmt.Errorf("oversized named decision index")};for id:=range s.Decisions.Last{if s.Actor(id)==nil{return fmt.Errorf("unknown named decision actor")}}
  if s.PopulationFailure!=""{return fmt.Errorf("population stopped: %s",s.PopulationFailure)}
@@ -289,7 +300,10 @@ func(s LifeState)Validate(m LifeModel,tick int64)error{
   previous:=a.Position;for _,at:=range a.Path{if !m.Walks(a.Level,at)||!m.Adjacent(a.Level,previous,at){return fmt.Errorf("invalid life path")};previous=at}
   if a.OverrideEdge!=""{e:=m.Edge(a.OverrideEdge);if e==nil||e.To!=a.OverrideLevel||e.Entry!=a.OverrideAt||(a.Level!=e.From&&a.Level!=e.To){return fmt.Errorf("invalid selected life exit")}}
   if a.OverrideLevel!=""&&!m.Walks(a.OverrideLevel,a.OverrideAt){return fmt.Errorf("invalid life destination")}
- };if err:=s.validateGates(m,motion);err!=nil{return err};return s.Maintenance.Validate(m,s.Seconds)
+  if a.Body!=nil{if err:=s.validateBody(m,a);err!=nil{return err}}
+ }
+ // The cells under a hero body are as exclusive as a position.
+ for _,a:=range s.Actors{if a.Body==nil||!a.OnFloor(){continue};for _,c:=range a.Body.Cells[1:]{for _,o:=range s.Actors{if o.ID!=a.ID&&o.OnFloor()&&o.Level==a.Level&&o.Position==c{return fmt.Errorf("life actors overlap a hero body")}}}};if err:=s.validateGates(m,motion);err!=nil{return err};return s.Maintenance.Validate(m,s.Seconds)
 }
 
 // A passenger may step onto a free adjacent landing cell, never across a wall.

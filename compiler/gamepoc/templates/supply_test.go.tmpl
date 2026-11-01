@@ -36,6 +36,8 @@ func TestMarketDeliveriesActualNightLife100(t *testing.T){
   if r.state.Life.Seconds==22*3600 {
    closed=true
    for _,sh:=range r.world.Inventory.Shopfronts{
+    // An around-the-clock counter (the hub yatai, demo-hub v5-yatai) has no night closing to check.
+    if sh.OpenSecond==0&&sh.CloseSecond==86400{continue}
     if open,_:=r.state.Inventory.ShopStatus(sh);open||r.state.Inventory.ShopAccess(r.world.Inventory,playerActorID,sh.DisplayStore,r.state.Life.Seconds){t.Fatal("night shop stayed open")}
     display,reserve:=commerceQuantity(r.state.Inventory,sh.DisplayStore),commerceQuantity(r.state.Inventory,sh.ReserveStore)
     for id,old:=range initialItems{if old.Location!=(inv.Location{Kind:"store",Store:sh.DisplayStore}){continue};now,ok:=r.state.Inventory.Items[id];target:=sh.DisplayStore;if sh.PackAway{target=sh.ReserveStore};if !ok||now.ID!=old.ID||now.Owner!=old.Owner||now.Definition!=old.Definition||now.Quantity!=old.Quantity||now.Location!=(inv.Location{Kind:"store",Store:target}){t.Fatal("night closure replaced or lost an existing physical item")}}

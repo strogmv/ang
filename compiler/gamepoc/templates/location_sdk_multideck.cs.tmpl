@@ -249,11 +249,13 @@ namespace AngelsDemons.Poc {
      box(yellow,ac+2.4f,ac+2.9f,w*.18f+.55f,w*.18f+.75f,.6f,.7f);
     }
     foreach(var kv in parts){var go=LocationSDKMeshObject("vista / "+v.id,kv.Value.Finish(),kv.Key);go.GetComponent<MeshRenderer>().shadowCastingMode=UnityEngine.Rendering.ShadowCastingMode.Off;}
-    // sign: ui.* key, stencil text on a plate on the wall near the end (turn side or the barrier)
+    // sign: ui.* key on a plate on the wall near the end (turn side or the barrier). The text is the world text slot
+    // "<vista>.sign" (demo-hub v11-text: ANG checked its fit in every locale); this draws the plate and gives the frame.
     if(!string.IsNullOrEmpty(v.sign_key)){
-     var font=Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");float a=Math.Max(2f,lenM-w-1.5f);bool onLeft=!turnRight;float b=onLeft?.02f:w-.02f;
-     var plate=new LocationSDKMeshBuilder();var pp=P(a-1.2f,onLeft?0:w-.03f,2.6f);var pq=P(a+1.2f,onLeft?.03f:w,3.2f);LocationSDKBox(plate,Vector3.Min(pp,pq),Vector3.Max(pp,pq),null);LocationSDKMeshObject("vista sign / "+v.id,plate.Finish(),new Color(.82f,.80f,.72f));
-     if(font!=null){var t=new GameObject("vista sign text / "+v.id){layer=LocationSDKLayer};t.transform.SetParent(locationSDKRoot.transform,false);var normal=onLeft?r:-r;t.transform.localPosition=P(a,b+(onLeft?.04f:-.04f),2.9f);t.transform.localRotation=Quaternion.LookRotation(-normal,Vector3.up);var tm=t.AddComponent<TextMesh>();tm.font=font;tm.text=L(v.sign_key);tm.anchor=TextAnchor.MiddleCenter;tm.alignment=TextAlignment.Center;tm.characterSize=.045f;tm.fontSize=96;tm.color=new Color(.10f,.10f,.11f);t.GetComponent<MeshRenderer>().sharedMaterial=font.material;}
+     var slot=WorldTextSlot(level.id,v.id+".sign");float half=slot!=null?slot.width_mm*.0005f:1.2f,plateH=slot!=null?slot.height_mm*.001f:.6f;
+     float a=Math.Max(2f,lenM-w-1.5f);bool onLeft=!turnRight;float b=onLeft?.03f:w-.03f;
+     var plate=new LocationSDKMeshBuilder();var pp=P(a-half,onLeft?0:w-.03f,2.9f-plateH/2);var pq=P(a+half,onLeft?.03f:w,2.9f+plateH/2);LocationSDKBox(plate,Vector3.Min(pp,pq),Vector3.Max(pp,pq),null);LocationSDKMeshObject("vista sign / "+v.id,plate.Finish(),new Color(.82f,.80f,.72f));
+     var normal=onLeft?r:-r;worldTextVistaFrames[v.id]=new KeyValuePair<Vector3,Vector3>(locationSDKRoot.transform.TransformPoint(P(a,b,2.9f)),locationSDKRoot.transform.TransformDirection(normal));
     }
    }
   }
@@ -286,7 +288,7 @@ namespace AngelsDemons.Poc {
   // their slab hides the hero's head or torso from the camera. Collision, sight
   // and other groups are untouched.
   void LocationSDKUpdateCutaway(){
-   if(locationSDKNav==null||state==null)return;Vector3 feet;Vector2 ignored;LocationSDKSampleWorld(new Vector2(state.PlayerX,state.PlayerY),state.Path,state.MotionStartNs,state.MovementStepNs,renderedSimNS,out feet,out ignored);
+   if(locationSDKNav==null||state==null)return;Vector3 feet;Vector2 ignored;if(!HeroBodyFeet(out feet,out ignored))LocationSDKSampleWorld(new Vector2(state.PlayerX,state.PlayerY),state.Path,state.MotionStartNs,state.MovementStepNs,renderedSimNS,out feet,out ignored);
    float meters=locationSDKLevel.cell_meters,heroMM=feet.y*1000;int px=(int)Math.Floor(feet.x/meters),py=(int)Math.Floor(feet.z/meters);
    locationSDKCutawayHidden.Clear();locationSDKCutawayFaded.Clear();
    if(locationSDKNav.cutaway_groups!=null)foreach(var g in locationSDKNav.cutaway_groups){

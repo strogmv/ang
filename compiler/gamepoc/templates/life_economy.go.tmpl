@@ -35,12 +35,19 @@ func(r *Runtime)initNPCEconomy(){
 func(r *Runtime)npcServices()behavior.LifeBrainServices{return behavior.LifeBrainServices{
  Balance:func(id string)int64{a,_:=r.npcAccount(id);return a.Balance}, Offers:r.npcOffers,Buy:r.npcBuy,
  TravelSeconds:func(level string,from,to behavior.Cell)int64{return r.state.Life.StaticTravelSeconds(r.world.Life,level,from,to)},
+ SeatsTaken:r.npcSeatsTaken,
  Pay:func(id string,amount int64)bool{a,ok:=r.npcAccount(id);if !ok||amount<1||a.Balance>9000000000000000-amount{return false};a.Balance+=amount;a.Revision++;r.state.Inventory.Accounts[a.ID]=a;r.state.Inventory.Revision++;r.state.NPCEconomy.WageSource+=amount;return true},
 }}
 func(r *Runtime)npcOfferItem(id string,p behavior.LifeAffordance)(inv.Item,bool){
+ defs:=r.world.Life.Brain.FoodDefinitions;if p.Kind=="market_goods"{defs=r.world.Life.Brain.GoodsDefinitions}
+ // A seated counter offers its meal (the first item of the place) or, for a person who cannot pay for it, a cheaper item
+ // of the counter (demo-hub v11-text: a mug of tea); npcBuySeated decides what is bought.
+ if p.Kind=="seated_food"{q,ok:=r.world.Life.Brain.SeatedPlace(p.ID);if !ok{return inv.Item{},false};defs=nil;for _,it:=range q.Seating.Items{defs=append(defs,it.Definition)}}
+ return r.npcOfferItemOf(id,p,defs)
+}
+func(r *Runtime)npcOfferItemOf(id string,p behavior.LifeAffordance,defs []string)(inv.Item,bool){
  staffed:=false;for _,sh:=range r.world.Inventory.Shopfronts{if sh.DisplayStore!=p.Store{continue};a:=r.state.Life.Actor(sh.Owner);staffed=a!=nil&&a.OnFloor()&&len(a.Path)==0&&a.Level==sh.Service.Level&&a.Position==(behavior.Cell{X:sh.Service.At.X,Y:sh.Service.At.Y});break};if !staffed{return inv.Item{},false}
  if !r.commerceAccessible(id,inv.Location{Kind:"store",Store:p.Store}){return inv.Item{},false}
- defs:=r.world.Life.Brain.FoodDefinitions;if p.Kind=="market_goods"{defs=r.world.Life.Brain.GoodsDefinitions}
  account,ok:=r.npcAccount(id);if !ok{return inv.Item{},false};best:=inv.Item{}
  for _,i:=range r.state.Inventory.Items{if i.Location.Kind!="store"||i.Location.Store!=p.Store||!i.ForSale||i.Owner==id||i.Hidden||i.Quantity<1{continue};allowed:=false;for _,d:=range defs{if d==i.Definition{allowed=true}};if !allowed{continue};d:=r.world.Inventory.Definitions[i.Definition];price,err:=inv.Quote(d,1);if err!=nil||d.PriceUnit!=account.Currency||price>account.Balance{continue};if best.ID==""||i.ID<best.ID{best=i}}
  return best,best.ID!=""
@@ -53,14 +60,47 @@ func(r *Runtime)npcBuy(id string,p behavior.LifeAffordance,food bool)bool{
  present:=false
  if a:=r.state.Life.Actor(id);a!=nil{present=a.OnFloor()&&a.Arrived&&len(a.Path)==0&&a.Level==p.Level&&a.Position==p.At}else{for _,a:=range r.state.Life.Population.Actors{if a.ID==id{present=a.Trip==nil&&a.Arrived&&len(a.Path)==0&&a.Level==p.Level&&a.Position==p.At;break}}}
  if !present{return false}
- item,ok:=r.npcOfferItem(id,p);if !ok{return false};model:=r.inventoryModelFor(true)
- result,err:=r.state.Inventory.Execute(model,inv.Action{Actor:id,Kind:"buy",Item:item.ID,Quantity:1,Sequence:r.state.Inventory.Cursors[id].Sequence+1,ExpectedRevision:item.Revision},inv.Access{Level:p.Level,At:inv.Cell{X:p.At.X,Y:p.At.Y},Known:func(i inv.Item)bool{return i.ID==item.ID},Reach:func(a inv.Anchor)bool{return a.Kind=="world"&&a.Level==p.Level&&manhattan(point{a.At.X,a.At.Y},point{p.At.X,p.At.Y})<=model.Actions.ReachCells}})
+ if p.Kind=="seated_food"{return r.npcBuySeated(id,p,food)}
+ item,ok:=r.npcOfferItem(id,p);if !ok{return false}
+ return r.npcPurchase(id,item,p.Level,inv.Cell{X:p.At.X,Y:p.At.Y},food,food)
+}
+// One ordinary inventory purchase by an NPC standing at `at` (consumed on the spot when eaten / drunk there).
+func(r *Runtime)npcPurchase(id string,item inv.Item,level string,at inv.Cell,consume,food bool)bool{
+ model:=r.inventoryModelFor(true)
+ result,err:=r.state.Inventory.Execute(model,inv.Action{Actor:id,Kind:"buy",Item:item.ID,Quantity:1,Sequence:r.state.Inventory.Cursors[id].Sequence+1,ExpectedRevision:item.Revision},inv.Access{Level:level,At:at,Known:func(i inv.Item)bool{return i.ID==item.ID},Reach:func(a inv.Anchor)bool{return a.Kind=="world"&&a.Level==level&&manhattan(point{a.At.X,a.At.Y},point{at.X,at.Y})<=model.Actions.ReachCells}})
  if err!=nil{return false};bought:=item.ID;if len(result.Created)>0{bought=result.Created[0]}
- if food{if err:=r.state.Inventory.Consume(model,id,bought,1);err!=nil{panic(err)};r.state.NPCEconomy.FoodConsumed++}
+ if consume{if err:=r.state.Inventory.Consume(model,id,bought,1);err!=nil{panic(err)};if food{r.state.NPCEconomy.FoodConsumed++}}
  amount,_:=inv.Quote(model.Definitions[item.Definition],1);r.state.NPCEconomy.Purchases++;r.state.NPCEconomy.Turnover+=amount
  if r.state.NPCEconomy.BySeller==nil{r.state.NPCEconomy.BySeller=map[string]int64{}};r.state.NPCEconomy.BySeller[item.Owner]+=amount
  if r.state.NPCEconomy.UnitsBySeller==nil{r.state.NPCEconomy.UnitsBySeller=map[string]int64{}};r.state.NPCEconomy.UnitsBySeller[item.Owner]++
  return true
+}
+// demo-hub v5-yatai: a seated customer orders across the counter — the cook hands the bowl over the pass, so reach is
+// counted from the store itself, not from the seat. A hungry customer (meal) buys the meal (first item), extras by
+// chance (counter RNG of person and second) if the stock and the money allow. demo-hub v11-text: a customer who is not
+// hungry, or cannot pay for the meal, sits over the first extra they can pay for (a mug of tea); nothing bought = no seat.
+// Everything is eaten / drunk there.
+func(r *Runtime)npcBuySeated(id string,p behavior.LifeAffordance,meal bool)bool{
+ q,ok:=r.world.Life.Brain.SeatedPlace(p.ID);if !ok{return false}
+ store,ok:=r.state.Inventory.Stores[p.Store];if !ok||store.Anchor.Kind!="world"||store.Anchor.Level!=p.Level{return false}
+ bought:=false
+ if meal{if item,ok:=r.npcOfferItemOf(id,p,[]string{q.Seating.Items[0].Definition});ok&&r.npcPurchase(id,item,p.Level,store.Anchor.At,true,q.Seating.Items[0].Food){bought=true}}
+ for i,it:=range q.Seating.Items{
+  if i==0{continue}
+  if bought&&int64(behavior.CounterRandom(r.state.Seed,id,r.state.Life.Seconds,"life.seated.item."+it.Definition)%1000000)>=it.ChancePPM{continue}
+  item,ok:=r.npcOfferItemOf(id,p,[]string{it.Definition})
+  if ok&&r.npcPurchase(id,item,p.Level,store.Anchor.At,true,it.Food){bought=true}
+ }
+ return bought
+}
+// Spots of a seated place that are reserved by another brain or stand under another body (level, place, self).
+func(r *Runtime)npcSeatsTaken(level,place,self string)map[behavior.Cell]bool{
+ taken:=map[behavior.Cell]bool{};q,ok:=r.world.Life.Brain.SeatedPlace(place);if !ok{return taken}
+ spots:=map[behavior.Cell]bool{};for _,g:=range [][]behavior.LifeSpot{q.Seating.Seats,q.Seating.Queue}{for _,x:=range g{spots[x.At]=true}}
+ mark:=func(id,at string,pos behavior.Cell,b behavior.LifeBrain,body bool){if id==self{return};if body&&at==level&&spots[pos]{taken[pos]=true};if b.Seat!=""&&b.Place.ID==place{taken[b.Target.At]=true}}
+ for _,a:=range r.state.Life.Actors{mark(a.ID,a.Level,a.Position,a.Brain,a.OnFloor())}
+ for _,a:=range r.state.Life.Population.Actors{mark(a.ID,a.Level,a.Position,a.Brain,a.Trip==nil)}
+ return taken
 }
 // NPCDebugJournalLines is the HUD "Отладка" projection of the Life/population
 // decision journals and NPC commerce counters. Development telemetry only:

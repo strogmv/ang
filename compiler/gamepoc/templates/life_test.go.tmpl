@@ -86,7 +86,11 @@ func TestLifeHostileIntentReachesContactBeforeWaiting(t *testing.T){
  }
 }
 // Isolate legacy motion/maintenance contracts from autonomous need choices.
-func lifeRuntimeFixture(t *testing.T)*Runtime{t.Helper();r,err:=New(t.TempDir(),"token");if err!=nil{t.Fatal(err)};r.world.Life.Brain.Enabled=false;r.canonicalWorld.Life.Brain.Enabled=false;r.state.Active=true;r.state.Speed=1;r.initLife();r.state.Life.SecondsPerTick=30;return r}
+// cellHero: these kernel tests pin the cell hero of documents 41/48 (the hero of a
+// painted location); the continuous body of a modular location (document 87)
+// has its own tests (hero_body_test).
+func cellHero(r *Runtime){r.world.Life.HeroBody=behavior.LifeHeroBodyModel{};r.canonicalWorld.Life.HeroBody=behavior.LifeHeroBodyModel{}}
+func lifeRuntimeFixture(t *testing.T)*Runtime{t.Helper();r,err:=New(t.TempDir(),"token");if err!=nil{t.Fatal(err)};cellHero(r);r.world.Life.Brain.Enabled=false;r.canonicalWorld.Life.Brain.Enabled=false;r.state.Active=true;r.state.Speed=1;r.initLife();r.state.Life.SecondsPerTick=30;return r}
 
 func TestLifeMerchantRoleAndDebugActivityArePerClientTranslations(t *testing.T){
  r:=lifeRuntimeFixture(t);r.world.Config.DebugPerception=true

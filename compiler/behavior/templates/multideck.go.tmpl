@@ -35,6 +35,8 @@ type DeckVolume struct {
 	// Static geometry: the visible set of an observer cell never changes, so
 	// it is computed once per (cell, range). Shared by value copies; bounded.
 	sight *deckSightCache
+	// Continuous hero body (life_body.go): stair nodes by plan cell, links.
+	body *deckBodyIndex
 }
 
 type deckSightKey struct {
@@ -173,6 +175,7 @@ func (v *DeckVolume) Prepare() error {
 			return errors.New("multi-deck link outside standable cells")
 		}
 	}
+	v.buildBodyIndex()
 	return nil
 }
 

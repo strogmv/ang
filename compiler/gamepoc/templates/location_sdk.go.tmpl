@@ -105,6 +105,8 @@ func(r *Runtime)prepareLocationSDK()error {
   }
  }
  r.canonicalWorld.Decks=r.world.Decks
+ // Movement v2: the hero body reads stair nodes and links of the same volumes.
+ r.world.Life.Decks=r.world.Decks;r.canonicalWorld.Life.Decks=r.world.Decks
  return nil
 }
 

@@ -100,7 +100,7 @@ func TestWayfindingServerPreviewAuthorityPrivacyAndInvalidationNative(t *testing
 		t.Fatal("Space.Path missing")
 	}
 	move := hudTemplate(t, "life.go.tmpl")
-	am, bm := strings.Index(move, "func(r *Runtime)lifeWalkTo("), strings.Index(move, "func(r *Runtime)validateLifeSave(")
+	am, bm := strings.Index(move, "func (r *Runtime) lifeWalkTo("), strings.Index(move, "func (r *Runtime) validateLifeSave(")
 	if am < 0 || bm < am {
 		t.Fatal("shared movement helper missing")
 	}
@@ -120,7 +120,7 @@ func TestWayfindingServerPreviewAuthorityPrivacyAndInvalidationNative(t *testing
 		"internal/behavior/life.go": `package behavior
  import "sort"
  type LifeTrip struct{Edge string}
- type LifeActor struct{ID,Level,OverrideLevel,OverrideEdge,Activity,Label,AdmissionDeniedEdge string;Position,Goal,OverrideAt Cell;Path,PendingPath []Cell;Manual,Arrived bool;MoveStartTick,WaitingDeparture int64;Trip *LifeTrip;Visits map[string]int}
+ type LifeActor struct{ID,Level,OverrideLevel,OverrideEdge,Activity,Label,AdmissionDeniedEdge string;Position,Goal,OverrideAt Cell;Path,PendingPath []Cell;Manual,Arrived,CombatHold bool;MoveStartTick,WaitingDeparture int64;Trip *LifeTrip;Visits map[string]int}
  type LifeEdge struct{ID,From,To,Mode,NameKey string;Exit,Entry Cell;TravelSeconds,PeriodSeconds int64}
  type LifeLocation struct{Name string;Terrain []string}
  type LifeModel struct{Locations map[string]LifeLocation;Edges []LifeEdge}
@@ -130,6 +130,9 @@ func TestWayfindingServerPreviewAuthorityPrivacyAndInvalidationNative(t *testing
  // Causal recording is tested with the full Life kernel; this fixture isolates route privacy.
  func(s *LifeState)ObserveDecisions(){}
  func(s *LifeState)Actor(id string)*LifeActor{for i:=range s.Actors{if s.Actors[i].ID==id{return &s.Actors[i]}};return nil}
+ // Movement v2 body (document 87): never capable in this planar fixture, so the cell intent stays under test.
+ func(s LifeState)GateModel(m LifeModel)LifeModel{return m};func(m LifeModel)BodyCapable(level string)bool{return false}
+ func(s *LifeState)EnsureHeroBody(m LifeModel){};func(s *LifeState)RouteHeroBody(m LifeModel,target Cell,x,y float64,point,run bool,seq uint64)bool{return false}
  func(s *LifeState)MoveRoute(m LifeModel,id,level string,from,to Cell,tick int64)([]Cell,bool){rows:=m.Locations[level].Terrain;space:=Space{Width:len(rows[0]),Height:len(rows),MaxSearchCells:len(rows)*len(rows[0]),Walkable:func(c Cell)bool{return rows[c.Y][c.X]=='.'}};path:=space.Path(from,to,Cell{},0);return path,from==to||len(path)>0}
  `,
 		"internal/transport/grpc/pb/game/v1/wire.go": `package pb
@@ -179,6 +182,7 @@ func(r *Runtime)resetInstantTravel(){}
 // Game-time motion clock of the full host; route privacy does not depend on it.
 func(r *Runtime)lifeMotionTick()int64{return r.state.Tick}
 func(r *Runtime)syncLifeHero(){r.syncs++}
+func(r *Runtime)heroBodyNow(){}
 func(r *Runtime)lifeCommand(q *pb.PocLifeCommand)error{if q.Action=="enter"{r.entered=q.Destination;return nil};return r.wayfindingCommand(q.Action,q.Destination)}
 func fixture()*Runtime{rows:=[]string{"#########","#.......#","#.###.#.#","#.....#.#","#######.#","#.......#","#########"};r:=&Runtime{};r.world.Walkable=map[string]bool{".":true};r.world.Life.Locations=map[string]behavior.LifeLocation{"hall":{Name:"Hall",Terrain:rows},"out":{Name:"Other room",Terrain:rows},"secret":{Name:"SECRET_ROOM",Terrain:rows}};r.world.Life.Edges=[]behavior.LifeEdge{{ID:"door",From:"hall",To:"out",Mode:"walk",Exit:behavior.Cell{7,1}},{ID:"SECRET_EDGE",From:"hall",To:"secret",Mode:"rail",Exit:behavior.Cell{1,1}}};r.state=hostState{Epoch:"epoch1",Tick:44,Life:behavior.LifeState{Enabled:true,Seconds:100,Actors:[]behavior.LifeActor{{ID:playerActorID,Level:"hall",Position:behavior.Cell{1,1},Goal:behavior.Cell{3,1},Path:[]behavior.Cell{{2,1},{3,1}},MoveStartTick:42,Visits:map[string]int{"hall":1}}}},LifeExploration:map[string]map[int]seenCell{"hall":{}}};for y,row:=range rows{for x:=range row{r.state.LifeExploration["hall"][y*9+x]=seenCell{string(row[x])}}};r.world.Wayfinding=wayfindingCatalog{Destinations:[]wayfindingDestination{{ID:"way.med",NameKey:"wayfinding.med",Color:"#79A99A",Kind:"medical",Level:"hall",At:behavior.Cell{7,5},GuideFrom:&behavior.Cell{1,1},MarkerNumber:7},{ID:"way.hidden",NameKey:"wayfinding.hidden",Color:"#83A7BD",Kind:"sanitary",Level:"hall",At:behavior.Cell{1,5},MarkerNumber:2}}};delete(r.state.LifeExploration["hall"],5*9+1);r.world.Region=regionCatalog{ID:"region",Nodes:[]regionNode{{ID:"node.hall",LevelID:"hall",InitialKnowledge:"visited"},{ID:"node.out",LevelID:"out",InitialKnowledge:"known"},{ID:"node.secret",Name:"SECRET_ROOM",LevelID:"secret",InitialKnowledge:"unknown"}},Links:[]regionLink{{ID:"link.out",FromNode:"node.hall",ToNode:"node.out",InitialKnown:true,LifeEdges:[]string{"door"}},{ID:"SECRET_LINK",FromNode:"node.hall",ToNode:"node.secret",LifeEdges:[]string{"SECRET_EDGE"}}}};r.state.Region=regionKnowledge{Initialized:true,KnownNodes:map[string]bool{"node.hall":true,"node.out":true},KnownLinks:map[string]bool{"link.out":true},Visited:map[string]int64{"node.hall":0}};return r}
 func project(r *Runtime)*pb.PocWayfindingView{v:=&pb.PocLifeView{};r.appendWayfinding(v,"en");return v.Wayfinding}

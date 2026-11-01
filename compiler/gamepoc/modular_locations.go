@@ -80,6 +80,12 @@ func compileModularLocations(raw json.RawMessage, bundle *locationsdk.RuntimeBun
 		}
 		delete(loc, "modular_layout")
 		loc["terrain"], _ = json.Marshal(l.Terrain)
+		// Movement v2 (document 87): the controlled hero walks this story
+		// location as a continuous body measured in the layout's cells.
+		if _, exists := loc["cell_mm"]; exists {
+			return nil, nil, fmt.Errorf("modular location %s: cell_mm must come only from the compiled layout", id)
+		}
+		loc["cell_mm"], _ = json.Marshal(l.UnitMM)
 		if l.Navigation != nil {
 			if _, exists := loc["links"]; exists {
 				return nil, nil, fmt.Errorf("modular location %s: links must come only from the compiled layout", id)
@@ -164,6 +170,23 @@ func materializeModularPopulation(life map[string]json.RawMessage, locations map
 			return err
 		}
 	}
+	// demo-hub v5-yatai: seats, queue places and staff posts of a seated place (Life brain "seated_food") are for eating
+	// and serving, not for idling: a resident loitering on a seat would hold it for hours.
+	var brain struct {
+		Places []struct {
+			Level   string `json:"level"`
+			Seating *struct {
+				Seats, Queue, Posts []struct {
+					At Point `json:"at"`
+				}
+			} `json:"seating"`
+		} `json:"places"`
+	}
+	if len(life["brain"]) > 0 {
+		if err := json.Unmarshal(life["brain"], &brain); err != nil {
+			return err
+		}
+	}
 	for _, b := range bindings {
 		reserved := map[Point]bool{}
 		if bundle != nil {
@@ -204,6 +227,17 @@ func materializeModularPopulation(life map[string]json.RawMessage, locations map
 		for _, p := range practice {
 			if p.Level == b.LevelID {
 				reserved[p.At] = true
+			}
+		}
+		for _, p := range brain.Places {
+			if p.Level == b.LevelID && p.Seating != nil {
+				for _, group := range [][]struct {
+					At Point `json:"at"`
+				}{p.Seating.Seats, p.Seating.Queue, p.Seating.Posts} {
+					for _, spot := range group {
+						reserved[spot.At] = true
+					}
+				}
 			}
 		}
 		for _, a := range maintenance.Assets {

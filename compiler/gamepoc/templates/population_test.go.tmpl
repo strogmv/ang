@@ -432,7 +432,7 @@ func TestPopulationRuntimeHeroGotoThroughCrowd(t *testing.T) {
 // distinct traffic states instead of claiming seed-random crowds.
 func TestPopulationRuntimeC7CivilianCourtesyAcrossSeedsAndBusyTraffic(t *testing.T){
  for _,test:=range []struct{seed int64;warmup int}{{777,0},{999,17},{2027,73}}{t.Run(fmt.Sprintf("seed%d_warmup%d",test.seed,test.warmup),func(t *testing.T){
-  r,err:=New(t.TempDir(),"token");if err!=nil{t.Fatal(err)}
+  r,err:=New(t.TempDir(),"token");if err!=nil{t.Fatal(err)};cellHero(r)
   c:=&connection{out:make(chan *pb.ServerMessage,32),stop:make(chan struct{}),locale:"ru"}
   r.command(input{client:c,msg:&pb.ClientMessage{Msg:&pb.ClientMessage_NewGame{NewGame:&pb.PocNewGameRequest{Seed:test.seed,Epoch:r.state.Epoch,RequestId:"courtesy-session",Scenario:"life100"}}}})
   if r.state.Seed!=test.seed||r.state.Life.Population.Count!=100{t.Fatal("ordinary life100 NewGame did not start")}

@@ -29,7 +29,9 @@ namespace AngelsDemons.Poc {
   readonly Dictionary<string,Texture2D> spatialTextures=new Dictionary<string,Texture2D>();
   readonly Dictionary<string,Color> spatialColors=new Dictionary<string,Color>();
   bool LifeSpatialCamera(){return state!=null&&state.Life!=null&&state.Life.Enabled;}
-  Rect SpatialViewport(){return new Rect(16,104,hudDebugOpen?984:1248,584);}
+  // Movement v2 / document 86: a story location of the location SDK fills the whole window under the HUD panels, so its
+  // authored frame (12 m on the hub) is the window height: a 1.8 m person ~98 px at 1280x800 and ~133 px at 1080p.
+  Rect SpatialViewport(){if(page=="game"&&IsStoryModularLocation()&&CurrentLocationSDK()!=null){float scale=Mathf.Min(Screen.width/1280f,Screen.height/800f),w=Screen.width/scale,h=Screen.height/scale;return new Rect(-(w-1280)/2,-(h-800)/2,w,h);}return new Rect(16,104,hudDebugOpen?984:1248,584);}
   Rect SpatialDrawingViewport(){var r=SpatialViewport();return spatialClipped?new Rect(0,0,r.width,r.height):r;}
   void GetSpatialProjection(out Vector2 origin,out float tw,out float th){
    tw=64;th=32;origin=new Vector2(370,185);

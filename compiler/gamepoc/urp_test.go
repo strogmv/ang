@@ -67,7 +67,7 @@ func TestURPSDKPreparesBeforeIMGUIAndRendersAfterMainFrame(t *testing.T) {
 	}
 	unity := hudTemplate(t, "unity.cs.tmpl")
 	late := unity[strings.Index(unity, "void LateUpdate()"):strings.Index(unity, "void FinishProof(")]
-	if !strings.Contains(late, "UpdateMotion();\n            RenderLocationSDKFrame();") {
+	if !strings.Contains(late, "UpdateMotion();\n            HeroBodyPredict();\n            RenderLocationSDKFrame();") {
 		t.Fatal("SDK capture must run in LateUpdate after authoritative replies and motion sampling")
 	}
 }

@@ -52,7 +52,7 @@ namespace AngelsDemons.Poc {
    GUI.enabled=before;return pressed;
   }
   bool HudBlocksWorldInput(Vector2 mouse){
-   if(WayfindingBlocksInput(mouse))return true;
+   if(CombatPointerBlocked(mouse)||WayfindingBlocksInput(mouse))return true;
    if(new Rect(18,31,340,76).Contains(mouse)||new Rect(1024,31,238,92).Contains(mouse)||new Rect(18,678,358,108).Contains(mouse)||new Rect(827,687,435,99).Contains(mouse))return true;
    return hudDebugOpen&&(new Rect(1015,110,245,570).Contains(mouse)||new Rect(48,140,950,64).Contains(mouse)||new Rect(48,610,950,83).Contains(mouse));
   }
@@ -106,7 +106,7 @@ namespace AngelsDemons.Poc {
    PrepareHud();
    string telemetry=measuredFps.ToString("0")+" FPS  ·  GO "+state.ServerTickHz.ToString("0.0")+" Hz  ·  тик "+state.Tick;
    if(hudDebugOpen){telemetry+="  ·  шаг "+(state.ServerStepUs/1000).ToString("0.00")+" мс  ·  отставание "+state.ServerLagMs.ToString("0.0")+" мс";if(ackMS>=0)telemetry+="  ·  ACK "+ackMS.ToString("0.0")+" мс";}
-   Fill(new Rect(0,0,1280,25),new Color(.025f,.032f,.038f,.92f));GUI.Label(new Rect(18,3,1070,20),telemetry,hudSmall);
+   {var strip=SpatialViewport();Fill(new Rect(Mathf.Min(0,strip.x),0,Mathf.Max(1280,strip.width),25),new Color(.025f,.032f,.038f,.92f));}GUI.Label(new Rect(18,3,1070,20),telemetry,hudSmall);
    if(verify)GUI.Label(new Rect(1110,3,150,20),"АВТОПРОВЕРКА",hudSmall);
    HudFrame(new Rect(18,31,340,76));DrawHudLocationTitle();GUI.Label(new Rect(34,80,308,22),HudTime(),hudBody);
    DrawHudNetwork(new Rect(1024,31,238,59));

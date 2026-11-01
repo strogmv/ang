@@ -116,6 +116,8 @@ type RuntimeLevel struct {
 	// Actor presentation (demo-hub v3-people); JsonUtility cannot tell an omitted object from an empty one: the bit says.
 	ActorsAuthored bool          `json:"actors_authored,omitempty"`
 	Actors         *LayoutActors `json:"actors,omitempty"`
+	// In-world inscriptions (demo-hub v11-text); the game compiler adds their per-locale layout for Unity.
+	TextSlots []TextSlot `json:"text_slots,omitempty"`
 }
 
 // RuntimeBundle describes an isolated SDK scenario: its static geometry is
@@ -226,6 +228,14 @@ func CompileRuntime(input Input, options RuntimeOptions) (RuntimeBundle, error) 
 			return RuntimeBundle{}, invalid
 		}
 		level.Vistas = append([]Vista(nil), source.Vistas...)
+		if invalid := validateTextSlots(source); invalid != nil {
+			for j := range invalid.Diagnostics {
+				invalid.Diagnostics[j].Path = strings.Replace(invalid.Diagnostics[j].Path, "layout.", fmt.Sprintf("layouts[%d].", i), 1)
+				invalid.Diagnostics[j].References = append(invalid.Diagnostics[j].References, source.ID)
+			}
+			return RuntimeBundle{}, invalid
+		}
+		level.TextSlots = append([]TextSlot(nil), source.TextSlots...)
 		level.NearCut = compiled.NearCut
 		actors, invalid := validateActors(source)
 		if invalid != nil {

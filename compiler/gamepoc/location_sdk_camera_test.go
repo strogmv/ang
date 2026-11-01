@@ -24,7 +24,9 @@ func TestLocationSDKCameraUsesOneProjectionForBoundsActorsAndPointer(t *testing.
 		"locationSDKCamera.ViewportPointToRay", "locationSDKCamera.WorldToViewportPoint",
 		"if(camera==null)locationSDKFit=LocationSDKCameraFit(",
 		"locationSDKFollowHero=false;locationSDKFocus+=before-after", "heroHeight>0&&!locationSDKCameraZoomInitialized",
-		"LocationSDKCellCenter(shownPosition.x", "locationSDKZoomOrigin*.55f,locationSDKZoomOrigin*3f",
+		"LocationSDKCellCenter(shownPosition.x", "lo=locationSDKZoomOrigin*.55f,hi=locationSDKZoomOrigin*3f",
+		// Movement v2 (document 86): a story frame zooms between 3/4 and 4/3 of its authored height (12 m -> 9..16 m).
+		"lo=locationSDKZoomOrigin*.75f;hi=locationSDKZoomOrigin*4f/3f",
 	} {
 		if !strings.Contains(source, required) {
 			t.Errorf("shared camera contract missing %q", required)

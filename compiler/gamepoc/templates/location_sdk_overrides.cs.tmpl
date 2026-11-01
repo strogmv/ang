@@ -76,6 +76,19 @@ namespace AngelsDemons.Poc {
   // from 0 to one stride, measured by the importer. Omitted: phase = distance / (walk_clip_speed_mps x walk_cycle_seconds).
   public float[] walk_distance_by_phase;
   public string[] tint_slots;public Color[] tints;public Color hero_tint=new Color(1,1,1,1);public bool hero_marker=true;public bool contact_shadow=true;
+  // Seated activities (demo-hub v5-yatai, optional: no sit_states = the body stands on the seat). Go owns the seat, when
+  // the body sits down / rises and for how long; the runtime plays sit_down_state / sit_up_state over Go's transition
+  // times, then cycles the seated loop states: a state per slot of sit_switch_min..max seconds, picked by weight from a
+  // stable hash of (actor ID, activity start, slot); role "talk" only beside a seated neighbour (turned slightly to it),
+  // "drink" puts the mug in the right hand. The pelvis is pinned on the seat anchor (+ the measured height of the hips
+  // above the sitting surface, per body: body_prefab, then body_variants) and the feet are held on the floor by foot IK
+  // (the controller layer needs the IK pass). sit_cycle_seconds: clip length of each seated state (start offsets).
+  public string sit_down_state,sit_up_state;public float sit_down_seconds,sit_up_seconds;
+  public string[] sit_states,sit_roles;public float[] sit_weights,sit_cycle_seconds;
+  public float sit_switch_min_seconds=8,sit_switch_max_seconds=20,sit_crossfade_seconds=.8f;
+  public float[] sit_hips_above_seat_m;
+  public Color prop_bowl_color=new Color(.62f,.63f,.62f,1),prop_mug_color=new Color(.78f,.80f,.74f,1);
+  public bool Seated=>sit_states!=null&&sit_states.Length>0;
  }
  [CreateAssetMenu(fileName="Registry",menuName="ANG/Location Overrides/Registry")]
  public sealed class AngelsDemonsLocationOverrideRegistry : ScriptableObject {
@@ -183,6 +196,10 @@ namespace AngelsDemons.Poc {
       !string.IsNullOrEmpty(cast.stairs_state)&&(!Finite(cast.stairs_clip_speed_mps)||cast.stairs_clip_speed_mps<=.05f||!Finite(cast.stairs_cycle_seconds)||cast.stairs_cycle_seconds<=0)||
       !Finite(cast.walk_threshold_mps)||cast.walk_threshold_mps<0||!Finite(cast.turn_degrees_per_second)||cast.turn_degrees_per_second<=0||!Finite(cast.course_window_seconds)||cast.course_window_seconds<0||cast.course_window_seconds>2||cast.tints==null||cast.tints.Length==0)
       throw new LocationSDKOverrideError("ui.sdk.override_unsupported","cast "+id,"invalid actor cast");
+     if(cast.Seated){int bodies=1+(cast.body_variants==null?0:cast.body_variants.Length);bool ok=!string.IsNullOrEmpty(cast.sit_down_state)&&!string.IsNullOrEmpty(cast.sit_up_state)&&cast.sit_weights!=null&&cast.sit_weights.Length==cast.sit_states.Length&&cast.sit_roles!=null&&cast.sit_roles.Length==cast.sit_states.Length&&Finite(cast.sit_switch_min_seconds)&&cast.sit_switch_min_seconds>0&&Finite(cast.sit_switch_max_seconds)&&cast.sit_switch_max_seconds>=cast.sit_switch_min_seconds&&Finite(cast.sit_crossfade_seconds)&&cast.sit_crossfade_seconds>=0&&cast.sit_cycle_seconds!=null&&cast.sit_cycle_seconds.Length==cast.sit_states.Length&&Finite(cast.sit_down_seconds)&&cast.sit_down_seconds>0&&Finite(cast.sit_up_seconds)&&cast.sit_up_seconds>0&&cast.sit_hips_above_seat_m!=null&&cast.sit_hips_above_seat_m.Length==bodies;
+      for(int i=0;ok&&i<cast.sit_states.Length;i++)ok=!string.IsNullOrEmpty(cast.sit_states[i])&&Finite(cast.sit_weights[i])&&cast.sit_weights[i]>0&&Finite(cast.sit_cycle_seconds[i])&&cast.sit_cycle_seconds[i]>0;
+      for(int i=0;ok&&i<bodies;i++)ok=Finite(cast.sit_hips_above_seat_m[i])&&cast.sit_hips_above_seat_m[i]>=.02f&&cast.sit_hips_above_seat_m[i]<=.4f;
+      if(!ok)throw new LocationSDKOverrideError("ui.sdk.override_unsupported","cast "+id,"invalid seated states / measurements");}
      if(cast.walk_distance_by_phase!=null&&cast.walk_distance_by_phase.Length>0){var c=cast.walk_distance_by_phase;bool ok=c.Length>=2&&c[0]==0&&Finite(c[c.Length-1])&&c[c.Length-1]>=.1f;for(int i=1;ok&&i<c.Length;i++)ok=Finite(c[i])&&c[i]>=c[i-1];
       if(!ok)throw new LocationSDKOverrideError("ui.sdk.override_unsupported","cast "+id,"walk_distance_by_phase is not a rising curve from 0 to one stride");}
      if(result.ContainsKey(id))throw new LocationSDKOverrideError("ui.sdk.override_duplicate","cast "+id);

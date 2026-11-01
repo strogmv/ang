@@ -70,7 +70,7 @@ func clientMenu(c Compiled) map[string]any {
 
 func clientResource(c Compiled) ([]byte, error) {
 	cfg := c.Config
-	return json.MarshalIndent(map[string]any{
+	view := map[string]any{
 		"location_sdk":      c.LocationSDK,
 		"modular_locations": c.ModularLocations,
 		"localization":      clientLocalization(c.Localization),
@@ -87,7 +87,12 @@ func clientResource(c Compiled) ([]byte, error) {
 			"capture_min_contact_members":    c.Inventory.Preparation.MinContactMembers,
 			"capture_support_distance_cells": c.Inventory.Preparation.SupportDistance,
 		},
-	}, "", "  ")
+	}
+	// World text (demo-hub v11-text) only when the world has inscriptions: earlier projects keep their resource.
+	if c.WorldTextDrawn != nil {
+		view["world_text"] = c.WorldTextDrawn
+	}
+	return json.MarshalIndent(view, "", "  ")
 }
 
 func validateAIFixtureFacts(data []byte, facts map[string]bool) error {
