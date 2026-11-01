@@ -46,7 +46,7 @@ func(r *Runtime)npcOfferItem(id string,p behavior.LifeAffordance)(inv.Item,bool)
  return r.npcOfferItemOf(id,p,defs)
 }
 func(r *Runtime)npcOfferItemOf(id string,p behavior.LifeAffordance,defs []string)(inv.Item,bool){
- staffed:=false;for _,sh:=range r.world.Inventory.Shopfronts{if sh.DisplayStore!=p.Store{continue};a:=r.state.Life.Actor(sh.Owner);staffed=a!=nil&&a.OnFloor()&&len(a.Path)==0&&a.Level==sh.Service.Level&&a.Position==(behavior.Cell{X:sh.Service.At.X,Y:sh.Service.At.Y});break};if !staffed{return inv.Item{},false}
+ staffed:=r.vendingServes(p.Store);for _,sh:=range r.world.Inventory.Shopfronts{if sh.DisplayStore!=p.Store{continue};a:=r.state.Life.Actor(sh.Owner);staffed=a!=nil&&a.OnFloor()&&len(a.Path)==0&&a.Level==sh.Service.Level&&a.Position==(behavior.Cell{X:sh.Service.At.X,Y:sh.Service.At.Y});break};if !staffed{return inv.Item{},false}
  if !r.commerceAccessible(id,inv.Location{Kind:"store",Store:p.Store}){return inv.Item{},false}
  account,ok:=r.npcAccount(id);if !ok{return inv.Item{},false};best:=inv.Item{}
  for _,i:=range r.state.Inventory.Items{if i.Location.Kind!="store"||i.Location.Store!=p.Store||!i.ForSale||i.Owner==id||i.Hidden||i.Quantity<1{continue};allowed:=false;for _,d:=range defs{if d==i.Definition{allowed=true}};if !allowed{continue};d:=r.world.Inventory.Definitions[i.Definition];price,err:=inv.Quote(d,1);if err!=nil||d.PriceUnit!=account.Currency||price>account.Balance{continue};if best.ID==""||i.ID<best.ID{best=i}}
@@ -68,7 +68,7 @@ func(r *Runtime)npcBuy(id string,p behavior.LifeAffordance,food bool)bool{
 func(r *Runtime)npcPurchase(id string,item inv.Item,level string,at inv.Cell,consume,food bool)bool{
  model:=r.inventoryModelFor(true)
  result,err:=r.state.Inventory.Execute(model,inv.Action{Actor:id,Kind:"buy",Item:item.ID,Quantity:1,Sequence:r.state.Inventory.Cursors[id].Sequence+1,ExpectedRevision:item.Revision},inv.Access{Level:level,At:at,Known:func(i inv.Item)bool{return i.ID==item.ID},Reach:func(a inv.Anchor)bool{return a.Kind=="world"&&a.Level==level&&manhattan(point{a.At.X,a.At.Y},point{at.X,at.Y})<=model.Actions.ReachCells}})
- if err!=nil{return false};bought:=item.ID;if len(result.Created)>0{bought=result.Created[0]}
+ if err!=nil{return false};r.vendingNoteSale(item.Location.Store);bought:=item.ID;if len(result.Created)>0{bought=result.Created[0]}
  if consume{if err:=r.state.Inventory.Consume(model,id,bought,1);err!=nil{panic(err)};if food{r.state.NPCEconomy.FoodConsumed++}}
  amount,_:=inv.Quote(model.Definitions[item.Definition],1);r.state.NPCEconomy.Purchases++;r.state.NPCEconomy.Turnover+=amount
  if r.state.NPCEconomy.BySeller==nil{r.state.NPCEconomy.BySeller=map[string]int64{}};r.state.NPCEconomy.BySeller[item.Owner]+=amount

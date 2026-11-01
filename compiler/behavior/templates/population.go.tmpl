@@ -51,6 +51,8 @@ func(e PopulationEnvironment) landingTraffic(a PopulationActor,level string,entr
 }
 
 type PopulationActor struct {
+ CombatHold bool `json:"combat_hold,omitempty"`
+ Safety *LifeSafetyOverride `json:"safety,omitempty"`
  Brain LifeBrain `json:"brain"`
 	Profile *PopulationLifeProfile `json:"profile,omitempty"`
  YieldUntil int64 `json:"yield_until,omitempty"`
@@ -180,7 +182,7 @@ func (s PopulationState) Clone() PopulationState {
 	out.Actors = append([]PopulationActor(nil), s.Actors...)
 	for i := range out.Actors {
 		a := &out.Actors[i]
-		a.Profile=s.Actors[i].Profile.clone();a.Brain=a.Brain.Clone()
+		a.Safety=a.Safety.clone();a.Profile=s.Actors[i].Profile.clone();a.Brain=a.Brain.Clone()
 		a.Path = append([]Cell(nil), a.Path...)
 		if a.Trip != nil {
 			trip := *a.Trip
@@ -200,7 +202,7 @@ func (s PopulationState) Clone() PopulationState {
 func (s PopulationState) Occupied() map[string]map[Cell]bool {
 	occupied := map[string]map[Cell]bool{}
 	for _, a := range s.Actors {
-		if !a.Materialized || a.Trip != nil {
+		if (!a.Materialized&&!a.CombatHold) || a.Trip != nil {
 			continue
 		}
 		if occupied[a.Level] == nil {
@@ -322,7 +324,7 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
  occupied:=s.occupancy
  for level,cells:=range occupied{for at,id:=range cells{
   keep:=false
-  if id=="external"{keep=environment.Occupied[level][at]}else if i,ok:=s.actorIndex[id];ok{a:=s.Actors[i];keep=a.Materialized&&a.Trip==nil&&a.Level==activeLevel&&a.Level==level&&(a.Position==at||len(a.Path)>0&&a.Path[0]==at)}
+  if id=="external"{keep=environment.Occupied[level][at]}else if i,ok:=s.actorIndex[id];ok{a:=s.Actors[i];keep=a.Trip==nil&&a.Level==level&&((a.CombatHold&&a.Position==at)||(a.Materialized&&a.Level==activeLevel&&(a.Position==at||len(a.Path)>0&&a.Path[0]==at)))}
   if !keep{delete(cells,at)}
  }}
  if s.claims==nil{s.claims=map[string]map[Cell]string{}};claims:=s.claims;for _,cells:=range claims{clear(cells)}
@@ -347,6 +349,7 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 			a.Path = nil
 			a.MoveStartTick = tick
 		}
+		if a.CombatHold&&a.Trip==nil{populationReserve(occupied,a.Level,a.Position,a.ID)}
 		if a.Materialized {
 			active++
 			if !a.Arrived&&claims[a.Level][a.Goal]==""{populationReserve(claims,a.Level,a.Goal,a.ID)}
@@ -356,6 +359,8 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 			}
 		}
 	}
+
+ for i:=range s.Actors{a:=&s.Actors[i];if a.CombatHold&&!a.Materialized&&a.Trip==nil&&a.Level==activeLevel&&active<p.MaxActive&&!environment.Occupied[a.Level][a.Position]&&occupied[a.Level][a.Position]==a.ID{a.Materialized=true;active++}}
 	type departure struct {
 		edge string
 		at   int64
@@ -375,13 +380,18 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 			a.Queued = false
 			a.QueueReason = ""
 		}
+        if a.CombatHold{a.Safety=nil;a.Path=nil;a.Goal=a.Position;a.Arrived=true;a.MoveStartTick=tick;a.YieldRequester="";a.YieldUntil=0;a.YieldHoldUntil=0;a.Queued=false;a.QueueReason="";continue}
+        if a.Safety!=nil&&a.Safety.Until<=seconds{a.Safety=nil;a.Arrived=false;a.Path=nil;a.Brain.NextDecision=0}
+        safety:=a.Safety!=nil
         brainTarget:=LifeStep{}
         if l.Brain.Enabled&&tick>0 {
          stage:=p.seededStage(*a,seconds,environment.Seed);cfg:=p.profileStage(a.Profile,stage)
          scheduled:=LifeStep{Level:cfg.Level,At:p.profileAnchor(a.Profile,stage,i,cfg.Level),Activity:cfg.Activity}
          home:=LifeStep{};if a.Profile!=nil&&a.Profile.Home!=nil{home=LifeStep{Level:a.Profile.Home.Level,At:a.Profile.Home.At,Activity:"sleep"}}
-         brainTarget=a.Brain.advance(l.Brain,environment.BrainServices,a.ID,a.Level,a.Activity,a.Position,a.Arrived&&a.Trip==nil,a.Materialized,false,scheduled,home,(seconds+a.ShiftSeconds)/86400,seconds,environment.Seed)
+         if safety&&a.Brain.Initialized&&(scheduled.Obligation||brainDuty(scheduled.Activity))&&seconds>a.Brain.LastSecond{a.Brain.MissedWorkSeconds+=seconds-a.Brain.LastSecond}
+         brainTarget=a.Brain.advance(l.Brain,environment.BrainServices,a.ID,a.Level,a.Activity,a.Position,a.Arrived&&a.Trip==nil,a.Materialized,safety,scheduled,home,(seconds+a.ShiftSeconds)/86400,seconds,environment.Seed)
         }
+        if safety{brainTarget=a.Safety.target(seconds)}
 		if a.Trip != nil {
 			edge := l.Edge(a.Trip.Edge)
 			if edge == nil {
@@ -453,7 +463,7 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 			continue
 		}
 		stage := p.seededStage(*a,seconds,environment.Seed)
-		if stage != a.Stage {
+		if !safety && stage != a.Stage {
 			a.Stage = stage
 			a.Arrived = false
 			a.WaitingDeparture = 0
@@ -462,7 +472,7 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 			}
 		}
 		target := p.profileStage(a.Profile,a.Stage)
-        if l.Brain.Enabled&&brainTarget.Level!=""{target.Level=brainTarget.Level;target.Activity=brainTarget.Activity;if a.Level!=target.Level||a.Goal!=brainTarget.At||a.Activity!=target.Activity{a.Arrived=false}}
+        if (l.Brain.Enabled||safety)&&brainTarget.Level!=""{target.Level=brainTarget.Level;target.Activity=brainTarget.Activity;if a.Level!=target.Level||a.Goal!=brainTarget.At||a.Activity!=target.Activity{a.Arrived=false}}
 		if l.Brain.Enabled && a.Materialized && len(a.Path) > 0 && a.MoveStartTick+p.MoveTicks < tick-frame+1 { a.MoveStartTick = tick-frame+1-p.MoveTicks }
 		for a.Materialized && len(a.Path) > 0 && tick >= a.MoveStartTick+p.MoveTicks {
 			next := a.Path[0]
@@ -510,7 +520,7 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 			if waiting{a.Goal=goal;a.Activity="waiting_platform";continue}
 		} else {
 			var free bool
-			if l.Brain.Enabled&&brainTarget.Level!=""{goal=brainTarget.At;free=!a.Materialized||populationCellFree(l,a.Level,goal,occupied,a.ID)}else{goal, free = s.profileDestination(p,l,a,i,occupied)}
+			if (l.Brain.Enabled||safety)&&brainTarget.Level!=""{goal=brainTarget.At;free=!a.Materialized||populationCellFree(l,a.Level,goal,occupied,a.ID)}else{goal, free = s.profileDestination(p,l,a,i,occupied)}
 			if !free {
 				// A preferred address may become closed after a local leg began.
 				// Keep the identity, but never save a wall as the physical Goal.
@@ -635,6 +645,8 @@ func (s PopulationState) Validate(p PopulationModel, l LifeModel, seconds, tick 
 	}
 	seats := map[departure]int{}
 	for i, a := range s.Actors {
+        if a.CombatHold&&(a.Trip!=nil||len(a.Path)>0||a.Safety!=nil){return fmt.Errorf("invalid held population actor")}
+        if err:=a.Safety.validate(l,a.Level,seconds);err!=nil{return err}
         if err:=a.Brain.Validate(l.Brain,seconds);err!=nil{return err}
 		if err:=p.validateProfile(a.Profile,l);err!=nil{return fmt.Errorf("population actor %s: %w",a.ID,err)}
 		if len(p.ShiftOffsets) == 0 || a.ID != fmt.Sprintf("population.%04d", i+1) || a.Name == "" || a.Stage < 0 || a.Stage >= len(p.Stages) || !p.profileShiftAllowed(a.Profile,a.ShiftSeconds) || !l.Walks(a.Level, a.Position) || !l.Walks(a.Level, a.Goal) || a.YieldUntil < 0 || a.YieldUntil > l.MotionTick(tick,seconds)+8*p.MoveTicks || a.MoveStartTick < 0 || a.MoveStartTick > l.MotionTick(tick,seconds) || a.WaitingDeparture < 0 || a.ColdReadyAt < 0 || a.Activity == "" || a.Visits == nil {

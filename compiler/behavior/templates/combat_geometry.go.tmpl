@@ -3,6 +3,132 @@ package behavior
 
 import "math"
 
+func combatBodyHeight(a Combatant, part string) int {
+	if a.Prone {
+		switch part {
+		case "head":
+			return 400
+		case "legs":
+			return 150
+		default:
+			return 280
+		}
+	}
+	if a.Crouched {
+		switch part {
+		case "head":
+			return 1050
+		case "legs":
+			return 250
+		default:
+			return 700
+		}
+	}
+	switch part {
+	case "head":
+		return 1650
+	case "legs":
+		return 450
+	default:
+		return 1100
+	}
+}
+func combatEyeHeight(a Combatant) int {
+	if a.Prone {
+		return 400
+	}
+	if a.Crouched {
+		return 1000
+	}
+	return 1600
+}
+
+// Aiming at a head behind a barrier is not a torso ray with an accuracy bonus.
+func (v *DeckVolume) CombatPoseProtection(from, to Cell, shooter, target Combatant, part string) float64 {
+	a, ha, _, oka := v.Locate(from)
+	b, hb, _, okb := v.Locate(to)
+	if !oka || !okb {
+		return 1
+	}
+	heights := []int{combatBodyHeight(target, part)}
+	if part == "" {
+		heights = []int{combatBodyHeight(target, "legs"), combatBodyHeight(target, "torso"), combatBodyHeight(target, "head")}
+	}
+	blocked := 0
+	for _, h := range heights {
+		if !v.clear(a, float64(ha+combatEyeHeight(shooter)), b, float64(hb+h)) {
+			blocked++
+		}
+	}
+	return float64(blocked) / float64(len(heights))
+}
+func (v *DeckVolume) CombatBodyIntersects(from, to Cell, shooter, target, body Combatant, part string) bool {
+	a, ha, _, oka := v.Locate(from)
+	b, hb, _, okb := v.Locate(to)
+	p, hp, _, okp := v.Locate(body.Position)
+	if !oka || !okb || !okp {
+		return true
+	}
+	ax, ay, az := float64(a.X)*deckCellMM, float64(a.Y)*deckCellMM, float64(ha+combatEyeHeight(shooter))
+	dx, dy := float64(b.X-a.X)*deckCellMM, float64(b.Y-a.Y)*deckCellMM
+	length := dx*dx + dy*dy
+	if length == 0 {
+		return false
+	}
+	t := ((float64(p.X)*deckCellMM-ax)*dx + (float64(p.Y)*deckCellMM-ay)*dy) / length
+	if t <= 0 || t >= 1 {
+		return false
+	}
+	z := az + t*(float64(hb+combatBodyHeight(target, part))-az)
+	top := 1800
+	if body.Prone {
+		top = 500
+	} else if body.Crouched {
+		top = 1200
+	}
+	return z >= float64(hp) && z <= float64(hp+top) && math.Hypot(ax+t*dx-float64(p.X)*deckCellMM, ay+t*dy-float64(p.Y)*deckCellMM) < 225
+}
+
+// A sampled arc checks overhead slabs and beams as well as the plan cells.
+// It never assumes that an empty-looking screen-space corridor has no ceiling.
+func (v *DeckVolume) CombatThrowClear(from, to Cell) bool {
+	a, ha, _, oka := v.Locate(from)
+	b, hb, _, okb := v.Locate(to)
+	if !oka || !okb {
+		return false
+	}
+	steps := max(16, 4*max(absCombat(a.X-b.X), absCombat(a.Y-b.Y)))
+	if steps > 1024 {
+		return false
+	}
+	previous := a
+	previousZ := float64(ha + 1200)
+	for i := 1; i <= steps; i++ {
+		t := float64(i) / float64(steps)
+		at := Cell{int(math.Round(float64(a.X) + float64(b.X-a.X)*t)), int(math.Round(float64(a.Y) + float64(b.Y-a.Y)*t))}
+		height := float64(ha+1200) + (float64(hb+150)-float64(ha+1200))*t + 4*1500*t*(1-t)
+		if !v.clear(previous, previousZ, at, height) {
+			return false
+		}
+		previous, previousZ = at, height
+	}
+	return true
+}
+func (v *DeckVolume) CombatBlastProtection(origin, target Cell) float64 {
+	a, ha, _, oka := v.Locate(origin)
+	b, hb, _, okb := v.Locate(target)
+	if !oka || !okb {
+		return 1
+	}
+	blocked := 0
+	for _, h := range []int{300, 900, 1500} {
+		if !v.clear(a, float64(ha+150), b, float64(hb+h)) {
+			blocked++
+		}
+	}
+	return float64(blocked) / 3
+}
+
 // CombatRangeMM measures actual plan/height coordinates, never navigation-band rows.
 func (v *DeckVolume) CombatRangeMM(a, b Cell) int {
 	pa, ha, _, oka := v.Locate(a)

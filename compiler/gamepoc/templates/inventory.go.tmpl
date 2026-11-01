@@ -106,7 +106,7 @@ func (r *Runtime) inventoryCommand(c *connection, q *pb.PocInventoryCommand) {
 		r.sendState(c)
 	}()
 	reject := func(message string) { result.Message = message }
-	if r.state.Combat.Active {
+	if r.heroInCombat() {
 		reject(r.localText(c.locale, "error.combat_already_active", "error.combat_already_active"))
 		return
 	}
@@ -145,6 +145,10 @@ func (r *Runtime) inventoryCommand(c *connection, q *pb.PocInventoryCommand) {
 	}
 	if r.state.Paused || (r.missionActor() == playerActorID && r.state.Demo.Captured) {
 		reject("Сейчас нельзя перемещать вещи")
+		return
+	}
+	// Vending terminals (world.vending): purchases from a showcase, buy-back and the charging dock.
+	if r.vendingCommand(c, q, tag, result) {
 		return
 	}
 	action := inv.Action{Actor: playerActorID, Kind: q.Action, Item: q.ItemId, Store: q.StoreId, Quantity: q.Quantity, ExpectedRevision: q.ExpectedRevision, Sequence: q.Sequence, RequestTag: tag}
@@ -262,6 +266,9 @@ func (r *Runtime) appendInventory(msg *pb.PocGameState, locales ...string) {
 }
 func (r *Runtime) validateInventory(s state) error {
 	if s.Life.Enabled {
+		if err := r.validateVendingSave(s); err != nil {
+			return err
+		}
 		if err := r.validateCommerceSave(s); err != nil {
 			return err
 		}

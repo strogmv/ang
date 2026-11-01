@@ -676,10 +676,10 @@ func (r *Runtime) snapshotState() state {
 	s := r.state
 	s.CombatPublicEvents = append([]behavior.CombatEvent(nil), s.CombatPublicEvents...)
 	s.Combat = r.state.Combat.Clone()
+ s.CombatWorld=r.state.CombatWorld.Clone()
 	s.CombatRoster = map[string]behavior.Combatant{}
 	for id, a := range r.state.CombatRoster {
-		a.Contacts = append([]behavior.CombatContact(nil), a.Contacts...)
-		s.CombatRoster[id] = a
+		s.CombatRoster[id] = cloneCombatant(a)
 	}
 	s.NPCEconomy = r.state.NPCEconomy.clone()
 	s.Region = s.Region.clone()
@@ -692,6 +692,7 @@ func (r *Runtime) snapshotState() state {
 		s.Poses[id] = p
 	}
 	s.Inventory = s.Inventory.Clone()
+	s.Vending = r.state.Vending.clone()
 	s.Path = append([]point(nil), s.Path...)
 	s.Demo.Shadow = s.Demo.Shadow.Clone()
 	s.Demo.Supply = s.Demo.Supply.Clone()

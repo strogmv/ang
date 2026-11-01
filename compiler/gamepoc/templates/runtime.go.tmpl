@@ -76,6 +76,7 @@ type worldModular struct {
 }
 type worldData struct {
 	CombatRuntime           combatCatalog                   `json:"combat_runtime"`
+ CombatLife combatLifeCatalog `json:"combat_life"`
 	Decks                   map[string]*behavior.DeckVolume `json:"-"`
 	ModularLocations        []worldModular                  `json:"modular_locations"`
 	PaintedInventoryAnchors map[string]map[string]inv.Cell  `json:"painted_inventory_anchors"`
@@ -83,6 +84,7 @@ type worldData struct {
 	Localization            localizationCatalog             `json:"localization"`
 	Region                  regionCatalog                   `json:"region_map"`
 	Wayfinding              wayfindingCatalog               `json:"wayfinding"`
+	Vending                 vendingCatalog                  `json:"vending"`
 	Life                    behavior.LifeModel              `json:"life"`
 	Visibility              visibilityPolicy                `json:"visibility"`
 	Opaque                  map[string]bool                 `json:"opaque"`
@@ -100,7 +102,8 @@ type worldData struct {
 }
 type state struct {
 	Combat             behavior.CombatState
-	CombatSerial       uint64
+	CombatWorld combatWorldState
+ CombatSerial       uint64
 	CombatRoster       map[string]behavior.Combatant
 	CombatPublicEvents []behavior.CombatEvent
 	CombatPublicSeq    uint64
@@ -113,6 +116,7 @@ type state struct {
 	HeroHearing          behavior.Memory
 	Poses                map[string]actorPose
 	NPCEconomy           npcEconomyState
+	Vending              vendingState
 	Inventory            inv.State
 	Demo                 demoState
 	Active               bool
@@ -195,6 +199,7 @@ func New(data, token string) (*Runtime, error) {
 	if err := r.world.CombatRuntime.Validate(); err != nil {
 		return nil, err
 	}
+ if err:=r.world.CombatLife.Validate(r.world.Life,r.world.CombatRuntime);err!=nil{return nil,err}
 	r.world.Life.Walkable = r.world.Walkable
 	if len(r.world.Life.Actors) > 0 {
 		if err := r.world.Life.Validate(); err != nil {
@@ -205,6 +210,7 @@ func New(data, token string) (*Runtime, error) {
 		}
 	}
 	r.prepareNPCInventory()
+	r.prepareVendingInventory()
 	if err := r.prepareLocationSDK(); err != nil {
 		return nil, err
 	}
@@ -891,6 +897,7 @@ func (r *Runtime) readSave(slot string) (state, int64, error) {
 	if err := validator.validateCombatSave(s); err != nil {
 		return s, 0, err
 	}
+ if err:=validator.validateCombatWorld(s);err!=nil{return s,0,err}
 	r = validator
 	if s.Life.Enabled {
 		if err := validator.validateLifeSave(s); err != nil {

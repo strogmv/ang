@@ -21,7 +21,7 @@ func(s *LifeState) syncTrafficCurrent(){if s.traffic!=nil&&s.traffic.current>=0{
 func(s *LifeState) trafficActor(index int){s.syncTrafficCurrent();s.traffic.current=index}
 func(s *LifeState) syncTrafficBody(index int){
  if s.traffic==nil{return};g:=s.traffic;b:=trafficBody{}
- if index<len(s.Actors){a:=&s.Actors[index];b=trafficBody{id:a.ID,level:a.Level,position:a.Position,present:a.OnFloor()};if len(a.Path)>0{b.hasNext=true;b.next=a.Path[0]};if a.Body!=nil{for _,c:=range a.Body.Cells{if c!=b.position&&(!b.hasNext||c!=b.next)&&b.extras<len(b.extra){b.extra[b.extras]=c;b.extras++}}}}else{a:=&s.Population.Actors[index-len(s.Actors)];b=trafficBody{id:a.ID,level:a.Level,position:a.Position,present:a.Materialized&&a.Trip==nil};if len(a.Path)>0{b.hasNext=true;b.next=a.Path[0]}}
+ if index<len(s.Actors){a:=&s.Actors[index];b=trafficBody{id:a.ID,level:a.Level,position:a.Position,present:a.OnFloor()};if len(a.Path)>0{b.hasNext=true;b.next=a.Path[0]};if a.Body!=nil{for _,c:=range a.Body.Cells{if c!=b.position&&(!b.hasNext||c!=b.next)&&b.extras<len(b.extra){b.extra[b.extras]=c;b.extras++}}}}else{a:=&s.Population.Actors[index-len(s.Actors)];b=trafficBody{id:a.ID,level:a.Level,position:a.Position,present:(a.Materialized||a.CombatHold)&&a.Trip==nil};if len(a.Path)>0{b.hasNext=true;b.next=a.Path[0]}}
  old:=g.bodies[index];if old==b{return}
  remove:=func(at Cell){key:=trafficCell{old.level,at};ids:=g.cells[key];for j,id:=range ids{if id==index{copy(ids[j:],ids[j+1:]);ids=ids[:len(ids)-1];break}};if len(ids)==0{delete(g.cells,key)}else{g.cells[key]=ids}}
  if old.present{remove(old.position);if old.hasNext&&old.next!=old.position{remove(old.next)};for j:=0;j<old.extras;j++{remove(old.extra[j])}}

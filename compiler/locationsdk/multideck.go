@@ -181,10 +181,12 @@ type NavCutawayGroup struct {
 	Policy     string   `json:"policy"`
 	Surfaces   []string `json:"surfaces"`
 	Connectors []string `json:"connectors"`
-	Interior   []Rect   `json:"interior"`
-	BottomMM   int      `json:"bottom_mm"`
-	TopMM      int      `json:"top_mm"`
-	Reason     string   `json:"reason"`
+	// Floor instances of an occluding group (a tall fixture in front of the hero), demo-hub v12-vending.
+	Instances []string `json:"instances,omitempty"`
+	Interior  []Rect   `json:"interior"`
+	BottomMM  int      `json:"bottom_mm"`
+	TopMM     int      `json:"top_mm"`
+	Reason    string   `json:"reason"`
 }
 
 type SightSpan struct {
@@ -451,6 +453,14 @@ func compileMultideck(p preparedCatalog, layout Layout, out *CompiledLevel, supp
 			return issue("unsupported_cutaway_policy", path+".policy", "supported cutaway policies are occluding and building")
 		}
 		b.groups[group.ID] = group
+	}
+	for i, instance := range layout.Instances {
+		if instance.CutawayGroup == "" {
+			continue
+		}
+		if g, ok := b.groups[instance.CutawayGroup]; !ok || g.Policy != "occluding" {
+			return issue("instance_cutaway_group", fmt.Sprintf("layout.instances[%d].cutaway_group", i), "an instance may only join a declared occluding cutaway group", instance.CutawayGroup)
+		}
 	}
 	decks := append([]Deck{}, layout.Decks...)
 	sort.Slice(decks, func(i, j int) bool { return decks[i].ID < decks[j].ID })
@@ -1629,7 +1639,15 @@ func (b *mdBuilder) navigation() *ValidationError {
 				ng.Connectors = append(ng.Connectors, c.ID)
 			}
 		}
-		if len(ng.Surfaces) == 0 {
+		for _, instance := range b.layout.Instances {
+			if instance.CutawayGroup == id {
+				ng.Instances = append(ng.Instances, instance.ID)
+				if h := b.layout.Elevation*UnitMM + b.instanceHeightMM(instance.ID); h > top {
+					top = h
+				}
+			}
+		}
+		if len(ng.Surfaces) == 0 && len(ng.Instances) == 0 {
 			return issue("cutaway_group", "layout.cutaway_groups", "cutaway group has no member surface", id)
 		}
 		for _, r := range g.Interior {
@@ -1653,6 +1671,15 @@ func (b *mdBuilder) navigation() *ValidationError {
 	b.out.Terrain = terrain
 	b.out.Navigation = nav
 	return nil
+}
+
+func (b *mdBuilder) instanceHeightMM(id string) int {
+	for _, instance := range b.out.Instances {
+		if instance.ID == id {
+			return instance.Height * UnitMM
+		}
+	}
+	return 0
 }
 
 func (b *mdBuilder) surfaceAtNav(c Cell) string {

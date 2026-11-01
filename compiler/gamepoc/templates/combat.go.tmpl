@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+ "reflect"
 	"sort"
 )
 
@@ -30,7 +31,10 @@ type combatCatalog struct {
 	Profiles        map[string]combatProfile         `json:"profiles"`
 	Actors          map[string]string                `json:"actors"`
 	Weapons         map[string]behavior.CombatWeapon `json:"weapons"`
-	MaxParticipants int                              `json:"max_participants"`
+	MedicalDefinitions []string `json:"medical_definitions"`
+ Explosives map[string]behavior.CombatExplosive `json:"explosives"`
+ Armor map[string]behavior.CombatArmor `json:"armor"`
+ MaxParticipants int                              `json:"max_participants"`
 	JoinRangeMM     int                              `json:"join_range_mm"`
 }
 
@@ -59,46 +63,23 @@ func (c combatCatalog) Validate() error {
 	}
 	return nil
 }
-func (r *Runtime) combatant(id, team string) behavior.Combatant {
-	old, existed := r.state.CombatRoster[id]
-	name := r.world.CombatRuntime.Actors[id]
-	if name == "" {
-		name = r.world.CombatRuntime.DefaultProfile
-	}
-	p := r.world.CombatRuntime.Profiles[name]
-	a := behavior.Combatant{ID: id, Team: team, HP: p.MaxHP, MaxHP: p.MaxHP, Armor: p.Armor, Skill: p.Skill, Courage: p.Courage, Initiative: p.Initiative, Noncombatant: p.Noncombatant, Trained: p.Trained, Weapon: p.Weapon, Ammo: p.Ammo, ReserveAmmo: p.ReserveAmmo, Medkits: p.Medkits, Controlled: id == playerActorID}
-	if existed {
-		a.HP = old.HP
-		a.Ammo = old.Ammo
-		a.ReserveAmmo = old.ReserveAmmo
-		a.Medkits = old.Medkits
-		a.Surrendered = old.Surrendered
-	}
-	// Only a physically equipped item can replace the authored unarmed attack.
-	ids := make([]string, 0, len(r.state.Inventory.Items))
-	for key := range r.state.Inventory.Items {
-		ids = append(ids, key)
-	}
-	sort.Strings(ids)
-	for _, key := range ids {
-		item := r.state.Inventory.Items[key]
-		definition := r.world.Inventory.Definitions[item.Definition]
-		if item.Location.Kind != "store" || item.Location.Store != inv.ActorStore(id) || item.Location.Slot == "" || item.Condition < definition.WearPerUse || item.Condition <= 0 {
-			continue
-		}
-		if weapon, ok := r.world.CombatRuntime.Weapons[item.Definition]; ok {
-			a.Weapon = weapon
-			break
-		}
-	}
-	if existed && (old.Weapon.ID != a.Weapon.ID || old.Weapon.Magazine != a.Weapon.Magazine) {
-		a.Ammo = 0
-	}
-	if a.Ammo > a.Weapon.Magazine {
-		a.Ammo = a.Weapon.Magazine
-	}
-	return a
+func cloneCombatant(a behavior.Combatant) behavior.Combatant {
+ a.Contacts=append([]behavior.CombatContact(nil),a.Contacts...)
+ a.Explosives=append([]behavior.CombatExplosiveStock(nil),a.Explosives...)
+ return a
 }
+func (r *Runtime) combatant(id, team string) behavior.Combatant {
+ name:=r.world.CombatRuntime.Actors[id];if name==""{name=r.world.CombatRuntime.DefaultProfile};p:=r.world.CombatRuntime.Profiles[name]
+ a:=behavior.Combatant{ID:id,Team:team,HP:p.MaxHP,MaxHP:p.MaxHP,Armor:p.Armor,Skill:p.Skill,Courage:p.Courage,Initiative:p.Initiative,Noncombatant:p.Noncombatant,Trained:p.Trained,Weapon:p.Weapon,Controlled:id==playerActorID}
+ if old,ok:=r.state.CombatRoster[id];ok {
+  a.HP=old.HP;a.Surrendered=old.Surrendered;a.Crouched=old.Crouched;a.Prone=old.Prone
+  a.Bleeding=old.Bleeding;a.Suppression=old.Suppression;a.Morale=old.Morale;a.TacticalInitialized=old.TacticalInitialized
+  a.HeadWound=old.HeadWound;a.ArmWound=old.ArmWound;a.LegWound=old.LegWound;a.StunTurns=old.StunTurns
+ }
+ r.refreshCombatEquipment(r.state.Inventory,&a)
+ return a
+}
+func(r *Runtime) heroInCombat()bool{return r.state.Combat.Active&&r.state.Combat.Actor(playerActorID)!=nil}
 
 func (r *Runtime) combatSpace(s behavior.CombatState) behavior.CombatSpace {
 	model := r.state.Life.GateModel(r.world.Life)
@@ -109,17 +90,23 @@ func (r *Runtime) combatSpace(s behavior.CombatState) behavior.CombatSpace {
 		unit = 1000
 	}
 	result := behavior.CombatSpace{Space: space, CellMM: unit}
-	result.Space.Visible = func(a, b behavior.Cell) bool { return r.sightLine(location(a), location(b)) }
+	result.Space.Visible = func(a, b behavior.Cell) bool { return r.combatSight(s.LevelID,a,b) }
 	if v := r.world.Decks[s.LevelID]; v != nil {
 		result.RangeMM = v.CombatRangeMM
 		result.Cover = v.CombatProtection
 		result.ShotClear = v.CombatShotClear
 		result.BodyOnShot = v.BodyOnCombatShot
+ result.Protection=func(from,to behavior.Cell,a,b behavior.Combatant,part string)float64{if r.combatGateBlocks(s.LevelID,from,to){return 1};return v.CombatPoseProtection(from,to,a,b,part)}
+ result.BodyIntersects=v.CombatBodyIntersects
+ result.ThrowClear=func(from,to behavior.Cell)bool{return !r.combatGateBlocks(s.LevelID,from,to)&&v.CombatThrowClear(from,to)}
+ result.BlastProtection=func(from,to behavior.Cell)float64{if r.combatGateBlocks(s.LevelID,from,to){return 1};return v.CombatBlastProtection(from,to)}
+ result.ShotClear=func(from,to behavior.Cell)bool{return !r.combatGateBlocks(s.LevelID,from,to)&&v.CombatShotClear(from,to)}
+
 	} else {
 		result.Cover = func(from, to behavior.Cell) float64 {
 			// Planar legacy levels only declare opaque walls; do not invent armour
 			// for a graphical prop or classify every blocked cell as ballistic cover.
-			if !r.sightLine(location(from), location(to)) {
+			if !r.combatSight(s.LevelID,from,to) {
 				return 1
 			}
 			return 0
@@ -145,7 +132,7 @@ func (r *Runtime) combatSpace(s behavior.CombatState) behavior.CombatSpace {
 		}
 	}
 	for _, a := range r.state.Life.Population.Actors {
-		if a.Materialized && a.Level == s.LevelID && a.Trip == nil {
+		if (a.Materialized||a.CombatHold) && a.Level == s.LevelID && a.Trip == nil {
 			blocked[a.Position] = true
 			if len(a.Path) > 0 {
 				blocked[a.Path[0]] = true
@@ -178,13 +165,20 @@ func (r *Runtime) combatSpace(s behavior.CombatState) behavior.CombatSpace {
 			}
 		}
 		for _, a := range r.state.Life.Population.Actors {
-			if a.Materialized && a.Level == s.LevelID && a.Trip == nil && onShot(a.Position) {
+			if (a.Materialized||a.CombatHold) && a.Level == s.LevelID && a.Trip == nil && onShot(a.Position) {
 				return true
 			}
 		}
 		return false
 	}
-	result.CanHear = func(listener, source behavior.Combatant) bool {
+	
+ result.VisibleBystanders=func(observer behavior.Combatant)[]behavior.Cell{
+  var cells []behavior.Cell
+  for _,a:=range r.state.Life.Actors{if a.Level==s.LevelID&&a.OnFloor()&&!participants[a.ID]&&result.Space.Visible(observer.Position,a.Position)&&r.combatWorldDistance(s.LevelID,observer.Position,a.Position)<=r.world.CombatRuntime.Rules.SightRangeMM{cells=append(cells,a.Position)}}
+  for _,a:=range r.state.Life.Population.Actors{if a.Materialized&&a.Trip==nil&&a.Level==s.LevelID&&result.Space.Visible(observer.Position,a.Position)&&r.combatWorldDistance(s.LevelID,observer.Position,a.Position)<=r.world.CombatRuntime.Rules.SightRangeMM{cells=append(cells,a.Position)}}
+  return cells
+ }
+result.CanHear = func(listener, source behavior.Combatant) bool {
 		policy := r.world.AI.Policy.Perception.Hearing
 		policy.RangeCells = max(1, r.world.CombatRuntime.Rules.HearingRangeMM/unit)
 		from, to := source.Position, listener.Position
@@ -212,88 +206,51 @@ func (r *Runtime) combatDistance(a, b behavior.Cell) int {
 	return int(math.Ceil(math.Hypot(float64(a.X-b.X), float64(a.Y-b.Y)) * float64(unit)))
 }
 func (r *Runtime) startCombat(targetID string) error {
-	if !r.state.Life.Enabled || r.state.Paused || r.world.CombatRuntime.DefaultProfile == "" {
-		return textError{Key: "error.combat_unavailable"}
-	}
-	hero, target := r.state.Life.Actor(playerActorID), r.state.Life.Actor(targetID)
-	if hero == nil || target == nil || target.ID == hero.ID || !hero.OnFloor() || !target.OnFloor() || hero.Level != target.Level || !r.sightWithin(location(hero.Position), location(target.Position), r.world.Visibility.PlayerRange) || r.combatDistance(hero.Position, target.Position) > r.world.CombatRuntime.JoinRangeMM {
-		return textError{Key: "error.combat_unknown_target"}
-	}
-	if hero.CombatHold || target.CombatHold {
-		return textError{Key: "error.combat_unknown_target"}
-	}
-	actors := []behavior.Combatant{r.combatant(hero.ID, "player"), r.combatant(target.ID, "opposition")}
-	if !actors[0].Able() || !actors[1].Able() {
-		return textError{Key: "error.combat_unknown_target"}
-	}
-	// Only explicitly authored responders join; bystanders do not acquire a
-	// combat role from sharing a room or from a faction-wide broadcast.
-	if !actors[1].Noncombatant {
-		for _, other := range r.state.Life.Actors {
-			if len(actors) >= r.world.CombatRuntime.MaxParticipants {
-				break
-			}
-			if other.ID == hero.ID || other.ID == target.ID || !other.OnFloor() || other.Level != hero.Level || other.CombatHold {
-				continue
-			}
-			binding, authored := r.world.CombatRuntime.Actors[other.ID]
-			profile := r.world.CombatRuntime.Profiles[binding]
-			if !authored || profile.Noncombatant || r.combatDistance(other.Position, target.Position) > r.world.CombatRuntime.JoinRangeMM || !r.sightLine(location(other.Position), location(target.Position)) {
-				continue
-			}
-			candidate := r.combatant(other.ID, "opposition")
-			if candidate.Able() {
-				actors = append(actors, candidate)
-			}
-		}
-	}
-	for i := range actors {
-		actors[i].Position = r.state.Life.Actor(actors[i].ID).Position
-	}
-	proposed := behavior.CombatState{LevelID: hero.Level, Actors: actors}
-	if r.state.CombatSerial >= 1<<50 {
-		return textError{Key: "error.combat_unavailable"}
-	}
-	encounter, err := behavior.NewCombat(fmt.Sprintf("encounter.%d", r.state.CombatSerial+1), hero.Level, r.state.Seed, actors, r.world.CombatRuntime.Rules, r.combatSpace(proposed))
-	if err != nil {
-		return err
-	}
-	r.state.Combat = encounter
-	r.state.CombatSerial++
-	// A delayed action from a previous encounter must not match a new turn 1.
-	r.state.Epoch = newEpoch()
-	r.state.CombatPublicEvents = nil
-	r.state.CombatPublicSeq = 0
-	for _, actor := range actors {
-		a := r.state.Life.Actor(actor.ID)
-		if actor.ID == playerActorID {
-			a.Manual = true
-		}
-		a.CombatHold = true
-		a.Path = nil
-		a.PendingPath = nil
-		a.YieldUntil = 0
-		a.YieldHoldUntil = 0
-		a.YieldRequester = ""
-		a.OverrideLevel = ""
-		a.OverrideEdge = ""
-		a.Arrived = true
-		a.MoveStartTick = r.lifeMotionTick()
-		if a.Body != nil {
-			a.Body.Mode = ""
-			a.Body.Route = nil
-			a.Body.Moving = false
-			a.Body.DX = 0
-			a.Body.DY = 0
-		}
-	}
-	r.resetInstantTravel()
-	r.syncCombatLife()
-	return r.advanceCombatAI()
+ if r.state.Combat.Active {
+  if r.heroInCombat(){return textError{Key:"error.combat_already_active"}}
+  target:=r.state.Combat.Actor(targetID);hero:=r.state.Life.Actor(playerActorID)
+  if target==nil||hero==nil||hero.Level!=r.state.Combat.LevelID||!r.sightWithin(location(hero.Position),location(target.Position),r.world.Visibility.PlayerRange){return textError{Key:"error.combat_unknown_target"}}
+  team:="";for _,a:=range r.state.Combat.Actors{if a.Team!=target.Team&&a.Able(){team=a.Team;break}}
+  if team==""{return textError{Key:"error.combat_unavailable"}}
+  if err:=r.joinCombat(playerActorID,team);err!=nil{return err};return r.advanceCombatAI()
+ }
+ return r.beginCombat(playerActorID,targetID,"player","opposition")
 }
+func(r *Runtime) beginCombat(initiatorID,targetID,initiatorTeam,targetTeam string)error{
+ if r.state.Combat.Active||!r.state.Life.Enabled||r.state.Paused||r.world.CombatRuntime.DefaultProfile==""{return textError{Key:"error.combat_unavailable"}}
+ initiator,target:=r.state.Life.Actor(initiatorID),r.state.Life.Actor(targetID)
+ if initiator==nil||target==nil||target.ID==initiator.ID||!initiator.OnFloor()||!target.OnFloor()||initiator.Level!=target.Level||initiator.CombatHold||target.CombatHold{return textError{Key:"error.combat_unknown_target"}}
+ if r.combatWorldDistance(initiator.Level,initiator.Position,target.Position)>r.world.CombatRuntime.JoinRangeMM||!r.combatSight(initiator.Level,initiator.Position,target.Position){return textError{Key:"error.combat_unknown_target"}}
+ actors:=[]behavior.Combatant{r.combatant(initiator.ID,initiatorTeam),r.combatant(target.ID,targetTeam)}
+ if !actors[0].Able()||!actors[1].Able(){return textError{Key:"error.combat_unknown_target"}}
+ for i:=range actors{actors[i].Position=r.state.Life.Actor(actors[i].ID).Position}
+ proposed:=behavior.CombatState{LevelID:initiator.Level,Actors:actors}
+ if r.state.CombatSerial>=1<<50{return textError{Key:"error.combat_unavailable"}}
+ encounter,err:=behavior.NewCombat(fmt.Sprintf("encounter.%d",r.state.CombatSerial+1),initiator.Level,r.state.Seed,actors,r.world.CombatRuntime.Rules,r.combatSpace(proposed));if err!=nil{return err}
+ r.state.Combat=encounter;r.state.CombatSerial++;if r.heroInCombat(){r.state.Epoch=newEpoch()};r.state.CombatPublicEvents=nil;r.state.CombatPublicSeq=0
+ r.combatLifeStarted(initiatorID,targetID)
+ for _,c:=range actors{r.holdCombatActor(c.ID)}
+ if r.heroInCombat(){r.resetInstantTravel()};r.syncCombatLife();return r.advanceCombatAI()
+}
+func(r *Runtime) holdCombatActor(id string){
+ a:=r.state.Life.Actor(id);if a==nil{return};if id==playerActorID{a.Manual=true};a.CombatHold=true;a.Safety=nil;a.Path=nil;a.PendingPath=nil;a.YieldUntil=0;a.YieldHoldUntil=0;a.YieldRequester="";a.OverrideLevel="";a.OverrideEdge="";a.Arrived=true;a.MoveStartTick=r.lifeMotionTick()
+ if a.Body!=nil{a.Body.Mode="";a.Body.Route=nil;a.Body.Moving=false;a.Body.DX=0;a.Body.DY=0}
+}
+func(r *Runtime) joinCombat(id,team string)error{
+ if !r.state.Combat.Active||team==""||len(team)>256{return nil}
+ if r.state.Combat.Actor(id)!=nil||len(r.state.Combat.Actors)>=r.world.CombatRuntime.MaxParticipants{return nil}
+ a:=r.state.Life.Actor(id);if a==nil||!a.OnFloor()||a.Level!=r.state.Combat.LevelID||a.CombatHold{return nil}
+ for _,c:=range r.state.Combat.Actors{if c.Position==a.Position{return nil}}
+ c:=r.combatant(id,team);if !c.Able(){return nil};c.Position=a.Position;c.AP=0
+ candidate:=r.state.Combat.Clone();candidate.Actors=append(candidate.Actors,c);candidate.Observe(r.combatSpace(candidate),r.world.CombatRuntime.Rules)
+ if err:=candidate.Validate(r.world.CombatRuntime.Rules,r.combatSpace(candidate));err!=nil{return err}
+ r.state.Combat=candidate;if id==playerActorID{r.state.Epoch=newEpoch();r.resetInstantTravel()};r.holdCombatActor(id);r.syncCombatLife();return nil
+}
+
 func (r *Runtime) advanceCombatAI() error {
 	// One NPC action per pass permits a new physical occupancy view each time.
 	limit := r.world.CombatRuntime.MaxParticipants * (r.world.CombatRuntime.Rules.MaxActionsPerTurn + 1)
+ if r.state.Combat.Actor(playerActorID)==nil{limit=1}
 	for n := 0; r.state.Combat.Active && n < limit; n++ {
 		a := r.state.Combat.Current()
 		if a == nil || a.Controlled {
@@ -322,9 +279,6 @@ func (r *Runtime) advanceCombatAI() error {
 }
 func (r *Runtime) combatCommand(q *pb.PocCombatCommand) error {
 	if q.Action == "start" {
-		if r.state.Combat.Active {
-			return textError{Key: "error.combat_already_active"}
-		}
 		return r.startCombat(q.TargetId)
 	}
 	if !r.state.Combat.Active || q.ExpectedTurn != r.state.Combat.Turn {
@@ -337,7 +291,7 @@ func (r *Runtime) combatCommand(q *pb.PocCombatCommand) error {
 	if a == nil || a.ID != playerActorID {
 		return textError{Key: "error.combat_not_your_turn"}
 	}
-	action := behavior.CombatAction{Type: q.Action, TargetID: q.TargetId, To: behavior.Cell{X: int(q.X), Y: int(q.Y)}}
+	action := behavior.CombatAction{Type: q.Action, TargetID: q.TargetId, To: behavior.Cell{X: int(q.X), Y: int(q.Y)},Mode:q.Mode,Aim:int(q.Aim),BodyPart:q.BodyPart,ItemID:q.ItemId}
 	candidate := r.state.Combat.Clone()
 	if err := candidate.Execute(r.combatSpace(candidate), r.world.CombatRuntime.Rules, playerActorID, action); err != nil {
 		return textError{Key: "error.combat_invalid_action"}
@@ -377,55 +331,28 @@ func (r *Runtime) combatMove(c *connection, m *pb.MoveTo) {
 // Commit the tactical action and physical equipment wear together. A rejected
 // use leaves HP/AP, random counter and the inventory transaction cursor intact.
 func (r *Runtime) commitCombat(candidate behavior.CombatState) error {
-	inventory := r.state.Inventory.Clone()
-	for _, event := range candidate.Events {
-		if event.Sequence <= r.state.Combat.ActionSeq || event.Type != "attack" {
-			continue
-		}
-		actor := r.state.Combat.Actor(event.ActorID)
-		if actor == nil || actor.Weapon.ID == "unarmed" {
-			continue
-		}
-		keys := make([]string, 0, len(inventory.Items))
-		for key := range inventory.Items {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-		used := false
-		for _, key := range keys {
-			item := inventory.Items[key]
-			if item.Definition != actor.Weapon.ID || item.Location.Kind != "store" || item.Location.Store != inv.ActorStore(actor.ID) || item.Location.Slot == "" {
-				continue
-			}
-			definition := r.world.Inventory.Definitions[item.Definition]
-			if definition.WearPerUse < 1 {
-				return errors.New("combat weapon has no physical use contract")
-			}
-			_, err := inventory.Apply(r.inventoryModelFor(true), inv.Transaction{Actor: actor.ID, Sequence: inventory.Cursors[actor.ID].Sequence + 1, RequestTag: fmt.Sprintf("combat/%s/%d", candidate.ID, event.Sequence), Wear: []inv.Wear{{Item: item.ID, ExpectedRevision: item.Revision, Amount: definition.WearPerUse}}})
-			if err != nil {
-				return err
-			}
-			used = true
-			break
-		}
-		if !used {
-			return errors.New("combat weapon is no longer equipped")
-		}
-	}
-	r.state.Inventory = inventory
-	r.state.Combat = candidate
-	// A worn-out tool falls back to the actor's unarmed profile at the next
-	// decision. It is not repaired by starting another encounter.
-	for i := range r.state.Combat.Actors {
-		a := &r.state.Combat.Actors[i]
-		actual := r.combatant(a.ID, a.Team)
-		if a.Weapon.ID != actual.Weapon.ID {
-			a.Weapon = actual.Weapon
-			a.Ammo = 0
-		}
-	}
-	return nil
+ previous:=r.state.Combat.Clone()
+ trial:=&Runtime{world:r.world,state:r.snapshotState(),npcAccountIDs:r.npcAccountIDs}
+ for _,event:=range candidate.Events{
+  if event.Sequence<=previous.EventSeq{continue}
+  if event.AmmoSpent>0||event.MedkitsSpent>0||event.ItemsSpent>0||event.WeaponUses>0||event.Type=="reload"{
+   if err:=trial.applyCombatResources(&trial.state.Inventory,previous,event);err!=nil{return err}
+  }
+ }
+ trial.state.Combat=candidate
+ for i:=range trial.state.Combat.Actors{
+  a:=&trial.state.Combat.Actors[i];actual:=cloneCombatant(*a);trial.refreshCombatEquipment(trial.state.Inventory,&actual)
+  if actual.Weapon.ID==a.Weapon.ID&&(actual.Ammo!=a.Ammo||actual.ReserveAmmo!=a.ReserveAmmo||actual.Medkits!=a.Medkits){return errors.New("combat counters differ from physical custody")}
+  a.Weapon=actual.Weapon;a.WeaponUsesLimited=actual.WeaponUsesLimited;a.WeaponUsesRemaining=actual.WeaponUsesRemaining;a.Ammo=actual.Ammo;a.ReserveAmmo=actual.ReserveAmmo;a.Medkits=actual.Medkits;a.Explosives=actual.Explosives
+ }
+ if err:=trial.applyAmbientCombatBlasts(previous);err!=nil{return err}
+ trial.syncCombatLife()
+ if err:=trial.combatLifeAfterAction(previous);err!=nil{return err}
+ if len(trial.state.Combat.Events)>512{trial.state.Combat.Events=append([]behavior.CombatEvent(nil),trial.state.Combat.Events[len(trial.state.Combat.Events)-512:]...)}
+ r.state=trial.state
+ return nil
 }
+
 func (r *Runtime) syncCombatLife() {
 	if r.state.Combat.ID == "" {
 		return
@@ -434,8 +361,7 @@ func (r *Runtime) syncCombatLife() {
 		r.state.CombatRoster = map[string]behavior.Combatant{}
 	}
 	for _, c := range r.state.Combat.Actors {
-		stored := c
-		stored.Contacts = append([]behavior.CombatContact(nil), c.Contacts...)
+		stored := cloneCombatant(c)
 		r.state.CombatRoster[c.ID] = stored
 		a := r.state.Life.Actor(c.ID)
 		if a == nil {
@@ -477,7 +403,8 @@ func (r *Runtime) appendCombat(msg *pb.PocGameState) {
 	if s.ID == "" {
 		return
 	}
-	view := &pb.PocCombatView{Active: s.Active, EncounterId: s.ID, LevelId: s.LevelID, Turn: s.Turn, Winner: s.Winner}
+	if !r.heroInCombat(){visible:=false;for _,a:=range s.Actors{if r.combatTargetVisible(a){visible=true;break}};if !visible{return}}
+ view := &pb.PocCombatView{Active: s.Active, EncounterId: s.ID, LevelId: s.LevelID, Turn: s.Turn, Winner: s.Winner}
 	// Finished encounters retain an outcome, not live bodies at historical
 	// cells. The ordinary Life simulation can already have moved or travelled.
 	if !s.Active || s.LevelID != r.currentLevel() {
@@ -485,12 +412,12 @@ func (r *Runtime) appendCombat(msg *pb.PocGameState) {
 		return
 	}
 	if a := s.Current(); a != nil {
-		if a.ID == playerActorID || r.sightWithin(r.state.Player, location(a.Position), r.world.Visibility.PlayerRange) {
+		if a.ID == playerActorID || r.combatTargetVisible(*a) {
 			view.CurrentActorId = a.ID
 		}
 	}
 	for _, a := range s.Actors {
-		if a.ID != playerActorID && !r.sightWithin(r.state.Player, location(a.Position), r.world.Visibility.PlayerRange) {
+		if a.ID != playerActorID && !r.combatTargetVisible(a) {
 			continue
 		}
 		v := &pb.PocCombatActor{Id: a.ID, X: int32(a.Position.X), Y: int32(a.Position.Y), Surrendered: a.Surrendered, Down: a.HP <= 0}
@@ -499,8 +426,15 @@ func (r *Runtime) appendCombat(msg *pb.PocGameState) {
 			v.MaxHp = int32(a.MaxHP)
 			v.Ap = int32(a.AP)
 			v.Ammo = int32(a.Ammo)
+ v.Bleeding=int32(a.Bleeding);v.Suppression=int32(a.Suppression);v.Morale=int32(a.Morale);v.ReservedAp=int32(a.ReservedAP)
+ v.Overwatch=a.Overwatch;v.HeadWound=int32(a.HeadWound);v.ArmWound=int32(a.ArmWound);v.LegWound=int32(a.LegWound)
+ v.Medkits=int32(a.Medkits);v.ReserveAmmo=int32(a.ReserveAmmo);v.WeaponId=a.Weapon.ID;v.WeaponKind=a.Weapon.Kind
+ v.AttackAp=int32(a.Weapon.AttackAP);v.QuickAp=int32(a.Weapon.QuickAP);v.HeavyAp=int32(a.Weapon.HeavyAP)
+ for _,x:=range a.Explosives{v.Explosives=append(v.Explosives,&pb.PocCombatStock{ItemId:x.Explosive.ID,Count:int32(x.Count)})}
+
 		}
-		view.Actors = append(view.Actors, v)
+		v.Stance="stand";if a.Crouched{v.Stance="crouch"};if a.Prone{v.Stance="prone"};v.Guarding=a.Guarding;v.Stunned=a.StunTurns>0
+ view.Actors = append(view.Actors, v)
 	}
 	for _, e := range r.state.CombatPublicEvents {
 		view.Events = append(view.Events, &pb.PocCombatEvent{Type: e.Type, ActorId: e.ActorID, TargetId: e.TargetID, FromX: int32(e.From.X), FromY: int32(e.From.Y), ToX: int32(e.To.X), ToY: int32(e.To.Y), Amount: int32(e.Amount), Hit: e.Hit, Turn: e.Turn, Sequence: e.Sequence})
@@ -513,7 +447,8 @@ func (r *Runtime) capturePublicCombatEvents() {
 			continue
 		}
 		r.state.CombatPublicSeq = event.Sequence
-		seenFrom := r.sightWithin(r.state.Player, location(event.From), r.world.Visibility.PlayerRange)
+		if r.currentLevel()!=r.state.Combat.LevelID{continue}
+ seenFrom := r.sightWithin(r.state.Player, location(event.From), r.world.Visibility.PlayerRange)
 		seenTo := r.sightWithin(r.state.Player, location(event.To), r.world.Visibility.PlayerRange)
 		if event.ActorID != playerActorID && event.TargetID != playerActorID && !seenFrom && !seenTo {
 			continue
@@ -537,7 +472,7 @@ func (r *Runtime) validateCombatSave(s state) error {
 	if s.CombatSerial > 1<<50 || (s.Combat.ID != "" && s.CombatSerial == 0) {
 		return errors.New("invalid encounter sequence")
 	}
-	if len(s.CombatPublicEvents) > 64 || s.CombatPublicSeq > s.Combat.ActionSeq {
+	if len(s.CombatPublicEvents) > 64 || s.CombatPublicSeq > s.Combat.EventSeq {
 		return errors.New("invalid public combat event history")
 	}
 	if s.Combat.ID == "" {
@@ -560,34 +495,24 @@ func (r *Runtime) validateCombatSave(s state) error {
 	if err := s.Combat.Validate(r.world.CombatRuntime.Rules, space); err != nil {
 		return err
 	}
-	if len(s.CombatRoster) > len(s.Life.Actors) {
+	if len(s.CombatRoster) > len(s.Life.Actors)+len(s.Life.Population.Actors) {
 		return errors.New("combat roster exceeds persistent population")
 	}
-	for id, c := range s.CombatRoster {
-		a := s.Life.Actor(id)
-		if id != c.ID || a == nil || r.world.Life.Person(id) == nil || c.Team == "" || len(c.Team) > 256 || c.Controlled != (id == playerActorID) {
-			return errors.New("unknown combat roster actor")
-		}
-		if c.MaxHP < 1 || c.MaxHP > 1000000 || c.HP < 0 || c.HP > c.MaxHP || c.AP < 0 || c.AP > r.world.CombatRuntime.Rules.APPerTurn || c.Armor < 0 || c.Armor > 1000000 || c.Skill < 0 || c.Skill > 100 || c.Courage < 0 || c.Courage > 100 || c.Initiative < -1000000 || c.Initiative > 1000000 || c.Ammo < 0 || c.Ammo > c.Weapon.Magazine || c.ReserveAmmo < 0 || c.ReserveAmmo > 1000000 || c.Medkits < 0 || c.Medkits > 10000 {
-			return errors.New("invalid persistent combat resources")
-		}
-		if c.Weapon.ID == "" || len(c.Weapon.ID) > 256 || c.Weapon.Damage < 1 || c.Weapon.Damage > 1000000 || c.Weapon.RangeMM < 1 || c.Weapon.RangeMM > 10000000 || c.Weapon.AttackAP < 1 || c.Weapon.AttackAP > 100 || c.Weapon.Magazine < 0 || c.Weapon.Magazine > 1000000 || len(c.Contacts) > 512 {
-			return errors.New("invalid persistent combat equipment")
-		}
-		if !c.Able() && (!a.OnFloor() || !a.CombatHold || a.Position != c.Position) {
-			return errors.New("incapable combat actor resumed an ordinary routine")
-		}
-		if c.Able() && a.CombatHold && (!s.Combat.Active || s.Combat.Actor(id) == nil) {
-			return errors.New("orphan combat hold")
-		}
-	}
+ for id,c:=range s.CombatRoster {
+  level,at,present:=validator.knownCombatLifeActor(id)
+  if id!=c.ID||level==""||c.Team==""||len(c.Team)>256||c.Controlled!=(id==playerActorID){return errors.New("unknown combat roster actor")}
+  if err:=c.Validate(r.world.CombatRuntime.Rules);err!=nil{return err}
+  if !c.Able()&&(!present||!validator.combatLifeHeld(id)||at!=c.Position){return errors.New("incapable combat actor resumed a routine")}
+  if c.Able()&&validator.combatLifeHeld(id)&&(!s.Combat.Active||s.Combat.Actor(id)==nil){return errors.New("orphan combat hold")}
+ }
+
 	for _, c := range s.Combat.Actors {
 		a := s.Life.Actor(c.ID)
 		if a == nil || a.CombatHold != (s.Combat.Active || !c.Able()) || ((s.Combat.Active || !c.Able()) && (!a.OnFloor() || a.Level != s.Combat.LevelID || a.Position != c.Position)) {
 			return errors.New("combat/life pose or hold mismatch")
 		}
 		cached, ok := s.CombatRoster[c.ID]
-		if !ok || cached.HP != c.HP || cached.MaxHP != c.MaxHP || cached.AP != c.AP || cached.Ammo != c.Ammo || cached.ReserveAmmo != c.ReserveAmmo || cached.Medkits != c.Medkits || cached.Weapon != c.Weapon || cached.Surrendered != c.Surrendered || cached.Controlled != c.Controlled || cached.Team != c.Team {
+		if !ok || !reflect.DeepEqual(cached,c) {
 			return errors.New("combat roster differs")
 		}
 	}
@@ -596,7 +521,7 @@ func (r *Runtime) validateCombatSave(s state) error {
 		validCell := func(at behavior.Cell) bool {
 			return (at.X == -1 && at.Y == -1) || (at.X >= 0 && at.Y >= 0 && at.X < space.Space.Width && at.Y < space.Space.Height)
 		}
-		if e.Sequence <= lastSequence || e.Sequence > s.CombatPublicSeq || e.Turn < 1 || e.Turn > s.Combat.Turn || e.Reason != "" || !validCell(e.From) || !validCell(e.To) || (e.ActorID != "" && s.Life.Actor(e.ActorID) == nil) || (e.TargetID != "" && s.Life.Actor(e.TargetID) == nil) {
+		if e.Sequence <= lastSequence || e.Sequence > s.CombatPublicSeq || e.Turn < 1 || e.Turn > s.Combat.Turn || e.Reason != "" || !validCell(e.From) || !validCell(e.To) || (e.ActorID != "" && !validator.combatActorKnown(e.ActorID)) || (e.TargetID != "" && !validator.combatActorKnown(e.TargetID)) {
 			return errors.New("invalid filtered combat event")
 		}
 		lastSequence = e.Sequence

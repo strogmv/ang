@@ -97,7 +97,7 @@ func(s LifeState)courtesyNamedDuty(m LifeModel,a LifeActor)bool{
 func(s LifeState)courtesyNamedWilling(m LifeModel,a LifeActor,requester string)bool{
  // The controlled actor may follow a routine with Manual=false. Autonomous
  // traffic still cannot commandeer that actor or replace its pending intent.
- return a.ID!=requester&&a.ID!=s.ControlledActorID&&!a.Manual&&a.OnFloor()&&s.courtesyCivilian(m,a.ID,requester,a.Activity)&&!s.courtesyNamedDuty(m,a)
+ return !a.CombatHold&&a.ID!=requester&&a.ID!=s.ControlledActorID&&!a.Manual&&a.OnFloor()&&s.courtesyCivilian(m,a.ID,requester,a.Activity)&&!s.courtesyNamedDuty(m,a)
 }
 func(s LifeState)courtesyNamed(m LifeModel,a LifeActor,requester string,tick int64)bool{
  return (s.courtesyRequester(requester)||s.Actor(requester)==nil&&s.autonomousTrafficRequester(requester))&&s.courtesyNamedWilling(m,a,requester)&&len(a.Path)==0&&tick>=a.YieldUntil&&tick>=a.YieldCooldownUntil&&!s.courtesyFinishingAhead(m,requester,a.ID,a.Level,a.Position,a.Goal)
@@ -108,7 +108,7 @@ func(s LifeState)courtesyPopulationDuty(m LifeModel,a PopulationActor)bool{
  if a.Stage>=0&&a.Stage<len(m.Population.Stages){stage:=m.Population.profileStage(a.Profile,a.Stage);return a.Arrived&&a.Level==stage.Level&&a.Position==a.Goal&&courtesyDutyActivity(stage.Activity)};return false
 }
 func(s LifeState)courtesyPopulationWilling(m LifeModel,a PopulationActor,requester string)bool{
- return a.ID!=requester&&a.Materialized&&a.Trip==nil&&s.courtesyCivilian(m,a.ID,requester,a.Activity)&&!s.courtesyPopulationDuty(m,a)
+ return !a.CombatHold&&a.ID!=requester&&a.Materialized&&a.Trip==nil&&s.courtesyCivilian(m,a.ID,requester,a.Activity)&&!s.courtesyPopulationDuty(m,a)
 }
 func(s LifeState)courtesyPopulation(m LifeModel,a PopulationActor,requester string,tick int64)bool{
  return s.courtesyPopulationWilling(m,a,requester)&&len(a.Path)==0&&tick>=a.YieldUntil&&tick>=a.YieldCooldownUntil&&!s.courtesyFinishingAhead(m,requester,a.ID,a.Level,a.Position,a.Goal)

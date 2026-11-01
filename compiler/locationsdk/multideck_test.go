@@ -278,3 +278,32 @@ func TestSteelOpenStairIsSightClearBelowTreads(t *testing.T) {
 		t.Fatal("unknown stair construction accepted")
 	}
 }
+
+// demo-hub v12-vending: a tall floor fixture may join an occluding cutaway group (it fades while it hides the hero); an
+// unknown group or a building group is rejected.
+func TestInstanceJoinsOnlyAnOccludingCutawayGroup(t *testing.T) {
+	layout := testMultideck()
+	layout.CutawayGroups = append(layout.CutawayGroups, CutawayGroup{ID: "fixture", Policy: "occluding", Reason: "tall block fades while it hides the hero"})
+	layout.Instances = []Instance{{ID: "block", ModuleID: "module.shape.box", At: Cell{14, 13}, Reason: "tall fixture on the floor", CutawayGroup: "fixture"}}
+	out := requireBuilt(t, multideckCatalog(), layout)
+	found := false
+	for _, g := range out.Navigation.CutawayGroups {
+		if g.ID == "fixture" {
+			found = len(g.Instances) == 1 && g.Instances[0] == "block" && len(g.Surfaces) == 0 && g.TopMM > 0
+		}
+		if g.ID == "gallery" && len(g.Instances) != 0 {
+			t.Fatal("instance leaked into another group")
+		}
+	}
+	if !found {
+		t.Fatalf("occluding group lost its instance: %+v", out.Navigation.CutawayGroups)
+	}
+	for name, group := range map[string]string{"unknown": "missing", "building": "house"} {
+		bad := testMultideck()
+		bad.CutawayGroups = append(bad.CutawayGroups, CutawayGroup{ID: "house", Policy: "building", Interior: []Rect{{12, 10, 6, 6}}, Reason: "building"})
+		bad.Instances = []Instance{{ID: "block", ModuleID: "module.shape.box", At: Cell{14, 13}, Reason: "tall fixture", CutawayGroup: group}}
+		if _, err := Build(multideckCatalog(), bad); err == nil || !strings.Contains(err.Error(), "instance_cutaway_group") {
+			t.Fatalf("%s group accepted for an instance: %v", name, err)
+		}
+	}
+}

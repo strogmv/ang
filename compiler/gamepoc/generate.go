@@ -182,6 +182,7 @@ type Menu struct {
 
 type Compiled struct {
 	CombatRuntime    json.RawMessage            `json:"combat_runtime,omitempty"`
+ CombatLife json.RawMessage `json:"combat_life,omitempty"`
 	Wayfinding       WayfindingCatalog          `json:"wayfinding,omitempty"`
 	ModularLocations []ModularLocation          `json:"modular_locations,omitempty"`
 	LocationSDK      *locationsdk.RuntimeBundle `json:"location_sdk,omitempty"`
@@ -213,6 +214,9 @@ type Compiled struct {
 	Menu                    Menu                           `json:"-"`
 	Spawn                   Point                          `json:"spawn"`
 	Entities                []Entity                       `json:"entities"`
+
+	// Dome-system vending terminals (demo-hub v12-vending, world.vending); nil in worlds without them.
+	Vending *VendingCatalog `json:"vending,omitempty"`
 }
 
 func (c Config) validate() error {
@@ -300,6 +304,10 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 			return out, nil, err
 		}
 	}
+ if combat := world.LookupPath(cue.ParsePath("combat_life")); combat.Exists(){
+ out.CombatLife,err=combat.MarshalJSON();if err!=nil{return out,nil,err}
+ }
+
 	if life := world.LookupPath(cue.ParsePath("life")); life.Exists() {
 		out.Life, err = life.MarshalJSON()
 		if err != nil {
@@ -353,6 +361,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		if err := ways.Decode(&out.Wayfinding); err != nil {
 			return out, nil, err
 		}
+	}
+	if out.Vending, err = readVending(world); err != nil {
+		return out, nil, err
 	}
 	if text := world.LookupPath(cue.ParsePath("world_text")); text.Exists() {
 		raw, err := text.MarshalJSON()
@@ -633,6 +644,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if err := validateCommerce(out); err != nil {
 		return out, nil, err
 	}
+	if err := validateVending(out); err != nil {
+		return out, nil, err
+	}
 	if err := validateTransitFares(out); err != nil {
 		return out, nil, err
 	}
@@ -831,6 +845,10 @@ func Generate(project string) error {
 		"inventory_test.go.tmpl":                filepath.Join(project, "internal/poc/inventory_generated_test.go"),
 		"reports.go.tmpl":                       filepath.Join(project, "internal/poc/reports.gen.go"),
 		"combat.go.tmpl":                        filepath.Join(project, "internal/poc/combat.gen.go"),
+ "combat_inventory.go.tmpl": filepath.Join(project,"internal/poc/combat_inventory.gen.go"),
+ "combat_collateral.go.tmpl": filepath.Join(project,"internal/poc/combat_collateral.gen.go"),
+ "combat_life.go.tmpl": filepath.Join(project,"internal/poc/combat_life.gen.go"),
+ "combat_life_test.go.tmpl": filepath.Join(project,"internal/poc/combat_life_generated_test.go"),
 		"combat_resources_test.go.tmpl":         filepath.Join(project, "internal/poc/combat_resources_generated_test.go"),
 		"combat_test.go.tmpl":                   filepath.Join(project, "internal/poc/combat_generated_test.go"),
 		"combat.cs.tmpl":                        filepath.Join(unity, "Assets/Generated/Poc/PocCombat.cs"),
@@ -851,6 +869,9 @@ func Generate(project string) error {
 		"runtime.go.tmpl":                       filepath.Join(project, "internal/poc/runtime.gen.go"),
 		"location_sdk.go.tmpl":                  filepath.Join(project, "internal/poc/location_sdk.gen.go"),
 		"gates.go.tmpl":                         filepath.Join(project, "internal/poc/gates.gen.go"),
+		"vending.go.tmpl":                       filepath.Join(project, "internal/poc/vending.gen.go"),
+		"vending_test.go.tmpl":                  filepath.Join(project, "internal/poc/vending_generated_test.go"),
+		"vending.cs.tmpl":                       filepath.Join(unity, "Assets/Generated/Poc/PocVending.cs"),
 		"gates_test.go.tmpl":                    filepath.Join(project, "internal/poc/gates_generated_test.go"),
 		"location_sdk_gates.cs.tmpl":            filepath.Join(unity, "Assets/Generated/Poc/PocLocationSDKGates.cs"),
 		"location_sdk_test.go.tmpl":             filepath.Join(project, "internal/poc/location_sdk_generated_test.go"),

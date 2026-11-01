@@ -35,6 +35,7 @@ func (r *Runtime) initLifeState(life behavior.LifeState) {
 	r.syncRegionKnowledge()
 	r.initLifeInventory()
 	r.initNPCEconomy()
+	r.initVending()
 	r.state.LifeExploration = map[string]map[int]seenCell{}
 	r.seedLifeKnownLayouts()
 	r.state.Demo = demoState{TargetAlive: true}
@@ -80,6 +81,7 @@ func (r *Runtime) lifeStep() error {
 }
 func (r *Runtime) advanceLifeFrameBy(delta int64) error {
 	r.state.Life.Seed = r.state.Seed
+ r.combatLifeBeforeFrame()
 	defer r.state.Life.ObserveDecisions()
 	r.state.Life.ControlledActorID = playerActorID
 	r.state.Life.BrainServices = r.npcServices()
@@ -100,10 +102,15 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
 	if err := r.advanceMarketSupply(); err != nil {
 		return err
 	}
+	if err := r.advanceVending(); err != nil {
+		return err
+	}
 	r.awardRepairPractice(previous)
 	r.advancePractice()
 	r.syncLifeHero()
 	r.syncRegionKnowledge()
+ if err:=r.combatLifeAfterFrame();err!=nil{return err}
+ if r.state.Combat.Active&&!r.heroInCombat(){if err:=r.advanceCombatAI();err!=nil{return err}}
 	if old != r.currentLevel() {
 		r.learnRegionTraversal(previousEdge)
 		r.state.Epoch = newEpoch()
@@ -254,6 +261,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 	r.appendInventory(msg, c.locale)
 	v.appendPerception(msg)
 	r.appendStorefrontState(view, hero, msg.PlayerView)
+	r.appendVending(view, hero, msg.PlayerView, c.locale)
 	r.appendGates(view, hero, msg.PlayerView)
 	r.appendLifeMaintenance(view, hero, msg.PlayerView)
 	r.appendLifeInspection(msg, v, hero, c.locale)
@@ -289,7 +297,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 	r.send(c, &pb.ServerMessage{Msg: &pb.ServerMessage_GameState{GameState: msg}})
 }
 func (r *Runtime) lifeCommand(q *pb.PocLifeCommand) error {
-	if r.state.Combat.Active {
+	if r.heroInCombat() {
 		return textError{Key: "error.combat_busy"}
 	}
 	if !r.state.Life.Enabled {
@@ -428,7 +436,7 @@ func (r *Runtime) lifeCommand(q *pb.PocLifeCommand) error {
 func (r *Runtime) lifeMove(c *connection, m *pb.MoveTo) {
 	result := &pb.PocMoveResult{Epoch: r.state.Epoch, InputSeq: m.InputSeq}
 	hero := r.state.Life.Actor(playerActorID)
-	if r.state.Combat.Active {
+	if r.heroInCombat() {
 		r.combatMove(c, m)
 		return
 	}
@@ -851,7 +859,7 @@ func (r *Runtime) heroSteer(c *connection, m *pb.PocHeroSteer) {
 	result := &pb.PocMoveResult{Epoch: r.state.Epoch, InputSeq: m.InputSeq}
 	hero := r.state.Life.Actor(playerActorID)
 	switch {
-	case r.state.Combat.Active || hero != nil && hero.CombatHold:
+	case r.heroInCombat() || hero != nil && hero.CombatHold:
 		result.Reason = "combat_active"
 	case !r.state.Life.Enabled || !r.state.Active || hero == nil:
 		result.Reason = "Сначала начните игру"

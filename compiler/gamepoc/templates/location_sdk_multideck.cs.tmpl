@@ -16,6 +16,11 @@ namespace AngelsDemons.Poc {
   readonly Dictionary<string,GameObject> locationSDKDeckRoots=new Dictionary<string,GameObject>(StringComparer.Ordinal);
   readonly HashSet<string> locationSDKCutawayHidden=new HashSet<string>(StringComparer.Ordinal),locationSDKCutawayFaded=new HashSet<string>(StringComparer.Ordinal);
   sealed class LocationSDKFadeRestore {public Material[] materials;public UnityEngine.Rendering.ShadowCastingMode shadows;}
+  // demo-hub v12-vending: floor instances of occluding groups (a tall fixture), their static bounds and fade state.
+  readonly Dictionary<GameObject,Bounds> locationSDKInstanceBounds=new Dictionary<GameObject,Bounds>();
+  readonly HashSet<GameObject> locationSDKInstanceFaded=new HashSet<GameObject>();
+  readonly List<Renderer> locationSDKInstanceHiddenText=new List<Renderer>();
+  Material locationSDKInstanceFadeMaterial;
   readonly Dictionary<Renderer,LocationSDKFadeRestore> locationSDKFadeOriginal=new Dictionary<Renderer,LocationSDKFadeRestore>();
   Material locationSDKGlassMaterial,locationSDKFadeMaterial;
   internal bool LocationSDKIsMultideck{get{return locationSDKNav!=null;}}
@@ -296,6 +301,7 @@ namespace AngelsDemons.Poc {
     if(g.policy=="building"){bool inside=heroMM>=g.bottom_mm-1&&heroMM<g.top_mm&&LocationSDKRectContains(g.interior,px,py);if(inside)foreach(var id in g.surfaces){var s=LocationSDKNavSurfaceByID(id);if(s!=null&&s.elevation_mm>heroMM+2100)locationSDKCutawayHidden.Add(id);}}
     else if(g.policy=="occluding"){bool occluding=false;foreach(var id in g.surfaces){var s=LocationSDKNavSurfaceByID(id);if(s==null||s.elevation_mm<=heroMM+500)continue;float underside=(s.elevation_mm-s.slab_mm)*.001f;foreach(float h in new[]{1f,1.7f}){var p=feet+Vector3.up*h;if(p.y>=underside||locationSDKCameraOffset.y<=0)continue;var q=p+locationSDKCameraOffset*((underside-p.y)/locationSDKCameraOffset.y);if(LocationSDKSlabAt(s,(int)Math.Floor(q.x/meters),(int)Math.Floor(q.z/meters)))occluding=true;}}if(occluding)foreach(var id in g.surfaces)locationSDKCutawayFaded.Add(id);}
    }
+   LocationSDKUpdateInstanceCutaway(feet);
    foreach(var pair in locationSDKDeckRoots){bool hidden=locationSDKCutawayHidden.Contains(pair.Key);if(pair.Value.activeSelf==hidden)pair.Value.SetActive(!hidden);bool faded=locationSDKCutawayFaded.Contains(pair.Key);
     foreach(var renderer in pair.Value.GetComponentsInChildren<Renderer>(true)){LocationSDKFadeRestore original;bool swapped=locationSDKFadeOriginal.TryGetValue(renderer,out original);
      if(faded&&!swapped){original=new LocationSDKFadeRestore{materials=renderer.sharedMaterials,shadows=renderer.shadowCastingMode};locationSDKFadeOriginal[renderer]=original;var slots=new Material[original.materials.Length];for(int i=0;i<slots.Length;i++)slots[i]=locationSDKFadeMaterial;renderer.sharedMaterials=slots;renderer.shadowCastingMode=UnityEngine.Rendering.ShadowCastingMode.Off;}
@@ -303,6 +309,40 @@ namespace AngelsDemons.Poc {
     }
    }
   }
-  void ReleaseLocationSDKMultideck(){locationSDKNav=null;locationSDKHeroWorldValid=false;locationSDKNavWorld.Clear();locationSDKNavDeck.Clear();locationSDKDeckRoots.Clear();locationSDKCutawayHidden.Clear();locationSDKCutawayFaded.Clear();locationSDKFadeOriginal.Clear();locationSDKGlassMaterial=null;locationSDKFadeMaterial=null;}
+  // An instance of an occluding group fades while the line from the hero's torso or head to the camera crosses its
+  // bounds (the vending block hides a person at its back row). Its world text is hidden meanwhile; presentation only.
+  void LocationSDKUpdateInstanceCutaway(Vector3 feet){
+   if(locationSDKNav==null||locationSDKNav.cutaway_groups==null||locationSDKRoot==null)return;
+   var fade=new HashSet<GameObject>();var members=new List<GameObject>();
+   foreach(var g in locationSDKNav.cutaway_groups){
+    if(g.policy!="occluding"||g.instances==null||g.instances.Length==0)continue;
+    bool occluding=false;var roots=new List<GameObject>();
+    foreach(var id in g.instances)foreach(var v in locationSDKOverrideVisuals)if(v.instance==id&&v.root!=null&&v.root.activeInHierarchy){
+     roots.Add(v.root);Bounds b;
+     if(!locationSDKInstanceBounds.TryGetValue(v.root,out b)){bool any=false;foreach(var r in v.root.GetComponentsInChildren<Renderer>(false)){if(r.sharedMaterial!=null&&r.sharedMaterial.shader!=null&&r.sharedMaterial.shader.name=="ANG/WorldText")continue;if(!any){b=r.bounds;any=true;}else b.Encapsulate(r.bounds);}if(!any)continue;locationSDKInstanceBounds[v.root]=b;}
+     if(occluding||locationSDKCameraOffset.sqrMagnitude<1e-6f)continue;
+     var dir=locationSDKRoot.transform.TransformDirection(locationSDKCameraOffset).normalized;
+     foreach(float h in new[]{1f,1.7f}){var p=locationSDKRoot.transform.TransformPoint(feet+Vector3.up*h);if(!b.Contains(p)&&b.IntersectRay(new Ray(p,dir))){occluding=true;break;}}
+    }
+    members.AddRange(roots);if(occluding)foreach(var root in roots)fade.Add(root);
+   }
+   foreach(var root in members){bool faded=fade.Contains(root);if(faded==locationSDKInstanceFaded.Contains(root))continue;
+    if(faded)locationSDKInstanceFaded.Add(root);else locationSDKInstanceFaded.Remove(root);
+    foreach(var renderer in root.GetComponentsInChildren<Renderer>(true)){
+     // a tall fixture is a stack of parts: only its solid body fades (fainter than a slab, the layers add up); the
+     // non-solid parts (world text, signals, glass, screens: no shadows) are hidden meanwhile
+     bool solid=renderer.shadowCastingMode!=UnityEngine.Rendering.ShadowCastingMode.Off||locationSDKFadeOriginal.ContainsKey(renderer);
+     if(!solid||(renderer.sharedMaterial!=null&&renderer.sharedMaterial.shader!=null&&renderer.sharedMaterial.shader.name=="ANG/WorldText")){if(faded&&renderer.enabled){renderer.enabled=false;locationSDKInstanceHiddenText.Add(renderer);}continue;}
+     if(locationSDKInstanceFadeMaterial==null)locationSDKInstanceFadeMaterial=LocationSDKTransparentMaterial(new Color(.62f,.66f,.66f,.06f));
+     LocationSDKFadeRestore original;bool swapped=locationSDKFadeOriginal.TryGetValue(renderer,out original);
+     if(faded&&!swapped){original=new LocationSDKFadeRestore{materials=renderer.sharedMaterials,shadows=renderer.shadowCastingMode};locationSDKFadeOriginal[renderer]=original;var slots=new Material[original.materials.Length];for(int i=0;i<slots.Length;i++)slots[i]=locationSDKInstanceFadeMaterial;renderer.sharedMaterials=slots;renderer.shadowCastingMode=UnityEngine.Rendering.ShadowCastingMode.Off;}
+     else if(!faded&&swapped){renderer.sharedMaterials=original.materials;renderer.shadowCastingMode=original.shadows;locationSDKFadeOriginal.Remove(renderer);}
+    }
+    if(!faded){for(int i=locationSDKInstanceHiddenText.Count-1;i>=0;i--){var r=locationSDKInstanceHiddenText[i];if(r==null){locationSDKInstanceHiddenText.RemoveAt(i);continue;}if(r.transform.IsChildOf(root.transform)){r.enabled=true;locationSDKInstanceHiddenText.RemoveAt(i);}}}
+   }
+  }
+  // Presentation state of an instance cutaway (art runtimes skip their own material edits while it is faded).
+  internal bool LocationSDKInstanceFaded(GameObject root){return root!=null&&locationSDKInstanceFaded.Contains(root);}
+  void ReleaseLocationSDKMultideck(){locationSDKInstanceFadeMaterial=null;locationSDKInstanceBounds.Clear();locationSDKInstanceFaded.Clear();locationSDKInstanceHiddenText.Clear();locationSDKNav=null;locationSDKHeroWorldValid=false;locationSDKNavWorld.Clear();locationSDKNavDeck.Clear();locationSDKDeckRoots.Clear();locationSDKCutawayHidden.Clear();locationSDKCutawayFaded.Clear();locationSDKFadeOriginal.Clear();locationSDKGlassMaterial=null;locationSDKFadeMaterial=null;}
  }
 }

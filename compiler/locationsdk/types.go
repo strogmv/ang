@@ -175,6 +175,9 @@ type Instance struct {
 	OwnerRef    string              `json:"owner_ref,omitempty"`
 	Fate        ItemFate            `json:"fate"`
 	Decorations []DecorationBinding `json:"decorations,omitempty"`
+	// Optional presentation group (demo-hub v12-vending): a tall floor fixture of an "occluding" group fades while it
+	// hides the hero from the camera, like a deck of the gallery. Collision and sight are untouched.
+	CutawayGroup string `json:"cutaway_group,omitempty"`
 }
 
 // ItemFate is authoring intent, not an implemented deletion/event scheduler.

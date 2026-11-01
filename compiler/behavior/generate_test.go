@@ -13,7 +13,7 @@ func TestRenderIndependentBehaviorPackage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(files) != 32 {
+	if len(files) != 34 {
 		t.Fatalf("unexpected output count: %d", len(files))
 	}
 	for _, name := range []string{"combat.gen.go", "combat_geometry.gen.go", "courtesy.gen.go", "population.gen.go", "population_profile.gen.go", "practice.gen.go", "development_life.gen.go", "inspection.gen.go", "maintenance.gen.go", "life.gen.go", "life_travel.gen.go", "life_platform.gen.go", "multideck.gen.go", "gates.gen.go", "approach.gen.go", "memory.gen.go", "utility.gen.go", "gestures.gen.go"} {
@@ -38,7 +38,7 @@ func TestRenderIndependentBehaviorPackage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(withTests) != 61 || string(withTests["catalog.json"]) != string(catalog) || string(withTests["utility_scenarios.json"]) != `{"law":{},"cases":[]}` {
+	if len(withTests) != 64 || string(withTests["catalog.json"]) != string(catalog) || string(withTests["utility_scenarios.json"]) != `{"law":{},"cases":[]}` {
 		t.Fatalf("standalone fixtures missing: %d", len(withTests))
 	}
 	for _, name := range []string{"combat_generated_test.go", "utility.gen.go", "memory.gen.go", "life_travel.gen.go", "utility_generated_test.go", "gestures.gen.go", "gestures_generated_test.go"} {

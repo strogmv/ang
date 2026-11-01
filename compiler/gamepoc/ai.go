@@ -92,6 +92,10 @@ func clientResource(c Compiled) ([]byte, error) {
 	if c.WorldTextDrawn != nil {
 		view["world_text"] = c.WorldTextDrawn
 	}
+	// Vending terminals (demo-hub v12-vending) only in worlds that have them.
+	if c.Vending != nil {
+		view["vending"] = clientVending(c.Vending)
+	}
 	return json.MarshalIndent(view, "", "  ")
 }
 
