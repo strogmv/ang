@@ -272,6 +272,9 @@ func (r *Runtime) validateInventory(s state) error {
 		if err := r.validateCraftingSave(s); err != nil {
 			return err
 		}
+		if err := r.validateBarksSave(s); err != nil {
+			return err
+		}
 		if err := r.validateCommerceSave(s); err != nil {
 			return err
 		}

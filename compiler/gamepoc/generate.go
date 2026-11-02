@@ -24,6 +24,8 @@ import (
 	"cuelang.org/go/cue/errors"
 	"cuelang.org/go/cue/load"
 	"github.com/strogmv/ang/angir/normalizer"
+	"github.com/strogmv/ang/compiler/barks"
+	barksRuntime "github.com/strogmv/ang/compiler/barks/runtime"
 	"github.com/strogmv/ang/compiler/behavior"
 	"github.com/strogmv/ang/compiler/clothing"
 	clothingRuntime "github.com/strogmv/ang/compiler/clothing/runtime"
@@ -226,6 +228,12 @@ type Compiled struct {
 	Craft *CraftCatalog `json:"craft,omitempty"`
 	// Crafting stage 1 (doc 93, world.crafting): the engine catalog completed from the compiled world; nil without it.
 	Crafting *craftingRuntime.Model `json:"crafting,omitempty"`
+	// Barks (doc 94, world.barks): the compiled catalog of the lines over the head (internal/barks/catalog.json); a world
+	// without barks gets a silent default so the host adapter always compiles.
+	Barks         *barksRuntime.Model `json:"-"`
+	barksIn       *barksInput
+	barksWarnings []string
+	barksReport   []byte
 }
 
 func (c Config) validate() error {
@@ -401,6 +409,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	}
 	craftingIn, err := readCrafting(world)
 	if err != nil {
+		return out, nil, err
+	}
+	if out.barksIn, err = readBarks(world); err != nil {
 		return out, nil, err
 	}
 	if text := world.LookupPath(cue.ParsePath("world_text")); text.Exists() {
@@ -774,6 +785,12 @@ func Generate(project string) error {
 	if err != nil {
 		return err
 	}
+	if err := compileBarks(unity, &compiled); err != nil {
+		return err
+	}
+	if compiled.Barks == nil {
+		compiled.Barks = silentBarks(compiled)
+	}
 	viewJSON, err := clientResource(compiled)
 	if err != nil {
 		return err
@@ -835,6 +852,16 @@ func Generate(project string) error {
 	}
 	for name, data := range craftingFiles {
 		files[filepath.Join(project, "internal/crafting", name)] = data
+	}
+	barksFiles, err := barks.Render(*compiled.Barks)
+	if err != nil {
+		return err
+	}
+	for name, data := range barksFiles {
+		files[filepath.Join(project, "internal/barks", name)] = data
+	}
+	if len(compiled.barksReport) > 0 {
+		files[filepath.Join(project, "..", "design/barks/barks-report.md")] = compiled.barksReport
 	}
 	inventoryFiles, err := inventory.Render()
 	if err != nil {
@@ -951,6 +978,11 @@ func Generate(project string) error {
 		"vending.cs.tmpl":                       filepath.Join(unity, "Assets/Generated/Poc/PocVending.cs"),
 		"craft.go.tmpl":                         filepath.Join(project, "internal/poc/craft.gen.go"),
 		"craft.cs.tmpl":                         filepath.Join(unity, "Assets/Generated/Poc/PocCraft.cs"),
+		"barks.go.tmpl":                         filepath.Join(project, "internal/poc/barks.gen.go"),
+		"barks_facts.go.tmpl":                   filepath.Join(project, "internal/poc/barks_facts.gen.go"),
+		"barks_test.go.tmpl":                    filepath.Join(project, "internal/poc/barks_generated_test.go"),
+		"barks.cs.tmpl":                         filepath.Join(unity, "Assets/Generated/Poc/PocBarks.cs"),
+		"bark.shader.tmpl":                      filepath.Join(unity, "Assets/Resources/Generated/PocBark.shader"),
 		"crafting.go.tmpl":                      filepath.Join(project, "internal/poc/crafting.gen.go"),
 		"crafting_test.go.tmpl":                 filepath.Join(project, "internal/poc/crafting_generated_test.go"),
 		"crafting.cs.tmpl":                      filepath.Join(unity, "Assets/Generated/Poc/PocCrafting.cs"),

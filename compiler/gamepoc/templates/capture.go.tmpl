@@ -698,6 +698,7 @@ func (r *Runtime) snapshotState() state {
 	s.Inventory = s.Inventory.Clone()
 	s.Vending = r.state.Vending.clone()
 	s.Crafting = r.state.Crafting.Clone()
+	s.Barks = r.state.Barks.Clone()
 	s.Path = append([]point(nil), s.Path...)
 	s.Demo.Shadow = s.Demo.Shadow.Clone()
 	s.Demo.Supply = s.Demo.Supply.Clone()

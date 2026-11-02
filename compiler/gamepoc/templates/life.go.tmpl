@@ -37,6 +37,7 @@ func (r *Runtime) initLifeState(life behavior.LifeState) {
 	r.initNPCEconomy()
 	r.initVending()
 	r.initCrafting()
+	r.initBarks()
 	r.state.LifeExploration = map[string]map[int]seenCell{}
 	r.seedLifeKnownLayouts()
 	r.state.Demo = demoState{TargetAlive: true}
@@ -112,6 +113,7 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
 	if err := r.advanceCrafting(delta); err != nil {
 		return err
 	}
+	r.advanceBarks()
 	r.awardRepairPractice(previous)
 	r.advancePractice()
 	r.syncLifeHero()
@@ -212,6 +214,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 	}
 	view := &pb.PocLifeView{Enabled: true, LevelId: hero.Level, LevelName: r.regionLevelName(c.locale, hero.Level), SecondsPerTick: int32(s.Life.SecondsPerTick), Activity: r.localActivity(c.locale, hero.Label), Sneaking:hero.Sneaking, Transit: hero.Trip != nil, Automatic: !hero.Manual, WorkSeconds: hero.WorkedSeconds, SleepSeconds: hero.SleptSeconds, Meals: int32(hero.Meals)}
  r.appendIllumination(view,hero)
+ r.appendBarks(view,msg,hero,c.locale)
 	if hero.Trip != nil {
 		edge := r.world.Life.Edge(hero.Trip.Edge)
 		view.TripDestination = r.regionLevelName(c.locale, edge.To)

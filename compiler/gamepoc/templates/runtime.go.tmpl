@@ -3,6 +3,7 @@ package poc
 
 import (
 	"angelsdemons/server/internal/behavior"
+	barks "angelsdemons/server/internal/barks"
 	crafting "angelsdemons/server/internal/crafting"
 	inv "angelsdemons/server/internal/inventory"
 	"context"
@@ -131,6 +132,7 @@ type state struct {
 	NPCEconomy           npcEconomyState
 	Vending              vendingState
 	Crafting             crafting.State
+	Barks                barks.State
 	Inventory            inv.State
 	Demo                 demoState
 	Active               bool
