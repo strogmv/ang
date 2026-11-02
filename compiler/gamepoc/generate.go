@@ -35,6 +35,8 @@ import (
 	"github.com/strogmv/ang/compiler/inventory"
 	inv "github.com/strogmv/ang/compiler/inventory/runtime"
 	"github.com/strogmv/ang/compiler/locationsdk"
+	"github.com/strogmv/ang/compiler/wounds"
+	woundsRuntime "github.com/strogmv/ang/compiler/wounds/runtime"
 )
 
 //go:embed templates/*
@@ -238,6 +240,11 @@ type Compiled struct {
 	barksIn       *barksInput
 	barksWarnings []string
 	barksReport   []byte
+	// Wounds instead of hit points (doc 97, world.wounds): the standalone engine internal/wounds and the timeline table
+	// design/wounds/timelines.md; nil without world.wounds. Not called by combat yet (design/wounds/codex-handoff.md).
+	Wounds       *woundsRuntime.Model `json:"-"`
+	woundsIn     *woundsInput
+	woundsReport []byte
 }
 
 func (c Config) validate() error {
@@ -419,6 +426,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		return out, nil, err
 	}
 	if out.barksIn, err = readBarks(world); err != nil {
+		return out, nil, err
+	}
+	if out.woundsIn, err = readWounds(world); err != nil {
 		return out, nil, err
 	}
 	if text := world.LookupPath(cue.ParsePath("world_text")); text.Exists() {
@@ -801,6 +811,9 @@ func Generate(project string) error {
 	if err := compileBarks(unity, &compiled); err != nil {
 		return err
 	}
+	if err := compileWounds(&compiled); err != nil {
+		return err
+	}
 	if compiled.Barks == nil {
 		compiled.Barks = silentBarks(compiled)
 	}
@@ -878,6 +891,16 @@ func Generate(project string) error {
 	}
 	if len(compiled.barksReport) > 0 {
 		files[filepath.Join(project, "..", "design/barks/barks-report.md")] = compiled.barksReport
+	}
+	if compiled.Wounds != nil {
+		woundFiles, err := wounds.Render(*compiled.Wounds)
+		if err != nil {
+			return err
+		}
+		for name, data := range woundFiles {
+			files[filepath.Join(project, "internal/wounds", name)] = data
+		}
+		files[filepath.Join(project, "..", "design/wounds/timelines.md")] = compiled.woundsReport
 	}
 	inventoryFiles, err := inventory.Render()
 	if err != nil {

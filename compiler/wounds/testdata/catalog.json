@@ -1,0 +1,2414 @@
+{
+ "version": 1,
+ "difficulty": {
+  "bleed_permille": 1000,
+  "doom_permille": 1000,
+  "aid_permille": 1000,
+  "id": "standard",
+  "price_permille": 1000
+ },
+ "blood": {
+  "volume_ml": 5000,
+  "regen_ml_h": 20,
+  "step_s": 1,
+  "stopped_below_ml_min": 1
+ },
+ "pressure": {
+  "slope_permille": 1400,
+  "floor_permille": 200
+ },
+ "states": {
+  "weak_permille": 150,
+  "confused_permille": 300,
+  "down_permille": 400,
+  "dead_permille": 500,
+  "wake_below_permille": 350,
+  "weak": {
+   "ap": 1,
+   "pace_permille": 800
+  },
+  "confused": {
+   "ap": 2,
+   "pace_permille": 500
+  }
+ },
+ "effects": {
+  "pain": {
+   "ap": 1,
+   "pace_permille": 900,
+   "hold_weapon": true,
+   "falls": false
+  },
+  "drop_weapon": {
+   "ap": 0,
+   "pace_permille": 1000,
+   "hold_weapon": false,
+   "falls": false
+  },
+  "limp": {
+   "ap": 1,
+   "pace_permille": 450,
+   "hold_weapon": true,
+   "falls": false
+  },
+  "no_walk": {
+   "ap": 2,
+   "pace_permille": 0,
+   "hold_weapon": true,
+   "falls": true
+  },
+  "breathless": {
+   "ap": 2,
+   "pace_permille": 600,
+   "hold_weapon": true,
+   "falls": false
+  },
+  "concussion": {
+   "ap": 1,
+   "pace_permille": 800,
+   "hold_weapon": true,
+   "falls": false
+  }
+ },
+ "walk": {
+  "normal_mm_s": 1300,
+  "splinted_pace_permille": 250
+ },
+ "mechanisms": {
+  "cut": {
+   "name": "wounds.mechanism.cut",
+   "bleed_permille": 1000
+  },
+  "stab": {
+   "name": "wounds.mechanism.stab",
+   "bleed_permille": 1000
+  },
+  "puncture": {
+   "name": "wounds.mechanism.puncture",
+   "bleed_permille": 500
+  },
+  "blunt": {
+   "name": "wounds.mechanism.blunt",
+   "bleed_permille": 300
+  },
+  "bullet": {
+   "name": "wounds.mechanism.bullet",
+   "bleed_permille": 1500
+  },
+  "electric": {
+   "name": "wounds.mechanism.electric",
+   "bleed_permille": 0,
+   "incapacitate": {
+    "min": 3,
+    "max": 10
+   },
+   "condition": "burn.contact"
+  },
+  "choke": {
+   "name": "wounds.mechanism.choke",
+   "bleed_permille": 0
+  }
+ },
+ "chips": {
+  "none": {
+   "monitor": false,
+   "alarm_at": "confused",
+   "clot_permille": 1000,
+   "regen_permille": 1000,
+   "down_bonus_permille": 0,
+   "protected": false
+  },
+  "copper": {
+   "monitor": true,
+   "alarm_at": "confused",
+   "clot_permille": 1000,
+   "regen_permille": 1000,
+   "down_bonus_permille": 0,
+   "protected": false
+  },
+  "bronze": {
+   "monitor": true,
+   "alarm_at": "confused",
+   "clot_permille": 1000,
+   "regen_permille": 1000,
+   "down_bonus_permille": 0,
+   "protected": false
+  },
+  "silver": {
+   "monitor": true,
+   "alarm_at": "confused",
+   "clot_permille": 1000,
+   "regen_permille": 1000,
+   "down_bonus_permille": 20,
+   "protected": false
+  },
+  "gold": {
+   "monitor": true,
+   "alarm_at": "confused",
+   "clot_permille": 500,
+   "regen_permille": 4000,
+   "down_bonus_permille": 30,
+   "protected": false
+  },
+  "platinum": {
+   "monitor": true,
+   "alarm_at": "confused",
+   "clot_permille": 500,
+   "regen_permille": 4000,
+   "down_bonus_permille": 30,
+   "protected": true
+  }
+ },
+ "zones": [
+  {
+   "id": "head",
+   "name": "wounds.zone.head",
+   "part": "head",
+   "tourniquet": false,
+   "junctional": false,
+   "cavity": true,
+   "structures": [
+    {
+     "id": "scalp",
+     "name": "wounds.structure.scalp",
+     "kind": "capillary",
+     "min_depth": "graze",
+     "exposure": {
+      "cut": 1000000,
+      "stab": 1000000,
+      "puncture": 1000000,
+      "bullet": 1000000,
+      "blunt": 700000
+     },
+     "bleed_ml_min": 18,
+     "clot_half_s": 240,
+     "internal": false,
+     "effects": [],
+     "lethal_ppm": 0,
+     "severity": 1,
+     "heal_days": 7,
+     "capsule_min": 15,
+     "sign": "blood_flow"
+    },
+    {
+     "id": "concussion",
+     "name": "wounds.structure.concussion",
+     "kind": "brain",
+     "min_depth": "shallow",
+     "exposure": {
+      "blunt": 600000,
+      "bullet": 300000
+     },
+     "bleed_ml_min": 0,
+     "clot_half_s": 0,
+     "internal": false,
+     "effects": [
+      "concussion"
+     ],
+     "lethal_ppm": 0,
+     "severity": 3,
+     "heal_days": 7,
+     "capsule_min": 60,
+     "sign": "still",
+     "knockout_for": {
+      "min": 20,
+      "max": 240
+     }
+    },
+    {
+     "id": "skull",
+     "name": "wounds.structure.skull",
+     "kind": "bone",
+     "min_depth": "deep",
+     "exposure": {
+      "blunt": 120000,
+      "stab": 150000,
+      "puncture": 250000,
+      "bullet": 700000,
+      "cut": 50000
+     },
+     "bleed_ml_min": 0,
+     "clot_half_s": 0,
+     "internal": false,
+     "effects": [
+      "pain"
+     ],
+     "lethal_ppm": 0,
+     "severity": 6,
+     "heal_days": 60,
+     "capsule_min": 480,
+     "sign": "bruise"
+    },
+    {
+     "id": "brain_bleed",
+     "name": "wounds.structure.brain_bleed",
+     "kind": "brain",
+     "min_depth": "deep",
+     "exposure": {
+      "blunt": 35000,
+      "stab": 100000,
+      "puncture": 150000,
+      "bullet": 500000
+     },
+     "bleed_ml_min": 0,
+     "clot_half_s": 0,
+     "internal": false,
+     "effects": [
+      "concussion"
+     ],
+     "lethal_ppm": 120000,
+     "severity": 9,
+     "heal_days": 90,
+     "capsule_min": 720,
+     "sign": "none",
+     "doom": {
+      "min": 7200,
+      "max": 28800
+     }
+    },
+    {
+     "id": "brain",
+     "name": "wounds.structure.brain",
+     "kind": "brain",
+     "min_depth": "through",
+     "exposure": {
+      "puncture": 600000,
+      "bullet": 800000,
+      "stab": 300000
+     },
+     "bleed_ml_min": 0,
+     "clot_half_s": 0,
+     "internal": false,
+     "effects": [],
+     "lethal_ppm": 400000,
+     "severity": 10,
+     "heal_days": 180,
+     "capsule_min": 1440,
+     "sign": "still",
+     "knockout": {
+      "min": 0,
+      "max": 3
+     },
+     "doom": {
+      "min": 1800,
+      "max": 14400
+     }
+    }
+   ]
+  },
+  {
+   "id": "neck",
+   "name": "wounds.zone.neck",
+   "part": "head",
+   "tourniquet": false,
+   "junctional": true,
+   "cavity": false,
+   "structures": [
+    {
+     "id": "neck_skin",
+     "name": "wounds.structure.neck_skin",
+     "kind": "capillary",
+     "min_depth": "graze",
+     "exposure": {
+      "cut": 1000000,
+      "stab": 1000000,
+      "puncture": 1000000,
+      "bullet": 1000000,
+      "blunt": 700000
+     },
+     "bleed_ml_min": 8,
+     "clot_half_s": 180,
+     "internal": false,
+     "effects": [],
+     "lethal_ppm": 0,
+     "severity": 1,
+     "heal_days": 7,
+     "capsule_min": 15,
+     "sign": "blood"
+    },
+    {
+     "id": "jugular",
+     "name": "wounds.structure.jugular",
+     "kind": "vein",
+     "min_depth": "shallow",
+     "exposure": {
+      "cut": 250000,
+      "stab": 150000,
+      "puncture": 80000,
+      "bullet": 200000
+     },
+     "bleed_ml_min": 120,
+     "clot_half_s": 1800,
+     "internal": false,
+     "effects": [],
+     "lethal_ppm": 0,
+     "severity": 5,
+     "heal_days": 21,
+     "capsule_min": 120,
+     "sign": "blood_flow"
+    },
+    {
+     "id": "carotid",
+     "name": "wounds.structure.carotid",
+     "kind": "critical",
+     "min_depth": "deep",
+     "exposure": {
+      "cut": 200000,
+      "stab": 200000,
+      "puncture": 120000,
+      "bullet": 250000
+     },
+     "bleed_ml_min": 1500,
+     "clot_half_s": 0,
+     "internal": false,
+     "effects": [],
+     "lethal_ppm": 0,
+     "severity": 10,
+     "heal_days": 60,
+     "capsule_min": 300,
+     "sign": "blood_spurt",
+     "knockout": {
+      "min": 8,
+      "max": 15
+     }
+    },
+    {
+     "id": "larynx",
+     "name": "wounds.structure.larynx",
+     "kind": "organ",
+     "min_depth": "deep",
+     "exposure": {
+      "blunt": 50000,
+      "cut": 150000,
+      "stab": 150000,
+      "puncture": 60000,
+      "bullet": 200000
+     },
+     "bleed_ml_min": 10,
+     "clot_half_s": 600,
+     "internal": false,
+     "effects": [
+      "breathless"
+     ],
+     "lethal_ppm": 0,
+     "severity": 6,
+     "heal_days": 30,
+     "capsule_min": 240,
+     "sign": "gasp"
+    }
+   ]
+  },
+  {
+   "id": "chest",
+   "name": "wounds.zone.chest",
+   "part": "torso",
+   "tourniquet": false,
+   "junctional": false,
+   "cavity": true,
+   "structures": [
+    {
+     "id": "chest_wall",
+     "name": "wounds.structure.chest_wall",
+     "kind": "capillary",
+     "min_depth": "graze",
+     "exposure": {
+      "cut": 1000000,
+      "stab": 1000000,
+      "puncture": 1000000,
+      "bullet": 1000000,
+      "blunt": 700000
+     },
+     "bleed_ml_min": 8,
+     "clot_half_s": 180,
+     "internal": false,
+     "effects": [],
+     "lethal_ppm": 0,
+     "severity": 1,
+     "heal_days": 10,
+     "capsule_min": 15,
+     "sign": "blood"
+    },
+    {
+     "id": "rib",
+     "name": "wounds.structure.rib",
+     "kind": "bone",
+     "min_depth": "shallow",
+     "exposure": {
+      "blunt": 250000,
+      "bullet": 400000,
+      "stab": 100000,
+      "puncture": 60000
+     },
+     "bleed_ml_min": 0,
+     "clot_half_s": 0,
+     "internal": false,
+     "effects": [
+      "pain"
+     ],
+     "lethal_ppm": 0,
+     "severity": 4,
+     "heal_days": 42,
+     "capsule_min": 240,
+     "sign": "clutch"
+    },
+    {
+     "id": "lung",
+     "name": "wounds.structure.lung",
+     "kind": "organ",
+     "min_depth": "deep",
+     "exposure": {
+      "stab": 600000,
+      "puncture": 650000,
+      "bullet": 800000,
+      "cut": 100000,
+      "blunt": 40000
+     },
+     "bleed_ml_min": 20,
+     "clot_half_s": 3600,
+     "internal": true,
+     "effects": [
+      "breathless"
+     ],
+     "lethal_ppm": 0,
+     "severity": 6,
+     "heal_days": 30,
+     "capsule_min": 240,
+     "sign": "gasp"
+    },
+    {
+     "id": "heart",
+     "name": "wounds.structure.heart",
+     "kind": "critical",
+     "min_depth": "through",
+     "exposure": {
+      "stab": 150000,
+      "puncture": 120000,
+      "bullet": 250000
+     },
+     "bleed_ml_min": 2400,
+     "clot_half_s": 0,
+     "internal": true,
+     "effects": [],
+     "lethal_ppm": 0,
+     "severity": 10,
+     "heal_days": 90,
+     "capsule_min": 600,
+     "sign": "still",
+     "knockout": {
+      "min": 10,
+      "max": 20
+     }
+    }
+   ]
+  },
+  {
+   "id": "abdomen",
+   "name": "wounds.zone.abdomen",
+   "part": "torso",
+   "tourniquet": false,
+   "junctional": false,
+   "cavity": true,
+   "structures": [
+    {
+     "id": "belly_wall",
+     "name": "wounds.structure.belly_wall",
+     "kind": "capillary",
+     "min_depth": "graze",
+     "exposure": {
+      "cut": 1000000,
+      "stab": 1000000,
+      "puncture": 1000000,
+      "bullet": 1000000,
+      "blunt": 700000
+     },
+     "bleed_ml_min": 6,
+     "clot_half_s": 180,
+     "internal": false,
+     "effects": [],
+     "lethal_ppm": 0,
+     "severity": 1,
+     "heal_days": 10,
+     "capsule_min": 15,
+     "sign": "blood"
+    },
+    {
+     "id": "gut",
+     "name": "wounds.structure.gut",
+     "kind": "organ",
+     "min_depth": "deep",
+     "exposure": {
+      "stab": 600000,
+      "puncture": 500000,
+      "bullet": 750000,
+      "cut": 200000,
+      "blunt": 30000
+     },
+     "bleed_ml_min": 6,
+     "clot_half_s": 3600,
+     "internal": true,
+     "effects": [
+      "pain"
+     ],
+     "lethal_ppm": 0,
+     "severity": 6,
+     "heal_days": 30,
+     "capsule_min": 300,
+     "sign": "clutch",
+     "doom": {
+      "min": 86400,
+      "max": 259200
+     }
+    },
+    {
+     "id": "liver",
+     "name": "wounds.structure.liver",
+     "kind": "organ",
+     "min_depth": "deep",
+     "exposure": {
+      "stab": 300000,
+      "puncture": 250000,
+      "bullet": 400000,
+      "blunt": 50000,
+      "cut": 50000
+     },
+     "bleed_ml_min": 40,
+     "clot_half_s": 0,
+     "internal": true,
+     "effects": [
+      "pain"
+     ],
+     "lethal_ppm": 0,
+     "severity": 8,
+     "heal_days": 45,
+     "capsule_min": 360,
+     "sign": "clutch"
+    },
+    {
+     "id": "aorta",
+     "name": "wounds.structure.aorta",
+     "kind": "critical",
+     "min_depth": "through",
+     "exposure": {
+      "stab": 30000,
+      "puncture": 30000,
+      "bullet": 80000
+     },
+     "bleed_ml_min": 3000,
+     "clot_half_s": 0,
+     "internal": true,
+     "effects": [],
+     "lethal_ppm": 0,
+     "severity": 10,
+     "heal_days": 90,
+     "capsule_min": 600,
+     "sign": "still",
+     "knockout": {
+      "min": 20,
+      "max": 40
+     }
+    }
+   ]
+  },
+  {
+   "id": "groin",
+   "name": "wounds.zone.groin",
+   "part": "torso",
+   "tourniquet": false,
+   "junctional": true,
+   "cavity": false,
+   "structures": [
+    {
+     "id": "groin_skin",
+     "name": "wounds.structure.groin_skin",
+     "kind": "capillary",
+     "min_depth": "graze",
+     "exposure": {
+      "cut": 1000000,
+      "stab": 1000000,
+      "puncture": 1000000,
+      "bullet": 1000000,
+      "blunt": 700000
+     },
+     "bleed_ml_min": 6,
+     "clot_half_s": 180,
+     "internal": false,
+     "effects": [],
+     "lethal_ppm": 0,
+     "severity": 1,
+     "heal_days": 7,
+     "capsule_min": 15,
+     "sign": "blood"
+    },
+    {
+     "id": "groin_vein",
+     "name": "wounds.structure.groin_vein",
+     "kind": "deep_vein",
+     "min_depth": "deep",
+     "exposure": {
+      "stab": 250000,
+      "puncture": 150000,
+      "cut": 200000,
+      "bullet": 300000
+     },
+     "bleed_ml_min": 60,
+     "clot_half_s": 3600,
+     "internal": false,
+     "effects": [],
+     "lethal_ppm": 0,
+     "severity": 5,
+     "heal_days": 21,
+     "capsule_min": 120,
+     "sign": "blood_flow"
+    },
+    {
+     "id": "groin_artery",
+     "name": "wounds.structure.groin_artery",
+     "kind": "artery",
+     "min_depth": "deep",
+     "exposure": {
+      "stab": 250000,
+      "puncture": 120000,
+      "cut": 200000,
+      "bullet": 300000
+     },
+     "bleed_ml_min": 900,
+     "clot_half_s": 0,
+     "internal": false,
+     "effects": [],
+     "lethal_ppm": 0,
+     "severity": 9,
+     "heal_days": 45,
+     "capsule_min": 240,
+     "sign": "blood_spurt"
+    },
+    {
+     "id": "pelvis",
+     "name": "wounds.structure.pelvis",
+     "kind": "bone",
+     "min_depth": "deep",
+     "exposure": {
+      "blunt": 100000,
+      "bullet": 300000,
+      "stab": 50000
+     },
+     "bleed_ml_min": 30,
+     "clot_half_s": 3600,
+     "internal": true,
+     "effects": [
+      "no_walk",
+      "pain"
+     ],
+     "lethal_ppm": 0,
+     "severity": 7,
+     "heal_days": 90,
+     "capsule_min": 600,
+     "sign": "still"
+    }
+   ]
+  },
+  {
+   "id": "axilla",
+   "name": "wounds.zone.axilla",
+   "part": "arms",
+   "tourniquet": false,
+   "junctional": true,
+   "cavity": false,
+   "structures": [
+    {
+     "id": "axilla_skin",
+     "name": "wounds.structure.axilla_skin",
+     "kind": "capillary",
+     "min_depth": "graze",
+     "exposure": {
+      "cut": 1000000,
+      "stab": 1000000,
+      "puncture": 1000000,
+      "bullet": 1000000,
+      "blunt": 700000
+     },
+     "bleed_ml_min": 6,
+     "clot_half_s": 180,
+     "internal": false,
+     "effects": [],
+     "lethal_ppm": 0,
+     "severity": 1,
+     "heal_days": 7,
+     "capsule_min": 15,
+     "sign": "blood"
+    },
+    {
+     "id": "axillary_vein",
+     "name": "wounds.structure.axillary_vein",
+     "kind": "deep_vein",
+     "min_depth": "deep",
+     "exposure": {
+      "stab": 250000,
+      "puncture": 150000,
+      "cut": 200000,
+      "bullet": 300000
+     },
+     "bleed_ml_min": 60,
+     "clot_half_s": 3600,
+     "internal": false,
+     "effects": [],
+     "lethal_ppm": 0,
+     "severity": 5,
+     "heal_days": 21,
+     "capsule_min": 120,
+     "sign": "blood_flow"
+    },
+    {
+     "id": "axillary_artery",
+     "name": "wounds.structure.axillary_artery",
+     "kind": "artery",
+     "min_depth": "deep",
+     "exposure": {
+      "stab": 250000,
+      "puncture": 120000,
+      "cut": 150000,
+      "bullet": 300000
+     },
+     "bleed_ml_min": 600,
+     "clot_half_s": 0,
+     "internal": false,
+     "effects": [],
+     "lethal_ppm": 0,
+     "severity": 9,
+     "heal_days": 45,
+     "capsule_min": 240,
+     "sign": "blood_spurt"
+    },
+    {
+     "id": "brachial_plexus",
+     "name": "wounds.structure.brachial_plexus",
+     "kind": "nerve",
+     "min_depth": "deep",
+     "exposure": {
+      "stab": 200000,
+      "cut": 150000,
+      "puncture": 100000,
+      "bullet": 300000
+     },
+     "bleed_ml_min": 0,
+     "clot_half_s": 0,
+     "internal": false,
+     "effects": [
+      "drop_weapon"
+     ],
+     "lethal_ppm": 0,
+     "severity": 5,
+     "heal_days": 180,
+     "capsule_min": 240,
+     "sign": "clutch"
+    }
+   ]
+  },
+  {
+   "id": "arm",
+   "name": "wounds.zone.arm",
+   "part": "arms",
+   "tourniquet": true,
+   "junctional": false,
+   "cavity": false,
+   "structures": [
+    {
+     "id": "arm_muscle",
+     "name": "wounds.structure.arm_muscle",
+     "kind": "capillary",
+     "min_depth": "graze",
+     "exposure": {
+      "cut": 1000000,
+      "stab": 1000000,
+      "puncture": 1000000,
+      "bullet": 1000000,
+      "blunt": 700000
+     },
+     "bleed_ml_min": 6,
+     "clot_half_s": 120,
+     "internal": false,
+     "effects": [],
+     "lethal_ppm": 0,
+     "severity": 1,
+     "heal_days": 7,
+     "capsule_min": 10,
+     "sign": "blood"
+    },
+    {
+     "id": "arm_vein",
+     "name": "wounds.structure.arm_vein",
+     "kind": "vein",
+     "min_depth": "shallow",
+     "exposure": {
+      "cut": 350000,
+      "stab": 150000,
+      "puncture": 100000,
+      "bullet": 200000
+     },
+     "bleed_ml_min": 30,
+     "clot_half_s": 600,
+     "internal": false,
+     "effects": [],
+     "lethal_ppm": 0,
+     "severity": 2,
+     "heal_days": 14,
+     "capsule_min": 30,
+     "sign": "blood_flow"
+    },
+    {
+     "id": "arm_artery",
+     "name": "wounds.structure.arm_artery",
+     "kind": "artery",
+     "min_depth": "deep",
+     "exposure": {
+      "cut": 200000,
+      "stab": 150000,
+      "puncture": 80000,
+      "bullet": 200000
+     },
+     "bleed_ml_min": 300,
+     "clot_half_s": 0,
+     "internal": false,
+     "effects": [],
+     "lethal_ppm": 0,
+     "severity": 7,
+     "heal_days": 30,
+     "capsule_min": 180,
+     "sign": "blood_spurt"
+    },
+    {
+     "id": "arm_bone",
+     "name": "wounds.structure.arm_bone",
+     "kind": "bone",
+     "min_depth": "deep",
+     "exposure": {
+      "blunt": 450000,
+      "bullet": 400000,
+      "stab": 50000,
+      "puncture": 80000,
+      "cut": 30000
+     },
+     "bleed_ml_min": 0,
+     "clot_half_s": 0,
+     "internal": false,
+     "effects": [
+      "drop_weapon",
+      "pain"
+     ],
+     "lethal_ppm": 0,
+     "severity": 5,
+     "heal_days": 42,
+     "capsule_min": 360,
+     "sign": "clutch"
+    },
+    {
+     "id": "arm_nerve",
+     "name": "wounds.structure.arm_nerve",
+     "kind": "nerve",
+     "min_depth": "deep",
+     "exposure": {
+      "cut": 150000,
+      "stab": 150000,
+      "puncture": 100000,
+      "bullet": 200000,
+      "blunt": 50000
+     },
+     "bleed_ml_min": 0,
+     "clot_half_s": 0,
+     "internal": false,
+     "effects": [
+      "drop_weapon"
+     ],
+     "lethal_ppm": 0,
+     "severity": 4,
+     "heal_days": 120,
+     "capsule_min": 240,
+     "sign": "clutch"
+    }
+   ]
+  },
+  {
+   "id": "thigh",
+   "name": "wounds.zone.thigh",
+   "part": "legs",
+   "tourniquet": true,
+   "junctional": false,
+   "cavity": false,
+   "structures": [
+    {
+     "id": "thigh_muscle",
+     "name": "wounds.structure.thigh_muscle",
+     "kind": "capillary",
+     "min_depth": "graze",
+     "exposure": {
+      "cut": 1000000,
+      "stab": 1000000,
+      "puncture": 1000000,
+      "bullet": 1000000,
+      "blunt": 700000
+     },
+     "bleed_ml_min": 8,
+     "clot_half_s": 150,
+     "internal": false,
+     "effects": [],
+     "lethal_ppm": 0,
+     "severity": 1,
+     "heal_days": 10,
+     "capsule_min": 15,
+     "sign": "blood"
+    },
+    {
+     "id": "thigh_vein",
+     "name": "wounds.structure.thigh_vein",
+     "kind": "deep_vein",
+     "min_depth": "deep",
+     "exposure": {
+      "stab": 200000,
+      "puncture": 120000,
+      "cut": 120000,
+      "bullet": 250000
+     },
+     "bleed_ml_min": 30,
+     "clot_half_s": 5400,
+     "internal": false,
+     "effects": [],
+     "lethal_ppm": 0,
+     "severity": 4,
+     "heal_days": 21,
+     "capsule_min": 90,
+     "sign": "blood_flow"
+    },
+    {
+     "id": "femoral_artery",
+     "name": "wounds.structure.femoral_artery",
+     "kind": "artery",
+     "min_depth": "deep",
+     "exposure": {
+      "stab": 200000,
+      "puncture": 100000,
+      "cut": 120000,
+      "bullet": 250000
+     },
+     "bleed_ml_min": 720,
+     "clot_half_s": 0,
+     "internal": false,
+     "effects": [],
+     "lethal_ppm": 0,
+     "severity": 9,
+     "heal_days": 45,
+     "capsule_min": 240,
+     "sign": "blood_spurt"
+    },
+    {
+     "id": "femur",
+     "name": "wounds.structure.femur",
+     "kind": "bone",
+     "min_depth": "deep",
+     "exposure": {
+      "blunt": 120000,
+      "bullet": 450000,
+      "stab": 30000,
+      "puncture": 50000
+     },
+     "bleed_ml_min": 15,
+     "clot_half_s": 3600,
+     "internal": true,
+     "effects": [
+      "no_walk",
+      "pain"
+     ],
+     "lethal_ppm": 0,
+     "severity": 7,
+     "heal_days": 90,
+     "capsule_min": 720,
+     "sign": "still"
+    },
+    {
+     "id": "sciatic",
+     "name": "wounds.structure.sciatic",
+     "kind": "nerve",
+     "min_depth": "deep",
+     "exposure": {
+      "stab": 100000,
+      "cut": 80000,
+      "puncture": 60000,
+      "bullet": 150000
+     },
+     "bleed_ml_min": 0,
+     "clot_half_s": 0,
+     "internal": false,
+     "effects": [
+      "limp"
+     ],
+     "lethal_ppm": 0,
+     "severity": 4,
+     "heal_days": 180,
+     "capsule_min": 240,
+     "sign": "limp"
+    }
+   ]
+  },
+  {
+   "id": "shin",
+   "name": "wounds.zone.shin",
+   "part": "legs",
+   "tourniquet": true,
+   "junctional": false,
+   "cavity": false,
+   "structures": [
+    {
+     "id": "shin_muscle",
+     "name": "wounds.structure.shin_muscle",
+     "kind": "capillary",
+     "min_depth": "graze",
+     "exposure": {
+      "cut": 1000000,
+      "stab": 1000000,
+      "puncture": 1000000,
+      "bullet": 1000000,
+      "blunt": 700000
+     },
+     "bleed_ml_min": 5,
+     "clot_half_s": 120,
+     "internal": false,
+     "effects": [],
+     "lethal_ppm": 0,
+     "severity": 1,
+     "heal_days": 7,
+     "capsule_min": 10,
+     "sign": "blood"
+    },
+    {
+     "id": "shin_artery",
+     "name": "wounds.structure.shin_artery",
+     "kind": "artery",
+     "min_depth": "deep",
+     "exposure": {
+      "stab": 150000,
+      "cut": 150000,
+      "puncture": 80000,
+      "bullet": 200000
+     },
+     "bleed_ml_min": 150,
+     "clot_half_s": 2400,
+     "internal": false,
+     "effects": [],
+     "lethal_ppm": 0,
+     "severity": 6,
+     "heal_days": 30,
+     "capsule_min": 150,
+     "sign": "blood_spurt"
+    },
+    {
+     "id": "tibia",
+     "name": "wounds.structure.tibia",
+     "kind": "bone",
+     "min_depth": "deep",
+     "exposure": {
+      "blunt": 300000,
+      "bullet": 450000,
+      "stab": 50000,
+      "puncture": 60000
+     },
+     "bleed_ml_min": 0,
+     "clot_half_s": 0,
+     "internal": false,
+     "effects": [
+      "no_walk",
+      "pain"
+     ],
+     "lethal_ppm": 0,
+     "severity": 6,
+     "heal_days": 70,
+     "capsule_min": 600,
+     "sign": "still"
+    },
+    {
+     "id": "peroneal",
+     "name": "wounds.structure.peroneal",
+     "kind": "nerve",
+     "min_depth": "deep",
+     "exposure": {
+      "blunt": 60000,
+      "cut": 100000,
+      "stab": 80000,
+      "puncture": 50000,
+      "bullet": 100000
+     },
+     "bleed_ml_min": 0,
+     "clot_half_s": 0,
+     "internal": false,
+     "effects": [
+      "limp"
+     ],
+     "lethal_ppm": 0,
+     "severity": 3,
+     "heal_days": 120,
+     "capsule_min": 180,
+     "sign": "limp"
+    }
+   ]
+  }
+ ],
+ "aim": {
+  "head": {
+   "head": 85,
+   "neck": 15
+  },
+  "torso": {
+   "chest": 48,
+   "abdomen": 34,
+   "groin": 8,
+   "axilla": 5,
+   "neck": 5
+  },
+  "arms": {
+   "arm": 90,
+   "axilla": 10
+  },
+  "legs": {
+   "thigh": 55,
+   "shin": 40,
+   "groin": 5
+  }
+ },
+ "angles": {
+  "front": {},
+  "flank": {
+   "axilla": 10,
+   "neck": 5
+  },
+  "rear": {
+   "neck": 5
+  }
+ },
+ "weapons": [
+  {
+   "weapon": "item.knife_simple",
+   "name": "wounds.weapon.item.knife_simple",
+   "modes": {
+    "quick": {
+     "mechanism": "cut",
+     "depth": {
+      "graze": 40,
+      "shallow": 45,
+      "deep": 15
+     }
+    },
+    "heavy": {
+     "mechanism": "stab",
+     "depth": {
+      "graze": 10,
+      "shallow": 30,
+      "deep": 50,
+      "through": 10
+     }
+    },
+    "*": {
+     "mechanism": "stab",
+     "depth": {
+      "graze": 20,
+      "shallow": 40,
+      "deep": 35,
+      "through": 5
+     }
+    }
+   },
+   "skill_deepen_ppm": 2000
+  },
+  {
+   "weapon": "item.service_baton",
+   "name": "wounds.weapon.item.service_baton",
+   "modes": {
+    "quick": {
+     "mechanism": "blunt",
+     "depth": {
+      "graze": 30,
+      "shallow": 50,
+      "deep": 20
+     }
+    },
+    "heavy": {
+     "mechanism": "blunt",
+     "depth": {
+      "graze": 10,
+      "shallow": 35,
+      "deep": 55
+     }
+    },
+    "*": {
+     "mechanism": "blunt",
+     "depth": {
+      "graze": 20,
+      "shallow": 45,
+      "deep": 35
+     }
+    }
+   },
+   "skill_deepen_ppm": 1500
+  },
+  {
+   "weapon": "item.pipe_offcut",
+   "name": "wounds.weapon.item.pipe_offcut",
+   "modes": {
+    "quick": {
+     "mechanism": "blunt",
+     "depth": {
+      "graze": 25,
+      "shallow": 45,
+      "deep": 30
+     }
+    },
+    "heavy": {
+     "mechanism": "blunt",
+     "depth": {
+      "graze": 5,
+      "shallow": 30,
+      "deep": 60,
+      "through": 5
+     }
+    },
+    "*": {
+     "mechanism": "blunt",
+     "depth": {
+      "graze": 15,
+      "shallow": 40,
+      "deep": 45
+     }
+    }
+   },
+   "skill_deepen_ppm": 1500
+  },
+  {
+   "weapon": "item.security_stunner",
+   "name": "wounds.weapon.item.security_stunner",
+   "modes": {
+    "quick": {
+     "mechanism": "electric",
+     "depth": {
+      "graze": 100
+     }
+    },
+    "heavy": {
+     "mechanism": "blunt",
+     "depth": {
+      "graze": 25,
+      "shallow": 50,
+      "deep": 25
+     }
+    },
+    "*": {
+     "mechanism": "electric",
+     "depth": {
+      "graze": 100
+     }
+    }
+   },
+   "skill_deepen_ppm": 1000
+  },
+  {
+   "weapon": "item.needle_gun",
+   "name": "wounds.weapon.item.needle_gun",
+   "modes": {
+    "aimed": {
+     "mechanism": "puncture",
+     "depth": {
+      "shallow": 10,
+      "deep": 55,
+      "through": 35
+     }
+    },
+    "*": {
+     "mechanism": "puncture",
+     "depth": {
+      "shallow": 20,
+      "deep": 55,
+      "through": 25
+     }
+    }
+   },
+   "skill_deepen_ppm": 1000
+  },
+  {
+   "weapon": "unarmed",
+   "name": "wounds.weapon.unarmed",
+   "modes": {
+    "quick": {
+     "mechanism": "blunt",
+     "depth": {
+      "graze": 60,
+      "shallow": 35,
+      "deep": 5
+     }
+    },
+    "heavy": {
+     "mechanism": "blunt",
+     "depth": {
+      "graze": 30,
+      "shallow": 50,
+      "deep": 20
+     }
+    },
+    "*": {
+     "mechanism": "blunt",
+     "depth": {
+      "graze": 45,
+      "shallow": 45,
+      "deep": 10
+     }
+    }
+   },
+   "skill_deepen_ppm": 1500
+  }
+ ],
+ "techniques": [
+  {
+   "id": "stun_blow",
+   "name": "wounds.technique.stun_blow",
+   "mechanism": "blunt",
+   "zone": "head",
+   "angle": "rear",
+   "depth": {
+    "shallow": 40,
+    "deep": 60
+   }
+  },
+  {
+   "id": "chokehold",
+   "name": "wounds.technique.chokehold",
+   "mechanism": "choke",
+   "zone": "neck",
+   "angle": "rear",
+   "depth": {
+    "graze": 100
+   },
+   "knockout": {
+    "min": 8,
+    "max": 14
+   },
+   "wake": {
+    "min": 10,
+    "max": 40
+   },
+   "safe_after_ko_s": 20,
+   "death_ppm_per_s": 30000,
+   "arrest_ppm": 2000
+  }
+ ],
+ "armor": [
+  {
+   "item": "item.reinforced_work_jacket",
+   "zones": [
+    "chest",
+    "abdomen",
+    "arm",
+    "axilla"
+   ],
+   "stop": {
+    "cut": 400000,
+    "stab": 150000,
+    "puncture": 100000
+   },
+   "shift": {
+    "cut": 500000,
+    "stab": 400000,
+    "puncture": 250000,
+    "blunt": 300000,
+    "bullet": 100000
+   }
+  }
+ ],
+ "aid": {
+  "kinds": {
+   "pressure": {
+    "name": "wounds.aid.pressure",
+    "seconds": 5,
+    "held": true,
+    "zones": [
+     "head",
+     "neck",
+     "chest",
+     "abdomen",
+     "groin",
+     "axilla",
+     "arm",
+     "thigh",
+     "shin"
+    ],
+    "reduce": {
+     "capillary": 950,
+     "vein": 900,
+     "deep_vein": 800,
+     "artery": 700,
+     "critical": 300
+    },
+    "limb_inside": false,
+    "ease": []
+   },
+   "tourniquet": {
+    "name": "wounds.aid.tourniquet",
+    "seconds": 20,
+    "held": false,
+    "zones": [
+     "arm",
+     "thigh",
+     "shin"
+    ],
+    "reduce": {
+     "capillary": 1000,
+     "vein": 1000,
+     "deep_vein": 1000,
+     "artery": 1000,
+     "critical": 1000
+    },
+    "limb_inside": true,
+    "ease": [],
+    "limb_safe_s": 7200,
+    "limb_lost_s": 21600,
+    "limb_effects": {
+     "arms": [
+      "drop_weapon"
+     ],
+     "legs": [
+      "limp"
+     ]
+    },
+    "limb_lost_effects": {
+     "arms": [
+      "drop_weapon"
+     ],
+     "legs": [
+      "no_walk"
+     ]
+    }
+   },
+   "packing": {
+    "name": "wounds.aid.packing",
+    "seconds": 180,
+    "held": false,
+    "zones": [
+     "head",
+     "neck",
+     "groin",
+     "axilla",
+     "arm",
+     "thigh",
+     "shin"
+    ],
+    "reduce": {
+     "capillary": 1000,
+     "vein": 950,
+     "deep_vein": 900,
+     "artery": 850,
+     "critical": 500
+    },
+    "limb_inside": false,
+    "ease": []
+   },
+   "dressing": {
+    "name": "wounds.aid.dressing",
+    "seconds": 30,
+    "held": false,
+    "zones": [
+     "head",
+     "neck",
+     "chest",
+     "abdomen",
+     "groin",
+     "axilla",
+     "arm",
+     "thigh",
+     "shin"
+    ],
+    "reduce": {
+     "capillary": 1000,
+     "vein": 900,
+     "deep_vein": 600,
+     "artery": 300,
+     "critical": 100
+    },
+    "limb_inside": false,
+    "ease": []
+   },
+   "seal": {
+    "name": "wounds.aid.seal",
+    "seconds": 15,
+    "held": false,
+    "zones": [
+     "chest"
+    ],
+    "reduce": {
+     "capillary": 900
+    },
+    "limb_inside": false,
+    "ease": [
+     "breathless"
+    ]
+   },
+   "medkit": {
+    "name": "wounds.aid.medkit",
+    "seconds": 60,
+    "held": false,
+    "zones": [
+     "head",
+     "neck",
+     "chest",
+     "abdomen",
+     "groin",
+     "axilla",
+     "arm",
+     "thigh",
+     "shin"
+    ],
+    "reduce": {},
+    "limb_inside": false,
+    "ease": []
+   }
+  },
+  "items": [
+   {
+    "item": "item.med_tourniquet",
+    "kind": "tourniquet",
+    "success_ppm": 950000,
+    "improvised": false
+   },
+   {
+    "item": "item.hub_tex_scarf",
+    "kind": "tourniquet",
+    "success_ppm": 550000,
+    "improvised": true
+   },
+   {
+    "item": "item.med_gauze",
+    "kind": "packing",
+    "success_ppm": 900000,
+    "improvised": false
+   },
+   {
+    "item": "item.hub_tex_scarf",
+    "kind": "packing",
+    "success_ppm": 500000,
+    "improvised": true
+   },
+   {
+    "item": "item.part.fabric",
+    "kind": "packing",
+    "success_ppm": 450000,
+    "improvised": true
+   },
+   {
+    "item": "item.med_patch",
+    "kind": "dressing",
+    "success_ppm": 950000,
+    "improvised": false
+   },
+   {
+    "item": "item.vm_med_patch",
+    "kind": "dressing",
+    "success_ppm": 950000,
+    "improvised": false
+   },
+   {
+    "item": "item.part.fabric",
+    "kind": "dressing",
+    "success_ppm": 650000,
+    "improvised": true
+   },
+   {
+    "item": "item.hub_tex_scarf",
+    "kind": "dressing",
+    "success_ppm": 700000,
+    "improvised": true
+   },
+   {
+    "item": "item.med_patch",
+    "kind": "seal",
+    "success_ppm": 900000,
+    "improvised": false
+   },
+   {
+    "item": "item.vm_med_patch",
+    "kind": "seal",
+    "success_ppm": 900000,
+    "improvised": false
+   },
+   {
+    "item": "item.hub_tape_roll",
+    "kind": "seal",
+    "success_ppm": 600000,
+    "improvised": true
+   }
+  ],
+  "medkits": [
+   {
+    "item": "item.medkit_home",
+    "level": 1,
+    "success_ppm": 950000,
+    "max_depth": "shallow",
+    "treats": [
+     "capillary",
+     "vein"
+    ],
+    "tourniquet": false,
+    "packing": false,
+    "splint": false,
+    "pain_off": true,
+    "infuse_ml": 0,
+    "pain_off_s": 14400
+   },
+   {
+    "item": "item.medkit_guard",
+    "level": 2,
+    "success_ppm": 950000,
+    "max_depth": "deep",
+    "treats": [
+     "capillary",
+     "vein",
+     "deep_vein",
+     "nerve"
+    ],
+    "tourniquet": true,
+    "packing": true,
+    "splint": true,
+    "pain_off": true,
+    "infuse_ml": 0,
+    "pain_off_s": 14400
+   },
+   {
+    "item": "item.medkit_system",
+    "level": 3,
+    "success_ppm": 970000,
+    "max_depth": "through",
+    "treats": [
+     "capillary",
+     "vein",
+     "deep_vein",
+     "nerve",
+     "artery"
+    ],
+    "tourniquet": true,
+    "packing": true,
+    "splint": true,
+    "pain_off": true,
+    "infuse_ml": 500,
+    "pain_off_s": 14400
+   }
+  ],
+  "skill": {
+   "skill": "medicine",
+   "per_point_ppm": 1000,
+   "cap_ppm": 990000
+  }
+ },
+ "providers": [
+  {
+   "id": "capsule",
+   "operator": "system",
+   "places": [
+    "hub",
+    "station",
+    "dormitory"
+   ],
+   "chip": "own",
+   "price": {
+    "base_minor": 200,
+    "per_severity_minor": 50,
+    "per_hour_minor": 50,
+    "stabilize_minor": 0
+   },
+   "time_permille": 1000,
+   "blood_min_per_100ml": 5,
+   "stabilize": {
+    "min": 15,
+    "restore_to_permille": 140
+   },
+   "cures": [
+    "wounds",
+    "blood",
+    "fractures",
+    "concussion",
+    "poison",
+    "disease",
+    "burn",
+    "infection"
+   ],
+   "journal": [
+    "stab",
+    "puncture",
+    "bullet"
+   ],
+   "trust_min_permille": 0,
+   "refuses_kinds": [],
+   "complication_ppm": 0,
+   "name": "wounds.provider.capsule"
+  },
+  {
+   "id": "medbay",
+   "operator": "system",
+   "places": [
+    "service_level"
+   ],
+   "chip": "own",
+   "trust_min_permille": 600,
+   "price": {
+    "base_minor": 0,
+    "per_severity_minor": 0,
+    "per_hour_minor": 0,
+    "stabilize_minor": 0
+   },
+   "time_permille": 800,
+   "blood_min_per_100ml": 4,
+   "stabilize": {
+    "min": 15,
+    "restore_to_permille": 140
+   },
+   "cures": [
+    "wounds",
+    "blood",
+    "fractures",
+    "concussion",
+    "poison",
+    "disease",
+    "burn",
+    "infection"
+   ],
+   "journal": [
+    "cut",
+    "stab",
+    "puncture",
+    "blunt",
+    "bullet",
+    "electric",
+    "choke"
+   ],
+   "refuses_kinds": [],
+   "complication_ppm": 0,
+   "name": "wounds.provider.medbay"
+  },
+  {
+   "id": "healer",
+   "operator": "grey",
+   "places": [
+    "grey_market"
+   ],
+   "chip": "any",
+   "price": {
+    "base_minor": 100,
+    "per_severity_minor": 25,
+    "per_hour_minor": 10,
+    "stabilize_minor": 50
+   },
+   "time_permille": 2500,
+   "blood_min_per_100ml": 0,
+   "stabilize": {
+    "min": 30,
+    "restore_to_permille": 1000
+   },
+   "cures": [
+    "wounds",
+    "fractures",
+    "concussion",
+    "burn"
+   ],
+   "refuses_kinds": [
+    "organ",
+    "brain",
+    "critical"
+   ],
+   "complication_ppm": 150000,
+   "complication": "infection.wound",
+   "trust_min_permille": 0,
+   "journal": [],
+   "name": "wounds.provider.healer"
+  }
+ ],
+ "conditions": [
+  {
+   "id": "poison.ration",
+   "kind": "poison",
+   "onset": {
+    "min": 3600,
+    "max": 10800
+   },
+   "effects": [
+    "pain"
+   ],
+   "doom": {
+    "min": 43200,
+    "max": 108000
+   },
+   "severity": 6,
+   "capsule_min": 90,
+   "heal_days": 3,
+   "sign": "clutch",
+   "name": "wounds.condition.poison.ration"
+  },
+  {
+   "id": "disease.fever",
+   "kind": "disease",
+   "onset": {
+    "min": 0,
+    "max": 0
+   },
+   "effects": [
+    "pain"
+   ],
+   "severity": 3,
+   "capsule_min": 240,
+   "heal_days": 10,
+   "sign": "none",
+   "name": "wounds.condition.disease.fever"
+  },
+  {
+   "id": "burn.contact",
+   "kind": "burn",
+   "onset": {
+    "min": 0,
+    "max": 0
+   },
+   "severity": 1,
+   "capsule_min": 15,
+   "heal_days": 5,
+   "sign": "none",
+   "effects": [],
+   "name": "wounds.condition.burn.contact"
+  },
+  {
+   "id": "infection.wound",
+   "kind": "infection",
+   "onset": {
+    "min": 86400,
+    "max": 172800
+   },
+   "effects": [
+    "pain"
+   ],
+   "doom": {
+    "min": 259200,
+    "max": 604800
+   },
+   "severity": 5,
+   "capsule_min": 240,
+   "heal_days": 14,
+   "sign": "none",
+   "name": "wounds.condition.infection.wound"
+  }
+ ],
+ "resolve": {
+  "serious_severity": 4,
+  "reactions": {
+   "fight": {
+    "fight_on": 600,
+    "flee": 150,
+    "fall": 100,
+    "surrender": 150
+   },
+   "flight": {
+    "fight_on": 100,
+    "flee": 700,
+    "fall": 100,
+    "surrender": 100
+   },
+   "freeze": {
+    "fight_on": 100,
+    "flee": 100,
+    "fall": 600,
+    "surrender": 200
+   },
+   "appease": {
+    "fight_on": 50,
+    "flee": 150,
+    "fall": 100,
+    "surrender": 700
+   },
+   "withdraw": {
+    "fight_on": 100,
+    "flee": 500,
+    "fall": 150,
+    "surrender": 250
+   }
+  },
+  "courage_base": 50
+ },
+ "justice": {
+  "death": "crime.killing",
+  "serious": "crime.maiming",
+  "hit": "crime.assault",
+  "hero": "char.hero"
+ },
+ "routes": [
+  {
+   "id": "gate8",
+   "name": "wounds.route.gate8",
+   "mm": 19000
+  },
+  {
+   "id": "gate6",
+   "name": "wounds.route.gate6",
+   "mm": 52500
+  },
+  {
+   "id": "gate7",
+   "name": "wounds.route.gate7",
+   "mm": 72500
+  }
+ ],
+ "scenarios": [
+  {
+   "id": "knife_thigh_artery",
+   "hit": {
+    "weapon": "item.knife_simple",
+    "mode": "heavy",
+    "zone": "thigh",
+    "depth": "deep",
+    "structures": [
+     "thigh_muscle",
+     "femoral_artery"
+    ]
+   },
+   "aid": [
+    {
+     "at_s": 30,
+     "kind": "tourniquet",
+     "item": "item.med_tourniquet"
+    }
+   ],
+   "expect": {
+    "down": {
+     "min_s": 180,
+     "max_s": 300
+    },
+    "dead": {
+     "min_s": 300,
+     "max_s": 480
+    },
+    "aided_dead": "never"
+   },
+   "chip": "bronze",
+   "risk_runs": 0,
+   "name": "wounds.scenario.knife_thigh_artery"
+  },
+  {
+   "id": "knife_groin_artery",
+   "hit": {
+    "weapon": "item.knife_simple",
+    "mode": "heavy",
+    "zone": "groin",
+    "depth": "deep",
+    "structures": [
+     "groin_skin",
+     "groin_artery"
+    ]
+   },
+   "aid": [
+    {
+     "at_s": 15,
+     "kind": "pressure",
+     "item": ""
+    },
+    {
+     "at_s": 40,
+     "kind": "packing",
+     "item": "item.med_gauze"
+    }
+   ],
+   "expect": {
+    "down": {
+     "min_s": 120,
+     "max_s": 260
+    },
+    "dead": {
+     "min_s": 240,
+     "max_s": 420
+    },
+    "aided_dead": {
+     "min_s": 1200,
+     "max_s": 2400
+    }
+   },
+   "chip": "bronze",
+   "risk_runs": 0,
+   "name": "wounds.scenario.knife_groin_artery"
+  },
+  {
+   "id": "knife_neck",
+   "hit": {
+    "weapon": "item.knife_simple",
+    "mode": "quick",
+    "zone": "neck",
+    "depth": "deep",
+    "structures": [
+     "neck_skin",
+     "carotid"
+    ]
+   },
+   "aid": [
+    {
+     "at_s": 5,
+     "kind": "pressure",
+     "item": ""
+    },
+    {
+     "at_s": 10,
+     "kind": "packing",
+     "item": "item.med_gauze"
+    }
+   ],
+   "expect": {
+    "down": {
+     "min_s": 8,
+     "max_s": 15
+    },
+    "dead": {
+     "min_s": 100,
+     "max_s": 240
+    },
+    "aided_dead": {
+     "min_s": 120,
+     "max_s": 3600
+    }
+   },
+   "chip": "bronze",
+   "risk_runs": 0,
+   "name": "wounds.scenario.knife_neck"
+  },
+  {
+   "id": "knife_belly_liver",
+   "hit": {
+    "weapon": "item.knife_simple",
+    "mode": "heavy",
+    "zone": "abdomen",
+    "depth": "deep",
+    "structures": [
+     "belly_wall",
+     "liver"
+    ]
+   },
+   "aid": [
+    {
+     "at_s": 60,
+     "kind": "dressing",
+     "item": "item.med_patch"
+    }
+   ],
+   "expect": {
+    "down": {
+     "min_s": 3000,
+     "max_s": 5400
+    },
+    "dead": {
+     "min_s": 5400,
+     "max_s": 9000
+    },
+    "aided_dead": {
+     "min_s": 5400,
+     "max_s": 9000
+    }
+   },
+   "chip": "bronze",
+   "risk_runs": 0,
+   "name": "wounds.scenario.knife_belly_liver"
+  },
+  {
+   "id": "knife_belly_gut",
+   "hit": {
+    "weapon": "item.knife_simple",
+    "mode": "heavy",
+    "zone": "abdomen",
+    "depth": "deep",
+    "structures": [
+     "belly_wall",
+     "gut"
+    ]
+   },
+   "aid": [
+    {
+     "at_s": 60,
+     "kind": "dressing",
+     "item": "item.med_patch"
+    }
+   ],
+   "expect": {
+    "down": {
+     "min_s": 86400,
+     "max_s": 259200
+    },
+    "dead": {
+     "min_s": 86400,
+     "max_s": 259200
+    },
+    "aided_dead": {
+     "min_s": 86400,
+     "max_s": 259200
+    }
+   },
+   "chip": "bronze",
+   "risk_runs": 0,
+   "name": "wounds.scenario.knife_belly_gut"
+  },
+  {
+   "id": "needle_chest",
+   "hit": {
+    "weapon": "item.needle_gun",
+    "mode": "*",
+    "zone": "chest",
+    "depth": "deep",
+    "structures": [
+     "chest_wall",
+     "lung"
+    ]
+   },
+   "aid": [
+    {
+     "at_s": 60,
+     "kind": "seal",
+     "item": "item.med_patch"
+    }
+   ],
+   "risk_runs": 4000,
+   "expect": {
+    "down": "never",
+    "dead": "never",
+    "aided_dead": "never"
+   },
+   "chip": "bronze",
+   "name": "wounds.scenario.needle_chest"
+  },
+  {
+   "id": "needle_arm",
+   "hit": {
+    "weapon": "item.needle_gun",
+    "mode": "*",
+    "zone": "arm",
+    "depth": "shallow",
+    "structures": [
+     "arm_muscle"
+    ]
+   },
+   "aid": [
+    {
+     "at_s": 60,
+     "kind": "medkit",
+     "item": "item.medkit_home"
+    }
+   ],
+   "expect": {
+    "down": "never",
+    "dead": "never",
+    "aided_dead": "never"
+   },
+   "chip": "bronze",
+   "risk_runs": 0,
+   "name": "wounds.scenario.needle_arm"
+  },
+  {
+   "id": "baton_forearm",
+   "hit": {
+    "weapon": "item.service_baton",
+    "mode": "heavy",
+    "zone": "arm",
+    "depth": "deep",
+    "structures": [
+     "arm_muscle",
+     "arm_bone"
+    ]
+   },
+   "aid": [
+    {
+     "at_s": 60,
+     "kind": "medkit",
+     "item": "item.medkit_guard"
+    }
+   ],
+   "risk_runs": 4000,
+   "expect": {
+    "down": "never",
+    "dead": "never",
+    "aided_dead": "never"
+   },
+   "chip": "bronze",
+   "name": "wounds.scenario.baton_forearm"
+  },
+  {
+   "id": "baton_head",
+   "hit": {
+    "weapon": "item.service_baton",
+    "mode": "heavy",
+    "zone": "head",
+    "depth": "deep",
+    "structures": [
+     "scalp",
+     "concussion"
+    ]
+   },
+   "aid": [
+    {
+     "at_s": 60,
+     "kind": "dressing",
+     "item": "item.med_patch"
+    }
+   ],
+   "risk_runs": 4000,
+   "expect": {
+    "down": {
+     "min_s": 0,
+     "max_s": 1
+    },
+    "dead": "never",
+    "aided_dead": "never"
+   },
+   "chip": "bronze",
+   "name": "wounds.scenario.baton_head"
+  },
+  {
+   "id": "scratch",
+   "hit": {
+    "weapon": "item.knife_simple",
+    "mode": "quick",
+    "zone": "arm",
+    "depth": "graze",
+    "structures": [
+     "arm_muscle"
+    ]
+   },
+   "aid": [],
+   "expect": {
+    "down": "never",
+    "dead": "never",
+    "aided_dead": "never"
+   },
+   "chip": "bronze",
+   "risk_runs": 0,
+   "name": "wounds.scenario.scratch"
+  },
+  {
+   "id": "stun_blow",
+   "technique": {
+    "id": "stun_blow",
+    "weapon": "item.service_baton"
+   },
+   "hit": {
+    "weapon": "item.service_baton",
+    "mode": "*",
+    "zone": "head",
+    "depth": "deep",
+    "structures": [
+     "scalp",
+     "concussion"
+    ]
+   },
+   "aid": [],
+   "risk_runs": 4000,
+   "expect": {
+    "down": {
+     "min_s": 0,
+     "max_s": 1
+    },
+    "dead": "never",
+    "aided_dead": "never"
+   },
+   "chip": "bronze",
+   "name": "wounds.scenario.stun_blow"
+  },
+  {
+   "id": "choke_release",
+   "technique": {
+    "id": "chokehold",
+    "hold_s": 14
+   },
+   "aid": [],
+   "risk_runs": 4000,
+   "expect": {
+    "down": {
+     "min_s": 8,
+     "max_s": 14
+    },
+    "dead": "never",
+    "aided_dead": "never"
+   },
+   "chip": "bronze",
+   "name": "wounds.scenario.choke_release"
+  },
+  {
+   "id": "choke_hold",
+   "technique": {
+    "id": "chokehold",
+    "hold_s": 60
+   },
+   "aid": [],
+   "risk_runs": 4000,
+   "expect": {
+    "down": {
+     "min_s": 8,
+     "max_s": 14
+    },
+    "dead": {
+     "min_s": 60,
+     "max_s": 60
+    },
+    "aided_dead": {
+     "min_s": 60,
+     "max_s": 60
+    }
+   },
+   "chip": "bronze",
+   "name": "wounds.scenario.choke_hold"
+  },
+  {
+   "id": "poison_ration",
+   "condition": "poison.ration",
+   "aid": [],
+   "expect": {
+    "down": {
+     "min_s": 43200,
+     "max_s": 108000
+    },
+    "dead": {
+     "min_s": 43200,
+     "max_s": 108000
+    },
+    "aided_dead": {
+     "min_s": 43200,
+     "max_s": 108000
+    }
+   },
+   "chip": "bronze",
+   "risk_runs": 0,
+   "name": "wounds.scenario.poison_ration"
+  },
+  {
+   "id": "bullet_thigh",
+   "hit": {
+    "mechanism": "bullet",
+    "mode": "*",
+    "zone": "thigh",
+    "depth": "through",
+    "structures": [
+     "thigh_muscle",
+     "femoral_artery",
+     "femur"
+    ]
+   },
+   "aid": [
+    {
+     "at_s": 30,
+     "kind": "tourniquet",
+     "item": "item.med_tourniquet"
+    }
+   ],
+   "expect": {
+    "down": {
+     "min_s": 120,
+     "max_s": 200
+    },
+    "dead": {
+     "min_s": 180,
+     "max_s": 360
+    },
+    "aided_dead": "never"
+   },
+   "chip": "bronze",
+   "risk_runs": 0,
+   "name": "wounds.scenario.bullet_thigh"
+  }
+ ]
+}
