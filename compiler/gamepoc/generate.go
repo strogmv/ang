@@ -187,11 +187,13 @@ type Menu struct {
 }
 
 type Compiled struct {
-	PlayableScenes   json.RawMessage            `json:"playable_scenes,omitempty"`
-	CombatRuntime    json.RawMessage            `json:"combat_runtime,omitempty"`
-	Illumination     json.RawMessage            `json:"illumination_runtime,omitempty"`
-	Stealth          json.RawMessage            `json:"stealth_runtime,omitempty"`
-	CombatLife       json.RawMessage            `json:"combat_life,omitempty"`
+	PlayableScenes json.RawMessage `json:"playable_scenes,omitempty"`
+	CombatRuntime  json.RawMessage `json:"combat_runtime,omitempty"`
+	Illumination   json.RawMessage `json:"illumination_runtime,omitempty"`
+	Stealth        json.RawMessage `json:"stealth_runtime,omitempty"`
+	CombatLife     json.RawMessage `json:"combat_life,omitempty"`
+	// Body spacing of a fight (doc 96 v2, world.combat_spacing); absent = cell occupancy only.
+	CombatSpacing    json.RawMessage            `json:"combat_spacing,omitempty"`
 	Wayfinding       WayfindingCatalog          `json:"wayfinding,omitempty"`
 	ModularLocations []ModularLocation          `json:"modular_locations,omitempty"`
 	LocationSDK      *locationsdk.RuntimeBundle `json:"location_sdk,omitempty"`
@@ -339,6 +341,12 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		}
 	}
 
+	if spacing := world.LookupPath(cue.ParsePath("combat_spacing")); spacing.Exists() {
+		out.CombatSpacing, err = spacing.MarshalJSON()
+		if err != nil {
+			return out, nil, err
+		}
+	}
 	if scenes := world.LookupPath(cue.ParsePath("playable_scenes")); scenes.Exists() {
 		out.PlayableScenes, err = scenes.MarshalJSON()
 		if err != nil {

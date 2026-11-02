@@ -96,6 +96,7 @@ func (r *Runtime) combatSpace(s behavior.CombatState) behavior.CombatSpace {
 		unit = 1000
 	}
 	result := behavior.CombatSpace{Space: space, CellMM: unit}
+ if r.world.CombatSpacing.BodyMM>0{result.EndSpacingMM=r.combatEndSpacingMM} // doc 96 v2: world.combat_spacing (combat_panel.go.tmpl)
  result.CanUseWeapon=func(a behavior.Combatant)bool{item,w,ok:=r.equippedCombatItem(r.state.Inventory,a.ID);return ok&&w.ID==a.Weapon.ID&&r.craftingUsable(item.ID,a.ID)}
 	result.Space.Visible = func(a, b behavior.Cell) bool { return r.combatSight(s.LevelID,a,b) }
 	if v := r.world.Decks[s.LevelID]; v != nil {

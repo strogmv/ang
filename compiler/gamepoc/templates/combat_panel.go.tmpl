@@ -250,8 +250,41 @@ func (r *Runtime) combatOptions(locale string) []*pb.PocCombatOption {
 	return out
 }
 
-// combatStep picks a destination the ordinary executor accepts this turn: next to the target (approach) or as far as
-// possible from it (retreat). Candidates are cells on rays from the hero; each is checked on a copy of the encounter.
+// Body spacing (doc 96 v2, owner 02.11 «модели не держат дистанцию»; world.combat_spacing). A combat step never ENDS
+// closer than body_mm to a standing participant, nor closer to an opponent than the low edge of the mover's hand-weapon
+// band (a club fighter does not walk into knife distance). Enforced by the engine on every destination (EndSpacingMM);
+// the panel's «Сблизиться» prefers a cell inside the band. Hit chance, damage and reach rules are not touched.
+type combatSpacingBand struct {
+	MinMM int `json:"min_mm"`
+	MaxMM int `json:"max_mm"`
+}
+type combatSpacing struct {
+	BodyMM  int                          `json:"body_mm"`
+	Weapons map[string]combatSpacingBand `json:"weapons"`
+}
+
+func (r *Runtime) combatEndSpacingMM(mover, other behavior.Combatant) int {
+	sp := r.world.CombatSpacing
+	d := sp.BodyMM
+	if b, ok := sp.Weapons[mover.Weapon.ID]; ok && mover.Team != other.Team && b.MinMM > d {
+		d = b.MinMM
+	}
+	return d
+}
+
+// combatBand: where the hero wants to stand to strike — [low edge, min(high edge, reach)].
+func (r *Runtime) combatBand(c *behavior.Combatant) (int, int) {
+	sp := r.world.CombatSpacing
+	lo, hi := sp.BodyMM, c.Weapon.RangeMM
+	if b, ok := sp.Weapons[c.Weapon.ID]; ok {
+		lo, hi = max(lo, b.MinMM), min(hi, b.MaxMM)
+	}
+	return lo, max(lo, hi)
+}
+
+// combatStep picks a destination the ordinary executor accepts this turn: at striking distance of the target, inside the
+// weapon's spacing band when one is reachable (approach), or as far as possible from it (retreat). Candidates are cells
+// on rays from the hero; each is checked on a copy of the encounter.
 func (r *Runtime) combatStep(hero *behavior.Combatant, target *behavior.Combatant, away bool) (behavior.Cell, bool) {
 	unit := r.world.Life.Locations[r.state.Combat.LevelID].CellMM
 	if unit < 1 {
@@ -267,6 +300,7 @@ func (r *Runtime) combatStep(hero *behavior.Combatant, target *behavior.Combatan
 		score int
 	}
 	seen := map[behavior.Cell]bool{hero.Position: true}
+	lo, hi := r.combatBand(hero)
 	var list []candidate
 	consider := func(at behavior.Cell) {
 		if seen[at] || at.X < 0 || at.Y < 0 {
@@ -276,8 +310,10 @@ func (r *Runtime) combatStep(hero *behavior.Combatant, target *behavior.Combatan
 		d := r.combatDistance(at, target.Position)
 		if away {
 			list = append(list, candidate{at, -d})
-		} else if d >= 500 {
-			list = append(list, candidate{at, d + r.combatDistance(hero.Position, at)/8})
+		} else if d >= lo && d <= hi {
+			list = append(list, candidate{at, r.combatDistance(hero.Position, at)})
+		} else if d >= max(lo, 500) {
+			list = append(list, candidate{at, 1000000 + d + r.combatDistance(hero.Position, at)/8})
 		}
 	}
 	if away {
@@ -311,7 +347,12 @@ func (r *Runtime) combatStep(hero *behavior.Combatant, target *behavior.Combatan
 		if away {
 			gain = -gain
 		}
-		if gain < unit {
+		// Into the band a shorter step counts (from the edge of reach to the weapon's own distance).
+		if gain < unit && (away || gain <= 0 || c.score >= 1000000) {
+			continue
+		}
+		// A striking place must keep the target in sight (a diagonal past a corner may hide it).
+		if !away && c.score < 1000000 && !r.combatObserverSees(r.state.Combat.LevelID, playerActorID, c.at, target.Position) {
 			continue
 		}
 		if _, err := r.combatTry(behavior.CombatAction{Type: "move", To: c.at}); err == nil {

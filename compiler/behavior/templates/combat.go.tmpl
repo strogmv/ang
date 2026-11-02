@@ -214,6 +214,10 @@ type CombatSpace struct {
 	ArmorAfterDamage  func(target Combatant, blocked int, part string) CombatArmor
 	Equipment         func(actorID string) []CombatEquipmentOption
 	VisibleBystanders func(observer Combatant) []Cell
+	// Optional body spacing (doc 96 v2): the smallest centre distance at which a moving
+	// body may END a step beside another standing participant. Passing by is unchanged;
+	// hit, damage and reach rules are untouched. Nil keeps cell occupancy only.
+	EndSpacingMM func(mover, other Combatant) int
 }
 
 var ErrCombatExecutionBlocked = errors.New("combat shot blocked by a body during execution")
@@ -672,6 +676,23 @@ func (s CombatState) occupied(at Cell, except string, space CombatSpace, r Comba
 	return false
 }
 
+// crowded: a destination closer than the host's body spacing to a standing participant
+// (in planning only to one the mover sees, like occupancy).
+func (s CombatState) crowded(space CombatSpace, r CombatRules, a Combatant, at Cell, planning bool) bool {
+	if space.EndSpacingMM == nil {
+		return false
+	}
+	for _, b := range s.Actors {
+		if b.ID == a.ID || b.HP <= 0 || planning && !space.ActorVisible(a, b, r) {
+			continue
+		}
+		if space.rangeMM(at, b.Position) < space.EndSpacingMM(a, b) {
+			return true
+		}
+	}
+	return false
+}
+
 type combatReach struct {
 	At     Cell
 	MM, AP int
@@ -724,7 +745,9 @@ func (s CombatState) reachable(space CombatSpace, r CombatRules, a Combatant, ma
 		for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
 			path[i], path[j] = path[j], path[i]
 		}
-		results = append(results, combatReach{n.at, n.mm, combatActorMoveAP(n.mm, r, a), path})
+		if n.at == a.Position || !s.crowded(space, r, a, n.at, planning) {
+			results = append(results, combatReach{n.at, n.mm, combatActorMoveAP(n.mm, r, a), path})
+		}
 		neighbors := []Cell{{n.at.X + 1, n.at.Y}, {n.at.X, n.at.Y + 1}, {n.at.X - 1, n.at.Y}, {n.at.X, n.at.Y - 1}}
 		neighbors = append(neighbors, space.Space.Links[n.at]...)
 		for _, to := range neighbors {

@@ -13,9 +13,20 @@ using AngelsDemons.Game.V1;
 using UnityEngine;
 namespace AngelsDemons.Poc {
  public sealed partial class AngelsDemonsPoc {
-  string combatAutoDir;bool combatAutoInit,combatAutoRecord,combatAutoDone,combatAutoQuiet,combatAutoStartSent,combatAutoFightOut;readonly StringBuilder combatAutoFrames=new StringBuilder();int combatAutoPhase,combatAutoWaypoint,combatAutoFrame,combatAutoAttacks,combatAutoKey,combatAutoHeroTurns;
+  string combatAutoDir;bool combatAutoInit,combatAutoRecord,combatAutoDone,combatAutoQuiet,combatAutoStartSent,combatAutoFightOut,combatAutoDress;readonly StringBuilder combatAutoFrames=new StringBuilder();int combatAutoPhase,combatAutoWaypoint,combatAutoFrame,combatAutoAttacks,combatAutoKey,combatAutoHeroTurns;
   float combatAutoAt,combatAutoT0,combatAutoFrameAt,combatAutoIdleAt=-1,combatAutoFightAt;bool combatAutoHealed,combatAutoGuarded,combatAutoStood,combatAutoOver;int combatAutoFlee;
   int combatAutoSave;string combatAutoSnap="",combatAutoSaveResult="";long combatAutoSavedTurn;float combatAutoSaveAt;bool combatAutoSavedHealed,combatAutoSavedGuarded;int combatAutoSavedAttacks,combatAutoSavedFlee;
+  float combatAutoFacingMax;readonly Dictionary<string,float> combatAutoPoseFacing=new Dictionary<string,float>(StringComparer.Ordinal);
+  // Every body of the encounter, every frame: where its feet point against its root's forward, worst per shown state
+  // (a take facing the other way shows up as ~180° whatever the server does).
+  void CombatAutoPoseFacing(){
+   foreach(var h in locationSDKHumanoids.Values){
+    if(h.go==null||!h.go.activeSelf||h.state==null||!combatBodies.ContainsKey(h.id)||h.animator==null)continue;
+    Vector3 f=Vector3.zero;foreach(var pair in new[]{new[]{HumanBodyBones.LeftFoot,HumanBodyBones.LeftToes},new[]{HumanBodyBones.RightFoot,HumanBodyBones.RightToes}}){var a=h.animator.GetBoneTransform(pair[0]);var b=h.animator.GetBoneTransform(pair[1]);if(a!=null&&b!=null)f+=b.position-a.position;}
+    f=h.go.transform.InverseTransformDirection(f);f.y=0;if(f.sqrMagnitude<1e-6f)continue;float d=Mathf.Abs(Mathf.Atan2(f.x,f.z)*Mathf.Rad2Deg);
+    float old;string key=h.state+(h.id=="char.hero"?" (hero)":" (npc)");if(!combatAutoPoseFacing.TryGetValue(key,out old)||d>old)combatAutoPoseFacing[key]=d;
+   }
+  }
   readonly StringBuilder combatAutoLog=new StringBuilder();readonly List<string> combatAutoBeats=new List<string>(),combatAutoPanels=new List<string>(),combatAutoImpacts=new List<string>();
   static readonly Vector2Int[] CombatAutoRoute={new Vector2Int(6,20),new Vector2Int(11,19),new Vector2Int(12,18),new Vector2Int(17,19),new Vector2Int(19,19)};
   static string CombatJ(string s){return "\""+(s??"").Replace("\\","\\\\").Replace("\"","\\\"").Replace("\n"," ")+"\"";}
@@ -26,14 +37,20 @@ namespace AngelsDemons.Poc {
   // Measured at a blow's impact: feet distance of the two bodies vs the server's metric distance, and the striking hand.
   internal void CombatAutoImpact(string actor,string target,bool hit,Vector2Int from,Vector2Int to){
    if(combatAutoDir==null)return;var a=CombatHumanoid(actor);var b=CombatHumanoid(target);if(a==null||b==null)return;
+   // A body the hero does not see (darkness, a wall) is not drawn: its transform is stale, nothing to measure.
+   if(a.go==null||b.go==null||!a.go.activeSelf||!b.go.activeSelf){combatAutoImpacts.Add("{\"t\":"+CombatF(CombatAutoTime)+",\"actor\":"+CombatJ(actor)+",\"target\":"+CombatJ(target)+",\"hit\":"+(hit?"true":"false")+",\"seen\":false}");return;}
    var feet=a.go.transform.position-b.go.transform.position;feet.y=0;var hand=a.animator.GetBoneTransform(HumanBodyBones.RightHand);var chest=b.animator.GetBoneTransform(HumanBodyBones.Chest)??b.animator.GetBoneTransform(HumanBodyBones.Spine);
    // The event's own cells: where the server had both bodies at the moment of this blow.
    float reach=hand!=null&&chest!=null?Vector3.Distance(hand.position,chest.position):-1;Vector3 fa,fb;float server=LocationSDKNavToWorld(from.x,from.y,out fa)&&LocationSDKNavToWorld(to.x,to.y,out fb)?Vector2.Distance(new Vector2(fa.x,fa.z),new Vector2(fb.x,fb.z)):-1;
-   combatAutoImpacts.Add("{\"t\":"+CombatF(CombatAutoTime)+",\"actor\":"+CombatJ(actor)+",\"target\":"+CombatJ(target)+",\"hit\":"+(hit?"true":"false")+",\"feet_m\":"+CombatF(feet.magnitude)+",\"event_cells_m\":"+CombatF(server)+",\"hand_to_chest_m\":"+CombatF(reach)+",\"weapon\":"+CombatJ(CombatHeld(actor))+"}");
+   // v2 (owner 02.11 «спиной вперёд нападаешь?»): the striker's torso (normal of the shoulder line) and root vs the direction
+   // to the target at the blow; the check is ≤ 20°.
+   var toT=b.go.transform.position-a.go.transform.position;toT.y=0;var shoulders=a.animator.GetBoneTransform(HumanBodyBones.RightUpperArm).position-a.animator.GetBoneTransform(HumanBodyBones.LeftUpperArm).position;shoulders.y=0;var torso=Vector3.Cross(shoulders.normalized,Vector3.up);var root=a.go.transform.forward;root.y=0;
+   float facing=toT.sqrMagnitude>1e-6f&&torso.sqrMagnitude>1e-6f?Vector3.Angle(torso,toT):-1,rootDeg=toT.sqrMagnitude>1e-6f?Vector3.Angle(root,toT):-1;combatAutoFacingMax=Mathf.Max(combatAutoFacingMax,facing);
+   combatAutoImpacts.Add("{\"t\":"+CombatF(CombatAutoTime)+",\"actor\":"+CombatJ(actor)+",\"target\":"+CombatJ(target)+",\"hit\":"+(hit?"true":"false")+",\"feet_m\":"+CombatF(feet.magnitude)+",\"event_cells_m\":"+CombatF(server)+",\"hand_to_chest_m\":"+CombatF(reach)+",\"facing_deg\":"+CombatF(facing)+",\"root_deg\":"+CombatF(rootDeg)+",\"weapon\":"+CombatJ(CombatHeld(actor))+"}");
   }
 
   void UpdateCombatAutoplay(){
-   if(!combatAutoInit){combatAutoInit=true;var args=Environment.GetCommandLineArgs();int n=Array.IndexOf(args,"--poc-combat-autoplay");if(n>=0&&n+1<args.Length){combatAutoDir=args[n+1];Directory.CreateDirectory(Path.Combine(combatAutoDir,"frames"));combatAutoRecord=Array.IndexOf(args,"--poc-combat-record")>=0;combatAutoFightOut=Array.IndexOf(args,"--poc-combat-fight-out")>=0;}}
+   if(!combatAutoInit){combatAutoInit=true;var args=Environment.GetCommandLineArgs();int n=Array.IndexOf(args,"--poc-combat-autoplay");if(n>=0&&n+1<args.Length){combatAutoDir=args[n+1];Directory.CreateDirectory(Path.Combine(combatAutoDir,"frames"));combatAutoRecord=Array.IndexOf(args,"--poc-combat-record")>=0;combatAutoFightOut=Array.IndexOf(args,"--poc-combat-fight-out")>=0;combatAutoDress=Array.IndexOf(args,"--poc-combat-dress")>=0;}}
    if(combatAutoDir==null||combatAutoDone||state==null)return;
    // Fight-out mode (to see a knockout): frames only once the hero is badly hurt or the encounter is over.
    bool recordNow=!combatAutoFightOut||state.PlayerCondition!=null&&state.PlayerCondition.MaxHp>0&&state.PlayerCondition.Hp<state.PlayerCondition.MaxHp*.45f||combatAutoPhase>=3;
@@ -61,6 +78,7 @@ namespace AngelsDemons.Poc {
     case 2:
      if(combatAutoOver&&!CombatPlaying){combatAutoPhase=3;combatAutoAt=Time.unscaledTime+2.5f;CombatAutoNote("the hero has fallen back; the recording ends with the encounter still active");return;}
      if(state.Combat==null||!state.Combat.Active||!HeroCombatActive()){if(!CombatPlaying){combatAutoPhase=3;combatAutoAt=Time.unscaledTime+3f;CombatAutoNote("encounter over: winner="+(state.Combat==null?"":state.Combat.Winner)+" hero hp="+(state.PlayerCondition==null?0:state.PlayerCondition.Hp));}return;}
+     CombatAutoPoseFacing();
      if(combatAutoSave>0){CombatAutoSaveLoad();return;}
      if(!CombatCanCommand()){combatAutoIdleAt=-1;return;}
      if(combatAutoIdleAt<0){combatAutoIdleAt=Time.unscaledTime+.9f;combatAutoHeroTurns++;CombatAutoPanel();}
@@ -84,7 +102,8 @@ namespace AngelsDemons.Poc {
    if(pick==null&&(me.HeldItem=="unarmed"||string.IsNullOrEmpty(me.HeldItem))){pick=CombatAutoOption("equip.");why="ready the weapon from the bag";}
    if(pick==null&&gun&&me.Ammo<1){pick=CombatAutoOption("reload");why="load the clip";}
    if(pick==null&&me.Bleeding>0){pick=CombatAutoOption("bandage");why="stop the bleeding";}
-   if(pick==null&&!combatAutoHealed&&hp<.75f&&!combatAutoFightOut){pick=CombatAutoOption("heal");if(pick!=null){combatAutoHealed=true;why="treat the wound";}}
+   // --poc-combat-dress (review): treat the first wound at once, to show a dressing in a short fight.
+   if(pick==null&&!combatAutoHealed&&hp<(combatAutoDress?.995f:.75f)&&!combatAutoFightOut){pick=CombatAutoOption("heal");if(pick!=null){combatAutoHealed=true;why="treat the wound";}}
    bool fallBack=!combatAutoFightOut&&(combatAutoHealed&&hp<.7f||Time.unscaledTime-combatAutoFightAt>50f);
    if(pick==null&&fallBack){pick=CombatAutoOption("move.retreat");if(pick!=null){combatAutoFlee++;why="fall back hurt";if(combatAutoFlee>=2)combatAutoOver=true;}else if(combatAutoFlee>0){pick=CombatAutoOption("end");combatAutoOver=true;why="nowhere further to fall back";}}
    if(pick==null&&!combatAutoGuarded&&combatAutoAttacks>=2&&me.Ap>=2&&me.Ap<3){pick=CombatAutoOption("guard");if(pick!=null){combatAutoGuarded=true;why="guard with the AP left";}}
@@ -120,7 +139,7 @@ namespace AngelsDemons.Poc {
   IEnumerator CombatAutoCapture(string path){yield return new WaitForEndOfFrame();var tex=ScreenCapture.CaptureScreenshotAsTexture();try{File.WriteAllBytes(path,tex.EncodeToJPG(88));}finally{Destroy(tex);}}
   void CombatAutoFinish(){
    combatAutoDone=true;
-   string json="{\"scene\":"+CombatJ(PlayableView()==null?"":PlayableView().Id)+",\"seconds\":"+CombatF(CombatAutoTime)+",\"frames\":"+combatAutoFrame+",\"hero_turns\":"+combatAutoHeroTurns+",\"attacks\":"+combatAutoAttacks+",\"beats_played\":"+CombatPlayedBeats+",\"missing_states\":["+string.Join(",",new List<string>(combatMissingStates).ConvertAll(CombatJ))+"],\"save_load\":"+(combatAutoSaveResult==""?"null":combatAutoSaveResult)+",\"log\":["+combatAutoLog+"],\"beats\":["+string.Join(",",combatAutoBeats)+"],\"impacts\":["+string.Join(",",combatAutoImpacts)+"],\"panels\":["+string.Join(",",combatAutoPanels)+"]}";
+   string json="{\"scene\":"+CombatJ(PlayableView()==null?"":PlayableView().Id)+",\"seconds\":"+CombatF(CombatAutoTime)+",\"frames\":"+combatAutoFrame+",\"hero_turns\":"+combatAutoHeroTurns+",\"attacks\":"+combatAutoAttacks+",\"beats_played\":"+CombatPlayedBeats+",\"pose_feet_vs_root_deg\":{"+string.Join(",",new List<string>(combatAutoPoseFacing.Keys).ConvertAll(k=>CombatJ(k)+":"+CombatF(combatAutoPoseFacing[k])))+"},\"facing_max_deg\":"+CombatF(combatAutoFacingMax)+",\"facing_ok\":"+(combatAutoFacingMax<=20?"true":"false")+",\"missing_states\":["+string.Join(",",new List<string>(combatMissingStates).ConvertAll(CombatJ))+"],\"save_load\":"+(combatAutoSaveResult==""?"null":combatAutoSaveResult)+",\"log\":["+combatAutoLog+"],\"beats\":["+string.Join(",",combatAutoBeats)+"],\"impacts\":["+string.Join(",",combatAutoImpacts)+"],\"panels\":["+string.Join(",",combatAutoPanels)+"]}";
    File.WriteAllText(Path.Combine(combatAutoDir,"report.json"),json);File.WriteAllText(Path.Combine(combatAutoDir,"frames.tsv"),combatAutoFrames.ToString());Debug.Log("COMBAT_AUTOPLAY_DONE "+combatAutoDir);
    StartCoroutine(CombatAutoQuit());
   }

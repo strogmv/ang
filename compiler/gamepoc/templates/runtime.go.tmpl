@@ -83,6 +83,7 @@ type worldData struct {
  Illumination illuminationCatalog `json:"illumination_runtime"`
  Stealth stealthCatalog `json:"stealth_runtime"`
  CombatLife combatLifeCatalog `json:"combat_life"`
+ CombatSpacing combatSpacing `json:"combat_spacing"`
 	Decks                   map[string]*behavior.DeckVolume `json:"-"`
 	ModularLocations        []worldModular                  `json:"modular_locations"`
 	PaintedInventoryAnchors map[string]map[string]inv.Cell  `json:"painted_inventory_anchors"`
