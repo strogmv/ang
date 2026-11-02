@@ -45,10 +45,11 @@ func(r *Runtime)combatEquipmentOptions(actor string)[]behavior.CombatEquipmentOp
  for _,id:=range combatItemKeys(s){
   item:=s.Items[id];weapon,known:=r.world.CombatRuntime.Weapons[item.Definition];definition:=r.world.Inventory.Definitions[item.Definition]
   if !known||id==current.ID||definition.WearPerUse<1||item.Condition<definition.WearPerUse||!r.combatCarried(s,actor,item){continue}
+  if weapon.Magazine>0&&!r.craftingUsable(item.ID,actor){continue}
   if definition.EquipSlot!="hand.main"&&definition.EquipSlot!="hand.off"{continue}
   if definition.EquipSlot=="hand.off"&&current.Location.Slot=="hand.main"{continue}
   option:=behavior.CombatEquipmentOption{ID:id,Weapon:weapon,UsesRemaining:int(item.Condition/definition.WearPerUse)}
-  if weapon.Magazine>0{option.Ammo=r.combatCount(s,actor,weapon.AmmoDefinition,func(i inv.Item)bool{return i.Location.Store==inv.ItemStore(id)});option.ReserveAmmo=r.combatCount(s,actor,weapon.AmmoDefinition,func(i inv.Item)bool{return !r.combatLoadedContainer(s,i)})}
+  if weapon.Magazine>0{option.Ammo=r.combatCount(s,actor,weapon.AmmoDefinition,func(i inv.Item)bool{return i.Location.Store==inv.ItemStore(id)});option.ReserveAmmo=r.combatReserveAmmo(s,actor,weapon.AmmoDefinition)}
   result=append(result,option)
  }
  return result
@@ -96,7 +97,7 @@ func (r *Runtime) refreshCombatEquipment(s inv.State,a *behavior.Combatant) {
 		a.WeaponUsesRemaining=int(item.Condition/r.world.Inventory.Definitions[item.Definition].WearPerUse)
 		if w.Magazine>0&&w.AmmoDefinition!=""{
 			a.Ammo=r.combatCount(s,a.ID,w.AmmoDefinition,func(i inv.Item)bool{return i.Location.Kind=="store"&&i.Location.Store==inv.ItemStore(item.ID)})
-			a.ReserveAmmo=r.combatCount(s,a.ID,w.AmmoDefinition,func(i inv.Item)bool{return !r.combatLoadedContainer(s,i)})
+			a.ReserveAmmo=r.combatReserveAmmo(s,a.ID,w.AmmoDefinition)
 		}
 	}
 	for _,definition:=range r.world.CombatRuntime.MedicalDefinitions {a.Medkits+=r.combatCount(s,a.ID,definition,nil)}
@@ -121,18 +122,29 @@ func (r *Runtime) consumeCombatStock(s *inv.State,actor,definition string,quanti
 func (r *Runtime) reloadPhysicalCombat(s *inv.State,actor string,amount int) error {
 	item,w,ok:=r.equippedCombatItem(*s,actor)
 	if !ok||w.Magazine<1||w.AmmoDefinition==""||amount<1{return errors.New("physical magazine missing")}
-	if _,ok:=s.Stores[inv.ItemStore(item.ID)];!ok{return errors.New("weapon has no physical magazine storage")}
+	if store,ok:=s.Stores[inv.ItemStore(item.ID)];!ok||store.Locked{return errors.New("weapon has no accessible physical magazine storage")}
 	loaded:=r.combatCount(*s,actor,w.AmmoDefinition,func(i inv.Item)bool{return i.Location.Store==inv.ItemStore(item.ID)})
 	if loaded+amount>w.Magazine{return errors.New("magazine capacity exceeded")}
+	if r.combatReserveAmmo(*s,actor,w.AmmoDefinition)<amount{return errors.New("compatible reserve exhausted")}
+	draft:=s.Clone()
 	left:=int64(amount);var moves []inv.Move
-	for _,id:=range combatItemKeys(*s) {
-		if left==0{break};i:=s.Items[id]
-		if i.Owner!=actor||i.Definition!=w.AmmoDefinition||!r.combatCarried(*s,actor,i)||r.combatLoadedContainer(*s,i){continue}
+	for _,id:=range combatItemKeys(draft) {
+		if left==0{break};i:=draft.Items[id]
+		if i.Owner!=actor||i.Definition!=w.AmmoDefinition||!r.combatCarried(draft,actor,i)||r.combatLoadedContainer(draft,i){continue}
 		n:=min(left,i.Quantity);moves=append(moves,inv.Move{Item:id,Quantity:n,ExpectedRevision:i.Revision,To:inv.Location{Kind:"store",Store:inv.ItemStore(item.ID)}});left-=n
 	}
+	if len(moves)>0{if _,err:=draft.Apply(r.inventoryModelFor(true),inv.Transaction{Actor:actor,Sequence:draft.Cursors[actor].Sequence+1,RequestTag:fmt.Sprintf("combat/reload/%d",draft.Revision),Moves:moves});err!=nil{return err}}
+	for _,id:=range combatItemKeys(draft){
+		for left>0{
+			i,exists:=draft.Items[id];p,packed:=r.world.CombatRuntime.AmmoPacks[i.Definition]
+			if !exists||!packed||p.AmmoDefinition!=w.AmmoDefinition||i.Owner!=actor||!r.combatCarried(draft,actor,i)||r.combatLoadedContainer(draft,i){break}
+			n:=min(int(left),p.Rounds);if err:=r.unpackCombatAmmo(&draft,actor,id,item.ID,n);err!=nil{return err};left-=int64(n)
+		}
+		if left==0{break}
+	}
 	if left>0{return errors.New("compatible reserve exhausted")}
-	_,err:=s.Apply(r.inventoryModelFor(true),inv.Transaction{Actor:actor,Sequence:s.Cursors[actor].Sequence+1,RequestTag:fmt.Sprintf("combat/reload/%d",s.Revision),Moves:moves})
-	return err
+	*s=draft
+	return nil
 }
 
 func (r *Runtime) applyCombatResources(s *inv.State,old behavior.CombatState,event behavior.CombatEvent) error {
@@ -143,6 +155,7 @@ func (r *Runtime) applyCombatResources(s *inv.State,old behavior.CombatState,eve
 	if event.AmmoSpent>0 {
 		item,w,ok:=r.equippedCombatItem(*s,actor.ID)
 		if !ok||w.ID!=actor.Weapon.ID||w.Magazine==0||w.AmmoDefinition==""{return errors.New("equipped firearm changed")}
+  if !r.craftingUsable(item.ID,actor.ID){return errors.New("firearm binding or malfunction prevents firing")}
 		if err:=r.consumeCombatStock(s,actor.ID,w.AmmoDefinition,event.AmmoSpent,func(i inv.Item)bool{return i.Location.Store==inv.ItemStore(item.ID)});err!=nil{return err}
 	}
 	if event.MedkitsSpent>0 {
@@ -182,6 +195,7 @@ func(r *Runtime)wearCombatArmor(s *inv.State,event behavior.CombatEvent)error{
 
 func(c combatCatalog)ValidateInventory(m inv.Model)error{
  if c.DefaultProfile==""{return nil}
+ if err:=c.validateAmmoPacks(m);err!=nil{return err}
  for _,p:=range c.Profiles{if p.Weapon.ID!="unarmed"||p.Ammo!=0||p.ReserveAmmo!=0||p.Medkits!=0{return errors.New("combat profile cannot grant physical equipment")}}
  for id,w:=range c.Weapons{
   d,ok:=m.Definitions[id];if !ok||d.Carrier!="physical"||d.EquipSlot==""||d.WearPerUse<1{return fmt.Errorf("combat weapon %s requires equipped physical use",id)}

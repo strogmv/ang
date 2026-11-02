@@ -106,7 +106,9 @@ func(r *Runtime)npcSeatsTaken(level,place,self string)map[behavior.Cell]bool{
  taken:=map[behavior.Cell]bool{};q,ok:=r.world.Life.Brain.SeatedPlace(place);if !ok{return taken}
  spots:=map[behavior.Cell]bool{};for _,g:=range [][]behavior.LifeSpot{q.Seating.Seats,q.Seating.Queue}{for _,x:=range g{spots[x.At]=true}}
  mark:=func(id,at string,pos behavior.Cell,b behavior.LifeBrain,body bool){if id==self{return};if body&&at==level&&spots[pos]{taken[pos]=true};if b.Seat!=""&&b.Place.ID==place{taken[b.Target.At]=true}}
- for _,a:=range r.state.Life.Actors{mark(a.ID,a.Level,a.Position,a.Brain,a.OnFloor())}
+ // demo-hub v20-yatai-boss: a regular's seat is held from the moment its routine heads there (its own stool is not
+ // offered to a passer-by while the regular walks over from the night shift or the hall).
+ for _,a:=range r.state.Life.Actors{mark(a.ID,a.Level,a.Position,a.Brain,a.OnFloor());if a.ID!=self&&a.Level==level&&q.Seating.IsRegular(a.ID)&&spots[a.Goal]&&a.Brain.Seat==""{taken[a.Goal]=true}}
  for _,a:=range r.state.Life.Population.Actors{mark(a.ID,a.Level,a.Position,a.Brain,a.Trip==nil)}
  return taken
 }

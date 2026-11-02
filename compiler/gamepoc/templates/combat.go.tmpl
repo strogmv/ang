@@ -31,6 +31,8 @@ type combatCatalog struct {
 	Profiles        map[string]combatProfile         `json:"profiles"`
 	Actors          map[string]string                `json:"actors"`
 	Weapons         map[string]behavior.CombatWeapon `json:"weapons"`
+ AmmoPacks map[string]combatAmmoPack `json:"ammo_packs"`
+ HackedWeaponInjuries map[string]combatHolderInjury `json:"hacked_weapon_injuries"`
 	MedicalDefinitions []string `json:"medical_definitions"`
  Explosives map[string]behavior.CombatExplosive `json:"explosives"`
  Armor map[string]behavior.CombatArmor `json:"armor"`
@@ -63,6 +65,7 @@ func (c combatCatalog) Validate() error {
 			return fmt.Errorf("unknown combat profile %s", id)
 		}
 	}
+ for id, injury:=range c.HackedWeaponInjuries{w,ok:=c.Weapons[id];if !ok||w.Kind!="firearm"||injury.Damage<1||injury.Damage>1000000||injury.Bleed<0||injury.Bleed>1000000{return errors.New("invalid hacked weapon injury")};switch injury.BodyPart{case "arms","legs","torso","head":default:return errors.New("invalid hacked weapon injury part")}}
 	return nil
 }
 func cloneCombatant(a behavior.Combatant) behavior.Combatant {
@@ -93,6 +96,7 @@ func (r *Runtime) combatSpace(s behavior.CombatState) behavior.CombatSpace {
 		unit = 1000
 	}
 	result := behavior.CombatSpace{Space: space, CellMM: unit}
+ result.CanUseWeapon=func(a behavior.Combatant)bool{item,w,ok:=r.equippedCombatItem(r.state.Inventory,a.ID);return ok&&w.ID==a.Weapon.ID&&r.craftingUsable(item.ID,a.ID)}
 	result.Space.Visible = func(a, b behavior.Cell) bool { return r.combatSight(s.LevelID,a,b) }
 	if v := r.world.Decks[s.LevelID]; v != nil {
 		result.RangeMM = v.CombatRangeMM
@@ -263,22 +267,10 @@ func (r *Runtime) advanceCombatAI() error {
 		if a == nil || a.Controlled {
 			break
 		}
-		candidate := r.state.Combat.Clone()
-		if err := candidate.StepAI(r.combatSpace(candidate), r.world.CombatRuntime.Rules); err != nil {
-			return err
-		}
-		if err := r.commitCombat(candidate); err != nil {
-			fallback := r.state.Combat.Clone()
-			if endErr := fallback.Execute(r.combatSpace(fallback), r.world.CombatRuntime.Rules, a.ID, behavior.CombatAction{Type: "end"}); endErr != nil {
-				return endErr
-			}
-			if len(fallback.Events) > 0 {
-				fallback.Events[len(fallback.Events)-1].Reason = "physical equipment use failed; turn ended"
-			}
-			if endErr := r.commitCombat(fallback); endErr != nil {
-				return endErr
-			}
-		}
+        if err:=r.performCombatAction("",nil);err!=nil{
+            fallback:=behavior.CombatAction{Type:"end"}
+            if endErr:=r.performCombatAction(a.ID,&fallback);endErr!=nil{return endErr}
+        }
 		r.syncCombatLife()
 	}
 	r.syncCombatLife()
@@ -300,13 +292,7 @@ func (r *Runtime) combatCommand(q *pb.PocCombatCommand) error {
 		return textError{Key: "error.combat_not_your_turn"}
 	}
 	action := behavior.CombatAction{Type: q.Action, TargetID: q.TargetId, To: behavior.Cell{X: int(q.X), Y: int(q.Y)},Mode:q.Mode,Aim:int(q.Aim),BodyPart:q.BodyPart,ItemID:q.ItemId}
-	candidate := r.state.Combat.Clone()
-	if err := candidate.Execute(r.combatSpace(candidate), r.world.CombatRuntime.Rules, playerActorID, action); err != nil {
-		return textError{Key: "error.combat_invalid_action"}
-	}
-	if err := r.commitCombat(candidate); err != nil {
-		return textError{Key: "error.combat_invalid_action"}
-	}
+	if err:=r.performCombatAction(playerActorID,&action);err!=nil{return textError{Key:"error.combat_invalid_action"}}
 	r.syncCombatLife()
 	return r.advanceCombatAI()
 }
@@ -339,27 +325,61 @@ func (r *Runtime) combatMove(c *connection, m *pb.MoveTo) {
 // Commit the tactical action and physical equipment wear together. A rejected
 // use leaves HP/AP, random counter and the inventory transaction cursor intact.
 func (r *Runtime) commitCombat(candidate behavior.CombatState) error {
+ trial:=&Runtime{world:r.world,state:r.snapshotState(),npcAccountIDs:r.npcAccountIDs}
+ if err:=trial.commitCombatDraft(candidate,r.state.Combat.Clone(),nil);err!=nil{return err}
+ r.state=trial.state;return nil
+}
+
+func(r *Runtime)performCombatAction(actor string,action *behavior.CombatAction)error{
  previous:=r.state.Combat.Clone()
  trial:=&Runtime{world:r.world,state:r.snapshotState(),npcAccountIDs:r.npcAccountIDs}
+ candidate:=previous.Clone();space:=trial.combatSpace(candidate)
+ applied:=map[uint64]bool{};var shotErr error
+ space.AfterShot=func(s *behavior.CombatState,e behavior.CombatEvent){
+  if shotErr!=nil{return}
+  // Every physical projectile commits its consequences on THIS draft before
+  // the executor considers a following reaction or burst projectile.
+  item,_,ok:=trial.equippedCombatItem(trial.state.Inventory,e.ActorID)
+  if !ok{shotErr=errors.New("shot weapon missing");return}
+  if err:=trial.applyCombatResources(&trial.state.Inventory,*s,e);err!=nil{shotErr=err;return}
+  applied[e.Sequence]=true
+  trial.state.Combat=*s
+  if e.ActorID==playerActorID{
+   witnesses:=s.Clone()
+   if target:=witnesses.Actor(e.TargetID);target!=nil{target.HP+=e.Amount}
+   trial.craftingShotHook(item.ID,trial.combatShotGuards(witnesses,e))
+  }
+  if err:=trial.combatCraftingUse(item.ID,e.ActorID,true);err!=nil{shotErr=err;return}
+  *s=trial.state.Combat
+  if trial.state.Crafting.Law.Hacked[item.ID].Jammed{a:=s.Actor(e.ActorID);a.WeaponUsesLimited=true;a.WeaponUsesRemaining=0;a.Overwatch=false;a.Guarding=false;a.ReservedAP=0}
+ }
+ var err error
+ if action==nil{err=candidate.StepAI(space,trial.world.CombatRuntime.Rules)}else{err=candidate.Execute(space,trial.world.CombatRuntime.Rules,actor,*action)}
+ if err!=nil{return err};if shotErr!=nil{return shotErr}
+ if err=trial.commitCombatDraft(candidate,previous,applied);err!=nil{return err}
+ r.state=trial.state;return nil
+}
+
+func(r *Runtime)commitCombatDraft(candidate,previous behavior.CombatState,applied map[uint64]bool)error{
  for _,event:=range candidate.Events{
-  if event.Sequence<=previous.EventSeq{continue}
+  if event.Sequence<=previous.EventSeq||applied[event.Sequence]{continue}
+  if event.AmmoSpent>0{item,_,ok:=r.equippedCombatItem(r.state.Inventory,event.ActorID);if ok&&r.state.Crafting.Law.Hacked[item.ID].By!=""{return errors.New("hacked shot bypassed per-projectile executor")}}
   if event.AmmoSpent>0||event.MedkitsSpent>0||event.ItemsSpent>0||event.WeaponUses>0||event.ArmorBlocked>0||event.Type=="reload"||event.Type=="equip"{
-   if err:=trial.applyCombatResources(&trial.state.Inventory,previous,event);err!=nil{return err}
+   if err:=r.applyCombatResources(&r.state.Inventory,previous,event);err!=nil{return err}
   }
  }
- trial.state.Combat=candidate
- for i:=range trial.state.Combat.Actors{
-  a:=&trial.state.Combat.Actors[i];actual:=cloneCombatant(*a);trial.refreshCombatEquipment(trial.state.Inventory,&actual)
+ r.state.Combat=candidate
+ for i:=range r.state.Combat.Actors{
+  a:=&r.state.Combat.Actors[i];actual:=cloneCombatant(*a);r.refreshCombatEquipment(r.state.Inventory,&actual)
   if actual.BodyArmor!=a.BodyArmor||actual.Weapon.ID==a.Weapon.ID&&(actual.Ammo!=a.Ammo||actual.ReserveAmmo!=a.ReserveAmmo||actual.Medkits!=a.Medkits){return errors.New("combat counters differ from physical custody")}
   a.BodyArmor=actual.BodyArmor;a.Weapon=actual.Weapon;a.WeaponUsesLimited=actual.WeaponUsesLimited;a.WeaponUsesRemaining=actual.WeaponUsesRemaining;a.Ammo=actual.Ammo;a.ReserveAmmo=actual.ReserveAmmo;a.Medkits=actual.Medkits;a.Explosives=actual.Explosives
  }
- if err:=trial.applyAmbientCombatBlasts(previous);err!=nil{return err}
- trial.capturePublicCombatEventsFrom(previous)
- trial.syncCombatLife()
- if err:=trial.combatLifeAfterAction(previous);err!=nil{return err}
- trial.combatLifeTryDisengage()
- if len(trial.state.Combat.Events)>512{trial.state.Combat.Events=append([]behavior.CombatEvent(nil),trial.state.Combat.Events[len(trial.state.Combat.Events)-512:]...)}
- r.state=trial.state
+ r.state.Combat.ResolveCasualties(r.world.CombatRuntime.Rules)
+ if err:=r.applyAmbientCombatBlasts(previous);err!=nil{return err}
+ r.capturePublicCombatEventsFrom(previous);r.syncCombatLife()
+ if err:=r.combatLifeAfterAction(previous);err!=nil{return err}
+ r.combatLifeTryDisengage()
+ if len(r.state.Combat.Events)>512{r.state.Combat.Events=append([]behavior.CombatEvent(nil),r.state.Combat.Events[len(r.state.Combat.Events)-512:]...)}
  return nil
 }
 

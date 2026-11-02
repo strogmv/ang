@@ -16,7 +16,7 @@ namespace AngelsDemons.Poc {
   float craftingNoticeUntil;
   Vector2 craftingListScroll, craftingDetailScroll;
   object craftingSession;
-  GUIStyle craftingWrap, craftingSmallWrap, craftingTitle;
+  GUIStyle craftingWrap, craftingSmallWrap, craftingTitle, craftingBodyWrap, craftingHint;
 
   PocCraftingView CraftingView() { return state != null && state.Active && state.Crafting != null && state.Crafting.Enabled ? state.Crafting : null; }
   void CraftingHook() {
@@ -43,7 +43,11 @@ namespace AngelsDemons.Poc {
    craftingWrap = new GUIStyle(hudWrap) { fontSize = 14, wordWrap = true };
    craftingSmallWrap = new GUIStyle(hudSmall) { fontSize = 13, wordWrap = true };
    craftingTitle = new GUIStyle(hudHeading) { fontSize = 19, wordWrap = true };
+   // demo-hub v20: rows are as tall as their text (the fixed 18–20 px rects cut the 16 px lines at 1280×800)
+   craftingBodyWrap = new GUIStyle(hudBody) { wordWrap = true };
+   craftingHint = new GUIStyle(hudSmall) { wordWrap = true, alignment = TextAnchor.MiddleLeft };
   }
+  static float CraftingLineH(GUIStyle style) { return Mathf.Ceil(style.CalcHeight(new GUIContent("Ёйq"), 4000f)); }
 
   // keyboard / controller once per frame (OnGUI runs several times a frame)
   void CraftingInput(bool open) {
@@ -141,25 +145,25 @@ namespace AngelsDemons.Poc {
    if (HudButton(new Rect(box.xMax - 136, y - 2, 118, 32), L("ui.crafting.close") + " [K]")) { page = "game"; return; }
    y += 36;
    // disciplines: 2 rows × 4 — name, tier, points to the next tier
-   float cw = (w - 18) / 4f;
+   float cw = (w - 18) / 4f, sh = CraftingLineH(hudSmall), ch = sh * 2 + 6;
    for (int i = 0; i < v.Disciplines.Count && i < 8; i++) {
-    var d = v.Disciplines[i]; var cell = new Rect(x + (i % 4) * (cw + 6), y + (i / 4) * 40, cw, 36);
+    var d = v.Disciplines[i]; var cell = new Rect(x + (i % 4) * (cw + 6), y + (i / 4) * (ch + 4), cw, ch);
     Fill(cell, new Color(.07f, .08f, .085f, .92f));
-    GUI.Label(new Rect(cell.x + 8, cell.y + 2, cell.width - 16, 18), d.Name, hudSmall);
+    GUI.Label(new Rect(cell.x + 8, cell.y + 1, cell.width - 16, sh), d.Name, hudSmall);
     string pts = d.Next > 0 ? d.Points.ToString(CultureInfo.InvariantCulture) + "/" + d.Next.ToString(CultureInfo.InvariantCulture) : d.Points.ToString(CultureInfo.InvariantCulture);
-    GUI.Label(new Rect(cell.x + 8, cell.y + 18, cell.width - 16, 18), d.Tier.ToString(CultureInfo.InvariantCulture) + " · " + d.TierName + " · " + pts, hudSmall);
+    GUI.Label(new Rect(cell.x + 8, cell.y + 1 + sh, cell.width - 16, sh), d.Tier.ToString(CultureInfo.InvariantCulture) + " · " + d.TierName + " · " + pts, hudSmall);
     float frac = d.Next > 0 ? Mathf.Clamp01(d.Points / (float)d.Next) : 1f;
     Fill(new Rect(cell.x + 2, cell.yMax - 3, (cell.width - 4) * frac, 2), hudBrass);
    }
-   y += 86;
+   y += (ch + 4) * 2 + 6;
    // tabs
    var tabs = CraftingAvailableTabs(v); if (!tabs.Contains(craftingTab)) craftingTab = "book";
-   float tw = 140;
+   float tw = tabs.Count > 4 ? 124 : 140;
    for (int i = 0; i < tabs.Count; i++) {
     string t = tabs[i]; string name = L("ui.crafting.tab." + t) + (t == "jobs" && v.Jobs.Count > 0 ? " (" + v.Jobs.Count.ToString(CultureInfo.InvariantCulture) + ")" : "");
     if (HudButton(new Rect(x + i * (tw + 6), y, tw, 32), (craftingTab == t ? "▸ " : "") + name)) { craftingTab = t; craftingSelected = 0; craftingListScroll = Vector2.zero; }
    }
-   GUI.Label(new Rect(x + tabs.Count * (tw + 6) + 8, y + 8, w - tabs.Count * (tw + 6) - 8, 20), L("ui.crafting.controls"), hudSmall);
+   GUI.Label(new Rect(x + tabs.Count * (tw + 6) + 8, y - 2, w - tabs.Count * (tw + 6) - 8, 36), L("ui.crafting.controls"), craftingHint);
    y += 40;
    var rows = CraftingRows(v);
    craftingSelected = rows.Count == 0 ? 0 : Mathf.Clamp(craftingSelected, 0, rows.Count - 1);
@@ -169,16 +173,16 @@ namespace AngelsDemons.Poc {
    if (lawH > 0) GUI.Label(new Rect(x, box.yMax - 48 - lawH, w, 20), "⚠ " + string.Join(" · ", v.Law), new GUIStyle(hudSmall) { normal = { textColor = new Color(.95f, .5f, .4f) } });
    Fill(list, new Color(.06f, .07f, .075f, .85f)); Fill(detail, new Color(.06f, .07f, .075f, .85f));
    if (rows.Count == 0) GUI.Label(new Rect(list.x + 10, list.y + 10, list.width - 20, 60), craftingTab == "jobs" ? L("ui.crafting.no_jobs") : craftingTab == "learn" ? L("ui.crafting.no_options") : L("ui.crafting.empty"), craftingWrap);
-   float rh = 44; var inner = new Rect(0, 0, list.width - 18, Math.Max(list.height, rows.Count * rh));
+   float th = CraftingLineH(hudBody), sbh = CraftingLineH(hudSmall), rh = Mathf.Max(44, th + sbh + 6); var inner = new Rect(0, 0, list.width - 18, Math.Max(list.height, rows.Count * rh));
    if (craftingSelected * rh < craftingListScroll.y) craftingListScroll.y = craftingSelected * rh;
    if ((craftingSelected + 1) * rh > craftingListScroll.y + list.height) craftingListScroll.y = (craftingSelected + 1) * rh - list.height;
    craftingListScroll = GUI.BeginScrollView(list, craftingListScroll, inner);
    for (int i = 0; i < rows.Count; i++) {
     var rr = new Rect(0, i * rh, inner.width, rh - 2);
     if (i == craftingSelected) Fill(rr, new Color(.24f, .22f, .16f, .9f));
-    GUI.Label(new Rect(rr.x + 6, rr.y + 3, 18, 20), rows[i].tag, new GUIStyle(hudBody) { normal = { textColor = rows[i].tint } });
-    GUI.Label(new Rect(rr.x + 24, rr.y + 2, rr.width - 28, 20), rows[i].title, hudBody);
-    GUI.Label(new Rect(rr.x + 24, rr.y + 22, rr.width - 28, 18), rows[i].sub, hudSmall);
+    GUI.Label(new Rect(rr.x + 6, rr.y + 2, 18, th), rows[i].tag, new GUIStyle(hudBody) { normal = { textColor = rows[i].tint } });
+    GUI.Label(new Rect(rr.x + 24, rr.y + 2, rr.width - 28, th), rows[i].title, hudBody);
+    GUI.Label(new Rect(rr.x + 24, rr.y + 2 + th, rr.width - 28, sbh), rows[i].sub, hudSmall);
     if (Event.current.type == EventType.MouseDown && rr.Contains(Event.current.mousePosition)) { craftingSelected = i; craftingDetailScroll = Vector2.zero; Event.current.Use(); }
    }
    GUI.EndScrollView();
@@ -237,7 +241,7 @@ namespace AngelsDemons.Poc {
      y += 4; line(L("ui.crafting.needs"), hudSmall, 18);
      foreach (var i in r.Inputs) {
       string q = i.MinQuality > 1 ? " · q≥" + i.MinQuality.ToString(CultureInfo.InvariantCulture) : "";
-      GUI.Label(new Rect(x, y, w, 20), (i.Ok ? "✓ " : "✕ ") + i.Name + "  " + i.Have.ToString(CultureInfo.InvariantCulture) + "/" + i.Need.ToString(CultureInfo.InvariantCulture) + q, new GUIStyle(hudBody) { normal = { textColor = i.Ok ? good : new Color(.9f, .6f, .45f) } }); y += 20;
+      line((i.Ok ? "✓ " : "✕ ") + i.Name + "  " + i.Have.ToString(CultureInfo.InvariantCulture) + "/" + i.Need.ToString(CultureInfo.InvariantCulture) + q, new GUIStyle(craftingBodyWrap) { normal = { textColor = i.Ok ? good : new Color(.9f, .6f, .45f) } }, 22);
       line("    " + i.Where, craftingSmallWrap, 17);
      }
     }

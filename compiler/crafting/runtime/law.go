@@ -54,6 +54,7 @@ type Terminal struct {
 	At    Cell   `json:"at"`
 }
 type Rebind struct {
+	Guards          []string   `json:"guards,omitempty"`
 	TerminalKind    string     `json:"terminal_kind"`
 	PriceMinor      int64      `json:"price_minor"`
 	Reach           int        `json:"reach"`

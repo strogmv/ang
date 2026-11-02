@@ -151,6 +151,7 @@ type Combatant struct {
 
 func (a Combatant) Able() bool { return a.HP > 0 && !a.Surrendered }
 
+
 type CombatAction struct {
 	Type, TargetID         string
 	To                     Cell
@@ -195,6 +196,11 @@ type CombatSpace struct {
 	// planar fallback must not be used to compare navigation-band coordinates.
 	BodyOnShot func(from, to, body Cell) bool
 	CanHear    func(listener, source Combatant) bool
+ // Read-only physical interlock (chip binding, jam). Omitted by pure fixtures.
+ CanUseWeapon func(actor Combatant) bool
+ // Execution-only consequences on the caller's private transaction. Invoked
+ // after each projectile, before a later burst round or reaction can occur.
+ AfterShot func(state *CombatState, event CombatEvent)
 	// Live ambient bodies are checked only while executing a shot. They must
 	// not change candidates or disclose hidden bystanders through preview.
 	ExecutionShotBlocked func(from, to Cell) bool
@@ -580,6 +586,14 @@ func (s *CombatState) finishIfResolved() {
 	}
 }
 
+// ResolveCasualties reconciles a host-applied injury with initiative, without
+// replaying an action or opening another reaction window.
+func (s *CombatState) ResolveCasualties(r CombatRules) {
+ if s.ID==""{return}
+ s.finishIfResolved()
+ if a:=s.Current();a!=nil&&(!a.Able()||a.StunTurns>0){s.nextTurn(r)}
+}
+
 // Passive losses occur once at the beginning of that actor's own turn. They
 // produce durable events, so a reload cannot erase bleeding or suppression.
 func (s *CombatState) beginTurn(r CombatRules) bool {
@@ -945,6 +959,7 @@ func (s CombatState) hitChance(space CombatSpace, r CombatRules, a, b Combatant,
 	return s.shotChance(space, r, a, b, from, combatShotSpec{Mode: "single", BodyPart: "torso", Shots: 1, DamagePercent: 100}, 0)
 }
 func (s CombatState) canAttackAction(space CombatSpace, r CombatRules, a, b Combatant, from Cell, ap int, planning bool, action CombatAction) (combatShotSpec, bool) {
+	if combatWeaponKind(a.Weapon)=="firearm"&&space.CanUseWeapon!=nil&&!space.CanUseWeapon(a){return combatShotSpec{},false}
 	q, err := combatShot(a, action)
 	if err != nil {
 		return q, false
@@ -1102,6 +1117,7 @@ func (s *CombatState) fireImpact(space CombatSpace, r CombatRules, actorID, targ
 				}
 			}
 		}
+		if space.AfterShot!=nil{space.AfterShot(s,s.Events[len(s.Events)-1])}
 	}
 }
 func (s *CombatState) reactionWindow(space CombatSpace, r CombatRules, actorID string) {
@@ -1332,6 +1348,8 @@ func (s *CombatState) Execute(space CombatSpace, r CombatRules, actorID string, 
 		switch action.Type {
 		case "attack":
 			for round := 0; round < shot.Shots; round++ {
+				target:=s.Actor(action.TargetID)
+				if !a.Able()||target==nil||!target.Able()||a.WeaponUsesLimited&&a.WeaponUsesRemaining<=0||a.Weapon.Magazine>0&&a.Ammo<=0||space.CanUseWeapon!=nil&&combatWeaponKind(a.Weapon)=="firearm"&&!space.CanUseWeapon(*a){break}
 				shotCost := 0
 				if round == 0 {
 					shotCost = cost
@@ -1604,6 +1622,7 @@ func (s CombatState) equipmentCandidates(space CombatSpace, r CombatRules, a Com
 		return nil
 	}
 	oldPotential := combatReadyPotential(a, r)
+ if combatWeaponKind(a.Weapon)=="firearm"&&space.CanUseWeapon!=nil&&!space.CanUseWeapon(a){oldPotential=0}
 	oldAttack := 0.0
 	if attack, ok := s.bestAttack(space, r, a, a.Position, a.AP); ok {
 		oldAttack = attack.Score
@@ -1631,7 +1650,10 @@ func (s CombatState) equipmentCandidates(space CombatSpace, r CombatRules, a Com
 		}
 		potential := combatReadyPotential(next, r)
 		readyAttack := 0.0
-		if attack, ok := s.bestAttack(space, r, next, next.Position, next.AP); ok {
+  // Equipment options are already physically usable. The equipped-instance
+  // interlock cannot be queried for a simulated, not-yet-equipped instance.
+  projected:=space;projected.CanUseWeapon=nil
+		if attack, ok := s.bestAttack(projected, r, next, next.Position, next.AP); ok {
 			readyAttack = attack.Score
 		}
 		value := (potential-oldPotential)*.5 + readyAttack - oldAttack - exposure*r.CoverWeight*float64(r.EquipAP)/float64(r.APPerTurn)

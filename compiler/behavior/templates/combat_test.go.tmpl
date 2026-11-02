@@ -1419,3 +1419,44 @@ func TestCombatGuardRequiresInitialCostAndOneRealDeflection(t *testing.T) {
 		})
 	}
 }
+
+
+func TestCombatWeaponInterlockRejectsWithoutSpendingAndSkipsReaction(t *testing.T) {
+ rules:=combatFixtureRules();space:=combatFixtureSpace()
+ a,b:=combatFixtureActor("a","blue",Cell{1,1}),combatFixtureActor("b","red",Cell{5,1})
+ a.Controlled=true
+ s:=combatFixture(t,space,a,b)
+ space.CanUseWeapon=func(a Combatant)bool{return a.ID!="a"}
+ before:=s.Clone()
+ if err:=s.Execute(space,rules,"a",CombatAction{Type:"attack",TargetID:"b"});err==nil||!reflect.DeepEqual(s,before){t.Fatal("interlocked trigger changed accepted state")}
+ // An interlocked watcher does not veto somebody else's legal movement.
+ space.CanUseWeapon=func(a Combatant)bool{return a.ID!="b"}
+ s.Actor("b").Trained=true;s.Actor("b").Overwatch=true;s.Actor("b").ReservedAP=6
+ combatDo(t,&s,space,rules,"a",CombatAction{Type:"move",To:Cell{1,2}})
+ for _,e:=range s.Events{if e.Type=="reaction"||e.ActorID=="b"&&e.AmmoSpent>0{t.Fatal("interlocked watcher fired")}}
+ if s.Actor("b").Ammo!=b.Ammo{t.Fatal("interlocked reaction consumed ammunition")}
+}
+
+func TestCombatHostInjuryResolvesLastShotDrawAndSkipsDownCurrent(t *testing.T) {
+ rules:=combatFixtureRules();space:=combatFixtureSpace()
+ a,b,c:=combatFixtureActor("a","blue",Cell{1,1}),combatFixtureActor("b","red",Cell{5,1}),combatFixtureActor("c","blue",Cell{1,3})
+ a.Controlled=true
+ s:=combatFixture(t,space,a,b,c)
+ s.ApplyDamage(space,rules,"a","a",1000,1,0,"arms");s.ResolveCasualties(rules)
+ if s.Active&&s.Current()!=nil&&!s.Current().Able(){t.Fatal("host injury left a down current actor")}
+ s.ApplyDamage(space,rules,"b","b",1000,0,0,"torso");s.ApplyDamage(space,rules,"c","c",1000,0,0,"torso");s.ResolveCasualties(rules)
+ if s.Active||s.Winner!="draw"{t.Fatal("simultaneous final casualties kept a winner or active encounter")}
+ if err:=s.Validate(rules,space);err!=nil{t.Fatal(err)}
+}
+
+func TestCombatPlannerValuesUsableCarriedGunOverInterlockedEquipment(t *testing.T){
+ rules:=combatFixtureRules();rules.EquipAP=2
+ space:=combatFixtureSpace();a,b:=combatFixtureActor("a","blue",Cell{1,1}),combatFixtureActor("b","red",Cell{5,1})
+ a.Controlled=true;a.Weapon.Damage=200
+ own:=a.Weapon;own.ID="gun.own";own.Damage=20
+ space.CanUseWeapon=func(c Combatant)bool{return c.Weapon.ID==own.ID}
+ space.Equipment=func(id string)[]CombatEquipmentOption{if id!="a"{return nil};return []CombatEquipmentOption{{ID:"physical.own",Weapon:own,Ammo:2,UsesRemaining:100}}}
+ s:=combatFixture(t,space,a,b)
+ decision:=s.Decide(space,rules)
+ if decision.Chosen.Action.Type!="equip"||decision.Chosen.Action.ItemID!="physical.own"{t.Fatalf("usable carried gun was devalued by equipped interlock: %+v",decision)}
+}

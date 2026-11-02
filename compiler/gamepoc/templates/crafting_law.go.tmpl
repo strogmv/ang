@@ -4,7 +4,7 @@
 // bypass, its detection and the sanctions — through the EXISTING laws compiled into world.crafting.law (the justice
 // ladder's crime / rung / sanctions, law.attribution_basic's evidence, delay, thresholds and crowd, ledger.dome's fine).
 // Detection runs for the raid with a chip check, the terminal scanner, a guard who sees the gun in hand and a witness's
-// report. The shot itself belongs to the combat layer: hook craftingShotHook (not called by combat yet).
+// report. Accepted physical shots call craftingShotHook in the combat transaction.
 package poc
 
 import (
@@ -164,7 +164,7 @@ func (r *Runtime) craftingHacked(item string) {
 }
 
 // craftingShotHook: the combat layer calls it when the hero fires a hacked weapon within sight of a guard (the shot is
-// heard and seen). Not wired yet: combat files belong to the owner's combat work.
+// heard and seen). Rejected triggers do not call this hook.
 func (r *Runtime) craftingShotHook(item string, guards []string) {
 	if _, hacked := r.state.Crafting.Law.Hacked[item]; hacked && len(guards) > 0 {
 		r.craftingOffence("shot", item, guards, false)
@@ -245,30 +245,10 @@ func (r *Runtime) advanceCraftingLaw() {
 			}
 		}
 	}
-	// the danger of a hacked weapon: every use (its wear) may jam it or wound its holder, by the seed
+	// Legacy physical uses share the shot resolver and its persisted watermark.
+	// The actual carrier receives the wound, even when legal ownership differs.
 	for _, id := range hacked {
-		h := law.Hacked[id]
-		i, ok := r.state.Inventory.Items[id]
-		if !ok || h.Jammed || i.Condition >= h.Condition {
-			if ok && i.Condition > h.Condition {
-				h.Condition = i.Condition
-				law.Hacked[id] = h
-			}
-			continue
-		}
-		h.Uses++
-		h.Condition = i.Condition
-		dice := int64(craftingRoll(r.state.Seed, id+":use:"+strconv.FormatInt(h.Uses, 10)) % 1000)
-		switch {
-		case dice < m.Law.Rebind.MisfirePermille:
-			h.Jammed, h.Condition = true, 0
-			_, _ = r.state.Inventory.Transform(r.inventoryModelFor(true), inv.Transform{Restore: []inv.Restore{{Item: id, Condition: 0}}})
-			r.state.Crafting.Notice = crafting.Notice{Key: "crafting.notice.misfire", Second: now}
-		case dice < m.Law.Rebind.MisfirePermille+m.Law.Rebind.InjurePermille:
-			// the wound itself is the combat / health layer's (hook); the event is recorded here
-			r.state.Crafting.Notice = crafting.Notice{Key: "crafting.notice.injured", Second: now}
-		}
-		law.Hacked[id] = h
+		if holder:=r.combatItemHolder(id);holder!=""{_ = r.combatCraftingUse(id,holder,false)}
 	}
 	// reports arrive; a case that reaches «known» gets the sanctions of its rung
 	for k := range law.Cases {
