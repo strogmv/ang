@@ -111,6 +111,97 @@ type barksInput struct {
 	Places []barksPlaceIn `json:"places"`
 	Packs  []barksPackIn  `json:"packs"`
 	Combat barksCombatIn  `json:"combat"`
+	// barks v2: the speech register of each caste per locale (a soft check) and the client view of a line
+	Registers map[string]map[string]barks.Register `json:"registers"`
+	View      *BarksView                           `json:"view"`
+}
+
+// BarksView is how the client lays a line on the screen (content/world/barks/presentation_screen.cue, doc 94 §20): sizes
+// in pixels of the 1280x800 GUI space, the HUD a line never covers, the look of each face. Presentation only: emitted
+// into PocBarks.cs, never into the server.
+type BarksView struct {
+	Faces []struct {
+		Face      string  `json:"face"`
+		EMPx      float64 `json:"em_px"`
+		LinePitch float64 `json:"line_pitch"`
+		HaloPx    float64 `json:"halo_px"`
+	} `json:"faces"`
+	CaptionEMPx   float64 `json:"caption_em_px"`
+	CaptionAlpha  float64 `json:"caption_alpha"`
+	ZoomPower     float64 `json:"zoom_power"`
+	ZoomMin       float64 `json:"zoom_min"`
+	ZoomMax       float64 `json:"zoom_max"`
+	MinEMPx       float64 `json:"min_em_px"`
+	EdgePx        float64 `json:"edge_px"`
+	HUDPx         float64 `json:"hud_px"`
+	GapPx         float64 `json:"gap_px"`
+	SidePx        float64 `json:"side_px"`
+	ShadeAlpha    float64 `json:"shade_alpha"`
+	ShadePx       float64 `json:"shade_px"`
+	ThreadPx      float64 `json:"thread_px"`
+	KnotPx        float64 `json:"knot_px"`
+	StrikePx      float64 `json:"strike_px"`
+	ArrowPx       float64 `json:"arrow_px"`
+	StampHitMS    float64 `json:"stamp_hit_ms"`
+	StampHitScale float64 `json:"stamp_hit_scale"`
+	StampJitterPx float64 `json:"stamp_jitter_px"`
+	StampInkMin   float64 `json:"stamp_ink_min"`
+	GlowRimPx     float64 `json:"glow_rim_px"`
+	GlowAlpha     float64 `json:"glow_alpha"`
+	GlowFadeMS    float64 `json:"glow_fade_ms"`
+	SignCost      float64 `json:"sign_cost"`
+	HUD           []struct {
+		ID   string  `json:"id"`
+		When string  `json:"when"`
+		X0   float64 `json:"x0"`
+		Y0   float64 `json:"y0"`
+		X1   float64 `json:"x1"`
+		Y1   float64 `json:"y1"`
+	} `json:"hud"`
+}
+
+func (v BarksView) validate() error {
+	for _, face := range []string{"stencil", "chalk", "matrix"} {
+		n := 0
+		for _, f := range v.Faces {
+			if f.Face == face {
+				n++
+				if f.EMPx < 14 || f.LinePitch < 1 || f.HaloPx < 0 {
+					return fmt.Errorf("barks view: face %s needs em >= 14 px, line pitch >= 1, halo >= 0", face)
+				}
+			}
+		}
+		if n != 1 {
+			return fmt.Errorf("barks view: face %s needs exactly one row (has %d)", face, n)
+		}
+	}
+	// doc 86: nothing under 12 px at 1280x800, whatever the zoom
+	if v.MinEMPx < 12 || v.CaptionEMPx < 12 || v.ZoomMin <= 0 || v.ZoomMax < v.ZoomMin || v.ShadePx <= 0 || v.ThreadPx <= 0 {
+		return fmt.Errorf("barks view: min/caption em >= 12 px, zoom 0 < min <= max, shade and thread > 0")
+	}
+	for _, r := range v.HUD {
+		if r.When != "always" && r.When != "combat_panel" && r.When != "debug" || r.X1 <= r.X0 || r.Y1 <= r.Y0 || r.X0 < 0 || r.Y0 < 0 || r.X1 > 1280 || r.Y1 > 800 {
+			return fmt.Errorf("barks view: HUD rect %s is not a rect of the 1280x800 GUI or has an unknown condition %q", r.ID, r.When)
+		}
+	}
+	return nil
+}
+
+// defaultBarksView: a world without world.barks (or without its view) still compiles the client overlay.
+func defaultBarksView() *BarksView {
+	v := &BarksView{CaptionEMPx: 18, CaptionAlpha: .72, ZoomPower: .5, ZoomMin: .85, ZoomMax: 1.25, MinEMPx: 17, EdgePx: 12, HUDPx: 8,
+		GapPx: 28, SidePx: 22, ShadeAlpha: .5, ShadePx: 22, ThreadPx: 1.4, KnotPx: 2.4, StrikePx: 1.8, ArrowPx: 9, StampHitMS: 110,
+		StampHitScale: 1.18, StampJitterPx: 1.4, StampInkMin: .84, GlowRimPx: 2.2, GlowAlpha: .55, GlowFadeMS: 300, SignCost: 3}
+	for _, f := range [][2]float64{{23, 1.22}, {28, 1.1}, {20, 1.28}} {
+		v.Faces = append(v.Faces, struct {
+			Face      string  `json:"face"`
+			EMPx      float64 `json:"em_px"`
+			LinePitch float64 `json:"line_pitch"`
+			HaloPx    float64 `json:"halo_px"`
+		}{EMPx: f[0], LinePitch: f[1], HaloPx: 1.5})
+	}
+	v.Faces[0].Face, v.Faces[1].Face, v.Faces[2].Face = "stencil", "chalk", "matrix"
+	return v
 }
 
 func readBarks(world cue.Value) (*barksInput, error) {
@@ -385,7 +476,19 @@ func compileBarks(unity string, c *Compiled) error {
 			}
 			return c.Walkable[string(loc.Terrain[at.Y][at.X])]
 		},
-		Warn: func(s string) { c.barksWarnings = append(c.barksWarnings, s) },
+		Warn:      func(s string) { c.barksWarnings = append(c.barksWarnings, s) },
+		Registers: in.Registers,
+	}
+	for _, f := range m.Faces {
+		if _, ok := in.Registers[f.Caste]; len(in.Registers) > 0 && !ok {
+			return fmt.Errorf("barks: caste %s has no speech register (registers.cue)", f.Caste)
+		}
+	}
+	if in.View != nil {
+		if err := in.View.validate(); err != nil {
+			return err
+		}
+		c.BarksView = in.View
 	}
 	for _, msg := range c.Localization.Messages {
 		if strings.HasPrefix(msg.Key, "bark.") || strings.HasPrefix(msg.Key, "reply.") {
@@ -421,7 +524,7 @@ func compileBarks(unity string, c *Compiled) error {
 		}
 		return strings.TrimPrefix(id, "char.")
 	}
-	c.barksReport = barks.Report(m, func(k string) map[string]string { return texts[k] }, func(k string) string { return contexts[k] }, names, c.barksWarnings)
+	c.barksReport = barks.ReportWith(m, func(k string) map[string]string { return texts[k] }, func(k string) string { return contexts[k] }, names, c.barksWarnings, in.Registers)
 	return nil
 }
 

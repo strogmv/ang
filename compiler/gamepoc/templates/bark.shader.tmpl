@@ -1,8 +1,19 @@
-// ANG barks (doc 94): a glyph of the lines over the head, drawn by Graphics.DrawTexture in the GUI pass from the WorldText
-// signed-distance atlases. Stencil = clean paint edge, chalk = grain of a hand-written line, matrix = dots with a soft glow;
-// style 3 = plain coverage from the texture alpha (the thread to the head, its dot, the soft shade under the text).
+// ANG barks v2 (doc 94): everything of the lines over the head, drawn by Graphics.DrawTexture in the GUI pass.
+// Glyphs come from the WorldText signed-distance atlases; the caste reads in a still frame, not only in motion:
+//   0 stamp  (stencil, bronze): uneven ink — starved and pooled patches, a ragged edge that bleeds a little;
+//   1 chalk  (copper, free folk): grain of the board, uneven pressure, dusty edge;
+//   2 matrix (silver): dots of a display panel and a cold glow;
+//   3 plain  (the speaker's name): clean paint.
+// Every glyph carries its own dark halo (the distance field widened by _Halo px), so a line reads on the lit floor, the
+// orange strips of the yatai and a dark corner alike. Noise is anchored to the glyph (atlas texels scaled to screen
+// pixels), never to the screen: a moving line keeps its grain.
+// Shapes (white texture, the quad's UV gives the geometry; sizes in screen pixels from the UV derivatives):
+//   4 shade  one soft rounded box under a line (_Param = softness px): no plates, no steps;
+//   5 seg    an anti-aliased segment from uv (0,0) to uv (1,1) with a dark edge (_Param = width px): thread, strike, arrow;
+//   7 seg    the same from uv (0,1) to uv (1,0) (a segment falling to the right; the UV rect stays positive);
+//   6 dot    a disc filling the quad less 2 px, with a dark ring: the knot of the thread on the head.
 Shader "ANG/Bark" {
- Properties {_MainTex ("Signed-distance atlas",2D)="black" {} _Style ("Style 0 stencil 1 chalk 2 matrix",Float)=0}
+ Properties {_MainTex ("Signed-distance atlas",2D)="black" {} _Style ("Style",Float)=0 _Param ("Width or softness, px",Float)=1.5 _Halo ("Halo, px",Float)=1.6}
  SubShader { Tags {"Queue"="Overlay" "RenderType"="Transparent" "IgnoreProjector"="True"} Pass {
   Cull Off ZWrite Off ZTest Always Blend SrcAlpha OneMinusSrcAlpha
   HLSLPROGRAM
@@ -13,18 +24,55 @@ Shader "ANG/Bark" {
   struct v2f {float4 pos:SV_POSITION;float2 uv:TEXCOORD0;half4 color:COLOR;};
   TEXTURE2D(_MainTex); SAMPLER(sampler_MainTex);
   CBUFFER_START(UnityPerMaterial)
-  float4 _MainTex_ST;float _Style;
+  float4 _MainTex_ST;float _Style,_Param,_Halo;
   CBUFFER_END
+  static const float3 Dark=float3(.035,.03,.026);
   v2f vert(appdata v){v2f o;o.pos=TransformObjectToHClip(v.vertex.xyz);o.uv=v.uv;o.color=v.color;return o;}
   float hash(float2 p){return frac(sin(dot(p,float2(127.1,311.7)))*43758.5453);}
+  float vnoise(float2 p){float2 i=floor(p),f=frac(p),u=f*f*(3-2*f);return lerp(lerp(hash(i),hash(i+float2(1,0)),u.x),lerp(hash(i+float2(0,1)),hash(i+1),u.x),u.y);}
+  // ink over its own dark halo, straight alpha
+  half4 Ink(float3 ink,float cov,float halo,float a){cov=saturate(cov);halo=saturate(halo);float o=cov+halo*(1-cov);return half4((ink*cov+Dark*halo*(1-cov))/max(o,1e-4),o*a);}
+  // screen pixels per UV unit on each axis (the quads are axis-aligned)
+  float2 PxPerUV(float2 uv){return 1/max(float2(abs(ddx(uv.x))+abs(ddy(uv.x)),abs(ddx(uv.y))+abs(ddy(uv.y))),1e-6);}
   half4 frag(v2f i):SV_Target{
-   if(_Style>2.5){return half4(i.color.rgb,i.color.a*SAMPLE_TEXTURE2D(_MainTex,sampler_MainTex,i.uv).a);} // thread, dot, shade
-   float d=SAMPLE_TEXTURE2D(_MainTex,sampler_MainTex,i.uv).r;
-   float aa=max(fwidth(d),1e-4)*.9;
-   float a=smoothstep(.5-aa,.5+aa,d);
-   if(_Style>.5&&_Style<1.5){float g=hash(floor(i.uv*1536.));a*=lerp(.68,1.,g);}
-   else if(_Style>1.5){a=max(a,smoothstep(.30,.5,d)*.32);}
-   return half4(i.color.rgb,i.color.a*a);
+   float a=i.color.a;
+   if(_Style>3.5){
+    float2 k=PxPerUV(i.uv);
+    if(_Style<4.5){ // shade: soft rounded box, the inner box is the quad less the softness
+     float2 p=i.uv*k,o=max(0,max(_Param-p,p-(k-_Param)));float r=length(o)/max(_Param,1);
+     float s=1-smoothstep(0,1,r);return half4(i.color.rgb,a*pow(s,1.6));
+    }
+    if(_Style<5.5||_Style>6.5){ // segment (0,0)-(1,1) or (0,1)-(1,0) in UV, measured in pixels
+     float2 p=i.uv*k;float2 a0=_Style>6.5?float2(0,k.y):float2(0,0);float2 b=(_Style>6.5?float2(k.x,0):k)-a0;p-=a0;
+     float t=saturate(dot(p,b)/max(dot(b,b),1e-6));float d=length(p-b*t);float hw=_Param*.5;
+     float core=1-smoothstep(hw-.5,hw+.5,d),edge=(1-smoothstep(hw+.6,hw+1.6,d))*.7;return Ink(i.color.rgb,core,edge,a);
+    }
+    float2 c=(i.uv-.5)*k;float r=.5*min(k.x,k.y)-2;float d=length(c); // dot
+    return Ink(i.color.rgb,1-smoothstep(r-.5,r+.5,d),(1-smoothstep(r+.5,r+1.6,d))*.75,a);
+   }
+   float sd=SAMPLE_TEXTURE2D(_MainTex,sampler_MainTex,i.uv).r;
+   float fw=max(fwidth(sd),1e-4),aa=fw*.5;
+   float haloEdge=max(.5-_Halo*fw,.06);float halo=smoothstep(haloEdge-aa,haloEdge+aa,sd)*.82;
+   // glyph-anchored pixel coordinates: atlas texels scaled to screen pixels
+   float2 gp=i.uv*PxPerUV(i.uv);
+   float3 ink=i.color.rgb;float cov;
+   if(_Style<.5){ // stamp
+    float big=vnoise(gp/float2(11,9)),fine=vnoise(gp/2.2);
+    float bias=(big-.5)*.10+(fine-.5)*.05;
+    float fill=smoothstep(.5-aa,.5+aa,sd+bias);
+    float dens=.70+.30*smoothstep(.15,.85,big),mott=.80+.20*fine;
+    float bleed=smoothstep(.5-2.6*fw,.5,sd+bias)*.28;
+    cov=max(fill*dens*mott,bleed*dens);
+   }else if(_Style<1.5){ // chalk
+    float grain=hash(floor(gp)),press=.72+.28*vnoise(gp/float2(23,31)),tooth=vnoise(gp/1.6);
+    float fill=smoothstep(.5-aa*1.5,.5+aa*1.5,sd+(tooth-.5)*.08);
+    cov=fill*press*(grain<.15?.45:1)*(.78+.22*grain);halo*=.9;
+   }else if(_Style<2.5){ // matrix
+    float2 cell=fmod(floor(gp),3)-1;float dot3=1-smoothstep(.4,1.3,length(cell));
+    float fill=smoothstep(.5-aa,.5+aa,sd);
+    cov=max(fill*(.62+.38*dot3),smoothstep(.5-3.2*fw,.5,sd)*.36);halo*=.8;
+   }else cov=smoothstep(.5-aa,.5+aa,sd); // plain
+   return Ink(ink,cov,halo,a);
   }
   ENDHLSL
  } }

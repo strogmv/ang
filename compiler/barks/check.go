@@ -36,8 +36,48 @@ type World struct {
 	Corpus   []string
 	Walkable func(level string, at runtime.Cell) bool
 	Fillers  []string
-	// Warnings are collected here (not failures): long lines, stubs, undecided castes.
+	// Warnings are collected here (not failures): long lines, stubs, undecided castes, a line without its register.
 	Warn func(string)
+	// Registers: caste -> locale -> the speech register of the caste (barks v2, owner 02.11: «на английском медь — это
+	// реднеки»). A line of a caste whose register has markers and that carries none of them is a warning, never a failure.
+	Registers map[string]map[string]Register
+}
+
+// Register is how a caste speaks in one locale: an id for the report, the note for the writer and the words that mark it.
+type Register struct {
+	ID      string   `json:"id"`
+	Note    string   `json:"note"`
+	Markers []string `json:"markers"`
+}
+
+// RegisterMarker returns the first marker of the register found in the text, "" when none: "-in'" is a word ending, a
+// marker with a space is a phrase, anything else a whole word (lowercase; the apostrophe belongs to the word).
+func RegisterMarker(text string, markers []string) string {
+	lower := strings.ToLower(strings.ReplaceAll(text, "’", "'"))
+	ws := strings.FieldsFunc(lower, func(r rune) bool { return !unicode.IsLetter(r) && r != '\'' })
+	padded := " " + strings.Join(ws, " ") + " "
+	for _, m := range markers {
+		m = strings.ToLower(m)
+		switch {
+		case strings.HasPrefix(m, "-"):
+			for _, w := range ws {
+				if strings.HasSuffix(w, m[1:]) && len(w) > len(m)-1 {
+					return m
+				}
+			}
+		case strings.Contains(m, " "):
+			if strings.Contains(padded, " "+m+" ") {
+				return m
+			}
+		default:
+			for _, w := range ws {
+				if w == m {
+					return m
+				}
+			}
+		}
+	}
+	return ""
 }
 
 var punctuation = ".,;:!?"
@@ -226,6 +266,9 @@ func Check(m runtime.Model, w World) error {
 				if who, bad := hidden[s]; bad {
 					fail("%s: %s touches the secret of %s (%q)", owner, loc, who, s)
 				}
+			}
+			if reg, ok := w.Registers[caste][loc]; ok && len(reg.Markers) > 0 && RegisterMarker(text, reg.Markers) == "" {
+				warn("REGISTER %s: %s has no marker of %s (%s)", owner, loc, reg.ID, caste)
 			}
 		}
 		return t

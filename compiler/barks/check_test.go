@@ -215,3 +215,43 @@ func TestCheckTargetAndSubject(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// barks v2 (owner 02.11: «на английском медь — это реднеки»): a copper line in English without a marker of its register is
+// a warning, never a failure; the markers match whole words, word endings ("-in'") and phrases; the report shows them.
+func TestRegisterMarkers(t *testing.T) {
+	markers := []string{"ain't", "y'all", "-in'", "ain't no", "fer"}
+	for text, want := range map[string]string{
+		"ain't nobody fixin' that crane":  "ain't",
+		"y'all seen the raid":             "y'all",
+		"still loadin' by hand":           "-in'",
+		"enough fer a tray":               "fer",
+		"night shift again my knee aches": "",
+		"the fern is green":               "",
+	} {
+		if got := RegisterMarker(text, markers); got != want {
+			t.Fatalf("%q: marker %q, want %q", text, got, want)
+		}
+	}
+	m, texts, w := fixture()
+	var warned []string
+	w.Warn = func(s string) { warned = append(warned, s) }
+	w.Registers = map[string]map[string]Register{"copper": {"en": {ID: "southern_rural", Markers: markers}}}
+	if err := Check(m, w); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, s := range warned {
+		if strings.HasPrefix(s, "REGISTER ") && strings.Contains(s, "southern_rural") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("a copper line without a register marker is not reported: %v", warned)
+	}
+	report := string(ReportWith(m, func(k string) map[string]string { return texts[k] }, func(string) string { return "" }, func(id string) string { return id }, warned, w.Registers))
+	for _, want := range []string{"Регистр en", "southern_rural: нет маркера", "## Регистры речи"} {
+		if !strings.Contains(report, want) {
+			t.Fatalf("report lacks %q", want)
+		}
+	}
+}

@@ -230,7 +230,9 @@ type Compiled struct {
 	Crafting *craftingRuntime.Model `json:"crafting,omitempty"`
 	// Barks (doc 94, world.barks): the compiled catalog of the lines over the head (internal/barks/catalog.json); a world
 	// without barks gets a silent default so the host adapter always compiles.
-	Barks         *barksRuntime.Model `json:"-"`
+	Barks *barksRuntime.Model `json:"-"`
+	// BarksView (barks v2): how the client lays a line on the screen; a default when the world has none.
+	BarksView     *BarksView `json:"-"`
 	barksIn       *barksInput
 	barksWarnings []string
 	barksReport   []byte
@@ -791,6 +793,9 @@ func Generate(project string) error {
 	if compiled.Barks == nil {
 		compiled.Barks = silentBarks(compiled)
 	}
+	if compiled.BarksView == nil {
+		compiled.BarksView = defaultBarksView()
+	}
 	viewJSON, err := clientResource(compiled)
 	if err != nil {
 		return err
@@ -983,6 +988,7 @@ func Generate(project string) error {
 		"barks_test.go.tmpl":                    filepath.Join(project, "internal/poc/barks_generated_test.go"),
 		"barks.cs.tmpl":                         filepath.Join(unity, "Assets/Generated/Poc/PocBarks.cs"),
 		"bark.shader.tmpl":                      filepath.Join(unity, "Assets/Resources/Generated/PocBark.shader"),
+		"bark_speaker.shader.tmpl":              filepath.Join(unity, "Assets/Resources/Generated/PocBarkSpeaker.shader"),
 		"crafting.go.tmpl":                      filepath.Join(project, "internal/poc/crafting.gen.go"),
 		"crafting_test.go.tmpl":                 filepath.Join(project, "internal/poc/crafting_generated_test.go"),
 		"crafting.cs.tmpl":                      filepath.Join(unity, "Assets/Generated/Poc/PocCrafting.cs"),
