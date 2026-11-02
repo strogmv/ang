@@ -186,6 +186,9 @@ type receipt struct {
 
 type Runtime struct {
  playableWorlds map[string]worldData
+	// Doc 96: combat panel options of the last decision point, and the barks cursor over combat events (memory only).
+	combatPanel combatPanelCache
+	barkCombat  barkCombatCursor
  illuminationCache *illuminationGeometryCache
 	instantTravelStalled, instantTravelEpoch string
 	lifeInventory                            lifeInventoryCache

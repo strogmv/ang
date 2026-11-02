@@ -8,7 +8,7 @@ using UnityEngine.Rendering;
 namespace AngelsDemons.Poc {
  [Serializable] public sealed class PocSceneMM {public float x_mm,y_mm,z_mm;public Vector3 World=>new Vector3(x_mm,z_mm,y_mm)/1000f;}
  [Serializable] public sealed class PocSceneLamp {public string source_id,instance_id,prefabclass,prefab,power_ref,distribution;public PocSceneMM at_mm,aim_mm;public float intensity_day,intensity_night,range_m,beam_degrees,lumens;public float[] rgb_linear;public bool shadows;}
- [Serializable] public sealed class PocScenePresentation {public PocSceneLamp[] lights;}
+ [Serializable] public sealed class PocScenePresentation {public PocSceneLamp[] lights;public PocCombatLook combat;}
  [Serializable] public sealed class PocPlayablePreset {public string id,scenario,level,name_key;public PocScenePresentation presentation;}
  // A scene-only wrapper marks fixture geometry. The original prefab is preserved.
  public sealed partial class AngelsDemonsPoc {
@@ -26,6 +26,7 @@ namespace AngelsDemons.Poc {
   Rect PlayableScenePanel(){var view=PlayableView();int count=0;if(view!=null)foreach(var action in view.Actions)if(action.Enabled)count++;return new Rect(18,118,340,145+Math.Min(3,count)*39);}
   bool PlayableSceneBlocksInput(Vector2 p){return PlayableView()!=null&&PlayableScenePanel().Contains(p);}
   void UpdatePlayableScene(){
+   UpdateCombatPlay();UpdateCombatPanelInput();UpdateCombatAutoplay();
    if(!verify&&!string.IsNullOrEmpty(startPlayablePending)&&CanSend()){string id=startPlayablePending;startPlayablePending=null;StartPlayableScene(id);}
    var view=PlayableView();if(view==null||locationSDKRoot==null||locationSDKLevel==null){ReleasePlayableScene();return;}
    var preset=PlayablePreset(view.Id);if(preset==null||preset.presentation==null)return;
@@ -68,11 +69,14 @@ namespace AngelsDemons.Poc {
    var renderer=go.AddComponent<MeshRenderer>();renderer.sharedMaterials=new[]{playSceneShadowMaterial,playSceneShadowMaterial,playSceneShadowMaterial};renderer.shadowCastingMode=ShadowCastingMode.ShadowsOnly;renderer.receiveShadows=false;
   }
 
-  void DrawPlayableSceneUI(){var view=PlayableView();if(view==null)return;PrepareHud();var panel=PlayableScenePanel();if(playSceneHintStyle==null)playSceneHintStyle=new GUIStyle(hudSmall){wordWrap=true};HudFrame(panel,false);GUI.Label(new Rect(32,128,312,25),view.Name,hudHeading);GUI.Label(new Rect(32,157,312,55),view.Completed?L("ui.scene.stealth.completed"):view.Objective,hudWrap);GUI.Label(new Rect(32,213,312,38),L("ui.scene.stealth.hint"),playSceneHintStyle);
+  // Scene-specific client text (ui.scene.<id>.<what>), the stealth scene's as the shared fallback.
+  string PlayableSceneText(PocPlayableScene view,string what){string key="ui.scene."+view.Id+"."+what,text=L(key);return text==key?L("ui.scene.stealth."+what):text;}
+  void DrawPlayableSceneUI(){var view=PlayableView();if(view==null)return;PrepareHud();var panel=PlayableScenePanel();if(playSceneHintStyle==null)playSceneHintStyle=new GUIStyle(hudSmall){wordWrap=true};HudFrame(panel,false);GUI.Label(new Rect(32,128,312,25),view.Name,hudHeading);GUI.Label(new Rect(32,157,312,55),view.Completed?PlayableSceneText(view,"completed"):view.Objective,hudWrap);GUI.Label(new Rect(32,213,312,38),PlayableSceneText(view,"hint"),playSceneHintStyle);
    int row=0;foreach(var action in view.Actions){if(!action.Enabled)continue;if(row>=3)break;if(HudButton(new Rect(30,258+row*39,316,35),action.Name))SendSceneAction(action);row++;}
    // Labels mark visible, server-published approaches. Hidden objects and NPC
    // suspicion are not reconstructed from the client authoring catalogue.
-   foreach(var action in view.Actions){Vector2 at;if(!LocationSDKCellScreen(action.X,action.Y,out at))continue;var rect=new Rect(at.x-95,at.y-35,190,25);if(panel.Overlaps(rect))continue;GUI.Label(rect,action.Name,hudSmall);}
+   // Inside the hero's encounter the device labels would cover the fight and its panel (doc 96).
+   if(!HeroCombatActive())foreach(var action in view.Actions){Vector2 at;if(!LocationSDKCellScreen(action.X,action.Y,out at))continue;var rect=new Rect(at.x-95,at.y-35,190,25);if(panel.Overlaps(rect))continue;GUI.Label(rect,action.Name,hudSmall);}
   }
  }
 }

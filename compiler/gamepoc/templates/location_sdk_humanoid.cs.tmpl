@@ -133,6 +133,8 @@ namespace AngelsDemons.Poc {
    catch(Exception error){Debug.LogError("ANG humanoid cast "+cast.cast_id+" is unusable, character sheets kept: "+error.Message);ReleaseLocationSDKHumanoids();locationSDKHumanoidCast=null;return;}
    float meters=locationSDKLevel.cell_meters;
    Vector3 feet=worldFeet.HasValue?worldFeet.Value:new Vector3(LocationSDKCellCenter(position.x,meters),locationSDKLevel.elevation*meters,LocationSDKCellCenter(position.y,meters));
+   // doc 96: a combat beat or stance of the server's encounter owns the body (PocCombatPlay.cs).
+   if(CombatPresentHumanoid(h,id,feet,nowNS,paused||(state!=null&&state.Paused)))return;
    if(!h.go.activeSelf)h.go.SetActive(true);locationSDKVisibleActors.Add(id);
    double dt=double.IsNaN(h.lastNS)?0:(nowNS-h.lastNS)/1e9;float dreal=Time.deltaTime;
    bool held=paused||(state!=null&&state.Paused);

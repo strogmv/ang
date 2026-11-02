@@ -15,7 +15,7 @@ namespace AngelsDemons.Poc {
    if(!CanSend()||state==null||state.Paused)return;
    session.SendCombatCommand(new PocCombatCommand{RequestId=Guid.NewGuid().ToString("N"),Epoch=state.Epoch,Action=action,TargetId=target,ExpectedTurn=state.Combat==null?0:state.Combat.Turn,Mode=action=="attack"?combatAttackMode:"",Aim=action=="attack"&&combatAttackMode=="aimed"?combatAim:0,BodyPart=action=="attack"?combatBodyPart:"",ItemId=item,X=x,Y=y});
   }
-  bool CombatPointerBlocked(Vector2 p){return new Rect(400,31,150,32).Contains(p)||new Rect(556,31,148,32).Contains(p)||((combatPanelOpen||HeroCombatActive())&&new Rect(394,130,470,530).Contains(p));}
+  bool CombatPointerBlocked(Vector2 p){if(HeroCombatActive())return CombatPanelFrame.Contains(p)||new Rect(400,31,150,32).Contains(p);return new Rect(400,31,150,32).Contains(p)||new Rect(556,31,148,32).Contains(p)||(combatPanelOpen&&new Rect(394,130,470,530).Contains(p));}
   void SendStealth(){if(!CanSend()||state==null||state.Paused||HeroCombatActive())return;session.SendLifeCommand(new PocLifeCommand{RequestId=Guid.NewGuid().ToString("N"),Epoch=state.Epoch,Action="stealth",Destination=state.Life.Sneaking?"off":"on"});}
   void CombatButton(string key,string action){if(GUILayout.Button(L(key),buttonStyle,GUILayout.Height(32)))SendCombat(action);}
   void DrawCombatUI(){
@@ -24,7 +24,10 @@ namespace AngelsDemons.Poc {
    if(HudButton(new Rect(400,31,150,32),L("ui.combat.title")))combatPanelOpen=!combatPanelOpen;
    if(!HeroCombatActive()&&HudButton(new Rect(556,31,148,32),L(state.Life.Sneaking?"ui.stealth.normal":"ui.stealth.quiet")))SendStealth();
    if(state.Life.Illumination!=null&&state.Life.Illumination.Known)GUI.Label(new Rect(556,66,148,26),L("ui.illumination."+state.Life.Illumination.State),hudSmall);
-   if(!combatPanelOpen&&!HeroCombatActive())return;
+   DrawCombatFx();
+   // doc 96: inside the hero's encounter the list panel of validated actions (PocCombatPanel.cs) replaces this one.
+   if(HeroCombatActive()){DrawCombatPanel();return;}
+   if(!combatPanelOpen)return;
    Rect box=new Rect(394,130,470,530);HudFrame(box,false);GUILayout.BeginArea(new Rect(408,142,442,506));combatScroll=GUILayout.BeginScrollView(combatScroll);
    PocCombatActor hero=null;if(active)foreach(var a in fight.Actors)if(a.Id=="char.hero")hero=a;
    if(!active||hero==null){

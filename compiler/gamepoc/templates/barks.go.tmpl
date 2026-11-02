@@ -109,6 +109,7 @@ func (r *Runtime) barkActorAt(id string) (string, behavior.Cell, bool) {
 
 // advanceBarks runs once per Life frame, after the people moved and the systems acted.
 func (r *Runtime) advanceBarks() {
+	r.barkCombatFrame() // the fight's shouts (barks_combat.gen.go, doc 96)
 	if f, ok := r.barkFrame(); ok {
 		barkCatalog.Step(&r.state.Barks, f)
 	}

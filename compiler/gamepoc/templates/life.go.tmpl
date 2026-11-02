@@ -275,6 +275,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 	r.appendWayfinding(view, c.locale)
 	msg.Life = view
 	r.appendCombat(msg)
+	r.appendCombatPanel(msg, c.locale)
 	r.appendInventory(msg, c.locale)
 	v.appendPerception(msg)
  r.appendPlayableScene(view,hero,msg.PlayerView,c.locale)
