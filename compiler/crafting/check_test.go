@@ -9,7 +9,7 @@ import (
 
 func fixture() runtime.Model {
 	tiers := []runtime.Tier{{Tier: 1, Points: 0, Name: "t1"}, {Tier: 2, Points: 15, Name: "t2"}, {Tier: 3, Points: 35, Name: "t3"}, {Tier: 4, Points: 60, Name: "t4"}, {Tier: 5, Points: 85, Name: "t5"}}
-	src := []runtime.SourceRef{{Path: "docs/world-sim/93-crafting-schematics.md", Note: "proposal"}}
+	src := []runtime.SourceRef{{Path: "docs/world-sim/95-crafting-schematics.md", Note: "proposal"}}
 	return runtime.Model{
 		Level: "level.test",
 		Parts: []runtime.PartClass{
