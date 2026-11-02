@@ -23,7 +23,7 @@ func(r *Runtime)capturePublicCombatEventsFrom(previous behavior.CombatState){
    switch raw.Type{case "move","move_stop":p.Position=raw.To;case "prone":p.Prone=true;p.Crouched=false;case "crouch":p.Crouched=true;p.Prone=false;case "stand":p.Prone=false;p.Crouched=false}
    poses[p.ID]=p;if p.ID==playerActorID{observer=p}
   }
-  if raw.Hit&&raw.TargetID!=""{if p,ok:=poses[raw.TargetID];ok{p.HP=max(0,p.HP-raw.Amount);if p.HP==0{p.Prone=true;p.Crouched=false};poses[p.ID]=p}}
+  if raw.Type=="down"||raw.Type=="dead"||raw.Type=="fall"{if p,ok:=poses[raw.TargetID];ok{p.Prone=true;p.Crouched=false;poses[p.ID]=p}}
   if r.currentLevel()!=level{continue}
   // An invisible explosion victim produces no hit count, damage or sequence
   // gap on the wire. The throw/detonation itself may still be observable.
@@ -32,6 +32,7 @@ func(r *Runtime)capturePublicCombatEventsFrom(previous behavior.CombatState){
   event:=raw;event.Reason="";event.AmmoSpent=0;event.MedkitsSpent=0;event.WeaponUses=0;event.ItemsSpent=0;event.ArmorBlocked=0
   if event.ActorID!=playerActorID&&!seenFrom{event.ActorID="";event.From=behavior.Cell{X:-1,Y:-1};event.ItemID=""}
   if event.TargetID!=playerActorID&&!seenTo{event.TargetID="";event.To=behavior.Cell{X:-1,Y:-1};event.Amount=0;event.Hit=false;event.BodyPart=""}
+  if event.TargetID!=playerActorID {switch event.Type{case "wound","condition","blocked","down","dead","weak","confused","care_done","stopped":event.ItemID=""}}
   r.state.CombatPublicSerial++;event.Sequence=r.state.CombatPublicSerial
   r.state.CombatPublicEvents=append(r.state.CombatPublicEvents,event)
   if len(r.state.CombatPublicEvents)>64{r.state.CombatPublicEvents=append([]behavior.CombatEvent(nil),r.state.CombatPublicEvents[len(r.state.CombatPublicEvents)-64:]...)}

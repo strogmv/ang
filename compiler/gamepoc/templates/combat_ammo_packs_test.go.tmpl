@@ -151,7 +151,8 @@ func TestCombatAmmoPacksWireReloadBurstAndDuplicateRequestSpendOnce(t *testing.T
 	r, c, target, ids := combatAmmoPackFixture(t)
 	combatStart(t, r, c, target)
 	combatPhysicalWire(t, r, c, "ammo.pack.reload", "reload", "")
-	q := &pb.PocCombatCommand{RequestId: "ammo.pack.burst", Action: "attack", Mode: "burst", TargetId: target, ExpectedTurn: r.state.Combat.Turn}
+	combatSeedForFullBurst(t,r,target)
+ q := &pb.PocCombatCommand{RequestId: "ammo.pack.burst", Action: "attack", Mode: "burst", TargetId: target, ExpectedTurn: r.state.Combat.Turn}
 	result, _ := combatWire(t, r, c, q)
 	if !result.Ok {
 		t.Fatal(result.Message)

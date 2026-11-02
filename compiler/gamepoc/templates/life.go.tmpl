@@ -96,7 +96,8 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
 		previousEdge = hero.Trip.Edge
 	}
 	previous := r.state.Life.Maintenance.Clone().Units
-	r.checkLifeEquipment()
+	r.applyWoundLifeLimits()
+ r.checkLifeEquipment()
 	r.state.Life.EnsureHeroBody(r.state.Life.GateModel(r.world.Life))
 	r.state.Life.AdvanceWithTravelBy(r.world.Life, r.state.Tick, delta, r.installLifePart, r.admitLifeTravel)
 	r.state.Life.EnsureHeroBody(r.state.Life.GateModel(r.world.Life))

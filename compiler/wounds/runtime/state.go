@@ -3,6 +3,7 @@ package wounds
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 )
 
@@ -215,6 +216,9 @@ func (m Model) Load(data []byte) (Save, error) {
 	d.DisallowUnknownFields()
 	if err := d.Decode(&s); err != nil {
 		return s, fmt.Errorf("wounds save: %w", err)
+	}
+	if err := d.Decode(new(any)); err != io.EOF {
+		return s, fmt.Errorf("wounds save: trailing data")
 	}
 	if s.Version != 1 {
 		return s, fmt.Errorf("wounds save: version %d", s.Version)

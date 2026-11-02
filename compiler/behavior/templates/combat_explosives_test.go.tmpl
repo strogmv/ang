@@ -25,8 +25,8 @@ func TestCombatExplosiveRealOutcomesFiniteStockAndSaveContinuation(t *testing.T)
 	b.Initiative = 20
 	s := combatNewAdvanced(t, r, space, a, b)
 	combatDo(t, &s, space, r, "a", CombatAction{Type: "throw", ItemID: combatBomb().ID, To: Cell{5, 1}})
-	if s.Actor("a").AP != 5 || s.Actor("a").Explosives[0].Count != 1 || s.Actor("b").HP != 60 || s.Actor("b").Bleeding != 3 {
-		t.Fatal("explosive did not alter real AP, stock, HP and bleeding")
+	if s.Actor("a").AP != 5 || s.Actor("a").Explosives[0].Count != 1 || len(combatFixtureHits(s.Actor("b"))) != 1 || combatFixtureHits(s.Actor("b"))[0].Mode!="blast" {
+		t.Fatal("explosive did not spend real AP/stock or dispatch the blast to the wound host")
 	}
 	clone := s.Clone()
 	clone.Actor("a").Explosives[0].Count = 99
@@ -44,7 +44,7 @@ func TestCombatExplosiveRealOutcomesFiniteStockAndSaveContinuation(t *testing.T)
 	for _, state := range []*CombatState{&s, &loaded} {
 		combatDo(t, state, space, r, "a", CombatAction{Type: "throw", ItemID: combatBomb().ID, To: Cell{6, 1}})
 	}
-	if !reflect.DeepEqual(s, loaded) || s.Actor("a").Explosives[0].Count != 0 || s.Actor("b").HP != 31 {
+	if !reflect.DeepEqual(s, loaded) || s.Actor("a").Explosives[0].Count != 0 || len(combatFixtureHits(s.Actor("b"))) != 2 {
 		t.Fatal("save changed actual blast outcomes or restored stock")
 	}
 	n, items, ap := 0, 0, 0
@@ -74,7 +74,7 @@ func TestCombatExplosiveHurtsAlliesAndSurrenderedBodiesPhysically(t *testing.T) 
 	surrendered.Surrendered = true
 	s := combatNewAdvanced(t, r, space, a, b, friend, surrendered)
 	combatDo(t, &s, space, r, "a", CombatAction{Type: "throw", ItemID: combatBomb().ID, To: Cell{5, 1}})
-	if s.Actor("b").HP != 60 || s.Actor("friend").HP != 71 || s.Actor("surrendered").HP != 81 {
+	if len(combatFixtureHits(s.Actor("b"))) != 1 || len(combatFixtureHits(s.Actor("friend"))) != 1 || len(combatFixtureHits(s.Actor("surrendered"))) != 1 {
 		t.Fatal("team or surrender flags made a real body immune to the blast")
 	}
 }
@@ -129,7 +129,7 @@ func TestCombatExplosiveUnknownMovedWorldDoesNotChangePlanButPhysicsDiffers(t *t
 	action := CombatAction{Type: "throw", ItemID: combatBomb().ID, To: Cell{7, 1}}
 	combatDo(t, &one, space, r, "a", action)
 	combatDo(t, &two, space, r, "a", action)
-	if one.Actor("b").HP != 71 || two.Actor("b").HP != 1 {
+	if len(combatFixtureHits(one.Actor("b"))) != 1 || len(combatFixtureHits(two.Actor("b"))) != 0 {
 		t.Fatal("execution ignored actual physical bodies or tracked a reported old point magically")
 	}
 }
@@ -172,7 +172,7 @@ func TestCombatExplosiveGeometryStopsWallAndAnotherDeckAndRecordsArmour(t *testi
 	a.Initiative = 30
 	s := combatNewAdvanced(t, r, space, a, b)
 	combatDo(t, &s, space, r, "a", CombatAction{Type: "throw", ItemID: combatBomb().ID, To: Cell{3, 1}})
-	if s.Actor("b").HP != 100 {
+	if len(combatFixtureHits(s.Actor("b"))) != 0 {
 		t.Fatal("full-height wall did not stop blast propagation")
 	}
 	x := combatBomb()
@@ -189,8 +189,8 @@ func TestCombatExplosiveGeometryStopsWallAndAnotherDeckAndRecordsArmour(t *testi
 	combatDo(t, &s, space, r, "a", CombatAction{Type: "throw", ItemID: combatBomb().ID, To: Cell{5, 1}})
 	for _, e := range s.Events {
 		if e.Type == "blast_hit" && e.TargetID == "b" {
-			if !e.Hit || e.Amount != 0 || e.ArmorBlocked != 40 {
-				t.Fatal("fully absorbed blast was reported as a miss or lost armour absorption")
+			if !e.Hit || e.Amount != 1 || e.ArmorBlocked != 40 {
+				t.Fatal("blast lost its anatomical host dispatch or armour wear")
 			}
 			return
 		}

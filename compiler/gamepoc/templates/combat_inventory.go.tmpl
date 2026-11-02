@@ -48,7 +48,7 @@ func(r *Runtime)combatEquipmentOptions(actor string)[]behavior.CombatEquipmentOp
   if weapon.Magazine>0&&!r.craftingUsable(item.ID,actor){continue}
   if definition.EquipSlot!="hand.main"&&definition.EquipSlot!="hand.off"{continue}
   if definition.EquipSlot=="hand.off"&&current.Location.Slot=="hand.main"{continue}
-  option:=behavior.CombatEquipmentOption{ID:id,Weapon:weapon,UsesRemaining:int(item.Condition/definition.WearPerUse)}
+  option:=behavior.CombatEquipmentOption{ID:id,Weapon:weapon,Risk:r.world.CombatRuntime.WeaponRisk[weapon.ID],UsesRemaining:int(item.Condition/definition.WearPerUse)}
   if weapon.Magazine>0{option.Ammo=r.combatCount(s,actor,weapon.AmmoDefinition,func(i inv.Item)bool{return i.Location.Store==inv.ItemStore(id)});option.ReserveAmmo=r.combatReserveAmmo(s,actor,weapon.AmmoDefinition)}
   result=append(result,option)
  }
@@ -100,11 +100,13 @@ func (r *Runtime) refreshCombatEquipment(s inv.State,a *behavior.Combatant) {
 			a.ReserveAmmo=r.combatReserveAmmo(s,a.ID,w.AmmoDefinition)
 		}
 	}
-	for _,definition:=range r.world.CombatRuntime.MedicalDefinitions {a.Medkits+=r.combatCount(s,a.ID,definition,nil)}
+	for _,definition:=range r.woundAidItems() {a.Medkits+=r.combatCount(s,a.ID,definition,nil)}
 	if a.Medkits>10000{a.Medkits=10000}
  a.BodyArmor=r.combatArmorFromInventory(s,a.ID)
 
-	ids:=make([]string,0,len(r.world.CombatRuntime.Explosives));for id:=range r.world.CombatRuntime.Explosives{ids=append(ids,id)};sort.Strings(ids)
+	riskID:=a.Weapon.ID;if a.Weapon.WoundProfile!=""{riskID=a.Weapon.WoundProfile};a.BodyRisk=r.world.CombatRuntime.WeaponRisk[riskID];if a.BodyRisk<1{a.BodyRisk=r.world.CombatRuntime.WeaponRisk["unarmed"]}
+ if len(a.Body)>0&&!a.BodyCanHold{a.WeaponUsesLimited=true;a.WeaponUsesRemaining=0}
+ ids:=make([]string,0,len(r.world.CombatRuntime.Explosives));for id:=range r.world.CombatRuntime.Explosives{ids=append(ids,id)};sort.Strings(ids)
 	for _,id:=range ids{n:=r.combatCount(s,a.ID,id,nil);if n>1000{n=1000};if n>0{a.Explosives=append(a.Explosives,behavior.CombatExplosiveStock{Explosive:r.world.CombatRuntime.Explosives[id],Count:n})}}
 }
 
@@ -160,7 +162,7 @@ func (r *Runtime) applyCombatResources(s *inv.State,old behavior.CombatState,eve
 	}
 	if event.MedkitsSpent>0 {
 		left:=event.MedkitsSpent
-		for _,id:=range r.world.CombatRuntime.MedicalDefinitions {
+		for _,id:=range r.woundAidItems() {
 			n:=min(left,r.combatCount(*s,actor.ID,id,nil));if n<1{continue}
 			if err:=r.consumeCombatStock(s,actor.ID,id,n,nil);err!=nil{return err};left-=n
 		}
@@ -202,7 +204,7 @@ func(c combatCatalog)ValidateInventory(m inv.Model)error{
   if w.Magazine>0{ammo,ok:=m.Definitions[w.AmmoDefinition];if !ok||ammo.Carrier!="physical"||ammo.ContainerVolume>0||ammo.Currency!=""||ammo.Volume<1||d.ContainerVolume<int64(w.Magazine)*ammo.Volume{return errors.New("firearm requires compatible physical magazine and ammunition")}}
  }
  seen:=map[string]bool{}
- for _,id:=range c.MedicalDefinitions{d,ok:=m.Definitions[id];if !ok||seen[id]||d.Carrier!="physical"||d.ContainerVolume>0||d.Currency!=""{return errors.New("invalid medical consumption contract")};seen[id]=true}
+ for _,id:=range (&Runtime{}).woundAidItems(){d,ok:=m.Definitions[id];if !ok||seen[id]||d.Carrier!="physical"||d.ContainerVolume>0||d.Currency!=""{return errors.New("invalid medical consumption contract")};seen[id]=true}
  for id,x:=range c.Explosives{d,ok:=m.Definitions[id];if !ok||id!=x.ID||d.Carrier!="physical"||d.ContainerVolume>0||d.Currency!=""{return errors.New("invalid physical explosive contract")}}
  for id:=range c.Armor{d,ok:=m.Definitions[id];if !ok||d.Carrier!="physical"||d.EquipSlot==""||d.WearPerUse<1{return errors.New("armor requires equipped physical protection")}}
  return nil

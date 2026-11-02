@@ -4,164 +4,57 @@ package poc
 import (
 	"angelsdemons/server/internal/behavior"
 	inv "angelsdemons/server/internal/inventory"
-	pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
-	"reflect"
+		"reflect"
 	"testing"
 )
 
-func combatCareInjury(t *testing.T, stun, patches bool) (*Runtime, *connection, string) {
-	t.Helper()
-	r, c, target := combatLifeFixture(t, true)
-	combatPhysicalFixture(t, r, target, false)
-	r.world.CombatLife.Responders = map[string]combatResponder{}
-	r.world.CombatRuntime.InjuryIntervalSeconds = 6
-	w := r.world.CombatRuntime.Weapons[combatFixtureGun]
-	w.Damage = 8
-	w.Bleed = 4
-	w.Suppression = 20
-	if stun {
-		w = behavior.CombatWeapon{ID: combatFixtureGun, Kind: "blunt", Damage: 40, RangeMM: 12000, AttackAP: 3, HeavyAP: 4, HeavyDamagePercent: 100}
-		r.world.CombatRuntime.Armor[combatFixtureHelmet] = behavior.CombatArmor{}
-	}
-	r.world.CombatRuntime.Weapons[combatFixtureGun] = w
-	if patches {
-		m := r.inventoryModelFor(true)
-		m.Sources = append(m.Sources, inv.Source{ID: "combat.care.medical", Definition: "item.med_patch", Quantity: 2, Condition: 1000000, Owner: target, Location: inv.Location{Kind: "store", Store: inv.ActorStore(target)}})
-		r.world.Inventory = m
-		r.lifeInventory = lifeInventoryCache{}
-		var err error
-		r.state.Inventory, err = inv.New(r.inventoryModelFor(true), r.state.Seed)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	combatStart(t, r, c, target)
-	command := &pb.PocCombatCommand{RequestId: "care.injury", Action: "attack", TargetId: target, ExpectedTurn: r.state.Combat.Turn}
-	if stun {
-		command.Mode = "heavy"
-		command.BodyPart = "head"
-	}
-	result, _ := combatWire(t, r, c, command)
-	if !result.Ok {
-		t.Fatal(result.Message)
-	}
-	injured := r.state.Combat.Actor(target)
-	if injured == nil || injured.HP <= 0 || stun && injured.StunTurns == 0 || !stun && injured.Bleeding == 0 {
-		t.Fatalf("actual strike did not cause expected surviving injury: %+v", injured)
-	}
-	result, _ = combatWire(t, r, c, &pb.PocCombatCommand{RequestId: "care.real.surrender", Action: "surrender", ExpectedTurn: r.state.Combat.Turn})
-	if !result.Ok || r.state.Combat.Active {
-		t.Fatal("accepted surrender did not finish encounter", result)
-	}
-	return r, c, target
+func combatCareInjury(t *testing.T,stun,patches bool)(*Runtime,*connection,string){
+ t.Helper();r,c,target:=combatLifeFixture(t,true);combatPhysicalFixture(t,r,target,false);r.world.CombatLife.Responders=map[string]combatResponder{}
+ weapon:=r.world.CombatRuntime.Weapons[combatFixtureGun];part:="arms"
+ if stun{weapon.Kind="blunt";weapon.Magazine=0;weapon.WoundProfile="item.service_baton";weapon.HeavyAP=4;weapon.HeavyDamagePercent=100;part="head"}
+ r.world.CombatRuntime.Weapons[combatFixtureGun]=weapon
+ if patches{m:=r.inventoryModelFor(true);m.Sources=append(m.Sources,inv.Source{ID:"combat.care.medical",Definition:"item.med_patch",Quantity:2,Condition:1000000,Owner:target,Location:inv.Location{Kind:"store",Store:inv.ActorStore(target)}});r.world.Inventory=m;r.lifeInventory=lifeInventoryCache{};var err error;r.state.Inventory,err=inv.New(r.inventoryModelFor(true),r.state.Seed);if err!=nil{t.Fatal(err)}}
+ combatStart(t,r,c,target);base:=r.snapshotState();found:=false
+ for seed:=int64(1);seed<=200;seed++{
+  trial:=&Runtime{world:r.world,state:base,npcAccountIDs:r.npcAccountIDs};trial.state=r.snapshotState();trial.state.Seed=seed;trial.state.Combat.Seed=seed
+  action:=behavior.CombatAction{Type:"attack",TargetID:target,BodyPart:part};if stun{action.Mode="heavy"}
+  if err:=trial.performCombatAction(playerActorID,&action);err!=nil{t.Fatal(err)}
+  hit:=trial.state.Combat.Actor(target);body:=combatBody(*hit);status:=combatWounds.Status(body)
+  good:=len(body.Wounds)>0&&status.Conscious&&status.CanWalk&&status.ExternalULS>0&&!combatWounds.Serious(body)
+  if stun{good=(!status.Conscious||!status.Standing)&&combatWounds.Forecast(body,600).DeadS<0&&body.KnockoutUntil>body.Clock}
+  if good{r.state=trial.state;found=true;break}
+ }
+ if !found{t.Fatal("no surviving wound fixture in 200 explicit initial seeds")}
+ if r.state.Combat.Active{if err:=r.performCombatAction(playerActorID,&behavior.CombatAction{Type:"surrender"});err!=nil{t.Fatal(err)}}
+ if r.state.Combat.Active{t.Fatal("encounter did not finish")};return r,c,target
 }
 
-func TestCombatCareBloodFollowsLifeClockAndSurvivesSave(t *testing.T) {
-	r, _, target := combatCareInjury(t, false, false)
-	old := r.state.CombatRoster[target]
-	ownPatches := r.combatCount(r.state.Inventory, target, "item.med_patch", nil)
-	for i := 0; i < 5; i++ {
-		r.combatCareTrack()
-		r.state.Tick++
-		if err := r.advanceLifeFrameBy(1); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if r.state.CombatRoster[target].HP != old.HP {
-		t.Fatal("fractional injury interval was charged early")
-	}
-	r.state.Tick++
-	if err := r.advanceLifeFrameBy(1); err != nil {
-		t.Fatal(err)
-	}
-	after := r.state.CombatRoster[target]
-	if after.HP != old.HP-old.Bleeding || after.Bleeding != old.Bleeding || r.combatCount(r.state.Inventory, target, "item.med_patch", nil) != ownPatches {
-		t.Fatalf("blood/physical stock mismatch old=%+v after=%+v", old, after)
-	}
-	if after.Suppression >= old.Suppression && old.Suppression > 0 {
-		t.Fatal("suppression froze outside the encounter")
-	}
-	// Repeated publication of inactive encounter history must not resurrect its
-	// old health, supplies or physical position over the current world.
-	body := r.state.Life.Actor(target).Position
-	r.syncCombatLife()
-	if r.state.CombatRoster[target].HP != after.HP || r.state.CombatRoster[target].Bleeding != after.Bleeding || r.state.Life.Actor(target).Position != body {
-		t.Fatal("inactive encounter republished historical injury/body over current care")
-	}
-	saved := r.snapshotState()
-	clone := saved.CombatCare.Clone()
-	clone.Clocks[target]--
-	if clone.Clocks[target] == r.state.CombatCare.Clocks[target] {
-		t.Fatal("care clocks share mutable storage")
-	}
-	slot := r.world.Config.SaveSlots[0]
-	if err := r.writeSave(slot, saved); err != nil {
-		t.Fatal(err)
-	}
-	loaded, _, err := r.readSave(slot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(saved.CombatCare, loaded.CombatCare) || loaded.CombatRoster[target].HP != after.HP {
-		t.Fatal("save restored health or lost interval remainder")
-	}
-	bad := saved
-	bad.CombatCare = saved.CombatCare.Clone()
-	bad.CombatCare.Clocks[target] = saved.Life.Seconds + 1
-	if r.validateCombatCare(bad) == nil {
-		t.Fatal("future injury clock accepted")
-	}
-	bad.CombatCare = saved.CombatCare.Clone()
-	delete(bad.CombatCare.Clocks, target)
-	if r.validateCombatCare(bad) == nil {
-		t.Fatal("missing injury clock could postpone blood on load")
-	}
+func TestCombatCareBloodFollowsLifeClockAndSurvivesSave(t *testing.T){
+ r,_,target:=combatCareInjury(t,false,false);old:=combatBody(r.state.CombatRoster[target]);expected:=old.Clone();stock:=r.combatCount(r.state.Inventory,target,"item.med_patch",nil)
+ for i:=0;i<6;i++{r.combatCareTrack();r.state.Tick++;if err:=r.advanceLifeFrameBy(1);err!=nil{t.Fatal(err)}}
+ combatWounds.Tick(&expected,6);actual:=combatBody(r.state.CombatRoster[target]);if !reflect.DeepEqual(expected,actual)||actual.LostUL<=old.LostUL{t.Fatal("one-second Life ticks did not advance the actual blood channel")}
+ if r.combatCount(r.state.Inventory,target,"item.med_patch",nil)!=stock{t.Fatal("blood ticking spent an item")}
+ position:=r.state.Life.Actor(target).Position;r.syncCombatLife();if !reflect.DeepEqual(actual,combatBody(r.state.CombatRoster[target]))||position!=r.state.Life.Actor(target).Position{t.Fatal("inactive history restored an old body")}
+ saved:=r.snapshotState();clone:=saved.CombatCare.Clone();clone.Clocks[target]--;if clone.Clocks[target]==r.state.CombatCare.Clocks[target]{t.Fatal("shared clock storage")}
+ slot:=r.world.Config.SaveSlots[0];if err:=r.writeSave(slot,saved);err!=nil{t.Fatal(err)};loaded,_,err:=r.readSave(slot);if err!=nil{t.Fatal(err)};if !reflect.DeepEqual(saved.Wounds,loaded.Wounds)||!reflect.DeepEqual(saved.CombatCare,loaded.CombatCare){t.Fatal("save changed blood or its clock")}
+ bad:=saved;bad.CombatCare=saved.CombatCare.Clone();bad.CombatCare.Clocks[target]=saved.Life.Seconds+1;if r.validateCombatCare(bad)==nil{t.Fatal("future injury clock accepted")};bad.CombatCare=saved.CombatCare.Clone();delete(bad.CombatCare.Clocks,target);if r.validateCombatCare(bad)==nil{t.Fatal("missing injury clock accepted")}
 }
-func TestCombatCareNPCBandagesWithOwnedFiniteMaterialsWithoutHealing(t *testing.T) {
-	r, _, target := combatCareInjury(t, false, true)
-	old := r.state.CombatRoster[target]
-	own := r.combatCount(r.state.Inventory, target, "item.med_patch", nil)
-	hero := r.combatCount(r.state.Inventory, playerActorID, "item.med_patch", nil)
-	r.state.Tick++
-	if err := r.advanceLifeFrameBy(6); err != nil {
-		t.Fatal(err)
-	}
-	after := r.state.CombatRoster[target]
-	if own != 2 || r.combatCount(r.state.Inventory, target, "item.med_patch", nil) != own-1 || r.combatCount(r.state.Inventory, playerActorID, "item.med_patch", nil) != hero {
-		t.Fatal("NPC bandaging did not debit exactly its own physical patch")
-	}
-	if after.HP != old.HP-old.Bleeding || after.Bleeding != max(0, old.Bleeding-r.world.CombatRuntime.Rules.BandageAmount) {
-		t.Fatal("bandage healed HP or left blood loss unchanged")
-	}
-	r.state.Tick++
-	if err := r.advanceLifeFrameBy(60); err != nil {
-		t.Fatal(err)
-	}
-	if r.combatCount(r.state.Inventory, target, "item.med_patch", nil) != own-1 || r.state.CombatRoster[target].HP != after.HP {
-		t.Fatal("healthy interval fabricated healing or wasted materials")
-	}
+func TestCombatCareNPCBandagesWithOwnedFiniteMaterialsWithoutHealing(t *testing.T){
+ r,_,target:=combatCareInjury(t,false,true);old:=combatBody(r.state.CombatRoster[target]);own:=r.combatCount(r.state.Inventory,target,"item.med_patch",nil);hero:=r.combatCount(r.state.Inventory,playerActorID,"item.med_patch",nil)
+ r.state.Tick++;if err:=r.advanceLifeFrameBy(6);err!=nil{t.Fatal(err)};c:=r.state.CombatRoster[target]
+ if own!=2||r.combatCount(r.state.Inventory,target,"item.med_patch",nil)!=own-1||r.combatCount(r.state.Inventory,playerActorID,"item.med_patch",nil)!=hero{t.Fatal("NPC did not spend exactly its own patch")}
+ if c.Aid==nil||c.Aid.RemainingS!=24||len(combatBody(c).Wounds[0].Controls)>0{t.Fatal("dressing took effect before 30 seconds of work")}
+ r.state.Tick++;if err:=r.advanceLifeFrameBy(30);err!=nil{t.Fatal(err)};after:=combatBody(r.state.CombatRoster[target])
+ applied:=false;for _,w:=range after.Wounds{for _,control:=range w.Controls{applied=applied||control=="dressing"}}
+ if !applied||combatWounds.Status(after).ExternalULS>=combatWounds.Status(old).ExternalULS{t.Fatal("completed dressing did not reduce actual external flow")}
+ if r.combatCount(r.state.Inventory,target,"item.med_patch",nil)!=own-1{t.Fatal("NPC wasted a second patch on the same control")}
 }
-func TestCombatCareStunPinsActualBodyThenReleasesWithoutHealing(t *testing.T) {
-	r, _, target := combatCareInjury(t, true, false)
-	old := r.state.CombatRoster[target]
-	at := r.state.Life.Actor(target).Position
-	if !r.state.Life.Actor(target).CombatHold {
-		t.Fatal("finished encounter released an unconscious body")
-	}
-	r.state.Tick++
-	if err := r.advanceLifeFrameBy(5); err != nil {
-		t.Fatal(err)
-	}
-	if r.state.Life.Actor(target).Position != at || !r.state.Life.Actor(target).CombatHold || r.state.CombatRoster[target].StunTurns != old.StunTurns {
-		t.Fatal("stunned actor moved or recovered before physical time elapsed")
-	}
-	r.state.Tick++
-	if err := r.advanceLifeFrameBy(1); err != nil {
-		t.Fatal(err)
-	}
-	if r.state.Life.Actor(target).CombatHold || r.state.CombatRoster[target].StunTurns != 0 || r.state.CombatRoster[target].HP != old.HP {
-		t.Fatal("stun expiry did not release only capability, preserving HP")
-	}
+func TestCombatCareStunPinsActualBodyThenReleasesWithoutHealing(t *testing.T){
+ r,_,target:=combatCareInjury(t,true,false);at:=r.state.Life.Actor(target).Position;b:=combatBody(r.state.CombatRoster[target]);until:=max(b.KnockoutUntil,b.StunUntil)
+ if !r.state.Life.Actor(target).CombatHold||until<=b.Clock{t.Fatal("concussion did not hold body")}
+ left:=until-b.Clock-1;for left>0{span:=min(left,120);r.state.Tick++;if err:=r.advanceLifeFrameBy(span);err!=nil{t.Fatal(err)};left-=span}
+ if r.state.Life.Actor(target).Position!=at||!r.state.Life.Actor(target).CombatHold{t.Fatal("unconscious body moved before the wound timer")}
+ r.state.Tick++;if err:=r.advanceLifeFrameBy(1);err!=nil{t.Fatal(err)};after:=combatBody(r.state.CombatRoster[target]);if !combatWounds.Status(after).Conscious||r.state.Life.Actor(target).CombatHold||len(after.Wounds)!=len(b.Wounds){t.Fatal("wake must restore capability while retaining the wound")}
 }
 func TestCombatCareTransitDefersInjuryWithoutHistoricalBodyTeleport(t *testing.T) {
 	r, _, target := combatCareInjury(t, false, false)
@@ -195,7 +88,7 @@ func TestCombatCareTransitDefersInjuryWithoutHistoricalBodyTeleport(t *testing.T
 	if err := r.advanceCombatCare(); err != nil {
 		t.Fatal(err)
 	}
-	if actor.Trip == nil || actor.Position != edge.Exit || actor.CombatHold || r.state.CombatRoster[target].HP != before.HP || r.state.CombatCare.Clocks[target] != clock {
+	if actor.Trip == nil || actor.Position != edge.Exit || actor.CombatHold || !reflect.DeepEqual(combatBody(r.state.CombatRoster[target]),combatBody(before)) || r.state.CombatCare.Clocks[target] != clock {
 		t.Fatal("care materialized an injured passenger or lost deferred time")
 	}
 	// Arrival is performed by the real transport kernel, then care sees the new
@@ -209,10 +102,11 @@ func TestCombatCareTransitDefersInjuryWithoutHistoricalBodyTeleport(t *testing.T
 		t.Fatalf("real transport arrival changed: %+v edge=%+v", actor, edge)
 	}
 	after := r.state.CombatRoster[target]
-	if after.HP != max(0, before.HP-int((r.state.Life.Seconds-clock)/6)*before.Bleeding) || after.Position != actor.Position {
+	expected:=combatBody(before);combatWounds.Tick(&expected,r.state.Life.Seconds-clock)
+ if !reflect.DeepEqual(expected,combatBody(after)) || after.Position != actor.Position {
 		t.Fatal("physical arrival did not catch up untreated blood at its actual floor")
 	}
-	if after.HP == 0 && !actor.CombatHold {
+	if !combatWounds.Status(combatBody(after)).Conscious && !actor.CombatHold {
 		t.Fatal("fatal arrival failed to preserve physical body")
 	}
 }

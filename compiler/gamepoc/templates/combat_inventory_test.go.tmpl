@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"reflect"
 	"sort"
-	"strconv"
 	"testing"
 
 	"angelsdemons/server/internal/behavior"
@@ -103,8 +102,8 @@ func combatPhysicalFixture(t *testing.T, r *Runtime, target string, borrowGun bo
 	locked := r.state.Inventory.Stores[inv.ItemStore(ids["bag"])]
 	locked.Locked = true
 	r.state.Inventory.Stores[locked.ID] = locked
-	r.world.CombatRuntime.Weapons[combatFixtureGun] = behavior.CombatWeapon{ID: combatFixtureGun, Kind: "firearm", Damage: 2, RangeMM: 12000, AttackAP: 3, Magazine: 6, AmmoDefinition: combatFixtureRound, BurstAP: 1, BurstSize: 3, BurstPenalty: 4, AimAP: 1, AimBonus: 10}
-	r.world.CombatRuntime.Weapons[combatFixtureBlade] = behavior.CombatWeapon{ID: combatFixtureBlade, Kind: "blade", Damage: 40, RangeMM: 1000, AttackAP: 3, Bleed: 4}
+	r.world.CombatRuntime.Weapons[combatFixtureGun] = behavior.CombatWeapon{ID: combatFixtureGun, WoundProfile:"item.needle_gun", Kind: "firearm", Damage: 2, RangeMM: 12000, AttackAP: 3, Magazine: 6, AmmoDefinition: combatFixtureRound, BurstAP: 1, BurstSize: 3, BurstPenalty: 4, AimAP: 1, AimBonus: 10}
+	r.world.CombatRuntime.Weapons[combatFixtureBlade] = behavior.CombatWeapon{ID: combatFixtureBlade, WoundProfile:"item.knife_simple", Kind: "blade", Damage: 40, RangeMM: 1000, AttackAP: 3, Bleed: 4}
 	r.world.CombatRuntime.Armor[combatFixtureHelmet] = behavior.CombatArmor{Head: 40}
 	r.world.CombatRuntime.Explosives[combatFixtureFrag] = behavior.CombatExplosive{ID: combatFixtureFrag, Damage: 500, RadiusMM: 1000, RangeMM: 5000, AP: 3, Suppression: 20, Bleed: 3}
 	r.world.CombatRuntime.Rules.APPerTurn = 12
@@ -156,7 +155,8 @@ func TestCombatInventoryPhysicalMagazineReloadBurstWearAndWireReplay(t *testing.
 		t.Fatal("reload invented rounds or did not move actual reserve into gun storage")
 	}
 	weapon := r.state.Inventory.Items[ids["gun"]]
-	q := &pb.PocCombatCommand{RequestId: "inventory.burst", Action: "attack", Mode: "burst", TargetId: target, ExpectedTurn: r.state.Combat.Turn}
+	combatSeedForFullBurst(t,r,target)
+ q := &pb.PocCombatCommand{RequestId: "inventory.burst", Action: "attack", Mode: "burst", TargetId: target, ExpectedTurn: r.state.Combat.Turn}
 	result, _ := combatWire(t, r, c, q)
 	if !result.Ok {
 		t.Fatal(result.Message)
@@ -192,39 +192,12 @@ func TestCombatInventoryBorrowedGunDoesNotUnlockForeignLockedOrOtherMagazineAmmo
 		t.Fatal("using custody silently transferred ownership or failed to use owned compatible reserve")
 	}
 }
-func TestCombatInventoryRealBladeWoundsConsumeMedicalPatchAndSave(t *testing.T) {
-	r, c, target := combatLifeFixture(t, true)
-	combatPhysicalFixture(t, r, target, false)
-	combatStart(t, r, c, target)
-	combatPhysicalWire(t, r, c, "inventory.let.opponent.act", "end", "")
-	hero := r.state.Combat.Actor(playerActorID)
-	if !r.state.Combat.Active || r.state.Combat.Current().ID != playerActorID || hero.Bleeding <= 0 || hero.HP >= hero.MaxHP {
-		t.Fatal("actual enemy blade turn did not produce a treatable persistent wound")
-	}
-	hp, meds := hero.HP, combatPhysicalQuantity(r.state.Inventory, "item.med_patch", "")
-	used := int64(0)
-	for r.state.Combat.Actor(playerActorID).Bleeding > 0 {
-		before := r.state.Combat.Actor(playerActorID).Bleeding
-		if used >= int64(r.world.CombatRuntime.Rules.APPerTurn/r.world.CombatRuntime.Rules.BandageAP) {
-			t.Fatal("fixture bleeding cannot be treated within the current action budget")
-		}
-		combatPhysicalWire(t, r, c, "inventory.bandage."+strconv.FormatInt(used, 10), "bandage", "")
-		used++
-		if r.state.Combat.Actor(playerActorID).HP != hp || r.state.Combat.Actor(playerActorID).Bleeding != max(0, before-r.world.CombatRuntime.Rules.BandageAmount) || combatPhysicalQuantity(r.state.Inventory, "item.med_patch", "") != meds-used {
-			t.Fatal("bandage healed freely or failed to consume exactly one patch for the authored bleeding reduction")
-		}
-	}
-	slot := r.world.Config.SaveSlots[0]
-	if err := r.writeSave(slot, r.snapshotState()); err != nil {
-		t.Fatal(err)
-	}
-	loaded, _, err := r.readSave(slot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if loaded.Combat.Actor(playerActorID).HP != hp || loaded.Combat.Actor(playerActorID).Bleeding != 0 || !reflect.DeepEqual(loaded.Inventory, r.state.Inventory) {
-		t.Fatal("save/load reset wound consequences or physical treatment stock")
-	}
+func TestCombatInventoryRealBladeWoundsConsumeMedicalPatchAndSave(t *testing.T){
+ r,c,_:=combatPlayerCareInjury(t,false);before:=r.combatCount(r.state.Inventory,playerActorID,"item.med_patch",nil)
+ result,_:=combatWire(t,r,c,&pb.PocCombatCommand{RequestId:"inventory.actual.wound.aid",Action:"bandage",ExpectedTurn:r.state.Combat.Turn});if !result.Ok{t.Fatal(result.Message)}
+ body:=combatBody(r.state.CombatRoster[playerActorID]);if r.combatCount(r.state.Inventory,playerActorID,"item.med_patch",nil)!=before-1||len(body.Wounds[0].Controls)==0{t.Fatal("blade wound did not consume exactly its real patch")}
+ slot:=r.world.Config.SaveSlots[0];if err:=r.writeSave(slot,r.snapshotState());err!=nil{t.Fatal(err)};loaded,_,err:=r.readSave(slot);if err!=nil{t.Fatal(err)}
+ if !reflect.DeepEqual(body,combatBody(loaded.CombatRoster[playerActorID]))||!reflect.DeepEqual(loaded.Inventory,r.state.Inventory){t.Fatal("save reset wound control or its physical item")}
 }
 func TestCombatInventoryEquipAuthoredKnifeFromBagMovesRealItemsAndCostsAP(t *testing.T) {
 	r, c, target := combatLifeFixture(t, true)
@@ -281,20 +254,20 @@ func TestCombatInventoryRegionalArmorUsesPhysicalConditionAndOnlyHitRegion(t *te
 		t.Fatal("half-condition physical helmet did not project just head protection")
 	}
 	before := r.state.Inventory.Items[ids["helmet"]]
-	hp := r.state.Combat.Actor(target).HP
+	woundCount := len(combatBody(*r.state.Combat.Actor(target)).Wounds)
 	result, _ := combatWire(t, r, c, &pb.PocCombatCommand{RequestId: "inventory.head", Action: "attack", BodyPart: "head", TargetId: target, ExpectedTurn: r.state.Combat.Turn})
 	if !result.Ok {
 		t.Fatal(result.Message)
 	}
 	after := r.state.Inventory.Items[ids["helmet"]]
-	if r.state.Combat.Actor(target).HP != hp || after.Condition >= before.Condition || r.state.Combat.Actor(target).BodyArmor.Head >= 20 {
+	if len(combatBody(*r.state.Combat.Actor(target)).Wounds)!=woundCount+1 || after.Condition >= before.Condition || r.state.Combat.Actor(target).BodyArmor.Head >= 20 {
 		t.Fatal("absorbed head impact did not wear and reduce physical helmet protection")
 	}
 	result, _ = combatWire(t, r, c, &pb.PocCombatCommand{RequestId: "inventory.torso", Action: "attack", BodyPart: "torso", TargetId: target, ExpectedTurn: r.state.Combat.Turn})
 	if !result.Ok {
 		t.Fatal(result.Message)
 	}
-	if r.state.Combat.Actor(target).HP >= hp || r.state.Inventory.Items[ids["helmet"]].Condition != after.Condition {
+	if len(combatBody(*r.state.Combat.Actor(target)).Wounds)!=woundCount+2 || r.state.Inventory.Items[ids["helmet"]].Condition != after.Condition {
 		t.Fatal("helmet protected/wore for a different body region")
 	}
 }
@@ -402,7 +375,7 @@ func TestCombatInventoryBlindBlastHurtsNamedAndPopulationBodiesWithoutOutcomeLea
 	}
 	for _, id := range []string{named, populationID} {
 		a, ok := r.state.CombatRoster[id]
-		if !ok || a.HP != 0 || !r.combatLifeHeld(id) {
+		if !ok || len(combatBody(a).Wounds)==0 || r.combatLifeHeld(id)!=(!combatWounds.Status(combatBody(a)).Conscious || !combatWounds.Status(combatBody(a)).CanWalk) {
 			t.Fatalf("physical ambient blast did not leave a persistent held body: %s %+v", id, a)
 		}
 	}
@@ -445,12 +418,22 @@ func TestCombatInventoryBurstRecomputesPhysicalArmourAfterEachProjectile(t *test
 	if r.state.Combat.Actor(target).BodyArmor.Torso != 1 {
 		t.Fatal("fragile initial physical vest did not project one point")
 	}
-	hp := r.state.Combat.Actor(target).HP
-	result, _ := combatWire(t, r, c, &pb.PocCombatCommand{RequestId: "inventory.fragile.vest.burst", Action: "attack", Mode: "burst", TargetId: target, ExpectedTurn: r.state.Combat.Turn})
+	woundCount := len(combatBody(*r.state.Combat.Actor(target)).Wounds)
+	combatSeedForFullBurst(t,r,target)
+ result, _ := combatWire(t, r, c, &pb.PocCombatCommand{RequestId: "inventory.fragile.vest.burst", Action: "attack", Mode: "burst", TargetId: target, ExpectedTurn: r.state.Combat.Turn})
 	if !result.Ok {
 		t.Fatal(result.Message)
 	}
-	if r.state.Combat.Actor(target).HP != hp-5 || r.state.Inventory.Items[ids["vest"]].Condition != 240000 || r.state.Combat.Actor(target).BodyArmor.Torso != 0 {
+	if len(combatBody(*r.state.Combat.Actor(target)).Wounds)!=woundCount+3 || r.state.Inventory.Items[ids["vest"]].Condition != 240000 || r.state.Combat.Actor(target).BodyArmor.Torso != 0 {
 		t.Fatal("burst reused pre-command protection or physical armour wear did not match each projectile")
 	}
+}
+
+// Pick an explicit initial seed whose three-projectile fixture stays actionable.
+// Every impact is still resolved by the real wound engine; the live transaction is not rerolled.
+func combatSeedForFullBurst(t *testing.T,r *Runtime,target string){
+ t.Helper();for seed:=int64(1);seed<=200;seed++{trial:=&Runtime{world:r.world,state:r.snapshotState(),npcAccountIDs:r.npcAccountIDs};trial.state.Seed=seed;trial.state.Combat.Seed=seed;seq:=trial.state.Combat.EventSeq
+  if err:=trial.performCombatAction(playerActorID,&behavior.CombatAction{Type:"attack",Mode:"burst",TargetID:target});err!=nil{t.Fatal(err)};shots:=0;for _,e:=range trial.state.Combat.Events{if e.Sequence>seq&&e.ActorID==playerActorID{shots+=e.AmmoSpent}}
+  if shots==3{r.state.Seed=seed;r.state.Combat.Seed=seed;return}
+ };t.Fatal("no seed completed the physical three-projectile fixture")
 }

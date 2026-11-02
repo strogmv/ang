@@ -26,6 +26,8 @@ type combatProfile struct {
 type combatLifeSync struct { EncounterID string; Sequence uint64 }
 
 type combatCatalog struct {
+ WeaponRisk map[string]int `json:"weapon_risk"`
+ ShockFallSeconds int64 `json:"shock_fall_seconds"`
 	Rules           behavior.CombatRules             `json:"rules"`
 	DefaultProfile  string                           `json:"default_profile"`
 	Profiles        map[string]combatProfile         `json:"profiles"`
@@ -56,7 +58,7 @@ func (c combatCatalog) Validate() error {
 		return errors.New("combat participant policy invalid")
 	}
 	for _, p := range c.Profiles {
-		if p.MaxHP < 1 || p.Skill < 0 || p.Skill > 100 || p.Courage < 0 || p.Courage > 100 || p.Weapon.ID == "" || p.Weapon.Damage < 1 || p.Weapon.AttackAP < 1 || p.Weapon.RangeMM < 1 {
+		if p.Skill < 0 || p.Skill > 100 || p.Courage < 0 || p.Courage > 100 || p.Weapon.ID == "" || p.Weapon.Damage < 1 || p.Weapon.AttackAP < 1 || p.Weapon.RangeMM < 1 {
 			return errors.New("invalid combat profile")
 		}
 	}
@@ -65,22 +67,26 @@ func (c combatCatalog) Validate() error {
 			return fmt.Errorf("unknown combat profile %s", id)
 		}
 	}
- for id, injury:=range c.HackedWeaponInjuries{w,ok:=c.Weapons[id];if !ok||w.Kind!="firearm"||injury.Damage<1||injury.Damage>1000000||injury.Bleed<0||injury.Bleed>1000000{return errors.New("invalid hacked weapon injury")};switch injury.BodyPart{case "arms","legs","torso","head":default:return errors.New("invalid hacked weapon injury part")}}
+
 	return nil
 }
 func cloneCombatant(a behavior.Combatant) behavior.Combatant {
+ if a.Aid!=nil{w:=*a.Aid;a.Aid=&w}
+ a.Body=append([]byte(nil),a.Body...)
  a.Contacts=append([]behavior.CombatContact(nil),a.Contacts...)
  a.Explosives=append([]behavior.CombatExplosiveStock(nil),a.Explosives...)
  return a
 }
 func (r *Runtime) combatant(id, team string) behavior.Combatant {
  name:=r.world.CombatRuntime.Actors[id];if name==""{name=r.world.CombatRuntime.DefaultProfile};p:=r.world.CombatRuntime.Profiles[name]
- a:=behavior.Combatant{ID:id,Team:team,HP:p.MaxHP,MaxHP:p.MaxHP,Armor:p.Armor,Skill:p.Skill,Courage:p.Courage,Initiative:p.Initiative,Noncombatant:p.Noncombatant,Trained:p.Trained,Weapon:p.Weapon,Controlled:id==playerActorID}
+ a:=behavior.Combatant{ID:id,Team:team,HP:100,MaxHP:100,Armor:p.Armor,Skill:p.Skill,Courage:p.Courage,Initiative:p.Initiative,Noncombatant:p.Noncombatant,Trained:p.Trained,Weapon:p.Weapon,Controlled:id==playerActorID}
  if old,ok:=r.state.CombatRoster[id];ok {
   a.HP=old.HP;a.Surrendered=old.Surrendered;a.Crouched=old.Crouched;a.Prone=old.Prone
   a.Bleeding=old.Bleeding;a.Suppression=old.Suppression;a.Morale=old.Morale;a.TacticalInitialized=old.TacticalInitialized
   a.HeadWound=old.HeadWound;a.ArmWound=old.ArmWound;a.LegWound=old.LegWound;a.StunTurns=old.StunTurns
  }
+ if face,ok:=r.state.Stealth.Observers[id];ok{a.Facing=behavior.Cell{X:int(math.Round(face.FaceX*1000)),Y:int(math.Round(face.FaceY*1000))}}
+ r.initializeWoundBody(&a)
  r.refreshCombatEquipment(r.state.Inventory,&a)
  if hero:=r.state.Life.Actor(id);hero!=nil&&id==playerActorID&&hero.Sneaking{a.Crouched=true;a.Prone=false}
  return a
@@ -96,6 +102,10 @@ func (r *Runtime) combatSpace(s behavior.CombatState) behavior.CombatSpace {
 		unit = 1000
 	}
 	result := behavior.CombatSpace{Space: space, CellMM: unit}
+ result.ApplyImpact=func(s *behavior.CombatState,source,target,part,mode string)int{amount,err:=r.applyWoundImpact(s,source,target,part,mode);if err!=nil{panic(err)};return amount}
+ result.AdvanceTime=r.advanceCombatBodies
+ result.AidOptions=r.woundAidCandidates
+ result.AttackAngle=r.woundAttackAngle
  if r.world.CombatSpacing.BodyMM>0{result.EndSpacingMM=r.combatEndSpacingMM} // doc 96 v2: world.combat_spacing (combat_panel.go.tmpl)
  result.CanUseWeapon=func(a behavior.Combatant)bool{item,w,ok:=r.equippedCombatItem(r.state.Inventory,a.ID);return ok&&w.ID==a.Weapon.ID&&r.craftingUsable(item.ID,a.ID)}
 	result.Space.Visible = func(a, b behavior.Cell) bool { return r.combatSight(s.LevelID,a,b) }
@@ -278,7 +288,11 @@ func (r *Runtime) advanceCombatAI() error {
 	return nil
 }
 func (r *Runtime) combatCommand(q *pb.PocCombatCommand) error {
-	if !r.heroInCombat()&&(q.Action=="bandage"||q.Action=="heal"){return r.treatOutsideCombat(q.Action)}
+	if !r.heroInCombat()&&(q.Action=="aid"||q.Action=="bandage"||q.Action=="heal"){
+ trial:=&Runtime{world:r.world,state:r.snapshotState(),npcAccountIDs:r.npcAccountIDs}
+ act:=behavior.CombatAction{Type:q.Action,Mode:q.Mode,ItemID:q.ItemId,TargetID:q.TargetId};if q.Action!="aid"{act.TargetID="";act.Mode="dressing";if q.Action=="heal"{act.Mode="medkit";act.ItemID="item.medkit_guard"}}
+ if err:=trial.performWoundAid(playerActorID,act,false);err!=nil{return err};r.state=trial.state;return nil
+ }
  if q.Action == "start" {
 		return r.startCombat(q.TargetId)
 	}
@@ -293,7 +307,7 @@ func (r *Runtime) combatCommand(q *pb.PocCombatCommand) error {
 		return textError{Key: "error.combat_not_your_turn"}
 	}
 	action := behavior.CombatAction{Type: q.Action, TargetID: q.TargetId, To: behavior.Cell{X: int(q.X), Y: int(q.Y)},Mode:q.Mode,Aim:int(q.Aim),BodyPart:q.BodyPart,ItemID:q.ItemId}
-	if err:=r.performCombatAction(playerActorID,&action);err!=nil{return textError{Key:"error.combat_invalid_action"}}
+	if err:=r.performCombatAction(playerActorID,&action);err!=nil{var t textError;if errors.As(err,&t){return t};return textError{Key:"error.combat_invalid_action"}}
 	r.syncCombatLife()
 	return r.advanceCombatAI()
 }
@@ -334,7 +348,15 @@ func (r *Runtime) commitCombat(candidate behavior.CombatState) error {
 func(r *Runtime)performCombatAction(actor string,action *behavior.CombatAction)error{
  previous:=r.state.Combat.Clone()
  trial:=&Runtime{world:r.world,state:r.snapshotState(),npcAccountIDs:r.npcAccountIDs}
+ if action==nil{draft:=previous.Clone();decision:=draft.Decide(trial.combatSpace(draft),trial.world.CombatRuntime.Rules);if decision.Chosen.Action.Type=="aid"||decision.Chosen.Action.Type=="aid_continue"{q:=decision.Chosen.Action;action=&q;actor=draft.Current().ID}}
+ if action!=nil&&(action.Type=="aid"||action.Type=="aid_continue"||action.Type=="bandage"||action.Type=="heal"){
+  q:=*action;if q.Type!="aid"&&q.Type!="aid_continue"{q.TargetID="";q.Mode="dressing";if q.Type=="heal"{q.Mode="medkit";q.ItemID="item.medkit_guard"}}
+  if err:=trial.performWoundAid(actor,q,true);err!=nil{return err};r.state=trial.state;return nil
+ }
  candidate:=previous.Clone();space:=trial.combatSpace(candidate)
+ var impactErr error
+ space.ApplyImpact=func(s *behavior.CombatState,source,target,part,mode string)int{if impactErr!=nil{return 0};amount,err:=trial.applyWoundImpact(s,source,target,part,mode);if err!=nil{impactErr=err};return amount}
+ if action==nil||action.Type!="end"{trial.releaseWoundPressure(&candidate,actor)}
  applied:=map[uint64]bool{};var shotErr error
  space.AfterShot=func(s *behavior.CombatState,e behavior.CombatEvent){
   if shotErr!=nil{return}
@@ -347,7 +369,6 @@ func(r *Runtime)performCombatAction(actor string,action *behavior.CombatAction)e
   trial.state.Combat=*s
   if e.ActorID==playerActorID{
    witnesses:=s.Clone()
-   if target:=witnesses.Actor(e.TargetID);target!=nil{target.HP+=e.Amount}
    trial.craftingShotHook(item.ID,trial.combatShotGuards(witnesses,e))
   }
   if err:=trial.combatCraftingUse(item.ID,e.ActorID,true);err!=nil{shotErr=err;return}
@@ -356,7 +377,7 @@ func(r *Runtime)performCombatAction(actor string,action *behavior.CombatAction)e
  }
  var err error
  if action==nil{err=candidate.StepAI(space,trial.world.CombatRuntime.Rules)}else{err=candidate.Execute(space,trial.world.CombatRuntime.Rules,actor,*action)}
- if err!=nil{return err};if shotErr!=nil{return shotErr}
+ if err!=nil{return err};if shotErr!=nil{return shotErr};if impactErr!=nil{return impactErr}
  if err=trial.commitCombatDraft(candidate,previous,applied);err!=nil{return err}
  r.state=trial.state;return nil
 }
@@ -375,11 +396,16 @@ func(r *Runtime)commitCombatDraft(candidate,previous behavior.CombatState,applie
   if actual.BodyArmor!=a.BodyArmor||actual.Weapon.ID==a.Weapon.ID&&(actual.Ammo!=a.Ammo||actual.ReserveAmmo!=a.ReserveAmmo||actual.Medkits!=a.Medkits){return errors.New("combat counters differ from physical custody")}
   a.BodyArmor=actual.BodyArmor;a.Weapon=actual.Weapon;a.WeaponUsesLimited=actual.WeaponUsesLimited;a.WeaponUsesRemaining=actual.WeaponUsesRemaining;a.Ammo=actual.Ammo;a.ReserveAmmo=actual.ReserveAmmo;a.Medkits=actual.Medkits;a.Explosives=actual.Explosives
  }
- r.state.Combat.ResolveCasualties(r.world.CombatRuntime.Rules)
+ r.state.Combat.ResolveCasualties(r.world.CombatRuntime.Rules,r.combatSpace(r.state.Combat))
  if err:=r.applyAmbientCombatBlasts(previous);err!=nil{return err}
+ if err:=r.commitWoundBodies(previous);err!=nil{return err}
+ for i:=range r.state.Combat.Actors{r.refreshCombatEquipment(r.state.Inventory,&r.state.Combat.Actors[i])}
  r.capturePublicCombatEventsFrom(previous);r.syncCombatLife()
  if err:=r.combatLifeAfterAction(previous);err!=nil{return err}
- r.combatLifeTryDisengage()
+ if r.combatLifeTryDisengage()||previous.Active&&!r.state.Combat.Active{
+  if r.state.CombatWorld.Cooldowns==nil{r.state.CombatWorld.Cooldowns=map[string]int64{}}
+  for _,a:=range previous.Actors{for _,b:=range previous.Actors{if a.Team!=b.Team{r.state.CombatWorld.Cooldowns[a.ID+"\x00"+b.ID]=r.state.Life.Seconds+r.world.CombatLife.ThreatMemorySeconds}}}
+ }
  if len(r.state.Combat.Events)>512{r.state.Combat.Events=append([]behavior.CombatEvent(nil),r.state.Combat.Events[len(r.state.Combat.Events)-512:]...)}
  return nil
 }
@@ -398,6 +424,7 @@ func (r *Runtime) syncCombatLife() {
 	for _, c := range r.state.Combat.Actors {
 		stored := cloneCombatant(c)
 		r.state.CombatRoster[c.ID] = stored
+ r.storeWoundBody(stored)
 		a := r.state.Life.Actor(c.ID)
 		if a == nil {
 			continue
@@ -411,11 +438,11 @@ func (r *Runtime) syncCombatLife() {
 		a.Path = nil
 		a.PendingPath = nil
 		a.MoveStartTick = r.lifeMotionTick()
-		a.CombatHold = r.state.Combat.Active || !c.Able()
+		a.CombatHold = !c.Withdrawn&&(r.state.Combat.Active || !c.Able())
 		if a.CombatHold {
 			a.Activity = "combat"
 			a.Label = "ui.combat.active"
-			if c.HP <= 0 {
+			if c.HP <= 0 || c.FightResponse=="fall" {
 				a.Activity = "down"
 				a.Label = "ui.combat.down"
 			} else if c.Surrendered {
@@ -474,12 +501,12 @@ func (r *Runtime) validateCombatSave(s state) error {
 		return errors.New("invalid public combat event history")
 	}
 	if s.Combat.ID == "" {
-		if len(s.CombatRoster) > 0 || len(s.CombatPublicEvents) != 0 || s.CombatPublicSeq != 0 || s.CombatPublicSerial!=0 {
+		if len(s.CombatPublicEvents) != 0 || s.CombatPublicSeq != 0 || s.CombatPublicSerial!=0 {
 			return errors.New("combat roster without encounter")
 		}
-		return nil
 	}
 	if !s.Life.Enabled {
+ if s.Combat.ID==""&&len(s.CombatRoster)==0{return nil}
 		return errors.New("combat outside Life")
 	}
 	validator := &Runtime{world: r.world, state: s}
@@ -490,7 +517,7 @@ func (r *Runtime) validateCombatSave(s state) error {
 		space.Space.Walkable = func(at behavior.Cell) bool { return r.world.Life.Walks(s.Combat.LevelID, at) }
 		space.Space.Blocked = nil
 	}
-	if err := s.Combat.Validate(r.world.CombatRuntime.Rules, space); err != nil {
+	if err := func()error{if s.Combat.ID==""{return nil};return s.Combat.Validate(r.world.CombatRuntime.Rules, space)}(); err != nil {
 		return err
 	}
 	if len(s.CombatRoster) > len(s.Life.Actors)+len(s.Life.Population.Actors) {
@@ -500,8 +527,8 @@ func (r *Runtime) validateCombatSave(s state) error {
   level,at,present:=validator.knownCombatLifeActor(id)
   if id!=c.ID||level==""||c.Team==""||len(c.Team)>256||c.Controlled!=(id==playerActorID){return errors.New("unknown combat roster actor")}
   if err:=c.Validate(r.world.CombatRuntime.Rules);err!=nil{return err}
-  if !c.Able()&&(!present||!validator.combatLifeHeld(id)||at!=c.Position){return errors.New("incapable combat actor resumed a routine")}
-  if c.Able()&&c.StunTurns==0&&validator.combatLifeHeld(id)&&(!s.Combat.Active||s.Combat.Actor(id)==nil){return errors.New("orphan combat hold")}
+  if !c.Withdrawn&&(!c.Able()||len(c.Body)>0&&!c.BodyCanWalk)&&(!present||!validator.combatLifeHeld(id)||at!=c.Position){return errors.New("incapable combat actor resumed a routine")}
+  if c.Able()&&c.StunTurns==0&&(len(c.Body)==0||c.BodyCanWalk)&&validator.combatLifeHeld(id)&&(!s.Combat.Active||s.Combat.Actor(id)==nil){return errors.New("orphan combat hold")}
  }
 
 	for _, c := range s.Combat.Actors {
@@ -533,10 +560,9 @@ if s.Combat.Active{
 }
 
 func(r *Runtime)combatActorView(a behavior.Combatant,own bool)*pb.PocCombatActor{
- v := &pb.PocCombatActor{Id: a.ID, X: int32(a.Position.X), Y: int32(a.Position.Y), Surrendered: a.Surrendered, Down: a.HP <= 0}
+ v := &pb.PocCombatActor{Id: a.ID, X: int32(a.Position.X), Y: int32(a.Position.Y), Surrendered: a.Surrendered, Down: a.HP <= 0 || a.FightResponse=="fall"}
  if own {
-	v.Hp = int32(a.HP)
-	v.MaxHp = int32(a.MaxHP)
+	if len(a.Body)==0{v.Hp = int32(a.HP);v.MaxHp = int32(a.MaxHP)}
 	v.Ap = int32(a.AP)
 	v.Ammo = int32(a.Ammo)
  v.Bleeding=int32(a.Bleeding);v.Suppression=int32(a.Suppression);v.Morale=int32(a.Morale);v.ReservedAp=int32(a.ReservedAP)

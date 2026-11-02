@@ -34,7 +34,7 @@ func (m Model) externalFlowing(b *Body, w *Wound, limbInside bool) bool {
 		if bl.Stopped || w.Treated || bl.Internal && !limbInside {
 			continue
 		}
-		if m.clotBase(b, bl, b.Clock) > 0 {
+		if flow, _ := m.flow(b, w, bl, b.Clock); flow > 0 {
 			return true
 		}
 	}
@@ -142,6 +142,9 @@ func (m Model) tourniquet(b *Body, w *Wound) {
 }
 
 func (m Model) aidUseful(b *Body, w *Wound, z Zone, kind string, kit Medkit) bool {
+	if kind != "medkit" && contains(w.Controls, kind) {
+		return false
+	}
 	switch kind {
 	case "tourniquet":
 		return m.externalFlowing(b, w, true)
@@ -153,7 +156,7 @@ func (m Model) aidUseful(b *Body, w *Wound, z Zone, kind string, kit Medkit) boo
 		}
 		return m.externalFlowing(b, w, false)
 	case "medkit":
-		if m.externalFlowing(b, w, z.Tourniquet && kit.Tourniquet) || kit.InfuseML > 0 && b.LostUL > 0 || kit.PainOff && contains(w.Effects, "pain") {
+		if m.externalFlowing(b, w, z.Tourniquet && kit.Tourniquet) || kit.InfuseML > 0 && b.LostUL > 0 || kit.PainOff && b.PainOffUntil <= b.Clock && contains(w.Effects, "pain") {
 			return true
 		}
 		return !w.Treated && m.kitTreats(w, kit) || kit.Splint && !w.Splinted && m.hasKind(w, "bone")

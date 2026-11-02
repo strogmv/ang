@@ -3,6 +3,7 @@ package poc
 
 import (
 	"angelsdemons/server/internal/behavior"
+ "angelsdemons/server/internal/wounds"
 	inv "angelsdemons/server/internal/inventory"
 	pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
 	"reflect"
@@ -81,10 +82,10 @@ func TestCombatLifeMoveRejectsWrongSurfaceWithoutResourceMutation(t *testing.T) 
 func TestCombatLifeInactiveHealthRosterDoesNotGrantFreeHealing(t *testing.T) {
 	r, _, target := combatLifeFixture(t, true)
 	a := r.combatant(target, "opposition")
-	a.HP = max(1, a.HP-10)
+	b:=combatBody(a);_,err:=combatWounds.ApplyHit(&b,wounds.Hit{Weapon:"item.knife_simple",Zone:"arm",Depth:"shallow",Structures:[]string{"arm_muscle"},Seed:42});if err!=nil{t.Fatal(err)};projectWoundBody(&a,b)
 	a.Position = r.state.Life.Actor(target).Position
 	r.state.CombatRoster = map[string]behavior.Combatant{target: a}
-	if next := r.combatant(target, "opposition"); next.HP != a.HP {
+	if next := r.combatant(target, "opposition"); !reflect.DeepEqual(combatBody(next),combatBody(a)) {
 		t.Fatal("new encounter initialization healed persistent actor")
 	}
 }

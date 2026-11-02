@@ -47,7 +47,7 @@ namespace AngelsDemons.Poc {
    public string kind,actor,target,item,part,mode;public List<Vector2Int> path=new List<Vector2Int>();public Vector2Int from,to;
    public bool hit,parried,targetDown,targetStunned,valid;public int amount;public float seconds,impact=.5f,lead,turnRate=360;public PocCombatClip clip,reaction;public bool fxDone,propDone;
   }
-  sealed class CombatBody {public Vector2Int cell;public bool placed;public string held,shownState;public float flashUntil,readyW,actW,gripW;public Vector3 ease;public Transform ring;public string readyState,actState;public bool silhouette;}
+  sealed class CombatBody {public Vector2Int cell;public bool placed,wasDown;public float fallAt;public string held,shownState;public float flashUntil,readyW,actW,gripW;public Vector3 ease;public Transform ring;public string readyState,actState;public bool silhouette;}
   Material combatRingMaterial;
   sealed class CombatProp {public GameObject go;public string kind;public Transform grip;}
   readonly Dictionary<string,CombatProp> combatProps=new Dictionary<string,CombatProp>(StringComparer.Ordinal);
@@ -143,8 +143,10 @@ namespace AngelsDemons.Poc {
     case "bandage":case "heal":b.seconds=(look==null?1f:CombatClipSeconds(an,look.bandage_kneel,1f))+1.6f+(look==null?1f:CombatClipSeconds(an,look.bandage_rise,1f));break;
     case "equip":b.clip=look==null?null:look.equip;b.seconds=CombatClipSeconds(an,b.clip,1f);break;
     case "reload":b.clip=look==null?null:look.reload;b.seconds=CombatClipSeconds(an,b.clip,1.4f);break;
-    case "bleed":b.clip=look==null?null:look.hit;b.seconds=.7f;CombatFloat(b.actor,L("ui.combat.fx.bleed")+" −"+b.amount,new Color(.85f,.18f,.14f));CombatFlash(b.actor);break;
+    case "bleed":b.clip=look==null?null:look.hit;b.seconds=.7f;CombatFloat(b.actor,L("ui.combat.fx.bleed"),new Color(.85f,.18f,.14f));CombatFlash(b.actor);break;
     case "stunned":b.seconds=.9f;CombatFloat(b.actor,L("ui.combat.stunned"),new Color(1f,.85f,.35f));break;
+    case "flee":case "disengage":b.seconds=.5f;CombatFloat(b.actor,L("ui.combat.retreat"),new Color(.9f,.9f,.9f));break;
+    case "fall":case "down":case "dead":b.clip=look==null?null:look.down;b.seconds=CombatClipSeconds(an,b.clip,1.2f);break;
     case "surrender":b.seconds=.9f;CombatFloat(b.actor,L("ui.combat.surrendered"),new Color(.9f,.9f,.9f));break;
     case "end":b.seconds=.15f;break;
     default:b.seconds=.3f;break;
@@ -185,7 +187,7 @@ namespace AngelsDemons.Poc {
    CombatAutoImpact(b.actor,b.target,b.hit,b.from,b.to);
    if(b.parried&&!b.hit)CombatFloat(b.target,L("ui.combat.fx.parry"),new Color(.75f,.85f,1f));
    else if(!b.hit)CombatFloat(b.target,L("ui.combat.fx.miss"),new Color(.8f,.8f,.8f));
-   else{string part=string.IsNullOrEmpty(b.part)?"":" · "+L("ui.combat.body."+b.part);CombatFloat(b.target,"−"+b.amount+part,new Color(1f,.42f,.32f));CombatFlash(b.target);}
+   else{string part=string.IsNullOrEmpty(b.part)?"":" · "+L("ui.combat.body."+b.part);CombatFloat(b.target,L("ui.combat.injury")+part,new Color(1f,.42f,.32f));CombatFlash(b.target);}
    if(b.targetDown){CombatFloat(b.target,L("ui.combat.down"),new Color(1f,.85f,.35f),.5f);CombatAutoShotLater("knocked-out");}
    if(b.targetStunned){CombatFloat(b.target,L("ui.combat.stunned"),new Color(1f,.85f,.35f),.5f);CombatAutoShotLater("stunned");}
   }
@@ -220,6 +222,7 @@ namespace AngelsDemons.Poc {
    // it now, so the first frame already has the combat pose.
    if(!h.go.activeSelf)h.go.SetActive(true);if(!h.animator.isInitialized){h.animator.Rebind();h.state=null;}
    var body=CombatBodyOf(id);
+   if(!down)body.wasDown=false;
    if(!queued){body.placed=false;}
    if(string.IsNullOrEmpty(body.held)||!queued)body.held=CombatHeld(id);
    var weapon=CombatWeapon(body.held);var an=h.animator;
@@ -268,16 +271,17 @@ namespace AngelsDemons.Poc {
      }
     }
    }
+   if(clip==look.down){body.wasDown=true;body.fallAt=Time.unscaledTime-CombatClipSeconds(an,look.down,1.2f);}
    // Lasting stances of the server's state.
    bool kneeling=clip!=null&&(clip==look.bandage_kneel||clip==look.bandage||clip==look.bandage_rise);
    bool fallen=false;
    if(want==null&&clip==null){
     bool knockoutPending=false;foreach(var b in combatQueue)if(b.kind=="attack"&&b.target==id&&b.targetDown){knockoutPending=true;break;}
-    if(down&&!knockoutPending){clip=look.down;clipTime=1;fallen=true;}
+    if(down&&!knockoutPending){if(!body.wasDown){body.wasDown=true;body.fallAt=Time.unscaledTime;}clip=look.down;clipTime=Mathf.Clamp01((Time.unscaledTime-body.fallAt)/Mathf.Max(.1f,CombatClipSeconds(an,look.down,1.2f)));fallen=true;}
     else if(actor!=null&&actor.Stunned&&!queued&&CombatClipSet(look.stunned)){clip=look.stunned;clipTime=-1;}
     else if(!walking){bool crouch=actor!=null&&actor.Stance!="stand";
      if(crouch&&!string.IsNullOrEmpty(locationSDKHumanoidCast.crouch_idle_state)){want=locationSDKHumanoidCast.crouch_idle_state;}
-     else if(id=="char.hero"&&state.PlayerCondition!=null&&state.PlayerCondition.MaxHp>0&&state.PlayerCondition.Hp<state.PlayerCondition.MaxHp*look.injured_below&&CombatClipSet(look.injured)){clip=look.injured;clipTime=-1;}
+     else if(id=="char.hero"&&state.PlayerCondition!=null&&(state.PlayerCondition.Bleeding>0||state.PlayerCondition.BodyLines.Count>2)&&CombatClipSet(look.injured)){clip=look.injured;clipTime=-1;}
      else if(weapon!=null&&CombatClipSet(weapon.stance)){clip=weapon.stance;clipTime=-1;}}
     if(float.IsNaN(yawTo)&&inFight){var foe=CombatNearestFoe(id,at);if(foe.HasValue){var d=foe.Value-at;d.y=0;if(d.sqrMagnitude>1e-4f)yawTo=Mathf.Atan2(d.x,d.z)*Mathf.Rad2Deg;}}
    }
@@ -286,7 +290,7 @@ namespace AngelsDemons.Poc {
    if(act.clip==null&&actor!=null&&actor.Guarding&&!fallen&&CombatClipSet(look.guard)&&CombatLayer(an,look.guard.layer)>=0){act.clip=look.guard;act.held=true;act.weight=look.guard.weight;}
    if(clip!=null&&!CombatHasState(h,0,clip.state)){if(combatMissingStates.Add(clip.state))Debug.LogWarning("ANG combat: cast has no state "+clip.state+" ("+clip.source+") on "+id+" (animator initialized "+an.isInitialized+", controller "+(an.runtimeAnimatorController==null?"none":an.runtimeAnimatorController.name)+"); idle shown");clip=null;}
    if(clip!=null)want=clip.state;
-   if(want==null)want=walking?(id=="char.hero"&&CombatClipSet(look.injured_walk)&&state.PlayerCondition!=null&&state.PlayerCondition.Hp<state.PlayerCondition.MaxHp*look.injured_below&&CombatHasState(h,0,look.injured_walk.state)?look.injured_walk.state:locationSDKHumanoidCast.walk_state):locationSDKHumanoidCast.idle_state;
+   if(want==null)want=walking?(id=="char.hero"&&CombatClipSet(look.injured_walk)&&state.PlayerCondition!=null&&(state.PlayerCondition.Bleeding>0||state.PlayerCondition.BodyLines.Count>2)&&CombatHasState(h,0,look.injured_walk.state)?look.injured_walk.state:locationSDKHumanoidCast.walk_state):locationSDKHumanoidCast.idle_state;
    // Bodies the server keeps apart but that start a fight closer (a step not seen, an older save) are eased apart on
    // screen to the CUE spacing; never while walking a path.
    Vector3 ease=Vector3.zero;

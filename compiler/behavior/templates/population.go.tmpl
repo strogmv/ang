@@ -51,6 +51,7 @@ func(e PopulationEnvironment) landingTraffic(a PopulationActor,level string,entr
 }
 
 type PopulationActor struct {
+ WoundPaceMMS int64 `json:"-"`
  CombatHold bool `json:"combat_hold,omitempty"`
  Safety *LifeSafetyOverride `json:"safety,omitempty"`
  Brain LifeBrain `json:"brain"`
@@ -473,14 +474,15 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
 		}
 		target := p.profileStage(a.Profile,a.Stage)
         if (l.Brain.Enabled||safety)&&brainTarget.Level!=""{target.Level=brainTarget.Level;target.Activity=brainTarget.Activity;if a.Level!=target.Level||a.Goal!=brainTarget.At||a.Activity!=target.Activity{a.Arrived=false}}
-		if l.Brain.Enabled && a.Materialized && len(a.Path) > 0 && a.MoveStartTick+p.MoveTicks < tick-frame+1 { a.MoveStartTick = tick-frame+1-p.MoveTicks }
-		for a.Materialized && len(a.Path) > 0 && tick >= a.MoveStartTick+p.MoveTicks {
+		pace:=p.MoveTicks;if a.WoundPaceMMS>0{pace=max(pace,(int64(l.Locations[a.Level].CellMM)+a.WoundPaceMMS-1)/a.WoundPaceMMS)}
+		if l.Brain.Enabled && a.Materialized && len(a.Path) > 0 && a.MoveStartTick+pace < tick-frame+1 { a.MoveStartTick = tick-frame+1-pace }
+		for a.Materialized && len(a.Path) > 0 && tick >= a.MoveStartTick+pace {
 			next := a.Path[0]
 			if l.Adjacent(a.Level,a.Position,next) && populationCellFree(l, a.Level, next, occupied, a.ID) {
 				populationUnreserve(occupied, a.Level, a.Position, a.ID)
 				a.Position = next
 				a.Path = a.Path[1:]
-				a.MoveStartTick += p.MoveTicks
+				a.MoveStartTick += pace
 				populationReserve(occupied, a.Level, next, a.ID)
 				avoid:=map[Cell]bool(nil);if environment.NewPathAvoid!=nil{avoid=environment.NewPathAvoid(*a)}
 				if len(a.Path) > 0 && (!populationCellFree(l, a.Level, a.Path[0], occupied, a.ID)||avoid[a.Path[0]]) {

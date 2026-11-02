@@ -3,10 +3,12 @@ package poc
 
 import (
 	"angelsdemons/server/internal/behavior"
+ "angelsdemons/server/internal/wounds"
 	barks "angelsdemons/server/internal/barks"
 	crafting "angelsdemons/server/internal/crafting"
 	inv "angelsdemons/server/internal/inventory"
 	"context"
+ "bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -119,7 +121,9 @@ type state struct {
  CombatCare combatCareState
  CombatWorld combatWorldState
  CombatSerial       uint64
-	CombatRoster       map[string]behavior.Combatant
+	WoundCrimes []wounds.Event `json:"wound_crimes,omitempty"`
+ Wounds wounds.Save `json:"wounds"`
+ CombatRoster       map[string]behavior.Combatant
 	CombatPublicEvents []behavior.CombatEvent
 	CombatPublicSeq    uint64
  CombatPublicSerial uint64
@@ -252,7 +256,7 @@ func New(data, token string) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	r.state = state{Epoch: newEpoch(), Speed: 1, Inventory: initialItems}
+	r.state = state{Wounds:wounds.Save{Version:1},Epoch: newEpoch(), Speed: 1, Inventory: initialItems}
 	return r, nil
 }
 func newEpoch() string {
@@ -745,7 +749,7 @@ func (r *Runtime) command(in input) {
 		}
 		r.world = world
 		r.openStore = ""
-		r.state = state{Playable:playableSceneState{ID:world.PlayableID},SDKLayout: layout, Inventory: items, Active: true, Epoch: newEpoch(), Seed: seed, PlayerName: name, Player: world.Spawn, Speed: 1}
+		r.state = state{Wounds:wounds.Save{Version:1},Playable:playableSceneState{ID:world.PlayableID},SDKLayout: layout, Inventory: items, Active: true, Epoch: newEpoch(), Seed: seed, PlayerName: name, Player: world.Spawn, Speed: 1}
 		if isLife {
 			r.initLifeState(life)
             if err:=r.initPlayableScene();err!=nil{r.action(c,id,action,slot,err);return}
@@ -892,6 +896,9 @@ func (r *Runtime) writeSave(slot string, s state) error {
 	defer directory.Close()
 	return directory.Sync()
 }
+func strictWoundJSON(data []byte, out any)error{
+ d:=json.NewDecoder(bytes.NewReader(data));d.DisallowUnknownFields();if err:=d.Decode(out);err!=nil{return err};var tail any;if err:=d.Decode(&tail);err!=io.EOF{return errors.New("trailing save data")};return nil
+}
 func (r *Runtime) readSave(slot string) (state, int64, error) {
 	var s state
 	if !r.validSlot(slot) {
@@ -910,20 +917,29 @@ func (r *Runtime) readSave(slot string) (state, int64, error) {
 		return s, 0, errors.New("save too large")
 	}
 	var envelope saveFile
-	if err = json.Unmarshal(b, &envelope); err != nil {
+	if err = strictWoundJSON(b, &envelope); err != nil {
 		return s, 0, errors.New("damaged save file")
 	}
-	if envelope.Version != r.world.Config.SaveVersion || envelope.ContentHash != r.world.ContentHash {
+	if envelope.Version != r.world.Config.SaveVersion {
 		return s, 0, errors.New("incompatible save version or content")
 	}
 	sum := sha256.Sum256(envelope.State)
 	if envelope.Checksum != hex.EncodeToString(sum[:]) {
 		return s, 0, errors.New("save checksum mismatch")
 	}
-	if err = json.Unmarshal(envelope.State, &s); err != nil {
+	if err = strictWoundJSON(envelope.State, &s); err != nil {
 		return s, 0, err
 	}
-	// owner 02.11: the origin "prewar" is "heirloom" now; an older save loads with the new name
+	var fields map[string]json.RawMessage
+ if err:=json.Unmarshal(envelope.State,&fields);err!=nil{return s,0,err}
+ _,hasWounds:=fields["wounds"]
+ if envelope.ContentHash!=r.world.ContentHash {
+  // Only the exact pre-wounds catalog may cross the migration boundary.
+  if hasWounds||envelope.ContentHash!="85b40d73b7cba8b04305b6c4d1dc12672c38165cf6b3b949fcfd2d98a9e97f4c"{return s,0,errors.New("incompatible save content")}
+ }
+ if !hasWounds{if err:=r.migrateWoundState(&s);err!=nil{return s,0,err}}
+ if err:=r.validateWounds(s);err!=nil{return s,0,err}
+ // owner 02.11: the origin "prewar" is "heirloom" now; an older save loads with the new name
 	migrateSavedOrigins(&s)
 	validator, err := r.savedWorldRuntimeForState(s)
 	if err != nil {

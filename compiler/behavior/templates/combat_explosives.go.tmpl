@@ -120,11 +120,11 @@ func (s *CombatState) executeThrow(space CombatSpace, r CombatRules, actorID str
 		spread := r.DamageMin + (r.DamageMax-r.DamageMin)*float64(CounterRandom(s.Seed, actorID, s.Turn, stream)>>11)*(1.0/(1<<53))
 		raw := int(math.Round(float64(x.Damage) * scale * spread))
 		blocked := CombatArmorBlocked(*b, raw, "torso")
-		damage := s.ApplyDamage(space, r, actorID, b.ID, raw, int(math.Ceil(float64(x.Bleed)*scale)), int(math.Ceil(float64(x.Suppression)*scale)), "torso")
+		damage := s.ApplyDamage(space, r, actorID, b.ID, raw, int(math.Ceil(float64(x.Bleed)*scale)), int(math.Ceil(float64(x.Suppression)*scale)), "torso", "blast")
 		s.event(CombatEvent{Type: "blast_hit", ActorID: actorID, TargetID: b.ID, ItemID: x.ID, From: action.To, To: b.Position, Amount: damage, Hit: raw > 0, ArmorBlocked: blocked, BodyPart: "torso", Reason: "blast and geometry"})
 	}
 	s.explosionSignal(space, r, action.To, actorID)
-	s.AfterAction(space, r, actorID, action)
+	s.AfterAction(space, r, actorID, action, x.AP)
 	return nil
 }
 

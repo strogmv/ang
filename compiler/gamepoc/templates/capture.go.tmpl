@@ -3,6 +3,7 @@ package poc
 
 import (
 	"angelsdemons/server/internal/behavior"
+ "angelsdemons/server/internal/wounds"
 	pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
 	"errors"
 	"fmt"
@@ -681,6 +682,8 @@ func (r *Runtime) snapshotState() state {
  s.Illumination=r.state.Illumination.Clone()
  s.Stealth=r.state.Stealth.Clone()
  s.CombatCare=r.state.CombatCare.Clone()
+ s.Wounds=cloneWoundSave(r.state.Wounds)
+ s.WoundCrimes=append([]wounds.Event(nil),r.state.WoundCrimes...)
 	s.CombatRoster = map[string]behavior.Combatant{}
 	for id, a := range r.state.CombatRoster {
 		s.CombatRoster[id] = cloneCombatant(a)

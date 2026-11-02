@@ -4,7 +4,6 @@ package poc
 import (
 	"angelsdemons/server/internal/behavior"
 	"errors"
-	"sort"
 )
 
 type combatCareState struct {
@@ -55,9 +54,9 @@ func (r *Runtime) combatCareOnFloor(id string) (behavior.Cell, bool) {
 }
 
 func (r *Runtime) combatCareHold(c behavior.Combatant) {
-	held := !c.Able() || c.StunTurns > 0
+	held := !c.Withdrawn&&(!c.Able() || c.StunTurns > 0 || len(c.Body)>0&&!c.BodyCanWalk)
 	activity, label := "stunned", "ui.combat.stunned"
-	if c.HP <= 0 {
+	if c.HP <= 0 || c.FightResponse=="fall" {
 		activity, label = "down", "ui.combat.down"
 	} else if c.Surrendered {
 		activity, label = "surrendered", "ui.combat.surrendered"
@@ -111,119 +110,7 @@ func (r *Runtime) combatCareHold(c behavior.Combatant) {
 	}
 }
 
-// Saturating recovery avoids products involving arbitrarily long elapsed time.
-func combatCareRecover(value, ceiling, rate int, ticks int64) int {
-	if value >= ceiling || rate <= 0 || ticks <= 0 {
-		return value
-	}
-	needed := ceiling - value
-	if ticks >= int64((needed+rate-1)/rate) {
-		return ceiling
-	}
-	return value + int(ticks)*rate
-}
-func combatCareLoss(c *behavior.Combatant, ticks int64) {
-	if c.HP <= 0 || c.Bleeding <= 0 || ticks <= 0 {
-		return
-	}
-	damage := c.HP
-	if ticks < int64((c.HP+c.Bleeding-1)/c.Bleeding) {
-		damage = int(ticks) * c.Bleeding
-	}
-	c.HP -= damage
-	c.Morale = max(0, c.Morale-(damage*50+c.MaxHP-1)/c.MaxHP)
-	if c.HP == 0 {
-		c.Bleeding = 0
-		c.AP = 0
-		c.Prone = true
-		c.Crouched = false
-	}
-}
-
-func (r *Runtime) combatCarePatch(c *behavior.Combatant) error {
-	for _, id := range r.world.CombatRuntime.MedicalDefinitions {
-		if r.combatCount(r.state.Inventory, c.ID, id, nil) < 1 {
-			continue
-		}
-		if err := r.consumeCombatStock(&r.state.Inventory, c.ID, id, 1, nil); err != nil {
-			return err
-		}
-		c.Bleeding = max(0, c.Bleeding-r.world.CombatRuntime.Rules.BandageAmount)
-		r.refreshCombatEquipment(r.state.Inventory, c)
-		return nil
-	}
-	return errors.New("carried medical stock changed during care")
-}
-
-func (r *Runtime) advanceCombatCare() error {
-	r.combatCareTrack()
-	interval := r.world.CombatRuntime.InjuryIntervalSeconds
-	if interval <= 0 {
-		return nil
-	}
-	ids := make([]string, 0, len(r.state.CombatRoster))
-	for id := range r.state.CombatRoster {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	for _, id := range ids {
-		if r.state.Combat.Active && r.state.Combat.Actor(id) != nil {
-			r.state.CombatCare.Clocks[id] = r.state.Life.Seconds
-			continue
-		}
-		position, onFloor := r.combatCareOnFloor(id)
-		// Travel and cold population do not acquire a body at a historical cell.
-		// Their elapsed injury time is caught up when they physically arrive/materialize.
-		if !onFloor {
-			continue
-		}
-		c := cloneCombatant(r.state.CombatRoster[id])
-		c.Position = position
-		r.combatCareHold(c)
-		at := r.state.CombatCare.Clocks[id]
-		ticks := (r.state.Life.Seconds - at) / interval
-		if ticks <= 0 {
-			continue
-		}
-		r.state.CombatCare.Clocks[id] = at + ticks*interval
-		remaining := ticks
-		r.refreshCombatEquipment(r.state.Inventory, &c)
-		// Only real, conscious NPCs can use their own finite carried materials.
-		// Stunned/no-stock spans are aggregated; the loop is bounded by physical
-		// medkits (<=10000), not by the number of seconds or elapsed days.
-		for remaining > 0 && c.HP > 0 && c.Bleeding > 0 {
-			if id == playerActorID || c.Surrendered || c.Medkits < 1 || r.world.CombatRuntime.Rules.BandageAmount < 1 || c.StunTurns > 0 {
-				span := remaining
-				if id != playerActorID && !c.Surrendered && c.Medkits > 0 && r.world.CombatRuntime.Rules.BandageAmount > 0 && c.StunTurns > 0 {
-					span = min(span, int64(c.StunTurns))
-				}
-				combatCareLoss(&c, span)
-				c.StunTurns = max(0, c.StunTurns-int(min(span, int64(c.StunTurns))))
-				remaining -= span
-				continue
-			}
-			combatCareLoss(&c, 1)
-			remaining--
-			if c.HP > 0 {
-				if err := r.combatCarePatch(&c); err != nil {
-					return err
-				}
-			}
-		}
-		c.StunTurns = max(0, c.StunTurns-int(min(remaining, int64(c.StunTurns))))
-		rules := r.world.CombatRuntime.Rules
-		c.Suppression = rules.MaxSuppression - combatCareRecover(rules.MaxSuppression-c.Suppression, rules.MaxSuppression, rules.SuppressionRecovery, ticks)
-		if c.Morale < c.Courage {
-			c.Morale = combatCareRecover(c.Morale, c.Courage, rules.MoraleRecovery, ticks)
-		}
-		c.Overwatch = false
-		c.Guarding = false
-		c.ReservedAP = 0
-		r.state.CombatRoster[id] = c
-		r.combatCareHold(c)
-	}
-	return nil
-}
+func (r *Runtime) advanceCombatCare() error {return r.advanceWoundCare()}
 
 func (r *Runtime) validateCombatCare(s state) error {
 	if len(s.CombatCare.Clocks) != len(s.CombatRoster) {

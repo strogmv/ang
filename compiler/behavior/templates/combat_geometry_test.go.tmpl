@@ -42,7 +42,7 @@ func TestCombatDeckRangeDoesNotUseNavigationBandDistance(t *testing.T) {
 }
 
 func combatDeckSpace(v *DeckVolume) CombatSpace {
-	return CombatSpace{CellMM: 500, Space: Space{Width: v.NavWidth, Height: v.NavDepth, Walkable: func(at Cell) bool { _, _, _, ok := v.Locate(at); return ok }, Visible: v.Sees}, RangeMM: v.CombatRangeMM, Cover: v.CombatProtection, ShotClear: v.CombatShotClear, Protection: v.CombatPoseProtection, PoseShotClear: func(from, to Cell, a, b Combatant, part string) bool {
+	return CombatSpace{ApplyImpact:combatFixtureImpact, CellMM: 500, Space: Space{Width: v.NavWidth, Height: v.NavDepth, Walkable: func(at Cell) bool { _, _, _, ok := v.Locate(at); return ok }, Visible: v.Sees}, RangeMM: v.CombatRangeMM, Cover: v.CombatProtection, ShotClear: v.CombatShotClear, Protection: v.CombatPoseProtection, PoseShotClear: func(from, to Cell, a, b Combatant, part string) bool {
 		return v.CombatPoseProtection(from, to, a, b, part) < 1
 	}, BodyIntersects: v.CombatBodyIntersects, ThrowClear: v.CombatThrowClear, BlastProtection: v.CombatBlastProtection}
 }
@@ -65,7 +65,7 @@ func TestCombatPoseSightAndShotPassBelowBeamAndProneHidesBehindCover(t *testing.
 	}
 	s := combatNewAdvanced(t, r, space, a, b)
 	combatDo(t, &s, space, r, "a", CombatAction{Type: "attack", TargetID: "b"})
-	if s.Actor("b").HP >= 100 {
+	if len(combatFixtureHits(s.Actor("b"))) != 1 {
 		t.Fatal("legal prone shot under the beam did not resolve")
 	}
 	v = combatVolumeFixture(t, 1340)

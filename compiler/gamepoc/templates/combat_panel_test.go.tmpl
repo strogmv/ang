@@ -101,9 +101,7 @@ func TestCombatEpisodeKnifeOptionsBarksAndSaveLoad(t *testing.T) {
 			t.Fatalf("the watchman's visible baton is not published: %q", a.HeldItem)
 		}
 	}
-	if o := combatEpisodeOption(view, "bandage"); o == nil || o.Enabled || !strings.Contains(o.Reason, "кровотечения нет") {
-		t.Fatalf("bandaging without bleeding is not refused in words: %+v", o)
-	}
+	if len(r.outsideWoundAidOptions(r.combatant(playerActorID,"player"),"ru"))!=0{t.Fatal("unhurt body must not offer a fictitious wound to treat") }
 	equip := combatEpisodeOption(view, "equip.")
 	if equip == nil || !equip.Enabled || equip.Ap != int32(r.world.CombatRuntime.Rules.EquipAP) {
 		t.Fatalf("the knife in the bag is not offered for its AP: %+v", equip)
@@ -242,7 +240,7 @@ func TestCombatBarksWoundedRetreatWaitsForBusySpeaker(t *testing.T) {
 	if guard == nil {
 		t.Fatal("no watchman in the encounter")
 	}
-	guard.HP = guard.MaxHP - 10
+	guard.Bleeding=1
 	seq := r.state.Combat.EventSeq
 	r.state.Combat.Events = append(r.state.Combat.Events,
 		behavior.CombatEvent{Type: "attack", ActorID: playerActorID, TargetID: d.Guard, Hit: true, Amount: 10, Sequence: seq + 1, Turn: r.state.Combat.Turn},

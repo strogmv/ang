@@ -269,6 +269,7 @@ func (r *Runtime) advanceCraftingLaw() {
 			continue
 		}
 		c.Closed = true
+ if c.Suspect!=m.Hero.Actor{continue} // NPC cases retain attribution; the hero cannot pay their sanctions.
 		act, _ := m.Act(c.Act)
 		fine := m.Sanction(law, act)
 		t := inv.Transform{}

@@ -483,6 +483,7 @@ func (s *LifeState) integrateBody(m LifeModel, a *LifeActor, until int64) {
 	others := s.bodyOthers(a)
 	r := m.HeroBody.RadiusMM
 	v := m.bodyWalkPerMilli(a.Level)
+ if a.WoundPaceMMS>0{v=math.Min(v,float64(a.WoundPaceMMS)/1000)}
 	if a.Sneaking {
 		v *= m.HeroBody.sneakFactor()
 	} else if b.Run {

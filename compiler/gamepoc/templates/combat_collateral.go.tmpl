@@ -92,7 +92,7 @@ func(r *Runtime)applyAmbientCombatBlasts(previous behavior.CombatState)error{
    spread:=rules.DamageMin+(rules.DamageMax-rules.DamageMin)*float64(behavior.CounterRandom(s.Seed,event.ActorID,s.Turn,stream)>>11)*(1.0/(1<<53))
    raw:=int(math.Round(float64(x.Damage)*scale*spread));blocked:=behavior.CombatArmorBlocked(c,raw,"torso")
    temporary:=behavior.CombatState{Actors:[]behavior.Combatant{cloneCombatant(*source),c}}
-   damage:=temporary.ApplyDamage(r.combatSpace(*s),rules,event.ActorID,c.ID,raw,int(math.Ceil(float64(x.Bleed)*scale)),int(math.Ceil(float64(x.Suppression)*scale)),"torso")
+   damage:=temporary.ApplyDamage(r.combatSpace(*s),rules,event.ActorID,c.ID,raw,int(math.Ceil(float64(x.Bleed)*scale)),int(math.Ceil(float64(x.Suppression)*scale)),"torso","blast")
    c=temporary.Actors[1]
    if blocked>0{if err:=r.wearCombatArmor(&r.state.Inventory,behavior.CombatEvent{TargetID:c.ID,BodyPart:"torso",ArmorBlocked:blocked,Sequence:s.EventSeq+1});err!=nil{return err};c.BodyArmor=r.combatArmorFromInventory(r.state.Inventory,c.ID)}
    r.storeAmbientCombatCasualty(c)

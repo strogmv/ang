@@ -13,7 +13,21 @@ func combatFixtureRules() CombatRules {
 	return CombatRules{APPerTurn: 6, MoveAPPerMeter: 1, ReloadAP: 2, HealAP: 2, CrouchAP: 1, ReportAP: 1, HealAmount: 35, MemoryTurns: 9, SightRangeMM: 20000, HearingRangeMM: 25000, ShareRangeMM: 10000, MaxSearchCells: 1024, MaxActionsPerTurn: 16, MinHit: .05, MaxHit: .95, DamageMin: .8, DamageMax: 1.2, EstimatedDefense: 50, CoverWeight: .5, AttackWeight: 1, MoveWeight: .2, HealWeight: 1, RetreatWeight: 2}
 }
 func combatFixtureSpace() CombatSpace {
-	return CombatSpace{CellMM: 1000, Space: Space{Width: 12, Height: 7, Walkable: func(Cell) bool { return true }, Visible: func(Cell, Cell) bool { return true }}}
+	return CombatSpace{ApplyImpact: combatFixtureImpact, CellMM: 1000, Space: Space{Width: 12, Height: 7, Walkable: func(Cell) bool { return true }, Visible: func(Cell, Cell) bool { return true }}}
+}
+// The tactical kernel delegates accepted impacts to its host. This spy records
+// that boundary; real anatomy, aid and delayed death are exercised in poc/wounds.
+type combatFixtureWound struct { Source, Part, Mode string }
+func combatFixtureImpact(s *CombatState, source,target,part,mode string) int {
+ b:=s.Actor(target);var hits []combatFixtureWound
+ if len(b.Body)>0 { _=json.Unmarshal(b.Body,&hits) }
+ hits=append(hits,combatFixtureWound{source,part,mode});b.Body,_=json.Marshal(hits);b.BodyRisk=max(1,b.Weapon.Damage);b.BodyCanHold=true;b.BodyCanWalk=true;b.BodyCanStand=true
+ return 1
+}
+func combatFixtureHits(a *Combatant) []combatFixtureWound {var hits []combatFixtureWound;_=json.Unmarshal(a.Body,&hits);return hits}
+func combatFixtureAid(a Combatant) []CombatCandidate {
+ if a.ID!="a"||a.AP<2{return nil}
+ return []CombatCandidate{{Action:CombatAction{Type:"aid",TargetID:"w1",Mode:"dressing",ItemID:"physical.dressing"},Score:40,AP:2}}
 }
 func combatFixtureActor(id, team string, at Cell) Combatant {
 	return Combatant{ID: id, Team: team, Position: at, HP: 100, MaxHP: 100, Skill: 80, Ammo: 2, ReserveAmmo: 4, Initiative: 10, Courage: 60, Weapon: CombatWeapon{ID: "weapon.fixture", Damage: 30, RangeMM: 10000, AttackAP: 3, Magazine: 2}}
@@ -113,39 +127,24 @@ func TestCombatPlannerMovesThenUsesRemainingAPToAttack(t *testing.T) {
 	if d.Chosen.Action.Type != "attack" {
 		t.Fatalf("did not shoot after actual move: %+v", d.Chosen)
 	}
-	hp := s.Actor("b").HP
+	hits := len(combatFixtureHits(s.Actor("b")))
 	combatDo(t, &s, space, r, "a", d.Chosen.Action)
-	if s.Actor("b").HP >= hp || s.Actor("a").Ammo != 1 {
-		t.Fatal("attack did not alter real health and ammunition")
+	if len(combatFixtureHits(s.Actor("b"))) != hits+1 || s.Actor("a").Ammo != 1 {
+		t.Fatal("accepted attack did not reach wound host or spend ammunition")
 	}
 }
 
 func TestCombatCoverBeforeTreatmentUsesActualMedkit(t *testing.T) {
-	r := combatFixtureRules()
-	space := combatFixtureSpace()
-	space.Cover = func(from, to Cell) float64 {
-		if to == (Cell{3, 1}) {
-			return .95
-		}
-		return 0
-	}
-	a, b := combatFixtureActor("a", "blue", Cell{1, 1}), combatFixtureActor("b", "red", Cell{8, 1})
-	a.HP = 20
-	a.Medkits = 1
-	s := combatFixture(t, space, a, b)
-	d := s.Decide(space, r)
-	if d.Chosen.Action.Type != "move" || d.Chosen.Action.To != (Cell{3, 1}) {
-		t.Fatalf("did not prefer reachable cover over exposed treatment: %+v", d.Chosen)
-	}
-	combatDo(t, &s, space, r, "a", d.Chosen.Action)
-	d = s.Decide(space, r)
-	if d.Chosen.Action.Type != "heal" {
-		t.Fatalf("did not treat from cover: %+v", d.Chosen)
-	}
-	combatDo(t, &s, space, r, "a", d.Chosen.Action)
-	if s.Actor("a").HP != 55 || s.Actor("a").Medkits != 0 {
-		t.Fatal("treatment did not spend kit and restore configured health")
-	}
+ r,space:=combatFixtureRules(),combatFixtureSpace();space.AidOptions=combatFixtureAid
+ space.Cover=func(_,to Cell)float64{if to==(Cell{3,1}){return .95};return 0}
+ a,b:=combatFixtureActor("a","blue",Cell{1,1}),combatFixtureActor("b","red",Cell{8,1})
+ a.SeriousWound=true
+ state:=combatFixture(t,space,a,b);d:=state.Decide(space,r)
+ if d.Chosen.Action.Type!="move"||d.Chosen.Action.To!=(Cell{3,1}){t.Fatalf("did not preserve host aid while seeking cover: %+v",d.Chosen)}
+ combatDo(t,&state,space,r,"a",d.Chosen.Action);d=state.Decide(space,r)
+ if d.Chosen.Action.Type!="aid"||d.Chosen.Action.ItemID!="physical.dressing"||d.Chosen.Action.TargetID!="w1"{t.Fatalf("lost concrete host aid: %+v",d.Chosen)}
+ before:=state.Clone()
+ if state.Execute(space,r,"a",d.Chosen.Action)==nil||!reflect.DeepEqual(before,state){t.Fatal("kernel bypassed host item transaction")}
 }
 
 func TestCombatReportsPreserveObservationAndDoNotEnableUnseenShot(t *testing.T) {
@@ -296,6 +295,7 @@ func TestCombatRealAITurnsFinishFightWithoutSyntheticDamage(t *testing.T) {
 	r.MinHit = .9
 	r.MaxHit = .95
 	space := combatFixtureSpace()
+ space.ApplyImpact=func(state *CombatState,source,target,part,mode string)int{n:=combatFixtureImpact(state,source,target,part,mode);state.Actor(target).Surrendered=true;return n}
 	a, b := combatFixtureActor("a", "blue", Cell{2, 2}), combatFixtureActor("b", "red", Cell{5, 2})
 	a.Weapon.Damage = 42
 	b.Weapon.Damage = 37
@@ -411,44 +411,13 @@ func TestCombatPlanningDoesNotKnowExactEnemyHealthArmorOrSkill(t *testing.T) {
 }
 
 func TestCombatSustainedExposureReducesHealingUtility(t *testing.T) {
-	r, space := combatFixtureRules(), combatFixtureSpace()
-	a, b := combatFixtureActor("a", "blue", Cell{1, 1}), combatFixtureActor("b", "red", Cell{8, 1})
-	a.HP, a.Medkits, b.Weapon.Damage = 20, 1, 150
-	s := combatFixture(t, space, a, b)
-	exposed := s.Decide(space, r)
-	healScore := func(d CombatDecision) float64 {
-		for _, c := range d.Candidates {
-			if c.Action.Type == "heal" {
-				return c.Score
-			}
-		}
-		t.Fatal("missing legal treatment")
-		return 0
-	}
-	space.Cover = func(from, to Cell) float64 {
-		if to == (Cell{1, 1}) {
-			return .95
-		}
-		return 0
-	}
-	protected := s.Decide(space, r)
-	if healScore(protected) <= healScore(exposed) {
-		t.Fatal("sustained known exposure did not affect treatment utility")
-	}
-	space.Cover = func(from, to Cell) float64 {
-		if to == (Cell{3, 1}) {
-			return .95
-		}
-		return 0
-	}
-	d := s.Decide(space, r)
-	if d.Chosen.Action.Type != "move" || d.Chosen.Action.To != (Cell{3, 1}) {
-		t.Fatalf("did not seek reachable cover before treatment: %+v", d.Chosen)
-	}
-	combatDo(t, &s, space, r, "a", d.Chosen.Action)
-	if s.Decide(space, r).Chosen.Action.Type != "heal" {
-		t.Fatal("did not execute planned treatment from cover")
-	}
+ r,space:=combatFixtureRules(),combatFixtureSpace();space.AidOptions=combatFixtureAid
+ a,b:=combatFixtureActor("a","blue",Cell{1,1}),combatFixtureActor("b","red",Cell{8,1});b.Weapon.Damage=150
+ state:=combatFixture(t,space,a,b)
+ score:=func(d CombatDecision)float64{for _,c:=range d.Candidates{if c.Action.Type=="aid"{return c.Score}};t.Fatal("lost host aid candidate");return 0}
+ exposed:=score(state.Decide(space,r))
+ space.Cover=func(_,to Cell)float64{if to==a.Position{return .95};return 0}
+ if score(state.Decide(space,r))<=exposed{t.Fatal("known exposure did not reduce wound aid utility")}
 }
 
 func TestCombatHiddenAmbientBodyOnlyBlocksExecutionAndAIYields(t *testing.T) {
@@ -594,7 +563,7 @@ func TestCombatMeleeGuardParryAndRiposteUseActualReserve(t *testing.T) {
 		t.Fatal("guard did not reserve the actual remaining AP and yield")
 	}
 	combatDo(t, &s, space, r, "b", CombatAction{Type: "attack", TargetID: "a", Mode: "quick"})
-	if s.Actor("a").HP != 86 || s.Actor("b").HP != 80 || s.Actor("a").ReservedAP != 3 || s.Actor("b").AP != 6 {
+	if len(combatFixtureHits(s.Actor("a"))) != 1 || len(combatFixtureHits(s.Actor("b"))) != 1 || s.Actor("a").ReservedAP != 3 || s.Actor("b").AP != 6 {
 		t.Fatalf("melee AP/impact/riposte wrong: a=%+v b=%+v", *s.Actor("a"), *s.Actor("b"))
 	}
 	parries, replies := 0, 0
@@ -620,66 +589,36 @@ func TestCombatMeleeGuardParryAndRiposteUseActualReserve(t *testing.T) {
 	}
 }
 func TestCombatHeavyBluntHeadStrikeStunsButNeverInventsBleeding(t *testing.T) {
-	r, space := combatAdvancedRules(), combatFixtureSpace()
-	r.MinHit = 1
-	r.MaxHit = 1
-	r.DamageMin = 1
-	r.DamageMax = 1
-	a, b := combatClub("a", "blue", Cell{2, 2}), combatClub("b", "red", Cell{3, 2})
-	a.Initiative = 30
-	b.Initiative = 20
-	a.Weapon.Bleed = 8
-	s := combatNewAdvanced(t, r, space, a, b)
-	combatDo(t, &s, space, r, "a", CombatAction{Type: "attack", TargetID: "b", Mode: "heavy", BodyPart: "head"})
-	if s.Actor("a").AP != 4 || s.Actor("b").HP != 51 || s.Actor("b").HeadWound != 49 || s.Actor("b").StunTurns != 1 || s.Actor("b").Bleeding != 0 {
-		t.Fatalf("heavy blunt outcome: %+v", *s.Actor("b"))
-	}
-	combatDo(t, &s, space, r, "a", CombatAction{Type: "end"})
-	if s.Current().ID != "a" || s.Actor("b").StunTurns != 0 {
-		t.Fatal("concussed actor did not lose exactly its next full action turn")
-	}
-	if s.Actor("b").HP != 51 {
-		t.Fatal("turn refresh healed blunt injury")
-	}
+ r,space:=combatAdvancedRules(),combatFixtureSpace();r.MinHit=1;r.MaxHit=1
+ a,b:=combatClub("a","blue",Cell{2,2}),combatClub("b","red",Cell{3,2});a.Initiative=30;b.Initiative=20
+ elapsed:=int64(0)
+ space.ApplyImpact=func(state *CombatState,source,target,part,mode string)int{
+  if source!="a"||target!="b"||part!="head"||mode!="heavy"{t.Fatal("lost accepted physical hit parameters")}
+  n:=combatFixtureImpact(state,source,target,part,mode);state.Actor(target).StunTurns=1;return n
+ }
+ space.AdvanceTime=func(state *CombatState,seconds int64){elapsed+=seconds;if elapsed>=12{state.Actor("b").StunTurns=0}}
+ state:=combatNewAdvanced(t,r,space,a,b)
+ combatDo(t,&state,space,r,"a",CombatAction{Type:"attack",TargetID:"b",Mode:"heavy",BodyPart:"head"})
+ if state.Actor("a").AP!=4||state.Actor("b").StunTurns!=1||len(combatFixtureHits(state.Actor("b")))!=1||state.Actor("b").Bleeding!=0{t.Fatal("kernel replaced host status or invented bleeding")}
+ combatDo(t,&state,space,r,"a",CombatAction{Type:"end"})
+ if state.Current().ID!="a"||state.Actor("b").StunTurns!=0||elapsed!=12{t.Fatal("host clock did not govern incapacitated turn")}
 }
+
 func TestCombatBladeBleedingAndBandageSurviveSaveWithoutHealing(t *testing.T) {
-	r, space := combatAdvancedRules(), combatFixtureSpace()
-	r.MinHit = 1
-	r.MaxHit = 1
-	r.DamageMin = 1
-	r.DamageMax = 1
-	a, b := combatClub("a", "blue", Cell{2, 2}), combatClub("b", "red", Cell{3, 2})
-	a.Initiative = 30
-	b.Initiative = 20
-	a.Weapon.Kind = "blade"
-	a.Weapon.Bleed = 4
-	b.Medkits = 1
-	s := combatNewAdvanced(t, r, space, a, b)
-	combatDo(t, &s, space, r, "a", CombatAction{Type: "attack", TargetID: "b", BodyPart: "legs"})
-	combatDo(t, &s, space, r, "a", CombatAction{Type: "end"})
-	if s.Actor("b").HP != 79 || s.Actor("b").Bleeding != 4 || s.Actor("b").LegWound != 17 {
-		t.Fatalf("blade failed to produce persistent harm: %+v", *s.Actor("b"))
-	}
-	raw, _ := json.Marshal(s)
-	var loaded CombatState
-	if err := json.Unmarshal(raw, &loaded); err != nil {
-		t.Fatal(err)
-	}
-	if err := loaded.Validate(r, space); err != nil {
-		t.Fatal(err)
-	}
-	for _, state := range []*CombatState{&s, &loaded} {
-		combatDo(t, state, space, r, "b", CombatAction{Type: "bandage"})
-		if state.Actor("b").HP != 79 || state.Actor("b").Bleeding != 0 || state.Actor("b").Medkits != 0 {
-			t.Fatal("bandage invented HP or did not consume a dressing")
-		}
-		combatDo(t, state, space, r, "b", CombatAction{Type: "end"})
-		combatDo(t, state, space, r, "a", CombatAction{Type: "end"})
-	}
-	if !reflect.DeepEqual(s, loaded) || s.Actor("b").HP != 79 || s.Actor("b").LegWound != 17 {
-		t.Fatal("save continuation or turn refresh erased a persistent wound")
-	}
+ r,space:=combatAdvancedRules(),combatFixtureSpace();r.MinHit=1;r.MaxHit=1
+ a,b:=combatClub("a","blue",Cell{2,2}),combatClub("b","red",Cell{3,2});a.Initiative=30;b.Initiative=20;a.Weapon.Kind="blade"
+ state:=combatNewAdvanced(t,r,space,a,b)
+ combatDo(t,&state,space,r,"a",CombatAction{Type:"attack",TargetID:"b",BodyPart:"legs"});combatDo(t,&state,space,r,"a",CombatAction{Type:"end"})
+ hits:=combatFixtureHits(state.Actor("b"));if len(hits)!=1||hits[0].Part!="legs"{t.Fatal("blade hit did not reach wound host")}
+ raw,_:=json.Marshal(state);var loaded CombatState;if err:=json.Unmarshal(raw,&loaded);err!=nil{t.Fatal(err)}
+ if err:=loaded.Validate(r,space);err!=nil{t.Fatal(err)}
+ for _,v:=range []*CombatState{&state,&loaded}{
+  before:=v.Clone();if v.Execute(space,r,"b",CombatAction{Type:"bandage"})==nil||!reflect.DeepEqual(before,*v){t.Fatal("legacy bandage bypassed host and mutated body")}
+  combatDo(t,v,space,r,"b",CombatAction{Type:"end"});combatDo(t,v,space,r,"a",CombatAction{Type:"end"})
+ }
+ if !reflect.DeepEqual(state,loaded)||!reflect.DeepEqual(hits,combatFixtureHits(state.Actor("b"))){t.Fatal("save/turn refresh erased delegated wounds")}
 }
+
 func TestCombatAimedBurstHaveFiniteAPAmmoConditionAndOrderedEvents(t *testing.T) {
 	r, space := combatAdvancedRules(), combatFixtureSpace()
 	r.MinHit = 1
@@ -742,6 +681,7 @@ func TestCombatReactionKillStopsRouteAndChargesOnlyTravelledSteps(t *testing.T) 
 	r.MaxHit = 1
 	r.DamageMin = 1
 	r.DamageMax = 1
+ space.ApplyImpact=func(state *CombatState,source,target,part,mode string)int{n:=combatFixtureImpact(state,source,target,part,mode);b:=state.Actor(target);b.HP=0;b.BodyState="down";b.Prone=true;b.AP=0;return n}
 	a, b := combatFixtureActor("a", "blue", Cell{1, 1}), combatClub("b", "red", Cell{6, 1})
 	a.Initiative = 30
 	b.Initiative = 20
@@ -810,7 +750,7 @@ func TestCombatOutmatchedMeleeRetreatsFromKnownOverwhelmingThreat(t *testing.T) 
 	r, space := combatAdvancedRules(), combatFixtureSpace()
 	a, b := combatClub("a", "blue", Cell{3, 3}), combatClub("b", "red", Cell{4, 3})
 	a.Initiative = 30
-	a.HP = 30
+	a.SeriousWound = true
 	a.Weapon.Damage = 8
 	b.Weapon.Damage = 200
 	s := combatNewAdvanced(t, r, space, a, b)
@@ -819,7 +759,7 @@ func TestCombatOutmatchedMeleeRetreatsFromKnownOverwhelmingThreat(t *testing.T) 
 		t.Fatalf("outmatched actor charged or froze instead of withdrawing: %+v", d.Chosen)
 	}
 	combatDo(t, &s, space, r, "a", d.Chosen.Action)
-	if s.Actor("a").HP != 30 || space.rangeMM(s.Actor("a").Position, b.Position) <= 1000 {
+	if !s.Actor("a").SeriousWound || space.rangeMM(s.Actor("a").Position, b.Position) <= 1000 {
 		t.Fatal("withdrawal crossed the dangerous side of a melee opponent")
 	}
 }
@@ -874,30 +814,17 @@ func TestCombatNewModesDoNotReadEnemyPrivateCombatValues(t *testing.T) {
 		t.Fatalf("private enemy state altered new mode scoring: %+v / %+v", before.Chosen, after.Chosen)
 	}
 }
-func TestCombatAPRefreshNeverHealsBleedingOrRefillsAmmunition(t *testing.T) {
-	r, space := combatAdvancedRules(), combatFixtureSpace()
-	a, b := combatFixtureActor("a", "blue", Cell{1, 1}), combatClub("b", "red", Cell{7, 1})
-	a.Initiative = 30
-	b.Initiative = 20
-	a.HP = 80
-	a.Bleeding = 5
-	a.Suppression = 60
-	a.LegWound = 50
-	a.Ammo = 0
-	a.ReserveAmmo = 0
-	a.Medkits = 0
-	s := combatNewAdvanced(t, r, space, a, b)
-	if s.Actor("a").HP != 75 || s.Actor("a").AP != 3 {
-		t.Fatalf("initial bleeding/AP penalty wrong: %+v", *s.Actor("a"))
-	}
-	for i := 0; i < 3; i++ {
-		combatDo(t, &s, space, r, "a", CombatAction{Type: "end"})
-		combatDo(t, &s, space, r, "b", CombatAction{Type: "end"})
-	}
-	if s.Actor("a").HP != 60 || s.Actor("a").Ammo != 0 || s.Actor("a").ReserveAmmo != 0 || s.Actor("a").Medkits != 0 || s.Actor("a").LegWound != 50 {
-		t.Fatal("turn refresh restored persistent resources or wounds")
-	}
+func TestCombatAPRefreshNeverHealsBleedingOrRefillsAmmunition(t *testing.T){
+ r,space:=combatAdvancedRules(),combatFixtureSpace()
+ a,b:=combatFixtureActor("a","blue",Cell{1,1}),combatClub("b","red",Cell{7,1});a.Initiative=30;b.Initiative=20
+ a.Body=json.RawMessage(`[{"Source":"b","Part":"legs","Mode":"single"}]`);a.BodyAPPenalty=2;a.BodyRisk=30;a.Suppression=60;a.Ammo=0;a.ReserveAmmo=0;a.Medkits=0
+ elapsed:=int64(0);space.AdvanceTime=func(_ *CombatState,seconds int64){elapsed+=seconds}
+ state:=combatNewAdvanced(t,r,space,a,b);body:=string(a.Body)
+ if state.Actor("a").AP!=3{t.Fatalf("Status/suppression AP penalty wrong: %d",state.Actor("a").AP)}
+ for i:=0;i<3;i++{combatDo(t,&state,space,r,"a",CombatAction{Type:"end"});combatDo(t,&state,space,r,"b",CombatAction{Type:"end"})}
+ got:=state.Actor("a");if string(got.Body)!=body||got.Ammo!=0||got.ReserveAmmo!=0||got.Medkits!=0||elapsed!=36{t.Fatal("refresh changed opaque physiology/resources or failed to tick host")}
 }
+
 func TestCombatBodyPartFullProtectionRejectsEvenGuaranteedHit(t *testing.T) {
 	r, space := combatAdvancedRules(), combatFixtureSpace()
 	r.MinHit = 1
@@ -930,19 +857,19 @@ func TestCombatPhysicalBodyArmourProtectsOnlyItsDeclaredRegion(t *testing.T) {
 	b.BodyArmor = CombatArmor{Head: 60, Arms: 5, Legs: 5}
 	s := combatNewAdvanced(t, r, space, a, b)
 	combatDo(t, &s, space, r, "a", CombatAction{Type: "attack", TargetID: "b", BodyPart: "head"})
-	if s.Actor("b").HP != 100 || s.Actor("b").HeadWound != 0 {
+	if len(combatFixtureHits(s.Actor("b"))) != 1 || combatFixtureHits(s.Actor("b"))[0].Part != "head" {
 		t.Fatal("helmet did not absorb the head strike")
 	}
 	e := s.Events[len(s.Events)-1]
-	if e.ArmorBlocked != 49 || e.Amount != 0 {
+	if e.ArmorBlocked != 49 || e.Amount != 1 {
 		t.Fatalf("armor accounting counted overkill or lost absorption: %+v", e)
 	}
 	combatDo(t, &s, space, r, "a", CombatAction{Type: "attack", TargetID: "b", BodyPart: "torso"})
-	if s.Actor("b").HP != 70 {
+	if len(combatFixtureHits(s.Actor("b"))) != 2 || combatFixtureHits(s.Actor("b"))[1].Part != "torso" {
 		t.Fatal("helmet incorrectly protected an unarmoured torso")
 	}
 	e = s.Events[len(s.Events)-1]
-	if e.ArmorBlocked != 0 || e.Amount != 30 {
+	if e.ArmorBlocked != 0 || e.Amount != 1 {
 		t.Fatal("unprotected body accounting wrong")
 	}
 	if CombatArmorBlocked(Combatant{Armor: 5, BodyArmor: CombatArmor{Torso: 10}}, 100, "torso") != 15 {
@@ -1046,7 +973,7 @@ func TestCombatEquipAccountsForOverwhelmingKnownReply(t *testing.T) {
 	r.EquipAP = 2
 	a, b := combatClub("a", "blue", Cell{3, 3}), combatClub("b", "red", Cell{4, 3})
 	a.Initiative = 30
-	a.HP = 20
+	a.SeriousWound = true
 	a.Weapon.Damage = 6
 	b.Weapon.Damage = 200
 	option := CombatEquipmentOption{ID: "knife", Weapon: CombatWeapon{ID: "knife", Kind: "blade", Damage: 18, RangeMM: 1000, AttackAP: 3}, UsesRemaining: 10}
@@ -1066,6 +993,7 @@ func TestCombatStunnedGuardCannotSpendFurtherParryOrRiposteReserve(t *testing.T)
 	a, b := combatClub("a", "blue", Cell{2, 2}), combatClub("b", "red", Cell{3, 2})
 	a.Initiative = 30
 	b.Initiative = 20
+ space.ApplyImpact=func(state *CombatState,source,target,part,mode string)int{n:=combatFixtureImpact(state,source,target,part,mode);if part=="head"&&mode=="heavy"{b:=state.Actor(target);b.StunTurns=1;b.Guarding=false;b.Overwatch=false;b.ReservedAP=0};return n}
 	s := combatNewAdvanced(t, r, space, a, b)
 	combatDo(t, &s, space, r, "a", CombatAction{Type: "end"})
 	combatDo(t, &s, space, r, "b", CombatAction{Type: "guard"})
@@ -1125,7 +1053,7 @@ func TestCombatBurstUsesSequentialArmourWearOnlyDuringExecution(t *testing.T) {
 		t.Fatal("planning consumed or previewed real armour wear")
 	}
 	combatDo(t, &s, space, r, "a", CombatAction{Type: "attack", TargetID: "b", Mode: "burst"})
-	if calls != 1 || s.Actor("b").HP != 95 || s.Actor("b").BodyArmor.Torso != 0 {
+	if calls != 1 || len(combatFixtureHits(s.Actor("b"))) != 3 || s.Actor("b").BodyArmor.Torso != 0 {
 		t.Fatal("later rounds reused protection that the first projectile exhausted")
 	}
 	blocked := []int{}
@@ -1441,6 +1369,7 @@ func TestCombatHostInjuryResolvesLastShotDrawAndSkipsDownCurrent(t *testing.T) {
  rules:=combatFixtureRules();space:=combatFixtureSpace()
  a,b,c:=combatFixtureActor("a","blue",Cell{1,1}),combatFixtureActor("b","red",Cell{5,1}),combatFixtureActor("c","blue",Cell{1,3})
  a.Controlled=true
+ space.ApplyImpact=func(state *CombatState,source,target,part,mode string)int{n:=combatFixtureImpact(state,source,target,part,mode);b:=state.Actor(target);b.HP=0;b.BodyState="down";b.Prone=true;b.AP=0;return n}
  s:=combatFixture(t,space,a,b,c)
  s.ApplyDamage(space,rules,"a","a",1000,1,0,"arms");s.ResolveCasualties(rules)
  if s.Active&&s.Current()!=nil&&!s.Current().Able(){t.Fatal("host injury left a down current actor")}

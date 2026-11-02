@@ -40,6 +40,7 @@ type LifePerson struct{Relations []LifeRelation `json:"relations,omitempty"`;ID 
 type LifeModel struct{HeroBody LifeHeroBodyModel `json:"hero_body"`;Decks map[string]*DeckVolume `json:"-"`;Brain LifeBrainModel `json:"brain"`;Residences []LifeResidence `json:"residences,omitempty"`;Courtesy LifeCourtesyPolicy `json:"courtesy"`;Population PopulationModel `json:"population"`;Development PracticeModel `json:"development"`;PracticeStations []LifePracticeStation `json:"practice_stations"`;Inspection InspectionModel `json:"inspection"`;Maintenance MaintenanceModel `json:"maintenance"`;StartSeconds int64 `json:"start_seconds"`;SecondsPerTick int64 `json:"seconds_per_tick"`;MoveTicks int64 `json:"move_ticks"`;Locations map[string]LifeLocation `json:"locations"`;Edges []LifeEdge `json:"edges"`;Actors []LifePerson `json:"actors"`;Walkable map[string]bool `json:"-"`}
 type LifeTrip struct{Edge string;Departure,Arrival int64}
 type LifeActor struct{
+ WoundPaceMMS int64 `json:"-"`
  Sneaking bool `json:"sneaking,omitempty"`
  WalkedMM float64 `json:"walked_mm,omitempty"`
  Safety *LifeSafetyOverride `json:"safety,omitempty"`
@@ -220,7 +221,7 @@ func(s *LifeState)AdvanceWithTravelBy(m LifeModel,tick,delta int64,install Maint
   // wait) gets its first step now instead of a catch-up sprint.
   // The controlled body (life_body.go) moves continuously; its cells follow.
   if body{s.advanceHeroBody(m,a,tick,&yieldBudget)}
-  pace:=m.MoveTicks;if a.Sneaking{pace=int64(float64(pace)/m.HeroBody.sneakFactor()+0.999999)}
+  pace:=m.MoveTicks;if a.WoundPaceMMS>0{pace=max(pace,(int64(m.Locations[a.Level].CellMM)+a.WoundPaceMMS-1)/a.WoundPaceMMS)};if a.Sneaking{pace=int64(float64(pace)/m.HeroBody.sneakFactor()+0.999999)}
   if !body&&m.Brain.Enabled&&len(a.Path)>0&&a.MoveStartTick+pace<tick-delta+1{a.MoveStartTick=tick-delta+1-pace}
   for !body&&len(a.Path)>0&&tick>=a.MoveStartTick+pace{
    next:=a.Path[0];if m.Walks(a.Level,next)&&m.Adjacent(a.Level,a.Position,next)&&!s.occupied(a.Level,next,a.ID){a.WalkedMM+=m.lifeStepMM(a.Level,a.Position,next);a.Position=next;a.Path=a.Path[1:];a.MoveStartTick+=pace;if len(a.Path)>0&&(s.occupied(a.Level,a.Path[0],a.ID)||s.courtesyNamedPassage(m,*a)[a.Path[0]]){if a.ID==s.ControlledActorID{a.PendingPath=a.Path};a.Path=nil;a.MoveStartTick=tick}}else{a.MoveStartTick=tick;if a.ID==s.ControlledActorID{a.PendingPath=a.Path};a.Path=nil}

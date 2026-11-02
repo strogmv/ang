@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+ "errors"
 
 	"angelsdemons/server/internal/behavior"
 	pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
@@ -22,7 +23,8 @@ type combatPanelCache struct {
 }
 
 func (r *Runtime) appendCombatPanel(msg *pb.PocGameState, locale string) {
-	// A weapon in a seen hand is observable before any fight (scenes and encounters only: one inventory pass each).
+	r.appendWoundViews(msg,locale)
+ // A weapon in a seen hand is observable before any fight (scenes and encounters only: one inventory pass each).
 	if r.world.PlayableID != "" || r.state.Combat.Active {
 		for _, a := range msg.SceneAgents {
 			if item, _, ok := r.equippedCombatItem(r.state.Inventory, a.Id); ok {
@@ -84,20 +86,9 @@ func (r *Runtime) appendCombatPanel(msg *pb.PocGameState, locale string) {
 }
 
 // combatTry executes one action on a copy and returns the AP it took from the hero.
-func (r *Runtime) combatTry(action behavior.CombatAction) (int, error) {
-	c := r.state.Combat.Clone()
-	before := c.Actor(playerActorID)
-	if before == nil {
-		return 0, fmt.Errorf("hero is not a participant")
-	}
-	ap := before.AP
-	if err := c.Execute(r.combatSpace(c), r.world.CombatRuntime.Rules, playerActorID, action); err != nil {
-		return 0, err
-	}
-	if after := c.Actor(playerActorID); after != nil && after.AP <= ap {
-		return ap - after.AP, nil
-	}
-	return 0, nil
+func (r *Runtime) combatTry(action behavior.CombatAction) (int,error){
+ trial:=&Runtime{world:r.world,state:r.snapshotState(),npcAccountIDs:r.npcAccountIDs};before:=trial.state.Combat.Actor(playerActorID);if before==nil{return 0,fmt.Errorf("missing hero")};ap:=before.AP
+ if err:=trial.performCombatAction(playerActorID,&action);err!=nil{return 0,err};after:=trial.state.Combat.Actor(playerActorID);if after!=nil{return max(0,ap-after.AP),nil};return 0,nil
 }
 
 func (r *Runtime) combatOptions(locale string) []*pb.PocCombatOption {
@@ -181,6 +172,10 @@ func (r *Runtime) combatOptions(locale string) []*pb.PocCombatOption {
 				add("attack", "attack.heavy."+target.ID, text("ui.combat.mode.heavy"), behavior.CombatAction{Type: "attack", TargetID: target.ID, Mode: "heavy", BodyPart: "torso"}, hero.Weapon.HeavyAP, attackWhy)
 			}
 		}
+
+ if !firearm{
+  for _,tech:=range []string{"stun_blow","chokehold"}{mode:=tech;add("attack","attack."+mode+"."+target.ID,text("wounds.technique."+mode),behavior.CombatAction{Type:"attack",TargetID:target.ID,Mode:mode,BodyPart:"head"},map[string]int{"stun_blow":max(3,hero.Weapon.HeavyAP),"chokehold":6}[mode],func(error)string{return text("error.combat.technique_position")})}
+ }
 		if at, ok := r.combatStep(hero, &target, false); ok {
 			add("move", "move.approach."+target.ID, text("ui.combat.approach"), behavior.CombatAction{Type: "move", To: at}, 0, other)
 		} else {
@@ -213,24 +208,17 @@ func (r *Runtime) combatOptions(locale string) []*pb.PocCombatOption {
 			return other(nil)
 		})
 	}
-	add("care", "bandage", text("ui.combat.bandage"), behavior.CombatAction{Type: "bandage", TargetID: playerActorID}, rules.BandageAP, func(error) string {
-		switch {
-		case hero.Medkits < 1:
-			return text("error.combat.no_dressing")
-		case hero.Bleeding < 1:
-			return text("error.combat.no_bleeding")
-		}
-		return other(nil)
-	})
-	add("care", "heal", text("ui.combat.heal"), behavior.CombatAction{Type: "heal"}, rules.HealAP, func(error) string {
-		switch {
-		case hero.Medkits < 1:
-			return text("error.combat.no_dressing")
-		case hero.HP >= hero.MaxHP:
-			return text("error.combat.full_health")
-		}
-		return other(nil)
-	})
+
+ if hero.Aid!=nil{add("care","aid_continue",text("ui.combat.aid_continue"),behavior.CombatAction{Type:"aid_continue"},min(hero.AP,hero.Aid.RemainingS),other)}
+ body:=combatBody(*hero)
+ for _,w:=range body.Wounds{
+  for _,spec:=range []struct{kind,item string}{{"pressure",""},{"tourniquet","item.med_tourniquet"},{"packing","item.med_gauze"},{"dressing","item.med_patch"},{"medkit","item.medkit_guard"}}{
+   q:=spec;z,_:=combatWounds.Zone(w.Zone)
+   label:=text("wounds.aid."+q.kind)+" · "+text(z.Name)+" ("+w.ID+")"
+   add("care","aid."+w.ID+"."+q.kind,label,behavior.CombatAction{Type:"aid",TargetID:w.ID,Mode:q.kind,ItemID:q.item},min(hero.AP,int(combatWounds.Aid.Kinds[q.kind].Seconds)),func(err error)string{var refusal textError;if errors.As(err,&refusal){return text(refusal.Key,"{aid}",text("wounds.aid."+q.kind))};return other(err)})
+  }
+ }
+
 	if !firearm {
 		add("stance", "guard", text("ui.combat.guard"), behavior.CombatAction{Type: "guard"}, rules.GuardAP+1, func(error) string {
 			if spent {
@@ -246,7 +234,8 @@ func (r *Runtime) combatOptions(locale string) []*pb.PocCombatOption {
 	} else {
 		add("stance", "crouch", text("ui.combat.crouch"), behavior.CombatAction{Type: "crouch"}, rules.CrouchAP, func(error) string { return text("error.combat.stance") })
 	}
-	add("turn", "end", text("ui.combat.end_turn"), behavior.CombatAction{Type: "end"}, 0, other)
+	add("move","disengage",text("ui.combat.leave"),behavior.CombatAction{Type:"disengage"},0,func(error)string{return text("error.combat.break_distance")})
+ add("turn", "end", text("ui.combat.end_turn"), behavior.CombatAction{Type: "end"}, 0, other)
 	return out
 }
 
@@ -291,7 +280,8 @@ func (r *Runtime) combatStep(hero *behavior.Combatant, target *behavior.Combatan
 		unit = 1000
 	}
 	rules := r.world.CombatRuntime.Rules
-	reach := hero.AP * 1000 / max(1, rules.MoveAPPerMeter) / unit
+	budget:=hero.AP;if away&&budget>1{budget--} // leave a command window before the automatic next turn
+	reach := budget * 1000 / max(1, rules.MoveAPPerMeter) / unit
 	if reach < 1 {
 		return behavior.Cell{}, false
 	}

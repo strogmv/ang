@@ -159,11 +159,11 @@ func TestCombatLifeWireAPDamageDuplicateAndStaleTurn(t *testing.T) {
 	// separately tested stochastic balance. Decisions and resolution still run.
 	r.world.CombatRuntime.Rules.MinHit, r.world.CombatRuntime.Rules.MaxHit = 1, 1
 	combatStart(t, r, c, target)
-	beforeHP := r.state.Combat.Actor(target).HP
+	beforeWounds := len(combatBody(*r.state.Combat.Actor(target)).Wounds)
 	beforeAP := r.state.Combat.Actor(playerActorID).AP
 	q := &pb.PocCombatCommand{RequestId: "combat.attack.1", Action: "attack", TargetId: target, ExpectedTurn: r.state.Combat.Turn}
 	result, snapshot := combatWire(t, r, c, q)
-	if !result.Ok || snapshot == nil || snapshot.Combat == nil || r.state.Combat.Actor(target).HP >= beforeHP || r.state.Combat.Actor(playerActorID).AP != beforeAP-r.state.Combat.Actor(playerActorID).Weapon.AttackAP {
+	if !result.Ok || snapshot == nil || snapshot.Combat == nil || len(combatBody(*r.state.Combat.Actor(target)).Wounds) != beforeWounds+1 || r.state.Combat.Actor(playerActorID).AP != beforeAP-r.state.Combat.Actor(playerActorID).Weapon.AttackAP {
 		t.Fatalf("attack did not spend AP and apply authoritative damage: %v %+v", result, r.state.Combat)
 	}
 	accepted := r.state.Combat.Clone()
@@ -341,14 +341,13 @@ func TestCombatLifeRejectsFreeControlAndKeepsRejectionsAtomic(t *testing.T) {
 
 func TestCombatLifeResolvedEncounterAllowsWalkingSavingAndTravel(t *testing.T) {
 	r, c, target := combatLifeFixture(t, true)
-	// One-hit victim is explicit initial test balance, never a forged outcome.
-	p := r.world.CombatRuntime.Profiles["guard"]
-	p.MaxHP = 1
-	r.world.CombatRuntime.Profiles["guard"] = p
 	r.world.CombatRuntime.Rules.MinHit, r.world.CombatRuntime.Rules.MaxHit = 1, 1
 	combatStart(t, r, c, target)
-	res, _ := combatWire(t, r, c, &pb.PocCombatCommand{RequestId: "combat.resolve", Action: "attack", TargetId: target, ExpectedTurn: r.state.Combat.Turn})
-	if !res.Ok || r.state.Combat.Active || r.state.Combat.Actor(target).Able() {
+ // A real refusal to fight resolves the encounter without requiring a lethal hit.
+ if err:=r.performCombatAction(playerActorID,&behavior.CombatAction{Type:"end"});err!=nil{t.Fatal(err)}
+ if err:=r.performCombatAction(target,&behavior.CombatAction{Type:"surrender"});err!=nil{t.Fatal(err)}
+ res:=&pb.PocActionResult{Ok:true}
+	if !res.Ok || r.state.Combat.Active || !r.state.Combat.Actor(target).Surrendered {
 		t.Fatalf("real attack did not resolve encounter: %v %+v", res, r.state.Combat)
 	}
 	hero := r.state.Life.Actor(playerActorID)

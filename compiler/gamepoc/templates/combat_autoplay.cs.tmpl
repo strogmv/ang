@@ -13,6 +13,8 @@ using AngelsDemons.Game.V1;
 using UnityEngine;
 namespace AngelsDemons.Poc {
  public sealed partial class AngelsDemonsPoc {
+  bool combatAutoLoadProof,combatAutoLoadedProof,combatAutoAftercare,combatAutoProofAid,combatAutoProofSaved,combatAutoProofRate;long combatAutoCareUntil;
+  bool combatAutoEscape;
   string combatAutoDir;bool combatAutoInit,combatAutoRecord,combatAutoDone,combatAutoQuiet,combatAutoStartSent,combatAutoFightOut,combatAutoDress;readonly StringBuilder combatAutoFrames=new StringBuilder();int combatAutoPhase,combatAutoWaypoint,combatAutoFrame,combatAutoAttacks,combatAutoKey,combatAutoHeroTurns;
   float combatAutoAt,combatAutoT0,combatAutoFrameAt,combatAutoIdleAt=-1,combatAutoFightAt;bool combatAutoHealed,combatAutoGuarded,combatAutoStood,combatAutoOver;int combatAutoFlee;
   int combatAutoSave;string combatAutoSnap="",combatAutoSaveResult="";long combatAutoSavedTurn;float combatAutoSaveAt;bool combatAutoSavedHealed,combatAutoSavedGuarded;int combatAutoSavedAttacks,combatAutoSavedFlee;
@@ -50,20 +52,24 @@ namespace AngelsDemons.Poc {
   }
 
   void UpdateCombatAutoplay(){
-   if(!combatAutoInit){combatAutoInit=true;var args=Environment.GetCommandLineArgs();int n=Array.IndexOf(args,"--poc-combat-autoplay");if(n>=0&&n+1<args.Length){combatAutoDir=args[n+1];Directory.CreateDirectory(Path.Combine(combatAutoDir,"frames"));combatAutoRecord=Array.IndexOf(args,"--poc-combat-record")>=0;combatAutoFightOut=Array.IndexOf(args,"--poc-combat-fight-out")>=0;combatAutoDress=Array.IndexOf(args,"--poc-combat-dress")>=0;}}
+   if(!combatAutoInit){combatAutoInit=true;var args=Environment.GetCommandLineArgs();int n=Array.IndexOf(args,"--poc-combat-autoplay");if(n>=0&&n+1<args.Length){combatAutoDir=args[n+1];Directory.CreateDirectory(Path.Combine(combatAutoDir,"frames"));combatAutoRecord=Array.IndexOf(args,"--poc-combat-record")>=0;combatAutoFightOut=Array.IndexOf(args,"--poc-combat-fight-out")>=0;combatAutoDress=Array.IndexOf(args,"--poc-combat-dress")>=0;combatAutoEscape=Array.IndexOf(args,"--poc-combat-escape")>=0;combatAutoLoadProof=Array.IndexOf(args,"--poc-combat-load-proof")>=0;combatAutoAftercare=Array.IndexOf(args,"--poc-combat-aftercare")>=0;}}
    if(combatAutoDir==null||combatAutoDone||state==null)return;
    // Fight-out mode (to see a knockout): frames only once the hero is badly hurt or the encounter is over.
-   bool recordNow=!combatAutoFightOut||state.PlayerCondition!=null&&state.PlayerCondition.MaxHp>0&&state.PlayerCondition.Hp<state.PlayerCondition.MaxHp*.45f||combatAutoPhase>=3;
+   bool recordNow=true;
    if(combatAutoPhase>0&&combatAutoRecord&&recordNow&&Time.unscaledTime>=combatAutoFrameAt){combatAutoFrameAt=Time.unscaledTime+1f/15f;combatAutoFrames.Append(combatAutoFrame.ToString("00000")).Append('\t').Append(CombatF(CombatAutoTime)).Append('\n');StartCoroutine(CombatAutoCapture(Path.Combine(combatAutoDir,"frames",combatAutoFrame.ToString("00000")+".jpg")));combatAutoFrame++;}
-   if(combatAutoPhase>0&&CombatAutoTime>(combatAutoFightOut?420:200)){CombatAutoNote("timeout");CombatAutoFinish();return;}
+   if(combatAutoPhase>0&&CombatAutoTime>((combatAutoAftercare||combatAutoLoadProof)?600:combatAutoFightOut?420:200)){CombatAutoNote("timeout");CombatAutoFinish();return;}
    var view=PlayableView();
    switch(combatAutoPhase){
     case 0:
      if(view==null||page!="game"||loadingActive||!locationSDKFrameReady)return;
+     if(combatAutoLoadProof){combatPanelOpen=true;
+      if(!combatAutoLoadedProof){combatAutoLoadedProof=true;combatAutoT0=Time.unscaledTime;combatAutoAt=Time.unscaledTime+3f;SaveOrLoad("slot3",false);CombatAutoNote("load a real headless encounter result from slot3");return;}
+      if(Time.unscaledTime<combatAutoAt||loadingActive)return;combatAutoPhase=3;combatAutoAt=Time.unscaledTime+2f;combatAutoCareUntil=state.GameSeconds+7200;CombatAutoShot("wound-time");return;
+     }
      if(combatAutoAt==0){combatAutoAt=Time.unscaledTime+2.5f;combatAutoT0=Time.unscaledTime;CombatAutoNote("scene "+view.Id+" ready: "+view.Objective);}
      if(Time.unscaledTime<combatAutoAt)return;CombatAutoShot("start");combatAutoPhase=1;combatAutoAt=Time.unscaledTime;return;
     case 1:{
-     if(HeroCombatActive()){CombatAutoNote("encounter "+state.Combat.EncounterId+" began at hero cell "+state.PlayerX+","+state.PlayerY);combatAutoPhase=2;combatAutoAt=Time.unscaledTime+.8f;combatAutoFightAt=Time.unscaledTime;
+     if(HeroCombatActive()){CombatAutoNote("encounter "+state.Combat.EncounterId+" began at hero cell "+state.PlayerX+","+state.PlayerY);combatAutoPhase=2;combatAutoAt=Time.unscaledTime+.8f;combatAutoFightAt=Time.unscaledTime;combatPanelOpen=true;
       // The closest allowed frame (9 m, the wheel's near end, doc 86) for the fight.
       locationSDKZoom=locationSDKZoomOrigin*4f/3f;LocationSDKPlaceCamera();CombatAutoShot("detected");return;}
      if(!combatAutoQuiet&&state.Life!=null&&!state.Life.Sneaking&&CanSend()){SendStealth();combatAutoQuiet=true;CombatAutoNote("quiet step on");return;}
@@ -77,7 +83,7 @@ namespace AngelsDemons.Poc {
      return;}
     case 2:
      if(combatAutoOver&&!CombatPlaying){combatAutoPhase=3;combatAutoAt=Time.unscaledTime+2.5f;CombatAutoNote("the hero has fallen back; the recording ends with the encounter still active");return;}
-     if(state.Combat==null||!state.Combat.Active||!HeroCombatActive()){if(!CombatPlaying){combatAutoPhase=3;combatAutoAt=Time.unscaledTime+3f;CombatAutoNote("encounter over: winner="+(state.Combat==null?"":state.Combat.Winner)+" hero hp="+(state.PlayerCondition==null?0:state.PlayerCondition.Hp));}return;}
+     if(state.Combat==null||!state.Combat.Active||!HeroCombatActive()){if(!CombatPlaying){combatAutoPhase=3;combatAutoAt=Time.unscaledTime+3f;CombatAutoNote("encounter over: winner="+(state.Combat==null?"":state.Combat.Winner)+" hero state="+(state.PlayerCondition==null?0:state.PlayerCondition.Hp));}return;}
      CombatAutoPoseFacing();
      if(combatAutoSave>0){CombatAutoSaveLoad();return;}
      if(!CombatCanCommand()){combatAutoIdleAt=-1;return;}
@@ -86,7 +92,15 @@ namespace AngelsDemons.Poc {
      if(!combatAutoFightOut&&combatAutoAttacks>=1&&combatAutoSave==0&&state.Combat.Turn>=2){combatAutoSave=1;return;}
      CombatAutoAct();combatAutoIdleAt=-1;return;
     case 3:
-     if(Time.unscaledTime<combatAutoAt)return;CombatAutoShot("end");combatAutoPhase=4;combatAutoAt=Time.unscaledTime+1f;return;
+     combatPanelOpen=!(combatAutoAftercare&&combatAutoProofRate);if(Time.unscaledTime<combatAutoAt)return;
+     if(combatAutoLoadProof||combatAutoAftercare){
+      if(!combatAutoProofAid){combatAutoProofAid=true;PocCombatOption aid=null;foreach(var o in CombatRows())if(o.Enabled&&o.Action=="aid"&&o.Mode=="tourniquet"){aid=o;break;}if(aid!=null){CombatAutoShot("tourniquet-before");CombatExecute(aid);combatAutoAt=Time.unscaledTime+3f;return;}}
+      if(combatAutoAftercare){if(!combatAutoProofRate){combatAutoProofRate=true;combatAutoCareUntil=state.GameSeconds+7200;LifeCommand("rate","",30);combatAutoAt=Time.unscaledTime+2f;CombatAutoShot("tourniquet-after");CombatAutoShotLater("surrender-after-battle");return;}
+      if(state.GameSeconds<combatAutoCareUntil)return;
+      if(!combatAutoProofSaved){combatAutoProofSaved=true;saveConfirmed=false;SaveOrLoad("slot2",true);combatAutoAt=Time.unscaledTime+2f;CombatAutoShot("after-battle-two-hours");return;}
+      if(!saveConfirmed)return;}else CombatAutoShot("tourniquet-after");
+     }
+     CombatAutoShot("end");combatAutoPhase=4;combatAutoAt=Time.unscaledTime+1f;return;
     case 4:if(Time.unscaledTime>=combatAutoAt)CombatAutoFinish();return;
    }
   }
@@ -97,15 +111,17 @@ namespace AngelsDemons.Poc {
   // otherwise strike (the heavy blow first, one at the head) or close in; else end the turn.
   void CombatAutoAct(){
    PocCombatActor me=null;foreach(var a in state.Combat.Actors)if(a.Id=="char.hero")me=a;if(me==null)return;
-   float hp=me.MaxHp>0?me.Hp/(float)me.MaxHp:1;PocCombatOption pick=null;string why="";bool gun=me.WeaponKind=="firearm";
+   if(combatAutoEscape){var exit=CombatAutoOption("disengage")??CombatAutoOption("move.retreat")??CombatAutoOption("end");if(exit!=null){CombatAutoNote("non-killing exit: "+exit.Id);CombatExecute(exit);}return;}
+   bool wounded=me.Bleeding>0||me.BodyLines.Count>2;PocCombatOption pick=null;string why="";bool gun=me.WeaponKind=="firearm";
    if(!combatAutoStood&&me.Stance!="stand"){pick=CombatAutoOption("stand");combatAutoStood=true;why="rise from the quiet step";}
    if(pick==null&&(me.HeldItem=="unarmed"||string.IsNullOrEmpty(me.HeldItem))){pick=CombatAutoOption("equip.");why="ready the weapon from the bag";}
    if(pick==null&&gun&&me.Ammo<1){pick=CombatAutoOption("reload");why="load the clip";}
-   if(pick==null&&me.Bleeding>0){pick=CombatAutoOption("bandage");why="stop the bleeding";}
+   if(pick==null&&Time.unscaledTime-combatAutoFightAt<50f){pick=CombatAutoOption("aid_continue");if(pick!=null)why="continue the work on the same wound";}
+   if(pick==null&&!combatAutoHealed&&me.Bleeding>0&&!combatAutoFightOut){foreach(var kind in new[]{"tourniquet","pressure","dressing","medkit"}){foreach(var o in CombatRows())if(o.Enabled&&o.Action=="aid"&&o.Mode==kind){pick=o;why="treat a real wound with "+kind;combatAutoHealed=true;break;}if(pick!=null)break;}}
    // --poc-combat-dress (review): treat the first wound at once, to show a dressing in a short fight.
-   if(pick==null&&!combatAutoHealed&&hp<(combatAutoDress?.995f:.75f)&&!combatAutoFightOut){pick=CombatAutoOption("heal");if(pick!=null){combatAutoHealed=true;why="treat the wound";}}
-   bool fallBack=!combatAutoFightOut&&(combatAutoHealed&&hp<.7f||Time.unscaledTime-combatAutoFightAt>50f);
-   if(pick==null&&fallBack){pick=CombatAutoOption("move.retreat");if(pick!=null){combatAutoFlee++;why="fall back hurt";if(combatAutoFlee>=2)combatAutoOver=true;}else if(combatAutoFlee>0){pick=CombatAutoOption("end");combatAutoOver=true;why="nowhere further to fall back";}}
+   if(pick==null&&!combatAutoHealed&&me.Bleeding>0&&!combatAutoFightOut){pick=CombatAutoOption("aid.");if(pick!=null){combatAutoHealed=true;why="treat the wound";}}
+   bool fallBack=!combatAutoFightOut&&(combatAutoHealed&&wounded||Time.unscaledTime-combatAutoFightAt>50f);
+   if(pick==null&&fallBack){pick=CombatAutoOption("disengage");if(pick==null)pick=CombatAutoOption("move.retreat");if(pick!=null){combatAutoFlee++;why="fall back hurt";}else if(combatAutoFlee>0){pick=CombatAutoOption("end");why="wait for a real route out";}}
    if(pick==null&&!combatAutoGuarded&&combatAutoAttacks>=2&&me.Ap>=2&&me.Ap<3){pick=CombatAutoOption("guard");if(pick!=null){combatAutoGuarded=true;why="guard with the AP left";}}
    combatBodyPart=!gun&&combatAutoAttacks==1?"head":"torso";
    foreach(var id in gun?new[]{"attack.aimed.","attack.single."}:new[]{"attack.heavy.","attack.single.","attack.quick."}){if(pick!=null)break;pick=CombatAutoOption(id);if(pick!=null)why="strike";}
@@ -113,9 +129,9 @@ namespace AngelsDemons.Poc {
    if(pick==null){pick=CombatAutoOption("end");why="end the turn";}
    if(pick==null)return;if(pick.Action=="attack")combatAutoAttacks++;
    int row=CombatRows().IndexOf(pick);if(row>=0)combatSelected=row;
-   CombatAutoNote("hero turn "+state.Combat.Turn+" ap "+me.Ap+" hp "+me.Hp+": "+pick.Label+" ("+pick.Id+", "+pick.Ap+" AP, "+combatBodyPart+") — "+why);
+   CombatAutoNote("hero turn "+state.Combat.Turn+" ap "+me.Ap+" wounds "+me.BodyLines.Count+": "+pick.Label+" ("+pick.Id+", "+pick.Ap+" AP, "+combatBodyPart+") — "+why);
    if(combatAutoAttacks==1&&pick.Action=="attack")CombatAutoShot("first-blow");
-   if(pick.Action=="heal"||pick.Action=="bandage")CombatAutoShot("dressing");
+   if(pick.Action=="aid"||pick.Action=="aid_continue")CombatAutoShot("dressing");
    if(pick.Id=="move.retreat"&&combatAutoFlee==1)CombatAutoShot("fall-back");
    CombatExecute(pick);
   }
@@ -132,7 +148,7 @@ namespace AngelsDemons.Poc {
      combatAutoHealed=combatAutoSavedHealed;combatAutoGuarded=combatAutoSavedGuarded;combatAutoAttacks=combatAutoSavedAttacks;combatAutoFlee=combatAutoSavedFlee;combatAutoOver=false;return;
    }
   }
-  string CombatAutoSnapshot(){var sb=new StringBuilder();sb.Append(state.Combat.EncounterId).Append(" turn ").Append(state.Combat.Turn);foreach(var a in state.Combat.Actors){sb.Append(" | ").Append(a.Id).Append(" @").Append(a.X).Append(',').Append(a.Y).Append(" ").Append(a.Stance);if(a.Id=="char.hero")sb.Append(" hp ").Append(a.Hp).Append(" ap ").Append(a.Ap).Append(" bleed ").Append(a.Bleeding).Append(" ").Append(a.HeldItem);}return sb.ToString();}
+  string CombatAutoSnapshot(){var sb=new StringBuilder();sb.Append(state.Combat.EncounterId).Append(" turn ").Append(state.Combat.Turn);foreach(var a in state.Combat.Actors){sb.Append(" | ").Append(a.Id).Append(" @").Append(a.X).Append(',').Append(a.Y).Append(" ").Append(a.Stance);if(a.Id=="char.hero")sb.Append(" wounds ").Append(string.Join(" / ",a.BodyLines)).Append(" ap ").Append(a.Ap).Append(" bleed ").Append(a.Bleeding).Append(" ").Append(a.HeldItem);}return sb.ToString();}
   void CombatAutoShot(string name){if(combatAutoDir==null)return;combatAutoKey++;string path=Path.Combine(combatAutoDir,"key-"+combatAutoKey.ToString("00")+"-"+name+".png");ScreenCapture.CaptureScreenshot(path);CombatAutoNote("key shot "+Path.GetFileName(path));}
   internal void CombatAutoShotLater(string name){if(combatAutoDir!=null)StartCoroutine(CombatAutoShotAfter(name));}
   IEnumerator CombatAutoShotAfter(string name){yield return new WaitForSecondsRealtime(1.2f);CombatAutoShot(name);}

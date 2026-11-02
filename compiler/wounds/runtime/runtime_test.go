@@ -515,3 +515,26 @@ func TestArmorStopsOrShallows(t *testing.T) {
 		t.Fatalf("cut through a jacket: blocked %d of 500 (≈40 %%), shifted %d (cut has no shift)", blocked, shallower)
 	}
 }
+
+func TestAidCannotWasteAnotherIdenticalControl(t *testing.T) {
+	m := fixture()
+	b := m.NewBody("v", "none")
+	_, err := m.ApplyHit(&b, Hit{Weapon: "item.knife", Zone: "thigh", Depth: "deep", Structures: []string{"femoral_artery"}, Seed: 42})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := m.ApplyAid(&b, AidAct{Kind: "tourniquet", Item: "item.tq", Wound: b.Wounds[0].ID, By: "v", Force: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.Applied {
+		t.Fatalf("fixture tourniquet: %+v", first)
+	}
+	second, err := m.ApplyAid(&b, AidAct{Kind: "tourniquet", Item: "item.tq", Wound: b.Wounds[0].ID, By: "v", Force: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Spent || second.Applied || second.Reason != "wounds.aid.nothing" {
+		t.Fatalf("identical control wasted supply: %+v", second)
+	}
+}

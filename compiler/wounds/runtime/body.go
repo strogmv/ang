@@ -211,6 +211,12 @@ func (b Body) Clone() Body {
 		x.Effects = append([]string(nil), x.Effects...)
 		c.Conditions[i] = x
 	}
+	if b.Wounds == nil {
+		c.Wounds = nil
+	}
+	if b.Conditions == nil {
+		c.Conditions = nil
+	}
 	if b.Care != nil {
 		cc := *b.Care
 		c.Care = &cc

@@ -72,14 +72,14 @@ func TestCombatNeedleHackedShotWoundsOncePersistsAndReplayIsFree(t *testing.T) {
 	r, c, target, gun := combatNeedleFixture(t, true)
 	r.state.Seed = combatNeedleSeed(r, gun, "injured")
 	combatStart(t, r, c, target)
-	hp := r.state.Combat.Actor(playerActorID).HP
+	beforeWounds:=len(combatBody(*r.state.Combat.Actor(playerActorID)).Wounds)
 	q := &pb.PocCombatCommand{RequestId: "needle.injure", Action: "attack", TargetId: target, ExpectedTurn: r.state.Combat.Turn}
 	result, _ := combatWire(t, r, c, q)
 	if !result.Ok {
 		t.Fatal(result.Message)
 	}
 	a := r.state.Combat.Actor(playerActorID)
-	if a.HP >= hp || a.ArmWound == 0 || a.Bleeding == 0 || r.state.CombatRoster[playerActorID].HP != a.HP || r.state.Crafting.Law.Hacked[gun].Uses != 1 {
+	if len(combatBody(*a).Wounds)!=beforeWounds+1 || combatBody(*a).Wounds[beforeWounds].Zone!="arm" || !reflect.DeepEqual(combatBody(r.state.CombatRoster[playerActorID]),combatBody(*a)) || r.state.Crafting.Law.Hacked[gun].Uses != 1 {
 		t.Fatalf("notice was not a real once-only persistent arm wound: %+v", a)
 	}
 	count := 0
@@ -108,7 +108,7 @@ func TestCombatNeedleHackedShotWoundsOncePersistsAndReplayIsFree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(saved.Combat.Actor(playerActorID), r.state.Combat.Actor(playerActorID)) || saved.CombatRoster[playerActorID].ArmWound == 0 || saved.Crafting.Law.Hacked[gun].Uses != 1 {
+	if !reflect.DeepEqual(saved.Combat.Actor(playerActorID), r.state.Combat.Actor(playerActorID)) || len(combatBody(saved.CombatRoster[playerActorID]).Wounds)!=beforeWounds+1 || saved.Crafting.Law.Hacked[gun].Uses != 1 {
 		t.Fatal("save lost wound or use watermark")
 	}
 }
@@ -119,9 +119,9 @@ func TestCombatNeedleJamBlocksNextShotAndNormalShotDoesNotInjure(t *testing.T) {
 			r, c, target, gun := combatNeedleFixture(t, true)
 			r.state.Seed = combatNeedleSeed(r, gun, outcome)
 			combatStart(t, r, c, target)
-			hp := r.state.Combat.Actor(playerActorID).HP
+			beforeWounds:=len(combatBody(*r.state.Combat.Actor(playerActorID)).Wounds)
 			combatPhysicalWire(t, r, c, "needle.first", "attack", target)
-			if r.state.Combat.Actor(playerActorID).HP != hp {
+			if len(combatBody(*r.state.Combat.Actor(playerActorID)).Wounds)!=beforeWounds {
 				t.Fatal("non-injury outcome wounded the holder")
 			}
 			h := r.state.Crafting.Law.Hacked[gun]
@@ -238,14 +238,7 @@ func TestCombatNeedleFatalHolderWoundPrecedesResponseAndResolvesFinalShot(t *tes
 		t.Run(map[bool]string{false: "holder_down", true: "both_down"}[mutual], func(t *testing.T) {
 			r, _, target, gun := combatNeedleFixture(t, true)
 			r.state.Seed = combatNeedleSeed(r, gun, "injured")
-			hero := r.world.CombatRuntime.Profiles["hero"]
-			hero.MaxHP = 4
-			r.world.CombatRuntime.Profiles["hero"] = hero
-			if mutual {
-				enemy := r.world.CombatRuntime.Profiles["guard"]
-				enemy.MaxHP = 1
-				r.world.CombatRuntime.Profiles["guard"] = enemy
-			}
+
 			r.world.CombatRuntime.Rules.MinHit = 1
 			r.world.CombatRuntime.Rules.MaxHit = 1
 			r.world.CombatRuntime.Rules.DamageMin = 1
@@ -261,8 +254,12 @@ func TestCombatNeedleFatalHolderWoundPrecedesResponseAndResolvesFinalShot(t *tes
 			if err := r.performCombatAction(target, &guard); err != nil {
 				t.Fatal(err)
 			}
-			seq := r.state.Combat.EventSeq
-			fire := behavior.CombatAction{Type: "attack", TargetID: target}
+ // A prior injury left the bodies just below the blood-loss blackout threshold.
+ // The new real projectile, not an HP decrement, must push them over it before a response.
+ for _,id:=range []string{playerActorID,target}{if id==target&&!mutual{continue};a:=r.state.Combat.Actor(id);b:=combatBody(*a);b.LostUL=b.VolumeUL*combatWounds.States.DownPermille/1000-1;projectWoundBody(a,b)}
+ r.syncCombatLife()
+ seq := r.state.Combat.EventSeq
+ fire := behavior.CombatAction{Type: "attack", TargetID: target}
 			if err := r.performCombatAction(playerActorID, &fire); err != nil {
 				t.Fatal(err)
 			}

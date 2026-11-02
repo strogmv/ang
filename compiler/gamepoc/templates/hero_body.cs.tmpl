@@ -231,7 +231,7 @@ namespace AngelsDemons.Poc {
   // Update: keyboard / stick steering and the held-button follow; rate-limited, immediate on start/stop.
   void UpdateHeroControl(){
    // Before the first body sample (an automatic routine) the first steer itself hands control to the player.
-   bool ready=page=="game"&&state!=null&&!HeroCombatActive()&&!HeroCombatIncapacitated()&&state.Active&&!state.Paused&&!loadingActive&&state.Life!=null&&!state.Life.Transit&&CanSend()&&IsStoryModularLocation()&&locationSDKCamera!=null;
+   bool ready=page=="game"&&state!=null&&!combatPanelOpen&&!HeroCombatActive()&&!HeroCombatIncapacitated()&&state.Active&&!state.Paused&&!loadingActive&&state.Life!=null&&!state.Life.Transit&&CanSend()&&IsStoryModularLocation()&&locationSDKCamera!=null;
    Vector2 forward,right;if(!ready||!HeroScreenAxes(out forward,out right)){if(hbSteering||hbFollowing){if(ready||CanSend())HeroSend("stop",0,0,false);hbSteering=hbFollowing=false;}hbPress=false;return;}
    double now=clock.Elapsed.TotalSeconds;Vector2 move;bool run,held;Vector2 cursor;
    if(HeroVirtualInput){move=HeroVirtualMove;run=HeroVirtualRun;held=HeroVirtualHold;cursor=HeroVirtualCursorGui;}

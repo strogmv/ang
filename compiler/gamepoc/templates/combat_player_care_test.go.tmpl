@@ -3,6 +3,7 @@ package poc
 
 import (
 	"angelsdemons/server/internal/behavior"
+ inv "angelsdemons/server/internal/inventory"
 	pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
 	"reflect"
 	"testing"
@@ -11,84 +12,31 @@ import (
 // Existing people/equipment and an explicit test weapon balance are arranged.
 // Accepted kernel actions + the real atomic host commit cause all injuries and
 // surrender. This tests execution/first aid, not the NPC's utility choice.
-func combatPlayerCareInjury(t *testing.T, stun bool) (*Runtime, *connection, string) {
-	t.Helper()
-	r, c, target := combatLifeFixture(t, true)
-	combatPhysicalFixture(t, r, target, false)
-	r.world.CombatLife.Responders = map[string]combatResponder{}
-	w := r.world.CombatRuntime.Weapons[combatFixtureBlade]
-	w.Damage = 4
-	w.Bleed = 4
-	if stun {
-		w.Kind = "blunt"
-		w.Damage = 80
-		w.HeavyAP = 4
-		w.HeavyDamagePercent = 100
-		w.Bleed = 0
-	}
-	r.world.CombatRuntime.Weapons[combatFixtureBlade] = w
-	combatStart(t, r, c, target)
-	apply := func(id string, action behavior.CombatAction) {
-		t.Helper()
-		candidate := r.state.Combat.Clone()
-		if err := candidate.Execute(r.combatSpace(candidate), r.world.CombatRuntime.Rules, id, action); err != nil {
-			t.Fatal(err)
-		}
-		if err := r.commitCombat(candidate); err != nil {
-			t.Fatal(err)
-		}
-	}
-	apply(playerActorID, behavior.CombatAction{Type: "end"})
-	if r.state.Combat.Current() == nil || r.state.Combat.Current().ID != target {
-		t.Fatal("actual initiative did not reach opponent")
-	}
-	strike := behavior.CombatAction{Type: "attack", TargetID: playerActorID}
-	if stun {
-		strike.Mode = "heavy"
-		strike.BodyPart = "head"
-	}
-	apply(target, strike)
-	hero := r.state.Combat.Actor(playerActorID)
-	if hero.HP >= hero.MaxHP || hero.HP <= 0 || stun && hero.StunTurns == 0 || !stun && hero.Bleeding == 0 {
-		t.Fatalf("real strike failed to cause expected surviving injury: %+v", hero)
-	}
-	apply(target, behavior.CombatAction{Type: "surrender"})
-	if r.state.Combat.Active || r.state.Combat.Winner != "player" {
-		t.Fatal("real opponent surrender did not end combat")
-	}
-	return r, c, target
+func combatPlayerCareInjury(t *testing.T,stun bool)(*Runtime,*connection,string){
+ t.Helper();r,c,target:=combatLifeFixture(t,true);combatPhysicalFixture(t,r,target,false);r.world.CombatLife.Responders=map[string]combatResponder{}
+ model:=r.inventoryModelFor(true);model.Sources=append(model.Sources,inv.Source{ID:"care.hero.medkit",Definition:"item.medkit_guard",Quantity:1,Condition:1000000,Owner:playerActorID,Location:inv.Location{Kind:"store",Store:inv.ActorStore(playerActorID)}});r.world.Inventory=model;r.lifeInventory=lifeInventoryCache{};var err error;r.state.Inventory,err=inv.New(r.inventoryModelFor(true),r.state.Seed);if err!=nil{t.Fatal(err)}
+ weapon:=r.world.CombatRuntime.Weapons[combatFixtureBlade];if stun{weapon.Kind="blunt";weapon.WoundProfile="item.service_baton";weapon.HeavyAP=4;weapon.HeavyDamagePercent=100};r.world.CombatRuntime.Weapons[combatFixtureBlade]=weapon
+ combatStart(t,r,c,target);if err:=r.performCombatAction(playerActorID,&behavior.CombatAction{Type:"end"});err!=nil{t.Fatal(err)}
+ found:=false
+ for seed:=int64(1);seed<=200;seed++{trial:=&Runtime{world:r.world,state:r.snapshotState(),npcAccountIDs:r.npcAccountIDs};trial.state.Seed=seed;trial.state.Combat.Seed=seed
+  strike:=behavior.CombatAction{Type:"attack",TargetID:playerActorID,BodyPart:"arms"};if stun{strike.Mode="heavy";strike.BodyPart="head"}
+  if err:=trial.performCombatAction(target,&strike);err!=nil{t.Fatal(err)};body:=combatBody(*trial.state.Combat.Actor(playerActorID));status:=combatWounds.Status(body)
+  good:=status.Conscious&&status.CanWalk&&status.ExternalULS>0&&!combatWounds.Serious(body)&&len(body.Wounds)==1&&body.Wounds[0].Depth=="shallow"
+  if stun{good=!status.Conscious&&body.KnockoutUntil>body.Clock&&combatWounds.Forecast(body,600).DeadS<0}
+  if good{r.state=trial.state;found=true;break}
+ };if !found{t.Fatal("no surviving player wound in 200 explicit initial seeds")}
+ if r.state.Combat.Active{if err:=r.performCombatAction(target,&behavior.CombatAction{Type:"surrender"});err!=nil{t.Fatal(err)}}
+ if r.state.Combat.Active{t.Fatal("encounter did not finish")};return r,c,target
 }
-func TestCombatPlayerCareWireBandageHealTimeAndReplay(t *testing.T) {
-	r, c, _ := combatPlayerCareInjury(t, false)
-	old := r.state.CombatRoster[playerActorID]
-	seconds := r.state.Life.Seconds
-	count := r.combatCount(r.state.Inventory, playerActorID, "item.med_patch", nil)
-	q := &pb.PocCombatCommand{RequestId: "care.player.bandage", Action: "bandage", ExpectedTurn: r.state.Combat.Turn}
-	result, view := combatWire(t, r, c, q)
-	if !result.Ok {
-		t.Fatal(result.Message)
-	}
-	after := r.state.CombatRoster[playerActorID]
-	if after.HP != old.HP || after.Bleeding != max(0, old.Bleeding-r.world.CombatRuntime.Rules.BandageAmount) || r.state.Life.Seconds != seconds+r.world.CombatRuntime.CareActionSeconds || r.combatCount(r.state.Inventory, playerActorID, "item.med_patch", nil) != count-1 {
-		t.Fatal("outside bandage was free, healed HP, or did not stop real bleeding")
-	}
-	if view == nil || view.PlayerCondition == nil || int(view.PlayerCondition.Hp) != after.HP || int(view.PlayerCondition.Bleeding) != after.Bleeding {
-		t.Fatal("outside player condition did not publish current health")
-	}
-	items := r.state.Inventory.Clone()
-	clock := r.state.Life.Seconds
-	result, _ = combatWire(t, r, c, q)
-	if !result.Ok || !reflect.DeepEqual(items, r.state.Inventory) || clock != r.state.Life.Seconds {
-		t.Fatal("replayed first aid consumed materials/time twice")
-	}
-	result, _ = combatWire(t, r, c, &pb.PocCombatCommand{RequestId: "care.player.heal", Action: "heal", ExpectedTurn: r.state.Combat.Turn})
-	if !result.Ok {
-		t.Fatal(result.Message)
-	}
-	healed := r.state.CombatRoster[playerActorID]
-	if healed.HP != min(old.MaxHP, after.HP+r.world.CombatRuntime.Rules.HealAmount) || r.state.Life.Seconds != clock+r.world.CombatRuntime.CareActionSeconds || r.combatCount(r.state.Inventory, playerActorID, "item.med_patch", nil) != count-2 {
-		t.Fatal("outside explicit healing bypassed physical materials or time")
-	}
+func TestCombatPlayerCareWireBandageHealTimeAndReplay(t *testing.T){
+ r,c,_:=combatPlayerCareInjury(t,false);old:=combatBody(r.state.CombatRoster[playerActorID]);seconds:=r.state.Life.Seconds;count:=r.combatCount(r.state.Inventory,playerActorID,"item.med_patch",nil)
+ q:=&pb.PocCombatCommand{RequestId:"care.player.bandage",Action:"bandage",ExpectedTurn:r.state.Combat.Turn};result,view:=combatWire(t,r,c,q);if !result.Ok{t.Fatal(result.Message)}
+ after:=combatBody(r.state.CombatRoster[playerActorID]);controlled:=false;for _,w:=range after.Wounds{for _,control:=range w.Controls{controlled=controlled||control=="dressing"}}
+ if !controlled||r.state.Life.Seconds!=seconds+combatWounds.Aid.Kinds["dressing"].Seconds||r.combatCount(r.state.Inventory,playerActorID,"item.med_patch",nil)!=count-1||len(after.Wounds)!=len(old.Wounds){t.Fatal("outside dressing did not spend real stock and 30 seconds on the wound")}
+ if view==nil||view.PlayerCondition==nil||len(view.PlayerCondition.BodyLines)==0||view.PlayerCondition.Hp!=0||view.PlayerCondition.MaxHp!=0{t.Fatal("condition must publish wound/time text without HP")}
+ items:=r.state.Inventory.Clone();clock:=r.state.Life.Seconds;result,_=combatWire(t,r,c,q);if !result.Ok||!reflect.DeepEqual(items,r.state.Inventory)||clock!=r.state.Life.Seconds{t.Fatal("first-aid replay spent time or supplies twice")}
+ kits:=r.combatCount(r.state.Inventory,playerActorID,"item.medkit_guard",nil);result,_=combatWire(t,r,c,&pb.PocCombatCommand{RequestId:"care.player.heal",Action:"heal",ExpectedTurn:r.state.Combat.Turn});if !result.Ok{t.Fatal(result.Message)}
+ healed:=combatBody(r.state.CombatRoster[playerActorID]);if !healed.Wounds[0].Treated||r.combatCount(r.state.Inventory,playerActorID,"item.medkit_guard",nil)!=kits-1||r.state.Life.Seconds!=clock+combatWounds.Aid.Kinds["medkit"].Seconds{t.Fatal("medkit must treat the actual shallow wound using its own item and time")}
 }
 func TestCombatPlayerCareRejectsPauseMovementAndRealStunAtomically(t *testing.T) {
 	for _, kind := range []string{"paused", "moving", "stunned"} {

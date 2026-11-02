@@ -3,6 +3,7 @@ package poc
 
 import (
 	"angelsdemons/server/internal/behavior"
+ "angelsdemons/server/internal/wounds"
 	crafting "angelsdemons/server/internal/crafting"
 	inv "angelsdemons/server/internal/inventory"
 	"errors"
@@ -83,10 +84,7 @@ func (r *Runtime) combatCraftingUse(item, holder string, inEncounter bool) error
 		return err
 	}
 	i := r.state.Inventory.Items[item]
-	injury, ok := r.world.CombatRuntime.HackedWeaponInjuries[i.Definition]
-	if !ok {
-		return errors.New("hacked weapon has no holder injury policy")
-	}
+
 	c := r.combatant(holder, "bystander")
 	active := inEncounter && r.state.Combat.Actor(holder) != nil
 	if active {
@@ -100,13 +98,12 @@ func (r *Runtime) combatCraftingUse(item, holder string, inEncounter bool) error
 	}
 	// A needle released inside the grip punctures the hand beneath outer armour.
 	// Use the same part wounds, bleeding and morale calculation as other impacts.
-	armor, body := c.Armor, c.BodyArmor
-	c.Armor = 0
-	c.BodyArmor = behavior.CombatArmor{}
-	temporary := behavior.CombatState{Actors: []behavior.Combatant{c}}
-	damage := temporary.ApplyDamage(behavior.CombatSpace{}, r.world.CombatRuntime.Rules, holder, holder, injury.Damage, injury.Bleed, 0, injury.BodyPart)
-	c = temporary.Actors[0]
-	c.Armor, c.BodyArmor = armor, body
+
+ b:=combatBody(c)
+ result,err:=combatWounds.ApplyHit(&b,wounds.Hit{Author:holder,Weapon:i.Definition,Zone:"arm",Angle:"front",Skill:int64(c.Skill),Seed:r.state.Seed+int64(r.state.Combat.EventSeq)})
+ if err!=nil{return err};projectWoundBody(&c,b);damage:=0;if result.Wound!=nil{damage=1}
+ r.recordWoundEvents(result.Events)
+
 	if !active {
 		r.storeAmbientCombatCasualty(c)
 		r.combatCareHold(c)
@@ -116,7 +113,7 @@ func (r *Runtime) combatCraftingUse(item, holder string, inEncounter bool) error
 		*r.state.Combat.Actor(holder) = c
 		s := &r.state.Combat
 		s.EventSeq++
-		s.Events = append(s.Events, behavior.CombatEvent{Type: "weapon_injury", ActorID: holder, TargetID: holder, ItemID: item, From: c.Position, To: c.Position, BodyPart: injury.BodyPart, Amount: damage, Hit: damage > 0, Turn: s.Turn, Sequence: s.EventSeq})
+		s.Events = append(s.Events, behavior.CombatEvent{Type: "weapon_injury", ActorID: holder, TargetID: holder, ItemID: item, From: c.Position, To: c.Position, BodyPart: "arms", Amount: damage, Hit: damage > 0, Turn: s.Turn, Sequence: s.EventSeq})
 	}
 	return nil
 }

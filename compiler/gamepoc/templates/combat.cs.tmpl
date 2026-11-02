@@ -31,14 +31,14 @@ namespace AngelsDemons.Poc {
    Rect box=new Rect(394,130,470,530);HudFrame(box,false);GUILayout.BeginArea(new Rect(408,142,442,506));combatScroll=GUILayout.BeginScrollView(combatScroll);
    PocCombatActor hero=null;if(active)foreach(var a in fight.Actors)if(a.Id=="char.hero")hero=a;
    if(!active||hero==null){
-    var condition=state.PlayerCondition;if(condition!=null){GUILayout.Label(L("ui.combat.hp")+" "+condition.Hp+"/"+condition.MaxHp,hudBody);if(condition.Bleeding>0)GUILayout.Label(L("ui.combat.bleeding")+": "+condition.Bleeding,hudBody);bool saved=GUI.enabled;GUI.enabled=saved&&!HeroCombatIncapacitated()&&!state.Paused;GUILayout.BeginHorizontal();CombatButton("ui.combat.bandage","bandage");CombatButton("ui.combat.heal","heal");GUILayout.EndHorizontal();GUI.enabled=saved;}
+    var condition=state.PlayerCondition;if(condition!=null){foreach(var line in condition.BodyLines)GUILayout.Label(line,new GUIStyle(hudBody){wordWrap=true},GUILayout.Width(416));bool saved=GUI.enabled;GUI.enabled=saved&&!condition.Down&&!condition.Stunned&&!state.Paused;var aidRows=CombatRows();for(int ai=0;ai<aidRows.Count;ai++){var option=aidRows[ai];if(GUILayout.Button((ai<9?(ai+1)+"  ":"")+option.Label,buttonStyle,GUILayout.Height(32))){combatSelected=ai;CombatExecute(option);}if(!option.Enabled)GUILayout.Label(option.Reason,hudSmall);}GUI.enabled=saved;}
 
     GUILayout.Label(active?L("ui.combat.join"):L("ui.combat.target"),hudBody);
     int n=0;if(active){foreach(var a in fight.Actors){if(a.Down||a.Surrendered)continue;if(n++>=10)break;if(GUILayout.Button(L("ui.combat.join")+": "+CombatName(a.Id),buttonStyle,GUILayout.Height(34)))SendCombat("start",a.Id);}}
     else {foreach(var a in state.SceneAgents){if(n++>=10)break;if(GUILayout.Button(L("ui.combat.start")+": "+a.Name,buttonStyle,GUILayout.Height(34)))SendCombat("start",a.Id);}}
    }else{
     GUILayout.Label(L("ui.combat.turn").Replace("{turn}",fight.Turn.ToString())+" · "+CombatName(fight.CurrentActorId),hudBody);
-    GUILayout.Label(L("ui.combat.hp")+" "+hero.Hp+"/"+hero.MaxHp+"    "+L("ui.combat.ap")+" "+hero.Ap+(hero.ReservedAp>0?" ("+hero.ReservedAp+")":""),hudBody);
+    foreach(var line in hero.BodyLines)GUILayout.Label(line,new GUIStyle(hudBody){wordWrap=true},GUILayout.Width(416));
     if(hero.Bleeding>0)GUILayout.Label(L("ui.combat.bleeding")+": "+hero.Bleeding,hudBody);
     if(hero.Suppression>0)GUILayout.Label(L("ui.combat.pressure")+": "+hero.Suppression,hudSmall);
     if(hero.Stunned)GUILayout.Label(L("ui.combat.stunned"),hudBody);

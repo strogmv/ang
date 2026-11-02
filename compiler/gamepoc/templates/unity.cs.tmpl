@@ -239,6 +239,8 @@ namespace AngelsDemons.Poc
 #endif
             if (verify && !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ANG_POC_VERIFY_DIR")))
                 dataDirectory = Path.Combine(Environment.GetEnvironmentVariable("ANG_POC_VERIFY_DIR"), "saves");
+            var dataArgs=Environment.GetCommandLineArgs();int dataAt=Array.IndexOf(dataArgs,"--poc-data");
+            if(dataAt>=0&&dataAt+1<dataArgs.Length)dataDirectory=Path.GetFullPath(dataArgs[dataAt+1]);
             Directory.CreateDirectory(dataDirectory);
             volume = PlayerPrefs.GetFloat(Pref("volume"), .7f);
             fps = PlayerPrefs.GetInt(Pref("fps"), 60);
