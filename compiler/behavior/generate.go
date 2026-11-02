@@ -38,6 +38,7 @@ func RenderWith(catalog []byte, fixtures Fixtures) (map[string][]byte, error) {
 		files[name] = data
 	}
 	templates := map[string]string{"population.go.tmpl": "population.gen.go", "practice.go.tmpl": "practice.gen.go", "development_life.go.tmpl": "development_life.gen.go", "inspection.go.tmpl": "inspection.gen.go", "maintenance.go.tmpl": "maintenance.gen.go", "life.go.tmpl": "life.gen.go", "approach.go.tmpl": "approach.gen.go", "gestures.go.tmpl": "gestures.gen.go", "supply.go.tmpl": "supply.gen.go", "search.go.tmpl": "search.gen.go", "planner.go.tmpl": "planner.gen.go", "reactions.go.tmpl": "reactions.gen.go", "progress.go.tmpl": "progress.gen.go", "memory.go.tmpl": "memory.gen.go", "utility.go.tmpl": "utility.gen.go", "perception.go.tmpl": "perception.gen.go"}
+	templates["illumination.go.tmpl"] = "illumination.gen.go"
 	templates["counter_rng.go.tmpl"] = "counter_rng.gen.go"
 	templates["life_brain.go.tmpl"] = "life_brain.gen.go"
 	templates["life_decisions.go.tmpl"] = "life_decisions.gen.go"
@@ -52,12 +53,14 @@ func RenderWith(catalog []byte, fixtures Fixtures) (map[string][]byte, error) {
 	templates["life_body.go.tmpl"] = "life_body.gen.go"
 	templates["combat.go.tmpl"] = "combat.gen.go"
 	templates["combat_geometry.go.tmpl"] = "combat_geometry.gen.go"
- templates["combat_explosives.go.tmpl"] = "combat_explosives.gen.go"
- templates["life_safety.go.tmpl"] = "life_safety.gen.go"
+	templates["combat_explosives.go.tmpl"] = "combat_explosives.gen.go"
+	templates["life_safety.go.tmpl"] = "life_safety.gen.go"
 	if len(fixtures.Planning) > 0 {
+		templates["illumination_test.go.tmpl"] = "illumination_generated_test.go"
 		templates["combat_test.go.tmpl"] = "combat_generated_test.go"
 		templates["combat_geometry_test.go.tmpl"] = "combat_geometry_generated_test.go"
- templates["life_safety_test.go.tmpl"] = "life_safety_generated_test.go"
+		templates["combat_explosives_test.go.tmpl"] = "combat_explosives_generated_test.go"
+		templates["life_safety_test.go.tmpl"] = "life_safety_generated_test.go"
 		templates["npc_stage0_test.go.tmpl"] = "npc_stage0_generated_test.go"
 		templates["life_brain_test.go.tmpl"] = "life_brain_generated_test.go"
 		templates["population_test.go.tmpl"] = "population_generated_test.go"

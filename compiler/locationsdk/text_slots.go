@@ -44,7 +44,17 @@ type TextSlot struct {
 	Key       string            `json:"key,omitempty"`
 	Args      map[string]string `json:"args,omitempty"`
 	PriceList *TextPriceList    `json:"price_list,omitempty"`
-	Reason    string            `json:"reason"`
+	// Plate (demo-hub v15): a steel plate the text is painted on, mounted at the slot (a sign clamped to a railing): the
+	// client draws a box of the slot area (+ rim) and depth_mm behind the face; color #RRGGBB.
+	Plate  *TextPlate `json:"plate,omitempty"`
+	Reason string     `json:"reason"`
+}
+
+// TextPlate is the backing plate of a slot (mm).
+type TextPlate struct {
+	DepthMM int    `json:"depth_mm"`
+	RimMM   int    `json:"rim_mm,omitempty"`
+	Color   string `json:"color"`
 }
 
 // PointMM is a point in millimetres.
@@ -122,6 +132,9 @@ func validateTextSlots(layout Layout) *ValidationError {
 		}
 		if !textStyles[s.Style] || !textSurfaces[s.Surface] || !textInk.MatchString(s.Ink) || s.Wear < 0 || s.Wear > 1000 {
 			return issue("text_slot_style", path, "style stencil|chalk|matrix, surface pvc|steel|concrete|board|screen, ink #RRGGBB, wear 0..1000", s.ID)
+		}
+		if pl := s.Plate; pl != nil && (pl.DepthMM < 2 || pl.DepthMM > 120 || pl.RimMM < 0 || pl.RimMM > 200 || !textInk.MatchString(pl.Color) || s.Style == "matrix") {
+			return issue("text_slot_plate", path, "a plate is 2..120 mm deep with a rim 0..200 mm and a #RRGGBB colour; a matrix screen has none", s.ID)
 		}
 		if s.MinGlyphMM < 10 || s.MinGlyphMM > s.HeightMM-2*s.MarginMM || s.MaxLines < 1 || s.MaxLines > 16 || !textLayouts[s.Layout] {
 			return issue("text_slot_layout", path, "min glyph 10 mm..area height, 1..16 lines, layout per_strip|flow|rows|strips_auto", s.ID)

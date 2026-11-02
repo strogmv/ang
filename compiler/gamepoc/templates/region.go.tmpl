@@ -56,7 +56,7 @@ func(r *Runtime)validateRegionKnowledge(s state)error{
 }
 func(r *Runtime)regionNodeForLevel(level string)*regionNode{for i:=range r.world.Region.Nodes{if r.world.Region.Nodes[i].LevelID==level{return &r.world.Region.Nodes[i]}};return nil}
 func(r *Runtime)regionLevelName(locale,level string)string{
- fallback:=r.world.Life.Locations[level].Name;if node:=r.regionNodeForLevel(level);node!=nil{return r.localText(locale,"region.node."+node.ID+".name",fallback)};return fallback
+ fallback:=r.world.Life.Locations[level].Name;if node:=r.regionNodeForLevel(level);node!=nil{return r.localText(locale,"region.node."+node.ID+".name",fallback)};return r.localText(locale,fallback,fallback)
 }
 func(r *Runtime)regionPlaceKnown(level string)bool{
  if r.world.Region.ID==""{return true};r.syncRegionKnowledge();n:=r.regionNodeForLevel(level);return n!=nil&&r.state.Region.KnownNodes[n.ID]

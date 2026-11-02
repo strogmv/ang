@@ -27,6 +27,8 @@ import (
 	"github.com/strogmv/ang/compiler/behavior"
 	"github.com/strogmv/ang/compiler/clothing"
 	clothingRuntime "github.com/strogmv/ang/compiler/clothing/runtime"
+	"github.com/strogmv/ang/compiler/crafting"
+	craftingRuntime "github.com/strogmv/ang/compiler/crafting/runtime"
 	"github.com/strogmv/ang/compiler/emitter"
 	"github.com/strogmv/ang/compiler/inventory"
 	inv "github.com/strogmv/ang/compiler/inventory/runtime"
@@ -181,8 +183,11 @@ type Menu struct {
 }
 
 type Compiled struct {
+	PlayableScenes   json.RawMessage            `json:"playable_scenes,omitempty"`
 	CombatRuntime    json.RawMessage            `json:"combat_runtime,omitempty"`
- CombatLife json.RawMessage `json:"combat_life,omitempty"`
+	Illumination     json.RawMessage            `json:"illumination_runtime,omitempty"`
+	Stealth          json.RawMessage            `json:"stealth_runtime,omitempty"`
+	CombatLife       json.RawMessage            `json:"combat_life,omitempty"`
 	Wayfinding       WayfindingCatalog          `json:"wayfinding,omitempty"`
 	ModularLocations []ModularLocation          `json:"modular_locations,omitempty"`
 	LocationSDK      *locationsdk.RuntimeBundle `json:"location_sdk,omitempty"`
@@ -217,6 +222,10 @@ type Compiled struct {
 
 	// Dome-system vending terminals (demo-hub v12-vending, world.vending); nil in worlds without them.
 	Vending *VendingCatalog `json:"vending,omitempty"`
+	// Craft places of the hub islands (demo-hub v16-goods, world.market_goods); nil in worlds without them.
+	Craft *CraftCatalog `json:"craft,omitempty"`
+	// Crafting stage 1 (doc 93, world.crafting): the engine catalog completed from the compiled world; nil without it.
+	Crafting *craftingRuntime.Model `json:"crafting,omitempty"`
 }
 
 func (c Config) validate() error {
@@ -304,9 +313,31 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 			return out, nil, err
 		}
 	}
- if combat := world.LookupPath(cue.ParsePath("combat_life")); combat.Exists(){
- out.CombatLife,err=combat.MarshalJSON();if err!=nil{return out,nil,err}
- }
+	if combat := world.LookupPath(cue.ParsePath("combat_life")); combat.Exists() {
+		out.CombatLife, err = combat.MarshalJSON()
+		if err != nil {
+			return out, nil, err
+		}
+	}
+
+	if scenes := world.LookupPath(cue.ParsePath("playable_scenes")); scenes.Exists() {
+		out.PlayableScenes, err = scenes.MarshalJSON()
+		if err != nil {
+			return out, nil, err
+		}
+	}
+	if light := world.LookupPath(cue.ParsePath("illumination_runtime")); light.Exists() {
+		out.Illumination, err = light.MarshalJSON()
+		if err != nil {
+			return out, nil, err
+		}
+	}
+	if stealth := world.LookupPath(cue.ParsePath("stealth_runtime")); stealth.Exists() {
+		out.Stealth, err = stealth.MarshalJSON()
+		if err != nil {
+			return out, nil, err
+		}
+	}
 
 	if life := world.LookupPath(cue.ParsePath("life")); life.Exists() {
 		out.Life, err = life.MarshalJSON()
@@ -363,6 +394,13 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		}
 	}
 	if out.Vending, err = readVending(world); err != nil {
+		return out, nil, err
+	}
+	if out.Craft, err = readCraft(world); err != nil {
+		return out, nil, err
+	}
+	craftingIn, err := readCrafting(world)
+	if err != nil {
 		return out, nil, err
 	}
 	if text := world.LookupPath(cue.ParsePath("world_text")); text.Exists() {
@@ -647,6 +685,12 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if err := validateVending(out); err != nil {
 		return out, nil, err
 	}
+	if err := validateCraft(out); err != nil {
+		return out, nil, err
+	}
+	if err := applyCrafting(&out, craftingIn); err != nil {
+		return out, nil, err
+	}
 	if err := validateTransitFares(out); err != nil {
 		return out, nil, err
 	}
@@ -779,6 +823,19 @@ func Generate(project string) error {
 	for name, data := range clothingFiles {
 		files[filepath.Join(project, "internal/clothing", name)] = data
 	}
+	craftingFiles, err := crafting.RenderEngine()
+	if compiled.Crafting != nil {
+		var catalog []byte
+		if catalog, err = json.MarshalIndent(compiled.Crafting, "", "  "); err == nil {
+			craftingFiles, err = crafting.Render(catalog)
+		}
+	}
+	if err != nil {
+		return err
+	}
+	for name, data := range craftingFiles {
+		files[filepath.Join(project, "internal/crafting", name)] = data
+	}
 	inventoryFiles, err := inventory.Render()
 	if err != nil {
 		return err
@@ -845,11 +902,27 @@ func Generate(project string) error {
 		"inventory_test.go.tmpl":                filepath.Join(project, "internal/poc/inventory_generated_test.go"),
 		"reports.go.tmpl":                       filepath.Join(project, "internal/poc/reports.gen.go"),
 		"combat.go.tmpl":                        filepath.Join(project, "internal/poc/combat.gen.go"),
- "combat_inventory.go.tmpl": filepath.Join(project,"internal/poc/combat_inventory.gen.go"),
- "combat_collateral.go.tmpl": filepath.Join(project,"internal/poc/combat_collateral.gen.go"),
- "combat_life.go.tmpl": filepath.Join(project,"internal/poc/combat_life.gen.go"),
- "combat_life_test.go.tmpl": filepath.Join(project,"internal/poc/combat_life_generated_test.go"),
+		"combat_inventory.go.tmpl":              filepath.Join(project, "internal/poc/combat_inventory.gen.go"),
+		"combat_care.go.tmpl":                   filepath.Join(project, "internal/poc/combat_care.gen.go"),
+		"combat_care_test.go.tmpl":              filepath.Join(project, "internal/poc/combat_care_generated_test.go"),
+		"combat_player_care.go.tmpl":            filepath.Join(project, "internal/poc/combat_player_care.gen.go"),
+		"combat_player_care_test.go.tmpl":       filepath.Join(project, "internal/poc/combat_player_care_generated_test.go"),
+		"combat_projection_test.go.tmpl":        filepath.Join(project, "internal/poc/combat_projection_generated_test.go"),
+		"combat_projection.go.tmpl":             filepath.Join(project, "internal/poc/combat_projection.gen.go"),
+		"combat_collateral.go.tmpl":             filepath.Join(project, "internal/poc/combat_collateral.gen.go"),
+		"playable_scene.go.tmpl":                filepath.Join(project, "internal/poc/playable_scene.gen.go"),
+		"playable_scene_test.go.tmpl":           filepath.Join(project, "internal/poc/playable_scene_generated_test.go"),
+		"playable_scene_fixture.cs.tmpl":        filepath.Join(unity, "Assets/Generated/Poc/PocSceneFixture.cs"),
+		"playable_scene.cs.tmpl":                filepath.Join(unity, "Assets/Generated/Poc/PocPlayableScene.cs"),
+		"illumination.go.tmpl":                  filepath.Join(project, "internal/poc/illumination.gen.go"),
+		"illumination_stealth_test.go.tmpl":     filepath.Join(project, "internal/poc/illumination_stealth_generated_test.go"),
+		"illumination_test.go.tmpl":             filepath.Join(project, "internal/poc/illumination_generated_test.go"),
+		"stealth.go.tmpl":                       filepath.Join(project, "internal/poc/stealth.gen.go"),
+		"stealth_test.go.tmpl":                  filepath.Join(project, "internal/poc/stealth_generated_test.go"),
+		"combat_life.go.tmpl":                   filepath.Join(project, "internal/poc/combat_life.gen.go"),
+		"combat_life_test.go.tmpl":              filepath.Join(project, "internal/poc/combat_life_generated_test.go"),
 		"combat_resources_test.go.tmpl":         filepath.Join(project, "internal/poc/combat_resources_generated_test.go"),
+		"combat_inventory_test.go.tmpl":         filepath.Join(project, "internal/poc/combat_inventory_generated_test.go"),
 		"combat_test.go.tmpl":                   filepath.Join(project, "internal/poc/combat_generated_test.go"),
 		"combat.cs.tmpl":                        filepath.Join(unity, "Assets/Generated/Poc/PocCombat.cs"),
 		"tactics.go.tmpl":                       filepath.Join(project, "internal/poc/tactics.gen.go"),
@@ -872,6 +945,20 @@ func Generate(project string) error {
 		"vending.go.tmpl":                       filepath.Join(project, "internal/poc/vending.gen.go"),
 		"vending_test.go.tmpl":                  filepath.Join(project, "internal/poc/vending_generated_test.go"),
 		"vending.cs.tmpl":                       filepath.Join(unity, "Assets/Generated/Poc/PocVending.cs"),
+		"craft.go.tmpl":                         filepath.Join(project, "internal/poc/craft.gen.go"),
+		"craft.cs.tmpl":                         filepath.Join(unity, "Assets/Generated/Poc/PocCraft.cs"),
+		"crafting.go.tmpl":                      filepath.Join(project, "internal/poc/crafting.gen.go"),
+		"crafting_test.go.tmpl":                 filepath.Join(project, "internal/poc/crafting_generated_test.go"),
+		"crafting.cs.tmpl":                      filepath.Join(unity, "Assets/Generated/Poc/PocCrafting.cs"),
+		"crafting_commands.go.tmpl":             filepath.Join(project, "internal/poc/crafting_commands.gen.go"),
+		"crafting_time.go.tmpl":                 filepath.Join(project, "internal/poc/crafting_time.gen.go"),
+		"crafting_view.go.tmpl":                 filepath.Join(project, "internal/poc/crafting_view.gen.go"),
+		"crafting_sources.go.tmpl":              filepath.Join(project, "internal/poc/crafting_sources.gen.go"),
+		"crafting_sources_view.go.tmpl":         filepath.Join(project, "internal/poc/crafting_sources_view.gen.go"),
+		"crafting_law.go.tmpl":                  filepath.Join(project, "internal/poc/crafting_law.gen.go"),
+		"crafting_market.go.tmpl":               filepath.Join(project, "internal/poc/crafting_market.gen.go"),
+		"crafting_sources_test.go.tmpl":         filepath.Join(project, "internal/poc/crafting_sources_generated_test.go"),
+		"crafting_law_test.go.tmpl":             filepath.Join(project, "internal/poc/crafting_law_generated_test.go"),
 		"gates_test.go.tmpl":                    filepath.Join(project, "internal/poc/gates_generated_test.go"),
 		"location_sdk_gates.cs.tmpl":            filepath.Join(unity, "Assets/Generated/Poc/PocLocationSDKGates.cs"),
 		"location_sdk_test.go.tmpl":             filepath.Join(project, "internal/poc/location_sdk_generated_test.go"),
@@ -910,6 +997,7 @@ func Generate(project string) error {
 		"urp_editor.cs.tmpl":                    filepath.Join(unity, "Assets/Generated/Poc/Editor/PocURPSetup.cs"),
 		"location_sdk_diagnostic.shader.tmpl":   filepath.Join(unity, "Assets/Resources/LocationSDK/SDKDiagnostic.shader"),
 		"location_sdk_glass.shader.tmpl":        filepath.Join(unity, "Assets/Resources/LocationSDK/SDKGlass.shader"),
+		"location_sdk_dither.shader.tmpl":       filepath.Join(unity, "Assets/Resources/LocationSDK/SDKInstanceDither.shader"),
 		"world_text.cs.tmpl":                    filepath.Join(unity, "Assets/Generated/Poc/PocWorldText.cs"),
 		"world_text.shader.tmpl":                filepath.Join(unity, "Assets/Resources/LocationSDK/SDKWorldText.shader"),
 		"location_sdk_multideck.cs.tmpl":        filepath.Join(unity, "Assets/Generated/Poc/PocLocationSDKMultideck.cs"),

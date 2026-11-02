@@ -27,7 +27,7 @@ namespace AngelsDemons.Poc
     [Serializable] public sealed class PocLoadingScreen { public string id, image, context; }
     [Serializable] public sealed class PocLoading { public string caption; public int min_ms; public PocLoadingScreen[] screens; }
     [Serializable] public sealed class PocMenu { public string background; }
-    [Serializable] public sealed class PocResource { public PocModularLocation[] modular_locations; public PocLocationSDKBundle location_sdk; public PocWorldText world_text; public PocLocalization localization; public PocConfiguration config; public string content_hash; public PocArt art; public PocLoading loading; public PocMenu menu; public PocSpatialModel spatial; public PocVendingConfig vending; }
+    [Serializable] public sealed class PocResource { public PocPlayablePreset[] playable_scenes; public PocModularLocation[] modular_locations; public PocLocationSDKBundle location_sdk; public PocWorldText world_text; public PocLocalization localization; public PocConfiguration config; public string content_hash; public PocArt art; public PocLoading loading; public PocMenu menu; public PocSpatialModel spatial; public PocVendingConfig vending; public PocCraftConfig craft; }
     [Serializable] public sealed class HostReady { public string address, host_id; }
 
     public sealed partial class AngelsDemonsPoc : MonoBehaviour
@@ -211,6 +211,7 @@ namespace AngelsDemons.Poc
             var launchArgs=Environment.GetCommandLineArgs();
             int sdkLaunch=Array.IndexOf(launchArgs,"--poc-start-sdk");
             if(sdkLaunch>=0&&sdkLaunch+1<launchArgs.Length){startLocationSDK=launchArgs[sdkLaunch+1];startMarketPending=false;}
+            InitPlayableSceneLaunch();
             InitLocationSDKProof();
             InitMultideckProof();
             InitWayfindingProof();
@@ -336,6 +337,7 @@ namespace AngelsDemons.Poc
             if (!verify && !string.IsNullOrEmpty(startLocationSDK) && CanSend()) { string selected=startLocationSDK;startLocationSDK=null;NewGame(resource.config.seed,"sdk:"+selected); }
             if (!verify && startMarketPending && CanSend()) { startMarketPending=false; StartPlayableMarket(resource.config.seed); }
             if (!verify) AdvancePlayableMarket();
+            UpdatePlayableScene();
             if (!verify) AdvanceSpatialPreview();
             if (!verify) UpdateHudKeys();
             if (!verify && Input.GetKeyDown(KeyCode.Escape)) page = page == "game" ? "menu" : state != null && state.Active ? "game" : "menu";
@@ -503,8 +505,9 @@ namespace AngelsDemons.Poc
             GUI.matrix = Matrix4x4.TRS(new Vector3((Screen.width - 1280 * scale) / 2, (Screen.height - 800 * scale) / 2), Quaternion.identity, new Vector3(scale, scale, 1));
             Fill(new Rect(-1000, -1000, 4000, 3000), ink);
             if(page=="game"&&state!=null&&state.Active){
-                DrawGame();DrawGameHud();DrawWayfindingUI();DrawCombatUI();DrawVendingUI();GUI.matrix=Matrix4x4.identity;DrawLoading();return;
+                DrawGame();DrawGameHud();DrawWayfindingUI();DrawCombatUI();DrawVendingUI();DrawCraftingUI();DrawPlayableSceneUI();GUI.matrix=Matrix4x4.identity;DrawLoading();return;
             }
+            if(page=="crafting"&&state!=null&&state.Active){DrawGame();DrawGameHud();DrawCraftingPage();GUI.matrix=Matrix4x4.identity;DrawLoading();return;}
             if(page=="development"||page=="inventory"||page=="map"||page=="journal"){DrawHudPage();GUI.matrix=Matrix4x4.identity;DrawLoading();return;}
             DrawMenuBackground();
             Fill(new Rect(0, 0, 1280, 5), amber);
@@ -545,6 +548,7 @@ namespace AngelsDemons.Poc
             if (state != null && state.Active && Button(L("ui.menu.continue_game"), connected)) page = "game";
             if(state!=null&&state.Active&&Button(L("ui.menu.save_game"),connected)){saving=true;page="slots";session.SendListSaves(new PocListSavesRequest());}
             if (Button(L("ui.menu.new_game"), connected)) StartPlayableMarket(resource.config.seed);
+            if(resource.playable_scenes!=null)foreach(var preset in resource.playable_scenes)if(Button(L("ui.scene.stealth.start"),connected))StartPlayableScene(preset.id);
             if (Button(L("ui.menu.load_game"), connected)) { saving = false; page = "slots"; session.SendListSaves(new PocListSavesRequest()); }
             if (Button(L("ui.menu.options"))) page = "options";
             if (Button(L("ui.menu.quit"))) Quit();

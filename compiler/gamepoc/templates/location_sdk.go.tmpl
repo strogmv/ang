@@ -2,143 +2,277 @@
 package poc
 
 import (
- "angelsdemons/server/internal/behavior"
- inv "angelsdemons/server/internal/inventory"
- "errors"
- "fmt"
- "strings"
+	"angelsdemons/server/internal/behavior"
+	inv "angelsdemons/server/internal/inventory"
+	"errors"
+	"fmt"
+	"strings"
 )
 
 // Private host subset of ang.location-runtime.v1. Rendering fields remain in the
 // compiled resource; generated servers never import the authoring compiler.
 type sdkBundle struct {
- Schema string `json:"schema"`
- ContentHash string `json:"content_hash"`
- UnitMM int `json:"unit_mm"`
- CellMeters float64 `json:"cell_meters"`
- TickHz int `json:"tick_hz"`
- MoveEveryTicks int64 `json:"move_every_ticks"`
- MovementStepNS int64 `json:"movement_step_ns"`
- CollisionModel string `json:"collision_model"`
- PublicArchitecture bool `json:"public_architecture"`
- Levels []sdkLevel `json:"levels"`
+	Schema             string     `json:"schema"`
+	ContentHash        string     `json:"content_hash"`
+	UnitMM             int        `json:"unit_mm"`
+	CellMeters         float64    `json:"cell_meters"`
+	TickHz             int        `json:"tick_hz"`
+	MoveEveryTicks     int64      `json:"move_every_ticks"`
+	MovementStepNS     int64      `json:"movement_step_ns"`
+	CollisionModel     string     `json:"collision_model"`
+	PublicArchitecture bool       `json:"public_architecture"`
+	Levels             []sdkLevel `json:"levels"`
 }
 type sdkLevel struct {
- ID string `json:"id"`
- Scenario string `json:"scenario"`
- UnitMM int `json:"unit_mm"`
- CellMeters float64 `json:"cell_meters"`
- Seed int64 `json:"seed"`
- Width int `json:"width"`
- Depth int `json:"depth"`
- Spawn behavior.Cell `json:"spawn"`
- Terrain []string `json:"terrain"`
- WalkableGlyphs []string `json:"walkable_glyphs"`
- OpaqueGlyphs []string `json:"opaque_glyphs"`
- InitialLayoutKnown bool `json:"initial_layout_known"`
- MoveEveryTicks int64 `json:"move_every_ticks"`
- MovementStepNS int64 `json:"movement_step_ns"`
- // Multi-deck stands (document 80): the terrain above is the navigation plane.
- NavigationAuthored bool `json:"navigation_authored"`
- Navigation *behavior.DeckVolume `json:"navigation"`
- // Doc 85: calendar second of a new stand game and animated gates (the kernel
- // reads its own fields of the compiled record).
- StartSecond int64 `json:"start_second"`
- Gates []behavior.LifeGate `json:"gates"`
- Residents []sdkResident `json:"residents"`
+	ID                 string        `json:"id"`
+	Scenario           string        `json:"scenario"`
+	UnitMM             int           `json:"unit_mm"`
+	CellMeters         float64       `json:"cell_meters"`
+	Seed               int64         `json:"seed"`
+	Width              int           `json:"width"`
+	Depth              int           `json:"depth"`
+	Spawn              behavior.Cell `json:"spawn"`
+	Terrain            []string      `json:"terrain"`
+	WalkableGlyphs     []string      `json:"walkable_glyphs"`
+	OpaqueGlyphs       []string      `json:"opaque_glyphs"`
+	InitialLayoutKnown bool          `json:"initial_layout_known"`
+	MoveEveryTicks     int64         `json:"move_every_ticks"`
+	MovementStepNS     int64         `json:"movement_step_ns"`
+	// Multi-deck stands (document 80): the terrain above is the navigation plane.
+	NavigationAuthored bool                 `json:"navigation_authored"`
+	Navigation         *behavior.DeckVolume `json:"navigation"`
+	// Doc 85: calendar second of a new stand game and animated gates (the kernel
+	// reads its own fields of the compiled record).
+	StartSecond int64          `json:"start_second"`
+	Gates       []sdkLightGate `json:"gates"`
+	Residents   []sdkResident  `json:"residents"`
 }
+
 // Authored test-stand people: an ordinary Life routine on navigation cells.
-type sdkResident struct{ID string `json:"id"`;Name string `json:"name"`;Steps []sdkResidentStep `json:"steps"`}
-type sdkResidentStep struct{AtMinute int64 `json:"at_minute"`;Nav behavior.Cell `json:"nav"`;Activity string `json:"activity"`;Label string `json:"label"`;MinSeconds int64 `json:"min_seconds"`}
-
-func(r *Runtime)prepareLocationSDK()error {
- r.canonicalWorld=r.world
- r.sdkWorlds=map[string]worldData{}
- b:=r.world.LocationSDK
- if b.Schema==""&&len(b.Levels)==0{return nil}
- if b.Schema!="ang.location-runtime.v1"||b.ContentHash==""||b.UnitMM!=500||b.CellMeters!=.5||b.TickHz!=r.world.Config.TickHz||b.TickHz<1||b.TickHz>240||b.MoveEveryTicks<1||b.MoveEveryTicks>int64(^uint64(0)>>1)/(1000000000/int64(b.TickHz))||b.MovementStepNS!=b.MoveEveryTicks*(1000000000/int64(b.TickHz))||b.CollisionModel!="cardinal_cell_occupancy"||!b.PublicArchitecture||len(b.Levels)==0||len(b.Levels)>256{return errors.New("invalid SDK runtime bundle")}
- for _,l:=range b.Levels {
-  if l.ID==""||strings.TrimSpace(l.ID)!=l.ID||len(l.ID)>128||l.Scenario!="sdk:"+l.ID||l.UnitMM!=b.UnitMM||l.CellMeters!=b.CellMeters||l.Width<1||l.Depth<1||len(l.Terrain)!=l.Depth||l.MoveEveryTicks!=b.MoveEveryTicks||l.MovementStepNS!=b.MovementStepNS||!l.InitialLayoutKnown||len(l.WalkableGlyphs)!=1||l.WalkableGlyphs[0]!="."||len(l.OpaqueGlyphs)!=2||l.OpaqueGlyphs[0]!="#"||l.OpaqueGlyphs[1]!=" "{return fmt.Errorf("invalid SDK level %q",l.ID)}
-  if _,exists:=r.sdkWorlds[l.ID];exists{return fmt.Errorf("duplicate SDK level %q",l.ID)}
-  if _,exists:=r.canonicalWorld.Life.Locations[l.ID];exists||l.ID==r.canonicalWorld.Config.LevelID{return fmt.Errorf("SDK level %q collides with ordinary world",l.ID)}
-  for _,row:=range l.Terrain {if len(row)!=l.Width{return fmt.Errorf("uneven SDK level %q",l.ID)};for _,glyph:=range row{if glyph!='.'&&glyph!='#'&&glyph!=' '&&glyph!='+'{return fmt.Errorf("invalid SDK terrain %q",l.ID)}}}
-  walks:=map[string]bool{".":true}
-  if l.StartSecond<0||l.StartSecond>=86400{return fmt.Errorf("SDK level %q start second",l.ID)}
-  place:=behavior.LifeLocation{Name:l.ID,Terrain:append([]string(nil),l.Terrain...),InitialLayoutKnown:true,Gates:append([]behavior.LifeGate(nil),l.Gates...)}
-  var decks *behavior.DeckVolume
-  if l.NavigationAuthored!=(l.Navigation!=nil){return fmt.Errorf("SDK level %q navigation marker",l.ID)}
-  if l.Navigation!=nil{
-   volume:=*l.Navigation
-   if volume.NavWidth!=l.Width||volume.NavDepth!=l.Depth{return fmt.Errorf("SDK level %q navigation plane differs from terrain",l.ID)}
-   if err:=volume.Prepare();err!=nil{return fmt.Errorf("SDK level %q: %w",l.ID,err)}
-   place.Links=append([]behavior.LifeLink(nil),volume.Links...);place.PlayerRangeCells=volume.SightRangeCells;decks=&volume
-  }
-  actors:=[]behavior.LifePerson{{ID:playerActorID,Name:playerActorID,Source:"location_sdk",Steps:[]behavior.LifeStep{{Level:l.ID,At:l.Spawn,Activity:"rest"}}}}
-  for _,resident:=range l.Residents{
-   if resident.ID==playerActorID||resident.ID==""||len(resident.Steps)==0{return fmt.Errorf("SDK level %q resident",l.ID)}
-   person:=behavior.LifePerson{ID:resident.ID,Name:resident.Name,Source:"location_sdk"}
-   for _,step:=range resident.Steps{person.Steps=append(person.Steps,behavior.LifeStep{AtMinute:step.AtMinute,Level:l.ID,At:step.Nav,Activity:step.Activity,Label:step.Label,MinSeconds:step.MinSeconds})}
-   actors=append(actors,person)
-  }
-  life:=behavior.LifeModel{StartSeconds:l.StartSecond,SecondsPerTick:1,MoveTicks:l.MoveEveryTicks,Walkable:walks,Locations:map[string]behavior.LifeLocation{l.ID:place},Actors:actors}
-  if err:=life.Validate();err!=nil{return fmt.Errorf("SDK level %s: %w",l.ID,err)}
-  // Only an empty inventory registry for this one actor/level. No copied item,
-  // account, store, entitlement, maintenance asset or private district catalog.
-  inventory:=inv.Model{Version:1,MaxDepth:1,MaxItems:1,Reservation:inv.ReservationPolicy{MaxTicks:1,MaxPerActor:1,MaxTotal:1},Actors:map[string]bool{playerActorID:true},Levels:map[string]inv.Cell{l.ID:{X:l.Width,Y:l.Depth}}}
-  if _,err:=inv.New(inventory,l.Seed);err!=nil{return fmt.Errorf("SDK inventory %s: %w",l.ID,err)}
-  cfg:=r.world.Config;cfg.LevelID=l.ID;cfg.Seed=l.Seed;cfg.DebugPerception=false;cfg.MoveEveryTicks=l.MoveEveryTicks;cfg.CaptureDemo=demoPolicy{}
-  var volumes map[string]*behavior.DeckVolume;if decks!=nil{volumes=map[string]*behavior.DeckVolume{l.ID:decks}}
-  r.sdkWorlds[l.ID]=worldData{Decks:volumes,Config:cfg,ContentHash:r.world.ContentHash,Localization:r.world.Localization,Life:life,Inventory:inventory,Terrain:life.Locations[l.ID].Terrain,Walkable:walks,Opaque:map[string]bool{"#":true," ":true},MoveCost:map[string]int{".":1},Spawn:location(l.Spawn),Visibility:r.world.Visibility}
- }
- // Story locations bound to a multi-deck layout (doc 80, demo-hub) see in 3D exactly as its SDK stand: the Life terrain
- // and links already are its navigation plane (compileModularLocations); the volume adds slabs, solids and stair heights.
- for _,binding:=range r.world.ModularLocations{
-  for _,l:=range b.Levels{
-   if l.ID!=binding.LayoutID||l.Navigation==nil{continue}
-   loc,ok:=r.world.Life.Locations[binding.LevelID]
-   if !ok||len(loc.Terrain)!=l.Depth||len(loc.Links)!=len(l.Navigation.Links){return fmt.Errorf("story level %q differs from multi-deck layout %q",binding.LevelID,l.ID)}
-   volume:=*l.Navigation
-   if volume.NavWidth!=l.Width||volume.NavDepth!=l.Depth{return fmt.Errorf("SDK level %q navigation plane differs from terrain",l.ID)}
-   if err:=volume.Prepare();err!=nil{return fmt.Errorf("story level %q: %w",binding.LevelID,err)}
-   if r.world.Decks==nil{r.world.Decks=map[string]*behavior.DeckVolume{}}
-   r.world.Decks[binding.LevelID]=&volume
-  }
- }
- r.canonicalWorld.Decks=r.world.Decks
- // Movement v2: the hero body reads stair nodes and links of the same volumes.
- r.world.Life.Decks=r.world.Decks;r.canonicalWorld.Life.Decks=r.world.Decks
- return nil
+type sdkResident struct {
+	ID    string            `json:"id"`
+	Name  string            `json:"name"`
+	Steps []sdkResidentStep `json:"steps"`
+}
+type sdkResidentStep struct {
+	AtMinute   int64         `json:"at_minute"`
+	Nav        behavior.Cell `json:"nav"`
+	Activity   string        `json:"activity"`
+	Label      string        `json:"label"`
+	MinSeconds int64         `json:"min_seconds"`
 }
 
-func(r *Runtime)newGameWorld(scenario string)(worldData,string,error) {
- if strings.HasPrefix(strings.ToLower(strings.TrimSpace(scenario)),"sdk") {
-  if scenario!=strings.TrimSpace(scenario)||!strings.HasPrefix(scenario,"sdk:"){return worldData{},"",errors.New("invalid SDK scenario")}
-  id:=strings.TrimPrefix(scenario,"sdk:");world,ok:=r.sdkWorlds[id]
-  if !ok{return worldData{},"",errors.New("unknown SDK layout")}
-  return world,id,nil
- }
- return r.canonicalWorld,"",nil
+func (r *Runtime) prepareLocationSDK() error {
+	r.canonicalWorld = r.world
+	r.sdkWorlds = map[string]worldData{}
+	b := r.world.LocationSDK
+	if b.Schema == "" && len(b.Levels) == 0 {
+		return nil
+	}
+	if b.Schema != "ang.location-runtime.v1" || b.ContentHash == "" || b.UnitMM != 500 || b.CellMeters != .5 || b.TickHz != r.world.Config.TickHz || b.TickHz < 1 || b.TickHz > 240 || b.MoveEveryTicks < 1 || b.MoveEveryTicks > int64(^uint64(0)>>1)/(1000000000/int64(b.TickHz)) || b.MovementStepNS != b.MoveEveryTicks*(1000000000/int64(b.TickHz)) || b.CollisionModel != "cardinal_cell_occupancy" || !b.PublicArchitecture || len(b.Levels) == 0 || len(b.Levels) > 256 {
+		return errors.New("invalid SDK runtime bundle")
+	}
+	for _, l := range b.Levels {
+		if l.ID == "" || strings.TrimSpace(l.ID) != l.ID || len(l.ID) > 128 || l.Scenario != "sdk:"+l.ID || l.UnitMM != b.UnitMM || l.CellMeters != b.CellMeters || l.Width < 1 || l.Depth < 1 || len(l.Terrain) != l.Depth || l.MoveEveryTicks != b.MoveEveryTicks || l.MovementStepNS != b.MovementStepNS || !l.InitialLayoutKnown || len(l.WalkableGlyphs) != 1 || l.WalkableGlyphs[0] != "." || len(l.OpaqueGlyphs) != 2 || l.OpaqueGlyphs[0] != "#" || l.OpaqueGlyphs[1] != " " {
+			return fmt.Errorf("invalid SDK level %q", l.ID)
+		}
+		if _, exists := r.sdkWorlds[l.ID]; exists {
+			return fmt.Errorf("duplicate SDK level %q", l.ID)
+		}
+		if _, exists := r.canonicalWorld.Life.Locations[l.ID]; exists || l.ID == r.canonicalWorld.Config.LevelID {
+			return fmt.Errorf("SDK level %q collides with ordinary world", l.ID)
+		}
+		for _, row := range l.Terrain {
+			if len(row) != l.Width {
+				return fmt.Errorf("uneven SDK level %q", l.ID)
+			}
+			for _, glyph := range row {
+				if glyph != '.' && glyph != '#' && glyph != ' ' && glyph != '+' {
+					return fmt.Errorf("invalid SDK terrain %q", l.ID)
+				}
+			}
+		}
+		walks := map[string]bool{".": true}
+		if l.StartSecond < 0 || l.StartSecond >= 86400 {
+			return fmt.Errorf("SDK level %q start second", l.ID)
+		}
+		place := behavior.LifeLocation{Name: l.ID, Terrain: append([]string(nil), l.Terrain...), InitialLayoutKnown: true, Gates: l.lifeGates()}
+		var decks *behavior.DeckVolume
+		if l.NavigationAuthored != (l.Navigation != nil) {
+			return fmt.Errorf("SDK level %q navigation marker", l.ID)
+		}
+		if l.Navigation != nil {
+			volume := *l.Navigation
+			if volume.NavWidth != l.Width || volume.NavDepth != l.Depth {
+				return fmt.Errorf("SDK level %q navigation plane differs from terrain", l.ID)
+			}
+			if err := volume.Prepare(); err != nil {
+				return fmt.Errorf("SDK level %q: %w", l.ID, err)
+			}
+			place.Links = append([]behavior.LifeLink(nil), volume.Links...)
+			place.PlayerRangeCells = volume.SightRangeCells
+			decks = &volume
+		}
+		actors := []behavior.LifePerson{{ID: playerActorID, Name: playerActorID, Source: "location_sdk", Steps: []behavior.LifeStep{{Level: l.ID, At: l.Spawn, Activity: "rest"}}}}
+		for _, resident := range l.Residents {
+			if resident.ID == playerActorID || resident.ID == "" || len(resident.Steps) == 0 {
+				return fmt.Errorf("SDK level %q resident", l.ID)
+			}
+			person := behavior.LifePerson{ID: resident.ID, Name: resident.Name, Source: "location_sdk"}
+			for _, step := range resident.Steps {
+				person.Steps = append(person.Steps, behavior.LifeStep{AtMinute: step.AtMinute, Level: l.ID, At: step.Nav, Activity: step.Activity, Label: step.Label, MinSeconds: step.MinSeconds})
+			}
+			actors = append(actors, person)
+		}
+		life := behavior.LifeModel{StartSeconds: l.StartSecond, SecondsPerTick: 1, MoveTicks: l.MoveEveryTicks, Walkable: walks, Locations: map[string]behavior.LifeLocation{l.ID: place}, Actors: actors}
+		if err := life.Validate(); err != nil {
+			return fmt.Errorf("SDK level %s: %w", l.ID, err)
+		}
+		// Only an empty inventory registry for this one actor/level. No copied item,
+		// account, store, entitlement, maintenance asset or private district catalog.
+		inventory := inv.Model{Version: 1, MaxDepth: 1, MaxItems: 1, Reservation: inv.ReservationPolicy{MaxTicks: 1, MaxPerActor: 1, MaxTotal: 1}, Actors: map[string]bool{playerActorID: true}, Levels: map[string]inv.Cell{l.ID: {X: l.Width, Y: l.Depth}}}
+		if _, err := inv.New(inventory, l.Seed); err != nil {
+			return fmt.Errorf("SDK inventory %s: %w", l.ID, err)
+		}
+		cfg := r.world.Config
+		cfg.LevelID = l.ID
+		cfg.Seed = l.Seed
+		cfg.DebugPerception = false
+		cfg.MoveEveryTicks = l.MoveEveryTicks
+		cfg.CaptureDemo = demoPolicy{}
+		var volumes map[string]*behavior.DeckVolume
+		if decks != nil {
+			volumes = map[string]*behavior.DeckVolume{l.ID: decks}
+		}
+		r.sdkWorlds[l.ID] = worldData{Decks: volumes, Config: cfg, ContentHash: r.world.ContentHash, Localization: r.world.Localization, Life: life, Inventory: inventory, Terrain: life.Locations[l.ID].Terrain, Walkable: walks, Opaque: map[string]bool{"#": true, " ": true}, MoveCost: map[string]int{".": 1}, Spawn: location(l.Spawn), Visibility: r.world.Visibility}
+	}
+	// Story locations bound to a multi-deck layout (doc 80, demo-hub) see in 3D exactly as its SDK stand: the Life terrain
+	// and links already are its navigation plane (compileModularLocations); the volume adds slabs, solids and stair heights.
+	for _, binding := range r.world.ModularLocations {
+		for _, l := range b.Levels {
+			if l.ID != binding.LayoutID || l.Navigation == nil {
+				continue
+			}
+			loc, ok := r.world.Life.Locations[binding.LevelID]
+			if !ok || len(loc.Terrain) != l.Depth || len(loc.Links) != len(l.Navigation.Links) {
+				return fmt.Errorf("story level %q differs from multi-deck layout %q", binding.LevelID, l.ID)
+			}
+			volume := *l.Navigation
+			if volume.NavWidth != l.Width || volume.NavDepth != l.Depth {
+				return fmt.Errorf("SDK level %q navigation plane differs from terrain", l.ID)
+			}
+			if err := volume.Prepare(); err != nil {
+				return fmt.Errorf("story level %q: %w", binding.LevelID, err)
+			}
+			if r.world.Decks == nil {
+				r.world.Decks = map[string]*behavior.DeckVolume{}
+			}
+			r.world.Decks[binding.LevelID] = &volume
+		}
+	}
+	r.canonicalWorld.Decks = r.world.Decks
+	// Movement v2: the hero body reads stair nodes and links of the same volumes.
+	r.world.Life.Decks = r.world.Decks
+	r.canonicalWorld.Life.Decks = r.world.Decks
+	return nil
 }
-func(r *Runtime)savedWorld(layout string)(worldData,error) {
- if layout==""{return r.canonicalWorld,nil}
- world,ok:=r.sdkWorlds[layout];if !ok{return worldData{},errors.New("unknown saved SDK layout")};return world,nil
+
+func (r *Runtime) newGameWorld(scenario string) (worldData, string, error) {
+ if strings.HasPrefix(scenario,"life:"){for _,world:=range r.playableWorlds{if "life:"+world.PlayableID==scenario{return world,"",nil}};return worldData{},"",errors.New("unknown playable scene")}
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(scenario)), "sdk") {
+		if scenario != strings.TrimSpace(scenario) || !strings.HasPrefix(scenario, "sdk:") {
+			return worldData{}, "", errors.New("invalid SDK scenario")
+		}
+		id := strings.TrimPrefix(scenario, "sdk:")
+		world, ok := r.sdkWorlds[id]
+		if !ok {
+			return worldData{}, "", errors.New("unknown SDK layout")
+		}
+		return world, id, nil
+	}
+	return r.canonicalWorld, "", nil
 }
-func(r *Runtime)savedWorldRuntime(layout string)(*Runtime,error) {
- world,err:=r.savedWorld(layout);if err!=nil{return nil,err}
- // Preserve direct normal-world validation (including diagnostic fixtures).
- // The disk worker's own world is the immutable canonical world, never r.world.
- if layout==""&&r.state.SDKLayout==""{world=r.world}
- return &Runtime{world:world},nil
+func (r *Runtime) savedWorld(layout string) (worldData, error) {
+	if layout == "" {
+		return r.canonicalWorld, nil
+	}
+	world, ok := r.sdkWorlds[layout]
+	if !ok {
+		return worldData{}, errors.New("unknown saved SDK layout")
+	}
+	return world, nil
 }
-func(r *Runtime)storageRuntime()*Runtime {
- return &Runtime{data:r.data,world:r.canonicalWorld,canonicalWorld:r.canonicalWorld,sdkWorlds:r.sdkWorlds}
+func (r *Runtime) savedWorldRuntime(layout string) (*Runtime, error) {
+	world, err := r.savedWorld(layout)
+	if err != nil {
+		return nil, err
+	}
+	// Preserve direct normal-world validation (including diagnostic fixtures).
+	// The disk worker's own world is the immutable canonical world, never r.world.
+	if layout == "" && r.state.SDKLayout == "" && r.state.Playable.ID=="" {
+		world = r.world
+	}
+	return &Runtime{world: world}, nil
 }
-func(r *Runtime)validateSDKSave(s state)error {
- if s.SDKLayout==""{return nil}
- if !s.Life.Enabled||s.Demo.Enabled||len(s.Demo.Agents)>0||len(s.Demo.Residents)>0||s.Region.Initialized||len(s.Region.KnownNodes)>0||len(s.Region.KnownLinks)>0||len(s.Region.Visited)>0||len(s.Exploration)>0{return errors.New("SDK save contains foreign world state")}
- // Authored stand people are the only other actors; Life.Validate checks their IDs.
- // A disk-validation runtime carries only the saved SDK world itself.
- hero:=s.Life.Actor(playerActorID);world:=r.world;if w,ok:=r.sdkWorlds[s.SDKLayout];ok{world=w};people:=len(world.Life.Actors)
- if hero==nil||hero.Level!=s.SDKLayout||len(s.Life.Actors)!=people||s.Life.Population.Count!=0||len(s.Inventory.Items)>0||len(s.Inventory.Stores)>0||len(s.Inventory.Accounts)>0||len(s.Inventory.Entitlements)>0{return errors.New("SDK save contains foreign actors or inventory")}
- return nil
+func (r *Runtime) storageRuntime() *Runtime {
+	return &Runtime{data: r.data, world: r.canonicalWorld, canonicalWorld: r.canonicalWorld, sdkWorlds: r.sdkWorlds,playableWorlds:r.playableWorlds}
+}
+func (r *Runtime) validateSDKSave(s state) error {
+	if s.SDKLayout == "" {
+		return nil
+	}
+	if !s.Life.Enabled || s.Demo.Enabled || len(s.Demo.Agents) > 0 || len(s.Demo.Residents) > 0 || s.Region.Initialized || len(s.Region.KnownNodes) > 0 || len(s.Region.KnownLinks) > 0 || len(s.Region.Visited) > 0 || len(s.Exploration) > 0 {
+		return errors.New("SDK save contains foreign world state")
+	}
+	// Authored stand people are the only other actors; Life.Validate checks their IDs.
+	// A disk-validation runtime carries only the saved SDK world itself.
+	hero := s.Life.Actor(playerActorID)
+	world := r.world
+	if w, ok := r.sdkWorlds[s.SDKLayout]; ok {
+		world = w
+	}
+	people := len(world.Life.Actors)
+	if hero == nil || hero.Level != s.SDKLayout || len(s.Life.Actors) != people || s.Life.Population.Count != 0 || len(s.Inventory.Items) > 0 || len(s.Inventory.Stores) > 0 || len(s.Inventory.Accounts) > 0 || len(s.Inventory.Entitlements) > 0 {
+		return errors.New("SDK save contains foreign actors or inventory")
+	}
+	return nil
+}
+
+// Retain the existing kit's optical contract alongside the Life controller.
+// Movement still receives precisely its original LifeGate records.
+type sdkLightGate struct {
+	behavior.LifeGate
+	Leaves []struct {
+		Node     string `json:"node"`
+		TravelMM int    `json:"travel_mm"`
+	} `json:"leaves"`
+	Signals []struct {
+		BackupPower bool `json:"backup_power"`
+		Rules       []struct {
+			State        string `json:"state"`
+			Cause        string `json:"cause"`
+			Motion       string `json:"motion"`
+			Direction    int    `json:"direction"`
+			Pattern      string `json:"pattern"`
+			DutyPermille int    `json:"duty_permille"`
+		} `json:"rules"`
+	} `json:"signals"`
+}
+
+func (l sdkLevel) lifeGates() []behavior.LifeGate {
+	var out []behavior.LifeGate
+	for _, g := range l.Gates {
+		out = append(out, g.LifeGate)
+	}
+	return out
+}
+
+func(r *Runtime)savedWorldForState(s state)(worldData,error){
+ if s.Playable.ID==""{return r.savedWorld(s.SDKLayout)}
+ if s.SDKLayout!=""{return worldData{},errors.New("mixed scene and SDK save")}
+ w,ok:=r.playableWorlds[s.Playable.ID];if !ok{return worldData{},errors.New("unknown saved playable scene")};return w,nil
+}
+func(r *Runtime)savedWorldRuntimeForState(s state)(*Runtime,error){
+ if s.Playable.ID==""{return r.savedWorldRuntime(s.SDKLayout)}
+ w,err:=r.savedWorldForState(s);if err!=nil{return nil,err};return &Runtime{world:w},nil
 }

@@ -11,8 +11,11 @@ func TestTextSlotsValidateHostAreaLetteringAndText(t *testing.T) {
 	price := TextSlot{ID: "stall.price", Instance: "stall", CenterMM: PointMM{580, 2447, 1425}, Face: South, WidthMM: 720, HeightMM: 550, MarginMM: 40, Style: "chalk", Surface: "board", Ink: "#E8E3D3",
 		MinGlyphMM: 75, MaxLines: 4, Layout: "rows", PriceList: &TextPriceList{Store: "store/a", LineKey: "sign.hub.line", FooterKey: "sign.hub.footer", Currency: "CRD", Rows: []TextPriceRow{{Item: "item.a", NameKey: "sign.hub.a"}}}, Reason: "board"}
 	gate := TextSlot{ID: "gate.number", Instance: "stall", CenterMM: PointMM{0, 0, 9000}, Face: North, WidthMM: 600, HeightMM: 320, Style: "stencil", Surface: "steel", Ink: "#EFE6C8", MinGlyphMM: 200, MaxLines: 1, Layout: "rows", Key: "sign.hub.gate.number", Args: map[string]string{"number": "6"}, Reason: "gate"}
+	// demo-hub v15: a sign painted on its own steel plate clamped to a railing (plan slot, no host)
+	plate := TextSlot{ID: "G1.rail_sign", CenterMM: PointMM{14450, 8530, 3800}, Face: South, WidthMM: 1660, HeightMM: 620, MarginMM: 14, Style: "stencil", Surface: "steel", Ink: "#EDE6D2", MinGlyphMM: 120, MaxLines: 2, Layout: "rows",
+		Plate: &TextPlate{DepthMM: 8, RimMM: 20, Color: "#4A4E50"}, Key: "sign.hub.rail.tenant33", Reason: "rail sign"}
 	ok := base
-	ok.TextSlots = []TextSlot{good, price, gate}
+	ok.TextSlots = []TextSlot{good, price, gate, plate}
 	if err := validateTextSlots(ok); err != nil {
 		t.Fatal(err)
 	}
@@ -38,6 +41,15 @@ func TestTextSlotsValidateHostAreaLetteringAndText(t *testing.T) {
 		bad := base
 		s := good
 		change(&s)
+		bad.TextSlots = []TextSlot{s}
+		if validateTextSlots(bad) == nil {
+			t.Fatalf("%s accepted", name)
+		}
+	}
+	for name, pl := range map[string]*TextPlate{"plate too thin": {DepthMM: 1, Color: "#4A4E50"}, "plate colour": {DepthMM: 8, Color: "grey"}, "plate rim": {DepthMM: 8, RimMM: 500, Color: "#4A4E50"}} {
+		bad := base
+		s := plate
+		s.Plate = pl
 		bad.TextSlots = []TextSlot{s}
 		if validateTextSlots(bad) == nil {
 			t.Fatalf("%s accepted", name)

@@ -36,6 +36,7 @@ func (r *Runtime) initLifeState(life behavior.LifeState) {
 	r.initLifeInventory()
 	r.initNPCEconomy()
 	r.initVending()
+	r.initCrafting()
 	r.state.LifeExploration = map[string]map[int]seenCell{}
 	r.seedLifeKnownLayouts()
 	r.state.Demo = demoState{TargetAlive: true}
@@ -61,6 +62,7 @@ func (r *Runtime) seedLifeKnownLayouts() {
 		r.state.LifeExploration[id] = known
 	}
 }
+func(r *Runtime)lifeHeroMoveTicks()int64{n:=r.world.Life.MoveTicks;if h:=r.state.Life.Actor(playerActorID);h!=nil&&h.Sneaking{factor:=r.world.Life.HeroBody.SneakFactor;if factor==0{factor=.55};n=int64(float64(n)/factor+.999999)};return n}
 func (r *Runtime) syncLifeHero() {
 	a := r.state.Life.Actor(playerActorID)
 	if a == nil {
@@ -80,6 +82,7 @@ func (r *Runtime) lifeStep() error {
 	return r.completeHeroTravel()
 }
 func (r *Runtime) advanceLifeFrameBy(delta int64) error {
+ if err:=r.advancePlayableScene();err!=nil{return err}
 	r.state.Life.Seed = r.state.Seed
  r.combatLifeBeforeFrame()
 	defer r.state.Life.ObserveDecisions()
@@ -99,16 +102,21 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
 	if err := r.state.Life.AdvancePopulation(r.world.Life, playerActorID); err != nil {
 		return err
 	}
-	if err := r.advanceMarketSupply(); err != nil {
+	if err:=r.advanceCombatCare();err!=nil{return err}
+ if err := r.advanceMarketSupply(); err != nil {
 		return err
 	}
 	if err := r.advanceVending(); err != nil {
+		return err
+	}
+	if err := r.advanceCrafting(delta); err != nil {
 		return err
 	}
 	r.awardRepairPractice(previous)
 	r.advancePractice()
 	r.syncLifeHero()
 	r.syncRegionKnowledge()
+ if err:=r.advanceStealth();err!=nil{return err}
  if err:=r.combatLifeAfterFrame();err!=nil{return err}
  if r.state.Combat.Active&&!r.heroInCombat(){if err:=r.advanceCombatAI();err!=nil{return err}}
 	if old != r.currentLevel() {
@@ -173,7 +181,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 		return
 	}
 	terrain := v.world.Terrain
-	msg := &pb.PocGameState{Epoch: s.Epoch, Tick: s.Tick, GameSeconds: s.Life.Seconds, Seed: s.Seed, Paused: s.Paused, Speed: s.Speed, PlayerX: int32(s.Player.X), PlayerY: int32(s.Player.Y), PlayerName: s.PlayerName, Width: int32(len(terrain[0])), Height: int32(len(terrain)), Terrain: terrain, Active: s.Active, ContentHash: r.world.ContentHash, SimTimeNs: r.simNS(), MotionStartNs: s.MoveStartNS, MovementStepNs: r.lifeMotionDurationNS(r.world.Life.MoveTicks), LastMoveSeq: s.LastMoveSeq, ServerTickHz: r.tickHz, ServerStepUs: r.stepUS, ServerUptimeMs: time.Since(r.started).Milliseconds(), ServerLagMs: r.lagMS}
+	msg := &pb.PocGameState{Epoch: s.Epoch, Tick: s.Tick, GameSeconds: s.Life.Seconds, Seed: s.Seed, Paused: s.Paused, Speed: s.Speed, PlayerX: int32(s.Player.X), PlayerY: int32(s.Player.Y), PlayerName: s.PlayerName, Width: int32(len(terrain[0])), Height: int32(len(terrain)), Terrain: terrain, Active: s.Active, ContentHash: r.world.ContentHash, SimTimeNs: r.simNS(), MotionStartNs: s.MoveStartNS, MovementStepNs: r.lifeMotionDurationNS(r.lifeHeroMoveTicks()), LastMoveSeq: s.LastMoveSeq, ServerTickHz: r.tickHz, ServerStepUs: r.stepUS, ServerUptimeMs: time.Since(r.started).Milliseconds(), ServerLagMs: r.lagMS}
 	for _, at := range s.Path {
 		msg.Path = append(msg.Path, &pb.PocPoint{X: int32(at.X), Y: int32(at.Y)})
 	}
@@ -194,14 +202,16 @@ func (r *Runtime) sendLifeState(c *connection) {
 		if b, ok := activities[agent.ID]; ok {
 			r.setLifeActivity(a, b)
 		}
-		msg.SceneAgents = append(msg.SceneAgents, a)
+		if observer,known:=r.state.Stealth.Observers[agent.ID];known&&observer.Level==hero.Level{a.FaceX=observer.FaceX;a.FaceY=observer.FaceY}
+ msg.SceneAgents = append(msg.SceneAgents, a)
 	}
 	if v := r.deckVolume(); v != nil {
 		if d, ok := v.SurfaceIndex(hero.Position); ok {
 			msg.PlayerDeck = int32(d)
 		}
 	}
-	view := &pb.PocLifeView{Enabled: true, LevelId: hero.Level, LevelName: r.regionLevelName(c.locale, hero.Level), SecondsPerTick: int32(s.Life.SecondsPerTick), Activity: r.localActivity(c.locale, hero.Label), Transit: hero.Trip != nil, Automatic: !hero.Manual, WorkSeconds: hero.WorkedSeconds, SleepSeconds: hero.SleptSeconds, Meals: int32(hero.Meals)}
+	view := &pb.PocLifeView{Enabled: true, LevelId: hero.Level, LevelName: r.regionLevelName(c.locale, hero.Level), SecondsPerTick: int32(s.Life.SecondsPerTick), Activity: r.localActivity(c.locale, hero.Label), Sneaking:hero.Sneaking, Transit: hero.Trip != nil, Automatic: !hero.Manual, WorkSeconds: hero.WorkedSeconds, SleepSeconds: hero.SleptSeconds, Meals: int32(hero.Meals)}
+ r.appendIllumination(view,hero)
 	if hero.Trip != nil {
 		edge := r.world.Life.Edge(hero.Trip.Edge)
 		view.TripDestination = r.regionLevelName(c.locale, edge.To)
@@ -260,13 +270,16 @@ func (r *Runtime) sendLifeState(c *connection) {
 	r.appendCombat(msg)
 	r.appendInventory(msg, c.locale)
 	v.appendPerception(msg)
+ r.appendPlayableScene(view,hero,msg.PlayerView,c.locale)
 	r.appendStorefrontState(view, hero, msg.PlayerView)
 	r.appendVending(view, hero, msg.PlayerView, c.locale)
+	r.appendCraft(view, hero, msg.PlayerView)
 	r.appendGates(view, hero, msg.PlayerView)
 	r.appendLifeMaintenance(view, hero, msg.PlayerView)
 	r.appendLifeInspection(msg, v, hero, c.locale)
 	r.appendStorefrontInspection(msg, c.locale)
 	r.appendDevelopment(msg)
+	r.appendCrafting(msg, c.locale)
 	if !r.world.Config.DebugPerception {
 		markers := view.Markers
 		view.Markers = nil
@@ -311,6 +324,9 @@ func (r *Runtime) lifeCommand(q *pb.PocLifeCommand) error {
 		return textError{Key: "error.combat_actor_inactive"}
 	}
 	switch q.Action {
+ case "interact":return r.playableInteract(q.Destination)
+ case "illumination_power_off","illumination_power_on":return r.illuminationCommand(q.Action,q.Destination)
+ case "stealth":return r.stealthCommand(q.Destination)
 	case "route_preview", "route_clear", "route_go":
 		return r.wayfindingCommand(q.Action, q.Destination)
 	case "practice":
@@ -332,11 +348,13 @@ func (r *Runtime) lifeCommand(q *pb.PocLifeCommand) error {
 		}
 		return err
 	case "rate":
+ if hero.Sneaking&&q.SecondsPerTick>int32(r.world.Stealth.FrameSeconds){return textError{Key:"error.stealth.time"}}
 		if q.SecondsPerTick != 1 && q.SecondsPerTick != 10 && q.SecondsPerTick != 30 {
 			return errors.New("Неизвестный масштаб времени")
 		}
 		r.state.Life.SecondsPerTick = int64(q.SecondsPerTick)
 	case "auto":
+ hero.Sneaking=false
 		r.resetInstantTravel()
 		hero.AdmissionDeniedEdge = ""
 		hero.PendingPath = nil
@@ -463,7 +481,7 @@ func (r *Runtime) lifeMove(c *connection, m *pb.MoveTo) {
 			d, ok := v.SurfaceIndex(target)
 			deckOK = ok && int32(d) == m.Deck
 		}
-		if !deckOK || !r.lifeWalkToPoint(target, float64(m.XMm), float64(m.YMm), m.HasMm, m.Run, m.InputSeq) {
+		if !deckOK || !r.lifeWalkToPoint(target, float64(m.XMm), float64(m.YMm), m.HasMm, m.Run&&!hero.Sneaking, m.InputSeq) {
 			result.Reason = "Сюда нельзя пройти"
 		} else {
 			r.state.LastMoveSeq = m.InputSeq
@@ -786,6 +804,12 @@ func (r *Runtime) setLifeActivity(a *pb.PocAgentState, b lifeActivityBody) {
 			return
 		}
 	}
+	// demo-hub v14-traders: a seller who arrived on the own counter post stands facing the counter.
+	if x, ok := m.CounterPost(b.id, b.level, b.at); ok {
+		a.ActivityPhase = "post"
+		a.ActivitySpot = lifeSpotPB(x)
+		return
+	}
 	// demo-hub v11-text: a regular holding a seat as a routine post sits on it from the moment it arrived on the cell.
 	for _, p := range m.Places {
 		s := p.Seating
@@ -845,8 +869,8 @@ func (r *Runtime) heroBodyPB(h *behavior.LifeActor) *pb.PocHeroBody {
 	if m.Brain.Enabled {
 		per = r.state.Life.SecondsPerTick
 	}
-	walk := float64(cell) * float64(per) * 1e9 / float64(m.MoveTicks*r.tickNS())
-	out := &pb.PocHeroBody{XMm: b.X, YMm: b.Y, Layer: int32(b.Layer), SampleNs: r.simNS(), Mode: b.Mode, SteerX: b.DX, SteerY: b.DY, TargetXMm: b.TX, TargetYMm: b.TY, Run: b.Run, WalkMmPerS: walk, RunFactor: m.HeroBody.RunFactor, RadiusMm: m.HeroBody.RadiusMM, FollowStopMm: m.HeroBody.FollowStopMM, InputSeq: b.Seq, Moving: b.Moving, CellMm: int32(cell), FaceX: b.FX, FaceY: b.FY, WalkableGlyphs: r.walkableGlyphs()}
+	walk := float64(cell) * float64(per) * 1e9 / float64(m.MoveTicks*r.tickNS());if h.Sneaking{factor:=m.HeroBody.SneakFactor;if factor==0{factor=.55};walk*=factor}
+	out := &pb.PocHeroBody{XMm: b.X, YMm: b.Y, Layer: int32(b.Layer), SampleNs: r.simNS(), Mode: b.Mode, SteerX: b.DX, SteerY: b.DY, TargetXMm: b.TX, TargetYMm: b.TY, Run: b.Run, WalkMmPerS: walk, RunFactor: m.HeroBody.RunFactor, RadiusMm: m.HeroBody.RadiusMM, FollowStopMm: m.HeroBody.FollowStopMM, InputSeq: b.Seq, Moving: b.Moving, CellMm: int32(cell), FaceX: b.FX, FaceY: b.FY, Sneaking:h.Sneaking, WalkableGlyphs: r.walkableGlyphs()}
 	for _, w := range b.Route {
 		out.Route = append(out.Route, &pb.PocBodyPoint{XMm: w.X, YMm: w.Y, Layer: int32(w.Layer)})
 	}
@@ -885,7 +909,7 @@ func (r *Runtime) heroSteer(c *connection, m *pb.PocHeroSteer) {
 		hero.AdmissionDeniedEdge = ""
 		r.resetInstantTravel()
 		r.state.Life.EnsureHeroBody(model)
-		if err := r.state.Life.SteerHeroBody(model, m.Mode, m.X, m.Y, m.Run, m.InputSeq); err != nil {
+		if err := r.state.Life.SteerHeroBody(model, m.Mode, m.X, m.Y, m.Run&&!hero.Sneaking, m.InputSeq); err != nil {
 			result.Reason = err.Error()
 		} else {
 			result.Ok = true

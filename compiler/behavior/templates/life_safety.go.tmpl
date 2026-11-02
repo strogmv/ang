@@ -8,6 +8,7 @@ import "fmt"
 type LifeSafetyOverride struct {
 	Level       string `json:"level"`
 	Goal        Cell   `json:"goal"`
+	ThreatAt    Cell   `json:"threat_at"`
 	Until       int64  `json:"until"`
 	LabelKey    string `json:"label_key"`
 	Activity    string `json:"activity"`
@@ -31,9 +32,14 @@ func (s *LifeSafetyOverride) validate(m LifeModel, level string, seconds int64) 
 	}
 	return nil
 }
-func (s *LifeSafetyOverride) target(seconds int64) LifeStep {
+func (s *LifeSafetyOverride) target() LifeStep {
 	return LifeStep{Level: s.Level, At: s.Goal, Activity: s.Activity, Label: s.LabelKey}
 }
+
+// InterruptService stops a physical service when the host incapacitates its actor.
+// Needs, money, consumed resources and earned work remain intact.
+func (b *LifeBrain) InterruptService() { b.interruptService() }
+
 func (b *LifeBrain) interruptService() {
 	b.clearSeat()
 	b.Place = LifeAffordance{}

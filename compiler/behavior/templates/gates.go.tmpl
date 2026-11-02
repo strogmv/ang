@@ -28,6 +28,8 @@ type LifeGate struct{
  OpenSecond int64 `json:"open_second"`
  CloseSecond int64 `json:"close_second"`
  LockAtNight bool `json:"lock_at_night"`
+ // Manual placements stay down until an authorized host interaction requests opening.
+ Manual bool `json:"manual,omitempty"`
 }
 
 // LifeGateState is saved with Life. A travel segment is absolute: position at
@@ -54,6 +56,7 @@ type LifeGateState struct{
  // Latched inputs: alarm and loss of mains. Commands only set these.
  Lockdown bool `json:"lockdown,omitempty"`
  PowerLost bool `json:"power_lost,omitempty"`
+ RequestOpen bool `json:"request_open,omitempty"`
  Stops int64 `json:"stops,omitempty"`
 }
 
@@ -116,7 +119,7 @@ func(g *LifeGateState)descend(d LifeGate,cause string,pos,t int64){
 // bodies). A body found under a descending gate stops it at that moment; a
 // lowering never starts over a body. Raising never needs an empty opening.
 func(g *LifeGateState)advance(d LifeGate,now,seconds int64,present bool){
- t:=g.Updated;if t>now{t=now};night:=!d.ScheduledOpen(seconds)
+ t:=g.Updated;if t>now{t=now};night:=!d.ScheduledOpen(seconds);if d.Manual{night=!g.RequestOpen}
  for i:=0;i<64;i++{
   pos:=g.Position(t);lower:=g.lowerCause(night)
   switch g.State{
@@ -169,10 +172,11 @@ func(g *LifeGateState)advance(d LifeGate,now,seconds int64,present bool){
 }
 
 func(m LifeModel)gateLevels()[]string{ids:=[]string{};for id,l:=range m.Locations{if len(l.Gates)>0{ids=append(ids,id)}};sort.Strings(ids);return ids}
-// startGates: a gate starts raised inside its daily window, otherwise down.
+// startGates: scheduled gates start raised inside their daily window; manual
+// gates start down, locked when LockAtNight is true, with no opening request.
 func(m LifeModel)startGates(seconds,now int64)map[string]LifeGateState{
  var out map[string]LifeGateState
- for _,level:=range m.gateLevels(){for _,d:=range m.Locations[level].Gates{if out==nil{out=map[string]LifeGateState{}};g:=LifeGateState{};if d.ScheduledOpen(seconds){g.rest("open",GateFull,now)}else{g.rest(d.closedState(true),0,now)};g.Updated=now;out[d.ID]=g}}
+ for _,level:=range m.gateLevels(){for _,d:=range m.Locations[level].Gates{if out==nil{out=map[string]LifeGateState{}};g:=LifeGateState{};if !d.Manual&&d.ScheduledOpen(seconds){g.rest("open",GateFull,now)}else{g.rest(d.closedState(true),0,now)};g.Updated=now;out[d.ID]=g}}
  return out
 }
 // gatePresence: bodies standing in or stepping into the opening, named or crowd.
@@ -217,6 +221,9 @@ func(s LifeState)GateModel(m LifeModel)LifeModel{
 // warning; raising again needs both inputs clear (a hand winch is a later hook).
 func(s *LifeState)SetGateLockdown(m LifeModel,id string,on bool)error{g,ok:=s.Gates[id];if !ok||m.Gate(id)==nil{return fmt.Errorf("unknown gate %s",id)};g.Lockdown=on;s.Gates[id]=g;return nil}
 func(s *LifeState)SetGatePower(m LifeModel,id string,on bool)error{g,ok:=s.Gates[id];if !ok||m.Gate(id)==nil{return fmt.Errorf("unknown gate %s",id)};g.PowerLost=!on;s.Gates[id]=g;return nil}
+// SetGateRequest latches a manual demand; the next frame uses the same warning,
+// motion and obstruction rules as scheduled gates. The host authorizes access.
+func(s *LifeState)SetGateRequest(m LifeModel,id string,open bool)error{g,ok:=s.Gates[id];d:=m.Gate(id);if !ok||d==nil||!d.Manual{return fmt.Errorf("gate %s is not manual",id)};g.RequestOpen=open;s.Gates[id]=g;return nil}
 // Gate returns the definition of a gate and its level.
 func(m LifeModel)Gate(id string)*LifeGate{for _,level:=range m.gateLevels(){gates:=m.Locations[level].Gates;for i:=range gates{if gates[i].ID==id{return &gates[i]}}};return nil}
 func(m LifeModel)GateLevel(id string)string{for _,level:=range m.gateLevels(){for _,d:=range m.Locations[level].Gates{if d.ID==id{return level}}};return ""}
@@ -241,7 +248,7 @@ func(s LifeState)validateGates(m LifeModel,now int64)error{
  count:=0
  for _,level:=range m.gateLevels(){for _,d:=range m.Locations[level].Gates{count++
   g,ok:=s.Gates[d.ID];if !ok{return fmt.Errorf("missing gate state %s",d.ID)}
-  if !gateStates[g.State]||g.From<0||g.From>GateFull||g.To<0||g.To>GateFull||g.Duration<0||g.Start>now||g.Updated>now||g.Direction< -1||g.Direction>1||g.Stops<0||g.Ramp<0||2*g.Ramp>g.Duration||g.Linear&&g.Ramp!=0||(g.Cause!=""&&g.Cause!="schedule"&&g.Cause!="lockdown"&&g.Cause!="power"){return fmt.Errorf("invalid gate state %s",d.ID)}
+  if !gateStates[g.State]||g.From<0||g.From>GateFull||g.To<0||g.To>GateFull||g.Duration<0||g.Start>now||g.Updated>now||g.Direction< -1||g.Direction>1||g.Stops<0||g.Ramp<0||2*g.Ramp>g.Duration||g.Linear&&g.Ramp!=0||g.RequestOpen&&!d.Manual||(g.Cause!=""&&g.Cause!="schedule"&&g.Cause!="lockdown"&&g.Cause!="power"){return fmt.Errorf("invalid gate state %s",d.ID)}
   if (g.State=="open")!=(g.Position(g.Updated)>=GateFull&&g.Duration==0)&&g.State!="warning"&&g.State!="stopped"{return fmt.Errorf("gate %s open state differs from its lift",d.ID)}
   if !g.Passable(){cells:=map[Cell]bool{};for _,c:=range d.Opening{cells[c]=true};for _,a:=range s.Actors{if a.Level==level&&a.OnFloor()&&cells[a.Position]{return fmt.Errorf("actor %s under lowered gate %s",a.ID,d.ID)}}}
  }}

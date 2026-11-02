@@ -11,12 +11,13 @@ import (
 func(r *Runtime)advanceMarketSupply()error{
  if !r.state.Life.Enabled{return nil}
  poses:=map[string]inv.DeliveryPose{}
- for _,a:=range r.state.Life.Actors{poses[a.ID]=inv.DeliveryPose{Break:a.Brain.BreakKind!="",Level:a.Level,At:inv.Cell{X:a.Position.X,Y:a.Position.Y},Present:a.OnFloor()&&len(a.Path)==0}}
+ for _,a:=range r.state.Life.Actors{poses[a.ID]=inv.DeliveryPose{Break:a.Brain.BreakKind!="",Level:a.Level,At:inv.Cell{X:a.Position.X,Y:a.Position.Y},Present:a.OnFloor()&&len(a.Path)==0&&r.combatMerchantSafe(a.ID)}}
  if err:=r.state.Inventory.Advance(r.state.Tick);err!=nil{return err}
  return r.state.Inventory.AdvanceCommerce(r.inventoryModelFor(true),r.state.Life.Seconds,poses)
 }
 func(r *Runtime)commerceAccessible(actor string,location inv.Location)bool{
  if !r.state.Life.Enabled||location.Kind!="store"{return true}
+ for _,shop:=range r.world.Inventory.Shopfronts{if (shop.DisplayStore==location.Store||shop.ReserveStore==location.Store)&&!r.combatMerchantSafe(shop.Owner){return false}}
  return r.state.Inventory.ShopAccess(r.inventoryModelFor(true),actor,location.Store,r.state.Life.Seconds)
 }
 func(r *Runtime)validateCommerceSave(s state)error{
@@ -29,10 +30,17 @@ func(r *Runtime)appendStorefrontState(view *pb.PocLifeView,hero *behavior.LifeAc
  if hero==nil||!hero.OnFloor(){return}
  for _,shop:=range r.world.Inventory.Shopfronts{
   if hero.Level!=shop.Service.Level||!viewSees(perception,int32(shop.Service.At.X),int32(shop.Service.At.Y)){continue}
-  open,_:=r.state.Inventory.ShopStatus(shop)
-  merchant:=r.state.Life.Actor(shop.Owner)
-  open=open&&merchant!=nil&&merchant.OnFloor()&&len(merchant.Path)==0&&merchant.Level==shop.Service.Level&&merchant.Position.X==shop.Service.At.X&&merchant.Position.Y==shop.Service.At.Y
+  open:=r.storefrontOpen(shop.ID)
   stocked:=false;if open{for _,item:=range r.state.Inventory.Items{if item.Location.Kind=="store"&&item.Location.Store==shop.DisplayStore&&item.Quantity>0&&!item.Hidden{stocked=true;break}}}
   view.Storefronts=append(view.Storefronts,&pb.PocStorefrontState{Id:shop.ID,Open:open,Stocked:stocked})
  }
+}
+
+// Shared physical state for the public shop view and its lamps. A calendar
+// alone cannot open the shop while its proprietor is walking home.
+func(r *Runtime)storefrontOpen(id string)bool{
+ for _,shop:=range r.world.Inventory.Shopfronts{if shop.ID!=id{continue}
+  open,_:=r.state.Inventory.ShopStatus(shop);a:=r.state.Life.Actor(shop.Owner)
+  return open&&r.combatMerchantSafe(shop.Owner)&&a!=nil&&a.OnFloor()&&len(a.Path)==0&&a.Level==shop.Service.Level&&a.Position.X==shop.Service.At.X&&a.Position.Y==shop.Service.At.Y
+ };return false
 }

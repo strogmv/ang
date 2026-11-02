@@ -3,6 +3,15 @@ package behavior
 
 import "math"
 
+// Tactical physical rays do not inherit sight's "look at the near face"
+// exception: a hand, aimed body point or grenade cannot end inside a solid.
+func (v *DeckVolume) combatPhysicalClear(a Cell, za float64, b Cell, zb float64) bool {
+	if v.blocked(a.Y*v.PlanWidth+a.X, za-1, za+1) || v.blocked(b.Y*v.PlanWidth+b.X, zb-1, zb+1) {
+		return false
+	}
+	return v.clear(a, za, b, zb)
+}
+
 func combatBodyHeight(a Combatant, part string) int {
 	if a.Prone {
 		switch part {
@@ -56,7 +65,7 @@ func (v *DeckVolume) CombatPoseProtection(from, to Cell, shooter, target Combata
 	}
 	blocked := 0
 	for _, h := range heights {
-		if !v.clear(a, float64(ha+combatEyeHeight(shooter)), b, float64(hb+h)) {
+		if !v.combatPhysicalClear(a, float64(ha+combatEyeHeight(shooter)), b, float64(hb+h)) {
 			blocked++
 		}
 	}
@@ -107,7 +116,7 @@ func (v *DeckVolume) CombatThrowClear(from, to Cell) bool {
 		t := float64(i) / float64(steps)
 		at := Cell{int(math.Round(float64(a.X) + float64(b.X-a.X)*t)), int(math.Round(float64(a.Y) + float64(b.Y-a.Y)*t))}
 		height := float64(ha+1200) + (float64(hb+150)-float64(ha+1200))*t + 4*1500*t*(1-t)
-		if !v.clear(previous, previousZ, at, height) {
+		if !v.combatPhysicalClear(previous, previousZ, at, height) {
 			return false
 		}
 		previous, previousZ = at, height
@@ -122,7 +131,7 @@ func (v *DeckVolume) CombatBlastProtection(origin, target Cell) float64 {
 	}
 	blocked := 0
 	for _, h := range []int{300, 900, 1500} {
-		if !v.clear(a, float64(ha+150), b, float64(hb+h)) {
+		if !v.combatPhysicalClear(a, float64(ha+150), b, float64(hb+h)) {
 			blocked++
 		}
 	}
@@ -150,7 +159,7 @@ func (v *DeckVolume) CombatProtection(a, b Cell) float64 {
 	}
 	blocked := 0
 	for _, h := range []int{500, 1000, 1600} {
-		if !v.clear(pa, float64(ha+v.EyeMM), pb, float64(hb+h)) {
+		if !v.combatPhysicalClear(pa, float64(ha+v.EyeMM), pb, float64(hb+h)) {
 			blocked++
 		}
 	}

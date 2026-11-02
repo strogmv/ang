@@ -36,6 +36,7 @@ type CombatRules struct {
 	MoveWeight                 float64 `json:"move_weight"`
 	HealWeight                 float64 `json:"heal_weight"`
 	RetreatWeight              float64 `json:"retreat_weight"`
+	EquipAP                    int     `json:"equip_ap"`
 	GuardAP                    int     `json:"guard_ap"`
 	ProneAP                    int     `json:"prone_ap"`
 	BandageAP                  int     `json:"bandage_ap"`
@@ -67,6 +68,11 @@ type CombatWeapon struct {
 	BurstPenalty       int    `json:"burst_penalty,omitempty"`
 	Suppression        int    `json:"suppression,omitempty"`
 	Bleed              int    `json:"bleed,omitempty"`
+}
+type CombatEquipmentOption struct {
+	ID                               string
+	Weapon                           CombatWeapon
+	Ammo, ReserveAmmo, UsesRemaining int
 }
 type CombatExplosive struct {
 	ID          string `json:"id"`
@@ -196,8 +202,11 @@ type CombatSpace struct {
 	// cover with conservative pose multipliers, never inferred material armour.
 	Protection        func(from, to Cell, shooter, target Combatant, bodyPart string) float64
 	BodyIntersects    func(from, to Cell, shooter, target, bystander Combatant, part string) bool
+	PoseShotClear     func(from, to Cell, shooter, target Combatant, part string) bool
 	ThrowClear        func(Cell, Cell) bool
 	BlastProtection   func(Cell, Cell) float64
+	ArmorAfterDamage  func(target Combatant, blocked int, part string) CombatArmor
+	Equipment         func(actorID string) []CombatEquipmentOption
 	VisibleBystanders func(observer Combatant) []Cell
 }
 
@@ -234,6 +243,12 @@ func (s CombatSpace) shotClear(a, b Cell) bool {
 	}
 	return s.Space.Visible != nil && s.Space.Visible(a, b)
 }
+func (s CombatSpace) ballisticClear(from, to Cell, a, b Combatant, part string) bool {
+	if s.PoseShotClear != nil {
+		return s.PoseShotClear(from, to, a, b, part)
+	}
+	return s.shotClear(from, to)
+}
 func (s CombatSpace) cover(a, b Cell, crouched bool) float64 {
 	c := 0.0
 	if s.Cover != nil {
@@ -258,7 +273,7 @@ func (s CombatSpace) canCommunicate(a, b Combatant, r CombatRules) bool {
 	return s.rangeMM(a.Position, b.Position) <= r.ShareRangeMM && s.visible(a.Position, b.Position, r)
 }
 func (r CombatRules) Validate() error {
-	for _, n := range []int{r.GuardAP, r.ProneAP, r.BandageAP, r.ReactionAP} {
+	for _, n := range []int{r.EquipAP, r.GuardAP, r.ProneAP, r.BandageAP, r.ReactionAP} {
 		if n < 0 || n > 100 {
 			return errors.New("invalid tactical stance/aid/reaction cost")
 		}
@@ -353,6 +368,33 @@ func (s CombatState) Clone() CombatState {
 	s.Events = append([]CombatEvent(nil), s.Events...)
 	return s
 }
+
+// Validate checks an actor's durable resources/physiology independently of
+// any current location, turn cursor or historical contact positions.
+func (a Combatant) Validate(r CombatRules) error {
+	if err := r.Validate(); err != nil {
+		return err
+	}
+	if err := validateCombatantTactics(a, r); err != nil {
+		return err
+	}
+	if err := validateExplosiveStock(a); err != nil {
+		return err
+	}
+	if len(a.ID) > 256 || len(a.Team) > 256 || len(a.Weapon.ID) > 256 || a.MaxHP > 1000000 || a.Armor > 1000000 || a.Ammo > 1000000 || a.ReserveAmmo > 1000000 || a.Medkits > 10000 || a.Weapon.Damage > 1000000 || a.Weapon.RangeMM > 10000000 || a.Weapon.Magazine > 1000000 || a.Weapon.AttackAP > 100 || a.Initiative < -1000000 || a.Initiative > 1000000 {
+		return errors.New("combatant stat bounds exceeded")
+	}
+	if a.ID == "" || a.Team == "" || a.MaxHP < 1 || a.HP < 0 || a.HP > a.MaxHP || a.AP < 0 || a.AP > r.APPerTurn || a.Armor < 0 || a.Skill < 0 || a.Skill > 100 || a.Courage < 0 || a.Courage > 100 || a.Ammo < 0 || a.Ammo > a.Weapon.Magazine || a.ReserveAmmo < 0 || a.Medkits < 0 || a.Weapon.Damage < 0 || a.Weapon.RangeMM < 0 || a.Weapon.AttackAP < 0 || a.Weapon.Magazine < 0 {
+		return fmt.Errorf("invalid combatant %s", a.ID)
+	}
+	if a.Weapon.Damage > 0 && (a.Weapon.RangeMM < 1 || a.Weapon.AttackAP < 1) {
+		return fmt.Errorf("invalid combat weapon %s", a.ID)
+	}
+	if len(a.Contacts) > 512 {
+		return errors.New("combat contact capacity exceeded")
+	}
+	return nil
+}
 func (s CombatState) Validate(r CombatRules, space CombatSpace) error {
 	if err := r.Validate(); err != nil {
 		return err
@@ -363,26 +405,17 @@ func (s CombatState) Validate(r CombatRules, space CombatSpace) error {
 	ids := map[string]bool{}
 	cells := map[Cell]bool{}
 	for _, a := range s.Actors {
-		if err := validateCombatantTactics(a, r); err != nil {
+		if err := a.Validate(r); err != nil {
 			return err
 		}
-		if err := validateExplosiveStock(a); err != nil {
-			return err
-		}
-		if len(a.ID) > 256 || len(a.Team) > 256 || len(a.Weapon.ID) > 256 || a.MaxHP > 1000000 || a.Armor > 1000000 || a.Ammo > 1000000 || a.ReserveAmmo > 1000000 || a.Medkits > 10000 || a.Weapon.Damage > 1000000 || a.Weapon.RangeMM > 10000000 || a.Weapon.Magazine > 1000000 || a.Weapon.AttackAP > 100 || a.Initiative < -1000000 || a.Initiative > 1000000 {
-			return errors.New("combatant stat bounds exceeded")
-		}
-		if a.ID == "" || a.Team == "" || ids[a.ID] || a.MaxHP < 1 || a.HP < 0 || a.HP > a.MaxHP || a.AP < 0 || a.AP > r.APPerTurn || a.Armor < 0 || a.Skill < 0 || a.Skill > 100 || a.Courage < 0 || a.Courage > 100 || a.Ammo < 0 || a.Ammo > a.Weapon.Magazine || a.ReserveAmmo < 0 || a.Medkits < 0 || a.Weapon.Damage < 0 || a.Weapon.RangeMM < 0 || a.Weapon.AttackAP < 0 || a.Weapon.Magazine < 0 {
-			return fmt.Errorf("invalid combatant %s", a.ID)
+		if ids[a.ID] {
+			return fmt.Errorf("duplicate combatant %s", a.ID)
 		}
 		if !space.standable(a.Position) || cells[a.Position] {
 			return fmt.Errorf("invalid combat position %s", a.ID)
 		}
 		cells[a.Position] = true
 		ids[a.ID] = true
-		if a.Weapon.Damage > 0 && (a.Weapon.RangeMM < 1 || a.Weapon.AttackAP < 1) {
-			return fmt.Errorf("invalid combat weapon %s", a.ID)
-		}
 		if len(a.Contacts) > 512 {
 			return errors.New("combat contact capacity exceeded")
 		}
@@ -433,6 +466,18 @@ func combatContactNewer(c CombatContact, old *CombatContact) bool {
 	}
 	return c.Checked && (!old.Checked || c.CheckedTurn > old.CheckedTurn || c.CheckedAction > old.CheckedAction)
 }
+
+// A fresh personal LOS sample is not necessarily a new message for a teammate.
+// Keep observation freshness/provenance intact; only report usefulness is
+// deduplicated within one turn. A changed position/verdict or a later observed
+// turn remains useful, including negative evidence relayed by another actor.
+func combatReportUseful(c CombatContact, old *CombatContact) bool {
+	if !combatContactNewer(c, old) {
+		return false
+	}
+	return old == nil || c.ObservedTurn > old.ObservedTurn || c.Position != old.Position || c.Radius != old.Radius || c.Team != old.Team || c.ThreatDamage != old.ThreatDamage || c.ThreatRangeMM != old.ThreatRangeMM || c.Checked != old.Checked
+}
+
 func (s *CombatState) remember(a *Combatant, c CombatContact) {
 	if old := combatContact(a, c.SubjectID); old != nil {
 		if c.ObservedTurn < old.ObservedTurn || (c.ObservedTurn == old.ObservedTurn && c.ObservedAction < old.ObservedAction) {
@@ -451,6 +496,26 @@ func (s *CombatState) remember(a *Combatant, c CombatContact) {
 		a.Contacts = append(a.Contacts, c)
 	}
 	sort.Slice(a.Contacts, func(i, j int) bool { return a.Contacts[i].SubjectID < a.Contacts[j].SubjectID })
+}
+
+func combatAreaConfirmedEmpty(space CombatSpace, r CombatRules, observer Combatant, c CombatContact) bool {
+	checked := 0
+	for y := max(0, c.Position.Y-c.Radius); y <= min(space.Space.Height-1, c.Position.Y+c.Radius); y++ {
+		for x := max(0, c.Position.X-c.Radius); x <= min(space.Space.Width-1, c.Position.X+c.Radius); x++ {
+			at := Cell{x, y}
+			if !space.standable(at) {
+				continue
+			}
+			checked++
+			if checked > r.MaxSearchCells {
+				return false
+			}
+			if !space.ActorVisible(observer, Combatant{Position: at, Prone: true, HP: 1}, r) {
+				return false
+			}
+		}
+	}
+	return checked > 0
 }
 
 // Observe never copies unseen current coordinates into a contact. Empty last
@@ -482,7 +547,7 @@ func (s *CombatState) Observe(space CombatSpace, r CombatRules) {
 		}
 		for j := range a.Contacts {
 			c := &a.Contacts[j]
-			if !c.Visible && !c.Checked && space.visible(a.Position, c.Position, r) {
+			if !c.Visible && !c.Checked && combatAreaConfirmedEmpty(space, r, *a, *c) {
 				c.Checked = true
 				c.CheckedTurn, c.CheckedAction = s.Turn, s.ActionSeq
 			}
@@ -579,8 +644,14 @@ func (s *CombatState) nextTurn(r CombatRules) {
 	s.Winner = "draw"
 }
 func (s CombatState) occupied(at Cell, except string, space CombatSpace, r CombatRules, observer Cell, knownOnly bool) bool {
+	looker := s.Actor(except)
+	view := Combatant{Position: observer, HP: 1}
+	if looker != nil {
+		view = *looker
+		view.Position = observer
+	}
 	for _, a := range s.Actors {
-		if a.ID != except && a.Position == at && (!knownOnly || space.visible(observer, a.Position, r)) {
+		if a.ID != except && a.Position == at && (!knownOnly || space.ActorVisible(view, a, r)) {
 			return true
 		}
 	}
@@ -865,7 +936,7 @@ func (s CombatState) shotChance(space CombatSpace, r CombatRules, a, b Combatant
 	if q.Mode == "heavy" {
 		chance *= .85
 	}
-	if combatWeaponKind(a.Weapon) != "firearm" && b.Guarding && b.ReservedAP >= r.GuardAP && r.GuardAP > 0 && b.StunTurns == 0 && space.visible(b.Position, from, r) && (!b.WeaponUsesLimited || b.WeaponUsesRemaining > 0) {
+	if combatWeaponKind(a.Weapon) != "firearm" && b.Guarding && b.ReservedAP >= r.GuardAP && r.GuardAP > 0 && b.StunTurns == 0 && space.ActorVisible(b, Combatant{Position: from, Prone: a.Prone, Crouched: a.Crouched, HP: a.HP}, r) && (!b.WeaponUsesLimited || b.WeaponUsesRemaining > 0) {
 		chance *= 1 - float64(b.Weapon.ParryPercent)/100
 	}
 	return math.Max(r.MinHit, math.Min(r.MaxHit, chance))
@@ -879,7 +950,9 @@ func (s CombatState) canAttackAction(space CombatSpace, r CombatRules, a, b Comb
 		return q, false
 	}
 	c := combatContact(&a, b.ID)
-	valid := !a.Noncombatant && a.Able() && a.StunTurns == 0 && b.Able() && a.Team != b.Team && a.Weapon.Damage > 0 && ap >= q.Cost && c != nil && c.Visible && space.ActorVisible(Combatant{Position: from, Prone: a.Prone, Crouched: a.Crouched, HP: a.HP}, b, r) && space.rangeMM(from, b.Position) <= a.Weapon.RangeMM && space.protection(from, b.Position, a, b, q.BodyPart) < 1 && space.shotClear(from, b.Position) && !s.friendlyFire(space, r, from, a, b, planning, q.BodyPart)
+	observer := a
+	observer.Position = from
+	valid := !a.Noncombatant && a.Able() && a.StunTurns == 0 && b.Able() && a.Team != b.Team && a.Weapon.Damage > 0 && ap >= q.Cost && c != nil && c.Visible && space.ActorVisible(observer, b, r) && space.rangeMM(from, b.Position) <= a.Weapon.RangeMM && space.protection(from, b.Position, a, b, q.BodyPart) < 1 && space.ballisticClear(from, b.Position, observer, b, q.BodyPart) && !s.friendlyFire(space, r, from, a, b, planning, q.BodyPart)
 	return q, valid
 }
 func (s CombatState) canAttack(space CombatSpace, r CombatRules, a, b Combatant, from Cell, ap int, planning bool) bool {
@@ -896,6 +969,13 @@ func (s *CombatState) ApplyDamage(space CombatSpace, r CombatRules, sourceID, ta
 	}
 	damage := max(0, combatPartDamage(rawDamage, bodyPart)-b.Armor-b.BodyArmor.At(bodyPart))
 	damage = min(damage, b.HP)
+	blocked := CombatArmorBlocked(*b, rawDamage, bodyPart)
+	// The host previews the same finite physical wear on a private inventory.
+	// A later projectile sees reduced protection, while no planning path invokes
+	// this hook and the real transaction is committed only by the host.
+	if blocked > 0 && space.ArmorAfterDamage != nil {
+		b.BodyArmor = space.ArmorAfterDamage(*b, blocked, bodyPart)
+	}
 	oldPenalty := 0
 	if r.SuppressionPerAP > 0 {
 		oldPenalty = b.Suppression / r.SuppressionPerAP
@@ -938,7 +1018,7 @@ func (s *CombatState) ApplyDamage(space CombatSpace, r CombatRules, sourceID, ta
 	if damage > 0 && b.HP <= 0 {
 		for i := range s.Actors {
 			ally := &s.Actors[i]
-			if ally.ID != b.ID && ally.Team == b.Team && ally.Able() && space.visible(ally.Position, b.Position, r) {
+			if ally.ID != b.ID && ally.Team == b.Team && ally.Able() && space.ActorVisible(*ally, *b, r) {
 				ally.Morale = max(0, ally.Morale-20)
 			}
 		}
@@ -967,7 +1047,7 @@ func (s *CombatState) gunshot(space CombatSpace, r CombatRules, a Combatant) {
 func (s *CombatState) fireImpact(space CombatSpace, r CombatRules, actorID, targetID string, q combatShotSpec, round int, eventType string, cost int) {
 	a, b := s.Actor(actorID), s.Actor(targetID)
 	chance := s.shotChance(space, r, *a, *b, a.Position, q, round)
-	if combatWeaponKind(a.Weapon) != "firearm" && b.Guarding && r.GuardAP > 0 && b.ReservedAP >= r.GuardAP && space.visible(b.Position, a.Position, r) && (!b.WeaponUsesLimited || b.WeaponUsesRemaining > 0) {
+	if combatWeaponKind(a.Weapon) != "firearm" && b.Guarding && b.StunTurns == 0 && r.GuardAP > 0 && b.ReservedAP >= r.GuardAP && space.ActorVisible(*b, *a, r) && (!b.WeaponUsesLimited || b.WeaponUsesRemaining > 0) {
 		b.ReservedAP -= r.GuardAP
 		if b.WeaponUsesLimited {
 			b.WeaponUsesRemaining--
@@ -1005,6 +1085,9 @@ func (s *CombatState) fireImpact(space CombatSpace, r CombatRules, actorID, targ
 	e.Amount = s.ApplyDamage(space, r, a.ID, b.ID, raw, bleed, a.Weapon.Suppression, q.BodyPart)
 	if e.Hit && e.Amount >= max(1, b.MaxHP/5) && combatWeaponKind(a.Weapon) == "blunt" && q.Mode == "heavy" && q.BodyPart == "head" && b.HP > 0 {
 		b.StunTurns = max(b.StunTurns, 1)
+		b.Guarding = false
+		b.Overwatch = false
+		b.ReservedAP = 0
 	}
 	s.event(e)
 	if a.Weapon.Magazine > 0 {
@@ -1093,6 +1176,7 @@ func (s *CombatState) Execute(space CombatSpace, r CombatRules, actorID string, 
 	cost := 0
 	var target *Combatant
 	var shot combatShotSpec
+	var equipment CombatEquipmentOption
 	switch action.Type {
 	case "move":
 		var err error
@@ -1114,6 +1198,34 @@ func (s *CombatState) Execute(space CombatSpace, r CombatRules, actorID string, 
 			return ErrCombatExecutionBlocked
 		}
 		cost = shot.Cost
+	case "equip":
+		if r.EquipAP < 1 || space.Equipment == nil || action.ItemID == "" {
+			return errors.New("equipping unavailable")
+		}
+		found := false
+		for _, option := range space.Equipment(actorID) {
+			if option.ID != action.ItemID {
+				continue
+			}
+			if found {
+				return errors.New("ambiguous equipment option")
+			}
+			equipment = option
+			found = true
+		}
+		if !found || len(equipment.ID) > 256 || equipment.Weapon.ID == "" || equipment.UsesRemaining < 1 {
+			return errors.New("carried usable weapon unavailable")
+		}
+		next := *actor
+		next.Weapon = equipment.Weapon
+		next.Ammo = equipment.Ammo
+		next.ReserveAmmo = equipment.ReserveAmmo
+		next.WeaponUsesRemaining = equipment.UsesRemaining
+		next.WeaponUsesLimited = true
+		if err := next.Validate(r); err != nil {
+			return err
+		}
+		cost = r.EquipAP
 	case "reload":
 		if actor.Weapon.Magazine < 1 || actor.ReserveAmmo < 1 || actor.Ammo >= actor.Weapon.Magazine {
 			return errors.New("reload unavailable")
@@ -1130,7 +1242,7 @@ func (s *CombatState) Execute(space CombatSpace, r CombatRules, actorID string, 
 			id = actorID
 		}
 		target = observed.Actor(id)
-		if r.BandageAP < 1 || actor.Medkits < 1 || target == nil || target.Team != actor.Team || target.HP <= 0 || target.Bleeding < 1 || space.rangeMM(actor.Position, target.Position) > 1000 || !space.visible(actor.Position, target.Position, r) {
+		if r.BandageAP < 1 || actor.Medkits < 1 || target == nil || target.Team != actor.Team || target.HP <= 0 || target.Bleeding < 1 || space.rangeMM(actor.Position, target.Position) > 1000 || !space.ActorVisible(*actor, *target, r) {
 			return errors.New("bandaging unavailable")
 		}
 		cost = r.BandageAP
@@ -1169,7 +1281,7 @@ func (s *CombatState) Execute(space CombatSpace, r CombatRules, actorID string, 
 		}
 		useful := false
 		for _, c := range actor.Contacts {
-			if c.Team != actor.Team && c.Source != "hearing" && combatContactNewer(c, combatContact(target, c.SubjectID)) {
+			if c.Team != actor.Team && c.Source != "hearing" && combatReportUseful(c, combatContact(target, c.SubjectID)) {
 				useful = true
 			}
 		}
@@ -1226,6 +1338,14 @@ func (s *CombatState) Execute(space CombatSpace, r CombatRules, actorID string, 
 				}
 				s.fireImpact(space, r, actorID, action.TargetID, shot, round, "attack", shotCost)
 			}
+		case "equip":
+			a.Weapon = equipment.Weapon
+			a.Ammo = equipment.Ammo
+			a.ReserveAmmo = equipment.ReserveAmmo
+			a.WeaponUsesRemaining = equipment.UsesRemaining
+			a.WeaponUsesLimited = true
+			e.ItemID = equipment.ID
+			s.event(e)
 		case "reload":
 			amount := min(a.Weapon.Magazine-a.Ammo, a.ReserveAmmo)
 			a.Ammo += amount
@@ -1286,7 +1406,7 @@ func (s *CombatState) Execute(space CombatSpace, r CombatRules, actorID string, 
 		case "report":
 			b := s.Actor(action.TargetID)
 			for _, c := range a.Contacts {
-				if c.Team == a.Team || c.Source == "hearing" {
+				if c.Team == a.Team || c.Source == "hearing" || !combatReportUseful(c, combatContact(b, c.SubjectID)) {
 					continue
 				}
 				c.Visible = false
@@ -1348,6 +1468,28 @@ func combatVisibleHostileDistance(space CombatSpace, a Combatant, at Cell) int {
 	}
 	return d
 }
+
+// Only a fresh personally visible held weapon may classify a melee threat.
+// Its observed damage/range feed the existing risk evaluator; hidden weapon
+// changes, ammunition, AP and durability never enter the guard decision.
+func (s CombatState) guardThreat(space CombatSpace, r CombatRules, a Combatant) (risk float64, incoming, riposte bool) {
+	view := a
+	view.Contacts = nil
+	for _, contact := range a.Contacts {
+		if !contact.Visible || contact.Checked || contact.Team == a.Team || contact.Source != "sight" || contact.SourceID != a.ID || contact.ObservedTurn != s.Turn || contact.ObservedAction != s.ActionSeq {
+			continue
+		}
+		known := s.Actor(contact.SubjectID)
+		if known == nil || known.Position != contact.Position || combatWeaponKind(known.Weapon) == "firearm" || space.rangeMM(a.Position, contact.Position) > contact.ThreatRangeMM || !space.shotClear(contact.Position, a.Position) {
+			continue
+		}
+		incoming = true
+		riposte = riposte || space.rangeMM(a.Position, contact.Position) <= a.Weapon.RangeMM
+		view.Contacts = append(view.Contacts, contact)
+	}
+	return s.threatAt(space, r, view, a.Position), incoming, riposte
+}
+
 func (s CombatState) bestAttack(space CombatSpace, r CombatRules, a Combatant, from Cell, ap int) (CombatCandidate, bool) {
 	var best CombatCandidate
 	found := false
@@ -1440,6 +1582,66 @@ func (s CombatState) bestAttack(space CombatSpace, r CombatRules, a Combatant, f
 	return best, found
 }
 
+func combatReadyPotential(a Combatant, r CombatRules) float64 {
+	ap := r.APPerTurn
+	ammo := a.Ammo
+	if a.Weapon.Magazine > 0 && ammo == 0 && a.ReserveAmmo > 0 {
+		ap -= r.ReloadAP
+		ammo = min(a.Weapon.Magazine, a.ReserveAmmo)
+	}
+	n := max(0, ap/max(1, a.Weapon.AttackAP))
+	if a.Weapon.Magazine > 0 {
+		n = min(n, ammo)
+	}
+	if a.WeaponUsesLimited {
+		n = min(n, a.WeaponUsesRemaining)
+	}
+	chance := float64(a.Skill) / float64(a.Skill+r.EstimatedDefense+1)
+	return float64(a.Weapon.Damage*n) * chance * (r.DamageMin + r.DamageMax) / 2 * r.AttackWeight
+}
+func (s CombatState) equipmentCandidates(space CombatSpace, r CombatRules, a Combatant, exposure float64) []CombatCandidate {
+	if a.Noncombatant || r.EquipAP < 1 || a.AP < r.EquipAP || space.Equipment == nil {
+		return nil
+	}
+	oldPotential := combatReadyPotential(a, r)
+	oldAttack := 0.0
+	if attack, ok := s.bestAttack(space, r, a, a.Position, a.AP); ok {
+		oldAttack = attack.Score
+	}
+	var out []CombatCandidate
+	options := space.Equipment(a.ID)
+	// Physical hosts cap carried items; the independent scorer still bounds a
+	// malformed callback and never depends on its iteration order.
+	if len(options) > 64 {
+		return nil
+	}
+	for _, option := range options {
+		if option.ID == "" || len(option.ID) > 256 || option.Weapon.ID == "" || option.UsesRemaining < 1 {
+			continue
+		}
+		next := a
+		next.Weapon = option.Weapon
+		next.Ammo = option.Ammo
+		next.ReserveAmmo = option.ReserveAmmo
+		next.WeaponUsesRemaining = option.UsesRemaining
+		next.WeaponUsesLimited = true
+		next.AP -= r.EquipAP
+		if next.Validate(r) != nil {
+			continue
+		}
+		potential := combatReadyPotential(next, r)
+		readyAttack := 0.0
+		if attack, ok := s.bestAttack(space, r, next, next.Position, next.AP); ok {
+			readyAttack = attack.Score
+		}
+		value := (potential-oldPotential)*.5 + readyAttack - oldAttack - exposure*r.CoverWeight*float64(r.EquipAP)/float64(r.APPerTurn)
+		if value > 1e-9 {
+			out = append(out, CombatCandidate{Action: CombatAction{Type: "equip", ItemID: option.ID}, Score: value, Reason: "ready a better usable carried weapon without spending free AP or resources", AP: r.EquipAP})
+		}
+	}
+	return out
+}
+
 // Decide evaluates a bounded set of reachable positions and immediate actions.
 // It does not mutate state or consume random numbers. Only known contacts feed
 // exposure/search; a hidden actor's new location never generates a candidate.
@@ -1468,9 +1670,12 @@ func (s CombatState) Decide(space CombatSpace, r CombatRules) CombatDecision {
 	for _, c := range s.explosiveCandidates(space, r, *a) {
 		add(c)
 	}
+	for _, c := range s.equipmentCandidates(space, r, *a, baseline) {
+		add(c)
+	}
 	if r.BandageAP > 0 && a.Medkits > 0 && a.AP >= r.BandageAP {
 		for _, b := range s.Actors {
-			if b.Team != a.Team || b.HP <= 0 || b.Bleeding <= 0 || space.rangeMM(a.Position, b.Position) > 1000 || !space.visible(a.Position, b.Position, r) {
+			if b.Team != a.Team || b.HP <= 0 || b.Bleeding <= 0 || space.rangeMM(a.Position, b.Position) > 1000 || !space.ActorVisible(*a, b, r) {
 				continue
 			}
 			value := float64(r.BandageAmount) * r.HealWeight
@@ -1481,13 +1686,14 @@ func (s CombatState) Decide(space CombatSpace, r CombatRules) CombatDecision {
 			add(CombatCandidate{CombatAction{Type: "bandage", TargetID: b.ID}, value, "stop observed continuing bleeding with a carried dressing", r.BandageAP})
 		}
 	}
-	if !a.Noncombatant && r.GuardAP > 0 && combatWeaponKind(a.Weapon) != "firearm" && a.AP > r.GuardAP && nearest <= a.Weapon.RangeMM && (!a.WeaponUsesLimited || a.WeaponUsesRemaining > 0) {
+	guardRisk, incomingMelee, canRiposte := s.guardThreat(space, r, *a)
+	if !a.Noncombatant && r.GuardAP > 0 && combatWeaponKind(a.Weapon) != "firearm" && a.AP >= 2*r.GuardAP && incomingMelee && (!a.WeaponUsesLimited || a.WeaponUsesRemaining > 0) {
 		reserve := a.AP - r.GuardAP
-		value := baseline * float64(a.Weapon.ParryPercent) / 100 * r.CoverWeight
-		if reserve >= a.Weapon.AttackAP {
+		value := guardRisk * float64(a.Weapon.ParryPercent) / 100 * r.CoverWeight
+		if canRiposte && reserve >= r.GuardAP+a.Weapon.AttackAP && (!a.WeaponUsesLimited || a.WeaponUsesRemaining >= 2) {
 			value += float64(a.Weapon.Damage) * .3 * r.AttackWeight
 		}
-		add(CombatCandidate{CombatAction{Type: "guard"}, value, "hold remaining AP for a deflection and a legal close-range riposte", r.GuardAP})
+		add(CombatCandidate{CombatAction{Type: "guard"}, value, "hold remaining AP against an observed melee reach; counter only within own reach and reserves", r.GuardAP})
 	}
 	if !a.Noncombatant && a.Trained && r.ReactionAP > 0 && combatWeaponKind(a.Weapon) == "firearm" && a.AP >= r.ReactionAP+a.Weapon.AttackAP && a.Ammo > 0 && nearest <= a.Weapon.RangeMM && (!a.WeaponUsesLimited || a.WeaponUsesRemaining > 0) {
 		value := float64(a.Weapon.Damage) * .3 * r.AttackWeight
@@ -1537,7 +1743,7 @@ func (s CombatState) Decide(space CombatSpace, r CombatRules) CombatDecision {
 		useful := false
 		for _, c := range a.Contacts {
 			old := combatContact(&b, c.SubjectID)
-			if c.Source != "hearing" && combatContactNewer(c, old) {
+			if c.Team != a.Team && c.Source != "hearing" && combatReportUseful(c, old) {
 				useful = true
 			}
 		}

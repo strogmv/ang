@@ -54,7 +54,15 @@ func(r *Runtime)npcOfferItemOf(id string,p behavior.LifeAffordance,defs []string
 }
 func(r *Runtime)npcOffers(id,kind,level string)[]behavior.LifeAffordance{
  var offers []behavior.LifeAffordance
- for _,p:=range r.world.Life.Brain.Places{if p.Kind!=kind||p.Level!=level{continue};if _,ok:=r.npcOfferItem(id,p);ok{offers=append(offers,p)}};return offers
+ for _,p:=range r.world.Life.Brain.Places{if p.Kind!=kind||p.Level!=level{continue};if p.QueueLimit>0&&r.npcPlaceDemand(id,p.ID)>=p.QueueLimit{continue};if _,ok:=r.npcOfferItem(id,p);ok{offers=append(offers,p)}};return offers
+}
+// demo-hub v14-traders: people other than `self` whose brain is set on the place (on the way or at it) — the queue of a
+// place with a queue limit (v12: 5-6 NPC stood in the lane of the nearest vending panel).
+func(r *Runtime)npcPlaceDemand(self,place string)int{
+ n:=0
+ for _,a:=range r.state.Life.Actors{if a.ID!=self&&a.Brain.Place.ID==place{n++}}
+ for _,a:=range r.state.Life.Population.Actors{if a.ID!=self&&a.Brain.Place.ID==place{n++}}
+ return n
 }
 func(r *Runtime)npcBuy(id string,p behavior.LifeAffordance,food bool)bool{
  present:=false

@@ -21,6 +21,7 @@ func(r *Runtime) deckVolume()*behavior.DeckVolume{if len(r.world.Decks)==0||!r.s
 // sightWithin is the shared visibility predicate: planar Manhattan range plus
 // the planar ray, or plan range plus the 3D ray of a multi-deck location.
 func(r *Runtime) sightWithin(at,p point,radius int)bool{
+ if visible,applies:=r.combatPoseSight(at,p,radius);applies{return visible}
  if v:=r.deckVolume();v!=nil{return v.VisibleWithin(cell(at),cell(p),radius)}
  return manhattan(at,p)<=radius&&r.sightLine(at,p)
 }
@@ -114,7 +115,7 @@ func(r *Runtime) appendPerception(msg *pb.PocGameState){
  msg.Terrain=append([]string(nil),msg.PlayerView.Terrain...)
  filter:=func(src []*pb.PocAgentState)[]*pb.PocAgentState{
   var dst []*pb.PocAgentState;for _,a:=range src{if !viewSees(msg.PlayerView,a.X,a.Y){continue}
-   safe:=&pb.PocAgentState{Deck:a.Deck,Id:a.Id,Name:a.Name,X:a.X,Y:a.Y,MotionStartNs:a.MotionStartNs,MovementStepNs:a.MovementStepNs,MotionPaused:a.MotionPaused,MotionSampleNs:a.MotionSampleNs,Equipment:a.Equipment,Gesture:a.Gesture,GestureStartedTick:a.GestureStartedTick,GesturePhaseUntilTick:a.GesturePhaseUntilTick,Speech:a.Speech,SpeechUntilTick:a.SpeechUntilTick,Activity:a.Activity,ActivityPhase:a.ActivityPhase,ActivitySinceSeconds:a.ActivitySinceSeconds,ActivitySinceNs:a.ActivitySinceNs,ActivityPhaseNs:a.ActivityPhaseNs,ActivityTransitionNs:a.ActivityTransitionNs,ActivitySpot:a.ActivitySpot}
+   safe:=&pb.PocAgentState{FaceX:a.FaceX,FaceY:a.FaceY,Deck:a.Deck,Id:a.Id,Name:a.Name,X:a.X,Y:a.Y,MotionStartNs:a.MotionStartNs,MovementStepNs:a.MovementStepNs,MotionPaused:a.MotionPaused,MotionSampleNs:a.MotionSampleNs,Equipment:a.Equipment,Gesture:a.Gesture,GestureStartedTick:a.GestureStartedTick,GesturePhaseUntilTick:a.GesturePhaseUntilTick,Speech:a.Speech,SpeechUntilTick:a.SpeechUntilTick,Activity:a.Activity,ActivityPhase:a.ActivityPhase,ActivitySinceSeconds:a.ActivitySinceSeconds,ActivitySinceNs:a.ActivitySinceNs,ActivityPhaseNs:a.ActivityPhaseNs,ActivityTransitionNs:a.ActivityTransitionNs,ActivitySpot:a.ActivitySpot}
    for _,p:=range a.Path{if !viewSees(msg.PlayerView,p.X,p.Y){break};safe.Path=append(safe.Path,p)};dst=append(dst,safe)
   };return dst
  }

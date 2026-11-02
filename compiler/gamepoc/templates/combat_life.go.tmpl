@@ -17,18 +17,19 @@ type combatResponder struct {
 	Levels               []string `json:"levels"`
 }
 type combatLifeCatalog struct {
-	Enabled             bool                       `json:"enabled"`
-	SightRangeMM        int                        `json:"sight_range_mm"`
-	HearingRangeMM      int                        `json:"hearing_range_mm"`
-	ThreatMemorySeconds int64                      `json:"threat_memory_seconds"`
-	SafetySeconds       int64                      `json:"safety_seconds"`
-	MaxWitnesses        int                        `json:"max_witnesses"`
-	MaxSafetyCells      int                        `json:"max_safety_cells"`
-	HostileAtOrBelow    float64                    `json:"hostile_at_or_below"`
-	MeleeLoudness       float64                    `json:"melee_loudness"`
-	ShotLoudness        float64                    `json:"shot_loudness"`
-	Aggressors          map[string][]string        `json:"aggressors"`
-	Responders          map[string]combatResponder `json:"responders"`
+	Enabled                        bool                       `json:"enabled"`
+	DisengageWhenContactsExhausted bool                       `json:"disengage_when_contacts_exhausted"`
+	SightRangeMM                   int                        `json:"sight_range_mm"`
+	HearingRangeMM                 int                        `json:"hearing_range_mm"`
+	ThreatMemorySeconds            int64                      `json:"threat_memory_seconds"`
+	SafetySeconds                  int64                      `json:"safety_seconds"`
+	MaxWitnesses                   int                        `json:"max_witnesses"`
+	MaxSafetyCells                 int                        `json:"max_safety_cells"`
+	HostileAtOrBelow               float64                    `json:"hostile_at_or_below"`
+	MeleeLoudness                  float64                    `json:"melee_loudness"`
+	ShotLoudness                   float64                    `json:"shot_loudness"`
+	Aggressors                     map[string][]string        `json:"aggressors"`
+	Responders                     map[string]combatResponder `json:"responders"`
 }
 
 func (c combatLifeCatalog) Validate(l behavior.LifeModel, combat combatCatalog) error {
@@ -156,11 +157,11 @@ func (r *Runtime) combatWorldVisible(observer combatLifeObserver, at behavior.Ce
 	return r.combatObserverSees(observer.Level, observer.ID, observer.At, at)
 }
 func (r *Runtime) combatWorldConscious(id string) bool {
-	if actor := r.state.Combat.Actor(id); actor != nil {
-		return actor.HP > 0
+	if actor := r.state.Combat.Actor(id); r.state.Combat.Active && actor != nil {
+		return actor.HP > 0 && actor.StunTurns == 0
 	}
 	if actor, known := r.state.CombatRoster[id]; known {
-		return actor.HP > 0
+		return actor.HP > 0 && actor.StunTurns == 0
 	}
 	return true
 }
@@ -264,7 +265,7 @@ func (r *Runtime) combatWorldSoundEstimate(level string, observer, plan behavior
 				if !stand {
 					continue
 				}
-				score := (dx*dx+dy*dy)*500 + absInt(h-height)
+				score := (dx*dx+dy*dy)*500 + combatWorldAbs(h-height)
 				if score < distance {
 					best, distance = at, score
 				}
@@ -306,7 +307,7 @@ func (r *Runtime) combatWorldHeard(observer combatLifeObserver, from behavior.Ce
 	}
 	return heard, ok
 }
-func absInt(n int) int {
+func combatWorldAbs(n int) int {
 	if n < 0 {
 		return -n
 	}
@@ -401,7 +402,7 @@ func (r *Runtime) combatLifeAfterFrame() error {
 		observer := combatLifeObserver{ID: id, Level: actor.Level, At: actor.Position}
 		for _, targetID := range r.world.CombatLife.Aggressors[id] {
 			target := r.state.Life.Actor(targetID)
-			if target == nil || !target.OnFloor() || target.CombatHold || target.Level != actor.Level || r.state.CombatWorld.Cooldowns[id+"\x00"+targetID] > r.state.Life.Seconds || r.state.Life.RelationTo(r.world.Life, id, targetID) > r.world.CombatLife.HostileAtOrBelow || !r.combatWorldVisible(observer, target.Position) {
+			if target == nil || !target.OnFloor() || target.CombatHold || target.Level != actor.Level || r.state.CombatWorld.Cooldowns[id+"\x00"+targetID] > r.state.Life.Seconds || r.state.Life.RelationTo(r.world.Life, id, targetID) > r.world.CombatLife.HostileAtOrBelow || !r.combatWorldIdentifies(observer,targetID) {
 				continue
 			}
 			if err := r.beginCombat(id, targetID, "aggressor", "defender"); err != nil {
@@ -468,22 +469,28 @@ func (r *Runtime) combatLifeAfterAction(previous behavior.CombatState) error {
 			} else if !seenFrom {
 				dangerAt = event.To
 			}
-			if assault && seenFrom && seenTo {
-				fact := behavior.Fact{Subject: event.ActorID, Kind: "combat.assault", Cause: s.VictimID, Source: observer.ID, Value: true, Position: event.From, ObservedTick: r.state.Life.Seconds, ExpiresTick: r.state.Life.Seconds + r.world.CombatLife.ThreatMemorySeconds, Strength: 1, Priority: 100}
+			if assault && seenFrom && seenTo && event.TargetID != "" {
+				fact := behavior.Fact{Subject: event.ActorID, Kind: "combat.assault", Cause: event.TargetID, Source: observer.ID, Value: true, Position: event.From, ObservedTick: r.state.Life.Seconds, ExpiresTick: r.state.Life.Seconds + r.world.CombatLife.ThreatMemorySeconds, Strength: 1, Priority: 100}
 				r.combatWorldRemember(observer.ID, fact)
 				_ = r.state.Life.SetRelation(observer.ID, event.ActorID, -1)
 				witnesses = append(witnesses, observer)
+			} else if event.Type == "throw" && seenFrom {
+				r.combatWorldRemember(observer.ID, behavior.Fact{Subject: event.ActorID, Kind: "combat.throw", Source: observer.ID, Value: true, Position: event.From, ObservedTick: r.state.Life.Seconds, ExpiresTick: r.state.Life.Seconds + r.world.CombatLife.ThreatMemorySeconds, Strength: 1, Priority: 100})
 			} else if audible && (event.Type == "explosion" || !seenFrom) {
 				r.combatWorldRemember(observer.ID, behavior.Fact{Subject: fmt.Sprintf("noise.%s.%d.%s", r.state.Combat.ID, event.Sequence, event.Type), Kind: "combat.noise", Source: "sound", Value: true, Position: heard.Estimate, Radius: heard.Radius, Strength: heard.Intensity, ObservedTick: r.state.Life.Seconds, ExpiresTick: r.state.Life.Seconds + r.world.CombatLife.ThreatMemorySeconds, Priority: 50})
 			}
-			if role, ok := r.world.CombatLife.Responders[observer.ID]; !ok || !r.combatResponderProtects(role, s.VictimID, observer.Level) {
-				r.combatWorldSafety(observer, dangerAt, "shelter")
-			} else if assault && seenFrom && seenTo {
-				m := s.Memories[observer.ID]
-				fact, _ := m.Lookup(event.ActorID, "combat.assault")
-				if err := r.combatWorldRespond(observer, fact); err != nil {
-					return err
+			if role, ok := r.world.CombatLife.Responders[observer.ID]; ok && r.combatResponderInLevel(role, observer.Level) {
+				if assault && seenFrom && seenTo && event.TargetID != "" && r.combatResponderProtects(role, event.TargetID, observer.Level) {
+					m := s.Memories[observer.ID]
+					fact, _ := m.Lookup(event.ActorID, "combat.assault")
+					if err := r.combatWorldRespond(observer, fact); err != nil {
+						return err
+					}
+				} else {
+					r.combatWorldSafety(observer, dangerAt, "investigate")
 				}
+			} else {
+				r.combatWorldSafety(observer, dangerAt, "shelter")
 			}
 		}
 		// A witness can call an existing local responder through actual hearing.
@@ -502,7 +509,7 @@ func (r *Runtime) combatLifeAfterAction(previous behavior.CombatState) error {
 			for _, id := range guardIDs {
 				role := r.world.CombatLife.Responders[id]
 				guard, present := r.combatWorldActor(id)
-				if !present || !r.combatWorldConscious(id) || guard.Level != witness.Level || !role.Report || !r.combatResponderProtects(role, s.VictimID, guard.Level) {
+				if !present || !r.combatWorldConscious(id) || guard.Level != witness.Level || !role.Report || !r.combatResponderProtects(role, fact.Cause, guard.Level) {
 					continue
 				}
 				if id != witness.ID {
@@ -519,7 +526,7 @@ func (r *Runtime) combatLifeAfterAction(previous behavior.CombatState) error {
 	}
 	return nil
 }
-func (r *Runtime) combatResponderProtects(role combatResponder, victim, level string) bool {
+func (r *Runtime) combatResponderInLevel(role combatResponder, level string) bool {
 	jurisdiction := false
 	for _, id := range role.Levels {
 		if id == level {
@@ -527,7 +534,10 @@ func (r *Runtime) combatResponderProtects(role combatResponder, victim, level st
 			break
 		}
 	}
-	if !jurisdiction {
+	return jurisdiction
+}
+func (r *Runtime) combatResponderProtects(role combatResponder, victim, level string) bool {
+	if !r.combatResponderInLevel(role, level) {
 		return false
 	}
 	for _, id := range role.Protect {
@@ -567,7 +577,7 @@ func (r *Runtime) combatWorldSafety(observer combatLifeObserver, threat behavior
 		if a.CombatHold || a.Manual {
 			return
 		}
-		if a.Safety != nil && a.Safety.Until > r.state.Life.Seconds && a.Safety.Activity == kind {
+		if a.Safety != nil && a.Safety.Until > r.state.Life.Seconds && a.Safety.Activity == kind && a.Safety.ThreatAt == threat {
 			a.Safety.Until = r.state.Life.Seconds + r.world.CombatLife.SafetySeconds
 			return
 		}
@@ -578,7 +588,7 @@ func (r *Runtime) combatWorldSafety(observer combatLifeObserver, threat behavior
 			if a.CombatHold {
 				return
 			}
-			if a.Safety != nil && a.Safety.Until > r.state.Life.Seconds && a.Safety.Activity == kind {
+			if a.Safety != nil && a.Safety.Until > r.state.Life.Seconds && a.Safety.Activity == kind && a.Safety.ThreatAt == threat {
 				a.Safety.Until = r.state.Life.Seconds + r.world.CombatLife.SafetySeconds
 				return
 			}
@@ -629,7 +639,7 @@ func (r *Runtime) combatWorldSafety(observer combatLifeObserver, threat behavior
 	if kind == "investigate" {
 		label = "life.combat.investigate"
 	}
-	_ = r.state.Life.ApplySafety(model, observer.ID, behavior.LifeSafetyOverride{Level: observer.Level, Goal: best, Until: r.state.Life.Seconds + r.world.CombatLife.SafetySeconds, LabelKey: label, Activity: kind, Reason: "locally perceived violence", EncounterID: r.state.Combat.ID})
+	_ = r.state.Life.ApplySafety(model, observer.ID, behavior.LifeSafetyOverride{Level: observer.Level, Goal: best, ThreatAt: threat, Until: r.state.Life.Seconds + r.world.CombatLife.SafetySeconds, LabelKey: label, Activity: kind, Reason: "locally perceived violence", EncounterID: r.state.Combat.ID})
 }
 func (r *Runtime) combatMerchantSafe(id string) bool {
 	if a := r.state.Life.Actor(id); a != nil {
@@ -654,6 +664,9 @@ func (r *Runtime) validateCombatWorld(s state) error {
 		}
 		return false
 	}
+	if w.EncounterID == "" && (w.InitiatorID != "" || w.VictimID != "" || w.LevelID != "" || w.ProcessedSequence != 0) {
+		return fmt.Errorf("orphaned combat world origin")
+	}
 	if w.EncounterID != "" {
 		if w.EncounterID != s.Combat.ID || !known(w.InitiatorID) || !known(w.VictimID) || w.InitiatorID == w.VictimID || w.LevelID != s.Combat.LevelID || w.ProcessedSequence > s.Combat.EventSeq {
 			return fmt.Errorf("invalid combat world origin")
@@ -672,7 +685,7 @@ func (r *Runtime) validateCombatWorld(s state) error {
 
 		level := r.world.Life.Locations[w.MemoryLevels[id]]
 		for _, f := range m.Facts {
-			if !f.Value || !(f.Strength >= 0 && f.Strength <= 1) || f.Radius < 0 || f.Radius > 65536 || f.Position.Y < 0 || f.Position.Y >= len(level.Terrain) || f.Position.X < 0 || f.Position.X >= len(level.Terrain[f.Position.Y]) || f.Kind == "combat.noise" && !strings.HasPrefix(f.Subject, "noise.") || f.Kind != "combat.assault" && f.Kind != "combat.noise" || f.ObservedTick > s.Life.Seconds || f.ExpiresTick > f.ObservedTick+c.ThreatMemorySeconds || f.Kind == "combat.assault" && (!known(f.Subject) || !known(f.Cause) || !known(f.Source)) || f.Kind == "combat.noise" && (f.Cause != "" || f.Source != "sound") {
+			if !f.Value || !(f.Strength >= 0 && f.Strength <= 1) || f.Radius < 0 || f.Radius > 65536 || f.Position.Y < 0 || f.Position.Y >= len(level.Terrain) || f.Position.X < 0 || f.Position.X >= len(level.Terrain[f.Position.Y]) || f.Kind == "combat.noise" && !strings.HasPrefix(f.Subject, "noise.") || f.Kind != "combat.assault" && f.Kind != "combat.noise" && f.Kind != "combat.throw" || f.ObservedTick > s.Life.Seconds || f.ExpiresTick > f.ObservedTick+c.ThreatMemorySeconds || f.Kind == "combat.assault" && (!known(f.Subject) || !known(f.Cause) || !known(f.Source)) || f.Kind == "combat.noise" && (f.Cause != "" || f.Source != "sound") || f.Kind == "combat.throw" && (f.Cause != "" || !known(f.Subject) || !known(f.Source)) {
 				return fmt.Errorf("invalid combat world observation")
 			}
 		}
@@ -687,4 +700,61 @@ func (r *Runtime) validateCombatWorld(s state) error {
 		}
 	}
 	return nil
+}
+
+// End the tactical clock only after every able observer has exhausted its own
+// current search information. Hidden physical positions never enter this test.
+func (r *Runtime) combatLifeTryDisengage() bool {
+	if !r.world.CombatLife.Enabled || !r.world.CombatLife.DisengageWhenContactsExhausted || !r.state.Combat.Active {
+		return false
+	}
+	observed := r.state.Combat.Clone()
+	rules := r.world.CombatRuntime.Rules
+	observed.Observe(r.combatSpace(observed), rules)
+	for _, actor := range observed.Actors {
+		if !actor.Able() {
+			continue
+		}
+		for _, contact := range actor.Contacts {
+			if contact.Team == actor.Team || contact.Checked {
+				continue
+			}
+			if contact.Visible && contact.Source == "sight" && contact.SourceID == actor.ID && contact.ObservedTurn == observed.Turn && contact.ObservedAction == observed.ActionSeq {
+				return false
+			}
+			if observed.Turn-contact.ObservedTurn <= rules.MemoryTurns {
+				return false
+			}
+		}
+	}
+	r.state.Combat = observed
+	s := &r.state.Combat
+	participated := s.Actor(playerActorID) != nil
+	actorID := ""
+	at := behavior.Cell{}
+	if actor := s.Current(); actor != nil {
+		at = actor.Position
+	}
+	if hero := s.Actor(playerActorID); hero != nil {
+		actorID = hero.ID
+		at = hero.Position
+	}
+	s.Active = false
+	s.Winner = ""
+	for i := range s.Actors {
+		s.Actors[i].Overwatch = false
+		s.Actors[i].Guarding = false
+		s.Actors[i].ReservedAP = 0
+	}
+	s.EventSeq++
+	s.Events = append(s.Events, behavior.CombatEvent{Type: "disengage", ActorID: actorID, From: at, To: at, Turn: s.Turn, Sequence: s.EventSeq, Reason: "all personal search information exhausted"})
+	if len(s.Events) > 512 {
+		s.Events = append([]behavior.CombatEvent(nil), s.Events[len(s.Events)-512:]...)
+	}
+	r.state.CombatWorld.ProcessedSequence = s.EventSeq
+	if participated {
+		r.state.Epoch = newEpoch()
+	}
+	r.syncCombatLife()
+	return true
 }

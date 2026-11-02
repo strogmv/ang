@@ -56,7 +56,8 @@ namespace AngelsDemons.Poc {
  [Serializable] public sealed class PocLocationSDKNavRailing {public string id,surface,side,reason;public PocLocationSDKCell from,to;public int base_mm,height_mm;public bool blocks_sight;}
  [Serializable] public sealed class PocLocationSDKNavSupport {public string id,kind,surface,rests_on,reason;public PocLocationSDKCell[] cells;public int bottom_mm,top_mm;}
  [Serializable] public sealed class PocLocationSDKNavCutaway {public string id,policy,reason;public string[] surfaces,connectors,instances;public PocLocationSDKNavRect[] interior;public int bottom_mm,top_mm;}
- [Serializable] public sealed class PocLocationSDKNavigation {public string schema,base_surface;public int plan_width,plan_depth,nav_width,nav_depth,eye_mm,sight_range_cells;public int[] target_mm;public PocLocationSDKNavSurface[] surfaces;public PocLocationSDKNavConnector[] connectors;public PocLocationSDKNavLink[] links;public PocLocationSDKNavObstacle[] obstacles;public PocLocationSDKNavRailing[] railings;public PocLocationSDKNavSupport[] supports;public PocLocationSDKNavCutaway[] cutaway_groups;}
+ [Serializable] public sealed class PocSceneRaySolid {public PocLocationSDKNavRect rect;public int bottom_mm,top_mm;}
+ [Serializable] public sealed class PocLocationSDKNavigation {public PocSceneRaySolid[] solids;public string schema,base_surface;public int plan_width,plan_depth,nav_width,nav_depth,eye_mm,sight_range_cells;public int[] target_mm;public PocLocationSDKNavSurface[] surfaces;public PocLocationSDKNavConnector[] connectors;public PocLocationSDKNavLink[] links;public PocLocationSDKNavObstacle[] obstacles;public PocLocationSDKNavRailing[] railings;public PocLocationSDKNavSupport[] supports;public PocLocationSDKNavCutaway[] cutaway_groups;}
  [Serializable] public sealed class PocLocationSDKResidentStep {public int at_minute,min_seconds;public string surface,activity,label;public PocLocationSDKCell at,nav;}
  [Serializable] public sealed class PocLocationSDKResident {public string id,name,reason;public PocLocationSDKResidentStep[] steps;}
  [Serializable] public sealed class PocLocationSDKBundle {public string schema,content_hash,collision_model,initial_time_id,initial_event_id,default_floor_surface;public int unit_mm;public float cell_meters;public bool public_architecture;public PocLocationSDKLevel[] levels;public PocLocationSDKSurface[] surfaces;}
@@ -243,7 +244,10 @@ namespace AngelsDemons.Poc {
   void LocationSDKEnsureTarget(Rect viewport){
    float scale=Mathf.Min(Screen.width/1280f,Screen.height/800f);int w=Mathf.Clamp(Mathf.CeilToInt(viewport.width*scale),320,2048),h=Mathf.Clamp(Mathf.CeilToInt(viewport.height*scale),200,2048);
    if(locationSDKTarget!=null&&locationSDKTarget.width==w&&locationSDKTarget.height==h)return;locationSDKFrameReady=false;if(locationSDKTarget!=null){locationSDKCamera.targetTexture=null;locationSDKTarget.Release();Destroy(locationSDKTarget);}
-   locationSDKTarget=new RenderTexture(w,h,24,RenderTextureFormat.ARGB32){filterMode=FilterMode.Bilinear,antiAliasing=2};locationSDKTarget.Create();locationSDKCamera.targetTexture=locationSDKTarget;locationSDKCamera.aspect=(float)w/h;
+   // Real scene lamps carry HDR radiance; preserve it through post-processing.
+   // The ordinary baked market retains its existing display texture format.
+   bool sceneHDR=PlayableView()!=null;if(sceneHDR)locationSDKCamera.allowHDR=true;
+   locationSDKTarget=new RenderTexture(w,h,24,sceneHDR?RenderTextureFormat.ARGBHalf:RenderTextureFormat.ARGB32){filterMode=FilterMode.Bilinear,antiAliasing=2};locationSDKTarget.Create();locationSDKCamera.targetTexture=locationSDKTarget;locationSDKCamera.aspect=(float)w/h;
   }
   void LocationSDKPlaceCamera(){
    var camera=locationSDKLevel.GetCamera();if(camera==null)locationSDKFit=LocationSDKCameraFit(LocationSDKPlanWidth(locationSDKLevel),LocationSDKPlanDepth(locationSDKLevel),locationSDKLevel.cell_meters,locationSDKHeight,locationSDKCamera.aspect);
@@ -380,7 +384,7 @@ namespace AngelsDemons.Poc {
    if(IsStoryModularLocation()&&hbActive){var hint=new Rect(376,32,636,22);Fill(hint,new Color(.025f,.032f,.038f,.72f));GUI.Label(new Rect(hint.x+10,hint.y+2,hint.width-14,20),L("ui.hub.controls_hint"),hudSmall);}
    else GUI.Label(new Rect(viewport.x+12,viewport.yMax-28,750,22),L("ui.sdk.camera_hint"),hudSmall);DrawModularKnownDetails(viewport);return true;
   }
-  void ReleaseLocationSDK(){LocationSDKRestoreAmbient();ReleaseLocationSDKWorldText();ReleaseLocationSDKMultideck();ReleaseLocationSDKHumanoids();locationSDKCameraData=null;locationSDKVolume=null;locationSDKFollowHero=false;locationSDKCameraZoomInitialized=false;locationSDKZoomOrigin=1;locationSDKFrameReady=false;locationSDKRenderPending=false;
+  void ReleaseLocationSDK(){LocationSDKRestoreAmbient();ReleasePlayableScene();ReleaseLocationSDKWorldText();ReleaseLocationSDKMultideck();ReleaseLocationSDKHumanoids();locationSDKCameraData=null;locationSDKVolume=null;locationSDKFollowHero=false;locationSDKCameraZoomInitialized=false;locationSDKZoomOrigin=1;locationSDKFrameReady=false;locationSDKRenderPending=false;
    ReleaseSDKWayfinding();
    if(locationSDKCamera!=null)locationSDKCamera.targetTexture=null;if(locationSDKMain!=null)locationSDKMain.cullingMask=locationSDKMainMask;
    if(locationSDKTarget!=null){locationSDKTarget.Release();Destroy(locationSDKTarget);}foreach(var mesh in locationSDKMeshes)if(mesh!=null)Destroy(mesh);foreach(var material in locationSDKMaterials)if(material!=null)Destroy(material);foreach(var actor in locationSDKActors.Values)if(actor.material!=null)Destroy(actor.material);if(locationSDKRoot!=null)Destroy(locationSDKRoot);

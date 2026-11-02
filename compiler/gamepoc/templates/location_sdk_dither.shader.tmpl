@@ -1,0 +1,50 @@
+Shader "ANG/LocationSDKInstanceDither" {
+ // demo-hub v14-traders: an occluding instance (a tall fixture between the hero and the camera) fades by screen-door
+ // dithering into its own shade instead of a see-through grey box: an opaque pass that keeps a 4x4 ordered-dither share
+ // _Coverage of the pixels, coloured by the source albedo x _Shade (the fixture stays a dark body, the hero shows through
+ // the holes). No blending, no sorting: it draws like the opaque fixture it replaces.
+ // demo-hub v15-fixes: the 4x4 Bayer matrix read as a dark grid (v14 sheet). The threshold is now a per-pixel hash (white
+ // noise: one pixel grain, no repeating cell, no diagonal structure) re-seeded every frame (64-frame cycle), so the kept
+ // pixels move and the eye averages them into an even veil; a still frame shows fine grain instead of a lattice. The faded
+ // body is a lighter shade (.42) so kept and dropped pixels differ less.
+ Properties {
+  _BaseMap ("Albedo of the source material", 2D) = "white" {}
+  _BaseColor ("Colour of the source material", Color) = (1,1,1,1)
+  _Shade ("Shade of the faded body", Range(0,1)) = .42
+  _Coverage ("Share of pixels kept", Range(0,1)) = .4
+ }
+ SubShader {
+  Tags { "RenderType"="Opaque" "Queue"="AlphaTest" "RenderPipeline"="UniversalPipeline" }
+  Pass {
+   Tags { "LightMode"="UniversalForward" }
+   ZWrite On
+   ZTest LEqual
+   Cull Back
+   HLSLPROGRAM
+   #pragma vertex vert
+   #pragma fragment frag
+   #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+   TEXTURE2D(_BaseMap);SAMPLER(sampler_BaseMap);
+   CBUFFER_START(UnityPerMaterial)
+   float4 _BaseMap_ST;half4 _BaseColor;half _Shade;half _Coverage;
+   CBUFFER_END
+   struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; float3 normal : NORMAL; };
+   struct v2f { float4 vertex : SV_POSITION; float2 uv : TEXCOORD0; float3 normal : TEXCOORD1; };
+   v2f vert(appdata v) { v2f o;o.vertex=TransformObjectToHClip(v.vertex.xyz);o.uv=TRANSFORM_TEX(v.uv,_BaseMap);o.normal=TransformObjectToWorldNormal(v.normal);return o; }
+   half4 frag(v2f i) : SV_Target {
+    // white-noise threshold of the pixel, re-seeded per frame: keeps _Coverage of the pixels, evenly spread
+    float frame=fmod(floor(_Time.y*60.0),64.0);
+    float2 q=floor(i.vertex.xy)+frame*float2(17.0,59.0);
+    float3 p3=frac(float3(q.xyx)*.1031);
+    p3+=dot(p3,p3.yzx+33.33);
+    float h=frac((p3.x+p3.y)*p3.z);   // hash12 (D. Hoskins)
+    clip(_Coverage-h);
+    half3 albedo=SAMPLE_TEXTURE2D(_BaseMap,sampler_BaseMap,i.uv).rgb*_BaseColor.rgb;
+    half up=saturate(normalize(i.normal).y*.5+.5);
+    return half4(albedo*_Shade*(.7+.3*up),1);
+   }
+   ENDHLSL
+  }
+ }
+ Fallback Off
+}

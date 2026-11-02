@@ -3,13 +3,11 @@ package poc
 
 import (
 	"angelsdemons/server/internal/behavior"
-	inv "angelsdemons/server/internal/inventory"
-	pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
+		pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
 	"errors"
 	"fmt"
 	"math"
  "reflect"
-	"sort"
 )
 
 type combatProfile struct {
@@ -25,6 +23,8 @@ type combatProfile struct {
 	ReserveAmmo  int                   `json:"reserve_ammo"`
 	Medkits      int                   `json:"medkits"`
 }
+type combatLifeSync struct { EncounterID string; Sequence uint64 }
+
 type combatCatalog struct {
 	Rules           behavior.CombatRules             `json:"rules"`
 	DefaultProfile  string                           `json:"default_profile"`
@@ -34,6 +34,8 @@ type combatCatalog struct {
 	MedicalDefinitions []string `json:"medical_definitions"`
  Explosives map[string]behavior.CombatExplosive `json:"explosives"`
  Armor map[string]behavior.CombatArmor `json:"armor"`
+ InjuryIntervalSeconds int64 `json:"injury_interval_seconds"`
+ CareActionSeconds int64 `json:"care_action_seconds"`
  MaxParticipants int                              `json:"max_participants"`
 	JoinRangeMM     int                              `json:"join_range_mm"`
 }
@@ -77,6 +79,7 @@ func (r *Runtime) combatant(id, team string) behavior.Combatant {
   a.HeadWound=old.HeadWound;a.ArmWound=old.ArmWound;a.LegWound=old.LegWound;a.StunTurns=old.StunTurns
  }
  r.refreshCombatEquipment(r.state.Inventory,&a)
+ if hero:=r.state.Life.Actor(id);hero!=nil&&id==playerActorID&&hero.Sneaking{a.Crouched=true;a.Prone=false}
  return a
 }
 func(r *Runtime) heroInCombat()bool{return r.state.Combat.Active&&r.state.Combat.Actor(playerActorID)!=nil}
@@ -96,11 +99,12 @@ func (r *Runtime) combatSpace(s behavior.CombatState) behavior.CombatSpace {
 		result.Cover = v.CombatProtection
 		result.ShotClear = v.CombatShotClear
 		result.BodyOnShot = v.BodyOnCombatShot
- result.Protection=func(from,to behavior.Cell,a,b behavior.Combatant,part string)float64{if r.combatGateBlocks(s.LevelID,from,to){return 1};return v.CombatPoseProtection(from,to,a,b,part)}
+ result.Protection=func(from,to behavior.Cell,a,b behavior.Combatant,part string)float64{return r.combatPoseProtection(s.LevelID,from,to,a,b,part)}
+ result.PoseShotClear=func(from,to behavior.Cell,a,b behavior.Combatant,part string)bool{return r.combatPoseProtection(s.LevelID,from,to,a,b,part)<1}
  result.BodyIntersects=v.CombatBodyIntersects
  result.ThrowClear=func(from,to behavior.Cell)bool{return !r.combatGateBlocks(s.LevelID,from,to)&&v.CombatThrowClear(from,to)}
  result.BlastProtection=func(from,to behavior.Cell)float64{if r.combatGateBlocks(s.LevelID,from,to){return 1};return v.CombatBlastProtection(from,to)}
- result.ShotClear=func(from,to behavior.Cell)bool{return !r.combatGateBlocks(s.LevelID,from,to)&&v.CombatShotClear(from,to)}
+ result.ShotClear=func(from,to behavior.Cell)bool{return r.combatPoseProtection(s.LevelID,from,to,behavior.Combatant{},behavior.Combatant{},"torso")<1}
 
 	} else {
 		result.Cover = func(from, to behavior.Cell) float64 {
@@ -172,6 +176,8 @@ func (r *Runtime) combatSpace(s behavior.CombatState) behavior.CombatSpace {
 		return false
 	}
 	
+ result.Equipment=r.combatEquipmentOptions
+ result.ArmorAfterDamage=r.combatArmorAfterDamage()
  result.VisibleBystanders=func(observer behavior.Combatant)[]behavior.Cell{
   var cells []behavior.Cell
   for _,a:=range r.state.Life.Actors{if a.Level==s.LevelID&&a.OnFloor()&&!participants[a.ID]&&result.Space.Visible(observer.Position,a.Position)&&r.combatWorldDistance(s.LevelID,observer.Position,a.Position)<=r.world.CombatRuntime.Rules.SightRangeMM{cells=append(cells,a.Position)}}
@@ -225,12 +231,13 @@ func(r *Runtime) beginCombat(initiatorID,targetID,initiatorTeam,targetTeam strin
  if !actors[0].Able()||!actors[1].Able(){return textError{Key:"error.combat_unknown_target"}}
  for i:=range actors{actors[i].Position=r.state.Life.Actor(actors[i].ID).Position}
  proposed:=behavior.CombatState{LevelID:initiator.Level,Actors:actors}
+ if !r.combatSpace(proposed).ActorVisible(actors[0],actors[1],r.world.CombatRuntime.Rules){return textError{Key:"error.combat_unknown_target"}}
  if r.state.CombatSerial>=1<<50{return textError{Key:"error.combat_unavailable"}}
  encounter,err:=behavior.NewCombat(fmt.Sprintf("encounter.%d",r.state.CombatSerial+1),initiator.Level,r.state.Seed,actors,r.world.CombatRuntime.Rules,r.combatSpace(proposed));if err!=nil{return err}
- r.state.Combat=encounter;r.state.CombatSerial++;if r.heroInCombat(){r.state.Epoch=newEpoch()};r.state.CombatPublicEvents=nil;r.state.CombatPublicSeq=0
+ r.state.Combat=encounter;if r.state.Combat.Actor(playerActorID)!=nil{r.state.Life.Actor(playerActorID).Sneaking=false};r.state.CombatSerial++;if r.heroInCombat(){r.state.Epoch=newEpoch()};r.state.CombatPublicEvents=nil;r.state.CombatPublicSeq=0;r.state.CombatPublicSerial=0
  r.combatLifeStarted(initiatorID,targetID)
  for _,c:=range actors{r.holdCombatActor(c.ID)}
- if r.heroInCombat(){r.resetInstantTravel()};r.syncCombatLife();return r.advanceCombatAI()
+ if r.heroInCombat(){r.resetInstantTravel()};r.syncCombatLife();if r.heroInCombat(){return r.advanceCombatAI()};return nil
 }
 func(r *Runtime) holdCombatActor(id string){
  a:=r.state.Life.Actor(id);if a==nil{return};if id==playerActorID{a.Manual=true};a.CombatHold=true;a.Safety=nil;a.Path=nil;a.PendingPath=nil;a.YieldUntil=0;a.YieldHoldUntil=0;a.YieldRequester="";a.OverrideLevel="";a.OverrideEdge="";a.Arrived=true;a.MoveStartTick=r.lifeMotionTick()
@@ -241,10 +248,10 @@ func(r *Runtime) joinCombat(id,team string)error{
  if r.state.Combat.Actor(id)!=nil||len(r.state.Combat.Actors)>=r.world.CombatRuntime.MaxParticipants{return nil}
  a:=r.state.Life.Actor(id);if a==nil||!a.OnFloor()||a.Level!=r.state.Combat.LevelID||a.CombatHold{return nil}
  for _,c:=range r.state.Combat.Actors{if c.Position==a.Position{return nil}}
- c:=r.combatant(id,team);if !c.Able(){return nil};c.Position=a.Position;c.AP=0
- candidate:=r.state.Combat.Clone();candidate.Actors=append(candidate.Actors,c);candidate.Observe(r.combatSpace(candidate),r.world.CombatRuntime.Rules)
+ c:=r.combatant(id,team);if !c.Able(){return nil};if !c.TacticalInitialized{c.Morale=c.Courage;c.TacticalInitialized=true};c.Position=a.Position;c.AP=0
+ candidate:=r.state.Combat.Clone();candidate.Actors=append(candidate.Actors,c);if len(candidate.Events)>512{candidate.Events=append([]behavior.CombatEvent(nil),candidate.Events[len(candidate.Events)-512:]...)};candidate.Observe(r.combatSpace(candidate),r.world.CombatRuntime.Rules)
  if err:=candidate.Validate(r.world.CombatRuntime.Rules,r.combatSpace(candidate));err!=nil{return err}
- r.state.Combat=candidate;if id==playerActorID{r.state.Epoch=newEpoch();r.resetInstantTravel()};r.holdCombatActor(id);r.syncCombatLife();return nil
+ r.state.Combat=candidate;if id==playerActorID{r.state.Life.Actor(playerActorID).Sneaking=false;r.state.Epoch=newEpoch();r.resetInstantTravel()};r.holdCombatActor(id);r.syncCombatLife();return nil
 }
 
 func (r *Runtime) advanceCombatAI() error {
@@ -278,7 +285,8 @@ func (r *Runtime) advanceCombatAI() error {
 	return nil
 }
 func (r *Runtime) combatCommand(q *pb.PocCombatCommand) error {
-	if q.Action == "start" {
+	if !r.heroInCombat()&&(q.Action=="bandage"||q.Action=="heal"){return r.treatOutsideCombat(q.Action)}
+ if q.Action == "start" {
 		return r.startCombat(q.TargetId)
 	}
 	if !r.state.Combat.Active || q.ExpectedTurn != r.state.Combat.Turn {
@@ -335,25 +343,31 @@ func (r *Runtime) commitCombat(candidate behavior.CombatState) error {
  trial:=&Runtime{world:r.world,state:r.snapshotState(),npcAccountIDs:r.npcAccountIDs}
  for _,event:=range candidate.Events{
   if event.Sequence<=previous.EventSeq{continue}
-  if event.AmmoSpent>0||event.MedkitsSpent>0||event.ItemsSpent>0||event.WeaponUses>0||event.Type=="reload"{
+  if event.AmmoSpent>0||event.MedkitsSpent>0||event.ItemsSpent>0||event.WeaponUses>0||event.ArmorBlocked>0||event.Type=="reload"||event.Type=="equip"{
    if err:=trial.applyCombatResources(&trial.state.Inventory,previous,event);err!=nil{return err}
   }
  }
  trial.state.Combat=candidate
  for i:=range trial.state.Combat.Actors{
   a:=&trial.state.Combat.Actors[i];actual:=cloneCombatant(*a);trial.refreshCombatEquipment(trial.state.Inventory,&actual)
-  if actual.Weapon.ID==a.Weapon.ID&&(actual.Ammo!=a.Ammo||actual.ReserveAmmo!=a.ReserveAmmo||actual.Medkits!=a.Medkits){return errors.New("combat counters differ from physical custody")}
-  a.Weapon=actual.Weapon;a.WeaponUsesLimited=actual.WeaponUsesLimited;a.WeaponUsesRemaining=actual.WeaponUsesRemaining;a.Ammo=actual.Ammo;a.ReserveAmmo=actual.ReserveAmmo;a.Medkits=actual.Medkits;a.Explosives=actual.Explosives
+  if actual.BodyArmor!=a.BodyArmor||actual.Weapon.ID==a.Weapon.ID&&(actual.Ammo!=a.Ammo||actual.ReserveAmmo!=a.ReserveAmmo||actual.Medkits!=a.Medkits){return errors.New("combat counters differ from physical custody")}
+  a.BodyArmor=actual.BodyArmor;a.Weapon=actual.Weapon;a.WeaponUsesLimited=actual.WeaponUsesLimited;a.WeaponUsesRemaining=actual.WeaponUsesRemaining;a.Ammo=actual.Ammo;a.ReserveAmmo=actual.ReserveAmmo;a.Medkits=actual.Medkits;a.Explosives=actual.Explosives
  }
  if err:=trial.applyAmbientCombatBlasts(previous);err!=nil{return err}
+ trial.capturePublicCombatEventsFrom(previous)
  trial.syncCombatLife()
  if err:=trial.combatLifeAfterAction(previous);err!=nil{return err}
+ trial.combatLifeTryDisengage()
  if len(trial.state.Combat.Events)>512{trial.state.Combat.Events=append([]behavior.CombatEvent(nil),trial.state.Combat.Events[len(trial.state.Combat.Events)-512:]...)}
  r.state=trial.state
  return nil
 }
 
 func (r *Runtime) syncCombatLife() {
+ // An inactive encounter is history. Re-publication must never restore its
+ // old wounds or cell over the current Life body and post-combat care.
+ if !r.state.Combat.Active && r.state.CombatLifeSync.EncounterID==r.state.Combat.ID && r.state.CombatLifeSync.Sequence==r.state.Combat.EventSeq{return}
+ r.state.CombatLifeSync=combatLifeSync{EncounterID:r.state.Combat.ID,Sequence:r.state.Combat.EventSeq}
 	if r.state.Combat.ID == "" {
 		return
 	}
@@ -393,17 +407,20 @@ func (r *Runtime) syncCombatLife() {
 			a.Arrived = c.ID == playerActorID
 		}
 	}
+r.combatCareTrack()
 	r.state.Life.EnsureHeroBody(r.state.Life.GateModel(r.world.Life))
 	r.syncLifeHero()
 	r.capturePublicCombatEvents()
 	r.state.Life.ObserveDecisions()
 }
 func (r *Runtime) appendCombat(msg *pb.PocGameState) {
+
+ if r.state.Life.Enabled{c:=r.combatant(playerActorID,"player");if active:=r.state.Combat.Actor(playerActorID);r.state.Combat.Active&&active!=nil{c=cloneCombatant(*active)};if hero:=r.state.Life.Actor(playerActorID);hero!=nil{c.Position=hero.Position};msg.PlayerCondition=r.combatActorView(c,true)}
 	s := r.state.Combat
 	if s.ID == "" {
 		return
 	}
-	if !r.heroInCombat(){visible:=false;for _,a:=range s.Actors{if r.combatTargetVisible(a){visible=true;break}};if !visible{return}}
+	if s.Actor(playerActorID)==nil{visible:=false;for _,a:=range s.Actors{if r.combatTargetVisible(a){visible=true;break}};if !visible{return}}
  view := &pb.PocCombatView{Active: s.Active, EncounterId: s.ID, LevelId: s.LevelID, Turn: s.Turn, Winner: s.Winner}
 	// Finished encounters retain an outcome, not live bodies at historical
 	// cells. The ordinary Life simulation can already have moved or travelled.
@@ -420,63 +437,23 @@ func (r *Runtime) appendCombat(msg *pb.PocGameState) {
 		if a.ID != playerActorID && !r.combatTargetVisible(a) {
 			continue
 		}
-		v := &pb.PocCombatActor{Id: a.ID, X: int32(a.Position.X), Y: int32(a.Position.Y), Surrendered: a.Surrendered, Down: a.HP <= 0}
-		if a.ID == playerActorID {
-			v.Hp = int32(a.HP)
-			v.MaxHp = int32(a.MaxHP)
-			v.Ap = int32(a.AP)
-			v.Ammo = int32(a.Ammo)
- v.Bleeding=int32(a.Bleeding);v.Suppression=int32(a.Suppression);v.Morale=int32(a.Morale);v.ReservedAp=int32(a.ReservedAP)
- v.Overwatch=a.Overwatch;v.HeadWound=int32(a.HeadWound);v.ArmWound=int32(a.ArmWound);v.LegWound=int32(a.LegWound)
- v.Medkits=int32(a.Medkits);v.ReserveAmmo=int32(a.ReserveAmmo);v.WeaponId=a.Weapon.ID;v.WeaponKind=a.Weapon.Kind
- v.AttackAp=int32(a.Weapon.AttackAP);v.QuickAp=int32(a.Weapon.QuickAP);v.HeavyAp=int32(a.Weapon.HeavyAP)
- for _,x:=range a.Explosives{v.Explosives=append(v.Explosives,&pb.PocCombatStock{ItemId:x.Explosive.ID,Count:int32(x.Count)})}
-
-		}
-		v.Stance="stand";if a.Crouched{v.Stance="crouch"};if a.Prone{v.Stance="prone"};v.Guarding=a.Guarding;v.Stunned=a.StunTurns>0
- view.Actors = append(view.Actors, v)
+view.Actors=append(view.Actors,r.combatActorView(a,a.ID==playerActorID))
 	}
 	for _, e := range r.state.CombatPublicEvents {
-		view.Events = append(view.Events, &pb.PocCombatEvent{Type: e.Type, ActorId: e.ActorID, TargetId: e.TargetID, FromX: int32(e.From.X), FromY: int32(e.From.Y), ToX: int32(e.To.X), ToY: int32(e.To.Y), Amount: int32(e.Amount), Hit: e.Hit, Turn: e.Turn, Sequence: e.Sequence})
+		view.Events = append(view.Events, &pb.PocCombatEvent{Type: e.Type, ActorId: e.ActorID, TargetId: e.TargetID, FromX: int32(e.From.X), FromY: int32(e.From.Y), ToX: int32(e.To.X), ToY: int32(e.To.Y), Amount: int32(e.Amount), Hit: e.Hit, Turn: e.Turn, Sequence: e.Sequence,BodyPart:e.BodyPart,ItemId:e.ItemID})
 	}
 	msg.Combat = view
 }
-func (r *Runtime) capturePublicCombatEvents() {
-	for _, event := range r.state.Combat.Events {
-		if event.Sequence <= r.state.CombatPublicSeq {
-			continue
-		}
-		r.state.CombatPublicSeq = event.Sequence
-		if r.currentLevel()!=r.state.Combat.LevelID{continue}
- seenFrom := r.sightWithin(r.state.Player, location(event.From), r.world.Visibility.PlayerRange)
-		seenTo := r.sightWithin(r.state.Player, location(event.To), r.world.Visibility.PlayerRange)
-		if event.ActorID != playerActorID && event.TargetID != playerActorID && !seenFrom && !seenTo {
-			continue
-		}
-		event.Reason = ""
-		if event.ActorID != playerActorID && !seenFrom {
-			event.ActorID = ""
-			event.From = behavior.Cell{X: -1, Y: -1}
-		}
-		if event.TargetID != playerActorID && !seenTo {
-			event.TargetID = ""
-			event.To = behavior.Cell{X: -1, Y: -1}
-		}
-		r.state.CombatPublicEvents = append(r.state.CombatPublicEvents, event)
-		if len(r.state.CombatPublicEvents) > 64 {
-			r.state.CombatPublicEvents = append([]behavior.CombatEvent(nil), r.state.CombatPublicEvents[len(r.state.CombatPublicEvents)-64:]...)
-		}
-	}
-}
 func (r *Runtime) validateCombatSave(s state) error {
+ if s.CombatLifeSync.EncounterID!=""&&(s.CombatLifeSync.EncounterID!=s.Combat.ID||s.CombatLifeSync.Sequence>s.Combat.EventSeq){return errors.New("invalid encounter Life synchronization cursor")}
 	if s.CombatSerial > 1<<50 || (s.Combat.ID != "" && s.CombatSerial == 0) {
 		return errors.New("invalid encounter sequence")
 	}
-	if len(s.CombatPublicEvents) > 64 || s.CombatPublicSeq > s.Combat.EventSeq {
+	if len(s.CombatPublicEvents) > 64 || s.CombatPublicSeq > s.Combat.EventSeq || s.CombatPublicSerial>s.CombatPublicSeq {
 		return errors.New("invalid public combat event history")
 	}
 	if s.Combat.ID == "" {
-		if len(s.CombatRoster) > 0 || len(s.CombatPublicEvents) != 0 || s.CombatPublicSeq != 0 {
+		if len(s.CombatRoster) > 0 || len(s.CombatPublicEvents) != 0 || s.CombatPublicSeq != 0 || s.CombatPublicSerial!=0 {
 			return errors.New("combat roster without encounter")
 		}
 		return nil
@@ -503,14 +480,19 @@ func (r *Runtime) validateCombatSave(s state) error {
   if id!=c.ID||level==""||c.Team==""||len(c.Team)>256||c.Controlled!=(id==playerActorID){return errors.New("unknown combat roster actor")}
   if err:=c.Validate(r.world.CombatRuntime.Rules);err!=nil{return err}
   if !c.Able()&&(!present||!validator.combatLifeHeld(id)||at!=c.Position){return errors.New("incapable combat actor resumed a routine")}
-  if c.Able()&&validator.combatLifeHeld(id)&&(!s.Combat.Active||s.Combat.Actor(id)==nil){return errors.New("orphan combat hold")}
+  if c.Able()&&c.StunTurns==0&&validator.combatLifeHeld(id)&&(!s.Combat.Active||s.Combat.Actor(id)==nil){return errors.New("orphan combat hold")}
  }
 
 	for _, c := range s.Combat.Actors {
+ if !s.Combat.Active{continue}
 		a := s.Life.Actor(c.ID)
 		if a == nil || a.CombatHold != (s.Combat.Active || !c.Able()) || ((s.Combat.Active || !c.Able()) && (!a.OnFloor() || a.Level != s.Combat.LevelID || a.Position != c.Position)) {
 			return errors.New("combat/life pose or hold mismatch")
 		}
+if s.Combat.Active{
+ actual:=cloneCombatant(c);validator.refreshCombatEquipment(s.Inventory,&actual)
+ if actual.Weapon!=c.Weapon||actual.Ammo!=c.Ammo||actual.ReserveAmmo!=c.ReserveAmmo||actual.Medkits!=c.Medkits||actual.BodyArmor!=c.BodyArmor||actual.WeaponUsesLimited!=c.WeaponUsesLimited||actual.WeaponUsesRemaining!=c.WeaponUsesRemaining||!reflect.DeepEqual(actual.Explosives,c.Explosives){return errors.New("saved tactical resources differ from physical inventory")}
+ }
 		cached, ok := s.CombatRoster[c.ID]
 		if !ok || !reflect.DeepEqual(cached,c) {
 			return errors.New("combat roster differs")
@@ -521,10 +503,30 @@ func (r *Runtime) validateCombatSave(s state) error {
 		validCell := func(at behavior.Cell) bool {
 			return (at.X == -1 && at.Y == -1) || (at.X >= 0 && at.Y >= 0 && at.X < space.Space.Width && at.Y < space.Space.Height)
 		}
-		if e.Sequence <= lastSequence || e.Sequence > s.CombatPublicSeq || e.Turn < 1 || e.Turn > s.Combat.Turn || e.Reason != "" || !validCell(e.From) || !validCell(e.To) || (e.ActorID != "" && !validator.combatActorKnown(e.ActorID)) || (e.TargetID != "" && !validator.combatActorKnown(e.TargetID)) {
+		if e.Sequence <= lastSequence || e.Sequence > s.CombatPublicSerial || e.Turn < 1 || e.Turn > s.Combat.Turn || e.Reason != "" || !validCell(e.From) || !validCell(e.To) || (e.ActorID != "" && !validator.combatActorKnown(e.ActorID)) || (e.TargetID != "" && !validator.combatActorKnown(e.TargetID)) {
 			return errors.New("invalid filtered combat event")
 		}
 		lastSequence = e.Sequence
 	}
 	return nil
+}
+
+func(r *Runtime)combatActorView(a behavior.Combatant,own bool)*pb.PocCombatActor{
+ v := &pb.PocCombatActor{Id: a.ID, X: int32(a.Position.X), Y: int32(a.Position.Y), Surrendered: a.Surrendered, Down: a.HP <= 0}
+ if own {
+	v.Hp = int32(a.HP)
+	v.MaxHp = int32(a.MaxHP)
+	v.Ap = int32(a.AP)
+	v.Ammo = int32(a.Ammo)
+ v.Bleeding=int32(a.Bleeding);v.Suppression=int32(a.Suppression);v.Morale=int32(a.Morale);v.ReservedAp=int32(a.ReservedAP)
+ v.Overwatch=a.Overwatch;v.HeadWound=int32(a.HeadWound);v.ArmWound=int32(a.ArmWound);v.LegWound=int32(a.LegWound)
+ v.Medkits=int32(a.Medkits);v.ReserveAmmo=int32(a.ReserveAmmo);v.WeaponId=a.Weapon.ID;v.WeaponKind=a.Weapon.Kind
+ for _,option:=range r.combatEquipmentOptions(a.ID){v.Equipment=append(v.Equipment,&pb.PocCombatEquipment{Id:option.ID,Name:r.world.Inventory.Definitions[option.Weapon.ID].Name,Kind:option.Weapon.Kind})}
+ v.AttackAp=int32(a.Weapon.AttackAP);v.QuickAp=int32(a.Weapon.QuickAP);v.HeavyAp=int32(a.Weapon.HeavyAP)
+ for _,x:=range a.Explosives{v.Explosives=append(v.Explosives,&pb.PocCombatStock{ItemId:x.Explosive.ID,Count:int32(x.Count)})}
+
+ }
+ if hero:=r.state.Combat.Actor(playerActorID);hero!=nil{v.Allied=a.Team==hero.Team}
+ v.Stance="stand";if a.Crouched{v.Stance="crouch"};if a.Prone{v.Stance="prone"};v.Guarding=a.Guarding;v.Stunned=a.StunTurns>0
+ return v
 }

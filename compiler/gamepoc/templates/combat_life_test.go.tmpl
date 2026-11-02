@@ -2,11 +2,13 @@
 package poc
 
 import (
+	"fmt"
 	"reflect"
 	"sort"
 	"testing"
 
 	"angelsdemons/server/internal/behavior"
+	inv "angelsdemons/server/internal/inventory"
 	pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
 )
 
@@ -117,6 +119,7 @@ func TestCombatWorldExplicitHostilityStartsFromOrdinaryLife(t *testing.T) {
 	if err := r.combatLifeAfterFrame(); err != nil {
 		t.Fatal(err)
 	}
+	npc = r.state.Life.Actor(target)
 	if r.state.Combat.ID == "" || r.state.Combat.Actor(target) == nil || r.state.Combat.Actor(playerActorID) == nil || !npc.CombatHold || len(r.state.Life.Actors) != count {
 		t.Fatal("ordinary hostile intention did not begin a real encounter between existing actors")
 	}
@@ -269,5 +272,383 @@ func TestCombatWorldSafetyRefusesCommerceAndPersists(t *testing.T) {
 	tampered.CombatWorld.Memories[id] = bad
 	if r.validateCombatWorld(tampered) == nil {
 		t.Fatal("invented assault victim accepted in save")
+	}
+}
+
+func TestCombatWorldOpenProprietorRefusesTradeInTheWitnessedAttackFrame(t *testing.T) {
+	r, _, targetID := combatLifeFixture(t, false)
+	r.world.CombatLife.Responders = map[string]combatResponder{}
+	initial := r.snapshotState()
+	for _, shop := range r.world.Inventory.Shopfronts {
+		if shop.Owner == targetID || shop.Owner == playerActorID || shop.Service.Level != r.currentLevel() {
+			continue
+		}
+		r.state = initial
+		r.state.Life = initial.Life.Clone()
+		r.state.Inventory = initial.Inventory.Clone()
+		r.state.CombatWorld = initial.CombatWorld.Clone()
+		owner, hero, target := r.state.Life.Actor(shop.Owner), r.state.Life.Actor(playerActorID), r.state.Life.Actor(targetID)
+		if owner == nil {
+			continue
+		}
+		service := behavior.Cell{X: shop.Service.At.X, Y: shop.Service.At.Y}
+		model := r.state.Life.GateModel(r.world.Life)
+		blocked := r.state.Life.BlockedCells(hero.Level, owner.ID)
+		delete(blocked, hero.Position)
+		delete(blocked, target.Position)
+		if blocked[service] || !model.Walks(hero.Level, service) {
+			continue
+		}
+		owner.Level = hero.Level
+		owner.Position = service
+		owner.Goal = service
+		owner.Path = nil
+		owner.PendingPath = nil
+		owner.Trip = nil
+		owner.ResidenceID = ""
+		owner.Manual = false
+		owner.Arrived = true
+		owner.CombatHold = false
+		owner.Safety = nil
+		placed := false
+		level := model.Locations[hero.Level]
+		for y, row := range level.Terrain {
+			if placed {
+				break
+			}
+			for x := range row {
+				if placed {
+					break
+				}
+				victimAt := behavior.Cell{X: x, Y: y}
+				if blocked[victimAt] || victimAt == service || !model.Walks(hero.Level, victimAt) || r.combatWorldDistance(hero.Level, service, victimAt) > 2500 {
+					continue
+				}
+				for _, heroAt := range model.StepNeighbours(hero.Level, victimAt) {
+					if heroAt == service || blocked[heroAt] || !model.Walks(hero.Level, heroAt) || r.combatWorldDistance(hero.Level, heroAt, victimAt) > r.world.CombatRuntime.Profiles["hero"].Weapon.RangeMM || !r.combatSight(hero.Level, heroAt, victimAt) {
+						continue
+					}
+					observer := combatLifeObserver{ID: owner.ID, Level: hero.Level, At: service}
+					if !r.combatWorldVisible(observer, heroAt) || !r.combatWorldVisible(observer, victimAt) {
+						continue
+					}
+					if volume := r.world.Decks[hero.Level]; volume != nil {
+						if !volume.CombatShotClear(heroAt, victimAt) {
+							continue
+						}
+					}
+					hero.Position = heroAt
+					hero.Goal = heroAt
+					hero.Path = nil
+					hero.PendingPath = nil
+					hero.Body = nil
+					hero.Manual = true
+					hero.Arrived = true
+					target.Level = hero.Level
+					target.Position = victimAt
+					target.Goal = victimAt
+					target.Path = nil
+					target.PendingPath = nil
+					target.Trip = nil
+					target.ResidenceID = ""
+					target.Arrived = true
+					target.CombatHold = false
+					target.Safety = nil
+					r.state.Life.EnsureHeroBody(model)
+					if err := r.state.Life.Validate(r.world.Life, r.state.Tick); err != nil {
+						continue
+					}
+					r.syncLifeHero()
+					placed = true
+					break
+				}
+			}
+		}
+		if !placed {
+			continue
+		}
+		if err := r.advanceMarketSupply(); err != nil {
+			t.Fatal(err)
+		}
+		location := inv.Location{Kind: "store", Store: shop.DisplayStore}
+		if !r.commerceAccessible(playerActorID, location) {
+			continue
+		}
+		if err := r.startCombat(targetID); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.combatCommand(&pb.PocCombatCommand{Action: "attack", TargetId: targetID, ExpectedTurn: r.state.Combat.Turn}); err != nil {
+			t.Fatal(err)
+		}
+		owner = r.state.Life.Actor(shop.Owner)
+		if owner.Position != service || owner.Safety == nil {
+			t.Fatal("witness response must precede, not teleport, the merchant's departure")
+		}
+		if r.commerceAccessible(playerActorID, location) {
+			t.Fatal("an observed assault left the still-present proprietor eligible to sell")
+		}
+		return
+	}
+	t.Fatal("no existing open proprietor has a genuine adjacent witnessed melee arrangement")
+}
+
+func TestCombatWorldSafetyRetargetsNewPersonallySeenThreat(t *testing.T) {
+	r, _, target := combatLifeFixture(t, false)
+	r.world.CombatLife.Responders = map[string]combatResponder{}
+	id := combatWorldObserverID(t, r, target)
+	combatWorldPlace(t, r, id, target, 1000, 1800, true)
+	if err := r.startCombat(target); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.combatCommand(&pb.PocCombatCommand{Action: "attack", TargetId: target, ExpectedTurn: r.state.Combat.Turn}); err != nil {
+		t.Fatal(err)
+	}
+	witness := r.state.Life.Actor(id)
+	hero := r.state.Life.Actor(playerActorID)
+	if witness.Safety == nil || witness.Safety.ThreatAt != hero.Position {
+		t.Fatal("initial personal observation was not saved on the safety response")
+	}
+	oldThreat := witness.Safety.ThreatAt
+	observer := combatLifeObserver{ID: id, Level: witness.Level, At: witness.Position}
+	model := r.state.Life.GateModel(r.world.Life)
+	blocked := r.state.Life.BlockedCells(hero.Level, playerActorID)
+	for _, at := range model.StepNeighbours(hero.Level, hero.Position) {
+		if blocked[at] || !model.Walks(hero.Level, at) || !r.combatWorldVisible(observer, at) {
+			continue
+		}
+		if err := r.combatCommand(&pb.PocCombatCommand{Action: "move", X: int32(at.X), Y: int32(at.Y), ExpectedTurn: r.state.Combat.Turn}); err != nil {
+			continue
+		}
+		if err := r.combatLifeAfterFrame(); err != nil {
+			t.Fatal(err)
+		}
+		witness = r.state.Life.Actor(id)
+		hero = r.state.Life.Actor(playerActorID)
+		if witness.Safety == nil || witness.Safety.ThreatAt == oldThreat || witness.Safety.ThreatAt != hero.Position {
+			t.Fatal("a new visible threat position left the civilian committed to the old danger model")
+		}
+		return
+	}
+	t.Fatal("no physical visible one-step threat movement was available")
+}
+
+func TestCombatWorldBackgroundFightPreservesHeroControlAndOneActionPerFrame(t *testing.T) {
+	r, c, initiatorID := combatLifeFixture(t, true)
+	r.world.CombatLife.Responders = map[string]combatResponder{}
+	victimID := combatWorldObserverID(t, r, initiatorID)
+	combatWorldPlace(t, r, victimID, initiatorID, 1000, 1800, true)
+	r.world.CombatLife.Aggressors = map[string][]string{initiatorID: {victimID}}
+	if err := r.state.Life.SetRelation(initiatorID, victimID, -1); err != nil {
+		t.Fatal(err)
+	}
+	battleLevel := r.currentLevel()
+	model := r.state.Life.GateModel(r.world.Life)
+	hero := r.state.Life.Actor(playerActorID)
+	levels := []string{}
+	for level := range model.Locations {
+		if level != battleLevel && r.world.Decks[level] == nil {
+			levels = append(levels, level)
+		}
+	}
+	sort.Strings(levels)
+	start, goal := behavior.Cell{}, behavior.Cell{}
+	other := ""
+	for _, level := range levels {
+		if other != "" {
+			break
+		}
+		l := model.Locations[level]
+		blocked := r.state.Life.BlockedCells(level, playerActorID)
+		for y, row := range l.Terrain {
+			if other != "" {
+				break
+			}
+			for x := range row {
+				at := behavior.Cell{X: x, Y: y}
+				if blocked[at] || !model.Walks(level, at) {
+					continue
+				}
+				for _, delta := range []behavior.Cell{{X: 2}, {Y: 2}, {X: -2}, {Y: -2}} {
+					to := behavior.Cell{X: at.X + delta.X, Y: at.Y + delta.Y}
+					space := model.Space(level, blocked)
+					if !model.Walks(level, to) || blocked[to] || len(space.Path(at, to, behavior.Cell{}, 0)) < 2 {
+						continue
+					}
+					other = level
+					start = at
+					goal = to
+					break
+				}
+				if other != "" {
+					break
+				}
+			}
+		}
+	}
+	if other == "" {
+		t.Fatal("real Life world has no other ordinary walkable room")
+	}
+	hero.Level = other
+	hero.Position = start
+	hero.Goal = start
+	hero.Path = nil
+	hero.PendingPath = nil
+	hero.Body = nil
+	hero.Trip = nil
+	hero.ResidenceID = ""
+	hero.Manual = true
+	hero.Arrived = true
+	hero.OverrideLevel = ""
+	hero.OverrideEdge = ""
+	hero.CombatHold = false
+	if hero.Visits == nil {
+		hero.Visits = map[string]int{}
+	}
+	hero.Visits[other]++
+	r.syncLifeHero()
+	r.applyGateTerrain()
+	epoch := r.state.Epoch
+	r.lifeMove(c, &pb.MoveTo{Epoch: epoch, InputSeq: 91, X: int32(goal.X), Y: int32(goal.Y)})
+	accepted := false
+	for len(c.out) > 0 {
+		if result := (<-c.out).GetMoveResult(); result != nil {
+			accepted = result.Ok
+		}
+	}
+	if !accepted {
+		t.Fatal("ordinary hero route was not accepted before background fight")
+	}
+	started, moved := false, false
+	for i := 0; i < 25; i++ {
+		oldID, oldSeq := r.state.Combat.ID, r.state.Combat.ActionSeq
+		r.state.Tick++
+		if err := r.advanceLifeFrameBy(1); err != nil {
+			t.Fatal(err)
+		}
+		if r.state.Combat.ID != "" {
+			started = true
+			if r.state.Combat.LevelID != battleLevel || r.state.Combat.Actor(playerActorID) != nil {
+				t.Fatal("background fight commandeered the hero")
+			}
+			if oldID != r.state.Combat.ID {
+				oldSeq = 0
+			}
+			if r.state.Combat.ActionSeq-oldSeq > 1 {
+				t.Fatal("background fight executed more than one action in one Life frame")
+			}
+		}
+		hero = r.state.Life.Actor(playerActorID)
+		if hero.Position != start {
+			moved = true
+		}
+		if r.state.Epoch != epoch || hero.CombatHold {
+			t.Fatal("unknown background encounter reset the hero's input epoch or held its body")
+		}
+		message := &pb.PocGameState{}
+		r.appendCombat(message)
+		if message.Combat != nil {
+			t.Fatal("a hidden encounter disclosed metadata to an uninvolved hero")
+		}
+	}
+	if !started || !moved {
+		t.Fatal("ordinary world did not simultaneously execute the NPC fight and accepted hero movement")
+	}
+}
+
+// The map is an explicit initial data fixture connected to the real Life graph.
+// All actor identities, commands, AI search, contacts and resolution are real.
+func combatWorldCornerEscape(t *testing.T, hidden behavior.Cell) []string {
+	t.Helper()
+	r, _, targetID := combatLifeFixture(t, true)
+	r.world.CombatLife.Responders = map[string]combatResponder{}
+	r.world.CombatLife.Aggressors = map[string][]string{}
+	r.world.CombatLife.DisengageWhenContactsExhausted = true
+	r.world.CombatRuntime.Rules.MemoryTurns = 1
+	r.world.CombatRuntime.Rules.SightRangeMM = 1000
+	r.world.CombatRuntime.Rules.HearingRangeMM = 1
+	hero, target := r.state.Life.Actor(playerActorID), r.state.Life.Actor(targetID)
+	oldLevel, entry := hero.Level, hero.Position
+	const level = "level.test_combat_corner"
+	r.world.Life.Locations[level] = behavior.LifeLocation{Name: "Corner search fixture", CellMM: 1000, Terrain: []string{"############", "#....#.....#", "#....#.....#", "#..........#", "#....#.....#", "#....#.....#", "############"}}
+	r.world.Life.Edges = append(r.world.Life.Edges, behavior.LifeEdge{ID: "test.corner.exit", From: level, To: oldLevel, Exit: behavior.Cell{X: 1, Y: 3}, Entry: entry, Mode: "walk", TravelSeconds: 3, Seats: 1}, behavior.LifeEdge{ID: "test.corner.entry", From: oldLevel, To: level, Exit: entry, Entry: behavior.Cell{X: 1, Y: 3}, Mode: "walk", TravelSeconds: 3, Seats: 1})
+	r.world.Opaque["#"] = true
+	r.world.Life.Walkable["."] = true
+	for _, a := range []*behavior.LifeActor{hero, target} {
+		a.Level = level
+		a.Path = nil
+		a.PendingPath = nil
+		a.Body = nil
+		a.Trip = nil
+		a.ResidenceID = ""
+		a.OverrideLevel = ""
+		a.OverrideEdge = ""
+		a.Arrived = true
+		a.CombatHold = false
+		a.Safety = nil
+		if a.Visits == nil {
+			a.Visits = map[string]int{}
+		}
+		a.Visits[level]++
+	}
+	hero.Position = behavior.Cell{X: 4, Y: 3}
+	hero.Goal = hero.Position
+	hero.Manual = true
+	target.Position = behavior.Cell{X: 3, Y: 3}
+	target.Goal = target.Position
+	target.Manual = false
+	r.syncLifeHero()
+	r.applyGateTerrain()
+	if err := r.state.Life.Validate(r.world.Life, r.state.Tick); err != nil {
+		t.Fatal("invalid corner input fixture", err)
+	}
+	if r.combatSight(level, target.Position, hidden) {
+		t.Fatal("fixture has no real occluding corner")
+	}
+	heroHP, targetHP := r.combatant(playerActorID, "player").HP, r.combatant(targetID, "opposition").HP
+	inventory := r.state.Inventory.Clone()
+	if err := r.startCombat(targetID); err != nil {
+		t.Fatal(err)
+	}
+	epoch := r.state.Epoch
+	if err := r.combatCommand(&pb.PocCombatCommand{Action: "move", X: int32(hidden.X), Y: int32(hidden.Y), ExpectedTurn: r.state.Combat.Turn}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 20 && r.state.Combat.Active; i++ {
+		if err := r.combatCommand(&pb.PocCombatCommand{Action: "end", ExpectedTurn: r.state.Combat.Turn}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if r.state.Combat.Active {
+		t.Fatal("actors exhausted their search but retained a permanent encounter")
+	}
+	moves := []string{}
+	disengaged := false
+	for _, event := range r.state.Combat.Events {
+		if event.ActorID == targetID && event.Type == "move" {
+			moves = append(moves, fmt.Sprintf("%d,%d", event.To.X, event.To.Y))
+		}
+		if event.Type == "disengage" {
+			disengaged = true
+		}
+	}
+	if len(moves) == 0 || !disengaged {
+		t.Fatal("encounter was closed without executing actual NPC search")
+	}
+	if r.state.Life.Actor(playerActorID).CombatHold || r.state.Life.Actor(targetID).CombatHold || r.state.CombatRoster[playerActorID].HP != heroHP || r.state.CombatRoster[targetID].HP != targetHP || !reflect.DeepEqual(inventory, r.state.Inventory) {
+		t.Fatal("disengagement changed health/items or failed to release able actors")
+	}
+	if r.state.Epoch == epoch {
+		t.Fatal("participating hero retained an old combat input epoch")
+	}
+	if err := r.state.Life.Validate(r.world.Life, r.state.Tick); err != nil {
+		t.Fatal("released state is inconsistent", err)
+	}
+	return moves
+}
+func TestCombatWorldExhaustedSearchDisengagesWithoutHiddenPositionTracking(t *testing.T) {
+	a := combatWorldCornerEscape(t, behavior.Cell{X: 7, Y: 1})
+	b := combatWorldCornerEscape(t, behavior.Cell{X: 8, Y: 1})
+	if !reflect.DeepEqual(a, b) {
+		t.Fatalf("unseen silent movement changed NPC search: %v / %v", a, b)
 	}
 }

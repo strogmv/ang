@@ -21,6 +21,25 @@ namespace AngelsDemons.Poc {
   readonly HashSet<GameObject> locationSDKInstanceFaded=new HashSet<GameObject>();
   readonly List<Renderer> locationSDKInstanceHiddenText=new List<Renderer>();
   Material locationSDKInstanceFadeMaterial;
+  // demo-hub v14-traders: the faded body is drawn by a screen-door dither material per source material (its albedo in
+  // shade), the share of kept pixels eases from 1 to InstanceDitherCoverage over InstanceDitherSeconds (no glass box).
+  readonly Dictionary<Material,Material> locationSDKInstanceDither=new Dictionary<Material,Material>();
+  readonly Dictionary<Renderer,float> locationSDKInstanceFadeStart=new Dictionary<Renderer,float>();
+  MaterialPropertyBlock locationSDKInstanceFadeBlock;
+  const float InstanceDitherCoverage=.38f,InstanceDitherSeconds=.3f;
+  static readonly int InstanceDitherCoverageID=Shader.PropertyToID("_Coverage");
+  Material LocationSDKInstanceDitherFor(Material source){
+   if(source==null){if(locationSDKInstanceFadeMaterial==null)locationSDKInstanceFadeMaterial=LocationSDKTransparentMaterial(new Color(.62f,.66f,.66f,.06f));return locationSDKInstanceFadeMaterial;}
+   Material m;if(locationSDKInstanceDither.TryGetValue(source,out m))return m;
+   var shader=Shader.Find("ANG/LocationSDKInstanceDither");
+   if(shader==null){if(locationSDKInstanceFadeMaterial==null)locationSDKInstanceFadeMaterial=LocationSDKTransparentMaterial(new Color(.62f,.66f,.66f,.06f));return locationSDKInstanceFadeMaterial;}
+   m=new Material(shader){name=source.name+" / dither"};
+   string tex=source.HasProperty("_BaseMap")?"_BaseMap":source.HasProperty("_MainTex")?"_MainTex":null;
+   if(tex!=null&&source.GetTexture(tex)!=null){m.SetTexture("_BaseMap",source.GetTexture(tex));m.SetTextureScale("_BaseMap",source.GetTextureScale(tex));m.SetTextureOffset("_BaseMap",source.GetTextureOffset(tex));}
+   if(source.HasProperty("_BaseColor"))m.SetColor("_BaseColor",source.GetColor("_BaseColor"));else if(source.HasProperty("_Color"))m.SetColor("_BaseColor",source.GetColor("_Color"));
+   // not in locationSDKMaterials: that list runs parallel to locationSDKColors (the per-frame tint of SDK materials)
+   locationSDKInstanceDither[source]=m;return m;
+  }
   readonly Dictionary<Renderer,LocationSDKFadeRestore> locationSDKFadeOriginal=new Dictionary<Renderer,LocationSDKFadeRestore>();
   Material locationSDKGlassMaterial,locationSDKFadeMaterial;
   internal bool LocationSDKIsMultideck{get{return locationSDKNav!=null;}}
@@ -301,7 +320,7 @@ namespace AngelsDemons.Poc {
     if(g.policy=="building"){bool inside=heroMM>=g.bottom_mm-1&&heroMM<g.top_mm&&LocationSDKRectContains(g.interior,px,py);if(inside)foreach(var id in g.surfaces){var s=LocationSDKNavSurfaceByID(id);if(s!=null&&s.elevation_mm>heroMM+2100)locationSDKCutawayHidden.Add(id);}}
     else if(g.policy=="occluding"){bool occluding=false;foreach(var id in g.surfaces){var s=LocationSDKNavSurfaceByID(id);if(s==null||s.elevation_mm<=heroMM+500)continue;float underside=(s.elevation_mm-s.slab_mm)*.001f;foreach(float h in new[]{1f,1.7f}){var p=feet+Vector3.up*h;if(p.y>=underside||locationSDKCameraOffset.y<=0)continue;var q=p+locationSDKCameraOffset*((underside-p.y)/locationSDKCameraOffset.y);if(LocationSDKSlabAt(s,(int)Math.Floor(q.x/meters),(int)Math.Floor(q.z/meters)))occluding=true;}}if(occluding)foreach(var id in g.surfaces)locationSDKCutawayFaded.Add(id);}
    }
-   LocationSDKUpdateInstanceCutaway(feet);
+   LocationSDKUpdateInstanceCutaway(feet);LocationSDKAnimateInstanceDither();
    foreach(var pair in locationSDKDeckRoots){bool hidden=locationSDKCutawayHidden.Contains(pair.Key);if(pair.Value.activeSelf==hidden)pair.Value.SetActive(!hidden);bool faded=locationSDKCutawayFaded.Contains(pair.Key);
     foreach(var renderer in pair.Value.GetComponentsInChildren<Renderer>(true)){LocationSDKFadeRestore original;bool swapped=locationSDKFadeOriginal.TryGetValue(renderer,out original);
      if(faded&&!swapped){original=new LocationSDKFadeRestore{materials=renderer.sharedMaterials,shadows=renderer.shadowCastingMode};locationSDKFadeOriginal[renderer]=original;var slots=new Material[original.materials.Length];for(int i=0;i<slots.Length;i++)slots[i]=locationSDKFadeMaterial;renderer.sharedMaterials=slots;renderer.shadowCastingMode=UnityEngine.Rendering.ShadowCastingMode.Off;}
@@ -333,16 +352,24 @@ namespace AngelsDemons.Poc {
      // non-solid parts (world text, signals, glass, screens: no shadows) are hidden meanwhile
      bool solid=renderer.shadowCastingMode!=UnityEngine.Rendering.ShadowCastingMode.Off||locationSDKFadeOriginal.ContainsKey(renderer);
      if(!solid||(renderer.sharedMaterial!=null&&renderer.sharedMaterial.shader!=null&&renderer.sharedMaterial.shader.name=="ANG/WorldText")){if(faded&&renderer.enabled){renderer.enabled=false;locationSDKInstanceHiddenText.Add(renderer);}continue;}
-     if(locationSDKInstanceFadeMaterial==null)locationSDKInstanceFadeMaterial=LocationSDKTransparentMaterial(new Color(.62f,.66f,.66f,.06f));
      LocationSDKFadeRestore original;bool swapped=locationSDKFadeOriginal.TryGetValue(renderer,out original);
-     if(faded&&!swapped){original=new LocationSDKFadeRestore{materials=renderer.sharedMaterials,shadows=renderer.shadowCastingMode};locationSDKFadeOriginal[renderer]=original;var slots=new Material[original.materials.Length];for(int i=0;i<slots.Length;i++)slots[i]=locationSDKInstanceFadeMaterial;renderer.sharedMaterials=slots;renderer.shadowCastingMode=UnityEngine.Rendering.ShadowCastingMode.Off;}
-     else if(!faded&&swapped){renderer.sharedMaterials=original.materials;renderer.shadowCastingMode=original.shadows;locationSDKFadeOriginal.Remove(renderer);}
+     if(faded&&!swapped){original=new LocationSDKFadeRestore{materials=renderer.sharedMaterials,shadows=renderer.shadowCastingMode};locationSDKFadeOriginal[renderer]=original;var slots=new Material[original.materials.Length];for(int i=0;i<slots.Length;i++)slots[i]=LocationSDKInstanceDitherFor(original.materials[i]);renderer.sharedMaterials=slots;renderer.shadowCastingMode=UnityEngine.Rendering.ShadowCastingMode.Off;locationSDKInstanceFadeStart[renderer]=Time.unscaledTime;}
+     else if(!faded&&swapped){renderer.sharedMaterials=original.materials;renderer.shadowCastingMode=original.shadows;locationSDKFadeOriginal.Remove(renderer);locationSDKInstanceFadeStart.Remove(renderer);}
     }
     if(!faded){for(int i=locationSDKInstanceHiddenText.Count-1;i>=0;i--){var r=locationSDKInstanceHiddenText[i];if(r==null){locationSDKInstanceHiddenText.RemoveAt(i);continue;}if(r.transform.IsChildOf(root.transform)){r.enabled=true;locationSDKInstanceHiddenText.RemoveAt(i);}}}
    }
   }
+  // Ease of the dithered fade: the share of kept pixels of every fading body (screen-door, per renderer).
+  void LocationSDKAnimateInstanceDither(){
+   if(locationSDKInstanceFadeStart.Count==0)return;if(locationSDKInstanceFadeBlock==null)locationSDKInstanceFadeBlock=new MaterialPropertyBlock();
+   List<Renderer> gone=null;
+   foreach(var kv in locationSDKInstanceFadeStart){var r=kv.Key;if(r==null){(gone=gone??new List<Renderer>()).Add(r);continue;}
+    float t=Mathf.Clamp01((Time.unscaledTime-kv.Value)/InstanceDitherSeconds);t=t*t*(3-2*t);
+    r.GetPropertyBlock(locationSDKInstanceFadeBlock);locationSDKInstanceFadeBlock.SetFloat(InstanceDitherCoverageID,Mathf.Lerp(1f,InstanceDitherCoverage,t));r.SetPropertyBlock(locationSDKInstanceFadeBlock);}
+   if(gone!=null)foreach(var r in gone)locationSDKInstanceFadeStart.Remove(r);
+  }
   // Presentation state of an instance cutaway (art runtimes skip their own material edits while it is faded).
   internal bool LocationSDKInstanceFaded(GameObject root){return root!=null&&locationSDKInstanceFaded.Contains(root);}
-  void ReleaseLocationSDKMultideck(){locationSDKInstanceFadeMaterial=null;locationSDKInstanceBounds.Clear();locationSDKInstanceFaded.Clear();locationSDKInstanceHiddenText.Clear();locationSDKNav=null;locationSDKHeroWorldValid=false;locationSDKNavWorld.Clear();locationSDKNavDeck.Clear();locationSDKDeckRoots.Clear();locationSDKCutawayHidden.Clear();locationSDKCutawayFaded.Clear();locationSDKFadeOriginal.Clear();locationSDKGlassMaterial=null;locationSDKFadeMaterial=null;}
+  void ReleaseLocationSDKMultideck(){locationSDKInstanceFadeMaterial=null;foreach(var m in locationSDKInstanceDither.Values)if(m!=null)Destroy(m);locationSDKInstanceDither.Clear();locationSDKInstanceFadeStart.Clear();locationSDKInstanceBounds.Clear();locationSDKInstanceFaded.Clear();locationSDKInstanceHiddenText.Clear();locationSDKNav=null;locationSDKHeroWorldValid=false;locationSDKNavWorld.Clear();locationSDKNavDeck.Clear();locationSDKDeckRoots.Clear();locationSDKCutawayHidden.Clear();locationSDKCutawayFaded.Clear();locationSDKFadeOriginal.Clear();locationSDKGlassMaterial=null;locationSDKFadeMaterial=null;}
  }
 }

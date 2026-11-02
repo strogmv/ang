@@ -112,3 +112,61 @@ func TestGateValidationRejectsUnsafeAuthoring(t *testing.T){
  m:=gateFixture();m.StartSeconds=3*3600;s:=m.Start();a:=s.Actor("porter");a.Position=Cell{3,2}
  if s.Validate(m,0)==nil{t.Fatal("body under a lowered gate accepted")}
 }
+
+func manualGateFixture()LifeModel{
+ m:=gateFixture();m.StartSeconds=12*3600;l:=m.Locations["g"];l.Gates[0].Manual=true;m.Locations["g"]=l;return m
+}
+func TestManualGateRequestUsesActualLiftAndStopsOverABody(t *testing.T){
+ m:=manualGateFixture();if err:=m.Validate();err!=nil{t.Fatal(err)};s:=m.Start()
+ if g:=s.Gates["gate"];g.State!="locked"||g.From!=0||g.RequestOpen||gateGlyph(m,s)!='#'{t.Fatalf("manual gate did not start lowered/locked by day: %+v",g)}
+ if err:=s.SetGateRequest(m,"gate",true);err!=nil{t.Fatal(err)}
+ if g:=s.Gates["gate"];g.State!="locked"||g.From!=0{t.Fatal("request teleported the gate open")}
+ mid:=false
+ for tick:=int64(1);tick<=180;tick++{
+  s.Advance(m,tick);g:=s.Gates["gate"]
+  if tick<30&&g.Position(tick)!=0{t.Fatal("manual opening skipped warning")}
+  if g.State=="opening"&&g.Position(tick)>0&&g.Position(tick)<GateFull{mid=true;if g.Passable()||g.Linear||g.Ramp!=15{t.Fatal("manual gate lost ordinary powered ramp/access rules")}}
+  if err:=s.Validate(m,tick);err!=nil{t.Fatal(err)}
+ }
+ if g:=s.Gates["gate"];!mid||g.State!="open"||!g.Passable()||!g.RequestOpen{t.Fatalf("manual gate did not actually finish opening: %+v",g)}
+ a:=s.Actor("porter");a.Manual=true;a.Position=Cell{3,2};a.Goal=a.Position
+ if err:=s.SetGateRequest(m,"gate",false);err!=nil{t.Fatal(err)}
+ for tick:=int64(181);tick<=260;tick++{s.Advance(m,tick);if s.Gates["gate"].Position(tick)!=GateFull{t.Fatal("manual close lowered onto an actual body")};if err:=s.Validate(m,tick);err!=nil{t.Fatal(err)}}
+ if g:=s.Gates["gate"];g.State!="stopped"||g.Stops==0||g.RequestOpen{t.Fatalf("body failed to stop requested closing: %+v",g)}
+ a=s.Actor("porter");a.Position=Cell{3,4};a.Goal=a.Position
+ for tick:=int64(261);tick<=520;tick++{s.Advance(m,tick);if err:=s.Validate(m,tick);err!=nil{t.Fatal(err)}}
+ if g:=s.Gates["gate"];g.State!="locked"||g.Position(520)!=0||g.Start<310||gateGlyph(m,s)!='#'{t.Fatalf("manual gate did not retry and finish locking after clear: %+v",g)}
+}
+
+func TestManualGateRequestSurvivesSaveCloneAndCalendarClose(t *testing.T){
+ m:=manualGateFixture();m.StartSeconds=22*3600-10;s:=m.Start();if err:=s.SetGateRequest(m,"gate",true);err!=nil{t.Fatal(err)}
+ for tick:=int64(1);tick<=90;tick++{s.Advance(m,tick)}
+ g:=s.Gates["gate"];if g.State!="opening"||g.Position(90)<=0||g.Position(90)>=GateFull||!g.RequestOpen{t.Fatalf("request failed across scheduled close: %+v",g)}
+ clone:=s.Clone();if err:=clone.SetGateRequest(m,"gate",false);err!=nil{t.Fatal(err)};if !s.Gates["gate"].RequestOpen{t.Fatal("clone request mutated the original gate")}
+ raw,err:=json.Marshal(s);if err!=nil{t.Fatal(err)};var loaded LifeState;if err=json.Unmarshal(raw,&loaded);err!=nil{t.Fatal(err)}
+ if err:=loaded.Validate(m,90);err!=nil{t.Fatal(err)}
+ if !loaded.Gates["gate"].RequestOpen||loaded.Gates["gate"].Position(90)!=g.Position(90){t.Fatal("save lost manual demand or physical lift")}
+ for tick:=int64(91);tick<=300;tick++{s.Advance(m,tick);loaded.Advance(m,tick);if !reflect.DeepEqual(s.Gates,loaded.Gates){t.Fatalf("saved manual motion diverged at %d",tick)}}
+ if g:=s.Gates["gate"];g.State!="open"||!g.RequestOpen{t.Fatalf("calendar closed a manually requested opening: %+v",g)}
+}
+
+func TestManualGateDemandDoesNotOverridePowerOrLockdown(t *testing.T){
+ m:=manualGateFixture();s:=m.Start();s.SetGateRequest(m,"gate",true);s.SetGatePower(m,"gate",false)
+ for tick:=int64(1);tick<=200;tick++{s.Advance(m,tick)}
+ if g:=s.Gates["gate"];g.State!="no_power"||g.Position(200)!=0||!g.RequestOpen{t.Fatalf("manual demand overrode failed drive: %+v",g)}
+ s.SetGatePower(m,"gate",true);s.SetGateLockdown(m,"gate",true)
+ for tick:=int64(201);tick<=400;tick++{s.Advance(m,tick)}
+ if g:=s.Gates["gate"];g.State!="lockdown"||g.Position(400)!=0{t.Fatalf("manual demand overrode alarm: %+v",g)}
+ s.SetGateLockdown(m,"gate",false)
+ for tick:=int64(401);tick<=600;tick++{s.Advance(m,tick)}
+ if g:=s.Gates["gate"];g.State!="open"||!g.RequestOpen{t.Fatalf("latched request did not resume after power/alarm cleared: %+v",g)}
+}
+
+func TestGateRequestRejectsAutomaticOrMissingGateWithoutMutation(t *testing.T){
+ m:=gateFixture();s:=m.Start();before:=s.Clone().Gates
+ for _,id:=range []string{"gate","missing"}{for _,open:=range []bool{true,false}{if s.SetGateRequest(m,id,open)==nil||!reflect.DeepEqual(s.Gates,before){t.Fatal("invalid manual request succeeded or mutated automatic state")}}}
+ g:=s.Gates["gate"];g.RequestOpen=true;s.Gates["gate"]=g
+ if err:=s.Validate(m,0);err==nil{t.Fatal("automatic gate accepted a saved manual request")}
+ m=manualGateFixture();l:=m.Locations["g"];l.Gates[0].LockAtNight=false;m.Locations["g"]=l;s=m.Start()
+ if g:=s.Gates["gate"];g.State!="closed"||g.From!=0{t.Fatalf("manual placement without lock_at_night did not start closed: %+v",g)}
+}

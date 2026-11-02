@@ -9,6 +9,8 @@ import (
 )
 
 func(r *Runtime)combatSight(level string,a,b behavior.Cell)bool{
+ if c,ok:=r.world.Illumination.Levels[level];r.world.Decks[level]!=nil&&r.world.Illumination.Enabled&&ok&&len(c.GateLeaves)>0{return r.combatPoseProtection(level,a,b,behavior.Combatant{},behavior.Combatant{},"")<1}
+
  if v:=r.world.Decks[level];v!=nil{return v.Sees(a,b)&&!r.combatGateBlocks(level,a,b)}
  terrain:=r.state.Life.GateModel(r.world.Life).Locations[level].Terrain
  inside:=func(p behavior.Cell)bool{return p.Y>=0&&p.Y<len(terrain)&&p.X>=0&&p.X<len(terrain[p.Y])}
@@ -17,6 +19,20 @@ func(r *Runtime)combatSight(level string,a,b behavior.Cell)bool{
  x,y:=a.X,a.Y;dx,dy:=b.X-a.X,b.Y-a.Y;sx,sy:=1,1;if dx<0{dx=-dx;sx=-1};if dy<0{dy=-dy;sy=-1};err:=dx-dy
  for{x2,y2:=x,y;if x==b.X&&y==b.Y{return true};twice:=2*err;if twice> -dy{err-=dy;x2+=sx};if twice<dx{err+=dx;y2+=sy};if x2!=x&&y2!=y&&opaque(behavior.Cell{X:x2,Y:y})&&opaque(behavior.Cell{X:x,Y:y2}){return false};x,y=x2,y2;if (x!=b.X||y!=b.Y)&&opaque(behavior.Cell{X:x,Y:y}){return false}}
 }
+func(r *Runtime)combatObserverSees(level,observerID string,from,to behavior.Cell)bool{
+ observer:=behavior.Combatant{ID:observerID,Position:from}
+ target:=behavior.Combatant{Position:to}
+ if r.state.Combat.Active&&r.state.Combat.LevelID==level{for _,a:=range r.state.Combat.Actors{if a.ID==observerID{observer=cloneCombatant(a);observer.Position=from};if a.Position==to{target=cloneCombatant(a)}}}
+ if v:=r.world.Decks[level];v!=nil{return r.combatPoseProtection(level,from,to,observer,target,"")<1}
+ return r.combatSight(level,from,to)
+}
+func(r *Runtime)combatTargetVisible(target behavior.Combatant)bool{
+ if r.currentLevel()!=r.state.Combat.LevelID||r.world.Visibility.PlayerRange<=0{return false}
+ from:=behavior.Cell{X:r.state.Player.X,Y:r.state.Player.Y}
+ level:=r.world.Life.Locations[r.currentLevel()];radius:=level.PlayerRangeCells;if radius<1{radius=r.world.Visibility.PlayerRange};unit:=level.CellMM;if unit<1{unit=1000}
+ return r.combatWorldDistance(r.currentLevel(),from,target.Position)<=radius*unit&&r.combatObserverSees(r.currentLevel(),playerActorID,from,target.Position)
+}
+func(r *Runtime)combatActorKnown(id string)bool{level,_,_:=r.knownCombatLifeActor(id);return level!=""}
 // The existing gate contract exposes a server sight-clear threshold. Use it
 // consistently until the leaves' full dynamic collision volume is authored.
 func(r *Runtime)combatGateBlocks(level string,from,to behavior.Cell)bool{
@@ -48,9 +64,10 @@ func(r *Runtime)combatLifeHeld(id string)bool{
 func(r *Runtime)storeAmbientCombatCasualty(c behavior.Combatant){
  if r.state.CombatRoster==nil{r.state.CombatRoster=map[string]behavior.Combatant{}}
  r.state.CombatRoster[c.ID]=cloneCombatant(c)
+ if r.state.CombatCare.Clocks==nil{r.state.CombatCare.Clocks=map[string]int64{}};if _,exists:=r.state.CombatCare.Clocks[c.ID];!exists{r.state.CombatCare.Clocks[c.ID]=r.state.Life.Seconds}
  if c.HP>0{return}
  if a:=r.state.Life.Actor(c.ID);a!=nil{a.CombatHold=true;a.Safety=nil;a.Path=nil;a.PendingPath=nil;a.Activity="down";a.Label="ui.combat.down";return}
- for i:=range r.state.Life.Population.Actors{a:=&r.state.Life.Population.Actors[i];if a.ID==c.ID{a.CombatHold=true;a.Safety=nil;a.Path=nil;a.Activity="down";a.Label="ui.combat.down";return}}
+ for i:=range r.state.Life.Population.Actors{a:=&r.state.Life.Population.Actors[i];if a.ID==c.ID{a.CombatHold=true;a.Safety=nil;a.Path=nil;a.Activity="down";return}}
 }
 
 func(r *Runtime)applyAmbientCombatBlasts(previous behavior.CombatState)error{
@@ -68,6 +85,7 @@ func(r *Runtime)applyAmbientCombatBlasts(previous behavior.CombatState)error{
   source:=s.Actor(event.ActorID);if source==nil{return errors.New("explosion source missing")}
   for _,t:=range targets{
    c:=r.combatant(t.id,"bystander");c.Position=t.at;if c.HP<=0{continue}
+   if !c.TacticalInitialized{c.TacticalInitialized=true;c.Morale=c.Courage}
    scale:=behavior.CombatBlastScale(r.combatSpace(*s),x,event.To,t.at);if scale<=0{continue}
    stream:="combat.v2/"+s.ID+"/"+strconv.FormatUint(s.ActionSeq,10)+"/blast/"+c.ID
    rules:=r.world.CombatRuntime.Rules
@@ -75,9 +93,24 @@ func(r *Runtime)applyAmbientCombatBlasts(previous behavior.CombatState)error{
    raw:=int(math.Round(float64(x.Damage)*scale*spread));blocked:=behavior.CombatArmorBlocked(c,raw,"torso")
    temporary:=behavior.CombatState{Actors:[]behavior.Combatant{cloneCombatant(*source),c}}
    damage:=temporary.ApplyDamage(r.combatSpace(*s),rules,event.ActorID,c.ID,raw,int(math.Ceil(float64(x.Bleed)*scale)),int(math.Ceil(float64(x.Suppression)*scale)),"torso")
-   c=temporary.Actors[1];r.storeAmbientCombatCasualty(c)
+   c=temporary.Actors[1]
+   if blocked>0{if err:=r.wearCombatArmor(&r.state.Inventory,behavior.CombatEvent{TargetID:c.ID,BodyPart:"torso",ArmorBlocked:blocked,Sequence:s.EventSeq+1});err!=nil{return err};c.BodyArmor=r.combatArmorFromInventory(r.state.Inventory,c.ID)}
+   r.storeAmbientCombatCasualty(c)
    s.EventSeq++;s.Events=append(s.Events,behavior.CombatEvent{Type:"blast_hit",ActorID:event.ActorID,TargetID:c.ID,ItemID:x.ID,From:event.To,To:t.at,Amount:damage,ArmorBlocked:blocked,Hit:damage>0,Turn:s.Turn,Sequence:s.EventSeq})
   }
  }
  return nil
+}
+
+// The same authored moving leaf bounds serve visual/targeted body rays. The
+// AP executor, injury model and static ballistic material rules stay shared.
+func(r *Runtime)combatPoseProtection(level string,from,to behavior.Cell,a,b behavior.Combatant,part string)float64{
+ v:=r.world.Decks[level];if v==nil{return 1}
+ c,exact:=r.world.Illumination.Levels[level]
+ if !r.world.Illumination.Enabled||!exact||len(c.GateLeaves)==0{if r.combatGateBlocks(level,from,to){return 1};return v.CombatPoseProtection(from,to,a,b,part)}
+ eye:=v.BodyLightPoints(from,a)[2];if !a.Prone{eye.Z-=50}
+ points:=v.BodyLightPoints(to,b);parts:=[]int{0,1,2};if part!=""{index:=1;if part=="head"{index=2}else if part=="legs"{index=0};parts=[]int{index}}
+ boxes:=r.illuminationBoxes(c);blocked:=0
+ for _,i:=range parts{if !v.RayClearMM(eye,points[i],boxes){blocked++}}
+ return float64(blocked)/float64(len(parts))
 }

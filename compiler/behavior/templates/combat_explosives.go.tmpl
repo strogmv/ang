@@ -123,9 +123,34 @@ func (s *CombatState) executeThrow(space CombatSpace, r CombatRules, actorID str
 		damage := s.ApplyDamage(space, r, actorID, b.ID, raw, int(math.Ceil(float64(x.Bleed)*scale)), int(math.Ceil(float64(x.Suppression)*scale)), "torso")
 		s.event(CombatEvent{Type: "blast_hit", ActorID: actorID, TargetID: b.ID, ItemID: x.ID, From: action.To, To: b.Position, Amount: damage, Hit: raw > 0, ArmorBlocked: blocked, BodyPart: "torso", Reason: "blast and geometry"})
 	}
-	s.gunshot(space, r, *a)
+	s.explosionSignal(space, r, action.To, actorID)
 	s.AfterAction(space, r, actorID, action)
 	return nil
+}
+
+// The flash/sound belongs to the landing point, never the hidden thrower.
+// A visible flash carries an exact area observation; hearing alone is coarse
+// and anonymous, using the host's same acoustic attenuation as other sounds.
+func (s *CombatState) explosionSignal(space CombatSpace, r CombatRules, origin Cell, throwerID string) {
+	emitter := Combatant{Position: origin, HP: 1, Prone: true}
+	for i := range s.Actors {
+		listener := &s.Actors[i]
+		if !listener.Able() || listener.ID == throwerID {
+			continue
+		}
+		visible := space.ActorVisible(*listener, emitter, r)
+		audible := space.rangeMM(listener.Position, origin) <= r.HearingRangeMM && (space.CanHear == nil || space.CanHear(*listener, emitter))
+		if !visible && !audible {
+			continue
+		}
+		pos, source, radius := origin, "explosion", 0
+		if !visible {
+			pos = Cell{origin.X / 3 * 3, origin.Y / 3 * 3}
+			source = "hearing"
+			radius = 3
+		}
+		s.remember(listener, CombatContact{SubjectID: "noise.blast." + strconv.FormatUint(s.ActionSeq, 10), Position: pos, ObservedTurn: s.Turn, ObservedAction: s.ActionSeq, ReceivedTurn: s.Turn, Source: source, SourceID: listener.ID, Radius: radius, Visible: visible})
+	}
 }
 
 // The only candidate centres come from this actor's existing contacts. No

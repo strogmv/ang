@@ -2,9 +2,65 @@
 package behavior
 
 import (
+ "fmt"
  "math"
  "sort"
 )
+
+// StealthPolicy governs pre-combat recognition. Geometry/exposure and heading
+// are supplied by the same physical world as combat; camera and GPU light do
+// not enter these functions. Score measures evidence, not a random stealth roll.
+type StealthPolicy struct {
+ Enabled bool `json:"enabled"`
+ RangeMM int `json:"range_mm"`
+ NearMM int `json:"near_mm"`
+ ConeCos float64 `json:"cone_cos"`
+ AcquirePerSecond float64 `json:"acquire_per_second"`
+ DecayPerSecond float64 `json:"decay_per_second"`
+ SneakVisibility float64 `json:"sneak_visibility"`
+ MovingVisibility float64 `json:"moving_visibility"`
+ ForgetSeconds int64 `json:"forget_seconds"`
+ SoundMemorySeconds int64 `json:"sound_memory_seconds"`
+}
+func(p StealthPolicy)Validate()error{
+ if !p.Enabled{return nil}
+ if p.RangeMM<1||p.RangeMM>100000||p.NearMM<1||p.NearMM>p.RangeMM||!(p.ConeCos>=0&&p.ConeCos<=1)||!(p.AcquirePerSecond>0&&p.AcquirePerSecond<=10000)||!(p.DecayPerSecond>0&&p.DecayPerSecond<=10000)||!(p.SneakVisibility>0&&p.SneakVisibility<=1)||!(p.MovingVisibility>=1&&p.MovingVisibility<=3)||p.ForgetSeconds<1||p.ForgetSeconds>3600||p.SoundMemorySeconds<1||p.SoundMemorySeconds>3600{return fmt.Errorf("invalid stealth policy")};return nil
+}
+type StealthEvidence struct {
+ DistanceMM int
+ FacingDot,Exposure float64
+ Moving,Sneaking bool
+ LightKnown bool
+ LightFactor float64
+}
+func(p StealthPolicy)VisualRate(e StealthEvidence)float64{
+ light:=1.0;if e.LightKnown{if !(e.LightFactor>=0&&e.LightFactor<=1){return 0};light=e.LightFactor}
+ reach:=float64(p.NearMM)+float64(p.RangeMM-p.NearMM)*light
+ if e.DistanceMM<0||float64(e.DistanceMM)>reach||!(e.Exposure>0&&e.Exposure<=1)||!(e.FacingDot>=-1&&e.FacingDot<=1){return 0}
+ if e.DistanceMM<=p.NearMM{return 1000}
+ if e.FacingDot<p.ConeCos{return 0}
+ rate:=p.AcquirePerSecond*e.Exposure*(1-.5*float64(e.DistanceMM)/reach)*light
+ if e.Sneaking{rate*=p.SneakVisibility};if e.Moving{rate*=p.MovingVisibility};return rate
+}
+// LastSeen changes only on actual recognition. A hidden target position is
+// never copied into memory, including while an old contact is being searched.
+type StealthContact struct {
+ Score float64
+ LastSeen Cell
+ SeenAt,UpdatedAt int64
+ HasSeen,Visible bool
+}
+func(c *StealthContact)Advance(p StealthPolicy,e StealthEvidence,at Cell,now int64){
+ if now<c.UpdatedAt{return};elapsed:=now-c.UpdatedAt;c.UpdatedAt=now;c.Visible=false
+ rate:=p.VisualRate(e)
+ if rate>0{
+  // Personal contact stays immediate. A distant person in known shadow needs
+  // sustained observation even when not sneaking; unknown light keeps legacy rules.
+  if e.DistanceMM<=p.NearMM||!e.Sneaking&&(!e.LightKnown||e.LightFactor>=1){c.Score=1000}else{c.Score=math.Min(1000,c.Score+rate*float64(elapsed))}
+  if c.Score>=1000{c.Visible=true;c.HasSeen=true;c.LastSeen=at;c.SeenAt=now}
+ }else{c.Score=math.Max(0,c.Score-p.DecayPerSecond*float64(elapsed))}
+ if c.HasSeen&&now-c.SeenAt>=p.ForgetSeconds{c.HasSeen=false}
+}
 
 // HearingPolicy comes from ai/policies/perception.cue. People hear farther than they see:
 // range scales with loudness, walls attenuate, ambient noise masks, the location is a guess.

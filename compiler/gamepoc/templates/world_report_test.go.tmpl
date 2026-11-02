@@ -305,6 +305,7 @@ func worldRunAuditDay(t testing.TB, count int, seconds int64, compareDay2 bool) 
 	// Food counters deliberately exclude drinks (e.g. the yatai's food:false
 	// tea). Only definitions explicitly consumed by a brain service may vanish.
 	consumables := map[string]bool{}
+	crafted := r.craftingContractDefinitions()
 	for _, id := range r.world.Life.Brain.FoodDefinitions {
 		consumables[id] = true
 	}
@@ -368,7 +369,9 @@ func worldRunAuditDay(t testing.TB, count int, seconds int64, compareDay2 bool) 
 			clock := r.state.Life.Seconds % 86400
 			status := r.state.Inventory.Shopfronts[sh.ID]
 			a := r.state.Life.Actor(sh.Owner)
-			if clock >= 7*3600 && clock < 22*3600 && !status.Open {
+			// demo-hub v14-traders: each shop is held to its own trading hours inside the market day (07-22), not to 07-22 itself
+			from, to := max(sh.OpenSecond, 7*3600), min(sh.CloseSecond, 22*3600)
+			if clock >= from && clock < to && !status.Open {
 				if !status.Break {
 					unexpectedClosed += rate
 					if len(failures) < 12 {
@@ -574,6 +577,12 @@ func worldRunAuditDay(t testing.TB, count int, seconds int64, compareDay2 bool) 
 	for id, before := range stockDefinitionsStart {
 		delta := stockDefinitionsEnd[id] - before
 		if delta == 0 {
+			continue
+		}
+		if crafted[id] {
+			// crafting (doc 93): parts spent, things salvaged, products made — authored by the CUE recipes
+			rep.Interactions["crafting_units_delta"] += delta
+			rep.StockDelta -= delta
 			continue
 		}
 		rep.StockDeltasByDefinition[id] = delta

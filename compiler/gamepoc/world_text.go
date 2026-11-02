@@ -85,6 +85,8 @@ type WorldTextSlotDrawn struct {
 	Layout     string                  `json:"layout"`
 	Strips     *locationsdk.TextStrips `json:"strips,omitempty"`
 	HasStrips  bool                    `json:"has_strips"`
+	Plate      *locationsdk.TextPlate  `json:"plate,omitempty"`
+	HasPlate   bool                    `json:"has_plate"`
 	Texts      []WorldTextLocaleDrawn  `json:"texts"`
 	MinGlyphMM int                     `json:"min_glyph_mm"`
 }
@@ -256,8 +258,8 @@ func worldTextPrice(d struct{ num, den int64 }, locale string) string {
 	if d.num%d.den == 0 {
 		return strconv.FormatInt(d.num/d.den, 10)
 	}
+	// demo-hub v14-traders: a fractional price keeps both decimals (0,60 CRD, not 0,6)
 	text := strconv.FormatFloat(float64(d.num)/float64(d.den), 'f', 2, 64)
-	text = strings.TrimRight(strings.TrimRight(text, "0"), ".")
 	if locale == "ru" {
 		text = strings.ReplaceAll(text, ".", ",")
 	}
@@ -327,7 +329,7 @@ func compileWorldText(unity string, c Compiled) (*WorldTextRuntime, error) {
 		if !ok {
 			return nil, fmt.Errorf("world text %s/%s: no font for style %s", entry.level, s.ID, s.Style)
 		}
-		drawn := WorldTextSlotDrawn{LevelID: entry.level, ID: s.ID, Instance: s.Instance, Anchor: s.Anchor, Vista: entry.vista, CenterMM: s.CenterMM, Face: string(s.Face), WidthMM: s.WidthMM, HeightMM: s.HeightMM, MarginMM: s.MarginMM, Style: s.Style, Surface: s.Surface, Ink: s.Ink, Wear: s.Wear, Layout: s.Layout, Strips: s.Strips, HasStrips: s.Strips != nil, MinGlyphMM: s.MinGlyphMM}
+		drawn := WorldTextSlotDrawn{LevelID: entry.level, ID: s.ID, Instance: s.Instance, Anchor: s.Anchor, Vista: entry.vista, CenterMM: s.CenterMM, Face: string(s.Face), WidthMM: s.WidthMM, HeightMM: s.HeightMM, MarginMM: s.MarginMM, Style: s.Style, Surface: s.Surface, Ink: s.Ink, Wear: s.Wear, Layout: s.Layout, Strips: s.Strips, HasStrips: s.Strips != nil, Plate: s.Plate, HasPlate: s.Plate != nil, MinGlyphMM: s.MinGlyphMM}
 		for _, locale := range locales {
 			var lines []string
 			fail := func(err error) error {

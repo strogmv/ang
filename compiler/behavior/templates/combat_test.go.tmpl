@@ -984,3 +984,438 @@ func TestCombatExtendedMalformedResourcesAndEventCursorsRejected(t *testing.T) {
 		}
 	}
 }
+
+func TestCombatReadyCarriedKnifeBeforeFistAndNoEquivalentEquipLoop(t *testing.T) {
+	r, space := combatAdvancedRules(), combatFixtureSpace()
+	r.EquipAP = 2
+	a, b := combatClub("a", "blue", Cell{1, 1}), combatClub("b", "red", Cell{6, 1})
+	a.Initiative = 30
+	a.Weapon = CombatWeapon{ID: "unarmed", Kind: "blunt", Damage: 6, RangeMM: 1000, AttackAP: 3}
+	knife := CombatEquipmentOption{ID: "physical.carried.knife", Weapon: CombatWeapon{ID: "knife", Kind: "blade", Damage: 24, RangeMM: 1000, AttackAP: 3, Bleed: 3}, UsesRemaining: 12}
+	space.Equipment = func(id string) []CombatEquipmentOption {
+		if id == "a" {
+			return []CombatEquipmentOption{knife}
+		}
+		return nil
+	}
+	s := combatNewAdvanced(t, r, space, a, b)
+	d := s.Decide(space, r)
+	if d.Chosen.Action.Type != "equip" || d.Chosen.Action.ItemID != knife.ID {
+		t.Fatalf("carried usable knife was ignored in favour of fists: %+v", d.Chosen)
+	}
+	combatDo(t, &s, space, r, "a", d.Chosen.Action)
+	if s.Actor("a").Weapon.ID != "knife" || s.Actor("a").AP != 6 || !s.Actor("a").WeaponUsesLimited || s.Actor("a").WeaponUsesRemaining != 12 || s.Actor("a").Ammo != 0 || s.Actor("a").ReserveAmmo != 0 {
+		t.Fatal("readying a real option invented weapon resources or free AP")
+	}
+	e := s.Events[len(s.Events)-1]
+	if e.Type != "equip" || e.ItemID != knife.ID || e.AP != 2 || e.WeaponUses != 0 {
+		t.Fatal("equipment event was not an actual AP-costed transfer intent")
+	}
+	for _, c := range s.Decide(space, r).Candidates {
+		if c.Action.Type == "equip" {
+			t.Fatal("equivalent ready weapon caused an endless equip cycle")
+		}
+	}
+}
+func TestCombatEquipMissingMalformedOrInsufficientResourcesRejectAtomically(t *testing.T) {
+	r, space := combatAdvancedRules(), combatFixtureSpace()
+	r.EquipAP = 2
+	a, b := combatClub("a", "blue", Cell{1, 1}), combatClub("b", "red", Cell{6, 1})
+	a.Initiative = 30
+	option := CombatEquipmentOption{ID: "knife", Weapon: CombatWeapon{ID: "knife", Kind: "blade", Damage: 20, RangeMM: 1000, AttackAP: 3}, UsesRemaining: 10}
+	space.Equipment = func(string) []CombatEquipmentOption { return []CombatEquipmentOption{option} }
+	s := combatNewAdvanced(t, r, space, a, b)
+	before := s.Clone()
+	if err := s.Execute(space, r, "a", CombatAction{Type: "equip", ItemID: "not.carried"}); err == nil || !reflect.DeepEqual(before, s) {
+		t.Fatal("absent physical item was readied")
+	}
+	option.Ammo = 1
+	before = s.Clone()
+	if err := s.Execute(space, r, "a", CombatAction{Type: "equip", ItemID: "knife"}); err == nil || !reflect.DeepEqual(before, s) {
+		t.Fatal("malformed melee ammo or resources changed state")
+	}
+	option.Ammo = 0
+	s.Actor("a").AP = 1
+	before = s.Clone()
+	if err := s.Execute(space, r, "a", CombatAction{Type: "equip", ItemID: "knife"}); err == nil || !reflect.DeepEqual(before, s) {
+		t.Fatal("weapon was readied without enough AP")
+	}
+}
+func TestCombatEquipAccountsForOverwhelmingKnownReply(t *testing.T) {
+	r, space := combatAdvancedRules(), combatFixtureSpace()
+	r.EquipAP = 2
+	a, b := combatClub("a", "blue", Cell{3, 3}), combatClub("b", "red", Cell{4, 3})
+	a.Initiative = 30
+	a.HP = 20
+	a.Weapon.Damage = 6
+	b.Weapon.Damage = 200
+	option := CombatEquipmentOption{ID: "knife", Weapon: CombatWeapon{ID: "knife", Kind: "blade", Damage: 18, RangeMM: 1000, AttackAP: 3}, UsesRemaining: 10}
+	space.Equipment = func(string) []CombatEquipmentOption { return []CombatEquipmentOption{option} }
+	s := combatNewAdvanced(t, r, space, a, b)
+	d := s.Decide(space, r)
+	if d.Chosen.Action.Type != "move" {
+		t.Fatalf("dying actor fumbled with equipment instead of escaping known overwhelming threat: %+v", d.Chosen)
+	}
+}
+func TestCombatStunnedGuardCannotSpendFurtherParryOrRiposteReserve(t *testing.T) {
+	r, space := combatAdvancedRules(), combatFixtureSpace()
+	r.MinHit = 1
+	r.MaxHit = 1
+	r.DamageMin = 1
+	r.DamageMax = 1
+	a, b := combatClub("a", "blue", Cell{2, 2}), combatClub("b", "red", Cell{3, 2})
+	a.Initiative = 30
+	b.Initiative = 20
+	s := combatNewAdvanced(t, r, space, a, b)
+	combatDo(t, &s, space, r, "a", CombatAction{Type: "end"})
+	combatDo(t, &s, space, r, "b", CombatAction{Type: "guard"})
+	combatDo(t, &s, space, r, "a", CombatAction{Type: "attack", TargetID: "b", Mode: "heavy", BodyPart: "head"})
+	if s.Actor("b").StunTurns != 1 || s.Actor("b").Guarding || s.Actor("b").ReservedAP != 0 {
+		t.Fatal("head concussion retained a live defense reserve")
+	}
+	seq := s.EventSeq
+	combatDo(t, &s, space, r, "a", CombatAction{Type: "attack", TargetID: "b", Mode: "quick"})
+	for _, e := range s.Events {
+		if e.Sequence > seq && (e.Type == "parry" || e.Type == "reaction") {
+			t.Fatal("stunned defender parried or riposted")
+		}
+	}
+}
+func TestCombatDurableActorValidationDoesNotDependOnOldNavigationPosition(t *testing.T) {
+	r := combatAdvancedRules()
+	a := combatClub("a", "blue", Cell{-999, 999999})
+	a.HP = 50
+	a.Bleeding = 3
+	a.HeadWound = 10
+	a.Morale = 30
+	if err := a.Validate(r); err != nil {
+		t.Fatalf("durable physiology was tied to a previous level's nav position: %v", err)
+	}
+	a.BodyArmor.Legs = -1
+	if a.Validate(r) == nil {
+		t.Fatal("invalid durable armour accepted")
+	}
+}
+
+func TestCombatBurstUsesSequentialArmourWearOnlyDuringExecution(t *testing.T) {
+	r, space := combatAdvancedRules(), combatFixtureSpace()
+	r.MinHit = 1
+	r.MaxHit = 1
+	r.DamageMin = 1
+	r.DamageMax = 1
+	a, b := combatFixtureActor("a", "blue", Cell{1, 1}), combatFixtureActor("b", "red", Cell{4, 1})
+	a.Initiative = 30
+	a.Weapon.Damage = 2
+	a.Weapon.Magazine = 3
+	a.Ammo = 3
+	a.Weapon.BurstAP = 1
+	a.Weapon.BurstSize = 3
+	b.BodyArmor.Torso = 1
+	calls := 0
+	space.ArmorAfterDamage = func(target Combatant, blocked int, part string) CombatArmor {
+		calls++
+		if target.ID != "b" || blocked != 1 || part != "torso" {
+			t.Fatal("incorrect physical armour preview")
+		}
+		return CombatArmor{}
+	}
+	s := combatNewAdvanced(t, r, space, a, b)
+	s.Decide(space, r)
+	if calls != 0 {
+		t.Fatal("planning consumed or previewed real armour wear")
+	}
+	combatDo(t, &s, space, r, "a", CombatAction{Type: "attack", TargetID: "b", Mode: "burst"})
+	if calls != 1 || s.Actor("b").HP != 95 || s.Actor("b").BodyArmor.Torso != 0 {
+		t.Fatal("later rounds reused protection that the first projectile exhausted")
+	}
+	blocked := []int{}
+	for _, e := range s.Events {
+		if e.Type == "attack" {
+			blocked = append(blocked, e.ArmorBlocked)
+		}
+	}
+	if !reflect.DeepEqual(blocked, []int{1, 0, 0}) {
+		t.Fatalf("burst armour debit sequence wrong: %v", blocked)
+	}
+}
+
+func combatReportScene(t *testing.T) (CombatState, CombatSpace, CombatRules) {
+	t.Helper()
+	r, space := combatFixtureRules(), combatFixtureSpace()
+	scoutAt, friendAt := Cell{1, 1}, Cell{1, 3}
+	space.Space.Visible = func(from, to Cell) bool {
+		if from == friendAt || to == friendAt {
+			return from == to || from == scoutAt || to == scoutAt
+		}
+		return true
+	}
+	scout := combatClub("scout", "blue", scoutAt)
+	scout.Trained, scout.Initiative = true, 30
+	friend := combatClub("friend", "blue", friendAt)
+	friend.Initiative = 20
+	enemy := combatClub("enemy", "red", Cell{8, 1})
+	enemy.Initiative = 10
+	s, err := NewCombat("report.novelty", "fixture", 722, []Combatant{scout, friend, enemy}, r, space)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s, space, r
+}
+
+func TestCombatReportDedupKeepsFreshSightAndRealMovement(t *testing.T) {
+	s, space, r := combatReportScene(t)
+	d := s.Decide(space, r)
+	if d.Chosen.Action.Type != "report" || d.Chosen.Action.TargetID != "friend" {
+		t.Fatalf("new observation was not delivered: %+v", d.Chosen)
+	}
+	combatDo(t, &s, space, r, "scout", d.Chosen.Action)
+	received := *combatContact(s.Actor("friend"), "enemy")
+	personal := *combatContact(s.Actor("scout"), "enemy")
+	if personal.ObservedAction <= received.ObservedAction || personal.Position != received.Position || personal.Source != "sight" || personal.SourceID != "scout" {
+		t.Fatal("dedup froze or replaced fresh personal observation")
+	}
+	for _, candidate := range s.Decide(space, r).Candidates {
+		if candidate.Action.Type == "report" && candidate.Action.TargetID == "friend" {
+			t.Fatal("the same LOS sample became another useful report")
+		}
+	}
+	before := s.Clone()
+	if err := s.Execute(space, r, "scout", CombatAction{Type: "report", TargetID: "friend"}); err == nil || !reflect.DeepEqual(before, s) {
+		t.Fatal("duplicate report spent AP or changed perception/RNG state")
+	}
+	combatDo(t, &s, space, r, "scout", CombatAction{Type: "end"})
+	combatDo(t, &s, space, r, "friend", CombatAction{Type: "end"})
+	combatDo(t, &s, space, r, "enemy", CombatAction{Type: "move", To: Cell{9, 1}})
+	combatDo(t, &s, space, r, "enemy", CombatAction{Type: "end"})
+	actual := *combatContact(s.Actor("scout"), "enemy")
+	combatDo(t, &s, space, r, "scout", CombatAction{Type: "report", TargetID: "friend"})
+	updated := *combatContact(s.Actor("friend"), "enemy")
+	if updated.Position != (Cell{9, 1}) || updated.ObservedTurn != actual.ObservedTurn || updated.ObservedAction != actual.ObservedAction || updated.SourceID != "scout" || updated.Visible {
+		t.Fatalf("real movement lost its observation/provenance: %+v", updated)
+	}
+}
+
+func TestCombatReportCanRefreshOnLaterObservedTurn(t *testing.T) {
+	s, space, r := combatReportScene(t)
+	combatDo(t, &s, space, r, "scout", CombatAction{Type: "report", TargetID: "friend"})
+	old := *combatContact(s.Actor("friend"), "enemy")
+	combatDo(t, &s, space, r, "scout", CombatAction{Type: "end"})
+	combatDo(t, &s, space, r, "friend", CombatAction{Type: "end"})
+	combatDo(t, &s, space, r, "enemy", CombatAction{Type: "end"})
+	current := *combatContact(s.Actor("scout"), "enemy")
+	if current.ObservedTurn <= old.ObservedTurn || current.Position != old.Position {
+		t.Fatal("fixture did not obtain a later unchanged observation")
+	}
+	combatDo(t, &s, space, r, "scout", CombatAction{Type: "report", TargetID: "friend"})
+	got := *combatContact(s.Actor("friend"), "enemy")
+	if got.ObservedTurn != current.ObservedTurn || got.ObservedAction != current.ObservedAction || got.Position != old.Position {
+		t.Fatal("dedup suppressed a useful later-turn refresh")
+	}
+}
+
+func TestCombatNegativeEvidenceRelaysWithoutRewritingOrigin(t *testing.T) {
+	r, space := combatFixtureRules(), combatFixtureSpace()
+	scoutAt, relayAt, receiverAt := Cell{1, 1}, Cell{1, 3}, Cell{1, 5}
+	allies := map[Cell]bool{scoutAt: true, relayAt: true, receiverAt: true}
+	space.Space.Visible = func(from, to Cell) bool {
+		return from == to || allies[from] && allies[to] || from == scoutAt && to == (Cell{8, 1}) || to == scoutAt && from == (Cell{8, 1})
+	}
+	scout, relay, receiver, enemy := combatClub("scout", "blue", scoutAt), combatClub("relay", "blue", relayAt), combatClub("receiver", "blue", receiverAt), combatClub("enemy", "red", Cell{8, 1})
+	scout.Initiative, relay.Initiative, receiver.Initiative, enemy.Initiative = 40, 30, 20, 10
+	scout.Trained, relay.Trained = true, true
+	s, err := NewCombat("report.chain", "fixture", 722, []Combatant{scout, relay, receiver, enemy}, r, space)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial := *combatContact(s.Actor("scout"), "enemy")
+	combatDo(t, &s, space, r, "scout", CombatAction{Type: "report", TargetID: "relay"})
+	combatDo(t, &s, space, r, "scout", CombatAction{Type: "end"})
+	combatDo(t, &s, space, r, "relay", CombatAction{Type: "report", TargetID: "receiver"})
+	first := *combatContact(s.Actor("receiver"), "enemy")
+	if first.SourceID != "scout" || first.ReporterID != "relay" || first.ObservedTurn != initial.ObservedTurn || first.ObservedAction != initial.ObservedAction || first.Visible {
+		t.Fatalf("relay manufactured observation freshness: %+v", first)
+	}
+	before := s.Clone()
+	if err := s.Execute(space, r, "relay", CombatAction{Type: "report", TargetID: "receiver"}); err == nil || !reflect.DeepEqual(before, s) {
+		t.Fatal("relay repeated the same inherited information")
+	}
+	combatDo(t, &s, space, r, "relay", CombatAction{Type: "end"})
+	combatDo(t, &s, space, r, "receiver", CombatAction{Type: "end"})
+	lastSeen := *combatContact(s.Actor("scout"), "enemy")
+	combatDo(t, &s, space, r, "enemy", CombatAction{Type: "move", To: Cell{9, 1}})
+	combatDo(t, &s, space, r, "enemy", CombatAction{Type: "end"})
+	cleared := *combatContact(s.Actor("scout"), "enemy")
+	if !cleared.Checked || cleared.Visible || cleared.Position != lastSeen.Position || cleared.ObservedTurn != lastSeen.ObservedTurn || cleared.ObservedAction != lastSeen.ObservedAction || cleared.CheckedAction <= cleared.ObservedAction {
+		t.Fatalf("empty-location observation rewrote the original sighting: %+v", cleared)
+	}
+	combatDo(t, &s, space, r, "scout", CombatAction{Type: "report", TargetID: "relay"})
+	combatDo(t, &s, space, r, "scout", CombatAction{Type: "end"})
+	combatDo(t, &s, space, r, "relay", CombatAction{Type: "report", TargetID: "receiver"})
+	got := *combatContact(s.Actor("receiver"), "enemy")
+	if !got.Checked || got.Position != cleared.Position || got.ObservedTurn != cleared.ObservedTurn || got.ObservedAction != cleared.ObservedAction || got.CheckedTurn != cleared.CheckedTurn || got.CheckedAction != cleared.CheckedAction || got.SourceID != "scout" || got.ReporterID != "relay" {
+		t.Fatalf("negative evidence lost its original observer/time: %+v", got)
+	}
+	before = s.Clone()
+	if err := s.Execute(space, r, "relay", CombatAction{Type: "report", TargetID: "receiver"}); err == nil || !reflect.DeepEqual(before, s) {
+		t.Fatal("an unchanged cleared verdict became a repeated report")
+	}
+}
+
+func combatGuardCandidate(t *testing.T, decision CombatDecision) CombatCandidate {
+	t.Helper()
+	for _, candidate := range decision.Candidates {
+		if candidate.Action.Type == "guard" {
+			return candidate
+		}
+	}
+	t.Fatalf("missing legal guard option: %+v", decision.Candidates)
+	return CombatCandidate{}
+}
+
+func TestCombatGuardRecognizesLongerObservedMeleeReach(t *testing.T) {
+	r, space := combatFixtureRules(), combatFixtureSpace()
+	r.GuardAP = 1
+	space.CellMM = 500
+	knife, baton := combatClub("knife", "blue", Cell{1, 1}), combatClub("baton", "red", Cell{4, 1})
+	knife.Initiative, baton.Initiative = 30, 10
+	knife.Weapon.Kind, knife.Weapon.Damage, knife.Weapon.ParryPercent = "blade", 12, 20
+	baton.Weapon.RangeMM, baton.Weapon.Damage = 1500, 10
+	knife.WeaponUsesLimited, knife.WeaponUsesRemaining = true, 3
+	baton.WeaponUsesLimited, baton.WeaponUsesRemaining = true, 3
+	// Opposite supported edges of an open service trench: the longer weapon
+	// can hit across it, but the knife carrier cannot close through empty floor.
+	space.Space.Walkable = func(at Cell) bool { return at == knife.Position || at == baton.Position }
+	s, err := NewCombat("guard.reach", "fixture", 722, []Combatant{knife, baton}, r, space)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := s.Decide(space, r)
+	guard := combatGuardCandidate(t, d)
+	if d.Chosen.Action.Type != "guard" || guard.Score <= 0 {
+		t.Fatalf("defender failed to guard against an in-range observed baton: %+v", d.Chosen)
+	}
+	combatDo(t, &s, space, r, "knife", d.Chosen.Action)
+	reserve := s.Actor("knife").ReservedAP
+	combatDo(t, &s, space, r, "baton", CombatAction{Type: "attack", TargetID: "knife"})
+	parries, replies := 0, 0
+	for _, event := range s.Events {
+		if event.ActorID == "knife" && event.Type == "parry" {
+			parries++
+		}
+		if event.ActorID == "knife" && event.Type == "reaction" {
+			replies++
+		}
+	}
+	if parries != 1 || replies != 0 || s.Actor("knife").ReservedAP != reserve-r.GuardAP || s.Actor("knife").WeaponUsesRemaining != 2 {
+		t.Fatal("long-reach defense invented a counterstrike or free AP/weapon use")
+	}
+}
+
+func TestCombatGuardCounterValueRequiresReachAndPhysicalUses(t *testing.T) {
+	r, space := combatFixtureRules(), combatFixtureSpace()
+	r.GuardAP = 1
+	space.CellMM = 500
+	a, b := combatClub("a", "blue", Cell{1, 1}), combatClub("b", "red", Cell{4, 1})
+	a.Initiative, b.Initiative = 30, 10
+	b.Weapon.RangeMM = 1500
+	a.WeaponUsesLimited, a.WeaponUsesRemaining = true, 3
+	short := combatNewAdvanced(t, r, space, a, b)
+	defenseOnly := combatGuardCandidate(t, short.Decide(space, r))
+	a.Weapon.RangeMM = 1500
+	long := combatNewAdvanced(t, r, space, a, b)
+	counter := combatGuardCandidate(t, long.Decide(space, r))
+	a.WeaponUsesRemaining = 1
+	lastUse := combatNewAdvanced(t, r, space, a, b)
+	finite := combatGuardCandidate(t, lastUse.Decide(space, r))
+	if counter.Score <= defenseOnly.Score || math.Abs(finite.Score-defenseOnly.Score) > 1e-9 {
+		t.Fatal("counter value ignored own reach or the separate parry/attack weapon uses")
+	}
+	combatDo(t, &long, space, r, "a", CombatAction{Type: "guard"})
+	combatDo(t, &long, space, r, "b", CombatAction{Type: "attack", TargetID: "a"})
+	parries, counters := 0, 0
+	for _, event := range long.Events {
+		if event.ActorID == "a" && event.Type == "parry" {
+			parries++
+		}
+		if event.ActorID == "a" && event.Type == "reaction" {
+			counters++
+		}
+	}
+	if parries != 1 || counters != 1 || long.Actor("a").WeaponUsesRemaining != 1 || long.Actor("a").ReservedAP != r.APPerTurn-r.GuardAP-r.GuardAP-a.Weapon.AttackAP {
+		t.Fatal("predicted legal parry/counter did not debit actual resources")
+	}
+}
+
+func TestCombatGuardDoesNotParryFirearmOrReadHiddenWeapon(t *testing.T) {
+	r, space := combatFixtureRules(), combatFixtureSpace()
+	r.GuardAP = 1
+	space.CellMM = 500
+	a, gun := combatClub("a", "blue", Cell{1, 1}), combatFixtureActor("gun", "red", Cell{4, 1})
+	a.Initiative, gun.Initiative = 30, 10
+	s := combatNewAdvanced(t, r, space, a, gun)
+	for _, candidate := range s.Decide(space, r).Candidates {
+		if candidate.Action.Type == "guard" {
+			t.Fatal("visible firearm received melee-parry value")
+		}
+	}
+	space.Space.Visible = func(from, to Cell) bool { return from.X <= 4 && to.X <= 4 || from == to }
+	b := combatClub("b", "red", Cell{4, 1})
+	b.Weapon.RangeMM, b.Initiative = 1500, 10
+	s = combatNewAdvanced(t, r, space, a, b)
+	combatDo(t, &s, space, r, "a", CombatAction{Type: "end"})
+	combatDo(t, &s, space, r, "b", CombatAction{Type: "move", To: Cell{5, 1}})
+	combatDo(t, &s, space, r, "b", CombatAction{Type: "end"})
+	other := s.Clone()
+	other.Actor("b").Weapon = gun.Weapon
+	other.Actor("b").Ammo, other.Actor("b").ReserveAmmo = gun.Ammo, gun.ReserveAmmo
+	if !reflect.DeepEqual(s.Decide(space, r), other.Decide(space, r)) {
+		t.Fatal("hidden weapon changed the guard/position decision")
+	}
+}
+
+func TestCombatGuardRequiresInitialCostAndOneRealDeflection(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		ap int
+		want bool
+	}{{"shortfall", 3, false}, {"exact_deflection", 4, true}} {
+		t.Run(test.name, func(t *testing.T) {
+			r, space := combatFixtureRules(), combatFixtureSpace()
+			r.GuardAP, r.APPerTurn = 2, test.ap
+			space.CellMM = 500
+			a, b := combatClub("a", "blue", Cell{1, 1}), combatClub("b", "red", Cell{4, 1})
+			a.Initiative, b.Initiative, b.Weapon.RangeMM = 30, 10, 1500
+			a.WeaponUsesLimited, a.WeaponUsesRemaining = true, 3
+			s := combatNewAdvanced(t, r, space, a, b)
+			offered := false
+			for _, candidate := range s.Decide(space, r).Candidates {
+				if candidate.Action.Type == "guard" {
+					offered = true
+				}
+			}
+			if offered != test.want {
+				t.Fatalf("guard budget option=%v want=%v at AP%d/guard%d", offered, test.want, test.ap, r.GuardAP)
+			}
+			// The executor permits a manually requested reserve smaller than a
+			// deflection. Resolve a real incoming strike to prove why the AI must
+			// not value that unaffordable defense, without changing the executor.
+			combatDo(t, &s, space, r, "a", CombatAction{Type: "guard"})
+			reserved := s.Actor("a").ReservedAP
+			combatDo(t, &s, space, r, "b", CombatAction{Type: "attack", TargetID: "a"})
+			parries := 0
+			for _, event := range s.Events {
+				if event.Type == "parry" && event.ActorID == "a" {
+					parries++
+					if event.AP != r.GuardAP { t.Fatal("deflection changed its real AP cost") }
+				}
+			}
+			if test.want {
+				if parries != 1 || reserved != r.GuardAP || s.Actor("a").ReservedAP != 0 || s.Actor("a").WeaponUsesRemaining != 2 {
+					t.Fatal("exact budget did not pay for precisely one actual deflection")
+				}
+			} else if parries != 0 || reserved >= r.GuardAP || s.Actor("a").WeaponUsesRemaining != 3 {
+				t.Fatal("insufficient reserve was converted into a free deflection")
+			}
+		})
+	}
+}

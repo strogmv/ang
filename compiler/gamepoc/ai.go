@@ -96,6 +96,42 @@ func clientResource(c Compiled) ([]byte, error) {
 	if c.Vending != nil {
 		view["vending"] = clientVending(c.Vending)
 	}
+	// Craft places of the hub islands (demo-hub v16-goods) only in worlds that have them.
+	if c.Craft != nil {
+		view["craft"] = clientCraft(c.Craft)
+	}
+	if len(c.PlayableScenes) > 0 {
+		var scenes map[string]json.RawMessage
+		if err := json.Unmarshal(c.PlayableScenes, &scenes); err != nil {
+			return nil, err
+		}
+		var ordered []json.RawMessage
+		ids := make([]string, 0, len(scenes))
+		for id := range scenes {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			// The authoring preset also contains patrols, aggression and stock.
+			// Unity receives only launch labels and physical light presentation.
+			var authored map[string]json.RawMessage
+			if err := json.Unmarshal(scenes[id], &authored); err != nil {
+				return nil, err
+			}
+			public := map[string]json.RawMessage{}
+			for _, key := range []string{"id", "scenario", "level", "name_key", "presentation"} {
+				if value, ok := authored[key]; ok {
+					public[key] = value
+				}
+			}
+			data, err := json.Marshal(public)
+			if err != nil {
+				return nil, err
+			}
+			ordered = append(ordered, data)
+		}
+		view["playable_scenes"] = ordered
+	}
 	return json.MarshalIndent(view, "", "  ")
 }
 

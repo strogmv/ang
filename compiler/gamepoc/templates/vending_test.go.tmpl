@@ -221,8 +221,11 @@ func TestVendingNPCBuysWaterAndTheNightRefill(t *testing.T) {
 			place = p
 		}
 	}
-	if place.ID == "" || place.Kind != "market_food" || place.Store != tm3.DisplayStore {
-		t.Fatal("water unit is not a market food place of the NPC brain")
+	// demo-hub v14-traders: water is no food (stage 1 has no thirst) — the water unit is a household purchase of the brain
+	// demo-hub v15-fixes: the limit is data (vending.cue, 1 since v15: the second in line waited on the occupied panel cell
+	// and missed the yatai lunch); the test only requires that a limit exists
+	if place.ID == "" || place.Kind != "market_goods" || place.Store != tm3.DisplayStore || place.QueueLimit < 1 {
+		t.Fatal("water unit is not a market goods place of the NPC brain with a queue limit")
 	}
 	// any named person of the hub floor with an account buys the water as an ordinary NPC purchase
 	buyer := ""
@@ -245,7 +248,25 @@ func TestVendingNPCBuysWaterAndTheNightRefill(t *testing.T) {
 	money := vendingMoney(r)
 	water0 := r.vendingStock(tm3.DisplayStore, "item.vm_water_1l")
 	sys0 := r.state.Inventory.Accounts[v.Account].Balance
-	if !r.npcBuy(buyer, place, true) {
+	// queue limit: two other people already on the way to the panel hide it from a third one's offers
+	others := 0
+	for i := range r.state.Life.Actors {
+		if a := &r.state.Life.Actors[i]; a.ID != buyer && a.ID != playerActorID && others < 2 {
+			a.Brain.Place.ID = place.ID
+			others++
+		}
+	}
+	for _, p := range r.npcOffers(buyer, "market_goods", v.Level) {
+		if p.ID == place.ID {
+			t.Fatal("a panel with two people heading for it is still offered to a third")
+		}
+	}
+	for i := range r.state.Life.Actors {
+		if a := &r.state.Life.Actors[i]; a.ID != buyer && a.Brain.Place.ID == place.ID {
+			a.Brain.Place.ID = ""
+		}
+	}
+	if !r.npcBuy(buyer, place, false) {
 		t.Fatal("NPC could not buy water at the terminal")
 	}
 	price, _ := inv.Quote(r.world.Inventory.Definitions["item.vm_water_1l"], 1)

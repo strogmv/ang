@@ -8,6 +8,9 @@ type LifeAffordance struct {
  Actor string `json:"actor,omitempty"`
  Slots []Cell `json:"slots,omitempty"`
  Open int64 `json:"open"`; Close int64 `json:"close"`; Store string `json:"store,omitempty"`
+ // QueueLimit (demo-hub v14-traders): at most this many people may be heading for / standing at the place; 0 = no limit.
+ // A newcomer then picks the next place that offers the same kind (the host filters its offers).
+ QueueLimit int `json:"queue_limit,omitempty"`
  // Kind "seated_food" (demo-hub v5-yatai): a staffed food counter with reserved seats. Model data only: a brain keeps
  // the place by ID without it (saves stay small) and reads the seating from the model.
  Seating *LifeSeating `json:"seating,omitempty"`
@@ -53,6 +56,9 @@ type LifeBrainModel struct {
  LunchSeconds int64 `json:"lunch_seconds"`; HygieneSeconds int64 `json:"hygiene_seconds"`; FatigueEfficiency int64 `json:"fatigue_efficiency_ppm"`
  DutyPenalty float64 `json:"duty_penalty"`; Policy UtilityPolicy `json:"policy"`; Goals map[string]UtilityGoal `json:"goals"`
  Places []LifeAffordance `json:"places"`; FoodDefinitions []string `json:"food_definitions"`; GoodsDefinitions []string `json:"goods_definitions"`
+ // Counter posts (demo-hub v14-traders): where a seller stands behind the own counter and which way the body faces
+ // (presentation: the snapshot reports phase "post" with this spot while the actor has arrived on the cell).
+ CounterPosts []LifeCounterPost `json:"counter_posts,omitempty"`
 }
 // Values and fractional remainders survive load and LOD changes. There is no
 // random state; phase and daily preference use stage-0 counter streams.
@@ -94,13 +100,18 @@ type LifeBrainServices struct {
 }
 func(b LifeBrain)Clone()LifeBrain{b.Goal=b.Goal.Clone();if b.WorkDays!=nil{m:=map[int64]int64{};for k,v:=range b.WorkDays{m[k]=v};b.WorkDays=m};return b}
 func(m LifeBrainModel)program()Program {p:=Program{Goals:m.Goals};p.Policy.Utility=m.Policy;return p}
+// A seller's counter post: the actor, the level and the spot (pose "post", plan mm and yaw of the body).
+type LifeCounterPost struct{Actor string `json:"actor"`;Level string `json:"level"`;Spot LifeSpot `json:"spot"`}
+// CounterPost: the counter post of an actor standing on a cell (presentation only).
+func(m LifeBrainModel)CounterPost(actor,level string,at Cell)(LifeSpot,bool){for _,c:=range m.CounterPosts{if c.Actor==actor&&c.Level==level&&c.Spot.At==at{return c.Spot,true}};return LifeSpot{},false}
 func(m LifeBrainModel)Validate(l LifeModel)error{
  if !m.Enabled{return nil}
+ posts:=map[string]bool{};for _,c:=range m.CounterPosts{k:=c.Actor+"|"+c.Level+"|"+fmt.Sprint(c.Spot.At);if c.Actor==""||posts[k]||!l.Walks(c.Level,c.Spot.At)||c.Spot.Pose!="post"||math.IsNaN(c.Spot.Yaw)||math.Abs(c.Spot.Yaw)>360||c.Spot.ZMM<0||c.Spot.ZMM>3000{return fmt.Errorf("invalid counter post %s %v",c.Actor,c.Spot.At)};posts[k]=true}
  if m.LunchSeconds<1||m.LunchSeconds>1800||m.HygieneSeconds<1||m.HygieneSeconds>600||m.FatigueEfficiency<1||m.FatigueEfficiency>1000000{return fmt.Errorf("invalid post policy")}
  if m.HotSeconds<1||m.ColdSeconds<m.HotSeconds||m.ColdSeconds>120||m.MealSeconds<1||m.MealRelief<1||m.MealRelief>1000000||m.RationDaily<1||m.RationOrder==""||m.FoodCritical<1||m.FoodCritical>=1000000||m.SleepCritical<1||m.SleepCritical>=1000000||m.WageWorkSeconds<1||m.Wage<1||m.MoneyTarget<1||m.PopulationAccounts<l.Population.MaxActors||m.PopulationAccounts>500||m.InitialBalance<0||m.DutyPenalty<0||m.DutyPenalty>=1||m.Policy.MinHoldTicks<1||m.Policy.MaxHoldTicks<m.Policy.MinHoldTicks{return fmt.Errorf("invalid life brain policy")}
  for i,r:=range m.Rates{if r<0||r>10000000||m.Initial[i]<0||m.Initial[i]>1000000{return fmt.Errorf("invalid life needs rate")}}
  for _,id:=range []string{"schedule","ration","market_food","market_goods","sleep","hygiene","social"}{g,ok:=m.Goals[id];if !ok||g.ID!=id||g.HoldTicks<1||g.HoldTicks>m.Policy.MaxHoldTicks{return fmt.Errorf("invalid life goal %s",id)}}
- seen:=map[string]bool{};for _,p:=range m.Places{if p.ID==""||seen[p.ID]||!l.Walks(p.Level,p.At)||p.Open<0||p.Close>86400||p.Close<=p.Open{return fmt.Errorf("invalid life affordance %s",p.ID)};seen[p.ID]=true;for _,at:=range p.Slots{if !l.Walks(p.Level,at){return fmt.Errorf("invalid service approach %s",p.ID)}}
+ seen:=map[string]bool{};for _,p:=range m.Places{if p.ID==""||seen[p.ID]||!l.Walks(p.Level,p.At)||p.Open<0||p.Close>86400||p.Close<=p.Open||p.QueueLimit<0||p.QueueLimit>64{return fmt.Errorf("invalid life affordance %s",p.ID)};seen[p.ID]=true;for _,at:=range p.Slots{if !l.Walks(p.Level,at){return fmt.Errorf("invalid service approach %s",p.ID)}}
   if (p.Kind=="seated_food")!=(p.Seating!=nil){return fmt.Errorf("invalid seated place %s",p.ID)}
   if p.Seating!=nil{if err:=p.Seating.validate(l,p);err!=nil{return fmt.Errorf("invalid seated place %s: %w",p.ID,err)};if g,ok:=m.Goals["seated_food"];!ok||g.ID!="seated_food"||g.Intent!=p.Seating.Activity||g.HoldTicks<1||g.HoldTicks>m.Policy.MaxHoldTicks{return fmt.Errorf("invalid life goal seated_food")}}
  }

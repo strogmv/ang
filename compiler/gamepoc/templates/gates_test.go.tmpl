@@ -15,7 +15,7 @@ func gateStandRuntime(t *testing.T)*gateStand{
  t.Helper();r,err:=New(t.TempDir(),"token");if err!=nil{t.Fatal(err)}
  for _,l:=range r.world.LocationSDK.Levels{if len(l.Gates)==0{continue}
   if result:=sdkHostNew(t,r,"sdk:"+l.ID,"gate-stand");!result.Ok{t.Fatal(result)}
-  g:=&gateStand{r:r,level:l,gate:l.Gates[0]};g.mid=g.gate.Opening[len(g.gate.Opening)/2]
+  g:=&gateStand{r:r,level:l,gate:l.Gates[0].LifeGate};g.mid=g.gate.Opening[len(g.gate.Opening)/2]
   if g.gate.Opening[0].Y==g.gate.Opening[len(g.gate.Opening)-1].Y{g.axis=behavior.Cell{Y:1}}else{g.axis=behavior.Cell{X:1}}
   g.near=1;if (l.Spawn.X-g.mid.X)*g.axis.X+(l.Spawn.Y-g.mid.Y)*g.axis.Y<0{g.near=-1}
   // Park the stand people where they stand: these checks time the hero alone.

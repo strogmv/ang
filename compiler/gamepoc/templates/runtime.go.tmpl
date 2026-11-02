@@ -3,6 +3,7 @@ package poc
 
 import (
 	"angelsdemons/server/internal/behavior"
+	crafting "angelsdemons/server/internal/crafting"
 	inv "angelsdemons/server/internal/inventory"
 	"context"
 	"crypto/rand"
@@ -75,7 +76,11 @@ type worldModular struct {
 	LayoutID string `json:"layout_id"`
 }
 type worldData struct {
+ PlayableScenes map[string]playableSceneDefinition `json:"playable_scenes"`
+ PlayableID string `json:"-"`
 	CombatRuntime           combatCatalog                   `json:"combat_runtime"`
+ Illumination illuminationCatalog `json:"illumination_runtime"`
+ Stealth stealthCatalog `json:"stealth_runtime"`
  CombatLife combatLifeCatalog `json:"combat_life"`
 	Decks                   map[string]*behavior.DeckVolume `json:"-"`
 	ModularLocations        []worldModular                  `json:"modular_locations"`
@@ -85,6 +90,8 @@ type worldData struct {
 	Region                  regionCatalog                   `json:"region_map"`
 	Wayfinding              wayfindingCatalog               `json:"wayfinding"`
 	Vending                 vendingCatalog                  `json:"vending"`
+	Craft                   craftCatalog                    `json:"craft"`
+	Crafting                crafting.Model                  `json:"crafting"`
 	Life                    behavior.LifeModel              `json:"life"`
 	Visibility              visibilityPolicy                `json:"visibility"`
 	Opaque                  map[string]bool                 `json:"opaque"`
@@ -101,12 +108,18 @@ type worldData struct {
 	Entities                []actor                         `json:"entities"`
 }
 type state struct {
+ Playable playableSceneState
 	Combat             behavior.CombatState
-	CombatWorld combatWorldState
+ Illumination illuminationState
+	Stealth stealthState
+ CombatLifeSync combatLifeSync
+ CombatCare combatCareState
+ CombatWorld combatWorldState
  CombatSerial       uint64
 	CombatRoster       map[string]behavior.Combatant
 	CombatPublicEvents []behavior.CombatEvent
 	CombatPublicSeq    uint64
+ CombatPublicSerial uint64
 
 	SDKLayout            string `json:"sdk_layout,omitempty"`
 	Region               regionKnowledge
@@ -117,6 +130,7 @@ type state struct {
 	Poses                map[string]actorPose
 	NPCEconomy           npcEconomyState
 	Vending              vendingState
+	Crafting             crafting.State
 	Inventory            inv.State
 	Demo                 demoState
 	Active               bool
@@ -167,6 +181,8 @@ type receipt struct {
 }
 
 type Runtime struct {
+ playableWorlds map[string]worldData
+ illuminationCache *illuminationGeometryCache
 	instantTravelStalled, instantTravelEpoch string
 	lifeInventory                            lifeInventoryCache
 	wayfinding                               wayfindingSession
@@ -200,6 +216,8 @@ func New(data, token string) (*Runtime, error) {
 		return nil, err
 	}
  if err:=r.world.CombatLife.Validate(r.world.Life,r.world.CombatRuntime);err!=nil{return nil,err}
+ if err:=r.world.Stealth.Validate(r.world.Life,r.world.CombatLife);err!=nil{return nil,err}
+ if err:=r.world.CombatRuntime.ValidateInventory(r.world.Inventory);err!=nil{return nil,err}
 	r.world.Life.Walkable = r.world.Walkable
 	if len(r.world.Life.Actors) > 0 {
 		if err := r.world.Life.Validate(); err != nil {
@@ -214,6 +232,8 @@ func New(data, token string) (*Runtime, error) {
 	if err := r.prepareLocationSDK(); err != nil {
 		return nil, err
 	}
+ if err:=r.prepareIllumination();err!=nil{return nil,err}
+ if err:=r.preparePlayableScenes();err!=nil{return nil,err}
 	if err := os.MkdirAll(data, 0700); err != nil {
 		return nil, err
 	}
@@ -609,6 +629,9 @@ func (r *Runtime) command(in input) {
 	case m.GetLifeCommand() != nil:
 		v := m.GetLifeCommand()
 		id, action, epoch = v.RequestId, "life", v.Epoch
+	case m.GetCraftingCommand() != nil:
+		v := m.GetCraftingCommand()
+		id, action, epoch = v.RequestId, "crafting", v.Epoch
 	case m.GetNewGame() != nil:
 		v := m.GetNewGame()
 		id, action, epoch = v.RequestId, "new", v.Epoch
@@ -663,6 +686,10 @@ func (r *Runtime) command(in input) {
 		err := r.lifeCommand(m.GetLifeCommand())
 		r.action(c, id, action, slot, err)
 		r.sendState(c)
+	case "crafting":
+		err := r.craftingCommand(m.GetCraftingCommand(), c.locale)
+		r.action(c, id, action, slot, err)
+		r.sendState(c)
 	case "new":
 		v := m.GetNewGame()
 		scenario := v.Scenario
@@ -687,7 +714,7 @@ func (r *Runtime) command(in input) {
 			return
 		}
 		count, isLife := lifeScenarioPopulation(scenario)
-		if layout != "" {
+		if layout != "" || world.PlayableID!="" {
 			isLife = true
 		}
 		candidate := &Runtime{world: world}
@@ -710,9 +737,10 @@ func (r *Runtime) command(in input) {
 		}
 		r.world = world
 		r.openStore = ""
-		r.state = state{SDKLayout: layout, Inventory: items, Active: true, Epoch: newEpoch(), Seed: seed, PlayerName: name, Player: world.Spawn, Speed: 1}
+		r.state = state{Playable:playableSceneState{ID:world.PlayableID},SDKLayout: layout, Inventory: items, Active: true, Epoch: newEpoch(), Seed: seed, PlayerName: name, Player: world.Spawn, Speed: 1}
 		if isLife {
 			r.initLifeState(life)
+            if err:=r.initPlayableScene();err!=nil{r.action(c,id,action,slot,err);return}
 		} else {
 			r.initDemo(scenario)
 		}
@@ -780,7 +808,7 @@ func (r *Runtime) diskComplete(result diskResult) {
 			result.err = errors.New("game changed while loading")
 		} else {
 			var world worldData
-			world, result.err = r.savedWorld(result.loaded.SDKLayout)
+			world, result.err = r.savedWorldForState(result.loaded)
 			if result.err == nil {
 				r.world = world
 				r.state = result.loaded
@@ -887,7 +915,7 @@ func (r *Runtime) readSave(slot string) (state, int64, error) {
 	if err = json.Unmarshal(envelope.State, &s); err != nil {
 		return s, 0, err
 	}
-	validator, err := r.savedWorldRuntime(s.SDKLayout)
+	validator, err := r.savedWorldRuntimeForState(s)
 	if err != nil {
 		return s, 0, err
 	}
@@ -898,6 +926,10 @@ func (r *Runtime) readSave(slot string) (state, int64, error) {
 		return s, 0, err
 	}
  if err:=validator.validateCombatWorld(s);err!=nil{return s,0,err}
+ if err:=validator.validateCombatCare(s);err!=nil{return s,0,err}
+ if err:=validator.validatePlayableScene(s);err!=nil{return s,0,err}
+ if err:=validator.validateIllumination(s);err!=nil{return s,0,err}
+ if err:=validator.validateStealth(s);err!=nil{return s,0,err}
 	r = validator
 	if s.Life.Enabled {
 		if err := validator.validateLifeSave(s); err != nil {

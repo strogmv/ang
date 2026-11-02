@@ -14,7 +14,8 @@ namespace AngelsDemons.Poc {
  [Serializable] public sealed class PocWorldTextPoint {public int x,y,z;}
  [Serializable] public sealed class PocWorldTextStrips {public int count,pitch_mm,width_mm;public string[] nodes;}
  [Serializable] public sealed class PocWorldTextLocale {public string locale,mode;public int glyph_mm,first_strip;public string[] lines;}
- [Serializable] public sealed class PocWorldTextSlot {public string level_id,id,instance,anchor,vista,face,style,surface,ink,layout;public PocWorldTextPoint center_mm;public int width_mm,height_mm,margin_mm,wear,min_glyph_mm;public PocWorldTextStrips strips;public bool has_strips;public PocWorldTextLocale[] texts;}
+ [Serializable] public sealed class PocWorldTextPlate {public int depth_mm,rim_mm;public string color;}
+ [Serializable] public sealed class PocWorldTextSlot {public string level_id,id,instance,anchor,vista,face,style,surface,ink,layout;public PocWorldTextPoint center_mm;public int width_mm,height_mm,margin_mm,wear,min_glyph_mm;public PocWorldTextStrips strips;public bool has_strips;public PocWorldTextPlate plate;public bool has_plate;public PocWorldTextLocale[] texts;}
  [Serializable] public sealed class PocWorldText {public PocWorldTextFont[] fonts;public PocWorldTextSlot[] slots;}
  [Serializable] sealed class WorldTextGlyphJson {public string c;public float adv;public float[] q;public int[] a;}
  [Serializable] sealed class WorldTextAtlasJson {public int width,height;public string texture;}
@@ -85,6 +86,7 @@ namespace AngelsDemons.Poc {
     var local=new Vector3(slot.center_mm.x*.001f,slot.center_mm.z*.001f,slot.center_mm.y*.001f);C=anchor!=null?anchor.position:frame.TransformPoint(local);n=frame.TransformDirection(WorldTextFaceVector(slot.face));
    }else{C=locationSDKRoot.transform.TransformPoint(new Vector3(slot.center_mm.x*.001f,floor+slot.center_mm.z*.001f,slot.center_mm.y*.001f));n=WorldTextFaceVector(slot.face);}
    n.y=0;n.Normalize();Vector3 up=Vector3.up,u=Vector3.Cross(up,-n).normalized;
+   if(slot.has_plate&&slot.plate!=null)WorldTextPlate(slot,C,n,u,up,anchor!=null?anchor:host);
    float cap=text.glyph_mm*.001f,em=cap/Mathf.Max(.05f,face.cap),track=face.tracking*em;
    bool strips=slot.has_strips&&slot.strips!=null&&slot.strips.count>0;
    // ---- strips in reading order: centre along u (from the prefab node when found) and their node
@@ -137,6 +139,25 @@ namespace AngelsDemons.Poc {
     worldTextObjects.Add(go);worldTextPieces.Add(new WorldTextPiece{renderer=r,material=material,at=C,normal=n,emissive=style==2});
    }
    WorldTextDrawnSlots++;WorldTextDrawnGlyphs+=glyphs;
+  }
+  // Backing plate of a slot (a sign clamped to a railing): a lit box of the slot area + rim, depth behind the face.
+  static Shader worldTextPlateShader;
+  void WorldTextPlate(PocWorldTextSlot slot,Vector3 C,Vector3 n,Vector3 u,Vector3 up,Transform parent){
+   if(worldTextPlateShader==null)worldTextPlateShader=Shader.Find("Universal Render Pipeline/Lit");if(worldTextPlateShader==null)return;
+   float rim=slot.plate.rim_mm*.001f,hw=slot.width_mm*.0005f+rim,hh=slot.height_mm*.0005f+rim,d=Mathf.Max(.002f,slot.plate.depth_mm*.001f);
+   Vector3 B=C-n*(d*.5f+.0015f);var ax=new[]{u*hw,up*hh,n*(d*.5f)};
+   var verts=new List<Vector3>();var norms=new List<Vector3>();var tris=new List<int>();
+   for(int f=0;f<6;f++){int a=f/2;float s=(f%2==0)?1:-1;Vector3 N=ax[a].normalized*s,A=ax[(a+1)%3],Bv=ax[(a+2)%3],O=B+ax[a]*s;int b=verts.Count;
+    verts.Add(O-A-Bv);verts.Add(O+A-Bv);verts.Add(O+A+Bv);verts.Add(O-A+Bv);for(int k=0;k<4;k++)norms.Add(N);
+    // Unity: the front of triangle (a,b,c) faces Cross(b-a,c-a)
+    if(Vector3.Dot(Vector3.Cross(verts[b+1]-verts[b],verts[b+2]-verts[b]),N)>0){tris.Add(b);tris.Add(b+1);tris.Add(b+2);tris.Add(b);tris.Add(b+2);tris.Add(b+3);}else{tris.Add(b);tris.Add(b+2);tris.Add(b+1);tris.Add(b);tris.Add(b+3);tris.Add(b+2);}}
+   var go=new GameObject("world text plate / "+slot.id){layer=LocationSDKLayer};go.transform.SetParent(parent,false);
+   var w2l=go.transform.worldToLocalMatrix;for(int i=0;i<verts.Count;i++){verts[i]=w2l.MultiplyPoint3x4(verts[i]);norms[i]=w2l.MultiplyVector(norms[i]).normalized;}
+   var mesh=new Mesh{name="world text plate / "+slot.id};mesh.SetVertices(verts);mesh.SetNormals(norms);mesh.SetTriangles(tris,0);mesh.RecalculateBounds();worldTextMeshes.Add(mesh);
+   Color col;if(!ColorUtility.TryParseHtmlString(slot.plate.color,out col))col=Color.gray;
+   var mat=new Material(worldTextPlateShader){name="world text plate / "+slot.id};mat.SetColor("_BaseColor",col);mat.SetFloat("_Metallic",.25f);mat.SetFloat("_Smoothness",.3f);worldTextMaterials.Add(mat);
+   go.AddComponent<MeshFilter>().sharedMesh=mesh;var r=go.AddComponent<MeshRenderer>();r.sharedMaterial=mat;r.shadowCastingMode=UnityEngine.Rendering.ShadowCastingMode.On;r.receiveShadows=true;
+   worldTextObjects.Add(go);
   }
   // Language switch: rebuild every slot at once. Light: paint is lit by the location's lamps around its centre
   // (the same point lights the scene draws with, ambient included); a matrix screen glows by itself.

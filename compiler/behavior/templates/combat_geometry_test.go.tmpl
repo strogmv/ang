@@ -40,3 +40,144 @@ func TestCombatDeckRangeDoesNotUseNavigationBandDistance(t *testing.T) {
 		t.Fatalf("two half-metre cells range %d", got)
 	}
 }
+
+func combatDeckSpace(v *DeckVolume) CombatSpace {
+	return CombatSpace{CellMM: 500, Space: Space{Width: v.NavWidth, Height: v.NavDepth, Walkable: func(at Cell) bool { _, _, _, ok := v.Locate(at); return ok }, Visible: v.Sees}, RangeMM: v.CombatRangeMM, Cover: v.CombatProtection, ShotClear: v.CombatShotClear, Protection: v.CombatPoseProtection, PoseShotClear: func(from, to Cell, a, b Combatant, part string) bool {
+		return v.CombatPoseProtection(from, to, a, b, part) < 1
+	}, BodyIntersects: v.CombatBodyIntersects, ThrowClear: v.CombatThrowClear, BlastProtection: v.CombatBlastProtection}
+}
+func TestCombatPoseSightAndShotPassBelowBeamAndProneHidesBehindCover(t *testing.T) {
+	v := combatVolumeFixture(t, 0)
+	v.Solids = []DeckSpan{{Rect: DeckRect{X: 2, Y: 1, W: 1, H: 1}, BottomMM: 800, TopMM: 2000}}
+	if err := v.Prepare(); err != nil {
+		t.Fatal(err)
+	}
+	a, b := combatFixtureActor("a", "blue", Cell{1, 1}), combatFixtureActor("b", "red", Cell{3, 1})
+	a.Prone = true
+	b.Prone = true
+	a.Initiative = 30
+	r := combatAdvancedRules()
+	r.MinHit = 1
+	r.MaxHit = 1
+	space := combatDeckSpace(v)
+	if v.Sees(a.Position, b.Position) || !space.ActorVisible(a, b, r) {
+		t.Fatal("pose sensor inherited a blocked standing-eye ray below an overhead beam")
+	}
+	s := combatNewAdvanced(t, r, space, a, b)
+	combatDo(t, &s, space, r, "a", CombatAction{Type: "attack", TargetID: "b"})
+	if s.Actor("b").HP >= 100 {
+		t.Fatal("legal prone shot under the beam did not resolve")
+	}
+	v = combatVolumeFixture(t, 1340)
+	space = combatDeckSpace(v)
+	a.Prone = false
+	b.Prone = false
+	if !space.ActorVisible(a, b, r) {
+		t.Fatal("standing head above waist cover was hidden")
+	}
+	b.Prone = true
+	if space.ActorVisible(a, b, r) {
+		t.Fatal("standing-eye visibility exposed a prone body entirely behind cover")
+	}
+}
+func TestCombatRegionalAimChecksRealHeadRayAndFriendlyLegRay(t *testing.T) {
+	v := combatVolumeFixture(t, 0)
+	v.Solids = []DeckSpan{{Rect: DeckRect{X: 2, Y: 1, W: 1, H: 1}, BottomMM: 1520, TopMM: 1900}}
+	if err := v.Prepare(); err != nil {
+		t.Fatal(err)
+	}
+	a, b := combatFixtureActor("a", "blue", Cell{1, 1}), combatFixtureActor("b", "red", Cell{3, 1})
+	a.Initiative = 30
+	a.Weapon.AimAP = 1
+	a.Weapon.AimBonus = 20
+	r := combatAdvancedRules()
+	r.MinHit = 1
+	r.MaxHit = 1
+	space := combatDeckSpace(v)
+	if !space.ActorVisible(a, b, r) || v.CombatPoseProtection(a.Position, b.Position, a, b, "head") != 1 || v.CombatPoseProtection(a.Position, b.Position, a, b, "torso") != 0 {
+		t.Fatal("head beam was treated as a generic torso ray")
+	}
+	s := combatNewAdvanced(t, r, space, a, b)
+	before := s.ActionSeq
+	if err := s.Execute(space, r, "a", CombatAction{Type: "attack", TargetID: "b", Mode: "aimed", Aim: 1, BodyPart: "head"}); err == nil || s.ActionSeq != before {
+		t.Fatal("aim bonus bypassed physical head obstruction")
+	}
+	combatDo(t, &s, space, r, "a", CombatAction{Type: "attack", TargetID: "b", BodyPart: "torso"})
+	v = combatVolumeFixture(t, 0)
+	a.Position = Cell{1, 1}
+	b.Position = Cell{5, 1}
+	friend := combatClub("friend", "blue", Cell{3, 1})
+	friend.Crouched = true
+	if v.CombatBodyIntersects(a.Position, b.Position, a, b, friend, "torso") || !v.CombatBodyIntersects(a.Position, b.Position, a, b, friend, "legs") {
+		t.Fatal("leg-aimed shot used the torso segment through a crouched ally")
+	}
+	friend.Position = Cell{3, 5}
+	if v.CombatBodyIntersects(a.Position, b.Position, a, b, friend, "legs") {
+		t.Fatal("a body on another floor blocked the ground-level aim segment")
+	}
+}
+func TestCombatThrowArcRespectsOverheadBeamAndLandingFloor(t *testing.T) {
+	a, b := Cell{1, 1}, Cell{5, 1}
+	v := combatVolumeFixture(t, 0)
+	if !v.CombatThrowClear(a, b) {
+		t.Fatal("clear physical arc was blocked")
+	}
+	v.Solids = []DeckSpan{{Rect: DeckRect{X: 3, Y: 1, W: 1, H: 1}, BottomMM: 2000, TopMM: 2400}}
+	if err := v.Prepare(); err != nil {
+		t.Fatal(err)
+	}
+	if v.CombatThrowClear(a, b) {
+		t.Fatal("sampled arc crossed an overhead beam")
+	}
+	if v.CombatThrowClear(Cell{1, 1}, Cell{1, 5}) {
+		t.Fatal("vertical throw crossed the intact upper-floor slab")
+	}
+	if v.CombatThrowClear(Cell{-1, 1}, b) {
+		t.Fatal("unmapped origin was accepted")
+	}
+}
+
+func TestCombatPhysicalRaysCannotEndInsideSolidUsingVisionFaceException(t *testing.T) {
+	v := combatVolumeFixture(t, 0)
+	v.Solids = []DeckSpan{{Rect: DeckRect{X: 5, Y: 1, W: 1, H: 1}, BottomMM: 0, TopMM: 500}}
+	if err := v.Prepare(); err != nil {
+		t.Fatal(err)
+	}
+	if v.CombatThrowClear(Cell{1, 1}, Cell{5, 1}) {
+		t.Fatal("grenade landed inside a crate because the visual near face was exempted")
+	}
+	v = combatVolumeFixture(t, 0)
+	v.Solids = []DeckSpan{{Rect: DeckRect{X: 3, Y: 1, W: 1, H: 1}, BottomMM: 1500, TopMM: 1800}}
+	if err := v.Prepare(); err != nil {
+		t.Fatal(err)
+	}
+	a, b := combatFixtureActor("a", "blue", Cell{1, 1}), combatFixtureActor("b", "red", Cell{3, 1})
+	if v.CombatPoseProtection(a.Position, b.Position, a, b, "head") != 1 {
+		t.Fatal("body-part endpoint inside an overhead solid became shootable")
+	}
+	v.Solids = []DeckSpan{{Rect: DeckRect{X: 3, Y: 1, W: 1, H: 1}, BottomMM: 0, TopMM: 2200}}
+	if err := v.Prepare(); err != nil {
+		t.Fatal(err)
+	}
+	if v.CombatBlastProtection(a.Position, b.Position) != 1 {
+		t.Fatal("blast endpoint inside a full solid used the visual near-face exception")
+	}
+}
+
+func TestCombatLyingDownBehindCoverDoesNotEraseLastKnownLocation(t *testing.T) {
+	v := combatVolumeFixture(t, 1340)
+	space := combatDeckSpace(v)
+	r := combatAdvancedRules()
+	a, b := combatFixtureActor("a", "blue", Cell{1, 1}), combatFixtureActor("b", "red", Cell{3, 1})
+	a.Initiative = 30
+	s := combatNewAdvanced(t, r, space, a, b)
+	if c := combatContact(s.Actor("a"), "b"); c == nil || !c.Visible {
+		t.Fatal("standing subject was not observed above cover")
+	}
+	s.Actor("b").Prone = true
+	s.Observe(space, r)
+	c := combatContact(s.Actor("a"), "b")
+	if c == nil || c.Visible || c.Checked || c.Position != b.Position {
+		t.Fatal("standing-eye empty check erased a body that could still hide low at the last known location")
+	}
+}

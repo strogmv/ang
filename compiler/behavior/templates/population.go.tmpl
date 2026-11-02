@@ -391,7 +391,7 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
          if safety&&a.Brain.Initialized&&(scheduled.Obligation||brainDuty(scheduled.Activity))&&seconds>a.Brain.LastSecond{a.Brain.MissedWorkSeconds+=seconds-a.Brain.LastSecond}
          brainTarget=a.Brain.advance(l.Brain,environment.BrainServices,a.ID,a.Level,a.Activity,a.Position,a.Arrived&&a.Trip==nil,a.Materialized,safety,scheduled,home,(seconds+a.ShiftSeconds)/86400,seconds,environment.Seed)
         }
-        if safety{brainTarget=a.Safety.target(seconds)}
+        if safety{brainTarget=a.Safety.target()}
 		if a.Trip != nil {
 			edge := l.Edge(a.Trip.Edge)
 			if edge == nil {

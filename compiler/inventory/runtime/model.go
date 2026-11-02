@@ -90,6 +90,7 @@ type Item struct {
 	ForSale    bool     `json:"for_sale"`
 	Revision   uint64   `json:"revision"`
 	Batch      string   `json:"batch,omitempty"`
+	Grade      Grade    `json:"grade,omitzero"`
 }
 type Loot struct {
 	Definition                 string `json:"definition"`
@@ -109,6 +110,7 @@ type Source struct {
 	Rolls         int      `json:"rolls"`
 	NothingWeight int64    `json:"nothing_weight"`
 	Loot          []Loot   `json:"loot,omitempty"`
+	Grade         Grade    `json:"grade,omitzero"`
 }
 type Market struct {
 	PriceUnit string   `json:"price_unit"`
@@ -287,7 +289,7 @@ func New(m Model, seed int64) (State, error) {
 				}
 				qty -= n
 				id := InstanceID(src.ID, roll, part)
-				s.Items[id] = Item{ID: id, Definition: def, Quantity: n, Condition: condition, Owner: src.Owner, Location: src.Location, Origin: src.ID, Hidden: src.Hidden, ForSale: src.ForSale}
+				s.Items[id] = Item{ID: id, Definition: def, Quantity: n, Condition: condition, Owner: src.Owner, Location: src.Location, Origin: src.ID, Hidden: src.Hidden, ForSale: src.ForSale, Grade: src.Grade}
 				if d.ContainerVolume > 0 {
 					s.Stores[ItemStore(id)] = Store{ID: ItemStore(id), Name: d.Name, Kind: "container", Anchor: Anchor{Kind: "item", Item: id}, Capacity: Capacity{Mass: moneyLimit, Volume: d.ContainerVolume, Stacks: m.MaxItems}, Owner: src.Owner}
 				}

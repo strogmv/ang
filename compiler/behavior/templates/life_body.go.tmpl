@@ -16,13 +16,23 @@ import (
 type LifeHeroBodyModel struct {
 	RadiusMM     float64 `json:"radius_mm"`
 	RunFactor    float64 `json:"run_factor"`
+	SneakFactor  float64 `json:"sneak_factor,omitempty"`
 	FollowStopMM float64 `json:"follow_stop_mm"`
 	LookaheadMM  float64 `json:"lookahead_mm"`
 }
 
+func (b LifeHeroBodyModel) sneakFactor() float64 {
+	if b.SneakFactor == 0 {
+		return .55
+	}
+	return b.SneakFactor
+}
 func (b LifeHeroBodyModel) enabled() bool { return b.RadiusMM > 0 }
 func (m LifeModel) validateHeroBody() error {
 	b := m.HeroBody
+	if !(b.sneakFactor() >= .2 && b.sneakFactor() <= .9) {
+		return fmt.Errorf("invalid sneak movement factor")
+	}
 	if !b.enabled() {
 		return nil
 	}
@@ -473,7 +483,9 @@ func (s *LifeState) integrateBody(m LifeModel, a *LifeActor, until int64) {
 	others := s.bodyOthers(a)
 	r := m.HeroBody.RadiusMM
 	v := m.bodyWalkPerMilli(a.Level)
-	if b.Run {
+	if a.Sneaking {
+		v *= m.HeroBody.sneakFactor()
+	} else if b.Run {
 		v *= m.HeroBody.RunFactor
 	}
 	x0, y0 := b.X, b.Y
@@ -531,6 +543,7 @@ func (s *LifeState) integrateBody(m LifeModel, a *LifeActor, until int64) {
 			b.FX, b.FY = (b.X-x0)/d, (b.Y-y0)/d
 		}
 	}
+	a.WalkedMM += moved
 	b.Moving = moved > .5
 	if b.Mode == "route" {
 		if moved < expected*.2 {

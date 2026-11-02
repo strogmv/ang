@@ -75,6 +75,10 @@ namespace AngelsDemons.Poc {
   // Distance matching (optional): cumulative ground travel of the planted foot (metres) at even phases of the walk clip,
   // from 0 to one stride, measured by the importer. Omitted: phase = distance / (walk_clip_speed_mps x walk_cycle_seconds).
   public float[] walk_distance_by_phase;
+  // Optional measured crouch clips. The server posture chooses them; no body scaling.
+  public string crouch_idle_state,crouch_walk_state;
+  public float crouch_idle_cycle_seconds,crouch_walk_cycle_seconds,crouch_clip_speed_mps;
+  public float[] crouch_distance_by_phase;
   public string[] tint_slots;public Color[] tints;public Color hero_tint=new Color(1,1,1,1);public bool hero_marker=true;public bool contact_shadow=true;
   // Seated activities (demo-hub v5-yatai, optional: no sit_states = the body stands on the seat). Go owns the seat, when
   // the body sits down / rises and for how long; the runtime plays sit_down_state / sit_up_state over Go's transition
@@ -89,6 +93,13 @@ namespace AngelsDemons.Poc {
   public float[] sit_hips_above_seat_m;
   public Color prop_bowl_color=new Color(.62f,.63f,.62f,1),prop_mug_color=new Color(.78f,.80f,.74f,1);
   public bool Seated=>sit_states!=null&&sit_states.Length>0;
+  // Standing post (demo-hub v14-traders, optional): a seller on a counter post (snapshot phase "post") plays one of these
+  // states per slot of post_slot_seconds of simulation time, picked by weight from a stable hash of (actor ID, slot);
+  // post_state_seconds = clip length; post_state_loop false = a one-shot (arranging goods) played once at the slot
+  // start, then the idle state. No post states = the idle state.
+  public string[] post_states;public float[] post_state_weights,post_state_seconds;public bool[] post_state_loop;public float post_slot_seconds=9;
+  // Sheets of the character art whose people take the first body variant (data: the actor's sheet decides the body).
+  public string[] variant_sheets;
  }
  [CreateAssetMenu(fileName="Registry",menuName="ANG/Location Overrides/Registry")]
  public sealed class AngelsDemonsLocationOverrideRegistry : ScriptableObject {
@@ -200,6 +211,11 @@ namespace AngelsDemons.Poc {
       for(int i=0;ok&&i<cast.sit_states.Length;i++)ok=!string.IsNullOrEmpty(cast.sit_states[i])&&Finite(cast.sit_weights[i])&&cast.sit_weights[i]>0&&Finite(cast.sit_cycle_seconds[i])&&cast.sit_cycle_seconds[i]>0;
       for(int i=0;ok&&i<bodies;i++)ok=Finite(cast.sit_hips_above_seat_m[i])&&cast.sit_hips_above_seat_m[i]>=.02f&&cast.sit_hips_above_seat_m[i]<=.4f;
       if(!ok)throw new LocationSDKOverrideError("ui.sdk.override_unsupported","cast "+id,"invalid seated states / measurements");}
+     if(!string.IsNullOrEmpty(cast.crouch_idle_state)||!string.IsNullOrEmpty(cast.crouch_walk_state)){
+      if(string.IsNullOrEmpty(cast.crouch_idle_state)||string.IsNullOrEmpty(cast.crouch_walk_state)||!Finite(cast.crouch_idle_cycle_seconds)||cast.crouch_idle_cycle_seconds<=0||!Finite(cast.crouch_walk_cycle_seconds)||cast.crouch_walk_cycle_seconds<=0||!Finite(cast.crouch_clip_speed_mps)||cast.crouch_clip_speed_mps<=.05f)
+       throw new LocationSDKOverrideError("ui.sdk.override_unsupported","cast "+id,"invalid crouch states / measurements");
+      var c=cast.crouch_distance_by_phase;if(c!=null&&c.Length>0){bool ok=c.Length>=2&&c[0]==0&&Finite(c[c.Length-1])&&c[c.Length-1]>=.1f;for(int i=1;ok&&i<c.Length;i++)ok=Finite(c[i])&&c[i]>=c[i-1];if(!ok)throw new LocationSDKOverrideError("ui.sdk.override_unsupported","cast "+id,"invalid crouch distance curve");}
+     }
      if(cast.walk_distance_by_phase!=null&&cast.walk_distance_by_phase.Length>0){var c=cast.walk_distance_by_phase;bool ok=c.Length>=2&&c[0]==0&&Finite(c[c.Length-1])&&c[c.Length-1]>=.1f;for(int i=1;ok&&i<c.Length;i++)ok=Finite(c[i])&&c[i]>=c[i-1];
       if(!ok)throw new LocationSDKOverrideError("ui.sdk.override_unsupported","cast "+id,"walk_distance_by_phase is not a rising curve from 0 to one stride");}
      if(result.ContainsKey(id))throw new LocationSDKOverrideError("ui.sdk.override_duplicate","cast "+id);
@@ -370,7 +386,7 @@ namespace AngelsDemons.Poc {
    bool renderer=false;foreach(var component in entry.prefab.GetComponentsInChildren<Component>(true)){
     if(component==null)throw new LocationSDKOverrideError("ui.sdk.override_unsupported",id,"Missing script");
     if(component is Renderer)renderer=true;
-    if(!(component is Transform||component is Renderer||component is MeshFilter||component is Animator||component is Animation||component is ParticleSystem||component is LODGroup||component is Light||component is UnityEngine.Rendering.Universal.UniversalAdditionalLightData))throw new LocationSDKOverrideError("ui.sdk.override_unsupported",id,component.GetType().Name);
+    if(!(component is Transform||component is Renderer||component is MeshFilter||component is Animator||component is Animation||component is ParticleSystem||component is LODGroup||component is Light||component is PocSceneFixture||component is UnityEngine.Rendering.Universal.UniversalAdditionalLightData))throw new LocationSDKOverrideError("ui.sdk.override_unsupported",id,component.GetType().Name);
    }
    if(entry.light_bindings!=null)foreach(var binding in entry.light_bindings){var target=t.Find(binding.path);if(target==null||target.GetComponent<Light>()==null)throw new LocationSDKOverrideError("ui.sdk.override_unsupported",id,"missing light: "+binding.path);
     if(binding.lens_paths!=null)foreach(var lens in binding.lens_paths){var l=string.IsNullOrEmpty(lens)?null:t.Find(lens);if(l==null||l.GetComponent<Renderer>()==null)throw new LocationSDKOverrideError("ui.sdk.override_unsupported",id,"missing lens renderer: "+lens);}}

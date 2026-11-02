@@ -40,6 +40,32 @@ func TestUnityResourceContainsNoServerAIOrActorDefinitions(t *testing.T) {
 	}
 }
 
+func TestPlayableSceneClientCatalogueExcludesPatrolsAndStock(t *testing.T) {
+	data, err := clientResource(Compiled{PlayableScenes: json.RawMessage(`{"z":{"id":"z","scenario":"life:z","level":"deck","name_key":"scene.z","guard_route":[{"x":9}],"sources":[{"secret":"stock"}],"interactions":[{"effect":"take"}],"presentation":{"lights":[{"source_id":"lamp"}]}},"a":{"id":"a","scenario":"life:a"}}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resource struct {
+		Scenes []map[string]json.RawMessage `json:"playable_scenes"`
+	}
+	if err := json.Unmarshal(data, &resource); err != nil {
+		t.Fatal(err)
+	}
+	if len(resource.Scenes) != 2 || string(resource.Scenes[0]["id"]) != `"a"` || string(resource.Scenes[1]["id"]) != `"z"` {
+		t.Fatal("scene launch catalogue is not deterministic")
+	}
+	for _, scene := range resource.Scenes {
+		for _, key := range []string{"guard_route", "sources", "interactions"} {
+			if _, ok := scene[key]; ok {
+				t.Fatalf("server scene data leaked: %s", key)
+			}
+		}
+	}
+	if !strings.Contains(string(resource.Scenes[1]["presentation"]), "lamp") {
+		t.Fatal("physical lamp presentation missing")
+	}
+}
+
 func TestAIFixtureFactsCannotInventKnowledgeOrCompleteMission(t *testing.T) {
 	data := []byte(`{"facts":{"security.absent":{},"custody.handed_over":{}}}`)
 	if err := validateAIFixtureFacts(data, map[string]bool{"security.absent": true}); err != nil {

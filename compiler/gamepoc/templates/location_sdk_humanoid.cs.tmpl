@@ -94,24 +94,28 @@ namespace AngelsDemons.Poc {
   }
   Transform LocationSDKHumanoidDecal(GameObject parent,string name,Mesh mesh,Material material,float y){
    var go=new GameObject(name){layer=LocationSDKLayer};go.transform.SetParent(parent.transform,false);go.transform.localPosition=new Vector3(0,y,0);
-   go.AddComponent<MeshFilter>().sharedMesh=mesh;var r=go.AddComponent<MeshRenderer>();r.sharedMaterial=material;r.shadowCastingMode=UnityEngine.Rendering.ShadowCastingMode.Off;r.receiveShadows=false;r.lightProbeUsage=UnityEngine.Rendering.LightProbeUsage.Off;r.reflectionProbeUsage=UnityEngine.Rendering.ReflectionProbeUsage.Off;return go.transform;
+   go.AddComponent<MeshFilter>().sharedMesh=mesh;var r=go.AddComponent<MeshRenderer>();r.sharedMaterial=material;r.shadowCastingMode=UnityEngine.Rendering.ShadowCastingMode.Off;r.receiveShadows=false;r.lightProbeUsage=PlayableView()!=null?UnityEngine.Rendering.LightProbeUsage.BlendProbes:UnityEngine.Rendering.LightProbeUsage.Off;r.reflectionProbeUsage=UnityEngine.Rendering.ReflectionProbeUsage.Off;return go.transform;
   }
   LocationSDKHumanoid LocationSDKHumanoidFor(string id){
    LocationSDKHumanoid h;if(locationSDKHumanoids.TryGetValue(id,out h))return h;
    var cast=locationSDKHumanoidCast;bool hero=id=="char.hero";uint hash=LocationSDKHumanoidHash(id);var prefab=hero&&cast.hero_prefab!=null?cast.hero_prefab:cast.body_prefab;int body=0;
-   if(!hero&&cast.body_variants!=null&&cast.body_variants.Length>0){int pick=(int)((hash>>4)%(uint)(cast.body_variants.Length+1));if(pick>0&&cast.body_variants[pick-1]!=null){prefab=cast.body_variants[pick-1];body=pick;}}
+   if(!hero&&cast.body_variants!=null&&cast.body_variants.Length>0){int pick=(int)((hash>>4)%(uint)(cast.body_variants.Length+1));
+    // demo-hub v14-traders: an actor bound to a character sheet takes the body of that sheet (variant_sheets -> the first
+    // variant, any other sheet -> body_prefab); unbound actors keep the hash pick
+    string sheet;if(cast.variant_sheets!=null&&cast.variant_sheets.Length>0&&characterBindings.TryGetValue(id,out sheet))pick=Array.IndexOf(cast.variant_sheets,sheet)>=0?1:0;
+    if(pick>0&&cast.body_variants[pick-1]!=null){prefab=cast.body_variants[pick-1];body=pick;}}
    var go=Instantiate(prefab,locationSDKRoot.transform,false);go.name="humanoid / "+id;
    foreach(var t in go.GetComponentsInChildren<Transform>(true))t.gameObject.layer=LocationSDKLayer;
    var an=go.GetComponentInChildren<Animator>(true);
    an.applyRootMotion=false;an.updateMode=AnimatorUpdateMode.Normal;
    // The SDK camera renders through a manual request: visibility culling would freeze the bodies.
    an.cullingMode=AnimatorCullingMode.AlwaysAnimate;
-   foreach(var state in new[]{cast.idle_state,cast.walk_state,cast.stairs_state})if(!string.IsNullOrEmpty(state)&&!an.HasState(0,Animator.StringToHash(state))){Destroy(go);throw new InvalidOperationException("Animator of cast "+cast.cast_id+" has no state "+state);}
+   foreach(var state in new[]{cast.idle_state,cast.walk_state,cast.stairs_state,cast.crouch_idle_state,cast.crouch_walk_state})if(!string.IsNullOrEmpty(state)&&!an.HasState(0,Animator.StringToHash(state))){Destroy(go);throw new InvalidOperationException("Animator of cast "+cast.cast_id+" has no state "+state);}
    int tint=(int)(hash%(uint)cast.tints.Length);Color color=hero?cast.hero_tint:cast.tints[tint];string key=hero?"hero":"t"+tint;
    var renderers=new List<Renderer>();
    foreach(var r in go.GetComponentsInChildren<Renderer>(true)){
     var mats=r.sharedMaterials;for(int i=0;i<mats.Length;i++)if(mats[i]!=null&&LocationSDKHumanoidTinted(cast,mats[i].name))mats[i]=LocationSDKHumanoidTint(mats[i],key,color);r.sharedMaterials=mats;
-    r.lightProbeUsage=UnityEngine.Rendering.LightProbeUsage.Off;r.reflectionProbeUsage=UnityEngine.Rendering.ReflectionProbeUsage.Off;r.receiveShadows=true;
+    r.lightProbeUsage=PlayableView()!=null?UnityEngine.Rendering.LightProbeUsage.BlendProbes:UnityEngine.Rendering.LightProbeUsage.Off;r.reflectionProbeUsage=UnityEngine.Rendering.ReflectionProbeUsage.Off;r.receiveShadows=true;
     var skinned=r as SkinnedMeshRenderer;if(skinned!=null){skinned.updateWhenOffscreen=false;skinned.skinnedMotionVectors=false;}
     renderers.Add(r);
    }
@@ -158,6 +162,7 @@ namespace AngelsDemons.Poc {
    if(!h.hasYaw){h.yaw=LocationSDKHumanoidCameraYaw();h.hasYaw=true;}
    if(h.walking&&course.sqrMagnitude>=1e-8f){float target=Mathf.Atan2(course.x,course.z)*Mathf.Rad2Deg;h.course=course.normalized;h.yaw=jump?target:Mathf.MoveTowardsAngle(h.yaw,target,cast.turn_degrees_per_second*(float)Math.Max(0,dt));}
    else if(facing)h.yaw=jump?(float)spot.YawDeg:Mathf.MoveTowardsAngle(h.yaw,(float)spot.YawDeg,cast.turn_degrees_per_second*.5f*(float)Math.Max(0,dt));
+   else if(!h.walking&&agent!=null&&(agent.FaceX!=0||agent.FaceY!=0))h.yaw=Mathf.Atan2((float)agent.FaceX,(float)agent.FaceY)*Mathf.Rad2Deg;
    h.go.transform.SetPositionAndRotation(feet+postOffset,Quaternion.Euler(0,h.yaw,0));
    h.lastFeet=feet;h.lastNS=nowNS;h.placed=true;
    bool full=GraphicsFull;if(h.shadows!=full){foreach(var r in h.renderers)r.shadowCastingMode=full?UnityEngine.Rendering.ShadowCastingMode.On:UnityEngine.Rendering.ShadowCastingMode.Off;h.shadows=full;}
@@ -167,8 +172,23 @@ namespace AngelsDemons.Poc {
    bool stairs=h.walking&&h.onStairs&&!string.IsNullOrEmpty(cast.stairs_state);
    string want=!h.walking?cast.idle_state:stairs?cast.stairs_state:cast.walk_state;int hashWant=Animator.StringToHash(want);
    float len=!h.walking?cast.idle_cycle_seconds:stairs?cast.stairs_cycle_seconds:cast.walk_cycle_seconds,clipSpeed=stairs?cast.stairs_clip_speed_mps:cast.walk_clip_speed_mps;
+   bool crouch=LocationSDKActorCrouching(id)&&!string.IsNullOrEmpty(cast.crouch_idle_state)&&!string.IsNullOrEmpty(cast.crouch_walk_state);
+   if(crouch){want=h.walking?cast.crouch_walk_state:cast.crouch_idle_state;hashWant=Animator.StringToHash(want);len=h.walking?cast.crouch_walk_cycle_seconds:cast.crouch_idle_cycle_seconds;clipSpeed=cast.crouch_clip_speed_mps;}
    float phase;
-   var curve=stairs?null:cast.walk_distance_by_phase;
+   // demo-hub v14-traders: a seller on the counter post cycles the post states (talk, arrange goods) instead of one idle.
+   if(!crouch&&facing&&activityPhase=="post"&&cast.post_states!=null&&cast.post_states.Length>0&&cast.post_state_seconds!=null&&cast.post_state_seconds.Length==cast.post_states.Length){
+    double t=nowNS/1e9+h.offset*977.0,slotLen=Math.Max(2.0,cast.post_slot_seconds);long slot=(long)Math.Floor(t/slotLen);double inSlot=t-slot*slotLen;
+    int k=LocationSDKHumanoidPostPick(cast,id,slot);string st=cast.post_states[k];float sl=Mathf.Max(.1f,cast.post_state_seconds[k]);bool loop=cast.post_state_loop==null||k>=cast.post_state_loop.Length||cast.post_state_loop[k];
+    if(!string.IsNullOrEmpty(st)&&an.HasState(0,Animator.StringToHash(st))&&(loop||inSlot<sl)){
+     want=st;hashWant=Animator.StringToHash(want);len=sl;
+     phase=loop?LocationSDKHumanoidFrac(h.offset+nowNS/1e9/len):Mathf.Clamp01((float)(inSlot/sl));
+     bool fadingP=an.IsInTransition(0);
+     if(h.state!=want){if(h.state==null||jump||h.rate<=0)an.Play(hashWant,0,phase);else{an.CrossFadeInFixedTime(hashWant,.3f,0,phase*len);fadingP=true;}h.state=want;h.switches++;}
+     else if(!fadingP)an.Play(hashWant,0,phase);
+     h.phase=phase;h.drift=fadingP?-1:0;an.speed=fadingP?h.rate:0;if(!fadingP)an.Update(0);return;
+    }
+   }
+   var curve=crouch?cast.crouch_distance_by_phase:stairs?null:cast.walk_distance_by_phase;
    if(h.walking&&curve!=null&&curve.Length>1){float stride=curve[curve.Length-1];phase=LocationSDKHumanoidPhaseAt(curve,(float)((h.offset*stride+h.distance)%stride));}
    else if(h.walking)phase=LocationSDKHumanoidFrac(h.offset+h.distance/(clipSpeed*len));
    else phase=LocationSDKHumanoidFrac(h.offset+nowNS/1e9/len);
@@ -183,6 +203,17 @@ namespace AngelsDemons.Poc {
    if(!fading)an.Update(0);
   }
   static float LocationSDKHumanoidSmooth(float x){x=Mathf.Clamp01(x);return x*x*(3-2*x);}
+  bool LocationSDKActorCrouching(string id){
+   if(state==null)return false;
+   if(state.Combat!=null&&state.Combat.Active)foreach(var actor in state.Combat.Actors)if(actor.Id==id)return actor.Stance=="crouch";
+   return id=="char.hero"&&state.Life!=null&&state.Life.Sneaking;
+  }
+  // Weighted pick of a post state for (actor, slot): stable FNV-1a hash, no frame or spawn-order dependence.
+  static int LocationSDKHumanoidPostPick(AngelsDemonsLocationActorCast cast,string id,long slot){
+   uint h=LocationSDKHumanoidHash(id+"#post#"+slot);float total=0;for(int i=0;i<cast.post_states.Length;i++)total+=cast.post_state_weights!=null&&i<cast.post_state_weights.Length?Mathf.Max(0,cast.post_state_weights[i]):1;
+   if(total<=0)return 0;float r=(h%10000)/10000f*total;for(int i=0;i<cast.post_states.Length;i++){r-=cast.post_state_weights!=null&&i<cast.post_state_weights.Length?Mathf.Max(0,cast.post_state_weights[i]):1;if(r<0)return i;}
+   return cast.post_states.Length-1;
+  }
   static uint LocationSDKHumanoidMix(uint h,uint k){h^=k+0x9e3779b9u+(h<<6)+(h>>2);h*=0x85ebca6bu;h^=h>>13;return h;}
   // Seated variant of slot k: weighted pick by a stable hash, never the previous variant, "talk" only beside a neighbour.
   int LocationSDKHumanoidSitPick(uint seed,int k,int previous,bool neighbour){
@@ -283,7 +314,7 @@ namespace AngelsDemons.Poc {
   Material LocationSDKHumanoidPropMaterial(string name,Color color,float smoothness){var m=new Material(Shader.Find("Universal Render Pipeline/Lit")){name=name,enableInstancing=true};m.SetColor("_BaseColor",color);m.SetFloat("_Smoothness",smoothness);m.SetFloat("_Metallic",0);locationSDKHumanoidOwned.Add(m);return m;}
   Transform LocationSDKHumanoidProp(string name,Mesh mesh,Material[] materials){
    var go=new GameObject(name){layer=LocationSDKLayer};go.transform.SetParent(locationSDKRoot.transform,false);go.AddComponent<MeshFilter>().sharedMesh=mesh;var r=go.AddComponent<MeshRenderer>();r.sharedMaterials=materials;
-   r.shadowCastingMode=UnityEngine.Rendering.ShadowCastingMode.Off;r.lightProbeUsage=UnityEngine.Rendering.LightProbeUsage.Off;r.reflectionProbeUsage=UnityEngine.Rendering.ReflectionProbeUsage.Off;go.SetActive(false);return go.transform;
+   r.shadowCastingMode=UnityEngine.Rendering.ShadowCastingMode.Off;r.lightProbeUsage=PlayableView()!=null?UnityEngine.Rendering.LightProbeUsage.BlendProbes:UnityEngine.Rendering.LightProbeUsage.Off;r.reflectionProbeUsage=UnityEngine.Rendering.ReflectionProbeUsage.Off;go.SetActive(false);return go.transform;
   }
   void LocationSDKHumanoidProps(LocationSDKHumanoid h){
    var cast=locationSDKHumanoidCast;

@@ -87,6 +87,7 @@ type GatePlacement struct {
 	ID         string       `json:"id"`
 	InstanceID string       `json:"instance_id"`
 	KitID      string       `json:"kit_id"`
+	Manual     bool         `json:"manual,omitempty"`
 	Schedule   GateSchedule `json:"schedule"`
 	Reason     string       `json:"reason"`
 }
@@ -114,6 +115,7 @@ type RuntimeGate struct {
 	OpenSecond           int64        `json:"open_second"`
 	CloseSecond          int64        `json:"close_second"`
 	LockAtNight          bool         `json:"lock_at_night"`
+	Manual               bool         `json:"manual,omitempty"`
 	Leaves               []GateLeaf   `json:"leaves"`
 	Cables               []GateCable  `json:"cables,omitempty"`
 	Signals              []GateSignal `json:"signals"`
@@ -277,7 +279,7 @@ func compileGates(catalog Catalog, layout Layout, compiled CompiledLevel, tickHz
 			ClearHeightMM: kit.ClearHeightMM, SightClearPPM: int64(kit.SightClearMM) * 1000000 / int64(kit.ClearHeightMM),
 			WarningTicks: gateTicks(t.Warning, tickHz), TravelTicks: gateTicks(t.Travel, tickHz), RetryTicks: gateTicks(t.Retry, tickHz),
 			LockdownWarningTicks: gateTicks(t.LockdownWarning, tickHz), LockdownRetryTicks: gateTicks(t.LockdownRetry, tickHz), PowerWarningTicks: gateTicks(t.PowerWarning, tickHz),
-			GravityTicks: gateTicks(gravityMS, tickHz), RampTicks: min(gateTicks(t.Ramp, tickHz), gateTicks(t.Travel, tickHz)/2), OpenSecond: s.OpenSecond, CloseSecond: s.CloseSecond, LockAtNight: s.LockAtNight,
+			GravityTicks: gateTicks(gravityMS, tickHz), RampTicks: min(gateTicks(t.Ramp, tickHz), gateTicks(t.Travel, tickHz)/2), OpenSecond: s.OpenSecond, CloseSecond: s.CloseSecond, LockAtNight: s.LockAtNight, Manual: placement.Manual,
 			Leaves: append([]GateLeaf{}, kit.Leaves...), Cables: append([]GateCable(nil), kit.Cables...), Signals: append([]GateSignal{}, kit.Signals...),
 		})
 	}

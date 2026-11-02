@@ -1,6 +1,10 @@
 package locationsdk
 
-import "testing"
+import (
+	"bytes"
+	"encoding/json"
+	"testing"
+)
 
 // A two-cell vertical-lift gate between two wall stubs; floor on both faces.
 func gateTestInput() Input {
@@ -46,6 +50,33 @@ func TestGateCompilesOpeningTicksResidentsAndStart(t *testing.T) {
 		if l.Gates != nil || l.Residents != nil || l.StartSecond != 0 {
 			t.Fatal("layouts without gates changed")
 		}
+	}
+}
+
+func TestManualGateCompilesWithoutChangingScheduledGateData(t *testing.T) {
+	in := gateTestInput()
+	ordinary := requireRuntime(t, in, runtimeTestOptions()).Levels[0].Gates[0]
+	if ordinary.Manual {
+		t.Fatal("omitted manual flag changed a scheduled gate")
+	}
+	in.Layouts[0].Gates[0].Manual = true
+	manual := requireRuntime(t, in, runtimeTestOptions()).Levels[0].Gates[0]
+	if !manual.Manual {
+		t.Fatal("manual placement was not exported to the runtime controller")
+	}
+	raw, err := json.Marshal(manual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var loaded RuntimeGate
+	if err := json.Unmarshal(raw, &loaded); err != nil || !loaded.Manual {
+		t.Fatal("manual flag was lost by runtime JSON", err)
+	}
+	manual.Manual = false
+	a, errA := json.Marshal(ordinary)
+	b, errB := json.Marshal(manual)
+	if errA != nil || errB != nil || !bytes.Equal(a, b) || bytes.Contains(a, []byte(`"manual"`)) {
+		t.Fatal("manual placement changed kit geometry/timing or legacy runtime bytes")
 	}
 }
 

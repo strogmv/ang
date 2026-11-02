@@ -86,7 +86,7 @@ func inventoryModel(world, level cue.Value, levelID string, resolvedLife ...json
 		definition.EquipSlot = readString(v, "equipment.slot")
 		definition.UseEffect = readString(v, "use.effect")
 		definition.UseReach = int(readInt(v, "use.reach"))
-		definition.WearPerUse = int64(math.Round(readFloat(v, "use.wear_per_use", readFloat(v,"durable.wear_per_use",0)) * 1000000))
+		definition.WearPerUse = int64(math.Round(readFloat(v, "use.wear_per_use", readFloat(v, "durable.wear_per_use", 0)) * 1000000))
 		definition.PriceUnit = readString(v, "base_price.unit")
 		raw, e := v.LookupPath(cue.ParsePath("base_price.avg")).MarshalJSON()
 		if e != nil {
