@@ -22,6 +22,7 @@ type barksAnchor struct {
 	DepthCells  int      `json:"depth_cells"`
 	Vending     bool     `json:"vending"`
 	Master      string   `json:"master"`
+	Peddler     string   `json:"peddler"` // demo-hub v23: the stop cells of a peddler's round (his mobile shopfront)
 	MarginCells int      `json:"margin_cells"`
 	Rect        *rt.Rect `json:"rect"`
 }
@@ -351,6 +352,24 @@ func resolveBarkPlace(p barksPlaceIn, life barksLife, c Compiled) (rt.Place, err
 		}
 		if !found {
 			return out, fmt.Errorf("barks place %s: %s is not a crafting master on %s", p.ID, a.Master, p.Level)
+		}
+	case a.Peddler != "":
+		// a peddler speaks where he stands to trade: the stop cells of his mobile shopfront (spots win over any rectangle)
+		found := false
+		for _, sh := range c.Inventory.Shopfronts {
+			if sh.Owner != a.Peddler || !sh.Mobile() {
+				continue
+			}
+			found = true
+			for _, s := range sh.Stops {
+				if s.Level == p.Level {
+					out.Spots = append(out.Spots, rt.Cell{X: s.At.X, Y: s.At.Y})
+				}
+			}
+			out.Subjects = append(out.Subjects, a.Peddler)
+		}
+		if !found || len(out.Spots) == 0 {
+			return out, fmt.Errorf("barks place %s: %s has no round of stops on %s", p.ID, a.Peddler, p.Level)
 		}
 	case a.Rect != nil:
 		out.Rects = []rt.Rect{*a.Rect}

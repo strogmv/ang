@@ -36,6 +36,7 @@ func (r *Runtime) initLifeState(life behavior.LifeState) {
 	r.initLifeInventory()
 	r.initNPCEconomy()
 	r.initVending()
+	r.initPeddlers()
 	r.initCrafting()
 	r.initBarks()
 	r.state.LifeExploration = map[string]map[int]seenCell{}
@@ -108,6 +109,9 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
 		return err
 	}
 	if err := r.advanceVending(); err != nil {
+		return err
+	}
+	if err := r.advancePeddlers(); err != nil {
 		return err
 	}
 	if err := r.advanceCrafting(delta); err != nil {
@@ -276,6 +280,7 @@ func (r *Runtime) sendLifeState(c *connection) {
  r.appendPlayableScene(view,hero,msg.PlayerView,c.locale)
 	r.appendStorefrontState(view, hero, msg.PlayerView)
 	r.appendVending(view, hero, msg.PlayerView, c.locale)
+	r.appendPeddlers(view, hero, msg.PlayerView, c.locale)
 	r.appendCraft(view, hero, msg.PlayerView)
 	r.appendGates(view, hero, msg.PlayerView)
 	r.appendLifeMaintenance(view, hero, msg.PlayerView)

@@ -12,6 +12,7 @@ import (
 
 	barks "angelsdemons/server/internal/barks"
 	behavior "angelsdemons/server/internal/behavior"
+	inv "angelsdemons/server/internal/inventory"
 	pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
 )
 
@@ -52,7 +53,7 @@ func (r *Runtime) barkPosture(a *behavior.LifeActor) (seated, post bool) {
 		post = true
 	}
 	for _, sh := range r.world.Inventory.Shopfronts {
-		if sh.Owner == a.ID && sh.Service.Level == a.Level && sh.Service.At.X == a.Position.X && sh.Service.At.Y == a.Position.Y {
+		if sh.Owner == a.ID && sh.ServesCell(a.Level, inv.Cell{X: a.Position.X, Y: a.Position.Y}) {
 			post = true
 		}
 	}

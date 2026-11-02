@@ -147,6 +147,10 @@ func (r *Runtime) inventoryCommand(c *connection, q *pb.PocInventoryCommand) {
 		reject("Сейчас нельзя перемещать вещи")
 		return
 	}
+	// Peddlers (world.peddlers): a piece off a tray, junk to the cart man.
+	if r.peddlerCommand(c, q, tag, result) {
+		return
+	}
 	// Vending terminals (world.vending): purchases from a showcase, buy-back and the charging dock.
 	if r.vendingCommand(c, q, tag, result) {
 		return
@@ -276,6 +280,9 @@ func (r *Runtime) validateInventory(s state) error {
 			return err
 		}
 		if err := r.validateCommerceSave(s); err != nil {
+			return err
+		}
+		if err := r.validatePeddlerSave(s); err != nil {
 			return err
 		}
 	}

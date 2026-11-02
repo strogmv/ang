@@ -366,6 +366,9 @@ func worldRunAuditDay(t testing.TB, count int, seconds int64, compareDay2 bool) 
 		}
 		d := float64(time.Since(t0).Nanoseconds()) / 1000
 		for _, sh := range r.world.Inventory.Shopfronts {
+			if sh.Mobile() {
+				continue // demo-hub v23: a peddler's shop is shut while he walks between his stops (peddlers tests hold the round)
+			}
 			clock := r.state.Life.Seconds % 86400
 			status := r.state.Inventory.Shopfronts[sh.ID]
 			a := r.state.Life.Actor(sh.Owner)

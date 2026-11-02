@@ -39,8 +39,8 @@ func (r *Runtime) barkFacts(level string) []barks.Fact {
 	}
 	// shopfronts shut in their own hours: the trader is not at his counter
 	for _, shop := range r.world.Inventory.Shopfronts {
-		if shop.Service.Level != level {
-			continue
+		if shop.Service.Level != level || shop.Mobile() {
+			continue // a peddler walking between his stops is not a shut stall
 		}
 		if open, _ := r.state.Inventory.ShopStatus(shop); open && !r.storefrontOpen(shop.ID) {
 			add("shop.closed", shop.ID, level, 0)
@@ -130,6 +130,10 @@ func (r *Runtime) barkFacts(level string) []barks.Fact {
 		if n >= 2 {
 			add("craft.queue", worker, "", 0)
 		}
+	}
+	// the hero's deals with the peddlers (sold, bought, refused): the peddler answers them
+	for _, f := range r.peddlerFacts(level) {
+		add(f.Event, f.Subject, f.Level, f.Since)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Event != out[j].Event {

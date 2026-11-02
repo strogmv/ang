@@ -224,6 +224,8 @@ type Compiled struct {
 
 	// Dome-system vending terminals (demo-hub v12-vending, world.vending); nil in worlds without them.
 	Vending *VendingCatalog `json:"vending,omitempty"`
+	// Peddlers of the hub (demo-hub v23, world.peddlers): mobile shopfronts on a round of stops; nil in worlds without them.
+	Peddlers *PeddlerCatalog `json:"peddlers,omitempty"`
 	// Craft places of the hub islands (demo-hub v16-goods, world.market_goods); nil in worlds without them.
 	Craft *CraftCatalog `json:"craft,omitempty"`
 	// Crafting stage 1 (doc 93, world.crafting): the engine catalog completed from the compiled world; nil without it.
@@ -404,6 +406,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		}
 	}
 	if out.Vending, err = readVending(world); err != nil {
+		return out, nil, err
+	}
+	if out.Peddlers, err = readPeddlers(world); err != nil {
 		return out, nil, err
 	}
 	if out.Craft, err = readCraft(world); err != nil {
@@ -701,7 +706,13 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if err := validateCraft(out); err != nil {
 		return out, nil, err
 	}
+	if err := applyPeddlers(&out); err != nil {
+		return out, nil, err
+	}
 	if err := applyCrafting(&out, craftingIn); err != nil {
+		return out, nil, err
+	}
+	if err := checkPeddlerClasses(&out); err != nil {
 		return out, nil, err
 	}
 	if err := validateTransitFares(out); err != nil {
@@ -981,6 +992,9 @@ func Generate(project string) error {
 		"vending.go.tmpl":                       filepath.Join(project, "internal/poc/vending.gen.go"),
 		"vending_test.go.tmpl":                  filepath.Join(project, "internal/poc/vending_generated_test.go"),
 		"vending.cs.tmpl":                       filepath.Join(unity, "Assets/Generated/Poc/PocVending.cs"),
+		"peddlers.go.tmpl":                      filepath.Join(project, "internal/poc/peddlers.gen.go"),
+		"peddlers_test.go.tmpl":                 filepath.Join(project, "internal/poc/peddlers_generated_test.go"),
+		"peddlers.cs.tmpl":                      filepath.Join(unity, "Assets/Generated/Poc/PocPeddlers.cs"),
 		"craft.go.tmpl":                         filepath.Join(project, "internal/poc/craft.gen.go"),
 		"craft.cs.tmpl":                         filepath.Join(unity, "Assets/Generated/Poc/PocCraft.cs"),
 		"barks.go.tmpl":                         filepath.Join(project, "internal/poc/barks.gen.go"),

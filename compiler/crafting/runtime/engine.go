@@ -246,7 +246,7 @@ func (m Model) Plan(w Worker, q Request, stacks []Stack, target *Stack, bench Be
 		ids = append(ids, stacks...)
 		sort.Slice(ids, func(i, j int) bool { return ids[i].ID < ids[j].ID })
 		for _, s := range ids {
-			// a tool's own grade (the grandfather's prewar screwdrivers) beats the quality of its definition
+			// a tool's own grade (the grandfather's old factory-made screwdrivers) beats the quality of its definition
 			if t, ok := m.Tool(s.Definition); ok && t.Kind == kind && s.Condition > 0 {
 				q := t.Quality
 				if s.Quality > 0 {

@@ -98,7 +98,7 @@ func (s State) Validate(m Model) error {
 	slots := map[string]bool{}
 	for id, i := range s.Items {
 		d, ok := m.Definitions[i.Definition]
-		if !ok || id != i.ID || d.Carrier != "physical" || i.Quantity < 1 || i.Quantity > d.StackLimit || i.Condition < 0 || i.Condition > 1000000 || !m.validOwner(i.Owner) || i.Origin == "" {
+		if !ok || id != i.ID || d.Carrier != "physical" || i.Quantity < 1 || i.Quantity > d.StackLimit || i.Condition < 0 || i.Condition > 1000000 || !m.validOwner(i.Owner) || i.Origin == "" || !i.Grade.valid() {
 			return fmt.Errorf("invalid physical instance %s", id)
 		}
 		if d.ContainerVolume > 0 {
@@ -263,6 +263,9 @@ type Move struct {
 	To               Location
 	ChangeOwner      bool
 	Owner            string
+	// Sell: the new owner puts it on sale at once (a dealer's buy-back onto his tray, demo-hub v23 peddlers). Omitted from
+	// the transaction digest when false, so older transactions replay unchanged.
+	Sell bool `json:",omitempty"`
 }
 type Payment struct {
 	From, To, Currency       string
@@ -338,7 +341,9 @@ func (s *State) Apply(m Model, t Transaction) (Result, error) {
 		moved.Revision++
 		if move.ChangeOwner {
 			moved.Owner = move.Owner
-			moved.ForSale = false
+			moved.ForSale = move.Sell
+		} else if move.Sell {
+			return Result{}, errors.New("only a new owner lists a thing for sale")
 		}
 		next.Items[moved.ID] = moved
 		if move.Reservation != "" {

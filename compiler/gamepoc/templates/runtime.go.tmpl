@@ -91,6 +91,7 @@ type worldData struct {
 	Region                  regionCatalog                   `json:"region_map"`
 	Wayfinding              wayfindingCatalog               `json:"wayfinding"`
 	Vending                 vendingCatalog                  `json:"vending"`
+	Peddlers                peddlerCatalog                  `json:"peddlers"`
 	Craft                   craftCatalog                    `json:"craft"`
 	Crafting                crafting.Model                  `json:"crafting"`
 	Life                    behavior.LifeModel              `json:"life"`
@@ -131,6 +132,7 @@ type state struct {
 	Poses                map[string]actorPose
 	NPCEconomy           npcEconomyState
 	Vending              vendingState
+	Peddlers             peddlerState
 	Crafting             crafting.State
 	Barks                barks.State
 	Inventory            inv.State
@@ -917,6 +919,8 @@ func (r *Runtime) readSave(slot string) (state, int64, error) {
 	if err = json.Unmarshal(envelope.State, &s); err != nil {
 		return s, 0, err
 	}
+	// owner 02.11: the origin "prewar" is "heirloom" now; an older save loads with the new name
+	migrateSavedOrigins(&s)
 	validator, err := r.savedWorldRuntimeForState(s)
 	if err != nil {
 		return s, 0, err
@@ -1041,4 +1045,11 @@ func (r *Runtime) pathAvoid(from, to point, blocked map[point]bool) []point {
 // Keep a generated diagnostic with the source content identity.
 func (r *Runtime) String() string {
 	return fmt.Sprintf("CUE POC world %s", r.canonicalWorld.ContentHash)
+}
+
+// migrateSavedOrigins renames the legacy origin of parts ("prewar" -> "heirloom", owner 02.11) in the inventory grades
+// and the crafting plans of a loaded save, before it is validated.
+func migrateSavedOrigins(s *state) {
+	s.Inventory.MigrateProvenance()
+	s.Crafting.MigrateOrigins()
 }

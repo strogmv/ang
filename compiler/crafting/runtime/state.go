@@ -188,3 +188,44 @@ func (m Model) ValidateState(s State) error {
 	}
 	return m.validateLawState(s)
 }
+
+// LegacyOrigin: owner 02.11 renamed the origin "prewar" to "heirloom" («термин "довоенная" к нам неприменим»).
+func LegacyOrigin(o string) string {
+	if o == "prewar" {
+		return "heirloom"
+	}
+	return o
+}
+
+// MigrateOrigins rewrites the legacy origin in the plans of saved jobs and in the market's substitutions; it reports how
+// many fields it changed (an older save loads as if written today).
+func (s *State) MigrateOrigins() int {
+	n := 0
+	fix := func(o *string) {
+		if v := LegacyOrigin(*o); v != *o {
+			*o = v
+			n++
+		}
+	}
+	uses := func(u []Use) {
+		for i := range u {
+			fix(&u[i].Origin)
+		}
+	}
+	for j := range s.Jobs {
+		p := &s.Jobs[j].Plan
+		uses(p.Uses)
+		uses(p.Spoil)
+		for i := range p.Makes {
+			fix(&p.Makes[i].Origin)
+		}
+		fix(&s.Jobs[j].Swap.From)
+		fix(&s.Jobs[j].Swap.To)
+	}
+	for k, sw := range s.Market.Swaps {
+		fix(&sw.From)
+		fix(&sw.To)
+		s.Market.Swaps[k] = sw
+	}
+	return n
+}

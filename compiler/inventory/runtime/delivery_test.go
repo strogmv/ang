@@ -235,3 +235,66 @@ func TestFullDisplayKeepsServiceOpenAndRefillsAfterPurchase(t *testing.T) {
 		t.Fatal("selling display failed to unblock atomic replenishment")
 	}
 }
+
+// A peddler's mobile shopfront (demo-hub v23): the stores are carried by the owner; the shop opens at any stop in its
+// hours, shuts while he walks, and a store at a stop is rejected (no carried stock, no world anchor).
+func TestMobileShopfrontOpensAtAnyStopAndOnlyThere(t *testing.T) {
+	m := Model{Reservation: ReservationPolicy{MaxTicks: 600, MaxPerActor: 16, MaxTotal: 128}, Version: 1, MaxDepth: 8, MaxItems: 100, Actors: map[string]bool{"peddler": true, "hero": true}, Owners: map[string]bool{}, Levels: map[string]Cell{"market": {10, 10}}, Definitions: map[string]Definition{"goods": {ID: "goods", Carrier: "physical", Mass: 100, Volume: 200, StackLimit: 100}}, Stores: map[string]Store{}, Accounts: map[string]Account{}, Entitlements: map[string]Entitlement{}}
+	cap := Capacity{Mass: 10000, Volume: 10000, Stacks: 16}
+	for _, id := range []string{"peddler", "hero"} {
+		m.Stores[ActorStore(id)] = Store{ID: ActorStore(id), Kind: "actor", Owner: id, Anchor: Anchor{Kind: "actor", Actor: id}, Capacity: cap}
+	}
+	carried := Anchor{Kind: "actor", Actor: "peddler"}
+	m.Stores["tray"] = Store{ID: "tray", Kind: "container", Owner: "peddler", Anchor: carried, Capacity: cap}
+	m.Stores["pack"] = Store{ID: "pack", Kind: "container", Owner: "peddler", Anchor: carried, Capacity: cap, Locked: true}
+	stops := []DeliveryPoint{{"market", Cell{2, 2}}, {"market", Cell{7, 3}}}
+	m.Shopfronts = []Shopfront{{ID: "peddler.x", Owner: "peddler", Service: stops[0], Stops: stops, DisplayStore: "tray", ReserveStore: "pack", OpenSecond: 100, CloseSecond: 900}}
+	m.Sources = []Source{{ID: "goods", Definition: "goods", Quantity: 4, Condition: 1000000, Owner: "peddler", ForSale: true, Location: Location{Kind: "store", Store: "tray"}}}
+	s, err := New(m, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sh := m.Shopfronts[0]
+	if !sh.Mobile() || !sh.ServesCell("market", Cell{7, 3}) || sh.ServesCell("market", Cell{5, 5}) {
+		t.Fatal("mobile shop serves the wrong cells")
+	}
+	at := func(sec int64, c Cell, present bool) bool {
+		t.Helper()
+		if err := s.AdvanceCommerce(m, sec, map[string]DeliveryPose{"peddler": {Level: "market", At: c, Present: present}}); err != nil {
+			t.Fatal(err)
+		}
+		return s.Shopfronts["peddler.x"].Open
+	}
+	if !at(200, Cell{7, 3}, true) || !s.ShopAccess(m, "hero", "tray", 200) {
+		t.Fatal("not open at the second stop")
+	}
+	if at(210, Cell{5, 5}, true) || s.ShopAccess(m, "hero", "tray", 210) {
+		t.Fatal("open between the stops")
+	}
+	if at(220, Cell{2, 2}, false) {
+		t.Fatal("open while walking through a stop")
+	}
+	if !at(230, Cell{2, 2}, true) || at(950, Cell{2, 2}, true) {
+		t.Fatal("hours ignored at the first stop")
+	}
+	if countStore(s, "tray") != 4 || s.ShopAccess(m, "hero", "pack", 230) {
+		t.Fatal("mobile shop lost goods or opened its pack to a stranger")
+	}
+	bad := m
+	bad.Shopfronts = []Shopfront{sh}
+	bad.Shopfronts[0].Stops = []DeliveryPoint{stops[1], stops[0]}
+	if _, err := New(bad, 1); err == nil {
+		t.Fatal("service point must be the first stop")
+	}
+	bad.Shopfronts[0].Stops = stops
+	bad.Stores = map[string]Store{}
+	for k, v := range m.Stores {
+		bad.Stores[k] = v
+	}
+	world := bad.Stores["tray"]
+	world.Anchor = Anchor{Kind: "world", Level: "market", At: Cell{2, 2}}
+	bad.Stores["tray"] = world
+	if _, err := New(bad, 1); err == nil {
+		t.Fatal("a mobile shop with a world-anchored tray was accepted")
+	}
+}

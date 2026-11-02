@@ -4,7 +4,7 @@ import "fmt"
 
 // Stage 2: the market lives by the same law. The price of a job is law.price_market's — every part at its price times
 // the scarcity of its class in the hub (the law's curve at stock / the stock of the start), the labour times the scarcest
-// class, all times the risk of the job's legality. A master who thinks little of the client may swap a system / prewar
+// class, all times the risk of the job's legality. A master who thinks little of the client may swap a system / heirloom
 // part for a handmade one and charge for the better; an order can be cancelled by the refund rules; masters restock,
 // residents order repairs of their worn things.
 
@@ -109,7 +109,7 @@ func (m Model) Honesty(master string) (Honesty, bool) {
 }
 
 // SwapPlan: below the master's honesty threshold (his relation to the client, permille) and by the seed, the best-grade
-// system / prewar part is replaced by a handmade unit of the same class from the master's stock. It returns the plan to
+// system / heirloom part is replaced by a handmade unit of the same class from the master's stock. It returns the plan to
 // work (re-planned quality) and the swap ("" class when none).
 func (m Model) SwapPlan(w Worker, q Request, master string, relation int64, p Plan, stacks []Stack, target *Stack, bench Bench) (Plan, Swap) {
 	h, ok := m.Honesty(master)

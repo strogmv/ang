@@ -44,7 +44,30 @@ type Shopfront struct {
 	PackAway     bool          `json:"pack_away"`
 	OpenSecond   int64         `json:"open_second"`
 	CloseSecond  int64         `json:"close_second"`
+	// Stops make the shopfront mobile (a peddler, demo-hub v23): it serves at any of these points (Service is the first)
+	// and its display and reserve are carried by the owner (stores anchored to the owner actor, not to the world).
+	Stops []DeliveryPoint `json:"stops,omitempty"`
 }
+
+// Mobile: a peddler's shopfront that opens wherever its owner stands at one of its stops.
+func (sh Shopfront) Mobile() bool { return len(sh.Stops) > 0 }
+
+// ServesCell: the shop serves a proprietor standing on this cell (its service point; for a mobile shop any stop).
+func (sh Shopfront) ServesCell(level string, at Cell) bool {
+	if !sh.Mobile() {
+		return sh.Service.Level == level && sh.Service.At == at
+	}
+	for _, p := range sh.Stops {
+		if p.Level == level && p.At == at {
+			return true
+		}
+	}
+	return false
+}
+
+// ServesAt: the proprietor's pose stands on a service point of the shop.
+func (sh Shopfront) ServesAt(p DeliveryPose) bool { return p.Present && sh.ServesCell(p.Level, p.At) }
+
 type ShopProgress struct {
 	Break      bool
 	Open       bool
@@ -161,7 +184,19 @@ func (s State) validateDeliveries(m Model) error {
 		}
 		display, ok := m.Stores[sh.DisplayStore]
 		reserve, rok := m.Stores[sh.ReserveStore]
-		if sh.ID == "" || ids[sh.ID] || !m.Actors[sh.Owner] || !ok || !rok || display.Owner != sh.Owner || reserve.Owner != sh.Owner || sh.DisplayStore == sh.ReserveStore || display.Anchor.Kind != "world" || reserve.Anchor.Kind != "world" || display.Anchor.Level != sh.Service.Level || reserve.Anchor.Level != sh.Service.Level || sh.OpenSecond < 0 || sh.CloseSecond > 86400 || sh.OpenSecond >= sh.CloseSecond {
+		placed := display.Anchor.Kind == "world" && reserve.Anchor.Kind == "world" && display.Anchor.Level == sh.Service.Level && reserve.Anchor.Level == sh.Service.Level
+		if sh.Mobile() {
+			// carried by the owner; every stop a valid point of the service level, the first one the service point
+			placed = display.Anchor == (Anchor{Kind: "actor", Actor: sh.Owner}) && reserve.Anchor == display.Anchor && sh.Stops[0] == sh.Service
+			seen := map[DeliveryPoint]bool{}
+			for _, p := range sh.Stops {
+				if p.Level != sh.Service.Level || seen[p] || !m.validGround(Location{Kind: "ground", Level: p.Level, At: p.At}) {
+					placed = false
+				}
+				seen[p] = true
+			}
+		}
+		if sh.ID == "" || ids[sh.ID] || !m.Actors[sh.Owner] || !ok || !rok || display.Owner != sh.Owner || reserve.Owner != sh.Owner || sh.DisplayStore == sh.ReserveStore || !placed || sh.OpenSecond < 0 || sh.CloseSecond > 86400 || sh.OpenSecond >= sh.CloseSecond {
 			return fmt.Errorf("invalid shopfront %s", sh.ID)
 		}
 		ids[sh.ID] = true
@@ -266,7 +301,7 @@ func (s *State) AdvanceCommerce(m Model, seconds int64, poses map[string]Deliver
 			return errors.New("shop clock reversed")
 		}
 		p.LastSecond = seconds
-		present := poses[sh.Owner].AtPoint(sh.Service)
+		present := sh.ServesAt(poses[sh.Owner])
 		working := seconds%86400 >= sh.OpenSecond && seconds%86400 < sh.CloseSecond
 		p.Break = working && poses[sh.Owner].Break
 		opening := present && working && !p.Break

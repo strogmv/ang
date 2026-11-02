@@ -7,12 +7,12 @@ import (
 
 func TestTransformKeepsGradeConservesUnitsAndIsAtomic(t *testing.T) {
 	m := fixtureModel()
-	m.Sources[1].Grade = Grade{Quality: 4, Provenance: "prewar"}
+	m.Sources[1].Grade = Grade{Quality: 4, Provenance: "heirloom"}
 	work := "work/hero"
 	m.Stores[work] = Store{ID: work, Kind: "container", Anchor: Anchor{Kind: "actor", Actor: "hero"}, Owner: "hero", Locked: true, Capacity: Capacity{Mass: 1000, Volume: 1000, Stacks: 100}}
 	s := mustState(t, m)
 	ore := InstanceID("ore", 0, 0)
-	if s.Items[ore].Grade.Quality != 4 || s.Items[ore].Grade.Provenance != "prewar" {
+	if s.Items[ore].Grade.Quality != 4 || s.Items[ore].Grade.Provenance != "heirloom" {
 		t.Fatal("source grade was not given to the instance")
 	}
 	// split 5 units into the locked work store: the grade travels with the units, the total stays 20
@@ -20,7 +20,7 @@ func TestTransformKeepsGradeConservesUnitsAndIsAtomic(t *testing.T) {
 		t.Fatal(err)
 	}
 	held := s.Items["job.1:in:0"]
-	if held.Quantity != 5 || held.Grade.Provenance != "prewar" || s.Items[ore].Quantity != 15 || held.Owner != "hero" {
+	if held.Quantity != 5 || held.Grade.Provenance != "heirloom" || s.Items[ore].Quantity != 15 || held.Owner != "hero" {
 		t.Fatalf("split lost units or grade: %+v / %+v", held, s.Items[ore])
 	}
 	// spend 3, make a product, restore a condition and pay — all at once
@@ -54,5 +54,28 @@ func TestTransformKeepsGradeConservesUnitsAndIsAtomic(t *testing.T) {
 	}
 	if !reflect.DeepEqual(after, s) {
 		t.Fatal("refused making changed state")
+	}
+}
+
+// An older save wrote the provenance "prewar"; loading renames it to "heirloom" (owner 02.11) and the state validates.
+func TestLegacyPrewarProvenanceMigrates(t *testing.T) {
+	m := fixtureModel()
+	m.Sources[1].Grade = Grade{Quality: 4, Provenance: "heirloom"}
+	s := mustState(t, m)
+	ore := InstanceID("ore", 0, 0)
+	i := s.Items[ore]
+	i.Grade.Provenance = "prewar"
+	s.Items[ore] = i
+	if s.Validate(m) == nil {
+		t.Fatal("a legacy provenance must not validate before the migration")
+	}
+	if n := s.MigrateProvenance(); n != 1 || s.Items[ore].Grade.Provenance != "heirloom" || s.Items[ore].Grade.Quality != 4 {
+		t.Fatalf("migration changed %d instances, grade %+v", n, s.Items[ore].Grade)
+	}
+	if err := s.Validate(m); err != nil {
+		t.Fatal(err)
+	}
+	if s.MigrateProvenance() != 0 || LegacyProvenance("system") != "system" || LegacyProvenance("") != "" {
+		t.Fatal("migration is not idempotent or touched other provenances")
 	}
 }

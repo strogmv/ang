@@ -197,7 +197,12 @@ func (r *Runtime) craftingRestock(ms crafting.Master, rule crafting.Restock) {
 					if !ok || cur.Quantity < 1 || !cur.ForSale {
 						break
 					}
-					bought, ok := r.craftingNPCBuy(ms.Actor, cur)
+					bought, ok := "", false
+					if r.peddlerTray(cur.Location.Store) {
+						bought, ok = r.peddlerNPCBuy(ms, cur) // junk -> peddler -> master (demo-hub v23)
+					} else {
+						bought, ok = r.craftingNPCBuy(ms.Actor, cur)
+					}
 					if !ok {
 						break
 					}

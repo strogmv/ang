@@ -5,9 +5,11 @@ import (
 	"math"
 )
 
-// Grade is the make of one physical instance: quality 1-5, provenance (prewar | system | handmade) and the chip binding
+// Grade is the make of one physical instance: quality 1-5, provenance (heirloom | system | handmade) and the chip binding
 // of system gear. The zero grade means "as the definition": the crafting catalog supplies the defaults. Moves and splits
-// copy it with the instance, so a stack of prewar connectors stays prewar wherever it goes.
+// copy it with the instance, so a stack of heirloom connectors stays heirloom wherever it goes. Owner 02.11: «термин
+// "довоенная" к нам неприменим» — system = small-series factory-made, new and registered (chip); heirloom = old
+// factory-made, passed down through generations and repairs, registration lost; handmade = made by hand.
 type Grade struct {
 	Quality    int    `json:"quality,omitempty"`
 	Provenance string `json:"provenance,omitempty"`
@@ -16,7 +18,7 @@ type Grade struct {
 
 func (g Grade) valid() bool {
 	switch g.Provenance {
-	case "", "prewar", "system", "handmade":
+	case "", "heirloom", "system", "handmade":
 	default:
 		return false
 	}
@@ -174,4 +176,26 @@ func (s *State) Transform(m Model, t Transform) (Result, error) {
 	}
 	*s = next
 	return result, nil
+}
+
+// LegacyProvenance maps a provenance of an older save to the current name: owner 02.11 renamed "prewar" to "heirloom"
+// («события тысячелетней давности ни один аппарат не переживёт»). Unknown values pass through (Validate rejects them).
+func LegacyProvenance(p string) string {
+	if p == "prewar" {
+		return "heirloom"
+	}
+	return p
+}
+
+// MigrateProvenance rewrites the legacy provenance of every instance in place; it reports how many it changed.
+func (s *State) MigrateProvenance() int {
+	n := 0
+	for id, i := range s.Items {
+		if p := LegacyProvenance(i.Grade.Provenance); p != i.Grade.Provenance {
+			i.Grade.Provenance = p
+			s.Items[id] = i
+			n++
+		}
+	}
+	return n
 }

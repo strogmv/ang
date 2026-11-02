@@ -195,7 +195,7 @@ type Model struct {
 
 var stableID = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z0-9_]+)*$`)
 var kinds = map[string]bool{"craft": true, "repair": true, "maintain": true, "disassemble": true, "bypass": true}
-var origins = map[string]bool{"prewar": true, "system": true, "handmade": true}
+var origins = map[string]bool{"heirloom": true, "system": true, "handmade": true}
 var learnKinds = map[string]bool{"tier": true, "start": true, "teardown": true, "apprentice": true, "copy": true, "manual": true, "oral": true, "find": true}
 
 func (m Model) Discipline(id string) (Discipline, bool) {

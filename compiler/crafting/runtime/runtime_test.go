@@ -44,7 +44,7 @@ func bag() []Stack {
 	return []Stack{
 		{ID: "a", Definition: "item.cell", Quantity: 3, Condition: Million},
 		{ID: "b", Definition: "item.sys_cell", Quantity: 2, Condition: Million},
-		{ID: "c", Definition: "item.part.housing", Quantity: 1, Condition: Million, Quality: 4, Origin: "prewar"},
+		{ID: "c", Definition: "item.part.housing", Quantity: 1, Condition: Million, Quality: 4, Origin: "heirloom"},
 		{ID: "d", Definition: "item.part.board", Quantity: 2, Condition: Million},
 		{ID: "t", Definition: "item.tool.iron", Quantity: 1, Condition: Million},
 	}
@@ -213,5 +213,21 @@ func TestOrderPriceAndStateRoundTrip(t *testing.T) {
 	s.Jobs = append(s.Jobs, Job{ID: "job.10", Worker: "char.hero", Plan: Plan{Recipe: "craft.block", Kind: "craft", Worker: "char.hero", Seconds: 2400}, Store: "work.hero"}, Job{ID: "job.11", Worker: "char.hero", Plan: Plan{Recipe: "craft.block", Kind: "craft", Worker: "char.hero", Seconds: 2400}, Store: "work.hero"})
 	if m.ValidateState(s) == nil {
 		t.Fatal("two own jobs of the hero accepted")
+	}
+}
+
+// An older save carries the origin "prewar" in a job's plan and a market substitution; loading renames it to "heirloom".
+func TestLegacyPrewarOriginMigrates(t *testing.T) {
+	s := State{Jobs: []Job{{ID: "j", Plan: Plan{Uses: []Use{{Stack: "a", Origin: "prewar"}, {Stack: "b", Origin: "system"}}, Spoil: []Use{{Origin: "prewar"}}, Makes: []Made{{Origin: "prewar"}}}, Swap: Swap{Class: "speaker", From: "prewar", To: "handmade"}}},
+		Market: MarketState{Swaps: map[string]Swap{"x": {From: "prewar", To: "handmade"}}}}
+	if n := s.MigrateOrigins(); n != 5 {
+		t.Fatalf("migrated %d fields, want 5", n)
+	}
+	p := s.Jobs[0].Plan
+	if p.Uses[0].Origin != "heirloom" || p.Uses[1].Origin != "system" || p.Spoil[0].Origin != "heirloom" || p.Makes[0].Origin != "heirloom" || s.Jobs[0].Swap.From != "heirloom" || s.Market.Swaps["x"].From != "heirloom" || s.Market.Swaps["x"].To != "handmade" {
+		t.Fatalf("migration left a legacy origin: %+v %+v", s.Jobs[0], s.Market.Swaps)
+	}
+	if s.MigrateOrigins() != 0 || !origins[LegacyOrigin("prewar")] || origins["prewar"] {
+		t.Fatal("migration is not idempotent or the old origin is still valid")
 	}
 }

@@ -23,13 +23,13 @@ func(r *Runtime)commerceAccessible(actor string,location inv.Location)bool{
 func(r *Runtime)validateCommerceSave(s state)error{
  for _,p:=range s.Inventory.Deliveries{if p.LastSecond>s.Life.Seconds{return errors.New("delivery clock exceeds life clock")}}
  for _,p:=range s.Inventory.Shopfronts{if p.LastSecond>s.Life.Seconds{return errors.New("shop clock exceeds life clock")}}
- for _,sh:=range r.world.Inventory.Shopfronts{if !s.Inventory.Shopfronts[sh.ID].Open{continue};a:=s.Life.Actor(sh.Owner);day:=s.Life.Seconds%86400;if day<sh.OpenSecond||day>=sh.CloseSecond||a==nil||!a.OnFloor()||len(a.Path)>0||a.Level!=sh.Service.Level||a.Position.X!=sh.Service.At.X||a.Position.Y!=sh.Service.At.Y{return errors.New("open shop has no present proprietor")}}
+ for _,sh:=range r.world.Inventory.Shopfronts{if !s.Inventory.Shopfronts[sh.ID].Open{continue};a:=s.Life.Actor(sh.Owner);day:=s.Life.Seconds%86400;if day<sh.OpenSecond||day>=sh.CloseSecond||a==nil||!a.OnFloor()||len(a.Path)>0||!sh.ServesCell(a.Level,inv.Cell{X:a.Position.X,Y:a.Position.Y}){return errors.New("open shop has no present proprietor")}}
  return nil
 }
 func(r *Runtime)appendStorefrontState(view *pb.PocLifeView,hero *behavior.LifeActor,perception *pb.PocObserverView){
  if hero==nil||!hero.OnFloor(){return}
  for _,shop:=range r.world.Inventory.Shopfronts{
-  if hero.Level!=shop.Service.Level||!viewSees(perception,int32(shop.Service.At.X),int32(shop.Service.At.Y)){continue}
+  if shop.Mobile()||hero.Level!=shop.Service.Level||!viewSees(perception,int32(shop.Service.At.X),int32(shop.Service.At.Y)){continue} // a peddler's tray: PocPeddler
   open:=r.storefrontOpen(shop.ID)
   stocked:=false;if open{for _,item:=range r.state.Inventory.Items{if item.Location.Kind=="store"&&item.Location.Store==shop.DisplayStore&&item.Quantity>0&&!item.Hidden{stocked=true;break}}}
   view.Storefronts=append(view.Storefronts,&pb.PocStorefrontState{Id:shop.ID,Open:open,Stocked:stocked})
@@ -41,6 +41,6 @@ func(r *Runtime)appendStorefrontState(view *pb.PocLifeView,hero *behavior.LifeAc
 func(r *Runtime)storefrontOpen(id string)bool{
  for _,shop:=range r.world.Inventory.Shopfronts{if shop.ID!=id{continue}
   open,_:=r.state.Inventory.ShopStatus(shop);a:=r.state.Life.Actor(shop.Owner)
-  return open&&r.combatMerchantSafe(shop.Owner)&&a!=nil&&a.OnFloor()&&len(a.Path)==0&&a.Level==shop.Service.Level&&a.Position.X==shop.Service.At.X&&a.Position.Y==shop.Service.At.Y
+  return open&&r.combatMerchantSafe(shop.Owner)&&a!=nil&&a.OnFloor()&&len(a.Path)==0&&shop.ServesCell(a.Level,inv.Cell{X:a.Position.X,Y:a.Position.Y})
  };return false
 }
