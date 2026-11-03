@@ -82,6 +82,7 @@ func (m Model) WalkTo(b *Body, mm, limit int64) (WalkResult, []Event) {
 // WoundLine is one line of the hero's own wound figure: «бедро, бедренная артерия — ~3 мин».
 type WoundLine struct {
 	Wound      string   `json:"wound"`
+	Limb       string   `json:"limb,omitempty"`
 	Zone       string   `json:"zone"`                 // key
 	Structures []string `json:"structures,omitempty"` // keys of what he can know; organs show as wounds.wound.inside
 	Mechanism  string   `json:"mechanism"`            // key
@@ -126,7 +127,11 @@ func (m Model) ViewSelf(b Body, horizon int64) SelfView {
 	for i := range b.Wounds {
 		w := &b.Wounds[i]
 		z, _ := m.Zone(w.Zone)
-		line := WoundLine{Wound: w.ID, Zone: z.Name, Mechanism: m.Mechanisms[w.Mechanism].Name}
+		limb := ""
+		if def, ok := m.Limbs[w.Limb]; ok {
+			limb = def.Name
+		}
+		line := WoundLine{Limb: limb, Wound: w.ID, Zone: z.Name, Mechanism: m.Mechanisms[w.Mechanism].Name}
 		inside := false
 		for _, sid := range w.Structures {
 			st, _, _ := m.Structure(sid)

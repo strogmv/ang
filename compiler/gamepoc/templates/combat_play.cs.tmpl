@@ -17,6 +17,10 @@ using System.IO;
 using AngelsDemons.Game.V1;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Animations.Rigging;
+using UnityEngine.Animations;
+using UnityEngine.Experimental.Animations;
+using UnityEngine.Playables;
 using UnityEngine.Rendering.Universal;
 namespace AngelsDemons.Poc {
  [Serializable] public sealed class PocCombatClip {public string state,source,layer="body";public bool loop,hold,reverse;public float speed=1,impact,from,until=1,hold_at=-1,weight=1,blend_in=.15f,blend_out=.2f;}
@@ -36,20 +40,59 @@ namespace AngelsDemons.Poc {
    animator.SetIKPosition(goal,p);animator.SetIKPositionWeight(goal,weight);
   }
  }
+ [Serializable] public sealed class PocCombatContactPoint{public string id,bone;public float[] offset;}
+ [Serializable] public sealed class PocCombatContact{public bool enabled;public float window=.2f,surface_m=.15f;public PocCombatContactPoint[] points;}
+ internal sealed class PocCombatContactRig:MonoBehaviour {
+  internal RigBuilder builder;internal Rig rig;internal TwoBoneIKConstraint arm;internal Transform target;internal bool built;
+  internal Animator animator;internal RuntimeAnimatorController asset;internal AnimatorControllerPlayable controller;internal PlayableGraph graph;GameObject rigRoot;
+  internal void Setup(Animator an){
+   if(built)return;animator=an;asset=an.runtimeAnimatorController;if(asset==null)return;
+   // One manual graph owns both the complete controller pose and the rig jobs.
+   // Evaluating a detached PreviousInputs rig graph had fed it an empty base
+   // stream and moved the humanoid's feet 0.77m below its server floor.
+   an.runtimeAnimatorController=null;
+   if(builder==null)builder=an.gameObject.AddComponent<RigBuilder>();builder.enabled=false;
+   if(rigRoot==null){
+   rigRoot=new GameObject("combat contact rig");rigRoot.transform.SetParent(an.transform,false);rig=rigRoot.AddComponent<Rig>();rig.weight=0;
+   var goal=new GameObject("contact hand target");goal.transform.SetParent(rigRoot.transform,false);target=goal.transform;
+   var joint=new GameObject("right weapon arm");joint.transform.SetParent(rigRoot.transform,false);arm=joint.AddComponent<TwoBoneIKConstraint>();
+   var data=arm.data;data.root=an.GetBoneTransform(HumanBodyBones.RightUpperArm);data.mid=an.GetBoneTransform(HumanBodyBones.RightLowerArm);data.tip=an.GetBoneTransform(HumanBodyBones.RightHand);data.target=target;data.targetPositionWeight=1;data.targetRotationWeight=1;data.hintWeight=0;arm.data=data;arm.weight=1;
+   }
+   graph=PlayableGraph.Create("combat controller and contact");graph.SetTimeUpdateMode(DirectorUpdateMode.Manual);
+   controller=AnimatorControllerPlayable.Create(graph,asset);
+   var output=AnimationPlayableOutput.Create(graph,"complete controller pose",an);output.SetSourcePlayable(controller);output.SetSortingOrder(0);
+   graph.Play();graph.Evaluate(0);
+   builder.layers.Clear();builder.layers.Add(new RigLayer(rig));built=builder.Build(graph);
+   graph.Play();Evaluate(0);
+  }
+  internal void Evaluate(float delta){if(!built||!graph.IsValid())return;builder.SyncLayers();graph.Evaluate(delta);}
+  internal void BasePose(float delta){if(!built)return;rig.weight=0;Evaluate(delta);}
+  internal void Pose(Vector3 p,Quaternion q,float weight){if(!built)return;target.SetPositionAndRotation(p,q);rig.weight=weight;Evaluate(0);}
+  internal void Release(){if(graph.IsValid())graph.Destroy();built=false;if(builder!=null)builder.Clear();
+   // Keep the bound child transforms until this actor is destroyed. Rebind and
+   // subsequent ordinary Animator states may still resolve their stream paths.
+   if(animator!=null&&asset!=null){animator.runtimeAnimatorController=asset;animator.Rebind();}asset=null;
+  }
+  void OnDestroy(){Release();}
+ }
  [Serializable] public sealed class PocCombatLook {
-  public float move_mps=1.4f,pause_seconds=.3f,injured_below=.5f,blend_seconds=.2f,turn_dps=360,turn_seconds=.22f,spacing_m=.7f;public PocCombatWeaponLook[] weapons;
+  public float facing_tolerance_deg=7.6f;public float move_mps=1.4f,pause_seconds=.3f,injured_below=.5f,blend_seconds=.2f,turn_dps=360,turn_seconds=.22f,spacing_m=.7f;public PocCombatWeaponLook[] weapons;
   public PocCombatClip parry,guard,hit,hit_head,hit_shot,stun,stunned,down,bandage_kneel,bandage,bandage_rise,equip,reload,injured,injured_walk,retreat;
+  public PocCombatClip roll,get_up;public PocCombatContact contact;
   public PocCombatSceneLook scene;public PocCombatWoundHold wound_hold;
  }
  public sealed partial class AngelsDemonsPoc {
   // One presented beat: a server event (or a run of one actor's steps) with its real-time length.
   sealed class CombatBeat {
+   public long turn;public string outcome;
    public string kind,actor,target,item,part,mode;public List<Vector2Int> path=new List<Vector2Int>();public Vector2Int from,to;
+   public Vector2Int victimFrom,victimTo;public bool victimShift;
    public bool hit,parried,targetDown,targetStunned,valid;public int amount;public float seconds,impact=.5f,lead,turnRate=360;public PocCombatClip clip,reaction;public bool fxDone,propDone;
   }
   sealed class CombatBody {public Vector2Int cell;public bool placed,wasDown;public float fallAt;public string held,shownState;public float flashUntil,readyW,actW,gripW;public Vector3 ease;public Transform ring;public string readyState,actState;public bool silhouette;}
   Material combatRingMaterial;
   sealed class CombatProp {public GameObject go;public string kind;public Transform grip;}
+  readonly Dictionary<string,GameObject> combatGroundProps=new Dictionary<string,GameObject>(StringComparer.Ordinal);
   readonly Dictionary<string,CombatProp> combatProps=new Dictionary<string,CombatProp>(StringComparer.Ordinal);
   sealed class CombatFx {public string actor,text;public Color color;public float start,until;public Vector3 world;}
   readonly List<CombatBeat> combatQueue=new List<CombatBeat>();
@@ -91,23 +134,40 @@ namespace AngelsDemons.Poc {
      if(run!=null&&run.actor==e.ActorId&&combatQueue.Count>0&&combatQueue[combatQueue.Count-1]==run){if(run.path.Count==0||run.path[run.path.Count-1]!=to)run.path.Add(to);continue;}
      run=new CombatBeat{kind="move",actor=e.ActorId,from=from,to=to,valid=true};run.path.Add(to);combatQueue.Add(run);continue;
     }
+    if(e.Type=="wound"||e.Type=="blocked"||e.Type=="weak"||e.Type=="confused"||e.Type=="chip_alarm"||e.Type=="condition"||e.Type=="fight_on")continue;
     if(string.IsNullOrEmpty(e.ActorId)&&e.Type!="explosion")continue; // an unseen actor's step or action: nothing to show
-    run=null;var beat=new CombatBeat{kind=e.Type,actor=e.ActorId,target=e.TargetId,from=from,to=to,hit=e.Hit,amount=e.Amount,part=e.BodyPart,item=e.ItemId,valid=!string.IsNullOrEmpty(e.ActorId)};
+    run=null;var beat=new CombatBeat{turn=e.Turn,mode=e.Mode,kind=e.Type=="reaction"?"attack":e.Type,actor=e.ActorId,target=e.TargetId,from=from,to=to,hit=e.Hit,amount=e.Amount,part=e.BodyPart,item=e.ItemId,valid=!string.IsNullOrEmpty(e.ActorId)};
     if(e.Type=="parry"){combatQueue.Add(beat);continue;}
-    if(e.Type=="attack"){
+    if(e.Type=="attack"||e.Type=="reaction"){
      // The parry published just before belongs to this blow: the defender raises the weapon at its impact.
-     if(combatQueue.Count>0){var last=combatQueue[combatQueue.Count-1];if(last.kind=="parry"&&last.actor==e.TargetId&&last.target==e.ActorId&&!last.propDone){combatQueue.RemoveAt(combatQueue.Count-1);beat.parried=true;}}
+     if(combatQueue.Count>0){var last=combatQueue[combatQueue.Count-1];if(last.kind=="parry"&&last.actor==e.TargetId&&last.target==e.ActorId&&!last.propDone){combatQueue.RemoveAt(combatQueue.Count-1);beat.parried=last.hit;}}
      beat.mode=CombatModeOf(e);
     }
     combatQueue.Add(beat);
+   }
+   // Wounds/resolve are emitted inside ApplyHit, before its enclosing attack event.
+   // Pair only a FOLLOWING strike in the same server turn. Its victim falls at
+   // contact; playing the earlier notification separately had knocked him down
+   // before the knife started and made the IK goal physically unreachable.
+   for(int i=combatQueue.Count-1;i>=0;i--){var note=combatQueue[i];
+    bool fall=note.kind=="fall"||note.kind=="down"||note.kind=="dead";
+    bool outcome=note.kind=="surrender"||note.kind=="flee";
+    if(!fall&&!outcome&&note.kind!="fall_shift")continue;
+    for(int j=i+1;j<combatQueue.Count;j++){var strike=combatQueue[j];if(strike.kind!="attack"||strike.target!=note.actor||!strike.hit||strike.turn!=note.turn)continue;
+     if(fall)strike.targetDown=true;
+     if(outcome)strike.outcome=note.kind;
+     if(note.kind=="fall_shift"){strike.victimShift=true;strike.victimFrom=note.from;strike.victimTo=note.to;}
+     combatQueue.RemoveAt(i);break;
+    }
    }
    // Knocked out / stunned now: the last blow on that body shows it (the server already resolved it).
    foreach(var a in fight.Actors){if(!a.Down&&!a.Stunned)continue;for(int i=combatQueue.Count-1;i>=0;i--){var b=combatQueue[i];if(b.kind=="attack"&&b.target==a.Id&&b.hit){if(a.Down)b.targetDown=true;else b.targetStunned=true;break;}}}
    if(!fight.Active&&fight.Winner!=""){var marked=new HashSet<string>();for(int i=combatQueue.Count-1;i>=0;i--){var b=combatQueue[i];if(b.kind=="attack"&&b.hit&&!string.IsNullOrEmpty(b.target)&&marked.Add(b.target)&&CombatFinalDown(b.target))b.targetDown=true;}}
    if(!state.Paused)AdvanceCombatBeats();
   }
-  bool CombatFinalDown(string id){if(id=="char.hero")return state.PlayerCondition!=null&&state.PlayerCondition.Down;foreach(var a in state.SceneAgents)if(a.Id==id)return a.Activity=="down";return false;}
+  bool CombatFinalDown(string id){if(id=="char.hero")return state.PlayerCondition!=null&&(state.PlayerCondition.Down||state.PlayerCondition.Stance=="prone");foreach(var a in state.SceneAgents)if(a.Id==id)return a.Activity=="down";return false;}
   string CombatModeOf(PocCombatEvent e){
+   if(e.Mode=="single"||e.Mode=="quick"||e.Mode=="heavy"||e.Mode=="aimed"||e.Mode=="burst")return e.Mode;
    var held=CombatHeld(e.ActorId);var w=CombatWeapon(held);if(w==null||w.ap==null||e.Ap<=0)return "single";
    if(w.prop=="needle_gun")return "single";
    if(e.Ap==w.ap.heavy&&w.ap.heavy>0)return "heavy";if(e.Ap==w.ap.quick&&w.ap.quick>0)return "quick";return "single";
@@ -115,6 +175,7 @@ namespace AngelsDemons.Poc {
   string CombatHeld(string id){
    var a=CombatViewActor(id);if(a!=null&&!string.IsNullOrEmpty(a.HeldItem))return a.HeldItem;
    if(id=="char.hero"&&state.PlayerCondition!=null&&!string.IsNullOrEmpty(state.PlayerCondition.WeaponId))return state.PlayerCondition.WeaponId;
+   if(id!="char.hero"&&state!=null)foreach(var agent in state.SceneAgents)if(agent.Id==id)return string.IsNullOrEmpty(agent.HeldItem)?"unarmed":agent.HeldItem;
    CombatBody body;return combatBodies.TryGetValue(id,out body)&&!string.IsNullOrEmpty(body.held)?body.held:"unarmed";
   }
   void CombatResetPresentation(bool skip){combatQueue.Clear();combatFx.Clear();combatSkip=skip;combatEncounter="";combatSeq=0;combatBeatAt=-1;foreach(var b in combatBodies.Values)if(b.ring!=null)Destroy(b.ring.gameObject);combatBodies.Clear();}
@@ -122,8 +183,8 @@ namespace AngelsDemons.Poc {
   // Duration of the played part of a clip (the take's length from the cast's controller x (until - from) / speed); a
   // missing clip uses the fallback.
   float CombatClipSeconds(Animator an,PocCombatClip clip,float fallback){
-   if(clip==null||an==null||an.runtimeAnimatorController==null)return fallback;
-   Dictionary<string,float> lengths;if(!combatClipLengths.TryGetValue(an.runtimeAnimatorController,out lengths)){lengths=new Dictionary<string,float>(StringComparer.Ordinal);foreach(var c in an.runtimeAnimatorController.animationClips)if(c!=null)lengths[c.name]=c.length;combatClipLengths[an.runtimeAnimatorController]=lengths;}
+   var controllerAsset=CombatControllerAsset(an);if(clip==null||an==null||controllerAsset==null)return fallback;
+   Dictionary<string,float> lengths;if(!combatClipLengths.TryGetValue(controllerAsset,out lengths)){lengths=new Dictionary<string,float>(StringComparer.Ordinal);foreach(var c in controllerAsset.animationClips)if(c!=null)lengths[c.name]=c.length;combatClipLengths[controllerAsset]=lengths;}
    float len;return lengths.TryGetValue(clip.state,out len)&&len>0?len*Mathf.Clamp(CombatPart(clip),.02f,1f)/Mathf.Max(.25f,clip.speed):fallback;
   }
   static float CombatPart(PocCombatClip c){float u=c.until<=0?1:c.until;return Mathf.Max(.02f,u-Mathf.Clamp(c.from,0,.98f));}
@@ -134,7 +195,7 @@ namespace AngelsDemons.Poc {
    var look=CombatLook();combatBeatAt=Time.unscaledTime;var h=CombatHumanoid(b.actor);var an=h==null?null:h.animator;
    switch(b.kind){
     case "move":{float d=0;var at=b.from;CombatBody body;if(combatBodies.TryGetValue(b.actor,out body)&&body.placed)at=body.cell;var prev=at;foreach(var c in b.path){d+=Vector2.Distance(prev,c);prev=c;}b.seconds=Mathf.Max(.15f,d*locationSDKLevel.cell_meters/Mathf.Max(.3f,look==null?1.4f:look.move_mps));break;}
-    case "attack":{var w=CombatWeapon(CombatHeld(b.actor));b.clip=w==null?null:b.mode=="heavy"?w.heavy:b.mode=="quick"?w.quick:w.single;b.seconds=CombatClipSeconds(an,b.clip,1f);b.impact=b.clip==null?.5f:Mathf.Clamp(b.clip.impact,.05f,.95f);
+    case "attack":{CombatBody shownBody;string shownWeapon=combatBodies.TryGetValue(b.actor,out shownBody)&&!string.IsNullOrEmpty(shownBody.held)?shownBody.held:CombatHeld(b.actor);var w=CombatWeapon(shownWeapon);b.clip=w==null?null:b.mode=="heavy"?w.heavy:b.mode=="quick"?w.quick:w.single;b.seconds=CombatClipSeconds(an,b.clip,1f);b.impact=b.clip==null?.5f:Mathf.Clamp(b.clip.impact,.05f,.95f);
      if(look!=null){b.reaction=b.targetDown?look.down:b.targetStunned?look.stun:b.parried?look.parry:!b.hit?null:w!=null&&w.prop=="needle_gun"?look.hit_shot:b.part=="head"?look.hit_head:look.hit;}
      if(b.reaction!=null){var th=CombatHumanoid(b.target);float rs=CombatClipSeconds(th==null?null:th.animator,b.reaction,.8f);b.seconds=Mathf.Max(b.seconds,b.seconds*b.impact+rs*(b.targetDown?.85f:b.reaction.layer=="react"?1f:.6f));}
      break;}
@@ -146,7 +207,9 @@ namespace AngelsDemons.Poc {
     case "bleed":b.clip=look==null?null:look.hit;b.seconds=.7f;CombatFloat(b.actor,L("ui.combat.fx.bleed"),new Color(.85f,.18f,.14f));CombatFlash(b.actor);break;
     case "stunned":b.seconds=.9f;CombatFloat(b.actor,L("ui.combat.stunned"),new Color(1f,.85f,.35f));break;
     case "flee":case "disengage":b.seconds=.5f;CombatFloat(b.actor,L("ui.combat.retreat"),new Color(.9f,.9f,.9f));break;
-    case "fall":case "down":case "dead":b.clip=look==null?null:look.down;b.seconds=CombatClipSeconds(an,b.clip,1.2f);break;
+    case "roll":b.clip=look==null?null:look.roll;b.seconds=CombatClipSeconds(an,b.clip,1.5f);break;
+    case "stand":b.clip=look==null?null:(b.mode=="get_up"?look.get_up:look.bandage_rise);b.seconds=CombatClipSeconds(an,b.clip,2);break;
+    case "fall_shift":case "fall":case "down":case "dead":b.clip=look==null?null:look.down;b.seconds=CombatClipSeconds(an,b.clip,1.2f);break;
     case "surrender":b.seconds=.9f;CombatFloat(b.actor,L("ui.combat.surrendered"),new Color(.9f,.9f,.9f));break;
     case "end":b.seconds=.15f;break;
     default:b.seconds=.3f;break;
@@ -176,7 +239,9 @@ namespace AngelsDemons.Poc {
    if(b.kind=="reload"&&!b.fxDone&&t>=b.seconds*.6f){b.fxDone=true;CombatFloat(b.actor,L("ui.combat.fx.reload"),new Color(.85f,.85f,.75f));}
    if((b.kind=="bandage"||b.kind=="heal")&&!b.fxDone&&t>=b.seconds*.5f){b.fxDone=true;CombatFloat(b.actor,L("ui.combat.fx.bandage"),new Color(.6f,.95f,.6f));}
    if(t<b.seconds)return;
+   if(b.kind=="roll"||b.kind=="fall_shift"){var shifted=CombatBodyOf(b.actor);shifted.cell=b.to;shifted.placed=true;}
    if(b.kind=="move"){var body=CombatBodyOf(b.actor);if(b.path.Count>0){body.cell=b.path[b.path.Count-1];body.placed=true;}}
+   if(b.victimShift){var victim=CombatBodyOf(b.target);victim.cell=b.victimTo;victim.placed=true;}
    combatQueue.RemoveAt(0);combatBeatAt=-1;CombatPlayedBeats++;
    if(combatQueue.Count>0&&combatQueue[0].actor!=b.actor&&b.kind!="end"){var look=CombatLook();combatPauseUntil=Time.unscaledTime+(look==null?.3f:look.pause_seconds);}
   }
@@ -185,16 +250,21 @@ namespace AngelsDemons.Poc {
   void CombatImpact(CombatBeat b){
    if(string.IsNullOrEmpty(b.target))return;
    CombatAutoImpact(b.actor,b.target,b.hit,b.from,b.to);
+   // The authoritative inventory may already contain a disarm. Keep the old
+   // prop through wind-up, then release it at the accepted impact.
+   if(b.hit)CombatBodyOf(b.target).held=CombatHeld(b.target);
    if(b.parried&&!b.hit)CombatFloat(b.target,L("ui.combat.fx.parry"),new Color(.75f,.85f,1f));
    else if(!b.hit)CombatFloat(b.target,L("ui.combat.fx.miss"),new Color(.8f,.8f,.8f));
    else{string part=string.IsNullOrEmpty(b.part)?"":" · "+L("ui.combat.body."+b.part);CombatFloat(b.target,L("ui.combat.injury")+part,new Color(1f,.42f,.32f));CombatFlash(b.target);}
+   if(b.outcome=="surrender")CombatFloat(b.target,L("ui.combat.surrendered"),new Color(.9f,.9f,.9f));
+   if(b.outcome=="flee")CombatFloat(b.target,L("ui.combat.retreat"),new Color(.9f,.9f,.9f));
    if(b.targetDown){CombatFloat(b.target,L("ui.combat.down"),new Color(1f,.85f,.35f),.5f);CombatAutoShotLater("knocked-out");}
    if(b.targetStunned){CombatFloat(b.target,L("ui.combat.stunned"),new Color(1f,.85f,.35f),.5f);CombatAutoShotLater("stunned");}
   }
   // Where a body is shown now: the cell of its last played step while it has waiting beats, else the server's cell.
   Vector2Int? CombatShownCell(string id){
    CombatBody body;if(combatBodies.TryGetValue(id,out body)&&body.placed)return body.cell;
-   foreach(var q in combatQueue)if(q.kind=="move"&&q.actor==id&&CombatCellValid(q.from))return q.from;
+   foreach(var q in combatQueue){if(q.actor==id&&(q.kind=="move"||q.kind=="attack"||q.kind=="roll"||q.kind=="fall_shift"||q.kind=="stand")&&CombatCellValid(q.from))return q.from;if(q.kind=="attack"&&q.target==id&&CombatCellValid(q.to))return q.to;}
    if(id=="char.hero")return state==null?(Vector2Int?)null:new Vector2Int(state.PlayerX,state.PlayerY);
    if(state!=null)foreach(var a in state.SceneAgents)if(a.Id==id)return new Vector2Int(a.X,a.Y);
    return null;
@@ -214,14 +284,18 @@ namespace AngelsDemons.Poc {
   bool CombatPresentHumanoid(LocationSDKHumanoid h,string id,Vector3 feet,double nowNS,bool held){
    var look=CombatLook();if(look==null||locationSDKLevel==null)return false;
    var actor=CombatViewActor(id);bool inFight=state.Combat!=null&&state.Combat.Active&&actor!=null;
-   bool down=actor!=null?actor.Down:CombatFinalDown(id);
+   bool down=actor!=null?(actor.Down||actor.Stance=="prone"):CombatFinalDown(id);
    CombatBeat beat=null;foreach(var b in combatQueue){if(b.actor==id||b.kind=="attack"&&b.target==id){beat=b;break;}}
    bool queued=false;foreach(var b in combatQueue)if(b.actor==id||b.target==id){queued=true;break;}
-   if(!inFight&&!down&&!queued){CombatBody gone;if(combatBodies.TryGetValue(id,out gone)){if(gone.ring!=null)Destroy(gone.ring.gameObject);combatBodies.Remove(id);CombatSilhouette(h,null);}CombatLayersOff(h);CombatWoundHold(h,null);return false;}
+   if(!inFight&&!down&&!queued){var oldRig=h.animator.GetComponent<PocCombatContactRig>();if(oldRig!=null&&oldRig.built){oldRig.Release();h.state=null;}CombatBody gone;if(combatBodies.TryGetValue(id,out gone)){if(gone.ring!=null)Destroy(gone.ring.gameObject);combatBodies.Remove(id);CombatSilhouette(h,null);}CombatLayersOff(h);CombatWoundHold(h,null);return false;}
    // A body (re)activated this frame has no initialized Animator yet: v1 showed one idle frame («missing» state). Bind
    // it now, so the first frame already has the combat pose.
-   if(!h.go.activeSelf)h.go.SetActive(true);if(!h.animator.isInitialized){h.animator.Rebind();h.state=null;}
+   if(!h.go.activeSelf)h.go.SetActive(true);
+   var contactRig=h.animator.GetComponent<PocCombatContactRig>();
+   if((contactRig==null||!contactRig.built)&&look.contact!=null&&look.contact.enabled){if(contactRig==null)contactRig=h.animator.gameObject.AddComponent<PocCombatContactRig>();contactRig.Setup(h.animator);h.state=null;}
+   if((contactRig==null||!contactRig.built)&&!h.animator.isInitialized){h.animator.Rebind();h.state=null;}
    var body=CombatBodyOf(id);
+   if(!body.placed){var shown=CombatShownCell(id);if(shown.HasValue){body.cell=shown.Value;body.placed=true;}}
    if(!down)body.wasDown=false;
    if(!queued){body.placed=false;}
    if(string.IsNullOrEmpty(body.held)||!queued)body.held=CombatHeld(id);
@@ -229,6 +303,7 @@ namespace AngelsDemons.Poc {
    // Where the feet are: the cell of the last played step while steps of this body still wait (or the start of its
    // first waiting step), else the server's cell.
    Vector3 at=feet;Vector3 w;
+   if(!queued&&actor!=null&&LocationSDKNavToWorld(actor.X,actor.Y,out w))at=w;
    if(!body.placed&&queued){foreach(var b in combatQueue)if(b.kind=="move"&&b.actor==id&&CombatCellValid(b.from)){body.cell=b.from;body.placed=true;break;}}
    if(body.placed&&LocationSDKNavToWorld(body.cell.x,body.cell.y,out w))at=w;
    bool walking=false;float yawTo=float.NaN;string want=null;float clipTime=0;PocCombatClip clip=null;
@@ -251,6 +326,8 @@ namespace AngelsDemons.Poc {
       else if(cos<-.26f&&CombatClipSet(look.retreat)&&CombatHasState(h,0,look.retreat.state)){yawTo=foeYaw;want=look.retreat.state;}}}
    }
    else if(active&&beat.actor==id&&beat.kind!="move"){
+    if((beat.kind=="roll"||beat.kind=="fall_shift")&&CombatCellValid(beat.from)&&CombatCellValid(beat.to)){Vector3 a0,a1;if(LocationSDKNavToWorld(beat.from.x,beat.from.y,out a0)&&LocationSDKNavToWorld(beat.to.x,beat.to.y,out a1)){at=Vector3.Lerp(a0,a1,CombatSmooth(t/Mathf.Max(.01f,beat.seconds)));if(beat.kind=="roll"){var d=a1-a0;yawTo=Mathf.Atan2(d.x,d.z)*Mathf.Rad2Deg;}}}
+
     t=Mathf.Max(0,t-beat.lead);turnRate=Mathf.Max(turnRate,beat.turnRate);
     if(beat.kind=="bandage"||beat.kind=="heal"){float k=CombatClipSeconds(an,look.bandage_kneel,1f),r=CombatClipSeconds(an,look.bandage_rise,1f);
      if(t<k){clip=look.bandage_kneel;clipTime=t/k;}else if(t<beat.seconds-r){clip=look.bandage;clipTime=-1;}else{clip=look.bandage_rise;clipTime=(t-(beat.seconds-r))/r;}}
@@ -265,6 +342,7 @@ namespace AngelsDemons.Poc {
      // A parry is lifted so that its own impact share meets the blow; a flinch / fall starts at the blow.
      float start=impact-(rc==look.parry?CombatClipSeconds(an,rc,.8f)*Mathf.Clamp01(rc.impact):0);float rt=t-start;
      if(rt>=0){
+      if(beat.victimShift){Vector3 v0,v1;if(LocationSDKNavToWorld(beat.victimFrom.x,beat.victimFrom.y,out v0)&&LocationSDKNavToWorld(beat.victimTo.x,beat.victimTo.y,out v1))at=Vector3.Lerp(v0,v1,CombatSmooth(rt/Mathf.Max(.01f,CombatClipSeconds(an,rc,.8f))));}
       if(rc.layer=="body"||CombatLayer(an,rc.layer)<0){clip=rc;clipTime=Mathf.Clamp01(rt/Mathf.Max(.01f,CombatClipSeconds(an,rc,.8f)));}
       else if(rc.layer=="react"){react.clip=rc;react.t=rt;react.weight=CombatEnvelope(an,rc,rt);}
       else{act.clip=rc;act.t=rt;act.weight=CombatEnvelope(an,rc,rt);}
@@ -296,6 +374,7 @@ namespace AngelsDemons.Poc {
    Vector3 ease=Vector3.zero;
    if(!walking&&!fallen)foreach(var o in combatBodies){if(o.Key==id)continue;var oh=CombatHumanoid(o.Key);if(oh==null||oh.go==null||!oh.go.activeSelf)continue;var d=at-oh.go.transform.position;d.y=0;float m=d.magnitude;if(m>1e-3f&&m<look.spacing_m)ease+=d/m*(look.spacing_m-m)*.5f;}
    body.ease=Vector3.MoveTowards(body.ease,ease,.6f*Time.unscaledDeltaTime);at+=body.ease;
+   if(active&&(beat.kind=="attack"||beat.kind=="parry")){if(beat.actor==id)yawTo=CombatYawTo(at,beat.target);else if(beat.target==id)yawTo=CombatYawTo(at,beat.actor);}
    // Place and turn the body.
    if(!h.hasYaw){h.yaw=LocationSDKHumanoidCameraYaw();h.hasYaw=true;}
    if(!float.IsNaN(yawTo))h.yaw=Mathf.MoveTowardsAngle(h.yaw,yawTo,turnRate*Time.unscaledDeltaTime);
@@ -309,12 +388,12 @@ namespace AngelsDemons.Poc {
    else if(walking&&want==locationSDKHumanoidCast.walk_state){var curve=locationSDKHumanoidCast.walk_distance_by_phase;if(curve!=null&&curve.Length>1){float stride=curve[curve.Length-1];phase=LocationSDKHumanoidPhaseAt(curve,(float)((h.offset*stride+h.distance)%stride));}else phase=LocationSDKHumanoidFrac(h.offset+h.distance/(locationSDKHumanoidCast.walk_clip_speed_mps*locationSDKHumanoidCast.walk_cycle_seconds));}
    else if(clip!=null){float len=CombatClipSeconds(an,clip,1f);phase=CombatClipPhase(clip,LocationSDKHumanoidFrac(h.offset+Time.unscaledTime/Mathf.Max(.1f,len)));}
    else{float len=want==locationSDKHumanoidCast.crouch_idle_state?locationSDKHumanoidCast.crouch_idle_cycle_seconds:locationSDKHumanoidCast.idle_cycle_seconds;phase=LocationSDKHumanoidFrac(h.offset+Time.unscaledTime/Mathf.Max(.1f,len));}
-   bool fading=an.IsInTransition(0);
-   if(h.state!=want){if(h.state==null)an.Play(hash,0,phase);else{float take=clip!=null?CombatClipSeconds(an,clip,1f)/Mathf.Max(.02f,CombatPart(clip))*Mathf.Max(.25f,clip.speed):1f;an.CrossFadeInFixedTime(hash,Mathf.Clamp(look.blend_seconds,.1f,.3f),0,phase*take);fading=true;}h.state=want;h.switches++;}
-   else if(!fading)an.Play(hash,0,phase);
-   an.speed=fading?(held?0:1):0;
+   bool fading=CombatTransition(an);
+   if(h.state!=want){if(h.state==null)CombatPlayState(an,hash,0,phase);else{float take=clip!=null?CombatClipSeconds(an,clip,1f)/Mathf.Max(.02f,CombatPart(clip))*Mathf.Max(.25f,clip.speed):1f;CombatCrossFade(an,hash,Mathf.Clamp(look.blend_seconds,.1f,.25f),0,phase*take);fading=true;}h.state=want;h.switches++;}
+   else if(!fading)CombatPlayState(an,hash,0,phase);
+   if(contactRig==null||!contactRig.built)an.speed=fading?(held?0:1):0;
    // Upper layers: the guard of the weapon (eased in / out), the action clip, the added flinch, the closed fist.
-   bool upright=!fallen&&!kneeling&&clip!=look.stunned&&(actor==null||actor.Stance=="stand");
+   bool upright=!fallen&&!kneeling&&clip!=look.roll&&clip!=look.get_up&&clip!=look.stunned&&(actor==null||actor.Stance=="stand");
    float dt=Time.unscaledDeltaTime;
    var ready=weapon!=null&&CombatClipSet(weapon.ready)?weapon.ready:null;
    float readyTarget=ready!=null&&upright?ready.weight*(walking?.6f:1f):0;
@@ -330,7 +409,7 @@ namespace AngelsDemons.Poc {
    bool wounded=look.wound_hold!=null&&(clip!=null&&clip==look.injured||CombatClipSet(look.injured_walk)&&want==look.injured_walk.state);
    CombatWoundHold(h,wounded?look.wound_hold:null);
    // Pose now for this frame's feet (Update(0) adds no time; during a base cross-fade the Animator clock runs).
-   an.Update(0);
+   if(contactRig!=null&&contactRig.built)contactRig.BasePose(fading&&!held?Time.unscaledDeltaTime:0);else an.Update(0);
    h.phase=phase;h.drift=fading?-1:0;body.shownState=want;
    CombatUpdateFlash(h,body);
    // A thin red ring under an opponent of the hero while the fight lasts (the hero keeps his warm ring).
@@ -354,15 +433,24 @@ namespace AngelsDemons.Poc {
    ik.offset=p.offset!=null&&p.offset.Length==3?new Vector3(p.offset[0],p.offset[1],p.offset[2]):Vector3.zero;ik.goal=p.hand=="right"?AvatarIKGoal.RightHand:AvatarIKGoal.LeftHand;
    ik.weight=Mathf.MoveTowards(ik.weight,hold.weight,Time.unscaledDeltaTime*3f);
   }
-  int CombatLayer(Animator an,string layer){if(an==null||string.IsNullOrEmpty(layer)||layer=="body")return 0;return an.GetLayerIndex("combat_"+layer);}
-  bool CombatHasState(LocationSDKHumanoid h,int layer,string s){return !string.IsNullOrEmpty(s)&&h!=null&&h.animator!=null&&layer>=0&&layer<h.animator.layerCount&&h.animator.HasState(layer,Animator.StringToHash(s));}
+
+  static RuntimeAnimatorController CombatControllerAsset(Animator an){if(an==null)return null;var r=an.GetComponent<PocCombatContactRig>();return r!=null&&r.built?r.asset:an.runtimeAnimatorController;}
+  static bool CombatTransition(Animator an){var r=an.GetComponent<PocCombatContactRig>();return r!=null&&r.built?r.controller.IsInTransition(0):an.IsInTransition(0);}
+  static int CombatLayerCount(Animator an){var r=an.GetComponent<PocCombatContactRig>();return r!=null&&r.built?r.controller.GetLayerCount():an.layerCount;}
+  static bool CombatStateExists(Animator an,int layer,int hash){var r=an.GetComponent<PocCombatContactRig>();return r!=null&&r.built?r.controller.HasState(layer,hash):an.HasState(layer,hash);}
+  static void CombatPlayState(Animator an,int hash,int layer,float phase){var r=an.GetComponent<PocCombatContactRig>();if(r!=null&&r.built)r.controller.Play(hash,layer,phase);else an.Play(hash,layer,phase);}
+  static void CombatCrossFade(Animator an,int hash,float seconds,int layer,float offset){var r=an.GetComponent<PocCombatContactRig>();if(r!=null&&r.built)r.controller.CrossFadeInFixedTime(hash,seconds,layer,offset);else an.CrossFadeInFixedTime(hash,seconds,layer,offset);}
+  static void CombatLayerWeight(Animator an,int layer,float weight){var r=an.GetComponent<PocCombatContactRig>();if(r!=null&&r.built)r.controller.SetLayerWeight(layer,weight);else an.SetLayerWeight(layer,weight);}
+
+  int CombatLayer(Animator an,string layer){if(an==null||string.IsNullOrEmpty(layer)||layer=="body")return 0;var rig=an.GetComponent<PocCombatContactRig>();return rig!=null&&rig.built?rig.controller.GetLayerIndex("combat_"+layer):an.GetLayerIndex("combat_"+layer);}
+  bool CombatHasState(LocationSDKHumanoid h,int layer,string s){return !string.IsNullOrEmpty(s)&&h!=null&&h.animator!=null&&layer>=0&&layer<CombatLayerCount(h.animator)&&CombatStateExists(h.animator,layer,Animator.StringToHash(s));}
   // Pose one layer clip at a normalized time with a weight; a clip the cast lacks is logged once and the layer stays off.
   void CombatLayerSet(LocationSDKHumanoid h,PocCombatClip c,float normalized,float weight){
    if(c==null){return;}var an=h.animator;int layer=CombatLayer(an,c.layer);if(layer<=0)return;
-   if(!CombatHasState(h,layer,c.state)){if(combatMissingStates.Add(c.state))Debug.LogWarning("ANG combat: layer "+c.layer+" has no state "+c.state+" ("+c.source+")");an.SetLayerWeight(layer,0);return;}
-   an.Play(Animator.StringToHash(c.state),layer,normalized);an.SetLayerWeight(layer,Mathf.Clamp01(weight));
+   if(!CombatHasState(h,layer,c.state)){if(combatMissingStates.Add(c.state))Debug.LogWarning("ANG combat: layer "+c.layer+" has no state "+c.state+" ("+c.source+")");CombatLayerWeight(an,layer,0);return;}
+   CombatPlayState(an,Animator.StringToHash(c.state),layer,normalized);CombatLayerWeight(an,layer,Mathf.Clamp01(weight));
   }
-  void CombatLayerKeep(LocationSDKHumanoid h,string layer,float weight){int i=CombatLayer(h.animator,layer);if(i>0)h.animator.SetLayerWeight(i,Mathf.Clamp01(weight));}
+  void CombatLayerKeep(LocationSDKHumanoid h,string layer,float weight){int i=CombatLayer(h.animator,layer);if(i>0)CombatLayerWeight(h.animator,i,Mathf.Clamp01(weight));}
   void CombatLayersOff(LocationSDKHumanoid h){if(h==null||h.animator==null)return;for(int i=1;i<CombatLayerNames.Length;i++)CombatLayerKeep(h,CombatLayerNames[i],0);}
   float CombatYawTo(Vector3 from,string other){var o=CombatHumanoid(other);if(o==null||o.go==null)return float.NaN;var d=o.go.transform.position-from;d.y=0;return d.sqrMagnitude<1e-4f?float.NaN:Mathf.Atan2(d.x,d.z)*Mathf.Rad2Deg;}
   Vector3? CombatNearestFoe(string id,Vector3 at){
@@ -441,8 +529,74 @@ namespace AngelsDemons.Poc {
     prop.go.transform.SetPositionAndRotation(grip,Quaternion.LookRotation(dir,up));
     prop.go.SetActive(true);
    }
+   CombatKnifeContactAfterPose(look);
+   CombatGroundWeapons(look);
    foreach(var pair in combatProps)if(pair.Value.go!=null&&!locationSDKHumanoids.ContainsKey(pair.Key)){Destroy(pair.Value.go);pair.Value.go=null;pair.Value.kind="none";}
   }
+
+
+  void CombatGroundWeapons(PocCombatLook look){
+   var visible=new HashSet<string>();
+   if(state!=null&&look!=null&&locationSDKRoot!=null)foreach(var item in state.GroundWeapons){
+    var weapon=CombatWeapon(item.Definition);if(weapon==null||string.IsNullOrEmpty(weapon.prop)||weapon.prop=="none")continue;
+    visible.Add(item.ItemId);GameObject go;if(!combatGroundProps.TryGetValue(item.ItemId,out go)||go==null){var prefab=Resources.Load<GameObject>("CombatProps/"+weapon.prop);if(prefab==null)continue;go=Instantiate(prefab,locationSDKRoot.transform,false);go.name="floor weapon / "+item.ItemId;foreach(var child in go.GetComponentsInChildren<Transform>(true))child.gameObject.layer=LocationSDKLayer;combatGroundProps[item.ItemId]=go;}
+    bool waiting=false;CombatBody owner;
+    if(!string.IsNullOrEmpty(item.OwnerId)&&combatBodies.TryGetValue(item.OwnerId,out owner)&&CombatPlaying){
+     waiting=owner.held==item.Definition;
+     foreach(var beat in combatQueue)if(beat.victimShift&&beat.target==item.OwnerId||beat.kind=="fall_shift"&&beat.actor==item.OwnerId){waiting=true;break;}
+    }
+    go.SetActive(!waiting);if(waiting)continue;Vector3 at;if(!LocationSDKNavToWorld(item.X,item.Y,out at))continue;
+    // The prefab's blade axis +Z lies in the physical floor plane. Its own
+    // bounds place its lowest point on the same surface the server will pick up.
+    go.transform.SetPositionAndRotation(at,Quaternion.identity);bool any=false;Bounds bounds=new Bounds();foreach(var renderer in go.GetComponentsInChildren<Renderer>()){if(!any){bounds=renderer.bounds;any=true;}else bounds.Encapsulate(renderer.bounds);}if(any)go.transform.position+=Vector3.up*(at.y-bounds.min.y);
+   }
+   var remove=new List<string>();foreach(var pair in combatGroundProps)if(!visible.Contains(pair.Key)){if(pair.Value!=null)Destroy(pair.Value);remove.Add(pair.Key);}foreach(var id in remove)combatGroundProps.Remove(id);
+  }
+
+  void CombatKnifeContactAfterPose(PocCombatLook look){
+   if(look==null||look.contact==null||!look.contact.enabled)return;
+   CombatBeat beat=combatQueue.Count>0&&combatBeatAt>=0?combatQueue[0]:null;
+   foreach(var h in locationSDKHumanoids.Values){if(h.go==null||!h.go.activeSelf)continue;var rig=h.animator.GetComponent<PocCombatContactRig>();
+    CombatProp prop;bool attack=beat!=null&&beat.kind=="attack"&&beat.actor==h.id&&beat.hit&&combatProps.TryGetValue(h.id,out prop)&&prop.kind=="knife";
+    if(!attack){if(rig!=null&&rig.built)rig.Pose(rig.target.position,rig.target.rotation,0);continue;}
+    prop=combatProps[h.id];var victim=CombatHumanoid(beat.target);if(victim==null||victim.animator==null||prop.go==null)continue;
+    var hand=h.animator.GetBoneTransform(HumanBodyBones.RightHand);if(hand==null)continue;
+    Transform tip=null;foreach(var child in prop.go.GetComponentsInChildren<Transform>())if(child.name=="contact_tip"){tip=child;break;}if(tip==null)continue;
+    float phase=Mathf.Clamp01((Time.unscaledTime-combatBeatAt-beat.lead)/Mathf.Max(.01f,CombatClipSecondsOf(beat)));
+    float w=1-CombatSmooth(Mathf.Abs(phase-beat.impact)/look.contact.window);if(w<=0){if(rig!=null&&rig.built)rig.Pose(rig.target.position,rig.target.rotation,0);continue;}
+    var point=look.contact.points==null?null:Array.Find(look.contact.points,p=>p.id==beat.part);if(point==null&&look.contact.points!=null)point=Array.Find(look.contact.points,p=>p.id=="torso");
+    HumanBodyBones bone;if(point==null||!Enum.TryParse(point.bone,out bone))continue;var targetBone=victim.animator.GetBoneTransform(bone);if(targetBone==null)continue;
+    Vector3 dir=targetBone.position-h.go.transform.position;dir.y=0;if(dir.sqrMagnitude<.0001f)continue;dir.Normalize();
+    Vector3 contact=targetBone.position-dir*look.contact.surface_m;if(point.offset!=null&&point.offset.Length==3)contact+=victim.go.transform.TransformDirection(new Vector3(point.offset[0],point.offset[1],point.offset[2]));
+    Quaternion localProp=Quaternion.Inverse(hand.rotation)*prop.go.transform.rotation;Quaternion desiredHand=Quaternion.LookRotation(dir,Vector3.up)*Quaternion.Inverse(localProp);
+    Vector3 localTip=Quaternion.Inverse(hand.rotation)*(tip.position-hand.position);Vector3 localGrip=Quaternion.Inverse(hand.rotation)*(prop.go.transform.position-hand.position);
+    if(rig==null){rig=h.animator.gameObject.AddComponent<PocCombatContactRig>();rig.Setup(h.animator);}
+    rig.Pose(contact-desiredHand*localTip,desiredHand,w);
+    prop.go.transform.SetPositionAndRotation(hand.position+hand.rotation*localGrip,hand.rotation*localProp);
+    if(w>.98f&&beat.fxDone&&!beat.propDone){beat.propDone=true;Debug.Log("V4_CONTACT actor="+h.id+" target="+beat.target+" part="+beat.part+" gap_m="+Vector3.Distance(tip.position,contact).ToString("F4",System.Globalization.CultureInfo.InvariantCulture)+" skin_gap_m="+CombatSkinGap(victim,tip.position).ToString("F4",System.Globalization.CultureInfo.InvariantCulture)+" built="+rig.built+" wrist_gap="+Vector3.Distance(hand.position,rig.target.position)+" shoulder_goal="+Vector3.Distance(rig.arm.data.root.position,rig.target.position)+" arm_length="+(Vector3.Distance(rig.arm.data.root.position,rig.arm.data.mid.position)+Vector3.Distance(rig.arm.data.mid.position,hand.position)));CombatAutoShot("knife-contact-v4");}
+   }
+  }
+
+
+  static float CombatSkinGap(LocationSDKHumanoid victim,Vector3 point){
+   float best=float.PositiveInfinity;
+   foreach(var renderer in victim.go.GetComponentsInChildren<SkinnedMeshRenderer>()){
+    var mesh=new Mesh();renderer.BakeMesh(mesh);var vertices=mesh.vertices;var indices=mesh.triangles;var matrix=renderer.localToWorldMatrix;
+    for(int i=0;i+2<indices.Length;i+=3){var a=matrix.MultiplyPoint3x4(vertices[indices[i]]);var b=matrix.MultiplyPoint3x4(vertices[indices[i+1]]);var c=matrix.MultiplyPoint3x4(vertices[indices[i+2]]);if(Vector3.Cross(b-a,c-a).sqrMagnitude<1e-12f)continue;best=Mathf.Min(best,(CombatTrianglePoint(point,a,b,c)-point).sqrMagnitude);}
+    Destroy(mesh);
+   }
+   return float.IsInfinity(best)?-1:Mathf.Sqrt(best);
+  }
+  static Vector3 CombatTrianglePoint(Vector3 p,Vector3 a,Vector3 b,Vector3 c){
+   var ab=b-a;var ac=c-a;var ap=p-a;float d1=Vector3.Dot(ab,ap),d2=Vector3.Dot(ac,ap);if(d1<=0&&d2<=0)return a;
+   var bp=p-b;float d3=Vector3.Dot(ab,bp),d4=Vector3.Dot(ac,bp);if(d3>=0&&d4<=d3)return b;
+   float vc=d1*d4-d3*d2;if(vc<=0&&d1>=0&&d3<=0)return a+ab*(d1/(d1-d3));
+   var cp=p-c;float d5=Vector3.Dot(ab,cp),d6=Vector3.Dot(ac,cp);if(d6>=0&&d5<=d6)return c;
+   float vb=d5*d2-d1*d6;if(vb<=0&&d2>=0&&d6<=0)return a+ac*(d2/(d2-d6));
+   float va=d3*d6-d5*d4;if(va<=0&&d4-d3>=0&&d5-d6>=0)return b+(c-b)*((d4-d3)/(d4-d3+d5-d6));
+   float inverse=1/(va+vb+vc);return a+ab*(vb*inverse)+ac*(vc*inverse);
+  }
+
   GameObject CombatMakeProp(string kind,LocationSDKHumanoid h){
    var prefab=Resources.Load<GameObject>("CombatProps/"+kind);
    if(prefab!=null){var go=Instantiate(prefab,locationSDKRoot.transform,false);go.name="combat prop / "+kind+" / "+h.id;foreach(var t in go.GetComponentsInChildren<Transform>(true))t.gameObject.layer=LocationSDKLayer;

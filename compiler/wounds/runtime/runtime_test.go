@@ -538,3 +538,46 @@ func TestAidCannotWasteAnotherIdenticalControl(t *testing.T) {
 		t.Fatalf("identical control wasted supply: %+v", second)
 	}
 }
+
+func TestPairedLimbGripAndStrictLoad(t *testing.T) {
+	m := fixture()
+	m.Limbs = map[string]Limb{"right": {Name: "right", Zone: "arm", Slot: "hand.main"}, "left": {Name: "left", Zone: "arm", Slot: "hand.off"}}
+	b := m.NewBody("person", "none")
+	_, err := m.ApplyHit(&b, Hit{Mechanism: "blunt", Zone: "arm", Limb: "left", Depth: "deep", Structures: []string{"arm_bone"}, Seed: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !m.Status(b).HoldWeapon {
+		t.Fatal("off hand injury disabled healthy armed limb")
+	}
+	b.Wounds[0].Limb = "right"
+	if m.Status(b).HoldWeapon {
+		t.Fatal("armed limb fracture did not disable grip")
+	}
+	b.Wounds[0].Limb = "tail"
+	if m.ValidateBody(b) == nil {
+		t.Fatal("unknown limb loaded")
+	}
+}
+func TestRepeatedBluntChannelsAccumulateOnlySameZoneAndWindow(t *testing.T) {
+	m := fixture()
+	m.RepeatBluntWindowS = 60
+	m.RepeatBluntHits = 2
+	m.Weapons[0].Modes["*"] = Mode{Mechanism: "blunt", Depth: map[string]int64{"graze": 1}}
+	b := m.NewBody("p", "none")
+	for i := 0; i < 5; i++ {
+		res, err := m.ApplyHit(&b, Hit{Weapon: m.Weapons[0].Weapon, Part: "arms", Zone: "arm", Seed: int64(i)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []string{"graze", "graze", "shallow", "shallow", "deep"}[i]
+		if res.Wound.Depth != want {
+			t.Fatalf("hit %d: %s, want %s", i, res.Wound.Depth, want)
+		}
+	}
+	b.Clock = 61
+	res, err := m.ApplyHit(&b, Hit{Weapon: m.Weapons[0].Weapon, Zone: "arm", Seed: 8})
+	if err != nil || res.Wound.Depth != "graze" {
+		t.Fatal("expired impacts accumulated")
+	}
+}

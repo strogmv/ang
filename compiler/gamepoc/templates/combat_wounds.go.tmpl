@@ -37,6 +37,7 @@ func projectWoundBody(a *behavior.Combatant, b wounds.Body) {
 	a.BodyCanStand = st.Standing
 	a.BodyCanHold = st.HoldWeapon
 	a.BodyAPPenalty = st.APPenalty
+ a.BodyEffects=append([]string(nil),st.Effects...)
 	a.SeriousWound = combatWounds.Serious(b)
 	a.BodyMoveScale = int(combatWounds.Walk.NormalMMS * 100 / max(1, st.PaceMMS))
 	// Kept solely for old save migration and existing pose/resource adapters.
@@ -146,12 +147,14 @@ func (r *Runtime) woundPsyche(a behavior.Combatant) wounds.Psyche {
 	return wounds.Psyche{Response: psyche.StressResponse, Courage: int64(a.Courage), FearPermille: int64(fear * 1000)}
 }
 func (r *Runtime) stopWoundedFight(s *behavior.CombatState, a *behavior.Combatant) {
-	if a.Controlled || a.FightResponse != "" || !a.SeriousWound {
+	if a.FightResponse != "" || !a.SeriousWound {
 		return
 	}
 	reaction := combatWounds.StopFight(combatBody(*a), r.woundPsyche(*a), s.Seed+int64(s.ActionSeq)*65537+int64(s.EventSeq))
 	a.FightResponse = reaction.Kind
-	if reaction.Kind == "surrender" {
+ // Fear requests escape; only the ordinary distance-checked disengage can withdraw a body.
+ if reaction.Kind == "surrender" {
+  a.StandDownUntil=combatBody(*a).Clock+r.world.CombatRuntime.ShockFallSeconds
 		a.Surrendered = true
 		a.AP = 0
 		a.ReservedAP = 0
@@ -175,7 +178,10 @@ func (r *Runtime) applyWoundImpact(s *behavior.CombatState, source, target, part
 		return 0, fmt.Errorf("impact target missing")
 	}
 	body := combatBody(*b)
-	hit := wounds.Hit{Author: source, Weapon: "unarmed", Part: part, Mode: mode, Angle: "front", Seed: s.Seed + int64(s.ActionSeq)*65537 + int64(s.EventSeq)}
+ targetSpec:=r.world.CombatRuntime.Rules.Targets[part]
+ hitPart:=part;if targetSpec.Part!=""{hitPart=targetSpec.Part}
+ limb:="";if targetSpec.Limb=="armed"{limb=body.ArmedLimb}else{limb=targetSpec.Limb}
+ hit := wounds.Hit{Author: source, Weapon: "unarmed", Part: hitPart, Zone:targetSpec.Zone,Limb:limb, Mode: mode, Angle: "front", Seed: s.Seed + int64(s.ActionSeq)*65537 + int64(s.EventSeq)}
 	if part == "" {
 		hit.Part = "torso"
 	}
@@ -187,7 +193,8 @@ func (r *Runtime) applyWoundImpact(s *behavior.CombatState, source, target, part
 		hit.Skill = int64(a.Skill)
 		hit.Angle = r.woundAttackAngle(*a, *b)
 	}
-	if mode=="blast" {hit.Weapon="";hit.Mechanism="bullet"}
+	if hit.Zone=="arm"&&hit.Limb==""{ids:=[]string{};for id,l:=range combatWounds.Limbs{if l.Zone==hit.Zone{ids=append(ids,id)}};sort.Strings(ids);if len(ids)>0{hit.Limb=ids[int(uint64(hit.Seed)%uint64(len(ids)))]}}
+ if mode=="blast" {hit.Weapon="";hit.Mechanism="bullet"}
 	switch mode {
 	case "stun_blow":
 		hit.Technique = "stun_blow"
@@ -209,7 +216,10 @@ func (r *Runtime) applyWoundImpact(s *behavior.CombatState, source, target, part
 	}
 	projectWoundBody(b, body)
 	appendWoundEvents(s, *b, result.Events)
+ // A new serious channel is a new shock, not a reroll of an old wound each tick.
+ if result.Serious&&b.FightResponse=="fight_on"{b.FightResponse=""}
 	r.stopWoundedFight(s, b)
+ r.shiftWoundedFall(s,b)
 	if result.Wound != nil {
 		return 1, nil
 	}
@@ -229,6 +239,7 @@ func (r *Runtime) advanceCombatBodies(s *behavior.CombatState, seconds int64) {
 		projectWoundBody(a, b)
 		appendWoundEvents(s, *a, events)
 		r.stopWoundedFight(s, a)
+  r.shiftWoundedFall(s,a)
 	}
 }
 func (r *Runtime) releaseWoundPressure(s *behavior.CombatState, helper string) {
@@ -331,6 +342,7 @@ func (r *Runtime) commitWoundBodies(previous behavior.CombatState) error {
 	}
 	for i := range r.state.Combat.Actors {
 		c := &r.state.Combat.Actors[i]
+  if c.Surrendered&&c.StandDownUntil==0{c.StandDownUntil=combatBody(*c).Clock+r.world.CombatRuntime.ShockFallSeconds}
 		if err := r.dropWoundedWeapon(c, r.state.Combat.LevelID); err != nil {
 			return err
 		}
@@ -365,6 +377,7 @@ func (r *Runtime) advanceWoundCare() error {
 		// NPCs help themselves using the same aid plan and finite inventory. The
 		// loop advances real seconds and is bounded by supplies and treatment work.
 		for elapsed > 0 {
+   if c.Aid!=nil&&r.woundCareThreatened(c){c.Aid=nil;for i:=range b.Wounds{b.Wounds[i].Pressure=""}}
 			if id != playerActorID && combatWounds.Status(b).Conscious && c.Aid == nil {
 				c.Controlled = false
 				c.AP = r.world.CombatRuntime.Rules.APPerTurn
@@ -404,7 +417,8 @@ func (r *Runtime) advanceWoundCare() error {
 				}
 			}
 		}
-		if c.FightResponse == "fall" && combatWounds.Status(combatBody(c)).Standing {
+		if c.Surrendered&&c.StandDownUntil>0&&combatBody(c).Clock>=c.StandDownUntil{c.Surrendered=false;c.StandDownUntil=0;c.FightResponse=""}
+  if c.FightResponse == "fall" && combatWounds.Status(combatBody(c)).Standing {
 			c.FightResponse = ""
 		}
 		c.Overwatch = false
@@ -466,4 +480,15 @@ func (r *Runtime) woundAttackAngle(a, b behavior.Combatant) string {
 		return "flank"
 	}
 	return "front"
+}
+
+// The fall has an authoritative endpoint. Animation may interpolate, never invent displacement.
+func(r *Runtime)shiftWoundedFall(s *behavior.CombatState,a *behavior.Combatant){
+ if a.FallShifted||a.BodyCanStand&&a.FightResponse!="fall"{return};a.FallShifted=true
+ dx,dy:=a.Position.X-a.LastHitFrom.X,a.Position.Y-a.LastHitFrom.Y
+ abs:=func(n int)int{if n<0{return -n};return n};sign:=func(n int)int{if n<0{return -1};if n>0{return 1};return 0}
+ to:=a.Position;if abs(dx)>=abs(dy)&&dx!=0{to.X+=sign(dx)}else if dy!=0{to.Y+=sign(dy)}else{return}
+ space:=r.combatSpace(*s);if space.Space.Walkable==nil||!space.Space.Walkable(to)||space.Space.Blocked[to]||space.Space.Occupied!=nil&&space.Space.Occupied(to){return}
+ for _,other:=range s.Actors{if other.ID!=a.ID&&other.Position==to{return}}
+ from:=a.Position;a.Position=to;s.EventSeq++;s.Events=append(s.Events,behavior.CombatEvent{Type:"fall_shift",ActorID:a.ID,TargetID:a.ID,From:from,To:to,Turn:s.Turn,Sequence:s.EventSeq})
 }

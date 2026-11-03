@@ -54,7 +54,7 @@ func (r *Runtime) validateWounds(s state) error {
 		}
 		projected := cloneCombatant(c)
 		projectWoundBody(&projected, b)
-		if c.HP != projected.HP || c.MaxHP != projected.MaxHP || c.BodyState != projected.BodyState || c.BodyAPPenalty != projected.BodyAPPenalty || c.BodyMoveScale!=projected.BodyMoveScale || c.HeadWound!=projected.HeadWound || c.ArmWound!=projected.ArmWound || c.LegWound!=projected.LegWound || c.BodyCanWalk != projected.BodyCanWalk || c.BodyCanStand != projected.BodyCanStand || c.BodyCanHold != projected.BodyCanHold || c.Bleeding != projected.Bleeding || c.StunTurns != projected.StunTurns || c.SeriousWound != projected.SeriousWound {
+		if !reflect.DeepEqual(c.BodyEffects,projected.BodyEffects)||c.HP != projected.HP || c.MaxHP != projected.MaxHP || c.BodyState != projected.BodyState || c.BodyAPPenalty != projected.BodyAPPenalty || c.BodyMoveScale!=projected.BodyMoveScale || c.HeadWound!=projected.HeadWound || c.ArmWound!=projected.ArmWound || c.LegWound!=projected.LegWound || c.BodyCanWalk != projected.BodyCanWalk || c.BodyCanStand != projected.BodyCanStand || c.BodyCanHold != projected.BodyCanHold || c.Bleeding != projected.Bleeding || c.StunTurns != projected.StunTurns || c.SeriousWound != projected.SeriousWound {
 			return fmt.Errorf("forged wound status for %s", c.ID)
 		}
 		if c.Aid != nil {

@@ -202,3 +202,145 @@ func TestWoundsPrepareTourniquetPlayerProof(t *testing.T){
  }
  t.Fatal("no surviving real arm wound allowed a tourniquet in 200 seeded attempts")
 }
+
+var v4DiagnosisReport=flag.String("v4-diagnose-report","","v3 baseline AP and contact diagnosis, without changing combat rules")
+func TestCombatV4BaselineDiagnosis(t *testing.T){
+ if *v4DiagnosisReport==""{t.Skip("opt-in baseline diagnosis")}
+ type sample struct {Episode string;Seed int64;Turn int64;AP,BodyPenalty,Suppression,SuppressionPenalty,DistanceMM,HeroWounds,EnemyWounds int;LostML int64;Effects []string;Action string}
+ type result struct {Episode string;Seed int64;Active bool;Turns int64;HeroAttacks,EnemyAttacks,HeroMoves,HeroMoveAP,HeroAttackAP,OneAPTurns,TurnStarts,BodyAloneOneAP,SuppressionAloneOneAP,CombinedOneAP,KnifeContactStarts,OutsideReachStarts,HeroWounds,EnemyWounds int;LostML int64;Effects []string}
+ var traces []sample;var rows []result
+ for _,episode:=range []string{"combat_knife","combat_needle"}{
+  r,c,scene:=combatEpisodeFixture(t,episode,"ru");combatEpisodeEngage(t,r,c,scene);base:=r.snapshotState()
+  for seed:=int64(1);seed<=200;seed++{
+   r.state=base;r.state=r.snapshotState();r.state.Seed=seed;r.state.Combat.Seed=seed
+   row:=result{Episode:episode,Seed:seed};lastTurn:=int64(-1)
+   for step:=0;step<120&&r.state.Combat.Active;step++{
+    actor:=r.state.Combat.Current();if actor==nil{break}
+    if actor.ID!=playerActorID{if err:=r.performCombatAction(actor.ID,nil);err!=nil{t.Fatal(err)};continue}
+    body:=combatBody(*actor);status:=combatWounds.Status(body);enemy:=r.state.Combat.Actor(scene.Guard);distance:=r.combatDistance(actor.Position,enemy.Position)
+    supp:=0;if r.world.CombatRuntime.Rules.SuppressionPerAP>0{before:=actor.Suppression;if before>0{before+=r.world.CombatRuntime.Rules.SuppressionRecovery};supp=before/r.world.CombatRuntime.Rules.SuppressionPerAP}
+    if lastTurn!=r.state.Combat.Turn{
+     row.TurnStarts++;lastTurn=r.state.Combat.Turn
+     if actor.AP==1{row.OneAPTurns++;switch{case status.APPenalty>=r.world.CombatRuntime.Rules.APPerTurn-1:row.BodyAloneOneAP++;case supp>=r.world.CombatRuntime.Rules.APPerTurn-1:row.SuppressionAloneOneAP++;default:row.CombinedOneAP++}}
+     if distance<=900{row.KnifeContactStarts++};if distance>actor.Weapon.RangeMM{row.OutsideReachStarts++}
+    }
+    var actions []behavior.CombatAction
+    if actor.Aid!=nil{actions=append(actions,behavior.CombatAction{Type:"aid_continue"})}
+    if actor.Weapon.ID=="unarmed"{for _,gear:=range r.combatEquipmentOptions(actor.ID){actions=append(actions,behavior.CombatAction{Type:"equip",ItemID:gear.ID})}}
+    if actor.Weapon.Magazine>0&&actor.Ammo==0{actions=append(actions,behavior.CombatAction{Type:"reload"})}
+    mode:="heavy";if actor.Weapon.Magazine>0{mode="single"}
+    actions=append(actions,behavior.CombatAction{Type:"attack",TargetID:scene.Guard,Mode:mode,BodyPart:"torso"},behavior.CombatAction{Type:"attack",TargetID:scene.Guard,BodyPart:"torso"},behavior.CombatAction{Type:"attack",TargetID:scene.Guard,Mode:"quick",BodyPart:"torso"})
+    if at,ok:=r.combatStep(actor,enemy,false);ok{actions=append(actions,behavior.CombatAction{Type:"move",To:at})};actions=append(actions,behavior.CombatAction{Type:"end"})
+    for _,action:=range actions{if r.performCombatAction(actor.ID,&action)==nil{if seed==1{traces=append(traces,sample{episode,seed,lastTurn,actor.AP,status.APPenalty,actor.Suppression,supp,distance,len(body.Wounds),len(combatBody(*enemy).Wounds),body.LostUL/1000,status.Effects,action.Type})};break}}
+   }
+   row.Active=r.state.Combat.Active;row.Turns=r.state.Combat.Turn
+   for _,event:=range r.state.Combat.Events{if event.ActorID==playerActorID{switch event.Type{case "attack","reaction":row.HeroAttacks++;row.HeroAttackAP+=event.AP;case "move":row.HeroMoves++;row.HeroMoveAP+=event.AP}}else if event.Type=="attack"||event.Type=="reaction"{row.EnemyAttacks++}}
+   hero:=combatBody(*r.state.Combat.Actor(playerActorID));enemy:=combatBody(*r.state.Combat.Actor(scene.Guard));row.HeroWounds=len(hero.Wounds);row.EnemyWounds=len(enemy.Wounds);row.LostML=hero.LostUL/1000;row.Effects=combatWounds.Status(hero).Effects;rows=append(rows,row)
+  }
+ }
+ if err:=os.MkdirAll(*v4DiagnosisReport,0755);err!=nil{t.Fatal(err)}
+ for name,data:=range map[string]any{"baseline-400.json":rows,"seed-1-traces.json":traces}{raw,err:=json.MarshalIndent(data,"","  ");if err!=nil{t.Fatal(err)};if err=os.WriteFile(filepath.Join(*v4DiagnosisReport,name),raw,0644);err!=nil{t.Fatal(err)}}
+}
+
+var combatV4Report=flag.String("combat-v4-report","","fixed-policy v4 matrix, 200 seeds per episode/policy")
+type combatV4Row struct {
+ Episode, Bot string
+ Seed int64
+ Active bool
+ Turns, Rounds, Attacks, Reactions, Parries, Hits int
+ HeroDead,EnemyDead,HeroDead2h,EnemyDead2h bool
+ KnifeContact,StopHit bool
+ ContactTurn int64
+ Outcome,Winner string
+}
+// These four report policies are deliberately independent of balance constants.
+// They never see foreign body state, reserves, ammunition or forecasts.
+func combatV4FixedActions(r *Runtime,a *behavior.Combatant,enemy *behavior.Combatant,bot string)[]behavior.CombatAction{
+ actions:=[]behavior.CombatAction{}
+ if a.Weapon.ID=="unarmed"{for _,gear:=range r.combatEquipmentOptions(a.ID){actions=append(actions,behavior.CombatAction{Type:"equip",ItemID:gear.ID})}}
+ if a.Weapon.Magazine>0&&a.Ammo==0{actions=append(actions,behavior.CombatAction{Type:"reload"})}
+ if bot=="leave"{actions=append(actions,behavior.CombatAction{Type:"disengage"});if at,ok:=r.combatStep(a,enemy,true);ok{actions=append(actions,behavior.CombatAction{Type:"move",To:at})};return append(actions,behavior.CombatAction{Type:"end"})}
+ if bot=="distance"&&r.combatDistance(a.Position,enemy.Position)<a.Weapon.RangeMM{if at,ok:=r.combatStep(a,enemy,true);ok{actions=append(actions,behavior.CombatAction{Type:"move",To:at})}}
+ parts:=[]string{"torso"};if bot=="head_hand"{parts=[]string{"head","armed_limb"};if ((r.state.Combat.Turn-1)/2)%2==1{parts=[]string{"armed_limb","head"}}}
+ for _,mode:=range []string{"heavy","single","quick"}{if a.Weapon.Magazine>0&&mode!="single"{continue};for _,part:=range parts{actions=append(actions,behavior.CombatAction{Type:"attack",TargetID:enemy.ID,Mode:mode,BodyPart:part})}}
+ if at,ok:=r.combatStep(a,enemy,false);ok{actions=append(actions,behavior.CombatAction{Type:"move",To:at})}
+ return append(actions,behavior.CombatAction{Type:"end"})
+}
+func TestCombatV4FixedPolicyMatrix(t *testing.T){
+ if *combatV4Report==""{t.Skip("opt-in v4 report")}
+ if err:=os.MkdirAll(*combatV4Report,0755);err!=nil{t.Fatal(err)}
+ rows:=[]combatV4Row{}
+ for _,episode:=range []string{"combat_knife_npc","combat_knife","combat_needle"}{
+  r,c,scene:=combatEpisodeFixture(t,episode,"ru");combatEpisodeEngage(t,r,c,scene);base:=r.snapshotState()
+  for _,bot:=range []string{"torso","head_hand","distance","leave"}{
+   for seed:=*woundSeed;seed<*woundSeed+200;seed++{
+    r.state=base;r.state=r.snapshotState();r.state.Seed=seed;r.state.Combat.Seed=seed
+    row:=combatV4Row{Episode:episode,Bot:bot,Seed:seed}
+    for step:=0;step<120&&r.state.Combat.Active;step++{
+     s:=&r.state.Combat;hero,enemy:=s.Actor(playerActorID),s.Actor(scene.Guard)
+     if r.combatDistance(hero.Position,enemy.Position)<=900&&!row.KnifeContact{row.KnifeContact=true;row.ContactTurn=s.Turn}
+     a:=s.Current();if a==nil{break}
+     if a.ID!=playerActorID{if err:=r.performCombatAction(a.ID,nil);err!=nil{t.Fatalf("%s/%s/%d: %v",episode,bot,seed,err)};continue}
+     accepted:=false;for _,act:=range combatV4FixedActions(r,a,enemy,bot){if r.performCombatAction(a.ID,&act)==nil{accepted=true;break}}
+     if !accepted{t.Fatal("fixed policy cannot even end turn")}
+    }
+    s:=&r.state.Combat;hero,enemy:=s.Actor(playerActorID),s.Actor(scene.Guard)
+    poses:=map[string]behavior.Cell{};for _,a:=range base.Combat.Actors{poses[a.ID]=a.Position}
+    contactAt:=int64(0);for _,e:=range s.Events{if e.Type=="move"||e.Type=="roll"||e.Type=="fall_shift"{poses[e.ActorID]=e.To};if r.combatDistance(poses[playerActorID],poses[scene.Guard])<=900{contactAt=e.Turn;break}}
+    if contactAt>0{row.KnifeContact=true;row.ContactTurn=contactAt}
+    row.Active=s.Active;row.Turns=int(s.Turn);row.Rounds=int((s.Turn+1)/2);row.Winner=s.Winner
+    knifeID:=playerActorID;if episode=="combat_knife_npc"{knifeID=scene.Guard}
+    for _,e:=range s.Events{
+     if e.Type=="parry"{row.Parries++};if e.Type=="reaction"{row.Reactions++}
+     if e.Type=="attack"||e.Type=="reaction"{row.Attacks++;if e.Hit{row.Hits++;if e.TargetID==knifeID&&(e.BodyPart=="head"||e.BodyPart=="armed_limb")&&(row.ContactTurn==0||e.Turn<=row.ContactTurn+1){row.StopHit=true}}}
+    }
+    hb,eb:=combatBody(*hero),combatBody(*enemy);row.HeroDead=hb.Dead;row.EnemyDead=eb.Dead
+    combatWounds.Tick(&hb,7200);combatWounds.Tick(&eb,7200);row.HeroDead2h=hb.Dead;row.EnemyDead2h=eb.Dead
+    row.Outcome="fight_on";if row.HeroDead||row.EnemyDead{row.Outcome="death"}else if hero.Withdrawn||enemy.Withdrawn{row.Outcome="flee"}else if hero.Surrendered||enemy.Surrendered{row.Outcome="surrender"}else if !hero.Able()||!enemy.Able(){row.Outcome="fall"}else if !s.Active{row.Outcome="flee"}
+    rows=append(rows,row)
+    if seed<=5||row.KnifeContact&&(row.HeroDead2h||row.StopHit){out:=filepath.Join(*combatV4Report,"replay",fmt.Sprintf("%s-%s-%d",episode,bot,seed));if err:=os.MkdirAll(out,0755);err!=nil{t.Fatal(err)};old:=r.data;r.data=out;if err:=r.writeSave("slot3",r.snapshotState());err!=nil{t.Fatal(err)};r.data=old}
+   }
+   data,_:=json.MarshalIndent(rows,"","  ");if err:=os.WriteFile(filepath.Join(*combatV4Report,"matrix.json"),data,0644);err!=nil{t.Fatal(err)}
+  }
+ }
+ t.Logf("%d fixed-policy real encounters",len(rows))
+}
+
+var combatV4ProbeReport=flag.String("combat-v4-probe-report","","CUE-authored clinical/animation fixtures for native Player; excluded from duel statistics")
+func TestCombatV4PrepareNativeProbes(t *testing.T){
+ if *combatV4ProbeReport==""{t.Skip("opt-in native probes")}
+ for _,name:=range []string{"knife","head","contact","parry","needle","aid","roll","fall"}{
+  probeRuntime,_,_:=combatEpisodeFixture(t,"combat_knife","ru");spec:=probeRuntime.world.CombatRuntime.Probes[name]
+  r,c,scene:=combatEpisodeFixture(t,spec.Episode,"ru");combatEpisodeEngage(t,r,c,scene)
+  hero:=r.state.Combat.Actor(playerActorID)
+  if hero.Weapon.ID=="unarmed"{found:=false;for _,gear:=range r.combatEquipmentOptions(playerActorID){if gear.Weapon.ID=="item.knife_simple"{act:=behavior.CombatAction{Type:"equip",ItemID:gear.ID};if err:=r.performCombatAction(playerActorID,&act);err!=nil{t.Fatal(err)};found=true;break}};if !found{t.Fatal("no actual carried knife")}}
+  hero=r.state.Combat.Actor(playerActorID)
+  if hero.Weapon.Magazine>0&&hero.Ammo==0{act:=behavior.CombatAction{Type:"reload"};if err:=r.performCombatAction(playerActorID,&act);err!=nil{t.Fatal(err)}}
+  actors:=[]behavior.Combatant{r.combatant(playerActorID,"player"),r.combatant(scene.Guard,"opposition")};actors[0].Position=spec.Hero;actors[1].Position=spec.Enemy
+  for i:=range actors{b:=combatWounds.NewBody(actors[i].ID,r.bodyChip(actors[i].ID));projectWoundBody(&actors[i],b);actors[i].FightResponse="";actors[i].Surrendered=false;actors[i].Withdrawn=false;actors[i].Prone=false;actors[i].Crouched=false;actors[i].Suppression=0}
+  proposed:=behavior.CombatState{LevelID:scene.Level,Actors:actors};s,err:=behavior.NewCombat("encounter.v4.probe",scene.Level,1,actors,r.world.CombatRuntime.Rules,r.combatSpace(proposed));if err!=nil{t.Fatal(name,err)}
+  r.state.Combat=s;r.state.CombatPublicEvents=nil;r.state.CombatPublicSeq=0;r.state.CombatPublicSerial=0;r.state.CombatLifeSync=combatLifeSync{};r.combatLifeStarted(scene.Guard,playerActorID);r.syncCombatLife()
+  if spec.WoundScenario!=""{for _,scenario:=range combatWounds.Scenarios{if scenario.ID==spec.WoundScenario{b,err:=combatWounds.ScenarioBody(scenario,42);if err!=nil{t.Fatal(err)};b.ID=playerActorID;b.Chip=r.bodyChip(playerActorID);for i:=range b.Wounds{b.Wounds[i].Author=scene.Guard};projectWoundBody(r.state.Combat.Actor(playerActorID),b);r.state.Combat.Actor(playerActorID).FightResponse="fight_on";r.syncCombatLife()}}}
+  initial:=r.snapshotState();found:=false
+  for seed:=int64(1);seed<=500;seed++{
+   r.state=initial;r.state=r.snapshotState();r.state.Seed=seed;r.state.Combat.Seed=seed;base:=r.snapshotState()
+   action:=behavior.CombatAction{Type:"end"}
+   if name=="knife"||name=="head"{action=behavior.CombatAction{Type:"attack",TargetID:scene.Guard,Mode:"heavy",BodyPart:"torso"};if name=="head"{action.BodyPart="head"}}
+   if name=="aid"{found=true}else if name=="roll"{
+    for _,d:=range []behavior.Cell{{1,0},{0,1},{-1,0},{0,-1}}{to:=behavior.Cell{X:spec.Hero.X+d.X,Y:spec.Hero.Y+d.Y};if _,err:=r.combatTry(behavior.CombatAction{Type:"roll",To:to});err==nil{found=true;break}}
+    if !found{t.Fatal("CUE native roll fixture has no legal one-cell roll")}
+   }else{
+    if err:=r.performCombatAction(playerActorID,&action);err!=nil{t.Fatal(name,err)}
+    for n:=0;n<8&&r.state.Combat.Active;n++{a:=r.state.Combat.Current();if a==nil||a.ID==playerActorID{break};if err:=r.performCombatAction(a.ID,nil);err!=nil{t.Fatal(name,err)}}
+    hb,eb:=combatBody(*r.state.Combat.Actor(playerActorID)),combatBody(*r.state.Combat.Actor(scene.Guard));hs,es:=combatWounds.Status(hb),combatWounds.Status(eb)
+    hit,parry,reply,shot,shift:=false,false,false,false,false;for _,e:=range r.state.Combat.Events{if e.Type=="fall_shift"&&e.ActorID==playerActorID{shift=true};if e.Type=="attack"&&e.ActorID==playerActorID&&e.Hit{hit=true};if e.Type=="parry"&&e.ActorID==playerActorID&&e.Hit{parry=true};if e.Type=="reaction"&&e.ActorID==playerActorID{reply=reply||parry;shot=shot||e.AmmoSpent>0}}
+    switch name{case "knife":found=hit;case "head":found=hit&&(!es.HoldWeapon||!es.Standing);case "parry":found=parry&&reply;case "needle":found=shot;case "contact":combatWounds.Tick(&hb,7200);found=hb.Dead;case "fall":f:=combatWounds.Forecast(hb,7200);found=shift&&!hs.Standing&&!hb.Dead&&f.DeadS<0&&(hb.KnockoutUntil>hb.Clock&&hb.KnockoutUntil-hb.Clock<=600||hb.StunUntil>hb.Clock)}
+   }
+   if !found{continue}
+   terminal:=r.state.Combat.Events;r.state=base
+   out:=filepath.Join(*combatV4ProbeReport,name);if err:=os.MkdirAll(out,0755);err!=nil{t.Fatal(err)};r.data=out;if err:=r.writeSave("slot3",base);err!=nil{t.Fatal(err)};if _,_,err:=r.readSave("slot3");err!=nil{t.Fatal(name,"strict probe load",err)}
+   meta:=map[string]any{"probe":name,"seed":seed,"cue":spec,"clinical_fixture":true,"included_in_duel_statistics":false,"trial_events":terminal};raw,_:=json.MarshalIndent(meta,"","  ");if err:=os.WriteFile(filepath.Join(out,"setup.json"),raw,0644);err!=nil{t.Fatal(err)};break
+  }
+  if !found{t.Errorf("no truthful %s probe found in 500 seeds",name)}
+ }
+}

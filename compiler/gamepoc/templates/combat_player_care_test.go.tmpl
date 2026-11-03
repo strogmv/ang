@@ -29,7 +29,11 @@ func combatPlayerCareInjury(t *testing.T,stun bool)(*Runtime,*connection,string)
  if r.state.Combat.Active{t.Fatal("encounter did not finish")};return r,c,target
 }
 func TestCombatPlayerCareWireBandageHealTimeAndReplay(t *testing.T){
- r,c,_:=combatPlayerCareInjury(t,false);old:=combatBody(r.state.CombatRoster[playerActorID]);seconds:=r.state.Life.Seconds;count:=r.combatCount(r.state.Inventory,playerActorID,"item.med_patch",nil)
+ r,c,target:=combatPlayerCareInjury(t,false)
+ // Wire/replay needs a genuinely safe clinical interval. The opponent is
+ // unconscious in the body model for twice the complete treatment duration.
+ opponent:=r.state.CombatRoster[target];ob:=combatBody(opponent);ob.KnockoutFrom=ob.Clock;ob.KnockoutUntil=ob.Clock+2*(combatWounds.Aid.Kinds["dressing"].Seconds+combatWounds.Aid.Kinds["medkit"].Seconds);projectWoundBody(&opponent,ob);r.state.CombatRoster[target]=opponent;r.storeWoundBody(opponent);r.combatCareHold(opponent)
+ old:=combatBody(r.state.CombatRoster[playerActorID]);seconds:=r.state.Life.Seconds;count:=r.combatCount(r.state.Inventory,playerActorID,"item.med_patch",nil)
  q:=&pb.PocCombatCommand{RequestId:"care.player.bandage",Action:"bandage",ExpectedTurn:r.state.Combat.Turn};result,view:=combatWire(t,r,c,q);if !result.Ok{t.Fatal(result.Message)}
  after:=combatBody(r.state.CombatRoster[playerActorID]);controlled:=false;for _,w:=range after.Wounds{for _,control:=range w.Controls{controlled=controlled||control=="dressing"}}
  if !controlled||r.state.Life.Seconds!=seconds+combatWounds.Aid.Kinds["dressing"].Seconds||r.combatCount(r.state.Inventory,playerActorID,"item.med_patch",nil)!=count-1||len(after.Wounds)!=len(old.Wounds){t.Fatal("outside dressing did not spend real stock and 30 seconds on the wound")}
@@ -77,4 +81,13 @@ func TestCombatPlayerCareRejectsPauseMovementAndRealStunAtomically(t *testing.T)
 			}
 		})
 	}
+}
+
+func TestCombatV4ReturningThreatInterruptsOutsideAidWithoutRefund(t *testing.T){
+ r,c,target:=combatPlayerCareInjury(t,false);opponent:=r.state.CombatRoster[target];opponent.StandDownUntil=combatBody(opponent).Clock+1;r.state.CombatRoster[target]=opponent
+ count:=r.combatCount(r.state.Inventory,playerActorID,"item.medkit_guard",nil);clock:=r.state.Life.Seconds
+ answer,_:=combatWire(t,r,c,&pb.PocCombatCommand{RequestId:"care.threat.returns",Action:"heal",ExpectedTurn:r.state.Combat.Turn})
+ if !answer.Ok{t.Fatal("initially surrendered enemy should permit starting aid",answer.Message)}
+ hero:=r.state.CombatRoster[playerActorID]
+ if r.combatCount(r.state.Inventory,playerActorID,"item.medkit_guard",nil)!=count-1||hero.Aid!=nil||combatBody(hero).Wounds[0].Treated||r.state.Life.Seconds-clock>=combatWounds.Aid.Kinds["medkit"].Seconds{t.Fatal("returning threat did not interrupt real work, or refunded/treated the wound")}
 }

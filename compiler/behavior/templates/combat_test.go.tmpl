@@ -1389,3 +1389,48 @@ func TestCombatPlannerValuesUsableCarriedGunOverInterlockedEquipment(t *testing.
  decision:=s.Decide(space,rules)
  if decision.Chosen.Action.Type!="equip"||decision.Chosen.Action.ItemID!="physical.own"{t.Fatalf("usable carried gun was devalued by equipped interlock: %+v",decision)}
 }
+
+func combatV4Fixture(t *testing.T)(CombatRules,CombatSpace,CombatState){
+ r,space:=combatAdvancedRules(),combatFixtureSpace();r.AutomaticReserve=true;r.CloseMM=900;r.CrampedAccuracy=.65;r.CrampedParry=.45;r.GuardBonus=20;r.RetreatAP=1;r.UntrainedReactionAccuracy=.65;r.RollAP=3;r.RollAccuracy=.6
+ a,b:=combatClub("a","blue",Cell{2,2}),combatClub("b","red",Cell{4,2});a.Initiative=30;b.Initiative=20
+ return r,space,combatNewAdvanced(t,r,space,a,b)
+}
+func TestCombatV4EndReservesWithoutStanceAndParriesThenCounters(t *testing.T){
+ r,space,s:=combatV4Fixture(t);s.Actor("b").Position=Cell{3,2};s.Actor("a").Weapon.ParryPercent=0
+ combatDo(t,&s,space,r,"a",CombatAction{Type:"end"});if s.Actor("a").ReservedAP!=r.APPerTurn||s.Actor("a").Guarding{t.Fatal("remaining AP was burned or guard invented")}
+ combatDo(t,&s,space,r,"b",CombatAction{Type:"attack",TargetID:"a",Mode:"quick"})
+ parry,reply:=0,0;for _,e:=range s.Events{if e.Type=="parry"{parry++};if e.Type=="reaction"{reply++}}
+ if parry!=1||reply!=1||s.Actor("a").ReservedAP!=r.APPerTurn-r.GuardAP-s.Actor("a").Weapon.AttackAP{t.Fatal("not exactly one paid deflection then counter")}
+}
+func TestCombatV4LongWeaponEntryAndKnifeExitUseReserve(t *testing.T){
+ r,space,s:=combatV4Fixture(t);space.CellMM=500;s.Actor("a").Position=Cell{1,2};s.Actor("b").Position=Cell{5,2};s.Actor("a").Weapon.RangeMM=1500
+ combatDo(t,&s,space,r,"a",CombatAction{Type:"end"});combatDo(t,&s,space,r,"b",CombatAction{Type:"move",To:Cell{3,2}})
+ n:=0;for _,e:=range s.Events{if e.Type=="reaction"{n++;if e.To!=(Cell{4,2}){t.Fatal("long weapon did not interrupt at first reachable cell")}}};if n!=1{t.Fatal("entry reply missing or repeated")}
+ // A knife also interrupts the first retreat step before it leaves reach.
+ r,space,s=combatV4Fixture(t);s.Actor("b").Position=Cell{3,2};s.Actor("a").Weapon.Kind="blade";combatDo(t,&s,space,r,"a",CombatAction{Type:"end"});combatDo(t,&s,space,r,"b",CombatAction{Type:"move",To:Cell{4,2}})
+ n=0;cost:=0;for _,e:=range s.Events{if e.Type=="reaction"{n++;if e.To!=(Cell{3,2}){t.Fatal("knife replied after contact was already lost")}};if e.Type=="move"{cost+=e.AP}};if n!=1||cost!=2{t.Fatalf("retreat n=%d AP=%d",n,cost)}
+}
+func TestCombatV4LoadedUntrainedReactionAndNoBulletParry(t *testing.T){
+ r,space,s:=combatV4Fixture(t);a:=s.Actor("a");a.Weapon.Kind="firearm";a.Weapon.Magazine=3;a.Ammo=3;a.Weapon.RangeMM=5000;a.Trained=false;s.Actor("b").Position=Cell{3,2}
+ combatDo(t,&s,space,r,"a",CombatAction{Type:"end"});combatDo(t,&s,space,r,"b",CombatAction{Type:"attack",TargetID:"a"})
+ n:=0;for _,e:=range s.Events{if e.Type=="reaction"{n++;if e.AmmoSpent!=1{t.Fatal("free countershot")}};if e.Type=="parry"{t.Fatal("bullet or gun parry")}};if n!=1||s.Actor("a").Ammo!=2{t.Fatal("untrained loaded actor failed to fire")}
+}
+func TestCombatV4CrampedHeavyAndCareThreat(t *testing.T){
+ r,space,s:=combatV4Fixture(t);space.CellMM=500;s.Actor("b").Position=Cell{3,3};s.Actor("a").Weapon.RangeMM=1500;s.Observe(space,r)
+ before:=s.Clone();if s.Execute(space,r,"a",CombatAction{Type:"attack",TargetID:"b",Mode:"heavy"})==nil||!reflect.DeepEqual(before,s){t.Fatal("heavy long swing allowed in knife contact or refusal mutated")}
+ if !s.ThreatensCare(space,r,*s.Actor("a")){t.Fatal("near enemy cannot interrupt care")};s.Actor("b").Surrendered=true;if s.ThreatensCare(space,r,*s.Actor("a")){t.Fatal("surrendered enemy forbids care")}
+ s.Actor("b").Surrendered=false;s.Actor("b").StunTurns=1;if s.ThreatensCare(space,r,*s.Actor("a")){t.Fatal("stunned enemy forbids care")}
+}
+
+func TestCombatV4RollOneCellCostRiskAndWoundRefusal(t *testing.T){
+ r,space,s:=combatV4Fixture(t);s.Actor("b").Position=Cell{9,2};a:=s.Actor("a");a.Body=json.RawMessage(`[]`);a.BodyCanWalk=true;a.BodyCanHold=true;a.BodyCanStand=true
+ start,ap:=a.Position,a.AP;combatDo(t,&s,space,r,"a",CombatAction{Type:"roll",To:Cell{start.X+1,start.Y}})
+ if s.Actor("a").Position!=(Cell{start.X+1,start.Y})||s.Actor("a").AP!=ap-r.RollAP||s.Actor("a").RollingUntilTurn!=s.Turn+1{t.Fatal("roll invented displacement, free AP or no evasion window")}
+ r.RollForbiddenEffects=[]string{"limp"};s.Actor("a").BodyEffects=[]string{"limp"};before:=s.Clone();if s.Execute(space,r,"a",CombatAction{Type:"roll",To:start})==nil||!reflect.DeepEqual(before,s){t.Fatal("injured roll accepted or changed state")}
+}
+
+func TestCombatV4NPCDoesNotPlanUnaffordableOrWoundForbiddenStand(t *testing.T){
+ r,space,s:=combatV4Fixture(t);a:=s.Actor("a");a.Body=json.RawMessage(`[]`);a.Prone=true;a.BodyCanStand=false;a.BodyCanWalk=false;a.BodyCanHold=true;r.GetUpAP=3
+ for _,c:=range s.Decide(space,r).Candidates{if c.Action.Type=="stand"{t.Fatal("fractured body planned a forbidden stand")}}
+ a.BodyCanStand=true;a.AP=2;for _,c:=range s.Decide(space,r).Candidates{if c.Action.Type=="stand"{t.Fatal("NPC priced standing below the shared authored cost")}}
+}

@@ -22,6 +22,7 @@ type Bleed struct {
 
 // Wound is one channel: where, how deep, what it met, who made it and what was done about it.
 type Wound struct {
+	Limb       string   `json:"limb,omitempty"`
 	ID         string   `json:"id"`
 	Zone       string   `json:"zone"`
 	Depth      string   `json:"depth"`
@@ -70,6 +71,7 @@ type Care struct {
 // Body is the persistent wound state of one person. Clock is the body's own second counter; the host ticks it with the
 // Life clock (also during travel when it catches up).
 type Body struct {
+	ArmedLimb  string      `json:"armed_limb,omitempty"`
 	ID         string      `json:"id"`
 	Chip       string      `json:"chip"`
 	Clock      int64       `json:"clock"`
@@ -100,7 +102,14 @@ type Body struct {
 
 // NewBody: a whole adult with the chip profile (none / bronze / ...).
 func (m Model) NewBody(id, chip string) Body {
-	return Body{ID: id, Chip: chip, VolumeUL: m.Blood.VolumeML * 1000, Reported: "ok"}
+	b := Body{ID: id, Chip: chip, VolumeUL: m.Blood.VolumeML * 1000, Reported: "ok"}
+	for _, id := range sortedKeys(m.Limbs) {
+		if m.Limbs[id].Slot == "hand.main" {
+			b.ArmedLimb = id
+			break
+		}
+	}
+	return b
 }
 
 // Event is what changed: the host turns it into barks, justice, a chip alarm, the panel.

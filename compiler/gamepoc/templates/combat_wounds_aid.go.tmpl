@@ -27,7 +27,11 @@ func (r *Runtime) woundAidItems() []string {
 	return out
 }
 func (r *Runtime) woundAidPlan(c behavior.Combatant, act behavior.CombatAction) (*behavior.CombatAidWork, error) {
-	if !combatWounds.Status(combatBody(c)).Conscious {
+	if r.woundCareThreatened(c){return nil,textError{Key:"wounds.aid.under_threat"}}
+ return r.woundAidPlanSafe(c,act)
+}
+func(r *Runtime)woundAidPlanSafe(c behavior.Combatant,act behavior.CombatAction)(*behavior.CombatAidWork,error){
+ if !combatWounds.Status(combatBody(c)).Conscious {
 		return nil, textError{Key: "error.combat_actor_inactive"}
 	}
 	if act.Type == "aid_continue" {
@@ -172,14 +176,14 @@ func (r *Runtime) performWoundAid(actor string, act behavior.CombatAction, inFig
 	// use the same Life clock; damage can interrupt the work before it takes effect.
 	remaining := plan.RemainingS
 	for remaining > 0 {
-		span := min(remaining, 30)
+		span := min(remaining, int(combatWounds.Blood.StepS))
 		r.state.Tick++
 		if err := r.advanceLifeFrameBy(int64(span)); err != nil {
 			return err
 		}
 		remaining -= span
 		c = r.state.CombatRoster[actor]
-		if !combatWounds.Status(combatBody(c)).Conscious {
+		if r.woundCareThreatened(c)||!combatWounds.Status(combatBody(c)).Conscious {
 			c.Aid = nil
 			r.state.CombatRoster[actor] = c
 			return nil
@@ -198,6 +202,10 @@ func (r *Runtime) performWoundAid(actor string, act behavior.CombatAction, inFig
 	return nil
 }
 func (r *Runtime) woundAidCandidates(c behavior.Combatant) []behavior.CombatCandidate {
+ if c.Controlled||len(c.Body)==0||len(combatBody(c).Wounds)==0{return nil}
+ if r.woundCareThreatened(c){return nil};return r.woundAidCandidatesSafe(c)
+}
+func (r *Runtime) woundAidCandidatesSafe(c behavior.Combatant) []behavior.CombatCandidate {
 	if c.Controlled || c.FightResponse == "flee" || len(c.Body) == 0 || !c.Able() || c.AP < 1 {
 		return nil
 	}
@@ -212,7 +220,7 @@ func (r *Runtime) woundAidCandidates(c behavior.Combatant) []behavior.CombatCand
 		}
 		for _, spec := range []struct{ kind, item string }{{"tourniquet", "item.med_tourniquet"}, {"medkit", "item.medkit_guard"}, {"dressing", "item.med_patch"}, {"packing", "item.med_gauze"}} {
 			action := behavior.CombatAction{Type: "aid", Mode: spec.kind, ItemID: spec.item, TargetID: w.ID}
-			plan, err := r.woundAidPlan(c, action)
+			plan, err := r.woundAidPlanSafe(c, action)
 			if err != nil {
 				continue
 			}
@@ -224,4 +232,30 @@ func (r *Runtime) woundAidCandidates(c behavior.Combatant) []behavior.CombatCand
 		}
 	}
 	return out
+}
+
+func(r *Runtime)woundCareThreatened(c behavior.Combatant)bool{
+ if combatWounds.CareUnderThreat{return false}
+ level:=r.actorWoundLevel(c.ID);if level==""{return false}
+ if r.state.Combat.ID!=""&&r.state.Combat.LevelID==level&&r.state.Combat.Active{return r.state.Combat.ThreatensCare(r.combatSpace(r.state.Combat),r.world.CombatRuntime.Rules,c)}
+ // A fight need not have started yet. Only authored hostile pairs count;
+ // a neutral market neighbour must never block medical care.
+ patient:=c;patient.Team="patient";s:=behavior.CombatState{LevelID:level,Actors:[]behavior.Combatant{patient}}
+ ids:=map[string]bool{}
+ for aggressor,targets:=range r.world.CombatLife.Aggressors{for _,target:=range targets{
+  if target==c.ID{ids[aggressor]=true};if aggressor==c.ID{ids[target]=true}
+ }}
+ // Finished encounters retain their opposed teams while their people remain nearby.
+ if r.state.Combat.LevelID==level{if old:=r.state.Combat.Actor(c.ID);old!=nil{for _,a:=range r.state.Combat.Actors{if a.Team!=old.Team{ids[a.ID]=true}}}}
+ ordered:=make([]string,0,len(ids));for id:=range ids{ordered=append(ordered,id)};sort.Strings(ordered)
+ for _,id:=range ordered{
+  where,at,ok:=r.knownCombatLifeActor(id);if !ok||where!=level{continue}
+  enemy:=r.combatant(id,"danger");enemy.Position=at
+  if !enemy.Able()||enemy.StunTurns>0{continue}
+  observer:=combatLifeObserver{ID:id,Level:level,At:at}
+  if !r.combatWorldIdentifies(observer,c.ID){continue}
+  s.Actors=append(s.Actors,enemy)
+ }
+ if len(s.Actors)<2{return false}
+ return s.ThreatensCare(r.combatSpace(s),r.world.CombatRuntime.Rules,patient)
 }

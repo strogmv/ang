@@ -3,12 +3,14 @@ package wounds
 import (
 	"errors"
 	"fmt"
+	"sort"
 )
 
 // Hit is one blow or projectile that reached the body (the combat layer decided it hit). Zone/Depth/Structures are
 // forced only by scenarios and tests; normally the engine rolls them from the weapon, the aim, the angle, the armour
 // and the attacker's skill.
 type Hit struct {
+	Limb       string   `json:"limb,omitempty"`
 	ID         string   `json:"id,omitempty"`
 	Author     string   `json:"author,omitempty"`
 	Weapon     string   `json:"weapon,omitempty"`
@@ -113,6 +115,18 @@ func (m Model) ApplyHit(b *Body, h Hit) (HitResult, error) {
 		}
 		zone = pick(weights, h.Seed, id, "zone")
 	}
+	if h.Limb == "" && h.Zone == "" {
+		ids := []string{}
+		for id, l := range m.Limbs {
+			if l.Zone == zone {
+				ids = append(ids, id)
+			}
+		}
+		sort.Strings(ids)
+		if len(ids) > 0 {
+			h.Limb = ids[int(roll(h.Seed, id, "limb")%uint64(len(ids)))]
+		}
+	}
 	z, ok := m.Zone(zone)
 	if !ok {
 		return res, fmt.Errorf("wounds: unknown zone %s", zone)
@@ -126,6 +140,22 @@ func (m Model) ApplyHit(b *Body, h Hit) (HitResult, error) {
 	}
 	if _, ok := depthRank[depth]; !ok {
 		return res, fmt.Errorf("wounds: unknown depth %s", depth)
+	}
+	// Separate same-zone blunt channels accumulate tissue damage, not an HP pool.
+	if mech == "blunt" && m.RepeatBluntHits > 0 && m.RepeatBluntWindowS > 0 {
+		n := 0
+		for _, prior := range b.Wounds {
+			if prior.Mechanism == mech && prior.Zone == zone && prior.Limb == h.Limb && b.Clock-prior.At <= m.RepeatBluntWindowS {
+				n++
+			}
+		}
+		depth = depthNames[min(3, depthRank[depth]+n/m.RepeatBluntHits)]
+	}
+	if h.Limb != "" {
+		limb, ok := m.Limbs[h.Limb]
+		if !ok || limb.Zone != zone {
+			return res, fmt.Errorf("wounds: invalid limb %s for %s", h.Limb, zone)
+		}
 	}
 	for _, item := range h.Armor {
 		for _, a := range m.Armor {
@@ -147,7 +177,7 @@ func (m Model) ApplyHit(b *Body, h Hit) (HitResult, error) {
 			}
 		}
 	}
-	w := Wound{ID: id, Zone: zone, Depth: depth, Mechanism: mech, Weapon: h.Weapon, Author: h.Author, At: b.Clock, HealAt: b.Clock + 86400}
+	w := Wound{Limb: h.Limb, ID: id, Zone: zone, Depth: depth, Mechanism: mech, Weapon: h.Weapon, Author: h.Author, At: b.Clock, HealAt: b.Clock + 86400}
 	if h.Technique != "" && h.Weapon == "" {
 		w.Weapon = ""
 	}

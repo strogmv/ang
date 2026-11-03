@@ -568,7 +568,10 @@ func combatWorldCornerEscape(t *testing.T, hidden behavior.Cell) []string {
 	r.world.CombatRuntime.Rules.HearingRangeMM = 1
 	hero, target := r.state.Life.Actor(playerActorID), r.state.Life.Actor(targetID)
 	oldLevel, entry := hero.Level, hero.Position
-	const level = "level.test_combat_corner"
+	// The same complete corner routes now include the authored retreat surcharge.
+ // Budget it explicitly; the test still compares every actual NPC search cell.
+ r.world.CombatRuntime.Rules.APPerTurn+=r.world.CombatRuntime.Rules.RetreatAP
+ const level = "level.test_combat_corner"
 	r.world.Life.Locations[level] = behavior.LifeLocation{Name: "Corner search fixture", CellMM: 1000, Terrain: []string{"############", "#....#.....#", "#....#.....#", "#..........#", "#....#.....#", "#....#.....#", "############"}}
 	r.world.Life.Edges = append(r.world.Life.Edges, behavior.LifeEdge{ID: "test.corner.exit", From: level, To: oldLevel, Exit: behavior.Cell{X: 1, Y: 3}, Entry: entry, Mode: "walk", TravelSeconds: 3, Seats: 1}, behavior.LifeEdge{ID: "test.corner.entry", From: oldLevel, To: level, Exit: entry, Entry: behavior.Cell{X: 1, Y: 3}, Mode: "walk", TravelSeconds: 3, Seats: 1})
 	r.world.Opaque["#"] = true
@@ -651,4 +654,23 @@ func TestCombatWorldExhaustedSearchDisengagesWithoutHiddenPositionTracking(t *te
 	if !reflect.DeepEqual(a, b) {
 		t.Fatalf("unseen silent movement changed NPC search: %v / %v", a, b)
 	}
+}
+
+func TestCombatV4FinishedIntentDoesNotRestartAfterCooldown(t *testing.T){
+ r,c,scene:=combatEpisodeFixture(t,"combat_knife_npc","ru");combatEpisodeEngage(t,r,c,scene)
+ if err:=r.performCombatAction(playerActorID,&behavior.CombatAction{Type:"surrender"});err!=nil{t.Fatal(err)}
+ if r.state.Combat.Active{t.Fatal("accepted surrender did not finish encounter")}
+ oldID:=r.state.Combat.ID
+ r.state.Life.Seconds+=r.world.CombatLife.ThreatMemorySeconds+1
+ r.combatLifeBeforeFrame();if err:=r.advanceWoundCare();err!=nil{t.Fatal(err)};if err:=r.advanceStealth();err!=nil{t.Fatal(err)}
+ // Both people remain physically present, conscious and in sight when the
+ // original cooldown expires. No patrol/movement can make this pass by leaving.
+ h,g:=r.state.Life.Actor(playerActorID),r.state.Life.Actor(scene.Guard)
+ if h.CombatHold||g.CombatHold||!r.combatWorldConscious(playerActorID)||!r.combatWorldConscious(scene.Guard){t.Fatal("fixture must have released two conscious actors")}
+ if !r.combatWorldIdentifies(combatLifeObserver{ID:g.ID,Level:g.Level,At:g.Position},h.ID){t.Fatal("fixture must retain personal sight")}
+ if err:=r.combatLifeAfterFrame();err!=nil{t.Fatal(err)}
+ if r.state.Combat.Active||r.state.Combat.ID!=oldID{t.Fatal("same consumed intention restarted the finished fight")}
+ // A fresh explicit attack is still allowed by the ordinary executor.
+ if err:=r.beginCombat(scene.Guard,playerActorID,"aggressor","defender");err!=nil{t.Fatal(err)}
+ if !r.state.Combat.Active{t.Fatal("new explicit attack was blocked")}
 }

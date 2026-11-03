@@ -11,7 +11,7 @@ namespace AngelsDemons.Poc {
   int combatSelected;string combatTargetId="",combatRefusal="",combatSentRequest="";float combatAxisAt,combatAxisXAt,combatRefusalUntil;PocCombatOption combatSentOption;
   int combatScrollSelected=-1;Vector2 combatBodyScroll;
   GUIStyle combatRowStyle,combatReasonStyle,combatApStyle,combatHeaderStyle;
-  static readonly string[] CombatParts={"torso","head","arms","legs"};
+  static readonly string[] CombatParts={"torso","head","armed_limb","arms","legs","neck","chest","abdomen","axilla","groin"};
   internal static readonly Rect CombatPanelFrame=new Rect(878,128,384,586);
   internal Rect CombatPanelRect=>CombatPanelFrame;
 
@@ -19,7 +19,7 @@ namespace AngelsDemons.Poc {
   List<PocCombatOption> CombatRows(){
    var rows=new List<PocCombatOption>();if(state==null)return rows;if(!HeroCombatActive()){if(state.PlayerCondition!=null)foreach(var o in state.PlayerCondition.AidOptions)rows.Add(o);return rows;}if(state.Combat==null)return rows;var targets=CombatTargets();
    if(!targets.Contains(combatTargetId))combatTargetId=targets.Count>0?targets[0]:"";
-   foreach(var o in state.Combat.Options){if(!string.IsNullOrEmpty(o.TargetId)&&(o.Group=="attack"||o.Id.StartsWith("move.approach.",StringComparison.Ordinal))&&o.TargetId!=combatTargetId)continue;rows.Add(o);}
+   foreach(var o in state.Combat.Options){if(o.Group=="attack"){int mark=o.Id.LastIndexOf('|');string part=mark<0?"torso":o.Id.Substring(mark+1);if(part!=combatBodyPart)continue;}if(!string.IsNullOrEmpty(o.TargetId)&&(o.Group=="attack"||o.Id.StartsWith("move.approach.",StringComparison.Ordinal))&&o.TargetId!=combatTargetId)continue;rows.Add(o);}
    return rows;
   }
   bool CombatHeroTurn(){return state!=null&&state.Combat!=null&&state.Combat.Active&&state.Combat.CurrentActorId=="char.hero";}
@@ -88,11 +88,12 @@ namespace AngelsDemons.Poc {
    int max=Math.Max(fight.TurnAp,hero.Ap+hero.ReservedAp);GUI.Label(new Rect(x,y,140,22),L("ui.combat.ap_left").Replace("{ap}",hero.Ap.ToString()).Replace("{max}",max.ToString()),hudBody);
    for(int i=0;i<max;i++){var pip=new Rect(x+150+i*30,y+4,24,14);Fill(pip,i<hero.Ap?new Color(.86f,.74f,.38f):i<hero.Ap+hero.ReservedAp?new Color(.45f,.6f,.85f):new Color(.2f,.22f,.24f));}
    y+=26;
+   GUI.Label(new Rect(x,y,w,32),L(hero.WeaponKind=="firearm"?"ui.combat.reserve_shot":"ui.combat.reserve_help"),new GUIStyle(hudSmall){fontSize=12,wordWrap=true});y+=32;
    // Own condition.
-   var bodyStyle=new GUIStyle(hudSmall){fontSize=12,wordWrap=true};float bodyHeight=0;
-   foreach(var line in hero.BodyLines)bodyHeight+=Mathf.Max(18,bodyStyle.CalcHeight(new GUIContent(line),w-22));
-   float bodyVisible=Mathf.Min(120,bodyHeight);combatBodyScroll=GUI.BeginScrollView(new Rect(x,y,w,bodyVisible),combatBodyScroll,new Rect(0,0,w-22,bodyHeight));float by=0;
-   foreach(var line in hero.BodyLines){float height=Mathf.Max(18,bodyStyle.CalcHeight(new GUIContent(line),w-22));GUI.Label(new Rect(0,by,w-22,height),line,bodyStyle);by+=height;}GUI.EndScrollView();y+=bodyVisible;
+   var bodyStyle=new GUIStyle(hudSmall){fontSize=12,wordWrap=true,padding=new RectOffset(0,0,0,0),margin=new RectOffset(0,0,0,0),fixedHeight=0,alignment=TextAnchor.UpperLeft};float bodyHeight=0;
+   foreach(var line in hero.BodyLines)bodyHeight+=Mathf.Max(22,bodyStyle.CalcHeight(new GUIContent(line),w-22));
+   float bodyVisible=Mathf.Min(120,bodyHeight+4);combatBodyScroll=GUI.BeginScrollView(new Rect(x,y,w,bodyVisible),combatBodyScroll,new Rect(0,0,w-22,bodyHeight));float by=0;
+   foreach(var line in hero.BodyLines){float height=Mathf.Max(22,bodyStyle.CalcHeight(new GUIContent(line),w-22));GUI.Label(new Rect(0,by,w-22,height),line,bodyStyle);by+=height;}GUI.EndScrollView();y+=bodyVisible;
 
    var cond=new List<string>();if(hero.Bleeding>0)cond.Add(L("ui.combat.bleeding"));if(hero.Stunned)cond.Add(L("ui.combat.stunned"));if(hero.Stance!="stand")cond.Add(L("ui.combat.stance."+hero.Stance));if(hero.Guarding)cond.Add(L("ui.combat.guard"));
    string weapon=hero.HeldName;if(hero.WeaponKind=="firearm")weapon+=" · "+hero.Ammo+"/"+(hero.Ammo+hero.ReserveAmmo);
@@ -103,24 +104,24 @@ namespace AngelsDemons.Poc {
    string tline=target==null?L("ui.combat.no_target"):L("ui.combat.target_line").Replace("{name}",CombatActorName(target.Id)).Replace("{dist}",(target.DistanceMm/1000f).ToString("0.0",System.Globalization.CultureInfo.GetCultureInfo(CurrentLocale())));
    var st=new List<string>();if(target!=null){if(!string.IsNullOrEmpty(target.HeldName))st.Add(target.HeldName);foreach(var sign in target.Signs)st.Add(sign);if(target.Guarding)st.Add(L("ui.combat.guard"));if(target.Stunned)st.Add(L("ui.combat.stunned"));if(target.Stance!="stand")st.Add(L("ui.combat.stance."+target.Stance));}
    Fill(new Rect(x-4,y-2,w+8,42),new Color(.12f,.08f,.06f,.8f));GUI.Label(new Rect(x,y,w,22),tline,hudBody);GUI.Label(new Rect(x,y+20,w,18),string.Join(" · ",st),hudSmall);y+=44;
-   GUI.Label(new Rect(x,y,w,20),L("ui.combat.body."+combatBodyPart)+"  ◂ ▸",hudSmall);y+=22;
+   if(GUI.Button(new Rect(x,y,w,22),L("ui.combat.body."+combatBodyPart)+"  ◂ ▸",hudSmall)){int i=Array.IndexOf(CombatParts,combatBodyPart);combatBodyPart=CombatParts[(i+1)%CombatParts.Length];}y+=24;
    GUI.Label(new Rect(x,y,w,44),L("ui.combat.nonlethal_risk"),new GUIStyle(hudSmall){fontSize=12,wordWrap=true});y+=44;
    // The server's validated actions.
    var rows=CombatRows();combatSelected=Mathf.Clamp(combatSelected,0,Math.Max(0,rows.Count-1));bool can=CombatCanCommand();
    float bottom=box.yMax-62,available=Mathf.Max(55,bottom-y);float total=0,selectedTop=0;
-   for(int i=0;i<rows.Count;i++){if(i==combatSelected)selectedTop=total;total+=(rows[i].Enabled?30:47)+2;}
+   for(int i=0;i<rows.Count;i++){if(i==combatSelected)selectedTop=total;total+=30+2;}
    if(combatScrollSelected!=combatSelected){if(selectedTop<combatScroll.y)combatScroll.y=selectedTop;else if(selectedTop+49>combatScroll.y+available)combatScroll.y=selectedTop+49-available;combatScrollSelected=combatSelected;}
    combatScroll=GUI.BeginScrollView(new Rect(x-4,y,w+8,available),combatScroll,new Rect(0,0,w-16,total));float ry=0;
    for(int i=0;i<rows.Count;i++){
-    var o=rows[i];float rh=o.Enabled?30:47;var r=new Rect(0,ry,w-20,rh);
+    var o=rows[i];float rh=30;var r=new Rect(0,ry,w-20,rh);
     if(i==combatSelected)Fill(r,new Color(.42f,.32f,.16f,.55f));
     var color=GUI.color;if(!o.Enabled||!can)GUI.color=new Color(1,1,1,.5f);
     if(GUI.Button(new Rect(0,ry,r.width,30),(i<9?(i+1)+"  ":"")+o.Label,combatRowStyle)){combatSelected=i;CombatExecute(o);}
     if(o.Ap>0)GUI.Label(new Rect(r.width-90,ry+4,86,22),L("ui.combat.ap_cost").Replace("{ap}",o.Ap.ToString()),combatApStyle);
-    GUI.color=color;if(!o.Enabled)GUI.Label(new Rect(12,ry+29,r.width-16,18),o.Reason,combatReasonStyle);ry+=rh+2;
+    GUI.color=color;if(!o.Enabled&&i==combatSelected)combatRefusal=o.Reason;ry+=rh+2;
    }
    GUI.EndScrollView();
-   if(Time.unscaledTime<combatRefusalUntil){Fill(new Rect(x-4,box.yMax-60,w+8,22),new Color(.35f,.1f,.08f,.85f));GUI.Label(new Rect(x,box.yMax-59,w,20),combatRefusal,new GUIStyle(hudSmall){normal={textColor=new Color(1f,.82f,.72f)}});}
+   if(Time.unscaledTime<combatRefusalUntil||rows.Count>0&&!rows[combatSelected].Enabled){if(Time.unscaledTime>=combatRefusalUntil)combatRefusal=rows[combatSelected].Reason;Fill(new Rect(x-4,box.yMax-68,w+8,40),new Color(.35f,.1f,.08f,.85f));GUI.Label(new Rect(x,box.yMax-67,w,38),combatRefusal,new GUIStyle(hudSmall){fontSize=12,wordWrap=true,normal={textColor=new Color(1f,.82f,.72f)}});}
    GUI.Label(new Rect(x,box.yMax-34,w,30),L("ui.combat.controls"),new GUIStyle(hudSmall){wordWrap=true});
   }
  }

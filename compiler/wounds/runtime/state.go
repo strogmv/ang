@@ -36,12 +36,19 @@ func (m Model) Status(b Body) Status {
 				splint = true
 				continue
 			}
+			// Grip loss belongs to the affected limb. Old unlabelled wounds
+			// conservatively keep the v3 whole-body grip restriction.
+			if d := m.Effects[e]; !d.HoldWeapon && w.Limb != "" && b.ArmedLimb != "" && w.Limb != b.ArmedLimb {
+				continue
+			}
 			fx[e] = true
 		}
 		if contains(w.Controls, "tourniquet") && !w.LimbLost {
 			if z, ok := m.Zone(w.Zone); ok {
 				for _, e := range m.Aid.Kinds["tourniquet"].LimbEffects[z.Part] {
-					fx[e] = true
+					if m.Effects[e].HoldWeapon || w.Limb == "" || b.ArmedLimb == "" || w.Limb == b.ArmedLimb {
+						fx[e] = true
+					}
 				}
 			}
 		}
@@ -244,8 +251,19 @@ func (m Model) ValidateBody(b Body) error {
 	if _, ok := m.Chips[b.Chip]; !ok {
 		return fmt.Errorf("wounds: body %s chip %q", b.ID, b.Chip)
 	}
+	if b.ArmedLimb != "" {
+		if _, ok := m.Limbs[b.ArmedLimb]; !ok {
+			return fmt.Errorf("wounds: unknown armed limb")
+		}
+	}
 	ids := map[string]bool{}
 	for _, w := range b.Wounds {
+		if w.Limb != "" {
+			l, ok := m.Limbs[w.Limb]
+			if !ok || l.Zone != w.Zone {
+				return fmt.Errorf("wounds: invalid wound limb")
+			}
+		}
 		if ids[w.ID] || w.At > b.Clock {
 			return fmt.Errorf("wounds: body %s wound %s", b.ID, w.ID)
 		}

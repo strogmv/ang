@@ -93,7 +93,8 @@ func (r *Runtime) refreshCombatEquipment(s inv.State,a *behavior.Combatant) {
 	a.BodyArmor=behavior.CombatArmor{}
 	a.Ammo=0;a.ReserveAmmo=0;a.Medkits=0;a.Explosives=nil
 	if item,w,ok:=r.equippedCombatItem(s,a.ID);ok {
-		a.Weapon=w;a.WeaponUsesLimited=true
+		if len(a.Body)>0{b:=combatBody(*a);ids:=[]string{};for id:=range combatWounds.Limbs{ids=append(ids,id)};sort.Strings(ids);for _,id:=range ids{if combatWounds.Limbs[id].Slot==item.Location.Slot&&b.ArmedLimb!=id{b.ArmedLimb=id;projectWoundBody(a,b);break}}}
+  a.Weapon=w;a.WeaponUsesLimited=true
 		a.WeaponUsesRemaining=int(item.Condition/r.world.Inventory.Definitions[item.Definition].WearPerUse)
 		if w.Magazine>0&&w.AmmoDefinition!=""{
 			a.Ammo=r.combatCount(s,a.ID,w.AmmoDefinition,func(i inv.Item)bool{return i.Location.Kind=="store"&&i.Location.Store==inv.ItemStore(item.ID)})
@@ -188,7 +189,7 @@ func(r *Runtime)wearCombatArmor(s *inv.State,event behavior.CombatEvent)error{
  for _,id:=range combatItemKeys(*s){
   item:=s.Items[id];armor,ok:=r.world.CombatRuntime.Armor[item.Definition]
   if !ok||item.Location.Store!=inv.ActorStore(event.TargetID)||item.Location.Slot==""||!r.combatCarried(*s,event.TargetID,item){continue}
-  protects:=armor.Torso;switch event.BodyPart{case "head":protects=armor.Head;case "arms":protects=armor.Arms;case "legs":protects=armor.Legs}
+  protects:=armor.Torso;switch r.world.CombatRuntime.Rules.PhysicalPart(event.BodyPart){case "head":protects=armor.Head;case "arms":protects=armor.Arms;case "legs":protects=armor.Legs}
   if protects<=0{continue};wear:=r.world.Inventory.Definitions[item.Definition].WearPerUse*int64(event.ArmorBlocked);if wear<=0{return errors.New("protective equipment has no wear contract")};wear=min(wear,item.Condition)
   _,err:=s.Apply(r.inventoryModelFor(true),inv.Transaction{Actor:event.TargetID,Sequence:s.Cursors[event.TargetID].Sequence+1,RequestTag:fmt.Sprintf("combat/armor/%d/%s",event.Sequence,id),Wear:[]inv.Wear{{Item:item.ID,ExpectedRevision:item.Revision,Amount:wear}}});if err!=nil{return err}
  }

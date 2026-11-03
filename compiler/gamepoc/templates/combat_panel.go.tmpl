@@ -24,6 +24,7 @@ type combatPanelCache struct {
 
 func (r *Runtime) appendCombatPanel(msg *pb.PocGameState, locale string) {
 	r.appendWoundViews(msg,locale)
+ r.appendGroundWeapons(msg)
  // A weapon in a seen hand is observable before any fight (scenes and encounters only: one inventory pass each).
 	if r.world.PlayableID != "" || r.state.Combat.Active {
 		for _, a := range msg.SceneAgents {
@@ -41,7 +42,7 @@ func (r *Runtime) appendCombatPanel(msg *pb.PocGameState, locale string) {
 	// client can still show what already happened; positions of the finished encounter are not republished.
 	if !s.Active && s.ID != "" && s.LevelID == r.currentLevel() && len(view.Events) == 0 {
 		for _, e := range r.state.CombatPublicEvents {
-			view.Events = append(view.Events, &pb.PocCombatEvent{Type: e.Type, ActorId: e.ActorID, TargetId: e.TargetID, FromX: int32(e.From.X), FromY: int32(e.From.Y), ToX: int32(e.To.X), ToY: int32(e.To.Y), Amount: int32(e.Amount), Hit: e.Hit, Turn: e.Turn, Sequence: e.Sequence, BodyPart: e.BodyPart, ItemId: e.ItemID})
+			view.Events = append(view.Events, &pb.PocCombatEvent{Type: e.Type,Mode:e.Mode, ActorId: e.ActorID, TargetId: e.TargetID, FromX: int32(e.From.X), FromY: int32(e.From.Y), ToX: int32(e.To.X), ToY: int32(e.To.Y), Amount: int32(e.Amount), Hit: e.Hit, Turn: e.Turn, Sequence: e.Sequence, BodyPart: e.BodyPart, ItemId: e.ItemID})
 		}
 	}
 	if len(view.Events) == len(r.state.CombatPublicEvents) {
@@ -87,8 +88,8 @@ func (r *Runtime) appendCombatPanel(msg *pb.PocGameState, locale string) {
 
 // combatTry executes one action on a copy and returns the AP it took from the hero.
 func (r *Runtime) combatTry(action behavior.CombatAction) (int,error){
- trial:=&Runtime{world:r.world,state:r.snapshotState(),npcAccountIDs:r.npcAccountIDs};before:=trial.state.Combat.Actor(playerActorID);if before==nil{return 0,fmt.Errorf("missing hero")};ap:=before.AP
- if err:=trial.performCombatAction(playerActorID,&action);err!=nil{return 0,err};after:=trial.state.Combat.Actor(playerActorID);if after!=nil{return max(0,ap-after.AP),nil};return 0,nil
+ trial:=&Runtime{world:r.world,state:r.snapshotState(),npcAccountIDs:r.npcAccountIDs};before:=trial.state.Combat.Actor(playerActorID);if before==nil{return 0,fmt.Errorf("missing hero")};ap:=before.AP;beforeSeq:=trial.state.Combat.EventSeq
+ if err:=trial.performCombatAction(playerActorID,&action);err!=nil{return 0,err};spent:=0;found:=false;for _,e:=range trial.state.Combat.Events{if e.Sequence>beforeSeq&&e.ActorID==playerActorID&&(e.Type==action.Type||action.Type=="aid"&&e.Type=="bandage"||action.Type=="aid_continue"&&e.Type=="bandage"){spent+=e.AP;found=true}};if found{return spent,nil};after:=trial.state.Combat.Actor(playerActorID);if after!=nil{return max(0,ap-after.AP),nil};return 0,nil
 }
 
 func (r *Runtime) combatOptions(locale string) []*pb.PocCombatOption {
@@ -111,7 +112,7 @@ func (r *Runtime) combatOptions(locale string) []*pb.PocCombatOption {
 		return text("error.combat.need_ap", "{need}", strconv.Itoa(need), "{have}", strconv.Itoa(hero.AP))
 	}
 	var out []*pb.PocCombatOption
-	add := func(group, id, label string, action behavior.CombatAction, nominal int, why func(error) string) {
+	emit := func(group, id, label string, action behavior.CombatAction, nominal int, why func(error) string) {
 		o := &pb.PocCombatOption{Id: id, Action: action.Type, TargetId: action.TargetID, Mode: action.Mode, ItemId: action.ItemID, X: int32(action.To.X), Y: int32(action.To.Y), Ap: int32(nominal), Label: label, Group: group}
 		switch {
 		case !ready:
@@ -128,9 +129,18 @@ func (r *Runtime) combatOptions(locale string) []*pb.PocCombatOption {
 				o.Reason = why(err)
 			}
 		}
-		out = append(out, o)
+		if group=="care"&&!o.Enabled{for _,prior:=range out{if prior.Group=="care"&&!prior.Enabled{return}}}
+  if group=="care"&&!o.Enabled&&o.Reason!=text("wounds.aid.under_threat"){return}
+  out = append(out, o)
 	}
-	other := func(error) string { return text("error.combat.other") }
+add:=func(group,id,label string,action behavior.CombatAction,nominal int,why func(error)string){
+  if group=="attack"&&action.BodyPart=="torso"&&action.Mode!="stun_blow"&&action.Mode!="chokehold"{
+   ids:=make([]string,0,len(rules.Targets));for part:=range rules.Targets{ids=append(ids,part)};sort.Strings(ids)
+   for _,part:=range ids{q:=action;q.BodyPart=part;key:=id;if part!="torso"{key+="|"+part};emit(group,key,label,q,nominal+rules.Targets[part].ExtraAP,why)}
+   return
+  };emit(group,id,label,action,nominal,why)
+ }
+ other := func(error) string { return text("error.combat.other") }
 	spent := hero.WeaponUsesLimited && hero.WeaponUsesRemaining == 0
 	firearm := hero.Weapon.Magazine > 0
 	// Visible, still fighting opponents, nearest first (server metric distance).
@@ -148,6 +158,7 @@ func (r *Runtime) combatOptions(locale string) []*pb.PocCombatOption {
 		target := t
 		dist := r.combatDistance(hero.Position, target.Position)
 		attackWhy := func(error) string {
+   if rules.CloseMM>0&&hero.Weapon.RangeMM>rules.CloseMM&&dist<=rules.CloseMM{return text("error.combat.cramped")}
 			switch {
 			case spent:
 				return text("error.combat.weapon_spent")
@@ -211,15 +222,19 @@ func (r *Runtime) combatOptions(locale string) []*pb.PocCombatOption {
 
  if hero.Aid!=nil{add("care","aid_continue",text("ui.combat.aid_continue"),behavior.CombatAction{Type:"aid_continue"},min(hero.AP,hero.Aid.RemainingS),other)}
  body:=combatBody(*hero)
- for _,w:=range body.Wounds{
+ careThreat:=r.woundCareThreatened(*hero)
+ for wi,w:=range body.Wounds{
+  if careThreat&&wi>0{break}
   for _,spec:=range []struct{kind,item string}{{"pressure",""},{"tourniquet","item.med_tourniquet"},{"packing","item.med_gauze"},{"dressing","item.med_patch"},{"medkit","item.medkit_guard"}}{
+   if careThreat&&spec.kind!="pressure"{continue}
    q:=spec;z,_:=combatWounds.Zone(w.Zone)
    label:=text("wounds.aid."+q.kind)+" · "+text(z.Name)+" ("+w.ID+")"
    add("care","aid."+w.ID+"."+q.kind,label,behavior.CombatAction{Type:"aid",TargetID:w.ID,Mode:q.kind,ItemID:q.item},min(hero.AP,int(combatWounds.Aid.Kinds[q.kind].Seconds)),func(err error)string{var refusal textError;if errors.As(err,&refusal){return text(refusal.Key,"{aid}",text("wounds.aid."+q.kind))};return other(err)})
   }
  }
 
-	if !firearm {
+for _,d:=range []behavior.Cell{{1,0},{0,1},{-1,0},{0,-1}}{at:=behavior.Cell{X:hero.Position.X+d.X,Y:hero.Position.Y+d.Y};if _,err:=r.combatTry(behavior.CombatAction{Type:"roll",To:at});err==nil{add("move",fmt.Sprintf("roll.%d.%d",at.X,at.Y),text("ui.combat.roll"),behavior.CombatAction{Type:"roll",To:at},rules.RollAP,other)}}
+ if !firearm {
 		add("stance", "guard", text("ui.combat.guard"), behavior.CombatAction{Type: "guard"}, rules.GuardAP+1, func(error) string {
 			if spent {
 				return text("error.combat.weapon_spent")
@@ -253,12 +268,7 @@ type combatSpacing struct {
 }
 
 func (r *Runtime) combatEndSpacingMM(mover, other behavior.Combatant) int {
-	sp := r.world.CombatSpacing
-	d := sp.BodyMM
-	if b, ok := sp.Weapons[mover.Weapon.ID]; ok && mover.Team != other.Team && b.MinMM > d {
-		d = b.MinMM
-	}
-	return d
+ return r.world.CombatSpacing.BodyMM
 }
 
 // combatBand: where the hero wants to stand to strike — [low edge, min(high edge, reach)].
@@ -345,9 +355,20 @@ func (r *Runtime) combatStep(hero *behavior.Combatant, target *behavior.Combatan
 		if !away && c.score < 1000000 && !r.combatObserverSees(r.state.Combat.LevelID, playerActorID, c.at, target.Position) {
 			continue
 		}
-		if _, err := r.combatTry(behavior.CombatAction{Type: "move", To: c.at}); err == nil {
+		if ap, err := r.combatTry(behavior.CombatAction{Type: "move", To: c.at}); err == nil && (!away||ap<=budget) {
 			return c.at, true
 		}
 	}
 	return behavior.Cell{}, false
+}
+
+func(r *Runtime)appendGroundWeapons(msg *pb.PocGameState){
+ if !strings.HasPrefix(r.world.PlayableID,"combat_")&&r.state.Combat.ID==""{return}
+ hero:=r.state.Life.Actor(playerActorID);if hero==nil||!hero.OnFloor(){return};level:=r.currentLevel()
+ for _,id:=range combatItemKeys(r.state.Inventory){item:=r.state.Inventory.Items[id]
+  if item.Location.Kind!="ground"||item.Location.Level!=level{continue};if _,ok:=r.world.CombatRuntime.Weapons[item.Definition];!ok{continue}
+  at:=behavior.Cell{X:item.Location.At.X,Y:item.Location.At.Y};if !r.combatObserverSees(level,playerActorID,hero.Position,at){continue}
+  owner:="";if item.Owner==playerActorID{owner=playerActorID}else{for _,agent:=range msg.SceneAgents{if agent.Id==item.Owner{owner=item.Owner;break}}}
+  msg.GroundWeapons=append(msg.GroundWeapons,&pb.PocGroundWeapon{ItemId:id,Definition:item.Definition,X:int32(at.X),Y:int32(at.Y),OwnerId:owner})
+ }
 }

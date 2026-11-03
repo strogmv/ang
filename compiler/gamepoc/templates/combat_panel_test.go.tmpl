@@ -117,7 +117,8 @@ func TestCombatEpisodeKnifeOptionsBarksAndSaveLoad(t *testing.T) {
 	attacks, bandaged := 0, false
 	for step := 0; step < 80 && r.heroInCombat() && combatEpisodeHeroTurn(r); step++ {
 		view = combatEpisodeView(r, c)
-		if !saved && attacks > 0 {
+		// A serious first hit may end v4 immediately. Save after the real paid equip, before the blow.
+  if !saved && r.state.Combat.Actor(playerActorID).Weapon.ID=="item.knife_simple" && r.state.Combat.Actor(playerActorID).AP<r.world.CombatRuntime.Rules.APPerTurn {
 			snapshot = r.snapshotState()
 			if err := r.writeSave(r.world.Config.SaveSlots[0], snapshot); err != nil {
 				t.Fatal(err)

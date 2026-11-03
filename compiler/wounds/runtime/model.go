@@ -312,7 +312,17 @@ type Scenario struct {
 }
 
 // Model is the compiled catalog world.wounds.
+type Limb struct {
+	Name string `json:"name"`
+	Zone string `json:"zone"`
+	Slot string `json:"slot"`
+}
 type Model struct {
+	CareUnderThreat    bool            `json:"care_under_threat"`
+	Limbs              map[string]Limb `json:"limbs"`
+	RepeatBluntWindowS int64           `json:"repeat_blunt_window_s"`
+	RepeatBluntHits    int             `json:"repeat_blunt_hits"`
+
 	Version    int                         `json:"version"`
 	Difficulty Difficulty                  `json:"difficulty"`
 	Blood      Blood                       `json:"blood"`
@@ -414,6 +424,20 @@ func (m Model) AidItem(item, kind string) (AidItem, bool) {
 
 // Validate is the structural gate of the catalog (content rules against the world: compiler/wounds.Check).
 func (m Model) Validate() error {
+	slots := map[string]bool{}
+	for id, l := range m.Limbs {
+		if id == "" || l.Name == "" || l.Slot == "" || slots[l.Slot] {
+			return fmt.Errorf("wounds: invalid paired limb %s", id)
+		}
+		if _, ok := m.Zone(l.Zone); !ok {
+			return fmt.Errorf("wounds: unknown limb zone")
+		}
+		slots[l.Slot] = true
+	}
+	if m.RepeatBluntHits < 0 || m.RepeatBluntWindowS < 0 || m.RepeatBluntWindowS > 600 {
+		return fmt.Errorf("wounds: invalid repeated impact rules")
+	}
+
 	if m.Version != 1 {
 		return fmt.Errorf("wounds: unsupported version %d", m.Version)
 	}

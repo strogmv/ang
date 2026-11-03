@@ -6,6 +6,7 @@ import (
 	"angelsdemons/server/internal/wounds"
  pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
 	"reflect"
+ "strings"
 	"testing"
 )
 
@@ -82,11 +83,12 @@ func TestWoundsDeathAfterCombatLedger(t *testing.T) {
 	}
 }
 func TestWoundsTourniquetSpendsPhysicalItem(t *testing.T) {
-	r, _, _ := combatEpisodeFixture(t, "combat_knife", "ru")
+	r, _, d := combatEpisodeFixture(t, "combat_knife", "ru")
 	c := woundArtery(t, r, playerActorID)
-	r.state.CombatRoster = map[string]behavior.Combatant{playerActorID: c}
-	r.storeWoundBody(c)
-	count := r.combatCount(r.state.Inventory, playerActorID, "item.med_tourniquet", nil)
+	guard:=r.combatant(d.Guard,"opposition");gb:=combatBody(guard);gb.KnockoutUntil=gb.Clock+600;projectWoundBody(&guard,gb)
+ r.state.CombatRoster = map[string]behavior.Combatant{playerActorID:c,d.Guard:guard}
+ r.storeWoundBody(c);r.storeWoundBody(guard);r.combatCareHold(guard)
+ count := r.combatCount(r.state.Inventory, playerActorID, "item.med_tourniquet", nil)
 	if count < 1 {
 		t.Fatal("CUE episode did not issue tourniquet")
 	}
@@ -135,9 +137,13 @@ func TestWoundsHostSaveBleedingReplay(t *testing.T) {
 func TestWoundsAidProgressPersistsAndOnlyWorksAfterCompletion(t *testing.T) {
 	r, c, d := combatEpisodeFixture(t, "combat_knife", "ru")
 	combatEpisodeEngage(t, r, c, d)
-	hero := r.state.Combat.Actor(playerActorID)
+// The v3 progress test now starts behind a genuine bodily safety interlock:
+ // a conscious enemy stunned for ten minutes cannot reach or fire next turn.
+ enemy:=r.state.Combat.Actor(d.Guard);eb:=combatBody(*enemy);eb.StunUntil=eb.Clock+600;projectWoundBody(enemy,eb)
+ hero := r.state.Combat.Actor(playerActorID)
 	injured := woundArtery(t, r, playerActorID)
 	projectWoundBody(hero, combatBody(injured))
+ hero.FightResponse="fight_on" // The serious-wound response already chose to continue; bodily limits still apply.
 	r.syncCombatLife()
 	wound := combatBody(*hero).Wounds[0].ID
 	stock := r.combatCount(r.state.Inventory, playerActorID, "item.med_tourniquet", nil)
@@ -240,4 +246,42 @@ func TestWoundsHeroBreakDistanceAndLeave(t *testing.T){
  if err:=r.performCombatAction(playerActorID,&behavior.CombatAction{Type:"disengage"});err!=nil{t.Fatal(err)}
  if r.state.CombatWorld.Cooldowns[scene.Guard+"\x00"+playerActorID]<=r.state.Life.Seconds{t.Fatal("escape immediately reopens automatic aggression")}
  if r.state.Combat.Active||!r.state.Combat.Actor(playerActorID).Withdrawn||r.state.Wounds.Ledger.Count(playerActorID)!=0{t.Fatal("real non-killing exit did not resolve the encounter")}
+}
+
+func TestCombatV4AidThreatRefusalDoesNotSpendAndPanelHasNoPlaceholders(t *testing.T){
+ for _,locale:=range []string{"ru","en"}{
+  r,c,d:=combatEpisodeFixture(t,"combat_knife_npc",locale);combatEpisodeEngage(t,r,c,d)
+  hero:=r.state.Combat.Actor(playerActorID);injured:=woundArtery(t,r,playerActorID);projectWoundBody(hero,combatBody(injured));hero.FightResponse="fight_on";r.syncCombatLife()
+  before:=r.snapshotState();w:=combatBody(*hero).Wounds[0].ID
+  err:=r.performCombatAction(playerActorID,&behavior.CombatAction{Type:"aid",Mode:"tourniquet",TargetID:w,ItemID:"item.med_tourniquet"})
+  if err==nil||err.Error()!="wounds.aid.under_threat"||!reflect.DeepEqual(before,r.snapshotState()){t.Fatal("unsafe aid accepted or spent/changed state",err)}
+  view:=combatEpisodeView(r,c);for _,o:=range view.Combat.Options{for _,line:=range []string{o.Label,o.Reason}{if strings.Contains(line,"{")||strings.Contains(line,"}"){t.Fatalf("%s unresolved panel: %s",locale,line)}}}
+ }
+}
+
+func TestCombatV4ArmedLimbHitDropsActualKnifeOnServerFloor(t *testing.T){
+ r,c,d:=combatEpisodeFixture(t,"combat_knife_npc","ru");combatEpisodeEngage(t,r,c,d);r.world.CombatRuntime.Rules.MinHit=1;r.world.CombatRuntime.Rules.MaxHit=1
+ base:=r.snapshotState();found:=false
+ for seed:=int64(1);seed<=200;seed++{r.state=base;r.state=r.snapshotState();r.state.Combat.Seed=seed
+  target:=r.state.Combat.Actor(d.Guard);before,_,ok:=r.equippedCombatItem(r.state.Inventory,d.Guard);if !ok{t.Fatal("NPC has no physical knife")}
+  // Use a real legal target at baton reach, outside cramped contact.
+  hero:=r.state.Combat.Actor(playerActorID);target.Position=behavior.Cell{X:hero.Position.X+2,Y:hero.Position.Y};r.syncCombatLife()
+  act:=behavior.CombatAction{Type:"attack",Mode:"heavy",BodyPart:"armed_limb",TargetID:d.Guard};if err:=r.performCombatAction(playerActorID,&act);err!=nil{t.Fatal(err)}
+  target=r.state.Combat.Actor(d.Guard);if target.BodyCanHold{continue};found=true
+  item:=r.state.Inventory.Items[before.ID];if item.Location.Kind!="ground"||item.Location.Level!=d.Level||item.Location.At.X!=target.Position.X||item.Location.At.Y!=target.Position.Y{t.Fatalf("knife did not become the real floor item at the fallen body: %+v",item.Location)}
+  b:=combatBody(*target);if len(b.Wounds)==0||b.Wounds[0].Limb!=b.ArmedLimb{t.Fatal("wound lost the armed limb identity")};break
+ }
+ if !found{t.Fatal("no armed-limb functional injury in 200 guaranteed impacts")}
+}
+
+func TestCombatV4HeroFearCannotWithdrawInsideKnifeReach(t *testing.T){
+ r,c,scene:=combatEpisodeFixture(t,"combat_knife_npc","ru");combatEpisodeEngage(t,r,c,scene)
+ hero,foe:=r.state.Combat.Actor(playerActorID),r.state.Combat.Actor(scene.Guard)
+ spec:=r.world.CombatRuntime.Probes["contact"];hero.Position=spec.Hero;foe.Position=spec.Enemy
+ injured:=woundArtery(t,r,playerActorID);projectWoundBody(hero,combatBody(injured))
+ found:=false
+ for seed:=int64(1);seed<=500;seed++{projectWoundBody(hero,combatBody(injured));hero.Prone=false;hero.FightResponse="";r.state.Combat.Seed=seed;r.stopWoundedFight(&r.state.Combat,hero);if hero.FightResponse=="flee"{found=true;break};hero.Surrendered=false;hero.StandDownUntil=0}
+ if !found{t.Fatal("no actual fear/flight response in 500 body-model seeds")}
+ if hero.Withdrawn{t.Fatal("fear teleported hero out of contact")}
+ if _,err:=r.combatTry(behavior.CombatAction{Type:"disengage"});err==nil{t.Fatal("adjacent knife contact must still be broken physically")}
 }

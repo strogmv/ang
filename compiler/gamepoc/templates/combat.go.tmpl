@@ -25,7 +25,10 @@ type combatProfile struct {
 }
 type combatLifeSync struct { EncounterID string; Sequence uint64 }
 
+type combatProbe struct{Episode string `json:"episode"`;Hero,Enemy behavior.Cell;WoundScenario string `json:"wound_scenario"`}
 type combatCatalog struct {
+ Probes map[string]combatProbe `json:"probes"`
+
  WeaponRisk map[string]int `json:"weapon_risk"`
  ShockFallSeconds int64 `json:"shock_fall_seconds"`
 	Rules           behavior.CombatRules             `json:"rules"`
@@ -73,6 +76,7 @@ func (c combatCatalog) Validate() error {
 func cloneCombatant(a behavior.Combatant) behavior.Combatant {
  if a.Aid!=nil{w:=*a.Aid;a.Aid=&w}
  a.Body=append([]byte(nil),a.Body...)
+ a.BodyEffects=append([]string(nil),a.BodyEffects...)
  a.Contacts=append([]behavior.CombatContact(nil),a.Contacts...)
  a.Explosives=append([]behavior.CombatExplosiveStock(nil),a.Explosives...)
  return a
@@ -81,7 +85,7 @@ func (r *Runtime) combatant(id, team string) behavior.Combatant {
  name:=r.world.CombatRuntime.Actors[id];if name==""{name=r.world.CombatRuntime.DefaultProfile};p:=r.world.CombatRuntime.Profiles[name]
  a:=behavior.Combatant{ID:id,Team:team,HP:100,MaxHP:100,Armor:p.Armor,Skill:p.Skill,Courage:p.Courage,Initiative:p.Initiative,Noncombatant:p.Noncombatant,Trained:p.Trained,Weapon:p.Weapon,Controlled:id==playerActorID}
  if old,ok:=r.state.CombatRoster[id];ok {
-  a.HP=old.HP;a.Surrendered=old.Surrendered;a.Crouched=old.Crouched;a.Prone=old.Prone
+  a.HP=old.HP;a.Surrendered=old.Surrendered;a.StandDownUntil=old.StandDownUntil;a.Crouched=old.Crouched;a.Prone=old.Prone
   a.Bleeding=old.Bleeding;a.Suppression=old.Suppression;a.Morale=old.Morale;a.TacticalInitialized=old.TacticalInitialized
   a.HeadWound=old.HeadWound;a.ArmWound=old.ArmWound;a.LegWound=old.LegWound;a.StunTurns=old.StunTurns
  }
@@ -104,7 +108,13 @@ func (r *Runtime) combatSpace(s behavior.CombatState) behavior.CombatSpace {
 	result := behavior.CombatSpace{Space: space, CellMM: unit}
  result.ApplyImpact=func(s *behavior.CombatState,source,target,part,mode string)int{amount,err:=r.applyWoundImpact(s,source,target,part,mode);if err!=nil{panic(err)};return amount}
  result.AdvanceTime=r.advanceCombatBodies
- result.AidOptions=r.woundAidCandidates
+ // Reuse this immutable physical space throughout one decision. Rebuilding
+ // GateModel for every reachable care candidate was quadratic in the world size.
+ result.AidOptions=func(a behavior.Combatant)[]behavior.CombatCandidate{
+  if a.Controlled||len(a.Body)==0||len(combatBody(a).Wounds)==0{return nil}
+  if !combatWounds.CareUnderThreat&&s.ThreatensCare(result,r.world.CombatRuntime.Rules,a){return nil}
+  return r.woundAidCandidatesSafe(a)
+ }
  result.AttackAngle=r.woundAttackAngle
  if r.world.CombatSpacing.BodyMM>0{result.EndSpacingMM=r.combatEndSpacingMM} // doc 96 v2: world.combat_spacing (combat_panel.go.tmpl)
  result.CanUseWeapon=func(a behavior.Combatant)bool{item,w,ok:=r.equippedCombatItem(r.state.Inventory,a.ID);return ok&&w.ID==a.Weapon.ID&&r.craftingUsable(item.ID,a.ID)}
@@ -288,9 +298,19 @@ func (r *Runtime) advanceCombatAI() error {
 	return nil
 }
 func (r *Runtime) combatCommand(q *pb.PocCombatCommand) error {
-	if !r.heroInCombat()&&(q.Action=="aid"||q.Action=="bandage"||q.Action=="heal"){
+ if !r.heroInCombat()&&q.Action=="stand"{
+  trial:=&Runtime{world:r.world,state:r.snapshotState(),npcAccountIDs:r.npcAccountIDs};c,ok:=trial.state.CombatRoster[playerActorID]
+  if !ok||!c.Prone||!c.BodyCanStand||c.Surrendered{return textError{Key:"error.combat_actor_inactive"}}
+  cost:=trial.world.CombatRuntime.Rules.GetUpAP;if cost<1||cost>trial.world.CombatRuntime.Rules.APPerTurn{return textError{Key:"error.combat_invalid_action"}}
+  if err:=trial.advanceLifeFrameBy(int64(cost));err!=nil{return err};c=trial.state.CombatRoster[playerActorID];if !c.BodyCanStand{return textError{Key:"error.combat_actor_inactive"}}
+  c.Prone=false;c.FallShifted=false;c.AP=trial.world.CombatRuntime.Rules.APPerTurn-cost;trial.state.CombatRoster[playerActorID]=c
+  if a:=trial.state.Combat.Actor(playerActorID);a!=nil{*a=c;trial.state.Combat.EventSeq++;trial.state.Combat.Events=append(trial.state.Combat.Events,behavior.CombatEvent{Type:"stand",Mode:"get_up",ActorID:c.ID,TargetID:c.ID,From:c.Position,To:c.Position,AP:cost,Turn:trial.state.Combat.Turn,Sequence:trial.state.Combat.EventSeq});trial.capturePublicCombatEvents()}
+  trial.storeWoundBody(c);trial.syncCombatLife();r.state=trial.state;return nil
+ }
+
+	if !r.heroInCombat()&&(q.Action=="aid"||q.Action=="aid_continue"||q.Action=="bandage"||q.Action=="heal"){
  trial:=&Runtime{world:r.world,state:r.snapshotState(),npcAccountIDs:r.npcAccountIDs}
- act:=behavior.CombatAction{Type:q.Action,Mode:q.Mode,ItemID:q.ItemId,TargetID:q.TargetId};if q.Action!="aid"{act.TargetID="";act.Mode="dressing";if q.Action=="heal"{act.Mode="medkit";act.ItemID="item.medkit_guard"}}
+ act:=behavior.CombatAction{Type:q.Action,Mode:q.Mode,ItemID:q.ItemId,TargetID:q.TargetId};if q.Action=="bandage"||q.Action=="heal"{act.TargetID="";act.Mode="dressing";if q.Action=="heal"{act.Mode="medkit";act.ItemID="item.medkit_guard"}}
  if err:=trial.performWoundAid(playerActorID,act,false);err!=nil{return err};r.state=trial.state;return nil
  }
  if q.Action == "start" {
@@ -488,7 +508,7 @@ func (r *Runtime) appendCombat(msg *pb.PocGameState) {
 view.Actors=append(view.Actors,r.combatActorView(a,a.ID==playerActorID))
 	}
 	for _, e := range r.state.CombatPublicEvents {
-		view.Events = append(view.Events, &pb.PocCombatEvent{Type: e.Type, ActorId: e.ActorID, TargetId: e.TargetID, FromX: int32(e.From.X), FromY: int32(e.From.Y), ToX: int32(e.To.X), ToY: int32(e.To.Y), Amount: int32(e.Amount), Hit: e.Hit, Turn: e.Turn, Sequence: e.Sequence,BodyPart:e.BodyPart,ItemId:e.ItemID})
+		view.Events = append(view.Events, &pb.PocCombatEvent{Type: e.Type,Mode:e.Mode, ActorId: e.ActorID, TargetId: e.TargetID, FromX: int32(e.From.X), FromY: int32(e.From.Y), ToX: int32(e.To.X), ToY: int32(e.To.Y), Amount: int32(e.Amount), Hit: e.Hit, Turn: e.Turn, Sequence: e.Sequence,BodyPart:e.BodyPart,ItemId:e.ItemID})
 	}
 	msg.Combat = view
 }

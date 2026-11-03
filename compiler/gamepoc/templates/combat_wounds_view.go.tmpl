@@ -16,7 +16,7 @@ func (r *Runtime) appendWoundViews(msg *pb.PocGameState, locale string) {
  // Seat activity is a separate channel. Publish an observable fallen pose
  // for ordinary Life bodies too, so the client can play combat_look.down after combat.
  for _,agent:=range msg.SceneAgents{if actor,ok:=r.state.CombatRoster[agent.Id];ok&&len(actor.Body)>0{
-  if !combatWounds.Status(combatBody(actor)).Standing{agent.Activity="down";agent.Task=text("ui.combat.down")}else if actor.Surrendered{agent.Activity="surrendered";agent.Task=text("ui.combat.surrendered")}
+  if actor.Prone||!combatWounds.Status(combatBody(actor)).Standing{agent.Activity="down";agent.Task=text("ui.combat.down")}else if actor.Surrendered{agent.Activity="surrendered";agent.Task=text("ui.combat.surrendered")}
  }}
 	own := func(v *pb.PocCombatActor, c behavior.Combatant) {
 		if v == nil || len(c.Body) == 0 {
@@ -26,13 +26,15 @@ func (r *Runtime) appendWoundViews(msg *pb.PocGameState, locale string) {
 		view := combatWounds.ViewSelf(body, 7*86400)
 		forecast := strings.NewReplacer("{minutes}", fmt.Sprint(view.Minutes), "{hours}", fmt.Sprint(view.Hours)).Replace(text(view.ForecastKey))
 		v.BodyLines = append(v.BodyLines, text(view.State))
-		for _, line := range view.Lines {
+		effects:=map[string]bool{}
+ for _, line := range view.Lines {
 			names := []string{}
 			for _, key := range line.Structures {
 				names = append(names, text(key))
 			}
 			if len(names)==0{names=append(names,text(line.Mechanism))}
-			value := strings.NewReplacer("{zone}", text(line.Zone), "{structure}", strings.Join(names, ", "), "{forecast}", forecast).Replace(text("wounds.wound.line"))
+			zone:=text(line.Zone);if line.Limb!=""{zone=text(line.Limb)}
+ value := strings.NewReplacer("{zone}", zone, "{structure}", strings.Join(names, ", "), "{forecast}", forecast).Replace(text("wounds.wound.line"))
 			if line.Danger {
 				value = "! " + value
 			}
@@ -41,7 +43,7 @@ func (r *Runtime) appendWoundViews(msg *pb.PocGameState, locale string) {
 			}
 			v.BodyLines = append(v.BodyLines, value)
 			for _, effect := range line.Effects {
-				v.BodyLines = append(v.BodyLines, text(effect))
+				if !effects[effect]{v.BodyLines = append(v.BodyLines, text(effect));effects[effect]=true}
 			}
 		}
 		if len(view.Lines) == 0 && !body.Dead {
@@ -73,7 +75,8 @@ func (r *Runtime) appendWoundViews(msg *pb.PocGameState, locale string) {
 		if a.ID == playerActorID {
 			own(v, *a)
 		} else {
-			for _, key := range combatWounds.ViewOther(combatBody(*a)) {
+			if a.Able()&&a.StunTurns==0&&a.ReservedAP>0{v.Signs=append(v.Signs,text("ui.combat.readiness"))}
+ for _, key := range combatWounds.ViewOther(combatBody(*a)) {
 				v.Signs = append(v.Signs, text(key))
 			}
 		}
@@ -105,9 +108,10 @@ func (r *Runtime) outsideWoundAidOptions(c behavior.Combatant, locale string) []
 				o.Reason = text("error.combat.other")
 			}
 		}
-		out = append(out, o)
+		if o.Enabled||len(out)==0{out = append(out, o)}
 	}
-	if c.Aid != nil {
+	if c.Prone&&c.BodyCanStand&&!c.Surrendered{add(behavior.CombatAction{Type:"stand"},text("ui.combat.stance.stand"));if len(out)>0{out[len(out)-1].Enabled=true;out[len(out)-1].Reason=""}}
+ if c.Aid != nil {
 		add(behavior.CombatAction{Type: "aid_continue"}, text("ui.combat.aid_continue"))
 	}
 	for _, w := range combatBody(c).Wounds {

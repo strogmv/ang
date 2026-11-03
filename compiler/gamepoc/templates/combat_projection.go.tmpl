@@ -20,7 +20,7 @@ func(r *Runtime)capturePublicCombatEventsFrom(previous behavior.CombatState){
   // Apply the path's steps and stance changes in event order. Coming around
   // the corner later in this SAME command does not reveal an earlier attacker.
   if p,ok:=poses[raw.ActorID];ok{
-   switch raw.Type{case "move","move_stop":p.Position=raw.To;case "prone":p.Prone=true;p.Crouched=false;case "crouch":p.Crouched=true;p.Prone=false;case "stand":p.Prone=false;p.Crouched=false}
+   switch raw.Type{case "move","move_stop","roll","fall_shift":p.Position=raw.To;case "prone":p.Prone=true;p.Crouched=false;case "crouch":p.Crouched=true;p.Prone=false;case "stand":p.Prone=false;p.Crouched=false}
    poses[p.ID]=p;if p.ID==playerActorID{observer=p}
   }
   if raw.Type=="down"||raw.Type=="dead"||raw.Type=="fall"{if p,ok:=poses[raw.TargetID];ok{p.Prone=true;p.Crouched=false;poses[p.ID]=p}}

@@ -17,7 +17,8 @@ type combatResponder struct {
 	Levels               []string `json:"levels"`
 }
 type combatLifeCatalog struct {
-	Enabled                        bool                       `json:"enabled"`
+	FinishConsumesIntent           bool `json:"finish_consumes_intent"`
+ Enabled                        bool                       `json:"enabled"`
 	DisengageWhenContactsExhausted bool                       `json:"disengage_when_contacts_exhausted"`
 	SightRangeMM                   int                        `json:"sight_range_mm"`
 	HearingRangeMM                 int                        `json:"hearing_range_mm"`
@@ -401,6 +402,11 @@ func (r *Runtime) combatLifeAfterFrame() error {
 		}
 		observer := combatLifeObserver{ID: id, Level: actor.Level, At: actor.Position}
 		for _, targetID := range r.world.CombatLife.Aggressors[id] {
+   // A concluded fight consumed this persistent authored intention. Expiring
+   // sight/cooldown is no new assault; explicit new attacks still use beginCombat.
+   last:=r.state.CombatWorld
+   if r.world.CombatLife.FinishConsumesIntent&&!r.state.Combat.Active&&last.EncounterID==r.state.Combat.ID&&last.EncounterID!=""&&((last.InitiatorID==id&&last.VictimID==targetID)||(last.InitiatorID==targetID&&last.VictimID==id)){continue}
+
 			target := r.state.Life.Actor(targetID)
 			if target == nil || !target.OnFloor() || target.CombatHold || target.Level != actor.Level || r.state.CombatWorld.Cooldowns[id+"\x00"+targetID] > r.state.Life.Seconds || r.state.Life.RelationTo(r.world.Life, id, targetID) > r.world.CombatLife.HostileAtOrBelow || !r.combatWorldIdentifies(observer,targetID) {
 				continue
