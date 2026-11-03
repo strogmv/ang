@@ -100,7 +100,7 @@ namespace AngelsDemons.Poc {
    public long turn;public string outcome;
    public string kind,actor,target,item,part,mode;public List<Vector2Int> path=new List<Vector2Int>();public Vector2Int from,to;
    public Vector2Int victimFrom,victimTo;public bool victimShift;
-   public bool hit,parried,targetDown,targetStunned,valid;public int amount;public float seconds,impact=.5f,lead,turnRate=360;public PocCombatClip clip,reaction;public string zone,side,sign;public PocCombatWeaponLook victimStance;public PocCombatZoneReaction zr;public bool bodyStrike,bloodDone,contactLogged;public Vector3 hips0,tip0;public bool hips0Set;public float missMinSkin=float.PositiveInfinity,tipBest=float.PositiveInfinity;public bool fxDone,propDone;public float parryBeforeGap=-1,parryBestGap=float.PositiveInfinity,parryBestAt,parryBestBase;
+   public bool hit,parried,targetDown,targetStunned,valid;public int amount;public float seconds,impact=.5f,lead,turnRate=360;public PocCombatClip clip,reaction;public Vector3 shaft;public bool hasShaft;public string zone,side,sign;public PocCombatWeaponLook victimStance;public PocCombatZoneReaction zr;public bool bodyStrike,bloodDone,contactLogged;public Vector3 hips0,tip0;public bool hips0Set;public float missMinSkin=float.PositiveInfinity,tipBest=float.PositiveInfinity;public bool fxDone,propDone;public float parryBeforeGap=-1,parryBestGap=float.PositiveInfinity,parryBestAt,parryBestBase;
   }
   sealed class CombatBody {public Vector2Int cell;public int knifeSeries;public bool placed,wasDown;public bool surrenderShown;public float surrenderAt;public float fallAt;public string held,shownState;public float flashUntil,readyW,actW,gripW;public Vector3 ease;public Transform ring;public string readyState,actState;public bool silhouette;public Vector3 shift;public float leanDeg,shiftAt=-1,shiftUntil,pinWeight,clutchAt=-1,clutchUntil,clutchWeight;public Vector3 pinLP,pinRP;public Quaternion pinLQ,pinRQ;public string clutchZone,clutchSide;public bool pinned;}
   Material combatRingMaterial;
@@ -392,7 +392,7 @@ namespace AngelsDemons.Poc {
     if(down&&!knockoutPending){if(!body.wasDown){body.wasDown=true;body.fallAt=CombatNow;}clip=CombatFallClip(id);clipTime=Mathf.Clamp01((CombatNow-body.fallAt)/Mathf.Max(.1f,CombatClipSeconds(an,CombatFallClip(id),1.2f)));fallen=true;}
     else if(actor!=null&&actor.Surrendered&&!queued&&CombatClipSet(look.surrender)){if(!body.surrenderShown){body.surrenderShown=true;body.surrenderAt=CombatNow;}clip=look.surrender;clipTime=Mathf.Clamp01((CombatNow-body.surrenderAt)/CombatClipSeconds(an,clip,2));}
     else if(actor!=null&&actor.Stunned&&!queued&&CombatClipSet(look.stunned)){clip=look.stunned;clipTime=-1;}
-    else if(!walking){bool crouch=actor!=null&&actor.Stance!="stand";
+    else if(!walking){bool crouch=actor!=null&&actor.Stance!="stand"&&!(active&&beat.bodyStrike&&beat.target==id);
      if(crouch&&!string.IsNullOrEmpty(locationSDKHumanoidCast.crouch_idle_state)){want=locationSDKHumanoidCast.crouch_idle_state;}
      else if(id=="char.hero"&&state.PlayerCondition!=null&&(state.PlayerCondition.Bleeding>0||state.PlayerCondition.BodyLines.Count>2)&&CombatClipSet(look.injured)&&!(active&&beat.bodyStrike&&beat.target==id)){clip=look.injured;clipTime=-1;}
      else if(active&&beat.bodyStrike&&beat.target==id&&beat.victimStance!=null&&CombatClipSet(beat.victimStance.stance)){clip=beat.victimStance.stance;clipTime=-1;}
@@ -507,11 +507,16 @@ namespace AngelsDemons.Poc {
   // The see-through figure of a fighter: the speaker shells of barks v2 (same skin, ANG/BarkSpeaker) with the rim off —
   // only its "Through" pass draws, where a wall or a counter hides the body. null colour = off.
   readonly Dictionary<string,BarkGlow> combatSilhouettes=new Dictionary<string,BarkGlow>(StringComparer.Ordinal);
+  // The pass tests "behind what is already drawn". Drawn among the world and before any person or prop, it can only be behind the world: never
+  // behind another fighter, and never behind this body's own limbs or the joints inside its shell. Both stay inside the opaque pass.
+  const int CombatSilhouetteQueue=2450,CombatPeopleQueue=2470;
+  void CombatPeopleAfterSilhouette(LocationSDKHumanoid h){if(h.renderers!=null)foreach(var r in h.renderers)if(r!=null)foreach(var m in r.sharedMaterials)if(m!=null&&m.renderQueue<CombatPeopleQueue)m.renderQueue=CombatPeopleQueue;}
   void CombatSilhouette(LocationSDKHumanoid h,Color? colour){
    BarkGlow g;combatSilhouettes.TryGetValue(h.id,out g);
    if(colour==null){if(g!=null)foreach(var s in g.shells)if(s!=null&&s.activeSelf)s.SetActive(false);return;}
-   if(g==null||g.h!=h){g=BarkGlowMake(h);if(g==null)return;g.mat.name="combat silhouette / "+h.id;g.mat.SetFloat("_RimOn",0);combatSilhouettes[h.id]=g;}
-   g.mat.SetColor("_Color",colour.Value);foreach(var s in g.shells)if(s!=null&&!s.activeSelf)s.SetActive(true);
+   if(g==null||g.h!=h){g=BarkGlowMake(h);if(g==null)return;g.mat.name="combat silhouette / "+h.id;g.mat.SetFloat("_RimOn",0);g.mat.SetShaderPassEnabled("UniversalForward",false);g.mat.renderQueue=CombatSilhouetteQueue;combatSilhouettes[h.id]=g;}
+   CombatPeopleAfterSilhouette(h);
+   {var silhouetteLook=CombatLook();float gain=silhouetteLook!=null&&silhouetteLook.scene!=null&&GraphicsFull?Mathf.Pow(2,-silhouetteLook.scene.post_exposure):1;var shown=colour.Value;shown.r*=gain;shown.g*=gain;shown.b*=gain;g.mat.SetColor("_Color",shown);}foreach(var s in g.shells)if(s!=null&&!s.activeSelf)s.SetActive(true);
   }
 
   // The depot during a fight (presentation only, the stealth light model and Go's lux are untouched): a global volume of
@@ -535,7 +540,7 @@ namespace AngelsDemons.Poc {
     combatBackFill.transform.rotation=Quaternion.Euler(35,ce.y+150,0);combatBackFill.intensity=scene.fill_back_intensity;combatBackFill.enabled=scene.fill_back_intensity>0;
     combatFill.intensity=scene.fill_intensity;combatFill.color=scene.fill_rgb!=null&&scene.fill_rgb.Length==3?new Color(scene.fill_rgb[0],scene.fill_rgb[1],scene.fill_rgb[2]):Color.white;combatFill.enabled=true;
     foreach(var hb in locationSDKHumanoids.Values)if(hb.renderers!=null)foreach(var r in hb.renderers)if(r!=null&&(r.renderingLayerMask&CombatPeopleLayer)==0)r.renderingLayerMask|=CombatPeopleLayer;
-    foreach(var pr in combatProps.Values)if(pr.go!=null)foreach(var r in pr.go.GetComponentsInChildren<Renderer>())if((r.renderingLayerMask&CombatPeopleLayer)==0)r.renderingLayerMask|=CombatPeopleLayer;
+    foreach(var pr in combatProps.Values)if(pr.go!=null)foreach(var r in pr.go.GetComponentsInChildren<Renderer>()){if((r.renderingLayerMask&CombatPeopleLayer)==0)r.renderingLayerMask|=CombatPeopleLayer;foreach(var m in r.sharedMaterials)if(m!=null&&m.renderQueue<CombatPeopleQueue)m.renderQueue=CombatPeopleQueue;}
    }
    else if(combatFill!=null)combatFill.enabled=false;
    if(combatVolume==null||combatVolume.transform.parent!=locationSDKRoot.transform){
@@ -637,6 +642,7 @@ namespace AngelsDemons.Poc {
      if(hand!=null&&tip!=null&&atip!=null&&weight>0){var rig=d.animator.GetComponent<PocCombatContactRig>();if(rig!=null&&rig.built){
       Vector3 contact=CombatParryPoint(a,d,look);Quaternion localProp=Quaternion.Inverse(hand.rotation)*dp.go.transform.rotation;Vector3 grip=Quaternion.Inverse(hand.rotation)*(dp.go.transform.position-hand.position),mid=Quaternion.Inverse(hand.rotation)*(Vector3.Lerp(dp.go.transform.position,tip.position,look.contact.shaft_fraction)-hand.position);
       Quaternion desired=Quaternion.LookRotation(Vector3.up,d.go.transform.forward)*Quaternion.Inverse(localProp);rig.Pose(contact-desired*mid,desired,weight);dp.go.transform.SetPositionAndRotation(hand.position+hand.rotation*grip,hand.rotation*localProp);
+      beat.shaft=Vector3.Lerp(dp.go.transform.position,tip.position,look.contact.shaft_fraction);beat.hasShaft=true;
       float gap=CombatParryGap(ap,dp,look.contact.shaft_fraction);
       if(!beat.propDone&&gap<beat.parryBestGap){beat.parryBestGap=gap;beat.parryBestAt=CombatAutoTime;beat.parryBestBase=beat.parryBeforeGap;CombatAutoShot("parry-contact-r2");}
       if(phase>=beat.impact+look.contact.window*.5f&&!beat.propDone){beat.propDone=true;CombatM1Parry(beat,beat.parryBestGap);Debug.Log("V4_PARRY gap_m="+beat.parryBestGap.ToString("F4",System.Globalization.CultureInfo.InvariantCulture)+" base_gap_m="+beat.parryBestBase.ToString("F4",System.Globalization.CultureInfo.InvariantCulture)+" contact_t="+beat.parryBestAt.ToString("F3",System.Globalization.CultureInfo.InvariantCulture)+" recoil_gap_m="+gap.ToString("F4",System.Globalization.CultureInfo.InvariantCulture));}
@@ -697,7 +703,7 @@ namespace AngelsDemons.Poc {
    float wIn=CombatSmooth((tt-(tc-c.in_s))/Mathf.Max(.01f,c.in_s)),wOut=1-CombatSmooth((tt-(tc+c.hold_s))/Mathf.Max(.01f,c.out_s));float w=Mathf.Min(wIn,wOut);
    if(w<=0){rig.Pose(rig.target.position,rig.target.rotation,0);return true;}
    Vector3 point,normal=Vector3.zero;var toVictim=victim.go.transform.position-h.go.transform.position;toVictim.y=0;toVictim.Normalize();
-   if(beat.parried){var defender=victim;point=CombatParryPoint(h,defender,look);float recoil=CombatSmooth((tt-tc-c.hold_s)/.16f);point-=toVictim*(c.parry_recoil_m*recoil);point+=CombatMissSide(toVictim)*(c.parry_knock_m*recoil);}
+   if(beat.parried){var defender=victim;point=beat.hasShaft?beat.shaft:CombatParryPoint(h,defender,look);float recoil=CombatSmooth((tt-tc-c.hold_s)/.16f);point-=toVictim*(c.parry_recoil_m*recoil);point+=CombatMissSide(toVictim)*(c.parry_knock_m*recoil);}
    else if(!beat.hit){Vector3 chest;Vector3 n;if(!CombatZonePoint(victim,look,"chest","",out chest,out n))return false;point=chest+CombatMissSide(toVictim)*c.miss_side_m+toVictim*c.miss_beyond_m+Vector3.up*c.miss_up_m;}
    else if(!CombatZonePoint(victim,look,beat.zone,beat.side,out point,out normal))return false;
    var shoulder=rig.arm.data.root.position;Vector3 dir=(point-shoulder).normalized;var flat=dir;flat.y=0;if(flat.sqrMagnitude>1e-4f)dir=Vector3.Lerp(flat.normalized,dir,.65f).normalized;
@@ -728,7 +734,7 @@ namespace AngelsDemons.Poc {
   GameObject CombatBloodPiece(string label,Vector3 at,Quaternion q,Vector3 scale){
    if(combatBloodMesh==null){var tmp=GameObject.CreatePrimitive(PrimitiveType.Sphere);combatBloodMesh=tmp.GetComponent<MeshFilter>().sharedMesh;Destroy(tmp);}
    var look=CombatLook();var rgb=look==null||look.blood==null||look.blood.rgb==null||look.blood.rgb.Length!=3?new[]{.3f,.015f,.012f}:look.blood.rgb;
-   if(combatBloodMat==null){combatBloodMat=new Material(Shader.Find("Universal Render Pipeline/Unlit")){enableInstancing=true};locationSDKHumanoidOwned.Add(combatBloodMat);}
+   if(combatBloodMat==null){combatBloodMat=new Material(Shader.Find("Universal Render Pipeline/Unlit")){enableInstancing=true,renderQueue=CombatPeopleQueue};locationSDKHumanoidOwned.Add(combatBloodMat);}
    float gain=look!=null&&look.scene!=null&&GraphicsFull?Mathf.Pow(2,-look.scene.post_exposure):1;combatBloodMat.SetColor("_BaseColor",new Color(rgb[0]*gain,rgb[1]*gain,rgb[2]*gain,1));
    var go=new GameObject(label){layer=LocationSDKLayer};go.transform.SetParent(locationSDKRoot.transform,false);go.transform.SetPositionAndRotation(at,q);go.transform.localScale=scale;go.AddComponent<MeshFilter>().sharedMesh=combatBloodMesh;var r=go.AddComponent<MeshRenderer>();r.sharedMaterial=combatBloodMat;r.shadowCastingMode=UnityEngine.Rendering.ShadowCastingMode.Off;r.receiveShadows=false;r.lightProbeUsage=UnityEngine.Rendering.LightProbeUsage.Off;r.reflectionProbeUsage=UnityEngine.Rendering.ReflectionProbeUsage.Off;combatBloodObjects.Add(go);return go;
   }

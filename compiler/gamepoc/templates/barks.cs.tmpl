@@ -402,7 +402,7 @@ namespace AngelsDemons.Poc {
    float now=Time.realtimeSinceStartup,dt=barkGlowClock<0?0:Mathf.Clamp(now-barkGlowClock,0,.25f);barkGlowClock=now;
    foreach(var kv in want){
     BarkGlow g;
-    if(!barkGlows.TryGetValue(kv.Key,out g)){LocationSDKHumanoid h;if(!locationSDKHumanoids.TryGetValue(kv.Key,out h)||h==null||h.go==null)continue;g=BarkGlowMake(h);if(g==null)continue;barkGlows[kv.Key]=g;}
+    if(!barkGlows.TryGetValue(kv.Key,out g)){LocationSDKHumanoid h;if(!locationSDKHumanoids.TryGetValue(kv.Key,out h)||h==null||h.go==null)continue;g=BarkGlowMake(h);if(g!=null&&CombatLook()!=null)g.mat.SetShaderPassEnabled("SRPDefaultUnlit",false);if(g==null)continue;barkGlows[kv.Key]=g;}
     g.target=kv.Value.a;g.colour=kv.Value;
    }
    List<string> dead=null;

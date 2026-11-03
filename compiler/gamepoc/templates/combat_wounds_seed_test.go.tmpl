@@ -430,14 +430,14 @@ func TestCombatV4BodyStripEightDirections(t *testing.T){
 var combatM1Report=flag.String("combat-m1-report","","write real saves for each outcome of the knife strike; excluded from duel statistics")
 func TestCombatMoment1Probes(t *testing.T){
  if *combatM1Report==""{t.Skip("opt-in moment 1 fixtures")}
- type want struct{Name,Probe,Mode,Part,Outcome,Zone,Side,Sign string}
+ type want struct{Name,Probe,Mode,Part,Outcome,Zone,Side,Sign string;Hero,Enemy *behavior.Cell}
  cases:=[]want{}
  for _,zone:=range []string{"chest","abdomen","groin","neck","axilla"}{for _,side:=range []string{"left","right"}{cases=append(cases,want{Name:"hit_"+zone+"_"+side,Probe:"knife",Mode:"heavy",Part:zone,Outcome:"hit",Zone:zone,Side:side})}}
  cases=append(cases,want{Name:"hit_skin",Probe:"knife",Mode:"quick",Part:"chest",Outcome:"hit",Zone:"chest",Sign:"blood"},want{Name:"hit_artery",Probe:"knife",Mode:"heavy",Part:"neck",Outcome:"hit",Zone:"neck",Sign:"blood_spurt"},want{Name:"hit_vein",Probe:"knife",Mode:"heavy",Part:"neck",Outcome:"hit",Zone:"neck",Sign:"blood_flow"},
-  want{Name:"miss_hero",Probe:"knife",Mode:"heavy",Part:"torso",Outcome:"miss"},want{Name:"parried_npc",Probe:"parry",Outcome:"parried"},want{Name:"miss_npc",Probe:"parry",Outcome:"miss"},want{Name:"hit_npc",Probe:"parry",Outcome:"hit"},want{Name:"hit_npc_low",Probe:"parry",Outcome:"hit",Zone:"abdomen"})
+  want{Name:"miss_hero",Probe:"knife",Mode:"heavy",Part:"torso",Outcome:"miss"},want{Name:"parried_npc",Probe:"parry",Outcome:"parried"},want{Name:"miss_npc",Probe:"parry",Outcome:"miss"},want{Name:"hit_npc",Probe:"parry",Outcome:"hit"},want{Name:"hit_npc_low",Probe:"parry",Outcome:"hit",Zone:"abdomen"},want{Name:"behind_block",Probe:"parry",Hero:&behavior.Cell{X:25,Y:16},Enemy:&behavior.Cell{X:24,Y:15}})
  index:=[]map[string]any{}
  for _,c:=range cases{
-  probeRuntime,_,_:=combatEpisodeFixture(t,"combat_knife","ru");spec:=probeRuntime.world.CombatRuntime.Probes[c.Probe]
+  probeRuntime,_,_:=combatEpisodeFixture(t,"combat_knife","ru");spec:=probeRuntime.world.CombatRuntime.Probes[c.Probe];if c.Hero!=nil{spec.Hero=*c.Hero;spec.Enemy=*c.Enemy}
   r,cc,scene:=combatEpisodeFixture(t,spec.Episode,"ru");combatEpisodeEngage(t,r,cc,scene)
   hero:=r.state.Combat.Actor(playerActorID)
   if spec.Episode=="combat_knife"&&hero.Weapon.ID=="unarmed"{for _,gear:=range r.combatEquipmentOptions(playerActorID){if gear.Weapon.ID=="item.knife_simple"{act:=behavior.CombatAction{Type:"equip",ItemID:gear.ID};if err:=r.performCombatAction(playerActorID,&act);err!=nil{t.Fatal(err)};break}}}
@@ -463,7 +463,7 @@ func TestCombatMoment1Probes(t *testing.T){
    }
    if strike==nil{continue}
    outcome:="miss";if strike.Hit{outcome="hit"}else if parried{outcome="parried"}
-   if outcome!=c.Outcome{continue}
+   if c.Outcome!=""&&outcome!=c.Outcome{continue}
    side,sign:="","";if outcome=="hit"{p:=strings.SplitN(mark,":",2);if len(p)!=2{continue};side,sign=p[0],p[1]}
    if c.Zone!=""&&zone!=c.Zone||c.Side!=""&&side!=c.Side||c.Sign!=""&&sign!=c.Sign{continue}
    if outcome=="hit"&&zone==""{continue}
