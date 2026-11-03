@@ -464,7 +464,7 @@ func TestCombatMoment1Probes(t *testing.T){
    if strike==nil{continue}
    outcome:="miss";if strike.Hit{outcome="hit"}else if parried{outcome="parried"}
    if c.Outcome!=""&&outcome!=c.Outcome{continue}
-   side,sign:="","";if outcome=="hit"{p:=strings.SplitN(mark,":",2);if len(p)!=2{continue};side,sign=p[0],p[1]}
+   side,sign:="","";if outcome=="hit"{p:=strings.Split(mark,":");if len(p)!=3{continue};side,sign=p[0],p[1]}
    if c.Zone!=""&&zone!=c.Zone||c.Side!=""&&side!=c.Side||c.Sign!=""&&sign!=c.Sign{continue}
    if outcome=="hit"&&zone==""{continue}
    events:=append([]behavior.CombatEvent(nil),r.state.Combat.Events...)

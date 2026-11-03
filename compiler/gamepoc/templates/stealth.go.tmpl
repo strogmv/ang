@@ -61,6 +61,8 @@ type stealthState struct {
 	Level                      string
 	X, Y, WalkedMM, FootfallMM float64
 	NoiseSequence              uint64
+	// The hero's last real direction of motion: what another actor's takedown check reads as his facing.
+	HeroFaceX, HeroFaceY float64
 }
 
 func (s stealthState) Clone() stealthState {
@@ -91,11 +93,12 @@ func (r *Runtime) stealthCommand(mode string) error {
 	if !r.world.Stealth.Enabled || r.state.Paused || h == nil || !h.OnFloor() || h.CombatHold || r.heroInCombat() {
 		return textError{Key: "error.stealth.unavailable"}
 	}
-	if mode != "on" && mode != "off" {
+	if mode != "on" && mode != "off" && mode != "upright" {
 		return textError{Key: "error.stealth.mode"}
 	}
 	r.heroBodyNow()
-	h.Sneaking = mode == "on"
+	h.Sneaking = mode != "off"
+	h.SneakUpright = mode == "upright"
 	if h.Sneaking {
 		r.state.Life.SecondsPerTick = r.world.Stealth.FrameSeconds
 	}
@@ -140,7 +143,7 @@ func (r *Runtime) stealthEvidence(h *behavior.LifeActor, o combatLifeObserver, f
 		exposure = 1
 	}
 	if v := r.world.Decks[o.Level]; v != nil {
-		target := behavior.Combatant{ID: h.ID, Position: h.Position, Crouched: h.Sneaking}
+		target := behavior.Combatant{ID: h.ID, Position: h.Position, Crouched: h.Sneaking && !h.SneakUpright}
 		exposure = 1 - v.CombatPoseProtection(o.At, h.Position, behavior.Combatant{ID: o.ID, Position: o.At}, target, "")
 
 		if light.Known {
@@ -176,7 +179,7 @@ func (r *Runtime) stealthEvidence(h *behavior.LifeActor, o combatLifeObserver, f
 			heightDelta = float64(th - oh)
 		}
 	}
-	return behavior.StealthEvidence{DistanceMM: int(math.Ceil(math.Hypot(length, heightDelta))), FacingDot: dot, Exposure: exposure, Moving: moving, Sneaking: h.Sneaking, LightKnown: light.Known, LightFactor: lightFactor}
+	return behavior.StealthEvidence{DistanceMM: int(math.Ceil(math.Hypot(length, heightDelta))), FacingDot: dot, Exposure: exposure, Moving: moving, Sneaking: h.Sneaking && !h.SneakUpright, LightKnown: light.Known, LightFactor: lightFactor}
 }
 func (r *Runtime) advanceStealth() error {
 	if !r.world.Stealth.Enabled || !r.state.Life.Enabled || !r.state.Active || r.state.Paused {
@@ -214,6 +217,10 @@ func (r *Runtime) advanceStealth() error {
 		}
 	} else {
 		s.FootfallMM = 0
+	}
+	if s.Sampled && s.Level == h.Level && moving && math.Hypot(x-s.X, y-s.Y) > .01 {
+		n := math.Hypot(x-s.X, y-s.Y)
+		s.HeroFaceX, s.HeroFaceY = (x-s.X)/n, (y-s.Y)/n
 	}
 	s.Sampled = true
 	s.Level = h.Level

@@ -541,7 +541,7 @@ func (r *Runtime) illuminationBody(h *behavior.LifeActor) illuminationBodySample
 	if !ok || v == nil || c.rays == nil {
 		return out
 	}
-	pose := behavior.Combatant{Crouched: h.Sneaking}
+	pose := behavior.Combatant{Crouched: h.Sneaking && !h.SneakUpright}
 	if a := r.state.Combat.Actor(h.ID); r.state.Combat.Active && a != nil {
 		pose.Crouched, pose.Prone = a.Crouched, a.Prone
 	}

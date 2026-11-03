@@ -114,17 +114,19 @@ type Weapon struct {
 	SkillDeepenPPM int64           `json:"skill_deepen_ppm"`
 }
 type Technique struct {
-	ID           string           `json:"id"`
-	Name         string           `json:"name"`
-	Mechanism    string           `json:"mechanism"`
-	Zone         string           `json:"zone"`
-	Angle        string           `json:"angle"`
-	Depth        map[string]int64 `json:"depth"`
-	Knockout     *Span            `json:"knockout,omitempty"`
-	Wake         *Span            `json:"wake,omitempty"`
-	SafeAfterKOS int64            `json:"safe_after_ko_s,omitempty"`
-	DeathPPMPerS int64            `json:"death_ppm_per_s,omitempty"`
-	ArrestPPM    int64            `json:"arrest_ppm,omitempty"`
+	ID        string           `json:"id"`
+	Name      string           `json:"name"`
+	Mechanism string           `json:"mechanism"`
+	Zone      string           `json:"zone"`
+	Angle     string           `json:"angle"`
+	Depth     map[string]int64 `json:"depth"`
+	// What a held blade always opens, and the seconds of the hold until the body goes limp (a choke: until limp, see engine).
+	Structures   []string `json:"structures,omitempty"`
+	Knockout     *Span    `json:"knockout,omitempty"`
+	Wake         *Span    `json:"wake,omitempty"`
+	SafeAfterKOS int64    `json:"safe_after_ko_s,omitempty"`
+	DeathPPMPerS int64    `json:"death_ppm_per_s,omitempty"`
+	ArrestPPM    int64    `json:"arrest_ppm,omitempty"`
 }
 type Armor struct {
 	Item  string           `json:"item"`
@@ -563,6 +565,11 @@ func (m Model) Validate() error {
 		}
 		if t.Mechanism == "choke" && (t.Knockout == nil || t.Wake == nil) {
 			return fmt.Errorf("wounds: technique %s needs knockout and wake", t.ID)
+		}
+		for _, sid := range t.Structures {
+			if _, z, ok := m.Structure(sid); !ok || z.ID != t.Zone {
+				return fmt.Errorf("wounds: technique %s structure %s", t.ID, sid)
+			}
 		}
 	}
 	for _, a := range m.Armor {

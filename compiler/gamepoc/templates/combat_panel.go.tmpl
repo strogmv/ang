@@ -25,11 +25,16 @@ type combatPanelCache struct {
 func (r *Runtime) appendCombatPanel(msg *pb.PocGameState, locale string) {
 	r.appendWoundViews(msg,locale)
  r.appendGroundWeapons(msg)
+ r.appendTakedownOptions(msg,locale)
  // A weapon in a seen hand is observable before any fight (scenes and encounters only: one inventory pass each).
 	if r.world.PlayableID != "" || r.state.Combat.Active {
 		for _, a := range msg.SceneAgents {
 			if item, _, ok := r.equippedCombatItem(r.state.Inventory, a.Id); ok {
 				a.HeldItem = item.Definition
+			}
+			// A lying body keeps the pose of its fall after the encounter is history (and after a load).
+			if c, ok := r.state.CombatRoster[a.Id]; ok && c.Prone {
+				a.FallStyle, a.FallDx, a.FallDy = c.FallStyle, int32(c.FallDirection.X), int32(c.FallDirection.Y)
 			}
 		}
 	}
@@ -61,6 +66,7 @@ func (r *Runtime) appendCombatPanel(msg *pb.PocGameState, locale string) {
 		if a == nil {
 			continue
 		}
+		v.EntersBodies = r.combatEntersBodies(v.Id)
 		// The weapon in a visible hand is observable; its ammunition, wear and AP are not.
 		v.HeldItem = a.Weapon.ID
 		if v.HeldItem == "" {
@@ -186,6 +192,9 @@ add:=func(group,id,label string,action behavior.CombatAction,nominal int,why fun
 
  if !firearm{
   for _,tech:=range []string{"stun_blow","chokehold"}{mode:=tech;add("attack","attack."+mode+"."+target.ID,text("wounds.technique."+mode),behavior.CombatAction{Type:"attack",TargetID:target.ID,Mode:mode,BodyPart:"head"},map[string]int{"stun_blow":max(3,hero.Weapon.HeavyAP),"chokehold":6}[mode],func(error)string{return text("error.combat.technique_position")})}
+  // A held blade starts only out of stealth: here it is a row with its reason, never an option in an open fight.
+  heldIDs:=make([]string,0,len(rules.Techniques));for mode:=range rules.Techniques{heldIDs=append(heldIDs,mode)};sort.Strings(heldIDs)
+  for _,mode:=range heldIDs{t:=rules.Techniques[mode];out=append(out,&pb.PocCombatOption{Id:"attack."+mode+"."+target.ID,Action:"attack",TargetId:target.ID,Mode:mode,Ap:int32(t.AP),Label:text("wounds.technique."+mode),Group:"attack",Reason:text("error.takedown.fight")})}
  }
 		if at, ok := r.combatStep(hero, &target, false); ok {
 			add("move", "move.approach."+target.ID, text("ui.combat.approach"), behavior.CombatAction{Type: "move", To: at}, 0, other)
@@ -265,6 +274,9 @@ type combatSpacingBand struct {
 	MaxMM int `json:"max_mm"`
 }
 type combatSpacing struct {
+ // Two bodies do not enter each other (owner 03.11). The exception of the two high castes is data, off for now: see combatEntersBodies.
+ HighCasteMayEnter bool `json:"high_caste_may_enter"`
+ HighCastes []string `json:"high_castes"`
  FallZones map[string]string `json:"fall_zones"`
  FallLengthMM int `json:"fall_length_mm"`
  FallWidthMM int `json:"fall_width_mm"`
@@ -274,6 +286,11 @@ type combatSpacing struct {
 	Weapons map[string]combatSpacingBand `json:"weapons"`
 }
 
+// Only the flag and the chip decide; with the flag off (the default) nobody's body enters anybody's.
+func (r *Runtime) combatEntersBodies(id string) bool {
+ if !r.world.CombatSpacing.HighCasteMayEnter{return false}
+ chip:=r.bodyChip(id);for _,c:=range r.world.CombatSpacing.HighCastes{if c==chip{return true}};return false
+}
 func (r *Runtime) combatEndSpacingMM(mover, other behavior.Combatant) int {
  return r.world.CombatSpacing.BodyMM
 }

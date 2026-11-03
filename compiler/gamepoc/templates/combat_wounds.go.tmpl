@@ -169,7 +169,7 @@ func woundPublicMark(a behavior.Combatant, id string, salt int64) (string, strin
 				sign, rank = kind, level
 			}
 		}
-		return w.Zone, side + ":" + sign
+		return w.Zone, side + ":" + sign + ":" + w.Depth
 	}
 	return "", ""
 }
@@ -255,6 +255,11 @@ func (r *Runtime) applyWoundImpact(s *behavior.CombatState, source, target, part
 		hit.Technique = "chokehold"
 		hit.HoldS = 14
 	}
+	_, held := r.world.CombatRuntime.Rules.Techniques[mode]
+	if held {
+		hit.Technique = mode
+		hit.HoldS = 1
+	}
 	for _, id := range combatItemKeys(r.state.Inventory) {
 		i := r.state.Inventory.Items[id]
 		if i.Location.Store == inv.ActorStore(target) && i.Location.Slot != "" && r.combatCarried(r.state.Inventory, target, i) {
@@ -269,6 +274,8 @@ func (r *Runtime) applyWoundImpact(s *behavior.CombatState, source, target, part
 	}
 	projectWoundBody(b, body)
 	appendWoundEvents(s, *b, result.Events)
+ // Held: no reaction of his own while the hands are on him; endHold decides what follows.
+ if held&&result.Wound!=nil{b.FightResponse="held";return 1,nil}
  // A new serious channel is a new shock, not a reroll of an old wound each tick.
  previousResponse:=b.FightResponse
  if result.Serious&&(b.FightResponse=="fight_on"||b.FightResponse=="flee"){b.FightResponse=""}
@@ -549,7 +556,7 @@ func(r *Runtime)fallStripClear(s behavior.CombatState,a behavior.Combatant,dir b
  }};return true
 }
 func(r *Runtime)shiftWoundedFall(s *behavior.CombatState,a *behavior.Combatant){
- if a.FallShifted||a.BodyCanStand&&a.FightResponse!="fall"{return};a.FallShifted=true
+ if a.FightResponse=="held"||a.FallShifted||a.BodyCanStand&&a.FightResponse!="fall"{return};a.FallShifted=true
  type option struct{dir behavior.Cell;score float64}
  opts:=[]option{};dx,dy:=float64(a.Position.X-a.LastHitFrom.X),float64(a.Position.Y-a.LastHitFrom.Y)
  for _,d:=range []behavior.Cell{{1,0},{1,1},{0,1},{-1,1},{-1,0},{-1,-1},{0,-1},{1,-1}}{opts=append(opts,option{d,(dx*float64(d.X)+dy*float64(d.Y))/math.Hypot(float64(d.X),float64(d.Y))})}

@@ -294,7 +294,7 @@ func TestWoundPublicMarkShowsTheRealZoneAndSign(t *testing.T){
  r,_,target:=combatLifeFixture(t,true);c:=woundArtery(t,r,target);body:=combatBody(c);if len(body.Wounds)==0{t.Fatal("no wound")};w:=body.Wounds[len(body.Wounds)-1]
  zone,mark:=woundPublicMark(c,w.ID,7);if zone!=w.Zone{t.Fatalf("zone %q, wound %q",zone,w.Zone)}
  again,repeat:=woundPublicMark(c,w.ID,7);if again!=zone||repeat!=mark{t.Fatal("public mark is not stable")}
- parts:=strings.SplitN(mark,":",2);if len(parts)!=2||parts[0]!="left"&&parts[0]!="right"{t.Fatalf("mark %q",mark)}
+ parts:=strings.Split(mark,":");if len(parts)!=3||parts[0]!="left"&&parts[0]!="right"||parts[2]!=w.Depth{t.Fatalf("mark %q",mark)}
  if parts[1]!="blood_spurt"{t.Fatalf("an artery shows %q",parts[1])}
  if z,m:=woundPublicMark(c,"no-such-wound",7);z!=""||m!=""{t.Fatal("a wound that is not there has a mark")}
 }

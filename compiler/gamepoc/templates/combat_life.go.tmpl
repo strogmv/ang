@@ -32,6 +32,8 @@ type combatLifeCatalog struct {
 	MeleeLoudness                  float64                    `json:"melee_loudness"`
 	ShotLoudness                   float64                    `json:"shot_loudness"`
 	Aggressors                     map[string][]string        `json:"aggressors"`
+	Takedowns                      map[string]combatTakedownIntent `json:"takedowns"`
+	TakedownOfferMM                int                        `json:"takedown_offer_mm"`
 	Responders                     map[string]combatResponder `json:"responders"`
 }
 
@@ -419,7 +421,7 @@ func (r *Runtime) combatLifeAfterFrame() error {
 			return nil
 		}
 	}
-	return nil
+	return r.combatLifeTakedowns()
 }
 func (r *Runtime) combatLifeAfterAction(previous behavior.CombatState) error {
 	if !r.world.CombatLife.Enabled || r.state.Combat.ID == "" {
@@ -452,6 +454,9 @@ func (r *Runtime) combatLifeAfterAction(previous behavior.CombatState) error {
 		attacker := r.state.Combat.Actor(event.ActorID)
 		if event.Type == "attack" && attacker != nil && attacker.Weapon.Magazine > 0 {
 			loudness = r.world.CombatLife.ShotLoudness
+		}
+		if t, held := r.world.CombatRuntime.Rules.Techniques[event.Mode]; held && event.Type == "attack" {
+			loudness = t.Loudness
 		}
 		// An original defender's proportionate response is still frightening, but
 		// is not fabricated into a new aggression report against the victim.

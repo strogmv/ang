@@ -23,6 +23,7 @@ type CombatTarget struct {
  StopValue float64 `json:"stop_value"`
 }
 type CombatRules struct {
+ Techniques map[string]CombatTechnique `json:"techniques,omitempty"`
  BladeAngles map[string]map[string]float64 `json:"blade_angles"`
  TargetStyles map[string]map[string]float64 `json:"target_styles"`
 
@@ -219,6 +220,18 @@ type CombatAction struct {
 	To                     Cell
 	Mode, BodyPart, ItemID string
 	Aim                    int
+	// Set only by the host's takedown path after the target's own senses were checked; never read from a client.
+	Unnoticed bool
+}
+// A held technique (world.combat_runtime.rules.techniques, moment 2): one rule for whoever does it.
+type CombatTechnique struct {
+	WeaponKind string `json:"weapon_kind"`
+	AP int `json:"ap"`
+	ReachMM int `json:"reach_mm"`
+	BodyPart string `json:"body_part"`
+	Loudness float64 `json:"loudness"`
+	BreakReachMM int `json:"break_reach_mm"`
+	FallStyle string `json:"fall_style"`
 }
 type CombatEvent struct {
 	Type, ActorID, TargetID, Reason, Mode                 string
@@ -252,6 +265,10 @@ type CombatState struct {
 // from mere lack of visibility; a transparent bulletproof panel is possible.
 type CombatSpace struct {
  BodyBlocks func(mover,body Combatant,at Cell)bool
+ // Host hooks of a held technique: the seconds until the held body goes limp, who breaks the hold, the end of the hold.
+ HoldSeconds func(s *CombatState,target string)int
+ HoldBreaker func(s *CombatState,holder,target string,t CombatTechnique)string
+ EndHold func(s *CombatState,holder,target string,t CombatTechnique,completed bool)
 
 	Space       Space
 	CellMM      int
@@ -357,6 +374,7 @@ func (s CombatSpace) canCommunicate(a, b Combatant, r CombatRules) bool {
 	return s.rangeMM(a.Position, b.Position) <= r.ShareRangeMM && s.visible(a.Position, b.Position, r)
 }
 func (r CombatRules) Validate() error {
+ for _,t:=range r.Techniques{if t.AP<1||t.AP>r.APPerTurn||t.ReachMM<1||t.ReachMM>3000||t.BreakReachMM<0||t.BreakReachMM>5000||t.WeaponKind==""||t.BodyPart==""||t.FallStyle==""||math.IsNaN(t.Loudness)||t.Loudness<0||t.Loudness>1{return errors.New("invalid combat technique")}}
  if math.IsNaN(r.MeleeSkillScale)||math.IsInf(r.MeleeSkillScale,0)||r.MeleeSkillScale<0||r.MeleeSkillScale>2{return errors.New("invalid melee skill scale")}
  if r.CloseMM<0||r.CloseMM>3000||r.RetreatAP<0||r.RetreatAP>r.APPerTurn||r.GuardBonus<0||r.GuardBonus>80||r.RollAP<0||r.RollAP>r.APPerTurn||r.GetUpAP<0||r.GetUpAP>r.APPerTurn{return errors.New("invalid v4 combat costs")}
  for _,v:=range []float64{r.CrampedAccuracy,r.CrampedParry,r.UntrainedReactionAccuracy,r.RollAccuracy}{if math.IsNaN(v)||math.IsInf(v,0)||v<0||v>1{return errors.New("invalid v4 accuracy")}}
@@ -875,6 +893,7 @@ func combatOnSegment(p, a, b Cell) bool {
 	t := (x*dx + y*dy) / length
 	return t > 0 && t < 1 && math.Hypot(x-t*dx, y-t*dy) < .45
 }
+func CombatWeaponKind(w CombatWeapon) string { return combatWeaponKind(w) }
 func combatWeaponKind(w CombatWeapon) string {
 	if w.Kind != "" {
 		return w.Kind
@@ -921,6 +940,8 @@ func validateCombatantTactics(a Combatant, r CombatRules) error {
 type combatShotSpec struct {
 	Mode, BodyPart                  string
 	Aim, Shots, Cost, DamagePercent int
+	// The blade is already at the neck of a target who does not know: no dodge roll, no parry.
+	Held bool
 }
 
 func combatShot(a Combatant, action CombatAction, r CombatRules) (combatShotSpec, error) {
@@ -968,7 +989,9 @@ func combatShot(a Combatant, action CombatAction, r CombatRules) (combatShotSpec
 		q.Shots = a.Weapon.BurstSize
 		q.Cost += a.Weapon.BurstAP
 	default:
-		return q, errors.New("unknown attack mode")
+		t,ok:=r.Techniques[q.Mode];if !ok{return q, errors.New("unknown attack mode")}
+		if kind!=t.WeaponKind{return q,errors.New("technique needs another weapon")}
+		q.Cost=t.AP;q.BodyPart=t.BodyPart;q.Held=true
 	}
 	if a.WeaponUsesLimited && a.WeaponUsesRemaining < q.Shots {
 		return q, errors.New("weapon condition insufficient for attack")
@@ -976,7 +999,7 @@ func combatShot(a Combatant, action CombatAction, r CombatRules) (combatShotSpec
 	if kind == "firearm" && a.Ammo < q.Shots {
 		return q, errors.New("attack ammunition insufficient")
 	}
-	if target,ok:=r.Targets[q.BodyPart];ok&&q.Mode!="chokehold"&&q.Mode!="stun_blow" {q.Cost+=target.ExtraAP}
+	if target,ok:=r.Targets[q.BodyPart];ok&&q.Mode!="chokehold"&&q.Mode!="stun_blow"&&!q.Held {q.Cost+=target.ExtraAP}
  return q, nil
 }
 func (s CombatSpace) protection(from, to Cell, a, b Combatant, part string) float64 {
@@ -1065,7 +1088,8 @@ func (s CombatState) canAttackAction(space CombatSpace, r CombatRules, a, b Comb
 	c := combatContact(&a, b.ID)
 	observer := a
 	observer.Position = from
-	valid := ((q.Mode!="stun_blow"&&q.Mode!="chokehold")||space.AttackAngle!=nil&&space.AttackAngle(a,b)=="rear") && (len(a.Body)==0||a.BodyCanHold) && !a.Noncombatant && a.Able() && a.StunTurns == 0 && (b.Able() || action.Type=="assault"&&b.HP>0&&!b.Withdrawn&&!b.Prone) && a.Team != b.Team && a.Weapon.Damage > 0 && ap >= q.Cost && c != nil && c.Visible && space.ActorVisible(observer, b, r) && space.rangeMM(from, b.Position) <= a.Weapon.RangeMM && space.protection(from, b.Position, a, b, r.PhysicalPart(q.BodyPart)) < 1 && space.ballisticClear(from, b.Position, observer, b, r.PhysicalPart(q.BodyPart)) && !s.friendlyFire(space, r, from, a, b, planning, r.PhysicalPart(q.BodyPart))
+	reach:=a.Weapon.RangeMM;if q.Held{reach=r.Techniques[q.Mode].ReachMM}
+	valid := (!q.Held||action.Unnoticed) && ((q.Mode!="stun_blow"&&q.Mode!="chokehold"&&!q.Held)||space.AttackAngle!=nil&&space.AttackAngle(a,b)=="rear") && (len(a.Body)==0||a.BodyCanHold) && !a.Noncombatant && a.Able() && a.StunTurns == 0 && (b.Able() || action.Type=="assault"&&b.HP>0&&!b.Withdrawn&&!b.Prone) && a.Team != b.Team && a.Weapon.Damage > 0 && ap >= q.Cost && c != nil && c.Visible && space.ActorVisible(observer, b, r) && space.rangeMM(from, b.Position) <= reach && space.protection(from, b.Position, a, b, r.PhysicalPart(q.BodyPart)) < 1 && space.ballisticClear(from, b.Position, observer, b, r.PhysicalPart(q.BodyPart)) && !s.friendlyFire(space, r, from, a, b, planning, r.PhysicalPart(q.BodyPart))
 	return q, valid
 }
 func (s CombatState) canAttack(space CombatSpace, r CombatRules, a, b Combatant, from Cell, ap int, planning bool) bool {
@@ -1135,7 +1159,7 @@ func (s *CombatState) fireImpact(space CombatSpace, r CombatRules, actorID, targ
 	chance := s.shotChance(space, r, *a, *b, a.Position, q, round)
  parried:=false
  blockFailed:=false
- if eventType=="attack" && combatWeaponKind(a.Weapon)!="firearm" && combatWeaponKind(b.Weapon)!="firearm" && b.Able()&&b.StunTurns==0&&(r.AutomaticReserve||b.Guarding)&&b.ReservedAP>=r.GuardAP&&r.GuardAP>0&&space.ActorVisible(*b,*a,r)&&(len(b.Body)==0||b.BodyCanHold)&&(!b.WeaponUsesLimited||b.WeaponUsesRemaining>0){
+ if eventType=="attack" && !q.Held && combatWeaponKind(a.Weapon)!="firearm" && combatWeaponKind(b.Weapon)!="firearm" && b.Able()&&b.StunTurns==0&&(r.AutomaticReserve||b.Guarding)&&b.ReservedAP>=r.GuardAP&&r.GuardAP>0&&space.ActorVisible(*b,*a,r)&&(len(b.Body)==0||b.BodyCanHold)&&(!b.WeaponUsesLimited||b.WeaponUsesRemaining>0){
   b.ReservedAP-=r.GuardAP
   rate:=b.Weapon.ParryPercent
   if b.Guarding{rate+=r.GuardBonus}
@@ -1156,7 +1180,7 @@ func (s *CombatState) fireImpact(space CombatSpace, r CombatRules, actorID, targ
 	}
 	stream := "combat.v2/" + s.ID + "/" + strconv.FormatUint(s.ActionSeq, 10) + "/" + eventType + "/" + targetID + "/" + strconv.Itoa(round) + "/" + strconv.FormatUint(s.EventSeq, 10)
 	roll := float64(CounterRandom(s.Seed, a.ID, s.Turn, stream+"/hit")>>11) * (1.0 / (1 << 53))
-	e.Hit = !parried && (blockFailed||roll < chance)
+	e.Hit = !parried && (blockFailed||q.Held||roll < chance)
  if blockFailed&&e.Hit {q.BodyPart="arms";e.BodyPart="arms"}
  if parried {e.Reason="parried"}
 	raw := 0
@@ -1229,6 +1253,26 @@ func (s *CombatState) reactionWindow(space CombatSpace, r CombatRules, actorID s
 			return
 		}
 	}
+}
+
+// holdTechnique: the seconds a held blade takes, one body second at a time. «Interrupted» has one meaning: in some second the holder
+// stopped holding — he is out, stunned or his hand gave way, a blow reached him, or someone able stands within break_reach and sees it.
+// Interrupted, the wound stays and the victim's ordinary perfusion clock and reaction apply (the host decides both from the wound rules).
+func(s *CombatState)holdTechnique(space CombatSpace,r CombatRules,actorID,targetID,mode string,fromCrouch bool){
+ t:=r.Techniques[mode];hold:=0;if space.HoldSeconds!=nil{hold=space.HoldSeconds(s,targetID)}
+ done:=true;held:=0;seq:=s.EventSeq
+ for held<hold&&done{
+  if space.AdvanceTime!=nil{space.AdvanceTime(s,1)};s.TurnSpentS++;held++
+  if s.Active{s.reactionWindow(space,r,actorID)}
+  a:=s.Actor(actorID)
+  done=a!=nil&&a.Able()&&a.StunTurns==0&&(len(a.Body)==0||a.BodyCanHold)
+  for _,e:=range s.Events{if e.Sequence>seq&&e.TargetID==actorID&&e.Hit&&(e.Type=="reaction"||e.Type=="attack"){done=false}}
+  if done&&space.HoldBreaker!=nil&&space.HoldBreaker(s,actorID,targetID,t)!=""{done=false}
+ }
+ if space.EndHold!=nil{space.EndHold(s,actorID,targetID,t,done)}
+ stance:="stand";if fromCrouch{stance="crouch"}
+ a,b:=s.Actor(actorID),s.Actor(targetID);e:=CombatEvent{Type:"hold",ActorID:actorID,TargetID:targetID,Mode:stance,ItemID:mode,Amount:held,Hit:done,Reason:"held technique"}
+ if a!=nil{e.From=a.Position};if b!=nil{e.To=b.Position};s.event(e)
 }
 
 // AfterAction is shared with the explosive executor. Triggered fire is bounded
@@ -1444,6 +1488,7 @@ func (s *CombatState) Execute(space CombatSpace, r CombatRules, actorID string, 
 		e := CombatEvent{Type: action.Type, ActorID: actorID, TargetID: action.TargetID, From: a.Position, To: a.Position, AP: cost}
 		switch action.Type {
 		case "attack", "assault":
+			heldFromCrouch:=false
 			for round := 0; round < shot.Shots; round++ {
 				target:=s.Actor(action.TargetID)
 				if !a.Able()||target==nil||!(target.Able()||action.Type=="assault"&&target.HP>0&&!target.Prone)||a.WeaponUsesLimited&&a.WeaponUsesRemaining<=0||a.Weapon.Magazine>0&&a.Ammo<=0||space.CanUseWeapon!=nil&&combatWeaponKind(a.Weapon)=="firearm"&&!space.CanUseWeapon(*a){break}
@@ -1451,7 +1496,9 @@ func (s *CombatState) Execute(space CombatSpace, r CombatRules, actorID string, 
 				if round == 0 {
 					shotCost = cost
 				}
+				if shot.Held{a.Crouched,heldFromCrouch=false,a.Crouched}
 				s.fireImpact(space, r, actorID, action.TargetID, shot, round, "attack", shotCost)
+				if shot.Held{s.holdTechnique(space,r,actorID,action.TargetID,shot.Mode,heldFromCrouch);a=s.Actor(actorID)}
 			}
 		case "roll":
    from:=a.Position;s.movementReactions(space,r,actorID,action.To,true)
@@ -1526,7 +1573,7 @@ func (s *CombatState) Execute(space CombatSpace, r CombatRules, actorID string, 
 			s.event(e)
 		}
 	}
-	elapsed:=cost;if action.Mode=="chokehold"{elapsed=14};s.AfterAction(space, r, actorID, action, elapsed)
+	elapsed:=cost;if action.Mode=="chokehold"{elapsed=14};if shot.Held{elapsed=0};s.AfterAction(space, r, actorID, action, elapsed)
 	return nil
 }
 

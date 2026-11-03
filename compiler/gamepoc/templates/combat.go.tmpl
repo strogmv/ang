@@ -97,7 +97,7 @@ func (r *Runtime) combatant(id, team string) behavior.Combatant {
  if face,ok:=r.state.Stealth.Observers[id];ok{a.Facing=behavior.Cell{X:int(math.Round(face.FaceX*1000)),Y:int(math.Round(face.FaceY*1000))}}
  r.initializeWoundBody(&a)
  r.refreshCombatEquipment(r.state.Inventory,&a)
- if hero:=r.state.Life.Actor(id);hero!=nil&&id==playerActorID&&hero.Sneaking{a.Crouched=true;a.Prone=false}
+ if hero:=r.state.Life.Actor(id);hero!=nil&&id==playerActorID&&hero.Sneaking&&!hero.SneakUpright{a.Crouched=true;a.Prone=false}
  return a
 }
 func(r *Runtime) heroInCombat()bool{return r.state.Combat.Active&&r.state.Combat.Actor(playerActorID)!=nil}
@@ -113,6 +113,9 @@ func (r *Runtime) combatSpace(s behavior.CombatState) behavior.CombatSpace {
 	result := behavior.CombatSpace{Space: space, CellMM: unit}
  result.ApplyImpact=func(s *behavior.CombatState,source,target,part,mode string)int{amount,err:=r.applyWoundImpact(s,source,target,part,mode);if err!=nil{panic(err)};return amount}
  result.AdvanceTime=r.advanceCombatBodies
+ result.HoldSeconds=func(s *behavior.CombatState,target string)int{b:=s.Actor(target);if b==nil||len(b.Body)==0{return 0};return int(combatWounds.HoldSeconds(combatBody(*b)))}
+ result.HoldBreaker=r.takedownBreaker
+ result.EndHold=r.endHold
  // Reuse this immutable physical space throughout one decision. Rebuilding
  // GateModel for every reachable care candidate was quadratic in the world size.
  result.AidOptions=func(a behavior.Combatant)[]behavior.CombatCandidate{
@@ -260,6 +263,10 @@ func (r *Runtime) startCombat(targetID string) error {
  return r.beginCombat(playerActorID,targetID,"player","opposition")
 }
 func(r *Runtime) beginCombat(initiatorID,targetID,initiatorTeam,targetTeam string)error{
+ if err:=r.openCombat(initiatorID,targetID,initiatorTeam,targetTeam);err!=nil{return err}
+ if r.heroInCombat(){return r.advanceCombatAI()};return nil
+}
+func(r *Runtime) openCombat(initiatorID,targetID,initiatorTeam,targetTeam string)error{
  if r.state.Combat.Active||!r.state.Life.Enabled||r.state.Paused||r.world.CombatRuntime.DefaultProfile==""{return textError{Key:"error.combat_unavailable"}}
  initiator,target:=r.state.Life.Actor(initiatorID),r.state.Life.Actor(targetID)
  if initiator==nil||target==nil||target.ID==initiator.ID||!initiator.OnFloor()||!target.OnFloor()||initiator.Level!=target.Level||initiator.CombatHold||target.CombatHold{return textError{Key:"error.combat_unknown_target"}}
@@ -274,7 +281,7 @@ func(r *Runtime) beginCombat(initiatorID,targetID,initiatorTeam,targetTeam strin
  r.state.Combat=encounter;if r.state.Combat.Actor(playerActorID)!=nil{r.state.Life.Actor(playerActorID).Sneaking=false};r.state.CombatSerial++;if r.heroInCombat(){r.state.Epoch=newEpoch()};r.state.CombatPublicEvents=nil;r.state.CombatPublicSeq=0;r.state.CombatPublicSerial=0
  r.combatLifeStarted(initiatorID,targetID)
  for _,c:=range actors{r.holdCombatActor(c.ID)}
- if r.heroInCombat(){r.resetInstantTravel()};r.syncCombatLife();if r.heroInCombat(){return r.advanceCombatAI()};return nil
+ if r.heroInCombat(){r.resetInstantTravel()};r.syncCombatLife();return nil
 }
 func(r *Runtime) holdCombatActor(id string){
  a:=r.state.Life.Actor(id);if a==nil{return};if id==playerActorID{a.Manual=true};a.CombatHold=true;a.Safety=nil;a.Path=nil;a.PendingPath=nil;a.YieldUntil=0;a.YieldHoldUntil=0;a.YieldRequester="";a.OverrideLevel="";a.OverrideEdge="";a.Arrived=true;a.MoveStartTick=r.lifeMotionTick()
@@ -332,6 +339,7 @@ func (r *Runtime) combatCommand(q *pb.PocCombatCommand) error {
  if q.Action == "start" {
 		return r.startCombat(q.TargetId)
 	}
+ if q.Action=="takedown"{return r.startTakedown(playerActorID,q.TargetId,q.Mode)}
 	if !r.state.Combat.Active || q.ExpectedTurn != r.state.Combat.Turn {
 		return textError{Key: "error.combat_stale_turn"}
 	}

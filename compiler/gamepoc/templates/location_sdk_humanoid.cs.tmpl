@@ -208,7 +208,7 @@ namespace AngelsDemons.Poc {
   bool LocationSDKActorCrouching(string id){
    if(state==null)return false;
    if(state.Combat!=null&&state.Combat.Active)foreach(var actor in state.Combat.Actors)if(actor.Id==id)return actor.Stance=="crouch";
-   return id=="char.hero"&&state.Life!=null&&state.Life.Sneaking;
+   return id=="char.hero"&&state.Life!=null&&state.Life.Sneaking&&!state.Life.SneakUpright;
   }
   // Weighted pick of a post state for (actor, slot): stable FNV-1a hash, no frame or spawn-order dependence.
   static int LocationSDKHumanoidPostPick(AngelsDemonsLocationActorCast cast,string id,long slot){

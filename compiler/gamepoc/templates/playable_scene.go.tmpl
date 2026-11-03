@@ -404,7 +404,7 @@ func (r *Runtime) playableReach(h *behavior.LifeActor, at behavior.Cell) bool {
 	if v == nil {
 		return false
 	}
-	from := v.BodyLightPoints(h.Position, behavior.Combatant{Crouched: h.Sneaking})[1]
+	from := v.BodyLightPoints(h.Position, behavior.Combatant{Crouched: h.Sneaking && !h.SneakUpright})[1]
 	to := v.BodyLightPoints(at, behavior.Combatant{})[1]
 	if h.Body != nil {
 		from.X, from.Y = h.Body.X, h.Body.Y

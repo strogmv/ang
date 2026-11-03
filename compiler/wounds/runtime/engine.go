@@ -189,6 +189,9 @@ func (m Model) ApplyHit(b *Body, h Hit) (HitResult, error) {
 		m.choke(b, &w, tech, h)
 	} else {
 		met := h.Structures
+		if met == nil && len(tech.Structures) > 0 {
+			met = append([]string(nil), tech.Structures...)
+		}
 		if met == nil {
 			for _, st := range z.Structures {
 				if depthRank[st.MinDepth] <= depthRank[depth] && chance(st.Exposure[mech], h.Seed, id, "meets", st.ID) {
@@ -237,6 +240,10 @@ func (m Model) ApplyHit(b *Body, h Hit) (HitResult, error) {
 			}
 		}
 		w.HealAt = b.Clock + maxHeal*86400
+		// A held cut: while the attacker holds, the body goes limp on the technique's clock; let go before that, only the vessel's own clock is left.
+		if tech.Knockout != nil && h.HoldS > 0 {
+			w.HeldKOAt = b.Clock + max(1, inSpan(*tech.Knockout, h.Seed, id, "held_cut"))
+		}
 		if md.Incapacitate != nil {
 			b.StunUntil = max(b.StunUntil, b.Clock+inSpan(*md.Incapacitate, h.Seed, id, "shock"))
 		}
@@ -288,6 +295,25 @@ func (m Model) choke(b *Body, w *Wound, t Technique, h Hit) {
 		}
 	} else if chance(t.ArrestPPM, h.Seed, w.ID, "arrest") {
 		w.DoomAt = b.Clock + hold
+	}
+}
+
+// HoldSeconds: seconds from now until a held body goes limp (0 — nothing is held on it).
+func (m Model) HoldSeconds(b Body) int64 {
+	for i := range b.Wounds {
+		if at := b.Wounds[i].HeldKOAt; at > b.Clock {
+			return at - b.Clock
+		}
+	}
+	return 0
+}
+
+// ReleaseHold: the hands are off before the knockout. The wound stays, the vessels keep their own perfusion clocks.
+func (m Model) ReleaseHold(b *Body) {
+	for i := range b.Wounds {
+		if b.Wounds[i].HeldKOAt > b.Clock {
+			b.Wounds[i].HeldKOAt = 0
+		}
 	}
 }
 
@@ -623,7 +649,11 @@ func (m Model) unconscious(b *Body) bool {
 		w := &b.Wounds[i]
 		for j := range w.Bleeds {
 			bl := &w.Bleeds[j]
-			if bl.KnockoutAt > 0 && b.Clock >= bl.KnockoutAt && !bl.Stopped && !w.Treated && m.controlRemain(w, bl) >= 300 {
+			at := bl.KnockoutAt
+			if w.HeldKOAt > 0 && at > 0 && w.HeldKOAt < at {
+				at = w.HeldKOAt
+			}
+			if at > 0 && b.Clock >= at && !bl.Stopped && !w.Treated && m.controlRemain(w, bl) >= 300 {
 				return true
 			}
 		}

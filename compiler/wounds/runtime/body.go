@@ -40,7 +40,8 @@ type Wound struct {
 	Splinted     bool     `json:"splinted,omitempty"`
 	Treated      bool     `json:"treated,omitempty"`
 	LimbLost     bool     `json:"limb_lost,omitempty"`
-	DoomAt       int64    `json:"doom_at,omitempty"` // death at this body second without care; 0 — none
+	DoomAt       int64    `json:"doom_at,omitempty"`    // death at this body second without care; 0 — none
+	HeldKOAt     int64    `json:"held_ko_at,omitempty"` // a held cut: limp at this body second while the hands stay on; 0 — not held
 	HealAt       int64    `json:"heal_at"`
 	LostUL       int64    `json:"lost_ul"` // blood lost through it (who made it answers for it)
 	Aiders       []string `json:"aiders,omitempty"`
