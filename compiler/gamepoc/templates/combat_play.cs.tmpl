@@ -47,9 +47,9 @@ namespace AngelsDemons.Poc {
   }
  }
  [Serializable] public sealed class PocCombatContactPoint{public string id,bone;public float[] offset;public float side_m,stain=1;}
- [Serializable] public sealed class PocCombatContact{public bool enabled;public float parry_height_m,parry_recoil_m,shaft_fraction;public float window=.2f,surface_m=.15f;public float dodge_lead_s=.1f,dodge_drop_m=.05f,dodge_lean_deg=12f,miss_over_m=.07f,miss_up_m=.08f,parry_knock_m=.2f,in_s=.14f,hold_s=.07f,out_s=.16f,parry_along=.6f,miss_side_m=.32f,miss_beyond_m=.12f,dodge_side_m=.14f,dodge_back_m=.1f,dodge_settle_s=.55f,parried_back_m=.06f;public PocCombatContactPoint[] points;}
+ [Serializable] public sealed class PocCombatContact{public bool enabled;public float parry_height_m,parry_recoil_m,shaft_fraction;public float square_to_skin=.6f,far_skin_m=.015f;public float window=.2f,surface_m=.15f;public float dodge_lead_s=.1f,dodge_drop_m=.05f,dodge_lean_deg=12f,miss_over_m=.07f,miss_up_m=.08f,parry_knock_m=.2f,in_s=.14f,hold_s=.07f,out_s=.16f,parry_along=.6f,miss_side_m=.32f,miss_beyond_m=.12f,dodge_side_m=.14f,dodge_back_m=.1f,dodge_settle_s=.55f,parried_back_m=.06f;public PocCombatContactPoint[] points;}
  internal sealed class PocCombatContactRig:MonoBehaviour {
-  internal RigBuilder builder;internal Rig rig;internal TwoBoneIKConstraint arm,clutch,legL,legR;internal OverrideTransform torso,hipsShift;internal Transform target,clutchGoal,footL,footR,armHint,clutchHint;internal bool built;
+  internal RigBuilder builder;internal Rig rig;internal TwoBoneIKConstraint arm,clutch,legL,legR;internal OverrideTransform torso,hipsShift;internal Transform target,clutchGoal,footL,footR,armHint,clutchHint,kneeHintL,kneeHintR;internal bool built;
   internal Animator animator;internal RuntimeAnimatorController asset;internal AnimatorControllerPlayable controller;internal PlayableGraph graph;GameObject rigRoot;
   internal void Setup(Animator an){
    if(built)return;animator=an;asset=an.runtimeAnimatorController;if(asset==null)return;
@@ -66,7 +66,7 @@ namespace AngelsDemons.Poc {
    var aimJoint=new GameObject("torso facing before weapon IK");aimJoint.transform.SetParent(rigRoot.transform,false);torso=aimJoint.AddComponent<OverrideTransform>();var td=torso.data;td.constrainedObject=chest;td.sourceObject=null;td.space=OverrideTransformData.Space.World;td.positionWeight=0;td.rotationWeight=1;torso.data=td;torso.weight=0;
    var joint=new GameObject("right weapon arm");joint.transform.SetParent(rigRoot.transform,false);arm=joint.AddComponent<TwoBoneIKConstraint>();
    var data=arm.data;data.root=an.GetBoneTransform(HumanBodyBones.RightUpperArm);data.mid=an.GetBoneTransform(HumanBodyBones.RightLowerArm);data.tip=an.GetBoneTransform(HumanBodyBones.RightHand);data.target=target;data.targetPositionWeight=1;data.targetRotationWeight=1;var ah=new GameObject("right elbow hint");ah.transform.SetParent(rigRoot.transform,false);armHint=ah.transform;data.hint=armHint;data.hintWeight=0;arm.data=data;arm.weight=1;
-   clutch=Limb("left hand to the wound",an,HumanBodyBones.LeftUpperArm,HumanBodyBones.LeftLowerArm,HumanBodyBones.LeftHand,out clutchGoal);{var lh=new GameObject("left elbow hint");lh.transform.SetParent(rigRoot.transform,false);clutchHint=lh.transform;var cd=clutch.data;cd.hint=clutchHint;cd.hintWeight=0;clutch.data=cd;}legL=Limb("left foot pin",an,HumanBodyBones.LeftUpperLeg,HumanBodyBones.LeftLowerLeg,HumanBodyBones.LeftFoot,out footL);legR=Limb("right foot pin",an,HumanBodyBones.RightUpperLeg,HumanBodyBones.RightLowerLeg,HumanBodyBones.RightFoot,out footR);
+   clutch=Limb("left hand to the wound",an,HumanBodyBones.LeftUpperArm,HumanBodyBones.LeftLowerArm,HumanBodyBones.LeftHand,out clutchGoal);{var lh=new GameObject("left elbow hint");lh.transform.SetParent(rigRoot.transform,false);clutchHint=lh.transform;var cd=clutch.data;cd.hint=clutchHint;cd.hintWeight=0;clutch.data=cd;}legL=Limb("left foot pin",an,HumanBodyBones.LeftUpperLeg,HumanBodyBones.LeftLowerLeg,HumanBodyBones.LeftFoot,out footL);legR=Limb("right foot pin",an,HumanBodyBones.RightUpperLeg,HumanBodyBones.RightLowerLeg,HumanBodyBones.RightFoot,out footR);{var hl=new GameObject("left knee hint");hl.transform.SetParent(rigRoot.transform,false);kneeHintL=hl.transform;var d0=legL.data;d0.hint=kneeHintL;d0.hintWeight=1;legL.data=d0;var hr=new GameObject("right knee hint");hr.transform.SetParent(rigRoot.transform,false);kneeHintR=hr.transform;var d1=legR.data;d1.hint=kneeHintR;d1.hintWeight=1;legR.data=d1;}
    }
    graph=PlayableGraph.Create("combat controller and contact");graph.SetTimeUpdateMode(DirectorUpdateMode.Manual);
    controller=AnimatorControllerPlayable.Create(graph,asset);
@@ -76,7 +76,10 @@ namespace AngelsDemons.Poc {
    graph.Play();Evaluate(0);
   }
   TwoBoneIKConstraint Limb(string label,Animator an,HumanBodyBones root,HumanBodyBones mid,HumanBodyBones tip,out Transform goal){var g=new GameObject(label+" goal");g.transform.SetParent(rigRoot.transform,false);goal=g.transform;var j=new GameObject(label);j.transform.SetParent(rigRoot.transform,false);var c=j.AddComponent<TwoBoneIKConstraint>();var d=c.data;d.root=an.GetBoneTransform(root);d.mid=an.GetBoneTransform(mid);d.tip=an.GetBoneTransform(tip);d.target=goal;d.targetPositionWeight=1;d.targetRotationWeight=1;d.hintWeight=0;c.data=d;c.weight=0;return c;}
-  internal void Evaluate(float delta){if(!built||!graph.IsValid())return;builder.SyncLayers();graph.Evaluate(delta);}
+  // An arm goal closer to the shoulder than the elbow can fold moves out: the elbow stays in the range of world.combat_look.anatomy, whatever asks for the hand.
+  internal static float ElbowMaxDeg;
+  void KeepElbow(TwoBoneIKConstraint c,Transform goal){if(ElbowMaxDeg<=0||c==null||c.weight<=0||goal==null)return;var d=c.data;if(d.root==null||d.mid==null||d.tip==null)return;float x=Vector3.Distance(d.root.position,d.mid.position),y=Vector3.Distance(d.mid.position,d.tip.position);float min=Mathf.Sqrt(x*x+y*y+2*x*y*Mathf.Cos(ElbowMaxDeg*Mathf.Deg2Rad));Vector3 v=goal.position-d.root.position;float n=v.magnitude;if(n<min&&n>1e-4f)goal.position=d.root.position+v*(min/n);}
+  internal void Evaluate(float delta){if(!built||!graph.IsValid())return;KeepElbow(arm,target);KeepElbow(clutch,clutchGoal);builder.SyncLayers();graph.Evaluate(delta);}
   internal void BasePose(float delta){if(!built)return;rig.weight=0;torso.weight=0;Hints(0);Evaluate(delta);}
   internal void Hints(float w){HintArm(true,w);HintArm(false,w);}
   internal void HintArm(bool right,float w){if(arm==null||clutch==null)return;if(right){var a=arm.data;if(a.hintWeight!=w){a.hintWeight=w;arm.data=a;}}else{var c=clutch.data;if(c.hintWeight!=w){c.hintWeight=w;clutch.data=c;}}}
@@ -89,17 +92,19 @@ namespace AngelsDemons.Poc {
   }
   void OnDestroy(){Release();}
  }
+ [Serializable] public sealed class PocCombatAnatomyHinge {public float flex_deg=150,hyper_deg=5;}
+ [Serializable] public sealed class PocCombatAnatomy {public PocCombatAnatomyHinge knee,elbow;}
  [Serializable] public sealed class PocCombatFall {public string id;public float yaw_offset_deg;public PocCombatClip clip,get_up;}
  // Moment 2: the held blade from behind, one paired scene. Seconds of the parts as authored; the hold lasts what the server says.
- [Serializable] public sealed class PocCombatCapsule {public string id,a,b,group;public float t0=0,t1=1,r;}
- [Serializable] public sealed class PocCombatBodySolver {public bool enabled;public float range_m,slop_m,max_shift_m,return_s,foot_max_m,swing_mps;public int iterations;public PocCombatCapsule[] capsules;}
+ [Serializable] public sealed class PocCombatCapsule {public string id,a,b,group;public float t0=0,t1=1,r;public bool floor=true;}
+ [Serializable] public sealed class PocCombatBodySolver {public float shift_mps=.9f;public bool enabled;public float range_m,slop_m,max_shift_m,return_s,foot_max_m,swing_mps;public int iterations;public PocCombatCapsule[] capsules;}
  [Serializable] public sealed class PocCombatBladeDepth {public float graze,shallow,deep,through;}
  [Serializable] public sealed class PocCombatThroatPoint {public string bone;public float[] offset;}
- [Serializable] public sealed class PocCombatThroat {public string mode;public PocCombatClip attacker_stand,attacker_crouch,attacker_lower,victim;public float take_stand_s,take_crouch_s,victim_take_s,hold_s,lower_s,start_m,end_m,fill_mps,grip_in_s,release_at_s,release_s,cut_s,sag_s;public PocCombatThroatPoint mouth,blade_from,blade_to;public PocCombatSoundCue sound_cut,sound_body;public float[] blade_dir,blade_top,fingers,palm,elbow_right,elbow_left;public float palm_along,palm_lift;}
+ [Serializable] public sealed class PocCombatThroat {public string mode;public PocCombatClip attacker_stand,attacker_crouch,attacker_lower,victim;public float take_stand_s,take_crouch_s,victim_take_s,hold_s,lower_s,start_m,end_m,fill_mps,turn_dps=240,grip_in_s,release_at_s,release_s,cut_s,sag_s,pool_at=.6f;public PocCombatThroatPoint mouth,blade_from,blade_to;public PocCombatSoundCue sound_cut,sound_body;public float[] blade_dir,blade_top,fingers,palm,elbow_right,elbow_left;public float palm_along,palm_lift;}
  [Serializable] public sealed class PocCombatLook {
   public float fall_shift_seconds=.22f;public float facing_tolerance_deg=7.6f;public float move_mps=1.4f,pause_seconds=.3f,injured_below=.5f,blend_seconds=.2f,turn_dps=360,turn_seconds=.22f,spacing_m=.7f;public PocCombatWeaponLook[] weapons;
   public PocCombatClip parry,guard,hit,hit_head,hit_shot,stun,stunned,down,bandage_kneel,bandage,bandage_rise,equip,reload,injured,injured_walk,retreat;
-  public PocCombatClip surrender;public PocCombatClip roll,get_up,dodge;public PocCombatFall[] falls;public float[] hero_rgb,enemy_rgb;public PocCombatContact contact;
+  public PocCombatAnatomy anatomy;public PocCombatClip surrender;public PocCombatClip roll,get_up,dodge;public PocCombatFall[] falls;public float[] hero_rgb,enemy_rgb;public PocCombatContact contact;
   public PocCombatSceneLook scene;public PocCombatWoundHold wound_hold;public PocCombatZoneReaction[] zone_reactions;public PocCombatClip blade_miss;public PocCombatSound sound;public PocCombatBlood blood;public PocCombatThroat throat;public PocCombatBodySolver body_solver;public PocCombatBladeDepth blade_depth;
  }
  public sealed partial class AngelsDemonsPoc {
@@ -109,10 +114,10 @@ namespace AngelsDemons.Poc {
    public string kind,actor,target,item,part,mode;public List<Vector2Int> path=new List<Vector2Int>();public Vector2Int from,to;
    public Vector2Int victimFrom,victimTo;public bool victimShift;
    public bool hit,parried,targetDown,targetStunned,valid;public int amount;public float seconds,impact=.5f,lead,turnRate=360;public PocCombatClip clip,reaction;public Vector3 shaft;public bool hasShaft;public string zone,side,sign;public PocCombatWeaponLook victimStance;public PocCombatZoneReaction zr;public bool bodyStrike,bloodDone,contactLogged;public Vector3 hips0,tip0;public bool hips0Set;public float missMinSkin=float.PositiveInfinity,tipBest=float.PositiveInfinity;public bool fxDone,propDone;public float parryBeforeGap=-1,parryBestGap=float.PositiveInfinity,parryBestAt,parryBestBase;
-   public Vector3 tipPoint;public float tipW;public string depth="";public bool skinSet,finalLogged;public float missMinBody=float.PositiveInfinity;public float skinAdd;public Vector3 entry;public bool entrySet;public float pairW,pairT;public Vector3 pairMouth,pairPoint;
-   public bool pair,holdDone=true,fromCrouch,pairBlood,pairKo,pairEnd,pairBody;public int holdS;public float fill,take,holdT,lowerT,pairYaw;public Vector3 pairV,pairS,pairC1;public Vector2Int endCell;public Quaternion headRest=Quaternion.identity,neckRest=Quaternion.identity;public bool restSet;
+   public Transform skinBone;public Vector3 entryLocal,normalLocal,bladeDir;public Vector3 tipPoint;public float tipW;public string depth="";public float maxDepth=float.PositiveInfinity;public bool hasAim;public Vector3 aimLocal;public bool skinSet,finalLogged;public float missMinBody=float.PositiveInfinity;public float skinAdd;public Vector3 entry;public bool entrySet;public float pairW,pairT;public Vector3 pairMouth,pairPoint;
+   public bool fadeA,fadeV;public bool pair,holdDone=true,fromCrouch,pairBlood,pairKo,pairEnd,pairBody;public int holdS;public float fill,take,holdT,lowerT,pairYaw;public Vector3 pairV,pairS,pairC1;public Vector2Int endCell;public Quaternion headRest=Quaternion.identity,neckRest=Quaternion.identity;public bool restSet;
   }
-  sealed class CombatBody {public Vector2Int cell;public int knifeSeries;public bool placed,wasDown;public bool surrenderShown;public float surrenderAt;public float fallAt;public string held,shownState;public float flashUntil,readyW,actW,gripW;public Vector3 ease;public Transform ring;public string readyState,actState;public bool silhouette;public Vector3 shift;public float leanDeg,shiftAt=-1,shiftUntil,pinWeight,clutchAt=-1,clutchUntil,clutchWeight;public Vector3 pinLP,pinRP;public Quaternion pinLQ,pinRQ;public string clutchZone,clutchSide;public bool pinned;public string fallStyle;
+  sealed class CombatBody {public Vector3 shiftLast;public Vector2Int cell;public int knifeSeries;public bool placed,wasDown;public bool surrenderShown;public float surrenderAt;public float fallAt;public string held,shownState;public float flashUntil,readyW,actW,gripW;public Vector3 ease;public Transform ring;public string readyState,actState;public bool silhouette;public Vector3 shift;public float leanDeg,shiftAt=-1,shiftUntil,pinWeight,clutchAt=-1,clutchUntil,clutchWeight;public Vector3 pinLP,pinRP;public Quaternion pinLQ,pinRQ;public string clutchZone,clutchSide;public bool pinned;public string fallStyle;
    // The body solver: what the pose was before it, this frame; the bounded shift of the hips (the feet stay on the clip's plants); the feet moved aside only in the air.
    public Vector3 solverShift,hipsRaw,lfRawP,rfRawP,lfPrev,rfPrev,footFixL,footFixR;public Quaternion lfRawQ,rfRawQ;public bool rawSet;public float rawDepthMax,finalDepthMax;}
   Material combatRingMaterial;
@@ -183,7 +188,7 @@ namespace AngelsDemons.Poc {
     if(e.Type=="attack"||e.Type=="reaction"){
      // The parry published just before belongs to this blow: the defender raises the weapon at its impact.
      if(combatQueue.Count>0){var last=combatQueue[combatQueue.Count-1];if(last.kind=="parry"&&last.actor==e.TargetId&&last.target==e.ActorId&&!last.propDone){combatQueue.RemoveAt(combatQueue.Count-1);beat.parried=last.hit;}}
-     beat.mode=CombatModeOf(e);{var tl=CombatLook();if(tl!=null&&tl.throat!=null&&e.Mode==tl.throat.mode&&e.Type=="attack"){beat.pair=true;beat.mode=e.Mode;beat.endCell=from;string lastHeld;if(combatLastHeld.TryGetValue(e.TargetId,out lastHeld))CombatBodyOf(e.TargetId).held=lastHeld;}}
+     beat.mode=CombatModeOf(e);{var tl=CombatLook();if(tl!=null&&tl.throat!=null&&e.Mode==tl.throat.mode&&e.Type=="attack"){beat.pair=true;beat.mode=e.Mode;beat.endCell=from;string lastHeld;if(!combatLastHeld.TryGetValue(e.TargetId,out lastHeld)&&state!=null)foreach(var g in state.GroundWeapons)if(g.OwnerId==e.TargetId){lastHeld=g.Definition;break;}if(!string.IsNullOrEmpty(lastHeld))CombatBodyOf(e.TargetId).held=lastHeld;}}
      CombatWoundNote note;if(e.Hit&&!string.IsNullOrEmpty(e.TargetId)&&combatWoundNotes.TryGetValue(e.TargetId,out note)&&note.turn==e.Turn){beat.zone=note.zone;beat.side=note.side;beat.sign=note.sign;beat.depth=note.depth;combatWoundNotes.Remove(e.TargetId);}
     }
     combatQueue.Add(beat);
@@ -470,8 +475,9 @@ namespace AngelsDemons.Poc {
    if(contactRig!=null&&contactRig.built&&active&&beat.actor==id&&(beat.kind=="attack"||beat.kind=="parry")&&(beat.clip==null||beat.clip.layer!="body")){var other=CombatHumanoid(beat.target);if(other!=null)contactRig.Aim(other.go.transform.position);}
    // A retargeted humanoid must rest on the authored floor. Correct only vertical
    // presentation, preserving the server's X/Z and the complete clip pose.
-   if(CombatIsFall(clip)||clip==look.roll||clip!=null&&clip.state.StartsWith("combat_get_up",StringComparison.Ordinal)){
-    float lowest=float.PositiveInfinity;foreach(HumanBodyBones bone in Enum.GetValues(typeof(HumanBodyBones))){if(bone==HumanBodyBones.LastBone)continue;var joint=an.GetBoneTransform(bone);if(joint!=null)lowest=Mathf.Min(lowest,joint.position.y);}if(!float.IsInfinity(lowest)&&lowest<at.y)h.go.transform.position+=Vector3.up*(at.y-lowest);
+   if(CombatIsFall(clip)||clip==look.roll||clip!=null&&clip.state.StartsWith("combat_get_up",StringComparison.Ordinal)||active&&beat.pair&&beat.target==id){
+    // a body rests on its flesh: the capsules of the solver, not the joints inside them
+    float lowest=float.PositiveInfinity;if(look.body_solver!=null&&look.body_solver.capsules!=null&&look.body_solver.capsules.Length>0){CombatCapsPrepare(look.body_solver);CombatCaps(h,look.body_solver,capsFloor);foreach(var cf in capsFloor)if(look.body_solver.capsules[cf.index].floor)lowest=Mathf.Min(lowest,Mathf.Min(cf.a.y,cf.b.y)-cf.r);}else foreach(HumanBodyBones bone in Enum.GetValues(typeof(HumanBodyBones))){if(bone==HumanBodyBones.LastBone)continue;var joint=an.GetBoneTransform(bone);if(joint!=null)lowest=Mathf.Min(lowest,joint.position.y);}if(!float.IsInfinity(lowest)&&lowest<at.y)h.go.transform.position+=Vector3.up*(at.y-lowest);
    }
    h.phase=phase;h.drift=fading?-1:0;body.shownState=want;
    CombatUpdateFlash(h,body);
@@ -577,8 +583,14 @@ namespace AngelsDemons.Poc {
   // its root = the grip frame: +Z along the weapon, +Y its top) in the right fist. The fist frame comes from the hand
   // bones: the palm centre, the thumb side (a stick leaves the fist there) turned toward the fingers by the CUE tilt
   // (0 = club, 55 = knife held for a thrust, 90 = a pistol's barrel). A missing prefab keeps the SDK boxes of v1.
+  void CombatStandColours(PocCombatLook look){
+   if(look==null||look.hero_rgb==null||look.hero_rgb.Length!=3||look.enemy_rgb==null||look.enemy_rgb.Length!=3)return;
+   foreach(var h in locationSDKHumanoids.Values){if(h.go==null||!h.go.activeSelf||h.renderers==null)continue;CombatBody cb;if(combatBodies.TryGetValue(h.id,out cb)&&CombatNow<cb.flashUntil)continue;var rgb=h.id=="char.hero"?look.hero_rgb:look.enemy_rgb;var colour=new Color(rgb[0],rgb[1],rgb[2]);foreach(var renderer in h.renderers){if(renderer==null)continue;var props=new MaterialPropertyBlock();renderer.GetPropertyBlock(props);props.SetColor("_BaseColor",colour);props.SetColor("_Color",colour);renderer.SetPropertyBlock(props);}}
+  }
   void CombatPropsAfterPose(){
    var look=CombatLook();
+   CombatStandColours(look);
+   PocCombatContactRig.ElbowMaxDeg=look!=null&&look.anatomy!=null&&look.anatomy.elbow!=null?look.anatomy.elbow.flex_deg-3:0;
    foreach(var h in locationSDKHumanoids.Values){
     string held=null;CombatBody body;
     if(look!=null&&h.go!=null&&h.go.activeSelf){
@@ -589,7 +601,7 @@ namespace AngelsDemons.Poc {
     if(h.go!=null&&h.go.activeSelf&&!string.IsNullOrEmpty(held)&&held!="unarmed")combatLastHeld[h.id]=held;
     var weapon=string.IsNullOrEmpty(held)||held=="unarmed"?null:CombatWeapon(held);string kind=weapon==null?"none":weapon.prop;
     CombatProp prop;if(!combatProps.TryGetValue(h.id,out prop)){if(kind=="none")continue;prop=new CombatProp{kind="none"};combatProps[h.id]=prop;}
-    if(prop.kind!=kind){if(prop.go!=null)Destroy(prop.go);prop.go=kind=="none"?null:CombatMakeProp(kind,h);prop.kind=kind;}
+    if(prop.kind!=kind){if(prop.go!=null&&!(kind=="none"&&CombatDropFromHand(h,prop)))Destroy(prop.go);prop.go=kind=="none"?null:CombatMakeProp(kind,h);prop.kind=kind;}
     if(prop.go==null)continue;var an=h.animator;
     var hand=an.GetBoneTransform(HumanBodyBones.RightHand);var mid=an.GetBoneTransform(HumanBodyBones.RightMiddleProximal);var index=an.GetBoneTransform(HumanBodyBones.RightIndexProximal);var little=an.GetBoneTransform(HumanBodyBones.RightLittleProximal);var thumb=an.GetBoneTransform(HumanBodyBones.RightThumbProximal);
     if(hand==null||mid==null){prop.go.SetActive(false);continue;}
@@ -610,7 +622,17 @@ namespace AngelsDemons.Poc {
   }
 
 
+  // The server has already put the weapon on the floor: in the show it leaves the hand and falls there. Gravity for the height, the floor pose of the ground prop at the end.
+  sealed class CombatFalling {public GameObject go;public string owner,kind;public Vector3 p0,p1;public Quaternion q0,q1;public float at,dur;}
+  readonly List<CombatFalling> combatFalling=new List<CombatFalling>();
+  bool CombatDropFromHand(LocationSDKHumanoid h,CombatProp prop){
+   if(state==null||prop.go==null)return false;foreach(var item in state.GroundWeapons){if(item.OwnerId!=h.id)continue;var w=CombatWeapon(item.Definition);if(w==null||w.prop!=prop.kind)continue;Vector3 at;if(!LocationSDKNavToWorld(item.X,item.Y,out at))return false;
+    var f=new CombatFalling{go=prop.go,owner=h.id,kind=prop.kind,p0=prop.go.transform.position,q0=prop.go.transform.rotation,at=CombatNow};prop.go.transform.SetPositionAndRotation(at,Quaternion.identity);bool any=false;Bounds b=new Bounds();foreach(var r in prop.go.GetComponentsInChildren<Renderer>()){if(!any){b=r.bounds;any=true;}else b.Encapsulate(r.bounds);}f.p1=any?at+Vector3.up*(at.y-b.min.y):at;f.q1=Quaternion.identity;prop.go.transform.SetPositionAndRotation(f.p0,f.q0);f.dur=Mathf.Sqrt(2*Mathf.Max(.05f,f.p0.y-f.p1.y)/9.8f);combatFalling.Add(f);return true;}
+   return false;
+  }
+  void CombatFallingTick(){for(int i=combatFalling.Count-1;i>=0;i--){var f=combatFalling[i];if(f.go==null){combatFalling.RemoveAt(i);continue;}float k=(CombatNow-f.at)/Mathf.Max(.05f,f.dur);if(k>=1){Destroy(f.go);combatFalling.RemoveAt(i);continue;}var p=Vector3.Lerp(f.p0,f.p1,k);p.y=f.p0.y+(f.p1.y-f.p0.y)*k*k;f.go.transform.SetPositionAndRotation(p,Quaternion.Slerp(f.q0,f.q1,CombatSmooth(k)));}}
   void CombatGroundWeapons(PocCombatLook look){
+   CombatFallingTick();
    var visible=new HashSet<string>();
    if(state!=null&&look!=null&&locationSDKRoot!=null)foreach(var item in state.GroundWeapons){
     var weapon=CombatWeapon(item.Definition);if(weapon==null||string.IsNullOrEmpty(weapon.prop)||weapon.prop=="none")continue;
@@ -620,6 +642,7 @@ namespace AngelsDemons.Poc {
      waiting=owner.held==item.Definition;
      foreach(var beat in combatQueue)if(beat.victimShift&&beat.target==item.OwnerId||beat.kind=="fall_shift"&&beat.actor==item.OwnerId){waiting=true;break;}
     }
+    foreach(var fl in combatFalling)if(fl.owner==item.OwnerId&&fl.kind==weapon.prop)waiting=true;
     go.SetActive(!waiting);if(waiting)continue;Vector3 at;if(!LocationSDKNavToWorld(item.X,item.Y,out at))continue;
     // The prefab's blade axis +Z lies in the physical floor plane. Its own
     // bounds place its lowest point on the same surface the server will pick up.
@@ -632,6 +655,8 @@ namespace AngelsDemons.Poc {
    if(look==null||look.contact==null||!look.contact.enabled)return;
    CombatContactAfterPoseInner(look);
    CombatBodySolve(look);
+   CombatElbowsInRange(look);CombatKneesInRange(look);
+   CombatAnatomySample();
   }
   void CombatContactAfterPoseInner(PocCombatLook look){
    CombatBeat beat=combatQueue.Count>0&&combatBeatAt>=0?combatQueue[0]:null;
@@ -716,7 +741,7 @@ namespace AngelsDemons.Poc {
    }else{rig.hipsShift.weight=0;body.leanDeg=0;}
    // feet
    if(body.pinned&&now>body.shiftUntil){body.pinWeight=Mathf.MoveTowards(body.pinWeight,0,CombatDt/.12f);if(body.pinWeight<=0)body.pinned=false;}else if(body.pinned)body.pinWeight=1;
-   rig.legL.weight=body.pinWeight;rig.legR.weight=body.pinWeight;
+   CombatKneeHints(h,rig);rig.legL.weight=body.pinWeight;rig.legR.weight=body.pinWeight;
    if(body.pinWeight>0){rig.footL.SetPositionAndRotation(body.pinLP,body.pinLQ);rig.footR.SetPositionAndRotation(body.pinRP,body.pinRQ);}
    // hand on the wound
    float target=!string.IsNullOrEmpty(body.clutchZone)&&now>=body.clutchAt&&now<body.clutchUntil?1:0;body.clutchWeight=Mathf.MoveTowards(body.clutchWeight,target,CombatDt/(target>0?.14f:.3f));
@@ -737,7 +762,21 @@ namespace AngelsDemons.Poc {
    else if(!CombatZonePoint(victim,look,beat.zone,beat.side,out point,out normal))return false;
    var shoulder=rig.arm.data.root.position;Vector3 dir=(point-shoulder).normalized;var flat=dir;flat.y=0;if(flat.sqrMagnitude>1e-4f)dir=Vector3.Lerp(flat.normalized,dir,.65f).normalized;
    // The skin is found once, when the arm starts for the wound: from there the point goes in along the blade by the depth the server gave the wound.
-   if(beat.hit){if(!beat.skinSet){beat.skinSet=true;var keep=CombatNoArms(victim);float along=0;for(int q=0;q<3;q++){float gap=CombatSkinSigned(victim,point+dir*along,keep);if(Mathf.Abs(gap)>.25f)break;along+=gap;}beat.skinAdd=Mathf.Clamp(along,-.12f,.3f);}beat.entry=point+dir*beat.skinAdd;beat.entrySet=true;point=beat.entry+dir*CombatBladeDepthOf(look,beat.depth);beat.tipPoint=point;beat.tipW=w;}
+   if(beat.hit){
+    if(!beat.skinSet){beat.skinSet=true;bool limb=beat.zone=="arm"||beat.zone=="arms"||beat.zone=="armed_limb"||beat.zone=="thigh"||beat.zone=="shin"||beat.zone=="legs";var keep=limb?null:CombatNoArms(victim);
+     Vector3 inside=point-victim.go.transform.forward*(limb?0:.09f),from=Vector3.Lerp(shoulder,hand.position,.6f),sp,sn;
+     if(!CombatSkinRay(victim,from,inside,keep,out sp,out sn)){sp=point;sn=normal.sqrMagnitude>0?normal:-toVictim;}
+     beat.skinBone=CombatNearestBone(victim,sp,!limb);beat.entryLocal=beat.skinBone==null?sp:beat.skinBone.InverseTransformPoint(sp);beat.normalLocal=beat.skinBone==null?sn:beat.skinBone.InverseTransformDirection(sn);
+     // A thin part or a slant may be thinner than the wound is deep. First the blade turns to the middle of that part of the body; what is still too thin stops the point short of the far skin, it does not come out.
+     {Vector3 d0=Vector3.Lerp((sp-shoulder).normalized,-sn,c.square_to_skin).normalized;float need=CombatBladeDepthOf(look,beat.depth)+c.far_skin_m,e0=CombatSkinExit(victim,sp,d0,keep);
+      if(e0<need&&beat.skinBone!=null){Vector3 d1=(beat.skinBone.position-sp).normalized;float e1=CombatSkinExit(victim,sp,d1,keep);if(e1>e0){e0=e1;beat.hasAim=true;beat.aimLocal=beat.skinBone.InverseTransformDirection(d1);}}
+      if(!float.IsInfinity(e0))beat.maxDepth=Mathf.Max(.01f,e0-c.far_skin_m);}}
+    Vector3 entry=beat.skinBone==null?beat.entryLocal:beat.skinBone.TransformPoint(beat.entryLocal),skinN=(beat.skinBone==null?beat.normalLocal:beat.skinBone.TransformDirection(beat.normalLocal)).normalized;
+    Vector3 way=(entry-shoulder).normalized;dir=Vector3.Lerp(way,-skinN,c.square_to_skin).normalized;var level=dir;level.y=0;if(level.sqrMagnitude>1e-4f)dir=Vector3.Lerp(level.normalized,dir,.8f).normalized;if(beat.hasAim)dir=beat.skinBone.TransformDirection(beat.aimLocal).normalized;
+    beat.entry=entry;beat.entrySet=true;beat.bladeDir=dir;point=entry+dir*Mathf.Min(CombatBladeDepthOf(look,beat.depth),beat.maxDepth);beat.tipPoint=point;beat.tipW=w;normal=skinN;
+    // too far for the arm: the hips of the show go after it, a bounded part of the way; the feet stay on the clip's plants
+    {float armLen=Vector3.Distance(shoulder,rig.arm.data.mid.position)+Vector3.Distance(rig.arm.data.mid.position,hand.position);float need=Vector3.Distance(shoulder,point-dir*Vector3.Distance(tip.position,hand.position))-(armLen-.01f);if(need>0&&w>.01f){var mine=CombatBodyOf(h.id);mine.solverShift=Vector3.ClampMagnitude(mine.solverShift+toVictim*need*.5f,look.body_solver==null?0:look.body_solver.max_shift_m);}}
+   }
    Quaternion localProp=Quaternion.Inverse(hand.rotation)*prop.go.transform.rotation;Quaternion desired=Quaternion.LookRotation(dir,Vector3.up)*Quaternion.Inverse(localProp);
    Vector3 localTip=Quaternion.Inverse(hand.rotation)*(tip.position-hand.position),localGrip=Quaternion.Inverse(hand.rotation)*(prop.go.transform.position-hand.position);
    rig.Pose(point-desired*localTip,desired,w);
@@ -762,9 +801,12 @@ namespace AngelsDemons.Poc {
   }
   void CombatPairPresent(LocationSDKHumanoid h,string id,CombatBeat b,PocCombatLook look,float t,Animator an,ref Vector3 at,ref float yawTo,ref PocCombatClip clip,ref float clipTime,ref bool walking,ref string want,ref float turnRate){
    var th=look.throat;
+   // the first frame of each body shows the stance it was in, so that the scene cross-fades from it; the rig was built this very frame
+   if(b.actor==id&&!b.fadeA){b.fadeA=true;want=b.fromCrouch&&!string.IsNullOrEmpty(locationSDKHumanoidCast.crouch_idle_state)?locationSDKHumanoidCast.crouch_idle_state:locationSDKHumanoidCast.idle_state;yawTo=h.yaw;return;}
+   if(b.target==id&&!b.fadeV){b.fadeV=true;want=locationSDKHumanoidCast.idle_state;yawTo=b.pairYaw;h.yaw=b.pairYaw;at=b.pairV;return;}
    if(b.actor==id){
     if(t<b.fill){Vector3 a0;if(!LocationSDKNavToWorld(b.from.x,b.from.y,out a0))a0=at;at=Vector3.Lerp(a0,b.pairS,t/Mathf.Max(.01f,b.fill));var d=b.pairS-a0;if(d.sqrMagnitude>1e-4f)yawTo=Mathf.Atan2(d.x,d.z)*Mathf.Rad2Deg;walking=true;want=b.fromCrouch&&!string.IsNullOrEmpty(locationSDKHumanoidCast.crouch_walk_state)?locationSDKHumanoidCast.crouch_walk_state:locationSDKHumanoidCast.walk_state;return;}
-    float tt=t-b.fill;yawTo=b.pairYaw;turnRate=Mathf.Max(turnRate,720);
+    float tt=t-b.fill;yawTo=b.pairYaw;turnRate=th.turn_dps;
     if(tt<b.take+b.holdT){at=b.pairS;float takeS=b.fromCrouch?th.take_crouch_s:th.take_stand_s;float share=takeS/(takeS+th.hold_s);clip=b.fromCrouch?th.attacker_crouch:th.attacker_stand;clipTime=tt<b.take?tt/b.take*share:share+(tt-b.take)/b.holdT*(1-share);}
     else if(b.holdDone){at=b.pairC1;clip=th.attacker_lower;clipTime=Mathf.Clamp01((tt-b.take-b.holdT)/b.lowerT);if(h.state!=clip.state)h.state=null;
      // the steps back end on the server's cell, whatever the angle of approach was
@@ -782,8 +824,8 @@ namespace AngelsDemons.Poc {
    var look=CombatLook();var th=look==null?null:look.throat;if(th==null)return;float tt=t-b.fill;
    if(!b.fxDone&&tt>=b.take){b.fxDone=true;CombatAutoImpact(b.actor,b.target,b.hit,b.from,b.to);CombatPairSound(th.sound_cut,b);}
    if(!b.pairKo&&tt>=b.take+b.holdT){b.pairKo=true;var vb=CombatBodyOf(b.target);vb.held=CombatHeld(b.target);if(b.holdDone){CombatFloat(b.target,L("ui.combat.down"),new Color(1f,.85f,.35f));CombatAutoShotLater("knocked-out");}}
-   if(!b.pairEnd&&tt>=b.take+b.holdT+b.lowerT*.8f&&b.holdDone){b.pairEnd=true;var bleed=combatBleeds.Find(x=>x.body==CombatHumanoid(b.target));var vh=CombatHumanoid(b.target);var nk=vh==null?null:vh.animator.GetBoneTransform(HumanBodyBones.Neck);if(bleed!=null&&nk!=null&&bleed.sign.pool_m>0&&bleed.pool==null){var at=nk.position;at.y=vh.go.transform.position.y+.004f;var pool=CombatBloodPiece("floor pool",at,Quaternion.identity,new Vector3(.001f,.002f,.001f));bleed.pool=pool.transform;bleed.poolSize=bleed.sign.pool_m;bleed.poolAt=CombatNow;bleed.pulsesLeft=0;}}
-   if(t>=b.seconds-CombatDt*1.5f&&b.holdDone){var vb=CombatBodyOf(b.target);vb.wasDown=true;var vh=CombatHumanoid(b.target);vb.fallAt=CombatNow-1000;if(string.IsNullOrEmpty(vb.fallStyle))vb.fallStyle="throat";}
+   if(!b.pairEnd&&tt>=b.take+b.holdT+b.lowerT*th.pool_at&&b.holdDone){b.pairEnd=true;var bleed=combatBleeds.Find(x=>x.body==CombatHumanoid(b.target));var vh=CombatHumanoid(b.target);var nk=vh==null?null:vh.animator.GetBoneTransform(HumanBodyBones.Neck);if(bleed!=null&&nk!=null&&bleed.sign.pool_m>0&&bleed.pool==null){var at=nk.position;at.y=vh.go.transform.position.y+.004f;var pool=CombatBloodPiece("floor pool",at,Quaternion.identity,new Vector3(.001f,.002f,.001f));bleed.pool=pool.transform;bleed.poolSize=bleed.sign.pool_m;bleed.poolAt=CombatNow;bleed.pulsesLeft=0;}}
+   if(t>=b.seconds-CombatDt*1.5f&&b.holdDone){var vb=CombatBodyOf(b.target);vb.wasDown=true;vb.fallAt=CombatNow-1000;if(string.IsNullOrEmpty(vb.fallStyle))vb.fallStyle="throat";}
   }
   void CombatPairSound(PocCombatSoundCue cue,CombatBeat b){if(cue==null||string.IsNullOrEmpty(cue.clip))return;AudioClip clip;if(!combatAudioClips.TryGetValue(cue.clip,out clip)){clip=Resources.Load<AudioClip>(cue.clip);combatAudioClips[cue.clip]=clip;if(clip==null)Debug.LogWarning("ANG combat: sound file missing "+cue.clip);}if(clip==null)return;
    AudioSource src=null;foreach(var x in combatAudio)if(x!=null&&!x.isPlaying){src=x;break;}if(src==null){var go=new GameObject("combat sound");go.transform.SetParent(transform,false);src=go.AddComponent<AudioSource>();src.playOnAwake=false;src.spatialBlend=0;src.bypassReverbZones=true;combatAudio.Add(src);}
@@ -834,8 +876,9 @@ namespace AngelsDemons.Poc {
    if(a<=1e-8f&&e<=1e-8f){s=t=0;}else if(a<=1e-8f){s=0;t=Mathf.Clamp01(f/e);}else{float c=Vector3.Dot(d1,r);if(e<=1e-8f){t=0;s=Mathf.Clamp01(-c/a);}else{float b=Vector3.Dot(d1,d2),den=a*e-b*b;s=den>1e-8f?Mathf.Clamp01((b*f-c*e)/den):0;t=(b*s+f)/e;if(t<0){t=0;s=Mathf.Clamp01(-c/a);}else if(t>1){t=1;s=Mathf.Clamp01((b-c)/a);}}}
    c1=p1+d1*s;c2=p2+d2*t;return Vector3.Distance(c1,c2);
   }
-  readonly List<CombatCap> capsX=new List<CombatCap>(),capsY=new List<CombatCap>();
+  readonly List<CombatCap> capsX=new List<CombatCap>(),capsY=new List<CombatCap>(),capsFloor=new List<CombatCap>();
   float CombatCapsDeepest(out string where){float best=0;where="";foreach(var x in capsX)foreach(var y in capsY){Vector3 c1,c2;float depth=x.r+y.r-CapDist(x.a,x.b,y.a,y.b,out c1,out c2);if(depth>best){best=depth;where=x.id+"/"+y.id;}}return best;}
+  float combatDepthTorso;string combatDepthTorsoAt="";static bool CombatUpperTrunk(string id){return id=="head"||id=="neck"||id=="collar"||id=="upper_chest"||id=="shoulders"||id=="chest";}
   internal readonly List<string> combatDepthRows=new List<string>();internal float combatDepthRawMax,combatDepthFinalMax;internal string combatDepthRawAt="",combatDepthFinalAt="";
   void CombatBodySolve(PocCombatLook look){
    var s=look.body_solver;if(s==null||!s.enabled||s.capsules==null||s.capsules.Length==0)return;CombatCapsPrepare(s);
@@ -856,19 +899,36 @@ namespace AngelsDemons.Poc {
    Vector3 hint=C+(bestE-C).normalized*(rad+.15f);if(right){z.rig.armHint.position=hint;z.rig.HintArm(true,1);}else{z.rig.clutchHint.position=hint;z.rig.HintArm(false,1);}
    return bestD;
   }
+  // ---- Anatomy (owner 03.11): a knee is a hinge. Its IK has a hint in front of the kneecap, and the pose is measured every frame the Player records.
+  // The rest of the skeleton from its avatar: where the front of a thigh and of an upper arm is in the bone's own axes. So the sign of a bend is the bone's, whatever the pelvis is doing.
+  sealed class CombatRest{public Vector3 capL,capR,armL,armR;}
+  readonly Dictionary<Avatar,CombatRest> combatRests=new Dictionary<Avatar,CombatRest>();
+  static Quaternion CombatRestWorld(Transform t,Transform root,Dictionary<string,Quaternion> sk){var q=Quaternion.identity;for(var x=t;x!=null&&x!=root;x=x.parent){Quaternion l;q=(sk.TryGetValue(x.name,out l)?l:x.localRotation)*q;}return q;}
+  CombatRest CombatRestOf(Animator an){CombatRest r;if(an.avatar!=null&&combatRests.TryGetValue(an.avatar,out r))return r;r=new CombatRest();var sk=new Dictionary<string,Quaternion>(StringComparer.Ordinal);if(an.avatar!=null)foreach(var b in an.avatar.humanDescription.skeleton)sk[b.name]=b.rotation;Func<HumanBodyBones,Vector3,Vector3> local=(bone,world)=>{var t=an.GetBoneTransform(bone);return t==null?world:Quaternion.Inverse(CombatRestWorld(t,an.transform,sk))*world;};r.capL=local(HumanBodyBones.LeftUpperLeg,Vector3.forward);r.capR=local(HumanBodyBones.RightUpperLeg,Vector3.forward);r.armL=local(HumanBodyBones.LeftUpperArm,Vector3.forward);r.armR=local(HumanBodyBones.RightUpperArm,Vector3.forward);if(an.avatar!=null)combatRests[an.avatar]=r;return r;}
+  void CombatKneeHints(LocationSDKHumanoid h,PocCombatContactRig rig){var an=h.animator;if(rig.kneeHintL==null||rig.kneeHintR==null)return;var r=CombatRestOf(an);var tl=an.GetBoneTransform(HumanBodyBones.LeftUpperLeg);var tr=an.GetBoneTransform(HumanBodyBones.RightUpperLeg);var kl=an.GetBoneTransform(HumanBodyBones.LeftLowerLeg);var kr=an.GetBoneTransform(HumanBodyBones.RightLowerLeg);if(tl==null||tr==null||kl==null||kr==null)return;rig.kneeHintL.position=kl.position+tl.rotation*r.capL*.4f;rig.kneeHintR.position=kr.position+tr.rotation*r.capR*.4f;}
+  // Bend in degrees with the sign of the hinge: minus is against the joint (the knee or the elbow bent the wrong way).
+  static float CombatHinge(Animator an,HumanBodyBones upper,HumanBodyBones lower,HumanBodyBones end,Vector3 want){var a=an.GetBoneTransform(upper);var b=an.GetBoneTransform(lower);var c=an.GetBoneTransform(end);if(a==null||b==null||c==null)return 0;Vector3 th=b.position-a.position,sh=c.position-b.position;float flex=Vector3.Angle(th,sh);Vector3 t=th.normalized,p=sh-Vector3.Dot(sh,t)*t;if(p.magnitude<.004f)return flex;return Vector3.Dot(p.normalized,a.rotation*want)>=-.2f?flex:-flex;}
+  // Layers add up: a stance plus an additive flinch can fold an elbow past what any one clip does (found 03.11). After everything has posed the body, the forearm opens to the range; a held prop stays in the hand.
+  // After every layer and the solver: the solver shifts a falling body's hips while its feet stay, the knee must not pay for it. The shin opens, the foot goes with it.
+  void CombatKneesInRange(PocCombatLook look){if(look==null||look.anatomy==null||look.anatomy.knee==null)return;float max=look.anatomy.knee.flex_deg-1;foreach(var h in locationSDKHumanoids.Values){if(h.go==null||!h.go.activeSelf||h.animator==null)continue;var an=h.animator;foreach(var side in new[]{new[]{HumanBodyBones.LeftUpperLeg,HumanBodyBones.LeftLowerLeg,HumanBodyBones.LeftFoot},new[]{HumanBodyBones.RightUpperLeg,HumanBodyBones.RightLowerLeg,HumanBodyBones.RightFoot}}){var x=an.GetBoneTransform(side[0]);var y=an.GetBoneTransform(side[1]);var z=an.GetBoneTransform(side[2]);if(x==null||y==null||z==null)continue;Vector3 u=y.position-x.position,w=z.position-y.position;float over=Vector3.Angle(u,w)-max;if(over<=0)continue;y.rotation=Quaternion.AngleAxis(-over,Vector3.Cross(u,w).normalized)*y.rotation;}}}
+  void CombatElbowsInRange(PocCombatLook look){if(look==null||look.anatomy==null||look.anatomy.elbow==null)return;float max=look.anatomy.elbow.flex_deg-1;foreach(var h in locationSDKHumanoids.Values){if(h.go==null||!h.go.activeSelf||h.animator==null)continue;var an=h.animator;foreach(var side in new[]{new[]{HumanBodyBones.LeftUpperArm,HumanBodyBones.LeftLowerArm,HumanBodyBones.LeftHand},new[]{HumanBodyBones.RightUpperArm,HumanBodyBones.RightLowerArm,HumanBodyBones.RightHand}}){var x=an.GetBoneTransform(side[0]);var y=an.GetBoneTransform(side[1]);var z=an.GetBoneTransform(side[2]);if(x==null||y==null||z==null)continue;Vector3 u=y.position-x.position,w=z.position-y.position;float over=Vector3.Angle(u,w)-max;if(over<=0)continue;CombatProp pr=null;bool held=side[2]==HumanBodyBones.RightHand&&combatProps.TryGetValue(h.id,out pr)&&pr.go!=null;Quaternion lq=held?Quaternion.Inverse(z.rotation)*pr.go.transform.rotation:Quaternion.identity;Vector3 lp=held?Quaternion.Inverse(z.rotation)*(pr.go.transform.position-z.position):Vector3.zero;y.rotation=Quaternion.AngleAxis(-over,Vector3.Cross(u,w).normalized)*y.rotation;if(held)pr.go.transform.SetPositionAndRotation(z.position+z.rotation*lp,z.rotation*lq);}}}
+  internal readonly List<string> combatAnatomyRows=new List<string>();readonly Dictionary<string,Vector3[]> combatAnatomyPrev=new Dictionary<string,Vector3[]>(StringComparer.Ordinal);
+  static readonly HumanBodyBones[] CombatAnatomyJoints={HumanBodyBones.LeftLowerLeg,HumanBodyBones.RightLowerLeg,HumanBodyBones.LeftFoot,HumanBodyBones.RightFoot,HumanBodyBones.LeftLowerArm,HumanBodyBones.RightLowerArm,HumanBodyBones.LeftHand,HumanBodyBones.RightHand,HumanBodyBones.Head};
+  void CombatAnatomySample(){if(combatAutoDir==null)return;var inv=System.Globalization.CultureInfo.InvariantCulture;foreach(var h in locationSDKHumanoids.Values){if(h.go==null||!h.go.activeSelf||h.animator==null)continue;var an=h.animator;var rr=CombatRestOf(an);float kl=CombatHinge(an,HumanBodyBones.LeftUpperLeg,HumanBodyBones.LeftLowerLeg,HumanBodyBones.LeftFoot,-rr.capL),kr=CombatHinge(an,HumanBodyBones.RightUpperLeg,HumanBodyBones.RightLowerLeg,HumanBodyBones.RightFoot,-rr.capR),el=CombatHinge(an,HumanBodyBones.LeftUpperArm,HumanBodyBones.LeftLowerArm,HumanBodyBones.LeftHand,rr.armL),er=CombatHinge(an,HumanBodyBones.RightUpperArm,HumanBodyBones.RightLowerArm,HumanBodyBones.RightHand,rr.armR);var now=new Vector3[CombatAnatomyJoints.Length];for(int i=0;i<now.Length;i++){var t=an.GetBoneTransform(CombatAnatomyJoints[i]);now[i]=t==null?Vector3.zero:t.position;}Vector3[] was;float top=0;if(combatAnatomyPrev.TryGetValue(h.id,out was)&&CombatDt>1e-5f)for(int i=0;i<now.Length;i++)top=Mathf.Max(top,(now[i]-was[i]).magnitude/CombatDt);combatAnatomyPrev[h.id]=now;combatAnatomyRows.Add(string.Join("\t",CombatNow.ToString("F3",inv),Time.frameCount.ToString(inv),h.id,kl.ToString("F1",inv),kr.ToString("F1",inv),el.ToString("F1",inv),er.ToString("F1",inv),top.ToString("F2",inv),h.state??""));}}
   void SolverApply(SolverState z,bool always){
    var body=z.body;var rig=z.rig;bool moved=body.solverShift.sqrMagnitude>1e-8f||body.footFixL.sqrMagnitude>1e-8f||body.footFixR.sqrMagnitude>1e-8f;if(!moved&&!always)return;
-   if(moved){var hd=rig.hipsShift.data;hd.position=body.hipsRaw+body.shift+body.solverShift;rig.hipsShift.data=hd;rig.hipsShift.weight=1;
+   if(moved){CombatKneeHints(z.h,rig);var hd=rig.hipsShift.data;hd.position=body.hipsRaw+body.shift+body.solverShift;rig.hipsShift.data=hd;rig.hipsShift.weight=1;
     Vector3 lp=body.pinned?body.pinLP:body.lfRawP,rp=body.pinned?body.pinRP:body.rfRawP;Quaternion lq=body.pinned?body.pinLQ:body.lfRawQ,rq=body.pinned?body.pinRQ:body.rfRawQ;
     rig.footL.SetPositionAndRotation(lp+body.footFixL,lq);rig.footR.SetPositionAndRotation(rp+body.footFixR,rq);rig.legL.weight=1;rig.legR.weight=1;}
    rig.rig.weight=1;rig.Evaluate(0);
   }
   void SolverBegin(SolverState z,string id,PocCombatBodySolver s,float dt){var an=z.h.animator;z.handR=an.GetBoneTransform(HumanBodyBones.RightHand);z.handL=an.GetBoneTransform(HumanBodyBones.LeftHand);combatProps.TryGetValue(id,out z.prop);if(z.prop!=null&&z.prop.go!=null&&z.handR!=null){z.lq=Quaternion.Inverse(z.handR.rotation)*z.prop.go.transform.rotation;z.lp=Quaternion.Inverse(z.handR.rotation)*(z.prop.go.transform.position-z.handR.position);foreach(var q in z.prop.go.GetComponentsInChildren<Transform>())if(q.name=="contact_tip"){z.localTip=Quaternion.Inverse(z.handR.rotation)*(q.position-z.handR.position);break;}}z.swingL=(z.body.lfRawP-z.body.lfPrev).magnitude>s.swing_mps*dt;z.swingR=(z.body.rfRawP-z.body.rfPrev).magnitude>s.swing_mps*dt;float fade=s.max_shift_m/Mathf.Max(.05f,s.return_s)*dt;z.body.solverShift=Vector3.MoveTowards(z.body.solverShift,Vector3.zero,fade);}
+  void SolverRest(SolverState z,bool right,float left,bool pair,PocCombatBodySolver s){if(left<=.008f)return;Vector3 n=right?z.nR:z.nL;if(pair&&!z.isVictim){var q=n;q.y=0;if(q.sqrMagnitude>1e-6f)z.body.solverShift=Vector3.ClampMagnitude(z.body.solverShift+q.normalized*left*.7f,s.max_shift_m);SolverApply(z,false);return;}if(right){z.goalR+=n*left;SolverGoal(z,true);}else{z.goalL+=n*left;SolverGoal(z,false);}}
   static bool CapHand(CombatCap c){return c.id.StartsWith("hand",StringComparison.Ordinal);}
   static bool CapArm(CombatCap c){return c.id.StartsWith("fore",StringComparison.Ordinal)||c.id.StartsWith("upper_r",StringComparison.Ordinal)||c.id.StartsWith("upper_l",StringComparison.Ordinal);}
   static bool CapFoot(CombatCap c){return c.id.StartsWith("foot",StringComparison.Ordinal);}
   void SolverSide(SolverState z,CombatCap c,Vector3 n,float depth,float handShare){
-   if(CapHand(c)){if(handShare<=0)return;var q=n*depth*handShare;if(c.group==CapArmR){if(q.sqrMagnitude>z.dR.sqrMagnitude)z.dR=q;}else if(q.sqrMagnitude>z.dL.sqrMagnitude)z.dL=q;return;}
+   if(CapHand(c)){if(handShare<=0)return;float need=depth*handShare;if(c.group==CapArmR){float more=need-Vector3.Dot(z.dR,n);if(more>0)z.dR+=n*more;}else{float more=need-Vector3.Dot(z.dL,n);if(more>0)z.dL+=n*more;}return;}
    if(CapArm(c)){if(handShare<=0)return;if(c.group==CapArmR){z.elbowR=true;z.nR=n;}else{z.elbowL=true;z.nL=n;}return;}
    var f=n*depth*z.keep;f.y=0;if(f.sqrMagnitude<.25f*depth*depth*z.keep*z.keep){var away=n;away.y=0;if(away.sqrMagnitude<1e-6f)away=z.apart;f=away.normalized*depth*z.keep;}
    if(CapFoot(c)&&c.group==CapLegL&&z.swingL){if(f.sqrMagnitude>z.footL.sqrMagnitude)z.footL=f;return;}
@@ -903,16 +963,18 @@ namespace AngelsDemons.Poc {
     SolverApply(zA,true);SolverApply(zB,true);
     // the elbows after the hands and the hips have moved
     CombatCaps(a,s,capsX);CombatCaps(b,s,capsY);bool routed=false;
-    if(zA.elbowR){float left=SolverElbow(zA,true,capsY,s);routed=true;if(left>.012f&&!pair){zA.goalR+=zA.nR*left;SolverGoal(zA,true);}}if(zA.elbowL){float left=SolverElbow(zA,false,capsY,s);routed=true;if(left>.012f&&!pair){zA.goalL+=zA.nL*left;SolverGoal(zA,false);}}
-    if(zB.elbowR){float left=SolverElbow(zB,true,capsX,s);routed=true;if(left>.012f&&!pair){zB.goalR+=zB.nR*left;SolverGoal(zB,true);}}if(zB.elbowL){float left=SolverElbow(zB,false,capsX,s);routed=true;if(left>.012f&&!pair){zB.goalL+=zB.nL*left;SolverGoal(zB,false);}}
+    if(zA.elbowR){float left=SolverElbow(zA,true,capsY,s);routed=true;SolverRest(zA,true,left,pair,s);}if(zA.elbowL){float left=SolverElbow(zA,false,capsY,s);routed=true;SolverRest(zA,false,left,pair,s);}
+    if(zB.elbowR){float left=SolverElbow(zB,true,capsX,s);routed=true;SolverRest(zB,true,left,pair,s);}if(zB.elbowL){float left=SolverElbow(zB,false,capsX,s);routed=true;SolverRest(zB,false,left,pair,s);}
     if(routed){zA.rig.Evaluate(0);zB.rig.Evaluate(0);}
    }
+   // the shift of the hips changes at the speed of a body, not by a jump of the solver
+   {float most=s.shift_mps*dt;bool over=false;foreach(var z in new[]{zA,zB}){var w=z.body.solverShift-z.body.shiftLast;if(w.magnitude>most){z.body.solverShift=z.body.shiftLast+w.normalized*most;over=true;}z.body.shiftLast=z.body.solverShift;}if(over){SolverApply(zA,true);SolverApply(zB,true);}}
    foreach(var z in new[]{zA,zB})if(z.prop!=null&&z.prop.go!=null)z.prop.go.transform.SetPositionAndRotation(z.handR.position+z.handR.rotation*z.lp,z.handR.rotation*z.lq);
    // a foot comes back only in the air
    if(zA.swingL)ba.footFixL=Vector3.MoveTowards(ba.footFixL,Vector3.zero,dt*.2f);if(zA.swingR)ba.footFixR=Vector3.MoveTowards(ba.footFixR,Vector3.zero,dt*.2f);if(zB.swingL)bb.footFixL=Vector3.MoveTowards(bb.footFixL,Vector3.zero,dt*.2f);if(zB.swingR)bb.footFixR=Vector3.MoveTowards(bb.footFixR,Vector3.zero,dt*.2f);
-   if(combatAutoDir!=null){CombatCaps(a,s,capsX);CombatCaps(b,s,capsY);string finalAt;float final=CombatCapsDeepest(out finalAt);if(raw>combatDepthRawMax){combatDepthRawMax=raw;combatDepthRawAt=rawAt;}if(final>combatDepthFinalMax){combatDepthFinalMax=final;combatDepthFinalAt=finalAt;}combatDepthRows.Add(CombatF(CombatAutoTime)+"\t"+Time.frameCount+"\t"+raw.ToString("0.0000",System.Globalization.CultureInfo.InvariantCulture)+"\t"+rawAt+"\t"+final.ToString("0.0000",System.Globalization.CultureInfo.InvariantCulture)+"\t"+finalAt+"\t"+CombatF(ba.solverShift.magnitude)+"\t"+CombatF(bb.solverShift.magnitude)+"\t"+(beat==null?"":beat.kind)+"\t"+((zA.hasL||zA.hasR||zB.hasL||zB.hasR)?1:0));
+   if(combatAutoDir!=null){CombatCaps(a,s,capsX);CombatCaps(b,s,capsY);string finalAt;float final=CombatCapsDeepest(out finalAt);if(raw>combatDepthRawMax){combatDepthRawMax=raw;combatDepthRawAt=rawAt;}if(final>combatDepthFinalMax){combatDepthFinalMax=final;combatDepthFinalAt=finalAt;}{string torsoAt="";float torso=0;foreach(var x in capsX)if(x.group==CapTorso&&CombatUpperTrunk(x.id))foreach(var y in capsY)if(y.group==CapTorso&&CombatUpperTrunk(y.id)){Vector3 c1,c2;float de=x.r+y.r-CapDist(x.a,x.b,y.a,y.b,out c1,out c2);if(de>torso){torso=de;torsoAt=x.id+"/"+y.id;}}combatDepthTorso=torso;combatDepthTorsoAt=torsoAt;}combatDepthRows.Add(CombatF(CombatAutoTime)+"\t"+Time.frameCount+"\t"+raw.ToString("0.0000",System.Globalization.CultureInfo.InvariantCulture)+"\t"+rawAt+"\t"+final.ToString("0.0000",System.Globalization.CultureInfo.InvariantCulture)+"\t"+finalAt+"\t"+CombatF(ba.solverShift.magnitude)+"\t"+CombatF(bb.solverShift.magnitude)+"\t"+(beat==null?"":beat.kind)+"\t"+((zA.hasL||zA.hasR||zB.hasL||zB.hasR)?1:0)+"\t"+combatDepthTorso.ToString("0.0000",System.Globalization.CultureInfo.InvariantCulture)+"\t"+combatDepthTorsoAt);
     if(beat!=null&&beat.pair&&pair)CombatPairMeasure(beat);
-    if(beat!=null&&beat.kind=="attack"&&!beat.pair&&beat.contactLogged&&!beat.finalLogged&&beat.bodyStrike){beat.finalLogged=true;var at=CombatHumanoid(beat.actor);var vi=CombatHumanoid(beat.target);CombatProp pr;if(at!=null&&vi!=null&&combatProps.TryGetValue(beat.actor,out pr)&&pr.go!=null){Transform tip=null;foreach(var q in pr.go.GetComponentsInChildren<Transform>())if(q.name=="contact_tip"){tip=q;break;}var hand=at.animator.GetBoneTransform(HumanBodyBones.RightHand);if(tip!=null&&hand!=null){var keep=CombatNoArms(vi);combatM1Rows.Add("{\"final_tip_signed_m\":"+CombatF(CombatSkinSigned(vi,tip.position,keep))+",\"final_hand_signed_m\":"+CombatF(CombatSkinSigned(vi,hand.position,keep))+",\"actor\":"+CombatJ(beat.actor)+"}");}}}
+    if(beat!=null&&beat.kind=="attack"&&!beat.pair&&beat.contactLogged&&!beat.finalLogged&&beat.bodyStrike){beat.finalLogged=true;var at=CombatHumanoid(beat.actor);var vi=CombatHumanoid(beat.target);CombatProp pr;if(at!=null&&vi!=null&&combatProps.TryGetValue(beat.actor,out pr)&&pr.go!=null){Transform tip=null;foreach(var q in pr.go.GetComponentsInChildren<Transform>())if(q.name=="contact_tip"){tip=q;break;}var hand=at.animator.GetBoneTransform(HumanBodyBones.RightHand);if(tip!=null&&hand!=null){var keep=CombatNoArms(vi);combatM1Rows.Add("{\"final_tip_inside\":"+(CombatPointInside(vi,tip.position,beat.entrySet?beat.bladeDir:(tip.position-hand.position).normalized,keep)?"true":"false")+",\"final_tip_signed_m\":"+CombatF(CombatSkinSigned(vi,tip.position,keep))+",\"final_hand_signed_m\":"+CombatF(CombatSkinSigned(vi,hand.position,keep))+",\"final_along_m\":"+CombatF(beat.entrySet?Vector3.Dot(tip.position-beat.entry,beat.bladeDir):0)+",\"final_tip_to_point_m\":"+CombatF(beat.entrySet?Vector3.Distance(tip.position,beat.tipPoint):0)+",\"depth\":"+CombatJ(beat.depth)+",\"actor\":"+CombatJ(beat.actor)+"}");}}}
    }
   }
   // Review log (autoplay only): every frame of the grip against the real skin of the head and the neck, with the sign: negative is inside.
@@ -934,6 +996,26 @@ namespace AngelsDemons.Poc {
   }
   // The body without its forearms and hands: a raised guard in front of the chest is not the skin the blade is going for.
   static Func<Vector3,bool> CombatNoArms(LocationSDKHumanoid v){var an=v.animator;var seg=new List<Vector3>();foreach(var q in new[]{HumanBodyBones.LeftUpperArm,HumanBodyBones.LeftLowerArm,HumanBodyBones.LeftHand,HumanBodyBones.LeftMiddleProximal,HumanBodyBones.RightUpperArm,HumanBodyBones.RightLowerArm,HumanBodyBones.RightHand,HumanBodyBones.RightMiddleProximal}){var t=an.GetBoneTransform(q);seg.Add(t==null?Vector3.zero:t.position);}return c=>{for(int i=0;i<8;i+=4){for(int k=0;k<3;k++){var ab=seg[i+k+1]-seg[i+k];float u=Mathf.Clamp01(Vector3.Dot(c-seg[i+k],ab)/Mathf.Max(1e-6f,ab.sqrMagnitude));if((seg[i+k]+ab*u-c).sqrMagnitude<.0049f)return false;}}return true;};}
+  // The first skin on the way from `from` through `through` (Möller-Trumbore on the bake), the normal against the ray.
+  // From a point under the skin along a direction: how far to the skin on the way out (the nearest triangle that faces along the ray).
+  static float CombatSkinExit(LocationSDKHumanoid victim,Vector3 from,Vector3 d,Func<Vector3,bool> keep){
+   float best=float.PositiveInfinity;
+   foreach(var r in victim.renderers){var renderer=r as SkinnedMeshRenderer;if(renderer==null)continue;var mesh=new Mesh();renderer.BakeMesh(mesh);var vertices=mesh.vertices;var indices=mesh.triangles;var matrix=renderer.localToWorldMatrix;
+    for(int i=0;i+2<indices.Length;i+=3){var x=matrix.MultiplyPoint3x4(vertices[indices[i]]);var y=matrix.MultiplyPoint3x4(vertices[indices[i+1]]);var z=matrix.MultiplyPoint3x4(vertices[indices[i+2]]);var e1=y-x;var e2=z-x;if(Vector3.Dot(Vector3.Cross(e1,e2),d)<=0)continue;var pv=Vector3.Cross(d,e2);float det=Vector3.Dot(e1,pv);if(Mathf.Abs(det)<1e-9f)continue;float inv=1/det;var tv=from-x;float u=Vector3.Dot(tv,pv)*inv;if(u<0||u>1)continue;var qv=Vector3.Cross(tv,e1);float w=Vector3.Dot(d,qv)*inv;if(w<0||u+w>1)continue;float t=Vector3.Dot(e2,qv)*inv;if(t<=.003f||t>=best)continue;if(keep!=null&&!keep((x+y+z)/3))continue;best=t;}
+    Destroy(mesh);
+   }
+   return best;
+  }
+  // Is the point under the skin: the nearest triangle ahead along the blade is seen from behind. The signed distance to the nearest triangle cannot tell near a fold of the body.
+  static bool CombatPointInside(LocationSDKHumanoid victim,Vector3 from,Vector3 d,Func<Vector3,bool> keep){float best=float.PositiveInfinity;bool inside=false;foreach(var r in victim.renderers){var renderer=r as SkinnedMeshRenderer;if(renderer==null)continue;var mesh=new Mesh();renderer.BakeMesh(mesh);var vertices=mesh.vertices;var indices=mesh.triangles;var matrix=renderer.localToWorldMatrix;for(int i=0;i+2<indices.Length;i+=3){var x=matrix.MultiplyPoint3x4(vertices[indices[i]]);var y=matrix.MultiplyPoint3x4(vertices[indices[i+1]]);var z=matrix.MultiplyPoint3x4(vertices[indices[i+2]]);var e1=y-x;var e2=z-x;var pv=Vector3.Cross(d,e2);float det=Vector3.Dot(e1,pv);if(Mathf.Abs(det)<1e-9f)continue;float inv=1/det;var tv=from-x;float u=Vector3.Dot(tv,pv)*inv;if(u<0||u>1)continue;var qv=Vector3.Cross(tv,e1);float w=Vector3.Dot(d,qv)*inv;if(w<0||u+w>1)continue;float t=Vector3.Dot(e2,qv)*inv;if(t<=.001f||t>=best)continue;if(keep!=null&&!keep((x+y+z)/3))continue;best=t;inside=Vector3.Dot(Vector3.Cross(e1,e2),d)>0;}Destroy(mesh);}return inside;}
+  static bool CombatSkinRay(LocationSDKHumanoid victim,Vector3 from,Vector3 through,Func<Vector3,bool> keep,out Vector3 at,out Vector3 normal){
+   at=through;normal=Vector3.zero;float best=float.PositiveInfinity;Vector3 d=(through-from);float len=d.magnitude;if(len<1e-4f)return false;d/=len;
+   foreach(var r in victim.renderers){var renderer=r as SkinnedMeshRenderer;if(renderer==null)continue;var mesh=new Mesh();renderer.BakeMesh(mesh);var vertices=mesh.vertices;var indices=mesh.triangles;var matrix=renderer.localToWorldMatrix;
+    for(int i=0;i+2<indices.Length;i+=3){var x=matrix.MultiplyPoint3x4(vertices[indices[i]]);var y=matrix.MultiplyPoint3x4(vertices[indices[i+1]]);var z=matrix.MultiplyPoint3x4(vertices[indices[i+2]]);var e1=y-x;var e2=z-x;var pv=Vector3.Cross(d,e2);float det=Vector3.Dot(e1,pv);if(Mathf.Abs(det)<1e-9f)continue;float inv=1/det;var tv=from-x;float u=Vector3.Dot(tv,pv)*inv;if(u<0||u>1)continue;var qv=Vector3.Cross(tv,e1);float w=Vector3.Dot(d,qv)*inv;if(w<0||u+w>1)continue;float t=Vector3.Dot(e2,qv)*inv;if(t<=0||t>=best)continue;if(keep!=null&&!keep((x+y+z)/3))continue;best=t;normal=Vector3.Cross(e1,e2).normalized;if(Vector3.Dot(normal,d)>0)normal=-normal;}
+    Destroy(mesh);
+   }
+   if(float.IsInfinity(best))return false;at=from+d*best;return true;
+  }
   static float CombatHeadNeckSigned(LocationSDKHumanoid victim,Vector3 point){var head=victim.animator.GetBoneTransform(HumanBodyBones.Head);var neck=victim.animator.GetBoneTransform(HumanBodyBones.Neck);if(head==null||neck==null)return 999;float ny=neck.position.y-.03f;return CombatSkinSigned(victim,point,c=>c.y>=ny&&(Vector3.Distance(c,head.position)<.24f||Vector3.Distance(c,neck.position)<.12f));}
   // Sound: the three cues by outcome, the keys and files are data.
   readonly List<AudioSource> combatAudio=new List<AudioSource>();readonly Dictionary<string,AudioClip> combatAudioClips=new Dictionary<string,AudioClip>(StringComparer.Ordinal);
@@ -943,7 +1025,7 @@ namespace AngelsDemons.Poc {
    src.clip=clip;src.volume=Mathf.Clamp01(cue.volume);src.Play();CombatM1Sound(cue.key,cue.clip);
   }
   // Blood: droplets fly, land and stay; a stain grows on the body at the wound; a vessel keeps pulsing. The strength is the outward sign the wound model gives.
-  sealed class CombatDrop {public Transform t;public Vector3 v;public float size,floorY;public bool landed;}
+  sealed class CombatDrop {public Transform t;public Vector3 v;public float size,floorY,yaw,aspect,spread;public bool landed;}
   sealed class CombatBleed {public Transform stain;public Transform pool;public PocCombatBloodSign sign;public float at,nextPulse;public int pulsesLeft;public LocationSDKHumanoid body;public string zone,side;public System.Random rng;public float stainSize,poolSize,stainScale=1;public Vector3 normal;public CombatStain patch;public float poolAt;}
   // A stain lies on the skin: the triangles of the body round the wound, a hair above it, on the nearest bone; it spreads triangle by triangle. No ball on the blade.
   sealed class CombatStain {public Mesh mesh;public int[] tris;public float[] dist;public int shown;public float radius;}
@@ -962,7 +1044,8 @@ namespace AngelsDemons.Poc {
    var piece=CombatBloodPiece("wound stain",bone.position,bone.rotation,Vector3.one);piece.transform.SetParent(bone,false);piece.transform.localPosition=Vector3.zero;piece.transform.localRotation=Quaternion.identity;piece.transform.localScale=Vector3.one;piece.GetComponent<MeshFilter>().sharedMesh=mesh;
    return new CombatStain{mesh=mesh,tris=tris,dist=dist,radius=radius};
   }
-  void CombatBloodClear(){foreach(var g in combatBloodObjects)if(g!=null)Destroy(g);combatBloodObjects.Clear();combatDrops.Clear();combatBleeds.Clear();}
+  void CombatFallingClear(){foreach(var f in combatFalling)if(f.go!=null)Destroy(f.go);combatFalling.Clear();}
+  void CombatBloodClear(){CombatFallingClear();foreach(var g in combatBloodObjects)if(g!=null)Destroy(g);combatBloodObjects.Clear();combatDrops.Clear();combatBleeds.Clear();}
   GameObject CombatBloodPiece(string label,Vector3 at,Quaternion q,Vector3 scale){
    if(combatBloodMesh==null){var tmp=GameObject.CreatePrimitive(PrimitiveType.Sphere);combatBloodMesh=tmp.GetComponent<MeshFilter>().sharedMesh;Destroy(tmp);}
    var look=CombatLook();var rgb=look==null||look.blood==null||look.blood.rgb==null||look.blood.rgb.Length!=3?new[]{.3f,.015f,.012f}:look.blood.rgb;
@@ -984,13 +1067,14 @@ namespace AngelsDemons.Poc {
    combatBleeds.Add(bleed);
   }
   Vector3 CombatBloodDir(Vector3 normal,LocationSDKHumanoid victim,string attacker){var toCam=locationSDKCamera!=null?-locationSDKCamera.transform.forward:Vector3.back;toCam.y=0;toCam.Normalize();return (normal*.45f+toCam*.75f).normalized;}
-  Transform CombatNearestBone(LocationSDKHumanoid h,Vector3 p){Transform best=null;float bd=float.MaxValue;foreach(var b in new[]{HumanBodyBones.Hips,HumanBodyBones.Spine,HumanBodyBones.Chest,HumanBodyBones.UpperChest,HumanBodyBones.Neck,HumanBodyBones.Head,HumanBodyBones.LeftUpperArm,HumanBodyBones.RightUpperArm}){var t=h.animator.GetBoneTransform(b);if(t==null)continue;float d=(t.position-p).sqrMagnitude;if(d<bd){bd=d;best=t;}}return best;}
+  // A wound in the trunk rides on the trunk: on an upper arm the entry would leave with the arm and the point would end outside the body.
+  Transform CombatNearestBone(LocationSDKHumanoid h,Vector3 p,bool trunk=false){Transform best=null;float bd=float.MaxValue;foreach(var b in new[]{HumanBodyBones.Hips,HumanBodyBones.Spine,HumanBodyBones.Chest,HumanBodyBones.UpperChest,HumanBodyBones.Neck,HumanBodyBones.Head,HumanBodyBones.LeftUpperArm,HumanBodyBones.RightUpperArm}){if(trunk&&(b==HumanBodyBones.LeftUpperArm||b==HumanBodyBones.RightUpperArm))continue;var t=h.animator.GetBoneTransform(b);if(t==null)continue;float d=(t.position-p).sqrMagnitude;if(d<bd){bd=d;best=t;}}return best;}
   void CombatDroplets(Vector3 at,Vector3 normal,PocCombatBloodSign s,int n,System.Random rng,float floorY){
-   for(int i=0;i<n;i++){Vector3 r=new Vector3((float)rng.NextDouble()-.5f,(float)rng.NextDouble()-.5f,(float)rng.NextDouble()-.5f)*2*s.spread;float sp=s.speed*(.55f+.45f*(float)rng.NextDouble());var v=(normal+r+Vector3.up*.2f).normalized*sp;float size=s.droplet_m*(.7f+.6f*(float)rng.NextDouble());var go=CombatBloodPiece("droplet",at,Quaternion.identity,Vector3.one*size);combatDrops.Add(new CombatDrop{t=go.transform,v=v,size=size,floorY=floorY});}
+   for(int i=0;i<n;i++){Vector3 r=new Vector3((float)rng.NextDouble()-.5f,(float)rng.NextDouble()-.5f,(float)rng.NextDouble()-.5f)*2*s.spread;float sp=s.speed*(.55f+.45f*(float)rng.NextDouble());var v=(normal+r+Vector3.up*.2f).normalized*sp;float size=s.droplet_m*(.7f+.6f*(float)rng.NextDouble());var go=CombatBloodPiece("droplet",at,Quaternion.identity,Vector3.one*size);combatDrops.Add(new CombatDrop{t=go.transform,v=v,size=size,floorY=floorY,yaw=(float)rng.NextDouble()*360,aspect=.45f+.55f*(float)rng.NextDouble(),spread=.55f+1.05f*(float)rng.NextDouble()});}
   }
   void CombatBloodTick(PocCombatLook look){
    if(look==null||look.blood==null)return;float dt=CombatDt,g=look.blood.gravity;
-   for(int i=combatDrops.Count-1;i>=0;i--){var d=combatDrops[i];if(d.t==null){combatDrops.RemoveAt(i);continue;}d.v+=Vector3.down*g*dt;var p=d.t.position+d.v*dt;if(p.y<=d.floorY+.003f){p.y=d.floorY+.003f;d.t.position=p;d.t.rotation=Quaternion.identity;d.t.localScale=new Vector3(d.size*1.8f,.002f,d.size*1.8f);combatDrops.RemoveAt(i);continue;}d.t.position=p;if(d.v.sqrMagnitude>.01f)d.t.rotation=Quaternion.LookRotation(d.v);float stretch=Mathf.Clamp(1+d.v.magnitude*.3f,1,1.9f);d.t.localScale=new Vector3(d.size,d.size,d.size*stretch);}
+   for(int i=combatDrops.Count-1;i>=0;i--){var d=combatDrops[i];if(d.t==null){combatDrops.RemoveAt(i);continue;}d.v+=Vector3.down*g*dt;var p=d.t.position+d.v*dt;if(p.y<=d.floorY+.003f){p.y=d.floorY+.003f;d.t.position=p;d.t.rotation=Quaternion.Euler(0,d.yaw,0);d.t.localScale=new Vector3(d.size*1.8f*d.spread,.002f,d.size*1.8f*d.spread*d.aspect);combatDrops.RemoveAt(i);continue;}d.t.position=p;if(d.v.sqrMagnitude>.01f)d.t.rotation=Quaternion.LookRotation(d.v);float stretch=Mathf.Clamp(1.2f+d.v.magnitude*.6f,1.2f,2.8f);d.t.localScale=new Vector3(d.size*.26f,d.size*.26f,d.size*.26f*stretch);}
    foreach(var b in combatBleeds){float age=CombatNow-b.at;if(b.patch!=null){float k=CombatSmooth(age/Mathf.Max(.05f,look.blood.stain_grow_s));float rad=Mathf.Lerp(.35f,1f,k)*b.patch.radius;int n=0;while(n<b.patch.dist.Length&&b.patch.dist[n]<=rad)n++;if(n!=b.patch.shown){b.patch.shown=n;var idx=new int[n*3];Array.Copy(b.patch.tris,idx,n*3);b.patch.mesh.SetTriangles(idx,0,false);}}
     if(b.pool!=null){float k=Mathf.Clamp01((CombatNow-(b.poolAt>0?b.poolAt:b.at))/Mathf.Max(.1f,b.sign.pool_grow_s));float sq=Mathf.Sqrt(k);b.pool.localScale=new Vector3(b.poolSize*sq,.002f,b.poolSize*sq*.9f);}
     if(b.pulsesLeft>0&&CombatNow>=b.nextPulse){b.pulsesLeft--;b.nextPulse=CombatNow+b.sign.pulse_s;Vector3 p,n;if(b.body!=null&&b.body.go!=null&&CombatZonePoint(b.body,look,b.zone,b.side,out p,out n))CombatDroplets(p,b.normal,b.sign,b.sign.pulse_droplets,b.rng,b.body.go.transform.position.y);}

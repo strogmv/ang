@@ -195,7 +195,7 @@ namespace AngelsDemons.Poc {
    else if(h.walking)phase=LocationSDKHumanoidFrac(h.offset+h.distance/(clipSpeed*len));
    else phase=LocationSDKHumanoidFrac(h.offset+nowNS/1e9/len);
    bool fading=an.IsInTransition(0);
-   if(h.state!=want){if(h.state==null||jump||h.rate<=0)an.Play(hashWant,0,phase);else{an.CrossFadeInFixedTime(hashWant,.2f,0,phase*len);fading=true;}h.state=want;h.switches++;}
+   if(h.state!=want){if(h.state==null||jump||(h.rate<=0&&!h.state.StartsWith("combat_",System.StringComparison.Ordinal)))an.Play(hashWant,0,phase);else{an.CrossFadeInFixedTime(hashWant,h.state.StartsWith("combat_",System.StringComparison.Ordinal)?.35f:.2f,0,phase*len);fading=true;}h.state=want;h.switches++;}
    else if(jump){an.Play(hashWant,0,phase);h.resyncs++;}
    else if(!fading)an.Play(hashWant,0,phase);
    h.phase=phase;h.drift=fading?-1:0;

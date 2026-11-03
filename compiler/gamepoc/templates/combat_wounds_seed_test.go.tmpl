@@ -430,11 +430,13 @@ func TestCombatV4BodyStripEightDirections(t *testing.T){
 var combatM1Report=flag.String("combat-m1-report","","write real saves for each outcome of the knife strike; excluded from duel statistics")
 func TestCombatMoment1Probes(t *testing.T){
  if *combatM1Report==""{t.Skip("opt-in moment 1 fixtures")}
- type want struct{Name,Probe,Mode,Part,Outcome,Zone,Side,Sign string;Hero,Enemy *behavior.Cell}
+ type want struct{Name,Probe,Mode,Part,Outcome,Zone,Side,Sign,Fall string;Hero,Enemy *behavior.Cell}
  cases:=[]want{}
  for _,zone:=range []string{"chest","abdomen","groin","neck","axilla"}{for _,side:=range []string{"left","right"}{cases=append(cases,want{Name:"hit_"+zone+"_"+side,Probe:"knife",Mode:"heavy",Part:zone,Outcome:"hit",Zone:zone,Side:side})}}
  cases=append(cases,want{Name:"hit_skin",Probe:"knife",Mode:"quick",Part:"chest",Outcome:"hit",Zone:"chest",Sign:"blood"},want{Name:"hit_artery",Probe:"knife",Mode:"heavy",Part:"neck",Outcome:"hit",Zone:"neck",Sign:"blood_spurt"},want{Name:"hit_vein",Probe:"knife",Mode:"heavy",Part:"neck",Outcome:"hit",Zone:"neck",Sign:"blood_flow"},
   want{Name:"miss_hero",Probe:"knife",Mode:"heavy",Part:"torso",Outcome:"miss"},want{Name:"parried_npc",Probe:"parry",Outcome:"parried"},want{Name:"miss_npc",Probe:"parry",Outcome:"miss"},want{Name:"hit_npc",Probe:"parry",Outcome:"hit"},want{Name:"hit_npc_low",Probe:"parry",Outcome:"hit",Zone:"abdomen"},want{Name:"behind_block",Probe:"parry",Hero:&behavior.Cell{X:25,Y:16},Enemy:&behavior.Cell{X:24,Y:15}})
+ // the falls of a man who is out, one per style of the server
+ for _,f:=range [][2]string{{"back","chest"},{"front","abdomen"},{"side","axilla"},{"knees","head"}}{w:=want{Name:"fall_"+f[0],Probe:"knife",Mode:"heavy",Part:f[1],Outcome:"hit",Fall:f[0]};if f[0]!="knees"{w.Hero=&behavior.Cell{X:21,Y:11};w.Enemy=&behavior.Cell{X:20,Y:12}};cases=append(cases,w)}
  index:=[]map[string]any{}
  for _,c:=range cases{
   probeRuntime,_,_:=combatEpisodeFixture(t,"combat_knife","ru");spec:=probeRuntime.world.CombatRuntime.Probes[c.Probe];if c.Hero!=nil{spec.Hero=*c.Hero;spec.Enemy=*c.Enemy}
@@ -467,6 +469,7 @@ func TestCombatMoment1Probes(t *testing.T){
    side,sign:="","";if outcome=="hit"{p:=strings.Split(mark,":");if len(p)!=3{continue};side,sign=p[0],p[1]}
    if c.Zone!=""&&zone!=c.Zone||c.Side!=""&&side!=c.Side||c.Sign!=""&&sign!=c.Sign{continue}
    if outcome=="hit"&&zone==""{continue}
+   if c.Fall!=""{fell:=false;for _,e:=range r.state.Combat.Events{if e.Type=="fall_shift"&&e.ActorID==scene.Guard&&e.Mode==c.Fall{fell=true}};if !fell{continue}}
    events:=append([]behavior.CombatEvent(nil),r.state.Combat.Events...)
    r.state=base;out:=filepath.Join(*combatM1Report,c.Name);if err:=os.MkdirAll(out,0755);err!=nil{t.Fatal(err)};r.data=out;if err:=r.writeSave("slot3",base);err!=nil{t.Fatal(err)};if _,_,err:=r.readSave("slot3");err!=nil{t.Fatal(c.Name,"strict load",err)}
    meta:=map[string]any{"name":c.Name,"seed":seed,"episode":spec.Episode,"command":command,"outcome":outcome,"zone":zone,"side":side,"sign":sign,"mode":strike.Mode,"events":events}
