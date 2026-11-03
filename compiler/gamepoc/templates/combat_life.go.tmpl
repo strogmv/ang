@@ -34,6 +34,7 @@ type combatLifeCatalog struct {
 	Aggressors                     map[string][]string        `json:"aggressors"`
 	Takedowns                      map[string]combatTakedownIntent `json:"takedowns"`
 	TakedownOfferMM                int                        `json:"takedown_offer_mm"`
+	RiseSeconds                    int                        `json:"rise_seconds"`
 	Responders                     map[string]combatResponder `json:"responders"`
 }
 
@@ -455,7 +456,7 @@ func (r *Runtime) combatLifeAfterAction(previous behavior.CombatState) error {
 		if event.Type == "attack" && attacker != nil && attacker.Weapon.Magazine > 0 {
 			loudness = r.world.CombatLife.ShotLoudness
 		}
-		if t, held := r.world.CombatRuntime.Rules.Techniques[event.Mode]; held && event.Type == "attack" {
+		if t, held := r.world.CombatRuntime.Rules.Techniques[event.Mode]; held && !t.Strike && event.Type == "attack" {
 			loudness = t.Loudness
 		}
 		// An original defender's proportionate response is still frightening, but

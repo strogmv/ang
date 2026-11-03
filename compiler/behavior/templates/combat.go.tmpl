@@ -232,6 +232,8 @@ type CombatTechnique struct {
 	Loudness float64 `json:"loudness"`
 	BreakReachMM int `json:"break_reach_mm"`
 	FallStyle string `json:"fall_style"`
+	// One ordinary blow out of stealth, no hold: moment 3. The wound model decides what it did.
+	Strike bool `json:"strike,omitempty"`
 }
 type CombatEvent struct {
 	Type, ActorID, TargetID, Reason, Mode                 string
@@ -942,10 +944,12 @@ type combatShotSpec struct {
 	Aim, Shots, Cost, DamagePercent int
 	// The blade is already at the neck of a target who does not know: no dodge roll, no parry.
 	Held bool
+	// A blow on a target who does not know: it lands and he has no time to parry. Only the host's takedown path sets it (CombatAction.Unnoticed).
+	Unnoticed bool
 }
 
 func combatShot(a Combatant, action CombatAction, r CombatRules) (combatShotSpec, error) {
-	q := combatShotSpec{Mode: action.Mode, BodyPart: action.BodyPart, Aim: action.Aim, Shots: 1, Cost: a.Weapon.AttackAP, DamagePercent: 100}
+	q := combatShotSpec{Mode: action.Mode, BodyPart: action.BodyPart, Aim: action.Aim, Shots: 1, Cost: a.Weapon.AttackAP, DamagePercent: 100, Unnoticed: action.Unnoticed}
 	if q.Mode == "" {
 		q.Mode = "single"
 	}
@@ -1088,7 +1092,7 @@ func (s CombatState) canAttackAction(space CombatSpace, r CombatRules, a, b Comb
 	c := combatContact(&a, b.ID)
 	observer := a
 	observer.Position = from
-	reach:=a.Weapon.RangeMM;if q.Held{reach=r.Techniques[q.Mode].ReachMM}
+	reach:=a.Weapon.RangeMM;if q.Held||action.Unnoticed{reach=r.Techniques[q.Mode].ReachMM}
 	valid := (!q.Held||action.Unnoticed) && ((q.Mode!="stun_blow"&&q.Mode!="chokehold"&&!q.Held)||space.AttackAngle!=nil&&space.AttackAngle(a,b)=="rear") && (len(a.Body)==0||a.BodyCanHold) && !a.Noncombatant && a.Able() && a.StunTurns == 0 && (b.Able() || action.Type=="assault"&&b.HP>0&&!b.Withdrawn&&!b.Prone) && a.Team != b.Team && a.Weapon.Damage > 0 && ap >= q.Cost && c != nil && c.Visible && space.ActorVisible(observer, b, r) && space.rangeMM(from, b.Position) <= reach && space.protection(from, b.Position, a, b, r.PhysicalPart(q.BodyPart)) < 1 && space.ballisticClear(from, b.Position, observer, b, r.PhysicalPart(q.BodyPart)) && !s.friendlyFire(space, r, from, a, b, planning, r.PhysicalPart(q.BodyPart))
 	return q, valid
 }
@@ -1159,7 +1163,7 @@ func (s *CombatState) fireImpact(space CombatSpace, r CombatRules, actorID, targ
 	chance := s.shotChance(space, r, *a, *b, a.Position, q, round)
  parried:=false
  blockFailed:=false
- if eventType=="attack" && !q.Held && combatWeaponKind(a.Weapon)!="firearm" && combatWeaponKind(b.Weapon)!="firearm" && b.Able()&&b.StunTurns==0&&(r.AutomaticReserve||b.Guarding)&&b.ReservedAP>=r.GuardAP&&r.GuardAP>0&&space.ActorVisible(*b,*a,r)&&(len(b.Body)==0||b.BodyCanHold)&&(!b.WeaponUsesLimited||b.WeaponUsesRemaining>0){
+ if eventType=="attack" && !q.Held && !q.Unnoticed && combatWeaponKind(a.Weapon)!="firearm" && combatWeaponKind(b.Weapon)!="firearm" && b.Able()&&b.StunTurns==0&&(r.AutomaticReserve||b.Guarding)&&b.ReservedAP>=r.GuardAP&&r.GuardAP>0&&space.ActorVisible(*b,*a,r)&&(len(b.Body)==0||b.BodyCanHold)&&(!b.WeaponUsesLimited||b.WeaponUsesRemaining>0){
   b.ReservedAP-=r.GuardAP
   rate:=b.Weapon.ParryPercent
   if b.Guarding{rate+=r.GuardBonus}
@@ -1180,7 +1184,7 @@ func (s *CombatState) fireImpact(space CombatSpace, r CombatRules, actorID, targ
 	}
 	stream := "combat.v2/" + s.ID + "/" + strconv.FormatUint(s.ActionSeq, 10) + "/" + eventType + "/" + targetID + "/" + strconv.Itoa(round) + "/" + strconv.FormatUint(s.EventSeq, 10)
 	roll := float64(CounterRandom(s.Seed, a.ID, s.Turn, stream+"/hit")>>11) * (1.0 / (1 << 53))
-	e.Hit = !parried && (blockFailed||q.Held||roll < chance)
+	e.Hit = !parried && (blockFailed||q.Held||q.Unnoticed||roll < chance)
  if blockFailed&&e.Hit {q.BodyPart="arms";e.BodyPart="arms"}
  if parried {e.Reason="parried"}
 	raw := 0
@@ -1496,7 +1500,7 @@ func (s *CombatState) Execute(space CombatSpace, r CombatRules, actorID string, 
 				if round == 0 {
 					shotCost = cost
 				}
-				if shot.Held{a.Crouched,heldFromCrouch=false,a.Crouched}
+				if shot.Held||shot.Unnoticed{a.Crouched,heldFromCrouch=false,a.Crouched}
 				s.fireImpact(space, r, actorID, action.TargetID, shot, round, "attack", shotCost)
 				if shot.Held{s.holdTechnique(space,r,actorID,action.TargetID,shot.Mode,heldFromCrouch);a=s.Actor(actorID)}
 			}

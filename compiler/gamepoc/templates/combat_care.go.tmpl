@@ -8,6 +8,8 @@ import (
 
 type combatCareState struct {
 	Clocks map[string]int64 `json:"clocks,omitempty"`
+	// Moment 3: who is getting up after coming to, and the Life second he is on his feet.
+	Rising map[string]int64 `json:"rising,omitempty"`
 }
 
 func (s combatCareState) Clone() combatCareState {
@@ -17,6 +19,13 @@ func (s combatCareState) Clone() combatCareState {
 			m[id] = at
 		}
 		s.Clocks = m
+	}
+	if s.Rising != nil {
+		m := make(map[string]int64, len(s.Rising))
+		for id, at := range s.Rising {
+			m[id] = at
+		}
+		s.Rising = m
 	}
 	return s
 }
@@ -54,9 +63,12 @@ func (r *Runtime) combatCareOnFloor(id string) (behavior.Cell, bool) {
 }
 
 func (r *Runtime) combatCareHold(c behavior.Combatant) {
-	held := !c.Withdrawn&&(!c.Able() || c.StunTurns > 0 || len(c.Body)>0&&!c.BodyCanWalk)
+	_, rising := r.state.CombatCare.Rising[c.ID]
+	held := !c.Withdrawn&&(rising || !c.Able() || c.StunTurns > 0 || len(c.Body)>0&&!c.BodyCanWalk)
 	activity, label := "stunned", "ui.combat.stunned"
-	if c.HP <= 0 || c.FightResponse=="fall" {
+	if rising {
+		activity, label = "rising", "ui.combat.rising"
+	} else if c.HP <= 0 || c.FightResponse=="fall" {
 		activity, label = "down", "ui.combat.down"
 	} else if c.Surrendered {
 		activity, label = "surrendered", "ui.combat.surrendered"
@@ -110,6 +122,32 @@ func (r *Runtime) combatCareHold(c behavior.Combatant) {
 	}
 }
 
+// A body that is conscious again gets up by itself on the server's clock (owner 03.11, moment 3). While he gets up he walks nowhere; the presentation is the get-up clip and then a man who sways.
+// Only outside an encounter: inside one, standing up is an ordinary action of the fight.
+func (r *Runtime) advanceRising(id string, c behavior.Combatant) behavior.Combatant {
+	rise := int64(r.world.CombatLife.RiseSeconds)
+	st := combatWounds.Status(combatBody(c))
+	if id == playerActorID || rise < 1 || !c.Prone || c.Surrendered || c.Withdrawn || len(c.Body) == 0 || !st.Conscious || !st.Standing {
+		delete(r.state.CombatCare.Rising, id)
+		return c
+	}
+	if r.state.CombatCare.Rising == nil {
+		r.state.CombatCare.Rising = map[string]int64{}
+	}
+	until, started := r.state.CombatCare.Rising[id]
+	if !started {
+		r.state.CombatCare.Rising[id] = r.state.Life.Seconds + rise
+		return c
+	}
+	if r.state.Life.Seconds < until {
+		return c
+	}
+	delete(r.state.CombatCare.Rising, id)
+	c.Prone, c.FallShifted, c.FallStyle, c.FallDirection = false, false, "", behavior.Cell{}
+	r.state.CombatRoster[id] = c
+	return c
+}
+
 func (r *Runtime) advanceCombatCare() error {return r.advanceWoundCare()}
 
 func (r *Runtime) validateCombatCare(s state) error {
@@ -119,6 +157,11 @@ func (r *Runtime) validateCombatCare(s state) error {
 	for id, at := range s.CombatCare.Clocks {
 		if _, ok := s.CombatRoster[id]; !ok || at < 0 || at > s.Life.Seconds {
 			return errors.New("invalid injury clock")
+		}
+	}
+	for id := range s.CombatCare.Rising {
+		if _, ok := s.CombatRoster[id]; !ok {
+			return errors.New("orphaned rising body")
 		}
 	}
 	return nil

@@ -115,9 +115,30 @@ func (r *Runtime) advanceBarks() {
 	}
 }
 
+// barkCanSpeak: a man who is out, or down in shock, or dead says nothing: the rule of a body, not of a line (owner 03.11, moments 1 and 3).
+func (r *Runtime) barkCanSpeak(id string) bool {
+	c := r.state.Combat.Actor(id)
+	if c == nil || !r.state.Combat.Active {
+		if known, ok := r.state.CombatRoster[id]; ok {
+			c = &known
+		}
+	}
+	if c == nil || len(c.Body) == 0 {
+		return true
+	}
+	if _, rising := r.state.CombatCare.Rising[id]; rising {
+		return false
+	}
+	st := combatWounds.Status(combatBody(*c))
+	return st.Conscious && st.Standing && c.FightResponse != "fall" && !c.FallShifted
+}
+
 // BarkEvent is the entry point of the fighting layer: what happened, what the speaker declares and what he really does,
 // with free facts of the moment. The speaker's place is his Life body; a combatant outside Life goes through BarkCue.
 func (r *Runtime) BarkEvent(speaker, event, declared, truth string, facts ...string) barks.Outcome {
+	if !r.barkCanSpeak(speaker) {
+		return barks.Outcome{Reason: "cannot_speak"}
+	}
 	if declared == "" {
 		declared = event
 	}
@@ -153,6 +174,9 @@ func (r *Runtime) appendBarks(view *pb.PocLifeView, msg *pb.PocGameState, hero *
 	tickNS := int64(time.Second) / int64(r.world.Config.TickHz)
 	speech := map[string]*pb.PocBark{}
 	for _, sp := range r.state.Barks.Visible(r.state.Tick) {
+		if !r.barkCanSpeak(sp.Speaker) {
+			continue
+		}
 		b := &pb.PocBark{Serial: sp.Serial, Kind: sp.Kind, SpeakerId: sp.Speaker, LineKey: sp.Line, To: sp.To, Caste: sp.Caste, Gesture: sp.Gesture, Sign: sp.Sign, Sfx: sp.Sfx,
 			StartedNs: sp.Start * tickNS, UntilNs: sp.Until * tickNS, RevealMs: sp.RevealMS, FixMs: sp.FixMS, HoldMs: sp.HoldMS, FadeMs: sp.FadeMS, OffscreenFadeMs: barkCatalog.Timing.OffscreenFadeMS}
 		if sp.Key != "" {

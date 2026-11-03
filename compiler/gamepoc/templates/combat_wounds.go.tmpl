@@ -255,7 +255,8 @@ func (r *Runtime) applyWoundImpact(s *behavior.CombatState, source, target, part
 		hit.Technique = "chokehold"
 		hit.HoldS = 14
 	}
-	_, held := r.world.CombatRuntime.Rules.Techniques[mode]
+	spec, known := r.world.CombatRuntime.Rules.Techniques[mode]
+	held := known && !spec.Strike
 	if held {
 		hit.Technique = mode
 		hit.HoldS = 1
@@ -280,7 +281,7 @@ func (r *Runtime) applyWoundImpact(s *behavior.CombatState, source, target, part
  previousResponse:=b.FightResponse
  if result.Serious&&(b.FightResponse=="fight_on"||b.FightResponse=="flee"){b.FightResponse=""}
 	r.stopWoundedFight(s, b,previousResponse)
- r.shiftWoundedFall(s,b)
+ if known&&spec.Strike{r.shiftWoundedFall(s,b,spec.FallStyle)}else{r.shiftWoundedFall(s,b)}
 	if result.Wound != nil {
 		return 1, nil
 	}
@@ -509,6 +510,7 @@ func (r *Runtime) applyWoundLifeLimits() {
 		if r.state.Combat.Active && r.state.Combat.Actor(id) != nil {
 			continue
 		}
+		c = r.advanceRising(id, c)
 		r.combatCareHold(c)
 		st := combatWounds.Status(combatBody(c))
 		pace := int64(0)
@@ -555,18 +557,19 @@ func(r *Runtime)fallStripClear(s behavior.CombatState,a behavior.Combatant,dir b
   for _,other:=range s.Actors{if other.ID!=a.ID&&other.HP>0&&other.Position==p{return false}}
  }};return true
 }
-func(r *Runtime)shiftWoundedFall(s *behavior.CombatState,a *behavior.Combatant){
+// forced: the technique's own fall (a blow from behind): he goes down the way he was facing, nothing turns him round on the spot.
+func(r *Runtime)shiftWoundedFall(s *behavior.CombatState,a *behavior.Combatant,forced ...string){
  if a.FightResponse=="held"||a.FallShifted||a.BodyCanStand&&a.FightResponse!="fall"{return};a.FallShifted=true
  type option struct{dir behavior.Cell;score float64}
  opts:=[]option{};dx,dy:=float64(a.Position.X-a.LastHitFrom.X),float64(a.Position.Y-a.LastHitFrom.Y)
  for _,d:=range []behavior.Cell{{1,0},{1,1},{0,1},{-1,1},{-1,0},{-1,-1},{0,-1},{1,-1}}{opts=append(opts,option{d,(dx*float64(d.X)+dy*float64(d.Y))/math.Hypot(float64(d.X),float64(d.Y))})}
  sort.SliceStable(opts,func(i,j int)bool{return opts[i].score>opts[j].score})
- style:="back";zone:="";body:=combatBody(*a);if len(body.Wounds)>0{zone=body.Wounds[len(body.Wounds)-1].Zone};if pick:=r.world.CombatSpacing.FallZones[zone];pick!=""{style=pick};cross:=dx*float64(a.Facing.Y)-dy*float64(a.Facing.X);dot:=dx*float64(a.Facing.X)+dy*float64(a.Facing.Y);if math.Abs(cross)>math.Abs(dot){style="side"}
+ style:="back";zone:="";body:=combatBody(*a);if len(body.Wounds)>0{zone=body.Wounds[len(body.Wounds)-1].Zone};if pick:=r.world.CombatSpacing.FallZones[zone];pick!=""{style=pick};cross:=dx*float64(a.Facing.Y)-dy*float64(a.Facing.X);dot:=dx*float64(a.Facing.X)+dy*float64(a.Facing.Y);if math.Abs(cross)>math.Abs(dot){style="side"};ahead:=len(forced)>0&&forced[0]!="";if ahead{style=forced[0]}
  for _,o:=range opts{if !r.fallStripClear(*s,*a,o.dir,r.world.CombatSpacing.FallLengthMM,r.world.CombatSpacing.FallWidthMM){continue}
-  from:=a.Position;to:=behavior.Cell{X:from.X+o.dir.X,Y:from.Y+o.dir.Y};a.Position=to;a.Facing=behavior.Cell{X:-o.dir.X,Y:-o.dir.Y};a.FallStyle=style;a.FallDirection=o.dir
+  from:=a.Position;to:=behavior.Cell{X:from.X+o.dir.X,Y:from.Y+o.dir.Y};a.Position=to;a.Facing=behavior.Cell{X:-o.dir.X,Y:-o.dir.Y};if ahead{a.Facing=o.dir};a.FallStyle=style;a.FallDirection=o.dir
   s.EventSeq++;s.Events=append(s.Events,behavior.CombatEvent{Type:"fall_shift",Mode:style,ActorID:a.ID,TargetID:a.ID,From:from,To:to,Turn:s.Turn,Sequence:s.EventSeq,Reason:"body-length strip clear"});return
  }
  // No long strip: do not slide into a cupboard. A compact collapse is explicit.
- a.FallStyle="knees";a.FallDirection=opts[0].dir
+ a.FallStyle="knees";a.FallDirection=opts[0].dir;if ahead{a.FallDirection=behavior.Cell{X:-opts[0].dir.X,Y:-opts[0].dir.Y}}
  s.EventSeq++;s.Events=append(s.Events,behavior.CombatEvent{Type:"fall_shift",Mode:"knees",ActorID:a.ID,TargetID:a.ID,From:a.Position,To:a.Position,Turn:s.Turn,Sequence:s.EventSeq,Reason:"no long fall strip; compact collapse"})
 }

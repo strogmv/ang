@@ -22,7 +22,7 @@ namespace AngelsDemons.Poc {
   void DrawTakedowns(){
    if(state==null||state.Takedowns.Count==0||HeroCombatActive()||CombatPlaying)return;var o=state.Takedowns[0];Rect box=new Rect(400,66,304,o.Enabled?96:62);HudFrame(box,false);var small=new GUIStyle(hudSmall){fontSize=12,wordWrap=true};
    if(GUI.Button(new Rect(box.x+6,box.y+5,box.width-12,28),o.Label,new GUIStyle(hudButton){fontSize=13})&&o.Enabled)CombatExecute(o);
-   GUI.Label(new Rect(box.x+8,box.y+35,box.width-16,box.height-36),o.Enabled?L("ui.takedown.risk"):o.Reason,small);
+   GUI.Label(new Rect(box.x+8,box.y+35,box.width-16,box.height-36),o.Enabled?L("ui.takedown.risk."+o.Mode):o.Reason,small);
   }
   void CombatButton(string key,string action){if(GUILayout.Button(L(key),buttonStyle,GUILayout.Height(32)))SendCombat(action);}
   void DrawCombatUI(){
@@ -33,7 +33,7 @@ namespace AngelsDemons.Poc {
    if(!HeroCombatActive()&&HudButton(new Rect(556,31,148,32),L(state.Life.Sneaking?"ui.stealth.normal":"ui.stealth.quiet")))SendStealth();
    if(!HeroCombatActive()&&!state.Life.Sneaking&&HudButton(new Rect(708,31,120,32),L("ui.stealth.upright")))SendStealthMode("upright");
    DrawTakedowns();
-   if(state.Life.Illumination!=null&&state.Life.Illumination.Known)GUI.Label(new Rect(556,66,148,26),L("ui.illumination."+state.Life.Illumination.State),hudSmall);
+   if(state.Life.Illumination!=null&&state.Life.Illumination.Known)GUI.Label(new Rect(556,state.Takedowns.Count>0&&!CombatPlaying&&!HeroCombatActive()?(state.Takedowns[0].Enabled?164:130):66,148,26),L("ui.illumination."+state.Life.Illumination.State),hudSmall);
    DrawCombatFx();
    // doc 96: inside the hero's encounter the list panel of validated actions (PocCombatPanel.cs) replaces this one.
    if(HeroCombatActive()){DrawCombatPanel();return;}

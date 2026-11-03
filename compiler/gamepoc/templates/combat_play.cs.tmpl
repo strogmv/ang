@@ -93,7 +93,8 @@ namespace AngelsDemons.Poc {
   void OnDestroy(){Release();}
  }
  [Serializable] public sealed class PocCombatAnatomyHinge {public float flex_deg=150,hyper_deg=5;}
- [Serializable] public sealed class PocCombatAnatomy {public PocCombatAnatomyHinge knee,elbow;}
+ [Serializable] public sealed class PocCombatAnatomyAnkle {public float dorsi_deg=45,plantar_deg=50;}
+ [Serializable] public sealed class PocCombatAnatomy {public PocCombatAnatomyHinge knee,elbow;public PocCombatAnatomyAnkle ankle;}
  [Serializable] public sealed class PocCombatFall {public string id;public float yaw_offset_deg;public PocCombatClip clip,get_up;}
  // Moment 2: the held blade from behind, one paired scene. Seconds of the parts as authored; the hold lasts what the server says.
  [Serializable] public sealed class PocCombatCapsule {public string id,a,b,group;public float t0=0,t1=1,r;public bool floor=true;}
@@ -101,11 +102,14 @@ namespace AngelsDemons.Poc {
  [Serializable] public sealed class PocCombatBladeDepth {public float graze,shallow,deep,through;}
  [Serializable] public sealed class PocCombatThroatPoint {public string bone;public float[] offset;}
  [Serializable] public sealed class PocCombatThroat {public string mode;public PocCombatClip attacker_stand,attacker_crouch,attacker_lower,victim;public float take_stand_s,take_crouch_s,victim_take_s,hold_s,lower_s,start_m,end_m,fill_mps,turn_dps=240,grip_in_s,release_at_s,release_s,cut_s,sag_s,pool_at=.6f;public PocCombatThroatPoint mouth,blade_from,blade_to;public PocCombatSoundCue sound_cut,sound_body;public float[] blade_dir,blade_top,fingers,palm,elbow_right,elbow_left;public float palm_along,palm_lift;}
+ [Serializable] public sealed class PocCombatPoint {public string bone;public float[] offset;}
+ [Serializable] public sealed class PocCombatBatonSound {public PocCombatSoundCue hit_down,hit_stood,miss,parry;}
+ [Serializable] public sealed class PocCombatBaton {public PocCombatClip strike_long,strike_crouch,strike_near,stood_rear,stood_front;public float lift_m=.5f,rebound_m=.1f,rebound_s=.12f,long_from_m=1.2f,along=.8f,surface_m=.02f,in_s=.2f,hold_s=.05f,out_s=.24f,tilt_down=.3f,clutch_at_s=.12f,clutch_s=1.9f,turn_at_s=1.45f,turn_s=.75f,fall_thud_s=.86f;public PocCombatPoint rear,front,clutch_rear,clutch_front;public PocCombatBatonSound sound;public PocCombatSoundCue sound_fall;}
  [Serializable] public sealed class PocCombatLook {
   public float fall_shift_seconds=.22f;public float facing_tolerance_deg=7.6f;public float move_mps=1.4f,pause_seconds=.3f,injured_below=.5f,blend_seconds=.2f,turn_dps=360,turn_seconds=.22f,spacing_m=.7f;public PocCombatWeaponLook[] weapons;
   public PocCombatClip parry,guard,hit,hit_head,hit_shot,stun,stunned,down,bandage_kneel,bandage,bandage_rise,equip,reload,injured,injured_walk,retreat;
   public PocCombatAnatomy anatomy;public PocCombatClip surrender;public PocCombatClip roll,get_up,dodge;public PocCombatFall[] falls;public float[] hero_rgb,enemy_rgb;public PocCombatContact contact;
-  public PocCombatSceneLook scene;public PocCombatWoundHold wound_hold;public PocCombatZoneReaction[] zone_reactions;public PocCombatClip blade_miss;public PocCombatSound sound;public PocCombatBlood blood;public PocCombatThroat throat;public PocCombatBodySolver body_solver;public PocCombatBladeDepth blade_depth;
+  public PocCombatSceneLook scene;public PocCombatWoundHold wound_hold;public PocCombatZoneReaction[] zone_reactions;public PocCombatClip blade_miss;public PocCombatSound sound;public PocCombatBlood blood;public PocCombatThroat throat;public PocCombatBaton baton;public PocCombatBodySolver body_solver;public PocCombatBladeDepth blade_depth;
  }
  public sealed partial class AngelsDemonsPoc {
   // One presented beat: a server event (or a run of one actor's steps) with its real-time length.
@@ -115,9 +119,9 @@ namespace AngelsDemons.Poc {
    public Vector2Int victimFrom,victimTo;public bool victimShift;
    public bool hit,parried,targetDown,targetStunned,valid;public int amount;public float seconds,impact=.5f,lead,turnRate=360;public PocCombatClip clip,reaction;public Vector3 shaft;public bool hasShaft;public string zone,side,sign;public PocCombatWeaponLook victimStance;public PocCombatZoneReaction zr;public bool bodyStrike,bloodDone,contactLogged;public Vector3 hips0,tip0;public bool hips0Set;public float missMinSkin=float.PositiveInfinity,tipBest=float.PositiveInfinity;public bool fxDone,propDone;public float parryBeforeGap=-1,parryBestGap=float.PositiveInfinity,parryBestAt,parryBestBase;
    public Transform skinBone;public Vector3 entryLocal,normalLocal,bladeDir;public Vector3 tipPoint;public float tipW;public string depth="";public float maxDepth=float.PositiveInfinity;public bool hasAim;public Vector3 aimLocal;public bool skinSet,finalLogged;public float missMinBody=float.PositiveInfinity;public float skinAdd;public Vector3 entry;public bool entrySet;public float pairW,pairT;public Vector3 pairMouth,pairPoint;
-   public bool fadeA,fadeV;public bool pair,holdDone=true,fromCrouch,pairBlood,pairKo,pairEnd,pairBody;public int holdS;public float fill,take,holdT,lowerT,pairYaw;public Vector3 pairV,pairS,pairC1;public Vector2Int endCell;public Quaternion headRest=Quaternion.identity,neckRest=Quaternion.identity;public bool restSet;
+   public bool rear,batonStrike,batonSkin,batonFrozen;public Vector3 batonEntry,batonNormal;public bool fadeA,fadeV;public bool pair,holdDone=true,fromCrouch,pairBlood,pairKo,pairEnd,pairBody;public int holdS;public float fill,take,holdT,lowerT,pairYaw;public Vector3 pairV,pairS,pairC1;public Vector2Int endCell;public Quaternion headRest=Quaternion.identity,neckRest=Quaternion.identity;public bool restSet;
   }
-  sealed class CombatBody {public Vector3 shiftLast;public Vector2Int cell;public int knifeSeries;public bool placed,wasDown;public bool surrenderShown;public float surrenderAt;public float fallAt;public string held,shownState;public float flashUntil,readyW,actW,gripW;public Vector3 ease;public Transform ring;public string readyState,actState;public bool silhouette;public Vector3 shift;public float leanDeg,shiftAt=-1,shiftUntil,pinWeight,clutchAt=-1,clutchUntil,clutchWeight;public Vector3 pinLP,pinRP;public Quaternion pinLQ,pinRQ;public string clutchZone,clutchSide;public bool pinned;public string fallStyle;
+  sealed class CombatBody {public Vector3 shiftLast;public Vector2Int cell;public int knifeSeries;public bool placed,wasDown;public bool surrenderShown;public float surrenderAt;public float fallAt;public string held,shownState;public float flashUntil,readyW,actW,gripW;public Vector3 ease;public Transform ring;public string readyState,actState;public bool silhouette;public Vector3 shift;public float leanDeg,shiftAt=-1,shiftUntil,pinWeight,clutchAt=-1,clutchUntil,clutchWeight;public Vector3 pinLP,pinRP;public Quaternion pinLQ,pinRQ;public string clutchZone,clutchSide;public float riseAt=-1;public PocCombatPoint clutchPoint;public bool pinned;public string fallStyle;
    // The body solver: what the pose was before it, this frame; the bounded shift of the hips (the feet stay on the clip's plants); the feet moved aside only in the air.
    public Vector3 solverShift,hipsRaw,lfRawP,rfRawP,lfPrev,rfPrev,footFixL,footFixR;public Quaternion lfRawQ,rfRawQ;public bool rawSet;public float rawDepthMax,finalDepthMax;}
   Material combatRingMaterial;
@@ -188,7 +192,7 @@ namespace AngelsDemons.Poc {
     if(e.Type=="attack"||e.Type=="reaction"){
      // The parry published just before belongs to this blow: the defender raises the weapon at its impact.
      if(combatQueue.Count>0){var last=combatQueue[combatQueue.Count-1];if(last.kind=="parry"&&last.actor==e.TargetId&&last.target==e.ActorId&&!last.propDone){combatQueue.RemoveAt(combatQueue.Count-1);beat.parried=last.hit;}}
-     beat.mode=CombatModeOf(e);{var tl=CombatLook();if(tl!=null&&tl.throat!=null&&e.Mode==tl.throat.mode&&e.Type=="attack"){beat.pair=true;beat.mode=e.Mode;beat.endCell=from;string lastHeld;if(!combatLastHeld.TryGetValue(e.TargetId,out lastHeld)&&state!=null)foreach(var g in state.GroundWeapons)if(g.OwnerId==e.TargetId){lastHeld=g.Definition;break;}if(!string.IsNullOrEmpty(lastHeld))CombatBodyOf(e.TargetId).held=lastHeld;}}
+     beat.rear=e.Mode=="stun_blow"&&e.Type=="attack";if(beat.rear){string was;if(!combatLastHeld.TryGetValue(e.TargetId,out was)&&state!=null)foreach(var g in state.GroundWeapons)if(g.OwnerId==e.TargetId){was=g.Definition;break;}if(!string.IsNullOrEmpty(was))CombatBodyOf(e.TargetId).held=was;}beat.mode=CombatModeOf(e);{var tl=CombatLook();if(tl!=null&&tl.throat!=null&&e.Mode==tl.throat.mode&&e.Type=="attack"){beat.pair=true;beat.mode=e.Mode;beat.endCell=from;string lastHeld;if(!combatLastHeld.TryGetValue(e.TargetId,out lastHeld)&&state!=null)foreach(var g in state.GroundWeapons)if(g.OwnerId==e.TargetId){lastHeld=g.Definition;break;}if(!string.IsNullOrEmpty(lastHeld))CombatBodyOf(e.TargetId).held=lastHeld;}}
      CombatWoundNote note;if(e.Hit&&!string.IsNullOrEmpty(e.TargetId)&&combatWoundNotes.TryGetValue(e.TargetId,out note)&&note.turn==e.Turn){beat.zone=note.zone;beat.side=note.side;beat.sign=note.sign;beat.depth=note.depth;combatWoundNotes.Remove(e.TargetId);}
     }
     combatQueue.Add(beat);
@@ -243,9 +247,9 @@ namespace AngelsDemons.Poc {
    var look=CombatLook();combatBeatAt=CombatNow;var h=CombatHumanoid(b.actor);var an=h==null?null:h.animator;
    switch(b.kind){
     case "move":{float d=0;var at=b.from;CombatBody body;if(combatBodies.TryGetValue(b.actor,out body)&&body.placed)at=body.cell;var prev=at;foreach(var c in b.path){d+=Vector2.Distance(prev,c);prev=c;}b.seconds=Mathf.Max(.15f,d*locationSDKLevel.cell_meters/Mathf.Max(.3f,look==null?1.4f:look.move_mps));break;}
-    case "attack":{if(b.pair&&look!=null&&look.throat!=null){CombatPairBegin(b,look);break;}CombatBody shownBody;string shownWeapon=combatBodies.TryGetValue(b.actor,out shownBody)&&!string.IsNullOrEmpty(shownBody.held)?shownBody.held:CombatHeld(b.actor);var w=CombatWeapon(shownWeapon);b.clip=CombatStrikeClip(w,b);b.bodyStrike=b.clip!=null&&b.clip.layer=="body"&&w!=null&&w.prop=="knife";if(b.bodyStrike){CombatBody vb;b.victimStance=CombatWeapon(combatBodies.TryGetValue(b.target,out vb)&&!string.IsNullOrEmpty(vb.held)?vb.held:CombatHeld(b.target));}b.seconds=CombatClipSeconds(an,b.clip,1f);b.impact=b.clip==null?.5f:Mathf.Clamp(b.clip.impact,.05f,.95f);
-     if(look!=null){b.reaction=b.targetDown?CombatFallClip(b.target):b.targetStunned?look.stun:b.parried?look.parry:!b.hit?look.dodge:w!=null&&w.prop=="needle_gun"?look.hit_shot:b.part=="head"?look.hit_head:look.hit;if(b.bodyStrike&&b.hit&&!string.IsNullOrEmpty(b.zone)&&look.zone_reactions!=null){b.zr=Array.Find(look.zone_reactions,z=>z.zone==b.zone);if(b.zr!=null&&!b.targetDown&&!b.targetStunned&&CombatClipSet(b.zr.clip))b.reaction=b.zr.clip;}if(b.bodyStrike&&!b.hit&&!b.parried&&!b.targetDown&&CombatClipSet(look.blade_miss))b.reaction=look.blade_miss;}
-     if(b.reaction!=null){var th=CombatHumanoid(b.target);float rs=CombatClipSeconds(th==null?null:th.animator,b.reaction,.8f);b.seconds=Mathf.Max(b.seconds,b.seconds*b.impact+rs*(b.targetDown?.85f:b.reaction.layer=="react"||b.reaction.layer=="flinch"?1f:.6f));}
+    case "attack":{if(b.pair&&look!=null&&look.throat!=null){CombatPairBegin(b,look);break;}CombatBody shownBody;string shownWeapon=combatBodies.TryGetValue(b.actor,out shownBody)&&!string.IsNullOrEmpty(shownBody.held)?shownBody.held:CombatHeld(b.actor);var w=CombatWeapon(shownWeapon);b.clip=CombatStrikeClip(w,b);{var bl=look==null?null:look.baton;if(bl!=null&&w!=null&&(w.prop=="baton"||w.prop=="pipe")&&CombatClipSet(bl.strike_near)&&(b.rear||b.part=="head"||b.zone=="head"||b.zone=="neck")){b.batonStrike=true;var ah=h;var vh=CombatHumanoid(b.target);float gap=ah==null||vh==null?1f:Vector3.Distance(ah.go.transform.position,vh.go.transform.position);bool low=ah!=null&&(ah.state==locationSDKHumanoidCast.crouch_idle_state||ah.state==locationSDKHumanoidCast.crouch_walk_state);b.clip=gap>=bl.long_from_m?(low?bl.strike_crouch:bl.strike_long):bl.strike_near;}}b.bodyStrike=b.clip!=null&&b.clip.layer=="body"&&w!=null&&(w.prop=="knife"||b.batonStrike);if(b.bodyStrike){CombatBody vb;b.victimStance=CombatWeapon(combatBodies.TryGetValue(b.target,out vb)&&!string.IsNullOrEmpty(vb.held)?vb.held:CombatHeld(b.target));}b.seconds=CombatClipSeconds(an,b.clip,1f);b.impact=b.clip==null?.5f:Mathf.Clamp(b.clip.impact,.05f,.95f);
+     if(look!=null){b.reaction=b.targetDown?CombatFallClip(b.target):b.targetStunned?look.stun:b.parried?look.parry:!b.hit?look.dodge:w!=null&&w.prop=="needle_gun"?look.hit_shot:b.part=="head"?look.hit_head:look.hit;if(b.batonStrike&&b.hit&&!b.targetDown&&!b.targetStunned&&look.baton!=null)b.reaction=b.rear?look.baton.stood_rear:look.baton.stood_front;if(!b.batonStrike&&b.bodyStrike&&b.hit&&!string.IsNullOrEmpty(b.zone)&&look.zone_reactions!=null){b.zr=Array.Find(look.zone_reactions,z=>z.zone==b.zone);if(b.zr!=null&&!b.targetDown&&!b.targetStunned&&CombatClipSet(b.zr.clip))b.reaction=b.zr.clip;}if(b.bodyStrike&&!b.hit&&!b.parried&&!b.targetDown&&CombatClipSet(look.blade_miss))b.reaction=look.blade_miss;}
+     if(b.reaction!=null){var th=CombatHumanoid(b.target);float rs=CombatClipSeconds(th==null?null:th.animator,b.reaction,.8f);b.seconds=Mathf.Max(b.seconds,b.seconds*b.impact+rs*(b.targetDown?.85f:b.reaction.layer=="react"||b.reaction.layer=="flinch"||b.batonStrike?1f:.6f));}
      break;}
     case "parry":b.clip=look==null?null:look.parry;b.seconds=CombatClipSeconds(an,b.clip,.8f);break;
     case "guard":b.clip=look==null?null:look.guard;b.seconds=.7f;CombatFloat(b.actor,L("ui.combat.fx.guard"),new Color(.75f,.85f,1f));break;
@@ -289,6 +293,7 @@ namespace AngelsDemons.Poc {
    if(combatBeatAt<0)CombatBeginBeat(b);
    float t=CombatNow-combatBeatAt;
    if(b.pair)CombatPairFx(b,t);else if(b.kind=="attack"&&!b.fxDone&&t>=b.lead+CombatClipSecondsOf(b)*b.impact){b.fxDone=true;CombatImpact(b);}
+   {var bl=CombatLook()==null?null:CombatLook().baton;if(bl!=null&&b.batonStrike&&b.hit&&b.targetDown&&!b.pairBody&&t>=b.lead+CombatClipSecondsOf(b)*b.impact+bl.fall_thud_s){b.pairBody=true;CombatPairSound(bl.sound_fall,b);}}
    if(b.kind=="equip"&&!b.propDone&&t>=b.seconds*.5f){b.propDone=true;CombatBody body=CombatBodyOf(b.actor);body.held=CombatHeld(b.actor);CombatFloat(b.actor,L("ui.combat.fx.equip"),new Color(.85f,.85f,.75f));}
    if(b.kind=="reload"&&!b.fxDone&&t>=b.seconds*.6f){b.fxDone=true;CombatFloat(b.actor,L("ui.combat.fx.reload"),new Color(.85f,.85f,.75f));}
    if((b.kind=="bandage"||b.kind=="heal")&&!b.fxDone&&t>=b.seconds*.5f){b.fxDone=true;CombatFloat(b.actor,L("ui.combat.fx.bandage"),new Color(.6f,.95f,.6f));}
@@ -315,7 +320,7 @@ namespace AngelsDemons.Poc {
    if(b.outcome=="surrender")CombatFloat(b.target,L("ui.combat.surrendered"),new Color(.9f,.9f,.9f));
    if(b.outcome=="flee")CombatFloat(b.target,L("ui.combat.retreat"),new Color(.9f,.9f,.9f));
    if(b.targetDown){CombatFloat(b.target,L("ui.combat.down"),new Color(1f,.85f,.35f),.5f);CombatAutoShotLater("knocked-out");}
-   if(b.targetStunned){CombatFloat(b.target,L("ui.combat.stunned"),new Color(1f,.85f,.35f),.5f);CombatAutoShotLater("stunned");}
+   if(b.targetStunned&&!b.targetDown){CombatFloat(b.target,L("ui.combat.stunned"),new Color(1f,.85f,.35f),.5f);CombatAutoShotLater("stunned");}
   }
   // Where a body is shown now: the cell of its last played step while it has waiting beats, else the server's cell.
   Vector2Int? CombatShownCell(string id){
@@ -340,10 +345,11 @@ namespace AngelsDemons.Poc {
   bool CombatPresentHumanoid(LocationSDKHumanoid h,string id,Vector3 feet,double nowNS,bool held){
    var look=CombatLook();if(look==null||locationSDKLevel==null)return false;
    var actor=CombatViewActor(id);bool inFight=state.Combat!=null&&state.Combat.Active&&actor!=null;
-   bool down=actor!=null?(actor.Down||actor.Stance=="prone"):CombatFinalDown(id);
+   bool rising=false;if(state!=null&&!inFight)foreach(var ra in state.SceneAgents)if(ra.Id==id&&ra.Activity=="rising"){rising=true;break;}
+   bool down=!rising&&(actor!=null&&!(!inFight&&!CombatFinalDown(id)&&!actor.Surrendered&&actor.Stance=="prone")?(actor.Down||actor.Stance=="prone"):CombatFinalDown(id));
    CombatBeat beat=null;foreach(var b in combatQueue){if(b.actor==id||b.kind=="attack"&&b.target==id){beat=b;break;}}
    bool queued=false;foreach(var b in combatQueue)if(b.actor==id||b.target==id){queued=true;break;}
-   if(!inFight&&!down&&!queued&&(actor==null||!actor.Surrendered)){var oldRig=h.animator.GetComponent<PocCombatContactRig>();if(oldRig!=null&&oldRig.built){oldRig.Release();h.state=null;}CombatBody gone;if(combatBodies.TryGetValue(id,out gone)){if(gone.ring!=null)Destroy(gone.ring.gameObject);combatBodies.Remove(id);CombatSilhouette(h,null);}CombatLayersOff(h);CombatWoundHold(h,null);return false;}
+   if(!inFight&&!down&&!queued&&!rising&&(actor==null||!actor.Surrendered)){var oldRig=h.animator.GetComponent<PocCombatContactRig>();if(oldRig!=null&&oldRig.built){oldRig.Release();h.state=null;}CombatBody gone;if(combatBodies.TryGetValue(id,out gone)){if(gone.ring!=null)Destroy(gone.ring.gameObject);combatBodies.Remove(id);CombatSilhouette(h,null);}CombatLayersOff(h);CombatWoundHold(h,null);return false;}
    // A body (re)activated this frame has no initialized Animator yet: v1 showed one idle frame («missing» state). Bind
    // it now, so the first frame already has the combat pose.
    if(!h.go.activeSelf)h.go.SetActive(true);
@@ -394,7 +400,8 @@ namespace AngelsDemons.Poc {
     if(beat.kind=="attack"||beat.kind=="parry")yawTo=CombatYawTo(at,beat.target);
    }
    else if(active&&beat.kind=="attack"&&beat.target==id){
-    yawTo=CombatYawTo(at,beat.actor);turnRate=Mathf.Max(turnRate,540);float impact=beat.lead+CombatClipSecondsOf(beat)*beat.impact;var rc=beat.reaction;
+    if(!beat.rear)yawTo=CombatYawTo(at,beat.actor);turnRate=Mathf.Max(turnRate,540);float impact=beat.lead+CombatClipSecondsOf(beat)*beat.impact;var rc=beat.reaction;
+    if(beat.rear&&look.baton!=null&&rc==look.baton.stood_rear&&t-impact>=look.baton.turn_at_s){yawTo=CombatYawTo(at,beat.actor);turnRate=180f/Mathf.Max(.1f,look.baton.turn_s);}
     if(rc!=null){
      // A parry is lifted so that its own impact share meets the blow; a flinch / fall starts at the blow.
      float start=impact-(rc==look.parry?CombatClipSeconds(an,rc,.8f)*Mathf.Clamp01(rc.impact):rc==look.blade_miss&&look.contact!=null?look.contact.dodge_lead_s:0);float rt=t-start;
@@ -411,6 +418,9 @@ namespace AngelsDemons.Poc {
    // Lasting stances of the server's state.
    bool kneeling=clip!=null&&(clip==look.bandage_kneel||clip==look.bandage||clip==look.bandage_rise);
    bool fallen=false;
+   if(rising&&clip==null&&want==null){if(body.riseAt<0)body.riseAt=CombatNow;var fg=CombatFallOf(id);var gu=fg==null?look.get_up:fg.get_up;float gs=CombatClipSeconds(an,gu,2);float tr=CombatNow-body.riseAt;if(tr<gs){clip=gu;clipTime=tr/gs;}else if(CombatClipSet(look.stunned)){clip=look.stunned;clipTime=-1;}}else if(!rising)body.riseAt=-1;
+   bool unaware=active&&beat.rear&&beat.target==id&&clip==null;
+   if(unaware)want=locationSDKHumanoidCast.idle_state;
    if(want==null&&clip==null){
     bool knockoutPending=false;foreach(var b in combatQueue)if(b.kind=="attack"&&b.target==id&&b.targetDown){knockoutPending=true;break;}
     if(down&&!knockoutPending){if(!body.wasDown){body.wasDown=true;body.fallAt=CombatNow;}clip=CombatFallClip(id);clipTime=Mathf.Clamp01((CombatNow-body.fallAt)/Mathf.Max(.1f,CombatClipSeconds(an,CombatFallClip(id),1.2f)));fallen=true;}
@@ -434,9 +444,9 @@ namespace AngelsDemons.Poc {
    Vector3 ease=Vector3.zero;
    if(!walking&&!fallen&&!(active&&beat.pair))foreach(var o in combatBodies){if(o.Key==id)continue;var oh=CombatHumanoid(o.Key);if(oh==null||oh.go==null||!oh.go.activeSelf)continue;var d=at-oh.go.transform.position;d.y=0;float m=d.magnitude;if(m>1e-3f&&m<look.spacing_m)ease+=d/m*(look.spacing_m-m)*.5f;}
    body.ease=Vector3.MoveTowards(body.ease,ease,.6f*CombatDt);at+=body.ease;
-   if(active&&!beat.pair&&(beat.kind=="attack"||beat.kind=="parry")){Vector3 cellAt;if(beat.actor==id&&beat.bodyStrike&&CombatCellValid(beat.to)&&LocationSDKNavToWorld(beat.to.x,beat.to.y,out cellAt)){var toCell=cellAt-at;toCell.y=0;if(toCell.sqrMagnitude>1e-4f)yawTo=Mathf.Atan2(toCell.x,toCell.z)*Mathf.Rad2Deg;}else if(beat.actor==id)yawTo=CombatYawTo(at,beat.target);else if(beat.target==id)yawTo=CombatYawTo(at,beat.actor);}
+   if(active&&!beat.pair&&(beat.kind=="attack"||beat.kind=="parry")){Vector3 cellAt;if(beat.actor==id&&beat.bodyStrike&&CombatCellValid(beat.to)&&LocationSDKNavToWorld(beat.to.x,beat.to.y,out cellAt)){var toCell=cellAt-at;toCell.y=0;if(toCell.sqrMagnitude>1e-4f)yawTo=Mathf.Atan2(toCell.x,toCell.z)*Mathf.Rad2Deg;}else if(beat.actor==id)yawTo=CombatYawTo(at,beat.target);else if(beat.target==id&&!beat.rear)yawTo=CombatYawTo(at,beat.actor);}
    // A falling/lying/getting-up body keeps the server-selected clear strip orientation.
-   if(CombatIsFall(clip)||clip!=null&&clip.state.StartsWith("combat_get_up",StringComparison.Ordinal)){float fy=CombatFallYaw(id);if(!float.IsNaN(fy)){yawTo=fy;h.yaw=fy;}}
+   if(CombatIsFall(clip)||clip!=null&&clip.state.StartsWith("combat_get_up",StringComparison.Ordinal)||rising){float fy=CombatFallYaw(id);if(!float.IsNaN(fy)){yawTo=fy;h.yaw=fy;}}
    // Place and turn the body.
    if(!h.hasYaw){h.yaw=LocationSDKHumanoidCameraYaw();h.hasYaw=true;}
    if(!float.IsNaN(yawTo))h.yaw=Mathf.MoveTowardsAngle(h.yaw,yawTo,turnRate*CombatDt);
@@ -455,7 +465,7 @@ namespace AngelsDemons.Poc {
    else if(!fading)CombatPlayState(an,hash,0,phase);
    if(contactRig==null||!contactRig.built)an.speed=fading?(held?0:1):0;
    // Upper layers: the guard of the weapon (eased in / out), the action clip, the added flinch, the closed fist.
-   bool upright=!fallen&&!kneeling&&clip!=look.roll&&clip!=look.get_up&&clip!=look.stunned&&(actor==null||actor.Stance=="stand");
+   bool upright=!fallen&&!kneeling&&!rising&&clip!=look.roll&&clip!=look.get_up&&clip!=look.stunned&&(actor==null||actor.Stance=="stand"||actor.Down);
    float dt=CombatDt;
    var ready=weapon!=null&&CombatClipSet(weapon.ready)?weapon.ready:null;
    float readyTarget=ready!=null&&upright?ready.weight*(walking?.6f:1f):0;
@@ -667,7 +677,8 @@ namespace AngelsDemons.Poc {
      else if(combatDecalFollow.Remove(h.id)){if(h.contact!=null)h.contact.localPosition=new Vector3(0,.012f,0);if(h.marker!=null)h.marker.localPosition=new Vector3(0,.016f,0);}}
     if(rig!=null&&rig.built)CombatBodyIK(h,rig,look);
     if(beat!=null&&beat.pair){if(beat.actor==h.id&&rig!=null&&rig.built)CombatPairIK(beat,h,rig,look);else if(rig!=null&&rig.built)rig.Pose(rig.target.position,rig.target.rotation,0);continue;}
-    if(beat!=null&&beat.kind=="attack"&&beat.actor==h.id&&beat.bodyStrike&&rig!=null&&rig.built&&CombatStrikeIK(beat,h,rig,look))continue;
+    if(beat!=null&&beat.kind=="attack"&&beat.actor==h.id&&beat.batonStrike&&beat.hit&&rig!=null&&rig.built&&CombatBatonIK(beat,h,rig,look))continue;
+    if(beat!=null&&beat.kind=="attack"&&beat.actor==h.id&&beat.bodyStrike&&!beat.batonStrike&&rig!=null&&rig.built&&CombatStrikeIK(beat,h,rig,look))continue;
     CombatProp prop;bool attack=beat!=null&&beat.kind=="attack"&&beat.actor==h.id&&(beat.hit||beat.parried)&&combatProps.TryGetValue(h.id,out prop)&&(prop.kind=="knife"||prop.kind=="baton"||prop.kind=="pipe"||beat.parried);
     if(!attack){if(rig!=null&&rig.built)rig.Pose(rig.target.position,rig.target.rotation,0);continue;}
     prop=combatProps[h.id];var victim=CombatHumanoid(beat.target);if(victim==null||victim.animator==null||prop.go==null)continue;
@@ -746,7 +757,8 @@ namespace AngelsDemons.Poc {
    // hand on the wound
    float target=!string.IsNullOrEmpty(body.clutchZone)&&now>=body.clutchAt&&now<body.clutchUntil?1:0;body.clutchWeight=Mathf.MoveTowards(body.clutchWeight,target,CombatDt/(target>0?.14f:.3f));
    rig.clutch.weight=body.clutchWeight;
-   if(body.clutchWeight>0){Vector3 p,n;if(CombatZonePoint(h,look,body.clutchZone,body.clutchSide,out p,out n)){var hand=h.animator.GetBoneTransform(HumanBodyBones.LeftHand);rig.clutchGoal.SetPositionAndRotation(p+n*.05f,Quaternion.LookRotation(-n,Vector3.up)*Quaternion.Euler(0,0,90));}}
+   if(body.clutchWeight>0&&body.clutchPoint!=null){HumanBodyBones cb;if(Enum.TryParse(body.clutchPoint.bone,out cb)){var cbone=h.animator.GetBoneTransform(cb);var off=body.clutchPoint.offset;if(cbone!=null&&off!=null&&off.Length==3){var at=cbone.position+h.go.transform.TransformDirection(new Vector3(off[0],off[1],off[2]));var into=(cbone.position-at).normalized;rig.clutchGoal.SetPositionAndRotation(at,Quaternion.LookRotation(into,Vector3.up)*Quaternion.Euler(0,0,90));}}}
+   else if(body.clutchWeight>0){Vector3 p,n;if(CombatZonePoint(h,look,body.clutchZone,body.clutchSide,out p,out n)){var hand=h.animator.GetBoneTransform(HumanBodyBones.LeftHand);rig.clutchGoal.SetPositionAndRotation(p+n*.05f,Quaternion.LookRotation(-n,Vector3.up)*Quaternion.Euler(0,0,90));}}
   }
   // The blow: the clip carries the body and the hand; near the contact the arm goes to the server's point. True when this body is done for the frame.
   bool CombatStrikeIK(CombatBeat beat,LocationSDKHumanoid h,PocCombatContactRig rig,PocCombatLook look){
@@ -789,6 +801,40 @@ namespace AngelsDemons.Poc {
    }
    return true;
   }
+  // ---- Moment 3: a club on the head. The clip carries the body and the swing; near the contact the arm closes on the server's target by IK: the club lies on the real skin, not in it. The side of the head: from where he stands.
+  readonly List<string> combatM3Rows=new List<string>();float combatM3DepthMax,combatM3DepthAt;int combatM3DepthOver;
+  static Func<Vector3,bool> CombatHeadOnly(LocationSDKHumanoid v){var head=v.animator.GetBoneTransform(HumanBodyBones.Head);return head==null?null:(Func<Vector3,bool>)(p=>(p-head.position).sqrMagnitude<.08f);}
+  bool CombatBatonIK(CombatBeat beat,LocationSDKHumanoid h,PocCombatContactRig rig,PocCombatLook look){
+   CombatProp prop;if(!combatProps.TryGetValue(h.id,out prop)||prop.go==null)return false;var victim=CombatHumanoid(beat.target);if(victim==null||victim.animator==null)return false;var bl=look.baton;
+   float sec=CombatClipSecondsOf(beat),tt=CombatNow-combatBeatAt-beat.lead,tc=sec*beat.impact;var hand=h.animator.GetBoneTransform(HumanBodyBones.RightHand);Transform tip=null;foreach(var x in prop.go.GetComponentsInChildren<Transform>())if(x.name=="contact_tip"){tip=x;break;}var head=victim.animator.GetBoneTransform(HumanBodyBones.Head);if(hand==null||tip==null||head==null)return false;
+   var hips=h.animator.GetBoneTransform(HumanBodyBones.Hips);if(!beat.hips0Set&&tt>=0){beat.hips0Set=true;beat.hips0=hips.position;beat.tip0=tip.position;}
+   float w=Mathf.Min(CombatSmooth((tt-(tc-bl.in_s))/Mathf.Max(.01f,bl.in_s*.6f)),1-CombatSmooth((tt-(tc+bl.hold_s))/Mathf.Max(.01f,bl.out_s)));
+   if(w<=0){rig.Pose(rig.target.position,rig.target.rotation,0);if(tt>=tc-.6f&&tt<=tc+.8f)CombatBatonDepth(prop,tip,victim);return true;}
+   var toVictim=victim.go.transform.position-h.go.transform.position;toVictim.y=0;toVictim.Normalize();
+   // The skin under the point is found once per frame on the living head; after the contact the point stays where the blow landed: the head has already gone.
+   if(!beat.batonFrozen){var pt=beat.rear?bl.rear:bl.front;Vector3 o=pt.offset!=null&&pt.offset.Length==3?new Vector3(pt.offset[0],pt.offset[1],pt.offset[2]):Vector3.zero;Vector3 p0=head.position+victim.go.transform.TransformDirection(o);Vector3 outward=Vector3.up,sp,sn;
+    // The club comes down from above: the point is the crown under its way, the shaft lies across it toward the victim. On the back of the head the same shaft would have to stand on end.
+    if(!CombatSkinRay(victim,p0+Vector3.up*.3f,p0-Vector3.up*.1f,CombatHeadOnly(victim),out sp,out sn)){sp=p0;sn=outward;}beat.batonEntry=sp;beat.batonNormal=sn.sqrMagnitude>0?sn.normalized:outward;if(tt>=tc)beat.batonFrozen=true;}
+   Vector3 n=beat.batonNormal,entry=beat.batonEntry;Vector3 dir=(toVictim+Vector3.down*bl.tilt_down).normalized;dir=(dir-n*Vector3.Dot(dir,n));if(dir.sqrMagnitude<1e-4f)dir=toVictim;dir.Normalize();
+   Quaternion localProp=Quaternion.Inverse(hand.rotation)*prop.go.transform.rotation;Quaternion desired=Quaternion.LookRotation(dir,n)*Quaternion.Inverse(localProp);
+   Vector3 onShaft=Vector3.Lerp(prop.go.transform.position,tip.position,bl.along);Vector3 localPoint=Quaternion.Inverse(hand.rotation)*(onShaft-hand.position),localGrip=Quaternion.Inverse(hand.rotation)*(prop.go.transform.position-hand.position);
+   float downU=Mathf.Clamp01((tt-(tc-bl.in_s))/Mathf.Max(.01f,bl.in_s));Vector3 target=entry+n*(bl.surface_m+bl.lift_m*(1-downU*downU*downU)+bl.rebound_m*CombatSmooth((tt-tc)/Mathf.Max(.01f,bl.rebound_s)));var shoulder=rig.arm.data.root.position;
+   // too far for the arm: the hips of the show go after it, a bounded part of the way; the feet stay on the clip's plants
+   {float armLen=Vector3.Distance(shoulder,rig.arm.data.mid.position)+Vector3.Distance(rig.arm.data.mid.position,hand.position);float need=Vector3.Distance(shoulder,target-desired*localPoint)-(armLen-.01f);if(need>0&&w>.01f){var mine=CombatBodyOf(h.id);mine.solverShift=Vector3.ClampMagnitude(mine.solverShift+toVictim*need*.5f,look.body_solver==null?0:look.body_solver.max_shift_m);}}
+   rig.Pose(target-desired*localPoint,desired,w);prop.go.transform.SetPositionAndRotation(hand.position+hand.rotation*localGrip,hand.rotation*localProp);
+   if(combatAutoDir!=null)CombatBatonDepth(prop,tip,victim);
+   if(!beat.contactLogged&&tt>=tc){beat.contactLogged=true;
+    if(!beat.bloodDone){beat.bloodDone=true;CombatBloodStart(beat,victim,look,entry,n);}
+    var vb=CombatBodyOf(beat.target);if(!beat.targetDown&&!beat.targetStunned){vb.clutchZone="head";vb.clutchSide="";vb.clutchPoint=beat.rear?bl.clutch_rear:bl.clutch_front;vb.clutchAt=CombatNow+bl.clutch_at_s;vb.clutchUntil=CombatNow+bl.clutch_s;}
+    CombatM1Contact(beat,h,victim,hand,tip,target,w,hips);
+    if(combatAutoDir!=null){var hit=Vector3.Lerp(prop.go.transform.position,tip.position,bl.along);combatM3Rows.Add("{\"t\":"+CombatF(CombatAutoTime)+",\"frame\":"+Time.frameCount+",\"rear\":"+(beat.rear?"true":"false")+",\"clip\":"+CombatJ(beat.clip==null?"":beat.clip.state)+",\"reaction\":"+CombatJ(beat.reaction==null?"":beat.reaction.state)+",\"down\":"+(beat.targetDown?"true":"false")+",\"zone\":"+CombatJ(beat.zone)+",\"sign\":"+CombatJ(beat.sign)+",\"depth\":"+CombatJ(beat.depth)+",\"w\":"+CombatF(w)+",\"club_to_head_m\":"+CombatF(CombatClubToHead(prop,tip,victim))+",\"on_shaft_to_goal_m\":"+CombatF(Vector3.Distance(hit,target))+",\"on_shaft_to_skin_m\":"+CombatF(CombatSkinGap(victim,hit))+",\"on_shaft_signed_m\":"+CombatF(CombatSkinSigned(victim,hit,CombatHeadOnly(victim)))+",\"hand_signed_m\":"+CombatF(CombatSkinSigned(victim,hand.position,null))+"}");}
+   }
+   return true;
+  }
+  // Review log: the nearest place of the whole club to the skin of the head, the club's radius counted. Below zero it is in.
+  float CombatClubToHead(CombatProp prop,Transform tip,LocationSDKHumanoid victim){var keep=CombatHeadOnly(victim);float best=float.PositiveInfinity;const float rad=.018f;for(int i=2;i<=8;i++){float d=CombatSkinSigned(victim,Vector3.Lerp(prop.go.transform.position,tip.position,i/8f),keep)-rad;if(d<best)best=d;}return best;}
+  // Review log: the club against the whole body of the target, every frame near the blow. Negative is inside; the club's own radius counts.
+  void CombatBatonDepth(CombatProp prop,Transform tip,LocationSDKHumanoid victim){if(combatAutoDir==null||prop.go==null)return;float deepest=0;const float rad=.018f;for(int i=2;i<=8;i+=2){var p=Vector3.Lerp(prop.go.transform.position,tip.position,i/8f);float d=CombatSkinSigned(victim,p,null)-rad;if(d<-deepest)deepest=-d;}if(deepest>combatM3DepthMax){combatM3DepthMax=deepest;combatM3DepthAt=CombatNow-combatBeatAt;}if(deepest>.02f)combatM3DepthOver++;}
   // ---- Moment 2: the held blade from behind. One paired scene on both bodies; the server has already decided everything: how long it was held and how it ended.
   void CombatPairBegin(CombatBeat b,PocCombatLook look){
    var th=look.throat;var v=CombatHumanoid(b.target);var a=CombatHumanoid(b.actor);Vector3 vAt,aAt;if(!LocationSDKNavToWorld(b.to.x,b.to.y,out vAt))vAt=v.go.transform.position;if(!LocationSDKNavToWorld(b.from.x,b.from.y,out aAt))aAt=a.go.transform.position;
@@ -1019,7 +1065,7 @@ namespace AngelsDemons.Poc {
   static float CombatHeadNeckSigned(LocationSDKHumanoid victim,Vector3 point){var head=victim.animator.GetBoneTransform(HumanBodyBones.Head);var neck=victim.animator.GetBoneTransform(HumanBodyBones.Neck);if(head==null||neck==null)return 999;float ny=neck.position.y-.03f;return CombatSkinSigned(victim,point,c=>c.y>=ny&&(Vector3.Distance(c,head.position)<.24f||Vector3.Distance(c,neck.position)<.12f));}
   // Sound: the three cues by outcome, the keys and files are data.
   readonly List<AudioSource> combatAudio=new List<AudioSource>();readonly Dictionary<string,AudioClip> combatAudioClips=new Dictionary<string,AudioClip>(StringComparer.Ordinal);
-  void CombatSoundOf(CombatBeat b){var look=CombatLook();if(look==null||look.sound==null)return;var cue=b.parried&&!b.hit?look.sound.parry:!b.hit?look.sound.miss:look.sound.hit;if(cue==null||string.IsNullOrEmpty(cue.clip))return;
+  void CombatSoundOf(CombatBeat b){var look=CombatLook();if(look==null||look.sound==null)return;var bs=look.baton==null?null:look.baton.sound;var cue=b.batonStrike&&bs!=null?(b.parried&&!b.hit?bs.parry:!b.hit?bs.miss:b.targetDown?bs.hit_down:bs.hit_stood):b.parried&&!b.hit?look.sound.parry:!b.hit?look.sound.miss:look.sound.hit;if(cue==null||string.IsNullOrEmpty(cue.clip))return;
    AudioClip clip;if(!combatAudioClips.TryGetValue(cue.clip,out clip)){clip=Resources.Load<AudioClip>(cue.clip);combatAudioClips[cue.clip]=clip;if(clip==null)Debug.LogWarning("ANG combat: sound file missing "+cue.clip);}if(clip==null)return;
    AudioSource src=null;foreach(var x in combatAudio)if(x!=null&&!x.isPlaying){src=x;break;}if(src==null){var go=new GameObject("combat sound");go.transform.SetParent(transform,false);src=go.AddComponent<AudioSource>();src.playOnAwake=false;src.spatialBlend=0;src.bypassReverbZones=true;combatAudio.Add(src);}
    src.clip=clip;src.volume=Mathf.Clamp01(cue.volume);src.Play();CombatM1Sound(cue.key,cue.clip);

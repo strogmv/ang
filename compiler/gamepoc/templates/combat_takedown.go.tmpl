@@ -35,7 +35,7 @@ func (r *Runtime) takedownCheck(attackerID, targetID, mode string) error {
 		return textError{Key: "error.takedown.unavailable"}
 	}
 	if _, w, ok := r.equippedCombatItem(r.state.Inventory, attackerID); !ok || behavior.CombatWeaponKind(w) != t.WeaponKind {
-		return textError{Key: "error.takedown.weapon"}
+		return textError{Key: "error.takedown.weapon." + t.WeaponKind}
 	}
 	fx, fy, facing := r.actorFace(targetID)
 	if !facing {
@@ -225,6 +225,10 @@ func (r *Runtime) appendTakedownOptions(msg *pb.PocGameState, locale string) {
 	sort.Strings(targets)
 	for _, mode := range modes {
 		t := r.world.CombatRuntime.Rules.Techniques[mode]
+		// Only what the weapon in hand can do: a club offers the blow, a blade the hold.
+		if _, w, ok := r.equippedCombatItem(r.state.Inventory, playerActorID); !ok || behavior.CombatWeaponKind(w) != t.WeaponKind {
+			continue
+		}
 		for _, id := range targets {
 			b := r.state.Life.Actor(id)
 			if b == nil || !b.OnFloor() || b.Level != h.Level || r.combatWorldDistance(h.Level, h.Position, b.Position) > t.ReachMM+r.world.CombatLife.TakedownOfferMM || !r.combatWorldConscious(id) {

@@ -213,7 +213,7 @@ func TestThroatRefusals(t *testing.T) {
 			r.state.Inventory.Items[id] = i
 		}
 	}
-	if refusal, ok := r.takedownCheck(playerActorID, d.Guard, throatMode).(textError); !ok || refusal.Key != "error.takedown.weapon" {
+	if refusal, ok := r.takedownCheck(playerActorID, d.Guard, throatMode).(textError); !ok || refusal.Key != "error.takedown.weapon.blade" {
 		t.Fatalf("no blade in hand: %v", refusal)
 	}
 }

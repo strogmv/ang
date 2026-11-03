@@ -16,7 +16,7 @@ func (r *Runtime) appendWoundViews(msg *pb.PocGameState, locale string) {
  // Seat activity is a separate channel. Publish an observable fallen pose
  // for ordinary Life bodies too, so the client can play combat_look.down after combat.
  for _,agent:=range msg.SceneAgents{if actor,ok:=r.state.CombatRoster[agent.Id];ok&&len(actor.Body)>0{
-  if actor.Prone||!combatWounds.Status(combatBody(actor)).Standing{agent.Activity="down";agent.Task=text("ui.combat.down")}else if actor.Surrendered{agent.Activity="surrendered";agent.Task=text("ui.combat.surrendered")}
+  if _,rising:=r.state.CombatCare.Rising[agent.Id];rising{agent.Activity="rising";agent.Task=text("ui.combat.rising")}else if actor.Prone||!combatWounds.Status(combatBody(actor)).Standing{agent.Activity="down";agent.Task=text("ui.combat.down")}else if actor.Surrendered{agent.Activity="surrendered";agent.Task=text("ui.combat.surrendered")}
  }}
 	own := func(v *pb.PocCombatActor, c behavior.Combatant) {
 		if v == nil || len(c.Body) == 0 {

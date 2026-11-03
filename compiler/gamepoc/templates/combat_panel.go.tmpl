@@ -193,7 +193,7 @@ add:=func(group,id,label string,action behavior.CombatAction,nominal int,why fun
  if !firearm{
   for _,tech:=range []string{"stun_blow","chokehold"}{mode:=tech;add("attack","attack."+mode+"."+target.ID,text("wounds.technique."+mode),behavior.CombatAction{Type:"attack",TargetID:target.ID,Mode:mode,BodyPart:"head"},map[string]int{"stun_blow":max(3,hero.Weapon.HeavyAP),"chokehold":6}[mode],func(error)string{return text("error.combat.technique_position")})}
   // A held blade starts only out of stealth: here it is a row with its reason, never an option in an open fight.
-  heldIDs:=make([]string,0,len(rules.Techniques));for mode:=range rules.Techniques{heldIDs=append(heldIDs,mode)};sort.Strings(heldIDs)
+  heldIDs:=make([]string,0,len(rules.Techniques));for mode,t:=range rules.Techniques{if !t.Strike{heldIDs=append(heldIDs,mode)}};sort.Strings(heldIDs)
   for _,mode:=range heldIDs{t:=rules.Techniques[mode];out=append(out,&pb.PocCombatOption{Id:"attack."+mode+"."+target.ID,Action:"attack",TargetId:target.ID,Mode:mode,Ap:int32(t.AP),Label:text("wounds.technique."+mode),Group:"attack",Reason:text("error.takedown.fight")})}
  }
 		if at, ok := r.combatStep(hero, &target, false); ok {

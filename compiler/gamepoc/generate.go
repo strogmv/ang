@@ -996,6 +996,7 @@ func Generate(project string) error {
 		"combat_collateral.go.tmpl":             filepath.Join(project, "internal/poc/combat_collateral.gen.go"),
 		"combat_takedown.go.tmpl":               filepath.Join(project, "internal/poc/combat_takedown.gen.go"),
 		"combat_takedown_test.go.tmpl":          filepath.Join(project, "internal/poc/combat_takedown_generated_test.go"),
+		"combat_stun_test.go.tmpl":              filepath.Join(project, "internal/poc/combat_stun_generated_test.go"),
 		"playable_scene.go.tmpl":                filepath.Join(project, "internal/poc/playable_scene.gen.go"),
 		"playable_scene_test.go.tmpl":           filepath.Join(project, "internal/poc/playable_scene_generated_test.go"),
 		"playable_scene_fixture.cs.tmpl":        filepath.Join(unity, "Assets/Generated/Poc/PocSceneFixture.cs"),
