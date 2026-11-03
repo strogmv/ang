@@ -242,6 +242,19 @@ func (m Model) ApplyHit(b *Body, h Hit) (HitResult, error) {
 		}
 	}
 	b.Wounds = append(b.Wounds, w)
+	if q := m.RepeatBluntStun; mech == "blunt" && q.Hits > 0 && depthRank[w.Depth] >= depthRank[q.MinDepth] {
+		n := 0
+		for _, prior := range b.Wounds {
+			if prior.Mechanism == "blunt" && m.sameBluntRegion(prior, w) && prior.Limb == w.Limb && b.Clock-prior.At <= q.WindowS && depthRank[prior.Depth] >= depthRank[q.MinDepth] {
+				n++
+			}
+		}
+		if n >= q.Hits {
+			b.StunUntil = max(b.StunUntil, b.Clock+inSpan(q.Duration, h.Seed, id, "repeated blunt trauma"))
+			res.Serious = true
+		}
+	}
+
 	crime := m.Justice.Hit
 	if res.Serious {
 		crime = m.Justice.Serious
@@ -630,4 +643,10 @@ func (m Model) stateName(b *Body) string {
 		return "weak"
 	}
 	return "ok"
+}
+
+func (m Model) sameBluntRegion(a, b Wound) bool {
+	za, oka := m.Zone(a.Zone)
+	zb, okb := m.Zone(b.Zone)
+	return oka && okb && za.Part == zb.Part
 }

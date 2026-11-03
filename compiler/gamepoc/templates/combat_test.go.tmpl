@@ -393,6 +393,10 @@ func TestCombatLifeResolvedEncounterAllowsWalkingSavingAndTravel(t *testing.T) {
 	if !moved || hero.CombatHold || hero.Position == origin {
 		t.Fatal("resolved encounter did not release ordinary walking")
 	}
+ // Finished views must follow ordinary Life rather than reuse the encounter origin.
+ live:=&pb.PocGameState{};r.appendCombat(live);found:=false
+ for _,a:=range live.Combat.Actors{if a.Id==playerActorID{found=true;if int(a.X)!=hero.Position.X||int(a.Y)!=hero.Position.Y{t.Fatal("finished view retained historical coordinates")}}}
+ if !found{t.Fatal("finished encounter lost current public pose")}
 	slot := r.world.Config.SaveSlots[0]
 	if err := r.writeSave(slot, r.snapshotState()); err != nil {
 		t.Fatal(err)

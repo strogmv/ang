@@ -293,7 +293,7 @@ func TestWoundsRoundOneHashPreservesBleedingAndRejectsUnknownCatalog(t *testing.
  r,_,target:=combatLifeFixture(t,true);c:=woundArtery(t,r,target);r.state.CombatRoster=map[string]behavior.Combatant{target:c};r.storeWoundBody(c);r.combatCareTrack();if err:=r.advanceLifeFrameBy(90);err!=nil{t.Fatal(err)}
  before:=r.snapshotState();slot:=r.world.Config.SaveSlots[0];if err:=r.writeSave(slot,before);err!=nil{t.Fatal(err)}
  path:=filepath.Join(r.data,slot+".json");raw,err:=os.ReadFile(path);if err!=nil{t.Fatal(err)};var envelope map[string]json.RawMessage;if err=json.Unmarshal(raw,&envelope);err!=nil{t.Fatal(err)}
- for _,hash:=range []string{"575d390d238c05b0fe428dca6b8e2583946b23520819bd4ad211fef7d7118925","unknown-r2-catalog"}{
+ for _,hash:=range []string{"575d390d238c05b0fe428dca6b8e2583946b23520819bd4ad211fef7d7118925","2d12a1457596c0b3a5f7ceda8b34e8e7234d064261211318046007c8d5195af3","unknown-r2-catalog"}{
   envelope["ContentHash"],_=json.Marshal(hash);data,_:=json.Marshal(envelope);if err=os.WriteFile(path,data,0600);err!=nil{t.Fatal(err)};loaded,_,err:=r.readSave(slot)
   if hash=="unknown-r2-catalog"{if err==nil{t.Fatal("unknown body catalog accepted")};continue}
   if err!=nil{t.Fatal(err)};if !reflect.DeepEqual(before.Wounds,loaded.Wounds){t.Fatal("round-1 migration changed live blood, wounds or culprit")}
@@ -320,4 +320,24 @@ func TestCombatV4EmptyGunCannotDeferBluntTorsoShock(t *testing.T){
   body:=combatWounds.NewBody(hero.ID,r.bodyChip(hero.ID));if _,err:=combatWounds.ApplyHit(&body,wounds.Hit{Weapon:"item.service_baton",Author:foe.ID,Zone:"chest",Depth:"deep",Structures:[]string{"rib"},Seed:42});err!=nil{t.Fatal(err)};projectWoundBody(hero,body);hero.FightResponse="";hero.Surrendered=false;hero.Prone=false;r.stopWoundedFight(s,hero)
   if loaded&&hero.FightResponse!="fight_on"{t.Fatal("a loaded functional weapon lost its authored armed-contact exception")};if !loaded&&hero.FightResponse!="fight_on"{changed++}
  }};if changed==0{t.Fatal("an empty, unreloadable gun made every rib injury preserve contact")}
+}
+
+func TestCombatV4RestingBodyBlocksCombatAndLifePaths(t *testing.T){
+ r,c,scene:=combatEpisodeFixture(t,"combat_knife","ru");combatEpisodeEngage(t,r,c,scene);body:=r.state.Combat.Actor(playerActorID);body.Prone=true;body.FallShifted=true;body.FallStyle="back";body.FallDirection=behavior.Cell{X:1,Y:0};r.syncCombatLife()
+ at:=behavior.Cell{X:body.Position.X+2,Y:body.Position.Y};space:=r.combatSpace(r.state.Combat);foe:=r.state.Combat.Actor(scene.Guard)
+ if !space.BodyBlocks(*foe,*body,at){t.Fatal("lying torso not a combat obstacle")};blocked:=r.state.Life.BlockedCells(scene.Level,foe.ID);if !blocked[at]{t.Fatal("post-combat Life can walk through lying body")}
+ pathSpace:=r.world.Life.Space(scene.Level,nil);pathSpace.Occupied=func(p behavior.Cell)bool{return blocked[p]};path:=pathSpace.Path(foe.Position,behavior.Cell{X:body.Position.X+4,Y:body.Position.Y},behavior.Cell{},0);for _,p:=range path{if blocked[p]{t.Fatal("path crossed a prone strip",p)}}
+ r.state.Combat.Active=false;r.state.Combat.EventSeq++;body.Prone=false;body.FallShifted=false;r.syncCombatLife();if len(r.state.Life.Actor(playerActorID).RestFootprint)!=0{t.Fatal("stand left a permanent invisible obstacle")}
+}
+func TestCombatV4LungChannelDataAudit(t *testing.T){
+ rates:=map[string]int64{};for _,weapon:=range []string{"item.knife_simple","item.needle_gun"}{b:=combatWounds.NewBody("audit","bronze");_,err:=combatWounds.ApplyHit(&b,wounds.Hit{Weapon:weapon,Zone:"chest",Depth:"deep",Structures:[]string{"chest_wall","lung"},Seed:1});if err!=nil{t.Fatal(err)};for _,w:=range b.Wounds{for _,v:=range w.Bleeds{if v.Structure=="lung"{rates[weapon]=v.RateUL}}};if combatWounds.Forecast(b,7*86400).DeadS>=0{t.Fatal("changed the documented survivable isolated channel")}}
+ if rates["item.knife_simple"]/2!=rates["item.needle_gun"]{t.Fatal("knife and needle widths were conflated",rates)}
+}
+
+func TestCombatV4SurrenderKeepsPublicPoseAndDropsRealWeapon(t *testing.T){
+ r,c,scene:=combatEpisodeFixture(t,"combat_knife","ru");combatEpisodeEngage(t,r,c,scene)
+ hero:=r.state.Combat.Actor(playerActorID);options:=r.combatEquipmentOptions(hero.ID);if len(options)==0{t.Fatal("missing weapon in inventory")};if err:=r.performCombatAction(hero.ID,&behavior.CombatAction{Type:"equip",ItemID:options[0].ID});err!=nil{t.Fatal(err)};item,_,ok:=r.equippedCombatItem(r.state.Inventory,hero.ID);if !ok{t.Fatal("missing real weapon")};position:=hero.Position
+ if err:=r.performCombatAction(hero.ID,&behavior.CombatAction{Type:"surrender"});err!=nil{t.Fatal(err)}
+ dropped:=r.state.Inventory.Items[item.ID];if dropped.Location.Kind!="ground"||dropped.Location.Level!=scene.Level||dropped.Location.At.X!=position.X||dropped.Location.At.Y!=position.Y{t.Fatal("surrender did not drop the actual held item",dropped.Location)}
+ msg:=&pb.PocGameState{};r.appendCombat(msg);found:=false;for _,a:=range msg.Combat.Actors{if a.Id==playerActorID{found=true;if !a.Surrendered||a.Down||a.WeaponId=="item.knife_simple"{t.Fatal("finished pose lost surrender or retained held weapon",a)}}};if !found{t.Fatal("finished surrender has no public pose")}
 }

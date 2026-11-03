@@ -26,7 +26,7 @@ namespace AngelsDemons.Poc {
  [Serializable] public sealed class PocCombatClip {public string state,source,layer="body";public bool loop,hold,reverse;public float speed=1,impact,from,until=1,hold_at=-1,weight=1,blend_in=.15f,blend_out=.2f;}
  [Serializable] public sealed class PocCombatWeaponAP {public int single,quick,heavy;}
  [Serializable] public sealed class PocCombatWeaponLook {public string item,prop;public float prop_tilt;public PocCombatWeaponAP ap;public PocCombatClip stance,ready,grip,single,quick,heavy;}
- [Serializable] public sealed class PocCombatSceneLook {public float post_exposure,contrast,saturation,ambient_scale=1,fill_intensity,fill_pitch_deg=12,fill_yaw_deg=25;public float[] fill_rgb;}
+ [Serializable] public sealed class PocCombatSceneLook {public float key_light_scale=1,fill_back_intensity,near_cut_height_m;public string[] near_cut_ids;public float post_exposure,contrast,saturation,ambient_scale=1,fill_intensity,fill_pitch_deg=12,fill_yaw_deg=25;public float[] fill_rgb;}
  [Serializable] public sealed class PocCombatWoundPoint {public string id,hand,bone;public float along;public float[] offset;}
  [Serializable] public sealed class PocCombatWoundHold {public string at;public float weight;public PocCombatWoundPoint[] points;}
  // The wounded hand on the wound (base-layer IK pass): the point is a bone + an offset in the body's frame (CUE data
@@ -43,7 +43,7 @@ namespace AngelsDemons.Poc {
  [Serializable] public sealed class PocCombatContactPoint{public string id,bone;public float[] offset;}
  [Serializable] public sealed class PocCombatContact{public bool enabled;public float parry_height_m,parry_recoil_m,shaft_fraction;public float window=.2f,surface_m=.15f;public PocCombatContactPoint[] points;}
  internal sealed class PocCombatContactRig:MonoBehaviour {
-  internal RigBuilder builder;internal Rig rig;internal TwoBoneIKConstraint arm;internal Transform target;internal bool built;
+  internal RigBuilder builder;internal Rig rig;internal TwoBoneIKConstraint arm;internal OverrideTransform torso;internal Transform target;internal bool built;
   internal Animator animator;internal RuntimeAnimatorController asset;internal AnimatorControllerPlayable controller;internal PlayableGraph graph;GameObject rigRoot;
   internal void Setup(Animator an){
    if(built)return;animator=an;asset=an.runtimeAnimatorController;if(asset==null)return;
@@ -55,6 +55,8 @@ namespace AngelsDemons.Poc {
    if(rigRoot==null){
    rigRoot=new GameObject("combat contact rig");rigRoot.transform.SetParent(an.transform,false);rig=rigRoot.AddComponent<Rig>();rig.weight=0;
    var goal=new GameObject("contact hand target");goal.transform.SetParent(rigRoot.transform,false);target=goal.transform;
+   var chest=an.GetBoneTransform(HumanBodyBones.Chest)??an.GetBoneTransform(HumanBodyBones.Spine);
+   var aimJoint=new GameObject("torso facing before weapon IK");aimJoint.transform.SetParent(rigRoot.transform,false);torso=aimJoint.AddComponent<OverrideTransform>();var td=torso.data;td.constrainedObject=chest;td.sourceObject=null;td.space=OverrideTransformData.Space.World;td.positionWeight=0;td.rotationWeight=1;torso.data=td;torso.weight=0;
    var joint=new GameObject("right weapon arm");joint.transform.SetParent(rigRoot.transform,false);arm=joint.AddComponent<TwoBoneIKConstraint>();
    var data=arm.data;data.root=an.GetBoneTransform(HumanBodyBones.RightUpperArm);data.mid=an.GetBoneTransform(HumanBodyBones.RightLowerArm);data.tip=an.GetBoneTransform(HumanBodyBones.RightHand);data.target=target;data.targetPositionWeight=1;data.targetRotationWeight=1;data.hintWeight=0;arm.data=data;arm.weight=1;
    }
@@ -66,8 +68,9 @@ namespace AngelsDemons.Poc {
    graph.Play();Evaluate(0);
   }
   internal void Evaluate(float delta){if(!built||!graph.IsValid())return;builder.SyncLayers();graph.Evaluate(delta);}
-  internal void BasePose(float delta){if(!built)return;rig.weight=0;Evaluate(delta);}
-  internal void Pose(Vector3 p,Quaternion q,float weight){if(!built)return;target.SetPositionAndRotation(p,q);rig.weight=weight;Evaluate(0);}
+  internal void BasePose(float delta){if(!built)return;rig.weight=0;torso.weight=0;Evaluate(delta);}
+  internal void Pose(Vector3 p,Quaternion q,float weight){if(!built)return;target.SetPositionAndRotation(p,q);rig.weight=1;arm.weight=weight;Evaluate(0);}
+  internal void Aim(Vector3 point){if(!built)return;var r=animator.GetBoneTransform(HumanBodyBones.RightUpperArm);var l=animator.GetBoneTransform(HumanBodyBones.LeftUpperArm);var chest=torso.data.constrainedObject;if(r==null||l==null||chest==null)return;var line=r.position-l.position;line.y=0;var forward=Vector3.Cross(line.normalized,Vector3.up);var dir=point-animator.transform.position;dir.y=0;if(dir.sqrMagnitude<.001f||forward.sqrMagnitude<.001f)return;float delta=Vector3.SignedAngle(forward,dir,Vector3.up);var data=torso.data;data.rotation=(Quaternion.AngleAxis(delta,Vector3.up)*chest.rotation).eulerAngles;torso.data=data;torso.weight=1;}
   internal void Release(){if(graph.IsValid())graph.Destroy();built=false;if(builder!=null)builder.Clear();
    // Keep the bound child transforms until this actor is destroyed. Rebind and
    // subsequent ordinary Animator states may still resolve their stream paths.
@@ -79,7 +82,7 @@ namespace AngelsDemons.Poc {
  [Serializable] public sealed class PocCombatLook {
   public float fall_shift_seconds=.22f;public float facing_tolerance_deg=7.6f;public float move_mps=1.4f,pause_seconds=.3f,injured_below=.5f,blend_seconds=.2f,turn_dps=360,turn_seconds=.22f,spacing_m=.7f;public PocCombatWeaponLook[] weapons;
   public PocCombatClip parry,guard,hit,hit_head,hit_shot,stun,stunned,down,bandage_kneel,bandage,bandage_rise,equip,reload,injured,injured_walk,retreat;
-  public PocCombatClip roll,get_up,dodge;public PocCombatFall[] falls;public float[] hero_rgb,enemy_rgb;public PocCombatContact contact;
+  public PocCombatClip surrender;public PocCombatClip roll,get_up,dodge;public PocCombatFall[] falls;public float[] hero_rgb,enemy_rgb;public PocCombatContact contact;
   public PocCombatSceneLook scene;public PocCombatWoundHold wound_hold;
  }
  public sealed partial class AngelsDemonsPoc {
@@ -90,7 +93,7 @@ namespace AngelsDemons.Poc {
    public Vector2Int victimFrom,victimTo;public bool victimShift;
    public bool hit,parried,targetDown,targetStunned,valid;public int amount;public float seconds,impact=.5f,lead,turnRate=360;public PocCombatClip clip,reaction;public bool fxDone,propDone;public float parryBeforeGap=-1,parryBestGap=float.PositiveInfinity,parryBestAt,parryBestBase;
   }
-  sealed class CombatBody {public Vector2Int cell;public int knifeSeries;public bool placed,wasDown;public float fallAt;public string held,shownState;public float flashUntil,readyW,actW,gripW;public Vector3 ease;public Transform ring;public string readyState,actState;public bool silhouette;}
+  sealed class CombatBody {public Vector2Int cell;public int knifeSeries;public bool placed,wasDown;public bool surrenderShown;public float surrenderAt;public float fallAt;public string held,shownState;public float flashUntil,readyW,actW,gripW;public Vector3 ease;public Transform ring;public string readyState,actState;public bool silhouette;}
   Material combatRingMaterial;
   sealed class CombatProp {public GameObject go;public string kind;public Transform grip;}
   readonly Dictionary<string,GameObject> combatGroundProps=new Dictionary<string,GameObject>(StringComparer.Ordinal);
@@ -215,7 +218,7 @@ namespace AngelsDemons.Poc {
     case "roll":b.clip=look==null?null:look.roll;b.seconds=CombatClipSeconds(an,b.clip,1.5f);break;
     case "stand":b.clip=look==null?null:(b.mode=="get_up"?(CombatFallOf(b.actor)==null?look.get_up:CombatFallOf(b.actor).get_up):look.bandage_rise);b.seconds=CombatClipSeconds(an,b.clip,2);break;
     case "fall_shift":case "fall":case "down":case "dead":b.clip=look==null?null:CombatFallClip(b.actor);b.seconds=CombatClipSeconds(an,b.clip,1.2f);break;
-    case "surrender":b.seconds=.9f;CombatFloat(b.actor,L("ui.combat.surrendered"),new Color(.9f,.9f,.9f));break;
+    case "surrender":b.clip=look.surrender;b.seconds=CombatClipSeconds(an,b.clip,.9f);CombatFloat(b.actor,L("ui.combat.surrendered"),new Color(.9f,.9f,.9f));break;
     case "end":b.seconds=.15f;break;
     default:b.seconds=.3f;break;
    }
@@ -292,7 +295,7 @@ namespace AngelsDemons.Poc {
    bool down=actor!=null?(actor.Down||actor.Stance=="prone"):CombatFinalDown(id);
    CombatBeat beat=null;foreach(var b in combatQueue){if(b.actor==id||b.kind=="attack"&&b.target==id){beat=b;break;}}
    bool queued=false;foreach(var b in combatQueue)if(b.actor==id||b.target==id){queued=true;break;}
-   if(!inFight&&!down&&!queued){var oldRig=h.animator.GetComponent<PocCombatContactRig>();if(oldRig!=null&&oldRig.built){oldRig.Release();h.state=null;}CombatBody gone;if(combatBodies.TryGetValue(id,out gone)){if(gone.ring!=null)Destroy(gone.ring.gameObject);combatBodies.Remove(id);CombatSilhouette(h,null);}CombatLayersOff(h);CombatWoundHold(h,null);return false;}
+   if(!inFight&&!down&&!queued&&(actor==null||!actor.Surrendered)){var oldRig=h.animator.GetComponent<PocCombatContactRig>();if(oldRig!=null&&oldRig.built){oldRig.Release();h.state=null;}CombatBody gone;if(combatBodies.TryGetValue(id,out gone)){if(gone.ring!=null)Destroy(gone.ring.gameObject);combatBodies.Remove(id);CombatSilhouette(h,null);}CombatLayersOff(h);CombatWoundHold(h,null);return false;}
    // A body (re)activated this frame has no initialized Animator yet: v1 showed one idle frame («missing» state). Bind
    // it now, so the first frame already has the combat pose.
    if(!h.go.activeSelf)h.go.SetActive(true);
@@ -301,7 +304,7 @@ namespace AngelsDemons.Poc {
    if((contactRig==null||!contactRig.built)&&!h.animator.isInitialized){h.animator.Rebind();h.state=null;}
    var body=CombatBodyOf(id);
    if(!body.placed){var shown=CombatShownCell(id);if(shown.HasValue){body.cell=shown.Value;body.placed=true;}}
-   if(!down)body.wasDown=false;
+   if(!down)body.wasDown=false;if(actor==null||!actor.Surrendered)body.surrenderShown=false;
    if(!queued){body.placed=false;}
    if(string.IsNullOrEmpty(body.held)||!queued)body.held=CombatHeld(id);
    var weapon=CombatWeapon(body.held);var an=h.animator;
@@ -361,6 +364,7 @@ namespace AngelsDemons.Poc {
    if(want==null&&clip==null){
     bool knockoutPending=false;foreach(var b in combatQueue)if(b.kind=="attack"&&b.target==id&&b.targetDown){knockoutPending=true;break;}
     if(down&&!knockoutPending){if(!body.wasDown){body.wasDown=true;body.fallAt=Time.unscaledTime;}clip=CombatFallClip(id);clipTime=Mathf.Clamp01((Time.unscaledTime-body.fallAt)/Mathf.Max(.1f,CombatClipSeconds(an,CombatFallClip(id),1.2f)));fallen=true;}
+    else if(actor!=null&&actor.Surrendered&&!queued&&CombatClipSet(look.surrender)){if(!body.surrenderShown){body.surrenderShown=true;body.surrenderAt=Time.unscaledTime;}clip=look.surrender;clipTime=Mathf.Clamp01((Time.unscaledTime-body.surrenderAt)/CombatClipSeconds(an,clip,2));}
     else if(actor!=null&&actor.Stunned&&!queued&&CombatClipSet(look.stunned)){clip=look.stunned;clipTime=-1;}
     else if(!walking){bool crouch=actor!=null&&actor.Stance!="stand";
      if(crouch&&!string.IsNullOrEmpty(locationSDKHumanoidCast.crouch_idle_state)){want=locationSDKHumanoidCast.crouch_idle_state;}
@@ -417,6 +421,7 @@ namespace AngelsDemons.Poc {
    CombatWoundHold(h,wounded?look.wound_hold:null);
    // Pose now for this frame's feet (Update(0) adds no time; during a base cross-fade the Animator clock runs).
    if(contactRig!=null&&contactRig.built)contactRig.BasePose(fading&&!held?Time.unscaledDeltaTime:0);else an.Update(0);
+   if(contactRig!=null&&contactRig.built&&active&&beat.actor==id&&(beat.kind=="attack"||beat.kind=="parry")){var other=CombatHumanoid(beat.target);if(other!=null)contactRig.Aim(other.go.transform.position);}
    // A retargeted humanoid must rest on the authored floor. Correct only vertical
    // presentation, preserving the server's X/Z and the complete clip pose.
    if(CombatIsFall(clip)||clip==look.roll||clip!=null&&clip.state.StartsWith("combat_get_up",StringComparison.Ordinal)){
@@ -488,7 +493,7 @@ namespace AngelsDemons.Poc {
   // The people's fill (owner: «люди — силуэты на белом полу»): one soft directional light from the camera side that only
   // the bodies and their props receive (URP rendering layer 1; the staging assembler turns rendering layers on), so
   // they read against the lamp-lit floor without lifting the room.
-  Volume combatVolume;VolumeProfile combatVolumeProfile;Light combatFill;const uint CombatPeopleLayer=2u;
+  Volume combatVolume;VolumeProfile combatVolumeProfile;Light combatFill,combatBackFill;readonly HashSet<MeshFilter> combatCutColumns=new HashSet<MeshFilter>();const uint CombatPeopleLayer=2u;
   void CombatLookAfterPresentation(){
    var look=CombatLook();var scene=look==null?null:look.scene;
    if(scene==null||locationSDKRoot==null){if(combatVolume!=null)combatVolume.enabled=false;if(combatFill!=null)combatFill.enabled=false;return;}
@@ -499,6 +504,8 @@ namespace AngelsDemons.Poc {
      combatFill.GetUniversalAdditionalLightData().renderingLayers=(RenderingLayerMask)CombatPeopleLayer;combatFill.renderingLayerMask=(int)CombatPeopleLayer;
     }
     var ce=locationSDKCamera.transform.rotation.eulerAngles;combatFill.transform.rotation=Quaternion.Euler(ce.x+scene.fill_pitch_deg,ce.y+scene.fill_yaw_deg,0);
+    if(combatBackFill==null||combatBackFill.transform.parent!=locationSDKRoot.transform){var go=new GameObject("combat people soft counterfill"){layer=LocationSDKLayer};go.transform.SetParent(locationSDKRoot.transform,false);combatBackFill=go.AddComponent<Light>();combatBackFill.type=LightType.Directional;combatBackFill.shadows=LightShadows.None;combatBackFill.cullingMask=1<<LocationSDKLayer;combatBackFill.GetUniversalAdditionalLightData().renderingLayers=(RenderingLayerMask)CombatPeopleLayer;combatBackFill.renderingLayerMask=(int)CombatPeopleLayer;}
+    combatBackFill.transform.rotation=Quaternion.Euler(35,ce.y+150,0);combatBackFill.intensity=scene.fill_back_intensity;combatBackFill.enabled=scene.fill_back_intensity>0;
     combatFill.intensity=scene.fill_intensity;combatFill.color=scene.fill_rgb!=null&&scene.fill_rgb.Length==3?new Color(scene.fill_rgb[0],scene.fill_rgb[1],scene.fill_rgb[2]):Color.white;combatFill.enabled=true;
     foreach(var hb in locationSDKHumanoids.Values)if(hb.renderers!=null)foreach(var r in hb.renderers)if(r!=null&&(r.renderingLayerMask&CombatPeopleLayer)==0)r.renderingLayerMask|=CombatPeopleLayer;
     foreach(var pr in combatProps.Values)if(pr.go!=null)foreach(var r in pr.go.GetComponentsInChildren<Renderer>())if((r.renderingLayerMask&CombatPeopleLayer)==0)r.renderingLayerMask|=CombatPeopleLayer;
@@ -509,6 +516,7 @@ namespace AngelsDemons.Poc {
     var go=new GameObject("combat look volume"){layer=LocationSDKLayer};go.transform.SetParent(locationSDKRoot.transform,false);combatVolume=go.AddComponent<Volume>();combatVolume.isGlobal=true;combatVolume.priority=50;combatVolume.sharedProfile=combatVolumeProfile;
    }
    combatVolume.enabled=true;
+   if(scene.near_cut_height_m>0&&scene.near_cut_ids!=null){foreach(var mr in locationSDKRoot.GetComponentsInChildren<MeshFilter>()){if(mr==null||combatCutColumns.Contains(mr))continue;bool selected=false;foreach(var id in scene.near_cut_ids)if(mr.name=="support / "+id){selected=true;break;}if(!selected)continue;var mesh=Instantiate(mr.sharedMesh);var vertices=mesh.vertices;float cut=mesh.bounds.min.y+scene.near_cut_height_m;for(int i=0;i<vertices.Length;i++)vertices[i].y=Mathf.Min(vertices[i].y,cut);mesh.vertices=vertices;mesh.RecalculateBounds();mr.sharedMesh=mesh;locationSDKHumanoidOwned.Add(mesh);combatCutColumns.Add(mr);}}
    ColorAdjustments grade;if(!combatVolumeProfile.TryGet(out grade))grade=combatVolumeProfile.Add<ColorAdjustments>(true);
    grade.postExposure.Override(scene.post_exposure);grade.contrast.Override(scene.contrast);grade.saturation.Override(scene.saturation);
    if(scene.ambient_scale>0&&Mathf.Abs(scene.ambient_scale-1)>1e-3f){var c=RenderSettings.ambientLight*scene.ambient_scale;c.a=1;RenderSettings.ambientLight=c;var probe=new SphericalHarmonicsL2();probe.AddAmbientLight(c);RenderSettings.ambientProbe=probe;}
@@ -571,7 +579,7 @@ namespace AngelsDemons.Poc {
    CombatBeat beat=combatQueue.Count>0&&combatBeatAt>=0?combatQueue[0]:null;
    if(beat!=null&&beat.parried&&!beat.propDone){float phase=(Time.unscaledTime-combatBeatAt-beat.lead)/Mathf.Max(.01f,CombatClipSecondsOf(beat));CombatProp aa,dd;if(Mathf.Abs(phase-beat.impact)<=look.contact.window&&combatProps.TryGetValue(beat.actor,out aa)&&combatProps.TryGetValue(beat.target,out dd))beat.parryBeforeGap=CombatParryGap(aa,dd,look.contact.shaft_fraction);}
    foreach(var h in locationSDKHumanoids.Values){if(h.go==null||!h.go.activeSelf)continue;var rig=h.animator.GetComponent<PocCombatContactRig>();
-    CombatProp prop;bool attack=beat!=null&&beat.kind=="attack"&&beat.actor==h.id&&(beat.hit||beat.parried)&&combatProps.TryGetValue(h.id,out prop)&&(prop.kind=="knife"||beat.parried);
+    CombatProp prop;bool attack=beat!=null&&beat.kind=="attack"&&beat.actor==h.id&&(beat.hit||beat.parried)&&combatProps.TryGetValue(h.id,out prop)&&(prop.kind=="knife"||prop.kind=="baton"||prop.kind=="pipe"||beat.parried);
     if(!attack){if(rig!=null&&rig.built)rig.Pose(rig.target.position,rig.target.rotation,0);continue;}
     prop=combatProps[h.id];var victim=CombatHumanoid(beat.target);if(victim==null||victim.animator==null||prop.go==null)continue;
     var hand=h.animator.GetBoneTransform(HumanBodyBones.RightHand);if(hand==null)continue;

@@ -17,6 +17,8 @@ type combatResponder struct {
 	Levels               []string `json:"levels"`
 }
 type combatLifeCatalog struct {
+ SurrenderDropsWeapon bool `json:"surrender_drops_weapon"`
+
 	FinishConsumesIntent           bool `json:"finish_consumes_intent"`
  Enabled                        bool                       `json:"enabled"`
 	DisengageWhenContactsExhausted bool                       `json:"disengage_when_contacts_exhausted"`

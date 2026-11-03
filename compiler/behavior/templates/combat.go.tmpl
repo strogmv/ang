@@ -23,6 +23,9 @@ type CombatTarget struct {
  StopValue float64 `json:"stop_value"`
 }
 type CombatRules struct {
+ BladeAngles map[string]map[string]float64 `json:"blade_angles"`
+ TargetStyles map[string]map[string]float64 `json:"target_styles"`
+
  PursuitTravelMM int `json:"pursuit_travel_mm"`
  Targets map[string]CombatTarget `json:"targets"`
  MeleeSkillScale float64 `json:"melee_skill_scale"`
@@ -166,6 +169,8 @@ type CombatContact struct {
 	ThreatDamage, ThreatRangeMM                   int
 }
 type Combatant struct {
+ TargetStyle string `json:"target_style,omitempty"`
+
  // Body is opaque to tactics; the host owns its strict catalog-backed interpretation.
  BodyEffects []string
  StandDownUntil int64
@@ -246,6 +251,8 @@ type CombatState struct {
 // directional blocked fraction [0,1]. ShotClear distinguishes a bullet barrier
 // from mere lack of visibility; a transparent bulletproof panel is possible.
 type CombatSpace struct {
+ BodyBlocks func(mover,body Combatant,at Cell)bool
+
 	Space       Space
 	CellMM      int
 	RangeMM     func(Cell, Cell) int
@@ -733,7 +740,7 @@ func (s CombatState) occupied(at Cell, except string, space CombatSpace, r Comba
 		view.Position = observer
 	}
 	for _, a := range s.Actors {
-		if a.ID != except && a.Position == at && (!knownOnly || space.ActorVisible(view, a, r)) {
+		if a.ID != except && (a.Position == at || space.BodyBlocks!=nil&&space.BodyBlocks(view,a,at)) && (!knownOnly || space.ActorVisible(view, a, r)) {
 			return true
 		}
 	}
@@ -1201,6 +1208,8 @@ func (s *CombatState) reactionWindow(space CombatSpace, r CombatRules, actorID s
 		q, ok := s.canAttackAction(space, r, *watcher, *target, watcher.Position, watcher.ReservedAP, false, CombatAction{Type: "attack"})
   if watcher.Overwatch&&watcher.Weapon.AimAP>0{if aimed,legal:=s.canAttackAction(space,r,*watcher,*target,watcher.Position,watcher.ReservedAP,false,CombatAction{Type:"attack",Mode:"aimed",Aim:1});legal{q=aimed;ok=true}}
   if !ok&&combatWeaponKind(watcher.Weapon)!="firearm"{q,ok=s.canAttackAction(space,r,*watcher,*target,watcher.Position,watcher.ReservedAP,false,CombatAction{Type:"attack",Mode:"quick"})}
+  // The same public-information target policy applies to a reserved counter and an ordinary strike.
+  if combatWeaponKind(watcher.Weapon)!="firearm"&&len(r.Targets)>0 {if choice,legal:=s.bestAttack(space,r,combatReactionView(*watcher,target.ID),watcher.Position,watcher.ReservedAP);legal{q,ok=s.canAttackAction(space,r,*watcher,*target,watcher.Position,watcher.ReservedAP,false,choice.Action)}}
 		if !ok || space.ExecutionShotBlocked != nil && space.ExecutionShotBlocked(watcher.Position, target.Position) {
 			continue
 		}
@@ -1590,6 +1599,8 @@ func (s CombatState) guardThreat(space CombatSpace, r CombatRules, a Combatant) 
 }
 
 func (s CombatState) bestAttack(space CombatSpace, r CombatRules, a Combatant, from Cell, ap int) (CombatCandidate, bool) {
+ bladeChoices:=map[string]CombatCandidate{};bladeWeights:=map[string]float64{}
+
 	var best CombatCandidate
 	found := false
 	for _, contact := range a.Contacts {
@@ -1686,12 +1697,26 @@ func (s CombatState) bestAttack(space CombatSpace, r CombatRules, a Combatant, f
 				score += s.shotChance(space, r, a, estimate, from, q, 0) * float64(contact.ThreatDamage) * .4 * r.AttackWeight
 			}
 			c := CombatCandidate{Action: action, Score: score, Reason: "legal observed attack with remaining-turn AP, condition and control value", AP: q.Cost}
+   if combatWeaponKind(a.Weapon)=="blade"&&len(r.Targets)>0 {
+    weight:=r.Targets[q.BodyPart].BladeValue
+    if style:=r.TargetStyles[a.TargetStyle];style!=nil{if w,ok:=style[q.BodyPart];ok{weight*=w}}
+    delta:=Cell{X:from.X-known.Position.X,Y:from.Y-known.Position.Y};dot:=float64(delta.X*known.Facing.X+delta.Y*known.Facing.Y);norm:=math.Hypot(float64(delta.X),float64(delta.Y))*math.Hypot(float64(known.Facing.X),float64(known.Facing.Y));angle:="front";if norm>0 {if dot/norm < -0.5{angle="rear"}else if dot/norm<.5{angle="flank"}}
+    if access:=r.BladeAngles[angle];access!=nil{if w,ok:=access[q.BodyPart];ok{weight*=w}}
+    if weight>0{old,exists:=bladeChoices[q.BodyPart];if !exists||c.Score>old.Score+1e-9||math.Abs(c.Score-old.Score)<1e-9&&c.AP<old.AP{bladeChoices[q.BodyPart]=c;bladeWeights[q.BodyPart]=weight}}
+    continue
+   }
 			if !found || c.Score > best.Score+1e-9 || math.Abs(c.Score-best.Score) < 1e-9 && (c.AP < best.AP || c.AP == best.AP && c.Action.TargetID < best.Action.TargetID) {
 				best = c
 				found = true
 			}
 		}
 	}
+ if len(bladeChoices)>0 {
+  ids:=make([]string,0,len(bladeChoices));for id:=range bladeChoices{ids=append(ids,id)};sort.Strings(ids);total:=0.0;for _,id:=range ids{total+=bladeWeights[id]}
+  // Counter-based draw: examining another cell or reloading a save cannot reroll the current thrust.
+  u:=float64(CounterRandom(s.Seed,a.ID,s.Turn,"blade-zone/"+strconv.FormatUint(s.ActionSeq,10))>>11)*(1.0/(1<<53))*total
+  for _,id:=range ids{u-=bladeWeights[id];if u<0{return bladeChoices[id],true}};return bladeChoices[ids[len(ids)-1]],true
+ }
 	return best, found
 }
 
@@ -2123,3 +2148,5 @@ func(s CombatState)ThreatensCare(space CombatSpace,r CombatRules,patient Combata
 func combatAbs(x int)int{if x<0{return -x};return x}
 
 func(r CombatRules)PhysicalPart(id string)string{if t,ok:=r.Targets[id];ok&&t.Part!=""{return t.Part};return id}
+
+func combatReactionView(a Combatant,target string)Combatant{all:=a.Contacts;a.Contacts=nil;for _,c:=range all{if c.SubjectID==target{a.Contacts=append(a.Contacts,c)}};return a}

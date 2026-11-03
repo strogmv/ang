@@ -97,8 +97,8 @@ namespace AngelsDemons.Poc {
    if(GUI.Button(new Rect(x,y,w,25),L("ui.combat.body."+combatBodyPart)+"  ◂ ▸",new GUIStyle(hudButton){fontSize=13})){int i=Array.IndexOf(CombatParts,combatBodyPart);combatBodyPart=CombatParts[(i+1)%CombatParts.Length];}y+=28;
    if(GUI.Button(new Rect(x,y,w,28),L(combatDetails?"ui.combat.compact":"ui.combat.details"),new GUIStyle(hudButton){fontSize=12})){combatDetails=!combatDetails;combatSelected=0;combatScroll=Vector2.zero;}y+=31;
    if(combatDetails){
-    float height=0;foreach(var line in hero.BodyLines)height+=Mathf.Max(20,small.CalcHeight(new GUIContent(line),w-20));
-    combatBodyScroll=GUI.BeginScrollView(new Rect(x,y,w,100),combatBodyScroll,new Rect(0,0,w-20,height));float by=0;foreach(var line in hero.BodyLines){float h=Mathf.Max(20,small.CalcHeight(new GUIContent(line),w-20));GUI.Label(new Rect(0,by,w-20,h),line,small);by+=h;}GUI.EndScrollView();y+=103;
+    float height=0;foreach(var line in CombatGroupedLines(hero.BodyLines))height+=Mathf.Max(20,small.CalcHeight(new GUIContent(line),w-20));
+    combatBodyScroll=GUI.BeginScrollView(new Rect(x,y,w,100),combatBodyScroll,new Rect(0,0,w-20,height));float by=0;foreach(var line in CombatGroupedLines(hero.BodyLines)){float h=Mathf.Max(20,small.CalcHeight(new GUIContent(line),w-20));GUI.Label(new Rect(0,by,w-20,h),line,small);by+=h;}GUI.EndScrollView();y+=103;
     GUI.Label(new Rect(x,y,w,56),L("ui.combat.nonlethal_risk"),small);y+=59;
    }else{
     string body=hero.BodyLines.Count>1?hero.BodyLines[1]:hero.BodyLines.Count>0?hero.BodyLines[0]:hero.HeldName;foreach(var line in hero.BodyLines)if(line.StartsWith("! ",StringComparison.Ordinal)){body=line;break;}GUI.Label(new Rect(x,y,w,56),body,small);y+=59;
@@ -114,5 +114,7 @@ namespace AngelsDemons.Poc {
    if(!string.IsNullOrEmpty(refusal)){Fill(new Rect(x,refusalTop,w,51),new Color(.35f,.1f,.08f,.85f));GUI.Label(new Rect(x+4,refusalTop+3,w-8,46),refusal,new GUIStyle(small){normal={textColor=new Color(1,.82f,.72f)}});}
    GUI.Label(new Rect(x,footer,w,49),L("ui.combat.compact_controls"),small);
   }
+  static List<string> CombatGroupedLines(IEnumerable<string> lines){var result=new List<string>();var counts=new Dictionary<string,int>();foreach(var line in lines){if(!counts.ContainsKey(line)){counts[line]=0;result.Add(line);}counts[line]++;}for(int i=0;i<result.Count;i++){string key=result[i];if(counts[key]>1)result[i]=key+" ×"+counts[key];}return result;}
+
  }
 }

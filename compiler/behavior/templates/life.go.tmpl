@@ -40,6 +40,8 @@ type LifePerson struct{Relations []LifeRelation `json:"relations,omitempty"`;ID 
 type LifeModel struct{HeroBody LifeHeroBodyModel `json:"hero_body"`;Decks map[string]*DeckVolume `json:"-"`;Brain LifeBrainModel `json:"brain"`;Residences []LifeResidence `json:"residences,omitempty"`;Courtesy LifeCourtesyPolicy `json:"courtesy"`;Population PopulationModel `json:"population"`;Development PracticeModel `json:"development"`;PracticeStations []LifePracticeStation `json:"practice_stations"`;Inspection InspectionModel `json:"inspection"`;Maintenance MaintenanceModel `json:"maintenance"`;StartSeconds int64 `json:"start_seconds"`;SecondsPerTick int64 `json:"seconds_per_tick"`;MoveTicks int64 `json:"move_ticks"`;Locations map[string]LifeLocation `json:"locations"`;Edges []LifeEdge `json:"edges"`;Actors []LifePerson `json:"actors"`;Walkable map[string]bool `json:"-"`}
 type LifeTrip struct{Edge string;Departure,Arrival int64}
 type LifeActor struct{
+ RestFootprint []Cell `json:"rest_footprint,omitempty"`
+
  WoundPaceMMS int64 `json:"-"`
  Sneaking bool `json:"sneaking,omitempty"`
  WalkedMM float64 `json:"walked_mm,omitempty"`
@@ -137,7 +139,7 @@ func(s LifeState)PopulationEnvironment()PopulationEnvironment{
   if a.ResidenceID!=""{continue}
   if a.Trip!=nil{env.Trips=append(env.Trips,*a.Trip);continue}
   if env.Occupied[a.Level]==nil{env.Occupied[a.Level]=map[Cell]bool{}}
-  env.Occupied[a.Level][a.Position]=true;if len(a.Path)>0{env.Occupied[a.Level][a.Path[0]]=true};if a.Body!=nil{for _,c:=range a.Body.Cells{env.Occupied[a.Level][c]=true}}
+  env.Occupied[a.Level][a.Position]=true;for _,c:=range a.RestFootprint{env.Occupied[a.Level][c]=true};if len(a.Path)>0{env.Occupied[a.Level][a.Path[0]]=true};if a.Body!=nil{for _,c:=range a.Body.Cells{env.Occupied[a.Level][c]=true}}
   if a.ID!=s.ControlledActorID&&!a.Manual&&!a.Arrived{if env.GoalClaims[a.Level]==nil{env.GoalClaims[a.Level]=map[Cell]bool{}};env.GoalClaims[a.Level][a.Goal]=true}
  };return env
 }
@@ -179,8 +181,8 @@ func(s LifeState)validatePopulation(m LifeModel,tick int64)error{
 }
 func(s *LifeState)Actor(id string)*LifeActor{for i:=range s.Actors{if s.Actors[i].ID==id{return &s.Actors[i]}};return nil}
 func(s *LifeState)note(text string){s.Events=append(s.Events,fmt.Sprintf("%02d:%02d · %s",s.Seconds%86400/3600,s.Seconds%3600/60,text));if len(s.Events)>64{s.Events=append([]string(nil),s.Events[len(s.Events)-64:]...)}}
-func(s LifeState)occupied(level string,at Cell,except string)bool{if s.trafficActive{return s.indexedOccupied(level,at,except)};for _,a:=range s.Population.Actors{if a.ID!=except&&(a.Materialized||a.CombatHold)&&a.Trip==nil&&a.Level==level&&(a.Position==at||(len(a.Path)>0&&a.Path[0]==at)){return true}};for _,a:=range s.Actors{if a.ID!=except&&a.OnFloor()&&a.Level==level&&(a.Position==at||(len(a.Path)>0&&a.Path[0]==at)||a.Body.holds(at)){return true}};return false}
-func(s LifeState)blocked(level,id string)map[Cell]bool{result:=map[Cell]bool{};for _,a:=range s.Population.Actors{if a.ID!=id&&(a.Materialized||a.CombatHold)&&a.Trip==nil&&a.Level==level{result[a.Position]=true;if len(a.Path)>0{result[a.Path[0]]=true}}};for _,a:=range s.Actors{if a.ID!=id&&a.OnFloor()&&a.Level==level{result[a.Position]=true;if len(a.Path)>0{result[a.Path[0]]=true};if a.Body!=nil{for _,c:=range a.Body.Cells{result[c]=true}}}};return result}
+func(s LifeState)occupied(level string,at Cell,except string)bool{for _,a:=range s.Actors{if a.ID!=except&&a.OnFloor()&&a.Level==level{for _,c:=range a.RestFootprint{if c==at{return true}}}};if s.trafficActive{return s.indexedOccupied(level,at,except)};for _,a:=range s.Population.Actors{if a.ID!=except&&(a.Materialized||a.CombatHold)&&a.Trip==nil&&a.Level==level&&(a.Position==at||(len(a.Path)>0&&a.Path[0]==at)){return true}};for _,a:=range s.Actors{if a.ID!=except&&a.OnFloor()&&a.Level==level&&(a.Position==at||(len(a.Path)>0&&a.Path[0]==at)||a.Body.holds(at)){return true}};return false}
+func(s LifeState)blocked(level,id string)map[Cell]bool{result:=map[Cell]bool{};for _,a:=range s.Population.Actors{if a.ID!=id&&(a.Materialized||a.CombatHold)&&a.Trip==nil&&a.Level==level{result[a.Position]=true;if len(a.Path)>0{result[a.Path[0]]=true}}};for _,a:=range s.Actors{if a.ID!=id&&a.OnFloor()&&a.Level==level{result[a.Position]=true;for _,c:=range a.RestFootprint{result[c]=true};if len(a.Path)>0{result[a.Path[0]]=true};if a.Body!=nil{for _,c:=range a.Body.Cells{result[c]=true}}}};return result}
 func(s *LifeState)Advance(m LifeModel,tick int64){s.AdvanceWithMaintenance(m,tick,nil)}
 func(s *LifeState)AdvanceWithMaintenance(m LifeModel,tick int64,install MaintenanceInstall){s.AdvanceWithTravel(m,tick,install,nil)}
 func(s *LifeState)AdvanceWithTravel(m LifeModel,tick int64,install MaintenanceInstall,admit LifeAdmission){s.AdvanceWithTravelBy(m,tick,s.SecondsPerTick,install,admit)}

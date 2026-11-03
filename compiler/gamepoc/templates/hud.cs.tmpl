@@ -121,7 +121,7 @@ namespace AngelsDemons.Poc {
    if(HudHasMap()&&HudButton(new Rect(1054,730,98,56),L("ui.tab.map")+"\n[M]"))OpenHudMap();
    if(HudHasJournal()&&HudButton(new Rect(1158,730,104,56),L("ui.tab.journal")+"\n[J]"))page="journal";
    int bagCount;var bag=HudBag(out bagCount);
-   if(bagCount>0&&HudButton(new Rect(982,687,280,36),bagCount==1?"Сбросить: "+bag.Name+" [B]":"Выбрать сумку для сброса [B]",CanSend()&&!inventoryPending&&!state.Paused&&!loadingActive))HudDropBag();
+   if(bagCount>0&&CombatLook()==null&&HudButton(new Rect(982,687,280,36),bagCount==1?"Сбросить: "+bag.Name+" [B]":"Выбрать сумку для сброса [B]",CanSend()&&!inventoryPending&&!state.Paused&&!loadingActive))HudDropBag();
    string notice=!string.IsNullOrEmpty(busy)?busy:clock.Elapsed.TotalSeconds<markerUntil?moveStatus:message;
    if(!string.IsNullOrEmpty(notice))GUI.Label(new Rect(394,757,415,24),notice,hudSmall);
    if(hudDebugOpen)DrawHudDebugSidebar();

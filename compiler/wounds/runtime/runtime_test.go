@@ -604,3 +604,33 @@ func TestArmedContactBluntTorsoResolve(t *testing.T) {
 		}
 	}
 }
+
+func TestRepeatedDeepBluntTraumaTemporarilyLosesPosture(t *testing.T) {
+	m := mustModel(t)
+	m.RepeatBluntStun = BluntStun{Hits: 3, WindowS: 30, MinDepth: "deep", Duration: Span{20, 20}}
+	b := m.NewBody("victim", "bronze")
+	for n := 0; n < 3; n++ {
+		_, err := m.ApplyHit(&b, Hit{Mechanism: "blunt", Zone: "abdomen", Depth: "deep", Structures: []string{"liver"}, Seed: int64(n + 1)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n < 2 && !m.Status(b).Standing {
+			t.Fatal("a single rib ended functional contact")
+		}
+	}
+	if m.Status(b).Standing || m.Status(b).HoldWeapon || b.Dead {
+		t.Fatal("posture/grip, not death", m.Status(b))
+	}
+	m.Tick(&b, 20)
+	if !m.Status(b).Standing || b.Dead {
+		t.Fatal("temporary incapacity did not expire")
+	}
+	separated := m.NewBody("other", "bronze")
+	for n := 0; n < 3; n++ {
+		m.ApplyHit(&separated, Hit{Mechanism: "blunt", Zone: "abdomen", Depth: "deep", Structures: []string{"liver"}, Seed: 1})
+		m.Tick(&separated, 31)
+	}
+	if !m.Status(separated).Standing {
+		t.Fatal("old wounds accumulated beyond their window")
+	}
+}

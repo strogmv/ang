@@ -119,7 +119,7 @@ namespace AngelsDemons.Poc {
     // Near-cut rule of the compiler (layout camera near_cut): the cells of this wall that would hide a body behind them
     // are drawn cut at the cut height with a dark cap; the rest keeps its height. Physically whole (Go terrain, sight).
     var cutCells=LocationSDKNearCutCells(o.id);
-    if(cutCells!=null){float cut=level.near_cut.height_mm*.001f;var keep=new List<PocLocationSDKCell>();var low=new List<PocLocationSDKCell>();foreach(var c in cells)(cutCells.Contains(LocationSDKCellKey(c.x,c.y))?low:keep).Add(c);
+    if(cutCells!=null){float cut=level.near_cut.height_mm*.001f;var combat=CombatLook();if(combat!=null&&combat.scene!=null&&combat.scene.near_cut_height_m>0)cut=Mathf.Min(cut,combat.scene.near_cut_height_m);var keep=new List<PocLocationSDKCell>();var low=new List<PocLocationSDKCell>();foreach(var c in cells)(cutCells.Contains(LocationSDKCellKey(c.x,c.y))?low:keep).Add(c);
      var style=o.style=="wall"?wall:o.style=="panel"?floor:null;
      if(keep.Count>0){var k=LocationSDKMeshObject("obstacle / "+o.id,LocationSDKExtrusion(keep.ToArray(),meters,bottom,height,style,bottom),new Color(.34f,.37f,.38f),style,true);k.transform.SetParent(root.transform,false);}
      if(low.Count>0&&bottom<cut){float h=Math.Min(height,cut-bottom),capH=Math.Min(.05f,h);var lo=LocationSDKMeshObject("obstacle cut / "+o.id,LocationSDKExtrusion(low.ToArray(),meters,bottom,h-capH,style,bottom),new Color(.34f,.37f,.38f),style,true);lo.transform.SetParent(root.transform,false);

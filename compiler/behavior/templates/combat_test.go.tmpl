@@ -1455,3 +1455,11 @@ func TestCombatV4NPCWithLostGripLeavesInsteadOfIdlingOutsideReach(t *testing.T){
  r,space,s:=combatV4Fixture(t);a:=s.Actor("a");a.Controlled=false;a.Body=json.RawMessage(`[]`);a.BodyCanWalk=true;a.BodyCanStand=true;a.BodyCanHold=false;a.BodyMoveScale=100;a.Weapon=combatClub("x","blue",Cell{}).Weapon;a.FightResponse="fight_on";s.Actor("b").Weapon.RangeMM=900;s.Actor("b").Position=Cell{4,2}
  start:=a.Position;if err:=s.StepAI(space,r);err!=nil{t.Fatal(err)};if s.Actor("a").Position==start&&!s.Actor("a").Withdrawn&&!s.Actor("a").Surrendered{t.Fatal("incapable NPC idled instead of physically escaping or surrendering")}
 }
+
+func TestCombatV4BladeZoneDrawIsDeterministicAvailableAndPrivate(t *testing.T){
+ r:=combatFixtureRules();r.Targets=map[string]CombatTarget{"chest":{Part:"torso",Zone:"chest",Accuracy:1,BladeValue:2},"abdomen":{Part:"torso",Zone:"abdomen",Accuracy:1,BladeValue:2},"neck":{Part:"head",Zone:"neck",Accuracy:.6,ExtraAP:1,BladeValue:3}}
+ a,b:=combatFixtureActor("a","blue",Cell{2,2}),combatFixtureActor("b","red",Cell{3,2});a.Weapon=CombatWeapon{ID:"knife",Kind:"blade",Damage:12,RangeMM:1200,AttackAP:2,QuickAP:1};a.Ammo=0;a.ReserveAmmo=0;a.Body=json.RawMessage(`[]`);a.BodyCanHold=true;a.BodyCanStand=true;a.BodyCanWalk=true
+ space:=combatFixtureSpace();s:=combatFixture(t,space,a,b);seen:=map[string]int{}
+ for seed:=int64(1);seed<=200;seed++{s.Seed=seed;s.Observe(space,r);own:=*s.Actor("a");c,ok:=s.bestAttack(space,r,own,own.Position,1);if !ok||c.Action.BodyPart=="neck"{t.Fatal("unaffordable zone",c)};again,_:=s.bestAttack(space,r,own,own.Position,1);if c.Action!=again.Action{t.Fatal("rerolled observation")};seen[c.Action.BodyPart]++;enemy:=s.Actor("b");enemy.HP=1;enemy.AP=0;enemy.Body=json.RawMessage(`{"secret":true}`);hidden,_:=s.bestAttack(space,r,own,own.Position,1);if c.Action!=hidden.Action{t.Fatal("foreign numbers changed the draw")}}
+ if seen["chest"]<50||seen["abdomen"]<50{t.Fatal("collapsed distribution",seen)}
+}

@@ -11,6 +11,8 @@ import (
 )
 
 type combatProfile struct {
+ TargetStyle string `json:"target_style"`
+
 	MaxHP        int                   `json:"max_hp"`
 	Armor        int                   `json:"armor"`
 	Skill        int                   `json:"skill"`
@@ -27,6 +29,8 @@ type combatLifeSync struct { EncounterID string; Sequence uint64 }
 
 type combatProbe struct{Episode string `json:"episode"`;Hero,Enemy behavior.Cell;WoundScenario string `json:"wound_scenario"`}
 type combatCatalog struct {
+ Starts map[string]struct{Hero,Enemy behavior.Cell} `json:"starts"`
+
  Probes map[string]combatProbe `json:"probes"`
 
  WeaponRisk map[string]int `json:"weapon_risk"`
@@ -83,10 +87,11 @@ func cloneCombatant(a behavior.Combatant) behavior.Combatant {
 }
 func (r *Runtime) combatant(id, team string) behavior.Combatant {
  name:=r.world.CombatRuntime.Actors[id];if name==""{name=r.world.CombatRuntime.DefaultProfile};p:=r.world.CombatRuntime.Profiles[name]
- a:=behavior.Combatant{ID:id,Team:team,HP:100,MaxHP:100,Armor:p.Armor,Skill:p.Skill,Courage:p.Courage,Initiative:p.Initiative,Noncombatant:p.Noncombatant,Trained:p.Trained,Weapon:p.Weapon,Controlled:id==playerActorID}
+ a:=behavior.Combatant{ID:id,TargetStyle:p.TargetStyle,Team:team,HP:100,MaxHP:100,Armor:p.Armor,Skill:p.Skill,Courage:p.Courage,Initiative:p.Initiative,Noncombatant:p.Noncombatant,Trained:p.Trained,Weapon:p.Weapon,Controlled:id==playerActorID}
  if old,ok:=r.state.CombatRoster[id];ok {
   a.HP=old.HP;a.Surrendered=old.Surrendered;a.StandDownUntil=old.StandDownUntil;a.Crouched=old.Crouched;a.Prone=old.Prone
   a.Bleeding=old.Bleeding;a.Suppression=old.Suppression;a.Morale=old.Morale;a.TacticalInitialized=old.TacticalInitialized
+  a.FallStyle=old.FallStyle;a.FallDirection=old.FallDirection;a.FallShifted=old.FallShifted;
   a.HeadWound=old.HeadWound;a.ArmWound=old.ArmWound;a.LegWound=old.LegWound;a.StunTurns=old.StunTurns
  }
  if face,ok:=r.state.Stealth.Observers[id];ok{a.Facing=behavior.Cell{X:int(math.Round(face.FaceX*1000)),Y:int(math.Round(face.FaceY*1000))}}
@@ -115,9 +120,10 @@ func (r *Runtime) combatSpace(s behavior.CombatState) behavior.CombatSpace {
   if !combatWounds.CareUnderThreat&&s.ThreatensCare(result,r.world.CombatRuntime.Rules,a){return nil}
   return r.woundAidCandidatesSafe(a)
  }
+ result.BodyBlocks=func(mover,body behavior.Combatant,at behavior.Cell)bool{for _,c:=range r.restFootprint(body,unit){if c==at{return true}};return false}
  result.AttackAngle=r.woundAttackAngle
  result.EndPositionClear=func(a behavior.Combatant,at behavior.Cell)bool{
-  radius:=r.world.CombatSpacing.WeaponSweepMM;if radius<1||a.Weapon.Magazine>0||len(a.Body)>0&&!a.BodyCanHold{return true}
+  radius:=r.world.CombatSpacing.WeaponSweepMM;if band,ok:=r.world.CombatSpacing.Weapons[a.Weapon.ID];ok&&band.SweepMM>0{radius=band.SweepMM};if radius<1||a.Weapon.Magazine>0||len(a.Body)>0&&!a.BodyCanHold{return true}
   cells:=(radius+unit-1)/unit
   for dy:=-cells;dy<=cells;dy++{for dx:=-cells;dx<=cells;dx++{if dx*dx+dy*dy==0||int(math.Round(math.Hypot(float64(dx*unit),float64(dy*unit))))>radius{continue};p:=behavior.Cell{X:at.X+dx,Y:at.Y+dy};if p.X<0||p.Y<0||p.X>=space.Width||p.Y>=space.Height||space.Blocked[p]||space.Walkable!=nil&&!space.Walkable(p){return false}}};return true
  }
@@ -459,6 +465,7 @@ func (r *Runtime) syncCombatLife() {
 		if a == nil {
 			continue
 		}
+		a.RestFootprint=r.restFootprint(c,max(1,r.world.Life.Locations[r.state.Combat.LevelID].CellMM))
 		wasHeld := a.CombatHold
 		if a.Position != c.Position {
 			a.Position = c.Position
@@ -500,12 +507,19 @@ func (r *Runtime) appendCombat(msg *pb.PocGameState) {
 	}
 	if s.Actor(playerActorID)==nil{visible:=false;for _,a:=range s.Actors{if r.combatTargetVisible(a){visible=true;break}};if !visible{return}}
  view := &pb.PocCombatView{Active: s.Active, EncounterId: s.ID, LevelId: s.LevelID, Turn: s.Turn, Winner: s.Winner}
-	// Finished encounters retain an outcome, not live bodies at historical
-	// cells. The ordinary Life simulation can already have moved or travelled.
-	if !s.Active || s.LevelID != r.currentLevel() {
-		msg.Combat = view
-		return
-	}
+	if s.LevelID != r.currentLevel() {msg.Combat=view;return}
+ // A finished encounter keeps public poses, but uses current Life positions and
+ // current wounds/equipment. Historical combat cells must never rewind walking
+ // actors or project bodies into another level.
+ if !s.Active {
+  for _,old:=range s.Actors {
+   level,at,ok:=r.knownCombatLifeActor(old.ID);if !ok||level!=r.currentLevel(){continue}
+   a:=r.combatant(old.ID,old.Team);a.Position=at
+   if a.ID!=playerActorID&&!r.combatTargetVisible(a){continue}
+   view.Actors=append(view.Actors,r.combatActorView(a,a.ID==playerActorID))
+  }
+  msg.Combat=view;return
+ }
 	if a := s.Current(); a != nil {
 		if a.ID == playerActorID || r.combatTargetVisible(*a) {
 			view.CurrentActorId = a.ID
@@ -606,4 +620,12 @@ func(r *Runtime)combatActorView(a behavior.Combatant,own bool)*pb.PocCombatActor
  if hero:=r.state.Combat.Actor(playerActorID);hero!=nil{v.Allied=a.Team==hero.Team}
  v.Stance="stand";if a.Crouched{v.Stance="crouch"};if a.Prone{v.Stance="prone"};v.Guarding=a.Guarding;v.Stunned=a.StunTurns>0
  return v
+}
+
+// Public prone pose occupies a body strip in combat and ordinary Life pathfinding.
+func(r *Runtime)restFootprint(a behavior.Combatant,unit int)[]behavior.Cell{
+ if !a.Prone&&!a.FallShifted{return nil};d:=a.FallDirection;if d.X==0&&d.Y==0{d=behavior.Cell{X:0,Y:1}}
+ length:=r.world.CombatSpacing.FallLengthMM;if a.FallStyle=="knees"{length=0};width:=r.world.CombatSpacing.FallWidthMM
+ norm:=math.Hypot(float64(d.X),float64(d.Y));dx,dy:=float64(d.X)/norm,float64(d.Y)/norm;out:=[]behavior.Cell{};seen:=map[behavior.Cell]bool{}
+ for along:=-250;along<=length;along+=125{for across:=-width/2;across<=width/2;across+=125{c:=behavior.Cell{X:a.Position.X+int(math.Round((float64(along)*dx-float64(across)*dy)/float64(unit))),Y:a.Position.Y+int(math.Round((float64(along)*dy+float64(across)*dx)/float64(unit)))};if !seen[c]{seen[c]=true;out=append(out,c)}}};return out
 }

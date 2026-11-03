@@ -281,7 +281,7 @@ func (r *Runtime) storeWoundBody(c behavior.Combatant) {
 	sort.Slice(r.state.Wounds.Bodies, func(i, j int) bool { return r.state.Wounds.Bodies[i].ID < r.state.Wounds.Bodies[j].ID })
 }
 func (r *Runtime) dropWoundedWeapon(a *behavior.Combatant, level string) error {
-	if len(a.Body) == 0 || a.BodyCanHold {
+	if len(a.Body) == 0 || a.BodyCanHold && !(a.Surrendered&&r.world.CombatLife.SurrenderDropsWeapon) {
 		return nil
 	}
 	var moves []inv.Move
@@ -350,6 +350,7 @@ func (r *Runtime) commitWoundBodies(previous behavior.CombatState) error {
 		if err := r.dropWoundedWeapon(c, r.state.Combat.LevelID); err != nil {
 			return err
 		}
+		r.refreshCombatEquipment(r.state.Inventory,c)
 		r.storeWoundBody(*c)
 	}
 	return nil

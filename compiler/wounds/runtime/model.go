@@ -318,7 +318,15 @@ type Limb struct {
 	Zone string `json:"zone"`
 	Slot string `json:"slot"`
 }
+type BluntStun struct {
+	Hits     int    `json:"hits"`
+	WindowS  int64  `json:"window_s"`
+	MinDepth string `json:"min_depth"`
+	Duration Span   `json:"duration"`
+}
 type Model struct {
+	RepeatBluntStun BluntStun `json:"repeat_blunt_stun"`
+
 	CareUnderThreat    bool            `json:"care_under_threat"`
 	Limbs              map[string]Limb `json:"limbs"`
 	RepeatBluntWindowS int64           `json:"repeat_blunt_window_s"`
@@ -434,6 +442,9 @@ func (m Model) Validate() error {
 			return fmt.Errorf("wounds: unknown limb zone")
 		}
 		slots[l.Slot] = true
+	}
+	if q := m.RepeatBluntStun; q.Hits < 0 || q.WindowS < 0 || q.Hits > 0 && (q.Hits < 2 || q.WindowS == 0 || q.Duration.Min <= 0 || q.Duration.Max < q.Duration.Min) {
+		return fmt.Errorf("invalid repeated blunt stun")
 	}
 	if m.RepeatBluntHits < 0 || m.RepeatBluntWindowS < 0 || m.RepeatBluntWindowS > 600 {
 		return fmt.Errorf("wounds: invalid repeated impact rules")

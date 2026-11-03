@@ -31,7 +31,7 @@ namespace AngelsDemons.Poc {
    var view=PlayableView();if(view==null||locationSDKRoot==null||locationSDKLevel==null){ReleasePlayableScene();return;}
    var preset=PlayablePreset(view.Id);if(preset==null||preset.presentation==null)return;
    if(playSceneRoot!=locationSDKRoot||playSceneLights==null)BuildPlayableSceneLights(preset);
-   foreach(var pair in playLights){double factor=0;foreach(var l in view.Lights)if(l.Id==pair.Key){factor=l.Factor;break;}PocSceneLamp source=null;foreach(var l in preset.presentation.lights)if(l.source_id==pair.Key){source=l;break;}if(pair.Value!=null&&source!=null){pair.Value.enabled=factor>0;pair.Value.intensity=source.lumens/(4*Mathf.PI)*(float)factor;}}
+   foreach(var pair in playLights){double factor=0;foreach(var l in view.Lights)if(l.Id==pair.Key){factor=l.Factor;break;}PocSceneLamp source=null;foreach(var l in preset.presentation.lights)if(l.source_id==pair.Key){source=l;break;}if(pair.Value!=null&&source!=null){pair.Value.enabled=factor>0;pair.Value.intensity=source.lumens/(4*Mathf.PI)*(float)factor*(CombatLook()!=null&&CombatLook().scene!=null?CombatLook().scene.key_light_scale:1);}}
    foreach(var e in playEmissions){if(e.renderer==null)continue;double factor=0;foreach(var l in view.Lights)if(l.Id==e.source){factor=l.Factor;break;}var block=new MaterialPropertyBlock();e.renderer.GetPropertyBlock(block,e.index);block.SetColor("_EmissionColor",e.baseColor*(float)factor);e.renderer.SetPropertyBlock(block,e.index);}
    if(page=="game"&&!loadingActive&&Input.GetKeyDown(KeyCode.E))SendSceneAction(NearestSceneAction());
    // An opt-in visual capture observes the actual initial Player. No poses,

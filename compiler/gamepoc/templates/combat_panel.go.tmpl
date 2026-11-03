@@ -259,6 +259,8 @@ for _,d:=range []behavior.Cell{{1,0},{0,1},{-1,0},{0,-1}}{at:=behavior.Cell{X:he
 // band (a club fighter does not walk into knife distance). Enforced by the engine on every destination (EndSpacingMM);
 // the panel's «Сблизиться» prefers a cell inside the band. Hit chance, damage and reach rules are not touched.
 type combatSpacingBand struct {
+ SweepMM int `json:"sweep_mm"`
+
 	MinMM int `json:"min_mm"`
 	MaxMM int `json:"max_mm"`
 }
