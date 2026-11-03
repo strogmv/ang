@@ -248,10 +248,12 @@ namespace AngelsDemons.Poc {
    return p;
   }
   // Called in the game page right after the world is drawn and before the HUD.
+  // A fighter's line waits for the blow to end: nothing hangs over the contact, the speaker's contour stays off while the body shows the outcome.
+  bool BarkHeldByBlow(string speaker){if(combatQueue.Count==0||combatBeatAt<0)return false;var b=combatQueue[0];return b.kind=="attack"&&b.bodyStrike&&(b.actor==speaker||b.target==speaker);}
   void DrawBarks(){
    BarkDrawnCount=0;
    if(Event.current.type!=EventType.Repaint||state==null||state.Life==null){return;}
-   var list=new List<PocBark>();if(state.Life.Barks!=null)list.AddRange(state.Life.Barks);list.AddRange(BarkPreview);
+   var list=new List<PocBark>();if(state.Life.Barks!=null)foreach(var held in state.Life.Barks)if(!BarkHeldByBlow(held.SpeakerId))list.Add(held);list.AddRange(BarkPreview);
    var wantGlow=new Dictionary<string,Color>(StringComparer.Ordinal);
    if(list.Count==0){barkLive.Clear();BarkDrawnText="";BarkDrawnRects.Clear();BarkGlowApply(wantGlow);return;}
    var vp=SpatialViewport();float scale=Mathf.Min(Screen.width/1280f,Screen.height/800f);Vector2 off=new Vector2((Screen.width-1280*scale)/2,(Screen.height-800*scale)/2);

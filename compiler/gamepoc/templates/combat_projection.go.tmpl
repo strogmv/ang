@@ -31,7 +31,7 @@ func(r *Runtime)capturePublicCombatEventsFrom(previous behavior.CombatState){
   if raw.ActorID!=playerActorID&&raw.TargetID!=playerActorID&&!seenFrom&&!seenTo{continue}
   event:=raw;event.Reason="";event.AmmoSpent=0;event.MedkitsSpent=0;event.WeaponUses=0;event.ItemsSpent=0;event.ArmorBlocked=0
   if event.ActorID!=playerActorID&&!seenFrom{event.ActorID="";event.From=behavior.Cell{X:-1,Y:-1};event.ItemID=""}
-  if event.TargetID!=playerActorID&&!seenTo{event.TargetID="";event.To=behavior.Cell{X:-1,Y:-1};event.Amount=0;event.Hit=false;event.BodyPart=""}
+  if event.TargetID!=playerActorID&&!seenTo{event.TargetID="";event.To=behavior.Cell{X:-1,Y:-1};event.Amount=0;event.Hit=false;event.BodyPart="";if event.Type=="wound"{event.Mode=""}}
   if event.TargetID!=playerActorID {switch event.Type{case "wound","condition","blocked","down","dead","weak","confused","care_done","stopped":event.ItemID=""}}
   r.state.CombatPublicSerial++;event.Sequence=r.state.CombatPublicSerial
   r.state.CombatPublicEvents=append(r.state.CombatPublicEvents,event)

@@ -424,3 +424,56 @@ func TestCombatV4BodyStripEightDirections(t *testing.T){
  }}
  if *combatV4SpaceReport!=""{if err:=os.MkdirAll(*combatV4SpaceReport,0755);err!=nil{t.Fatal(err)};raw,_:=json.MarshalIndent(rows,"","  ");if err:=os.WriteFile(filepath.Join(*combatV4SpaceReport,"fall-strips.json"),raw,0644);err!=nil{t.Fatal(err)}}
 }
+
+
+// Moment 1 (design/combat-play/moments): one real save and seed for every zone, side and outcome of the standing knife strike.
+var combatM1Report=flag.String("combat-m1-report","","write real saves for each outcome of the knife strike; excluded from duel statistics")
+func TestCombatMoment1Probes(t *testing.T){
+ if *combatM1Report==""{t.Skip("opt-in moment 1 fixtures")}
+ type want struct{Name,Probe,Mode,Part,Outcome,Zone,Side,Sign string}
+ cases:=[]want{}
+ for _,zone:=range []string{"chest","abdomen","groin","neck","axilla"}{for _,side:=range []string{"left","right"}{cases=append(cases,want{Name:"hit_"+zone+"_"+side,Probe:"knife",Mode:"heavy",Part:zone,Outcome:"hit",Zone:zone,Side:side})}}
+ cases=append(cases,want{Name:"hit_skin",Probe:"knife",Mode:"quick",Part:"chest",Outcome:"hit",Zone:"chest",Sign:"blood"},want{Name:"hit_artery",Probe:"knife",Mode:"heavy",Part:"neck",Outcome:"hit",Zone:"neck",Sign:"blood_spurt"},want{Name:"hit_vein",Probe:"knife",Mode:"heavy",Part:"neck",Outcome:"hit",Zone:"neck",Sign:"blood_flow"},
+  want{Name:"miss_hero",Probe:"knife",Mode:"heavy",Part:"torso",Outcome:"miss"},want{Name:"parried_npc",Probe:"parry",Outcome:"parried"},want{Name:"miss_npc",Probe:"parry",Outcome:"miss"},want{Name:"hit_npc",Probe:"parry",Outcome:"hit"},want{Name:"hit_npc_low",Probe:"parry",Outcome:"hit",Zone:"abdomen"})
+ index:=[]map[string]any{}
+ for _,c:=range cases{
+  probeRuntime,_,_:=combatEpisodeFixture(t,"combat_knife","ru");spec:=probeRuntime.world.CombatRuntime.Probes[c.Probe]
+  r,cc,scene:=combatEpisodeFixture(t,spec.Episode,"ru");combatEpisodeEngage(t,r,cc,scene)
+  hero:=r.state.Combat.Actor(playerActorID)
+  if spec.Episode=="combat_knife"&&hero.Weapon.ID=="unarmed"{for _,gear:=range r.combatEquipmentOptions(playerActorID){if gear.Weapon.ID=="item.knife_simple"{act:=behavior.CombatAction{Type:"equip",ItemID:gear.ID};if err:=r.performCombatAction(playerActorID,&act);err!=nil{t.Fatal(err)};break}}}
+  if spec.Episode!="combat_knife"&&hero.Weapon.ID=="unarmed"{for _,gear:=range r.combatEquipmentOptions(playerActorID){if gear.Weapon.ID=="item.knife_simple"||gear.Weapon.ID=="item.service_baton"{act:=behavior.CombatAction{Type:"equip",ItemID:gear.ID};if err:=r.performCombatAction(playerActorID,&act);err!=nil{t.Fatal(err)};break}}}
+  actors:=[]behavior.Combatant{r.combatant(playerActorID,"player"),r.combatant(scene.Guard,"opposition")};actors[0].Position=spec.Hero;actors[1].Position=spec.Enemy
+  for i:=range actors{b:=combatWounds.NewBody(actors[i].ID,r.bodyChip(actors[i].ID));projectWoundBody(&actors[i],b);actors[i].FightResponse="";actors[i].Surrendered=false;actors[i].Withdrawn=false;actors[i].Prone=false;actors[i].Crouched=false;actors[i].Suppression=0}
+  proposed:=behavior.CombatState{LevelID:scene.Level,Actors:actors};s,err:=behavior.NewCombat("encounter.m1.probe",scene.Level,1,actors,r.world.CombatRuntime.Rules,r.combatSpace(proposed));if err!=nil{t.Fatal(c.Name,err)}
+  r.state.Combat=s;r.state.CombatPublicEvents=nil;r.state.CombatPublicSeq=0;r.state.CombatPublicSerial=0;r.state.CombatLifeSync=combatLifeSync{};r.combatLifeStarted(scene.Guard,playerActorID);r.syncCombatLife()
+  initial:=r.snapshotState();found:=false
+  for seed:=int64(1);seed<=5000&&!found;seed++{
+   r.state=initial;r.state=r.snapshotState();r.state.Seed=seed;r.state.Combat.Seed=seed;base:=r.snapshotState()
+   command:="end";action:=behavior.CombatAction{Type:"end"}
+   if c.Probe=="knife"{command="attack:"+c.Mode+":"+c.Part;action=behavior.CombatAction{Type:"attack",TargetID:scene.Guard,Mode:c.Mode,BodyPart:c.Part}}
+   if err:=r.performCombatAction(playerActorID,&action);err!=nil{t.Fatal(c.Name,err)}
+   for n:=0;n<8&&r.state.Combat.Active;n++{a:=r.state.Combat.Current();if a==nil||a.ID==playerActorID{break};if err:=r.performCombatAction(a.ID,nil);err!=nil{t.Fatal(c.Name,err)}}
+   // the first blow of the knife in this command
+   knifeBy:=playerActorID;if c.Probe!="knife"{knifeBy=scene.Guard}
+   var strike *behavior.CombatEvent;parried:=false;zone,mark:="",""
+   for i:=range r.state.Combat.Events{e:=&r.state.Combat.Events[i]
+    if e.Type=="parry"&&e.TargetID==knifeBy{parried=e.Hit}
+    if e.Type=="wound"&&e.ActorID!=knifeBy{zone=e.BodyPart;mark=e.Mode}
+    if (e.Type=="attack"||e.Type=="reaction")&&e.ActorID==knifeBy{strike=e;break}
+   }
+   if strike==nil{continue}
+   outcome:="miss";if strike.Hit{outcome="hit"}else if parried{outcome="parried"}
+   if outcome!=c.Outcome{continue}
+   side,sign:="","";if outcome=="hit"{p:=strings.SplitN(mark,":",2);if len(p)!=2{continue};side,sign=p[0],p[1]}
+   if c.Zone!=""&&zone!=c.Zone||c.Side!=""&&side!=c.Side||c.Sign!=""&&sign!=c.Sign{continue}
+   if outcome=="hit"&&zone==""{continue}
+   events:=append([]behavior.CombatEvent(nil),r.state.Combat.Events...)
+   r.state=base;out:=filepath.Join(*combatM1Report,c.Name);if err:=os.MkdirAll(out,0755);err!=nil{t.Fatal(err)};r.data=out;if err:=r.writeSave("slot3",base);err!=nil{t.Fatal(err)};if _,_,err:=r.readSave("slot3");err!=nil{t.Fatal(c.Name,"strict load",err)}
+   meta:=map[string]any{"name":c.Name,"seed":seed,"episode":spec.Episode,"command":command,"outcome":outcome,"zone":zone,"side":side,"sign":sign,"mode":strike.Mode,"events":events}
+   raw,_:=json.MarshalIndent(meta,"","  ");if err:=os.WriteFile(filepath.Join(out,"setup.json"),raw,0644);err!=nil{t.Fatal(err)}
+   index=append(index,map[string]any{"name":c.Name,"seed":seed,"episode":spec.Episode,"command":command,"outcome":outcome,"zone":zone,"side":side,"sign":sign,"mode":strike.Mode});found=true
+  }
+  if !found{t.Errorf("no real %s strike in 5000 seeds",c.Name)}
+ }
+ raw,_:=json.MarshalIndent(index,"","  ");if err:=os.WriteFile(filepath.Join(*combatM1Report,"index.json"),raw,0644);err!=nil{t.Fatal(err)}
+}

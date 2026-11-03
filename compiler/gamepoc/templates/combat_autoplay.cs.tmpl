@@ -12,13 +12,16 @@ using System.Text;
 using AngelsDemons.Game.V1;
 using UnityEngine;
 namespace AngelsDemons.Poc {
+ // Review only: the final mix as the listener hears it, to measure the sound against the contact frame.
+ internal sealed class PocCombatAudioTap:MonoBehaviour{internal readonly List<float> mono=new List<float>();internal double firstDsp=-1;internal int rate;void Awake(){rate=AudioSettings.outputSampleRate;}void OnAudioFilterRead(float[] d,int ch){lock(mono){if(firstDsp<0)firstDsp=AudioSettings.dspTime;for(int i=0;i<d.Length;i+=Math.Max(1,ch))mono.Add(d[i]);}}}
  public sealed partial class AngelsDemonsPoc {
   bool combatAutoLoadProof,combatAutoLoadedProof,combatAutoAftercare,combatAutoProofAid,combatAutoProofSaved,combatAutoProofRate;long combatAutoCareUntil;
-  string combatAutoV4Probe="";int combatAutoV4Actions;bool combatAutoV4Rate;
+  string combatAutoV4Probe="";int combatAutoV4Actions;bool combatAutoV4Rate;string combatAutoM1Spec;float combatAutoCloseM;internal bool CombatAutoNoHud;bool combatCloseFocusSet;Vector3 combatCloseFocus;float combatAutoM1Tail=2.2f;
   bool combatAutoEscape;
   string combatAutoDir;bool combatAutoInit,combatAutoRecord,combatAutoDone,combatAutoQuiet,combatAutoStartSent,combatAutoFightOut,combatAutoDress;readonly StringBuilder combatAutoFrames=new StringBuilder();int combatAutoPhase,combatAutoWaypoint,combatAutoFrame,combatAutoAttacks,combatAutoKey,combatAutoHeroTurns;
   float combatAutoAt,combatAutoT0,combatAutoFrameAt,combatAutoIdleAt=-1,combatAutoFightAt;bool combatAutoHealed,combatAutoGuarded,combatAutoStood,combatAutoOver;int combatAutoFlee;
   int combatAutoSave;string combatAutoSnap="",combatAutoSaveResult="";long combatAutoSavedTurn;float combatAutoSaveAt;bool combatAutoSavedHealed,combatAutoSavedGuarded;int combatAutoSavedAttacks,combatAutoSavedFlee;
+  PocCombatAudioTap combatAudioTap;
   float combatAutoFacingMax;readonly Dictionary<string,float> combatAutoPoseFacing=new Dictionary<string,float>(StringComparer.Ordinal);
   // Every body of the encounter, every frame: where its feet point against its root's forward, worst per shown state
   // (a take facing the other way shows up as ~180° whatever the server does).
@@ -30,12 +33,12 @@ namespace AngelsDemons.Poc {
     float old;string key=h.state+(h.id=="char.hero"?" (hero)":" (npc)");if(!combatAutoPoseFacing.TryGetValue(key,out old)||d>old)combatAutoPoseFacing[key]=d;
    }
   }
-  readonly StringBuilder combatAutoMotion=new StringBuilder("t,actor,state,phase,x,y,z,lfx,lfy,lfz,rfx,rfy,rfz,blend,beat,beat_actor,fromx,fromy,tox,toy\n");
+  readonly StringBuilder combatAutoMotion=new StringBuilder("t,actor,state,phase,x,y,z,lfx,lfy,lfz,rfx,rfy,rfz,blend,beat,beat_actor,fromx,fromy,tox,toy,hx,hy,hz,cx,cy,cz,tx,ty,tz,frame,ltx,ltz,rtx,rtz,pinw,pinlx,pinlz,clutchw,clutchgap\n");
   readonly StringBuilder combatAutoLog=new StringBuilder();readonly List<string> combatAutoBeats=new List<string>(),combatAutoPanels=new List<string>(),combatAutoImpacts=new List<string>();
   static readonly Vector2Int[] CombatAutoRoute={new Vector2Int(6,20),new Vector2Int(11,19),new Vector2Int(12,18),new Vector2Int(17,19),new Vector2Int(19,19)};
   static string CombatJ(string s){return "\""+(s??"").Replace("\\","\\\\").Replace("\"","\\\"").Replace("\n"," ")+"\"";}
   static string CombatF(float v){return v.ToString("0.###",CultureInfo.InvariantCulture);}
-  float CombatAutoTime=>Time.unscaledTime-combatAutoT0;
+  float CombatAutoTime=>CombatNow-combatAutoT0;
   void CombatAutoNote(string what){combatAutoLog.Append(combatAutoLog.Length>0?",":"").Append("{\"t\":").Append(CombatF(CombatAutoTime)).Append(",\"note\":").Append(CombatJ(what)).Append("}");Debug.Log("COMBAT_AUTOPLAY "+CombatF(CombatAutoTime)+" "+what);}
   internal void CombatAutoBeat(string kind,string actor,string target,string clip,string reaction,float seconds){if(combatAutoDir!=null)combatAutoBeats.Add("{\"t\":"+CombatF(CombatAutoTime)+",\"kind\":"+CombatJ(kind)+",\"actor\":"+CombatJ(actor)+",\"target\":"+CombatJ(target)+",\"clip\":"+CombatJ(clip)+",\"reaction\":"+CombatJ(reaction)+",\"seconds\":"+CombatF(seconds)+"}");}
   Rect CombatAutoScreenRect(LocationSDKHumanoid h){
@@ -62,22 +65,24 @@ namespace AngelsDemons.Poc {
 
   void UpdateCombatAutoplay(){
    if(CombatR3SurveyTick())return;
-   if(!combatAutoInit){combatAutoInit=true;var args=Environment.GetCommandLineArgs();int n=Array.IndexOf(args,"--poc-combat-autoplay");if(n>=0&&n+1<args.Length){combatAutoDir=args[n+1];Directory.CreateDirectory(Path.Combine(combatAutoDir,"frames"));combatAutoRecord=Array.IndexOf(args,"--poc-combat-record")>=0;combatAutoFightOut=Array.IndexOf(args,"--poc-combat-fight-out")>=0;combatAutoDress=Array.IndexOf(args,"--poc-combat-dress")>=0;combatAutoEscape=Array.IndexOf(args,"--poc-combat-escape")>=0;combatAutoLoadProof=Array.IndexOf(args,"--poc-combat-load-proof")>=0;combatAutoAftercare=Array.IndexOf(args,"--poc-combat-aftercare")>=0;int v4=Array.IndexOf(args,"--poc-combat-v4-probe");if(v4>=0&&v4+1<args.Length)combatAutoV4Probe=args[v4+1];}}
+   if(!combatAutoInit){combatAutoInit=true;var args=Environment.GetCommandLineArgs();int n=Array.IndexOf(args,"--poc-combat-autoplay");if(n>=0&&n+1<args.Length){combatAutoDir=args[n+1];Directory.CreateDirectory(Path.Combine(combatAutoDir,"frames"));combatAutoRecord=Array.IndexOf(args,"--poc-combat-record")>=0;combatAutoFightOut=Array.IndexOf(args,"--poc-combat-fight-out")>=0;combatAutoDress=Array.IndexOf(args,"--poc-combat-dress")>=0;combatAutoEscape=Array.IndexOf(args,"--poc-combat-escape")>=0;combatAutoLoadProof=Array.IndexOf(args,"--poc-combat-load-proof")>=0;combatAutoAftercare=Array.IndexOf(args,"--poc-combat-aftercare")>=0;int v4=Array.IndexOf(args,"--poc-combat-v4-probe");if(v4>=0&&v4+1<args.Length)combatAutoV4Probe=args[v4+1];int m1=Array.IndexOf(args,"--poc-combat-m1");if(m1>=0&&m1+1<args.Length){combatAutoM1Spec=args[m1+1];combatAutoV4Probe="m1";}m1=Array.IndexOf(args,"--poc-combat-close");if(m1>=0&&m1+1<args.Length)float.TryParse(args[m1+1],NumberStyles.Float,CultureInfo.InvariantCulture,out combatAutoCloseM);CombatAutoNoHud=Array.IndexOf(args,"--poc-combat-no-hud")>=0;m1=Array.IndexOf(args,"--poc-combat-tail");if(m1>=0&&m1+1<args.Length)float.TryParse(args[m1+1],NumberStyles.Float,CultureInfo.InvariantCulture,out combatAutoM1Tail);}}
    if(combatAutoDir==null||combatAutoDone||state==null)return;
-   CombatAutoMeasureMotion();
+   if(combatAudioTap==null&&Array.IndexOf(Environment.GetCommandLineArgs(),"--poc-combat-audio-tap")>=0){var listener=FindFirstObjectByType<AudioListener>();if(listener!=null)combatAudioTap=listener.gameObject.AddComponent<PocCombatAudioTap>();}
    // Fight-out mode (to see a knockout): frames only once the hero is badly hurt or the encounter is over.
    bool recordNow=true;
-   if(combatAutoPhase>0&&combatAutoRecord&&recordNow&&Time.unscaledTime>=combatAutoFrameAt){combatAutoFrameAt+=1f/30f;combatAutoFrames.Append(combatAutoFrame.ToString("00000")).Append('\t').Append(CombatF(CombatAutoTime)).Append('\n');StartCoroutine(CombatAutoCapture(Path.Combine(combatAutoDir,"frames",combatAutoFrame.ToString("00000")+".jpg")));combatAutoFrame++;}
+   if(combatAutoPhase>0&&combatAutoRecord&&recordNow&&(combatClockFixed>0||Time.unscaledTime>=combatAutoFrameAt)){combatAutoFrameAt+=1f/30f;combatAutoFrames.Append(combatAutoFrame.ToString("00000")).Append('\t').Append(CombatF(CombatAutoTime)).Append('\t').Append(Time.frameCount).Append('\n');StartCoroutine(CombatAutoCapture(Path.Combine(combatAutoDir,"frames",combatAutoFrame.ToString("00000")+".jpg")));combatAutoFrame++;}
    if(combatAutoPhase>0&&CombatAutoTime>((combatAutoAftercare||combatAutoLoadProof)?600:combatAutoFightOut?420:200)){CombatAutoNote("timeout");CombatAutoFinish();return;}
    var view=PlayableView();
+   if(combatAutoCloseM>0&&combatAutoPhase>=1)CombatAutoCloseCamera();
+   if(combatAutoV4Probe=="m1"&&combatAutoPhase>=2&&combatM1LastContact>=0&&CombatNow>combatM1LastContact+combatAutoM1Tail&&combatAutoPhase<4){CombatAutoNote("moment 1: contact shown");combatAutoPhase=4;combatAutoAt=Time.unscaledTime;}
    switch(combatAutoPhase){
     case 0:
      if(view==null||page!="game"||loadingActive||!locationSDKFrameReady)return;
      if(combatAutoLoadProof){combatPanelOpen=true;
-      if(!combatAutoLoadedProof){combatAutoLoadedProof=true;combatAutoT0=Time.unscaledTime;combatAutoAt=Time.unscaledTime+3f;SaveOrLoad("slot3",false);CombatAutoNote("load a real headless encounter result from slot3");return;}
+      if(!combatAutoLoadedProof){combatAutoLoadedProof=true;combatAutoT0=CombatNow;combatAutoAt=Time.unscaledTime+3f;SaveOrLoad("slot3",false);CombatAutoNote("load a real headless encounter result from slot3");return;}
       if(Time.unscaledTime<combatAutoAt||loadingActive)return;combatAutoPhase=string.IsNullOrEmpty(combatAutoV4Probe)?3:2;combatAutoSave=-1;combatAutoFightAt=Time.unscaledTime;combatAutoAt=Time.unscaledTime+2f;combatAutoCareUntil=state.GameSeconds+7200;CombatAutoShot("wound-time");return;
      }
-     if(combatAutoAt==0){combatAutoAt=Time.unscaledTime+2.5f;combatAutoT0=Time.unscaledTime;CombatAutoNote("scene "+view.Id+" ready: "+view.Objective);}
+     if(combatAutoAt==0){combatAutoAt=Time.unscaledTime+2.5f;combatAutoT0=CombatNow;CombatAutoNote("scene "+view.Id+" ready: "+view.Objective);}
      if(Time.unscaledTime<combatAutoAt)return;CombatAutoShot("start");combatAutoPhase=1;combatAutoAt=Time.unscaledTime;return;
     case 1:{
      if(HeroCombatActive()){CombatAutoNote("encounter "+state.Combat.EncounterId+" began at hero cell "+state.PlayerX+","+state.PlayerY);combatAutoPhase=2;combatAutoAt=Time.unscaledTime+.8f;combatAutoFightAt=Time.unscaledTime;combatPanelOpen=true;
@@ -166,11 +171,18 @@ namespace AngelsDemons.Poc {
     var p=h.go.transform.position;var l=left.position;var r=right.position;
     combatAutoMotion.Append(CombatF(CombatAutoTime)).Append(',').Append(h.id).Append(',').Append(h.state).Append(',').Append(CombatF(h.phase));
     foreach(float v in new[]{p.x,p.y,p.z,l.x,l.y,l.z,r.x,r.y,r.z})combatAutoMotion.Append(',').Append(CombatF(v));
-    combatAutoMotion.Append(',').Append(CombatTransition(h.animator)?1:0).Append(',').Append(beat==null?"":beat.kind).Append(',').Append(beat==null?"":beat.actor).Append(',').Append(beat==null?0:beat.from.x).Append(',').Append(beat==null?0:beat.from.y).Append(',').Append(beat==null?0:beat.to.x).Append(',').Append(beat==null?0:beat.to.y).Append('\n');
+    combatAutoMotion.Append(',').Append(CombatTransition(h.animator)?1:0).Append(',').Append(beat==null?"":beat.kind).Append(',').Append(beat==null?"":beat.actor).Append(',').Append(beat==null?0:beat.from.x).Append(',').Append(beat==null?0:beat.from.y).Append(',').Append(beat==null?0:beat.to.x).Append(',').Append(beat==null?0:beat.to.y);var hipsBone=h.animator.GetBoneTransform(HumanBodyBones.Hips);var chestBone=h.animator.GetBoneTransform(HumanBodyBones.Chest)??hipsBone;var tipAt=Vector3.zero;CombatProp held;if(combatProps.TryGetValue(h.id,out held)&&held.go!=null)foreach(var x in held.go.GetComponentsInChildren<Transform>())if(x.name=="contact_tip"){tipAt=x.position;break;}foreach(float v in new[]{hipsBone.position.x,hipsBone.position.y,hipsBone.position.z,chestBone.position.x,chestBone.position.y,chestBone.position.z,tipAt.x,tipAt.y,tipAt.z})combatAutoMotion.Append(',').Append(CombatF(v));combatAutoMotion.Append(',').Append(Time.frameCount);{var lt=h.animator.GetBoneTransform(HumanBodyBones.LeftToes);var rt=h.animator.GetBoneTransform(HumanBodyBones.RightToes);var rg=h.animator.GetComponent<PocCombatContactRig>();var lh=h.animator.GetBoneTransform(HumanBodyBones.LeftHand);foreach(float v in new[]{lt==null?0:lt.position.x,lt==null?0:lt.position.z,rt==null?0:rt.position.x,rt==null?0:rt.position.z,rg==null||rg.legL==null?-1:rg.legL.weight,rg==null||rg.footL==null?0:rg.footL.position.x,rg==null||rg.footL==null?0:rg.footL.position.z,rg==null||rg.clutch==null?-1:rg.clutch.weight,rg==null||rg.clutchGoal==null||lh==null?-1:Vector3.Distance(rg.clutchGoal.position,lh.position)})combatAutoMotion.Append(',').Append(CombatF(v));}combatAutoMotion.Append('\n');
    }
   }
 
+  void CombatAutoCloseCamera(){var a=CombatHumanoid("char.hero");Vector3 sum=Vector3.zero;int n=0;foreach(var h in locationSDKHumanoids.Values)if(h.go!=null&&h.go.activeSelf){sum+=h.placed?h.go.transform.position:Vector3.zero;n+=h.placed?1:0;}if(n==0)return;if(!combatCloseFocusSet){combatCloseFocus=sum/n+Vector3.up*.9f;combatCloseFocusSet=true;}locationSDKZoom=locationSDKZoomOrigin*12f/combatAutoCloseM;}
   void CombatAutoV4Act(){
+   if(combatAutoV4Probe=="m1"){
+    if(combatAutoV4Actions>0){if(combatM1LastContact<0){var over=CombatAutoOption("end");if(over!=null&&combatAutoV4Actions<6){CombatExecute(over);combatAutoV4Actions++;}else{combatAutoPhase=3;combatAutoAt=Time.unscaledTime+2;}}return;}
+    var part=combatAutoM1Spec.Split(':');PocCombatOption want=null;
+    if(part[0]=="attack"){combatBodyPart=part.Length>2?part[2]:"torso";want=CombatAutoOption("attack."+part[1]+".");}else want=CombatAutoOption(part[0]);
+    if(want==null)want=CombatAutoOption("end");if(want!=null){CombatAutoNote("moment 1: "+combatAutoM1Spec+" -> "+want.Id);CombatExecute(want);combatAutoV4Actions++;}return;
+   }
    PocCombatOption pick=null;combatBodyPart=(combatAutoV4Probe=="head"||combatAutoV4Probe=="reserve")?"head":"torso";if(combatAutoV4Probe=="aid")combatDetails=true;
    if(combatAutoV4Actions>2&&!combatAutoV4Probe.StartsWith("fall",StringComparison.Ordinal)&&combatAutoV4Probe!="contact"&&combatAutoV4Probe!="reserve"||combatAutoV4Probe=="aid"&&combatAutoV4Actions>0||combatAutoV4Probe=="roll"&&combatAutoV4Actions>0){combatAutoPhase=3;combatAutoAt=Time.unscaledTime+4;return;}
    if(combatAutoV4Probe=="aid"){
@@ -203,10 +215,11 @@ namespace AngelsDemons.Poc {
   IEnumerator CombatAutoCapture(string path){yield return new WaitForEndOfFrame();var tex=ScreenCapture.CaptureScreenshotAsTexture();try{File.WriteAllBytes(path,tex.EncodeToJPG(88));}finally{Destroy(tex);}}
   void CombatAutoFinish(){
    combatAutoDone=true;
-   string json="{\"content_hash\":"+CombatJ(state==null?"":state.ContentHash)+",\"final_game_seconds\":"+(state==null?0:state.GameSeconds)+",\"final_own_lines\":["+string.Join(",",state==null||state.PlayerCondition==null?new List<string>():new List<string>(state.PlayerCondition.BodyLines).ConvertAll(CombatJ))+"],\"scene\":"+CombatJ(PlayableView()==null?"":PlayableView().Id)+",\"seconds\":"+CombatF(CombatAutoTime)+",\"frames\":"+combatAutoFrame+",\"hero_turns\":"+combatAutoHeroTurns+",\"attacks\":"+combatAutoAttacks+",\"beats_played\":"+CombatPlayedBeats+",\"pose_feet_vs_root_deg\":{"+string.Join(",",new List<string>(combatAutoPoseFacing.Keys).ConvertAll(k=>CombatJ(k)+":"+CombatF(combatAutoPoseFacing[k])))+"},\"facing_max_deg\":"+CombatF(combatAutoFacingMax)+",\"facing_ok\":"+(combatAutoFacingMax<=(CombatLook()==null?7.6f:CombatLook().facing_tolerance_deg)?"true":"false")+",\"missing_states\":["+string.Join(",",new List<string>(combatMissingStates).ConvertAll(CombatJ))+"],\"save_load\":"+(combatAutoSaveResult==""?"null":combatAutoSaveResult)+",\"log\":["+combatAutoLog+"],\"beats\":["+string.Join(",",combatAutoBeats)+"],\"impacts\":["+string.Join(",",combatAutoImpacts)+"],\"panels\":["+string.Join(",",combatAutoPanels)+"]}";
+   string json="{\"content_hash\":"+CombatJ(state==null?"":state.ContentHash)+",\"final_game_seconds\":"+(state==null?0:state.GameSeconds)+",\"final_own_lines\":["+string.Join(",",state==null||state.PlayerCondition==null?new List<string>():new List<string>(state.PlayerCondition.BodyLines).ConvertAll(CombatJ))+"],\"scene\":"+CombatJ(PlayableView()==null?"":PlayableView().Id)+",\"seconds\":"+CombatF(CombatAutoTime)+",\"frames\":"+combatAutoFrame+",\"hero_turns\":"+combatAutoHeroTurns+",\"attacks\":"+combatAutoAttacks+",\"beats_played\":"+CombatPlayedBeats+",\"pose_feet_vs_root_deg\":{"+string.Join(",",new List<string>(combatAutoPoseFacing.Keys).ConvertAll(k=>CombatJ(k)+":"+CombatF(combatAutoPoseFacing[k])))+"},\"m1_contacts\":["+string.Join(",",combatM1Rows)+"],\"m1_sounds\":["+string.Join(",",combatM1Sounds)+"],\"facing_max_deg\":"+CombatF(combatAutoFacingMax)+",\"facing_ok\":"+(combatAutoFacingMax<=(CombatLook()==null?7.6f:CombatLook().facing_tolerance_deg)?"true":"false")+",\"missing_states\":["+string.Join(",",new List<string>(combatMissingStates).ConvertAll(CombatJ))+"],\"save_load\":"+(combatAutoSaveResult==""?"null":combatAutoSaveResult)+",\"log\":["+combatAutoLog+"],\"beats\":["+string.Join(",",combatAutoBeats)+"],\"impacts\":["+string.Join(",",combatAutoImpacts)+"],\"panels\":["+string.Join(",",combatAutoPanels)+"]}";
+   if(combatAudioTap!=null){lock(combatAudioTap.mono){var bytes=new byte[combatAudioTap.mono.Count*4];Buffer.BlockCopy(combatAudioTap.mono.ToArray(),0,bytes,0,bytes.Length);File.WriteAllBytes(Path.Combine(combatAutoDir,"mix.f32"),bytes);File.WriteAllText(Path.Combine(combatAutoDir,"mix.json"),"{\"rate\":"+combatAudioTap.rate+",\"first_dsp\":"+combatAudioTap.firstDsp.ToString("R",CultureInfo.InvariantCulture)+",\"samples\":"+combatAudioTap.mono.Count+"}");}}
    File.WriteAllText(Path.Combine(combatAutoDir,"motion.csv"),combatAutoMotion.ToString());
    File.WriteAllText(Path.Combine(combatAutoDir,"report.json"),json);File.WriteAllText(Path.Combine(combatAutoDir,"frames.tsv"),combatAutoFrames.ToString());Debug.Log("COMBAT_AUTOPLAY_DONE "+combatAutoDir);
-   if(combatAutoRecord)StartCoroutine(CombatR3ReviewContactsThenQuit());else StartCoroutine(CombatAutoQuit());
+   if(combatAutoRecord&&combatAutoV4Probe!="m1")StartCoroutine(CombatR3ReviewContactsThenQuit());else StartCoroutine(CombatAutoQuit());
   }
   IEnumerator CombatAutoQuit(){yield return new WaitForSecondsRealtime(1.5f);Application.Quit();}  [Serializable] sealed class CombatR3Sample {public int x,y,side,yaw,torso_pixels,body_pixels,visible_body_pixels,floor_pixels;public int cold_pixels,darkened_pixels;public float cold_before,cold_after;public float p05,p50,occluded_fraction,floor_clipped_fraction;}
   [Serializable] sealed class CombatR3SurveyReport {public string scope,content_hash;public int cells;public List<CombatR3Sample> samples=new List<CombatR3Sample>();}
@@ -255,7 +268,7 @@ namespace AngelsDemons.Poc {
   IEnumerator CombatR3ReviewContactsThenQuit(){
    var report=new CombatR3OcclusionReport();var env=locationSDKRoot.GetComponentsInChildren<Renderer>();var off=new Dictionary<Renderer,bool>();var mats=new Dictionary<Renderer,Material[]>();foreach(var r in env){off[r]=r.forceRenderingOff;mats[r]=r.sharedMaterials;}
    var white=new Material(Shader.Find("Universal Render Pipeline/Unlit"));white.SetColor("_BaseColor",Color.white);var black=new Material(white);black.SetColor("_BaseColor",Color.black);
-   foreach(var shot in combatR3ContactMeshes){
+   foreach(var shot in combatR3ContactMeshes.ToArray()){
     yield return null;combatR3CameraPosition=shot.cameraPosition;combatR3CameraRotation=shot.cameraRotation;locationSDKCamera.transform.SetPositionAndRotation(shot.cameraPosition,shot.cameraRotation);foreach(var r in env)r.forceRenderingOff=true;foreach(var go in shot.meshes){var r=go.GetComponent<MeshRenderer>();var replace=new Material[r.sharedMaterials.Length];for(int n=0;n<replace.Length;n++)replace[n]=white;r.sharedMaterials=replace;r.shadowCastingMode=UnityEngine.Rendering.ShadowCastingMode.Off;go.SetActive(true);}combatR3RenderPost=false;locationSDKCameraData.renderPostProcessing=false;
     yield return new WaitForEndOfFrame();var isolated=CombatR3Pixels();if(report.rows.Count==0)CombatR3Image(Path.Combine(combatAutoDir,"contact-isolated-r3.png"),isolated);
     yield return null;combatR3CameraPosition=shot.cameraPosition;combatR3CameraRotation=shot.cameraRotation;locationSDKCamera.transform.SetPositionAndRotation(shot.cameraPosition,shot.cameraRotation);foreach(var r in env){r.forceRenderingOff=off[r];var replace=new Material[r.sharedMaterials.Length];for(int n=0;n<replace.Length;n++)replace[n]=black;r.sharedMaterials=replace;}CombatR3HideActors();combatR3RenderPost=false;locationSDKCameraData.renderPostProcessing=false;

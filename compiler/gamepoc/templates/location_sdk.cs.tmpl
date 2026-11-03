@@ -259,6 +259,7 @@ namespace AngelsDemons.Poc {
    if(locationSDKFollowHero&&hbActive&&locationSDKHeroWorldValid)locationSDKFocus=locationSDKHeroWorld+Vector3.up*(LocationSDKHeroHeightM*.5f);
    else if(locationSDKFollowHero&&locationSDKNav!=null&&locationSDKHeroWorldValid)locationSDKFocus=locationSDKHeroWorld+Vector3.up*(LocationSDKHeroHeightM*.5f);
    else if(locationSDKFollowHero)locationSDKFocus=new Vector3(LocationSDKCellCenter(shownPosition.x,locationSDKLevel.cell_meters),locationSDKLevel.elevation*locationSDKLevel.cell_meters+LocationSDKHeroHeightM*.5f,LocationSDKCellCenter(shownPosition.y,locationSDKLevel.cell_meters));
+   if(combatCloseFocusSet)locationSDKFocus=combatCloseFocus;
    if(camera!=null){float radius=locationSDKCameraBounds.extents.magnitude+2,shift=Vector3.Dot(locationSDKCameraBounds.center-locationSDKFocus,locationSDKCameraOffset);locationSDKNear=Mathf.Max(.05f,locationSDKDistance-shift-radius-2);locationSDKFar=Mathf.Max(locationSDKNear+1,locationSDKDistance-shift+radius+2);}
    locationSDKCamera.transform.position=locationSDKFocus+locationSDKCameraOffset*locationSDKDistance;locationSDKCamera.transform.LookAt(locationSDKFocus);locationSDKCamera.nearClipPlane=locationSDKNear;locationSDKCamera.farClipPlane=locationSDKFar;locationSDKCamera.orthographicSize=LocationSDKCameraViewSize(locationSDKFit,heroHeight,locationSDKZoom,locationSDKZoomOrigin);
   }

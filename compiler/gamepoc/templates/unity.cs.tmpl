@@ -507,7 +507,7 @@ namespace AngelsDemons.Poc
             GUI.matrix = Matrix4x4.TRS(new Vector3((Screen.width - 1280 * scale) / 2, (Screen.height - 800 * scale) / 2), Quaternion.identity, new Vector3(scale, scale, 1));
             Fill(new Rect(-1000, -1000, 4000, 3000), ink);
             if(page=="game"&&state!=null&&state.Active){
-                DrawGame();DrawBarks();DrawGameHud();DrawWayfindingUI();DrawCombatUI();DrawVendingUI();DrawPeddlerUI();DrawCraftingUI();DrawPlayableSceneUI();GUI.matrix=Matrix4x4.identity;DrawLoading();return;
+                DrawGame();if(CombatAutoNoHud){DrawCombatFx();GUI.matrix=Matrix4x4.identity;DrawLoading();return;}DrawBarks();DrawGameHud();DrawWayfindingUI();DrawCombatUI();DrawVendingUI();DrawPeddlerUI();DrawCraftingUI();DrawPlayableSceneUI();GUI.matrix=Matrix4x4.identity;DrawLoading();return;
             }
             if(page=="crafting"&&state!=null&&state.Active){DrawGame();DrawGameHud();DrawCraftingPage();GUI.matrix=Matrix4x4.identity;DrawLoading();return;}
             if(page=="development"||page=="inventory"||page=="map"||page=="journal"){DrawHudPage();GUI.matrix=Matrix4x4.identity;DrawLoading();return;}

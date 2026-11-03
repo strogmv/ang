@@ -76,7 +76,7 @@ namespace AngelsDemons.Poc {
    // Labels mark visible, server-published approaches. Hidden objects and NPC
    // suspicion are not reconstructed from the client authoring catalogue.
    // Inside the hero's encounter the device labels would cover the fight and its panel (doc 96).
-   if(!HeroCombatActive())foreach(var action in view.Actions){Vector2 at;if(!LocationSDKCellScreen(action.X,action.Y,out at))continue;var rect=new Rect(at.x-95,at.y-35,190,25);if(panel.Overlaps(rect))continue;GUI.Label(rect,action.Name,hudSmall);}
+   if(!HeroCombatActive()&&!CombatPlaying&&(state.Combat==null||!state.Combat.Active))foreach(var action in view.Actions){Vector2 at;if(!LocationSDKCellScreen(action.X,action.Y,out at))continue;var rect=new Rect(at.x-95,at.y-35,190,25);if(panel.Overlaps(rect))continue;GUI.Label(rect,action.Name,hudSmall);}
   }
  }
 }

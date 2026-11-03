@@ -7,8 +7,10 @@ import (
 	"angelsdemons/server/internal/wounds"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"math"
 	"sort"
+	"strings"
 )
 
 var combatWounds = func() wounds.Model {
@@ -116,15 +118,63 @@ func (r *Runtime) initializeWoundBody(a *behavior.Combatant) {
 	}
 	projectWoundBody(a, combatWounds.NewBody(a.ID, r.bodyChip(a.ID)))
 }
-func woundCombatEvents(a behavior.Combatant, events []wounds.Event) []behavior.CombatEvent {
+func woundCombatEvents(a behavior.Combatant, events []wounds.Event, salt int64) []behavior.CombatEvent {
 	out := make([]behavior.CombatEvent, 0, len(events))
 	for _, e := range events {
-		out = append(out, behavior.CombatEvent{Type: e.Type, ActorID: a.ID, TargetID: a.ID, From: a.Position, To: a.Position, Reason: e.Detail, ItemID: e.Wound, Culprit: e.Culprit, Crime: e.Crime, BodySecond: e.At, Hit: e.Type == "wound"})
+		event := behavior.CombatEvent{Type: e.Type, ActorID: a.ID, TargetID: a.ID, From: a.Position, To: a.Position, Reason: e.Detail, ItemID: e.Wound, Culprit: e.Culprit, Crime: e.Crime, BodySecond: e.At, Hit: e.Type == "wound"}
+		if e.Type == "wound" {
+			event.BodyPart, event.Mode = woundPublicMark(a, e.Wound, salt)
+		}
+		out = append(out, event)
 	}
 	return out
 }
+// woundPublicMark is what anyone who sees the blow sees of the new wound: the zone, the side and the outward blood sign
+// ("side:sign" in the event's Mode). Presentation only: no rule reads it and it consumes no random draw. Limbs have a
+// real side in the wound model; the other zones do not, so the side is a stable hash of the body and the wound.
+func woundPublicMark(a behavior.Combatant, id string, salt int64) (string, string) {
+	body := combatBody(a)
+	for _, w := range body.Wounds {
+		if w.ID != id {
+			continue
+		}
+		side := ""
+		switch {
+		case strings.HasPrefix(w.Limb, "left"):
+			side = "left"
+		case strings.HasPrefix(w.Limb, "right"):
+			side = "right"
+		default:
+			h := fnv.New32a()
+			h.Write([]byte(fmt.Sprintf("%s/%s/%d", a.ID, w.ID, salt)))
+			side = "left"
+			if h.Sum32()%2 == 1 {
+				side = "right"
+			}
+		}
+		sign := "none"
+		rank := 0
+		for _, bleed := range w.Bleeds {
+			if bleed.Internal {
+				continue
+			}
+			kind, level := "blood", 1
+			switch bleed.Kind {
+			case "artery", "critical":
+				kind, level = "blood_spurt", 3
+			case "vein", "deep_vein":
+				kind, level = "blood_flow", 2
+			}
+			if level > rank {
+				sign, rank = kind, level
+			}
+		}
+		return w.Zone, side + ":" + sign
+	}
+	return "", ""
+}
 func appendWoundEvents(s *behavior.CombatState, a behavior.Combatant, events []wounds.Event) {
-	for _, e := range woundCombatEvents(a, events) {
+	for _, e := range woundCombatEvents(a, events, s.Seed) {
 		s.EventSeq++
 		e.Sequence = s.EventSeq
 		e.Turn = s.Turn

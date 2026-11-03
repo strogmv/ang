@@ -289,11 +289,21 @@ func TestCombatV4HeroFearCannotWithdrawInsideKnifeReach(t *testing.T){
  if _,err:=r.combatTry(behavior.CombatAction{Type:"disengage"});err==nil{t.Fatal("adjacent knife contact must still be broken physically")}
 }
 
+// Moment 1: the public mark of a new wound is the real zone and sign; no rule reads it, it is stable and an unseen wound has none.
+func TestWoundPublicMarkShowsTheRealZoneAndSign(t *testing.T){
+ r,_,target:=combatLifeFixture(t,true);c:=woundArtery(t,r,target);body:=combatBody(c);if len(body.Wounds)==0{t.Fatal("no wound")};w:=body.Wounds[len(body.Wounds)-1]
+ zone,mark:=woundPublicMark(c,w.ID,7);if zone!=w.Zone{t.Fatalf("zone %q, wound %q",zone,w.Zone)}
+ again,repeat:=woundPublicMark(c,w.ID,7);if again!=zone||repeat!=mark{t.Fatal("public mark is not stable")}
+ parts:=strings.SplitN(mark,":",2);if len(parts)!=2||parts[0]!="left"&&parts[0]!="right"{t.Fatalf("mark %q",mark)}
+ if parts[1]!="blood_spurt"{t.Fatalf("an artery shows %q",parts[1])}
+ if z,m:=woundPublicMark(c,"no-such-wound",7);z!=""||m!=""{t.Fatal("a wound that is not there has a mark")}
+}
+
 func TestWoundsRoundOneHashPreservesBleedingAndRejectsUnknownCatalog(t *testing.T){
  r,_,target:=combatLifeFixture(t,true);c:=woundArtery(t,r,target);r.state.CombatRoster=map[string]behavior.Combatant{target:c};r.storeWoundBody(c);r.combatCareTrack();if err:=r.advanceLifeFrameBy(90);err!=nil{t.Fatal(err)}
  before:=r.snapshotState();slot:=r.world.Config.SaveSlots[0];if err:=r.writeSave(slot,before);err!=nil{t.Fatal(err)}
  path:=filepath.Join(r.data,slot+".json");raw,err:=os.ReadFile(path);if err!=nil{t.Fatal(err)};var envelope map[string]json.RawMessage;if err=json.Unmarshal(raw,&envelope);err!=nil{t.Fatal(err)}
- for _,hash:=range []string{"575d390d238c05b0fe428dca6b8e2583946b23520819bd4ad211fef7d7118925","2d12a1457596c0b3a5f7ceda8b34e8e7234d064261211318046007c8d5195af3","unknown-r2-catalog"}{
+ for _,hash:=range []string{"575d390d238c05b0fe428dca6b8e2583946b23520819bd4ad211fef7d7118925","2d12a1457596c0b3a5f7ceda8b34e8e7234d064261211318046007c8d5195af3","809a4ec486ba4df60a2c414e6d2cfac8ce44f71e0f4188fd536c9ae3fff7a942","unknown-r2-catalog"}{
   envelope["ContentHash"],_=json.Marshal(hash);data,_:=json.Marshal(envelope);if err=os.WriteFile(path,data,0600);err!=nil{t.Fatal(err)};loaded,_,err:=r.readSave(slot)
   if hash=="unknown-r2-catalog"{if err==nil{t.Fatal("unknown body catalog accepted")};continue}
   if err!=nil{t.Fatal(err)};if !reflect.DeepEqual(before.Wounds,loaded.Wounds){t.Fatal("round-1 migration changed live blood, wounds or culprit")}

@@ -32,9 +32,9 @@ namespace AngelsDemons.Poc {
    Rect box=new Rect(CombatPanelFrame.x,CombatPanelFrame.y,CombatPanelFrame.width,combatDetails?590:172);HudFrame(box,false);var small=new GUIStyle(hudSmall){fontSize=12,wordWrap=true};float x=box.x+10,w=box.width-20,y=box.y+10;
    if(GUI.Button(new Rect(x,y,w,29),L(combatDetails?"ui.combat.compact":"ui.combat.details"),new GUIStyle(hudButton){fontSize=12})){combatDetails=!combatDetails;combatSelected=0;}y+=34;
    var condition=state.PlayerCondition;if(condition==null)return;
-   if(!combatDetails){for(int i=0;i<condition.BodyLines.Count&&i<3;i++){GUI.Label(new Rect(x,y,w,34),condition.BodyLines[i],small);y+=36;}return;}
+   if(!combatDetails){var grouped=CombatGroupedLines(condition.BodyLines);for(int i=0;i<grouped.Count&&i<3;i++){GUI.Label(new Rect(x,y,w,34),grouped[i],small);y+=36;}return;}
    GUILayout.BeginArea(new Rect(x,y,w,box.yMax-y-12));combatScroll=GUILayout.BeginScrollView(combatScroll);
-   foreach(var line in condition.BodyLines)GUILayout.Label(line,small,GUILayout.Width(w-20));
+   foreach(var line in CombatGroupedLines(condition.BodyLines))GUILayout.Label(line,small,GUILayout.Width(w-20));
    foreach(var option in CombatRows()){if(GUILayout.Button(option.Label,new GUIStyle(hudButton){fontSize=13,wordWrap=true},GUILayout.MinHeight(35)))CombatExecute(option);if(!option.Enabled)GUILayout.Label(option.Reason,small);}
    GUILayout.EndScrollView();GUILayout.EndArea();
   }

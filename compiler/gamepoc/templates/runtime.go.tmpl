@@ -935,7 +935,7 @@ func (r *Runtime) readSave(slot string) (state, int64, error) {
  _,hasWounds:=fields["wounds"]
  if envelope.ContentHash!=r.world.ContentHash {
   // Only the exact pre-wounds catalog may cross the migration boundary.
-  if !(hasWounds&&(envelope.ContentHash=="edeb79f202b6aeeb2e07a8cd7c1b374e411928d6e19ab65954c163688b7c77f5"||envelope.ContentHash=="575d390d238c05b0fe428dca6b8e2583946b23520819bd4ad211fef7d7118925"||envelope.ContentHash=="2d12a1457596c0b3a5f7ceda8b34e8e7234d064261211318046007c8d5195af3"))&& (hasWounds||envelope.ContentHash!="85b40d73b7cba8b04305b6c4d1dc12672c38165cf6b3b949fcfd2d98a9e97f4c"){return s,0,errors.New("incompatible save content")}
+  if !(hasWounds&&(envelope.ContentHash=="edeb79f202b6aeeb2e07a8cd7c1b374e411928d6e19ab65954c163688b7c77f5"||envelope.ContentHash=="575d390d238c05b0fe428dca6b8e2583946b23520819bd4ad211fef7d7118925"||envelope.ContentHash=="2d12a1457596c0b3a5f7ceda8b34e8e7234d064261211318046007c8d5195af3"||envelope.ContentHash=="809a4ec486ba4df60a2c414e6d2cfac8ce44f71e0f4188fd536c9ae3fff7a942"))&& (hasWounds||envelope.ContentHash!="85b40d73b7cba8b04305b6c4d1dc12672c38165cf6b3b949fcfd2d98a9e97f4c"){return s,0,errors.New("incompatible save content")}
  }
  if !hasWounds{if err:=r.migrateWoundState(&s);err!=nil{return s,0,err}}
  if hasWounds&&envelope.ContentHash=="edeb79f202b6aeeb2e07a8cd7c1b374e411928d6e19ab65954c163688b7c77f5"{
