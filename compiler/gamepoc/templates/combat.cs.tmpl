@@ -21,6 +21,7 @@ namespace AngelsDemons.Poc {
   void DrawCombatUI(){
    if(state==null||state.Life==null||!state.Life.Enabled)return;
    var fight=state.Combat;bool active=fight!=null&&fight.Active;
+   if(combatWasActive&&!HeroCombatActive()&&!CombatPlaying){combatPanelOpen=false;combatDetails=false;}combatWasActive=HeroCombatActive()||CombatPlaying;
    if(HudButton(new Rect(400,31,150,32),L("ui.combat.title")))combatPanelOpen=!combatPanelOpen;
    if(!HeroCombatActive()&&HudButton(new Rect(556,31,148,32),L(state.Life.Sneaking?"ui.stealth.normal":"ui.stealth.quiet")))SendStealth();
    if(state.Life.Illumination!=null&&state.Life.Illumination.Known)GUI.Label(new Rect(556,66,148,26),L("ui.illumination."+state.Life.Illumination.State),hudSmall);
@@ -28,36 +29,13 @@ namespace AngelsDemons.Poc {
    // doc 96: inside the hero's encounter the list panel of validated actions (PocCombatPanel.cs) replaces this one.
    if(HeroCombatActive()){DrawCombatPanel();return;}
    if(!combatPanelOpen)return;
-   Rect box=CombatPanelFrame;HudFrame(box,false);GUILayout.BeginArea(new Rect(box.x+14,box.y+14,box.width-28,box.height-28));combatScroll=GUILayout.BeginScrollView(combatScroll);
-   PocCombatActor hero=null;if(active)foreach(var a in fight.Actors)if(a.Id=="char.hero")hero=a;
-   if(!active||hero==null){
-    var condition=state.PlayerCondition;if(condition!=null){foreach(var line in condition.BodyLines)GUILayout.Label(line,new GUIStyle(hudBody){wordWrap=true},GUILayout.Width(box.width-32));bool saved=GUI.enabled;GUI.enabled=saved&&!condition.Down&&!condition.Stunned&&!state.Paused;var aidRows=CombatRows();for(int ai=0;ai<aidRows.Count;ai++){var option=aidRows[ai];if(GUILayout.Button((ai<9?(ai+1)+"  ":"")+option.Label,buttonStyle,GUILayout.Height(32))){combatSelected=ai;CombatExecute(option);}if(!option.Enabled)GUILayout.Label(option.Reason,hudSmall);}GUI.enabled=saved;}
-
-    GUILayout.Label(active?L("ui.combat.join"):L("ui.combat.target"),hudBody);
-    int n=0;if(active){foreach(var a in fight.Actors){if(a.Down||a.Surrendered)continue;if(n++>=10)break;if(GUILayout.Button(L("ui.combat.join")+": "+CombatName(a.Id),buttonStyle,GUILayout.Height(34)))SendCombat("start",a.Id);}}
-    else {foreach(var a in state.SceneAgents){if(n++>=10)break;if(GUILayout.Button(L("ui.combat.start")+": "+a.Name,buttonStyle,GUILayout.Height(34)))SendCombat("start",a.Id);}}
-   }else{
-    GUILayout.Label(L("ui.combat.turn").Replace("{turn}",fight.Turn.ToString())+" · "+CombatName(fight.CurrentActorId),hudBody);
-    foreach(var line in hero.BodyLines)GUILayout.Label(line,new GUIStyle(hudBody){wordWrap=true},GUILayout.Width(box.width-32));
-    if(hero.Bleeding>0)GUILayout.Label(L("ui.combat.bleeding")+": "+hero.Bleeding,hudBody);
-    if(hero.Suppression>0)GUILayout.Label(L("ui.combat.pressure")+": "+hero.Suppression,hudSmall);
-    if(hero.Stunned)GUILayout.Label(L("ui.combat.stunned"),hudBody);
-    if(hero.HeadWound+hero.ArmWound+hero.LegWound>0)GUILayout.Label(L("ui.combat.injury")+": "+hero.HeadWound+" / "+hero.ArmWound+" / "+hero.LegWound,hudSmall);
-    bool before=GUI.enabled;GUI.enabled=before&&fight.CurrentActorId=="char.hero"&&!state.Paused&&!hero.Down&&!hero.Surrendered&&!hero.Stunned;
-    GUILayout.BeginHorizontal();CombatButton("ui.combat.end_turn","end");CombatButton("ui.combat.bandage","bandage");CombatButton("ui.combat.heal","heal");GUILayout.EndHorizontal();
-    GUILayout.BeginHorizontal();CombatButton("ui.combat.crouch","crouch");CombatButton("ui.combat.prone","prone");CombatButton("ui.combat.stand","stand");GUILayout.EndHorizontal();
-    bool firearm=hero.WeaponKind=="firearm";
-    GUILayout.BeginHorizontal();if(firearm){CombatButton("ui.combat.overwatch","overwatch");CombatButton("ui.combat.reload","reload");}else CombatButton("ui.combat.guard","guard");CombatButton("ui.combat.surrender","surrender");GUILayout.EndHorizontal();
-    if(firearm)GUILayout.Label(L("ui.combat.ammo")+": "+hero.Ammo+" / "+hero.ReserveAmmo,hudSmall);
-    string[] modes=firearm?new[]{"single","aimed","burst"}:new[]{"single","quick","heavy"};int mi=Array.IndexOf(modes,combatAttackMode);if(mi<0)mi=0;
-    string[] ml=new string[modes.Length];for(int i=0;i<modes.Length;i++)ml[i]=L("ui.combat.mode."+modes[i]);mi=GUILayout.Toolbar(mi,ml,buttonStyle,GUILayout.Height(31));combatAttackMode=modes[mi];
-    if(combatAttackMode=="aimed")combatAim=GUILayout.Toolbar(combatAim-1,new[]{"1","2","3"},buttonStyle,GUILayout.Height(28))+1;
-    string[] parts={"torso","head","arms","legs"};int pi=Array.IndexOf(parts,combatBodyPart);if(pi<0)pi=0;string[] pl=new string[4];for(int i=0;i<4;i++)pl[i]=L("ui.combat.body."+parts[i]);pi=GUILayout.Toolbar(pi,pl,buttonStyle,GUILayout.Height(31));combatBodyPart=parts[pi];
-    foreach(var stock in hero.Explosives){if(stock.Count>0&&GUILayout.Button(L("ui.combat.throw")+" · "+stock.Count,buttonStyle,GUILayout.Height(31)))combatExplosive=combatExplosive==stock.ItemId?"":stock.ItemId;}
-    foreach(var gear in hero.Equipment){if(GUILayout.Button(L("ui.combat.equip")+": "+L(gear.Name),buttonStyle,GUILayout.Height(31)))SendCombat("equip","",gear.Id);}
-    int count=0;foreach(var a in fight.Actors){if(a.Id=="char.hero"||a.Allied||a.Down||a.Surrendered)continue;if(count++>=10)break;string verb=combatExplosive==""?L("ui.combat.attack"):L("ui.combat.throw");if(GUILayout.Button(verb+": "+CombatName(a.Id),buttonStyle,GUILayout.Height(34))){if(combatExplosive=="")SendCombat("attack",a.Id);else {SendCombat("throw","",combatExplosive,a.X,a.Y);combatExplosive="";}}}
-    GUILayout.Label(L("ui.combat.move"),hudSmall);GUI.enabled=before;
-   }
+   Rect box=new Rect(CombatPanelFrame.x,CombatPanelFrame.y,CombatPanelFrame.width,combatDetails?590:172);HudFrame(box,false);var small=new GUIStyle(hudSmall){fontSize=12,wordWrap=true};float x=box.x+10,w=box.width-20,y=box.y+10;
+   if(GUI.Button(new Rect(x,y,w,29),L(combatDetails?"ui.combat.compact":"ui.combat.details"),new GUIStyle(hudButton){fontSize=12})){combatDetails=!combatDetails;combatSelected=0;}y+=34;
+   var condition=state.PlayerCondition;if(condition==null)return;
+   if(!combatDetails){for(int i=0;i<condition.BodyLines.Count&&i<3;i++){GUI.Label(new Rect(x,y,w,34),condition.BodyLines[i],small);y+=36;}return;}
+   GUILayout.BeginArea(new Rect(x,y,w,box.yMax-y-12));combatScroll=GUILayout.BeginScrollView(combatScroll);
+   foreach(var line in condition.BodyLines)GUILayout.Label(line,small,GUILayout.Width(w-20));
+   foreach(var option in CombatRows()){if(GUILayout.Button(option.Label,new GUIStyle(hudButton){fontSize=13,wordWrap=true},GUILayout.MinHeight(35)))CombatExecute(option);if(!option.Enabled)GUILayout.Label(option.Reason,small);}
    GUILayout.EndScrollView();GUILayout.EndArea();
   }
  }

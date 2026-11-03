@@ -233,7 +233,7 @@ add:=func(group,id,label string,action behavior.CombatAction,nominal int,why fun
   }
  }
 
-for _,d:=range []behavior.Cell{{1,0},{0,1},{-1,0},{0,-1}}{at:=behavior.Cell{X:hero.Position.X+d.X,Y:hero.Position.Y+d.Y};if _,err:=r.combatTry(behavior.CombatAction{Type:"roll",To:at});err==nil{add("move",fmt.Sprintf("roll.%d.%d",at.X,at.Y),text("ui.combat.roll"),behavior.CombatAction{Type:"roll",To:at},rules.RollAP,other)}}
+for _,d:=range []behavior.Cell{{1,0},{0,1},{-1,0},{0,-1}}{at:=behavior.Cell{X:hero.Position.X+d.X*max(1,rules.RollDistanceMM/max(1,r.world.Life.Locations[r.state.Combat.LevelID].CellMM)),Y:hero.Position.Y+d.Y*max(1,rules.RollDistanceMM/max(1,r.world.Life.Locations[r.state.Combat.LevelID].CellMM))};if _,err:=r.combatTry(behavior.CombatAction{Type:"roll",To:at});err==nil{add("move",fmt.Sprintf("roll.%d.%d",at.X,at.Y),text("ui.combat.roll"),behavior.CombatAction{Type:"roll",To:at},rules.RollAP,other)}}
  if !firearm {
 		add("stance", "guard", text("ui.combat.guard"), behavior.CombatAction{Type: "guard"}, rules.GuardAP+1, func(error) string {
 			if spent {
@@ -263,6 +263,11 @@ type combatSpacingBand struct {
 	MaxMM int `json:"max_mm"`
 }
 type combatSpacing struct {
+ FallZones map[string]string `json:"fall_zones"`
+ FallLengthMM int `json:"fall_length_mm"`
+ FallWidthMM int `json:"fall_width_mm"`
+ WeaponSweepMM int `json:"weapon_sweep_mm"`
+ CameraYawDeg float64 `json:"camera_yaw_deg"`
 	BodyMM  int                          `json:"body_mm"`
 	Weapons map[string]combatSpacingBand `json:"weapons"`
 }
@@ -337,7 +342,8 @@ func (r *Runtime) combatStep(hero *behavior.Combatant, target *behavior.Combatan
 			}
 		}
 	}
-	sort.SliceStable(list, func(i, j int) bool { return list[i].score < list[j].score })
+	space:=r.combatSpace(r.state.Combat)
+ sort.SliceStable(list, func(i,j int)bool{if list[i].score!=list[j].score{return list[i].score<list[j].score};if space.PositionTie!=nil{return space.PositionTie(*hero,list[i].at)<space.PositionTie(*hero,list[j].at)};return false})
 	now := r.combatDistance(hero.Position, target.Position)
 	for n, c := range list {
 		if n >= 200 {

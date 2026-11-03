@@ -315,6 +315,7 @@ namespace AngelsDemons.Poc {
      Rect rect;
      if(pinned){float room=BarkArrowPx+16;rect=BarkPinned(head,w,h,above,Rect.MinMaxRect(safe.xMin+room,safe.yMin+room*.5f,safe.xMax-room,safe.yMax-room*.5f));live.spot=-1;} // room for the arrow
      else{int spot;rect=BarkPlace(head,w,h,above,em,zoom,safe,live.spot,out spot);live.spot=spot;}
+     if(HeroCombatActive()&&!pinned){rect=new Rect(Mathf.Clamp(head.x-w*.5f,safe.xMin,safe.xMax-w),Mathf.Max(safe.yMin,head.y-h-above-22),w,h+above);for(int slot=0;slot<4&&barkPlaced.Exists(p=>p.Overlaps(rect));slot++)rect.y-=lineH+8;}
      barkPlaced.Add(new Rect(rect.x-6,rect.y-4,rect.width+12,rect.height+8));BarkDrawnRects.Add(rect);
      var block=new Rect(rect.x,rect.y+above,w,h); // the text (+ the gap of a correction on the second line)
      // one soft shade under the whole block

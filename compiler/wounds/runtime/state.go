@@ -122,6 +122,7 @@ func (m Model) Serious(b Body) bool {
 // Psyche is what the stop-of-fight roll reads: the stress response of the character's vectors (drives.cue), the fear
 // after the chip's suppression (‰) and the combat courage (0..100).
 type Psyche struct {
+	ArmedContact bool   `json:"armed_contact"`
 	Response     string `json:"response"`
 	FearPermille int64  `json:"fear_permille"`
 	Courage      int64  `json:"courage"`
@@ -148,9 +149,35 @@ func (m Model) StopFight(b Body, p Psyche, seed int64) Reaction {
 	case !m.Serious(b):
 		return Reaction{Kind: "fight_on", Reason: "not serious"}
 	}
+	// Medical seriousness still drives aid/justice. A blunt torso injury does not
+	// compel an armed, functional person to abandon immediate contact (owner 02.11).
+	if p.ArmedContact && st.Standing && st.HoldWeapon && st.CanWalk && st.LostPermille < m.States.WeakPermille {
+		contactBlunt := true
+		found := false
+		for _, w := range b.Wounds {
+			serious := false
+			for _, sid := range w.Structures {
+				if def, _, ok := m.Structure(sid); ok && def.Severity >= m.Resolve.SeriousSeverity {
+					serious = true
+				}
+			}
+			if serious {
+				found = true
+				z, ok := m.Zone(w.Zone)
+				if !ok || w.Mechanism != "blunt" || !contains(m.Resolve.ContactBluntParts, z.Part) {
+					contactBlunt = false
+				}
+			}
+		}
+		if found && contactBlunt {
+			return Reaction{Kind: "fight_on", Reason: "armed functional blunt contact"}
+		}
+	}
+	response := p.Response
 	base, ok := m.Resolve.Reactions[p.Response]
 	if !ok {
 		base = m.Resolve.Reactions["fight"]
+		response = "fight"
 	}
 	w := map[string]int64{}
 	for k, v := range base {
@@ -170,7 +197,7 @@ func (m Model) StopFight(b Body, p Psyche, seed int64) Reaction {
 	if k == "" {
 		k = "fall"
 	}
-	return Reaction{Kind: k, Reason: p.Response}
+	return Reaction{Kind: k, Reason: response}
 }
 
 // Ledger counts who killed whom (owner 02.11: a playthrough without killing; the endings, barks and justice read it).

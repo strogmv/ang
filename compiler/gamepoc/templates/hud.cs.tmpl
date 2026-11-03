@@ -71,7 +71,7 @@ namespace AngelsDemons.Poc {
   bool HudCharacterPage(){return page=="game"||page=="inventory"||page=="development"||page=="map"||page=="journal";}
   void UpdateHudKeys(){
    if(loadingActive||state==null||!state.Active||!HudCharacterPage())return;
-   if(Input.GetKeyDown(KeyCode.I)&&state.Inventory!=null)page=page=="inventory"?"game":"inventory";
+   if(Input.GetKeyDown(KeyCode.I)&&!HeroCombatActive()&&!combatPanelOpen&&state.Inventory!=null)page=page=="inventory"?"game":"inventory";
    if(Input.GetKeyDown(KeyCode.C)&&DevelopmentView()!=null)page=page=="development"?"game":"development";
    if(Input.GetKeyDown(KeyCode.M)&&HudHasMap()){if(page=="map")page="game";else OpenHudMap();}
    if(Input.GetKeyDown(KeyCode.J)&&HudHasJournal())page=page=="journal"?"game":"journal";

@@ -116,6 +116,12 @@ func (r *Runtime) combatSpace(s behavior.CombatState) behavior.CombatSpace {
   return r.woundAidCandidatesSafe(a)
  }
  result.AttackAngle=r.woundAttackAngle
+ result.EndPositionClear=func(a behavior.Combatant,at behavior.Cell)bool{
+  radius:=r.world.CombatSpacing.WeaponSweepMM;if radius<1||a.Weapon.Magazine>0||len(a.Body)>0&&!a.BodyCanHold{return true}
+  cells:=(radius+unit-1)/unit
+  for dy:=-cells;dy<=cells;dy++{for dx:=-cells;dx<=cells;dx++{if dx*dx+dy*dy==0||int(math.Round(math.Hypot(float64(dx*unit),float64(dy*unit))))>radius{continue};p:=behavior.Cell{X:at.X+dx,Y:at.Y+dy};if p.X<0||p.Y<0||p.X>=space.Width||p.Y>=space.Height||space.Blocked[p]||space.Walkable!=nil&&!space.Walkable(p){return false}}};return true
+ }
+ result.PositionTie=func(a behavior.Combatant,at behavior.Cell)float64{best:=math.Inf(1);score:=1.0;angle:=r.world.CombatSpacing.CameraYawDeg*math.Pi/180;for _,c:=range a.Contacts{if !c.Visible||c.Team==a.Team{continue};dx,dy:=float64(c.Position.X-at.X),float64(c.Position.Y-at.Y);d:=math.Hypot(dx,dy);if d>0&&d<best{best=d;score=math.Abs(dx*math.Sin(angle)+dy*math.Cos(angle))/d}};return score}
  if r.world.CombatSpacing.BodyMM>0{result.EndSpacingMM=r.combatEndSpacingMM} // doc 96 v2: world.combat_spacing (combat_panel.go.tmpl)
  result.CanUseWeapon=func(a behavior.Combatant)bool{item,w,ok:=r.equippedCombatItem(r.state.Inventory,a.ID);return ok&&w.ID==a.Weapon.ID&&r.craftingUsable(item.ID,a.ID)}
 	result.Space.Visible = func(a, b behavior.Cell) bool { return r.combatSight(s.LevelID,a,b) }
@@ -313,6 +319,10 @@ func (r *Runtime) combatCommand(q *pb.PocCombatCommand) error {
  act:=behavior.CombatAction{Type:q.Action,Mode:q.Mode,ItemID:q.ItemId,TargetID:q.TargetId};if q.Action=="bandage"||q.Action=="heal"{act.TargetID="";act.Mode="dressing";if q.Action=="heal"{act.Mode="medkit";act.ItemID="item.medkit_guard"}}
  if err:=trial.performWoundAid(playerActorID,act,false);err!=nil{return err};r.state=trial.state;return nil
  }
+ if q.Action=="assault"&&!r.heroInCombat(){
+  if r.state.Paused||q.ExpectedTurn!=r.state.Combat.Turn{return textError{Key:"error.combat_stale_turn"}}
+  act:=behavior.CombatAction{Type:"assault",TargetID:q.TargetId,Mode:q.Mode,BodyPart:q.BodyPart};return r.performCombatAction(playerActorID,&act)
+ }
  if q.Action == "start" {
 		return r.startCombat(q.TargetId)
 	}
@@ -396,7 +406,7 @@ func(r *Runtime)performCombatAction(actor string,action *behavior.CombatAction)e
   if trial.state.Crafting.Law.Hacked[item.ID].Jammed{a:=s.Actor(e.ActorID);a.WeaponUsesLimited=true;a.WeaponUsesRemaining=0;a.Overwatch=false;a.Guarding=false;a.ReservedAP=0}
  }
  var err error
- if action==nil{err=candidate.StepAI(space,trial.world.CombatRuntime.Rules)}else{err=candidate.Execute(space,trial.world.CombatRuntime.Rules,actor,*action)}
+ if action!=nil&&action.Type=="assault"{err=candidate.ExecuteAssault(space,trial.world.CombatRuntime.Rules,actor,*action)}else if action==nil{err=candidate.StepAI(space,trial.world.CombatRuntime.Rules)}else{err=candidate.Execute(space,trial.world.CombatRuntime.Rules,actor,*action)}
  if err!=nil{return err};if shotErr!=nil{return shotErr};if impactErr!=nil{return impactErr}
  if err=trial.commitCombatDraft(candidate,previous,applied);err!=nil{return err}
  r.state=trial.state;return nil
@@ -580,7 +590,7 @@ if s.Combat.Active{
 }
 
 func(r *Runtime)combatActorView(a behavior.Combatant,own bool)*pb.PocCombatActor{
- v := &pb.PocCombatActor{Id: a.ID, X: int32(a.Position.X), Y: int32(a.Position.Y), Surrendered: a.Surrendered, Down: a.HP <= 0 || a.FightResponse=="fall"}
+ v := &pb.PocCombatActor{FallStyle:a.FallStyle,FallDx:int32(a.FallDirection.X),FallDy:int32(a.FallDirection.Y),Id: a.ID, X: int32(a.Position.X), Y: int32(a.Position.Y), Surrendered: a.Surrendered, Down: a.HP <= 0 || a.FightResponse=="fall"}
  if own {
 	if len(a.Body)==0{v.Hp = int32(a.HP);v.MaxHp = int32(a.MaxHP)}
 	v.Ap = int32(a.AP)

@@ -1422,10 +1422,10 @@ func TestCombatV4CrampedHeavyAndCareThreat(t *testing.T){
  s.Actor("b").Surrendered=false;s.Actor("b").StunTurns=1;if s.ThreatensCare(space,r,*s.Actor("a")){t.Fatal("stunned enemy forbids care")}
 }
 
-func TestCombatV4RollOneCellCostRiskAndWoundRefusal(t *testing.T){
- r,space,s:=combatV4Fixture(t);s.Actor("b").Position=Cell{9,2};a:=s.Actor("a");a.Body=json.RawMessage(`[]`);a.BodyCanWalk=true;a.BodyCanHold=true;a.BodyCanStand=true
- start,ap:=a.Position,a.AP;combatDo(t,&s,space,r,"a",CombatAction{Type:"roll",To:Cell{start.X+1,start.Y}})
- if s.Actor("a").Position!=(Cell{start.X+1,start.Y})||s.Actor("a").AP!=ap-r.RollAP||s.Actor("a").RollingUntilTurn!=s.Turn+1{t.Fatal("roll invented displacement, free AP or no evasion window")}
+func TestCombatV4RollFullStripCostRiskAndWoundRefusal(t *testing.T){
+ r,space,s:=combatV4Fixture(t);r.RollDistanceMM=1500;space.CellMM=500;s.Actor("b").Position=Cell{9,2};a:=s.Actor("a");a.Body=json.RawMessage(`[]`);a.BodyCanWalk=true;a.BodyCanHold=true;a.BodyCanStand=true
+ start,ap:=a.Position,a.AP;combatDo(t,&s,space,r,"a",CombatAction{Type:"roll",To:Cell{start.X+3,start.Y}})
+ if s.Actor("a").Position!=(Cell{start.X+3,start.Y})||s.Actor("a").AP!=ap-r.RollAP||s.Actor("a").RollingUntilTurn!=s.Turn+1{t.Fatal("roll invented displacement, free AP or no evasion window")}
  r.RollForbiddenEffects=[]string{"limp"};s.Actor("a").BodyEffects=[]string{"limp"};before:=s.Clone();if s.Execute(space,r,"a",CombatAction{Type:"roll",To:start})==nil||!reflect.DeepEqual(before,s){t.Fatal("injured roll accepted or changed state")}
 }
 
@@ -1433,4 +1433,25 @@ func TestCombatV4NPCDoesNotPlanUnaffordableOrWoundForbiddenStand(t *testing.T){
  r,space,s:=combatV4Fixture(t);a:=s.Actor("a");a.Body=json.RawMessage(`[]`);a.Prone=true;a.BodyCanStand=false;a.BodyCanWalk=false;a.BodyCanHold=true;r.GetUpAP=3
  for _,c:=range s.Decide(space,r).Candidates{if c.Action.Type=="stand"{t.Fatal("fractured body planned a forbidden stand")}}
  a.BodyCanStand=true;a.AP=2;for _,c:=range s.Decide(space,r).Candidates{if c.Action.Type=="stand"{t.Fatal("NPC priced standing below the shared authored cost")}}
+}
+
+func TestCombatV4PursuitStopsAfterPhysicalTravelWithoutExchange(t *testing.T){
+ r,space,s:=combatV4Fixture(t);r.PursuitTravelMM=2000;a:=s.Actor("a");a.Controlled=false;s.Actor("b").Position=Cell{10,2}
+ s.Events=append(s.Events,CombatEvent{Type:"move",ActorID:"a",From:Cell{0,2},To:Cell{1,2}},CombatEvent{Type:"move",ActorID:"a",From:Cell{1,2},To:Cell{2,2}})
+ near:=s.Clone();near.Actor("b").Position=Cell{3,2};if near.pursuitSpent(space,r,*near.Actor("a")){t.Fatal("gave up despite immediate weapon contact")}
+ if err:=s.StepAI(space,r);err!=nil{t.Fatal(err)}
+ if s.Active||!s.Actor("a").Withdrawn{t.Fatal("pursuit did not finish by an actual decision")};e:=s.Events[len(s.Events)-1];if e.Type!="pursuit_end"||e.Reason==""{t.Fatal("unexplained command limit replaced a pursuit decision")}
+}
+func TestCombatV4ExplicitAssaultKeepsSurrenderAndSpendsStrike(t *testing.T){
+ r,space,s:=combatV4Fixture(t);r.MinHit=1;r.MaxHit=1;b:=s.Actor("b");b.Position=Cell{3,2};b.Surrendered=true;b.AP=0;s.Active=false;s.Winner="blue"
+ a:=s.Actor("a");a.WeaponUsesLimited=true;a.WeaponUsesRemaining=10
+ before:=s.Clone();if err:=s.Execute(space,r,"a",CombatAction{Type:"attack",TargetID:"b"});err==nil||!reflect.DeepEqual(before,s){t.Fatal("ordinary attack bypassed surrender")}
+ if err:=s.ExecuteAssault(space,r,"a",CombatAction{Type:"assault",TargetID:"b",Mode:"single",BodyPart:"torso"});err!=nil{t.Fatal(err)}
+ if s.Active||!s.Actor("b").Surrendered||s.Actor("b").AP!=0||len(combatFixtureHits(s.Actor("b")))!=1||s.Actor("a").WeaponUsesRemaining!=9{t.Fatal("assault restored victim agency, invented a fight or skipped actual strike resources")}
+ before=s.Clone();s.Actor("b").Position=Cell{10,2};before=s.Clone();if err:=s.ExecuteAssault(space,r,"a",CombatAction{Type:"assault",TargetID:"b"});err==nil||!reflect.DeepEqual(before,s){t.Fatal("rejected distant assault changed state")}
+}
+
+func TestCombatV4NPCWithLostGripLeavesInsteadOfIdlingOutsideReach(t *testing.T){
+ r,space,s:=combatV4Fixture(t);a:=s.Actor("a");a.Controlled=false;a.Body=json.RawMessage(`[]`);a.BodyCanWalk=true;a.BodyCanStand=true;a.BodyCanHold=false;a.BodyMoveScale=100;a.Weapon=combatClub("x","blue",Cell{}).Weapon;a.FightResponse="fight_on";s.Actor("b").Weapon.RangeMM=900;s.Actor("b").Position=Cell{4,2}
+ start:=a.Position;if err:=s.StepAI(space,r);err!=nil{t.Fatal(err)};if s.Actor("a").Position==start&&!s.Actor("a").Withdrawn&&!s.Actor("a").Surrendered{t.Fatal("incapable NPC idled instead of physically escaping or surrendering")}
 }

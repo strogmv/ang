@@ -217,9 +217,10 @@ type ConditionDef struct {
 	Sign       string   `json:"sign"`
 }
 type Resolve struct {
-	SeriousSeverity int                         `json:"serious_severity"`
-	Reactions       map[string]map[string]int64 `json:"reactions"`
-	CourageBase     int64                       `json:"courage_base"`
+	ContactBluntParts []string                    `json:"contact_blunt_parts"`
+	SeriousSeverity   int                         `json:"serious_severity"`
+	Reactions         map[string]map[string]int64 `json:"reactions"`
+	CourageBase       int64                       `json:"courage_base"`
 }
 type Justice struct {
 	Death   string `json:"death"`

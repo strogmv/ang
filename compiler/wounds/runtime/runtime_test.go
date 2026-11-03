@@ -581,3 +581,26 @@ func TestRepeatedBluntChannelsAccumulateOnlySameZoneAndWindow(t *testing.T) {
 		t.Fatal("expired impacts accumulated")
 	}
 }
+
+// Medical severity must not automatically remove a still functional armed body
+// from contact. Grip loss and hypovolaemia remain anatomical vetoes.
+func TestArmedContactBluntTorsoResolve(t *testing.T) {
+	m := mustModel(t)
+	m.Resolve.ContactBluntParts = []string{"torso"}
+	b := m.NewBody("v", "none")
+	hit(t, m, &b, Hit{Weapon: "item.baton", Zone: "abdomen", Depth: "deep", Structures: []string{"liver"}, Seed: 1})
+	if !m.Serious(b) {
+		t.Fatal("medical seriousness was lost")
+	}
+	for seed := int64(1); seed <= 100; seed++ {
+		if got := m.StopFight(b, Psyche{ArmedContact: true, Response: "flight", FearPermille: 1000}, seed); got.Kind != "fight_on" {
+			t.Fatalf("functional contact ended: %+v", got)
+		}
+	}
+	hit(t, m, &b, Hit{Weapon: "item.baton", Zone: "arm", Depth: "deep", Structures: []string{"arm_bone"}, Seed: 2})
+	for seed := int64(1); seed <= 100; seed++ {
+		if got := m.StopFight(b, Psyche{ArmedContact: true, Response: "flight", FearPermille: 1000}, seed); got.Kind == "fight_on" {
+			t.Fatalf("lost grip ignored: %+v", got)
+		}
+	}
+}

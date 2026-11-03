@@ -146,12 +146,15 @@ func (r *Runtime) woundPsyche(a behavior.Combatant) wounds.Psyche {
 	fear := policy.Emotion("fear", psyche, map[string]float64{policy.EmotionProxies["fear"]: threat})
 	return wounds.Psyche{Response: psyche.StressResponse, Courage: int64(a.Courage), FearPermille: int64(fear * 1000)}
 }
-func (r *Runtime) stopWoundedFight(s *behavior.CombatState, a *behavior.Combatant) {
+func (r *Runtime) stopWoundedFight(s *behavior.CombatState, a *behavior.Combatant, previous ...string) {
 	if a.FightResponse != "" || !a.SeriousWound {
 		return
 	}
-	reaction := combatWounds.StopFight(combatBody(*a), r.woundPsyche(*a), s.Seed+int64(s.ActionSeq)*65537+int64(s.EventSeq))
-	a.FightResponse = reaction.Kind
+	psyche:=r.woundPsyche(*a)
+ if a.Weapon.ID!="unarmed"&&a.Weapon.RangeMM>0&&a.BodyCanHold&&(!a.WeaponUsesLimited||a.WeaponUsesRemaining>0)&&(a.Weapon.Magazine==0||a.Ammo>0||a.ReserveAmmo>0&&max(1,r.world.CombatRuntime.Rules.APPerTurn-a.BodyAPPenalty)>=r.world.CombatRuntime.Rules.ReloadAP+a.Weapon.AttackAP){for _,other:=range s.Actors{if other.Team!=a.Team&&other.Able()&&r.combatDistance(a.Position,other.Position)<=max(a.Weapon.RangeMM,other.Weapon.RangeMM){psyche.ArmedContact=true;break}}}
+ reaction := combatWounds.StopFight(combatBody(*a), psyche, s.Seed+int64(s.ActionSeq)*65537+int64(s.EventSeq))
+	if len(previous)>0&&previous[0]=="flee"&&reaction.Kind=="fight_on"{reaction.Kind="flee";reaction.Reason="continuing escape after another serious wound"}
+ a.FightResponse = reaction.Kind
  // Fear requests escape; only the ordinary distance-checked disengage can withdraw a body.
  if reaction.Kind == "surrender" {
   a.StandDownUntil=combatBody(*a).Clock+r.world.CombatRuntime.ShockFallSeconds
@@ -217,8 +220,9 @@ func (r *Runtime) applyWoundImpact(s *behavior.CombatState, source, target, part
 	projectWoundBody(b, body)
 	appendWoundEvents(s, *b, result.Events)
  // A new serious channel is a new shock, not a reroll of an old wound each tick.
- if result.Serious&&b.FightResponse=="fight_on"{b.FightResponse=""}
-	r.stopWoundedFight(s, b)
+ previousResponse:=b.FightResponse
+ if result.Serious&&(b.FightResponse=="fight_on"||b.FightResponse=="flee"){b.FightResponse=""}
+	r.stopWoundedFight(s, b,previousResponse)
  r.shiftWoundedFall(s,b)
 	if result.Wound != nil {
 		return 1, nil
@@ -483,12 +487,28 @@ func (r *Runtime) woundAttackAngle(a, b behavior.Combatant) string {
 }
 
 // The fall has an authoritative endpoint. Animation may interpolate, never invent displacement.
+func(r *Runtime)fallStripClear(s behavior.CombatState,a behavior.Combatant,dir behavior.Cell,length,width int)bool{
+ space:=r.combatSpace(s);unit:=max(1,space.CellMM);norm:=math.Hypot(float64(dir.X),float64(dir.Y));if norm==0{return false}
+ dx,dy:=float64(dir.X)/norm,float64(dir.Y)/norm
+ // Conservative 125mm samples mapped to physical navigation cells, including both shoulders.
+ for along:=-250;along<=length;along+=125{for across:=-width/2;across<=width/2;across+=125{
+  p:=behavior.Cell{X:a.Position.X+int(math.Round((float64(along)*dx-float64(across)*dy)/float64(unit))),Y:a.Position.Y+int(math.Round((float64(along)*dy+float64(across)*dx)/float64(unit)))}
+  if p.X<0||p.Y<0||p.X>=space.Space.Width||p.Y>=space.Space.Height||space.Space.Blocked[p]||space.Space.Walkable!=nil&&!space.Space.Walkable(p){return false}
+  for _,other:=range s.Actors{if other.ID!=a.ID&&other.HP>0&&other.Position==p{return false}}
+ }};return true
+}
 func(r *Runtime)shiftWoundedFall(s *behavior.CombatState,a *behavior.Combatant){
  if a.FallShifted||a.BodyCanStand&&a.FightResponse!="fall"{return};a.FallShifted=true
- dx,dy:=a.Position.X-a.LastHitFrom.X,a.Position.Y-a.LastHitFrom.Y
- abs:=func(n int)int{if n<0{return -n};return n};sign:=func(n int)int{if n<0{return -1};if n>0{return 1};return 0}
- to:=a.Position;if abs(dx)>=abs(dy)&&dx!=0{to.X+=sign(dx)}else if dy!=0{to.Y+=sign(dy)}else{return}
- space:=r.combatSpace(*s);if space.Space.Walkable==nil||!space.Space.Walkable(to)||space.Space.Blocked[to]||space.Space.Occupied!=nil&&space.Space.Occupied(to){return}
- for _,other:=range s.Actors{if other.ID!=a.ID&&other.Position==to{return}}
- from:=a.Position;a.Position=to;s.EventSeq++;s.Events=append(s.Events,behavior.CombatEvent{Type:"fall_shift",ActorID:a.ID,TargetID:a.ID,From:from,To:to,Turn:s.Turn,Sequence:s.EventSeq})
+ type option struct{dir behavior.Cell;score float64}
+ opts:=[]option{};dx,dy:=float64(a.Position.X-a.LastHitFrom.X),float64(a.Position.Y-a.LastHitFrom.Y)
+ for _,d:=range []behavior.Cell{{1,0},{1,1},{0,1},{-1,1},{-1,0},{-1,-1},{0,-1},{1,-1}}{opts=append(opts,option{d,(dx*float64(d.X)+dy*float64(d.Y))/math.Hypot(float64(d.X),float64(d.Y))})}
+ sort.SliceStable(opts,func(i,j int)bool{return opts[i].score>opts[j].score})
+ style:="back";zone:="";body:=combatBody(*a);if len(body.Wounds)>0{zone=body.Wounds[len(body.Wounds)-1].Zone};if pick:=r.world.CombatSpacing.FallZones[zone];pick!=""{style=pick};cross:=dx*float64(a.Facing.Y)-dy*float64(a.Facing.X);dot:=dx*float64(a.Facing.X)+dy*float64(a.Facing.Y);if math.Abs(cross)>math.Abs(dot){style="side"}
+ for _,o:=range opts{if !r.fallStripClear(*s,*a,o.dir,r.world.CombatSpacing.FallLengthMM,r.world.CombatSpacing.FallWidthMM){continue}
+  from:=a.Position;to:=behavior.Cell{X:from.X+o.dir.X,Y:from.Y+o.dir.Y};a.Position=to;a.Facing=behavior.Cell{X:-o.dir.X,Y:-o.dir.Y};a.FallStyle=style;a.FallDirection=o.dir
+  s.EventSeq++;s.Events=append(s.Events,behavior.CombatEvent{Type:"fall_shift",Mode:style,ActorID:a.ID,TargetID:a.ID,From:from,To:to,Turn:s.Turn,Sequence:s.EventSeq,Reason:"body-length strip clear"});return
+ }
+ // No long strip: do not slide into a cupboard. A compact collapse is explicit.
+ a.FallStyle="knees";a.FallDirection=opts[0].dir
+ s.EventSeq++;s.Events=append(s.Events,behavior.CombatEvent{Type:"fall_shift",Mode:"knees",ActorID:a.ID,TargetID:a.ID,From:a.Position,To:a.Position,Turn:s.Turn,Sequence:s.EventSeq,Reason:"no long fall strip; compact collapse"})
 }

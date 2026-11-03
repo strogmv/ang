@@ -6,6 +6,9 @@ import (
 	"angelsdemons/server/internal/wounds"
  pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
 	"reflect"
+ "encoding/json"
+ "os"
+ "path/filepath"
  "strings"
 	"testing"
 )
@@ -284,4 +287,37 @@ func TestCombatV4HeroFearCannotWithdrawInsideKnifeReach(t *testing.T){
  if !found{t.Fatal("no actual fear/flight response in 500 body-model seeds")}
  if hero.Withdrawn{t.Fatal("fear teleported hero out of contact")}
  if _,err:=r.combatTry(behavior.CombatAction{Type:"disengage"});err==nil{t.Fatal("adjacent knife contact must still be broken physically")}
+}
+
+func TestWoundsRoundOneHashPreservesBleedingAndRejectsUnknownCatalog(t *testing.T){
+ r,_,target:=combatLifeFixture(t,true);c:=woundArtery(t,r,target);r.state.CombatRoster=map[string]behavior.Combatant{target:c};r.storeWoundBody(c);r.combatCareTrack();if err:=r.advanceLifeFrameBy(90);err!=nil{t.Fatal(err)}
+ before:=r.snapshotState();slot:=r.world.Config.SaveSlots[0];if err:=r.writeSave(slot,before);err!=nil{t.Fatal(err)}
+ path:=filepath.Join(r.data,slot+".json");raw,err:=os.ReadFile(path);if err!=nil{t.Fatal(err)};var envelope map[string]json.RawMessage;if err=json.Unmarshal(raw,&envelope);err!=nil{t.Fatal(err)}
+ for _,hash:=range []string{"575d390d238c05b0fe428dca6b8e2583946b23520819bd4ad211fef7d7118925","unknown-r2-catalog"}{
+  envelope["ContentHash"],_=json.Marshal(hash);data,_:=json.Marshal(envelope);if err=os.WriteFile(path,data,0600);err!=nil{t.Fatal(err)};loaded,_,err:=r.readSave(slot)
+  if hash=="unknown-r2-catalog"{if err==nil{t.Fatal("unknown body catalog accepted")};continue}
+  if err!=nil{t.Fatal(err)};if !reflect.DeepEqual(before.Wounds,loaded.Wounds){t.Fatal("round-1 migration changed live blood, wounds or culprit")}
+ }
+}
+
+// A further serious channel may turn an unsuccessful escape into shock or surrender.
+// It cannot make an already escaping person choose renewed aggression.
+func TestCombatV4FurtherKnifeWoundCanEndEscape(t *testing.T){
+ r,c,scene:=combatEpisodeFixture(t,"combat_knife_npc","ru");combatEpisodeEngage(t,r,c,scene);base:=r.snapshotState();ended:=0
+ for seed:=int64(1);seed<=100;seed++{
+  r.state=base;r.state=r.snapshotState();r.state.Combat.Seed=seed;hero:=r.state.Combat.Actor(playerActorID);foe:=r.state.Combat.Actor(scene.Guard);spec:=r.world.CombatRuntime.Probes["contact"];hero.Position=spec.Hero;foe.Position=spec.Enemy
+  body:=combatWounds.NewBody(hero.ID,r.bodyChip(hero.ID));if _,err:=combatWounds.ApplyHit(&body,wounds.Hit{Weapon:"item.knife_simple",Author:foe.ID,Zone:"abdomen",Depth:"deep",Structures:[]string{"liver"},Seed:42});err!=nil{t.Fatal(err)};projectWoundBody(hero,body);hero.FightResponse="flee"
+  if _,err:=r.applyWoundImpact(&r.state.Combat,foe.ID,hero.ID,"abdomen","quick");err!=nil{t.Fatal(err)}
+  if hero.FightResponse=="fight_on"{t.Fatal("another wound cancelled a chosen escape")};if hero.FightResponse=="fall"||hero.FightResponse=="surrender"{ended++}
+ }
+ if ended==0{t.Fatal("flight response latched against every subsequent serious wound")}
+}
+
+func TestCombatV4EmptyGunCannotDeferBluntTorsoShock(t *testing.T){
+ r,c,scene:=combatEpisodeFixture(t,"combat_needle","ru");combatEpisodeEngage(t,r,c,scene);base:=r.snapshotState();changed:=0
+ for _,loaded:=range []bool{true,false}{for seed:=int64(1);seed<=100;seed++{
+  r.state=base;r.state=r.snapshotState();s:=&r.state.Combat;s.Seed=seed;hero:=s.Actor(playerActorID);foe:=s.Actor(scene.Guard);spec:=r.world.CombatRuntime.Probes["contact"];hero.Position=spec.Hero;foe.Position=spec.Enemy;hero.Ammo=0;hero.ReserveAmmo=0;if loaded{hero.Ammo=1}
+  body:=combatWounds.NewBody(hero.ID,r.bodyChip(hero.ID));if _,err:=combatWounds.ApplyHit(&body,wounds.Hit{Weapon:"item.service_baton",Author:foe.ID,Zone:"chest",Depth:"deep",Structures:[]string{"rib"},Seed:42});err!=nil{t.Fatal(err)};projectWoundBody(hero,body);hero.FightResponse="";hero.Surrendered=false;hero.Prone=false;r.stopWoundedFight(s,hero)
+  if loaded&&hero.FightResponse!="fight_on"{t.Fatal("a loaded functional weapon lost its authored armed-contact exception")};if !loaded&&hero.FightResponse!="fight_on"{changed++}
+ }};if changed==0{t.Fatal("an empty, unreloadable gun made every rib injury preserve contact")}
 }
