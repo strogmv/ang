@@ -382,7 +382,7 @@ namespace AngelsDemons.Poc {
    if(HudButton(new Rect(toolbar.x+226,toolbar.y+2,240,30),L("ui.sdk.time").Replace("{name}",presentation==null?"—":presentation.time_id)))LocationSDKCycle(true);
    if(HudButton(new Rect(toolbar.x+474,toolbar.y+2,274,30),L("ui.sdk.event").Replace("{name}",presentation==null?"—":presentation.event_id)))LocationSDKCycle(false);
    }
-   if(IsStoryModularLocation()&&hbActive){var hint=new Rect(376,32,636,22);Fill(hint,new Color(.025f,.032f,.038f,.72f));GUI.Label(new Rect(hint.x+10,hint.y+2,hint.width-14,20),L("ui.hub.controls_hint"),hudSmall);}
+   if(IsStoryModularLocation()&&hbActive){} // the controls hint lives in the top strip of the HUD now (DrawGameHud): the panel below it no longer lies over it
    else GUI.Label(new Rect(viewport.x+12,viewport.yMax-28,750,22),L("ui.sdk.camera_hint"),hudSmall);DrawModularKnownDetails(viewport);return true;
   }
   void ReleaseLocationSDK(){LocationSDKRestoreAmbient();ReleasePlayableScene();ReleaseLocationSDKWorldText();ReleaseLocationSDKMultideck();ReleaseLocationSDKHumanoids();locationSDKCameraData=null;locationSDKVolume=null;locationSDKFollowHero=false;locationSDKCameraZoomInitialized=false;locationSDKZoomOrigin=1;locationSDKFrameReady=false;locationSDKRenderPending=false;

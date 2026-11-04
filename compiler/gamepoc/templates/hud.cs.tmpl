@@ -107,6 +107,7 @@ namespace AngelsDemons.Poc {
    string telemetry=measuredFps.ToString("0")+" FPS  ·  GO "+state.ServerTickHz.ToString("0.0")+" Hz  ·  тик "+state.Tick;
    if(hudDebugOpen){telemetry+="  ·  шаг "+(state.ServerStepUs/1000).ToString("0.00")+" мс  ·  отставание "+state.ServerLagMs.ToString("0.0")+" мс";if(ackMS>=0)telemetry+="  ·  ACK "+ackMS.ToString("0.0")+" мс";}
    {var strip=SpatialViewport();Fill(new Rect(Mathf.Min(0,strip.x),0,Mathf.Max(1280,strip.width),25),new Color(.025f,.032f,.038f,.92f));}GUI.Label(new Rect(18,3,1070,20),telemetry,hudSmall);
+   if(!hudDebugOpen&&IsStoryModularLocation()&&hbActive)GUI.Label(new Rect(376,3,650,20),L("ui.hub.controls_hint"),hudSmall);
    if(verify)GUI.Label(new Rect(1110,3,150,20),"АВТОПРОВЕРКА",hudSmall);
    HudFrame(new Rect(18,31,340,76));DrawHudLocationTitle();GUI.Label(new Rect(34,80,308,22),HudTime(),hudBody);
    DrawHudNetwork(new Rect(1024,31,238,59));

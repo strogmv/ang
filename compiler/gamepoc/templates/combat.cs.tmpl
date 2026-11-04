@@ -15,7 +15,7 @@ namespace AngelsDemons.Poc {
    if(!CanSend()||state==null||state.Paused)return;
    session.SendCombatCommand(new PocCombatCommand{RequestId=Guid.NewGuid().ToString("N"),Epoch=state.Epoch,Action=action,TargetId=target,ExpectedTurn=state.Combat==null?0:state.Combat.Turn,Mode=action=="attack"?combatAttackMode:"",Aim=action=="attack"&&combatAttackMode=="aimed"?combatAim:0,BodyPart=action=="attack"?combatBodyPart:"",ItemId=item,X=x,Y=y});
   }
-  bool CombatPointerBlocked(Vector2 p){if(HeroCombatActive())return CombatPanelFrame.Contains(p)||new Rect(400,31,150,32).Contains(p);return new Rect(400,31,150,32).Contains(p)||new Rect(556,31,148,32).Contains(p)||new Rect(708,31,120,32).Contains(p)||(state!=null&&state.Takedowns.Count>0&&new Rect(400,66,304,96).Contains(p))||(combatPanelOpen&&CombatPanelFrame.Contains(p));}
+  bool CombatPointerBlocked(Vector2 p){if(HeroCombatActive())return CombatPanelFrame.Contains(p)||new Rect(400,31,150,32).Contains(p);return new Rect(400,31,150,32).Contains(p)||new Rect(556,31,148,32).Contains(p)||(state!=null&&state.Takedowns.Count>0&&new Rect(400,66,304,96).Contains(p))||(combatPanelOpen&&CombatPanelFrame.Contains(p));}
   void SendStealth(){if(!CanSend()||state==null||state.Paused||HeroCombatActive())return;session.SendLifeCommand(new PocLifeCommand{RequestId=Guid.NewGuid().ToString("N"),Epoch=state.Epoch,Action="stealth",Destination=state.Life.Sneaking?"off":"on"});}
   void SendStealthMode(string mode){if(!CanSend()||state==null||state.Paused||HeroCombatActive())return;session.SendLifeCommand(new PocLifeCommand{RequestId=Guid.NewGuid().ToString("N"),Epoch=state.Epoch,Action="stealth",Destination=mode});}
   // Moment 2: what the hero may start out of stealth, with its risk in words; refused, with the server's reason.
@@ -30,8 +30,8 @@ namespace AngelsDemons.Poc {
    var fight=state.Combat;bool active=fight!=null&&fight.Active;
    if(combatWasActive&&!HeroCombatActive()&&!CombatPlaying){combatPanelOpen=false;combatDetails=false;}combatWasActive=HeroCombatActive()||CombatPlaying;
    if(HudButton(new Rect(400,31,150,32),L("ui.combat.title")))combatPanelOpen=!combatPanelOpen;
-   if(!HeroCombatActive()&&HudButton(new Rect(556,31,148,32),L(state.Life.Sneaking?"ui.stealth.normal":"ui.stealth.quiet")))SendStealth();
-   if(!HeroCombatActive()&&!state.Life.Sneaking&&HudButton(new Rect(708,31,120,32),L("ui.stealth.upright")))SendStealthMode("upright");
+   // one button (owner 03.11): it names the current mode and goes round normal -> quiet crouched -> quiet upright -> normal; the server's commands are the same on / upright / off
+   if(!HeroCombatActive()&&HudButton(new Rect(556,31,148,32),L(!state.Life.Sneaking?"ui.stealth.mode.normal":state.Life.SneakUpright?"ui.stealth.mode.upright":"ui.stealth.mode.crouch")))SendStealthMode(!state.Life.Sneaking?"on":state.Life.SneakUpright?"off":"upright");
    DrawTakedowns();
    if(state.Life.Illumination!=null&&state.Life.Illumination.Known)GUI.Label(new Rect(556,state.Takedowns.Count>0&&!CombatPlaying&&!HeroCombatActive()?(state.Takedowns[0].Enabled?164:130):66,148,26),L("ui.illumination."+state.Life.Illumination.State),hudSmall);
    DrawCombatFx();
