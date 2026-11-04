@@ -242,7 +242,7 @@ add:=func(group,id,label string,action behavior.CombatAction,nominal int,why fun
   }
  }
 
-for _,d:=range []behavior.Cell{{1,0},{0,1},{-1,0},{0,-1}}{at:=behavior.Cell{X:hero.Position.X+d.X*max(1,rules.RollDistanceMM/max(1,r.world.Life.Locations[r.state.Combat.LevelID].CellMM)),Y:hero.Position.Y+d.Y*max(1,rules.RollDistanceMM/max(1,r.world.Life.Locations[r.state.Combat.LevelID].CellMM))};if _,err:=r.combatTry(behavior.CombatAction{Type:"roll",To:at});err==nil{add("move",fmt.Sprintf("roll.%d.%d",at.X,at.Y),text("ui.combat.roll"),behavior.CombatAction{Type:"roll",To:at},rules.RollAP,other)}}
+for _,d:=range []behavior.Cell{{X:1,Y:0},{X:0,Y:1},{X:-1,Y:0},{X:0,Y:-1}}{at:=behavior.Cell{X:hero.Position.X+d.X*max(1,rules.RollDistanceMM/max(1,r.world.Life.Locations[r.state.Combat.LevelID].CellMM)),Y:hero.Position.Y+d.Y*max(1,rules.RollDistanceMM/max(1,r.world.Life.Locations[r.state.Combat.LevelID].CellMM))};if _,err:=r.combatTry(behavior.CombatAction{Type:"roll",To:at});err==nil{add("move",fmt.Sprintf("roll.%d.%d",at.X,at.Y),text("ui.combat.roll"),behavior.CombatAction{Type:"roll",To:at},rules.RollAP,other)}}
  if !firearm {
 		add("stance", "guard", text("ui.combat.guard"), behavior.CombatAction{Type: "guard"}, rules.GuardAP+1, func(error) string {
 			if spent {

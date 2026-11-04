@@ -110,6 +110,9 @@ func TestHeroBodySteersStraightAtAnyAngle(t *testing.T) {
 	perTick := cell / float64(r.world.Life.MoveTicks)
 	clean := 0
 	for k := 0; k < 16; k++ {
+  // Every ray starts on the same open patch. Chaining rays describes a wide circle that reaches the east wall.
+  heroBodyGo(t,r,c,behavior.Cell{X:97,Y:40},0)
+  hero=r.state.Life.Actor(playerActorID)
 		a := float64(k) * math.Pi / 8
 		dx, dy := math.Cos(a), math.Sin(a)
 		heroBodySteer(t, r, c, "steer", dx, dy)
@@ -122,6 +125,16 @@ func TestHeroBodySteersStraightAtAnyAngle(t *testing.T) {
 			if len(hero.PendingPath) > 0 {
 				free = false
 			}
+
+   // A glancing disk contact can slide a few millimetres without filling PendingPath.
+   // Keep the 1 mm straight-line assertion for rays with no nearby occupied square.
+   near:=func(at behavior.Cell)bool {
+    x:=math.Max(0,math.Abs(hero.Body.X-(float64(at.X)+.5)*cell)-cell*.5)
+    y:=math.Max(0,math.Abs(hero.Body.Y-(float64(at.Y)+.5)*cell)-cell*.5)
+    return math.Hypot(x,y)<=r.world.Life.HeroBody.RadiusMM+perTick
+   }
+   for _,other:=range r.state.Life.Actors {if other.ID!=playerActorID&&other.OnFloor()&&other.Level==hero.Level&&near(other.Position){free=false}}
+   for _,other:=range r.state.Life.Population.Actors {if other.Materialized&&other.Trip==nil&&other.Level==hero.Level&&near(other.Position){free=false}}
 		})
 		if math.Abs(along-9*perTick) < 1 && free {
 			if dev > 1 {

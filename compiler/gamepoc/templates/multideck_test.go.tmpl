@@ -5,11 +5,21 @@ import (
  "angelsdemons/server/internal/behavior"
  pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
  "testing"
+ "sort"
 )
 
 func multideckStand(t *testing.T)(*Runtime,string,*behavior.DeckVolume){
  t.Helper();r,err:=New(t.TempDir(),"token");if err!=nil{t.Fatal(err)}
- for id,world:=range r.sdkWorlds{if v:=world.Decks[id];v!=nil{return r,id,v}}
+ // A Go map may yield a ground-only layout. Select a genuine, reachable multi-deck fixture deterministically.
+ ids:=make([]string,0,len(r.sdkWorlds));for id:=range r.sdkWorlds {ids=append(ids,id)};sort.Strings(ids)
+ multi:=false
+ for _,id:=range ids {
+  world:=r.sdkWorlds[id];v:=world.Decks[id];if v==nil||len(v.Surfaces)<2 {continue};multi=true
+  var probe behavior.LifeState
+  for y,row:=range world.Terrain {for x:=range row {at:=behavior.Cell{X:x,Y:y};d,ok:=v.SurfaceIndex(at);if row[x]=='.'&&ok&&d>0&&d<len(v.Surfaces)&&probe.StaticTravelSeconds(world.Life,id,cell(world.Spawn),at)>0 {return r,id,v}}}
+ }
+ if multi {t.Fatal("multi-deck layouts have no reachable upper surface")}
+
  t.Skip("this world has no multi-deck SDK stand");return nil,"",nil
 }
 func multideckMove(t *testing.T,r *Runtime,target point,deck int32,seq uint64)*pb.PocMoveResult{

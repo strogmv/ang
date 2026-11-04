@@ -386,7 +386,7 @@ func TestCombatV4PrepareNativeProbes(t *testing.T){
    action:=behavior.CombatAction{Type:"end"};if name=="reserve"{action.Type="guard"}
    if name=="knife"||name=="head"||name=="surrender"{action=behavior.CombatAction{Type:"attack",TargetID:scene.Guard,Mode:"heavy",BodyPart:"torso"};if name=="head"{action.BodyPart="head"}}
    if name=="aid"{found=true}else if name=="roll"{
-    for _,d:=range []behavior.Cell{{1,0},{0,1},{-1,0},{0,-1}}{to:=behavior.Cell{X:spec.Hero.X+d.X*max(1,r.world.CombatRuntime.Rules.RollDistanceMM/max(1,r.world.Life.Locations[r.state.Combat.LevelID].CellMM)),Y:spec.Hero.Y+d.Y*max(1,r.world.CombatRuntime.Rules.RollDistanceMM/max(1,r.world.Life.Locations[r.state.Combat.LevelID].CellMM))};if _,err:=r.combatTry(behavior.CombatAction{Type:"roll",To:to});err==nil{found=true;break}}
+    for _,d:=range []behavior.Cell{{X:1,Y:0},{X:0,Y:1},{X:-1,Y:0},{X:0,Y:-1}}{to:=behavior.Cell{X:spec.Hero.X+d.X*max(1,r.world.CombatRuntime.Rules.RollDistanceMM/max(1,r.world.Life.Locations[r.state.Combat.LevelID].CellMM)),Y:spec.Hero.Y+d.Y*max(1,r.world.CombatRuntime.Rules.RollDistanceMM/max(1,r.world.Life.Locations[r.state.Combat.LevelID].CellMM))};if _,err:=r.combatTry(behavior.CombatAction{Type:"roll",To:to});err==nil{found=true;break}}
     if !found{t.Fatal("CUE native roll fixture has no legal full-strip roll")}
    }else{
     if err:=r.performCombatAction(playerActorID,&action);err!=nil{t.Fatal(name,err)}
@@ -413,8 +413,8 @@ func TestCombatV4BodyStripEightDirections(t *testing.T){
  r,c,scene:=combatEpisodeFixture(t,"combat_knife","ru");combatEpisodeEngage(t,r,c,scene)
  type row struct{Direction behavior.Cell;From,To behavior.Cell;FallDirection behavior.Cell;Style string}
  rows:=[]row{}
- for _,d:=range []behavior.Cell{{1,0},{1,1},{0,1},{-1,1},{-1,0},{-1,-1},{0,-1},{1,-1}}{for _,zone:=range []string{"chest","abdomen","head","axilla"}{
-  a:=r.combatant(playerActorID,"player");a.Position=behavior.Cell{17,15};a.LastHitFrom=behavior.Cell{a.Position.X-d.X*3,a.Position.Y-d.Y*3};a.Facing=behavior.Cell{-d.X,-d.Y}
+ for _,d:=range []behavior.Cell{{X:1,Y:0},{X:1,Y:1},{X:0,Y:1},{X:-1,Y:1},{X:-1,Y:0},{X:-1,Y:-1},{X:0,Y:-1},{X:1,Y:-1}}{for _,zone:=range []string{"chest","abdomen","head","axilla"}{
+  a:=r.combatant(playerActorID,"player");a.Position=behavior.Cell{X:17,Y:15};a.LastHitFrom=behavior.Cell{X:a.Position.X-d.X*3,Y:a.Position.Y-d.Y*3};a.Facing=behavior.Cell{X:-d.X,Y:-d.Y}
   b:=combatWounds.NewBody(a.ID,"none");if _,err:=combatWounds.ApplyHit(&b,wounds.Hit{Weapon:"item.service_baton",Zone:"head",Depth:"shallow",Structures:[]string{"concussion"},Seed:42});err!=nil{t.Fatal(err)}
   if _,err:=combatWounds.ApplyHit(&b,wounds.Hit{Weapon:"item.service_baton",Zone:zone,Depth:"graze",Structures:[]string{},Seed:43});err!=nil{t.Fatal(err)};projectWoundBody(&a,b)
   s:=behavior.CombatState{LevelID:scene.Level,Actors:[]behavior.Combatant{a}};from:=a.Position;r.shiftWoundedFall(&s,&s.Actors[0]);a=s.Actors[0]

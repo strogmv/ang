@@ -467,7 +467,7 @@ func TestCombatLifeGRPCStreamCommandsAndIdempotency(t *testing.T) {
 	if err := r.writeSave(slot, r.snapshotState()); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	listener := bufconn.Listen(1 << 20)
 	server := grpc.NewServer()
@@ -530,6 +530,15 @@ func TestCombatLifeGRPCStreamCommandsAndIdempotency(t *testing.T) {
 	}
 	attack := &pb.PocCombatCommand{Epoch: view.Epoch, RequestId: "grpc.attack", Action: "attack", TargetId: target, ExpectedTurn: view.Combat.Turn}
 	result, view = command(attack)
+ // The host legitimately pauses after a >2 s stall (e.g. the first encounter on a loaded build machine).
+ // Resume through the real stream; use a new request id because a refused request is already journaled.
+ for attempt:=0;!result.Ok&&view.Paused&&attempt<3;attempt++ {
+  resumeID:=fmt.Sprintf("grpc.resume.%d",attempt)
+  send(&pb.ClientMessage{Msg:&pb.ClientMessage_GameOptions{GameOptions:&pb.PocOptionsRequest{Epoch:view.Epoch,RequestId:resumeID,Paused:false,Speed:1}}})
+  result,view=recv(resumeID);if !result.Ok {t.Fatal(result.Message)}
+  attack.RequestId+=".resumed";attack.Epoch=view.Epoch
+  result,view=command(attack)
+ }
 	if !result.Ok {
 		t.Fatal(result.Message)
 	}

@@ -470,3 +470,106 @@ func TestPeddlersLegacyPrewarOriginLoads(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Street sellers use the existing carried shopfront and law; no new transaction or currency.
+func streetSellerDefs(t *testing.T, r *Runtime) []peddlerDef {
+ t.Helper()
+ var out []peddlerDef
+ for _, p := range r.world.Peddlers.Peddlers {
+  for _, i := range r.state.Inventory.Items {
+   if i.Owner == p.Actor && i.Definition == "item.hub_handrolled_cigarette" { out = append(out, p); break }
+  }
+ }
+ if len(out) == 0 { t.Skip("world has no street sellers") }
+ if len(out) != 3 { t.Fatalf("want three housed street sellers, got %d", len(out)) }
+ return out
+}
+func TestStreetSellersPurchaseAndSave(t *testing.T) {
+ r := peddlerFixture(t)
+ for _, p := range streetSellerDefs(t, r) {
+  if p.Permit || len(p.Stops) != 2 { t.Fatalf("seller permit / nearby round: %+v", p) }
+  if behavior.Distance(behavior.Cell{X:p.Stops[0].At.X,Y:p.Stops[0].At.Y}, behavior.Cell{X:p.Stops[1].At.X,Y:p.Stops[1].At.Y}) > 6 { t.Fatal("seller stops too far apart") }
+  peddlerOpenAt(t, r, p, 0); peddlerHeroBeside(t, r, p, 0)
+  item := peddlerFirstOnTray(r, p, "item.hub_handrolled_cigarette")
+  if item.ID == "" || item.Grade.Provenance != "handmade" || r.world.Peddlers.Legality[item.Definition] != "grey" { t.Fatalf("not a grey handmade roll-up: %+v", item) }
+  before, total, left := peddlerBalance(r, playerActorID), commerceTotal(r.state.Inventory), item.Quantity
+  price := r.peddlerLawPrice(item, r.craftingClassStock())
+  if price <= 0 { t.Fatal("no law price in CRD") }
+  req := peddlerRequest(r, "buy", item, p.Tray)
+  if !inventoryRequest(t,r,req) || !inventoryRequest(t,r,req) { t.Fatal("purchase or idempotent replay refused") }
+  if peddlerBalance(r,playerActorID) != before-price || commerceTotal(r.state.Inventory) != total || r.state.Inventory.Items[item.ID].Quantity != left-1 {t.Fatal("purchase failed to conserve goods or charged twice")}
+  if peddlerCarried(r,item.Definition).ID == "" { t.Fatal("one cigarette not in hero inventory") }
+  t.Logf("STREET_SALE %s: one handmade roll-up, %d CRD minor units",p.Shop,price)
+ }
+ saved := r.snapshotState(); slot := r.world.Config.SaveSlots[0]
+ if err:=r.writeSave(slot,saved);err!=nil {t.Fatal(err)}
+ loaded,_,err:=r.readSave(slot);if err!=nil {t.Fatal(err)}
+ if !reflect.DeepEqual(saved.Inventory.Items,loaded.Inventory.Items)||!reflect.DeepEqual(saved.Inventory.Accounts,loaded.Inventory.Accounts)||!reflect.DeepEqual(saved.Peddlers,loaded.Peddlers) {t.Fatal("purchase state changed on save/load")}
+}
+func TestStreetSellersCalendarWeekDeterministic(t *testing.T) {
+ a,b:=peddlerFixture(t),peddlerFixture(t)
+ sellers:=streetSellerDefs(t,a)
+ a.state.Life.SecondsPerTick=30;b.state.Life.SecondsPerTick=30
+ type visit struct { Last string; Since, Longest int64; Stops map[string]bool; Days, Nights map[int64]bool }
+ visits:=map[string]*visit{}
+ for _,p:=range sellers {visits[p.Actor]=&visit{Stops:map[string]bool{},Days:map[int64]bool{},Nights:map[int64]bool{}}}
+ // Full calendar, without jumping the clock or actor positions. Same seed; one run loads halfway through.
+ end:=a.state.Life.Seconds+7*86400
+ loaded:=false
+ view:=func(r *Runtime) string {raw,err:=json.Marshal(struct{Life behavior.LifeState; Items map[string]inv.Item; P peddlerState}{r.state.Life.Clone(),r.state.Inventory.Items,r.state.Peddlers});if err!=nil {t.Fatal(err)};return string(raw)}
+ for a.state.Life.Seconds<end {
+  peddlerStep(t,a);peddlerStep(t,b)
+  now:=a.state.Life.Seconds;day,sec:=now/86400,now%86400
+  for _,p:=range sellers {
+   v:=visits[p.Actor];actor:=a.state.Life.Actor(p.Actor);stop:=a.peddlerStopNow(p)
+   if stop!="" {v.Stops[stop]=true;v.Days[day]=true}
+   if stop!=v.Last {if v.Last!="" {v.Longest=max(v.Longest,now-v.Since)};v.Last=stop;v.Since=now}
+   if sec>=22*3600+25*60 && sec<22*3600+26*60 {
+    if actor.Level==a.world.Peddlers.Level {t.Fatalf("%s stayed in the locked hall on day %d: %+v",p.Shop,day,actor)}
+   }
+   if sec>=3*3600 && sec<3*3600+30 {
+    if actor.ResidenceID==""||actor.Level!="level.poc_housing" {t.Errorf("%s has not reached home on night %d: level %s cell %+v trip %+v",p.Shop,day,actor.Level,actor.Position,actor.Trip)}
+    v.Nights[day]=true
+   }
+  }
+  if !loaded && now>=end-3*86400 {
+   if view(a)!=view(b) {t.Fatal("same seed diverged before save")}
+   saved:=b.snapshotState();slot:=b.world.Config.SaveSlots[0];if err:=b.writeSave(slot,saved);err!=nil{t.Fatal(err)}
+   state,_,err:=b.readSave(slot);if err!=nil{t.Fatal(err)};b.state=state;loaded=true
+  }
+  if sec%3600<30 && view(a)!=view(b) { va,vb:=view(a),view(b);at:=0;for at<len(va)&&at<len(vb)&&va[at]==vb[at]{at++};lo:=max(0,at-120);t.Fatalf("same seed/load diverged at %d, byte %d: A %s B %s",now,at,va[lo:min(len(va),at+180)],vb[lo:min(len(vb),at+180)])}
+ }
+ for id,v:=range visits {if len(v.Stops)!=2||len(v.Days)<7||len(v.Nights)<7||v.Longest<20*60 {t.Fatalf("%s week failed: %+v",id,v)};t.Logf("STREET_WEEK %s: %d trading days, %d housed nights, %d stops, longest stand %d s",id,len(v.Days),len(v.Nights),len(v.Stops),v.Longest)}
+ if view(a)!=view(b) {t.Fatal("final week differs")}
+}
+
+// Ordinary populated life100, including the brain scheduler (the calendar fixture isolates named routines).
+func TestStreetSellersLife100Morning(t *testing.T) {
+ r,_:=heroBodyHub(t);r.state.Life.Actor(playerActorID).Manual=true
+ sellers:=streetSellerDefs(t,r);seen:=map[string]bool{}
+ r.state.Life.SecondsPerTick=30
+ for r.state.Life.Seconds%86400 < 12*3600 {
+  peddlerStep(t,r)
+  for _,p:=range sellers { if r.peddlerStopNow(p)!="" {seen[p.Actor]=true} }
+ }
+ for _,p:=range sellers {a:=r.state.Life.Actor(p.Actor);t.Logf("LIFE100 %s seen=%v actor=%+v",p.Shop,seen[p.Actor],a);if !seen[p.Actor]{t.Errorf("%s did not reach a morning trading stop",p.Shop)}}
+}
+
+// The real populated scenario must not strand the housed women in the closed market.
+func TestStreetSellersLife100WeekHomes(t *testing.T) {
+ r,_:=heroBodyHub(t);r.state.Life.Actor(playerActorID).Manual=true
+ sellers:=streetSellerDefs(t,r);r.state.Life.SecondsPerTick=30
+ nights:=map[string]int{};trading:=map[string]map[int64]bool{}
+ for _,p:=range sellers {trading[p.Actor]=map[int64]bool{}}
+ end:=r.state.Life.Seconds+7*86400
+ for r.state.Life.Seconds<end {
+  peddlerStep(t,r);sec:=r.state.Life.Seconds%86400;day:=r.state.Life.Seconds/86400
+  for _,p:=range sellers {
+   a:=r.state.Life.Actor(p.Actor)
+   if r.peddlerStopNow(p)!="" {trading[p.Actor][day]=true}
+   if sec==22*3600+25*60 && a.Level==r.world.Peddlers.Level {t.Errorf("%s in locked hall day %d: %+v",p.Shop,day,a)}
+   if sec==3*3600 {if a.ResidenceID==""||a.Level!="level.poc_housing" {t.Errorf("%s not at home night %d: %+v",p.Shop,day,a)}else{nights[p.Actor]++}}
+  }
+ }
+ for _,p:=range sellers {t.Logf("LIFE100_WEEK %s: %d trading days, %d nights home",p.Shop,len(trading[p.Actor]),nights[p.Actor]);if len(trading[p.Actor])<7||nights[p.Actor]!=7 {t.Errorf("%s did not complete week",p.Shop)}}
+}
