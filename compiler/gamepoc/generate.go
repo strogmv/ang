@@ -229,7 +229,8 @@ type Compiled struct {
 	// Dome-system vending terminals (demo-hub v12-vending, world.vending); nil in worlds without them.
 	Vending *VendingCatalog `json:"vending,omitempty"`
 	// Peddlers of the hub (demo-hub v23, world.peddlers): mobile shopfronts on a round of stops; nil in worlds without them.
-	Peddlers *PeddlerCatalog `json:"peddlers,omitempty"`
+	Peddlers          *PeddlerCatalog    `json:"peddlers,omitempty"`
+	CalendarEncounter *CalendarEncounter `json:"calendar_encounter,omitempty"`
 	// Craft places of the hub islands (demo-hub v16-goods, world.market_goods); nil in worlds without them.
 	Craft *CraftCatalog `json:"craft,omitempty"`
 	// The sound of the hall (demo-hub v26-alive, world.soundscape); nil in worlds without it.
@@ -427,6 +428,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		}
 	}
 	if out.Vending, err = readVending(world); err != nil {
+		return out, nil, err
+	}
+	if out.CalendarEncounter, err = readCalendarEncounter(world); err != nil {
 		return out, nil, err
 	}
 	if out.Peddlers, err = readPeddlers(world); err != nil {
@@ -742,6 +746,9 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 	if err := applyCrafting(&out, craftingIn); err != nil {
 		return out, nil, err
 	}
+	if err := checkCalendarEncounter(&out); err != nil {
+		return out, nil, err
+	}
 	if err := checkPeddlerClasses(&out); err != nil {
 		return out, nil, err
 	}
@@ -858,6 +865,9 @@ func Generate(project string) error {
 	files := map[string][]byte{
 		filepath.Join(project, "internal/poc/world.json"):       worldJSON,
 		filepath.Join(unity, "Assets/Resources/PocConfig.json"): viewJSON,
+	}
+	if compiled.CalendarEncounter != nil {
+		files[filepath.Join(unity, "Assets/Resources/Generated/CalendarEncounterPresentation.json")] = compiled.CalendarEncounter.Presentation
 	}
 	if err := checkArtSceneImages(unity, compiled.Art.Scenes); err != nil {
 		return err
@@ -1059,6 +1069,9 @@ func Generate(project string) error {
 		"vending.cs.tmpl":                       filepath.Join(unity, "Assets/Generated/Poc/PocVending.cs"),
 		"peddlers.go.tmpl":                      filepath.Join(project, "internal/poc/peddlers.gen.go"),
 		"peddlers_test.go.tmpl":                 filepath.Join(project, "internal/poc/peddlers_generated_test.go"),
+		"calendar_encounter.go.tmpl":            filepath.Join(project, "internal/poc/calendar_encounter.gen.go"),
+		"calendar_encounter_test.go.tmpl":       filepath.Join(project, "internal/poc/calendar_encounter_generated_test.go"),
+		"conversation.cs.tmpl":                  filepath.Join(unity, "Assets/Generated/Poc/PocConversation.cs"),
 		"peddlers.cs.tmpl":                      filepath.Join(unity, "Assets/Generated/Poc/PocPeddlers.cs"),
 		"craft.go.tmpl":                         filepath.Join(project, "internal/poc/craft.gen.go"),
 		"craft.cs.tmpl":                         filepath.Join(unity, "Assets/Generated/Poc/PocCraft.cs"),

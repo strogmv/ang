@@ -195,9 +195,9 @@ func(b *LifeBrain)advance(m LifeBrainModel,svc LifeBrainServices,id,level,activi
  if shift!=b.Shift{b.Shift=shift;b.ShiftWorked=0;b.Paid=false}
  if arrived&&activity=="work" {b.WorkSeconds+=dt;eff:=int64(1000000);if b.Needs[1]>=m.SleepCritical&&m.FatigueEfficiency>0{eff=m.FatigueEfficiency;b.FatigueWorkSeconds+=dt};work:=dt*eff+b.WorkRemainder;b.ShiftWorked+=work/1000000;b.WorkRemainder=work%1000000;b.WorkDays[seconds/86400]+=dt
   if !controlled&&!b.Paid&&b.ShiftWorked>=m.WageWorkSeconds&&svc.Pay!=nil&&svc.Pay(id,m.Wage){b.Paid=true;b.Wages++}
- }else if (schedule.Obligation||brainDuty(schedule.Activity))&&!controlled{b.MissedWorkSeconds+=dt}
+ }else if !schedule.Flexible&&(schedule.Obligation||brainDuty(schedule.Activity))&&!controlled{b.MissedWorkSeconds+=dt}
  if controlled{return schedule}
- duty:=schedule.Obligation||brainDuty(schedule.Activity)
+ duty:=!schedule.Flexible&&(schedule.Obligation||brainDuty(schedule.Activity))
  atPost:=arrived&&level==schedule.Level&&at==schedule.At&&activity==schedule.Activity
  if !duty{b.BreakKind="";b.Returning=false}
  if b.BreakKind!=""{
@@ -277,12 +277,12 @@ func(b *LifeBrain)advance(m LifeBrainModel,svc LifeBrainServices,id,level,activi
  }
  signals:=map[string]float64{"meal":math.Max(float64(b.Needs[0]),float64(appetite))/1e6,"food":float64(b.Needs[0])/1e6,"sleep":float64(b.Needs[1])/1e6,"hygiene":float64(b.Needs[2])/1e6,"social":float64(b.Needs[3])/1e6,"goods":float64(1000000-b.Needs[4])/1e6}
  preference:=0.18+float64(CounterRandom(seed,id,seconds/86400,"life.preference.v1")%100)/1000
- if (schedule.Obligation||brainDuty(schedule.Activity)){preference=0.7+float64(b.Needs[4])/2e6};if schedule.Activity=="sleep"{preference=0.4+float64(b.Needs[1])/1e6}
+ if duty{preference=0.7+float64(b.Needs[4])/2e6};if schedule.Activity=="sleep"{preference=0.4+float64(b.Needs[1])/1e6}
  // Eating in a schedule is a preference for an available ration, never food creation.
  if schedule.Activity=="eat"{preference=0.05}
  signals["schedule"]=preference
  profile:=Profile{SceneGoals:[]string{"schedule"}}
- if (schedule.Obligation||brainDuty(schedule.Activity)){profile.Duty.AbandonPenalty=m.DutyPenalty}
+ if duty{profile.Duty.AbandonPenalty=m.DutyPenalty}
  for _,id:=range []string{"ration","market_food","market_goods","seated_food","sleep","hygiene","social"}{if _,ok:=candidates[id];ok{profile.SceneGoals=append(profile.SceneGoals,id)}}
  // Off duty, critical needs remove the ordinary preference penalty.
  if !duty&&(b.Needs[0]>m.FoodCritical||b.Needs[1]>m.SleepCritical){profile.Duty.AbandonPenalty=0}

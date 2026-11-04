@@ -58,6 +58,7 @@ func peddlerPlace(t *testing.T, r *Runtime, id string, at inv.Cell) {
 	a.ResidenceID = ""
 	a.Arrived = true
 	if id == playerActorID {
+  a.Body=nil // Fixture placement must reset the continuous body as well as its cell.
 		r.syncLifeHero()
 	}
 }
@@ -161,7 +162,8 @@ func TestPeddlersRoundOpensAtStopsBySchedule(t *testing.T) {
 			}
 		}
 	}
-	for _, shop := range []string{"peddler.klava", "peddler.akim", "peddler.prokhor"} {
+	shops:=[]string{"peddler.klava","peddler.akim"};if r.world.CalendarEncounter==nil{shops=append(shops,"peddler.prokhor")}
+ for _, shop := range shops {
 		if len(visited[shop]) < 3 {
 			t.Fatalf("%s stood at %d stops by %d, want 3+ (%v)", shop, len(visited[shop]), end, visited[shop])
 		}
@@ -559,8 +561,8 @@ func TestStreetSellersLife100Morning(t *testing.T) {
 func TestStreetSellersLife100WeekHomes(t *testing.T) {
  r,_:=heroBodyHub(t);r.state.Life.Actor(playerActorID).Manual=true
  sellers:=streetSellerDefs(t,r);r.state.Life.SecondsPerTick=30
- nights:=map[string]int{};trading:=map[string]map[int64]bool{}
- for _,p:=range sellers {trading[p.Actor]=map[int64]bool{}}
+ nights:=map[string]map[int64]bool{};trading:=map[string]map[int64]bool{}
+ for _,p:=range sellers {trading[p.Actor]=map[int64]bool{};nights[p.Actor]=map[int64]bool{}}
  end:=r.state.Life.Seconds+7*86400
  for r.state.Life.Seconds<end {
   peddlerStep(t,r);sec:=r.state.Life.Seconds%86400;day:=r.state.Life.Seconds/86400
@@ -568,8 +570,15 @@ func TestStreetSellersLife100WeekHomes(t *testing.T) {
    a:=r.state.Life.Actor(p.Actor)
    if r.peddlerStopNow(p)!="" {trading[p.Actor][day]=true}
    if sec==22*3600+25*60 && a.Level==r.world.Peddlers.Level {t.Errorf("%s in locked hall day %d: %+v",p.Shop,day,a)}
-   if sec==3*3600 {if a.ResidenceID==""||a.Level!="level.poc_housing" {t.Errorf("%s not at home night %d: %+v",p.Shop,day,a)}else{nights[p.Actor]++}}
+   // Record a real visit to her own residence every night. A valid housing hygiene
+   // break at exactly 03:00 must not be mistaken for failing to return home.
+   home:=r.world.Life.ActorResidence(p.Actor)
+   if home==nil {t.Fatalf("%s has no assigned home",p.Shop)}
+   if a.ResidenceID==home.ID&&a.Level==home.Level&&(sec>=22*3600||sec<7*3600) {
+    night:=day;if sec>=22*3600 {night++};nights[p.Actor][night]=true
+   }
+   if sec==3*3600&&(a.Level!=home.Level||a.Trip!=nil) {t.Errorf("%s not back in housing night %d: %+v",p.Shop,day,a)}
   }
  }
- for _,p:=range sellers {t.Logf("LIFE100_WEEK %s: %d trading days, %d nights home",p.Shop,len(trading[p.Actor]),nights[p.Actor]);if len(trading[p.Actor])<7||nights[p.Actor]!=7 {t.Errorf("%s did not complete week",p.Shop)}}
+ for _,p:=range sellers {t.Logf("LIFE100_WEEK %s: %d trading days, %d nights in her own residence",p.Shop,len(trading[p.Actor]),len(nights[p.Actor]));if len(trading[p.Actor])<7||len(nights[p.Actor])!=7 {t.Errorf("%s did not complete week",p.Shop)}}
 }

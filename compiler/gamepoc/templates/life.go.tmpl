@@ -37,6 +37,7 @@ func (r *Runtime) initLifeState(life behavior.LifeState) {
 	r.initNPCEconomy()
 	r.initVending()
 	r.initPeddlers()
+ r.initCalendarEncounter()
 	r.initCrafting()
 	r.initBarks()
 	r.state.LifeExploration = map[string]map[int]seenCell{}
@@ -87,6 +88,7 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
  if err:=r.advancePlayableScene();err!=nil{return err}
 	r.state.Life.Seed = r.state.Seed
  r.combatLifeBeforeFrame()
+ r.calendarEncounterBeforeFrame()
 	defer r.state.Life.ObserveDecisions()
 	r.state.Life.ControlledActorID = playerActorID
 	r.state.Life.BrainServices = r.npcServices()
@@ -105,7 +107,9 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
 	if err := r.state.Life.AdvancePopulation(r.world.Life, playerActorID); err != nil {
 		return err
 	}
-	if err:=r.advanceCombatCare();err!=nil{return err}
+	r.calendarEncounterBeforeFrame()
+ r.calendarEncounterAfterFrame()
+ if err:=r.advanceCombatCare();err!=nil{return err}
  if err := r.advanceMarketSupply(); err != nil {
 		return err
 	}
@@ -211,6 +215,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 			r.setLifeActivity(a, b)
 		}
 		if observer,known:=r.state.Stealth.Observers[agent.ID];known&&observer.Level==hero.Level{a.FaceX=observer.FaceX;a.FaceY=observer.FaceY}
+ r.encounterAgent(a)
  msg.SceneAgents = append(msg.SceneAgents, a)
 	}
 	if v := r.deckVolume(); v != nil {
@@ -221,6 +226,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 	view := &pb.PocLifeView{Enabled: true, LevelId: hero.Level, LevelName: r.regionLevelName(c.locale, hero.Level), SecondsPerTick: int32(s.Life.SecondsPerTick), Activity: r.localActivity(c.locale, hero.Label), Sneaking:hero.Sneaking,SneakUpright:hero.Sneaking&&hero.SneakUpright, Transit: hero.Trip != nil, Automatic: !hero.Manual, WorkSeconds: hero.WorkedSeconds, SleepSeconds: hero.SleptSeconds, Meals: int32(hero.Meals)}
  r.appendIllumination(view,hero)
  r.appendBarks(view,msg,hero,c.locale)
+ r.appendEncounterBark(view,msg,hero,c.locale)
 	if hero.Trip != nil {
 		edge := r.world.Life.Edge(hero.Trip.Edge)
 		view.TripDestination = r.regionLevelName(c.locale, edge.To)
@@ -284,6 +290,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 	r.appendStorefrontState(view, hero, msg.PlayerView)
 	r.appendVending(view, hero, msg.PlayerView, c.locale)
 	r.appendPeddlers(view, hero, msg.PlayerView, c.locale)
+ r.appendConversation(msg,c.locale)
 	r.appendCraft(view, hero, msg.PlayerView)
 	r.appendSoundscape(view, hero)
 	r.appendGates(view, hero, msg.PlayerView)
@@ -332,10 +339,12 @@ func (r *Runtime) lifeCommand(q *pb.PocLifeCommand) error {
 		return errors.New("Симуляция остановлена после ошибки населения; загрузите сохранение или начните заново")
 	}
 	hero := r.state.Life.Actor(playerActorID)
+ if e:=r.world.CalendarEncounter;e!=nil&&(q.Destination==e.Medical.Level||q.Destination==e.Gate.Level){return textError{Key:"error.encounter.unavailable"}}
 	if hero != nil && hero.CombatHold {
 		return textError{Key: "error.combat_actor_inactive"}
 	}
 	switch q.Action {
+ case "encounter_choice", "encounter_greet", "debug_next_morning": return r.encounterCommand(q)
  case "interact":return r.playableInteract(q.Destination)
  case "illumination_power_off","illumination_power_on":return r.illuminationCommand(q.Action,q.Destination)
  case "stealth":return r.stealthCommand(q.Destination)
@@ -632,7 +641,8 @@ func (r *Runtime) validateLifeSave(s state) error {
 
 func (r *Runtime) lifeExitKnown(edge behavior.LifeEdge) bool {
 	hero := r.state.Life.Actor(playerActorID)
-	if hero == nil || hero.Trip != nil || hero.Level != edge.From {
+	if e:=r.world.CalendarEncounter;e!=nil&&(edge.ID==e.MedicalEdge||edge.ID==e.GateEdge){return false}
+ if hero == nil || hero.Trip != nil || hero.Level != edge.From {
 		return false
 	}
 	width := len(r.currentTerrain()[0])

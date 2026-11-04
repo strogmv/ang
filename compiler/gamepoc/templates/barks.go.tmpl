@@ -118,6 +118,7 @@ func (r *Runtime) advanceBarks() {
 
 // barkCanSpeak: a man who is out, or down in shock, or dead says nothing: the rule of a body, not of a line (owner 03.11, moments 1 and 3).
 func (r *Runtime) barkCanSpeak(id string) bool {
+ if !r.encounterTradeAllowed(id){return false} // custody supersedes ordinary trading calls
 	c := r.state.Combat.Actor(id)
 	if c == nil || !r.state.Combat.Active {
 		if known, ok := r.state.CombatRoster[id]; ok {

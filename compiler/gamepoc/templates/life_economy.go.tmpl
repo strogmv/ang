@@ -118,7 +118,7 @@ func(r *Runtime)npcSeatsTaken(level,place,self string)map[behavior.Cell]bool{
 const npcDebugDecisionLines=16
 func(r *Runtime)npcDebugJournalLines()[]string{
  named,population:=r.LifeDecisionLog();type row struct{d behavior.LifeDecision;pop bool};rows:=make([]row,0,len(named)+len(population))
- for _,d:=range named{rows=append(rows,row{d,false})};for _,d:=range population{rows=append(rows,row{d,true})}
+ for _,d:=range named{if strings.HasPrefix(d.Decision,"encounter."){continue};if strings.HasPrefix(d.Previous,"encounter."){d.Previous=""};for i,v:=range d.Alternatives{if strings.HasPrefix(v,"encounter."){d.Alternatives[i]=""}};rows=append(rows,row{d,false})};for _,d:=range population{rows=append(rows,row{d,true})}
  sort.SliceStable(rows,func(i,j int)bool{if rows[i].d.Tick!=rows[j].d.Tick{return rows[i].d.Tick<rows[j].d.Tick};if rows[i].pop!=rows[j].pop{return !rows[i].pop};return rows[i].d.Sequence<rows[j].d.Sequence})
  if len(rows)>npcDebugDecisionLines{rows=rows[len(rows)-npcDebugDecisionLines:]}
  out:=make([]string,0,len(rows)+1)

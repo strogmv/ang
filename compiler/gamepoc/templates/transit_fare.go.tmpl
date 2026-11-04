@@ -20,6 +20,7 @@ func(r *Runtime)lifeFareAvailable(actorID string,edge behavior.LifeEdge)bool{
  if edge.Fare==nil{return true};fare:=edge.Fare;receiver,ok:=r.state.Inventory.Accounts[fare.ReceiverAccount];if !ok||receiver.Currency!=fare.Currency||receiver.Owner==actorID{return false};for _,payer:=range r.state.Inventory.Accounts{if payer.Owner==actorID&&payer.Currency==fare.Currency&&payer.Balance>=fare.AmountMinor{return true}};return false
 }
 func(r *Runtime)admitLifeTravel(actorID string,edge behavior.LifeEdge)bool{
+ if e:=r.world.CalendarEncounter;e!=nil&&actorID==playerActorID&&(edge.ID==e.MedicalEdge||edge.ID==e.GateEdge){return false}
  if edge.Fare==nil{return true};hero:=r.state.Life.Actor(actorID)
  if actorID!=playerActorID||hero==nil||hero.Trip!=nil||hero.Level!=edge.From||hero.Position!=edge.Exit||len(hero.Path)!=0{return false}
  return payLifeFare(&r.state.Inventory,r.inventoryModelFor(true),actorID,edge.Fare,fmt.Sprintf("transit:%s:%d:%d",edge.ID,hero.WaitingDeparture,r.state.Tick))

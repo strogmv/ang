@@ -240,6 +240,7 @@ func (r *Runtime) peddlerAccount(owner string) (inv.Account, bool) {
 	return inv.Account{}, false
 }
 func (r *Runtime) peddlerNote(d peddlerDeal) {
+ if e:=r.world.CalendarEncounter;e!=nil&&d.Peddler==e.Actor&&d.Kind=="sold"&&d.Buyer==playerActorID{r.state.CalendarEncounter.Bought=true}
 	r.state.Peddlers.Journal = append(r.state.Peddlers.Journal, d)
 	if n := len(r.state.Peddlers.Journal); n > peddlerJournalMax {
 		r.state.Peddlers.Journal = append([]peddlerDeal(nil), r.state.Peddlers.Journal[n-peddlerJournalMax:]...)

@@ -71,7 +71,8 @@ func TestIlluminationCalendarMatchesInstalledV13OpticalTransitions(t *testing.T)
 }
 func TestIlluminationActualCatalogKeepsEngineeringAndCommerceIdentities(t *testing.T) {
 	r, _, c := illuminationFixture(t)
-	if len(c.Emitters) != 209 || len(c.StaticOccluders) == 0 || len(c.GateLeaves) != 6 || len(c.PowerLinks) == 0 || len(c.PowerRefs) == 0 {
+	expectedLeaves:=6;if r.world.CalendarEncounter!=nil{expectedLeaves++}
+ if len(c.Emitters) != 209 || len(c.StaticOccluders) == 0 || len(c.GateLeaves) != expectedLeaves || len(c.PowerLinks) == 0 || len(c.PowerRefs) == 0 {
 		t.Fatalf("physical market export missing: emitters=%d static=%d leaves=%d links=%d", len(c.Emitters), len(c.StaticOccluders), len(c.GateLeaves), len(c.PowerLinks))
 	}
 	seen := map[string]bool{}

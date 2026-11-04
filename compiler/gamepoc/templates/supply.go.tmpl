@@ -11,7 +11,7 @@ import (
 func(r *Runtime)advanceMarketSupply()error{
  if !r.state.Life.Enabled{return nil}
  poses:=map[string]inv.DeliveryPose{}
- for _,a:=range r.state.Life.Actors{poses[a.ID]=inv.DeliveryPose{Break:a.Brain.BreakKind!="",Level:a.Level,At:inv.Cell{X:a.Position.X,Y:a.Position.Y},Present:a.OnFloor()&&len(a.Path)==0&&r.combatMerchantSafe(a.ID)}}
+ for _,a:=range r.state.Life.Actors{poses[a.ID]=inv.DeliveryPose{Break:a.Brain.BreakKind!="",Level:a.Level,At:inv.Cell{X:a.Position.X,Y:a.Position.Y},Present:a.OnFloor()&&len(a.Path)==0&&r.combatMerchantSafe(a.ID)&&r.encounterTradeAllowed(a.ID)}}
  if err:=r.state.Inventory.Advance(r.state.Tick);err!=nil{return err}
  return r.state.Inventory.AdvanceCommerce(r.inventoryModelFor(true),r.state.Life.Seconds,poses)
 }
@@ -39,7 +39,7 @@ func(r *Runtime)appendStorefrontState(view *pb.PocLifeView,hero *behavior.LifeAc
 // Shared physical state for the public shop view and its lamps. A calendar
 // alone cannot open the shop while its proprietor is walking home.
 func(r *Runtime)storefrontOpen(id string)bool{
- for _,shop:=range r.world.Inventory.Shopfronts{if shop.ID!=id{continue}
+ for _,shop:=range r.world.Inventory.Shopfronts{if shop.ID!=id{continue};if !r.encounterTradeAllowed(shop.Owner){return false}
   open,_:=r.state.Inventory.ShopStatus(shop);a:=r.state.Life.Actor(shop.Owner)
   return open&&r.combatMerchantSafe(shop.Owner)&&a!=nil&&a.OnFloor()&&len(a.Path)==0&&shop.ServesCell(a.Level,inv.Cell{X:a.Position.X,Y:a.Position.Y})
  };return false

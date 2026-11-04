@@ -94,7 +94,8 @@ type worldData struct {
 	Region                  regionCatalog                   `json:"region_map"`
 	Wayfinding              wayfindingCatalog               `json:"wayfinding"`
 	Vending                 vendingCatalog                  `json:"vending"`
-	Peddlers                peddlerCatalog                  `json:"peddlers"`
+	CalendarEncounter *CalendarEncounter `json:"calendar_encounter"`
+ Peddlers                peddlerCatalog                  `json:"peddlers"`
 	Craft                   craftCatalog                    `json:"craft"`
 	Soundscape              soundCatalog                    `json:"soundscape"`
 	HallClosing             hallClosingDef                  `json:"hall_closing"`
@@ -139,7 +140,8 @@ type state struct {
 	Poses                map[string]actorPose
 	NPCEconomy           npcEconomyState
 	Vending              vendingState
-	Peddlers             peddlerState
+	CalendarEncounter encounterState
+ Peddlers             peddlerState
 	Crafting             crafting.State
 	Barks                barks.State
 	Inventory            inv.State
@@ -426,10 +428,10 @@ func (r *Runtime) advance(now time.Time) {
 		return
 	}
 	elapsed := now.Sub(r.lastAdvance)
-	r.lastAdvance = now
 	if elapsed < 0 {
 		return
 	}
+	r.lastAdvance = now
 	if elapsed > 2*time.Second {
 		r.state.Paused = true
 	}
@@ -966,7 +968,8 @@ func (r *Runtime) readSave(slot string) (state, int64, error) {
  if err:=validator.validateStealth(s);err!=nil{return s,0,err}
 	r = validator
 	if s.Life.Enabled {
-		if err := validator.validateLifeSave(s); err != nil {
+		if err := validator.validateEncounterSave(s); err != nil {return state{},0,err}
+ if err := validator.validateLifeSave(s); err != nil {
 			return s, 0, err
 		}
 		return s, envelope.CreatedUnixMS, nil

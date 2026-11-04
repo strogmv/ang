@@ -280,6 +280,7 @@ func(r *Runtime) openCombat(initiatorID,targetID,initiatorTeam,targetTeam string
  encounter,err:=behavior.NewCombat(fmt.Sprintf("encounter.%d",r.state.CombatSerial+1),initiator.Level,r.state.Seed,actors,r.world.CombatRuntime.Rules,r.combatSpace(proposed));if err!=nil{return err}
  r.state.Combat=encounter;if r.state.Combat.Actor(playerActorID)!=nil{r.state.Life.Actor(playerActorID).Sneaking=false};r.state.CombatSerial++;if r.heroInCombat(){r.state.Epoch=newEpoch()};r.state.CombatPublicEvents=nil;r.state.CombatPublicSeq=0;r.state.CombatPublicSerial=0
  r.combatLifeStarted(initiatorID,targetID)
+ if e:=r.world.CalendarEncounter;e!=nil&&initiatorID==playerActorID&&targetID==e.Guard&&r.state.CalendarEncounter.Phase=="conversation"{r.encounterReason("combat.ordinary_assault","attack_guard","combat",true)}
  for _,c:=range actors{r.holdCombatActor(c.ID)}
  if r.heroInCombat(){r.resetInstantTravel()};r.syncCombatLife();return nil
 }

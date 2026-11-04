@@ -425,6 +425,7 @@ func worldRunAuditDay(t testing.TB, count int, seconds int64, compareDay2 bool) 
 				}
 				if b.Needs[0] > peakHunger {
 					peakHunger = b.Needs[0]
+     if peakHunger>=1000000{t.Logf("diagnostic: saturated hunger actor=%s at=%d",id,r.state.Life.Seconds)}
 				}
 				if workers[id] && arrived && (activity == "work" || activity == "service" || activity == "post" || activity == "maintenance" || b.Target.Obligation && b.Goal.GoalID == "schedule") {
 					attended[id] = true
