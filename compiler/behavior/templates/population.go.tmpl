@@ -13,7 +13,37 @@ type PopulationModel struct {
 	ShiftOffsets    []int64           `json:"shift_offsets"`
 	Stages          []PopulationStage `json:"stages"`
 	Anchors         map[string][]Cell `json:"anchors"`
+	// demo-hub v26-alive: levels that lock at night (market_hub/closing.cue)
+	Closures []PopulationClosure `json:"closures,omitempty"`
 }
+
+// PopulationClosure: a resident leaves the level between LeaveFrom and LeaveTo and comes back from ArriveFrom to ArriveTo, each at his own moment; one on a stool finishes his meal until SeatedUntil.
+// NightRoster: who may stay there at night by his own routine (read by the test of the night, not a rule).
+type PopulationClosure struct {
+	Level       string   `json:"level"`
+	OpenSecond  int64    `json:"open_second"`
+	LeaveFrom   int64    `json:"leave_from"`
+	LeaveTo     int64    `json:"leave_to"`
+	ArriveFrom  int64    `json:"arrive_from"`
+	ArriveTo    int64    `json:"arrive_to"`
+	SeatedUntil int64    `json:"seated_until"`
+	NightRoster []string `json:"night_roster,omitempty"`
+}
+
+func (p PopulationModel) closedFor(id, level string, seconds, seed int64) (bool, PopulationClosure) {
+	for _, c := range p.Closures {
+		if c.Level != level {
+			continue
+		}
+		day := (seconds%86400 + 86400) % 86400
+		h := CounterRandom(seed, id, 0, "life.hall_closing.v1")
+		leave := c.LeaveFrom + int64(h%uint64(c.LeaveTo-c.LeaveFrom+1))
+		back := c.ArriveFrom + int64((h>>24)%uint64(c.ArriveTo-c.ArriveFrom+1))
+		return day >= leave || day < back, c
+	}
+	return false, PopulationClosure{}
+}
+
 type PopulationStage struct {
 	ID       string `json:"id"`
 	Level    string `json:"level"`
@@ -389,8 +419,16 @@ func (s *PopulationState) Advance(p PopulationModel, l LifeModel, seconds, tick 
          stage:=p.seededStage(*a,seconds,environment.Seed);cfg:=p.profileStage(a.Profile,stage)
          scheduled:=LifeStep{Level:cfg.Level,At:p.profileAnchor(a.Profile,stage,i,cfg.Level),Activity:cfg.Activity}
          home:=LifeStep{};if a.Profile!=nil&&a.Profile.Home!=nil{home=LifeStep{Level:a.Profile.Home.Level,At:a.Profile.Home.At,Activity:"sleep"}}
+         // demo-hub v26-alive: the hall locks at night: its visitors are on their way home before the gates come down, and not back before they are up
+         homeward:=home
+         if homeward.Level==""{first:=p.profileStage(a.Profile,0);homeward=LifeStep{Level:first.Level,At:p.profileAnchor(a.Profile,0,i,first.Level),Activity:first.Activity}}
+         if closed,_:=p.closedFor(a.ID,scheduled.Level,seconds,environment.Seed);closed&&!safety{scheduled=homeward}
          if safety&&a.Brain.Initialized&&(scheduled.Obligation||brainDuty(scheduled.Activity))&&seconds>a.Brain.LastSecond{a.Brain.MissedWorkSeconds+=seconds-a.Brain.LastSecond}
          brainTarget=a.Brain.advance(l.Brain,environment.BrainServices,a.ID,a.Level,a.Activity,a.Position,a.Arrived&&a.Trip==nil,a.Materialized,safety,scheduled,home,(seconds+a.ShiftSeconds)/86400,seconds,environment.Seed)
+         if closed,c:=p.closedFor(a.ID,brainTarget.Level,seconds,environment.Seed);closed&&!safety{
+          day:=seconds%86400
+          if !(a.Brain.SeatedAt>0&&day>=c.LeaveFrom&&day<c.SeatedUntil){a.Brain.leaveClosed(homeward,seconds);brainTarget=homeward}
+         }
         }
         if safety{brainTarget=a.Safety.target()}
 		if a.Trip != nil {

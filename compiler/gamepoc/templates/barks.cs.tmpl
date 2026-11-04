@@ -34,6 +34,10 @@ namespace AngelsDemons.Poc {
   static float BarkFaceEM(string face){switch(face){<<ANG range .BarksView.Faces ANG>>case "<<ANG .Face ANG>>":return <<ANG .EMPx ANG>>f;<<ANG end ANG>>}return 18f;}
   static float BarkFacePitch(string face){switch(face){<<ANG range .BarksView.Faces ANG>>case "<<ANG .Face ANG>>":return <<ANG .LinePitch ANG>>f;<<ANG end ANG>>}return 1.2f;}
   static float BarkFaceHalo(string face){switch(face){<<ANG range .BarksView.Faces ANG>>case "<<ANG .Face ANG>>":return <<ANG .HaloPx ANG>>f;<<ANG end ANG>>}return 1.5f;}
+  // talk.cue, talk_view: two people talking turn to each other; a free person gestures
+  const float TalkPostTurn=<<ANG .BarksTalk.PostTurnDeg ANG>>f,TalkWorkTurn=<<ANG .BarksTalk.WorkTurnDeg ANG>>f,TalkTurnRate=<<ANG .BarksTalk.TurnDegS ANG>>f,TalkLook=<<ANG .BarksTalk.LookWeight ANG>>f,TalkBody=<<ANG .BarksTalk.BodyWeight ANG>>f,TalkHead=<<ANG .BarksTalk.HeadWeight ANG>>f,TalkLinger=<<ANG .BarksTalk.Linger ANG>>f;
+  static string TalkGestureState(string id){switch(id){<<ANG range .BarksTalk.Gestures ANG>>case "<<ANG .ID ANG>>":return "<<ANG .State ANG>>";<<ANG end ANG>>}return null;}
+  static float TalkGestureSeconds(string id){switch(id){<<ANG range .BarksTalk.Gestures ANG>>case "<<ANG .ID ANG>>":return <<ANG .Seconds ANG>>f;<<ANG end ANG>>}return 0;}
   struct BarkHudRect{public string when;public Rect r;public BarkHudRect(string w,float x0,float y0,float x1,float y1){when=w;r=Rect.MinMaxRect(x0,y0,x1,y1);}}
   static readonly BarkHudRect[] BarkHud={<<ANG range .BarksView.HUD ANG>>new BarkHudRect("<<ANG .When ANG>>",<<ANG .X0 ANG>>f,<<ANG .Y0 ANG>>f,<<ANG .X1 ANG>>f,<<ANG .Y1 ANG>>f),<<ANG end ANG>>};
 
@@ -243,9 +247,17 @@ namespace AngelsDemons.Poc {
   }
   // Placement order: lines already on screen keep their slot, then answers in a chain, fight shouts, the nearest voices.
   int BarkPriority(PocBark b){
-   BarkLive live;int p=0;if(barkLive.TryGetValue(b.Serial,out live)&&live.started)p+=100000;if(b.Kind=="reply")p+=50000;if(b.Kind=="combat"||b.Kind=="sign")p+=20000;
+   BarkLive live;int p=0;if(barkLive.TryGetValue(b.Serial,out live)&&live.started)p+=100000;if(b.Kind=="reply"||b.Kind=="talk")p+=50000;if(b.Kind=="combat"||b.Kind=="sign")p+=20000;
    if(state!=null){int dx=b.X-state.PlayerX,dy=b.Y-state.PlayerY;p+=Mathf.Max(0,9999-(dx*dx+dy*dy));}
    return p;
+  }
+  // v26: a live turn of an exchange involving this person: who the other one is, and the speaker's gesture
+  bool LocationSDKTalkOf(string id,out string other,out string gesture,out double sinceNS){
+   other=null;gesture=null;sinceNS=0;if(state==null||state.Life==null)return false;
+   foreach(var b in state.Life.Barks){if(b.Kind!="talk")continue;
+    if(b.SpeakerId==id){other=b.To;gesture=b.Gesture;sinceNS=b.StartedNs;return true;}
+    if(b.To==id){other=b.SpeakerId;return true;}}
+   return false;
   }
   // Called in the game page right after the world is drawn and before the HUD.
   // A fighter's line waits for the blow to end: nothing hangs over the contact, the speaker's contour stays off while the body shows the outcome.

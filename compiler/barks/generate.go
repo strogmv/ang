@@ -102,7 +102,7 @@ func ReportWith(m runtime.Model, texts func(key string) map[string]string, conte
 	for _, p := range m.Packs {
 		total += len(p.Lines) + len(p.Replies)
 	}
-	fmt.Fprintf(&b, "Мест: %d · реплик и ответов: %d · боевых: %d\n\n", len(m.Packs), total, combat)
+	fmt.Fprintf(&b, "Мест: %d · реплик и ответов: %d · боевых: %d · разговоров: %d\n\n", len(m.Packs), total, combat, len(m.Exchanges))
 	if len(registers) > 0 {
 		b.WriteString("## Регистры речи по кастам (registers.cue)\n\n| Каста | RU | EN | Маркеры EN |\n|---|---|---|---|\n")
 		castes := make([]string, 0, len(registers))
@@ -162,6 +162,21 @@ func ReportWith(m runtime.Model, texts func(key string) map[string]string, conte
 			row(ReportRow{Speaker: names(r.Speaker), Caste: r.Caste, Face: face.Face, Reveal: face.Reveal, To: "ответ", Read: read(r.Caste, r.Measure), RU: t["ru"], EN: t["en"], Tone: context(r.Key), Register: register(r.Caste, t["en"])})
 		}
 		b.WriteString("\n")
+	}
+	if len(m.Exchanges) > 0 {
+		fmt.Fprintf(&b, "## Разговоры между людьми (%d)\n\nСлышно рядом с героем; не чаще %d в час на все, пауза %d с. Следующая реплика идёт, только когда прошлая закончилась и оба на месте.\n\n", len(m.Exchanges), m.Talk.MaxPerHour, m.Talk.GapSeconds)
+		for _, e := range m.Exchanges {
+			fmt.Fprintf(&b, "### %s\n\n%s ↔ %s, ближе %d клеток, повтор не чаще раза в %d мин.\n\n| Кто | RU | EN | Жест | Регистр en |\n|---|---|---|---|---|\n", e.ID, names(e.A.Who), names(e.B.Who), e.WithinCells, e.CooldownSeconds/60)
+			for _, t := range e.Turns {
+				who, caste := e.A, e.A.Caste
+				if t.By == 1 {
+					who, caste = e.B, e.B.Caste
+				}
+				tx := texts(t.ID)
+				fmt.Fprintf(&b, "| %s (%s) | %s | %s | %s | %s |\n", names(who.Who), caste, md(tx["ru"]), md(tx["en"]), t.Gesture, md(register(caste, tx["en"])))
+			}
+			b.WriteString("\n")
+		}
 	}
 	if combat > 0 {
 		b.WriteString("## Бой\n\n")

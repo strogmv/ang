@@ -13,6 +13,7 @@ type Actor struct {
 	Seated bool   `json:"seated,omitempty"`  // on a seat of a brain place (a yatai stool)
 	OnPost bool   `json:"on_post,omitempty"` // on his post: a staff spot, a counter post, the master's counter
 	Caste  string `json:"caste,omitempty"`   // an anonymous person of the population (his profile's caste)
+	Moving bool   `json:"moving,omitempty"`  // on his way somewhere: he does not stop to talk
 }
 
 // Fact is a world fact holding this frame. Since > 0 is when it happened (a raid at 21:00, a refused rebinding);
@@ -159,7 +160,7 @@ func (m Model) Step(s *State, f Frame) []Speech {
 				continue
 			}
 			for _, a := range m.speakersOf(*l, place, actors, f.Hero.ID) {
-				if s.speaking(a.ID, f.Tick) || !m.hears(f.Hero, a, pack.HeroWithinCells) || !m.requires(*l, a, byID, f, s) || !m.reacts(s, *l, place, a.ID, f) {
+				if s.speaking(a.ID, f.Tick) || s.inTalk(a.ID) || !m.hears(f.Hero, a, pack.HeroWithinCells) || !m.requires(*l, a, byID, f, s) || !m.reacts(s, *l, place, a.ID, f) {
 					continue
 				}
 				cands = append(cands, cand{l, a})
@@ -194,7 +195,191 @@ func (m Model) Step(s *State, f Frame) []Speech {
 			}
 		}
 	}
+	started = append(started, m.stepTalks(s, f, actors, byID, elapsed, day)...)
 	return started
+}
+
+// inTalk: this person is in the middle of an exchange: he says nothing else between its turns.
+func (s *State) inTalk(id string) bool {
+	for _, run := range s.Talks {
+		if run.A == id || run.B == id {
+			return true
+		}
+	}
+	return false
+}
+
+func postureFits(p Party, a Actor) bool {
+	if a.Moving {
+		return false
+	}
+	switch p.Posture {
+	case "post":
+		return a.OnPost
+	case "seated":
+		return a.Seated
+	case "standing":
+		return !a.Seated
+	}
+	return true
+}
+
+// talkersFit: both people where they must be, near each other; the hero hears the one who speaks.
+func (m Model) talkersFit(e Exchange, a, b Actor) bool {
+	return a.Level == b.Level && postureFits(e.A, a) && postureFits(e.B, b) && dist2(a.At, b.At) <= e.WithinCells*e.WithinCells
+}
+
+// stepTalks: the turns due of the exchanges in progress, then at most one new exchange (doc 94 §21, demo-hub v26-alive).
+func (m Model) stepTalks(s *State, f Frame, actors []Actor, byID map[string]Actor, elapsed, day int64) []Speech {
+	if len(m.Exchanges) == 0 {
+		return nil
+	}
+	var started []Speech
+	keep := s.Talks[:0]
+	for _, run := range s.Talks {
+		e, ok := m.Exchange(run.Exchange)
+		if !ok || run.Turn >= len(e.Turns) {
+			continue
+		}
+		a, okA := byID[run.A]
+		b, okB := byID[run.B]
+		if !okA || !okB || !m.talkersFit(*e, a, b) {
+			continue // one of them left: the answer is lost, as with a pack's reply
+		}
+		turn := e.Turns[run.Turn]
+		speaker, to := a, b
+		if turn.By == 1 {
+			speaker, to = b, a
+		}
+		if !m.hears(f.Hero, speaker, e.HeroWithinCells) {
+			continue
+		}
+		if f.Tick < run.Due {
+			keep = append(keep, run)
+			continue
+		}
+		if s.speaking(speaker.ID, f.Tick) {
+			if f.Tick < run.GiveUp {
+				keep = append(keep, run)
+			}
+			continue
+		}
+		sp := m.sayTurn(s, *e, turn, speaker.ID, to.ID, f)
+		started = append(started, sp)
+		run.Turn++
+		if run.Turn < len(e.Turns) {
+			run.Due = sp.Until + m.ticks(m.Talk.PauseMS)
+			run.GiveUp = run.Due + m.ticks(m.Talk.GiveUpMS)
+			keep = append(keep, run)
+		}
+	}
+	s.Talks = keep
+	if len(s.Talks) == 0 {
+		s.Talks = nil
+	}
+	if f.Hero.Level == "" || s.audible(f.Tick) >= m.MaxActive || len(s.Talks) > 0 {
+		return started
+	}
+	hour := f.Now / 3600
+	if s.Talk.Hour != hour {
+		s.Talk.Hour, s.Talk.Count = hour, 0
+	}
+	if (s.Talk.Last > 0 && f.Now < s.Talk.Last+m.Talk.GapSeconds) || s.Talk.Count >= m.Talk.MaxPerHour {
+		return started
+	}
+	if chance := elapsed * 1000000 / m.Talk.MeanWaitSeconds; chance < 1000000 && int64(Roll(f.Seed, "barks.talk", f.Hero.Level, f.Tick)%1000000) >= chance {
+		return started
+	}
+	type cand struct {
+		e    *Exchange
+		a, b Actor
+	}
+	var cands []cand
+	total := 0
+	for i := range m.Exchanges {
+		e := &m.Exchanges[i]
+		if last, said := s.Lines[e.ID]; said && f.Now < last+e.CooldownSeconds {
+			continue
+		}
+		inPeriod := false
+		for _, pr := range e.Periods {
+			inPeriod = inPeriod || pr.Has(day)
+		}
+		if !inPeriod {
+			continue
+		}
+		casteOf := func(o Actor) string {
+			if o.Caste != "" {
+				return o.Caste
+			}
+			return m.Castes[o.ID]
+		}
+		free := func(o Actor) bool { return o.ID != f.Hero.ID && !s.speaking(o.ID, f.Tick) }
+		var a, b Actor
+		found := false
+		for _, first := range actors {
+			if first.ID != e.A.Who && (e.A.Who != Anyone || casteOf(first) != e.A.Caste) {
+				continue
+			}
+			if !free(first) || !m.hears(f.Hero, first, e.HeroWithinCells) || !postureFits(e.A, first) {
+				continue
+			}
+			best := -1
+			for _, o := range actors {
+				if o.ID == first.ID || !free(o) || !m.talkersFit(*e, first, o) {
+					continue
+				}
+				if o.ID != e.B.Who && (e.B.Who != Anyone || casteOf(o) != e.B.Caste) {
+					continue
+				}
+				if d := dist2(first.At, o.At); best < 0 || d < best {
+					best, b, found = d, o, true
+				}
+			}
+			if found {
+				a = first
+				break
+			}
+		}
+		if !found {
+			continue
+		}
+		cands = append(cands, cand{e, a, b})
+		total += e.Weight
+	}
+	if total == 0 {
+		return started
+	}
+	pick := int(Roll(f.Seed, "barks.talk.pick", f.Hero.Level, f.Tick) % uint64(total))
+	var chosen cand
+	for _, c := range cands {
+		if pick < c.e.Weight {
+			chosen = c
+			break
+		}
+		pick -= c.e.Weight
+	}
+	sp := m.sayTurn(s, *chosen.e, chosen.e.Turns[0], chosen.a.ID, chosen.b.ID, f)
+	started = append(started, sp)
+	s.Lines[chosen.e.ID] = f.Now
+	s.Talk.Last = f.Now
+	s.Talk.Count++
+	due := sp.Until + m.ticks(m.Talk.PauseMS)
+	s.Talks = append(s.Talks, TalkRun{Exchange: chosen.e.ID, A: chosen.a.ID, B: chosen.b.ID, Turn: 1, Due: due, GiveUp: due + m.ticks(m.Talk.GiveUpMS)})
+	return started
+}
+
+func (m Model) sayTurn(s *State, e Exchange, t Turn, speaker, to string, f Frame) Speech {
+	s.Serial++
+	caste := e.A.Caste
+	if t.By == 1 {
+		caste = e.B.Caste
+	}
+	face, _ := m.Face(caste)
+	sp := Speech{Serial: s.Serial, Kind: "talk", Line: t.ID, Key: t.ID, Speaker: speaker, Caste: caste, To: to, Gesture: t.Gesture, Second: f.Now}
+	m.clock(&sp, face, t.Measure, nil, f.Tick)
+	s.Active = append(s.Active, sp)
+	return sp
 }
 
 func (s *State) speaking(id string, tick int64) bool {
@@ -279,6 +464,15 @@ func (m Model) requires(l Line, a Actor, byID map[string]Actor, f Frame, s *Stat
 		}
 		t, ok := byID[target]
 		if !ok || (r.TargetOnPost && !t.OnPost) || (r.TargetWithinCells > 0 && (t.Level != a.Level || dist2(t.At, a.At) > r.TargetWithinCells*r.TargetWithinCells)) {
+			return false
+		}
+	}
+	if r.WalkersWithinCells > 0 {
+		near := false
+		for _, o := range f.Actors {
+			near = near || (o.ID != a.ID && o.Moving && o.Level == a.Level && dist2(o.At, a.At) <= r.WalkersWithinCells*r.WalkersWithinCells)
+		}
+		if !near {
 			return false
 		}
 	}

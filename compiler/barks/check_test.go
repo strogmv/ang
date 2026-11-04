@@ -255,3 +255,42 @@ func TestRegisterMarkers(t *testing.T) {
 		}
 	}
 }
+
+// Exchanges (demo-hub v26-alive): every turn answers to the same content rules as any spoken line.
+func exchangeFixture(t *testing.T) (runtime.Model, map[string]map[string]string, World) {
+	t.Helper()
+	m, texts, w := fixture()
+	texts["bark.talk.one"] = map[string]string{"ru": "Что с накладной?", "en": "What about the waybill?"}
+	texts["bark.talk.two"] = map[string]string{"ru": "Завтра подпишут.", "en": "They sign tomorrow."}
+	m.Talk = runtime.TalkRules{GapSeconds: 60, MaxPerHour: 6, MeanWaitSeconds: 60, PauseMS: 250, GiveUpMS: 8000}
+	m.Exchanges = []runtime.Exchange{{ID: "talk.waybill", A: runtime.Party{Who: "char.loader", Caste: "bronze", Posture: "post"}, B: runtime.Party{Who: "char.owner", Caste: "bronze", Posture: "post"},
+		WithinCells: 6, HeroWithinCells: 16, Periods: []runtime.Period{{ID: "p0", From: 0, To: 86400}}, Weight: 1, CooldownSeconds: 3600,
+		Turns: []runtime.Turn{{ID: "bark.talk.one", By: 0, Measure: measure(texts["bark.talk.one"]["ru"], texts["bark.talk.one"]["en"])}, {ID: "bark.talk.two", By: 1, Measure: measure(texts["bark.talk.two"]["ru"], texts["bark.talk.two"]["en"])}}}}
+	return m, texts, w
+}
+func TestExchangeContentRules(t *testing.T) {
+	m, _, w := exchangeFixture(t)
+	if err := Check(m, w); err != nil {
+		t.Fatalf("a valid exchange: %v", err)
+	}
+	cases := map[string]func(m *runtime.Model, texts map[string]map[string]string){
+		"unknown person": func(m *runtime.Model, _ map[string]map[string]string) { m.Exchanges[0].B.Who = "char.nobody" },
+		"wrong caste":    func(m *runtime.Model, _ map[string]map[string]string) { m.Exchanges[0].B.Caste = "copper" },
+		"silent caste": func(m *runtime.Model, _ map[string]map[string]string) {
+			m.Exchanges[0].A = runtime.Party{Who: "char.gold", Caste: "gold"}
+		},
+		"unknown posture": func(m *runtime.Model, _ map[string]map[string]string) { m.Exchanges[0].A.Posture = "flying" },
+		"no text":         func(m *runtime.Model, texts map[string]map[string]string) { delete(texts, "bark.talk.two") },
+		"capitals of copper": func(m *runtime.Model, _ map[string]map[string]string) {
+			m.Exchanges[0].B = runtime.Party{Who: "char.porter", Caste: "copper"}
+		},
+	}
+	for name, change := range cases {
+		m, texts, w := exchangeFixture(t)
+		change(&m, texts)
+		w.Texts = func(key string) map[string]string { return texts[key] }
+		if err := Check(m, w); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}

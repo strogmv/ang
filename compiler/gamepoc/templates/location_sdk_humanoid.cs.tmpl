@@ -41,14 +41,19 @@ namespace AngelsDemons.Poc {
    public Vector3 sitAnchor,sitPin,sitApplied;public Transform bowl,mug;public bool drinking;public int sitClamps;
    // v25: where the feet stood when the sit-down began
    public bool feetCaptured;public Vector3 feetFromL,feetFromR;
+   // v26: where the next footfall is due on the distance walked (PocSoundscape); the person he is talking to and how far the head turned to him
+   public double stepDistance;public string talkOther,talkGesture;public double talkSeenNS,talkSince;
   }
   // Foot IK of a seated body: the feet stay on the floor while the pelvis is pinned on the seat (weight 0 = animation only).
   internal sealed class LocationSDKHumanoidIK:MonoBehaviour{
    internal Animator animator;internal float weight,floorY;
    // v25: planted feet of a seated body and of the steps to and from the seat: the ankle goes exactly here (world), the clip keeps the rest of the leg
    internal bool planted;internal float plantWeight;internal Vector3 atL,atR;
+   // v26: the head (and a little of the body) turned to the one he talks to
+   internal float lookLevel,lookBody,lookHead;internal Vector3 lookAt;
    void OnAnimatorIK(int layer){
     if(animator==null)return;
+    if(lookLevel>.001f){animator.SetLookAtPosition(lookAt);animator.SetLookAtWeight(lookLevel,lookBody,lookHead,1,.5f);}else animator.SetLookAtWeight(0);
     for(int i=0;i<2;i++){var goal=i==0?AvatarIKGoal.LeftFoot:AvatarIKGoal.RightFoot;
      if(planted){animator.SetIKPosition(goal,i==0?atL:atR);animator.SetIKPositionWeight(goal,plantWeight);continue;}
      if(weight<=0){animator.SetIKPositionWeight(goal,0);continue;}
@@ -152,6 +157,7 @@ namespace AngelsDemons.Poc {
    if(h.speed>threshold&&!jump){h.walking=true;h.stillSinceNS=nowNS;}else if(h.walking&&(nowNS-h.stillSinceNS)/1e9>.18)h.walking=false;
    // Seated activity: Go holds the body on the seat cell for the whole sit-down, meal and rise.
    var spot=agent==null?null:agent.ActivitySpot;string activityPhase=spot==null?"":agent.ActivityPhase;
+   LocationSDKTalkFollow(h,id,nowNS,dreal,held);
    if((activityPhase=="sit"||activityPhase=="rise")&&!h.walking&&cast.Seated&&h.hips!=null&&!locationSDKHumanoidSitBroken){
     if(!h.hasYaw){h.yaw=(float)spot.YawDeg;h.hasYaw=true;}
     LocationSDKHumanoidSit(h,agent,feet,nowNS,dt,dreal,held,jump);h.lastFeet=feet;h.lastNS=nowNS;h.placed=true;return;
@@ -169,8 +175,10 @@ namespace AngelsDemons.Poc {
    if(course.sqrMagnitude<.0025f&&h.walking&&step.sqrMagnitude>1e-8f)course=step;
    if(!h.hasYaw){h.yaw=LocationSDKHumanoidCameraYaw();h.hasYaw=true;}
    if(h.walking&&course.sqrMagnitude>=1e-8f){float target=Mathf.Atan2(course.x,course.z)*Mathf.Rad2Deg;h.course=course.normalized;h.yaw=jump?target:Mathf.MoveTowardsAngle(h.yaw,target,cast.turn_degrees_per_second*(float)Math.Max(0,dt));}
+   else if(h.talkOther!=null&&!h.walking){} // v26: in a talk the body turns to the other one (LocationSDKTalkYaw); back to its work after it
    else if(facing)h.yaw=jump?(float)spot.YawDeg:Mathf.MoveTowardsAngle(h.yaw,(float)spot.YawDeg,cast.turn_degrees_per_second*.5f*(float)Math.Max(0,dt));
    else if(!h.walking&&agent!=null&&(agent.FaceX!=0||agent.FaceY!=0))h.yaw=Mathf.Atan2((float)agent.FaceX,(float)agent.FaceY)*Mathf.Rad2Deg;
+   LocationSDKTalkYaw(h,facing&&activityPhase=="post"?spot:null,dt);
    h.go.transform.SetPositionAndRotation(feet+postOffset,Quaternion.Euler(0,h.yaw,0));
    h.lastFeet=feet;h.lastNS=nowNS;h.placed=true;
    bool full=GraphicsFull;if(h.shadows!=full){foreach(var r in h.renderers)r.shadowCastingMode=full?UnityEngine.Rendering.ShadowCastingMode.On:UnityEngine.Rendering.ShadowCastingMode.Off;h.shadows=full;}
@@ -183,6 +191,9 @@ namespace AngelsDemons.Poc {
    bool crouch=LocationSDKActorCrouching(id)&&!string.IsNullOrEmpty(cast.crouch_idle_state)&&!string.IsNullOrEmpty(cast.crouch_walk_state);
    if(crouch){want=h.walking?cast.crouch_walk_state:cast.crouch_idle_state;hashWant=Animator.StringToHash(want);len=h.walking?cast.crouch_walk_cycle_seconds:cast.crouch_idle_cycle_seconds;clipSpeed=cast.crouch_clip_speed_mps;}
    float phase;
+   // v26: a free person talking gestures while his line lives; a seller packs up or lays out by his own hours (a crafts seller's own action is posed after this, by CraftStallsV1Runtime: work goes on)
+   if(!crouch&&!h.walking&&LocationSDKTalkGesture(h,an,nowNS,jump))return;
+   if(!crouch&&facing&&activityPhase=="post"&&!string.IsNullOrEmpty(agent.PostWork)&&LocationSDKPostWork(h,agent.PostWork,an,nowNS,jump))return;
    // demo-hub v14-traders: a seller on the counter post cycles the post states (talk, arrange goods) instead of one idle.
    if(!crouch&&facing&&activityPhase=="post"&&cast.post_states!=null&&cast.post_states.Length>0&&cast.post_state_seconds!=null&&cast.post_state_seconds.Length==cast.post_states.Length){
     double t=nowNS/1e9+h.offset*977.0,slotLen=Math.Max(2.0,cast.post_slot_seconds);long slot=(long)Math.Floor(t/slotLen);double inSlot=t-slot*slotLen;
@@ -209,6 +220,49 @@ namespace AngelsDemons.Poc {
    // Pose now, in this LateUpdate, for this frame's feet: a Play waits for the next Animator update, and that one-frame lag
    // turns frame-time jitter into foot creep. Update(0) evaluates the new time immediately (it adds no time).
    if(!fading)an.Update(0);
+  }
+  // v26: who the body is talking to, kept a moment after the line so that the next turn finds them still turned; the head follows by IK, the fade on real time, standing still while the game is paused.
+  void LocationSDKTalkFollow(LocationSDKHumanoid h,string id,double nowNS,float dreal,bool held){
+   string other,gesture;double since;
+   if(LocationSDKTalkOf(id,out other,out gesture,out since)){h.talkOther=other;h.talkSeenNS=nowNS;h.talkGesture=gesture;h.talkSince=since;}
+   else{h.talkGesture=null;if(h.talkOther!=null&&(nowNS-h.talkSeenNS)/1e9>TalkLinger)h.talkOther=null;}
+   if(h.ik==null)return;
+   LocationSDKHumanoid o=null;if(h.talkOther!=null)locationSDKHumanoids.TryGetValue(h.talkOther,out o);
+   bool on=o!=null&&o.go!=null&&o.go.activeSelf&&!h.walking;
+   if(on){var bone=o.animator!=null&&o.animator.isHuman?o.animator.GetBoneTransform(HumanBodyBones.Head):null;h.ik.lookAt=bone!=null?bone.position:o.lastFeet+Vector3.up*1.55f;h.ik.lookBody=TalkBody;h.ik.lookHead=TalkHead;}
+   if(!held)h.ik.lookLevel=Mathf.MoveTowards(h.ik.lookLevel,on?TalkLook:0,dreal*1.6f);
+  }
+  // A body on free feet turns to the other one; at its post no farther than its work allows.
+  void LocationSDKTalkYaw(LocationSDKHumanoid h,AngelsDemons.Game.V1.PocActivitySpot post,double dt){
+   if(h.talkOther==null||h.walking)return;LocationSDKHumanoid o;if(!locationSDKHumanoids.TryGetValue(h.talkOther,out o)||o.go==null||!o.go.activeSelf)return;
+   var d=o.lastFeet-h.lastFeet;d.y=0;if(d.sqrMagnitude<.01f)return;
+   float target=Mathf.Atan2(d.x,d.z)*Mathf.Rad2Deg;
+   if(post!=null){
+    // a craftsman in the middle of his action stays at the work (CraftStallsV1Runtime poses his clip after this); the others, between customers, turn to the neighbour
+    float limit=TalkPostTurn;if(state!=null&&state.Life!=null)foreach(var cs in state.Life.CraftStalls)if(cs.Seller==h.id&&!string.IsNullOrEmpty(cs.SellerAction)){limit=TalkWorkTurn;break;}
+    float from=(float)post.YawDeg;target=from+Mathf.Clamp(Mathf.DeltaAngle(from,target),-limit,limit);}
+   h.yaw=Mathf.MoveTowardsAngle(h.yaw,target,TalkTurnRate*(float)Math.Max(0,dt));
+  }
+  bool LocationSDKHumanoidPlayState(LocationSDKHumanoid h,Animator an,string st,float phase,float len,bool jump){
+   int hash=Animator.StringToHash(st);if(!an.HasState(0,hash))return false;
+   bool fading=an.IsInTransition(0);
+   if(h.state!=st){if(h.state==null||jump||h.rate<=0)an.Play(hash,0,phase);else{an.CrossFadeInFixedTime(hash,.35f,0,phase*len);fading=true;}h.state=st;h.switches++;}
+   else if(!fading)an.Play(hash,0,phase);
+   h.phase=phase;h.drift=fading?-1:0;an.speed=fading?h.rate:0;if(!fading)an.Update(0);return true;
+  }
+  bool LocationSDKTalkGesture(LocationSDKHumanoid h,Animator an,double nowNS,bool jump){
+   if(string.IsNullOrEmpty(h.talkGesture))return false;string st=TalkGestureState(h.talkGesture);float len=TalkGestureSeconds(h.talkGesture);if(st==null||len<=0)return false;
+   float t=(float)((nowNS-h.talkSince)/1e9);if(t<0||t>=len)return false;
+   return LocationSDKHumanoidPlayState(h,an,st,t/len,len,jump);
+  }
+  // A seller's clips of the closing / opening phase (world.hall_closing): one clip per slot of the simulation clock, picked by a stable hash; between them he stands.
+  bool LocationSDKPostWork(LocationSDKHumanoid h,string work,Animator an,double nowNS,bool jump){
+   var cfg=resource!=null?resource.hall_closing:null;if(cfg==null)return false;var list=work=="closing"?cfg.closing:cfg.opening;if(list==null||list.Length==0)return false;
+   double slotLen=Math.Max(2.0,cfg.slot_seconds),t=nowNS/1e9+h.offset*977.0;long slot=(long)Math.Floor(t/slotLen);double inSlot=t-slot*slotLen;
+   float total=0;foreach(var c in list)total+=Mathf.Max(0,c.weight);if(total<=0)return false;
+   float r=(LocationSDKHumanoidHash(h.id+"#work#"+slot)%10000)/10000f*total;PocHallClip pick=list[0];foreach(var c in list){r-=Mathf.Max(0,c.weight);if(r<0){pick=c;break;}}
+   float len=Mathf.Max(.1f,pick.seconds);if(inSlot>=len)return false;
+   return LocationSDKHumanoidPlayState(h,an,pick.state,Mathf.Clamp01((float)(inSlot/len)),len,jump);
   }
   static float LocationSDKHumanoidSmooth(float x){x=Mathf.Clamp01(x);return x*x*(3-2*x);}
   bool LocationSDKActorCrouching(string id){
@@ -261,6 +315,9 @@ namespace AngelsDemons.Poc {
     LocationSDKHumanoid near=null;float best=.95f;foreach(var o in locationSDKHumanoids.Values){if(o==h||!o.seated||o.go==null||!o.go.activeSelf)continue;var d=o.sitAnchor-anchor;d.y=0;if(d.magnitude<best){best=d.magnitude;near=o;}}
     if(k!=h.sitSlot){h.sitVariant=LocationSDKHumanoidSitPick(seed,k,h.sitVariant,near!=null);h.sitSlot=k;
      h.sitYawOffset=0;if(near!=null&&cast.sit_roles[h.sitVariant]=="talk"){float yr=(float)spot.YawDeg*Mathf.Deg2Rad;var right=new Vector3(Mathf.Cos(yr),0,-Mathf.Sin(yr));h.sitYawOffset=Vector3.Dot(near.sitAnchor-anchor,right)>0?14:-14;}}
+    // v26: seated in an exchange: the talk variant, turned a little to the other one (the head follows by IK)
+    if(h.talkOther!=null&&cast.sit_roles[h.sitVariant]!="talk"){for(int ti=0;ti<cast.sit_states.Length;ti++)if(cast.sit_roles[ti]=="talk"){h.sitVariant=ti;break;}}
+    if(h.talkOther!=null){LocationSDKHumanoid to;if(locationSDKHumanoids.TryGetValue(h.talkOther,out to)&&to.go!=null){float yr=(float)spot.YawDeg*Mathf.Deg2Rad;var side=new Vector3(Mathf.Cos(yr),0,-Mathf.Sin(yr));h.sitYawOffset=Vector3.Dot(to.lastFeet-feet,side)>0?22:-22;}}
     want=cast.sit_states[h.sitVariant];len=cast.sit_cycle_seconds[h.sitVariant];w=1;wh=1;props=1;
    }
    // Yaw: turn to the counter while still standing (about 180 degrees in the turn share), then a slow turn to a talk

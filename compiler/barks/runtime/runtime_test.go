@@ -382,3 +382,140 @@ func TestReactSubject(t *testing.T) {
 		t.Fatal("the pinned line never spoke of its own gate")
 	}
 }
+
+// Exchanges (demo-hub v26-alive): the answer comes only after the first line is over, only while both are in place and heard;
+// nobody in the middle of an exchange says anything else; the clock survives a save; the same seed gives the same talk.
+func talkFixture() Model {
+	m := fixture()
+	m.Talk = TalkRules{GapSeconds: 60, MaxPerHour: 6, MeanWaitSeconds: 1, PauseMS: 300, GiveUpMS: 8000}
+	m.Exchanges = []Exchange{{ID: "talk.loader_owner", A: Party{Who: "char.loader", Caste: "bronze", Posture: "post"}, B: Party{Who: "char.owner", Caste: "bronze", Posture: "post"},
+		WithinCells: 6, HeroWithinCells: 12, Periods: []Period{{ID: "all", From: 0, To: 86400}}, Weight: 1, CooldownSeconds: 3600,
+		Turns: []Turn{{ID: "bark.talk.one", By: 0, Gesture: "argue", Measure: ms("Что там с накладной?")}, {ID: "bark.talk.two", By: 1, Measure: ms("Завтра подпишут, не шуми.")}, {ID: "bark.talk.three", By: 0, Measure: ms("Завтра ты и вчера говорил.")}}}}
+	return m.Sorted()
+}
+func talkFrame(now, tick int64) Frame {
+	return Frame{Now: now, Tick: tick, Seed: 7, Hero: Actor{ID: "char.hero", Level: "hub", At: Cell{50, 50}}, Actors: []Actor{
+		{ID: "char.loader", Level: "hub", At: Cell{50, 44}, OnPost: true}, {ID: "char.owner", Level: "hub", At: Cell{54, 44}, OnPost: true}}}
+}
+func talkRun(t *testing.T, m Model, s *State, mutate func(f *Frame, tick int64)) []Speech {
+	t.Helper()
+	var all []Speech
+	for tick := int64(1); tick < 400; tick++ {
+		f := talkFrame(1000+tick/10, tick)
+		if mutate != nil {
+			mutate(&f, tick)
+		}
+		for _, sp := range m.Step(s, f) {
+			if sp.Kind == "talk" {
+				all = append(all, sp)
+			}
+		}
+	}
+	return all
+}
+func TestExchangeRunsInOrderAfterTheLineIsOver(t *testing.T) {
+	m := talkFixture()
+	if err := m.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	var s State
+	got := talkRun(t, m, &s, nil)
+	if len(got) != 3 {
+		t.Fatalf("turns %+v", got)
+	}
+	if got[0].Speaker != "char.loader" || got[0].To != "char.owner" || got[1].Speaker != "char.owner" || got[1].To != "char.loader" || got[2].Speaker != "char.loader" {
+		t.Fatalf("who speaks to whom: %+v", got)
+	}
+	if got[1].Start < got[0].Until || got[2].Start < got[1].Until {
+		t.Fatalf("an answer started before the line was over: %+v", got)
+	}
+	if got[0].Gesture != "argue" || got[1].Gesture != "" {
+		t.Fatalf("gestures %+v", got)
+	}
+	if len(s.Talks) != 0 {
+		t.Fatalf("the run stays open: %+v", s.Talks)
+	}
+	if err := m.ValidateState(s, 2000, 500); err != nil {
+		t.Fatal(err)
+	}
+}
+func TestExchangeStopsWhenOneLeavesOrTheHeroIsFar(t *testing.T) {
+	m := talkFixture()
+	var s State
+	first := int64(-1)
+	got := talkRun(t, m, &s, func(f *Frame, tick int64) {
+		if first > 0 && tick > first {
+			f.Actors[1].Moving = true
+		}
+		if first < 0 && len(s.Active) > 0 {
+			first = tick
+		}
+	})
+	if len(got) != 1 {
+		t.Fatalf("the answer of a man who left: %+v", got)
+	}
+	s = State{}
+	first = -1
+	got = talkRun(t, m, &s, func(f *Frame, tick int64) {
+		if first > 0 && tick > first {
+			f.Hero.At = Cell{90, 90}
+		}
+		if first < 0 && len(s.Active) > 0 {
+			first = tick
+		}
+	})
+	if len(got) != 1 {
+		t.Fatalf("the answer the hero cannot hear: %+v", got)
+	}
+}
+func TestExchangeAnswerFromAnyoneNearest(t *testing.T) {
+	m := talkFixture()
+	m.Exchanges[0].B = Party{Who: Anyone, Caste: "copper"}
+	if err := m.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	var s State
+	got := talkRun(t, m, &s, func(f *Frame, _ int64) {
+		f.Actors = append(f.Actors, Actor{ID: "population.0002", Level: "hub", At: Cell{50, 49}, Caste: "copper"}, Actor{ID: "population.0001", Level: "hub", At: Cell{50, 47}, Caste: "copper"}, Actor{ID: "population.0003", Level: "hub", At: Cell{50, 46}, Caste: "bronze"})
+	})
+	if len(got) != 3 || got[0].To != "population.0001" || got[1].Speaker != "population.0001" || got[1].Caste != "copper" {
+		t.Fatalf("the nearest of the caste answers: %+v", got)
+	}
+}
+func TestExchangeSavedMidwayAndDeterministic(t *testing.T) {
+	m := talkFixture()
+	var s State
+	for tick := int64(1); tick < 12; tick++ {
+		m.Step(&s, talkFrame(1000+tick/10, tick))
+	}
+	raw, err := json.Marshal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var loaded State
+	if err := json.Unmarshal(raw, &loaded); err != nil {
+		t.Fatal(err)
+	}
+	a, b := s.Clone(), loaded
+	for tick := int64(12); tick < 400; tick++ {
+		x, y := m.Step(&a, talkFrame(1000+tick/10, tick)), m.Step(&b, talkFrame(1000+tick/10, tick))
+		if !reflect.DeepEqual(x, y) {
+			t.Fatalf("tick %d: %+v vs %+v", tick, x, y)
+		}
+	}
+	if !reflect.DeepEqual(a.Talk, b.Talk) || a.Serial != b.Serial {
+		t.Fatal("the talk clock differs after a save")
+	}
+}
+func TestExchangeInvalidCatalogRejected(t *testing.T) {
+	m := talkFixture()
+	m.Exchanges[0].Turns[1].By = 0
+	if m.Validate() == nil {
+		t.Fatal("a side answering itself")
+	}
+	m = talkFixture()
+	m.Exchanges[0].Turns = m.Exchanges[0].Turns[:1]
+	if m.Validate() == nil {
+		t.Fatal("one turn is no exchange")
+	}
+}

@@ -7,7 +7,7 @@ import (
 
 // Speech is a line on screen: the key the host localizes, who says it, and its clock in ticks. Kind: line (a pack's
 // line), reply (an answer line), gesture (a silent answer), combat (a shout), sign (a beast: sound and mark, no words),
-// thought (the hero sees through a lie: drawn in the HUD, never over the enemy).
+// thought (the hero sees through a lie: drawn in the HUD, never over the enemy), talk (a turn of an exchange: To is the other person, Gesture the talk gesture of the view).
 type Speech struct {
 	Serial   uint64 `json:"serial"`
 	Kind     string `json:"kind"`
@@ -49,6 +49,23 @@ type Pending struct {
 	Speaker string `json:"speaker"`
 }
 
+// TalkRun is an exchange in progress: who the two people are, the turn due next and from which tick it may start.
+type TalkRun struct {
+	Exchange string `json:"exchange"`
+	A        string `json:"a"`
+	B        string `json:"b"`
+	Turn     int    `json:"turn"`
+	Due      int64  `json:"due"`
+	GiveUp   int64  `json:"give_up"`
+}
+
+// TalkClock: the last exchange of the hero's surroundings and the hour it counted in.
+type TalkClock struct {
+	Last  int64 `json:"last,omitempty"`
+	Hour  int64 `json:"hour,omitempty"`
+	Count int   `json:"count,omitempty"`
+}
+
 // HeroTrace remembers where the hero last stepped (a passer-by notices someone pushing past).
 type HeroTrace struct {
 	Level string `json:"level,omitempty"`
@@ -67,6 +84,8 @@ type State struct {
 	Pending []Pending            `json:"pending,omitempty"`
 	Active  []Speech             `json:"active,omitempty"`
 	Hero    HeroTrace            `json:"hero"`
+	Talks   []TalkRun            `json:"talks,omitempty"`
+	Talk    TalkClock            `json:"talk,omitempty"`
 }
 
 func (s State) Clone() State {
@@ -82,6 +101,7 @@ func (s State) Clone() State {
 	}
 	out.Pending = append([]Pending(nil), s.Pending...)
 	out.Active = append([]Speech(nil), s.Active...)
+	out.Talks = append([]TalkRun(nil), s.Talks...)
 	return out
 }
 func cloneInts(m map[string]int64) map[string]int64 {
@@ -103,7 +123,8 @@ func (m Model) ValidateState(s State, now, tick int64) error {
 	for id, at := range s.Lines {
 		_, _, ambient := m.Line(id)
 		_, combat := m.CombatLine(id)
-		if !ambient && !combat {
+		_, talk := m.Exchange(id)
+		if !ambient && !combat && !talk {
 			return fmt.Errorf("barks state: unknown line %s", id)
 		}
 		if at < 0 || at > now {
@@ -133,6 +154,15 @@ func (m Model) ValidateState(s State, now, tick int64) error {
 			return fmt.Errorf("barks state: unknown pending reply %s", p.Reply)
 		}
 	}
+	for _, run := range s.Talks {
+		e, ok := m.Exchange(run.Exchange)
+		if !ok || run.Turn < 1 || run.Turn >= len(e.Turns) || run.A == "" || run.B == "" || run.Due < 0 {
+			return fmt.Errorf("barks state: invalid exchange in progress %q", run.Exchange)
+		}
+	}
+	if s.Talk.Last < 0 || s.Talk.Last > now || s.Talk.Count < 0 {
+		return fmt.Errorf("barks state: invalid talk clock")
+	}
 	for _, a := range s.Active {
 		if a.Serial == 0 || a.Serial > s.Serial || a.Start > tick || a.Until < a.Start {
 			return fmt.Errorf("barks state: invalid active line %d", a.Serial)
@@ -145,6 +175,10 @@ func (m Model) ValidateState(s State, now, tick int64) error {
 		case "reply", "gesture":
 			if _, ok := m.Reply(a.Line); !ok {
 				return fmt.Errorf("barks state: unknown active reply %s", a.Line)
+			}
+		case "talk":
+			if _, _, ok := m.TurnOf(a.Line); !ok {
+				return fmt.Errorf("barks state: unknown active turn %s", a.Line)
 			}
 		case "combat", "sign", "thought":
 			if _, ok := m.CombatLine(a.Line); !ok && a.Kind != "thought" {

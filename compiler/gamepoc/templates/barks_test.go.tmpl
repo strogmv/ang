@@ -350,3 +350,99 @@ func TestBarksCombatEntryPoint(t *testing.T) {
 		t.Fatalf("a person without a combat voice shouted: %+v", out)
 	}
 }
+
+// Exchanges (demo-hub v26-alive) on the real world: Galina and Kostya at their posts talk when the hero stands by; the answer comes after the line is over; when one of them is
+// away nobody talks; every exchange of the catalog has its people in the world; none of the texts is empty; the same seed the same talk.
+func talkOnly(all []barks.Speech) []barks.Speech {
+	var out []barks.Speech
+	for _, sp := range all {
+		if sp.Kind == "talk" {
+			out = append(out, sp)
+		}
+	}
+	return out
+}
+func talkFixture(t *testing.T) *Runtime {
+	t.Helper()
+	r := barksFixture(t)
+	if _, ok := barkCatalog.Exchange("talk.yatai_pot"); !ok {
+		t.Skip("world has no exchanges")
+	}
+	const level = "level.c7_market"
+	r.state.Life.Seconds = 86400 + 10*3600
+	barkPut(t, r, "char.market_yatai_cook", level, barkSpot(t, r, barkYatai, "yatai.F5/serve"))
+	barkPut(t, r, "char.market_yatai_helper", level, barkSpot(t, r, barkYatai, "yatai.F5/tea"))
+	barkPut(t, r, playerActorID, level, barkNear(t, r, level, behavior.Cell{X: 86, Y: 65}))
+	return r
+}
+func TestExchangeAtTheYatai(t *testing.T) {
+	r := talkFixture(t)
+	got := talkOnly(barkRun(r, 12000))
+	if len(got) < 2 {
+		t.Fatalf("no talk in 20 minutes by the yatai: %v", got)
+	}
+	people := map[string]bool{"char.market_yatai_cook": true, "char.market_yatai_helper": true}
+	for i, sp := range got {
+		if !strings.HasPrefix(sp.To, "char.") && !strings.HasPrefix(sp.To, "population.") {
+			t.Fatalf("a turn to nobody: %+v", sp)
+		}
+		e, _, ok := barkCatalog.TurnOf(sp.Line)
+		if !ok {
+			t.Fatalf("unknown turn %s", sp.Line)
+		}
+		if i > 0 && got[i-1].Speaker == sp.To && got[i-1].To == sp.Speaker {
+			if sp.Start < got[i-1].Until {
+				t.Fatalf("the answer %s started at %d, the line ended at %d", sp.Line, sp.Start, got[i-1].Until)
+			}
+		}
+		if e.ID == "talk.yatai_pot" && !(people[sp.Speaker] && people[sp.To]) {
+			t.Fatalf("who talks: %+v", sp)
+		}
+	}
+	if err := barkCatalog.ValidateState(r.state.Barks, r.state.Life.Seconds, r.state.Tick); err != nil {
+		t.Fatal(err)
+	}
+}
+func TestExchangeStopsWhenOneWalksAway(t *testing.T) {
+	r := talkFixture(t)
+	helper := r.state.Life.Actor("char.market_yatai_helper")
+	var speech []barks.Speech
+	var first *barks.Speech
+	for i := 0; i < 12000; i++ {
+		for _, sp := range talkOnly(barkRun(r, 1)) {
+			if strings.HasPrefix(sp.Line, "bark.talk_yatai.pot") || strings.HasPrefix(sp.Line, "bark.talk_yatai.loaders") {
+				speech = append(speech, sp)
+				if first == nil {
+					c := sp
+					first = &c
+					// he goes off somewhere the moment she starts
+					helper.Path = []behavior.Cell{{X: helper.Position.X + 1, Y: helper.Position.Y}}
+				}
+			}
+		}
+		if first != nil && r.state.Tick > first.Until+100 {
+			break
+		}
+	}
+	if first == nil {
+		t.Fatal("no talk of Galina and Kostya in 20 minutes by the yatai")
+	}
+	if len(speech) != 1 {
+		t.Fatalf("an answer from a man on his way: %+v", speech)
+	}
+}
+func TestEveryExchangeHasItsPeople(t *testing.T) {
+	r := barksFixture(t)
+	for _, e := range barkCatalog.Exchanges {
+		for _, p := range []barks.Party{e.A, e.B} {
+			if p.Who != barks.Anyone && r.state.Life.Actor(p.Who) == nil {
+				t.Errorf("%s: no person %s in Life", e.ID, p.Who)
+			}
+		}
+		for _, turn := range e.Turns {
+			if r.localText("ru", turn.ID, "") == "" || r.localText("en", turn.ID, "") == "" {
+				t.Errorf("%s: no text for %s", e.ID, turn.ID)
+			}
+		}
+	}
+}

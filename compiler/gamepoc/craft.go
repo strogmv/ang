@@ -117,6 +117,8 @@ type CraftAction struct {
 	Prop    string  `json:"prop,omitempty"`
 	Hand    string  `json:"hand"`
 }
+
+// demo-hub v26-alive: what a seller does in the closing and opening phases (market_hub/closing.cue)
 type CraftClosure struct {
 	Mode         string   `json:"mode"`
 	PhaseMinutes int      `json:"phase_minutes"`
@@ -163,6 +165,9 @@ type CraftCatalog struct {
 	Kits      []CraftKit    `json:"kits"`
 	Stalls    []CraftStall  `json:"stalls"`
 	HandProps []string      `json:"hand_props"`
+	// demo-hub v26-alive: what a seller does in the closing and opening phases of his place (market_hub/closing.cue)
+	ClosingActions []CraftAction `json:"closing_actions,omitempty"`
+	OpeningActions []CraftAction `json:"opening_actions,omitempty"`
 }
 
 func readCraft(world cue.Value) (*CraftCatalog, error) {
@@ -450,8 +455,10 @@ func clientCraft(g *CraftCatalog) map[string]any {
 	}
 	stalls := []map[string]any{}
 	for _, s := range g.Stalls {
+		// v26: the client maps every action a seller can get to its clip; the server picks the closing ones only in those phases
+		seller := append(append(append([]CraftAction(nil), s.Seller...), g.ClosingActions...), g.OpeningActions...)
 		stalls = append(stalls, map[string]any{"place": s.Place, "island": s.Island, "face": s.Face, "units": s.Units, "shop": s.Shop, "trader": s.Trader,
-			"kit": s.Kit, "reference": s.Reference, "seller": s.Seller, "buyer": s.Buyer, "effects": s.Effects, "lights": s.Lights,
+			"kit": s.Kit, "reference": s.Reference, "seller": seller, "buyer": s.Buyer, "effects": s.Effects, "lights": s.Lights,
 			"rows": s.Rows, "beacon": s.Beacon.Item})
 	}
 	kits := []map[string]any{}

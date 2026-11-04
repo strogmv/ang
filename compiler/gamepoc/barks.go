@@ -94,7 +94,53 @@ type barksCombatIn struct {
 		} `json:"tells"`
 	} `json:"deceptions"`
 }
+type barksExchangeIn struct {
+	ID string `json:"id"`
+	A  struct {
+		Who     string `json:"who"`
+		Caste   string `json:"caste"`
+		Posture string `json:"posture"`
+	} `json:"a"`
+	B struct {
+		Who     string `json:"who"`
+		Caste   string `json:"caste"`
+		Posture string `json:"posture"`
+	} `json:"b"`
+	WithinCells     int         `json:"within_cells"`
+	HeroWithinCells int         `json:"hero_within_cells"`
+	Periods         []rt.Period `json:"periods"`
+	Weight          int         `json:"weight"`
+	CooldownSeconds int64       `json:"cooldown_seconds"`
+	Turns           []struct {
+		ID      string `json:"id"`
+		By      int    `json:"by"`
+		Gesture string `json:"gesture"`
+	} `json:"turns"`
+}
+
+// barksTalkGesture: a talk gesture of the view: the Animator state of the cast and its length (presentation only).
+type barksTalkGesture struct {
+	ID      string  `json:"id"`
+	State   string  `json:"state"`
+	Seconds float64 `json:"seconds"`
+	Loop    bool    `json:"loop"`
+}
+
+// BarksTalkView: what the client does with an exchange: the bodies turn to each other, the free ones gesture. Emitted into PocBarks.cs.
+type BarksTalkView struct {
+	PostTurnDeg float64            `json:"post_turn_deg"`
+	WorkTurnDeg float64            `json:"work_turn_deg"`
+	TurnDegS    float64            `json:"turn_deg_s"`
+	LookWeight  float64            `json:"look_weight"`
+	BodyWeight  float64            `json:"body_weight"`
+	HeadWeight  float64            `json:"head_weight"`
+	Linger      float64            `json:"linger_seconds"`
+	Gestures    []barksTalkGesture `json:"gestures"`
+}
 type barksInput struct {
+	Exchanges        []barksExchangeIn `json:"exchanges"`
+	Talk             rt.TalkRules      `json:"talk"`
+	TalkView         *BarksTalkView    `json:"talk_view"`
 	MaxActive        int               `json:"max_active"`
 	MovingTicks      int64             `json:"moving_ticks"`
 	Timing           rt.Timing         `json:"timing"`
@@ -203,6 +249,11 @@ func defaultBarksView() *BarksView {
 	}
 	v.Faces[0].Face, v.Faces[1].Face, v.Faces[2].Face = "stencil", "chalk", "matrix"
 	return v
+}
+
+// defaultBarksTalk: a world without world.barks (or without talk) still compiles the client overlay.
+func defaultBarksTalk() *BarksTalkView {
+	return &BarksTalkView{PostTurnDeg: 120, WorkTurnDeg: 40, TurnDegS: 120, LookWeight: .85, BodyWeight: .2, HeadWeight: .8, Linger: .6}
 }
 
 func readBarks(world cue.Value) (*barksInput, error) {
@@ -457,6 +508,31 @@ func compileBarks(unity string, c *Compiled) error {
 			pack.Replies = append(pack.Replies, reply)
 		}
 		m.Packs = append(m.Packs, pack)
+	}
+	m.Talk = in.Talk
+	gestures := map[string]bool{}
+	if in.TalkView != nil {
+		c.BarksTalk = in.TalkView
+		for _, g := range in.TalkView.Gestures {
+			gestures[g.ID] = true
+		}
+	}
+	for _, e := range in.Exchanges {
+		ex := rt.Exchange{ID: e.ID, A: rt.Party{Who: e.A.Who, Caste: e.A.Caste, Posture: e.A.Posture}, B: rt.Party{Who: e.B.Who, Caste: e.B.Caste, Posture: e.B.Posture},
+			WithinCells: e.WithinCells, HeroWithinCells: e.HeroWithinCells, Periods: e.Periods, Weight: e.Weight, CooldownSeconds: e.CooldownSeconds}
+		if e.A.Who != rt.Anyone {
+			ex.A.Caste = in.Castes[e.A.Who]
+		}
+		if e.B.Who != rt.Anyone {
+			ex.B.Caste = in.Castes[e.B.Who]
+		}
+		for _, t := range e.Turns {
+			if t.Gesture != "" && !gestures[t.Gesture] {
+				return fmt.Errorf("barks: exchange %s: turn %s names an unknown talk gesture %q", e.ID, t.ID, t.Gesture)
+			}
+			ex.Turns = append(ex.Turns, rt.Turn{ID: t.ID, By: t.By, Gesture: t.Gesture, Measure: measure(t.ID)})
+		}
+		m.Exchanges = append(m.Exchanges, ex)
 	}
 	cb := in.Combat
 	m.Combat = rt.Combat{HeroWithinCells: cb.HeroWithinCells, RollMax: cb.RollMax, CunningRoles: cb.CunningRoles, Intents: cb.Intents, Voices: cb.Voices, Speakers: cb.Speakers, Archetypes: cb.Archetypes}

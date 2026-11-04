@@ -78,7 +78,7 @@ func (r *Runtime) barkFrame() (barks.Frame, bool) {
 			continue
 		}
 		seated, post := r.barkPosture(a)
-		f.Actors = append(f.Actors, barks.Actor{ID: a.ID, Level: a.Level, At: barkCell(a.Position), Seated: seated, OnPost: post})
+		f.Actors = append(f.Actors, barks.Actor{ID: a.ID, Level: a.Level, At: barkCell(a.Position), Seated: seated, OnPost: post, Moving: len(a.Path) > 0})
 	}
 	// the anonymous people of the population drawn on the level speak the lines of "anyone" of their caste
 	for i := range r.state.Life.Population.Actors {
@@ -87,7 +87,8 @@ func (r *Runtime) barkFrame() (barks.Frame, bool) {
 			continue
 		}
 		if caste := barkCatalog.PopulationCastes[a.Profile.DefinitionID]; caste != "" {
-			f.Actors = append(f.Actors, barks.Actor{ID: a.ID, Level: a.Level, At: barkCell(a.Position), Caste: caste})
+			// v26: an anonymous guest on a stool of the yatai sits there by his brain; on his way he does not stop to talk
+			f.Actors = append(f.Actors, barks.Actor{ID: a.ID, Level: a.Level, At: barkCell(a.Position), Caste: caste, Seated: a.Brain.SeatedAt > 0 && a.Brain.RiseAt == 0, Moving: len(a.Path) > 0 || !a.Arrived})
 		}
 	}
 	f.Facts = r.barkFacts(hero.Level)

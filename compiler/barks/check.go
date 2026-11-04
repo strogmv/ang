@@ -388,6 +388,37 @@ func Check(m runtime.Model, w World) error {
 			spoken(owner, r.Caste, r.Key, 1, 8, 0)
 		}
 	}
+	// exchanges (demo-hub v26-alive): known people or anyone of a speaking caste; every turn is a spoken text with all its rules
+	for _, e := range m.Exchanges {
+		owner := "exchange " + e.ID
+		for _, p := range []runtime.Party{e.A, e.B} {
+			if p.Who == runtime.Anyone {
+				if p.Caste == "" {
+					fail("%s: anyone must name the caste", owner)
+				}
+				continue
+			}
+			if !known(p.Who) {
+				fail("%s: unknown person %s", owner, p.Who)
+			} else if m.Castes[p.Who] != p.Caste {
+				fail("%s: caste %s differs from the person's %s", owner, p.Caste, m.Castes[p.Who])
+			}
+			if p.Posture != "" && p.Posture != "post" && p.Posture != "seated" && p.Posture != "standing" {
+				fail("%s: unknown posture %q", owner, p.Posture)
+			}
+		}
+		for _, t := range e.Turns {
+			caste := e.A.Caste
+			if t.By == 1 {
+				caste = e.B.Caste
+			}
+			maxWords := 8
+			if f, ok := m.Face(caste); ok {
+				maxWords = f.WordsMax
+			}
+			spoken(owner+" turn "+t.ID, caste, t.ID, 1, maxWords, 0)
+		}
+	}
 	// combat (owner 02.11): voices, intents, short shouts, beasts without words, deceptions with tells
 	intents := map[string]bool{}
 	for _, i := range m.Combat.Intents {

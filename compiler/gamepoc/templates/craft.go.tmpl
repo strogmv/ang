@@ -43,6 +43,9 @@ type craftCatalog struct {
 	Level  string          `json:"level"`
 	Kits   []craftKitDef   `json:"kits"`
 	Stalls []craftStallDef `json:"stalls"`
+	// demo-hub v26-alive: what a seller does in the closing and opening phases of his place
+	ClosingActions []craftActionDef `json:"closing_actions"`
+	OpeningActions []craftActionDef `json:"opening_actions"`
 }
 
 func craftHash(s string) uint32 { h := fnv.New32a(); _, _ = h.Write([]byte(s)); return h.Sum32() }
@@ -124,6 +127,8 @@ func (r *Runtime) appendCraft(view *pb.PocLifeView, hero *behavior.LifeActor, pe
 	}
 	now := r.state.Life.Seconds
 	day := ((now % 86400) + 86400) % 86400
+	// v26: a clip's slot runs on real seconds (the tick), not on the calendar: at the slowest calendar 10 game seconds pass in a real one, and a seller changed his clip every second
+	clock := r.state.Tick / int64(max(r.world.Config.TickHz, 1))
 	for _, s := range g.Stalls {
 		var openS, closeS int64
 		var service behavior.Cell
@@ -167,8 +172,22 @@ func (r *Runtime) appendCraft(view *pb.PocLifeView, hero *behavior.LifeActor, pe
 		}
 		if open {
 			L := craftSlot(s.Seller)
-			k := now / L
-			if id, since, ok := r.craftingSellerWork(s.Trader); ok {
+			k := clock / L
+			phaseActions := []craftActionDef(nil)
+			switch out.Phase {
+			case "closing":
+				phaseActions = g.ClosingActions
+			case "opening":
+				phaseActions = g.OpeningActions
+			}
+			if len(phaseActions) > 0 {
+				// v26: the last and the first minutes of a place: he packs up or lays out (the clip of a slot, a stable hash of place and slot)
+				pl := max(int64(r.world.HallClosing.SlotSeconds), 1)
+				pk := clock / pl
+				if a, ok := craftPick(phaseActions, s.Place+"#phase", pk, ""); ok {
+					out.SellerAction, out.ActionSinceSeconds = a.ID, pk*pl
+				}
+			} else if id, since, ok := r.craftingSellerWork(s.Trader); ok {
 				out.SellerAction, out.ActionSinceSeconds = id, since // crafting: the master works an order (doc 93)
 			} else if a, ok := craftPick(s.Seller, s.Place+"#seller", k, ""); ok {
 				out.SellerAction, out.ActionSinceSeconds = a.ID, k*L
@@ -193,7 +212,7 @@ func (r *Runtime) appendCraft(view *pb.PocLifeView, hero *behavior.LifeActor, pe
 					return
 				}
 				b := &pb.PocCraftBuyer{Actor: id, AtCounter: at == p.At}
-				k := now / L
+				k := clock / L
 				if b.AtCounter {
 					if a, ok := craftPick(s.Buyer, s.Place+"#"+id, k, "queue"); ok {
 						b.Action, b.SinceSeconds = a.ID, k*L

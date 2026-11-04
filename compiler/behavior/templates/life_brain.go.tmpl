@@ -153,6 +153,12 @@ func pickSeatSpot(spots []LifeSpot,taken map[Cell]bool,at Cell,spread bool)(Life
  for i,x:=range spots{if taken[x.At]{continue};n:=0;if spread{for _,y:=range spots{if y.ID!=x.ID&&taken[y.At]&&Distance(x.At,y.At)<=2{n++}}};d:=Distance(at,x.At);if best<0||n<bestN||n==bestN&&d<bestD{best,bestN,bestD=i,n,d}}
  if best<0{return LifeSpot{},false};return spots[best],true
 }
+// leaveClosed (demo-hub v26-alive): the place around him is closing: he drops what he was after and goes home. The next decision comes as usual.
+func(b *LifeBrain)leaveClosed(home LifeStep,seconds int64){
+ if b.Place.ID!=""||b.Target!=home{b.DecisionPending=true}
+ b.clearSeat();b.Place=LifeAffordance{};b.Target=home;b.BreakKind="";b.Returning=false;b.MealElapsed=0;b.Goal.HoldUntil=b.Goal.ChosenTick
+ if b.NextDecision<seconds{b.NextDecision=seconds}
+}
 func(b *LifeBrain)clearSeat(){b.Seat="";b.SeatQueue=false;b.SeatedAt=0;b.SitUntil=0;b.RiseAt=0;b.QueueSince=0}
 func(b LifeBrain)Validate(m LifeBrainModel,seconds int64)error{
  if !m.Enabled||!b.Initialized{return nil}

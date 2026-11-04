@@ -232,13 +232,19 @@ type Compiled struct {
 	Peddlers *PeddlerCatalog `json:"peddlers,omitempty"`
 	// Craft places of the hub islands (demo-hub v16-goods, world.market_goods); nil in worlds without them.
 	Craft *CraftCatalog `json:"craft,omitempty"`
+	// The sound of the hall (demo-hub v26-alive, world.soundscape); nil in worlds without it.
+	Soundscape *SoundCatalog `json:"soundscape,omitempty"`
+	// What a seller does at his post in the closing and opening phases (demo-hub v26-alive, world.hall_closing).
+	HallClosing *HallClosing `json:"hall_closing,omitempty"`
 	// Crafting stage 1 (doc 93, world.crafting): the engine catalog completed from the compiled world; nil without it.
 	Crafting *craftingRuntime.Model `json:"crafting,omitempty"`
 	// Barks (doc 94, world.barks): the compiled catalog of the lines over the head (internal/barks/catalog.json); a world
 	// without barks gets a silent default so the host adapter always compiles.
 	Barks *barksRuntime.Model `json:"-"`
 	// BarksView (barks v2): how the client lays a line on the screen; a default when the world has none.
-	BarksView     *BarksView `json:"-"`
+	BarksView *BarksView `json:"-"`
+	// demo-hub v26-alive: how the client shows an exchange
+	BarksTalk     *BarksTalkView `json:"-"`
 	barksIn       *barksInput
 	barksWarnings []string
 	barksReport   []byte
@@ -424,6 +430,12 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		return out, nil, err
 	}
 	if out.Peddlers, err = readPeddlers(world); err != nil {
+		return out, nil, err
+	}
+	if out.Soundscape, err = readSoundscape(world); err != nil {
+		return out, nil, err
+	}
+	if out.HallClosing, err = readHallClosing(world); err != nil {
 		return out, nil, err
 	}
 	if out.Craft, err = readCraft(world); err != nil {
@@ -825,6 +837,12 @@ func Generate(project string) error {
 	if compiled.Barks == nil {
 		compiled.Barks = silentBarks(compiled)
 	}
+	if compiled.BarksTalk == nil {
+		compiled.BarksTalk = defaultBarksTalk()
+	}
+	if err := validateSoundscape(compiled, unity); err != nil {
+		return err
+	}
 	if compiled.BarksView == nil {
 		compiled.BarksView = defaultBarksView()
 	}
@@ -1044,6 +1062,10 @@ func Generate(project string) error {
 		"peddlers.cs.tmpl":                      filepath.Join(unity, "Assets/Generated/Poc/PocPeddlers.cs"),
 		"craft.go.tmpl":                         filepath.Join(project, "internal/poc/craft.gen.go"),
 		"craft.cs.tmpl":                         filepath.Join(unity, "Assets/Generated/Poc/PocCraft.cs"),
+		"soundscape.go.tmpl":                    filepath.Join(project, "internal/poc/soundscape.gen.go"),
+		"soundscape_test.go.tmpl":               filepath.Join(project, "internal/poc/soundscape_generated_test.go"),
+		"hall_closing_test.go.tmpl":             filepath.Join(project, "internal/poc/hall_closing_generated_test.go"),
+		"soundscape.cs.tmpl":                    filepath.Join(unity, "Assets/Generated/Poc/PocSoundscape.cs"),
 		"barks.go.tmpl":                         filepath.Join(project, "internal/poc/barks.gen.go"),
 		"barks_facts.go.tmpl":                   filepath.Join(project, "internal/poc/barks_facts.gen.go"),
 		"barks_test.go.tmpl":                    filepath.Join(project, "internal/poc/barks_generated_test.go"),

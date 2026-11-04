@@ -119,6 +119,7 @@ func (r *Runtime) advanceLifeFrameBy(delta int64) error {
 		return err
 	}
 	r.advanceBarks()
+	r.advanceSoundscape()
 	r.awardRepairPractice(previous)
 	r.advancePractice()
 	r.syncLifeHero()
@@ -284,6 +285,7 @@ func (r *Runtime) sendLifeState(c *connection) {
 	r.appendVending(view, hero, msg.PlayerView, c.locale)
 	r.appendPeddlers(view, hero, msg.PlayerView, c.locale)
 	r.appendCraft(view, hero, msg.PlayerView)
+	r.appendSoundscape(view, hero)
 	r.appendGates(view, hero, msg.PlayerView)
 	r.appendLifeMaintenance(view, hero, msg.PlayerView)
 	r.appendLifeInspection(msg, v, hero, c.locale)
@@ -780,6 +782,26 @@ func (r *Runtime) lifeGameNS(seconds int64) int64 {
 func lifeSpotPB(x behavior.LifeSpot) *pb.PocActivitySpot {
 	return &pb.PocActivitySpot{Id: x.ID, Pose: x.Pose, CellX: int32(x.At.X), CellY: int32(x.At.Y), XMm: int32(x.XMM), YMm: int32(x.YMM), ZMm: int32(x.ZMM), YawDeg: x.Yaw, TableXMm: int32(x.TableXMM), TableYMm: int32(x.TableYMM), TableZMm: int32(x.TableZMM)}
 }
+// sellerPostWork (demo-hub v26-alive): a seller at his post packs up in the last minutes of his hours and stays at it until he leaves, lays out in the first minutes. By his own hours, on the Go clock.
+func (r *Runtime) sellerPostWork(id string) string {
+	day := ((r.state.Life.Seconds % 86400) + 86400) % 86400
+	c := r.world.HallClosing
+	if c.PhaseSeconds <= 0 {
+		return ""
+	}
+	for _, sh := range r.world.Inventory.Shopfronts {
+		if sh.Owner != id || sh.Mobile() || sh.CloseSecond-sh.OpenSecond >= 86400 {
+			continue
+		}
+		if day >= sh.CloseSecond-c.PhaseSeconds && day < sh.CloseSecond+c.LingerSeconds {
+			return "closing"
+		}
+		if day >= sh.OpenSecond && day < sh.OpenSecond+c.PhaseSeconds {
+			return "opening"
+		}
+	}
+	return ""
+}
 func (r *Runtime) setLifeActivity(a *pb.PocAgentState, b lifeActivityBody) {
 	m := r.world.Life.Brain
 	if x, phase, since, ok := b.brain.SeatPresentation(m, b.level, b.at); ok {
@@ -818,6 +840,7 @@ func (r *Runtime) setLifeActivity(a *pb.PocAgentState, b lifeActivityBody) {
 	if x, ok := m.CounterPost(b.id, b.level, b.at); ok {
 		a.ActivityPhase = "post"
 		a.ActivitySpot = lifeSpotPB(x)
+		a.PostWork = r.sellerPostWork(b.id)
 		return
 	}
 	// demo-hub v11-text: a regular holding a seat as a routine post sits on it from the moment it arrived on the cell.

@@ -130,6 +130,8 @@ type Requires struct {
 	TargetOnPost      bool   `json:"target_on_post,omitempty"`
 	TargetWithinCells int    `json:"target_within_cells,omitempty"`
 	HeroPassingCells  int    `json:"hero_passing_cells,omitempty"`
+	// somebody on his way passes within these cells of the speaker (the guard hurries those still in the hall)
+	WalkersWithinCells int `json:"walkers_within_cells,omitempty"`
 }
 type React struct {
 	Event string `json:"event"`
@@ -238,6 +240,46 @@ type Combat struct {
 	Deceptions      []Deception       `json:"deceptions,omitempty"`
 }
 
+// ---------------------------------------------------------------- exchanges (demo-hub v26-alive): people talk to each other
+
+// Party is one side of an exchange: a person of the world, or "anyone" of a caste who stands by the first side.
+type Party struct {
+	Who     string `json:"who"`
+	Caste   string `json:"caste"`             // his caste (named: from Castes)
+	Posture string `json:"posture,omitempty"` // "" any | post | seated | standing: where he must be while the exchange lasts
+}
+
+// Turn is one line of an exchange. By = which side says it (0 or 1); Gesture = a talk gesture id of the view (empty: none).
+type Turn struct {
+	ID      string             `json:"id"`
+	By      int                `json:"by"`
+	Gesture string             `json:"gesture,omitempty"`
+	Measure map[string]Measure `json:"measure"`
+}
+
+// Exchange is two people talking: 2-3 turns, the next only after the last one is over and only while both are in place and heard.
+type Exchange struct {
+	ID              string   `json:"id"`
+	A               Party    `json:"a"`
+	B               Party    `json:"b"`
+	WithinCells     int      `json:"within_cells"`
+	HeroWithinCells int      `json:"hero_within_cells"`
+	Periods         []Period `json:"periods"`
+	Weight          int      `json:"weight"`
+	CooldownSeconds int64    `json:"cooldown_seconds"`
+	Turns           []Turn   `json:"turns"`
+}
+
+// TalkRules: the clock of all exchanges of a level: silence between two, the hourly cap, the mean wait after the silence
+// (a hazard), the pause between two turns, how long a turn may wait for its speaker to finish another line.
+type TalkRules struct {
+	GapSeconds      int64 `json:"gap_seconds"`
+	MaxPerHour      int   `json:"max_per_hour"`
+	MeanWaitSeconds int64 `json:"mean_wait_seconds"`
+	PauseMS         int64 `json:"pause_ms"`
+	GiveUpMS        int64 `json:"give_up_ms"`
+}
+
 // Model is the compiled catalog (world.barks + the resolved places).
 type Model struct {
 	TickHz      int64             `json:"tick_hz"`
@@ -254,6 +296,29 @@ type Model struct {
 	Places           []Place           `json:"places"`
 	Packs            []Pack            `json:"packs"`
 	Combat           Combat            `json:"combat"`
+	Exchanges        []Exchange        `json:"exchanges,omitempty"`
+	Talk             TalkRules         `json:"talk"`
+}
+
+func (m Model) Exchange(id string) (*Exchange, bool) {
+	for i := range m.Exchanges {
+		if m.Exchanges[i].ID == id {
+			return &m.Exchanges[i], true
+		}
+	}
+	return nil, false
+}
+
+// TurnOf finds the exchange a spoken turn belongs to.
+func (m Model) TurnOf(line string) (*Exchange, *Turn, bool) {
+	for i := range m.Exchanges {
+		for j := range m.Exchanges[i].Turns {
+			if m.Exchanges[i].Turns[j].ID == line {
+				return &m.Exchanges[i], &m.Exchanges[i].Turns[j], true
+			}
+		}
+	}
+	return nil, nil, false
 }
 
 func (m Model) Face(caste string) (Face, bool) {
@@ -431,6 +496,25 @@ func (m Model) Validate() error {
 	if len(m.Combat.Lines) > 0 && (m.Combat.HeroWithinCells < 1 || m.Combat.RollMax < 1) {
 		return fmt.Errorf("barks: combat hearing and roll must be positive")
 	}
+	if len(m.Exchanges) > 0 && (m.Talk.MaxPerHour < 1 || m.Talk.MeanWaitSeconds < 1 || m.Talk.GapSeconds < 0 || m.Talk.PauseMS < 0 || m.Talk.GiveUpMS < 1) {
+		return fmt.Errorf("barks: invalid talk rules")
+	}
+	exchanges := map[string]bool{}
+	for _, e := range m.Exchanges {
+		if exchanges[e.ID] || e.WithinCells < 1 || e.HeroWithinCells < 1 || e.Weight < 1 || e.CooldownSeconds < 1 || len(e.Periods) == 0 || len(e.Turns) < 2 || len(e.Turns) > 3 {
+			return fmt.Errorf("barks: duplicate or invalid exchange %q", e.ID)
+		}
+		exchanges[e.ID] = true
+		if e.A.Who == "" || e.B.Who == "" || (e.A.Who == e.B.Who && e.A.Who != Anyone) || !faces[e.A.Caste] || !faces[e.B.Caste] {
+			return fmt.Errorf("barks: exchange %s needs two different people with faces", e.ID)
+		}
+		for i, t := range e.Turns {
+			if lines[t.ID] || !lineIDPattern.MatchString(t.ID) || t.By < 0 || t.By > 1 || (i == 0 && t.By != 0) || (i > 0 && t.By == e.Turns[i-1].By) {
+				return fmt.Errorf("barks: exchange %s: turn %q is a duplicate, or the sides do not alternate", e.ID, t.ID)
+			}
+			lines[t.ID] = true
+		}
+	}
 	return nil
 }
 
@@ -441,5 +525,10 @@ func (m Model) Sorted() Model {
 	sort.Slice(out.Places, func(i, j int) bool { return out.Places[i].ID < out.Places[j].ID })
 	out.Packs = append([]Pack(nil), m.Packs...)
 	sort.Slice(out.Packs, func(i, j int) bool { return out.Packs[i].Place < out.Packs[j].Place })
+	out.Exchanges = append([]Exchange(nil), m.Exchanges...)
+	sort.Slice(out.Exchanges, func(i, j int) bool { return out.Exchanges[i].ID < out.Exchanges[j].ID })
+	if len(out.Exchanges) == 0 {
+		out.Exchanges = nil
+	}
 	return out
 }

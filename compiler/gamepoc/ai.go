@@ -100,6 +100,33 @@ func clientResource(c Compiled) ([]byte, error) {
 	if c.Craft != nil {
 		view["craft"] = clientCraft(c.Craft)
 	}
+	if c.HallClosing != nil {
+		view["hall_closing"] = c.HallClosing
+	}
+	// The sound of the hall (demo-hub v26-alive) only in worlds that have it.
+	if c.Soundscape != nil {
+		// JsonUtility reads no maps: the clip table goes as a list of key + files
+		raw, err := json.Marshal(c.Soundscape)
+		if err != nil {
+			return nil, err
+		}
+		var sound map[string]any
+		if err := json.Unmarshal(raw, &sound); err != nil {
+			return nil, err
+		}
+		keys := make([]string, 0, len(c.Soundscape.Clips))
+		for k := range c.Soundscape.Clips {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		rows := []map[string]any{}
+		for _, k := range keys {
+			rows = append(rows, map[string]any{"key": k, "files": c.Soundscape.Clips[k]})
+		}
+		sound["clip_files"] = rows
+		delete(sound, "clips")
+		view["soundscape"] = sound
+	}
 	if len(c.PlayableScenes) > 0 {
 		var scenes map[string]json.RawMessage
 		if err := json.Unmarshal(c.PlayableScenes, &scenes); err != nil {
