@@ -280,33 +280,45 @@ func (r *Runtime) combatWorldSoundEstimate(level string, observer, plan behavior
 	}
 	return best
 }
+// combatWorldHearingPolicy, combatWorldSoundWalls and combatWorldPlaceNoise are what the hearing rule reads; the noise waves read the same three.
+func (r *Runtime) combatWorldHearingPolicy(level string) behavior.HearingPolicy {
+	unit := r.world.Life.Locations[level].CellMM
+	if unit < 1 {
+		unit = 1000
+	}
+	p := r.world.AI.Policy.Perception.Hearing
+	p.RangeCells = max(1, r.world.CombatLife.HearingRangeMM/unit)
+	return p
+}
+func (r *Runtime) combatWorldSoundWalls(level string, from, at behavior.Cell) int {
+	if v := r.world.Decks[level]; v != nil {
+		return v.CombatSoundBlockers(from, at)
+	}
+	return r.state.Life.GateModel(r.world.Life).Space(level, nil).Blockers(from, at)
+}
+func (r *Runtime) combatWorldPlaceNoise(level string, at behavior.Cell) int {
+	ambient := r.world.Scene.AmbientNoise
+	l := r.world.Life.Locations[level]
+	if at.Y >= 0 && at.Y < len(l.Terrain) && at.X >= 0 && at.X < len(l.Terrain[at.Y]) {
+		if n := r.world.Scene.TileNoise[string(l.Terrain[at.Y][at.X])]; n > ambient {
+			ambient = n
+		}
+	}
+	return ambient
+}
 func (r *Runtime) combatWorldHeard(observer combatLifeObserver, from behavior.Cell, loudness float64) (behavior.Heard, bool) {
 	c := r.world.CombatLife
 	if r.combatWorldDistance(observer.Level, observer.At, from) > c.HearingRangeMM {
 		return behavior.Heard{}, false
 	}
-	unit := r.world.Life.Locations[observer.Level].CellMM
-	if unit < 1 {
-		unit = 1000
-	}
-	p := r.world.AI.Policy.Perception.Hearing
-	p.RangeCells = max(1, c.HearingRangeMM/unit)
+	p := r.combatWorldHearingPolicy(observer.Level)
 	a, b := from, observer.At
-	walls := 0
 	if v := r.world.Decks[observer.Level]; v != nil {
 		a, _, _, _ = v.Locate(from)
 		b, _, _, _ = v.Locate(observer.At)
-		walls = v.CombatSoundBlockers(from, observer.At)
-	} else {
-		walls = r.state.Life.GateModel(r.world.Life).Space(observer.Level, nil).Blockers(from, observer.At)
 	}
-	ambient := r.world.Scene.AmbientNoise
-	level := r.world.Life.Locations[observer.Level]
-	if observer.At.Y >= 0 && observer.At.Y < len(level.Terrain) && observer.At.X >= 0 && observer.At.X < len(level.Terrain[observer.At.Y]) {
-		if n := r.world.Scene.TileNoise[string(level.Terrain[observer.At.Y][observer.At.X])]; n > ambient {
-			ambient = n
-		}
-	}
+	walls := r.combatWorldSoundWalls(observer.Level, from, observer.At)
+	ambient := r.combatWorldPlaceNoise(observer.Level, observer.At)
 	heard, ok := p.Hear(behavior.Sound{Origin: a, Loudness: loudness}, b, 1, walls, ambient)
 	if ok {
 		heard.Estimate = r.combatWorldSoundEstimate(observer.Level, observer.At, heard.Estimate)
@@ -424,6 +436,36 @@ func (r *Runtime) combatLifeAfterFrame() error {
 	}
 	return r.combatLifeTakedowns()
 }
+// combatEventNoise: the sound of one combat event as the world hears it; kind names it for the picture, "" for an event that makes none.
+func (r *Runtime) combatEventNoise(event behavior.CombatEvent) (string, behavior.Cell, float64) {
+	if event.Type != "attack" && event.Type != "throw" && event.Type != "explosion" {
+		return "", event.From, 0
+	}
+	kind := "strike"
+	noiseOrigin := event.From
+	loudness := r.world.CombatLife.MeleeLoudness
+	if event.Type == "throw" {
+		kind = ""
+		loudness = 0
+	}
+	if event.Type == "explosion" {
+		kind = "explosion"
+		noiseOrigin = event.To
+		loudness = r.world.CombatLife.ShotLoudness
+	}
+	attacker := r.state.Combat.Actor(event.ActorID)
+	if event.Type == "attack" && attacker != nil && attacker.Weapon.Magazine > 0 {
+		kind = "shot"
+		loudness = r.world.CombatLife.ShotLoudness
+	}
+	if t, held := r.world.CombatRuntime.Rules.Techniques[event.Mode]; held && event.Type == "attack" {
+		kind = "takedown"
+		if !t.Strike {
+			loudness = t.Loudness
+		}
+	}
+	return kind, noiseOrigin, loudness
+}
 func (r *Runtime) combatLifeAfterAction(previous behavior.CombatState) error {
 	if !r.world.CombatLife.Enabled || r.state.Combat.ID == "" {
 		return nil
@@ -443,22 +485,8 @@ func (r *Runtime) combatLifeAfterAction(previous behavior.CombatState) error {
 		if event.Type != "attack" && event.Type != "throw" && event.Type != "explosion" {
 			continue
 		}
-		noiseOrigin := event.From
-		loudness := r.world.CombatLife.MeleeLoudness
-		if event.Type == "throw" {
-			loudness = 0
-		}
-		if event.Type == "explosion" {
-			noiseOrigin = event.To
-			loudness = r.world.CombatLife.ShotLoudness
-		}
 		attacker := r.state.Combat.Actor(event.ActorID)
-		if event.Type == "attack" && attacker != nil && attacker.Weapon.Magazine > 0 {
-			loudness = r.world.CombatLife.ShotLoudness
-		}
-		if t, held := r.world.CombatRuntime.Rules.Techniques[event.Mode]; held && !t.Strike && event.Type == "attack" {
-			loudness = t.Loudness
-		}
+		_, noiseOrigin, loudness := r.combatEventNoise(event)
 		// An original defender's proportionate response is still frightening, but
 		// is not fabricated into a new aggression report against the victim.
 		origin := r.state.Combat.Actor(s.InitiatorID)
@@ -527,6 +555,7 @@ func (r *Runtime) combatLifeAfterAction(previous behavior.CombatState) error {
 					continue
 				}
 				if id != witness.ID {
+					r.noiseShout(witness.Level, witness.ID, witness.At, r.world.AI.Policy.Perception.Hearing.Loudness("shout", false, 1))
 					if _, heard := r.combatWorldHeard(guard, witness.At, r.world.AI.Policy.Perception.Hearing.Loudness("shout", false, 1)); !heard {
 						continue
 					}

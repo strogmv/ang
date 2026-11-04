@@ -45,6 +45,13 @@ type playableSceneDefinition struct {
 	Interactions         []playableInteraction `json:"interactions"`
 	Stores               []inv.Store           `json:"stores"`
 	Sources              []inv.Source          `json:"sources"`
+	// A second person of a stand, an opponent of the guard: he fights the guard where the hero does not see them (noise waves stand).
+	Extras []playableExtra `json:"extras"`
+}
+type playableExtra struct {
+	ID            string        `json:"id"`
+	At            behavior.Cell `json:"at"`
+	CombatProfile string        `json:"combat_profile"`
 }
 type playableSceneState struct {
 	ID          string           `json:"id,omitempty"`
@@ -113,7 +120,7 @@ func (r *Runtime) preparePlayableScenes() error {
 		w.Life.Maintenance = behavior.MaintenanceModel{}
 		w.Life.Residences, w.Life.PracticeStations = nil, nil
 		for actor := range w.Life.Development.Profiles {
-			if actor != playerActorID && actor != def.Guard {
+			if actor != playerActorID && actor != def.Guard && !def.hasExtra(actor) {
 				delete(w.Life.Development.Profiles, actor)
 			}
 		}
@@ -127,6 +134,14 @@ func (r *Runtime) preparePlayableScenes() error {
 			}
 			person.Steps = []behavior.LifeStep{{Level: def.Level, At: at, Activity: activity, Label: def.NameKey}}
 			people = append(people, person)
+		}
+		for _, extra := range def.Extras {
+			person := *w.Life.Person(extra.ID)
+			person.Relations = []behavior.LifeRelation{{To: def.Guard, Strength: -1}}
+			person.Steps = []behavior.LifeStep{{Level: def.Level, At: extra.At, Activity: "post", Label: def.NameKey}}
+			people = append(people, person)
+			people[1].Relations = append(people[1].Relations, behavior.LifeRelation{To: extra.ID, Strength: -1})
+			w.CombatRuntime.Actors[extra.ID] = extra.CombatProfile
 		}
 		w.Life.Actors = people
 		// The prototype reuses a stable body/profile ID, but its public name is
@@ -158,6 +173,9 @@ func (r *Runtime) preparePlayableScenes() error {
 		w.Inventory.Sources = append(w.Inventory.Sources, def.Sources...)
 		w.Vending = vendingCatalog{}
 		w.CombatLife.Aggressors = map[string][]string{def.Guard: {playerActorID}}
+		for _, extra := range def.Extras {
+			w.CombatLife.Aggressors[def.Guard] = append(w.CombatLife.Aggressors[def.Guard], extra.ID)
+		}
 		w.CombatLife.Responders = map[string]combatResponder{}
 		faceX, faceY := r.playableRouteDirection(def)
 		w.Stealth.Watchers = map[string]stealthWatcher{def.Guard: {FaceX: faceX, FaceY: faceY, InvestigateSteps: true}}
@@ -191,6 +209,14 @@ func (r *Runtime) preparePlayableScenes() error {
 	return nil
 }
 
+func (d playableSceneDefinition) hasExtra(actor string) bool {
+	for _, extra := range d.Extras {
+		if extra.ID == actor {
+			return true
+		}
+	}
+	return false
+}
 func (r *Runtime) validatePlayableDefinition(id string, d playableSceneDefinition) error {
 	fail := func() error { return fmt.Errorf("invalid playable scene %s", id) }
 	if d.ID != id || id == "" || d.Scenario != "life:"+id || len(id) > 128 || strings.TrimSpace(id) != id || d.NameKey == "" || d.ObjectiveKey == "" || d.GuardNameKey == "" || d.KeyDefinition == "" || d.Guard == playerActorID || r.world.Life.Person(d.Guard) == nil || r.world.Life.Person(playerActorID) == nil || d.StartSecond < 0 || d.StartSecond >= 86400 || len(d.GuardRoute) < 2 || len(d.GuardRoute) > 32 || d.PatrolPauseSeconds < 1 || d.PatrolPauseSeconds > 300 || len(d.Interactions) < 1 || len(d.Interactions) > 32 || len(d.Stores) > 32 || len(d.Sources) < 1 || len(d.Sources) > 32 || !r.world.Life.Walks(d.Level, d.Spawn) || !r.world.Life.Walks(d.Level, d.Exit) || r.world.Decks[d.Level] == nil || r.world.CombatRuntime.DefaultProfile == "" || !r.world.CombatLife.Enabled || !r.world.Stealth.Enabled || !r.world.Illumination.Enabled {
@@ -228,7 +254,7 @@ func (r *Runtime) validatePlayableDefinition(id string, d playableSceneDefinitio
 	}
 	for _, s := range d.Sources {
 		definition, known := r.world.Inventory.Definitions[s.Definition]
-		if _, duplicate := sources[s.ID]; duplicate || s.ID == "" || !known || definition.Carrier != "physical" || s.Rolls != 0 || len(s.Loot) != 0 || s.Quantity != 1 || s.Condition < 1 || s.Condition > 1000000 || s.Hidden || s.ForSale || s.Owner != "" && s.Owner != playerActorID && s.Owner != d.Guard {
+		if _, duplicate := sources[s.ID]; duplicate || s.ID == "" || !known || definition.Carrier != "physical" || s.Rolls != 0 || len(s.Loot) != 0 || s.Quantity != 1 || s.Condition < 1 || s.Condition > 1000000 || s.Hidden || s.ForSale || s.Owner != "" && s.Owner != playerActorID && s.Owner != d.Guard && !d.hasExtra(s.Owner) {
 			return fail()
 		}
 		switch s.Location.Kind {
@@ -238,7 +264,7 @@ func (r *Runtime) validatePlayableDefinition(id string, d playableSceneDefinitio
 			}
 		case "store":
 			store, found := stores[s.Location.Store]
-			if !found || store.Anchor.Kind == "actor" && store.Anchor.Actor != playerActorID && store.Anchor.Actor != d.Guard || store.Anchor.Kind != "actor" && (store.Anchor.Kind != "world" || store.Anchor.Level != d.Level) {
+			if !found || store.Anchor.Kind == "actor" && store.Anchor.Actor != playerActorID && store.Anchor.Actor != d.Guard && !d.hasExtra(store.Anchor.Actor) || store.Anchor.Kind != "actor" && (store.Anchor.Kind != "world" || store.Anchor.Level != d.Level) {
 				return fail()
 			}
 		default:
@@ -542,6 +568,9 @@ func (r *Runtime) playableInteract(id string) error {
 		next.state.Playable.Cooldowns[action.ID] = next.state.Life.Seconds + action.CooldownSeconds
 	}
 	r.state = next.state
+	if action.Effect == "noise" {
+		r.noiseOwn("signal", d.Level, action.At, action.Loudness, 0)
+	}
 	return nil
 }
 

@@ -32,6 +32,7 @@ namespace AngelsDemons.Poc {
    if(HudButton(new Rect(400,31,150,32),L("ui.combat.title")))combatPanelOpen=!combatPanelOpen;
    // one button (owner 03.11): it names the current mode and goes round normal -> quiet crouched -> quiet upright -> normal; the server's commands are the same on / upright / off
    if(!HeroCombatActive()&&HudButton(new Rect(556,31,148,32),L(!state.Life.Sneaking?"ui.stealth.mode.normal":state.Life.SneakUpright?"ui.stealth.mode.upright":"ui.stealth.mode.crouch")))SendStealthMode(!state.Life.Sneaking?"on":state.Life.SneakUpright?"off":"upright");
+   DrawTacticalButton();
    DrawTakedowns();
    if(state.Life.Illumination!=null&&state.Life.Illumination.Known)GUI.Label(new Rect(556,state.Takedowns.Count>0&&!CombatPlaying&&!HeroCombatActive()?(state.Takedowns[0].Enabled?164:130):66,148,26),L("ui.illumination."+state.Life.Illumination.State),hudSmall);
    DrawCombatFx();

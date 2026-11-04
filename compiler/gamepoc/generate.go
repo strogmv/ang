@@ -237,6 +237,10 @@ type Compiled struct {
 	Soundscape *SoundCatalog `json:"soundscape,omitempty"`
 	// What a seller does at his post in the closing and opening phases (demo-hub v26-alive, world.hall_closing).
 	HallClosing *HallClosing `json:"hall_closing,omitempty"`
+	// The noise waves (combat-play/noise-waves, world.noise_waves); nil in worlds without them.
+	NoiseWaves *NoiseWaveCatalog `json:"noise_waves,omitempty"`
+	// The tactical view (owner 04.11, world.tactical_mode): its label and switch, common to all it will show.
+	TacticalMode *TacticalMode `json:"tactical_mode,omitempty"`
 	// Crafting stage 1 (doc 93, world.crafting): the engine catalog completed from the compiled world; nil without it.
 	Crafting *craftingRuntime.Model `json:"crafting,omitempty"`
 	// Barks (doc 94, world.barks): the compiled catalog of the lines over the head (internal/barks/catalog.json); a world
@@ -440,6 +444,12 @@ func readCompiled(project string) (Compiled, *normalizer.GRPCDef, error) {
 		return out, nil, err
 	}
 	if out.HallClosing, err = readHallClosing(world); err != nil {
+		return out, nil, err
+	}
+	if out.NoiseWaves, err = readNoiseWaves(world); err != nil {
+		return out, nil, err
+	}
+	if out.TacticalMode, err = readTacticalMode(world); err != nil {
 		return out, nil, err
 	}
 	if out.Craft, err = readCraft(world); err != nil {
@@ -850,6 +860,9 @@ func Generate(project string) error {
 	if err := validateSoundscape(compiled, unity); err != nil {
 		return err
 	}
+	if err := validateTacticalMode(compiled); err != nil {
+		return err
+	}
 	if compiled.BarksView == nil {
 		compiled.BarksView = defaultBarksView()
 	}
@@ -1079,6 +1092,10 @@ func Generate(project string) error {
 		"soundscape_test.go.tmpl":               filepath.Join(project, "internal/poc/soundscape_generated_test.go"),
 		"hall_closing_test.go.tmpl":             filepath.Join(project, "internal/poc/hall_closing_generated_test.go"),
 		"soundscape.cs.tmpl":                    filepath.Join(unity, "Assets/Generated/Poc/PocSoundscape.cs"),
+		"noise_waves.go.tmpl":                   filepath.Join(project, "internal/poc/noise_waves.gen.go"),
+		"noise_waves_test.go.tmpl":              filepath.Join(project, "internal/poc/noise_waves_generated_test.go"),
+		"noise_waves.cs.tmpl":                   filepath.Join(unity, "Assets/Generated/Poc/PocNoiseWaves.cs"),
+		"noise_wave.shader.tmpl":                filepath.Join(unity, "Assets/Resources/Generated/PocNoiseWave.shader"),
 		"barks.go.tmpl":                         filepath.Join(project, "internal/poc/barks.gen.go"),
 		"barks_facts.go.tmpl":                   filepath.Join(project, "internal/poc/barks_facts.gen.go"),
 		"barks_test.go.tmpl":                    filepath.Join(project, "internal/poc/barks_generated_test.go"),

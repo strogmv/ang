@@ -197,6 +197,11 @@ func (v *DeckVolume) CombatSoundBlockers(from, to Cell) int {
 	if !oka || !okb {
 		return 100
 	}
+	return v.CombatSoundBlockersPlan(a, ha, b, hb)
+}
+
+// CombatSoundBlockersPlan counts by plan cells and heights, for a place that need not be a standing cell.
+func (v *DeckVolume) CombatSoundBlockersPlan(a Cell, ha int, b Cell, hb int) int {
 	steps := max(absCombat(a.X-b.X), absCombat(a.Y-b.Y))
 	count := 0
 	previous := -1

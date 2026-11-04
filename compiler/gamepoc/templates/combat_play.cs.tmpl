@@ -114,7 +114,7 @@ namespace AngelsDemons.Poc {
  public sealed partial class AngelsDemonsPoc {
   // One presented beat: a server event (or a run of one actor's steps) with its real-time length.
   sealed class CombatBeat {
-   public long turn;public string outcome;
+   public long turn;public string outcome;public long sequence;
    public string kind,actor,target,item,part,mode;public List<Vector2Int> path=new List<Vector2Int>();public Vector2Int from,to;
    public Vector2Int victimFrom,victimTo;public bool victimShift;
    public bool hit,parried,targetDown,targetStunned,valid;public int amount;public float seconds,impact=.5f,lead,turnRate=360;public PocCombatClip clip,reaction;public Vector3 shaft;public bool hasShaft;public string zone,side,sign;public PocCombatWeaponLook victimStance;public PocCombatZoneReaction zr;public bool bodyStrike,bloodDone,contactLogged;public Vector3 hips0,tip0;public bool hips0Set;public float missMinSkin=float.PositiveInfinity,tipBest=float.PositiveInfinity;public bool fxDone,propDone;public float parryBeforeGap=-1,parryBestGap=float.PositiveInfinity,parryBestAt,parryBestBase;
@@ -187,7 +187,7 @@ namespace AngelsDemons.Poc {
     if(e.Type=="wound"&&!string.IsNullOrEmpty(e.ActorId)&&!string.IsNullOrEmpty(e.BodyPart)){var mark=(e.Mode??"").Split(':');combatWoundNotes[e.ActorId]=new CombatWoundNote{zone=e.BodyPart,side=mark.Length>0?mark[0]:"",sign=mark.Length>1?mark[1]:"",depth=mark.Length>2?mark[2]:"",turn=e.Turn};continue;}
     if(e.Type=="wound"||e.Type=="blocked"||e.Type=="weak"||e.Type=="confused"||e.Type=="chip_alarm"||e.Type=="condition"||e.Type=="fight_on")continue;
     if(string.IsNullOrEmpty(e.ActorId)&&e.Type!="explosion")continue; // an unseen actor's step or action: nothing to show
-    run=null;var beat=new CombatBeat{turn=e.Turn,mode=e.Mode,kind=e.Type=="reaction"?"attack":e.Type,actor=e.ActorId,target=e.TargetId,from=from,to=to,hit=e.Hit,amount=e.Amount,part=e.BodyPart,item=e.ItemId,valid=!string.IsNullOrEmpty(e.ActorId)};
+    run=null;var beat=new CombatBeat{sequence=(long)e.Sequence,turn=e.Turn,mode=e.Mode,kind=e.Type=="reaction"?"attack":e.Type,actor=e.ActorId,target=e.TargetId,from=from,to=to,hit=e.Hit,amount=e.Amount,part=e.BodyPart,item=e.ItemId,valid=!string.IsNullOrEmpty(e.ActorId)};
     if(e.Type=="parry"){combatQueue.Add(beat);continue;}
     if(e.Type=="attack"||e.Type=="reaction"){
      // The parry published just before belongs to this blow: the defender raises the weapon at its impact.
@@ -308,6 +308,7 @@ namespace AngelsDemons.Poc {
   // The striker's own clip time (the beat may be longer: it waits for the target's reaction).
   float CombatClipSecondsOf(CombatBeat b){var h=CombatHumanoid(b.actor);return CombatClipSeconds(h==null?null:h.animator,b.clip,b.seconds);}
   void CombatImpact(CombatBeat b){
+   NoiseWaveRelease(b.sequence);
    if(string.IsNullOrEmpty(b.target))return;
    CombatAutoImpact(b.actor,b.target,b.hit,b.from,b.to);
    // The authoritative inventory may already contain a disarm. Keep the old
@@ -868,7 +869,7 @@ namespace AngelsDemons.Poc {
   }
   void CombatPairFx(CombatBeat b,float t){
    var look=CombatLook();var th=look==null?null:look.throat;if(th==null)return;float tt=t-b.fill;
-   if(!b.fxDone&&tt>=b.take){b.fxDone=true;CombatAutoImpact(b.actor,b.target,b.hit,b.from,b.to);CombatPairSound(th.sound_cut,b);}
+   if(!b.fxDone&&tt>=b.take){b.fxDone=true;NoiseWaveRelease(b.sequence);CombatAutoImpact(b.actor,b.target,b.hit,b.from,b.to);CombatPairSound(th.sound_cut,b);}
    if(!b.pairKo&&tt>=b.take+b.holdT){b.pairKo=true;var vb=CombatBodyOf(b.target);vb.held=CombatHeld(b.target);if(b.holdDone){CombatFloat(b.target,L("ui.combat.down"),new Color(1f,.85f,.35f));CombatAutoShotLater("knocked-out");}}
    if(!b.pairEnd&&tt>=b.take+b.holdT+b.lowerT*th.pool_at&&b.holdDone){b.pairEnd=true;var bleed=combatBleeds.Find(x=>x.body==CombatHumanoid(b.target));var vh=CombatHumanoid(b.target);var nk=vh==null?null:vh.animator.GetBoneTransform(HumanBodyBones.Neck);if(bleed!=null&&nk!=null&&bleed.sign.pool_m>0&&bleed.pool==null){var at=nk.position;at.y=vh.go.transform.position.y+.004f;var pool=CombatBloodPiece("floor pool",at,Quaternion.identity,new Vector3(.001f,.002f,.001f));bleed.pool=pool.transform;bleed.poolSize=bleed.sign.pool_m;bleed.poolAt=CombatNow;bleed.pulsesLeft=0;}}
    if(t>=b.seconds-CombatDt*1.5f&&b.holdDone){var vb=CombatBodyOf(b.target);vb.wasDown=true;vb.fallAt=CombatNow-1000;if(string.IsNullOrEmpty(vb.fallStyle))vb.fallStyle="throat";}

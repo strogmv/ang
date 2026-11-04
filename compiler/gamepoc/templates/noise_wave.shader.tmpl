@@ -1,0 +1,57 @@
+// ANG noise waves (world.noise_waves): one floor of one wave, drawn over the finished picture, after the post-processing, so the approved numbers of the mock-up S1 mean the same here:
+// (design/combat-play/noise-waves/v1/tools/waves.py): base + (colour - base) * alpha in the displayed values, whatever the exposure of the scene. A thin warm line, a Gaussian of line_px FWHM measured in
+// screen pixels on the floor plane, two crests, exp decay, alpha up to peak_alpha. The strength is the hearing rule itself: I = L*(1 - (|dx|+|dy|)/reach)*att^walls - place*mask, strictly nothing below min_audible.
+// walls and place are the server's, per cell of the plan, in _Field: R = walls + place*16, 255 = no floor here. The distance of the rule is Manhattan in the plan, as behavior.Distance; the crest is a circle.
+// The depth of the scene decides the rest: on the visible floor at full strength, behind a wall or a body at occluded_mul.
+Shader "ANG/NoiseWave" {
+ Properties {_Field ("Walls and place per plan cell",2D)="black" {}}
+ SubShader { Tags {"Queue"="Transparent" "RenderType"="Transparent" "IgnoreProjector"="True" "RenderPipeline"="UniversalPipeline"}
+  Pass { Name "NoiseWave"
+   Cull Off ZWrite Off ZTest Always ColorMask RGB Blend SrcAlpha OneMinusSrcAlpha
+   HLSLPROGRAM
+   #pragma vertex vert
+   #pragma fragment frag
+   #pragma target 3.0
+   #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+   #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
+   TEXTURE2D(_Field); SAMPLER(sampler_Field);
+   float4 _Rule;      // x z of the rule's centre (m), L, reach (m)
+   float4 _Crest;     // x z of the crest's centre (m), line px, peak alpha
+   float4 _Fronts;    // front 1, amplitude 1, front 2, amplitude 2 (m, 0..1)
+   float4 _Hear;      // min_audible, wall attenuation, place mask, edge band
+   float4 _FieldRect; // x0 z0 (m), 1/width 1/depth (1/m)
+   float4 _Line;      // rgb of the line, multiplier behind an obstacle
+   struct appdata {float4 vertex:POSITION;};
+   struct v2f {float4 pos:SV_POSITION;float3 world:TEXCOORD0;};
+   v2f vert(appdata v){v2f o;float3 w=v.vertex.xyz;o.world=w;o.pos=TransformWorldToHClip(w);return o;}
+   float Band(float d,float front,float amp,float sigma){if(amp<=0)return 0;float q=abs(d-front)/sigma;return q<3?exp(-.5*q*q)*amp:0;}
+   half4 frag(v2f i):SV_Target{
+    float2 p=i.world.xz;
+    float d=distance(p,_Crest.xy);
+    float grad=max(length(float2(ddx(d),ddy(d))),1e-5);
+    float sigma=grad*(_Crest.z/2.355);
+    float wave=min(Band(d,_Fronts.x,_Fronts.y,sigma)+Band(d,_Fronts.z,_Fronts.w,sigma),1);
+    if(wave<=0)discard;
+    float2 uv=(p-_FieldRect.xy)*_FieldRect.zw;
+    if(uv.x<0||uv.y<0||uv.x>1||uv.y>1)discard;
+    float v=round(SAMPLE_TEXTURE2D_LOD(_Field,sampler_Field,uv,0).r*255);
+    if(v>254.5)discard;
+    float walls=fmod(v,16),place=floor(v/16);
+    float dm=abs(p.x-_Rule.x)+abs(p.y-_Rule.y);
+    float I=_Rule.z*(1-dm/_Rule.w)*pow(_Hear.y,walls)-place*_Hear.z;
+    if(I<_Hear.x)discard;
+    float e=saturate((I-_Hear.x)/_Hear.w);
+    float scene=SampleSceneDepth(GetNormalizedScreenSpaceUV(i.pos));
+    #if UNITY_REVERSED_Z
+    bool behind=scene>i.pos.z;
+    #else
+    bool behind=scene<i.pos.z;
+    #endif
+    float alpha=wave*I/_Rule.z*e*e*(3-2*e)*_Crest.w*(behind?_Line.a:1);
+    return half4(_Line.rgb,alpha);
+   }
+   ENDHLSL
+  }
+ }
+ Fallback Off
+}

@@ -27,7 +27,7 @@ namespace AngelsDemons.Poc
     [Serializable] public sealed class PocLoadingScreen { public string id, image, context; }
     [Serializable] public sealed class PocLoading { public string caption; public int min_ms; public PocLoadingScreen[] screens; }
     [Serializable] public sealed class PocMenu { public string background; }
-    [Serializable] public sealed class PocResource { public PocPlayablePreset[] playable_scenes; public PocModularLocation[] modular_locations; public PocLocationSDKBundle location_sdk; public PocWorldText world_text; public PocLocalization localization; public PocConfiguration config; public string content_hash; public PocArt art; public PocLoading loading; public PocMenu menu; public PocSpatialModel spatial; public PocVendingConfig vending; public PocCraftConfig craft; public PocSoundscapeConfig soundscape; public PocHallClosingConfig hall_closing; }
+    [Serializable] public sealed class PocResource { public PocPlayablePreset[] playable_scenes; public PocModularLocation[] modular_locations; public PocLocationSDKBundle location_sdk; public PocWorldText world_text; public PocLocalization localization; public PocConfiguration config; public string content_hash; public PocArt art; public PocLoading loading; public PocMenu menu; public PocSpatialModel spatial; public PocVendingConfig vending; public PocCraftConfig craft; public PocSoundscapeConfig soundscape; public PocHallClosingConfig hall_closing; public PocNoiseWaveConfig noise_waves; public PocTacticalModeConfig tactical_mode; }
     [Serializable] public sealed class HostReady { public string address, host_id; }
 
     public sealed partial class AngelsDemonsPoc : MonoBehaviour

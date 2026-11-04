@@ -293,6 +293,7 @@ func (r *Runtime) sendLifeState(c *connection) {
  r.appendConversation(msg,c.locale)
 	r.appendCraft(view, hero, msg.PlayerView)
 	r.appendSoundscape(view, hero)
+	r.appendNoiseWaves(view, hero)
 	r.appendGates(view, hero, msg.PlayerView)
 	r.appendLifeMaintenance(view, hero, msg.PlayerView)
 	r.appendLifeInspection(msg, v, hero, c.locale)

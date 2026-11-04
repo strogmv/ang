@@ -8,7 +8,7 @@ using UnityEngine.Rendering;
 namespace AngelsDemons.Poc {
  [Serializable] public sealed class PocSceneMM {public float x_mm,y_mm,z_mm;public Vector3 World=>new Vector3(x_mm,z_mm,y_mm)/1000f;}
  [Serializable] public sealed class PocSceneLamp {public string source_id,instance_id,prefabclass,prefab,power_ref,distribution;public PocSceneMM at_mm,aim_mm;public float intensity_day,intensity_night,range_m,beam_degrees,lumens;public float[] rgb_linear;public bool shadows;}
- [Serializable] public sealed class PocScenePresentation {public PocSceneLamp[] lights;public PocCombatLook combat;}
+ [Serializable] public sealed class PocScenePresentation {public PocSceneLamp[] lights;public PocCombatLook combat;public bool tactical_on_start;}
  [Serializable] public sealed class PocPlayablePreset {public string id,scenario,level,name_key;public PocScenePresentation presentation;}
  // A scene-only wrapper marks fixture geometry. The original prefab is preserved.
  public sealed partial class AngelsDemonsPoc {

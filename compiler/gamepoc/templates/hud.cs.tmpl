@@ -78,6 +78,7 @@ namespace AngelsDemons.Poc {
    if(page!="game")return;
    if(Input.GetKeyDown(KeyCode.F3))hudDebugOpen=!hudDebugOpen;
    if(Input.GetKeyDown(KeyCode.B))HudDropBag();
+   TacticalModeKeys();
   }
   void DrawHudFigure(Rect rect){
    string portrait=resource.art!=null&&resource.art.hud!=null?resource.art.hud.hero_portrait:"";

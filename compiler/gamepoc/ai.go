@@ -103,6 +103,12 @@ func clientResource(c Compiled) ([]byte, error) {
 	if c.HallClosing != nil {
 		view["hall_closing"] = c.HallClosing
 	}
+	if c.NoiseWaves != nil {
+		view["noise_waves"] = c.NoiseWaves
+	}
+	if c.TacticalMode != nil {
+		view["tactical_mode"] = c.TacticalMode
+	}
 	// The sound of the hall (demo-hub v26-alive) only in worlds that have it.
 	if c.Soundscape != nil {
 		// JsonUtility reads no maps: the clip table goes as a list of key + files

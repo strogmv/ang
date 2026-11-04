@@ -238,6 +238,13 @@ func (r *Runtime) advanceStealth() error {
 	sort.Strings(ids)
 	noiseListeners := map[string]bool{}
 	if step {
+		stepKind := "step"
+		if h.Sneaking {
+			stepKind = "quiet_step"
+		} else if running {
+			stepKind = "run_step"
+		}
+		r.noiseOwnAtBody(stepKind, h.Level, h.Position, x, y, r.heroStepLoudness(h, running))
 		candidates := []behavior.Listener{}
 		for _, id := range ids {
 			a := r.state.Life.Actor(id)
@@ -286,14 +293,7 @@ func (r *Runtime) advanceStealth() error {
 		observer := combatLifeObserver{ID: id, Level: a.Level, At: a.Position}
 		o.Contact.Advance(r.world.Stealth.StealthPolicy, r.stealthEvidence(h, observer, o, moving, light), h.Position, now)
 		if step && profile.InvestigateSteps && noiseListeners[id] {
-			surface := 1.0
-			if tile := r.world.Life.Locations[h.Level].Terrain[h.Position.Y][h.Position.X]; r.world.Stealth.SurfaceLoudness[string(tile)] > 0 {
-				surface = r.world.Stealth.SurfaceLoudness[string(tile)]
-			}
-			loudness := r.world.AI.Policy.Perception.Hearing.Loudness("step", h.Sneaking, surface)
-			if running && !h.Sneaking {
-				loudness = math.Min(1, loudness*r.world.Life.HeroBody.RunFactor)
-			}
+			loudness := r.heroStepLoudness(h, running)
 			if heard, ok := r.combatWorldHeard(observer, h.Position, loudness); ok {
 				r.combatWorldRemember(id, behavior.Fact{Subject: fmt.Sprintf("noise.steps.%d", s.NoiseSequence), Kind: "combat.noise", Source: "sound", Value: true, Position: heard.Estimate, Radius: heard.Radius, Strength: heard.Intensity, ObservedTick: now, ExpiresTick: now + r.world.Stealth.SoundMemorySeconds, Priority: 10})
 				// Orient to the uncertain sound, never to the unheard true source.
@@ -328,6 +328,19 @@ func (r *Runtime) advanceStealth() error {
 		}
 	}
 	return nil
+}
+
+// heroStepLoudness: how loud one step of the hero is on the tile under him.
+func (r *Runtime) heroStepLoudness(h *behavior.LifeActor, running bool) float64 {
+	surface := 1.0
+	if tile := r.world.Life.Locations[h.Level].Terrain[h.Position.Y][h.Position.X]; r.world.Stealth.SurfaceLoudness[string(tile)] > 0 {
+		surface = r.world.Stealth.SurfaceLoudness[string(tile)]
+	}
+	loudness := r.world.AI.Policy.Perception.Hearing.Loudness("step", h.Sneaking, surface)
+	if running && !h.Sneaking {
+		loudness = math.Min(1, loudness*r.world.Life.HeroBody.RunFactor)
+	}
+	return loudness
 }
 func (r *Runtime) clearStealthSearch(id string) {
 	if a := r.state.Life.Actor(id); a != nil && a.Safety != nil && a.Safety.Reason == "stealth observation" {
