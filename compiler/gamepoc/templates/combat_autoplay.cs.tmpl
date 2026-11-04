@@ -131,6 +131,7 @@ namespace AngelsDemons.Poc {
     case 2:
      if(combatAutoOver&&!CombatPlaying){combatAutoPhase=3;combatAutoAt=Time.unscaledTime+2.5f;CombatAutoNote("the hero has fallen back; the recording ends with the encounter still active");return;}
      if(state.Combat==null||!state.Combat.Active||!HeroCombatActive()){if(!CombatPlaying){combatAutoPhase=3;combatAutoAt=Time.unscaledTime+3f;CombatAutoNote("encounter over: winner="+(state.Combat==null?"":state.Combat.Winner)+" hero state="+(state.PlayerCondition==null?0:state.PlayerCondition.Hp));}return;}
+     if(CombatUiReviewTick())return;
      CombatAutoPoseFacing();
      if(combatAutoSave>0){CombatAutoSaveLoad();return;}
      if(!CombatCanCommand()){combatAutoIdleAt=-1;return;}

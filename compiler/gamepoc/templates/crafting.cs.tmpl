@@ -30,6 +30,7 @@ namespace AngelsDemons.Poc {
    session.SendCraftingCommand(new PocCraftingCommand { RequestId = craftingRequest, Epoch = state.Epoch, Action = action, Recipe = recipe ?? "", ItemId = itemId ?? "", JobId = jobId ?? "", Target = target ?? "" });
   }
   bool CraftingPointerBlocked(Vector2 p) {
+   if (HeroCombatActive()) return false;
    var v = CraftingView(); if (v == null) return false;
    return CraftingHudButton.Contains(p) || ((v.Counter != null || CraftingRebindHere(v) != null) && CraftingPrompt.Contains(p));
   }
@@ -51,7 +52,7 @@ namespace AngelsDemons.Poc {
 
   // keyboard / controller once per frame (OnGUI runs several times a frame)
   void CraftingInput(bool open) {
-   if (craftingFrame == Time.frameCount || loadingActive || verify) return;
+   if (craftingFrame == Time.frameCount || loadingActive || verify || (!open && HeroCombatActive())) return;
    craftingFrame = Time.frameCount;
    var v = CraftingView(); if (v == null) return;
    if (!open) {
@@ -79,6 +80,7 @@ namespace AngelsDemons.Poc {
 
   // ---------------------------------------------------------------- game page: HUD button, counter prompt, notice
   void DrawCraftingUI() {
+   if (HeroCombatActive()) return;
    var v = CraftingView(); if (v == null) return;
    CraftingHook(); CraftingStyles(); CraftingInput(false);
    string label = L("ui.crafting.open");

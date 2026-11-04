@@ -10,9 +10,15 @@ namespace AngelsDemons.Poc {
  public sealed partial class AngelsDemonsPoc {
   int combatSelected;string combatTargetId="",combatRefusal="",combatSentRequest="";float combatAxisAt,combatAxisXAt,combatRefusalUntil;PocCombatOption combatSentOption;
   bool combatDetails,combatWasActive;int combatScrollSelected=-1;Vector2 combatBodyScroll;
-  GUIStyle combatRowStyle,combatReasonStyle,combatApStyle,combatHeaderStyle;
   static readonly string[] CombatParts={"torso","head","armed_limb","arms","legs","neck","chest","abdomen","axilla","groin"};
-  internal static readonly Rect CombatPanelFrame=new Rect(994,120,272,590);
+  internal static readonly Rect CombatPanelFrame=new Rect(18,576,1244,210);
+  internal static readonly Rect CombatTargetFrame=new Rect(930,140,332,410);
+  internal static readonly Rect CombatHealthFrame=new Rect(18,140,346,410);
+  internal static readonly Rect CombatCareFrame=new Rect(930,140,332,410);
+  string combatUiGroup="";
+  readonly Color combatUiAccent=new Color(.84f,.69f,.39f),combatUiMuted=new Color(.60f,.65f,.65f);
+  GUIStyle combatUiTitle,combatUiText,combatUiSmall,combatUiBig,combatUiButton;
+  bool CombatUiBlocks(Vector2 p){return HeroCombatActive()?(CombatPanelFrame.Contains(p)||CombatTargetFrame.Contains(p)||(combatDetails&&CombatHealthFrame.Contains(p))||(!combatDetails&&CombatUiWarning()!=""&&new Rect(18,520,888,44).Contains(p))):(combatPanelOpen&&CombatCareFrame.Contains(p));}
   internal Rect CombatPanelRect=>CombatPanelFrame;
 
   List<string> CombatTargets(){var ids=new List<string>();if(state==null||state.Combat==null)return ids;foreach(var o in state.Combat.Options)if(o.Group=="attack"&&!string.IsNullOrEmpty(o.TargetId)&&!ids.Contains(o.TargetId))ids.Add(o.TargetId);return ids;}
@@ -23,13 +29,18 @@ namespace AngelsDemons.Poc {
    return rows;
   }
   List<PocCombatOption> CombatDisplayRows(){
-   var all=CombatRows();if(combatDetails||!HeroCombatActive())return all;var rows=new List<PocCombatOption>();
-   Action<Predicate<PocCombatOption>> take=match=>{var o=all.Find(match);if(o!=null&&!rows.Contains(o))rows.Add(o);};
-   take(o=>o.Action=="equip");take(o=>o.Group=="attack"&&(o.Mode=="quick"||o.Mode=="single"));take(o=>o.Group=="attack"&&o.Mode=="heavy");
-   take(o=>o.Action=="guard"||o.Action=="reload");take(o=>o.Id.StartsWith("move.approach",StringComparison.Ordinal));
-   take(o=>o.Action=="disengage"||o.Id.StartsWith("move.retreat",StringComparison.Ordinal));take(o=>o.Action=="end");
-   while(rows.Count>6)rows.RemoveAt(rows.Count-2);return rows;
+   var rows=new List<PocCombatOption>();foreach(var o in CombatRows()){
+    if(HeroCombatActive()&&o.Action=="end")continue;
+    if(!HeroCombatActive()||combatUiGroup==""||o.Group==combatUiGroup||(combatUiGroup=="attack"&&o.Group=="weapon"))rows.Add(o);
+   }
+   if(HeroCombatActive()&&combatUiGroup==""){
+    var ordered=new List<PocCombatOption>();Action<Predicate<PocCombatOption>> take=match=>{var o=rows.Find(match);if(o!=null&&!ordered.Contains(o))ordered.Add(o);};
+    take(o=>o.Action=="equip");take(o=>o.Group=="attack"&&o.Mode=="quick");take(o=>o.Group=="attack"&&o.Mode=="heavy");
+    take(o=>o.Id!=null&&o.Id.StartsWith("move.approach",StringComparison.Ordinal));take(o=>o.Id!=null&&o.Id.StartsWith("move.retreat",StringComparison.Ordinal));take(o=>o.Action=="guard"||o.Action=="reload");
+    foreach(var o in rows)if(!ordered.Contains(o))ordered.Add(o);return ordered;
+   }return rows;
   }
+  void CombatUiSelectGroup(string group){combatUiGroup=group;combatSelected=0;combatScroll=Vector2.zero;combatScrollSelected=-1;}
   bool CombatHeroTurn(){return state!=null&&state.Combat!=null&&state.Combat.Active&&state.Combat.CurrentActorId=="char.hero";}
   bool CombatCanCommand(){return (HeroCombatActive()?CombatHeroTurn():combatPanelOpen)&&!CombatPlaying&&string.IsNullOrEmpty(combatSentRequest)&&CanSend()&&!state.Paused&&(!HeroCombatIncapacitated()||!HeroCombatActive()&&state.PlayerCondition!=null&&!state.PlayerCondition.Down&&!state.PlayerCondition.Stunned);}
 
@@ -53,7 +64,8 @@ namespace AngelsDemons.Poc {
   // Space / Y — end turn. Mouse rows are handled in DrawCombatPanel.
   void UpdateCombatPanelInput(){
    if(page!="game"||(!HeroCombatActive()&&!combatPanelOpen)||loadingActive)return;
-   if(Input.GetKeyDown(KeyCode.I)||Input.GetKeyDown(KeyCode.JoystickButton2)){combatDetails=!combatDetails;combatSelected=0;combatScroll=Vector2.zero;}
+   if(Input.GetKeyDown(KeyCode.I)||Input.GetKeyDown(KeyCode.JoystickButton2))combatDetails=!combatDetails;
+   if(Input.GetKeyDown(KeyCode.Space)||Input.GetKeyDown(KeyCode.JoystickButton3)){foreach(var o in CombatRows())if(o.Action=="end"){CombatExecute(o);break;}}
    var rows=CombatDisplayRows();if(rows.Count==0)return;combatSelected=Mathf.Clamp(combatSelected,0,rows.Count-1);
    int dy=0,dx=0;
    if(Input.GetKeyDown(KeyCode.UpArrow))dy=-1;if(Input.GetKeyDown(KeyCode.DownArrow))dy=1;
@@ -70,49 +82,129 @@ namespace AngelsDemons.Poc {
    if(Input.GetKeyDown(KeyCode.Tab)||Input.GetKeyDown(KeyCode.JoystickButton5))CombatCycleTarget(1);
    if(Input.GetKeyDown(KeyCode.JoystickButton4))CombatCycleTarget(-1);
    if(Input.GetKeyDown(KeyCode.Return)||Input.GetKeyDown(KeyCode.KeypadEnter)||Input.GetKeyDown(KeyCode.JoystickButton0))CombatExecute(rows[combatSelected]);
-   if(Input.GetKeyDown(KeyCode.Space)||Input.GetKeyDown(KeyCode.JoystickButton3)){foreach(var o in rows)if(o.Action=="end"){CombatExecute(o);break;}}
    for(int k=0;k<9&&k<rows.Count;k++)if(Input.GetKeyDown(KeyCode.Alpha1+k)){combatSelected=k;CombatExecute(rows[k]);}
   }
 
   string CombatActorName(string id){if(id=="char.hero")return state.PlayerName;foreach(var a in state.SceneAgents)if(a.Id==id)return a.Name;return L("ui.combat.target");}
+  static string CombatUiActionLabel(PocCombatOption option){
+   string suffix=" ("+option.TargetId+")";
+   return option.Group=="care"&&!string.IsNullOrEmpty(option.TargetId)&&option.Label.EndsWith(suffix,StringComparison.Ordinal)?option.Label.Substring(0,option.Label.Length-suffix.Length):option.Label;
+  }
   void CombatPanelStyles(){
-   if(combatRowStyle!=null)return;
-   combatRowStyle=new GUIStyle(hudButton){alignment=TextAnchor.MiddleLeft,fontSize=15,wordWrap=false,padding=new RectOffset(10,6,2,2)};
-   combatReasonStyle=new GUIStyle(hudSmall){fontSize=12,wordWrap=true,normal={textColor=new Color(.86f,.62f,.48f)}};
-   combatApStyle=new GUIStyle(hudBody){fontSize=14,alignment=TextAnchor.MiddleRight};
-   combatHeaderStyle=new GUIStyle(hudHeading){fontSize=20};
+   if(combatUiTitle!=null)return;
+   combatUiTitle=new GUIStyle(hudHeading){fontSize=22,clipping=TextClipping.Clip};
+   combatUiText=new GUIStyle(hudBody){fontSize=16,wordWrap=true};
+   combatUiSmall=new GUIStyle(hudSmall){fontSize=14,wordWrap=true,normal={textColor=combatUiMuted}};
+   combatUiBig=new GUIStyle(hudHeading){fontSize=34,normal={textColor=combatUiAccent}};
+   combatUiButton=new GUIStyle(hudButton){fontSize=16,wordWrap=true,padding=new RectOffset(10,10,4,4)};
+  }
+  void CombatUiCard(Rect r){Fill(new Rect(r.x+3,r.y+4,r.width,r.height),new Color(0,0,0,.32f));Fill(r,new Color(.055f,.071f,.080f,.97f));Fill(new Rect(r.x,r.y,r.width,2),new Color(.29f,.35f,.36f));}
+  bool CombatUiButton(Rect r,string text,bool selected=false){
+   bool hover=r.Contains(Event.current.mousePosition);
+   Fill(r,selected?new Color(.25f,.29f,.28f):hover?new Color(.18f,.23f,.25f):new Color(.11f,.15f,.17f));
+   if(selected)Fill(new Rect(r.x,r.y,3,r.height),combatUiAccent);
+   var style=combatUiButton;
+   if(style.CalcHeight(new GUIContent(text),r.width)>r.height)style=new GUIStyle(combatUiButton){fontSize=14,padding=new RectOffset(6,6,2,2)};
+   return GUI.Button(r,text,style);
+  }
+  string CombatUiState(PocCombatActor hero){
+   foreach(var line in hero.BodyLines)if(line.StartsWith("! ",StringComparison.Ordinal))return line.Substring(2);
+   return hero.BodyLines.Count>1?hero.BodyLines[1]:hero.BodyLines.Count>0?hero.BodyLines[0]:"";
+  }
+  string CombatUiWarning(){
+   if(state==null||state.Combat==null)return "";
+   foreach(var hero in state.Combat.Actors)if(hero.Id=="char.hero"){
+    foreach(var line in hero.BodyLines)if(line.StartsWith("! ",StringComparison.Ordinal))return line.Substring(2);
+    if(hero.Bleeding>0)return L("ui.combat.bleeding")+" · "+CombatUiState(hero);
+   }return "";
   }
   void DrawCombatPanel(){
    var fight=state.Combat;PocCombatActor hero=null;foreach(var a in fight.Actors)if(a.Id=="char.hero")hero=a;if(hero==null)return;
-   PrepareHud();CombatPanelStyles();combatRowStyle.fontSize=13;combatRowStyle.wordWrap=true;combatRowStyle.padding=new RectOffset(6,48,2,2);combatHeaderStyle.fontSize=16;
-   var box=CombatPanelFrame;HudFrame(box,false);float x=box.x+10,w=box.width-20,y=box.y+9;
-   string head=CombatPlaying?L("ui.combat.playing"):fight.CurrentActorId=="char.hero"?L("ui.combat.your_turn"):L("ui.combat.turn_of").Replace("{name}",CombatActorName(fight.CurrentActorId));
-   GUI.Label(new Rect(x,y,w,24),head,combatHeaderStyle);y+=25;
-   GUI.Label(new Rect(x,y,w,23),L("ui.combat.ap_left").Replace("{ap}",hero.Ap.ToString()).Replace("{max}",Math.Max(fight.TurnAp,hero.Ap+hero.ReservedAp).ToString())+" · "+L("ui.combat.turn").Replace("{turn}",fight.Turn.ToString()),new GUIStyle(hudBody){fontSize=14});y+=25;
-   CombatRows();PocCombatActor target=null;foreach(var a in fight.Actors)if(a.Id==combatTargetId)target=a;
-   var small=new GUIStyle(hudSmall){fontSize=12,wordWrap=true,alignment=TextAnchor.UpperLeft};
-   string tline=target==null?L("ui.combat.no_target"):L("ui.combat.target_line").Replace("{name}",CombatActorName(target.Id)).Replace("{dist}",(target.DistanceMm/1000f).ToString("0.0",System.Globalization.CultureInfo.GetCultureInfo(CurrentLocale())));
-   GUI.Label(new Rect(x,y,w,38),tline,small);y+=38;
-   if(target!=null){var signs=new List<string>();if(!string.IsNullOrEmpty(target.HeldName))signs.Add(target.HeldName);foreach(var sign in target.Signs)signs.Add(sign);GUI.Label(new Rect(x,y,w,32),string.Join(" · ",signs),small);y+=32;}
-   if(GUI.Button(new Rect(x,y,w,25),L("ui.combat.body."+combatBodyPart)+"  ◂ ▸",new GUIStyle(hudButton){fontSize=13})){int i=Array.IndexOf(CombatParts,combatBodyPart);combatBodyPart=CombatParts[(i+1)%CombatParts.Length];}y+=28;
-   if(GUI.Button(new Rect(x,y,w,28),L(combatDetails?"ui.combat.compact":"ui.combat.details"),new GUIStyle(hudButton){fontSize=12})){combatDetails=!combatDetails;combatSelected=0;combatScroll=Vector2.zero;}y+=31;
-   if(combatDetails){
-    float height=0;foreach(var line in CombatGroupedLines(hero.BodyLines))height+=Mathf.Max(20,small.CalcHeight(new GUIContent(line),w-20));
-    combatBodyScroll=GUI.BeginScrollView(new Rect(x,y,w,100),combatBodyScroll,new Rect(0,0,w-20,height));float by=0;foreach(var line in CombatGroupedLines(hero.BodyLines)){float h=Mathf.Max(20,small.CalcHeight(new GUIContent(line),w-20));GUI.Label(new Rect(0,by,w-20,h),line,small);by+=h;}GUI.EndScrollView();y+=103;
-    GUI.Label(new Rect(x,y,w,56),L("ui.combat.nonlethal_risk"),small);y+=59;
-   }else{
-    string body=hero.BodyLines.Count>1?hero.BodyLines[1]:hero.BodyLines.Count>0?hero.BodyLines[0]:hero.HeldName;foreach(var line in hero.BodyLines)if(line.StartsWith("! ",StringComparison.Ordinal)){body=line;break;}GUI.Label(new Rect(x,y,w,56),body,small);y+=59;
-   }
+   PrepareHud();CombatPanelStyles();CombatRows();CombatUiCard(CombatPanelFrame);
+   string head=CombatPlaying?L("ui.combat.playing"):CombatHeroTurn()?L("ui.combat.your_turn"):L("ui.combat.turn_hidden");
+   GUI.Label(new Rect(32,588,210,29),head,combatUiTitle);
+   GUI.Label(new Rect(32,620,210,44),L("ui.combat.ui.ap").Replace("{ap}",hero.Ap.ToString()),combatUiBig);
+   GUI.Label(new Rect(32,666,210,24),L("ui.combat.ui.reserve").Replace("{ap}",hero.ReservedAp.ToString()),combatUiText);
+   GUI.Label(new Rect(32,694,210,40),hero.HeldName,combatUiSmall);
+   if(CombatUiButton(new Rect(32,738,202,34),L("ui.combat.ui.condition"),combatDetails))combatDetails=!combatDetails;
+   Fill(new Rect(248,590,1,182),new Color(.25f,.30f,.31f));
+   string[] groups={"","attack","move","stance","care"};
+   for(int i=0;i<groups.Length;i++){string group=groups[i];if(CombatUiButton(new Rect(264+i*146,590,138,30),L("ui.combat.ui.group."+(group==""?"all":group)),combatUiGroup==group))CombatUiSelectGroup(group);}
    var rows=CombatDisplayRows();combatSelected=Mathf.Clamp(combatSelected,0,Math.Max(0,rows.Count-1));bool can=CombatCanCommand();
-   const float rowHeight=35;float footer=box.yMax-55,refusalTop=footer-55;float available=Mathf.Max(35,refusalTop-y-5),total=rows.Count*(rowHeight+3),selectedTop=combatSelected*(rowHeight+3);
-   if(combatScrollSelected!=combatSelected){if(selectedTop<combatScroll.y)combatScroll.y=selectedTop;else if(selectedTop+rowHeight>combatScroll.y+available)combatScroll.y=selectedTop+rowHeight-available;combatScrollSelected=combatSelected;}
-   combatScroll=GUI.BeginScrollView(new Rect(x,y,w,available),combatScroll,new Rect(0,0,w-18,total));float ry=0;
-   for(int i=0;i<rows.Count;i++){var o=rows[i];float rw=w-22;if(i==combatSelected)Fill(new Rect(0,ry,rw,rowHeight),new Color(.42f,.32f,.16f,.55f));var before=GUI.color;if(!o.Enabled||!can)GUI.color=new Color(1,1,1,.5f);
-    if(GUI.Button(new Rect(0,ry,rw,rowHeight),(i<9?(i+1)+" ":"")+o.Label,combatRowStyle)){combatSelected=i;CombatExecute(o);}if(o.Ap>0)GUI.Label(new Rect(rw-47,ry+7,43,20),o.Ap+" "+L("ui.combat.ap_cost").Replace("{ap}","").Trim(),new GUIStyle(combatApStyle){fontSize=12});GUI.color=before;ry+=rowHeight+3;
+   const int cols=3;const float cw=238,rh=48,gap=6;float selectedTop=(combatSelected/cols)*(rh+gap),available=102;
+   if(combatScrollSelected!=combatSelected){if(selectedTop<combatScroll.y)combatScroll.y=selectedTop;else if(selectedTop+rh>combatScroll.y+available)combatScroll.y=selectedTop+rh-available;combatScrollSelected=combatSelected;}
+   PocCombatOption hovered=null;
+   combatScroll=GUI.BeginScrollView(new Rect(264,630,746,available),combatScroll,new Rect(0,0,726,Mathf.Max(available,Mathf.Ceil(rows.Count/(float)cols)*(rh+gap)-gap)));
+   for(int i=0;i<rows.Count;i++){
+    var o=rows[i];var rect=new Rect((i%cols)*(cw+gap),(i/cols)*(rh+gap),cw,rh);bool selected=i==combatSelected;
+    Fill(rect,selected?new Color(.23f,.28f,.28f):new Color(.10f,.14f,.16f));if(selected)Fill(new Rect(rect.x,rect.y,3,rh),combatUiAccent);
+    var text=new GUIStyle(combatUiButton){alignment=TextAnchor.MiddleLeft,padding=new RectOffset(12,62,3,3),normal={textColor=o.Enabled&&can?hudPaper:combatUiMuted}};
+    string label=(i<9?(i+1)+"  ":"")+CombatUiActionLabel(o);if(text.CalcHeight(new GUIContent(label),rect.width)>rect.height)text.fontSize=14;
+    if(text.CalcHeight(new GUIContent(label),rect.width)>rect.height){while(label.Length>6&&text.CalcHeight(new GUIContent(label+"…"),rect.width)>rect.height)label=label.Substring(0,label.Length-1);label+="…";}
+    if(rect.Contains(Event.current.mousePosition))hovered=o;
+    if(GUI.Button(rect,label,text)){combatSelected=i;CombatExecute(o);}
+    GUI.Label(new Rect(rect.xMax-59,rect.y+13,55,25),L("ui.combat.ap_cost").Replace("{ap}",o.Ap.ToString()),new GUIStyle(combatUiSmall){alignment=TextAnchor.MiddleCenter,normal={textColor=o.Enabled?combatUiAccent:combatUiMuted}});
    }GUI.EndScrollView();
-   string refusal=Time.unscaledTime<combatRefusalUntil?combatRefusal:rows.Count>0&&!rows[combatSelected].Enabled?rows[combatSelected].Reason:"";
-   if(!string.IsNullOrEmpty(refusal)){Fill(new Rect(x,refusalTop,w,51),new Color(.35f,.1f,.08f,.85f));GUI.Label(new Rect(x+4,refusalTop+3,w-8,46),refusal,new GUIStyle(small){normal={textColor=new Color(1,.82f,.72f)}});}
-   GUI.Label(new Rect(x,footer,w,49),L("ui.combat.compact_controls"),small);
+   if(rows.Count==0)GUI.Label(new Rect(276,650,710,55),L("ui.combat.ui.no_actions"),combatUiText);
+   var inspected=hovered??(rows.Count>0?rows[combatSelected]:null);
+   string refusal=Time.unscaledTime<combatRefusalUntil?combatRefusal:inspected!=null&&!inspected.Enabled?inspected.Reason:"";
+   string guidance=inspected!=null?CombatUiActionLabel(inspected)+" · "+(!string.IsNullOrEmpty(refusal)?refusal:L("ui.combat.ap_cost").Replace("{ap}",inspected.Ap.ToString())):!string.IsNullOrEmpty(refusal)?refusal:L("ui.combat.ui.select_action");
+   Fill(new Rect(264,738,746,40),!string.IsNullOrEmpty(refusal)?new Color(.31f,.14f,.12f):new Color(.09f,.12f,.14f));
+   GUI.Label(new Rect(274,742,726,34),guidance,new GUIStyle(combatUiSmall){normal={textColor=!string.IsNullOrEmpty(refusal)?new Color(1,.74f,.60f):hudPaper}});
+   Fill(new Rect(1022,590,1,182),new Color(.25f,.30f,.31f));
+   GUI.Label(new Rect(1036,590,212,26),L("ui.combat.turn").Replace("{turn}",fight.Turn.ToString()),combatUiText);
+   GUI.Label(new Rect(1036,622,212,64),L(hero.WeaponKind=="firearm"?"ui.combat.reserve_shot":"ui.combat.reserve_help"),combatUiSmall);
+   var end=CombatRows().Find(o=>o.Action=="end");
+   if(end!=null){var before=GUI.color;if(!end.Enabled||!can)GUI.color=new Color(1,1,1,.5f);if(CombatUiButton(new Rect(1036,706,212,66),end.Label+"  [Space]",true))CombatExecute(end);GUI.color=before;}
+   DrawCombatTarget();if(combatDetails)DrawCombatHealth(hero);
+   string warning=CombatUiWarning();if(!combatDetails&&warning!=""){
+    var alert=new Rect(18,520,888,44);Fill(alert,new Color(.34f,.13f,.10f,.98f));
+    if(GUI.Button(alert,warning,new GUIStyle(combatUiButton){fontSize=18,alignment=TextAnchor.MiddleLeft,normal={textColor=new Color(1,.81f,.68f)}}))combatDetails=true;
+   }
+  }
+  void DrawCombatTarget(){
+   var fight=state.Combat;PocCombatActor target=null;foreach(var a in fight.Actors)if(a.Id==combatTargetId)target=a;
+   var box=CombatTargetFrame;CombatUiCard(box);float x=box.x+16,w=box.width-32;
+   GUI.Label(new Rect(x,154,w,22),L("ui.combat.ui.observed_target"),combatUiSmall);
+   GUI.Label(new Rect(x,180,w,54),target==null?L("ui.combat.no_target"):CombatActorName(target.Id),new GUIStyle(combatUiTitle){wordWrap=true});
+   string distance=target==null?"":L("ui.combat.ui.distance").Replace("{dist}",(target.DistanceMm/1000f).ToString("0.0",System.Globalization.CultureInfo.GetCultureInfo(CurrentLocale())));
+   GUI.Label(new Rect(x,237,150,25),distance,combatUiText);
+   if(CombatTargets().Count>1&&CombatUiButton(new Rect(x+160,236,w-160,28),L("ui.combat.next_target")))CombatCycleTarget(1);
+   if(target!=null){var signs=new List<string>();if(!string.IsNullOrEmpty(target.HeldName))signs.Add(target.HeldName);foreach(var sign in target.Signs)signs.Add(sign);GUI.Label(new Rect(x,272,w,55),string.Join(" · ",signs),combatUiSmall);}
+   GUI.Label(new Rect(x,329,w,23),L("ui.combat.ui.aim"),combatUiSmall);
+   for(int i=0;i<CombatParts.Length;i++){
+    string part=CombatParts[i];if(CombatUiButton(new Rect(x+(i%2)*153,358+(i/2)*34,147,29),L("ui.combat.body."+part),combatBodyPart==part)){combatBodyPart=part;combatSelected=0;combatScroll=Vector2.zero;combatScrollSelected=-1;}
+   }
+   GUI.Label(new Rect(x,530,w,18),L("ui.combat.ui.target_keys"),new GUIStyle(combatUiSmall){fontSize=12});
+  }
+  void DrawCombatHealth(PocCombatActor hero){
+   var box=CombatHealthFrame;CombatUiCard(box);float x=box.x+16,w=box.width-32;
+   GUI.Label(new Rect(x,154,w-45,28),L("ui.combat.ui.condition"),combatUiTitle);
+   if(CombatUiButton(new Rect(box.xMax-45,152,30,30),"×"))combatDetails=false;
+   GUI.Label(new Rect(x,192,w,69),CombatUiState(hero),new GUIStyle(combatUiText){normal={textColor=hero.Bleeding>0?new Color(1,.63f,.49f):hudPaper}});
+   var lines=CombatGroupedLines(hero.BodyLines);float total=0;foreach(var line in lines)total+=Mathf.Max(26,combatUiText.CalcHeight(new GUIContent(line),w-20))+10;
+   combatBodyScroll=GUI.BeginScrollView(new Rect(x,272,w,216),combatBodyScroll,new Rect(0,0,w-20,total));float y=0;
+   foreach(var line in lines){float h=Mathf.Max(26,combatUiText.CalcHeight(new GUIContent(line),w-20));GUI.Label(new Rect(0,y,w-20,h),line,combatUiText);y+=h+10;}GUI.EndScrollView();
+   if(CombatUiButton(new Rect(x,503,w,32),L("ui.combat.ui.group.care"),combatUiGroup=="care"))CombatUiSelectGroup("care");
+  }
+  // Opt-in native review: invokes the same selectors and command handler as the buttons.
+  // It never injects OS input or fabricates a game snapshot.
+  int combatUiProofStep;float combatUiProofAt;bool combatUiProofEnded;
+  bool CombatUiReviewTick(){
+   if(Array.IndexOf(Environment.GetCommandLineArgs(),"--poc-combat-ui-review")<0)return false;
+   if(combatUiProofEnded){if(!CombatPlaying&&string.IsNullOrEmpty(combatSentRequest)&&Time.unscaledTime>combatUiProofAt){CombatAutoShot("ui-after-end-turn");CombatAutoNote("UI review: end-turn acknowledged; real server turn="+state.Combat.Turn);combatAutoPhase=4;combatAutoAt=Time.unscaledTime+1;}return true;}
+   if(!CombatCanCommand()||Time.unscaledTime<combatUiProofAt)return true;
+   combatUiProofAt=Time.unscaledTime+1.8f;
+   if(combatUiProofStep==0&&Array.IndexOf(Environment.GetCommandLineArgs(),"--poc-combat-ui-en")>=0&&CurrentLocale()!="en"){SetLocale("en");return true;}
+   switch(combatUiProofStep++){
+    case 0:CombatUiSelectGroup("");CombatAutoPanel();CombatAutoShot("ui-actions");CombatAutoNote("UI review: action count="+CombatDisplayRows().Count+"; end button independent of category");break;
+    case 1:combatBodyPart="head";CombatUiSelectGroup("attack");CombatAutoShotLater("ui-target-head");break;
+    case 2:{CombatUiSelectGroup("");var rows=CombatDisplayRows();int refused=rows.FindIndex(o=>!o.Enabled);if(refused>=0){combatSelected=refused;string pending=combatSentRequest;CombatExecute(rows[refused]);if(combatSentRequest!=pending)throw new InvalidOperationException("Disabled UI row sent a command");CombatAutoNote("UI review refused row without sending: "+rows[refused].Id+" / "+rows[refused].Reason);}CombatAutoShotLater("ui-refusal");break;}
+    case 3:combatDetails=true;CombatAutoShotLater("ui-body-condition");break;
+    case 4:combatDetails=false;CombatUiSelectGroup("move");CombatAutoShotLater("ui-movement-exit");break;
+    case 5:CombatUiSelectGroup("care");foreach(var o in CombatDisplayRows())if(!o.Enabled){CombatExecute(o);CombatAutoNote("UI review care refusal: "+o.Reason);break;}CombatAutoShotLater("ui-first-aid");break;
+    case 6:CombatUiSelectGroup("");var end=CombatRows().Find(o=>o.Action=="end");if(end==null||!end.Enabled)throw new InvalidOperationException("UI review: server end-turn option missing");CombatAutoNote("UI review sends real end-turn through CombatExecute, turn="+state.Combat.Turn);CombatExecute(end);combatUiProofEnded=true;combatUiProofAt=Time.unscaledTime+3;break;
+   }return true;
   }
   static List<string> CombatGroupedLines(IEnumerable<string> lines){var result=new List<string>();var counts=new Dictionary<string,int>();foreach(var line in lines){if(!counts.ContainsKey(line)){counts[line]=0;result.Add(line);}counts[line]++;}for(int i=0;i<result.Count;i++){string key=result[i];if(counts[key]>1)result[i]=key+" ×"+counts[key];}return result;}
 

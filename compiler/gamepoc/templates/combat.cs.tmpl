@@ -15,7 +15,7 @@ namespace AngelsDemons.Poc {
    if(!CanSend()||state==null||state.Paused)return;
    session.SendCombatCommand(new PocCombatCommand{RequestId=Guid.NewGuid().ToString("N"),Epoch=state.Epoch,Action=action,TargetId=target,ExpectedTurn=state.Combat==null?0:state.Combat.Turn,Mode=action=="attack"?combatAttackMode:"",Aim=action=="attack"&&combatAttackMode=="aimed"?combatAim:0,BodyPart=action=="attack"?combatBodyPart:"",ItemId=item,X=x,Y=y});
   }
-  bool CombatPointerBlocked(Vector2 p){if(HeroCombatActive())return CombatPanelFrame.Contains(p)||new Rect(400,31,150,32).Contains(p);return new Rect(400,31,150,32).Contains(p)||new Rect(556,31,148,32).Contains(p)||(TacticalAvailable&&TacticalButtonRect.Contains(p))||(state!=null&&state.Takedowns.Count>0&&new Rect(400,66,304,TakedownsHeight()).Contains(p))||(combatPanelOpen&&CombatPanelFrame.Contains(p));}
+  bool CombatPointerBlocked(Vector2 p){if(HeroCombatActive())return CombatUiBlocks(p);return new Rect(400,31,150,32).Contains(p)||new Rect(556,31,148,32).Contains(p)||(TacticalAvailable&&TacticalButtonRect.Contains(p))||(state!=null&&state.Takedowns.Count>0&&new Rect(400,66,304,TakedownsHeight()).Contains(p))||(combatPanelOpen&&CombatUiBlocks(p));}
   void SendStealth(){if(!CanSend()||state==null||state.Paused||HeroCombatActive())return;session.SendLifeCommand(new PocLifeCommand{RequestId=Guid.NewGuid().ToString("N"),Epoch=state.Epoch,Action="stealth",Destination=state.Life.Sneaking?"off":"on"});}
   void SendStealthMode(string mode){if(!CanSend()||state==null||state.Paused||HeroCombatActive())return;session.SendLifeCommand(new PocLifeCommand{RequestId=Guid.NewGuid().ToString("N"),Epoch=state.Epoch,Action="stealth",Destination=mode});}
   // Moment 2: what the hero may start out of stealth, with its risk in words; refused, with the server's reason.
@@ -31,24 +31,28 @@ namespace AngelsDemons.Poc {
   void DrawCombatUI(){
    if(state==null||state.Life==null||!state.Life.Enabled)return;
    var fight=state.Combat;bool active=fight!=null&&fight.Active;
-   if(combatWasActive&&!HeroCombatActive()&&!CombatPlaying){combatPanelOpen=false;combatDetails=false;}combatWasActive=HeroCombatActive()||CombatPlaying;
-   if(HudButton(new Rect(400,31,150,32),L("ui.combat.title")))combatPanelOpen=!combatPanelOpen;
+   if(combatWasActive&&!HeroCombatActive()&&!CombatPlaying){
+    bool needsCare=state.PlayerCondition!=null&&state.PlayerCondition.Bleeding>0;
+    if(state.PlayerCondition!=null)foreach(var line in state.PlayerCondition.BodyLines)if(line.StartsWith("! ",StringComparison.Ordinal))needsCare=true;
+    combatPanelOpen=needsCare;combatDetails=needsCare;
+   }combatWasActive=HeroCombatActive()||CombatPlaying;
+   if(!HeroCombatActive()&&HudButton(new Rect(400,31,150,32),L("ui.combat.title")))combatPanelOpen=!combatPanelOpen;
    // one button (owner 03.11): it names the current mode and goes round normal -> quiet crouched -> quiet upright -> normal; the server's commands are the same on / upright / off
    if(!HeroCombatActive()&&HudButton(new Rect(556,31,148,32),L(!state.Life.Sneaking?"ui.stealth.mode.normal":state.Life.SneakUpright?"ui.stealth.mode.upright":"ui.stealth.mode.crouch")))SendStealthMode(!state.Life.Sneaking?"on":state.Life.SneakUpright?"off":"upright");
    DrawTacticalButton();
    DrawTakedowns();
-   if(state.Life.Illumination!=null&&state.Life.Illumination.Known)GUI.Label(new Rect(556,state.Takedowns.Count>0&&!CombatPlaying&&!HeroCombatActive()?66+TakedownsHeight():66,148,26),L("ui.illumination."+state.Life.Illumination.State),hudSmall);
+   if(!HeroCombatActive()&&state.Life.Illumination!=null&&state.Life.Illumination.Known)GUI.Label(new Rect(556,state.Takedowns.Count>0&&!CombatPlaying&&!HeroCombatActive()?66+TakedownsHeight():66,148,26),L("ui.illumination."+state.Life.Illumination.State),hudSmall);
    DrawCombatFx();
    // doc 96: inside the hero's encounter the list panel of validated actions (PocCombatPanel.cs) replaces this one.
    if(HeroCombatActive()){DrawCombatPanel();return;}
    if(!combatPanelOpen)return;
-   Rect box=new Rect(CombatPanelFrame.x,CombatPanelFrame.y,CombatPanelFrame.width,combatDetails?590:172);HudFrame(box,false);var small=new GUIStyle(hudSmall){fontSize=12,wordWrap=true};float x=box.x+10,w=box.width-20,y=box.y+10;
-   if(GUI.Button(new Rect(x,y,w,29),L(combatDetails?"ui.combat.compact":"ui.combat.details"),new GUIStyle(hudButton){fontSize=12})){combatDetails=!combatDetails;combatSelected=0;}y+=34;
+   Rect box=new Rect(CombatCareFrame.x,CombatCareFrame.y,CombatCareFrame.width,combatDetails?410:172);HudFrame(box,false);var small=new GUIStyle(hudSmall){fontSize=15,wordWrap=true};float x=box.x+10,w=box.width-20,y=box.y+10;
+   if(GUI.Button(new Rect(x,y,w,29),L("ui.combat.ui.condition")+(combatDetails?"  ▾":"  ▸"),new GUIStyle(hudButton){fontSize=16})){combatDetails=!combatDetails;combatSelected=0;}y+=34;
    var condition=state.PlayerCondition;if(condition==null)return;
    if(!combatDetails){var grouped=CombatGroupedLines(condition.BodyLines);for(int i=0;i<grouped.Count&&i<3;i++){GUI.Label(new Rect(x,y,w,34),grouped[i],small);y+=36;}return;}
    GUILayout.BeginArea(new Rect(x,y,w,box.yMax-y-12));combatScroll=GUILayout.BeginScrollView(combatScroll);
    foreach(var line in CombatGroupedLines(condition.BodyLines))GUILayout.Label(line,small,GUILayout.Width(w-20));
-   foreach(var option in CombatRows()){if(GUILayout.Button(option.Label,new GUIStyle(hudButton){fontSize=13,wordWrap=true},GUILayout.MinHeight(35)))CombatExecute(option);if(!option.Enabled)GUILayout.Label(option.Reason,small);}
+   foreach(var option in CombatRows()){if(GUILayout.Button(CombatUiActionLabel(option),new GUIStyle(hudButton){fontSize=16,wordWrap=true},GUILayout.MinHeight(44)))CombatExecute(option);if(!option.Enabled)GUILayout.Label(option.Reason,small);}
    GUILayout.EndScrollView();GUILayout.EndArea();
   }
  }
