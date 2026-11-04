@@ -52,6 +52,8 @@ type playableExtra struct {
 	ID            string        `json:"id"`
 	At            behavior.Cell `json:"at"`
 	CombatProfile string        `json:"combat_profile"`
+	// The watchman's man: nobody's enemy until he sees the watchman attacked, then he comes to help (moment 4, the hold interrupted).
+	Ally bool `json:"ally,omitempty"`
 }
 type playableSceneState struct {
 	ID          string           `json:"id,omitempty"`
@@ -137,10 +139,14 @@ func (r *Runtime) preparePlayableScenes() error {
 		}
 		for _, extra := range def.Extras {
 			person := *w.Life.Person(extra.ID)
-			person.Relations = []behavior.LifeRelation{{To: def.Guard, Strength: -1}}
+			if !extra.Ally {
+				person.Relations = []behavior.LifeRelation{{To: def.Guard, Strength: -1}}
+			}
 			person.Steps = []behavior.LifeStep{{Level: def.Level, At: extra.At, Activity: "post", Label: def.NameKey}}
 			people = append(people, person)
-			people[1].Relations = append(people[1].Relations, behavior.LifeRelation{To: extra.ID, Strength: -1})
+			if !extra.Ally {
+				people[1].Relations = append(people[1].Relations, behavior.LifeRelation{To: extra.ID, Strength: -1})
+			}
 			w.CombatRuntime.Actors[extra.ID] = extra.CombatProfile
 		}
 		w.Life.Actors = people
@@ -174,9 +180,16 @@ func (r *Runtime) preparePlayableScenes() error {
 		w.Vending = vendingCatalog{}
 		w.CombatLife.Aggressors = map[string][]string{def.Guard: {playerActorID}}
 		for _, extra := range def.Extras {
-			w.CombatLife.Aggressors[def.Guard] = append(w.CombatLife.Aggressors[def.Guard], extra.ID)
+			if !extra.Ally {
+				w.CombatLife.Aggressors[def.Guard] = append(w.CombatLife.Aggressors[def.Guard], extra.ID)
+			}
 		}
 		w.CombatLife.Responders = map[string]combatResponder{}
+		for _, extra := range def.Extras {
+			if extra.Ally {
+				w.CombatLife.Responders[extra.ID] = combatResponder{Protect: []string{def.Guard}, Levels: []string{def.Level}}
+			}
+		}
 		faceX, faceY := r.playableRouteDirection(def)
 		w.Stealth.Watchers = map[string]stealthWatcher{def.Guard: {FaceX: faceX, FaceY: faceY, InvestigateSteps: true}}
 		w.Stealth.SoundMemorySeconds, w.Stealth.ForgetSeconds = def.SoundMemorySeconds, def.ContactMemorySeconds
@@ -583,7 +596,7 @@ func (r *Runtime) validatePlayableScene(s state) error {
 		return nil
 	}
 	d, ok := r.world.PlayableScenes[p.ID]
-	if !ok || r.world.PlayableID != p.ID || s.SDKLayout != "" || !s.Life.Enabled || p.PatrolIndex < 0 || p.PatrolIndex >= len(d.GuardRoute) || p.WaitUntil < 0 || p.WaitUntil > s.Life.Seconds && p.WaitUntil-s.Life.Seconds > d.PatrolPauseSeconds || len(p.Cooldowns) > len(d.Interactions) || len(s.Life.Actors) != 2 {
+	if !ok || r.world.PlayableID != p.ID || s.SDKLayout != "" || !s.Life.Enabled || p.PatrolIndex < 0 || p.PatrolIndex >= len(d.GuardRoute) || p.WaitUntil < 0 || p.WaitUntil > s.Life.Seconds && p.WaitUntil-s.Life.Seconds > d.PatrolPauseSeconds || len(p.Cooldowns) > len(d.Interactions) || len(s.Life.Actors) != 2+len(d.Extras) {
 		return errors.New("invalid playable scene state")
 	}
 	h, guard := s.Life.Actor(playerActorID), s.Life.Actor(d.Guard)

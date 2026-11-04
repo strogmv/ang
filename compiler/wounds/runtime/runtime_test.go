@@ -634,3 +634,26 @@ func TestRepeatedDeepBluntTraumaTemporarilyLosesPosture(t *testing.T) {
 		t.Fatal("old wounds accumulated beyond their window")
 	}
 }
+
+// A hold played out second by second gives the same draws as the hit that says how long it was held; the clock has only run first.
+func TestChokeElapsedKeepsTheDraws(t *testing.T) {
+	m := mustModel(t)
+	for seed := int64(1); seed <= 400; seed++ {
+		for _, hold := range []int64{3, 14, 60} {
+			once, played := m.NewBody("v", "none"), m.NewBody("v", "none")
+			limp := m.ChokeSeconds(played, "chokehold", seed)
+			if limp < 1 {
+				t.Fatalf("no limp second for seed %d", seed)
+			}
+			hit(t, m, &once, Hit{Author: "x", Technique: "chokehold", HoldS: hold, Seed: seed})
+			m.Tick(&played, hold)
+			hit(t, m, &played, Hit{Author: "x", Technique: "chokehold", HoldS: hold, Elapsed: true, Seed: seed})
+			if hold >= limp && once.KnockoutFrom != limp {
+				t.Fatalf("seed %d: the knockout second %d, the accessor %d", seed, once.KnockoutFrom, limp)
+			}
+			if once.KnockoutFrom != played.KnockoutFrom || once.KnockoutUntil != played.KnockoutUntil || once.Wounds[0].DoomAt != played.Wounds[0].DoomAt && !played.Dead {
+				t.Fatalf("seed %d hold %d: once %+v played %+v", seed, hold, once, played)
+			}
+		}
+	}
+}

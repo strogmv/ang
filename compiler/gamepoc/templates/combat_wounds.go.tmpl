@@ -230,6 +230,11 @@ func (r *Runtime) applyWoundImpact(s *behavior.CombatState, source, target, part
 	if b == nil {
 		return 0, fmt.Errorf("impact target missing")
 	}
+	// A hold of bare hands (moment 4): nothing has happened to the body yet; the wound goes on when the hold ends, for as long as it lasted (holdFinish).
+	if spec, known := r.world.CombatRuntime.Rules.Techniques[mode]; known && spec.WoundTechnique != "" {
+		b.FightResponse = "held"
+		return 1, nil
+	}
 	body := combatBody(*b)
  targetSpec:=r.world.CombatRuntime.Rules.Targets[part]
  hitPart:=part;if targetSpec.Part!=""{hitPart=targetSpec.Part}
@@ -424,6 +429,13 @@ func (r *Runtime) advanceWoundCare() error {
 		if r.state.Combat.Active && r.state.Combat.Actor(id) != nil {
 			r.state.CombatCare.Clocks[id] = r.state.Life.Seconds
 			continue
+		}
+		if until, shown := r.state.CombatCare.ShowUntil[id]; shown {
+			if r.state.Life.Seconds < until {
+				r.state.CombatCare.Clocks[id] = r.state.Life.Seconds
+				continue
+			}
+			delete(r.state.CombatCare.ShowUntil, id)
 		}
 		at, onFloor := r.combatCareOnFloor(id)
 		if !onFloor {

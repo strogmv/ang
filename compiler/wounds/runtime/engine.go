@@ -22,8 +22,9 @@ type Hit struct {
 	Depth      string   `json:"depth,omitempty"`
 	Angle      string   `json:"angle,omitempty"` // front / flank / rear
 	Armor      []string `json:"armor,omitempty"`
-	Skill      int64    `json:"skill,omitempty"`  // attacker's practice 0..100
-	HoldS      int64    `json:"hold_s,omitempty"` // a chokehold: how long it was held
+	Skill      int64    `json:"skill,omitempty"`   // attacker's practice 0..100
+	HoldS      int64    `json:"hold_s,omitempty"`  // a chokehold: how long it was held
+	Elapsed    bool     `json:"elapsed,omitempty"` // a chokehold played out second by second: the body's clock has already run through HoldS
 	Structures []string `json:"structures,omitempty"`
 	Seed       int64    `json:"seed"`
 }
@@ -283,19 +284,32 @@ func (m Model) ApplyHit(b *Body, h Hit) (HitResult, error) {
 func (m Model) choke(b *Body, w *Wound, t Technique, h Hit) {
 	ko := inSpan(*t.Knockout, h.Seed, w.ID, "choke_ko")
 	hold := max(h.HoldS, 0)
-	b.StunUntil = max(b.StunUntil, b.Clock+hold)
+	start := b.Clock
+	if h.Elapsed {
+		start -= hold
+	}
+	b.StunUntil = max(b.StunUntil, start+hold)
 	if hold >= ko {
-		m.knockout(b, b.Clock+ko, b.Clock+hold+inSpan(*t.Wake, h.Seed, w.ID, "choke_wake"))
+		m.knockout(b, start+ko, start+hold+inSpan(*t.Wake, h.Seed, w.ID, "choke_wake"))
 		survive := int64(Million)
 		for i := int64(0); i < hold-ko-t.SafeAfterKOS && survive > 0; i++ {
 			survive = survive * (Million - t.DeathPPMPerS) / Million
 		}
 		if chance(Million-survive, h.Seed, w.ID, "hypoxia") || chance(t.ArrestPPM, h.Seed, w.ID, "arrest") {
-			w.DoomAt = b.Clock + hold
+			w.DoomAt = start + hold
 		}
 	} else if chance(t.ArrestPPM, h.Seed, w.ID, "arrest") {
-		w.DoomAt = b.Clock + hold
+		w.DoomAt = start + hold
 	}
+}
+
+// ChokeSeconds: after how many seconds of a hold this body goes limp. The very draw choke() makes for this seed on the body's next wound, so a host playing the hold second by second knows the second it ends on.
+func (m Model) ChokeSeconds(b Body, technique string, seed int64) int64 {
+	t, ok := m.Technique(technique)
+	if !ok || t.Knockout == nil {
+		return 0
+	}
+	return inSpan(*t.Knockout, seed, fmt.Sprintf("w%d", b.Seq+1), "choke_ko")
 }
 
 // HoldSeconds: seconds from now until a held body goes limp (0 — nothing is held on it).

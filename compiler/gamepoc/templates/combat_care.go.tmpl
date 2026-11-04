@@ -10,6 +10,8 @@ type combatCareState struct {
 	Clocks map[string]int64 `json:"clocks,omitempty"`
 	// Moment 3: who is getting up after coming to, and the Life second he is on his feet.
 	Rising map[string]int64 `json:"rising,omitempty"`
+	// Moment 4: the Life second until which his clock waits: what is already counted on the body is still being shown.
+	ShowUntil map[string]int64 `json:"show_until,omitempty"`
 }
 
 func (s combatCareState) Clone() combatCareState {
@@ -26,6 +28,13 @@ func (s combatCareState) Clone() combatCareState {
 			m[id] = at
 		}
 		s.Rising = m
+	}
+	if s.ShowUntil != nil {
+		m := make(map[string]int64, len(s.ShowUntil))
+		for id, at := range s.ShowUntil {
+			m[id] = at
+		}
+		s.ShowUntil = m
 	}
 	return s
 }
@@ -162,6 +171,11 @@ func (r *Runtime) validateCombatCare(s state) error {
 	for id := range s.CombatCare.Rising {
 		if _, ok := s.CombatRoster[id]; !ok {
 			return errors.New("orphaned rising body")
+		}
+	}
+	for id := range s.CombatCare.ShowUntil {
+		if _, ok := s.CombatRoster[id]; !ok {
+			return errors.New("orphaned shown body")
 		}
 	}
 	return nil

@@ -234,6 +234,18 @@ type CombatTechnique struct {
 	FallStyle string `json:"fall_style"`
 	// One ordinary blow out of stealth, no hold: moment 3. The wound model decides what it did.
 	Strike bool `json:"strike,omitempty"`
+	// Moment 4, a hold of bare hands. WoundTechnique: the record of the wound model; the wound goes on when the hold ends, for as long as it really lasted (wounds.Hit.Elapsed).
+	WoundTechnique string `json:"wound_technique,omitempty"`
+	// He keeps holding this long even after the body went limp; 0: he lets go on the limp second.
+	HoldTotalS int `json:"hold_total_s,omitempty"`
+	// While the target still has his strength (this share of the seconds to limp) he may tear the arm off, with this chance each second.
+	BreakFreePPMPerS int `json:"break_free_ppm_per_s,omitempty"`
+	BreakFreeUntilPermille int `json:"break_free_until_permille,omitempty"`
+	// Somebody who sees it comes up at this speed while the hold lasts; 0: only who stands within break_reach_mm already.
+	BreakApproachMMS int `json:"break_approach_mms,omitempty"`
+	// How long the Player shows the parts around the hold, real seconds, and how much faster the seconds past the limp one: the body's clock waits for the show.
+	ShowAfterS float64 `json:"show_after_s,omitempty"`
+	ShowWaitRate float64 `json:"show_wait_rate,omitempty"`
 }
 type CombatEvent struct {
 	Type, ActorID, TargetID, Reason, Mode                 string
@@ -269,8 +281,12 @@ type CombatSpace struct {
  BodyBlocks func(mover,body Combatant,at Cell)bool
  // Host hooks of a held technique: the seconds until the held body goes limp, who breaks the hold, the end of the hold.
  HoldSeconds func(s *CombatState,target string)int
- HoldBreaker func(s *CombatState,holder,target string,t CombatTechnique)string
+ HoldBreaker func(s *CombatState,holder,target string,t CombatTechnique,held int)string
  EndHold func(s *CombatState,holder,target string,t CombatTechnique,completed bool)
+ // A hold whose wound comes at its end (WoundTechnique): its plan in seconds, how long it will go on and on which second the body goes limp; the end with the seconds it really lasted; the one who broke it has walked up meanwhile.
+ HoldPlan func(s *CombatState,target string,t CombatTechnique,seed int64)(int,int)
+ HoldFinish func(s *CombatState,holder,target string,t CombatTechnique,held int,seed int64)
+ BreakerArrives func(s *CombatState,breaker,holder string,t CombatTechnique)(Cell,Cell,bool)
 
 	Space       Space
 	CellMM      int
@@ -376,7 +392,7 @@ func (s CombatSpace) canCommunicate(a, b Combatant, r CombatRules) bool {
 	return s.rangeMM(a.Position, b.Position) <= r.ShareRangeMM && s.visible(a.Position, b.Position, r)
 }
 func (r CombatRules) Validate() error {
- for _,t:=range r.Techniques{if t.AP<1||t.AP>r.APPerTurn||t.ReachMM<1||t.ReachMM>3000||t.BreakReachMM<0||t.BreakReachMM>5000||t.WeaponKind==""||t.BodyPart==""||t.FallStyle==""||math.IsNaN(t.Loudness)||t.Loudness<0||t.Loudness>1{return errors.New("invalid combat technique")}}
+ for _,t:=range r.Techniques{if t.AP<1||t.AP>r.APPerTurn||t.ReachMM<1||t.ReachMM>3000||t.BreakReachMM<0||t.BreakReachMM>5000||t.WeaponKind==""||t.BodyPart==""||t.FallStyle==""||math.IsNaN(t.Loudness)||t.Loudness<0||t.Loudness>1||t.HoldTotalS<0||t.HoldTotalS>600||t.BreakFreePPMPerS<0||t.BreakFreePPMPerS>1000000||t.BreakFreeUntilPermille<0||t.BreakFreeUntilPermille>1000||t.BreakApproachMMS<0||t.BreakApproachMMS>10000{return errors.New("invalid combat technique")}}
  if math.IsNaN(r.MeleeSkillScale)||math.IsInf(r.MeleeSkillScale,0)||r.MeleeSkillScale<0||r.MeleeSkillScale>2{return errors.New("invalid melee skill scale")}
  if r.CloseMM<0||r.CloseMM>3000||r.RetreatAP<0||r.RetreatAP>r.APPerTurn||r.GuardBonus<0||r.GuardBonus>80||r.RollAP<0||r.RollAP>r.APPerTurn||r.GetUpAP<0||r.GetUpAP>r.APPerTurn{return errors.New("invalid v4 combat costs")}
  for _,v:=range []float64{r.CrampedAccuracy,r.CrampedParry,r.UntrainedReactionAccuracy,r.RollAccuracy}{if math.IsNaN(v)||math.IsInf(v,0)||v<0||v>1{return errors.New("invalid v4 accuracy")}}
@@ -994,7 +1010,7 @@ func combatShot(a Combatant, action CombatAction, r CombatRules) (combatShotSpec
 		q.Cost += a.Weapon.BurstAP
 	default:
 		t,ok:=r.Techniques[q.Mode];if !ok{return q, errors.New("unknown attack mode")}
-		if kind!=t.WeaponKind{return q,errors.New("technique needs another weapon")}
+		if t.WeaponKind=="hands"{if a.Weapon.ID!="unarmed"{return q,errors.New("technique needs free hands")}}else if kind!=t.WeaponKind{return q,errors.New("technique needs another weapon")}
 		q.Cost=t.AP;q.BodyPart=t.BodyPart;q.Held=true
 	}
 	if a.WeaponUsesLimited && a.WeaponUsesRemaining < q.Shots {
@@ -1263,19 +1279,27 @@ func (s *CombatState) reactionWindow(space CombatSpace, r CombatRules, actorID s
 // stopped holding — he is out, stunned or his hand gave way, a blow reached him, or someone able stands within break_reach and sees it.
 // Interrupted, the wound stays and the victim's ordinary perfusion clock and reaction apply (the host decides both from the wound rules).
 func(s *CombatState)holdTechnique(space CombatSpace,r CombatRules,actorID,targetID,mode string,fromCrouch bool){
- t:=r.Techniques[mode];hold:=0;if space.HoldSeconds!=nil{hold=space.HoldSeconds(s,targetID)}
- done:=true;held:=0;seq:=s.EventSeq
+ t:=r.Techniques[mode];hold:=0;limp:=0;seed:=s.Seed+int64(s.ActionSeq)*65537+int64(s.EventSeq)
+ if t.WoundTechnique!=""&&space.HoldPlan!=nil{hold,limp=space.HoldPlan(s,targetID,t,seed)}else if space.HoldSeconds!=nil{hold=space.HoldSeconds(s,targetID)}
+ done:=true;held:=0;seq:=s.EventSeq;outcome:="completed";breaker:=""
  for held<hold&&done{
   if space.AdvanceTime!=nil{space.AdvanceTime(s,1)};s.TurnSpentS++;held++
   if s.Active{s.reactionWindow(space,r,actorID)}
   a:=s.Actor(actorID)
   done=a!=nil&&a.Able()&&a.StunTurns==0&&(len(a.Body)==0||a.BodyCanHold)
   for _,e:=range s.Events{if e.Sequence>seq&&e.TargetID==actorID&&e.Hit&&(e.Type=="reaction"||e.Type=="attack"){done=false}}
-  if done&&space.HoldBreaker!=nil&&space.HoldBreaker(s,actorID,targetID,t)!=""{done=false}
+  if !done{outcome="interrupted"}
+  if done&&space.HoldBreaker!=nil{breaker=space.HoldBreaker(s,actorID,targetID,t,held);if breaker!=""{done=false;outcome="interrupted"}}
+  // He still has his strength: he may tear the arm off. Only in the seconds before he starts to weaken; the draw belongs to this hold and to this second.
+  if done&&t.BreakFreePPMPerS>0&&limp>0&&held*1000<=limp*t.BreakFreeUntilPermille&&int(CounterRandom(s.Seed,targetID,s.Turn,"hold_free/"+strconv.FormatUint(s.ActionSeq,10)+"/"+strconv.Itoa(held))%1000000)<t.BreakFreePPMPerS{done=false;outcome="broke_free"}
  }
+ if t.WoundTechnique!=""&&space.HoldFinish!=nil{space.HoldFinish(s,actorID,targetID,t,held,seed)}
  if space.EndHold!=nil{space.EndHold(s,actorID,targetID,t,done)}
+ if breaker!=""&&space.BreakerArrives!=nil{if from,to,moved:=space.BreakerArrives(s,breaker,actorID,t);moved{s.event(CombatEvent{Type:"hold_break",ActorID:breaker,TargetID:actorID,From:from,To:to,Reason:"walked up during the hold"})}}
  stance:="stand";if fromCrouch{stance="crouch"}
  a,b:=s.Actor(actorID),s.Actor(targetID);e:=CombatEvent{Type:"hold",ActorID:actorID,TargetID:targetID,Mode:stance,ItemID:mode,Amount:held,Hit:done,Reason:"held technique"}
+ // A hold whose wound comes at its end says how it ended and on which second the body went limp: the show cannot tell it from the wound.
+ if t.WoundTechnique!=""{e.BodyPart=outcome+":"+strconv.Itoa(limp)}
  if a!=nil{e.From=a.Position};if b!=nil{e.To=b.Position};s.event(e)
 }
 

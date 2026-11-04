@@ -283,7 +283,7 @@ func TestThroatBreakerIsARealPersonNearby(t *testing.T) {
 	h.Position = behavior.Cell{X: g.Position.X + 2, Y: g.Position.Y - 2}
 	t0 := r.world.CombatRuntime.Rules.Techniques[throatMode]
 	s := &behavior.CombatState{LevelID: d.Level, Actors: []behavior.Combatant{{ID: playerActorID, Position: h.Position}, {ID: d.Guard, Position: g.Position}}}
-	if id := r.takedownBreaker(s, playerActorID, d.Guard, t0); id != "" {
+	if id := r.takedownBreaker(s, playerActorID, d.Guard, t0, 0); id != "" {
 		t.Fatalf("a breaker out of nowhere: %s", id)
 	}
 	third := *g
@@ -291,11 +291,11 @@ func TestThroatBreakerIsARealPersonNearby(t *testing.T) {
 	third.Position = behavior.Cell{X: h.Position.X + 1, Y: h.Position.Y + 1}
 	r.state.Life.Actors = append(r.state.Life.Actors, third)
 	r.world.CombatLife.Responders = map[string]combatResponder{third.ID: {Protect: []string{d.Guard}, Levels: []string{d.Level}}}
-	if id := r.takedownBreaker(s, playerActorID, d.Guard, t0); id != third.ID {
+	if id := r.takedownBreaker(s, playerActorID, d.Guard, t0, 0); id != third.ID {
 		t.Fatalf("the responder beside them did not break it: %q", id)
 	}
 	r.state.Life.Actor(third.ID).Position = behavior.Cell{X: h.Position.X + 8, Y: h.Position.Y}
-	if id := r.takedownBreaker(s, playerActorID, d.Guard, t0); id != "" {
+	if id := r.takedownBreaker(s, playerActorID, d.Guard, t0, 0); id != "" {
 		t.Fatalf("a breaker %s beyond the reach", id)
 	}
 }

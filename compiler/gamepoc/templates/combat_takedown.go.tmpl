@@ -6,6 +6,7 @@ package poc
 import (
 	"angelsdemons/server/internal/behavior"
 	pb "angelsdemons/server/internal/transport/grpc/pb/game/v1"
+	"angelsdemons/server/internal/wounds"
 	"math"
 	"sort"
 )
@@ -26,6 +27,15 @@ func (r *Runtime) actorFace(id string) (float64, float64, bool) {
 	return 0, 0, false
 }
 
+// The weapon in hand: a blade, a club, or nothing at all for a hold of bare hands.
+func (r *Runtime) takedownWeaponFits(attackerID string, t behavior.CombatTechnique) bool {
+	_, w, armed := r.equippedCombatItem(r.state.Inventory, attackerID)
+	if t.WeaponKind == "hands" {
+		return !armed
+	}
+	return armed && behavior.CombatWeaponKind(w) == t.WeaponKind
+}
+
 // takedownCheck: why this attacker cannot start this technique on this target now (nil — he can). The senses are the stealth ones, unchanged:
 // a person within near_mm is always noticed; the field of view is cone_cos; the hero's own observers remember what they recognised.
 func (r *Runtime) takedownCheck(attackerID, targetID, mode string) error {
@@ -34,7 +44,7 @@ func (r *Runtime) takedownCheck(attackerID, targetID, mode string) error {
 	if !known || r.state.Combat.Active || r.state.Paused || a == nil || b == nil || a.ID == b.ID || !a.OnFloor() || !b.OnFloor() || a.Level != b.Level || a.CombatHold || b.CombatHold || !r.combatWorldConscious(attackerID) || !r.combatWorldConscious(targetID) {
 		return textError{Key: "error.takedown.unavailable"}
 	}
-	if _, w, ok := r.equippedCombatItem(r.state.Inventory, attackerID); !ok || behavior.CombatWeaponKind(w) != t.WeaponKind {
+	if !r.takedownWeaponFits(attackerID, t) {
 		return textError{Key: "error.takedown.weapon." + t.WeaponKind}
 	}
 	fx, fy, facing := r.actorFace(targetID)
@@ -120,11 +130,13 @@ func (r *Runtime) combatLifeTakedowns() error {
 
 // «Interrupted» from outside: someone conscious within break_reach who sees the holder and would stop him (a fighter of the other side, a responder
 // who protects the victim, or a person hostile to the holder). Positions are the ordinary ones: nobody is teleported to do it.
-func (r *Runtime) takedownBreaker(s *behavior.CombatState, holder, target string, t behavior.CombatTechnique) string {
+func (r *Runtime) takedownBreaker(s *behavior.CombatState, holder, target string, t behavior.CombatTechnique, held int) string {
 	h := s.Actor(holder)
 	if h == nil || t.BreakReachMM < 1 {
 		return ""
 	}
+	// A long hold (moment 4): whoever sees it comes up while it lasts. His walk is real time: the seconds of the hold have passed for him too.
+	reach := t.BreakReachMM + held*t.BreakApproachMMS
 	ids := make([]string, 0, len(r.state.Life.Actors))
 	for _, a := range r.state.Life.Actors {
 		ids = append(ids, a.ID)
@@ -135,7 +147,7 @@ func (r *Runtime) takedownBreaker(s *behavior.CombatState, holder, target string
 		if id == holder || id == target || !a.OnFloor() || a.Level != s.LevelID || !r.combatWorldConscious(id) {
 			continue
 		}
-		if r.combatWorldDistance(s.LevelID, a.Position, h.Position) > t.BreakReachMM || !r.combatWorldVisible(combatLifeObserver{ID: id, Level: a.Level, At: a.Position}, h.Position) {
+		if r.combatWorldDistance(s.LevelID, a.Position, h.Position) > reach || !r.combatWorldVisible(combatLifeObserver{ID: id, Level: a.Level, At: a.Position}, h.Position) {
 			continue
 		}
 		role, responder := r.world.CombatLife.Responders[id]
@@ -144,6 +156,80 @@ func (r *Runtime) takedownBreaker(s *behavior.CombatState, holder, target string
 		}
 	}
 	return ""
+}
+
+// The plan of a hold whose wound comes at its end: the draw of the wound model says on which second the body goes limp; he lets go then, or keeps on for hold_total_s. The hands are on him: no action of his own meanwhile.
+func (r *Runtime) holdPlan(s *behavior.CombatState, target string, t behavior.CombatTechnique, seed int64) (int, int) {
+	b := s.Actor(target)
+	if b == nil || len(b.Body) == 0 {
+		return 0, 0
+	}
+	body := combatBody(*b)
+	limp := int(combatWounds.ChokeSeconds(body, t.WoundTechnique, seed))
+	hold := max(limp, t.HoldTotalS)
+	body.StunUntil = max(body.StunUntil, body.Clock+int64(hold))
+	projectWoundBody(b, body)
+	return hold, limp
+}
+
+// The wound of a hold, for the seconds it really lasted: the model's own draws for knockout, waking, hypoxia and arrest. Let go earlier: no knockout, the arrest stays a chance (doc 97).
+func (r *Runtime) holdFinish(s *behavior.CombatState, holder, target string, t behavior.CombatTechnique, held int, seed int64) {
+	b := s.Actor(target)
+	if b == nil || len(b.Body) == 0 {
+		return
+	}
+	body := combatBody(*b)
+	body.StunUntil = body.Clock
+	limp := combatWounds.ChokeSeconds(body, t.WoundTechnique, seed)
+	result, err := combatWounds.ApplyHit(&body, wounds.Hit{Author: holder, Technique: t.WoundTechnique, HoldS: int64(held), Elapsed: true, Angle: "rear", Seed: seed})
+	if err != nil {
+		panic(err)
+	}
+	projectWoundBody(b, body)
+	// Let go before he went limp: he never left his feet, whatever the seconds of being held read as («stunned» is a body that does not stand for the wound model; here the arm held him up).
+	if combatWounds.Status(body).Conscious {
+		b.Prone = false
+	}
+	appendWoundEvents(s, *b, result.Events)
+	// The hold is already on his clock, and the Player shows it in real seconds while the world runs faster: his clock waits for the show. No numbers change: he wakes the same seconds after the show ends.
+	if !combatWounds.Status(body).Conscious && t.ShowAfterS > 0 {
+		shown := t.ShowAfterS + float64(min(int64(held), limp))
+		if int64(held) > limp && t.ShowWaitRate >= 1 {
+			shown += float64(int64(held)-limp) / t.ShowWaitRate
+		}
+		if r.state.CombatCare.ShowUntil == nil {
+			r.state.CombatCare.ShowUntil = map[string]int64{}
+		}
+		r.state.CombatCare.ShowUntil[target] = r.state.Life.Seconds + int64(math.Ceil(shown*float64(r.world.Config.TickHz)*float64(r.state.Life.SecondsPerTick)))
+	}
+}
+
+// The one who broke the hold stands where his walk took him: the nearest free cell on his line to the holder, within the reach of the hold.
+func (r *Runtime) breakerArrives(s *behavior.CombatState, breaker, holder string, t behavior.CombatTechnique) (behavior.Cell, behavior.Cell, bool) {
+	a, h := r.state.Life.Actor(breaker), s.Actor(holder)
+	if a == nil || h == nil {
+		return behavior.Cell{}, behavior.Cell{}, false
+	}
+	from := a.Position
+	space := r.combatSpace(*s)
+	dx, dy := h.Position.X-from.X, h.Position.Y-from.Y
+	steps := max(max(dx, -dx), max(dy, -dy))
+	best := from
+	for n := 1; n < steps; n++ {
+		at := behavior.Cell{X: from.X + int(math.Round(float64(dx*n)/float64(steps))), Y: from.Y + int(math.Round(float64(dy*n)/float64(steps)))}
+		if space.Space.Blocked[at] || space.Space.Walkable != nil && !space.Space.Walkable(at) || space.Space.Occupied != nil && space.Space.Occupied(at) || r.combatDistance(at, h.Position) < r.world.CombatSpacing.BodyMM {
+			break
+		}
+		best = at
+		if r.combatDistance(at, h.Position) <= t.BreakReachMM/2 {
+			break
+		}
+	}
+	if best == from {
+		return from, from, false
+	}
+	a.Position, a.Path, a.PendingPath = best, nil, nil
+	return from, best, true
 }
 
 // The end of the hold. Completed: the body is lowered to the floor where it stood (the fall strip checked; no strip — the compact collapse).
@@ -209,9 +295,6 @@ func (r *Runtime) appendTakedownOptions(msg *pb.PocGameState, locale string) {
 	if h == nil || !h.OnFloor() || h.CombatHold {
 		return
 	}
-	if _, _, armed := r.equippedCombatItem(r.state.Inventory, playerActorID); !armed {
-		return
-	}
 	locale = r.validLocale(locale)
 	modes := make([]string, 0, len(r.world.CombatRuntime.Rules.Techniques))
 	for mode := range r.world.CombatRuntime.Rules.Techniques {
@@ -225,8 +308,12 @@ func (r *Runtime) appendTakedownOptions(msg *pb.PocGameState, locale string) {
 	sort.Strings(targets)
 	for _, mode := range modes {
 		t := r.world.CombatRuntime.Rules.Techniques[mode]
-		// Only what the weapon in hand can do: a club offers the blow, a blade the hold.
-		if _, w, ok := r.equippedCombatItem(r.state.Inventory, playerActorID); !ok || behavior.CombatWeaponKind(w) != t.WeaponKind {
+		// Only what is in hand can do: a club offers the blow, a blade the cut, empty hands the hold.
+		if !r.takedownWeaponFits(playerActorID, t) {
+			continue
+		}
+		// Empty hands are how a man mostly walks: the hold is offered only to one who is already creeping, a market does not ask everybody whether to strangle its guard.
+		if t.WeaponKind == "hands" && !h.Sneaking {
 			continue
 		}
 		for _, id := range targets {

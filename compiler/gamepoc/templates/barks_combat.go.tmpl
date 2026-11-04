@@ -7,6 +7,8 @@ package poc
 
 import (
 	"sort"
+	"strconv"
+	"strings"
 
 	"angelsdemons/server/internal/behavior"
 )
@@ -18,6 +20,8 @@ type barkCombatCursor struct {
 	tick      int64
 	// A shout that met a still-talking speaker waits a few seconds instead of being lost.
 	pending map[string]barkCombatPending
+	// While a hold is being shown nobody shouts what the server has already decided (moment 4).
+	quietUntil int64
 }
 
 type barkCombatPending struct {
@@ -89,11 +93,25 @@ func (r *Runtime) barkCombatFrame() {
 			} else {
 				say(a.ID, "retreat")
 			}
+		case "hold":
+			// No words in a hold (owner: удушье без слов), and what the server has already decided is not shouted before it is shown.
+			if tech := r.world.CombatRuntime.Rules.Techniques[e.ItemID]; tech.WoundTechnique != "" {
+				limp := e.Amount
+				if p := strings.Split(e.BodyPart, ":"); len(p) == 2 {
+					if v, err := strconv.Atoi(p[1]); err == nil && v < limp {
+						limp = v
+					}
+				}
+				c.quietUntil = r.state.Tick + int64((float64(limp)+tech.ShowAfterS)*float64(r.world.Config.TickHz))
+			}
 		case "reload":
 			say(e.ActorID, "reload")
 		case "surrender":
 			say(e.ActorID, "surrender")
 		}
+	}
+	if r.state.Tick < c.quietUntil {
+		return
 	}
 	if c.pending == nil {
 		c.pending = map[string]barkCombatPending{}

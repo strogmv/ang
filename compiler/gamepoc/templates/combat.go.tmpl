@@ -116,6 +116,9 @@ func (r *Runtime) combatSpace(s behavior.CombatState) behavior.CombatSpace {
  result.HoldSeconds=func(s *behavior.CombatState,target string)int{b:=s.Actor(target);if b==nil||len(b.Body)==0{return 0};return int(combatWounds.HoldSeconds(combatBody(*b)))}
  result.HoldBreaker=r.takedownBreaker
  result.EndHold=r.endHold
+ result.HoldPlan=r.holdPlan
+ result.HoldFinish=r.holdFinish
+ result.BreakerArrives=r.breakerArrives
  // Reuse this immutable physical space throughout one decision. Rebuilding
  // GateModel for every reachable care candidate was quadratic in the world size.
  result.AidOptions=func(a behavior.Combatant)[]behavior.CombatCandidate{

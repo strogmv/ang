@@ -15,15 +15,18 @@ namespace AngelsDemons.Poc {
    if(!CanSend()||state==null||state.Paused)return;
    session.SendCombatCommand(new PocCombatCommand{RequestId=Guid.NewGuid().ToString("N"),Epoch=state.Epoch,Action=action,TargetId=target,ExpectedTurn=state.Combat==null?0:state.Combat.Turn,Mode=action=="attack"?combatAttackMode:"",Aim=action=="attack"&&combatAttackMode=="aimed"?combatAim:0,BodyPart=action=="attack"?combatBodyPart:"",ItemId=item,X=x,Y=y});
   }
-  bool CombatPointerBlocked(Vector2 p){if(HeroCombatActive())return CombatPanelFrame.Contains(p)||new Rect(400,31,150,32).Contains(p);return new Rect(400,31,150,32).Contains(p)||new Rect(556,31,148,32).Contains(p)||(TacticalAvailable&&TacticalButtonRect.Contains(p))||(state!=null&&state.Takedowns.Count>0&&new Rect(400,66,304,96).Contains(p))||(combatPanelOpen&&CombatPanelFrame.Contains(p));}
+  bool CombatPointerBlocked(Vector2 p){if(HeroCombatActive())return CombatPanelFrame.Contains(p)||new Rect(400,31,150,32).Contains(p);return new Rect(400,31,150,32).Contains(p)||new Rect(556,31,148,32).Contains(p)||(TacticalAvailable&&TacticalButtonRect.Contains(p))||(state!=null&&state.Takedowns.Count>0&&new Rect(400,66,304,TakedownsHeight()).Contains(p))||(combatPanelOpen&&CombatPanelFrame.Contains(p));}
   void SendStealth(){if(!CanSend()||state==null||state.Paused||HeroCombatActive())return;session.SendLifeCommand(new PocLifeCommand{RequestId=Guid.NewGuid().ToString("N"),Epoch=state.Epoch,Action="stealth",Destination=state.Life.Sneaking?"off":"on"});}
   void SendStealthMode(string mode){if(!CanSend()||state==null||state.Paused||HeroCombatActive())return;session.SendLifeCommand(new PocLifeCommand{RequestId=Guid.NewGuid().ToString("N"),Epoch=state.Epoch,Action="stealth",Destination=mode});}
   // Moment 2: what the hero may start out of stealth, with its risk in words; refused, with the server's reason.
   void DrawTakedowns(){
-   if(state==null||state.Takedowns.Count==0||HeroCombatActive()||CombatPlaying)return;var o=state.Takedowns[0];Rect box=new Rect(400,66,304,o.Enabled?96:62);HudFrame(box,false);var small=new GUIStyle(hudSmall){fontSize=12,wordWrap=true};
-   if(GUI.Button(new Rect(box.x+6,box.y+5,box.width-12,28),o.Label,new GUIStyle(hudButton){fontSize=13})&&o.Enabled)CombatExecute(o);
-   GUI.Label(new Rect(box.x+8,box.y+35,box.width-16,box.height-36),o.Enabled?L("ui.takedown.risk."+o.Mode):o.Reason,small);
+   if(state==null||state.Takedowns.Count==0||HeroCombatActive()||CombatPlaying)return;var small=new GUIStyle(hudSmall){fontSize=12,wordWrap=true};float y=66;
+   foreach(var o in state.Takedowns){Rect box=new Rect(400,y,304,TakedownRowHeight(o));HudFrame(box,false);
+    if(GUI.Button(new Rect(box.x+6,box.y+5,box.width-12,28),o.Label,new GUIStyle(hudButton){fontSize=13})&&o.Enabled)CombatExecute(o);
+    GUI.Label(new Rect(box.x+8,box.y+35,box.width-16,box.height-36),o.Enabled?L("ui.takedown.risk."+o.Mode):o.Reason,small);y+=box.height+2;}
   }
+  static float TakedownRowHeight(PocCombatOption o){return o.Enabled?96:62;}
+  float TakedownsHeight(){float h=0;if(state!=null)foreach(var o in state.Takedowns)h+=TakedownRowHeight(o)+2;return h;}
   void CombatButton(string key,string action){if(GUILayout.Button(L(key),buttonStyle,GUILayout.Height(32)))SendCombat(action);}
   void DrawCombatUI(){
    if(state==null||state.Life==null||!state.Life.Enabled)return;
@@ -34,7 +37,7 @@ namespace AngelsDemons.Poc {
    if(!HeroCombatActive()&&HudButton(new Rect(556,31,148,32),L(!state.Life.Sneaking?"ui.stealth.mode.normal":state.Life.SneakUpright?"ui.stealth.mode.upright":"ui.stealth.mode.crouch")))SendStealthMode(!state.Life.Sneaking?"on":state.Life.SneakUpright?"off":"upright");
    DrawTacticalButton();
    DrawTakedowns();
-   if(state.Life.Illumination!=null&&state.Life.Illumination.Known)GUI.Label(new Rect(556,state.Takedowns.Count>0&&!CombatPlaying&&!HeroCombatActive()?(state.Takedowns[0].Enabled?164:130):66,148,26),L("ui.illumination."+state.Life.Illumination.State),hudSmall);
+   if(state.Life.Illumination!=null&&state.Life.Illumination.Known)GUI.Label(new Rect(556,state.Takedowns.Count>0&&!CombatPlaying&&!HeroCombatActive()?66+TakedownsHeight():66,148,26),L("ui.illumination."+state.Life.Illumination.State),hudSmall);
    DrawCombatFx();
    // doc 96: inside the hero's encounter the list panel of validated actions (PocCombatPanel.cs) replaces this one.
    if(HeroCombatActive()){DrawCombatPanel();return;}
