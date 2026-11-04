@@ -40,7 +40,9 @@ func TestSoundscapeValidation(t *testing.T) {
 		"point without a place": func(g *SoundCatalog) {
 			g.Loops = append(g.Loops, SoundLoop{ID: "x", Clip: "a", MinM: 1, MaxM: 2})
 		},
-		"zero stride": func(g *SoundCatalog) { g.Steps.StrideM = 0 },
+		"zero stride":           func(g *SoundCatalog) { g.Steps.StrideM = 0 },
+		"hall noise above one":  func(g *SoundCatalog) { g.HallNoiseDefault = 1.5 },
+		"hall noise below zero": func(g *SoundCatalog) { g.HallNoiseDefault = -.1 },
 	}
 	for name, change := range cases {
 		c, unity := soundFixture(t)

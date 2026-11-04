@@ -19,13 +19,28 @@ namespace AngelsDemons.Poc {
  [Serializable] public sealed class PocSoundListener {public float up_m,pan_width,fade_seconds;}
  [Serializable] public sealed class PocSoundClipFiles {public string key;public string[] files;}
  [Serializable] public sealed class PocSoundRoller {public float down_seconds,up_seconds;}
- [Serializable] public sealed class PocSoundscapeConfig {public string level_id;public PocSoundRoller roller;public PocSoundListener listener;public int voices_point,voices_shot;public PocSoundLoop[] loops;public PocSoundCrowd crowd;public PocSoundSteps steps;public PocSoundClipFiles[] clip_files;}
+ [Serializable] public sealed class PocSoundscapeConfig {public string level_id;public float hall_noise_default;public PocSoundRoller roller;public PocSoundListener listener;public int voices_point,voices_shot;public PocSoundLoop[] loops;public PocSoundCrowd crowd;public PocSoundSteps steps;public PocSoundClipFiles[] clip_files;}
+ // `--poc-silent` (test runs and recordings, owner 04.11): nothing reaches the device, the system's volume is not touched. The last filter on the listener zeroes the buffer; a tap put on the listener reads the real mix before it,
+ // because the driver keeps this filter last. Filters run in the order of the components.
+ internal interface IPocAfterSilent{}
+ internal sealed class PocSilentOutput:MonoBehaviour{
+  internal static readonly bool On=Array.IndexOf(Environment.GetCommandLineArgs(),"--poc-silent")>=0;
+  void OnAudioFilterRead(float[] d,int ch){Array.Clear(d,0,d.Length);}
+  internal static void Keep(){
+   foreach(var l in FindObjectsByType<AudioListener>(FindObjectsInactive.Include,FindObjectsSortMode.None)){
+    var all=l.GetComponents<MonoBehaviour>();int last=all.Length-1;while(last>=0&&all[last] is IPocAfterSilent)last--;
+    if(last>=0&&all[last] is PocSilentOutput)continue;
+    // the new one goes in first, then the old one goes away: not one buffer passes unzeroed
+    l.gameObject.AddComponent<PocSilentOutput>();foreach(var m in all)if(m is PocSilentOutput)Destroy(m);
+   }
+  }
+ }
  [DefaultExecutionOrder(33000)]
  internal sealed class PocSoundscapeDriver:MonoBehaviour{
-  AngelsDemonsPoc poc;
+  AngelsDemonsPoc poc;int silentAt;
   [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
   static void Install(){var go=new GameObject("PocSoundscape");DontDestroyOnLoad(go);go.hideFlags=HideFlags.HideInHierarchy;go.AddComponent<PocSoundscapeDriver>();}
-  void LateUpdate(){if(poc==null){poc=FindAnyObjectByType<AngelsDemonsPoc>();if(poc==null)return;poc.SoundscapeBind(transform);}poc.SoundscapeTick();}
+  void LateUpdate(){if(PocSilentOutput.On&&Time.frameCount>=silentAt){silentAt=Time.frameCount+10;PocSilentOutput.Keep();}if(poc==null){poc=FindAnyObjectByType<AngelsDemonsPoc>();if(poc==null)return;poc.SoundscapeBind(transform);}poc.SoundscapeTick();}
  }
  public sealed partial class AngelsDemonsPoc {
   sealed class SoundVoice{public AudioSource src;public float target;public bool used;public int loop=-1;}
@@ -35,6 +50,10 @@ namespace AngelsDemons.Poc {
   // for the frames runner: what played, with the frame's numbers
   internal int SoundPointVoices,SoundShotsPlayed,SoundSteps,SoundCrowdPeople;internal string SoundLast="";internal readonly List<string> SoundLog=new List<string>();
   internal void SoundscapeBind(Transform root){soundRoot=root;}
+  // «Шум зала» (world.soundscape.hall_noise_default, ui.options.hall_noise): scales everything this file plays, and nothing else; saved like the other options, under its own key.
+  float hallNoise=-1;
+  internal float HallNoise{get{if(hallNoise<0){if(SoundCfg==null)return 0;hallNoise=Mathf.Clamp01(PlayerPrefs.GetFloat(Pref("hall_noise"),SoundCfg.hall_noise_default));}return hallNoise;}}
+  internal void SetHallNoise(float value){hallNoise=Mathf.Clamp01(value);PlayerPrefs.SetFloat(Pref("hall_noise"),hallNoise);PlayerPrefs.Save();}
   PocSoundscapeConfig SoundCfg=>resource!=null?resource.soundscape:null;
   AudioClip SoundClip(string key,int pick){
    string[] files;if(!soundFiles.TryGetValue(key,out files)||files==null||files.Length==0)return null;
@@ -70,6 +89,7 @@ namespace AngelsDemons.Poc {
    if(!here){SoundscapePause(false);if(soundLive){SoundscapeAllOff(dt);bool any=false;foreach(var v in soundPoint.Values)any=any||(v.src!=null&&v.src.isPlaying);foreach(var v in soundLayers)any=any||(v.src!=null&&v.src.isPlaying);soundLive=any;}return;}
    soundLive=true;
    bool paused=state.Paused;SoundscapePause(paused);if(paused)return;
+   float noise=HallNoise;
    if(state.Epoch!=soundEpoch){soundEpoch=state.Epoch;soundSerial=0;}
    // the focus follows the hero's middle; the ear is over his feet (a deck up: the gallery around him is near, the floor below is not)
    var focus=locationSDKFocus;float rawY=locationSDKLevel.elevation*locationSDKLevel.cell_meters;
@@ -90,8 +110,8 @@ namespace AngelsDemons.Poc {
     if(!soundPoint.TryGetValue(i,out v)||v.src==null){v=new SoundVoice{src=SoundSource("sound "+l.id),loop=i};soundPoint[i]=v;}
     var clip=SoundClip(l.clip,(int)LocationSDKHumanoidHash(l.id));if(clip==null)continue;
     if(v.src.clip!=clip){v.src.clip=clip;v.src.loop=true;}
-    if(!v.src.isPlaying){v.src.volume=0;v.src.timeSamples=(int)(LocationSDKHumanoidHash(l.id)%(uint)Mathf.Max(1,clip.samples));v.src.Play();}
-    v.target=soundGain[i];v.used=true;
+    if(!v.src.isPlaying&&noise>0){v.src.volume=0;v.src.timeSamples=(int)(LocationSDKHumanoidHash(l.id)%(uint)Mathf.Max(1,clip.samples));v.src.Play();}
+    v.target=soundGain[i]*noise;v.used=true;
     if(!l.flat){var w=SoundAt(l.at.x,l.at.y);w.y+=l.up_m;var d=w-ear;d.y=0;float len=d.magnitude;v.src.panStereo=len>.5f?Mathf.Clamp(Vector3.Dot(d/len,right)*panWidth,-1,1):0;}
    }
    foreach(var v in soundPoint.Values)if(!v.used)v.target=0;
@@ -103,7 +123,7 @@ namespace AngelsDemons.Poc {
     for(int i=0;i<cfg.crowd.layers.Length;i++){
      var l=cfg.crowd.layers[i];var v=soundLayers[i];float f=Mathf.Clamp01((view.CrowdPeople-l.people_from)/Mathf.Max(1,l.people_full-l.people_from));
      // the root: a crowd grows slower than the number of people; below people_from silent
-     v.target=view.CrowdPeople<l.people_from?0:SoundDb(l.gain_db)*Mathf.Sqrt(Mathf.Max(.1f,f));
+     v.target=view.CrowdPeople<l.people_from?0:SoundDb(l.gain_db)*Mathf.Sqrt(Mathf.Max(.1f,f))*noise;
      var clip=SoundClip(l.clip,0);if(clip==null)continue;if(v.src.clip!=clip){v.src.clip=clip;v.src.loop=true;}
      if(!v.src.isPlaying&&v.target>0){v.src.volume=0;v.src.timeSamples=(int)(LocationSDKHumanoidHash(l.clip)%(uint)Mathf.Max(1,clip.samples));v.src.Play();}
     }
@@ -135,9 +155,9 @@ namespace AngelsDemons.Poc {
   }
   internal bool SoundHeroSteel;readonly List<LocationSDKHumanoid> soundWalkers=new List<LocationSDKHumanoid>();
   void SoundscapeShot(AudioClip clip,float gain,float pan,float pitch){
-   if(clip==null)return;var cfg=SoundCfg;AudioSource free=null;foreach(var s in soundShots)if(s!=null&&!s.isPlaying){free=s;break;}
+   float noise=HallNoise;if(clip==null||noise<=0)return;var cfg=SoundCfg;AudioSource free=null;foreach(var s in soundShots)if(s!=null&&!s.isPlaying){free=s;break;}
    if(free==null){if(soundShots.Count<Mathf.Max(1,cfg.voices_shot)){free=SoundSource("sound shot "+soundShots.Count);soundShots.Add(free);}else return;}
-   free.clip=clip;free.loop=false;free.volume=Mathf.Clamp01(gain);free.panStereo=pan;free.pitch=pitch;free.Play();
+   free.clip=clip;free.loop=false;free.volume=Mathf.Clamp01(gain)*noise;free.panStereo=pan;free.pitch=pitch;free.Play();
   }
  }
 }

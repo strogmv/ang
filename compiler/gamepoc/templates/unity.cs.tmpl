@@ -589,6 +589,7 @@ namespace AngelsDemons.Poc
             GUILayout.Label(L("ui.options.volume").Replace("{value}",Mathf.RoundToInt(volume * 100).ToString()), textStyle);
             float next = GUILayout.HorizontalSlider(volume, 0, 1, GUILayout.Width(550));
             if (!Mathf.Approximately(next, volume)) { volume = next; ApplyDisplay(); }
+            if (resource.soundscape != null) { float hall = HallNoise; GUILayout.Label(L("ui.options.hall_noise").Replace("{value}",Mathf.RoundToInt(hall * 100).ToString()), textStyle); float nextHall = Mathf.Round(GUILayout.HorizontalSlider(hall, 0, 1, GUILayout.Width(550)) * 100) / 100; if (!Mathf.Approximately(nextHall, hall)) SetHallNoise(nextHall); }
             GUILayout.Space(22); GUILayout.Label(L("ui.options.frame_rate"), textStyle); GUILayout.BeginHorizontal();
             foreach (int choice in new[] { 15, 30, 40, 60, 144 }) if (GUILayout.Button((fps == choice ? "● " : "") + choice + " FPS", GUILayout.Width(130), GUILayout.Height(35))) { fps = choice; ApplyDisplay(); }
             GUILayout.EndHorizontal(); GUILayout.Space(18);

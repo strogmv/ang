@@ -67,7 +67,8 @@ namespace AngelsDemons.Poc {
   internal void TacticalToggle(){var on=TacticalModeOn;tacticalOn=!on;}
   bool TacticalAvailable=>resource!=null&&resource.tactical_mode!=null&&!HeroCombatActive()&&state!=null&&state.Life!=null&&state.Life.Enabled;
   void TacticalModeKeys(){if(!TacticalAvailable)return;bool on=TacticalModeOn;if(tacticalKey!=KeyCode.None&&Input.GetKeyDown(tacticalKey))tacticalOn=!on;}
-  void DrawTacticalButton(){if(!TacticalAvailable)return;var m=resource.tactical_mode;if(HudButton(new Rect(710,31,170,32),L(TacticalModeOn?m.label_on:m.label_off)))TacticalToggle();}
+  static readonly Rect TacticalButtonRect=new Rect(710,31,170,32);
+  void DrawTacticalButton(){if(!TacticalAvailable)return;var m=resource.tactical_mode;if(HudButton(TacticalButtonRect,L(TacticalModeOn?m.label_on:m.label_off)))TacticalToggle();}
   // for the frames runner: every wave with its frame
   internal readonly List<string> NoiseLog=new List<string>();
   static readonly int NoiseRuleId=Shader.PropertyToID("_Rule"),NoiseCrestId=Shader.PropertyToID("_Crest"),NoiseFrontsId=Shader.PropertyToID("_Fronts"),NoiseHearId=Shader.PropertyToID("_Hear"),NoiseRectId=Shader.PropertyToID("_FieldRect"),NoiseLineId=Shader.PropertyToID("_Line"),NoiseFieldId=Shader.PropertyToID("_Field");

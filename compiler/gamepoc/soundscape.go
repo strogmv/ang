@@ -55,8 +55,10 @@ type SoundLayer struct {
 	GainDB     float64 `json:"gain_db"`
 }
 type SoundCatalog struct {
-	LevelID  string `json:"level_id"`
-	Listener struct {
+	LevelID string `json:"level_id"`
+	// the level of the hall's sound in the options at the start, 0..1 (the client's own saved setting, "ui.options.hall_noise")
+	HallNoiseDefault float64 `json:"hall_noise_default"`
+	Listener         struct {
 		UpM         float64 `json:"up_m"`
 		PanWidth    float64 `json:"pan_width"`
 		FadeSeconds float64 `json:"fade_seconds"`
@@ -193,6 +195,9 @@ func validateSoundscape(c Compiled, unity string) error {
 	clip("steps", g.Steps.Steel)
 	if g.Steps.StrideM <= 0 || g.Steps.Voices < 1 || g.VoicesPoint < 1 || g.VoicesShot < 1 || g.PublishSeconds <= 0 || g.Crowd.RadiusM <= 0 {
 		bad("zero stride, voices, publish time or crowd radius")
+	}
+	if g.HallNoiseDefault < 0 || g.HallNoiseDefault > 1 {
+		bad("hall_noise_default %v is outside 0..1", g.HallNoiseDefault)
 	}
 	if len(fail) > 0 {
 		return fmt.Errorf("world.soundscape:\n  %s", joinLines(fail))
